@@ -988,6 +988,51 @@ Verification for Batch 6C3 slice:
 - `go test ./internal/hitraceconv -run TestRepresentativeSysTraceFixtures -count=1 -v`
 - `go test ./internal/hitraceconv`
 
+Next slice: Batch 6C4 representative fixture authority hardening.
+
+Status: planned.
+
+Gap:
+
+- The representative fixture helper correctly avoids developer-local absolute
+  paths, but the manifest authority is still too weak: `redistribution` only
+  needs to be a non-empty string.
+- That means a future synthetic, private, or unapproved fixture could be
+  committed with persuasive prose and accidentally satisfy the retirement gate.
+- This is a gate-authority gap, not a trace parser gap. It must be solved with
+  typed manifest fields and deterministic validation, not prompt guidance.
+
+Tasks:
+
+- Extend representative `.sys` fixture manifests with authority fields:
+  - `capture_class=redistributable_real_capture`;
+  - `redistribution` as a constrained enum;
+  - `approval_ref` for the license/customer/internal approval record;
+  - `input_sha256` for the committed `.sys` file;
+  - `trace_db_sha256` for any committed SQL sidecar.
+- Update the README example and rules so synthetic fixtures remain useful for
+  unit tests but cannot satisfy the representative retirement gate.
+- Add deterministic validation in the helper:
+  - reject missing or unknown `capture_class`;
+  - reject non-approved `redistribution`;
+  - reject missing `approval_ref`;
+  - verify `input_sha256` and `trace_db_sha256` when files are present.
+- Add focused tests for manifest validation without requiring a real customer
+  capture in the repository.
+
+Exit criteria for Batch 6C4:
+
+- The representative fixture gate can no longer be satisfied by a weak manifest
+  string or synthetic capture.
+- Future real fixtures carry enough authority metadata to audit commercial
+  readiness without reading terminal prose.
+- Verified with:
+
+```bash
+go test ./internal/hitraceconv -run 'TestRepresentativeSysTrace' -count=1
+go test ./internal/hitraceconv
+```
+
 Verification for delivered slice:
 
 - `go test ./internal/hitraceconv -run 'TestExportTraceDBRawFtrace' -count=1 -v`
