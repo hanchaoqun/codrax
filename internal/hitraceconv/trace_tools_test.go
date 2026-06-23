@@ -116,6 +116,139 @@ func TestBuildTraceToolStatusDiscoversEnvTraceStreamer(t *testing.T) {
 	}
 }
 
+func TestBuildTraceToolStatusDiscoversTraceStreamerNextToCodraxBinaryBeforePATH(t *testing.T) {
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	pathDir := filepath.Join(dir, "path")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(pathDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mode := os.FileMode(0o755)
+	if runtime.GOOS == "windows" {
+		mode = 0o644
+	}
+	binTraceStreamer := filepath.Join(binDir, traceStreamerBinaryName())
+	pathTraceStreamer := filepath.Join(pathDir, traceStreamerBinaryName())
+	for _, candidate := range []string{binTraceStreamer, pathTraceStreamer} {
+		if err := os.WriteFile(candidate, []byte("#!/bin/sh\nexit 0\n"), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldExecutable := traceStreamerExecutablePath
+	traceStreamerExecutablePath = func() (string, error) {
+		return filepath.Join(binDir, "codrax"), nil
+	}
+	t.Cleanup(func() {
+		traceStreamerExecutablePath = oldExecutable
+	})
+	t.Setenv("CODRAX_TRACE_STREAMER", "")
+	t.Setenv("PATH", pathDir)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OHOS_SDK_HOME", "")
+	t.Setenv("HARMONYOS_SDK_HOME", "")
+	t.Setenv("DEVECO_SDK_HOME", "")
+	t.Setenv("TRACE_STREAMER_HOME", "")
+
+	status, err := BuildTraceToolStatus(Options{TraceEngine: "auto"})
+	if err != nil {
+		t.Fatalf("build status: %v", err)
+	}
+	if !status.TraceStreamer.Available || status.TraceStreamer.Path != binTraceStreamer ||
+		status.TraceStreamer.Source != "codrax executable directory" {
+		t.Fatalf("trace_streamer next to codrax binary should win before PATH: %+v", status.TraceStreamer)
+	}
+}
+
+func TestBuildTraceToolStatusDiscoversTraceStreamerPlatformSubdirNextToCodraxBinaryBeforePATH(t *testing.T) {
+	platformDirs := traceStreamerHostPlatformDirs()
+	if len(platformDirs) == 0 {
+		t.Fatalf("expected at least one host platform trace_streamer directory")
+	}
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	pathDir := filepath.Join(dir, "path")
+	if err := os.MkdirAll(pathDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	platformTraceStreamer := filepath.Join(binDir, "trace_streamer", platformDirs[0], traceStreamerBinaryName())
+	if err := os.MkdirAll(filepath.Dir(platformTraceStreamer), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mode := os.FileMode(0o755)
+	if runtime.GOOS == "windows" {
+		mode = 0o644
+	}
+	for _, candidate := range []string{
+		platformTraceStreamer,
+		filepath.Join(pathDir, traceStreamerBinaryName()),
+	} {
+		if err := os.WriteFile(candidate, []byte("#!/bin/sh\nexit 0\n"), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldExecutable := traceStreamerExecutablePath
+	traceStreamerExecutablePath = func() (string, error) {
+		return filepath.Join(binDir, "codrax"), nil
+	}
+	t.Cleanup(func() {
+		traceStreamerExecutablePath = oldExecutable
+	})
+	t.Setenv("CODRAX_TRACE_STREAMER", "")
+	t.Setenv("PATH", pathDir)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OHOS_SDK_HOME", "")
+	t.Setenv("HARMONYOS_SDK_HOME", "")
+	t.Setenv("DEVECO_SDK_HOME", "")
+	t.Setenv("TRACE_STREAMER_HOME", "")
+
+	status, err := BuildTraceToolStatus(Options{TraceEngine: "auto"})
+	if err != nil {
+		t.Fatalf("build status: %v", err)
+	}
+	if !status.TraceStreamer.Available || status.TraceStreamer.Path != platformTraceStreamer ||
+		status.TraceStreamer.Source != "codrax executable directory" {
+		t.Fatalf("platform trace_streamer next to codrax binary should win before PATH: %+v", status.TraceStreamer)
+	}
+}
+
+func TestTraceStreamerHostPlatformDirsFor(t *testing.T) {
+	tests := []struct {
+		name   string
+		goos   string
+		goarch string
+		want   []string
+	}{
+		{
+			name:   "darwin arm64",
+			goos:   "darwin",
+			goarch: "arm64",
+			want:   []string{"darwin-aarch64", "darwin-arm64"},
+		},
+		{
+			name:   "linux amd64",
+			goos:   "linux",
+			goarch: "amd64",
+			want:   []string{"linux-x86_64", "linux-amd64"},
+		},
+		{
+			name:   "windows amd64",
+			goos:   "windows",
+			goarch: "amd64",
+			want:   []string{"windows-x86_64", "windows-amd64"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := traceStreamerHostPlatformDirsFor(tt.goos, tt.goarch); strings.Join(got, ",") != strings.Join(tt.want, ",") {
+				t.Fatalf("platform dirs mismatch: got %v want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildTraceToolStatusRejectsUnknownEngine(t *testing.T) {
 	if _, err := BuildTraceToolStatus(Options{TraceEngine: "mystery"}); err == nil {
 		t.Fatalf("expected invalid trace engine mode to fail")

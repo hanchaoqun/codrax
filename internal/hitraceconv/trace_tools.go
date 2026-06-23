@@ -10,6 +10,8 @@ import (
 	"strings"
 )
 
+var traceStreamerExecutablePath = os.Executable
+
 type TraceToolStatus struct {
 	EngineMode           string
 	SelectedEngine       string
@@ -142,6 +144,11 @@ func resolveTraceStreamerToolWithCaveats(opts Options) (string, string, []string
 	if path := strings.TrimSpace(os.Getenv("CODRAX_TRACE_STREAMER")); path != "" {
 		return path, "CODRAX_TRACE_STREAMER", nil
 	}
+	for _, candidate := range traceStreamerCodraxBinaryDirCandidates() {
+		if traceToolPathUsable(candidate, nil) {
+			return candidate, "codrax executable directory", nil
+		}
+	}
 	embeddedPath, embeddedSource, embeddedCaveats := resolveEmbeddedTraceStreamerTool()
 	if embeddedPath != "" {
 		return embeddedPath, embeddedSource, embeddedCaveats
@@ -155,6 +162,71 @@ func resolveTraceStreamerToolWithCaveats(opts Options) (string, string, []string
 		}
 	}
 	return "", "", embeddedCaveats
+}
+
+func traceStreamerCodraxBinaryDirCandidates() []string {
+	exe, err := traceStreamerExecutablePath()
+	if err != nil {
+		return nil
+	}
+	exe = strings.TrimSpace(exe)
+	if exe == "" {
+		return nil
+	}
+	dir := filepath.Dir(exe)
+	name := traceStreamerBinaryName()
+	out := []string{filepath.Join(dir, name)}
+	for _, platformDir := range traceStreamerHostPlatformDirs() {
+		out = append(out,
+			filepath.Join(dir, platformDir, name),
+			filepath.Join(dir, "trace_streamer", platformDir, name),
+			filepath.Join(dir, "trace-streamer", platformDir, name),
+			filepath.Join(dir, "embedded_trace_streamer", platformDir, name),
+			filepath.Join(dir, "embedded-trace-streamer", platformDir, name),
+		)
+	}
+	return uniqueNonEmptyStrings(out)
+}
+
+func traceStreamerHostPlatformDirs() []string {
+	return traceStreamerHostPlatformDirsFor(runtime.GOOS, runtime.GOARCH)
+}
+
+func traceStreamerHostPlatformDirsFor(goos, goarch string) []string {
+	goos = strings.ToLower(strings.TrimSpace(goos))
+	goarch = strings.ToLower(strings.TrimSpace(goarch))
+	var dirs []string
+	add := func(dir string) {
+		dir = strings.TrimSpace(dir)
+		if dir != "" {
+			dirs = append(dirs, dir)
+		}
+	}
+	switch goarch {
+	case "amd64":
+		add(goos + "-x86_64")
+		add(goos + "-amd64")
+	case "arm64":
+		add(goos + "-aarch64")
+		add(goos + "-arm64")
+	default:
+		add(goos + "-" + goarch)
+	}
+	return uniqueNonEmptyStrings(dirs)
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func traceStreamerAuxiliaryChecks(opts Options) []string {

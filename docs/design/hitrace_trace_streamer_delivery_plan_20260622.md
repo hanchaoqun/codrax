@@ -1476,6 +1476,11 @@ Design:
 - Keep the discovery order deterministic:
   - explicit `--trace-streamer` / REPL option;
   - `CODRAX_TRACE_STREAMER`;
+  - external `trace_streamer` next to the running `codrax` executable,
+    including multi-platform release layouts under
+    `trace_streamer/<platform>/`, `trace-streamer/<platform>/`,
+    `embedded_trace_streamer/<platform>/`, and
+    `embedded-trace-streamer/<platform>/`;
   - approved embedded trace_streamer manifest/assets;
   - `PATH`;
   - known OpenHarmony/SmartPerf/hmtrace locations.
@@ -1547,7 +1552,9 @@ Delivered:
   resolver and repository guard share one authority.
 - Added a default no-assets embedded resolver and a future
   `codrax_embed_trace_streamer` build-tag hook for approved release binaries.
-- Integrated embedded resolution after explicit/env overrides and before
+- Integrated same-directory external discovery after explicit/env overrides,
+  including direct sibling binaries and host platform subdirectories for
+  Darwin/Linux/Windows release bundles, then embedded resolution before
   PATH/known-location discovery.
 - Runtime extraction reads only the selected platform asset, verifies SHA-256,
   writes through a temp file into a deterministic cache keyed by upstream ref,
