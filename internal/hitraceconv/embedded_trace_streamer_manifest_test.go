@@ -1,36 +1,16 @@
 package hitraceconv
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
-
-const (
-	embeddedTraceStreamerDir          = "embedded_trace_streamer"
-	embeddedTraceStreamerManifestName = "manifest.json"
-)
-
-type embeddedTraceStreamerManifest struct {
-	SourceURL   string                          `json:"source_url"`
-	UpstreamRef string                          `json:"upstream_ref"`
-	LicenseID   string                          `json:"license_id"`
-	ApprovalRef string                          `json:"approval_ref"`
-	Platforms   []embeddedTraceStreamerPlatform `json:"platforms"`
-}
-
-type embeddedTraceStreamerPlatform struct {
-	GOOS   string `json:"goos"`
-	GOARCH string `json:"goarch"`
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-}
 
 func TestEmbeddedTraceStreamerDirectoryRequiresManifest(t *testing.T) {
 	info, err := os.Stat(embeddedTraceStreamerDir)
@@ -50,7 +30,7 @@ func TestEmbeddedTraceStreamerDirectoryRequiresManifest(t *testing.T) {
 
 func TestEmbeddedTraceStreamerManifestValidation(t *testing.T) {
 	root := t.TempDir()
-	binaryRel := filepath.Join(runtime.GOOS+"-"+runtime.GOARCH, "trace_streamer")
+	binaryRel := path.Join(runtime.GOOS+"-"+runtime.GOARCH, traceStreamerBinaryName())
 	binaryBody := []byte("trace-streamer-binary")
 	writeEmbeddedTraceStreamerBinary(t, root, binaryRel, binaryBody, 0o755)
 	base := embeddedTraceStreamerManifest{
@@ -62,7 +42,7 @@ func TestEmbeddedTraceStreamerManifestValidation(t *testing.T) {
 			GOOS:   runtime.GOOS,
 			GOARCH: runtime.GOARCH,
 			Path:   binaryRel,
-			SHA256: embeddedTraceStreamerTestSHA256(binaryBody),
+			SHA256: embeddedTraceStreamerSHA256(binaryBody),
 		}},
 	}
 	writeEmbeddedTraceStreamerManifest(t, root, base)
@@ -153,97 +133,102 @@ func TestEmbeddedTraceStreamerManifestValidation(t *testing.T) {
 	}
 }
 
+func TestEmbeddedTraceStreamerRuntimeExtraction(t *testing.T) {
+	binaryRel := path.Join(runtime.GOOS+"-"+runtime.GOARCH, traceStreamerBinaryName())
+	binaryBody := []byte("embedded-trace-streamer-binary")
+	manifest := embeddedTraceStreamerTestManifest(binaryRel, binaryBody)
+	fsys := embeddedTraceStreamerTestFS(t, manifest, binaryRel, binaryBody, 0o444)
+	cacheRoot := t.TempDir()
+
+	first, err := extractEmbeddedTraceStreamer(fsys, cacheRoot)
+	if err != nil {
+		t.Fatalf("extract embedded trace_streamer: %v", err)
+	}
+	if first.Path == "" || !strings.Contains(first.Source, "embedded trace_streamer") || first.CacheReused {
+		t.Fatalf("unexpected first extraction result: %+v", first)
+	}
+	if err := verifyEmbeddedTraceStreamerFileHash(first.Path, embeddedTraceStreamerSHA256(binaryBody)); err != nil {
+		t.Fatalf("cached binary hash mismatch: %v", err)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(first.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode()&0o111 == 0 {
+			t.Fatalf("cached embedded binary is not executable: mode=%v", info.Mode())
+		}
+	}
+
+	second, err := extractEmbeddedTraceStreamer(fsys, cacheRoot)
+	if err != nil {
+		t.Fatalf("reuse embedded trace_streamer: %v", err)
+	}
+	if second.Path != first.Path || !second.CacheReused {
+		t.Fatalf("expected verified cache reuse, first=%+v second=%+v", first, second)
+	}
+}
+
+func TestEmbeddedTraceStreamerRuntimeExtractionRejectsUnsupportedHost(t *testing.T) {
+	binaryRel := path.Join("unsupported-"+runtime.GOARCH, traceStreamerBinaryName())
+	binaryBody := []byte("embedded-trace-streamer-binary")
+	manifest := embeddedTraceStreamerTestManifest(binaryRel, binaryBody)
+	manifest.Platforms[0].GOOS = "unsupported"
+	fsys := embeddedTraceStreamerTestFS(t, manifest, binaryRel, binaryBody, 0o444)
+
+	_, err := extractEmbeddedTraceStreamer(fsys, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "no platform") {
+		t.Fatalf("expected unsupported platform error, got %v", err)
+	}
+}
+
+func TestEmbeddedTraceStreamerRuntimeExtractionRejectsHashMismatch(t *testing.T) {
+	binaryRel := path.Join(runtime.GOOS+"-"+runtime.GOARCH, traceStreamerBinaryName())
+	binaryBody := []byte("embedded-trace-streamer-binary")
+	manifest := embeddedTraceStreamerTestManifest(binaryRel, binaryBody)
+	manifest.Platforms[0].SHA256 = strings.Repeat("0", 64)
+	fsys := embeddedTraceStreamerTestFS(t, manifest, binaryRel, binaryBody, 0o444)
+
+	_, err := extractEmbeddedTraceStreamer(fsys, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "sha256 mismatch") {
+		t.Fatalf("expected hash mismatch error, got %v", err)
+	}
+}
+
+func TestTraceToolStatusUsesEmbeddedTraceStreamer(t *testing.T) {
+	binaryRel := path.Join(runtime.GOOS+"-"+runtime.GOARCH, traceStreamerBinaryName())
+	binaryBody := []byte("#!/bin/sh\nexit 0\n")
+	manifest := embeddedTraceStreamerTestManifest(binaryRel, binaryBody)
+	fsys := embeddedTraceStreamerTestFS(t, manifest, binaryRel, binaryBody, 0o444)
+	oldAssets := embeddedTraceStreamerAssetsFS
+	embeddedTraceStreamerAssetsFS = func() fs.FS { return fsys }
+	t.Cleanup(func() {
+		embeddedTraceStreamerAssetsFS = oldAssets
+	})
+	t.Setenv("CODRAX_TRACE_STREAMER", "")
+	t.Setenv("CODRAX_TRACE_STREAMER_CACHE", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OHOS_SDK_HOME", "")
+	t.Setenv("HARMONYOS_SDK_HOME", "")
+	t.Setenv("DEVECO_SDK_HOME", "")
+	t.Setenv("TRACE_STREAMER_HOME", "")
+
+	status, err := BuildTraceToolStatus(Options{TraceEngine: traceEngineAuto})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.TraceStreamer.Available || !strings.Contains(status.TraceStreamer.Source, "embedded trace_streamer") {
+		t.Fatalf("embedded trace_streamer should be selected and available: %+v", status.TraceStreamer)
+	}
+	if status.SelectedEngine != traceEngineTraceStreamer {
+		t.Fatalf("embedded trace_streamer should keep auto on SQL engine: %+v", status)
+	}
+}
+
 func cloneEmbeddedTraceStreamerManifest(manifest embeddedTraceStreamerManifest) embeddedTraceStreamerManifest {
 	manifest.Platforms = append([]embeddedTraceStreamerPlatform(nil), manifest.Platforms...)
 	return manifest
-}
-
-func validateEmbeddedTraceStreamerManifest(root string) error {
-	body, err := os.ReadFile(filepath.Join(root, embeddedTraceStreamerManifestName))
-	if err != nil {
-		return fmt.Errorf("read %s: %w", embeddedTraceStreamerManifestName, err)
-	}
-	var manifest embeddedTraceStreamerManifest
-	if err := json.Unmarshal(body, &manifest); err != nil {
-		return fmt.Errorf("parse %s: %w", embeddedTraceStreamerManifestName, err)
-	}
-	if strings.TrimSpace(manifest.SourceURL) == "" {
-		return fmt.Errorf("source_url is required")
-	}
-	if strings.TrimSpace(manifest.UpstreamRef) == "" {
-		return fmt.Errorf("upstream_ref is required")
-	}
-	if strings.TrimSpace(manifest.LicenseID) == "" {
-		return fmt.Errorf("license_id is required")
-	}
-	if strings.TrimSpace(manifest.ApprovalRef) == "" {
-		return fmt.Errorf("approval_ref is required")
-	}
-	if len(manifest.Platforms) == 0 {
-		return fmt.Errorf("at least one platform binary is required")
-	}
-	seen := map[string]bool{}
-	for _, platform := range manifest.Platforms {
-		if err := validateEmbeddedTraceStreamerPlatform(root, platform, seen); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateEmbeddedTraceStreamerPlatform(root string, platform embeddedTraceStreamerPlatform, seen map[string]bool) error {
-	goos := strings.TrimSpace(platform.GOOS)
-	goarch := strings.TrimSpace(platform.GOARCH)
-	if goos == "" || goarch == "" {
-		return fmt.Errorf("platform goos/goarch are required")
-	}
-	key := goos + "/" + goarch
-	if seen[key] {
-		return fmt.Errorf("duplicate embedded trace_streamer platform %s", key)
-	}
-	seen[key] = true
-	path, err := embeddedTraceStreamerPath(root, platform.Path)
-	if err != nil {
-		return err
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("embedded trace_streamer binary %s is not readable: %w", platform.Path, err)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("embedded trace_streamer binary %s is a directory", platform.Path)
-	}
-	if goos != "windows" && info.Mode()&0o111 == 0 {
-		return fmt.Errorf("embedded trace_streamer binary %s is not executable", platform.Path)
-	}
-	return verifyEmbeddedTraceStreamerHash(path, platform.SHA256)
-}
-
-func embeddedTraceStreamerPath(root, rel string) (string, error) {
-	if filepath.IsAbs(rel) {
-		return "", fmt.Errorf("embedded trace_streamer path must be relative: %q", rel)
-	}
-	clean := filepath.Clean(rel)
-	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
-		return "", fmt.Errorf("embedded trace_streamer path must stay under %s: %q", root, rel)
-	}
-	return filepath.Join(root, clean), nil
-}
-
-func verifyEmbeddedTraceStreamerHash(path, want string) error {
-	want = strings.ToLower(strings.TrimSpace(want))
-	if want == "" {
-		return fmt.Errorf("sha256 is required for %s", path)
-	}
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	got := embeddedTraceStreamerTestSHA256(body)
-	if got != want {
-		return fmt.Errorf("sha256 mismatch for %s: got %s want %s", path, got, want)
-	}
-	return nil
 }
 
 func writeEmbeddedTraceStreamerManifest(t *testing.T, root string, manifest embeddedTraceStreamerManifest) {
@@ -259,16 +244,38 @@ func writeEmbeddedTraceStreamerManifest(t *testing.T, root string, manifest embe
 
 func writeEmbeddedTraceStreamerBinary(t *testing.T, root, rel string, body []byte, mode os.FileMode) {
 	t.Helper()
-	path := filepath.Join(root, rel)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	filePath := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, body, mode); err != nil {
+	if err := os.WriteFile(filePath, body, mode); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func embeddedTraceStreamerTestSHA256(body []byte) string {
-	sum := sha256.Sum256(body)
-	return hex.EncodeToString(sum[:])
+func embeddedTraceStreamerTestManifest(binaryRel string, binaryBody []byte) embeddedTraceStreamerManifest {
+	return embeddedTraceStreamerManifest{
+		SourceURL:   "https://gitcode.com/diting/hmtrace/tree/main",
+		UpstreamRef: "6b05b2a60456910f05c149012b0d4833faa2d10e",
+		LicenseID:   "Apache-2.0",
+		ApprovalRef: "release-approval-123",
+		Platforms: []embeddedTraceStreamerPlatform{{
+			GOOS:   runtime.GOOS,
+			GOARCH: runtime.GOARCH,
+			Path:   binaryRel,
+			SHA256: embeddedTraceStreamerSHA256(binaryBody),
+		}},
+	}
+}
+
+func embeddedTraceStreamerTestFS(t *testing.T, manifest embeddedTraceStreamerManifest, binaryRel string, binaryBody []byte, mode os.FileMode) fstest.MapFS {
+	t.Helper()
+	body, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fstest.MapFS{
+		embeddedTraceStreamerManifestName: {Data: body, Mode: 0o444},
+		binaryRel:                         {Data: binaryBody, Mode: mode},
+	}
 }

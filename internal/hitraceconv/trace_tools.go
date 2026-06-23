@@ -68,7 +68,8 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 			Caveats:        []string{"built-in modern/sys parser is an explicit trace-only engine selected with --trace-engine=builtin; auto may use it only for trace-only captures when trace_streamer is not discovered; it is not used for trace+perf htrace"},
 		},
 	}
-	if tool, source := resolveTraceStreamerTool(opts); tool != "" {
+	if tool, source, caveats := resolveTraceStreamerToolWithCaveats(opts); tool != "" || len(caveats) > 0 {
+		status.TraceStreamer.Caveats = append(status.TraceStreamer.Caveats, caveats...)
 		status.TraceStreamer.Path = tool
 		status.TraceStreamer.Source = source
 		status.TraceStreamer.Available = traceToolPathUsable(tool, &status.TraceStreamer)
@@ -130,21 +131,30 @@ func inspectTraceToolStatusInput(status *TraceToolStatus, opts Options) {
 }
 
 func resolveTraceStreamerTool(opts Options) (string, string) {
+	path, source, _ := resolveTraceStreamerToolWithCaveats(opts)
+	return path, source
+}
+
+func resolveTraceStreamerToolWithCaveats(opts Options) (string, string, []string) {
 	if path := strings.TrimSpace(opts.TraceStreamerPath); path != "" {
-		return path, "configured trace_streamer"
+		return path, "configured trace_streamer", nil
 	}
 	if path := strings.TrimSpace(os.Getenv("CODRAX_TRACE_STREAMER")); path != "" {
-		return path, "CODRAX_TRACE_STREAMER"
+		return path, "CODRAX_TRACE_STREAMER", nil
+	}
+	embeddedPath, embeddedSource, embeddedCaveats := resolveEmbeddedTraceStreamerTool()
+	if embeddedPath != "" {
+		return embeddedPath, embeddedSource, embeddedCaveats
 	}
 	if path, err := exec.LookPath(traceStreamerBinaryName()); err == nil && strings.TrimSpace(path) != "" {
-		return path, traceStreamerBinaryName() + " on PATH"
+		return path, traceStreamerBinaryName() + " on PATH", embeddedCaveats
 	}
 	for _, candidate := range traceStreamerKnownLocationCandidates() {
 		if path := firstUsableTraceStreamerCandidate(candidate); path != "" {
-			return path, "known OpenHarmony/SmartPerf/hmtrace location"
+			return path, "known OpenHarmony/SmartPerf/hmtrace location", embeddedCaveats
 		}
 	}
-	return "", ""
+	return "", "", embeddedCaveats
 }
 
 func traceStreamerAuxiliaryChecks(opts Options) []string {

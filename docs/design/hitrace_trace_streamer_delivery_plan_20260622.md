@@ -1394,8 +1394,9 @@ Delivered:
 
 ### Batch 9: Embedded trace_streamer Governance
 
-Status: delivered on 2026-06-23 for Batch 9A. Batch 9B is planned as the
-runtime integration layer for future approved embedded binaries.
+Status: delivered on 2026-06-23 for Batch 9A and Batch 9B. No real
+trace_streamer binary is embedded yet; release approval and fixed asset
+selection remain open.
 
 #### Batch 9A: Embedded Binary Manifest Guard
 
@@ -1455,7 +1456,7 @@ Delivered:
 
 #### Batch 9B: Embedded Binary Runtime Resolver
 
-Status: planned.
+Status: delivered on 2026-06-23.
 
 Reference audit:
 
@@ -1539,6 +1540,21 @@ Exit criteria:
 go test ./internal/hitraceconv -run 'TestEmbeddedTraceStreamer|TestTraceToolStatus' -count=1
 go test ./internal/hitraceconv ./cmd
 ```
+
+Delivered:
+
+- Moved manifest schema/path/hash validation into production code so the runtime
+  resolver and repository guard share one authority.
+- Added a default no-assets embedded resolver and a future
+  `codrax_embed_trace_streamer` build-tag hook for approved release binaries.
+- Integrated embedded resolution after explicit/env overrides and before
+  PATH/known-location discovery.
+- Runtime extraction reads only the selected platform asset, verifies SHA-256,
+  writes through a temp file into a deterministic cache keyed by upstream ref,
+  platform, and hash, chmods non-Windows binaries, and reuses verified cached
+  binaries.
+- Added tests for runtime extraction, cache reuse, unsupported host platforms,
+  hash mismatch, and `BuildTraceToolStatus` provenance.
 
 ## Running Verification Matrix
 
