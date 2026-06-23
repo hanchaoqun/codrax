@@ -1259,6 +1259,58 @@ Delivered:
 - Tests cover canonical Running normalization, non-running/zero-duration
   filtering, tracebundle coverage visibility, and `trace_query` round-trip.
 
+#### Batch 8B: Input-Aware Trace Tools Status
+
+Status: planned.
+
+Gap:
+
+- `codrax trace convert --trace-tools-status` currently reports generic engine
+  readiness. In `auto` mode with no `trace_streamer`, it selects the built-in
+  engine while adding a caveat that trace+perf still requires SQL.
+- That generic output is acceptable without an input path, but misleading when
+  the user passes a concrete trace+perf capture through `--input`: the actual
+  converter will not use the built-in trace-body parser for that input.
+- The fix must inspect structured file/container content, not file suffixes or
+  user prose. It should reuse the existing standalone HIPERF_DATA sidecar scan
+  instead of adding a second detector.
+
+Tasks:
+
+- Extend `TraceToolStatus` with optional input classification:
+  - input path;
+  - whether an input was inspected;
+  - whether a standalone perf sidecar was found;
+  - inspection error, if any.
+- In `BuildTraceToolStatus`, when `Options.InputPath` is non-empty:
+  - stat and scan the file with the existing standalone perf sidecar detector;
+  - if trace+perf is detected and `trace_streamer` is unavailable, keep the
+    selected engine as `trace_streamer` and emit a direct SQL-required caveat;
+  - if pure/no-perf is detected or no input is supplied, preserve the existing
+    pure-trace `auto` behavior.
+- Update CLI localized status rendering to show the input classification before
+  provider lines.
+- Add tests that:
+  - generic `auto` without an input still selects built-in when
+    `trace_streamer` is missing;
+  - `auto` with an input containing HIPERF_DATA keeps selected engine SQL-only
+    when `trace_streamer` is missing;
+  - localized CLI status exposes the input classification in Chinese and
+    English.
+- No trace_query tool-call input fields are added. This is command/status
+  metadata only, so no JSON repair-layer changes are required.
+
+Exit criteria:
+
+- Users who pass a concrete trace+perf input to `--trace-tools-status` see the
+  same SQL-only engine contract that conversion will enforce.
+- Pure trace and no-input status behavior does not regress.
+- Verified with:
+
+```bash
+go test ./internal/hitraceconv ./cmd
+```
+
 ## Running Verification Matrix
 
 Each implemented batch must run the narrow package tests it touches. Before goal
