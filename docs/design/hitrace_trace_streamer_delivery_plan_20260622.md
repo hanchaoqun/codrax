@@ -990,7 +990,7 @@ Verification for Batch 6C3 slice:
 
 Next slice: Batch 6C4 representative fixture authority hardening.
 
-Status: planned.
+Status: delivered on 2026-06-23.
 
 Gap:
 
@@ -1032,6 +1032,18 @@ Exit criteria for Batch 6C4:
 go test ./internal/hitraceconv -run 'TestRepresentativeSysTrace' -count=1
 go test ./internal/hitraceconv
 ```
+
+Delivered Batch 6C4 on 2026-06-23:
+
+- Representative manifests now require typed authority metadata:
+  `capture_class=redistributable_real_capture`, constrained `redistribution`,
+  `approval_ref`, `input_sha256`, and `trace_db_sha256` when a DB sidecar is
+  present.
+- The helper deterministically rejects synthetic/unapproved fixtures, missing
+  approval refs, missing hashes, hash mismatches, absolute paths, and path
+  traversal.
+- The fixture README now documents the authority fields and makes clear that
+  synthetic fixtures cannot satisfy the representative retirement gate.
 
 Verification for delivered slice:
 

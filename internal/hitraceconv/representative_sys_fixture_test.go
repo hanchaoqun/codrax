@@ -2,7 +2,10 @@ package hitraceconv
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,8 +21,12 @@ type representativeSysTraceManifest struct {
 	ID             string                         `json:"id"`
 	Description    string                         `json:"description"`
 	Input          string                         `json:"input"`
+	InputSHA256    string                         `json:"input_sha256"`
 	TraceDB        string                         `json:"trace_db,omitempty"`
+	TraceDBSHA256  string                         `json:"trace_db_sha256,omitempty"`
+	CaptureClass   string                         `json:"capture_class"`
 	Redistribution string                         `json:"redistribution"`
+	ApprovalRef    string                         `json:"approval_ref"`
 	TraceKind      string                         `json:"trace_kind"`
 	Expected       representativeSysTraceExpected `json:"expected"`
 }
@@ -37,6 +44,14 @@ type representativeCoverageExpected struct {
 	MinRows int    `json:"min_rows"`
 }
 
+const (
+	representativeCaptureClassReal = "redistributable_real_capture"
+
+	representativeRedistributionPublic           = "public"
+	representativeRedistributionApprovedInternal = "approved_internal"
+	representativeRedistributionApprovedCustomer = "approved_customer"
+)
+
 func TestRepresentativeSysTraceFixtures(t *testing.T) {
 	manifests, err := filepath.Glob(filepath.Join(representativeSysFixtureDir, "*.json"))
 	if err != nil {
@@ -51,6 +66,127 @@ func TestRepresentativeSysTraceFixtures(t *testing.T) {
 			runRepresentativeSysTraceFixture(t, manifest)
 		})
 	}
+}
+
+func TestRepresentativeSysTraceManifestAuthority(t *testing.T) {
+	dir := t.TempDir()
+	inputBody := []byte("representative sys bytes")
+	dbBody := []byte("representative trace db bytes")
+	if err := os.WriteFile(filepath.Join(dir, "capture.sys"), inputBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "capture.trace.db"), dbBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := representativeSysTraceManifest{
+		ID:             "vendor-no-perf-001",
+		Input:          "capture.sys",
+		InputSHA256:    representativeTestSHA256(inputBody),
+		TraceDB:        "capture.trace.db",
+		TraceDBSHA256:  representativeTestSHA256(dbBody),
+		CaptureClass:   representativeCaptureClassReal,
+		Redistribution: representativeRedistributionApprovedInternal,
+		ApprovalRef:    "internal-approval-123",
+		TraceKind:      "no_perf_sys",
+		Expected: representativeSysTraceExpected{
+			MinEvents:     1,
+			BuiltinParity: true,
+		},
+	}
+	if err := validateRepresentativeManifestAuthority(base, dir); err != nil {
+		t.Fatalf("valid representative manifest rejected: %v", err)
+	}
+	tests := []struct {
+		name string
+		edit func(*representativeSysTraceManifest)
+		want string
+	}{
+		{
+			name: "missing capture class",
+			edit: func(m *representativeSysTraceManifest) {
+				m.CaptureClass = ""
+			},
+			want: "capture_class",
+		},
+		{
+			name: "synthetic capture class",
+			edit: func(m *representativeSysTraceManifest) {
+				m.CaptureClass = "synthetic_fixture"
+			},
+			want: "capture_class",
+		},
+		{
+			name: "unapproved redistribution",
+			edit: func(m *representativeSysTraceManifest) {
+				m.Redistribution = "private_customer_capture"
+			},
+			want: "redistribution",
+		},
+		{
+			name: "missing approval ref",
+			edit: func(m *representativeSysTraceManifest) {
+				m.ApprovalRef = ""
+			},
+			want: "approval_ref",
+		},
+		{
+			name: "missing input hash",
+			edit: func(m *representativeSysTraceManifest) {
+				m.InputSHA256 = ""
+			},
+			want: "input_sha256",
+		},
+		{
+			name: "bad input hash",
+			edit: func(m *representativeSysTraceManifest) {
+				m.InputSHA256 = strings.Repeat("0", 64)
+			},
+			want: "input_sha256 mismatch",
+		},
+		{
+			name: "missing trace db hash",
+			edit: func(m *representativeSysTraceManifest) {
+				m.TraceDBSHA256 = ""
+			},
+			want: "trace_db_sha256",
+		},
+		{
+			name: "bad trace db hash",
+			edit: func(m *representativeSysTraceManifest) {
+				m.TraceDBSHA256 = strings.Repeat("1", 64)
+			},
+			want: "trace_db_sha256 mismatch",
+		},
+		{
+			name: "absolute input path",
+			edit: func(m *representativeSysTraceManifest) {
+				m.Input = filepath.Join(dir, "capture.sys")
+			},
+			want: "must be relative",
+		},
+		{
+			name: "escaping input path",
+			edit: func(m *representativeSysTraceManifest) {
+				m.Input = "../capture.sys"
+			},
+			want: "must stay under",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manifest := base
+			tt.edit(&manifest)
+			err := validateRepresentativeManifestAuthority(manifest, dir)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("validation error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func representativeTestSHA256(body []byte) string {
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
 }
 
 func readRepresentativeManifest(t *testing.T, path string) representativeSysTraceManifest {
@@ -68,6 +204,9 @@ func readRepresentativeManifest(t *testing.T, path string) representativeSysTrac
 		strings.TrimSpace(manifest.Redistribution) == "" ||
 		strings.TrimSpace(manifest.TraceKind) == "" {
 		t.Fatalf("representative manifest must declare id/input/redistribution/trace_kind: %+v", manifest)
+	}
+	if err := validateRepresentativeManifestAuthority(manifest, filepath.Dir(path)); err != nil {
+		t.Fatalf("representative manifest %s failed authority validation: %v", path, err)
 	}
 	return manifest
 }
@@ -134,18 +273,70 @@ func convertRepresentativeSysTraceSQL(t *testing.T, manifest representativeSysTr
 
 func representativeFixturePath(t *testing.T, dir, rel string) string {
 	t.Helper()
+	path, err := representativeFixturePathChecked(dir, rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func representativeFixturePathChecked(dir, rel string) (string, error) {
 	if filepath.IsAbs(rel) {
-		t.Fatalf("representative fixture path must be relative: %q", rel)
+		return "", fmt.Errorf("representative fixture path must be relative: %q", rel)
 	}
 	clean := filepath.Clean(rel)
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
-		t.Fatalf("representative fixture path must stay under %s: %q", dir, rel)
+		return "", fmt.Errorf("representative fixture path must stay under %s: %q", dir, rel)
 	}
 	path := filepath.Join(dir, clean)
 	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("representative fixture path %s is not readable: %v", path, err)
+		return "", fmt.Errorf("representative fixture path %s is not readable: %w", path, err)
 	}
-	return path
+	return path, nil
+}
+
+func validateRepresentativeManifestAuthority(manifest representativeSysTraceManifest, dir string) error {
+	if strings.TrimSpace(manifest.CaptureClass) != representativeCaptureClassReal {
+		return fmt.Errorf("capture_class must be %q for representative retirement evidence", representativeCaptureClassReal)
+	}
+	switch strings.TrimSpace(manifest.Redistribution) {
+	case representativeRedistributionPublic, representativeRedistributionApprovedInternal, representativeRedistributionApprovedCustomer:
+	default:
+		return fmt.Errorf("redistribution must be one of %q, %q, or %q", representativeRedistributionPublic, representativeRedistributionApprovedInternal, representativeRedistributionApprovedCustomer)
+	}
+	if strings.TrimSpace(manifest.ApprovalRef) == "" {
+		return fmt.Errorf("approval_ref is required for representative retirement evidence")
+	}
+	if err := verifyRepresentativeFileHash(dir, manifest.Input, manifest.InputSHA256, "input_sha256"); err != nil {
+		return err
+	}
+	if strings.TrimSpace(manifest.TraceDB) != "" {
+		if err := verifyRepresentativeFileHash(dir, manifest.TraceDB, manifest.TraceDBSHA256, "trace_db_sha256"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func verifyRepresentativeFileHash(dir, rel, want, field string) error {
+	want = strings.ToLower(strings.TrimSpace(want))
+	if want == "" {
+		return fmt.Errorf("%s is required", field)
+	}
+	path, err := representativeFixturePathChecked(dir, rel)
+	if err != nil {
+		return err
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read representative fixture %s: %w", path, err)
+	}
+	sum := sha256.Sum256(body)
+	got := hex.EncodeToString(sum[:])
+	if got != want {
+		return fmt.Errorf("%s mismatch for %s: got %s want %s", field, rel, got, want)
+	}
+	return nil
 }
 
 func assertRepresentativeTraceResult(t *testing.T, label string, result Result, output string, expected representativeSysTraceExpected) {
