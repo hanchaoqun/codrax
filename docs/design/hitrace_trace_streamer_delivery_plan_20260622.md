@@ -1655,6 +1655,81 @@ go test ./cmd ./internal/repl
 go test ./internal/hitraceconv ./internal/tracequery
 ```
 
+### Batch 11: Commercial Gate Transparency Closure
+
+Status: planned for Batch 11A.
+
+#### Batch 11A: Sys Binary Parity Gate Status
+
+Status: planned.
+
+Gap:
+
+- Batch 6 is intentionally still open until at least one redistributable real
+  no-perf Harmony/Donghu `.sys` fixture passes the representative helper.
+- The repository has a hermetic helper and authority validation, and the
+  delivery plan states that the gate is open, but `codrax trace convert
+  --trace-tools-status` currently surfaces only trace engine/tool readiness and
+  input classification.
+- That can make an operator see "trace_streamer available" or "built-in
+  available" without also seeing why the built-in sys binary lane remains an
+  explicit guarded capability instead of being retired.
+- This is a transparency and handoff gap. It must be solved as typed tool
+  status metadata and localized UX, not prompt prose and not a hard routing
+  rule.
+
+Current evidence audit:
+
+- `internal/hitraceconv/testdata/representative_sys_traces/README.md` defines
+  the required manifest and authority fields.
+- `TestRepresentativeSysTraceFixtures` skips loudly when no manifest exists.
+- Current local searches under the repository, `/Users/han/opt/customlogs`, and
+  a shallow `/Users/han/opt` scan found no candidate committed real `.sys` or
+  `.htrace` fixture that can close the gate.
+- Therefore the correct commercial state is "pending representative fixture",
+  not "complete" and not "blocked by code".
+
+Design:
+
+- Extend `TraceToolStatus` with a dedicated gate status for
+  `no_perf_sys_binary_parity`.
+- Keep the gate separate from providers:
+  - `trace_streamer` remains an executable/tool provider;
+  - `codrax_builtin_modern_profiler` remains a converter provider;
+  - sys-binary parity is a commercial retirement gate over evidence.
+- Expose bounded structured fields:
+  - gate name;
+  - state (`pending_representative_fixture` until a real fixture is committed
+    and verified);
+  - proven boolean;
+  - fixture manifest count when the source-tree fixture directory is visible;
+  - required evidence path/description;
+  - caveats explaining that the built-in sys binary parser remains explicit and
+    trace+perf never falls back to it.
+- Render the gate in CLI trace-tools status for Chinese and English.
+- Add focused tests for:
+  - `BuildTraceToolStatus` includes the gate with the current pending state;
+  - CLI English output includes `sys_binary_parity_gate`;
+  - CLI Chinese output localizes the pending gate and does not leak English
+    caveats.
+- Prompt/JSON contract:
+  - no trace_query or model tool-call input fields are added;
+  - no JSON repair aliases are required;
+  - the gate is system output/tool status metadata.
+- Performance and memory:
+  - optional manifest counting is bounded to the small committed fixture
+    directory only;
+  - no trace files are opened or hashed from status rendering.
+
+Exit criteria:
+
+- Users can inspect not only provider readiness but also the current sys-binary
+  parity/retirement gate state from the same trace tools status command.
+- The open Batch 6 gate is visible without reading the delivery plan or a test
+  skip line.
+- No production routing behavior changes and no prompt/JSON repair burden is
+  introduced.
+
 ## Running Verification Matrix
 
 Each implemented batch must run the narrow package tests it touches. Before goal
