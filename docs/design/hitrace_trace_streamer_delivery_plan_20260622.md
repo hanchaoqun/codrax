@@ -1193,7 +1193,7 @@ go test ./internal/repl
 
 ### Batch 8: SQL Resolver Fidelity and Coverage Closure
 
-Status: in progress, with Batch 8A delivered on 2026-06-23.
+Status: in progress, with Batch 8A and Batch 8B delivered on 2026-06-23.
 
 #### Batch 8A: thread_state Running Window Resolver
 
@@ -1261,7 +1261,7 @@ Delivered:
 
 #### Batch 8B: Input-Aware Trace Tools Status
 
-Status: planned.
+Status: delivered on 2026-06-23.
 
 Gap:
 
@@ -1310,6 +1310,18 @@ Exit criteria:
 ```bash
 go test ./internal/hitraceconv ./cmd
 ```
+
+Delivered:
+
+- `TraceToolStatus` now carries optional input classification from structural
+  file inspection: input path, inspected state, input kind, perf-sidecar
+  presence, and inspection error.
+- `--trace-tools-status --input <trace+perf.htrace>` keeps `selected_engine` on
+  `trace_streamer` when SQL tooling is missing, matching the conversion path's
+  trace+perf SQL-only contract.
+- Generic no-input `auto` status still selects built-in when `trace_streamer` is
+  unavailable, preserving pure-trace UX.
+- CLI status output shows the input classification in both Chinese and English.
 
 ## Running Verification Matrix
 

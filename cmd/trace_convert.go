@@ -129,6 +129,9 @@ func traceConvertTraceToolStatusLines(lang string, status hitraceconv.TraceToolS
 			fmt.Sprintf("trace 解析引擎：%s", status.EngineMode),
 			fmt.Sprintf("当前选择：%s", status.SelectedEngine),
 		}
+		if inputLine := traceConvertTraceInputLine("zh", status); inputLine != "" {
+			lines = append(lines, inputLine)
+		}
 		lines = append(lines, traceConvertTraceProviderLine("zh", status.TraceStreamer))
 		lines = append(lines, traceConvertTraceProviderLine("zh", status.BuiltinModern))
 		for _, caveat := range status.Caveats {
@@ -140,12 +143,58 @@ func traceConvertTraceToolStatusLines(lang string, status hitraceconv.TraceToolS
 		fmt.Sprintf("trace_engine: %s", status.EngineMode),
 		fmt.Sprintf("selected_engine: %s", status.SelectedEngine),
 	}
+	if inputLine := traceConvertTraceInputLine("en", status); inputLine != "" {
+		lines = append(lines, inputLine)
+	}
 	lines = append(lines, traceConvertTraceProviderLine("en", status.TraceStreamer))
 	lines = append(lines, traceConvertTraceProviderLine("en", status.BuiltinModern))
 	for _, caveat := range status.Caveats {
 		lines = append(lines, "caveat: "+caveat)
 	}
 	return lines
+}
+
+func traceConvertTraceInputLine(lang string, status hitraceconv.TraceToolStatus) string {
+	if strings.TrimSpace(status.InputPath) == "" {
+		return ""
+	}
+	if traceConvertUseZh(lang) {
+		parts := []string{"trace 输入：路径=" + status.InputPath}
+		if status.InputKind != "" {
+			parts = append(parts, "类型="+traceConvertTraceInputKindZh(status.InputKind))
+		}
+		parts = append(parts, fmt.Sprintf("已检查=%t", status.InputInspected))
+		parts = append(parts, fmt.Sprintf("包含perf=%t", status.InputHasPerfSidecar))
+		if status.InputInspectionError != "" {
+			parts = append(parts, "检查错误="+status.InputInspectionError)
+		}
+		return strings.Join(parts, " ")
+	}
+	parts := []string{"trace_input: path=" + status.InputPath}
+	if status.InputKind != "" {
+		parts = append(parts, "kind="+status.InputKind)
+	}
+	parts = append(parts, fmt.Sprintf("inspected=%t", status.InputInspected))
+	parts = append(parts, fmt.Sprintf("has_perf_sidecar=%t", status.InputHasPerfSidecar))
+	if status.InputInspectionError != "" {
+		parts = append(parts, "inspection_error="+status.InputInspectionError)
+	}
+	return strings.Join(parts, " ")
+}
+
+func traceConvertTraceInputKindZh(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "trace_perf":
+		return "trace+perf"
+	case "trace_only_or_unknown":
+		return "纯trace或未知"
+	case "unreadable":
+		return "不可读"
+	case "inspection_error":
+		return "检查失败"
+	default:
+		return kind
+	}
 }
 
 func traceConvertTraceProviderLine(lang string, item hitraceconv.TraceToolProviderStatus) string {
@@ -267,6 +316,8 @@ func traceConvertTraceMessageZh(message string) string {
 		return "trace_streamer DB export 是 trace+perf htrace 的必需 trace body 路径，也可把纯 trace 转成 systrace，并将 coverage 写入 tracebundle 供 trace_query 使用"
 	case strings.Contains(lower, "auto trace engine discovered trace_streamer"):
 		return "auto trace 引擎已发现 trace_streamer；纯 trace 会走 SQL，SQL 执行失败不会回退到内置解析器"
+	case strings.Contains(lower, "inspected input contains a standalone perf sidecar"):
+		return "auto trace 引擎未发现 trace_streamer；已检查输入包含独立 perf sidecar，因此 trace+perf 转换仍然只走 trace_streamer/SQLite，不会使用内置解析器"
 	case strings.Contains(lower, "auto trace engine did not discover trace_streamer"):
 		return "auto trace 引擎未发现 trace_streamer；纯 trace 会使用内置解析器，trace+perf htrace 仍然需要 trace_streamer/SQLite"
 	case strings.Contains(lower, "trace_streamer is selected"):

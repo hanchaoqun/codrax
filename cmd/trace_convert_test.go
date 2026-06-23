@@ -219,6 +219,37 @@ func TestTraceConvertTraceToolStatusLines(t *testing.T) {
 	}
 }
 
+func TestTraceConvertTraceToolStatusLinesIncludeInputClassification(t *testing.T) {
+	status := hitraceconv.TraceToolStatus{
+		EngineMode:          "auto",
+		SelectedEngine:      "trace_streamer",
+		InputPath:           "capture.htrace",
+		InputInspected:      true,
+		InputKind:           "trace_perf",
+		InputHasPerfSidecar: true,
+		Caveats: []string{
+			"auto trace engine did not discover trace_streamer; inspected input contains a standalone perf sidecar, so trace+perf conversion remains trace_streamer/SQLite-only and will not use the built-in parser",
+		},
+	}
+	en := strings.Join(traceConvertTraceToolStatusLines("en", status), "\n")
+	for _, want := range []string{"trace_input: path=capture.htrace", "kind=trace_perf", "inspected=true", "has_perf_sidecar=true", "selected_engine: trace_streamer", "will not use the built-in parser"} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("trace status input classification missing %q:\n%s", want, en)
+		}
+	}
+	zh := strings.Join(traceConvertTraceToolStatusLines("zh", status), "\n")
+	for _, want := range []string{"trace 输入：路径=capture.htrace", "类型=trace+perf", "已检查=true", "包含perf=true", "当前选择：trace_streamer", "已检查输入包含独立 perf sidecar"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh trace status input classification missing %q:\n%s", want, zh)
+		}
+	}
+	for _, leak := range []string{"inspected input contains a standalone perf sidecar", "will not use the built-in parser"} {
+		if strings.Contains(zh, leak) {
+			t.Fatalf("zh trace status leaked English %q:\n%s", leak, zh)
+		}
+	}
+}
+
 func TestTraceConvertPerfToolStatusLines(t *testing.T) {
 	status := hitraceconv.PerfToolStatus{
 		ParserMode:               "auto",

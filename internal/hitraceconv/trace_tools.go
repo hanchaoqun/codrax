@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,11 +11,16 @@ import (
 )
 
 type TraceToolStatus struct {
-	EngineMode     string
-	SelectedEngine string
-	TraceStreamer  TraceToolProviderStatus
-	BuiltinModern  TraceToolProviderStatus
-	Caveats        []string
+	EngineMode           string
+	SelectedEngine       string
+	InputPath            string
+	InputInspected       bool
+	InputKind            string
+	InputHasPerfSidecar  bool
+	InputInspectionError string
+	TraceStreamer        TraceToolProviderStatus
+	BuiltinModern        TraceToolProviderStatus
+	Caveats              []string
 }
 
 type TraceToolProviderStatus struct {
@@ -67,13 +73,18 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 		status.TraceStreamer.Source = source
 		status.TraceStreamer.Available = traceToolPathUsable(tool, &status.TraceStreamer)
 	}
+	inspectTraceToolStatusInput(&status, opts)
 	switch selected {
 	case traceEngineTraceStreamer:
 		status.SelectedEngine = traceEngineTraceStreamer
 		if !status.TraceStreamer.Available {
 			if mode == traceEngineAuto {
-				status.SelectedEngine = traceEngineBuiltin
-				status.Caveats = append(status.Caveats, "auto trace engine did not discover trace_streamer; trace-only conversion will use the built-in parser, while trace+perf htrace still requires trace_streamer/SQLite")
+				if status.InputHasPerfSidecar {
+					status.Caveats = append(status.Caveats, "auto trace engine did not discover trace_streamer; inspected input contains a standalone perf sidecar, so trace+perf conversion remains trace_streamer/SQLite-only and will not use the built-in parser")
+				} else {
+					status.SelectedEngine = traceEngineBuiltin
+					status.Caveats = append(status.Caveats, "auto trace engine did not discover trace_streamer; trace-only conversion will use the built-in parser, while trace+perf htrace still requires trace_streamer/SQLite")
+				}
 			} else {
 				status.Caveats = append(status.Caveats, "trace_streamer engine was selected but trace_streamer is not available")
 			}
@@ -88,6 +99,34 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 		status.SelectedEngine = traceEngineBuiltin
 	}
 	return status, nil
+}
+
+func inspectTraceToolStatusInput(status *TraceToolStatus, opts Options) {
+	input := strings.TrimSpace(opts.InputPath)
+	if input == "" {
+		return
+	}
+	status.InputPath = input
+	info, err := os.Stat(input)
+	if err != nil {
+		status.InputKind = "unreadable"
+		status.InputInspectionError = err.Error()
+		status.Caveats = append(status.Caveats, fmt.Sprintf("trace input could not be inspected: %v", err))
+		return
+	}
+	hasPerf, err := inputContainsStandalonePerfSidecar(context.Background(), input, info.Size())
+	status.InputInspected = true
+	status.InputHasPerfSidecar = hasPerf
+	if hasPerf {
+		status.InputKind = "trace_perf"
+	} else {
+		status.InputKind = "trace_only_or_unknown"
+	}
+	if err != nil {
+		status.InputKind = "inspection_error"
+		status.InputInspectionError = err.Error()
+		status.Caveats = append(status.Caveats, fmt.Sprintf("trace input inspection failed: %v", err))
+	}
 }
 
 func resolveTraceStreamerTool(opts Options) (string, string) {
