@@ -1657,11 +1657,11 @@ go test ./internal/hitraceconv ./internal/tracequery
 
 ### Batch 11: Commercial Gate Transparency Closure
 
-Status: planned for Batch 11A.
+Status: delivered on 2026-06-23 for Batch 11A.
 
 #### Batch 11A: Sys Binary Parity Gate Status
 
-Status: planned.
+Status: delivered on 2026-06-23.
 
 Gap:
 
@@ -1729,6 +1729,25 @@ Exit criteria:
   skip line.
 - No production routing behavior changes and no prompt/JSON repair burden is
   introduced.
+
+Delivered:
+
+- Added `TraceToolGateStatus` and surfaced
+  `no_perf_sys_binary_parity` through `TraceToolStatus`.
+- The gate reports pending representative fixture state, manifest count for the
+  committed fixture directory when visible, required evidence, delivered
+  synthetic parity evidence, and caveats that keep the built-in sys parser as
+  an explicit guarded lane.
+- CLI `--trace-tools-status` now renders the gate in English and Chinese,
+  including localized state/caveats without leaking internal English prose.
+- No converter routing behavior changed, no trace_query input fields changed,
+  and no JSON repair aliases were needed.
+- Verified with:
+
+```bash
+go test ./internal/hitraceconv -run 'TestBuildTraceToolStatus|TestTraceStreamerHostPlatformDirs' -count=1
+go test ./cmd -run 'TestTraceConvertTraceToolStatusLines' -count=1
+```
 
 ## Running Verification Matrix
 

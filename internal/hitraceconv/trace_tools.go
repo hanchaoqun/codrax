@@ -22,6 +22,17 @@ type TraceToolStatus struct {
 	InputInspectionError string
 	TraceStreamer        TraceToolProviderStatus
 	BuiltinModern        TraceToolProviderStatus
+	SysBinaryParity      TraceToolGateStatus
+	Caveats              []string
+}
+
+type TraceToolGateStatus struct {
+	Name                 string
+	State                string
+	Proven               bool
+	FixtureManifestCount int
+	RequiredEvidence     string
+	Evidence             []string
 	Caveats              []string
 }
 
@@ -40,6 +51,28 @@ type TraceToolProviderStatus struct {
 	Caveats         []string
 }
 
+const (
+	traceToolGateNameSysBinaryParity                  = "no_perf_sys_binary_parity"
+	traceToolGateStatePendingRepresentativeFixture    = "pending_representative_fixture"
+	traceToolGateStateRepresentativeFixtureConfigured = "representative_fixture_manifest_present"
+
+	traceToolGateSysParityRequiredEvidence  = "commit a redistributable real no-perf Harmony/Donghu .sys fixture manifest under internal/hitraceconv/testdata/representative_sys_traces and pass TestRepresentativeSysTraceFixtures"
+	traceToolGateSysParitySyntheticEvidence = "synthetic scheduler/raw-ftrace parity guards are delivered"
+	traceToolGateSysParityOpenCaveat        = "no redistributable representative no-perf .sys fixture has been committed; the built-in sys binary parser remains an explicit guarded lane"
+	traceToolGateSysParityTracePerfCaveat   = "trace+perf htrace never falls back to the built-in sys binary parser"
+)
+
+var traceSysParityManifestGlob = defaultTraceSysParityManifestGlob
+
+func defaultTraceSysParityManifestGlob() ([]string, error) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return nil, fmt.Errorf("runtime caller unavailable")
+	}
+	pattern := filepath.Join(filepath.Dir(file), "testdata", "representative_sys_traces", "*.json")
+	return filepath.Glob(pattern)
+}
+
 func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 	if err := validateTraceEngineMode(opts.TraceEngine); err != nil {
 		return TraceToolStatus{}, err
@@ -47,8 +80,9 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 	mode := requestedTraceEngineMode(opts.TraceEngine)
 	selected := selectedTraceEngineMode(opts.TraceEngine)
 	status := TraceToolStatus{
-		EngineMode:     mode,
-		SelectedEngine: selected,
+		EngineMode:      mode,
+		SelectedEngine:  selected,
+		SysBinaryParity: buildSysBinaryParityGateStatus(),
 		TraceStreamer: TraceToolProviderStatus{
 			Name:            traceProviderNameTraceStreamer,
 			Kind:            traceProviderKindOfficialDB,
@@ -102,6 +136,33 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 		status.SelectedEngine = traceEngineBuiltin
 	}
 	return status, nil
+}
+
+func buildSysBinaryParityGateStatus() TraceToolGateStatus {
+	status := TraceToolGateStatus{
+		Name:             traceToolGateNameSysBinaryParity,
+		State:            traceToolGateStatePendingRepresentativeFixture,
+		RequiredEvidence: traceToolGateSysParityRequiredEvidence,
+		Evidence: []string{
+			traceToolGateSysParitySyntheticEvidence,
+		},
+		Caveats: []string{
+			traceToolGateSysParityOpenCaveat,
+			traceToolGateSysParityTracePerfCaveat,
+		},
+	}
+	manifests, err := traceSysParityManifestGlob()
+	if err != nil {
+		status.Caveats = append(status.Caveats, fmt.Sprintf("representative fixture manifest directory could not be inspected: %v", err))
+		return status
+	}
+	status.FixtureManifestCount = len(manifests)
+	status.Evidence = append(status.Evidence, fmt.Sprintf("representative_fixture_manifests=%d", status.FixtureManifestCount))
+	if status.FixtureManifestCount > 0 {
+		status.State = traceToolGateStateRepresentativeFixtureConfigured
+		status.Caveats = append(status.Caveats, "representative fixture manifest is present; verify TestRepresentativeSysTraceFixtures before retiring the built-in sys binary parser")
+	}
+	return status
 }
 
 func inspectTraceToolStatusInput(status *TraceToolStatus, opts Options) {

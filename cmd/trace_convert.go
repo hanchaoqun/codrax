@@ -134,6 +134,9 @@ func traceConvertTraceToolStatusLines(lang string, status hitraceconv.TraceToolS
 		}
 		lines = append(lines, traceConvertTraceProviderLine("zh", status.TraceStreamer))
 		lines = append(lines, traceConvertTraceProviderLine("zh", status.BuiltinModern))
+		if gateLine := traceConvertTraceGateLine("zh", status.SysBinaryParity); gateLine != "" {
+			lines = append(lines, gateLine)
+		}
 		for _, caveat := range status.Caveats {
 			lines = append(lines, "提示："+traceConvertTraceMessageZh(caveat))
 		}
@@ -148,6 +151,9 @@ func traceConvertTraceToolStatusLines(lang string, status hitraceconv.TraceToolS
 	}
 	lines = append(lines, traceConvertTraceProviderLine("en", status.TraceStreamer))
 	lines = append(lines, traceConvertTraceProviderLine("en", status.BuiltinModern))
+	if gateLine := traceConvertTraceGateLine("en", status.SysBinaryParity); gateLine != "" {
+		lines = append(lines, gateLine)
+	}
 	for _, caveat := range status.Caveats {
 		lines = append(lines, "caveat: "+caveat)
 	}
@@ -203,6 +209,68 @@ func traceConvertTraceProviderLine(lang string, item hitraceconv.TraceToolProvid
 		return prefix + "：" + strings.Join(traceConvertTraceProviderDetailsZh(item), " ")
 	}
 	return prefix + ": " + strings.Join(traceConvertTraceProviderDetailsEn(item), " ")
+}
+
+func traceConvertTraceGateLine(lang string, gate hitraceconv.TraceToolGateStatus) string {
+	if strings.TrimSpace(gate.Name) == "" {
+		return ""
+	}
+	prefix := fmt.Sprintf("trace_gate[sys_binary_parity_gate/%s]", gate.Name)
+	if traceConvertUseZh(lang) {
+		return prefix + "：" + strings.Join(traceConvertTraceGateDetailsZh(gate), " ")
+	}
+	return prefix + ": " + strings.Join(traceConvertTraceGateDetailsEn(gate), " ")
+}
+
+func traceConvertTraceGateDetailsEn(gate hitraceconv.TraceToolGateStatus) []string {
+	details := []string{
+		"state=" + gate.State,
+		fmt.Sprintf("proven=%t", gate.Proven),
+		fmt.Sprintf("fixture_manifests=%d", gate.FixtureManifestCount),
+	}
+	if gate.RequiredEvidence != "" {
+		details = append(details, "required="+gate.RequiredEvidence)
+	}
+	if len(gate.Evidence) > 0 {
+		details = append(details, "evidence="+strings.Join(gate.Evidence, "; "))
+	}
+	if len(gate.Caveats) > 0 {
+		details = append(details, "caveat="+strings.Join(gate.Caveats, "; "))
+	}
+	return details
+}
+
+func traceConvertTraceGateDetailsZh(gate hitraceconv.TraceToolGateStatus) []string {
+	proven := "否"
+	if gate.Proven {
+		proven = "是"
+	}
+	details := []string{
+		"状态=" + traceConvertTraceGateStateZh(gate.State),
+		"已证明=" + proven,
+		fmt.Sprintf("fixture清单=%d", gate.FixtureManifestCount),
+	}
+	if gate.RequiredEvidence != "" {
+		details = append(details, "需要="+traceConvertTraceMessageZh(gate.RequiredEvidence))
+	}
+	if len(gate.Evidence) > 0 {
+		details = append(details, "证据="+strings.Join(traceConvertTraceMessagesZh(gate.Evidence), "; "))
+	}
+	if len(gate.Caveats) > 0 {
+		details = append(details, "注意="+strings.Join(traceConvertTraceMessagesZh(gate.Caveats), "; "))
+	}
+	return details
+}
+
+func traceConvertTraceGateStateZh(state string) string {
+	switch strings.TrimSpace(state) {
+	case "pending_representative_fixture":
+		return "等待代表性fixture"
+	case "representative_fixture_manifest_present":
+		return "已发现代表性fixture清单"
+	default:
+		return state
+	}
 }
 
 func traceConvertTraceProviderDetailsEn(item hitraceconv.TraceToolProviderStatus) []string {
@@ -330,6 +398,20 @@ func traceConvertTraceMessageZh(message string) string {
 		return "内置 modern/sys parser 是纯 trace 引擎；可显式选择，也可在 auto 未发现 trace_streamer 时用于纯 trace；不用于 trace+perf htrace"
 	case strings.Contains(lower, "built-in modern/sys parser is an explicit trace-only engine"):
 		return "内置 modern/sys parser 是纯 trace 引擎；可显式选择，也可在 auto 未发现 trace_streamer 时用于纯 trace；不用于 trace+perf htrace"
+	case strings.Contains(lower, "commit a redistributable real no-perf harmony/donghu .sys fixture manifest"):
+		return "提交可再分发的真实 no-perf Harmony/Donghu .sys fixture manifest 到 internal/hitraceconv/testdata/representative_sys_traces，并通过 TestRepresentativeSysTraceFixtures"
+	case strings.Contains(lower, "synthetic scheduler/raw-ftrace parity guards are delivered"):
+		return "synthetic scheduler/raw-ftrace parity 看护已交付"
+	case strings.HasPrefix(lower, "representative_fixture_manifests="):
+		return strings.Replace(trimmed, "representative_fixture_manifests", "代表性fixture清单", 1)
+	case strings.Contains(lower, "no redistributable representative no-perf .sys fixture has been committed"):
+		return "尚未提交可再分发的真实代表性 no-perf .sys fixture；内置 sys binary parser 仍保留为显式受控能力"
+	case strings.Contains(lower, "trace+perf htrace never falls back to the built-in sys binary parser"):
+		return "trace+perf htrace 永远不会回退到内置 sys binary parser"
+	case strings.Contains(lower, "representative fixture manifest is present"):
+		return "已发现代表性 fixture manifest；退休内置 sys binary parser 前必须先验证 TestRepresentativeSysTraceFixtures"
+	case strings.Contains(lower, "representative fixture manifest directory could not be inspected"):
+		return strings.Replace(trimmed, "representative fixture manifest directory could not be inspected", "代表性 fixture manifest 目录无法检查", 1)
 	case strings.Contains(lower, "built-in modern parser"):
 		return "内置 modern parser 是需要显式选择的纯 trace 引擎"
 	case strings.Contains(lower, "built into codrax"):

@@ -40,6 +40,16 @@ func TestBuildTraceToolStatusReportsConfiguredTraceStreamer(t *testing.T) {
 	if !status.BuiltinModern.Available || status.BuiltinModern.Source != "built-in" {
 		t.Fatalf("builtin modern status should be available: %+v", status.BuiltinModern)
 	}
+	if status.SysBinaryParity.Name != traceToolGateNameSysBinaryParity ||
+		status.SysBinaryParity.State != traceToolGateStatePendingRepresentativeFixture ||
+		status.SysBinaryParity.Proven ||
+		status.SysBinaryParity.RequiredEvidence == "" {
+		t.Fatalf("sys binary parity gate should expose pending representative fixture state: %+v", status.SysBinaryParity)
+	}
+	if got := strings.Join(status.SysBinaryParity.Caveats, " "); !strings.Contains(got, "built-in sys binary parser remains an explicit guarded lane") ||
+		!strings.Contains(got, "trace+perf htrace never falls back") {
+		t.Fatalf("sys binary parity gate caveats should explain guarded boundary: %+v", status.SysBinaryParity)
+	}
 	if !strings.Contains(strings.Join(status.Caveats, " "), "auto trace engine discovered trace_streamer") ||
 		!strings.Contains(strings.Join(status.Caveats, " "), "will not fall back") {
 		t.Fatalf("auto mode should explain selected trace_streamer readiness: %+v", status.Caveats)

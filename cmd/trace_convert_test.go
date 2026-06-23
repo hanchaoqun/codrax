@@ -201,21 +201,33 @@ func TestTraceConvertTraceToolStatusLines(t *testing.T) {
 			InstallCommand: "built-in",
 			Caveats:        []string{"built-in modern/sys parser is an explicit trace-only engine selected with --trace-engine=builtin; auto may use it only for trace-only captures when trace_streamer is not discovered; it is not used for trace+perf htrace"},
 		},
+		SysBinaryParity: hitraceconv.TraceToolGateStatus{
+			Name:                 "no_perf_sys_binary_parity",
+			State:                "pending_representative_fixture",
+			Proven:               false,
+			FixtureManifestCount: 0,
+			RequiredEvidence:     "commit a redistributable real no-perf Harmony/Donghu .sys fixture manifest under internal/hitraceconv/testdata/representative_sys_traces and pass TestRepresentativeSysTraceFixtures",
+			Evidence:             []string{"synthetic scheduler/raw-ftrace parity guards are delivered", "representative_fixture_manifests=0"},
+			Caveats: []string{
+				"no redistributable representative no-perf .sys fixture has been committed; the built-in sys binary parser remains an explicit guarded lane",
+				"trace+perf htrace never falls back to the built-in sys binary parser",
+			},
+		},
 		Caveats: []string{"auto trace engine discovered trace_streamer; trace-only conversion will use SQL, and SQL execution failure will not fall back to the built-in parser"},
 	}
 	en := strings.Join(traceConvertTraceToolStatusLines("en", status), "\n")
-	for _, want := range []string{"trace_engine: auto", "selected_engine: trace_streamer", "trace_provider[official_trace_db/trace_streamer_db]", "state=available", "/tmp/trace_streamer", "aux_check=so_dir=/symbols", "docs=https://gitcode.com/diting/hmtrace/tree/main", "trace_provider[builtin_modern/codrax_builtin_modern_profiler]"} {
+	for _, want := range []string{"trace_engine: auto", "selected_engine: trace_streamer", "trace_provider[official_trace_db/trace_streamer_db]", "state=available", "/tmp/trace_streamer", "aux_check=so_dir=/symbols", "docs=https://gitcode.com/diting/hmtrace/tree/main", "trace_provider[builtin_modern/codrax_builtin_modern_profiler]", "trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]", "state=pending_representative_fixture", "fixture_manifests=0", "built-in sys binary parser remains an explicit guarded lane"} {
 		if !strings.Contains(en, want) {
 			t.Fatalf("trace status lines missing %q:\n%s", want, en)
 		}
 	}
 	zh := strings.Join(traceConvertTraceToolStatusLines("zh", status), "\n")
-	for _, want := range []string{"trace 解析引擎：auto", "当前选择：trace_streamer", "状态=可用", "来源=已配置 trace_streamer", "辅助检查=so_dir=/symbols", "文档=https://gitcode.com/diting/hmtrace/tree/main", "注意=trace_streamer DB export 是 trace+perf htrace 的必需 trace body 路径", "提示：auto trace 引擎已发现 trace_streamer"} {
+	for _, want := range []string{"trace 解析引擎：auto", "当前选择：trace_streamer", "状态=可用", "来源=已配置 trace_streamer", "辅助检查=so_dir=/symbols", "文档=https://gitcode.com/diting/hmtrace/tree/main", "注意=trace_streamer DB export 是 trace+perf htrace 的必需 trace body 路径", "trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]", "状态=等待代表性fixture", "fixture清单=0", "尚未提交可再分发的真实代表性 no-perf .sys fixture", "提示：auto trace 引擎已发现 trace_streamer"} {
 		if !strings.Contains(zh, want) {
 			t.Fatalf("zh trace status lines missing %q:\n%s", want, zh)
 		}
 	}
-	for _, leak := range []string{"trace_streamer DB export is the required", "auto trace engine discovered trace_streamer"} {
+	for _, leak := range []string{"trace_streamer DB export is the required", "auto trace engine discovered trace_streamer", "built-in sys binary parser remains an explicit guarded lane", "trace+perf htrace never falls back"} {
 		if strings.Contains(zh, leak) {
 			t.Fatalf("zh trace status leaked English detail %q:\n%s", leak, zh)
 		}
