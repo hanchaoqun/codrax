@@ -175,8 +175,14 @@ func TestComposeDockRow1_ReceivingHasTail(t *testing.T) {
 func TestStreamTailDisplayBudgetKeepsLongerContext(t *testing.T) {
 	preview := "0123456789ABCDEFGHIJklmnopqrstUVWX" + "YZabcdefghijklmnopqrstuvwxyz"
 	tail := tailByDisplayWidth(preview, streamTailDisplayCols)
-	if !strings.Contains(tail, "UVWX") {
-		t.Fatalf("stream tail budget should preserve roughly 40 cols of recent context, got %q", tail)
+	if streamTailDisplayCols != 50 {
+		t.Fatalf("stream tail budget = %d, want the modest 50-col REPL dock budget", streamTailDisplayCols)
+	}
+	if len(tail) > streamTailDisplayCols {
+		t.Fatalf("stream tail exceeded budget: len=%d budget=%d tail=%q", len(tail), streamTailDisplayCols, tail)
+	}
+	if !strings.Contains(tail, "CDEFGHIJ") {
+		t.Fatalf("stream tail budget should preserve the widened recent context, got %q", tail)
 	}
 	if strings.Contains(tail, "ABCDEFGHIJ") {
 		t.Fatalf("stream tail should still be a bounded suffix, got %q", tail)
