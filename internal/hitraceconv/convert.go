@@ -146,7 +146,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		}
 		return result, nil
 	}
-	if selectedTraceEngineMode(opts.TraceEngine) == traceEngineTraceStreamer {
+	if traceStreamerSelectionShouldStopBuiltinFallback(opts, traceStreamerExport) {
 		result := Result{
 			InputPath:         input,
 			InputBytes:        info.Size(),
@@ -270,6 +270,20 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		result.Artifacts = append(result.Artifacts, bundleArtifact)
 	}
 	return result, nil
+}
+
+func traceStreamerSelectionShouldStopBuiltinFallback(opts Options, traceStreamerExport traceStreamerExportResult) bool {
+	if selectedTraceEngineMode(opts.TraceEngine) != traceEngineTraceStreamer {
+		return false
+	}
+	if isAutoTraceEngineMode(opts.TraceEngine) &&
+		traceStreamerExport.Decision.ProviderName == traceProviderNameTraceStreamer &&
+		traceStreamerExport.Decision.Reason == "trace_streamer_unavailable" &&
+		!traceStreamerExport.Decision.Attempted &&
+		!traceStreamerExport.Decision.Selected {
+		return false
+	}
+	return true
 }
 
 func tracePerfSQLRequiredDecision(opts Options, input, output string) TraceProviderDecision {

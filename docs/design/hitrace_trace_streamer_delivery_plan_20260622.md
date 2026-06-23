@@ -55,12 +55,13 @@ Observed hmtrace model:
 
 ## Delivery Rules
 
-- No silent production fallback between trace-body engines. Pure trace
-  conversion is a user-visible engine choice: default `trace_streamer`/SQL, or
-  explicit `--trace-engine=builtin` for the built-in trace-only parser.
+- No silent production fallback after a trace-body engine starts. Pure trace
+  conversion has a user-visible selector: `auto`, `trace_streamer`, or
+  `builtin`. In `auto`, Codrax uses `trace_streamer`/SQL when the tool is
+  discovered, uses the built-in trace-only converter only when `trace_streamer`
+  is absent, and does not fall back after a SQL execution/export failure.
 - Pure trace conversion is not a dual-run production path. The CLI and REPL must
-  expose the same one-of-two selector, `auto` must behave as
-  `trace_streamer`/SQL, and the selected engine must be recorded in
+  expose the same selector, and the selected provider must be recorded in
   tracebundle provenance. Parity tests may execute both engines in one test, but
   customer conversion must run exactly one trace-body engine.
 - No-perf Harmony/Donghu `.sys` binary conversion remains supported through the
@@ -203,16 +204,18 @@ Tasks:
   - provider decisions for selected/attempted/succeeded/fallback/reason.
 - In `--trace-engine=trace_streamer`, fail fast if trace_streamer is missing or
   returns non-zero.
-- In default/`auto`, select trace_streamer/SQL. If SQL does not produce
-  query-ready rows, return an explicit partial tracebundle and tell users to
-  select `--trace-engine=builtin` when they want the built-in trace-only parser.
-  Do not silently fall back to `builtin_modern_profiler` or the sys binary
-  parser.
+- In default/`auto`, use trace_streamer/SQL when the tool is discovered. If the
+  tool is absent and the input is pure trace, continue through the built-in
+  trace-only parser. If SQL execution starts but fails or emits no query-ready
+  rows, return an explicit partial tracebundle and do not fall back.
 - Add DB artifact to tracebundle when `KeepTraceDB` is enabled.
 - Tests:
   - fake trace_streamer writes a DB file and records args.
   - explicit mode fail-fast.
-  - default/auto mode records SQL failure without choosing a built-in fallback.
+  - default/auto mode uses built-in for pure trace only when trace_streamer is
+    not discovered.
+  - default/auto mode records SQL execution failure without choosing a built-in
+    fallback.
   - DB cleanup vs keep behavior.
 
 Detailed implementation checklist:
@@ -235,8 +238,10 @@ Detailed implementation checklist:
   - verify the DB file exists and is non-empty after success.
 - Add conversion selection:
   - `--trace-engine=trace_streamer`: run provider or hard fail.
-  - default/`--trace-engine=auto`: select trace_streamer/SQL. If the tool is not
-    discovered or SQL emits no query-ready rows, record a trace provider decision
+  - default/`--trace-engine=auto`: select trace_streamer/SQL when discovered.
+    If trace_streamer is absent and the input is pure trace, record the skipped
+    SQL provider decision and run the built-in trace-only parser. If SQL emits
+    no query-ready rows after execution starts, record a trace provider decision
     and return an explicit partial tracebundle instead of changing engines.
   - `--trace-engine=builtin`: skip trace_streamer provider and run the explicit
     built-in trace-only parser.
@@ -249,7 +254,8 @@ Detailed implementation checklist:
   - fake shell trace_streamer script writing `sqlite-like` bytes and an args log;
   - fake failing trace_streamer script with stderr;
   - explicit missing tool;
-  - default SQL failure without built-in profiler fallback;
+  - auto missing-tool pure-trace built-in fallback;
+  - default SQL execution failure without built-in profiler fallback;
   - tracebundle contains trace provider decisions and DB artifact when kept.
 
 Performance/memory notes for this batch:
@@ -264,9 +270,9 @@ Exit criteria:
   external trace_streamer path in tests.
 - Delivered: explicit `--trace-engine=trace_streamer` fails fast when the tool is
   missing or the command fails.
-- Delivered: `auto` is accepted as a compatibility alias for trace_streamer/SQL;
-  it records provider success/failure and does not fall through to the built-in
-  parser.
+- Delivered: `auto` selects trace_streamer/SQL when discovered, falls back to
+  built-in only for pure trace when trace_streamer is absent, records provider
+  decisions, and does not fall through after SQL execution/export failure.
 - Delivered: `KeepTraceDB` and explicit `TraceDBOutputPath` retain
   `ArtifactTraceDB` in tracebundle; temporary auto DBs are cleaned when not kept.
 - Verified with:
@@ -486,8 +492,9 @@ Exit criteria:
   body parser as a fallback. They use the SQL/trace_streamer lane when
   available, otherwise produce explicit partial artifacts and provider decisions.
 - Delivered guard: pure no-perf trace inputs keep two selectable engines while
-  sys-binary DB parity remains open; default SQL never silently changes to the
-  built-in engine.
+  sys-binary DB parity remains open; auto may use built-in only when
+  trace_streamer is absent, and SQL execution/export failure never silently
+  changes to the built-in engine.
 - Delivered guard: SQL-generated trace text is cross-validated through
   `trace_query` and recorded as `trace_cross_validation` coverage.
 
@@ -650,8 +657,8 @@ Exit criteria:
 - Any remaining event-family gaps are documented as Batch 6C+ work, not hidden
   behind the single wakeup parity guard.
 - The explicit no-perf sys lane remains guarded until representative captures
-  prove all required families, but the default SQL lane has explicit evidence
-  for the core timing and CPU-supply families.
+  prove all required families, but the SQL lane has explicit evidence for the
+  core timing and CPU-supply families when trace_streamer is available.
 
 #### Batch 6C: Raw Ftrace Root-Cause Evidence Parity
 
@@ -1134,7 +1141,7 @@ Exit criteria:
 
 #### Batch 7C: Pure Trace Engine Choice UX Closure
 
-Status: planned on 2026-06-23.
+Status: delivered on 2026-06-23.
 
 Gap:
 
@@ -1142,8 +1149,8 @@ Gap:
   still tells users to leave the REPL and use the CLI when they want the
   built-in pure-trace engine.
 - This makes the pure-trace SQL-vs-built-in choice less transparent in the most
-  common interactive workflow, and weakens the rule that the user, not an
-  automatic fallback, selects the trace-body engine.
+  common interactive workflow, and weakens the rule that `auto` is an explicit
+  availability policy rather than a hidden post-failure fallback.
 
 Tasks:
 
@@ -1156,8 +1163,9 @@ Tasks:
   - extra positional arguments fail with localized usage.
 - Pass the selected engine into `hitraceconv.ConvertFile`.
 - Update REPL usage text so both CLI and REPL document:
-  - pure trace defaults to SQL/trace_streamer;
-  - built-in conversion requires explicit selection;
+  - pure trace `auto` uses trace_streamer/SQL when discovered;
+  - pure trace `auto` uses built-in only when trace_streamer is absent;
+  - trace_streamer execution/export failure does not fall back to built-in;
   - trace+perf remains SQL-only.
 - Add tests that:
   - REPL usage shows the in-REPL engine selector;
@@ -1171,8 +1179,17 @@ Exit criteria:
 
 - A user can choose the pure-trace engine from either `codrax trace convert` or
   `/htrace convert` without changing workflows.
-- Default and `auto` remain SQL/trace_streamer; built-in is explicit; trace+perf
-  never falls back to built-in trace-body parsing.
+- Default and `auto` use SQL/trace_streamer when available, use built-in only
+  for pure trace when trace_streamer is absent, and never fall back after SQL
+  execution/export failure. Trace+perf never falls back to built-in trace-body
+  parsing.
+- Verified with:
+
+```bash
+go test ./internal/hitraceconv
+go test ./cmd
+go test ./internal/repl
+```
 
 ## Running Verification Matrix
 

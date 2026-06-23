@@ -36,10 +36,11 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 	if err := validateTraceEngineMode(opts.TraceEngine); err != nil {
 		return TraceToolStatus{}, err
 	}
-	mode := selectedTraceEngineMode(opts.TraceEngine)
+	mode := requestedTraceEngineMode(opts.TraceEngine)
+	selected := selectedTraceEngineMode(opts.TraceEngine)
 	status := TraceToolStatus{
 		EngineMode:     mode,
-		SelectedEngine: mode,
+		SelectedEngine: selected,
 		TraceStreamer: TraceToolProviderStatus{
 			Name:            traceProviderNameTraceStreamer,
 			Kind:            traceProviderKindOfficialDB,
@@ -57,8 +58,8 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 			Source:         "built-in",
 			CheckCommand:   "codrax trace convert --trace-engine=builtin",
 			InstallCommand: "built-in",
-			InstallHint:    "Built into Codrax; select it explicitly with --trace-engine=builtin for trace-only modern profiler/session text payloads and sys binary conversion. It is not used for trace+perf htrace trace body conversion.",
-			Caveats:        []string{"built-in modern/sys parser is an explicit trace-only engine selected with --trace-engine=builtin; it is not an automatic fallback and is not used for trace+perf htrace"},
+			InstallHint:    "Built into Codrax; select it explicitly with --trace-engine=builtin for trace-only modern profiler/session text payloads and sys binary conversion, or let auto use it for trace-only captures when trace_streamer is not discovered. It is not used for trace+perf htrace trace body conversion.",
+			Caveats:        []string{"built-in modern/sys parser is an explicit trace-only engine selected with --trace-engine=builtin; auto may use it only for trace-only captures when trace_streamer is not discovered; it is not used for trace+perf htrace"},
 		},
 	}
 	if tool, source := resolveTraceStreamerTool(opts); tool != "" {
@@ -66,13 +67,22 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 		status.TraceStreamer.Source = source
 		status.TraceStreamer.Available = traceToolPathUsable(tool, &status.TraceStreamer)
 	}
-	switch mode {
+	switch selected {
 	case traceEngineTraceStreamer:
 		status.SelectedEngine = traceEngineTraceStreamer
 		if !status.TraceStreamer.Available {
-			status.Caveats = append(status.Caveats, "trace_streamer engine was selected but trace_streamer is not available")
+			if mode == traceEngineAuto {
+				status.SelectedEngine = traceEngineBuiltin
+				status.Caveats = append(status.Caveats, "auto trace engine did not discover trace_streamer; trace-only conversion will use the built-in parser, while trace+perf htrace still requires trace_streamer/SQLite")
+			} else {
+				status.Caveats = append(status.Caveats, "trace_streamer engine was selected but trace_streamer is not available")
+			}
 		} else {
-			status.Caveats = append(status.Caveats, "trace_streamer is selected; trace-only conversion uses SQL by default, and --trace-engine=builtin must be selected explicitly for the built-in trace-only converter")
+			if mode == traceEngineAuto {
+				status.Caveats = append(status.Caveats, "auto trace engine discovered trace_streamer; trace-only conversion will use SQL, and SQL execution failure will not fall back to the built-in parser")
+			} else {
+				status.Caveats = append(status.Caveats, "trace_streamer is selected; trace-only conversion uses SQL, and SQL execution failure will not fall back to the built-in parser")
+			}
 		}
 	case traceEngineBuiltin:
 		status.SelectedEngine = traceEngineBuiltin

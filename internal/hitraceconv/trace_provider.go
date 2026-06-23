@@ -73,6 +73,18 @@ func selectedTraceEngineMode(mode string) string {
 	}
 }
 
+func requestedTraceEngineMode(mode string) string {
+	normalized := normalizeTraceEngineMode(mode)
+	if normalized == "" {
+		return traceEngineAuto
+	}
+	return normalized
+}
+
+func isAutoTraceEngineMode(mode string) bool {
+	return requestedTraceEngineMode(mode) == traceEngineAuto
+}
+
 func validateTraceEngineMode(mode string) error {
 	switch normalizeTraceEngineMode(mode) {
 	case "", traceEngineAuto, traceEngineTraceStreamer, traceEngineBuiltin:
@@ -91,11 +103,11 @@ type traceEngineError struct {
 }
 
 func (e *traceEngineError) Error() string {
-	return "unsupported trace engine mode " + strconv.Quote(e.mode) + "; use trace_streamer or builtin (auto is accepted as an alias for trace_streamer)"
+	return "unsupported trace engine mode " + strconv.Quote(e.mode) + "; use auto, trace_streamer, or builtin"
 }
 
 func newTraceProviderDecision(stage string, provider traceProviderSpec, opts Options, inputPath, outputPath string) TraceProviderDecision {
-	mode := selectedTraceEngineMode(opts.TraceEngine)
+	mode := requestedTraceEngineMode(opts.TraceEngine)
 	return TraceProviderDecision{
 		Stage:        stage,
 		ProviderKind: provider.Kind,

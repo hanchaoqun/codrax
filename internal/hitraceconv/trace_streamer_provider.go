@@ -96,6 +96,8 @@ func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, input string, 
 		caveat := "trace_streamer was not discovered; selected SQL trace conversion cannot produce systrace; pass --trace-engine=builtin to use the built-in trace-only converter"
 		if hasTracePerfSidecar {
 			caveat = "trace_streamer was not discovered; trace+perf htrace requires trace_streamer/SQLite trace conversion"
+		} else if isAutoTraceEngineMode(opts.TraceEngine) {
+			caveat = "trace_streamer was not discovered; auto trace-only conversion will use the built-in trace-only converter"
 		}
 		decision := traceProviderSkipped(
 			newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameTraceStreamer), opts, input, output),

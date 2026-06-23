@@ -143,7 +143,7 @@ func TestConvertFileNoPerfTraceKeepsBuiltinAndTraceStreamerPaths(t *testing.T) {
 	}
 }
 
-func TestConvertFileNoPerfTraceDefaultSQLDoesNotFallbackToBuiltin(t *testing.T) {
+func TestConvertFileNoPerfTraceAutoMissingTraceStreamerFallsBackToBuiltin(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "donghu-no-perf.sys")
 	if err := os.WriteFile(input, syntheticBinaryHitrace(t), 0o644); err != nil {
@@ -157,21 +157,21 @@ func TestConvertFileNoPerfTraceDefaultSQLDoesNotFallbackToBuiltin(t *testing.T) 
 		TraceStreamerPath: filepath.Join(dir, "missing_trace_streamer"),
 	})
 	if err != nil {
-		t.Fatalf("default SQL trace conversion should return a diagnostic bundle, not fall through to built-in: %v", err)
+		t.Fatalf("auto trace conversion should fall back to built-in when trace_streamer is missing: %v", err)
 	}
-	if result.OutputPath != "" || result.EventsWritten != 0 {
-		t.Fatalf("default SQL conversion must not claim built-in systrace output: %+v", result)
+	if result.OutputPath != output || result.EventsWritten != 1 {
+		t.Fatalf("auto missing trace_streamer should emit built-in systrace: %+v", result)
 	}
-	if _, err := os.Stat(output); !os.IsNotExist(err) {
-		t.Fatalf("default SQL conversion should not write built-in systrace output, stat err=%v", err)
+	if _, err := os.Stat(output); err != nil {
+		t.Fatalf("auto missing trace_streamer should write built-in systrace output: %v", err)
 	}
 	if !hasTraceDecisionReason(result.TraceDecisions, traceProviderNameTraceStreamer, "trace_streamer_unavailable") ||
-		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) ||
+		!hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) ||
 		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
-		t.Fatalf("expected selected SQL diagnostic without built-in fallback: %+v", result.TraceDecisions)
+		t.Fatalf("expected auto unavailable SQL decision plus built-in success: %+v", result.TraceDecisions)
 	}
-	if !containsString(result.Caveats, "pass --trace-engine=builtin") || result.BundlePath == "" {
-		t.Fatalf("default SQL diagnostic should explain explicit built-in opt-in and emit bundle: %+v", result)
+	if !containsString(result.Caveats, "auto trace-only conversion will use the built-in") || result.BundlePath == "" {
+		t.Fatalf("auto fallback should explain missing trace_streamer and emit bundle: %+v", result)
 	}
 }
 

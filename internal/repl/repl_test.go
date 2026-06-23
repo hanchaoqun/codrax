@@ -196,13 +196,99 @@ func TestHitraceConvertHelpAliases(t *testing.T) {
 			r.handleHitraceCmd(input)
 
 			got := out.String()
-			if !strings.Contains(got, "/htrace convert <binary-hitrace> [output.systrace]") {
+			if !strings.Contains(got, "/htrace convert [--trace-engine=trace_streamer|builtin|auto] <binary-hitrace> [output.systrace]") {
 				t.Fatalf("help alias did not print convert usage; got:\n%s", got)
+			}
+			if !strings.Contains(got, "Trace-only conversion defaults to auto") ||
+				!strings.Contains(got, "do not fall back after trace_streamer execution failure") ||
+				!strings.Contains(got, "Trace+perf htrace stays trace_streamer/SQL-only") {
+				t.Fatalf("help alias should explain explicit pure-trace engine choice; got:\n%s", got)
 			}
 			if strings.Contains(got, "load hitrace") || strings.Contains(got, "convert hitrace:") {
 				t.Fatalf("help alias should not execute conversion or load path; got:\n%s", got)
 			}
 		})
+	}
+}
+
+func TestHitraceConvertPassesTraceEngineOption(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	var out bytes.Buffer
+	var got hitraceconv.Options
+	calls := 0
+	r := New(Config{
+		Runner:   stubRunner{},
+		Store:    store,
+		Render:   renderNothing,
+		RepoRoot: ".",
+		Branch:   "main",
+		In:       strings.NewReader(""),
+		Out:      &out,
+		Language: "en",
+		HitraceConvert: func(_ context.Context, opts hitraceconv.Options) (hitraceconv.Result, error) {
+			calls++
+			got = opts
+			return hitraceconv.Result{
+				OutputPath:    opts.OutputPath,
+				EventsWritten: 1,
+				TraceDecisions: []hitraceconv.TraceProviderDecision{{
+					ProviderName:    "codrax_builtin_sys_binary",
+					EngineMode:      opts.TraceEngine,
+					Selected:        true,
+					Attempted:       true,
+					Succeeded:       true,
+					TraceQueryReady: true,
+				}},
+			}, nil
+		},
+	})
+
+	r.handleHitraceCmd("/htrace convert --trace-engine=builtin input.htrace out.systrace")
+
+	if calls != 1 {
+		t.Fatalf("converter calls = %d, want 1; output:\n%s", calls, out.String())
+	}
+	if got.InputPath != "input.htrace" || got.OutputPath != "out.systrace" ||
+		got.TraceEngine != "builtin" || got.Flavor != "harmony_hitrace" {
+		t.Fatalf("unexpected convert opts: %+v", got)
+	}
+	if !strings.Contains(out.String(), "converted hitrace: out.systrace") {
+		t.Fatalf("conversion success not rendered:\n%s", out.String())
+	}
+}
+
+func TestHitraceConvertRejectsMalformedTraceEngineBeforeConversion(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	var out bytes.Buffer
+	calls := 0
+	r := New(Config{
+		Runner:   stubRunner{},
+		Store:    store,
+		Render:   renderNothing,
+		RepoRoot: ".",
+		Branch:   "main",
+		In:       strings.NewReader(""),
+		Out:      &out,
+		Language: "en",
+		HitraceConvert: func(_ context.Context, opts hitraceconv.Options) (hitraceconv.Result, error) {
+			calls++
+			return hitraceconv.Result{}, nil
+		},
+	})
+
+	r.handleHitraceCmd("/htrace convert --trace-engine input.htrace out.systrace")
+
+	if calls != 0 {
+		t.Fatalf("malformed trace-engine should not call converter, calls=%d", calls)
+	}
+	if !strings.Contains(out.String(), "--trace-engine=trace_streamer|builtin|auto") {
+		t.Fatalf("malformed trace-engine should show convert usage:\n%s", out.String())
 	}
 }
 

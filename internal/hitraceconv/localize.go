@@ -41,6 +41,8 @@ func localizeConvertMessageZh(message string) string {
 		return "已抽取 raw perf.data sidecar；需要运行官方 hiperf/simpleperf adapter 生成 .perftrace 后，trace_query 才能聚合 CPU sample"
 	case strings.Contains(lower, "trace_streamer was not discovered; trace+perf htrace requires"):
 		return "未发现 trace_streamer；trace+perf htrace 需要通过 trace_streamer/SQLite 转换 trace body"
+	case strings.Contains(lower, "trace_streamer was not discovered; auto trace-only conversion will use"):
+		return "未发现 trace_streamer；auto 模式下纯 trace 会使用内置纯 trace 转换器"
 	case strings.Contains(lower, "trace_streamer was not discovered; selected sql trace conversion cannot produce systrace"):
 		return "未发现 trace_streamer；当前选择的 SQL trace 转换无法生成 systrace；如需内置纯 trace 转换，请显式使用 --trace-engine=builtin"
 	case strings.Contains(lower, "systrace output was not produced because selected trace_streamer/sqlite trace conversion"):

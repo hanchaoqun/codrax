@@ -212,6 +212,11 @@ type reuseWorktreeSetter interface {
 // response text. main.go owns the canonical implementation.
 type ResultRenderer func(*types.BusContext) string
 
+// HitraceConvertFunc is the REPL's narrow conversion seam. Production uses
+// hitraceconv.ConvertFile; tests inject a stub to assert slash-command option
+// plumbing without fabricating a full binary trace container.
+type HitraceConvertFunc func(context.Context, hitraceconv.Options) (hitraceconv.Result, error)
+
 // Config holds all dependencies for constructing a REPL. Using a
 // struct keeps the constructor readable as the field count grows and
 // lets tests inject an io.Reader for scripted input.
@@ -265,6 +270,10 @@ type Config struct {
 	// path; local paths write here because they bypass Runner.Run.
 	OutputDumpDir string
 	OutputDumpMax int
+
+	// HitraceConvert optionally overrides the /htrace convert executor.
+	// Nil uses hitraceconv.ConvertFile.
+	HitraceConvert HitraceConvertFunc
 
 	// ChitchatResponder handles the /chat slash command. When nil,
 	// /chat prints a "not configured" warning and takes no LLM action
@@ -565,6 +574,7 @@ type REPL struct {
 	markdownPreview     MarkdownPreviewer
 	outputDumpDir       string
 	outputDumpMax       int
+	hitraceConvert      HitraceConvertFunc
 
 	// attachedLog holds the runtime log excerpt the user attached.
 	// Lifetime depends on how it got here:
@@ -841,6 +851,7 @@ func New(cfg Config) *REPL {
 		markdownPreview:         cfg.MarkdownPreview,
 		outputDumpDir:           cfg.OutputDumpDir,
 		outputDumpMax:           cfg.OutputDumpMax,
+		hitraceConvert:          cfg.HitraceConvert,
 		chitchatResponder:       cfg.ChitchatResponder,
 		memory:                  cfg.Memory,
 		envSettings:             types.ResolvedEnvRecommendSettings(cfg.EnvSettings),
@@ -878,6 +889,9 @@ func New(cfg Config) *REPL {
 		settingsPath:          cfg.SettingsPath,
 	}
 	r.applyPtermColorMode()
+	if r.hitraceConvert == nil {
+		r.hitraceConvert = hitraceconv.ConvertFile
+	}
 	if r.version == "" {
 		r.version = "dev"
 	}
@@ -10776,19 +10790,16 @@ func (r *REPL) handleHitraceConvert(args string) {
 		r.info(htraceConvertUsage(r.language))
 		return
 	}
-	if len(fields) > 2 {
+	parsed, err := parseHitraceConvertArgs(fields)
+	if err != nil {
 		r.errorf("%s\n", htraceConvertUsage(r.language))
 		return
 	}
-	input := fields[0]
-	output := ""
-	if len(fields) == 2 {
-		output = fields[1]
-	}
-	result, err := hitraceconv.ConvertFile(context.Background(), hitraceconv.Options{
-		InputPath:  input,
-		OutputPath: output,
-		Flavor:     "harmony_hitrace",
+	result, err := r.hitraceConvert(context.Background(), hitraceconv.Options{
+		InputPath:   parsed.input,
+		OutputPath:  parsed.output,
+		Flavor:      "harmony_hitrace",
+		TraceEngine: parsed.traceEngine,
 	})
 	if err != nil {
 		r.errorf("%s\n", htraceConvertFailedMsg(r.language, err))
@@ -10813,6 +10824,58 @@ func (r *REPL) handleHitraceConvert(args string) {
 		}
 	}
 	r.info(htraceConvertNextMsg(r.language, result.OutputPath, result.BundlePath, hitraceResultHasArtifact(result, hitraceconv.ArtifactPerfTrace)))
+}
+
+type hitraceConvertParsedArgs struct {
+	input       string
+	output      string
+	traceEngine string
+}
+
+func parseHitraceConvertArgs(fields []string) (hitraceConvertParsedArgs, error) {
+	var parsed hitraceConvertParsedArgs
+	var positional []string
+	for i := 0; i < len(fields); i++ {
+		field := fields[i]
+		switch {
+		case field == "--trace-engine" || field == "--trace_engine":
+			if i+1 >= len(fields) || strings.HasPrefix(fields[i+1], "-") {
+				return hitraceConvertParsedArgs{}, fmt.Errorf("missing trace engine")
+			}
+			i++
+			if !validHitraceConvertTraceEngine(fields[i]) {
+				return hitraceConvertParsedArgs{}, fmt.Errorf("unsupported trace engine")
+			}
+			parsed.traceEngine = fields[i]
+		case strings.HasPrefix(field, "--trace-engine=") || strings.HasPrefix(field, "--trace_engine="):
+			_, value, _ := strings.Cut(field, "=")
+			if !validHitraceConvertTraceEngine(value) {
+				return hitraceConvertParsedArgs{}, fmt.Errorf("unsupported trace engine")
+			}
+			parsed.traceEngine = value
+		case strings.HasPrefix(field, "-"):
+			return hitraceConvertParsedArgs{}, fmt.Errorf("unsupported option")
+		default:
+			positional = append(positional, field)
+		}
+	}
+	if len(positional) == 0 || len(positional) > 2 {
+		return hitraceConvertParsedArgs{}, fmt.Errorf("invalid positional arguments")
+	}
+	parsed.input = positional[0]
+	if len(positional) == 2 {
+		parsed.output = positional[1]
+	}
+	return parsed, nil
+}
+
+func validHitraceConvertTraceEngine(value string) bool {
+	switch strings.ReplaceAll(strings.ToLower(strings.TrimSpace(value)), "-", "_") {
+	case "auto", "trace_streamer", "builtin":
+		return true
+	default:
+		return false
+	}
 }
 
 func hitraceConvertArtifactDetail(lang string, artifact hitraceconv.Artifact) string {

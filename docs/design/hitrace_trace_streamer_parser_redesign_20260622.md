@@ -11,13 +11,16 @@ shape as `hmtrace`: first normalize the capture through `trace_streamer` into a
 structured database, then export Codrax-native `.systrace`, `.perftrace`, and
 `.tracebundle.json` artifacts for `trace_query`.
 
-This redesign makes `trace_streamer` DB export the default conversion engine for
-modern `.htrace`, no-perf trace, and `perf.data` captures. The existing
+This redesign makes `auto` the default trace-body selection. For pure trace
+captures, `auto` uses `trace_streamer` DB export when `trace_streamer` is
+discovered, falls back to the built-in trace-only converter only when
+`trace_streamer` is absent, and does not fall back after a `trace_streamer`
+execution or DB-export failure. Trace+perf captures are SQL-only. The existing
 `SEGMENT_EVENTS_FORMAT` + `SEGMENT_RAW_TRACE` parser remains an explicitly
 selectable transition lane for no-perf Harmony/Donghu `.sys`-style binary
 captures until the DB engine proves full parity for that shape. Runtime
-conversion must choose exactly one trace-body engine: default SQL/trace_streamer,
-or user-selected built-in for trace-only captures. Once parity is proven by
+conversion must choose exactly one trace-body engine: auto-selected SQL or
+built-in for pure trace, explicit SQL, or explicit built-in for pure trace. Once parity is proven by
 round-trip tests and customer-style fixtures, Codrax can retire the built-in sys
 binary lane without keeping backward compatibility solely for its own sake.
 
@@ -105,10 +108,11 @@ explicit built-in sys binary parser.
   long-term canonical format.
 - Unknown modern DB/profiler surfaces are reported as structured coverage
   caveats, not emitted as header-only systrace rows.
-- If the selected engine cannot decode the trace body, the converter should fail
-  or return an explicitly partial tracebundle. It must not silently try the
-  other trace-body engine, and it must not imply that the sys binary parser is
-  the expected fallback for modern profiler captures.
+- If a discovered or explicitly selected `trace_streamer` cannot decode the
+  trace body, the converter should fail or return an explicitly partial
+  tracebundle. It must not silently try the other trace-body engine after SQL
+  execution has begun, and it must not imply that the sys binary parser is the
+  expected fallback for trace+perf profiler captures.
 
 ## Engine Architecture
 
@@ -201,17 +205,18 @@ systrace/perftrace/tracebundle artifacts.
 ### Batch B: Add trace_streamer Provider
 
 - Add options and CLI flags:
-  - `--trace-engine trace_streamer|builtin` (`auto` remains accepted as an
-    alias for `trace_streamer`)
+  - `--trace-engine auto|trace_streamer|builtin`
   - `--trace-streamer <path>`
   - `--keep-db`
   - `--db-output <path>`
   - `--trace-tools-status`
 - Discover `trace_streamer` through explicit flag, environment variable, `PATH`,
   and known OpenHarmony/SmartPerf locations.
-- The default/`auto` engine is `trace_streamer`; explicit `trace_streamer` fails
-  fast on provider failure. Built-in trace-only conversion requires explicit
-  `--trace-engine=builtin`.
+- The default/`auto` engine uses `trace_streamer` when discovered. If
+  `trace_streamer` is absent and the input is pure trace, `auto` uses the
+  built-in trace-only converter. If `trace_streamer` is discovered but execution
+  or DB export fails, `auto` does not fall back. Explicit `trace_streamer` fails
+  fast on missing provider. Trace+perf remains SQL-only.
 
 ### Batch C: DB Exporter
 
@@ -253,8 +258,9 @@ systrace/perftrace/tracebundle artifacts.
   - `.htrace -> trace_streamer DB -> perftrace -> trace_query`
   - `.htrace -> tracebundle -> window_stats/root_cause/perf_stats`
   - explicit `trace_streamer` failure returns a hard error
-  - `auto` provider failure falls back only to modern built-in parser or
-    perf-only partial bundle
+  - `auto` missing-provider pure trace falls back to the built-in parser
+  - `auto` trace_streamer execution/DB failure does not fall back
+  - trace+perf without query-ready SQL returns a perf/tracebundle partial bundle
 - Verify prompt/hint/query-result guidance names the stable artifacts and fields:
   `systrace`, `perftrace`, `tracebundle`, `trace_streamer_db`, and modern
   profiler coverage caveats.
