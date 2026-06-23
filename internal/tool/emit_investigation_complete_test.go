@@ -2491,7 +2491,7 @@ func TestEmitInvestigationComplete_PreservesPriorAbsenceOverResolvedRetryWithout
 	}
 }
 
-func TestEmitInvestigationComplete_RejectsResolvedExactClosureWithoutDefiningProof(t *testing.T) {
+func TestEmitInvestigationComplete_DowngradesResolvedExactClosureWithoutDefiningProof(t *testing.T) {
 	missingKey := "explore_mid_loop_hint_budget"
 	mut := types.NewMutableState("q")
 	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go", "cmd/root.go"})
@@ -2556,11 +2556,82 @@ func TestEmitInvestigationComplete_RejectsResolvedExactClosureWithoutDefiningPro
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatalf("resolved completion without defining proof or stable absence closure should be rejected, got: %s", res.Summary)
+	if !res.Success {
+		t.Fatalf("resolved completion without defining proof should downgrade instead of tool-rejecting: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("downgraded resolved exact completion must not mark investigation complete")
 	}
 	if !strings.Contains(res.Summary, "still has no grounded defining proof") || !strings.Contains(res.Summary, "result_kind=\"absence\"") {
-		t.Fatalf("reject should steer either toward real defining proof or exact absence closure, got: %s", res.Summary)
+		t.Fatalf("downgrade should steer either toward real defining proof or exact absence closure, got: %s", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != "exact_resolved_defining_proof" {
+		t.Fatalf("downgrade should carry exact resolved defining-proof repair, got %+v", res.Repair)
+	}
+	if repairs := mut.EvidenceClosure().ActiveRepairs(); len(repairs) != 1 || repairs[0].Kind != types.RepairEmitEvidence {
+		t.Fatalf("downgrade should record typed repair directive, got %+v", repairs)
+	}
+}
+
+func TestEmitInvestigationComplete_ResolvedExactDefiningProofForceCompletesWithCaveatAfterNoProgress(t *testing.T) {
+	SetDowngradeConvergenceHardThreshold(3)
+	t.Cleanup(func() { SetDowngradeConvergenceHardThreshold(0) })
+	mut := types.NewMutableState("q")
+	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/types/config.go",
+		LineStart:       848,
+		Subject:         "DefaultExploreHeuristics",
+		Object:          "missing_key is not present in defaults",
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					ExactTargets: []string{"missing_key"},
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:   types.SubjectConfigKey,
+					TargetLabel:  "config key",
+					Targets:      []string{"missing_key"},
+					AllowAbsence: true,
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{"reason":"the general mechanism is understood","confidence":"high","result_kind":"resolved"}`)
+
+	for i := 1; i <= 2; i++ {
+		res, _ := tool.Execute(bus, params)
+		if !res.Success {
+			t.Fatalf("attempt %d should downgrade without tool failure: %s", i, res.Summary)
+		}
+		if mut.IsInvestigationComplete() {
+			t.Fatalf("attempt %d should not complete before convergence threshold", i)
+		}
+	}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("threshold attempt should complete with caveat, got failure: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("threshold attempt should force-complete with typed caveat")
+	}
+	caveats := mut.EvidenceClosure().CompletionCaveats()
+	if len(caveats) != 1 || caveats[0].Lane != types.DowngradeLaneExactResolvedDefiningProof {
+		t.Fatalf("completion caveats = %+v, want exact_resolved_defining_proof", caveats)
 	}
 }
 
@@ -5427,14 +5498,17 @@ func TestEmitInvestigationComplete_ConfigAbsenceRejectsPositiveSubstituteFromPri
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatalf("positive substitute completion must be rejected")
+	if !res.Success {
+		t.Fatalf("positive substitute completion should downgrade instead of tool-rejecting: %s", res.Summary)
 	}
 	if !strings.Contains(res.Summary, "primary exact config key") {
-		t.Fatalf("rejection should explain exact-key guard: %s", res.Summary)
+		t.Fatalf("downgrade should explain exact-key guard: %s", res.Summary)
 	}
 	if mut.IsInvestigationComplete() {
-		t.Fatalf("completion flag must not fire on positive substitute rejection")
+		t.Fatalf("completion flag must not fire on positive substitute downgrade")
+	}
+	if res.Repair == nil || res.Repair.Code != "exact_resolved_defining_proof" {
+		t.Fatalf("downgrade should carry exact resolved defining-proof repair, got %+v", res.Repair)
 	}
 }
 

@@ -1652,15 +1652,24 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				if contract != nil && strings.TrimSpace(contract.TargetLabel) != "" {
 					label = strings.TrimSpace(contract.TargetLabel)
 				}
-				return types.ToolResult{
-					ToolName: t.Name(),
-					Summary: fmt.Sprintf(
-						"emit_investigation_complete rejected: the primary exact %s still has no grounded defining proof, and the emitted evidence only supports nearby or contextual material. Do not complete a positive substitute chain as result_kind=resolved. Either find an explicit grounded defining anchor (or alias/parser mapping) that names the exact %s, or keep investigating until an honest exact-absence closure is ready and then re-call emit_investigation_complete with result_kind=\"absence\" plus absence_justification for the exact %s.",
-						label, label, label,
-					),
-					Success:   false,
-					Timestamp: time.Now(),
-				}, nil
+				summary := fmt.Sprintf(
+					"emit_investigation_complete rejected: the primary exact %s still has no grounded defining proof, and the emitted evidence only supports nearby or contextual material. Do not complete a positive substitute chain as result_kind=resolved. Either find an explicit grounded defining anchor (or alias/parser mapping) that names the exact %s, or keep investigating until an honest exact-absence closure is ready and then re-call emit_investigation_complete with result_kind=\"absence\" plus absence_justification for the exact %s.",
+					label, label, label,
+				)
+				queueExactResolvedDefiningProofRepair(ctx, label, targets)
+				if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneExactResolvedDefiningProof) {
+					if ctx != nil && ctx.Mutable != nil {
+						ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+					}
+					return types.ToolResult{
+						ToolName:  t.Name(),
+						Summary:   preCompleteDowngradeSummary(summary),
+						Repair:    attachToolJSONSurfaceMetadata(t.Name(), exactResolvedDefiningProofRepair(label, targets)),
+						Success:   true,
+						Timestamp: time.Now(),
+					}, nil
+				}
+				earlyDowngradeConverged = true
 			}
 		}
 		policy := CurrentGroundingPolicy()
@@ -2270,6 +2279,69 @@ func groundingCitationFloorRepair(code, hint string) *types.ToolRepair {
 			"lane":          string(types.DowngradeLaneGroundingCitationFloor),
 		},
 	}
+}
+
+func exactResolvedDefiningProofRepair(label string, targets []string) *types.ToolRepair {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = "target"
+	}
+	cleanTargets := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if target = strings.TrimSpace(target); target != "" {
+			cleanTargets = append(cleanTargets, target)
+		}
+	}
+	metadata := map[string]string{
+		"repair_origin": "emit_investigation_complete.exact_resolved_defining_proof",
+		"lane":          string(types.DowngradeLaneExactResolvedDefiningProof),
+		"target_label":  label,
+	}
+	if len(cleanTargets) > 0 {
+		metadata["targets"] = strings.Join(cleanTargets, ",")
+	}
+	return &types.ToolRepair{
+		Code: "exact_resolved_defining_proof",
+		Hint: "Find and emit a grounded defining proof for the exact target, or switch to an honest exact-absence closure if the target is absent.",
+		Fields: []string{
+			"emit_evidence.items[].context_role_hint=defining",
+			"emit_investigation_complete.result_kind",
+			"emit_investigation_complete.absence_justification",
+		},
+		Metadata: metadata,
+	}
+}
+
+func queueExactResolvedDefiningProofRepair(ctx *types.BusContext, label string, targets []string) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return
+	}
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = "target"
+	}
+	subject := label
+	cleanTargets := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if target = strings.TrimSpace(target); target != "" {
+			cleanTargets = append(cleanTargets, target)
+		}
+	}
+	if len(cleanTargets) > 0 {
+		subject = label + ":" + strings.Join(cleanTargets, ",")
+	}
+	closure.AddRepair(types.RepairDirective{
+		Kind:      types.RepairEmitEvidence,
+		Subject:   "exact_resolved_defining_proof:" + subject,
+		Tools:     []string{"read_file", "repo_map", "emit_evidence"},
+		Rationale: "positive exact-resolution closure needs a grounded defining proof for the exact target, or an honest exact-absence closure",
+		Origin:    "emit_investigation_complete.exact_resolved_defining_proof",
+		Stage:     string(types.StageExplore),
+	})
 }
 
 func queuePathDiscoveryAbsenceRepair(ctx *types.BusContext) {

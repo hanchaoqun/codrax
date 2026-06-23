@@ -2468,8 +2468,8 @@ func TestPreCheckAggregateCardinalityConsistency_RejectsScopedCountMismatch(t *t
 		!strings.Contains(hints[0].ExpectedShape, "visible_count=8") {
 		t.Fatalf("hint should report scoped count mismatch, got %+v", hints[0])
 	}
-	if hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolCardinalityShort, hints)); len(hard) != 1 || len(advisory) != 0 {
-		t.Fatalf("principal member_set visible count drift must force same-turn repair, hard=%+v advisory=%+v", hard, advisory)
+	if hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolCardinalityShort, hints)); len(hard) != 0 || len(advisory) != 1 {
+		t.Fatalf("principal member_set visible count drift should be advisory by default, hard=%+v advisory=%+v", hard, advisory)
 	}
 
 	doc.Blocks[0].Text = "typed handoff participants 一共有 10 个；其中 `AnalyzerAgent` 的关键证据在 internal/agent/analyzer.go:1649。"

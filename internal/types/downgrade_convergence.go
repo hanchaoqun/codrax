@@ -34,6 +34,12 @@ const (
 	// or precedence role evidence has not been materialized. It is a repair lane,
 	// not an infinite hard reject.
 	DowngradeLaneExactAbsenceContext DowngradeLane = "exact_absence_context"
+	// DowngradeLaneExactResolvedDefiningProof is the positive exact-resolution
+	// gate: the model claims result_kind=resolved for an exact target, but the
+	// typed evidence pool does not yet contain a grounded defining proof for that
+	// exact target. It should delay closure and request proof, then caveat after
+	// repeated no-progress attempts instead of tool-failing forever.
+	DowngradeLaneExactResolvedDefiningProof DowngradeLane = "exact_resolved_defining_proof"
 	// DowngradeLaneGroundingCitationFloor is the configured grounding / Tier-1
 	// citation-floor gate. The floor is based on typed evidence grounding
 	// verdicts, but it still must not become an infinite hard loop when the same

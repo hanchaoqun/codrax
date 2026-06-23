@@ -4098,10 +4098,8 @@ func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt
 		expected int
 		got      int
 		blockID  string
-		hard     bool
 	}
 	var mismatches []mismatch
-	hard := false
 	for _, ref := range refs {
 		fact := ref.Fact
 		expected := len(fact.Members)
@@ -4114,7 +4112,6 @@ func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt
 				expected: expected,
 				got:      declared,
 				blockID:  fmt.Sprintf("aggregate_facts[%d].value", ref.Index),
-				hard:     false,
 			})
 			continue
 		}
@@ -4127,11 +4124,7 @@ func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt
 				expected: expected,
 				got:      claim.value,
 				blockID:  claim.blockID,
-				hard:     ref.ForceHard,
 			})
-			if ref.ForceHard {
-				hard = true
-			}
 		}
 	}
 	if len(mismatches) == 0 {
@@ -4158,8 +4151,7 @@ func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt
 		Field: "blocks[].text/count claims",
 		ExpectedShape: "make every visible count claim for a model-emitted aggregate member list equal the aggregate cardinality: " +
 			strings.Join(parts, "; "),
-		Reason:    "aggregate_facts carries the authoritative model-authored member cardinality; final text may display it, but it must not introduce a different count for that same set.",
-		ForceHard: hard,
+		Reason: "aggregate_facts carries the authoritative model-authored member cardinality; final text may display it, but visible prose/table count parsing is advisory and should not override an otherwise grounded answer.",
 	}}
 }
 
@@ -4167,7 +4159,6 @@ type preEmitAggregateCardinalityRef struct {
 	Index            int
 	Fact             types.AnswerAggregateFact
 	MemberBindingMin int
-	ForceHard        bool
 }
 
 func preEmitAggregateCardinalityFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []preEmitAggregateCardinalityRef {
@@ -4188,7 +4179,6 @@ func preEmitAggregateCardinalityFactRefs(ctx *types.BusContext, facts []types.An
 			Index:            ref.Index,
 			Fact:             ref.Fact,
 			MemberBindingMin: min,
-			ForceHard:        preEmitAggregateCardinalityRefForceHard(ctx, ref.Fact),
 		})
 	}
 	if ctx == nil || ctx.AnalysisIR == nil {
@@ -4203,7 +4193,6 @@ func preEmitAggregateCardinalityFactRefs(ctx *types.BusContext, facts []types.An
 			Index:            idx,
 			Fact:             fact,
 			MemberBindingMin: 0,
-			ForceHard:        false,
 		})
 	}
 	for _, ref := range types.PrincipalAggregateMemberSetFactRefs(facts) {
@@ -4218,23 +4207,12 @@ func preEmitAggregateCardinalityFactRefs(ctx *types.BusContext, facts []types.An
 			Index:            ref.Index,
 			Fact:             ref.Fact,
 			MemberBindingMin: min,
-			ForceHard:        false,
 		})
 	}
 	if len(out) == 0 {
 		return nil
 	}
 	return out
-}
-
-func preEmitAggregateCardinalityRefForceHard(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
-	if fact.Kind != types.AnswerAggregateMemberSet {
-		return false
-	}
-	if ctx != nil && ctx.AnalysisIR != nil && types.AggregateMemberSetIsScalarCountSupport(&ctx.AnalysisIR.RequestModel, fact) {
-		return false
-	}
-	return true
 }
 
 func preEmitNarrativeAggregateCountCanBindByMembers(fact types.AnswerAggregateFact) bool {

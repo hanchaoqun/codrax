@@ -121,3 +121,43 @@ func TestPrincipleCompleteTypedPrincipalRowSetMissingMemberRemainsHard(t *testin
 		t.Fatalf("complete typed principal row-set omission should remain hard, hard=%+v advisory=%+v", hard, advisory)
 	}
 }
+
+func TestPrincipleVisibleCountDriftStaysAdvisoryAtPreEmitBoundary(t *testing.T) {
+	members := []string{"AnalyzerAgent", "ExplorerAgent", "ExtractorAgent", "FinalizerAgent"}
+	mu := types.NewMutableState("visible count principle guard")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "agent list",
+		Value:   "4",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: members,
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	items := make([]types.AnswerBlockItem, 0, len(members))
+	for _, member := range members {
+		items = append(items, types.AnswerBlockItem{Label: member})
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "agent list 一共有 3 个，下面列全。",
+	}, {
+		ID:    "members",
+		Kind:  types.BlockOrderedList,
+		Items: items,
+	}}}
+
+	hints := preCheckAggregateCardinalityConsistency(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("visible count drift should still produce an advisory hint, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "expected_count=4") ||
+		!strings.Contains(hints[0].ExpectedShape, "visible_count=3") {
+		t.Fatalf("hint should report typed/cardinality mismatch details, got %+v", hints[0])
+	}
+	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolCardinalityShort, hints))
+	if len(hard) != 0 || len(advisory) != 1 {
+		t.Fatalf("visible prose/table count parsing is not precise enough to hard-block by default, hard=%+v advisory=%+v", hard, advisory)
+	}
+}
