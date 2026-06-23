@@ -1803,38 +1803,146 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryResolvedRequi
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	for _, want := range []string{
-		"source-inventory result is still incomplete",
-		"candidate_budget_truncated",
-		"next_cursor=50",
-		"repo_map(view=\"source_inventory\")",
-	} {
-		if !strings.Contains(res.Summary, want) {
-			t.Fatalf("source-inventory completion downgrade missing %q:\n%s", want, res.Summary)
-		}
+	if strings.Contains(res.Summary, "source-inventory result is still incomplete") {
+		t.Fatalf("non-precise source_inventory debt must not hard-downgrade resolved completion:\n%s", res.Summary)
 	}
-	repairs := mut.EvidenceClosure().PendingRepairs()
-	if len(repairs) == 0 {
-		t.Fatal("expected source-inventory completion repair directive")
+	if !mut.IsInvestigationComplete() {
+		t.Fatal("non-precise source_inventory debt must not block model-authored completion")
 	}
-	last := repairs[len(repairs)-1]
-	if last.Kind != types.RepairStructuredHandoff ||
-		last.Origin != "pre_complete.source_inventory_completion" ||
-		!strings.Contains(last.Subject, "cursor=\"50\"") && !strings.Contains(last.Subject, "cursor=50") {
-		t.Fatalf("unexpected source-inventory completion repair directive: %+v", last)
+	if repairs := mut.EvidenceClosure().PendingRepairs(); len(repairs) != 0 {
+		t.Fatalf("non-precise source_inventory debt must not queue blocking repair, got %+v", repairs)
 	}
-	authority := types.NormalizeSourceInventoryCompletionAuthority(last.SourceInventoryCompletionAuthority)
-	if !authority.Blocking || authority.ReasonCode != types.SourceInventoryCompletionReasonFollowupDebt {
-		t.Fatalf("repair must carry blocking source-inventory completion authority, got %+v", authority)
+	caveats := mut.EvidenceClosure().CompletionCaveats()
+	if len(caveats) != 1 ||
+		caveats[0].Lane != types.DowngradeLaneSourceInventoryCompletion ||
+		caveats[0].ReasonCode != "source_inventory_navigation_debt_advisory" {
+		t.Fatalf("expected advisory source_inventory completion caveat, got %+v", caveats)
 	}
-	if !authority.FollowupDebt.IsActive() || !authority.FollowupDebt.Query.IncludeCounts || len(authority.FollowupDebt.Query.Roles) == 0 {
-		t.Fatalf("repair must carry exact source-inventory follow-up route, got %+v", authority.FollowupDebt)
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryNavigationDebtDoesNotOverridePrincipalClosure(t *testing.T) {
+	mut := types.NewMutableState("解释当前系统的组件、职责和调用关系")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes: []string{
+			"cmd",
+			"internal/runtime",
+			"internal/controller",
+			"eval/fixtures/multirepo-basic/repo-greet-go/service",
+			"internal/skill",
+		},
+		Provenance: []string{"source_inventory_profile", "repo_lens:tool_query", "repo_lens:candidate_budget_truncated"},
+		Lens:       []string{"members", "symbols", "count"},
+		Page: &types.SourceInventoryObservationPage{
+			Offset:     0,
+			Limit:      24,
+			Total:      738,
+			Emitted:    24,
+			NextCursor: "24",
+			Complete:   false,
+		},
+		Execution: &types.SourceInventoryExecutionState{
+			Budgeted:                 true,
+			CandidateBudgetTruncated: true,
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: false,
+			Count:    120,
+			Total:    120,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Controller",
+				Key:           "controller",
+				SupportRef:    "Controller: internal/controller/controller.go:12",
+				Role:          types.AnswerCandidateRoleType,
+				File:          "internal/controller/controller.go",
+				Line:          12,
+				Language:      "go",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}, {
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: false,
+			Count:    618,
+			Total:    618,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Run",
+				Key:           "run",
+				SupportRef:    "Run: internal/runtime/runtime.go:44",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "internal/runtime/runtime.go",
+				Line:          44,
+				Language:      "go",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				Predicates: types.SemanticPredicates{
+					IsCrossComponent:      true,
+					IsRelationalLookup:    true,
+					IsCategoryEnumeration: false,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleType,
+						types.AnswerCandidateRoleFunction,
+					},
+					Confidence: 0.9,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
 	}
-	if mut.IsInvestigationComplete() {
-		t.Fatal("incomplete source-inventory observation must not close as resolved")
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "principal component set and call relationship were verified from authoritative source files",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "principal components",
+			"value":        "3",
+			"role":         "principal_answer",
+			"members":      []string{"Controller", "Runtime", "Registry"},
+			"support_refs": []string{"Controller: internal/controller/controller.go:12", "Runtime: internal/runtime/runtime.go:44", "Registry: internal/runtime/registry.go:19"},
+		}, {
+			"kind":         "behavior_outcome",
+			"label":        "dispatch relationship",
+			"value":        "controller invokes runtime through registry-owned component lookup",
+			"role":         "principal_answer",
+			"support_refs": []string{"Controller: internal/controller/controller.go:12", "Run: internal/runtime/runtime.go:44", "Registry: internal/runtime/registry.go:19"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
 	}
-	if facts := mut.StableInvestigationAggregateFacts(); len(facts) != 0 {
-		t.Fatalf("downgraded partial source-inventory facts must not become stable handoff facts, got %+v", facts)
+	if strings.Contains(res.Summary, "source-inventory result is still incomplete") {
+		t.Fatalf("source_inventory navigation debt must not override closed principal evidence:\n%s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatal("closed principal evidence must be accepted even when helper source_inventory paging is incomplete")
+	}
+	if repairs := mut.EvidenceClosure().PendingRepairs(); len(repairs) != 0 {
+		t.Fatalf("non-answer-critical source_inventory debt must not become blocking repair, got %+v", repairs)
+	}
+	caveats := mut.EvidenceClosure().CompletionCaveats()
+	if len(caveats) != 1 ||
+		caveats[0].Lane != types.DowngradeLaneSourceInventoryCompletion ||
+		caveats[0].ReasonCode != "source_inventory_navigation_debt_advisory" ||
+		!strings.Contains(caveats[0].Reason, "candidate_budget_truncated") {
+		t.Fatalf("expected advisory source_inventory navigation caveat, got %+v", caveats)
 	}
 }
 
@@ -1949,28 +2057,18 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryRepoWideRepai
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if !strings.Contains(res.Summary, "source-inventory result is still incomplete") {
-		t.Fatalf("repo-wide incomplete inventory should still downgrade, summary:\n%s", res.Summary)
+	if strings.Contains(res.Summary, "source-inventory result is still incomplete") {
+		t.Fatalf("repo-wide source_inventory pagination is not precise enough to hard-downgrade completion:\n%s", res.Summary)
 	}
-	repairs := mut.EvidenceClosure().PendingRepairs()
-	if len(repairs) == 0 {
-		t.Fatal("expected source-inventory completion repair directive")
+	if !mut.IsInvestigationComplete() {
+		t.Fatal("repo-wide non-precise source_inventory debt must not block completion")
 	}
-	last := repairs[len(repairs)-1]
-	if !strings.Contains(last.Subject, `scopes=["."]`) || !strings.Contains(last.Subject, `query="extend foreign func public class"`) {
-		t.Fatalf("repair must target repo-wide requested universe with typed query, got subject=%q", last.Subject)
+	if repairs := mut.EvidenceClosure().PendingRepairs(); len(repairs) != 0 {
+		t.Fatalf("repo-wide non-precise source_inventory debt must not queue blocking repair, got %+v", repairs)
 	}
-	for _, forbidden := range []string{
-		"internal/tool/repomap/index/cangjie_parser.go",
-		"internal/tool/source_inventory_construct_surface.go",
-		"eval/fixtures/testdata/cangjie_minimal",
-	} {
-		if strings.Contains(last.Subject, forbidden) {
-			t.Fatalf("repair subject leaked support/bounded scope %q: %s", forbidden, last.Subject)
-		}
-	}
-	if mut.IsInvestigationComplete() {
-		t.Fatal("narrow exact universe coverage must not close a repo-wide incomplete inventory")
+	if caveats := mut.EvidenceClosure().CompletionCaveats(); len(caveats) != 1 ||
+		caveats[0].Lane != types.DowngradeLaneSourceInventoryCompletion {
+		t.Fatalf("expected source_inventory caveat for repo-wide non-precise debt, got %+v", caveats)
 	}
 }
 

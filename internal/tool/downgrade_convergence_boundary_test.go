@@ -53,8 +53,8 @@ func TestPreCompleteDowngradeConverges_ChangedBlockerResets(t *testing.T) {
 	}
 }
 
-func TestPreCompleteDowngradeConverges_SourceInventoryCompletionDebtDoesNotForceComplete(t *testing.T) {
-	SetDowngradeConvergenceHardThreshold(2)
+func TestPreCompleteDowngradeConverges_SourceInventoryCompletionDebtForceCompletesAtThreshold(t *testing.T) {
+	SetDowngradeConvergenceHardThreshold(3)
 	defer SetDowngradeConvergenceHardThreshold(0)
 
 	mut := types.NewMutableState("inventory")
@@ -81,13 +81,16 @@ func TestPreCompleteDowngradeConverges_SourceInventoryCompletionDebtDoesNotForce
 		},
 	})
 
-	for i := 1; i <= 4; i++ {
+	for i := 1; i <= 2; i++ {
 		if preCompleteDowngradeConverges(bus, types.DowngradeLaneSourceInventoryCompletion) {
-			t.Fatalf("source-inventory completion debt must not force-complete on attempt %d", i)
+			t.Fatalf("source-inventory completion debt must wait until threshold, converged on attempt %d", i)
 		}
 	}
-	if cv := closure.CompletionCaveats(); len(cv) != 0 {
-		t.Fatalf("source-inventory completion debt must not record force-complete caveat, got %+v", cv)
+	if !preCompleteDowngradeConverges(bus, types.DowngradeLaneSourceInventoryCompletion) {
+		t.Fatal("source-inventory completion debt must force-complete as caveat on the third identical blocker")
+	}
+	if cv := closure.CompletionCaveats(); len(cv) != 1 || cv[0].Lane != types.DowngradeLaneSourceInventoryCompletion {
+		t.Fatalf("source-inventory completion debt must record typed caveat, got %+v", cv)
 	}
 }
 

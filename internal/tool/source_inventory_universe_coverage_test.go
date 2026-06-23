@@ -2272,19 +2272,18 @@ func TestSourceInventoryResolvedCompletionDowngrade_RendersFollowupDebtScope(t *
 			"extend String @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
 		},
 	}}
-	if downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, "resolved", facts); downgrade == "" {
-		t.Fatal("expected downgrade for missing same-language fixture class")
+	if downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, "resolved", facts); downgrade != "" {
+		t.Fatalf("non-precise source_inventory follow-up debt must be advisory, got downgrade:\n%s", downgrade)
 	}
-	repairs := ctx.Mutable.EvidenceClosure().PendingRepairs()
-	if len(repairs) == 0 {
-		t.Fatal("downgrade should add a repair directive")
+	if repairs := ctx.Mutable.EvidenceClosure().PendingRepairs(); len(repairs) != 0 {
+		t.Fatalf("non-precise source_inventory follow-up debt must not queue blocking repair, got %+v", repairs)
 	}
-	subject := repairs[len(repairs)-1].Subject
-	if !strings.Contains(subject, `scopes=["eval/fixtures/testdata/cangjie_minimal/bridge"]`) {
-		t.Fatalf("repair should render narrowed follow-up scope, got %q", subject)
-	}
-	if strings.Contains(subject, `scopes=["."]`) {
-		t.Fatalf("repair should not preserve stale root scope when follow-up debt is narrower: %q", subject)
+	caveats := ctx.Mutable.EvidenceClosure().CompletionCaveats()
+	if len(caveats) != 1 ||
+		caveats[0].Lane != types.DowngradeLaneSourceInventoryCompletion ||
+		caveats[0].ReasonCode != "source_inventory_navigation_debt_advisory" ||
+		!strings.Contains(caveats[0].Reason, "reason=followup_debt") {
+		t.Fatalf("expected advisory source_inventory caveat with typed follow-up reason, got %+v", caveats)
 	}
 }
 

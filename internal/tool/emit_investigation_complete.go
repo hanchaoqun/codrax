@@ -2166,13 +2166,13 @@ func SetInvestigationCompletePolicy(policy string) {
 // re-issuing the identical downgrade. Default 4 is conservative: a healthy run
 // completes in 1-2 attempts or makes progress (changing the blocker and
 // resetting the count), so only a genuine runaway reaches the threshold.
-var downgradeConvergenceHardThreshold = 4
+var downgradeConvergenceHardThreshold = 3
 
 // SetDowngradeConvergenceHardThreshold configures the low-delta convergence
 // hard threshold from cmd/root.go. Non-positive values restore the default.
 func SetDowngradeConvergenceHardThreshold(n int) {
 	if n <= 0 {
-		downgradeConvergenceHardThreshold = 4
+		downgradeConvergenceHardThreshold = 3
 		return
 	}
 	downgradeConvergenceHardThreshold = n
@@ -2196,11 +2196,6 @@ func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLa
 	}
 	blockerKey := types.ComputeDowngradeBlockerKey(closure.PendingReads(), closure.UnverifiedFindings(), closure.ActiveRepairs())
 	decision := closure.RecordDowngradeProgressDelta(lane, blockerKey, downgradeConvergenceHardThreshold)
-	if lane == types.DowngradeLaneSourceInventoryCompletion && sourceInventoryCompletionRepairDebtActive(closure.ActiveRepairs()) {
-		logging.Info("[emit_investigation_complete] source-inventory completion debt remains active; low-delta convergence will not force-complete lane=%s consecutive=%d blocker=%d reason=%s",
-			lane, decision.Delta.Consecutive, blockerKey, decision.ReasonCode)
-		return false
-	}
 	if decision.ShouldReplan {
 		return false
 	}
@@ -3707,6 +3702,9 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 	if !authority.Blocking {
 		return ""
 	}
+	if sourceInventoryResolvedCompletionDebtIsAdvisory(ctx, authority, observation) {
+		return ""
+	}
 	roles := sourceInventoryCompletionRepairRoleLabels(authority, observation)
 	scopes := sourceInventoryCompletionRepairScopes(authority)
 	repoMapPath, repoMapScopes := sourceInventoryLensExecutionRepoMapCallShape(scopes)
@@ -3736,6 +3734,57 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 	return b.String()
 }
 
+func sourceInventoryResolvedCompletionDebtIsAdvisory(ctx *types.BusContext, authority types.SourceInventoryCompletionAuthority, observation types.SourceInventoryObservation) bool {
+	authority = types.NormalizeSourceInventoryCompletionAuthority(authority)
+	if !authority.Blocking {
+		return false
+	}
+	switch authority.ReasonCode {
+	case "", types.SourceInventoryCompletionReasonIncompleteObservation, types.SourceInventoryCompletionReasonFollowupDebt:
+	default:
+		return false
+	}
+	// The source-inventory completion authority observes navigation/tool debt:
+	// pagination, candidate-budget truncation, incomplete broad roles, and
+	// follow-up route suggestions. Those signals prove that the helper lens did
+	// not exhaust a mechanical candidate space; they do not precisely prove that
+	// the user's principal question is unanswered. Exact member-set omissions
+	// are enforced by exhaustiveEnumerationMemberSetDowngrade and
+	// SourceInventoryCandidateUniverseCoverageGap, where the system owns a
+	// concrete candidate universe. Here we preserve a typed caveat and let the
+	// model-authored completion continue instead of turning helper debt into a
+	// hard loop.
+	if ctx != nil && ctx.Mutable != nil {
+		var parts []string
+		if authority.ReasonCode != "" {
+			parts = append(parts, "reason="+authority.ReasonCode)
+		}
+		if authority.CandidateBudgetTruncated {
+			parts = append(parts, "candidate_budget_truncated")
+		}
+		if authority.PageIncomplete {
+			parts = append(parts, "page_incomplete")
+		}
+		if authority.NextCursor != "" {
+			parts = append(parts, "next_cursor="+authority.NextCursor)
+		}
+		if len(authority.Scopes) > 0 {
+			parts = append(parts, "scopes="+strings.Join(authority.Scopes, ","))
+		}
+		if len(parts) == 0 {
+			parts = append(parts, "source_inventory_navigation_debt")
+		}
+		ctx.Mutable.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+			Lane:       types.DowngradeLaneSourceInventoryCompletion,
+			ReasonCode: "source_inventory_navigation_debt_advisory",
+			Reason:     "source_inventory navigation debt is non-precise for resolved completion; " + strings.Join(parts, "; "),
+		})
+	}
+	logging.Info("[emit_investigation_complete] treating source-inventory completion debt as advisory: reason=%s truncated=%t page_incomplete=%t scopes=%s",
+		authority.ReasonCode, authority.CandidateBudgetTruncated || (observation.Execution != nil && observation.Execution.CandidateBudgetTruncated), authority.PageIncomplete, strings.Join(authority.Scopes, ","))
+	return true
+}
+
 func sourceInventoryCompletionAuthorityForContext(ctx *types.BusContext, observation types.SourceInventoryObservation, aggregateFacts []types.AnswerAggregateFact) types.SourceInventoryCompletionAuthority {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return types.SourceInventoryCompletionAuthority{}
@@ -3758,16 +3807,6 @@ func sourceInventoryCompletionAuthorityForContext(ctx *types.BusContext, observa
 		authority.FollowupDebt = types.NormalizeSourceInventoryFollowupDebt(debt)
 	}
 	return types.NormalizeSourceInventoryCompletionAuthority(authority)
-}
-
-func sourceInventoryCompletionRepairDebtActive(repairs []types.RepairDirective) bool {
-	for _, repair := range repairs {
-		authority := types.NormalizeSourceInventoryCompletionAuthority(repair.SourceInventoryCompletionAuthority)
-		if authority.Blocking {
-			return true
-		}
-	}
-	return false
 }
 
 func sourceInventoryResolvedCompletionRequiresRepoWideAuthority(ctx *types.BusContext, observation types.SourceInventoryObservation) bool {
