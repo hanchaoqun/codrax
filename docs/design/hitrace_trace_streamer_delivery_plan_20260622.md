@@ -1751,7 +1751,7 @@ go test ./cmd -run 'TestTraceConvertTraceToolStatusLines' -count=1
 
 #### Batch 11B: REPL Trace Tools Status
 
-Status: planned.
+Status: delivered on 2026-06-23.
 
 Gap:
 
@@ -1792,6 +1792,24 @@ Exit criteria:
   session.
 - `/htrace tools-status` output includes the sys parity gate and is localized.
 - `/htrace tools-status` does not mutate attached trace state.
+
+Delivered:
+
+- Added `/htrace tools-status` as a read-only REPL command backed by
+  `hitraceconv.BuildTraceToolStatus`.
+- REPL status output now surfaces trace engine selection, trace_streamer and
+  built-in provider readiness, and the `no_perf_sys_binary_parity` gate.
+- Updated `/htrace` usage, full help, native suggestions, and the user guide so
+  the command is discoverable.
+- Added tests proving English and Chinese output include the sys parity gate,
+  Chinese output does not leak internal English caveats, and existing attached
+  trace state is not mutated.
+- Verified with:
+
+```bash
+go test ./internal/repl -run 'TestHitraceToolsStatus|TestHitraceConvertHelpAliases|TestHelpLines_SurfaceHtraceConvertSubcommand|TestHelpLines_DefaultConciseFullDiscoverable|TestHandleSlashHelpAllRendersFullTable|TestNativeSlashSuggestShowsHitraceConvertSubcommand' -count=1
+go test ./internal/repl -run 'TestNativeSlashSuggestAtraceReusesHtraceSubcommands|TestHitraceConvertPassesTraceEngineOption' -count=1
+```
 
 ## Running Verification Matrix
 

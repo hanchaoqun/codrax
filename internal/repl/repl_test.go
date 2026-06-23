@@ -211,6 +211,68 @@ func TestHitraceConvertHelpAliases(t *testing.T) {
 	}
 }
 
+func TestHitraceToolsStatusShowsGateAndDoesNotMutateAttachment(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	var out bytes.Buffer
+	r := newTestREPL(store, strings.NewReader(""), &out)
+	r.attachedHitrace = "existing trace"
+	r.attachedHitraceSource = "existing-source"
+
+	r.handleHitraceCmd("/htrace tools-status")
+
+	got := out.String()
+	for _, want := range []string{
+		"trace_engine: auto",
+		"selected_engine:",
+		"trace_provider[official_trace_db/trace_streamer_db]",
+		"trace_provider[builtin_modern/codrax_builtin_modern_profiler]",
+		"trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]",
+		"state=pending_representative_fixture",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("tools-status output missing %q:\n%s", want, got)
+		}
+	}
+	if r.attachedHitrace != "existing trace" || r.attachedHitraceSource != "existing-source" {
+		t.Fatalf("tools-status must not mutate attached trace: trace=%q source=%q", r.attachedHitrace, r.attachedHitraceSource)
+	}
+}
+
+func TestHitraceToolsStatusChineseLocalizesGate(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	var out bytes.Buffer
+	r := newTestREPL(store, strings.NewReader(""), &out)
+	r.language = "zh"
+
+	r.handleHitraceCmd("/htrace tools-status")
+
+	got := out.String()
+	for _, want := range []string{
+		"trace 解析引擎：auto",
+		"trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]",
+		"状态=等待代表性fixture",
+		"尚未提交可再分发的真实代表性 no-perf .sys fixture",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("zh tools-status output missing %q:\n%s", want, got)
+		}
+	}
+	for _, leak := range []string{
+		"built-in sys binary parser remains an explicit guarded lane",
+		"trace+perf htrace never falls back",
+	} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("zh tools-status leaked English detail %q:\n%s", leak, got)
+		}
+	}
+}
+
 func TestHitraceConvertPassesTraceEngineOption(t *testing.T) {
 	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
 	if err != nil {

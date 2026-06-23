@@ -404,6 +404,14 @@ REPL 里 `/htrace` 和 `/atrace` 是同义命令,子命令同 `/log`:
 [git:main][trace]❯❯ 首页冷启动哪里耗时最长?
 ```
 
+REPL 内也可以先看 trace 转换工具和 sys parity gate 状态:
+
+```text
+[git:main]❯❯ /htrace tools-status
+  · trace 解析引擎：auto
+  · trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]：状态=等待代表性fixture ...
+```
+
 二进制 Harmony/OpenHarmony HiTrace 使用 `/htrace convert` 手动转成文本:
 
 ```text
@@ -2690,6 +2698,7 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 | `/log` | 进粘贴模式,贴完 `/end` |
 | `/htrace <path>` / `/atrace <path>` | 同 `/log` 但走 perf 通道 |
 | `/htrace convert [--trace-engine=auto\|trace_streamer\|builtin] <binary> [out.systrace]` | 手动把二进制 Harmony/OpenHarmony HiTrace 转成文本 systrace;纯 trace auto 有 trace_streamer 走 SQL、缺 trace_streamer 才走内置、SQL 失败不回退;trace+perf 固定 SQL-only;默认输出 `<binary>.systrace`,不自动附加 |
+| `/htrace tools-status` | 在 REPL 内查看 trace_streamer、trace engine、sys parity gate 状态 |
 | `/htrace append` / `/htrace show` / `/htrace clear` | 同 `/log` 子命令 |
 | `/paste` | bracketed paste 被 SSH/tmux 吞掉时的 fallback;贴完 `/end` |
 | `/chat <message>` | 强制走闲聊路径,不读仓库,不调工具 |

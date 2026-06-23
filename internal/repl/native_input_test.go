@@ -142,6 +142,7 @@ func TestNativeSlashSuggestShowsHitraceConvertSubcommand(t *testing.T) {
 		t.Fatal("expected /htrace subcommand suggestions")
 	}
 	var found bool
+	var foundToolsStatus bool
 	for _, suggestion := range matches {
 		if suggestion.display == "/htrace convert <binary> [out.systrace]" {
 			found = true
@@ -152,9 +153,21 @@ func TestNativeSlashSuggestShowsHitraceConvertSubcommand(t *testing.T) {
 				t.Fatalf("convert suggestion should carry arg hint + zh help: %+v", suggestion)
 			}
 		}
+		if suggestion.display == "/htrace tools-status" {
+			foundToolsStatus = true
+			if suggestion.insert != "/htrace tools-status" {
+				t.Fatalf("tools-status insert=%q, want /htrace tools-status", suggestion.insert)
+			}
+			if suggestion.needsArg || !strings.Contains(suggestion.help, "trace_streamer") {
+				t.Fatalf("tools-status suggestion should not need args and should explain status: %+v", suggestion)
+			}
+		}
 	}
 	if !found {
 		t.Fatalf("convert subcommand not suggested: %+v", matches)
+	}
+	if !foundToolsStatus {
+		t.Fatalf("tools-status subcommand not suggested: %+v", matches)
 	}
 }
 

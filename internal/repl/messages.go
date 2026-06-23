@@ -3224,16 +3224,224 @@ func attachedTraceClearedMsg(lang string) string {
 
 func htraceUsage(lang string) string {
 	if isZh(lang) {
-		return "/htrace <path> | append <path> | convert <binary> [out.systrace] | clear | show — 附加或转换 HiTrace / atrace / systrace / perfetto / perftrace / tracebundle 文件"
+		return "/htrace <path> | append <path> | convert <binary> [out.systrace] | tools-status | clear | show — 附加或转换 HiTrace / atrace / systrace / perfetto / perftrace / tracebundle 文件"
 	}
-	return "/htrace <path> | append <path> | convert <binary> [out.systrace] | clear | show — attach or convert HiTrace / atrace / systrace / perfetto / perftrace / tracebundle files"
+	return "/htrace <path> | append <path> | convert <binary> [out.systrace] | tools-status | clear | show — attach or convert HiTrace / atrace / systrace / perfetto / perftrace / tracebundle files"
 }
 
 func htraceConvertUsage(lang string) string {
 	if isZh(lang) {
-		return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] <binary-hitrace> [output.systrace]\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace 和 tracebundle；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。纯 trace 默认 auto：发现 trace_streamer 时走 SQL，trace_streamer 执行失败不回退；未发现 trace_streamer 时走内置纯 trace 转换器。trace+perf htrace 固定走 trace_streamer/SQL，不会用内置 trace body fallback。可先运行 codrax trace convert --trace-tools-status 查看 trace_streamer/trace engine 状态；若需指定官方 hiperf/simpleperf 工具生成 perftrace，请使用 codrax trace convert --hiperf-host <path> 或 --simpleperf-report-sample <path>；也可运行 codrax trace convert --perf-tools-status 查看发现到的官方 perf 工具与 raw fallback。"
+		return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] <binary-hitrace> [output.systrace]\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace 和 tracebundle；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。纯 trace 默认 auto：发现 trace_streamer 时走 SQL，trace_streamer 执行失败不回退；未发现 trace_streamer 时走内置纯 trace 转换器。trace+perf htrace 固定走 trace_streamer/SQL，不会用内置 trace body fallback。可先运行 /htrace tools-status 或 codrax trace convert --trace-tools-status 查看 trace_streamer/trace engine 状态；若需指定官方 hiperf/simpleperf 工具生成 perftrace，请使用 codrax trace convert --hiperf-host <path> 或 --simpleperf-report-sample <path>；也可运行 codrax trace convert --perf-tools-status 查看发现到的官方 perf 工具与 raw fallback。"
 	}
-	return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] <binary-hitrace> [output.systrace]\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace plus tracebundle; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Trace-only conversion defaults to auto: use trace_streamer/SQL when trace_streamer is discovered, do not fall back after trace_streamer execution failure, and use the built-in trace-only converter only when trace_streamer is absent. Trace+perf htrace stays trace_streamer/SQL-only and never uses the built-in trace body fallback. Run codrax trace convert --trace-tools-status to inspect trace_streamer/trace-engine status. Use codrax trace convert --hiperf-host <path> or --simpleperf-report-sample <path> for official perf adapters, or run codrax trace convert --perf-tools-status to inspect discovered perf tools and raw fallback."
+	return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] <binary-hitrace> [output.systrace]\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace plus tracebundle; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Trace-only conversion defaults to auto: use trace_streamer/SQL when trace_streamer is discovered, do not fall back after trace_streamer execution failure, and use the built-in trace-only converter only when trace_streamer is absent. Trace+perf htrace stays trace_streamer/SQL-only and never uses the built-in trace body fallback. Run /htrace tools-status or codrax trace convert --trace-tools-status to inspect trace_streamer/trace-engine status. Use codrax trace convert --hiperf-host <path> or --simpleperf-report-sample <path> for official perf adapters, or run codrax trace convert --perf-tools-status to inspect discovered perf tools and raw fallback."
+}
+
+func htraceToolsStatusUsage(lang string) string {
+	if isZh(lang) {
+		return "/htrace tools-status — 查看 trace_streamer/trace engine/sys parity gate 状态"
+	}
+	return "/htrace tools-status — inspect trace_streamer/trace-engine/sys-parity-gate status"
+}
+
+func htraceToolsStatusFailedMsg(lang string, err error) string {
+	if isZh(lang) {
+		return formatN(lang, "hitrace tools-status 失败：%v", err)
+	}
+	return formatN(lang, "hitrace tools-status failed: %v", err)
+}
+
+func htraceToolsStatusMsgs(lang string, status hitraceconv.TraceToolStatus) []string {
+	if isZh(lang) {
+		lines := []string{
+			formatN(lang, "trace 解析引擎：%s", status.EngineMode),
+			formatN(lang, "当前选择：%s", status.SelectedEngine),
+		}
+		lines = append(lines, htraceToolsProviderMsg(lang, status.TraceStreamer))
+		lines = append(lines, htraceToolsProviderMsg(lang, status.BuiltinModern))
+		if line := htraceToolsGateMsg(lang, status.SysBinaryParity); line != "" {
+			lines = append(lines, line)
+		}
+		for _, caveat := range status.Caveats {
+			lines = append(lines, formatN(lang, "提示：%s", htraceToolsMessageZh(caveat)))
+		}
+		return lines
+	}
+	lines := []string{
+		formatN(lang, "trace_engine: %s", status.EngineMode),
+		formatN(lang, "selected_engine: %s", status.SelectedEngine),
+	}
+	lines = append(lines, htraceToolsProviderMsg(lang, status.TraceStreamer))
+	lines = append(lines, htraceToolsProviderMsg(lang, status.BuiltinModern))
+	if line := htraceToolsGateMsg(lang, status.SysBinaryParity); line != "" {
+		lines = append(lines, line)
+	}
+	for _, caveat := range status.Caveats {
+		lines = append(lines, "caveat: "+caveat)
+	}
+	return lines
+}
+
+func htraceToolsProviderMsg(lang string, provider hitraceconv.TraceToolProviderStatus) string {
+	prefix := formatN(lang, "trace_provider[%s/%s]", provider.Kind, provider.Name)
+	var details []string
+	state := "missing"
+	if provider.Available {
+		state = "available"
+	}
+	if isZh(lang) {
+		state = "缺失"
+		if provider.Available {
+			state = "可用"
+		}
+		details = append(details, "状态="+state)
+		if provider.Path != "" {
+			details = append(details, "路径="+provider.Path)
+		}
+		if provider.Source != "" {
+			details = append(details, "来源="+htraceToolsSourceZh(provider.Source))
+		}
+		if provider.CheckCommand != "" {
+			details = append(details, "检查="+provider.CheckCommand)
+		}
+		if len(provider.AuxiliaryChecks) > 0 {
+			details = append(details, "辅助检查="+strings.Join(htraceToolsMessagesZh(provider.AuxiliaryChecks), "; "))
+		}
+		if len(provider.Caveats) > 0 {
+			details = append(details, "注意="+strings.Join(htraceToolsMessagesZh(provider.Caveats), "; "))
+		}
+		return prefix + "：" + strings.Join(details, " ")
+	}
+	details = append(details, "state="+state)
+	if provider.Path != "" {
+		details = append(details, "path="+provider.Path)
+	}
+	if provider.Source != "" {
+		details = append(details, "source="+provider.Source)
+	}
+	if provider.CheckCommand != "" {
+		details = append(details, "check="+provider.CheckCommand)
+	}
+	if len(provider.AuxiliaryChecks) > 0 {
+		details = append(details, "aux_check="+strings.Join(provider.AuxiliaryChecks, "; "))
+	}
+	if len(provider.Caveats) > 0 {
+		details = append(details, "caveat="+strings.Join(provider.Caveats, "; "))
+	}
+	return prefix + ": " + strings.Join(details, " ")
+}
+
+func htraceToolsGateMsg(lang string, gate hitraceconv.TraceToolGateStatus) string {
+	if strings.TrimSpace(gate.Name) == "" {
+		return ""
+	}
+	prefix := formatN(lang, "trace_gate[sys_binary_parity_gate/%s]", gate.Name)
+	if isZh(lang) {
+		proven := "否"
+		if gate.Proven {
+			proven = "是"
+		}
+		details := []string{
+			"状态=" + htraceToolsGateStateZh(gate.State),
+			"已证明=" + proven,
+			formatN(lang, "fixture清单=%d", gate.FixtureManifestCount),
+		}
+		if gate.RequiredEvidence != "" {
+			details = append(details, "需要="+htraceToolsMessageZh(gate.RequiredEvidence))
+		}
+		if len(gate.Evidence) > 0 {
+			details = append(details, "证据="+strings.Join(htraceToolsMessagesZh(gate.Evidence), "; "))
+		}
+		if len(gate.Caveats) > 0 {
+			details = append(details, "注意="+strings.Join(htraceToolsMessagesZh(gate.Caveats), "; "))
+		}
+		return prefix + "：" + strings.Join(details, " ")
+	}
+	details := []string{
+		"state=" + gate.State,
+		formatN(lang, "proven=%t", gate.Proven),
+		formatN(lang, "fixture_manifests=%d", gate.FixtureManifestCount),
+	}
+	if gate.RequiredEvidence != "" {
+		details = append(details, "required="+gate.RequiredEvidence)
+	}
+	if len(gate.Evidence) > 0 {
+		details = append(details, "evidence="+strings.Join(gate.Evidence, "; "))
+	}
+	if len(gate.Caveats) > 0 {
+		details = append(details, "caveat="+strings.Join(gate.Caveats, "; "))
+	}
+	return prefix + ": " + strings.Join(details, " ")
+}
+
+func htraceToolsMessagesZh(messages []string) []string {
+	out := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		out = append(out, htraceToolsMessageZh(msg))
+	}
+	return out
+}
+
+func htraceToolsSourceZh(source string) string {
+	trimmed := strings.TrimSpace(source)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case trimmed == "":
+		return ""
+	case strings.EqualFold(trimmed, "built-in"):
+		return "内置"
+	case strings.Contains(lower, "configured trace_streamer"):
+		return "已配置 trace_streamer"
+	case strings.Contains(lower, "codrax_trace_streamer"):
+		return "CODRAX_TRACE_STREAMER"
+	case strings.Contains(lower, "codrax executable directory"):
+		return "codrax 可执行文件目录"
+	case strings.Contains(lower, "on path"):
+		return trimmed + "（从 PATH 发现）"
+	case strings.Contains(lower, "known openharmony"):
+		return "常见 OpenHarmony/SmartPerf/hmtrace 位置"
+	default:
+		return trimmed
+	}
+}
+
+func htraceToolsGateStateZh(state string) string {
+	switch strings.TrimSpace(state) {
+	case "pending_representative_fixture":
+		return "等待代表性fixture"
+	case "representative_fixture_manifest_present":
+		return "已发现代表性fixture清单"
+	default:
+		return state
+	}
+}
+
+func htraceToolsMessageZh(message string) string {
+	trimmed := strings.TrimSpace(message)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case trimmed == "":
+		return ""
+	case strings.Contains(lower, "trace_streamer db export is the required trace body path"):
+		return "trace_streamer DB export 是 trace+perf htrace 的必需 trace body 路径，也可把纯 trace 转成 systrace，并将 coverage 写入 tracebundle 供 trace_query 使用"
+	case strings.Contains(lower, "built-in modern/sys parser is an explicit trace-only engine"):
+		return "内置 modern/sys parser 是纯 trace 引擎；可显式选择，也可在 auto 未发现 trace_streamer 时用于纯 trace；不用于 trace+perf htrace"
+	case strings.Contains(lower, "auto trace engine discovered trace_streamer"):
+		return "auto trace 引擎已发现 trace_streamer；纯 trace 会走 SQL，SQL 执行失败不会回退到内置解析器"
+	case strings.Contains(lower, "commit a redistributable real no-perf harmony/donghu .sys fixture manifest"):
+		return "提交可再分发的真实 no-perf Harmony/Donghu .sys fixture manifest 到 internal/hitraceconv/testdata/representative_sys_traces，并通过 TestRepresentativeSysTraceFixtures"
+	case strings.Contains(lower, "synthetic scheduler/raw-ftrace parity guards are delivered"):
+		return "synthetic scheduler/raw-ftrace parity 看护已交付"
+	case strings.HasPrefix(lower, "representative_fixture_manifests="):
+		return strings.Replace(trimmed, "representative_fixture_manifests", "代表性fixture清单", 1)
+	case strings.Contains(lower, "no redistributable representative no-perf .sys fixture has been committed"):
+		return "尚未提交可再分发的真实代表性 no-perf .sys fixture；内置 sys binary parser 仍保留为显式受控能力"
+	case strings.Contains(lower, "trace+perf htrace never falls back to the built-in sys binary parser"):
+		return "trace+perf htrace 永远不会回退到内置 sys binary parser"
+	case strings.Contains(lower, "so_dirs=not_configured"):
+		return "未配置 so_dir；native 符号 reload 需要时可传 --trace-streamer-so-dir /path/to/so"
+	default:
+		return trimmed
+	}
 }
 
 func htraceConvertSuccess(lang, outputPath string, events int) string {

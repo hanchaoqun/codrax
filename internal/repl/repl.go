@@ -10715,6 +10715,7 @@ func (r *REPL) handleLogAppend(path string) {
 //	/htrace <path>                  — load file from disk (replaces any prior)
 //	/htrace append <path>           — append additional file with source header
 //	/htrace convert <binary> [out]  — convert binary HiTrace to text systrace
+//	/htrace tools-status            — print trace_streamer/engine/gate status
 //	/htrace clear                   — clear the current attachment
 //	/htrace show                    — print byte count + head of the attachment
 //	/htrace                         — bare invocation prints usage; no paste
@@ -10753,6 +10754,8 @@ func (r *REPL) handleHitraceCmd(line string) {
 		r.handleHitraceAppend(strings.TrimSpace(strings.TrimPrefix(rest, "append")))
 	case rest == "convert" || strings.HasPrefix(rest, "convert "):
 		r.handleHitraceConvert(strings.TrimSpace(strings.TrimPrefix(rest, "convert")))
+	case rest == "tools-status" || strings.HasPrefix(rest, "tools-status "):
+		r.handleHitraceToolsStatus(strings.TrimSpace(strings.TrimPrefix(rest, "tools-status")))
 	default:
 		// Single-path load also gets the source header so the LLM
 		// sees a consistent boundary marker shape regardless of
@@ -10781,6 +10784,21 @@ func (r *REPL) handleHitraceCmd(line string) {
 		r.attachedHitrace = body
 		r.attachedHitraceSource = mergeTraceSourceHints("", r.currentTraceSourceHint(rest))
 		r.success(fmt.Sprintf("attached hitrace loaded: %s (%d bytes)", rest, len(data)))
+	}
+}
+
+func (r *REPL) handleHitraceToolsStatus(args string) {
+	if strings.TrimSpace(args) != "" {
+		r.errorf("%s\n", htraceToolsStatusUsage(r.language))
+		return
+	}
+	status, err := hitraceconv.BuildTraceToolStatus(hitraceconv.Options{TraceEngine: "auto"})
+	if err != nil {
+		r.errorf("%s\n", htraceToolsStatusFailedMsg(r.language, err))
+		return
+	}
+	for _, line := range htraceToolsStatusMsgs(r.language, status) {
+		r.info(line)
 	}
 }
 

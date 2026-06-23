@@ -746,7 +746,7 @@ func TestHelpLines_SurfaceHtraceConvertSubcommand(t *testing.T) {
 	for _, lang := range []string{"zh", "en"} {
 		t.Run(lang, func(t *testing.T) {
 			joined := strings.Join(helpLinesAll(lang), "\n")
-			for _, want := range []string{"/htrace", "/htrace convert <binary> [out.systrace]"} {
+			for _, want := range []string{"/htrace", "/htrace convert <binary> [out.systrace]", "/htrace tools-status"} {
 				if !strings.Contains(joined, want) {
 					t.Fatalf("/help (%s) missing %q:\n%s", lang, want, joined)
 				}
@@ -767,7 +767,7 @@ func TestHelpLines_DefaultConciseFullDiscoverable(t *testing.T) {
 			if !strings.Contains(concise, "Auto Pilot") {
 				t.Errorf("%s: concise help should describe the write Auto Pilot path; got:\n%s", lang, concise)
 			}
-			for _, hidden := range []string{"/htrace convert <binary> [out.systrace]", "/plan clear --all", "/merge --include-failed"} {
+			for _, hidden := range []string{"/htrace convert <binary> [out.systrace]", "/htrace tools-status", "/plan clear --all", "/merge --include-failed"} {
 				if strings.Contains(concise, hidden) {
 					t.Errorf("%s: concise help should hide advanced subcommand %q; got:\n%s", lang, hidden, concise)
 				}
@@ -851,6 +851,9 @@ func TestHandleSlashHelpAllRendersFullTable(t *testing.T) {
 	if strings.Contains(concise, "/htrace convert <binary> [out.systrace]") {
 		t.Fatalf("/help should be concise by default; got:\n%s", concise)
 	}
+	if strings.Contains(concise, "/htrace tools-status") {
+		t.Fatalf("/help should keep tools-status in full help only; got:\n%s", concise)
+	}
 
 	for _, line := range []string{"/help all", "/help full", "/help --all"} {
 		out.Reset()
@@ -858,6 +861,9 @@ func TestHandleSlashHelpAllRendersFullTable(t *testing.T) {
 		full := out.String()
 		if !strings.Contains(full, "/htrace convert <binary> [out.systrace]") {
 			t.Fatalf("%s should render the complete command table; got:\n%s", line, full)
+		}
+		if !strings.Contains(full, "/htrace tools-status") {
+			t.Fatalf("%s should render trace tools-status; got:\n%s", line, full)
 		}
 	}
 }
