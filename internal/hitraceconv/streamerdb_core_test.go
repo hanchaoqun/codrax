@@ -37,6 +37,9 @@ func TestTraceDBCoreInspectsCoverageAndSchemaDrift(t *testing.T) {
 	if !coverage.Found || coverage.RowsRead != 1 || coverage.Skipped == "" {
 		t.Fatalf("coverage should expose missing columns and row count: %+v", coverage)
 	}
+	if coverage.ElapsedUS <= 0 {
+		t.Fatalf("coverage should expose elapsed timing: %+v", coverage)
+	}
 	if !containsExact(coverage.ColumnsPresent, "itid") || !containsExact(coverage.ColumnsMissing, "ipid") {
 		t.Fatalf("coverage columns mismatch: %+v", coverage)
 	}
@@ -46,6 +49,9 @@ func TestTraceDBCoreInspectsCoverageAndSchemaDrift(t *testing.T) {
 	}
 	if missing.Found || missing.Skipped != "missing table" {
 		t.Fatalf("missing table coverage mismatch: %+v", missing)
+	}
+	if missing.ElapsedUS <= 0 {
+		t.Fatalf("missing table coverage should expose elapsed timing: %+v", missing)
 	}
 }
 
@@ -182,6 +188,7 @@ func TestTraceBundleIncludesTraceDBCoverage(t *testing.T) {
 		ColumnsPresent: []string{"itid", "tid"},
 		ColumnsMissing: []string{"ipid"},
 		RowsRead:       2,
+		ElapsedUS:      123,
 		Skipped:        "missing required columns: ipid",
 	}}
 	artifact, err := writeTraceBundleWithCoverage(input, "", []Artifact{{
@@ -203,6 +210,7 @@ func TestTraceBundleIncludesTraceDBCoverage(t *testing.T) {
 		t.Fatalf("parse bundle: %v\n%s", err, body)
 	}
 	if len(parsed.Coverage) != 1 || parsed.Coverage[0].Family != "resolver" ||
+		parsed.Coverage[0].ElapsedUS != 123 ||
 		!containsExact(parsed.Coverage[0].ColumnsMissing, "ipid") {
 		t.Fatalf("trace db coverage not serialized: %+v\n%s", parsed.Coverage, body)
 	}

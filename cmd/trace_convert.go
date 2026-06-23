@@ -652,6 +652,9 @@ func traceConvertCoverageLines(lang, label string, coverage []hitraceconv.TraceD
 			traceConvertDetailKV(lang, "rows_read", fmt.Sprintf("%d", item.RowsRead)),
 			traceConvertDetailKV(lang, "rows_emitted", fmt.Sprintf("%d", item.RowsEmitted)),
 		}
+		if item.ElapsedUS > 0 {
+			details = append(details, traceConvertDetailKV(lang, "elapsed_us", fmt.Sprintf("%d", item.ElapsedUS)))
+		}
 		if item.Skipped != "" {
 			details = append(details, traceConvertDetailKV(lang, "skipped", item.Skipped))
 		}
@@ -977,6 +980,8 @@ func traceConvertDetailKeyZh(key string) string {
 		return "读取行"
 	case "rows_emitted":
 		return "输出行"
+	case "elapsed_us":
+		return "耗时us"
 	case "skipped":
 		return "跳过原因"
 	case "error":

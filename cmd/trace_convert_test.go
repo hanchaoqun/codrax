@@ -19,6 +19,7 @@ func TestTraceConvertResultLinesFollowLanguage(t *testing.T) {
 			Table:       "sched_switch",
 			RowsRead:    1,
 			RowsEmitted: 1,
+			ElapsedUS:   42,
 		}},
 	}
 
@@ -34,7 +35,9 @@ func TestTraceConvertResultLinesFollowLanguage(t *testing.T) {
 	}
 	if !strings.Contains(zh, "trace_coverage：1 项，输出=1，跳过=0") ||
 		!strings.Contains(zh, "族=builtin_modern_ftrace:sched") ||
+		!strings.Contains(zh, "耗时us=42") ||
 		strings.Contains(zh, "rows_read=") ||
+		strings.Contains(zh, "elapsed_us=") ||
 		strings.Contains(zh, "emitted=") ||
 		strings.Contains(zh, "skipped=") {
 		t.Fatalf("zh result should include localized trace coverage:\n%s", zh)
@@ -44,7 +47,7 @@ func TestTraceConvertResultLinesFollowLanguage(t *testing.T) {
 	if !strings.Contains(en, "converted binary hitrace") || !strings.Contains(en, "header_only_events: 3") {
 		t.Fatalf("en result lines malformed:\n%s", en)
 	}
-	if !strings.Contains(en, "trace_coverage: 1 item") || !strings.Contains(en, "family=builtin_modern_ftrace:sched") || !strings.Contains(en, "rows_read=1") {
+	if !strings.Contains(en, "trace_coverage: 1 item") || !strings.Contains(en, "family=builtin_modern_ftrace:sched") || !strings.Contains(en, "rows_read=1") || !strings.Contains(en, "elapsed_us=42") {
 		t.Fatalf("en result should include trace coverage:\n%s", en)
 	}
 	if strings.Contains(en, "已转换") {

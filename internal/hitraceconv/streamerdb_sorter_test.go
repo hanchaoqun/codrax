@@ -34,12 +34,15 @@ func TestTraceDBRowSinkWritesInMemoryRowsSorted(t *testing.T) {
 	if stats.SpillChunks != 0 || stats.RowsWritten != 3 || stats.PeakBufferedRows != 3 {
 		t.Fatalf("unexpected in-memory stats: %+v", stats)
 	}
+	if stats.ElapsedUS <= 0 {
+		t.Fatalf("in-memory stats should expose elapsed timing: %+v", stats)
+	}
 	body := out.String()
 	if !strings.Contains(body, systraceHeader) || strings.Index(body, "first") > strings.Index(body, "second") || strings.Index(body, "second") > strings.Index(body, "third") {
 		t.Fatalf("rows not sorted with header:\n%s", body)
 	}
 	coverage := stats.coverage()
-	if coverage.RowsRead != 3 || coverage.RowsEmitted != 3 || coverage.PeakBuffered != 3 {
+	if coverage.RowsRead != 3 || coverage.RowsEmitted != 3 || coverage.PeakBuffered != 3 || coverage.ElapsedUS <= 0 {
 		t.Fatalf("coverage mismatch: %+v", coverage)
 	}
 }
@@ -72,6 +75,9 @@ func TestTraceDBRowSinkSpillsMergesAndCleansChunks(t *testing.T) {
 	}
 	if stats.SpillChunks < 2 || stats.RowsWritten != 5 || stats.PeakBufferedRows > 2 || stats.TempBytes == 0 {
 		t.Fatalf("unexpected spill stats: %+v", stats)
+	}
+	if stats.ElapsedUS <= 0 {
+		t.Fatalf("spill stats should expose elapsed timing: %+v", stats)
 	}
 	body := out.String()
 	last := -1

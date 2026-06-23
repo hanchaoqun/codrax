@@ -1432,11 +1432,11 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
     {"stage": "systrace", "provider_kind": "external", "provider_name": "trace_streamer_db", "input_path": "input.htrace", "output_path": "bundle.systrace", "db_path": "bundle.trace.db", "engine_mode": "auto", "selected": true, "attempted": true, "succeeded": true, "fallback": false, "trace_query_ready": true, "artifact_path": "bundle.systrace", "reason": "trace_streamer DB export succeeded"}
   ],
   "trace_db_coverage": [
-    {"family": "scheduler", "table": "sched_slice", "found": true, "columns_present": ["ts", "dur", "cpu", "itid", "end_state"], "rows_read": 2, "rows_emitted": 2},
+    {"family": "scheduler", "table": "sched_slice", "found": true, "columns_present": ["ts", "dur", "cpu", "itid", "end_state"], "rows_read": 2, "rows_emitted": 2, "elapsed_us": 1234},
     {"family": "trace_marker", "table": "instant", "found": false, "columns_missing": ["ts", "name"], "skipped": "table_missing"}
   ],
   "trace_coverage": [
-    {"family": "trace_cross_validation", "table": "tracequery_build_index", "found": true, "rows_read": 2, "rows_emitted": 2}
+    {"family": "trace_cross_validation", "table": "tracequery_build_index", "found": true, "rows_read": 2, "rows_emitted": 2, "elapsed_us": 5678}
   ],
   "perf_clock_alignments": [
     {"artifact_path": "bundle.perftrace", "perf_time_domain": "perf_event_time", "trace_time_domain": "trace_seconds", "confidence": "assumed", "calibrated": false, "source": "tracebundle", "caveats": ["no capture-level trace/perf clock map is available"]}
@@ -1478,8 +1478,10 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
 		"tracebundle_trace_provider",
 		"trace_streamer_db",
 		"tracebundle_trace_db_coverage family=scheduler table=sched_slice",
+		"elapsed_us=1234",
 		"tracebundle_trace_db_coverage family=trace_marker table=instant found=false",
 		"tracebundle_trace_coverage family=trace_cross_validation table=tracequery_build_index",
+		"elapsed_us=5678",
 		"tracebundle_perf_clock_alignment",
 	} {
 		if !strings.Contains(caveats, want) {

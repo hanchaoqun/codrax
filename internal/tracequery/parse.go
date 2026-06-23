@@ -604,6 +604,7 @@ type traceBundleCoverage struct {
 	PeakBuffered   int      `json:"peak_buffered_rows,omitempty"`
 	SpillChunks    int      `json:"spill_chunks,omitempty"`
 	TempBytes      int64    `json:"temp_bytes,omitempty"`
+	ElapsedUS      int64    `json:"elapsed_us,omitempty"`
 	Skipped        string   `json:"skipped,omitempty"`
 	Error          string   `json:"error,omitempty"`
 }
@@ -886,6 +887,7 @@ func traceBundleCoverageCaveat(prefix string, coverage traceBundleCoverage) stri
 	appendInt("peak_buffered_rows", coverage.PeakBuffered)
 	appendInt("spill_chunks", coverage.SpillChunks)
 	appendInt64("temp_bytes", coverage.TempBytes)
+	appendInt64("elapsed_us", coverage.ElapsedUS)
 	appendKV("columns_missing", traceBundleCompactList(coverage.ColumnsMissing, 8))
 	appendKV("columns_present", traceBundleCompactList(coverage.ColumnsPresent, 8))
 	appendKV("skipped", coverage.Skipped)

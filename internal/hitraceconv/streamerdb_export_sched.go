@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type traceDBSchedSlice struct {
@@ -32,12 +33,16 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	if err != nil {
 		return coverage, err
 	}
+	stageStart := time.Now()
 	metadataCoverage, err := exportTraceDBThreadRegistrations(ctx, sink, index, active)
+	traceDBSetCoverageElapsed(&metadataCoverage, stageStart)
 	coverage = append(coverage, metadataCoverage)
 	if err != nil {
 		return coverage, err
 	}
+	stageStart = time.Now()
 	schedCoverage, err := exportTraceDBSchedSwitch(ctx, tdb, sink)
+	traceDBSetCoverageElapsed(&schedCoverage, stageStart)
 	coverage = append(coverage, schedCoverage)
 	if err != nil {
 		return coverage, err
@@ -52,7 +57,9 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	if err != nil {
 		return coverage, err
 	}
+	stageStart = time.Now()
 	wakeupCoverage, err := exportTraceDBWakeups(ctx, tdb, sink, rawCPUs, starts)
+	traceDBSetCoverageElapsed(&wakeupCoverage, stageStart)
 	coverage = append(coverage, wakeupCoverage)
 	if err != nil {
 		return coverage, err
@@ -62,7 +69,9 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	if err != nil {
 		return coverage, err
 	}
+	stageStart = time.Now()
 	irqCoverage, err := exportTraceDBIRQ(ctx, tdb, sink, argsets)
+	traceDBSetCoverageElapsed(&irqCoverage, stageStart)
 	coverage = append(coverage, irqCoverage)
 	return coverage, err
 }

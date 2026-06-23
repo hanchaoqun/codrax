@@ -7,6 +7,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink) ([]TraceDBCoverage, error) {
@@ -26,12 +27,16 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 	if err != nil {
 		return coverage, err
 	}
+	stageStart := time.Now()
 	perfCoverage, err := exportTraceDBPerfSamples(ctx, tdb, sink)
+	traceDBSetCoverageListElapsed(perfCoverage, stageStart)
 	coverage = append(coverage, perfCoverage...)
 	if err != nil {
 		return coverage, err
 	}
+	stageStart = time.Now()
 	rawCoverage, err := exportTraceDBRawFtraceFamilies(ctx, tdb, sink, index, running)
+	traceDBSetCoverageListElapsed(rawCoverage, stageStart)
 	coverage = append(coverage, rawCoverage...)
 	if err != nil {
 		return coverage, err
@@ -57,7 +62,9 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		exportTraceDBHiSysEvent,
 	}
 	for _, exporter := range exporters {
+		stageStart = time.Now()
 		item, err := exporter(ctx, tdb, sink, index, running, dict)
+		traceDBSetCoverageElapsed(&item, stageStart)
 		coverage = append(coverage, item)
 		if err != nil {
 			return coverage, err

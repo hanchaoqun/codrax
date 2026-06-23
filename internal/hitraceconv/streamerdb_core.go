@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -153,8 +154,12 @@ func (tdb *traceDB) rowCount(ctx context.Context, table string) (int, error) {
 	return count, err
 }
 
-func (tdb *traceDB) inspectCoverage(ctx context.Context, family, table string, requiredColumns []string) (TraceDBCoverage, error) {
-	item := TraceDBCoverage{Family: family, Table: table}
+func (tdb *traceDB) inspectCoverage(ctx context.Context, family, table string, requiredColumns []string) (item TraceDBCoverage, err error) {
+	start := time.Now()
+	defer func() {
+		traceDBSetCoverageElapsed(&item, start)
+	}()
+	item = TraceDBCoverage{Family: family, Table: table}
 	found, err := tdb.tableExists(ctx, table)
 	if err != nil {
 		item.Error = err.Error()

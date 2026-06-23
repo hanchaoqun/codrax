@@ -3,12 +3,17 @@ package hitraceconv
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
-func validateSystraceWithTraceQuery(ctx context.Context, path string) TraceDBCoverage {
-	coverage := TraceDBCoverage{
+func validateSystraceWithTraceQuery(ctx context.Context, path string) (coverage TraceDBCoverage) {
+	start := time.Now()
+	defer func() {
+		traceDBSetCoverageElapsed(&coverage, start)
+	}()
+	coverage = TraceDBCoverage{
 		Family: "trace_cross_validation",
 		Table:  "tracequery_build_index",
 		Found:  true,

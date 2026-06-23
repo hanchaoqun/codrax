@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"time"
 )
 
 const defaultTraceDBRowSinkThreshold = 200_000
@@ -21,6 +22,7 @@ type traceDBRowSortStats struct {
 	TempBytes        int64
 	FirstTSNS        uint64
 	LastTSNS         uint64
+	ElapsedUS        int64
 }
 
 func (s traceDBRowSortStats) coverage() TraceDBCoverage {
@@ -33,6 +35,7 @@ func (s traceDBRowSortStats) coverage() TraceDBCoverage {
 		PeakBuffered: s.PeakBufferedRows,
 		SpillChunks:  s.SpillChunks,
 		TempBytes:    s.TempBytes,
+		ElapsedUS:    s.ElapsedUS,
 	}
 }
 
@@ -79,7 +82,12 @@ func (s *traceDBRowSink) add(row renderedRow) error {
 	return nil
 }
 
-func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (traceDBRowSortStats, error) {
+func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceDBRowSortStats, err error) {
+	start := time.Now()
+	defer func() {
+		s.stats.ElapsedUS = traceDBCoverageElapsedUS(start)
+		stats = s.stats
+	}()
 	defer s.cleanup()
 	if len(s.chunks) == 0 {
 		sortRenderedRows(s.rows)

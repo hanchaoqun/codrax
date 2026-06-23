@@ -3299,6 +3299,9 @@ func htraceConvertCoverageMsgs(lang, label string, coverage []hitraceconv.TraceD
 			htraceConvertCoverageKV(lang, "rows_read", fmt.Sprintf("%d", item.RowsRead)),
 			htraceConvertCoverageKV(lang, "rows_emitted", fmt.Sprintf("%d", item.RowsEmitted)),
 		}
+		if item.ElapsedUS > 0 {
+			details = append(details, htraceConvertCoverageKV(lang, "elapsed_us", fmt.Sprintf("%d", item.ElapsedUS)))
+		}
 		if item.Skipped != "" {
 			details = append(details, htraceConvertCoverageKV(lang, "skipped", item.Skipped))
 		}
@@ -3325,6 +3328,8 @@ func htraceConvertCoverageKV(lang, key, value string) string {
 			key = "读取行"
 		case "rows_emitted":
 			key = "输出行"
+		case "elapsed_us":
+			key = "耗时us"
 		case "skipped":
 			key = "跳过原因"
 		case "error":

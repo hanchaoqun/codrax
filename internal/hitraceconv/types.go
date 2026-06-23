@@ -117,6 +117,7 @@ type TraceDBCoverage struct {
 	PeakBuffered   int      `json:"peak_buffered_rows,omitempty"`
 	SpillChunks    int      `json:"spill_chunks,omitempty"`
 	TempBytes      int64    `json:"temp_bytes,omitempty"`
+	ElapsedUS      int64    `json:"elapsed_us,omitempty"`
 	Skipped        string   `json:"skipped,omitempty"`
 	Error          string   `json:"error,omitempty"`
 }

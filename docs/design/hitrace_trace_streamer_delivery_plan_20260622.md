@@ -1565,11 +1565,11 @@ Delivered:
 
 ### Batch 10: Coverage Telemetry Closure
 
-Status: planned for Batch 10A.
+Status: delivered on 2026-06-23 for Batch 10A.
 
 #### Batch 10A: Coverage Elapsed-Time Handoff
 
-Status: planned.
+Status: delivered on 2026-06-23.
 
 Gap:
 
@@ -1633,6 +1633,27 @@ Exit criteria:
 - Timing instrumentation is per-stage/per-exporter, not per-row, and does not
   add unbounded memory or query overhead.
 - No model JSON input or repair-layer change is introduced.
+
+Delivered:
+
+- Added `elapsed_us` to `TraceDBCoverage` and tracebundle coverage parsing.
+- Populated elapsed timing at resolver inspection, scheduler/extended SQL
+  exporters, sorted row writing, and trace_query cross-validation boundaries.
+- Surfaced elapsed timing in CLI and REPL coverage detail lines with Chinese
+  localization, and preserved the raw `elapsed_us` key for English/tooling.
+- Preserved elapsed timing in trace_query tracebundle caveats so downstream
+  model stages can consume slow exporter/validation provenance without reading
+  side logs.
+- Added focused tests for producer timing, tracebundle serialization,
+  trace_query caveats, and localized CLI/REPL output.
+- Verified with:
+
+```bash
+go test ./internal/hitraceconv -run 'TestTraceBundleIncludesTraceDBCoverage|TestTraceDBCore|TestTraceDBRowSink' -count=1
+go test ./internal/tracequery -run 'TestTraceBundle' -count=1
+go test ./cmd ./internal/repl
+go test ./internal/hitraceconv ./internal/tracequery
+```
 
 ## Running Verification Matrix
 
