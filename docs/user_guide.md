@@ -379,8 +379,8 @@ codrax --atrace /tmp/atrace.txt -r "ListView 滑动卡顿哪里出问题?"
 codrax --htrace /tmp/perfetto.txt -r "..."
 
 # 二进制 HiTrace 需要先手动转换;不会自动附加
-# 纯 trace 默认 auto:有 trace_streamer 就走 SQL;没有 trace_streamer 才走内置
-# 如果 SQL 已经开始执行但失败,不会再回退到内置;trace+perf 固定 SQL-only
+# 默认 auto:有 trace_streamer 就优先走 SQL;没有 trace_streamer 或 SQL 失败就回退到内置 raw trace 解析
+# 显式 --trace-engine=trace_streamer 或 --trace-engine=builtin 时,不会退化到另一个引擎
 codrax trace convert --trace-tools-status
 codrax trace convert --input /tmp/capture.htrace.bin
 codrax trace convert --input /tmp/donghu.sys --trace-engine=builtin
@@ -420,11 +420,13 @@ REPL 内也可以先看 trace 转换工具和 sys parity gate 状态:
   · next: /htrace /tmp/capture.htrace.bin.systrace
 ```
 
-如果没有指定输出文件,默认写到 `<原文件名>.systrace`。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。纯 trace 有两个转换引擎,但一次只会运行一个:`auto` 模式下如果发现 `trace_streamer` 就走 SQL;如果未发现 `trace_streamer` 才使用 Codrax 内置纯 trace 转换器;如果 SQL 已经开始执行但失败或没有产出 query-ready 行,不会再悄悄回退到内置转换。显式 `--trace-engine=trace_streamer` 要求 SQL 工具可用,显式 `--trace-engine=builtin` 只用于纯 trace。trace+perf htrace 固定走 trace_streamer/SQL,不会使用内置 trace body 解析。转换命令不会默认附加到当前会话;需要继续分析时,按下面两种方式之一把转换产物交给分析流程。
+如果没有指定输出文件,默认写到 `<原文件名>.systrace`。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。trace body 有两个转换引擎,但一次只会运行一个:`auto` 模式下如果发现 `trace_streamer` 就优先走 SQL;如果未发现 `trace_streamer`,或 SQL 执行/导出失败,会回退到 Codrax 内置 raw trace 解析器。显式 `--trace-engine=trace_streamer` 要求 SQL 工具可用且不会退到内置解析;显式 `--trace-engine=builtin` 只走内置解析,不会尝试 SQL。转换命令不会默认附加到当前会话;需要继续分析时,按下面两种方式之一把转换产物交给分析流程。
 
 ### 转换后如何分析 trace + perf 混合文件
 
 OpenHarmony / HarmonyOS 的 HiProfiler 文件可能同时带 ftrace/bytrace 文本、`hiperf-plugin` 的 standalone `perf.data`,以及转换器生成的 `.perftrace`。这种场景优先使用 `.tracebundle.json`,因为它会把 systrace、perftrace、raw perf.data provenance 和 converter caveats 作为一组产物交给 `trace_query`。
+
+trace+perf htrace 在 auto 下优先走 `trace_streamer`/SQLite 导出。DB 导出成功后,Codrax 会把 DB 中的调度、callstack、perf sample、频点、IO、日志等 query-ready 行统一写入文本 `.systrace`。如果 DB 里已经导出了 `perf_sample` 行,这些行会带 `source=trace_streamer_db`、`clock=trace_streamer_db`、`clock_confidence=calibrated`,并作为 CPU sample 主证据;standalone raw `.perf.data` 只作为审计 sidecar 保留,不会再额外生成一份重复 `.perftrace`。当 `trace_streamer` 不存在或 SQL 失败时,auto 会使用内置 raw trace 解析器生成 systrace,同时用官方 `hiperf` / Android simpleperf 或 Codrax raw fallback 生成 `.perftrace`。显式 `--trace-engine=trace_streamer` 不会退化;显式 `--trace-engine=builtin` 不会尝试 SQL。
 
 推荐 attach 方式:
 
@@ -496,6 +498,16 @@ codrax trace convert --perf-tools-status --lang en
 - `aux_check`: 符号目录、symfs、kallsyms 等辅助输入的检查提示
 - `install` / `docs`: 官方工具获取入口或内置能力说明
 
+长文件转换可能耗时较久。CLI 和 REPL 的 `/htrace convert` 会持续输出进度行,包括:
+
+- `trace_streamer_export`: 正在调用 trace_streamer 生成 SQLite DB
+- `trace_db_normalize`: 正在把 SQLite DB 导出成文本 systrace
+- `hiperf_adapter` / `simpleperf_adapter`: 正在调用官方 perf adapter
+- `raw_perf_parse`: 正在解析 raw perf.data,会显示已处理字节和记录数
+- `perftrace_write`: 正在写出标准化 perftrace 文本
+
+进度行会跟随 `--lang` / REPL 语言设置。看到 DB normalize 失败但 `.perftrace` 成功时,通常表示 trace_streamer 已写出 DB,但 Codrax 打开或导出 DB 的阶段失败;perftrace 是独立读取 `HIPERF_DATA` sidecar 或单独 `perf.data` 生成的,不依赖 SQLite DB。
+
 推荐策略:
 
 ```bash
@@ -526,7 +538,18 @@ export CODRAX_HIPERF_HOST=/path/to/hiperf_host
 codrax trace convert --input /tmp/capture.htrace
 ```
 
-`hiperf_host` / `hiperf` 来自 OpenHarmony `developtools_hiperf`。官方 lane 会运行 `hiperf report --proto`,再把 protobuf report 转成 Codrax `.perftrace`。OpenHarmony report proto 通常不携带 CPU id,所以 `.perftrace` 中可能显示 `cpu=-1`;这表示 CPU 未知,不能归因到任何具体 CPU/core。
+`hiperf_host` / `hiperf` 来自 OpenHarmony `developtools_hiperf`。发现顺序和 `trace_streamer` 对齐:显式 `--hiperf-host` -> `CODRAX_HIPERF_HOST` -> Codrax 可执行文件同目录及平台子目录 -> `PATH` -> 常见 OpenHarmony / DevEco SDK 位置。同目录分发时可放在以下形态之一:
+
+```text
+<codrax目录>/hiperf_host
+<codrax目录>/hiperf
+<codrax目录>/<平台目录>/hiperf_host
+<codrax目录>/hiperf/<平台目录>/hiperf_host
+<codrax目录>/hiperf-host/<平台目录>/hiperf_host
+<codrax目录>/developtools_hiperf/<平台目录>/hiperf_host
+```
+
+Windows 下文件名可以是 `hiperf_host.exe` / `hiperf.exe`。平台目录使用和 `trace_streamer` 一致的命名,例如 `darwin-arm64`、`linux-x86_64`、`windows-x86_64`。官方 lane 会运行 `hiperf report --proto`,再把 protobuf report 转成 Codrax `.perftrace`。OpenHarmony report proto 通常不携带 CPU id,所以 `.perftrace` 中可能显示 `cpu=-1`;这表示 CPU 未知,不能归因到任何具体 CPU/core。
 
 Android simpleperf 官方工具接入:
 
@@ -2700,7 +2723,7 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 | `/log show` / `/log clear` | 查看 / 清除 |
 | `/log` | 进粘贴模式,贴完 `/end` |
 | `/htrace <path>` / `/atrace <path>` | 同 `/log` 但走 perf 通道 |
-| `/htrace convert [--trace-engine=auto\|trace_streamer\|builtin] <binary> [out.systrace]` | 手动把二进制 Harmony/OpenHarmony HiTrace 转成文本 systrace;纯 trace auto 有 trace_streamer 走 SQL、缺 trace_streamer 才走内置、SQL 失败不回退;trace+perf 固定 SQL-only;默认输出 `<binary>.systrace`,不自动附加 |
+| `/htrace convert [--trace-engine=auto\|trace_streamer\|builtin] <binary> [out.systrace]` | 手动把二进制 Harmony/OpenHarmony HiTrace 转成文本 systrace;auto 有 trace_streamer 优先走 SQL、缺 trace_streamer 或 SQL 失败回退到内置 raw trace 解析;显式 trace_streamer/builtin 不退化;默认输出 `<binary>.systrace`,不自动附加 |
 | `/htrace tools-status` | 在 REPL 内查看 trace_streamer、trace engine、sys parity gate 状态 |
 | `/htrace append` / `/htrace show` / `/htrace clear` | 同 `/log` 子命令 |
 | `/paste` | bracketed paste 被 SSH/tmux 吞掉时的 fallback;贴完 `/end` |

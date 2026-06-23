@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -270,7 +271,7 @@ func maybeConvertRawPerfData(ctx context.Context, opts Options, perfPath, perfTr
 	if err := ensureOutputDoesNotExist(perfTracePath); err != nil {
 		return Artifact{}, "", err
 	}
-	if err := ConvertRawPerfDataFileToPerfTrace(ctx, perfPath, perfTracePath); err != nil {
+	if err := convertRawPerfDataFileToPerfTrace(ctx, perfPath, perfTracePath, opts.Progress); err != nil {
 		_ = os.Remove(perfTracePath)
 		return Artifact{}, fmt.Sprintf("raw perf.data fallback could not parse %q (%v); .perftrace was not generated", perfPath, err), nil
 	}
@@ -332,15 +333,60 @@ func maybeConvertRawPerfDataWithDecision(ctx context.Context, opts Options, perf
 }
 
 func ConvertRawPerfDataFileToPerfTrace(ctx context.Context, inputPath, outputPath string) error {
+	return convertRawPerfDataFileToPerfTrace(ctx, inputPath, outputPath, nil)
+}
+
+func convertRawPerfDataFileToPerfTrace(ctx context.Context, inputPath, outputPath string, progress ProgressFunc) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	data, err := readRawPerfData(ctx, inputPath)
+	readStart := time.Now()
+	if progress != nil {
+		progress(ProgressEvent{
+			Stage:      "raw_perf_parse",
+			Status:     ProgressStatusStarted,
+			Message:    "parsing raw perf.data records",
+			Path:       inputPath,
+			OutputPath: outputPath,
+		})
+	}
+	data, err := readRawPerfData(ctx, inputPath, progress)
 	if err != nil {
+		if progress != nil {
+			progress(ProgressEvent{
+				Stage:      "raw_perf_parse",
+				Status:     ProgressStatusFailed,
+				Message:    "raw perf.data parse failed",
+				Path:       inputPath,
+				OutputPath: outputPath,
+				Elapsed:    time.Since(readStart),
+			})
+		}
 		return err
 	}
 	if len(data.Samples) == 0 {
+		if progress != nil {
+			progress(ProgressEvent{
+				Stage:      "raw_perf_parse",
+				Status:     ProgressStatusFailed,
+				Message:    "raw perf.data contains no supported sample records",
+				Path:       inputPath,
+				OutputPath: outputPath,
+				Elapsed:    time.Since(readStart),
+			})
+		}
 		return fmt.Errorf("raw perf.data contains no supported sample records")
+	}
+	if progress != nil {
+		progress(ProgressEvent{
+			Stage:      "raw_perf_parse",
+			Status:     ProgressStatusComplete,
+			Message:    "parsed raw perf.data records",
+			Path:       inputPath,
+			OutputPath: outputPath,
+			Records:    len(data.Samples),
+			Elapsed:    time.Since(readStart),
+		})
 	}
 	if err := ensureOutputDoesNotExist(outputPath); err != nil {
 		return err
@@ -349,26 +395,81 @@ func ConvertRawPerfDataFileToPerfTrace(ctx context.Context, inputPath, outputPat
 	if err != nil {
 		return err
 	}
+	writeStart := time.Now()
+	if progress != nil {
+		progress(ProgressEvent{
+			Stage:      "perftrace_write",
+			Status:     ProgressStatusStarted,
+			Message:    "writing normalized perftrace text",
+			Path:       inputPath,
+			OutputPath: outputPath,
+			Records:    len(data.Samples),
+		})
+	}
 	w := bufio.NewWriter(out)
 	writeErr := writeRawPerfDataPerfTrace(ctx, w, data)
 	flushErr := w.Flush()
 	closeErr := out.Close()
 	if writeErr != nil {
 		_ = os.Remove(outputPath)
+		if progress != nil {
+			progress(ProgressEvent{
+				Stage:      "perftrace_write",
+				Status:     ProgressStatusFailed,
+				Message:    "perftrace text write failed",
+				Path:       inputPath,
+				OutputPath: outputPath,
+				Records:    len(data.Samples),
+				Elapsed:    time.Since(writeStart),
+			})
+		}
 		return writeErr
 	}
 	if flushErr != nil {
 		_ = os.Remove(outputPath)
+		if progress != nil {
+			progress(ProgressEvent{
+				Stage:      "perftrace_write",
+				Status:     ProgressStatusFailed,
+				Message:    "perftrace text flush failed",
+				Path:       inputPath,
+				OutputPath: outputPath,
+				Records:    len(data.Samples),
+				Elapsed:    time.Since(writeStart),
+			})
+		}
 		return flushErr
 	}
 	if closeErr != nil {
 		_ = os.Remove(outputPath)
+		if progress != nil {
+			progress(ProgressEvent{
+				Stage:      "perftrace_write",
+				Status:     ProgressStatusFailed,
+				Message:    "perftrace text close failed",
+				Path:       inputPath,
+				OutputPath: outputPath,
+				Records:    len(data.Samples),
+				Elapsed:    time.Since(writeStart),
+			})
+		}
 		return closeErr
+	}
+	if progress != nil {
+		progress(ProgressEvent{
+			Stage:      "perftrace_write",
+			Status:     ProgressStatusComplete,
+			Message:    "wrote normalized perftrace text",
+			Path:       inputPath,
+			OutputPath: outputPath,
+			Records:    len(data.Samples),
+			Elapsed:    time.Since(writeStart),
+		})
 	}
 	return nil
 }
 
-func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
+func readRawPerfData(ctx context.Context, path string, progress ProgressFunc) (rawPerfData, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return rawPerfData{}, err
@@ -425,6 +526,10 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 	}
 	activeThreads := map[int]string{}
 	remaining := int64(header.DataSize)
+	processed := int64(0)
+	recordsRead := 0
+	parseStart := time.Now()
+	lastProgress := time.Now()
 	for remaining > 0 {
 		if err := ctx.Err(); err != nil {
 			return rawPerfData{}, err
@@ -511,6 +616,21 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 		default:
 		}
 		remaining -= int64(size)
+		processed += int64(size)
+		recordsRead++
+		if progress != nil && time.Since(lastProgress) >= progressHeartbeatInterval {
+			progress(ProgressEvent{
+				Stage:      "raw_perf_parse",
+				Status:     ProgressStatusProgress,
+				Message:    "parsing raw perf.data records",
+				Path:       path,
+				BytesDone:  processed,
+				BytesTotal: int64(header.DataSize),
+				Records:    recordsRead,
+				Elapsed:    time.Since(parseStart),
+			})
+			lastProgress = time.Now()
+		}
 	}
 	out.Caveats = append(out.Caveats, rawPerfRecordQualityCaveats(out)...)
 	return out, nil

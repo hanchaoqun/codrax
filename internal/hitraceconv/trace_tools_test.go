@@ -47,11 +47,11 @@ func TestBuildTraceToolStatusReportsConfiguredTraceStreamer(t *testing.T) {
 		t.Fatalf("sys binary parity gate should expose pending representative fixture state: %+v", status.SysBinaryParity)
 	}
 	if got := strings.Join(status.SysBinaryParity.Caveats, " "); !strings.Contains(got, "built-in sys binary parser remains an explicit guarded lane") ||
-		!strings.Contains(got, "trace+perf htrace never falls back") {
+		!strings.Contains(got, "trace+perf htrace in auto mode may fall back") {
 		t.Fatalf("sys binary parity gate caveats should explain guarded boundary: %+v", status.SysBinaryParity)
 	}
 	if !strings.Contains(strings.Join(status.Caveats, " "), "auto trace engine discovered trace_streamer") ||
-		!strings.Contains(strings.Join(status.Caveats, " "), "will not fall back") {
+		!strings.Contains(strings.Join(status.Caveats, " "), "fall back to the built-in raw trace parser") {
 		t.Fatalf("auto mode should explain selected trace_streamer readiness: %+v", status.Caveats)
 	}
 }
@@ -68,13 +68,12 @@ func TestBuildTraceToolStatusAutoMissingTraceStreamerSelectsBuiltinForTraceOnly(
 	if status.EngineMode != traceEngineAuto || status.SelectedEngine != traceEngineBuiltin {
 		t.Fatalf("auto missing trace_streamer should select built-in for trace-only conversion: %+v", status)
 	}
-	if !strings.Contains(strings.Join(status.Caveats, " "), "trace-only conversion will use the built-in parser") ||
-		!strings.Contains(strings.Join(status.Caveats, " "), "trace+perf htrace still requires trace_streamer") {
-		t.Fatalf("auto missing trace_streamer caveat should keep trace+perf SQL-only boundary: %+v", status.Caveats)
+	if !strings.Contains(strings.Join(status.Caveats, " "), "conversion will use the built-in raw trace parser") {
+		t.Fatalf("auto missing trace_streamer caveat should explain built-in fallback: %+v", status.Caveats)
 	}
 }
 
-func TestBuildTraceToolStatusAutoTracePerfInputKeepsSQLOnlyWhenTraceStreamerMissing(t *testing.T) {
+func TestBuildTraceToolStatusAutoTracePerfInputFallsBackWhenTraceStreamerMissing(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "trace_perf.htrace")
 	body := append([]byte("prefix"), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", []byte("PERF-DATA"))...)
@@ -90,15 +89,15 @@ func TestBuildTraceToolStatusAutoTracePerfInputKeepsSQLOnlyWhenTraceStreamerMiss
 	if err != nil {
 		t.Fatalf("build status: %v", err)
 	}
-	if status.EngineMode != traceEngineAuto || status.SelectedEngine != traceEngineTraceStreamer {
-		t.Fatalf("trace+perf input should keep SQL-only selected engine when trace_streamer is missing: %+v", status)
+	if status.EngineMode != traceEngineAuto || status.SelectedEngine != traceEngineBuiltin {
+		t.Fatalf("trace+perf input should select built-in fallback when trace_streamer is missing: %+v", status)
 	}
 	if !status.InputInspected || status.InputKind != "trace_perf" || !status.InputHasPerfSidecar || status.InputInspectionError != "" {
 		t.Fatalf("trace+perf input classification mismatch: %+v", status)
 	}
 	if !strings.Contains(strings.Join(status.Caveats, " "), "inspected input contains a standalone perf sidecar") ||
-		!strings.Contains(strings.Join(status.Caveats, " "), "will not use the built-in parser") {
-		t.Fatalf("trace+perf status should explain SQL-only boundary: %+v", status.Caveats)
+		!strings.Contains(strings.Join(status.Caveats, " "), "standalone perf fallback") {
+		t.Fatalf("trace+perf status should explain built-in/perf fallback: %+v", status.Caveats)
 	}
 }
 

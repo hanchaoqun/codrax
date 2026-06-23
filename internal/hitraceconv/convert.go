@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-const tracePerfSQLRequiredCaveat = "trace+perf htrace requires trace_streamer/SQLite trace conversion; built-in trace body conversion was not attempted"
+const tracePerfAutoFallbackCaveat = "trace+perf auto conversion uses trace_streamer/SQLite first and falls back to built-in raw trace parsing when SQL is unavailable or fails; explicit trace engine modes do not fall back"
 
 type traceMetadata struct {
 	header   fileHeader
@@ -87,7 +87,12 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	} else if traceStreamerExport.Cleanup != nil {
 		defer traceStreamerExport.Cleanup()
 	}
-	standaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifacts(ctx, opts, info.Size(), output)
+	standaloneExtractOpts := standaloneExtractOptions{GeneratePerfTrace: true}
+	if traceStreamerExport.SystraceArtifact.Path != "" && traceDBCoverageHasPerfSamples(initialTraceDBCoverage) {
+		standaloneExtractOpts.GeneratePerfTrace = false
+		standaloneExtractOpts.PrimaryPerfSource = "trace_streamer DB perf_sample rows"
+	}
+	standaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifactsWithOptions(ctx, opts, info.Size(), output, standaloneExtractOpts)
 	if err != nil {
 		if traceStreamerExport.SystraceArtifact.Path != "" {
 			_ = os.Remove(traceStreamerExport.SystraceArtifact.Path)
@@ -114,36 +119,14 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 			MissingFormatCount: 0,
 			UnknownEventCount:  0,
 		}
+		normalizeResultCollections(&result)
 		if bundleArtifact, err := writeTraceBundleWithAllCoverage(input, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
 			return Result{}, err
 		} else if bundleArtifact.Path != "" {
 			result.BundlePath = bundleArtifact.Path
 			result.Artifacts = append(result.Artifacts, bundleArtifact)
 		}
-		return result, nil
-	}
-	if hasTracePerfSidecar {
-		result := Result{
-			InputPath:         input,
-			InputBytes:        info.Size(),
-			Artifacts:         append([]Artifact(nil), standaloneArtifacts...),
-			ProviderDecisions: append([]PerfProviderDecision(nil), standaloneDecisions...),
-			TraceDecisions:    append([]TraceProviderDecision(nil), initialTraceDecisions...),
-			TraceDBCoverage:   append([]TraceDBCoverage(nil), initialTraceDBCoverage...),
-			TraceCoverage:     append([]TraceDBCoverage(nil), initialTraceCoverage...),
-			Caveats:           append(append([]string(nil), initialCaveats...), standaloneCaveats...),
-		}
-		result.Artifacts = append(initialArtifacts, result.Artifacts...)
-		if len(result.TraceDecisions) == 0 {
-			result.TraceDecisions = append(result.TraceDecisions, tracePerfSQLRequiredDecision(opts, input, output))
-		}
-		result.Caveats = append(result.Caveats, tracePerfSQLRequiredCaveat)
-		if bundleArtifact, err := writeTraceBundleWithAllCoverage(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
-			return Result{}, err
-		} else if bundleArtifact.Path != "" {
-			result.BundlePath = bundleArtifact.Path
-			result.Artifacts = append(result.Artifacts, bundleArtifact)
-		}
+		normalizeResultCollections(&result)
 		return result, nil
 	}
 	if traceStreamerSelectionShouldStopBuiltinFallback(opts, traceStreamerExport) {
@@ -159,12 +142,14 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		}
 		result.Artifacts = append(initialArtifacts, result.Artifacts...)
 		result.Caveats = append(result.Caveats, "systrace output was not produced because selected trace_streamer/SQLite trace conversion did not produce trace_query-ready rows; pass --trace-engine=builtin to use the built-in trace-only converter")
+		normalizeResultCollections(&result)
 		if bundleArtifact, err := writeTraceBundleWithAllCoverage(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
 			return Result{}, err
 		} else if bundleArtifact.Path != "" {
 			result.BundlePath = bundleArtifact.Path
 			result.Artifacts = append(result.Artifacts, bundleArtifact)
 		}
+		normalizeResultCollections(&result)
 		return result, nil
 	}
 	if result, ok, err := tryConvertProfilerContainer(ctx, opts, info.Size(), output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage); ok || err != nil {
@@ -191,12 +176,14 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 				TraceDBCoverage: append([]TraceDBCoverage(nil), initialTraceDBCoverage...),
 				TraceCoverage:   append([]TraceDBCoverage(nil), initialTraceCoverage...),
 			}
+			normalizeResultCollections(&result)
 			if bundleArtifact, bundleErr := writeTraceBundleWithAllCoverage(input, "", result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); bundleErr != nil {
 				return Result{}, bundleErr
 			} else if bundleArtifact.Path != "" {
 				result.BundlePath = bundleArtifact.Path
 				result.Artifacts = append(result.Artifacts, bundleArtifact)
 			}
+			normalizeResultCollections(&result)
 			return result, nil
 		}
 		return Result{}, err
@@ -263,39 +250,33 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d event row(s) lacked an official-compatible renderer and were emitted as header-only rows", unknown))
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
+	normalizeResultCollections(&result)
 	if bundleArtifact, err := writeTraceBundleWithAllCoverage(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
 		return Result{}, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path
 		result.Artifacts = append(result.Artifacts, bundleArtifact)
 	}
+	normalizeResultCollections(&result)
 	return result, nil
+}
+
+func traceDBCoverageHasPerfSamples(coverage []TraceDBCoverage) bool {
+	for _, item := range coverage {
+		if strings.EqualFold(strings.TrimSpace(item.Family), "perf") &&
+			strings.EqualFold(strings.TrimSpace(item.Table), "perf_sample") &&
+			item.RowsEmitted > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func traceStreamerSelectionShouldStopBuiltinFallback(opts Options, traceStreamerExport traceStreamerExportResult) bool {
 	if selectedTraceEngineMode(opts.TraceEngine) != traceEngineTraceStreamer {
 		return false
 	}
-	if isAutoTraceEngineMode(opts.TraceEngine) &&
-		traceStreamerExport.Decision.ProviderName == traceProviderNameTraceStreamer &&
-		traceStreamerExport.Decision.Reason == "trace_streamer_unavailable" &&
-		!traceStreamerExport.Decision.Attempted &&
-		!traceStreamerExport.Decision.Selected {
-		return false
-	}
-	return true
-}
-
-func tracePerfSQLRequiredDecision(opts Options, input, output string) TraceProviderDecision {
-	provider := traceProviderByName(traceProviderNameTraceStreamer)
-	if normalizeTraceEngineMode(opts.TraceEngine) == traceEngineBuiltin {
-		provider = traceProviderByName(traceProviderNameBuiltinModern)
-	}
-	return traceProviderFailure(
-		newTraceProviderDecision(traceProviderStageTraceBody, provider, opts, input, output),
-		"trace_perf_requires_sql",
-		tracePerfSQLRequiredCaveat,
-	)
+	return !isAutoTraceEngineMode(opts.TraceEngine)
 }
 
 func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata, error) {

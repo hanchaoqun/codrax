@@ -170,12 +170,12 @@ func TestConvertFileNoPerfTraceAutoMissingTraceStreamerFallsBackToBuiltin(t *tes
 		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
 		t.Fatalf("expected auto unavailable SQL decision plus built-in success: %+v", result.TraceDecisions)
 	}
-	if !containsString(result.Caveats, "auto trace-only conversion will use the built-in") || result.BundlePath == "" {
+	if !containsString(result.Caveats, "auto trace conversion will use the built-in raw trace parser") || result.BundlePath == "" {
 		t.Fatalf("auto fallback should explain missing trace_streamer and emit bundle: %+v", result)
 	}
 }
 
-func TestConvertFileNoPerfSysTraceAutoTraceStreamerFailureDoesNotFallbackToBuiltin(t *testing.T) {
+func TestConvertFileNoPerfSysTraceAutoTraceStreamerFailureFallsBackToBuiltin(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
 	}
@@ -193,21 +193,21 @@ func TestConvertFileNoPerfSysTraceAutoTraceStreamerFailureDoesNotFallbackToBuilt
 		TraceStreamerPath: traceStreamer,
 	})
 	if err != nil {
-		t.Fatalf("auto trace_streamer failure should return a diagnostic bundle: %v", err)
+		t.Fatalf("auto trace_streamer failure should fall back to built-in: %v", err)
 	}
-	if result.OutputPath != "" || result.EventsWritten != 0 {
-		t.Fatalf("auto trace_streamer failure must not claim built-in systrace output: %+v", result)
+	if result.OutputPath != output || result.EventsWritten != 1 {
+		t.Fatalf("auto trace_streamer failure should claim built-in systrace output: %+v", result)
 	}
-	if _, err := os.Stat(output); !os.IsNotExist(err) {
-		t.Fatalf("auto trace_streamer failure should not write built-in sys systrace, stat err=%v", err)
+	if _, err := os.Stat(output); err != nil {
+		t.Fatalf("auto trace_streamer failure should write built-in sys systrace: %v", err)
 	}
 	if !hasTraceDecisionReason(result.TraceDecisions, traceProviderNameTraceStreamer, "trace_streamer_failed") ||
-		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) ||
+		!hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) ||
 		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
-		t.Fatalf("expected failed trace_streamer decision and no built-in success: %+v", result.TraceDecisions)
+		t.Fatalf("expected failed trace_streamer decision and built-in success: %+v", result.TraceDecisions)
 	}
-	if !containsString(result.Caveats, "pass --trace-engine=builtin") || result.BundlePath == "" {
-		t.Fatalf("diagnostic bundle should guide explicit built-in opt-in: caveats=%+v bundle=%q", result.Caveats, result.BundlePath)
+	if !containsString(result.Caveats, "trace_streamer DB export failed") || result.BundlePath == "" {
+		t.Fatalf("fallback bundle should preserve SQL failure caveat: caveats=%+v bundle=%q", result.Caveats, result.BundlePath)
 	}
 }
 
@@ -528,7 +528,61 @@ func TestConvertFileTraceStreamerAutoMergesPerfSidecarsIntoTraceBundle(t *testin
 	}
 }
 
-func TestConvertFileTracePerfAutoDoesNotFallbackToBuiltinTraceBody(t *testing.T) {
+func TestConvertFileTracePerfSQLPerfSamplesSkipRawPerftraceFallback(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "trace-with-sql-perf.htrace")
+	body := append([]byte("prefix"), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", syntheticRawPerfData())...)
+	if err := os.WriteFile(input, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fixtureDB := createTraceDBFixture(t, traceStreamerIntegrationPerfDBStatements())
+	traceStreamer := writeFakeTraceStreamer(t, dir, 0)
+	t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
+
+	output := filepath.Join(dir, "sql-perf.systrace")
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath:         input,
+		OutputPath:        output,
+		TraceStreamerPath: traceStreamer,
+	})
+	if err != nil {
+		t.Fatalf("convert trace+perf with SQL perf samples: %v", err)
+	}
+	if result.OutputPath != output || result.EventsWritten == 0 {
+		t.Fatalf("SQL trace+perf should emit systrace rows: %+v", result)
+	}
+	if !hasArtifact(result.Artifacts, ArtifactPerfData) {
+		t.Fatalf("raw perf.data sidecar should remain for audit: %+v", result.Artifacts)
+	}
+	if hasArtifact(result.Artifacts, ArtifactPerfTrace) {
+		t.Fatalf("SQL perf samples should be primary and avoid duplicate raw .perftrace fallback: %+v", result.Artifacts)
+	}
+	if !traceDBCoverageHasPerfSamples(result.TraceDBCoverage) {
+		t.Fatalf("SQL perf coverage should show emitted perf samples: %+v", result.TraceDBCoverage)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), output)
+	if err != nil {
+		t.Fatalf("parse SQL perf systrace: %v", err)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{})
+	if stats.PerfSamples == nil || len(stats.PerfSamples.TopSymbols) == 0 ||
+		stats.PerfSamples.TopSymbols[0].Symbol != "runWorkload@entry/src/main/ets/pages/Index.ets:55:28" {
+		t.Fatalf("trace_query should consume SQL perf samples from systrace: %+v", stats.PerfSamples)
+	}
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(bundle, []byte(`"type": "perftrace"`)) ||
+		!bytes.Contains(bundle, []byte(`trace_streamer DB perf_sample rows`)) {
+		t.Fatalf("tracebundle should document SQL perf as primary without raw perftrace:\n%s", bundle)
+	}
+}
+
+func TestConvertFileTracePerfAutoSQLFailureFallsBackToBuiltinTraceBody(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
 	}
@@ -549,34 +603,90 @@ func TestConvertFileTracePerfAutoDoesNotFallbackToBuiltinTraceBody(t *testing.T)
 		TraceStreamerPath: traceStreamer,
 	})
 	if err != nil {
-		t.Fatalf("trace+perf auto SQL failure should produce partial bundle, not fail hard: %v", err)
+		t.Fatalf("trace+perf auto SQL failure should fall back to built-in trace body: %v", err)
 	}
-	if result.OutputPath != "" || result.EventsWritten != 0 {
-		t.Fatalf("trace+perf must not fall back to built-in trace body after SQL failure: %+v", result)
+	if result.OutputPath != output || result.EventsWritten != 1 {
+		t.Fatalf("trace+perf auto SQL failure should emit built-in systrace: %+v", result)
 	}
-	if _, err := os.Stat(output); !os.IsNotExist(err) {
-		t.Fatalf("trace+perf SQL failure should not create legacy systrace output, stat err=%v", err)
+	if _, err := os.Stat(output); err != nil {
+		t.Fatalf("trace+perf SQL failure should create built-in systrace output: %v", err)
 	}
 	if !hasArtifact(result.Artifacts, ArtifactPerfData) || !hasArtifact(result.Artifacts, ArtifactPerfTrace) {
-		t.Fatalf("trace+perf partial result should preserve perf sidecars: %+v", result.Artifacts)
+		t.Fatalf("trace+perf fallback result should preserve perf sidecars: %+v", result.Artifacts)
 	}
 	if !hasTraceDecision(result.TraceDecisions, traceProviderNameTraceStreamer, false) ||
-		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
-		t.Fatalf("expected failed SQL decision and no built-in success: %+v", result.TraceDecisions)
+		!hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
+		t.Fatalf("expected failed SQL decision and built-in success: %+v", result.TraceDecisions)
 	}
-	if !containsString(result.Caveats, tracePerfSQLRequiredCaveat) {
-		t.Fatalf("trace+perf partial result should explain SQL-only trace body policy: %+v", result.Caveats)
+	if !containsString(result.Caveats, "trace_streamer DB export failed") {
+		t.Fatalf("trace+perf fallback result should preserve SQL failure caveat: %+v", result.Caveats)
 	}
 	bundle, err := os.ReadFile(result.BundlePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(bundle, []byte(`"type": "systrace"`)) || !bytes.Contains(bundle, []byte(`"type": "perftrace"`)) {
-		t.Fatalf("trace+perf SQL failure bundle should preserve perf without systrace:\n%s", bundle)
+	if !bytes.Contains(bundle, []byte(`"type": "systrace"`)) || !bytes.Contains(bundle, []byte(`"type": "perftrace"`)) {
+		t.Fatalf("trace+perf SQL failure fallback bundle should include systrace and perftrace:\n%s", bundle)
 	}
 }
 
-func TestConvertFileTracePerfBuiltinEngineDoesNotUseLegacyTraceBody(t *testing.T) {
+func TestConvertFileTracePerfDBNormalizeFailureDedupesPartialArtifacts(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "trace with perf.htrace")
+	body := append([]byte("prefix"), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", syntheticRawPerfData())...)
+	if err := os.WriteFile(input, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	traceStreamer := writeFakeTraceStreamer(t, dir, 0)
+
+	output := filepath.Join(dir, "out.systrace")
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath:         input,
+		OutputPath:        output,
+		TraceStreamerPath: traceStreamer,
+	})
+	if err != nil {
+		t.Fatalf("trace+perf invalid SQL DB should produce partial bundle, not fail hard: %v", err)
+	}
+	if result.OutputPath != "" || result.EventsWritten != 0 {
+		t.Fatalf("invalid SQL DB must not claim systrace output: %+v", result)
+	}
+	if got := countArtifacts(result.Artifacts, ArtifactTraceDB); got != 1 {
+		t.Fatalf("partial result should expose exactly one trace_db artifact, got %d artifacts=%+v", got, result.Artifacts)
+	}
+	if !hasArtifact(result.Artifacts, ArtifactPerfData) || !hasArtifact(result.Artifacts, ArtifactPerfTrace) {
+		t.Fatalf("trace+perf partial result should preserve perf sidecars: %+v", result.Artifacts)
+	}
+	const normalizeFailed = "trace_streamer DB export succeeded, but Codrax could not normalize the DB to systrace"
+	if got := countStringsContaining(result.Caveats, normalizeFailed); got != 1 {
+		t.Fatalf("partial result should expose exactly one normalize-failure caveat, got %d caveats=%+v", got, result.Caveats)
+	}
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta traceBundleMetadata
+	if err := json.Unmarshal(bundle, &meta); err != nil {
+		t.Fatalf("parse tracebundle: %v\n%s", err, bundle)
+	}
+	if got := countArtifacts(meta.Artifacts, ArtifactTraceDB); got != 1 {
+		t.Fatalf("tracebundle should contain one trace_db artifact, got %d:\n%s", got, bundle)
+	}
+	if got := countStringsContaining(meta.Caveats, normalizeFailed); got != 1 {
+		t.Fatalf("tracebundle top-level caveats should contain one normalize-failure caveat, got %d caveats=%+v\n%s", got, meta.Caveats, bundle)
+	}
+	if len(meta.PerfClockAlignments) != 1 ||
+		meta.PerfClockAlignments[0].TraceTimeDomain != "missing_trace_body" ||
+		meta.PerfClockAlignments[0].Confidence != "trace_body_missing" ||
+		meta.PerfClockAlignments[0].Calibrated {
+		t.Fatalf("tracebundle should mark perftrace alignment as missing trace body: %+v\n%s", meta.PerfClockAlignments, bundle)
+	}
+}
+
+func TestConvertFileTracePerfBuiltinEngineUsesBuiltinTraceBody(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "trace-with-perf-builtin.htrace")
 	textTrace := "worker-1234  ( 1234) [005] ....     1.234567: sched_wakeup: comm=main pid=5678 prio=53 target_cpu=005\n"
@@ -593,21 +703,20 @@ func TestConvertFileTracePerfBuiltinEngineDoesNotUseLegacyTraceBody(t *testing.T
 		TraceEngine: traceEngineBuiltin,
 	})
 	if err != nil {
-		t.Fatalf("trace+perf built-in request should return sidecar-only partial result: %v", err)
+		t.Fatalf("trace+perf built-in request should render built-in trace body: %v", err)
 	}
-	if result.OutputPath != "" || result.EventsWritten != 0 {
-		t.Fatalf("trace+perf built-in request must not render legacy trace body: %+v", result)
+	if result.OutputPath != output || result.EventsWritten != 1 {
+		t.Fatalf("trace+perf built-in request should render built-in trace body: %+v", result)
 	}
 	if !hasArtifact(result.Artifacts, ArtifactPerfData) || !hasArtifact(result.Artifacts, ArtifactPerfTrace) {
-		t.Fatalf("trace+perf built-in partial result should preserve perf sidecars: %+v", result.Artifacts)
+		t.Fatalf("trace+perf built-in result should preserve perf sidecars: %+v", result.Artifacts)
 	}
-	if !hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "trace_perf_requires_sql") ||
-		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
-		t.Fatalf("expected built-in trace body rejection for trace+perf: %+v", result.TraceDecisions)
+	if !hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
+		t.Fatalf("expected built-in trace body success for trace+perf: %+v", result.TraceDecisions)
 	}
 }
 
-func TestConvertFileTraceStreamerAutoFailureDoesNotFallbackToProfiler(t *testing.T) {
+func TestConvertFileTraceStreamerAutoFailureFallsBackToProfiler(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
 	}
@@ -626,20 +735,20 @@ func TestConvertFileTraceStreamerAutoFailureDoesNotFallbackToProfiler(t *testing
 		TraceStreamerPath: traceStreamer,
 	})
 	if err != nil {
-		t.Fatalf("auto trace_streamer failure should return a diagnostic bundle: %v", err)
+		t.Fatalf("auto trace_streamer failure should fall back to profiler parser: %v", err)
 	}
-	if result.OutputPath != "" || result.EventsWritten != 0 {
-		t.Fatalf("auto trace_streamer failure must not claim profiler systrace output: %+v", result)
+	if result.OutputPath != output || result.EventsWritten != 1 {
+		t.Fatalf("auto trace_streamer failure should claim profiler systrace output: %+v", result)
 	}
-	if _, err := os.Stat(output); !os.IsNotExist(err) {
-		t.Fatalf("auto trace_streamer failure should not write built-in profiler systrace, stat err=%v", err)
+	if _, err := os.Stat(output); err != nil {
+		t.Fatalf("auto trace_streamer failure should write built-in profiler systrace: %v", err)
 	}
 	if !hasTraceDecision(result.TraceDecisions, traceProviderNameTraceStreamer, false) ||
-		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
-		t.Fatalf("expected failed trace_streamer and no successful built-in decisions: %+v", result.TraceDecisions)
+		!hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
+		t.Fatalf("expected failed trace_streamer and successful built-in decision: %+v", result.TraceDecisions)
 	}
-	if !containsString(result.Caveats, "pass --trace-engine=builtin") || result.BundlePath == "" {
-		t.Fatalf("diagnostic bundle should guide explicit built-in opt-in: caveats=%+v bundle=%q", result.Caveats, result.BundlePath)
+	if !containsString(result.Caveats, "trace_streamer DB export failed") || result.BundlePath == "" {
+		t.Fatalf("fallback bundle should preserve SQL failure caveat: caveats=%+v bundle=%q", result.Caveats, result.BundlePath)
 	}
 }
 
@@ -722,6 +831,27 @@ func traceStreamerIntegrationDBStatements() []string {
 		"CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, cat TEXT, depth INT, cookie INT, itid INT)",
 		"INSERT INTO callstack VALUES (1, 1700000, 40000, 100, 'DoWork', 'slice', 0, NULL, 2)",
 	}
+}
+
+func traceStreamerIntegrationPerfDBStatements() []string {
+	statements := append([]string{}, traceStreamerIntegrationDBStatements()...)
+	statements = append(statements,
+		"CREATE TABLE perf_thread (thread_id INT, process_id INT, thread_name TEXT)",
+		"CREATE TABLE perf_sample (callchain_id INT, timestamp_trace INT, thread_id INT, event_count INT, cpu_id INT, event_type_id INT)",
+		"CREATE TABLE perf_report (id INT, report_value TEXT)",
+		"CREATE TABLE perf_callchain (id INT, callchain_id INT, depth INT, vaddr_in_file INT, offset_to_vaddr INT, ip INT, file_id INT, symbol_id INT, line_number INT)",
+		"CREATE TABLE perf_files (file_id INT, serial_id INT, symbol TEXT, path TEXT)",
+		"CREATE TABLE hmtrace_perf_symbolized_frame (perf_callchain_row_id INT PRIMARY KEY, display_name TEXT NOT NULL, origin_name TEXT NOT NULL, source_file TEXT, source_line INT, source_column INT, symbol_origin TEXT NOT NULL)",
+		"INSERT INTO perf_thread VALUES (101, 101, 'demo_main')",
+		"INSERT INTO perf_report VALUES (9, 'hw-cache-misses')",
+		"INSERT INTO perf_sample VALUES (88, 2200000, 101, 3, 2, 9)",
+		"INSERT INTO perf_callchain VALUES (1001, 88, 0, 16, 16, 16, 1, 1, 55)",
+		"INSERT INTO perf_callchain VALUES (1002, 88, 1, 24, 24, 24, 1, 1, 12)",
+		"INSERT INTO perf_files VALUES (1, 1, 'raw_leaf', '/system/lib64/libdemo.so')",
+		"INSERT INTO hmtrace_perf_symbolized_frame VALUES (1001, 'runWorkload@entry/src/main/ets/pages/Index.ets:55:28', 'raw_leaf', 'entry/src/main/ets/pages/Index.ets', 55, 28, 'source_map+name_cache')",
+		"INSERT INTO hmtrace_perf_symbolized_frame VALUES (1002, 'main', 'main', 'entry/src/main/ets/pages/Index.ets', 12, 1, 'source_map+name_cache')",
+	)
+	return statements
 }
 
 func traceStreamerSysWakeupParityDBStatements() []string {
@@ -1455,6 +1585,26 @@ func hasArtifact(artifacts []Artifact, typ string) bool {
 		}
 	}
 	return false
+}
+
+func countArtifacts(artifacts []Artifact, typ string) int {
+	count := 0
+	for _, artifact := range artifacts {
+		if artifact.Type == typ {
+			count++
+		}
+	}
+	return count
+}
+
+func countStringsContaining(items []string, needle string) int {
+	count := 0
+	for _, item := range items {
+		if strings.Contains(item, needle) {
+			count++
+		}
+	}
+	return count
 }
 
 func hasTraceDecision(decisions []TraceProviderDecision, name string, succeeded bool) bool {

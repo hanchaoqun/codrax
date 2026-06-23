@@ -704,8 +704,8 @@ codrax --atrace /tmp/atrace.txt -r &quot;ListView 滑动卡顿哪里出问题?&q
 codrax --htrace /tmp/perfetto.txt -r &quot;...&quot;
 
 # 二进制 HiTrace 需要先手动转换;不会自动附加
-# 纯 trace 默认 auto:有 trace_streamer 就走 SQL;没有 trace_streamer 才走内置
-# 如果 SQL 已经开始执行但失败,不会再回退到内置;trace+perf 固定 SQL-only
+# 默认 auto:有 trace_streamer 就优先走 SQL;没有 trace_streamer 或 SQL 失败就回退到内置 raw trace 解析
+# 显式 --trace-engine=trace_streamer 或 --trace-engine=builtin 时,不会退化到另一个引擎
 codrax trace convert --trace-tools-status
 codrax trace convert --input /tmp/capture.htrace.bin
 codrax trace convert --input /tmp/donghu.sys --trace-engine=builtin

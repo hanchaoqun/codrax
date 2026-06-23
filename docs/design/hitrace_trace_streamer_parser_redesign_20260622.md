@@ -11,18 +11,19 @@ shape as `hmtrace`: first normalize the capture through `trace_streamer` into a
 structured database, then export Codrax-native `.systrace`, `.perftrace`, and
 `.tracebundle.json` artifacts for `trace_query`.
 
-This redesign makes `auto` the default trace-body selection. For pure trace
-captures, `auto` uses `trace_streamer` DB export when `trace_streamer` is
-discovered, falls back to the built-in trace-only converter only when
-`trace_streamer` is absent, and does not fall back after a `trace_streamer`
-execution or DB-export failure. Trace+perf captures are SQL-only. The existing
-`SEGMENT_EVENTS_FORMAT` + `SEGMENT_RAW_TRACE` parser remains an explicitly
-selectable transition lane for no-perf Harmony/Donghu `.sys`-style binary
-captures until the DB engine proves full parity for that shape. Runtime
-conversion must choose exactly one trace-body engine: auto-selected SQL or
-built-in for pure trace, explicit SQL, or explicit built-in for pure trace. Once parity is proven by
-round-trip tests and customer-style fixtures, Codrax can retire the built-in sys
-binary lane without keeping backward compatibility solely for its own sake.
+This redesign makes `auto` the default trace-body selection. The initial design
+made trace+perf SQL-only and avoided fallback after SQL started; that rule was
+superseded by the Batch 11G strategy in
+`hitrace_trace_streamer_delivery_plan_20260622.md`. Current behavior is:
+`auto` tries `trace_streamer` DB export first when discovered and falls back to
+the built-in raw trace parser when trace_streamer is absent or SQL
+execution/export fails; explicit `trace_streamer` and explicit `builtin` do not
+degrade. The existing `SEGMENT_EVENTS_FORMAT` + `SEGMENT_RAW_TRACE` parser
+therefore remains both an explicit transition lane and the auto fallback for
+Harmony/Donghu `.sys`-style binary captures until the DB engine proves full
+parity for that shape. Once parity is proven by round-trip tests and
+customer-style fixtures, Codrax can retire the built-in sys binary lane without
+keeping backward compatibility solely for its own sake.
 
 ## Current Gap
 
@@ -218,10 +219,9 @@ systrace/perftrace/tracebundle artifacts.
 - Discover `trace_streamer` through explicit flag, environment variable, `PATH`,
   and known OpenHarmony/SmartPerf locations.
 - The default/`auto` engine uses `trace_streamer` when discovered. If
-  `trace_streamer` is absent and the input is pure trace, `auto` uses the
-  built-in trace-only converter. If `trace_streamer` is discovered but execution
-  or DB export fails, `auto` does not fall back. Explicit `trace_streamer` fails
-  fast on missing provider. Trace+perf remains SQL-only.
+  `trace_streamer` is absent or SQL execution/export fails, `auto` uses the
+  built-in raw trace parser. Explicit `trace_streamer` fails fast or returns a
+  partial tracebundle and does not fall back.
 
 ### Batch C: DB Exporter
 

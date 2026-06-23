@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -81,11 +82,43 @@ func openTraceDB(ctx context.Context, path string) (*traceDB, error) {
 }
 
 func sqliteReadOnlyDSN(path string) string {
-	u := url.URL{Scheme: "file", Path: path}
+	uriPath := strings.TrimSpace(path)
+	if abs, err := filepath.Abs(uriPath); err == nil {
+		uriPath = abs
+	}
+	return sqliteReadOnlyDSNFromURIPath(uriPath)
+}
+
+func sqliteReadOnlyDSNFromURIPath(path string) string {
+	uriPath := sqliteFileURIPath(path)
+	u := url.URL{Scheme: "file", Path: uriPath}
 	q := u.Query()
 	q.Set("mode", "ro")
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+func sqliteFileURIPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = "."
+	}
+	path = strings.ReplaceAll(path, "\\", "/")
+	if sqliteLooksLikeWindowsDrivePath(path) {
+		return "/" + path
+	}
+	if strings.HasPrefix(path, "/") {
+		return path
+	}
+	return "/" + path
+}
+
+func sqliteLooksLikeWindowsDrivePath(path string) bool {
+	if len(path) < 2 || path[1] != ':' {
+		return false
+	}
+	c := path[0]
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
 }
 
 func (tdb *traceDB) close() error {

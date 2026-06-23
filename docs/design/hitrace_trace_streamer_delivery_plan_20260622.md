@@ -55,18 +55,19 @@ Observed hmtrace model:
 
 ## Delivery Rules
 
-- No silent production fallback after a trace-body engine starts. Pure trace
-  conversion has a user-visible selector: `auto`, `trace_streamer`, or
-  `builtin`. In `auto`, Codrax uses `trace_streamer`/SQL when the tool is
-  discovered, uses the built-in trace-only converter only when `trace_streamer`
-  is absent, and does not fall back after a SQL execution/export failure.
-- Pure trace conversion is not a dual-run production path. The CLI and REPL must
-  expose the same selector, and the selected provider must be recorded in
+- Trace body conversion has a user-visible selector: `auto`, `trace_streamer`,
+  or `builtin`. In `auto`, Codrax uses `trace_streamer`/SQL first when the tool
+  is discovered, and falls back to the built-in raw trace parser when
+  trace_streamer is absent or SQL execution/export/normalization fails. Explicit
+  `trace_streamer` and explicit `builtin` do not degrade to another engine.
+- Production conversion is not a dual-success path. The CLI and REPL must expose
+  the same selector, and every attempted/succeeded provider must be recorded in
   tracebundle provenance. Parity tests may execute both engines in one test, but
-  customer conversion must run exactly one trace-body engine.
-- No-perf Harmony/Donghu `.sys` binary conversion remains supported through the
-  explicit built-in engine until trace_streamer DB parity is proven. Once parity
-  is proven, backward compatibility for the old parser is not required.
+  customer conversion should use SQL on success and only run the built-in parser
+  after SQL is unavailable or failed in `auto`.
+- Harmony/Donghu `.sys` and modern profiler/session raw trace conversion remain
+  supported through the built-in engine because `auto` uses it as the commercial
+  fallback for both pure trace and trace+perf captures.
 - No file-suffix or keyword intent routing for user requests. Deterministic code
   may validate selected artifacts and inspect content, but model/request routing
   remains outside converter internals.
@@ -900,8 +901,9 @@ Delivered Batch 6C2 on 2026-06-23:
     raw-ftrace output and existing binder query expectations;
   - workqueue events now render as `work=... function=...`, matching the
     stable field schema already emitted by the SQL path.
-- The guard is test-only. Production pure-trace conversion still uses exactly
-  the user-selected engine, defaulting to SQL, and trace+perf remains SQL-only.
+- The guard is test-only. Production conversion now follows the Batch 11G
+  strategy: explicit engines are exact, while `auto` tries SQL first and falls
+  back to the built-in raw trace parser if SQL is unavailable or fails.
 - This does not yet close Batch 6 because representative customer `.sys`
   captures still need conversion and trace_query round-trip validation.
 
@@ -1226,10 +1228,11 @@ Tasks:
   - extra positional arguments fail with localized usage.
 - Pass the selected engine into `hitraceconv.ConvertFile`.
 - Update REPL usage text so both CLI and REPL document:
-  - pure trace `auto` uses trace_streamer/SQL when discovered;
-  - pure trace `auto` uses built-in only when trace_streamer is absent;
-  - trace_streamer execution/export failure does not fall back to built-in;
-  - trace+perf remains SQL-only.
+  - `auto` uses trace_streamer/SQL when discovered;
+  - `auto` uses built-in when trace_streamer is absent;
+  - `auto` falls back to built-in after trace_streamer execution/export
+    failure;
+  - explicit `trace_streamer` and explicit `builtin` do not degrade.
 - Add tests that:
   - REPL usage shows the in-REPL engine selector;
   - REPL `--trace-engine=builtin` reaches `ConvertFile` through the explicit
@@ -1242,10 +1245,9 @@ Exit criteria:
 
 - A user can choose the pure-trace engine from either `codrax trace convert` or
   `/htrace convert` without changing workflows.
-- Default and `auto` use SQL/trace_streamer when available, use built-in only
-  for pure trace when trace_streamer is absent, and never fall back after SQL
-  execution/export failure. Trace+perf never falls back to built-in trace-body
-  parsing.
+- Default and `auto` use SQL/trace_streamer when available, then fall back to
+  built-in raw trace parsing when SQL is unavailable or fails. Explicit
+  `trace_streamer` and explicit `builtin` do not degrade.
 - Verified with:
 
 ```bash
@@ -1335,12 +1337,10 @@ Status: delivered on 2026-06-23.
 
 Gap:
 
-- `codrax trace convert --trace-tools-status` currently reports generic engine
-  readiness. In `auto` mode with no `trace_streamer`, it selects the built-in
-  engine while adding a caveat that trace+perf still requires SQL.
-- That generic output is acceptable without an input path, but misleading when
-  the user passes a concrete trace+perf capture through `--input`: the actual
-  converter will not use the built-in trace-body parser for that input.
+- `codrax trace convert --trace-tools-status` reports generic engine readiness.
+  In `auto` mode with no `trace_streamer`, current strategy selects the
+  built-in fallback for both pure trace and trace+perf. Earlier SQL-only status
+  wording was superseded by Batch 11G.
 - The fix must inspect structured file/container content, not file suffixes or
   user prose. It should reuse the existing standalone HIPERF_DATA sidecar scan
   instead of adding a second detector.
@@ -1354,17 +1354,17 @@ Tasks:
   - inspection error, if any.
 - In `BuildTraceToolStatus`, when `Options.InputPath` is non-empty:
   - stat and scan the file with the existing standalone perf sidecar detector;
-  - if trace+perf is detected and `trace_streamer` is unavailable, keep the
-    selected engine as `trace_streamer` and emit a direct SQL-required caveat;
-  - if pure/no-perf is detected or no input is supplied, preserve the existing
-    pure-trace `auto` behavior.
+  - if trace+perf is detected and `trace_streamer` is unavailable, report
+    built-in trace fallback plus standalone perf fallback;
+  - if pure/no-perf is detected or no input is supplied, use the same `auto`
+    fallback semantics.
 - Update CLI localized status rendering to show the input classification before
   provider lines.
 - Add tests that:
   - generic `auto` without an input still selects built-in when
     `trace_streamer` is missing;
-  - `auto` with an input containing HIPERF_DATA keeps selected engine SQL-only
-    when `trace_streamer` is missing;
+  - `auto` with an input containing HIPERF_DATA selects built-in fallback when
+    `trace_streamer` is missing and documents standalone perf fallback;
   - localized CLI status exposes the input classification in Chinese and
     English.
 - No trace_query tool-call input fields are added. This is command/status
@@ -1373,7 +1373,7 @@ Tasks:
 Exit criteria:
 
 - Users who pass a concrete trace+perf input to `--trace-tools-status` see the
-  same SQL-only engine contract that conversion will enforce.
+  same auto-fallback contract that conversion will enforce.
 - Pure trace and no-input status behavior does not regress.
 - Verified with:
 
@@ -1386,9 +1386,9 @@ Delivered:
 - `TraceToolStatus` now carries optional input classification from structural
   file inspection: input path, inspected state, input kind, perf-sidecar
   presence, and inspection error.
-- `--trace-tools-status --input <trace+perf.htrace>` keeps `selected_engine` on
-  `trace_streamer` when SQL tooling is missing, matching the conversion path's
-  trace+perf SQL-only contract.
+- `--trace-tools-status --input <trace+perf.htrace>` reports built-in fallback
+  when SQL tooling is missing, matching the conversion path's auto-fallback
+  contract.
 - Generic no-input `auto` status still selects built-in when `trace_streamer` is
   unavailable, preserving pure-trace UX.
 - CLI status output shows the input classification in both Chinese and English.
@@ -1709,8 +1709,8 @@ Design:
   - proven boolean;
   - fixture manifest count when the source-tree fixture directory is visible;
   - required evidence path/description;
-  - caveats explaining that the built-in sys binary parser remains explicit and
-    trace+perf never falls back to it.
+  - caveats explaining that the built-in sys binary parser remains guarded, is
+    used as auto fallback, and explicit trace_streamer never falls back to it.
 - Render the gate in CLI trace-tools status for Chinese and English.
 - Add focused tests for:
   - `BuildTraceToolStatus` includes the gate with the current pending state;
@@ -1887,9 +1887,9 @@ Gap:
 - Users naturally run `codrax trace convert --perf-tools-status` before
   converting trace+perf htrace. The previous output only described hiperf,
   simpleperf, and raw perf fallback.
-- For trace+perf htrace, the trace body is `trace_streamer`/SQL-only, so a
+- For trace+perf htrace, SQL remains the preferred high-confidence path, so a
   status report that omits trace_streamer makes the conversion readiness answer
-  incomplete and can misdiagnose customer failures.
+  incomplete even though auto can fall back to built-in raw parsing.
 
 Design:
 
@@ -1921,7 +1921,7 @@ Delivered:
 
 #### Batch 11E: Cross-Platform Trace DB Open and Partial Artifact Hygiene
 
-Status: planned.
+Status: delivered on 2026-06-23.
 
 Customer signal:
 
@@ -1987,8 +1987,166 @@ Exit criteria:
 - If DB-to-systrace export fails, the customer sees exactly one `trace_db`
   artifact and one normalize-failure caveat, plus the preserved `perftrace`
   artifact when perf sidecars are present.
-- No production fallback behavior changes: trace+perf remains SQL-only for the
-  trace body and never falls back to the built-in sys parser.
+- Superseded by Batch 11G: auto conversion now falls back to the built-in raw
+  trace parser when SQL is unavailable or fails. Explicit trace_streamer mode
+  still does not fall back.
+
+Delivered:
+
+- Fixed the SQLite read-only DSN builder so relative paths, paths with spaces,
+  Windows drive paths, and UNC-like paths are encoded as authority-free
+  `file:` URIs before adding `mode=ro`.
+- Added a real SQLite round-trip guard for opening a relative `.trace.db` path
+  containing spaces.
+- Added generic `Result` artifact/caveat normalization and wired it through
+  conversion branches and tracebundle writing, so partial trace+perf results do
+  not repeat the same `trace_db` artifact or normalize-failure caveat.
+- Added a trace+perf partial-result regression case that simulates a successful
+  trace_streamer DB export followed by DB-to-systrace normalize failure while
+  preserving `perf_data`/`perftrace`.
+- Tightened partial tracebundle semantics so a bundle with `perftrace` but no
+  `systrace` marks `perf_clock_alignments` as `trace_body_missing` instead of
+  implying trace-window correlation is available.
+- Added conversion progress events for CLI and REPL surfaces:
+  - `trace_streamer` export emits start/heartbeat/complete or failed events;
+  - trace DB normalization emits start/complete or failed events;
+  - official hiperf/simpleperf adapters emit external-command progress;
+  - raw perf.data fallback emits parse/write progress with records/byte
+    counters where available.
+- Confirmed the customer-facing distinction:
+  - `perftrace` succeeds through sidecar extraction plus raw perf.data parsing
+    and does not use SQLite DB URI opening;
+  - text `systrace` depends on reopening the trace_streamer SQLite DB and was
+    blocked by the URI authority bug.
+
+Verification:
+
+```bash
+go test ./internal/hitraceconv -run 'TestSQLiteReadOnlyDSN|TestOpenTraceDBRelativePathWithSpacesReadOnly|TestConvertFileTracePerfDBNormalizeFailureDedupesPartialArtifacts' -count=1
+go test ./internal/hitraceconv -count=1
+go test ./cmd ./internal/repl ./internal/hitraceconv -run 'TestTraceConvertProgressLine|TestHitraceConvertPassesTraceEngineOption|TestPerfClockAlignmentsForArtifacts|TestSQLiteReadOnlyDSN|TestOpenTraceDBRelativePathWithSpacesReadOnly|TestConvertFileTracePerfDBNormalizeFailureDedupesPartialArtifacts|TestConvertRawPerfData' -count=1
+```
+
+#### Batch 11F: SQL Perf Primary Path and Hiperf Tool Discovery Parity
+
+Status: delivered on 2026-06-23.
+
+Customer signal:
+
+- Once trace_streamer can create a SQLite DB, users expect Codrax to consume all
+  query-ready data from that DB before falling back to raw sidecars.
+- The previous partial conversion could generate a standalone `.perftrace` from
+  the raw `HIPERF_DATA` sidecar even when trace_streamer DB export already had
+  perf sample rows available, creating two possible CPU-sample evidence streams
+  with different clock semantics.
+- `hiperf_host` discovery lagged behind trace_streamer discovery: it supported
+  explicit path/env/PATH, but not the Codrax executable directory and
+  multi-platform sidecar layout users use for `trace_streamer`.
+
+Design:
+
+- Treat trace_streamer DB perf rows as the primary CPU sample source when DB
+  normalization emits `perf_sample` coverage.
+  - Exported rows carry `source=trace_streamer_db`,
+    `clock=trace_streamer_db`, and `clock_confidence=calibrated`.
+  - Preserve raw `.perf.data` as an audit sidecar.
+  - Skip raw `.perftrace` generation in this case to avoid duplicate samples and
+    conflicting clock-confidence guidance.
+- Use official/raw perf.data conversion only when SQL perf rows are absent,
+  DB normalization fails, or the input is standalone perf.data.
+- Align OpenHarmony `hiperf_host` / `hiperf` discovery with trace_streamer:
+  - explicit `--hiperf-host`;
+  - `CODRAX_HIPERF_HOST`;
+  - Codrax executable directory;
+  - Codrax executable directory platform subdirs, including `hiperf/`,
+    `hiperf-host/`, and `developtools_hiperf/`;
+  - `PATH`;
+  - known OpenHarmony / DevEco SDK locations.
+- Keep the implementation provider-based and typed. Do not infer intent from
+  filename suffixes, user prose keywords, or model output text.
+- Keep user-facing transparency:
+  - progress events for trace_streamer, DB normalization, official adapters, raw
+    perf parsing, and perftrace writing;
+  - tracebundle caveats explaining when raw `.perftrace` was skipped because SQL
+    perf rows are primary.
+
+Exit criteria:
+
+- Trace+perf htrace conversion with DB `perf_sample` rows produces systrace DB
+  perf rows and a raw `.perf.data` audit artifact, but no duplicate raw
+  `.perftrace`.
+- A tracebundle makes the primary perf source unambiguous to trace_query and to
+  final reports.
+- `--perf-tools-status` finds `hiperf_host` beside the Codrax binary before PATH
+  and supports the same platform-subdir packaging shape as trace_streamer.
+- CLI and REPL conversion progress lines follow the active language.
+
+Delivered:
+
+- Added SQL-perf-primary selection in both normal conversion and explicit
+  trace_streamer-only conversion.
+- Added `standaloneExtractOptions` so standalone `HIPERF_DATA` extraction can
+  preserve raw `perf.data` without generating duplicate `.perftrace`.
+- Added `traceDBCoverageHasPerfSamples` and tracebundle caveats that explain the
+  primary CPU-sample source.
+- Updated `hiperf` discovery and tool-status guidance to match trace_streamer
+  executable-directory and multi-platform bundle behavior.
+- Updated the user guide with attach/direct-path usage for trace+perf htrace,
+  SQL perf primary semantics, progress visibility, and official hiperf discovery
+  order.
+
+Verification:
+
+```bash
+go test ./internal/hitraceconv -run 'TestConvertFileTracePerfSQLPerfSamplesSkipRawPerftraceFallback|TestBuildPerfToolStatusDiscoversHiperf|TestBuildPerfToolStatusReportsConfiguredToolsAndRawFallback|TestConvertFileTraceStreamerAutoMergesPerfSidecarsIntoTraceBundle' -count=1
+go test ./cmd ./internal/repl ./internal/hitraceconv -run 'TestTraceConvertProgressLine|TestHitraceConvertPassesTraceEngineOption|TestPerfClockAlignmentsForArtifacts|TestSQLiteReadOnlyDSN|TestOpenTraceDBRelativePathWithSpacesReadOnly|TestConvertFileTracePerfDBNormalizeFailureDedupesPartialArtifacts|TestConvertRawPerfData' -count=1
+```
+
+#### Batch 11G: Auto Fallback Strategy Revision
+
+Status: delivered on 2026-06-23.
+
+Strategy update:
+
+- `auto` is now a commercial fallback strategy for both pure trace and
+  trace+perf:
+  - if trace_streamer is available, try SQL first;
+  - if trace_streamer is missing, or SQL execution/export/normalization fails,
+    fall back to the built-in raw trace parser;
+  - if SQL exported `perf_sample` rows, those rows remain the primary perf
+    evidence and raw `.perftrace` is skipped;
+  - if SQL is unavailable/failed, standalone perf sidecars use the existing
+    official/raw perf.data fallback path.
+- Explicit strategies do not degrade:
+  - `--trace-engine=trace_streamer` uses SQL only and may return an error or
+    partial tracebundle, but does not run the built-in parser;
+  - `--trace-engine=builtin` runs the built-in raw parser directly and does not
+    try SQL.
+
+Implementation tasks:
+
+- Remove the auto trace+perf partial-return gate that stopped built-in parsing
+  after SQL failed or was unavailable.
+- Keep SQL provider decisions, caveats, trace DB coverage, and trace DB
+  artifacts in the fallback result so handoff preserves the failed higher
+  confidence path.
+- Update `BuildTraceToolStatus`, CLI/REPL usage, localization, and user guide
+  wording from "SQL-only / no fallback" to "auto fallback / explicit no
+  degradation".
+- Add/update tests for:
+  - pure `.sys` auto SQL failure falling back to built-in sys parser;
+  - modern profiler auto SQL failure falling back to built-in profiler parser;
+  - trace+perf auto SQL failure producing both systrace and perf sidecars;
+  - trace+perf missing trace_streamer selecting built-in fallback in status;
+  - explicit builtin trace+perf rendering built-in trace body;
+  - explicit trace_streamer remaining no-fallback.
+
+Verification:
+
+```bash
+go test ./internal/hitraceconv -run 'TestConvertFileNoPerfSysTraceAutoTraceStreamerFailureFallsBackToBuiltin|TestConvertFileTracePerfAutoSQLFailureFallsBackToBuiltinTraceBody|TestConvertFileTraceStreamerAutoFailureFallsBackToProfiler|TestConvertFileTracePerfBuiltinEngineUsesBuiltinTraceBody|TestBuildTraceToolStatusAutoTracePerfInputFallsBackWhenTraceStreamerMissing' -count=1
+go test ./cmd ./internal/repl -run 'TestTraceConvertTraceToolStatusLines|TestTraceConvertTraceToolStatusLinesIncludeInputClassification|TestHitraceConvertHelpAliases|TestHitraceToolsStatusChineseLocalizesGate' -count=1
+```
 
 ## Running Verification Matrix
 

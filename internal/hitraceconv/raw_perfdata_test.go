@@ -87,7 +87,7 @@ func TestConvertRawPerfDataPreservesSafeExtraSampleFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := readRawPerfData(context.Background(), perfData)
+	data, err := readRawPerfData(context.Background(), perfData, nil)
 	if err != nil {
 		t.Fatalf("read raw perf data with extra fields: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestConvertRawPerfDataSkipsUserRegsStackAndVendorBit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := readRawPerfData(context.Background(), perfData)
+	data, err := readRawPerfData(context.Background(), perfData, nil)
 	if err != nil {
 		t.Fatalf("read raw perf data with user regs/stack/vendor bit: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestConvertRawPerfDataPreservesRecordQualityCounters(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := readRawPerfData(context.Background(), perfData)
+	data, err := readRawPerfData(context.Background(), perfData, nil)
 	if err != nil {
 		t.Fatalf("read raw perf data with quality records: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestConvertRawPerfDataMapsMultiAttrSampleIDToEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := readRawPerfData(context.Background(), perfData)
+	data, err := readRawPerfData(context.Background(), perfData, nil)
 	if err != nil {
 		t.Fatalf("read multi-attr raw perf data: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestConvertRawPerfDataPreservesFeatureMetadataCaveats(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := readRawPerfData(context.Background(), perfData)
+	data, err := readRawPerfData(context.Background(), perfData, nil)
 	if err != nil {
 		t.Fatalf("read feature raw perf data: %v", err)
 	}
@@ -345,7 +345,7 @@ func TestConvertRawPerfDataUsesSavedHiperfArkTSSymbols(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := readRawPerfData(context.Background(), perfData)
+	data, err := readRawPerfData(context.Background(), perfData, nil)
 	if err != nil {
 		t.Fatalf("read raw perf data with hiperf symbols: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestConvertRawPerfDataUsesSavedHiperfKernelSymbolsWithoutMmap(t *testing.T)
 		t.Fatal(err)
 	}
 
-	data, err := readRawPerfData(context.Background(), perfData)
+	data, err := readRawPerfData(context.Background(), perfData, nil)
 	if err != nil {
 		t.Fatalf("read raw perf data with kernel symbols: %v", err)
 	}
@@ -475,7 +475,7 @@ func TestConvertRawPerfDataBindsCommByRecordLifetime(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := readRawPerfData(context.Background(), perfData)
+	data, err := readRawPerfData(context.Background(), perfData, nil)
 	if err != nil {
 		t.Fatalf("read comm lifetime raw perf data: %v", err)
 	}

@@ -65,18 +65,18 @@ func TestConvertFileWritesTextSystraceAndRefusesOverwrite(t *testing.T) {
 	}
 }
 
-func TestLocalizeConvertMessageTracePerfSQLOnly(t *testing.T) {
+func TestLocalizeConvertMessageTracePerfAutoFallback(t *testing.T) {
 	cases := []struct {
 		in   string
 		want string
 	}{
 		{
-			in:   "trace+perf htrace requires trace_streamer/SQLite trace conversion; built-in trace body conversion was not attempted",
-			want: "trace+perf htrace 需要通过 trace_streamer/SQLite 转换 trace body",
+			in:   tracePerfAutoFallbackCaveat,
+			want: "trace+perf auto 转换会优先使用 trace_streamer/SQLite",
 		},
 		{
-			in:   "trace_streamer was not discovered; trace+perf htrace requires trace_streamer/SQLite trace conversion",
-			want: "未发现 trace_streamer；trace+perf htrace 需要通过 trace_streamer/SQLite 转换 trace body",
+			in:   "trace_streamer was not discovered; auto trace+perf conversion will use built-in raw trace parsing and standalone perf fallback",
+			want: "未发现 trace_streamer；auto 模式下 trace+perf 会使用内置 raw trace 解析和 standalone perf 兜底",
 		},
 	}
 	for _, tc := range cases {
@@ -146,13 +146,13 @@ func TestConvertFileExtractsStandaloneHiperfDataAndBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
-	if result.OutputPath != "" || result.EventsWritten != 0 || result.BundlePath != filepath.Join(dir, "out.tracebundle.json") {
+	if result.OutputPath != output || result.EventsWritten != 1 || result.BundlePath != filepath.Join(dir, "out.tracebundle.json") {
 		t.Fatalf("unexpected output/bundle paths: %+v", result)
 	}
 	if !hasTraceDecisionReason(result.TraceDecisions, traceProviderNameTraceStreamer, "trace_streamer_unavailable") ||
-		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) ||
+		!hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) ||
 		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
-		t.Fatalf("trace+perf without SQL must not fall back to built-in trace body: %+v", result.TraceDecisions)
+		t.Fatalf("trace+perf auto without SQL should fall back to built-in trace body: %+v", result.TraceDecisions)
 	}
 	var perf Artifact
 	for _, artifact := range result.Artifacts {
@@ -175,13 +175,13 @@ func TestConvertFileExtractsStandaloneHiperfDataAndBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"type": "perf_data"`, `"plugin_name": "hiperf-plugin"`, `trace+perf htrace requires trace_streamer/SQLite trace conversion`} {
+	for _, want := range []string{`"type": "systrace"`, `"type": "perf_data"`, `"plugin_name": "hiperf-plugin"`, `trace_streamer was not discovered; auto trace+perf conversion will use built-in raw trace parsing`} {
 		if !strings.Contains(string(bundle), want) {
 			t.Fatalf("bundle missing %q:\n%s", want, bundle)
 		}
 	}
-	if strings.Contains(string(bundle), `"systrace":`) {
-		t.Fatalf("trace+perf without SQL must not claim systrace output:\n%s", bundle)
+	if !strings.Contains(string(bundle), `"systrace":`) {
+		t.Fatalf("trace+perf auto fallback should claim generated systrace output:\n%s", bundle)
 	}
 }
 
@@ -220,8 +220,8 @@ func TestConvertFileReturnsStandalonePerfArtifactWithoutSystraceContainer(t *tes
 	if !bytes.Equal(gotPayload, perfPayload) {
 		t.Fatalf("perf payload mismatch: got %q want %q", gotPayload, perfPayload)
 	}
-	if !containsString(result.Caveats, tracePerfSQLRequiredCaveat) {
-		t.Fatalf("partial conversion should carry caveat: %+v", result.Caveats)
+	if !containsString(result.Caveats, "input did not match the built-in sys binary trace container") {
+		t.Fatalf("partial conversion should explain missing trace body: %+v", result.Caveats)
 	}
 }
 
@@ -549,13 +549,12 @@ func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("convert SessionJSON package: %v", err)
 	}
-	if result.OutputPath != "" || result.EventsWritten != 0 || result.BundlePath == "" {
-		t.Fatalf("trace+perf session package should not use built-in trace body without SQL: %+v", result)
+	if result.OutputPath != output || result.EventsWritten != 1 || result.BundlePath == "" {
+		t.Fatalf("trace+perf session package should use explicit built-in trace body: %+v", result)
 	}
-	if containsString(result.Caveats, "SessionJSON- detected") ||
-		containsString(result.Caveats, "invalid segment type") ||
-		!containsString(result.Caveats, tracePerfSQLRequiredCaveat) {
-		t.Fatalf("trace+perf session package should surface SQL-only policy without built-in parsing: %+v", result.Caveats)
+	if !containsString(result.Caveats, "SessionJSON- detected") ||
+		containsString(result.Caveats, "invalid segment type") {
+		t.Fatalf("trace+perf session package should surface built-in SessionJSON parsing: %+v", result.Caveats)
 	}
 	var perf Artifact
 	for _, artifact := range result.Artifacts {
@@ -567,8 +566,8 @@ func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
 	if perf.Path == "" || perf.PluginName != "hiperf-plugin" || perf.PluginVersion != "1.02" {
 		t.Fatalf("session package should preserve HIPERF_DATA sidecar: %+v", result.Artifacts)
 	}
-	if _, err := os.Stat(output); !os.IsNotExist(err) {
-		t.Fatalf("trace+perf session package should not write legacy systrace output, stat err=%v", err)
+	if _, err := os.Stat(output); err != nil {
+		t.Fatalf("trace+perf session package should write explicit built-in systrace output: %v", err)
 	}
 	bundle, err := os.ReadFile(result.BundlePath)
 	if err != nil {
@@ -580,8 +579,8 @@ func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
 	if err := json.Unmarshal(bundle, &meta); err != nil {
 		t.Fatalf("decode tracebundle: %v", err)
 	}
-	if coverageHasEmitted(meta.TraceCoverage, "builtin_modern_profiler", "session:SessionJSON", 1) {
-		t.Fatalf("trace+perf should not report built-in SessionJSON coverage without SQL: %+v", meta.TraceCoverage)
+	if !coverageHasEmitted(meta.TraceCoverage, "builtin_modern_profiler", "session:SessionJSON", 1) {
+		t.Fatalf("trace+perf should report built-in SessionJSON coverage in explicit built-in mode: %+v", meta.TraceCoverage)
 	}
 }
 
@@ -626,6 +625,27 @@ func TestPerfClockAlignmentsForArtifactsCoversConfidenceStates(t *testing.T) {
 	}
 	if alignments[2].Confidence != "unknown" || alignments[2].Calibrated || len(alignments[2].Caveats) == 0 {
 		t.Fatalf("unknown alignment should be uncalibrated with caveat: %+v", alignments[2])
+	}
+}
+
+func TestPerfClockAlignmentsForArtifactsMarksMissingTraceBody(t *testing.T) {
+	alignments := perfClockAlignmentsForArtifacts([]Artifact{
+		{
+			Type: ArtifactPerfTrace,
+			Path: "only.perftrace",
+			Perf: &PerfArtifactCapability{
+				ProviderName:  "raw",
+				TimeDomain:    "perf_data_time_ns",
+				TimeAlignment: "assumed",
+			},
+		},
+	})
+	if len(alignments) != 1 {
+		t.Fatalf("alignments = %+v", alignments)
+	}
+	got := alignments[0]
+	if got.TraceTimeDomain != "missing_trace_body" || got.Confidence != "trace_body_missing" || got.Calibrated || len(got.Caveats) == 0 {
+		t.Fatalf("missing trace body should be explicit and uncalibrated: %+v", got)
 	}
 }
 

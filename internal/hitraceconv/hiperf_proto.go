@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -105,7 +106,7 @@ func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, per
 		args = append(args, "--symbol-dir", strings.Join(opts.HiperfSymbolDirs, ","))
 	}
 	cmd := exec.CommandContext(ctx, tool, args...)
-	output, runErr := cmd.CombinedOutput()
+	output, runErr := runCommandWithProgress(opts, cmd, "hiperf_adapter", "running official hiperf adapter")
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, ctxErr
 	}
@@ -173,12 +174,123 @@ func resolveHiperfTool(opts Options) (string, string) {
 	if path := strings.TrimSpace(os.Getenv("CODRAX_HIPERF_HOST")); path != "" {
 		return path, "CODRAX_HIPERF_HOST"
 	}
-	for _, name := range []string{"hiperf_host", "hiperf"} {
+	for _, candidate := range hiperfCodraxBinaryDirCandidates() {
+		if traceToolPathUsable(candidate, nil) {
+			return candidate, "codrax executable directory"
+		}
+	}
+	for _, name := range hiperfBinaryNames() {
 		if path, err := exec.LookPath(name); err == nil && strings.TrimSpace(path) != "" {
 			return path, name + " on PATH"
 		}
 	}
+	for _, candidate := range hiperfKnownLocationCandidates() {
+		if path := firstUsableHiperfCandidate(candidate); path != "" {
+			return path, "known OpenHarmony hiperf location"
+		}
+	}
 	return "", ""
+}
+
+func hiperfCodraxBinaryDirCandidates() []string {
+	exe, err := traceStreamerExecutablePath()
+	if err != nil {
+		return nil
+	}
+	exe = strings.TrimSpace(exe)
+	if exe == "" {
+		return nil
+	}
+	return hiperfCodraxBinaryDirCandidatesFor(filepath.Dir(exe), runtime.GOOS, runtime.GOARCH)
+}
+
+func hiperfCodraxBinaryDirCandidatesFor(dir, goos, goarch string) []string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return nil
+	}
+	var out []string
+	for _, name := range hiperfBinaryNamesFor(goos) {
+		out = append(out, filepath.Join(dir, name))
+		for _, platformDir := range traceStreamerHostPlatformDirsFor(goos, goarch) {
+			out = append(out,
+				filepath.Join(dir, platformDir, name),
+				filepath.Join(dir, "hiperf", platformDir, name),
+				filepath.Join(dir, "hiperf-host", platformDir, name),
+				filepath.Join(dir, "developtools_hiperf", platformDir, name),
+			)
+		}
+	}
+	return uniqueNonEmptyStrings(out)
+}
+
+func hiperfBinaryNames() []string {
+	return hiperfBinaryNamesFor(runtime.GOOS)
+}
+
+func hiperfBinaryNamesFor(goos string) []string {
+	if strings.EqualFold(strings.TrimSpace(goos), "windows") {
+		return []string{"hiperf_host.exe", "hiperf.exe"}
+	}
+	return []string{"hiperf_host", "hiperf"}
+}
+
+func hiperfKnownLocationCandidates() []string {
+	names := hiperfBinaryNames()
+	var out []string
+	for _, env := range []string{"HIPERF_HOME", "CODRAX_HIPERF_HOME", "OHOS_SDK_HOME", "HARMONYOS_SDK_HOME", "DEVECO_SDK_HOME"} {
+		root := strings.TrimSpace(os.Getenv(env))
+		if root == "" {
+			continue
+		}
+		for _, name := range names {
+			out = append(out,
+				filepath.Join(root, name),
+				filepath.Join(root, "bin", name),
+				filepath.Join(root, "toolchains", name),
+				filepath.Join(root, "hiperf", name),
+				filepath.Join(root, "developtools_hiperf", name),
+			)
+		}
+	}
+	for _, name := range names {
+		switch runtime.GOOS {
+		case "darwin":
+			out = append(out,
+				filepath.Join("/Applications", "DevEco-Studio.app", "Contents", "sdk", "toolchains", name),
+				filepath.Join("/usr/local/bin", name),
+				filepath.Join("/opt/homebrew/bin", name),
+			)
+		case "linux":
+			out = append(out,
+				filepath.Join("/usr/local/bin", name),
+				filepath.Join("/usr/bin", name),
+				filepath.Join("/opt/openharmony", "toolchains", name),
+			)
+		}
+	}
+	return out
+}
+
+func firstUsableHiperfCandidate(pattern string) string {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return ""
+	}
+	candidates := []string{pattern}
+	if strings.ContainsAny(pattern, "*?[") {
+		if matches, err := filepath.Glob(pattern); err == nil && len(matches) > 0 {
+			candidates = matches
+		} else {
+			candidates = nil
+		}
+	}
+	for _, candidate := range candidates {
+		if traceToolPathUsable(candidate, nil) {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func boundedCommandOutput(output []byte) string {

@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 )
 
@@ -51,7 +52,7 @@ func BuildPerfToolStatus(opts Options) (PerfToolStatus, error) {
 			AuxiliaryChecks: perfHiperfAuxiliaryChecks(opts),
 			InstallCommand:  "git clone https://gitee.com/openharmony/developtools_hiperf",
 			DocsURL:         "https://gitee.com/openharmony/developtools_hiperf",
-			InstallHint:     "Install or build OpenHarmony developtools_hiperf host tool, then pass --hiperf-host or set CODRAX_HIPERF_HOST; add --hiperf-symbol-dir for symbols.",
+			InstallHint:     "Install or build OpenHarmony developtools_hiperf host tool, then pass --hiperf-host, set CODRAX_HIPERF_HOST, or place hiperf_host/hiperf beside the Codrax binary, optionally under hiperf/<platform>/ or developtools_hiperf/<platform>/ for multi-platform bundles; add --hiperf-symbol-dir for symbols.",
 		},
 		Simpleperf: PerfToolProviderStatus{
 			Name:            "android_simpleperf_report_sample",
@@ -155,9 +156,6 @@ func perfToolPathUsable(path, source string, status *PerfToolProviderStatus) boo
 	if path == "" {
 		return false
 	}
-	if strings.Contains(source, "PATH") || strings.Contains(source, "on PATH") {
-		return true
-	}
 	info, err := os.Stat(path)
 	if err != nil {
 		if status != nil {
@@ -168,6 +166,12 @@ func perfToolPathUsable(path, source string, status *PerfToolProviderStatus) boo
 	if info.IsDir() {
 		if status != nil {
 			status.Caveats = append(status.Caveats, "configured path is a directory")
+		}
+		return false
+	}
+	if runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
+		if status != nil {
+			status.Caveats = append(status.Caveats, "configured path is not executable")
 		}
 		return false
 	}

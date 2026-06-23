@@ -10813,12 +10813,16 @@ func (r *REPL) handleHitraceConvert(args string) {
 		r.errorf("%s\n", htraceConvertUsage(r.language))
 		return
 	}
-	result, err := r.hitraceConvert(context.Background(), hitraceconv.Options{
+	opts := hitraceconv.Options{
 		InputPath:   parsed.input,
 		OutputPath:  parsed.output,
 		Flavor:      "harmony_hitrace",
 		TraceEngine: parsed.traceEngine,
-	})
+	}
+	opts.Progress = func(event hitraceconv.ProgressEvent) {
+		r.info(htraceConvertProgressMsg(r.language, event))
+	}
+	result, err := r.hitraceConvert(context.Background(), opts)
 	if err != nil {
 		r.errorf("%s\n", htraceConvertFailedMsg(r.language, err))
 		return

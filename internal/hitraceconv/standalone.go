@@ -56,7 +56,16 @@ type traceBundleMetadata struct {
 	Caveats             []string                `json:"caveats,omitempty"`
 }
 
+type standaloneExtractOptions struct {
+	GeneratePerfTrace bool
+	PrimaryPerfSource string
+}
+
 func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int64, outputPath string) ([]Artifact, []string, []PerfProviderDecision, error) {
+	return extractStandaloneArtifactsWithOptions(ctx, opts, inputSize, outputPath, standaloneExtractOptions{GeneratePerfTrace: true})
+}
+
+func extractStandaloneArtifactsWithOptions(ctx context.Context, opts Options, inputSize int64, outputPath string, extractOpts standaloneExtractOptions) ([]Artifact, []string, []PerfProviderDecision, error) {
 	input := strings.TrimSpace(opts.InputPath)
 	segments, err := findStandaloneSegments(ctx, input, inputSize)
 	if err != nil {
@@ -101,6 +110,11 @@ func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int
 			Converter:     converterVersion,
 			Perf:          perfCapabilityForRawPerfDataArtifact(detectPerfInputFormat(outPath)),
 		}
+		if !extractOpts.GeneratePerfTrace {
+			rawArtifact.Caveats = append(rawArtifact.Caveats, "raw perf.data sidecar preserved for audit; trace_streamer DB perf_sample rows are the primary trace_query CPU-sample source")
+			artifacts = append(artifacts, rawArtifact)
+			continue
+		}
 		perfTracePath := numberedSidecarPath(base, perfOrdinal, ".perftrace")
 		perfTrace, caveat, providerDecisions, err := maybeConvertHiperfPerfData(ctx, opts, outPath, perfTracePath)
 		decisions = append(decisions, providerDecisions...)
@@ -132,6 +146,8 @@ func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int
 		}
 		if perfTraceCount > 0 {
 			caveats = append(caveats, standalonePerfTraceSummaryCaveat(perfDataCount, perfTraceCount, perfTraceProviders))
+		} else if !extractOpts.GeneratePerfTrace && strings.TrimSpace(extractOpts.PrimaryPerfSource) != "" {
+			caveats = append(caveats, fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s); .perftrace fallback generation was skipped because %s is the primary trace_query CPU-sample source", perfDataCount, extractOpts.PrimaryPerfSource))
 		} else {
 			caveats = append(caveats, fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s); raw perf.data is preserved as sidecar and still needs official parser conversion to .perftrace for trace_query sample aggregation", perfDataCount))
 		}
@@ -280,6 +296,8 @@ func writeTraceBundleWithAllCoverage(input, outputPath string, artifacts []Artif
 }
 
 func writeTraceBundleWithAllCoverageAndGates(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage, traceToolGates []TraceToolGateStatus) (Artifact, error) {
+	artifacts = dedupeArtifacts(artifacts)
+	caveats = dedupeStrings(caveats)
 	if len(artifacts) == 0 {
 		if len(decisions) == 0 && len(traceDecisions) == 0 && len(dbCoverage) == 0 && len(traceCoverage) == 0 && len(caveats) == 0 {
 			return Artifact{}, nil
@@ -340,6 +358,13 @@ func traceBundleSystracePath(outputPath string, artifacts []Artifact) string {
 
 func perfClockAlignmentsForArtifacts(artifacts []Artifact) []PerfClockAlignment {
 	var out []PerfClockAlignment
+	hasSystrace := false
+	for _, artifact := range artifacts {
+		if artifact.Type == ArtifactSystrace && strings.TrimSpace(artifact.Path) != "" {
+			hasSystrace = true
+			break
+		}
+	}
 	for _, artifact := range artifacts {
 		if artifact.Type != ArtifactPerfTrace || artifact.Perf == nil {
 			continue
@@ -353,7 +378,12 @@ func perfClockAlignmentsForArtifacts(artifacts []Artifact) []PerfClockAlignment 
 			Calibrated:      strings.EqualFold(confidence, "calibrated"),
 			Source:          firstNonEmpty(artifact.Perf.ProviderName, artifact.Converter),
 		}
-		if !item.Calibrated {
+		if !hasSystrace {
+			item.TraceTimeDomain = "missing_trace_body"
+			item.Confidence = "trace_body_missing"
+			item.Calibrated = false
+			item.Caveats = append(item.Caveats, "no systrace trace body is available in this tracebundle; trace_query can aggregate perf samples, but cannot correlate them to trace windows until a systrace artifact is attached or generated")
+		} else if !item.Calibrated {
 			item.Caveats = append(item.Caveats, "no capture-level trace/perf clock map is available; trace_query treats timestamp overlap as supporting evidence unless calibrated")
 		}
 		out = append(out, item)

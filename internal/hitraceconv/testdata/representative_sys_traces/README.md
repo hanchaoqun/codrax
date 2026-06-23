@@ -44,6 +44,7 @@ Rules:
   Go tests. Manual verification with a real trace_streamer binary should be
   recorded in the delivery plan before using the fixture to retire parser code.
 - `trace_kind=no_perf_sys` may request `builtin_parity=true`; trace+perf
-  fixtures must stay SQL-only.
+  fixtures should validate SQL-first auto behavior plus built-in raw fallback
+  when SQL is unavailable or fails.
 - Text systrace files such as `../customlogs/xxx_all.systrace` belong to
   trace_query evals, not this converter parity gate.

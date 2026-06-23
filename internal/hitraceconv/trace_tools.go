@@ -59,7 +59,7 @@ const (
 	traceToolGateSysParityRequiredEvidence  = "commit a redistributable real no-perf Harmony/Donghu .sys fixture manifest under internal/hitraceconv/testdata/representative_sys_traces and pass TestRepresentativeSysTraceFixtures"
 	traceToolGateSysParitySyntheticEvidence = "synthetic scheduler/raw-ftrace parity guards are delivered"
 	traceToolGateSysParityOpenCaveat        = "no redistributable representative no-perf .sys fixture has been committed; the built-in sys binary parser remains an explicit guarded lane"
-	traceToolGateSysParityTracePerfCaveat   = "trace+perf htrace never falls back to the built-in sys binary parser"
+	traceToolGateSysParityTracePerfCaveat   = "trace+perf htrace in auto mode may fall back to the built-in raw trace parser when SQL is unavailable or fails; explicit trace_streamer mode never falls back"
 )
 
 var traceSysParityManifestGlob = defaultTraceSysParityManifestGlob
@@ -91,7 +91,7 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 			InstallCommand:  "Install OpenHarmony/SmartPerf trace_streamer, or place a platform-matched trace_streamer next to the Codrax binary.",
 			DocsURL:         "https://gitcode.com/diting/hmtrace/tree/main",
 			InstallHint:     "Pass --trace-streamer /path/to/trace_streamer, set CODRAX_TRACE_STREAMER, or place trace_streamer beside the Codrax binary, optionally under trace_streamer/<platform>/ or trace-streamer/<platform>/ for multi-platform bundles; verify it can run `trace_streamer --help` and export DBs with `trace_streamer <input> -e <output.db>`.",
-			Caveats:         []string{"trace_streamer DB export is the required trace body path for trace+perf htrace and can also normalize trace-only captures to systrace with tracebundle coverage for trace_query"},
+			Caveats:         []string{"trace_streamer DB export is the preferred trace body path for trace+perf htrace and can also normalize trace-only captures to systrace with tracebundle coverage for trace_query; auto falls back to the built-in raw trace parser when SQL is unavailable or fails"},
 		},
 		BuiltinModern: TraceToolProviderStatus{
 			Name:           traceProviderNameBuiltinModern,
@@ -100,8 +100,8 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 			Source:         "built-in",
 			CheckCommand:   "codrax trace convert --trace-engine=builtin",
 			InstallCommand: "built-in",
-			InstallHint:    "Built into Codrax; select it explicitly with --trace-engine=builtin for trace-only modern profiler/session text payloads and sys binary conversion, or let auto use it for trace-only captures when trace_streamer is not discovered. It is not used for trace+perf htrace trace body conversion.",
-			Caveats:        []string{"built-in modern/sys parser is an explicit trace-only engine selected with --trace-engine=builtin; auto may use it only for trace-only captures when trace_streamer is not discovered; it is not used for trace+perf htrace"},
+			InstallHint:    "Built into Codrax; select it explicitly with --trace-engine=builtin for modern profiler/session text payloads and sys binary conversion, or let auto use it when trace_streamer is not discovered or SQL conversion fails.",
+			Caveats:        []string{"built-in modern/sys parser is selected explicitly with --trace-engine=builtin or used by auto after trace_streamer is unavailable/fails; explicit trace_streamer mode does not fall back"},
 		},
 	}
 	if tool, source, caveats := resolveTraceStreamerToolWithCaveats(opts); tool != "" || len(caveats) > 0 {
@@ -116,20 +116,20 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 		status.SelectedEngine = traceEngineTraceStreamer
 		if !status.TraceStreamer.Available {
 			if mode == traceEngineAuto {
+				status.SelectedEngine = traceEngineBuiltin
 				if status.InputHasPerfSidecar {
-					status.Caveats = append(status.Caveats, "auto trace engine did not discover trace_streamer; inspected input contains a standalone perf sidecar, so trace+perf conversion remains trace_streamer/SQLite-only and will not use the built-in parser")
+					status.Caveats = append(status.Caveats, "auto trace engine did not discover trace_streamer; inspected input contains a standalone perf sidecar, so conversion will use built-in raw trace parsing and standalone perf fallback")
 				} else {
-					status.SelectedEngine = traceEngineBuiltin
-					status.Caveats = append(status.Caveats, "auto trace engine did not discover trace_streamer; trace-only conversion will use the built-in parser, while trace+perf htrace still requires trace_streamer/SQLite")
+					status.Caveats = append(status.Caveats, "auto trace engine did not discover trace_streamer; conversion will use the built-in raw trace parser")
 				}
 			} else {
 				status.Caveats = append(status.Caveats, "trace_streamer engine was selected but trace_streamer is not available")
 			}
 		} else {
 			if mode == traceEngineAuto {
-				status.Caveats = append(status.Caveats, "auto trace engine discovered trace_streamer; trace-only conversion will use SQL, and SQL execution failure will not fall back to the built-in parser")
+				status.Caveats = append(status.Caveats, "auto trace engine discovered trace_streamer; conversion will use SQL first and fall back to the built-in raw trace parser if SQL execution or normalization fails")
 			} else {
-				status.Caveats = append(status.Caveats, "trace_streamer is selected; trace-only conversion uses SQL, and SQL execution failure will not fall back to the built-in parser")
+				status.Caveats = append(status.Caveats, "trace_streamer is explicitly selected; conversion uses SQL only and SQL execution failure will not fall back to the built-in parser")
 			}
 		}
 	case traceEngineBuiltin:

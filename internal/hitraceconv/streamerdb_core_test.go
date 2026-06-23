@@ -4,11 +4,107 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestSQLiteReadOnlyDSNUsesAuthorityFreeFileURI(t *testing.T) {
+	cases := []struct {
+		name       string
+		path       string
+		wantPrefix string
+		wantPath   string
+	}{
+		{
+			name:       "posix relative",
+			path:       "relative trace.db",
+			wantPrefix: "file:///relative%20trace.db?",
+			wantPath:   "/relative trace.db",
+		},
+		{
+			name:       "posix absolute",
+			path:       "/tmp/trace db.sqlite",
+			wantPrefix: "file:///tmp/trace%20db.sqlite?",
+			wantPath:   "/tmp/trace db.sqlite",
+		},
+		{
+			name:       "windows drive absolute",
+			path:       `D:\opt\codrax-main\trace db.sqlite`,
+			wantPrefix: "file:///D:/opt/codrax-main/trace%20db.sqlite?",
+			wantPath:   "/D:/opt/codrax-main/trace db.sqlite",
+		},
+		{
+			name:       "windows drive relative",
+			path:       `D:trace db.sqlite`,
+			wantPrefix: "file:///D:trace%20db.sqlite?",
+			wantPath:   "/D:trace db.sqlite",
+		},
+		{
+			name:       "windows unc",
+			path:       `\\server\share\trace db.sqlite`,
+			wantPrefix: "file:////server/share/trace%20db.sqlite?",
+			wantPath:   "//server/share/trace db.sqlite",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dsn := sqliteReadOnlyDSNFromURIPath(tc.path)
+			if !strings.HasPrefix(dsn, tc.wantPrefix) {
+				t.Fatalf("dsn prefix mismatch:\ngot  %q\nwant prefix %q", dsn, tc.wantPrefix)
+			}
+			parsed, err := url.Parse(dsn)
+			if err != nil {
+				t.Fatalf("parse dsn %q: %v", dsn, err)
+			}
+			if parsed.Scheme != "file" || parsed.Host != "" || parsed.Path != tc.wantPath {
+				t.Fatalf("dsn should be a file URI with empty authority: dsn=%q scheme=%q host=%q path=%q", dsn, parsed.Scheme, parsed.Host, parsed.Path)
+			}
+			if got := parsed.Query().Get("mode"); got != "ro" {
+				t.Fatalf("dsn mode=%q, want ro in %q", got, dsn)
+			}
+		})
+	}
+}
+
+func TestOpenTraceDBRelativePathWithSpacesReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.Mkdir("db dir", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	relPath := filepath.Join("db dir", "trace data.sqlite")
+	db, err := sql.Open("sqlite", relPath)
+	if err != nil {
+		t.Fatalf("open sqlite fixture: %v", err)
+	}
+	if _, err := db.Exec("CREATE TABLE trace_range (start_ts INT)"); err != nil {
+		_ = db.Close()
+		t.Fatalf("create trace_range: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO trace_range VALUES (123456)"); err != nil {
+		_ = db.Close()
+		t.Fatalf("insert trace_range: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close sqlite fixture: %v", err)
+	}
+
+	tdb, err := openTraceDB(context.Background(), relPath)
+	if err != nil {
+		t.Fatalf("open relative trace db read-only: %v", err)
+	}
+	defer tdb.close()
+	start, coverage, err := tdb.traceStart(context.Background())
+	if err != nil {
+		t.Fatalf("read trace start: %v", err)
+	}
+	if start != 123456 || !coverage.Found {
+		t.Fatalf("trace start mismatch start=%d coverage=%+v", start, coverage)
+	}
+}
 
 func TestTraceDBCoreInspectsCoverageAndSchemaDrift(t *testing.T) {
 	path := createTraceDBFixture(t, []string{

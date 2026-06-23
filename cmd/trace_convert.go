@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -53,11 +54,10 @@ toolchain: trace_streamer/trace engine plus perf tools, selected parser, raw
 fallback status, and install hints. Use
 --perf-parser=official to require official tooling or --perf-parser=raw for the
 built-in fallback only. Trace body conversion defaults to --trace-engine=auto:
-pure trace uses trace_streamer/SQL when trace_streamer is discovered, falls back
-to the built-in trace-only converter only when trace_streamer is absent, and
-does not fall back after a trace_streamer execution failure. Trace+perf htrace
-captures remain trace_streamer/SQL-only and never use the built-in trace body
-converter.
+when trace_streamer is discovered, Codrax uses SQL first; if trace_streamer is
+absent or SQL execution/export fails, auto falls back to the built-in raw trace
+parser. Explicit trace_streamer or builtin modes do not degrade to another
+trace engine.
 
 The command is intentionally manual and does not attach the generated file.
 When --output is omitted, Codrax writes <input>.systrace. Existing output files
@@ -81,6 +81,9 @@ are never overwritten; delete the file first or choose another output path.`,
 			TraceDBOutputPath:      strings.TrimSpace(traceConvertTraceDBOutput),
 			KeepTraceDB:            traceConvertKeepTraceDB,
 			TraceStreamerSoDirs:    append([]string(nil), traceConvertTraceStreamerSoDirs...),
+		}
+		opts.Progress = func(event hitraceconv.ProgressEvent) {
+			fmt.Fprintln(cmd.OutOrStdout(), traceConvertProgressLine(flagLang, event))
 		}
 		if traceConvertTraceToolsStatus || traceConvertToolsStatus {
 			status, err := hitraceconv.BuildTraceToolStatus(opts)
@@ -381,24 +384,24 @@ func traceConvertTraceMessageZh(message string) string {
 	switch {
 	case trimmed == "":
 		return ""
-	case strings.Contains(lower, "trace_streamer db export is the required trace body path"):
-		return "trace_streamer DB export 是 trace+perf htrace 的必需 trace body 路径，也可把纯 trace 转成 systrace，并将 coverage 写入 tracebundle 供 trace_query 使用"
+	case strings.Contains(lower, "trace_streamer db export is the preferred trace body path"), strings.Contains(lower, "trace_streamer db export is the required trace body path"):
+		return "trace_streamer DB export 是 trace+perf htrace 的优先 trace body 路径，也可把纯 trace 转成 systrace，并将 coverage 写入 tracebundle 供 trace_query 使用"
 	case strings.Contains(lower, "auto trace engine discovered trace_streamer"):
-		return "auto trace 引擎已发现 trace_streamer；纯 trace 会走 SQL，SQL 执行失败不会回退到内置解析器"
+		return "auto trace 引擎已发现 trace_streamer；转换会优先走 SQL，SQL 执行或导出失败会回退到内置 raw trace 解析器"
 	case strings.Contains(lower, "inspected input contains a standalone perf sidecar"):
-		return "auto trace 引擎未发现 trace_streamer；已检查输入包含独立 perf sidecar，因此 trace+perf 转换仍然只走 trace_streamer/SQLite，不会使用内置解析器"
+		return "auto trace 引擎未发现 trace_streamer；已检查输入包含独立 perf sidecar，因此会使用内置 raw trace 解析和 standalone perf 兜底"
 	case strings.Contains(lower, "auto trace engine did not discover trace_streamer"):
-		return "auto trace 引擎未发现 trace_streamer；纯 trace 会使用内置解析器，trace+perf htrace 仍然需要 trace_streamer/SQLite"
+		return "auto trace 引擎未发现 trace_streamer；转换会使用内置 raw trace 解析器"
 	case strings.Contains(lower, "trace_streamer is selected"):
-		return "已选择 trace_streamer；纯 trace 会走 SQL，SQL 执行失败不会回退到内置解析器"
+		return "已显式选择 trace_streamer；转换只走 SQL，SQL 执行失败不会回退到内置解析器"
 	case strings.Contains(lower, "trace_streamer was not discovered"):
-		return "未发现 trace_streamer；当前选择的 SQL trace 转换无法生成 systrace"
+		return "未发现 trace_streamer；当前显式选择的 SQL trace 转换无法生成 systrace"
 	case strings.Contains(lower, "trace_streamer engine was selected but"):
 		return "已选择 trace_streamer 引擎，但 trace_streamer 当前不可用"
 	case strings.Contains(lower, "built-in modern/sys parser remains"):
 		return "内置 modern/sys parser 是纯 trace 引擎；可显式选择，也可在 auto 未发现 trace_streamer 时用于纯 trace；不用于 trace+perf htrace"
-	case strings.Contains(lower, "built-in modern/sys parser is an explicit trace-only engine"):
-		return "内置 modern/sys parser 是纯 trace 引擎；可显式选择，也可在 auto 未发现 trace_streamer 时用于纯 trace；不用于 trace+perf htrace"
+	case strings.Contains(lower, "built-in modern/sys parser is selected explicitly"):
+		return "内置 modern/sys parser 可通过 --trace-engine=builtin 显式选择，也会在 auto 下 trace_streamer 不可用或失败时作为 raw trace 兜底；显式 trace_streamer 不退化"
 	case strings.Contains(lower, "commit a redistributable real no-perf harmony/donghu .sys fixture manifest"):
 		return "提交可再分发的真实 no-perf Harmony/Donghu .sys fixture manifest 到 internal/hitraceconv/testdata/representative_sys_traces，并通过 TestRepresentativeSysTraceFixtures"
 	case strings.Contains(lower, "synthetic scheduler/raw-ftrace parity guards are delivered"):
@@ -407,8 +410,8 @@ func traceConvertTraceMessageZh(message string) string {
 		return strings.Replace(trimmed, "representative_fixture_manifests", "代表性fixture清单", 1)
 	case strings.Contains(lower, "no redistributable representative no-perf .sys fixture has been committed"):
 		return "尚未提交可再分发的真实代表性 no-perf .sys fixture；内置 sys binary parser 仍保留为显式受控能力"
-	case strings.Contains(lower, "trace+perf htrace never falls back to the built-in sys binary parser"):
-		return "trace+perf htrace 永远不会回退到内置 sys binary parser"
+	case strings.Contains(lower, "trace+perf htrace in auto mode may fall back"):
+		return "trace+perf htrace 在 auto 模式下 SQL 不可用或失败时可回退到内置 raw trace parser；显式 trace_streamer 模式永不回退"
 	case strings.Contains(lower, "representative fixture manifest is present"):
 		return "已发现代表性 fixture manifest；退休内置 sys binary parser 前必须先验证 TestRepresentativeSysTraceFixtures"
 	case strings.Contains(lower, "representative fixture manifest directory could not be inspected"):
@@ -416,7 +419,7 @@ func traceConvertTraceMessageZh(message string) string {
 	case strings.Contains(lower, "built-in modern parser"):
 		return "内置 modern parser 是需要显式选择的纯 trace 引擎"
 	case strings.Contains(lower, "built into codrax"):
-		return "Codrax 内置；支持纯 trace 的 modern profiler/session 文本载荷和 sys binary 转换；auto 未发现 trace_streamer 时可用于纯 trace；不用于 trace+perf htrace 的 trace body 转换"
+		return "Codrax 内置；支持 modern profiler/session 文本载荷和 sys binary 转换；auto 下 trace_streamer 不可用或失败时可作为 raw trace 兜底"
 	case strings.Contains(lower, "pass --trace-streamer"):
 		return "传 --trace-streamer /path/to/trace_streamer 或设置 CODRAX_TRACE_STREAMER；确认可运行 trace_streamer --help，并支持 trace_streamer <input> -e <output.db>"
 	case strings.Contains(lower, "install openharmony/smartperf trace_streamer"):
@@ -615,6 +618,8 @@ func traceConvertPerfSourceZh(source string) string {
 		return "内置"
 	case strings.Contains(lower, "configured hiperf"):
 		return "已配置 hiperf 工具"
+	case strings.Contains(lower, "codrax executable directory"):
+		return "Codrax 可执行文件目录"
 	case strings.Contains(lower, "configured simpleperf_report_lib.py"):
 		return "已配置 simpleperf_report_lib.py"
 	case strings.Contains(lower, "configured simpleperf"):
@@ -646,7 +651,7 @@ func traceConvertPerfMessageZh(message string) string {
 	case trimmed == "":
 		return ""
 	case strings.Contains(lower, "install or build openharmony developtools_hiperf"):
-		return "安装或构建 OpenHarmony developtools_hiperf host 工具，然后传 --hiperf-host 或设置 CODRAX_HIPERF_HOST；需要符号化时补 --hiperf-symbol-dir"
+		return "安装或构建 OpenHarmony developtools_hiperf host 工具，然后传 --hiperf-host、设置 CODRAX_HIPERF_HOST，或把 hiperf_host/hiperf 放到 Codrax 可执行文件同目录/平台子目录；需要符号化时补 --hiperf-symbol-dir"
 	case strings.Contains(lower, "use android simpleperf scripts/report_sample.py"):
 		return "使用 Android simpleperf 的 scripts/report_sample.py，然后传 --simpleperf-report-sample 或设置 CODRAX_SIMPLEPERF_REPORT_SAMPLE；按需补 --simpleperf-python、--simpleperf-symfs、--simpleperf-kallsyms"
 	case strings.Contains(lower, "built into codrax"):
@@ -665,6 +670,8 @@ func traceConvertPerfMessageZh(message string) string {
 		return strings.Replace(trimmed, "configured path is not readable", "配置路径不可读", 1)
 	case strings.Contains(lower, "configured path is a directory"):
 		return "配置路径是目录，需要传具体可执行文件或脚本"
+	case strings.Contains(lower, "configured path is not executable"):
+		return "配置路径不可执行"
 	default:
 		return trimmed
 	}
@@ -1112,6 +1119,160 @@ func traceConvertUseZh(lang string) bool {
 	return !strings.EqualFold(strings.TrimSpace(lang), "en")
 }
 
+func traceConvertProgressLine(lang string, event hitraceconv.ProgressEvent) string {
+	if traceConvertUseZh(lang) {
+		return "进度：" + strings.Join(traceConvertProgressPartsZh(event), " ")
+	}
+	return "progress: " + strings.Join(traceConvertProgressPartsEn(event), " ")
+}
+
+func traceConvertProgressPartsEn(event hitraceconv.ProgressEvent) []string {
+	parts := []string{
+		"stage=" + traceConvertProgressStageEn(event.Stage),
+		"status=" + traceConvertProgressStatusEn(event.Status),
+	}
+	if strings.TrimSpace(event.Message) != "" {
+		parts = append(parts, "message="+event.Message)
+	}
+	if strings.TrimSpace(event.Path) != "" {
+		parts = append(parts, "path="+event.Path)
+	}
+	if strings.TrimSpace(event.OutputPath) != "" {
+		parts = append(parts, "output="+event.OutputPath)
+	}
+	if event.BytesTotal > 0 {
+		parts = append(parts, fmt.Sprintf("bytes=%d/%d", event.BytesDone, event.BytesTotal))
+	} else if event.BytesDone > 0 {
+		parts = append(parts, fmt.Sprintf("bytes=%d", event.BytesDone))
+	}
+	if event.Records > 0 {
+		parts = append(parts, fmt.Sprintf("records=%d", event.Records))
+	}
+	if event.Elapsed > 0 {
+		parts = append(parts, "elapsed="+event.Elapsed.Round(100*time.Millisecond).String())
+	}
+	return parts
+}
+
+func traceConvertProgressPartsZh(event hitraceconv.ProgressEvent) []string {
+	parts := []string{
+		"阶段=" + traceConvertProgressStageZh(event.Stage),
+		"状态=" + traceConvertProgressStatusZh(event.Status),
+	}
+	if strings.TrimSpace(event.Message) != "" {
+		parts = append(parts, "说明="+traceConvertProgressMessageZh(event.Message))
+	}
+	if strings.TrimSpace(event.Path) != "" {
+		parts = append(parts, "路径="+event.Path)
+	}
+	if strings.TrimSpace(event.OutputPath) != "" {
+		parts = append(parts, "输出="+event.OutputPath)
+	}
+	if event.BytesTotal > 0 {
+		parts = append(parts, fmt.Sprintf("字节=%d/%d", event.BytesDone, event.BytesTotal))
+	} else if event.BytesDone > 0 {
+		parts = append(parts, fmt.Sprintf("字节=%d", event.BytesDone))
+	}
+	if event.Records > 0 {
+		parts = append(parts, fmt.Sprintf("记录=%d", event.Records))
+	}
+	if event.Elapsed > 0 {
+		parts = append(parts, "耗时="+event.Elapsed.Round(100*time.Millisecond).String())
+	}
+	return parts
+}
+
+func traceConvertProgressStageEn(stage string) string {
+	stage = strings.TrimSpace(stage)
+	if stage == "" {
+		return "unknown"
+	}
+	return stage
+}
+
+func traceConvertProgressStageZh(stage string) string {
+	switch strings.TrimSpace(stage) {
+	case "trace_streamer_export":
+		return "trace_streamer导出DB"
+	case "trace_db_normalize":
+		return "SQLite DB转systrace"
+	case "raw_perf_parse":
+		return "raw perf.data解析"
+	case "perftrace_write":
+		return "写入perftrace"
+	case "simpleperf_adapter":
+		return "simpleperf官方适配器"
+	case "hiperf_adapter":
+		return "hiperf官方适配器"
+	default:
+		return traceConvertProgressStageEn(stage)
+	}
+}
+
+func traceConvertProgressStatusEn(status string) string {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return hitraceconv.ProgressStatusProgress
+	}
+	return status
+}
+
+func traceConvertProgressStatusZh(status string) string {
+	switch strings.TrimSpace(status) {
+	case hitraceconv.ProgressStatusStarted:
+		return "开始"
+	case hitraceconv.ProgressStatusProgress:
+		return "进行中"
+	case hitraceconv.ProgressStatusComplete:
+		return "完成"
+	case hitraceconv.ProgressStatusFailed:
+		return "失败"
+	default:
+		return traceConvertProgressStatusEn(status)
+	}
+}
+
+func traceConvertProgressMessageZh(message string) string {
+	switch strings.TrimSpace(message) {
+	case "running trace_streamer SQLite DB export":
+		return "正在运行 trace_streamer 导出 SQLite DB"
+	case "normalizing trace_streamer SQLite DB to systrace":
+		return "正在把 trace_streamer SQLite DB 转成文本 systrace"
+	case "normalized trace_streamer SQLite DB to systrace":
+		return "已把 trace_streamer SQLite DB 转成文本 systrace"
+	case "trace_streamer SQLite DB normalization failed":
+		return "trace_streamer SQLite DB 转 systrace 失败"
+	case "trace_streamer SQLite DB normalization produced no systrace rows":
+		return "trace_streamer SQLite DB 没有导出可用 systrace 行"
+	case "running official simpleperf adapter":
+		return "正在运行官方 simpleperf 适配器"
+	case "running official hiperf adapter":
+		return "正在运行官方 hiperf 适配器"
+	case "parsing raw perf.data records":
+		return "正在解析 raw perf.data 记录"
+	case "parsed raw perf.data records":
+		return "已解析 raw perf.data 记录"
+	case "raw perf.data parse failed":
+		return "raw perf.data 解析失败"
+	case "raw perf.data contains no supported sample records":
+		return "raw perf.data 没有可支持的 sample 记录"
+	case "writing normalized perftrace text":
+		return "正在写入标准化 perftrace 文本"
+	case "wrote normalized perftrace text":
+		return "已写入标准化 perftrace 文本"
+	case "perftrace text write failed":
+		return "perftrace 文本写入失败"
+	case "perftrace text flush failed":
+		return "perftrace 文本刷新失败"
+	case "perftrace text close failed":
+		return "perftrace 文本关闭失败"
+	case "external command failed to start":
+		return "外部命令启动失败"
+	default:
+		return message
+	}
+}
+
 func init() {
 	traceConvertCmd.Flags().StringVar(&traceConvertInput, "input", "", "binary Harmony/OpenHarmony HiTrace input path")
 	traceConvertCmd.Flags().StringVar(&traceConvertOutput, "output", "", "text systrace output path; default is <input>.systrace")
@@ -1122,7 +1283,7 @@ func init() {
 	traceConvertCmd.Flags().StringVar(&traceConvertSPPython, "simpleperf-python", "", "python executable used for report_sample.py; default discovers python3/python")
 	traceConvertCmd.Flags().StringVar(&traceConvertSPSymfs, "simpleperf-symfs", "", "symfs directory passed to simpleperf report_sample.py --symfs")
 	traceConvertCmd.Flags().StringVar(&traceConvertSPKallsyms, "simpleperf-kallsyms", "", "kallsyms file passed to simpleperf report_sample.py --kallsyms")
-	traceConvertCmd.Flags().StringVar(&traceConvertTraceEngine, "trace-engine", "auto", "trace body conversion engine: auto, trace_streamer, or builtin; auto uses trace_streamer when discovered and built-in for pure trace only when trace_streamer is absent")
+	traceConvertCmd.Flags().StringVar(&traceConvertTraceEngine, "trace-engine", "auto", "trace body conversion engine: auto, trace_streamer, or builtin; auto uses trace_streamer SQL first and falls back to built-in raw parsing when SQL is unavailable or fails")
 	traceConvertCmd.Flags().StringVar(&traceConvertTraceStreamer, "trace-streamer", "", "OpenHarmony/SmartPerf trace_streamer executable used to export .htrace/perf.data into SQLite DB")
 	traceConvertCmd.Flags().StringVar(&traceConvertTraceDBOutput, "trace-db-output", "", "trace_streamer SQLite DB output path; default is derived from --output or input when DB export is enabled")
 	traceConvertCmd.Flags().BoolVar(&traceConvertKeepTraceDB, "keep-trace-db", false, "keep generated trace_streamer SQLite DB artifact in the tracebundle")

@@ -147,9 +147,10 @@ The conversion stack is complete only when all of these are true:
   for event families needed by scheduler/root-cause analysis.
 - Do not remove or silently demote the no-perf built-in sys conversion path when
   adding SQL/trace_streamer coverage. Pure trace remains a dual-path surface.
-- Do not run the built-in trace-body parser for trace+perf captures. That lane
-  is SQL-only; partial sidecar/tracebundle output is preferable to a misleading
-  old-path systrace.
+- For trace+perf captures, auto must try SQL first and preserve SQL provider
+  failure evidence if it falls back to the built-in raw trace parser. Explicit
+  `trace_streamer` remains SQL-only/no-degrade; explicit `builtin` runs the
+  built-in raw trace parser directly.
 
 ## Architecture
 
@@ -343,7 +344,7 @@ Exit:
 
 Status: delivered on 2026-06-23 for built-in modern parser synthetic family
 coverage, negative partial coverage, no-perf trace dual-path protection, and
-trace+perf SQL-only protection.
+trace+perf auto-fallback protection.
 
 Tasks:
 
@@ -427,7 +428,8 @@ Required focused tests:
 - trace_query round-trip for scheduler/wakeup/IRQ/CPU/binder/IO/frame/perf rows
 - no-perf `.sys` legacy guard tests for the supported built-in trace-only lane
 - no-perf `.sys` dual-path guard tests for built-in sys and trace_streamer/SQL
-- trace+perf SQL-only guard tests that forbid built-in trace-body fallback
+- trace+perf auto-fallback guard tests plus explicit trace_streamer no-degrade
+  tests
 - SQL systrace cross-validation coverage test through trace_query
 
 Optional but preferred when tooling exists locally:

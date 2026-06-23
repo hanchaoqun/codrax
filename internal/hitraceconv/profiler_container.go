@@ -261,12 +261,14 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 	if sink.stats.RowsAccepted == 0 {
 		result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(sink.stats))
 	}
+	normalizeResultCollections(&result)
 	if bundleArtifact, err := writeTraceBundleWithAllCoverage(opts.InputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
 		return Result{}, true, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path
 		result.Artifacts = append(result.Artifacts, bundleArtifact)
 	}
+	normalizeResultCollections(&result)
 	return result, true, nil
 }
 

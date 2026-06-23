@@ -199,10 +199,10 @@ func TestHitraceConvertHelpAliases(t *testing.T) {
 			if !strings.Contains(got, "/htrace convert [--trace-engine=trace_streamer|builtin|auto] <binary-hitrace> [output.systrace]") {
 				t.Fatalf("help alias did not print convert usage; got:\n%s", got)
 			}
-			if !strings.Contains(got, "Trace-only conversion defaults to auto") ||
-				!strings.Contains(got, "do not fall back after trace_streamer execution failure") ||
-				!strings.Contains(got, "Trace+perf htrace stays trace_streamer/SQL-only") {
-				t.Fatalf("help alias should explain explicit pure-trace engine choice; got:\n%s", got)
+			if !strings.Contains(got, "Auto mode uses trace_streamer/SQL first") ||
+				!strings.Contains(got, "falls back to the built-in raw trace parser") ||
+				!strings.Contains(got, "Explicit trace_streamer or builtin modes do not degrade") {
+				t.Fatalf("help alias should explain auto fallback and explicit engine choice; got:\n%s", got)
 			}
 			if strings.Contains(got, "load hitrace") || strings.Contains(got, "convert hitrace:") {
 				t.Fatalf("help alias should not execute conversion or load path; got:\n%s", got)
@@ -265,7 +265,7 @@ func TestHitraceToolsStatusChineseLocalizesGate(t *testing.T) {
 	}
 	for _, leak := range []string{
 		"built-in sys binary parser remains an explicit guarded lane",
-		"trace+perf htrace never falls back",
+		"trace+perf htrace in auto mode may fall back",
 	} {
 		if strings.Contains(got, leak) {
 			t.Fatalf("zh tools-status leaked English detail %q:\n%s", leak, got)
@@ -293,6 +293,16 @@ func TestHitraceConvertPassesTraceEngineOption(t *testing.T) {
 		HitraceConvert: func(_ context.Context, opts hitraceconv.Options) (hitraceconv.Result, error) {
 			calls++
 			got = opts
+			if opts.Progress == nil {
+				t.Fatalf("hitrace convert progress hook was not installed")
+			}
+			opts.Progress(hitraceconv.ProgressEvent{
+				Stage:      "trace_db_normalize",
+				Status:     hitraceconv.ProgressStatusStarted,
+				Message:    "normalizing trace_streamer SQLite DB to systrace",
+				Path:       "out.trace.db",
+				OutputPath: opts.OutputPath,
+			})
 			return hitraceconv.Result{
 				OutputPath:    opts.OutputPath,
 				EventsWritten: 1,
@@ -319,6 +329,9 @@ func TestHitraceConvertPassesTraceEngineOption(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "converted hitrace: out.systrace") {
 		t.Fatalf("conversion success not rendered:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "hitrace convert progress: stage=trace_db_normalize status=started") {
+		t.Fatalf("conversion progress not rendered:\n%s", out.String())
 	}
 }
 

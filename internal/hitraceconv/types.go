@@ -33,6 +33,7 @@ type Options struct {
 	TraceDBOutputPath      string
 	KeepTraceDB            bool
 	TraceStreamerSoDirs    []string
+	Progress               ProgressFunc
 }
 
 type Artifact struct {

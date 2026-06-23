@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
@@ -3231,9 +3232,9 @@ func htraceUsage(lang string) string {
 
 func htraceConvertUsage(lang string) string {
 	if isZh(lang) {
-		return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] <binary-hitrace> [output.systrace]\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace 和 tracebundle；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。纯 trace 默认 auto：发现 trace_streamer 时走 SQL，trace_streamer 执行失败不回退；未发现 trace_streamer 时走内置纯 trace 转换器。trace+perf htrace 固定走 trace_streamer/SQL，不会用内置 trace body fallback。可先运行 /htrace tools-status 或 codrax trace convert --trace-tools-status 查看 trace_streamer/trace engine 状态；若需一条命令看完整转换工具状态，运行 codrax trace convert --perf-tools-status，它会同时列出 trace_streamer/trace engine、官方 perf 工具与 raw fallback。"
+		return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] <binary-hitrace> [output.systrace]\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace 和 tracebundle；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。默认 auto：发现 trace_streamer 时优先走 SQL；未发现 trace_streamer 或 SQL 执行/导出失败时，回退到内置 raw trace 解析。显式 trace_streamer 或 builtin 模式不会退化到另一个引擎。可先运行 /htrace tools-status 或 codrax trace convert --trace-tools-status 查看 trace_streamer/trace engine 状态；若需一条命令看完整转换工具状态，运行 codrax trace convert --perf-tools-status，它会同时列出 trace_streamer/trace engine、官方 perf 工具与 raw fallback。"
 	}
-	return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] <binary-hitrace> [output.systrace]\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace plus tracebundle; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Trace-only conversion defaults to auto: use trace_streamer/SQL when trace_streamer is discovered, do not fall back after trace_streamer execution failure, and use the built-in trace-only converter only when trace_streamer is absent. Trace+perf htrace stays trace_streamer/SQL-only and never uses the built-in trace body fallback. Run /htrace tools-status or codrax trace convert --trace-tools-status to inspect trace_streamer/trace-engine status. Run codrax trace convert --perf-tools-status for the full conversion toolchain status: trace_streamer/trace engine plus official perf adapters and raw fallback."
+	return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] <binary-hitrace> [output.systrace]\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace plus tracebundle; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Auto mode uses trace_streamer/SQL first when trace_streamer is discovered, then falls back to the built-in raw trace parser when trace_streamer is absent or SQL execution/export fails. Explicit trace_streamer or builtin modes do not degrade to another engine. Run /htrace tools-status or codrax trace convert --trace-tools-status to inspect trace_streamer/trace-engine status. Run codrax trace convert --perf-tools-status for the full conversion toolchain status: trace_streamer/trace engine plus official perf adapters and raw fallback."
 }
 
 func htraceToolsStatusUsage(lang string) string {
@@ -3421,12 +3422,12 @@ func htraceToolsMessageZh(message string) string {
 	switch {
 	case trimmed == "":
 		return ""
-	case strings.Contains(lower, "trace_streamer db export is the required trace body path"):
-		return "trace_streamer DB export 是 trace+perf htrace 的必需 trace body 路径，也可把纯 trace 转成 systrace，并将 coverage 写入 tracebundle 供 trace_query 使用"
-	case strings.Contains(lower, "built-in modern/sys parser is an explicit trace-only engine"):
-		return "内置 modern/sys parser 是纯 trace 引擎；可显式选择，也可在 auto 未发现 trace_streamer 时用于纯 trace；不用于 trace+perf htrace"
+	case strings.Contains(lower, "trace_streamer db export is the preferred trace body path"), strings.Contains(lower, "trace_streamer db export is the required trace body path"):
+		return "trace_streamer DB export 是 trace+perf htrace 的优先 trace body 路径，也可把纯 trace 转成 systrace，并将 coverage 写入 tracebundle 供 trace_query 使用"
+	case strings.Contains(lower, "built-in modern/sys parser is selected explicitly"):
+		return "内置 modern/sys parser 可通过 --trace-engine=builtin 显式选择，也会在 auto 下 trace_streamer 不可用或失败时作为 raw trace 兜底；显式 trace_streamer 不退化"
 	case strings.Contains(lower, "auto trace engine discovered trace_streamer"):
-		return "auto trace 引擎已发现 trace_streamer；纯 trace 会走 SQL，SQL 执行失败不会回退到内置解析器"
+		return "auto trace 引擎已发现 trace_streamer；转换会优先走 SQL，SQL 执行或导出失败会回退到内置 raw trace 解析器"
 	case strings.Contains(lower, "commit a redistributable real no-perf harmony/donghu .sys fixture manifest"):
 		return "提交可再分发的真实 no-perf Harmony/Donghu .sys fixture manifest 到 internal/hitraceconv/testdata/representative_sys_traces，并通过 TestRepresentativeSysTraceFixtures"
 	case strings.Contains(lower, "synthetic scheduler/raw-ftrace parity guards are delivered"):
@@ -3435,8 +3436,12 @@ func htraceToolsMessageZh(message string) string {
 		return strings.Replace(trimmed, "representative_fixture_manifests", "代表性fixture清单", 1)
 	case strings.Contains(lower, "no redistributable representative no-perf .sys fixture has been committed"):
 		return "尚未提交可再分发的真实代表性 no-perf .sys fixture；内置 sys binary parser 仍保留为显式受控能力"
-	case strings.Contains(lower, "trace+perf htrace never falls back to the built-in sys binary parser"):
-		return "trace+perf htrace 永远不会回退到内置 sys binary parser"
+	case strings.Contains(lower, "trace+perf htrace in auto mode may fall back"):
+		return "trace+perf htrace 在 auto 模式下 SQL 不可用或失败时可回退到内置 raw trace parser；显式 trace_streamer 模式永不回退"
+	case strings.Contains(lower, "auto trace engine did not discover trace_streamer"):
+		return "auto trace 引擎未发现 trace_streamer；转换会使用内置 raw trace 解析器"
+	case strings.Contains(lower, "inspected input contains a standalone perf sidecar"):
+		return "auto trace 引擎未发现 trace_streamer；已检查输入包含独立 perf sidecar，因此会使用内置 raw trace 解析和 standalone perf 兜底"
 	case strings.Contains(lower, "so_dirs=not_configured"):
 		return "未配置 so_dir；native 符号 reload 需要时可传 --trace-streamer-so-dir /path/to/so"
 	default:
@@ -3475,6 +3480,160 @@ func htraceConvertCaveatMsg(lang, caveat string) string {
 		return formatN(lang, "hitrace 转换提示：%s\n", hitraceconv.LocalizeConvertMessage(lang, caveat))
 	}
 	return formatN(lang, "hitrace convert caveat: %s\n", caveat)
+}
+
+func htraceConvertProgressMsg(lang string, event hitraceconv.ProgressEvent) string {
+	if isZh(lang) {
+		return "hitrace 转换进度：" + strings.Join(htraceConvertProgressPartsZh(event), " ")
+	}
+	return "hitrace convert progress: " + strings.Join(htraceConvertProgressPartsEn(event), " ")
+}
+
+func htraceConvertProgressPartsEn(event hitraceconv.ProgressEvent) []string {
+	parts := []string{
+		"stage=" + htraceConvertProgressStageEn(event.Stage),
+		"status=" + htraceConvertProgressStatusEn(event.Status),
+	}
+	if strings.TrimSpace(event.Message) != "" {
+		parts = append(parts, "message="+event.Message)
+	}
+	if strings.TrimSpace(event.Path) != "" {
+		parts = append(parts, "path="+event.Path)
+	}
+	if strings.TrimSpace(event.OutputPath) != "" {
+		parts = append(parts, "output="+event.OutputPath)
+	}
+	if event.BytesTotal > 0 {
+		parts = append(parts, fmt.Sprintf("bytes=%d/%d", event.BytesDone, event.BytesTotal))
+	} else if event.BytesDone > 0 {
+		parts = append(parts, fmt.Sprintf("bytes=%d", event.BytesDone))
+	}
+	if event.Records > 0 {
+		parts = append(parts, fmt.Sprintf("records=%d", event.Records))
+	}
+	if event.Elapsed > 0 {
+		parts = append(parts, "elapsed="+event.Elapsed.Round(100*time.Millisecond).String())
+	}
+	return parts
+}
+
+func htraceConvertProgressPartsZh(event hitraceconv.ProgressEvent) []string {
+	parts := []string{
+		"阶段=" + htraceConvertProgressStageZh(event.Stage),
+		"状态=" + htraceConvertProgressStatusZh(event.Status),
+	}
+	if strings.TrimSpace(event.Message) != "" {
+		parts = append(parts, "说明="+htraceConvertProgressMessageZh(event.Message))
+	}
+	if strings.TrimSpace(event.Path) != "" {
+		parts = append(parts, "路径="+event.Path)
+	}
+	if strings.TrimSpace(event.OutputPath) != "" {
+		parts = append(parts, "输出="+event.OutputPath)
+	}
+	if event.BytesTotal > 0 {
+		parts = append(parts, fmt.Sprintf("字节=%d/%d", event.BytesDone, event.BytesTotal))
+	} else if event.BytesDone > 0 {
+		parts = append(parts, fmt.Sprintf("字节=%d", event.BytesDone))
+	}
+	if event.Records > 0 {
+		parts = append(parts, fmt.Sprintf("记录=%d", event.Records))
+	}
+	if event.Elapsed > 0 {
+		parts = append(parts, "耗时="+event.Elapsed.Round(100*time.Millisecond).String())
+	}
+	return parts
+}
+
+func htraceConvertProgressStageEn(stage string) string {
+	stage = strings.TrimSpace(stage)
+	if stage == "" {
+		return "unknown"
+	}
+	return stage
+}
+
+func htraceConvertProgressStageZh(stage string) string {
+	switch strings.TrimSpace(stage) {
+	case "trace_streamer_export":
+		return "trace_streamer导出DB"
+	case "trace_db_normalize":
+		return "SQLite DB转systrace"
+	case "raw_perf_parse":
+		return "raw perf.data解析"
+	case "perftrace_write":
+		return "写入perftrace"
+	case "simpleperf_adapter":
+		return "simpleperf官方适配器"
+	case "hiperf_adapter":
+		return "hiperf官方适配器"
+	default:
+		return htraceConvertProgressStageEn(stage)
+	}
+}
+
+func htraceConvertProgressStatusEn(status string) string {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return hitraceconv.ProgressStatusProgress
+	}
+	return status
+}
+
+func htraceConvertProgressStatusZh(status string) string {
+	switch strings.TrimSpace(status) {
+	case hitraceconv.ProgressStatusStarted:
+		return "开始"
+	case hitraceconv.ProgressStatusProgress:
+		return "进行中"
+	case hitraceconv.ProgressStatusComplete:
+		return "完成"
+	case hitraceconv.ProgressStatusFailed:
+		return "失败"
+	default:
+		return htraceConvertProgressStatusEn(status)
+	}
+}
+
+func htraceConvertProgressMessageZh(message string) string {
+	switch strings.TrimSpace(message) {
+	case "running trace_streamer SQLite DB export":
+		return "正在运行 trace_streamer 导出 SQLite DB"
+	case "normalizing trace_streamer SQLite DB to systrace":
+		return "正在把 trace_streamer SQLite DB 转成文本 systrace"
+	case "normalized trace_streamer SQLite DB to systrace":
+		return "已把 trace_streamer SQLite DB 转成文本 systrace"
+	case "trace_streamer SQLite DB normalization failed":
+		return "trace_streamer SQLite DB 转 systrace 失败"
+	case "trace_streamer SQLite DB normalization produced no systrace rows":
+		return "trace_streamer SQLite DB 没有导出可用 systrace 行"
+	case "running official simpleperf adapter":
+		return "正在运行官方 simpleperf 适配器"
+	case "running official hiperf adapter":
+		return "正在运行官方 hiperf 适配器"
+	case "parsing raw perf.data records":
+		return "正在解析 raw perf.data 记录"
+	case "parsed raw perf.data records":
+		return "已解析 raw perf.data 记录"
+	case "raw perf.data parse failed":
+		return "raw perf.data 解析失败"
+	case "raw perf.data contains no supported sample records":
+		return "raw perf.data 没有可支持的 sample 记录"
+	case "writing normalized perftrace text":
+		return "正在写入标准化 perftrace 文本"
+	case "wrote normalized perftrace text":
+		return "已写入标准化 perftrace 文本"
+	case "perftrace text write failed":
+		return "perftrace 文本写入失败"
+	case "perftrace text flush failed":
+		return "perftrace 文本刷新失败"
+	case "perftrace text close failed":
+		return "perftrace 文本关闭失败"
+	case "external command failed to start":
+		return "外部命令启动失败"
+	default:
+		return message
+	}
 }
 
 func htraceConvertCoverageMsgs(lang, label string, coverage []hitraceconv.TraceDBCoverage) []string {

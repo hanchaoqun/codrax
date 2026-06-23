@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -54,6 +55,103 @@ func TestBuildPerfToolStatusReportsConfiguredToolsAndRawFallback(t *testing.T) {
 	}
 	if status.RawFallback.CheckCommand == "" || status.RawFallback.InstallCommand != "built-in" {
 		t.Fatalf("raw fallback status should expose built-in check guidance: %+v", status.RawFallback)
+	}
+}
+
+func TestBuildPerfToolStatusDiscoversHiperfNextToCodraxBinaryBeforePATH(t *testing.T) {
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	pathDir := filepath.Join(dir, "path")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(pathDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mode := os.FileMode(0o755)
+	if runtime.GOOS == "windows" {
+		mode = 0o644
+	}
+	binHiperf := filepath.Join(binDir, hiperfBinaryNames()[0])
+	pathHiperf := filepath.Join(pathDir, hiperfBinaryNames()[0])
+	for _, candidate := range []string{binHiperf, pathHiperf} {
+		if err := os.WriteFile(candidate, []byte("#!/bin/sh\nexit 0\n"), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldExecutable := traceStreamerExecutablePath
+	traceStreamerExecutablePath = func() (string, error) {
+		return filepath.Join(binDir, "codrax"), nil
+	}
+	t.Cleanup(func() {
+		traceStreamerExecutablePath = oldExecutable
+	})
+	t.Setenv("CODRAX_HIPERF_HOST", "")
+	t.Setenv("PATH", pathDir)
+	t.Setenv("HIPERF_HOME", "")
+	t.Setenv("CODRAX_HIPERF_HOME", "")
+	t.Setenv("OHOS_SDK_HOME", "")
+	t.Setenv("HARMONYOS_SDK_HOME", "")
+	t.Setenv("DEVECO_SDK_HOME", "")
+
+	status, err := BuildPerfToolStatus(Options{PerfParser: "auto"})
+	if err != nil {
+		t.Fatalf("build status: %v", err)
+	}
+	if !status.Hiperf.Available || status.Hiperf.Path != binHiperf ||
+		status.Hiperf.Source != "codrax executable directory" {
+		t.Fatalf("hiperf next to codrax binary should win before PATH: %+v", status.Hiperf)
+	}
+}
+
+func TestBuildPerfToolStatusDiscoversHiperfPlatformSubdirNextToCodraxBinaryBeforePATH(t *testing.T) {
+	platformDirs := traceStreamerHostPlatformDirs()
+	if len(platformDirs) == 0 {
+		t.Fatalf("expected at least one host platform directory")
+	}
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	pathDir := filepath.Join(dir, "path")
+	platformDir := filepath.Join(binDir, "hiperf", platformDirs[0])
+	if err := os.MkdirAll(platformDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(pathDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mode := os.FileMode(0o755)
+	if runtime.GOOS == "windows" {
+		mode = 0o644
+	}
+	binHiperf := filepath.Join(platformDir, hiperfBinaryNames()[0])
+	pathHiperf := filepath.Join(pathDir, hiperfBinaryNames()[0])
+	for _, candidate := range []string{binHiperf, pathHiperf} {
+		if err := os.WriteFile(candidate, []byte("#!/bin/sh\nexit 0\n"), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldExecutable := traceStreamerExecutablePath
+	traceStreamerExecutablePath = func() (string, error) {
+		return filepath.Join(binDir, "codrax"), nil
+	}
+	t.Cleanup(func() {
+		traceStreamerExecutablePath = oldExecutable
+	})
+	t.Setenv("CODRAX_HIPERF_HOST", "")
+	t.Setenv("PATH", pathDir)
+	t.Setenv("HIPERF_HOME", "")
+	t.Setenv("CODRAX_HIPERF_HOME", "")
+	t.Setenv("OHOS_SDK_HOME", "")
+	t.Setenv("HARMONYOS_SDK_HOME", "")
+	t.Setenv("DEVECO_SDK_HOME", "")
+
+	status, err := BuildPerfToolStatus(Options{PerfParser: "auto"})
+	if err != nil {
+		t.Fatalf("build status: %v", err)
+	}
+	if !status.Hiperf.Available || status.Hiperf.Path != binHiperf ||
+		status.Hiperf.Source != "codrax executable directory" {
+		t.Fatalf("hiperf platform subdir next to codrax binary should win before PATH: %+v", status.Hiperf)
 	}
 }
 

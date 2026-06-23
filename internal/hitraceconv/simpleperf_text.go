@@ -70,12 +70,14 @@ func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, inp
 		result.Caveats = append(result.Caveats, caveat)
 		result.Artifacts[0].Caveats = append(result.Artifacts[0].Caveats, "official simpleperf adapter did not produce .perftrace")
 	}
+	normalizeResultCollections(&result)
 	if bundleArtifact, err := writeTraceBundle(input, "", result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions); err != nil {
 		return Result{}, true, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path
 		result.Artifacts = append(result.Artifacts, bundleArtifact)
 	}
+	normalizeResultCollections(&result)
 	return result, true, nil
 }
 
@@ -145,7 +147,7 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath,
 		cmdArgs = append([]string{tool}, args...)
 	}
 	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
-	output, runErr := cmd.CombinedOutput()
+	output, runErr := runCommandWithProgress(opts, cmd, "simpleperf_adapter", "running official simpleperf adapter")
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, ctxErr
 	}
