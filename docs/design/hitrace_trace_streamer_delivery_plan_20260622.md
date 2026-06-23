@@ -1811,6 +1811,55 @@ go test ./internal/repl -run 'TestHitraceToolsStatus|TestHitraceConvertHelpAlias
 go test ./internal/repl -run 'TestNativeSlashSuggestAtraceReusesHtraceSubcommands|TestHitraceConvertPassesTraceEngineOption' -count=1
 ```
 
+#### Batch 11C: Tracebundle Gate Handoff
+
+Status: planned.
+
+Gap:
+
+- `TraceToolStatus` now exposes `no_perf_sys_binary_parity` through CLI and
+  REPL status.
+- Conversion tracebundles still carry provider decisions and coverage, but do
+  not carry this gate. A downstream model that receives only a
+  `.tracebundle.json` through `/htrace` or a request-named path can see which
+  engine ran, but cannot see the commercial retirement gate that qualifies the
+  built-in sys binary lane.
+- This is a provenance handoff gap, not a routing gap. It should be solved by
+  tracebundle metadata and `trace_query` caveats, not by prompt wording or
+  filename/prose matching.
+
+Design:
+
+- Add `trace_tool_gates` to tracebundle metadata.
+- Populate it from `hitraceconv.BuildTraceToolStatus` at bundle-write time,
+  using the conversion options when available so explicit trace_streamer paths
+  and source-local manifest counts remain consistent with tool status.
+- Keep the schema bounded and output-only:
+  - gate name;
+  - state;
+  - proven boolean;
+  - fixture manifest count;
+  - required evidence;
+  - evidence strings;
+  - caveats.
+- Extend `trace_query` tracebundle parsing to surface the gates into
+  `Index.Caveats` and `Result.Caveats` as `tracebundle_trace_tool_gate ...`
+  lines.
+- Bound caveat fan-out if future bundles add multiple gates.
+- Add tests proving:
+  - newly written tracebundles serialize `trace_tool_gates`;
+  - `trace_query.BuildIndex` and `Run` expose the gate caveat;
+  - no trace_query tool-call input fields or JSON repair aliases are added.
+
+Exit criteria:
+
+- The sys parity gate follows converted artifacts through tracebundle attach and
+  request-named path workflows.
+- A model consuming only trace_query results can see that built-in sys parsing
+  remains a guarded lane until representative no-perf `.sys` fixture evidence
+  lands.
+- No production engine routing behavior changes.
+
 ## Running Verification Matrix
 
 Each implemented batch must run the narrow package tests it touches. Before goal
