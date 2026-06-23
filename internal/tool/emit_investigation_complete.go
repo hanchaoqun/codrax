@@ -382,10 +382,6 @@ func normalizeAggregateFactObjectCompat(row map[string]json.RawMessage) bool {
 		return false
 	}
 	kind := strings.TrimSpace(decodeAggregateFactCompatString(row["kind"]))
-	if kind != string(types.AnswerAggregateNegativeObservation) &&
-		kind != string(types.AnswerAggregateNegativeSearch) {
-		return false
-	}
 	var dims []types.AnswerAggregateDimension
 	if raw := row["dimensions"]; len(raw) > 0 {
 		_ = json.Unmarshal(raw, &dims)

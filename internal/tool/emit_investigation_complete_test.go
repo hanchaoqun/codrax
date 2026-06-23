@@ -1294,6 +1294,70 @@ func TestEmitInvestigationComplete_RejectsNegativeObservationAliasPayloadWithCur
 	}
 }
 
+func TestEmitInvestigationComplete_NormalizesRuntimeOriginAliasesForPositiveAggregate(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"trace query measured the blocked main-thread duration",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"scalar_value",
+			"label":"main-thread running slice",
+			"value":"281.940",
+			"unit":"ms",
+			"role":"principal_answer",
+			"evidence_origin":"runtime_artifact",
+			"artifact_id":"trace_query",
+			"trace_window":"62380.172..62380.455",
+			"scope":"current trace selection"
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("positive runtime aggregate aliases should normalize without retry: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 {
+		t.Fatalf("expected one aggregate fact, got %+v", facts)
+	}
+	assertAggregateDimension(t, facts[0], "evidence_origin", "runtime_artifact")
+	assertAggregateDimension(t, facts[0], "artifact_id", "trace_query")
+	assertAggregateDimension(t, facts[0], "trace_window", "62380.172..62380.455")
+	assertAggregateDimension(t, facts[0], "scope", "current trace selection")
+}
+
+func TestEmitInvestigationComplete_RuntimeAliasCompatDoesNotAllowUnknownAggregateFields(t *testing.T) {
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"trace query measured the blocked main-thread duration",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"scalar_value",
+			"label":"main-thread running slice",
+			"value":"281.940",
+			"evidence_origin":"runtime_artifact",
+			"bogus_axis":"should still fail"
+		}]
+	}`)
+	_, failure, err := decodeEmitInvestigationCompleteParamsStrict(tool.Name(), params, tool.Parameters())
+	if err == nil {
+		t.Fatalf("expected unknown non-alias aggregate field to remain rejected")
+	}
+	if failure == nil || failure.Success {
+		t.Fatalf("expected strict decode failure result, got %+v", failure)
+	}
+	if !strings.Contains(err.Error(), `unknown field "bogus_axis"`) {
+		t.Fatalf("expected bogus_axis unknown-field error, got: %v", err)
+	}
+}
+
 func TestEmitInvestigationComplete_AcceptsCategoricalBehaviorAggregate(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}
