@@ -58,6 +58,11 @@ Observed hmtrace model:
 - No silent production fallback between trace-body engines. Pure trace
   conversion is a user-visible engine choice: default `trace_streamer`/SQL, or
   explicit `--trace-engine=builtin` for the built-in trace-only parser.
+- Pure trace conversion is not a dual-run production path. The CLI and REPL must
+  expose the same one-of-two selector, `auto` must behave as
+  `trace_streamer`/SQL, and the selected engine must be recorded in
+  tracebundle provenance. Parity tests may execute both engines in one test, but
+  customer conversion must run exactly one trace-body engine.
 - No-perf Harmony/Donghu `.sys` binary conversion remains supported through the
   explicit built-in engine until trace_streamer DB parity is proven. Once parity
   is proven, backward compatibility for the old parser is not required.
@@ -1126,6 +1131,48 @@ Exit criteria:
 
 - Models can correctly consume generated artifacts without extra guessing or
   repeated finalization retries.
+
+#### Batch 7C: Pure Trace Engine Choice UX Closure
+
+Status: planned on 2026-06-23.
+
+Gap:
+
+- CLI conversion already exposes `--trace-engine`, but REPL `/htrace convert`
+  still tells users to leave the REPL and use the CLI when they want the
+  built-in pure-trace engine.
+- This makes the pure-trace SQL-vs-built-in choice less transparent in the most
+  common interactive workflow, and weakens the rule that the user, not an
+  automatic fallback, selects the trace-body engine.
+
+Tasks:
+
+- Add REPL `/htrace convert` option parsing for:
+  - `--trace-engine=trace_streamer|builtin|auto`;
+  - `--trace-engine trace_streamer|builtin|auto`.
+- Keep the existing positional contract:
+  - first positional argument is input;
+  - optional second positional argument is output;
+  - extra positional arguments fail with localized usage.
+- Pass the selected engine into `hitraceconv.ConvertFile`.
+- Update REPL usage text so both CLI and REPL document:
+  - pure trace defaults to SQL/trace_streamer;
+  - built-in conversion requires explicit selection;
+  - trace+perf remains SQL-only.
+- Add tests that:
+  - REPL usage shows the in-REPL engine selector;
+  - REPL `--trace-engine=builtin` reaches `ConvertFile` through the explicit
+    built-in path and emits built-in provider provenance;
+  - malformed or incomplete `--trace-engine` input fails before conversion.
+- No trace_query input fields are added, so no JSON repair-layer changes are
+  required for this batch.
+
+Exit criteria:
+
+- A user can choose the pure-trace engine from either `codrax trace convert` or
+  `/htrace convert` without changing workflows.
+- Default and `auto` remain SQL/trace_streamer; built-in is explicit; trace+perf
+  never falls back to built-in trace-body parsing.
 
 ## Running Verification Matrix
 
