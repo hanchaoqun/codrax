@@ -82,7 +82,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	}
 	keepTraceDBArtifact := opts.KeepTraceDB || strings.TrimSpace(opts.TraceDBOutputPath) != "" ||
 		(hasTracePerfSidecar && traceStreamerExport.Artifact.Path != "" && traceStreamerExport.SystraceArtifact.Path == "")
-	if traceStreamerExport.Artifact.Path != "" && keepTraceDBArtifact {
+	if traceStreamerExport.Artifact.Path != "" && keepTraceDBArtifact && artifactPathExists(traceStreamerExport.Artifact.Path) {
 		initialArtifacts = append(initialArtifacts, traceStreamerExport.Artifact)
 	} else if traceStreamerExport.Cleanup != nil {
 		defer traceStreamerExport.Cleanup()
@@ -90,7 +90,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	standaloneExtractOpts := standaloneExtractOptions{GeneratePerfTrace: true}
 	if traceStreamerExport.SystraceArtifact.Path != "" && traceDBCoverageHasPerfSamples(initialTraceDBCoverage) {
 		standaloneExtractOpts.GeneratePerfTrace = false
-		standaloneExtractOpts.PrimaryPerfSource = "trace_streamer DB perf_sample rows"
+		standaloneExtractOpts.PrimaryPerfSource = "trace_streamer DB perf_sample rows embedded in systrace"
 	}
 	standaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifactsWithOptions(ctx, opts, info.Size(), output, standaloneExtractOpts)
 	if err != nil {

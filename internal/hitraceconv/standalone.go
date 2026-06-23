@@ -74,6 +74,22 @@ func extractStandaloneArtifactsWithOptions(ctx context.Context, opts Options, in
 	if len(segments) == 0 {
 		return nil, nil, nil, nil
 	}
+	if !extractOpts.GeneratePerfTrace {
+		perfDataCount := 0
+		for _, seg := range segments {
+			if seg.DataType == profilerDataTypeHiperf {
+				perfDataCount++
+			}
+		}
+		if perfDataCount > 0 {
+			primary := strings.TrimSpace(extractOpts.PrimaryPerfSource)
+			if primary == "" {
+				primary = "an existing query-ready perf source"
+			}
+			return nil, []string{fmt.Sprintf("detected %d HIPERF_DATA standalone perf.data segment(s); raw perf.data sidecar extraction and .perftrace fallback generation were skipped because %s is the primary trace_query CPU-sample source", perfDataCount, primary)}, nil, nil
+		}
+		return nil, nil, nil, nil
+	}
 	base := traceSidecarBase(input, outputPath)
 	in, err := os.Open(input)
 	if err != nil {
@@ -110,11 +126,6 @@ func extractStandaloneArtifactsWithOptions(ctx context.Context, opts Options, in
 			Converter:     converterVersion,
 			Perf:          perfCapabilityForRawPerfDataArtifact(detectPerfInputFormat(outPath)),
 		}
-		if !extractOpts.GeneratePerfTrace {
-			rawArtifact.Caveats = append(rawArtifact.Caveats, "raw perf.data sidecar preserved for audit; trace_streamer DB perf_sample rows are the primary trace_query CPU-sample source")
-			artifacts = append(artifacts, rawArtifact)
-			continue
-		}
 		perfTracePath := numberedSidecarPath(base, perfOrdinal, ".perftrace")
 		perfTrace, caveat, providerDecisions, err := maybeConvertHiperfPerfData(ctx, opts, outPath, perfTracePath)
 		decisions = append(decisions, providerDecisions...)
@@ -146,8 +157,6 @@ func extractStandaloneArtifactsWithOptions(ctx context.Context, opts Options, in
 		}
 		if perfTraceCount > 0 {
 			caveats = append(caveats, standalonePerfTraceSummaryCaveat(perfDataCount, perfTraceCount, perfTraceProviders))
-		} else if !extractOpts.GeneratePerfTrace && strings.TrimSpace(extractOpts.PrimaryPerfSource) != "" {
-			caveats = append(caveats, fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s); .perftrace fallback generation was skipped because %s is the primary trace_query CPU-sample source", perfDataCount, extractOpts.PrimaryPerfSource))
 		} else {
 			caveats = append(caveats, fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s); raw perf.data is preserved as sidecar and still needs official parser conversion to .perftrace for trace_query sample aggregation", perfDataCount))
 		}

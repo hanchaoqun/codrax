@@ -16,6 +16,7 @@ func validateSystraceWithTraceQuery(ctx context.Context, path string) (coverage 
 	coverage = TraceDBCoverage{
 		Family: "trace_cross_validation",
 		Table:  "tracequery_build_index",
+		Role:   "tracequery_cross_validation",
 		Found:  true,
 	}
 	idx, err := tracequery.BuildIndex(ctx, path)

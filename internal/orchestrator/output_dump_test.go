@@ -61,19 +61,38 @@ func TestBuildOutputDumpBody_RuntimeArtifactTable(t *testing.T) {
 			{Kind: "perftrace", Source: "frame.perftrace", Bytes: 34, Detail: "source=raw_perfdata_fallback; symbolization_status=unsymbolized"},
 		},
 	})
-	for _, want := range []string{"## Runtime Artifacts", "| trace | frame.systrace |", "| perftrace | frame.perftrace |", "symbolization_status=unsymbolized"} {
+	for _, want := range []string{"## 运行时附件", "| 类型 | 来源 | 大小 | 详情 |", "| trace | frame.systrace |", "| perftrace | frame.perftrace |", "symbolization_status=unsymbolized"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("runtime artifact table missing %q:\n%s", want, body)
 		}
 	}
 }
 
+func TestBuildOutputDumpBody_RuntimeArtifactTableEnglish(t *testing.T) {
+	body := buildOutputDumpBody(dumpFinalOutputArgs{
+		language: "en",
+		request:  "analyse jank",
+		answer:   "ok",
+		artifacts: []outputdump.RuntimeArtifact{
+			{Kind: "trace", Source: "frame.systrace", Bytes: 12, Detail: "runtime trace"},
+		},
+	})
+	for _, want := range []string{"# Question", "## Runtime Artifacts", "| kind | source | size | detail |", "# Answer"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("english runtime artifact table missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "## 运行时附件") {
+		t.Fatalf("english output dump leaked zh runtime title:\n%s", body)
+	}
+}
+
 func TestBuildOutputDumpBody_EmptyFallbacks(t *testing.T) {
 	body := buildOutputDumpBody(dumpFinalOutputArgs{})
-	if !strings.Contains(body, "# 问题\n\n(empty)\n") {
+	if !strings.Contains(body, "# 问题\n\n(空)\n") {
 		t.Fatalf("empty request fallback missing:\n%s", body)
 	}
-	if !strings.Contains(body, "# 回答\n\n(empty)\n") {
+	if !strings.Contains(body, "# 回答\n\n(空)\n") {
 		t.Fatalf("empty answer fallback missing:\n%s", body)
 	}
 }

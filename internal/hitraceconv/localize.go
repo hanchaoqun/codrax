@@ -29,8 +29,14 @@ func localizeConvertMessageZh(message string) string {
 		return fmt.Sprintf("已抽取 %d 个 HIPERF_DATA standalone perf.data artifact，并通过官方 perf adapter 生成 %d 个标准化 .perftrace artifact", perfDataCount, perfTraceCount)
 	case scanConvertMessage(trimmed, "extracted %d HIPERF_DATA standalone perf.data artifact(s) and generated %d normalized .perftrace artifact(s) through mixed providers (official=%d raw=%d)", &perfDataCount, &perfTraceCount, &officialCount, &rawCount) == 4:
 		return fmt.Sprintf("已抽取 %d 个 HIPERF_DATA standalone perf.data artifact，并通过混合 provider 生成 %d 个标准化 .perftrace artifact（official=%d raw=%d）", perfDataCount, perfTraceCount, officialCount, rawCount)
+	case scanConvertMessage(trimmed, "detected %d HIPERF_DATA standalone perf.data segment(s);", &perfDataCount) == 1 && strings.Contains(lower, "perf_sample rows embedded in systrace"):
+		return fmt.Sprintf("检测到 %d 个 HIPERF_DATA standalone perf.data segment；已跳过 raw perf.data sidecar 和额外 .perftrace 生成，因为 trace_streamer DB 已把 query-ready perf_sample 行写入 systrace", perfDataCount)
 	case scanConvertMessage(trimmed, "extracted %d HIPERF_DATA standalone perf.data artifact(s); raw perf.data is preserved as sidecar and still needs official parser conversion to .perftrace for trace_query sample aggregation", &perfDataCount) == 1:
 		return fmt.Sprintf("已抽取 %d 个 HIPERF_DATA standalone perf.data artifact；raw perf.data 已作为 sidecar 保留，仍需要官方 parser 转成 .perftrace 后 trace_query 才能聚合 CPU sample", perfDataCount)
+	case strings.Contains(lower, "generated from trace_streamer sqlite db perf_sample rows; raw perf.data sidecar is audit-only"):
+		return "由 trace_streamer SQLite DB 的 perf_sample 行生成；raw perf.data sidecar 仅用于审计"
+	case strings.Contains(lower, "generated from trace_streamer sqlite db rows"):
+		return "由 trace_streamer SQLite DB 行生成"
 	case strings.Contains(lower, "hiperf_data perf.data extracted; no official hiperf_host/hiperf adapter was configured or found") && strings.Contains(lower, "fell back to raw perf.data parser"):
 		return "已抽取 HIPERF_DATA perf.data；未配置或未发现官方 hiperf_host/hiperf adapter；已回退到 Codrax raw perf.data parser"
 	case strings.Contains(lower, "hiperf_data perf.data extracted; no official hiperf_host/hiperf adapter was configured or found"):

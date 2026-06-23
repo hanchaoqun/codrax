@@ -8,8 +8,10 @@ Reference: https://gitcode.com/diting/hmtrace/tree/main
 
 Modern Harmony/OpenHarmony `.htrace` conversion must follow the same high-coverage
 shape as `hmtrace`: first normalize the capture through `trace_streamer` into a
-structured database, then export Codrax-native `.systrace`, `.perftrace`, and
-`.tracebundle.json` artifacts for `trace_query`.
+structured database, then export Codrax-native `.systrace` plus
+`.tracebundle.json` artifacts for `trace_query`. When SQL cannot provide
+query-ready perf sample rows, Codrax may additionally generate a fallback
+`.perftrace` from standalone perf.data.
 
 This redesign makes `auto` the default trace-body selection. The initial design
 made trace+perf SQL-only and avoided fallback after SQL started; that rule was
@@ -91,9 +93,11 @@ Codrax should keep the same ingestion skeleton but adapt the output contract:
   stable ftrace-compatible rows and normalized `perf_sample:` rows.
 - Perf samples should not be consumed only through visual systrace spans like
   `tracing_mark_write: B|pid|hiperf:...`. Those spans are useful for UI
-  timelines, but model-side root-cause analysis needs `.perftrace` rows that
-  preserve timestamp, CPU, tid/pid, event, period/count, DSO, symbol, callchain,
-  symbolization quality, and source provenance.
+  timelines, but model-side root-cause analysis needs normalized `perf_sample:`
+  rows that preserve timestamp, CPU, tid/pid, event, period/count, DSO, symbol,
+  callchain, symbolization quality, and source provenance. SQL-primary
+  conversion embeds those rows in the generated `.systrace`; fallback or
+  standalone perf.data conversion writes them to `.perftrace`.
 - Embedded `trace_streamer` is a valid long-term UX target, but Codrax should
   first land external discovery/configuration and only embed a fixed binary after
   validating license, platform coverage, hash/version provenance, and release
@@ -114,11 +118,11 @@ explicit built-in sys binary parser.
   long-term canonical format.
 - Unknown modern DB/profiler surfaces are reported as structured coverage
   caveats, not emitted as header-only systrace rows.
-- If a discovered or explicitly selected `trace_streamer` cannot decode the
-  trace body, the converter should fail or return an explicitly partial
-  tracebundle. It must not silently try the other trace-body engine after SQL
-  execution has begun, and it must not imply that the sys binary parser is the
-  expected fallback for trace+perf profiler captures.
+- If `auto` selects `trace_streamer` and SQL execution/export fails, the
+  converter may fall back to the built-in raw trace parser while preserving SQL
+  provider decisions, coverage, and caveats in the bundle. If
+  `trace_streamer` is explicitly selected, the converter should fail or return
+  an explicitly partial tracebundle and must not run the built-in parser.
 
 ## Engine Architecture
 
@@ -130,7 +134,7 @@ explicit built-in sys binary parser.
       -> raw perf.data parser           perf-only fallback
   -> exporters
       -> systrace text
-      -> perftrace text
+      -> perftrace text when SQL perf rows are unavailable or input is standalone perf.data
       -> tracebundle metadata
   -> trace_query
 ```
@@ -147,9 +151,13 @@ Then a Codrax DB exporter reads the generated SQLite database and emits:
 
 - ftrace/systrace-compatible scheduler, wakeup, irq, cpu, clock, frame, trace
   marker, binder, IO, log, xpower, and hisys rows.
-- Codrax `.perftrace` `perf_sample:` rows from DB perf tables.
+- Codrax `perf_sample:` rows from DB perf tables, embedded in the generated
+  `.systrace` when SQL perf rows are query-ready.
 - A tracebundle containing all artifacts, provider decisions, tool provenance,
   DB coverage stats, caveats, and perf/trace clock quality.
+- DB coverage rows must carry a semantic `role`: resolver/index-only tables can
+  legitimately have `rows_emitted=0`, while text-producing exporters use
+  `query_ready_export`, `systrace_text_output`, or `perftrace_text_output`.
 
 ### Built-in Parser: Explicit Trace-Only Engine
 
@@ -213,8 +221,8 @@ systrace/perftrace/tracebundle artifacts.
 - Add options and CLI flags:
   - `--trace-engine auto|trace_streamer|builtin`
   - `--trace-streamer <path>`
-  - `--keep-db`
-  - `--db-output <path>`
+  - `--keep-trace-db`
+  - `--trace-db-output <path>`
   - `--trace-tools-status`
 - Discover `trace_streamer` through explicit flag, environment variable, `PATH`,
   and known OpenHarmony/SmartPerf locations.
@@ -228,8 +236,9 @@ systrace/perftrace/tracebundle artifacts.
 - Add a schema-introspecting DB exporter.
 - Export scheduler, wakeup, irq, cpu idle/frequency, clock, frame, trace marker,
   binder, IO, log, xpower, and hisys rows.
-- Export perf tables as Codrax `.perftrace` instead of relying only on visual
-  `hiperf:` trace marker spans.
+- Export perf tables as Codrax `perf_sample:` rows embedded in systrace instead
+  of relying only on visual `hiperf:` trace marker spans; generate `.perftrace`
+  only for fallback/standalone perf paths.
 - Emit coverage stats per table and per event family.
 
 ### Batch D: Built-in Modern Parser
@@ -260,11 +269,12 @@ systrace/perftrace/tracebundle artifacts.
 
 - Add round-trip tests:
   - `.htrace -> trace_streamer DB -> systrace -> trace_query`
-  - `.htrace -> trace_streamer DB -> perftrace -> trace_query`
+  - `.htrace -> trace_streamer DB -> systrace-embedded perf_sample -> trace_query`
+  - `standalone perf.data or SQL-missing-perf -> perftrace -> trace_query`
   - `.htrace -> tracebundle -> window_stats/root_cause/perf_stats`
   - explicit `trace_streamer` failure returns a hard error
   - `auto` missing-provider pure trace falls back to the built-in parser
-  - `auto` trace_streamer execution/DB failure does not fall back
+  - `auto` trace_streamer execution/DB failure falls back while preserving SQL provenance
   - trace+perf without query-ready SQL returns a perf/tracebundle partial bundle
 - Verify prompt/hint/query-result guidance names the stable artifacts and fields:
   `systrace`, `perftrace`, `tracebundle`, `trace_streamer_db`, and modern
@@ -284,7 +294,7 @@ systrace/perftrace/tracebundle artifacts.
 - The command line and final report must say which engine handled each artifact.
 - Partial output must be explicit:
   - trace body converted
-  - perf sidecar converted
+  - perf sidecar converted through fallback
   - raw perf preserved only
   - DB generated and kept
   - DB generated and cleaned

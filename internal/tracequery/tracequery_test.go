@@ -1323,6 +1323,38 @@ func TestPerfSampleEventSearchAndWindowStats(t *testing.T) {
 	}
 }
 
+func TestSystraceEmbeddedPerfSamplesWorkWithoutTraceBundle(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sql_primary.systrace")
+	if err := os.WriteFile(path, []byte(`
+	app-5678 (1234) [005] .... 20.000100: sched_switch: prev_comm=idle/5 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=5678 next_prio=53
+	app-5678 (1234) [005] .... 20.000200: perf_sample: cpu=5 cpu_known=true pid=1234 tid=5678 thread_comm=app sample_weight=12000 event=cpu-cycles symbol=SQLPrimary::draw dso=libapp.so callchain=main;SQLPrimary::draw source=trace_streamer_db sample_kind=on_cpu symbolization_status=symbolized clock=trace_streamer_db clock_confidence=calibrated callchain_status=symbolized
+	app-5678 (1234) [005] .... 20.000900: sched_switch: prev_comm=app prev_pid=5678 prev_prio=53 prev_state=R+ ==> next_comm=idle/5 next_pid=0 next_prio=120
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(idx.Path) != "sql_primary.systrace" {
+		t.Fatalf("systrace without bundle should stay as the queried artifact, got %s", idx.Path)
+	}
+	stats := ComputeWindowStats(idx, Query{TimeStart: 20.0, TimeEnd: 20.001})
+	if stats.PerfSamples == nil || len(stats.PerfSamples.TopSymbols) == 0 {
+		t.Fatalf("embedded SQL perf_sample rows should be query-ready without tracebundle: %+v", stats.PerfSamples)
+	}
+	if got := stats.PerfSamples.TopSymbols[0].Symbol; got != "SQLPrimary::draw" {
+		t.Fatalf("top embedded systrace perf symbol = %q", got)
+	}
+	if stats.PerfSamples.Quality == nil || !perfValueCountsContainTest(stats.PerfSamples.Quality.Sources, "trace_streamer_db") {
+		t.Fatalf("embedded systrace perf quality should preserve SQL source: %+v", stats.PerfSamples.Quality)
+	}
+	if !perfValueCountsContainTest(stats.PerfSamples.Quality.ClockConfidences, "calibrated") {
+		t.Fatalf("embedded systrace perf quality should preserve calibrated clock: %+v", stats.PerfSamples.Quality)
+	}
+}
+
 func TestPerfSampleQualitySummarizesCPUUnknownAndRawFallback(t *testing.T) {
 	idx := buildTraceIndex(t, "quality.perftrace", `
 	hiperf-10 ( 10) [000] .... 1.000000: perf_sample: cpu=-1 cpu_known=false pid=10 tid=11 thread_comm=worker period=7000 event=cpu-cycles symbol=Worker::run dso=libworker.so callchain=main;Worker::run source=hiperf_proto symbolization_status=symbolized clock=monotonic_raw clock_confidence=assumed callchain_status=symbolized
@@ -1525,6 +1557,7 @@ func TestTraceBundleCoverageCaveatsAreBounded(t *testing.T) {
 		rows = append(rows, traceBundleCoverage{
 			Family:      "family",
 			Table:       "table_" + strconv.Itoa(i),
+			Role:        "query_ready_export",
 			Found:       true,
 			RowsRead:    i + 1,
 			RowsEmitted: i + 1,
@@ -1536,6 +1569,9 @@ func TestTraceBundleCoverageCaveatsAreBounded(t *testing.T) {
 	}
 	if !strings.Contains(caveats[len(caveats)-1], "tracebundle_trace_db_coverage_compacted total=27 emitted=24") {
 		t.Fatalf("missing compacted summary: %+v", caveats)
+	}
+	if !strings.Contains(caveats[0], "role=query_ready_export") {
+		t.Fatalf("coverage caveat should preserve role: %+v", caveats[0])
 	}
 }
 

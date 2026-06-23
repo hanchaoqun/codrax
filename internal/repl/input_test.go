@@ -412,7 +412,7 @@ func TestSlashSuggest_HtraceSubcommandsAfterSpace(t *testing.T) {
 	}
 	var found bool
 	for _, suggestion := range m.filterSuggestions(m.ti.Value()) {
-		if suggestion.display == "/htrace convert <binary> [out.systrace]" {
+		if suggestion.display == "/htrace convert [opts] <binary> [out.systrace]" {
 			found = true
 		}
 	}

@@ -8081,6 +8081,7 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 		if result := writeFinalOutputDumpResult(dumpFinalOutputArgs{
 			dir:      o.outputDumpDir,
 			max:      o.outputDumpMax,
+			language: o.language,
 			request:  dumpRequest,
 			answer:   answer,
 			hasLog:   o.attachedLog != "",

@@ -33,6 +33,7 @@ const HTMLExt = ".html"
 type Args struct {
 	Dir              string
 	Max              int
+	Language         string
 	Request          string
 	Answer           string
 	HasLog           bool
@@ -133,16 +134,21 @@ func FileName(now time.Time, pid int) string {
 // otherwise as legacy quoted footnote lines under the request.
 func BuildBody(a Args) string {
 	var b strings.Builder
-	b.WriteString("# 问题\n\n")
+	labels := dumpLabels(a.Language)
+	b.WriteString("# ")
+	b.WriteString(labels.Question)
+	b.WriteString("\n\n")
 	req := strings.TrimRight(a.Request, "\n")
 	if req == "" {
-		req = "(empty)"
+		req = labels.Empty
 	}
 	b.WriteString(req)
 	b.WriteString("\n")
 	if len(a.RuntimeArtifacts) > 0 {
-		b.WriteString("\n## Runtime Artifacts\n\n")
-		b.WriteString("| kind | source | size | detail |\n")
+		b.WriteString("\n## ")
+		b.WriteString(labels.RuntimeArtifacts)
+		b.WriteString("\n\n")
+		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", labels.Kind, labels.Source, labels.Size, labels.Detail)
 		b.WriteString("|---|---|---:|---|\n")
 		for _, artifact := range a.RuntimeArtifacts {
 			fmt.Fprintf(&b, "| %s | %s | %s | %s |\n",
@@ -152,20 +158,61 @@ func BuildBody(a Args) string {
 				escapeMarkdownTableCell(artifact.Detail))
 		}
 	} else if a.HasLog {
-		fmt.Fprintf(&b, "\n> 附件: log (%s)\n", HumanBytes(a.LogBytes))
+		fmt.Fprintf(&b, "\n> %s: log (%s)\n", labels.Attachment, HumanBytes(a.LogBytes))
 	}
 	if len(a.RuntimeArtifacts) == 0 && a.HasTrace {
-		fmt.Fprintf(&b, "\n> 附件: htrace (%s)\n", HumanBytes(a.TraceBytes))
+		fmt.Fprintf(&b, "\n> %s: htrace (%s)\n", labels.Attachment, HumanBytes(a.TraceBytes))
 	}
-	b.WriteString("\n# 回答\n\n")
+	b.WriteString("\n# ")
+	b.WriteString(labels.Answer)
+	b.WriteString("\n\n")
 	ans := strings.TrimRight(a.Answer, "\n")
 	if ans == "" {
-		ans = "(empty)"
+		ans = labels.Empty
 	}
 	ans = mermaidcompat.NormalizeMarkdownMermaidFences(ans)
 	b.WriteString(ans)
 	b.WriteString("\n")
 	return b.String()
+}
+
+type dumpTextLabels struct {
+	Question         string
+	Answer           string
+	RuntimeArtifacts string
+	Kind             string
+	Source           string
+	Size             string
+	Detail           string
+	Attachment       string
+	Empty            string
+}
+
+func dumpLabels(lang string) dumpTextLabels {
+	if strings.EqualFold(strings.TrimSpace(lang), "en") {
+		return dumpTextLabels{
+			Question:         "Question",
+			Answer:           "Answer",
+			RuntimeArtifacts: "Runtime Artifacts",
+			Kind:             "kind",
+			Source:           "source",
+			Size:             "size",
+			Detail:           "detail",
+			Attachment:       "attachment",
+			Empty:            "(empty)",
+		}
+	}
+	return dumpTextLabels{
+		Question:         "问题",
+		Answer:           "回答",
+		RuntimeArtifacts: "运行时附件",
+		Kind:             "类型",
+		Source:           "来源",
+		Size:             "大小",
+		Detail:           "详情",
+		Attachment:       "附件",
+		Empty:            "(空)",
+	}
 }
 
 func RuntimeArtifactsFromAttachment(kind, body string) []RuntimeArtifact {

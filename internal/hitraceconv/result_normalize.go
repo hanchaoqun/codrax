@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"os"
 	"path"
 	"strings"
 )
@@ -20,6 +21,9 @@ func dedupeArtifacts(items []Artifact) []Artifact {
 	seen := map[string]int{}
 	out := make([]Artifact, 0, len(items))
 	for _, item := range items {
+		if strings.TrimSpace(item.Type) == "" && strings.TrimSpace(item.Path) == "" {
+			continue
+		}
 		key := artifactDedupeKey(item)
 		if idx, ok := seen[key]; ok {
 			out[idx] = mergeArtifact(out[idx], item)
@@ -75,6 +79,15 @@ func artifactDedupePath(raw string) string {
 	}
 	raw = strings.ReplaceAll(raw, "\\", "/")
 	return path.Clean(raw)
+}
+
+func artifactPathExists(path string) bool {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func dedupeStrings(items []string) []string {

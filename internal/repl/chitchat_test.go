@@ -82,8 +82,8 @@ func TestChitchat_WritesMarkdownAndPreview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read chitchat dump %q: %v", preview.path, err)
 	}
-	if body := string(data); !strings.Contains(body, "# 问题\n\ndraw it\n") ||
-		!strings.Contains(body, "# 回答\n\n```mermaid\nflowchart LR") {
+	if body := string(data); !strings.Contains(body, "# Question\n\ndraw it\n") ||
+		!strings.Contains(body, "# Answer\n\n```mermaid\nflowchart LR") {
 		t.Fatalf("chitchat dump body missing request/answer:\n%s", body)
 	}
 	recent := store.Recent()

@@ -337,6 +337,7 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 			coverage := TraceDBCoverage{
 				Family:   "builtin_modern_profiler",
 				Table:    "plugin:" + name,
+				Role:     "query_ready_export",
 				Found:    true,
 				RowsRead: 1,
 			}
@@ -893,6 +894,7 @@ func extractProfilerSessionPackage(ctx context.Context, path string, sink *trace
 	coverage := TraceDBCoverage{
 		Family: "builtin_modern_profiler",
 		Table:  "session:SessionJSON",
+		Role:   "query_ready_export",
 		Found:  true,
 	}
 	reader := bufio.NewReaderSize(f, 256*1024)

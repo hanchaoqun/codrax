@@ -80,6 +80,7 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 	coverage := TraceDBCoverage{
 		Family:   "metadata",
 		Table:    "thread",
+		Role:     "query_ready_export",
 		Found:    len(index.ByITID) > 0,
 		RowsRead: len(index.ByITID),
 	}

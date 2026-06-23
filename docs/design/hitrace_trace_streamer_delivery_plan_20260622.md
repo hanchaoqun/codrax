@@ -2035,10 +2035,12 @@ Customer signal:
 
 - Once trace_streamer can create a SQLite DB, users expect Codrax to consume all
   query-ready data from that DB before falling back to raw sidecars.
-- The previous partial conversion could generate a standalone `.perftrace` from
-  the raw `HIPERF_DATA` sidecar even when trace_streamer DB export already had
-  perf sample rows available, creating two possible CPU-sample evidence streams
-  with different clock semantics.
+- The previous partial conversion could either generate a standalone `.perftrace`
+  from the raw `HIPERF_DATA` sidecar or skip `.perftrace` entirely when
+  trace_streamer DB export already had perf sample rows available. Both outcomes
+  were confusing: one could create duplicate CPU-sample streams, while the other
+  left users with only a binary `.perf.data` sidecar even though SQL had already
+  parsed query-ready perf rows.
 - `hiperf_host` discovery lagged behind trace_streamer discovery: it supported
   explicit path/env/PATH, but not the Codrax executable directory and
   multi-platform sidecar layout users use for `trace_streamer`.
@@ -2047,11 +2049,13 @@ Design:
 
 - Treat trace_streamer DB perf rows as the primary CPU sample source when DB
   normalization emits `perf_sample` coverage.
-  - Exported rows carry `source=trace_streamer_db`,
+  - Embed query-ready `perf_sample:` text rows into the generated `.systrace`
+    rather than producing a second `.perftrace` copy.
+  - Exported sample rows carry `source=trace_streamer_db`,
     `clock=trace_streamer_db`, and `clock_confidence=calibrated`.
-  - Preserve raw `.perf.data` as an audit sidecar.
-  - Skip raw `.perftrace` generation in this case to avoid duplicate samples and
-    conflicting clock-confidence guidance.
+  - Skip both raw `.perf.data` sidecar extraction and raw `.perftrace` fallback
+    generation in this case; they add no model-consumable signal and create UX
+    noise.
 - Use official/raw perf.data conversion only when SQL perf rows are absent,
   DB normalization fails, or the input is standalone perf.data.
 - Align OpenHarmony `hiperf_host` / `hiperf` discovery with trace_streamer:
@@ -2067,16 +2071,24 @@ Design:
 - Keep user-facing transparency:
   - progress events for trace_streamer, DB normalization, official adapters, raw
     perf parsing, and perftrace writing;
-  - tracebundle caveats explaining when raw `.perftrace` was skipped because SQL
-    perf rows are primary.
+  - tracebundle caveats explaining when raw perf sidecars were skipped because
+    SQL perf rows are already embedded in systrace;
+  - temporary trace_streamer DB outputs such as `.trace.db` and
+    `.trace.db.ohos.ts` are cleaned after successful conversion unless the user
+    explicitly passes `--keep-trace-db` or `--trace-db-output`;
+  - coverage `role` values so resolver/index-only DB tables with
+    `rows_emitted=0` are not mistaken for parse failures.
 
 Exit criteria:
 
-- Trace+perf htrace conversion with DB `perf_sample` rows produces systrace DB
-  perf rows and a raw `.perf.data` audit artifact, but no duplicate raw
-  `.perftrace`.
-- A tracebundle makes the primary perf source unambiguous to trace_query and to
-  final reports.
+- Trace+perf htrace conversion with DB `perf_sample` rows produces one
+  query-ready systrace containing both trace body and perf samples, with no
+  duplicate `.perftrace`, binary `.perf.data` sidecar, `.trace.db`, or
+  `.trace.db.ohos.ts` in the output directory by default.
+- A plain `.systrace` remains sufficient for core trace/perf event queries when
+  SQL-primary `perf_sample:` rows are embedded; tracebundle is a recommended
+  context artifact that makes provider, coverage, clock, caveat, and primary
+  perf source provenance unambiguous to trace_query and final reports.
 - `--perf-tools-status` finds `hiperf_host` beside the Codrax binary before PATH
   and supports the same platform-subdir packaging shape as trace_streamer.
 - CLI and REPL conversion progress lines follow the active language.
@@ -2086,9 +2098,16 @@ Delivered:
 - Added SQL-perf-primary selection in both normal conversion and explicit
   trace_streamer-only conversion.
 - Added `standaloneExtractOptions` so standalone `HIPERF_DATA` extraction can
-  preserve raw `perf.data` without generating duplicate `.perftrace`.
+  skip raw `perf.data` and `.perftrace` sidecars when SQL perf rows are already
+  query-ready in systrace.
+- Changed trace+perf auto SQL export to use a temporary DB by default; retained
+  DB and trace_streamer sidecars are now an explicit debug choice.
+- Wired the same debug choice through both CLI and REPL command surfaces:
+  `--keep-trace-db` and `--trace-db-output`.
 - Added `traceDBCoverageHasPerfSamples` and tracebundle caveats that explain the
   primary CPU-sample source.
+- Added `role` to DB/trace coverage so resolver/index tables that intentionally
+  emit zero text rows are distinguishable from skipped or failed exporters.
 - Updated `hiperf` discovery and tool-status guidance to match trace_streamer
   executable-directory and multi-platform bundle behavior.
 - Updated the user guide with attach/direct-path usage for trace+perf htrace,
@@ -2098,7 +2117,7 @@ Delivered:
 Verification:
 
 ```bash
-go test ./internal/hitraceconv -run 'TestConvertFileTracePerfSQLPerfSamplesSkipRawPerftraceFallback|TestBuildPerfToolStatusDiscoversHiperf|TestBuildPerfToolStatusReportsConfiguredToolsAndRawFallback|TestConvertFileTraceStreamerAutoMergesPerfSidecarsIntoTraceBundle' -count=1
+go test ./internal/hitraceconv -run 'TestConvertFileTracePerfSQLPerfSamplesSkipRedundantPerfSidecars|TestBuildPerfToolStatusDiscoversHiperf|TestBuildPerfToolStatusReportsConfiguredToolsAndRawFallback|TestConvertFileTraceStreamerAutoMergesPerfSidecarsIntoTraceBundle' -count=1
 go test ./cmd ./internal/repl ./internal/hitraceconv -run 'TestTraceConvertProgressLine|TestHitraceConvertPassesTraceEngineOption|TestPerfClockAlignmentsForArtifacts|TestSQLiteReadOnlyDSN|TestOpenTraceDBRelativePathWithSpacesReadOnly|TestConvertFileTracePerfDBNormalizeFailureDedupesPartialArtifacts|TestConvertRawPerfData' -count=1
 ```
 
@@ -2113,8 +2132,8 @@ Strategy update:
   - if trace_streamer is available, try SQL first;
   - if trace_streamer is missing, or SQL execution/export/normalization fails,
     fall back to the built-in raw trace parser;
-  - if SQL exported `perf_sample` rows, those rows remain the primary perf
-    evidence and raw `.perftrace` is skipped;
+  - if SQL exported `perf_sample` rows, embedded systrace `perf_sample:` rows
+    remain the primary perf evidence and raw perf sidecars are skipped;
   - if SQL is unavailable/failed, standalone perf sidecars use the existing
     official/raw perf.data fallback path.
 - Explicit strategies do not degrade:

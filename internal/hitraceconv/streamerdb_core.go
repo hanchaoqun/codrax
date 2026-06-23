@@ -192,7 +192,7 @@ func (tdb *traceDB) inspectCoverage(ctx context.Context, family, table string, r
 	defer func() {
 		traceDBSetCoverageElapsed(&item, start)
 	}()
-	item = TraceDBCoverage{Family: family, Table: table}
+	item = TraceDBCoverage{Family: family, Table: table, Role: traceDBCoverageRole(family, table)}
 	found, err := tdb.tableExists(ctx, table)
 	if err != nil {
 		item.Error = err.Error()
@@ -231,6 +231,23 @@ func (tdb *traceDB) inspectCoverage(ctx context.Context, family, table string, r
 		item.Skipped = "missing required columns: " + strings.Join(item.ColumnsMissing, ",")
 	}
 	return item, nil
+}
+
+func traceDBCoverageRole(family, table string) string {
+	family = strings.TrimSpace(family)
+	table = strings.TrimSpace(table)
+	switch {
+	case family == "resolver" || strings.HasPrefix(family, "resolver."):
+		return "resolver_index"
+	case family == "sorter" && table == "__systrace_rows__":
+		return "systrace_text_output"
+	case family == "perf" && table == "__perftrace_rows__":
+		return "perftrace_text_output"
+	case family == "trace_cross_validation":
+		return "tracequery_cross_validation"
+	default:
+		return "query_ready_export"
+	}
 }
 
 func (tdb *traceDB) traceStart(ctx context.Context) (int64, TraceDBCoverage, error) {

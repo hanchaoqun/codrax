@@ -739,9 +739,14 @@ func traceConvertCoverageLines(lang, label string, coverage []hitraceconv.TraceD
 		details := []string{
 			traceConvertDetailKV(lang, "family", item.Family),
 			traceConvertDetailKV(lang, "table", item.Table),
+		}
+		if item.Role != "" {
+			details = append(details, traceConvertDetailKV(lang, "role", traceConvertCoverageRoleLabel(lang, item.Role)))
+		}
+		details = append(details,
 			traceConvertDetailKV(lang, "rows_read", fmt.Sprintf("%d", item.RowsRead)),
 			traceConvertDetailKV(lang, "rows_emitted", fmt.Sprintf("%d", item.RowsEmitted)),
-		}
+		)
 		if item.ElapsedUS > 0 {
 			details = append(details, traceConvertDetailKV(lang, "elapsed_us", fmt.Sprintf("%d", item.ElapsedUS)))
 		}
@@ -817,6 +822,29 @@ func traceConvertArtifactDetails(lang string, artifact hitraceconv.Artifact) str
 		details = append(details, traceConvertDetailKV(lang, "caveats", strings.Join(traceConvertLocalizedMessages(lang, artifact.Caveats), "; ")))
 	}
 	return strings.Join(details, " ")
+}
+
+func traceConvertCoverageRoleLabel(lang, role string) string {
+	role = strings.TrimSpace(role)
+	if !traceConvertUseZh(lang) {
+		return role
+	}
+	switch role {
+	case "resolver_index":
+		return "解析辅助索引，不直接输出 systrace 行"
+	case "systrace_text_output":
+		return "systrace 文本输出"
+	case "perftrace_text_output":
+		return "perftrace 文本输出"
+	case "tracequery_cross_validation":
+		return "trace_query 交叉验证"
+	case "query_ready_export":
+		return "query-ready 文本导出"
+	case "unsupported_input":
+		return "未支持输入"
+	default:
+		return role
+	}
 }
 
 func traceConvertArtifactFormatDetail(lang, typ string) string {
@@ -1066,6 +1094,8 @@ func traceConvertDetailKeyZh(key string) string {
 		return "族"
 	case "table":
 		return "表"
+	case "role":
+		return "用途"
 	case "rows_read":
 		return "读取行"
 	case "rows_emitted":
@@ -1084,9 +1114,9 @@ func traceConvertDetailKeyZh(key string) string {
 func traceConvertNextLine(lang string, result hitraceconv.Result) string {
 	if result.BundlePath != "" {
 		if traceConvertUseZh(lang) {
-			return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；优先附加 tracebundle，让 systrace 与 perftrace/raw perf provenance 一起进入 trace_query", result.BundlePath)
+			return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；优先附加 tracebundle 保留转换/coverage/clock provenance；也可直接附加 systrace 做核心事件查询", result.BundlePath)
 		}
-		return fmt.Sprintf("next: codrax --htrace %q --request <question>; prefer the tracebundle so systrace plus perftrace/raw-perf provenance stay together for trace_query", result.BundlePath)
+		return fmt.Sprintf("next: codrax --htrace %q --request <question>; prefer the tracebundle to keep conversion/coverage/clock provenance; attaching systrace directly is also enough for core event queries", result.BundlePath)
 	}
 	if result.OutputPath == "" {
 		if traceConvertUseZh(lang) {
@@ -1286,7 +1316,7 @@ func init() {
 	traceConvertCmd.Flags().StringVar(&traceConvertTraceEngine, "trace-engine", "auto", "trace body conversion engine: auto, trace_streamer, or builtin; auto uses trace_streamer SQL first and falls back to built-in raw parsing when SQL is unavailable or fails")
 	traceConvertCmd.Flags().StringVar(&traceConvertTraceStreamer, "trace-streamer", "", "OpenHarmony/SmartPerf trace_streamer executable used to export .htrace/perf.data into SQLite DB")
 	traceConvertCmd.Flags().StringVar(&traceConvertTraceDBOutput, "trace-db-output", "", "trace_streamer SQLite DB output path; default is derived from --output or input when DB export is enabled")
-	traceConvertCmd.Flags().BoolVar(&traceConvertKeepTraceDB, "keep-trace-db", false, "keep generated trace_streamer SQLite DB artifact in the tracebundle")
+	traceConvertCmd.Flags().BoolVar(&traceConvertKeepTraceDB, "keep-trace-db", false, "debug only: keep generated trace_streamer SQLite DB and tool sidecars instead of cleaning temporary files")
 	traceConvertCmd.Flags().StringSliceVar(&traceConvertTraceStreamerSoDirs, "trace-streamer-so-dir", nil, "native .so directories passed through to trace_streamer for symbol reload; repeat or comma-separate values")
 	traceConvertCmd.Flags().StringVar(&traceConvertPerfParser, "perf-parser", "auto", "perf.data parser strategy: auto uses official hiperf/simpleperf first then raw fallback; official disables raw fallback; raw uses Codrax raw perf.data fallback only")
 	traceConvertCmd.Flags().BoolVar(&traceConvertNoPerfTrace, "no-perftrace", false, "preserve perf.data sidecars without generating .perftrace")

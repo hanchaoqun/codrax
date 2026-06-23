@@ -424,9 +424,13 @@ REPL 内也可以先看 trace 转换工具和 sys parity gate 状态:
 
 ### 转换后如何分析 trace + perf 混合文件
 
-OpenHarmony / HarmonyOS 的 HiProfiler 文件可能同时带 ftrace/bytrace 文本、`hiperf-plugin` 的 standalone `perf.data`,以及转换器生成的 `.perftrace`。这种场景优先使用 `.tracebundle.json`,因为它会把 systrace、perftrace、raw perf.data provenance 和 converter caveats 作为一组产物交给 `trace_query`。
+OpenHarmony / HarmonyOS 的 HiProfiler 文件可能同时带 ftrace/bytrace 文本和 `hiperf-plugin` 的 standalone `perf.data`。这种场景优先使用 `.tracebundle.json`,因为它把 systrace 事件主体、provider 决策、coverage、clock/perf 置信度、converter caveats 和原始输入 provenance 作为一组轻量元数据交给 `trace_query`。如果 SQL 已经把 perf 样本写进 `.systrace`,`tracebundle.json` 不会再重复保存事件正文,但能避免后续分析丢失“这些 perf_sample 来自 trace_streamer DB、DB 表覆盖了哪些内容、哪些表只是 resolver/index”的上下文。
 
-trace+perf htrace 在 auto 下优先走 `trace_streamer`/SQLite 导出。DB 导出成功后,Codrax 会把 DB 中的调度、callstack、perf sample、频点、IO、日志等 query-ready 行统一写入文本 `.systrace`。如果 DB 里已经导出了 `perf_sample` 行,这些行会带 `source=trace_streamer_db`、`clock=trace_streamer_db`、`clock_confidence=calibrated`,并作为 CPU sample 主证据;standalone raw `.perf.data` 只作为审计 sidecar 保留,不会再额外生成一份重复 `.perftrace`。当 `trace_streamer` 不存在或 SQL 失败时,auto 会使用内置 raw trace 解析器生成 systrace,同时用官方 `hiperf` / Android simpleperf 或 Codrax raw fallback 生成 `.perftrace`。显式 `--trace-engine=trace_streamer` 不会退化;显式 `--trace-engine=builtin` 不会尝试 SQL。
+trace+perf htrace 在 auto 下优先走 `trace_streamer`/SQLite 导出。DB 导出成功后,Codrax 会把 DB 中的调度、callstack、频点、IO、日志等 trace body 行写入文本 `.systrace`;如果 DB 里存在 `perf_sample` / `perf_callchain` 行,这些 query-ready sample 行也会写入同一个 `.systrace`,并带 `source=trace_streamer_db`、`clock=trace_streamer_db`、`clock_confidence=calibrated` 作为 CPU sample 主证据。此时不会再额外生成重复 `.perftrace`,也不会落二进制 raw `.perf.data` sidecar。只有当 `trace_streamer` 不存在、SQL 失败、DB 中没有 query-ready perf sample,或输入本身是 standalone perf.data 时,auto 才会用官方 `hiperf` / Android simpleperf 或 Codrax raw fallback 生成 `.perftrace`。显式 `--trace-engine=trace_streamer` 不会退化;显式 `--trace-engine=builtin` 不会尝试 SQL。
+
+`trace.db` 是 trace_streamer 导出的 SQLite 中间库,`trace.db.ohos.ts` 是 trace_streamer 可能在 DB 旁边生成的辅助 sidecar。默认转换成功后二者都会留在临时目录并被清理;只有显式传 `--keep-trace-db` 或 `--trace-db-output` 时才会保留,用于调试 SQL 导出或给开发者复核。
+
+`trace_db_coverage` 中 `role=resolver_index` 的行表示 SQL 表已被读取用于 thread/process/callstack/sched_slice 等 join 或索引解析,预期不直接输出 systrace/perftrace 文本行,所以 `rows_emitted=0` 不是解析失败。真正的文本产物会以 `role=systrace_text_output` 或具体 event family 的 `role=query_ready_export` 呈现;若表缺失、字段缺失或 SQL/trace_query 校验异常,才会通过 `skipped` / `error` 明确暴露。
 
 推荐 attach 方式:
 
@@ -435,9 +439,8 @@ trace+perf htrace 在 auto 下优先走 `trace_streamer`/SQLite 导出。DB 导�
 codrax --htrace /tmp/hiprofiler_data.htrace.tracebundle.json \
   -r "分析 com.example 主线程在 34579.47s 到 34579.59s 的卡顿原因,结合 runnable、D-state/IO、binder 和 perf 调用栈"
 
-# 如果没有 bundle,也可以显式附加 systrace + perftrace pair
+# 如果没有 bundle,也可以直接附加 systrace；当 fallback 额外生成 perftrace 时再 append
 codrax --htrace /tmp/hiprofiler_data.htrace.systrace \
-  --htrace /tmp/hiprofiler_data.htrace.perftrace \
   -r "分析这段卡顿"
 ```
 
@@ -446,10 +449,10 @@ REPL 里推荐附加 bundle,适合连续追问:
 ```text
 [git:main]❯❯ /htrace /tmp/hiprofiler_data.htrace.tracebundle.json
   ✓ 已附加 tracebundle
-[git:main][tracebundle][perftrace]❯❯ 分析 34579.47s 到 34579.59s 的卡顿原因
+[git:main][tracebundle]❯❯ 分析 34579.47s 到 34579.59s 的卡顿原因
 ```
 
-如果需要分别附加文件,先附 systrace,再 append perftrace:
+如果没有 bundle,也可以附加 systrace。只有在转换 fallback 额外生成 `.perftrace` 时,再 append perftrace:
 
 ```text
 [git:main]❯❯ /htrace /tmp/hiprofiler_data.htrace.systrace
@@ -471,11 +474,11 @@ attach 和直接点名路径的差别:
 
 - attach 适合 REPL 多轮追问;artifact 会成为当前会话的粘性 trace 上下文,提示符也会显示 `[trace]` / `[perftrace]` / `[tracebundle]`。
 - 直接点名路径适合一次性问题或脚本化调用;Codrax 会根据用户请求、路径和文件内容进入 runtime trace/perf 分析,不需要先执行 `/htrace`。
-- 对 trace + perf 混合文件,优先点名或附加 `.tracebundle.json`;只给 `.perf.data` 时通常还需要先 `trace convert` 生成 `.perftrace`,否则只能保留 raw perf provenance,不能做完整 CPU sample 聚合。
+- 对 trace + perf 混合文件,优先点名或附加 `.tracebundle.json`;只给 `.systrace` 时也能查询事件主体,但会少掉 provider/coverage/clock/caveat 元数据。只给 standalone `.perf.data` 时通常还需要先 `trace convert` 生成 `.perftrace`,否则不能做完整 CPU sample 聚合。
 
 ### perf.data / perf sample
 
-如果 Harmony/OpenHarmony HiTrace 里包含 `hiperf-plugin` 的 standalone `perf.data`,或者你手上直接有 Android/simpleperf 的 `perf.data`,可以让 `trace convert` 生成 `.perftrace` 和 `.tracebundle.json`。后续 `trace_query` 会把 `.systrace + .perftrace` 合并成同一个时间窗证据流,用于回答“这个 runnable/running 线程当时在跑什么符号/调用栈”。
+如果 Harmony/OpenHarmony HiTrace 里包含 `hiperf-plugin` 的 standalone `perf.data`,`trace convert` 会优先通过 trace_streamer SQL 读取 query-ready perf rows,并在可用时把 `perf_sample:` 行写进同一个 `.systrace`。只有 SQL 不可用、SQL 没有 query-ready perf rows,或输入本身是 standalone Android/simpleperf/OpenHarmony `perf.data` 时,才会通过官方 adapter 或 raw fallback 生成单独 `.perftrace`。后续 `trace_query` 会把 systrace 内嵌 perf 样本或 sibling `.perftrace` 合并成同一个时间窗证据流,用于回答“这个 runnable/running 线程当时在跑什么符号/调用栈”。
 
 先做一次 preflight:
 
@@ -504,9 +507,9 @@ codrax trace convert --perf-tools-status --lang en
 - `trace_db_normalize`: 正在把 SQLite DB 导出成文本 systrace
 - `hiperf_adapter` / `simpleperf_adapter`: 正在调用官方 perf adapter
 - `raw_perf_parse`: 正在解析 raw perf.data,会显示已处理字节和记录数
-- `perftrace_write`: 正在写出标准化 perftrace 文本
+- `perftrace_write`: fallback 路径正在写出标准化 perftrace 文本
 
-进度行会跟随 `--lang` / REPL 语言设置。看到 DB normalize 失败但 `.perftrace` 成功时,通常表示 trace_streamer 已写出 DB,但 Codrax 打开或导出 DB 的阶段失败;perftrace 是独立读取 `HIPERF_DATA` sidecar 或单独 `perf.data` 生成的,不依赖 SQLite DB。
+进度行会跟随 `--lang` / REPL 语言设置。SQL 成功并导出 `perf_sample` rows 时,perf 样本已经作为 `perf_sample:` 行进入 `.systrace`,不会额外写重复 `.perftrace`。看到 DB normalize 失败但 `.perftrace` 成功时,通常表示 trace_streamer 已写出 DB,但 Codrax 打开或导出 DB 的阶段失败;fallback perftrace 是独立读取 `HIPERF_DATA` sidecar 或单独 `perf.data` 生成的,不依赖 SQLite DB。
 
 推荐策略:
 
@@ -521,7 +524,7 @@ codrax trace convert --input /tmp/perf.data --perf-parser=official
 # 离线保底:只用 Codrax raw perf.data fallback
 codrax trace convert --input /tmp/perf.data --perf-parser=raw
 
-# 完全不生成 perftrace,只保留 perf.data sidecar
+# 调试/特殊场景：不生成 perftrace fallback
 codrax trace convert --input /tmp/capture.htrace --no-perftrace
 ```
 
@@ -571,14 +574,13 @@ codrax trace convert --input /tmp/perf.data
 
 转换产物:
 
-- `.systrace`: ftrace/systrace 文本
-- `.perf.data`: 从 OpenHarmony profiler 容器抽出的 perf sidecar
-- `.perftrace`: Codrax 统一的 perf sample 文本格式
-- `.tracebundle.json`: systrace/perftrace/perf.data 的 bundle 元数据
+- `.systrace`: ftrace/systrace 文本；SQL perf primary 场景也包含 query-ready `perf_sample:` 行
+- `.perftrace`: Codrax 统一的 perf sample 文本格式；仅在 fallback 或 standalone perf.data 场景生成
+- `.tracebundle.json`: systrace、fallback perftrace、provider 决策、coverage、clock/caveat/provenance 的轻量 bundle 元数据
 
-分析时可以直接传 `.tracebundle.json`、`.systrace` 或 `.perftrace`;如果同目录存在 sibling bundle 或 sibling `.systrace + .perftrace`,trace_query 会自动合并。
+分析时可以直接传 `.tracebundle.json`、`.systrace` 或 `.perftrace`;如果同目录存在 sibling bundle 或 sibling `.systrace + .perftrace`,trace_query 会自动合并。核心事件主体在 `.systrace`,但 `.tracebundle.json` 能保留转换透明度和 handoff 元数据,所以 trace+perf htrace 仍推荐附加或点名 bundle。
 
-如果本轮保存 markdown/html 报告,报告正文会额外包含 `Runtime Artifacts` 表,列出本轮附加的 log/trace/perf/bundle 来源、大小和关键信息。只附加 `.tracebundle.json` 时,报告会展开 bundle 里的 systrace/perftrace/perf.data 成员、converter 和 caveats。raw fallback 产生的 perf 样本会在表里保留 `raw_perfdata_fallback`、`symbolized` / `unsymbolized`、`ip_only`、`event_name_source=event_desc`、`hiperf_cpu_off=true`、`hiperf_unistack_*` 这类标记,方便区分“官方/保存符号名可读调用栈”“off-CPU 事件样本”和“IP/DSO 级保底关联”。
+如果本轮保存 markdown/html 报告,报告正文会额外包含运行时附件表；中文报告显示为 `运行时附件`,英文报告显示为 `Runtime Artifacts`,表头也会跟随语言设置。该表列出本轮附加的 log/trace/perf/bundle 来源、大小和关键信息。只附加 `.tracebundle.json` 时,报告会展开 bundle 里的 systrace/fallback perftrace 成员、provider decisions、coverage、converter 和 caveats。raw fallback 产生的 perf 样本会在表里保留 `raw_perfdata_fallback`、`symbolized` / `unsymbolized`、`ip_only`、`event_name_source=event_desc`、`hiperf_cpu_off=true`、`hiperf_unistack_*` 这类标记,方便区分“官方/保存符号名可读调用栈”“off-CPU 事件样本”和“IP/DSO 级保底关联”。
 
 常用提问模板:
 

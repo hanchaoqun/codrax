@@ -37,7 +37,7 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, input string, i
 	standaloneExtractOpts := standaloneExtractOptions{GeneratePerfTrace: true}
 	if export.SystraceArtifact.Path != "" && traceDBCoverageHasPerfSamples(export.Coverage) {
 		standaloneExtractOpts.GeneratePerfTrace = false
-		standaloneExtractOpts.PrimaryPerfSource = "trace_streamer DB perf_sample rows"
+		standaloneExtractOpts.PrimaryPerfSource = "trace_streamer DB perf_sample rows in systrace"
 	}
 	standaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifactsWithOptions(ctx, opts, inputBytes, output, standaloneExtractOpts)
 	if err != nil {
@@ -116,7 +116,7 @@ func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, input string, 
 		)
 		return traceStreamerExportResult{Decision: decision, Caveats: []string{caveat}}, nil
 	}
-	return runTraceStreamerExport(ctx, opts, input, output, opts.KeepTraceDB || hasTracePerfSidecar)
+	return runTraceStreamerExport(ctx, opts, input, output, opts.KeepTraceDB)
 }
 
 func runTraceStreamerExport(ctx context.Context, opts Options, input, output string, keepDB bool) (traceStreamerExportResult, error) {

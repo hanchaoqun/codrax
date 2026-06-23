@@ -196,12 +196,14 @@ func TestHitraceConvertHelpAliases(t *testing.T) {
 			r.handleHitraceCmd(input)
 
 			got := out.String()
-			if !strings.Contains(got, "/htrace convert [--trace-engine=trace_streamer|builtin|auto] <binary-hitrace> [output.systrace]") {
+			if !strings.Contains(got, "/htrace convert [--trace-engine=trace_streamer|builtin|auto] [--keep-trace-db] [--trace-db-output <path>] <binary-hitrace> [output.systrace]") {
 				t.Fatalf("help alias did not print convert usage; got:\n%s", got)
 			}
 			if !strings.Contains(got, "Auto mode uses trace_streamer/SQL first") ||
 				!strings.Contains(got, "falls back to the built-in raw trace parser") ||
-				!strings.Contains(got, "Explicit trace_streamer or builtin modes do not degrade") {
+				!strings.Contains(got, "Explicit trace_streamer or builtin modes do not degrade") ||
+				!strings.Contains(got, "--keep-trace-db") ||
+				!strings.Contains(got, "--trace-db-output") {
 				t.Fatalf("help alias should explain auto fallback and explicit engine choice; got:\n%s", got)
 			}
 			if strings.Contains(got, "load hitrace") || strings.Contains(got, "convert hitrace:") {
@@ -335,6 +337,46 @@ func TestHitraceConvertPassesTraceEngineOption(t *testing.T) {
 	}
 }
 
+func TestHitraceConvertPassesTraceDBRetentionOptions(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	var out bytes.Buffer
+	var got hitraceconv.Options
+	calls := 0
+	r := New(Config{
+		Runner:   stubRunner{},
+		Store:    store,
+		Render:   renderNothing,
+		RepoRoot: ".",
+		Branch:   "main",
+		In:       strings.NewReader(""),
+		Out:      &out,
+		Language: "en",
+		HitraceConvert: func(_ context.Context, opts hitraceconv.Options) (hitraceconv.Result, error) {
+			calls++
+			got = opts
+			return hitraceconv.Result{
+				OutputPath:    opts.OutputPath,
+				EventsWritten: 1,
+			}, nil
+		},
+	})
+
+	r.handleHitraceCmd("/htrace convert --keep-trace-db --trace-db-output out.trace.db --trace-engine=trace_streamer input.htrace out.systrace")
+
+	if calls != 1 {
+		t.Fatalf("converter calls = %d, want 1; output:\n%s", calls, out.String())
+	}
+	if !got.KeepTraceDB || got.TraceDBOutputPath != "out.trace.db" {
+		t.Fatalf("REPL did not pass trace DB retention options: %+v", got)
+	}
+	if got.InputPath != "input.htrace" || got.OutputPath != "out.systrace" || got.TraceEngine != "trace_streamer" {
+		t.Fatalf("unexpected convert opts: %+v", got)
+	}
+}
+
 func TestHitraceConvertRejectsMalformedTraceEngineBeforeConversion(t *testing.T) {
 	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
@@ -362,7 +404,9 @@ func TestHitraceConvertRejectsMalformedTraceEngineBeforeConversion(t *testing.T)
 	if calls != 0 {
 		t.Fatalf("malformed trace-engine should not call converter, calls=%d", calls)
 	}
-	if !strings.Contains(out.String(), "--trace-engine=trace_streamer|builtin|auto") {
+	if !strings.Contains(out.String(), "--trace-engine=trace_streamer|builtin|auto") ||
+		!strings.Contains(out.String(), "--keep-trace-db") ||
+		!strings.Contains(out.String(), "--trace-db-output") {
 		t.Fatalf("malformed trace-engine should show convert usage:\n%s", out.String())
 	}
 }

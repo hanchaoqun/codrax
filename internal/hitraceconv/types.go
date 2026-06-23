@@ -110,6 +110,7 @@ type TraceProviderDecision struct {
 type TraceDBCoverage struct {
 	Family         string   `json:"family,omitempty"`
 	Table          string   `json:"table"`
+	Role           string   `json:"role,omitempty"`
 	Found          bool     `json:"found"`
 	ColumnsPresent []string `json:"columns_present,omitempty"`
 	ColumnsMissing []string `json:"columns_missing,omitempty"`

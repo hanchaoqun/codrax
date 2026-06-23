@@ -288,13 +288,14 @@ func profilerFtraceEventRenderCoverage(coverageByField map[int]*TraceDBCoverage,
 		return coverage
 	}
 	desc, ok := profilerFtraceEventDescriptors[field]
-	coverage := TraceDBCoverage{Found: true}
+	coverage := TraceDBCoverage{Found: true, Role: "query_ready_export"}
 	if ok {
 		coverage.Family = "builtin_modern_ftrace:" + desc.Family
 		coverage.Table = desc.Name
 	} else {
 		coverage.Family = "builtin_modern_ftrace:unknown"
 		coverage.Table = fmt.Sprintf("event_field:%d", field)
+		coverage.Role = "unsupported_input"
 		coverage.Skipped = "unmapped structured ftrace event field"
 	}
 	coverageByField[field] = &coverage

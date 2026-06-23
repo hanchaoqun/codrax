@@ -87,6 +87,26 @@ func TestTraceConvertProgressLineFollowsLanguage(t *testing.T) {
 	}
 }
 
+func TestTraceConvertCoverageLinesExplainResolverRows(t *testing.T) {
+	coverage := []hitraceconv.TraceDBCoverage{{
+		Family:      "resolver",
+		Table:       "thread",
+		Role:        "resolver_index",
+		RowsRead:    3,
+		RowsEmitted: 0,
+	}}
+	zh := strings.Join(traceConvertCoverageLines("zh", "trace_db_coverage", coverage), "\n")
+	if !strings.Contains(zh, "用途=解析辅助索引，不直接输出 systrace 行") ||
+		!strings.Contains(zh, "输出行=0") ||
+		strings.Contains(zh, "跳过原因") {
+		t.Fatalf("zh resolver coverage should explain index-only rows without marking them skipped:\n%s", zh)
+	}
+	en := strings.Join(traceConvertCoverageLines("en", "trace_db_coverage", coverage), "\n")
+	if !strings.Contains(en, "role=resolver_index") || !strings.Contains(en, "rows_emitted=0") {
+		t.Fatalf("en resolver coverage should expose role:\n%s", en)
+	}
+}
+
 func TestTraceConvertNextLineFollowsLanguage(t *testing.T) {
 	result := hitraceconv.Result{OutputPath: "out.systrace"}
 	if got := traceConvertNextLine("zh", result); !strings.Contains(got, "下一步") || !strings.Contains(got, "<问题>") {
@@ -110,8 +130,8 @@ func TestTraceConvertNextLinePrefersTraceBundle(t *testing.T) {
 	if got := traceConvertNextLine("en", result); !strings.Contains(got, "out.tracebundle.json") || strings.Contains(got, "out.systrace") {
 		t.Fatalf("next line should prefer tracebundle when perf artifacts are present: %q", got)
 	}
-	if got := traceConvertNextLine("zh", result); !strings.Contains(got, "tracebundle") || !strings.Contains(got, "perftrace") {
-		t.Fatalf("zh next line should mention bundled trace/perf handoff: %q", got)
+	if got := traceConvertNextLine("zh", result); !strings.Contains(got, "tracebundle") || !strings.Contains(got, "核心事件查询") {
+		t.Fatalf("zh next line should mention tracebundle context and direct systrace querying: %q", got)
 	}
 }
 

@@ -56,7 +56,8 @@ func TestBuildBodyRendersRuntimeArtifactTable(t *testing.T) {
 		),
 	})
 	for _, want := range []string{
-		"## Runtime Artifacts",
+		"## 运行时附件",
+		"| 类型 | 来源 | 大小 | 详情 |",
 		"| log | crash.log |",
 		"| trace | frame.systrace |",
 		"| perftrace | frame.perftrace |",
@@ -69,6 +70,33 @@ func TestBuildBodyRendersRuntimeArtifactTable(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("runtime artifact table missing %q:\n%s", want, body)
 		}
+	}
+}
+
+func TestBuildBodyRendersEnglishRuntimeArtifactTable(t *testing.T) {
+	body := BuildBody(Args{
+		Language: "en",
+		Request:  "why jank?",
+		Answer:   "answer",
+		RuntimeArtifacts: []RuntimeArtifact{{
+			Kind:   "trace",
+			Source: "frame.systrace",
+			Bytes:  12,
+			Detail: "runtime trace",
+		}},
+	})
+	for _, want := range []string{
+		"# Question",
+		"## Runtime Artifacts",
+		"| kind | source | size | detail |",
+		"# Answer",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("english runtime artifact table missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "## 运行时附件") || strings.Contains(body, "| 类型 | 来源 |") {
+		t.Fatalf("english runtime artifact table leaked zh labels:\n%s", body)
 	}
 }
 
@@ -221,6 +249,42 @@ func TestWriteResultWritesStandaloneHTMLSibling(t *testing.T) {
 	if strings.Contains(html, `src="/assets/mermaid.min.js`) ||
 		strings.Contains(html, "Raw Markdown</a>") {
 		t.Fatalf("standalone html should not depend on preview server routes:\n%s", html[:min(len(html), 2000)])
+	}
+}
+
+func TestWriteResultHTMLFollowsRuntimeArtifactLanguage(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
+	result := WriteResult(Args{
+		Dir:      dir,
+		Max:      10,
+		Language: "zh",
+		Request:  "分析 trace",
+		Answer:   "回答",
+		RuntimeArtifacts: []RuntimeArtifact{{
+			Kind:   "trace",
+			Source: "frame.systrace",
+			Bytes:  12,
+			Detail: "runtime trace",
+		}},
+		Now: now,
+		PID: 1002,
+	})
+	if result.MarkdownPath == "" || result.HTMLPath == "" {
+		t.Fatalf("expected markdown and html outputs, got %#v", result)
+	}
+	md, err := os.ReadFile(result.MarkdownPath)
+	if err != nil {
+		t.Fatalf("read markdown: %v", err)
+	}
+	html, err := os.ReadFile(result.HTMLPath)
+	if err != nil {
+		t.Fatalf("read html: %v", err)
+	}
+	for _, got := range []string{string(md), string(html)} {
+		if !strings.Contains(got, "运行时附件") || !strings.Contains(got, "类型") || strings.Contains(got, "Runtime Artifacts") {
+			t.Fatalf("runtime artifact language labels did not follow zh:\n%s", got[:min(len(got), 2000)])
+		}
 	}
 }
 

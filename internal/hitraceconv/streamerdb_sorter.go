@@ -29,6 +29,7 @@ func (s traceDBRowSortStats) coverage() TraceDBCoverage {
 	return TraceDBCoverage{
 		Family:       "sorter",
 		Table:        "__systrace_rows__",
+		Role:         "systrace_text_output",
 		Found:        true,
 		RowsRead:     s.RowsAccepted,
 		RowsEmitted:  s.RowsWritten,

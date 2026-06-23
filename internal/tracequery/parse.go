@@ -29,11 +29,11 @@ var (
 )
 
 var spaceKVKeys = map[string]struct{}{
-	"addr": {}, "address": {}, "affinity": {}, "allowed_cpus": {}, "aux_size": {}, "branch_count": {}, "bytes": {}, "callchain": {}, "cg": {}, "cgroup": {}, "cgroup_id": {}, "clock": {}, "cmdline": {}, "code_page_size": {}, "comm": {}, "cpu": {}, "cpumask": {}, "cpus": {}, "cpus_allowed": {}, "cpuset": {}, "data_page_size": {}, "data_src": {}, "dev": {}, "dest_cpu": {}, "dso": {}, "entry_name": {}, "event": {},
+	"addr": {}, "address": {}, "affinity": {}, "allowed_cpus": {}, "aux_size": {}, "branch_count": {}, "bytes": {}, "callchain": {}, "cg": {}, "cgroup": {}, "cgroup_id": {}, "clock": {}, "cmdline": {}, "code_page_size": {}, "comm": {}, "comm_source": {}, "cpu": {}, "cpumask": {}, "cpus": {}, "cpus_allowed": {}, "cpuset": {}, "data_page_size": {}, "data_src": {}, "dev": {}, "dest_cpu": {}, "dso": {}, "entry_name": {}, "event": {},
 	"file": {}, "filename": {}, "i_blocks": {}, "i_mode": {}, "i_nlink": {}, "i_size": {}, "event_period": {},
 	"duration": {}, "duration_ms": {}, "duration_ns": {}, "duration_us": {},
 	"ino": {}, "inode": {}, "ip": {}, "latency": {}, "latency_ms": {}, "latency_ns": {}, "latency_us": {}, "len": {}, "length": {}, "name": {}, "offset": {}, "ofs": {},
-	"mask": {}, "operation": {}, "op": {}, "orig_cpu": {}, "parent": {}, "parent_ino": {}, "parent_inode": {}, "path": {}, "perf_weight": {}, "period": {}, "period_weight": {}, "phys_addr": {}, "pid": {}, "pino": {},
+	"mask": {}, "operation": {}, "op": {}, "orig_cpu": {}, "parent": {}, "parent_ino": {}, "parent_inode": {}, "path": {}, "perf_thread_comm": {}, "perf_weight": {}, "period": {}, "period_weight": {}, "phys_addr": {}, "pid": {}, "pino": {},
 	"policy": {}, "pos": {}, "raw_size": {}, "reason": {}, "ret": {}, "rw": {}, "rwbs": {}, "sample_id": {}, "sample_period": {}, "sample_weight": {}, "size": {}, "source": {}, "stream_id": {}, "symbol": {}, "target_comm": {}, "target_cpu": {}, "target_pid": {}, "task": {}, "task_pid": {}, "thread_comm": {}, "tid": {}, "transaction": {}, "type": {}, "user_regs_abi": {}, "user_regs_count": {}, "user_stack_size": {},
 }
 
@@ -599,6 +599,7 @@ type traceBundleTraceDecision struct {
 type traceBundleCoverage struct {
 	Family         string   `json:"family,omitempty"`
 	Table          string   `json:"table,omitempty"`
+	Role           string   `json:"role,omitempty"`
 	Found          bool     `json:"found"`
 	ColumnsPresent []string `json:"columns_present,omitempty"`
 	ColumnsMissing []string `json:"columns_missing,omitempty"`
@@ -933,6 +934,7 @@ func traceBundleCoverageCaveat(prefix string, coverage traceBundleCoverage) stri
 	}
 	appendKV("family", coverage.Family)
 	appendKV("table", coverage.Table)
+	appendKV("role", coverage.Role)
 	parts = append(parts, fmt.Sprintf("found=%t", coverage.Found))
 	appendInt("rows_read", coverage.RowsRead)
 	appendInt("rows_emitted", coverage.RowsEmitted)

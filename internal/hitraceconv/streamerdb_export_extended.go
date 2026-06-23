@@ -28,7 +28,7 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart := time.Now()
-	perfCoverage, err := exportTraceDBPerfSamples(ctx, tdb, sink)
+	perfCoverage, err := exportTraceDBPerfSamples(ctx, tdb, sink, index)
 	traceDBSetCoverageListElapsed(perfCoverage, stageStart)
 	coverage = append(coverage, perfCoverage...)
 	if err != nil {
@@ -103,7 +103,7 @@ type traceDBPerfFrame struct {
 	IP   string
 }
 
-func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRowSink) ([]TraceDBCoverage, error) {
+func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex) ([]TraceDBCoverage, error) {
 	sampleCoverage, err := tdb.inspectCoverage(ctx, "perf", "perf_sample", []string{"callchain_id", "thread_id"})
 	if err != nil || !sampleCoverage.Found || len(sampleCoverage.ColumnsMissing) > 0 {
 		return []TraceDBCoverage{sampleCoverage}, err
@@ -217,7 +217,7 @@ func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRo
 		}
 		label := traceDBPerfLabel("hiperf:" + firstNonEmpty(eventType, "perf") + ":" + symbol)
 		counter := traceDBPerfLabel("hiperf:" + firstNonEmpty(eventType, "perf") + ":event_count")
-		task := traceDBCommName(threadName, "perf")
+		task, pid, perfCommNote := traceDBPerfSampleIdentity(index, tid, pid, threadName)
 		if err := addTraceDBInstantRow(sink, ts, task, tid, pid, cpu, fmt.Sprintf("tracing_mark_write: B|%d|%s", pid, label)); err != nil {
 			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
 		}
@@ -234,6 +234,9 @@ func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRo
 			cpu, pid, tid, quoteTraceValue(task), eventCount, quoteTraceValue(firstNonEmpty(eventType, "perf")),
 			quoteTraceValue(symbol), quoteTraceValue(dso), quoteTraceValue(ip), quoteTraceValue(callchain),
 			symbolizationStatus, callchainStatus)
+		if perfCommNote != "" {
+			body += perfCommNote
+		}
 		if err := addTraceDBInstantRow(sink, ts, task, tid, pid, cpu, body); err != nil {
 			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
 		}
@@ -244,6 +247,26 @@ func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRo
 		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
 	}
 	return []TraceDBCoverage{sampleCoverage, callchainCoverage}, nil
+}
+
+func traceDBPerfSampleIdentity(index traceDBThreadIndex, tid, pid int64, perfThreadName string) (string, int64, string) {
+	perfTask := traceDBCommName(perfThreadName, "perf")
+	if tid == 0 {
+		return perfTask, pid, ""
+	}
+	traceTask, traceTID, tracePID := traceDBThreadLineContextByTID(index, tid)
+	if traceTID == 0 || traceTask == "" || traceTask == "unknown" {
+		return perfTask, firstNonZero(pid, tid), ""
+	}
+	resolvedPID := firstNonZero(tracePID, pid, tid)
+	if strings.EqualFold(traceTask, perfTask) {
+		return traceTask, resolvedPID, ""
+	}
+	note := fmt.Sprintf(" perf_thread_comm=%s comm_source=trace_thread", quoteTraceValue(perfTask))
+	if pid != 0 && pid != resolvedPID {
+		note += fmt.Sprintf(" perf_process_pid=%d", pid)
+	}
+	return traceTask, resolvedPID, note
 }
 
 func (tdb *traceDB) loadPerfFrames(ctx context.Context) (map[int64][]traceDBPerfFrame, TraceDBCoverage, error) {

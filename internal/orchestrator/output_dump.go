@@ -12,6 +12,7 @@ import (
 type dumpFinalOutputArgs struct {
 	dir       string
 	max       int
+	language  string
 	request   string
 	answer    string
 	hasLog    bool
@@ -27,6 +28,7 @@ func (a dumpFinalOutputArgs) outputDumpArgs() outputdump.Args {
 	return outputdump.Args{
 		Dir:              a.dir,
 		Max:              a.max,
+		Language:         a.language,
 		Request:          a.request,
 		Answer:           a.answer,
 		HasLog:           a.hasLog,

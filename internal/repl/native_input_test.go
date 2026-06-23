@@ -144,7 +144,7 @@ func TestNativeSlashSuggestShowsHitraceConvertSubcommand(t *testing.T) {
 	var found bool
 	var foundToolsStatus bool
 	for _, suggestion := range matches {
-		if suggestion.display == "/htrace convert <binary> [out.systrace]" {
+		if suggestion.display == "/htrace convert [opts] <binary> [out.systrace]" {
 			found = true
 			if suggestion.insert != "/htrace convert" {
 				t.Fatalf("convert insert=%q, want /htrace convert", suggestion.insert)
@@ -185,7 +185,7 @@ func TestNativeSlashSuggestAtraceReusesHtraceSubcommands(t *testing.T) {
 		displays = append(displays, suggestion.display)
 	}
 	got := strings.Join(displays, ",")
-	if !strings.Contains(got, "/atrace convert <binary> [out.systrace]") ||
+	if !strings.Contains(got, "/atrace convert [opts] <binary> [out.systrace]") ||
 		!strings.Contains(got, "/atrace clear") {
 		t.Fatalf("unexpected /atrace c suggestions: %s", got)
 	}

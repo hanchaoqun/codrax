@@ -75,7 +75,7 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	}
 	defer rows.Close()
 	classCoverage := map[string]*TraceDBCoverage{}
-	unsupported := TraceDBCoverage{Family: "raw_ftrace", Table: "unsupported", Found: true, Skipped: "unsupported raw ftrace event family"}
+	unsupported := TraceDBCoverage{Family: "raw_ftrace", Table: "unsupported", Role: "unsupported_input", Found: true, Skipped: "unsupported raw ftrace event family"}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return outCoverage, err
@@ -161,7 +161,7 @@ func traceDBRawClassCoverage(items map[string]*TraceDBCoverage, class string) *T
 	if item != nil {
 		return item
 	}
-	item = &TraceDBCoverage{Family: "raw_ftrace", Table: class, Found: true}
+	item = &TraceDBCoverage{Family: "raw_ftrace", Table: class, Role: "query_ready_export", Found: true}
 	items[class] = item
 	return item
 }

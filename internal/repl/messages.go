@@ -3225,16 +3225,16 @@ func attachedTraceClearedMsg(lang string) string {
 
 func htraceUsage(lang string) string {
 	if isZh(lang) {
-		return "/htrace <path> | append <path> | convert <binary> [out.systrace] | tools-status | clear | show — 附加或转换 HiTrace / atrace / systrace / perfetto / perftrace / tracebundle 文件"
+		return "/htrace <path> | append <path> | convert [opts] <binary> [out.systrace] | tools-status | clear | show — 附加或转换 HiTrace / atrace / systrace / perfetto / perftrace / tracebundle 文件"
 	}
-	return "/htrace <path> | append <path> | convert <binary> [out.systrace] | tools-status | clear | show — attach or convert HiTrace / atrace / systrace / perfetto / perftrace / tracebundle files"
+	return "/htrace <path> | append <path> | convert [opts] <binary> [out.systrace] | tools-status | clear | show — attach or convert HiTrace / atrace / systrace / perfetto / perftrace / tracebundle files"
 }
 
 func htraceConvertUsage(lang string) string {
 	if isZh(lang) {
-		return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] <binary-hitrace> [output.systrace]\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace 和 tracebundle；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。默认 auto：发现 trace_streamer 时优先走 SQL；未发现 trace_streamer 或 SQL 执行/导出失败时，回退到内置 raw trace 解析。显式 trace_streamer 或 builtin 模式不会退化到另一个引擎。可先运行 /htrace tools-status 或 codrax trace convert --trace-tools-status 查看 trace_streamer/trace engine 状态；若需一条命令看完整转换工具状态，运行 codrax trace convert --perf-tools-status，它会同时列出 trace_streamer/trace engine、官方 perf 工具与 raw fallback。"
+		return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] [--keep-trace-db] [--trace-db-output <path>] <binary-hitrace> [output.systrace]\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace 和 tracebundle；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。默认 auto：发现 trace_streamer 时优先走 SQL；未发现 trace_streamer 或 SQL 执行/导出失败时，回退到内置 raw trace 解析。显式 trace_streamer 或 builtin 模式不会退化到另一个引擎。trace_streamer 的 SQLite DB 和 .ohos.ts 辅助文件默认作为临时文件清理；只有调试时传 --keep-trace-db 或 --trace-db-output <path> 才保留。可先运行 /htrace tools-status 或 codrax trace convert --trace-tools-status 查看 trace_streamer/trace engine 状态；若需一条命令看完整转换工具状态，运行 codrax trace convert --perf-tools-status，它会同时列出 trace_streamer/trace engine、官方 perf 工具与 raw fallback。"
 	}
-	return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] <binary-hitrace> [output.systrace]\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace plus tracebundle; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Auto mode uses trace_streamer/SQL first when trace_streamer is discovered, then falls back to the built-in raw trace parser when trace_streamer is absent or SQL execution/export fails. Explicit trace_streamer or builtin modes do not degrade to another engine. Run /htrace tools-status or codrax trace convert --trace-tools-status to inspect trace_streamer/trace-engine status. Run codrax trace convert --perf-tools-status for the full conversion toolchain status: trace_streamer/trace engine plus official perf adapters and raw fallback."
+	return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] [--keep-trace-db] [--trace-db-output <path>] <binary-hitrace> [output.systrace]\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace plus tracebundle; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Auto mode uses trace_streamer/SQL first when trace_streamer is discovered, then falls back to the built-in raw trace parser when trace_streamer is absent or SQL execution/export fails. Explicit trace_streamer or builtin modes do not degrade to another engine. trace_streamer SQLite DB and .ohos.ts helper files are cleaned as temporary files by default; pass --keep-trace-db or --trace-db-output <path> only when debugging the SQL export. Run /htrace tools-status or codrax trace convert --trace-tools-status to inspect trace_streamer/trace-engine status. Run codrax trace convert --perf-tools-status for the full conversion toolchain status: trace_streamer/trace engine plus official perf adapters and raw fallback."
 }
 
 func htraceToolsStatusUsage(lang string) string {
@@ -3716,9 +3716,9 @@ func htraceConvertFailedMsg(lang string, err error) string {
 func htraceConvertNextMsg(lang, outputPath, bundlePath string, hasPerfTrace bool) string {
 	if bundlePath != "" {
 		if isZh(lang) {
-			return formatN(lang, "下一步：/htrace %s；优先附加 tracebundle，让 systrace 与 perftrace/raw perf provenance 一起进入 trace_query", bundlePath)
+			return formatN(lang, "下一步：/htrace %s；优先附加 tracebundle 保留转换/coverage/clock provenance；也可直接附加 systrace 做核心事件查询", bundlePath)
 		}
-		return formatN(lang, "next: /htrace %s; prefer the tracebundle so systrace plus perftrace/raw-perf provenance stay together for trace_query", bundlePath)
+		return formatN(lang, "next: /htrace %s; prefer the tracebundle to keep conversion/coverage/clock provenance; attaching systrace directly is also enough for core event queries", bundlePath)
 	}
 	if outputPath == "" {
 		if isZh(lang) {

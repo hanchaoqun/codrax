@@ -6861,6 +6861,7 @@ func (r *REPL) writeLocalMarkdownTranscript(request, answer string) outputdump.R
 	return outputdump.WriteResult(outputdump.Args{
 		Dir:        r.outputDumpDir,
 		Max:        r.outputDumpMax,
+		Language:   r.language,
 		Request:    request,
 		Answer:     answer,
 		HasLog:     strings.TrimSpace(r.attachedLog) != "",
@@ -10714,7 +10715,7 @@ func (r *REPL) handleLogAppend(path string) {
 //
 //	/htrace <path>                  — load file from disk (replaces any prior)
 //	/htrace append <path>           — append additional file with source header
-//	/htrace convert <binary> [out]  — convert binary HiTrace to text systrace
+//	/htrace convert [opts] <binary> [out]  — convert binary HiTrace to text systrace
 //	/htrace tools-status            — print trace_streamer/engine/gate status
 //	/htrace clear                   — clear the current attachment
 //	/htrace show                    — print byte count + head of the attachment
@@ -10814,10 +10815,12 @@ func (r *REPL) handleHitraceConvert(args string) {
 		return
 	}
 	opts := hitraceconv.Options{
-		InputPath:   parsed.input,
-		OutputPath:  parsed.output,
-		Flavor:      "harmony_hitrace",
-		TraceEngine: parsed.traceEngine,
+		InputPath:         parsed.input,
+		OutputPath:        parsed.output,
+		Flavor:            "harmony_hitrace",
+		TraceEngine:       parsed.traceEngine,
+		TraceDBOutputPath: parsed.traceDBOutputPath,
+		KeepTraceDB:       parsed.keepTraceDB,
 	}
 	opts.Progress = func(event hitraceconv.ProgressEvent) {
 		r.info(htraceConvertProgressMsg(r.language, event))
@@ -10849,9 +10852,11 @@ func (r *REPL) handleHitraceConvert(args string) {
 }
 
 type hitraceConvertParsedArgs struct {
-	input       string
-	output      string
-	traceEngine string
+	input             string
+	output            string
+	traceEngine       string
+	traceDBOutputPath string
+	keepTraceDB       bool
 }
 
 func parseHitraceConvertArgs(fields []string) (hitraceConvertParsedArgs, error) {
@@ -10875,6 +10880,27 @@ func parseHitraceConvertArgs(fields []string) (hitraceConvertParsedArgs, error) 
 				return hitraceConvertParsedArgs{}, fmt.Errorf("unsupported trace engine")
 			}
 			parsed.traceEngine = value
+		case field == "--trace-db-output" || field == "--trace_db_output":
+			if i+1 >= len(fields) || strings.HasPrefix(fields[i+1], "-") {
+				return hitraceConvertParsedArgs{}, fmt.Errorf("missing trace db output")
+			}
+			i++
+			parsed.traceDBOutputPath = fields[i]
+		case strings.HasPrefix(field, "--trace-db-output=") || strings.HasPrefix(field, "--trace_db_output="):
+			_, value, _ := strings.Cut(field, "=")
+			if strings.TrimSpace(value) == "" {
+				return hitraceConvertParsedArgs{}, fmt.Errorf("missing trace db output")
+			}
+			parsed.traceDBOutputPath = value
+		case field == "--keep-trace-db" || field == "--keep_trace_db":
+			parsed.keepTraceDB = true
+		case strings.HasPrefix(field, "--keep-trace-db=") || strings.HasPrefix(field, "--keep_trace_db="):
+			_, value, _ := strings.Cut(field, "=")
+			keep, ok := parseHitraceConvertBool(value)
+			if !ok {
+				return hitraceConvertParsedArgs{}, fmt.Errorf("invalid keep trace db")
+			}
+			parsed.keepTraceDB = keep
 		case strings.HasPrefix(field, "-"):
 			return hitraceConvertParsedArgs{}, fmt.Errorf("unsupported option")
 		default:
@@ -10889,6 +10915,17 @@ func parseHitraceConvertArgs(fields []string) (hitraceConvertParsedArgs, error) 
 		parsed.output = positional[1]
 	}
 	return parsed, nil
+}
+
+func parseHitraceConvertBool(value string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "t", "true", "y", "yes", "on":
+		return true, true
+	case "0", "f", "false", "n", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 func validHitraceConvertTraceEngine(value string) bool {

@@ -227,6 +227,61 @@ func TestExportTraceDBPerfSamplesRoundTripToTraceQuery(t *testing.T) {
 	}
 }
 
+func TestExportTraceDBPerfSamplesPreferTraceThreadComm(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (62380000000000)",
+		"CREATE TABLE process (pid INT, ipid INT, name TEXT)",
+		"INSERT INTO process VALUES (62642, 1, 's.watch.meetime')",
+		"CREATE TABLE thread (tid INT, itid INT, ipid INT, name TEXT, is_main_thread INT, switch_count INT, start_ts INT)",
+		"INSERT INTO thread VALUES (62642, 7, 1, 's.watch.meetime', 1, 1, 62380000000000)",
+		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
+		"INSERT INTO thread_state VALUES (7, 62380027500000, 100000, 1, 'Running')",
+		"CREATE TABLE perf_thread (thread_id INT, process_id INT, thread_name TEXT)",
+		"INSERT INTO perf_thread VALUES (62642, 62642, 'com.huawei.hmos')",
+		"CREATE TABLE perf_sample (callchain_id INT, timestamp_trace INT, thread_id INT, event_count INT, cpu_id INT, event_type_id INT)",
+		"CREATE TABLE perf_report (id INT, report_value TEXT)",
+		"INSERT INTO perf_report VALUES (9, 'hw-cpu-cycles')",
+		"CREATE TABLE perf_callchain (callchain_id INT, depth INT, name TEXT, ip INT)",
+		"INSERT INTO perf_callchain VALUES (88, 0, 'appspawn+0xc2f4', 372840035060)",
+		"INSERT INTO perf_sample VALUES (88, 62380027704000, 62642, 1477992, 1, 9)",
+	})
+	outPath := filepath.Join(t.TempDir(), "perf-comm.systrace")
+	if _, err := exportTraceDBToSystrace(context.Background(), path, outPath); err != nil {
+		t.Fatalf("export perf DB systrace: %v", err)
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	for _, want := range []string{
+		"s.watch.meetime-62642",
+		`thread_comm="s.watch.meetime"`,
+		`perf_thread_comm="com.huawei.hmos"`,
+		`comm_source=trace_thread`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("perf DB systrace missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "com.huawei.hmos-62642") ||
+		strings.Contains(body, `pid=62642 tid=62642 thread_comm="com.huawei.hmos"`) {
+		t.Fatalf("perf DB systrace should not use stale perf_thread comm as primary thread label:\n%s", body)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatalf("tracequery parse perf DB output: %v", err)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 62380.027, TimeEnd: 62380.028})
+	if stats.PerfSamples == nil || len(stats.PerfSamples.TopThreads) == 0 {
+		t.Fatalf("perf DB sample did not reach tracequery stats: %+v", stats.PerfSamples)
+	}
+	if got := stats.PerfSamples.TopThreads[0].Thread.Comm; got != "s.watch.meetime" {
+		t.Fatalf("perf top thread comm = %q, want trace thread comm", got)
+	}
+}
+
 func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 	path := createTraceDBFixture(t, hmtraceComprehensiveFixtureStatements())
 	outPath := filepath.Join(t.TempDir(), "hmtrace-comprehensive.systrace")

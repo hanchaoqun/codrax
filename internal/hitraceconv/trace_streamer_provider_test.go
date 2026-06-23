@@ -528,7 +528,7 @@ func TestConvertFileTraceStreamerAutoMergesPerfSidecarsIntoTraceBundle(t *testin
 	}
 }
 
-func TestConvertFileTracePerfSQLPerfSamplesSkipRawPerftraceFallback(t *testing.T) {
+func TestConvertFileTracePerfSQLPerfSamplesSkipRedundantPerfSidecars(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
 	}
@@ -541,6 +541,7 @@ func TestConvertFileTracePerfSQLPerfSamplesSkipRawPerftraceFallback(t *testing.T
 	fixtureDB := createTraceDBFixture(t, traceStreamerIntegrationPerfDBStatements())
 	traceStreamer := writeFakeTraceStreamer(t, dir, 0)
 	t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
+	t.Setenv("TRACE_STREAMER_CREATE_OHOS_TS", "1")
 
 	output := filepath.Join(dir, "sql-perf.systrace")
 	result, err := ConvertFile(context.Background(), Options{
@@ -554,31 +555,65 @@ func TestConvertFileTracePerfSQLPerfSamplesSkipRawPerftraceFallback(t *testing.T
 	if result.OutputPath != output || result.EventsWritten == 0 {
 		t.Fatalf("SQL trace+perf should emit systrace rows: %+v", result)
 	}
-	if !hasArtifact(result.Artifacts, ArtifactPerfData) {
-		t.Fatalf("raw perf.data sidecar should remain for audit: %+v", result.Artifacts)
+	if hasArtifact(result.Artifacts, ArtifactPerfData) {
+		t.Fatalf("SQL perf samples are query-ready in systrace; raw perf.data sidecar should be skipped: %+v", result.Artifacts)
 	}
 	if hasArtifact(result.Artifacts, ArtifactPerfTrace) {
-		t.Fatalf("SQL perf samples should be primary and avoid duplicate raw .perftrace fallback: %+v", result.Artifacts)
+		t.Fatalf("SQL perf samples are embedded in systrace; duplicate .perftrace should not be produced: %+v", result.Artifacts)
 	}
 	if !traceDBCoverageHasPerfSamples(result.TraceDBCoverage) {
 		t.Fatalf("SQL perf coverage should show emitted perf samples: %+v", result.TraceDBCoverage)
 	}
-	idx, err := tracequery.BuildIndex(context.Background(), output)
+	sidecarBase := traceSidecarBase(input, output)
+	for _, unexpected := range []string{
+		sidecarBase + ".perf.data",
+		sidecarBase + ".perftrace",
+		sidecarBase + ".trace.db",
+		sidecarBase + ".trace.db.ohos.ts",
+	} {
+		if _, err := os.Stat(unexpected); !os.IsNotExist(err) {
+			t.Fatalf("unexpected redundant perf sidecar %s: err=%v", unexpected, err)
+		}
+	}
+	systraceBody, err := os.ReadFile(output)
 	if err != nil {
-		t.Fatalf("parse SQL perf systrace: %v", err)
+		t.Fatalf("read SQL systrace: %v", err)
+	}
+	if !bytes.Contains(systraceBody, []byte("perf_sample:")) ||
+		!bytes.Contains(systraceBody, []byte("source=trace_streamer_db")) {
+		t.Fatalf("SQL systrace should embed query-ready perf_sample rows:\n%s", systraceBody)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), result.BundlePath)
+	if err != nil {
+		t.Fatalf("parse SQL perf tracebundle: %v", err)
 	}
 	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{})
 	if stats.PerfSamples == nil || len(stats.PerfSamples.TopSymbols) == 0 ||
 		stats.PerfSamples.TopSymbols[0].Symbol != "runWorkload@entry/src/main/ets/pages/Index.ets:55:28" {
-		t.Fatalf("trace_query should consume SQL perf samples from systrace: %+v", stats.PerfSamples)
+		t.Fatalf("trace_query should consume SQL perf samples from tracebundle: %+v", stats.PerfSamples)
 	}
 	bundle, err := os.ReadFile(result.BundlePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(bundle, []byte(`"type": "perftrace"`)) ||
-		!bytes.Contains(bundle, []byte(`trace_streamer DB perf_sample rows`)) {
-		t.Fatalf("tracebundle should document SQL perf as primary without raw perftrace:\n%s", bundle)
+	for _, want := range [][]byte{
+		[]byte(`"type": "systrace"`),
+		[]byte(`perf_sample rows embedded in systrace`),
+		[]byte(`"family": "perf"`),
+		[]byte(`"table": "perf_sample"`),
+	} {
+		if !bytes.Contains(bundle, want) {
+			t.Fatalf("tracebundle missing SQL embedded-perf marker %q:\n%s", want, bundle)
+		}
+	}
+	for _, unexpected := range [][]byte{
+		[]byte(`"type": "perf_data"`),
+		[]byte(`"type": "perftrace"`),
+		[]byte(`still needs official parser conversion`),
+	} {
+		if bytes.Contains(bundle, unexpected) {
+			t.Fatalf("tracebundle should not expose redundant/misleading perf sidecar marker %q:\n%s", unexpected, bundle)
+		}
 	}
 }
 
@@ -654,8 +689,8 @@ func TestConvertFileTracePerfDBNormalizeFailureDedupesPartialArtifacts(t *testin
 	if result.OutputPath != "" || result.EventsWritten != 0 {
 		t.Fatalf("invalid SQL DB must not claim systrace output: %+v", result)
 	}
-	if got := countArtifacts(result.Artifacts, ArtifactTraceDB); got != 1 {
-		t.Fatalf("partial result should expose exactly one trace_db artifact, got %d artifacts=%+v", got, result.Artifacts)
+	if got := countArtifacts(result.Artifacts, ArtifactTraceDB); got != 0 {
+		t.Fatalf("partial result should not retain trace_db without keep flags, got %d artifacts=%+v", got, result.Artifacts)
 	}
 	if !hasArtifact(result.Artifacts, ArtifactPerfData) || !hasArtifact(result.Artifacts, ArtifactPerfTrace) {
 		t.Fatalf("trace+perf partial result should preserve perf sidecars: %+v", result.Artifacts)
@@ -672,8 +707,8 @@ func TestConvertFileTracePerfDBNormalizeFailureDedupesPartialArtifacts(t *testin
 	if err := json.Unmarshal(bundle, &meta); err != nil {
 		t.Fatalf("parse tracebundle: %v\n%s", err, bundle)
 	}
-	if got := countArtifacts(meta.Artifacts, ArtifactTraceDB); got != 1 {
-		t.Fatalf("tracebundle should contain one trace_db artifact, got %d:\n%s", got, bundle)
+	if got := countArtifacts(meta.Artifacts, ArtifactTraceDB); got != 0 {
+		t.Fatalf("tracebundle should not contain trace_db artifact without keep flags, got %d:\n%s", got, bundle)
 	}
 	if got := countStringsContaining(meta.Caveats, normalizeFailed); got != 1 {
 		t.Fatalf("tracebundle top-level caveats should contain one normalize-failure caveat, got %d caveats=%+v\n%s", got, meta.Caveats, bundle)
@@ -791,6 +826,9 @@ if [ -n "$TRACE_STREAMER_FIXTURE_DB" ]; then
   cp "$TRACE_STREAMER_FIXTURE_DB" "$out"
 else
   printf 'SQLite format 3\000fake-db\n' > "$out"
+fi
+if [ -n "$TRACE_STREAMER_CREATE_OHOS_TS" ]; then
+  printf 'fake ohos timestamp sidecar\n' > "$out.ohos.ts"
 fi
 `
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
