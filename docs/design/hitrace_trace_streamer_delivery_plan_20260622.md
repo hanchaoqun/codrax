@@ -1385,6 +1385,56 @@ Delivered:
   unavailable, preserving pure-trace UX.
 - CLI status output shows the input classification in both Chinese and English.
 
+### Batch 9: Embedded trace_streamer Governance
+
+Status: planned.
+
+#### Batch 9A: Embedded Binary Manifest Guard
+
+Status: planned.
+
+Gap:
+
+- External `trace_streamer` discovery is implemented, and the local hmtrace
+  reference is Apache-2.0, but Codrax intentionally has not embedded a
+  `trace_streamer` binary yet.
+- The remaining redistribution risk is not just legal prose. Without a
+  deterministic guard, a future commit could add a platform binary without a
+  source/version/license/hash manifest and make commercial builds hard to audit.
+- This is a release-governance gap. It must be solved with a structured manifest
+  and tests, not with prompt guidance or runtime caveats alone.
+
+Tasks:
+
+- Define the only supported embedded binary directory:
+  `internal/hitraceconv/embedded_trace_streamer`.
+- Add a manifest schema requirement for any future embedded binary:
+  - upstream source URL;
+  - upstream commit or version;
+  - license id;
+  - redistribution approval reference;
+  - per-platform `goos`, `goarch`, relative binary path, and SHA-256 hash.
+- Add a deterministic test that:
+  - passes when no embedded binary directory is present;
+  - fails if the directory has payloads but no manifest;
+  - validates manifest paths are relative and cannot escape the directory;
+  - validates every platform binary exists and matches its hash.
+- Add focused manifest validation tests using temporary fixtures, without
+  committing real trace_streamer binaries.
+
+Exit criteria:
+
+- Codrax still does not embed trace_streamer by default, but any future embedded
+  binary must carry auditable source/license/version/hash metadata.
+- The open risk changes from "no governance" to "no approved embedded binary
+  has been selected yet".
+- Verified with:
+
+```bash
+go test ./internal/hitraceconv -run 'TestEmbeddedTraceStreamer' -count=1
+go test ./internal/hitraceconv
+```
+
 ## Running Verification Matrix
 
 Each implemented batch must run the narrow package tests it touches. Before goal
