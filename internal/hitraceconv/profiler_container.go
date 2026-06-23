@@ -873,12 +873,9 @@ func extractProfilerSessionPackage(ctx context.Context, path string, sink *trace
 		return profilerContainerExtraction{}, err
 	}
 	defer f.Close()
-	probe := make([]byte, 64*1024)
-	n, err := f.Read(probe)
-	if err != nil && err != io.EOF {
+	if _, ok, err := profilerSessionJSONMarkerOffset(path, 64*1024); err != nil {
 		return profilerContainerExtraction{}, err
-	}
-	if !bytes.Contains(probe[:n], []byte(profilerSessionJSONTag)) {
+	} else if !ok {
 		return profilerContainerExtraction{}, nil
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
@@ -932,6 +929,27 @@ func extractProfilerSessionPackage(ctx context.Context, path string, sink *trace
 	}
 	out.TraceCoverage = append(out.TraceCoverage, coverage)
 	return out, nil
+}
+
+func profilerSessionJSONMarkerOffset(path string, maxProbe int64) (int64, bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, false, err
+	}
+	defer f.Close()
+	if maxProbe <= 0 {
+		maxProbe = 64 * 1024
+	}
+	probe := make([]byte, maxProbe)
+	n, err := f.Read(probe)
+	if err != nil && err != io.EOF {
+		return 0, false, err
+	}
+	idx := bytes.Index(probe[:n], []byte(profilerSessionJSONTag))
+	if idx < 0 {
+		return 0, false, nil
+	}
+	return int64(idx), true, nil
 }
 
 func readProfilerTraceHeaderAtPath(path string, off int64, fileSize int64) (profilerTraceHeader, bool, error) {

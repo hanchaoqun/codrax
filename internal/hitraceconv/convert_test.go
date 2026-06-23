@@ -78,6 +78,10 @@ func TestLocalizeConvertMessageTracePerfAutoFallback(t *testing.T) {
 			in:   "trace_streamer was not discovered; auto trace+perf conversion will use built-in raw trace parsing and standalone perf fallback",
 			want: "未发现 trace_streamer；auto 模式下 trace+perf 会使用内置 raw trace 解析和 standalone perf 兜底",
 		},
+		{
+			in:   "systrace output was not produced because input starts with OpenHarmony profiler standalone perf sidecar data_type=1 plugin=hiperf-plugin version=1.0 bytes=1041 rather than a trace body; built-in sys parser rejected the fallback probe: invalid segment type=0 size=65536 at offset=12",
+			want: "输入开头是 OpenHarmony profiler standalone perf sidecar",
+		},
 	}
 	for _, tc := range cases {
 		if got := LocalizeConvertMessage("zh", tc.in); !strings.Contains(got, tc.want) {
@@ -220,8 +224,48 @@ func TestConvertFileReturnsStandalonePerfArtifactWithoutSystraceContainer(t *tes
 	if !bytes.Equal(gotPayload, perfPayload) {
 		t.Fatalf("perf payload mismatch: got %q want %q", gotPayload, perfPayload)
 	}
-	if !containsString(result.Caveats, "input did not match the built-in sys binary trace container") {
-		t.Fatalf("partial conversion should explain missing trace body: %+v", result.Caveats)
+	for _, want := range []string{
+		"input starts with OpenHarmony profiler standalone perf sidecar",
+		"rather than a trace body",
+		"built-in sys parser rejected the fallback probe",
+	} {
+		if !containsString(result.Caveats, want) {
+			t.Fatalf("partial conversion should explain %q: %+v", want, result.Caveats)
+		}
+	}
+}
+
+func TestConvertFileSessionJSONWithoutRowsDoesNotFallThroughToSysParser(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "session-no-text.htrace")
+	var body bytes.Buffer
+	body.Write([]byte("PKGHEAD0"))
+	body.WriteString("SessionJSON-")
+	body.WriteString(`{"plugins":["hiperf-plugin"]}`)
+	body.WriteByte('\n')
+	body.Write(syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", []byte("PERF-DATA-PAYLOAD")))
+	if err := os.WriteFile(input, body.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: filepath.Join(dir, "out.systrace")})
+	if err != nil {
+		t.Fatalf("convert SessionJSON package without text rows: %v", err)
+	}
+	if result.OutputPath != "" || result.EventsWritten != 0 {
+		t.Fatalf("SessionJSON package without text rows should not claim systrace output: %+v", result)
+	}
+	if !hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "sidecar_only") {
+		t.Fatalf("SessionJSON package should stop in profiler parser, decisions=%+v", result.TraceDecisions)
+	}
+	if !containsString(result.Caveats, "SessionJSON- detected") ||
+		!containsString(result.Caveats, "session package did not contain directly renderable systrace text rows") {
+		t.Fatalf("SessionJSON package should explain profiler parsing result: %+v", result.Caveats)
+	}
+	for _, unexpected := range []string{"invalid segment type", "built-in sys parser rejected"} {
+		if containsString(result.Caveats, unexpected) {
+			t.Fatalf("SessionJSON package should not fall through to sys parser (%q): %+v", unexpected, result.Caveats)
+		}
 	}
 }
 

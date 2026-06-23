@@ -158,6 +158,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	meta, err := scanMetadata(ctx, input, info.Size())
 	if err != nil {
 		if len(standaloneArtifacts) > 0 {
+			fallbackCaveat := builtinTraceBodyFallbackFailureCaveat(input, info.Size(), standaloneArtifacts, err)
 			result := Result{
 				InputPath:  input,
 				InputBytes: info.Size(),
@@ -167,12 +168,12 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 				TraceDecisions: append(initialTraceDecisions,
 					traceProviderFailure(
 						newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinSys), opts, input, output),
-						"unsupported_sys_binary_container",
-						fmt.Sprintf("built-in sys binary parser could not render the trace body: %v", err),
+						"no_renderable_trace_body",
+						fallbackCaveat,
 					),
 				),
 				Caveats: append(standaloneCaveats,
-					fmt.Sprintf("systrace output was not produced because the input did not match the built-in sys binary trace container: %v", err)),
+					fallbackCaveat),
 				TraceDBCoverage: append([]TraceDBCoverage(nil), initialTraceDBCoverage...),
 				TraceCoverage:   append([]TraceDBCoverage(nil), initialTraceCoverage...),
 			}
@@ -259,6 +260,45 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	}
 	normalizeResultCollections(&result)
 	return result, nil
+}
+
+func builtinTraceBodyFallbackFailureCaveat(input string, inputSize int64, artifacts []Artifact, err error) string {
+	reasons := builtinTraceBodyFallbackReasons(input, inputSize, artifacts)
+	if len(reasons) == 0 {
+		reasons = append(reasons, "no supported trace body was found")
+	}
+	message := "systrace output was not produced because " + strings.Join(reasons, "; ")
+	if err != nil {
+		message += fmt.Sprintf("; built-in sys parser rejected the fallback probe: %v", err)
+	}
+	return message
+}
+
+func builtinTraceBodyFallbackReasons(input string, inputSize int64, artifacts []Artifact) []string {
+	var reasons []string
+	for _, artifact := range artifacts {
+		if artifact.Type != ArtifactPerfData || artifact.SourceOffset != 0 {
+			continue
+		}
+		reasons = append(reasons, fmt.Sprintf("input starts with OpenHarmony profiler standalone perf sidecar data_type=%d plugin=%s version=%s bytes=%d rather than a trace body", artifact.DataType, firstNonEmpty(artifact.PluginName, "unknown"), firstNonEmpty(artifact.PluginVersion, "unknown"), artifact.SourceBytes))
+		break
+	}
+	if off, ok, err := profilerSessionJSONMarkerOffset(input, 64*1024); err == nil && ok {
+		reasons = append(reasons, fmt.Sprintf("input contains OpenHarmony profiler SessionJSON package marker at offset %d but no directly renderable systrace rows were extracted before fallback", off))
+	}
+	if len(reasons) == 0 {
+		perfSidecars := 0
+		for _, artifact := range artifacts {
+			if artifact.Type == ArtifactPerfData {
+				perfSidecars++
+			}
+		}
+		if perfSidecars > 0 {
+			reasons = append(reasons, fmt.Sprintf("%d standalone perf sidecar artifact(s) were preserved, but no supported trace body was found", perfSidecars))
+		}
+	}
+	_ = inputSize
+	return reasons
 }
 
 func traceDBCoverageHasPerfSamples(coverage []TraceDBCoverage) bool {

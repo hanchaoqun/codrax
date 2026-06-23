@@ -2148,6 +2148,43 @@ go test ./internal/hitraceconv -run 'TestConvertFileNoPerfSysTraceAutoTraceStrea
 go test ./cmd ./internal/repl -run 'TestTraceConvertTraceToolStatusLines|TestTraceConvertTraceToolStatusLinesIncludeInputClassification|TestHitraceConvertHelpAliases|TestHitraceToolsStatusChineseLocalizesGate' -count=1
 ```
 
+#### Batch 11H: Profiler Container Fallback Classification
+
+Status: delivered on 2026-06-23.
+
+Root cause:
+
+- The old built-in sys parser expects a Codrax legacy binary sys container:
+  12-byte file header followed by 8-byte segment headers.
+- OpenHarmony profiler containers can instead begin with `OHOSPROF`
+  `TraceFileHeader` or with a session package marker such as
+  `PKGHEAD0SessionJSON-...`.
+- If a profiler/perf-only or session package is not classified before sys
+  fallback, the sys parser reads ordinary profiler bytes as a segment header.
+  The customer-style `invalid segment type=1248751465 size=760106835 at
+  offset=12` decodes to little-endian bytes `ionJSON-`, which is the middle of
+  `SessionJSON-`, not a real sys segment.
+
+Design:
+
+- Keep the sys fallback probe for real legacy `.sys` plus perf sidecar captures.
+- Add profiler-container classification to the fallback failure path:
+  - leading `OHOSPROF` standalone HIPERF_DATA sidecar is reported as sidecar,
+    not trace body;
+  - `SessionJSON-` packages stop in the profiler/session parser even when they
+    contain no directly renderable systrace text rows;
+  - provider decisions and caveats retain the exact rejected fallback reason so
+    parser gaps remain visible.
+- Do not hide parse failures. Reframe them as typed dispatch evidence: which
+  container was recognized, which parser was tried, and why it could not produce
+  systrace.
+
+Verification:
+
+```bash
+go test ./internal/hitraceconv -run 'TestConvertFileReturnsStandalonePerfArtifactWithoutSystraceContainer|TestConvertFileSessionJSONWithoutRowsDoesNotFallThroughToSysParser|TestConvertFileHandlesSessionJSONPackageWithPerfSidecar|TestConvertFileExtractsStandaloneHiperfDataAndBundle|TestLocalizeConvertMessageTracePerfAutoFallback' -count=1
+```
+
 ## Running Verification Matrix
 
 Each implemented batch must run the narrow package tests it touches. Before goal
