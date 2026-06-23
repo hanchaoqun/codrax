@@ -121,12 +121,54 @@ func TestTraceDBCoreLoadsResolvers(t *testing.T) {
 	if !stateCoverage.Found || traceDBCPUAt(intervals, 10, 950, 0) != 3 || traceDBCPUAt(intervals, 10, 1300, 0) != 0 {
 		t.Fatalf("running interval mismatch coverage=%+v intervals=%+v", stateCoverage, intervals)
 	}
+	if stateCoverage.RowsRead != 1 || stateCoverage.RowsEmitted != 1 {
+		t.Fatalf("running interval coverage should distinguish table rows from emitted windows: %+v", stateCoverage)
+	}
 	active, activeCoverage, err := tdb.loadActiveThreadIDs(context.Background())
 	if err != nil {
 		t.Fatalf("load active threads: %v", err)
 	}
 	if !active[10] || len(activeCoverage) != 6 {
 		t.Fatalf("active thread mismatch coverage=%+v active=%+v", activeCoverage, active)
+	}
+}
+
+func TestTraceDBCoreThreadStateRunningCoverage(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
+		"INSERT INTO thread_state VALUES (10, 900, 300, 3, 'Running')",
+		"INSERT INTO thread_state VALUES (10, 1300, 300, 4, 'running')",
+		"INSERT INTO thread_state VALUES (10, 1700, 0, 5, 'Running')",
+		"INSERT INTO thread_state VALUES (10, 1900, 300, 6, 'Runnable')",
+		"INSERT INTO thread_state VALUES (10, 2300, 300, NULL, 'Running')",
+	})
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatalf("open trace db: %v", err)
+	}
+	defer tdb.close()
+
+	intervals, coverage, err := tdb.loadRunningIntervals(context.Background())
+	if err != nil {
+		t.Fatalf("load running intervals: %v", err)
+	}
+	if coverage.RowsRead != 5 || coverage.RowsEmitted != 2 {
+		t.Fatalf("thread_state coverage mismatch: %+v", coverage)
+	}
+	if got := traceDBCPUAt(intervals, 10, 950, 0); got != 3 {
+		t.Fatalf("CPU at first running window = %d, want 3", got)
+	}
+	if got := traceDBCPUAt(intervals, 10, 1350, 0); got != 4 {
+		t.Fatalf("CPU at normalized running window = %d, want 4", got)
+	}
+	if got := traceDBCPUAt(intervals, 10, 1750, 0); got != 0 {
+		t.Fatalf("zero-duration row must not become a running window, got CPU %d", got)
+	}
+	if got := traceDBCPUAt(intervals, 10, 1950, 0); got != 0 {
+		t.Fatalf("Runnable row must not become a Running window, got CPU %d", got)
+	}
+	if !traceDBThreadStateIsRunning(" Running ") || !traceDBThreadStateIsRunning("running") || traceDBThreadStateIsRunning("R") {
+		t.Fatal("thread_state running normalization should accept canonical Running only")
 	}
 }
 

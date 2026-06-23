@@ -407,9 +407,9 @@ func (tdb *traceDB) loadRunningIntervals(ctx context.Context) (map[int64][]trace
 		return out, coverage, err
 	}
 	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT itid, ts, ts + COALESCE(dur, 0), cpu
+		SELECT itid, ts, COALESCE(dur, 0), cpu, COALESCE(state, '')
 		FROM thread_state
-		WHERE state = 'Running' AND itid IS NOT NULL AND ts IS NOT NULL AND cpu IS NOT NULL
+		WHERE itid IS NOT NULL AND ts IS NOT NULL AND cpu IS NOT NULL
 		ORDER BY itid, ts
 	`)
 	if err != nil {
@@ -418,13 +418,24 @@ func (tdb *traceDB) loadRunningIntervals(ctx context.Context) (map[int64][]trace
 	defer rows.Close()
 	for rows.Next() {
 		var itid int64
+		var dur int64
+		var state string
 		var item traceDBRunningInterval
-		if err := rows.Scan(&itid, &item.Start, &item.End, &item.CPU); err != nil {
+		if err := rows.Scan(&itid, &item.Start, &dur, &item.CPU, &state); err != nil {
 			return out, coverage, err
 		}
+		if !traceDBThreadStateIsRunning(state) || dur <= 0 {
+			continue
+		}
+		item.End = item.Start + dur
 		out[itid] = append(out[itid], item)
+		coverage.RowsEmitted++
 	}
 	return out, coverage, rows.Err()
+}
+
+func traceDBThreadStateIsRunning(state string) bool {
+	return strings.EqualFold(strings.TrimSpace(state), "Running")
 }
 
 func traceDBCPUAt(intervals map[int64][]traceDBRunningInterval, itid, ts, defaultCPU int64) int64 {

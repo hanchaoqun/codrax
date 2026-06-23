@@ -298,6 +298,60 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 	}
 }
 
+func TestExportTraceDBThreadStateResolverWithoutSchedSlice(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (100)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 500, 'MainApp')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (10, 501, 1, 'WorkerThread', 100, 0, 1)",
+		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
+		"INSERT INTO thread_state VALUES (10, 900, 700, 7, 'Running')",
+		"INSERT INTO thread_state VALUES (10, 1700, 200, 2, 'Runnable')",
+		"CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, flag TEXT, cookie TEXT, chainId TEXT)",
+		"INSERT INTO callstack VALUES (1, 1000, 400, 10, 'ThreadStateWork', '', NULL, NULL)",
+	})
+	outPath := filepath.Join(t.TempDir(), "thread-state-resolver.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export thread_state resolver fixture: %v", err)
+	}
+	assertCoverageEmitted(t, result.Coverage, "resolver", "thread_state", 1)
+	if !coverageHasSkipped(result.Coverage, "scheduler", "sched_slice", "missing table") {
+		t.Fatalf("missing sched_slice should be visible without blocking thread_state resolver: %+v", result.Coverage)
+	}
+	for _, item := range result.Coverage {
+		if item.Family == "resolver" && item.Table == "thread_state" {
+			if item.RowsRead != 2 || item.RowsEmitted != 1 {
+				t.Fatalf("thread_state coverage should expose read rows and emitted running windows: %+v", item)
+			}
+		}
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	want := "[007] ....     0.000001: tracing_mark_write: B|500|ThreadStateWork"
+	if !strings.Contains(body, want) {
+		t.Fatalf("callstack span should inherit CPU from thread_state, missing %q:\n%s", want, body)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatalf("tracequery parse thread_state resolver output: %v", err)
+	}
+	traceMarks := 0
+	for _, ev := range idx.Events {
+		if ev.Type == tracequery.EventTraceMark && ev.SpanName == "ThreadStateWork" && ev.CPU == 7 {
+			traceMarks++
+		}
+	}
+	if traceMarks == 0 {
+		t.Fatalf("tracequery should retain thread_state-placed callstack span: %+v", idx.Events)
+	}
+}
+
 func TestExportTraceDBRawFtraceRootCauseEvidence(t *testing.T) {
 	path := createTraceDBFixture(t, rawFtraceRootCauseFixtureStatements())
 	outPath := filepath.Join(t.TempDir(), "raw-ftrace.systrace")

@@ -1193,9 +1193,11 @@ go test ./internal/repl
 
 ### Batch 8: SQL Resolver Fidelity and Coverage Closure
 
-Status: planned.
+Status: in progress, with Batch 8A delivered on 2026-06-23.
 
 #### Batch 8A: thread_state Running Window Resolver
+
+Status: delivered on 2026-06-23.
 
 Gap:
 
@@ -1247,6 +1249,15 @@ Exit criteria:
 ```bash
 go test ./internal/hitraceconv
 ```
+
+Delivered:
+
+- `resolver/thread_state` now reports total table rows read separately from
+  emitted positive-duration Running windows.
+- SQL-exported callstack/raw-ftrace timeline rows can keep CPU placement from
+  `thread_state` when `sched_slice` is missing.
+- Tests cover canonical Running normalization, non-running/zero-duration
+  filtering, tracebundle coverage visibility, and `trace_query` round-trip.
 
 ## Running Verification Matrix
 
