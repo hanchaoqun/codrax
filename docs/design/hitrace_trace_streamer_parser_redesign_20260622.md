@@ -72,6 +72,11 @@ Observed `hmtrace` model:
   `irq`, `cpu_measure_filter`, `measure_filter`, `process_measure`,
   `frame_slice`, `diskio`, `network`, `log`, `hisys_all_event`,
   `xpower_measure`, `perf_sample`, and `perf_callchain`.
+- `thread_state` is a resolver-quality table for running-window context when
+  `sched_slice` is absent or insufficient. It should preserve CPU placement for
+  exported callstack/raw-ftrace timeline rows and must surface coverage for rows
+  read versus running intervals emitted, instead of silently disappearing into
+  helper logic.
 - Perf support is DB-first: `perf.data` can be exported into its own DB,
   perf-related tables can be merged into the trace DB, and symbol enhancement can
   create an additional `hmtrace_perf_symbolized_frame` table consumed by later

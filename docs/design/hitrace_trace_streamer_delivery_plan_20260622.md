@@ -1015,7 +1015,7 @@ Exit criteria:
 
 ### Batch 7: Prompt, Handoff, JSON Repair, and UX Closure
 
-Status: planned, with Batch 7A delivered on 2026-06-23.
+Status: delivered on 2026-06-23 through Batch 7A, Batch 7B, and Batch 7C.
 
 #### Batch 7A: Tracebundle Provenance Handoff
 
@@ -1191,6 +1191,63 @@ go test ./cmd
 go test ./internal/repl
 ```
 
+### Batch 8: SQL Resolver Fidelity and Coverage Closure
+
+Status: planned.
+
+#### Batch 8A: thread_state Running Window Resolver
+
+Gap:
+
+- The hmtrace perfetto exporter uses `sched_slice` as the preferred running
+  window source and falls back to `thread_state` when `sched_slice` is absent.
+- Codrax already has a `thread_state` resolver for SQL-exported callstack and
+  raw ftrace CPU placement, but it is not explicitly covered as a commercial
+  invariant:
+  - `thread_state` rows are consumed silently as a helper table;
+  - emitted resolver intervals are not counted separately from rows read;
+  - the tests do not prove that a DB with no `sched_slice` can still give
+    queryable CPU context to trace marker/callstack output.
+- This is a table-contract gap, not a user-intent classification gap. It must be
+  solved from structured DB schema and coverage, not from prompt keywords or
+  model prose.
+
+Tasks:
+
+- Align the resolver with the hmtrace fallback shape:
+  - load `thread_state(itid, ts, dur, cpu, state)` when present;
+  - keep only positive-duration canonical running states;
+  - sort intervals by `itid, ts`;
+  - use them only to place SQL-exported timeline rows on the best-known CPU.
+- Record `resolver/thread_state` coverage with:
+  - table found/missing status and required columns;
+  - total rows read from the table;
+  - running intervals emitted for downstream CPU lookup.
+- Add narrow core tests for:
+  - running interval lookup and CPU fallback;
+  - non-running or zero-duration rows not becoming running windows;
+  - coverage distinguishing rows read from rows emitted.
+- Add an end-to-end SQL exporter test with no `sched_slice`:
+  - fixture has `process`, `thread`, `thread_state`, and `callstack`;
+  - exported systrace callstack rows inherit CPU from `thread_state`;
+  - tracebundle DB coverage exposes `resolver/thread_state`;
+  - `trace_query` can build an index from the exported systrace.
+- Do not add trace_query tool-call input fields. This batch only improves
+  converter output and tracebundle coverage, so no JSON repair-layer changes are
+  required.
+
+Exit criteria:
+
+- `thread_state` fallback remains a structured SQL resolver, visible in
+  tracebundle coverage and covered by tests.
+- DBs that lack `sched_slice` but retain `thread_state` no longer lose CPU
+  context for exported callstack/raw-ftrace timeline rows.
+- Verified with:
+
+```bash
+go test ./internal/hitraceconv
+```
+
 ## Running Verification Matrix
 
 Each implemented batch must run the narrow package tests it touches. Before goal
@@ -1211,13 +1268,9 @@ After sys binary parity/retirement work, also run any eval cases covering:
 
 ## Open Risks
 
-- SQLite dependency size and portability. Must be resolved explicitly before
-  Batch 3.
 - trace_streamer redistribution license. External discovery lands first; embedded
   binary waits until license/hash/version governance is clear.
-- Large DB global ordering. Need streaming/spillable plan before declaring
-  commercial readiness for very large captures.
 - trace_streamer `.sys` parity. Until this is proven, the built-in sys binary
   parser remains a guarded capability rather than dead compatibility code.
-- Existing local worktree has unrelated modified/untracked files. Batch commits
-  must stage only files touched by this delivery stream.
+- Existing local worktree has unrelated untracked eval summary files. Batch
+  commits must stage only files touched by this delivery stream.
