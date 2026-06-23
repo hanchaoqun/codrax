@@ -1394,7 +1394,8 @@ Delivered:
 
 ### Batch 9: Embedded trace_streamer Governance
 
-Status: delivered on 2026-06-23 for Batch 9A.
+Status: delivered on 2026-06-23 for Batch 9A. Batch 9B is planned as the
+runtime integration layer for future approved embedded binaries.
 
 #### Batch 9A: Embedded Binary Manifest Guard
 
@@ -1451,6 +1452,93 @@ Delivered:
   executable bits for non-Windows platforms, and SHA-256 hashes.
 - No `trace_streamer` binary is embedded by this batch; the remaining release
   decision is selecting and approving a redistributable fixed upstream build.
+
+#### Batch 9B: Embedded Binary Runtime Resolver
+
+Status: planned.
+
+Reference audit:
+
+- The local hmtrace reference resolves a platform enum, reads platform-specific
+  `include_bytes!` assets, writes the selected binary into a user cache
+  directory, and chmods it executable before invoking `trace_streamer`.
+- Codrax already has external discovery through explicit option,
+  `CODRAX_TRACE_STREAMER`, `PATH`, and known OpenHarmony/SmartPerf/hmtrace
+  locations.
+- Batch 9A added a manifest guard, but production discovery still cannot
+  consume a future approved embedded binary. Without a runtime resolver, an
+  approved fixed binary would either be dead weight or require ad-hoc release
+  glue outside the tested converter path.
+
+Design:
+
+- Keep the discovery order deterministic:
+  - explicit `--trace-streamer` / REPL option;
+  - `CODRAX_TRACE_STREAMER`;
+  - approved embedded trace_streamer manifest/assets;
+  - `PATH`;
+  - known OpenHarmony/SmartPerf/hmtrace locations.
+- Do not commit a real binary in this batch.
+- Add a compile-time extension point for future embedded assets:
+  - default builds expose no embedded FS and behave exactly as external-only
+    builds;
+  - a future release build can enable a build tag and embed
+    `internal/hitraceconv/embedded_trace_streamer/manifest.json` plus platform
+    binaries.
+- Reuse the Batch 9A manifest schema at runtime:
+  - reject missing source URL, upstream ref, license id, approval ref, platform
+    metadata, non-relative paths, path traversal, unreadable binaries, or SHA-256
+    mismatches;
+  - select the current `GOOS/GOARCH` platform only;
+  - write to a deterministic cache directory keyed by upstream ref and binary
+    hash, then verify cached bytes before returning the path;
+  - chmod executable on non-Windows platforms.
+- Surface resolver provenance in `TraceToolStatus`:
+  - source should identify `embedded trace_streamer`;
+  - caveats should report unsupported host platform or invalid embedded assets
+    as structured tool status, not as prompt wording.
+- Performance and memory:
+  - read only the selected platform binary into memory;
+  - avoid scanning unrelated assets;
+  - reuse an already cached verified binary when hash matches;
+  - use atomic temp-write plus rename so interrupted extraction does not leave a
+    selected corrupt executable.
+- Prompt/JSON contract:
+  - no trace_query tool-call input field is added;
+  - this is converter/tool status metadata, so no JSON repair aliases are
+    required.
+
+Tasks:
+
+- Move the manifest validation helpers from the test-only guard into production
+  package code so runtime and tests share one authority.
+- Add an embedded resolver that accepts an `fs.FS` for hermetic tests and a
+  default no-assets implementation for ordinary builds.
+- Add a future build-tag file stub for `codrax_embed_trace_streamer` that can
+  wire a real `embed.FS` once approved assets are present.
+- Integrate embedded resolution into `resolveTraceStreamerTool` between
+  explicit/env and PATH discovery.
+- Add tests that:
+  - a valid embedded manifest/assets fixture extracts to cache and is executable;
+  - the resolver reuses a verified cached binary instead of rewriting it;
+  - current host platform mismatch is reported without selecting a binary;
+  - hash/path/manifest failures do not select a binary;
+  - `BuildTraceToolStatus` reports `embedded trace_streamer` when the embedded
+    fixture is the selected provider.
+- Update localized trace-tools status expectations if source/caveat text changes.
+
+Exit criteria:
+
+- Default builds remain external-tool only until a binary is explicitly embedded.
+- Future approved embedded binaries can be consumed by the same tested
+  converter path, with manifest/hash/approval metadata enforced before runtime
+  selection.
+- Verified with:
+
+```bash
+go test ./internal/hitraceconv -run 'TestEmbeddedTraceStreamer|TestTraceToolStatus' -count=1
+go test ./internal/hitraceconv ./cmd
+```
 
 ## Running Verification Matrix
 
