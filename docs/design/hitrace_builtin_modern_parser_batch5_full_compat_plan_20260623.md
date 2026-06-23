@@ -270,9 +270,9 @@ Tasks:
 Exit:
 
 - Delivered: text/session modern payloads are production bounded and
-  machine-readable in tracebundle. Structured ftrace remains partial pending
-  Batch 5B/5C, but the coverage now says so precisely and a partial structured
-  result still emits a tracebundle.
+  machine-readable in tracebundle. At the Batch 5A checkpoint structured ftrace
+  remained partial pending Batch 5B/5C; Batch 5C later delivered the
+  query-relevant structured renderers.
 
 ### Batch 5B: Structured ftrace Schema Audit and Decoder Skeleton
 
@@ -305,10 +305,11 @@ Tasks:
 Exit:
 
 - Delivered: structured ftrace payloads no longer collapse to a single
-  summary-only caveat. The parser emits per-family typed coverage such as
+  summary-only caveat. At the Batch 5B checkpoint the parser emitted
+  per-family typed coverage such as
   `builtin_modern_ftrace:sched/sched_switch` and
-  `builtin_modern_ftrace:block/block_rq_issue`, with `renderer pending`
-  explicitly recorded until Batch 5C.
+  `builtin_modern_ftrace:block/block_rq_issue`; Batch 5C later replaced the
+  query-relevant pending renderers with emitted systrace rows.
 
 ### Batch 5C: Structured Family Renderers
 
@@ -437,7 +438,7 @@ Optional but preferred when tooling exists locally:
 
 ## Completion Bar
 
-Batch 5 is not complete until:
+Batch 5 is complete because the delivered implementation satisfies:
 
 - no modern profiler structured payload needed by trace_query is silently
   reduced to summary-only output;
