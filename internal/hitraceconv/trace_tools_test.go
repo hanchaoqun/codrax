@@ -224,6 +224,63 @@ func TestBuildTraceToolStatusDiscoversTraceStreamerPlatformSubdirNextToCodraxBin
 	}
 }
 
+func TestTraceStreamerCodraxBinaryDirCandidatesForMultiPlatformLayouts(t *testing.T) {
+	root := filepath.Join("opt", "codrax")
+	tests := []struct {
+		name   string
+		goos   string
+		goarch string
+		want   []string
+	}{
+		{
+			name:   "darwin arm64",
+			goos:   "darwin",
+			goarch: "arm64",
+			want: []string{
+				filepath.Join(root, "trace_streamer"),
+				filepath.Join(root, "darwin-aarch64", "trace_streamer"),
+				filepath.Join(root, "trace_streamer", "darwin-aarch64", "trace_streamer"),
+				filepath.Join(root, "trace-streamer", "darwin-aarch64", "trace_streamer"),
+			},
+		},
+		{
+			name:   "linux amd64",
+			goos:   "linux",
+			goarch: "amd64",
+			want: []string{
+				filepath.Join(root, "trace_streamer"),
+				filepath.Join(root, "linux-x86_64", "trace_streamer"),
+				filepath.Join(root, "trace_streamer", "linux-x86_64", "trace_streamer"),
+				filepath.Join(root, "trace-streamer", "linux-x86_64", "trace_streamer"),
+			},
+		},
+		{
+			name:   "windows amd64",
+			goos:   "windows",
+			goarch: "amd64",
+			want: []string{
+				filepath.Join(root, "trace_streamer.exe"),
+				filepath.Join(root, "windows-x86_64", "trace_streamer.exe"),
+				filepath.Join(root, "trace_streamer", "windows-x86_64", "trace_streamer.exe"),
+				filepath.Join(root, "trace-streamer", "windows-x86_64", "trace_streamer.exe"),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := strings.Join(traceStreamerCodraxBinaryDirCandidatesFor(root, tt.goos, tt.goarch), "\n")
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("candidate list missing %q:\n%s", want, got)
+				}
+			}
+			if strings.Contains(got, "embedded_trace_streamer") || strings.Contains(got, "embedded-trace-streamer") {
+				t.Fatalf("external same-directory resolver should not advertise embedded layouts:\n%s", got)
+			}
+		})
+	}
+}
+
 func TestTraceStreamerHostPlatformDirsFor(t *testing.T) {
 	tests := []struct {
 		name   string

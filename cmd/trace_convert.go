@@ -48,8 +48,9 @@ Perf sample conversion uses a two-engine strategy. In --perf-parser=auto,
 Codrax prefers official OpenHarmony hiperf or Android simpleperf adapters for
 symbolized output, then falls back to its built-in raw perf.data parser when
 possible. Use --trace-tools-status to inspect trace_streamer discovery and
-trace-engine selection. Use --perf-tools-status to inspect discovered perf
-tools, selected parser, raw fallback status, and install hints. Use
+trace-engine selection. Use --perf-tools-status to inspect the full conversion
+toolchain: trace_streamer/trace engine plus perf tools, selected parser, raw
+fallback status, and install hints. Use
 --perf-parser=official to require official tooling or --perf-parser=raw for the
 built-in fallback only. Trace body conversion defaults to --trace-engine=auto:
 pure trace uses trace_streamer/SQL when trace_streamer is discovered, falls back
@@ -81,7 +82,7 @@ are never overwritten; delete the file first or choose another output path.`,
 			KeepTraceDB:            traceConvertKeepTraceDB,
 			TraceStreamerSoDirs:    append([]string(nil), traceConvertTraceStreamerSoDirs...),
 		}
-		if traceConvertTraceToolsStatus {
+		if traceConvertTraceToolsStatus || traceConvertToolsStatus {
 			status, err := hitraceconv.BuildTraceToolStatus(opts)
 			if err != nil {
 				return err
@@ -89,7 +90,7 @@ are never overwritten; delete the file first or choose another output path.`,
 			for _, line := range traceConvertTraceToolStatusLines(flagLang, status) {
 				fmt.Fprintln(cmd.OutOrStdout(), line)
 			}
-			if !traceConvertToolsStatus {
+			if traceConvertTraceToolsStatus && !traceConvertToolsStatus {
 				return nil
 			}
 		}
@@ -419,7 +420,7 @@ func traceConvertTraceMessageZh(message string) string {
 	case strings.Contains(lower, "pass --trace-streamer"):
 		return "传 --trace-streamer /path/to/trace_streamer 或设置 CODRAX_TRACE_STREAMER；确认可运行 trace_streamer --help，并支持 trace_streamer <input> -e <output.db>"
 	case strings.Contains(lower, "install openharmony/smartperf trace_streamer"):
-		return "安装 OpenHarmony/SmartPerf trace_streamer，或在 Codrax 启用内嵌后使用 hmtrace 风格的内嵌 trace_streamer"
+		return "安装 OpenHarmony/SmartPerf trace_streamer，或把对应平台的 trace_streamer 放在 Codrax 二进制同目录或 trace_streamer/<platform>/ 下"
 	case strings.Contains(lower, "so_dirs=not_configured"):
 		return "未配置 so_dir；native 符号 reload 需要时可传 --trace-streamer-so-dir /path/to/so"
 	case strings.Contains(lower, "configured path is not readable"):
@@ -1129,7 +1130,7 @@ func init() {
 	traceConvertCmd.Flags().StringVar(&traceConvertPerfParser, "perf-parser", "auto", "perf.data parser strategy: auto uses official hiperf/simpleperf first then raw fallback; official disables raw fallback; raw uses Codrax raw perf.data fallback only")
 	traceConvertCmd.Flags().BoolVar(&traceConvertNoPerfTrace, "no-perftrace", false, "preserve perf.data sidecars without generating .perftrace")
 	traceConvertCmd.Flags().BoolVar(&traceConvertTraceToolsStatus, "trace-tools-status", false, "print trace_streamer discovery, trace engine selection, DB export readiness, and install hints")
-	traceConvertCmd.Flags().BoolVar(&traceConvertToolsStatus, "perf-tools-status", false, "print discovered official perf tools, raw fallback availability, selected parser strategy, and install hints")
+	traceConvertCmd.Flags().BoolVar(&traceConvertToolsStatus, "perf-tools-status", false, "print trace_streamer/trace-engine status plus discovered official perf tools, raw fallback availability, selected parser strategy, and install hints")
 	traceCmd.AddCommand(traceConvertCmd)
 	rootCmd.AddCommand(traceCmd)
 }

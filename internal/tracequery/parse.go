@@ -524,11 +524,14 @@ type traceBundleFile struct {
 	TraceDecisions      []traceBundleTraceDecision      `json:"trace_provider_decisions"`
 	TraceDBCoverage     []traceBundleCoverage           `json:"trace_db_coverage"`
 	TraceCoverage       []traceBundleCoverage           `json:"trace_coverage"`
+	TraceToolGates      []traceBundleTraceToolGate      `json:"trace_tool_gates"`
 	PerfClockAlignments []traceBundlePerfClockAlignment `json:"perf_clock_alignments"`
 	Caveats             []string                        `json:"caveats"`
 }
 
 const traceBundleCoverageCaveatLimit = 24
+
+const traceBundleTraceToolGateCaveatLimit = 8
 
 type traceBundleArtifact struct {
 	Type      string                     `json:"type"`
@@ -607,6 +610,16 @@ type traceBundleCoverage struct {
 	ElapsedUS      int64    `json:"elapsed_us,omitempty"`
 	Skipped        string   `json:"skipped,omitempty"`
 	Error          string   `json:"error,omitempty"`
+}
+
+type traceBundleTraceToolGate struct {
+	Name                 string   `json:"name,omitempty"`
+	State                string   `json:"state,omitempty"`
+	Proven               bool     `json:"proven"`
+	FixtureManifestCount int      `json:"fixture_manifest_count,omitempty"`
+	RequiredEvidence     string   `json:"required_evidence,omitempty"`
+	Evidence             []string `json:"evidence,omitempty"`
+	Caveats              []string `json:"caveats,omitempty"`
 }
 
 type traceBundlePerfClockAlignment struct {
@@ -756,6 +769,9 @@ func traceBundleCaveats(bundle traceBundleFile) []string {
 	for _, caveat := range traceBundleCoverageCaveats("tracebundle_trace_coverage", bundle.TraceCoverage) {
 		add(caveat)
 	}
+	for _, caveat := range traceBundleTraceToolGateCaveats("tracebundle_trace_tool_gate", bundle.TraceToolGates) {
+		add(caveat)
+	}
 	for _, alignment := range bundle.PerfClockAlignments {
 		if alignment.Confidence == "" && len(alignment.Caveats) == 0 {
 			continue
@@ -843,6 +859,42 @@ func traceBundleTraceDecisionCaveat(decision traceBundleTraceDecision) string {
 	return strings.Join(parts, " ")
 }
 
+func traceBundleTraceToolGateCaveats(prefix string, rows []traceBundleTraceToolGate) []string {
+	if len(rows) == 0 {
+		return nil
+	}
+	limit := traceBundleTraceToolGateCaveatLimit
+	if len(rows) < limit {
+		limit = len(rows)
+	}
+	out := make([]string, 0, limit+1)
+	for i := 0; i < limit; i++ {
+		out = append(out, traceBundleTraceToolGateCaveat(prefix, rows[i]))
+	}
+	if len(rows) > limit {
+		out = append(out, fmt.Sprintf("%s_compacted total=%d emitted=%d", prefix, len(rows), limit))
+	}
+	return out
+}
+
+func traceBundleTraceToolGateCaveat(prefix string, gate traceBundleTraceToolGate) string {
+	parts := []string{prefix}
+	appendKV := func(key, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			parts = append(parts, key+"="+traceBundleCompactValue(value))
+		}
+	}
+	appendKV("name", gate.Name)
+	appendKV("state", gate.State)
+	parts = append(parts, fmt.Sprintf("proven=%t", gate.Proven))
+	parts = append(parts, fmt.Sprintf("fixture_manifest_count=%d", gate.FixtureManifestCount))
+	appendKV("required_evidence", gate.RequiredEvidence)
+	appendKV("evidence", traceBundleCompactTextList(gate.Evidence, 8))
+	appendKV("caveats", traceBundleCompactTextList(gate.Caveats, 8))
+	return strings.Join(parts, " ")
+}
+
 func traceBundleCoverageCaveats(prefix string, rows []traceBundleCoverage) []string {
 	if len(rows) == 0 {
 		return nil
@@ -922,6 +974,20 @@ func traceBundleCompactList(values []string, limit int) string {
 	out := append([]string(nil), values[:limit]...)
 	out = append(out, fmt.Sprintf("+%d", len(values)-limit))
 	return strings.Join(out, ",")
+}
+
+func traceBundleCompactTextList(values []string, limit int) string {
+	if len(values) == 0 {
+		return ""
+	}
+	compacted := make([]string, 0, len(values))
+	for _, value := range values {
+		value = traceBundleCompactValue(value)
+		if value != "" {
+			compacted = append(compacted, value)
+		}
+	}
+	return traceBundleCompactList(compacted, limit)
 }
 
 func traceBundleLabel(kind, path string) string {

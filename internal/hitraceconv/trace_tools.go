@@ -27,13 +27,13 @@ type TraceToolStatus struct {
 }
 
 type TraceToolGateStatus struct {
-	Name                 string
-	State                string
-	Proven               bool
-	FixtureManifestCount int
-	RequiredEvidence     string
-	Evidence             []string
-	Caveats              []string
+	Name                 string   `json:"name,omitempty"`
+	State                string   `json:"state,omitempty"`
+	Proven               bool     `json:"proven"`
+	FixtureManifestCount int      `json:"fixture_manifest_count"`
+	RequiredEvidence     string   `json:"required_evidence,omitempty"`
+	Evidence             []string `json:"evidence,omitempty"`
+	Caveats              []string `json:"caveats,omitempty"`
 }
 
 type TraceToolProviderStatus struct {
@@ -88,9 +88,9 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 			Kind:            traceProviderKindOfficialDB,
 			CheckCommand:    "trace_streamer --help",
 			AuxiliaryChecks: traceStreamerAuxiliaryChecks(opts),
-			InstallCommand:  "Install OpenHarmony/SmartPerf trace_streamer, or use an hmtrace-style embedded trace_streamer binary once Codrax embedding is enabled.",
+			InstallCommand:  "Install OpenHarmony/SmartPerf trace_streamer, or place a platform-matched trace_streamer next to the Codrax binary.",
 			DocsURL:         "https://gitcode.com/diting/hmtrace/tree/main",
-			InstallHint:     "Pass --trace-streamer /path/to/trace_streamer or set CODRAX_TRACE_STREAMER; verify it can run `trace_streamer --help` and export DBs with `trace_streamer <input> -e <output.db>`.",
+			InstallHint:     "Pass --trace-streamer /path/to/trace_streamer, set CODRAX_TRACE_STREAMER, or place trace_streamer beside the Codrax binary, optionally under trace_streamer/<platform>/ or trace-streamer/<platform>/ for multi-platform bundles; verify it can run `trace_streamer --help` and export DBs with `trace_streamer <input> -e <output.db>`.",
 			Caveats:         []string{"trace_streamer DB export is the required trace body path for trace+perf htrace and can also normalize trace-only captures to systrace with tracebundle coverage for trace_query"},
 		},
 		BuiltinModern: TraceToolProviderStatus{
@@ -210,19 +210,15 @@ func resolveTraceStreamerToolWithCaveats(opts Options) (string, string, []string
 			return candidate, "codrax executable directory", nil
 		}
 	}
-	embeddedPath, embeddedSource, embeddedCaveats := resolveEmbeddedTraceStreamerTool()
-	if embeddedPath != "" {
-		return embeddedPath, embeddedSource, embeddedCaveats
-	}
 	if path, err := exec.LookPath(traceStreamerBinaryName()); err == nil && strings.TrimSpace(path) != "" {
-		return path, traceStreamerBinaryName() + " on PATH", embeddedCaveats
+		return path, traceStreamerBinaryName() + " on PATH", nil
 	}
 	for _, candidate := range traceStreamerKnownLocationCandidates() {
 		if path := firstUsableTraceStreamerCandidate(candidate); path != "" {
-			return path, "known OpenHarmony/SmartPerf/hmtrace location", embeddedCaveats
+			return path, "known OpenHarmony/SmartPerf/hmtrace location", nil
 		}
 	}
-	return "", "", embeddedCaveats
+	return "", "", nil
 }
 
 func traceStreamerCodraxBinaryDirCandidates() []string {
@@ -234,16 +230,21 @@ func traceStreamerCodraxBinaryDirCandidates() []string {
 	if exe == "" {
 		return nil
 	}
-	dir := filepath.Dir(exe)
-	name := traceStreamerBinaryName()
+	return traceStreamerCodraxBinaryDirCandidatesFor(filepath.Dir(exe), runtime.GOOS, runtime.GOARCH)
+}
+
+func traceStreamerCodraxBinaryDirCandidatesFor(dir, goos, goarch string) []string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return nil
+	}
+	name := traceStreamerBinaryNameFor(goos)
 	out := []string{filepath.Join(dir, name)}
-	for _, platformDir := range traceStreamerHostPlatformDirs() {
+	for _, platformDir := range traceStreamerHostPlatformDirsFor(goos, goarch) {
 		out = append(out,
 			filepath.Join(dir, platformDir, name),
 			filepath.Join(dir, "trace_streamer", platformDir, name),
 			filepath.Join(dir, "trace-streamer", platformDir, name),
-			filepath.Join(dir, "embedded_trace_streamer", platformDir, name),
-			filepath.Join(dir, "embedded-trace-streamer", platformDir, name),
 		)
 	}
 	return uniqueNonEmptyStrings(out)
@@ -336,7 +337,11 @@ func traceToolPathUsable(path string, status *TraceToolProviderStatus) bool {
 }
 
 func traceStreamerBinaryName() string {
-	if runtime.GOOS == "windows" {
+	return traceStreamerBinaryNameFor(runtime.GOOS)
+}
+
+func traceStreamerBinaryNameFor(goos string) string {
+	if strings.EqualFold(strings.TrimSpace(goos), "windows") {
 		return "trace_streamer.exe"
 	}
 	return "trace_streamer"

@@ -195,7 +195,7 @@ func TestEmbeddedTraceStreamerRuntimeExtractionRejectsHashMismatch(t *testing.T)
 	}
 }
 
-func TestTraceToolStatusUsesEmbeddedTraceStreamer(t *testing.T) {
+func TestTraceToolStatusDefersEmbeddedTraceStreamerDiscovery(t *testing.T) {
 	binaryRel := path.Join(runtime.GOOS+"-"+runtime.GOARCH, traceStreamerBinaryName())
 	binaryBody := []byte("#!/bin/sh\nexit 0\n")
 	manifest := embeddedTraceStreamerTestManifest(binaryRel, binaryBody)
@@ -218,11 +218,11 @@ func TestTraceToolStatusUsesEmbeddedTraceStreamer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !status.TraceStreamer.Available || !strings.Contains(status.TraceStreamer.Source, "embedded trace_streamer") {
-		t.Fatalf("embedded trace_streamer should be selected and available: %+v", status.TraceStreamer)
+	if status.TraceStreamer.Available || strings.Contains(status.TraceStreamer.Source, "embedded trace_streamer") {
+		t.Fatalf("embedded trace_streamer should be deferred, not actively selected: %+v", status.TraceStreamer)
 	}
-	if status.SelectedEngine != traceEngineTraceStreamer {
-		t.Fatalf("embedded trace_streamer should keep auto on SQL engine: %+v", status)
+	if status.SelectedEngine != traceEngineBuiltin {
+		t.Fatalf("auto should fall back to built-in for trace-only when no external trace_streamer is found: %+v", status)
 	}
 }
 

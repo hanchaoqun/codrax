@@ -141,8 +141,9 @@ Tasks:
   - `--keep-trace-db`,
   - `--trace-streamer-so-dir`,
   - `--trace-tools-status`.
-- Keep `--perf-tools-status` working and consider it an alias for the perf-only
-  section.
+- Keep `--perf-tools-status` working as a full conversion-tool status surface:
+  it must include trace_streamer/trace-engine status before the perf-only
+  provider section, because trace+perf htrace depends on both lanes.
 - Add REPL usage text that tells users how to inspect trace_streamer status.
 - Tests:
   - trace engine mode validation.
@@ -1394,9 +1395,10 @@ Delivered:
 
 ### Batch 9: Embedded trace_streamer Governance
 
-Status: delivered on 2026-06-23 for Batch 9A and Batch 9B. No real
-trace_streamer binary is embedded yet; release approval and fixed asset
-selection remain open.
+Status: Batch 9A delivered on 2026-06-23; Batch 9B runtime selection is
+frozen/deferred. No real trace_streamer binary is embedded, and embedded
+selection is not part of the active discovery chain because the binary is too
+large for the current product package.
 
 #### Batch 9A: Embedded Binary Manifest Guard
 
@@ -1456,7 +1458,10 @@ Delivered:
 
 #### Batch 9B: Embedded Binary Runtime Resolver
 
-Status: delivered on 2026-06-23.
+Status: frozen/deferred on 2026-06-23. The manifest/cache implementation is
+kept as audited release-governance code, but active resolver selection of
+embedded trace_streamer binaries is disabled because the binaries are too large
+for the current product package.
 
 Reference audit:
 
@@ -1473,18 +1478,16 @@ Reference audit:
 
 Design:
 
-- Keep the discovery order deterministic:
+- Keep the active external-tool discovery order deterministic:
   - explicit `--trace-streamer` / REPL option;
   - `CODRAX_TRACE_STREAMER`;
   - external `trace_streamer` next to the running `codrax` executable,
     including multi-platform release layouts under
-    `trace_streamer/<platform>/`, `trace-streamer/<platform>/`,
-    `embedded_trace_streamer/<platform>/`, and
-    `embedded-trace-streamer/<platform>/`;
-  - approved embedded trace_streamer manifest/assets;
+    `trace_streamer/<platform>/` and `trace-streamer/<platform>/`;
   - `PATH`;
   - known OpenHarmony/SmartPerf/hmtrace locations.
-- Do not commit a real binary in this batch.
+- Do not commit a real binary in this batch, and do not enable embedded runtime
+  selection in the active discovery chain.
 - Add a compile-time extension point for future embedded assets:
   - default builds expose no embedded FS and behave exactly as external-only
     builds;
@@ -1522,23 +1525,23 @@ Tasks:
   default no-assets implementation for ordinary builds.
 - Add a future build-tag file stub for `codrax_embed_trace_streamer` that can
   wire a real `embed.FS` once approved assets are present.
-- Integrate embedded resolution into `resolveTraceStreamerTool` between
-  explicit/env and PATH discovery.
+- Keep embedded resolution out of `resolveTraceStreamerTool` until a future
+  product/package decision explicitly reopens this lane.
 - Add tests that:
   - a valid embedded manifest/assets fixture extracts to cache and is executable;
   - the resolver reuses a verified cached binary instead of rewriting it;
   - current host platform mismatch is reported without selecting a binary;
   - hash/path/manifest failures do not select a binary;
-  - `BuildTraceToolStatus` reports `embedded trace_streamer` when the embedded
-    fixture is the selected provider.
+  - `BuildTraceToolStatus` does not select embedded fixtures while this lane is
+    deferred.
 - Update localized trace-tools status expectations if source/caveat text changes.
 
 Exit criteria:
 
 - Default builds remain external-tool only until a binary is explicitly embedded.
-- Future approved embedded binaries can be consumed by the same tested
-  converter path, with manifest/hash/approval metadata enforced before runtime
-  selection.
+- Future approved embedded binaries can reuse the same manifest/hash/approval
+  code, but a separate product decision is required before runtime selection is
+  re-enabled.
 - Verified with:
 
 ```bash
@@ -1550,18 +1553,20 @@ Delivered:
 
 - Moved manifest schema/path/hash validation into production code so the runtime
   resolver and repository guard share one authority.
-- Added a default no-assets embedded resolver and a future
-  `codrax_embed_trace_streamer` build-tag hook for approved release binaries.
+- Added manifest/cache/runtime extraction helpers and a future
+  `codrax_embed_trace_streamer` build-tag hook for approved release binaries,
+  but kept active tool discovery external-only.
 - Integrated same-directory external discovery after explicit/env overrides,
   including direct sibling binaries and host platform subdirectories for
-  Darwin/Linux/Windows release bundles, then embedded resolution before
-  PATH/known-location discovery.
+  Darwin/Linux/Windows release bundles, followed by PATH and known-location
+  discovery.
 - Runtime extraction reads only the selected platform asset, verifies SHA-256,
   writes through a temp file into a deterministic cache keyed by upstream ref,
   platform, and hash, chmods non-Windows binaries, and reuses verified cached
   binaries.
 - Added tests for runtime extraction, cache reuse, unsupported host platforms,
-  hash mismatch, and `BuildTraceToolStatus` provenance.
+  hash mismatch, multi-platform same-directory candidates, and
+  `BuildTraceToolStatus` embedded-selection deferral.
 
 ### Batch 10: Coverage Telemetry Closure
 
@@ -1813,7 +1818,7 @@ go test ./internal/repl -run 'TestNativeSlashSuggestAtraceReusesHtraceSubcommand
 
 #### Batch 11C: Tracebundle Gate Handoff
 
-Status: planned.
+Status: delivered on 2026-06-23.
 
 Gap:
 
@@ -1860,6 +1865,60 @@ Exit criteria:
   lands.
 - No production engine routing behavior changes.
 
+Delivered:
+
+- Tracebundle metadata now serializes bounded `trace_tool_gates` rows with
+  stable snake_case fields.
+- `trace_query` reads `trace_tool_gates` from `.tracebundle.json` and surfaces
+  them through `Index.Caveats` and `Result.Caveats` as
+  `tracebundle_trace_tool_gate ...` lines.
+- The trace_query tool description now teaches models to treat
+  `tracebundle_trace_tool_gate` as converter guardrail/provenance state, not a
+  runtime root cause.
+- Added tests for tracebundle serialization, trace_query handoff, and bounded
+  gate caveat fan-out.
+
+#### Batch 11D: Unified CLI Conversion Tool Status
+
+Status: delivered on 2026-06-23.
+
+Gap:
+
+- Users naturally run `codrax trace convert --perf-tools-status` before
+  converting trace+perf htrace. The previous output only described hiperf,
+  simpleperf, and raw perf fallback.
+- For trace+perf htrace, the trace body is `trace_streamer`/SQL-only, so a
+  status report that omits trace_streamer makes the conversion readiness answer
+  incomplete and can misdiagnose customer failures.
+
+Design:
+
+- Keep `--trace-tools-status` as trace-only.
+- Make `--perf-tools-status` a full conversion-tool status surface:
+  - print trace_streamer/trace-engine/sys-parity-gate status first;
+  - print perf adapter/raw fallback status second;
+  - if both status flags are passed, do not duplicate trace output.
+- Keep the implementation deterministic: this uses typed option/status structs,
+  not filename suffixes, user-prose keywords, or model-output parsing.
+- Update CLI help, REPL `/htrace convert` help, and the user guide so the status
+  command sets correct expectations.
+
+Exit criteria:
+
+- A single `--perf-tools-status` run shows whether trace_streamer is discovered
+  and whether perf sample conversion has an official or raw fallback path.
+- Chinese/English output continues to follow the configured language.
+- No conversion routing behavior changes.
+
+Delivered:
+
+- `--perf-tools-status` now prints trace provider/gate status before perf
+  provider status.
+- Updated CLI flag help, REPL help, Markdown guide, and checked-in HTML guide
+  snippet.
+- Added a CLI-level regression test proving `--perf-tools-status` includes
+  `trace_provider[official_trace_db/trace_streamer_db]` and `perf_parser`.
+
 ## Running Verification Matrix
 
 Each implemented batch must run the narrow package tests it touches. Before goal
@@ -1880,8 +1939,10 @@ After sys binary parity/retirement work, also run any eval cases covering:
 
 ## Open Risks
 
-- trace_streamer redistribution license. External discovery lands first; embedded
-  binary waits until license/hash/version governance is clear.
+- trace_streamer redistribution/package size. External discovery lands first;
+  embedded binary selection is deferred because the binary is too large for the
+  current product package, even though manifest/hash/version governance code is
+  present for a future explicit product decision.
 - trace_streamer `.sys` parity. Until this is proven, the built-in sys binary
   parser remains a guarded capability rather than dead compatibility code.
 - Existing local worktree has unrelated untracked eval summary files. Batch

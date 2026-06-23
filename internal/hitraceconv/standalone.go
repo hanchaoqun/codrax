@@ -51,6 +51,7 @@ type traceBundleMetadata struct {
 	TraceDecisions      []TraceProviderDecision `json:"trace_provider_decisions,omitempty"`
 	TraceDBCoverage     []TraceDBCoverage       `json:"trace_db_coverage,omitempty"`
 	TraceCoverage       []TraceDBCoverage       `json:"trace_coverage,omitempty"`
+	TraceToolGates      []TraceToolGateStatus   `json:"trace_tool_gates,omitempty"`
 	PerfClockAlignments []PerfClockAlignment    `json:"perf_clock_alignments,omitempty"`
 	Caveats             []string                `json:"caveats,omitempty"`
 }
@@ -275,6 +276,10 @@ func writeTraceBundleWithCoverage(input, outputPath string, artifacts []Artifact
 }
 
 func writeTraceBundleWithAllCoverage(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage) (Artifact, error) {
+	return writeTraceBundleWithAllCoverageAndGates(input, outputPath, artifacts, caveats, decisions, traceDecisions, dbCoverage, traceCoverage, traceToolGatesForBundle(Options{InputPath: input}))
+}
+
+func writeTraceBundleWithAllCoverageAndGates(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage, traceToolGates []TraceToolGateStatus) (Artifact, error) {
 	if len(artifacts) == 0 {
 		if len(decisions) == 0 && len(traceDecisions) == 0 && len(dbCoverage) == 0 && len(traceCoverage) == 0 && len(caveats) == 0 {
 			return Artifact{}, nil
@@ -294,6 +299,7 @@ func writeTraceBundleWithAllCoverage(input, outputPath string, artifacts []Artif
 		TraceDecisions:      traceDecisions,
 		TraceDBCoverage:     dbCoverage,
 		TraceCoverage:       traceCoverage,
+		TraceToolGates:      traceToolGates,
 		PerfClockAlignments: perfClockAlignmentsForArtifacts(artifacts),
 		Caveats:             caveats,
 	}
@@ -310,6 +316,17 @@ func writeTraceBundleWithAllCoverage(input, outputPath string, artifacts []Artif
 		return Artifact{}, err
 	}
 	return Artifact{Type: ArtifactTraceBundle, Path: path, Bytes: info.Size(), Converter: converterVersion}, nil
+}
+
+func traceToolGatesForBundle(opts Options) []TraceToolGateStatus {
+	status, err := BuildTraceToolStatus(opts)
+	if err != nil {
+		return []TraceToolGateStatus{buildSysBinaryParityGateStatus()}
+	}
+	if strings.TrimSpace(status.SysBinaryParity.Name) == "" {
+		return nil
+	}
+	return []TraceToolGateStatus{status.SysBinaryParity}
 }
 
 func traceBundleSystracePath(outputPath string, artifacts []Artifact) string {

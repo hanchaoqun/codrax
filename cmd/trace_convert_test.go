@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -319,5 +320,93 @@ func TestTraceConvertPerfToolStatusLines(t *testing.T) {
 	}
 	if !strings.Contains(zh, "符号化预期") {
 		t.Fatalf("zh status lines malformed:\n%s", zh)
+	}
+}
+
+func TestTraceConvertPerfToolsStatusIncludesTraceStreamerStatus(t *testing.T) {
+	oldInput := traceConvertInput
+	oldOutput := traceConvertOutput
+	oldFlavor := traceConvertFlavor
+	oldHiperfHost := traceConvertHiperfHost
+	oldSymbolDirs := append([]string(nil), traceConvertSymbolDirs...)
+	oldSimpleperf := traceConvertSimpleperf
+	oldSPPython := traceConvertSPPython
+	oldSPSymfs := traceConvertSPSymfs
+	oldSPKallsyms := traceConvertSPKallsyms
+	oldPerfParser := traceConvertPerfParser
+	oldNoPerfTrace := traceConvertNoPerfTrace
+	oldToolsStatus := traceConvertToolsStatus
+	oldTraceToolsStatus := traceConvertTraceToolsStatus
+	oldTraceEngine := traceConvertTraceEngine
+	oldTraceStreamer := traceConvertTraceStreamer
+	oldTraceDBOutput := traceConvertTraceDBOutput
+	oldKeepTraceDB := traceConvertKeepTraceDB
+	oldTraceStreamerSoDirs := append([]string(nil), traceConvertTraceStreamerSoDirs...)
+	oldFlagLang := flagLang
+	t.Cleanup(func() {
+		traceConvertInput = oldInput
+		traceConvertOutput = oldOutput
+		traceConvertFlavor = oldFlavor
+		traceConvertHiperfHost = oldHiperfHost
+		traceConvertSymbolDirs = oldSymbolDirs
+		traceConvertSimpleperf = oldSimpleperf
+		traceConvertSPPython = oldSPPython
+		traceConvertSPSymfs = oldSPSymfs
+		traceConvertSPKallsyms = oldSPKallsyms
+		traceConvertPerfParser = oldPerfParser
+		traceConvertNoPerfTrace = oldNoPerfTrace
+		traceConvertToolsStatus = oldToolsStatus
+		traceConvertTraceToolsStatus = oldTraceToolsStatus
+		traceConvertTraceEngine = oldTraceEngine
+		traceConvertTraceStreamer = oldTraceStreamer
+		traceConvertTraceDBOutput = oldTraceDBOutput
+		traceConvertKeepTraceDB = oldKeepTraceDB
+		traceConvertTraceStreamerSoDirs = oldTraceStreamerSoDirs
+		flagLang = oldFlagLang
+		traceConvertCmd.SetOut(nil)
+	})
+
+	traceConvertInput = ""
+	traceConvertOutput = ""
+	traceConvertFlavor = ""
+	traceConvertHiperfHost = ""
+	traceConvertSymbolDirs = nil
+	traceConvertSimpleperf = ""
+	traceConvertSPPython = ""
+	traceConvertSPSymfs = ""
+	traceConvertSPKallsyms = ""
+	traceConvertPerfParser = "auto"
+	traceConvertNoPerfTrace = false
+	traceConvertToolsStatus = true
+	traceConvertTraceToolsStatus = false
+	traceConvertTraceEngine = "auto"
+	traceConvertTraceStreamer = ""
+	traceConvertTraceDBOutput = ""
+	traceConvertKeepTraceDB = false
+	traceConvertTraceStreamerSoDirs = nil
+	flagLang = "en"
+	t.Setenv("CODRAX_TRACE_STREAMER", "")
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OHOS_SDK_HOME", "")
+	t.Setenv("HARMONYOS_SDK_HOME", "")
+	t.Setenv("DEVECO_SDK_HOME", "")
+	t.Setenv("TRACE_STREAMER_HOME", "")
+
+	var out bytes.Buffer
+	traceConvertCmd.SetOut(&out)
+	if err := traceConvertCmd.RunE(traceConvertCmd, nil); err != nil {
+		t.Fatalf("run perf tools status: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"trace_provider[official_trace_db/trace_streamer_db]",
+		"trace_engine: auto",
+		"perf_parser: auto",
+		"raw_fallback",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("--perf-tools-status output missing %q:\n%s", want, got)
+		}
 	}
 }

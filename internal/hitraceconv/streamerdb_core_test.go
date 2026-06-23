@@ -204,7 +204,8 @@ func TestTraceBundleIncludesTraceDBCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 	var parsed struct {
-		Coverage []TraceDBCoverage `json:"trace_db_coverage"`
+		Coverage       []TraceDBCoverage     `json:"trace_db_coverage"`
+		TraceToolGates []TraceToolGateStatus `json:"trace_tool_gates"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		t.Fatalf("parse bundle: %v\n%s", err, body)
@@ -213,6 +214,18 @@ func TestTraceBundleIncludesTraceDBCoverage(t *testing.T) {
 		parsed.Coverage[0].ElapsedUS != 123 ||
 		!containsExact(parsed.Coverage[0].ColumnsMissing, "ipid") {
 		t.Fatalf("trace db coverage not serialized: %+v\n%s", parsed.Coverage, body)
+	}
+	if len(parsed.TraceToolGates) != 1 ||
+		parsed.TraceToolGates[0].Name != traceToolGateNameSysBinaryParity ||
+		parsed.TraceToolGates[0].State == "" ||
+		parsed.TraceToolGates[0].RequiredEvidence == "" ||
+		!containsExact(parsed.TraceToolGates[0].Evidence, traceToolGateSysParitySyntheticEvidence) {
+		t.Fatalf("trace tool gate not serialized: %+v\n%s", parsed.TraceToolGates, body)
+	}
+	for _, want := range []string{`"trace_tool_gates"`, `"fixture_manifest_count"`, `"required_evidence"`} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("tracebundle gate should use stable snake_case field %q:\n%s", want, body)
+		}
 	}
 }
 

@@ -386,7 +386,7 @@ codrax trace convert --input /tmp/capture.htrace.bin
 codrax trace convert --input /tmp/donghu.sys --trace-engine=builtin
 codrax --htrace /tmp/capture.htrace.bin.systrace -r "分析这段卡顿"
 
-# 先看本机 perf.data 解析能力和缺什么官方工具
+# 先看本机 trace_streamer、trace engine、perf.data 解析能力和缺什么官方工具
 codrax trace convert --perf-tools-status
 
 # 多文件比对
@@ -482,8 +482,11 @@ codrax trace convert --perf-tools-status
 codrax trace convert --perf-tools-status --lang en
 ```
 
-输出会列出:
+输出会列出 trace body 和 perf sample 两部分:
 
+- `trace_provider[official_trace_db/trace_streamer_db]`: 是否找到 `trace_streamer`, 以及来源/路径/检查命令
+- `trace_provider[builtin_modern/codrax_builtin_modern_profiler]`: 内置纯 trace 转换器边界;trace+perf 不会走这个 fallback
+- `trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]`: 不带 perf 的 `.sys` 内置转换 parity 证据是否已经满足
 - `official_harmony[openharmony_hiperf]`: 是否找到 OpenHarmony `hiperf_host` / `hiperf`
 - `official_android[android_simpleperf_report_sample]`: 是否找到 Android simpleperf `report_sample.py`
 - `raw_fallback[codrax_raw_perfdata]`: Codrax 内置 raw `perf.data` fallback 是否可用

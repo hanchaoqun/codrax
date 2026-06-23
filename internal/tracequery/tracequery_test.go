@@ -1435,12 +1435,15 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
     {"family": "scheduler", "table": "sched_slice", "found": true, "columns_present": ["ts", "dur", "cpu", "itid", "end_state"], "rows_read": 2, "rows_emitted": 2, "elapsed_us": 1234},
     {"family": "trace_marker", "table": "instant", "found": false, "columns_missing": ["ts", "name"], "skipped": "table_missing"}
   ],
-  "trace_coverage": [
-    {"family": "trace_cross_validation", "table": "tracequery_build_index", "found": true, "rows_read": 2, "rows_emitted": 2, "elapsed_us": 5678}
-  ],
-  "perf_clock_alignments": [
-    {"artifact_path": "bundle.perftrace", "perf_time_domain": "perf_event_time", "trace_time_domain": "trace_seconds", "confidence": "assumed", "calibrated": false, "source": "tracebundle", "caveats": ["no capture-level trace/perf clock map is available"]}
-  ],
+	  "trace_coverage": [
+	    {"family": "trace_cross_validation", "table": "tracequery_build_index", "found": true, "rows_read": 2, "rows_emitted": 2, "elapsed_us": 5678}
+	  ],
+	  "trace_tool_gates": [
+	    {"name": "no_perf_sys_binary_parity", "state": "pending_representative_fixture", "proven": false, "fixture_manifest_count": 0, "required_evidence": "commit a redistributable real no-perf Harmony/Donghu .sys fixture manifest", "evidence": ["synthetic scheduler/raw-ftrace parity guards are delivered"], "caveats": ["built-in sys binary parser remains an explicit guarded lane"]}
+	  ],
+	  "perf_clock_alignments": [
+	    {"artifact_path": "bundle.perftrace", "perf_time_domain": "perf_event_time", "trace_time_domain": "trace_seconds", "confidence": "assumed", "calibrated": false, "source": "tracebundle", "caveats": ["no capture-level trace/perf clock map is available"]}
+	  ],
   "caveats": [
     "profiler plugin ftrace-plugin metadata: clock_id=MONOTONIC dropped_events=2 overrun=1 commit_overrun=1 overwrite=0 trace_clock=boot clock_details=boot symbols=symbol_examples"
   ]
@@ -1482,6 +1485,11 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
 		"tracebundle_trace_db_coverage family=trace_marker table=instant found=false",
 		"tracebundle_trace_coverage family=trace_cross_validation table=tracequery_build_index",
 		"elapsed_us=5678",
+		"tracebundle_trace_tool_gate name=no_perf_sys_binary_parity",
+		"state=pending_representative_fixture",
+		"proven=false",
+		"fixture_manifest_count=0",
+		"required_evidence=commit_a_redistributable_real_no-perf_Harmony/Donghu_.sys_fixture_manifest",
 		"tracebundle_perf_clock_alignment",
 	} {
 		if !strings.Contains(caveats, want) {
@@ -1490,7 +1498,7 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
 	}
 	result := Run(idx, Query{View: "window_stats", TimeStart: 30.0, TimeEnd: 30.005})
 	resultCaveats := strings.Join(result.Caveats, "\n")
-	for _, want := range []string{"profiler plugin ftrace-plugin metadata", "tracebundle_perf_capability", "tracebundle_trace_provider", "tracebundle_trace_db_coverage", "tracebundle_trace_coverage", "tracebundle_perf_clock_alignment"} {
+	for _, want := range []string{"profiler plugin ftrace-plugin metadata", "tracebundle_perf_capability", "tracebundle_trace_provider", "tracebundle_trace_db_coverage", "tracebundle_trace_coverage", "tracebundle_trace_tool_gate", "tracebundle_perf_clock_alignment"} {
 		if !strings.Contains(resultCaveats, want) {
 			t.Fatalf("result caveats missing %q:\n%s", want, resultCaveats)
 		}
@@ -1527,6 +1535,25 @@ func TestTraceBundleCoverageCaveatsAreBounded(t *testing.T) {
 		t.Fatalf("coverage caveats should be bounded: got=%d want=%d", len(caveats), traceBundleCoverageCaveatLimit+1)
 	}
 	if !strings.Contains(caveats[len(caveats)-1], "tracebundle_trace_db_coverage_compacted total=27 emitted=24") {
+		t.Fatalf("missing compacted summary: %+v", caveats)
+	}
+}
+
+func TestTraceBundleTraceToolGateCaveatsAreBounded(t *testing.T) {
+	rows := make([]traceBundleTraceToolGate, 0, traceBundleTraceToolGateCaveatLimit+3)
+	for i := 0; i < traceBundleTraceToolGateCaveatLimit+3; i++ {
+		rows = append(rows, traceBundleTraceToolGate{
+			Name:                 "gate_" + strconv.Itoa(i),
+			State:                "pending",
+			FixtureManifestCount: i,
+			RequiredEvidence:     "evidence " + strconv.Itoa(i),
+		})
+	}
+	caveats := traceBundleTraceToolGateCaveats("tracebundle_trace_tool_gate", rows)
+	if len(caveats) != traceBundleTraceToolGateCaveatLimit+1 {
+		t.Fatalf("gate caveats should be bounded: got=%d want=%d", len(caveats), traceBundleTraceToolGateCaveatLimit+1)
+	}
+	if !strings.Contains(caveats[len(caveats)-1], "tracebundle_trace_tool_gate_compacted total=11 emitted=8") {
 		t.Fatalf("missing compacted summary: %+v", caveats)
 	}
 }
