@@ -1253,6 +1253,13 @@ go test ./cmd
 go test ./internal/repl
 ```
 
+Additional guard:
+
+- Added a pure `.sys` trace auto-mode regression test proving that a discovered
+  but failing `trace_streamer` stops with a diagnostic tracebundle and does not
+  silently fall back to either built-in trace-body converter. The only automatic
+  built-in path remains "trace_streamer absent" for pure trace inputs.
+
 ### Batch 8: SQL Resolver Fidelity and Coverage Closure
 
 Status: delivered on 2026-06-23 through Batch 8A and Batch 8B.
@@ -1387,11 +1394,11 @@ Delivered:
 
 ### Batch 9: Embedded trace_streamer Governance
 
-Status: planned.
+Status: delivered on 2026-06-23 for Batch 9A.
 
 #### Batch 9A: Embedded Binary Manifest Guard
 
-Status: planned.
+Status: delivered on 2026-06-23.
 
 Gap:
 
@@ -1434,6 +1441,16 @@ Exit criteria:
 go test ./internal/hitraceconv -run 'TestEmbeddedTraceStreamer' -count=1
 go test ./internal/hitraceconv
 ```
+
+Delivered:
+
+- Added a deterministic manifest guard for
+  `internal/hitraceconv/embedded_trace_streamer`.
+- The guard passes when no embedded binary directory is present, and validates
+  future manifest metadata, relative/no-escape binary paths, binary existence,
+  executable bits for non-Windows platforms, and SHA-256 hashes.
+- No `trace_streamer` binary is embedded by this batch; the remaining release
+  decision is selecting and approving a redistributable fixed upstream build.
 
 ## Running Verification Matrix
 

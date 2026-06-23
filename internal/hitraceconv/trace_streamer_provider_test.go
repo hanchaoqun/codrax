@@ -175,6 +175,42 @@ func TestConvertFileNoPerfTraceAutoMissingTraceStreamerFallsBackToBuiltin(t *tes
 	}
 }
 
+func TestConvertFileNoPerfSysTraceAutoTraceStreamerFailureDoesNotFallbackToBuiltin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "donghu-no-perf.sys")
+	if err := os.WriteFile(input, syntheticBinaryHitrace(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	traceStreamer := writeFakeTraceStreamer(t, dir, 7)
+	output := filepath.Join(dir, "out.systrace")
+
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath:         input,
+		OutputPath:        output,
+		TraceStreamerPath: traceStreamer,
+	})
+	if err != nil {
+		t.Fatalf("auto trace_streamer failure should return a diagnostic bundle: %v", err)
+	}
+	if result.OutputPath != "" || result.EventsWritten != 0 {
+		t.Fatalf("auto trace_streamer failure must not claim built-in systrace output: %+v", result)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("auto trace_streamer failure should not write built-in sys systrace, stat err=%v", err)
+	}
+	if !hasTraceDecisionReason(result.TraceDecisions, traceProviderNameTraceStreamer, "trace_streamer_failed") ||
+		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) ||
+		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
+		t.Fatalf("expected failed trace_streamer decision and no built-in success: %+v", result.TraceDecisions)
+	}
+	if !containsString(result.Caveats, "pass --trace-engine=builtin") || result.BundlePath == "" {
+		t.Fatalf("diagnostic bundle should guide explicit built-in opt-in: caveats=%+v bundle=%q", result.Caveats, result.BundlePath)
+	}
+}
+
 func TestConvertFileNoPerfTraceBuiltinAndTraceStreamerWakeupParity(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
