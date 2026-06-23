@@ -1919,6 +1919,77 @@ Delivered:
 - Added a CLI-level regression test proving `--perf-tools-status` includes
   `trace_provider[official_trace_db/trace_streamer_db]` and `perf_parser`.
 
+#### Batch 11E: Cross-Platform Trace DB Open and Partial Artifact Hygiene
+
+Status: planned.
+
+Customer signal:
+
+- On Windows, `/htrace tools-status` can correctly discover
+  `D:\opt\codrax-main\trace_streamer\windows-x86_64\trace_streamer.exe`, and
+  `/htrace convert hiprofiler_data.htrace` can successfully produce
+  `hiprofiler_data.htrace.trace.db`.
+- The conversion then fails to produce text systrace with:
+  `SQL logic error: invalid uri authority: hiprofiler_data.htrace.trace.db?mode=ro (1)`.
+- The same partial result prints the same `trace_db` artifact and normalize
+  failure caveat twice.
+
+Root cause class:
+
+- The trace_streamer lane has two stages:
+  1. external `trace_streamer` writes SQLite DB;
+  2. Codrax opens that DB read-only and exports queryable systrace rows.
+- The observed failure is in stage 2, not in trace_streamer discovery or in the
+  input file. `perftrace` is still generated because perf sidecar extraction
+  and raw perf.data normalization are independent of DB-to-systrace export.
+- The SQLite read-only DSN builder must be platform-class aware. It should
+  support POSIX relative/absolute paths, Windows drive absolute paths,
+  drive-relative paths, and UNC-like inputs without producing a URI whose
+  host/authority is the DB filename.
+- Partial conversion artifacts should be de-duplicated by typed artifact
+  identity, not by filename-specific logic. Caveats should also be de-duplicated
+  before user-facing output and tracebundle metadata.
+
+Design:
+
+- Add a dedicated SQLite read-only DSN builder for trace DB paths.
+  - Prefer absolute filesystem paths before URI conversion so relative paths do
+    not become URI authorities.
+  - Convert Windows separators to slash form only for URI encoding.
+  - Encode the path with `url.URL{Scheme:"file", Path: ...}` and `mode=ro`.
+  - Keep the function deterministic and side-effect free apart from the bounded
+    absolute-path normalization.
+- Add lexical tests for DSN generation across platform path classes:
+  - POSIX relative path;
+  - POSIX absolute path;
+  - Windows drive absolute path;
+  - Windows drive-relative path;
+  - Windows UNC path.
+- Add a runtime round-trip test that opens a real SQLite DB from a relative path
+  with spaces using `openTraceDB`.
+- Add generic artifact/caveat de-duplication when composing trace_streamer
+  partial results and when rendering CLI output.
+  - Artifact key: type + cleaned path + converter.
+  - Caveat key: exact normalized text.
+  - Preserve first occurrence order.
+- Add tests proving the trace+perf partial bundle does not repeat the same
+  `trace_db` artifact or the same normalize-failure caveat.
+- Prompt/JSON contract:
+  - no new model tool-call input fields;
+  - no JSON repair aliases required;
+  - result guidance becomes clearer through existing tracebundle artifacts and
+    caveats.
+
+Exit criteria:
+
+- A DB path produced by trace_streamer can be reopened read-only on Windows and
+  POSIX path shapes, including relative paths.
+- If DB-to-systrace export fails, the customer sees exactly one `trace_db`
+  artifact and one normalize-failure caveat, plus the preserved `perftrace`
+  artifact when perf sidecars are present.
+- No production fallback behavior changes: trace+perf remains SQL-only for the
+  trace body and never falls back to the built-in sys parser.
+
 ## Running Verification Matrix
 
 Each implemented batch must run the narrow package tests it touches. Before goal
