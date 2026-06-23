@@ -263,7 +263,7 @@ func (t *EmitEvidence) Description() string {
 		"to recommend how the item should be used for exact-target answers. `diagram_role_hint` may be `default`, " +
 		"`config`, `runtime`, or `override` for config-precedence traces (`config` = grounded repo/user config-file layer such as YAML/JSON/TOML/INI/etc.). These are recommendations only: the tool " +
 		"validates them structurally and may downgrade or ignore inconsistent hints.\n\n" +
-		"surface_terms is optional model-authored structured data for exact user-visible labels / aliases copied verbatim from already-read source, log, or trace lines (for example route names, package/module labels, config keys, macro names, trace span names, original file labels, and labels in leading documentation/header comments attached to the cited anchor). The tool rejects any surface term that is not grounded in the read window; answer synthesis treats accepted terms as preservation guidance when they are relevant to the visible answer.\n\n" +
+		"surface_terms is optional model-authored structured data for exact user-visible labels / aliases copied verbatim from already-read source, log, or trace lines (for example route names, package/module labels, config keys, macro names, trace span names, original file labels, and labels in leading documentation/header comments attached to the cited anchor). Ungrounded optional terms are dropped with a summary note while the evidence item is kept; answer synthesis treats accepted terms as preservation guidance when they are relevant to the visible answer.\n\n" +
 		"salience is optional structured data for answer participation: load_bearing means the answer cannot honor a visible claim without this row; exhaust_listed means this row is one member of a complete list the user asked for; supporting means an intermediate fact the answer chain uses; context means background the answer does not lean on. Omit it when unsure. This field helps preserve important rows in long investigations but does not replace member_set, answer_symbol, citations, or final answer obligations.\n\n" +
 		"For list/enumeration members such as exported constants, enum values, public functions, fields, routes, or config keys, `summary` should explain the member's role using already-read code (signature, right-hand value, registry mapping, caller/callee relation, or visible comment). Do not use summary only to say that the item is the Nth member of a category; ordinal/count information belongs in aggregate_facts, while evidence summary should carry meaning.\n\n" +
 		"snippet is optional but recommended for conditional / mechanism / registration items: paste " +
@@ -365,7 +365,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						"surface_terms": map[string]any{
 							"type":        "array",
 							"items":       map[string]any{"type": "string"},
-							"description": "OPTIONAL. Model-authored exact strings from the already-read source/log/trace lines that the final answer should preserve as visible aliases or labels, but that are not already captured by subject/object/anchor_symbol. Use for original file labels, route names, package/module names, config keys, macro names, trace span names, runtime object labels, or labels in leading documentation/header comments attached to the cited anchor. Every term must appear verbatim in the cited source window; the tool rejects ungrounded terms.",
+							"description": "OPTIONAL. Model-authored exact strings from the already-read source/log/trace lines that the final answer should preserve as visible aliases or labels, but that are not already captured by subject/object/anchor_symbol. Use for original file labels, route names, package/module names, config keys, macro names, trace span names, runtime object labels, or labels in leading documentation/header comments attached to the cited anchor. Every accepted term must appear verbatim in the cited source window; ungrounded optional terms are dropped with a summary note.",
 						},
 						"anchor_kind": map[string]any{
 							"type":        "string",
@@ -497,7 +497,7 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
           "summary":       {"type": "string", "description": "Free-text rationale describing the fact. Keep concise; do not paraphrase numbers or string literals. For exhaustive list members, explain the member's role from already-read code (signature, RHS value, registry mapping, caller/callee relation, or visible comment); do not use summary only for ordinal/category wording such as 'Nth item'."},
           "context_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, absence_support = grounded evidence that helps justify why the exact target is absent but does NOT define it, related_context = grounded nearby context but not the exact target itself, illustrative_only = comment/doc/test/example mention that should NOT be treated as defining proof. The tool validates and may downgrade the hint."},
           "diagram_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, config = repo/user config-file layer (YAML/JSON/TOML/INI/etc.), runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints."},
-          "surface_terms": {"type": "array", "items": {"type": "string"}, "description": "OPTIONAL exact source/log/trace strings that should remain visible in the final answer as aliases or labels, including labels from leading documentation/header comments attached to the cited anchor. Every term must appear verbatim in the already-read source window."},
+          "surface_terms": {"type": "array", "items": {"type": "string"}, "description": "OPTIONAL exact source/log/trace strings that should remain visible in the final answer as aliases or labels, including labels from leading documentation/header comments attached to the cited anchor. Every accepted term must appear verbatim in the already-read source window; ungrounded optional terms are dropped with a summary note."},
           "anchor_kind":   {"type": "string", "enum": %s, "description": "REQUIRED. What line_start points at: 'definition' = symbol declaration, 'call' = function/method call site, 'condition' = if/when/switch/case/guard line, 'return' = return or yield, 'assignment' = := or = assignment/write, 'initializer' = field/property/member inside a struct/object/named-argument/designated/config literal, 'import' = import/use/require statement, 'string_literal' = source-code string/char/template literal value itself, 'text_reference' = visible source/config/doc/comment text itself. string_literal/text_reference cannot prove a definition/call/assignment."},
           "anchor_symbol": {"type": "string", "description": "REQUIRED. The identifier the grounder should find on line_start. For a call like 'x.Execute()' the anchor_symbol is 'Execute'. For a type decl 'type Orchestrator struct' the anchor_symbol is 'Orchestrator'. For an import the anchor_symbol is the package path or local alias. For condition / return / assignment / initializer lines, use a visible token on that line, not a descriptive label; if no durable symbol exists, provide exact snippet and structured condition/value fields."},
           "snippet":       {"type": "string", "description": "Optional. 1-2 lines of actual code from the cited location. Enables snippet_fuzzy recovery when line_start is off by ±15 lines — recommended for conditional / mechanism / registration items."}
@@ -691,6 +691,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	reports := make([]ground.Report, len(built))
 	surfaceTermDrops := make([]string, 0)
 	surfaceAlignmentRejects := make([]string, 0)
+	surfaceAlignmentRejected := make(map[int]bool)
 	groundingStart := time.Now()
 	for i := range built {
 		// Per-scope dispatch: ScopeLine routes to the existing tier
@@ -757,13 +758,30 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		}
 		if err := validateRequestedDecoratorRegistrationAlignment(i, built[i], gc, ctx); err != nil {
 			surfaceAlignmentRejects = append(surfaceAlignmentRejects, err.Error())
+			surfaceAlignmentRejected[i] = true
 		}
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "per_item_grounding_stabilize", groundingStart, len(built))
 	if len(surfaceAlignmentRejects) > 0 {
-		return failEmit(t.Name(), now,
-			"evidence surface alignment failed:\n%s",
-			strings.Join(surfaceAlignmentRejects, "\n"))
+		filteredBuilt := make([]types.EvidenceItem, 0, len(built)-len(surfaceAlignmentRejected))
+		filteredReports := make([]ground.Report, 0, len(reports)-len(surfaceAlignmentRejected))
+		for i := range built {
+			if surfaceAlignmentRejected[i] {
+				continue
+			}
+			filteredBuilt = append(filteredBuilt, built[i])
+			if i < len(reports) {
+				filteredReports = append(filteredReports, reports[i])
+			}
+		}
+		built = filteredBuilt
+		reports = filteredReports
+		rejectedItems = append(rejectedItems, surfaceAlignmentRejects...)
+		if len(built) == 0 {
+			return failEmit(t.Name(), now,
+				"no valid items after evidence surface alignment:\n%s",
+				strings.Join(surfaceAlignmentRejects, "\n"))
+		}
 	}
 
 	// 2026-05-03 (Phase 6 stage 2): retired the codename-grounding

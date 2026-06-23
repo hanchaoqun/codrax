@@ -2564,14 +2564,15 @@ func TestEmitInvestigationComplete_RejectsResolvedExactClosureWithoutDefiningPro
 	}
 }
 
-// TestEmitInvestigationComplete_Tier1FloorRejectsPureRecovery pins the
-// session-8 upstream-intercept: when every item is Recovered (the LLM
-// never read_file'd any of the cited sources), the Tier-1 floor fires
-// and rejects the completion claim. Rejection message names the
-// recovered-only items and tells the LLM to call read_file.
+// TestEmitInvestigationComplete_Tier1FloorDowngradesPureRecovery pins the
+// session-8 upstream-intercept plus the 2026-06-23 hard-gate discipline: when
+// every item is Recovered (the LLM never read_file'd any of the cited sources),
+// the Tier-1 floor delays completion and names the read_file repair without
+// surfacing a tool error. The mutable completion flag remains false, so the
+// scheduler keeps exploring.
 // Matches the trace 1776444788929246456 failure mode where the
 // finalizer dropped all 4 citations because none were read-file proven.
-func TestEmitInvestigationComplete_Tier1FloorRejectsPureRecovery(t *testing.T) {
+func TestEmitInvestigationComplete_Tier1FloorDowngradesPureRecovery(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0.5, Tier1Floor: 0.3})
 	t.Cleanup(func() { SetGroundingPolicy(prev) })
@@ -2593,14 +2594,20 @@ func TestEmitInvestigationComplete_Tier1FloorRejectsPureRecovery(t *testing.T) {
 
 	params := json.RawMessage(`{"reason":"done","confidence":"high","result_kind":"resolved"}`)
 	res, _ := tool.Execute(bus, params)
-	if res.Success {
-		t.Fatalf("pure-recovery investigation must be rejected; got success=%q", res.Summary)
+	if !res.Success {
+		t.Fatalf("pure-recovery investigation should be downgraded, not tool-rejected: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("downgraded tier1-floor completion must not flip investigationComplete")
 	}
 	if !strings.Contains(res.Summary, "line-text-grounded ratio") {
-		t.Errorf("rejection must name the line-text grounding gate: %q", res.Summary)
+		t.Errorf("downgrade must name the line-text grounding gate: %q", res.Summary)
 	}
 	if !strings.Contains(res.Summary, "read_file") {
-		t.Errorf("rejection must suggest read_file repair: %q", res.Summary)
+		t.Errorf("downgrade must suggest read_file repair: %q", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != "tier1_citation_floor" {
+		t.Fatalf("downgrade should carry typed repair metadata, got %+v", res.Repair)
 	}
 	if repairs := closure.PendingRepairs(); len(repairs) != 1 {
 		t.Fatalf("expected one deduped RepairReadFile directive, got %d: %+v", len(repairs), repairs)
@@ -2614,6 +2621,48 @@ func TestEmitInvestigationComplete_Tier1FloorRejectsPureRecovery(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "10, 11, 12") {
 		t.Errorf("summary should collapse same-file line hints, got: %q", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_Tier1FloorForceCompletesWithCaveatAfterNoProgress(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0.5, Tier1Floor: 0.3})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+	SetDowngradeConvergenceHardThreshold(3)
+	t.Cleanup(func() { SetDowngradeConvergenceHardThreshold(0) })
+
+	mut := types.NewMutableState("q")
+	for i := 0; i < 2; i++ {
+		mut.AppendEvidence([]types.EvidenceItem{{
+			Kind: types.EvidenceDirect, Source: "a.go", LineStart: 10 + i,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "Foo",
+			GroundingStatus: types.GroundingRecovered,
+			GroundingTier:   types.TierFQNameSameFile,
+		}})
+	}
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{"reason":"done","confidence":"high","result_kind":"resolved"}`)
+
+	for i := 1; i <= 2; i++ {
+		res, _ := tool.Execute(bus, params)
+		if !res.Success {
+			t.Fatalf("attempt %d should downgrade without tool failure: %s", i, res.Summary)
+		}
+		if mut.IsInvestigationComplete() {
+			t.Fatalf("attempt %d should not complete before convergence threshold", i)
+		}
+	}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("threshold attempt should complete with caveat, got failure: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("threshold attempt should force-complete with typed caveat")
+	}
+	caveats := mut.EvidenceClosure().CompletionCaveats()
+	if len(caveats) != 1 || caveats[0].Lane != types.DowngradeLaneGroundingCitationFloor {
+		t.Fatalf("completion caveats = %+v, want grounding_citation_floor", caveats)
 	}
 }
 
@@ -4350,8 +4399,11 @@ func TestEmitInvestigationComplete_Tier1FloorQueuesTier2GroundedReads(t *testing
 
 	params := json.RawMessage(`{"reason":"done","confidence":"high","result_kind":"resolved"}`)
 	res, _ := tool.Execute(bus, params)
-	if res.Success {
-		t.Fatalf("tier2-only investigation must be rejected; got success=%q", res.Summary)
+	if !res.Success {
+		t.Fatalf("tier2-only investigation should be downgraded, not tool-rejected: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("tier2-only downgrade must not mark investigation complete before convergence")
 	}
 	if repairs := closure.PendingRepairs(); len(repairs) != 1 {
 		t.Fatalf("expected one RepairReadFile for tier2 grounded item, got %d: %+v", len(repairs), repairs)

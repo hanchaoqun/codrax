@@ -1236,6 +1236,68 @@ func TestEmitEvidence_RejectsRequestedDecoratorObjectMismatch(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_DecoratorMismatchSkipsOnlyInvalidItem(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{Entities: []string{"@Builder"}},
+			SubTopics:     []types.SubTopic{{Summary: "list @Builder fragments", Entities: []string{"@Builder"}}},
+		},
+	}
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary: strings.Join([]string{
+					"[internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets: showing lines 1-6 of 9999]",
+					"  1│ // Source: openharmony @Styles and @Extend decorators",
+					"  2│ // Surface: @Styles function + @Extend(Type) attribute method chains",
+					"  3│ ",
+					"  4│ @Styles function commonCardStyle() {",
+					"  5│   .width('100%')",
+					"  6│ }",
+				}, "\n"),
+			},
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary: strings.Join([]string{
+					"[internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets: showing lines 1-3 of 9999]",
+					"  1│ @Builder function defaultHeader() {",
+					"  2│   Text('hello')",
+					"  3│ }",
+				}, "\n"),
+			},
+		},
+	})
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "registration", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", "line_start": 4, "summary": "@Styles function commonCardStyle", "anchor_kind": "definition", "anchor_symbol": "commonCardStyle", "surface_terms": ["@Styles", "commonCardStyle"]},
+          {"kind": "registration", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", "line_start": 1, "summary": "@Builder function defaultHeader", "anchor_kind": "definition", "anchor_symbol": "defaultHeader", "surface_terms": ["@Builder", "defaultHeader"]}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("mixed decorator batch should keep valid items and skip invalid ones: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "SKIPPED due to validation errors") ||
+		!strings.Contains(res.Summary, "requested decorator \"@Builder\"") {
+		t.Fatalf("summary should disclose skipped invalid decorator item, got %q", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("only valid decorator item should persist, got %d: %+v", len(got), got)
+	}
+	if got[0].Source != "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets" {
+		t.Fatalf("persisted wrong evidence item: %+v", got[0])
+	}
+}
+
 func TestEmitEvidence_DecoratorMismatchDoesNotHardRejectBareAnalyzerEntity(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

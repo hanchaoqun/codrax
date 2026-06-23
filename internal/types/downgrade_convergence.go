@@ -34,6 +34,11 @@ const (
 	// or precedence role evidence has not been materialized. It is a repair lane,
 	// not an infinite hard reject.
 	DowngradeLaneExactAbsenceContext DowngradeLane = "exact_absence_context"
+	// DowngradeLaneGroundingCitationFloor is the configured grounding / Tier-1
+	// citation-floor gate. The floor is based on typed evidence grounding
+	// verdicts, but it still must not become an infinite hard loop when the same
+	// proof-strength blocker recurs without progress.
+	DowngradeLaneGroundingCitationFloor DowngradeLane = "grounding_citation_floor"
 	// DowngradeLaneContractChain is the pre-complete contract-check chain gate
 	// (the ~13 sub-checks aggregate into this lane; the typed BlockerKey below
 	// distinguishes which sub-blocker is active).

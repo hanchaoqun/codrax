@@ -1641,6 +1641,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// these floors, then pass through the dedicated absence validation
 	// below; otherwise absent targets can be rejected for having no
 	// positive evidence to cite.
+	earlyDowngradeConverged := false
 	groundingFloorStart := time.Now()
 	if justification == "" {
 		contract := answerExactResolutionContract(ctx)
@@ -1664,25 +1665,40 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}
 		policy := CurrentGroundingPolicy()
 		if msg, ok := groundingGateRejectWithPreflight(ctx, policy.GroundingFloor, preflight); !ok {
-			return types.ToolResult{
-				ToolName:  t.Name(),
-				Summary:   msg,
-				Success:   false,
-				Timestamp: time.Now(),
-			}, nil
+			if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneGroundingCitationFloor) {
+				if ctx != nil && ctx.Mutable != nil {
+					ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+				}
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Summary:   preCompleteDowngradeSummary(msg),
+					Repair:    attachToolJSONSurfaceMetadata(t.Name(), groundingCitationFloorRepair("grounding_floor", "Repair, re-anchor, or drop ungrounded evidence items until the typed grounding floor is satisfied; if the same blocker cannot progress, completion will proceed with a caveat.")),
+					Success:   true,
+					Timestamp: time.Now(),
+				}, nil
+			}
+			earlyDowngradeConverged = true
 		}
-		if msg, ok := tier1GateRejectWithPreflight(ctx, policy.Tier1Floor, preflight); !ok {
-			return types.ToolResult{
-				ToolName:  t.Name(),
-				Summary:   msg,
-				Success:   false,
-				Timestamp: time.Now(),
-			}, nil
+		if !earlyDowngradeConverged {
+			if msg, ok := tier1GateRejectWithPreflight(ctx, policy.Tier1Floor, preflight); !ok {
+				if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneGroundingCitationFloor) {
+					if ctx != nil && ctx.Mutable != nil {
+						ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+					}
+					return types.ToolResult{
+						ToolName:  t.Name(),
+						Summary:   preCompleteDowngradeSummary(msg),
+						Repair:    attachToolJSONSurfaceMetadata(t.Name(), groundingCitationFloorRepair("tier1_citation_floor", "Read the cited sources through read_file or equivalent typed source coverage, then re-emit grounded evidence so citation rendering can preserve the anchors.")),
+						Success:   true,
+						Timestamp: time.Now(),
+					}, nil
+				}
+				earlyDowngradeConverged = true
+			}
 		}
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "grounding_citation_floors", groundingFloorStart, len(evidenceSnapshot))
 
-	earlyDowngradeConverged := false
 	if msg := completionPathDiscoveryAbsenceProofReject(ctx, resultKind, effectiveAggregateFacts); msg != "" {
 		queuePathDiscoveryAbsenceRepair(ctx)
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLanePathDiscoveryAbsence) {
@@ -2235,6 +2251,25 @@ func preCompleteDowngradeSummary(summary string) string {
 		return "emit_investigation_complete DOWNGRADED: completion is delayed by a typed pre-complete repair lane."
 	}
 	return "emit_investigation_complete DOWNGRADED: " + summary
+}
+
+func groundingCitationFloorRepair(code, hint string) *types.ToolRepair {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		code = "grounding_citation_floor"
+	}
+	hint = strings.TrimSpace(hint)
+	if hint == "" {
+		hint = "Improve typed evidence grounding or continue with a caveat after repeated no-progress attempts."
+	}
+	return &types.ToolRepair{
+		Code: code,
+		Hint: hint,
+		Metadata: map[string]string{
+			"repair_origin": "emit_investigation_complete.grounding_citation_floor",
+			"lane":          string(types.DowngradeLaneGroundingCitationFloor),
+		},
+	}
 }
 
 func queuePathDiscoveryAbsenceRepair(ctx *types.BusContext) {
