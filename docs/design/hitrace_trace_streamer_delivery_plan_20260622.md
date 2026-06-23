@@ -500,7 +500,11 @@ Exit criteria:
 
 ### Batch 6: Sys Binary Parity Gate and Retirement
 
-Status: in progress, with Batch 6A delivered on 2026-06-23.
+Status: in progress. Batch 6A, Batch 6B, Batch 6C raw-ftrace exporter,
+Batch 6C2 cross-engine raw-ftrace parity, and the Batch 6C3 representative
+fixture helper are delivered on 2026-06-23. The remaining gate is at least one
+redistributable real no-perf Harmony/Donghu `.sys` fixture that passes the
+representative helper.
 
 #### Batch 6A: No-Perf Sys Wakeup Parity Guard
 
@@ -535,7 +539,8 @@ Remaining gap:
 
 #### Batch 6B: Root-Cause Evidence Parity Matrix
 
-Status: delivered first executable slice on 2026-06-23.
+Status: delivered on 2026-06-23 for the scheduler, wakeup, CPU-supply,
+trace-marker, frame, IRQ, and softirq parity matrix.
 
 Exploration notes:
 
@@ -662,9 +667,9 @@ Exit criteria:
 
 #### Batch 6C: Raw Ftrace Root-Cause Evidence Parity
 
-Status: in progress on 2026-06-23; raw-ftrace SQL exporter and cross-engine
-parity guard slices delivered, with representative customer `.sys` fixtures
-still pending.
+Status: delivered for SQL raw-ftrace export and cross-engine semantic parity on
+2026-06-23. Representative customer `.sys` fixture validation remains the
+Batch 6C3/overall Batch 6 external evidence gate.
 
 Exploration notes:
 
@@ -1193,7 +1198,7 @@ go test ./internal/repl
 
 ### Batch 8: SQL Resolver Fidelity and Coverage Closure
 
-Status: in progress, with Batch 8A and Batch 8B delivered on 2026-06-23.
+Status: delivered on 2026-06-23 through Batch 8A and Batch 8B.
 
 #### Batch 8A: thread_state Running Window Resolver
 
