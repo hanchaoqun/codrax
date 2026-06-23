@@ -139,11 +139,16 @@ type outputTranscriptRequestSetter interface {
 	SetOutputTranscriptRequest(string)
 }
 
-// readRunSnapshotSeedSetter is the explicit recovery channel for
-// /read-runs resume. It is intentionally not part of the base Runner
-// surface: routine read turns must never auto-consume the latest snapshot.
+// readRunSnapshotSeedSetter is the explicit fail-loud recovery channel for
+// /read-runs resume. It is intentionally not part of the base Runner surface.
 type readRunSnapshotSeedSetter interface {
 	SetReadRunSnapshotSeed(*types.ReadRunSnapshot)
+}
+
+// readRunSnapshotAutoSeedSetter is the soft routine resume channel for read
+// turns with exact typed identity matches. Mismatch falls back to a fresh run.
+type readRunSnapshotAutoSeedSetter interface {
+	SetReadRunSnapshotAutoSeed(*types.ReadRunSnapshot)
 }
 
 // modeSetter is the optional capability the REPL probes on its
@@ -6669,6 +6674,14 @@ func (r *REPL) dispatch(line, display string) {
 	// not designed to exercise write-mode behaviour.
 	if setter, ok := r.runner.(modeSetter); ok {
 		setter.SetMode(r.currentMode)
+	}
+
+	autoResumeRunID, clearAutoResumeSeed := r.installReadRunAutoResumeSeed(effective)
+	if clearAutoResumeSeed != nil {
+		defer clearAutoResumeSeed()
+	}
+	if autoResumeRunID != "" {
+		logging.Info("[repl/read-runs] auto-resume candidate installed: run=%s", autoResumeRunID)
 	}
 
 	if r.renderer != nil {

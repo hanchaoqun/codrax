@@ -222,6 +222,88 @@ func (s *ReadRunSnapshotStore) LoadComparablePrior(snapshot types.ReadRunSnapsho
 	return best, nil
 }
 
+func (s *ReadRunSnapshotStore) LoadAutoResumeCandidate(requestHash, repoRoot string) (*types.ReadRunSnapshot, error) {
+	if s == nil {
+		return nil, nil
+	}
+	requestHash = strings.TrimSpace(requestHash)
+	repoRoot = readRunNormalizedRepoRoot(repoRoot)
+	if requestHash == "" || repoRoot == "" {
+		return nil, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := os.ReadDir(s.runDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("ReadRunSnapshotStore.LoadAutoResumeCandidate: read %s: %w", s.runDir, err)
+	}
+	var best *types.ReadRunSnapshot
+	var bestMod int64
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".json.tmp") {
+			continue
+		}
+		id := strings.TrimSuffix(name, ".json")
+		if !validStoreIDPattern.MatchString(id) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		candidate, err := types.LoadReadRunSnapshotFromFile(filepath.Join(s.runDir, name))
+		if err != nil || candidate == nil {
+			continue
+		}
+		normalized := types.NormalizeReadRunSnapshot(*candidate)
+		if normalized.SchemaVersion != types.ReadRunSnapshotSchemaVersion ||
+			!validStoreIDPattern.MatchString(normalized.RunID) ||
+			normalized.RequestHash != requestHash ||
+			readRunNormalizedRepoRoot(normalized.RepoRoot) != repoRoot ||
+			!readRunSnapshotAutoResumeEligible(normalized) {
+			continue
+		}
+		mod := info.ModTime().UnixNano()
+		if best == nil || mod > bestMod || (mod == bestMod && normalized.RunID > best.RunID) {
+			copied := normalized
+			best = &copied
+			bestMod = mod
+		}
+	}
+	return best, nil
+}
+
+func readRunSnapshotAutoResumeEligible(snapshot types.ReadRunSnapshot) bool {
+	snapshot = types.NormalizeReadRunSnapshot(snapshot)
+	if snapshot.SchemaVersion != types.ReadRunSnapshotSchemaVersion ||
+		snapshot.RunID == "" ||
+		snapshot.RequestHash == "" ||
+		readRunNormalizedRepoRoot(snapshot.RepoRoot) == "" {
+		return false
+	}
+	if snapshot.ActiveState.IsActive() {
+		return true
+	}
+	if len(snapshot.NodeStatuses) == 0 {
+		return false
+	}
+	allDone := true
+	for _, status := range snapshot.NodeStatuses {
+		if types.NormalizeNodeExecStatus(status) != types.NodeExecDone {
+			allDone = false
+			break
+		}
+	}
+	return !allDone
+}
+
 func readRunSnapshotsComparable(target, candidate types.ReadRunSnapshot) bool {
 	target = types.NormalizeReadRunSnapshot(target)
 	candidate = types.NormalizeReadRunSnapshot(candidate)

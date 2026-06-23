@@ -250,6 +250,7 @@ type Orchestrator struct {
 
 	readRunSnapshotSaver ReadRunSnapshotSaver
 	readRunSnapshotSeed  *types.ReadRunSnapshot
+	readRunSnapshotSoft  bool
 	readRunActiveState   types.ReadRunActiveState
 	readRunActiveSeed    types.ReadRunActiveState
 	readRunCodraxVersion string

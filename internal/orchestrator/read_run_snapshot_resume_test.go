@@ -571,6 +571,52 @@ func TestE2E_ReadMode_RejectsBadReadRunSnapshotSeedFailLoud(t *testing.T) {
 	}
 }
 
+func TestE2E_ReadMode_AutoReadRunSnapshotSeedMismatchFallsBackFresh(t *testing.T) {
+	repoRoot := "/tmp/codrax-read-seed"
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	compiler.EnsureReadStageNodes(&ir.TaskGraph)
+	snapshot := readRunSnapshotSeedFixture(t, ir, repoRoot)
+	snapshot.TaskGraphHash = "different-graph"
+	explorerCalls := 0
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			if ctx.Mutable.EvidenceClosure().HasRead("seeded.go") {
+				t.Fatal("auto seed mismatch must not hydrate read coverage")
+			}
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "- fresh answer",
+			}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 2}, ar, sr, sar)
+	o.SetReadRunSnapshotAutoSeed(&snapshot)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("resume typed snapshot", repoRoot, "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if explorerCalls == 0 {
+		t.Fatal("auto seed mismatch should fall back to a fresh read run")
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("LastError = %q, want empty for soft auto seed mismatch", busCtx.TaskState.LastError)
+	}
+	if busCtx.Mutable.EvidenceClosure().HasRead("seeded.go") {
+		t.Fatal("auto seed mismatch must not leave partial hydrated state")
+	}
+}
+
 func readRunSnapshotSeedFixture(t *testing.T, ir *types.AnalysisIR, repoRoot string) types.ReadRunSnapshot {
 	t.Helper()
 	if ir == nil {

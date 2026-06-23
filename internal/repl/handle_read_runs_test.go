@@ -309,6 +309,90 @@ func TestReadRunsShowIncludesComparableReplayAuditCard(t *testing.T) {
 	}
 }
 
+func TestReadRunSnapshotStoreAutoResumeCandidateUsesTypedIdentity(t *testing.T) {
+	store := NewReadRunSnapshotStore(t.TempDir())
+	requestHash := types.ReadRunRequestHash("same typed request")
+	repoRoot := "/tmp/repo"
+	snapshots := []types.ReadRunSnapshot{
+		{
+			SchemaVersion: types.ReadRunSnapshotSchemaVersion,
+			RunID:         "read-auto-old",
+			Request:       "older prose should not matter",
+			RequestHash:   requestHash,
+			RepoRoot:      repoRoot,
+			NodeStatuses:  map[string]types.NodeExecStatus{"explore": types.NodeExecRunning},
+		},
+		{
+			SchemaVersion: types.ReadRunSnapshotSchemaVersion,
+			RunID:         "read-auto-new",
+			Request:       "different prose, same exact hash",
+			RequestHash:   requestHash,
+			RepoRoot:      repoRoot,
+			NodeStatuses: map[string]types.NodeExecStatus{
+				"explore": types.NodeExecDone,
+				"extract": types.NodeExecPending,
+			},
+		},
+		{
+			SchemaVersion: types.ReadRunSnapshotSchemaVersion,
+			RunID:         "read-auto-terminal",
+			Request:       "terminal should not resume",
+			RequestHash:   requestHash,
+			RepoRoot:      repoRoot,
+			NodeStatuses: map[string]types.NodeExecStatus{
+				"explore": types.NodeExecDone,
+				"extract": types.NodeExecDone,
+			},
+		},
+		{
+			SchemaVersion: types.ReadRunSnapshotSchemaVersion,
+			RunID:         "read-auto-other-request",
+			Request:       "other request",
+			RequestHash:   types.ReadRunRequestHash("other request"),
+			RepoRoot:      repoRoot,
+			ActiveState:   types.ReadRunActiveState{TransientRetryPending: true},
+		},
+		{
+			SchemaVersion: types.ReadRunSnapshotSchemaVersion,
+			RunID:         "read-auto-other-repo",
+			Request:       "same typed request",
+			RequestHash:   requestHash,
+			RepoRoot:      "/tmp/other-repo",
+			ActiveState:   types.ReadRunActiveState{TransientRetryPending: true},
+		},
+	}
+	for i := range snapshots {
+		if _, err := store.Save(&snapshots[i]); err != nil {
+			t.Fatalf("Save %s: %v", snapshots[i].RunID, err)
+		}
+		path := filepath.Join(store.RunDir(), snapshots[i].RunID+".json")
+		ts := time.Date(2026, 6, 22, 12, i, 0, 0, time.UTC)
+		if snapshots[i].RunID == "read-auto-terminal" {
+			ts = ts.Add(10 * time.Minute)
+		}
+		if err := os.Chtimes(path, ts, ts); err != nil {
+			t.Fatalf("Chtimes %s: %v", path, err)
+		}
+	}
+
+	got, err := store.LoadAutoResumeCandidate(requestHash, repoRoot)
+	if err != nil {
+		t.Fatalf("LoadAutoResumeCandidate: %v", err)
+	}
+	if got == nil || got.RunID != "read-auto-new" {
+		t.Fatalf("candidate = %+v, want read-auto-new", got)
+	}
+	if got.Request == "same typed request" {
+		t.Fatalf("candidate selection should not rewrite or depend on prose: %+v", got)
+	}
+	if got, err := store.LoadAutoResumeCandidate(types.ReadRunRequestHash("missing"), repoRoot); err != nil || got != nil {
+		t.Fatalf("mismatched request candidate = %+v err=%v, want nil", got, err)
+	}
+	if got, err := store.LoadAutoResumeCandidate(requestHash, "/tmp/other-repo"); err != nil || got == nil || got.RunID != "read-auto-other-repo" {
+		t.Fatalf("repo-scoped candidate = %+v err=%v, want other-repo active snapshot", got, err)
+	}
+}
+
 func TestReadRunsResumeDispatchesTypedSeed(t *testing.T) {
 	store := NewReadRunSnapshotStore(t.TempDir())
 	snapshot := &types.ReadRunSnapshot{

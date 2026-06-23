@@ -24,23 +24,47 @@ const (
 	readRunSnapshotSeedReasonNoAnalysisIR          = "analysis_ir_missing"
 )
 
-// SetReadRunSnapshotSeed installs a one-shot typed resume seed. The seed is
-// explicit: routine read mode never auto-loads the latest snapshot.
+// SetReadRunSnapshotSeed installs a one-shot typed resume seed. The explicit
+// recovery channel is fail-loud: validation mismatch stops the read run.
 func (o *Orchestrator) SetReadRunSnapshotSeed(snapshot *types.ReadRunSnapshot) {
 	if o == nil {
 		return
 	}
 	if snapshot == nil {
 		o.readRunSnapshotSeed = nil
+		o.readRunSnapshotSoft = false
 		return
 	}
 	normalized := types.NormalizeReadRunSnapshot(*snapshot)
 	o.readRunSnapshotSeed = &normalized
+	o.readRunSnapshotSoft = false
+}
+
+// SetReadRunSnapshotAutoSeed installs a routine read-run resume candidate.
+// It uses the same typed validator as explicit resume, but mismatch is
+// audit-only and falls back to a fresh read run.
+func (o *Orchestrator) SetReadRunSnapshotAutoSeed(snapshot *types.ReadRunSnapshot) {
+	if o == nil {
+		return
+	}
+	if snapshot == nil {
+		o.readRunSnapshotSeed = nil
+		o.readRunSnapshotSoft = false
+		return
+	}
+	normalized := types.NormalizeReadRunSnapshot(*snapshot)
+	o.readRunSnapshotSeed = &normalized
+	o.readRunSnapshotSoft = true
 }
 
 func (o *Orchestrator) applyReadRunSnapshotSeedToTaskState() bool {
+	soft := o != nil && o.readRunSnapshotSoft
 	if err := o.applyReadRunSnapshotSeed(); err != nil {
 		logging.Warning("[orchestrator] read run snapshot seed rejected: %v", err)
+		if soft {
+			logging.Info("[orchestrator] read run auto snapshot seed ignored; continuing fresh: %v", err)
+			return true
+		}
 		if o != nil && o.busCtx != nil && o.busCtx.TaskState.LastError == "" {
 			o.busCtx.TaskState.LastError = err.Error()
 		}
@@ -55,6 +79,7 @@ func (o *Orchestrator) applyReadRunSnapshotSeed() error {
 	}
 	snapshot := *o.readRunSnapshotSeed
 	o.readRunSnapshotSeed = nil
+	o.readRunSnapshotSoft = false
 	if o.busCtx == nil || o.busCtx.Mode != types.ModeRead {
 		return nil
 	}

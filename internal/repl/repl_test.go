@@ -84,6 +84,26 @@ func (r *outputTranscriptRunner) Run(request, _, _ string) (*types.BusContext, e
 	return &types.BusContext{Mutable: mut}, nil
 }
 
+type readRunAutoResumeDispatchRunner struct {
+	requests       []string
+	autoSeedRunIDs []string
+}
+
+func (r *readRunAutoResumeDispatchRunner) SetReadRunSnapshotAutoSeed(snapshot *types.ReadRunSnapshot) {
+	if snapshot == nil {
+		r.autoSeedRunIDs = append(r.autoSeedRunIDs, "")
+		return
+	}
+	r.autoSeedRunIDs = append(r.autoSeedRunIDs, snapshot.RunID)
+}
+
+func (r *readRunAutoResumeDispatchRunner) Run(request, _, _ string) (*types.BusContext, error) {
+	r.requests = append(r.requests, request)
+	mut := types.NewMutableState(request)
+	mut.SetResult("auto resume answer")
+	return &types.BusContext{Mutable: mut}, nil
+}
+
 type mermaidAnswerRunner struct{}
 
 func (mermaidAnswerRunner) Run(_, _, _ string) (*types.BusContext, error) {
@@ -480,6 +500,76 @@ func TestDispatchPropagatesExpandedRequestForOutputTranscript(t *testing.T) {
 	}
 	if last.RequestForSummary != expanded {
 		t.Fatalf("memory summary request = %q, want expanded %q", last.RequestForSummary, expanded)
+	}
+}
+
+func TestDispatchInstallsReadRunAutoResumeSeedForExactRoutineRead(t *testing.T) {
+	mem, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	snapshots := NewReadRunSnapshotStore(t.TempDir())
+	request := "which agent can call subagent"
+	snapshot := &types.ReadRunSnapshot{
+		SchemaVersion: types.ReadRunSnapshotSchemaVersion,
+		RunID:         "read-auto-live",
+		Request:       "stored prose is not consumed by selector",
+		RequestHash:   types.ReadRunRequestHash(request),
+		RepoRoot:      "/tmp/repo",
+		NodeStatuses:  map[string]types.NodeExecStatus{"explore": types.NodeExecRunning},
+	}
+	if _, err := snapshots.Save(snapshot); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	runner := &readRunAutoResumeDispatchRunner{}
+	var out bytes.Buffer
+	r := New(Config{
+		Runner:               runner,
+		Store:                mem,
+		Render:               renderNothing,
+		RepoRoot:             "/tmp/repo",
+		Branch:               "main",
+		In:                   strings.NewReader(""),
+		Out:                  &out,
+		Language:             "en",
+		ReadRunSnapshotStore: snapshots,
+	})
+
+	r.dispatch(request, request)
+
+	if len(runner.requests) != 1 || runner.requests[0] != request {
+		t.Fatalf("Run requests = %#v, want exact current request", runner.requests)
+	}
+	if got := strings.Join(runner.autoSeedRunIDs, "|"); got != "read-auto-live|" {
+		t.Fatalf("auto seed calls = %#v, want install then clear", runner.autoSeedRunIDs)
+	}
+}
+
+func TestReadRunAutoResumeSeedSkipsNonReadMode(t *testing.T) {
+	snapshots := NewReadRunSnapshotStore(t.TempDir())
+	request := "same typed request"
+	if _, err := snapshots.Save(&types.ReadRunSnapshot{
+		SchemaVersion: types.ReadRunSnapshotSchemaVersion,
+		RunID:         "read-auto-live",
+		Request:       request,
+		RequestHash:   types.ReadRunRequestHash(request),
+		RepoRoot:      "/tmp/repo",
+		ActiveState:   types.ReadRunActiveState{TransientRetryPending: true},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	runner := &readRunAutoResumeDispatchRunner{}
+	r := New(Config{
+		Runner:               runner,
+		RepoRoot:             "/tmp/repo",
+		Branch:               "main",
+		ReadRunSnapshotStore: snapshots,
+		Language:             "en",
+	})
+	r.currentMode = types.ModeApply
+	runID, clear := r.installReadRunAutoResumeSeed(request)
+	if runID != "" || clear != nil || len(runner.autoSeedRunIDs) != 0 {
+		t.Fatalf("non-read auto seed = runID=%q clear=%v calls=%#v, want none", runID, clear != nil, runner.autoSeedRunIDs)
 	}
 }
 
