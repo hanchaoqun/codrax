@@ -24,6 +24,16 @@ const (
 	// a source-family exact absence declared while the typed source-class
 	// universe (production/test/fixture/corpus/thirdparty/...) is still open.
 	DowngradeLaneSourceClassUniverse DowngradeLane = "source_class_universe"
+	// DowngradeLanePathDiscoveryAbsence is the file-family absence proof gate:
+	// a typed inventory/file-family zero answer still lacks recursive path
+	// discovery or an authoritative source_inventory lens. It can force-complete
+	// only as a caveated answer after low-delta convergence.
+	DowngradeLanePathDiscoveryAbsence DowngradeLane = "path_discovery_absence"
+	// DowngradeLaneExactAbsenceContext is the exact-absence related-context
+	// gate: the target absence is plausible, but the same-scope context anchor
+	// or precedence role evidence has not been materialized. It is a repair lane,
+	// not an infinite hard reject.
+	DowngradeLaneExactAbsenceContext DowngradeLane = "exact_absence_context"
 	// DowngradeLaneContractChain is the pre-complete contract-check chain gate
 	// (the ~13 sub-checks aggregate into this lane; the typed BlockerKey below
 	// distinguishes which sub-blocker is active).

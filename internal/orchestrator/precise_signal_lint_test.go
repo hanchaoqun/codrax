@@ -35,6 +35,9 @@ func TestNoKeywordMatchOfUserIntentInGates(t *testing.T) {
 		"write_analysis_quality.go",
 		"../analysis/gate/coherence.go",
 		"../tool/answer_document_pre_emit_check.go",
+		"../tool/emit_answer_document_patch.go",
+		"../tool/emit_answer_document_v2.go",
+		"../tool/emit_evidence.go",
 		"../tool/emit_investigation_complete.go",
 		// gap 4: the absence / candidate-universe coverage decisions must stay
 		// typed (scope class, member sets, typed enums) — never keyword-match

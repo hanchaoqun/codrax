@@ -228,6 +228,9 @@ func TestFixI_ChangeImpactCurrentRequestProposalSurfacePasses(t *testing.T) {
 	mut := types.NewMutableState("rename")
 	mut.SetRequestModel(types.RequestModel{
 		RawRequest: "如果把 internal/types/analysis_ir.go 里的 ShapeValue 常量改名为 ShapeScalar，还需要改哪些文件？",
+		AnalyzerHints: types.AnalyzerHints{
+			MentionedEntities: []string{"ShapeValue", "ShapeScalar"},
+		},
 		ChangeImpactProfile: &types.ChangeImpactProfile{
 			IsChangeImpact:  true,
 			Target:          "ShapeValue",
@@ -237,6 +240,30 @@ func TestFixI_ChangeImpactCurrentRequestProposalSurfacePasses(t *testing.T) {
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
 	if vs := validateInlineIdentifierHallucination(doc, oracle, nil, mut); len(vs) != 0 {
 		t.Fatalf("user-proposed change-impact surface should not be treated as a fabricated existing symbol; got %+v", vs)
+	}
+}
+
+func TestFixI_ChangeImpactRawRequestProposalWithoutTypedMentionDoesNotPass(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "The proposed new name `ShapeScalar` is a request surface.",
+		}},
+	}
+	mut := types.NewMutableState("rename")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "如果把 internal/types/analysis_ir.go 里的 ShapeValue 常量改名为 ShapeScalar，还需要改哪些文件？",
+		ChangeImpactProfile: &types.ChangeImpactProfile{
+			IsChangeImpact:  true,
+			Target:          "ShapeValue",
+			RequestedOutput: types.ImpactOutputFiles,
+		},
+	})
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	vs := validateInlineIdentifierHallucination(doc, oracle, nil, mut)
+	if len(vs) != 1 {
+		t.Fatalf("change-impact raw request text alone must not vouch for a proposed surface; got %+v", vs)
 	}
 }
 

@@ -1649,8 +1649,11 @@ func TestEmitInvestigationComplete_ConfigTraceAbsenceRejectsGroundedSameScopeCon
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatal("config-trace absence closure should keep requiring a precedence-capable anchor before closing")
+	if !res.Success {
+		t.Fatalf("config-trace absence context debt should soft-downgrade, not hard-reject: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatal("config-trace absence context debt must not mark completion before convergence")
 	}
 	if !strings.Contains(res.Summary, "precedence-capable lineage anchor") || !strings.Contains(res.Summary, "diagram_role_hint") {
 		t.Fatalf("rejection should explain the missing precedence-role requirement, got %q", res.Summary)
@@ -1709,8 +1712,11 @@ func TestEmitInvestigationComplete_ConfigTraceAbsenceAlreadyReadScopeQueuesEmitE
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatal("config-trace absence closure should still reject until precedence evidence is materialized")
+	if !res.Success {
+		t.Fatalf("config-trace absence evidence debt should soft-downgrade, not hard-reject: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatal("config-trace absence evidence debt must not mark completion before convergence")
 	}
 	if !strings.Contains(res.Summary, "already in read coverage") || !strings.Contains(res.Summary, "Do NOT widen scope") {
 		t.Fatalf("rejection should explain that already-read scope needs evidence materialization, got %q", res.Summary)
@@ -1772,8 +1778,11 @@ func TestEmitInvestigationComplete_ConfigTraceAbsencePrefersMaterializeOverUnrea
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatal("config-trace absence closure should still reject until precedence evidence is materialized")
+	if !res.Success {
+		t.Fatalf("config-trace absence evidence debt should soft-downgrade, not hard-reject: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatal("config-trace absence evidence debt must not mark completion before convergence")
 	}
 	if !strings.Contains(res.Summary, "already in read coverage") || !strings.Contains(res.Summary, "Do NOT widen scope") {
 		t.Fatalf("rejection should keep the repair on already-read scope before unread siblings, got %q", res.Summary)
@@ -1842,8 +1851,11 @@ func TestEmitInvestigationComplete_ConfigTraceContextOnlyEvidenceRequiresValidat
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatal("config-trace context-only evidence should not close absence until one same-scope anchor carries a validated precedence role")
+	if !res.Success {
+		t.Fatalf("config-trace context-only evidence debt should soft-downgrade, not hard-reject: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatal("config-trace context-only evidence debt must not mark completion before convergence")
 	}
 	if !strings.Contains(res.Summary, "precedence-capable lineage anchor") || !strings.Contains(res.Summary, "diagram_role_hint") {
 		t.Fatalf("rejection should explain the validated-precedence requirement, got: %s", res.Summary)
@@ -3752,8 +3764,11 @@ func TestEmitInvestigationComplete_RejectsPathFamilyAbsenceAfterPathFilteredGrep
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatalf("path-filtered grep-only empty proof should be rejected")
+	if !res.Success {
+		t.Fatalf("path-filtered grep-only empty proof should soft-downgrade, not hard-reject: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("path-filtered grep-only empty proof must not mark completion before convergence")
 	}
 	if !strings.Contains(res.Summary, "repo-wide file-family absence is not proven") ||
 		!strings.Contains(res.Summary, "list_files") {
@@ -3796,6 +3811,49 @@ func TestEmitInvestigationComplete_AcceptsPathFamilyAbsenceAfterRecursiveListFil
 	}
 }
 
+func TestEmitInvestigationComplete_PathFamilyAbsenceDebtForceCompletesWithCaveatAfterConvergence(t *testing.T) {
+	prevPolicy := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prevPolicy) })
+	SetDowngradeConvergenceHardThreshold(2)
+	t.Cleanup(func() { SetDowngradeConvergenceHardThreshold(0) })
+
+	mut := types.NewMutableState("List all ArkTS entry components")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: "[grep params: pattern=@Entry|@Builder path=. include=*.ets files_only=true]\n" +
+			"no matches found\n" +
+			"path_discovery_advisory=grep searches file contents, not file names.\n",
+	})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all ArkTS entry components",
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir, RepoRoot: t.TempDir()}
+	tool := &EmitInvestigationComplete{}
+
+	first, err := tool.Execute(bus, exactEmptyArkTSAggregateCompletionParams())
+	if err != nil {
+		t.Fatalf("first Execute returned error: %v", err)
+	}
+	if !first.Success || mut.IsInvestigationComplete() {
+		t.Fatalf("first path-family debt should soft-downgrade without completion: success=%t summary=%s", first.Success, first.Summary)
+	}
+	second, err := tool.Execute(bus, exactEmptyArkTSAggregateCompletionParams())
+	if err != nil {
+		t.Fatalf("second Execute returned error: %v", err)
+	}
+	if !second.Success || !mut.IsInvestigationComplete() {
+		t.Fatalf("repeated identical path-family debt should force-complete with caveat: success=%t summary=%s", second.Success, second.Summary)
+	}
+	caveats := mut.EvidenceClosure().CompletionCaveats()
+	if len(caveats) != 1 || caveats[0].Lane != types.DowngradeLanePathDiscoveryAbsence {
+		t.Fatalf("completion caveats = %+v, want path_discovery_absence", caveats)
+	}
+}
+
 func TestEmitInvestigationComplete_RequiresAuxiliaryPathDiscoveryWhenRepoHasAuxiliaryTrees(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
@@ -3830,8 +3888,11 @@ func TestEmitInvestigationComplete_RequiresAuxiliaryPathDiscoveryWhenRepoHasAuxi
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatalf("auxiliary tree should require include_auxiliary=true")
+	if !res.Success {
+		t.Fatalf("auxiliary tree path proof should soft-downgrade, not hard-reject: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("auxiliary tree path proof must not mark completion before convergence")
 	}
 	if !strings.Contains(res.Summary, "include_auxiliary=true") {
 		t.Fatalf("summary should request auxiliary discovery, got: %s", res.Summary)
@@ -4762,11 +4823,73 @@ func TestEmitInvestigationComplete_ConfigAbsenceRejectsUngroundedRequiredContext
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatalf("absence closure should be rejected until a grounded required related-context anchor exists")
+	if !res.Success {
+		t.Fatalf("absence closure with missing required context should soft-downgrade, not hard-reject: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("missing required context must not mark completion before convergence")
 	}
 	if !strings.Contains(res.Summary, "precedence-capable lineage anchor") || !strings.Contains(res.Summary, "diagram_role_hint") || !strings.Contains(res.Summary, "internal/types/config.go") {
 		t.Fatalf("rejection should name the missing related-context requirement, got: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_ExactAbsenceContextDebtForceCompletesWithCaveatAfterConvergence(t *testing.T) {
+	SetDowngradeConvergenceHardThreshold(2)
+	t.Cleanup(func() { SetDowngradeConvergenceHardThreshold(0) })
+
+	missingKey := "explore_mid_loop_missing_knob"
+	mut := types.NewMutableState("q")
+	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       207,
+			LineEnd:         221,
+			Subject:         missingKey,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "RuntimeSettings",
+			Summary:         "RuntimeSettings does not define " + missingKey,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: missingKey + " 的默认值在哪定义？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+				ExactTargets:    []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{"reason":"searched the repo and found no exact config key ` + missingKey + ` in production code","confidence":"high","result_kind":"absence","absence_justification":"no config key named ` + missingKey + ` exists in the repo"}`)
+
+	first, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("first Execute returned error: %v", err)
+	}
+	if !first.Success || mut.IsInvestigationComplete() {
+		t.Fatalf("first exact-absence context debt should soft-downgrade without completion: success=%t summary=%s", first.Success, first.Summary)
+	}
+	second, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("second Execute returned error: %v", err)
+	}
+	if !second.Success || !mut.IsInvestigationComplete() {
+		t.Fatalf("repeated exact-absence context debt should force-complete with caveat: success=%t summary=%s", second.Success, second.Summary)
+	}
+	caveats := mut.EvidenceClosure().CompletionCaveats()
+	if len(caveats) != 1 || caveats[0].Lane != types.DowngradeLaneExactAbsenceContext {
+		t.Fatalf("completion caveats = %+v, want exact_absence_context", caveats)
 	}
 }
 
@@ -4954,8 +5077,11 @@ func TestEmitInvestigationComplete_ConfigAbsenceRejectsGroundedRequiredContextWi
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatal("config-trace absence closure should keep requiring a precedence-capable lineage anchor when the nearby context lacks a validated diagram role")
+	if !res.Success {
+		t.Fatalf("config-trace absence context without validated diagram role should soft-downgrade, not hard-reject: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatal("context without validated diagram role must not mark completion before convergence")
 	}
 	if !strings.Contains(res.Summary, "precedence-capable lineage anchor") || !strings.Contains(res.Summary, "diagram_role_hint") {
 		t.Fatalf("rejection should explain the missing precedence anchor requirement, got: %s", res.Summary)
@@ -5015,8 +5141,11 @@ func TestEmitInvestigationComplete_ConfigAbsenceRejectsRecoveredRequiredContext(
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatal("recovered related-context evidence should not satisfy config-trace absence closure")
+	if !res.Success {
+		t.Fatalf("recovered related-context evidence should soft-downgrade, not hard-reject: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatal("recovered related-context evidence must not mark completion before convergence")
 	}
 	if !strings.Contains(res.Summary, "grounded precedence-capable lineage anchor") && !strings.Contains(res.Summary, "precedence-capable lineage anchor") {
 		t.Fatalf("rejection should preserve the missing-grounded-anchor guidance, got: %s", res.Summary)

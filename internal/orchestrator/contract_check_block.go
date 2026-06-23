@@ -4370,11 +4370,25 @@ func inlineIdentifierSupportedByCurrentRequestProposal(ident string, mut *types.
 	default:
 		return false
 	}
-	raw := strings.TrimSpace(rm.RawRequest)
-	if raw == "" {
-		return false
+	for _, token := range currentRequestProposalSupportTokens(rm) {
+		if typedLabelTokenSupportsLabel(token, ident) {
+			return true
+		}
 	}
-	return strings.Contains(raw, ident)
+	return false
+}
+
+func currentRequestProposalSupportTokens(rm *types.RequestModel) []string {
+	if rm == nil || rm.ChangeImpactProfile == nil || !rm.ChangeImpactProfile.Active() {
+		return nil
+	}
+	var out []string
+	if target := strings.TrimSpace(rm.ChangeImpactProfile.Target); target != "" {
+		out = append(out, target)
+	}
+	out = append(out, rm.AnalyzerHints.MentionedEntities...)
+	out = append(out, rm.AnalyzerHints.ExactTargets...)
+	return out
 }
 
 func inlineIdentifierSupportedByLogBundle(ident string, bundle *types.LogBundle) bool {

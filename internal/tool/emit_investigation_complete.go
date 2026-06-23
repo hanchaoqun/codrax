@@ -1375,14 +1375,6 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
-	if msg := completionPathDiscoveryAbsenceProofReject(ctx, resultKind, aggregateFacts); msg != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Summary:   msg,
-			Success:   false,
-			Timestamp: time.Now(),
-		}, nil
-	}
 	// has_per_member_table completion obligation (2026-06-12
 	// sequence-table forensics): the analyzer-declared typed shape
 	// makes the bounded member set part of the answer, so a resolved
@@ -1690,13 +1682,29 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "grounding_citation_floors", groundingFloorStart, len(evidenceSnapshot))
 
+	earlyDowngradeConverged := false
 	if msg := completionPathDiscoveryAbsenceProofReject(ctx, resultKind, effectiveAggregateFacts); msg != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Summary:   msg,
-			Success:   false,
-			Timestamp: time.Now(),
-		}, nil
+		queuePathDiscoveryAbsenceRepair(ctx)
+		if !preCompleteDowngradeConverges(ctx, types.DowngradeLanePathDiscoveryAbsence) {
+			if ctx != nil && ctx.Mutable != nil {
+				ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			}
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary:  preCompleteDowngradeSummary(msg),
+				Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
+					Code: "path_discovery_absence_proof",
+					Hint: "Complete the typed file-family absence proof with recursive path discovery that includes repo-owned auxiliary/corpus trees, or with an authoritative source_inventory lens.",
+					Metadata: map[string]string{
+						"result_kind":   "absence",
+						"repair_origin": "emit_investigation_complete.path_discovery_absence",
+					},
+				}),
+				Success:   true,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		earlyDowngradeConverged = true
 	}
 
 	// Declarative absence claim. Stored on Mutable so the orchestrator
@@ -1885,13 +1893,19 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 					},
 				)
 				queueCompletionRepairs(ctx, repairKind, repairFiles, rationale, repairOrigin)
-				return types.ToolResult{
-					ToolName:  t.Name(),
-					Summary:   summary,
-					Repair:    attachToolJSONSurfaceMetadata(t.Name(), repair),
-					Success:   false,
-					Timestamp: time.Now(),
-				}, nil
+				if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneExactAbsenceContext) {
+					if ctx != nil && ctx.Mutable != nil {
+						ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+					}
+					return types.ToolResult{
+						ToolName:  t.Name(),
+						Summary:   preCompleteDowngradeSummary(summary),
+						Repair:    attachToolJSONSurfaceMetadata(t.Name(), repair),
+						Success:   true,
+						Timestamp: time.Now(),
+					}, nil
+				}
+				earlyDowngradeConverged = true
 			}
 		}
 	}
@@ -1925,7 +1939,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// reset convergence; only a genuinely changed blocker does. The else-if
 	// chain preserves "first firing gate wins" and lets a converged gate skip
 	// the rest and complete.
-	if downgrade := currentSourceLaneCoverageDowngrade(ctx, preflight); downgrade != "" {
+	if earlyDowngradeConverged {
+		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_gate_chain", preCompleteStart, len(preflight.Evidence))
+	} else if downgrade := currentSourceLaneCoverageDowngrade(ctx, preflight); downgrade != "" {
 		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_current_source_lane", preCompleteStart, len(preflight.Evidence))
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneCurrentSourceLane) {
 			if ctx != nil && ctx.Mutable != nil {
@@ -2207,6 +2223,36 @@ func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLa
 	logging.Info("[emit_investigation_complete] low-delta convergence force-complete lane=%s after %d consecutive no-progress attempts (blocker=%d reason=%s)",
 		lane, decision.Delta.Consecutive, blockerKey, decision.ReasonCode)
 	return true
+}
+
+func preCompleteDowngradeSummary(summary string) string {
+	summary = strings.TrimSpace(summary)
+	const rejectedPrefix = "emit_investigation_complete rejected:"
+	if strings.HasPrefix(summary, rejectedPrefix) {
+		return "emit_investigation_complete DOWNGRADED: " + strings.TrimSpace(strings.TrimPrefix(summary, rejectedPrefix))
+	}
+	if summary == "" {
+		return "emit_investigation_complete DOWNGRADED: completion is delayed by a typed pre-complete repair lane."
+	}
+	return "emit_investigation_complete DOWNGRADED: " + summary
+}
+
+func queuePathDiscoveryAbsenceRepair(ctx *types.BusContext) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return
+	}
+	closure.AddRepair(types.RepairDirective{
+		Kind:      types.RepairStructuredHandoff,
+		Subject:   "path_discovery_absence_proof",
+		Tools:     []string{"list_files", "repo_map"},
+		Rationale: "typed file-family absence needs recursive path discovery with auxiliary/corpus coverage or an authoritative source_inventory lens before declaring a hard zero",
+		Origin:    "emit_investigation_complete.path_discovery_absence",
+		Stage:     string(types.StageExplore),
+	})
 }
 
 // CurrentInvestigationCompletePolicy returns the active policy
