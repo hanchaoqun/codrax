@@ -1749,6 +1749,50 @@ go test ./internal/hitraceconv -run 'TestBuildTraceToolStatus|TestTraceStreamerH
 go test ./cmd -run 'TestTraceConvertTraceToolStatusLines' -count=1
 ```
 
+#### Batch 11B: REPL Trace Tools Status
+
+Status: planned.
+
+Gap:
+
+- Batch 11A made `no_perf_sys_binary_parity` visible through CLI
+  `codrax trace convert --trace-tools-status`.
+- The interactive workflow still requires users to leave the REPL to see that
+  same trace_streamer/provider/gate status, even though `/htrace convert` is a
+  supported conversion path and its usage text already points at tool status.
+- This weakens transparency for users who primarily work through `/htrace`
+  attachment and conversion commands.
+
+Design:
+
+- Add `/htrace tools-status` as a REPL-only status command.
+- Reuse `hitraceconv.BuildTraceToolStatus` as the single status authority.
+- Render the same high-value fields as CLI, with REPL-native formatting:
+  - engine mode and selected engine;
+  - trace_streamer provider readiness, source/path/checks/caveats;
+  - built-in provider boundary;
+  - `no_perf_sys_binary_parity` gate state, fixture count, required evidence,
+    and caveats.
+- Keep the command read-only:
+  - no artifact attachment changes;
+  - no trace conversion;
+  - no path probing beyond the bounded provider/status checks already used by
+    `BuildTraceToolStatus`;
+  - no user-prose or filename-keyword routing.
+- Extend `/htrace` usage, full help, and native suggestions so the command is
+  discoverable.
+- Prompt/JSON contract:
+  - no model tool-call input fields are added;
+  - no JSON repair aliases are required;
+  - output remains human/tool-status UX, not trace_query evidence.
+
+Exit criteria:
+
+- REPL users can inspect trace engine/tool/gate status without leaving the
+  session.
+- `/htrace tools-status` output includes the sys parity gate and is localized.
+- `/htrace tools-status` does not mutate attached trace state.
+
 ## Running Verification Matrix
 
 Each implemented batch must run the narrow package tests it touches. Before goal
