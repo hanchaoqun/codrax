@@ -1556,6 +1556,77 @@ Delivered:
 - Added tests for runtime extraction, cache reuse, unsupported host platforms,
   hash mismatch, and `BuildTraceToolStatus` provenance.
 
+### Batch 10: Coverage Telemetry Closure
+
+Status: planned for Batch 10A.
+
+#### Batch 10A: Coverage Elapsed-Time Handoff
+
+Status: planned.
+
+Gap:
+
+- The performance/memory budget requires coverage stats to include elapsed
+  time, but `TraceDBCoverage` currently exposes rows, peak buffered rows, spill
+  chunks, and temp bytes only.
+- That leaves users and downstream model stages with memory pressure visibility
+  but weak timing visibility. For large trace_streamer DB conversions, a slow
+  extractor, resolver, raw-ftrace pass, sorter merge, or trace_query
+  cross-validation can be invisible unless it also emits many rows.
+- This is a structured provenance gap. It must be solved in tracebundle
+  metadata and query-result caveats, not through prompt prose or ad-hoc log
+  parsing.
+
+Design:
+
+- Add `elapsed_us` to `TraceDBCoverage`.
+- Populate elapsed timing at the coverage producer boundary:
+  - table/resolver inspections where the helper owns the SQL query;
+  - sorter coverage around in-memory sort, spill, and merge/write;
+  - trace_query cross-validation coverage;
+  - major SQL exporter families where a single function returns one or more
+    coverage rows.
+- Use microseconds instead of milliseconds so fast unit fixtures still carry
+  measurable non-zero timing when possible.
+- Keep overhead bounded:
+  - use monotonic `time.Now()`/`time.Since()` only at exporter/resolver
+    boundaries, not per row;
+  - never keep timing logs in memory;
+  - no extra DB queries for timing.
+- Handoff and UX:
+  - serialize `elapsed_us` into `.tracebundle.json`;
+  - preserve it when `trace_query` parses tracebundles and emits caveats;
+  - show it in CLI and REPL coverage detail lines when present.
+- Prompt/JSON contract:
+  - no trace_query tool-call input fields are added;
+  - `elapsed_us` is output metadata only, so no JSON repair aliases are needed.
+
+Tasks:
+
+- Extend `TraceDBCoverage` and `traceBundleCoverage` with `elapsed_us`.
+- Add small timing helpers that safely set elapsed microseconds.
+- Instrument the DB exporter/resolver/sorter/cross-validation coverage producers
+  without changing row semantics.
+- Update CLI and REPL coverage formatting plus tests for Chinese/English output.
+- Update tracebundle serialization and `trace_query` caveat tests so model
+  handoff includes elapsed timing.
+- Run focused and broad tests:
+
+```bash
+go test ./internal/hitraceconv -run 'TestTraceBundleIncludesTraceDBCoverage|TestTraceDBCore|TestTraceDBRowSink' -count=1
+go test ./internal/tracequery -run 'TestTraceBundle' -count=1
+go test ./cmd ./internal/repl
+go test ./internal/hitraceconv ./internal/tracequery
+```
+
+Exit criteria:
+
+- Conversion coverage carries both memory and timing telemetry through
+  tracebundle, terminal/REPL output, and trace_query caveats.
+- Timing instrumentation is per-stage/per-exporter, not per-row, and does not
+  add unbounded memory or query overhead.
+- No model JSON input or repair-layer change is introduced.
+
 ## Running Verification Matrix
 
 Each implemented batch must run the narrow package tests it touches. Before goal
