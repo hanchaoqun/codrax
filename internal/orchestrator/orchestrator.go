@@ -5112,16 +5112,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// closure so each fires exactly once. ConsumeRepairs is
 			// atomic — it returns the queue and clears the field in
 			// one step.
-			var pendingRepairs []types.RepairDirective
-			if o.busCtx.Mutable != nil {
-				closure := o.busCtx.Mutable.EvidenceClosure()
-				if o.acceptedClosureAllowsAdvisoryDebt() {
-					if cleared := closure.ClearPendingReadsByDebtClass(types.RepairDebtAdvisory); cleared > 0 {
-						logging.Info("[orchestrator] accepted closure dropped %d advisory pending read(s) before retry-hint render", cleared)
-						o.emitAcceptedClosureAdvisoryDebtSkippedNotice()
-					}
-				}
-				pendingRepairs = closure.ConsumeRepairs()
+			pendingRepairs, localLandingPolicy, localLandingHint, localLandingActive := o.consumeExploreRepairsAndLocalLandingPolicy(blocked, pendingValidationTargets, pendingViolation, pendingStageRetry)
+			if localLandingActive {
+				parallelWindows = nil
+				parallelism = 1
 			}
 			stopLocal = o.startSchedulerLocalWork(types.StageExplore, "window_hint")
 			var hint string
@@ -5145,6 +5139,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 						break
 					}
 				}
+			} else if localLandingActive {
+				hint, err = renderWindowHintContext(o.CancelContext(), nil, nil, nil, resolveSurface, "", "", pendingRepairs)
 			} else {
 				hint, err = renderWindowHintContext(o.CancelContext(), window, blocked, pendingValidationTargets, resolveSurface, pendingViolation, pendingStageRetry, pendingRepairs)
 			}
@@ -5154,7 +5150,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				}
 				return stepsUsed
 			}
-			if checkpointHint := state.consumeTransientRetryHint(); checkpointHint != "" {
+			if checkpointHint := state.consumeTransientRetryHint(); checkpointHint != "" && !localLandingActive {
 				if len(parallelWindows) > 0 {
 					for i := range parallelHints {
 						parallelHints[i] = prependRetryHint(checkpointHint, parallelHints[i])
@@ -5163,7 +5159,16 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					hint = prependRetryHint(checkpointHint, hint)
 				}
 			}
-			readDispatchPolicy, readDispatchPolicyActive := applyReadLoopNextActionHint(state, &hint, parallelHints)
+			var readDispatchPolicy types.ReadDispatchPolicy
+			var readDispatchPolicyActive bool
+			if !localLandingActive {
+				readDispatchPolicy, readDispatchPolicyActive = applyReadLoopNextActionHint(state, &hint, parallelHints)
+			}
+			if localLandingActive {
+				hint = prependRetryHint(localLandingHint, hint)
+				readDispatchPolicy = localLandingPolicy
+				readDispatchPolicyActive = true
+			}
 			pendingViolation = ""
 			pendingStageRetry = ""
 			pendingValidationTargets = nil
@@ -5198,12 +5203,18 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// over them in the SAME dispatch, rather than waiting
 			// for the next retry round. Harmless no-op when
 			// PendingReads is empty.
-			preseededRequiredFiles := o.seedRequiredFileHintForcedReadsBeforeExploreForWindow(window)
+			preseededRequiredFiles := 0
+			if !localLandingActive {
+				preseededRequiredFiles = o.seedRequiredFileHintForcedReadsBeforeExploreForWindow(window)
+			}
 			if preseededRequiredFiles > 0 {
 				logging.Info("[CGEC] pre-dispatch seeded %d required-file forced-read(s)", preseededRequiredFiles)
 			}
 			stopLocal = o.startSchedulerLocalWork(types.StageExplore, "forced_reads_pre_dispatch")
-			read := o.runForcedReads()
+			read := 0
+			if !localLandingActive {
+				read = o.runForcedReads()
+			}
 			if o.finishSchedulerLocalWork(stopLocal, "forced_reads_pre_dispatch", stepsUsed) {
 				return stepsUsed
 			}

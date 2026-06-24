@@ -3,8 +3,10 @@ package types
 import "strings"
 
 const (
-	ReadDispatchPolicyActionAddProof = "add_proof"
-	ReadDispatchPolicySurfaceVerify  = "verification"
+	ReadDispatchPolicyActionAddProof      = "add_proof"
+	ReadDispatchPolicyActionLandingRepair = "landing_repair"
+	ReadDispatchPolicySurfaceVerify       = "verification"
+	ReadDispatchPolicySurfaceHandoff      = "structured_handoff"
 )
 
 // ReadDispatchPolicy is a scheduler-owned, one-dispatch execution

@@ -4246,6 +4246,35 @@ func TestExplorer_FilterToolSchemas_ReadDispatchPolicy(t *testing.T) {
 	}
 }
 
+func TestExplorer_FilterToolSchemas_LocalLandingRepairPolicy(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage: types.StageExplore,
+		ReadDispatchPolicy: types.ReadDispatchPolicy{
+			Active:         true,
+			Action:         types.ReadDispatchPolicyActionLandingRepair,
+			RouteSurface:   types.ReadDispatchPolicySurfaceHandoff,
+			AllowedTools:   []string{"emit_investigation_complete", "emit_evidence"},
+			DeniedTools:    []string{"repo_map", "grep", "read_file", "list_files", "exec_command", "trace_query", "run_tests"},
+			PreferredTools: []string{"emit_investigation_complete"},
+			OneShot:        true,
+		},
+	}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "trace_query"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_evidence,emit_investigation_complete" {
+		t.Fatalf("local landing repair should expose only landing tools, got %v", gotNames)
+	}
+}
+
 func TestExplorer_BuildInitialInstruction_SourceInventoryLensSurface(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{
@@ -4383,6 +4412,30 @@ func TestExplorer_BuildInitialInstruction_ReadDispatchPolicy(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("read dispatch policy instruction missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestExplorer_BuildInitialInstruction_LocalLandingRepairPolicy(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage: types.StageExplore,
+		ReadDispatchPolicy: types.ReadDispatchPolicy{
+			Active:         true,
+			Action:         types.ReadDispatchPolicyActionLandingRepair,
+			RouteSurface:   types.ReadDispatchPolicySurfaceHandoff,
+			AllowedTools:   []string{"emit_investigation_complete", "emit_evidence"},
+			PreferredTools: []string{"emit_investigation_complete"},
+			OneShot:        true,
+		},
+	}
+	got := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{"local structured-handoff landing repair", "Do not call navigation", "emit_investigation_complete"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("local landing instruction missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Breadth Scan") {
+		t.Fatalf("local landing dispatch must not render broad breadth-scan instructions:\n%s", got)
 	}
 }
 
@@ -4548,6 +4601,38 @@ func TestExplorer_RuntimeBoundary_ReadDispatchPolicy(t *testing.T) {
 	}
 	if !strings.Contains(got.Summary, "pkg/a.py") {
 		t.Fatalf("policy rejection should carry proof scope, got %q", got.Summary)
+	}
+}
+
+func TestExplorer_RuntimeBoundary_LocalLandingRepairPolicy(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage: types.StageExplore,
+		ReadDispatchPolicy: types.ReadDispatchPolicy{
+			Active:         true,
+			Action:         types.ReadDispatchPolicyActionLandingRepair,
+			RouteSurface:   types.ReadDispatchPolicySurfaceHandoff,
+			AllowedTools:   []string{"emit_investigation_complete", "emit_evidence"},
+			DeniedTools:    []string{"repo_map", "grep", "read_file", "list_files", "exec_command", "trace_query", "run_tests"},
+			PreferredTools: []string{"emit_investigation_complete"},
+			OneShot:        true,
+		},
+	}
+
+	for _, toolName := range []string{"repo_map", "grep", "read_file", "trace_query", "run_tests"} {
+		got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: toolName, Params: json.RawMessage(`{}`)})
+		if got == nil || got.Success {
+			t.Fatalf("%s should be rejected by local landing policy, got %+v", toolName, got)
+		}
+		if got.Repair == nil || got.Repair.Code != explorerReadDispatchPolicyCode {
+			t.Fatalf("%s rejection should carry read dispatch repair code, got %+v", toolName, got.Repair)
+		}
+	}
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_investigation_complete", Params: json.RawMessage(`{}`)}); got != nil {
+		t.Fatalf("emit_investigation_complete should be allowed, got %+v", got)
+	}
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_evidence", Params: json.RawMessage(`{}`)}); got != nil {
+		t.Fatalf("emit_evidence should be allowed for already-read materialization, got %+v", got)
 	}
 }
 
