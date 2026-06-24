@@ -166,7 +166,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			},
 			"evidence_floor_waiver": {
 				"type": "object",
-				"description": "OPTIONAL. The typed escape lane for declaring that ordinary repo-grounding requirements do NOT apply to this investigation. Set this when YOU have confidently determined that pretending to ground against repo code would be misleading — for example: the attached log is from a different system whose paths have no intersection with this repo (a customer-pasted panic from another service); a synthetic-looking log whose frame paths superficially match this repo but represent a different build / version / deployment; the input is informational with no failure component to ground against. Setting the waiver relaxes the forced-read pending-list check and the citation-floor check, telling the system to accept log/trace content as the evidence pool. Audit-only: every fire is logged so a reviewer can spot misuse. Do NOT set this to escape ordinary investigation work — only when the model's reading of the input materially conflicts with the system's default to-look-in-repo posture.",
+				"description": "OPTIONAL. The typed escape lane for declaring that ordinary repo-grounding requirements do NOT apply to this investigation. Set this when YOU have confidently determined that pretending to ground against repo code would be misleading — for example: the attached log is from a different system whose paths have no intersection with this repo (a customer-pasted panic from another service); a synthetic-looking log whose frame paths superficially match this repo but represent a different build / version / deployment; the input is informational with no failure component to ground against. A waiver is honored only when both reason and rationale are valid; incomplete or invalid waiver payloads are ignored and normal grounding gates still apply. Audit-only: every accepted or ignored fire is logged so a reviewer can spot misuse. Do NOT set this to escape ordinary investigation work — only when the model's reading of the input materially conflicts with the system's default to-look-in-repo posture.",
 				"properties": {
 					"reason": {
 						"type": "string",
@@ -177,8 +177,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						"type": "string",
 						"description": "One sentence explaining why repo grounding does not apply. Audit trail — recorded but not parsed for hard logic."
 					}
-				},
-				"required": ["reason", "rationale"]
+				}
 			},
 			"clear_evidence_floor_waiver": {
 				"type": "boolean",
@@ -186,7 +185,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			},
 			"principal_span_waiver": {
 				"type": "object",
-				"description": "OPTIONAL. The typed escape lane for the principal source→sink span gate. Set this when YOU have read the source and confirmed there is NO separately-citable user code between the source endpoint and the sink endpoint — for example: source and sink are on the same dispatch / trampoline statement; the lines between contain only plumbing (nil guards, accessor pass-through, logger setup); the intermediate crosses an FFI / JNI / cgo / native-language bridge; the compiler inlined the intermediate call; the dispatch is virtual / interface / closure / reflection so no static call edge exists; the chain continues through an external library / SDK whose intermediates are not in this repo. Setting the waiver tells the system to accept the source→sink span without intermediate evidence. Audit-only: every fire is logged so a reviewer can spot misuse. Do NOT set this to escape ordinary investigation work — only when reading the source has shown there genuinely is no intermediate fact to cite.",
+				"description": "OPTIONAL. The typed escape lane for the principal source→sink span gate. Set this when YOU have read the source and confirmed there is NO separately-citable user code between the source endpoint and the sink endpoint — for example: source and sink are on the same dispatch / trampoline statement; the lines between contain only plumbing (nil guards, accessor pass-through, logger setup); the intermediate crosses an FFI / JNI / cgo / native-language bridge; the compiler inlined the intermediate call; the dispatch is virtual / interface / closure / reflection so no static call edge exists; the chain continues through an external library / SDK whose intermediates are not in this repo. A waiver is honored only when both reason and rationale are valid; incomplete or invalid waiver payloads are ignored and normal span gates still apply. Audit-only: every accepted or ignored fire is logged so a reviewer can spot misuse. Do NOT set this to escape ordinary investigation work — only when reading the source has shown there genuinely is no intermediate fact to cite.",
 				"properties": {
 					"reason": {
 						"type": "string",
@@ -197,8 +196,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						"type": "string",
 						"description": "One sentence explaining which scenario applies in concrete terms (e.g. \"dispatch and handler are on the same statement at foo.go:42\" / \"intermediate is the cgo trampoline at frame N\"). Audit trail — recorded but not parsed for hard logic."
 					}
-				},
-				"required": ["reason", "rationale"]
+				}
 			},
 			"clear_principal_span_waiver": {
 				"type": "boolean",
@@ -1460,9 +1458,10 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 
 	// Strict-decode + store evidence_floor_waiver (typed escape).
 	// The full pre-check chain below (forced-read, citation floor)
-	// reads the stored waiver to decide whether to relax. Validate
-	// here so a malformed payload fails early with a clear retry hint
-	// instead of silently being honored or silently being ignored.
+	// reads the stored waiver to decide whether to relax. A malformed
+	// optional waiver is not honored, but it also must not fail the
+	// whole completion call; normal precise gates still decide whether
+	// the investigation may close.
 	if p.ClearEvidenceWaiver && p.EvidenceFloorWaiver != nil {
 		return types.ToolResult{
 			ToolName: t.Name(),
@@ -1480,73 +1479,61 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		waiverReason := strings.TrimSpace(p.EvidenceFloorWaiver.Reason)
 		waiverRationale := strings.TrimSpace(p.EvidenceFloorWaiver.Rationale)
 		if waiverReason == "" {
-			return types.ToolResult{
-				ToolName: t.Name(),
-				Summary: "emit_investigation_complete rejected: evidence_floor_waiver.reason is required when evidence_floor_waiver is set. " +
-					"Use one of: " + joinEvidenceFloorWaiverReasons() + ".",
-				Success:   false,
-				Timestamp: time.Now(),
-			}, nil
-		}
-		if waiverRationale == "" {
-			return types.ToolResult{
-				ToolName: t.Name(),
-				Summary: "emit_investigation_complete rejected: evidence_floor_waiver.rationale is required (one sentence audit trail). " +
-					"Set it to a short explanation of why repo grounding does not apply, e.g. 'attached log frames reference services not defined in this repo'.",
-				Success:   false,
-				Timestamp: time.Now(),
-			}, nil
-		}
-		typedReason := types.EvidenceFloorWaiverReason(waiverReason)
-		if !typedReason.IsValid() {
-			return types.ToolResult{
-				ToolName: t.Name(),
-				Summary: fmt.Sprintf(
-					"emit_investigation_complete rejected: evidence_floor_waiver.reason=%q is not accepted. Use one of: %s.",
-					waiverReason, joinEvidenceFloorWaiverReasons()),
-				Success:   false,
-				Timestamp: time.Now(),
-			}, nil
-		}
-		artifactAttached := ctx.Mutable.LogTriage() != nil || ctx.Mutable.PerfTrace() != nil
-		if evidenceFloorWaiverIsPureVCSHistoryMisuse(ctx, typedReason, artifactAttached) {
 			ctx.Mutable.SetEvidenceFloorWaiver(nil)
-			ignoredEvidenceWaiver = fmt.Sprintf("ignored evidence_floor_waiver=%s for pure VCS history; carry git findings through reason/aggregate_facts, not runtime-artifact waiver", typedReason)
-			logging.Warning("[emit_investigation_complete] %s rationale=%q",
-				ignoredEvidenceWaiver, truncateForLog(waiverRationale, 200))
-		} else if !runtimeArtifactGroundingBypassAllowed(ctx) {
+			ignoredEvidenceWaiver = "ignored evidence_floor_waiver because reason is missing; normal grounding gates still apply"
+			logging.Warning("[emit_investigation_complete] %s", ignoredEvidenceWaiver)
+		} else if waiverRationale == "" {
 			ctx.Mutable.SetEvidenceFloorWaiver(nil)
-			ignoredEvidenceWaiver = fmt.Sprintf("ignored evidence_floor_waiver=%s because the typed current-source lane is required; preserve runtime observations, then collect current-source evidence before closing", typedReason)
-			logging.Warning("[emit_investigation_complete] %s rationale=%q",
-				ignoredEvidenceWaiver, truncateForLog(waiverRationale, 200))
+			ignoredEvidenceWaiver = fmt.Sprintf("ignored evidence_floor_waiver=%s because rationale is missing; normal grounding gates still apply", waiverReason)
+			logging.Warning("[emit_investigation_complete] %s", ignoredEvidenceWaiver)
 		} else {
-			ctx.Mutable.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
-				Reason:    typedReason,
-				Rationale: waiverRationale,
-			})
-			// Telemetry: log every fire so post-hoc analysis can spot
-			// misuse patterns. Reason is bounded enum, rationale is
-			// truncated for log hygiene.
-			//
-			// E: also report whether a runtime artifact is actually
-			// attached. The waiver bypasses several floors (forced-read,
-			// citation-floor, multi-topic anchor) on its own; the
-			// finalizer-side observation-only citation policy is a
-			// separate downstream lane that ONLY engages when log/perf
-			// bundle is attached (RuntimeGroundingDispositionFromWaiver).
-			// Surfacing artifact_attached up front lets operators see at
-			// accept time whether the waiver will engage observation-only
-			// or just relax the local floors — eliminates the "waiver
-			// silent but accepted" mystery from the 2026-05-16 trace.
-			logging.Info("[emit_investigation_complete] evidence_floor_waiver accepted: reason=%s artifact_attached=%t rationale=%q",
-				typedReason, artifactAttached, truncateForLog(waiverRationale, 200))
+			typedReason := types.EvidenceFloorWaiverReason(waiverReason)
+			if !typedReason.IsValid() {
+				ctx.Mutable.SetEvidenceFloorWaiver(nil)
+				ignoredEvidenceWaiver = fmt.Sprintf("ignored evidence_floor_waiver.reason=%q because it is not accepted; normal grounding gates still apply", waiverReason)
+				logging.Warning("[emit_investigation_complete] %s", ignoredEvidenceWaiver)
+			} else {
+				artifactAttached := ctx.Mutable.LogTriage() != nil || ctx.Mutable.PerfTrace() != nil
+				if evidenceFloorWaiverIsPureVCSHistoryMisuse(ctx, typedReason, artifactAttached) {
+					ctx.Mutable.SetEvidenceFloorWaiver(nil)
+					ignoredEvidenceWaiver = fmt.Sprintf("ignored evidence_floor_waiver=%s for pure VCS history; carry git findings through reason/aggregate_facts, not runtime-artifact waiver", typedReason)
+					logging.Warning("[emit_investigation_complete] %s rationale=%q",
+						ignoredEvidenceWaiver, truncateForLog(waiverRationale, 200))
+				} else if !runtimeArtifactGroundingBypassAllowed(ctx) {
+					ctx.Mutable.SetEvidenceFloorWaiver(nil)
+					ignoredEvidenceWaiver = fmt.Sprintf("ignored evidence_floor_waiver=%s because the typed current-source lane is required; preserve runtime observations, then collect current-source evidence before closing", typedReason)
+					logging.Warning("[emit_investigation_complete] %s rationale=%q",
+						ignoredEvidenceWaiver, truncateForLog(waiverRationale, 200))
+				} else {
+					ctx.Mutable.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
+						Reason:    typedReason,
+						Rationale: waiverRationale,
+					})
+					// Telemetry: log every fire so post-hoc analysis can spot
+					// misuse patterns. Reason is bounded enum, rationale is
+					// truncated for log hygiene.
+					//
+					// E: also report whether a runtime artifact is actually
+					// attached. The waiver bypasses several floors (forced-read,
+					// citation-floor, multi-topic anchor) on its own; the
+					// finalizer-side observation-only citation policy is a
+					// separate downstream lane that ONLY engages when log/perf
+					// bundle is attached (RuntimeGroundingDispositionFromWaiver).
+					// Surfacing artifact_attached up front lets operators see at
+					// accept time whether the waiver will engage observation-only
+					// or just relax the local floors — eliminates the "waiver
+					// silent but accepted" mystery from the 2026-05-16 trace.
+					logging.Info("[emit_investigation_complete] evidence_floor_waiver accepted: reason=%s artifact_attached=%t rationale=%q",
+						typedReason, artifactAttached, truncateForLog(waiverRationale, 200))
+				}
+			}
 		}
 	}
 
 	// Strict-decode + store principal_span_waiver (typed escape for
-	// the source→sink intermediate-evidence gate). Validated here so
-	// a malformed payload fails early with a clear retry hint, and
-	// the gate consumer below reads only the typed stored value.
+	// the source→sink intermediate-evidence gate). Invalid optional
+	// payloads are ignored rather than honored; normal precise gates
+	// below decide whether span proof is still required.
 	if p.ClearPrincipalSpanWaiver && p.PrincipalSpanWaiver != nil {
 		return types.ToolResult{
 			ToolName: t.Name(),
@@ -1556,6 +1543,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	ignoredPrincipalSpanWaiver := ""
 	if p.ClearPrincipalSpanWaiver {
 		ctx.Mutable.ClearPrincipalSpanWaiver()
 		logging.Info("[emit_investigation_complete] principal_span_waiver explicitly cleared")
@@ -1563,40 +1551,28 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		spanReason := strings.TrimSpace(p.PrincipalSpanWaiver.Reason)
 		spanRationale := strings.TrimSpace(p.PrincipalSpanWaiver.Rationale)
 		if spanReason == "" {
-			return types.ToolResult{
-				ToolName: t.Name(),
-				Summary: "emit_investigation_complete rejected: principal_span_waiver.reason is required when principal_span_waiver is set. " +
-					"Use one of: " + joinPrincipalSpanWaiverReasons() + ".",
-				Success:   false,
-				Timestamp: time.Now(),
-			}, nil
+			ctx.Mutable.ClearPrincipalSpanWaiver()
+			ignoredPrincipalSpanWaiver = "ignored principal_span_waiver because reason is missing; normal span gates still apply"
+			logging.Warning("[emit_investigation_complete] %s", ignoredPrincipalSpanWaiver)
+		} else if spanRationale == "" {
+			ctx.Mutable.ClearPrincipalSpanWaiver()
+			ignoredPrincipalSpanWaiver = fmt.Sprintf("ignored principal_span_waiver=%s because rationale is missing; normal span gates still apply", spanReason)
+			logging.Warning("[emit_investigation_complete] %s", ignoredPrincipalSpanWaiver)
+		} else {
+			typedSpanReason := types.PrincipalSpanWaiverReason(spanReason)
+			if !typedSpanReason.IsValid() {
+				ctx.Mutable.ClearPrincipalSpanWaiver()
+				ignoredPrincipalSpanWaiver = fmt.Sprintf("ignored principal_span_waiver.reason=%q because it is not accepted; normal span gates still apply", spanReason)
+				logging.Warning("[emit_investigation_complete] %s", ignoredPrincipalSpanWaiver)
+			} else {
+				ctx.Mutable.SetPrincipalSpanWaiver(&types.PrincipalSpanWaiver{
+					Reason:    typedSpanReason,
+					Rationale: spanRationale,
+				})
+				logging.Info("[emit_investigation_complete] principal_span_waiver accepted: reason=%s rationale=%q",
+					typedSpanReason, truncateForLog(spanRationale, 200))
+			}
 		}
-		if spanRationale == "" {
-			return types.ToolResult{
-				ToolName: t.Name(),
-				Summary: "emit_investigation_complete rejected: principal_span_waiver.rationale is required (one sentence audit trail). " +
-					"Set it to a short concrete explanation, e.g. 'dispatch and handler are on the same statement at foo.go:42' or 'intermediate is the cgo trampoline at frame 3'.",
-				Success:   false,
-				Timestamp: time.Now(),
-			}, nil
-		}
-		typedSpanReason := types.PrincipalSpanWaiverReason(spanReason)
-		if !typedSpanReason.IsValid() {
-			return types.ToolResult{
-				ToolName: t.Name(),
-				Summary: fmt.Sprintf(
-					"emit_investigation_complete rejected: principal_span_waiver.reason=%q is not accepted. Use one of: %s.",
-					spanReason, joinPrincipalSpanWaiverReasons()),
-				Success:   false,
-				Timestamp: time.Now(),
-			}, nil
-		}
-		ctx.Mutable.SetPrincipalSpanWaiver(&types.PrincipalSpanWaiver{
-			Reason:    typedSpanReason,
-			Rationale: spanRationale,
-		})
-		logging.Info("[emit_investigation_complete] principal_span_waiver accepted: reason=%s rationale=%q",
-			typedSpanReason, truncateForLog(spanRationale, 200))
 	}
 
 	// G1 (Plan E, 2026-05-02) — pre-complete coverage gate.
@@ -2103,6 +2079,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	if ignoredEvidenceWaiver != "" {
 		summary += " | " + ignoredEvidenceWaiver
+	}
+	if ignoredPrincipalSpanWaiver != "" {
+		summary += " | " + ignoredPrincipalSpanWaiver
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "completion_state_write", stateWriteStart, len(effectiveAggregateFacts))
 

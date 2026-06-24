@@ -8,10 +8,11 @@
 // circuits the forced-read pending check and the citation-floor
 // pre-flight.
 //
-// These tests pin: (1) strict-decode of reason against the typed
-// enum, (2) required rationale audit trail, (3) successful store
-// on the round-trip, (4) gate behaviour observed via the wider
-// completion path. Hard-gate consumer integration lives in
+// These tests pin: (1) invalid optional waiver payloads are ignored
+// and never honored, (2) valid typed waivers still store on the
+// round-trip, (3) clear+set remains a precise hard conflict, (4)
+// gate behaviour observed via the wider completion path. Hard-gate
+// consumer integration lives in
 // TestEmitInvestigationComplete_ForcedReadBypassedByModelWaiver below
 // — the canonical regression for the 2026-05-10 customer scenario.
 package tool
@@ -35,7 +36,7 @@ func runEIC(t *testing.T, mut *types.MutableState, params string) types.ToolResu
 	return res
 }
 
-func TestEmitInvestigationComplete_WaiverRejectsInvalidReason(t *testing.T) {
+func TestEmitInvestigationComplete_WaiverIgnoresInvalidReason(t *testing.T) {
 	mut := types.NewMutableState("q")
 	params := `{
 		"reason":"investigation done",
@@ -44,21 +45,18 @@ func TestEmitInvestigationComplete_WaiverRejectsInvalidReason(t *testing.T) {
 		"evidence_floor_waiver":{"reason":"bogus_value","rationale":"x"}
 	}`
 	res := runEIC(t, mut, params)
-	if res.Success {
-		t.Fatalf("invalid reason must reject, got Summary=%q", res.Summary)
+	if !res.Success {
+		t.Fatalf("invalid optional waiver should be ignored, not reject; Summary=%q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "evidence_floor_waiver.reason") {
-		t.Errorf("rejection must name the offending field: %q", res.Summary)
-	}
-	if !strings.Contains(res.Summary, "external_only_log") {
-		t.Errorf("rejection must surface the accepted enum values: %q", res.Summary)
+	if !strings.Contains(res.Summary, "ignored evidence_floor_waiver.reason") {
+		t.Errorf("summary must audit ignored optional waiver: %q", res.Summary)
 	}
 	if mut.EvidenceFloorWaiver() != nil {
-		t.Errorf("rejected waiver must NOT be stored")
+		t.Errorf("ignored waiver must NOT be stored")
 	}
 }
 
-func TestEmitInvestigationComplete_WaiverRequiresRationale(t *testing.T) {
+func TestEmitInvestigationComplete_WaiverIgnoresBlankRationale(t *testing.T) {
 	mut := types.NewMutableState("q")
 	params := `{
 		"reason":"done",
@@ -67,18 +65,18 @@ func TestEmitInvestigationComplete_WaiverRequiresRationale(t *testing.T) {
 		"evidence_floor_waiver":{"reason":"external_only_log","rationale":"   "}
 	}`
 	res := runEIC(t, mut, params)
-	if res.Success {
-		t.Fatalf("whitespace rationale must reject, got Summary=%q", res.Summary)
+	if !res.Success {
+		t.Fatalf("blank optional waiver rationale should be ignored, not reject; Summary=%q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "rationale") {
-		t.Errorf("rejection must name the rationale requirement: %q", res.Summary)
+	if !strings.Contains(res.Summary, "ignored evidence_floor_waiver=external_only_log because rationale is missing") {
+		t.Errorf("summary must audit ignored optional waiver: %q", res.Summary)
 	}
 	if mut.EvidenceFloorWaiver() != nil {
-		t.Errorf("rejected waiver must NOT be stored")
+		t.Errorf("ignored waiver must NOT be stored")
 	}
 }
 
-func TestEmitInvestigationComplete_WaiverRequiresReason(t *testing.T) {
+func TestEmitInvestigationComplete_WaiverIgnoresMissingReason(t *testing.T) {
 	mut := types.NewMutableState("q")
 	params := `{
 		"reason":"done",
@@ -87,11 +85,14 @@ func TestEmitInvestigationComplete_WaiverRequiresReason(t *testing.T) {
 		"evidence_floor_waiver":{"rationale":"log is external"}
 	}`
 	res := runEIC(t, mut, params)
-	if res.Success {
-		t.Fatalf("missing reason must reject, got Summary=%q", res.Summary)
+	if !res.Success {
+		t.Fatalf("missing optional waiver reason should be ignored, not reject; Summary=%q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "evidence_floor_waiver.reason") {
-		t.Errorf("rejection must name the reason requirement: %q", res.Summary)
+	if !strings.Contains(res.Summary, "ignored evidence_floor_waiver because reason is missing") {
+		t.Errorf("summary must audit ignored optional waiver: %q", res.Summary)
+	}
+	if mut.EvidenceFloorWaiver() != nil {
+		t.Errorf("ignored waiver must NOT be stored")
 	}
 }
 

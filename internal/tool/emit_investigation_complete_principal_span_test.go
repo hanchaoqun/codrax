@@ -2,9 +2,10 @@
 // (2026-05-12).
 //
 // Mirrors emit_investigation_complete_waiver_test.go for the typed
-// principal_span_waiver escape: validation rejects bad payloads,
-// stores on acceptance, clears on explicit retraction, and bypasses
-// the callChainPrincipalSpanDowngrade gate when active.
+// principal_span_waiver escape: invalid optional payloads are ignored
+// and never honored, valid payloads store on acceptance, clear+set
+// remains a precise hard conflict, and an active waiver bypasses the
+// callChainPrincipalSpanDowngrade gate.
 package tool
 
 import (
@@ -14,7 +15,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestEmitInvestigationComplete_PrincipalSpanWaiver_RejectsInvalidReason(t *testing.T) {
+func TestEmitInvestigationComplete_PrincipalSpanWaiver_IgnoresInvalidReason(t *testing.T) {
 	mut := types.NewMutableState("trace foo to bar")
 	params := `{
 		"reason":"investigation done",
@@ -23,21 +24,18 @@ func TestEmitInvestigationComplete_PrincipalSpanWaiver_RejectsInvalidReason(t *t
 		"principal_span_waiver":{"reason":"not_a_real_reason","rationale":"x"}
 	}`
 	res := runEIC(t, mut, params)
-	if res.Success {
-		t.Fatalf("invalid reason must reject, got Summary=%q", res.Summary)
+	if !res.Success {
+		t.Fatalf("invalid optional waiver should be ignored, not reject; Summary=%q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "principal_span_waiver.reason") {
-		t.Errorf("rejection must name the offending field: %q", res.Summary)
-	}
-	if !strings.Contains(res.Summary, "endpoints_directly_adjacent") {
-		t.Errorf("rejection must surface the accepted enum values: %q", res.Summary)
+	if !strings.Contains(res.Summary, "ignored principal_span_waiver.reason") {
+		t.Errorf("summary must audit ignored optional waiver: %q", res.Summary)
 	}
 	if mut.PrincipalSpanWaiver() != nil {
-		t.Errorf("rejected waiver must NOT be stored")
+		t.Errorf("ignored waiver must NOT be stored")
 	}
 }
 
-func TestEmitInvestigationComplete_PrincipalSpanWaiver_RequiresRationale(t *testing.T) {
+func TestEmitInvestigationComplete_PrincipalSpanWaiver_IgnoresBlankRationale(t *testing.T) {
 	mut := types.NewMutableState("trace foo to bar")
 	params := `{
 		"reason":"done",
@@ -46,18 +44,18 @@ func TestEmitInvestigationComplete_PrincipalSpanWaiver_RequiresRationale(t *test
 		"principal_span_waiver":{"reason":"endpoints_directly_adjacent","rationale":"   "}
 	}`
 	res := runEIC(t, mut, params)
-	if res.Success {
-		t.Fatalf("whitespace rationale must reject, got Summary=%q", res.Summary)
+	if !res.Success {
+		t.Fatalf("blank optional waiver rationale should be ignored, not reject; Summary=%q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "rationale") {
-		t.Errorf("rejection must name the rationale requirement: %q", res.Summary)
+	if !strings.Contains(res.Summary, "ignored principal_span_waiver=endpoints_directly_adjacent because rationale is missing") {
+		t.Errorf("summary must audit ignored optional waiver: %q", res.Summary)
 	}
 	if mut.PrincipalSpanWaiver() != nil {
-		t.Errorf("rejected waiver must NOT be stored")
+		t.Errorf("ignored waiver must NOT be stored")
 	}
 }
 
-func TestEmitInvestigationComplete_PrincipalSpanWaiver_RequiresReason(t *testing.T) {
+func TestEmitInvestigationComplete_PrincipalSpanWaiver_IgnoresMissingReason(t *testing.T) {
 	mut := types.NewMutableState("trace foo to bar")
 	params := `{
 		"reason":"done",
@@ -66,11 +64,14 @@ func TestEmitInvestigationComplete_PrincipalSpanWaiver_RequiresReason(t *testing
 		"principal_span_waiver":{"rationale":"intermediate is plumbing only"}
 	}`
 	res := runEIC(t, mut, params)
-	if res.Success {
-		t.Fatalf("missing reason must reject, got Summary=%q", res.Summary)
+	if !res.Success {
+		t.Fatalf("missing optional waiver reason should be ignored, not reject; Summary=%q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "principal_span_waiver.reason") {
-		t.Errorf("rejection must name the reason requirement: %q", res.Summary)
+	if !strings.Contains(res.Summary, "ignored principal_span_waiver because reason is missing") {
+		t.Errorf("summary must audit ignored optional waiver: %q", res.Summary)
+	}
+	if mut.PrincipalSpanWaiver() != nil {
+		t.Errorf("ignored waiver must NOT be stored")
 	}
 }
 
