@@ -27,6 +27,9 @@ func TestCompileRepoMapNavigationPolicy_SourceInventory(t *testing.T) {
 	if len(got.Steps) == 0 || got.Steps[0].Route != RepoMapNavigationRouteSourceInventory {
 		t.Fatalf("source inventory request should make source_inventory the first soft route, got %+v", got.Steps)
 	}
+	if first, ok := got.FirstHopStep(); ok {
+		t.Fatalf("source inventory owns its bounded lens surface and must not expose a generic first hop, got %+v", first)
+	}
 	if !containsRepoMapPolicyTerm(got.QueryTerms, "Kind") {
 		t.Fatalf("query terms should preserve typed entity, got %+v", got.QueryTerms)
 	}
@@ -154,6 +157,21 @@ func TestCompileRepoMapNavigationPolicy_ArchitectureDiagramProducesSemanticGraph
 	}
 	if CompileRepoMapNavigationPolicy(rmFlow, nil, ExploreLanePlan{}).HasRoute(RepoMapNavigationRouteSemanticGraph) {
 		t.Fatalf("non-architecture diagram hints must not produce semantic_subgraph")
+	}
+}
+
+func TestCompileRepoMapNavigationPolicy_ArchitectureScenarioProducesSemanticGraphFirstHop(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+	}
+	got := CompileRepoMapNavigationPolicy(rm, nil, ExploreLanePlan{})
+	first, ok := got.FirstHopStep()
+	if !ok {
+		t.Fatalf("architecture explanation should expose a source-navigation first hop: %+v", got.Steps)
+	}
+	if first.Route != RepoMapNavigationRouteSemanticGraph {
+		t.Fatalf("architecture explanation first hop = %s, want semantic_subgraph; steps=%+v", first.Route, got.Steps)
 	}
 }
 

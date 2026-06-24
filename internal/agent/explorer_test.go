@@ -1235,6 +1235,10 @@ func TestBuildInitialInstructionArchitectureRoleOutputHandoff(t *testing.T) {
 
 	prompt := eval.BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
+		"Typed Repo Map First Hop",
+		`repo_map(view="semantic_subgraph")`,
+		"before broad `grep` or exploratory `read_file`",
+		"architecture or topology questions",
 		"Architecture Role / Output Handoff",
 		"typed output artifact",
 		"evidence_kind=\"mechanism\"",
@@ -1243,6 +1247,37 @@ func TestBuildInitialInstructionArchitectureRoleOutputHandoff(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("architecture prompt missing %q:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestBuildInitialInstructionRuntimeArtifactSuppressesGenericRepoMapFirstHop(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Objective: "analyze the attached runtime trace and compare with current source",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				LogTriage: &types.LogBundle{Observations: []types.LogObservation{{
+					Kind:       types.LogObservationRuntimeEvent,
+					Subject:    "runtime stall",
+					Diagnostic: true,
+				}}},
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationCompareWithCurrent},
+					SourceQuotes:                        []string{"current source"},
+				},
+			},
+		},
+		RepoRoot: ".",
+	}
+
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "Typed Repo Map First Hop") {
+		t.Fatalf("runtime-artifact current-source verification should preserve trace/log-first ordering, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Typed Repo Map Route Hints") {
+		t.Fatalf("runtime-artifact mixed lanes should still keep repo_map route hints for later current-source verification:\n%s", prompt)
 	}
 }
 

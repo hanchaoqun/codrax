@@ -26,13 +26,27 @@ func renderExplorerRepoMapTypedFirstHop(ctx *types.AgentContext) string {
 	policy := repoMapNavigationPolicyForContext(ctx)
 	if policy.Empty() ||
 		repoMapPolicyStartsWithSourceInventory(policy) ||
-		!policy.HasRoute(types.RepoMapNavigationRouteTaskMap) ||
-		!policy.HasRoute(types.RepoMapNavigationRouteRelationMap) {
+		repoMapFirstHopSuppressedForRuntimeArtifact(ctx) {
+		return ""
+	}
+	first, ok := policy.FirstHopStep()
+	if !ok {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("### Typed Repo Map First Hop\n\n")
-	b.WriteString("For this typed relation / call-flow shape, make the first broad structural navigation move `repo_map(view=\"task_map\")` with a compact query made from exact code surfaces, unless exact required files already identify the files you will inspect. After task_map/file_map narrows candidate files or symbols, prefer `repo_map(view=\"relation_map\")` around those chosen `sources` / `scope` / `scopes` before falling back to broad grep expansion. This is soft guidance, not a read obligation: exact read_file evidence still wins when the current source line is already pinned.\n")
+	b.WriteString("For this typed source-code navigation shape, make the first discovery tool batch include `repo_map(view=\"")
+	b.WriteString(string(first.Route))
+	b.WriteString("\")` before broad `grep` or exploratory `read_file`, unless exact required files already identify the files you will inspect. This is soft guidance, not a read obligation: exact read_file evidence still wins when the current source line is already pinned.\n")
+	if policy.HasRoute(types.RepoMapNavigationRouteRelationMap) {
+		b.WriteString("For relation / call-flow shapes, after task_map/file_map narrows candidate files or symbols, prefer `repo_map(view=\"relation_map\")` around those chosen `sources` / `scope` / `scopes` before falling back to broad grep expansion.\n")
+	}
+	if policy.HasRoute(types.RepoMapNavigationRouteSemanticGraph) {
+		b.WriteString("For architecture or topology questions, use `repo_map(view=\"semantic_subgraph\")` as the early map of hubs, bridges, and chains before choosing files to read.\n")
+	}
+	if policy.HasRoute(types.RepoMapNavigationRouteEditImpact) {
+		b.WriteString("For impact questions, use `repo_map(view=\"edit_impact\")` as the early affected-surface map before reading individual call sites.\n")
+	}
 	if terms := policy.QueryTermList(8); len(terms) > 0 {
 		b.WriteString("- Suggested exact `query` surfaces: `")
 		b.WriteString(strings.Join(terms, "`, `"))
@@ -46,4 +60,11 @@ func repoMapPolicyStartsWithSourceInventory(policy types.RepoMapNavigationPolicy
 	return len(policy.Steps) > 0 &&
 		policy.Steps[0].Route == types.RepoMapNavigationRouteSourceInventory &&
 		policy.Steps[0].Purpose == types.RepoMapNavigationPurposeInventory
+}
+
+func repoMapFirstHopSuppressedForRuntimeArtifact(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactCurrentVerificationAnchor()
 }

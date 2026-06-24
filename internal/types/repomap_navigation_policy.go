@@ -88,6 +88,24 @@ func (p RepoMapNavigationPolicy) QueryTermList(limit int) []string {
 	return append([]string(nil), p.QueryTerms[:limit]...)
 }
 
+// FirstHopStep returns the first repo_map lens that should lead a source-code
+// navigation pass. It is prompt guidance only; source-inventory lanes have a
+// separate bounded tool surface because their completion semantics are stricter.
+func (p RepoMapNavigationPolicy) FirstHopStep() (RepoMapNavigationStep, bool) {
+	if len(p.Steps) > 0 &&
+		p.Steps[0].Route == RepoMapNavigationRouteSourceInventory &&
+		p.Steps[0].Purpose == RepoMapNavigationPurposeInventory {
+		return RepoMapNavigationStep{}, false
+	}
+	for _, step := range p.Steps {
+		if step.Route == RepoMapNavigationRouteSourceInventory {
+			continue
+		}
+		return step, true
+	}
+	return RepoMapNavigationStep{}, false
+}
+
 // RenderMarkdownHint renders the shared model-facing policy block. It is kept
 // with the policy data type so explorer prompts and repo_map tool output do not
 // drift into separate route taxonomies.
@@ -269,7 +287,8 @@ func CompileRepoMapNavigationPolicy(rm RequestModel, contract *AnswerContract, l
 		})
 	}
 
-	if rm.DiagramHint != nil && rm.DiagramHint.Kind == DiagramArchitecture {
+	if !sourceInventoryFirst && (rm.Scenario == ScenarioArchitectureExplain ||
+		(rm.DiagramHint != nil && rm.DiagramHint.Kind == DiagramArchitecture)) {
 		add(RepoMapNavigationStep{
 			Route:   RepoMapNavigationRouteSemanticGraph,
 			Purpose: RepoMapNavigationPurposeOrientation,
