@@ -112,6 +112,17 @@ func TestPrincipleForceHardCannotPromotePresentationOrNoisyKinds(t *testing.T) {
 	}
 }
 
+func TestPrincipleUntaggedPreEmitHintsStayAdvisory(t *testing.T) {
+	hint := emitFixHint{
+		Field:         "blocks[].items[]",
+		ExpectedShape: "fix an unclassified helper hint",
+		Reason:        "missing violation kind means missing precision and fallback policy",
+	}
+	if preEmitHintHardByDefault(hint) {
+		t.Fatal("untagged pre-emit hints must not hard-block without a closed violation kind")
+	}
+}
+
 func TestPrincipleCompleteTypedPrincipalRowSetMissingMemberRemainsHard(t *testing.T) {
 	mu := types.NewMutableState("source inventory principle guard")
 	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{

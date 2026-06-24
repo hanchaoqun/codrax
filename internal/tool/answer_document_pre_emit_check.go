@@ -289,7 +289,11 @@ func preEmitHintHardByDefault(hint emitFixHint) bool {
 		return preEmitLocalHardSignalAllowed(hint, preEmitHardSignalCompletePrincipalMemberSet)
 	}
 	if hint.Kind == "" {
-		return true
+		// Untagged hints have no closed violation kind, fallback locus, or
+		// precision declaration. Treat them as advisory so a helper bug cannot
+		// become a same-turn hard gate; production runPreEmitChecks tags every
+		// checker output before this split.
+		return false
 	}
 	if hint.Kind == types.ViolBlockCoverageMissing && preEmitMissingBlockRequiresSameTurnRetry(hint) {
 		// The central registry keeps this violation soft for post-emit V2
