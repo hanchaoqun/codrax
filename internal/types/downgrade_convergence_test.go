@@ -75,6 +75,30 @@ func TestProgressDeltaConvergesLikeDowngradeFingerprint(t *testing.T) {
 	}
 }
 
+func TestProgressDeltaLaneChurnOnlyConvergesWhenExplicitlyAllowed(t *testing.T) {
+	c := NewEvidenceClosure("")
+	first := c.RecordDowngradeProgressDeltaWithLaneChurn(DowngradeLaneCompletionForm, 111, 3, true)
+	if !first.ShouldReplan || first.Delta.Consecutive != 1 {
+		t.Fatalf("first completion-form decision = %+v, want continue", first)
+	}
+	second := c.RecordDowngradeProgressDeltaWithLaneChurn(DowngradeLaneCompletionForm, 222, 3, true)
+	if !second.ShouldReplan || second.Delta.Consecutive != 1 {
+		t.Fatalf("second changed blocker should still report exact-blocker consecutive=1 before lane convergence: %+v", second)
+	}
+	third := c.RecordDowngradeProgressDeltaWithLaneChurn(DowngradeLaneCompletionForm, 333, 3, true)
+	if third.ShouldReplan || third.ReasonCode != ProgressReasonConverged || third.Delta.Consecutive != 3 {
+		t.Fatalf("completion-form lane churn should converge at lane tail threshold: %+v", third)
+	}
+
+	c = NewEvidenceClosure("")
+	_ = c.RecordDowngradeProgressDeltaWithLaneChurn(DowngradeLaneContractChain, 111, 3, false)
+	_ = c.RecordDowngradeProgressDeltaWithLaneChurn(DowngradeLaneContractChain, 222, 3, false)
+	withoutChurn := c.RecordDowngradeProgressDeltaWithLaneChurn(DowngradeLaneContractChain, 333, 3, false)
+	if !withoutChurn.ShouldReplan || withoutChurn.ReasonCode != ProgressReasonContinue {
+		t.Fatalf("non-form lanes must not converge across changed blocker keys: %+v", withoutChurn)
+	}
+}
+
 func TestAppendCompletionCaveat_DedupByLane(t *testing.T) {
 	c := NewEvidenceClosure("")
 	c.AppendCompletionCaveat(CompletionCaveat{Lane: DowngradeLaneContractChain, ReasonCode: ProgressReasonConverged, Reason: "r1"})

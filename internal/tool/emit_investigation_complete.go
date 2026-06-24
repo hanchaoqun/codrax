@@ -2235,7 +2235,8 @@ func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLa
 		return false
 	}
 	blockerKey := types.ComputeDowngradeBlockerKey(closure.PendingReads(), closure.UnverifiedFindings(), closure.ActiveRepairs())
-	decision := closure.RecordDowngradeProgressDelta(lane, blockerKey, downgradeConvergenceHardThreshold)
+	allowLaneChurn := lane == types.DowngradeLaneCompletionForm
+	decision := closure.RecordDowngradeProgressDeltaWithLaneChurn(lane, blockerKey, downgradeConvergenceHardThreshold, allowLaneChurn)
 	if decision.ShouldReplan {
 		return false
 	}

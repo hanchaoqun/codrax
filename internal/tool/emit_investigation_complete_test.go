@@ -6025,6 +6025,26 @@ func TestEmitInvestigationComplete_CompletionFormSupportRefsConvergesWithCaveat(
 	}
 }
 
+func TestPreCompleteDowngradeCompletionFormConvergesAcrossFormDebtChurn(t *testing.T) {
+	mut := types.NewMutableState("completion form churn")
+	bus := &types.BusContext{Mutable: mut}
+	reasons := []string{"member_set_value", "member_set_support_refs", "aggregate_shape"}
+	for i, reason := range reasons {
+		queueCompletionFormRepair(bus, reason, "completion form detail changed")
+		converged := preCompleteDowngradeConverges(bus, types.DowngradeLaneCompletionForm)
+		if i < len(reasons)-1 && converged {
+			t.Fatalf("attempt %d should still request local form repair", i+1)
+		}
+		if i == len(reasons)-1 && !converged {
+			t.Fatalf("completion-form lane churn should converge on attempt %d", i+1)
+		}
+	}
+	caveats := mut.EvidenceClosure().CompletionCaveats()
+	if len(caveats) != 1 || caveats[0].Lane != types.DowngradeLaneCompletionForm {
+		t.Fatalf("completion-form churn caveat = %+v", caveats)
+	}
+}
+
 func TestEmitInvestigationComplete_AllowsDecoratedExternalOriginMemberSet(t *testing.T) {
 	for _, origin := range []types.AnswerEvidenceOrigin{
 		types.AnswerEvidenceOriginCommandMeasurement,

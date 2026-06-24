@@ -1903,23 +1903,6 @@ func (c *EvidenceClosure) AppendDowngradeFingerprint(fp DowngradeFingerprint) in
 	return ConsecutiveEqualTail(c.downgradeFingerprints)
 }
 
-func (c *EvidenceClosure) RecordDowngradeProgressDelta(lane DowngradeLane, blockerKey uint32, hardThreshold int) ProgressDecision {
-	consecutive := c.AppendDowngradeFingerprint(DowngradeFingerprint{Lane: lane, BlockerKey: blockerKey})
-	decision := ShouldReplan(ProgressDelta{
-		Kind:          ProgressDeltaDowngradeBlocker,
-		DowngradeLane: lane,
-		BlockerKey:    blockerKey,
-		Consecutive:   consecutive,
-		HardThreshold: hardThreshold,
-	})
-	if c != nil {
-		c.mu.Lock()
-		c.latestProgressDecision = decision
-		c.mu.Unlock()
-	}
-	return decision
-}
-
 func (c *EvidenceClosure) LatestProgressDecision() ProgressDecision {
 	if c == nil {
 		return ProgressDecision{}
