@@ -939,6 +939,38 @@ func TestEmitInvestigationComplete_DerivesBucketCountValueFromMembers(t *testing
 	}
 }
 
+func TestEmitInvestigationComplete_RepairsMalformedMemberSetValueFromMembers(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"member set is structurally complete even though value has a suffix",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"callable agents",
+			"value":"1+",
+			"members":["Orchestrator"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("malformed member_set value should be repaired from exact members, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "aggregate_facts normalized") {
+		t.Fatalf("summary should disclose aggregate value repair: %s", res.Summary)
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 || got[0].Value != "1" || len(got[0].Members) != 1 {
+		t.Fatalf("stable member_set = %+v, want value=1 from members", got)
+	}
+}
+
 func TestEmitInvestigationComplete_DropsOptionalUnsupportedDecoratedMemberSetAfterDemotion(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{

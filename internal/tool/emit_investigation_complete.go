@@ -865,6 +865,11 @@ func normalizeCompletionAggregateFactCompat(ctx *types.BusContext, raw []types.A
 	allowDecimalCountScalar := completionAggregateFactsAllowDecimalCountScalar(ctx)
 	for i := range out {
 		fact := &out[i]
+		if completionAggregateFactValueRepairableFromMembers(*fact) {
+			oldValue := strings.TrimSpace(fact.Value)
+			fact.Value = strconv.Itoa(len(fact.Members))
+			notes = append(notes, fmt.Sprintf("aggregate_facts[%d] %s value %q->%s from exact members", i, fact.Kind, oldValue, fact.Value))
+		}
 		if !allowDecimalCountScalar || !completionAggregateFactDecimalCountShouldBeScalar(*fact) {
 			continue
 		}
@@ -878,6 +883,25 @@ func normalizeCompletionAggregateFactCompat(ctx *types.BusContext, raw []types.A
 		notes = append(notes, fmt.Sprintf("aggregate_facts compacted from %d to %d runtime-observation entries; preserve extra audit details in reason if needed", before, len(out)))
 	}
 	return out, notes
+}
+
+func completionAggregateFactValueRepairableFromMembers(fact types.AnswerAggregateFact) bool {
+	if len(fact.Members) == 0 {
+		return false
+	}
+	switch fact.Kind {
+	case types.AnswerAggregateMemberSet,
+		types.AnswerAggregateGroupedCount,
+		types.AnswerAggregateBucketCount:
+	default:
+		return false
+	}
+	value := strings.TrimSpace(fact.Value)
+	if value == "" {
+		return false
+	}
+	n, err := strconv.Atoi(value)
+	return err != nil || n < 0
 }
 
 func completionAggregateFactsAllowDecimalCountScalar(ctx *types.BusContext) bool {
