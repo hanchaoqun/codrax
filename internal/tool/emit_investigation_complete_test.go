@@ -5815,6 +5815,22 @@ func TestEmitInvestigationCompleteSchema_DocumentsRuntimeDirectObservationBounda
 	}
 }
 
+func TestEmitInvestigationCompleteSchema_DocumentsMemberSetSupportRefsBoundary(t *testing.T) {
+	params := string((&EmitInvestigationComplete{}).Parameters())
+	for _, want := range []string{
+		"current-source principal member_set rows",
+		"display aliases that may not exactly match an emitted evidence anchor",
+		"positional refs",
+		"one already-read grounded location per members[] entry",
+		"member_notes are explanatory row notes",
+		"do not replace support_refs",
+	} {
+		if !strings.Contains(params, want) {
+			t.Fatalf("emit_investigation_complete schema should front-load member_set support_refs contract; missing %q in:\n%s", want, params)
+		}
+	}
+}
+
 func TestEmitInvestigationComplete_DecimalTotalCountNormalizesToScalar(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{
