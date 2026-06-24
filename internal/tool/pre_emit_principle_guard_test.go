@@ -65,6 +65,53 @@ func TestPrinciplePreEmitBlockHardGateUsesTypedBlockKindNotHintText(t *testing.T
 	}
 }
 
+func TestPrinciplePreEmitSameTurnHardPolicyIsExplicit(t *testing.T) {
+	rows := preEmitSameTurnHardPolicyRows()
+	if len(rows) != 2 {
+		t.Fatalf("same-turn hard policy should stay small and explicit, got %+v", rows)
+	}
+	want := map[preEmitSameTurnHardPolicyRow]bool{
+		{Kind: types.ViolExhaustiveMemberSetCoverageDrift, Signal: preEmitHardSignalCompletePrincipalMemberSet}: true,
+		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalTypedRequiredBlockKind}:                 true,
+	}
+	for _, row := range rows {
+		if !want[row] {
+			t.Fatalf("unexpected same-turn hard policy row: %+v", row)
+		}
+		delete(want, row)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing same-turn hard policy rows: %+v", want)
+	}
+}
+
+func TestPrincipleForceHardCannotPromotePresentationOrNoisyKinds(t *testing.T) {
+	hint := emitFixHint{
+		Kind:          types.ViolCitation,
+		Field:         "citations[]",
+		ExpectedShape: "align presentation citation pool",
+		Reason:        "presentation carrier drift must stay advisory",
+		ForceHard:     true,
+	}
+	if preEmitHintHardByDefault(hint) {
+		t.Fatal("ForceHard must not promote citation/presentation carriers without an explicit typed hard-policy row")
+	}
+
+	hint.Kind = types.ViolCardinalityShort
+	hint.Field = "blocks[].text/count claims"
+	hint.ExpectedShape = "visible count parsing drift"
+	if preEmitHintHardByDefault(hint) {
+		t.Fatal("ForceHard must not promote noisy visible-count parsing without an explicit typed hard-policy row")
+	}
+
+	hint.Kind = types.ViolExhaustiveMemberSetCoverageDrift
+	hint.Field = "blocks[].items[]"
+	hint.ExpectedShape = "include complete principal member set"
+	if !preEmitHintHardByDefault(hint) {
+		t.Fatal("complete typed principal member-set coverage remains an allowed same-turn hard gate")
+	}
+}
+
 func TestPrincipleCompleteTypedPrincipalRowSetMissingMemberRemainsHard(t *testing.T) {
 	mu := types.NewMutableState("source inventory principle guard")
 	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{

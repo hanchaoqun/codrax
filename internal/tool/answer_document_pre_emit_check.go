@@ -238,6 +238,25 @@ type emitFixHint struct {
 	ExpectedBlockKinds []types.AnswerBlockKind
 }
 
+type preEmitSameTurnHardSignal string
+
+const (
+	preEmitHardSignalCompletePrincipalMemberSet preEmitSameTurnHardSignal = "complete_principal_member_set"
+	preEmitHardSignalTypedRequiredBlockKind     preEmitSameTurnHardSignal = "typed_required_block_kind"
+)
+
+type preEmitSameTurnHardPolicyRow struct {
+	Kind   types.ViolationKind
+	Signal preEmitSameTurnHardSignal
+}
+
+func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
+	return []preEmitSameTurnHardPolicyRow{
+		{Kind: types.ViolExhaustiveMemberSetCoverageDrift, Signal: preEmitHardSignalCompletePrincipalMemberSet},
+		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalTypedRequiredBlockKind},
+	}
+}
+
 func tagPreEmitHints(kind types.ViolationKind, hints []emitFixHint) []emitFixHint {
 	for i := range hints {
 		if hints[i].Kind == "" {
@@ -267,7 +286,7 @@ func splitPreEmitHintsByGate(hints []emitFixHint) (hard []emitFixHint, advisory 
 
 func preEmitHintHardByDefault(hint emitFixHint) bool {
 	if hint.ForceHard {
-		return true
+		return preEmitLocalHardSignalAllowed(hint, preEmitHardSignalCompletePrincipalMemberSet)
 	}
 	if hint.Kind == "" {
 		return true
@@ -285,6 +304,15 @@ func preEmitHintHardByDefault(hint emitFixHint) bool {
 		return !spec.SoftByDefault
 	}
 	return types.ViolationProfileFor(hint.Kind, false).RetryEligible
+}
+
+func preEmitLocalHardSignalAllowed(hint emitFixHint, signal preEmitSameTurnHardSignal) bool {
+	for _, row := range preEmitSameTurnHardPolicyRows() {
+		if row.Kind == hint.Kind && row.Signal == signal {
+			return true
+		}
+	}
+	return false
 }
 
 func preEmitMissingBlockRequiresSameTurnRetry(hint emitFixHint) bool {
