@@ -2712,6 +2712,78 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("broad source grep refinement prefers typed repo_map navigation", func(t *testing.T) {
+		ctx := newBusContext()
+		ctx.AnalysisIR = &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentTrace,
+				PredicateAxis: types.AxisCall,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqCallChain),
+					Keywords: []string{"update_elem"},
+				},
+			},
+		}
+		var raw strings.Builder
+		for i := 0; i < 100; i++ {
+			fmt.Fprintf(&raw, "src/dispatch/file%03d.go:%d:func target%d() { update_elem() }\n", i%7, i+1, i)
+		}
+
+		refinement := grepBroadResultRefinement(ctx, grepToolParams{Pattern: "update_elem"}, raw.String())
+		if refinement == nil {
+			t.Fatalf("expected broad grep refinement")
+		}
+		if refinement.PreferredNextTool != "repo_map" {
+			t.Fatalf("preferred tool = %q; refinement=%+v", refinement.PreferredNextTool, refinement)
+		}
+		if got := refinement.PreferredParams["view"]; got != "task_map" {
+			t.Fatalf("repo_map view = %q; refinement=%+v", got, refinement)
+		}
+		if got := refinement.PreferredParams["query"]; got != "update_elem" {
+			t.Fatalf("repo_map query = %q; refinement=%+v", got, refinement)
+		}
+		if _, bad := refinement.PreferredParams["context_lines"]; bad {
+			t.Fatalf("repo_map refinement must not carry grep-only params: %+v", refinement)
+		}
+	})
+
+	t.Run("broad runtime artifact grep refinement stays artifact-local", func(t *testing.T) {
+		repoRoot := t.TempDir()
+		if err := os.WriteFile(filepath.Join(repoRoot, "record_trace.systrace"), []byte("trace\n"), 0o644); err != nil {
+			t.Fatalf("seed trace: %v", err)
+		}
+		ctx := newBusContext()
+		ctx.RepoRoot = repoRoot
+		ctx.AnalysisIR = &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentTrace,
+				PredicateAxis: types.AxisCall,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqCallChain),
+					Keywords: []string{"sched_switch"},
+				},
+			},
+		}
+		var raw strings.Builder
+		for i := 0; i < 100; i++ {
+			fmt.Fprintf(&raw, "record_trace.systrace:%d: sched_switch prev_state=R\n", 1000+i)
+		}
+
+		refinement := grepBroadResultRefinement(ctx, grepToolParams{Pattern: "sched_switch", Path: "record_trace.systrace"}, raw.String())
+		if refinement == nil {
+			t.Fatalf("expected runtime grep refinement")
+		}
+		if refinement.PreferredNextTool == "repo_map" {
+			t.Fatalf("runtime artifact grep must not prefer repo_map: %+v", refinement)
+		}
+		if refinement.PreferredNextTool != "grep" {
+			t.Fatalf("runtime artifact preferred tool = %q; refinement=%+v", refinement.PreferredNextTool, refinement)
+		}
+		if got := refinement.PreferredParams["context_lines"]; got != "0" {
+			t.Fatalf("runtime artifact should keep context_lines=0, got %q; refinement=%+v", got, refinement)
+		}
+	})
+
 	t.Run("broad runtime artifact grep emits multiple line windows", func(t *testing.T) {
 		ctx := newBusContext()
 		var raw strings.Builder
@@ -4384,6 +4456,55 @@ func TestListFilesBroadResult_PreservesTypedFiltersInRefinement(t *testing.T) {
 	}
 	if len(result.Refinement.RequiredFields) != 0 {
 		t.Fatalf("filtered broad result should not require include/file_type again: %+v", result.Refinement)
+	}
+}
+
+func TestListFilesBroadResult_UsesRepoMapWhenTypedNavigationPolicyExists(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "internal", "agent"), 0o755); err != nil {
+		t.Fatalf("seed agent dir: %v", err)
+	}
+	for i := 0; i < grepGovernorFileEntryThreshold+5; i++ {
+		name := filepath.Join(repoRoot, "internal", "agent", fmt.Sprintf("agent_%03d.go", i))
+		if err := os.WriteFile(name, []byte("package agent\n"), 0o644); err != nil {
+			t.Fatalf("seed source %d: %v", i, err)
+		}
+	}
+
+	ctx := &types.BusContext{
+		RepoRoot: repoRoot,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioArchitectureExplain,
+				AnalyzerHints: types.AnalyzerHints{
+					Keywords: []string{"AgentName", "SubAgentRuntime"},
+				},
+			},
+		},
+	}
+	result, err := (&ListFiles{}).Execute(ctx, json.RawMessage(`{"path":".","recursive":true}`))
+	if err != nil {
+		t.Fatalf("list_files: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("list_files failed: %s", result.Summary)
+	}
+	if result.Refinement == nil {
+		t.Fatalf("broad list_files should expose typed refinement")
+	}
+	if result.Refinement.PreferredNextTool != "repo_map" {
+		t.Fatalf("preferred tool = %q; refinement=%+v", result.Refinement.PreferredNextTool, result.Refinement)
+	}
+	if got := result.Refinement.PreferredParams["view"]; got != "task_map" {
+		t.Fatalf("repo_map view = %q; refinement=%+v", got, result.Refinement)
+	}
+	if got := result.Refinement.PreferredParams["query"]; got != "AgentName SubAgentRuntime" {
+		t.Fatalf("repo_map query = %q; refinement=%+v", got, result.Refinement)
+	}
+	for _, bad := range []string{"include", "file_type", "recursive"} {
+		if _, ok := result.Refinement.PreferredParams[bad]; ok {
+			t.Fatalf("repo_map refinement must not carry list_files-only param %q: %+v", bad, result.Refinement)
+		}
 	}
 }
 

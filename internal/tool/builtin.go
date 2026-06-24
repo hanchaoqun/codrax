@@ -1713,6 +1713,106 @@ func mergeToolRefinementHints(a, b *types.ToolRefinementHint) *types.ToolRefinem
 	return &out
 }
 
+func promoteSourceToolRefinementToRepoMap(ctx *types.BusContext, hint types.ToolRefinementHint) types.ToolRefinementHint {
+	hint = types.NormalizeToolRefinementHint(hint)
+	if ctx == nil || ctx.AnalysisIR == nil || hint.Empty() {
+		return hint
+	}
+	policy := types.CompileRepoMapNavigationPolicy(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract, ctx.ExploreLanePlan)
+	step, ok := policy.FirstHopStep()
+	if !ok {
+		if ctx.AnalysisIR.RequestModel.SourceInventoryProfile == nil || !ctx.AnalysisIR.RequestModel.SourceInventoryProfile.Active() {
+			return hint
+		}
+		step = types.RepoMapNavigationStep{
+			Route:   types.RepoMapNavigationRouteSourceInventory,
+			Purpose: types.RepoMapNavigationPurposeInventory,
+			Params:  []string{"scope", "roles", "include_attributes=false"},
+		}
+	}
+	params := repoMapPreferredParamsFromNavigationStep(step, policy, ctx.AnalysisIR.RequestModel)
+	if len(params) == 0 {
+		return hint
+	}
+	hint.PreferredNextTool = "repo_map"
+	hint.PreferredParams = params
+	hint.RequiredFields = repoMapRequiredFieldsFromNavigationStep(step, params)
+	return types.NormalizeToolRefinementHint(hint)
+}
+
+func repoMapPreferredParamsFromNavigationStep(step types.RepoMapNavigationStep, policy types.RepoMapNavigationPolicy, rm types.RequestModel) map[string]string {
+	route := strings.TrimSpace(string(step.Route))
+	if route == "" {
+		return nil
+	}
+	params := map[string]string{"view": route}
+	if query := strings.Join(policy.QueryTermList(4), " "); strings.TrimSpace(query) != "" {
+		params["query"] = strings.TrimSpace(query)
+	}
+	if step.Route == types.RepoMapNavigationRouteSourceInventory {
+		params["include_attributes"] = "false"
+		if rm.SourceInventoryProfile != nil {
+			if roles := answerCandidateRolesParam(rm.SourceInventoryProfile.PrincipalTargetRoles()); roles != "" {
+				params["roles"] = roles
+			}
+		}
+	}
+	if len(step.RelationHint) > 0 {
+		if kinds := typedRelationKindsParam(step.RelationHint); kinds != "" {
+			params["relation_kinds"] = kinds
+		}
+	}
+	return params
+}
+
+func repoMapRequiredFieldsFromNavigationStep(step types.RepoMapNavigationStep, params map[string]string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(field string) {
+		field = strings.TrimSpace(field)
+		if field == "" || strings.Contains(field, "=") || seen[field] {
+			return
+		}
+		if _, alreadySuggested := params[field]; alreadySuggested {
+			return
+		}
+		seen[field] = true
+		out = append(out, field)
+	}
+	for _, field := range step.Params {
+		add(field)
+	}
+	return out
+}
+
+func answerCandidateRolesParam(in []types.AnswerCandidateRole) string {
+	var out []string
+	seen := map[string]bool{}
+	for _, role := range in {
+		value := strings.TrimSpace(string(role))
+		if value == "" || value == string(types.AnswerCandidateRoleUnknown) || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return strings.Join(out, ",")
+}
+
+func typedRelationKindsParam(in []types.TypedRelationKind) string {
+	var out []string
+	seen := map[string]bool{}
+	for _, kind := range in {
+		value := strings.TrimSpace(string(kind))
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return strings.Join(out, ",")
+}
+
 func grepNoMatchRefinement(ctx *types.BusContext, params grepToolParams, searchPath string, base *types.ToolRefinementHint) *types.ToolRefinementHint {
 	return mergeToolRefinementHints(base, configuredSearchExcludeRootsRefinement(ctx, searchPath, "grep"))
 }
@@ -2356,7 +2456,8 @@ func grepBroadResultRefinement(ctx *types.BusContext, params grepToolParams, raw
 		if topPath != "" {
 			hint.PreferredParams = map[string]string{"path": topPath}
 		}
-		return &hint
+		out := promoteSourceToolRefinementToRepoMap(ctx, hint)
+		return &out
 	}
 	hint.PreferredNextTool = "grep"
 	hint.PreferredParams = map[string]string{
@@ -2382,7 +2483,8 @@ func grepBroadResultRefinement(ctx *types.BusContext, params grepToolParams, raw
 	if strings.TrimSpace(params.Include) != "" && topPath == "" {
 		hint.PreferredParams["include"] = strings.TrimSpace(params.Include)
 	}
-	return &hint
+	out := promoteSourceToolRefinementToRepoMap(ctx, hint)
+	return &out
 }
 
 func firstGrepOutputPath(lines []string, filesOnly bool) string {
@@ -4336,7 +4438,7 @@ func listFilesBroadResultRefinement(ctx *types.BusContext, p listFilesParams, fi
 			hint.PreferredParams["recursive"] = "true"
 		}
 	}
-	out := types.NormalizeToolRefinementHint(hint)
+	out := promoteSourceToolRefinementToRepoMap(ctx, hint)
 	if out.Empty() {
 		return nil
 	}
