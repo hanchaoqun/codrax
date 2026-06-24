@@ -4581,8 +4581,8 @@ func exhaustiveEnumerationMemberSetUsable(ctx *types.BusContext, facts []types.A
 			return true, ""
 		}
 		allUsable := true
-		for _, member := range fact.Members {
-			if aggregateMemberSetMemberUsable(fact, member, support) {
+		for memberIdx, member := range fact.Members {
+			if aggregateMemberSetMemberUsableAt(fact, member, memberIdx, support) {
 				continue
 			}
 			allUsable = false
@@ -5326,12 +5326,12 @@ func enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx *types.BusC
 		if out[factIdx].Kind != types.AnswerAggregateMemberSet || len(out[factIdx].Members) == 0 {
 			continue
 		}
-		for _, member := range out[factIdx].Members {
+		for memberIdx, member := range out[factIdx].Members {
 			if ref, ok := aggregateDecoratedMemberReadFileSupportRef(member, support); ok {
 				out[factIdx].SupportRefs = append(out[factIdx].SupportRefs, ref)
 				continue
 			}
-			if aggregateMemberSetMemberUsable(out[factIdx], member, support) {
+			if aggregateMemberSetMemberUsableAt(out[factIdx], member, memberIdx, support) {
 				continue
 			}
 			ref, ok := aggregateMemberReadFileSupportRef(member, support)
@@ -5433,6 +5433,10 @@ func aggregateToolResultLinesByLocation(summary string) map[string][]string {
 }
 
 func aggregateMemberSetMemberUsable(fact types.AnswerAggregateFact, member string, support aggregateMemberSupportIndex) bool {
+	return aggregateMemberSetMemberUsableAt(fact, member, -1, support)
+}
+
+func aggregateMemberSetMemberUsableAt(fact types.AnswerAggregateFact, member string, memberIdx int, support aggregateMemberSupportIndex) bool {
 	labels := aggregateMemberDisplayCandidates(member)
 	if len(labels) == 0 {
 		return false
@@ -5444,6 +5448,11 @@ func aggregateMemberSetMemberUsable(fact types.AnswerAggregateFact, member strin
 		return true
 	}
 	if aggregateMemberCoveredByEvidenceLabels(labels, support.byLabel) {
+		return true
+	}
+	if loc, ok := aggregateMemberSetPositionalSupportLocation(fact, memberIdx, labels); ok &&
+		aggregateSupportLocationCompatibleWithMember(member, loc) &&
+		aggregateSupportLocationVerified(loc, support) {
 		return true
 	}
 	if label, loc, ok := aggregateMemberSupportRefParts(member); ok {
@@ -5487,6 +5496,41 @@ func aggregateMemberSetMemberUsable(fact types.AnswerAggregateFact, member strin
 		}
 	}
 	return false
+}
+
+func aggregateMemberSetPositionalSupportLocation(fact types.AnswerAggregateFact, memberIdx int, labels []string) (string, bool) {
+	if memberIdx < 0 || memberIdx >= len(fact.Members) || len(fact.SupportRefs) != len(fact.Members) {
+		return "", false
+	}
+	raw := strings.TrimSpace(fact.SupportRefs[memberIdx])
+	if raw == "" {
+		return "", false
+	}
+	label, loc, ok := aggregateMemberSupportRefParts(raw)
+	if !ok || loc == "" {
+		return "", false
+	}
+	// Positional support_refs are a schema-level association only for
+	// location-only refs. If the model supplied any label, keep the stricter
+	// label+location checks below so a mislabeled or generic-labeled ref cannot
+	// be accepted just because it occupies the same array index.
+	if strings.TrimSpace(label) != "" {
+		return "", false
+	}
+	if !aggregateSupportLabelMatchesMember(label, labels) {
+		return "", false
+	}
+	return loc, true
+}
+
+func aggregateSupportLocationVerified(loc string, support aggregateMemberSupportIndex) bool {
+	loc = strings.TrimSpace(loc)
+	if loc == "" {
+		return false
+	}
+	return len(support.byLocation[loc]) > 0 ||
+		len(support.toolLinesByLocation[loc]) > 0 ||
+		len(support.sourceInventoryLabelsByLocation[loc]) > 0
 }
 
 func aggregateSupportLocationMatchesMemberLabels(location string, labels []string, support aggregateMemberSupportIndex) bool {
@@ -9132,8 +9176,8 @@ func aggregateMemberSetAllMembersUsable(fact types.AnswerAggregateFact, support 
 	if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 {
 		return false
 	}
-	for _, member := range fact.Members {
-		if !aggregateMemberSetMemberUsable(fact, member, support) {
+	for memberIdx, member := range fact.Members {
+		if !aggregateMemberSetMemberUsableAt(fact, member, memberIdx, support) {
 			return false
 		}
 	}

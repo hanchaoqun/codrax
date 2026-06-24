@@ -335,6 +335,80 @@ func TestEmitInvestigationComplete_PreCompleteCheck_RelationMemberSetAcceptsRole
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_RelationMemberSetAcceptsPositionalSupportRefs(t *testing.T) {
+	bus := relationMemberSetTestBus(t)
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/types/enums.go",
+		LineStart:       130,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "AgentAnalyzer",
+		Snippet:         `AgentAnalyzer AgentName = "analyzer"`,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}, {
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/types/enums.go",
+		LineStart:       131,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "AgentExplorer",
+		Snippet:         `AgentExplorer AgentName = "explorer"`,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "display names are backed by positional source refs from the AgentName enum",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "agent names",
+			"value":        "2",
+			"members":      []string{"Analyzer", "Explorer"},
+			"support_refs": []string{"internal/types/enums.go:130", "internal/types/enums.go:131"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "relation member-set handoff is missing") {
+		t.Fatalf("positional support_refs should satisfy relation member_set without forcing model to guess anchor symbols: %s", res.Summary)
+	}
+	if !bus.Mutable.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete after positional support_refs handoff")
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_PositionalSupportRefsMustBeGrounded(t *testing.T) {
+	bus := relationMemberSetTestBus(t)
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "ungrounded positional refs must not pass",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "agent names",
+			"value":        "1",
+			"members":      []string{"Analyzer"},
+			"support_refs": []string{"internal/types/enums.go:130"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "relation member-set handoff is missing") {
+		t.Fatalf("ungrounded positional support_ref must remain blocking, got: %s", res.Summary)
+	}
+	if bus.Mutable.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open when positional support_ref location was not grounded")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_RoleLabeledSupportRefStillRequiresMemberAtLocation(t *testing.T) {
 	bus := relationMemberSetTestBus(t)
 	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
