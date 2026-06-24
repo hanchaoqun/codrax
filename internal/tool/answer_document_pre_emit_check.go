@@ -1140,6 +1140,138 @@ func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2,
 	return normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, newPreEmitCheckContext(ctx))
 }
 
+func normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext, pctx *preEmitCheckContext) int {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return 0
+	}
+	if pctx == nil {
+		pctx = newPreEmitCheckContext(ctx)
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if !preEmitBlockRendersItemSurface(block.Kind) {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			role := item.CandidateRole
+			if role == types.AnswerCandidateRoleUnknown || role == types.AnswerCandidateRoleOther {
+				continue
+			}
+			label := strings.TrimSpace(item.Label)
+			text := preEmitItemNonLabelSurface(*item)
+			if label == "" && strings.TrimSpace(text) == "" {
+				continue
+			}
+			cit, ok := preEmitUniqueSourceInventoryCandidateRoleCitationForItem(pctx, role, label, text)
+			if !ok {
+				continue
+			}
+			target := appendOrReusePreEmitCitation(doc, cit)
+			if target < 0 || target == item.CitationRef {
+				continue
+			}
+			item.CitationRef = target
+			fixed++
+		}
+	}
+	return fixed
+}
+
+func preEmitUniqueSourceInventoryCandidateRoleCitationForItem(pctx *preEmitCheckContext, role types.AnswerCandidateRole, label, text string) (types.Citation, bool) {
+	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil ||
+		role == types.AnswerCandidateRoleUnknown || role == types.AnswerCandidateRoleOther {
+		return types.Citation{}, false
+	}
+	rm := types.RequestModel{}
+	if pctx.ctx.AnalysisIR != nil {
+		rm = pctx.ctx.AnalysisIR.RequestModel
+	}
+	rowSet := types.BuildSourceInventoryPrincipalRowSet(types.SourceInventoryPrincipalRowSetInput{
+		Observation:  types.SourceInventoryObservationFromMutable(pctx.ctx.Mutable),
+		RequestModel: rm,
+	})
+	if !rowSet.Active || len(rowSet.PrincipalRows) == 0 {
+		return types.Citation{}, false
+	}
+	var out []types.Citation
+	seen := map[string]bool{}
+	for _, row := range rowSet.PrincipalRows {
+		if row.Role != role || !preEmitSourceInventoryRowMatchesItem(row, label, text) {
+			continue
+		}
+		cit, ok := preEmitSourceInventoryRowCitation(row)
+		if !ok {
+			continue
+		}
+		cit = pctx.canonicalCitation(cit)
+		key := preEmitCitationLocationKey(cit)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, cit)
+	}
+	if len(out) != 1 {
+		return types.Citation{}, false
+	}
+	return out[0], true
+}
+
+func preEmitSourceInventoryRowMatchesItem(row types.SourceInventoryRow, label, text string) bool {
+	surface := strings.TrimSpace(strings.Join([]string{label, text}, "\n"))
+	if surface == "" {
+		return false
+	}
+	member := row.Member
+	for _, candidate := range []string{
+		member.Name,
+		member.Key,
+		preEmitSourceInventorySupportRefLabel(member.SupportRef),
+	} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if preEmitAggregateMemberLabelTextMatches(label, text, candidate) ||
+			preEmitTypedLabelTokenSupportsLabel(candidate, label) ||
+			preEmitTypedLabelTokenSupportsLabel(label, candidate) ||
+			types.CodeSurfaceAppearsAsToken(candidate, surface) {
+			return true
+		}
+	}
+	for _, term := range member.SurfaceTerms {
+		term = strings.TrimSpace(term)
+		if term != "" && preEmitCodeSurfaceAppearsVerbatim(term, surface) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitSourceInventorySupportRefLabel(raw string) string {
+	label, _, ok := types.ParseAnswerSupportRefMemberLocation(raw)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(label)
+}
+
+func preEmitSourceInventoryRowCitation(row types.SourceInventoryRow) (types.Citation, bool) {
+	member := row.Member
+	if _, loc, ok := types.ParseAnswerSupportRefMemberLocation(member.SupportRef); ok {
+		if loc.File != "" && loc.LineStart > 0 {
+			return types.Citation{File: loc.File, Line: loc.LineStart, LineEnd: loc.LineEnd}, true
+		}
+	}
+	file := strings.TrimSpace(strings.ReplaceAll(member.File, `\`, `/`))
+	if file == "" || member.Line <= 0 {
+		return types.Citation{}, false
+	}
+	return types.Citation{File: file, Line: member.Line}, true
+}
+
 func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext, pctx *preEmitCheckContext) int {
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
 		return 0

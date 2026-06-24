@@ -566,6 +566,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc, view); fixed > 0 {
 		logging.Warning("[%s] repaired %d qualified item label(s) by graph-derived enclosing function", toolName, fixed)
 	}
+	if fixed := normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc, view, ctx, pctx); fixed > 0 {
+		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed candidate-role source rows", toolName, fixed)
+	}
 	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, pctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed label/citation corroboration", toolName, fixed)
 	}

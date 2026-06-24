@@ -1131,6 +1131,93 @@ func TestEmitAnswerDocumentPatch_AppendCitationStaysAlignedAcrossPathCanonicaliz
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RebindsCandidateRoleSourceInventoryRow(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("enumerate source inventory functions"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			},
+		}},
+	}
+	bus.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Complete: true,
+		Scopes:   []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    1,
+			Total:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Serve",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "src/serve.cj",
+				Line:          12,
+				Language:      "cangjie",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "old/stale.go", Line: 1},
+		},
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+			{ID: "functions", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{
+				ID:            "serve",
+				Label:         "服务入口",
+				Text:          "Serve 是入口函数。",
+				CandidateRole: types.AnswerCandidateRoleFunction,
+				CitationRef:   0,
+			}}},
+		},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"replace_blocks": [{
+			"id": "functions",
+			"kind": "ordered_list",
+			"items": [{
+				"id": "serve",
+				"label": "服务入口",
+				"text": "Serve 是入口函数。",
+				"candidate_role": "function",
+				"citation_ref": 0
+			}]
+		}]
+	}`)
+
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch candidate_role source-inventory citation should normalize, got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 2 {
+		t.Fatalf("expected source-inventory citation appended to inherited pool, got %+v", doc)
+	}
+	var functions *types.AnswerBlock
+	for i := range doc.Blocks {
+		if doc.Blocks[i].ID == "functions" {
+			functions = &doc.Blocks[i]
+			break
+		}
+	}
+	if functions == nil || len(functions.Items) != 1 {
+		t.Fatalf("missing patched functions block: %+v", doc)
+	}
+	if got := functions.Items[0].CitationRef; got != 1 {
+		t.Fatalf("candidate_role item should rebind away from stale inherited ref, got %d", got)
+	}
+	if got := doc.Citations[1]; got.File != "src/serve.cj" || got.Line != 12 {
+		t.Fatalf("appended citation = %+v, want src/serve.cj:12", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_StringWrappedNestedDiagramAndExactResolution(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

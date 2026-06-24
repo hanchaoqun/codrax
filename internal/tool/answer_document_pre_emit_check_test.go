@@ -2394,6 +2394,118 @@ func TestNormalizeAnswerDocumentForPreEmit_SourceInventoryRowSetCoversEnumeratio
 	}
 }
 
+func TestNormalizeItemCitationRefsByTypedCandidateRole_SourceInventoryRow(t *testing.T) {
+	mu := types.NewMutableState("source inventory typed citation repair")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Complete: true,
+		Scopes:   []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    1,
+			Total:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Serve",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "src/serve.cj",
+				Line:          12,
+				Language:      "cangjie",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "old/stale.go", Line: 1}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "functions",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:            "serve",
+				Label:         "服务入口",
+				Text:          "Serve 是入口函数。",
+				CandidateRole: types.AnswerCandidateRoleFunction,
+				CitationRef:   0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1", fixed)
+	}
+	if len(doc.Citations) != 2 {
+		t.Fatalf("expected typed source-inventory citation append, got %+v", doc.Citations)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref=%d, want appended source-inventory row", got)
+	}
+	if got := doc.Citations[1]; got.File != "src/serve.cj" || got.Line != 12 {
+		t.Fatalf("appended citation = %+v, want src/serve.cj:12", got)
+	}
+}
+
+func TestNormalizeItemCitationRefsByTypedCandidateRole_DoesNotGuessAmbiguousRows(t *testing.T) {
+	mu := types.NewMutableState("source inventory ambiguous typed citation repair")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Complete: true,
+		Scopes:   []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "Serve", Role: types.AnswerCandidateRoleFunction, File: "src/serve.cj", Line: 12, Language: "cangjie", CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "Serve", Role: types.AnswerCandidateRoleFunction, File: "fixtures/serve.cj", Line: 18, Language: "cangjie", CoverageState: types.SourceInventoryCoverageObserved},
+			},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope:              types.SourceScopeAll,
+				IncludeAuxiliaryAsPrincipal: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "old/stale.go", Line: 1}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "functions",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:            "serve",
+				Label:         "Serve",
+				Text:          "入口函数。",
+				CandidateRole: types.AnswerCandidateRoleFunction,
+				CitationRef:   0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("ambiguous source-inventory rows must not be auto-rebound, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref changed to %d; ambiguous rows should preserve model-authored ref", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_TotalCountPathMembersAreCoverageForArchitecture(t *testing.T) {
 	mu := types.NewMutableState("architecture count coverage aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
