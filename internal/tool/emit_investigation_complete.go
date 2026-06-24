@@ -5319,30 +5319,117 @@ func enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx *types.BusC
 	}
 	support := buildAggregateMemberSupportIndexWithEvidence(ctx, evidence)
 	if len(support.readFileLines) == 0 {
-		return facts
+		if !aggregateMemberSupportIndexHasEvidenceAnchors(support) {
+			return facts
+		}
 	}
 	out := cloneCompletionAggregateFacts(facts)
 	for factIdx := range out {
 		if out[factIdx].Kind != types.AnswerAggregateMemberSet || len(out[factIdx].Members) == 0 {
 			continue
 		}
-		for memberIdx, member := range out[factIdx].Members {
-			if ref, ok := aggregateDecoratedMemberReadFileSupportRef(member, support); ok {
-				out[factIdx].SupportRefs = append(out[factIdx].SupportRefs, ref)
-				continue
-			}
-			if aggregateMemberSetMemberUsableAt(out[factIdx], member, memberIdx, support) {
-				continue
-			}
-			ref, ok := aggregateMemberReadFileSupportRef(member, support)
-			if !ok {
-				continue
-			}
-			out[factIdx].SupportRefs = append(out[factIdx].SupportRefs, ref)
+		if len(out[factIdx].SupportRefs) > 0 {
+			continue
 		}
-		out[factIdx].SupportRefs = dedupStringsPreserveOrder(out[factIdx].SupportRefs)
+		if refs, ok := aggregateMemberSetUniqueEvidenceSupportRefs(out[factIdx], support); ok {
+			out[factIdx].SupportRefs = refs
+			continue
+		}
+		if refs, ok := aggregateMemberSetUniqueReadFileSupportRefs(out[factIdx], support); ok {
+			out[factIdx].SupportRefs = refs
+			continue
+		}
 	}
 	return out
+}
+
+func aggregateMemberSupportIndexHasEvidenceAnchors(support aggregateMemberSupportIndex) bool {
+	return len(support.byLabel) > 0 || len(support.byLocation) > 0 || len(support.byID) > 0
+}
+
+func aggregateMemberSetUniqueEvidenceSupportRefs(fact types.AnswerAggregateFact, support aggregateMemberSupportIndex) ([]string, bool) {
+	if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 || len(fact.SupportRefs) > 0 {
+		return nil, false
+	}
+	refs := make([]string, len(fact.Members))
+	for idx, member := range fact.Members {
+		ref, ok := aggregateMemberUniqueEvidenceSupportRef(member, support)
+		if !ok {
+			return nil, false
+		}
+		refs[idx] = ref
+	}
+	return refs, true
+}
+
+func aggregateMemberUniqueEvidenceSupportRef(member string, support aggregateMemberSupportIndex) (string, bool) {
+	labels := aggregateMemberDisplayCandidates(member)
+	if base, _, ok := types.AnswerAggregateDecoratedLabelParts(member); ok {
+		base = strings.TrimSpace(base)
+		if base != "" {
+			labels = append(labels, base)
+			if tail := types.NormalizedSurfaceSymbolTail(base); tail != "" {
+				labels = append(labels, tail)
+			}
+		}
+	}
+	labels = dedupStringsPreserveOrder(labels)
+	if len(labels) == 0 {
+		return "", false
+	}
+	seen := map[string]bool{}
+	var matches []string
+	for _, label := range labels {
+		key := aggregateMemberKey(label)
+		if key == "" {
+			continue
+		}
+		for _, ev := range support.byLabel[key] {
+			if !ev.IsCitable() {
+				continue
+			}
+			loc := aggregateSupportLocationKey(ev.Source, ev.LineStart)
+			if loc == "" || seen[loc] {
+				continue
+			}
+			if !aggregateEvidenceMatchesAnyLabel(ev, []string{label}) {
+				continue
+			}
+			seen[loc] = true
+			matches = append(matches, loc)
+		}
+	}
+	if len(matches) != 1 {
+		return "", false
+	}
+	return matches[0], true
+}
+
+func aggregateMemberSetUniqueReadFileSupportRefs(fact types.AnswerAggregateFact, support aggregateMemberSupportIndex) ([]string, bool) {
+	if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 || len(fact.SupportRefs) > 0 {
+		return nil, false
+	}
+	refs := make([]string, len(fact.Members))
+	for idx, member := range fact.Members {
+		ref, ok := aggregateMemberReadFileSupportRef(member, support)
+		if !ok {
+			return nil, false
+		}
+		loc, ok := aggregateSupportRefLocationOnly(ref)
+		if !ok {
+			return nil, false
+		}
+		refs[idx] = loc
+	}
+	return refs, true
+}
+
+func aggregateSupportRefLocationOnly(ref string) (string, bool) {
+	_, loc, ok := aggregateMemberSupportRefParts(ref)
+	if !ok || strings.TrimSpace(loc) == "" {
+		return "", false
+	}
+	return loc, true
 }
 
 func aggregateSupportToolResults(ctx *types.BusContext) []types.ToolResult {

@@ -1274,7 +1274,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_AutoSupportRefsFromReadFileG
 	if len(got) != 1 {
 		t.Fatalf("expected one aggregate fact, got %+v", got)
 	}
-	wantRef := "Member @ internal/analysis/findings_validator/validator.go:70"
+	wantRef := "internal/analysis/findings_validator/validator.go:70"
 	if len(got[0].SupportRefs) != 1 || got[0].SupportRefs[0] != wantRef {
 		t.Fatalf("auto support_ref = %+v, want %q", got[0].SupportRefs, wantRef)
 	}
@@ -1355,7 +1355,7 @@ func TestEnrichCompletionAggregateFactsWithMemberSupport_ReadFileGutter(t *testi
 	if len(got) != 1 || len(got[0].SupportRefs) != 1 {
 		t.Fatalf("enriched facts = %+v", got)
 	}
-	if got[0].SupportRefs[0] != "Member @ internal/analysis/findings_validator/validator.go:70" {
+	if got[0].SupportRefs[0] != "internal/analysis/findings_validator/validator.go:70" {
 		t.Fatalf("support refs = %+v", got[0].SupportRefs)
 	}
 }
@@ -1389,10 +1389,10 @@ func TestEnrichCompletionAggregateFactsWithMemberSupport_DecoratedLineMembers(t 
 		t.Fatalf("enriched facts = %+v", got)
 	}
 	want := []string{
-		"analyzerGraphForNormalize: internal/agent/analyzer.go:1377",
-		"reconcileEnumerationBoundaryScope: internal/agent/analyzer.go:1378",
-		"normalizer.Normalize: internal/agent/analyzer.go:1703",
-		"analyzerSymbolResolver: internal/agent/analyzer.go:1702",
+		"internal/agent/analyzer.go:1377",
+		"internal/agent/analyzer.go:1378",
+		"internal/agent/analyzer.go:1703",
+		"internal/agent/analyzer.go:1702",
 	}
 	for i, ref := range want {
 		if got[0].SupportRefs[i] != ref {

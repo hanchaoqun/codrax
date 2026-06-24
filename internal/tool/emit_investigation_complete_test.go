@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -3094,8 +3095,7 @@ func TestEmitInvestigationComplete_AutoFillsBareMemberSupportFromUniqueReadLine(
 			"value":"1",
 			"unit":"subagents",
 			"role":"principal_answer",
-			"members":["explorer"],
-			"support_refs":["Name: internal/agent/sub_explorer.go:32"]
+			"members":["explorer"]
 		}]
 	}`)
 	res, err := tool.Execute(bus, params)
@@ -3106,17 +3106,127 @@ func TestEmitInvestigationComplete_AutoFillsBareMemberSupportFromUniqueReadLine(
 		t.Fatalf("unique read_file member line should auto-fill support: %s", res.Summary)
 	}
 	facts := mut.StableInvestigationAggregateFacts()
-	if len(facts) != 1 || len(facts[0].SupportRefs) < 2 {
+	if len(facts) != 1 || len(facts[0].SupportRefs) != 1 {
 		t.Fatalf("expected enriched support refs, got %+v; summary: %s", facts, res.Summary)
 	}
-	found := false
-	for _, ref := range facts[0].SupportRefs {
-		if ref == "Member @ internal/agent/sub_explorer.go:33" {
-			found = true
-		}
+	if got := facts[0].SupportRefs[0]; got != "internal/agent/sub_explorer.go:33" {
+		t.Fatalf("auto-filled support ref should be positional and member-aligned, got %+v", facts[0].SupportRefs)
 	}
-	if !found {
-		t.Fatalf("auto-filled read_file support ref missing: %+v", facts[0].SupportRefs)
+}
+
+func TestEmitInvestigationComplete_AutoFillsMemberSupportFromUniqueGroundedEvidence(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List the read-mode agents")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "agent-analyzer",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/types/enums.go",
+			LineStart:       130,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "AgentAnalyzer",
+			Subject:         "AgentAnalyzer",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			ID:              "agent-explorer",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/types/enums.go",
+			LineStart:       131,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "AgentExplorer",
+			Subject:         "AgentExplorer",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "read-mode agents",
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"read-mode principal agents are grounded by AgentName evidence",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"read-mode agents",
+			"value":"2",
+			"unit":"agents",
+			"role":"principal_answer",
+			"members":["AgentAnalyzer","AgentExplorer"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("unique grounded evidence should auto-fill support: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 {
+		t.Fatalf("expected one retained fact, got %+v", facts)
+	}
+	want := []string{"internal/types/enums.go:130", "internal/types/enums.go:131"}
+	if !reflect.DeepEqual(facts[0].SupportRefs, want) {
+		t.Fatalf("support_refs should be precise positional evidence refs, got %+v want %+v", facts[0].SupportRefs, want)
+	}
+}
+
+func TestEnrichCompletionAggregateFactsWithMemberSupport_SkipsAmbiguousGroundedEvidence(t *testing.T) {
+	mut := types.NewMutableState("List the matching agents")
+	evidence := []types.EvidenceItem{
+		{
+			ID:              "agent-planner-a",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/types/enums.go",
+			LineStart:       155,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "AgentPlanner",
+			Subject:         "AgentPlanner",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			ID:              "agent-planner-b",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/agent/planner.go",
+			LineStart:       17,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "AgentPlanner",
+			Subject:         "AgentPlanner",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	}
+	mut.AppendEvidence(evidence)
+	bus := &types.BusContext{Mutable: mut}
+	got := enrichCompletionAggregateFactsWithMemberSupportWithEvidence(bus, []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "matching agents",
+		Value:   "1",
+		Members: []string{"AgentPlanner"},
+	}}, evidence)
+	if len(got) != 1 {
+		t.Fatalf("expected one fact, got %+v", got)
+	}
+	if len(got[0].SupportRefs) != 0 {
+		t.Fatalf("ambiguous evidence must not be auto-filled, got %+v", got[0].SupportRefs)
 	}
 }
 
