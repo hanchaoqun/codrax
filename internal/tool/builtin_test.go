@@ -865,6 +865,81 @@ func TestExecCommandFindDiscoveryRepair(t *testing.T) {
 	}
 }
 
+func TestExecCommandRefinementBroadFindTimeoutPrefersTypedDiscovery(t *testing.T) {
+	hint := execCommandRefinement(nil, `find . -name "*.go" | head -200`, "exec_command_timeout", MaxInlineBytes+1)
+	if hint == nil {
+		t.Fatal("expected broad find timeout refinement")
+	}
+	if hint.ReasonCode != "exec_command_timeout" || !hint.ResultTruncated {
+		t.Fatalf("unexpected hint: %+v", hint)
+	}
+	if hint.PreferredNextTool != "list_files" {
+		t.Fatalf("preferred tool = %q, want list_files", hint.PreferredNextTool)
+	}
+	if hint.PreferredParams["recursive"] != "true" || hint.PreferredParams["path"] != "." {
+		t.Fatalf("preferred params = %+v", hint.PreferredParams)
+	}
+	if !sameStringSet(hint.RequiredFields, []string{"include", "file_type"}) {
+		t.Fatalf("required fields = %+v", hint.RequiredFields)
+	}
+}
+
+func TestExecCommandRefinementSourceInventoryProfilePrefersRepoMap(t *testing.T) {
+	ctx := newBusContext()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			Confidence:        0.9,
+		},
+	}}
+	hint := execCommandRefinement(ctx, `find . -name "*.ets" | head`, "exec_command_timeout", MaxInlineBytes+1)
+	if hint == nil {
+		t.Fatal("expected source-inventory exec refinement")
+	}
+	if hint.PreferredNextTool != "repo_map" || hint.PreferredParams["view"] != "source_inventory" {
+		t.Fatalf("preferred route = %+v", hint)
+	}
+	if !sameStringSet(hint.RequiredFields, []string{"scope", "roles"}) {
+		t.Fatalf("required fields = %+v", hint.RequiredFields)
+	}
+}
+
+func TestExecCommandRefinementBroadContentPrefersGrepScope(t *testing.T) {
+	hint := execCommandRefinement(nil, `grep -R needle . | head -200`, "", MaxInlineBytes+1)
+	if hint == nil {
+		t.Fatal("expected broad grep refinement")
+	}
+	if hint.ReasonCode != "exec_command_broad_content_enumeration" || !hint.ResultTruncated {
+		t.Fatalf("unexpected hint: %+v", hint)
+	}
+	if hint.PreferredNextTool != "grep" || hint.PreferredParams["context_lines"] != "3" {
+		t.Fatalf("preferred grep route = %+v", hint)
+	}
+	if !sameStringSet(hint.RequiredFields, []string{"path", "pattern"}) {
+		t.Fatalf("required fields = %+v", hint.RequiredFields)
+	}
+}
+
+func TestExecCommandRefinementPlainFailureIsNotTruncation(t *testing.T) {
+	hint := execCommandRefinement(nil, `grep missing internal/tool/builtin.go`, "exec_command_failed", len("no match"))
+	if hint == nil {
+		t.Fatal("expected failed grep refinement")
+	}
+	if hint.ReasonCode != "exec_command_failed" {
+		t.Fatalf("reason = %q", hint.ReasonCode)
+	}
+	if hint.ResultTruncated {
+		t.Fatalf("plain shell failure should not be marked truncated: %+v", hint)
+	}
+}
+
+func TestExecCommandRefinementTargetedSmallCommandStaysSilent(t *testing.T) {
+	if hint := execCommandRefinement(nil, `printf 'hello\n'`, "", len("hello\n")); hint != nil {
+		t.Fatalf("targeted small command should not emit refinement: %+v", hint)
+	}
+}
+
 func TestExecCommandFindCountMeasurementAllowed(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "sample.go"), []byte("package sample\n"), 0o644); err != nil {
@@ -942,6 +1017,9 @@ func TestExecCommandFindCountMeasurementBlockedDuringSourceInventoryDebt(t *test
 	if result.Repair == nil || result.Repair.Code != "exec_command_source_inventory_debt_use_typed_inventory" {
 		t.Fatalf("expected source-inventory debt repair, got %+v", result.Repair)
 	}
+	if result.Refinement != nil {
+		t.Fatalf("hard source-inventory debt repair should short-circuit before soft refinement: %+v", result.Refinement)
+	}
 	if !strings.Contains(result.Summary, "repo_map") || !strings.Contains(result.Summary, "source_inventory") {
 		t.Fatalf("repair should steer to typed source inventory route, got %q", result.Summary)
 	}
@@ -996,6 +1074,9 @@ func TestExecCommandBroadGrepBlockedDuringSourceInventoryDebt(t *testing.T) {
 	}
 	if result.Repair == nil || result.Repair.Code != "exec_command_source_inventory_debt_use_typed_inventory" {
 		t.Fatalf("expected source-inventory debt repair, got %+v", result.Repair)
+	}
+	if result.Refinement != nil {
+		t.Fatalf("hard source-inventory debt repair should short-circuit before soft refinement: %+v", result.Refinement)
 	}
 	if got := result.Repair.Metadata["reason_code"]; got != "source_inventory_debt_broad_content_enumeration" {
 		t.Fatalf("reason_code=%q, want broad content enumeration", got)
@@ -4470,4 +4551,26 @@ func TestIsWindowsReservedDevicePath(t *testing.T) {
 			t.Fatalf("IsWindowsReservedDevicePath(%q) should be false", name)
 		}
 	}
+}
+
+func sameStringSet(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	seen := make(map[string]int, len(got))
+	for _, item := range got {
+		seen[item]++
+	}
+	for _, item := range want {
+		if seen[item] == 0 {
+			return false
+		}
+		seen[item]--
+	}
+	for _, count := range seen {
+		if count != 0 {
+			return false
+		}
+	}
+	return true
 }

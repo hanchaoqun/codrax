@@ -592,11 +592,12 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 		payload := output + execCommandFileDiscoveryAdvisory(command)
 		preview, ref := StoreBlob(ctx, t.Name()+"-timeout", payload)
 		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   banner + fmt.Sprintf("command timed out after %v\n%s", timeout, preview),
-			RawRef:    ref,
-			Timestamp: time.Now(),
+			ToolName:   t.Name(),
+			Success:    false,
+			Summary:    banner + fmt.Sprintf("command timed out after %v\n%s", timeout, preview),
+			RawRef:     ref,
+			Refinement: execCommandRefinement(ctx, command, "exec_command_timeout", len(payload)),
+			Timestamp:  time.Now(),
 		}, fmt.Errorf("command timed out after %v", timeout)
 	case SupervisedExitOOM:
 		preview, ref := StoreBlob(ctx, t.Name()+"-oom", output)
@@ -605,8 +606,9 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 			Success:  false,
 			Summary: banner + fmt.Sprintf("command killed by memory cap (%d MiB) — adjust verify_mem_limit_mb if your repo legitimately needs more RAM\n%s",
 				caps.MemoryLimitBytes/(1024*1024), preview),
-			RawRef:    ref,
-			Timestamp: time.Now(),
+			RawRef:     ref,
+			Refinement: execCommandRefinement(ctx, command, "exec_command_oom", len(output)),
+			Timestamp:  time.Now(),
 		}, fmt.Errorf("command killed by memory cap")
 	case SupervisedExitCPULimit:
 		preview, ref := StoreBlob(ctx, t.Name()+"-cpu", output)
@@ -615,8 +617,9 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 			Success:  false,
 			Summary: banner + fmt.Sprintf("command killed by CPU-time cap (%ds)\n%s",
 				caps.CPULimitSeconds, preview),
-			RawRef:    ref,
-			Timestamp: time.Now(),
+			RawRef:     ref,
+			Refinement: execCommandRefinement(ctx, command, "exec_command_cpu_limit", len(output)),
+			Timestamp:  time.Now(),
 		}, fmt.Errorf("command killed by CPU-time cap")
 	}
 
@@ -624,11 +627,12 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 		payload := output + execCommandSearchShapeAdvisory(command, output, err) + execCommandFileDiscoveryAdvisory(command)
 		preview, ref := StoreBlob(ctx, t.Name()+"-fail", payload)
 		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   banner + fmt.Sprintf("command failed: %v\n%s", err, preview),
-			RawRef:    ref,
-			Timestamp: time.Now(),
+			ToolName:   t.Name(),
+			Success:    false,
+			Summary:    banner + fmt.Sprintf("command failed: %v\n%s", err, preview),
+			RawRef:     ref,
+			Refinement: execCommandRefinement(ctx, command, "exec_command_failed", len(payload)),
+			Timestamp:  time.Now(),
 		}, nil
 	}
 
@@ -641,12 +645,81 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	}
 	summary, ref := StoreBlob(ctx, t.Name(), payload)
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   summary,
-		RawRef:    ref,
-		Timestamp: time.Now(),
+		ToolName:   t.Name(),
+		Success:    true,
+		Summary:    summary,
+		RawRef:     ref,
+		Refinement: execCommandRefinement(ctx, command, "", len(payload)),
+		Timestamp:  time.Now(),
 	}, nil
+}
+
+func execCommandRefinement(ctx *types.BusContext, command, outcomeReason string, payloadBytes int) *types.ToolRefinementHint {
+	broadFind := readModeExecFileDiscoveryShouldRepair(command)
+	broadContent := execCommandLooksLikeBroadRepoContentEnumeration(command)
+	largeOutput := payloadBytes > MaxInlineBytes
+	if strings.TrimSpace(outcomeReason) == "" && !largeOutput && !broadFind && !broadContent {
+		return nil
+	}
+	reasonCode := strings.TrimSpace(outcomeReason)
+	if reasonCode == "" {
+		switch {
+		case broadFind:
+			reasonCode = "exec_command_broad_file_discovery"
+		case broadContent:
+			reasonCode = "exec_command_broad_content_enumeration"
+		default:
+			reasonCode = "exec_command_large_output"
+		}
+	}
+	hint := types.ToolRefinementHint{
+		ReasonCode:      reasonCode,
+		ResultTruncated: largeOutput || execCommandOutcomeTruncated(outcomeReason),
+	}
+	switch {
+	case broadFind && execCommandActiveSourceInventoryProfile(ctx):
+		hint.PreferredNextTool = "repo_map"
+		hint.PreferredParams = map[string]string{
+			"view":               "source_inventory",
+			"include_counts":     "true",
+			"include_attributes": "false",
+		}
+		hint.RequiredFields = []string{"scope", "roles"}
+	case broadFind:
+		hint.PreferredNextTool = "list_files"
+		hint.PreferredParams = map[string]string{
+			"path":      ".",
+			"recursive": "true",
+		}
+		hint.RequiredFields = []string{"include", "file_type"}
+	case broadContent || execCommandLooksLikeGrepPipeline(command):
+		hint.PreferredNextTool = "grep"
+		hint.PreferredParams = map[string]string{
+			"context_lines": "3",
+			"files_only":    "false",
+		}
+		if execCommandTargetsRuntimeTextArtifact(command) {
+			hint.PreferredParams["context_lines"] = "0"
+		}
+		hint.RequiredFields = []string{"path", "pattern"}
+	default:
+		hint.PreferredNextTool = "exec_command"
+		hint.RequiredFields = []string{"command"}
+	}
+	out := types.NormalizeToolRefinementHint(hint)
+	if out.Empty() {
+		return nil
+	}
+	return &out
+}
+
+func execCommandOutcomeTruncated(outcomeReason string) bool {
+	switch strings.TrimSpace(outcomeReason) {
+	case "exec_command_timeout", "exec_command_oom", "exec_command_cpu_limit":
+		return true
+	default:
+		return false
+	}
 }
 
 func execCommandFileDiscoveryAdvisory(command string) string {
