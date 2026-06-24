@@ -46,6 +46,28 @@ func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_AllowsCompletionForm
 	}
 }
 
+func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_AllowsConvergedDowngradeLaneDebt(t *testing.T) {
+	mut := types.NewMutableState("accepted closure with converged principal handoff debt")
+	mut.SetInvestigationComplete("completed with a typed caveat after low-delta convergence")
+	mut.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane:       types.DowngradeLanePrincipalMemberSetHandoff,
+		ReasonCode: types.ProgressReasonConverged,
+		Reason:     "same blocker recurred",
+	})
+	mut.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:          types.RepairStructuredHandoff,
+		Origin:        "emit_investigation_complete.principal_member_set_handoff",
+		Subject:       "principal_member_set_handoff:has_per_member_table",
+		DowngradeLane: types.DowngradeLanePrincipalMemberSetHandoff,
+		Rationale:     "principal handoff remained missing at convergence",
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+
+	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("repair tied to an already converged downgrade lane must not reopen exploration")
+	}
+}
+
 func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_BlocksLoadBearingDebt(t *testing.T) {
 	tests := []struct {
 		name    string

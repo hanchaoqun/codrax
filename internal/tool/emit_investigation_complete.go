@@ -1367,6 +1367,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	resultKind, justification = normalizeExactAbsenceCompletionWithEvidenceAndAggregates(ctx, resultKind, reason, justification, evidenceSnapshot, aggregateFacts)
 	aggregateFactNormalizationNotes := aggregateFactValueCanonicalizationNotes(p.AggregateFacts, aggregateFacts)
 	aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, softAggregateNotes...)
+	earlyDowngradeConverged := false
 	if err := validateAggregateRequestedDecoratorAlignmentWithEvidence(ctx, aggregateFacts, evidenceSnapshot); err != nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -1388,13 +1389,20 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		strings.EqualFold(strings.TrimSpace(resultKind), "resolved") &&
 		justification == "" &&
 		!completionFactsContainMemberSet(aggregateFacts) {
-		return types.ToolResult{
-			ToolName: t.Name(),
-			Summary: "emit_investigation_complete rejected: this question declares a per-member table (has_per_member_table), so a resolved completion must carry the complete verified member list as an aggregate_facts entry with kind=\"member_set\" (exact members; support_refs per the member contract). " +
-				"If the set genuinely cannot be enumerated from the investigation, set absence_justification explaining why instead of completing without it.",
-			Success:   false,
-			Timestamp: time.Now(),
-		}, nil
+		queuePrincipalMemberSetHandoffRepair(ctx, "has_per_member_table")
+		if !preCompleteDowngradeConverges(ctx, types.DowngradeLanePrincipalMemberSetHandoff) {
+			if ctx != nil && ctx.Mutable != nil {
+				ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			}
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Summary:   preCompleteDowngradeSummary(principalMemberSetHandoffDowngradeSummary("has_per_member_table")),
+				Repair:    attachToolJSONSurfaceMetadata(t.Name(), principalMemberSetHandoffRepair("has_per_member_table")),
+				Success:   true,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		earlyDowngradeConverged = true
 	}
 	preflightStart := time.Now()
 	preflight := buildCompletionPreflightView(ctx, resultKind, justification, evidenceSnapshot, aggregateFacts, nil)
@@ -1646,7 +1654,6 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// these floors, then pass through the dedicated absence validation
 	// below; otherwise absent targets can be rejected for having no
 	// positive evidence to cite.
-	earlyDowngradeConverged := false
 	groundingFloorStart := time.Now()
 	if justification == "" {
 		contract := answerExactResolutionContract(ctx)
@@ -2317,6 +2324,35 @@ func exactResolvedDefiningProofRepair(label string, targets []string) *types.Too
 	}
 }
 
+func principalMemberSetHandoffRepair(reasonCode string) *types.ToolRepair {
+	reasonCode = strings.TrimSpace(reasonCode)
+	if reasonCode == "" {
+		reasonCode = "principal_member_set_handoff"
+	}
+	return &types.ToolRepair{
+		Code: "principal_member_set_handoff",
+		Hint: "Emit aggregate_facts with kind=member_set and exact members for the requested principal answer set, or switch to result_kind=absence with an absence_justification if the set is genuinely empty or not enumerable.",
+		Fields: []string{
+			"emit_investigation_complete.aggregate_facts[].kind=member_set",
+			"emit_investigation_complete.aggregate_facts[].members",
+			"emit_investigation_complete.absence_justification",
+		},
+		Metadata: map[string]string{
+			"repair_origin": "emit_investigation_complete.principal_member_set_handoff",
+			"lane":          string(types.DowngradeLanePrincipalMemberSetHandoff),
+			"reason_code":   reasonCode,
+		},
+	}
+}
+
+func principalMemberSetHandoffDowngradeSummary(reasonCode string) string {
+	reasonCode = strings.TrimSpace(reasonCode)
+	if reasonCode == "" {
+		reasonCode = "principal_member_set_handoff"
+	}
+	return "emit_investigation_complete rejected: this question declares a precise principal member-set obligation (" + reasonCode + "), so a resolved completion must carry the complete verified member list as an aggregate_facts entry with kind=\"member_set\" (exact members; support_refs when required by the member contract). If the set genuinely cannot be enumerated from the investigation, set absence_justification explaining why instead of completing without it."
+}
+
 func queueExactResolvedDefiningProofRepair(ctx *types.BusContext, label string, targets []string) {
 	if ctx == nil || ctx.Mutable == nil {
 		return
@@ -2340,12 +2376,36 @@ func queueExactResolvedDefiningProofRepair(ctx *types.BusContext, label string, 
 		subject = label + ":" + strings.Join(cleanTargets, ",")
 	}
 	closure.AddRepair(types.RepairDirective{
-		Kind:      types.RepairEmitEvidence,
-		Subject:   "exact_resolved_defining_proof:" + subject,
-		Tools:     []string{"read_file", "repo_map", "emit_evidence"},
-		Rationale: "positive exact-resolution closure needs a grounded defining proof for the exact target, or an honest exact-absence closure",
-		Origin:    "emit_investigation_complete.exact_resolved_defining_proof",
-		Stage:     string(types.StageExplore),
+		Kind:          types.RepairEmitEvidence,
+		Subject:       "exact_resolved_defining_proof:" + subject,
+		Tools:         []string{"read_file", "repo_map", "emit_evidence"},
+		Rationale:     "positive exact-resolution closure needs a grounded defining proof for the exact target, or an honest exact-absence closure",
+		Origin:        "emit_investigation_complete.exact_resolved_defining_proof",
+		DowngradeLane: types.DowngradeLaneExactResolvedDefiningProof,
+		Stage:         string(types.StageExplore),
+	})
+}
+
+func queuePrincipalMemberSetHandoffRepair(ctx *types.BusContext, reasonCode string) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return
+	}
+	reasonCode = strings.TrimSpace(reasonCode)
+	if reasonCode == "" {
+		reasonCode = "principal_member_set_handoff"
+	}
+	closure.AddRepair(types.RepairDirective{
+		Kind:          types.RepairStructuredHandoff,
+		Subject:       "principal_member_set_handoff:" + reasonCode,
+		Tools:         []string{"emit_investigation_complete"},
+		Rationale:     "principal answer shape requires aggregate_facts.kind=member_set with exact members, or an explicit absence boundary",
+		Origin:        "emit_investigation_complete.principal_member_set_handoff",
+		DowngradeLane: types.DowngradeLanePrincipalMemberSetHandoff,
+		Stage:         string(types.StageExplore),
 	})
 }
 
@@ -2358,12 +2418,13 @@ func queuePathDiscoveryAbsenceRepair(ctx *types.BusContext) {
 		return
 	}
 	closure.AddRepair(types.RepairDirective{
-		Kind:      types.RepairStructuredHandoff,
-		Subject:   "path_discovery_absence_proof",
-		Tools:     []string{"list_files", "repo_map"},
-		Rationale: "typed file-family absence needs recursive path discovery with auxiliary/corpus coverage or an authoritative source_inventory lens before declaring a hard zero",
-		Origin:    "emit_investigation_complete.path_discovery_absence",
-		Stage:     string(types.StageExplore),
+		Kind:          types.RepairStructuredHandoff,
+		Subject:       "path_discovery_absence_proof",
+		Tools:         []string{"list_files", "repo_map"},
+		Rationale:     "typed file-family absence needs recursive path discovery with auxiliary/corpus coverage or an authoritative source_inventory lens before declaring a hard zero",
+		Origin:        "emit_investigation_complete.path_discovery_absence",
+		DowngradeLane: types.DowngradeLanePathDiscoveryAbsence,
+		Stage:         string(types.StageExplore),
 	})
 }
 

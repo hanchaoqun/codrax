@@ -40,6 +40,12 @@ const (
 	// exact target. It should delay closure and request proof, then caveat after
 	// repeated no-progress attempts instead of tool-failing forever.
 	DowngradeLaneExactResolvedDefiningProof DowngradeLane = "exact_resolved_defining_proof"
+	// DowngradeLanePrincipalMemberSetHandoff is the principal/per-member-table
+	// handoff gate: the answer shape requires an exact member_set carrier, but
+	// the current completion attempt omitted it. The requirement is precise, but
+	// repeated no-progress attempts should still converge with a typed caveat
+	// instead of leaving the model in a form-retry loop.
+	DowngradeLanePrincipalMemberSetHandoff DowngradeLane = "principal_member_set_handoff"
 	// DowngradeLaneGroundingCitationFloor is the configured grounding / Tier-1
 	// citation-floor gate. The floor is based on typed evidence grounding
 	// verdicts, but it still must not become an infinite hard loop when the same
@@ -88,7 +94,7 @@ func ComputeDowngradeBlockerKey(pending []PendingRead, unverified []UnverifiedFi
 		parts = append(parts, "uf:"+u.Kind+"|"+u.Token)
 	}
 	for _, r := range repairs {
-		parts = append(parts, "rp:"+string(r.Kind)+"|"+r.Subject)
+		parts = append(parts, "rp:"+string(r.Kind)+"|"+r.Subject+"|lane="+string(r.DowngradeLane))
 	}
 	sort.Strings(parts)
 	h := fnv.New32a()

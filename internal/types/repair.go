@@ -314,6 +314,12 @@ type RepairDirective struct {
 	// route without parsing Subject/Rationale prose.
 	SourceInventoryCompletionAuthority SourceInventoryCompletionAuthority
 
+	// DowngradeLane links this repair to the pre-complete downgrade lane that
+	// produced it. Accepted-closure scheduling consumes this typed enum together
+	// with CompletionCaveats so a repair that has already converged cannot reopen
+	// broad exploration by itself. Empty preserves legacy behavior.
+	DowngradeLane DowngradeLane
+
 	// Stage (A.1+E.1, 2026-05-02) is the explicit stage attribution
 	// for this directive. When non-empty, AddRepair bumps
 	// stats.PerStage[Stage].Repairs and propagates Stage into the
@@ -352,6 +358,7 @@ func MergeRepairs(in []RepairDirective) []RepairDirective {
 		subject         string
 		files           string
 		advisory        bool
+		downgradeLane   DowngradeLane
 		sourceInventory string
 	}
 	seen := make(map[key]int, len(in))
@@ -365,6 +372,7 @@ func MergeRepairs(in []RepairDirective) []RepairDirective {
 			subject:         r.Subject,
 			files:           strings.Join(dup, "\x00"),
 			advisory:        r.Advisory,
+			downgradeLane:   r.DowngradeLane,
 			sourceInventory: repairDirectiveSourceInventoryKey(r),
 		}
 		if idx, ok := seen[k]; ok {

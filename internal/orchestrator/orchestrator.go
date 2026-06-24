@@ -7539,18 +7539,6 @@ func (o *Orchestrator) repairBlocksReconcileAutoComplete(r types.RepairDirective
 	}
 }
 
-func (o *Orchestrator) repairBlocksAcceptedClosure(r types.RepairDirective) bool {
-	if !types.RepairBlocksAcceptedClosure(r) {
-		return false
-	}
-	if o.sourceInventoryClosureMakesSubjectRebindAdvisory(r) {
-		logging.Info("[orchestrator] treating source-inventory subject rebind as advisory after exact-universe accepted closure: subject=%q origin=%q",
-			r.Subject, r.Origin)
-		return false
-	}
-	return true
-}
-
 func (o *Orchestrator) acceptedClosureAllowsAdvisoryDebt() bool {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
 		return false
