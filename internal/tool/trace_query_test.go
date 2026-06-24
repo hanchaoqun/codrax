@@ -1146,6 +1146,27 @@ func TestTraceQueryEventSearchBroadPatternWithObjectiveFrameIDGivesExactHint(t *
 			t.Fatalf("broad event_search should warn against absence inference, missing %q:\n%s", want, res.Summary)
 		}
 	}
+	if res.Refinement == nil {
+		t.Fatalf("broad event_search should attach a typed refinement hint")
+	}
+	refinement := types.NormalizeToolRefinementHint(*res.Refinement)
+	if refinement.ReasonCode != "trace_query_event_search_limit_reached" || !refinement.ResultTruncated {
+		t.Fatalf("unexpected refinement: %+v", refinement)
+	}
+	if refinement.PreferredNextTool != "trace_query" {
+		t.Fatalf("preferred next tool = %q", refinement.PreferredNextTool)
+	}
+	for key, want := range map[string]string{
+		"source":  "path",
+		"path":    "frame_broad.systrace",
+		"view":    "event_search",
+		"pattern": "Choreographer#doFrame",
+		"limit":   "1",
+	} {
+		if got := refinement.PreferredParams[key]; got != want {
+			t.Fatalf("refinement preferred param %s=%q, want %q in %+v", key, got, want, refinement.PreferredParams)
+		}
+	}
 }
 
 func TestTraceQueryEventSearchBroadPatternWithObjectiveSpanKeywordGivesExactHint(t *testing.T) {
@@ -1942,6 +1963,57 @@ func TestTraceQueryEmptyEventSearchGivesRecoveryHint(t *testing.T) {
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if res.Refinement == nil {
+		t.Fatalf("empty event_search should attach a typed refinement hint")
+	}
+	refinement := types.NormalizeToolRefinementHint(*res.Refinement)
+	if refinement.ReasonCode != "trace_query_event_search_zero_match" || refinement.ResultTruncated {
+		t.Fatalf("unexpected refinement: %+v", refinement)
+	}
+	if refinement.PreferredParams["view"] != "event_search" ||
+		refinement.PreferredParams["path"] != "empty.systrace" ||
+		refinement.PreferredParams["thread"] != "com.tencent.mm [99999]" ||
+		refinement.PreferredParams["event_types"] != "sched_wakeup" {
+		t.Fatalf("unexpected preferred params: %+v", refinement.PreferredParams)
+	}
+}
+
+func TestTraceQueryCompactedResultSurfacesRefinement(t *testing.T) {
+	refinement := traceQueryRefinement(tracequery.Result{
+		View:       "root_cause_rank",
+		SourcePath: "trace.systrace",
+		Caveats:    []string{"root_cause_rank compacted from 20 to 5 candidate(s)"},
+	}, tracequery.Query{
+		View:      "root_cause_rank",
+		PID:       123,
+		TimeStart: 1.0,
+		TimeEnd:   2.0,
+		Limit:     5,
+	}, traceQueryParams{
+		Source: "path",
+		Path:   "trace.systrace",
+		View:   "root_cause_rank",
+	}, "path")
+	if refinement == nil {
+		t.Fatalf("compacted trace result should attach a refinement")
+	}
+	got := types.NormalizeToolRefinementHint(*refinement)
+	if got.ReasonCode != "trace_query_result_compacted" || !got.ResultTruncated {
+		t.Fatalf("unexpected refinement: %+v", got)
+	}
+	for key, want := range map[string]string{
+		"source":     "path",
+		"path":       "trace.systrace",
+		"view":       "root_cause_rank",
+		"pid":        "123",
+		"time_start": "1.000000",
+		"time_end":   "2.000000",
+		"limit":      "5",
+	} {
+		if value := got.PreferredParams[key]; value != want {
+			t.Fatalf("preferred param %s=%q, want %q in %+v", key, value, want, got.PreferredParams)
 		}
 	}
 }

@@ -174,6 +174,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		Success:      true,
 		Summary:      preview,
 		RawRef:       rawRef,
+		Refinement:   traceQueryRefinement(result, q, p, sourceLabel),
 		Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
 		Timestamp:    now,
 	}, nil
@@ -638,9 +639,188 @@ func (t *TraceQuery) maybeLargeEventSearchStream(ctx *types.BusContext, p traceQ
 		Success:      true,
 		Summary:      preview,
 		RawRef:       rawRef,
+		Refinement:   traceQueryRefinement(result, q, p, sourceLabel),
 		Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
 		Timestamp:    now,
 	}, true
+}
+
+func traceQueryRefinement(result tracequery.Result, q tracequery.Query, p traceQueryParams, sourceLabel string) *types.ToolRefinementHint {
+	reasonCode := ""
+	resultTruncated := false
+	switch {
+	case traceQueryEventSearchLimitReached(result, q):
+		reasonCode = "trace_query_event_search_limit_reached"
+		resultTruncated = true
+	case traceQueryResultCompacted(result):
+		reasonCode = "trace_query_result_compacted"
+		resultTruncated = true
+	case traceQueryEventSearchZeroMatch(result, q):
+		reasonCode = "trace_query_event_search_zero_match"
+	}
+	if reasonCode == "" {
+		return nil
+	}
+	hint := types.NormalizeToolRefinementHint(types.ToolRefinementHint{
+		ReasonCode:        reasonCode,
+		ResultTruncated:   resultTruncated,
+		PreferredNextTool: tTraceQueryName,
+		PreferredParams:   traceQueryRefinementPreferredParams(result, q, p, sourceLabel),
+		RequiredFields:    traceQueryRefinementRequiredFields(result, q),
+	})
+	if hint.Empty() {
+		return nil
+	}
+	return &hint
+}
+
+const tTraceQueryName = "trace_query"
+
+func traceQueryEventSearchLimitReached(result tracequery.Result, q tracequery.Query) bool {
+	if traceQueryCanonicalView(result, q) != "event_search" {
+		return false
+	}
+	if q.Limit > 0 && len(result.Events) >= q.Limit {
+		return true
+	}
+	return traceQueryCaveatsContain(result, "event_search_limit_reached=true")
+}
+
+func traceQueryEventSearchZeroMatch(result tracequery.Result, q tracequery.Query) bool {
+	if traceQueryCanonicalView(result, q) != "event_search" || len(result.Events) != 0 {
+		return false
+	}
+	return traceQueryCaveatsContain(result, "matched_events=0")
+}
+
+func traceQueryResultCompacted(result tracequery.Result) bool {
+	for _, caveat := range result.Caveats {
+		lower := strings.ToLower(strings.TrimSpace(caveat))
+		if strings.Contains(lower, " compacted from ") || strings.Contains(lower, " compacted after ") {
+			return true
+		}
+	}
+	return false
+}
+
+func traceQueryCaveatsContain(result tracequery.Result, needle string) bool {
+	needle = strings.ToLower(strings.TrimSpace(needle))
+	if needle == "" {
+		return false
+	}
+	for _, caveat := range result.Caveats {
+		if strings.Contains(strings.ToLower(caveat), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func traceQueryCanonicalView(result tracequery.Result, q tracequery.Query) string {
+	if view := strings.TrimSpace(result.View); view != "" {
+		return view
+	}
+	return strings.TrimSpace(q.View)
+}
+
+func traceQueryRefinementPreferredParams(result tracequery.Result, q tracequery.Query, p traceQueryParams, sourceLabel string) map[string]string {
+	params := map[string]string{}
+	if source := firstNonEmptyTraceString(p.Source, sourceLabel); source != "" {
+		params["source"] = source
+	}
+	if path := strings.TrimSpace(p.Path); path != "" && path != "." {
+		params["path"] = path
+	} else if source := firstNonEmptyTraceString(p.Source, sourceLabel); source == "path" {
+		if path := strings.TrimSpace(result.SourcePath); path != "" {
+			params["path"] = path
+		}
+	}
+	if view := traceQueryCanonicalView(result, q); view != "" {
+		params["view"] = view
+	}
+	if q.PID > 0 {
+		params["pid"] = strconv.Itoa(q.PID)
+	}
+	if thread := firstNonEmptyTraceString(p.Thread, q.ThreadInput, q.Thread); thread != "" {
+		params["thread"] = thread
+	}
+	if p.TimeStart.Set() {
+		params["time_start"] = traceQuerySecondParamString(p.TimeStart)
+	} else if q.TimeStart > 0 || q.TimeEnd > 0 {
+		params["time_start"] = traceQueryFloatParamString(q.TimeStart)
+	}
+	if p.TimeEnd.Set() {
+		params["time_end"] = traceQuerySecondParamString(p.TimeEnd)
+	} else if q.TimeStart > 0 || q.TimeEnd > 0 {
+		params["time_end"] = traceQueryFloatParamString(q.TimeEnd)
+	}
+	if q.LineStart > 0 {
+		params["line_start"] = strconv.Itoa(q.LineStart)
+	}
+	if q.LineEnd > 0 {
+		params["line_end"] = strconv.Itoa(q.LineEnd)
+	}
+	if eventTypes := traceQueryEventTypesParamString(q.EventTypes); eventTypes != "" {
+		params["event_types"] = eventTypes
+	}
+	if pattern := strings.TrimSpace(q.Pattern); pattern != "" {
+		params["pattern"] = pattern
+	}
+	if span := strings.TrimSpace(q.SpanName); span != "" {
+		params["span_name"] = span
+	}
+	if q.Limit > 0 {
+		params["limit"] = strconv.Itoa(q.Limit)
+	}
+	if flavor := strings.TrimSpace(p.TraceFlavor); flavor != "" {
+		params["trace_flavor"] = flavor
+	}
+	if platform := strings.TrimSpace(p.Platform); platform != "" {
+		params["platform"] = platform
+	}
+	return params
+}
+
+func traceQueryRefinementRequiredFields(result tracequery.Result, q tracequery.Query) []string {
+	var fields []string
+	view := traceQueryCanonicalView(result, q)
+	if view == "event_search" {
+		if strings.TrimSpace(q.Pattern) == "" {
+			fields = append(fields, "pattern")
+		}
+		if len(q.EventTypes) == 0 {
+			fields = append(fields, "event_types")
+		}
+	}
+	if (traceQueryEventSearchLimitReached(result, q) || traceQueryResultCompacted(result)) &&
+		q.TimeStart == 0 && q.TimeEnd == 0 && q.LineStart == 0 && q.LineEnd == 0 {
+		fields = append(fields, "time_start", "time_end")
+	}
+	return fields
+}
+
+func traceQuerySecondParamString(ts TraceSecond) string {
+	if raw := strings.TrimSpace(ts.Raw()); raw != "" {
+		return raw
+	}
+	return traceQueryFloatParamString(ts.Seconds())
+}
+
+func traceQueryFloatParamString(v float64) string {
+	return strconv.FormatFloat(v, 'f', 6, 64)
+}
+
+func traceQueryEventTypesParamString(eventTypes []tracequery.EventType) string {
+	if len(eventTypes) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(eventTypes))
+	for _, eventType := range eventTypes {
+		if s := strings.TrimSpace(string(eventType)); s != "" {
+			out = append(out, s)
+		}
+	}
+	return strings.Join(out, ",")
 }
 
 func traceQueryShouldStreamEventSearch(p traceQueryParams) bool {
