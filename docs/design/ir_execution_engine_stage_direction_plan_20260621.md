@@ -1829,6 +1829,12 @@ Remaining follow-up:
      3. The hint preserves normalized typed call parameters (`source`, `path`, `view`, `pid`/`thread`, time or line window, event types, pattern, span, limit, platform/flavor) and only marks `result_truncated=true` for limit/compaction. Zero-match recovery remains non-truncated.
      4. This is advisory only: it does not change trace observations, does not block completion, and does not infer missing parameters from user text, model rationale, prompt prose, final answer prose, localized status, wall time, or eval labels.
      5. Validation passed: `go test ./internal/tool -run 'TraceQueryEventSearchBroadPatternWithObjectiveFrameIDGivesExactHint|TraceQueryEmptyEventSearchGivesRecoveryHint|TraceQueryCompactedResultSurfacesRefinement' -count=1`.
+   - **Delivered D1-F10g.48 broad tool refinement slice C / repo_map non-source_inventory（code complete / focused tests passed）**:
+     1. Target gap: D1-G106 remaining slice. `repo_map` already renders markdown next-step hints for broad `overview` / `task_map` / `relation_map` / `file_map` / `semantic_subgraph` outputs, but non-`source_inventory` views do not publish a typed `ToolRefinementHint`. Downstream stages therefore still need to read long navigation prose to decide whether to narrow by `query`, `scope`, `sources`, `relation_kinds`, or `top_n`.
+     2. Added `repoMapNavigationRefinement` for non-`source_inventory` views. It consumes normalized tool params, graph size tier, default top-N budget, and structured `ViewData` item shape. It does not inspect raw user wording, model rationale, prompt text, rendered markdown, localized status, wall time, eval labels, or language-specific keywords.
+     3. The hint is advisory only. It sets `preferred_next_tool=repo_map`, preserves safe typed params, marks `result_truncated` only for structurally broad or oversized navigation surfaces, and requires next-call fields such as `query`, `scope`, `sources`, `roles`, or `relation_kinds` only as refinement guidance. It does not block `emit_investigation_complete`, finalization, or answer generation.
+     4. Targeted lookup views (`call_path`, `edit_impact`, `implementers`) intentionally stay silent so narrow questions do not inherit broad navigation noise.
+     5. Validation passed: `go test ./internal/tool/repomap -run 'RepoMap.*Refinement|BudgetHint' -count=1`; `go test ./internal/tool/repomap -count=1`.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

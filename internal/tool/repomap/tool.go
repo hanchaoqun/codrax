@@ -417,9 +417,10 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 	// untouched GenerateView call.
 	var output string
 	var relationRows []render.RelationMapRow
-	if data := relationMapViewData(graph, p.View, viewParams); data != nil {
-		relationRows = data.RelationRows
-		output = render.RenderMarkdown(data)
+	viewData := render.GenerateViewData(graph, p.View, viewParams)
+	if viewData != nil {
+		relationRows = viewData.RelationRows
+		output = render.RenderMarkdown(viewData)
 	} else {
 		output = render.GenerateView(graph, p.View, viewParams)
 	}
@@ -440,6 +441,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		Success:      true,
 		Summary:      summary,
 		RawRef:       ref,
+		Refinement:   repoMapNavigationRefinement(graph, p, viewParams, viewData),
 		Observations: observations,
 		Timestamp:    now,
 	}, nil

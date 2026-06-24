@@ -6,6 +6,80 @@ import (
 	ctypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestRepoMapNavigationRefinementRelationMapBroadFallback(t *testing.T) {
+	graph := budgetTestGraph(1000)
+	params := ViewParams{}
+	hint := repoMapNavigationRefinement(graph, repoMapParams{
+		Path: ".",
+		View: "relation_map",
+	}, params, GenerateViewData(graph, "relation_map", params))
+	if hint == nil {
+		t.Fatal("expected broad relation_map refinement")
+	}
+	if hint.ReasonCode != "repo_map_relation_map_broad_fallback" || !hint.ResultTruncated {
+		t.Fatalf("unexpected hint: %+v", hint)
+	}
+	if hint.PreferredNextTool != "repo_map" || hint.PreferredParams["view"] != "relation_map" {
+		t.Fatalf("preferred route mismatch: %+v", hint)
+	}
+	if !sameStringSetForRepoMapTest(hint.RequiredFields, []string{"query", "scope", "sources"}) {
+		t.Fatalf("required fields = %+v", hint.RequiredFields)
+	}
+}
+
+func TestRepoMapNavigationRefinementTaskMapMissingQuery(t *testing.T) {
+	graph := budgetTestGraph(1000)
+	params := ViewParams{}
+	hint := repoMapNavigationRefinement(graph, repoMapParams{
+		Path: ".",
+		View: "task_map",
+	}, params, GenerateViewData(graph, "task_map", params))
+	if hint == nil {
+		t.Fatal("expected broad task_map refinement")
+	}
+	if hint.ReasonCode != "repo_map_task_map_missing_query" || !hint.ResultTruncated {
+		t.Fatalf("unexpected hint: %+v", hint)
+	}
+	if !sameStringSetForRepoMapTest(hint.RequiredFields, []string{"query"}) {
+		t.Fatalf("required fields = %+v", hint.RequiredFields)
+	}
+}
+
+func TestRepoMapNavigationRefinementLargeOverviewPrefersTaskMapQuery(t *testing.T) {
+	graph := budgetTestGraph(6000)
+	params := ViewParams{}
+	hint := repoMapNavigationRefinement(graph, repoMapParams{
+		Path: ".",
+		View: "overview",
+	}, params, GenerateViewData(graph, "overview", params))
+	if hint == nil {
+		t.Fatal("expected large overview refinement")
+	}
+	if hint.ReasonCode != "repo_map_overview_large_scope" || !hint.ResultTruncated {
+		t.Fatalf("unexpected hint: %+v", hint)
+	}
+	if hint.PreferredParams["view"] != "task_map" {
+		t.Fatalf("large overview should prefer task_map next: %+v", hint.PreferredParams)
+	}
+	if !sameStringSetForRepoMapTest(hint.RequiredFields, []string{"query"}) {
+		t.Fatalf("required fields = %+v", hint.RequiredFields)
+	}
+}
+
+func TestRepoMapNavigationRefinementTargetedViewsStaySilent(t *testing.T) {
+	graph := budgetTestGraph(6000)
+	for _, view := range []string{"call_path", "edit_impact", "implementers"} {
+		params := ViewParams{Query: "Runnable", TargetFile: "src/app.go", EntryPoint: "cmd/app.go"}
+		hint := repoMapNavigationRefinement(graph, repoMapParams{
+			Path: ".",
+			View: view,
+		}, params, GenerateViewData(graph, view, params))
+		if hint != nil {
+			t.Fatalf("%s is a targeted lookup and should stay silent, got %+v", view, hint)
+		}
+	}
+}
+
 func TestRepoMapSourceInventoryRefinementRequiresScopeForBroadBudgetTruncation(t *testing.T) {
 	obs := ctypes.SourceInventoryObservation{
 		Active:     true,
@@ -96,4 +170,26 @@ func TestRepoMapSourceInventoryRefinementCarriesCursorForScopedPage(t *testing.T
 	if len(hint.RequiredFields) != 0 {
 		t.Fatalf("scoped pagination should not require a new scope: %+v", hint.RequiredFields)
 	}
+}
+
+func sameStringSetForRepoMapTest(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	seen := make(map[string]int, len(got))
+	for _, item := range got {
+		seen[item]++
+	}
+	for _, item := range want {
+		if seen[item] == 0 {
+			return false
+		}
+		seen[item]--
+	}
+	for _, count := range seen {
+		if count != 0 {
+			return false
+		}
+	}
+	return true
 }
