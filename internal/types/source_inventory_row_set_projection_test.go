@@ -173,8 +173,56 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_ProductionScopeExcl
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_ArchitectureNarrativeKeepsInventoryAdvisory(t *testing.T) {
+	rm := RequestModel{
+		Intent:      IntentExplain,
+		Scenario:    ScenarioArchitectureExplain,
+		Complexity:  ComplexityComplex,
+		Predicates:  SemanticPredicates{IsCategoryEnumeration: true, IsCrossComponent: true},
+		DiagramHint: &DiagramHint{Kind: DiagramArchitecture},
+		SubTopics: []SubTopic{
+			{Summary: "agent roles"},
+			{Summary: "agent relationships"},
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction, AnswerCandidateRoleType},
+		},
+	}
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "NewSubAgentRegistry", Role: AnswerCandidateRoleFunction, File: "internal/agent/subagent.go", Line: 22, Language: "go"},
+		SourceInventoryObservationMember{Name: "SubAgentRegistry", Role: AnswerCandidateRoleType, File: "internal/agent/subagent.go", Line: 12, Language: "go"},
+	)
+	obs.Sets = append(obs.Sets, SourceInventoryObservationSet{
+		Role:     AnswerCandidateRoleType,
+		Complete: true,
+		Members: []SourceInventoryObservationMember{{
+			Name:          "SubAgentRegistry",
+			Role:          AnswerCandidateRoleType,
+			File:          "internal/agent/subagent.go",
+			Line:          12,
+			Language:      "go",
+			CoverageState: SourceInventoryCoverageObserved,
+		}},
+	})
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts(nil, obs, rm)
+	if len(got) != 0 {
+		t.Fatalf("architecture narrative source_inventory rows must stay advisory, got %+v", got)
+	}
+}
+
 func sourceInventoryProjectionRequestModel(scope *SourceScope) RequestModel {
 	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqEnumeration),
+			Entities: []string{"Run", "Serve"},
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all functions"},
 		SourceInventoryProfile: &SourceInventoryProfile{
 			IsSourceInventory: true,
 			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},

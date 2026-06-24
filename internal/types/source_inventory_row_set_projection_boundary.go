@@ -1,8 +1,7 @@
 package types
 
 func sourceInventoryPrincipalRowSetProjectionDisabled(observation SourceInventoryObservation, rm RequestModel) bool {
-	return rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() || HasTypedRelationMemberSetShape(rm) ||
-		!sourceInventoryCanProjectCompletePrincipalRowSet(observation, rm)
+	return rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() || HasTypedRelationMemberSetShape(rm) || !RequiresExhaustiveEnumerationMemberSetHandoff(rm) || !sourceInventoryCanProjectCompletePrincipalRowSet(observation, rm)
 }
 
 func sourceInventoryCanProjectCompletePrincipalRowSet(observation SourceInventoryObservation, rm RequestModel) bool {

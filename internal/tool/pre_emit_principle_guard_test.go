@@ -149,6 +149,11 @@ func TestPrincipleCompleteTypedPrincipalRowSetMissingMemberRemainsHard(t *testin
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent:   types.IntentEnumerate,
 			Language: "zh",
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqEnumeration),
+				Entities: []string{"Run", "Serve"},
+			},
+			CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "all functions"},
 			Predicates: types.SemanticPredicates{
 				IsCategoryEnumeration: true,
 			},

@@ -2296,6 +2296,11 @@ func TestPreCheckAggregateMemberSetCoverage_UsesProjectedSourceInventoryRowSet(t
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent:   types.IntentEnumerate,
 			Language: "zh",
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqEnumeration),
+				Entities: []string{"Run", "Serve"},
+			},
+			CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "all functions"},
 			Predicates: types.SemanticPredicates{
 				IsCategoryEnumeration: true,
 			},
@@ -2323,6 +2328,106 @@ func TestPreCheckAggregateMemberSetCoverage_UsesProjectedSourceInventoryRowSet(t
 	doc.Blocks[0].Text = "当前 source inventory 包含 Run 和 Serve。"
 	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
 		t.Fatalf("complete visible row-set should satisfy projected coverage, got %+v", got)
+	}
+}
+
+func TestPreCheckAggregateMemberSetCoverage_SourceInventoryRowsStayAdvisoryForArchitectureNarrative(t *testing.T) {
+	mu := types.NewMutableState("architecture source inventory advisory projection")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "agent enum",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"AgentAnalyzer", "AgentExplorer"},
+		SupportRefs: []string{"AgentAnalyzer @ internal/types/enums.go:130", "AgentExplorer @ internal/types/enums.go:131"},
+	}})
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Complete: true,
+		Scopes:   []string{"."},
+		SourceClasses: []types.SourceInventorySourceClassCount{
+			{Role: types.SourcePathRoleProduction, Count: 1, Complete: true},
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "NewSubAgentRegistry", Role: types.AnswerCandidateRoleFunction, File: "internal/agent/subagent.go", Line: 22, Language: "go", CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "RegisterDefaultSubAgents", Role: types.AnswerCandidateRoleFunction, File: "internal/agent/subagent.go", Line: 63, Language: "go", CoverageState: types.SourceInventoryCoverageObserved},
+			},
+		}},
+	})
+	mu.SetInvestigationComplete("architecture agent inventory closed")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:      types.IntentExplain,
+			Scenario:    types.ScenarioArchitectureExplain,
+			Complexity:  types.ComplexityComplex,
+			Predicates:  types.SemanticPredicates{IsCategoryEnumeration: true, IsCrossComponent: true},
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture},
+			SubTopics: []types.SubTopic{
+				{Summary: "agent roles"},
+				{Summary: "agent relationships"},
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "当前系统的核心 agent 包括 AgentAnalyzer 和 AgentExplorer；辅助注册函数只作为关系证据，不是答案成员。",
+	}}}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("architecture narrative must not require every source_inventory helper row, got %+v", got)
+	}
+}
+
+func TestPreCheckAggregateMemberSetCoverage_CodeEnumCitationSatisfiesDisplayAlias(t *testing.T) {
+	mu := types.NewMutableState("agent display aliases covered by enum citations")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "agent list",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Log Triager", "Multi-Repo Focus Selector"},
+		SupportRefs: []string{"AgentLogTriager @ internal/types/enums.go:134", "AgentMultiRepoFocus @ internal/types/enums.go:136"},
+	}})
+	mu.SetInvestigationComplete("agent list closed")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqEnumeration),
+				Entities: []string{"Log Triager", "Multi-Repo Focus Selector"},
+			},
+			CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "all agents"},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/types/enums.go", Line: 134},
+			{File: "internal/types/enums.go", Line: 136},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "agents",
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{
+				{ID: "log-triager", Label: "AgentLogTriager", Text: "解析运行时日志。", CitationRef: 0},
+				{ID: "multi-repo", Label: "AgentMultiRepoFocus", Text: "多仓场景下选择焦点。", CitationRef: 1},
+			},
+		}},
+	}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("code enum labels with matching support citations should satisfy display aliases, got %+v", got)
 	}
 }
 
@@ -2360,6 +2465,11 @@ func TestNormalizeAnswerDocumentForPreEmit_SourceInventoryRowSetCoversEnumeratio
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent:   types.IntentEnumerate,
 			Language: "zh",
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqEnumeration),
+				Entities: []string{"Run", "Serve"},
+			},
+			CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "all functions"},
 			Predicates: types.SemanticPredicates{
 				IsCategoryEnumeration: true,
 			},

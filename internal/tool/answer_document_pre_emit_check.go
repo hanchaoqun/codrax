@@ -4032,8 +4032,11 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 		if preEmitAggregateMemberSetIsScalarCountSupport(ctx, fact) {
 			continue
 		}
-		for _, member := range fact.Members {
+		for memberIdx, member := range fact.Members {
 			if preEmitAggregateMemberAppearsInDocument(member, doc, surface) {
+				continue
+			}
+			if preEmitAggregateMemberIndexedSupportRefAppearsInDocument(fact, memberIdx, member, doc) {
 				continue
 			}
 			candidates := preEmitAggregateMemberDisplayCandidates(member)
@@ -4893,6 +4896,50 @@ func preEmitAggregateMemberAppearsInDocument(member string, doc *types.AnswerDoc
 	return false
 }
 
+func preEmitAggregateMemberIndexedSupportRefAppearsInDocument(fact types.AnswerAggregateFact, memberIdx int, member string, doc *types.AnswerDocumentV2) bool {
+	if doc == nil || memberIdx < 0 || memberIdx >= len(fact.SupportRefs) {
+		return false
+	}
+	refMember, loc, ok := preEmitAggregateSupportRefMemberLocation(fact.SupportRefs[memberIdx])
+	if !ok || strings.TrimSpace(loc.File) == "" || loc.LineStart <= 0 {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		for _, item := range block.Items {
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			if !preEmitCitationMatchesSourceLocation(doc.Citations[item.CitationRef], loc) {
+				continue
+			}
+			itemSurface := types.AnswerBlockItemVisibleSurface(item)
+			if strings.TrimSpace(itemSurface) == "" {
+				continue
+			}
+			if refMember != "" && preEmitAggregateMemberSurfaceAppearsInText(refMember, itemSurface) {
+				return true
+			}
+			if preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, itemSurface) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func preEmitAggregateMemberSurfaceAppearsInText(member, surface string) bool {
+	if strings.TrimSpace(member) == "" || strings.TrimSpace(surface) == "" {
+		return false
+	}
+	if preEmitDecoratedAggregateMemberAppearsInText(member, surface) {
+		return true
+	}
+	if preEmitAnyAggregateMemberAppears(preEmitAggregateMemberDisplayCandidates(member), surface) {
+		return true
+	}
+	return preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, surface)
+}
+
 func preEmitAggregateMemberCodeTokenProjectionAppearsInDocument(member string, doc *types.AnswerDocumentV2) bool {
 	if doc == nil {
 		return false
@@ -4974,7 +5021,9 @@ func preEmitCodeIdentityAtoms(surface string) []string {
 		if b.Len() == 0 {
 			return
 		}
-		out = append(out, b.String())
+		token := b.String()
+		out = append(out, token)
+		out = append(out, preEmitCamelCaseIdentityAtoms(token)...)
 		b.Reset()
 	}
 	for _, r := range surface {
@@ -4987,6 +5036,37 @@ func preEmitCodeIdentityAtoms(surface string) []string {
 	}
 	flush()
 	return dedupPreEmitStringCandidates(out)
+}
+
+func preEmitCamelCaseIdentityAtoms(token string) []string {
+	token = strings.Trim(token, "_")
+	if token == "" {
+		return nil
+	}
+	runes := []rune(token)
+	if len(runes) < 2 {
+		return nil
+	}
+	var parts []string
+	start := 0
+	for i := 1; i < len(runes); i++ {
+		prev := runes[i-1]
+		cur := runes[i]
+		nextLower := i+1 < len(runes) && unicode.IsLower(runes[i+1])
+		if unicode.IsUpper(cur) && (unicode.IsLower(prev) || unicode.IsDigit(prev) || (unicode.IsUpper(prev) && nextLower)) {
+			if part := strings.TrimSpace(string(runes[start:i])); len(part) >= 2 {
+				parts = append(parts, part)
+			}
+			start = i
+		}
+	}
+	if part := strings.TrimSpace(string(runes[start:])); len(part) >= 2 {
+		parts = append(parts, part)
+	}
+	if len(parts) <= 1 {
+		return nil
+	}
+	return parts
 }
 
 func preEmitCodeIdentityAtomIsLoadBearing(token string) bool {
