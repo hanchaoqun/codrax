@@ -46,6 +46,38 @@ func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_AllowsCompletionForm
 	}
 }
 
+func TestAcceptedClosureSuppressesCompletionFormRetryAfterReset(t *testing.T) {
+	mut := types.NewMutableState("accepted closure with converged completion-form debt")
+	mut.SetInvestigationComplete("completed with typed completion-form caveat")
+	mut.ResetInvestigationComplete()
+	mut.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane:       types.DowngradeLaneCompletionForm,
+		ReasonCode: types.ProgressReasonConverged,
+		Reason:     "completion form remained unresolved at convergence",
+	})
+	mut.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:          types.RepairStructuredHandoff,
+		Origin:        types.RepairOriginCompletionFormPrefix + "member_set_support_refs",
+		Subject:       "completion_form:member_set_support_refs",
+		DowngradeLane: types.DowngradeLaneCompletionForm,
+		Rationale:     "support_refs form debt after accepted closure",
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1}})
+	node := &types.TaskNode{ID: "n_evidence", Type: types.NodeEvidence}
+	out := &agent.StageOutput{
+		MissingPiece: types.MissingFacts,
+		RetryHint:    "completion form repair should not reopen code exploration",
+	}
+
+	if o.requeueExploreWindowForFactRetry(state, []*types.TaskNode{node}, out) {
+		t.Fatal("converged completion-form debt must not requeue exploration after accepted closure reset")
+	}
+	if state.retryUsed != 0 {
+		t.Fatalf("suppressed completion-form retry must not consume retry budget, got %d", state.retryUsed)
+	}
+}
+
 func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_AllowsConvergedDowngradeLaneDebt(t *testing.T) {
 	mut := types.NewMutableState("accepted closure with converged principal handoff debt")
 	mut.SetInvestigationComplete("completed with a typed caveat after low-delta convergence")

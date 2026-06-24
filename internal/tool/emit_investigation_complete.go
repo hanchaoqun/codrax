@@ -1441,12 +1441,20 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// verbatim — repair belongs at the explorer turn, not in finalize.
 	memberValidationStart := time.Now()
 	if err := validateAggregateMemberSetSupportRefs(ctx, effectiveAggregateFacts); err != nil {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Summary:   fmt.Sprintf("emit_investigation_complete rejected: %v", err),
-			Success:   false,
-			Timestamp: time.Now(),
-		}, nil
+		queueCompletionFormRepair(ctx, "member_set_support_refs", err.Error())
+		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneCompletionForm) {
+			if ctx != nil && ctx.Mutable != nil {
+				ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			}
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Summary:   preCompleteDowngradeSummary("emit_investigation_complete rejected: " + err.Error()),
+				Repair:    attachToolJSONSurfaceMetadata(t.Name(), completionFormRepair("member_set_support_refs", err.Error())),
+				Success:   true,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		earlyDowngradeConverged = true
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "decorator_member_validation", memberValidationStart, len(effectiveAggregateFacts))
 
@@ -2353,6 +2361,31 @@ func principalMemberSetHandoffDowngradeSummary(reasonCode string) string {
 	return "emit_investigation_complete rejected: this question declares a precise principal member-set obligation (" + reasonCode + "), so a resolved completion must carry the complete verified member list as an aggregate_facts entry with kind=\"member_set\" (exact members; support_refs when required by the member contract). If the set genuinely cannot be enumerated from the investigation, set absence_justification explaining why instead of completing without it."
 }
 
+func completionFormRepair(reasonCode, hint string) *types.ToolRepair {
+	reasonCode = strings.TrimSpace(reasonCode)
+	if reasonCode == "" {
+		reasonCode = "completion_form"
+	}
+	hint = strings.TrimSpace(hint)
+	if hint == "" {
+		hint = "Repair the structured completion handoff, or continue with a typed caveat after repeated no-progress attempts."
+	}
+	return &types.ToolRepair{
+		Code: "completion_form_" + reasonCode,
+		Hint: hint,
+		Fields: []string{
+			"emit_investigation_complete.aggregate_facts",
+			"emit_investigation_complete.aggregate_facts[].members",
+			"emit_investigation_complete.aggregate_facts[].support_refs",
+		},
+		Metadata: map[string]string{
+			"repair_origin": types.RepairOriginCompletionFormPrefix + reasonCode,
+			"lane":          string(types.DowngradeLaneCompletionForm),
+			"reason_code":   reasonCode,
+		},
+	}
+}
+
 func queueExactResolvedDefiningProofRepair(ctx *types.BusContext, label string, targets []string) {
 	if ctx == nil || ctx.Mutable == nil {
 		return
@@ -2382,6 +2415,33 @@ func queueExactResolvedDefiningProofRepair(ctx *types.BusContext, label string, 
 		Rationale:     "positive exact-resolution closure needs a grounded defining proof for the exact target, or an honest exact-absence closure",
 		Origin:        "emit_investigation_complete.exact_resolved_defining_proof",
 		DowngradeLane: types.DowngradeLaneExactResolvedDefiningProof,
+		Stage:         string(types.StageExplore),
+	})
+}
+
+func queueCompletionFormRepair(ctx *types.BusContext, reasonCode, rationale string) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return
+	}
+	reasonCode = strings.TrimSpace(reasonCode)
+	if reasonCode == "" {
+		reasonCode = "completion_form"
+	}
+	rationale = strings.TrimSpace(rationale)
+	if rationale == "" {
+		rationale = "completion handoff needs framework-owned form repair"
+	}
+	closure.AddRepair(types.RepairDirective{
+		Kind:          types.RepairStructuredHandoff,
+		Subject:       "completion_form:" + reasonCode,
+		Tools:         []string{"emit_investigation_complete"},
+		Rationale:     rationale,
+		Origin:        types.RepairOriginCompletionFormPrefix + reasonCode,
+		DowngradeLane: types.DowngradeLaneCompletionForm,
 		Stage:         string(types.StageExplore),
 	})
 }

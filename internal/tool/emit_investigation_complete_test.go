@@ -563,11 +563,15 @@ func TestEmitInvestigationComplete_AbsenceDoesNotDropUnknownDecoratedMemberSet(t
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatalf("unknown-role decorated member_set must still require support_refs; got success: %s", res.Summary)
+	if !res.Success {
+		t.Fatalf("unknown-role decorated member_set support_refs debt should downgrade instead of tool-failing: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "support_refs is empty") {
-		t.Fatalf("summary should preserve the support_refs contract, got: %s", res.Summary)
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("first support_refs downgrade must not complete an absence closure")
+	}
+	if !strings.Contains(res.Summary, EmitInvestigationCompleteDowngradePrefix) ||
+		!strings.Contains(res.Summary, "support_refs is empty") {
+		t.Fatalf("summary should preserve the support_refs contract as downgrade, got: %s", res.Summary)
 	}
 }
 
@@ -5631,7 +5635,7 @@ func TestEmitInvestigationComplete_AllowsDecoratedCommitHashMemberSetWithVCSOrig
 	}
 }
 
-func TestEmitInvestigationComplete_DecoratedCodeMemberStillRequiresSupportRefsWithVCSOrigin(t *testing.T) {
+func TestEmitInvestigationComplete_DecoratedCodeMemberSupportRefsDowngradesWithVCSOrigin(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}
 	tool := &EmitInvestigationComplete{}
@@ -5654,11 +5658,20 @@ func TestEmitInvestigationComplete_DecoratedCodeMemberStillRequiresSupportRefsWi
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatalf("decorated code member should still require support_refs even with VCS origin: %s", res.Summary)
+	if !res.Success {
+		t.Fatalf("decorated code member support_refs debt should downgrade instead of tool-failing: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "support_refs is empty") {
-		t.Fatalf("summary should preserve support_refs contract, got: %s", res.Summary)
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("first completion-form downgrade must not mark investigation complete")
+	}
+	if !strings.Contains(res.Summary, EmitInvestigationCompleteDowngradePrefix) ||
+		!strings.Contains(res.Summary, "support_refs is empty") {
+		t.Fatalf("summary should preserve support_refs contract as downgrade, got: %s", res.Summary)
+	}
+	if res.Repair == nil ||
+		res.Repair.Metadata["lane"] != string(types.DowngradeLaneCompletionForm) ||
+		res.Repair.Metadata["repair_origin"] != types.RepairOriginCompletionFormPrefix+"member_set_support_refs" {
+		t.Fatalf("downgrade should carry completion-form repair metadata, got %+v", res.Repair)
 	}
 }
 
@@ -5897,7 +5910,7 @@ func TestEmitInvestigationComplete_RuntimeAggregateFactsOverLimitCompacts(t *tes
 	}
 }
 
-func TestEmitInvestigationComplete_DecoratedRuntimeMemberSetRequiresSupportRefsForCurrentVerification(t *testing.T) {
+func TestEmitInvestigationComplete_DecoratedRuntimeMemberSetDowngradesForCurrentVerification(t *testing.T) {
 	logBundle := &types.LogBundle{
 		Errors: []types.LogError{{Type: "panic"}},
 	}
@@ -5934,11 +5947,81 @@ func TestEmitInvestigationComplete_DecoratedRuntimeMemberSetRequiresSupportRefsF
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatalf("current-code verification should still require support_refs: %s", res.Summary)
+	if !res.Success {
+		t.Fatalf("current-code verification support_refs debt should downgrade instead of tool-failing: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "support_refs is empty") {
-		t.Fatalf("summary should preserve support_refs contract, got: %s", res.Summary)
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("first completion-form downgrade must not mark investigation complete")
+	}
+	if !strings.Contains(res.Summary, EmitInvestigationCompleteDowngradePrefix) ||
+		!strings.Contains(res.Summary, "support_refs is empty") {
+		t.Fatalf("summary should preserve support_refs contract as downgrade, got: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_CompletionFormSupportRefsConvergesWithCaveat(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{Type: "panic"}},
+	}
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			DiagnosticProfile: types.DiagnosticIntentProfile{
+				IsDiagnostic:        true,
+				CurrentVersionCheck: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				RequiredFileHints: []types.RequiredFileHint{{Path: "src/cart/Cart.cj"}},
+			},
+			LogTriage: logBundle,
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"current code verification has enough substantive evidence but the handoff uses decorated labels",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"call_chain",
+				"value":"1",
+				"members":["Cart.itemAt (origin)"]
+			}
+		]
+	}`)
+
+	for i := 1; i <= 2; i++ {
+		res, err := tool.Execute(bus, params)
+		if err != nil {
+			t.Fatalf("attempt %d unexpected error: %v", i, err)
+		}
+		if !res.Success || !strings.Contains(res.Summary, EmitInvestigationCompleteDowngradePrefix) {
+			t.Fatalf("attempt %d should be a tool-success downgrade, got success=%t summary=%s", i, res.Success, res.Summary)
+		}
+		if mut.IsInvestigationComplete() {
+			t.Fatalf("attempt %d must not complete before convergence", i)
+		}
+	}
+
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("third attempt unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("third attempt should complete with caveat, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("completion-form convergence should mark investigation complete")
+	}
+	caveats := mut.EvidenceClosure().CompletionCaveats()
+	if len(caveats) != 1 || caveats[0].Lane != types.DowngradeLaneCompletionForm {
+		t.Fatalf("completion caveat = %+v, want completion_form lane", caveats)
+	}
+	if got := mut.StableInvestigationAggregateFacts(); len(got) != 1 || got[0].Members[0] != "Cart.itemAt (origin)" {
+		t.Fatalf("substantive aggregate handoff should be retained under caveat, got %+v", got)
 	}
 }
 

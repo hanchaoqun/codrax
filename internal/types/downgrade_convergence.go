@@ -51,6 +51,12 @@ const (
 	// verdicts, but it still must not become an infinite hard loop when the same
 	// proof-strength blocker recurs without progress.
 	DowngradeLaneGroundingCitationFloor DowngradeLane = "grounding_citation_floor"
+	// DowngradeLaneCompletionForm is the framework-owned completion-form lane:
+	// the model has attempted to close investigation, but the structured
+	// handoff has a repairable presentation/form defect such as member-set
+	// support_refs alignment. The defect may block an uncaveated strong answer,
+	// but it must not tool-fail forever or reopen broad exploration.
+	DowngradeLaneCompletionForm DowngradeLane = "completion_form"
 	// DowngradeLaneContractChain is the pre-complete contract-check chain gate
 	// (the ~13 sub-checks aggregate into this lane; the typed BlockerKey below
 	// distinguishes which sub-blocker is active).
