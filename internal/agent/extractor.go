@@ -474,9 +474,30 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 				fmt.Fprintf(&b, "- **%s** (%s): %s\n", h.ID, h.Status, strings.TrimSpace(h.Statement))
 			}
 		} else {
-			b.WriteString("## Hypotheses (emit a verdict for each)\n\n")
-			for _, h := range ctx.AnalysisIR.HypothesisSet {
-				fmt.Fprintf(&b, "- **%s** (%s): %s\n", h.ID, h.Status, strings.TrimSpace(h.Statement))
+			pending, decided := extractorPartitionHypotheses(ctx)
+			if len(pending) > 0 {
+				b.WriteString("## Pending hypotheses (emit_hypothesis_verdict only for these)\n\n")
+				b.WriteString("Emit verdicts only for hypotheses that are still pending below. Already decided hypotheses are shown separately and do not need another tool call unless you have a stronger grounded override.\n\n")
+				for _, h := range pending {
+					fmt.Fprintf(&b, "- **%s** (%s): %s\n", h.ID, h.Status, strings.TrimSpace(h.Statement))
+				}
+			} else {
+				b.WriteString("## Hypotheses already decided\n\n")
+				b.WriteString("No `emit_hypothesis_verdict` call is required for this dispatch. The accepted investigation closure, deterministic auto-verdicts, or prior structured verdicts already cover the hypothesis lane; preserve the answer facts through the downstream support lanes instead of re-emitting an audit-only verdict.\n")
+			}
+			if len(decided) > 0 {
+				b.WriteString("\nAlready decided hypotheses (do not re-emit unless overriding with a stronger grounded `evidence_id` or current-source `path:line`):\n")
+				for _, item := range decided {
+					status := item.Verdict.Status
+					if status == "" {
+						status = item.Hypothesis.Status
+					}
+					fmt.Fprintf(&b, "- **%s** (%s): %s", item.Hypothesis.ID, status, strings.TrimSpace(item.Hypothesis.Statement))
+					if rationale := strings.TrimSpace(item.Verdict.Rationale); rationale != "" {
+						fmt.Fprintf(&b, " — prior rationale: %s", truncateExtractorPromptText(rationale, 180))
+					}
+					b.WriteString("\n")
+				}
 			}
 		}
 		b.WriteString("\n")
@@ -814,6 +835,34 @@ func renderExtractorSourceInventoryAdvisory(ta *types.TurnAArtifacts) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+type extractorDecidedHypothesis struct {
+	Hypothesis types.Hypothesis
+	Verdict    types.HypothesisVerdict
+}
+
+func extractorPartitionHypotheses(ctx *types.AgentContext) (pending []types.Hypothesis, decided []extractorDecidedHypothesis) {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil, nil
+	}
+	verdicts := map[string]types.HypothesisVerdict{}
+	if ctx.Mutable != nil {
+		for _, verdict := range ctx.Mutable.EmittedHypothesisVerdicts() {
+			if strings.TrimSpace(verdict.HypothesisID) == "" {
+				continue
+			}
+			verdicts[verdict.HypothesisID] = verdict
+		}
+	}
+	for _, h := range ctx.AnalysisIR.HypothesisSet {
+		if verdict, ok := verdicts[h.ID]; ok {
+			decided = append(decided, extractorDecidedHypothesis{Hypothesis: h, Verdict: verdict})
+			continue
+		}
+		pending = append(pending, h)
+	}
+	return pending, decided
 }
 
 func renderExtractorSourceInventorySourceClasses(classes []types.SourceInventorySourceClassCount) string {
@@ -2802,7 +2851,9 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 		}
 		if !needVerdicts &&
 			extractorHasFailedToolWithoutSuccess(obs.AllToolResults, "emit_hypothesis_verdict") &&
-			!gotVerdicts && e.retriesUsed < e.maxRetries {
+			!gotVerdicts &&
+			extractorShouldRepairOptionalVerdictOverride(ctx) &&
+			e.retriesUsed < e.maxRetries {
 			// Auto-verdicts are a fallback, not a reason to silently
 			// discard a stronger model-authored verdict attempt. If the
 			// model tried to override the fallback and that tool call was
@@ -2911,6 +2962,33 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 		HintKey:       fmt.Sprintf("extractor.missing_emits.%d", e.retriesUsed),
 		Hint:          priorEmitContext + body,
 	}
+}
+
+func extractorShouldRepairOptionalVerdictOverride(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return true
+	}
+	if needsAnswerSymbols(ctx) {
+		return true
+	}
+	if extractorHasStablePrincipalMemberSet(ctx) {
+		return false
+	}
+	return true
+}
+
+func extractorHasStablePrincipalMemberSet(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	for _, fact := range ctx.Mutable.StableInvestigationAggregateFacts() {
+		if fact.Kind == types.AnswerAggregateMemberSet &&
+			fact.Role == types.AnswerAggregateRolePrincipalAnswer &&
+			len(fact.Members) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func extractorUnsupportedToolCalls(calls []llm.ToolCall) []string {

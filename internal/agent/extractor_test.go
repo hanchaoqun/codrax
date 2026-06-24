@@ -1199,6 +1199,45 @@ func TestExtractor_BuildPrompt_PlainCallChainSkipsAnswerSymbolFloor(t *testing.T
 	}
 }
 
+func TestExtractor_BuildPrompt_AlreadyDecidedHypothesesAreNotReEmitted(t *testing.T) {
+	mu := types.NewMutableState("agent architecture")
+	mu.AppendEmittedHypothesisVerdicts([]types.HypothesisVerdict{{
+		HypothesisID: "h1",
+		Status:       types.HypInconclusive,
+		Rationale:    "required evidence satisfied by accepted aggregate member set",
+	}})
+	ctx := &types.AgentContext{
+		Objective: "当前系统有哪些agent，都是什么作用，以及他们之间的关系是怎样的",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentEnumerate,
+				Scenario: types.ScenarioArchitectureExplain,
+			},
+			HypothesisSet: []types.Hypothesis{{
+				ID:        "h1",
+				Status:    types.HypUnknown,
+				Statement: "principal answer is a finite symbol set",
+			}},
+		},
+	}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if contains(prompt, "## Hypotheses (emit a verdict for each)") {
+		t.Fatalf("already-decided hypotheses must not be rendered as a fresh emit obligation:\n%s", prompt)
+	}
+	for _, want := range []string{
+		"## Hypotheses already decided",
+		"No `emit_hypothesis_verdict` call is required",
+		"Already decided hypotheses",
+		"required evidence satisfied by accepted aggregate member set",
+	} {
+		if !contains(prompt, want) {
+			t.Fatalf("already-decided hypothesis prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestExtractor_BuildPrompt_MultiTopicScalarLiteralSkipsAnswerSymbols(t *testing.T) {
 	mu := types.NewMutableState("which emit tools")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{TerminalEvidenceCount: 2})
@@ -2051,10 +2090,13 @@ func TestExtractor_BuildPrompt_IncludesHypothesisSet(t *testing.T) {
 	e := &extractorEvaluator{}
 	prompt := e.BuildInitialInstruction(ctx, nil)
 
-	for _, want := range []string{"Hypotheses", "H1", "H2", "Foo calls Bar", "Bar returns true"} {
+	for _, want := range []string{"Pending hypotheses", "emit_hypothesis_verdict only for these", "H1", "H2", "Foo calls Bar", "Bar returns true"} {
 		if !contains(prompt, want) {
 			t.Errorf("prompt missing hypothesis content %q", want)
 		}
+	}
+	if contains(prompt, "Hypotheses (emit a verdict for each)") {
+		t.Fatalf("prompt must not render an undifferentiated verdict obligation:\n%s", prompt)
 	}
 }
 
@@ -2777,6 +2819,63 @@ func TestExtractor_Observe_MidLoop_RejectedVerdictOverrideIsRepairedDespiteAutoV
 	}
 	if !strings.Contains(sig.Hint, "citation") || !strings.Contains(sig.Hint, "inconclusive") {
 		t.Fatalf("repair hint should explain anchored or inconclusive options, got %q", sig.Hint)
+	}
+}
+
+func TestExtractor_Observe_MidLoop_StableMemberSetIgnoresRejectedOptionalVerdictOverride(t *testing.T) {
+	mu := types.NewMutableState("agent architecture")
+	mu.AppendEmittedHypothesisVerdicts([]types.HypothesisVerdict{{
+		HypothesisID: "h1",
+		Status:       types.HypInconclusive,
+		Rationale:    "deterministic fallback before extractor",
+	}})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Label:   "agents",
+		Value:   "2",
+		Members: []string{"analyzer", "explorer"},
+		SupportRefs: []string{
+			"analyzer: internal/agent/analyzer.go:47",
+			"explorer: internal/agent/explorer.go:69",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		Objective: "当前系统有哪些agent，都是什么作用，以及他们之间的关系是怎样的",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsRelationalLookup:    true,
+				},
+			},
+			HypothesisSet: []types.Hypothesis{{ID: "h1"}},
+		},
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("relation/architecture aggregate member_set should not require answer symbols")
+	}
+	obs := LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		AllToolResults: []types.ToolResult{
+			{
+				ToolName: "emit_hypothesis_verdict",
+				Success:  false,
+				Summary:  "items[0]: citation is not grounded",
+			},
+		},
+	}
+	e := &extractorEvaluator{maxRetries: 1}
+	sig := e.Observe(ctx, obs)
+	if sig.HintRequested {
+		t.Fatalf("stable principal member_set should not repair optional verdict override, got %+v", sig)
+	}
+	if !sig.StopRequested {
+		t.Fatalf("stable principal member_set plus existing verdict should stop despite optional verdict failure, got %+v", sig)
 	}
 }
 
