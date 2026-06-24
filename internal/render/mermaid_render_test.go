@@ -585,6 +585,50 @@ func TestRenderMermaidBlocks_FlattensSubgraphs(t *testing.T) {
 	}
 }
 
+func TestRenderMermaidBlocks_MalformedSplitCylinderLabelRenders(t *testing.T) {
+	in := strings.Join([]string{
+		"```mermaid",
+		"flowchart TD",
+		"    subgraph ReadOnly[只读分析流水线]",
+		"        A1[AnalyzerAgent] --> A2[ExplorerAgent]",
+		"        A2 --> A3[ExtractorAgent]",
+		"        A3 --> A4[FinalizerAgent]",
+		"    end",
+		"",
+		"    subgraph Conditional[条件触发分流]",
+		"        T1[LogTriagerAgent]",
+		"        T2[PerfTriagerAgent]",
+		"    end",
+		"",
+		"    subgraph MultiRepo[多仓库场景]",
+		"        M1[MultiRepoFocusAgent]",
+		"    end",
+		"",
+		"    subgraph WriteMode[写模式流水线]",
+		"        W1[WriteAnalyzerAgent] --> W2[WriteControllerAgent]",
+		"        W2 --> W3[PlannerAgent]",
+		"        W3 --> W4[CoderAgent]",
+		"        W4 --> W5[VerifierAgent]",
+		"    end",
+		"",
+		`    Registry[(Registry`,
+		`codraxNode1["&quot;管理所有Agent&quot;])"]`,
+		"```",
+	}, "\n")
+	out := RenderMermaidBlocks(in)
+	if out == in {
+		t.Fatalf("malformed split cylinder label should render after normalization; got unchanged:\n%s", out)
+	}
+	if strings.Contains(out, "```mermaid") || strings.Contains(out, "终端 Mermaid 渲染器解析失败") {
+		t.Fatalf("split cylinder label normalization fell into failure path:\n%s", out)
+	}
+	for _, want := range []string{"AnalyzerAgent", "ExplorerAgent", "VerifierAgent", "Registry", "管理所有Agent"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered diagram lost %q:\n%s", want, out)
+		}
+	}
+}
+
 // TestRenderMermaidBlocks_DoesNotTouchOtherFences verifies that
 // fenced blocks tagged with anything other than `mermaid` are
 // preserved byte-identical UNLESS the body is unambiguously a

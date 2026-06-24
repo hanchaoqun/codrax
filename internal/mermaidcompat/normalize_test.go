@@ -277,6 +277,39 @@ func TestNormalizeSourceForMarkdown_FlowchartQuotedLabelNewlinesStayInsideNode(t
 	}
 }
 
+func TestNormalizeSourceForMarkdown_MergesSplitUnquotedNodeLabelsBeforeAliasing(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    A[read pipeline`,
+		`stage boundary] --> B`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if strings.Contains(got, "codraxNode") {
+		t.Fatalf("split node label continuation was aliased as a node:\n%s", got)
+	}
+	if !strings.Contains(got, `A[read pipeline<br/>stage boundary] --> B`) {
+		t.Fatalf("split node label was not folded into one node statement:\n%s", got)
+	}
+}
+
+func TestNormalizeSourceForMarkdown_MergesGeneratedAliasContinuationIntoOpenShape(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    Registry[(Registry`,
+		`codraxNode1["&quot;管理所有Agent&quot;])"]`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if strings.Contains(got, "codraxNode") {
+		t.Fatalf("generated alias continuation leaked into normalized source:\n%s", got)
+	}
+	if strings.Contains(got, "Registry[(Registry\n") {
+		t.Fatalf("open shape label remained split across physical lines:\n%s", got)
+	}
+	if !strings.Contains(got, `Registry[(Registry<br/>&quot;管理所有Agent&quot;)]`) {
+		t.Fatalf("generated alias label was not folded back into the open cylinder shape:\n%s", got)
+	}
+}
+
 func TestNormalizeSourceForMarkdown_ConvertsLiteralFlowchartLabelNewlineEscapes(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",

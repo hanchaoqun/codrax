@@ -18,6 +18,7 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeSequenceParticipantMessagePrefixes(body)
 	body = NormalizeSequenceStops(body)
 	body = NormalizeFlowchartQuotedLabelNewlines(body)
+	body = NormalizeFlowchartSplitNodeLabels(body)
 	body = NormalizeFlowchartSubgraphTitles(body)
 	body = NormalizeFlowchartDanglingPunctuation(body)
 	body = NormalizeFlowchartMalformedBracketLabels(body)
@@ -118,6 +119,43 @@ func NormalizeFlowchartQuotedLabelNewlines(body string) string {
 		return body
 	}
 	return b.String()
+}
+
+// NormalizeFlowchartSplitNodeLabels repairs physical line breaks inside
+// unquoted flowchart node-shape labels before later passes can mistake the
+// continuation line for a standalone node. For example:
+//
+//	A[long
+//	label] --> B
+//
+// becomes:
+//
+//	A[long<br/>label] --> B
+//
+// If a previous normalizer run already aliased the continuation line into a
+// generated `codraxNodeN["..."]` declaration, this pass treats that generated
+// declaration as label text and folds it back into the still-open node shape.
+func NormalizeFlowchartSplitNodeLabels(body string) string {
+	if !isFlowchartOrGraph(body) || !strings.Contains(body, "\n") || !strings.ContainsAny(body, "[({>") {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	out := make([]string, 0, len(lines))
+	changed := false
+	for i := 0; i < len(lines); i++ {
+		merged, consumed, ok := mergeFlowchartSplitNodeLabelAt(lines, i)
+		if ok {
+			out = append(out, merged)
+			i += consumed
+			changed = true
+			continue
+		}
+		out = append(out, lines[i])
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(out, "\n")
 }
 
 // NormalizeFlowchartHiddenMarkerLines removes standalone hidden-layout marker
@@ -1063,6 +1101,196 @@ type flowchartShapeSpan struct {
 	end        int
 }
 
+type flowchartUnclosedLabel struct {
+	close      string
+	labelStart int
+}
+
+func mergeFlowchartSplitNodeLabelAt(lines []string, index int) (string, int, bool) {
+	pending, ok := findFlowchartUnclosedNodeLabel(lines[index])
+	if !ok {
+		return "", 0, false
+	}
+	fragments := []string{strings.TrimSpace(lines[index][pending.labelStart:])}
+	for j := index + 1; j < len(lines); j++ {
+		if flowchartLineBlocksSplitNodeContinuation(lines[j]) {
+			return "", 0, false
+		}
+		fragment := flowchartContinuationLabelFragment(lines[j])
+		beforeClose, afterClose, closed := splitFlowchartContinuationAtClose(fragment, pending.close)
+		if closed {
+			fragments = append(fragments, strings.TrimSpace(beforeClose))
+			label := joinFlowchartSplitNodeLabelFragments(fragments)
+			return lines[index][:pending.labelStart] + label + pending.close + afterClose, j - index, true
+		}
+		fragments = append(fragments, strings.TrimSpace(fragment))
+	}
+	return "", 0, false
+}
+
+func findFlowchartUnclosedNodeLabel(line string) (flowchartUnclosedLabel, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "%%") ||
+		flowchartLineIsHeader(trimmed) || trimmed == "end" ||
+		strings.HasPrefix(trimmed, "subgraph ") ||
+		strings.HasPrefix(trimmed, "classDef ") || strings.HasPrefix(trimmed, "linkStyle ") ||
+		flowchartLineStartsWithAny(trimmed, "click ", "style ", "class ") {
+		return flowchartUnclosedLabel{}, false
+	}
+	for i := 0; i < len(line); {
+		if op := flowchartArrowAt(line, i); op != "" {
+			i += len(op)
+			continue
+		}
+		if line[i] == '|' {
+			if end := findUnescapedPipe(line, i+1); end > i {
+				i = end + 1
+				continue
+			}
+		}
+		if span, ok := flowchartLabelShapeSpanAt(line, i); ok {
+			i = span.end + 1
+			continue
+		}
+		open, close, ok := flowchartShapeOpenerAt(line, i)
+		if ok && flowchartOpenLooksLikeNodeLabelStart(line, i) {
+			if flowchartLineHasShapeCloser(line, i+len(open), close) {
+				i++
+				continue
+			}
+			return flowchartUnclosedLabel{
+				close:      close,
+				labelStart: i + len(open),
+			}, true
+		}
+		i++
+	}
+	return flowchartUnclosedLabel{}, false
+}
+
+func flowchartLineHasShapeCloser(line string, start int, expectedClose string) bool {
+	if findFlowchartShapeClose(line, start, expectedClose) >= 0 {
+		return true
+	}
+	for _, alt := range flowchartCloseAlternatives(expectedClose) {
+		if findFlowchartShapeClose(line, start, alt) >= 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func flowchartShapeOpenerAt(s string, i int) (open, close string, ok bool) {
+	for _, pair := range flowchartShapePairs() {
+		if strings.HasPrefix(s[i:], pair.open) {
+			return pair.open, pair.close, true
+		}
+	}
+	return "", "", false
+}
+
+func flowchartOpenLooksLikeNodeLabelStart(line string, pos int) bool {
+	if pos <= 0 || pos >= len(line) {
+		return false
+	}
+	for i := pos - 1; i >= 0; i-- {
+		switch line[i] {
+		case ' ', '\t':
+			continue
+		default:
+			return isFlowchartNodeIDByte(line[i])
+		}
+	}
+	return false
+}
+
+func flowchartLineBlocksSplitNodeContinuation(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return trimmed == "" || strings.HasPrefix(trimmed, "%%") ||
+		flowchartLineIsHeader(trimmed) || trimmed == "end" ||
+		strings.HasPrefix(trimmed, "subgraph ") ||
+		strings.HasPrefix(trimmed, "classDef ") || strings.HasPrefix(trimmed, "linkStyle ") ||
+		flowchartLineStartsWithAny(trimmed, "click ", "style ", "class ")
+}
+
+func flowchartContinuationLabelFragment(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if label, ok := generatedFlowchartAliasLabel(trimmed); ok {
+		return label
+	}
+	return trimmed
+}
+
+func generatedFlowchartAliasLabel(line string) (string, bool) {
+	const prefix = "codraxNode"
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	idEnd := len(prefix)
+	for idEnd < len(line) && line[idEnd] >= '0' && line[idEnd] <= '9' {
+		idEnd++
+	}
+	if idEnd == len(prefix) || idEnd >= len(line) {
+		return "", false
+	}
+	span, ok := flowchartLabelShapeSpanAt(line, idEnd)
+	if !ok || strings.TrimSpace(line[span.end+1:]) != "" {
+		return "", false
+	}
+	label := strings.TrimSpace(line[span.labelStart:span.labelEnd])
+	if flowchartLabelAlreadyQuoted(label) {
+		label = strings.Trim(label, `"'`)
+	}
+	return strings.TrimSpace(label), true
+}
+
+func splitFlowchartContinuationAtClose(fragment, expectedClose string) (before, after string, ok bool) {
+	closeAt, closeToken := findFlowchartContinuationClose(fragment, expectedClose)
+	if closeAt < 0 {
+		return "", "", false
+	}
+	return fragment[:closeAt], fragment[closeAt+len(closeToken):], true
+}
+
+func findFlowchartContinuationClose(fragment, expectedClose string) (int, string) {
+	if at := findFlowchartShapeClose(fragment, 0, expectedClose); at >= 0 {
+		return at, expectedClose
+	}
+	for _, alt := range flowchartCloseAlternatives(expectedClose) {
+		if at := findFlowchartShapeClose(fragment, 0, alt); at >= 0 {
+			return at, alt
+		}
+	}
+	return -1, ""
+}
+
+func flowchartCloseAlternatives(expectedClose string) []string {
+	switch expectedClose {
+	case ")]":
+		return []string{"])"}
+	case "]":
+		return []string{")", "}"}
+	case ")":
+		return []string{"]", "}"}
+	case "}":
+		return []string{"]", ")"}
+	default:
+		return nil
+	}
+}
+
+func joinFlowchartSplitNodeLabelFragments(fragments []string) string {
+	parts := make([]string, 0, len(fragments))
+	for _, fragment := range fragments {
+		fragment = strings.TrimSpace(fragment)
+		if fragment == "" {
+			continue
+		}
+		parts = append(parts, fragment)
+	}
+	return strings.Join(parts, "<br/>")
+}
+
 func normalizeFlowchartNodeLabelsInLine(line string) (string, bool) {
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" || strings.HasPrefix(trimmed, "%%") ||
@@ -1115,19 +1343,7 @@ func flowchartLabelShapeSpanAt(s string, i int) (flowchartShapeSpan, bool) {
 	if i < 0 || i >= len(s) {
 		return flowchartShapeSpan{}, false
 	}
-	for _, pair := range []struct {
-		open  string
-		close string
-	}{
-		{open: "[(", close: ")]"},
-		{open: "[[", close: "]]"},
-		{open: "((", close: "))"},
-		{open: "{{", close: "}}"},
-		{open: "[", close: "]"},
-		{open: "(", close: ")"},
-		{open: "{", close: "}"},
-		{open: ">", close: "]"},
-	} {
+	for _, pair := range flowchartShapePairs() {
 		if !strings.HasPrefix(s[i:], pair.open) {
 			continue
 		}
@@ -1144,6 +1360,25 @@ func flowchartLabelShapeSpanAt(s string, i int) (flowchartShapeSpan, bool) {
 		}, true
 	}
 	return flowchartShapeSpan{}, false
+}
+
+func flowchartShapePairs() []struct {
+	open  string
+	close string
+} {
+	return []struct {
+		open  string
+		close string
+	}{
+		{open: "[(", close: ")]"},
+		{open: "[[", close: "]]"},
+		{open: "((", close: "))"},
+		{open: "{{", close: "}}"},
+		{open: "[", close: "]"},
+		{open: "(", close: ")"},
+		{open: "{", close: "}"},
+		{open: ">", close: "]"},
+	}
 }
 
 func findFlowchartShapeClose(s string, start int, close string) int {
