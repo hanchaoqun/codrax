@@ -4232,6 +4232,92 @@ func TestConfiguredSearchExcludeRoots_SurfaceTypedRefinementForBroadTools(t *tes
 	}
 }
 
+func TestListFilesBroadResult_SurfaceTypedRefinement(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "src", "pkg"), 0o755); err != nil {
+		t.Fatalf("seed src dir: %v", err)
+	}
+	for i := 0; i < grepGovernorFileEntryThreshold+5; i++ {
+		name := filepath.Join(repoRoot, "src", "pkg", fmt.Sprintf("file_%03d.go", i))
+		if err := os.WriteFile(name, []byte("package pkg\n"), 0o644); err != nil {
+			t.Fatalf("seed source %d: %v", i, err)
+		}
+	}
+
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	result, err := (&ListFiles{}).Execute(ctx, json.RawMessage(`{"path":".","recursive":true}`))
+	if err != nil {
+		t.Fatalf("list_files: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("list_files failed: %s", result.Summary)
+	}
+	if result.Refinement == nil {
+		t.Fatalf("broad list_files should expose typed refinement")
+	}
+	if result.Refinement.ReasonCode != "list_files_result_truncated" || !result.Refinement.ResultTruncated {
+		t.Fatalf("unexpected refinement: %+v", result.Refinement)
+	}
+	if result.Refinement.PreferredNextTool != "list_files" {
+		t.Fatalf("preferred tool = %q", result.Refinement.PreferredNextTool)
+	}
+	if got := result.Refinement.PreferredParams["path"]; got != "src/pkg" {
+		t.Fatalf("preferred path = %q; refinement=%+v", got, result.Refinement)
+	}
+	if !sameStringSliceForTest(result.Refinement.RequiredFields, []string{"include", "file_type"}) {
+		t.Fatalf("required fields = %v", result.Refinement.RequiredFields)
+	}
+}
+
+func TestListFilesBroadResult_PreservesTypedFiltersInRefinement(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "app", "models"), 0o755); err != nil {
+		t.Fatalf("seed app dir: %v", err)
+	}
+	for i := 0; i < grepGovernorFileEntryThreshold+5; i++ {
+		name := filepath.Join(repoRoot, "app", "models", fmt.Sprintf("model_%03d.py", i))
+		if err := os.WriteFile(name, []byte("class M: pass\n"), 0o644); err != nil {
+			t.Fatalf("seed source %d: %v", i, err)
+		}
+	}
+
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	result, err := (&ListFiles{}).Execute(ctx, json.RawMessage(`{"path":".","recursive":true,"file_type":"py"}`))
+	if err != nil {
+		t.Fatalf("list_files: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("list_files failed: %s", result.Summary)
+	}
+	if result.Refinement == nil {
+		t.Fatalf("broad filtered list_files should expose typed refinement")
+	}
+	if result.Refinement.ReasonCode != "list_files_result_truncated" {
+		t.Fatalf("reason = %q; refinement=%+v", result.Refinement.ReasonCode, result.Refinement)
+	}
+	if got := result.Refinement.PreferredParams["file_type"]; got != "py" {
+		t.Fatalf("file_type = %q; refinement=%+v", got, result.Refinement)
+	}
+	if got := result.Refinement.PreferredParams["path"]; got != "app/models" {
+		t.Fatalf("preferred path = %q; refinement=%+v", got, result.Refinement)
+	}
+	if len(result.Refinement.RequiredFields) != 0 {
+		t.Fatalf("filtered broad result should not require include/file_type again: %+v", result.Refinement)
+	}
+}
+
+func sameStringSliceForTest(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // TestListFiles_NoiseDirsFilteredInBothModes pins the contract that
 // list_files skips the central tool.ExcludeDirsAnyLevelSet noise
 // dirs (.git, .codrax, node_modules, vendor, target, dist, build,

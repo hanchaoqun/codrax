@@ -4101,14 +4101,18 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	}
 
 	banner := listFilesBanner(p)
-	summary, ref := StoreBlob(ctx, t.Name(), banner+strings.Join(files, "\n"))
+	payload := banner + strings.Join(files, "\n")
+	summary, ref := StoreBlob(ctx, t.Name(), payload)
 	return types.ToolResult{
-		ToolName:   t.Name(),
-		Success:    true,
-		Summary:    summary,
-		RawRef:     ref,
-		Refinement: configuredSearchExcludeRootsRefinement(ctx, fsPath, t.Name()),
-		Timestamp:  time.Now(),
+		ToolName: t.Name(),
+		Success:  true,
+		Summary:  summary,
+		RawRef:   ref,
+		Refinement: mergeToolRefinementHints(
+			configuredSearchExcludeRootsRefinement(ctx, fsPath, t.Name()),
+			listFilesBroadResultRefinement(ctx, p, files, len(payload)),
+		),
+		Timestamp: time.Now(),
 	}, nil
 }
 
@@ -4224,6 +4228,107 @@ func listFilesCollect(ctx *types.BusContext, fsPath, displayPath string, p listF
 		}
 	}
 	return files, nil
+}
+
+func listFilesBroadResultRefinement(ctx *types.BusContext, p listFilesParams, files []string, payloadBytes int) *types.ToolRefinementHint {
+	if len(files) <= grepGovernorFileEntryThreshold && payloadBytes <= grepGovernorByteThreshold {
+		return nil
+	}
+	hint := types.ToolRefinementHint{
+		ReasonCode:        "list_files_result_truncated",
+		ResultTruncated:   true,
+		PreferredNextTool: "list_files",
+		PreferredParams: map[string]string{
+			"recursive": strconv.FormatBool(p.Recursive),
+		},
+	}
+	if pathValue := strings.TrimSpace(p.Path); pathValue != "" {
+		hint.PreferredParams["path"] = pathValue
+	}
+	if fileType := strings.TrimSpace(p.FileType); fileType != "" {
+		hint.PreferredParams["file_type"] = fileType
+	}
+	if include := strings.TrimSpace(p.Include); include != "" {
+		hint.PreferredParams["include"] = include
+	}
+	if p.IncludeAuxiliary {
+		hint.PreferredParams["include_auxiliary"] = "true"
+	}
+	if nextPath := listFilesPreferredNarrowPath(ctx, files); nextPath != "" {
+		hint.PreferredParams["path"] = nextPath
+	}
+	if strings.TrimSpace(p.FileType) == "" && strings.TrimSpace(p.Include) == "" {
+		hint.RequiredFields = []string{"include", "file_type"}
+		if _, ok := hint.PreferredParams["recursive"]; !ok {
+			hint.PreferredParams["recursive"] = "true"
+		}
+	}
+	out := types.NormalizeToolRefinementHint(hint)
+	if out.Empty() {
+		return nil
+	}
+	return &out
+}
+
+func listFilesPreferredNarrowPath(ctx *types.BusContext, files []string) string {
+	dirFallback := ""
+	for _, candidate := range listFilesPreferredPathCandidates(files) {
+		if candidate == "" || candidate == "." {
+			continue
+		}
+		fsPath := resolveToolPath(ctx, candidate)
+		if info, err := os.Stat(fsPath); err == nil {
+			if info.IsDir() {
+				dirFallback = deeperListFilesPath(dirFallback, candidate)
+				continue
+			}
+			if parent := path.Dir(strings.ReplaceAll(candidate, `\`, `/`)); parent != "" && parent != "." {
+				return parent
+			}
+			continue
+		}
+		if parent := path.Dir(strings.ReplaceAll(candidate, `\`, `/`)); parent != "" && parent != "." {
+			return parent
+		}
+	}
+	return dirFallback
+}
+
+func deeperListFilesPath(current, candidate string) string {
+	candidate = strings.Trim(strings.ReplaceAll(candidate, `\`, `/`), "/")
+	if candidate == "" || candidate == "." {
+		return current
+	}
+	current = strings.Trim(strings.ReplaceAll(current, `\`, `/`), "/")
+	if current == "" || strings.Count(candidate, "/") > strings.Count(current, "/") {
+		return candidate
+	}
+	return current
+}
+
+func listFilesPreferredPathCandidates(files []string) []string {
+	production := make([]string, 0, len(files))
+	auxiliary := make([]string, 0)
+	other := make([]string, 0)
+	for _, raw := range files {
+		candidate := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+		if candidate == "" {
+			continue
+		}
+		switch role := types.ClassifySourcePathRole(candidate); {
+		case role == types.SourcePathRoleUnknown:
+			other = append(other, candidate)
+		case types.SourcePathRoleIsAuxiliary(role):
+			auxiliary = append(auxiliary, candidate)
+		default:
+			production = append(production, candidate)
+		}
+	}
+	out := make([]string, 0, len(files))
+	out = append(out, production...)
+	out = append(out, other...)
+	out = append(out, auxiliary...)
+	return out
 }
 
 func listFilesShouldAutoIncludeAuxiliary(ctx *types.BusContext, p listFilesParams) bool {
