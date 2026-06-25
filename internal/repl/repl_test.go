@@ -31,18 +31,34 @@ func (stubRunner) Run(_, _, _ string) (*types.BusContext, error) {
 // one-shot auto-route semantics fire on the dispatch after a paste
 // and only on that dispatch.
 type logAwareRunner struct {
-	setCalls []string // each SetAttachedLog argument, in call order
-	seenLogs []string // attachedLog observed at Run() entry per dispatch
-	curLog   string
+	setCalls         []string // each SetAttachedLog argument, in call order
+	seenLogs         []string // attachedLog observed at Run() entry per dispatch
+	traceSetCalls    []string // each SetAttachedHitrace argument, in call order
+	seenTraces       []string // attachedHitrace observed at Run() entry per dispatch
+	traceSourceCalls []string
+	seenTraceSources []string
+	curLog           string
+	curTrace         string
+	curTraceSource   string
 }
 
 func (r *logAwareRunner) Run(_, _, _ string) (*types.BusContext, error) {
 	r.seenLogs = append(r.seenLogs, r.curLog)
+	r.seenTraces = append(r.seenTraces, r.curTrace)
+	r.seenTraceSources = append(r.seenTraceSources, r.curTraceSource)
 	return &types.BusContext{}, nil
 }
 func (r *logAwareRunner) SetAttachedLog(s string) {
 	r.setCalls = append(r.setCalls, s)
 	r.curLog = s
+}
+func (r *logAwareRunner) SetAttachedHitrace(s string) {
+	r.traceSetCalls = append(r.traceSetCalls, s)
+	r.curTrace = s
+}
+func (r *logAwareRunner) SetAttachedHitraceSource(s string) {
+	r.traceSourceCalls = append(r.traceSourceCalls, s)
+	r.curTraceSource = s
 }
 
 // errorRunner simulates a pipeline that failed with a LastError
@@ -1261,6 +1277,160 @@ func TestAutoRoutedLogIsOneShot(t *testing.T) {
 	}
 	if r.attachedLogAutoRouted {
 		t.Errorf("attachedLogAutoRouted should be false after clear")
+	}
+}
+
+func TestAutoRoutedLogCanRestoreFromDurableRuntimeArtifactRef(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(filepath.Join(dir, "memory"), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	classifier := &sequenceTurnPolicyClassifier{policies: []TurnPolicy{
+		{
+			Route:           RouteRepo,
+			NeedsRepoAccess: true,
+			Operation:       "investigate",
+			Source:          "artifact",
+			Confidence:      0.9,
+			Reason:          "current turn carries an external observation",
+		},
+		{
+			Route:           RouteRepo,
+			NeedsRepoAccess: true,
+			Operation:       "investigate",
+			Source:          "prior_context",
+			Confidence:      0.9,
+			Reason:          "current turn continues the previous runtime observation",
+		},
+	}}
+	input := "analyze this log \\\n" +
+		"2026-06-25T10:00:00.000 INFO [x] first event \\\n" +
+		"2026-06-25T10:00:01.000 ERROR [x] boom \\\n" +
+		"2026-06-25T10:00:02.000 INFO [x] done\n" +
+		"continue with the same observation\n" +
+		"/exit\n"
+	out := &bytes.Buffer{}
+	runner := &logAwareRunner{}
+	artifactStore := NewRuntimeArtifactStore(filepath.Join(dir, "runtime_artifacts"))
+	r := New(Config{
+		Runner:               runner,
+		Store:                store,
+		Render:               renderNothing,
+		RepoRoot:             ".",
+		Branch:               "main",
+		In:                   strings.NewReader(input),
+		Out:                  out,
+		Prompt:               ">",
+		PromptCont:           ".",
+		Banner:               "test-banner",
+		ChitchatClassifier:   classifier,
+		ChitchatResponder:    &stubLocalResponder{},
+		RuntimeArtifactStore: artifactStore,
+	})
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if got := len(runner.seenLogs); got != 2 {
+		t.Fatalf("expected 2 dispatches, got %d: %v", got, runner.seenLogs)
+	}
+	for i, got := range runner.seenLogs {
+		if !strings.Contains(got, "10:00:01") {
+			t.Fatalf("turn %d should see restored runtime log; got %q", i+1, got)
+		}
+	}
+	if r.attachedLog != "" || r.attachedLogAutoRouted || r.attachedLogAutoRestored {
+		t.Fatalf("auto-restored log should be one-shot; log=%q auto=%v restored=%v",
+			r.attachedLog, r.attachedLogAutoRouted, r.attachedLogAutoRestored)
+	}
+	if len(classifier.hints) < 2 || !strings.Contains(classifier.hints[1], "runtime_artifact_ref=log-") {
+		t.Fatalf("second classifier hint should carry durable runtime artifact ref; hints=%q", classifier.hints)
+	}
+	latest, err := artifactStore.LoadLatest()
+	if err != nil {
+		t.Fatalf("LoadLatest: %v", err)
+	}
+	if !latest.Log.Valid() {
+		t.Fatalf("latest log ref should be valid: %+v", latest)
+	}
+}
+
+func TestRequestRuntimeArtifactPathCanRestoreFromDurableRef(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "capture.systrace")
+	traceBody := "# tracer: nop\nsched_switch: prev_comm=A next_comm=B\ntracing_mark_write: frame\n"
+	if err := os.WriteFile(tracePath, []byte(traceBody), 0o600); err != nil {
+		t.Fatalf("write trace fixture: %v", err)
+	}
+	store, err := memory.NewStore(filepath.Join(dir, "memory"), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+	classifier := &sequenceTurnPolicyClassifier{policies: []TurnPolicy{
+		{
+			Route:           RouteRepo,
+			NeedsRepoAccess: true,
+			Operation:       "investigate",
+			Source:          "artifact",
+			Confidence:      0.9,
+			Reason:          "current turn names a runtime artifact path",
+		},
+		{
+			Route:           RouteRepo,
+			NeedsRepoAccess: true,
+			Operation:       "investigate",
+			Source:          "prior_context",
+			Confidence:      0.9,
+			Reason:          "current turn continues the previous runtime artifact",
+		},
+	}}
+	input := "分析这个 trace " + tracePath + "\n继续同一份 trace 深入分析\n/exit\n"
+	runner := &logAwareRunner{}
+	artifactStore := NewRuntimeArtifactStore(filepath.Join(dir, "runtime_artifacts"))
+	r := New(Config{
+		Runner:               runner,
+		Store:                store,
+		Render:               renderNothing,
+		RepoRoot:             ".",
+		Branch:               "main",
+		In:                   strings.NewReader(input),
+		Out:                  &bytes.Buffer{},
+		Prompt:               ">",
+		PromptCont:           ".",
+		Banner:               "test-banner",
+		ChitchatClassifier:   classifier,
+		ChitchatResponder:    &stubLocalResponder{},
+		RuntimeArtifactStore: artifactStore,
+	})
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if got := len(runner.seenTraces); got != 2 {
+		t.Fatalf("expected 2 dispatches, got %d: %v", got, runner.seenTraces)
+	}
+	if runner.seenTraces[0] != "" {
+		t.Fatalf("first turn should not get implicit attachment from prompt path; got %q", runner.seenTraces[0])
+	}
+	if !strings.Contains(runner.seenTraces[1], "sched_switch") {
+		t.Fatalf("second turn should restore trace payload; got %q", runner.seenTraces[1])
+	}
+	if r.attachedHitrace != "" || r.attachedHitraceAutoRestored {
+		t.Fatalf("auto-restored trace should be one-shot; trace=%q restored=%v", r.attachedHitrace, r.attachedHitraceAutoRestored)
+	}
+	if len(classifier.hints) < 2 || !strings.Contains(classifier.hints[1], "runtime_artifact_ref=trace-") {
+		t.Fatalf("second classifier hint should carry durable trace ref; hints=%q", classifier.hints)
+	}
+	latest, err := artifactStore.LoadLatest()
+	if err != nil {
+		t.Fatalf("LoadLatest: %v", err)
+	}
+	if !latest.Trace.Valid() {
+		t.Fatalf("latest trace ref should be valid: %+v", latest)
 	}
 }
 

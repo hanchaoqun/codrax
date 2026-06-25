@@ -307,6 +307,7 @@ func commandOperationPolicy(risk string) TurnPolicy {
 type sequenceTurnPolicyClassifier struct {
 	policies []TurnPolicy
 	calls    []string
+	hints    []string
 }
 
 func (s *sequenceTurnPolicyClassifier) Classify(_ context.Context, line, hint string) (bool, error) {
@@ -315,6 +316,7 @@ func (s *sequenceTurnPolicyClassifier) Classify(_ context.Context, line, hint st
 
 func (s *sequenceTurnPolicyClassifier) ClassifyPolicy(_ context.Context, line, hint string, hasPriorAnswer bool) (TurnPolicy, error) {
 	s.calls = append(s.calls, line)
+	s.hints = append(s.hints, hint)
 	if len(s.policies) == 0 {
 		return TurnPolicy{}, nil
 	}

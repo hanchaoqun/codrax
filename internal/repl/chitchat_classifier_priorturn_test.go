@@ -111,9 +111,15 @@ func TestBuildPriorTurnHint_IncludesRuntimeArtifactKind(t *testing.T) {
 		Kind:      memory.KindPipeline,
 	})
 
-	r := &REPL{store: store, lastTurnRuntimeArtifactKind: "trace"}
+	r := &REPL{
+		store:                       store,
+		lastTurnRuntimeArtifactKind: "trace",
+		lastTurnRuntimeArtifactSnapshot: RuntimeArtifactSnapshot{
+			Trace: RuntimeArtifactRef{ID: "trace-abcdef1234567890", Kind: "trace", Path: "/tmp/runtime_artifacts/trace.txt"},
+		},
+	}
 	hint := r.buildPriorTurnHint()
-	for _, want := range []string{"runtime_artifact=true", "runtime_artifact_kind=trace"} {
+	for _, want := range []string{"runtime_artifact=true", "runtime_artifact_kind=trace", "runtime_artifact_ref=trace-abcdef1234567890"} {
 		if !strings.Contains(hint, want) {
 			t.Fatalf("hint missing %q: %q", want, hint)
 		}

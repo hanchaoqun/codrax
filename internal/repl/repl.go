@@ -391,6 +391,12 @@ type Config struct {
 	// /read-runs audit command family.
 	ReadRunSnapshotStore *ReadRunSnapshotStore
 
+	// RuntimeArtifactStore persists one-shot runtime observations (auto-routed
+	// pasted logs/traces) as durable refs under <runtime-anchor>/runtime_artifacts/.
+	// The REPL may reattach those bytes on a later typed repo/hybrid continuation
+	// without putting the raw payload into the classifier prompt.
+	RuntimeArtifactStore *RuntimeArtifactStore
+
 	// FailureTaxonomy is the stage-3 reader interface for
 	// /pitfalls inspection. The REPL only reads (list / clear);
 	// the orchestrator owns Append. Nil = /pitfalls reports
@@ -609,6 +615,12 @@ type REPL struct {
 	// re-run on every subsequent turn. Explicit /log remains sticky
 	// because the user's intent there is a sustained investigation.
 	attachedLogAutoRouted bool
+	// attachedLogAutoRestored / attachedHitraceAutoRestored mark attachments
+	// restored from the durable runtime artifact ref for this one dispatch.
+	// They use the same one-shot lifetime as splitPastedLog auto-route while
+	// preserving explicit /log and /htrace sticky semantics.
+	attachedLogAutoRestored     bool
+	attachedHitraceAutoRestored bool
 
 	// currentTurnRuntimeArtifactKind is set only while dispatching a pipeline
 	// turn that has a log/trace attachment. recordTurn copies it into
@@ -616,8 +628,10 @@ type REPL struct {
 	// understand "continue/deepen the previous trace/log analysis" without
 	// relying on user keywords or pretending one-shot raw bytes are still
 	// attached.
-	currentTurnRuntimeArtifactKind string
-	lastTurnRuntimeArtifactKind    string
+	currentTurnRuntimeArtifactKind  string
+	lastTurnRuntimeArtifactKind     string
+	runtimeArtifactStore            *RuntimeArtifactStore
+	lastTurnRuntimeArtifactSnapshot RuntimeArtifactSnapshot
 
 	// pendingPaste is the line-oriented fallback for terminals /
 	// tmux configurations that swallow bracketed paste (most common
@@ -893,6 +907,7 @@ func New(cfg Config) *REPL {
 		planGroupStore:        cfg.PlanGroupStore,
 		writeWorkflowRunStore: cfg.WriteWorkflowRunStore,
 		readRunSnapshotStore:  cfg.ReadRunSnapshotStore,
+		runtimeArtifactStore:  cfg.RuntimeArtifactStore,
 		failureTaxonomy:       cfg.FailureTaxonomy,
 		attachedLogMaxBytes:   cfg.AttachedLogMaxBytes,
 		attachedTraceMaxBytes: cfg.AttachedTraceMaxBytes,
@@ -936,6 +951,9 @@ func New(cfg Config) *REPL {
 	}
 	if strings.TrimSpace(r.runtimeAnchor) != "" {
 		r.operationMemory = operation.NewMemoryStore(filepath.Join(r.runtimeAnchor, "operation", "memory.jsonl"))
+		if r.runtimeArtifactStore == nil {
+			r.runtimeArtifactStore = NewRuntimeArtifactStore(filepath.Join(r.runtimeAnchor, "runtime_artifacts"))
+		}
 	}
 	r.restorePendingOperationState()
 	// Seed sticky log from whatever the runner already has (CLI set
@@ -1111,11 +1129,49 @@ func (r *REPL) buildPriorTurnHint() string {
 	hint := fmt.Sprintf("kind=%s topic=%s", string(last.Kind), topic)
 	if kind := strings.TrimSpace(r.lastTurnRuntimeArtifactKind); kind != "" && last.Kind == memory.KindPipeline {
 		hint += fmt.Sprintf(" runtime_artifact=true runtime_artifact_kind=%s", kind)
+		if refID := r.lastRuntimeArtifactRefIDForHint(kind); refID != "" {
+			hint += fmt.Sprintf(" runtime_artifact_ref=%s", refID)
+		}
 	}
 	if len([]rune(hint)) > 200 {
 		hint = string([]rune(hint)[:200]) + "…"
 	}
 	return hint
+}
+
+func (r *REPL) lastRuntimeArtifactRefIDForHint(kind string) string {
+	ref := r.lastRuntimeArtifactRefForKind(kind)
+	return strings.TrimSpace(ref.ID)
+}
+
+func (r *REPL) lastRuntimeArtifactRefForKind(kind string) RuntimeArtifactRef {
+	rawKind := strings.TrimSpace(kind)
+	kind = normalizeRuntimeArtifactKind(rawKind)
+	snapshot := r.lastTurnRuntimeArtifactSnapshot
+	if !snapshot.Log.Valid() && !snapshot.Trace.Valid() && r.runtimeArtifactStore != nil {
+		if loaded, err := r.runtimeArtifactStore.LoadLatest(); err == nil {
+			snapshot = loaded
+		}
+	}
+	switch kind {
+	case "log":
+		if snapshot.Log.Valid() {
+			return snapshot.Log
+		}
+	case "trace":
+		if snapshot.Trace.Valid() {
+			return snapshot.Trace
+		}
+	}
+	if rawKind == "mixed" {
+		if snapshot.Trace.Valid() {
+			return snapshot.Trace
+		}
+		if snapshot.Log.Valid() {
+			return snapshot.Log
+		}
+	}
+	return RuntimeArtifactRef{}
 }
 
 func (r *REPL) runtimeArtifactKindForCurrentTurn() string {
@@ -1131,6 +1187,218 @@ func (r *REPL) runtimeArtifactKindForCurrentTurn() string {
 	default:
 		return ""
 	}
+}
+
+func (r *REPL) shouldAutoRestoreRuntimeArtifact(policy TurnPolicy) bool {
+	if r == nil || r.runtimeArtifactStore == nil {
+		return false
+	}
+	if r.attachedLog != "" || r.attachedHitrace != "" {
+		return false
+	}
+	if policy.Route != RouteRepo && policy.Route != RouteHybrid {
+		return false
+	}
+	switch strings.TrimSpace(policy.Source) {
+	case "prior_context", "mixed", "artifact", "external_tool":
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *REPL) maybeRestoreRuntimeArtifactForPolicy(policy TurnPolicy) {
+	if !r.shouldAutoRestoreRuntimeArtifact(policy) {
+		return
+	}
+	snapshot := r.lastTurnRuntimeArtifactSnapshot
+	if !snapshot.Log.Valid() && !snapshot.Trace.Valid() {
+		var err error
+		snapshot, err = r.runtimeArtifactStore.LoadLatest()
+		if err != nil {
+			logging.Warning("[repl/runtime_artifact] load latest failed: %v", err)
+			return
+		}
+	}
+	restored := false
+	if snapshot.Log.Valid() {
+		body, err := r.runtimeArtifactStore.Load(snapshot.Log, r.attachedLogMaxBytes)
+		if err != nil {
+			logging.Warning("[repl/runtime_artifact] restore log %s failed: %v", snapshot.Log.ID, err)
+		} else if strings.TrimSpace(body) != "" {
+			r.attachedLog = body
+			r.attachedLogAutoRestored = true
+			restored = true
+		}
+	}
+	if snapshot.Trace.Valid() {
+		body, err := r.runtimeArtifactStore.Load(snapshot.Trace, r.attachedTraceMaxBytes)
+		if err != nil {
+			logging.Warning("[repl/runtime_artifact] restore trace %s failed: %v", snapshot.Trace.ID, err)
+		} else if strings.TrimSpace(body) != "" {
+			r.attachedHitrace = body
+			r.attachedHitraceSource = strings.TrimSpace(snapshot.Trace.Source)
+			r.attachedHitraceAutoRestored = true
+			restored = true
+		}
+	}
+	if restored {
+		r.lastTurnRuntimeArtifactSnapshot = snapshot
+		r.currentTurnRuntimeArtifactKind = r.runtimeArtifactKindForCurrentTurn()
+		logging.Info("[repl/runtime_artifact] restored durable artifact for route=%s source=%s kind=%s",
+			policy.Route, strings.TrimSpace(policy.Source), r.currentTurnRuntimeArtifactKind)
+	}
+}
+
+func (r *REPL) persistCurrentRuntimeArtifactSnapshot() RuntimeArtifactSnapshot {
+	if r == nil || r.runtimeArtifactStore == nil {
+		return RuntimeArtifactSnapshot{}
+	}
+	snapshot := RuntimeArtifactSnapshot{UpdatedAt: time.Now()}
+	if body := strings.TrimSpace(r.attachedLog); body != "" {
+		ref, err := r.runtimeArtifactStore.Put("log", body, runtimeArtifactSourceFromAttachment("log", body))
+		if err != nil {
+			logging.Warning("[repl/runtime_artifact] persist log failed: %v", err)
+		} else {
+			snapshot.Log = ref
+		}
+	}
+	if body := strings.TrimSpace(r.attachedHitrace); body != "" {
+		source := strings.TrimSpace(r.attachedHitraceSource)
+		if source == "" {
+			source = runtimeArtifactSourceFromAttachment("trace", body)
+		}
+		ref, err := r.runtimeArtifactStore.Put("trace", body, source)
+		if err != nil {
+			logging.Warning("[repl/runtime_artifact] persist trace failed: %v", err)
+		} else {
+			snapshot.Trace = ref
+		}
+	}
+	if !snapshot.Log.Valid() && !snapshot.Trace.Valid() {
+		return RuntimeArtifactSnapshot{}
+	}
+	if err := r.runtimeArtifactStore.SaveLatest(snapshot); err != nil {
+		logging.Warning("[repl/runtime_artifact] save latest failed: %v", err)
+	}
+	return snapshot
+}
+
+func (r *REPL) persistRequestRuntimeArtifactSnapshot(request string) RuntimeArtifactSnapshot {
+	if r == nil || r.runtimeArtifactStore == nil {
+		return RuntimeArtifactSnapshot{}
+	}
+	artifacts := outputdump.RuntimeArtifactsFromRequest(request)
+	if len(artifacts) == 0 {
+		return RuntimeArtifactSnapshot{}
+	}
+	snapshot := RuntimeArtifactSnapshot{UpdatedAt: time.Now()}
+	for _, artifact := range artifacts {
+		kind := normalizeRuntimeArtifactKind(artifact.Kind)
+		if kind == "" {
+			continue
+		}
+		if kind == "log" && snapshot.Log.Valid() {
+			continue
+		}
+		if kind == "trace" && snapshot.Trace.Valid() {
+			continue
+		}
+		body, err := r.readRuntimeArtifactSourceForStore(kind, artifact.Source)
+		if err != nil {
+			logging.Warning("[repl/runtime_artifact] request artifact %s %s skipped: %v", kind, artifact.Source, err)
+			continue
+		}
+		ref, err := r.runtimeArtifactStore.Put(kind, body, artifact.Source)
+		if err != nil {
+			logging.Warning("[repl/runtime_artifact] persist request artifact %s failed: %v", artifact.Source, err)
+			continue
+		}
+		if kind == "log" {
+			snapshot.Log = ref
+		} else {
+			snapshot.Trace = ref
+		}
+	}
+	if !snapshot.Log.Valid() && !snapshot.Trace.Valid() {
+		return RuntimeArtifactSnapshot{}
+	}
+	if err := r.runtimeArtifactStore.SaveLatest(snapshot); err != nil {
+		logging.Warning("[repl/runtime_artifact] save request latest failed: %v", err)
+	}
+	return snapshot
+}
+
+func (r *REPL) readRuntimeArtifactSourceForStore(kind, source string) (string, error) {
+	path := resolveRuntimeArtifactSourcePath(source)
+	if path == "" {
+		return "", fmt.Errorf("source path not found")
+	}
+	limit := r.attachedLogMaxBytes
+	attachmentKind := attachment.KindLog
+	if kind == "trace" {
+		limit = r.attachedTraceMaxBytes
+		attachmentKind = attachment.KindTrace
+	}
+	data, truncated, err := readFileLimited(path, limit)
+	if err != nil {
+		return "", err
+	}
+	if err := attachment.ValidateText(attachmentKind, path, data, truncated); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return "", fmt.Errorf("empty runtime artifact")
+	}
+	return string(data), nil
+}
+
+func resolveRuntimeArtifactSourcePath(source string) string {
+	source = strings.TrimSpace(source)
+	if source == "" || source == "(inline)" {
+		return ""
+	}
+	if strings.HasPrefix(source, "~/") {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			source = filepath.Join(home, strings.TrimPrefix(source, "~/"))
+		}
+	}
+	if !filepath.IsAbs(source) {
+		if cwd, err := os.Getwd(); err == nil && cwd != "" {
+			source = filepath.Join(cwd, source)
+		}
+	}
+	source = filepath.Clean(source)
+	info, err := os.Stat(source)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	return source
+}
+
+func runtimeArtifactSnapshotKind(snapshot RuntimeArtifactSnapshot) string {
+	hasLog := snapshot.Log.Valid()
+	hasTrace := snapshot.Trace.Valid()
+	switch {
+	case hasLog && hasTrace:
+		return "mixed"
+	case hasTrace:
+		return "trace"
+	case hasLog:
+		return "log"
+	default:
+		return ""
+	}
+}
+
+func runtimeArtifactSourceFromAttachment(kind, body string) string {
+	artifacts := outputdump.RuntimeArtifactsFromAttachment(kind, body)
+	for _, artifact := range artifacts {
+		if source := strings.TrimSpace(artifact.Source); source != "" {
+			return source
+		}
+	}
+	return ""
 }
 
 // lastAnswerText returns the most recent non-empty assistant
@@ -6438,11 +6706,23 @@ func (r *REPL) dispatch(line, display string) {
 	// re-run log_triage against the same bytes. Explicit /log is
 	// unaffected; only the auto-routed bit triggers the clear.
 	defer func() {
-		if r.attachedLogAutoRouted {
+		if r.attachedLogAutoRouted || r.attachedLogAutoRestored {
 			r.attachedLog = ""
 			r.attachedLogAutoRouted = false
+			r.attachedLogAutoRestored = false
 			if setter, ok := r.runner.(attachedLogSetter); ok {
 				setter.SetAttachedLog("")
+			}
+		}
+		if r.attachedHitraceAutoRestored {
+			r.attachedHitrace = ""
+			r.attachedHitraceSource = ""
+			r.attachedHitraceAutoRestored = false
+			if setter, ok := r.runner.(attachedHitraceSetter); ok {
+				setter.SetAttachedHitrace("")
+			}
+			if setter, ok := r.runner.(attachedHitraceSourceSetter); ok {
+				setter.SetAttachedHitraceSource("")
 			}
 		}
 	}()
@@ -6515,6 +6795,7 @@ func (r *REPL) dispatch(line, display string) {
 	// directive instead rides on a separate typed metadata channel.
 	presentationDirective := ""
 	turnRouteHint := types.TurnRouteHint{}
+	resolvedTurnPolicy := TurnPolicy{}
 	hasAttach := r.attachedLog != "" || r.attachedHitrace != "" ||
 		r.attachedLogAutoRouted
 
@@ -6522,6 +6803,7 @@ func (r *REPL) dispatch(line, display string) {
 	if activeUserMode != UserModeAuto {
 		if policy, ok := activeUserMode.TurnPolicy(); ok {
 			policy = ApplyTurnPolicyGuards(policy, r.lastAnswerText() != "", hasAttach)
+			resolvedTurnPolicy = policy
 			turnRouteHint = TurnRouteHintFromPolicy(policy)
 			debugLogTurnPolicy(policy)
 			r.emitTurnPolicyAudit(policy)
@@ -6583,6 +6865,7 @@ func (r *REPL) dispatch(line, display string) {
 			} else {
 				rawPolicy := policy
 				policy = ApplyTurnPolicyGuards(policy, lastAnswer != "", hasAttach)
+				resolvedTurnPolicy = policy
 				turnRouteHint = TurnRouteHintFromPolicy(policy)
 				debugLogTurnPolicy(policy)
 				if policy.Route == RouteOperation || policy.Route == RouteData {
@@ -6654,6 +6937,8 @@ func (r *REPL) dispatch(line, display string) {
 			}
 		}
 	}
+
+	r.maybeRestoreRuntimeArtifactForPolicy(resolvedTurnPolicy)
 
 	prior := r.store.BuildContext(line, memory.BuildOpts{
 		Kind:      memory.KindPipeline,
@@ -7190,8 +7475,20 @@ func terminalAutoWrapControlSupported(w io.Writer) bool {
 func (r *REPL) recordTurn(request, expanded, response string, kind memory.Kind) {
 	if kind == memory.KindPipeline {
 		r.lastTurnRuntimeArtifactKind = strings.TrimSpace(r.currentTurnRuntimeArtifactKind)
+		snapshot := RuntimeArtifactSnapshot{}
+		if r.lastTurnRuntimeArtifactKind != "" {
+			snapshot = r.persistCurrentRuntimeArtifactSnapshot()
+		}
+		if !snapshot.Log.Valid() && !snapshot.Trace.Valid() {
+			snapshot = r.persistRequestRuntimeArtifactSnapshot(expanded)
+			if detected := runtimeArtifactSnapshotKind(snapshot); detected != "" {
+				r.lastTurnRuntimeArtifactKind = detected
+			}
+		}
+		r.lastTurnRuntimeArtifactSnapshot = snapshot
 	} else {
 		r.lastTurnRuntimeArtifactKind = ""
+		r.lastTurnRuntimeArtifactSnapshot = RuntimeArtifactSnapshot{}
 	}
 	turn := memory.Turn{
 		ID:        fmt.Sprintf("turn-%d", time.Now().UnixNano()),
@@ -10703,6 +11000,7 @@ func (r *REPL) handleLogCmd(line string) {
 		}
 		r.attachedLog = ""
 		r.attachedLogAutoRouted = false
+		r.attachedLogAutoRestored = false
 		if setter, ok := r.runner.(attachedLogSetter); ok {
 			setter.SetAttachedLog("")
 		}
@@ -10739,6 +11037,7 @@ func (r *REPL) handleLogAppend(path string) {
 		r.warn("appended log truncated at %d-byte cap\n", r.attachedLogMaxBytes)
 		r.attachedLog = combined
 		r.attachedLogAutoRouted = false
+		r.attachedLogAutoRestored = false
 		r.success(fmt.Sprintf("appended %s (0 bytes added; total %d bytes)", path, len(r.attachedLog)))
 		return
 	}
@@ -10756,6 +11055,7 @@ func (r *REPL) handleLogAppend(path string) {
 	}
 	r.attachedLog = combined
 	r.attachedLogAutoRouted = false
+	r.attachedLogAutoRestored = false
 	r.success(fmt.Sprintf("appended %s (%d bytes added; total %d bytes)", path, len(data), len(r.attachedLog)))
 }
 
@@ -10783,6 +11083,7 @@ func (r *REPL) handleHitraceCmd(line string) {
 		}
 		r.attachedHitrace = ""
 		r.attachedHitraceSource = ""
+		r.attachedHitraceAutoRestored = false
 		if setter, ok := r.runner.(attachedHitraceSetter); ok {
 			setter.SetAttachedHitrace("")
 		}
@@ -10816,6 +11117,7 @@ func (r *REPL) handleHitraceCmd(line string) {
 			r.warn("hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
 			r.attachedHitrace = header[:r.attachedTraceMaxBytes]
 			r.attachedHitraceSource = mergeTraceSourceHints("", r.currentTraceSourceHint(rest))
+			r.attachedHitraceAutoRestored = false
 			r.success(attachedHitraceLoadedMsg(r.language, rest, 0))
 			return
 		}
@@ -10833,6 +11135,7 @@ func (r *REPL) handleHitraceCmd(line string) {
 		body := header + string(data)
 		r.attachedHitrace = body
 		r.attachedHitraceSource = mergeTraceSourceHints("", r.currentTraceSourceHint(rest))
+		r.attachedHitraceAutoRestored = false
 		r.success(attachedHitraceLoadedMsg(r.language, rest, len(data)))
 	}
 }
@@ -11117,6 +11420,7 @@ func (r *REPL) handleHitraceAppend(path string) {
 		r.warn("appended hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
 		r.attachedHitrace = combined
 		r.attachedHitraceSource = mergeTraceSourceHints(r.attachedHitraceSource, r.currentTraceSourceHint(path))
+		r.attachedHitraceAutoRestored = false
 		r.success(fmt.Sprintf("appended %s (0 bytes added; total %d bytes)", path, len(r.attachedHitrace)))
 		return
 	}
@@ -11134,6 +11438,7 @@ func (r *REPL) handleHitraceAppend(path string) {
 	}
 	r.attachedHitrace = combined
 	r.attachedHitraceSource = mergeTraceSourceHints(r.attachedHitraceSource, r.currentTraceSourceHint(path))
+	r.attachedHitraceAutoRestored = false
 	r.success(fmt.Sprintf("appended %s (%d bytes added; total %d bytes)", path, len(data), len(r.attachedHitrace)))
 }
 
@@ -11201,6 +11506,7 @@ func (r *REPL) handleLogLoad(path string) {
 	}
 	r.attachedLog = string(data)
 	r.attachedLogAutoRouted = false
+	r.attachedLogAutoRestored = false
 	r.success(attachedLogLoadedMsg(r.language, path, len(data)))
 }
 
@@ -11283,6 +11589,7 @@ func (r *REPL) handleLogPaste() {
 	}
 	r.attachedLog = buf.String()
 	r.attachedLogAutoRouted = false
+	r.attachedLogAutoRestored = false
 	r.success(fmt.Sprintf("attached log captured: %d bytes", buf.Len()))
 }
 

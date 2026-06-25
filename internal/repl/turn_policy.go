@@ -561,13 +561,16 @@ message when present):
         signal in the message itself wins.
   - runtime_artifact=true / runtime_artifact_kind=<log|trace|mixed> means
     the immediately previous pipeline answer consumed a runtime observation.
-    This is not raw attachment content by itself. If the current message asks
-    to continue, deepen, correlate with code, or re-check that same runtime
-    phenomenon, prefer repo/hybrid so the pipeline can reuse prior context
-    and any sticky attachment. If no sticky attachment is present, the pipeline
-    may still answer from prior grounded context but should not pretend the raw
-    artifact is newly attached. Never use this signal to enter write unless
-    write_intent=explicit_change.
+    runtime_artifact_ref=<id>, when present, is a durable typed reference the
+    dispatcher can reattach for repo/hybrid + source=prior_context|mixed|
+    artifact|external_tool. It is NOT raw prompt content and must not be
+    quoted as evidence. If the current message asks to continue, deepen,
+    correlate with code, or re-check that same runtime phenomenon, prefer
+    repo/hybrid with source=prior_context/mixed/artifact/external_tool so the
+    dispatcher can recover the observation bytes outside the prompt. If no ref
+    or sticky attachment is present, the pipeline may still answer from prior
+    grounded context but should not pretend the raw artifact is newly attached.
+    Never use this signal to enter write unless write_intent=explicit_change.
 
 Examples (illustrative, NOT exhaustive — judge by structure):
 
