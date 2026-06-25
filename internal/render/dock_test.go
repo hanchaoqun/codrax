@@ -716,6 +716,35 @@ func TestRenderer_DockGapAfterExploreShowsExtractBeforeFinalize(t *testing.T) {
 	}
 }
 
+func TestFormatAnalysisBreakdownBlockIncludesAnswerDimensions(t *testing.T) {
+	got := stripAnsiEscapes(formatAnalysisBreakdownBlock("zh", []TaskNodeInfo{
+		{ID: "n1_evidence_t0", Type: "evidence", Objective: "调度链"},
+		{ID: "n1_evidence_t1", Type: "evidence", Objective: "CPU 供给"},
+	}, []AnswerDimensionInfo{
+		{Index: 2, Label: "证据支撑"},
+		{Index: 1, Label: "根因结论"},
+	}))
+	for _, want := range []string{
+		"分析拆分为 2 个调查单元",
+		"调度链",
+		"CPU 供给",
+		"分析拆分为 2 个答案维度",
+		"① 根因结论",
+		"② 证据支撑",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("analysis breakdown missing %q:\n%s", want, got)
+		}
+	}
+	en := stripAnsiEscapes(formatAnalysisBreakdownBlock("en", nil, []AnswerDimensionInfo{
+		{Label: "root cause"},
+	}))
+	if !strings.Contains(en, "Analyzer split the answer into 1 answer dimension:") ||
+		!strings.Contains(en, "① root cause") {
+		t.Fatalf("english answer dimension breakdown malformed:\n%s", en)
+	}
+}
+
 func TestRenderer_LiveExploreContentAnchorsDockBeforeExtractFallback(t *testing.T) {
 	var out strings.Builder
 	r := newTestRenderer("zh")

@@ -7682,14 +7682,16 @@ func (o *Orchestrator) emitAnalysisReady() {
 		}
 		out = append(out, info)
 	}
+	answerDimensions := renderAnswerDimensionsForPresentation(presentationContract)
 	if len(out) == 0 {
 		return
 	}
 	o.emit(render.Event{
-		Kind:      render.EventAnalysisReady,
-		Timestamp: time.Now(),
-		TraceID:   o.busCtx.TraceID,
-		TaskNodes: out,
+		Kind:             render.EventAnalysisReady,
+		Timestamp:        time.Now(),
+		TraceID:          o.busCtx.TraceID,
+		TaskNodes:        out,
+		AnswerDimensions: answerDimensions,
 	})
 }
 

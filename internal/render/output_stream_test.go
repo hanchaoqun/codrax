@@ -654,6 +654,40 @@ func TestRenderer_NonTTYProgressUsesREPLStagePhrases(t *testing.T) {
 	}
 }
 
+func TestRenderer_NonTTYAnalysisReadyPrintsAnswerDimensions(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+	r.SetLang("zh")
+
+	emit := r.Emitter()
+	now := time.Now()
+	emit(Event{
+		Kind:      EventAnalysisReady,
+		Timestamp: now,
+		TaskNodes: []TaskNodeInfo{
+			{ID: "n1_evidence_t0", Type: "evidence", Objective: "唤醒链"},
+			{ID: "n1_evidence_t1", Type: "evidence", Objective: "CPU 供给"},
+		},
+		AnswerDimensions: []AnswerDimensionInfo{
+			{Index: 1, Label: "根因结论"},
+			{Index: 2, Label: "证据支撑"},
+		},
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	for _, want := range []string{
+		"分析拆分为 2 个调查单元",
+		"分析拆分为 2 个答案维度",
+		"根因结论",
+		"证据支撑",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("analysis-ready output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderer_NonTTYSkipsPostAnalysisStageRowsOwnedByTaskNodes(t *testing.T) {
 	var buf bytes.Buffer
 	r := New(&buf, false)

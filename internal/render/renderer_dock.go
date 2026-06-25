@@ -345,8 +345,8 @@ func (r *Renderer) handleEvent(ev Event) {
 			batch.WriteString(r.formatStageDoneLine(analyzeDone, 0))
 			batch.WriteString("\n")
 		}
-		if subBlock := formatSubTopicsBlock(r.lang, ev.TaskNodes); subBlock != "" {
-			batch.WriteString(subBlock)
+		if analysisBlock := formatAnalysisBreakdownBlock(r.lang, ev.TaskNodes, ev.AnswerDimensions); analysisBlock != "" {
+			batch.WriteString(analysisBlock)
 		}
 		if batch.Len() > 0 {
 			r.commitMultilineLocked(batch.String())
@@ -1648,6 +1648,17 @@ type renderedInvestigationTopic struct {
 	hasUnit bool
 }
 
+func formatAnalysisBreakdownBlock(lang string, taskNodes []TaskNodeInfo, dimensions []AnswerDimensionInfo) string {
+	var b strings.Builder
+	if subBlock := formatSubTopicsBlock(lang, taskNodes); subBlock != "" {
+		b.WriteString(subBlock)
+	}
+	if dimBlock := formatAnswerDimensionsBlock(lang, dimensions); dimBlock != "" {
+		b.WriteString(dimBlock)
+	}
+	return b.String()
+}
+
 func formatSubTopicsBlock(lang string, taskNodes []TaskNodeInfo) string {
 	var topics []renderedInvestigationTopic
 	for _, n := range taskNodes {
@@ -1707,6 +1718,57 @@ func formatSubTopicsBlock(lang string, taskNodes []TaskNodeInfo) string {
 		b.WriteString(statusTopicLabel.Sprint(mark))
 		b.WriteString(" ")
 		b.WriteString(statusTopicText.Sprint(obj))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func formatAnswerDimensionsBlock(lang string, dimensions []AnswerDimensionInfo) string {
+	var clean []AnswerDimensionInfo
+	for _, dim := range dimensions {
+		label := strings.TrimSpace(dim.Label)
+		if label == "" {
+			continue
+		}
+		if dim.Index <= 0 {
+			dim.Index = len(clean) + 1
+		}
+		dim.Label = label
+		clean = append(clean, dim)
+	}
+	if len(clean) == 0 {
+		return ""
+	}
+	for i := 0; i < len(clean); i++ {
+		for j := i + 1; j < len(clean); j++ {
+			if clean[j].Index < clean[i].Index {
+				clean[i], clean[j] = clean[j], clean[i]
+			}
+		}
+	}
+	header := fmt.Sprintf("分析拆分为 %d 个答案维度：", len(clean))
+	if !isZh(lang) {
+		if len(clean) == 1 {
+			header = "Analyzer split the answer into 1 answer dimension:"
+		} else {
+			header = fmt.Sprintf("Analyzer split the answer into %d answer dimensions:", len(clean))
+		}
+	}
+	circles := []string{"①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"}
+	var b strings.Builder
+	b.WriteString("\n  ")
+	b.WriteString(statusObjective.Sprint(header))
+	b.WriteString("\n")
+	for i, dim := range clean {
+		mark := fmt.Sprintf("%d.", i+1)
+		if i >= 0 && i < len(circles) {
+			mark = circles[i]
+		}
+		b.WriteString("    ")
+		b.WriteString(statusTopicLabel.Sprint(mark))
+		b.WriteString(" ")
+		b.WriteString(statusTopicText.Sprint(dim.Label))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
@@ -2435,7 +2497,7 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		if row := r.findFinishedStageRowAt("analyze", ev.Timestamp); row != nil {
 			r.emitNonTTYLine(fmt.Sprintf("✓ %s", r.nonTTYStageLabel(row.stage, stagePhraseDone)))
 		}
-		if block := formatSubTopicsBlock(r.lang, ev.TaskNodes); block != "" {
+		if block := formatAnalysisBreakdownBlock(r.lang, ev.TaskNodes, ev.AnswerDimensions); block != "" {
 			fmt.Fprint(r.outputWriter(), block)
 			mirrorDockBlockToLog(block)
 		}

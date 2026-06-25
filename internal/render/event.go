@@ -323,6 +323,15 @@ type TaskNodeInfo struct {
 	InvestigationUnit    types.InvestigationUnit
 }
 
+// AnswerDimensionInfo is the renderer-facing projection of an analyzer
+// requested answer dimension. It intentionally carries only display-safe
+// fields; routing and validation keep using the typed analysis model.
+type AnswerDimensionInfo struct {
+	Index    int
+	Label    string
+	Required bool
+}
+
 // Event is a single lifecycle occurrence emitted by the pipeline.
 type Event struct {
 	Kind      EventKind
@@ -404,7 +413,8 @@ type Event struct {
 
 	// Analysis-ready payload: the analyzer's task graph projected onto
 	// renderer-consumable fields. Populated only on EventAnalysisReady.
-	TaskNodes []TaskNodeInfo
+	TaskNodes        []TaskNodeInfo
+	AnswerDimensions []AnswerDimensionInfo
 
 	// Per-node lifecycle payload — populated on EventTaskNodeStart /
 	// EventTaskNodeEnd. NodeID is the TaskGraph node identifier; the
