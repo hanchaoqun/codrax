@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // repairToolParamsJSON attempts to repair common LLM-induced JSON
@@ -81,6 +84,22 @@ func repairToolParamsJSON(raw json.RawMessage) (json.RawMessage, bool) {
 	// Pattern 3: missing structural closers.
 	if repaired, ok := tryCompleteTruncatedJSON(raw); ok {
 		return repaired, true
+	}
+	return raw, false
+}
+
+func repairToolCallParamsJSON(toolName string, raw json.RawMessage) (json.RawMessage, bool) {
+	if repaired, ok := repairToolParamsJSON(raw); ok {
+		return repaired, true
+	}
+	if json.Valid(bytes.TrimSpace(raw)) {
+		return raw, false
+	}
+	switch types.CanonicalToolName(toolName) {
+	case "emit_answer_document":
+		if repaired, ok := tool.RepairEmitAnswerDocumentMalformedParams(raw); ok && json.Valid(repaired) {
+			return repaired, true
+		}
 	}
 	return raw, false
 }

@@ -982,6 +982,42 @@ func repairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 	return patched, ok
 }
 
+// RepairEmitAnswerDocumentMalformedParams salvages malformed outer
+// emit_answer_document arguments before the tool runtime can decode
+// them. It intentionally reuses the same block recovery pipeline as
+// the in-tool repair path, so the agent layer does not grow a parallel
+// answer-document taxonomy.
+func RepairEmitAnswerDocumentMalformedParams(raw json.RawMessage) (json.RawMessage, bool) {
+	patched, ok := repairBlocksAsString(raw)
+	if !ok {
+		return nil, false
+	}
+	recovered := extractLooseAnswerDocumentSiblingFields(string(raw))
+	if len(recovered) == 0 {
+		return patched, true
+	}
+	var merged map[string]json.RawMessage
+	if err := json.Unmarshal(patched, &merged); err != nil || len(merged) == 0 {
+		return patched, true
+	}
+	changed := false
+	for k, v := range recovered {
+		if _, exists := merged[k]; exists {
+			continue
+		}
+		merged[k] = v
+		changed = true
+	}
+	if !changed {
+		return patched, true
+	}
+	out, err := json.Marshal(merged)
+	if err != nil || !json.Valid(out) {
+		return patched, true
+	}
+	return out, true
+}
+
 func repairBlocksAsStringDetailed(raw json.RawMessage) (json.RawMessage, answerDocumentRecoveryReport, bool) {
 	if len(raw) == 0 {
 		return nil, answerDocumentRecoveryReport{}, false

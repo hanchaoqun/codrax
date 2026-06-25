@@ -266,6 +266,58 @@ func TestRepairToolCallParamSyntaxRunsBeforeHistorySanitization(t *testing.T) {
 	}
 }
 
+func TestRepairToolCallParamsJSON_EmitAnswerDocumentSalvagesMalformedBlocksArray(t *testing.T) {
+	raw := json.RawMessage(`{
+		"blocks":[{"id":"s1","kind":"summary","text":"ok"}:],
+		"citations":[{"file":"internal/agent/agent.go","line":12}],
+		"caveats":["bounded"]
+	}`)
+	repaired, ok := repairToolCallParamsJSON("emit_answer_document", raw)
+	if !ok {
+		t.Fatalf("emit_answer_document malformed block-array params should be salvaged")
+	}
+	if !json.Valid(repaired) {
+		t.Fatalf("repaired answer-document params must be valid JSON: %s", repaired)
+	}
+	var doc struct {
+		Blocks    []map[string]json.RawMessage `json:"blocks"`
+		Citations []map[string]json.RawMessage `json:"citations"`
+		Caveats   []string                     `json:"caveats"`
+	}
+	if err := json.Unmarshal(repaired, &doc); err != nil {
+		t.Fatalf("repaired answer-document params must unmarshal: %v\n%s", err, repaired)
+	}
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("blocks len = %d, want 1; repaired=%s", len(doc.Blocks), repaired)
+	}
+	var kind string
+	if err := json.Unmarshal(doc.Blocks[0]["kind"], &kind); err != nil || kind != "summary" {
+		t.Fatalf("recovered block kind = %q err=%v; repaired=%s", kind, err, repaired)
+	}
+	if len(doc.Citations) != 1 {
+		t.Fatalf("citations len = %d, want 1; repaired=%s", len(doc.Citations), repaired)
+	}
+	if len(doc.Caveats) != 1 || doc.Caveats[0] != "bounded" {
+		t.Fatalf("caveats not preserved: %+v; repaired=%s", doc.Caveats, repaired)
+	}
+}
+
+func TestRepairToolCallParamsJSON_AnswerDocumentSalvageIsToolScoped(t *testing.T) {
+	raw := json.RawMessage(`{"blocks":[{"id":"s1","kind":"summary","text":"ok"}:]}`)
+	repaired, ok := repairToolCallParamsJSON("repo_map", raw)
+	if ok {
+		t.Fatalf("answer-document salvage must not apply to unrelated tools; got %s", repaired)
+	}
+}
+
+func TestRepairToolCallParamsJSON_AnswerDocumentSalvageRequiresBlockIdentity(t *testing.T) {
+	raw := json.RawMessage(`{"blocks":[{"id":"s1","text":"ok"}:],"citations":[]}`)
+	repaired, ok := repairToolCallParamsJSON("emit_answer_document", raw)
+	if ok {
+		t.Fatalf("answer-document salvage must reject objects without block identity; got %s", repaired)
+	}
+}
+
 // TestRepairToolParamsJSON_EscapedQuotesInString covers the escape
 // state machine: a `\"` inside a string must not toggle the
 // in-string flag.

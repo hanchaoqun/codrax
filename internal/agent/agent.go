@@ -3697,7 +3697,7 @@ func toolParamSchemaFingerprint(schema json.RawMessage) string {
 func repairToolCallParamSyntax(calls []llm.ToolCall) []llm.ToolCall {
 	var out []llm.ToolCall
 	for i, call := range calls {
-		repaired, ok := repairToolParamsJSON(call.Params)
+		repaired, ok := repairToolCallParamsJSON(call.Name, call.Params)
 		if !ok {
 			continue
 		}
@@ -4120,10 +4120,11 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 	// previously caused the tool to error out with "invalid
 	// character ... after top-level value", forcing a retry
 	// round-trip. The repair is bounded — only trailing garbage /
-	// pre-terminator commas are stripped; the function never adds
-	// JSON syntax — and the repaired payload is re-validated
-	// before being substituted.
-	if repaired, ok := repairToolParamsJSON(tc.Params); ok {
+	// pre-terminator commas are stripped; tool-specific salvage is
+	// limited to schema-owned structured carriers such as
+	// emit_answer_document blocks. The repaired payload is
+	// re-validated before being substituted.
+	if repaired, ok := repairToolCallParamsJSON(tc.Name, tc.Params); ok {
 		logging.Warning("[agent] tool %q params auto-repaired (LLM-corrupted JSON: structural repair)", tc.Name)
 		b.observeToolParamsRecovered(ctx, tc, tc.Params, repaired)
 		tc.Params = repaired
