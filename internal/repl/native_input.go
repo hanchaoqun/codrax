@@ -1,5 +1,3 @@
-//go:build !windows
-
 package repl
 
 import (
@@ -15,7 +13,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
-	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
@@ -149,6 +146,9 @@ func (e *nativeLineInput) run() (inputResult, error) {
 			if err != nil {
 				return inputResult{aborted: true}, err
 			}
+			if e.tryAppendRunesInline([]rune{r}) {
+				continue
+			}
 			e.insertRunes([]rune{r})
 		}
 		e.refreshSuggest()
@@ -222,26 +222,6 @@ func (e *nativeLineInput) handleEscape() error {
 		e.handlePaste(paste)
 	}
 	return nil
-}
-
-func (e *nativeLineInput) readByteWithTimeout(d time.Duration) (byte, bool, error) {
-	if e.reader.Buffered() > 0 {
-		b, err := e.reader.ReadByte()
-		return b, err == nil, err
-	}
-	var set unix.FdSet
-	set.Zero()
-	set.Set(e.fd)
-	tv := unix.NsecToTimeval(d.Nanoseconds())
-	n, err := unix.Select(e.fd+1, &set, nil, nil, &tv)
-	if err != nil {
-		return 0, false, err
-	}
-	if n <= 0 || !set.IsSet(e.fd) {
-		return 0, false, nil
-	}
-	b, err := e.reader.ReadByte()
-	return b, err == nil, err
 }
 
 func (e *nativeLineInput) readCSISequence() (string, error) {
@@ -586,6 +566,39 @@ func (e *nativeLineInput) insertRunes(ins []rune) {
 	next = append(next, e.value[e.cursor:]...)
 	e.value = next
 	e.cursor += len(ins)
+}
+
+func (e *nativeLineInput) tryAppendRunesInline(ins []rune) bool {
+	if len(ins) == 0 || e.out == nil {
+		return false
+	}
+	if e.showSuggest || e.cursor != len(e.value) || e.renderedFrame.rows != 1 {
+		return false
+	}
+	next := make([]rune, 0, len(e.value)+len(ins))
+	next = append(next, e.value...)
+	next = append(next, ins...)
+	if !e.isContinue && len(slashSuggestionsForValue(string(next), e.lang)) > 0 {
+		return false
+	}
+	termWidth := e.termWidth
+	if termWidth <= 0 {
+		termWidth = 80
+	}
+	promptWidth := inputPromptDisplayWidth(e.prompt)
+	inputWidth := termWidth - promptWidth - 1
+	if inputWidth < 8 {
+		inputWidth = 8
+	}
+	if runewidth.StringWidth(string(next)) > inputWidth {
+		return false
+	}
+	e.value = next
+	e.cursor = len(next)
+	fmt.Fprint(e.out, string(ins))
+	lines, cursorCol := e.viewLines()
+	e.renderedFrame = nativeFrameForLines(lines, cursorCol, e.termWidth)
+	return true
 }
 
 func (e *nativeLineInput) backspace() {

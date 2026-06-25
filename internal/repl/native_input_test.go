@@ -1,5 +1,3 @@
-//go:build !windows
-
 package repl
 
 import (
@@ -129,6 +127,73 @@ func TestNativeSubmit_RejectsUnresolvedPastePlaceholder(t *testing.T) {
 	}
 	if strings.TrimSpace(string(e.value)) != "" {
 		t.Fatalf("native input should clear unresolved placeholder, got %q", string(e.value))
+	}
+}
+
+func TestNativeTryAppendRunesInlineAvoidsRedrawForPlainAppend(t *testing.T) {
+	var out strings.Builder
+	e := &nativeLineInput{
+		out:           &out,
+		prompt:        "❯❯ ",
+		termWidth:     80,
+		lang:          "zh",
+		renderedFrame: nativeRenderedFrame{rows: 1},
+	}
+
+	if !e.tryAppendRunesInline([]rune("你")) {
+		t.Fatal("plain append should be written inline")
+	}
+	if got := out.String(); got != "你" {
+		t.Fatalf("inline append output=%q, want only appended text", got)
+	}
+	if strings.Contains(out.String(), "\r") || strings.Contains(out.String(), ansiEraseEntireLine) {
+		t.Fatalf("inline append must not redraw the prompt/frame: %q", out.String())
+	}
+	if got := string(e.value); got != "你" {
+		t.Fatalf("value=%q, want 你", got)
+	}
+	if e.renderedFrame.rows != 1 || e.renderedFrame.cursorCol <= inputPromptDisplayWidth(e.prompt) {
+		t.Fatalf("inline append should advance the tracked real cursor, frame=%+v", e.renderedFrame)
+	}
+}
+
+func TestNativeTryAppendRunesInlineKeepsSlashSuggestionsOnRenderPath(t *testing.T) {
+	var out strings.Builder
+	e := &nativeLineInput{
+		out:           &out,
+		prompt:        "❯❯ ",
+		termWidth:     80,
+		lang:          "zh",
+		renderedFrame: nativeRenderedFrame{rows: 1},
+	}
+
+	if e.tryAppendRunesInline([]rune("/")) {
+		t.Fatal("slash input should use the render path so suggestions can appear")
+	}
+	if out.String() != "" {
+		t.Fatalf("slash render path should not write inline output, got %q", out.String())
+	}
+	if got := string(e.value); got != "" {
+		t.Fatalf("slash render path should not mutate value inline, got %q", got)
+	}
+}
+
+func TestNativeTryAppendRunesInlineFallsBackNearRightEdge(t *testing.T) {
+	var out strings.Builder
+	e := &nativeLineInput{
+		out:           &out,
+		prompt:        "❯❯ ",
+		termWidth:     inputPromptDisplayWidth("❯❯ ") + 9,
+		value:         []rune("abcdefgh"),
+		cursor:        8,
+		renderedFrame: nativeRenderedFrame{rows: 1},
+	}
+
+	if e.tryAppendRunesInline([]rune("i")) {
+		t.Fatal("append that would overflow the visible input window should use full render")
+	}
+	if out.String() != "" {
+		t.Fatalf("overflow fallback should not write inline output, got %q", out.String())
 	}
 }
 

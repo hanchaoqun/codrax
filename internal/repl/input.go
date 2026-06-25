@@ -18,8 +18,8 @@
 //     atomic unit (cursor moves past it, Backspace deletes it whole).
 //     On submit, tokens expand back to the original pastes.
 //
-// Cross-platform: bubbletea handles Windows console, Unix termios, and
-// CJK widths; no OS-specific imports belong here.
+// Native input owns platform terminal details; no OS-specific imports belong
+// in this Bubble Tea fallback/model file.
 package repl
 
 import (
