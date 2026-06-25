@@ -39,6 +39,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -99,6 +100,21 @@ const (
 	RouteWrite TurnRoute = "write"
 )
 
+const (
+	// WriteIntentExplicitChange is the only write-intent value that can enter
+	// write Auto Pilot. The route enum and operation=code_change are useful
+	// hints, but they are too coarse to distinguish "learn/diagnose first"
+	// from "modify repository bytes now".
+	WriteIntentExplicitChange = "explicit_change"
+	WriteIntentAnalysisOnly   = "analysis_only"
+	WriteIntentAmbiguous      = "ambiguous"
+)
+
+// turnPolicyClassifierTimeout bounds only the lightweight REPL route
+// classifier. On timeout the dispatcher falls back to the normal read
+// pipeline, so a slow classifier cannot pin the interactive prompt.
+var turnPolicyClassifierTimeout = 20 * time.Second
+
 // TurnPolicy is the structured classification result. All fields
 // optional for stub implementations; the dispatcher applies
 // ApplyTurnPolicyGuards before acting on any TurnPolicy so missing
@@ -111,6 +127,7 @@ type TurnPolicy struct {
 	Operation             string // chat | transform | summarize | translate | elaborate | investigate | computer_operation | artifact_generation | ...
 	OperationKind         string // optional more precise operation capability kind
 	DataTaskKind          string // optional data lane kind, e.g. data_cleaning | data_join | data_aggregation
+	WriteIntent           string // explicit_change | analysis_only | ambiguous
 	Source                string // current_message | last_answer | prior_context | repo | mixed
 	RiskLevel             string // none | low | medium | high
 	SideEffects           []string
@@ -141,6 +158,7 @@ func TurnRouteHintFromPolicy(p TurnPolicy) types.TurnRouteHint {
 		Operation:            strings.TrimSpace(p.Operation),
 		OperationKind:        strings.TrimSpace(p.OperationKind),
 		DataTaskKind:         strings.TrimSpace(p.DataTaskKind),
+		WriteIntent:          normalizeWriteIntent(p.WriteIntent),
 		TargetSurface:        strings.TrimSpace(p.TargetSurface),
 		ConcreteOperation:    IsConcreteOperationPolicy(p),
 		NeedsRepoAccess:      p.NeedsRepoAccess,
@@ -208,6 +226,11 @@ var turnPolicyTool = llm.ToolSchema{
       "enum": ["chat", "transform", "summarize", "translate", "elaborate", "investigate", "code_change", "computer_operation", "artifact_generation", "presentation_generation", "document_generation", "spreadsheet_generation", "browser_operation", "external_skill_workflow", "data_task", "data_cleaning", "data_join", "data_aggregation", "structured_file_transform", "answer_only_data_query"],
       "description": "chat = greeting / pleasantry / capability question that does not require computer access. transform = change the form of the previous answer (mermaid, table, ...). summarize = shorten the previous answer. translate = render in another language. elaborate = expand on previous answer without new evidence. investigate = fresh code/log/trace/MCP/external-observation investigation through the analysis pipeline. code_change = route=write candidate for write Auto Pilot over repository files. data_task/data_cleaning/data_join/data_aggregation/structured_file_transform/answer_only_data_query = route=data candidates for read-only data processing and strict data-shaped output. computer_operation/artifact_generation/etc. = operation route candidates that should not be run through the code-evidence pipeline. Questions about the current OS, memory, CPU, GPU, installed tools, paths, versions, or filesystem state are computer_operation when answering them requires local command execution."
     },
+    "write_intent": {
+      "type": "string",
+      "enum": ["", "explicit_change", "analysis_only", "ambiguous"],
+      "description": "Required write precision signal. explicit_change means the user asks Codrax to modify repository files in THIS turn. analysis_only means the user asks to read, learn, understand, investigate, diagnose, localize, review, or prepare without requesting edits now; use route=repo even if a future change is possible. ambiguous means possible future edit or preparatory reading but no explicit mutation request yet; use route=repo or clarify, not write. This field is the load-bearing write gate; operation=code_change alone is not enough."
+    },
     "data_task_kind": {
       "type": "string",
       "enum": ["", "data_task", "data_cleaning", "data_join", "data_aggregation", "structured_file_transform", "answer_only_data_query"],
@@ -255,7 +278,7 @@ var turnPolicyTool = llm.ToolSchema{
       "description": "Optional. Free-form directive describing the desired final-answer form ('mermaid', 'markdown table', 'brief 3-bullet summary', 'logic flow diagram'). Echoed verbatim into the local responder's system prompt when local, or carried as typed pipeline metadata when repo/hybrid. Preserve the user's wording and language when deriving it from the current message; do not translate Chinese user phrasing into English. It must not be prepended to or rewrite the user request body. Omit when not applicable."
     }
   },
-  "required": ["route", "needs_repo_access", "operation", "source", "confidence", "reason"]
+  "required": ["route", "needs_repo_access", "operation", "write_intent", "source", "confidence", "reason"]
 }`),
 }
 
@@ -374,6 +397,11 @@ The seven routes:
             and git worktree isolation. If the user asks to diagnose/explain
             without changing files, use repo, not write. If the user asks for
             a non-code computer/artifact workflow, use operation.
+            Also set write_intent=explicit_change. If the user asks to learn,
+            inspect, understand, review, diagnose, localize, or prepare before
+            any explicit edit, use route=repo with write_intent=analysis_only
+            (or ambiguous when the edit intent is unclear). A possible future
+            change is not enough to enter write Auto Pilot.
 
 Current repository context:
   This is a code-analysis REPL with a current repository available.
@@ -425,6 +453,20 @@ operation:
   data_aggregation — compute totals/counts/groups/rankings
   structured_file_transform — convert or reshape structured/semi-structured files
   answer_only_data_query — compute a strict output-only answer from local data
+
+write_intent:
+  explicit_change — the current turn explicitly asks Codrax to modify
+                    repository files now. This is the only value that may
+                    accompany route=write.
+  analysis_only   — the current turn asks for repository learning, reading,
+                    investigation, diagnosis, localization, architecture
+                    explanation, review, or pre-change understanding without
+                    requesting file edits now. Use route=repo.
+  ambiguous       — there may be a future edit or preparatory investigation,
+                    but the current turn does not clearly ask to mutate files.
+                    Use route=repo or clarify; do not use route=write.
+  empty           — only for non-repo/local/data/operation turns where write is
+                    structurally irrelevant.
 
 operation_kind mirrors the operation capability for route=operation;
 leave it empty otherwise.
@@ -517,6 +559,15 @@ message when present):
         repo/hybrid only when the message references the attached
         content. Never as a hard route — a clear non-attachment
         signal in the message itself wins.
+  - runtime_artifact=true / runtime_artifact_kind=<log|trace|mixed> means
+    the immediately previous pipeline answer consumed a runtime observation.
+    This is not raw attachment content by itself. If the current message asks
+    to continue, deepen, correlate with code, or re-check that same runtime
+    phenomenon, prefer repo/hybrid so the pipeline can reuse prior context
+    and any sticky attachment. If no sticky attachment is present, the pipeline
+    may still answer from prior grounded context but should not pretend the raw
+    artifact is newly attached. Never use this signal to enter write unless
+    write_intent=explicit_change.
 
 Examples (illustrative, NOT exhaustive — judge by structure):
 
@@ -564,14 +615,20 @@ Examples (illustrative, NOT exhaustive — judge by structure):
   Current: "修复这个项目里导致单测失败的边界问题，并补回归测试"
     → route=write, needs_repo_access=true,
       needs_operation_access=false, operation=code_change,
-      source=repo, risk_level=none, side_effects=[],
+      write_intent=explicit_change, source=repo, risk_level=none, side_effects=[],
       requires_confirmation=false, confidence≈0.85
 
   Current: "给 CLI 新增 --json 输出，并更新测试"
     → route=write, needs_repo_access=true,
       needs_operation_access=false, operation=code_change,
-      source=repo, risk_level=none, side_effects=[],
+      write_intent=explicit_change, source=repo, risk_level=none, side_effects=[],
       requires_confirmation=false, confidence≈0.85
+
+  Current: "先理解这个模块的设计，后面再看怎么改"
+    → route=repo, needs_repo_access=true,
+      needs_operation_access=false, operation=investigate,
+      write_intent=analysis_only, source=repo, risk_level=none,
+      side_effects=[], requires_confirmation=false, confidence≈0.85
 
   Current: "把上面的流程换成 mermaid，同时重新读仓库确认有没
             有 IO 分析" + last_answer_present=true
@@ -671,6 +728,11 @@ func (c *llmChitchatClassifier) ClassifyPolicy(ctx context.Context, userLine, pr
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if turnPolicyClassifierTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, turnPolicyClassifierTimeout)
+		defer cancel()
+	}
 	if c.adapter == nil {
 		return zero, fmt.Errorf("turn-policy classifier not configured: no LLM adapter")
 	}
@@ -724,6 +786,7 @@ func (c *llmChitchatClassifier) ClassifyPolicy(ctx context.Context, userLine, pr
 		Operation             string                   `json:"operation"`
 		OperationKind         string                   `json:"operation_kind"`
 		DataTaskKind          string                   `json:"data_task_kind"`
+		WriteIntent           string                   `json:"write_intent"`
 		Source                string                   `json:"source"`
 		RiskLevel             string                   `json:"risk_level"`
 		SideEffects           flexiblePolicyStringList `json:"side_effects"`
@@ -755,6 +818,7 @@ func (c *llmChitchatClassifier) ClassifyPolicy(ctx context.Context, userLine, pr
 		Operation:             operation,
 		OperationKind:         operationKind,
 		DataTaskKind:          strings.TrimSpace(parsed.DataTaskKind),
+		WriteIntent:           normalizeWriteIntent(parsed.WriteIntent),
 		Source:                strings.TrimSpace(parsed.Source),
 		RiskLevel:             strings.TrimSpace(parsed.RiskLevel),
 		SideEffects:           []string(parsed.SideEffects),
@@ -1067,6 +1131,8 @@ const presentationDirectiveCap = 200
 // local responder cannot consume the attachment), so the route
 // is demoted to repo.
 func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) TurnPolicy {
+	p.WriteIntent = normalizeWriteIntent(p.WriteIntent)
+
 	// Cap the directive length so a runaway LLM cannot inflate
 	// the downstream prompt. Truncate on rune boundary (UTF-8
 	// safe) and add ellipsis so a downstream reader can tell
@@ -1118,11 +1184,34 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 		p.NeedsDataAccess = true
 	}
 
-	// Write lane self-contradiction: route=write or the typed
-	// operation=code_change means the user wants repository bytes
-	// changed by write Auto Pilot. Apply remains behind deterministic
-	// write-mode risk/approval gates and merge remains explicit.
-	if p.Route != RouteWrite && hasWriteSignal(p) && !p.NeedsOperationAccess && !p.NeedsDataAccess {
+	// Write lane precision boundary: route=write and operation=code_change
+	// are intentionally broad model decisions. They do not by themselves prove
+	// that the user asked to mutate repository bytes in this turn; they can
+	// also appear during "learn/analyze first, maybe change later" drift.
+	// Only the typed write_intent=explicit_change enum may enter write Auto
+	// Pilot. analysis_only / ambiguous / missing all fall back to repository
+	// investigation, preserving explicit /write and /mode write paths which
+	// bypass the classifier.
+	if (p.Route == RouteWrite || hasWriteSignal(p)) && !writeIntentAllowsWrite(p) {
+		p.Route = RouteRepo
+		p.NeedsRepoAccess = true
+		p.NeedsOperationAccess = false
+		p.NeedsDataAccess = false
+		p.Operation = "investigate"
+		if strings.TrimSpace(p.Source) == "" || p.Source == "current_message" {
+			p.Source = "repo"
+		}
+		p.RiskLevel = "none"
+		p.SideEffects = nil
+		p.TargetSurface = ""
+		p.RequiresConfirmation = false
+	}
+
+	// Write lane self-contradiction: operation=code_change plus explicit
+	// write intent means the user wants repository bytes changed by write Auto
+	// Pilot. Apply remains behind deterministic write-mode risk/approval gates
+	// and merge remains explicit.
+	if p.Route != RouteWrite && hasWriteSignal(p) && writeIntentAllowsWrite(p) && !p.NeedsOperationAccess && !p.NeedsDataAccess {
 		p.Route = RouteWrite
 		p.NeedsRepoAccess = true
 	}
@@ -1389,6 +1478,23 @@ func hasWriteSignal(p TurnPolicy) bool {
 	return strings.TrimSpace(p.Operation) == "code_change"
 }
 
+func normalizeWriteIntent(value string) string {
+	switch strings.TrimSpace(value) {
+	case WriteIntentExplicitChange:
+		return WriteIntentExplicitChange
+	case WriteIntentAnalysisOnly:
+		return WriteIntentAnalysisOnly
+	case WriteIntentAmbiguous:
+		return WriteIntentAmbiguous
+	default:
+		return ""
+	}
+}
+
+func writeIntentAllowsWrite(p TurnPolicy) bool {
+	return normalizeWriteIntent(p.WriteIntent) == WriteIntentExplicitChange
+}
+
 func clarifyPolicyHasStructuralReason(p TurnPolicy, hasPriorAnswer bool) bool {
 	if !hasPriorAnswer && policyReferencesPriorAnswer(p) {
 		return true
@@ -1649,10 +1755,11 @@ func (r *llmChitchatResponder) RespondLocal(ctx context.Context, userLine, prior
 // log file.
 func turnPolicyDebugLine(p TurnPolicy) string {
 	return fmt.Sprintf(
-		"route=%s operation=%s operation_kind=%s needs_repo=%t needs_operation=%t risk=%s side_effects=%s target=%s confirm=%t confidence=%.2f source=%s reason=%q presentation=%q",
+		"route=%s operation=%s operation_kind=%s write_intent=%s needs_repo=%t needs_operation=%t risk=%s side_effects=%s target=%s confirm=%t confidence=%.2f source=%s reason=%q presentation=%q",
 		string(p.Route),
 		clipForLog(p.Operation, 32),
 		clipForLog(p.OperationKind, 32),
+		clipForLog(p.WriteIntent, 32),
 		p.NeedsRepoAccess,
 		p.NeedsOperationAccess,
 		clipForLog(p.RiskLevel, 16),

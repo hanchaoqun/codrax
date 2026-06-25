@@ -96,6 +96,30 @@ func TestBuildPriorTurnHint_TopicTruncation(t *testing.T) {
 	}
 }
 
+func TestBuildPriorTurnHint_IncludesRuntimeArtifactKind(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+	store.Append(memory.Turn{
+		ID:        "turn-1",
+		Request:   "分析这个 trace 的卡顿原因",
+		Response:  "trace answer",
+		Timestamp: time.Now(),
+		Kind:      memory.KindPipeline,
+	})
+
+	r := &REPL{store: store, lastTurnRuntimeArtifactKind: "trace"}
+	hint := r.buildPriorTurnHint()
+	for _, want := range []string{"runtime_artifact=true", "runtime_artifact_kind=trace"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("hint missing %q: %q", want, hint)
+		}
+	}
+}
+
 // classifierResp builds a single canned response with the
 // classification tool call shape the classifier expects.
 func classifierResp(decision string) llm.Response {
@@ -199,19 +223,19 @@ func TestClassify_WhitespaceHintTreatedAsEmpty(t *testing.T) {
 // is and how to use it for continuation references.
 func TestChitchatClassifierSystemPrompt_TeachesPriorTurnRouting(t *testing.T) {
 	mustContain := []string{
-		"priorTurn",        // hint section name
-		"continuation",     // routing concept
-		"multi-turn refinement", // pattern label
-		"recall_memory",    // chained next step on chitchat side
+		"priorTurn",                             // hint section name
+		"continuation",                          // routing concept
+		"multi-turn refinement",                 // pattern label
+		"recall_memory",                         // chained next step on chitchat side
 		"Do NOT route to chitchat just because", // false-positive guard
 		"Pipeline-to-pipeline",                  // pipeline-prior path stays
-		"absent",           // empty hint behaviour
+		"absent",                                // empty hint behaviour
 		// T2.2 attachment routing — replaces the hard-coded REPL-side
 		// skip with prompt-driven LLM judgement.
-		"attachment=true",                  // signal name
+		"attachment=true",                   // signal name
 		"references the attachment content", // route-to-repo trigger
-		"unrelated to the attachment",      // route-to-chitchat trigger
-		"SOFT signal",                      // weighting discipline
+		"unrelated to the attachment",       // route-to-chitchat trigger
+		"SOFT signal",                       // weighting discipline
 	}
 	for _, sub := range mustContain {
 		if !strings.Contains(chitchatClassifierSystemPrompt, sub) {

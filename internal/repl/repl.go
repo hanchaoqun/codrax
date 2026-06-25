@@ -610,6 +610,15 @@ type REPL struct {
 	// because the user's intent there is a sustained investigation.
 	attachedLogAutoRouted bool
 
+	// currentTurnRuntimeArtifactKind is set only while dispatching a pipeline
+	// turn that has a log/trace attachment. recordTurn copies it into
+	// lastTurnRuntimeArtifactKind so the next TurnPolicy classification can
+	// understand "continue/deepen the previous trace/log analysis" without
+	// relying on user keywords or pretending one-shot raw bytes are still
+	// attached.
+	currentTurnRuntimeArtifactKind string
+	lastTurnRuntimeArtifactKind    string
+
 	// pendingPaste is the line-oriented fallback for terminals /
 	// tmux configurations that swallow bracketed paste (most common
 	// in SSH → tmux environments). `/paste` captures lines via a
@@ -1100,10 +1109,28 @@ func (r *REPL) buildPriorTurnHint() string {
 		topic = string([]rune(topic)[:100]) + "…"
 	}
 	hint := fmt.Sprintf("kind=%s topic=%s", string(last.Kind), topic)
+	if kind := strings.TrimSpace(r.lastTurnRuntimeArtifactKind); kind != "" && last.Kind == memory.KindPipeline {
+		hint += fmt.Sprintf(" runtime_artifact=true runtime_artifact_kind=%s", kind)
+	}
 	if len([]rune(hint)) > 200 {
 		hint = string([]rune(hint)[:200]) + "…"
 	}
 	return hint
+}
+
+func (r *REPL) runtimeArtifactKindForCurrentTurn() string {
+	hasLog := strings.TrimSpace(r.attachedLog) != ""
+	hasTrace := strings.TrimSpace(r.attachedHitrace) != ""
+	switch {
+	case hasLog && hasTrace:
+		return "mixed"
+	case hasTrace:
+		return "trace"
+	case hasLog:
+		return "log"
+	default:
+		return ""
+	}
 }
 
 // lastAnswerText returns the most recent non-empty assistant
@@ -6419,6 +6446,10 @@ func (r *REPL) dispatch(line, display string) {
 			}
 		}
 	}()
+	r.currentTurnRuntimeArtifactKind = r.runtimeArtifactKindForCurrentTurn()
+	defer func() {
+		r.currentTurnRuntimeArtifactKind = ""
+	}()
 
 	if r.pendingCommandClarification != nil && r.currentMode == types.ModeRead && r.operationEnabled {
 		r.resumeCommandOperationClarification(line, display)
@@ -7157,6 +7188,11 @@ func terminalAutoWrapControlSupported(w io.Writer) bool {
 // every turn in one REPL lifetime — so BuildContext can session-pin
 // recent turns regardless of keyword match.
 func (r *REPL) recordTurn(request, expanded, response string, kind memory.Kind) {
+	if kind == memory.KindPipeline {
+		r.lastTurnRuntimeArtifactKind = strings.TrimSpace(r.currentTurnRuntimeArtifactKind)
+	} else {
+		r.lastTurnRuntimeArtifactKind = ""
+	}
 	turn := memory.Turn{
 		ID:        fmt.Sprintf("turn-%d", time.Now().UnixNano()),
 		Request:   request,

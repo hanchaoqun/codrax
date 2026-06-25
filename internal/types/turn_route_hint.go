@@ -11,6 +11,7 @@ type TurnRouteHint struct {
 	Operation            string  `json:"operation,omitempty"`
 	OperationKind        string  `json:"operation_kind,omitempty"`
 	DataTaskKind         string  `json:"data_task_kind,omitempty"`
+	WriteIntent          string  `json:"write_intent,omitempty"`
 	TargetSurface        string  `json:"target_surface,omitempty"`
 	ConcreteOperation    bool    `json:"concrete_operation,omitempty"`
 	NeedsRepoAccess      bool    `json:"needs_repo_access,omitempty"`
@@ -25,6 +26,7 @@ func (h TurnRouteHint) IsZero() bool {
 		strings.TrimSpace(h.Operation) == "" &&
 		strings.TrimSpace(h.OperationKind) == "" &&
 		strings.TrimSpace(h.DataTaskKind) == "" &&
+		strings.TrimSpace(h.WriteIntent) == "" &&
 		strings.TrimSpace(h.TargetSurface) == "" &&
 		!h.ConcreteOperation &&
 		!h.NeedsRepoAccess &&

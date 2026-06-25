@@ -77,6 +77,23 @@ type structuredErrorLegacyClassifier struct {
 	legacyCalls  int
 }
 
+type blockingTurnPolicyAdapter struct{}
+
+func (blockingTurnPolicyAdapter) Chat(ctx context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	<-ctx.Done()
+	return llm.Response{}, ctx.Err()
+}
+
+func (blockingTurnPolicyAdapter) ModelID() string { return "blocking-turn-policy-test" }
+
+func (blockingTurnPolicyAdapter) MaxContextTokens() int { return 0 }
+
+func (blockingTurnPolicyAdapter) MaxOutputTokens() int { return 0 }
+
+func (blockingTurnPolicyAdapter) RequestTimeout() time.Duration { return 0 }
+
+func (blockingTurnPolicyAdapter) RetryMaxAttempts() int { return 0 }
+
 type stubDataTaskPlanner struct {
 	plan            dataquery.TaskPlan
 	err             error
@@ -790,6 +807,7 @@ func TestApplyTurnPolicyGuards_WriteRoute(t *testing.T) {
 		Route:           RouteWrite,
 		NeedsRepoAccess: false,
 		Operation:       "code_change",
+		WriteIntent:     WriteIntentExplicitChange,
 		Source:          "repo",
 		Confidence:      0.86,
 		RiskLevel:       "medium",
@@ -810,19 +828,53 @@ func TestApplyTurnPolicyGuards_WriteRoute(t *testing.T) {
 	}
 
 	typedSignal := ApplyTurnPolicyGuards(TurnPolicy{
-		Route:      RouteRepo,
+		Route:       RouteRepo,
+		Operation:   "code_change",
+		WriteIntent: WriteIntentExplicitChange,
+		Source:      "repo",
+		Confidence:  0.9,
+	}, false, false)
+	if typedSignal.Route != RouteWrite || !typedSignal.NeedsRepoAccess {
+		t.Fatalf("typed code_change signal should route to write planning: %+v", typedSignal)
+	}
+
+	analysisOnly := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:       RouteWrite,
+		Operation:   "code_change",
+		WriteIntent: WriteIntentAnalysisOnly,
+		Source:      "repo",
+		Confidence:  0.9,
+	}, false, false)
+	if analysisOnly.Route != RouteRepo || analysisOnly.Operation != "investigate" || analysisOnly.WriteIntent != WriteIntentAnalysisOnly {
+		t.Fatalf("analysis-only write drift should recover to repo investigation: %+v", analysisOnly)
+	}
+
+	ambiguous := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:       RouteRepo,
+		Operation:   "code_change",
+		WriteIntent: WriteIntentAmbiguous,
+		Source:      "repo",
+		Confidence:  0.9,
+	}, false, false)
+	if ambiguous.Route != RouteRepo || ambiguous.Operation != "investigate" || ambiguous.WriteIntent != WriteIntentAmbiguous {
+		t.Fatalf("ambiguous code_change should not promote to write: %+v", ambiguous)
+	}
+
+	missingIntent := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:      RouteWrite,
 		Operation:  "code_change",
 		Source:     "repo",
 		Confidence: 0.9,
 	}, false, false)
-	if typedSignal.Route != RouteWrite || !typedSignal.NeedsRepoAccess {
-		t.Fatalf("typed code_change signal should route to write planning: %+v", typedSignal)
+	if missingIntent.Route != RouteRepo || missingIntent.Operation != "investigate" {
+		t.Fatalf("missing write_intent should not enter write Auto Pilot: %+v", missingIntent)
 	}
 
 	low := ApplyTurnPolicyGuards(TurnPolicy{
 		Route:           RouteWrite,
 		NeedsRepoAccess: true,
 		Operation:       "code_change",
+		WriteIntent:     WriteIntentExplicitChange,
 		Source:          "repo",
 		Confidence:      0.2,
 	}, false, false)
@@ -946,6 +998,25 @@ func TestClassifyPolicy_RejectsUnknownRoute(t *testing.T) {
 	c := &llmChitchatClassifier{adapter: adapter}
 	if _, err := c.ClassifyPolicy(context.Background(), "hi", "", false); err == nil {
 		t.Fatal("expected error on unknown route enum")
+	}
+}
+
+func TestClassifyPolicy_TimesOutRouteClassifier(t *testing.T) {
+	old := turnPolicyClassifierTimeout
+	turnPolicyClassifierTimeout = 10 * time.Millisecond
+	defer func() { turnPolicyClassifierTimeout = old }()
+
+	c := &llmChitchatClassifier{adapter: blockingTurnPolicyAdapter{}}
+	start := time.Now()
+	_, err := c.ClassifyPolicy(context.Background(), "分析这个项目的架构", "", false)
+	if err == nil {
+		t.Fatal("blocking classifier should return a timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("classifier timeout took too long: %s", elapsed)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timeout error should wrap context deadline exceeded, got %v", err)
 	}
 }
 
@@ -1103,7 +1174,7 @@ func TestClassifyPolicy_TeachesDataRoute(t *testing.T) {
 func TestClassifyPolicy_TeachesWriteRoute(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"write","needs_repo_access":true,"needs_operation_access":false,"needs_data_access":false,"operation":"code_change","source":"repo","confidence":0.87,"reason":"user asked for a repository change","risk_level":"none","side_effects":[],"requires_confirmation":false}`),
+			turnPolicyResp(`{"route":"write","needs_repo_access":true,"needs_operation_access":false,"needs_data_access":false,"operation":"code_change","write_intent":"explicit_change","source":"repo","confidence":0.87,"reason":"user asked for a repository change","risk_level":"none","side_effects":[],"requires_confirmation":false}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1112,7 +1183,7 @@ func TestClassifyPolicy_TeachesWriteRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClassifyPolicy: %v", err)
 	}
-	if policy.Route != RouteWrite || !policy.NeedsRepoAccess || policy.NeedsOperationAccess || policy.Operation != "code_change" {
+	if policy.Route != RouteWrite || !policy.NeedsRepoAccess || policy.NeedsOperationAccess || policy.Operation != "code_change" || policy.WriteIntent != WriteIntentExplicitChange {
 		t.Fatalf("policy=%+v, want write Auto Pilot route", policy)
 	}
 	system := adapter.calls[0].messages[0].Content
@@ -1123,6 +1194,11 @@ func TestClassifyPolicy_TeachesWriteRoute(t *testing.T) {
 		"apply allowed changes in an isolated git worktree",
 		"approval record",
 		"operation=code_change",
+		"write_intent",
+		"explicit_change",
+		"analysis_only",
+		"ambiguous",
+		"not enough to enter write Auto Pilot",
 	} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)
@@ -1170,6 +1246,9 @@ func TestClassifyPolicy_TeachesExternalObservationStaysPipeline(t *testing.T) {
 		"只分析这个 trace，不要看代码",
 		"只看这段客户日志，不要读取源码",
 		"根据 MCP 返回的外部观测解释现象，不要看代码",
+		"runtime_artifact=true",
+		"runtime_artifact_kind=<log|trace|mixed>",
+		"Never use this signal to enter write unless",
 	} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)
@@ -1434,6 +1513,7 @@ func TestTurnPolicyDispatch_WriteRouteEntersAutoPilotApplyMode(t *testing.T) {
 			Route:           RouteWrite,
 			NeedsRepoAccess: true,
 			Operation:       "code_change",
+			WriteIntent:     WriteIntentExplicitChange,
 			Source:          "repo",
 			Confidence:      0.9,
 			Reason:          "repository change request",
@@ -1470,6 +1550,7 @@ func TestTurnPolicyDispatch_WriteRouteRespectsWriteEnabledGate(t *testing.T) {
 			Route:           RouteWrite,
 			NeedsRepoAccess: true,
 			Operation:       "code_change",
+			WriteIntent:     WriteIntentExplicitChange,
 			Source:          "repo",
 			Confidence:      0.9,
 		},
