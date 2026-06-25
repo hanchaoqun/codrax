@@ -130,6 +130,17 @@ func normalizeRuntimeArtifactCitationRefs(doc *types.AnswerDocumentV2, ctx *type
 	if doc == nil || ctx == nil || len(doc.Citations) == 0 {
 		return 0
 	}
+	if answerDocumentRuntimeArtifactWithoutRequiredCurrentSource(ctx) {
+		remove := make(map[int]bool)
+		for i, cit := range doc.Citations {
+			if types.LooksLikeRuntimeArtifactPath(cit.File) {
+				remove[i] = true
+			}
+		}
+		if len(remove) > 0 {
+			return dropAnswerDocumentCitationsByIndex(doc, remove)
+		}
+	}
 	plan := answerSurfacePlan(ctx)
 	if plan == nil || !plan.IsCrashSourcedRootCause() {
 		return 0

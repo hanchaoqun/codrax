@@ -186,6 +186,41 @@ func TestNormalizeRuntimeArtifactCitationRefs_DriftedObservedFrameRemapsMixedPoo
 	}
 }
 
+func TestNormalizeRuntimeArtifactCitationRefs_TraceArtifactPathDropsCitationPool(t *testing.T) {
+	ctx := runtimeSourceOptionalTraceBusContextForTest()
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{
+			File:  "hiprofiler_data_20260624_17.04.05.htrace.systrace",
+			Line:  1087530,
+			Quote: `wp.wattpad-47216 perf_sample symbol="android::PaintGlue::getRunCharacterAdvance`,
+		}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "hops",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "perf",
+				Label:       "perf_sample",
+				Text:        "trace_query 观测到文字渲染宽度测量消耗 CPU。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx)
+	if fixed == 0 {
+		t.Fatal("expected trace artifact citation to normalize")
+	}
+	if len(doc.Citations) != 0 {
+		t.Fatalf("trace artifact citation must not remain in current-source citation pool: %+v", doc.Citations)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != -1 {
+		t.Fatalf("trace artifact citation_ref = %d, want -1", got)
+	}
+	if hints := preCheckRuntimeObservationRepoContamination(doc, ctx); len(hints) != 0 {
+		t.Fatalf("normalized trace artifact answer should not be rejected, got %+v", hints)
+	}
+}
+
 func TestNormalizeRuntimeArtifactVisibleCitationSentinels_SanitizesOnlyTypedObservationOnly(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{
