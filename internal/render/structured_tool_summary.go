@@ -836,8 +836,8 @@ func formatAnalysisToolResultSummary(paramsJSON, resultSummary, lang string) str
 	if topics := subTopicSummaryValues(p.SubTopics); len(topics) > 0 {
 		lines = append(lines, analysisNumberedListLines("investigation units", "调查单元", topics, zh)...)
 	}
-	if len(p.Buckets) > 0 {
-		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("    "+bucketPhrase(p.Buckets, zh)), evidenceSummaryMaxCols))
+	if buckets := bucketSummaryValues(p.Buckets); len(buckets) > 0 {
+		lines = append(lines, analysisNumberedListLines("user partitions", "用户分区", buckets, zh)...)
 	}
 	if dims := requestedAnswerDimensionSummaryValues(p); len(dims) > 0 {
 		lines = append(lines, analysisNumberedListLines("answer dimensions", "答案维度", dims, zh)...)
@@ -965,15 +965,21 @@ func analysisNumberedListLines(enLabel, zhLabel string, values []string, zh bool
 		return nil
 	}
 	header := fmt.Sprintf("Analyzer split the request into %d %s:", len(clean), enLabel)
-	if enLabel == "answer dimensions" {
+	switch enLabel {
+	case "answer dimensions":
 		if len(clean) == 1 {
 			header = "Analyzer split the answer into 1 answer dimension:"
 		} else {
 			header = fmt.Sprintf("Analyzer split the answer into %d answer dimensions:", len(clean))
 		}
+	case "user partitions":
+		header = fmt.Sprintf("Analyzer kept %d user partitions:", len(clean))
 	}
 	if zh {
 		header = fmt.Sprintf("分析拆分为 %d 个%s：", len(clean), zhLabel)
+		if enLabel == "user partitions" {
+			header = fmt.Sprintf("分析保留了 %d 个%s：", len(clean), zhLabel)
+		}
 	}
 	circles := []string{"①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"}
 	lines := []string{truncByDisplayWidth(statusReasoningBody.Sprint("    "+header), evidenceSummaryMaxCols)}
@@ -1195,10 +1201,10 @@ func limitedListPhrase(enLabel, zhLabel string, values []string, limit int, zh b
 	return fmt.Sprintf("%s %d: %s", label, len(clean), visible)
 }
 
-func bucketPhrase(buckets []struct {
+func bucketSummaryValues(buckets []struct {
 	Label string `json:"label"`
 	Index int    `json:"index"`
-}, zh bool) string {
+}) []string {
 	items := append([]struct {
 		Label string `json:"label"`
 		Index int    `json:"index"`
@@ -1221,10 +1227,7 @@ func bucketPhrase(buckets []struct {
 			labels = append(labels, label)
 		}
 	}
-	if zh {
-		return limitedListPhrase("user partitions", "用户分区", labels, 4, zh)
-	}
-	return limitedListPhrase("user partitions", "用户分区", labels, 4, zh)
+	return labels
 }
 
 func parseEmitEvidenceSummary(summary string) (int, []renderedEvidenceItem) {
