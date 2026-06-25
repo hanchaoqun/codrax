@@ -1111,9 +1111,13 @@ func TestFormatAnalysisToolResultSummaryZh(t *testing.T) {
 		"答案主体 function_name",
 		"实体 6 个：SubExplorer, NewSubExplorer, RegisterDefaultSubAgents, buildToolSchemas, propose_sub_agents, +1",
 		"关键词 7 个：explorer, SubExplorer, sub_agent, sequence, 流程图, 机制, +1",
-		"调查单元 2 个：explorer 调用入口, subagent 注册与调度",
+		"分析拆分为 2 个调查单元：",
+		"① explorer 调用入口",
+		"② subagent 注册与调度",
 		"用户分区 2 个：diff 线索, 当前代码",
-		"答案维度 2 个：diff 线索, 当前关键代码",
+		"分析拆分为 2 个答案维度：",
+		"① diff 线索",
+		"② 当前关键代码",
 		"源码关联 2 个：compare_with_current_source, SubExplorer",
 		"图 sequence",
 		"建议文件 1 个：internal/agent/sub_explorer.go",
@@ -1150,8 +1154,12 @@ func TestFormatAnalysisToolResultSummaryUsesResultSummaryTopicsAndDimensions(t *
 	for _, want := range []string{
 		"• 分析结果",
 		"意图 trace · 类型 root_cause · 场景 performance_bottleneck · 复杂度 complex",
-		"调查单元 2 个：唤醒链, CPU 供给",
-		"答案维度 2 个：根因结论, 证据支撑",
+		"分析拆分为 2 个调查单元：",
+		"① 唤醒链",
+		"② CPU 供给",
+		"分析拆分为 2 个答案维度：",
+		"① 根因结论",
+		"② 证据支撑",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("analysis result-summary fallback missing %q; got:\n%s", want, got)
@@ -1254,8 +1262,12 @@ func TestRenderer_EmitsAnalysisSummaryTopicsAndDimensionsFromToolResult(t *testi
 
 	out := stripAnsiEscapes(buf.String())
 	for _, want := range []string{
-		"调查单元 2 个：唤醒链, CPU 供给",
-		"答案维度 2 个：根因结论, 证据支撑",
+		"分析拆分为 2 个调查单元：",
+		"① 唤醒链",
+		"② CPU 供给",
+		"分析拆分为 2 个答案维度：",
+		"① 根因结论",
+		"② 证据支撑",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("tool end should surface analysis fallback %q; got %q", want, out)

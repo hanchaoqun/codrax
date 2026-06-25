@@ -833,14 +833,14 @@ func formatAnalysisToolResultSummary(paramsJSON, resultSummary, lang string) str
 	if len(p.Keywords) > 0 {
 		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("    "+limitedListPhrase("keywords", "关键词", p.Keywords, 6, zh)), evidenceSummaryMaxCols))
 	}
-	if len(p.SubTopics) > 0 {
-		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("    "+subTopicPhrase(p.SubTopics, zh)), evidenceSummaryMaxCols))
+	if topics := subTopicSummaryValues(p.SubTopics); len(topics) > 0 {
+		lines = append(lines, analysisNumberedListLines("investigation units", "调查单元", topics, zh)...)
 	}
 	if len(p.Buckets) > 0 {
 		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("    "+bucketPhrase(p.Buckets, zh)), evidenceSummaryMaxCols))
 	}
 	if dims := requestedAnswerDimensionSummaryValues(p); len(dims) > 0 {
-		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("    "+limitedListPhrase("answer dimensions", "答案维度", dims, 5, zh)), evidenceSummaryMaxCols))
+		lines = append(lines, analysisNumberedListLines("answer dimensions", "答案维度", dims, zh)...)
 	}
 	if modes := currentSourceExplanationSummaryValues(p); len(modes) > 0 {
 		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("    "+limitedListPhrase("current-source link", "源码关联", modes, 4, zh)), evidenceSummaryMaxCols))
@@ -950,6 +950,43 @@ func requestedAnswerDimensionSummaryValues(p analysisSummaryPayload) []string {
 	return out
 }
 
+func analysisNumberedListLines(enLabel, zhLabel string, values []string, zh bool) []string {
+	clean := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		value = sanitizeEvidenceSummaryText(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		clean = append(clean, value)
+	}
+	if len(clean) == 0 {
+		return nil
+	}
+	header := fmt.Sprintf("Analyzer split the request into %d %s:", len(clean), enLabel)
+	if enLabel == "answer dimensions" {
+		if len(clean) == 1 {
+			header = "Analyzer split the answer into 1 answer dimension:"
+		} else {
+			header = fmt.Sprintf("Analyzer split the answer into %d answer dimensions:", len(clean))
+		}
+	}
+	if zh {
+		header = fmt.Sprintf("分析拆分为 %d 个%s：", len(clean), zhLabel)
+	}
+	circles := []string{"①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"}
+	lines := []string{truncByDisplayWidth(statusReasoningBody.Sprint("    "+header), evidenceSummaryMaxCols)}
+	for i, value := range clean {
+		mark := fmt.Sprintf("%d.", i+1)
+		if i < len(circles) {
+			mark = circles[i]
+		}
+		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("      "+mark+" "+value), evidenceSummaryMaxCols))
+	}
+	return lines
+}
+
 func currentSourceExplanationSummaryValues(p analysisSummaryPayload) []string {
 	profile := p.CurrentSourceExplanationProfile
 	if profile == nil || !profile.IsCurrentSourceExplanationRequested {
@@ -1021,6 +1058,27 @@ func analysisSummaryFromResult(summary string) analysisSummaryPayload {
 		}
 	}
 	return p
+}
+
+func subTopicSummaryValues(topics []struct {
+	Title    string   `json:"title"`
+	Summary  string   `json:"summary"`
+	Entities []string `json:"entities"`
+}) []string {
+	values := make([]string, 0, len(topics))
+	for _, topic := range topics {
+		title := sanitizeEvidenceSummaryText(topic.Title)
+		if title == "" {
+			title = sanitizeEvidenceSummaryText(topic.Summary)
+		}
+		if title == "" && len(topic.Entities) > 0 {
+			title = sanitizeEvidenceSummaryText(topic.Entities[0])
+		}
+		if title != "" {
+			values = append(values, title)
+		}
+	}
+	return values
 }
 
 func analysisStringListFromResult(summary, key string) []string {
@@ -1135,30 +1193,6 @@ func limitedListPhrase(enLabel, zhLabel string, values []string, limit int, zh b
 		return fmt.Sprintf("%s %d 个：%s", label, len(clean), visible)
 	}
 	return fmt.Sprintf("%s %d: %s", label, len(clean), visible)
-}
-
-func subTopicPhrase(topics []struct {
-	Title    string   `json:"title"`
-	Summary  string   `json:"summary"`
-	Entities []string `json:"entities"`
-}, zh bool) string {
-	titles := make([]string, 0, len(topics))
-	for _, topic := range topics {
-		title := sanitizeEvidenceSummaryText(topic.Title)
-		if title == "" {
-			title = sanitizeEvidenceSummaryText(topic.Summary)
-		}
-		if title == "" && len(topic.Entities) > 0 {
-			title = sanitizeEvidenceSummaryText(topic.Entities[0])
-		}
-		if title != "" {
-			titles = append(titles, title)
-		}
-	}
-	if zh {
-		return limitedListPhrase("investigation units", "调查单元", titles, 3, zh)
-	}
-	return limitedListPhrase("investigation units", "调查单元", titles, 3, zh)
 }
 
 func bucketPhrase(buckets []struct {
