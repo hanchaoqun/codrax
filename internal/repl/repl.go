@@ -6895,8 +6895,16 @@ func (r *REPL) dispatch(line, display string) {
 				case RouteWrite:
 					r.emitReplLLMTrace(tpc, "turn_policy_classifier", types.AgentName("turn_policy"), types.StageAnalyze)
 					r.emitTurnPolicyAudit(policy)
-					r.dispatchWithUserMode(line, display, UserModeWrite)
-					return
+					if r.renderer != nil && spinnerStarted {
+						r.renderer.StopSpinner()
+						spinnerStarted = false
+					}
+					restoreMode, ok := r.enterOneShotUserMode(UserModeWrite)
+					if !ok {
+						return
+					}
+					defer restoreMode()
+					logging.Info("[repl/turn_policy] write → current dispatch Auto Pilot apply")
 				case RouteHybrid:
 					if r.maybeDispatchCommandOperationFollowup(line, display, policy, rawPolicy) {
 						return
@@ -7799,9 +7807,18 @@ func (r *REPL) handleOneShotUserModeCmd(line, cmd string, mode UserMode) {
 }
 
 func (r *REPL) dispatchWithUserMode(line, display string, mode UserMode) {
+	restoreMode, ok := r.enterOneShotUserMode(mode)
+	if !ok {
+		return
+	}
+	defer restoreMode()
+	r.dispatch(line, display)
+}
+
+func (r *REPL) enterOneShotUserMode(mode UserMode) (func(), bool) {
 	mode = mode.Normalize()
 	if mode == UserModeWrite && !r.canEnterWriteWorkflow("/write") {
-		return
+		return nil, false
 	}
 	oldUserMode := r.userMode
 	oldPipelineMode := r.currentMode
@@ -7811,11 +7828,10 @@ func (r *REPL) dispatchWithUserMode(line, display string, mode UserMode) {
 	} else {
 		r.currentMode = types.ModeRead
 	}
-	defer func() {
+	return func() {
 		r.userMode = oldUserMode
 		r.currentMode = oldPipelineMode
-	}()
-	r.dispatch(line, display)
+	}, true
 }
 
 func (r *REPL) clearOperationContextForClear() error {

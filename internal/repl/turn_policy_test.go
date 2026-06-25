@@ -1529,6 +1529,13 @@ func TestTurnPolicyDispatch_WriteRouteEntersAutoPilotApplyMode(t *testing.T) {
 	if len(runner.requests) != 1 {
 		t.Fatalf("runner.Run: got %d, want 1", len(runner.requests))
 	}
+	if len(classifier.calls) != 1 {
+		t.Fatalf("auto route=write should classify exactly once, got %d calls", len(classifier.calls))
+	}
+	if len(runner.modeSetCalls) != 1 {
+		t.Fatalf("auto route=write should set runner mode once in the active dispatch, got %d calls: %+v",
+			len(runner.modeSetCalls), runner.modeSetCalls)
+	}
 	if got := runner.seenModes[0]; got != types.ModeApply {
 		t.Fatalf("auto route=write should dispatch Auto Pilot ModeApply, got %q", got)
 	}
@@ -1540,6 +1547,35 @@ func TestTurnPolicyDispatch_WriteRouteEntersAutoPilotApplyMode(t *testing.T) {
 	}
 	if len(responder.localCalls) != 0 {
 		t.Fatalf("local responder must not fire on route=write; calls=%d", len(responder.localCalls))
+	}
+}
+
+func TestEnterOneShotUserMode_RestoresMode(t *testing.T) {
+	r := New(Config{
+		Runner:   &requestCapturingRunner{},
+		Store:    newPolicyStore(t),
+		Render:   renderNothing,
+		RepoRoot: ".",
+		Branch:   "main",
+		In:       strings.NewReader("/exit\n"),
+		Out:      &bytes.Buffer{},
+		Prompt:   ">",
+		Language: "en",
+	})
+	r.writeEnabled = true
+	r.userMode = UserModeAuto
+	r.currentMode = types.ModeRead
+
+	restore, ok := r.enterOneShotUserMode(UserModeWrite)
+	if !ok {
+		t.Fatal("write-enabled one-shot mode should enter")
+	}
+	if r.userMode != UserModeWrite || r.currentMode != types.ModeApply {
+		t.Fatalf("one-shot write mode did not switch to apply: userMode=%q currentMode=%q", r.userMode, r.currentMode)
+	}
+	restore()
+	if r.userMode != UserModeAuto || r.currentMode != types.ModeRead {
+		t.Fatalf("one-shot mode did not restore previous state: userMode=%q currentMode=%q", r.userMode, r.currentMode)
 	}
 }
 

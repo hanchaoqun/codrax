@@ -8335,6 +8335,42 @@ func qualifyForcedReadSeedPath(ctx *types.BusContext, raw string) (string, bool)
 	return qualified, true
 }
 
+func forcedReadSeedUnavailableAfterAttempt(ctx *types.BusContext, canon string) bool {
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return false
+	}
+	canon = phase1UnreadCanonPath(canon, ctx.RepoRoot)
+	if canon == "" || !forcedReadSeedHadFailedReadAttempt(ctx, canon) {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(ctx.RepoRoot, filepath.FromSlash(canon)))
+	return err != nil || info.IsDir()
+}
+
+func forcedReadSeedHadFailedReadAttempt(ctx *types.BusContext, canon string) bool {
+	if ctx == nil {
+		return false
+	}
+	canon = phase1UnreadCanonPath(canon, ctx.RepoRoot)
+	if canon == "" {
+		return false
+	}
+	absNeedle := ""
+	if strings.TrimSpace(ctx.RepoRoot) != "" {
+		absNeedle = filepath.ToSlash(filepath.Join(ctx.RepoRoot, filepath.FromSlash(canon)))
+	}
+	for _, result := range aggregateSupportToolResults(ctx) {
+		if result.Success || types.CanonicalToolName(result.ToolName) != "read_file" {
+			continue
+		}
+		summary := strings.ReplaceAll(result.Summary, `\`, `/`)
+		if strings.Contains(summary, canon) || (absNeedle != "" && strings.Contains(summary, absNeedle)) {
+			return true
+		}
+	}
+	return false
+}
+
 // repomapSymbolOracle wraps the per-Run repomap Graph (when one is
 // attached) into the multipath.SymbolOracle interface. Returns nil
 // when no graph is available — the engine then disables Signal 1 and
@@ -8591,6 +8627,10 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 		if qualified != canon {
 			logging.Info("[CGEC] phase1_unread: auto-qualified bare path %s → %s", canon, qualified)
 			canon = qualified
+		}
+		if forcedReadSeedUnavailableAfterAttempt(ctx, canon) {
+			logging.Warning("[CGEC] phase1_unread: skipping unavailable path file=%s after failed read_file proof", canon)
+			continue
 		}
 		if closure.HasRead(canon) {
 			continue

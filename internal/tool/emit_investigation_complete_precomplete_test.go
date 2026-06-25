@@ -6085,6 +6085,48 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_AbsenceBypass(t
 	}
 }
 
+func TestRaisePhase1UnreadPendingReads_SkipsUnavailablePathAfterFailedRead(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 1
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	repoRoot := t.TempDir()
+	missing := "staticcommon/windowscene/src/main/ets/scene/manager/SCBPageLevelConfigManager.ets"
+	mut := types.NewMutableState("historical prescan path is absent from current checkout")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: missing, Score: 91, ExactEntityRank: 3},
+	})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  false,
+		Summary:  "read failed: open " + filepath.ToSlash(filepath.Join(repoRoot, filepath.FromSlash(missing))) + ": no such file or directory",
+	})
+	closure := mut.EvidenceClosure()
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: repoRoot,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+
+	raisePhase1UnreadPendingReads(bus, closure, nil)
+
+	for _, pending := range closure.PendingReads() {
+		if pending.Origin == "phase1_unread" {
+			t.Fatalf("unavailable forced-read seed must downgrade to caveat, not pending debt: %+v", pending)
+		}
+	}
+	if closure.Phase1UnreadFired() {
+		t.Fatal("unavailable forced-read seed must not burn the phase1_unread latch")
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadLatchFiresOnce:
 // T2.1 — the phase1_unread gate must not keep re-firing on subsequent
 // emit_investigation_complete calls within the same pipeline. Once
