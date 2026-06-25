@@ -5237,8 +5237,15 @@ func decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx *types.BusCo
 		return false
 	}
 	rm := requestModelForAggregateSupport(ctx)
-	if rm == nil || !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+	if rm == nil {
 		return false
+	}
+	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		return false
+	}
+	attachedTraceOrQuery := aggregateSupportRuntimeTraceContextActive(ctx)
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTraceOrQuery) {
+		return true
 	}
 	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
 		if origin == types.AnswerEvidenceOriginRuntimeArtifact {
@@ -5246,6 +5253,16 @@ func decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx *types.BusCo
 		}
 	}
 	return false
+}
+
+func aggregateSupportRuntimeTraceContextActive(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if strings.TrimSpace(ctx.AttachedHitrace) != "" {
+		return true
+	}
+	return ctx.Mutable != nil && ctx.Mutable.TraceQueryRuntimeObservationCount() > 0
 }
 
 func decoratedAggregateMemberCanRelyOnOriginSpecificProvenance(ctx *types.BusContext, fact types.AnswerAggregateFact, member string) bool {

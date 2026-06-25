@@ -5911,6 +5911,130 @@ func TestEmitInvestigationComplete_AllowsDecoratedRuntimeMemberSetForDefaultMixe
 	}
 }
 
+func TestEmitInvestigationComplete_AllowsDecoratedRuntimeMemberSetAfterTraceQueryObservation(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:payload#perf_stats:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				Path:         "hiprofiler_data_20260624_17.04.05.htrace.systrace",
+				ArtifactID:   "attached_trace",
+				ArtifactKind: "trace",
+				PayloadRef:   "/tmp/trace-query.json",
+			},
+			Subject:   "wp.wattpad-47216",
+			Predicate: "cpu_hot_symbol",
+			Object:    "android::PaintGlue::getRunCharacterAdvance___CIIIIZI_FI_F",
+			Summary:   "perf samples identify libhwui text measurement as the top running-state hotspot",
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable:         mut,
+		AttachedHitrace: "sched_switch prev=wp.wattpad-47216 next=worker",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioRootCause,
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"trace_query has isolated the observed running-state hotspot",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"热点函数调用栈",
+				"value":"1",
+				"members":["android::PaintGlue::getRunCharacterAdvance___CIIIIZI_FI_F (libhwui.so)"]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query runtime member_set should not require repo support_refs: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("trace_query runtime member_set should close the investigation, summary=%s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_CurrentSourceTraceRequestStillRequiresDecoratedSupportRefs(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:payload#root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				Path:         "app.systrace",
+				ArtifactID:   "attached_trace",
+				ArtifactKind: "trace",
+			},
+			Subject:   "app-1",
+			Predicate: "root_cause_primary",
+			Object:    "source handler",
+			Summary:   "trace points at a handler that the user asked to verify in current source",
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable:         mut,
+		AttachedHitrace: "sched_switch prev=app-1 next=worker",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioRootCause,
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationVerifyCurrentStatus},
+				SourceQuotes:                        []string{"结合当前源码确认"},
+				Confidence:                          0.9,
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"current source verification still needs source-member grounding",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"source handlers",
+				"value":"1",
+				"members":["RenderHandler.processFrame (current implementation)"]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("completion-form support_refs debt should downgrade, not tool-fail: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatal("explicit current-source trace request must not close a decorated source member_set without support_refs")
+	}
+	if !strings.Contains(res.Summary, "support_refs is empty") {
+		t.Fatalf("expected support_refs downgrade, got: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationCompleteSchema_DocumentsRuntimeDirectObservationBoundary(t *testing.T) {
 	params := string((&EmitInvestigationComplete{}).Parameters())
 	for _, want := range []string{
