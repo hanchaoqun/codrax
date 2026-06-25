@@ -97,8 +97,8 @@ func localLandingRepairDispatchPolicy(
 		Action:         types.ReadDispatchPolicyActionLandingRepair,
 		ReasonCode:     reasonCode,
 		RouteSurface:   types.ReadDispatchPolicySurfaceHandoff,
-		AllowedTools:   []string{"emit_investigation_complete", "emit_evidence"},
-		DeniedTools:    []string{"repo_map", "grep", "read_file", "list_files", "exec_command", "trace_query", "run_tests"},
+		AllowedTools:   []string{"emit_investigation_complete"},
+		DeniedTools:    []string{"repo_map", "grep", "read_file", "list_files", "exec_command", "trace_query", "run_tests", "emit_evidence"},
 		PreferredTools: []string{"emit_investigation_complete"},
 		MaxToolCalls:   2,
 		OneShot:        true,
@@ -155,6 +155,6 @@ func renderLocalLandingRepairDirective(policy types.ReadDispatchPolicy) string {
 	b.WriteString("source=structured_repair_lane reason=")
 	b.WriteString(firstNonEmptyRetryString(policy.ReasonCode, "completion_form"))
 	b.WriteString(".\n")
-	b.WriteString("The model already reached the answer surface; this retry is only for structured handoff landing. Do not reopen repository discovery, do not call repo_map/grep/read_file/list_files/trace_query/run_tests/exec_command, and do not reinterpret the user question. Re-emit `emit_investigation_complete` using the existing evidence/context pack. Use `emit_evidence` only if an already-read grounded line must be materialized for the form repair. If the form debt remains after this bounded attempt, preserve the caveat instead of widening exploration.")
+	b.WriteString("The model already reached the answer surface; this retry is only for structured handoff landing. Do not reopen evidence collection or repository discovery, do not call emit_evidence/repo_map/grep/read_file/list_files/trace_query/run_tests/exec_command, and do not reinterpret the user question. Re-emit `emit_investigation_complete` using the existing evidence/context pack. If the form debt remains after this bounded attempt, preserve the caveat instead of widening exploration.")
 	return b.String()
 }

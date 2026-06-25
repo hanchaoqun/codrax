@@ -439,7 +439,7 @@ func renderExplorerReadDispatchPolicyInstruction(ctx *types.AgentContext) string
 	b.WriteString("## Read Dispatch Policy\n\n")
 	if policy.Action == types.ReadDispatchPolicyActionLandingRepair {
 		b.WriteString("This dispatch is a local structured-handoff landing repair. The investigation answer surface is already known well enough to avoid broad discovery; repair only the typed handoff fields requested by the scheduler from the existing evidence/context pack.\n")
-		b.WriteString("Do not call navigation, search, file-read, trace, test, or shell tools in this dispatch. Re-emit `emit_investigation_complete` first; use `emit_evidence` only to materialize an already-read grounded line that the repair explicitly requires. If the same form debt still cannot be repaired, keep the answer boundary/caveat instead of widening exploration.\n")
+		b.WriteString("Do not call evidence collection, navigation, search, file-read, trace, test, or shell tools in this dispatch. Re-emit `emit_investigation_complete` first from the existing evidence/context pack. If the same form debt still cannot be repaired, keep the answer boundary/caveat instead of widening exploration.\n")
 	} else {
 		b.WriteString("This dispatch is a scheduler-owned continuation for a typed read-loop action. Use only the currently available tools in the policy surface and keep the work bounded to the listed proof scopes. If no direct proof route is available, emit the best grounded evidence closure with an explicit unverified-proof caveat instead of widening discovery.\n")
 	}

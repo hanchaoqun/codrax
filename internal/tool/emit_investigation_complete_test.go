@@ -3363,6 +3363,50 @@ func TestEmitInvestigationComplete_AllowsExhaustiveRuntimeArtifactMemberSet(t *t
 	}
 }
 
+func TestEmitInvestigationComplete_SameCallTraceWaiverBypassesDecoratedRuntimeSupportRefs(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("Analyze the attached trace bottleneck")
+	bus := &types.BusContext{
+		Mutable:         mut,
+		AnalysisIR:      &types.AnalysisIR{RequestModel: types.RequestModel{}},
+		AttachedHitrace: "173971.000000: tracing_mark_write: OHOS::AppExecFwk::MainThread blocked",
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"the attached trace artifact identifies the runtime stack segment",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{
+			"reason":"external_only_trace",
+			"rationale":"the member labels are runtime artifact frames and not current checkout source symbols"
+		},
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"runtime stack segment",
+			"value":"1",
+			"role":"principal_answer",
+			"members":["OHOS::AppExecFwk::MainThread (应用框架)"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("same-call trace waiver should not be hard-rejected: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "support_refs") {
+		t.Fatalf("runtime artifact waiver should prevent support_refs repair loop, got: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("completion should be stored after same-call trace waiver")
+	}
+}
+
 func TestEmitInvestigationComplete_DoesNotBypassMixedOriginExhaustiveMemberSet(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})

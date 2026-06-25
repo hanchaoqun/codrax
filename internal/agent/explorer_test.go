@@ -4254,8 +4254,8 @@ func TestExplorer_FilterToolSchemas_LocalLandingRepairPolicy(t *testing.T) {
 			Active:         true,
 			Action:         types.ReadDispatchPolicyActionLandingRepair,
 			RouteSurface:   types.ReadDispatchPolicySurfaceHandoff,
-			AllowedTools:   []string{"emit_investigation_complete", "emit_evidence"},
-			DeniedTools:    []string{"repo_map", "grep", "read_file", "list_files", "exec_command", "trace_query", "run_tests"},
+			AllowedTools:   []string{"emit_investigation_complete"},
+			DeniedTools:    []string{"repo_map", "grep", "read_file", "list_files", "exec_command", "trace_query", "run_tests", "emit_evidence"},
 			PreferredTools: []string{"emit_investigation_complete"},
 			OneShot:        true,
 		},
@@ -4270,7 +4270,7 @@ func TestExplorer_FilterToolSchemas_LocalLandingRepairPolicy(t *testing.T) {
 	}
 
 	got := eval.FilterToolSchemas(ctx, schemas)
-	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_evidence,emit_investigation_complete" {
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_investigation_complete" {
 		t.Fatalf("local landing repair should expose only landing tools, got %v", gotNames)
 	}
 }
@@ -4423,19 +4423,22 @@ func TestExplorer_BuildInitialInstruction_LocalLandingRepairPolicy(t *testing.T)
 			Active:         true,
 			Action:         types.ReadDispatchPolicyActionLandingRepair,
 			RouteSurface:   types.ReadDispatchPolicySurfaceHandoff,
-			AllowedTools:   []string{"emit_investigation_complete", "emit_evidence"},
+			AllowedTools:   []string{"emit_investigation_complete"},
 			PreferredTools: []string{"emit_investigation_complete"},
 			OneShot:        true,
 		},
 	}
 	got := eval.BuildInitialInstruction(ctx, nil)
-	for _, want := range []string{"local structured-handoff landing repair", "Do not call navigation", "emit_investigation_complete"} {
+	for _, want := range []string{"local structured-handoff landing repair", "Do not call evidence collection", "emit_investigation_complete"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("local landing instruction missing %q:\n%s", want, got)
 		}
 	}
 	if strings.Contains(got, "Breadth Scan") {
 		t.Fatalf("local landing dispatch must not render broad breadth-scan instructions:\n%s", got)
+	}
+	if strings.Contains(got, "use `emit_evidence`") {
+		t.Fatalf("local landing dispatch must not invite evidence collection:\n%s", got)
 	}
 }
 
@@ -4612,8 +4615,8 @@ func TestExplorer_RuntimeBoundary_LocalLandingRepairPolicy(t *testing.T) {
 			Active:         true,
 			Action:         types.ReadDispatchPolicyActionLandingRepair,
 			RouteSurface:   types.ReadDispatchPolicySurfaceHandoff,
-			AllowedTools:   []string{"emit_investigation_complete", "emit_evidence"},
-			DeniedTools:    []string{"repo_map", "grep", "read_file", "list_files", "exec_command", "trace_query", "run_tests"},
+			AllowedTools:   []string{"emit_investigation_complete"},
+			DeniedTools:    []string{"repo_map", "grep", "read_file", "list_files", "exec_command", "trace_query", "run_tests", "emit_evidence"},
 			PreferredTools: []string{"emit_investigation_complete"},
 			OneShot:        true,
 		},
@@ -4631,8 +4634,8 @@ func TestExplorer_RuntimeBoundary_LocalLandingRepairPolicy(t *testing.T) {
 	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_investigation_complete", Params: json.RawMessage(`{}`)}); got != nil {
 		t.Fatalf("emit_investigation_complete should be allowed, got %+v", got)
 	}
-	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_evidence", Params: json.RawMessage(`{}`)}); got != nil {
-		t.Fatalf("emit_evidence should be allowed for already-read materialization, got %+v", got)
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_evidence", Params: json.RawMessage(`{}`)}); got == nil || got.Success {
+		t.Fatalf("emit_evidence should be rejected for completion-form landing repair, got %+v", got)
 	}
 }
 

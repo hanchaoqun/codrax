@@ -25,19 +25,20 @@ func TestLocalLandingRepairDispatchPolicyCompletionFormDebt(t *testing.T) {
 		policy.RouteSurface != types.ReadDispatchPolicySurfaceHandoff {
 		t.Fatalf("unexpected policy: %+v", policy)
 	}
-	for _, allowed := range []string{"emit_investigation_complete", "emit_evidence"} {
+	for _, allowed := range []string{"emit_investigation_complete"} {
 		if !policy.AllowsTool(allowed) {
 			t.Fatalf("policy should allow %s: %+v", allowed, policy)
 		}
 	}
-	for _, denied := range []string{"repo_map", "grep", "read_file", "list_files", "exec_command", "trace_query", "run_tests"} {
+	for _, denied := range []string{"repo_map", "grep", "read_file", "list_files", "exec_command", "trace_query", "run_tests", "emit_evidence"} {
 		if policy.AllowsTool(denied) {
 			t.Fatalf("policy should deny %s: %+v", denied, policy)
 		}
 	}
 	if !strings.Contains(hint, "Local landing repair") ||
-		!strings.Contains(hint, "Do not reopen repository discovery") ||
-		!strings.Contains(hint, "emit_investigation_complete") {
+		!strings.Contains(hint, "Do not reopen evidence collection") ||
+		!strings.Contains(hint, "emit_investigation_complete") ||
+		!strings.Contains(hint, "do not call emit_evidence") {
 		t.Fatalf("landing hint missing required boundary: %s", hint)
 	}
 	repairHint := renderWindowHint(nil, nil, nil, func(string) string { return "" }, "", "", repairs)

@@ -1390,6 +1390,10 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	aggregateFactNormalizationNotes := aggregateFactValueCanonicalizationNotes(p.AggregateFacts, aggregateFacts)
 	aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, softAggregateNotes...)
 	earlyDowngradeConverged := false
+	ignoredEvidenceWaiver, evidenceWaiverReject := applyEvidenceFloorWaiverPayload(ctx, t.Name(), p)
+	if evidenceWaiverReject != nil {
+		return *evidenceWaiverReject, nil
+	}
 	if err := validateAggregateRequestedDecoratorAlignmentWithEvidence(ctx, aggregateFacts, evidenceSnapshot); err != nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -1479,80 +1483,6 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		earlyDowngradeConverged = true
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "decorator_member_validation", memberValidationStart, len(effectiveAggregateFacts))
-
-	// Strict-decode + store evidence_floor_waiver (typed escape).
-	// The full pre-check chain below (forced-read, citation floor)
-	// reads the stored waiver to decide whether to relax. A malformed
-	// optional waiver is not honored, but it also must not fail the
-	// whole completion call; normal precise gates still decide whether
-	// the investigation may close.
-	if p.ClearEvidenceWaiver && p.EvidenceFloorWaiver != nil {
-		return types.ToolResult{
-			ToolName: t.Name(),
-			Summary: "emit_investigation_complete rejected: clear_evidence_floor_waiver cannot be set together with evidence_floor_waiver. " +
-				"Either declare a new waiver or explicitly retract the existing one, not both.",
-			Success:   false,
-			Timestamp: time.Now(),
-		}, nil
-	}
-	ignoredEvidenceWaiver := ""
-	if p.ClearEvidenceWaiver {
-		ctx.Mutable.ClearEvidenceFloorWaiver()
-		logging.Info("[emit_investigation_complete] evidence_floor_waiver explicitly cleared")
-	} else if p.EvidenceFloorWaiver != nil {
-		waiverReason := strings.TrimSpace(p.EvidenceFloorWaiver.Reason)
-		waiverRationale := strings.TrimSpace(p.EvidenceFloorWaiver.Rationale)
-		if waiverReason == "" {
-			ctx.Mutable.SetEvidenceFloorWaiver(nil)
-			ignoredEvidenceWaiver = "ignored evidence_floor_waiver because reason is missing; normal grounding gates still apply"
-			logging.Warning("[emit_investigation_complete] %s", ignoredEvidenceWaiver)
-		} else if waiverRationale == "" {
-			ctx.Mutable.SetEvidenceFloorWaiver(nil)
-			ignoredEvidenceWaiver = fmt.Sprintf("ignored evidence_floor_waiver=%s because rationale is missing; normal grounding gates still apply", waiverReason)
-			logging.Warning("[emit_investigation_complete] %s", ignoredEvidenceWaiver)
-		} else {
-			typedReason := types.EvidenceFloorWaiverReason(waiverReason)
-			if !typedReason.IsValid() {
-				ctx.Mutable.SetEvidenceFloorWaiver(nil)
-				ignoredEvidenceWaiver = fmt.Sprintf("ignored evidence_floor_waiver.reason=%q because it is not accepted; normal grounding gates still apply", waiverReason)
-				logging.Warning("[emit_investigation_complete] %s", ignoredEvidenceWaiver)
-			} else {
-				artifactAttached := ctx.Mutable.LogTriage() != nil || ctx.Mutable.PerfTrace() != nil
-				if evidenceFloorWaiverIsPureVCSHistoryMisuse(ctx, typedReason, artifactAttached) {
-					ctx.Mutable.SetEvidenceFloorWaiver(nil)
-					ignoredEvidenceWaiver = fmt.Sprintf("ignored evidence_floor_waiver=%s for pure VCS history; carry git findings through reason/aggregate_facts, not runtime-artifact waiver", typedReason)
-					logging.Warning("[emit_investigation_complete] %s rationale=%q",
-						ignoredEvidenceWaiver, truncateForLog(waiverRationale, 200))
-				} else if !runtimeArtifactGroundingBypassAllowed(ctx) {
-					ctx.Mutable.SetEvidenceFloorWaiver(nil)
-					ignoredEvidenceWaiver = fmt.Sprintf("ignored evidence_floor_waiver=%s because the typed current-source lane is required; preserve runtime observations, then collect current-source evidence before closing", typedReason)
-					logging.Warning("[emit_investigation_complete] %s rationale=%q",
-						ignoredEvidenceWaiver, truncateForLog(waiverRationale, 200))
-				} else {
-					ctx.Mutable.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
-						Reason:    typedReason,
-						Rationale: waiverRationale,
-					})
-					// Telemetry: log every fire so post-hoc analysis can spot
-					// misuse patterns. Reason is bounded enum, rationale is
-					// truncated for log hygiene.
-					//
-					// E: also report whether a runtime artifact is actually
-					// attached. The waiver bypasses several floors (forced-read,
-					// citation-floor, multi-topic anchor) on its own; the
-					// finalizer-side observation-only citation policy is a
-					// separate downstream lane that ONLY engages when log/perf
-					// bundle is attached (RuntimeGroundingDispositionFromWaiver).
-					// Surfacing artifact_attached up front lets operators see at
-					// accept time whether the waiver will engage observation-only
-					// or just relax the local floors — eliminates the "waiver
-					// silent but accepted" mystery from the 2026-05-16 trace.
-					logging.Info("[emit_investigation_complete] evidence_floor_waiver accepted: reason=%s artifact_attached=%t rationale=%q",
-						typedReason, artifactAttached, truncateForLog(waiverRationale, 200))
-				}
-			}
-		}
-	}
 
 	// Strict-decode + store principal_span_waiver (typed escape for
 	// the source→sink intermediate-evidence gate). Invalid optional
@@ -3293,7 +3223,120 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 			rm.PerfTrace = ctx.Mutable.PerfTrace()
 		}
 	}
-	return rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(types.RuntimeArtifactContextActiveFromBus(ctx))
+	attachedRuntimeArtifact := types.RuntimeArtifactContextActiveFromBus(ctx)
+	var contract *types.AnswerContract
+	if ctx.AnalysisIR != nil {
+		contract = &ctx.AnalysisIR.AnswerContract
+	}
+	if rm.RequiresCurrentSourceForExternalObservation(contract) {
+		return false
+	}
+	if requestModelHasRequiredCurrentKeyCodeDimension(rm) {
+		return false
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedRuntimeArtifact) {
+		return true
+	}
+	return attachedRuntimeArtifact
+}
+
+func applyEvidenceFloorWaiverPayload(ctx *types.BusContext, toolName string, p emitInvestigationCompleteParams) (string, *types.ToolResult) {
+	if ctx == nil || ctx.Mutable == nil {
+		return "", nil
+	}
+	// Store evidence_floor_waiver before any completion gate that can
+	// legitimately relax for external runtime/log/trace surfaces. The
+	// same emit call may declare both aggregate_facts and the waiver;
+	// consumers must see the typed waiver before deciding whether a
+	// source-line support requirement applies.
+	if p.ClearEvidenceWaiver && p.EvidenceFloorWaiver != nil {
+		return "", &types.ToolResult{
+			ToolName: toolName,
+			Summary: "emit_investigation_complete rejected: clear_evidence_floor_waiver cannot be set together with evidence_floor_waiver. " +
+				"Either declare a new waiver or explicitly retract the existing one, not both.",
+			Success:   false,
+			Timestamp: time.Now(),
+		}
+	}
+	if p.ClearEvidenceWaiver {
+		ctx.Mutable.ClearEvidenceFloorWaiver()
+		logging.Info("[emit_investigation_complete] evidence_floor_waiver explicitly cleared")
+		return "", nil
+	}
+	if p.EvidenceFloorWaiver == nil {
+		return "", nil
+	}
+
+	waiverReason := strings.TrimSpace(p.EvidenceFloorWaiver.Reason)
+	waiverRationale := strings.TrimSpace(p.EvidenceFloorWaiver.Rationale)
+	if waiverReason == "" {
+		ctx.Mutable.SetEvidenceFloorWaiver(nil)
+		ignored := "ignored evidence_floor_waiver because reason is missing; normal grounding gates still apply"
+		logging.Warning("[emit_investigation_complete] %s", ignored)
+		return ignored, nil
+	}
+	if waiverRationale == "" {
+		ctx.Mutable.SetEvidenceFloorWaiver(nil)
+		ignored := fmt.Sprintf("ignored evidence_floor_waiver=%s because rationale is missing; normal grounding gates still apply", waiverReason)
+		logging.Warning("[emit_investigation_complete] %s", ignored)
+		return ignored, nil
+	}
+	typedReason := types.EvidenceFloorWaiverReason(waiverReason)
+	if !typedReason.IsValid() {
+		ctx.Mutable.SetEvidenceFloorWaiver(nil)
+		ignored := fmt.Sprintf("ignored evidence_floor_waiver.reason=%q because it is not accepted; normal grounding gates still apply", waiverReason)
+		logging.Warning("[emit_investigation_complete] %s", ignored)
+		return ignored, nil
+	}
+
+	artifactAttached := runtimeArtifactAttachedForWaiver(ctx)
+	if evidenceFloorWaiverIsPureVCSHistoryMisuse(ctx, typedReason, artifactAttached) {
+		ctx.Mutable.SetEvidenceFloorWaiver(nil)
+		ignored := fmt.Sprintf("ignored evidence_floor_waiver=%s for pure VCS history; carry git findings through reason/aggregate_facts, not runtime-artifact waiver", typedReason)
+		logging.Warning("[emit_investigation_complete] %s rationale=%q",
+			ignored, truncateForLog(waiverRationale, 200))
+		return ignored, nil
+	}
+	if !runtimeArtifactGroundingBypassAllowed(ctx) {
+		ctx.Mutable.SetEvidenceFloorWaiver(nil)
+		ignored := fmt.Sprintf("ignored evidence_floor_waiver=%s because the typed current-source lane is required; preserve runtime observations, then collect current-source evidence before closing", typedReason)
+		logging.Warning("[emit_investigation_complete] %s rationale=%q",
+			ignored, truncateForLog(waiverRationale, 200))
+		return ignored, nil
+	}
+
+	ctx.Mutable.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
+		Reason:    typedReason,
+		Rationale: waiverRationale,
+	})
+	logging.Info("[emit_investigation_complete] evidence_floor_waiver accepted: reason=%s artifact_attached=%t rationale=%q",
+		typedReason, artifactAttached, truncateForLog(waiverRationale, 200))
+	return "", nil
+}
+
+func runtimeArtifactAttachedForWaiver(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if strings.TrimSpace(ctx.AttachedLog) != "" || strings.TrimSpace(ctx.AttachedHitrace) != "" {
+		return true
+	}
+	if ctx.Mutable == nil {
+		return false
+	}
+	return ctx.Mutable.LogTriage() != nil || ctx.Mutable.PerfTrace() != nil
+}
+
+func requestModelHasRequiredCurrentKeyCodeDimension(rm types.RequestModel) bool {
+	if rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
+		return false
+	}
+	for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+		if dim.Required && dim.Role == types.RequestedAnswerDimensionCurrentKeyCode {
+			return true
+		}
+	}
+	return false
 }
 
 func historyCountAggregateHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
@@ -5242,6 +5285,17 @@ func decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx *types.BusCo
 	attachedRuntimeArtifact := aggregateSupportRuntimeArtifactContextActive(ctx)
 	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedRuntimeArtifact) {
 		return true
+	}
+	if attachedRuntimeArtifact && ctx != nil && ctx.Mutable != nil && runtimeArtifactGroundingBypassAllowed(ctx) {
+		if waiver := ctx.Mutable.EvidenceFloorWaiver(); waiver.IsActive() {
+			switch waiver.Reason {
+			case types.EvidenceFloorWaiverExternalLog,
+				types.EvidenceFloorWaiverExternalTrace,
+				types.EvidenceFloorWaiverNoRepoIntersection,
+				types.EvidenceFloorWaiverInformationalRuntime:
+				return true
+			}
+		}
 	}
 	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
 		if origin == types.AnswerEvidenceOriginRuntimeArtifact {
