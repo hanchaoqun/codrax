@@ -1196,7 +1196,7 @@ func TestEmitInvestigationComplete_RuntimeNegativeObservationMissingSignalCompat
 	}
 }
 
-func TestEmitInvestigationComplete_ExplicitAllowRejectsExternalOnlyWaiverWithoutCurrentSource(t *testing.T) {
+func TestEmitInvestigationComplete_ExplicitAllowWithoutPreciseSourceRequirementAcceptsExternalOnlyWaiver(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{
 		Mutable: mut,
@@ -1241,13 +1241,85 @@ func TestEmitInvestigationComplete_ExplicitAllowRejectsExternalOnlyWaiverWithout
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !res.Success {
-		t.Fatalf("mixed-lane downgrade should be soft, got hard failure: %s", res.Summary)
+		t.Fatalf("external-only waiver should be accepted without precise current-source requirement: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("completion should close when allow has no precise current-source proof obligation; summary=%s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "current-source") {
+		t.Fatalf("allow-only runtime completion must not reopen current-source repair, got: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_RequiredCurrentKeyCodeStillBlocksExternalOnlyWaiver(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+				Kind:       "state_churn",
+				Subject:    "app-20",
+				Summary:    "runtime trace state_churn metrics",
+				LineStart:  3,
+				LineEnd:    23,
+				DurationMs: 8,
+			}}},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceAllow,
+				Confidence:           0.95,
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.8,
+			},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label:    "current implementation",
+					Role:     types.RequestedAnswerDimensionCurrentKeyCode,
+					Required: true,
+					Index:    1,
+				}},
+				Confidence: 0.9,
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"runtime trace shows the observed churn",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{
+			"reason":"external_only_trace",
+			"rationale":"the trace rows are external observations"
+		},
+		"aggregate_facts":[{
+			"kind":"behavior_outcome",
+			"label":"runtime outcome",
+			"value":"state churn",
+			"role":"principal_answer",
+			"dimensions":[{"name":"origin","value":"runtime_artifact"}]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("current-source downgrade should remain soft, got hard failure: %s", res.Summary)
 	}
 	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
-		t.Fatalf("explicit allow mixed lane must not close through an external-only waiver without current-source evidence")
+		t.Fatalf("required current_key_code dimension must not close through external-only waiver")
 	}
 	if !strings.Contains(res.Summary, "current-source") {
-		t.Fatalf("summary should point the model at the missing current-source lane, got: %s", res.Summary)
+		t.Fatalf("summary should point at the precise current-source requirement, got: %s", res.Summary)
 	}
 }
 

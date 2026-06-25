@@ -1452,9 +1452,10 @@ func (r *Renderer) pendingUpstreamStageKeyLocked(localSlot, total int) string {
 }
 
 // bindLiveEventStageLocked makes row 2 follow the typed stage carried
-// by live LLM/tool/progress events. This is deliberately event-field
-// based: the renderer must not infer stage ownership from prose tails
-// such as "接收中 ▸ ...", because those tails are noisy model/output
+// by live LLM/tool/progress events. This is deliberately structural:
+// prefer the event stage, and when stream/tool deltas omit it, fall
+// back to the active task row. Never infer stage ownership from prose
+// tails such as "接收中 ▸ ...", because those tails are noisy model/output
 // content. A live explore event may arrive while the topology fallback
 // already points at extract; in that window the status line should
 // still name the work that is actually producing bytes right now.
@@ -1462,6 +1463,9 @@ func (r *Renderer) pendingUpstreamStageKeyLocked(localSlot, total int) string {
 // Caller MUST hold r.mu.
 func (r *Renderer) bindLiveEventStageLocked(stage string) {
 	key := canonicalStageKey(stage)
+	if key == "" && r.current != nil && r.current.endTime.IsZero() && !r.current.pending {
+		key = stageKeyFor(r.current)
+	}
 	if key == "" {
 		return
 	}

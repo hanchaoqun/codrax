@@ -1168,6 +1168,36 @@ func TestRenderer_DockBacktrackKeepsProgressAndNamesRepairStage(t *testing.T) {
 	}
 }
 
+func TestRenderer_DockLiveFinalizerDeltasDoNotShowStaleExploreRepair(t *testing.T) {
+	r := newTestRenderer("zh")
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{Kind: EventStageStart, Timestamp: t0, Stage: "analyze", Agent: "analyzer"})
+	emit(Event{Kind: EventStageEnd, Timestamp: t0.Add(10 * time.Millisecond), Stage: "analyze", Agent: "analyzer"})
+	emit(Event{
+		Kind:      EventAnalysisReady,
+		Timestamp: t0.Add(20 * time.Millisecond),
+		TaskNodes: []TaskNodeInfo{
+			{ID: "n1_evidence_t0", Type: "evidence", Objective: "topic A"},
+			{ID: "final", Type: "finalize", Objective: "render"},
+		},
+	})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(30 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{Kind: EventTaskNodeEnd, Timestamp: t0.Add(40 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(50 * time.Millisecond), NodeID: "final"})
+	emit(Event{Kind: EventLocalWorkStart, Timestamp: t0.Add(60 * time.Millisecond), Stage: "explore"})
+	emit(Event{Kind: EventToolCallStart, Timestamp: t0.Add(70 * time.Millisecond), ToolName: "emit_answer_document"})
+
+	row := stripAnsiEscapes(r.composeCurrentDockRows()[1])
+	if !strings.Contains(row, "4/4") || !strings.Contains(row, "正在撰写最终答案") {
+		t.Fatalf("live finalizer tool deltas should bind to the active finalizer row; got %q", row)
+	}
+	if strings.Contains(row, "修复中：正在收集证据") {
+		t.Fatalf("stale explore repair label must not survive live finalizer tool deltas: %q", row)
+	}
+}
+
 func TestRenderer_DockBacktrackClarifiesValidateRepairStage(t *testing.T) {
 	r := newTestRenderer("zh")
 	r.totalStages = 4

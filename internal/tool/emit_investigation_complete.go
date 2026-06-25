@@ -3223,21 +3223,62 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 			rm.PerfTrace = ctx.Mutable.PerfTrace()
 		}
 	}
-	attachedRuntimeArtifact := types.RuntimeArtifactContextActiveFromBus(ctx)
-	var contract *types.AnswerContract
-	if ctx.AnalysisIR != nil {
-		contract = &ctx.AnalysisIR.AnswerContract
-	}
-	if rm.RequiresCurrentSourceForExternalObservation(contract) {
-		return false
-	}
-	if requestModelHasRequiredCurrentKeyCodeDimension(rm) {
+	attachedRuntimeArtifact := runtimeArtifactContextActiveForCompletion(ctx, &rm)
+	if runtimeArtifactCurrentSourceHardRequirement(ctx) {
 		return false
 	}
 	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedRuntimeArtifact) {
 		return true
 	}
 	return attachedRuntimeArtifact
+}
+
+func runtimeArtifactCurrentSourceHardRequirement(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if answerContractRequiresCurrentSourceProof(&ctx.AnalysisIR.AnswerContract) {
+		return true
+	}
+	if requestModelHasRequiredCurrentKeyCodeDimension(rm) {
+		return true
+	}
+	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+		return true
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return true
+	}
+	if currentSourceLaneHasSpecificSourceSeed(ctx) {
+		return true
+	}
+	for _, target := range rm.AnalyzerHints.ExactTargets {
+		if currentSourceCoveragePath(target) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerContractRequiresCurrentSourceProof(contract *types.AnswerContract) bool {
+	if contract == nil {
+		return false
+	}
+	if contract.CurrentStatusDiagnostic != nil && contract.CurrentStatusDiagnostic.Required {
+		return true
+	}
+	if exact := contract.ExactResolution; exact != nil {
+		for _, target := range append([]string{exact.TargetLabel}, exact.Targets...) {
+			if currentSourceCoveragePath(target) {
+				return true
+			}
+		}
+		if currentSourceCoveragePath(exact.RelatedContextScopeHint) {
+			return true
+		}
+	}
+	return false
 }
 
 func applyEvidenceFloorWaiverPayload(ctx *types.BusContext, toolName string, p emitInvestigationCompleteParams) (string, *types.ToolResult) {
@@ -3289,7 +3330,7 @@ func applyEvidenceFloorWaiverPayload(ctx *types.BusContext, toolName string, p e
 		return ignored, nil
 	}
 
-	artifactAttached := runtimeArtifactAttachedForWaiver(ctx)
+	artifactAttached := runtimeArtifactContextActiveForCompletion(ctx, requestModelForWaiver(ctx))
 	if evidenceFloorWaiverIsPureVCSHistoryMisuse(ctx, typedReason, artifactAttached) {
 		ctx.Mutable.SetEvidenceFloorWaiver(nil)
 		ignored := fmt.Sprintf("ignored evidence_floor_waiver=%s for pure VCS history; carry git findings through reason/aggregate_facts, not runtime-artifact waiver", typedReason)
@@ -3314,17 +3355,30 @@ func applyEvidenceFloorWaiverPayload(ctx *types.BusContext, toolName string, p e
 	return "", nil
 }
 
-func runtimeArtifactAttachedForWaiver(ctx *types.BusContext) bool {
-	if ctx == nil {
-		return false
-	}
-	if strings.TrimSpace(ctx.AttachedLog) != "" || strings.TrimSpace(ctx.AttachedHitrace) != "" {
+func runtimeArtifactContextActiveForCompletion(ctx *types.BusContext, rm *types.RequestModel) bool {
+	if types.RuntimeArtifactContextActiveFromBus(ctx) {
 		return true
 	}
-	if ctx.Mutable == nil {
+	if rm == nil {
 		return false
 	}
-	return ctx.Mutable.LogTriage() != nil || ctx.Mutable.PerfTrace() != nil
+	return rm.LogTriage != nil || rm.PerfTrace != nil || rm.HasRuntimeArtifactPathReference()
+}
+
+func requestModelForWaiver(ctx *types.BusContext) *types.RequestModel {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if ctx.Mutable != nil {
+		if rm.LogTriage == nil {
+			rm.LogTriage = ctx.Mutable.LogTriage()
+		}
+		if rm.PerfTrace == nil {
+			rm.PerfTrace = ctx.Mutable.PerfTrace()
+		}
+	}
+	return &rm
 }
 
 func requestModelHasRequiredCurrentKeyCodeDimension(rm types.RequestModel) bool {
