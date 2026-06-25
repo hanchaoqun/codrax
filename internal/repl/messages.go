@@ -3599,6 +3599,10 @@ func htraceConvertProgressMessageZh(message string) string {
 	switch strings.TrimSpace(message) {
 	case "running trace_streamer SQLite DB export":
 		return "正在运行 trace_streamer 导出 SQLite DB"
+	case "completed trace_streamer SQLite DB export":
+		return "已完成 trace_streamer 导出 SQLite DB"
+	case "trace_streamer SQLite DB export failed":
+		return "trace_streamer 导出 SQLite DB 失败"
 	case "normalizing trace_streamer SQLite DB to systrace":
 		return "正在把 trace_streamer SQLite DB 转成文本 systrace"
 	case "normalized trace_streamer SQLite DB to systrace":
@@ -3609,8 +3613,16 @@ func htraceConvertProgressMessageZh(message string) string {
 		return "trace_streamer SQLite DB 没有导出可用 systrace 行"
 	case "running official simpleperf adapter":
 		return "正在运行官方 simpleperf 适配器"
+	case "completed official simpleperf adapter":
+		return "已完成官方 simpleperf 适配器"
+	case "official simpleperf adapter failed":
+		return "官方 simpleperf 适配器失败"
 	case "running official hiperf adapter":
 		return "正在运行官方 hiperf 适配器"
+	case "completed official hiperf adapter":
+		return "已完成官方 hiperf 适配器"
+	case "official hiperf adapter failed":
+		return "官方 hiperf 适配器失败"
 	case "parsing raw perf.data records":
 		return "正在解析 raw perf.data 记录"
 	case "parsed raw perf.data records":
@@ -3663,9 +3675,14 @@ func htraceConvertCoverageMsgs(lang, label string, coverage []hitraceconv.TraceD
 		details := []string{
 			htraceConvertCoverageKV(lang, "family", item.Family),
 			htraceConvertCoverageKV(lang, "table", item.Table),
+		}
+		if item.Role != "" {
+			details = append(details, htraceConvertCoverageKV(lang, "role", htraceConvertCoverageRoleLabel(lang, item.Role)))
+		}
+		details = append(details,
 			htraceConvertCoverageKV(lang, "rows_read", fmt.Sprintf("%d", item.RowsRead)),
 			htraceConvertCoverageKV(lang, "rows_emitted", fmt.Sprintf("%d", item.RowsEmitted)),
-		}
+		)
 		if item.ElapsedUS > 0 {
 			details = append(details, htraceConvertCoverageKV(lang, "elapsed_us", fmt.Sprintf("%d", item.ElapsedUS)))
 		}
@@ -3684,6 +3701,38 @@ func htraceConvertCoverageMsgs(lang, label string, coverage []hitraceconv.TraceD
 	return lines
 }
 
+func htraceConvertCoverageRoleLabel(lang, role string) string {
+	switch strings.TrimSpace(role) {
+	case "resolver_index":
+		if isZh(lang) {
+			return "解析辅助索引，不直接输出 systrace 行"
+		}
+		return "resolver index; no direct systrace rows"
+	case "systrace_text_output":
+		if isZh(lang) {
+			return "systrace 文本输出"
+		}
+		return "systrace text output"
+	case "perftrace_text_output":
+		if isZh(lang) {
+			return "perf_sample 文本输出"
+		}
+		return "perf_sample text output"
+	case "query_ready_export":
+		if isZh(lang) {
+			return "可供 trace_query 查询的输出"
+		}
+		return "query-ready export"
+	case "unsupported_input":
+		if isZh(lang) {
+			return "暂不支持的输入"
+		}
+		return "unsupported input"
+	default:
+		return strings.TrimSpace(role)
+	}
+}
+
 func htraceConvertCoverageKV(lang, key, value string) string {
 	if isZh(lang) {
 		switch key {
@@ -3691,6 +3740,8 @@ func htraceConvertCoverageKV(lang, key, value string) string {
 			key = "族"
 		case "table":
 			key = "表"
+		case "role":
+			key = "用途"
 		case "rows_read":
 			key = "读取行"
 		case "rows_emitted":
@@ -3736,6 +3787,20 @@ func htraceConvertNextMsg(lang, outputPath, bundlePath string, hasPerfTrace bool
 		return formatN(lang, "下一步：/htrace %s", outputPath)
 	}
 	return formatN(lang, "next: /htrace %s", outputPath)
+}
+
+func attachedHitraceLoadedMsg(lang, path string, bytes int) string {
+	if isZh(lang) {
+		return formatN(lang, "已附加 hitrace：%s（%d 字节）", path, bytes)
+	}
+	return formatN(lang, "attached hitrace loaded: %s (%d bytes)", path, bytes)
+}
+
+func attachedLogLoadedMsg(lang, path string, bytes int) string {
+	if isZh(lang) {
+		return formatN(lang, "已附加 log：%s（%d 字节）", path, bytes)
+	}
+	return formatN(lang, "attached log loaded: %s (%d bytes)", path, bytes)
 }
 
 // pasteCapturePromptLog — /log paste capture mode prompt.

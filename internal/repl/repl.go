@@ -10780,7 +10780,7 @@ func (r *REPL) handleHitraceCmd(line string) {
 			r.warn("hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
 			r.attachedHitrace = header[:r.attachedTraceMaxBytes]
 			r.attachedHitraceSource = mergeTraceSourceHints("", r.currentTraceSourceHint(rest))
-			r.success(fmt.Sprintf("attached hitrace loaded: %s (%d bytes)", rest, 0))
+			r.success(attachedHitraceLoadedMsg(r.language, rest, 0))
 			return
 		}
 		data, truncated, err := readFileLimited(rest, remaining)
@@ -10797,7 +10797,7 @@ func (r *REPL) handleHitraceCmd(line string) {
 		body := header + string(data)
 		r.attachedHitrace = body
 		r.attachedHitraceSource = mergeTraceSourceHints("", r.currentTraceSourceHint(rest))
-		r.success(fmt.Sprintf("attached hitrace loaded: %s (%d bytes)", rest, len(data)))
+		r.success(attachedHitraceLoadedMsg(r.language, rest, len(data)))
 	}
 }
 
@@ -11165,7 +11165,7 @@ func (r *REPL) handleLogLoad(path string) {
 	}
 	r.attachedLog = string(data)
 	r.attachedLogAutoRouted = false
-	r.success(fmt.Sprintf("attached log loaded: %s (%d bytes)", path, len(data)))
+	r.success(attachedLogLoadedMsg(r.language, path, len(data)))
 }
 
 func (r *REPL) reportAttachmentTextIssue(err error) bool {

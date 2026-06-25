@@ -1266,6 +1266,10 @@ func traceConvertProgressMessageZh(message string) string {
 	switch strings.TrimSpace(message) {
 	case "running trace_streamer SQLite DB export":
 		return "正在运行 trace_streamer 导出 SQLite DB"
+	case "completed trace_streamer SQLite DB export":
+		return "已完成 trace_streamer 导出 SQLite DB"
+	case "trace_streamer SQLite DB export failed":
+		return "trace_streamer 导出 SQLite DB 失败"
 	case "normalizing trace_streamer SQLite DB to systrace":
 		return "正在把 trace_streamer SQLite DB 转成文本 systrace"
 	case "normalized trace_streamer SQLite DB to systrace":
@@ -1276,8 +1280,16 @@ func traceConvertProgressMessageZh(message string) string {
 		return "trace_streamer SQLite DB 没有导出可用 systrace 行"
 	case "running official simpleperf adapter":
 		return "正在运行官方 simpleperf 适配器"
+	case "completed official simpleperf adapter":
+		return "已完成官方 simpleperf 适配器"
+	case "official simpleperf adapter failed":
+		return "官方 simpleperf 适配器失败"
 	case "running official hiperf adapter":
 		return "正在运行官方 hiperf 适配器"
+	case "completed official hiperf adapter":
+		return "已完成官方 hiperf 适配器"
+	case "official hiperf adapter failed":
+		return "官方 hiperf 适配器失败"
 	case "parsing raw perf.data records":
 		return "正在解析 raw perf.data 记录"
 	case "parsed raw perf.data records":

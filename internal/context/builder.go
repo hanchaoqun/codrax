@@ -1,6 +1,7 @@
 package context
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -3116,6 +3117,117 @@ func attachedTracePreamble(state attachedRuntimeTriageState) string {
 	}
 }
 
+type attachedTraceBundleMetadata struct {
+	Systrace  string `json:"systrace"`
+	Artifacts []struct {
+		Type string `json:"type"`
+		Path string `json:"path"`
+	} `json:"artifacts"`
+	TraceDecisions []struct {
+		ProviderName    string `json:"provider_name"`
+		ProviderKind    string `json:"provider_kind"`
+		TraceQueryReady bool   `json:"trace_query_ready"`
+		Succeeded       bool   `json:"succeeded"`
+	} `json:"trace_provider_decisions"`
+}
+
+func attachedTraceBundlePromptHint(raw string) string {
+	var manifests []string
+	for _, segment := range attachedTraceSegments(raw) {
+		parts := attachedTraceBundleManifestParts(segment.source, segment.body)
+		if len(parts) == 0 {
+			continue
+		}
+		manifests = append(manifests, strings.Join(parts, " "))
+	}
+	if len(manifests) == 0 {
+		return ""
+	}
+	return "Tracebundle metadata detected. This attachment is a query manifest/provenance file, not evidence that the trace body is missing. " +
+		"Use trace_query with the tracebundle path, or with the referenced systrace/perftrace sibling, for scheduler state, running/root-cause, wakeup-chain, and perf_sample analysis. " +
+		"If you are the perf-triage pre-stage, emit metadata observations only and do not claim sched_switch/body rows are absent solely because this manifest is JSON. " +
+		strings.Join(manifests, " ; ") + "\n\n"
+}
+
+func attachedTraceBundleManifestParts(source, body string) []string {
+	var meta attachedTraceBundleMetadata
+	if err := json.Unmarshal([]byte(strings.TrimSpace(body)), &meta); err != nil {
+		return nil
+	}
+	if strings.TrimSpace(meta.Systrace) == "" && len(meta.Artifacts) == 0 {
+		return nil
+	}
+	var parts []string
+	if source != "" {
+		parts = append(parts, "tracebundle="+source)
+	}
+	if systrace := strings.TrimSpace(meta.Systrace); systrace != "" {
+		parts = append(parts, "systrace="+systrace)
+	}
+	for _, artifact := range meta.Artifacts {
+		typ := strings.TrimSpace(artifact.Type)
+		path := strings.TrimSpace(artifact.Path)
+		if typ == "" || path == "" || typ == "systrace" {
+			continue
+		}
+		parts = append(parts, typ+"="+path)
+	}
+	for _, decision := range meta.TraceDecisions {
+		provider := strings.TrimSpace(firstNonEmptyAttachedTraceValue(decision.ProviderName, decision.ProviderKind))
+		if provider == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("trace_provider=%s succeeded=%t trace_query_ready=%t", provider, decision.Succeeded, decision.TraceQueryReady))
+		break
+	}
+	return parts
+}
+
+type attachedTraceSegment struct {
+	source string
+	body   string
+}
+
+func attachedTraceSegments(raw string) []attachedTraceSegment {
+	lines := strings.Split(normalizeAttachedArtifactText(raw), "\n")
+	current := attachedTraceSegment{}
+	var out []attachedTraceSegment
+	flush := func() {
+		if strings.TrimSpace(current.body) == "" && strings.TrimSpace(current.source) == "" {
+			return
+		}
+		out = append(out, current)
+		current = attachedTraceSegment{}
+	}
+	var body []string
+	setBody := func() {
+		current.body = strings.Join(body, "\n")
+	}
+	body = nil
+	for _, line := range lines {
+		if value, ok := strings.CutPrefix(strings.TrimSpace(line), "# codrax-source: "); ok {
+			setBody()
+			flush()
+			body = nil
+			current.source = strings.TrimSpace(value)
+			continue
+		}
+		body = append(body, line)
+	}
+	setBody()
+	flush()
+	return out
+}
+
+func firstNonEmptyAttachedTraceValue(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
 func normalizeAttachedArtifactText(raw string) string {
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 	raw = strings.ReplaceAll(raw, "\r", "\n")
@@ -3289,6 +3401,7 @@ func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState, 
 	}
 	raw = normalizeAttachedArtifactText(raw)
 	preamble := attachedTracePreamble(state)
+	preamble += attachedTraceBundlePromptHint(raw)
 	if state == attachedTriageUnavailable {
 		preamble += degradedTriageNote(degradedSummary)
 	}

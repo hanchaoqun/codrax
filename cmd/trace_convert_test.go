@@ -87,6 +87,26 @@ func TestTraceConvertProgressLineFollowsLanguage(t *testing.T) {
 	}
 }
 
+func TestTraceConvertProgressLineTerminalMessage(t *testing.T) {
+	event := hitraceconv.ProgressEvent{
+		Stage:   "trace_streamer_export",
+		Status:  hitraceconv.ProgressStatusComplete,
+		Message: "completed trace_streamer SQLite DB export",
+		Elapsed: 1200 * time.Millisecond,
+	}
+	zh := traceConvertProgressLine("zh", event)
+	if !strings.Contains(zh, "状态=完成") ||
+		!strings.Contains(zh, "说明=已完成 trace_streamer 导出 SQLite DB") ||
+		strings.Contains(zh, "正在运行") {
+		t.Fatalf("zh terminal progress line mismatch:\n%s", zh)
+	}
+	en := traceConvertProgressLine("en", event)
+	if !strings.Contains(en, "status=complete") ||
+		!strings.Contains(en, "message=completed trace_streamer SQLite DB export") {
+		t.Fatalf("en terminal progress line mismatch:\n%s", en)
+	}
+}
+
 func TestTraceConvertCoverageLinesExplainResolverRows(t *testing.T) {
 	coverage := []hitraceconv.TraceDBCoverage{{
 		Family:      "resolver",

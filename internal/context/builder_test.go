@@ -3720,6 +3720,50 @@ func TestShouldSuppressAttachedRuntimeTrace_NoBundle_StillRenders(t *testing.T) 
 	}
 }
 
+func TestBuildPromptContext_AttachedTraceBundleTeachesQueryManifest(t *testing.T) {
+	mu := types.NewMutableState("analyze running thread from tracebundle")
+	tracebundle := strings.Join([]string{
+		"# codrax-source: first.systrace",
+		"app-1 [000] .... 1.000000: sched_switch: prev_comm=app prev_pid=1 ==> next_comm=worker next_pid=2",
+		"# codrax-source: capture.tracebundle.json",
+		`{`,
+		`  "systrace": "capture.systrace",`,
+		`  "artifacts": [`,
+		`    {"type":"systrace","path":"capture.systrace"},`,
+		`    {"type":"perftrace","path":"capture.perftrace"}`,
+		`  ],`,
+		`  "trace_provider_decisions": [`,
+		`    {"provider_name":"trace_streamer_db","succeeded":true,"trace_query_ready":true}`,
+		`  ]`,
+		`}`,
+	}, "\n")
+	ac := &types.AgentContext{
+		AgentName:       types.AgentPerfTriager,
+		Stage:           types.StagePerfTriage,
+		Objective:       "analyze running thread from tracebundle",
+		Mutable:         mu,
+		AttachedHitrace: tracebundle,
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "test"})
+	sec := findSectionTitle(pc, SectionAttachedPerfTrace)
+	if sec == nil {
+		t.Fatal("attached tracebundle should render as attached performance trace")
+	}
+	for _, want := range []string{
+		"Tracebundle metadata detected",
+		"not evidence that the trace body is missing",
+		"Use trace_query with the tracebundle path",
+		"tracebundle=capture.tracebundle.json",
+		"systrace=capture.systrace",
+		"perftrace=capture.perftrace",
+		"trace_provider=trace_streamer_db succeeded=true trace_query_ready=true",
+	} {
+		if !strings.Contains(sec.Content, want) {
+			t.Fatalf("tracebundle prompt hint missing %q:\n%s", want, sec.Content)
+		}
+	}
+}
+
 func TestFormatPerfTriageStructured_ExternalSourceDirective(t *testing.T) {
 	bundle := &types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"jank"}},

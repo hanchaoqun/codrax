@@ -1257,6 +1257,7 @@ func TestHtraceConvertCoverageMsgsFollowLanguage(t *testing.T) {
 	coverage := []hitraceconv.TraceDBCoverage{{
 		Family:      "builtin_modern_ftrace:sched",
 		Table:       "sched_switch",
+		Role:        "query_ready_export",
 		RowsRead:    1,
 		RowsEmitted: 1,
 		ElapsedUS:   42,
@@ -1264,6 +1265,7 @@ func TestHtraceConvertCoverageMsgsFollowLanguage(t *testing.T) {
 	zh := strings.Join(htraceConvertCoverageMsgs("zh", "trace_coverage", coverage), "\n")
 	if !strings.Contains(zh, "trace_coverage：1 项，输出=1，跳过=0") ||
 		!strings.Contains(zh, "族=builtin_modern_ftrace:sched") ||
+		!strings.Contains(zh, "用途=可供 trace_query 查询的输出") ||
 		!strings.Contains(zh, "耗时us=42") ||
 		strings.Contains(zh, "rows_read=") ||
 		strings.Contains(zh, "elapsed_us=") ||
@@ -1274,8 +1276,41 @@ func TestHtraceConvertCoverageMsgsFollowLanguage(t *testing.T) {
 	en := strings.Join(htraceConvertCoverageMsgs("en", "trace_coverage", coverage), "\n")
 	if !strings.Contains(en, "trace_coverage: 1 item") ||
 		!strings.Contains(en, "family=builtin_modern_ftrace:sched") ||
+		!strings.Contains(en, "role=query-ready export") ||
 		!strings.Contains(en, "rows_read=1") ||
 		!strings.Contains(en, "elapsed_us=42") {
 		t.Fatalf("en coverage message malformed:\n%s", en)
+	}
+}
+
+func TestHtraceConvertProgressMsgUsesTerminalMessages(t *testing.T) {
+	event := hitraceconv.ProgressEvent{
+		Stage:   "trace_streamer_export",
+		Status:  hitraceconv.ProgressStatusComplete,
+		Message: "completed trace_streamer SQLite DB export",
+		Elapsed: 1200 * time.Millisecond,
+	}
+	zh := htraceConvertProgressMsg("zh", event)
+	if !strings.Contains(zh, "状态=完成") ||
+		!strings.Contains(zh, "说明=已完成 trace_streamer 导出 SQLite DB") ||
+		strings.Contains(zh, "正在运行") {
+		t.Fatalf("zh progress complete message malformed:\n%s", zh)
+	}
+	en := htraceConvertProgressMsg("en", event)
+	if !strings.Contains(en, "status=complete") ||
+		!strings.Contains(en, "message=completed trace_streamer SQLite DB export") {
+		t.Fatalf("en progress complete message malformed:\n%s", en)
+	}
+}
+
+func TestAttachedRuntimeLoadedMsgsFollowLanguage(t *testing.T) {
+	if got := attachedHitraceLoadedMsg("zh", "capture.tracebundle.json", 12); !strings.Contains(got, "已附加 hitrace") || strings.Contains(got, "attached hitrace loaded") {
+		t.Fatalf("zh hitrace attach message malformed: %q", got)
+	}
+	if got := attachedHitraceLoadedMsg("en", "capture.tracebundle.json", 12); !strings.Contains(got, "attached hitrace loaded") {
+		t.Fatalf("en hitrace attach message malformed: %q", got)
+	}
+	if got := attachedLogLoadedMsg("zh", "crash.log", 34); !strings.Contains(got, "已附加 log") || strings.Contains(got, "attached log loaded") {
+		t.Fatalf("zh log attach message malformed: %q", got)
 	}
 }

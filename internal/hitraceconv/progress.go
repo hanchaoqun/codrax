@@ -86,7 +86,7 @@ func runCommandWithProgress(opts Options, cmd *exec.Cmd, stage, message string) 
 			if err != nil {
 				status = ProgressStatusFailed
 			}
-			progressFinished(opts, stage, message, cmd.Path, "", start, status)
+			progressFinished(opts, stage, terminalProgressMessage(message, status), cmd.Path, "", start, status)
 			return output.Bytes(), err
 		case <-ticker.C:
 			emitProgress(opts, ProgressEvent{
@@ -98,6 +98,31 @@ func runCommandWithProgress(opts Options, cmd *exec.Cmd, stage, message string) 
 			})
 		}
 	}
+}
+
+func terminalProgressMessage(message, status string) string {
+	message = strings.TrimSpace(message)
+	switch strings.TrimSpace(status) {
+	case ProgressStatusComplete:
+		switch message {
+		case "running trace_streamer SQLite DB export":
+			return "completed trace_streamer SQLite DB export"
+		case "running official simpleperf adapter":
+			return "completed official simpleperf adapter"
+		case "running official hiperf adapter":
+			return "completed official hiperf adapter"
+		}
+	case ProgressStatusFailed:
+		switch message {
+		case "running trace_streamer SQLite DB export":
+			return "trace_streamer SQLite DB export failed"
+		case "running official simpleperf adapter":
+			return "official simpleperf adapter failed"
+		case "running official hiperf adapter":
+			return "official hiperf adapter failed"
+		}
+	}
+	return message
 }
 
 type boundedCommandBuffer struct {
