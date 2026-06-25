@@ -270,14 +270,13 @@ func runtimeArtifactWithoutRequiredSourceForAnalyzer(ctx *types.AgentContext) bo
 	if ctx == nil || ctx.Stage != types.StageAnalyze {
 		return false
 	}
-	attachedTrace := analyzerHasAttachedTraceContext(ctx)
 	if ctx.Mutable != nil {
 		if rm := ctx.Mutable.RequestModel(); rm != nil {
-			return rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)
+			return rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(types.RuntimeArtifactContextActiveFromAgent(ctx))
 		}
 	}
 	if ctx.AnalysisIR != nil {
-		return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)
+		return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(types.RuntimeArtifactContextActiveFromAgent(ctx))
 	}
 	return false
 }

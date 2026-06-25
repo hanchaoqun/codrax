@@ -446,8 +446,7 @@ func stampReadNavigationCoverageFromTurnA(ctx *types.BusContext, doc *types.Answ
 		doc.ReadNavigationCoverage = nil
 		return false
 	}
-	attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
-	if types.RuntimeArtifactReadSourceNavigationNotRequired(ctx.AnalysisIR, attachedTrace) {
+	if types.RuntimeArtifactReadSourceNavigationNotRequired(ctx.AnalysisIR, types.RuntimeArtifactContextActiveFromBus(ctx)) {
 		doc.ReadNavigationCoverage = nil
 		return false
 	}
@@ -469,8 +468,7 @@ func readFinalAnswerSourceSupplementsNotRequired(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
-	return types.RuntimeArtifactReadSourceSupplementsNotRequired(ctx.AnalysisIR, attachedTrace)
+	return types.RuntimeArtifactReadSourceSupplementsNotRequired(ctx.AnalysisIR, types.RuntimeArtifactContextActiveFromBus(ctx))
 }
 
 func stampReadLocalizerFollowup(ctx *types.BusContext, doc *types.AnswerDocumentV2) bool {

@@ -1948,14 +1948,11 @@ func BuildAnswerSurfacePlanForAgentContext(ctx *AgentContext) *AnswerSurfacePlan
 	if plan != nil {
 		plan.SubRepoNames = subRepoNamesFrom(ctx.MultiGraph)
 		ledger := CompileObservationLedger(ObservationLedgerInputFromAgentContext(ctx, 64))
-		attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
-		if ctx.Mutable != nil && ctx.Mutable.TraceQueryRuntimeObservationCount() > 0 {
-			attachedTrace = true
-		}
+		attachedRuntimeArtifact := RuntimeArtifactContextActiveFromAgent(ctx)
 		applyRuntimeTraceSourceOptionalSurfacePlan(
 			plan,
 			ctx.AnalysisIR,
-			attachedTrace,
+			attachedRuntimeArtifact,
 			ledger,
 		)
 	}
@@ -1989,14 +1986,11 @@ func BuildAnswerSurfacePlanForBusContext(ctx *BusContext) *AnswerSurfacePlan {
 	if plan != nil {
 		plan.SubRepoNames = subRepoNamesFrom(ctx.MultiGraph)
 		ledger := CompileObservationLedger(ObservationLedgerInputFromBusContext(ctx, 64))
-		attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
-		if ctx.Mutable != nil && ctx.Mutable.TraceQueryRuntimeObservationCount() > 0 {
-			attachedTrace = true
-		}
+		attachedRuntimeArtifact := RuntimeArtifactContextActiveFromBus(ctx)
 		applyRuntimeTraceSourceOptionalSurfacePlan(
 			plan,
 			ctx.AnalysisIR,
-			attachedTrace,
+			attachedRuntimeArtifact,
 			ledger,
 		)
 	}
@@ -2004,17 +1998,17 @@ func BuildAnswerSurfacePlanForBusContext(ctx *BusContext) *AnswerSurfacePlan {
 	return cloneAnswerSurfacePlan(plan)
 }
 
-func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *AnalysisIR, attachedTrace bool, ledger ObservationLedger) {
+func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *AnalysisIR, attachedRuntimeArtifact bool, ledger ObservationLedger) {
 	if plan == nil || ir == nil {
 		return
 	}
 	if observationLedgerHasRuntimeTraceArtifact(ledger) {
-		attachedTrace = true
+		attachedRuntimeArtifact = true
 	}
 	if observationLedgerHasTraceQueryRuntimeObservation(ledger) {
 		plan.ExternalObservationSeeds = filterPreTriagePerfExternalObservationSeeds(plan.ExternalObservationSeeds)
 	}
-	if !ir.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace) {
+	if !ir.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedRuntimeArtifact) {
 		return
 	}
 	if observationLedgerHasCurrentSourceRecord(ledger) {
@@ -2023,17 +2017,17 @@ func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *Ana
 	plan.CurrentStatusDiagnosticRequired = false
 	plan.CurrentSourceEvidenceOrigin = false
 	if plan.RuntimeGroundingDisposition == nil || !plan.RuntimeGroundingDisposition.IsActive() {
-		plan.RuntimeGroundingDisposition = sourceOptionalRuntimeArtifactDisposition(ir.RequestModel, attachedTrace, ledger)
+		plan.RuntimeGroundingDisposition = sourceOptionalRuntimeArtifactDisposition(ir.RequestModel, attachedRuntimeArtifact, ledger)
 	}
 }
 
-func sourceOptionalRuntimeArtifactDisposition(rm RequestModel, attachedTrace bool, ledger ObservationLedger) *RuntimeGroundingDisposition {
+func sourceOptionalRuntimeArtifactDisposition(rm RequestModel, attachedRuntimeArtifact bool, ledger ObservationLedger) *RuntimeGroundingDisposition {
 	reason := EvidenceFloorWaiverExternalTrace
 	rationale := "runtime trace observations were available without a required current-source lane"
 	if requestModelRuntimeArtifactPathKind(rm) == "log" || observationLedgerHasRuntimeLogArtifact(ledger) {
 		reason = EvidenceFloorWaiverExternalLog
 		rationale = "runtime log observations were available without a required current-source lane"
-	} else if !attachedTrace && !observationLedgerHasRuntimeTraceArtifact(ledger) && rm.HasRuntimeArtifactPathReference() {
+	} else if !attachedRuntimeArtifact && !observationLedgerHasRuntimeTraceArtifact(ledger) && rm.HasRuntimeArtifactPathReference() {
 		rationale = "runtime artifact observations were available without a required current-source lane"
 	}
 	return &RuntimeGroundingDisposition{

@@ -3285,7 +3285,6 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 		return true
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
 	if ctx.Mutable != nil {
 		if rm.LogTriage == nil {
 			rm.LogTriage = ctx.Mutable.LogTriage()
@@ -3293,11 +3292,8 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 		if rm.PerfTrace == nil {
 			rm.PerfTrace = ctx.Mutable.PerfTrace()
 		}
-		if ctx.Mutable.PerfTrace() != nil {
-			attachedTrace = true
-		}
 	}
-	return rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)
+	return rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(types.RuntimeArtifactContextActiveFromBus(ctx))
 }
 
 func historyCountAggregateHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
@@ -5243,8 +5239,8 @@ func decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx *types.BusCo
 	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
 		return false
 	}
-	attachedTraceOrQuery := aggregateSupportRuntimeTraceContextActive(ctx)
-	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTraceOrQuery) {
+	attachedRuntimeArtifact := aggregateSupportRuntimeArtifactContextActive(ctx)
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedRuntimeArtifact) {
 		return true
 	}
 	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
@@ -5255,14 +5251,11 @@ func decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx *types.BusCo
 	return false
 }
 
-func aggregateSupportRuntimeTraceContextActive(ctx *types.BusContext) bool {
+func aggregateSupportRuntimeArtifactContextActive(ctx *types.BusContext) bool {
 	if ctx == nil {
 		return false
 	}
-	if strings.TrimSpace(ctx.AttachedHitrace) != "" {
-		return true
-	}
-	return ctx.Mutable != nil && ctx.Mutable.TraceQueryRuntimeObservationCount() > 0
+	return types.RuntimeArtifactContextActiveFromBus(ctx)
 }
 
 func decoratedAggregateMemberCanRelyOnOriginSpecificProvenance(ctx *types.BusContext, fact types.AnswerAggregateFact, member string) bool {

@@ -27,11 +27,7 @@ func answerDocumentRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.BusCon
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
-	if ctx.Mutable != nil && ctx.Mutable.TraceQueryRuntimeObservationCount() > 0 {
-		attachedTrace = true
-	}
-	if !ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace) {
+	if !ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(types.RuntimeArtifactContextActiveFromBus(ctx)) {
 		return false
 	}
 	return !answerDocumentHasCurrentSourceObservationSupport(ctx)

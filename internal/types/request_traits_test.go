@@ -437,6 +437,45 @@ func TestHasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(t *testing
 	}
 }
 
+func TestRuntimeArtifactContextActiveFromBusCoversTraceQueryAndLog(t *testing.T) {
+	mut := NewMutableState("trace runtime observation")
+	mut.AppendDispatchToolResult(traceQueryRuntimeObservationToolResultForTest())
+	if !RuntimeArtifactContextActiveFromBus(&BusContext{Mutable: mut}) {
+		t.Fatal("typed trace_query runtime observations should activate runtime-artifact context")
+	}
+	if !RuntimeArtifactContextActiveFromBus(&BusContext{Mutable: NewMutableState("log"), AttachedLog: "panic: boom"}) {
+		t.Fatal("attached log should activate runtime-artifact context")
+	}
+	if RuntimeArtifactContextActiveFromBus(&BusContext{Mutable: NewMutableState("plain")}) {
+		t.Fatal("plain repo turn must not activate runtime-artifact context")
+	}
+}
+
+func TestHasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContextCoversLogs(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets: []string{"panic: boom"},
+		},
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("plain request without a runtime artifact should not satisfy runtime boundary")
+	}
+	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(true) {
+		t.Fatal("attached runtime log context should satisfy source-optional runtime boundary")
+	}
+	rm.CurrentSourceExplanationProfile = &CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+		SourceQuotes:                        []string{"current checkout implementation"},
+		Confidence:                          0.9,
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(true) {
+		t.Fatal("typed current-source request must keep current-source lane required")
+	}
+}
+
 func TestCurrentSourceLaneDecision_ExternalArtifactSourceScopeRequiresSource(t *testing.T) {
 	rm := RequestModel{
 		Intent:        IntentRootCause,

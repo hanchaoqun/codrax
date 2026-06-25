@@ -566,6 +566,62 @@ func TestCheckTier1Floor_RuntimeTraceObservationOnlySkipsNavigationFollowup(t *t
 	}
 }
 
+func TestCheckTier1Floor_RuntimeTraceQueryObservationSkipsNavigationFollowupWithoutAttachment(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("analyze trace path root cause")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{})
+	mu.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentTrace,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			AnalyzerHints: types.AnalyzerHints{
+				PrimaryEntities: []string{"app-100"},
+			},
+		}},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("trace_query runtime observation should skip source-navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
+func TestCheckTier1Floor_AttachedLogObservationOnlySkipsNavigationFollowup(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("analyze attached log")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable:     mu,
+		AttachedLog: "WARN request timed out at artifact line 42",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioRootCause,
+			AnalyzerHints: types.AnalyzerHints{
+				PrimaryEntities: []string{"request timeout"},
+			},
+		}},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("runtime-only log should skip source-navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
 func TestCheckTier1Floor_RuntimeTraceCurrentSourceRequirementKeepsNavigationFollowup(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
@@ -605,6 +661,41 @@ func TestCheckTier1Floor_RuntimeTraceCurrentSourceRequirementKeepsNavigationFoll
 	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if proceed || exhausted || !strings.Contains(msg, "repo_map") {
 		t.Fatalf("current-source requirement should keep navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
+func TestCheckTier1Floor_RuntimeTraceQueryCurrentSourceRequirementKeepsNavigationFollowup(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("analyze trace and current implementation")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{})
+	mu.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentTrace,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label:    "current implementation",
+					Role:     types.RequestedAnswerDimensionCurrentKeyCode,
+					Required: true,
+					Index:    1,
+				}},
+				Confidence: 0.9,
+			},
+		}},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if proceed || exhausted || !strings.Contains(msg, "repo_map") {
+		t.Fatalf("trace_query with current-source requirement should keep navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
 }
 
@@ -663,5 +754,22 @@ func TestCheckTier1Floor_ReadLocalizerFollowupCoveredDoesNotBlock(t *testing.T) 
 	msg, proceed, exhausted := o.checkTier1Floor(ir, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("covered localization/navigation should proceed, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
+func tier1TraceQueryRuntimeToolResult() types.ToolResult {
+	return types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:window#root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact},
+			Subject:         "app-100",
+			Predicate:       "root_cause_primary",
+			Object:          "runnable",
+		}},
 	}
 }

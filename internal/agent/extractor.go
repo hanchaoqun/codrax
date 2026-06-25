@@ -2001,8 +2001,7 @@ func extractorRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.AgentContex
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
-	return rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)
+	return rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(types.RuntimeArtifactContextActiveFromAgent(ctx))
 }
 
 // validateCompletenessClaim is the hard cardinality validator for the

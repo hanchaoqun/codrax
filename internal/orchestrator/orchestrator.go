@@ -7819,8 +7819,7 @@ func (o *Orchestrator) runAutoVerdicts() {
 	if mu == nil {
 		return
 	}
-	attachedTrace := strings.TrimSpace(o.busCtx.AttachedHitrace) != ""
-	if o.busCtx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace) {
+	if o.busCtx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(types.RuntimeArtifactContextActiveFromBus(o.busCtx)) {
 		logging.Debug("[orchestrator] auto-verdict skipped for runtime artifact without required current-source evidence")
 		return
 	}

@@ -606,8 +606,7 @@ func hypothesisVerdictRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.Bus
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
-	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)
+	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(types.RuntimeArtifactContextActiveFromBus(ctx))
 }
 
 func parseHypothesisLocalArtifactLineCitation(raw string) (prefix string, start, end int, ok bool) {

@@ -1180,22 +1180,29 @@ func (rm RequestModel) HasRuntimeArtifactWithoutRequiredCurrentSource() bool {
 		!rm.CurrentSourceLaneDecision().RequiresCurrentSource()
 }
 
-// HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext is the
-// attached-trace-aware sibling of HasRuntimeArtifactWithoutRequiredCurrentSource.
-// It covers the common trace_query path where an attached systrace/hitrace is
-// present and later exploration produces runtime observations, but the
-// perf-triage pre-stage did not materialize a structured PerfBundle on the
-// RequestModel. The synthetic observation is used only for source-lane
-// decisioning; callers must not treat it as evidence.
-func (rm RequestModel) HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace bool) bool {
+// HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext is the
+// runtime-artifact-aware sibling of HasRuntimeArtifactWithoutRequiredCurrentSource.
+// It covers attached logs/traces and trace_query path reads where runtime
+// observations are present, but the pre-stage did not materialize a structured
+// LogBundle/PerfBundle on the RequestModel. The synthetic observation is used
+// only for source-lane decisioning; callers must not treat it as evidence.
+func (rm RequestModel) HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedRuntimeArtifact bool) bool {
 	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
 		return true
 	}
-	if !attachedTrace {
+	if !attachedRuntimeArtifact {
 		return false
 	}
-	withTrace := rm.withAttachedTraceRuntimeArtifact()
-	return withTrace.HasRuntimeArtifactWithoutRequiredCurrentSource()
+	withRuntime := rm.withAttachedRuntimeArtifact()
+	return withRuntime.HasRuntimeArtifactWithoutRequiredCurrentSource()
+}
+
+// HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext is kept for
+// older trace-specific call sites. New code should pass the broader
+// runtime-artifact context so logs and trace_query path observations share the
+// same hard-gate boundary.
+func (rm RequestModel) HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace bool) bool {
+	return rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedTrace)
 }
 
 // HasRuntimeArtifactObservationOnlySurface is the narrower source-optional
@@ -1207,15 +1214,19 @@ func (rm RequestModel) HasRuntimeArtifactObservationOnlySurface() bool {
 		!rm.ExternalObservationAllowsCurrentSource()
 }
 
-func (rm RequestModel) HasRuntimeArtifactObservationOnlySurfaceInTraceContext(attachedTrace bool) bool {
+func (rm RequestModel) HasRuntimeArtifactObservationOnlySurfaceInArtifactContext(attachedRuntimeArtifact bool) bool {
 	if rm.HasRuntimeArtifactObservationOnlySurface() {
 		return true
 	}
-	if !attachedTrace {
+	if !attachedRuntimeArtifact {
 		return false
 	}
-	withTrace := rm.withAttachedTraceRuntimeArtifact()
-	return withTrace.HasRuntimeArtifactObservationOnlySurface()
+	withRuntime := rm.withAttachedRuntimeArtifact()
+	return withRuntime.HasRuntimeArtifactObservationOnlySurface()
+}
+
+func (rm RequestModel) HasRuntimeArtifactObservationOnlySurfaceInTraceContext(attachedTrace bool) bool {
+	return rm.HasRuntimeArtifactObservationOnlySurfaceInArtifactContext(attachedTrace)
 }
 
 // RuntimeArtifactReadSourceNavigationNotRequired reports whether read-mode
@@ -1224,19 +1235,19 @@ func (rm RequestModel) HasRuntimeArtifactObservationOnlySurfaceInTraceContext(at
 // signal is typed: runtime artifact presence comes from structured bundles or
 // an attached trace flag, and the current-source posture comes from
 // CurrentSourceLaneDecision.
-func RuntimeArtifactReadSourceNavigationNotRequired(ir *AnalysisIR, attachedTrace bool) bool {
+func RuntimeArtifactReadSourceNavigationNotRequired(ir *AnalysisIR, attachedRuntimeArtifact bool) bool {
 	if ir == nil {
 		return false
 	}
-	return RuntimeArtifactRequestSourceNavigationNotRequired(ir.RequestModel, attachedTrace)
+	return RuntimeArtifactRequestSourceNavigationNotRequired(ir.RequestModel, attachedRuntimeArtifact)
 }
 
 // RuntimeArtifactRequestSourceNavigationNotRequired is the pre-IR companion to
 // RuntimeArtifactReadSourceNavigationNotRequired. Analyzer post-processing uses
 // it before AnalysisIR exists to avoid eager source graph construction for
 // answer-grade runtime artifacts whose current-source lane is typed optional.
-func RuntimeArtifactRequestSourceNavigationNotRequired(rm RequestModel, attachedTrace bool) bool {
-	return rm.HasRuntimeArtifactObservationOnlySurfaceInTraceContext(attachedTrace)
+func RuntimeArtifactRequestSourceNavigationNotRequired(rm RequestModel, attachedRuntimeArtifact bool) bool {
+	return rm.HasRuntimeArtifactObservationOnlySurfaceInArtifactContext(attachedRuntimeArtifact)
 }
 
 // RuntimeArtifactReadSourceSupplementsNotRequired reports whether final answer
@@ -1245,11 +1256,11 @@ func RuntimeArtifactRequestSourceNavigationNotRequired(rm RequestModel, attached
 // remains available in TurnA / reasoning artifacts; this only prevents optional
 // source-side audit tables from crowding runtime-artifact answers when current
 // checkout source was not a typed requirement.
-func RuntimeArtifactReadSourceSupplementsNotRequired(ir *AnalysisIR, attachedTrace bool) bool {
+func RuntimeArtifactReadSourceSupplementsNotRequired(ir *AnalysisIR, attachedRuntimeArtifact bool) bool {
 	if ir == nil {
 		return false
 	}
-	return ir.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)
+	return ir.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedRuntimeArtifact)
 }
 
 // HasRuntimeArtifactSourceOptionalMixedSurface is the counterpart of
@@ -1261,26 +1272,37 @@ func (rm RequestModel) HasRuntimeArtifactSourceOptionalMixedSurface() bool {
 		rm.ExternalObservationAllowsCurrentSource()
 }
 
-func (rm RequestModel) HasRuntimeArtifactSourceOptionalMixedSurfaceInTraceContext(attachedTrace bool) bool {
+func (rm RequestModel) HasRuntimeArtifactSourceOptionalMixedSurfaceInArtifactContext(attachedRuntimeArtifact bool) bool {
 	if rm.HasRuntimeArtifactSourceOptionalMixedSurface() {
 		return true
 	}
-	if !attachedTrace {
+	if !attachedRuntimeArtifact {
 		return false
 	}
-	withTrace := rm.withAttachedTraceRuntimeArtifact()
-	return withTrace.HasRuntimeArtifactSourceOptionalMixedSurface()
+	withRuntime := rm.withAttachedRuntimeArtifact()
+	return withRuntime.HasRuntimeArtifactSourceOptionalMixedSurface()
+}
+
+func (rm RequestModel) HasRuntimeArtifactSourceOptionalMixedSurfaceInTraceContext(attachedTrace bool) bool {
+	return rm.HasRuntimeArtifactSourceOptionalMixedSurfaceInArtifactContext(attachedTrace)
 }
 
 func (rm RequestModel) withAttachedTraceRuntimeArtifact() RequestModel {
+	return rm.withAttachedRuntimeArtifact()
+}
+
+func (rm RequestModel) withAttachedRuntimeArtifact() RequestModel {
+	if rm.LogTriage != nil && rm.LogTriage.HasStructuredObservations() {
+		return rm
+	}
 	if rm.PerfTrace != nil && rm.PerfTrace.HasStructuredObservations() {
 		return rm
 	}
 	clone := rm
 	synthetic := PerfObservation{
-		Kind:    "attached_trace",
-		Subject: "attached trace",
-		Summary: "attached runtime trace artifact is present",
+		Kind:    "attached_runtime_artifact",
+		Subject: "attached runtime artifact",
+		Summary: "attached runtime log or trace artifact is present",
 	}
 	if clone.PerfTrace == nil {
 		clone.PerfTrace = &PerfBundle{Observations: []PerfObservation{synthetic}}
@@ -1290,6 +1312,48 @@ func (rm RequestModel) withAttachedTraceRuntimeArtifact() RequestModel {
 	perf.Observations = append(append([]PerfObservation(nil), perf.Observations...), synthetic)
 	clone.PerfTrace = &perf
 	return clone
+}
+
+// RuntimeArtifactContextActiveFromBus reports whether the current run has a
+// precise runtime-artifact carrier outside ordinary repo source evidence. This
+// intentionally consumes only typed context fields and deterministic runtime
+// tool observations; it never scans request prose.
+func RuntimeArtifactContextActiveFromBus(ctx *BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if strings.TrimSpace(ctx.AttachedLog) != "" || strings.TrimSpace(ctx.AttachedHitrace) != "" {
+		return true
+	}
+	if ctx.Mutable == nil {
+		return false
+	}
+	if ctx.Mutable.LogTriage() != nil || ctx.Mutable.PerfTrace() != nil {
+		return true
+	}
+	return ctx.Mutable.TraceQueryRuntimeObservationCount() > 0
+}
+
+// RuntimeArtifactContextActiveFromAgent is the AgentContext equivalent of
+// RuntimeArtifactContextActiveFromBus. It exists so prompt/policy helpers do
+// not drift between BusContext and AgentContext plumbing.
+func RuntimeArtifactContextActiveFromAgent(ctx *AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if strings.TrimSpace(ctx.AttachedLog) != "" || strings.TrimSpace(ctx.AttachedHitrace) != "" {
+		return true
+	}
+	if ctx.LogTriage != nil || ctx.PerfTrace != nil {
+		return true
+	}
+	if ctx.Mutable == nil {
+		return false
+	}
+	if ctx.Mutable.LogTriage() != nil || ctx.Mutable.PerfTrace() != nil {
+		return true
+	}
+	return ctx.Mutable.TraceQueryRuntimeObservationCount() > 0
 }
 
 // HasTypedCurrentSourceScopeRequest reports that an external-observation turn
