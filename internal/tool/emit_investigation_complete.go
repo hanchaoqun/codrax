@@ -2505,6 +2505,9 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 	if drained := closure.DrainSatisfiedPendingReads(); drained > 0 {
 		logging.Debug("[CGEC] drained %d satisfied PendingRead(s) after ReadSet refresh", drained)
 	}
+	if cleared := clearUnavailablePendingReadsAfterFailedRead(ctx, closure); cleared > 0 {
+		logging.Info("[CGEC] cleared %d unavailable PendingRead(s) after failed read_file proof", cleared)
+	}
 
 	// Session 12 phase1-unread gate. When the LLM calls complete on a
 	// breadth-intent question (mechanism / call_chain / conditional)
@@ -7988,6 +7991,10 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 		if closure.HasRead(canon) {
 			continue
 		}
+		if forcedReadSeedUnavailableAfterAttempt(ctx, canon) {
+			logging.Warning("[CGEC] primary_anchor_unread: skipping unavailable path file=%s after failed read_file proof", canon)
+			continue
+		}
 		closure.AddPendingRead(types.PendingRead{
 			File:      canon,
 			Rationale: "Exact entity anchor remains unread — mechanism answers must read the anchor implementation file before completion",
@@ -8024,6 +8031,10 @@ func raiseRequiredFileHintPendingReads(ctx *types.BusContext, closure *types.Evi
 			continue
 		}
 		if closure.HasRead(canon) || groundedEvidenceCoversFile(evidence, canon, ctx.RepoRoot) {
+			continue
+		}
+		if forcedReadSeedUnavailableAfterAttempt(ctx, canon) {
+			logging.Warning("[CGEC] required_file_hint_unread: skipping unavailable path file=%s after failed read_file proof", canon)
 			continue
 		}
 		unread = append(unread, canon)
@@ -8173,6 +8184,10 @@ func applyMultiPathAnchorChecksWithEvidence(ctx *types.BusContext, closure *type
 			logging.Debug("[CGEC] multi_path_anchor: file=%s signal=%s action=skip reason=%q",
 				file, dec.Signal, dec.Reason)
 		case multipath.ActionDemandSurgicalRead:
+			if forcedReadSeedUnavailableAfterAttempt(ctx, file) {
+				logging.Warning("[CGEC] multi_path_anchor: skipping unavailable path file=%s after failed read_file proof", file)
+				continue
+			}
 			if !callChainMultiPathDemandShouldBlock(rm, file, dec, evidence) {
 				closure.AddRepair(types.RepairDirective{
 					Kind:      types.RepairExpandSearch,
@@ -8345,6 +8360,20 @@ func forcedReadSeedUnavailableAfterAttempt(ctx *types.BusContext, canon string) 
 	}
 	info, err := os.Stat(filepath.Join(ctx.RepoRoot, filepath.FromSlash(canon)))
 	return err != nil || info.IsDir()
+}
+
+func clearUnavailablePendingReadsAfterFailedRead(ctx *types.BusContext, closure *types.EvidenceClosure) int {
+	if ctx == nil || closure == nil {
+		return 0
+	}
+	cleared := 0
+	for _, pending := range closure.PendingReads() {
+		if forcedReadSeedUnavailableAfterAttempt(ctx, pending.File) {
+			closure.ClearPendingReadFor(pending.File)
+			cleared++
+		}
+	}
+	return cleared
 }
 
 func forcedReadSeedHadFailedReadAttempt(ctx *types.BusContext, canon string) bool {

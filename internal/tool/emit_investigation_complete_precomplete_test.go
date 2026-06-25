@@ -6127,6 +6127,52 @@ func TestRaisePhase1UnreadPendingReads_SkipsUnavailablePathAfterFailedRead(t *te
 	}
 }
 
+func TestEmitInvestigationComplete_ClearsUnavailablePendingReadAfterFailedRead(t *testing.T) {
+	repoRoot := t.TempDir()
+	missing := "staticcommon/windowscene/src/main/ets/scene/manager/SCBCategoryResourceManager.ets"
+	mut := types.NewMutableState("historical forced-read path is absent from current checkout")
+	closure := mut.EvidenceClosure()
+	closure.AddPendingRead(types.PendingRead{
+		File:      missing,
+		Origin:    "phase1_unread",
+		Rationale: "historical pre-scan ranked file remains unread",
+	})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  false,
+		Summary:  "read failed: open " + filepath.ToSlash(filepath.Join(repoRoot, filepath.FromSlash(missing))) + ": no such file or directory",
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: repoRoot,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "the principal current-checkout evidence is sufficient; the historical ranked path is absent",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") || strings.Contains(res.Summary, "Forced Read List") {
+		t.Fatalf("unavailable historical pending read must not block completion: %s", res.Summary)
+	}
+	if pending := closure.PendingReads(); len(pending) != 0 {
+		t.Fatalf("unavailable historical pending read should be cleared, got %+v", pending)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatal("completion should proceed after unavailable pending read is cleared")
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadLatchFiresOnce:
 // T2.1 — the phase1_unread gate must not keep re-firing on subsequent
 // emit_investigation_complete calls within the same pipeline. Once
