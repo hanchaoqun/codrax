@@ -123,6 +123,7 @@ func TestRuntimeArtifactsFromTraceBundleMetadata(t *testing.T) {
 		"| tracebundle | capture.tracebundle.json |",
 		"version=hitraceconv-v1",
 		"caveats=bundle caveat",
+		"| systrace | capture.systrace | 12 B | converter=hitraceconv-v1 |",
 		"| perftrace | capture.perftrace |",
 		"converter=hiperf_proto",
 		"cpu id unavailable",
@@ -197,13 +198,16 @@ func TestRuntimeArtifactsFromRequestExpandsTraceBundlePath(t *testing.T) {
 	if err := os.WriteFile(bundlePath, []byte(bundle), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "capture.systrace"), []byte("1234567"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	artifacts := RuntimeArtifactsFromRequest("use " + bundlePath)
 	body := BuildBody(Args{Request: "why", Answer: "answer", RuntimeArtifacts: artifacts})
 	for _, want := range []string{
 		"| tracebundle | " + bundlePath + " |",
 		"version=hitraceconv-v1",
 		"referenced in request",
-		"| systrace | capture.systrace |",
+		"| systrace | capture.systrace | 7 B |",
 		"| perftrace | capture.perftrace |",
 		"converter=hiperf_proto",
 		"cpu id unavailable",

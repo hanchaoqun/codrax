@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -464,12 +465,15 @@ func runtimeArtifactsForSegment(kind, source, body string) []RuntimeArtifact {
 	}
 	out := []RuntimeArtifact{base}
 	seen := map[string]bool{}
+	artifactByPath := traceBundleArtifactsByPath(bundle.Artifacts)
 	addBundleArtifact := func(a traceBundleReportArtifact) {
+		a = traceBundleArtifactWithStatFallback(source, a)
 		path := strings.TrimSpace(a.Path)
-		if path == "" || seen[path] {
+		key := traceBundleArtifactPathKey(path)
+		if path == "" || seen[key] {
 			return
 		}
-		seen[path] = true
+		seen[key] = true
 		detail := ""
 		if a.Converter != "" {
 			detail = appendDetail(detail, "converter="+a.Converter)
@@ -488,12 +492,97 @@ func runtimeArtifactsForSegment(kind, source, body string) []RuntimeArtifact {
 		})
 	}
 	if strings.TrimSpace(bundle.Systrace) != "" {
-		addBundleArtifact(traceBundleReportArtifact{Type: "systrace", Path: bundle.Systrace})
+		systrace := traceBundleReportArtifact{Type: "systrace", Path: bundle.Systrace}
+		if artifact, ok := artifactByPath[traceBundleArtifactPathKey(bundle.Systrace)]; ok {
+			systrace = mergeTraceBundleReportArtifact(systrace, artifact)
+		}
+		addBundleArtifact(systrace)
 	}
 	for _, artifact := range bundle.Artifacts {
 		addBundleArtifact(artifact)
 	}
 	return out
+}
+
+func traceBundleArtifactsByPath(artifacts []traceBundleReportArtifact) map[string]traceBundleReportArtifact {
+	out := map[string]traceBundleReportArtifact{}
+	for _, artifact := range artifacts {
+		if key := traceBundleArtifactPathKey(artifact.Path); key != "" {
+			out[key] = artifact
+		}
+	}
+	return out
+}
+
+func traceBundleArtifactPathKey(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	p = strings.ReplaceAll(p, "\\", "/")
+	return strings.ToLower(path.Clean(p))
+}
+
+func mergeTraceBundleReportArtifact(base, metadata traceBundleReportArtifact) traceBundleReportArtifact {
+	if strings.TrimSpace(base.Type) == "" {
+		base.Type = metadata.Type
+	}
+	if strings.TrimSpace(base.Path) == "" {
+		base.Path = metadata.Path
+	}
+	if base.Bytes <= 0 {
+		base.Bytes = metadata.Bytes
+	}
+	if strings.TrimSpace(base.Converter) == "" {
+		base.Converter = metadata.Converter
+	}
+	if strings.TrimSpace(base.PluginName) == "" {
+		base.PluginName = metadata.PluginName
+	}
+	if strings.TrimSpace(base.PluginVersion) == "" {
+		base.PluginVersion = metadata.PluginVersion
+	}
+	if len(base.Caveats) == 0 {
+		base.Caveats = metadata.Caveats
+	}
+	return base
+}
+
+func traceBundleArtifactWithStatFallback(bundleSource string, artifact traceBundleReportArtifact) traceBundleReportArtifact {
+	if artifact.Bytes > 0 {
+		return artifact
+	}
+	if size := traceBundleArtifactStatSize(bundleSource, artifact.Path); size > 0 {
+		artifact.Bytes = size
+	}
+	return artifact
+}
+
+func traceBundleArtifactStatSize(bundleSource, artifactPath string) int64 {
+	artifactPath = strings.TrimSpace(artifactPath)
+	if artifactPath == "" {
+		return 0
+	}
+	if filepath.IsAbs(artifactPath) {
+		return fileSizeIfRegular(artifactPath)
+	}
+	bundleSource = strings.TrimSpace(bundleSource)
+	if bundleSource == "" || strings.HasPrefix(bundleSource, "(") {
+		return 0
+	}
+	dir := filepath.Dir(bundleSource)
+	if dir == "" {
+		return 0
+	}
+	return fileSizeIfRegular(filepath.Join(dir, artifactPath))
+}
+
+func fileSizeIfRegular(p string) int64 {
+	info, err := os.Stat(p)
+	if err != nil || info.IsDir() {
+		return 0
+	}
+	return info.Size()
 }
 
 func runtimeArtifactForSegment(kind, source, body string) RuntimeArtifact {
