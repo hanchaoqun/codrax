@@ -3800,6 +3800,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 			fmt.Fprintf(&b, " required_files=%s", encoded)
 		}
 	}
+	if encoded := encodeSubTopicSummaryLabels(rm.SubTopics); encoded != "" {
+		fmt.Fprintf(&b, " sub_topics=%s", encoded)
+	}
 	if rm.PredicateAxis != types.AxisUnknown {
 		fmt.Fprintf(&b, " axis=%s", rm.PredicateAxis)
 	}
@@ -3874,7 +3877,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 		}
 	}
 	if rm.RequestedAnswerDimensions != nil && rm.RequestedAnswerDimensions.Active() {
-		fmt.Fprintf(&b, " answer_dimensions=%d", len(rm.RequestedAnswerDimensions.Dimensions))
+		if encoded := encodeAnswerDimensionSummaryLabels(rm.RequestedAnswerDimensions.Dimensions); encoded != "" {
+			fmt.Fprintf(&b, " answer_dimensions=%s", encoded)
+		}
 	}
 	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
 		fmt.Fprintf(&b, " current_source_explanation=%d", len(rm.CurrentSourceExplanationProfile.Modes))
@@ -3901,6 +3906,70 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 
 	return b.String()
+}
+
+func encodeSubTopicSummaryLabels(topics []types.SubTopic) string {
+	labels := make([]string, 0, len(topics))
+	for _, topic := range topics {
+		label := strings.TrimSpace(topic.Summary)
+		if label == "" && len(topic.Entities) > 0 {
+			label = strings.TrimSpace(topic.Entities[0])
+		}
+		if label != "" {
+			labels = append(labels, label)
+		}
+	}
+	return encodeStringListSummary(labels)
+}
+
+func encodeAnswerDimensionSummaryLabels(dimensions []types.RequestedAnswerDimension) string {
+	if len(dimensions) == 0 {
+		return ""
+	}
+	items := append([]types.RequestedAnswerDimension(nil), dimensions...)
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Index == items[j].Index {
+			return i < j
+		}
+		if items[i].Index <= 0 {
+			return false
+		}
+		if items[j].Index <= 0 {
+			return true
+		}
+		return items[i].Index < items[j].Index
+	})
+	labels := make([]string, 0, len(items))
+	for _, dim := range items {
+		if label := strings.TrimSpace(dim.Label); label != "" {
+			labels = append(labels, label)
+		}
+	}
+	return encodeStringListSummary(labels)
+}
+
+func encodeStringListSummary(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	clean := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		clean = append(clean, value)
+	}
+	if len(clean) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(clean)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 func encodeRequiredFileHintSummaryPaths(hints []types.RequiredFileHint) string {

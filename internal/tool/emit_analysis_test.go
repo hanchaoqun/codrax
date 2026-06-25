@@ -445,8 +445,8 @@ func TestEmitAnalysis_RequestedAnswerDimensionsSoftProfile(t *testing.T) {
 	if len(rm.RequestedAnswerDimensions.Dimensions) != 3 {
 		t.Fatalf("dimensions=%d want 3: %+v", len(rm.RequestedAnswerDimensions.Dimensions), rm.RequestedAnswerDimensions.Dimensions)
 	}
-	if !strings.Contains(res.Summary, "answer_dimensions=3") {
-		t.Fatalf("summary should report dimension count, got %q", res.Summary)
+	if !strings.Contains(res.Summary, `answer_dimensions=["diff 线索","当前关键代码","影响"]`) {
+		t.Fatalf("summary should report normalized dimension labels, got %q", res.Summary)
 	}
 	if !strings.Contains(res.Summary, "requested_answer_dimensions ignored unanchored dimension") {
 		t.Fatalf("summary should warn for unanchored optional dimension, got %q", res.Summary)
@@ -1804,6 +1804,9 @@ func TestEmitAnalysis_Execute_StringWrappedSubTopics(t *testing.T) {
 	}
 	if rm.SubTopics[0].Summary != "核心流程" || len(rm.SubTopics[0].Entities) != 1 || rm.SubTopics[0].Entities[0] != "explorerEvaluator" {
 		t.Fatalf("sub_topic decoded incorrectly: %+v", rm.SubTopics[0])
+	}
+	if !strings.Contains(res.Summary, `sub_topics=["核心流程"]`) {
+		t.Fatalf("summary should report normalized sub-topic labels, got %q", res.Summary)
 	}
 }
 

@@ -22,3 +22,27 @@ func renderAnswerDimensionsForPresentation(contract types.AnswerPresentationCont
 	}
 	return out
 }
+
+func renderVisibleEvidenceNodeCount(nodes []types.TaskNode) int {
+	count := 0
+	for _, n := range nodes {
+		if n.IsCounterfactual || n.Type != types.NodeEvidence {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func renderInvestigationUnitForEvidenceNode(plan types.InvestigationPlan, nodeID string, ordinal, evidenceNodeCount int) (types.InvestigationUnit, bool) {
+	if unit, ok := plan.InvestigationUnitForEvidenceNode(nodeID); ok {
+		return unit, true
+	}
+	if len(plan.Units) < 2 || evidenceNodeCount != len(plan.Units) {
+		return types.InvestigationUnit{}, false
+	}
+	if ordinal < 0 || ordinal >= len(plan.Units) {
+		return types.InvestigationUnit{}, false
+	}
+	return plan.Units[ordinal], true
+}

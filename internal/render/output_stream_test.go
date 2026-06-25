@@ -688,6 +688,34 @@ func TestRenderer_NonTTYAnalysisReadyPrintsAnswerDimensions(t *testing.T) {
 	}
 }
 
+func TestRenderer_NonTTYAnalysisReadyPrintsAnswerDimensionsWithoutTaskNodes(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+	r.SetLang("zh")
+
+	emit := r.Emitter()
+	emit(Event{
+		Kind:      EventAnalysisReady,
+		Timestamp: time.Now(),
+		AnswerDimensions: []AnswerDimensionInfo{
+			{Index: 1, Label: "根因结论"},
+			{Index: 2, Label: "证据支撑"},
+		},
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	for _, want := range []string{
+		"分析拆分为 2 个答案维度",
+		"① 根因结论",
+		"② 证据支撑",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("analysis-ready answer dimensions without task nodes missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderer_NonTTYSkipsPostAnalysisStageRowsOwnedByTaskNodes(t *testing.T) {
 	var buf bytes.Buffer
 	r := New(&buf, false)
@@ -1116,6 +1144,21 @@ func TestFormatAnalysisToolResultSummaryUsesNormalizedRequiredFiles(t *testing.T
 	}
 }
 
+func TestFormatAnalysisToolResultSummaryUsesResultSummaryTopicsAndDimensions(t *testing.T) {
+	summary := `analysis emitted: intent=trace scenario=performance_bottleneck complexity=complex kw=2 ent=1 kind=root_cause sub_topics=["唤醒链","CPU 供给"] answer_dimensions=["根因结论","证据支撑"]`
+	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_analysis", "", summary, "zh", 0))
+	for _, want := range []string{
+		"• 分析结果",
+		"意图 trace · 类型 root_cause · 场景 performance_bottleneck · 复杂度 complex",
+		"调查单元 2 个：唤醒链, CPU 供给",
+		"答案维度 2 个：根因结论, 证据支撑",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("analysis result-summary fallback missing %q; got:\n%s", want, got)
+		}
+	}
+}
+
 func TestFormatAnswerDocumentToolResultSummaryRejectedZh(t *testing.T) {
 	summary := "The answer document does not yet meet the structural contract for this question.\n\n" +
 		"  1. Field: `blocks[].items[].label`\n" +
@@ -1191,6 +1234,31 @@ func TestRenderer_EmitsAnalysisSummaryOnToolEnd(t *testing.T) {
 	for _, want := range []string{"分析结果", "意图 explain", "实体 1 个：SubExplorer", "图 sequence"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("tool end should surface analysis summary %q; got %q", want, out)
+		}
+	}
+}
+
+func TestRenderer_EmitsAnalysisSummaryTopicsAndDimensionsFromToolResult(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	emit := r.Emitter()
+	emit(Event{
+		Kind:              EventToolCallEnd,
+		ToolName:          "emit_analysis",
+		ToolOK:            true,
+		ToolResultSummary: `analysis emitted: intent=trace scenario=performance_bottleneck complexity=complex kw=2 ent=1 kind=root_cause sub_topics=["唤醒链","CPU 供给"] answer_dimensions=["根因结论","证据支撑"]`,
+		Timestamp:         time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	for _, want := range []string{
+		"调查单元 2 个：唤醒链, CPU 供给",
+		"答案维度 2 个：根因结论, 证据支撑",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("tool end should surface analysis fallback %q; got %q", want, out)
 		}
 	}
 }

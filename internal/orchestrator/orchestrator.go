@@ -7661,6 +7661,8 @@ func (o *Orchestrator) emitAnalysisReady() {
 	investigationPlan := types.CompileInvestigationPlan(o.busCtx.AnalysisIR.RequestModel, &o.busCtx.AnalysisIR.AnswerContract)
 	presentationContract := types.CompileAnswerPresentationContract(o.busCtx.AnalysisIR, nil)
 	o.busCtx.ExploreLanePlan = types.CompileExploreLanePlan(o.busCtx.AnalysisIR.RequestModel, &o.busCtx.AnalysisIR.AnswerContract, presentationContract)
+	evidenceNodeCount := renderVisibleEvidenceNodeCount(nodes)
+	evidenceNodeOrdinal := 0
 	out := make([]render.TaskNodeInfo, 0, len(nodes))
 	for _, n := range nodes {
 		if n.IsCounterfactual {
@@ -7675,15 +7677,16 @@ func (o *Orchestrator) emitAnalysisReady() {
 			Objective: n.Objective,
 		}
 		if n.Type == types.NodeEvidence {
-			if unit, ok := investigationPlan.InvestigationUnitForEvidenceNode(n.ID); ok {
+			if unit, ok := renderInvestigationUnitForEvidenceNode(investigationPlan, n.ID, evidenceNodeOrdinal, evidenceNodeCount); ok {
 				info.HasInvestigationUnit = true
 				info.InvestigationUnit = unit
 			}
+			evidenceNodeOrdinal++
 		}
 		out = append(out, info)
 	}
 	answerDimensions := renderAnswerDimensionsForPresentation(presentationContract)
-	if len(out) == 0 {
+	if len(out) == 0 && len(answerDimensions) == 0 {
 		return
 	}
 	o.emit(render.Event{

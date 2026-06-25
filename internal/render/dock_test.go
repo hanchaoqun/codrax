@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TestDock_FirstPaintNoRewind locks the load-bearing first-paint
@@ -742,6 +744,42 @@ func TestFormatAnalysisBreakdownBlockIncludesAnswerDimensions(t *testing.T) {
 	if !strings.Contains(en, "Analyzer split the answer into 1 answer dimension:") ||
 		!strings.Contains(en, "① root cause") {
 		t.Fatalf("english answer dimension breakdown malformed:\n%s", en)
+	}
+
+	unitBacked := stripAnsiEscapes(formatAnalysisBreakdownBlock("zh", []TaskNodeInfo{
+		{
+			ID:                   "evidence_scheduler",
+			Type:                 "evidence",
+			Objective:            "fallback should not win",
+			HasInvestigationUnit: true,
+			InvestigationUnit: types.InvestigationUnit{
+				ID:      "unit-scheduler",
+				Index:   1,
+				Label:   "调度链",
+				Summary: "唤醒链与 runnable",
+			},
+		},
+		{
+			ID:                   "evidence_supply",
+			Type:                 "evidence",
+			Objective:            "fallback should not win",
+			HasInvestigationUnit: true,
+			InvestigationUnit: types.InvestigationUnit{
+				ID:      "unit-supply",
+				Index:   2,
+				Label:   "算力供给",
+				Summary: "CPU/频点/绑核",
+			},
+		},
+	}, nil))
+	for _, want := range []string{
+		"分析拆分为 2 个调查单元",
+		"① 调度链 — 唤醒链与 runnable",
+		"② 算力供给 — CPU/频点/绑核",
+	} {
+		if !strings.Contains(unitBacked, want) {
+			t.Fatalf("unit-backed analysis breakdown missing %q:\n%s", want, unitBacked)
+		}
 	}
 }
 

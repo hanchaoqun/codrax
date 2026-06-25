@@ -784,8 +784,11 @@ type analysisSummaryPayload struct {
 
 func formatAnalysisToolResultSummary(paramsJSON, resultSummary, lang string) string {
 	var p analysisSummaryPayload
+	resultPayload := analysisSummaryFromResult(resultSummary)
 	if strings.TrimSpace(paramsJSON) == "" || json.Unmarshal([]byte(paramsJSON), &p) != nil {
-		p = analysisSummaryFromResult(resultSummary)
+		p = resultPayload
+	} else {
+		p = mergeAnalysisSummaryPayload(p, resultPayload)
 	}
 	if paths := analysisRequiredFilesFromResult(resultSummary); len(paths) > 0 {
 		p.RequiredFiles = make([]struct {
@@ -800,7 +803,9 @@ func formatAnalysisToolResultSummary(paramsJSON, resultSummary, lang string) str
 			}{Path: path})
 		}
 	}
-	if p.Intent == "" && p.Scenario == "" && p.Complexity == "" && p.QuestionKind == "" && len(p.Entities) == 0 && len(p.Keywords) == 0 {
+	if p.Intent == "" && p.Scenario == "" && p.Complexity == "" && p.QuestionKind == "" &&
+		len(p.Entities) == 0 && len(p.Keywords) == 0 && len(p.SubTopics) == 0 &&
+		len(requestedAnswerDimensionSummaryValues(p)) == 0 {
 		return ""
 	}
 	zh := isZh(lang)
@@ -858,6 +863,55 @@ func formatAnalysisToolResultSummary(paramsJSON, resultSummary, lang string) str
 		}
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func mergeAnalysisSummaryPayload(primary, fallback analysisSummaryPayload) analysisSummaryPayload {
+	if primary.Intent == "" {
+		primary.Intent = fallback.Intent
+	}
+	if primary.Scenario == "" {
+		primary.Scenario = fallback.Scenario
+	}
+	if primary.Complexity == "" {
+		primary.Complexity = fallback.Complexity
+	}
+	if primary.QuestionKind == "" {
+		primary.QuestionKind = fallback.QuestionKind
+	}
+	if primary.PredicateAxis == "" {
+		primary.PredicateAxis = fallback.PredicateAxis
+	}
+	if len(primary.Keywords) == 0 {
+		primary.Keywords = fallback.Keywords
+	}
+	if len(primary.Entities) == 0 {
+		primary.Entities = fallback.Entities
+	}
+	if len(primary.SubTopics) == 0 {
+		primary.SubTopics = fallback.SubTopics
+	}
+	if len(primary.Buckets) == 0 {
+		primary.Buckets = fallback.Buckets
+	}
+	if primary.AnswerSubject == nil {
+		primary.AnswerSubject = fallback.AnswerSubject
+	}
+	if primary.DiagramHint == nil {
+		primary.DiagramHint = fallback.DiagramHint
+	}
+	if primary.RequestedAnswerDimensions == nil || len(primary.RequestedAnswerDimensions.Dimensions) == 0 {
+		primary.RequestedAnswerDimensions = fallback.RequestedAnswerDimensions
+	}
+	if primary.CurrentSourceExplanationProfile == nil {
+		primary.CurrentSourceExplanationProfile = fallback.CurrentSourceExplanationProfile
+	}
+	if len(primary.ExactTargets) == 0 {
+		primary.ExactTargets = fallback.ExactTargets
+	}
+	if len(primary.RequiredFiles) == 0 {
+		primary.RequiredFiles = fallback.RequiredFiles
+	}
+	return primary
 }
 
 func requestedAnswerDimensionSummaryValues(p analysisSummaryPayload) []string {
@@ -940,7 +994,57 @@ func analysisSummaryFromResult(summary string) analysisSummaryPayload {
 			}{Kind: value}
 		}
 	}
+	for _, label := range analysisStringListFromResult(summary, "sub_topics") {
+		p.SubTopics = append(p.SubTopics, struct {
+			Title    string   `json:"title"`
+			Summary  string   `json:"summary"`
+			Entities []string `json:"entities"`
+		}{Summary: label})
+	}
+	if dims := analysisStringListFromResult(summary, "answer_dimensions"); len(dims) > 0 {
+		p.RequestedAnswerDimensions = &struct {
+			IsDimensionedAnswer bool `json:"is_dimensioned_answer"`
+			Dimensions          []struct {
+				Label    string `json:"label"`
+				Role     string `json:"role"`
+				Required bool   `json:"required"`
+				Index    int    `json:"index"`
+			} `json:"dimensions"`
+		}{IsDimensionedAnswer: true}
+		for i, label := range dims {
+			p.RequestedAnswerDimensions.Dimensions = append(p.RequestedAnswerDimensions.Dimensions, struct {
+				Label    string `json:"label"`
+				Role     string `json:"role"`
+				Required bool   `json:"required"`
+				Index    int    `json:"index"`
+			}{Label: label, Required: true, Index: i + 1})
+		}
+	}
 	return p
+}
+
+func analysisStringListFromResult(summary, key string) []string {
+	idx := strings.Index(summary, key+"=")
+	if idx < 0 {
+		return nil
+	}
+	rawValue := strings.TrimSpace(summary[idx+len(key)+1:])
+	var raw []string
+	dec := json.NewDecoder(strings.NewReader(rawValue))
+	if err := dec.Decode(&raw); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]bool, len(raw))
+	for _, item := range raw {
+		item = sanitizeEvidenceSummaryText(item)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	return out
 }
 
 func analysisRequiredFilesFromResult(summary string) []string {

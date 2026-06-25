@@ -1637,10 +1637,11 @@ func rowFirstStart(row *taskRow) time.Time {
 }
 
 // formatSubTopicsBlock returns the multi-line analyzer investigation-unit
-// enumeration
-// or empty when fewer than 2 evidence_tN nodes were emitted. Output
-// includes leading/trailing blank lines so commitToScrollback writes
-// it as a visually framed block.
+// enumeration or empty when fewer than 2 displayable units were emitted.
+// Structured InvestigationUnit metadata is authoritative; the historical
+// "_tN" evidence-node suffix is only a fallback for older event payloads.
+// Output includes leading/trailing blank lines so commitToScrollback writes it
+// as a visually framed block.
 type renderedInvestigationTopic struct {
 	idx     int
 	text    string
@@ -1661,20 +1662,39 @@ func formatAnalysisBreakdownBlock(lang string, taskNodes []TaskNodeInfo, dimensi
 
 func formatSubTopicsBlock(lang string, taskNodes []TaskNodeInfo) string {
 	var topics []renderedInvestigationTopic
+	seen := map[string]bool{}
 	for _, n := range taskNodes {
 		if n.Type != "evidence" {
 			continue
 		}
-		i, ok := topicIndexFromNodeID(n.ID)
-		if !ok {
+		idx := len(topics)
+		key := strings.TrimSpace(n.ID)
+		if n.HasInvestigationUnit {
+			if n.InvestigationUnit.Index > 0 {
+				idx = n.InvestigationUnit.Index - 1
+			} else if i, ok := topicIndexFromNodeID(n.ID); ok {
+				idx = i
+			}
+			if unitID := strings.TrimSpace(n.InvestigationUnit.ID); unitID != "" {
+				key = unitID
+			} else {
+				key = fmt.Sprintf("unit-%d", idx+1)
+			}
+		} else if i, ok := topicIndexFromNodeID(n.ID); ok {
+			idx = i
+		} else {
 			continue
 		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		text := strings.TrimSpace(n.Objective)
 		if n.HasInvestigationUnit {
 			text = investigationUnitDisplayText(n.InvestigationUnit, text)
 		}
 		topics = append(topics, renderedInvestigationTopic{
-			idx:     i,
+			idx:     idx,
 			text:    text,
 			unit:    n.InvestigationUnit,
 			hasUnit: n.HasInvestigationUnit,
