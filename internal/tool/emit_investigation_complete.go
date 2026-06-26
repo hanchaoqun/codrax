@@ -5705,6 +5705,9 @@ func aggregateMemberSetMemberUsableAt(fact types.AnswerAggregateFact, member str
 		if !aggregateSupportLocationCompatibleWithMember(member, loc) {
 			continue
 		}
+		if aggregateSupportRefLabelIsSpecificMember(label, labels) && aggregateSupportLocationVerified(loc, support) {
+			return true
+		}
 		if aggregateSupportLocationMatchesMemberLabels(loc, labels, support) {
 			return true
 		}
@@ -6240,6 +6243,14 @@ func aggregateSupportLabelMatchesMember(label string, memberLabels []string) boo
 		}
 	}
 	return false
+}
+
+func aggregateSupportRefLabelIsSpecificMember(label string, memberLabels []string) bool {
+	label = strings.TrimSpace(label)
+	if label == "" || types.AnswerSupportRefLabelIsGeneric(label) {
+		return false
+	}
+	return aggregateSupportLabelMatchesMember(label, memberLabels)
 }
 
 func aggregateSupportLabels(label string, fallback []string) []string {

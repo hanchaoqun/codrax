@@ -4576,6 +4576,79 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForTypedRelation(t *testing.T)
 	}
 }
 
+func TestEmitAnalysis_Execute_DropsSourceInventoryForRegistryBindingMemberSet(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("codrax 默认注册到 SubAgentRegistry 的 subagent 名称有哪些？请给出总数、完整成员名，以及注册和 Name() 返回值的证据。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["SubAgentRegistry", "Register", "subagent", "Name"],
+		"entities": ["SubAgentRegistry", "codrax"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.75,
+		"kind_confidence": 0.9,
+		"predicate_axis": "register",
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.9
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["type"],
+			"requested_fields": ["name", "location"],
+			"source_quotes": ["codrax 默认注册到 SubAgentRegistry 的 subagent 名称有哪些？"],
+			"confidence": 0.85,
+			"rationale": "registry member set, not source-code inventory"
+		},
+		"answer_role_profile": {
+			"is_role_binding_requested": false,
+			"required_candidate_roles": [],
+			"source_quotes": ["codrax 默认注册到 SubAgentRegistry 的 subagent 名称有哪些？"],
+			"confidence": 0.9
+		},
+		"completeness_obligation": {
+			"required": true,
+			"source_quote": "完整成员名"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if strings.Contains(res.Summary, "source_inventory=") {
+		t.Fatalf("registry/binding member-set summary must not advertise source inventory lane, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		t.Fatalf("registry/binding member set must not persist source_inventory_profile: %+v", rm.SourceInventoryProfile)
+	}
+	if !types.RequiresExhaustiveEnumerationMemberSetHandoff(*rm) {
+		t.Fatalf("registry/binding answer still needs structured member_set handoff: %+v", rm)
+	}
+}
+
 func TestEmitAnalysis_Execute_DropsSourceInventoryForRelationFlow(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

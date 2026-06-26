@@ -1401,6 +1401,49 @@ func TestSourceInventoryProfileConflictsWithRelationFlow_TypedBoundary(t *testin
 	}
 }
 
+func TestSourceInventoryProfileConflictsWithRoleBinding_TypedBoundary(t *testing.T) {
+	profile := &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+		RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+	}
+	rm := RequestModel{
+		Intent:        IntentEnumerate,
+		PredicateAxis: AxisRegister,
+		Predicates:    SemanticPredicates{IsCategoryEnumeration: true},
+		AnswerRoleProfile: &AnswerRoleProfile{
+			IsRoleBindingRequested: true,
+			RequiredCandidateRoles: []AnswerCandidateRole{AnswerCandidateRoleType},
+		},
+		SourceInventoryProfile: profile,
+	}
+	if !SourceInventoryProfileConflictsWithRoleBinding(rm) {
+		t.Fatal("registry/binding member-set answer must not use source inventory as completion authority")
+	}
+	if !SourceInventoryCompletionIsSupportOnly(rm) {
+		t.Fatal("same registry/binding shape should make completion support-only")
+	}
+
+	rm.PredicateAxis = AxisDefine
+	if SourceInventoryProfileConflictsWithRoleBinding(rm) {
+		t.Fatal("plain source definition inventory should keep source inventory authority")
+	}
+	rm.PredicateAxis = AxisRegister
+	rm.AnswerRoleProfile = nil
+	if !SourceInventoryProfileConflictsWithRoleBinding(rm) {
+		t.Fatal("profile-aware check must not depend on answer_role_profile for register-axis category answers")
+	}
+	if !SourceInventoryLaneConflictsWithRoleBinding(rm) {
+		t.Fatal("register-axis category enumeration must not depend on answer_role_profile to demote source inventory authority")
+	}
+	rm.Predicates = SemanticPredicates{}
+	rm.CompletenessObligation = nil
+	rm.Intent = IntentExplain
+	if SourceInventoryLaneConflictsWithRoleBinding(rm) {
+		t.Fatal("register axis alone without an enumerable answer shape must not drop source inventory authority")
+	}
+}
+
 func TestSourceInventoryLaneConflictsWithRelationFlow_BeforeProfileSynthesis(t *testing.T) {
 	rm := RequestModel{
 		Intent:        IntentTrace,

@@ -81,6 +81,77 @@ func TestReconcileCompletionAggregateFactsWithDefinitionEvidence_PreservesExactP
 	}
 }
 
+func TestExhaustiveEnumerationMemberSetUsableAcceptsVerifiedValueSupportRefClass(t *testing.T) {
+	mu := types.NewMutableState("registry member-set")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "ev-name",
+			Kind:            types.EvidenceDirect,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Name",
+			Source:          "internal/agent/sub_explorer.go",
+			LineStart:       32,
+			LineEnd:         34,
+			Snippet:         "func (s *SubExplorer) Name() string {\n\treturn \"explorer\"\n}",
+			Summary:         "SubExplorer.Name() returns string \"explorer\"",
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "ev-register",
+			Kind:            types.EvidenceRegistration,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "Register",
+			Source:          "internal/agent/subagent.go",
+			LineStart:       64,
+			LineEnd:         64,
+			Snippet:         "r.Register(NewSubExplorer(deps))",
+			Summary:         "RegisterDefaultSubAgents registers NewSubExplorer(deps)",
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisRegister,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+		}},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "default SubAgent names",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"explorer"},
+		SupportRefs: []string{
+			"explorer: internal/agent/subagent.go:64",
+		},
+	}}
+	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, facts)
+	if !ok {
+		t.Fatalf("value-bearing support_refs against grounded evidence should be usable, invalid=%s", invalid)
+	}
+
+	facts[0].SupportRefs = []string{"other: internal/agent/subagent.go:64"}
+	ok, _ = exhaustiveEnumerationMemberSetUsable(ctx, facts)
+	if ok {
+		t.Fatal("member-specific support_ref with a different label must not satisfy the member")
+	}
+
+	facts[0].Value = "2"
+	facts[0].Members = []string{"explorer", "missing"}
+	facts[0].SupportRefs = []string{"internal/agent/subagent.go:64"}
+	ok, _ = exhaustiveEnumerationMemberSetUsable(ctx, facts)
+	if ok {
+		t.Fatal("a non-positional location-only support_ref must not satisfy every member in a larger set")
+	}
+}
+
 func TestReconcileCompletionAggregateFactsWithDefinitionEvidence_DisabledWithoutTypedScopedInventory(t *testing.T) {
 	ctx := aggregateReconcileTestContext()
 	ctx.AnalysisIR.RequestModel.SourceScopeProfile = nil

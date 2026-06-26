@@ -1523,6 +1523,9 @@ func synthesizeSourceInventoryProfileForTypedEnumeration(rm *types.RequestModel,
 	if !types.IsTypedSourceEnumerationShape(*rm) {
 		return ""
 	}
+	if types.SourceInventoryLaneConflictsWithRoleBinding(*rm) {
+		return ""
+	}
 	if types.HasTypedRelationMemberSetShape(*rm) {
 		return ""
 	}
@@ -2434,6 +2437,10 @@ func dropSourceInventoryProfileForTypedRelation(rm *types.RequestModel) (bool, s
 	if types.SourceInventoryProfileConflictsWithRelationFlow(*rm) {
 		rm.SourceInventoryProfile = nil
 		return true, "source_inventory_profile ignored because the typed request is a structural trace / relation-flow answer; source_inventory is for bounded member inventories, while relation-flow navigation should use relation_map plus grounded file reads"
+	}
+	if types.SourceInventoryProfileConflictsWithRoleBinding(*rm) {
+		rm.SourceInventoryProfile = nil
+		return true, "source_inventory_profile ignored because the typed request is a registry/binding member-set answer; source_inventory may orient navigation, but binding membership must be proven by registration evidence and structured member_set handoff"
 	}
 	return false, ""
 }

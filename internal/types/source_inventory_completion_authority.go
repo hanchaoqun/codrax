@@ -79,7 +79,7 @@ func BuildSourceInventoryCompletionAuthorityWithOptions(observation SourceInvent
 		scopes = []string{"."}
 	}
 	out := SourceInventoryCompletionAuthority{
-		Active:                    rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() && !SourceInventoryProfileCompletionIsSupportOnly(rm.SourceInventoryProfile) && observation.IsActive(),
+		Active:                    rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() && !SourceInventoryCompletionIsSupportOnly(rm) && observation.IsActive(),
 		AcceptedExactUniverse:     opts.AcceptedExactUniverse,
 		AcceptedRequestedUniverse: opts.AcceptedRequestedUniverse,
 		RepoWideRequired:          repoWideRequired,

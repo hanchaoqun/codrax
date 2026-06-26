@@ -153,6 +153,40 @@ func SourceInventoryProfileConflictsWithRelationFlow(rm RequestModel) bool {
 	return SourceInventoryLaneConflictsWithRelationFlow(rm)
 }
 
+// SourceInventoryProfileConflictsWithRoleBinding reports whether an analyzer
+// emitted source_inventory_profile for a registry/catalog/binding member-set
+// answer. These questions may use source inventory as navigation, but the
+// principal universe is the binding relation proven by registration/call
+// evidence, not every source type/function in the repository.
+func SourceInventoryProfileConflictsWithRoleBinding(rm RequestModel) bool {
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	return SourceInventoryLaneConflictsWithRoleBinding(rm)
+}
+
+// SourceInventoryLaneConflictsWithRoleBinding is the profile-independent form
+// used before synthesis and by completion authority. It is intentionally typed
+// only: PredicateAxis and answer-shape predicates decide the boundary. No user
+// keywords, model prose, or tool summaries are inspected.
+//
+// The answer-role profile is helpful when present, but it is model-authored and
+// may be omitted or set false while the more stable PredicateAxis still says
+// "register". In that shape, source_inventory remains useful navigation, but
+// registry/catalog/binding membership must be proven by registration/call
+// evidence and a structured member_set, not by exhausting every source
+// function/type in the repository.
+func SourceInventoryLaneConflictsWithRoleBinding(rm RequestModel) bool {
+	if rm.PredicateAxis != AxisRegister {
+		return false
+	}
+	return IsCategoryEnumerationAnswerShape(rm) ||
+		rm.Predicates.IsCountQuestion ||
+		rm.CompletenessObligation.IsActive() ||
+		RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
+		RequiresRelationMemberSetHandoff(rm)
+}
+
 // SourceInventoryLaneConflictsWithRelationFlow reports whether synthesizing or
 // preserving a source-inventory lane would fight the typed principal-answer
 // shape. Unlike SourceInventoryProfileConflictsWithRelationFlow, this can be

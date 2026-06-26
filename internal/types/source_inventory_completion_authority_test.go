@@ -150,6 +150,43 @@ func TestSourceInventoryCompletionAuthority_ValueLookupSupportProfileIsInactive(
 	}
 }
 
+func TestSourceInventoryCompletionAuthority_RoleBindingProfileIsInactive(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: false,
+		Scopes:   []string{"."},
+		Lens:     []string{"members"},
+		Execution: &SourceInventoryExecutionState{
+			Budgeted:                 true,
+			CandidateBudgetTruncated: true,
+		},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleType,
+			Complete: false,
+			Members:  []SourceInventoryObservationMember{{Name: "SubExplorer", Role: AnswerCandidateRoleType, File: "internal/agent/sub_explorer.go"}},
+		}},
+	}
+	rm := RequestModel{
+		Intent:        IntentEnumerate,
+		PredicateAxis: AxisRegister,
+		Predicates:    SemanticPredicates{IsCategoryEnumeration: true},
+		AnswerRoleProfile: &AnswerRoleProfile{
+			IsRoleBindingRequested: true,
+			RequiredCandidateRoles: []AnswerCandidateRole{AnswerCandidateRoleType},
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+		},
+	}
+
+	auth := BuildSourceInventoryCompletionAuthority(obs, rm, false)
+	if auth.Blocking || auth.ReasonCode != SourceInventoryCompletionReasonInactive {
+		t.Fatalf("registry/binding member-set should not hard-block on repo-wide source inventory, got %+v", auth)
+	}
+}
+
 func TestSourceInventoryCompletionAuthority_EnumValueInventoryStillBlocks(t *testing.T) {
 	obs := SourceInventoryObservation{
 		Active:   true,
