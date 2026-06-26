@@ -264,11 +264,8 @@ func sourceInventoryToolResultsHaveSourceInventoryLens(results []types.ToolResul
 		if !result.Success || types.CanonicalToolName(result.ToolName) != "repo_map" {
 			continue
 		}
-		for _, record := range result.Observations {
-			route, ok := types.RepoMapNavigationRouteFromObservation(record)
-			if ok && route == types.RepoMapNavigationRouteSourceInventory {
-				return true
-			}
+		if result.SourceInventory != nil && types.SourceInventoryLensExecuted(*result.SourceInventory) {
+			return true
 		}
 	}
 	return false

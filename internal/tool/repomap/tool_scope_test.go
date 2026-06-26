@@ -151,6 +151,10 @@ func TestRepoMapSourceInventoryViewModelDrivenQuery(t *testing.T) {
 	if !obs.IsActive() || len(obs.Sets) != 2 || obs.Sets[0].Role != types.AnswerCandidateRoleFunction {
 		t.Fatalf("model-driven source inventory observation not stored in role order: %+v", obs)
 	}
+	if res.SourceInventory == nil || !res.SourceInventory.IsActive() || len(res.SourceInventory.Sets) != 2 ||
+		res.SourceInventory.Sets[0].Role != types.AnswerCandidateRoleFunction {
+		t.Fatalf("repo_map source_inventory result should carry typed observation: %+v", res.SourceInventory)
+	}
 }
 
 func TestRepoMapSourceInventoryViewWorksBeforeAnalysisIREmission(t *testing.T) {

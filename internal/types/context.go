@@ -5403,15 +5403,16 @@ type ToolReadCoverage struct {
 }
 
 type ToolResult struct {
-	ToolName           string                  `json:"tool_name"`
-	Summary            string                  `json:"summary"`
-	Repair             *ToolRepair             `json:"repair,omitempty"`
-	Refinement         *ToolRefinementHint     `json:"refinement,omitempty"`
-	Handoff            *ToolHandoffCarrier     `json:"handoff,omitempty"`
-	RawRef             string                  `json:"raw_ref,omitempty"`
-	PathDiscovery      *ToolPathDiscovery      `json:"path_discovery,omitempty"`
-	CommandMeasurement *ToolCommandMeasurement `json:"command_measurement,omitempty"`
-	ReadCoverage       *ToolReadCoverage       `json:"read_coverage,omitempty"`
+	ToolName           string                      `json:"tool_name"`
+	Summary            string                      `json:"summary"`
+	Repair             *ToolRepair                 `json:"repair,omitempty"`
+	Refinement         *ToolRefinementHint         `json:"refinement,omitempty"`
+	Handoff            *ToolHandoffCarrier         `json:"handoff,omitempty"`
+	RawRef             string                      `json:"raw_ref,omitempty"`
+	PathDiscovery      *ToolPathDiscovery          `json:"path_discovery,omitempty"`
+	CommandMeasurement *ToolCommandMeasurement     `json:"command_measurement,omitempty"`
+	ReadCoverage       *ToolReadCoverage           `json:"read_coverage,omitempty"`
+	SourceInventory    *SourceInventoryObservation `json:"source_inventory,omitempty"`
 
 	// Observations are optional producer-published typed observation rows for
 	// this tool result — the ToolResult companion to MCPResponse.Observations.

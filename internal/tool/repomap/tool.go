@@ -376,14 +376,16 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		output = prependRepoMapIndexStatusBanner(graph, output)
 		summary, ref := tool.StoreBlob(ctx, t.Name(), output)
 		now := time.Now()
+		observationCarrier := ctypes.CloneSourceInventoryObservation(observation)
 		return ctypes.ToolResult{
-			ToolName:     t.Name(),
-			Success:      true,
-			Summary:      summary,
-			RawRef:       ref,
-			Refinement:   repoMapSourceInventoryRefinement(observation, lensQuery),
-			Observations: repoMapNavigationTypedObservation(p.View, ref, output, now),
-			Timestamp:    now,
+			ToolName:        t.Name(),
+			Success:         true,
+			Summary:         summary,
+			RawRef:          ref,
+			Refinement:      repoMapSourceInventoryRefinement(observation, lensQuery),
+			SourceInventory: &observationCarrier,
+			Observations:    repoMapNavigationTypedObservation(p.View, ref, output, now),
+			Timestamp:       now,
 		}, nil
 	}
 

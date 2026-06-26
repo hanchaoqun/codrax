@@ -1454,7 +1454,7 @@ func TestSourceInventoryLensExecutionGap_SatisfiedByRepoLensObservation(t *testi
 	}
 }
 
-func TestSourceInventoryLensExecutionGap_SatisfiedByZeroResultRepoLensTypedObservation(t *testing.T) {
+func TestSourceInventoryLensExecutionGap_SatisfiedByZeroResultRepoLensCarrier(t *testing.T) {
 	mut := types.NewMutableState("source inventory")
 	mut.AppendDispatchToolResult(types.ToolResult{
 		ToolName: "repo_map",
@@ -1488,8 +1488,27 @@ func TestSourceInventoryLensExecutionGap_SatisfiedByZeroResultRepoLensTypedObser
 			Object:    string(types.RepoMapNavigationRouteSourceInventory),
 		}},
 	})
+	if gap := SourceInventoryLensExecutionGapForContext(ctx); !gap.Blocking {
+		t.Fatalf("navigation-only repo_map observation must not satisfy source_inventory lens execution, got %+v", gap)
+	}
+
+	mut.ResetDispatchToolResults()
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "repo_map",
+		Success:  true,
+		Summary:  "Repo Lens: no source-inventory observation is available for the requested typed scope/role slice.",
+		SourceInventory: &types.SourceInventoryObservation{
+			Active:     true,
+			Complete:   true,
+			Provenance: []string{"repo_lens:tool_query"},
+			SourceClasses: []types.SourceInventorySourceClassCount{{
+				Role:     types.SourcePathRoleProduction,
+				Complete: true,
+			}},
+		},
+	})
 	if gap := SourceInventoryLensExecutionGapForContext(ctx); gap.Blocking {
-		t.Fatalf("typed zero-result source_inventory lens observation should count as executed, got %+v", gap)
+		t.Fatalf("typed source_inventory carrier should count as executed, got %+v", gap)
 	}
 }
 
