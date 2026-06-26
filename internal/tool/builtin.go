@@ -2832,6 +2832,7 @@ func grepPathDiscovery(params grepToolParams, noMatches bool, resultCount int, c
 	files, truncated := boundedPathDiscoveryCandidateFiles(candidateFiles, toolPathDiscoveryCandidateFileLimit)
 	return &types.ToolPathDiscovery{
 		Kind:                    types.ToolPathDiscoveryKindGrep,
+		Pattern:                 strings.TrimSpace(params.Pattern),
 		Path:                    strings.TrimSpace(params.Path),
 		Include:                 strings.TrimSpace(params.Include),
 		FileType:                strings.TrimSpace(params.FileType),

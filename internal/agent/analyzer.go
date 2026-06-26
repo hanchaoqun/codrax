@@ -1241,7 +1241,7 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	e.prescanRounds++
 
 	if ctx != nil && ctx.Mutable != nil {
-		ctx.Mutable.AppendPrescanSummary(obs.LastToolResult.Summary)
+		ctx.Mutable.AppendPrescanToolResult(*obs.LastToolResult)
 	}
 
 	// The old ClassificationGrep Round-2 line peek is intentionally not
@@ -3565,15 +3565,13 @@ func appendDeclarativeKeywords(kws *[]string) []string {
 
 // ── Session 11 C0' ClassificationGrep helpers ──────────────────────
 
-// prescanHasDeclarativeCandidate reports whether the analyzer's
-// pre-scan blob mentions any declarative-filename pattern. The blob
-// is the lowercased concatenation of every pre-scan ToolResult
-// Summary (see MutableState.PrescanSummaryBlob), so a substring
-// match on declarative.DefaultFilenamePatterns is a cheap and
-// lossless proxy for "Round 1 found files that could carry the
-// answer". We reuse declarative.DefaultFilenamePatterns instead of
-// hard-coding the list here so the trigger word list stays aligned
-// with the R1 DeclarativeBoost ranker in G6.
+// prescanHasDeclarativeCandidate reports whether the analyzer's typed pre-scan
+// corpus mentions any declarative-filename pattern. The corpus is generated
+// from structured path/source-inventory carriers, so a substring match on
+// declarative.DefaultFilenamePatterns is a cheap proxy for "Round 1 found files
+// that could carry the answer" without parsing rendered tool summaries. We
+// reuse declarative.DefaultFilenamePatterns instead of hard-coding the list here
+// so the trigger word list stays aligned with the R1 DeclarativeBoost ranker.
 func prescanHasDeclarativeCandidate(blob string) bool {
 	if blob == "" {
 		return false

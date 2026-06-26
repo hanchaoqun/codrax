@@ -20,8 +20,8 @@ func TestPrescanRejected_AppendsDecision(t *testing.T) {
 	mut := &types.MutableState{}
 	mut.SetPrescanRoundLimit(2)
 	// Bump prescan round count to the limit so the rejection fires.
-	// AppendPrescanSummary is the canonical path that increments
-	// the counter (other tests use the same approach).
+	// AppendPrescanSummary remains the compact test-only path that
+	// increments the counter without building a full typed tool result.
 	mut.AppendPrescanSummary("round1 summary")
 	mut.AppendPrescanSummary("round2 summary")
 

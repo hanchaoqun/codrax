@@ -1764,11 +1764,11 @@ func TestAnalyzer_PrescanBudget_DisabledWithZero(t *testing.T) {
 	}
 }
 
-// TestAnalyzer_Observe_AppendsPrescanSummaryToMutable pins the
-// runtime data channel: every successful pre-scan observation must
-// flow through to Mutable.PrescanSummaryBlob so emit_analysis and
-// the post-hoc probe can read it.
-func TestAnalyzer_Observe_AppendsPrescanSummaryToMutable(t *testing.T) {
+// TestAnalyzer_Observe_AppendsTypedPrescanCorpusToMutable pins the runtime
+// data channel: successful pre-scan observations flow through typed carriers,
+// not rendered ToolResult.Summary text, before emit_analysis and the post-hoc
+// probe read Mutable.PrescanSummaryBlob.
+func TestAnalyzer_Observe_AppendsTypedPrescanCorpusToMutable(t *testing.T) {
 	restoreAnalysisLimits(t)
 	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 5})
 
@@ -1778,8 +1778,7 @@ func TestAnalyzer_Observe_AppendsPrescanSummaryToMutable(t *testing.T) {
 	e.BuildInitialInstruction(ctx, nil) // resets prescanRounds + blob
 
 	var history []types.ToolResult
-	fireOne := func(name, summary string) {
-		result := types.ToolResult{ToolName: name, Success: true, Summary: summary}
+	fireOne := func(result types.ToolResult) {
 		history = append(history, result)
 		e.Observe(ctx, LoopObservation{
 			Phase:          PhaseMidLoop,
@@ -1789,8 +1788,45 @@ func TestAnalyzer_Observe_AppendsPrescanSummaryToMutable(t *testing.T) {
 		})
 	}
 
-	fireOne("grep", "internal/agent/Analyzer.go\ninternal/tool/emit_analysis.go\n")
-	fireOne("repo_map", "Symbol: NewAnalyzerAgent in internal/agent/analyzer.go")
+	fireOne(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "ShouldNotAppear Internal/Agent/Analyzer.go",
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:           types.ToolPathDiscoveryKindGrep,
+			Pattern:        "NewAnalyzerAgent",
+			Path:           "internal/agent",
+			FilesOnly:      true,
+			ResultCount:    1,
+			CandidateFiles: []string{"internal/agent/analyzer.go"},
+		},
+	})
+	fireOne(types.ToolResult{
+		ToolName: "repo_map",
+		Success:  true,
+		Summary:  "ShouldNotAppear Symbol: NewAnalyzerAgent in prose",
+		Observations: []types.ObservationRecord{{
+			ID:        "nav-1",
+			Producer:  "repo_map",
+			Predicate: types.RepoMapNavigationObservationPredicate,
+			Value:     string(types.RepoMapNavigationRouteSourceInventory),
+			Object:    "source_inventory",
+			SourceRef: types.ObservationSourceRef{Path: "internal/agent/analyzer.go"},
+		}},
+		SourceInventory: &types.SourceInventoryObservation{
+			Active: true,
+			Sets: []types.SourceInventoryObservationSet{{
+				Role:     types.AnswerCandidateRoleType,
+				Complete: true,
+				Members: []types.SourceInventoryObservationMember{{
+					Name:       "NewAnalyzerAgent",
+					File:       "internal/agent/analyzer.go",
+					Line:       42,
+					SupportRef: "internal/agent/analyzer.go:42",
+				}},
+			}},
+		},
+	})
 
 	blob := mu.PrescanSummaryBlob()
 	if blob == "" {
@@ -1801,10 +1837,13 @@ func TestAnalyzer_Observe_AppendsPrescanSummaryToMutable(t *testing.T) {
 		t.Errorf("blob should be lowercased; got %q", blob)
 	}
 	if !strings.Contains(blob, "analyzer.go") {
-		t.Errorf("blob missing lowercased summary content; got %q", blob)
+		t.Errorf("blob missing typed candidate path content; got %q", blob)
 	}
 	if !strings.Contains(blob, "newanalyzeragent") {
-		t.Errorf("blob missing repo_map summary content; got %q", blob)
+		t.Errorf("blob missing typed repo_map/source_inventory content; got %q", blob)
+	}
+	if strings.Contains(blob, "shouldnotappear") {
+		t.Errorf("rendered tool Summary must not enter pre-scan corpus; got %q", blob)
 	}
 	// Non-pre-scan tool results should NOT advance the blob.
 	nonPrescan := types.ToolResult{ToolName: "emit_analysis", Success: true, Summary: "ShouldNotAppear"}

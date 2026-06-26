@@ -15,8 +15,8 @@ import (
 //     is the HEAVY path that produces the explorer's `preScannedFiles`
 //     list.
 //   - `keyword_search_lite.go` (this file) is a post-hoc probe: it
-//     reads the analyzer's already-collected pre-scan summaries
-//     from `MutableState.PrescanSummaryBlob` plus the final
+//     reads the analyzer's already-collected typed pre-scan corpus from
+//     `MutableState.PrescanSummaryBlob` plus the final
 //     keyword / entity lists from the emitted RequestModel, and
 //     returns an `AnalysisQualityProbe` describing how much of the
 //     LLM's classification was actually verified by the pre-scan.
@@ -41,7 +41,7 @@ import (
 
 // computeQualityProbeFromContext builds an AnalysisQualityProbe
 // from the runtime state at analyzer.ParseOutput time: the
-// MutableState's pre-scan summary blob, the analyzer evaluator's
+// MutableState's typed pre-scan corpus, the analyzer evaluator's
 // round counter, and the emit_analysis-populated keyword / entity
 // lists. Returns a zero probe when any input is nil so callers can
 // unconditionally surface the probe into StageOutput.Data.

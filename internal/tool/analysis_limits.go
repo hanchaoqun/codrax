@@ -217,23 +217,22 @@ type AnalysisLimits struct {
 }
 
 // AnalysisQualityProbe captures runtime hit statistics from the
-// analyzer's evidence-lite pre-scan. It is the shared data channel
-// between `analyzerEvaluator.Observe` (which accumulates pre-scan
-// summaries into `MutableState.PrescanSummaryBlob`) and
-// `validateAnalysisInput` / `analyzer.ParseOutput` (which grade the
-// quality of the LLM's classification against what the pre-scan
-// actually found).
+// analyzer's evidence-lite pre-scan. It is the shared data channel between
+// `analyzerEvaluator.Observe` (which projects typed pre-scan carriers into
+// `MutableState.PrescanSummaryBlob`) and `validateAnalysisInput` /
+// `analyzer.ParseOutput` (which grade the quality of the LLM's classification
+// against what the pre-scan actually found).
 //
 // The probe turns the pre-scan → validator relationship from
 // prompt-level coordination ("spend 1-2 rounds verifying ...") into
 // data-level coordination: keywords / entities the LLM emitted must
-// actually appear in the pre-scan Summary blob, otherwise the
+// actually appear in the typed pre-scan corpus, otherwise the
 // validator can either warn or whitelist-exempt them from the
 // generic-entity blocklist.
 type AnalysisQualityProbe struct {
 	// KeywordHits is the count of emit_analysis.keywords whose
-	// lowercase form appears as a substring anywhere in the pre-scan
-	// summary blob. Exact substring match, not tokenization, so
+	// lowercase form appears as a substring anywhere in the typed
+	// pre-scan corpus. Exact substring match, not tokenization, so
 	// `analyze` matches `AnalyzeRequest` and `RunAnalyzer`.
 	KeywordHits int
 
@@ -278,12 +277,12 @@ func (p AnalysisQualityProbe) EntityHitRatio() float64 {
 	return float64(p.EntityHits) / float64(p.EntityTotal)
 }
 
-// ComputeAnalysisQualityProbe scans a pre-scan summary blob and
+// ComputeAnalysisQualityProbe scans a typed pre-scan corpus and
 // counts how many of the given keywords / entities appear as a
 // case-insensitive substring. The blob is expected to be the
-// lowercased concatenation of every successful pre-scan
-// ToolResult.Summary collected during the analyze dispatch (see
-// `MutableState.PrescanSummaryBlob` / `AppendPrescanSummary`).
+// lowercased projection of structured pre-scan tool carriers collected during
+// the analyze dispatch (see `MutableState.PrescanSummaryBlob` /
+// `AppendPrescanToolResult`).
 //
 // This function is deterministic, allocation-bounded, and safe to
 // call from both tool-Execute time (emit_analysis) and post-hoc
@@ -473,7 +472,7 @@ type analysisValidationResult struct {
 	RejectReason string
 
 	// Probe is the runtime quality probe computed against the
-	// analyzer's pre-scan summary blob. When the seen-blob passed to
+	// analyzer's typed pre-scan corpus. When the seen-blob passed to
 	// validateAnalysisInput is empty (e.g. the analyzer ran with no
 	// pre-scan rounds), Probe is a zero value and should be treated
 	// as "no data". Otherwise the KeywordHitRatio / EntityHitRatio
@@ -503,9 +502,10 @@ type blocklistShadowEntity struct {
 //     (case-insensitive match, preserving the original casing of
 //     surviving words). Dropped words are listed in DroppedEntities
 //     and a warning is appended mentioning them.
-//   - `seenBlob` is the lowercase concatenation of every successful
-//     pre-scan ToolResult.Summary (populated by
-//     `MutableState.PrescanSummaryBlob` / `AppendPrescanSummary`).
+//   - `seenBlob` is the lowercase typed corpus projected from analyzer
+//     pre-scan carriers (populated by `MutableState.PrescanSummaryBlob` /
+//     `AppendPrescanToolResult`; tests may inject corpus text through
+//     `AppendPrescanSummary`).
 //     When non-empty, it feeds two distinct mechanisms:
 //     1. **Verified-entity whitelist**: a generic-blocklist match
 //     whose lowercase term also appears as a substring in

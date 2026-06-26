@@ -1105,7 +1105,7 @@ func TestValidateAnalysisInput_EmptyBlocklistSkipsFilter(t *testing.T) {
 
 // TestValidateAnalysisInput_WhitelistKeepsVerifiedGenericEntity pins
 // the 2026-04-15 fix: when a generic-blocklist entity ALSO appears
-// in the pre-scan summary blob as a standalone code/prose token, it
+// in the typed pre-scan corpus as a standalone code/prose token, it
 // must be kept instead of dropped so real symbols named `Agent` or
 // `Handler` survive. A distinct `kept_generic_verified_entities`
 // warning fires so the operator can audit the rescue.

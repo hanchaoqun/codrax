@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -493,12 +494,12 @@ type MutableState struct {
 	// stay unaffected.
 	exploreBudget *ExploreBudget
 
-	// prescanSummaryBlob is the lowercased concatenation of every
-	// successful pre-scan ToolResult.Summary the analyzer observed
-	// during the current analyze dispatch (repo_map / grep
-	// files_only=true / list_files). Populated by
-	// `analyzerEvaluator.Observe` via AppendPrescanSummary, read by
-	// `emit_analysis.Execute` to feed the runtime quality probe:
+	// prescanSummaryBlob is the lowercased typed corpus projected from
+	// analyzer pre-scan tool results during the current analyze dispatch
+	// (repo_map / grep files_only=true / list_files). Production writes go
+	// through AppendPrescanToolResult; AppendPrescanSummary remains only for
+	// hand-authored/test corpus compatibility. Read by `emit_analysis.Execute`
+	// to feed the runtime quality probe:
 	//   - As the verified-entity whitelist for
 	//     validateAnalysisInput (entities that match the generic
 	//     blocklist but appear in the blob are kept instead of
@@ -507,8 +508,8 @@ type MutableState struct {
 	//     probe (ComputeAnalysisQualityProbe).
 	// This is analyzer-specific state that lives on MutableState
 	// only because the emit_analysis tool needs a path to read it;
-	// other agents never touch it, and ResetPrescanSummary is
-	// called at the start of each analyze dispatch by
+	// other agents never touch it, and ResetPrescanSummary is called at the
+	// start of each analyze dispatch by
 	// analyzerEvaluator.BuildInitialInstruction so cross-dispatch
 	// state never leaks.
 	prescanSummaryBlob strings.Builder
@@ -4259,21 +4260,38 @@ func (m *MutableState) CachedLabelSupportTokens(build func([]EvidenceItem) map[s
 	return out
 }
 
-// AppendPrescanSummary appends `summary` to the per-dispatch
-// pre-scan summary blob, lowercased, followed by a newline
-// separator. Called by `analyzerEvaluator.Observe` once per
-// successful pre-scan tool result (repo_map / grep files_only=true
-// / list_files). The blob is bounded in practice by the analyzer's
-// pre-scan budget (`AnalysisLimits.MaxPrescanRounds`, default 3) ×
-// the per-result blob size, so no explicit size cap is enforced
-// here — callers rely on the runtime gate to stop the dispatch
-// before this grows unbounded.
+// AppendPrescanToolResult projects one analyzer pre-scan tool result into the
+// typed, lowercased corpus consumed by emit_analysis validation and telemetry.
+// It deliberately ignores ToolResult.Summary: rendered summaries are
+// user-transparent logs, not a control-plane data source. Only schema-validated
+// carriers such as ToolPathDiscovery, SourceInventoryObservation,
+// ToolReadCoverage, and producer ObservationRecord rows enter the corpus.
 //
-// Lowercase-at-write means `PrescanSummaryBlob()` is a hot-path
-// zero-allocation read the emit_analysis tool and the validator
-// can call without touching strings.ToLower. Callers MUST NOT
-// assume the blob preserves the verbatim Summary — it is a
-// case-folded corpus for substring probing, not a trace record.
+// The pre-scan round counter advances even when the result has no typed corpus,
+// so emit_analysis can report the real number of pre-scan attempts without
+// relying on newline counting.
+func (m *MutableState) AppendPrescanToolResult(result ToolResult) {
+	if m == nil {
+		return
+	}
+	corpus := strings.TrimSpace(prescanToolResultCorpus(result))
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if corpus != "" {
+		m.prescanSummaryBlob.WriteString(strings.ToLower(corpus))
+		m.prescanSummaryBlob.WriteByte('\n')
+	}
+	m.prescanRoundCount++
+}
+
+// AppendPrescanSummary appends hand-authored corpus text to the per-dispatch
+// pre-scan corpus, lowercased, followed by a newline separator. Production
+// analyzer tool observations MUST use AppendPrescanToolResult instead; this
+// method remains for tests and for deterministic intent metadata that is not a
+// rendered tool summary.
+//
+// Lowercase-at-write means PrescanSummaryBlob is a hot-path zero-allocation
+// read. Callers MUST NOT assume the blob preserves any verbatim tool output.
 func (m *MutableState) AppendPrescanSummary(summary string) {
 	if m == nil || summary == "" {
 		return
@@ -4283,6 +4301,283 @@ func (m *MutableState) AppendPrescanSummary(summary string) {
 	m.prescanSummaryBlob.WriteString(strings.ToLower(summary))
 	m.prescanSummaryBlob.WriteByte('\n')
 	m.prescanRoundCount++
+}
+
+const prescanToolResultCorpusLineLimit = 256
+
+func prescanToolResultCorpus(result ToolResult) string {
+	var b strings.Builder
+	remaining := prescanToolResultCorpusLineLimit
+	appendPrescanCorpusLine(&b, &remaining, "tool="+result.ToolName, prescanCorpusBool("success", result.Success))
+	appendPrescanPathDiscoveryCorpus(&b, &remaining, result.PathDiscovery)
+	appendPrescanReadCoverageCorpus(&b, &remaining, result.ReadCoverage)
+	appendPrescanCommandMeasurementCorpus(&b, &remaining, result.CommandMeasurement)
+	appendPrescanVCSHistoryCorpus(&b, &remaining, result.VCSHistory)
+	appendPrescanSourceInventoryCorpus(&b, &remaining, result.SourceInventory)
+	appendPrescanObservationCorpus(&b, &remaining, result.Observations)
+	return b.String()
+}
+
+func appendPrescanPathDiscoveryCorpus(b *strings.Builder, remaining *int, d *ToolPathDiscovery) {
+	if d == nil {
+		return
+	}
+	if d.Kind == ToolPathDiscoveryKindGrep {
+		appendPrescanCorpusLine(b, remaining,
+			"[grep params:",
+			prescanCorpusKV("pattern", d.Pattern),
+			prescanCorpusKV("path", d.Path),
+			prescanCorpusKV("include", d.Include),
+			prescanCorpusKV("file_type", d.FileType),
+			prescanCorpusBool("files_only", d.FilesOnly),
+			prescanCorpusBool("no_matches", d.NoMatches),
+			prescanCorpusInt("result_count", d.ResultCount),
+			"]",
+		)
+		for _, file := range d.CandidateFiles {
+			appendPrescanCorpusLine(b, remaining, file)
+		}
+		if d.NoMatches {
+			appendPrescanCorpusLine(b, remaining, "no matches found")
+		}
+		if d.CandidateFilesTruncated {
+			appendPrescanCorpusLine(b, remaining, "candidate_files_truncated=true")
+		}
+		return
+	}
+	appendPrescanCorpusLine(b, remaining,
+		"path_discovery",
+		prescanCorpusKV("kind", d.Kind),
+		prescanCorpusKV("path", d.Path),
+		prescanCorpusKV("include", d.Include),
+		prescanCorpusKV("file_type", d.FileType),
+		prescanCorpusBool("recursive", d.Recursive),
+		prescanCorpusBool("files_only", d.FilesOnly),
+		prescanCorpusBool("include_auxiliary", d.IncludeAuxiliary),
+		prescanCorpusBool("no_matches", d.NoMatches),
+		prescanCorpusInt("result_count", d.ResultCount),
+	)
+	for _, file := range d.CandidateFiles {
+		appendPrescanCorpusLine(b, remaining, "candidate_file="+file)
+	}
+	if d.CandidateFilesTruncated {
+		appendPrescanCorpusLine(b, remaining, "candidate_files_truncated=true")
+	}
+}
+
+func appendPrescanReadCoverageCorpus(b *strings.Builder, remaining *int, c *ToolReadCoverage) {
+	if c == nil {
+		return
+	}
+	appendPrescanCorpusLine(b, remaining,
+		"read_coverage",
+		prescanCorpusKV("path", c.Path),
+		prescanCorpusInt("line_start", c.LineStart),
+		prescanCorpusInt("line_end", c.LineEnd),
+		prescanCorpusInt("total_lines", c.TotalLines),
+		prescanCorpusKV("raw_ref", c.RawRef),
+	)
+}
+
+func appendPrescanCommandMeasurementCorpus(b *strings.Builder, remaining *int, m *ToolCommandMeasurement) {
+	if m == nil {
+		return
+	}
+	appendPrescanCorpusLine(b, remaining,
+		"command_measurement",
+		prescanCorpusKV("kind", m.Kind),
+		prescanCorpusInt("value", m.Value),
+		prescanCorpusKV("origin", string(m.Origin)),
+		prescanCorpusKV("proof_source", m.ProofSource),
+		prescanCorpusKV("command", m.Command),
+		prescanCorpusBool("history", m.History),
+	)
+}
+
+func appendPrescanVCSHistoryCorpus(b *strings.Builder, remaining *int, h *ToolVCSHistory) {
+	if h == nil {
+		return
+	}
+	appendPrescanCorpusLine(b, remaining,
+		"vcs_history",
+		prescanCorpusKV("kind", h.Kind),
+		prescanCorpusKV("ref", h.Ref),
+		prescanCorpusKV("pathspec", h.Pathspec),
+	)
+	for _, commit := range h.Commits {
+		appendPrescanCorpusLine(b, remaining, "commit="+commit)
+	}
+}
+
+func appendPrescanSourceInventoryCorpus(b *strings.Builder, remaining *int, obs *SourceInventoryObservation) {
+	if obs == nil || !obs.IsActive() {
+		return
+	}
+	appendPrescanCorpusLine(b, remaining,
+		"source_inventory",
+		prescanCorpusBool("complete", obs.Complete),
+		prescanCorpusBool("advisory_only", obs.AdvisoryOnly),
+	)
+	for _, scope := range obs.Scopes {
+		appendPrescanCorpusLine(b, remaining, "scope="+scope)
+	}
+	for _, lens := range obs.Lens {
+		appendPrescanCorpusLine(b, remaining, "lens="+lens)
+	}
+	if obs.Page != nil {
+		appendPrescanCorpusLine(b, remaining,
+			"source_inventory_page",
+			prescanCorpusInt("offset", obs.Page.Offset),
+			prescanCorpusInt("limit", obs.Page.Limit),
+			prescanCorpusInt("total", obs.Page.Total),
+			prescanCorpusInt("emitted", obs.Page.Emitted),
+			prescanCorpusKV("next_cursor", obs.Page.NextCursor),
+			prescanCorpusBool("complete", obs.Page.Complete),
+		)
+	}
+	if obs.Execution != nil {
+		appendPrescanCorpusLine(b, remaining,
+			"source_inventory_execution",
+			prescanCorpusBool("budgeted", obs.Execution.Budgeted),
+			prescanCorpusBool("candidate_budget_truncated", obs.Execution.CandidateBudgetTruncated),
+			prescanCorpusBool("attributes_deferred", obs.Execution.AttributesDeferred),
+		)
+	}
+	for _, class := range obs.SourceClasses {
+		appendPrescanCorpusLine(b, remaining,
+			"source_class",
+			prescanCorpusKV("role", string(class.Role)),
+			prescanCorpusInt("count", class.Count),
+			prescanCorpusBool("complete", class.Complete),
+		)
+		for _, sample := range class.Samples {
+			appendPrescanCorpusLine(b, remaining, "source_class_sample="+sample)
+		}
+	}
+	for _, lang := range obs.RepoLanguages {
+		appendPrescanCorpusLine(b, remaining,
+			"repo_language",
+			prescanCorpusKV("language", lang.Language),
+			prescanCorpusInt("count", lang.Count),
+		)
+	}
+	for _, set := range obs.Sets {
+		appendPrescanCorpusLine(b, remaining,
+			"source_inventory_set",
+			prescanCorpusKV("role", string(set.Role)),
+			prescanCorpusBool("complete", set.Complete),
+			prescanCorpusInt("count", set.Count),
+			prescanCorpusInt("total", set.Total),
+		)
+		for _, member := range set.Members {
+			appendPrescanCorpusLine(b, remaining,
+				"source_inventory_member",
+				prescanCorpusKV("name", member.Name),
+				prescanCorpusKV("key", member.Key),
+				prescanCorpusKV("support_ref", member.SupportRef),
+				prescanCorpusKV("role", string(member.Role)),
+				prescanCorpusKV("file", member.File),
+				prescanCorpusInt("line", member.Line),
+				prescanCorpusKV("language", member.Language),
+				prescanCorpusKV("coverage_state", string(member.CoverageState)),
+			)
+			for _, term := range member.SurfaceTerms {
+				appendPrescanCorpusLine(b, remaining, "surface_term="+term)
+			}
+			for _, attr := range member.Attributes {
+				appendPrescanCorpusLine(b, remaining,
+					"source_inventory_attribute",
+					prescanCorpusKV("name", attr.Name),
+					prescanCorpusKV("key", attr.Key),
+					prescanCorpusKV("support_ref", attr.SupportRef),
+					prescanCorpusKV("role", string(attr.Role)),
+					prescanCorpusKV("file", attr.File),
+					prescanCorpusInt("line", attr.Line),
+					prescanCorpusKV("language", attr.Language),
+					prescanCorpusKV("coverage_state", string(attr.CoverageState)),
+				)
+			}
+		}
+	}
+}
+
+func appendPrescanObservationCorpus(b *strings.Builder, remaining *int, records []ObservationRecord) {
+	for _, record := range records {
+		appendPrescanCorpusLine(b, remaining,
+			"observation",
+			prescanCorpusKV("id", record.ID),
+			prescanCorpusKV("producer", record.Producer),
+			prescanCorpusKV("origin", string(record.Origin)),
+			prescanCorpusKV("source_kind", string(record.SourceRef.Kind)),
+			prescanCorpusKV("source_path", record.SourceRef.Path),
+			prescanCorpusKV("subject", record.Subject),
+			prescanCorpusKV("predicate", record.Predicate),
+			prescanCorpusKV("object", record.Object),
+			prescanCorpusKV("value", record.Value),
+			prescanCorpusKV("claim_key", record.ClaimKey),
+			prescanCorpusKV("scope", record.Scope),
+			prescanCorpusInt("line_start", record.Span.LineStart),
+			prescanCorpusInt("line_end", record.Span.LineEnd),
+		)
+		for _, ref := range record.SupportRefs {
+			appendPrescanCorpusLine(b, remaining, "support_ref="+ref)
+		}
+		for _, term := range record.SurfaceTerms {
+			appendPrescanCorpusLine(b, remaining, "surface_term="+term)
+		}
+	}
+}
+
+func appendPrescanCorpusLine(b *strings.Builder, remaining *int, values ...string) {
+	if b == nil || remaining == nil || *remaining <= 0 {
+		return
+	}
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		value = prescanCorpusValue(value)
+		if value != "" {
+			parts = append(parts, value)
+		}
+	}
+	if len(parts) == 0 {
+		return
+	}
+	b.WriteString(strings.Join(parts, " "))
+	b.WriteByte('\n')
+	*remaining--
+}
+
+func prescanCorpusKV(key, value string) string {
+	value = prescanCorpusValue(value)
+	if key == "" || value == "" {
+		return ""
+	}
+	return key + "=" + value
+}
+
+func prescanCorpusInt(key string, value int) string {
+	if value == 0 {
+		return ""
+	}
+	return prescanCorpusKV(key, strconv.Itoa(value))
+}
+
+func prescanCorpusBool(key string, value bool) string {
+	if !value {
+		return ""
+	}
+	return prescanCorpusKV(key, "true")
+}
+
+func prescanCorpusValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.ReplaceAll(value, "\r", " ")
+	value = strings.ReplaceAll(value, "\n", " ")
+	value = strings.Join(strings.Fields(value), " ")
+	return value
 }
 
 // AppendPrescanIntentSummary adds non-content analyzer intent metadata to the
@@ -4358,11 +4653,9 @@ func (m *MutableState) PrescanReady() bool {
 	return m.prescanReady
 }
 
-// PrescanSummaryBlob returns the lowercased concatenation of every
-// pre-scan summary appended so far during the current analyze
-// dispatch. Returns an empty string when no summary has been
-// appended (e.g. the dispatch had no pre-scan rounds, or the
-// caller is running outside the analyze stage).
+// PrescanSummaryBlob returns the lowercased typed pre-scan corpus accumulated
+// so far during the current analyze dispatch. Returns an empty string when no
+// corpus has been projected or manually injected.
 func (m *MutableState) PrescanSummaryBlob() string {
 	if m == nil {
 		return ""
@@ -4372,11 +4665,11 @@ func (m *MutableState) PrescanSummaryBlob() string {
 	return m.prescanSummaryBlob.String()
 }
 
-// ResetPrescanSummary zeroes the pre-scan summary blob so a new
-// analyze dispatch starts with a clean buffer. Called by
-// `analyzerEvaluator.BuildInitialInstruction` at dispatch entry,
-// symmetrical with the prescanRounds reset. Cross-dispatch
-// retries from the orchestrator each get an empty blob.
+// ResetPrescanSummary zeroes the typed pre-scan corpus so a new analyze
+// dispatch starts with a clean buffer. Called by
+// `analyzerEvaluator.BuildInitialInstruction` at dispatch entry, symmetrical
+// with the prescanRounds reset. Cross-dispatch retries from the orchestrator
+// each get an empty blob.
 func (m *MutableState) ResetPrescanSummary() {
 	if m == nil {
 		return
@@ -5368,6 +5661,7 @@ const (
 // must not be parsed by hard gates to recover these fields.
 type ToolPathDiscovery struct {
 	Kind                    string   `json:"kind,omitempty"`
+	Pattern                 string   `json:"pattern,omitempty"`
 	Path                    string   `json:"path,omitempty"`
 	Recursive               bool     `json:"recursive,omitempty"`
 	Include                 string   `json:"include,omitempty"`
