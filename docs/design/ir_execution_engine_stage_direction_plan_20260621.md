@@ -1995,6 +1995,11 @@ Remaining follow-up:
      1. Current `dispatch` implementation handles structured `RouteWrite` without recursive dispatch: stop classifier spinner, enter one-shot write mode, continue the same runner path, then restore read/auto mode.
      2. Regression test `TestTurnPolicyDispatch_WriteRouteEntersAutoPilotApplyMode` already pins classify-once, SetMode-once, Run-once, ModeApply, and one-shot restoration.
      3. Focused validation passed: `go test ./internal/repl -run TestTurnPolicyDispatch_WriteRouteEntersAutoPilotApplyMode`.
+   - **Planned D2-F10g71 representative post-gap eval（2 并行 / 6 case / manual audit required）**:
+     1. Purpose: after D1-F10g.60-.70 forced-read, typed refinement handoff, answer-patch repair, and route=write lifecycle batches, rerun a small representative commercial batch before opening new code changes. This is validation, not a case-by-case patch trigger.
+     2. Cases: `qf_relation_subagent_registry`（repo architecture/relationship and repo_map first-hop health）, `harmony/arkts_repomap` and `harmony/cangjie_repomap`（typed source-inventory completion/principal row-set/source-class boundary）, `harmony/trace_query_openharmony_bytrace_thread`（runtime trace loop and trace_query priority）, `read_combo_log_current_source_explanation`（runtime log + current-source mixed lane）, and `patch_go_typo`（stable write-mode smoke）。
+     3. Audit checklist: final verdict and answer correctness, repeated completion/form retries, broad `repo_map(source_inventory)` or shell/list-files loops, trace/log source-localization overreach, forced-read historical/phantom paths, tool refinement handoff visibility, status-line noise, wall time, peak round counts, and whether any new blocker depends on noisy signals instead of precise typed artifacts.
+     4. If a case fails or times out, first record the generalized gap here with evidence and priority. Code changes must target the system class, not the individual case shape or language.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
