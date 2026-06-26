@@ -52,9 +52,9 @@ import (
 //   - Function-symbol detection (looksLikeFunctionSymbol) accepts
 //     CamelCase / camelCase / PascalCase / snake_case / qualified
 //     forms — language-neutral.
-//   - Path heuristics in ScalarCountValidator look for ToolName ==
-//     "exec_command" (the codrax tool registry name) — works
-//     regardless of what shell command the LLM ran inside it.
+//   - ScalarCountValidator consumes ToolResult.CommandMeasurement
+//     rather than rendered tool summaries, so shell/UI wording changes
+//     cannot affect this post-finalize gate.
 //   - Caveat templates registered in violation_registry.go are
 //     project-portable (no Unix tool names, no fixed layer counts).
 
@@ -183,12 +183,12 @@ func RunFamilyValidators(family types.QuestionFamily, input ValidatorInput) *Com
 //
 //	Tier 1: AnswerDocumentV2.Blocks where Kind=BlockScalar AND its
 //	    Items[].CitationRef points to a Citation whose evidence
-//	    chain ultimately came from a successful exec_command tool
-//	    result.
+//	    chain ultimately came from a successful deterministic count
+//	    measurement.
 //
 //	Tier 2: any block.Text in the answer contains an integer
-//	    literal AND ≥1 successful exec_command in ToolResults
-//	    summary contains an integer.
+//	    literal AND ≥1 successful ToolResult carries a typed
+//	    count measurement.
 //
 //	Tier 3: rejected (no typed evidence at all).
 type ScalarCountValidator struct{}
@@ -217,15 +217,15 @@ func (ScalarCountValidator) Validate(input ValidatorInput) *CompletenessFailure 
 	// `grep -c`-shaped tool output.
 	//
 	// Syntactic counts (file count / LOC / regex match count) keep
-	// IsRelationalLookup=false and continue to require exec_command
-	// integer output — the validator's original target.
+	// IsRelationalLookup=false and continue to require deterministic
+	// count measurement output — the validator's original target.
 	if input.IR.RequestModel.Predicates.IsRelationalLookup {
 		return nil
 	}
 
 	// Tier 0: model-authored aggregate handoff. For semantic counts
 	// whose exact value is the size of a verified member set, forcing
-	// an additional exec_command is both wasteful and sometimes the
+	// an additional counting command is both wasteful and sometimes the
 	// wrong abstraction: the explorer already emitted the exact
 	// member_set/total_count through structured aggregate_facts after
 	// reading and classifying candidates. This still does not let the
@@ -238,9 +238,8 @@ func (ScalarCountValidator) Validate(input ValidatorInput) *CompletenessFailure 
 
 	// Tier 1: answer-aware via typed BlockScalar + citation chain.
 	// If the answer surfaces a count via a BlockScalar block AND has
-	// at least one Citation in the answer doc whose evidence chain
-	// ultimately includes an exec_command tool result, the count
-	// has typed-tool backing.
+	// at least one successful typed count measurement, the count has
+	// deterministic-tool backing.
 	if input.AnswerDocumentV2 != nil {
 		hasScalarBlock := false
 		hasIntegerInAnswer := false
@@ -258,19 +257,18 @@ func (ScalarCountValidator) Validate(input ValidatorInput) *CompletenessFailure 
 			}
 		}
 		// Tier 1 PASS condition: BlockScalar present AND there's at
-		// least one successful exec_command tool result with an
-		// integer in its summary. The strict citation-chain link
-		// (CitationRef → ToolResult lineage) is not currently
+		// least one successful typed count measurement. The strict
+		// citation-chain link (CitationRef → ToolResult lineage) is not currently
 		// tracked in V2; we approximate by combining the BlockScalar
-		// presence with the exec_command-result presence.
-		if hasScalarBlock && hasIntegerInAnswer && hasExecCommandIntegerResult(input.ToolResults) {
+		// presence with the typed measurement presence.
+		if hasScalarBlock && hasIntegerInAnswer && hasDeterministicCountMeasurementResult(input.ToolResults) {
 			return nil
 		}
 	}
 
 	// Tier 2: prose-fallback — answer contains an integer somewhere
-	// AND ToolResults has exec_command with integer.
-	if input.AnswerDocumentV2 != nil && hasExecCommandIntegerResult(input.ToolResults) {
+	// AND ToolResults has a typed count measurement.
+	if input.AnswerDocumentV2 != nil && hasDeterministicCountMeasurementResult(input.ToolResults) {
 		// Walk all blocks for any integer literal in prose. If
 		// found, accept — the count likely came from the tool.
 		for _, blk := range input.AnswerDocumentV2.Blocks {
@@ -289,7 +287,7 @@ func (ScalarCountValidator) Validate(input ValidatorInput) *CompletenessFailure 
 	// for backwards compat when AnswerDocumentV2 is nil — e.g., in
 	// unit tests).
 	if input.AnswerDocumentV2 == nil {
-		if hasExecCommandIntegerResult(input.ToolResults) {
+		if hasDeterministicCountMeasurementResult(input.ToolResults) {
 			return nil
 		}
 	}
@@ -302,21 +300,27 @@ func (ScalarCountValidator) Validate(input ValidatorInput) *CompletenessFailure 
 	}
 }
 
-// hasExecCommandIntegerResult reports whether ToolResults contains
-// at least one successful exec_command result whose summary is a
-// scalar count proof. Match listings with file:line numbers are
-// rejected by DeterministicCountProofInteger; otherwise the finalizer
-// can still ship a number it visually counted from grep/read output.
-func hasExecCommandIntegerResult(results []types.ToolResult) bool {
+// hasDeterministicCountMeasurementResult reports whether ToolResults contains
+// at least one successful typed count measurement. This helper is used by a
+// post-finalize hard gate, so it must not inspect rendered ToolResult.Summary.
+func hasDeterministicCountMeasurementResult(results []types.ToolResult) bool {
 	for _, tr := range results {
-		if tr.ToolName != "exec_command" {
-			continue
-		}
 		if !tr.Success {
 			continue
 		}
-		if _, ok := types.DeterministicCountProofInteger(tr.Summary); ok {
+		measurement := tr.CommandMeasurement
+		if measurement == nil ||
+			measurement.Kind != types.ToolCommandMeasurementKindCount ||
+			measurement.Value < 0 {
+			continue
+		}
+		switch measurement.Origin {
+		case types.AnswerEvidenceOriginCommandMeasurement:
 			return true
+		case types.AnswerEvidenceOriginVCSMetadata:
+			if measurement.History {
+				return true
+			}
 		}
 	}
 	return false

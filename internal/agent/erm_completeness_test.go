@@ -14,8 +14,8 @@ import (
 //     internal pipeline term substrings)
 
 // TestScalarCountValidator pins the count-question Tier 2 contract.
-// Pass when ToolResults contains an exec_command result with a scalar
-// count proof; fail for read_file-only evidence and grep match listings.
+// Pass when ToolResults contains a typed command measurement with a scalar
+// count proof; fail for read_file-only evidence and summary-only integers.
 func TestScalarCountValidator(t *testing.T) {
 	makeIR := func(isCount bool) *types.AnalysisIR {
 		return &types.AnalysisIR{
@@ -60,7 +60,7 @@ func TestScalarCountValidator(t *testing.T) {
 		}
 	})
 
-	t.Run("count_question_no_exec_command_fails", func(t *testing.T) {
+	t.Run("count_question_no_measurement_fails", func(t *testing.T) {
 		v := ScalarCountValidator{}
 		input := ValidatorInput{
 			IR: makeIR(true),
@@ -70,7 +70,7 @@ func TestScalarCountValidator(t *testing.T) {
 		}
 		fail := v.Validate(input)
 		if fail == nil {
-			t.Fatal("ScalarCountValidator must fail when count question has only read_file (no exec_command)")
+			t.Fatal("ScalarCountValidator must fail when count question has only read_file (no typed measurement)")
 		}
 		if fail.Dimension != DimensionScalarCount {
 			t.Errorf("dimension: got %v, want %v", fail.Dimension, DimensionScalarCount)
@@ -78,7 +78,30 @@ func TestScalarCountValidator(t *testing.T) {
 		assertR6CleanFixHint(t, fail.FixHint)
 	})
 
-	t.Run("count_question_exec_command_with_integer_passes", func(t *testing.T) {
+	t.Run("count_question_typed_command_measurement_passes", func(t *testing.T) {
+		v := ScalarCountValidator{}
+		input := ValidatorInput{
+			IR: makeIR(true),
+			ToolResults: []types.ToolResult{
+				{
+					ToolName: "exec_command",
+					Summary:  "25\n",
+					Success:  true,
+					CommandMeasurement: &types.ToolCommandMeasurement{
+						Kind:        types.ToolCommandMeasurementKindCount,
+						Value:       25,
+						Origin:      types.AnswerEvidenceOriginCommandMeasurement,
+						ProofSource: "exec_command",
+					},
+				},
+			},
+		}
+		if fail := v.Validate(input); fail != nil {
+			t.Errorf("ScalarCountValidator must pass when a typed command measurement is present; got %+v", fail)
+		}
+	})
+
+	t.Run("count_question_summary_only_integer_fails", func(t *testing.T) {
 		v := ScalarCountValidator{}
 		input := ValidatorInput{
 			IR: makeIR(true),
@@ -86,8 +109,32 @@ func TestScalarCountValidator(t *testing.T) {
 				{ToolName: "exec_command", Summary: "25\n", Success: true},
 			},
 		}
+		if fail := v.Validate(input); fail == nil {
+			t.Error("ScalarCountValidator must not accept rendered summary integers without ToolCommandMeasurement")
+		}
+	})
+
+	t.Run("count_question_typed_history_measurement_passes", func(t *testing.T) {
+		v := ScalarCountValidator{}
+		input := ValidatorInput{
+			IR: makeIR(true),
+			ToolResults: []types.ToolResult{
+				{
+					ToolName: "git_history_search",
+					Summary:  "answer_count=2\n",
+					Success:  true,
+					CommandMeasurement: &types.ToolCommandMeasurement{
+						Kind:        types.ToolCommandMeasurementKindCount,
+						Value:       2,
+						Origin:      types.AnswerEvidenceOriginVCSMetadata,
+						ProofSource: "git_history_search",
+						History:     true,
+					},
+				},
+			},
+		}
 		if fail := v.Validate(input); fail != nil {
-			t.Errorf("ScalarCountValidator must pass when exec_command returns integer; got %+v", fail)
+			t.Errorf("ScalarCountValidator must pass when a typed history count measurement is present; got %+v", fail)
 		}
 	})
 
@@ -113,11 +160,21 @@ func TestScalarCountValidator(t *testing.T) {
 		input := ValidatorInput{
 			IR: makeIR(true),
 			ToolResults: []types.ToolResult{
-				{ToolName: "exec_command", Summary: "25", Success: false}, // failed call
+				{
+					ToolName: "exec_command",
+					Summary:  "25",
+					Success:  false,
+					CommandMeasurement: &types.ToolCommandMeasurement{
+						Kind:        types.ToolCommandMeasurementKindCount,
+						Value:       25,
+						Origin:      types.AnswerEvidenceOriginCommandMeasurement,
+						ProofSource: "exec_command",
+					},
+				},
 			},
 		}
 		if fail := v.Validate(input); fail == nil {
-			t.Error("ScalarCountValidator must fail when exec_command Success=false (failed call)")
+			t.Error("ScalarCountValidator must fail when command measurement came from Success=false (failed call)")
 		}
 	})
 
@@ -129,9 +186,8 @@ func TestScalarCountValidator(t *testing.T) {
 				{ToolName: "exec_command", Summary: "no output produced", Success: true},
 			},
 		}
-		// "no output produced" has no integer — should still fail.
 		if fail := v.Validate(input); fail == nil {
-			t.Error("ScalarCountValidator must fail when exec_command summary has no integer literal")
+			t.Error("ScalarCountValidator must fail when no typed count measurement was produced")
 		}
 	})
 
