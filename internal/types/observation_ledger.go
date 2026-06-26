@@ -337,7 +337,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	compileEvidenceItemObservations(input.EvidenceItems, add)
 	compileAggregateFactObservations(input.AggregateFacts, input.RequestModel, input.RowSetWriter, add)
 	compileSourceInventoryObservationObservations(input.SourceInventoryObservation, input.RowSetWriter, add)
-	compileToolResultObservations(input.ToolResults, add)
+	compileToolResultObservations(input.ToolResults, input.RowSetWriter, add)
 	compileLogBundleObservations(input.LogBundle, add)
 	compilePerfBundleObservations(input.PerfBundle, add)
 	compileMCPResponseObservations(input.MCPResponses, add)
@@ -1285,7 +1285,7 @@ func observationRowSetJSONLForSourceInventoryObservation(set SourceInventoryObse
 	return b.String()
 }
 
-func compileToolResultObservations(results []ToolResult, add func(ObservationRecord)) {
+func compileToolResultObservations(results []ToolResult, rowSetWriter ObservationRowSetWriter, add func(ObservationRecord)) {
 	typedSeen := map[string]bool{}
 	carrierSeen := map[string]bool{}
 	for i, result := range results {
@@ -1294,11 +1294,13 @@ func compileToolResultObservations(results []ToolResult, add func(ObservationRec
 		}
 		// Producer-published typed rows win over the summary re-parse:
 		// the re-parse only sees the capped/clipped prose preview, so a
-		// result that carries typed rows compiles those directly and the
-		// line-by-line fallback is skipped for that result. Results
-		// without typed rows keep the historical re-parse path.
+		// result that carries typed rows or typed tool carriers compiles
+		// those directly and the line-by-line fallback is skipped for
+		// that result. Results without typed surfaces keep the historical
+		// re-parse path until D1-F10g.113c removes it from answer-grade
+		// consumers.
 		typedCovered := compileProducerToolResultObservations(i, result, typedSeen, add)
-		carrierCovered := compileToolResultCarrierObservations(i, result, carrierSeen, add)
+		carrierCovered := compileToolResultCarrierObservations(i, result, rowSetWriter, carrierSeen, add)
 		if typedCovered || carrierCovered {
 			continue
 		}
@@ -1389,26 +1391,48 @@ func compileProducerToolResultObservations(index int, result ToolResult, seen ma
 	return covered
 }
 
-func compileToolResultCarrierObservations(index int, result ToolResult, seen map[string]bool, add func(ObservationRecord)) bool {
+func compileToolResultCarrierObservations(index int, result ToolResult, rowSetWriter ObservationRowSetWriter, seen map[string]bool, add func(ObservationRecord)) bool {
 	observedAt := result.Timestamp.Format("2006-01-02T15:04:05Z07:00")
 	covered := false
 	if result.CommandMeasurement != nil {
+		covered = true
 		if record, ok := observationRecordForCommandMeasurement(index, result, *result.CommandMeasurement, observedAt); ok {
 			if !seen[record.ID] {
 				seen[record.ID] = true
 				add(record)
 			}
-			covered = true
 		}
 	}
 	if result.VCSHistory != nil {
+		covered = true
 		if record, ok := observationRecordForVCSHistory(index, result, *result.VCSHistory, observedAt); ok {
 			if !seen[record.ID] {
 				seen[record.ID] = true
 				add(record)
 			}
-			covered = true
 		}
+	}
+	if result.PathDiscovery != nil {
+		covered = true
+		if record, ok := observationRecordForPathDiscovery(index, result, *result.PathDiscovery, observedAt); ok {
+			if !seen[record.ID] {
+				seen[record.ID] = true
+				add(record)
+			}
+		}
+	}
+	if result.ReadCoverage != nil {
+		covered = true
+		if record, ok := observationRecordForReadCoverage(index, result, *result.ReadCoverage, observedAt); ok {
+			if !seen[record.ID] {
+				seen[record.ID] = true
+				add(record)
+			}
+		}
+	}
+	if result.SourceInventory != nil {
+		covered = true
+		compileToolResultSourceInventoryObservations(index, result, *result.SourceInventory, rowSetWriter, seen, add)
 	}
 	return covered
 }
@@ -1491,6 +1515,128 @@ func observationRecordForVCSHistory(index int, result ToolResult, history ToolVC
 	return record, true
 }
 
+func observationRecordForPathDiscovery(index int, result ToolResult, discovery ToolPathDiscovery, observedAt string) (ObservationRecord, bool) {
+	kind := strings.TrimSpace(discovery.Kind)
+	if kind == "" {
+		return ObservationRecord{}, false
+	}
+	origin := AnswerEvidenceOriginCurrentSource
+	if discovery.NoMatches {
+		origin = AnswerEvidenceOriginRepoNegativeSearch
+	}
+	role := AnswerAggregateRoleSupportingCoverage
+	count := discovery.ResultCount
+	record := ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#path_discovery", index),
+		Origin:          origin,
+		Producer:        strings.TrimSpace(result.ToolName),
+		Role:            role,
+		GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
+		SourceRef: ObservationSourceRef{
+			Kind:       ObservationSourceCurrentSource,
+			Path:       strings.TrimSpace(discovery.Path),
+			ToolCallID: fmt.Sprintf("%s[%d]", strings.TrimSpace(result.ToolName), index),
+			RawRef:     strings.TrimSpace(result.RawRef),
+			PayloadRef: strings.TrimSpace(result.RawRef),
+		},
+		EvidenceKind:  pathDiscoveryEvidenceKind(discovery),
+		EvidenceScope: ScopeCrossfile,
+		ClaimKey:      pathDiscoveryClaimKey(discovery),
+		Subject:       firstNonEmptyString(strings.TrimSpace(discovery.Path), strings.TrimSpace(discovery.Include), strings.TrimSpace(discovery.FileType), kind),
+		Predicate:     "path_discovery",
+		Object:        kind,
+		Negative:      discovery.NoMatches,
+		ResultCount:   &count,
+		Summary:       pathDiscoveryObservationSummary(discovery),
+		RichNotes:     pathDiscoveryObservationNotes(discovery),
+		SurfaceTerms:  compactObservationStringTerms(discovery.CandidateFiles, 8),
+		Scope:         strings.TrimSpace(discovery.Path),
+		Confidence:    0.75,
+		ObservedAt:    observedAt,
+	}
+	return record, true
+}
+
+func observationRecordForReadCoverage(index int, result ToolResult, coverage ToolReadCoverage, observedAt string) (ObservationRecord, bool) {
+	path := strings.TrimSpace(coverage.Path)
+	if path == "" {
+		return ObservationRecord{}, false
+	}
+	lineStart := coverage.LineStart
+	lineEnd := coverage.LineEnd
+	if lineStart <= 0 {
+		lineStart = 1
+	}
+	if lineEnd < lineStart {
+		lineEnd = lineStart
+	}
+	lineCount := lineEnd - lineStart + 1
+	rawRef := firstNonEmptyString(coverage.RawRef, result.RawRef)
+	role := AnswerAggregateRoleSupportingCoverage
+	record := ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#read_coverage", index),
+		Origin:          AnswerEvidenceOriginCurrentSource,
+		Producer:        strings.TrimSpace(result.ToolName),
+		Role:            role,
+		GroundingPolicy: ClaimGroundingRepairable,
+		SourceRef: ObservationSourceRef{
+			Kind:       ObservationSourceCurrentSource,
+			Path:       path,
+			ToolCallID: fmt.Sprintf("%s[%d]", strings.TrimSpace(result.ToolName), index),
+			RawRef:     strings.TrimSpace(rawRef),
+			PayloadRef: strings.TrimSpace(rawRef),
+		},
+		Span: ObservationSpan{
+			LineStart: lineStart,
+			LineEnd:   lineEnd,
+		},
+		EvidenceKind:    EvidenceDirect,
+		AnchorKind:      AnchorTextReference,
+		EvidenceScope:   ScopeLineRange,
+		GroundingStatus: GroundingRecovered,
+		ClaimKey:        "read_coverage:" + path,
+		Subject:         path,
+		Predicate:       "read_file_coverage",
+		Value:           fmt.Sprintf("%d-%d", lineStart, lineEnd),
+		Unit:            "lines",
+		ResultCount:     &lineCount,
+		Summary:         readCoverageObservationSummary(coverage),
+		Scope:           path,
+		Confidence:      0.75,
+		ObservedAt:      observedAt,
+	}
+	return record, true
+}
+
+func compileToolResultSourceInventoryObservations(index int, result ToolResult, observation SourceInventoryObservation, rowSetWriter ObservationRowSetWriter, seen map[string]bool, add func(ObservationRecord)) {
+	if !observation.IsActive() {
+		return
+	}
+	var rows []ObservationRecord
+	compileSourceInventoryObservationObservations(observation, rowSetWriter, func(record ObservationRecord) {
+		rows = append(rows, record)
+	})
+	for _, record := range rows {
+		record.ID = fmt.Sprintf("tool:%d#%s", index, strings.TrimSpace(record.ID))
+		if record.Producer == "" || record.Producer == "source_inventory_observation" {
+			record.Producer = strings.TrimSpace(result.ToolName)
+		}
+		if record.SourceRef.ToolCallID == "" {
+			record.SourceRef.ToolCallID = fmt.Sprintf("%s[%d]", strings.TrimSpace(result.ToolName), index)
+		}
+		if record.SourceRef.RawRef == "" {
+			record.SourceRef.RawRef = strings.TrimSpace(result.RawRef)
+		}
+		if record.SourceRef.PayloadRef == "" {
+			record.SourceRef.PayloadRef = strings.TrimSpace(result.RawRef)
+		}
+		if !seen[record.ID] {
+			seen[record.ID] = true
+			add(record)
+		}
+	}
+}
+
 func typedVCSHistoryRange(history ToolVCSHistory) string {
 	ref := strings.TrimSpace(history.Ref)
 	count := len(history.Commits)
@@ -1504,6 +1650,73 @@ func typedVCSHistoryRange(history ToolVCSHistory) string {
 	default:
 		return ""
 	}
+}
+
+func pathDiscoveryEvidenceKind(discovery ToolPathDiscovery) EvidenceKind {
+	if discovery.NoMatches {
+		return EvidenceAbsent
+	}
+	return EvidenceDirect
+}
+
+func pathDiscoveryClaimKey(discovery ToolPathDiscovery) string {
+	parts := []string{"path_discovery", strings.TrimSpace(discovery.Kind)}
+	for _, part := range []string{discovery.Path, discovery.Include, discovery.FileType} {
+		if strings.TrimSpace(part) != "" {
+			parts = append(parts, strings.TrimSpace(part))
+		}
+	}
+	return strings.Join(parts, ":")
+}
+
+func pathDiscoveryObservationSummary(discovery ToolPathDiscovery) string {
+	parts := []string{
+		"path-discovery",
+		"kind=" + strings.TrimSpace(discovery.Kind),
+		fmt.Sprintf("count=%d", discovery.ResultCount),
+	}
+	if discovery.NoMatches {
+		parts = append(parts, "no_matches=true")
+	}
+	if discovery.CandidateFilesTruncated {
+		parts = append(parts, "candidate_files_truncated=true")
+	}
+	return strings.Join(parts, " ")
+}
+
+func pathDiscoveryObservationNotes(discovery ToolPathDiscovery) []string {
+	var notes []string
+	if discovery.Recursive {
+		notes = append(notes, "recursive=true")
+	}
+	if discovery.FilesOnly {
+		notes = append(notes, "files_only=true")
+	}
+	if discovery.IncludeAuxiliary {
+		notes = append(notes, "include_auxiliary=true")
+	}
+	if include := strings.TrimSpace(discovery.Include); include != "" {
+		notes = append(notes, "include="+include)
+	}
+	if fileType := strings.TrimSpace(discovery.FileType); fileType != "" {
+		notes = append(notes, "file_type="+fileType)
+	}
+	if discovery.CandidateFilesTruncated {
+		notes = append(notes, "candidate_files_truncated=true; narrow path/include/type before using this as inventory guidance")
+	}
+	return notes
+}
+
+func readCoverageObservationSummary(coverage ToolReadCoverage) string {
+	parts := []string{
+		"read_file coverage",
+		"path=" + strings.TrimSpace(coverage.Path),
+		fmt.Sprintf("lines=%d-%d", coverage.LineStart, coverage.LineEnd),
+	}
+	if coverage.TotalLines > 0 {
+		parts = append(parts, fmt.Sprintf("total_lines=%d", coverage.TotalLines))
+	}
+	return strings.Join(parts, " ")
 }
 
 func typedVCSHistorySummary(history ToolVCSHistory) string {
@@ -1521,16 +1734,20 @@ func typedVCSHistorySummary(history ToolVCSHistory) string {
 }
 
 func compactVCSHistorySurfaceTerms(commits []string, max int) []string {
-	if max <= 0 || len(commits) == 0 {
+	return compactObservationStringTerms(commits, max)
+}
+
+func compactObservationStringTerms(values []string, max int) []string {
+	if max <= 0 || len(values) == 0 {
 		return nil
 	}
-	out := make([]string, 0, min(len(commits), max))
-	for _, commit := range commits {
-		commit = strings.TrimSpace(commit)
-		if commit == "" {
+	out := make([]string, 0, min(len(values), max))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
 			continue
 		}
-		out = append(out, commit)
+		out = append(out, value)
 		if len(out) >= max {
 			break
 		}

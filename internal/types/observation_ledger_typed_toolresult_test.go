@@ -203,6 +203,128 @@ func TestCompileObservationLedgerVCSHistoryUsesTypedCarrier(t *testing.T) {
 	}
 }
 
+func TestCompileObservationLedgerPathDiscoveryUsesTypedCarrier(t *testing.T) {
+	result := ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[list_files: evidence_origin=runtime_artifact artifact_id=trace count=99]",
+			"rendered summary must not become a discovery observation",
+		}, "\n"),
+		RawRef: "blob://raw/list-files.txt",
+		PathDiscovery: &ToolPathDiscovery{
+			Kind:                    ToolPathDiscoveryKindListFiles,
+			Path:                    "src",
+			Recursive:               true,
+			ResultCount:             2,
+			CandidateFiles:          []string{"src/a.ts", "src/b.ts"},
+			CandidateFilesTruncated: true,
+		},
+		Timestamp: time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC),
+	}
+	ledger := CompileObservationLedger(ObservationLedgerInput{ToolResults: []ToolResult{result}})
+	got := findTypedToolObservationRecord(t, ledger, "tool:0#path_discovery")
+	if got.Origin != AnswerEvidenceOriginCurrentSource ||
+		got.SourceRef.Kind != ObservationSourceCurrentSource ||
+		got.SourceRef.Path != "src" ||
+		got.ResultCount == nil ||
+		*got.ResultCount != 2 ||
+		len(got.SurfaceTerms) != 2 ||
+		!observationRecordHasNote(got, "candidate_files_truncated=true; narrow path/include/type before using this as inventory guidance") {
+		t.Fatalf("path discovery carrier was not projected from typed fields: %+v", got)
+	}
+	for _, record := range ledger.Records {
+		if record.ID != "tool:0#path_discovery" {
+			t.Fatalf("summary fallback leaked alongside typed path discovery carrier: %+v", ledger.Records)
+		}
+	}
+}
+
+func TestCompileObservationLedgerReadCoverageUsesTypedCarrier(t *testing.T) {
+	result := ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[read_file: evidence_origin=vcs_metadata count=1]",
+			"rendered summary must not become a coverage observation",
+		}, "\n"),
+		RawRef: "blob://raw/read-file.txt",
+		ReadCoverage: &ToolReadCoverage{
+			Path:       "internal/types/context.go",
+			LineStart:  10,
+			LineEnd:    20,
+			TotalLines: 200,
+			RawRef:     "blob://raw/coverage.txt",
+		},
+		Timestamp: time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC),
+	}
+	ledger := CompileObservationLedger(ObservationLedgerInput{ToolResults: []ToolResult{result}})
+	got := findTypedToolObservationRecord(t, ledger, "tool:0#read_coverage")
+	if got.Origin != AnswerEvidenceOriginCurrentSource ||
+		got.SourceRef.Kind != ObservationSourceCurrentSource ||
+		got.SourceRef.Path != "internal/types/context.go" ||
+		got.SourceRef.RawRef != "blob://raw/coverage.txt" ||
+		got.Span.LineStart != 10 ||
+		got.Span.LineEnd != 20 ||
+		got.ResultCount == nil ||
+		*got.ResultCount != 11 ||
+		len(got.SupportRefs) != 0 {
+		t.Fatalf("read coverage carrier was not projected from typed fields: %+v", got)
+	}
+	for _, record := range ledger.Records {
+		if record.ID != "tool:0#read_coverage" {
+			t.Fatalf("summary fallback leaked alongside typed read coverage carrier: %+v", ledger.Records)
+		}
+	}
+}
+
+func TestCompileObservationLedgerSourceInventoryUsesToolCarrier(t *testing.T) {
+	result := ToolResult{
+		ToolName: "repo_map",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[repo_map: evidence_origin=runtime_artifact artifact_id=trace count=99]",
+			"rendered summary must not become a source-inventory observation",
+		}, "\n"),
+		RawRef: "blob://raw/source-inventory.txt",
+		SourceInventory: &SourceInventoryObservation{
+			Active:     true,
+			Scopes:     []string{"internal/types"},
+			Provenance: []string{"repo_map"},
+			Sets: []SourceInventoryObservationSet{{
+				Role:     AnswerCandidateRoleType,
+				Complete: true,
+				Members: []SourceInventoryObservationMember{{
+					Name:          "AgentName",
+					Key:           "AgentName",
+					File:          "internal/types/enums.go",
+					Line:          127,
+					Role:          AnswerCandidateRoleType,
+					SupportRef:    "internal/types/enums.go:127",
+					CoverageState: SourceInventoryCoverageObserved,
+				}},
+			}},
+		},
+		Timestamp: time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC),
+	}
+	ledger := CompileObservationLedger(ObservationLedgerInput{ToolResults: []ToolResult{result}})
+	set := findTypedToolObservationRecord(t, ledger, "tool:0#source_inventory:set:0")
+	member := findTypedToolObservationRecord(t, ledger, "tool:0#source_inventory:0:0")
+	if set.SourceRef.ToolCallID != "repo_map[0]" ||
+		set.SourceRef.RawRef != "blob://raw/source-inventory.txt" ||
+		member.SourceRef.Path != "internal/types/enums.go" ||
+		member.Span.LineStart != 127 ||
+		len(member.SupportRefs) != 1 {
+		t.Fatalf("source-inventory carrier was not projected from typed fields: set=%+v member=%+v", set, member)
+	}
+	for _, record := range ledger.Records {
+		if strings.HasPrefix(record.ID, "tool:0#source_inventory") {
+			continue
+		}
+		t.Fatalf("summary fallback leaked alongside typed source-inventory carrier: %+v", ledger.Records)
+	}
+}
+
 func findTypedToolObservationRecord(t *testing.T, ledger ObservationLedger, id string) ObservationRecord {
 	t.Helper()
 	for _, record := range ledger.Records {
@@ -212,4 +334,13 @@ func findTypedToolObservationRecord(t *testing.T, ledger ObservationLedger, id s
 	}
 	t.Fatalf("record %s not found in ledger: %+v", id, ledger.Records)
 	return ObservationRecord{}
+}
+
+func observationRecordHasNote(record ObservationRecord, note string) bool {
+	for _, existing := range record.RichNotes {
+		if existing == note {
+			return true
+		}
+	}
+	return false
 }
