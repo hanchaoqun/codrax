@@ -304,7 +304,7 @@ func TestPrescanHasDeclarativeCandidate_MatchesAndMisses(t *testing.T) {
 }
 
 func TestPrescanHasDeclarativeCandidateResults_IgnoresAuxiliaryHits(t *testing.T) {
-	history := []types.ToolResult{
+	history := withReadCoverage([]types.ToolResult{
 		{
 			ToolName: "grep",
 			Success:  true,
@@ -312,16 +312,16 @@ func TestPrescanHasDeclarativeCandidateResults_IgnoresAuxiliaryHits(t *testing.T
 				"internal/skill/analysis_contract.go\n" +
 				"internal/agent/explorer_test.go\n",
 		},
-	}
+	})
 	if prescanHasDeclarativeCandidateResults(history, "", "") {
 		t.Fatal("auxiliary/test-only declarative hits must not match the legacy diagnostic trigger")
 	}
 
-	history = append(history, types.ToolResult{
+	history = withReadCoverage(append(history, types.ToolResult{
 		ToolName: "grep",
 		Success:  true,
 		Summary:  "[grep: 1 matching files]\ninternal/config/defaults.go\n",
-	})
+	}))
 	if !prescanHasDeclarativeCandidateResults(history, "", "") {
 		t.Fatal("production declarative hit should match the legacy diagnostic trigger")
 	}

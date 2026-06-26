@@ -645,7 +645,7 @@ func TestMidLoopCheck_Enumeration_OneShotWithinDispatch(t *testing.T) {
 			},
 		},
 	}
-	history := []types.ToolResult{
+	history := withReadCoverage([]types.ToolResult{
 		{ToolName: "grep", Success: true,
 			Summary: "[grep: 6 files]\n" +
 				"internal/skill/defaults.go\n" +
@@ -658,7 +658,7 @@ func TestMidLoopCheck_Enumeration_OneShotWithinDispatch(t *testing.T) {
 			Summary:      "[internal/skill/defaults.go: showing lines 1-20 of 60 total]\n     1│ package skill\n",
 			ReadCoverage: &types.ToolReadCoverage{Path: "internal/skill/defaults.go", LineStart: 1, LineEnd: 20, TotalLines: 60},
 		},
-	}
+	})
 	first := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
 		Iteration:      4,

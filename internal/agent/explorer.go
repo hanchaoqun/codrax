@@ -17225,27 +17225,6 @@ func flattenYAML(prefix string, node interface{}, notesJoined string, entries *[
 	}
 }
 
-// firstSeparatorBeforeLineno returns the index of the first `:` or `-`
-// that sits immediately before a run of digits — matching ripgrep's
-// "path:lineno:content" match format and "path-lineno-content" context
-// format. Returns -1 if no separator-before-lineno is found.
-func firstSeparatorBeforeLineno(s string) int {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c != ':' && c != '-' {
-			continue
-		}
-		// Next char must be a digit for this separator to count as
-		// "start of lineno". Otherwise it's a colon/dash inside the
-		// path or content, keep scanning.
-		if i+1 >= len(s) || s[i+1] < '0' || s[i+1] > '9' {
-			continue
-		}
-		return i
-	}
-	return -1
-}
-
 // isValidFilePath is a cheap sanity check: a real repo-relative file
 // path contains either a directory separator or an extension dot after
 // any base name. Rejects garbage like "158" (lineno-only), "  // blah"
@@ -17377,46 +17356,15 @@ func extractFileCoverageWithTotals(history []types.ToolResult, repoRoot string) 
 		}
 		switch r.ToolName {
 		case "grep":
-			// grep results come in these formats:
-			//   files_only=true:  one path per line ("internal/agent/explorer.go")
-			//   files_only=false: "path:linenum:content" per match line
-			//   with context lines: "path-linenum-content" (dash separator)
-			//   group separator:    "--" between context groups
-			//
-			// Both dash and colon separators must be handled: a context
-			// line like "file.go-101-\t// blah" has no colon before the
-			// lineno, and without recognizing the dash form the whole
-			// line gets treated as a "discovered file", inflating the
-			// coverage denominator with dozens of bogus entries per
-			// grep call. (Headline fix that made this necessary: prior
-			// to the GrepTool -H flag, single-file searches dropped
-			// filenames entirely, producing lines like "158-content";
-			// isValidFilePath below is the defense-in-depth guard.)
-			//
-			// The first line may be a summary header "[grep: N matching ...]".
-			for _, line := range strings.Split(r.Summary, "\n") {
-				path := strings.TrimSpace(line)
-				if path == "" || path[0] == '[' || path == "--" {
-					continue
-				}
-				// Detect "path:linenum:content" (match line) or
-				// "path-linenum-content" (context line). For both
-				// separators we look for the first occurrence, verify
-				// the next token is a run of digits (the lineno), and
-				// slice off everything after that.
-				if idx := firstSeparatorBeforeLineno(path); idx > 0 {
-					path = path[:idx]
-				}
+			if r.PathDiscovery == nil || r.PathDiscovery.Kind != types.ToolPathDiscoveryKindGrep {
+				continue
+			}
+			for _, raw := range r.PathDiscovery.CandidateFiles {
+				path := strings.TrimSpace(raw)
 				path = canon(path)
-				// Defense-in-depth: reject anything that doesn't look
-				// like a real file path. A real path has either a
-				// directory separator or a file extension (a `.` after
-				// the last `/`). Rejects stray lineno-only lines and
-				// garbage like "some random string".
 				if !isValidFilePath(path) {
 					continue
 				}
-				// Filter noise: skip non-source files.
 				if isNoisePath(path) {
 					continue
 				}
@@ -17546,27 +17494,15 @@ func detectTruncatedUngrepped(history []types.ToolResult) ([]truncatedFileInfo, 
 			}
 
 		case "grep":
-			// Check if this grep targeted a specific file (path param)
-			// and returned line-level results (not files_only).
-			if !strings.HasPrefix(r.Summary, "[grep:") {
+			if r.PathDiscovery == nil ||
+				r.PathDiscovery.Kind != types.ToolPathDiscoveryKindGrep ||
+				r.PathDiscovery.FilesOnly {
 				continue
 			}
-			// Line-level grep results contain "matching lines" not "matching files".
-			if strings.Contains(r.Summary, "matching lines") {
-				// Extract the file path from the grep result lines.
-				// When grep targets a single file, lines look like "NNN: content".
-				// When grep targets a directory, lines look like "path:NNN: content".
-				for _, line := range strings.Split(r.Summary, "\n") {
-					line = strings.TrimSpace(line)
-					if len(line) == 0 || line[0] == '[' {
-						continue
-					}
-					if colonIdx := strings.Index(line, ":"); colonIdx > 0 {
-						maybePath := line[:colonIdx]
-						if strings.Contains(maybePath, "/") || strings.Contains(maybePath, ".") {
-							grepped[maybePath] = true
-						}
-					}
+			for _, raw := range r.PathDiscovery.CandidateFiles {
+				path := strings.TrimSpace(raw)
+				if isValidFilePath(path) && !isNoisePath(path) {
+					grepped[path] = true
 				}
 			}
 		}

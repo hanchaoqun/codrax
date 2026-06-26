@@ -378,21 +378,76 @@ func readFileCoverageResult(path string, start, end, total int) types.ToolResult
 
 func withReadCoverage(results []types.ToolResult) []types.ToolResult {
 	for i := range results {
-		if !results[i].Success || results[i].ToolName != "read_file" || results[i].ReadCoverage != nil {
+		if !results[i].Success {
 			continue
 		}
-		path, rng, total, ok := parseReadFileBanner(results[i].Summary)
-		if !ok {
-			continue
-		}
-		results[i].ReadCoverage = &types.ToolReadCoverage{
-			Path:       path,
-			LineStart:  rng.Start,
-			LineEnd:    rng.End,
-			TotalLines: total,
+		switch results[i].ToolName {
+		case "read_file":
+			if results[i].ReadCoverage != nil {
+				continue
+			}
+			path, rng, total, ok := parseReadFileBanner(results[i].Summary)
+			if !ok {
+				continue
+			}
+			results[i].ReadCoverage = &types.ToolReadCoverage{
+				Path:       path,
+				LineStart:  rng.Start,
+				LineEnd:    rng.End,
+				TotalLines: total,
+			}
+		case "grep":
+			if results[i].PathDiscovery != nil {
+				continue
+			}
+			filesOnly, candidates := testGrepPathDiscoveryFromSummary(results[i].Summary)
+			if len(candidates) == 0 {
+				continue
+			}
+			results[i].PathDiscovery = &types.ToolPathDiscovery{
+				Kind:           types.ToolPathDiscoveryKindGrep,
+				FilesOnly:      filesOnly,
+				ResultCount:    len(candidates),
+				CandidateFiles: candidates,
+			}
 		}
 	}
 	return results
+}
+
+func testGrepPathDiscoveryFromSummary(summary string) (bool, []string) {
+	filesOnly := strings.Contains(summary, "matching files") || strings.Contains(summary, "files_only=true")
+	seen := map[string]bool{}
+	var candidates []string
+	for _, line := range strings.Split(summary, "\n") {
+		path := strings.TrimSpace(line)
+		if path == "" || path[0] == '[' || path == "--" {
+			continue
+		}
+		if idx := testSeparatorBeforeLineno(path); idx > 0 {
+			path = path[:idx]
+		}
+		if !isValidFilePath(path) || isNoisePath(path) || seen[path] {
+			continue
+		}
+		seen[path] = true
+		candidates = append(candidates, path)
+	}
+	return filesOnly, candidates
+}
+
+func testSeparatorBeforeLineno(s string) int {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c != ':' && c != '-' {
+			continue
+		}
+		if i+1 >= len(s) || s[i+1] < '0' || s[i+1] > '9' {
+			continue
+		}
+		return i
+	}
+	return -1
 }
 
 func TestDetectTruncatedUngrepped(t *testing.T) {
@@ -450,14 +505,14 @@ func TestDetectTruncatedUngrepped(t *testing.T) {
 	})
 
 	t.Run("line-level grep marks file as grepped", func(t *testing.T) {
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			readFileCoverageResult("internal/agent/explorer.go", 1, 500, 2383),
 			{
 				ToolName: "grep",
 				Success:  true,
 				Summary:  "[grep: 3 matching lines]\ninternal/agent/explorer.go:65: // subagent\ninternal/agent/explorer.go:120: SubAgent\ninternal/agent/explorer.go:450: sub_agent",
 			},
-		}
+		})
 		truncated, grepped := detectTruncatedUngrepped(history)
 		if len(truncated) != 1 {
 			t.Fatalf("expected 1 truncated file, got %d", len(truncated))
@@ -1351,9 +1406,9 @@ func TestPhase0QualityGate(t *testing.T) {
 		// flag is set (via observeMidLoop) and the soft-stop is accepted
 		// unconditionally — the Phase 0 gate is not applied.
 		eval := &explorerEvaluator{phase: 0, investigationComplete: true}
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "file1.go\nfile2.go\nfile3.go"},
-		}
+		})
 		_, cont := softStopExplorer(eval, "done scanning", 0, 0, history)
 		if cont {
 			t.Fatal("investigationComplete on firstSoftStop must accept stop, not inject hint")
@@ -1368,9 +1423,9 @@ func TestPhase0QualityGate(t *testing.T) {
 		// LLM is never allowed to quit Phase 0 without either calling
 		// emit_investigation_complete or satisfying the gate.
 		eval := &explorerEvaluator{phase: 0}
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "file1.go\nfile2.go\nfile3.go"},
-		}
+		})
 		_, cont := softStopExplorer(eval, "done scanning", 0, 0, history)
 		if !cont {
 			t.Fatal("firstSoftStop without investigationComplete must not accept silently; expected gate/reminder hint")
@@ -1381,9 +1436,9 @@ func TestPhase0QualityGate(t *testing.T) {
 		// After the first soft-stop has been consumed (ContinuationsUsed>0),
 		// the Phase 0 quality gate applies its tool checks.
 		eval := &explorerEvaluator{phase: 0}
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "file1.go\nfile2.go\nfile3.go"},
-		}
+		})
 		prompt, cont := softStopExplorer(eval, "done scanning", 0, 1, history)
 		if !cont {
 			t.Fatal("gate should fire (no repo_map used)")
@@ -1398,10 +1453,10 @@ func TestPhase0QualityGate(t *testing.T) {
 
 	t.Run("gate passes with both tools on non-first stop", func(t *testing.T) {
 		eval := &explorerEvaluator{phase: 0}
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "file1.go\nfile2.go\nfile3.go"},
 			{ToolName: "repo_map", Success: true, Summary: "map output"},
-		}
+		})
 		prompt, cont := softStopExplorer(eval, "done", 0, 1, history)
 		// Should transition to Phase 1
 		if !cont {
@@ -1417,9 +1472,9 @@ func TestPhase0QualityGate(t *testing.T) {
 
 	t.Run("gate fires only once on non-first stop", func(t *testing.T) {
 		eval := &explorerEvaluator{phase: 0, phase0ExtraRound: true}
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "file1.go"},
-		}
+		})
 		prompt, cont := softStopExplorer(eval, "done", 0, 1, history)
 		// Should NOT fire again — proceed to Phase 1
 		if !cont {
@@ -1441,9 +1496,9 @@ func TestPhase0QualityGate(t *testing.T) {
 			hasPrescanRepoMap: true,
 			preScannedFiles:   []string{"a.go", "b.go", "c.go", "d.go"},
 		}
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "file1.go"},
-		}
+		})
 		prompt, cont := softStopExplorer(eval, "done scanning", 0, 1, history)
 		if !cont {
 			t.Fatal("should continue to Phase 1 when pre-scan provided structural discovery")
@@ -1465,9 +1520,9 @@ func TestPhase0QualityGate(t *testing.T) {
 			hasPrescanRepoMap: true,
 			preScannedFiles:   []string{"pre1.go", "pre2.go", "pre3.go"},
 		}
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "runtime.go"},
-		}
+		})
 		prompt, cont := softStopExplorer(eval, "done", 0, 1, history)
 		if !cont {
 			t.Fatal("should continue to Phase 1")
@@ -1486,9 +1541,9 @@ func TestPhase0QualityGate(t *testing.T) {
 			phase:             0,
 			hasPrescanRepoMap: false,
 		}
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "file1.go\nfile2.go\nfile3.go"},
-		}
+		})
 		prompt, cont := softStopExplorer(eval, "done", 0, 1, history)
 		if !cont {
 			t.Fatal("gate should fire when neither runtime repo_map nor pre-scan provided structural discovery")
@@ -1527,10 +1582,10 @@ func TestAdaptiveTruncation(t *testing.T) {
 
 func TestExtractFileCoverageGrepFormats(t *testing.T) {
 	t.Run("files_only=true format", func(t *testing.T) {
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "grep", Success: true,
 				Summary: "[grep: 3 matching files]\ninternal/agent/explorer.go\ninternal/agent/agent.go\ninternal/agent/planner.go"},
-		}
+		})
 		discovered, _, _ := extractFileCoverage(history, "")
 		if len(discovered) != 3 {
 			t.Fatalf("expected 3 discovered files, got %d: %v", len(discovered), discovered)
@@ -1538,10 +1593,10 @@ func TestExtractFileCoverageGrepFormats(t *testing.T) {
 	})
 
 	t.Run("files_only=false format extracts paths", func(t *testing.T) {
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "grep", Success: true,
 				Summary: "[grep: 3 matching lines]\ninternal/agent/explorer.go:157: func ShouldStop\ninternal/agent/agent.go:92: type Evaluator\ninternal/agent/explorer.go:200: return false"},
-		}
+		})
 		discovered, _, _ := extractFileCoverage(history, "")
 		// Should extract unique paths: explorer.go, agent.go (deduplicated)
 		if len(discovered) != 2 {
@@ -1557,12 +1612,12 @@ func TestExtractFileCoverageGrepFormats(t *testing.T) {
 	})
 
 	t.Run("mixed formats", func(t *testing.T) {
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "grep", Success: true,
 				Summary: "[grep: 2 matching files]\ninternal/agent/explorer.go\ninternal/agent/agent.go"},
 			{ToolName: "grep", Success: true,
 				Summary: "[grep: 2 matching lines]\ninternal/agent/planner.go:20: func ShouldStop\ninternal/agent/explorer.go:118: return false"},
-		}
+		})
 		discovered, _, _ := extractFileCoverage(history, "")
 		// Should have 3 unique paths: explorer.go, agent.go, planner.go
 		if len(discovered) != 3 {
@@ -1571,10 +1626,10 @@ func TestExtractFileCoverageGrepFormats(t *testing.T) {
 	})
 
 	t.Run("header lines skipped", func(t *testing.T) {
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "grep", Success: true,
 				Summary: "[grep: 1 matching files]\ninternal/agent/explorer.go"},
-		}
+		})
 		discovered, _, _ := extractFileCoverage(history, "")
 		if len(discovered) != 1 {
 			t.Fatalf("expected 1 (header skipped), got %d: %v", len(discovered), discovered)
@@ -1611,13 +1666,13 @@ func TestExtractFileCoverageGrepFormats(t *testing.T) {
 	// extractor must recognize the dash-before-lineno form and still
 	// extract just the filename.
 	t.Run("grep context lines with dash separator", func(t *testing.T) {
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "[grep: 4 matching lines]\n" +
 				"internal/agent/explorer.go-100-\t// context\n" +
 				"internal/agent/explorer.go:101:\tfunc Pipeline\n" +
 				"internal/agent/explorer.go-102-\t// more context\n" +
 				"internal/agent/agent.go:50:\ttype Evaluator\n"},
-		}
+		})
 		discovered, _, _ := extractFileCoverage(history, "")
 		if len(discovered) != 2 {
 			t.Fatalf("expected 2 discovered (deduped), got %d: %v", len(discovered), discovered)
@@ -2824,10 +2879,10 @@ func midLoopFixtureResults() []types.ToolResult {
 		"internal/fixture/gamma.go\n"
 	readSummary := "[internal/fixture/alpha.go: showing lines 1-40 of 40]\n" +
 		"package fixture\n\nfunc Alpha() {}\n"
-	return []types.ToolResult{
+	return withReadCoverage([]types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: grepSummary},
 		{ToolName: "read_file", Success: true, Summary: readSummary},
-	}
+	})
 }
 
 // TestMidLoopCheck_ParallelCueFiresOnSerialStreak verifies Check 3
@@ -2911,7 +2966,7 @@ func TestMidLoopCheck_ParallelCueFiresOnGrepReadPair(t *testing.T) {
 		"internal/fixture/gamma.go\n" +
 		"internal/fixture/delta.go\n"
 	readSummary := "[internal/fixture/alpha.go: showing lines 1-40 of 40]\ncontent\n"
-	results := []types.ToolResult{
+	results := withReadCoverage([]types.ToolResult{
 		// Previous iteration's results (already counted).
 		{ToolName: "grep", Success: true, Summary: grepSummary},
 		{ToolName: "read_file", Success: true, Summary: readSummary},
@@ -2919,7 +2974,7 @@ func TestMidLoopCheck_ParallelCueFiresOnGrepReadPair(t *testing.T) {
 		// Current iteration's batch: 1 grep + 1 read_file (same file re-grepped).
 		{ToolName: "grep", Success: true, Summary: grepSummary},
 		{ToolName: "read_file", Success: true, Summary: readSummary},
-	}
+	})
 	hint, inject := midLoopExplorer(eval, 5, &results[len(results)-1], results)
 	if !inject {
 		t.Fatal("Check 3 should fire for batch=2 (grep+read pair), streak should have reached 2")
@@ -7673,13 +7728,13 @@ func TestObserveMidLoop_CompletionReadyHint(t *testing.T) {
 			"[DIRECT] BuildAnalysisIR is the structured IR entrypoint for analyzer dispatch.",
 		},
 	}
-	results := []types.ToolResult{
+	results := withReadCoverage([]types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go\ninternal/types/analysis_ir.go"},
 		newReadResult("internal/agent/analyzer.go"),
 		newReadResult("internal/types/analysis_ir.go"),
 		newReadResult("internal/context/builder.go"),
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
-	}
+	})
 
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -8139,12 +8194,12 @@ func TestObserveMidLoop_CompletionReadyHint_AllowsTypedRelationSetBeforeDepth(t 
 			"[DIRECT] buildToolSchemas exposes propose_sub_agents for matching typed agents.",
 		},
 	}
-	results := []types.ToolResult{
+	results := withReadCoverage([]types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "internal/agent/subagent.go\ninternal/agent/agent.go"},
 		newReadResult("internal/agent/subagent.go"),
 		newReadResult("internal/agent/agent.go"),
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
-	}
+	})
 
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -8423,13 +8478,13 @@ func TestObserveMidLoop_CompletionReadyFiresForArchitectureNarrativeCarriers(t *
 			},
 		},
 	}
-	results := []types.ToolResult{
+	results := withReadCoverage([]types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "internal/orchestrator/orchestrator.go\ninternal/types/stage_binding.go"},
 		newReadResult("internal/orchestrator/orchestrator.go"),
 		newReadResult("internal/types/stage_binding.go"),
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 3 items"},
 		newReadResult("internal/orchestrator/orchestrator.go"),
-	}
+	})
 
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -9457,11 +9512,11 @@ func TestObserveMidLoop_CompletionReadyHint_UsesRequirementBackedCarrierForMecha
 			{Kind: types.ReqMechanism, Status: "satisfied"},
 		},
 	}
-	results := []types.ToolResult{
+	results := withReadCoverage([]types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
 		newReadResult("internal/agent/analyzer.go"),
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
-	}
+	})
 
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -9518,11 +9573,11 @@ func TestObserveMidLoop_CompletionReadyFiresForMinimalScalarRoleLocate(t *testin
 			},
 		},
 	}
-	results := []types.ToolResult{
+	results := withReadCoverage([]types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
 		newReadResult("internal/agent/analyzer.go"),
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
-	}
+	})
 
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
