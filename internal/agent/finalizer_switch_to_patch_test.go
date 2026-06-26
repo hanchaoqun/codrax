@@ -355,6 +355,40 @@ func TestEmitPatchRejectFullRewriteSignal_FailedPatchRequestsPatchCorrection(t *
 	}
 }
 
+func TestEmitPatchRejectFullRewriteSignal_TypedRepairDrivesPatchCorrection(t *testing.T) {
+	e := &answerDocumentEvaluator{}
+	ctx := ctxWithAnswerPatchBase()
+	obs := LoopObservation{
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document_patch",
+			Success:  false,
+			Summary:  "summary prose should not become the correction detail",
+			Repair: &types.ToolRepair{
+				Code:   "answer_doc_patch_existing_block",
+				Fields: []string{"add_blocks", "replace_blocks", "unchanged_block_ids"},
+				Hint:   "Move the existing block into replace_blocks.",
+			},
+		},
+	}
+
+	got := e.emitPatchRejectFullRewriteSignal(ctx, obs)
+	if !got.HintRequested {
+		t.Fatalf("typed patch repair should request a patch correction hint; got %+v", got)
+	}
+	for _, want := range []string{
+		"repair=answer_doc_patch_existing_block",
+		"fields=add_blocks,replace_blocks,unchanged_block_ids",
+		"Move the existing block into replace_blocks.",
+	} {
+		if !strings.Contains(got.Hint, want) {
+			t.Errorf("typed patch correction hint missing %q:\n%s", want, got.Hint)
+		}
+	}
+	if strings.Contains(got.Hint, "summary prose should not become") {
+		t.Fatalf("typed repair should suppress irrelevant summary detail:\n%s", got.Hint)
+	}
+}
+
 func TestEmitPatchRejectFullRewriteSignal_SectionCountKeepsPatchPath(t *testing.T) {
 	e := &answerDocumentEvaluator{}
 	ctx := ctxWithAnswerPatchBase()
@@ -391,6 +425,40 @@ func TestEmitPatchRejectFullRewriteSignal_SectionCountKeepsPatchPath(t *testing.
 	}
 	if !e.preferPatchNext {
 		t.Fatal("section-cardinality reject should keep patch preferred")
+	}
+}
+
+func TestEmitPatchRejectFullRewriteSignal_TypedSectionCountKeepsPatchPath(t *testing.T) {
+	e := &answerDocumentEvaluator{}
+	ctx := ctxWithAnswerPatchBase()
+	obs := LoopObservation{
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document_patch",
+			Success:  false,
+			Repair: &types.ToolRepair{
+				Code:   "answer_doc_pre_emit_contract",
+				Fields: []string{"blocks[].kind=section"},
+				Hint:   "Apply these typed answer-document schema corrections.",
+				Metadata: map[string]string{
+					"expected_shapes": "reduce kind=section blocks to at most 2 (currently emitted: 3)",
+				},
+			},
+		},
+	}
+
+	got := e.emitPatchRejectFullRewriteSignal(ctx, obs)
+	if !got.HintRequested {
+		t.Fatalf("typed section-cardinality patch reject should request a targeted patch hint; got %+v", got)
+	}
+	if got.HintKey != "answer_doc.patch_cardinality" {
+		t.Fatalf("HintKey=%q, want answer_doc.patch_cardinality", got.HintKey)
+	}
+	if !strings.Contains(got.Hint, "do not add another `kind=section` block") {
+		t.Fatalf("typed section-cardinality hint did not keep patch cardinality path:\n%s", got.Hint)
+	}
+	if e.forceFullEmitNext || !e.preferPatchNext {
+		t.Fatalf("typed section-cardinality should keep patch path: forceFull=%t preferPatch=%t",
+			e.forceFullEmitNext, e.preferPatchNext)
 	}
 }
 

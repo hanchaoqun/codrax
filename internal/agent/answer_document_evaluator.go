@@ -8491,7 +8491,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
 		return LoopSignal{}
 	}
-	if answerDocumentPatchRejectIsBlockCardinality(obs.LastToolResult.Summary) {
+	if answerDocumentPatchRejectIsBlockCardinality(obs.LastToolResult) {
 		e.rejectHintsUsed++
 		e.preferPatchNext = true
 		hint := "Your last `emit_answer_document_patch` call was rejected because the document already has the allowed number of that block kind. Keep using `emit_answer_document_patch`; do not add another `kind=section` block. Fold the missing content into the existing related section with `replace_blocks`, or update an existing table/list/caveat block when that better preserves the user's requested shape. Keep unrelated blocks in `unchanged_block_ids`. Preserve the existing `citations[]` pool and use `append_citations` only for genuinely new evidence. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call."
@@ -8507,7 +8507,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	}
 	e.rejectHintsUsed++
 	e.preferPatchNext = true
-	hint := answerDocPatchRejectCorrectionHint(obs.LastToolResult.Summary)
+	hint := answerDocPatchRejectCorrectionHint(obs.LastToolResult)
 	hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 	return LoopSignal{
 		HintRequested:  true,
@@ -8519,17 +8519,60 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	}
 }
 
-func answerDocumentPatchRejectIsBlockCardinality(summary string) bool {
-	summary = strings.ToLower(strings.TrimSpace(summary))
-	if summary == "" {
+func answerDocumentPatchRejectIsBlockCardinality(result *types.ToolResult) bool {
+	if result == nil {
 		return false
 	}
+	if result.Repair != nil {
+		return answerDocumentPatchRepairIsBlockCardinality(result.Repair)
+	}
+	return answerDocumentPatchRejectSummaryIsBlockCardinality(result.Summary)
+}
+
+func answerDocumentPatchRepairIsBlockCardinality(repair *types.ToolRepair) bool {
+	if repair == nil {
+		return false
+	}
+	if !answerDocStringSliceContains(repair.Fields, "blocks[].kind=section") {
+		return false
+	}
+	if repair.Metadata == nil {
+		return false
+	}
+	expected := strings.ToLower(strings.TrimSpace(repair.Metadata["expected_shapes"]))
+	return strings.Contains(expected, "reduce kind=section blocks")
+}
+
+func answerDocStringSliceContains(values []string, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.TrimSpace(value) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocumentPatchRejectSummaryIsBlockCardinality(summary string) bool {
+	summary = strings.ToLower(strings.TrimSpace(summary))
 	return strings.Contains(summary, "blocks[].kind=section") &&
 		strings.Contains(summary, "reduce kind=section blocks")
 }
 
-func answerDocPatchRejectCorrectionHint(summary string) string {
-	detail := compactToolRejectSummary(summary)
+func answerDocPatchRejectCorrectionHint(result *types.ToolResult) string {
+	var summary string
+	var repair *types.ToolRepair
+	if result != nil {
+		summary = result.Summary
+		repair = result.Repair
+	}
+	detail := answerDocPatchRejectTypedDetail(repair)
+	if detail == "" {
+		detail = compactToolRejectSummary(summary)
+	}
 	if detail == "" {
 		detail = strings.TrimSpace(summary)
 	}
@@ -8541,6 +8584,34 @@ func answerDocPatchRejectCorrectionHint(summary string) string {
 	}
 	b.WriteString(". Use `replace_blocks` for existing block ids, `add_blocks` for new block ids, and `unchanged_block_ids` only for blocks that already exist in the previous draft. If a diagram block is edited, keep the sibling `diagram` object with `language`, `kind`, and `body`. Preserve the inherited `citations[]` pool; use `append_citations` only for genuinely new evidence. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call.")
 	return b.String()
+}
+
+func answerDocPatchRejectTypedDetail(repair *types.ToolRepair) string {
+	if repair == nil {
+		return ""
+	}
+	parts := []string{}
+	if code := strings.TrimSpace(repair.Code); code != "" {
+		parts = append(parts, "repair="+code)
+	}
+	if len(repair.Fields) > 0 {
+		parts = append(parts, "fields="+strings.Join(repair.Fields, ","))
+	}
+	if repair.Metadata != nil {
+		if shapes := strings.TrimSpace(repair.Metadata["expected_shapes"]); shapes != "" {
+			parts = append(parts, "expected="+shapes)
+		}
+		if kinds := strings.TrimSpace(repair.Metadata["violation_kinds"]); kinds != "" {
+			parts = append(parts, "violations="+kinds)
+		}
+	}
+	if hint := strings.TrimSpace(repair.Hint); hint != "" {
+		parts = append(parts, "hint="+hint)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return logging.Truncate(strings.Join(parts, "; "), 360)
 }
 
 func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
