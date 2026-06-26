@@ -74,12 +74,56 @@ type EnumerationDisplayRowAttribute struct {
 	Location string
 }
 
+// ShouldCompileEnumerationDisplaySetsForRequest reports whether accepted
+// aggregate member rows may become deterministic visible principal rows for
+// this request shape.
+//
+// The compiler is answer-shape load-bearing: it can add facets, citations, and
+// system supplement rows. Most established principal row lanes remain
+// admissible here, including VCS/resource/runtime rows. The explicit exclusion
+// is diagnostic current-source mechanism explanation: those turns often carry
+// member_set aggregates as support ledgers for mechanisms, but unless a typed
+// source-operation/exhaustive/relation/change-impact lane exists, the ledger
+// must not rewrite or harden the visible answer surface.
+func ShouldCompileEnumerationDisplaySetsForRequest(rm RequestModel) bool {
+	if enumerationDisplayConflictsWithDiagnosticCurrentSourceMechanism(rm) {
+		return false
+	}
+	return true
+}
+
+func enumerationDisplayConflictsWithDiagnosticCurrentSourceMechanism(rm RequestModel) bool {
+	if aggregateRequestRequiresPathMemberSetAsPrincipal(rm) {
+		return false
+	}
+	if !enumerationDisplayHasCurrentSourceDiagnosticShape(rm) {
+		return false
+	}
+	return rm.Predicates.IsDiagnosticQuestion ||
+		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() ||
+		rm.Intent == IntentRootCause ||
+		rm.Scenario == ScenarioRootCause ||
+		rm.Scenario == ScenarioPerformanceBottleneck
+}
+
+func enumerationDisplayHasCurrentSourceDiagnosticShape(rm RequestModel) bool {
+	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+		return true
+	}
+	return rm.DiagnosticProfile.CurrentVersionCheck
+}
+
 // CompileEnumerationDisplaySets compiles accepted complete principal
 // aggregate facts into deterministic rows. It is intentionally conservative:
-// only complete member carriers are compiled, and per-row evidence enriches an
-// existing member rather than adding or removing members.
+// diagnostic current-source support ledgers are skipped, complete member
+// carriers are compiled, and per-row evidence enriches an existing member
+// rather than adding or removing members.
 func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []EnumerationDisplaySet {
 	if plan == nil || len(plan.StableAggregateFacts) == 0 {
+		return nil
+	}
+	if rm == nil || !ShouldCompileEnumerationDisplaySetsForRequest(*rm) {
 		return nil
 	}
 	stableFacts := NormalizeAnswerAggregateMemberSetSurfaces(plan.StableAggregateFacts)

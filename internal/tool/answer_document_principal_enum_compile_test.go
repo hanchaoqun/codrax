@@ -604,6 +604,83 @@ func TestNormalizePrincipalEnumerationRowBlocks_DoesNotPromoteMechanismMemberSet
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_DoesNotAnnotateDiagnosticCurrentSourceMechanism(t *testing.T) {
+	mu := types.NewMutableState("结合当前源码区分模型响应超时和成文校验失败")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("timeout", "ErrStreamFirstByteTimeout", "internal/llm/stream_errors.go", 78, "first-byte timeout sentinel"),
+		enumEvidence("progress", "canUseFinalizerOutputAfterTransientProgress", "internal/orchestrator/orchestrator.go", 7506, "transient output preservation guard"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "诊断机制关键点",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"ErrStreamFirstByteTimeout", "canUseFinalizerOutputAfterTransientProgress"},
+		SupportRefs: []string{
+			"ErrStreamFirstByteTimeout @ internal/llm/stream_errors.go:78",
+			"canUseFinalizerOutputAfterTransientProgress @ internal/orchestrator/orchestrator.go:7506",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentRootCause,
+			Scenario:      types.ScenarioRootCause,
+			Language:      "zh",
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			DiagnosticProfile: types.DiagnosticIntentProfile{
+				IsDiagnostic:        true,
+				CurrentVersionCheck: true,
+				Confidence:          0.9,
+			},
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+				SourceQuotes:                        []string{"结合当前源码"},
+				Confidence:                          0.8,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "系统用流式超时哨兵和 finalizer 输出保留 guard 区分模型响应超时与成文校验失败。",
+		},
+		{
+			ID:          "hops",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{ID: "h1", Label: "Step 1", Text: "`ErrStreamFirstByteTimeout` 表示 first-byte 超时。", CitationRef: -1},
+				{ID: "h2", Label: "Step 2", Text: "`canUseFinalizerOutputAfterTransientProgress` 决定是否保留已有答案继续校验。", CitationRef: -1},
+			},
+		},
+	}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed != 0 {
+		t.Fatalf("diagnostic current-source mechanism support rows must not mutate visible answer, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("system supplement should not be appended: %+v", doc.Blocks)
+	}
+	for _, block := range doc.Blocks {
+		if testStringSliceContains(block.FacetIDs, string(types.FacetEnumerationItem)) {
+			t.Fatalf("diagnostic mechanism block should not gain enumeration facet: %+v", block)
+		}
+		for _, claim := range block.ClaimUses {
+			if claim.FacetID == string(types.FacetEnumerationItem) {
+				t.Fatalf("diagnostic mechanism block should not gain enumeration claim: %+v", block)
+			}
+		}
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_SuppressesGroupedCountComparisonSupplement(t *testing.T) {
 	mu := types.NewMutableState("对比两个子系统的节点类型数量和职责差异")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

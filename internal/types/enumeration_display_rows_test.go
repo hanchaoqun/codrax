@@ -93,6 +93,74 @@ func TestCompileEnumerationDisplaySets_MultiCategoryRowsPreserveRichNotes(t *tes
 	}
 }
 
+func TestCompileEnumerationDisplaySets_DiagnosticMechanismSupportOnly(t *testing.T) {
+	rm := &RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentVersionCheck: true,
+			Confidence:          0.9,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+			SourceQuotes:                        []string{"结合当前源码"},
+			Confidence:                          0.8,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "诊断机制关键点",
+			Value:   "2",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"ErrStreamFirstByteTimeout", "canUseFinalizerOutputAfterTransientProgress"},
+			SupportRefs: []string{
+				"ErrStreamFirstByteTimeout @ internal/llm/stream_errors.go:78",
+				"canUseFinalizerOutputAfterTransientProgress @ internal/orchestrator/orchestrator.go:7506",
+			},
+		}},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "timeout",
+				Kind:            EvidenceDirect,
+				Subject:         "ErrStreamFirstByteTimeout",
+				AnchorSymbol:    "ErrStreamFirstByteTimeout",
+				AnchorKind:      AnchorDefinition,
+				Source:          "internal/llm/stream_errors.go",
+				LineStart:       78,
+				Scope:           ScopeLine,
+				GroundingStatus: GroundingGrounded,
+				Summary:         "first-byte timeout sentinel",
+			},
+			{
+				ID:              "transient",
+				Kind:            EvidenceMechanism,
+				Subject:         "canUseFinalizerOutputAfterTransientProgress",
+				AnchorSymbol:    "canUseFinalizerOutputAfterTransientProgress",
+				AnchorKind:      AnchorDefinition,
+				Source:          "internal/orchestrator/orchestrator.go",
+				LineStart:       7506,
+				Scope:           ScopeLine,
+				GroundingStatus: GroundingGrounded,
+				Summary:         "transient progress preservation guard",
+			},
+		},
+	}
+
+	if ShouldCompileEnumerationDisplaySetsForRequest(*rm) {
+		t.Fatal("diagnostic/current-source mechanism shape must not compile principal enumeration rows")
+	}
+	if sets := CompileEnumerationDisplaySets(rm, plan); len(sets) != 0 {
+		t.Fatalf("diagnostic mechanism support member_set must stay support-only, got %+v", sets)
+	}
+}
+
 func TestCompileEnumerationDisplaySets_SourceInventorySuppressesUnrequestedValues(t *testing.T) {
 	rm := &RequestModel{
 		Language: "zh",
