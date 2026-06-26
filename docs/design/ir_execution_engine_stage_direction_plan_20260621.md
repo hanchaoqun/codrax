@@ -2404,6 +2404,12 @@ Remaining follow-up:
     3. Consumer change: literal fallback now consumes only line-shaped evidence fields that are typed/source-grounded for literal use: `AnchorKind=string_literal + AnchorSymbol`, validated `surface_terms`, and quoted literals in structured `Object`; `Summary` stays display/ranking context only.
     4. Guardrail tests: summary-only quoted literals do not synthesize answer symbols; typed string-literal anchors and surface terms still synthesize literal answer symbols.
     5. Red-line boundary: extractor fallback does not parse evidence Summary, user text, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels to create answer symbols.
+  - **Delivered D1-F10g.120 unavailable/tool-not-found repair hint typed metadata cutover（code complete / focused regression passed）**:
+    1. Target gap: `unavailableToolResult` built `ToolRepair.Hint` by prepending the rendered `ToolResult.Summary`, while the later `unknownToolResult` / tool-not-found branch had no typed repair at all.
+    2. Risk: unavailable-tool refusal is a loop-control event. The repair path should consume tool name, stage, current allowed tool set, and deterministic replan note as typed/state-derived fields, not the rendered summary string.
+    3. Consumer change: unavailable/tool-not-found repair now renders a bounded deterministic hint from the current tool schema and attaches `metadata.tool/stage/available_tools/reason_code`; Summary remains transparent user-facing text only.
+    4. Guardrail tests: unknown-tool rejection still explains the issue in Summary, but `Repair.Hint` no longer embeds Summary and `Repair.Metadata` carries the precise tool/stage/available tool set.
+    5. Red-line boundary: unavailable-tool loop repair consumes only canonical tool name, current stage, current tool schema, write verify-failure typed state, and structured repair metadata. It does not parse rendered Summary, user text, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

@@ -4555,11 +4555,30 @@ func unknownToolResult(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResu
 	if allowed != "" {
 		msg += "; available tools here: " + allowed
 	}
+	repairHint := "Use only the tools currently shown in this turn; if the needed tool is unavailable, continue with the structured emit/caveat path instead of retrying that tool."
+	if allowed != "" {
+		repairHint += " Available tools here: " + allowed + "."
+	}
+	metadata := map[string]string{
+		"tool":        strings.TrimSpace(tc.Name),
+		"reason_code": "tool_not_found",
+	}
+	if stage != "" {
+		metadata["stage"] = stage
+	}
+	if allowed != "" {
+		metadata["available_tools"] = allowed
+	}
 	return &types.ToolResult{
 		ToolName:  tc.Name,
 		Summary:   msg,
 		Success:   false,
 		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code:     unavailableToolSurfaceCode,
+			Hint:     repairHint,
+			Metadata: metadata,
+		},
 	}
 }
 
@@ -5576,10 +5595,12 @@ func unavailableToolResult(ctx *types.AgentContext, tc llm.ToolCall, available m
 	if ctx != nil && ctx.Stage != "" {
 		msg = fmt.Sprintf("tool %q is not available in the current %s turn", name, ctx.Stage)
 	}
-	if allowedNames := sortedToolNames(available); len(allowedNames) > 0 {
+	allowedNames := sortedToolNames(available)
+	if len(allowedNames) > 0 {
 		msg += "; available tools now: " + strings.Join(allowedNames, ", ")
 	}
-	if extra := unavailableToolVerifyReplanHint(ctx, available); extra != "" {
+	extra := unavailableToolVerifyReplanHint(ctx, available)
+	if extra != "" {
 		msg += ". " + extra
 	}
 	result := &types.ToolResult{
@@ -5588,9 +5609,24 @@ func unavailableToolResult(ctx *types.AgentContext, tc llm.ToolCall, available m
 		Success:   false,
 		Timestamp: time.Now(),
 	}
+	repairHint := "Use only the tools currently shown in this turn; if the needed tool is unavailable, continue with the structured emit/caveat path instead of retrying that tool."
+	if len(allowedNames) > 0 {
+		repairHint += " Available tools now: " + strings.Join(allowedNames, ", ") + "."
+	}
+	if extra != "" {
+		repairHint += " " + extra
+	}
+	metadata := map[string]string{"tool": name}
+	if ctx != nil && ctx.Stage != "" {
+		metadata["stage"] = string(ctx.Stage)
+	}
+	if len(allowedNames) > 0 {
+		metadata["available_tools"] = strings.Join(allowedNames, ",")
+	}
 	result.Repair = &types.ToolRepair{
-		Code: unavailableToolSurfaceCode,
-		Hint: result.Summary + ". Use only the tools currently shown in this turn; if the needed tool is unavailable, continue with the structured emit/caveat path instead of retrying that tool.",
+		Code:     unavailableToolSurfaceCode,
+		Hint:     repairHint,
+		Metadata: metadata,
 	}
 	return result
 }

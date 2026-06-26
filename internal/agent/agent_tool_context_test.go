@@ -1112,6 +1112,18 @@ func TestExecuteTool_UnknownToolReturnsFailedResult(t *testing.T) {
 			t.Fatalf("unknown-tool summary missing %q: %q", want, res.Summary)
 		}
 	}
+	if res.Repair == nil || res.Repair.Code != unavailableToolSurfaceCode {
+		t.Fatalf("unknown-tool result should publish typed repair, got %+v", res.Repair)
+	}
+	if strings.Contains(res.Repair.Hint, res.Summary) {
+		t.Fatalf("repair hint must not embed rendered Summary: hint=%q summary=%q", res.Repair.Hint, res.Summary)
+	}
+	if res.Repair.Metadata["tool"] != "read_file" || res.Repair.Metadata["stage"] != string(types.StageExtract) {
+		t.Fatalf("typed repair metadata missing tool/stage: %+v", res.Repair.Metadata)
+	}
+	if !strings.Contains(res.Repair.Metadata["available_tools"], "emit_answer_symbol") {
+		t.Fatalf("typed repair metadata should carry available tools: %+v", res.Repair.Metadata)
+	}
 }
 
 func TestExecuteTool_TruncatedParamsGetsTypedCompactGuidance(t *testing.T) {
