@@ -989,6 +989,28 @@ func TestGrepNoMatchPathDiscoveryAdvisory(t *testing.T) {
 	}
 }
 
+func TestGrepNoMatchRefinement_RegexShorthand(t *testing.T) {
+	refinement := grepNoMatchRefinement(&types.BusContext{}, grepToolParams{
+		Pattern: `foo\d+`,
+		Path:    "src",
+	}, "src", nil)
+	if refinement == nil {
+		t.Fatal("expected regex-shorthand zero-match refinement")
+	}
+	if refinement.ReasonCode != "grep_regex_shorthand_zero_match" {
+		t.Fatalf("reason = %q; refinement=%+v", refinement.ReasonCode, refinement)
+	}
+	if refinement.PreferredNextTool != "grep" {
+		t.Fatalf("preferred tool = %q; refinement=%+v", refinement.PreferredNextTool, refinement)
+	}
+	if got := refinement.PreferredParams["path"]; got != "src" {
+		t.Fatalf("preferred path = %q; refinement=%+v", got, refinement)
+	}
+	if len(refinement.RequiredFields) != 1 || refinement.RequiredFields[0] != "pattern" {
+		t.Fatalf("required fields = %+v; refinement=%+v", refinement.RequiredFields, refinement)
+	}
+}
+
 func TestExecCommandFindDiscoveryAdvisory(t *testing.T) {
 	got := execCommandFileDiscoveryAdvisory(`find . -name "*.ets" | head`)
 	if !strings.Contains(got, "list_files") ||
@@ -2198,6 +2220,22 @@ func TestGrepTool(t *testing.T) {
 		}
 		if strings.Contains(result.Summary, "relation_map") {
 			t.Fatalf("runtime artifact no-match should not suggest repo relation_map:\n%s", result.Summary)
+		}
+		if result.Refinement == nil {
+			t.Fatalf("runtime no-match should attach typed refinement")
+		}
+		refinement := types.NormalizeToolRefinementHint(*result.Refinement)
+		if refinement.ReasonCode != "grep_runtime_artifact_zero_match" {
+			t.Fatalf("runtime no-match reason = %q; refinement=%+v", refinement.ReasonCode, refinement)
+		}
+		if refinement.PreferredNextTool != "grep" {
+			t.Fatalf("runtime no-match preferred tool = %q; refinement=%+v", refinement.PreferredNextTool, refinement)
+		}
+		if got := refinement.PreferredParams["path"]; got != tmpFile {
+			t.Fatalf("runtime no-match preferred path = %q, want %q; refinement=%+v", got, tmpFile, refinement)
+		}
+		if len(refinement.RequiredFields) != 1 || refinement.RequiredFields[0] != "pattern" {
+			t.Fatalf("runtime no-match required fields = %+v; refinement=%+v", refinement.RequiredFields, refinement)
 		}
 	})
 

@@ -2272,6 +2272,13 @@ Remaining follow-up:
      3. Consumer: `explorerNavigationOrigins` now projects origins only from tool-name defaults and typed carrier fields. Summary token parsing remains only as an unused compatibility helper for audit; it is not called by the novelty scope path.
      4. Guardrail tests: a typed runtime observation from a non-source tool contributes `runtime_artifact`; a typed command measurement contributes `command_measurement`; a summary-only `origin=runtime_artifact` token on an otherwise unknown tool does not affect the novelty scope.
      5. Validation passed: `go test ./internal/agent -run 'ExplorerNavigationOrigins|ExternalSourceLogRedirect|Novelty' -count=1`.
+   - **Delivered D1-F10g.104 grep zero-match typed refinement carrier（code complete / focused regression passed）**:
+     1. Target gap: `grep` no-match advice for runtime/log/trace artifacts and regex shorthand compatibility is currently only rendered in Summary (`no_match_advisory=` / `regex_compatibility_note=`). Read retry still preserves these lines through a Summary-prefix fallback.
+     2. Risk: these hints are soft, but they directly steer follow-up search behavior in trace/log cases. Keeping the actionable class only in prose makes the model repair loop noisier and hides the class from typed handoff/progress tooling.
+     3. Producer: `grepNoMatchRefinement` now publishes reason codes for runtime-artifact zero match and regex-shorthand zero match, keeps `PreferredNextTool=grep`, preserves safe schema params (`path`, existing line window, existing file filters), and sets `RequiredFields=["pattern"]` where the model must supply a narrower literal/pattern.
+     4. Consumer: existing typed refinement rendering carries reason/params into continuation hints. Summary prefix fallback stays for older producer lines until all no-match producers have typed coverage.
+     5. Guardrail tests: runtime artifact no-match and regex-shorthand no-match both attach typed refinement; runtime no-match does not suggest repo_map/relation_map; summary remains user-visible for transparency.
+     6. Validation passed: `go test ./internal/tool -run 'GrepNoMatch|GrepTool' -count=1`.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

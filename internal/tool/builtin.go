@@ -1835,7 +1835,46 @@ func typedRelationKindsParam(in []types.TypedRelationKind) string {
 }
 
 func grepNoMatchRefinement(ctx *types.BusContext, params grepToolParams, searchPath string, base *types.ToolRefinementHint) *types.ToolRefinementHint {
-	return mergeToolRefinementHints(base, configuredSearchExcludeRootsRefinement(ctx, searchPath, "grep"))
+	refinement := mergeToolRefinementHints(base, grepZeroMatchRefinement(ctx, params, searchPath))
+	return mergeToolRefinementHints(refinement, configuredSearchExcludeRootsRefinement(ctx, searchPath, "grep"))
+}
+
+func grepZeroMatchRefinement(ctx *types.BusContext, params grepToolParams, searchPath string) *types.ToolRefinementHint {
+	reasonCode := ""
+	switch {
+	case grepParamsTargetRuntimeArtifactFile(ctx, params):
+		reasonCode = "grep_runtime_artifact_zero_match"
+	case !params.FixedString && grepPatternHasCommonRegexShorthand(params.Pattern):
+		reasonCode = "grep_regex_shorthand_zero_match"
+	default:
+		return nil
+	}
+	preferred := map[string]string{}
+	if path := firstNonEmptyString([]string{strings.TrimSpace(params.Path), strings.TrimSpace(searchPath)}); path != "" {
+		preferred["path"] = path
+	}
+	if strings.TrimSpace(params.FileType) != "" {
+		preferred["file_type"] = strings.TrimSpace(params.FileType)
+	}
+	if strings.TrimSpace(params.Include) != "" {
+		preferred["include"] = strings.TrimSpace(params.Include)
+	}
+	if params.LineStart > 0 {
+		preferred["line_start"] = strconv.Itoa(params.LineStart)
+	}
+	if params.LineEnd > 0 {
+		preferred["line_end"] = strconv.Itoa(params.LineEnd)
+	}
+	hint := types.NormalizeToolRefinementHint(types.ToolRefinementHint{
+		ReasonCode:        reasonCode,
+		PreferredNextTool: "grep",
+		PreferredParams:   preferred,
+		RequiredFields:    []string{"pattern"},
+	})
+	if hint.Empty() {
+		return nil
+	}
+	return &hint
 }
 
 func (t *GrepTool) Parameters() json.RawMessage {
