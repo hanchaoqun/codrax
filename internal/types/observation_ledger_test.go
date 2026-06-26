@@ -314,7 +314,8 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 	})
 
 	primary := findObservationRecord(t, ledger, "tool:0#trace_query:root_cause_rank:1")
-	if primary.Role != AnswerAggregateRolePrincipalAnswer ||
+	if primary.Role != AnswerAggregateRoleAuditLedger ||
+		primary.GroundingPolicy != ClaimGroundingDisplayOnly ||
 		primary.ProvenanceLane != ObservationProvenanceObservedDirectCause ||
 		primary.Predicate != "root_cause_primary" ||
 		primary.Object != "scheduler_latency" ||
@@ -322,19 +323,21 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 		primary.Unit != "ms" ||
 		primary.Span.LineStart != 110 ||
 		primary.Span.LineEnd != 120 ||
-		primary.Confidence != 0.88 {
-		t.Fatalf("trace_query primary root cause record lost priority/line metadata: %+v", primary)
+		primary.Confidence != 0.2 {
+		t.Fatalf("legacy trace_query summary root cause should be audit-only while preserving coordinates: %+v", primary)
 	}
 	if !observationLedgerTestContainsString(primary.RichNotes, "rank=1") ||
 		!observationLedgerTestContainsString(primary.RichNotes, "tier=primary") ||
 		!observationLedgerTestContainsString(primary.RichNotes, "score=86.320") ||
 		!observationLedgerTestContainsString(primary.RichNotes, "target_impact_ms=120.000") ||
 		!observationLedgerTestContainsString(primary.RichNotes, "causality=on_wakeup_chain") ||
-		!observationLedgerTestContainsString(primary.RichNotes, "chain_depth=1") {
+		!observationLedgerTestContainsString(primary.RichNotes, "chain_depth=1") ||
+		!observationLedgerTestContainsString(primary.RichNotes, "legacy_summary_fallback=true; not_answer_grade=true") {
 		t.Fatalf("trace_query primary root cause should preserve rank/tier/score notes: %+v", primary.RichNotes)
 	}
 	causal := findObservationRecord(t, ledger, "tool:0#trace_query:wakeup_causal_impact:1")
-	if causal.Role != AnswerAggregateRoleSupportingCoverage ||
+	if causal.Role != AnswerAggregateRoleAuditLedger ||
+		causal.GroundingPolicy != ClaimGroundingDisplayOnly ||
 		causal.Predicate != "wakeup_causal_impact" ||
 		causal.Subject != "worker-21" ||
 		causal.Object != "runnable" ||
@@ -362,7 +365,7 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 		t.Fatalf("trace_query wakeup_chain path should survive fallback parsing: %+v", wakeupPath)
 	}
 	root := findObservationRecord(t, ledger, "tool:0#trace_query:root_evidence:1")
-	if root.Role != AnswerAggregateRoleSupportingCoverage || root.Predicate != "binder_wait" || root.Span.LineStart != 90 {
+	if root.Role != AnswerAggregateRoleAuditLedger || root.GroundingPolicy != ClaimGroundingDisplayOnly || root.Predicate != "binder_wait" || root.Span.LineStart != 90 {
 		t.Fatalf("trace_query root evidence should survive as supporting runtime observation: %+v", root)
 	}
 	blocking := findObservationRecord(t, ledger, "tool:0#trace_query:critical_blocking:1")
@@ -407,7 +410,7 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 		bio.Unit != "ms" ||
 		bio.Span.LineStart != 3 ||
 		bio.ProvenanceLane != ObservationProvenanceArtifactSpan ||
-		bio.GroundingPolicy != ClaimGroundingSoft ||
+		bio.GroundingPolicy != ClaimGroundingDisplayOnly ||
 		!observationLedgerTestContainsString(bio.RichNotes, "bytes=4096") ||
 		!observationLedgerTestContainsString(bio.RichNotes, "callstack=BioRead>Submit") {
 		t.Fatalf("trace_query bio_resource should survive as runtime observation: %+v", bio)
@@ -461,7 +464,7 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 		churn.Unit != "ms" ||
 		churn.Span.LineStart != 111 ||
 		churn.Span.LineEnd != 119 ||
-		churn.Confidence != 0.83 ||
+		churn.Confidence != 0.2 ||
 		!observationLedgerTestContainsString(churn.RichNotes, "fragments=12") ||
 		!observationLedgerTestContainsString(churn.RichNotes, "max_segment=0.500ms") {
 		t.Fatalf("trace_query state_churn should survive as supporting runtime observation: %+v", churn)
@@ -515,9 +518,11 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 	rm := RequestModel{PerfTrace: &PerfBundle{Janks: []PerfJank{{TriggerSpan: "frame 7"}}}}
 	promptRecords := ProjectObservationPromptRecords(ledger.Records, &rm, nil, DefaultObservationPromptProjectionOptions(4))
 	if len(promptRecords) == 0 || promptRecords[0].ID != "tool:0#trace_query:root_cause_rank:1" {
-		t.Fatalf("principal root cause rank should be prompt-prioritized, got %+v", promptRecords)
+		t.Fatalf("legacy trace summary should remain visible as audit prompt context when no typed rows exist, got %+v", promptRecords)
 	}
-	if promptRecords[0].Producer != "trace_query" {
+	if promptRecords[0].Producer != "trace_query" ||
+		promptRecords[0].Role != AnswerAggregateRoleAuditLedger ||
+		promptRecords[0].GroundingPolicy != ClaimGroundingDisplayOnly {
 		t.Fatalf("trace_query producer should survive prompt projection, got %+v", promptRecords[0])
 	}
 }

@@ -71,14 +71,21 @@ func TestCompileObservationLedgerPrefersTypedToolRowsOverSummaryReparse(t *testi
 	}
 }
 
-// TestCompileObservationLedgerKeepsSummaryReparseFallback pins the fallback:
-// the same result WITHOUT typed rows still compiles via the summary re-parse.
+// TestCompileObservationLedgerKeepsSummaryReparseFallback pins the remaining
+// legacy fallback: the same result WITHOUT typed rows still compiles via the
+// summary re-parse, but only as low-confidence audit context.
 func TestCompileObservationLedgerKeepsSummaryReparseFallback(t *testing.T) {
 	result := typedTraceToolResult("unused")
 	result.Observations = nil
 	ledger := CompileObservationLedger(ObservationLedgerInput{ToolResults: []ToolResult{result}})
 	for _, record := range ledger.Records {
 		if strings.Contains(record.ID, "#trace_query:root_cause_rank:1") {
+			if record.Role != AnswerAggregateRoleAuditLedger ||
+				record.GroundingPolicy != ClaimGroundingDisplayOnly ||
+				record.Confidence != 0.2 ||
+				!observationRecordHasNote(record, "legacy_summary_fallback=true; not_answer_grade=true") {
+				t.Fatalf("legacy summary fallback should be audit-only: %+v", record)
+			}
 			return
 		}
 	}

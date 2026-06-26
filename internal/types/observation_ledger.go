@@ -1308,16 +1308,17 @@ func compileToolResultObservations(results []ToolResult, rowSetWriter Observatio
 		command := toolResultCommandLine(result.Summary)
 		origins := toolResultEvidenceOrigins(result)
 		if !typedCovered && strings.EqualFold(strings.TrimSpace(result.ToolName), "trace_query") {
-			compileTraceQueryToolResultObservations(i, result, banners, add)
+			compileTraceQueryToolResultObservations(i, result, banners, func(record ObservationRecord) {
+				add(legacySummaryToolObservationRecord(record))
+			})
 		}
 		for _, origin := range origins {
-			role := AnswerAggregateRoleSupportingCoverage
-			add(ObservationRecord{
+			add(legacySummaryToolObservationRecord(ObservationRecord{
 				ID:              fmt.Sprintf("tool:%d#%s", i, origin),
 				Origin:          origin,
 				Producer:        strings.TrimSpace(result.ToolName),
-				Role:            role,
-				GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
+				Role:            AnswerAggregateRoleAuditLedger,
+				GroundingPolicy: ClaimGroundingDisplayOnly,
 				SourceRef:       sourceRefForToolResult(origin, result, i, banners, command),
 				Span:            spanForToolResult(banners),
 				ClaimKey:        toolResultClaimKey(result, banners),
@@ -1326,7 +1327,7 @@ func compileToolResultObservations(results []ToolResult, rowSetWriter Observatio
 				RawExcerpt:      clippedObservationExcerpt(result.Summary),
 				RichNotes:       toolResultRichNotes(result.Summary),
 				ObservedAt:      result.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
-			})
+			}))
 		}
 	}
 }
@@ -1753,6 +1754,16 @@ func compactObservationStringTerms(values []string, max int) []string {
 		}
 	}
 	return out
+}
+
+func legacySummaryToolObservationRecord(record ObservationRecord) ObservationRecord {
+	record.Role = AnswerAggregateRoleAuditLedger
+	record.GroundingPolicy = ClaimGroundingDisplayOnly
+	if record.Confidence <= 0 || record.Confidence > 0.2 {
+		record.Confidence = 0.2
+	}
+	record.RichNotes = appendUniqueObservationString(record.RichNotes, "legacy_summary_fallback=true; not_answer_grade=true")
+	return record
 }
 
 func compileTraceQueryToolResultObservations(index int, result ToolResult, banners []map[string]string, add func(ObservationRecord)) {

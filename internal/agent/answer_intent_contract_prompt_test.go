@@ -224,7 +224,7 @@ func TestRenderAnswerDocClaimBindings_RuntimeArtifactWithoutAggregateFacts(t *te
 	}
 }
 
-func TestRenderAnswerDocObservationLedger_RendersVCSNarrativeAsOriginSpecificSupport(t *testing.T) {
+func TestRenderAnswerDocObservationLedger_RendersLegacyVCSNarrativeAsAuditOnly(t *testing.T) {
 	mut := types.NewMutableState("latest feature")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
 		ToolName: "git_log",
@@ -248,7 +248,9 @@ func TestRenderAnswerDocObservationLedger_RendersVCSNarrativeAsOriginSpecificSup
 		"`tool:0#vcs_metadata`",
 		"origin=`vcs_metadata`",
 		"producer=`git_log`",
-		"policy=`soft`",
+		"role=`audit_ledger`",
+		"policy=`display_only`",
+		"legacy_summary_fallback=true; not_answer_grade=true",
 		"abc123 Add observation ledger feature",
 		"Do not turn non-`current_source` observations into source `file:line` citation requirements",
 		"Do not expand abbreviated display strings such as git `--stat` paths containing `...`",
@@ -259,6 +261,51 @@ func TestRenderAnswerDocObservationLedger_RendersVCSNarrativeAsOriginSpecificSup
 	}
 	if strings.Contains(got, "value=\"abc123\"") {
 		t.Fatalf("history narrative ledger must not collapse the answer to a scalar commit id:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocObservationLedger_RendersTypedVCSHistoryAsOriginSpecificSupport(t *testing.T) {
+	mut := types.NewMutableState("latest feature")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "git_log",
+		Success:  true,
+		Summary:  "[git_log: evidence_origin=runtime_artifact count=99]\nrendered text is not the ledger source",
+		VCSHistory: &types.ToolVCSHistory{
+			Kind:     types.ToolVCSHistoryKindGitLog,
+			Commits:  []string{"abc123abc123abc123abc123abc123abc123abcd"},
+			Ref:      "HEAD",
+			Pathspec: "internal/agent",
+		},
+	}}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+			},
+		},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"`tool:0#vcs_metadata`",
+		"origin=`vcs_metadata`",
+		"producer=`git_log`",
+		"role=`supporting_coverage`",
+		"policy=`soft`",
+		"range=ref=HEAD count=1",
+		"pathspec=internal/agent",
+		"vcs_history kind=git_log ref=HEAD commits=1 pathspec=internal/agent",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed vcs history prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "rendered text is not the ledger source") ||
+		strings.Contains(got, "legacy_summary_fallback") {
+		t.Fatalf("typed vcs history prompt should not consume rendered summary:\n%s", got)
 	}
 }
 
