@@ -2259,6 +2259,13 @@ Remaining follow-up:
      4. Consumer: `postExternalLogRedirectSignal` reads only typed `ToolRepair.Code` from `emit_evidence` results. Rendered rejection text remains visible to the user but cannot trigger the redirect.
      5. Guardrail tests: MCP URI rows and runtime/log unresolved rows both stay out of current-source evidence, publish the typed repair, and trigger the mid-loop redirect from typed repair only; a summary-only historical rejection does not trigger the redirect.
      6. Validation passed: `go test ./internal/tool ./internal/agent ./internal/types -run 'ExternalObservation|ExternalSourceLogRedirect|RuntimeUnresolved|MCPURI|LoopPolicy|ReadFilePathMiss' -count=1`.
+   - **Delivered D1-F10g.102 runtime/log grep line-window refinement carrier（code complete / focused regression passed）**:
+     1. Target gap: broad `grep` over a single runtime/log/trace artifact already computes `line_window_hint` / `line_windows`, but those actionable coordinates currently live only in rendered `Summary`. `read_stage_retry` therefore keeps a summary-prefix fallback to preserve useful continuation hints.
+     2. Risk: the fallback is advisory, but it is still a prompt/continuation surface whose precision comes from tool-computed coordinates. Keeping it in prose increases model repair mind and makes future hard/soft boundary audits harder.
+     3. Producer: when broad runtime/log/trace grep compacts output and computes line windows, it now attaches the first read-file window and compact multi-window description to `ToolRefinementHint.PreferredParams` while preserving existing user-visible Summary lines.
+     4. Consumer: existing `continuationToolRefinementHint` renders the typed `PreferredParams`; its per-row cap was raised from 220 to 360 chars so a bounded line-window param set is not clipped. The legacy summary-prefix fallback remains until every producer that emits those prefixes has a typed carrier.
+     5. Guardrail tests: runtime grep refinement exposes `read_file_path/read_file_line_offset/read_file_limit/grep_line_start/grep_line_end/line_windows`; continuation retry hint renders those typed params and ignores summary-only duplicate text when refinement is present.
+     6. Validation passed: `go test ./internal/tool ./internal/orchestrator -run 'BroadGrep|RuntimeArtifact|ContinuationHint|ExploreFactRetryContinuationHint|Grep' -count=1`.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

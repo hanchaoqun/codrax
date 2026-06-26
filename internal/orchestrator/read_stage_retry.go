@@ -646,7 +646,7 @@ func continuationToolRefinementHint(result types.ToolResult) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return logging.Truncate("tool_refinement "+strings.Join(parts, " "), 220)
+	return logging.Truncate("tool_refinement "+strings.Join(parts, " "), 360)
 }
 
 func continuationToolResultRefinement(result types.ToolResult) (types.ToolRefinementHint, bool) {

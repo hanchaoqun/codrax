@@ -2965,6 +2965,20 @@ func TestGrepTool(t *testing.T) {
 		if got := refinement.PreferredParams["context_lines"]; got != "0" {
 			t.Fatalf("runtime artifact should keep context_lines=0, got %q; refinement=%+v", got, refinement)
 		}
+		for key, want := range map[string]string{
+			"read_file_path":        "record_trace.systrace",
+			"read_file_line_offset": "979",
+			"read_file_limit":       "41",
+			"grep_line_start":       "980",
+			"grep_line_end":         "1020",
+		} {
+			if got := refinement.PreferredParams[key]; got != want {
+				t.Fatalf("runtime artifact line-window param %s=%q, want %q; refinement=%+v", key, got, want, refinement)
+			}
+		}
+		if got := refinement.PreferredParams["line_window"]; !strings.Contains(got, "record_trace.systrace:980-1119(matches=100)") {
+			t.Fatalf("runtime artifact line_window = %q; refinement=%+v", got, refinement)
+		}
 	})
 
 	t.Run("broad runtime artifact grep emits multiple line windows", func(t *testing.T) {

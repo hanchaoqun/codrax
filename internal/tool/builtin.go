@@ -2500,6 +2500,9 @@ func grepBroadResultRefinement(ctx *types.BusContext, params grepToolParams, raw
 	}
 	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
 		hint.PreferredParams["context_lines"] = "0"
+		for key, value := range grepLineWindowPreferredParams(collectGrepLineWindows(production, params.FilesOnly, grepLineWindowHintMax)) {
+			hint.PreferredParams[key] = value
+		}
 		hint.RequiredFields = []string{"pattern"}
 		return &hint
 	}
@@ -2523,6 +2526,40 @@ func firstGrepOutputPath(lines []string, filesOnly bool) string {
 		}
 	}
 	return ""
+}
+
+func grepLineWindowPreferredParams(windows []grepLineWindow) map[string]string {
+	if len(windows) == 0 {
+		return nil
+	}
+	first := windows[0]
+	lineNo := first.Line
+	if lineNo <= 0 {
+		lineNo = first.First
+	}
+	start := lineNo - grepLineWindowHalfSpan
+	if start < 1 {
+		start = 1
+	}
+	end := lineNo + grepLineWindowHalfSpan
+	limit := end - start + 1
+	out := map[string]string{
+		"read_file_path":        first.Path,
+		"read_file_line_offset": strconv.Itoa(start - 1),
+		"read_file_limit":       strconv.Itoa(limit),
+		"grep_line_start":       strconv.Itoa(start),
+		"grep_line_end":         strconv.Itoa(end),
+	}
+	if len(windows) == 1 {
+		out["line_window"] = fmt.Sprintf("%s:%d-%d(matches=%d)", first.Path, first.First, first.Last, first.Count)
+		return out
+	}
+	parts := make([]string, 0, len(windows))
+	for _, w := range windows {
+		parts = append(parts, fmt.Sprintf("%s:%d-%d(matches=%d)", w.Path, w.First, w.Last, w.Count))
+	}
+	out["line_windows"] = strings.Join(parts, "; ")
+	return out
 }
 
 func grepSkippedLargeRefinement(paths []string, skippedTotal int) *types.ToolRefinementHint {
