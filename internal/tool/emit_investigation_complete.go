@@ -1450,7 +1450,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// emitted code-shape members whose evidence does not name them
 	// verbatim — repair belongs at the explorer turn, not in finalize.
 	memberValidationStart := time.Now()
-	if err := validateAggregateMemberSetSupportRefs(ctx, effectiveAggregateFacts); err != nil {
+	if err := validateAggregateMemberSetSupportRefs(ctx, effectiveAggregateFacts, evidenceSnapshot); err != nil {
 		queueCompletionFormRepair(ctx, "member_set_support_refs", err.Error())
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneCompletionForm) {
 			if ctx != nil && ctx.Mutable != nil {
@@ -5071,6 +5071,7 @@ type aggregateMemberSupportIndex struct {
 	byLabel                         map[string][]types.EvidenceItem
 	byLocation                      map[string][]types.EvidenceItem
 	byID                            map[string]types.EvidenceItem
+	valueLiteralEvidence            []types.EvidenceItem
 	answerSyms                      map[string]types.AnswerSymbol
 	toolLinesByLocation             map[string][]string
 	sourceInventoryLabelsByLocation map[string][]string
@@ -5109,6 +5110,9 @@ func buildAggregateMemberSupportIndexWithEvidence(ctx *types.BusContext, evidenc
 		}
 		if loc := aggregateSupportLocationKey(ev.Source, ev.LineStart); loc != "" {
 			idx.byLocation[loc] = append(idx.byLocation[loc], ev)
+		}
+		if aggregateEvidenceCanCarryValueLiteral(ev) {
+			idx.valueLiteralEvidence = append(idx.valueLiteralEvidence, ev)
 		}
 		for _, raw := range aggregateEvidenceMemberLabels(ev) {
 			key := aggregateMemberKey(raw)
@@ -5253,7 +5257,7 @@ func memberHasDecoratedCodeIdentityBase(member string) bool {
 // list row citation_refs. When the two halves disagree, every row
 // quoting a decorated code-shape member gets rejected with
 // candidate_citations=[]; the model has no path to fix it because
-// the missing data is upstream.
+// the missing or unresolved data is upstream.
 //
 // Run AFTER enrichCompletionAggregateFactsWithMemberSupportWithEvidence
 // so auto-fillable members get their support_refs first. The check
@@ -5262,30 +5266,43 @@ func memberHasDecoratedCodeIdentityBase(member string) bool {
 // "StageAnalyze" against verbatim evidence anchors; the decorator
 // (parens + qualifier) makes verbatim matching fail and the
 // finalizer has no way to recover. Reaching this validator with
-// empty SupportRefs + decorated code-shape members means the
-// explorer must either attach support_refs explicitly or drop the
-// decorator so the bare symbol can auto-resolve.
-func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) error {
+// empty or unresolved SupportRefs + decorated code-shape members
+// means the explorer must either attach support_refs that resolve to
+// grounded member evidence or drop the decorator so the bare symbol
+// can auto-resolve.
+func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) error {
+	support := buildAggregateMemberSupportIndexWithEvidence(ctx, evidence)
 	for _, fact := range facts {
 		if fact.Kind != types.AnswerAggregateMemberSet {
 			continue
 		}
-		if len(fact.SupportRefs) > 0 {
-			continue
-		}
-		var decorated []string
+		var missing []string
+		var unresolved []string
 		for _, member := range fact.Members {
 			if decoratedAggregateMemberCanRelyOnOriginSpecificProvenance(ctx, fact, member) {
 				continue
 			}
-			if memberHasDecoratedCodeIdentityBase(member) {
-				decorated = append(decorated, member)
+			if !memberHasDecoratedCodeIdentityBase(member) {
+				continue
+			}
+			if len(fact.SupportRefs) == 0 {
+				missing = append(missing, member)
+				continue
+			}
+			if !aggregateMemberSetSupportRefsResolveMember(fact, member, support) {
+				unresolved = append(unresolved, member)
 			}
 		}
-		if len(decorated) == 0 {
+		if len(missing) == 0 && len(unresolved) == 0 {
 			continue
 		}
-		sample := decorated
+		problem := missing
+		problemKind := "support_refs is empty"
+		if len(problem) == 0 {
+			problem = unresolved
+			problemKind = "support_refs do not resolve to the cited member"
+		}
+		sample := problem
 		if len(sample) > 3 {
 			sample = sample[:3]
 		}
@@ -5294,8 +5311,8 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 			quoted = append(quoted, fmt.Sprintf("%q", m))
 		}
 		omitted := ""
-		if len(decorated) > len(sample) {
-			omitted = fmt.Sprintf(" (+%d more)", len(decorated)-len(sample))
+		if len(problem) > len(sample) {
+			omitted = fmt.Sprintf(" (+%d more)", len(problem)-len(sample))
 		}
 		label := strings.TrimSpace(fact.Label)
 		if label == "" {
@@ -5303,7 +5320,7 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 		}
 		return fmt.Errorf(
 			"aggregate_facts: member_set %q has %d member(s) shaped as "+
-				"\"<code identifier> (<qualifier>)\" (%s%s) but support_refs is empty. "+
+				"\"<code identifier> (<qualifier>)\" (%s%s) but %s. "+
 				"Decorated code-shape members never auto-resolve against evidence anchors, "+
 				"so downstream answer rendering cannot align row item citation_ref values "+
 				"without explicit per-member grounding. Re-emit with support_refs in either "+
@@ -5312,10 +5329,58 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 				"or positional [\"<file>:<line>\", …] with one entry per members[] in the "+
 				"same order. If you cannot ground a member, drop the decorator so the "+
 				"bare symbol can auto-resolve, or remove the member entirely.",
-			label, len(decorated), strings.Join(quoted, ", "), omitted,
+			label, len(problem), strings.Join(quoted, ", "), omitted, problemKind,
 		)
 	}
 	return nil
+}
+
+func aggregateMemberSetSupportRefsResolveMember(fact types.AnswerAggregateFact, member string, support aggregateMemberSupportIndex) bool {
+	labels := aggregateMemberDisplayCandidates(member)
+	if len(labels) == 0 {
+		return false
+	}
+	if loc, ok := aggregateMemberSetPositionalSupportLocation(fact, memberIndexInAggregateFact(fact, member), labels); ok {
+		if !aggregateSupportLocationCompatibleWithMember(member, loc) {
+			return false
+		}
+		return aggregateSupportLocationMatchesMemberLabels(loc, labels, support)
+	}
+	for _, ref := range fact.SupportRefs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		if aggregateSourceInventorySupportRefMatchesLabels(ref, labels, support.sourceInventoryLabelsBySupport) {
+			return true
+		}
+		if ev, ok := support.byID[ref]; ok && aggregateEvidenceMatchesAnyLabel(ev, labels) {
+			return true
+		}
+		label, loc, ok := aggregateMemberSupportRefParts(ref)
+		if !ok {
+			continue
+		}
+		if !aggregateSupportLocationCompatibleWithMember(member, loc) || !aggregateSupportLabelMatchesMember(label, labels) {
+			continue
+		}
+		refLabels := aggregateSupportLabels(label, aggregateMemberLocationSupportLabels(member, labels))
+		if aggregateLocationEvidenceMatchesLabels(loc, refLabels, support.byLocation) ||
+			aggregateToolLocationMatchesLabels(loc, refLabels, support.toolLinesByLocation) ||
+			aggregateSourceInventoryLocationMatchesLabels(loc, refLabels, support.sourceInventoryLabelsByLocation) {
+			return true
+		}
+	}
+	return false
+}
+
+func memberIndexInAggregateFact(fact types.AnswerAggregateFact, member string) int {
+	for idx, candidate := range fact.Members {
+		if candidate == member {
+			return idx
+		}
+	}
+	return -1
 }
 
 func decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx *types.BusContext, fact types.AnswerAggregateFact, member string) bool {
@@ -5665,10 +5730,12 @@ func aggregateMemberSetMemberUsableAt(fact types.AnswerAggregateFact, member str
 		if !aggregateSupportLocationCompatibleWithMember(member, loc) {
 			continue
 		}
-		if aggregateSupportRefLabelIsSpecificMember(label, labels) && aggregateSupportLocationVerified(loc, support) {
+		if aggregateSupportLocationMatchesMemberLabels(loc, labels, support) {
 			return true
 		}
-		if aggregateSupportLocationMatchesMemberLabels(loc, labels, support) {
+		if aggregateSupportLabelMatchesMember(label, labels) &&
+			aggregateSupportLocationVerified(loc, support) &&
+			aggregateMemberValueLiteralCoveredByEvidence(labels, support) {
 			return true
 		}
 		if !aggregateSupportLabelMatchesMember(label, labels) {
@@ -6205,14 +6272,6 @@ func aggregateSupportLabelMatchesMember(label string, memberLabels []string) boo
 	return false
 }
 
-func aggregateSupportRefLabelIsSpecificMember(label string, memberLabels []string) bool {
-	label = strings.TrimSpace(label)
-	if label == "" || types.AnswerSupportRefLabelIsGeneric(label) {
-		return false
-	}
-	return aggregateSupportLabelMatchesMember(label, memberLabels)
-}
-
 func aggregateSupportLabels(label string, fallback []string) []string {
 	label = strings.TrimSpace(label)
 	if label == "" {
@@ -6230,6 +6289,9 @@ func aggregateLocationEvidenceMatchesLabels(location string, labels []string, by
 			return true
 		}
 		if aggregateEvidenceTextContainsAnyLabel(ev, labels) {
+			return true
+		}
+		if aggregateEvidenceValueLiteralContainsAnyLabel(ev, labels) {
 			return true
 		}
 	}
@@ -6291,22 +6353,73 @@ func aggregateEvidenceTextContainsAnyLabel(ev types.EvidenceItem, labels []strin
 
 func aggregateEvidenceMemberSupportText(ev types.EvidenceItem) string {
 	text := strings.TrimSpace(ev.Snippet)
-	if ev.LoadBearingSummary || aggregateValueBearingEvidenceCanUseSummary(ev) {
+	if ev.LoadBearingSummary {
 		text = strings.TrimSpace(text + "\n" + ev.Summary)
 	}
 	return text
 }
 
-func aggregateValueBearingEvidenceCanUseSummary(ev types.EvidenceItem) bool {
+func aggregateMemberValueLiteralCoveredByEvidence(labels []string, support aggregateMemberSupportIndex) bool {
+	for _, ev := range support.valueLiteralEvidence {
+		if aggregateEvidenceValueLiteralContainsAnyLabel(ev, labels) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateEvidenceCanCarryValueLiteral(ev types.EvidenceItem) bool {
 	if ev.GroundingStatus == types.GroundingUngrounded {
 		return false
 	}
+	if strings.TrimSpace(ev.Snippet) != "" {
+		return true
+	}
+	if strings.TrimSpace(ev.Summary) == "" {
+		return false
+	}
+	if ev.LoadBearingSummary {
+		return true
+	}
 	switch ev.AnchorKind {
 	case types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer, types.AnchorStringLiteral:
-		return strings.TrimSpace(ev.Summary) != ""
+		return true
 	default:
 		return false
 	}
+}
+
+func aggregateEvidenceValueLiteralContainsAnyLabel(ev types.EvidenceItem, labels []string) bool {
+	if ev.GroundingStatus == types.GroundingUngrounded {
+		return false
+	}
+	if aggregateQuotedValueTextContainsAnyLabel(ev.Snippet, labels) {
+		return true
+	}
+	if ev.LoadBearingSummary || ev.AnchorKind == types.AnchorReturn || ev.AnchorKind == types.AnchorAssignment ||
+		ev.AnchorKind == types.AnchorInitializer || ev.AnchorKind == types.AnchorStringLiteral {
+		return aggregateQuotedValueTextContainsAnyLabel(ev.Summary, labels)
+	}
+	return false
+}
+
+func aggregateQuotedValueTextContainsAnyLabel(text string, labels []string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	for _, label := range labels {
+		label = strings.TrimSpace(label)
+		if label == "" || types.AnswerSupportRefLabelIsGeneric(label) {
+			continue
+		}
+		for _, quote := range []string{`"`, `'`, "`"} {
+			if strings.Contains(text, quote+label+quote) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func aggregateEvidenceMatchesAnyLabel(ev types.EvidenceItem, labels []string) bool {

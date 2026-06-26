@@ -3228,6 +3228,73 @@ func TestEmitInvestigationComplete_DoesNotVerifyMemberSupportFromNonReadFileSumm
 	}
 }
 
+func TestEmitInvestigationComplete_DoesNotVerifyMemberSupportFromEvidenceSummary(t *testing.T) {
+	mut := types.NewMutableState("Which handlers run?")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "handler-return",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "src/render/handler.go",
+		LineStart:       42,
+		AnchorKind:      types.AnchorReturn,
+		AnchorSymbol:    "returnValue",
+		Subject:         "returnValue",
+		Snippet:         "return h.delegate(ctx)",
+		Summary:         "RenderHandler.processFrame returns through delegate",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "render handlers",
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"handler list collected",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"handlers",
+			"value":"1",
+			"members":["RenderHandler.processFrame (current implementation)"],
+			"support_refs":["RenderHandler.processFrame: src/render/handler.go:42"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("summary-only support debt should downgrade, not tool-fail: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("ordinary evidence summary must not verify decorated member support_refs; summary=%s facts=%+v", res.Summary, mut.StableInvestigationAggregateFacts())
+	}
+	if !strings.Contains(res.Summary, EmitInvestigationCompleteDowngradePrefix) {
+		t.Fatalf("expected a typed pre-complete downgrade, got: %s", res.Summary)
+	}
+}
+
+func TestAggregateEvidenceMemberSupportText_OnlyLoadBearingSummaryCarriesSummary(t *testing.T) {
+	ev := types.EvidenceItem{
+		AnchorKind:      types.AnchorReturn,
+		Snippet:         "return value",
+		Summary:         "opaque runtime scalar abc123",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	if got := aggregateEvidenceMemberSupportText(ev); strings.Contains(got, ev.Summary) {
+		t.Fatalf("ordinary summaries must not enter member support text, got %q", got)
+	}
+	ev.LoadBearingSummary = true
+	if got := aggregateEvidenceMemberSupportText(ev); !strings.Contains(got, ev.Summary) {
+		t.Fatalf("load-bearing summaries should remain explicit support carriers, got %q", got)
+	}
+}
+
 func TestEmitInvestigationComplete_AutoFillsMemberSupportFromUniqueGroundedEvidence(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
