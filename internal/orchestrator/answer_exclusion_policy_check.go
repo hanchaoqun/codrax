@@ -126,6 +126,9 @@ func runTypedErrorGranularityProfileCheck(doc *types.AnswerDocumentV2, rm *types
 	if doc == nil || rm == nil || rm.ErrorGranularityProfile == nil || !rm.ErrorGranularityProfile.Active() {
 		return nil
 	}
+	if !types.ShouldCarryErrorGranularityHardContract(*rm) {
+		return nil
+	}
 	if !types.MissingErrorGranularityVerdict(doc, rm.ErrorGranularityProfile) {
 		if verdict, mismatch := types.ErrorGranularityVerdictOptionMismatch(doc, rm.ErrorGranularityProfile); mismatch {
 			options := make([]string, 0, len(rm.ErrorGranularityProfile.RequestedVerdictOptions))

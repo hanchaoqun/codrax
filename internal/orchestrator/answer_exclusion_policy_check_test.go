@@ -194,6 +194,36 @@ func TestRunTypedErrorGranularityProfileCheck_RequiresTypedDecisionVerdict(t *te
 	}
 }
 
+func TestRunTypedErrorGranularityProfileCheck_SkipsDiagnosticMechanismProfile(t *testing.T) {
+	rm := &types.RequestModel{
+		Intent:        types.IntentRootCause,
+		Scenario:      types.ScenarioRootCause,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		ErrorGranularityProfile: &types.ErrorGranularityProfile{
+			IsGranularityQuestion: true,
+			RequestedVerdictOptions: []types.ErrorGranularityVerdict{
+				types.ErrorGranularityPerItemRejection,
+				types.ErrorGranularityWholeBatch,
+			},
+			Confidence: 0.85,
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "mechanism",
+			Kind:        types.BlockSection,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "The answer explains two diagnostic failure mechanisms.",
+		}},
+	}
+	if got := runTypedErrorGranularityProfileCheck(doc, rm); len(got) != 0 {
+		t.Fatalf("diagnostic mechanism explanation should not require failure-scope verdict: %+v", got)
+	}
+}
+
 func TestRunTypedErrorGranularityProfileCheck_DoesNotReadProse(t *testing.T) {
 	rm := &types.RequestModel{
 		RawRequest: "does one bad record fail the whole batch",

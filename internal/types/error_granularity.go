@@ -66,6 +66,59 @@ func (p *ErrorGranularityProfile) Active() bool {
 	return p != nil && p.IsGranularityQuestion
 }
 
+// ShouldCarryErrorGranularityHardContract reports whether the optional
+// error-granularity lane is precise enough to become a hard answer contract.
+//
+// Failure-scope questions ("one record vs whole batch", "fail fast vs
+// collect") are valid decision answers. Diagnostic / runtime mechanism
+// questions are different: they often compare failure classes or stages, but
+// that does not mean the answer must carry a per-item / whole-batch verdict.
+// This helper deliberately consumes only typed analyzer fields; it never reads
+// raw request text or model rationale.
+func ShouldCarryErrorGranularityHardContract(rm RequestModel) bool {
+	if rm.ErrorGranularityProfile == nil || !rm.ErrorGranularityProfile.Active() {
+		return false
+	}
+	if !errorGranularityHasDiagnosticMechanismShape(rm) {
+		return true
+	}
+	return errorGranularityHasDedicatedFailureScopeAnswerShape(rm)
+}
+
+// ErrorGranularityConflictsWithDiagnosticMechanism reports the softening case:
+// an active profile exists, but the typed request shape is a diagnostic /
+// runtime mechanism explanation rather than a precise failure-scope verdict.
+func ErrorGranularityConflictsWithDiagnosticMechanism(rm RequestModel) bool {
+	return rm.ErrorGranularityProfile != nil &&
+		rm.ErrorGranularityProfile.Active() &&
+		errorGranularityHasDiagnosticMechanismShape(rm) &&
+		!errorGranularityHasDedicatedFailureScopeAnswerShape(rm)
+}
+
+func errorGranularityHasDiagnosticMechanismShape(rm RequestModel) bool {
+	if rm.Predicates.IsDiagnosticQuestion ||
+		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() {
+		return true
+	}
+	if rm.Intent == IntentRootCause ||
+		rm.Scenario == ScenarioRootCause ||
+		rm.Scenario == ScenarioPerformanceBottleneck {
+		return true
+	}
+	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+		return true
+	}
+	return false
+}
+
+func errorGranularityHasDedicatedFailureScopeAnswerShape(rm RequestModel) bool {
+	if rm.Intent == IntentReturnValue || rm.Predicates.IsScalarAnswer {
+		return true
+	}
+	return NormalizeRequirementKind(rm.AnalyzerHints.Kind) == ReqReturnValue
+}
+
 // ErrorGranularityCountsAreContextual reports whether numeric/count-like
 // phrases in the request describe the failure scenario rather than the answer
 // set. It consumes only typed analyzer lanes: the active error-granularity

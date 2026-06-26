@@ -106,3 +106,56 @@ func TestIsFailureScopeDecisionAnswer(t *testing.T) {
 		t.Fatal("explicit category answer predicate should win over the decision helper")
 	}
 }
+
+func TestShouldCarryErrorGranularityHardContract_DiagnosticMechanismSoftens(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
+		ErrorGranularityProfile: &ErrorGranularityProfile{
+			IsGranularityQuestion: true,
+			RequestedVerdictOptions: []ErrorGranularityVerdict{
+				ErrorGranularityPerItemRejection,
+				ErrorGranularityWholeBatch,
+			},
+			SourceQuotes: []string{"distinguish the two failure classes"},
+			Confidence:   0.85,
+		},
+	}
+
+	if ShouldCarryErrorGranularityHardContract(rm) {
+		t.Fatal("diagnostic mechanism explanation must not force a failure-scope verdict")
+	}
+	if !ErrorGranularityConflictsWithDiagnosticMechanism(rm) {
+		t.Fatal("diagnostic mechanism conflict should be visible for softening/audit")
+	}
+}
+
+func TestShouldCarryErrorGranularityHardContract_ReturnValueFailureScopeCarries(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentReturnValue,
+		Predicates: SemanticPredicates{
+			IsScalarAnswer: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqReturnValue)},
+		ErrorGranularityProfile: &ErrorGranularityProfile{
+			IsGranularityQuestion: true,
+			RequestedVerdictOptions: []ErrorGranularityVerdict{
+				ErrorGranularityPerItemRejection,
+				ErrorGranularityWholeBatch,
+			},
+			SourceQuotes: []string{"reject just that record or fail the whole batch"},
+			Confidence:   0.95,
+		},
+	}
+
+	if !ShouldCarryErrorGranularityHardContract(rm) {
+		t.Fatal("scalar return-value failure-scope question should keep the hard verdict contract")
+	}
+	if ErrorGranularityConflictsWithDiagnosticMechanism(rm) {
+		t.Fatal("non-diagnostic failure-scope question should not be reported as a diagnostic conflict")
+	}
+}

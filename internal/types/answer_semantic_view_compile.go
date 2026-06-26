@@ -210,6 +210,9 @@ func applyErrorGranularityProfile(view *AnswerSemanticView, ir *AnalysisIR) {
 		!ir.RequestModel.ErrorGranularityProfile.Active() {
 		return
 	}
+	if !ShouldCarryErrorGranularityHardContract(ir.RequestModel) {
+		return
+	}
 	profile := *ir.RequestModel.ErrorGranularityProfile
 	view.ErrorGranularityProfile = &profile
 	ensureErrorGranularityDecisionBlock(view)

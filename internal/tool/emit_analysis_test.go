@@ -4915,6 +4915,69 @@ func TestEmitAnalysis_Execute_PersistsErrorGranularityProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_SoftensDiagnosticMechanismErrorGranularityProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("请结合当前源码区分模型响应超时和成文校验失败的机制")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "root_cause",
+		"scenario": "root_cause",
+		"complexity": "moderate",
+		"keywords": ["model", "timeout", "finalizer"],
+		"entities": ["model timeout", "finalizer validation"],
+		"question_kind": "mechanism",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": true, "has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": true,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": true,
+			"confidence": 0.8
+		},
+		"current_source_explanation_profile": {
+			"is_current_source_explanation_requested": true,
+			"modes": ["explain_current_mechanism"],
+			"source_quotes": ["结合当前源码"],
+			"confidence": 0.8
+		},
+		"error_granularity_profile": {
+			"is_granularity_question": true,
+			"requested_verdict_options": ["per_item_rejection", "whole_batch_failure"],
+			"source_quotes": ["区分模型响应超时和成文校验失败"],
+			"confidence": 0.85,
+			"rationale": "diagnostic class distinction is not a failure-scope verdict"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should soften optional diagnostic error granularity, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.ErrorGranularityProfile != nil {
+		t.Fatalf("diagnostic mechanism profile should not force error granularity contract: %+v", rm.ErrorGranularityProfile)
+	}
+	if !strings.Contains(res.Summary, "error_granularity_profile auto-softened") {
+		t.Fatalf("summary should report softening warning, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_Execute_SoftensUngroundedErrorGranularityProfile(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

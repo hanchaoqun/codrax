@@ -279,3 +279,36 @@ func TestBuildAnswerSemanticView_ErrorGranularityRequiresPrincipalDecision(t *te
 	}
 	t.Fatalf("missing required decision block: %+v", view.RequiredBlocks)
 }
+
+func TestBuildAnswerSemanticView_DiagnosticMechanismDoesNotRequireErrorGranularityDecision(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Intent:        IntentRootCause,
+			Scenario:      ScenarioRootCause,
+			AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
+			Predicates: SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			ErrorGranularityProfile: &ErrorGranularityProfile{
+				IsGranularityQuestion: true,
+				RequestedVerdictOptions: []ErrorGranularityVerdict{
+					ErrorGranularityPerItemRejection,
+					ErrorGranularityWholeBatch,
+				},
+				Confidence: 0.85,
+			},
+		},
+	}
+	view := BuildAnswerSemanticView(ir, nil)
+	if view == nil {
+		t.Fatal("view nil")
+	}
+	if view.ErrorGranularityProfile != nil {
+		t.Fatalf("diagnostic mechanism explanation must not propagate error granularity profile: %+v", view.ErrorGranularityProfile)
+	}
+	for _, req := range view.RequiredBlocks {
+		if req.Kind == BlockDecision && req.SurfaceRoleHint == SurfacePrincipal {
+			t.Fatalf("diagnostic mechanism explanation should not add principal decision block: %+v", req)
+		}
+	}
+}

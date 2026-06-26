@@ -1476,6 +1476,12 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 	projectRuntimeArtifactPathHintsFromRawRequest(&rm, raw)
 	attachRuntimeArtifactsToRequestModel(ctx, &rm)
+	if types.ErrorGranularityConflictsWithDiagnosticMechanism(rm) {
+		rm.ErrorGranularityProfile = nil
+		warning := "error_granularity_profile auto-softened: diagnostic/current-source explanation is not a precise failure-scope verdict request"
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if droppedSourceInventory, warning := dropSourceInventoryProfileForTypedRelation(&rm); droppedSourceInventory {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
