@@ -2416,6 +2416,12 @@ Remaining follow-up:
     3. Consumer change: subject boost now uses only structured `Object`, `AnchorKind=string_literal + AnchorSymbol`, or validated `surface_terms`; Summary is excluded from rank-control.
     4. Guardrail tests: summary-only quoted route does not boost; string-literal anchor and surface term still boost the same typed answer-subject lane.
     5. Red-line boundary: evidence relevance subject boost consumes only typed evidence fields and analyzer-emitted AnswerSubject. It does not parse evidence Summary, user text, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
+  - **Delivered D1-F10g.122 CGEC stall fingerprint typed chain-terminal cutover（code complete / focused regression passed）**:
+    1. Target gap: `hashChainTerminals` used `EvidenceItem.Summary` for `dataflow_path/resolution_chain` terminal extraction, and that hash is part of `ClosureFingerprint`. Repeated identical fingerprints can trigger forced-read repair and ultimately force-complete/downgrade the investigation, so rendered evidence prose must not be a convergence authority.
+    2. Consumer change: chain-terminal hashing now consumes only deterministic `dataflow_path` typed payload fields (`Subject`, then `Object`, then `AnchorSymbol`). `Summary` remains transparent display text and cannot affect the stall fingerprint.
+    3. Boundary: current `dataflow_path` evidence is deterministic-only; LLM-emitted evidence cannot create this kind. If a future producer needs richer chain structure, it must add a typed chain carrier instead of reusing Summary.
+    4. Guardrail tests: changing rendered Summary while keeping the same typed chain payload leaves the hash stable; changing the typed chain payload changes the hash; summary-only chain text is ignored.
+    5. Red-line boundary: read-loop no-progress detection consumes read-set hash, typed evidence IDs, typed deterministic chain payloads, and typed cited refs only. It does not parse evidence Summary, stage reports, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

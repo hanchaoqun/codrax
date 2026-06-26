@@ -91,6 +91,45 @@ func TestDetectStallAndAct_ProgressBetweenRounds_NoStall(t *testing.T) {
 	}
 }
 
+func TestHashChainTerminals_UsesTypedChainPayloadNotSummary(t *testing.T) {
+	base := []types.EvidenceItem{{
+		Kind:      types.EvidenceDataflowPath,
+		Predicate: "resolution_chain",
+		Subject:   "`Register()` binds `NewFoo()` → `Foo.Name()` returns \"foo\"",
+		Summary:   "`Register()` binds `NewFoo()` → `Foo.Name()` returns \"old-summary\"",
+	}}
+	sameTypedDifferentSummary := []types.EvidenceItem{{
+		Kind:      types.EvidenceDataflowPath,
+		Predicate: "resolution_chain",
+		Subject:   "`Register()` binds `NewFoo()` → `Foo.Name()` returns \"foo\"",
+		Summary:   "`Register()` binds `NewFoo()` → `Foo.Name()` returns \"different-summary\"",
+	}}
+	differentTypedSameSummary := []types.EvidenceItem{{
+		Kind:      types.EvidenceDataflowPath,
+		Predicate: "resolution_chain",
+		Subject:   "`Register()` binds `NewBar()` → `Bar.Name()` returns \"bar\"",
+		Summary:   "`Register()` binds `NewFoo()` → `Foo.Name()` returns \"old-summary\"",
+	}}
+
+	if got, want := hashChainTerminals(sameTypedDifferentSummary), hashChainTerminals(base); got != want {
+		t.Fatalf("rendered Summary changes must not affect chain terminal hash: got %d want %d", got, want)
+	}
+	if got, same := hashChainTerminals(differentTypedSameSummary), hashChainTerminals(base); got == same {
+		t.Fatalf("typed chain payload changes must affect chain terminal hash; both were %d", got)
+	}
+}
+
+func TestHashChainTerminals_IgnoresSummaryOnlyChainText(t *testing.T) {
+	items := []types.EvidenceItem{{
+		Kind:      types.EvidenceDataflowPath,
+		Predicate: "resolution_chain",
+		Summary:   "`Register()` binds `NewFoo()` → `Foo.Name()` returns \"foo\"",
+	}}
+	if got := hashChainTerminals(items); got != 0 {
+		t.Fatalf("summary-only chain text must not drive stall fingerprint, got hash %d", got)
+	}
+}
+
 // TestRunForcedReads_NoPending_Noop: with an empty PendingReads
 // queue, runForcedReads returns 0 and changes nothing.
 func TestRunForcedReads_NoPending_Noop(t *testing.T) {

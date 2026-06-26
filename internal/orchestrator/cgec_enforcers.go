@@ -944,11 +944,10 @@ func hashEvidenceIDs(items []types.EvidenceItem) uint32 {
 }
 
 // hashChainTerminals computes a stable hash over the unique
-// resolution-chain terminal tokens in the evidence buffer. Detects
-// the case where the LLM keeps surfacing the same chain endings
-// across retries — distinct from "no new evidence" because the
-// evidence count may grow while the answer-relevant chain set
-// stays static.
+// resolution-chain terminal tokens in the evidence buffer. The hash
+// participates in the read-loop stall fingerprint, so it only consumes
+// typed deterministic chain payloads; rendered EvidenceItem.Summary is
+// transparent display text and must not decide convergence.
 func hashChainTerminals(items []types.EvidenceItem) uint32 {
 	if len(items) == 0 {
 		return 0
@@ -956,15 +955,7 @@ func hashChainTerminals(items []types.EvidenceItem) uint32 {
 	seen := make(map[string]bool)
 	var terms []string
 	for _, it := range items {
-		if it.Kind != types.EvidenceDataflowPath || it.Predicate != "resolution_chain" {
-			continue
-		}
-		// Take the substring after the last "→" as the terminal.
-		s := it.Summary
-		if i := lastIndexArrow(s); i >= 0 {
-			s = s[i+len("→"):]
-		}
-		s = trimChainTerminal(s)
+		s := typedResolutionChainTerminal(it)
 		if s == "" || seen[s] {
 			continue
 		}
@@ -976,6 +967,29 @@ func hashChainTerminals(items []types.EvidenceItem) uint32 {
 	}
 	sort.Strings(terms)
 	return types.HashStringSet(terms)
+}
+
+func typedResolutionChainTerminal(it types.EvidenceItem) string {
+	if it.Kind != types.EvidenceDataflowPath || it.Predicate != "resolution_chain" {
+		return ""
+	}
+	// Dataflow-path evidence is deterministic-only. Current producers
+	// put the canonical chain payload in Subject; future producers may
+	// use Object/AnchorSymbol. Summary is intentionally excluded.
+	s := strings.TrimSpace(it.Subject)
+	if s == "" {
+		s = strings.TrimSpace(it.Object)
+	}
+	if s == "" {
+		s = strings.TrimSpace(it.AnchorSymbol)
+	}
+	if s == "" {
+		return ""
+	}
+	if i := lastIndexArrow(s); i >= 0 {
+		s = s[i+len("→"):]
+	}
+	return trimChainTerminal(s)
 }
 
 // lastIndexArrow returns the byte index of the rightmost "→" in s.
