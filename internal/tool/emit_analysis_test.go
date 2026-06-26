@@ -3993,6 +3993,73 @@ func TestEmitAnalysis_Execute_PersistsAnswerExclusionPolicy(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_RejectsAuxiliaryPrincipalExclusionConflict(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("仓库里有哪些 extend 块、哪些 foreign func 声明、哪些 public class？分别列出文件路径和符号名，并指出包路径（package 声明）。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "complex",
+		"keywords": ["extend", "foreign func", "public class"],
+		"entities": ["extend", "foreign func", "public class"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.85,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false, "has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"source_scope_profile": {
+			"requested_scope": "all",
+			"include_auxiliary_as_principal": true,
+			"source_quotes": [],
+			"confidence": 0.9
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["function", "type"],
+			"source_quotes": ["extend 块", "foreign func 声明", "public class"],
+			"confidence": 0.9
+		},
+		"answer_exclusion_policy": {
+			"is_exclusion_requested": true,
+			"excluded_candidate_roles": ["fixture", "example", "test", "generated"],
+			"source_quotes": ["extend 块", "foreign func 声明", "public class"],
+			"confidence": 0.94,
+			"rationale": "incorrectly treating positive inventory buckets as exclusions"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if res.Success {
+		t.Fatalf("Execute should reject mutually exclusive auxiliary principal/exclusion policies, got %q", res.Summary)
+	}
+	for _, want := range []string{"source_scope_profile allows repo-owned auxiliary", "answer_exclusion_policy excludes auxiliary"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("rejection missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if rm := mu.RequestModel(); rm != nil {
+		t.Fatalf("rejected analysis must not persist contradictory request model: %+v", rm)
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsAnswerVisibilityProfile(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

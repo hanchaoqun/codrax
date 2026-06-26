@@ -4097,12 +4097,29 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — source-inventory result is still incomplete for a resolved exhaustive answer.\n\n")
 	b.WriteString(sourceInventoryResolvedCompletionSummary(observation, profile) + "\n\n")
 	b.WriteString("Continue with the typed `repo_map(view=\"source_inventory\")` lens using the cursor or a narrower typed family/scope before closing as resolved. Do not replace an incomplete repo-wide inventory with a smaller fixture/support subtree unless the final handoff explicitly declares that bounded scope.\n")
+	if len(repoMapScopes) > 0 || nextCursor != "" {
+		b.WriteString("\nSuggested typed follow-up to target the typed requested construct/language surface: ")
+		b.WriteString(fmt.Sprintf("repo_map path=%q view=\"source_inventory\" roles=[%s]", repoMapPath, strings.Join(roles, ", ")))
+		if len(repoMapScopes) > 0 {
+			b.WriteString(" scopes=[" + sourceInventoryLensExecutionQuotedList(repoMapScopes) + "]")
+		}
+		if query := sourceInventoryResolvedCompletionRepairQuery(ctx); query != "" {
+			b.WriteString(" query=" + strconv.Quote(query))
+		}
+		if nextCursor != "" {
+			b.WriteString(" cursor=" + strconv.Quote(nextCursor))
+		}
+		b.WriteString(".\n")
+	}
 	return b.String()
 }
 
 func sourceInventoryResolvedCompletionDebtIsAdvisory(ctx *types.BusContext, authority types.SourceInventoryCompletionAuthority, observation types.SourceInventoryObservation) bool {
 	authority = types.NormalizeSourceInventoryCompletionAuthority(authority)
 	if !authority.Blocking {
+		return false
+	}
+	if sourceInventoryResolvedCompletionDebtHasExecutableMissingClass(authority) {
 		return false
 	}
 	switch authority.ReasonCode {
@@ -4149,6 +4166,16 @@ func sourceInventoryResolvedCompletionDebtIsAdvisory(ctx *types.BusContext, auth
 	logging.Info("[emit_investigation_complete] treating source-inventory completion debt as advisory: reason=%s truncated=%t page_incomplete=%t scopes=%s",
 		authority.ReasonCode, authority.CandidateBudgetTruncated || (observation.Execution != nil && observation.Execution.CandidateBudgetTruncated), authority.PageIncomplete, strings.Join(authority.Scopes, ","))
 	return true
+}
+
+func sourceInventoryResolvedCompletionDebtHasExecutableMissingClass(authority types.SourceInventoryCompletionAuthority) bool {
+	debt := types.NormalizeSourceInventoryFollowupDebt(authority.FollowupDebt)
+	return debt.IsActive() &&
+		debt.ReasonCode == types.SourceInventoryFollowupDebtMissingSourceClass &&
+		len(debt.Query.Scopes) > 0 &&
+		len(debt.MissingClasses) > 0 &&
+		len(debt.CoveredClasses) > 0 &&
+		len(debt.MissingLanguages) > 0
 }
 
 func sourceInventoryCompletionAuthorityForContext(ctx *types.BusContext, observation types.SourceInventoryObservation, aggregateFacts []types.AnswerAggregateFact) types.SourceInventoryCompletionAuthority {

@@ -1494,6 +1494,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if conflict := validateAuxiliaryPrincipalExclusionConflict(rm); conflict != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + conflict,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	if added := projectAnalyzerPrescanRequiredFileHints(ctx, &rm, &val); added > 0 {
 		logging.Warning("[emit_analysis] projected %d required_file hint(s) from deterministic analyzer prescan", added)
 	}
@@ -1537,6 +1545,19 @@ func synthesizeSourceInventoryProfileForTypedEnumeration(rm *types.RequestModel,
 		Rationale:    "synthesized from typed source-enumeration request shape",
 	}
 	return "synthesized source_inventory_profile from typed source-enumeration request shape"
+}
+
+func validateAuxiliaryPrincipalExclusionConflict(rm types.RequestModel) string {
+	if rm.SourceScopeProfile == nil || !rm.SourceScopeProfile.AllowsAuxiliaryPrincipal() {
+		return ""
+	}
+	if !SourceInventoryHasExplicitAuxiliaryExclusion(rm) {
+		return ""
+	}
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return ""
+	}
+	return "source_scope_profile allows repo-owned auxiliary source classes as principal inventory members, but answer_exclusion_policy excludes auxiliary source classes; these typed policies are mutually exclusive. Keep auxiliary classes in scope or remove the auxiliary exclusion before emitting analysis."
 }
 
 func sourceInventoryProfileRepairSourceQuotes(raw string, attempted *emitSourceInventoryProfileParam) []string {

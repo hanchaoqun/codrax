@@ -2161,6 +2161,161 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryRepoWideRepai
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryMissingSameLanguageClassRequiresFollowup(t *testing.T) {
+	mut := types.NewMutableState("列出仓库里的 Cangjie extend / foreign func / public class")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       []string{"."},
+		Provenance:   []string{"source_inventory_profile", "repo_lens:tool_query", "repo_lens:candidate_budget_truncated", "source_class_universe:repo_tracked"},
+		Lens:         []string{"members", "symbols", "count", "source_class_universe"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:      types.SourcePathRoleFixture,
+			Count:     3,
+			Complete:  true,
+			Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 3, Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"}}},
+		}, {
+			Role:      types.SourcePathRoleThirdParty,
+			Count:     8,
+			Complete:  true,
+			Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 8, Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj"}}},
+		}, {
+			Role:      types.SourcePathRoleProduction,
+			Count:     900,
+			Complete:  true,
+			Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 900, Samples: []string{"cmd/root.go"}}},
+		}},
+		Page: &types.SourceInventoryObservationPage{
+			Offset:     0,
+			Limit:      50,
+			Total:      120,
+			Emitted:    50,
+			NextCursor: "50",
+			Complete:   false,
+		},
+		Execution: &types.SourceInventoryExecutionState{
+			Budgeted:                 true,
+			CandidateBudgetTruncated: true,
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: false,
+			Count:    12,
+			Total:    12,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Bridge",
+				Key:           "Bridge",
+				SupportRef:    "Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+				Role:          types.AnswerCandidateRoleType,
+				File:          "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+				Line:          15,
+				Language:      "cangjie",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}, {
+				Name:          "Cart",
+				Key:           "Cart",
+				SupportRef:    "Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+				Role:          types.AnswerCandidateRoleType,
+				File:          "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+				Line:          14,
+				Language:      "cangjie",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}, {
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: false,
+			Count:    91,
+			Total:    91,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "native_add",
+				Key:           "native_add",
+				SupportRef:    "native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+				Line:          6,
+				Language:      "cangjie",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleType,
+						types.AnswerCandidateRoleFunction,
+					},
+					SourceQuotes: []string{"extend", "foreign func", "public class"},
+					Confidence:   0.95,
+				},
+			},
+			AnswerContract: types.AnswerContract{CitationReq: types.CitationReq{Required: false}},
+		},
+	}
+
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "fixture cangjie rows were verified",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "public class",
+			"value":        "2",
+			"role":         "principal_answer",
+			"members":      []string{"Bridge", "Cart"},
+			"support_refs": []string{"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15", "Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14"},
+		}, {
+			"kind":         "member_set",
+			"label":        "foreign func",
+			"value":        "1",
+			"role":         "principal_answer",
+			"members":      []string{"native_add"},
+			"support_refs": []string{"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6"},
+		}},
+	})
+	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, want := range []string{
+		"source-inventory result is still incomplete",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources",
+		"typed requested construct/language surface",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("bounded missing source-class follow-up summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatal("fixture-only member_set must not close repo-wide same-language source-class inventory")
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) != 1 {
+		t.Fatalf("expected one source_inventory repair, got %+v", repairs)
+	}
+	auth := repairs[0].SourceInventoryCompletionAuthority
+	if !auth.FollowupDebt.IsActive() || auth.FollowupDebt.ReasonCode != types.SourceInventoryFollowupDebtMissingSourceClass {
+		t.Fatalf("repair should carry missing source-class authority, got %+v", repairs[0])
+	}
+	if !sourceInventoryTestStringSliceContains(auth.FollowupDebt.Query.Scopes, "internal/thirdparty/tree-sitter-cangjie/corpus/sources") {
+		t.Fatalf("repair should target thirdparty same-language sample scope, got %+v", auth.FollowupDebt.Query.Scopes)
+	}
+	if sourceInventoryTestStringSliceContains(auth.FollowupDebt.Query.Scopes, ".") {
+		t.Fatalf("repair must not fall back to repo root when sample scopes exist, got %+v", auth.FollowupDebt.Query.Scopes)
+	}
+	if caveats := mut.EvidenceClosure().CompletionCaveats(); len(caveats) != 0 {
+		t.Fatalf("executable source-class follow-up should not become caveat before convergence, got %+v", caveats)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryRequestedUniverseClosesRepoWideDebt(t *testing.T) {
 	bus := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
 		sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 15),

@@ -744,6 +744,73 @@ func TestListFiles_FileTypeAutoIncludesAuxiliaryForTypedSourceInventory(t *testi
 	}
 }
 
+func TestListFiles_FileTypeAutoIncludesCangjieAuxiliaryForTypedSourceInventory(t *testing.T) {
+	repo := t.TempDir()
+	paths := []string{
+		"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj",
+		"eval/results/run-1.repo/cangjie/result_noise.cj",
+		"node_modules/pkg/noise.cj",
+		".codrax/output/noise.cj",
+	}
+	for _, pathValue := range paths {
+		full := filepath.Join(repo, filepath.FromSlash(pathValue))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", pathValue, err)
+		}
+		if err := os.WriteFile(full, []byte("package demo\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", pathValue, err)
+		}
+	}
+
+	bus := &types.BusContext{
+		RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope:              types.SourceScopeAll,
+				IncludeAuxiliaryAsPrincipal: true,
+				Confidence:                  0.9,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleFunction},
+				SourceQuotes:      []string{"Cangjie constructs"},
+				Confidence:        0.9,
+			},
+		}},
+	}
+
+	result, err := (&ListFiles{}).Execute(bus, json.RawMessage(`{"path":".","recursive":true,"file_type":"cangjie"}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Summary)
+	}
+	for _, want := range []string{
+		"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj",
+		"include_auxiliary=true",
+	} {
+		if !strings.Contains(result.Summary, want) {
+			t.Fatalf("typed Cangjie inventory listing missing %q:\n%s", want, result.Summary)
+		}
+	}
+	for _, noise := range []string{
+		"eval/results/run-1.repo/cangjie/result_noise.cj",
+		"node_modules/pkg/noise.cj",
+		".codrax/output/noise.cj",
+	} {
+		if strings.Contains(result.Summary, noise) {
+			t.Fatalf("typed Cangjie auxiliary inclusion must not reopen noise %q:\n%s", noise, result.Summary)
+		}
+	}
+}
+
 func TestListFiles_FileTypeDoesNotAutoIncludeAuxiliaryWithExplicitExclusion(t *testing.T) {
 	repo := t.TempDir()
 	pathValue := "internal/thirdparty/tree-sitter-arkts/corpus/sources/entry_component.ets"
