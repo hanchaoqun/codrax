@@ -13,7 +13,16 @@ const (
 	toolHandoffRenderMaxRefs     = 12
 )
 
-func renderTypedToolHandoffCarriers(title string, carriers []types.ToolHandoffCarrier) string {
+type toolHandoffRenderOptions struct {
+	HistoricalProducerLabels bool
+	CurrentStageAllowedTools []string
+}
+
+func renderTypedToolHandoffCarriers(title string, carriers []types.ToolHandoffCarrier, options ...toolHandoffRenderOptions) string {
+	opts := toolHandoffRenderOptions{}
+	if len(options) > 0 {
+		opts = options[0]
+	}
 	carriers = types.NormalizeToolHandoffCarriers(carriers)
 	if len(carriers) == 0 {
 		return ""
@@ -32,8 +41,17 @@ func renderTypedToolHandoffCarriers(title string, carriers []types.ToolHandoffCa
 	b.WriteString(title)
 	b.WriteString("\n\n")
 	b.WriteString("Typed carrier fields from prior stages. Hard gates consume the underlying ToolRepair, ObservationRecord, and EvidenceItem artifacts; this view is a bounded prompt projection.\n\n")
+	if opts.HistoricalProducerLabels {
+		b.WriteString("Tool names below identify prior-stage producers or prior-stage refinements, not current-stage callable tools.")
+		if len(opts.CurrentStageAllowedTools) > 0 {
+			b.WriteString(" Current callable tools here: `")
+			b.WriteString(strings.Join(opts.CurrentStageAllowedTools, "`, `"))
+			b.WriteString("`.")
+		}
+		b.WriteString(" Do not reopen investigation from this handoff; convert unresolved prior-stage refinements into a caveat or lower-confidence structured emit.\n\n")
+	}
 	for _, carrier := range carriers {
-		line := renderTypedToolHandoffCarrierLine(carrier)
+		line := renderTypedToolHandoffCarrierLine(carrier, opts)
 		if line == "" {
 			continue
 		}
@@ -51,11 +69,19 @@ func renderTypedToolHandoffCarriers(title string, carriers []types.ToolHandoffCa
 	return b.String()
 }
 
-func renderTypedToolHandoffCarrierLine(carrier types.ToolHandoffCarrier) string {
+func renderTypedToolHandoffCarrierLine(carrier types.ToolHandoffCarrier, options ...toolHandoffRenderOptions) string {
+	opts := toolHandoffRenderOptions{}
+	if len(options) > 0 {
+		opts = options[0]
+	}
 	carrier = types.NormalizeToolHandoffCarrier(carrier)
 	parts := []string{}
 	if carrier.ToolName != "" {
-		parts = append(parts, "tool="+quoteHandoffValue(carrier.ToolName))
+		field := "tool"
+		if opts.HistoricalProducerLabels {
+			field = "producer_tool"
+		}
+		parts = append(parts, field+"="+quoteHandoffValue(carrier.ToolName))
 	}
 	if carrier.ReasonCode != "" {
 		parts = append(parts, "reason="+quoteHandoffValue(carrier.ReasonCode))
@@ -85,11 +111,15 @@ func renderTypedToolHandoffCarrierLine(carrier types.ToolHandoffCarrier) string 
 	if len(carrier.ObservationRefs) > 0 {
 		parts = append(parts, fmt.Sprintf("observation_refs=%d", len(carrier.ObservationRefs)))
 	}
-	parts = append(parts, renderTypedToolRefinementParts(carrier.Refinement)...)
+	parts = append(parts, renderTypedToolRefinementParts(carrier.Refinement, opts)...)
 	return strings.Join(parts, " · ")
 }
 
-func renderTypedToolRefinementParts(refinement *types.ToolRefinementHint) []string {
+func renderTypedToolRefinementParts(refinement *types.ToolRefinementHint, options ...toolHandoffRenderOptions) []string {
+	opts := toolHandoffRenderOptions{}
+	if len(options) > 0 {
+		opts = options[0]
+	}
 	if refinement == nil {
 		return nil
 	}
@@ -112,7 +142,11 @@ func renderTypedToolRefinementParts(refinement *types.ToolRefinementHint) []stri
 		parts = append(parts, "excluded_reason="+quoteHandoffValue(hint.UniverseExcludedReason))
 	}
 	if hint.PreferredNextTool != "" {
-		parts = append(parts, "preferred_tool="+quoteHandoffValue(hint.PreferredNextTool))
+		field := "preferred_tool"
+		if opts.HistoricalProducerLabels {
+			field = "prior_stage_preferred_tool"
+		}
+		parts = append(parts, field+"="+quoteHandoffValue(hint.PreferredNextTool))
 	}
 	if len(hint.PreferredParams) > 0 {
 		keys := make([]string, 0, len(hint.PreferredParams))
@@ -124,13 +158,25 @@ func renderTypedToolRefinementParts(refinement *types.ToolRefinementHint) []stri
 		for _, key := range keys {
 			values = append(values, key+"="+hint.PreferredParams[key])
 		}
-		parts = append(parts, "preferred_params="+quoteHandoffValue(strings.Join(values, ",")))
+		field := "preferred_params"
+		if opts.HistoricalProducerLabels {
+			field = "prior_stage_preferred_params"
+		}
+		parts = append(parts, field+"="+quoteHandoffValue(strings.Join(values, ",")))
 	}
 	if len(hint.RequiredFields) > 0 {
-		parts = append(parts, "required_fields="+quoteHandoffValue(strings.Join(boundedStringSlice(hint.RequiredFields, 8), ",")))
+		field := "required_fields"
+		if opts.HistoricalProducerLabels {
+			field = "prior_stage_required_fields"
+		}
+		parts = append(parts, field+"="+quoteHandoffValue(strings.Join(boundedStringSlice(hint.RequiredFields, 8), ",")))
 	}
 	if hint.NextCursor != "" {
-		parts = append(parts, "next_cursor="+quoteHandoffValue(hint.NextCursor))
+		field := "next_cursor"
+		if opts.HistoricalProducerLabels {
+			field = "prior_stage_next_cursor"
+		}
+		parts = append(parts, field+"="+quoteHandoffValue(hint.NextCursor))
 	}
 	if len(hint.SkippedLargeCandidates) > 0 {
 		parts = append(parts, "skipped_large="+quoteHandoffValue(strings.Join(boundedStringSlice(hint.SkippedLargeCandidates, 4), ",")))

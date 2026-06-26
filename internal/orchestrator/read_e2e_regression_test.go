@@ -196,6 +196,7 @@ func TestE2E_ReadMode_ExtractInputReadyTrueDispatchesExtract(t *testing.T) {
 	extractorCalls := 0
 	finalizeCalls := 0
 	ir := dagIR(types.AnswerContract{Language: "en"})
+	requireExtractAnswerSymbols(ir)
 	compiler.EnsureReadStageNodes(&ir.TaskGraph)
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -253,6 +254,68 @@ func TestE2E_ReadMode_ExtractInputReadyTrueDispatchesExtract(t *testing.T) {
 		consumed[0].Direction != types.RuntimeArtifactConsumed ||
 		consumed[0].Artifact.ID != "ev-typed-extract-input" {
 		t.Fatalf("extract consumed artifacts = %+v", consumed)
+	}
+}
+
+func TestE2E_ReadMode_ExtractInputReadyTrueSkipsWhenNoExtractWork(t *testing.T) {
+	explorerCalls := 0
+	extractorCalls := 0
+	finalizeCalls := 0
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	compiler.EnsureReadStageNodes(&ir.TaskGraph)
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{{
+					ID:        "ev-typed-extract-input-no-work",
+					Predicate: "definition",
+					Subject:   "Thing",
+					Object:    "exists",
+					Summary:   "Thing exists",
+					Source:    "thing.go",
+					LineStart: 1,
+				}},
+			}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			extractorCalls++
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "- `Thing` (thing.go:1)",
+			}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 2}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain with typed evidence", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if explorerCalls != 3 {
+		t.Fatalf("explorer calls = %d, want 3 hard-dependency windows", explorerCalls)
+	}
+	if extractorCalls != 0 {
+		t.Fatalf("extractor must be skipped when there are no required extract emits, got %d calls", extractorCalls)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalizer calls = %d, want 1", finalizeCalls)
+	}
+	extractID := firstReadNodeIDByType(t, busCtx.AnalysisIR, types.NodeExtract)
+	if got := busCtx.Mutable.EvidenceClosure().NodeExecStatus(extractID); got != types.NodeExecDone {
+		t.Fatalf("extract node status = %q, want %q", got, types.NodeExecDone)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("read run should stay clean after no-work extract skip, LastError=%q", busCtx.TaskState.LastError)
 	}
 }
 
@@ -649,6 +712,7 @@ func TestE2E_ReadMode_ValidateFeedbackRetry(t *testing.T) {
 
 func TestE2E_ReadMode_AcceptedInvestigationCompleteStopsValidateReExplore(t *testing.T) {
 	ir := dagIR(types.AnswerContract{Language: "en"})
+	requireExtractEnumerationSlate(ir)
 	for i := range ir.TaskGraph.Nodes {
 		if ir.TaskGraph.Nodes[i].Type == types.NodeValidate {
 			ir.TaskGraph.Nodes[i].SuccessCriteria = []types.Criterion{

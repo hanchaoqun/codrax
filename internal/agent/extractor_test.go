@@ -2376,13 +2376,14 @@ func TestExtractor_DetermineMissingPieceAlwaysNone(t *testing.T) {
 // P2.1 Phase 12 — stage-local tool whitelist invariant
 // -----------------------------------------------------------------------------
 //
-// The extractor's LLM call must see ONLY emit_evidence /
-// emit_answer_symbol / emit_hypothesis_verdict. Phase 12 is not a
+// The extractor's LLM call must see ONLY emit_answer_symbol /
+// emit_hypothesis_verdict. Phase 12 is not a
 // new code path — it is a pin on the skill.ToolSuggestions mechanism
 // already used by buildToolSchemas. This test constructs a BaseAgent
 // with a tool registry containing both the allowed emit_* tools AND
 // forbidden investigation tools (grep, read_file), then verifies
-// buildToolSchemas returns exactly the allowed three.
+// buildToolSchemas returns exactly the allowed two. It also proves
+// stale config cannot re-expose Turn A's emit_evidence tool.
 //
 // A regression here would mean either (a) ToolSuggestions filtering
 // drifted, or (b) a new auto-injection source was added to
@@ -2390,7 +2391,7 @@ func TestExtractor_DetermineMissingPieceAlwaysNone(t *testing.T) {
 // silently give Turn B file access — the exact thing the two-turn
 // split exists to prevent.
 
-func TestExtractor_ToolSchemas_ExactlyThreeEmitTools(t *testing.T) {
+func TestExtractor_ToolSchemas_ExactlyTwoEmitTools(t *testing.T) {
 	registry := tool.NewRegistry()
 	// Register both allowed and forbidden tools to prove filtering.
 	registry.Register(&tool.EmitEvidence{})
@@ -2406,9 +2407,9 @@ func TestExtractor_ToolSchemas_ExactlyThreeEmitTools(t *testing.T) {
 	}
 	agent := NewExtractorAgent(deps).(*BaseAgent)
 
-	// Simulate what the orchestrator does: fetch the extract-skill
-	// from the config layer. We hand-build the equivalent of what
-	// cmd/root.go's P2.1 bootstrap appends: the three emit_* names.
+	// Simulate config drift: even if a stale extract-skill names
+	// Turn A's emit_evidence, the extractor schema boundary must
+	// keep only the two Turn B tools.
 	sk := &skill.Config{
 		Name: "extract-skill",
 		ToolSuggestions: []string{
@@ -2425,12 +2426,12 @@ func TestExtractor_ToolSchemas_ExactlyThreeEmitTools(t *testing.T) {
 		got[s.Name] = true
 	}
 
-	for _, want := range []string{"emit_evidence", "emit_answer_symbol", "emit_hypothesis_verdict"} {
+	for _, want := range []string{"emit_answer_symbol", "emit_hypothesis_verdict"} {
 		if !got[want] {
 			t.Errorf("missing allowed tool %q from schemas", want)
 		}
 	}
-	for _, forbidden := range []string{"grep", "read_file", "repo_map", "exec_command"} {
+	for _, forbidden := range []string{"emit_evidence", "grep", "read_file", "repo_map", "exec_command"} {
 		if got[forbidden] {
 			t.Errorf("forbidden tool %q leaked into schemas — Phase 12 scoping broken", forbidden)
 		}
@@ -2438,12 +2439,12 @@ func TestExtractor_ToolSchemas_ExactlyThreeEmitTools(t *testing.T) {
 	// Cardinality: no other tool should be in the schema (propose_sub_agents
 	// is auto-injected only when a sub-agent of the same name exists; the
 	// extractor has none, so the schema length must equal the allowlist).
-	if len(schemas) != 3 {
+	if len(schemas) != 2 {
 		names := make([]string, 0, len(schemas))
 		for _, s := range schemas {
 			names = append(names, s.Name)
 		}
-		t.Errorf("extractor schema must contain exactly 3 tools, got %d: %v", len(schemas), names)
+		t.Errorf("extractor schema must contain exactly 2 tools, got %d: %v", len(schemas), names)
 	}
 }
 
@@ -3185,6 +3186,43 @@ func TestHasPendingHypotheses_SomePending_True(t *testing.T) {
 	}
 	if !hasPendingHypotheses(ctx) {
 		t.Error("h2 has no verdict → must return true")
+	}
+}
+
+func TestExtractStageHasRequiredWork_FailOpenWithoutTypedState(t *testing.T) {
+	if !ExtractStageHasRequiredWork(nil) {
+		t.Fatal("nil context must fail open so the scheduler does not skip extract without typed proof")
+	}
+}
+
+func TestExtractStageHasRequiredWork_NoSymbolNoHypothesis_False(t *testing.T) {
+	mu := types.NewMutableState("stable aggregate already hands off to finalizer")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Label:   "principal items",
+		Value:   "1",
+		Members: []string{"Thing @ thing.go:1"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		Mutable:    mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}},
+	}
+	if ExtractStageHasRequiredWork(ctx) {
+		t.Fatal("stable finalizer-ready aggregate facts without symbols or hypotheses should not run extractor")
+	}
+}
+
+func TestExtractStageHasRequiredWork_PendingHypothesis_True(t *testing.T) {
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState("pending hypothesis"),
+		AnalysisIR: &types.AnalysisIR{
+			HypothesisSet: []types.Hypothesis{{ID: "h1", Status: types.HypUnknown}},
+		},
+	}
+	if !ExtractStageHasRequiredWork(ctx) {
+		t.Fatal("pending hypothesis verdict should keep extractor load-bearing")
 	}
 }
 

@@ -56,6 +56,30 @@ func dagIR(contract types.AnswerContract) *types.AnalysisIR {
 	}
 }
 
+func requireExtractAnswerSymbols(ir *types.AnalysisIR) {
+	if ir == nil {
+		return
+	}
+	ir.RequestModel.RawRequest = "List the 1 Thing member"
+	ir.RequestModel.Intent = types.IntentEnumerate
+	ir.RequestModel.AnalyzerHints = types.AnalyzerHints{
+		MentionedEntities: []string{"Thing"},
+	}
+	ir.RequestModel.EnumerationBoundary = &types.RequestedEnumerationBoundary{
+		DeclaredCount: 1,
+		SourceQuote:   "1 Thing",
+	}
+}
+
+func requireExtractEnumerationSlate(ir *types.AnalysisIR) {
+	if ir == nil {
+		return
+	}
+	ir.RequestModel.RawRequest = "List the relevant members"
+	ir.RequestModel.Intent = types.IntentEnumerate
+	ir.RequestModel.Predicates.IsCategoryEnumeration = true
+}
+
 func dagAnalyzerFn(ir *types.AnalysisIR) func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error) {
 	return func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 		return &agent.StageOutput{
@@ -238,6 +262,7 @@ func TestRunTaskGraph_AutoCompletesReconcileFromExistingEvidence(t *testing.T) {
 	var explorerCalls, extractorCalls, finalizeCalls int
 
 	ir := dagIR(types.AnswerContract{Language: "en"})
+	requireExtractAnswerSymbols(ir)
 	reconcile := types.TaskNode{
 		ID:              "n_reconcile",
 		Type:            types.NodeReconcile,
@@ -304,6 +329,7 @@ func TestRunTaskGraph_AutoCompletesReconcileFromAcceptedClosureWithoutEnoughFact
 	var explorerCalls, extractorCalls, finalizeCalls int
 
 	ir := dagIR(types.AnswerContract{Language: "en"})
+	requireExtractAnswerSymbols(ir)
 	reconcile := types.TaskNode{
 		ID:              "n_reconcile",
 		Type:            types.NodeReconcile,
@@ -458,6 +484,7 @@ func TestRunTaskGraph_ExplorerRetryHintRequeuesBeforeExtract(t *testing.T) {
 	var observedExplorerHints []string
 
 	ir := dagIR(types.AnswerContract{Language: "en"})
+	requireExtractAnswerSymbols(ir)
 	ir.TaskGraph.ExecutionPolicy.RetryBudget = 1
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -1036,6 +1063,7 @@ func TestRunTaskGraph_RetryableExtractErrorAfterTurnBSlateDoesNotReextract(t *te
 	ir := dagIR(types.AnswerContract{
 		Language: "en",
 	})
+	requireExtractAnswerSymbols(ir)
 	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -1245,6 +1273,7 @@ func TestRunTaskGraph_RetryableExtractErrorRetriesBeforeFinalize(t *testing.T) {
 	var explorerCalls, extractorCalls, finalizeCalls int
 
 	ir := dagIR(types.AnswerContract{Language: "en"})
+	requireExtractAnswerSymbols(ir)
 	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){

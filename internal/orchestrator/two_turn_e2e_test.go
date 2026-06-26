@@ -41,6 +41,7 @@ func twoTurnIRWithHypotheses(mustInclude []string, terminalFloor int) *types.Ana
 		Language:    "en",
 		MustInclude: mustInclude,
 	})
+	requireExtractEnumerationSlate(ir)
 	ir.HypothesisSet = []types.Hypothesis{
 		{ID: "H1", Statement: "Foo registers handlers", Status: types.HypUnknown},
 		{ID: "H2", Statement: "Bar returns the default", Status: types.HypUnknown},

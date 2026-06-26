@@ -3408,8 +3408,8 @@ func (b *BaseAgent) salvagePartialDispatch(
 //     name as the current agent is registered)
 //
 // (1) is the P2.1 Phase 12 stage-local tool whitelist mechanism. The
-// extractor's extract-skill lists ONLY emit_evidence /
-// emit_answer_symbol / emit_hypothesis_verdict in its ToolSuggestions
+// extractor's extract-skill lists ONLY emit_answer_symbol /
+// emit_hypothesis_verdict in its ToolSuggestions
 // (cmd/root.go P2.1 bootstrap block), so the extractor's LLM call
 // physically cannot see read_file / grep / repo_map — they are never
 // added to the schema list and the LLM's tool-selection mechanism has
@@ -3417,7 +3417,7 @@ func (b *BaseAgent) salvagePartialDispatch(
 // Turn B should not have MCP servers configured. (3) is also
 // inactive for the extractor because there is no sub-agent named
 // "extractor" in RegisterDefaultSubAgents. Therefore Turn B's LLM
-// sees exactly the three emit_* tools — no more code is needed for
+// sees exactly the two extraction emit_* tools — no more code is needed for
 // Phase 12 beyond this documentation and the tests that pin the
 // invariant.
 func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) []llm.ToolSchema {
@@ -3548,6 +3548,9 @@ func (b *BaseAgent) visibleSkillToolSuggestions(sk *skill.Config, ctx *types.Age
 }
 
 func (b *BaseAgent) skillToolSuggestionBlocked(ctx *types.AgentContext, toolName string) bool {
+	if b.name == types.AgentExtractor && !extractorAllowedToolName(toolName) {
+		return true
+	}
 	if runtimeTriageInlineAttachmentBlocksTool(ctx, toolName) {
 		return true
 	}
@@ -4494,7 +4497,7 @@ func stageAllowedToolSummary(ctx *types.AgentContext) string {
 		}
 		return "planner-stage tools"
 	case types.StageExtract:
-		return "emit_evidence, emit_answer_symbol, emit_hypothesis_verdict"
+		return "emit_answer_symbol, emit_hypothesis_verdict"
 	case types.StageFinalize:
 		return "emit_answer_document, emit_answer_document_patch"
 	default:

@@ -164,7 +164,10 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		if advisory := renderExtractorSourceInventoryAdvisory(ta); advisory != "" {
 			b.WriteString(advisory)
 		}
-		if handoff := renderTypedToolHandoffCarriers("### Typed repair and evidence handoff", ta.HandoffCarriers); handoff != "" {
+		if handoff := renderTypedToolHandoffCarriers("### Typed repair and evidence handoff", ta.HandoffCarriers, toolHandoffRenderOptions{
+			HistoricalProducerLabels: true,
+			CurrentStageAllowedTools: []string{"emit_answer_symbol", "emit_hypothesis_verdict"},
+		}); handoff != "" {
 			b.WriteString(handoff)
 		}
 
@@ -2820,7 +2823,7 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 				HintRequested: true,
 				HintKey:       fmt.Sprintf("extractor.unsupported_tool.%d", e.retriesUsed),
 				Hint: fmt.Sprintf(
-					"The extractor stage cannot use tool(s): %s. Use only `emit_evidence`, `emit_answer_symbol`, and `emit_hypothesis_verdict`; do not read/search files here because the investigation snapshot is already fixed. If no structured extraction emit is required, stop without calling unavailable tools.",
+					"The extractor stage cannot use tool(s): %s. Use only `emit_answer_symbol` and `emit_hypothesis_verdict`; do not read/search files or re-emit evidence here because the investigation snapshot is already fixed. If no structured extraction emit is required, stop without calling unavailable tools.",
 					strings.Join(unsupported, ", ")),
 			}
 		}
@@ -3012,11 +3015,23 @@ func extractorUnsupportedToolCalls(calls []llm.ToolCall) []string {
 
 func extractorAllowedToolName(name string) bool {
 	switch types.CanonicalToolName(name) {
-	case "emit_evidence", "emit_answer_symbol", "emit_hypothesis_verdict":
+	case "emit_answer_symbol", "emit_hypothesis_verdict":
 		return true
 	default:
 		return false
 	}
+}
+
+// ExtractStageHasRequiredWork is the scheduler-facing authority for whether
+// StageExtract needs an LLM dispatch. It consumes only typed stage state:
+// answer-symbol requirements and pending hypothesis verdicts. When both are
+// absent, Turn A has already handed the finalizer enough structured material
+// and running the extractor would only invite stale navigation/tool chatter.
+func ExtractStageHasRequiredWork(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return true
+	}
+	return needsAnswerSymbols(ctx) || hasPendingHypotheses(ctx)
 }
 
 func extractorHasSuccessfulAllowedToolResult(results []types.ToolResult) bool {

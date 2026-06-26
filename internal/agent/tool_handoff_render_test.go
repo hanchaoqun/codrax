@@ -110,6 +110,59 @@ func TestRenderTypedToolHandoffCarriersKeepsRefinementBeforePlainObservations(t 
 	}
 }
 
+func TestRenderTypedToolHandoffCarriersExtractorHistoricalToolSurface(t *testing.T) {
+	out := renderTypedToolHandoffCarriers("### Typed handoff", []types.ToolHandoffCarrier{{
+		Version:    types.ToolHandoffCarrierVersion,
+		ToolName:   "read_file",
+		ReasonCode: "tool_observation_handoff",
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode:        "read_file_result_truncated",
+			ResultTruncated:   true,
+			PreferredNextTool: "read_file",
+			PreferredParams: map[string]string{
+				"line_offset": "40",
+				"path":        "src/app.ets",
+			},
+			RequiredFields: []string{"path", "line_offset"},
+			NextCursor:     "40",
+		},
+		ObservationRefs: []types.ToolObservationRef{{
+			ID:        "read_file:src/app.ets:1:40",
+			Source:    "src/app.ets",
+			LineStart: 1,
+			Producer:  "read_file",
+		}},
+	}}, toolHandoffRenderOptions{
+		HistoricalProducerLabels: true,
+		CurrentStageAllowedTools: []string{"emit_answer_symbol", "emit_hypothesis_verdict"},
+	})
+	for _, want := range []string{
+		"Tool names below identify prior-stage producers",
+		"Current callable tools here: `emit_answer_symbol`, `emit_hypothesis_verdict`",
+		"producer_tool=`read_file`",
+		"prior_stage_preferred_tool=`read_file`",
+		"prior_stage_preferred_params=`line_offset=40,path=src/app.ets`",
+		"prior_stage_required_fields=`path,line_offset`",
+		"prior_stage_next_cursor=`40`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("historical extractor handoff missing %q:\n%s", want, out)
+		}
+	}
+	for _, forbidden := range []string{
+		"- tool=`read_file`",
+		" · tool=`read_file`",
+		" · preferred_tool=`read_file`",
+		" · preferred_params=`line_offset=40,path=src/app.ets`",
+		" · required_fields=`path,line_offset`",
+		" · next_cursor=`40`",
+	} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("historical extractor handoff leaked current-action field %q:\n%s", forbidden, out)
+		}
+	}
+}
+
 func TestRenderAnswerDocToolHandoffCarriersConsumesTurnA(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{

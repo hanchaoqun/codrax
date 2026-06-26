@@ -5643,6 +5643,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			logging.Info("[orchestrator] skip pre-finalize extract: %s", detail)
 			skipExtractNode(extractNode, "skipped: "+detail)
 			lastFallbackFinalizerOnly = false
+		} else if !o.extractStageHasRequiredWork() {
+			logging.Info("[orchestrator] skip pre-finalize extract: no required extract emits")
+			skipExtractNode(extractNode, "skipped: no required extract emits")
+			lastFallbackFinalizerOnly = false
 		} else {
 			o.busCtx.PipelineStage = types.StageExtract
 			o.busCtx.TaskState.Stage = types.StageExtract
@@ -6589,6 +6593,9 @@ contractFailureBreak:
 				if ok, detail := extractEntryReady(extractNode); !ok {
 					logging.Info("[orchestrator] skip pre-forced-finalize extract: %s", detail)
 					skipExtractNode(extractNode, "skipped: "+detail)
+				} else if !o.extractStageHasRequiredWork() {
+					logging.Info("[orchestrator] skip pre-forced-finalize extract: no required extract emits")
+					skipExtractNode(extractNode, "skipped: no required extract emits")
 				} else {
 					o.busCtx.PipelineStage = types.StageExtract
 					o.busCtx.TaskState.Stage = types.StageExtract
@@ -7464,25 +7471,6 @@ func (o *Orchestrator) hasReconcileEvidenceContext() bool {
 	return false
 }
 
-func (o *Orchestrator) hasReusableTurnBSlateForFinalize() bool {
-	if o == nil || o.busCtx == nil {
-		return false
-	}
-	if len(o.busCtx.AnswerSymbols) > 0 || len(o.busCtx.AnswerChains) > 0 {
-		return true
-	}
-	if o.busCtx.Mutable == nil {
-		return false
-	}
-	if symbols, _ := o.busCtx.Mutable.EmittedAnswerSymbols(); len(symbols) > 0 {
-		return true
-	}
-	if len(o.busCtx.Mutable.EmittedHypothesisVerdicts()) > 0 {
-		return true
-	}
-	return false
-}
-
 func (o *Orchestrator) completeExtractAfterTransientProgress(err error) bool {
 	if o == nil || o.busCtx == nil || !llm.IsStreamLevelRetryable(err) {
 		return false
@@ -7511,22 +7499,6 @@ func (o *Orchestrator) canUseFinalizerOutputAfterTransientProgress(output *agent
 		return false
 	}
 	return strings.TrimSpace(output.FinalAnswer) != ""
-}
-
-func (o *Orchestrator) reusableTurnBSlateSummary() string {
-	if o == nil || o.busCtx == nil {
-		return "none"
-	}
-	mutableSymbols := 0
-	verdicts := 0
-	if o.busCtx.Mutable != nil {
-		if symbols, _ := o.busCtx.Mutable.EmittedAnswerSymbols(); len(symbols) > 0 {
-			mutableSymbols = len(symbols)
-		}
-		verdicts = len(o.busCtx.Mutable.EmittedHypothesisVerdicts())
-	}
-	return fmt.Sprintf("answer_symbols=%d emitted_answer_symbols=%d answer_chains=%d hypothesis_verdicts=%d",
-		len(o.busCtx.AnswerSymbols), mutableSymbols, len(o.busCtx.AnswerChains), verdicts)
 }
 
 func (o *Orchestrator) hasBlockingReconcileRepair() bool {

@@ -21,6 +21,7 @@ func TestRunTaskGraph_FinalizerOnlyRetryReusesHypothesisVerdicts(t *testing.T) {
 		Language:    "en",
 		MustInclude: []string{"SENTINEL_REQUIRES_FINALIZER_RETRY"},
 	})
+	requireExtractEnumerationSlate(ir)
 	ir.TaskGraph.ExecutionPolicy.RetryBudget = 2
 	ir.HypothesisSet = []types.Hypothesis{{
 		ID:        "h1",
@@ -85,7 +86,7 @@ func TestRunTaskGraph_FinalizerOnlyRetryReusesHypothesisVerdicts(t *testing.T) {
 	}
 }
 
-func TestRunTaskGraph_FinalizerOnlyRetryDoesNotReplayEmptyExtract(t *testing.T) {
+func TestRunTaskGraph_FinalizerOnlyRetryDoesNotDispatchEmptyExtract(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, []string{string(types.ViolMustInclude)})
 
@@ -129,8 +130,8 @@ func TestRunTaskGraph_FinalizerOnlyRetryDoesNotReplayEmptyExtract(t *testing.T) 
 		t.Fatal("Run did not terminate within 5s")
 	}
 
-	if extractorCalls != 1 {
-		t.Fatalf("finalizer-only retry must not replay an already-successful empty extract; extractorCalls=%d", extractorCalls)
+	if extractorCalls != 0 {
+		t.Fatalf("finalizer-only retry must not dispatch an empty extract when no typed extract work is pending; extractorCalls=%d", extractorCalls)
 	}
 	if finalizerCalls < 2 {
 		t.Fatalf("finalizer should retry on the contract violation; finalizerCalls=%d", finalizerCalls)
@@ -139,6 +140,7 @@ func TestRunTaskGraph_FinalizerOnlyRetryDoesNotReplayEmptyExtract(t *testing.T) 
 
 func TestRunTaskGraph_ForcedFinalizeReusesTurnBSlateAfterDispatchError(t *testing.T) {
 	ir := dagIR(types.AnswerContract{Language: "en"})
+	requireExtractAnswerSymbols(ir)
 
 	var extractorCalls, finalizerCalls int
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -202,6 +204,7 @@ func TestRunTaskGraph_ForcedFinalizeReusesTurnBSlateAfterDispatchError(t *testin
 
 func TestRunTaskGraph_FinalizerNoVisibleOutputUsesDegradedTurnBSlate(t *testing.T) {
 	ir := dagIR(types.AnswerContract{Language: "zh"})
+	requireExtractAnswerSymbols(ir)
 	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
 
 	var extractorCalls, finalizerCalls int
