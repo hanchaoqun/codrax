@@ -5434,31 +5434,53 @@ func renderEmitEvidenceRepairClosureOnlyHint(targets []evidenceRepairTarget) str
 	return b.String()
 }
 
-// budgetExhaustedHintMarker is the substring the budget gate writes
-// into a refused tool result Summary. Source of truth:
-// internal/agent/agent.go::executeTool — keep both in sync if either
-// is reworded.
-const budgetExhaustedHintMarker = "explore budget exhausted for tool"
+const exploreBudgetExhaustedRepairCode = "explore_budget_exhausted"
 
-// extractBudgetExhaustedToolName parses the canonical budget-rejection
-// Summary shape (`explore budget exhausted for tool "<name>": …`) and
-// returns the bare tool name. Returns empty string when the marker
-// isn't present or the surrounding shape changes.
-func extractBudgetExhaustedToolName(summary string) string {
-	idx := strings.Index(summary, budgetExhaustedHintMarker)
-	if idx < 0 {
+func canonicalExploreToolName(toolName string) string {
+	toolName = strings.TrimSpace(toolName)
+	canonical := strings.TrimSpace(types.CanonicalToolName(toolName))
+	if canonical != "" {
+		return canonical
+	}
+	return toolName
+}
+
+func exploreBudgetExhaustedRepair(toolName string) *types.ToolRepair {
+	tool := canonicalExploreToolName(toolName)
+	return &types.ToolRepair{
+		Code:   exploreBudgetExhaustedRepairCode,
+		Hint:   "This tool's explore budget is exhausted for the current dispatch; use a different read tool or finish from accepted evidence.",
+		Fields: []string{"tool"},
+		Metadata: map[string]string{
+			"tool":  tool,
+			"scope": "per_tool",
+		},
+	}
+}
+
+func exploreBudgetExhaustedRefinement(toolName string) *types.ToolRefinementHint {
+	tool := canonicalExploreToolName(toolName)
+	return &types.ToolRefinementHint{
+		ReasonCode:        exploreBudgetExhaustedRepairCode,
+		PreferredNextTool: "",
+		PreferredParams: map[string]string{
+			"exhausted_tool": tool,
+		},
+	}
+}
+
+func budgetExhaustedToolNameFromResult(result *types.ToolResult) string {
+	if result == nil || result.Success || result.Repair == nil {
 		return ""
 	}
-	rest := summary[idx+len(budgetExhaustedHintMarker):]
-	q1 := strings.Index(rest, `"`)
-	if q1 < 0 {
+	if strings.TrimSpace(result.Repair.Code) != exploreBudgetExhaustedRepairCode {
 		return ""
 	}
-	q2 := strings.Index(rest[q1+1:], `"`)
-	if q2 < 0 {
+	tool := strings.TrimSpace(result.Repair.Metadata["tool"])
+	if tool == "" {
 		return ""
 	}
-	return rest[q1+1 : q1+1+q2]
+	return canonicalExploreToolName(tool)
 }
 
 // postBudgetExhaustedSignal fires a per-tool one-shot nudge when the
@@ -5480,7 +5502,7 @@ func (e *explorerEvaluator) postBudgetExhaustedSignal(obs LoopObservation) LoopS
 	if obs.LastToolResult == nil || obs.LastToolResult.Success {
 		return LoopSignal{}
 	}
-	tool := extractBudgetExhaustedToolName(obs.LastToolResult.Summary)
+	tool := budgetExhaustedToolNameFromResult(obs.LastToolResult)
 	if tool == "" {
 		return LoopSignal{}
 	}

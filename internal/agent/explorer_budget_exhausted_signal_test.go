@@ -22,29 +22,12 @@ import (
 
 func budgetExhaustedResult(tool string) *types.ToolResult {
 	return &types.ToolResult{
-		ToolName: tool,
-		Success:  false,
+		ToolName:   tool,
+		Success:    false,
+		Repair:     exploreBudgetExhaustedRepair(tool),
+		Refinement: exploreBudgetExhaustedRefinement(tool),
 		Summary: "explore budget exhausted for tool \"" + tool + "\": per-tool or overall cap reached. " +
 			"Use a different tool or stop the investigation.",
-	}
-}
-
-func TestExtractBudgetExhaustedToolName(t *testing.T) {
-	cases := []struct {
-		summary string
-		want    string
-	}{
-		{"explore budget exhausted for tool \"read_file\": per-tool", "read_file"},
-		{"explore budget exhausted for tool \"grep\": per-tool", "grep"},
-		{"some other error", ""},
-		{"explore budget exhausted for tool no quotes", ""},
-		{"", ""},
-	}
-	for _, tc := range cases {
-		got := extractBudgetExhaustedToolName(tc.summary)
-		if got != tc.want {
-			t.Errorf("extractBudgetExhaustedToolName(%q) = %q, want %q", tc.summary, got, tc.want)
-		}
 	}
 }
 
@@ -80,6 +63,20 @@ func TestPostBudgetExhaustedSignal_NonBudgetError_NoOp(t *testing.T) {
 	}
 	if got := e.postBudgetExhaustedSignal(obs); got.HintRequested {
 		t.Errorf("non-budget error must not trigger nudge; got %+v", got)
+	}
+}
+
+func TestPostBudgetExhaustedSignal_SummaryOnlyBudgetText_NoOp(t *testing.T) {
+	e := &explorerEvaluator{}
+	obs := LoopObservation{
+		LastToolResult: &types.ToolResult{
+			ToolName: "read_file",
+			Success:  false,
+			Summary:  "explore budget exhausted for tool \"read_file\": per-tool or overall cap reached.",
+		},
+	}
+	if got := e.postBudgetExhaustedSignal(obs); got.HintRequested {
+		t.Errorf("summary-only budget text must not trigger loop-control; got %+v", got)
 	}
 }
 

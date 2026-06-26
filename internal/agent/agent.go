@@ -4304,10 +4304,12 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 			logging.Warning("[sourcemix] %s", msg)
 			b.observeToolRejected(ctx, tc, "explore_budget_exhausted", "budget_exhausted")
 			return &types.ToolResult{
-				ToolName:  tc.Name,
-				Summary:   msg,
-				Success:   false,
-				Timestamp: time.Now(),
+				ToolName:   tc.Name,
+				Summary:    msg,
+				Success:    false,
+				Timestamp:  time.Now(),
+				Repair:     exploreBudgetExhaustedRepair(tc.Name),
+				Refinement: exploreBudgetExhaustedRefinement(tc.Name),
 			}, nil
 		}
 		ctx.Mutable.RecordToolCall(canonical)
