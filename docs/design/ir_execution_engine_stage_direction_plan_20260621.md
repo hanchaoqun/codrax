@@ -2279,6 +2279,13 @@ Remaining follow-up:
      4. Consumer: existing typed refinement rendering carries reason/params into continuation hints. Summary prefix fallback stays for older producer lines until all no-match producers have typed coverage.
      5. Guardrail tests: runtime artifact no-match and regex-shorthand no-match both attach typed refinement; runtime no-match does not suggest repo_map/relation_map; summary remains user-visible for transparency.
      6. Validation passed: `go test ./internal/tool -run 'GrepNoMatch|GrepTool' -count=1`.
+   - **Delivered D1-F10g.105 read retry runtime-continuation typed signal（code complete / focused regression passed）**:
+     1. Target gap: `exploreRuntimeTraceContinuationLikely` still scans rendered tool `Summary` for `runtime/log/trace`, `.systrace`, `.htrace`, `.trace`, and `.log` text to choose the runtime-continuation retry UX.
+     2. Risk: this is UX/soft-routing, not an answer gate, but it is still a control decision. Summary-only path text from transparent logs should not decide stage continuation labels.
+     3. Producer availability: Bus attachments and AnalysisIR already provide typed runtime artifact state; tool results expose typed runtime observations, read/path discovery coverage, and D1-F10g.102 refinement `read_file_path` / `path` params.
+     4. Consumer: Summary scanning was replaced with typed checks over attachment state, AnalysisIR runtime traits, `ToolResult.Observations`, `ReadCoverage`, `PathDiscovery`, and `ToolRefinementHint.PreferredParams`.
+     5. Guardrail tests: typed runtime observation/refinement path triggers runtime continuation; summary-only `.systrace` text does not.
+     6. Validation passed: `go test ./internal/orchestrator -run 'BuildExploreFactRetryContinuationHintCarriesRuntimeFrontier|ExploreRuntimeTraceContinuation|SoftAgentOutputRetryMessageRuntimeContinuationLocalized' -count=1`.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

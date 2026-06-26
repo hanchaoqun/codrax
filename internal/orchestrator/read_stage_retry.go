@@ -471,15 +471,38 @@ func exploreRuntimeTraceContinuationLikely(bus *types.BusContext, toolResults []
 		}
 	}
 	for _, tr := range toolResults {
-		s := strings.ToLower(tr.Summary)
-		if strings.Contains(s, "runtime/log/trace") ||
-			strings.Contains(s, "runtime artifact") ||
-			strings.Contains(s, ".systrace") ||
-			strings.Contains(s, ".htrace") ||
-			strings.Contains(s, ".atrace") ||
-			strings.Contains(s, ".perfetto") ||
-			strings.Contains(s, ".trace") ||
-			strings.Contains(s, ".log") {
+		if toolResultCarriesRuntimeArtifactSignal(tr) {
+			return true
+		}
+	}
+	return false
+}
+
+func toolResultCarriesRuntimeArtifactSignal(result types.ToolResult) bool {
+	if strings.TrimSpace(result.ToolName) == "trace_query" {
+		return true
+	}
+	for _, record := range result.Observations {
+		if record.Origin == types.AnswerEvidenceOriginRuntimeArtifact ||
+			record.SourceRef.Kind == types.ObservationSourceRuntimeArtifact {
+			return true
+		}
+	}
+	if result.ReadCoverage != nil && types.RuntimeArtifactPathKindInText(result.ReadCoverage.Path) != "" {
+		return true
+	}
+	if result.PathDiscovery != nil && types.RuntimeArtifactPathKindInText(result.PathDiscovery.Path) != "" {
+		return true
+	}
+	if refinement, ok := continuationToolResultRefinement(result); ok && toolRefinementCarriesRuntimeArtifactPath(refinement) {
+		return true
+	}
+	return false
+}
+
+func toolRefinementCarriesRuntimeArtifactPath(refinement types.ToolRefinementHint) bool {
+	for _, key := range []string{"path", "read_file_path"} {
+		if types.RuntimeArtifactPathKindInText(refinement.PreferredParams[key]) != "" {
 			return true
 		}
 	}

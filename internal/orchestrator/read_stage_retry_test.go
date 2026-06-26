@@ -319,6 +319,16 @@ func TestBuildExploreFactRetryContinuationHintCarriesRuntimeFrontier(t *testing.
 		Summary: "[grep retrieval governor]\n" +
 			"line_windows=record_trace.systrace:1102600-1102640(matches=4); record_trace.systrace:1139160-1139200(matches=3)\n" +
 			"next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id\n",
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode:        "grep_result_truncated",
+			ResultTruncated:   true,
+			PreferredNextTool: "grep",
+			PreferredParams: map[string]string{
+				"read_file_path":        "record_trace.systrace",
+				"read_file_line_offset": "1102602",
+				"read_file_limit":       "41",
+			},
+		},
 	})
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{
 		ReadFiles: []string{"record_trace.systrace"},
@@ -342,14 +352,27 @@ func TestBuildExploreFactRetryContinuationHintCarriesRuntimeFrontier(t *testing.
 			ToolName: "grep",
 			Success:  true,
 			Summary:  "line_window_hint=first returned match is record_trace.systrace:1102623; next use read_file\n",
+			Refinement: &types.ToolRefinementHint{
+				ReasonCode:        "grep_result_truncated",
+				ResultTruncated:   true,
+				PreferredNextTool: "grep",
+				PreferredParams: map[string]string{
+					"read_file_path":        "record_trace.systrace",
+					"read_file_line_offset": "1102602",
+					"read_file_limit":       "41",
+					"grep_line_start":       "1102603",
+					"grep_line_end":         "1102643",
+				},
+			},
 		}},
 	})
 	for _, want := range []string{
 		exploreFactRetryCheckpointPrefix,
 		"not a fresh investigation",
 		"Runtime/log/trace continuation",
-		"line_windows=record_trace.systrace:1102600-1102640",
-		"line_window_hint=first returned match is record_trace.systrace:1102623",
+		"read_file_path=record_trace.systrace",
+		"read_file_line_offset=1102602",
+		"read_file_limit=41",
 		"frontier=[GT]ColdPool#5-36624",
 	} {
 		if !strings.Contains(got, want) {
@@ -460,5 +483,40 @@ func TestSoftAgentOutputRetryMessageRuntimeContinuationLocalized(t *testing.T) {
 	}
 	if kind := softAgentOutputRetryNoticeKind(types.StageExplore, types.MissingFacts); kind != render.NoticeInvestigationSupplement {
 		t.Fatalf("missing-facts continuation notice kind = %v, want NoticeInvestigationSupplement", kind)
+	}
+}
+
+func TestExploreRuntimeTraceContinuationLikelyUsesTypedToolSignals(t *testing.T) {
+	bus := &types.BusContext{}
+	if !exploreRuntimeTraceContinuationLikely(bus, []types.ToolResult{{
+		ToolName: "grep",
+		Success:  true,
+		Refinement: &types.ToolRefinementHint{
+			PreferredParams: map[string]string{
+				"read_file_path": "record_trace.systrace",
+			},
+		},
+	}}) {
+		t.Fatal("typed runtime refinement path should trigger runtime continuation")
+	}
+	if !exploreRuntimeTraceContinuationLikely(bus, []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		}},
+	}}) {
+		t.Fatal("typed runtime observation should trigger runtime continuation")
+	}
+}
+
+func TestExploreRuntimeTraceContinuationLikelyIgnoresSummaryOnlyPaths(t *testing.T) {
+	bus := &types.BusContext{}
+	if exploreRuntimeTraceContinuationLikely(bus, []types.ToolResult{{
+		ToolName: "custom_tool",
+		Success:  true,
+		Summary:  "runtime/log/trace result mentions record_trace.systrace and file.log",
+	}}) {
+		t.Fatal("summary-only runtime path text must not trigger runtime continuation")
 	}
 }
