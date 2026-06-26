@@ -3141,14 +3141,15 @@ func TestEmitInvestigationComplete_AutoFillsBareMemberSupportFromUniqueReadLine(
 		GroundingStatus: types.GroundingGrounded,
 		GroundingTier:   types.TierLineText,
 	}})
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file",
-		Success:  true,
-		Summary: "[internal/agent/sub_explorer.go: showing lines 32-34]\n" +
-			"   32 │ func (s *SubExplorer) Name() string {\n" +
-			"   33 │ \treturn \"explorer\"\n" +
-			"   34 │ }\n",
-	})
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(
+		t,
+		"internal/agent/sub_explorer.go",
+		32,
+		34,
+		"func (s *SubExplorer) Name() string {",
+		"\treturn \"explorer\"",
+		"}",
+	))
 	ir := enumerationPrincipalGateIR()
 	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
 		Required:    true,

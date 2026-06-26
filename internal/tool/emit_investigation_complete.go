@@ -5135,7 +5135,7 @@ func buildAggregateMemberSupportIndexWithEvidence(ctx *types.BusContext, evidenc
 			continue
 		}
 		if strings.TrimSpace(result.ToolName) == "read_file" {
-			for _, line := range aggregateReadFileToolLines(result.Summary) {
+			for _, line := range aggregateReadFileToolLinesFromResult(result) {
 				loc := aggregateSupportLocationKey(line.File, line.Line)
 				if loc == "" {
 					continue
@@ -5574,9 +5574,10 @@ func aggregateSupportToolResultEligible(name string) bool {
 }
 
 var aggregateToolLocationPattern = regexp.MustCompile(`\b[^\s"'` + "`" + `]+:\d+\b`)
-var aggregateReadFileHeaderPattern = regexp.MustCompile(`^\[([^:\]\n]+): showing `)
 var aggregateReadFileGutterPattern = regexp.MustCompile(`^\s*(\d+)\s*[│|]\s?(.*)$`)
 var aggregateDecoratedLineQualifierPattern = regexp.MustCompile(`(?i)^\s*(?:#|lines?|ln|l|行|第)\s*#?\s*(\d+)\s*(?:行)?\s*$`)
+
+const aggregateMaxReadFileRawRefBytes = 2 * 1024 * 1024
 
 type aggregateToolLine struct {
 	File string
@@ -5584,20 +5585,33 @@ type aggregateToolLine struct {
 	Text string
 }
 
-func aggregateReadFileToolLines(summary string) []aggregateToolLine {
-	if strings.TrimSpace(summary) == "" {
+func aggregateReadFileToolLinesFromResult(result types.ToolResult) []aggregateToolLine {
+	coverage := result.ReadCoverage
+	if coverage == nil {
 		return nil
 	}
+	path := strings.TrimSpace(strings.ReplaceAll(coverage.Path, `\`, `/`))
+	if path == "" {
+		return nil
+	}
+	rawRef := strings.TrimSpace(result.RawRef)
+	if rawRef == "" {
+		rawRef = strings.TrimSpace(coverage.RawRef)
+	}
+	content, ok := LoadBlobText(rawRef, aggregateMaxReadFileRawRefBytes)
+	if !ok {
+		return nil
+	}
+	lineStart := coverage.LineStart
+	if lineStart <= 0 {
+		lineStart = 1
+	}
+	lineEnd := coverage.LineEnd
+	if lineEnd < lineStart {
+		lineEnd = lineStart
+	}
 	var out []aggregateToolLine
-	var currentFile string
-	for _, line := range strings.Split(summary, "\n") {
-		if m := aggregateReadFileHeaderPattern.FindStringSubmatch(strings.TrimSpace(line)); len(m) == 2 {
-			currentFile = strings.TrimSpace(strings.ReplaceAll(m[1], `\`, `/`))
-			continue
-		}
-		if currentFile == "" {
-			continue
-		}
+	for _, line := range strings.Split(content, "\n") {
 		m := aggregateReadFileGutterPattern.FindStringSubmatch(line)
 		if len(m) != 3 {
 			continue
@@ -5606,8 +5620,11 @@ func aggregateReadFileToolLines(summary string) []aggregateToolLine {
 		if err != nil || lineNo <= 0 {
 			continue
 		}
+		if lineNo < lineStart || lineNo > lineEnd {
+			continue
+		}
 		out = append(out, aggregateToolLine{
-			File: currentFile,
+			File: path,
 			Line: lineNo,
 			Text: strings.TrimSpace(m[2]),
 		})

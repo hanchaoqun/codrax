@@ -27,6 +27,38 @@ func writeForcedReadFixtureFiles(t *testing.T, repoRoot string, files ...string)
 	}
 }
 
+func readFileRawRefResultForTest(t *testing.T, path string, startLine, totalLines int, lines ...string) types.ToolResult {
+	t.Helper()
+	if len(lines) == 0 {
+		t.Fatalf("readFileRawRefResultForTest requires at least one line")
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "[%s: showing lines %d-%d of %d total]\n", path, startLine, startLine+len(lines)-1, totalLines)
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "%6d│ %s", startLine+i, line)
+	}
+	rawRef := filepath.Join(t.TempDir(), "read_file.txt")
+	if err := os.WriteFile(rawRef, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("write raw read_file ref: %v", err)
+	}
+	return types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  b.String(),
+		RawRef:   rawRef,
+		ReadCoverage: &types.ToolReadCoverage{
+			Path:       path,
+			LineStart:  startLine,
+			LineEnd:    startLine + len(lines) - 1,
+			TotalLines: totalLines,
+			RawRef:     rawRef,
+		},
+	}
+}
+
 func TestCompletionAggregateFactsAreOptional_SourceOptionalRuntimeDiagnostic(t *testing.T) {
 	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{
 		RequestModel: types.RequestModel{
@@ -1238,14 +1270,13 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MemberSetSupportRefsCanUseDe
 
 func TestEmitInvestigationComplete_PreCompleteCheck_AutoSupportRefsFromReadFileGutter(t *testing.T) {
 	mut := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数")
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file",
-		Success:  true,
-		Summary: strings.Join([]string{
-			"[internal/analysis/findings_validator/validator.go: showing lines 60-75 of 183 total]",
-			"    70│ func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
-		}, "\n"),
-	})
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(
+		t,
+		"internal/analysis/findings_validator/validator.go",
+		70,
+		183,
+		"func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
+	))
 	bus := &types.BusContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{
@@ -1295,6 +1326,57 @@ func TestEmitInvestigationComplete_PreCompleteCheck_AutoSupportRefsFromReadFileG
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_DoesNotAutoSupportRefsFromSummaryOnlyReadFileGutter(t *testing.T) {
+	mut := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[internal/analysis/findings_validator/validator.go: showing lines 60-75 of 183 total]",
+			"    70│ func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
+		}, "\n"),
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqEnumeration),
+					Entities: []string{"findings_validator", "gate"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "the package entry function was read from source",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":    "member_set",
+			"label":   "internal/analysis package entries",
+			"value":   "1",
+			"members": []string{"findings_validator → Validate"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "exhaustive member-set handoff is missing") {
+		t.Fatalf("summary-only read_file gutter must not satisfy member_set support, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("summary-only read_file gutter must not close investigation")
+	}
+}
+
 func TestAggregateMemberReadFileSupportRef_RelationPathMatch(t *testing.T) {
 	support := aggregateMemberSupportIndex{
 		readFileLines: []aggregateToolLine{{
@@ -1337,11 +1419,14 @@ func TestAggregateReadFilePathMatchesRelationLeft_CrossLanguageSurfaces(t *testi
 	}
 }
 
-func TestAggregateReadFileToolLines_ParsesGutter(t *testing.T) {
-	lines := aggregateReadFileToolLines(strings.Join([]string{
-		"[internal/analysis/findings_validator/validator.go: showing lines 60-75 of 183 total]",
-		"    70│ func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
-	}, "\n"))
+func TestAggregateReadFileToolLinesFromResult_ParsesRawRefGutter(t *testing.T) {
+	lines := aggregateReadFileToolLinesFromResult(readFileRawRefResultForTest(
+		t,
+		"internal/analysis/findings_validator/validator.go",
+		70,
+		183,
+		"func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
+	))
 	if len(lines) != 1 {
 		t.Fatalf("lines = %+v", lines)
 	}
@@ -1353,14 +1438,13 @@ func TestAggregateReadFileToolLines_ParsesGutter(t *testing.T) {
 
 func TestEnrichCompletionAggregateFactsWithMemberSupport_ReadFileGutter(t *testing.T) {
 	mut := types.NewMutableState("x")
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file",
-		Success:  true,
-		Summary: strings.Join([]string{
-			"[internal/analysis/findings_validator/validator.go: showing lines 60-75 of 183 total]",
-			"    70│ func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
-		}, "\n"),
-	})
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(
+		t,
+		"internal/analysis/findings_validator/validator.go",
+		70,
+		183,
+		"func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
+	))
 	got := enrichCompletionAggregateFactsWithMemberSupport(&types.BusContext{Mutable: mut}, []types.AnswerAggregateFact{{
 		Kind:    types.AnswerAggregateMemberSet,
 		Label:   "entries",
@@ -1377,18 +1461,22 @@ func TestEnrichCompletionAggregateFactsWithMemberSupport_ReadFileGutter(t *testi
 
 func TestEnrichCompletionAggregateFactsWithMemberSupport_DecoratedLineMembers(t *testing.T) {
 	mut := types.NewMutableState("x")
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file",
-		Success:  true,
-		Summary: strings.Join([]string{
-			"[internal/agent/analyzer.go: showing lines 1377-1378 of 2500 total]",
-			"  1377│ graph, graphOrigin := analyzerGraphForNormalize(ctx, rm)",
-			"  1378│ rm = reconcileEnumerationBoundaryScope(rm)",
-			"[internal/agent/analyzer.go: showing lines 1702-1703 of 2500 total]",
-			"  1702│ resolver := analyzerSymbolResolver(ctx, rm)",
-			"  1703│ rm.TermGraph = normalizer.Normalize(rm.TermGraph, resolver)",
-		}, "\n"),
-	})
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(
+		t,
+		"internal/agent/analyzer.go",
+		1377,
+		2500,
+		"graph, graphOrigin := analyzerGraphForNormalize(ctx, rm)",
+		"rm = reconcileEnumerationBoundaryScope(rm)",
+	))
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(
+		t,
+		"internal/agent/analyzer.go",
+		1702,
+		2500,
+		"resolver := analyzerSymbolResolver(ctx, rm)",
+		"rm.TermGraph = normalizer.Normalize(rm.TermGraph, resolver)",
+	))
 	got := enrichCompletionAggregateFactsWithMemberSupport(&types.BusContext{Mutable: mut}, []types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateMemberSet,
 		Label: "call chain",
@@ -1418,14 +1506,13 @@ func TestEnrichCompletionAggregateFactsWithMemberSupport_DecoratedLineMembers(t 
 
 func TestEmitInvestigationComplete_PreCompleteCheck_ReadFileGutterRequiresRelationPathMatch(t *testing.T) {
 	mut := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数")
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file",
-		Success:  true,
-		Summary: strings.Join([]string{
-			"[internal/analysis/findings_validator/validator.go: showing lines 60-75 of 183 total]",
-			"    70│ func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
-		}, "\n"),
-	})
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(
+		t,
+		"internal/analysis/findings_validator/validator.go",
+		70,
+		183,
+		"func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
+	))
 	bus := &types.BusContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{
@@ -1540,14 +1627,13 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryChecklistGuid
 			}},
 		}},
 	})
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file",
-		Success:  true,
-		Summary: strings.Join([]string{
-			"[internal/analysis/aggregator/aggregator.go: showing lines 128-134 of 210 total]",
-			"   132│ func Aggregate(closure *types.EvidenceClosure) []FieldHeat {",
-		}, "\n"),
-	})
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(
+		t,
+		"internal/analysis/aggregator/aggregator.go",
+		132,
+		210,
+		"func Aggregate(closure *types.EvidenceClosure) []FieldHeat {",
+	))
 	bus := &types.BusContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{
