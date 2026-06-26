@@ -145,7 +145,19 @@ func TestPlannerParseOutput_PartialPlanCompleteReportsLatestEmitRejection(t *tes
 	out, err := e.ParseOutput(ctx, nil, []types.ToolResult{{
 		ToolName: emitPlanChangeToolName,
 		Success:  false,
-		Summary:  "emit_plan_change rejected during finalize: structured edit builder: old_text mismatch",
+		Summary:  "UNTRUSTED rendered validator summary should not enter ParseOutput error",
+		Repair: plannerPlanRepairToolRepairForTest(types.PlanRepairPack{
+			ToolName:          emitPlanChangeToolName,
+			ReasonCode:        "old_text_mismatch",
+			FailingFieldPaths: []string{"$.changes[0].edits[0].old_text"},
+			FailingPaths:      []string{"main.go"},
+			CurrentBytes: []types.PlanRepairCurrentBytes{{
+				Path:      "main.go",
+				StartLine: 1,
+				EndLine:   1,
+			}},
+			RetryInstruction: "replace old_text with the exact current bytes from the pack",
+		}),
 	}}, nil)
 	if err == nil {
 		t.Fatal("ParseOutput should error when latest complete partial plan was rejected")
@@ -153,11 +165,47 @@ func TestPlannerParseOutput_PartialPlanCompleteReportsLatestEmitRejection(t *tes
 	if out == nil {
 		t.Fatal("ParseOutput must return a non-nil StageOutput even on error")
 	}
-	if !strings.Contains(out.Error, "old_text mismatch") {
-		t.Fatalf("error should preserve latest validator rejection, got %q", out.Error)
+	if !strings.Contains(out.Error, "old_text_mismatch") {
+		t.Fatalf("error should preserve typed validator reason, got %q", out.Error)
+	}
+	if strings.Contains(out.Error, "UNTRUSTED") {
+		t.Fatalf("error must not be built from rendered ToolResult.Summary: %q", out.Error)
 	}
 	if strings.Contains(out.Error, "never finalized") {
 		t.Fatalf("validator rejection must not be misreported as internal mismatch: %q", out.Error)
+	}
+}
+
+func TestPlannerParseOutput_StructuredEmitRejectWithoutTypedRepairDoesNotLeakSummary(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	ctx := &types.AgentContext{Mutable: e.mu}
+
+	out, err := e.ParseOutput(ctx, nil, []types.ToolResult{{
+		ToolName: emitChangePlanToolName,
+		Success:  false,
+		Summary:  "old_text mismatch from rendered summary only",
+	}}, nil)
+	if err == nil {
+		t.Fatal("ParseOutput should error when a plan emit was rejected")
+	}
+	if out == nil {
+		t.Fatal("ParseOutput must return a non-nil StageOutput even on error")
+	}
+	if strings.Contains(out.Error, "old_text mismatch from rendered summary only") {
+		t.Fatalf("summary-only rejection text must not become planner error: %q", out.Error)
+	}
+	if !strings.Contains(out.Error, "structured validation") {
+		t.Fatalf("expected generic structured validation error, got %q", out.Error)
+	}
+}
+
+func plannerPlanRepairToolRepairForTest(pack types.PlanRepairPack) *types.ToolRepair {
+	normalized := types.NormalizePlanRepairPack(pack)
+	return &types.ToolRepair{
+		Code: types.PlanRepairToolCode,
+		Metadata: map[string]string{
+			types.PlanRepairMetadataKey: types.PlanRepairPackJSON(normalized),
+		},
 	}
 }
 

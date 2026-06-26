@@ -1371,6 +1371,104 @@ func plannerLastStructuredEmitRejection(results []types.ToolResult) (types.ToolR
 	return types.ToolResult{}, false
 }
 
+func plannerStructuredEmitRejectionReason(result types.ToolResult) string {
+	const fallback = "the proposed change plan was rejected by structured validation; correct the plan using the typed schema and retry"
+	if pack, ok := types.PlanRepairPackFromToolResult(result); ok {
+		return plannerPlanRepairPackReason(pack)
+	}
+	if result.Repair != nil {
+		return plannerToolRepairReason(result.Repair)
+	}
+	return fallback
+}
+
+func plannerPlanRepairPackReason(pack types.PlanRepairPack) string {
+	pack = types.NormalizePlanRepairPack(pack)
+	parts := []string{"the proposed change plan was rejected by structured validation"}
+	if pack.ReasonCode != "" {
+		parts = append(parts, "reason="+pack.ReasonCode)
+	}
+	if len(pack.FailingPaths) > 0 {
+		parts = append(parts, "paths="+strings.Join(plannerLimitStrings(pack.FailingPaths, 4), ","))
+	}
+	if len(pack.FailingFieldPaths) > 0 {
+		parts = append(parts, "fields="+strings.Join(plannerLimitStrings(pack.FailingFieldPaths, 4), ","))
+	}
+	if len(pack.CurrentBytes) > 0 {
+		surfaces := make([]string, 0, len(pack.CurrentBytes))
+		for _, current := range pack.CurrentBytes {
+			label := strings.TrimSpace(current.Path)
+			if current.StartLine > 0 {
+				label += fmt.Sprintf(":%d", current.StartLine)
+				if current.EndLine > current.StartLine {
+					label += fmt.Sprintf("-%d", current.EndLine)
+				}
+			}
+			if label != "" {
+				surfaces = append(surfaces, label)
+			}
+			if len(surfaces) >= 4 {
+				break
+			}
+		}
+		if len(surfaces) > 0 {
+			parts = append(parts, "current_bytes="+strings.Join(surfaces, ","))
+		}
+	}
+	if pack.RetryInstruction != "" {
+		parts = append(parts, "retry="+pack.RetryInstruction)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func plannerToolRepairReason(repair *types.ToolRepair) string {
+	if repair == nil {
+		return "the proposed change plan was rejected by structured validation; correct the plan using the typed schema and retry"
+	}
+	parts := []string{"the proposed change plan was rejected by structured validation"}
+	if code := strings.TrimSpace(repair.Code); code != "" {
+		parts = append(parts, "repair="+code)
+	}
+	if len(repair.Fields) > 0 {
+		parts = append(parts, "fields="+strings.Join(plannerLimitStrings(repair.Fields, 4), ","))
+	}
+	if len(repair.Targets) > 0 {
+		targets := make([]string, 0, len(repair.Targets))
+		for _, target := range repair.Targets {
+			file := strings.TrimSpace(target.File)
+			if file == "" {
+				continue
+			}
+			targets = append(targets, file)
+			if len(targets) >= 4 {
+				break
+			}
+		}
+		if len(targets) > 0 {
+			parts = append(parts, "targets="+strings.Join(targets, ","))
+		}
+	}
+	if hint := strings.TrimSpace(repair.Hint); hint != "" {
+		parts = append(parts, "retry="+limitWriteControllerText(hint, 480))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func plannerLimitStrings(in []string, max int) []string {
+	out := make([]string, 0, len(in))
+	for _, value := range in {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		out = append(out, limitWriteControllerText(value, 160))
+		if max > 0 && len(out) >= max {
+			break
+		}
+	}
+	return out
+}
+
 func plannerToolResultsContainSuccessfulStructuredEmit(results []types.ToolResult) bool {
 	for _, result := range results {
 		if !result.Success {
@@ -1737,7 +1835,7 @@ func (e *plannerEvaluator) ParseOutput(
 					// rejection instead of misclassifying this as an internal
 					// promotion mismatch.
 					logging.Warning("[planner] structured emit rejected after complete partial plan: tool=%s summary=%s", tr.ToolName, tr.Summary)
-					reason = "the proposed change plan was rejected: " + tr.Summary
+					reason = plannerStructuredEmitRejectionReason(tr)
 				} else {
 					// Outline + every body present yet ChangePlan slot
 					// stayed empty. Internal mismatch — log details, give
@@ -1769,7 +1867,7 @@ func (e *plannerEvaluator) ParseOutput(
 					tr.ToolName == emitPlanSkeletonToolName ||
 					tr.ToolName == emitPlanChangeToolName) {
 					logging.Warning("[planner] structured emit rejected: tool=%s summary=%s", tr.ToolName, tr.Summary)
-					reason = "the proposed change plan was rejected: " + tr.Summary
+					reason = plannerStructuredEmitRejectionReason(tr)
 					break
 				}
 			}

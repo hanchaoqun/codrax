@@ -2392,6 +2392,12 @@ Remaining follow-up:
     2. Consumer change: `emitAnswerDocumentRejectSignal` now relies on precise tool identity plus `Success=false` and optional `ToolRepair`; empty Summary no longer suppresses generic repair, and typed repair still overrides the generic hint.
     3. Guardrail tests: a failed `emit_answer_document` result with empty Summary still emits the generic correction hint; typed repair-specific lanes remain unchanged.
     4. Red-line boundary: finalizer reject loop-control does not inspect rendered tool Summary. Tool summaries remain transparent user/model context only.
+  - **Delivered D1-F10g.118 planner structured emit rejection typed repair cutover（code complete / full regression passed）**:
+    1. Target gap: write-mode planner `ParseOutput` still built the user/model-facing failure reason for rejected `emit_change_plan` / `emit_plan_skeleton` / `emit_plan_change` results by concatenating rendered `ToolResult.Summary`.
+    2. Risk: plan validator summaries are intentionally transparent logs, but they are not the control-plane contract. Letting summary text become retry context can reintroduce schema/prose coupling and make model repair depend on arbitrary validator wording.
+    3. Consumer change: planner rejection reasons now prefer `PlanRepairPack` metadata from `ToolRepair`, then typed `ToolRepair{code,fields,targets,hint}`. Summary-only structured emit failures fall back to a generic structured-validation error; operator logs keep the summary for audit.
+    4. Guardrail tests: typed old-text mismatch repair still surfaces `old_text_mismatch`, paths, fields, current-byte coordinates, and retry instruction; summary-only rejection text does not enter `StageOutput.Error`.
+    5. Red-line boundary: planner retry/error control consumes only typed plan repair metadata, tool identity, success state, partial-plan state, and deterministic missing-body lists. It does not parse rendered tool Summary, user text, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
