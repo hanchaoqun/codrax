@@ -5356,6 +5356,7 @@ type ToolRuntimeTiming struct {
 const (
 	ToolPathDiscoveryKindGrep       = "grep"
 	ToolPathDiscoveryKindListFiles  = "list_files"
+	ToolPathDiscoveryKindRepoMap    = "repo_map"
 	ToolCommandMeasurementKindCount = "count"
 )
 

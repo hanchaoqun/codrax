@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
@@ -23,6 +24,8 @@ import (
 // the graph. Below it the reclaim is skipped: small repos and REPL
 // turns gain nothing and should not pay the FreeOSMemory latency.
 const forceReclaimMinParseableFiles = 2000
+
+const repoMapPathDiscoveryCandidateFileLimit = 256
 
 // RepoMapV2 is the tree-sitter-powered repo map tool.
 type RepoMapV2 struct {
@@ -439,14 +442,108 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 	observations := repoMapNavigationTypedObservation(p.View, ref, output, now)
 	observations = append(observations, relationMapTypedObservations(relationRows, ref, output, now)...)
 	return ctypes.ToolResult{
-		ToolName:     t.Name(),
-		Success:      true,
-		Summary:      summary,
-		RawRef:       ref,
-		Refinement:   repoMapNavigationRefinement(graph, p, viewParams, viewData),
-		Observations: observations,
-		Timestamp:    now,
+		ToolName:      t.Name(),
+		Success:       true,
+		Summary:       summary,
+		RawRef:        ref,
+		Refinement:    repoMapNavigationRefinement(graph, p, viewParams, viewData),
+		PathDiscovery: repoMapViewPathDiscovery(graph, p, viewData),
+		Observations:  observations,
+		Timestamp:     now,
 	}, nil
+}
+
+func repoMapViewPathDiscovery(graph *Graph, p repoMapParams, data *ViewData) *ctypes.ToolPathDiscovery {
+	if graph == nil || data == nil {
+		return nil
+	}
+	view := strings.TrimSpace(p.View)
+	if view == "" {
+		view = "overview"
+	}
+	if view == "source_inventory" {
+		return nil
+	}
+	files, total, truncated := repoMapViewDataCandidateFiles(graph, data, repoMapPathDiscoveryCandidateFileLimit)
+	if total == 0 {
+		return nil
+	}
+	toolPath := strings.TrimSpace(p.Path)
+	if toolPath == "" {
+		toolPath = "."
+	}
+	return &ctypes.ToolPathDiscovery{
+		Kind:                    ctypes.ToolPathDiscoveryKindRepoMap,
+		Path:                    toolPath,
+		ResultCount:             total,
+		CandidateFiles:          files,
+		CandidateFilesTruncated: truncated,
+	}
+}
+
+func repoMapViewDataCandidateFiles(graph *Graph, data *ViewData, limit int) ([]string, int, bool) {
+	if graph == nil || data == nil || limit <= 0 {
+		return nil, 0, false
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0)
+	total := 0
+	truncated := false
+	var walk func(section *ViewSection)
+	walk = func(section *ViewSection) {
+		if section == nil {
+			return
+		}
+		for _, item := range section.Items {
+			candidate, ok := repoMapGraphFileCandidate(graph, item.File)
+			if !ok || seen[candidate] {
+				continue
+			}
+			seen[candidate] = true
+			total++
+			if len(out) >= limit {
+				truncated = true
+				continue
+			}
+			out = append(out, candidate)
+		}
+		for i := range section.Subsections {
+			walk(&section.Subsections[i])
+		}
+	}
+	for i := range data.Sections {
+		walk(&data.Sections[i])
+	}
+	return out, total, truncated
+}
+
+func repoMapGraphFileCandidate(graph *Graph, raw string) (string, bool) {
+	if graph == nil {
+		return "", false
+	}
+	p := strings.Trim(strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`)), "`")
+	if p == "" || strings.Contains(p, "\x00") {
+		return "", false
+	}
+	if strings.HasPrefix(p, "/") {
+		return "", false
+	}
+	p = path.Clean(p)
+	if p == "." || p == ".." || strings.HasPrefix(p, "../") {
+		return "", false
+	}
+	if graph.FileIndex != nil {
+		if _, ok := graph.FileIndex[p]; ok {
+			return p, true
+		}
+		return "", false
+	}
+	for _, file := range graph.Files {
+		if file != nil && file.RelPath == p {
+			return p, true
+		}
+	}
+	return "", false
 }
 
 func repoMapViewProgressEnabled(graph *Graph, view string) bool {

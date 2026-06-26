@@ -271,7 +271,7 @@ func sourceInventoryObservationFromListFilesToolResult(ctx *types.BusContext, re
 	if listPath == "" {
 		listPath = "."
 	}
-	listPath, ok := sourceInventoryDiscoveryNormalizeToolPath(ctx, "list_files", listPath, "", "")
+	listPath, ok := sourceInventoryDiscoveryNormalizeToolPath(ctx, "list_files", listPath)
 	if !ok {
 		return types.SourceInventoryObservation{}
 	}
@@ -673,7 +673,7 @@ func sourceInventoryObservationFromLensDirectChildren(ctx *types.BusContext, que
 		set.Count = len(set.Members)
 	}
 	for _, scope := range scopes {
-		scope, ok := sourceInventoryDiscoveryNormalizeToolPath(ctx, "repo_map", scope, "", "")
+		scope, ok := sourceInventoryDiscoveryNormalizeToolPath(ctx, "repo_map", scope)
 		if !ok {
 			continue
 		}
@@ -852,7 +852,10 @@ func sourceInventoryDiscoveryObservationFromTool(ctx *types.BusContext, result t
 	var obs sourceInventoryDiscoveryObservation
 	switch toolName {
 	case "repo_map":
-		pathSurface, pathOK := sourceInventoryDiscoveryNormalizeToolPath(ctx, toolName, p.Path, result.Summary, "")
+		if result.PathDiscovery == nil || result.PathDiscovery.Kind != types.ToolPathDiscoveryKindRepoMap {
+			return sourceInventoryDiscoveryObservation{}, false
+		}
+		pathSurface, pathOK := sourceInventoryDiscoveryNormalizeToolPath(ctx, toolName, result.PathDiscovery.Path)
 		if !pathOK {
 			return sourceInventoryDiscoveryObservation{}, false
 		}
@@ -863,7 +866,7 @@ func sourceInventoryDiscoveryObservationFromTool(ctx *types.BusContext, result t
 		if view == "source_inventory" {
 			return sourceInventoryDiscoveryObservation{}, false
 		}
-		files, scopes := sourceInventoryDiscoveryRepoMapShape(ctx, result.Summary, pathSurface)
+		files, scopes := sourceInventoryDiscoveryCandidateFilesShape(ctx, result.PathDiscovery.CandidateFiles, pathSurface)
 		obs = sourceInventoryDiscoveryObservation{
 			ToolName:    toolName,
 			Path:        pathSurface,
@@ -877,7 +880,7 @@ func sourceInventoryDiscoveryObservationFromTool(ctx *types.BusContext, result t
 		if result.PathDiscovery == nil || result.PathDiscovery.Kind != types.ToolPathDiscoveryKindListFiles {
 			return sourceInventoryDiscoveryObservation{}, false
 		}
-		pathSurface, pathOK := sourceInventoryDiscoveryNormalizeToolPath(ctx, toolName, result.PathDiscovery.Path, "", "")
+		pathSurface, pathOK := sourceInventoryDiscoveryNormalizeToolPath(ctx, toolName, result.PathDiscovery.Path)
 		if !pathOK {
 			return sourceInventoryDiscoveryObservation{}, false
 		}
@@ -896,7 +899,7 @@ func sourceInventoryDiscoveryObservationFromTool(ctx *types.BusContext, result t
 			!result.PathDiscovery.FilesOnly {
 			return sourceInventoryDiscoveryObservation{}, false
 		}
-		pathSurface, pathOK := sourceInventoryDiscoveryNormalizeToolPath(ctx, toolName, result.PathDiscovery.Path, "", "")
+		pathSurface, pathOK := sourceInventoryDiscoveryNormalizeToolPath(ctx, toolName, result.PathDiscovery.Path)
 		if !pathOK {
 			return sourceInventoryDiscoveryObservation{}, false
 		}
@@ -922,6 +925,19 @@ func sourceInventoryDiscoveryObservationFromHistory(result types.ToolResult) (so
 	}
 	toolName := types.CanonicalToolName(result.ToolName)
 	switch toolName {
+	case "repo_map":
+		if result.PathDiscovery == nil || result.PathDiscovery.Kind != types.ToolPathDiscoveryKindRepoMap {
+			return sourceInventoryDiscoveryObservation{}, false
+		}
+		pathSurface := strings.TrimSpace(result.PathDiscovery.Path)
+		if pathSurface == "" {
+			pathSurface = "."
+		}
+		files, scopes := sourceInventoryDiscoveryCandidateFilesShape(nil, result.PathDiscovery.CandidateFiles, pathSurface)
+		obs := sourceInventoryDiscoveryObservation{ToolName: toolName, Path: pathSurface, Files: files, ScopeGroups: scopes}
+		if sourceInventoryDiscoveryObservationBroad(obs) {
+			return obs, true
+		}
 	case "list_files":
 		if result.PathDiscovery == nil || result.PathDiscovery.Kind != types.ToolPathDiscoveryKindListFiles {
 			return sourceInventoryDiscoveryObservation{}, false
@@ -983,12 +999,7 @@ func sourceInventoryDiscoverySafeToolPath(raw string) (string, bool) {
 	return p, true
 }
 
-func sourceInventoryDiscoveryNormalizeToolPath(ctx *types.BusContext, toolName, raw, summary, bannerName string) (string, bool) {
-	if bannerName != "" {
-		if bannerPath := sourceInventoryDiscoveryPathFromBanner(summary, bannerName); bannerPath != "" {
-			raw = bannerPath
-		}
-	}
+func sourceInventoryDiscoveryNormalizeToolPath(ctx *types.BusContext, toolName, raw string) (string, bool) {
 	if strings.TrimSpace(raw) == "" {
 		raw = "."
 	}
@@ -1033,50 +1044,6 @@ func sourceInventoryDiscoveryNormalizeToolPath(ctx *types.BusContext, toolName, 
 	return pathSurface, true
 }
 
-func sourceInventoryDiscoveryPathFromBanner(summary, bannerName string) string {
-	prefix := "[" + bannerName + ":"
-	for _, line := range strings.Split(summary, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, "]") {
-			continue
-		}
-		body := strings.TrimSuffix(strings.TrimPrefix(line, prefix), "]")
-		for _, field := range strings.Fields(body) {
-			key, value, ok := strings.Cut(field, "=")
-			if ok && key == "path" {
-				return sourceInventoryDiscoverySafePath(value)
-			}
-		}
-	}
-	return ""
-}
-
-func sourceInventoryDiscoveryRepoMapShape(ctx *types.BusContext, summary, basePath string) (int, []string) {
-	seenFiles := map[string]bool{}
-	seenScopes := map[string]bool{}
-	var scopes []string
-	for _, line := range strings.Split(summary, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "## ") {
-			continue
-		}
-		header := strings.TrimSpace(strings.TrimPrefix(line, "## "))
-		if header == "" || strings.HasPrefix(header, "Scope-grouped") || strings.HasPrefix(header, "Cascaded") {
-			continue
-		}
-		file := sourceInventoryDiscoverySafeResultPath(ctx, strings.Trim(strings.Fields(header)[0], "`"))
-		if file == "" || seenFiles[file] {
-			continue
-		}
-		seenFiles[file] = true
-		if scope := sourceInventoryDiscoveryChildScope(file, basePath); scope != "" && !seenScopes[scope] {
-			seenScopes[scope] = true
-			scopes = append(scopes, scope)
-		}
-	}
-	return len(seenFiles), scopes
-}
-
 func sourceInventoryDiscoveryCandidateFilesShape(ctx *types.BusContext, candidateFiles []string, basePath string) (int, []string) {
 	seenFiles := map[string]bool{}
 	seenScopes := map[string]bool{}
@@ -1093,21 +1060,6 @@ func sourceInventoryDiscoveryCandidateFilesShape(ctx *types.BusContext, candidat
 		}
 	}
 	return len(seenFiles), scopes
-}
-
-func sourceInventoryDiscoveryResultLines(summary string) []string {
-	var lines []string
-	for _, line := range strings.Split(summary, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Repo Lens discovery hint") {
-			break
-		}
-		if line == "" || strings.HasPrefix(line, "...[") || strings.HasPrefix(line, "[[truncated") {
-			continue
-		}
-		lines = append(lines, line)
-	}
-	return lines
 }
 
 func sourceInventoryDiscoverySafeResultPath(ctx *types.BusContext, raw string) string {
@@ -3251,7 +3203,7 @@ func sourceInventoryListFilesToolScope(ctx *types.BusContext, result types.ToolR
 	if raw == "" {
 		raw = "."
 	}
-	scope, ok := sourceInventoryDiscoveryNormalizeToolPath(ctx, "list_files", raw, "", "")
+	scope, ok := sourceInventoryDiscoveryNormalizeToolPath(ctx, "list_files", raw)
 	if !ok {
 		return ""
 	}

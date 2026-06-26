@@ -56,6 +56,24 @@ func sourceInventoryDiscoveryGrepFilesOnlyResult(path string, files []string) ty
 	}
 }
 
+func sourceInventoryDiscoveryRepoMapResult(path string, files []string) types.ToolResult {
+	return types.ToolResult{
+		ToolName: "repo_map",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"# File Map",
+			"",
+			"## rendered-summary-title-that-must-not-drive-discovery.go [go]",
+		}, "\n"),
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:           types.ToolPathDiscoveryKindRepoMap,
+			Path:           path,
+			ResultCount:    len(files),
+			CandidateFiles: files,
+		},
+	}
+}
+
 func TestSourceInventoryDiscoveryHintFromListFilesBroadResultDedupe(t *testing.T) {
 	ctx := &types.BusContext{Mutable: types.NewMutableState("plain unrelated objective")}
 	result := sourceInventoryDiscoveryListFilesResult("internal/analysis", []string{
@@ -127,22 +145,16 @@ func TestSourceInventoryDiscoveryHintNormalizesActiveSetPath(t *testing.T) {
 			"analysis": "subrepo/internal/analysis",
 		}},
 	}
-	result := types.ToolResult{
-		ToolName: "repo_map",
-		Success:  true,
-		Summary: strings.Join([]string{
-			"# File Map",
-			"",
-			"## subrepo/internal/analysis/aggregator/a.go [go]",
-			"## subrepo/internal/analysis/criterion/b.go [go]",
-			"## subrepo/internal/analysis/normalizer/c.go [go]",
-			"## subrepo/internal/analysis/subject/d.go [go]",
-			"## subrepo/internal/analysis/sourcemix/e.go [go]",
-			"## subrepo/internal/analysis/stopcond/f.go [go]",
-			"## subrepo/internal/analysis/types/g.go [go]",
-			"## subrepo/internal/analysis/trace/h.go [go]",
-		}, "\n"),
-	}
+	result := sourceInventoryDiscoveryRepoMapResult("analysis", []string{
+		"subrepo/internal/analysis/aggregator/a.go",
+		"subrepo/internal/analysis/criterion/b.go",
+		"subrepo/internal/analysis/normalizer/c.go",
+		"subrepo/internal/analysis/subject/d.go",
+		"subrepo/internal/analysis/sourcemix/e.go",
+		"subrepo/internal/analysis/stopcond/f.go",
+		"subrepo/internal/analysis/types/g.go",
+		"subrepo/internal/analysis/trace/h.go",
+	})
 
 	hint := SourceInventoryDiscoveryHintFromToolObservation(ctx, result, json.RawMessage(`{"path":"analysis","view":"file_map"}`))
 	if !strings.Contains(hint, `repo_map {"path": "subrepo/internal/analysis", "view": "source_inventory"`) ||
@@ -225,22 +237,16 @@ func TestSourceInventoryDiscoveryHintFromGrepFilesOnly(t *testing.T) {
 
 func TestSourceInventoryDiscoveryHintFromRepoMapPreservesStructuredRoles(t *testing.T) {
 	ctx := &types.BusContext{Mutable: types.NewMutableState("plain objective")}
-	result := types.ToolResult{
-		ToolName: "repo_map",
-		Success:  true,
-		Summary: strings.Join([]string{
-			"# File Map",
-			"",
-			"## src/api/routes.py [python]",
-			"## src/api/config.yaml [yaml]",
-			"## src/web/router.ts [typescript]",
-			"## src/web/settings.json [json]",
-			"## src/mobile/routes.kt [kotlin]",
-			"## src/mobile/app.conf [conf]",
-			"## src/admin/routes.rb [ruby]",
-			"## src/admin/config.toml [toml]",
-		}, "\n"),
-	}
+	result := sourceInventoryDiscoveryRepoMapResult("src", []string{
+		"src/api/routes.py",
+		"src/api/config.yaml",
+		"src/web/router.ts",
+		"src/web/settings.json",
+		"src/mobile/routes.kt",
+		"src/mobile/app.conf",
+		"src/admin/routes.rb",
+		"src/admin/config.toml",
+	})
 
 	hint := SourceInventoryDiscoveryHintFromToolObservation(ctx, result, json.RawMessage(`{
 		"path":"src",
@@ -262,6 +268,30 @@ func TestSourceInventoryDiscoveryHintFromRepoMapPreservesStructuredRoles(t *test
 	sourceInventoryCtx := &types.BusContext{Mutable: types.NewMutableState("plain objective")}
 	if noHint := SourceInventoryDiscoveryHintFromToolObservation(sourceInventoryCtx, result, json.RawMessage(`{"path":"src","view":"source_inventory"}`)); noHint != "" {
 		t.Fatalf("source_inventory results should not recursively hint source_inventory:\n%s", noHint)
+	}
+}
+
+func TestSourceInventoryDiscoveryHintFromRepoMapIgnoresSummaryOnlyRows(t *testing.T) {
+	ctx := &types.BusContext{Mutable: types.NewMutableState("plain objective")}
+	result := types.ToolResult{
+		ToolName: "repo_map",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"# File Map",
+			"",
+			"## src/api/routes.py [python]",
+			"## src/web/router.ts [typescript]",
+			"## src/mobile/routes.kt [kotlin]",
+			"## src/admin/routes.rb [ruby]",
+			"## src/ops/routes.rs [rust]",
+			"## src/cpp/router.cc [cpp]",
+			"## src/java/Router.java [java]",
+			"## src/kotlin/Router.kt [kotlin]",
+		}, "\n"),
+	}
+
+	if hint := SourceInventoryDiscoveryHintFromToolObservation(ctx, result, json.RawMessage(`{"path":"src","view":"file_map"}`)); hint != "" {
+		t.Fatalf("repo_map rendered summary rows must not produce discovery hint without typed path discovery:\n%s", hint)
 	}
 }
 
@@ -317,5 +347,43 @@ func TestSourceInventoryDiscoveryHintFromToolHistoryIgnoresSummaryOnlyRows(t *te
 
 	if hint := SourceInventoryDiscoveryHintFromToolHistory(results); hint != "" {
 		t.Fatalf("summary-only path rows must not produce source-inventory history hint:\n%s", hint)
+	}
+}
+
+func TestSourceInventoryDiscoveryHintFromToolHistoryReadsRepoMapCarrierOnly(t *testing.T) {
+	summaryOnly := types.ToolResult{
+		ToolName: "repo_map",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"# File Map",
+			"",
+			"## pkg/a.go [go]",
+			"## pkg/b.go [go]",
+			"## pkg/c.go [go]",
+			"## pkg/d.go [go]",
+			"## pkg/e.go [go]",
+			"## pkg/f.go [go]",
+			"## pkg/g.go [go]",
+			"## pkg/h.go [go]",
+		}, "\n"),
+	}
+	if hint := SourceInventoryDiscoveryHintFromToolHistory([]types.ToolResult{summaryOnly}); hint != "" {
+		t.Fatalf("summary-only repo_map history must not produce source-inventory hint:\n%s", hint)
+	}
+
+	typed := sourceInventoryDiscoveryRepoMapResult("pkg", []string{
+		"pkg/a.go",
+		"pkg/b.go",
+		"pkg/c.go",
+		"pkg/d.go",
+		"pkg/e.go",
+		"pkg/f.go",
+		"pkg/g.go",
+		"pkg/h.go",
+	})
+	hint := SourceInventoryDiscoveryHintFromToolHistory([]types.ToolResult{summaryOnly, typed})
+	if !strings.Contains(hint, "Repo Lens discovery hint") ||
+		!strings.Contains(hint, `repo_map {"path": "pkg", "view": "source_inventory"`) {
+		t.Fatalf("typed repo_map carrier should produce history discovery hint:\n%s", hint)
 	}
 }
