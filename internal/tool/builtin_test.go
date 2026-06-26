@@ -3944,6 +3944,15 @@ func TestGitLog(t *testing.T) {
 		if !strings.Contains(result.Summary, "evidence_origin=vcs_metadata") {
 			t.Fatalf("git_log should tag VCS metadata origin in banner, got %q", result.Summary)
 		}
+		if result.VCSHistory == nil || result.VCSHistory.Kind != types.ToolVCSHistoryKindGitLog {
+			t.Fatalf("git_log should publish typed VCS history, got %+v", result.VCSHistory)
+		}
+		if len(result.VCSHistory.Commits) != 1 || len(result.VCSHistory.Commits[0]) != 40 {
+			t.Fatalf("git_log typed VCS commits = %+v, want one full hash", result.VCSHistory.Commits)
+		}
+		if result.VCSHistory.Ref != "HEAD" {
+			t.Fatalf("git_log VCS history ref = %q, want HEAD", result.VCSHistory.Ref)
+		}
 	})
 
 	t.Run("supports stat name-only and pathspec for recent summaries", func(t *testing.T) {

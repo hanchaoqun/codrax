@@ -5398,9 +5398,22 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 		}, nil
 	}
 
+	commitOrder, commitOrderErr := gitLogCommitOrderHashes(dir, ref, count, pathspec, p.FirstParent, p.MergesOnly, p.NoMerges)
+	var vcsHistory *types.ToolVCSHistory
+	if commitOrderErr == "" && len(commitOrder) > 0 {
+		vcsHistory = &types.ToolVCSHistory{
+			Kind:     types.ToolVCSHistoryKindGitLog,
+			Commits:  commitOrder,
+			Ref:      ref,
+			Pathspec: pathspec,
+		}
+	}
+
 	body := banner
 	if p.Stat {
-		if commits, errSummary := gitLogCommitHashes(dir, ref, count, pathspec, p.FirstParent, p.MergesOnly, p.NoMerges); errSummary == "" {
+		if len(commitOrder) > 0 {
+			body += gitExactChangedPathsSection(dir, commitOrder, pathspec)
+		} else if commits, errSummary := gitLogCommitHashes(dir, ref, count, pathspec, p.FirstParent, p.MergesOnly, p.NoMerges); errSummary == "" {
 			body += gitExactChangedPathsSection(dir, commits, pathspec)
 		}
 	}
@@ -5412,6 +5425,7 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 		Summary:    summary,
 		RawRef:     ref,
 		Refinement: gitLogRefinement(p, count, format, len(body)),
+		VCSHistory: vcsHistory,
 		Timestamp:  time.Now(),
 	}, nil
 }
@@ -5865,6 +5879,56 @@ func gitLogCommitHashes(dir, ref string, count int, pathspec string, firstParent
 		hashes = append(hashes, hash)
 	}
 	return hashes, ""
+}
+
+func gitLogCommitOrderHashes(dir, ref string, count int, pathspec string, firstParent, mergesOnly, noMerges bool) ([]string, string) {
+	if count <= 0 {
+		count = 10
+	}
+	if count > 100 {
+		count = 100
+	}
+	args := []string{"log", fmt.Sprintf("-n%d", count), "--format=%H"}
+	if firstParent {
+		args = append(args, "--first-parent")
+	}
+	if mergesOnly {
+		args = append(args, "--merges")
+	}
+	if noMerges {
+		args = append(args, "--no-merges")
+	}
+	if strings.TrimSpace(ref) == "" {
+		ref = "HEAD"
+	}
+	args = append(args, ref)
+	if pathspec != "" {
+		args = append(args, "--", pathspec)
+	}
+	cmd, cancel := NewGitLongCommand(nil, args...)
+	defer cancel()
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Sprintf("git log commit order failed: %v: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return gitCommitHashesFromOutput(stdout.String()), ""
+}
+
+func gitCommitHashesFromOutput(output string) []string {
+	var hashes []string
+	for _, line := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
+		hash := strings.TrimSpace(line)
+		if hash == "" {
+			continue
+		}
+		hashes = append(hashes, hash)
+	}
+	return hashes
 }
 
 func gitExactChangedPathsSection(dir string, commits []string, pathspec string) string {

@@ -5358,6 +5358,7 @@ const (
 	ToolPathDiscoveryKindListFiles  = "list_files"
 	ToolPathDiscoveryKindRepoMap    = "repo_map"
 	ToolCommandMeasurementKindCount = "count"
+	ToolVCSHistoryKindGitLog        = "git_log"
 )
 
 // ToolPathDiscovery is the typed call-shape/result carrier for tools that
@@ -5391,6 +5392,17 @@ type ToolCommandMeasurement struct {
 	History     bool                 `json:"history,omitempty"`
 }
 
+// ToolVCSHistory is the typed VCS history surface for tools that enumerate
+// repository commits. It records commit order from tool-internal structured git
+// output before Summary rendering; downstream self-consistency and audit logic
+// must not parse rendered git_log text to recover commit order.
+type ToolVCSHistory struct {
+	Kind     string   `json:"kind,omitempty"`
+	Commits  []string `json:"commits,omitempty"`
+	Ref      string   `json:"ref,omitempty"`
+	Pathspec string   `json:"pathspec,omitempty"`
+}
+
 // ToolReadCoverage is the typed load-bearing read_file coverage projection.
 // The read_file tool publishes it from schema coordinates and file metadata
 // before rendering Summary, so coverage gates do not parse the user-visible
@@ -5412,6 +5424,7 @@ type ToolResult struct {
 	RawRef             string                      `json:"raw_ref,omitempty"`
 	PathDiscovery      *ToolPathDiscovery          `json:"path_discovery,omitempty"`
 	CommandMeasurement *ToolCommandMeasurement     `json:"command_measurement,omitempty"`
+	VCSHistory         *ToolVCSHistory             `json:"vcs_history,omitempty"`
 	ReadCoverage       *ToolReadCoverage           `json:"read_coverage,omitempty"`
 	SourceInventory    *SourceInventoryObservation `json:"source_inventory,omitempty"`
 

@@ -1,13 +1,10 @@
 package orchestrator
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
-
-var selfConsistencyCommitLineRE = regexp.MustCompile(`(?m)^commit\s+([0-9a-fA-F]{7,40})\s*$`)
 
 // filterVCSHistoryRowOrderContradictions keeps VCS-history row-order review in
 // the precise-signal lane. If the principal visible commit rows follow the
@@ -81,11 +78,14 @@ func selfConsistencyGitLogCommitOrder(mut *types.MutableState) []string {
 	seen := make(map[string]struct{})
 	var order []string
 	for _, result := range results {
-		if result.ToolName != "git_log" || !result.Success {
+		if result.ToolName != "git_log" || !result.Success || result.VCSHistory == nil {
 			continue
 		}
-		for _, match := range selfConsistencyCommitLineRE.FindAllStringSubmatch(result.Summary, -1) {
-			hash := normalizeSelfConsistencyCommitHash(match[1])
+		if result.VCSHistory.Kind != "" && result.VCSHistory.Kind != types.ToolVCSHistoryKindGitLog {
+			continue
+		}
+		for _, commit := range result.VCSHistory.Commits {
+			hash := normalizeSelfConsistencyCommitHash(commit)
 			if hash == "" {
 				continue
 			}
