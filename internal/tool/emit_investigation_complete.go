@@ -10731,56 +10731,7 @@ func unverifiedFindingsForCompletion(ctx *types.BusContext) []types.UnverifiedFi
 	if ctx.Mutable != nil {
 		out = append(out, ctx.Mutable.EvidenceClosure().UnverifiedFindings()...)
 	}
-	out = append(out, unverifiedFindingsFromStageReports(ctx.StageReports)...)
 	return dedupeUnverifiedFindings(out)
-}
-
-func unverifiedFindingsFromStageReports(reports []types.StageReport) []types.UnverifiedFinding {
-	var out []types.UnverifiedFinding
-	for _, report := range reports {
-		text := report.Findings
-		for {
-			start := strings.Index(text, "~~")
-			if start < 0 {
-				break
-			}
-			rest := text[start+2:]
-			end := strings.Index(rest, "~~")
-			if end < 0 {
-				break
-			}
-			token := strings.TrimSpace(strings.Trim(rest[:end], "`\"' "))
-			after := rest[end+2:]
-			if token != "" && stageReportAnnotatedMissFollows(after) {
-				out = append(out, types.UnverifiedFinding{
-					Token:  token,
-					Kind:   inferStageReportFindingKind(token),
-					Reason: "unverified in prior stage report",
-				})
-			}
-			text = after
-		}
-	}
-	return out
-}
-
-func stageReportAnnotatedMissFollows(text string) bool {
-	if len(text) > 120 {
-		text = text[:120]
-	}
-	lower := strings.ToLower(text)
-	return strings.Contains(lower, "unverified") ||
-		strings.Contains(lower, "repo graph") ||
-		strings.Contains(text, "未验证") ||
-		strings.Contains(text, "未在 repo") ||
-		strings.Contains(text, "鏈獙")
-}
-
-func inferStageReportFindingKind(token string) string {
-	if strings.ContainsAny(token, `/\`) {
-		return "path"
-	}
-	return "symbol"
 }
 
 func dedupeUnverifiedFindings(in []types.UnverifiedFinding) []types.UnverifiedFinding {

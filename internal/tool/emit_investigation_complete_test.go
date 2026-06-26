@@ -5651,6 +5651,11 @@ func TestEmitInvestigationComplete_ConfigAbsenceBypassesGroundingFloorsForContex
 			GroundingStatus: types.GroundingUngrounded,
 		},
 	})
+	mut.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
+		Token:  missingKey,
+		Kind:   "symbol",
+		Reason: "exact target has no current production-defining prescan hit",
+	})
 	bus := &types.BusContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
@@ -5663,11 +5668,6 @@ func TestEmitInvestigationComplete_ConfigAbsenceBypassesGroundingFloorsForContex
 				ExactTargets:    []string{missingKey},
 			},
 			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
-		}},
-		StageReports: []types.StageReport{{
-			Stage:    types.StageAnalyze,
-			Agent:    types.AgentAnalyzer,
-			Findings: "The key ~~`" + missingKey + "`~~ [unverified: symbol not in repo graph] was not found exactly.",
 		}},
 	}
 	tool := &EmitInvestigationComplete{}
@@ -5726,12 +5726,61 @@ func TestEmitInvestigationComplete_ConfigAbsenceRejectsExactEvidence(t *testing.
 	}
 }
 
-func TestEmitInvestigationComplete_ConfigAbsenceRejectsPositiveSubstituteFromPriorReport(t *testing.T) {
+func TestEmitInvestigationComplete_ConfigAbsenceRejectsPositiveSubstituteFromTypedUnverifiedFinding(t *testing.T) {
 	missingKey := "zz_absent_config_" + "knob"
 	mut := types.NewMutableState("q")
 	mut.AppendEvidence([]types.EvidenceItem{{
 		Kind: types.EvidenceDirect, Source: "internal/config/runtime.go", LineStart: 184,
 		Subject: "AgentLoopMaxMidLoopInjects", AnchorKind: types.AnchorDefinition, AnchorSymbol: "AgentLoopMaxMidLoopInjects",
+		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+	}})
+	mut.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
+		Token:  missingKey,
+		Kind:   "symbol",
+		Reason: "exact target has no current production-defining prescan hit",
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: missingKey + " 在哪里定义？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+				ExactTargets:    []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"positive chain is fully traced through AgentLoopMaxMidLoopInjects","confidence":"high","result_kind":"resolved"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("positive substitute completion should downgrade instead of tool-rejecting: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "primary exact config key") {
+		t.Fatalf("downgrade should explain exact-key guard: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("completion flag must not fire on positive substitute downgrade")
+	}
+	if res.Repair == nil || res.Repair.Code != "exact_resolved_defining_proof" {
+		t.Fatalf("downgrade should carry exact resolved defining-proof repair, got %+v", res.Repair)
+	}
+}
+
+func TestEmitInvestigationComplete_AnnotatedStageReportDoesNotOverrideExactDefiningProof(t *testing.T) {
+	missingKey := "zz_absent_config_" + "knob"
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: "codrax.yaml", LineStart: 12,
+		Subject: missingKey, AnchorKind: types.AnchorAssignment, AnchorSymbol: missingKey,
+		Snippet:         missingKey + ": 2",
 		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
 	}})
 	bus := &types.BusContext{
@@ -5753,24 +5802,22 @@ func TestEmitInvestigationComplete_ConfigAbsenceRejectsPositiveSubstituteFromPri
 			Findings: "The key ~~`" + missingKey + "`~~ [unverified: symbol not in repo graph] was not found exactly.",
 		}},
 	}
-	tool := &EmitInvestigationComplete{}
 
-	params := json.RawMessage(`{"reason":"positive chain is fully traced through AgentLoopMaxMidLoopInjects","confidence":"high","result_kind":"resolved"}`)
-	res, err := tool.Execute(bus, params)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	contract := exactResolutionContractForCompletion(bus)
+	if contract == nil {
+		t.Fatal("test setup must produce exact-resolution contract")
 	}
-	if !res.Success {
-		t.Fatalf("positive substitute completion should downgrade instead of tool-rejecting: %s", res.Summary)
+	if pending := completionPendingExactTargets(bus, contract, mut.EmittedEvidence()); len(pending) != 0 {
+		t.Fatalf("StageReport prose must not override exact defining proof, pending=%v", pending)
 	}
-	if !strings.Contains(res.Summary, "primary exact config key") {
-		t.Fatalf("downgrade should explain exact-key guard: %s", res.Summary)
-	}
-	if mut.IsInvestigationComplete() {
-		t.Fatalf("completion flag must not fire on positive substitute downgrade")
-	}
-	if res.Repair == nil || res.Repair.Code != "exact_resolved_defining_proof" {
-		t.Fatalf("downgrade should carry exact resolved defining-proof repair, got %+v", res.Repair)
+
+	mut.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
+		Token:  missingKey,
+		Kind:   "symbol",
+		Reason: "typed verifier still marks target unresolved",
+	})
+	if pending := completionPendingExactTargets(bus, contract, mut.EmittedEvidence()); len(pending) != 1 || pending[0] != missingKey {
+		t.Fatalf("typed closure unverified finding should still drive exact target blocker, pending=%v", pending)
 	}
 }
 

@@ -4029,11 +4029,11 @@ func TestEmitEvidence_ConfigAbsentPrimaryMarksSubstituteEvidenceContextOnly(t *t
 		},
 		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 	}}
-	ctx.StageReports = []types.StageReport{{
-		Stage:    types.StageAnalyze,
-		Agent:    types.AgentAnalyzer,
-		Findings: "The key ~~`" + missingKey + "`~~ [unverified: symbol not in repo graph] was not found exactly.",
-	}}
+	ctx.Mutable.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
+		Token:  missingKey,
+		Kind:   "symbol",
+		Reason: "exact target has no current production-defining prescan hit",
+	})
 	params := json.RawMessage(`{
         "items": [
           {"kind": "direct", "subject": "AgentLoopMaxMidLoopInjects", "source": "internal/config/runtime.go", "line_start": 184, "summary": "related YAML key controls midloop injection budget", "anchor_kind": "definition", "anchor_symbol": "AgentLoopMaxMidLoopInjects"}
@@ -4062,6 +4062,50 @@ func TestEmitEvidence_ConfigAbsentPrimaryMarksSubstituteEvidenceContextOnly(t *t
 	}
 	if !strings.Contains(strings.ToLower(res.Summary), "do not spend read_file budget") {
 		t.Fatalf("tool summary should still steer away from repairing substitute exact hits, got: %q", res.Summary)
+	}
+}
+
+func TestEmitEvidence_AnnotatedStageReportDoesNotOverrideExactDefiningProof(t *testing.T) {
+	missingKey := "zz_absent_config_" + "knob"
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		RawRequest: missingKey + " 在哪里定义？",
+		Scenario:   types.ScenarioConfigTrace,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:            "config_mapping",
+			PrimaryEntities: []string{missingKey},
+			Entities:        []string{missingKey},
+			ExactTargets:    []string{missingKey},
+		},
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+	}}
+	ctx.StageReports = []types.StageReport{{
+		Stage:    types.StageAnalyze,
+		Agent:    types.AgentAnalyzer,
+		Findings: "The key ~~`" + missingKey + "`~~ [unverified: symbol not in repo graph] was not found exactly.",
+	}}
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: "codrax.yaml", LineStart: 12,
+		Subject: missingKey, AnchorKind: types.AnchorAssignment, AnchorSymbol: missingKey,
+		Snippet:         missingKey + ": 2",
+		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+	}})
+
+	contract := types.BuildExactResolutionContract(ctx.AnalysisIR.RequestModel)
+	if contract == nil {
+		t.Fatal("test setup must produce exact-resolution contract")
+	}
+	if pending := pendingExactResolutionTargets(ctx, contract); len(pending) != 0 {
+		t.Fatalf("StageReport prose must not override exact defining proof, pending=%v", pending)
+	}
+
+	ctx.Mutable.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
+		Token:  missingKey,
+		Kind:   "symbol",
+		Reason: "typed verifier still marks target unresolved",
+	})
+	if pending := pendingExactResolutionTargets(ctx, contract); len(pending) != 1 || pending[0] != missingKey {
+		t.Fatalf("typed closure unverified finding should still drive exact target blocker, pending=%v", pending)
 	}
 }
 

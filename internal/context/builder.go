@@ -199,7 +199,6 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		if bus.Mutable != nil {
 			ac.UnverifiedAnalyzerFindings = mergeUnverifiedFindings(
 				bus.Mutable.EvidenceClosure().UnverifiedFindings(),
-				extractUnverifiedFindingsFromStageReports(bus.StageReports),
 			)
 			// CGEC E4+E5: surface SubjectMatch cache so extractor + finalizer
 			// prompt builders can render a "Subject Match Summary"
@@ -4830,54 +4829,6 @@ func formatUnverifiedFindings(finds []types.UnverifiedFinding) string {
 		fmt.Fprintf(&b, "  ... and %d more.\n", len(uniq)-max)
 	}
 	return b.String()
-}
-
-func extractUnverifiedFindingsFromStageReports(reports []types.StageReport) []types.UnverifiedFinding {
-	var out []types.UnverifiedFinding
-	for _, report := range reports {
-		text := report.Findings
-		for {
-			start := strings.Index(text, "~~")
-			if start < 0 {
-				break
-			}
-			rest := text[start+2:]
-			end := strings.Index(rest, "~~")
-			if end < 0 {
-				break
-			}
-			token := strings.TrimSpace(strings.Trim(rest[:end], "`\"' "))
-			after := rest[end+2:]
-			if token != "" && annotatedMissFollows(after) {
-				out = append(out, types.UnverifiedFinding{
-					Token:  token,
-					Kind:   inferUnverifiedFindingKind(token),
-					Reason: "unverified in prior stage report",
-				})
-			}
-			text = after
-		}
-	}
-	return out
-}
-
-func annotatedMissFollows(text string) bool {
-	if len(text) > 120 {
-		text = text[:120]
-	}
-	lower := strings.ToLower(text)
-	return strings.Contains(lower, "unverified") ||
-		strings.Contains(lower, "repo graph") ||
-		strings.Contains(text, "未验证") ||
-		strings.Contains(text, "未在 repo") ||
-		strings.Contains(text, "鏈獙")
-}
-
-func inferUnverifiedFindingKind(token string) string {
-	if strings.ContainsAny(token, `/\`) {
-		return "path"
-	}
-	return "symbol"
 }
 
 func mergeUnverifiedFindings(groups ...[]types.UnverifiedFinding) []types.UnverifiedFinding {

@@ -3978,8 +3978,7 @@ func pendingExactResolutionTargets(ctx *types.BusContext, contract *types.ExactR
 	if ctx == nil || ctx.Mutable == nil || contract == nil {
 		return nil
 	}
-	unverified := append(ctx.Mutable.EvidenceClosure().UnverifiedFindings(), unverifiedFindingsFromStageReports(ctx.StageReports)...)
-	unverified = dedupeUnverifiedFindings(unverified)
+	unverified := dedupeUnverifiedFindings(ctx.Mutable.EvidenceClosure().UnverifiedFindings())
 	if pending := types.ExactResolutionPendingTargets(contract, unverified); len(pending) > 0 {
 		return pending
 	}

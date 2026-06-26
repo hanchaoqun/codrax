@@ -1152,7 +1152,7 @@ func TestBuildPromptContext_ConfigKeyAbsenceSection(t *testing.T) {
 	}
 }
 
-func TestBuildAgentContext_MergesUnverifiedFindingsFromPriorStageReport(t *testing.T) {
+func TestBuildAgentContext_DoesNotInferUnverifiedFindingsFromPriorStageReport(t *testing.T) {
 	missingKey := "zz_absent_config_" + "knob"
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{
@@ -1187,14 +1187,58 @@ func TestBuildAgentContext_MergesUnverifiedFindingsFromPriorStageReport(t *testi
 		}},
 	}
 	ac := BuildAgentContext(bus, types.AgentExplorer, types.StageExplore)
+
+	if len(ac.UnverifiedAnalyzerFindings) != 0 {
+		t.Fatalf("StageReport prose must not synthesize typed unverified findings, got %+v", ac.UnverifiedAnalyzerFindings)
+	}
+	if len(ac.PriorReports) != 1 || !strings.Contains(ac.PriorReports[0].Findings, missingKey) {
+		t.Fatalf("StageReport should remain visible as prose context, got %+v", ac.PriorReports)
+	}
+}
+
+func TestBuildAgentContext_CarriesClosureUnverifiedFindings(t *testing.T) {
+	missingKey := "zz_absent_config_" + "knob"
+	mut := types.NewMutableState("q")
+	mut.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
+		Token:  missingKey,
+		Kind:   "symbol",
+		Reason: "exact target has no current production-defining prescan hit",
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:            "config_mapping",
+					PrimaryEntities: []string{missingKey},
+					Entities:        []string{missingKey},
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:              types.SubjectConfigKey,
+					TargetLabel:             "config key",
+					Targets:                 []string{missingKey},
+					AllowAbsence:            true,
+					RequireTargetMention:    true,
+					AliasRequiresProof:      true,
+					RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+					RelatedContextScopeHint: "same namespace / prefix family",
+				},
+			},
+		},
+	}
+	ac := BuildAgentContext(bus, types.AgentExplorer, types.StageExplore)
 	pc := BuildPromptContext(ac, &skill.Config{Name: "explore-skill"})
 
 	if len(ac.UnverifiedAnalyzerFindings) != 1 {
-		t.Fatalf("unverified findings = %d, want 1", len(ac.UnverifiedAnalyzerFindings))
+		t.Fatalf("typed closure unverified findings = %d, want 1", len(ac.UnverifiedAnalyzerFindings))
 	}
 	sec := findSectionTitle(pc, SectionExactResolution)
 	if sec == nil {
-		t.Fatalf("prior stage unverified annotation should render exact-resolution section")
+		t.Fatalf("closure typed unverified finding should render exact-resolution section")
 	}
 	if !strings.Contains(sec.Content, missingKey) {
 		t.Fatalf("absence section missing key:\n%s", sec.Content)
