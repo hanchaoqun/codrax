@@ -8523,10 +8523,7 @@ func answerDocumentPatchRejectIsBlockCardinality(result *types.ToolResult) bool 
 	if result == nil {
 		return false
 	}
-	if result.Repair != nil {
-		return answerDocumentPatchRepairIsBlockCardinality(result.Repair)
-	}
-	return answerDocumentPatchRejectSummaryIsBlockCardinality(result.Summary)
+	return answerDocumentPatchRepairIsBlockCardinality(result.Repair)
 }
 
 func answerDocumentPatchRepairIsBlockCardinality(repair *types.ToolRepair) bool {
@@ -8554,12 +8551,6 @@ func answerDocStringSliceContains(values []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func answerDocumentPatchRejectSummaryIsBlockCardinality(summary string) bool {
-	summary = strings.ToLower(strings.TrimSpace(summary))
-	return strings.Contains(summary, "blocks[].kind=section") &&
-		strings.Contains(summary, "reduce kind=section blocks")
 }
 
 func answerDocPatchRejectCorrectionHint(result *types.ToolResult) string {

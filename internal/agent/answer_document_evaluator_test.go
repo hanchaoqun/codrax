@@ -3781,6 +3781,60 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopExactContextSurfaceRejectUsesMet
 	}
 }
 
+func TestAnswerDocumentEvaluator_PatchRejectCardinalityUsesTypedRepair(t *testing.T) {
+	mut := types.NewMutableState("patch cardinality")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{ID: "summary", Kind: types.BlockSummary, Text: "existing"}},
+	})
+	ctx := &types.AgentContext{Stage: types.StageFinalize, Mutable: mut}
+	e := &answerDocumentEvaluator{mu: mut}
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document_patch",
+		Success:  false,
+		Summary:  "patch rejected: rendered text is audit only",
+		Repair: &types.ToolRepair{
+			Code:   "answer_doc_pre_emit_contract",
+			Fields: []string{"blocks[].kind=section"},
+			Metadata: map[string]string{
+				"expected_shapes": "reduce kind=section blocks",
+			},
+		},
+	}
+
+	sig := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+	if !sig.HintRequested || sig.HintKey != "answer_doc.patch_cardinality" {
+		t.Fatalf("typed patch cardinality repair should trigger cardinality lane, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "Fold the missing content into the existing related section") {
+		t.Fatalf("cardinality hint should preserve merge guidance, got %q", sig.Hint)
+	}
+}
+
+func TestAnswerDocumentEvaluator_PatchRejectSummaryOnlyDoesNotSelectCardinalityLane(t *testing.T) {
+	mut := types.NewMutableState("patch cardinality summary only")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{ID: "summary", Kind: types.BlockSummary, Text: "existing"}},
+	})
+	ctx := &types.AgentContext{Stage: types.StageFinalize, Mutable: mut}
+	e := &answerDocumentEvaluator{mu: mut}
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document_patch",
+		Success:  false,
+		Summary:  "patch rejected: blocks[].kind=section must reduce kind=section blocks",
+	}
+
+	sig := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+	if !sig.HintRequested {
+		t.Fatalf("summary-only patch reject should still get a generic patch correction hint, got %+v", sig)
+	}
+	if sig.HintKey == "answer_doc.patch_cardinality" {
+		t.Fatalf("summary-only patch reject must not select cardinality lane, got %+v", sig)
+	}
+	if sig.HintKey != "answer_doc.patch_correct" {
+		t.Fatalf("summary-only patch reject should use generic correction lane, got %+v", sig)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDiscipline(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

@@ -397,6 +397,13 @@ func TestEmitPatchRejectFullRewriteSignal_SectionCountKeepsPatchPath(t *testing.
 			ToolName: "emit_answer_document_patch",
 			Success:  false,
 			Summary:  "Field: blocks[].kind=section\nAction: reduce kind=section blocks to at most 2 (currently emitted: 3)",
+			Repair: &types.ToolRepair{
+				Code:   "answer_doc_pre_emit_contract",
+				Fields: []string{"blocks[].kind=section"},
+				Metadata: map[string]string{
+					"expected_shapes": "reduce kind=section blocks to at most 2",
+				},
+			},
 		},
 	}
 
