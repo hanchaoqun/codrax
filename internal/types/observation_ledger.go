@@ -1287,19 +1287,24 @@ func observationRowSetJSONLForSourceInventoryObservation(set SourceInventoryObse
 
 func compileToolResultObservations(results []ToolResult, add func(ObservationRecord)) {
 	typedSeen := map[string]bool{}
+	carrierSeen := map[string]bool{}
 	for i, result := range results {
 		if !result.Success {
 			continue
 		}
-		banners := toolResultBanners(result.Summary)
-		command := toolResultCommandLine(result.Summary)
-		origins := toolResultEvidenceOrigins(result)
 		// Producer-published typed rows win over the summary re-parse:
 		// the re-parse only sees the capped/clipped prose preview, so a
 		// result that carries typed rows compiles those directly and the
 		// line-by-line fallback is skipped for that result. Results
 		// without typed rows keep the historical re-parse path.
 		typedCovered := compileProducerToolResultObservations(i, result, typedSeen, add)
+		carrierCovered := compileToolResultCarrierObservations(i, result, carrierSeen, add)
+		if typedCovered || carrierCovered {
+			continue
+		}
+		banners := toolResultBanners(result.Summary)
+		command := toolResultCommandLine(result.Summary)
+		origins := toolResultEvidenceOrigins(result)
 		if !typedCovered && strings.EqualFold(strings.TrimSpace(result.ToolName), "trace_query") {
 			compileTraceQueryToolResultObservations(i, result, banners, add)
 		}
@@ -1382,6 +1387,155 @@ func compileProducerToolResultObservations(index int, result ToolResult, seen ma
 		add(record)
 	}
 	return covered
+}
+
+func compileToolResultCarrierObservations(index int, result ToolResult, seen map[string]bool, add func(ObservationRecord)) bool {
+	observedAt := result.Timestamp.Format("2006-01-02T15:04:05Z07:00")
+	covered := false
+	if result.CommandMeasurement != nil {
+		if record, ok := observationRecordForCommandMeasurement(index, result, *result.CommandMeasurement, observedAt); ok {
+			if !seen[record.ID] {
+				seen[record.ID] = true
+				add(record)
+			}
+			covered = true
+		}
+	}
+	if result.VCSHistory != nil {
+		if record, ok := observationRecordForVCSHistory(index, result, *result.VCSHistory, observedAt); ok {
+			if !seen[record.ID] {
+				seen[record.ID] = true
+				add(record)
+			}
+			covered = true
+		}
+	}
+	return covered
+}
+
+func observationRecordForCommandMeasurement(index int, result ToolResult, measurement ToolCommandMeasurement, observedAt string) (ObservationRecord, bool) {
+	if strings.TrimSpace(measurement.Kind) == "" {
+		return ObservationRecord{}, false
+	}
+	origin := measurement.Origin
+	if origin == AnswerEvidenceOriginUnknown || !origin.IsValid() {
+		origin = AnswerEvidenceOriginCommandMeasurement
+	}
+	role := AnswerAggregateRoleSupportingCoverage
+	count := measurement.Value
+	summaryParts := []string{"command_measurement kind=" + strings.TrimSpace(measurement.Kind)}
+	if measurement.ProofSource != "" {
+		summaryParts = append(summaryParts, "proof_source="+strings.TrimSpace(measurement.ProofSource))
+	}
+	if measurement.History {
+		summaryParts = append(summaryParts, "history=true")
+	}
+	record := ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#command_measurement", index),
+		Origin:          origin,
+		Producer:        strings.TrimSpace(result.ToolName),
+		Role:            role,
+		GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
+		SourceRef: ObservationSourceRef{
+			Kind:       ObservationSourceCommand,
+			Command:    strings.TrimSpace(measurement.Command),
+			ToolCallID: fmt.Sprintf("%s[%d]", strings.TrimSpace(result.ToolName), index),
+			RawRef:     strings.TrimSpace(result.RawRef),
+			PayloadRef: strings.TrimSpace(result.RawRef),
+		},
+		ClaimKey:    firstNonEmptyString(strings.TrimSpace(measurement.Command), strings.TrimSpace(measurement.ProofSource), strings.TrimSpace(measurement.Kind), strings.TrimSpace(result.ToolName)),
+		Subject:     firstNonEmptyString(strings.TrimSpace(measurement.Command), strings.TrimSpace(result.ToolName)),
+		Predicate:   strings.TrimSpace(measurement.Kind),
+		Value:       strconv.Itoa(measurement.Value),
+		Unit:        strings.TrimSpace(measurement.Kind),
+		ResultCount: &count,
+		Summary:     strings.Join(summaryParts, " "),
+		ObservedAt:  observedAt,
+	}
+	return record, true
+}
+
+func observationRecordForVCSHistory(index int, result ToolResult, history ToolVCSHistory, observedAt string) (ObservationRecord, bool) {
+	if strings.TrimSpace(history.Kind) == "" && len(history.Commits) == 0 && strings.TrimSpace(history.Ref) == "" && strings.TrimSpace(history.Pathspec) == "" {
+		return ObservationRecord{}, false
+	}
+	role := AnswerAggregateRoleSupportingCoverage
+	count := len(history.Commits)
+	ref := strings.TrimSpace(history.Ref)
+	pathspec := strings.TrimSpace(history.Pathspec)
+	record := ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#%s", index, AnswerEvidenceOriginVCSMetadata),
+		Origin:          AnswerEvidenceOriginVCSMetadata,
+		Producer:        strings.TrimSpace(result.ToolName),
+		Role:            role,
+		GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginVCSMetadata, role),
+		SourceRef: ObservationSourceRef{
+			Kind:       ObservationSourceVCSMetadata,
+			Range:      typedVCSHistoryRange(history),
+			Pathspec:   pathspec,
+			ToolCallID: fmt.Sprintf("%s[%d]", strings.TrimSpace(result.ToolName), index),
+			RawRef:     strings.TrimSpace(result.RawRef),
+			PayloadRef: strings.TrimSpace(result.RawRef),
+		},
+		ClaimKey:     firstNonEmptyString(pathspec, ref, strings.TrimSpace(history.Kind), strings.TrimSpace(result.ToolName)),
+		Subject:      firstNonEmptyString(pathspec, ref, strings.TrimSpace(result.ToolName)),
+		Predicate:    firstNonEmptyString(strings.TrimSpace(history.Kind), ToolVCSHistoryKindGitLog),
+		ResultCount:  &count,
+		Summary:      typedVCSHistorySummary(history),
+		SurfaceTerms: compactVCSHistorySurfaceTerms(history.Commits, 4),
+		ObservedAt:   observedAt,
+	}
+	if len(history.Commits) > 0 {
+		record.Value = strings.TrimSpace(history.Commits[0])
+	}
+	return record, true
+}
+
+func typedVCSHistoryRange(history ToolVCSHistory) string {
+	ref := strings.TrimSpace(history.Ref)
+	count := len(history.Commits)
+	switch {
+	case ref != "" && count > 0:
+		return fmt.Sprintf("ref=%s count=%d", ref, count)
+	case ref != "":
+		return "ref=" + ref
+	case count > 0:
+		return fmt.Sprintf("count=%d", count)
+	default:
+		return ""
+	}
+}
+
+func typedVCSHistorySummary(history ToolVCSHistory) string {
+	var parts []string
+	kind := firstNonEmptyString(strings.TrimSpace(history.Kind), ToolVCSHistoryKindGitLog)
+	parts = append(parts, "vcs_history kind="+kind)
+	if ref := strings.TrimSpace(history.Ref); ref != "" {
+		parts = append(parts, "ref="+ref)
+	}
+	parts = append(parts, fmt.Sprintf("commits=%d", len(history.Commits)))
+	if pathspec := strings.TrimSpace(history.Pathspec); pathspec != "" {
+		parts = append(parts, "pathspec="+pathspec)
+	}
+	return strings.Join(parts, " ")
+}
+
+func compactVCSHistorySurfaceTerms(commits []string, max int) []string {
+	if max <= 0 || len(commits) == 0 {
+		return nil
+	}
+	out := make([]string, 0, min(len(commits), max))
+	for _, commit := range commits {
+		commit = strings.TrimSpace(commit)
+		if commit == "" {
+			continue
+		}
+		out = append(out, commit)
+		if len(out) >= max {
+			break
+		}
+	}
+	return out
 }
 
 func compileTraceQueryToolResultObservations(index int, result ToolResult, banners []map[string]string, add func(ObservationRecord)) {

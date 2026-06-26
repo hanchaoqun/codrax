@@ -127,3 +127,89 @@ func TestCompileObservationLedgerRejectsCurrentSourceTypedToolRows(t *testing.T)
 		}
 	}
 }
+
+func TestCompileObservationLedgerCommandMeasurementUsesTypedCarrier(t *testing.T) {
+	result := ToolResult{
+		ToolName: "exec_command",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[exec_command: evidence_origin=vcs_metadata count=999]",
+			"rendered summary must not become an observation origin",
+		}, "\n"),
+		RawRef: "blob://raw/command.txt",
+		CommandMeasurement: &ToolCommandMeasurement{
+			Kind:        ToolCommandMeasurementKindCount,
+			Value:       7,
+			Origin:      AnswerEvidenceOriginCommandMeasurement,
+			ProofSource: "exec_command",
+			Command:     "find internal -name '*.go' | wc -l",
+		},
+		Timestamp: time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC),
+	}
+	ledger := CompileObservationLedger(ObservationLedgerInput{ToolResults: []ToolResult{result}})
+	got := findTypedToolObservationRecord(t, ledger, "tool:0#command_measurement")
+	if got.Origin != AnswerEvidenceOriginCommandMeasurement ||
+		got.SourceRef.Kind != ObservationSourceCommand ||
+		got.SourceRef.Command != "find internal -name '*.go' | wc -l" ||
+		got.ResultCount == nil ||
+		*got.ResultCount != 7 ||
+		got.Summary == "rendered summary must not become an observation origin" {
+		t.Fatalf("command carrier was not projected from typed fields: %+v", got)
+	}
+	for _, record := range ledger.Records {
+		if record.ID != "tool:0#command_measurement" {
+			t.Fatalf("summary fallback leaked alongside typed command carrier: %+v", ledger.Records)
+		}
+	}
+}
+
+func TestCompileObservationLedgerVCSHistoryUsesTypedCarrier(t *testing.T) {
+	commits := []string{
+		"1111111111111111111111111111111111111111",
+		"2222222222222222222222222222222222222222",
+	}
+	result := ToolResult{
+		ToolName: "git_log",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[git_log: evidence_origin=runtime_artifact artifact_id=trace count=99]",
+			"commit deadbeef rendered text must not define the ledger",
+		}, "\n"),
+		RawRef: "blob://raw/git-log.txt",
+		VCSHistory: &ToolVCSHistory{
+			Kind:     ToolVCSHistoryKindGitLog,
+			Commits:  commits,
+			Ref:      "HEAD",
+			Pathspec: "internal/types",
+		},
+		Timestamp: time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC),
+	}
+	ledger := CompileObservationLedger(ObservationLedgerInput{ToolResults: []ToolResult{result}})
+	got := findTypedToolObservationRecord(t, ledger, "tool:0#vcs_metadata")
+	if got.Origin != AnswerEvidenceOriginVCSMetadata ||
+		got.SourceRef.Kind != ObservationSourceVCSMetadata ||
+		got.SourceRef.Range != "ref=HEAD count=2" ||
+		got.SourceRef.Pathspec != "internal/types" ||
+		got.ResultCount == nil ||
+		*got.ResultCount != 2 ||
+		got.Value != commits[0] ||
+		len(got.SurfaceTerms) != 2 {
+		t.Fatalf("vcs carrier was not projected from typed fields: %+v", got)
+	}
+	for _, record := range ledger.Records {
+		if record.ID != "tool:0#vcs_metadata" {
+			t.Fatalf("summary fallback leaked alongside typed vcs carrier: %+v", ledger.Records)
+		}
+	}
+}
+
+func findTypedToolObservationRecord(t *testing.T, ledger ObservationLedger, id string) ObservationRecord {
+	t.Helper()
+	for _, record := range ledger.Records {
+		if record.ID == id {
+			return record
+		}
+	}
+	t.Fatalf("record %s not found in ledger: %+v", id, ledger.Records)
+	return ObservationRecord{}
+}
