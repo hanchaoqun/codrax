@@ -5944,20 +5944,15 @@ func TestExplorerSoftStop_SecondStop_CoverageUsesFocusedDeclarativeScope(t *test
 }
 
 // TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive
-// pins the fix for the explorer.go:2532 contract violation: the
-// emit_investigation_complete tool returns Success=true with a
-// DOWNGRADED-prefixed Summary when preCompleteContractCheck rejects
-// the completion attempt (pending forced reads / cite-floor miss /
-// unverified anchor paths). The tool intends this as a soft keep-
-// alive — MutableState.InvestigationComplete stays FALSE — so the
-// observer must skip the terminal branch when it sees the prefix.
-// Before this fix the observer set investigationComplete=true and
-// issued StopRequested, terminating the loop before the LLM could
-// recover (notably, before it could emit_evidence for anchors it had
-// already read).
+// pins the completion-state boundary: emit_investigation_complete may
+// return Success=true for a soft pre-complete downgrade, but it leaves
+// MutableState.InvestigationComplete FALSE. The observer must use that
+// typed state, not the human-readable Summary prefix, to decide whether
+// to continue or stop.
 func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *testing.T) {
-	t.Run("DOWNGRADED summary leaves investigationComplete false", func(t *testing.T) {
-		eval := &explorerEvaluator{phase: 1}
+	t.Run("typed incomplete mutable state leaves investigationComplete false", func(t *testing.T) {
+		mut := types.NewMutableState("q")
+		eval := &explorerEvaluator{phase: 1, mutable: mut}
 		downgradeResult := types.ToolResult{
 			ToolName: "emit_investigation_complete",
 			Success:  true,
@@ -5979,7 +5974,32 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 		}
 	})
 
-	t.Run("DOWNGRADED summary prioritizes structured closure repair", func(t *testing.T) {
+	t.Run("summary prefix cannot override typed completed mutable state", func(t *testing.T) {
+		mut := types.NewMutableState("q")
+		mut.SetInvestigationComplete("accepted completion")
+		eval := &explorerEvaluator{phase: 1, mutable: mut}
+		result := types.ToolResult{
+			ToolName: "emit_investigation_complete",
+			Success:  true,
+			Summary:  tool.EmitInvestigationCompleteDowngradePrefix + " — stale transparent text from a historical fixture.",
+		}
+		results := []types.ToolResult{result}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      5,
+			LastToolResult: &results[0],
+			AllToolResults: results,
+		})
+		if !sig.StopRequested {
+			t.Fatalf("typed completed mutable state must stop even if Summary contains DOWNGRADED text, got %+v", sig)
+		}
+		if !eval.investigationComplete {
+			t.Fatal("evaluator.investigationComplete should latch from typed completed mutable state")
+		}
+	})
+
+	t.Run("typed soft downgrade prioritizes structured closure repair", func(t *testing.T) {
 		mut := types.NewMutableState("q")
 		mut.EvidenceClosure().AddRepair(types.RepairDirective{
 			Kind:      types.RepairReadFile,
@@ -6160,7 +6180,7 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 			AllToolResults: results,
 		})
 		if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.closure-repair" {
-			t.Fatalf("downgraded completion should surface structured closure repair first, got %+v", sig)
+			t.Fatalf("typed soft-downgraded completion should surface structured closure repair first, got %+v", sig)
 		}
 		if strings.Contains(sig.Hint, "internal/agent/analyzer.go") {
 			t.Fatalf("closure repair hint must drop stale read targets, got: %s", sig.Hint)

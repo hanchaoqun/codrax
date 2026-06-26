@@ -23,15 +23,12 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// EmitInvestigationCompleteDowngradePrefix is the Summary prefix this
-// tool writes when preCompleteContractCheck rejects a completion
-// attempt. The tool returns Success=true (so the LLM sees the
-// explanation in its tool-result history) while leaving
-// MutableState.InvestigationComplete FALSE. Mid-loop observers that
-// branch on "Success=true + emit_investigation_complete" must filter
-// this prefix out — otherwise a soft keep-alive signal is mistaken
-// for a terminal completion and the ReAct loop ends before the LLM
-// gets to re-invest.
+// EmitInvestigationCompleteDowngradePrefix is the human-readable Summary prefix
+// this tool writes when preCompleteContractCheck rejects a completion attempt.
+// The tool returns Success=true so the LLM sees the explanation, while leaving
+// MutableState.InvestigationComplete FALSE. Control-plane observers must use the
+// typed MutableState flag rather than this display prefix to decide whether the
+// investigation actually completed.
 const EmitInvestigationCompleteDowngradePrefix = "emit_investigation_complete DOWNGRADED"
 
 var callChainQualifiedCallRe = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)+\s*\(`)

@@ -7373,6 +7373,13 @@ func (e *explorerEvaluator) syncClosureRepairState(results []types.ToolResult) {
 	e.midLoopClosureRepairClosureOnlySent = false
 }
 
+func emitInvestigationCompleteSoftDowngrade(result *types.ToolResult, mutable *types.MutableState) bool {
+	if result == nil || result.ToolName != "emit_investigation_complete" || !result.Success || mutable == nil {
+		return false
+	}
+	return !mutable.IsInvestigationComplete()
+}
+
 func (e *explorerEvaluator) postClosureRepairSignal(obs LoopObservation) LoopSignal {
 	if e.midLoopClosureRepairSent || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_investigation_complete" {
 		return LoopSignal{}
@@ -7382,7 +7389,7 @@ func (e *explorerEvaluator) postClosureRepairSignal(obs LoopObservation) LoopSig
 	if len(repairs) == 0 {
 		return LoopSignal{}
 	}
-	triggeredByDowngrade := obs.LastToolResult.Success && strings.HasPrefix(obs.LastToolResult.Summary, tool.EmitInvestigationCompleteDowngradePrefix)
+	triggeredByDowngrade := emitInvestigationCompleteSoftDowngrade(obs.LastToolResult, e.mutable)
 	triggeredByRepair := !obs.LastToolResult.Success && obs.LastToolResult.Repair != nil
 	triggeredByQueuedRepairs := !obs.LastToolResult.Success
 	if !triggeredByDowngrade && !triggeredByRepair && !triggeredByQueuedRepairs {
@@ -10418,15 +10425,13 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	//
 	// The tool soft-downgrades failed completions (pending forced
 	// reads / cite-floor miss / unverified anchor paths) with
-	// Success=true and a DOWNGRADED-prefixed Summary so the LLM sees
-	// the explanation in its tool-result history. MutableState's
-	// InvestigationComplete flag stays FALSE in that case. Observers
-	// must skip the terminal branch on downgrade — otherwise a soft
-	// keep-alive is mistaken for completion and the loop exits before
-	// the LLM can re-invest (and, critically, before it has a chance
-	// to call emit_evidence if it skipped that step altogether).
+	// Success=true while leaving MutableState's InvestigationComplete
+	// flag FALSE. Observers must consume that typed state instead of
+	// the human-readable Summary — otherwise a soft keep-alive can be
+	// mistaken for completion, or transparent log wording can start
+	// steering control flow.
 	if obs.LastToolResult != nil && obs.LastToolResult.ToolName == "emit_investigation_complete" && obs.LastToolResult.Success {
-		if strings.HasPrefix(obs.LastToolResult.Summary, tool.EmitInvestigationCompleteDowngradePrefix) {
+		if emitInvestigationCompleteSoftDowngrade(obs.LastToolResult, e.mutable) {
 			logging.Info("[explorer] emit_investigation_complete DOWNGRADED at iter=%d — loop continues", iteration)
 		} else {
 			e.investigationComplete = true
