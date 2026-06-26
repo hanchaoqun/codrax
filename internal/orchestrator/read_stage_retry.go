@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -386,7 +387,7 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 		body = append(body, "Preserved aggregate facts: "+agg)
 	}
 	if hints := continuationToolResultHints(toolResults, 8); len(hints) > 0 {
-		body = append(body, "Useful preserved tool-result hints:\n- "+strings.Join(hints, "\n- "))
+		body = append(body, "Useful preserved typed tool refinement hints:\n- "+strings.Join(hints, "\n- "))
 	}
 	body = append(body, "If the checkpoint already covers the active objective, call `emit_investigation_complete`. If a concrete anchor is still missing, use one narrow search/read for that anchor, then materialize or close.")
 	return strings.Join(body, "\n\n")
@@ -549,6 +550,13 @@ func continuationToolResultHints(results []types.ToolResult, maxItems int) []str
 	seen := map[string]bool{}
 	var out []string
 	for i := len(results) - 1; i >= 0 && len(out) < maxItems; i-- {
+		if hint := continuationToolRefinementHint(results[i]); hint != "" {
+			if !seen[hint] {
+				seen[hint] = true
+				out = append(out, hint)
+			}
+			continue
+		}
 		for _, line := range strings.Split(results[i].Summary, "\n") {
 			trimmed := strings.TrimSpace(line)
 			if trimmed == "" {
@@ -570,6 +578,98 @@ func continuationToolResultHints(results []types.ToolResult, maxItems int) []str
 		}
 	}
 	return out
+}
+
+func continuationToolRefinementHint(result types.ToolResult) string {
+	refinement, ok := continuationToolResultRefinement(result)
+	if !ok {
+		return ""
+	}
+	parts := []string{}
+	if tool := strings.TrimSpace(result.ToolName); tool != "" {
+		parts = append(parts, "tool="+tool)
+	}
+	if refinement.ReasonCode != "" {
+		parts = append(parts, "reason="+refinement.ReasonCode)
+	}
+	flags := []string{}
+	if refinement.ResultTruncated {
+		flags = append(flags, "result_truncated")
+	}
+	if refinement.CandidateBudgetTruncated {
+		flags = append(flags, "candidate_budget_truncated")
+	}
+	if len(flags) > 0 {
+		parts = append(parts, "flags="+strings.Join(flags, ","))
+	}
+	if refinement.UniverseExcludedReason != "" {
+		parts = append(parts, "excluded_reason="+refinement.UniverseExcludedReason)
+	}
+	if refinement.PreferredNextTool != "" {
+		parts = append(parts, "preferred_tool="+refinement.PreferredNextTool)
+	}
+	if len(refinement.PreferredParams) > 0 {
+		keys := make([]string, 0, len(refinement.PreferredParams))
+		for key := range refinement.PreferredParams {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		values := make([]string, 0, len(keys))
+		for _, key := range keys {
+			values = append(values, key+"="+refinement.PreferredParams[key])
+		}
+		parts = append(parts, "preferred_params="+strings.Join(values, ","))
+	}
+	if len(refinement.RequiredFields) > 0 {
+		parts = append(parts, "required_fields="+strings.Join(boundedRetryStrings(refinement.RequiredFields, 8), ","))
+	}
+	if refinement.NextCursor != "" {
+		parts = append(parts, "next_cursor="+refinement.NextCursor)
+	}
+	if len(refinement.SkippedLargeCandidates) > 0 {
+		parts = append(parts, "skipped_large="+strings.Join(boundedRetryStrings(refinement.SkippedLargeCandidates, 4), ","))
+	}
+	if len(refinement.ExcludedRoots) > 0 {
+		parts = append(parts, "excluded_roots="+strings.Join(boundedRetryStrings(refinement.ExcludedRoots, 4), ","))
+	}
+	if len(refinement.TopSourceClasses) > 0 {
+		classes := make([]string, 0, len(refinement.TopSourceClasses))
+		for _, role := range refinement.TopSourceClasses {
+			if role != "" {
+				classes = append(classes, string(role))
+			}
+		}
+		if len(classes) > 0 {
+			parts = append(parts, "top_source_classes="+strings.Join(boundedRetryStrings(classes, 6), ","))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return logging.Truncate("tool_refinement "+strings.Join(parts, " "), 220)
+}
+
+func continuationToolResultRefinement(result types.ToolResult) (types.ToolRefinementHint, bool) {
+	if result.Refinement != nil {
+		refinement := types.NormalizeToolRefinementHint(*result.Refinement)
+		if !refinement.Empty() {
+			return refinement, true
+		}
+	}
+	if result.Handoff != nil && result.Handoff.Refinement != nil {
+		refinement := types.NormalizeToolRefinementHint(*result.Handoff.Refinement)
+		if !refinement.Empty() {
+			return refinement, true
+		}
+	}
+	return types.ToolRefinementHint{}, false
+}
+
+func boundedRetryStrings(values []string, limit int) []string {
+	if limit > 0 && len(values) > limit {
+		return values[:limit]
+	}
+	return values
 }
 
 func countSuccessfulToolResults(results []types.ToolResult) int {

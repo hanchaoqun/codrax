@@ -358,6 +358,81 @@ func TestBuildExploreFactRetryContinuationHintCarriesRuntimeFrontier(t *testing.
 	}
 }
 
+func TestBuildExploreFactRetryContinuationHintPrefersTypedRefinement(t *testing.T) {
+	mut := types.NewMutableState("find owner")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+
+	got := o.buildExploreFactRetryContinuationHint(&agent.StageOutput{
+		ToolResults: []types.ToolResult{{
+			ToolName: "grep",
+			Success:  true,
+			Summary:  "line_window_hint=summary fallback should not render for this result\n",
+			Refinement: &types.ToolRefinementHint{
+				ReasonCode:        "grep_result_truncated",
+				ResultTruncated:   true,
+				PreferredNextTool: "repo_map",
+				PreferredParams: map[string]string{
+					"query": "Owner",
+					"view":  "task_map",
+				},
+				RequiredFields: []string{"query"},
+			},
+		}},
+	})
+	for _, want := range []string{
+		"Useful preserved typed tool refinement hints:",
+		"tool_refinement tool=grep reason=grep_result_truncated",
+		"flags=result_truncated",
+		"preferred_tool=repo_map",
+		"preferred_params=query=Owner,view=task_map",
+		"required_fields=query",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed refinement checkpoint missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "summary fallback should not render") {
+		t.Fatalf("typed refinement should suppress same-result summary-prefix fallback:\n%s", got)
+	}
+}
+
+func TestContinuationToolResultHintsFallsBackToSummaryPrefixes(t *testing.T) {
+	hints := continuationToolResultHints([]types.ToolResult{{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "line_window_hint=first returned match is trace.systrace:42; next use read_file\n",
+	}}, 4)
+	if len(hints) != 1 || !strings.Contains(hints[0], "line_window_hint=first returned match is trace.systrace:42") {
+		t.Fatalf("summary-prefix fallback not preserved: %+v", hints)
+	}
+}
+
+func TestContinuationToolResultHintsReadsHandoffRefinement(t *testing.T) {
+	hints := continuationToolResultHints([]types.ToolResult{{
+		ToolName: "list_files",
+		Success:  true,
+		Handoff: &types.ToolHandoffCarrier{
+			Version:    types.ToolHandoffCarrierVersion,
+			ToolName:   "list_files",
+			ReasonCode: "list_files_result_truncated",
+			Refinement: &types.ToolRefinementHint{
+				ReasonCode:        "list_files_result_truncated",
+				ResultTruncated:   true,
+				PreferredNextTool: "list_files",
+				PreferredParams: map[string]string{
+					"include": "*.go",
+					"path":    "internal",
+				},
+			},
+		},
+	}}, 4)
+	if len(hints) != 1 ||
+		!strings.Contains(hints[0], "tool_refinement tool=list_files") ||
+		!strings.Contains(hints[0], "preferred_params=include=*.go,path=internal") {
+		t.Fatalf("handoff refinement not rendered: %+v", hints)
+	}
+}
+
 func TestSoftAgentOutputRetryMessageRuntimeContinuationLocalized(t *testing.T) {
 	bus := &types.BusContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
