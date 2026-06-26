@@ -7558,6 +7558,56 @@ func TestObserveMidLoop_ExternalSourceLogRedirectIgnoresSummaryOnly(t *testing.T
 	}
 }
 
+func TestObserveMidLoop_AbsentEvidenceRedirectUsesTypedRepair(t *testing.T) {
+	eval := &explorerEvaluator{searchResult: &keywordSearchResult{Graph: &repomap.Graph{}}}
+	results := []types.ToolResult{
+		{
+			ToolName: "emit_evidence",
+			Success:  false,
+			Summary:  `kind=absent is not emittable via emit_evidence`,
+			Repair:   &types.ToolRepair{Code: types.ToolRepairCodeEvidenceAbsenceToCompletion},
+		},
+		{
+			ToolName: "emit_evidence",
+			Success:  false,
+			Summary:  `different displayed validation wording`,
+			Repair:   &types.ToolRepair{Code: types.ToolRepairCodeEvidenceAbsenceToCompletion},
+		},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		LastToolResult: &results[1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("typed absent-evidence repair should trigger redirect, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.absent-redirect" {
+		t.Fatalf("HintKey=%q, want absent redirect", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "absence_justification") {
+		t.Fatalf("hint should steer to completion absence lane, got: %s", sig.Hint)
+	}
+}
+
+func TestObserveMidLoop_AbsentEvidenceRedirectIgnoresSummaryOnly(t *testing.T) {
+	eval := &explorerEvaluator{searchResult: &keywordSearchResult{Graph: &repomap.Graph{}}}
+	results := []types.ToolResult{
+		{ToolName: "emit_evidence", Success: false, Summary: `kind=absent is not emittable via emit_evidence`},
+		{ToolName: "emit_evidence", Success: false, Summary: `kind=absent is not emittable via emit_evidence`},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		LastToolResult: &results[1],
+		AllToolResults: results,
+	})
+	if sig.HintRequested {
+		t.Fatalf("summary-only absent evidence wording must not trigger redirect, got %+v", sig)
+	}
+}
+
 func TestExplorerNavigationOriginsUsesTypedToolCarriers(t *testing.T) {
 	origins := explorerNavigationOrigins([]types.ToolResult{
 		{

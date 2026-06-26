@@ -10945,38 +10945,36 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		}
 	}
 
-	// Check 7: emit_evidence kind=absent deprecation redirect
+	// Check 7: emit_evidence line-shaped kind=absent redirect
 	// (session-22 follow-up).
 	//
 	// The default analyze/explore prompts intentionally do not warn
-	// against kind=absent — it is a rare antipattern (maybe 1% of
-	// queries, where the LLM tries to emit per-fact "not found"
-	// claims through the evidence channel) and pre-declaring every
-	// deprecated kind in the skill would bloat the prompt. Instead,
-	// we detect the bug in situ: the tool's reject message already
-	// includes the full redirect to absence_justification, but
-	// some LLMs ignore the tool result and re-emit the same batch
-	// with a slight rewording.
+	// against the rare antipattern where the LLM tries to emit
+	// per-fact "not found" claims as ordinary line evidence. Legal
+	// absence evidence remains scope=negative + kind=absent. Instead
+	// of bloating the prompt, detect the invalid landing form in situ:
+	// the tool publishes a typed repair code, but some LLMs ignore
+	// the tool result and re-emit the same batch with a slight
+	// rewording.
 	//
-	// After we see the structured redirect string ("kind=absent is
-	// not emittable via emit_evidence") appear in 2 OR MORE failed
-	// tool results, inject a stronger orchestrator-level hint. The
-	// orchestrator channel is visually distinct from tool results —
-	// the LLM treats it as a system directive rather than
-	// tool-validation feedback, which increases the chance of
-	// course-correction.
+	// After we see the typed absence-to-completion repair code appear
+	// in 2 OR MORE failed tool results, inject a stronger
+	// orchestrator-level hint. The orchestrator channel is visually
+	// distinct from tool results — the LLM treats it as a system
+	// directive rather than tool-validation feedback, which increases
+	// the chance of course-correction. Rendered Summary prose is not
+	// a loop-control signal here.
 	//
 	// One-shot per dispatch; reset cross-dispatch so a later window
 	// can fire again if the LLM slips back.
 	if b.Len() == 0 && !e.midLoopAbsentRedirectSent {
-		const marker = "kind=absent is not emittable via emit_evidence"
 		hits := 0
 		for i := range allResults {
 			r := &allResults[i]
 			if r.Success || r.ToolName != "emit_evidence" {
 				continue
 			}
-			if strings.Contains(r.Summary, marker) {
+			if r.Repair != nil && strings.TrimSpace(r.Repair.Code) == types.ToolRepairCodeEvidenceAbsenceToCompletion {
 				hits++
 				if hits >= 2 {
 					break

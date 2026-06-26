@@ -4530,6 +4530,36 @@ func TestEmitEvidence_AcceptsScopeNegative(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_AbsentLineEvidencePublishesTypedCompletionRepair(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"scope": "line", "kind": "absent", "source": "codrax.yaml", "line_start": 12, "anchor_kind": "definition", "anchor_symbol": "missing_key", "summary": "missing_key is absent"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected absent line evidence to reject, got success: %s", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != types.ToolRepairCodeEvidenceAbsenceToCompletion {
+		t.Fatalf("expected typed absence completion repair, got %+v summary=%s", res.Repair, res.Summary)
+	}
+	hasAbsenceField := false
+	for _, field := range res.Repair.Fields {
+		if field == "emit_investigation_complete.absence_justification" {
+			hasAbsenceField = true
+			break
+		}
+	}
+	if !hasAbsenceField {
+		t.Fatalf("repair should name completion absence field, got %+v", res.Repair.Fields)
+	}
+}
+
 // TestEmitEvidence_AcceptsScopeCrossfile pins Crossfile-scope.
 // Requires CrossfileQuery (files+pattern) and CrossfileAssertion.
 func TestEmitEvidence_AcceptsScopeCrossfile(t *testing.T) {

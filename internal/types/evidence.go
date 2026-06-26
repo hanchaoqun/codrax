@@ -726,6 +726,9 @@ func (e EvidenceItem) ValidateScope() error {
 		return fmt.Errorf("evidence: scope is required and must be one of %v; got %q",
 			AllEvidenceScopes(), e.Scope)
 	}
+	if e.Kind == EvidenceAbsent && e.Scope != ScopeNegative {
+		return fmt.Errorf("evidence: kind=absent requires scope=negative; got scope=%q", e.Scope)
+	}
 	switch e.Scope {
 	case ScopeLine:
 		if e.Source == "" || e.LineStart <= 0 || e.AnchorKind == "" {

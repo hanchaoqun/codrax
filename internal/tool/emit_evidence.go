@@ -567,6 +567,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	rejectedItems := make([]string, 0)
 	softSkippedItems := make([]string, 0)
 	externalObservationSkippedItems := make([]string, 0)
+	absenceCompletionRejectedItems := make([]string, 0)
 	autoSwapped := make([]int, 0)
 	compatRepairs := make([]string, 0)
 	// Session 11 R4 self-reference filter — pre-compute the
@@ -607,7 +608,11 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 				softSkippedItems = append(softSkippedItems, reason)
 				continue
 			}
-			rejectedItems = append(rejectedItems, fmt.Sprintf("items[%d]: %v", i, perr))
+			rejection := fmt.Sprintf("items[%d]: %v", i, perr)
+			rejectedItems = append(rejectedItems, rejection)
+			if emitEvidenceAbsenceCompletionRepairApplies(in) {
+				absenceCompletionRejectedItems = append(absenceCompletionRejectedItems, rejection)
+			}
 			continue
 		}
 		if primaryEntity != "" && isSelfRefEvidence(&ev, primaryEntity) {
@@ -671,6 +676,11 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		}, nil
 	}
 	if len(built) == 0 {
+		if len(rejectedItems) > 0 && len(absenceCompletionRejectedItems) == len(rejectedItems) {
+			return failEmitWithRepair(t.Name(), now, emitEvidenceAbsenceCompletionRepair(),
+				"no valid items after per-item validation:\n%s",
+				strings.Join(rejectedItems, "\n"))
+		}
 		return failEmit(t.Name(), now,
 			"no valid items after per-item validation:\n%s",
 			strings.Join(rejectedItems, "\n"))
@@ -1337,6 +1347,49 @@ func emitEvidenceExternalObservationRepair() *types.ToolRepair {
 		},
 		Metadata: map[string]string{
 			"repair_status": "advisory",
+		},
+	}
+}
+
+func emitEvidenceAbsenceCompletionRepairApplies(in emitEvidenceItem) bool {
+	kind := strings.ToLower(strings.TrimSpace(firstNonEmptyString([]string{in.EvidenceKind, in.LegacyKind})))
+	scope := types.EvidenceScope(strings.ToLower(strings.TrimSpace(in.Scope)))
+	if kind == string(types.EvidenceAbsent) && scope != types.ScopeNegative {
+		return true
+	}
+	if scope != types.ScopeNegative {
+		return false
+	}
+	if kind != string(types.EvidenceAbsent) {
+		return true
+	}
+	if in.NegativeQuery == nil ||
+		strings.TrimSpace(in.NegativeQuery.File) == "" ||
+		strings.TrimSpace(in.NegativeQuery.Pattern) == "" {
+		return true
+	}
+	nscope := types.NegativeScope(strings.ToLower(strings.TrimSpace(in.NegativeScope)))
+	if !nscope.IsValid() {
+		return true
+	}
+	return nscope == types.NegativeScopeSection && strings.TrimSpace(in.NegativeQuery.Section) == ""
+}
+
+func emitEvidenceAbsenceCompletionRepair() *types.ToolRepair {
+	return &types.ToolRepair{
+		Code: types.ToolRepairCodeEvidenceAbsenceToCompletion,
+		Hint: "Absence claims are not line evidence unless they are emitted as scope=negative with negative_query and negative_scope. For whole-answer absence, remove these emit_evidence rows and carry the conclusion through emit_investigation_complete(result_kind=\"absence\", absence_justification=...).",
+		Fields: []string{
+			"emit_evidence.items[].scope",
+			"emit_evidence.items[].evidence_kind",
+			"emit_evidence.items[].negative_query",
+			"emit_evidence.items[].negative_scope",
+			"emit_investigation_complete.result_kind",
+			"emit_investigation_complete.absence_justification",
+		},
+		Metadata: map[string]string{
+			"repair_status": "action_required",
+			"lane":          "completion_absence",
 		},
 	}
 }
