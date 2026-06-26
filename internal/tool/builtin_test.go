@@ -4516,6 +4516,13 @@ func TestReadFile_ResolvesAgainstRepoRoot(t *testing.T) {
 	if len(result.Observations) != 1 {
 		t.Fatalf("read_file should publish one typed observation, got %+v", result.Observations)
 	}
+	if result.ReadCoverage == nil ||
+		result.ReadCoverage.Path != target ||
+		result.ReadCoverage.LineStart != 1 ||
+		result.ReadCoverage.LineEnd < result.ReadCoverage.LineStart ||
+		result.ReadCoverage.TotalLines <= 0 {
+		t.Fatalf("read_file should publish typed read coverage, got %+v", result.ReadCoverage)
+	}
 	obs := result.Observations[0]
 	if obs.Origin != types.AnswerEvidenceOriginCurrentSource ||
 		obs.SourceRef.Kind != types.ObservationSourceCurrentSource ||

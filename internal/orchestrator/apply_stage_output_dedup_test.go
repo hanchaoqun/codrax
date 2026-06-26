@@ -107,6 +107,12 @@ func TestEvidenceRoundIngestUpdatesProductionClosure(t *testing.T) {
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[a.go: showing lines 1-3 of 10 total]\ncode",
+			ReadCoverage: &types.ToolReadCoverage{
+				Path:       "a.go",
+				LineStart:  1,
+				LineEnd:    3,
+				TotalLines: 10,
+			},
 		},
 		{
 			ToolName: "emit_evidence",

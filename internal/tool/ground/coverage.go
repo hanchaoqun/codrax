@@ -27,27 +27,25 @@ import (
 // false for any malformed banner so callers skip the entry without
 // defensive string checks at the call site.
 //
-// Lifted out of internal/agent/explorer.go so any package that needs
-// to read banner-derived coverage (notably the per-tool gates that
-// fire mid-dispatch from internal/tool/) can use the same parser
-// instead of reaching into the agent layer.
+// Kept as a banner-format compatibility helper for display/line-index tests.
+// Load-bearing read coverage uses ToolReadCoverage instead of this parser.
 func ParseReadFileBanner(summary string) (path string, rng types.LineRange, totalLines int, ok bool) {
 	return types.ParseReadFileBanner(summary)
 }
 
 // ExtractReadCoverage walks tool history and rebuilds the per-file
-// read coverage state from read_file banners. Returns:
+// read coverage state from ToolReadCoverage carriers. Returns:
 //
 //   - readSet: set of files with at least one observed read_file
 //   - readRanges: per-file [Start, End] slices the LLM saw (multi-
 //     pagination accumulates; not pre-merged so the caller can hand
 //     them to EvidenceClosure.SetReadRanges which runs the canonical
 //     mergeLineRanges)
-//   - totals: per-file total line count harvested from the banner;
-//     0 when the banner did not carry a Z value
+//   - totals: per-file total line count harvested from the typed carrier;
+//     0 when the carrier did not carry a total
 //
-// repoRoot enables banner-path canonicalisation via
-// CanonicalRepoRelative so an absolute / leading-./ banner shape lands
+// repoRoot enables carrier-path canonicalisation via
+// CanonicalRepoRelative so an absolute / leading-./ path shape lands
 // on the same map key as repo-relative reads from the same file
 // (Windows volumes case-insensitive, POSIX slash-form preserved).
 // An empty repoRoot is tolerated — the function falls back to a

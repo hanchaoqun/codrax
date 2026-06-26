@@ -9,11 +9,23 @@ func TestEvidenceClosureIngestRoundReadCoverageAndAcceptedEvidence(t *testing.T)
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[./a.go: showing lines 2-5 of 10 total]\ncode",
+			ReadCoverage: &ToolReadCoverage{
+				Path:       "./a.go",
+				LineStart:  2,
+				LineEnd:    5,
+				TotalLines: 10,
+			},
 		},
 		{
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[forced_read] [b.go: showing all 3 lines (90 bytes); limit=1 expanded]\ncode",
+			ReadCoverage: &ToolReadCoverage{
+				Path:       "b.go",
+				LineStart:  1,
+				LineEnd:    3,
+				TotalLines: 3,
+			},
 		},
 		{
 			ToolName: "emit_evidence",
@@ -469,8 +481,28 @@ func TestMutableSourceInventoryObservationSetterProjectsThroughReducer(t *testin
 
 func TestEvidenceRoundDeltaMatchesExtractReadCoverage(t *testing.T) {
 	results := []ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-2 of 5 total]\n"},
-		{ToolName: "read_file", Success: false, Summary: "[ignored.go: showing lines 1-2 of 5 total]\n"},
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[a.go: showing lines 1-2 of 5 total]\n",
+			ReadCoverage: &ToolReadCoverage{
+				Path:       "a.go",
+				LineStart:  1,
+				LineEnd:    2,
+				TotalLines: 5,
+			},
+		},
+		{
+			ToolName: "read_file",
+			Success:  false,
+			Summary:  "[ignored.go: showing lines 1-2 of 5 total]\n",
+			ReadCoverage: &ToolReadCoverage{
+				Path:       "ignored.go",
+				LineStart:  1,
+				LineEnd:    2,
+				TotalLines: 5,
+			},
+		},
 	}
 	readSet, readRanges, totals := ExtractReadCoverage(results, "")
 	delta := EvidenceRoundDeltaFromToolResults(results, "")
@@ -483,6 +515,16 @@ func TestEvidenceRoundDeltaMatchesExtractReadCoverage(t *testing.T) {
 	}
 	if delta.FileTotalLines["a.go"] != totals["a.go"] {
 		t.Fatalf("delta totals = %+v, want %+v", delta.FileTotalLines, totals)
+	}
+}
+
+func TestExtractReadCoverageIgnoresSummaryOnlyReadFileBanner(t *testing.T) {
+	results := []ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-2 of 5 total]\n"},
+	}
+	readSet, readRanges, totals := ExtractReadCoverage(results, "")
+	if len(readSet) != 0 || len(readRanges) != 0 || len(totals) != 0 {
+		t.Fatalf("summary-only read_file banner must not populate read coverage: set=%+v ranges=%+v totals=%+v", readSet, readRanges, totals)
 	}
 }
 

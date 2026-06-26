@@ -64,7 +64,7 @@ type EvidenceClosure struct {
 
 	// readRanges is the line-level companion to readSet: file →
 	// merged sorted [Start, End] intervals the LLM actually saw.
-	// Populated from read_file banner ranges (extractFileCoverage)
+	// Populated from ToolReadCoverage ranges (ExtractReadCoverage)
 	// and preRead slices. Empty entry for a file still in readSet
 	// means "touched but we did not record a specific range", in
 	// which case HasReadLine grants the file wholesale (backward
@@ -76,9 +76,8 @@ type EvidenceClosure struct {
 	readRanges map[string][]LineRange
 
 	// fileTotalLines records the total line count of each file the
-	// LLM has read, parsed from the read_file banner ("[path:
-	// showing lines X-Y of Z total]" or "[path: showing all N lines
-	// ...]"). The line-merging gate uses this to compute per-file
+	// LLM has read, published by the typed ToolReadCoverage carrier.
+	// The line-merging gate uses this to compute per-file
 	// CoverageRatio = sum(end-start+1) / total, so a 113-line file
 	// fully read shows 1.0 even when a 683-line sibling is at 0.6.
 	// Pre-2026-04-29 the predecessor multi-path parity gate
@@ -790,9 +789,8 @@ func (c *EvidenceClosure) SetReadRanges(ranges map[string][]LineRange) {
 }
 
 // RecordFileTotalLines stores the total line count for a file as
-// observed in a read_file banner. Subsequent observations win when
-// they are larger (defensive against banners that report a partial
-// total mid-pagination — every healthy banner reports the same Z).
+// observed in typed read coverage. Subsequent observations win when
+// they are larger (defensive against partial totals mid-pagination).
 // Zero / negative inputs are dropped silently so callers do not need
 // to validate.
 func (c *EvidenceClosure) RecordFileTotalLines(file string, total int) {

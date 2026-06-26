@@ -59,7 +59,9 @@ func ParseReadFileBanner(summary string) (path string, rng LineRange, totalLines
 }
 
 // ExtractReadCoverage walks tool results and rebuilds the read_file coverage
-// projection for a single round or accumulated history.
+// projection for a single round or accumulated history from the typed
+// ToolReadCoverage carrier. It intentionally ignores the rendered read_file
+// banner: Summary is transparent user/model context, not a coverage authority.
 func ExtractReadCoverage(history []ToolResult, repoRoot string) (
 	readSet map[string]bool,
 	readRanges map[string][]LineRange,
@@ -72,18 +74,26 @@ func ExtractReadCoverage(history []ToolResult, repoRoot string) (
 		if !r.Success || r.ToolName != "read_file" {
 			continue
 		}
-		path, rng, total, ok := ParseReadFileBanner(r.Summary)
-		if !ok {
+		coverage := r.ReadCoverage
+		if coverage == nil {
 			continue
 		}
-		path = canonicalReadCoveragePath(path, repoRoot)
+		path := canonicalReadCoveragePath(coverage.Path, repoRoot)
 		if path == "" {
 			continue
 		}
+		start := coverage.LineStart
+		if start <= 0 {
+			start = 1
+		}
+		end := coverage.LineEnd
+		if end < start {
+			end = start
+		}
 		readSet[path] = true
-		readRanges[path] = append(readRanges[path], rng)
-		if total > 0 && total > totals[path] {
-			totals[path] = total
+		readRanges[path] = append(readRanges[path], LineRange{Start: start, End: end})
+		if coverage.TotalLines > 0 && coverage.TotalLines > totals[path] {
+			totals[path] = coverage.TotalLines
 		}
 	}
 	return readSet, readRanges, totals

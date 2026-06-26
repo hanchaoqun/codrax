@@ -5382,6 +5382,18 @@ type ToolCommandMeasurement struct {
 	History     bool                 `json:"history,omitempty"`
 }
 
+// ToolReadCoverage is the typed load-bearing read_file coverage projection.
+// The read_file tool publishes it from schema coordinates and file metadata
+// before rendering Summary, so coverage gates do not parse the user-visible
+// banner to recover path/range/total facts.
+type ToolReadCoverage struct {
+	Path       string `json:"path,omitempty"`
+	LineStart  int    `json:"line_start,omitempty"`
+	LineEnd    int    `json:"line_end,omitempty"`
+	TotalLines int    `json:"total_lines,omitempty"`
+	RawRef     string `json:"raw_ref,omitempty"`
+}
+
 type ToolResult struct {
 	ToolName           string                  `json:"tool_name"`
 	Summary            string                  `json:"summary"`
@@ -5391,6 +5403,7 @@ type ToolResult struct {
 	RawRef             string                  `json:"raw_ref,omitempty"`
 	PathDiscovery      *ToolPathDiscovery      `json:"path_discovery,omitempty"`
 	CommandMeasurement *ToolCommandMeasurement `json:"command_measurement,omitempty"`
+	ReadCoverage       *ToolReadCoverage       `json:"read_coverage,omitempty"`
 
 	// Observations are optional producer-published typed observation rows for
 	// this tool result — the ToolResult companion to MCPResponse.Observations.

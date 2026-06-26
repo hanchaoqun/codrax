@@ -4141,6 +4141,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		Summary:      summary,
 		RawRef:       ref,
 		Refinement:   readFileResultRefinement(ctx, p.Path, fsPath, sliceStart+1, sliceEnd, totalLines, lineOffset, limit, clampedByInlineBudget),
+		ReadCoverage: readFileTypedCoverage(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines),
 		Observations: readFileTypedObservations(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines, now),
 		Timestamp:    now,
 	}, nil
@@ -4188,15 +4189,29 @@ func readFileResultRefinement(ctx *types.BusContext, requestedPath, fsPath strin
 	return &out
 }
 
-func readFileTypedObservations(ctx *types.BusContext, requestedPath, fsPath, rawRef string, lineStart, lineEnd, totalLines int, observedAt time.Time) []types.ObservationRecord {
-	sourcePath := strings.TrimSpace(requestedPath)
-	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
-		if rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, fsPath); ok && rel != "" {
-			sourcePath = rel
-		}
+func readFileTypedCoverage(ctx *types.BusContext, requestedPath, fsPath, rawRef string, lineStart, lineEnd, totalLines int) *types.ToolReadCoverage {
+	sourcePath := readFileTypedSourcePath(ctx, requestedPath, fsPath)
+	if sourcePath == "" {
+		return nil
 	}
-	sourcePath = strings.TrimSpace(strings.ReplaceAll(sourcePath, "\\", "/"))
-	if sourcePath == "" || strings.HasPrefix(sourcePath, "/") || sourcePath == "." || strings.HasPrefix(sourcePath, "../") {
+	if lineStart <= 0 {
+		lineStart = 1
+	}
+	if lineEnd < lineStart {
+		lineEnd = lineStart
+	}
+	return &types.ToolReadCoverage{
+		Path:       sourcePath,
+		LineStart:  lineStart,
+		LineEnd:    lineEnd,
+		TotalLines: totalLines,
+		RawRef:     strings.TrimSpace(rawRef),
+	}
+}
+
+func readFileTypedObservations(ctx *types.BusContext, requestedPath, fsPath, rawRef string, lineStart, lineEnd, totalLines int, observedAt time.Time) []types.ObservationRecord {
+	sourcePath := readFileTypedSourcePath(ctx, requestedPath, fsPath)
+	if sourcePath == "" {
 		return nil
 	}
 	if lineStart <= 0 {
@@ -4236,6 +4251,20 @@ func readFileTypedObservations(ctx *types.BusContext, requestedPath, fsPath, raw
 		ObservedAt:      observedAt.Format("2006-01-02T15:04:05Z07:00"),
 		Confidence:      1,
 	}}
+}
+
+func readFileTypedSourcePath(ctx *types.BusContext, requestedPath, fsPath string) string {
+	sourcePath := strings.TrimSpace(requestedPath)
+	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
+		if rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, fsPath); ok && rel != "" {
+			sourcePath = rel
+		}
+	}
+	sourcePath = strings.TrimSpace(strings.ReplaceAll(sourcePath, "\\", "/"))
+	if sourcePath == "" || strings.HasPrefix(sourcePath, "/") || sourcePath == "." || strings.HasPrefix(sourcePath, "../") {
+		return ""
+	}
+	return sourcePath
 }
 
 // renderWithLineGutter joins a slice of source lines into a single

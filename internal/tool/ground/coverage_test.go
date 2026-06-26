@@ -6,6 +6,20 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func readCoverageResult(path string, start, end, total int) types.ToolResult {
+	return types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[" + path + ": rendered banner retained for transparency]\n",
+		ReadCoverage: &types.ToolReadCoverage{
+			Path:       path,
+			LineStart:  start,
+			LineEnd:    end,
+			TotalLines: total,
+		},
+	}
+}
+
 // TestParseReadFileBanner_BothShapes locks the two banner shapes the
 // read_file tool emits. Without the "showing all" branch, inline-
 // expanded full-file reads (small files where Limit was overridden)
@@ -81,16 +95,16 @@ func TestParseReadFileBanner_BothShapes(t *testing.T) {
 // the multi-path coverage parity gate hit in production.
 func TestExtractReadCoverage_AccumulatesAcrossPagination(t *testing.T) {
 	history := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[internal/repl/repl.go: showing lines 1-645 of 4368 total]\n"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/repl/repl.go: showing lines 1382-2047 of 4368 total]\n"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/repl/repl.go: showing lines 2048-2713 of 4368 total]\n"},
+		readCoverageResult("internal/repl/repl.go", 1, 645, 4368),
+		readCoverageResult("internal/repl/repl.go", 1382, 2047, 4368),
+		readCoverageResult("internal/repl/repl.go", 2048, 2713, 4368),
 	}
 	readSet, ranges, totals := ExtractReadCoverage(history, "")
 	if !readSet["internal/repl/repl.go"] {
 		t.Fatalf("readSet missing the file: %+v", readSet)
 	}
 	if got := len(ranges["internal/repl/repl.go"]); got != 3 {
-		t.Fatalf("expected 3 banner ranges accumulated, got %d: %+v", got, ranges["internal/repl/repl.go"])
+		t.Fatalf("expected 3 typed coverage ranges accumulated, got %d: %+v", got, ranges["internal/repl/repl.go"])
 	}
 	if totals["internal/repl/repl.go"] != 4368 {
 		t.Errorf("total = %d, want 4368", totals["internal/repl/repl.go"])
@@ -103,7 +117,17 @@ func TestExtractReadCoverage_AccumulatesAcrossPagination(t *testing.T) {
 // !ok on a non-banner Summary; this check defends the outer walk.
 func TestExtractReadCoverage_IgnoresFailedAndNonReadFile(t *testing.T) {
 	history := []types.ToolResult{
-		{ToolName: "read_file", Success: false, Summary: "[internal/repl/repl.go: showing lines 1-100 of 4368 total]\n"},
+		{
+			ToolName: "read_file",
+			Success:  false,
+			Summary:  "[internal/repl/repl.go: showing lines 1-100 of 4368 total]\n",
+			ReadCoverage: &types.ToolReadCoverage{
+				Path:       "internal/repl/repl.go",
+				LineStart:  1,
+				LineEnd:    100,
+				TotalLines: 4368,
+			},
+		},
 		{ToolName: "grep", Success: true, Summary: "internal/repl/repl.go:42:foo\n"},
 		{ToolName: "exec_command", Success: true, Summary: "internal/repl/repl.go\n"},
 	}
@@ -142,18 +166,9 @@ func TestRefreshClosureCoverage_PicksUpInDispatchReads(t *testing.T) {
 	// dispatch — these land in DispatchToolResults but the closure's
 	// readRanges are still at the seeded snapshot until refresh.
 	mut := types.NewMutableState("test")
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file", Success: true,
-		Summary: "[internal/repl/repl.go: showing lines 1-645 of 4368 total]\n",
-	})
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file", Success: true,
-		Summary: "[internal/repl/repl.go: showing lines 1382-2047 of 4368 total]\n",
-	})
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file", Success: true,
-		Summary: "[internal/repl/repl.go: showing lines 2048-2713 of 4368 total]\n",
-	})
+	mut.AppendDispatchToolResult(readCoverageResult("internal/repl/repl.go", 1, 645, 4368))
+	mut.AppendDispatchToolResult(readCoverageResult("internal/repl/repl.go", 1382, 2047, 4368))
+	mut.AppendDispatchToolResult(readCoverageResult("internal/repl/repl.go", 2048, 2713, 4368))
 	ctx := &types.BusContext{Mutable: mut}
 
 	RefreshClosureCoverage(ctx, closure)
@@ -175,8 +190,8 @@ func TestRefreshClosureCoverage_NilSafe(t *testing.T) {
 	RefreshClosureCoverage(nil, nil) // should not panic
 
 	closure := types.NewEvidenceClosure("")
-	RefreshClosureCoverage(nil, closure) // nil ctx
-	RefreshClosureCoverage(&types.BusContext{}, nil) // nil closure
+	RefreshClosureCoverage(nil, closure)                 // nil ctx
+	RefreshClosureCoverage(&types.BusContext{}, nil)     // nil closure
 	RefreshClosureCoverage(&types.BusContext{}, closure) // empty ctx → no-op
 }
 
@@ -248,8 +263,28 @@ func TestParseReadFileBanner_StripsForcedReadPrefix(t *testing.T) {
 // iterations).
 func TestExtractReadCoverage_ForcedReadResultsLandInClosure(t *testing.T) {
 	history := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[forced_read surgical] [internal/repl/repl.go: showing lines 100-130 of 4368 total]\n   100│ x\n"},
-		{ToolName: "read_file", Success: true, Summary: "[forced_read] [internal/repl/repl.go: showing lines 200-230 of 4368 total]\n   200│ y\n"},
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[forced_read surgical] [internal/repl/repl.go: showing lines 100-130 of 4368 total]\n   100│ x\n",
+			ReadCoverage: &types.ToolReadCoverage{
+				Path:       "internal/repl/repl.go",
+				LineStart:  100,
+				LineEnd:    130,
+				TotalLines: 4368,
+			},
+		},
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[forced_read] [internal/repl/repl.go: showing lines 200-230 of 4368 total]\n   200│ y\n",
+			ReadCoverage: &types.ToolReadCoverage{
+				Path:       "internal/repl/repl.go",
+				LineStart:  200,
+				LineEnd:    230,
+				TotalLines: 4368,
+			},
+		},
 	}
 	readSet, ranges, totals := ExtractReadCoverage(history, "")
 	if !readSet["internal/repl/repl.go"] {
@@ -259,6 +294,16 @@ func TestExtractReadCoverage_ForcedReadResultsLandInClosure(t *testing.T) {
 		t.Errorf("expected 2 forced-read ranges in closure; got %d: %+v", got, ranges)
 	}
 	if totals["internal/repl/repl.go"] != 4368 {
-		t.Errorf("totalLines = %d, want 4368 (banner total survives prefix)", totals["internal/repl/repl.go"])
+		t.Errorf("totalLines = %d, want 4368 (typed coverage total survives forced-read summary prefix)", totals["internal/repl/repl.go"])
+	}
+}
+
+func TestExtractReadCoverage_IgnoresSummaryOnlyReadFileBanner(t *testing.T) {
+	history := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[internal/repl/repl.go: showing lines 1-645 of 4368 total]\n"},
+	}
+	readSet, ranges, totals := ExtractReadCoverage(history, "")
+	if len(readSet) != 0 || len(ranges) != 0 || len(totals) != 0 {
+		t.Fatalf("summary-only read_file banner must not populate coverage: set=%+v ranges=%+v totals=%+v", readSet, ranges, totals)
 	}
 }
