@@ -963,6 +963,42 @@ func TestAnalyzer_PrescanReady_ListFilesChildScopeListingForcesEmitOnly(t *testi
 	}
 }
 
+func TestAnalyzer_PrescanReady_SourceInventoryNavigationForcesEmitOnly(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 4})
+
+	mu := types.NewMutableState("source member inventory")
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mu}
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(ctx, nil)
+
+	result := types.ToolResult{
+		ToolName: "repo_map",
+		Success:  true,
+		Summary:  "[repo_map: view=source_inventory path=. roles=type]\nstructured navigation only\n",
+		Observations: []types.ObservationRecord{{
+			Producer:  "repo_map",
+			Predicate: types.RepoMapNavigationObservationPredicate,
+			Object:    string(types.RepoMapNavigationRouteSourceInventory),
+			Value:     string(types.RepoMapNavigationRouteSourceInventory),
+		}},
+	}
+	sig := e.Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		LastToolResult: &result,
+		AllToolResults: []types.ToolResult{result},
+	})
+	if !sig.HintRequested || sig.HintKey != "analyzer.prescan-ready.emit-only" {
+		t.Fatalf("source_inventory navigation should force emit-only readiness, got %+v", sig)
+	}
+	if !mu.PrescanReady() {
+		t.Fatal("source_inventory navigation should mark analyzer prescan ready")
+	}
+	if !strings.Contains(sig.Hint, "source-inventory") || !strings.Contains(sig.Hint, "emit_analysis") {
+		t.Fatalf("hint should preserve source-inventory classification boundary, got %q", sig.Hint)
+	}
+}
+
 func TestAnalyzer_PrescanReady_SmallListFilesRemainsSoftUnderLargerBudget(t *testing.T) {
 	restoreAnalysisLimits(t)
 	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 4})

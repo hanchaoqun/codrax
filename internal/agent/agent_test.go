@@ -961,31 +961,15 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 		}
 	})
 
-	t.Run("analyze stage rejects source inventory row expansion", func(t *testing.T) {
+	t.Run("analyze stage allows bounded source inventory navigation", func(t *testing.T) {
 		ctx := &types.AgentContext{Stage: types.StageAnalyze}
 		tc := llm.ToolCall{
 			Name:   "repo_map",
 			Params: json.RawMessage(`{"path":"internal/analysis","view":"source_inventory","roles":["function"],"scopes":["aggregator"]}`),
 		}
 		got := validateAnalyzerPrescanToolCall(ctx, tc)
-		if got == nil {
-			t.Fatal("expected source_inventory repo_map to be rejected during analyze")
-		}
-		if got.Success {
-			t.Fatalf("source_inventory boundary result should fail, got %+v", got)
-		}
-		if got.Repair == nil || got.Repair.Code != analyzerSourceInventoryAnalyzeBoundaryCode {
-			t.Fatalf("repair code = %+v, want %q", got.Repair, analyzerSourceInventoryAnalyzeBoundaryCode)
-		}
-		for _, want := range []string{"not available in this classification step", "source_inventory_profile", `view="overview"`, `view="task_map"`, `view="file_map"`, `view="relation_map"`, "relation_kinds"} {
-			if !strings.Contains(got.Summary, want) {
-				t.Fatalf("summary should give positive source_inventory guidance; missing %q in %q", want, got.Summary)
-			}
-		}
-		for _, forbidden := range []string{"belongs to explore", "not analyze", "Analyze is"} {
-			if strings.Contains(got.Summary, forbidden) {
-				t.Fatalf("summary should not leak internal stage wording %q: %q", forbidden, got.Summary)
-			}
+		if got != nil {
+			t.Fatalf("source_inventory repo_map should be allowed as analyzer navigation, got %+v", got)
 		}
 	})
 

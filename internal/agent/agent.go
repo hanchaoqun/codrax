@@ -4601,11 +4601,10 @@ func applyAnalyzerSameBatchPrescanBoundary(ctx *types.AgentContext, result *type
 //     return a ToolResult with Success=false and a descriptive
 //     Summary so the LLM sees the error in the next iteration's
 //     message stream and can retry correctly.
-//   - `repo_map(view="source_inventory")` is a deep navigation lens,
-//     not a classifier pre-scan. The classifier may use ordinary
-//     repo_map overview/file_map/task_map signals, but source-inventory
-//     row expansion happens after emit_analysis preserves the typed
-//     request shape.
+//   - `repo_map(view="source_inventory")` is allowed as a bounded
+//     navigation pass for member-inventory classification. The analyzer
+//     must still emit source_inventory_profile, and later evidence
+//     gathering remains responsible for source reads and answer proof.
 //
 // Returns nil when no violation is detected — the caller then
 // proceeds to the normal tool execution path. Returns a
@@ -4645,10 +4644,6 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 				fmt.Sprintf("pre-scan budget already reached (%d/%d rounds used). Do not call repo_map / grep / list_files again; call emit_analysis now with the fields you have.",
 					ctx.Mutable.PrescanRoundCount(), limit))
 		}
-	}
-	if tc.Name == "repo_map" && analyzerRepoMapSourceInventoryView(tc.Params) {
-		return rejectAnalyzerPrescanTool(ctx, tc, analyzerSourceInventoryAnalyzeBoundaryCode,
-			analyzerSourceInventoryBoundaryGuidance())
 	}
 	if tc.Name != "grep" {
 		return nil
@@ -4987,11 +4982,11 @@ func validateAnalyzerToolBoundary(ctx *types.AgentContext, tc llm.ToolCall) *typ
 }
 
 func analyzerToolNotAllowedGuidance() string {
-	return "Use only repo_map overview/task_map/file_map, grep(files_only=true), or list_files for light location checks; otherwise call emit_analysis now. Do not call read_file or other content-reading tools here."
+	return "Use only repo_map overview/task_map/file_map/source_inventory, grep(files_only=true), or list_files for light location checks; otherwise call emit_analysis now. Do not call read_file or other content-reading tools here."
 }
 
 func analyzerSourceInventoryBoundaryGuidance() string {
-	return "repo_map(view=\"source_inventory\") is a row-expansion lens, so it is not available in this classification step. If you only need structural orientation now, use repo_map with view=\"overview\", view=\"task_map\", or view=\"file_map\". If you need a scoped member inventory, call emit_analysis now and encode it in source_inventory_profile: set is_source_inventory=true, target_roles=[...], requested_fields/source_quotes/scopes when known, plus unresolved candidates you already identified. If the request is about structural edges, preserve the relation target in predicate_axis / answer_subject / required_files; later evidence gathering can use repo_map(view=\"relation_map\", sources=[...], scopes=[...], relation_kinds=[...]) and verify rows."
+	return "repo_map(view=\"source_inventory\") is only a bounded classification navigation pass here. After one successful source_inventory pass, call emit_analysis and encode the inventory request in source_inventory_profile: set is_source_inventory=true, target_roles=[...], requested_fields/source_quotes/scopes when known, plus unresolved candidates you already identified. Do not page rows, read source content, or treat navigation rows as proof in this classification step."
 }
 
 func isAnalyzerStageAllowedTool(name string) bool {

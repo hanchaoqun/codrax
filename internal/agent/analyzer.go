@@ -637,8 +637,8 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 		header = fmt.Sprintf("## Repository overview (pre-computed for entities: %s)\n\n"+
 			"The following task_map shows files and symbols matching the entities from the user's question. "+
 			"Use this to inform your entity/keyword choices and pre-scan targets. "+
-			"If one more lightweight check is needed, use repo_map overview/task_map/file_map, grep(files_only=true), or list_files; use repo_map(view=\"relation_map\") only for a narrow already-named source/scope relation orientation, not proof. "+
-			"Do not call repo_map(view=\"source_inventory\") here; encode inventory-shaped requests in source_inventory_profile and relation-shaped requests in predicate_axis/answer_subject/required_files, then call emit_analysis.\n\n",
+			"If one more lightweight check is needed, use repo_map overview/task_map/file_map, grep(files_only=true), or list_files; use repo_map(view=\"source_inventory\") only as one bounded member-inventory navigation pass, and use repo_map(view=\"relation_map\") only for a narrow already-named source/scope relation orientation. "+
+			"After any successful source_inventory navigation pass, call emit_analysis and encode the inventory request in source_inventory_profile; do not page rows, read source content, or treat navigation rows as proof in this classification step.\n\n",
 			strings.Join(entities, ", "))
 	} else {
 		// No entities extracted — fall back to general overview.
@@ -647,8 +647,8 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 		header = "## Repository overview (pre-computed, no tool call needed)\n\n" +
 			"The following overview shows the repository structure. " +
 			"Use this to orient your entity/keyword choices and pre-scan targets. " +
-			"If one more lightweight check is needed, use repo_map overview/task_map/file_map, grep(files_only=true), or list_files; use repo_map(view=\"relation_map\") only for a narrow already-named source/scope relation orientation, not proof. " +
-			"Do not call repo_map(view=\"source_inventory\") here; encode inventory-shaped requests in source_inventory_profile and relation-shaped requests in predicate_axis/answer_subject/required_files, then call emit_analysis.\n\n"
+			"If one more lightweight check is needed, use repo_map overview/task_map/file_map, grep(files_only=true), or list_files; use repo_map(view=\"source_inventory\") only as one bounded member-inventory navigation pass, and use repo_map(view=\"relation_map\") only for a narrow already-named source/scope relation orientation. " +
+			"After any successful source_inventory navigation pass, call emit_analysis and encode the inventory request in source_inventory_profile; do not page rows, read source content, or treat navigation rows as proof in this classification step.\n\n"
 	}
 
 	if output == "" {
@@ -1387,6 +1387,14 @@ func analyzerPrescanResultReadiness(result types.ToolResult) analyzerPrescanRead
 				reason:   "path-scoped directory listing established enough classification signal",
 			}
 		}
+	case "repo_map":
+		if analyzerRepoMapSourceInventoryPrescanReady(result) {
+			return analyzerPrescanReadiness{
+				ready:    true,
+				closeNow: true,
+				reason:   "typed source-inventory navigation established enough classification signal",
+			}
+		}
 	}
 	return analyzerPrescanReadiness{}
 }
@@ -1430,6 +1438,25 @@ func analyzerListFilesPrescanChildCount(result types.ToolResult) (int, bool) {
 		return 0, false
 	}
 	return len(seen), true
+}
+
+func analyzerRepoMapSourceInventoryPrescanReady(result types.ToolResult) bool {
+	if result.ToolName != "repo_map" || !result.Success {
+		return false
+	}
+	for _, obs := range result.Observations {
+		if obs.Predicate != types.RepoMapNavigationObservationPredicate {
+			continue
+		}
+		route := types.NormalizeRepoMapNavigationRoute(obs.Value)
+		if route == "" {
+			route = types.NormalizeRepoMapNavigationRoute(obs.Object)
+		}
+		if route == types.RepoMapNavigationRouteSourceInventory {
+			return true
+		}
+	}
+	return false
 }
 
 func analyzerPrescanPathScoped(pathSurface string) bool {

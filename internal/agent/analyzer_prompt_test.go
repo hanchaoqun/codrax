@@ -871,16 +871,17 @@ func TestAnalysisSkill_PromptDocumentsExternalRuntimeDirectClassification(t *tes
 	}
 }
 
-func TestAnalysisSkill_WorkflowGuidesRepoMapWithoutSourceInventoryExpansion(t *testing.T) {
+func TestAnalysisSkill_WorkflowGuidesRepoMapWithBoundedSourceInventoryNavigation(t *testing.T) {
 	sk := skill.BuildAnalysisSkill()
 	workflowCorpus := strings.Join(sk.Workflow, "\n")
 	for _, want := range []string{
 		"repo_map",
-		"overview/task_map/file_map",
+		"overview/task_map/file_map/source_inventory",
 		`repo_map(view="relation_map")`,
 		"sources=[...]",
 		"relation_kinds=[...]",
 		`repo_map(view="source_inventory")`,
+		"one bounded",
 		"source_inventory_profile",
 		"call `emit_analysis`",
 	} {
