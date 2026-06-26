@@ -4039,6 +4039,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// head budget, and the LLM pages from Y+1 — skipping the
 	// truncated lines entirely. Clamping runs on the rendered (gutter-
 	// prefixed) bytes because that is what actually ships to the LLM.
+	clampedByInlineBudget := false
 	if !overrode && len(content) > MaxInlineBytes {
 		headBudget := PreviewHeadBytesValue()
 		// Find the largest line count N such that rendering
@@ -4061,6 +4062,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if visibleLines < sliceEnd-sliceStart {
 			sliceEnd = sliceStart + visibleLines
 			content = renderWithLineGutter(allLines[sliceStart:sliceEnd], sliceStart+1)
+			clampedByInlineBudget = true
 		}
 	}
 
@@ -4097,9 +4099,52 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		Success:      true,
 		Summary:      summary,
 		RawRef:       ref,
+		Refinement:   readFileResultRefinement(ctx, p.Path, fsPath, sliceStart+1, sliceEnd, totalLines, lineOffset, limit, clampedByInlineBudget),
 		Observations: readFileTypedObservations(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines, now),
 		Timestamp:    now,
 	}, nil
+}
+
+func readFileResultRefinement(ctx *types.BusContext, requestedPath, fsPath string, lineStart, lineEnd, totalLines, lineOffset, limit int, clampedByInlineBudget bool) *types.ToolRefinementHint {
+	if !clampedByInlineBudget || totalLines <= 0 || lineEnd >= totalLines {
+		return nil
+	}
+	preferredPath := strings.TrimSpace(requestedPath)
+	if rel, ok := repoRelativePathWithinRoot(ctxRepoRoot(ctx), fsPath); ok && rel != "" {
+		preferredPath = rel
+	}
+	preferredPath = strings.TrimSpace(strings.ReplaceAll(preferredPath, `\`, `/`))
+	if preferredPath == "" {
+		return nil
+	}
+	hint := types.ToolRefinementHint{
+		ReasonCode:      "read_file_result_truncated",
+		ResultTruncated: true,
+		PreferredParams: map[string]string{
+			"path": preferredPath,
+		},
+	}
+	if lineOffset == 0 && limit == 0 {
+		hint.PreferredNextTool = "grep"
+		hint.RequiredFields = []string{"pattern"}
+	} else {
+		hint.PreferredNextTool = "read_file"
+		hint.NextCursor = strconv.Itoa(lineEnd)
+		hint.PreferredParams["line_offset"] = strconv.Itoa(lineEnd)
+		window := lineEnd - lineStart + 1
+		if window <= 0 {
+			window = 100
+		}
+		if window > 200 {
+			window = 200
+		}
+		hint.PreferredParams["limit"] = strconv.Itoa(window)
+	}
+	out := types.NormalizeToolRefinementHint(hint)
+	if out.Empty() {
+		return nil
+	}
+	return &out
 }
 
 func readFileTypedObservations(ctx *types.BusContext, requestedPath, fsPath, rawRef string, lineStart, lineEnd, totalLines int, observedAt time.Time) []types.ObservationRecord {

@@ -305,6 +305,54 @@ func TestReadFile(t *testing.T) {
 		if strings.Contains(result.Summary, "remaining") || strings.Contains(result.Summary, "NOT returned") {
 			t.Fatalf("clamped content should fit inline without blob truncation, but got truncation hint")
 		}
+		if result.Refinement == nil {
+			t.Fatalf("clamped large read should publish typed refinement")
+		}
+		if result.Refinement.ReasonCode != "read_file_result_truncated" || !result.Refinement.ResultTruncated {
+			t.Fatalf("unexpected refinement: %+v", result.Refinement)
+		}
+		if result.Refinement.PreferredNextTool != "read_file" {
+			t.Fatalf("preferred next tool = %q; refinement=%+v", result.Refinement.PreferredNextTool, result.Refinement)
+		}
+		if result.Refinement.NextCursor == "" || result.Refinement.PreferredParams["line_offset"] == "" {
+			t.Fatalf("paginated read should carry next cursor and line_offset: %+v", result.Refinement)
+		}
+	})
+
+	t.Run("large broad read publishes grep refinement", func(t *testing.T) {
+		repoRoot := t.TempDir()
+		var b strings.Builder
+		for i := 0; i < 400; i++ {
+			b.WriteString(strings.Repeat("x", 99))
+			b.WriteString("\n")
+		}
+		if err := os.WriteFile(filepath.Join(repoRoot, "big_default.txt"), []byte(b.String()), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &ReadFile{}
+		result, err := tool.Execute(&types.BusContext{RepoRoot: repoRoot}, json.RawMessage(`{"path":"big_default.txt"}`))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if result.Refinement == nil {
+			t.Fatalf("broad large read should publish typed refinement")
+		}
+		if result.Refinement.ReasonCode != "read_file_result_truncated" || !result.Refinement.ResultTruncated {
+			t.Fatalf("unexpected refinement: %+v", result.Refinement)
+		}
+		if result.Refinement.PreferredNextTool != "grep" {
+			t.Fatalf("preferred next tool = %q; refinement=%+v", result.Refinement.PreferredNextTool, result.Refinement)
+		}
+		if got := result.Refinement.PreferredParams["path"]; got != "big_default.txt" {
+			t.Fatalf("preferred path = %q; refinement=%+v", got, result.Refinement)
+		}
+		if !sameStringSliceForTest(result.Refinement.RequiredFields, []string{"pattern"}) {
+			t.Fatalf("required fields = %v", result.Refinement.RequiredFields)
+		}
 	})
 
 	t.Run("log triage rejects repo files when no attachment blob exists", func(t *testing.T) {
