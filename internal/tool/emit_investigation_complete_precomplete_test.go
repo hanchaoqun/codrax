@@ -1212,7 +1212,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ReusesRetainedAggregateFacts
 	}
 }
 
-func TestEmitInvestigationComplete_PreCompleteCheck_MemberSetSupportRefsCanUseDeterministicToolOutput(t *testing.T) {
+func TestEmitInvestigationComplete_PreCompleteCheck_MemberSetSupportRefsDoNotUseGrepSummaryOutput(t *testing.T) {
 	mut := types.NewMutableState("list all enum types")
 	mut.AppendDispatchToolResult(types.ToolResult{
 		ToolName: "grep",
@@ -1260,11 +1260,11 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MemberSetSupportRefsCanUseDe
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if strings.Contains(res.Summary, "exhaustive member-set handoff is missing") {
-		t.Fatalf("deterministic grep support_refs should satisfy member_set support without per-member emit_evidence: %s", res.Summary)
+	if !strings.Contains(res.Summary, "exhaustive member-set handoff is missing") {
+		t.Fatalf("summary-only grep support_refs must not satisfy member_set support: %s", res.Summary)
 	}
-	if !mut.IsInvestigationComplete() {
-		t.Fatalf("deterministic tool-supported member_set should complete")
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("summary-only grep output must not complete member_set support")
 	}
 }
 

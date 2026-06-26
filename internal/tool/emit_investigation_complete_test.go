@@ -3187,6 +3187,47 @@ func TestEmitInvestigationComplete_AutoFillsBareMemberSupportFromUniqueReadLine(
 	}
 }
 
+func TestEmitInvestigationComplete_DoesNotVerifyMemberSupportFromNonReadFileSummary(t *testing.T) {
+	mut := types.NewMutableState("Which gates run?")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "src/render/handler.go:42: func (h *RenderHandler) processFrame() error { return nil }\n",
+	})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "render handlers",
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"gate list collected",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"gates",
+			"value":"1",
+			"members":["RenderHandler.processFrame (current implementation)"],
+			"support_refs":["RenderHandler.processFrame: src/render/handler.go:42"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("summary-only support debt should downgrade, not tool-fail: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("grep summary text must not verify decorated member support_refs")
+	}
+	if !strings.Contains(res.Summary, EmitInvestigationCompleteDowngradePrefix) {
+		t.Fatalf("expected a typed pre-complete downgrade, got: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_AutoFillsMemberSupportFromUniqueGroundedEvidence(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})

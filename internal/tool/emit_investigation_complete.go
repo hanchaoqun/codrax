@@ -5128,22 +5128,16 @@ func buildAggregateMemberSupportIndexWithEvidence(ctx *types.BusContext, evidenc
 		}
 	}
 	for _, result := range aggregateSupportToolResults(ctx) {
-		if !result.Success || !aggregateSupportToolResultEligible(result.ToolName) {
+		if !result.Success || strings.TrimSpace(result.ToolName) != "read_file" {
 			continue
 		}
-		if strings.TrimSpace(result.ToolName) == "read_file" {
-			for _, line := range aggregateReadFileToolLinesFromResult(result) {
-				loc := aggregateSupportLocationKey(line.File, line.Line)
-				if loc == "" {
-					continue
-				}
-				idx.toolLinesByLocation[loc] = append(idx.toolLinesByLocation[loc], line.Text)
-				idx.readFileLines = append(idx.readFileLines, line)
+		for _, line := range aggregateReadFileToolLinesFromResult(result) {
+			loc := aggregateSupportLocationKey(line.File, line.Line)
+			if loc == "" {
+				continue
 			}
-			continue
-		}
-		for loc, lines := range aggregateToolResultLinesByLocation(result.Summary) {
-			idx.toolLinesByLocation[loc] = append(idx.toolLinesByLocation[loc], lines...)
+			idx.toolLinesByLocation[loc] = append(idx.toolLinesByLocation[loc], line.Text)
+			idx.readFileLines = append(idx.readFileLines, line)
 		}
 	}
 	appendSourceInventorySupportLocations(ctx, &idx)
@@ -5561,17 +5555,8 @@ func aggregateSupportToolResults(ctx *types.BusContext) []types.ToolResult {
 	return out
 }
 
-func aggregateSupportToolResultEligible(name string) bool {
-	switch strings.TrimSpace(name) {
-	case "grep", "exec_command", "read_file", "repo_map", "list_files":
-		return true
-	default:
-		return false
-	}
-}
-
-var aggregateToolLocationPattern = regexp.MustCompile(`\b[^\s"'` + "`" + `]+:\d+\b`)
 var aggregateReadFileGutterPattern = regexp.MustCompile(`^\s*(\d+)\s*[│|]\s?(.*)$`)
+var aggregateToolLocationPattern = regexp.MustCompile(`\b[^\s"'` + "`" + `]+:\d+\b`)
 var aggregateDecoratedLineQualifierPattern = regexp.MustCompile(`(?i)^\s*(?:#|lines?|ln|l|行|第)\s*#?\s*(\d+)\s*(?:行)?\s*$`)
 
 const aggregateMaxReadFileRawRefBytes = 2 * 1024 * 1024
@@ -5625,30 +5610,6 @@ func aggregateReadFileToolLinesFromResult(result types.ToolResult) []aggregateTo
 			Line: lineNo,
 			Text: strings.TrimSpace(m[2]),
 		})
-	}
-	return out
-}
-
-func aggregateToolResultLinesByLocation(summary string) map[string][]string {
-	if strings.TrimSpace(summary) == "" {
-		return nil
-	}
-	out := map[string][]string{}
-	for _, line := range strings.Split(summary, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		for _, raw := range aggregateToolLocationPattern.FindAllString(trimmed, -1) {
-			loc := aggregateSupportLocationFromSurface(raw)
-			if loc == "" {
-				continue
-			}
-			out[loc] = append(out[loc], trimmed)
-		}
-	}
-	if len(out) == 0 {
-		return nil
 	}
 	return out
 }
