@@ -62,6 +62,7 @@ const (
 	extractorMaxEvidenceSummary             = 200  // max summary chars per evidence item
 	extractorMaxFlowFindings                = 10   // max dataflow findings shown
 	extractorMaxSourceInventoryAdvisoryRows = 40
+	extractorMaxReadFileRawRefBytes         = 2 * 1024 * 1024
 	// Display-only cap for analyzer soft guidance names. The exact
 	// unique count remains visible; the list is capped because analyzer
 	// MustInclude can contain broad search candidates, while accepted
@@ -2508,22 +2509,45 @@ func extractorReadFileLineIndex(ctx *types.AgentContext) map[string]map[int]stri
 		if !r.Success || r.ToolName != "read_file" {
 			continue
 		}
-		path, _, _, ok := parseReadFileBanner(r.Summary)
-		if !ok {
+		coverage := r.ReadCoverage
+		if coverage == nil {
 			continue
 		}
+		path := strings.TrimSpace(coverage.Path)
 		if ctx.RepoRoot != "" {
 			path = ground.CanonicalRepoRelative(path, ctx.RepoRoot)
 		} else {
 			path = canonicalExplorerPath(path)
 		}
-		bodyStart := strings.IndexByte(r.Summary, '\n')
-		if path == "" || bodyStart < 0 || bodyStart >= len(r.Summary)-1 {
+		if path == "" {
 			continue
 		}
-		for _, raw := range strings.Split(r.Summary[bodyStart+1:], "\n") {
+		rawRef := strings.TrimSpace(r.RawRef)
+		if rawRef == "" {
+			rawRef = strings.TrimSpace(coverage.RawRef)
+		}
+		content, ok := tool.LoadBlobText(rawRef, extractorMaxReadFileRawRefBytes)
+		if !ok {
+			continue
+		}
+		bodyStart := strings.IndexByte(content, '\n')
+		if bodyStart < 0 || bodyStart >= len(content)-1 {
+			continue
+		}
+		lineStart := coverage.LineStart
+		if lineStart <= 0 {
+			lineStart = 1
+		}
+		lineEnd := coverage.LineEnd
+		if lineEnd < lineStart {
+			lineEnd = lineStart
+		}
+		for _, raw := range strings.Split(content[bodyStart+1:], "\n") {
 			line, text, ok := extractorParseGutterLine(raw)
 			if !ok {
+				continue
+			}
+			if line < lineStart || line > lineEnd {
 				continue
 			}
 			if index[path] == nil {

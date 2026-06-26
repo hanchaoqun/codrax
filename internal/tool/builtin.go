@@ -4132,6 +4132,9 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	content = banner + content
 
 	summary, ref := StoreBlobHeadOnly(ctx, t.Name(), content)
+	if ref == "" {
+		ref = StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "read_file-visible.txt", content)
+	}
 	now := time.Now()
 	return types.ToolResult{
 		ToolName:     t.Name(),

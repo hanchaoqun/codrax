@@ -157,6 +157,39 @@ func StoreBlobHeadOnly(ctx *types.BusContext, toolName string, output string) (s
 	return buildHeadPreview(data, path, toolName), path
 }
 
+// LoadBlobText reads a local blob reference written by StoreBlob,
+// StoreBlobHeadOnly, or StoreBlobArtifact. It is intentionally small and
+// conservative: URI-like refs are rejected, directories are rejected, and
+// callers must provide a byte ceiling. Downstream control-plane code uses this
+// to consume tool-owned payload refs instead of reparsing rendered summaries.
+func LoadBlobText(ref string, maxBytes int) (string, bool) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || strings.Contains(ref, "://") {
+		return "", false
+	}
+	if maxBytes <= 0 {
+		maxBytes = MaxInlineBytes
+	}
+	path := filepath.Clean(ref)
+	if path == "." || path == "" {
+		return "", false
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || info.Size() > int64(maxBytes) {
+		return "", false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", false
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, int64(maxBytes)+1))
+	if err != nil || len(data) > maxBytes {
+		return "", false
+	}
+	return string(data), true
+}
+
 // StoreBlobArtifact writes structured auxiliary payloads that are meant to be
 // referenced from another prompt surface rather than displayed as a tool result
 // preview. It reuses the same WorkDir/session directory and filename sanitizing

@@ -53,6 +53,46 @@ func TestReadFile(t *testing.T) {
 		}
 	})
 
+	t.Run("stores raw ref for inline read when workdir configured", func(t *testing.T) {
+		repoRoot := t.TempDir()
+		tmpFile := filepath.Join(repoRoot, "testread_rawref.txt")
+		content := "hello from raw ref\nsecond line\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		ctx := newBusContext()
+		ctx.RepoRoot = repoRoot
+		ctx.WorkDir = t.TempDir()
+		tool := &ReadFile{}
+		params, _ := json.Marshal(readFileParams{Path: "testread_rawref.txt"})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if result.RawRef == "" {
+			t.Fatalf("read_file should store a raw ref when workdir is configured")
+		}
+		if result.ReadCoverage == nil || result.ReadCoverage.RawRef != result.RawRef {
+			t.Fatalf("read coverage should carry the same raw ref, got result=%q coverage=%+v", result.RawRef, result.ReadCoverage)
+		}
+		raw, err := os.ReadFile(result.RawRef)
+		if err != nil {
+			t.Fatalf("read raw ref: %v", err)
+		}
+		for _, want := range []string{"showing lines 1-3 of 3", "     1│ hello from raw ref", "     2│ second line"} {
+			if !strings.Contains(string(raw), want) {
+				t.Fatalf("raw ref missing %q:\n%s", want, string(raw))
+			}
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("summary should remain unchanged and visible, missing %q:\n%s", want, result.Summary)
+			}
+		}
+	})
+
 	t.Run("small file offset=0 with lazy limit expands to full file", func(t *testing.T) {
 		// Regression: read_file used to honor offset/limit on tiny files,
 		// so the LLM passing limit=20 on a 66-line source file would

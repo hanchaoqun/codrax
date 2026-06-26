@@ -12,6 +12,8 @@ package agent
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -3880,6 +3882,51 @@ func TestExtractor_ParseOutput_DoesNotSynthesizeFallbackFromRawReadFileOnly(t *t
 	}
 	if out.AnswerSymbolCompleteness != "" {
 		t.Fatalf("empty fallback should not claim completeness, got %q", out.AnswerSymbolCompleteness)
+	}
+}
+
+func TestExtractorReadFileLineIndexRequiresRawRefAndTypedCoverage(t *testing.T) {
+	raw := buildGutterReadResult("internal/skill/defaults.go", 10, []string{
+		`\t\tName: "analysis-skill",`,
+		`\t\tName: "explore-skill",`,
+	}, 20).Summary
+	rawPath := filepath.Join(t.TempDir(), "read_file.txt")
+	if err := os.WriteFile(rawPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("write raw ref: %v", err)
+	}
+
+	makeCtx := func(result types.ToolResult) *types.AgentContext {
+		mu := types.NewMutableState("Which skills are registered by default?")
+		mu.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
+		return &types.AgentContext{Mutable: mu}
+	}
+
+	summaryOnly := buildGutterReadResult("internal/skill/defaults.go", 10, []string{
+		`\t\tName: "analysis-skill",`,
+	}, 20)
+	if got := extractorReadFileLineIndex(makeCtx(summaryOnly)); len(got) != 0 {
+		t.Fatalf("summary-only read_file must not populate extractor line index: %+v", got)
+	}
+
+	rawOnly := summaryOnly
+	rawOnly.RawRef = rawPath
+	if got := extractorReadFileLineIndex(makeCtx(rawOnly)); len(got) != 0 {
+		t.Fatalf("raw ref without typed coverage must not populate extractor line index: %+v", got)
+	}
+
+	typed := summaryOnly
+	typed.RawRef = rawPath
+	typed.ReadCoverage = &types.ToolReadCoverage{
+		Path:       "internal/skill/defaults.go",
+		LineStart:  10,
+		LineEnd:    11,
+		TotalLines: 20,
+		RawRef:     rawPath,
+	}
+	got := extractorReadFileLineIndex(makeCtx(typed))
+	if got["internal/skill/defaults.go"][10] != `\t\tName: "analysis-skill",` ||
+		got["internal/skill/defaults.go"][11] != `\t\tName: "explore-skill",` {
+		t.Fatalf("typed raw ref should populate line text index, got %+v", got)
 	}
 }
 
