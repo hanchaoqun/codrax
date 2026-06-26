@@ -2381,6 +2381,12 @@ Remaining follow-up:
     4. Guardrail tests: analyzer validation still rejects `grep(files_only=false)` in analyze, including stale max_count/config shapes; non-analyze stages remain pass-through for ordinary line-level grep.
     5. Red-line boundary: analyzer classification state consumes typed prescan carriers (`ToolPathDiscovery`, source-inventory carriers, blocked-tool intents) and emit_analysis only. It does not parse grep summaries, grep result lines, user text, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
     6. Validation passed: `go test ./internal/agent ./internal/types ./internal/tool -run 'Classification|AnalyzerPrescan|FilesOnly|Declarative|PrescanHas' -count=1`; `go test ./...`; `make`.
+  - **Delivered D1-F10g.116 finalizer prior-draft salvage structural sanitizer（code complete / focused regression passed）**:
+    1. Target gap: shrinkage salvage protected rich first-draft answers by copying a pre-tool-call draft into `summary`, but its sanitizer still dropped paragraphs using English self-talk / schema-ish phrase matching (`Translation:`, `I need to emit`, `citations array`, `response structure`, etc.).
+    2. Risk: this is not a scheduler hard gate, but it changes user-visible answer content and violates the same principle: model-authored natural-language prose must not be routed by keyword heuristics.
+    3. Consumer change: `looksLikeInternalDraftParagraph` now filters only precise structural artifacts: placeholder payloads, explicit tool/XML markup, and JSON objects that parse as answer-document payloads (`shape` plus answer-document fields). Natural-language paragraphs are preserved, even when self-reflective or schema-ish.
+    4. Guardrail tests: structural JSON payloads and tool markup are filtered; unrelated JSON and natural-language paragraphs mentioning response structure / emit wording are preserved.
+    5. Red-line boundary: prior-draft salvage can strip deterministic machine scaffolding, but must not parse user text, model rationale, localized prose, self-talk wording, final-answer prose, elapsed time, or eval labels to decide which natural-language paragraphs survive.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

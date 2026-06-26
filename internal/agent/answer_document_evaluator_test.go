@@ -8113,8 +8113,6 @@ Translation: explain the answer
 
 ` + "```json\n{\"shape\":\"value\",\"summary\":\"x\",\"citations\":[]}\n```" + `
 
-I need to emit exactly one emit_answer_document tool call.
-
 <minimax:tool_call>
 <invoke name="emit_answer_document">
 <parameter name="shape">value</parameter>
@@ -8129,6 +8127,28 @@ I need to emit exactly one emit_answer_document tool call.
 	}
 	if !strings.Contains(got, "结构化 IR") {
 		t.Fatalf("sanitizePriorDraftForSummary dropped user-facing tail: %q", got)
+	}
+}
+
+func TestSanitizePriorDraftForSummary_PreservesNaturalLanguageSelfTalk(t *testing.T) {
+	in := "Translation: explain the answer\n\nI need to emit exactly one emit_answer_document tool call.\n\n用户可见答案。"
+	got := sanitizePriorDraftForSummary(in)
+	for _, want := range []string{"Translation:", "I need to emit", "emit_answer_document", "用户可见答案"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("sanitizePriorDraftForSummary should preserve natural-language paragraph %q, got %q", want, got)
+		}
+	}
+}
+
+func TestLooksLikeInternalDraftParagraph_StripsStructuredJSONOnly(t *testing.T) {
+	if !looksLikeInternalDraftParagraph(`{"shape":"value","summary":"x","citations":[]}`) {
+		t.Fatal("answer-document JSON payload should be filtered")
+	}
+	if looksLikeInternalDraftParagraph(`{"unrelated":"shape","summary":"domain term"}`) {
+		t.Fatal("unrelated JSON object must not be filtered as answer-document payload")
+	}
+	if looksLikeInternalDraftParagraph("The response structure is part of this codebase's public API.") {
+		t.Fatal("natural-language prose must not be filtered by schema-ish keywords")
 	}
 }
 

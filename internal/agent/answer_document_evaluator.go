@@ -10149,8 +10149,10 @@ var (
 // tool-scaffolding from a pre-tool-call draft before salvage reuses it
 // as user-visible summary prose. The salvage path is only meant to
 // preserve natural-language answer content; letting scratch JSON,
-// fake tool-call markup, or prompt-following meta prose leak back into
-// Summary degrades answer quality and can expose implementation detail.
+// fake tool-call markup, or placeholder payloads leak back into Summary
+// degrades answer quality and can expose implementation detail. Natural
+// language paragraphs are preserved even when they look self-reflective; this
+// function must not route on model-authored prose keywords.
 // stripSystemHedgeArtifactsFromDoc removes hedge markers + Authority
 // caveat tokens from every LLM-authored prose field on the doc
 // BEFORE ApplyAuthorityHedging re-injects them. Idempotent; runs once
@@ -10193,31 +10195,50 @@ func looksLikeInternalDraftParagraph(p string) bool {
 	if strings.TrimSpace(p) == "" {
 		return true
 	}
-	lower := strings.ToLower(p)
-	switch {
-	case strings.Contains(lower, "emit_answer_document"),
-		types.IsPlaceholderLikeModelDraft(p),
-		strings.Contains(lower, "citation_ref"),
-		strings.Contains(lower, "tool call"),
-		strings.Contains(lower, "tool-call"),
-		strings.Contains(lower, "citations array"),
-		strings.Contains(lower, "target shape"),
-		strings.Contains(lower, "response structure"),
-		strings.Contains(lower, "\"shape\":"),
-		strings.Contains(lower, "\"citations\":"),
-		strings.Contains(lower, "\"citation_ref\":"),
-		strings.Contains(lower, "<minimax:tool_call>"),
-		strings.Contains(lower, "<invoke"),
-		strings.Contains(lower, "<parameter"),
-		strings.HasPrefix(lower, "translation:"),
-		strings.HasPrefix(lower, "let me construct the answer"),
-		strings.HasPrefix(lower, "i need to emit"),
-		strings.HasPrefix(lower, "i'm finalizing"),
-		strings.HasPrefix(lower, "the citations array should contain"),
-		strings.HasPrefix(lower, "i'll cite line"):
+	if types.IsPlaceholderLikeModelDraft(p) {
+		return true
+	}
+	if containsToolScaffoldingMarkup(p) {
+		return true
+	}
+	if looksLikeAnswerDocumentJSONPayload(p) {
 		return true
 	}
 	return false
+}
+
+func containsToolScaffoldingMarkup(p string) bool {
+	lower := strings.ToLower(p)
+	switch {
+	case strings.Contains(lower, "<minimax:tool_call>"),
+		strings.Contains(lower, "<tool_call>"),
+		strings.Contains(lower, "</tool_call>"),
+		strings.Contains(lower, "<invoke"),
+		strings.Contains(lower, "</invoke>"),
+		strings.Contains(lower, "<parameter"),
+		strings.Contains(lower, "</parameter>"):
+		return true
+	}
+	return false
+}
+
+func looksLikeAnswerDocumentJSONPayload(p string) bool {
+	trimmed := strings.TrimSpace(p)
+	if trimmed == "" || !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
+		return false
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &obj); err != nil || len(obj) == 0 {
+		return false
+	}
+	if _, ok := obj["shape"]; !ok {
+		return false
+	}
+	_, hasBlocks := obj["blocks"]
+	_, hasSummary := obj["summary"]
+	_, hasCitations := obj["citations"]
+	_, hasItems := obj["items"]
+	return hasBlocks || hasSummary || hasCitations || hasItems
 }
 
 // findLastPreToolCallDraft returns the most recent assistant message
