@@ -1491,29 +1491,29 @@ func TestBuildToolSchemas_ExplicitRuntimeArtifactPathHidesAnalyzerPrescanTools(t
 	}
 }
 
-// TestIsReadFilePathMiss covers the Summary-substring classifier that
+// TestIsReadFilePathMiss covers the typed repair classifier that
 // decides whether a failed read_file call should refund its budget
 // slot. Path-resolution failures refund (LLM self-corrects on the
 // next iter); other failure modes (size, permission) stay charged
 // because they aren't trivially retryable by a different path.
 func TestIsReadFilePathMiss(t *testing.T) {
 	cases := []struct {
-		name    string
-		toolRaw string
-		success bool
-		summary string
-		want    bool
+		name       string
+		toolRaw    string
+		success    bool
+		summary    string
+		repairCode string
+		want       bool
 	}{
-		{"ENOENT lowercase", "read_file", false, "read failed: open internal/foo.go: no such file or directory", true},
-		{"ENOENT mixed case", "read_file", false, "read failed: OPEN x: No Such File Or Directory", true},
-		{"is a directory", "read_file", false, "read failed: open dir: is a directory", true},
-		{"explicit does not exist", "read_file", false, "file does not exist: internal/foo.go", true},
-		{"alias read", "read", false, "read failed: no such file", true},
-		{"success is never a miss", "read_file", true, "some success summary", false},
-		{"permission denied stays charged", "read_file", false, "read failed: permission denied", false},
-		{"IO error stays charged", "read_file", false, "read failed: input/output error", false},
-		{"empty summary stays charged", "read_file", false, "", false},
-		{"other tool name", "grep", false, "read failed: no such file or directory", false},
+		{"typed missing path", "read_file", false, "read failed: open internal/foo.go: no such file or directory", types.ToolRepairCodeReadFilePathMissing, true},
+		{"typed directory path", "read_file", false, "read failed: open dir: is a directory", types.ToolRepairCodeReadFilePathIsDirectory, true},
+		{"alias read", "read", false, "read failed: no such file", types.ToolRepairCodeReadFilePathMissing, true},
+		{"summary-only ENOENT stays charged", "read_file", false, "read failed: OPEN x: No Such File Or Directory", "", false},
+		{"success is never a miss", "read_file", true, "some success summary", types.ToolRepairCodeReadFilePathMissing, false},
+		{"permission denied stays charged", "read_file", false, "read failed: permission denied", "read_file_permission_denied", false},
+		{"IO error stays charged", "read_file", false, "read failed: input/output error", "", false},
+		{"empty summary stays charged", "read_file", false, "", "", false},
+		{"other tool name", "grep", false, "read failed: no such file or directory", types.ToolRepairCodeReadFilePathMissing, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -1521,6 +1521,9 @@ func TestIsReadFilePathMiss(t *testing.T) {
 				ToolName: c.toolRaw,
 				Success:  c.success,
 				Summary:  c.summary,
+			}
+			if c.repairCode != "" {
+				r.Repair = &types.ToolRepair{Code: c.repairCode}
 			}
 			got := isReadFilePathMiss(c.toolRaw, r)
 			if got != c.want {

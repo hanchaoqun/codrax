@@ -5322,6 +5322,11 @@ type ToolRepair struct {
 	Metadata map[string]string  `json:"metadata,omitempty"`
 }
 
+const (
+	ToolRepairCodeReadFilePathMissing     = "read_file_path_missing"
+	ToolRepairCodeReadFilePathIsDirectory = "read_file_path_is_directory"
+)
+
 // ToolRefinementHint is the typed, cross-stage advisory surface a tool may
 // attach when its result is too broad, truncated, paginated, or intentionally
 // skipped by a safety cap. Consumers may render or prioritize this hint, but

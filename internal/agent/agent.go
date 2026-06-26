@@ -2908,37 +2908,22 @@ func isTerminalEmitToolName(name string) bool {
 	}
 }
 
-// readFilePathMissMarkers lists substrings that identify a read_file
-// failure caused by the LLM naming a path that does not exist (or
-// pointing at a directory instead of a file). Matched case-insensitively
-// against the tool's Summary. Kept narrow on purpose: refund fires
-// only for the bucket of errors that a retry on a corrected path would
-// fix — permission denied, EIO, mmap failures, etc. stay charged
-// because they signal something the LLM cannot trivially work around.
-var readFilePathMissMarkers = []string{
-	"no such file or directory",
-	"no such file",
-	"is a directory",
-	"file does not exist",
-}
-
 // isReadFilePathMiss reports whether a tool result came back failed
 // from read_file for a reason the LLM can self-correct by supplying
 // a different path on the next iteration.
 func isReadFilePathMiss(name string, r *types.ToolResult) bool {
-	if r == nil || r.Success || r.ToolName == "" {
+	if r == nil || r.Success || r.ToolName == "" || r.Repair == nil {
 		return false
 	}
 	if types.CanonicalToolName(name) != "read_file" {
 		return false
 	}
-	summary := strings.ToLower(r.Summary)
-	for _, m := range readFilePathMissMarkers {
-		if strings.Contains(summary, m) {
-			return true
-		}
+	switch strings.TrimSpace(r.Repair.Code) {
+	case types.ToolRepairCodeReadFilePathMissing, types.ToolRepairCodeReadFilePathIsDirectory:
+		return true
+	default:
+		return false
 	}
-	return false
 }
 
 func observationOnlyRuntimeBlocksTool(ctx *types.AgentContext, name string) bool {

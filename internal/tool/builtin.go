@@ -3920,6 +3920,50 @@ func decodeReadFileParams(raw json.RawMessage) (readFileParams, bool, *types.Too
 	return p, false, nil, nil
 }
 
+func readFilePathFailureRepair(requested, fsPath string, err error) (*types.ToolRepair, *types.ToolRefinementHint) {
+	requested = strings.TrimSpace(requested)
+	metadata := map[string]string{}
+	if requested != "" {
+		metadata["path"] = requested
+	}
+	if fsPath = strings.TrimSpace(fsPath); fsPath != "" {
+		metadata["resolved_path"] = fsPath
+	}
+	code := ""
+	hint := ""
+	if errors.Is(err, fs.ErrNotExist) {
+		code = types.ToolRepairCodeReadFilePathMissing
+		hint = "The requested read_file path does not exist in the current readable workspace. Use repo_map, list_files, or grep files_only=true to locate the current path before retrying read_file."
+	} else if info, statErr := os.Stat(fsPath); statErr == nil && info.IsDir() {
+		code = types.ToolRepairCodeReadFilePathIsDirectory
+		hint = "The requested read_file path is a directory. Use repo_map or list_files to choose a concrete file, then retry read_file on that file."
+	}
+	if code == "" {
+		return nil, nil
+	}
+	repair := &types.ToolRepair{
+		Code:     code,
+		Hint:     hint,
+		Fields:   []string{"path"},
+		Metadata: metadata,
+	}
+	refinement := &types.ToolRefinementHint{
+		ReasonCode:        code,
+		PreferredNextTool: "repo_map",
+		PreferredParams: map[string]string{
+			"path": ".",
+		},
+		RequiredFields: []string{"path"},
+	}
+	if requested != "" {
+		dir := path.Dir(filepath.ToSlash(requested))
+		if dir != "." && dir != "/" {
+			refinement.PreferredParams["path"] = dir
+		}
+	}
+	return repair, refinement
+}
+
 // Denial lookups for refusal rendering live on TypedDenialSet itself
 // (FirstPathDenial / FirstSymbolDenial) — one implementation of the
 // match rules, one lock acquisition, shared with the repo_map gate.
@@ -3996,7 +4040,15 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if errors.Is(err, fs.ErrNotExist) {
 			hint = sourceInventoryReadFilePathMissHint(ctx, p.Path)
 		}
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("read failed: %v%s", err, hint), Timestamp: time.Now()}, nil
+		repair, refinement := readFilePathFailureRepair(p.Path, fsPath, err)
+		return types.ToolResult{
+			ToolName:   t.Name(),
+			Success:    false,
+			Summary:    fmt.Sprintf("read failed: %v%s", err, hint),
+			Repair:     repair,
+			Refinement: refinement,
+			Timestamp:  time.Now(),
+		}, nil
 	}
 
 	content := string(data)

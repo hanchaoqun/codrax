@@ -4574,6 +4574,52 @@ func TestReadFile_ResolvesAgainstRepoRoot(t *testing.T) {
 	}
 }
 
+func TestReadFile_PathMissPublishesTypedRepair(t *testing.T) {
+	repoRoot := t.TempDir()
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	tool := &ReadFile{}
+
+	t.Run("missing path", func(t *testing.T) {
+		params, _ := json.Marshal(readFileParams{Path: "missing/file.go"})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if result.Success {
+			t.Fatalf("missing path should fail")
+		}
+		if result.Repair == nil || result.Repair.Code != types.ToolRepairCodeReadFilePathMissing {
+			t.Fatalf("missing path should publish typed repair, got %+v", result.Repair)
+		}
+		if result.Refinement == nil || result.Refinement.ReasonCode != types.ToolRepairCodeReadFilePathMissing {
+			t.Fatalf("missing path should publish typed refinement, got %+v", result.Refinement)
+		}
+		if got := result.Repair.Metadata["path"]; got != "missing/file.go" {
+			t.Fatalf("repair path metadata = %q", got)
+		}
+	})
+
+	t.Run("directory path", func(t *testing.T) {
+		if err := os.Mkdir(filepath.Join(repoRoot, "pkg"), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		params, _ := json.Marshal(readFileParams{Path: "pkg"})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if result.Success {
+			t.Fatalf("directory read should fail")
+		}
+		if result.Repair == nil || result.Repair.Code != types.ToolRepairCodeReadFilePathIsDirectory {
+			t.Fatalf("directory path should publish typed repair, got %+v", result.Repair)
+		}
+		if result.Refinement == nil || result.Refinement.ReasonCode != types.ToolRepairCodeReadFilePathIsDirectory {
+			t.Fatalf("directory path should publish typed refinement, got %+v", result.Refinement)
+		}
+	})
+}
+
 func TestGrepRelevanceReadFileBoostUsesTypedCoverage(t *testing.T) {
 	ctx := newBusContext()
 
