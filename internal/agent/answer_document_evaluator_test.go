@@ -5313,7 +5313,14 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryCapRejectRequestsTargeted
 		LastToolResult: &types.ToolResult{
 			ToolName: "emit_answer_document",
 			Success:  false,
-			Summary:  "summary length 2782 exceeds cap 2500 — shorten the summary",
+			Summary:  "typed summary cap reject",
+			Repair: &types.ToolRepair{
+				Code: "summary_cap",
+				Metadata: map[string]string{
+					"summary_length": "2782",
+					"summary_cap":    "2500",
+				},
+			},
 		},
 	})
 	if !sig.HintRequested {
@@ -5341,7 +5348,14 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryCapRejectPreservesRequire
 		LastToolResult: &types.ToolResult{
 			ToolName: "emit_answer_document",
 			Success:  false,
-			Summary:  "summary length 2782 exceeds cap 2500 — shorten the summary",
+			Summary:  "typed summary cap reject",
+			Repair: &types.ToolRepair{
+				Code: "summary_cap",
+				Metadata: map[string]string{
+					"summary_length": "2782",
+					"summary_cap":    "2500",
+				},
+			},
 		},
 	})
 	if !sig.HintRequested {
@@ -5361,6 +5375,13 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectSurfacesActi
 			ToolName: "emit_answer_document",
 			Success:  false,
 			Summary:  "diagram required for this dispatch (preferred kinds: call_dag); summary must include at least 1 grounded triple-backtick diagram block. This obligation is independent of answer shape.",
+			Repair: &types.ToolRepair{
+				Code:   "answer_doc_pre_emit_contract",
+				Fields: []string{"blocks[].kind=diagram"},
+				Metadata: map[string]string{
+					"expected_block_kinds": "diagram",
+				},
+			},
 		},
 	})
 	if !sig.HintRequested {
@@ -5374,6 +5395,34 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectSurfacesActi
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("missing-diagram hint missing %q: %q", want, sig.Hint)
 		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryOnlyRejectDoesNotSelectSpecialLane(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "[answer_doc_reject:exact_resolution] diagram required for this dispatch; value.literal is not corroborated by citations[0]",
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("summary-only reject should still get a generic correction hint, got %+v", sig)
+	}
+	for _, forbidden := range []string{
+		"grounded `diagram` block",
+		"exact_resolution{status,anchor?,context_mode}",
+		"LITERAL-GROUNDING",
+	} {
+		if strings.Contains(sig.Hint, forbidden) {
+			t.Fatalf("summary-only reject must not select special lane %q:\n%s", forbidden, sig.Hint)
+		}
+	}
+	if !strings.Contains(sig.Hint, "fix this exact tool error") {
+		t.Fatalf("summary-only reject should remain generic diagnostic guidance: %q", sig.Hint)
 	}
 }
 
@@ -5478,6 +5527,13 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectIncludesConf
 			ToolName: "emit_answer_document",
 			Success:  false,
 			Summary:  "diagram required for this dispatch (preferred kinds: architecture, flow); summary must include at least 1 grounded triple-backtick diagram block(s). This obligation is independent of answer shape.",
+			Repair: &types.ToolRepair{
+				Code:   "answer_doc_pre_emit_contract",
+				Fields: []string{"blocks[].kind=diagram"},
+				Metadata: map[string]string{
+					"expected_block_kinds": "diagram",
+				},
+			},
 		},
 	})
 	if !sig.HintRequested {
@@ -6064,6 +6120,9 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramCodenameRejectSurfacesAct
 			ToolName: "emit_answer_document",
 			Success:  false,
 			Summary:  "summary introduces codename label(s) not present in any citation's ±3-line window: Level 1, Level 2.",
+			Repair: &types.ToolRepair{
+				Code: "diagram_codename",
+			},
 		},
 	})
 	if !sig.HintRequested {
@@ -6092,6 +6151,9 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopExactResolutionRejectSurfacesAct
 			ToolName: "emit_answer_document",
 			Success:  false,
 			Summary:  "[answer_doc_reject:exact_resolution] exact-resolution contract violated: summary must explicitly name the requested exact config key and lead with its absence before any nearby context.",
+			Repair: &types.ToolRepair{
+				Code: "exact_resolution",
+			},
 		},
 	})
 	if !sig.HintRequested {
@@ -6331,6 +6393,9 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesAc
 			ToolName: "emit_answer_document",
 			Success:  false,
 			Summary:  `value.literal "processRequest" is not corroborated by citations[0] (internal/agent/analyzer.go:1): the cited line and ±3-line window contain no identifier overlap with the literal. If this literal originates from the attached log / external source rather than repo code, set citation_ref=-1 and state in summary that the answer is derived from log semantics (no grounded repo source). Otherwise cite a real file:line where the literal appears.`,
+			Repair: &types.ToolRepair{
+				Code: "literal_grounding",
+			},
 		},
 	})
 	if !sig.HintRequested {
@@ -6365,6 +6430,9 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesSt
 			ToolName: "emit_answer_document",
 			Success:  false,
 			Summary:  `steps[0].description "searched the repo and found no production definition" is not corroborated by citations[0] (internal/tool/emit_answer_document_test.go:805): the cited line and ±3-line window contain no identifier overlap with the claim. If this step paraphrases an aggregate absence conclusion rather than one corroborated line, set citation_ref=-1 so the renderer drops the suffix.`,
+			Repair: &types.ToolRepair{
+				Code: "literal_grounding",
+			},
 		},
 	})
 	if !sig.HintRequested {

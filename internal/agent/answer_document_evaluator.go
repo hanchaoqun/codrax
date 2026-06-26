@@ -8613,10 +8613,8 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		return LoopSignal{}
 	}
 	repair := obs.LastToolResult.Repair
-	rejectCode, summary := parseAnswerDocRejectEnvelope(strings.TrimSpace(obs.LastToolResult.Summary))
-	if rejectCode == "" && repair != nil {
-		rejectCode = strings.TrimSpace(repair.Code)
-	}
+	rejectCode := answerDocRejectCodeFromRepair(repair)
+	summary := strings.TrimSpace(obs.LastToolResult.Summary)
 	if summary == "" && (repair == nil || strings.TrimSpace(repair.Hint) == "") {
 		return LoopSignal{}
 	}
@@ -8639,8 +8637,13 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	}
 
 	var summaryLen, summaryCap int
-	if _, err := fmt.Sscanf(summary, "summary length %d exceeds cap %d", &summaryLen, &summaryCap); err == nil && summaryCap > 0 {
+	if rejectCode == answerDocRejectCodeSummaryCap {
+		summaryLen, _ = strconv.Atoi(strings.TrimSpace(repair.Metadata["summary_length"]))
+		summaryCap, _ = strconv.Atoi(strings.TrimSpace(repair.Metadata["summary_cap"]))
 		reasonKey = "summary-cap"
+		if summaryCap <= 0 {
+			summaryCap = 1
+		}
 		if e.diagramRequired {
 			hint = fmt.Sprintf("Your last `emit_answer_document` call was rejected because `summary` was too long (cap %d chars, current %d). Re-emit `emit_answer_document` now with the same grounded answer but shorten `summary` below %d chars. Preserve the required grounded diagram; compress prose, repeated headings, and repeated citation prose first. Keep the facts in the tool fields and `citations[]`; do not write free-form prose outside the tool call.", summaryCap, summaryLen, summaryCap)
 		} else {
@@ -8648,7 +8651,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		}
 	}
 
-	if rejectCode == answerDocRejectCodeMissingDiagram || strings.Contains(summary, "diagram required for this dispatch") {
+	if rejectCode == answerDocRejectCodeMissingDiagram {
 		reasonKey = "missing-diagram"
 		hint = "Your last `emit_answer_document` call was rejected because this dispatch REQUIRES a grounded `diagram` block. Re-emit `emit_answer_document` now with the same answer payload, but add a `diagram` block: set `diagram.kind` to the SEMANTIC family the user section names (`flow` / `sequence` / `architecture` / `call_dag`) — NOT a Mermaid keyword — and put the Mermaid syntax inside `diagram.body` (using `flowchart` for `flow`/`architecture`/`call_dag` family, `sequenceDiagram` for `sequence`). Set `diagram.language=\"mermaid\"`. Keep every filename inside the diagram grounded by `citations[]` or the Log Triage frames; do not write free-form prose outside the tool call."
 		if e.configTraceDiagram {
@@ -8656,7 +8659,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		}
 		hint = appendRetryDiagramSeedHint(hint, ctx, repair)
 	}
-	if rejectCode == answerDocRejectCodeDiagramGrounding || strings.Contains(summary, "references file(s) not present in citations[] or attached-log frames") {
+	if rejectCode == answerDocRejectCodeDiagramGrounding {
 		reasonKey = "diagram-grounding"
 		hint = "Your last `emit_answer_document` call was rejected by the DIAGRAM-GROUNDING gate: the fenced diagram renamed or introduced file/path labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but inside the diagram reuse the exact grounded file / symbol / path labels from citations, cited line text, or Log Triage frames. Prefer copying directly from the prompt's `Diagram Node Allowlist` section or from the tool error's allowed-label list. Do NOT normalize one grounded label into a different spelling unless that alternate label is itself grounded. Keep support locations outside the fence: do not append `(<file>:<line>)`, `<br/>(<file>)`, or similar support suffixes to a node label unless that exact combined label is itself grounded. Prefer direct grounded node names over abstract aliases. Keep `citations[]` byte-identical while repairing this gate unless a later tool error explicitly names `citations[]` as invalid. Do NOT call `read_file`, `grep`, or any other tool to repair this — use the existing citations / seeds only. Do not write free-form prose outside the tool call."
 		if repair != nil && repair.Metadata != nil {
@@ -8669,7 +8672,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		}
 		hint = appendRetryDiagramSeedHint(hint, ctx, repair)
 	}
-	if rejectCode == answerDocRejectCodeDiagramCodename || strings.Contains(summary, "summary introduces codename label(s) not present in any citation's") {
+	if rejectCode == answerDocRejectCodeDiagramCodename {
 		reasonKey = "diagram-codename"
 		hint = "Your last `emit_answer_document` call was rejected by the CODENAME-GROUNDING gate: the summary introduced abstract enumeration labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but remove invented labels such as `Level 1` / `Round 2` / `Step 3` unless those exact tokens are cited. Label the diagram directly with grounded files, functions, config keys, or other evidenced entities instead. Do NOT call `read_file`, `grep`, or any other tool to repair this — use the existing citations / seeds only. Do not write free-form prose outside the tool call."
 		if e.configTraceDiagram {
@@ -8697,7 +8700,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 			hint = appendRetryDiagramSeedHint(hint, ctx, repair)
 		}
 	}
-	if rejectCode == answerDocRejectCodeExactResolution || strings.Contains(summary, "exact-resolution contract violated:") {
+	if rejectCode == answerDocRejectCodeExactResolution {
 		reasonKey = "exact-resolution"
 		hint = "Your last `emit_answer_document` call was rejected by the exact-resolution contract. Re-emit `emit_answer_document` now with a valid `exact_resolution{status,anchor?,context_mode}` object that matches the grounded evidence and current absence state for the requested exact target. Use `exact_match` only when a cited line or grounded evidence explicitly names the exact target, `alias_match` only with explicit grounded mapping proof plus `anchor`, and `absent` only when the investigation closed with `result_kind=\"absence\"` (absence-only is acceptable). Any nearby related context must remain `grounded_context_only`, not an equivalent, alias, or substitute. Do NOT call `read_file`, `grep`, or any other tool to repair this — decide from the current grounded evidence, citations, and seeds. Do not write free-form prose outside the tool call."
 	}
@@ -8804,7 +8807,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// action-to-take at the top of the mid-loop hint so the LLM
 	// self-corrects in one round instead of burning the whole
 	// retry budget on more fabrications.
-	if rejectCode == answerDocRejectCodeLiteralGrounding || strings.Contains(summary, "not corroborated by citations[") {
+	if rejectCode == answerDocRejectCodeLiteralGrounding {
 		reasonKey = "literal-grounding"
 		if repair != nil && strings.TrimSpace(repair.Hint) != "" {
 			hint = strings.TrimSpace(repair.Hint)
@@ -9131,8 +9134,6 @@ func answerDocPayloadRegressionHint(droppedSummary string, fieldsToFix []string)
 	return b.String()
 }
 
-const answerDocRejectPrefix = "[answer_doc_reject:"
-
 const (
 	answerDocRejectCodeMissingDiagram             = "missing_diagram"
 	answerDocRejectCodeDiagramGrounding           = "diagram_grounding"
@@ -9144,23 +9145,39 @@ const (
 	answerDocRejectCodeLiteralGrounding           = "literal_grounding"
 	answerDocRejectCodeScalarSummaryRequired      = "scalar_summary_required"
 	answerDocRejectCodeLogTriageCoverage          = "log_triage_coverage"
+	answerDocRejectCodeSummaryCap                 = "summary_cap"
 )
 
-func parseAnswerDocRejectEnvelope(summary string) (code, detail string) {
-	summary = strings.TrimSpace(summary)
-	if !strings.HasPrefix(summary, answerDocRejectPrefix) {
-		return "", summary
+func answerDocRejectCodeFromRepair(repair *types.ToolRepair) string {
+	if repair == nil {
+		return ""
 	}
-	end := strings.Index(summary, "]")
-	if end <= len(answerDocRejectPrefix) {
-		return "", summary
+	code := strings.TrimSpace(repair.Code)
+	switch code {
+	case "answer_doc_pre_emit_contract":
+		if answerDocRepairExpectedBlockKind(repair, string(types.BlockDiagram)) {
+			return answerDocRejectCodeMissingDiagram
+		}
+		return code
+	default:
+		return code
 	}
-	code = strings.TrimSpace(summary[len(answerDocRejectPrefix):end])
-	detail = strings.TrimSpace(summary[end+1:])
-	if detail == "" {
-		detail = summary
+}
+
+func answerDocRepairExpectedBlockKind(repair *types.ToolRepair, want string) bool {
+	if repair == nil || repair.Metadata == nil {
+		return false
 	}
-	return code, detail
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false
+	}
+	for _, raw := range strings.Split(repair.Metadata["expected_block_kinds"], ",") {
+		if strings.TrimSpace(raw) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func appendRetryDiagramSeedHint(hint string, ctx *types.AgentContext, repair *types.ToolRepair) string {

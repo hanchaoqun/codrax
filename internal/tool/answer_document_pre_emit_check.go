@@ -8938,8 +8938,10 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 	fields := make([]string, 0, len(hints))
 	kinds := make([]string, 0, len(hints))
 	shapes := make([]string, 0, len(hints))
+	blockKinds := make([]string, 0, len(hints))
 	seenFields := map[string]struct{}{}
 	seenKinds := map[string]struct{}{}
+	seenBlockKinds := map[string]struct{}{}
 	for _, h := range hints {
 		if field := strings.TrimSpace(h.Field); field != "" {
 			if _, ok := seenFields[field]; !ok {
@@ -8957,6 +8959,17 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 		if shape := strings.TrimSpace(h.ExpectedShape); shape != "" && len(shapes) < 3 {
 			shapes = append(shapes, shape)
 		}
+		for _, blockKind := range h.ExpectedBlockKinds {
+			kind := strings.TrimSpace(string(blockKind))
+			if kind == "" {
+				continue
+			}
+			if _, ok := seenBlockKinds[kind]; ok {
+				continue
+			}
+			seenBlockKinds[kind] = struct{}{}
+			blockKinds = append(blockKinds, kind)
+		}
 	}
 	meta := map[string]string{
 		"hint_count": strconv.Itoa(len(hints)),
@@ -8966,6 +8979,9 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 	}
 	if len(shapes) > 0 {
 		meta["expected_shapes"] = strings.Join(shapes, " | ")
+	}
+	if len(blockKinds) > 0 {
+		meta["expected_block_kinds"] = strings.Join(blockKinds, ",")
 	}
 	return &types.ToolRepair{
 		Code:     "answer_doc_pre_emit_contract",

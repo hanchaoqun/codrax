@@ -4557,6 +4557,9 @@ func TestEmitFixHintsRepair_CarriesTypedFieldsAndKinds(t *testing.T) {
 			ExpectedShape: "emit at least 1 block of kind=ordered_list",
 			Reason:        "enumeration",
 			Kind:          types.ViolBlockCoverageMissing,
+			ExpectedBlockKinds: []types.AnswerBlockKind{
+				types.BlockOrderedList,
+			},
 		},
 		{
 			Field:         "blocks[id=\"l1\"].claim_uses",
@@ -4592,6 +4595,9 @@ func TestEmitFixHintsRepair_CarriesTypedFieldsAndKinds(t *testing.T) {
 	}
 	if repair.Metadata["hint_count"] != "3" {
 		t.Fatalf("repair hint_count = %q", repair.Metadata["hint_count"])
+	}
+	if repair.Metadata["expected_block_kinds"] != "ordered_list" {
+		t.Fatalf("repair expected_block_kinds = %q", repair.Metadata["expected_block_kinds"])
 	}
 	if !strings.Contains(repair.Hint, "Preserve existing answer facts") {
 		t.Fatalf("repair hint should preserve model content, got %q", repair.Hint)
