@@ -2410,6 +2410,12 @@ Remaining follow-up:
     3. Consumer change: unavailable/tool-not-found repair now renders a bounded deterministic hint from the current tool schema and attaches `metadata.tool/stage/available_tools/reason_code`; Summary remains transparent user-facing text only.
     4. Guardrail tests: unknown-tool rejection still explains the issue in Summary, but `Repair.Hint` no longer embeds Summary and `Repair.Metadata` carries the precise tool/stage/available tool set.
     5. Red-line boundary: unavailable-tool loop repair consumes only canonical tool name, current stage, current tool schema, write verify-failure typed state, and structured repair metadata. It does not parse rendered Summary, user text, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
+  - **Delivered D1-F10g.121 evidence subject-ranker typed literal boost cutover（code complete / full regression passed）**:
+    1. Target gap: `evidenceSubjectBoost` used the last quoted substring from `EvidenceItem.Summary` when `Object` was empty, letting model-authored evidence prose influence relevance ordering.
+    2. Risk: this is a soft ranker, not a hard gate, but it controls Top-N evidence/handoff surfaces. Summary-tail literals can promote the wrong row and bury source-grounded typed evidence.
+    3. Consumer change: subject boost now uses only structured `Object`, `AnchorKind=string_literal + AnchorSymbol`, or validated `surface_terms`; Summary is excluded from rank-control.
+    4. Guardrail tests: summary-only quoted route does not boost; string-literal anchor and surface term still boost the same typed answer-subject lane.
+    5. Red-line boundary: evidence relevance subject boost consumes only typed evidence fields and analyzer-emitted AnswerSubject. It does not parse evidence Summary, user text, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

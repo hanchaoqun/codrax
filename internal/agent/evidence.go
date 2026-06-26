@@ -621,36 +621,32 @@ func rankEvidenceByRelevance(question string, items []types.EvidenceItem, readFi
 	return rankEvidenceByRelevanceWithSubject(question, items, readFiles, types.AnswerSubject{}, nil, types.AxisUnknown)
 }
 
-// evidenceSubjectBoost scores how well an evidence item's answer
-// token (Object field, falling back to the tail of Summary) matches
-// the expected AnswerSubject kind. Delegates the per-kind judge to
-// internal/analysis/subject so the evidence ranker and the chain
-// ranker use the same scoring logic. Empty Object + empty Summary
-// tail returns 0 (no boost applied).
+// evidenceSubjectBoost scores how well an evidence item's typed answer token
+// matches the expected AnswerSubject kind. Delegates the per-kind judge to
+// internal/analysis/subject so the evidence ranker and the chain ranker use the
+// same scoring logic. Summary prose is deliberately excluded: rank-control may
+// consume structured Object, source-grounded AnchorStringLiteral, or validated
+// surface_terms, but not model-authored narrative text.
 func evidenceSubjectBoost(item types.EvidenceItem, expected types.AnswerSubject, graph *repomap.Graph) float64 {
-	token := strings.TrimSpace(item.Object)
-	if token == "" {
-		// Summary often ends with the literal ("... returns
-		// 'foo'"). Grab the last quoted substring as a fallback
-		// token. Cheap heuristic; subject.Score tolerates misses.
-		token = tailQuotedToken(item.Summary)
-	}
+	token := evidenceSubjectBoostToken(item)
 	if token == "" {
 		return 0
 	}
 	return subject.Score(token, expected.Kind, graph)
 }
 
-// tailQuotedToken returns the content of the LAST quoted substring in
-// s (single or double quotes). Returns "" when no quoted token
-// exists. Used as a conservative fallback when an evidence item's
-// Object is empty but the Summary contains the literal in quotes.
-func tailQuotedToken(s string) string {
-	for _, q := range []byte{'"', '\''} {
-		if end := strings.LastIndexByte(s, q); end >= 0 {
-			if start := strings.LastIndexByte(s[:end], q); start >= 0 && start < end-1 {
-				return s[start+1 : end]
-			}
+func evidenceSubjectBoostToken(item types.EvidenceItem) string {
+	if token := strings.TrimSpace(item.Object); token != "" {
+		return token
+	}
+	if item.AnchorKind == types.AnchorStringLiteral {
+		if token := strings.TrimSpace(item.AnchorSymbol); token != "" {
+			return token
+		}
+	}
+	for _, term := range item.SurfaceTerms {
+		if token := strings.TrimSpace(term); token != "" {
+			return token
 		}
 	}
 	return ""
@@ -695,12 +691,11 @@ func rankEvidenceByRelevanceWithSubject(question string, items []types.EvidenceI
 	scored_items := make([]scored, 0, len(items))
 	for _, item := range items {
 		s := evidenceRelevanceScore(item, entities, readFiles)
-		// Subject boost: additive multiplier when the item's Object
-		// / Summary carries a token that matches the expected
+		// Subject boost: additive multiplier when the item's typed
+		// literal-bearing fields carry a token that matches the expected
 		// AnswerSubject kind. The alpha is the same 2.0 used by
-		// rankChainsBySubject so downstream ordering stays
-		// consistent between the chain ranker and the evidence
-		// ranker.
+		// rankChainsBySubject so downstream ordering stays consistent
+		// between the chain ranker and the evidence ranker.
 		if expected.Kind != types.SubjectUnknown {
 			boost := evidenceSubjectBoost(item, expected, graph)
 			if boost > 0 {

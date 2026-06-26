@@ -1153,6 +1153,39 @@ func TestRankEvidenceWithAxis_NoEntitiesStillUsesAxis(t *testing.T) {
 	}
 }
 
+func TestEvidenceSubjectBoostDoesNotParseSummaryTail(t *testing.T) {
+	item := types.EvidenceItem{
+		Kind:    types.EvidenceDirect,
+		Subject: "RouteRegistration",
+		Summary: `model-authored prose ends with "/summary-only-route"`,
+	}
+	boost := evidenceSubjectBoost(item, types.AnswerSubject{Kind: types.SubjectHandlerRoute}, nil)
+	if boost != 0 {
+		t.Fatalf("summary-only quoted route must not boost evidence relevance, got %f", boost)
+	}
+}
+
+func TestEvidenceSubjectBoostUsesTypedLiteralFields(t *testing.T) {
+	expected := types.AnswerSubject{Kind: types.SubjectHandlerRoute}
+	anchor := types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		AnchorKind:   types.AnchorStringLiteral,
+		AnchorSymbol: "/api/v1/users",
+		Summary:      `model-authored prose mentions "/summary-only-route"`,
+	}
+	if boost := evidenceSubjectBoost(anchor, expected, nil); boost <= 0 {
+		t.Fatalf("string-literal anchor should boost route relevance, got %f", boost)
+	}
+	surface := types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		SurfaceTerms: []string{"/api/v1/admin"},
+		Summary:      `model-authored prose mentions "/summary-only-route"`,
+	}
+	if boost := evidenceSubjectBoost(surface, expected, nil); boost <= 0 {
+		t.Fatalf("validated surface term should boost route relevance, got %f", boost)
+	}
+}
+
 func TestRankEvidenceByRelevance_NoEntitiesStillPrefersGroundedReadDefinition(t *testing.T) {
 	items := []types.EvidenceItem{
 		{
