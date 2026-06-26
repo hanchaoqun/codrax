@@ -798,6 +798,8 @@ func toolCallParamsValidForHistory(params json.RawMessage) bool {
 	return json.Valid(params)
 }
 
+const toolRepairCodeMalformedToolParams = "malformed_tool_params"
+
 func malformedToolParamsResult(tc llm.ToolCall) *types.ToolResult {
 	errText := "malformed JSON"
 	if len(tc.Params) == 0 {
@@ -817,6 +819,20 @@ func malformedToolParamsResult(tc llm.ToolCall) *types.ToolResult {
 		Success:   false,
 		Summary:   summary,
 		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code:   toolRepairCodeMalformedToolParams,
+			Hint:   "Re-emit the tool call with one complete native JSON object matching the tool schema.",
+			Fields: []string{"arguments"},
+			Metadata: map[string]string{
+				"kind": kind,
+				"tool": types.CanonicalToolName(tc.Name),
+			},
+		},
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode:        toolRepairCodeMalformedToolParams,
+			PreferredNextTool: types.CanonicalToolName(tc.Name),
+			RequiredFields:    []string{"native_json_arguments"},
+		},
 	}
 }
 

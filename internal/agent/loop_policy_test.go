@@ -595,15 +595,19 @@ func TestLoopPolicy_IdenticalOnlyAtMidLoop(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 // midLoopObsWithFailedTool builds a PhaseMidLoop observation carrying a
-// failed tool result with a specific error Summary. The calls field
-// intentionally differs from previous iter so the byte-identical
-// detector (step 1c) does NOT fire and we isolate the error-streak
-// detector (step 1d).
+// failed tool result with a typed structural repair class. The calls field
+// intentionally differs from previous iter so the byte-identical detector
+// (step 1c) does NOT fire and we isolate the typed error-streak detector
+// (step 1d).
 func midLoopObsWithFailedTool(iter int, errorSummary string, variant byte) LoopObservation {
 	return midLoopObsWithNamedFailedTool(iter, "emit_answer_document", errorSummary, variant)
 }
 
 func midLoopObsWithNamedFailedTool(iter int, toolName, errorSummary string, variant byte) LoopObservation {
+	return midLoopObsWithNamedFailedToolRepair(iter, toolName, errorSummary, variant, "test_structural_tool_reject", normalizeErrorClassForHash(errorSummary))
+}
+
+func midLoopObsWithNamedFailedToolRepair(iter int, toolName, errorSummary string, variant byte, repairCode string, fields ...string) LoopObservation {
 	return LoopObservation{
 		Phase:     PhaseMidLoop,
 		Iteration: iter,
@@ -614,9 +618,19 @@ func midLoopObsWithNamedFailedTool(iter int, toolName, errorSummary string, vari
 			ToolName: toolName,
 			Success:  false,
 			Summary:  errorSummary,
+			Repair: &types.ToolRepair{
+				Code:   repairCode,
+				Fields: fields,
+			},
 		},
 		AllToolResults: make([]types.ToolResult, iter+1),
 	}
+}
+
+func midLoopObsWithNamedFailedToolUntyped(iter int, toolName, errorSummary string, variant byte) LoopObservation {
+	obs := midLoopObsWithNamedFailedToolRepair(iter, toolName, errorSummary, variant, "")
+	obs.LastToolResult.Repair = nil
+	return obs
 }
 
 // TestLoopPolicy_IdenticalErrorStreak_ForcesStop pins session-8 Fix β'
@@ -648,6 +662,18 @@ func TestLoopPolicy_IdenticalErrorStreak_ForcesStop(t *testing.T) {
 	}
 	if !strings.Contains(r.Reason, "shape=step_list forbids boolean") {
 		t.Errorf("stop reason should echo the repeating error, got %q", r.Reason)
+	}
+}
+
+func TestLoopPolicy_IdenticalErrorStreak_SummaryOnlyDoesNotForceStop(t *testing.T) {
+	s := newTestPolicyState(DefaultLoopPolicy())
+
+	errMsg := "shape=step_list forbids boolean{}; remove the field and retry"
+	for i := 0; i < 6; i++ {
+		r := s.Apply(PhaseMidLoop, midLoopObsWithNamedFailedToolUntyped(i, "emit_answer_document", errMsg, byte('a'+i)), LoopSignal{})
+		if r.Outcome == OutcomeStop && strings.Contains(r.Reason, "same error class") {
+			t.Fatalf("summary-only failed tool result must not drive identical-error stop at iter=%d: %s", i, r.Reason)
+		}
 	}
 }
 

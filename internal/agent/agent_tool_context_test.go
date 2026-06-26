@@ -1080,6 +1080,12 @@ func TestExecuteTool_MalformedParamsRejectedBeforeToolExecution(t *testing.T) {
 	if !strings.Contains(res.Summary, "malformed JSON tool arguments") {
 		t.Fatalf("summary should explain malformed JSON, got %q", res.Summary)
 	}
+	if res.Repair == nil || res.Repair.Code != toolRepairCodeMalformedToolParams {
+		t.Fatalf("malformed params should publish typed repair, got %+v", res.Repair)
+	}
+	if res.Refinement == nil || res.Refinement.ReasonCode != toolRepairCodeMalformedToolParams {
+		t.Fatalf("malformed params should publish typed refinement, got %+v", res.Refinement)
+	}
 	if capture.got != nil {
 		t.Fatalf("tool executed despite malformed params: %+v", capture.got)
 	}

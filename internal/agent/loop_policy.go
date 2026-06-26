@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"hash/fnv"
 	"regexp"
+	"sort"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // loop_policy.go is the throttling / dedup / budget layer that sits
@@ -86,16 +89,13 @@ type LoopPolicy struct {
 	IdenticalToolCallAfterFailureStreak int
 
 	// IdenticalErrorStreak caps consecutive rejections that share
-	// the same error class (first line of the failed tool Summary)
-	// regardless of payload bytes. 0 disables the check. Default 3:
-	// trace 1776453454793969437 exposed a payload-different-but-
-	// error-identical failure mode — the LLM varied Chinese
-	// rationale/summary text each iteration but kept filling the
-	// same stray boolean{} on a step_list call, so every rejection
-	// carried "shape=step_list forbids boolean{}" as the first line
-	// but byte-level hash varied. The byte-identical detector above
-	// missed it; this complementary gate catches it. Fires on
-	// PhaseMidLoop after a failed LastToolResult; ignores successes.
+	// the same typed error class regardless of payload bytes. 0
+	// disables the check. Default 3: payload-different-but-error-
+	// identical repair loops should stop before burning quota, but
+	// transparent Summary text alone must not create the error class.
+	// The byte-identical detector above still catches exact repeats.
+	// Fires on PhaseMidLoop after a failed LastToolResult; ignores
+	// successes and untyped failures.
 	IdenticalErrorStreak int
 
 	// MaxPerKeyInjects caps the number of mid-loop hint injections
@@ -463,38 +463,31 @@ func (s *loopPolicyState) Apply(phase LoopPhase, obs LoopObservation, sig LoopSi
 
 	// Step 1d — identical-error streak. Complements step 1c: the
 	// byte-identical tool-call gate misses payload-different but
-	// structurally-identical rejection loops (trace
-	// 1776453454793969437: LLM varied Chinese rationale / summary
-	// each iteration but kept filling the same stray boolean{}).
-	// Hashing the FIRST LINE of a failed Summary captures the
-	// error class ("shape=X forbids Y") without false-negatives
-	// from prose decoration around it. Skips success cases and
-	// no-tool-result cases.
+	// structurally-identical rejection loops. Error class must come
+	// from typed tool repair/refinement payloads; rendered Summary is
+	// user-visible transparency and cannot decide whether the loop
+	// force-stops. Skips success, no-tool-result, and untyped failure
+	// cases.
 	if phase == PhaseMidLoop && obs.LastToolResult != nil && !obs.LastToolResult.Success {
-		// Session-22 follow-up: normalize the hashed error class so
-		// per-item numeric indices (items[4]:, steps[12]:, (got 3),
-		// …) do not make two structurally-identical rejection
-		// messages look like different error classes. Without this,
-		// the LLM can batch-retry with 5 items instead of 4 (or
-		// rearrange order) and the streak counter resets every time
-		// — defeating the entire identical-error-streak safety net.
-		// logtri_custom 2026-04-21 exercise showed this pattern:
-		// 10+ iters of identical "line_start is required" errors
-		// across different items, none detected as a streak.
-		firstLine := firstLineOfString(obs.LastToolResult.Summary)
-		eh := hashString(normalizeErrorClassForHash(firstLine))
-		if s.lastErrorHash != 0 && eh == s.lastErrorHash {
-			s.identicalErrorStreak++
+		errorClass, display, ok := toolResultTypedErrorClass(obs.LastToolResult)
+		if ok {
+			eh := hashString(errorClass)
+			if s.lastErrorHash != 0 && eh == s.lastErrorHash {
+				s.identicalErrorStreak++
+			} else {
+				s.identicalErrorStreak = 0
+			}
+			s.lastErrorHash = eh
+			if s.policy.IdenticalErrorStreak > 0 && s.identicalErrorStreak >= s.policy.IdenticalErrorStreak {
+				return LoopResult{
+					Outcome: OutcomeStop,
+					Reason: fmt.Sprintf("same error class repeated %d time(s): %q; stopping to avoid quota burn",
+						s.identicalErrorStreak, truncForReason(display, 120)),
+				}
+			}
 		} else {
 			s.identicalErrorStreak = 0
-		}
-		s.lastErrorHash = eh
-		if s.policy.IdenticalErrorStreak > 0 && s.identicalErrorStreak >= s.policy.IdenticalErrorStreak {
-			return LoopResult{
-				Outcome: OutcomeStop,
-				Reason: fmt.Sprintf("same error class repeated %d time(s): %q; stopping to avoid quota burn",
-					s.identicalErrorStreak, truncForReason(firstLine, 120)),
-			}
+			s.lastErrorHash = 0
 		}
 	} else if obs.LastToolResult != nil && obs.LastToolResult.Success {
 		// Success breaks the streak — the LLM converged.
@@ -635,9 +628,55 @@ func hashToolCalls(calls []llm.ToolCall) uint64 {
 	return h.Sum64()
 }
 
+func toolResultTypedErrorClass(result *types.ToolResult) (key string, display string, ok bool) {
+	if result == nil || result.Success {
+		return "", "", false
+	}
+	toolName := strings.TrimSpace(types.CanonicalToolName(result.ToolName))
+	if toolName == "" {
+		toolName = strings.TrimSpace(result.ToolName)
+	}
+	var parts []string
+	if result.Repair != nil {
+		if code := strings.TrimSpace(result.Repair.Code); code != "" {
+			parts = append(parts, "repair="+code)
+		}
+		if fields := sortedNonEmptyStrings(result.Repair.Fields); len(fields) > 0 {
+			parts = append(parts, "fields="+strings.Join(fields, ","))
+		}
+	}
+	if len(parts) == 0 && result.Refinement != nil {
+		if reason := strings.TrimSpace(result.Refinement.ReasonCode); reason != "" {
+			parts = append(parts, "refinement="+reason)
+		}
+	}
+	if len(parts) == 0 {
+		return "", "", false
+	}
+	if toolName != "" {
+		parts = append([]string{"tool=" + toolName}, parts...)
+	}
+	display = strings.Join(parts, " ")
+	return display, display, true
+}
+
+func sortedNonEmptyStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // hashString is the fnv-64 hash of a string. Used by the identical-
-// error streak detector to compare error classes cheaply across
-// iterations without retaining the full text.
+// error streak detector to compare typed error-class keys cheaply
+// across iterations without retaining full tool payloads.
 func hashString(s string) uint64 {
 	if s == "" {
 		return 0
@@ -648,10 +687,9 @@ func hashString(s string) uint64 {
 }
 
 // firstLineOfString returns the content up to the first newline
-// (exclusive). Used to extract the error class from a failed tool
-// Summary for streak detection — the first line carries
-// "shape=X forbids Y" or similar structural messages without the
-// prose decoration that follows.
+// (exclusive). Kept only for direct normalizer tests and legacy
+// display helpers; loop-control error classes use typed repair and
+// refinement payloads instead of Summary text.
 func firstLineOfString(s string) string {
 	if i := indexByteZero(s, '\n'); i >= 0 {
 		return s[:i]
@@ -671,9 +709,9 @@ var errorClassNumericFieldRe = regexp.MustCompile(`(?:items|steps|symbols|citati
 
 // normalizeErrorClassForHash rewrites an error line so two failures
 // that share the same structural problem (e.g. "line_start required"
-// on different item indices) collapse to the same hash. Enables the
-// identical-error-streak detector at step 1d to actually trigger on
-// per-item reject loops like logtri_custom's emit_evidence pattern.
+// on different item indices) collapse to the same hash. Kept as a
+// legacy utility test target for historical error surfaces; runtime
+// loop-control no longer derives error classes from Summary text.
 //
 // Conservative rewrite rules:
 //
