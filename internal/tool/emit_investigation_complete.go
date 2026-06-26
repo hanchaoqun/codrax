@@ -4771,7 +4771,7 @@ func completionPathDiscoveryAbsenceProofReject(ctx *types.BusContext, resultKind
 			continue
 		}
 		hasRecursiveDiscovery = true
-		if completionBannerField(result.Summary, "list_files", "include_auxiliary") == "true" {
+		if result.PathDiscovery != nil && result.PathDiscovery.IncludeAuxiliary {
 			hasAuxiliaryDiscovery = true
 		}
 	}
@@ -4851,11 +4851,11 @@ func completionToolResultsHavePathFilteredGrepNoMatch(results []types.ToolResult
 		if !result.Success || types.CanonicalToolName(result.ToolName) != "grep" {
 			continue
 		}
-		if !strings.Contains(result.Summary, "path_discovery_advisory=") {
+		pd := result.PathDiscovery
+		if pd == nil || pd.Kind != types.ToolPathDiscoveryKindGrep || !pd.NoMatches {
 			continue
 		}
-		if completionBannerField(result.Summary, "grep params", "include") == "" &&
-			completionBannerField(result.Summary, "grep params", "file_type") == "" {
+		if strings.TrimSpace(pd.Include) == "" && strings.TrimSpace(pd.FileType) == "" {
 			continue
 		}
 		return true
@@ -4867,29 +4867,11 @@ func completionToolResultIsRecursivePathDiscoveryList(result types.ToolResult) b
 	if !result.Success || types.CanonicalToolName(result.ToolName) != "list_files" {
 		return false
 	}
-	if completionBannerField(result.Summary, "list_files", "recursive") != "true" {
+	pd := result.PathDiscovery
+	if pd == nil || pd.Kind != types.ToolPathDiscoveryKindListFiles || !pd.Recursive {
 		return false
 	}
-	return completionBannerField(result.Summary, "list_files", "include") != "" ||
-		completionBannerField(result.Summary, "list_files", "file_type") != ""
-}
-
-func completionBannerField(summary, bannerName, key string) string {
-	prefix := "[" + bannerName + ":"
-	for _, line := range strings.Split(summary, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, "]") {
-			continue
-		}
-		body := strings.TrimSuffix(strings.TrimPrefix(line, prefix), "]")
-		for _, field := range strings.Fields(body) {
-			k, value, ok := strings.Cut(field, "=")
-			if ok && k == key {
-				return strings.TrimSpace(value)
-			}
-		}
-	}
-	return ""
+	return strings.TrimSpace(pd.Include) != "" || strings.TrimSpace(pd.FileType) != ""
 }
 
 func completionRepoHasAuxiliaryInventoryDirs(ctx *types.BusContext) bool {

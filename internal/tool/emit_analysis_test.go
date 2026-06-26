@@ -4204,6 +4204,12 @@ func TestEmitAnalysis_Execute_SynthesizesInventoryFromSourceScopeEnumeration(t *
 			"./internal/tool/builtin.go",
 			"./internal/skill/defaults.go",
 		}, "\n"),
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:        types.ToolPathDiscoveryKindGrep,
+			Include:     "*",
+			FilesOnly:   true,
+			ResultCount: 2,
+		},
 	})
 	tool := &EmitAnalysis{}
 	payload := withRequiredAnswerRoleProfile(`{
@@ -4360,6 +4366,13 @@ func TestEmitAnalysis_ProjectsPrescanFilesForSourceInventoryCoverage(t *testing.
 			"internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets\n" +
 			"internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets\n" +
 			"internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_functions.ets\n",
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:        types.ToolPathDiscoveryKindGrep,
+			Path:        ".",
+			Include:     "*.ets",
+			FilesOnly:   true,
+			ResultCount: 5,
+		},
 	})
 	payload := `{
 		"intent": "enumerate",

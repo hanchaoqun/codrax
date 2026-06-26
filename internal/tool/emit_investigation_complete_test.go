@@ -4121,7 +4121,74 @@ func exactEmptyArkTSAggregateCompletionParams() json.RawMessage {
 	}`)
 }
 
+func arkTSPathFilteredGrepNoMatchResult() types.ToolResult {
+	return types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: "[grep params: pattern=@Entry|@Builder path=. include=*.ets files_only=true]\n" +
+			"no matches found\n" +
+			"path_discovery_advisory=grep searches file contents, not file names.\n",
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:      types.ToolPathDiscoveryKindGrep,
+			Path:      ".",
+			Include:   "*.ets",
+			FilesOnly: true,
+			NoMatches: true,
+		},
+	}
+}
+
+func arkTSRecursiveListFilesResult(includeAuxiliary bool) types.ToolResult {
+	summary := "[list_files: path=. recursive=true include=*.ets]\n"
+	if includeAuxiliary {
+		summary = "[list_files: path=. recursive=true include=*.ets include_auxiliary=true]\n"
+	}
+	return types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+		Summary:  summary,
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:             types.ToolPathDiscoveryKindListFiles,
+			Path:             ".",
+			Recursive:        true,
+			Include:          "*.ets",
+			IncludeAuxiliary: includeAuxiliary,
+		},
+	}
+}
+
 func TestEmitInvestigationComplete_RejectsPathFamilyAbsenceAfterPathFilteredGrepOnly(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all ArkTS entry components")
+	mut.AppendDispatchToolResult(arkTSPathFilteredGrepNoMatchResult())
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all ArkTS entry components",
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir, RepoRoot: t.TempDir()}
+	tool := &EmitInvestigationComplete{}
+
+	res, err := tool.Execute(bus, exactEmptyArkTSAggregateCompletionParams())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("path-filtered grep-only empty proof should soft-downgrade, not hard-reject: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("path-filtered grep-only empty proof must not mark completion before convergence")
+	}
+	if !strings.Contains(res.Summary, "repo-wide file-family absence is not proven") ||
+		!strings.Contains(res.Summary, "list_files") {
+		t.Fatalf("summary should steer to typed path discovery, got: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_IgnoresSummaryOnlyPathDiscoveryBanners(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
 	t.Cleanup(func() { SetGroundingPolicy(prev) })
@@ -4147,14 +4214,13 @@ func TestEmitInvestigationComplete_RejectsPathFamilyAbsenceAfterPathFilteredGrep
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !res.Success {
-		t.Fatalf("path-filtered grep-only empty proof should soft-downgrade, not hard-reject: %s", res.Summary)
+		t.Fatalf("summary-only path-discovery banner must not drive completion gate: %s", res.Summary)
 	}
-	if mut.IsInvestigationComplete() {
-		t.Fatalf("path-filtered grep-only empty proof must not mark completion before convergence")
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("summary-only banner should not create path-discovery debt")
 	}
-	if !strings.Contains(res.Summary, "repo-wide file-family absence is not proven") ||
-		!strings.Contains(res.Summary, "list_files") {
-		t.Fatalf("summary should steer to typed path discovery, got: %s", res.Summary)
+	if strings.Contains(res.Summary, "repo-wide file-family absence is not proven") {
+		t.Fatalf("summary-only banner should not trigger path-family repair: %s", res.Summary)
 	}
 }
 
@@ -4164,18 +4230,8 @@ func TestEmitInvestigationComplete_AcceptsPathFamilyAbsenceAfterRecursiveListFil
 	t.Cleanup(func() { SetGroundingPolicy(prev) })
 
 	mut := types.NewMutableState("List all ArkTS entry components")
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "grep",
-		Success:  true,
-		Summary: "[grep params: pattern=@Entry|@Builder path=. include=*.ets files_only=true]\n" +
-			"no matches found\n" +
-			"path_discovery_advisory=grep searches file contents, not file names.\n",
-	})
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "list_files",
-		Success:  true,
-		Summary:  "[list_files: path=. recursive=true include=*.ets]\n",
-	})
+	mut.AppendDispatchToolResult(arkTSPathFilteredGrepNoMatchResult())
+	mut.AppendDispatchToolResult(arkTSRecursiveListFilesResult(false))
 	ir := enumerationPrincipalGateIR()
 	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
 		Required:    true,
@@ -4201,13 +4257,7 @@ func TestEmitInvestigationComplete_PathFamilyAbsenceDebtForceCompletesWithCaveat
 	t.Cleanup(func() { SetDowngradeConvergenceHardThreshold(0) })
 
 	mut := types.NewMutableState("List all ArkTS entry components")
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "grep",
-		Success:  true,
-		Summary: "[grep params: pattern=@Entry|@Builder path=. include=*.ets files_only=true]\n" +
-			"no matches found\n" +
-			"path_discovery_advisory=grep searches file contents, not file names.\n",
-	})
+	mut.AppendDispatchToolResult(arkTSPathFilteredGrepNoMatchResult())
 	ir := enumerationPrincipalGateIR()
 	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
 		Required:    true,
@@ -4246,18 +4296,8 @@ func TestEmitInvestigationComplete_RequiresAuxiliaryPathDiscoveryWhenRepoHasAuxi
 		t.Fatalf("mkdir auxiliary corpus: %v", err)
 	}
 	mut := types.NewMutableState("List all ArkTS entry components")
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "grep",
-		Success:  true,
-		Summary: "[grep params: pattern=@Entry|@Builder path=. include=*.ets files_only=true]\n" +
-			"no matches found\n" +
-			"path_discovery_advisory=grep searches file contents, not file names.\n",
-	})
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "list_files",
-		Success:  true,
-		Summary:  "[list_files: path=. recursive=true include=*.ets]\n",
-	})
+	mut.AppendDispatchToolResult(arkTSPathFilteredGrepNoMatchResult())
+	mut.AppendDispatchToolResult(arkTSRecursiveListFilesResult(false))
 	ir := enumerationPrincipalGateIR()
 	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
 		Required:    true,
@@ -4291,18 +4331,8 @@ func TestEmitInvestigationComplete_AcceptsAuxiliaryPathDiscoveryWhenRepoHasAuxil
 		t.Fatalf("mkdir auxiliary corpus: %v", err)
 	}
 	mut := types.NewMutableState("List all ArkTS entry components")
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "grep",
-		Success:  true,
-		Summary: "[grep params: pattern=@Entry|@Builder path=. include=*.ets files_only=true]\n" +
-			"no matches found\n" +
-			"path_discovery_advisory=grep searches file contents, not file names.\n",
-	})
-	mut.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "list_files",
-		Success:  true,
-		Summary:  "[list_files: path=. recursive=true include=*.ets include_auxiliary=true]\n",
-	})
+	mut.AppendDispatchToolResult(arkTSPathFilteredGrepNoMatchResult())
+	mut.AppendDispatchToolResult(arkTSRecursiveListFilesResult(true))
 	ir := enumerationPrincipalGateIR()
 	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
 		Required:    true,

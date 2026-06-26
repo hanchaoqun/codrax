@@ -5347,13 +5347,35 @@ type ToolRuntimeTiming struct {
 	Count         int    `json:"count,omitempty"`
 }
 
+const (
+	ToolPathDiscoveryKindGrep      = "grep"
+	ToolPathDiscoveryKindListFiles = "list_files"
+)
+
+// ToolPathDiscovery is the typed call-shape/result carrier for tools that
+// discover or prove file-path families. It records only schema parameters and
+// tool-computed outcomes; rendered summaries remain user-visible prose and
+// must not be parsed by hard gates to recover these fields.
+type ToolPathDiscovery struct {
+	Kind             string `json:"kind,omitempty"`
+	Path             string `json:"path,omitempty"`
+	Recursive        bool   `json:"recursive,omitempty"`
+	Include          string `json:"include,omitempty"`
+	FileType         string `json:"file_type,omitempty"`
+	FilesOnly        bool   `json:"files_only,omitempty"`
+	IncludeAuxiliary bool   `json:"include_auxiliary,omitempty"`
+	NoMatches        bool   `json:"no_matches,omitempty"`
+	ResultCount      int    `json:"result_count,omitempty"`
+}
+
 type ToolResult struct {
-	ToolName   string              `json:"tool_name"`
-	Summary    string              `json:"summary"`
-	Repair     *ToolRepair         `json:"repair,omitempty"`
-	Refinement *ToolRefinementHint `json:"refinement,omitempty"`
-	Handoff    *ToolHandoffCarrier `json:"handoff,omitempty"`
-	RawRef     string              `json:"raw_ref,omitempty"`
+	ToolName      string              `json:"tool_name"`
+	Summary       string              `json:"summary"`
+	Repair        *ToolRepair         `json:"repair,omitempty"`
+	Refinement    *ToolRefinementHint `json:"refinement,omitempty"`
+	Handoff       *ToolHandoffCarrier `json:"handoff,omitempty"`
+	RawRef        string              `json:"raw_ref,omitempty"`
+	PathDiscovery *ToolPathDiscovery  `json:"path_discovery,omitempty"`
 
 	// Observations are optional producer-published typed observation rows for
 	// this tool result — the ToolResult companion to MCPResponse.Observations.

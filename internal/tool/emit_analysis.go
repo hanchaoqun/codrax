@@ -4443,7 +4443,9 @@ func analyzerPrescanRequiredFileCandidates(ctx *types.BusContext, rm types.Reque
 		}
 		switch types.CanonicalToolName(result.ToolName) {
 		case "grep":
-			if completionBannerField(result.Summary, "grep params", "files_only") != "true" {
+			if result.PathDiscovery == nil ||
+				result.PathDiscovery.Kind != types.ToolPathDiscoveryKindGrep ||
+				!result.PathDiscovery.FilesOnly {
 				continue
 			}
 			for _, line := range strings.Split(result.Summary, "\n") {

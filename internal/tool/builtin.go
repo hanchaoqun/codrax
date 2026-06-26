@@ -2076,22 +2076,24 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}
 			refinement = grepNoMatchRefinement(ctx, p, searchPath, refinement)
 			return types.ToolResult{
-				ToolName:   t.Name(),
-				Success:    true,
-				Summary:    paramsBanner + suffix,
-				Refinement: refinement,
-				Timestamp:  time.Now(),
+				ToolName:      t.Name(),
+				Success:       true,
+				Summary:       paramsBanner + suffix,
+				Refinement:    refinement,
+				PathDiscovery: grepPathDiscovery(p, nres.SkippedLargeFiles == 0, 0),
+				Timestamp:     time.Now(),
 			}, nil
 		}
 		countBanner := grepCountBanner(nres.Matches, p.FilesOnly, contextLines)
 		summary, ref, refinement := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, nres.Output)
 		return types.ToolResult{
-			ToolName:   t.Name(),
-			Success:    true,
-			Summary:    summary,
-			RawRef:     ref,
-			Refinement: refinement,
-			Timestamp:  time.Now(),
+			ToolName:      t.Name(),
+			Success:       true,
+			Summary:       summary,
+			RawRef:        ref,
+			Refinement:    refinement,
+			PathDiscovery: grepPathDiscovery(p, false, nres.Matches),
+			Timestamp:     time.Now(),
 		}, nil
 	}
 
@@ -2226,11 +2228,12 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 				return types.ToolResult{
-					ToolName:   t.Name(),
-					Success:    true,
-					Summary:    paramsBanner + grepNoMatchBody(ctx, p),
-					Refinement: grepNoMatchRefinement(ctx, p, searchPath, nil),
-					Timestamp:  time.Now(),
+					ToolName:      t.Name(),
+					Success:       true,
+					Summary:       paramsBanner + grepNoMatchBody(ctx, p),
+					Refinement:    grepNoMatchRefinement(ctx, p, searchPath, nil),
+					PathDiscovery: grepPathDiscovery(p, true, 0),
+					Timestamp:     time.Now(),
 				}, nil
 			}
 			return types.ToolResult{
@@ -2242,34 +2245,37 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		if capture.Lines == 0 {
 			return types.ToolResult{
-				ToolName:   t.Name(),
-				Success:    true,
-				Summary:    paramsBanner + grepNoMatchBody(ctx, p),
-				Refinement: grepNoMatchRefinement(ctx, p, searchPath, nil),
-				Timestamp:  time.Now(),
+				ToolName:      t.Name(),
+				Success:       true,
+				Summary:       paramsBanner + grepNoMatchBody(ctx, p),
+				Refinement:    grepNoMatchRefinement(ctx, p, searchPath, nil),
+				PathDiscovery: grepPathDiscovery(p, true, 0),
+				Timestamp:     time.Now(),
 			}, nil
 		}
 		countBanner := grepCountBanner(capture.Lines, false, contextLines)
 		if capture.FullInMemory && capture.Lines <= grepGovernorLineEntryThreshold && capture.Bytes <= grepGovernorByteThreshold {
 			summary, ref, refinement := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, capture.InlineOutput)
 			return types.ToolResult{
-				ToolName:   t.Name(),
-				Success:    true,
-				Summary:    summary,
-				RawRef:     ref,
-				Refinement: refinement,
-				Timestamp:  time.Now(),
+				ToolName:      t.Name(),
+				Success:       true,
+				Summary:       summary,
+				RawRef:        ref,
+				Refinement:    refinement,
+				PathDiscovery: grepPathDiscovery(p, false, capture.Lines),
+				Timestamp:     time.Now(),
 			}, nil
 		}
 		summary, ref := compactStreamedRuntimeArtifactGrepOutput(ctx, p, countBanner, paramsBanner, capture)
 		refinement := grepBroadResultRefinement(ctx, p, strings.Join(capture.PreviewLines, "\n"))
 		return types.ToolResult{
-			ToolName:   t.Name(),
-			Success:    true,
-			Summary:    summary,
-			RawRef:     ref,
-			Refinement: refinement,
-			Timestamp:  time.Now(),
+			ToolName:      t.Name(),
+			Success:       true,
+			Summary:       summary,
+			RawRef:        ref,
+			Refinement:    refinement,
+			PathDiscovery: grepPathDiscovery(p, false, capture.Lines),
+			Timestamp:     time.Now(),
 		}, nil
 	}
 
@@ -2295,11 +2301,12 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 			return types.ToolResult{
-				ToolName:   t.Name(),
-				Success:    true,
-				Summary:    paramsBanner + grepNoMatchBody(ctx, p),
-				Refinement: grepNoMatchRefinement(ctx, p, searchPath, nil),
-				Timestamp:  time.Now(),
+				ToolName:      t.Name(),
+				Success:       true,
+				Summary:       paramsBanner + grepNoMatchBody(ctx, p),
+				Refinement:    grepNoMatchRefinement(ctx, p, searchPath, nil),
+				PathDiscovery: grepPathDiscovery(p, true, 0),
+				Timestamp:     time.Now(),
 			}, nil
 		}
 		return types.ToolResult{
@@ -2325,12 +2332,13 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}
 	summary, ref, refinement := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, output)
 	return types.ToolResult{
-		ToolName:   t.Name(),
-		Success:    true,
-		Summary:    summary,
-		RawRef:     ref,
-		Refinement: refinement,
-		Timestamp:  time.Now(),
+		ToolName:      t.Name(),
+		Success:       true,
+		Summary:       summary,
+		RawRef:        ref,
+		Refinement:    refinement,
+		PathDiscovery: grepPathDiscovery(p, false, lines),
+		Timestamp:     time.Now(),
 	}, nil
 }
 
@@ -2720,6 +2728,18 @@ func grepPathDiscoveryAdvisory(params grepToolParams) string {
 		return ""
 	}
 	return "path_discovery_advisory=grep searches file contents, not file names. If the goal is file-path/glob discovery, call list_files with recursive=true plus include/file_type; add include_auxiliary=true only when the typed scope includes all/auxiliary repo-owned corpus material or a production-only scan was empty.\n"
+}
+
+func grepPathDiscovery(params grepToolParams, noMatches bool, resultCount int) *types.ToolPathDiscovery {
+	return &types.ToolPathDiscovery{
+		Kind:        types.ToolPathDiscoveryKindGrep,
+		Path:        strings.TrimSpace(params.Path),
+		Include:     strings.TrimSpace(params.Include),
+		FileType:    strings.TrimSpace(params.FileType),
+		FilesOnly:   params.FilesOnly,
+		NoMatches:   noMatches,
+		ResultCount: resultCount,
+	}
 }
 
 func grepFixedStringRegexAdvisory(params grepToolParams) string {
@@ -4324,10 +4344,11 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	payload := banner + strings.Join(files, "\n")
 	summary, ref := StoreBlob(ctx, t.Name(), payload)
 	return types.ToolResult{
-		ToolName: t.Name(),
-		Success:  true,
-		Summary:  summary,
-		RawRef:   ref,
+		ToolName:      t.Name(),
+		Success:       true,
+		Summary:       summary,
+		RawRef:        ref,
+		PathDiscovery: listFilesPathDiscovery(p, len(files)),
 		Refinement: mergeToolRefinementHints(
 			configuredSearchExcludeRootsRefinement(ctx, fsPath, t.Name()),
 			listFilesBroadResultRefinement(ctx, p, files, len(payload)),
@@ -4352,6 +4373,18 @@ func listFilesBanner(p listFilesParams) string {
 		"file_type", p.FileType,
 		"include_auxiliary", includeAuxiliaryStr,
 	)
+}
+
+func listFilesPathDiscovery(p listFilesParams, resultCount int) *types.ToolPathDiscovery {
+	return &types.ToolPathDiscovery{
+		Kind:             types.ToolPathDiscoveryKindListFiles,
+		Path:             strings.TrimSpace(p.Path),
+		Recursive:        p.Recursive,
+		Include:          strings.TrimSpace(p.Include),
+		FileType:         strings.TrimSpace(p.FileType),
+		IncludeAuxiliary: p.IncludeAuxiliary,
+		ResultCount:      resultCount,
+	}
 }
 
 func listFilesCollect(ctx *types.BusContext, fsPath, displayPath string, p listFilesParams) ([]string, error) {

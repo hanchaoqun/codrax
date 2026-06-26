@@ -518,6 +518,13 @@ func TestListFiles(t *testing.T) {
 		if !strings.Contains(result.Summary, "[list_files: path="+tmpDir+"]") {
 			t.Errorf("expected params banner with path=%q, got: %s", tmpDir, result.Summary)
 		}
+		if result.PathDiscovery == nil ||
+			result.PathDiscovery.Kind != types.ToolPathDiscoveryKindListFiles ||
+			result.PathDiscovery.Path != tmpDir ||
+			result.PathDiscovery.Recursive ||
+			result.PathDiscovery.ResultCount != len(files) {
+			t.Fatalf("list_files should publish typed path discovery, got %+v", result.PathDiscovery)
+		}
 	})
 }
 
@@ -552,6 +559,13 @@ func TestListFiles_FileTypeFiltersPathNames(t *testing.T) {
 	}
 	if !strings.Contains(result.Summary, "entry/src/main/ets/pages/Index.ets") {
 		t.Fatalf("ArkTS file missing from filtered listing:\n%s", result.Summary)
+	}
+	if result.PathDiscovery == nil ||
+		result.PathDiscovery.Kind != types.ToolPathDiscoveryKindListFiles ||
+		!result.PathDiscovery.Recursive ||
+		result.PathDiscovery.FileType != "arkts" ||
+		result.PathDiscovery.ResultCount != 1 {
+		t.Fatalf("filtered list_files should publish typed path discovery, got %+v", result.PathDiscovery)
 	}
 	for _, noise := range []string{"helper.ts", "README.md"} {
 		if strings.Contains(result.Summary, noise) {
@@ -3378,6 +3392,36 @@ func TestGrepTool(t *testing.T) {
 		}
 		if !strings.Contains(result.Summary, "no matches found") {
 			t.Fatalf("expected 'no matches found' body, got %q", result.Summary)
+		}
+		if result.PathDiscovery == nil ||
+			result.PathDiscovery.Kind != types.ToolPathDiscoveryKindGrep ||
+			!result.PathDiscovery.NoMatches ||
+			result.PathDiscovery.ResultCount != 0 {
+			t.Fatalf("grep no-match should publish typed path discovery, got %+v", result.PathDiscovery)
+		}
+	})
+
+	t.Run("grep no match path family carries filter params", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "MissingEntry", Path: tmpDir, Include: "*.go", FilesOnly: true})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success (no matches), got: %s", result.Summary)
+		}
+		if result.PathDiscovery == nil ||
+			result.PathDiscovery.Kind != types.ToolPathDiscoveryKindGrep ||
+			result.PathDiscovery.Include != "*.go" ||
+			!result.PathDiscovery.FilesOnly ||
+			!result.PathDiscovery.NoMatches {
+			t.Fatalf("path-filtered grep no-match should publish typed discovery params, got %+v", result.PathDiscovery)
 		}
 	})
 

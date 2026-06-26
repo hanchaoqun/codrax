@@ -242,6 +242,12 @@ func TestProjectAnalyzerPrescanRequiredFileHints_SkipsLowConfidenceUnboundedInve
 			"./internal/tool/builtin.go",
 			"./internal/skill/defaults.go",
 		}, "\n"),
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:        types.ToolPathDiscoveryKindGrep,
+			Include:     "*",
+			FilesOnly:   true,
+			ResultCount: 2,
+		},
 	})
 	rm := types.RequestModel{
 		Intent: types.IntentEnumerate,
@@ -297,6 +303,11 @@ func TestProjectAnalyzerPrescanRequiredFileHints_LowConfidenceUsesBoundedListFil
 			"[grep: 4 matching files]",
 			"[grep params: pattern=@Entry files_only=true]",
 		}, noiseFiles...), "\n"),
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:        types.ToolPathDiscoveryKindGrep,
+			FilesOnly:   true,
+			ResultCount: len(noiseFiles),
+		},
 	})
 	mut.AppendDispatchToolResult(types.ToolResult{
 		ToolName: "list_files",
@@ -304,6 +315,14 @@ func TestProjectAnalyzerPrescanRequiredFileHints_LowConfidenceUsesBoundedListFil
 		Summary: strings.Join(append([]string{
 			"[list_files: path=. recursive=true include=*.ets include_auxiliary=true]",
 		}, corpusFiles...), "\n"),
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:             types.ToolPathDiscoveryKindListFiles,
+			Path:             ".",
+			Recursive:        true,
+			Include:          "*.ets",
+			IncludeAuxiliary: true,
+			ResultCount:      len(corpusFiles),
+		},
 	})
 	rm := types.RequestModel{
 		Intent: types.IntentEnumerate,
@@ -359,6 +378,14 @@ func TestProjectAnalyzerPrescanRequiredFileHints_ExplicitAuxiliaryExclusionBlock
 		Summary: strings.Join(append([]string{
 			"[list_files: path=. recursive=true include=*.ets include_auxiliary=true]",
 		}, corpusFiles...), "\n"),
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:             types.ToolPathDiscoveryKindListFiles,
+			Path:             ".",
+			Recursive:        true,
+			Include:          "*.ets",
+			IncludeAuxiliary: true,
+			ResultCount:      len(corpusFiles),
+		},
 	})
 	rm := types.RequestModel{
 		Intent: types.IntentEnumerate,
@@ -415,6 +442,12 @@ func TestProjectAnalyzerPrescanRequiredFileHints_AllowsBoundedInventorySupplemen
 			"./src/pages/a.ets",
 			"./src/pages/b.ets",
 		}, "\n"),
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:        types.ToolPathDiscoveryKindGrep,
+			Include:     "*.ets",
+			FilesOnly:   true,
+			ResultCount: 2,
+		},
 	})
 	rm := types.RequestModel{
 		Intent: types.IntentEnumerate,
