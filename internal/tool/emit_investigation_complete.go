@@ -1079,25 +1079,12 @@ func deterministicCountAggregateFactHasCommandMeasurementSurface(fact types.Answ
 		return true
 	}
 	for _, dim := range fact.Dimensions {
-		name := strings.ToLower(strings.TrimSpace(dim.Name))
 		value := strings.ToLower(strings.TrimSpace(dim.Value))
-		if name == "" && value == "" {
+		if value == "" {
 			continue
 		}
 		if types.AnswerEvidenceOriginFromStructuredToken(value) == types.AnswerEvidenceOriginCommandMeasurement {
 			return true
-		}
-		switch name {
-		case "origin", "evidence_origin", "measurement_origin":
-			if types.AnswerEvidenceOriginFromStructuredToken(value) == types.AnswerEvidenceOriginCommandMeasurement {
-				return true
-			}
-		case "proof_source", "tool", "tool_name", "producer", "source", "command", "command_tool":
-			if value == "exec_command" || strings.Contains(value, "exec_command") ||
-				strings.Contains(value, "wc -l") || strings.Contains(value, "grep -c") ||
-				strings.Contains(value, "rg --count") || strings.Contains(value, "find ") {
-				return true
-			}
 		}
 	}
 	return false

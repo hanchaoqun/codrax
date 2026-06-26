@@ -6508,6 +6508,40 @@ func TestAppendDeterministicCountAggregateFactTagsUnifiedOrigin(t *testing.T) {
 	}
 }
 
+func TestDeterministicCountAggregateFactMeasurementSurfaceRequiresTypedOrigin(t *testing.T) {
+	commandShapedProse := types.AnswerAggregateFact{
+		Kind:  types.AnswerAggregateScalar,
+		Value: "7",
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "proof_source", Value: "find . -name '*.go' | wc -l"},
+		},
+	}
+	if deterministicCountAggregateFactHasCommandMeasurementSurface(commandShapedProse) {
+		t.Fatalf("command-shaped model field text must not be accepted as command measurement surface")
+	}
+
+	for _, fact := range []types.AnswerAggregateFact{
+		{
+			Kind:  types.AnswerAggregateScalar,
+			Value: "7",
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginCommandMeasurement)},
+			},
+		},
+		{
+			Kind:  types.AnswerAggregateScalar,
+			Value: "7",
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "proof_source", Value: "exec_command"},
+			},
+		},
+	} {
+		if !deterministicCountAggregateFactHasCommandMeasurementSurface(fact) {
+			t.Fatalf("typed command measurement token should be accepted: %+v", fact)
+		}
+	}
+}
+
 func TestEmitInvestigationComplete_ReconcilesSinglePrincipalCountWithCommandMeasurement(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.AppendDispatchToolResult(types.ToolResult{
@@ -6533,7 +6567,7 @@ func TestEmitInvestigationComplete_ReconcilesSinglePrincipalCountWithCommandMeas
 			"role":"principal_answer",
 			"dimensions":[
 				{"name":"scope","value":"internal/tool"},
-				{"name":"tool","value":"find internal/tool -name \"*.go\" ! -name \"*_test.go\" | wc -l"}
+				{"name":"proof_source","value":"exec_command"}
 			]
 		}]
 	}`)
