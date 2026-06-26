@@ -461,6 +461,36 @@ func TestExplorer_BuildInitialInstruction_ExternalObservationFirstKeepsBreadthWh
 	}
 }
 
+func TestExplorer_BuildInitialInstruction_RouteBackedExternalObservationKeepsBreadthWhenRepoNeeded(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: `分析这段日志，并结合当前源码解释 finalizer retry`,
+		Stage:     types.StageExplore,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "artifact",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.9,
+				},
+			},
+		},
+	}
+
+	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "External Observation First Start") {
+		t.Fatalf("route-backed repo artifact turn must not render source-optional external start:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "## Breadth Scan") {
+		t.Fatalf("route-backed repo artifact turn should keep source breadth prompt:\n%s", prompt)
+	}
+}
+
 func TestRenderExtractorSourceInventoryAdvisory_RendersCandidateAttributes(t *testing.T) {
 	out := renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
 		SourceInventoryAdvisory: types.SourceInventoryAdvisory{

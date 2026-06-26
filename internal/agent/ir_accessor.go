@@ -184,6 +184,9 @@ func externalObservationFirstSourceOptionalForExplorer(ctx *types.AgentContext) 
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	if types.RouteBackedExternalObservationRequiresCurrentSource(&rm, ctx.TurnRouteHint) {
+		return false
+	}
 	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
 		return false
 	}

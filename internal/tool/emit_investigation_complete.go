@@ -3217,6 +3217,9 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 	if runtimeArtifactCurrentSourceHardRequirement(ctx) {
 		return false
 	}
+	if attachedRuntimeArtifact && types.RouteBackedExternalObservationRequiresCurrentSource(&rm, ctx.TurnRouteHint) {
+		return false
+	}
 	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedRuntimeArtifact) {
 		return true
 	}
@@ -7840,6 +7843,9 @@ func currentSourceForcedReadGatesApply(ctx *types.BusContext) bool {
 	}
 	if runtimeArtifactGroundingBypassAllowed(ctx) {
 		return false
+	}
+	if types.RouteBackedExternalObservationRequiresCurrentSource(&ctx.AnalysisIR.RequestModel, ctx.TurnRouteHint) {
+		return true
 	}
 	if types.RequiredFileHintSourceInventoryCoverageApplies(ctx.AnalysisIR.RequestModel) {
 		return true

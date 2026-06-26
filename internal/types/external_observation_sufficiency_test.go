@@ -186,6 +186,64 @@ func TestAssessExternalObservationSufficiency_RouteHintOverridesDefaultSourceReq
 	}
 }
 
+func TestAssessExternalObservationSufficiency_RouteBackedRepoArtifactBlocksRuntimeOnlyCompletion(t *testing.T) {
+	records := []ObservationRecord{{
+		ID:     "log:error:0",
+		Origin: AnswerEvidenceOriginRuntimeArtifact,
+		SourceRef: ObservationSourceRef{
+			Kind:       ObservationSourceRuntimeArtifact,
+			ArtifactID: "attached_log",
+		},
+		Span:    ObservationSpan{LineStart: 2, LineEnd: 3},
+		Summary: "first_byte_timeout exceeded after 40s",
+	}}
+	got := AssessExternalObservationSufficiency(records, &RequestModel{
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+	}, TurnRouteHint{
+		Route:           "repo",
+		Source:          "artifact",
+		NeedsRepoAccess: true,
+		Confidence:      0.9,
+	})
+	if got.Status != ExternalObservationSufficiencyBlockedByCurrentSource {
+		t.Fatalf("route-backed repo artifact should block runtime-only sufficiency, got %+v", got)
+	}
+}
+
+func TestAssessExternalObservationSufficiency_ExplicitSourceExclusionOverridesRouteBackedRepoArtifact(t *testing.T) {
+	records := []ObservationRecord{{
+		ID:     "log:error:0",
+		Origin: AnswerEvidenceOriginRuntimeArtifact,
+		SourceRef: ObservationSourceRef{
+			Kind:       ObservationSourceRuntimeArtifact,
+			ArtifactID: "attached_log",
+		},
+		Span:    ObservationSpan{LineStart: 2, LineEnd: 3},
+		Summary: "first_byte_timeout exceeded after 40s",
+	}}
+	got := AssessExternalObservationSufficiency(records, &RequestModel{
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+			ExclusionKind:        ExternalObservationSourceExclusionExplicitUserBoundary,
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			SourceQuotes:         []string{"只分析日志"},
+			Confidence:           0.9,
+		},
+	}, TurnRouteHint{
+		Route:           "repo",
+		Source:          "artifact",
+		NeedsRepoAccess: true,
+		Confidence:      0.9,
+	})
+	if !got.Status.Sufficient() {
+		t.Fatalf("explicit current-source exclusion should preserve runtime-only sufficiency, got %+v", got)
+	}
+}
+
 func TestAssessExternalObservationSufficiency_TraceQueryRuntimeRecordSufficient(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		ToolResults: []ToolResult{{

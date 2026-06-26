@@ -3801,6 +3801,78 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceLogWaivesCitat
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_RouteBackedRuntimeRepoTurnRequiresCurrentSourceCoverage(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "first_byte_timeout",
+			Message: "first_byte_timeout exceeded after 40s",
+			Frames:  []types.LogFrame{{Line: 2, Raw: "first_byte_timeout exceeded after 40s"}},
+		}},
+		Observations: []types.LogObservation{{
+			Kind:      types.LogObservationRetryCycle,
+			Severity:  types.LogObservationWarning,
+			Summary:   "finalizer attempt 1/3 failed: LLM stream timeout",
+			LineStart: 3,
+		}},
+	}
+	mut := types.NewMutableState("runtime artifact plus repo source")
+	mut.SetLogTriage(logBundle)
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "artifact",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: logBundle,
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.9,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 1},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "runtime log explains the timeout, but the route requires repo source access",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":  "scalar_value",
+			"label": "observed timeout",
+			"value": "first_byte_timeout",
+			"dimensions": []map[string]any{{
+				"name":  "origin",
+				"value": string(types.AnswerEvidenceOriginRuntimeArtifact),
+			}},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("route-backed runtime+repo turn should downgrade until current-source coverage exists, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "typed current-source lane is required") {
+		t.Fatalf("downgrade should explain current-source lane obligation, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete must remain false until current-source coverage exists")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_ExternalTraceOptionalSourceWaivesCitationFloor(t *testing.T) {
 	perfBundle := &types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"jank"}},
