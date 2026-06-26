@@ -2140,7 +2140,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				Success:       true,
 				Summary:       paramsBanner + suffix,
 				Refinement:    refinement,
-				PathDiscovery: grepPathDiscovery(p, nres.SkippedLargeFiles == 0, 0),
+				PathDiscovery: grepPathDiscovery(p, nres.SkippedLargeFiles == 0, 0, nil),
 				Timestamp:     time.Now(),
 			}, nil
 		}
@@ -2152,7 +2152,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			Summary:       summary,
 			RawRef:        ref,
 			Refinement:    refinement,
-			PathDiscovery: grepPathDiscovery(p, false, nres.Matches),
+			PathDiscovery: grepPathDiscovery(p, false, nres.Matches, grepPathDiscoveryCandidates(nres.Output, p.FilesOnly)),
 			Timestamp:     time.Now(),
 		}, nil
 	}
@@ -2292,7 +2292,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 					Success:       true,
 					Summary:       paramsBanner + grepNoMatchBody(ctx, p),
 					Refinement:    grepNoMatchRefinement(ctx, p, searchPath, nil),
-					PathDiscovery: grepPathDiscovery(p, true, 0),
+					PathDiscovery: grepPathDiscovery(p, true, 0, nil),
 					Timestamp:     time.Now(),
 				}, nil
 			}
@@ -2309,7 +2309,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				Success:       true,
 				Summary:       paramsBanner + grepNoMatchBody(ctx, p),
 				Refinement:    grepNoMatchRefinement(ctx, p, searchPath, nil),
-				PathDiscovery: grepPathDiscovery(p, true, 0),
+				PathDiscovery: grepPathDiscovery(p, true, 0, nil),
 				Timestamp:     time.Now(),
 			}, nil
 		}
@@ -2322,7 +2322,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				Summary:       summary,
 				RawRef:        ref,
 				Refinement:    refinement,
-				PathDiscovery: grepPathDiscovery(p, false, capture.Lines),
+				PathDiscovery: grepPathDiscovery(p, false, capture.Lines, grepPathDiscoveryCandidates(capture.InlineOutput, p.FilesOnly)),
 				Timestamp:     time.Now(),
 			}, nil
 		}
@@ -2334,7 +2334,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			Summary:       summary,
 			RawRef:        ref,
 			Refinement:    refinement,
-			PathDiscovery: grepPathDiscovery(p, false, capture.Lines),
+			PathDiscovery: grepPathDiscovery(p, false, capture.Lines, grepPathDiscoveryCandidates(strings.Join(capture.PreviewLines, "\n"), p.FilesOnly)),
 			Timestamp:     time.Now(),
 		}, nil
 	}
@@ -2365,7 +2365,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				Success:       true,
 				Summary:       paramsBanner + grepNoMatchBody(ctx, p),
 				Refinement:    grepNoMatchRefinement(ctx, p, searchPath, nil),
-				PathDiscovery: grepPathDiscovery(p, true, 0),
+				PathDiscovery: grepPathDiscovery(p, true, 0, nil),
 				Timestamp:     time.Now(),
 			}, nil
 		}
@@ -2397,21 +2397,22 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		Summary:       summary,
 		RawRef:        ref,
 		Refinement:    refinement,
-		PathDiscovery: grepPathDiscovery(p, false, lines),
+		PathDiscovery: grepPathDiscovery(p, false, lines, grepPathDiscoveryCandidates(output, p.FilesOnly)),
 		Timestamp:     time.Now(),
 	}, nil
 }
 
 const (
-	grepGovernorLineEntryThreshold = 80
-	grepGovernorFileEntryThreshold = 120
-	grepGovernorByteThreshold      = 16 * 1024
-	grepGovernorLineProductionCap  = 48
-	grepGovernorFileProductionCap  = 80
-	grepGovernorAuxiliaryCap       = 24
-	grepGovernorOtherCap           = 16
-	grepLineWindowHintMax          = 4
-	grepLineWindowHalfSpan         = 20
+	grepGovernorLineEntryThreshold      = 80
+	grepGovernorFileEntryThreshold      = 120
+	grepGovernorByteThreshold           = 16 * 1024
+	grepGovernorLineProductionCap       = 48
+	grepGovernorFileProductionCap       = 80
+	grepGovernorAuxiliaryCap            = 24
+	grepGovernorOtherCap                = 16
+	grepLineWindowHintMax               = 4
+	grepLineWindowHalfSpan              = 20
+	toolPathDiscoveryCandidateFileLimit = 256
 )
 
 type grepLineWindow struct {
@@ -2827,16 +2828,65 @@ func grepPathDiscoveryAdvisory(params grepToolParams) string {
 	return "path_discovery_advisory=grep searches file contents, not file names. If the goal is file-path/glob discovery, call list_files with recursive=true plus include/file_type; add include_auxiliary=true only when the typed scope includes all/auxiliary repo-owned corpus material or a production-only scan was empty.\n"
 }
 
-func grepPathDiscovery(params grepToolParams, noMatches bool, resultCount int) *types.ToolPathDiscovery {
+func grepPathDiscovery(params grepToolParams, noMatches bool, resultCount int, candidateFiles []string) *types.ToolPathDiscovery {
+	files, truncated := boundedPathDiscoveryCandidateFiles(candidateFiles, toolPathDiscoveryCandidateFileLimit)
 	return &types.ToolPathDiscovery{
-		Kind:        types.ToolPathDiscoveryKindGrep,
-		Path:        strings.TrimSpace(params.Path),
-		Include:     strings.TrimSpace(params.Include),
-		FileType:    strings.TrimSpace(params.FileType),
-		FilesOnly:   params.FilesOnly,
-		NoMatches:   noMatches,
-		ResultCount: resultCount,
+		Kind:                    types.ToolPathDiscoveryKindGrep,
+		Path:                    strings.TrimSpace(params.Path),
+		Include:                 strings.TrimSpace(params.Include),
+		FileType:                strings.TrimSpace(params.FileType),
+		FilesOnly:               params.FilesOnly,
+		NoMatches:               noMatches,
+		ResultCount:             resultCount,
+		CandidateFiles:          files,
+		CandidateFilesTruncated: truncated,
 	}
+}
+
+func grepPathDiscoveryCandidates(output string, filesOnly bool) []string {
+	if strings.TrimSpace(output) == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0)
+	for _, line := range strings.Split(output, "\n") {
+		path, ok := grepOutputLinePath(line, filesOnly)
+		if !ok {
+			continue
+		}
+		path = strings.TrimSpace(path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+		if len(out) > toolPathDiscoveryCandidateFileLimit {
+			break
+		}
+	}
+	return out
+}
+
+func boundedPathDiscoveryCandidateFiles(files []string, limit int) ([]string, bool) {
+	if limit <= 0 || len(files) == 0 {
+		return nil, false
+	}
+	out := make([]string, 0, minInt(len(files), limit))
+	seen := make(map[string]bool, len(files))
+	truncated := false
+	for _, raw := range files {
+		path := strings.TrimSpace(raw)
+		if path == "" || seen[path] {
+			continue
+		}
+		if len(out) >= limit {
+			truncated = true
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	return out, truncated
 }
 
 func grepFixedStringRegexAdvisory(params grepToolParams) string {
@@ -4527,7 +4577,7 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 		Success:       true,
 		Summary:       summary,
 		RawRef:        ref,
-		PathDiscovery: listFilesPathDiscovery(p, len(files)),
+		PathDiscovery: listFilesPathDiscovery(p, len(files), files),
 		Refinement: mergeToolRefinementHints(
 			configuredSearchExcludeRootsRefinement(ctx, fsPath, t.Name()),
 			listFilesBroadResultRefinement(ctx, p, files, len(payload)),
@@ -4554,15 +4604,18 @@ func listFilesBanner(p listFilesParams) string {
 	)
 }
 
-func listFilesPathDiscovery(p listFilesParams, resultCount int) *types.ToolPathDiscovery {
+func listFilesPathDiscovery(p listFilesParams, resultCount int, candidateFiles []string) *types.ToolPathDiscovery {
+	files, truncated := boundedPathDiscoveryCandidateFiles(candidateFiles, toolPathDiscoveryCandidateFileLimit)
 	return &types.ToolPathDiscovery{
-		Kind:             types.ToolPathDiscoveryKindListFiles,
-		Path:             strings.TrimSpace(p.Path),
-		Recursive:        p.Recursive,
-		Include:          strings.TrimSpace(p.Include),
-		FileType:         strings.TrimSpace(p.FileType),
-		IncludeAuxiliary: p.IncludeAuxiliary,
-		ResultCount:      resultCount,
+		Kind:                    types.ToolPathDiscoveryKindListFiles,
+		Path:                    strings.TrimSpace(p.Path),
+		Recursive:               p.Recursive,
+		Include:                 strings.TrimSpace(p.Include),
+		FileType:                strings.TrimSpace(p.FileType),
+		IncludeAuxiliary:        p.IncludeAuxiliary,
+		ResultCount:             resultCount,
+		CandidateFiles:          files,
+		CandidateFilesTruncated: truncated,
 	}
 }
 

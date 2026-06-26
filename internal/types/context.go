@@ -5364,15 +5364,17 @@ const (
 // tool-computed outcomes; rendered summaries remain user-visible prose and
 // must not be parsed by hard gates to recover these fields.
 type ToolPathDiscovery struct {
-	Kind             string `json:"kind,omitempty"`
-	Path             string `json:"path,omitempty"`
-	Recursive        bool   `json:"recursive,omitempty"`
-	Include          string `json:"include,omitempty"`
-	FileType         string `json:"file_type,omitempty"`
-	FilesOnly        bool   `json:"files_only,omitempty"`
-	IncludeAuxiliary bool   `json:"include_auxiliary,omitempty"`
-	NoMatches        bool   `json:"no_matches,omitempty"`
-	ResultCount      int    `json:"result_count,omitempty"`
+	Kind                    string   `json:"kind,omitempty"`
+	Path                    string   `json:"path,omitempty"`
+	Recursive               bool     `json:"recursive,omitempty"`
+	Include                 string   `json:"include,omitempty"`
+	FileType                string   `json:"file_type,omitempty"`
+	FilesOnly               bool     `json:"files_only,omitempty"`
+	IncludeAuxiliary        bool     `json:"include_auxiliary,omitempty"`
+	NoMatches               bool     `json:"no_matches,omitempty"`
+	ResultCount             int      `json:"result_count,omitempty"`
+	CandidateFiles          []string `json:"candidate_files,omitempty"`
+	CandidateFilesTruncated bool     `json:"candidate_files_truncated,omitempty"`
 }
 
 // ToolCommandMeasurement is the typed scalar/count measurement surface for

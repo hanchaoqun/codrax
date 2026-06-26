@@ -4448,20 +4448,19 @@ func analyzerPrescanRequiredFileCandidates(ctx *types.BusContext, rm types.Reque
 				!result.PathDiscovery.FilesOnly {
 				continue
 			}
-			for _, line := range strings.Split(result.Summary, "\n") {
-				if path, ok := grepOutputLinePath(line, true); ok {
-					add(&grepCandidates, path)
-				}
+			for _, path := range result.PathDiscovery.CandidateFiles {
+				add(&grepCandidates, path)
 			}
 		case "list_files":
 			if !completionToolResultIsRecursivePathDiscoveryList(result) &&
 				!(rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active()) {
 				continue
 			}
-			for _, line := range strings.Split(result.Summary, "\n") {
-				if path, ok := grepOutputLinePath(line, true); ok {
-					add(&listCandidates, path)
-				}
+			if result.PathDiscovery == nil {
+				continue
+			}
+			for _, path := range result.PathDiscovery.CandidateFiles {
+				add(&listCandidates, path)
 			}
 		}
 	}

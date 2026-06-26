@@ -4205,10 +4205,11 @@ func TestEmitAnalysis_Execute_SynthesizesInventoryFromSourceScopeEnumeration(t *
 			"./internal/skill/defaults.go",
 		}, "\n"),
 		PathDiscovery: &types.ToolPathDiscovery{
-			Kind:        types.ToolPathDiscoveryKindGrep,
-			Include:     "*",
-			FilesOnly:   true,
-			ResultCount: 2,
+			Kind:           types.ToolPathDiscoveryKindGrep,
+			Include:        "*",
+			FilesOnly:      true,
+			ResultCount:    2,
+			CandidateFiles: []string{"./internal/tool/builtin.go", "./internal/skill/defaults.go"},
 		},
 	})
 	tool := &EmitAnalysis{}
@@ -4372,6 +4373,13 @@ func TestEmitAnalysis_ProjectsPrescanFilesForSourceInventoryCoverage(t *testing.
 			Include:     "*.ets",
 			FilesOnly:   true,
 			ResultCount: 5,
+			CandidateFiles: []string{
+				"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+				"internal/thirdparty/tree-sitter-arkts/corpus/sources/03_state_management.ets",
+				"internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets",
+				"internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets",
+				"internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_functions.ets",
+			},
 		},
 	})
 	payload := `{

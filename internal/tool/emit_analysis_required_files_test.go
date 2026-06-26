@@ -243,10 +243,11 @@ func TestProjectAnalyzerPrescanRequiredFileHints_SkipsLowConfidenceUnboundedInve
 			"./internal/skill/defaults.go",
 		}, "\n"),
 		PathDiscovery: &types.ToolPathDiscovery{
-			Kind:        types.ToolPathDiscoveryKindGrep,
-			Include:     "*",
-			FilesOnly:   true,
-			ResultCount: 2,
+			Kind:           types.ToolPathDiscoveryKindGrep,
+			Include:        "*",
+			FilesOnly:      true,
+			ResultCount:    2,
+			CandidateFiles: []string{"./internal/tool/builtin.go", "./internal/skill/defaults.go"},
 		},
 	})
 	rm := types.RequestModel{
@@ -304,9 +305,10 @@ func TestProjectAnalyzerPrescanRequiredFileHints_LowConfidenceUsesBoundedListFil
 			"[grep params: pattern=@Entry files_only=true]",
 		}, noiseFiles...), "\n"),
 		PathDiscovery: &types.ToolPathDiscovery{
-			Kind:        types.ToolPathDiscoveryKindGrep,
-			FilesOnly:   true,
-			ResultCount: len(noiseFiles),
+			Kind:           types.ToolPathDiscoveryKindGrep,
+			FilesOnly:      true,
+			ResultCount:    len(noiseFiles),
+			CandidateFiles: noiseFiles,
 		},
 	})
 	mut.AppendDispatchToolResult(types.ToolResult{
@@ -322,6 +324,7 @@ func TestProjectAnalyzerPrescanRequiredFileHints_LowConfidenceUsesBoundedListFil
 			Include:          "*.ets",
 			IncludeAuxiliary: true,
 			ResultCount:      len(corpusFiles),
+			CandidateFiles:   corpusFiles,
 		},
 	})
 	rm := types.RequestModel{
@@ -385,6 +388,7 @@ func TestProjectAnalyzerPrescanRequiredFileHints_ExplicitAuxiliaryExclusionBlock
 			Include:          "*.ets",
 			IncludeAuxiliary: true,
 			ResultCount:      len(corpusFiles),
+			CandidateFiles:   corpusFiles,
 		},
 	})
 	rm := types.RequestModel{
@@ -443,10 +447,11 @@ func TestProjectAnalyzerPrescanRequiredFileHints_AllowsBoundedInventorySupplemen
 			"./src/pages/b.ets",
 		}, "\n"),
 		PathDiscovery: &types.ToolPathDiscovery{
-			Kind:        types.ToolPathDiscoveryKindGrep,
-			Include:     "*.ets",
-			FilesOnly:   true,
-			ResultCount: 2,
+			Kind:           types.ToolPathDiscoveryKindGrep,
+			Include:        "*.ets",
+			FilesOnly:      true,
+			ResultCount:    2,
+			CandidateFiles: []string{"./src/pages/a.ets", "./src/pages/b.ets"},
 		},
 	})
 	rm := types.RequestModel{
@@ -474,6 +479,55 @@ func TestProjectAnalyzerPrescanRequiredFileHints_AllowsBoundedInventorySupplemen
 	}
 	if len(rm.AnalyzerHints.RequiredFileHints) != 2 || rm.AnalyzerHints.RequiredFileHints[1].Path != "src/pages/b.ets" {
 		t.Fatalf("required_file hints = %+v, want src/pages/b.ets appended", rm.AnalyzerHints.RequiredFileHints)
+	}
+}
+
+func TestProjectAnalyzerPrescanRequiredFileHints_IgnoresSummaryOnlyCandidateRows(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{
+		"src/pages/a.ets",
+		"src/pages/b.ets",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, rel), []byte("@Entry\nstruct Page {}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mut := types.NewMutableState("source inventory")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[grep: 2 matching files]",
+			"[grep params: pattern=@Entry include=*.ets files_only=true]",
+			"./src/pages/a.ets",
+			"./src/pages/b.ets",
+		}, "\n"),
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:        types.ToolPathDiscoveryKindGrep,
+			Include:     "*.ets",
+			FilesOnly:   true,
+			ResultCount: 2,
+		},
+	})
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			Confidence:        0.95,
+		},
+	}
+	ctx := &types.BusContext{Mutable: mut, RepoRoot: root}
+
+	if added := projectAnalyzerPrescanRequiredFileHints(ctx, &rm, nil); added != 0 {
+		t.Fatalf("summary-only prescan rows must not project required files, added=%d hints=%+v", added, rm.AnalyzerHints.RequiredFileHints)
 	}
 }
 

@@ -565,6 +565,12 @@ func TestListFiles(t *testing.T) {
 			result.PathDiscovery.ResultCount != len(files) {
 			t.Fatalf("list_files should publish typed path discovery, got %+v", result.PathDiscovery)
 		}
+		for _, f := range files {
+			expected := filepath.Join(tmpDir, f)
+			if !containsString(result.PathDiscovery.CandidateFiles, expected) {
+				t.Fatalf("list_files path discovery candidate_files missing %q: %+v", expected, result.PathDiscovery.CandidateFiles)
+			}
+		}
 	})
 }
 
@@ -2528,6 +2534,12 @@ func TestGrepTool(t *testing.T) {
 		}
 		if strings.Contains(result.Summary, "nomatch.go") {
 			t.Fatalf("files_only should not list nomatch.go, got: %s", result.Summary)
+		}
+		if result.PathDiscovery == nil ||
+			result.PathDiscovery.Kind != types.ToolPathDiscoveryKindGrep ||
+			!result.PathDiscovery.FilesOnly ||
+			!containsString(result.PathDiscovery.CandidateFiles, f1) {
+			t.Fatalf("grep files_only should publish typed candidate_files for match.go, got %+v", result.PathDiscovery)
 		}
 	})
 
