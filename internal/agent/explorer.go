@@ -181,6 +181,7 @@ type explorerEvaluator struct {
 	midLoopNoEmitPushIter              int // iteration where the current backlog window's read-without-emit nudge fired
 	midLoopNoEmitPushResultsLen        int // allResults length when the current backlog window's read-without-emit nudge fired
 	midLoopEmitBacklogBaseLen          int // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
+	midLoopReadWithoutEmitFamilyHints  int // dispatch-level semantic-family count; repeated backlog windows get compact hints
 	midLoopPartialReadHinted           map[string]types.RepairDebtClass
 	midLoopPartialReadBacklogKey       string
 	midLoopPartialReadBacklogClass     types.RepairDebtClass
@@ -754,6 +755,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopNoEmitPushIter = 0
 	e.midLoopNoEmitPushResultsLen = 0
 	e.midLoopEmitBacklogBaseLen = 0
+	e.midLoopReadWithoutEmitFamilyHints = 0
 	e.primaryReadSeen = false
 	e.primaryReadIter = 0
 	e.notesLenAtPrimaryRead = 0
@@ -5762,27 +5764,36 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 		logging.Debug("[partial_read] suppressed read_without_emit after advisory partial-read key=%s", e.midLoopPartialReadBacklogKey)
 		return LoopSignal{}
 	}
+	repeat := e.nextReadWithoutEmitFamilyHintCount()
 	if runtimeWindow, ok := runtimeArtifactReadWindowSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen); ok && runtimeWindow.broadHeader {
+		hint := renderRuntimeArtifactHeaderReadHint(runtimeWindow)
+		if repeat > 1 {
+			hint = renderCompactRuntimeArtifactReadHint(runtimeWindow)
+		}
 		e.midLoopNoEmitPushSent = true
 		e.midLoopNoEmitPushIter = obs.Iteration
 		e.midLoopNoEmitPushResultsLen = len(obs.AllToolResults)
 		return LoopSignal{
 			HintRequested:  true,
 			HintKey:        e.readWithoutEmitHintKey(),
-			Hint:           renderRuntimeArtifactHeaderReadHint(runtimeWindow),
+			Hint:           hint,
 			Progress:       true,
 			BypassThrottle: true,
 			BypassBudget:   true,
 		}
 	}
 	if runtimeWindow, ok := runtimeArtifactReadWindowSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen); ok {
+		hint := renderRuntimeArtifactReadOnlyHint(runtimeWindow)
+		if repeat > 1 {
+			hint = renderCompactRuntimeArtifactReadHint(runtimeWindow)
+		}
 		e.midLoopNoEmitPushSent = true
 		e.midLoopNoEmitPushIter = obs.Iteration
 		e.midLoopNoEmitPushResultsLen = len(obs.AllToolResults)
 		return LoopSignal{
 			HintRequested:  true,
 			HintKey:        e.readWithoutEmitHintKey(),
-			Hint:           renderRuntimeArtifactReadOnlyHint(runtimeWindow),
+			Hint:           hint,
 			Progress:       true,
 			BypassThrottle: true,
 			BypassBudget:   true,
@@ -5801,10 +5812,18 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 	if stats.large {
 		largeWindowNote = fmt.Sprintf("The largest unrecorded read window is %d line(s); materialize the load-bearing facts before that raw window is pruned or buried by later navigation. ", stats.maxLines)
 	}
-	hint := e.renderReadWithoutEmitHint(
-		"Progress check: you have read %d file(s) %s but %s. ",
-		reads, scope, recording,
-	) + largeWindowNote + e.authoritativeLogDriftReminder(obs.AllToolResults) + e.authoritativeLogBackboneFirstEmitReminder(obs.AllToolResults)
+	var hint string
+	if repeat > 1 {
+		hint = e.renderCompactReadWithoutEmitHint(
+			"Progress check: you have read %d file(s) %s but %s. ",
+			reads, scope, recording,
+		) + largeWindowNote
+	} else {
+		hint = e.renderReadWithoutEmitHint(
+			"Progress check: you have read %d file(s) %s but %s. ",
+			reads, scope, recording,
+		) + largeWindowNote + e.authoritativeLogDriftReminder(obs.AllToolResults) + e.authoritativeLogBackboneFirstEmitReminder(obs.AllToolResults)
+	}
 	if lensHint := explorerSourceInventoryDiscoveryAfterEvidenceHint(obs.AllToolResults); lensHint != "" {
 		hint += lensHint
 	}
@@ -5867,6 +5886,14 @@ func (e *explorerEvaluator) postReadWithoutEmitSoftStopSignal(obs LoopObservatio
 	}
 }
 
+func (e *explorerEvaluator) nextReadWithoutEmitFamilyHintCount() int {
+	if e == nil {
+		return 1
+	}
+	e.midLoopReadWithoutEmitFamilyHints++
+	return e.midLoopReadWithoutEmitFamilyHints
+}
+
 func (e *explorerEvaluator) renderReadWithoutEmitHint(prefixFormat string, reads int, scope, recording string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, prefixFormat, reads, scope, recording)
@@ -5884,6 +5911,21 @@ func (e *explorerEvaluator) renderReadWithoutEmitHint(prefixFormat string, reads
 	return b.String()
 }
 
+func (e *explorerEvaluator) renderCompactReadWithoutEmitHint(prefixFormat string, reads int, scope, recording string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, prefixFormat, reads, scope, recording)
+	b.WriteString("This repeats the same read-without-emit hint family in a new backlog window, so keep the next step narrow. ")
+	if e.originSpecificObservationLaneActive() {
+		b.WriteString("If the lines contain answer-critical current-source claims, emit one grounded `emit_evidence(items=[...])` batch from the current read window. ")
+		b.WriteString("If the remaining facts are log/trace/VCS/command/external observations, close with `emit_investigation_complete(reason, confidence, result_kind)` and preserve them in `reason` / `aggregate_facts`. ")
+		b.WriteString("Do not reopen broad navigation before choosing one of those two actions.")
+		return b.String()
+	}
+	b.WriteString("Emit one grounded `emit_evidence(items=[...])` batch from the current read window, then either continue on one answer-changing branch or call `emit_investigation_complete(reason, confidence, result_kind)`. ")
+	b.WriteString("Do not reopen broad navigation before recording the current evidence backlog.")
+	return b.String()
+}
+
 func renderRuntimeArtifactHeaderReadHint(win runtimeArtifactReadWindow) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Progress check: you just read `%s` lines %d-%d", win.path, win.start, win.end)
@@ -5894,6 +5936,17 @@ func renderRuntimeArtifactHeaderReadHint(win runtimeArtifactReadWindow) string {
 	b.WriteString("Do not emit evidence from unrelated header or first-page rows, and do not keep paging from the file head. ")
 	fmt.Fprintf(&b, "Narrow first with `grep(path=%q, pattern=\"<one exact timestamp/thread/event literal>\", files_only=false, context_lines=0)` or a deterministic `grep -n`/awk filter that preserves original line numbers; then `read_file` around the selected line window. ", win.path)
 	b.WriteString("Preserve runtime findings through `emit_investigation_complete.reason` plus `aggregate_facts`, or use `emit_evidence` only after the target line gutters are visible and load-bearing.")
+	return b.String()
+}
+
+func renderCompactRuntimeArtifactReadHint(win runtimeArtifactReadWindow) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Progress check: you have another runtime/log/trace artifact read backlog from `%s` lines %d-%d", win.path, win.start, win.end)
+	if win.total > 0 {
+		fmt.Fprintf(&b, " of %d", win.total)
+	}
+	b.WriteString(". This repeats the same read-without-emit hint family; do not re-read from the artifact head or convert artifact rows into current-source citations. ")
+	b.WriteString("Use `trace_query` or one targeted `grep` / `read_file` window if the runtime slice is incomplete; otherwise close with `emit_investigation_complete(reason, confidence, result_kind)` and preserve artifact facts in `reason` / `aggregate_facts`.")
 	return b.String()
 }
 

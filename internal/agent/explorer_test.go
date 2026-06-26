@@ -7129,6 +7129,53 @@ func TestObserveMidLoop_ReadWithoutEmitRefiresForNewBacklogAfterSuccessfulEmit(t
 	}
 }
 
+func TestObserveMidLoop_ReadWithoutEmitRepeatedFamilyUsesCompactHint(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+	}
+	firstResults := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-20 of 20]\npackage fixture\n"},
+		{ToolName: "read_file", Success: true, Summary: "[b.go: showing lines 1-20 of 20]\npackage fixture\n"},
+	}
+	first := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		LastToolResult: &firstResults[len(firstResults)-1],
+		AllToolResults: firstResults,
+	})
+	if !first.HintRequested || first.HintKey != "explorer.mid-loop.read-without-emit" {
+		t.Fatalf("expected first full read-without-emit hint, got %+v", first)
+	}
+	if !strings.Contains(first.Hint, "Facts left only in your prose notes") {
+		t.Fatalf("first hint should remain full guidance, got: %s", first.Hint)
+	}
+
+	secondResults := append(append([]types.ToolResult{}, firstResults...),
+		types.ToolResult{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+		types.ToolResult{ToolName: "read_file", Success: true, Summary: "[c.go: showing lines 1-20 of 20]\npackage fixture\n"},
+		types.ToolResult{ToolName: "read_file", Success: true, Summary: "[d.go: showing lines 1-20 of 20]\npackage fixture\n"},
+	)
+	second := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      5,
+		LastToolResult: &secondResults[len(secondResults)-1],
+		AllToolResults: secondResults,
+	})
+	if !second.HintRequested || second.HintKey != "explorer.mid-loop.read-without-emit.3" {
+		t.Fatalf("expected second backlog hint, got %+v", second)
+	}
+	if !strings.Contains(second.Hint, "same read-without-emit hint family") {
+		t.Fatalf("second same-family hint should explain compaction, got: %s", second.Hint)
+	}
+	if strings.Contains(second.Hint, "Facts left only in your prose notes") {
+		t.Fatalf("second same-family hint should not repeat full template:\n%s", second.Hint)
+	}
+	if len(second.Hint) >= len(first.Hint) {
+		t.Fatalf("second same-family hint should be compact, first=%d second=%d", len(first.Hint), len(second.Hint))
+	}
+}
+
 func TestObserveMidLoop_ReadWithoutEmitClosureOnlyRedirectIsOneShotAfterEscalation(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                       1,
