@@ -70,11 +70,12 @@ type explorerEvaluator struct {
 	heuristics                types.ExploreHeuristics
 	tools                     *tool.Registry
 	sharedSearchCache         *explorerSearchCache
-	phase                     int                  // 0 = breadth scan, 1 = depth read
-	broadenAttempts           int                  // times we pushed for broader grep in Phase 0
-	preScannedFiles           []string             // top files from keyword search, for coverage tracking
-	allScoredFiles            []string             // ALL files from keyword search (not just top 8), for supplementary evidence
-	fileSymbols               map[string][]string  // path → symbol summaries from repo_map
+	phase                     int                 // 0 = breadth scan, 1 = depth read
+	broadenAttempts           int                 // times we pushed for broader grep in Phase 0
+	preScannedFiles           []string            // top files from keyword search, for coverage tracking
+	allScoredFiles            []string            // ALL files from keyword search (not just top 8), for supplementary evidence
+	fileSymbols               map[string][]string // path → display symbol summaries from repo_map
+	fileSymbolItems           map[string][]repomap.Symbol
 	searchResult              *keywordSearchResult // full search result for cross-reference lookups
 	searchFingerprint         string               // T1.2: fingerprint of keyword_search inputs; reuses searchResult across explorer redispatches within one Run when inputs are unchanged
 	multiGraphHandle          any                  // P4-cross-sub-repo (Sc 1, 2026-05-08): cached *multigraph.MultiGraph for fan-out at midLoop hooks where ctx is unavailable
@@ -552,6 +553,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.analyzerKeywords = nil
 		e.ermRequirements = nil
 		e.fileSymbols = nil
+		e.fileSymbolItems = nil
 		e.primaryEntitiesRegistrationShape = false
 		e.requiredFileHints = nil
 		e.irrelevantFilesSet = nil
@@ -1438,6 +1440,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				path         string
 				repoMapScore float64
 				symbols      []string
+				symbolItems  []repomap.Symbol
 			}
 			var candidates []coverageCandidate
 			for _, r := range results {
@@ -1446,6 +1449,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 						path:         r.Path,
 						repoMapScore: r.RepoMapScore,
 						symbols:      r.Symbols,
+						symbolItems:  r.SymbolItems,
 					})
 				}
 			}
@@ -1588,6 +1592,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				return scoreI > scoreJ
 			})
 			e.fileSymbols = make(map[string][]string)
+			e.fileSymbolItems = make(map[string][]repomap.Symbol)
 			for i, c := range candidates {
 				e.allScoredFiles = append(e.allScoredFiles, c.path)
 				if i < 8 {
@@ -1595,6 +1600,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				}
 				if len(c.symbols) > 0 {
 					e.fileSymbols[c.path] = c.symbols
+				}
+				if len(c.symbolItems) > 0 {
+					e.fileSymbolItems[c.path] = append([]repomap.Symbol(nil), c.symbolItems...)
 				}
 			}
 			// CGEC D1: publish the full scored-file list to the closure
@@ -4804,7 +4812,7 @@ func (e *explorerEvaluator) collectExactResolutionSymbolCandidates(contract *typ
 	if e.searchResult != nil {
 		graph = e.searchResult.Graph
 	}
-	return collectExactResolutionSymbolCandidatesFromGraph(graph, contract, analyzerKeywords, e.fileSymbols, e.structuredEvidence)
+	return collectExactResolutionSymbolCandidatesFromGraph(graph, contract, analyzerKeywords, e.fileSymbolItems, e.structuredEvidence)
 }
 
 // filterEvidenceByPrimaryFiles keeps evidence items whose Source is
@@ -18255,12 +18263,20 @@ func (e *explorerEvaluator) trackCrossReferences(note string) {
 				// Also store symbols for the continuation prompt.
 				if fi, ok := graph.FileIndex[def.File]; ok && e.fileSymbols != nil {
 					var syms []string
+					var symbolItems []repomap.Symbol
 					for _, s := range fi.Symbols {
 						if s.Exported || s.Kind == "function" || s.Kind == "method" {
-							syms = append(syms, fmt.Sprintf("%s %s:%d", s.Name, s.Kind, s.Line))
+							syms = append(syms, formatKeywordSymbolSummary(s))
+							symbolItems = append(symbolItems, s)
 						}
 					}
 					e.fileSymbols[def.File] = syms
+					if len(symbolItems) > 0 {
+						if e.fileSymbolItems == nil {
+							e.fileSymbolItems = make(map[string][]repomap.Symbol)
+						}
+						e.fileSymbolItems[def.File] = symbolItems
+					}
 				}
 				logging.Debug("[explorer] cross-ref: note mentions %q → added %s to coverage", symName, def.File)
 			}

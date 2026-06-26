@@ -38,8 +38,17 @@ type keywordFileScore struct {
 	Score           float64
 	RepoMapScore    float64           // raw repo_map structural score (for coverage selection)
 	Hits            map[string]string // keyword → best match level for debugging
-	Symbols         []string          // symbol summaries from repo_map (e.g. "RegisterDefaultSubAgents function:63")
+	Symbols         []string          // display summaries from repo_map (e.g. "RegisterDefaultSubAgents function:63")
+	SymbolItems     []repomap.Symbol  // typed repo_map symbols for control-plane consumers
 	ExactEntityRank int               // >0 when a unique exact entity anchor matched this file
+}
+
+func formatKeywordSymbolSummary(sym repomap.Symbol) string {
+	summary := fmt.Sprintf("%s %s:%d", sym.Name, sym.Kind, sym.Line)
+	if sym.Signature != "" {
+		summary += " " + sym.Signature
+	}
+	return summary
 }
 
 // keywordSearchResult wraps the scored files plus the repo_map graph
@@ -508,6 +517,7 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 
 		// Extract symbol summaries from repo_map graph.
 		var syms []string
+		var symbolItems []repomap.Symbol
 		if graph != nil {
 			fi, ok := graph.FileIndex[f]
 			if !ok {
@@ -516,11 +526,8 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 			if ok {
 				for _, sym := range fi.Symbols {
 					if sym.Exported || sym.Kind == "function" || sym.Kind == "method" {
-						summary := fmt.Sprintf("%s %s:%d", sym.Name, sym.Kind, sym.Line)
-						if sym.Signature != "" {
-							summary += " " + sym.Signature
-						}
-						syms = append(syms, summary)
+						syms = append(syms, formatKeywordSymbolSummary(sym))
+						symbolItems = append(symbolItems, sym)
 					}
 				}
 			}
@@ -532,6 +539,7 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 			RepoMapScore:    repoMapScores[f],
 			Hits:            hits,
 			Symbols:         syms,
+			SymbolItems:     symbolItems,
 			ExactEntityRank: exactRank,
 		})
 	}

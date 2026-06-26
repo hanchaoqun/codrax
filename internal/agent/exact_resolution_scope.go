@@ -3,7 +3,6 @@ package agent
 import (
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
@@ -17,7 +16,7 @@ type exactResolutionSymbolCandidate struct {
 	Score  int
 }
 
-func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contract *types.ExactResolutionContract, analyzerKeywords []string, fileSymbols map[string][]string, evidence []types.EvidenceItem) []exactResolutionSymbolCandidate {
+func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contract *types.ExactResolutionContract, analyzerKeywords []string, fileSymbolItems map[string][]repomap.Symbol, evidence []types.EvidenceItem) []exactResolutionSymbolCandidate {
 	if contract == nil {
 		return nil
 	}
@@ -52,7 +51,7 @@ func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contr
 	}
 	sort.Strings(keywords)
 
-	candidateFiles := exactResolutionCandidateFiles(graph, fileSymbols)
+	candidateFiles := exactResolutionCandidateFiles(graph, fileSymbolItems)
 	if len(candidateFiles) == 0 {
 		return nil
 	}
@@ -73,7 +72,7 @@ func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contr
 		if strictRoleAnchors && roleAnchoredFiles[canonFile] == 0 {
 			continue
 		}
-		for _, sym := range exactResolutionSymbolsForFile(file, graph, fileSymbols) {
+		for _, sym := range exactResolutionSymbolsForFile(file, graph, fileSymbolItems) {
 			symLower := strings.ToLower(sym.Symbol)
 			score := 0
 			keywordHit := false
@@ -226,7 +225,7 @@ func exactResolutionRoleAnchoredFiles(contract *types.ExactResolutionContract, e
 	return out
 }
 
-func exactResolutionCandidateFiles(graph *repomap.Graph, fileSymbols map[string][]string) []string {
+func exactResolutionCandidateFiles(graph *repomap.Graph, fileSymbolItems map[string][]repomap.Symbol) []string {
 	seen := make(map[string]bool)
 	var files []string
 	if graph != nil && len(graph.FileIndex) > 0 {
@@ -237,7 +236,7 @@ func exactResolutionCandidateFiles(graph *repomap.Graph, fileSymbols map[string]
 			}
 		}
 	}
-	for path := range fileSymbols {
+	for path := range fileSymbolItems {
 		if path != "" && !seen[path] {
 			seen[path] = true
 			files = append(files, path)
@@ -247,7 +246,7 @@ func exactResolutionCandidateFiles(graph *repomap.Graph, fileSymbols map[string]
 	return files
 }
 
-func exactResolutionSymbolsForFile(path string, graph *repomap.Graph, fileSymbols map[string][]string) []exactResolutionSymbolCandidate {
+func exactResolutionSymbolsForFile(path string, graph *repomap.Graph, fileSymbolItems map[string][]repomap.Symbol) []exactResolutionSymbolCandidate {
 	var out []exactResolutionSymbolCandidate
 	seen := make(map[string]bool)
 	if graph != nil && graph.FileIndex != nil {
@@ -266,8 +265,8 @@ func exactResolutionSymbolsForFile(path string, graph *repomap.Graph, fileSymbol
 			}
 		}
 	}
-	for _, summary := range fileSymbols[path] {
-		name, line := parseExactResolutionSymbolSummary(summary)
+	for _, sym := range fileSymbolItems[path] {
+		name := strings.TrimSpace(sym.Name)
 		if name == "" || seen[name] {
 			continue
 		}
@@ -275,28 +274,10 @@ func exactResolutionSymbolsForFile(path string, graph *repomap.Graph, fileSymbol
 		out = append(out, exactResolutionSymbolCandidate{
 			File:   path,
 			Symbol: name,
-			Line:   line,
+			Line:   sym.Line,
 		})
 	}
 	return out
-}
-
-func parseExactResolutionSymbolSummary(summary string) (string, int) {
-	summary = strings.TrimSpace(summary)
-	if summary == "" {
-		return "", 0
-	}
-	name := summary
-	if fields := strings.Fields(summary); len(fields) > 0 {
-		name = fields[0]
-	}
-	line := 0
-	if idx := strings.LastIndex(summary, ":"); idx >= 0 && idx+1 < len(summary) {
-		if parsed, err := strconv.Atoi(strings.TrimSpace(summary[idx+1:])); err == nil && parsed > 0 {
-			line = parsed
-		}
-	}
-	return name, line
 }
 
 func isExactResolutionNoiseFile(lowerPath string) bool {

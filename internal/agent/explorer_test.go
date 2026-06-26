@@ -3411,6 +3411,15 @@ func TestBuildExactResolutionScopeBanner_PrefersAnalyzerKeywordMatchedSymbols(t 
 				"AgentLoopMaxMidLoopInjects field:237",
 			},
 		},
+		fileSymbolItems: map[string][]repomap.Symbol{
+			"internal/types/config.go": {
+				{Name: "DefaultExploreHeuristics", Kind: "function", Line: 707},
+				{Name: "LoopMaxMidLoopInjects", Kind: "field", Line: 216},
+			},
+			"internal/config/runtime.go": {
+				{Name: "AgentLoopMaxMidLoopInjects", Kind: "field", Line: 237},
+			},
+		},
 	}
 
 	banner := eval.buildExactResolutionScopeBanner(ctx, ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords)
@@ -3510,6 +3519,11 @@ func TestBuildExactResolutionScopeBanner_DoesNotRequirePendingFinding(t *testing
 				"DefaultExploreHeuristics function:707",
 			},
 		},
+		fileSymbolItems: map[string][]repomap.Symbol{
+			"internal/types/config.go": {
+				{Name: "DefaultExploreHeuristics", Kind: "function", Line: 707},
+			},
+		},
 	}
 
 	banner := eval.buildExactResolutionScopeBanner(ctx, ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords)
@@ -3518,6 +3532,38 @@ func TestBuildExactResolutionScopeBanner_DoesNotRequirePendingFinding(t *testing
 	}
 	if !strings.Contains(banner, "DefaultExploreHeuristics") {
 		t.Fatalf("banner should surface same-family production candidate, got: %s", banner)
+	}
+}
+
+func TestBuildExactResolutionScopeBanner_IgnoresDisplayOnlySymbolSummaries(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Keywords: []string{"config default", "CLI flag"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetLabel:          "config key",
+					Targets:              []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:         true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				},
+			},
+		},
+	}
+	eval := &explorerEvaluator{
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		fileSymbols: map[string][]string{
+			"internal/types/config.go": {
+				"DefaultExploreHeuristics function:707",
+			},
+		},
+	}
+
+	if banner := eval.buildExactResolutionScopeBanner(ctx, ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords); banner != "" {
+		t.Fatalf("display-only symbol summaries must not drive exact-resolution candidate banner, got: %s", banner)
 	}
 }
 

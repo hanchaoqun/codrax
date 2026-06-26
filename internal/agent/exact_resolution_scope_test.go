@@ -16,14 +16,14 @@ func TestCollectExactResolutionSymbolCandidatesFromGraph_IncludesStrongSameFamil
 		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
 		RelatedContextTerms:  []string{"explore"},
 	}
-	fileSymbols := map[string][]string{
+	fileSymbols := map[string][]repomap.Symbol{
 		"internal/config/runtime.go": {
-			"ExploreMidLoopMinIteration internal/config/runtime.go:231",
-			"ExploreMidLoopEnumCoverage internal/config/runtime.go:235",
+			{Name: "ExploreMidLoopMinIteration", Kind: "var", Line: 231},
+			{Name: "ExploreMidLoopEnumCoverage", Kind: "var", Line: 235},
 		},
 		"internal/types/config.go": {
-			"DefaultExploreHeuristics internal/types/config.go:707",
-			"ExploreSettings internal/types/config.go:618",
+			{Name: "DefaultExploreHeuristics", Kind: "function", Line: 707},
+			{Name: "ExploreSettings", Kind: "type", Line: 618},
 		},
 	}
 	evidence := []types.EvidenceItem{{
@@ -61,15 +61,15 @@ func TestCollectExactResolutionSymbolCandidatesFromGraph_ConfigRoleAnchorsSuppre
 		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
 		RelatedContextTerms:  []string{"explore"},
 	}
-	fileSymbols := map[string][]string{
+	fileSymbols := map[string][]repomap.Symbol{
 		"internal/config/runtime.go": {
-			"ExploreMidLoopMinIteration internal/config/runtime.go:231",
+			{Name: "ExploreMidLoopMinIteration", Kind: "var", Line: 231},
 		},
 		"internal/types/config.go": {
-			"DefaultExploreHeuristics internal/types/config.go:707",
+			{Name: "DefaultExploreHeuristics", Kind: "function", Line: 707},
 		},
 		"internal/types/explore_budget.go": {
-			"ExploreBudget internal/types/explore_budget.go:40",
+			{Name: "ExploreBudget", Kind: "type", Line: 40},
 		},
 	}
 	evidence := []types.EvidenceItem{

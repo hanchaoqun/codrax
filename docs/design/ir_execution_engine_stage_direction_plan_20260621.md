@@ -2422,6 +2422,12 @@ Remaining follow-up:
     3. Boundary: current `dataflow_path` evidence is deterministic-only; LLM-emitted evidence cannot create this kind. If a future producer needs richer chain structure, it must add a typed chain carrier instead of reusing Summary.
     4. Guardrail tests: changing rendered Summary while keeping the same typed chain payload leaves the hash stable; changing the typed chain payload changes the hash; summary-only chain text is ignored.
     5. Red-line boundary: read-loop no-progress detection consumes read-set hash, typed evidence IDs, typed deterministic chain payloads, and typed cited refs only. It does not parse evidence Summary, stage reports, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
+  - **Delivered D1-F10g.123 exact-resolution repo-map symbol typed-cache cutover（code complete / focused regression passed）**:
+    1. Target gap: exact-resolution related-context candidate selection still had a fallback that parsed cached repo_map symbol display strings such as `"Name kind:line"`. Those candidates can steer focused context reads and exact-resolution repair hints, so display summaries must not be the authority.
+    2. Producer change: `keywordFileScore` now carries both display `Symbols []string` and typed `SymbolItems []repomap.Symbol`; explorer keeps `fileSymbols` only for user/model-visible “defines:” hints and a parallel `fileSymbolItems` for control-plane consumers.
+    3. Consumer change: `collectExactResolutionSymbolCandidatesFromGraph` now consumes graph symbols plus typed `fileSymbolItems` only. The legacy `parseExactResolutionSymbolSummary` fallback was removed.
+    4. Guardrail tests: existing exact-resolution symbol-candidate tests now build typed `repomap.Symbol` fixtures; string summary fixtures can no longer be passed into the candidate collector.
+    5. Red-line boundary: exact-resolution context candidate selection consumes repo_map graph symbols, typed symbol cache, grounded evidence anchors, and typed contract terms only. It does not parse repo_map display strings, evidence Summary, stage reports, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
