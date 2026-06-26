@@ -2922,6 +2922,9 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	if externalSource {
 		return nil
 	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		return analyzerSourceInventoryExplicitRequiredFiles(ctx, rm, logFiles)
+	}
 
 	if len(entities) == 0 && len(logFiles) == 0 {
 		return nil
@@ -3000,6 +3003,34 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 		return merged
 	}
 	return analyzerRequiredFilesExistingOnly(ctx, logtriage.MergeResolvedFiles(logFiles, merged))
+}
+
+func analyzerSourceInventoryExplicitRequiredFiles(ctx *types.AgentContext, rm types.RequestModel, logFiles []string) []string {
+	var graph *repomap.Graph
+	mentioned := dedupStringList(
+		rm.AnalyzerHints.MentionedEntities,
+		rm.AnalyzerHints.ExactTargets,
+	)
+	if len(mentioned) > 0 && ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
+		if g, err := repomap.GraphFromAgentContextOrLoad(ctx, ctx.RepoRoot, strings.Join(mentioned, " ")); err == nil {
+			graph = g
+		}
+	}
+	var explicit []string
+	for _, hit := range mentionedFileEntities(agentContextRepoRoot(ctx), mentioned, graph) {
+		explicit = append(explicit, hit.Path)
+	}
+	if len(logFiles) == 0 {
+		return analyzerRequiredFilesExistingOnly(ctx, explicit)
+	}
+	return analyzerRequiredFilesExistingOnly(ctx, logtriage.MergeResolvedFiles(logFiles, explicit))
+}
+
+func agentContextRepoRoot(ctx *types.AgentContext) string {
+	if ctx == nil {
+		return ""
+	}
+	return ctx.RepoRoot
 }
 
 func analyzerRequiredFilesExistingOnly(ctx *types.AgentContext, files []string) []string {

@@ -5199,6 +5199,45 @@ func TestRaisePhase1UnreadPendingReads_SourceInventoryPrincipalMemberSetScopeKee
 	}
 }
 
+func TestRaisePhase1UnreadPendingReads_SourceInventorySkipsGenericRankerWithoutPreciseScope(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 4
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	mut := types.NewMutableState("source inventory broad ranker noise")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "cmd/root.go", Score: 99, ExactEntityRank: 3},
+		{Path: "internal/context/builder.go", Score: 98, ExactEntityRank: 3},
+		{Path: "internal/tool/repomap/index/extract_cangjie.go", Score: 97, ExactEntityRank: 3},
+	})
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:     true,
+		Complete:   false,
+		Scopes:     []string{"."},
+		Provenance: []string{"repo_lens:tool_query"},
+		Lens:       []string{"source_inventory"},
+		Execution:  &types.SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+	})
+	closure := mut.EvidenceClosure()
+	bus := sourceInventoryPhase1UnreadTestBus(mut,
+		"cmd/root.go",
+		"internal/context/builder.go",
+		"internal/tool/repomap/index/extract_cangjie.go",
+	)
+
+	raisePhase1UnreadPendingReads(bus, closure, nil)
+
+	if pending := closure.PendingReads(); len(pending) != 0 {
+		t.Fatalf("non-precise source-inventory ranker files must not become forced reads, got %+v", pending)
+	}
+	if closure.Phase1UnreadFired() {
+		t.Fatal("skipped generic source-inventory ranker files must not burn the phase1_unread latch")
+	}
+}
+
 func setArkTSSourceInventoryObservation(mut *types.MutableState, entryFile, builderFile string) {
 	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
 		Active:     true,

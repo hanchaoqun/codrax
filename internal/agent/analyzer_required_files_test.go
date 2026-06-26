@@ -312,6 +312,71 @@ func TestAnalyzerRequiredFilesExistingOnlyDropsPhantomCurrentCheckoutPath(t *tes
 	}
 }
 
+func TestAnalyzerRequiredFiles_SourceInventorySkipsBroadEntityRanker(t *testing.T) {
+	repoRoot := t.TempDir()
+	for _, rel := range []string{
+		"cmd/root.go",
+		"internal/context/builder.go",
+		"internal/tool/repomap/index/extract_cangjie.go",
+	} {
+		if err := os.MkdirAll(filepath.Join(repoRoot, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(filepath.Join(repoRoot, rel), []byte("package p\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	ctx := &types.AgentContext{RepoRoot: repoRoot, Mutable: types.NewMutableState("source inventory")}
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"extend", "foreign func", "public class"},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleFunction},
+		},
+	}
+
+	if got := analyzerRequiredFiles(ctx, rm); got != nil {
+		t.Fatalf("source-inventory entity ranker candidates must not become RequiredFiles, got %v", got)
+	}
+}
+
+func TestAnalyzerRequiredFiles_SourceInventoryKeepsExplicitFileMention(t *testing.T) {
+	repoRoot := t.TempDir()
+	rel := "fixtures/cangjie/cart/Cart.cj"
+	if err := os.MkdirAll(filepath.Join(repoRoot, filepath.Dir(rel)), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, rel), []byte("package demo.cart\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	ctx := &types.AgentContext{RepoRoot: repoRoot, Mutable: types.NewMutableState("source inventory")}
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			MentionedEntities: []string{rel},
+			ExactTargets:      []string{rel},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+		},
+	}
+
+	got := analyzerRequiredFiles(ctx, rm)
+	if !reflect.DeepEqual(got, []string{rel}) {
+		t.Fatalf("source-inventory explicit file mention = %v, want [%s]", got, rel)
+	}
+}
+
 func TestStageTopologyAuthorityRequiredFiles_StageLikeArchitectureEnumeration(t *testing.T) {
 	graph := buildRankerGraph(
 		map[string][]repomap.Symbol{

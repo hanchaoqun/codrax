@@ -8596,7 +8596,13 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 	if len(ranking) == 0 {
 		return
 	}
-	if !sourceInventoryPhase1CoverageApplies(ctx) && !requiresCrossFileCoverage(kind, countPrimaryAnchorFiles(ranking)) {
+	sourceInventoryCoverage := sourceInventoryPhase1CoverageApplies(ctx)
+	filter := newPhase1UnreadFilter(ctx, closure, aggregateFacts)
+	if sourceInventoryCoverage && !filter.sourceInventoryStrictScope {
+		logging.Info("[CGEC] phase1_unread: skipped source-inventory generic ranker files without a precise completed scope")
+		return
+	}
+	if !sourceInventoryCoverage && !requiresCrossFileCoverage(kind, countPrimaryAnchorFiles(ranking)) {
 		return
 	}
 	topK := limits.Phase1UnreadTopK
@@ -8607,7 +8613,6 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 	if minUnread < 1 {
 		minUnread = 1
 	}
-	filter := newPhase1UnreadFilter(ctx, closure, aggregateFacts)
 	type unreadRankedFile struct {
 		rank int
 		file types.Phase1RankedFile
@@ -9215,6 +9220,9 @@ func genericForcedReadBoundarySatisfied(ctx *types.BusContext, aggregateFacts []
 	if relationMemberSetCompletesGenericForcedReadBoundary(ctx, aggregateFacts) {
 		return true
 	}
+	if sourceInventoryMemberSetCompletesGenericForcedReadBoundary(ctx, aggregateFacts) {
+		return true
+	}
 	if genericForcedReadBoundarySatisfiedByGroundedEvidence(ctx, evidence) {
 		return true
 	}
@@ -9238,6 +9246,18 @@ func genericForcedReadBoundarySatisfied(ctx *types.BusContext, aggregateFacts []
 		}
 	}
 	return false
+}
+
+func sourceInventoryMemberSetCompletesGenericForcedReadBoundary(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || len(aggregateFacts) == 0 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	return SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, aggregateFacts) ||
+		SourceInventoryAcceptedClosureCoversExactUniverse(ctx, aggregateFacts)
 }
 
 func relationMemberSetCompletesGenericForcedReadBoundary(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) bool {
