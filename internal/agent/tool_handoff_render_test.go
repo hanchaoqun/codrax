@@ -24,6 +24,21 @@ func TestRenderTypedToolHandoffCarriersRendersTypedFieldsOnly(t *testing.T) {
 				"$.changes[].edits[].kind": {"replace"},
 			},
 		},
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode:               "list_files_result_truncated",
+			ResultTruncated:          true,
+			CandidateBudgetTruncated: true,
+			PreferredNextTool:        "repo_map",
+			PreferredParams: map[string]string{
+				"scope": "internal/agent",
+				"view":  "relation_map",
+			},
+			RequiredFields:         []string{"scope", "sources"},
+			NextCursor:             "50",
+			SkippedLargeCandidates: []string{"logs/big.trace"},
+			ExcludedRoots:          []string{".codrax", "node_modules"},
+			TopSourceClasses:       []types.SourcePathRole{types.SourcePathRoleProduction},
+		},
 		AcceptedEvidence: []types.AcceptedEvidenceRef{{
 			ID:             "ev-1",
 			Source:         "internal/app/main.py",
@@ -38,6 +53,14 @@ func TestRenderTypedToolHandoffCarriersRendersTypedFieldsOnly(t *testing.T) {
 		"reason=`invalid_enum`",
 		"json_fields=`$.changes[0].edits[0].kind`",
 		"enum_fields=`$.changes[].edits[].kind`",
+		"refine_flags=`result_truncated,candidate_budget_truncated`",
+		"preferred_tool=`repo_map`",
+		"preferred_params=`scope=internal/agent,view=relation_map`",
+		"required_fields=`scope,sources`",
+		"next_cursor=`50`",
+		"skipped_large=`logs/big.trace`",
+		"excluded_roots=`.codrax,node_modules`",
+		"top_source_classes=`production`",
 		"evidence=`ev-1` @ `internal/app/main.py:12`",
 		"owner=`main`",
 	} {
@@ -47,6 +70,43 @@ func TestRenderTypedToolHandoffCarriersRendersTypedFieldsOnly(t *testing.T) {
 	}
 	if strings.Contains(out, "rewrite the whole answer") || strings.Contains(out, "run repo_map") {
 		t.Fatalf("renderer leaked repair hint prose:\n%s", out)
+	}
+}
+
+func TestRenderTypedToolHandoffCarriersKeepsRefinementBeforePlainObservations(t *testing.T) {
+	carriers := make([]types.ToolHandoffCarrier, 0, 10)
+	for i := 0; i < 9; i++ {
+		carriers = append(carriers, types.ToolHandoffCarrier{
+			Version:    types.ToolHandoffCarrierVersion,
+			ToolName:   "trace_query",
+			ReasonCode: "tool_observation_handoff",
+			ObservationRefs: []types.ToolObservationRef{{
+				ID:       "obs-" + string(rune('a'+i)),
+				Producer: "trace_query",
+				ClaimKey: "runtime",
+			}},
+		})
+	}
+	carriers = append(carriers, types.ToolHandoffCarrier{
+		Version:    types.ToolHandoffCarrierVersion,
+		ToolName:   "grep",
+		ReasonCode: "grep_result_truncated",
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode:        "grep_result_truncated",
+			ResultTruncated:   true,
+			PreferredNextTool: "repo_map",
+			PreferredParams: map[string]string{
+				"query": "Owner",
+				"view":  "task_map",
+			},
+		},
+	})
+
+	out := renderTypedToolHandoffCarriers("### Typed handoff", carriers)
+	if !strings.Contains(out, "tool=`grep`") ||
+		!strings.Contains(out, "preferred_tool=`repo_map`") ||
+		!strings.Contains(out, "preferred_params=`query=Owner,view=task_map`") {
+		t.Fatalf("actionable refinement was dropped behind plain observations:\n%s", out)
 	}
 }
 

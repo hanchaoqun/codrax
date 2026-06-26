@@ -85,7 +85,71 @@ func renderTypedToolHandoffCarrierLine(carrier types.ToolHandoffCarrier) string 
 	if len(carrier.ObservationRefs) > 0 {
 		parts = append(parts, fmt.Sprintf("observation_refs=%d", len(carrier.ObservationRefs)))
 	}
+	parts = append(parts, renderTypedToolRefinementParts(carrier.Refinement)...)
 	return strings.Join(parts, " · ")
+}
+
+func renderTypedToolRefinementParts(refinement *types.ToolRefinementHint) []string {
+	if refinement == nil {
+		return nil
+	}
+	hint := types.NormalizeToolRefinementHint(*refinement)
+	if hint.Empty() {
+		return nil
+	}
+	parts := []string{}
+	flags := []string{}
+	if hint.ResultTruncated {
+		flags = append(flags, "result_truncated")
+	}
+	if hint.CandidateBudgetTruncated {
+		flags = append(flags, "candidate_budget_truncated")
+	}
+	if len(flags) > 0 {
+		parts = append(parts, "refine_flags="+quoteHandoffValue(strings.Join(flags, ",")))
+	}
+	if hint.UniverseExcludedReason != "" {
+		parts = append(parts, "excluded_reason="+quoteHandoffValue(hint.UniverseExcludedReason))
+	}
+	if hint.PreferredNextTool != "" {
+		parts = append(parts, "preferred_tool="+quoteHandoffValue(hint.PreferredNextTool))
+	}
+	if len(hint.PreferredParams) > 0 {
+		keys := make([]string, 0, len(hint.PreferredParams))
+		for key := range hint.PreferredParams {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		values := make([]string, 0, len(keys))
+		for _, key := range keys {
+			values = append(values, key+"="+hint.PreferredParams[key])
+		}
+		parts = append(parts, "preferred_params="+quoteHandoffValue(strings.Join(values, ",")))
+	}
+	if len(hint.RequiredFields) > 0 {
+		parts = append(parts, "required_fields="+quoteHandoffValue(strings.Join(boundedStringSlice(hint.RequiredFields, 8), ",")))
+	}
+	if hint.NextCursor != "" {
+		parts = append(parts, "next_cursor="+quoteHandoffValue(hint.NextCursor))
+	}
+	if len(hint.SkippedLargeCandidates) > 0 {
+		parts = append(parts, "skipped_large="+quoteHandoffValue(strings.Join(boundedStringSlice(hint.SkippedLargeCandidates, 4), ",")))
+	}
+	if len(hint.ExcludedRoots) > 0 {
+		parts = append(parts, "excluded_roots="+quoteHandoffValue(strings.Join(boundedStringSlice(hint.ExcludedRoots, 4), ",")))
+	}
+	if len(hint.TopSourceClasses) > 0 {
+		classes := make([]string, 0, len(hint.TopSourceClasses))
+		for _, role := range hint.TopSourceClasses {
+			if role != "" {
+				classes = append(classes, string(role))
+			}
+		}
+		if len(classes) > 0 {
+			parts = append(parts, "top_source_classes="+quoteHandoffValue(strings.Join(boundedStringSlice(classes, 6), ",")))
+		}
+	}
+	return parts
 }
 
 func boundedStringSlice(values []string, limit int) []string {
@@ -166,10 +230,12 @@ func toolHandoffCarrierRank(carrier types.ToolHandoffCarrier) int {
 		return 0
 	case len(carrier.AcceptedEvidence) > 0:
 		return 1
-	case len(carrier.ObservationRefs) > 0:
+	case carrier.Refinement != nil:
 		return 2
-	default:
+	case len(carrier.ObservationRefs) > 0:
 		return 3
+	default:
+		return 4
 	}
 }
 
