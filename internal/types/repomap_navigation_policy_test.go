@@ -103,6 +103,35 @@ func TestCompileRepoMapNavigationPolicy_NonCallChainRelationShapeSkipsCallPath(t
 	}
 }
 
+func TestCompileRepoMapNavigationPolicy_RoleLocateFunctionAddsEntrypointGuidance(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsRoleLocateLookup: true,
+			IsScalarAnswer:     true,
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName},
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"DubaiMain", "startup"},
+		},
+	}
+
+	got := CompileRepoMapNavigationPolicy(rm, nil, ExploreLanePlan{})
+	if !got.HasPurpose(RepoMapNavigationPurposeEntrypoint) {
+		t.Fatalf("function role-location should carry entrypoint guidance: %+v", got.Steps)
+	}
+	rendered := got.RenderMarkdownHint("", "")
+	for _, want := range []string{
+		"entry/startup/handler role-location",
+		"framework routes, manifests, registrations, lifecycle callbacks, command roots",
+		"before assuming a literal main function",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("entrypoint guidance missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestRepoMapNavigationPolicyWithLocalizationReviewAddsOwnerGapLenses(t *testing.T) {
 	review := SourceLocalizationReviewFromTurnA([]string{"pkg/bug.py"}, nil)
 	got := RepoMapNavigationPolicyWithLocalizationReview(RepoMapNavigationPolicy{}, &review)

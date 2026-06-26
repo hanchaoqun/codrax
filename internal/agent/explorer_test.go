@@ -1028,6 +1028,39 @@ func TestBuildInitialInstruction_CallChainTypedRepoMapOutranksGenericGrep(t *tes
 	}
 }
 
+func TestBuildInitialInstruction_RoleLocateEntrypointDoesNotAssumeMain(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Objective: "定位这个行为的入口函数",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				Predicates: types.SemanticPredicates{
+					IsRoleLocateLookup: true,
+					IsScalarAnswer:     true,
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+				AnalyzerHints: types.AnalyzerHints{
+					Entities: []string{"DubaiMain", "startup"},
+				},
+			},
+		},
+		RepoRoot: ".",
+	}
+
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Typed Repo Map First Hop",
+		"entry/startup/handler role-location",
+		"do not assume the answer is literally named `main`",
+		"route, manifest, registration, lifecycle callback, command-root",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("entrypoint role-locate prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestBuildInitialInstruction_SourceInventorySuppressesRelationFirstHop(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{

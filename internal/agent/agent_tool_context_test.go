@@ -1138,3 +1138,75 @@ func TestExecuteTool_TruncatedParamsGetsTypedCompactGuidance(t *testing.T) {
 		t.Fatalf("tool executed despite truncated params: %+v", capture.got)
 	}
 }
+
+func TestExecuteTool_MarkupSentinelParamsRejectedBeforeExecution(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	capture := &captureParamsTool{}
+	reg.Register(capture)
+
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{Tools: reg}, nil)
+	res, _ := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
+		ID:     "polluted-json",
+		Name:   capture.Name(),
+		Params: json.RawMessage(`{"sources":["src/main.cpp</parameter"]}`),
+	})
+	if res == nil {
+		t.Fatal("expected failed ToolResult")
+	}
+	if res.Success {
+		t.Fatalf("markup-polluted params should fail before execution: %+v", res)
+	}
+	for _, want := range []string{
+		"contain </parameter",
+		"were not executed",
+		"single native JSON object",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if res.Refinement == nil || res.Refinement.ReasonCode != "tool_args_markup_sentinel" {
+		t.Fatalf("expected typed refinement for markup sentinel, got %+v", res.Refinement)
+	}
+	if capture.got != nil {
+		t.Fatalf("tool executed despite markup-polluted params: %s", capture.got)
+	}
+}
+
+func TestExecuteTool_HTMLClosingTagStringIsNotRejectedAsMarkupSentinel(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	capture := &captureParamsTool{}
+	reg.Register(capture)
+
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{Tools: reg}, nil)
+	res, _ := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
+		ID:     "html-json",
+		Name:   capture.Name(),
+		Params: json.RawMessage(`{"sources":["templates/card.html","</div>"]}`),
+	})
+	if res == nil || !res.Success {
+		t.Fatalf("ordinary HTML closing tags should not be rejected as tool-call markup: %+v", res)
+	}
+	if capture.got == nil {
+		t.Fatal("tool did not execute for ordinary HTML string params")
+	}
+}
+
+func TestExecuteTool_StandaloneParameterClosingTagStringIsNotRejected(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	capture := &captureParamsTool{}
+	reg.Register(capture)
+
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{Tools: reg}, nil)
+	res, _ := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
+		ID:     "xml-json",
+		Name:   capture.Name(),
+		Params: json.RawMessage(`{"sources":["</parameter>"]}`),
+	})
+	if res == nil || !res.Success {
+		t.Fatalf("standalone XML/tool-like closing tag search text should not be rejected: %+v", res)
+	}
+	if capture.got == nil {
+		t.Fatal("tool did not execute for standalone closing-tag string params")
+	}
+}

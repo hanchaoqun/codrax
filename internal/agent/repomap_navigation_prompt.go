@@ -47,6 +47,9 @@ func renderExplorerRepoMapTypedFirstHop(ctx *types.AgentContext) string {
 	if policy.HasRoute(types.RepoMapNavigationRouteEditImpact) {
 		b.WriteString("For impact questions, use `repo_map(view=\"edit_impact\")` as the early affected-surface map before reading individual call sites.\n")
 	}
+	if policy.HasPurpose(types.RepoMapNavigationPurposeEntrypoint) {
+		b.WriteString("For entry/startup/handler role-location questions, do not assume the answer is literally named `main`; use file_map/task_map plus route, manifest, registration, lifecycle callback, command-root, and generated-adjacent entry surfaces, then verify the selected source lines.\n")
+	}
 	if terms := policy.QueryTermList(8); len(terms) > 0 {
 		b.WriteString("- Suggested exact `query` surfaces: `")
 		b.WriteString(strings.Join(terms, "`, `"))

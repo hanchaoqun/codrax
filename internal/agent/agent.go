@@ -820,6 +820,32 @@ func malformedToolParamsResult(tc llm.ToolCall) *types.ToolResult {
 	}
 }
 
+func toolParamsMarkupSentinelResult(tc llm.ToolCall, sentinel string) *types.ToolResult {
+	sentinel = strings.TrimSpace(sentinel)
+	if sentinel == "" {
+		sentinel = "tool-call markup sentinel"
+	}
+	summary := fmt.Sprintf(
+		"invalid params: tool arguments for %s contain %s inside JSON string values. "+
+			"The original arguments were not executed because transport/tool-call markup is not a repository path, search pattern, file type, or query value. "+
+			"Re-emit this tool call with a single native JSON object using only plain schema values; do not append tool-call delimiter text such as </parameter> to arguments.",
+		tc.Name, sentinel,
+	)
+	logging.Warning("[agent] tool %q params rejected before execution: markup sentinel=%s len=%d id=%s",
+		tc.Name, sentinel, len(tc.Params), tc.ID)
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Success:   false,
+		Summary:   summary,
+		Timestamp: time.Now(),
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode:        "tool_args_markup_sentinel",
+			PreferredNextTool: types.CanonicalToolName(tc.Name),
+			RequiredFields:    []string{"native_json_arguments"},
+		},
+	}
+}
+
 func malformedToolParamsSummary(toolName, errText, kind string) string {
 	switch kind {
 	case "truncated_json":
@@ -843,6 +869,64 @@ func malformedToolParamsSummary(toolName, errText, kind string) string {
 			toolName, errText,
 		)
 	}
+}
+
+var toolCallArgumentClosingSentinels = []string{
+	"</parameter",
+	"</arguments",
+	"</tool_call",
+}
+
+func toolCallParamsMarkupSentinel(params json.RawMessage) (string, bool) {
+	if !json.Valid(params) {
+		return "", false
+	}
+	var payload interface{}
+	if err := json.Unmarshal(params, &payload); err != nil {
+		return "", false
+	}
+	return toolCallParamsMarkupSentinelInValue(payload)
+}
+
+func toolCallParamsMarkupSentinelInValue(v interface{}) (string, bool) {
+	switch typed := v.(type) {
+	case string:
+		if sentinel, ok := appendedToolCallClosingSentinel(typed); ok {
+			return sentinel, true
+		}
+	case []interface{}:
+		for _, item := range typed {
+			if sentinel, ok := toolCallParamsMarkupSentinelInValue(item); ok {
+				return sentinel, true
+			}
+		}
+	case map[string]interface{}:
+		for _, item := range typed {
+			if sentinel, ok := toolCallParamsMarkupSentinelInValue(item); ok {
+				return sentinel, true
+			}
+		}
+	}
+	return "", false
+}
+
+func appendedToolCallClosingSentinel(value string) (string, bool) {
+	lowered := strings.ToLower(value)
+	for _, sentinel := range toolCallArgumentClosingSentinels {
+		searchFrom := 0
+		for {
+			idx := strings.Index(lowered[searchFrom:], sentinel)
+			if idx < 0 {
+				break
+			}
+			idx += searchFrom
+			if strings.TrimSpace(value[:idx]) != "" {
+				return sentinel, true
+			}
+			searchFrom = idx + len(sentinel)
+		}
+	}
+	return "", false
 }
 
 func truncForLog(s string, max int) string {
@@ -4137,6 +4221,11 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 		b.observeSchemaRejected(ctx, tc, "tool_params_schema_rejected", kind)
 		b.observeToolRejected(ctx, tc, "tool_params_schema_rejected", kind)
 		return malformedToolParamsResult(tc), nil
+	}
+	if sentinel, ok := toolCallParamsMarkupSentinel(tc.Params); ok {
+		b.observeSchemaRejected(ctx, tc, "tool_params_markup_sentinel", "tool_param_integrity")
+		b.observeToolRejected(ctx, tc, "tool_params_markup_sentinel", "tool_param_integrity")
+		return toolParamsMarkupSentinelResult(tc, sentinel), nil
 	}
 	if normalized, ok := b.normalizeToolCallParamsFromRegistry(tc); ok {
 		b.observeToolParamsNormalized(ctx, tc, tc.Params, normalized.Params, "tool_param_schema_normalized")

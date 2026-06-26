@@ -35,6 +35,7 @@ const (
 	RepoMapNavigationPurposeChangeImpact    RepoMapNavigationPurpose = "change_impact"
 	RepoMapNavigationPurposeExternalCurrent RepoMapNavigationPurpose = "external_current_source"
 	RepoMapNavigationPurposeScalarLookup    RepoMapNavigationPurpose = "scalar_lookup"
+	RepoMapNavigationPurposeEntrypoint      RepoMapNavigationPurpose = "entrypoint_lookup"
 	RepoMapNavigationPurposeLocalizationGap RepoMapNavigationPurpose = "localization_gap"
 )
 
@@ -75,6 +76,15 @@ func (p RepoMapNavigationPolicy) Empty() bool {
 func (p RepoMapNavigationPolicy) HasRoute(route RepoMapNavigationRoute) bool {
 	for _, step := range p.Steps {
 		if step.Route == route {
+			return true
+		}
+	}
+	return false
+}
+
+func (p RepoMapNavigationPolicy) HasPurpose(purpose RepoMapNavigationPurpose) bool {
+	for _, step := range p.Steps {
+		if step.Purpose == purpose {
 			return true
 		}
 	}
@@ -282,8 +292,21 @@ func CompileRepoMapNavigationPolicy(rm RequestModel, contract *AnswerContract, l
 		add(RepoMapNavigationStep{
 			Route:   RepoMapNavigationRouteTaskMap,
 			Purpose: RepoMapNavigationPurposeScalarLookup,
-			When:    "for exact scalar/config/return-value lookups before reading the selected file",
+			When:    "for exact scalar/config/return-value or role-location lookups before reading the selected file",
 			Params:  []string{"query"},
+		})
+	}
+
+	if repoMapNavigationNeedsEntrypointLookup(rm) {
+		add(RepoMapNavigationStep{
+			Route:   RepoMapNavigationRouteFileMap,
+			Purpose: RepoMapNavigationPurposeEntrypoint,
+			When:    "for entry/startup/handler role-location questions; discover framework routes, manifests, registrations, lifecycle callbacks, command roots, and generated-adjacent entry surfaces before assuming a literal main function",
+			Params:  []string{"path", "query", "top_n"},
+			FollowUps: []RepoMapNavigationRoute{
+				RepoMapNavigationRouteTaskMap,
+				RepoMapNavigationRouteRelationMap,
+			},
 		})
 	}
 
@@ -442,11 +465,26 @@ func repoMapNavigationNeedsScalarLookup(rm RequestModel) bool {
 	if rm.Predicates.IsCountQuestion {
 		return false
 	}
+	if repoMapNavigationNeedsEntrypointLookup(rm) {
+		return true
+	}
 	if rm.Intent == IntentReturnValue || rm.PredicateAxis == AxisReturn || rm.PredicateAxis == AxisConfigure {
 		return true
 	}
 	switch rm.AnswerSubject.Kind {
 	case SubjectReturnValue, SubjectStringLiteral, SubjectNumeric, SubjectEnumValue, SubjectConfigKey, SubjectFilePath:
+		return true
+	default:
+		return false
+	}
+}
+
+func repoMapNavigationNeedsEntrypointLookup(rm RequestModel) bool {
+	if !rm.Predicates.IsRoleLocateLookup {
+		return false
+	}
+	switch rm.AnswerSubject.Kind {
+	case SubjectFunctionName, SubjectHandlerRoute:
 		return true
 	default:
 		return false
