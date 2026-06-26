@@ -5699,7 +5699,7 @@ func aggregateMemberSetMemberUsableAt(fact types.AnswerAggregateFact, member str
 	}
 	if loc, ok := aggregateMemberSetPositionalSupportLocation(fact, memberIdx, labels); ok &&
 		aggregateSupportLocationCompatibleWithMember(member, loc) &&
-		aggregateSupportLocationVerified(loc, support) {
+		aggregateSupportLocationMatchesMemberLabels(loc, labels, support) {
 		return true
 	}
 	if label, loc, ok := aggregateMemberSupportRefParts(member); ok {
@@ -6415,6 +6415,9 @@ func aggregateQuotedValueTextContainsAnyLabel(text string, labels []string) bool
 		}
 		for _, quote := range []string{`"`, `'`, "`"} {
 			if strings.Contains(text, quote+label+quote) {
+				return true
+			}
+			if strings.Contains(strings.ToLower(text), quote+strings.ToLower(label)+quote) {
 				return true
 			}
 		}
