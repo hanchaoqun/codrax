@@ -202,7 +202,9 @@ assert_eq "$(eval_max_context_tokens_estimate "$tmp/finalizer-control.log")" "20
 assert_eq "$(eval_max_context_window_tokens "$tmp/finalizer-control.log")" "4096" "max context window"
 assert_eq "$(eval_max_context_window_pct "$tmp/finalizer-control.log")" "50" "max context window pct"
 assert_eq "$(eval_sum_answer_contract_violations "$tmp/finalizer-control.log")" "4" "answer contract violation sum"
+assert_eq "$(eval_sum_answer_contract_strict_violations "$tmp/finalizer-control.log")" "4" "legacy answer contract strict violation fallback"
 assert_eq "$(eval_sum_answer_contract_violations_for_section "$tmp/finalizer-control.log" lane_block_kind)" "1" "answer contract section violation sum"
+assert_eq "$(eval_sum_answer_contract_strict_violations_for_section "$tmp/finalizer-control.log" lane_block_kind)" "1" "legacy answer contract section strict fallback"
 assert_eq "$(eval_count_agent_iterations "$tmp/finalizer-control.log" explorer)" "1" "agent iteration control count"
 assert_eq "$(eval_count_agent_dispatches "$tmp/finalizer-control.log" explorer)" "1" "agent dispatch control count"
 assert_eq "$(eval_count_semantic_quality_dispatches "$tmp/finalizer-control.log")" "1" "semantic dispatch control count"
@@ -300,7 +302,18 @@ assert_eq "$(eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=prune TO
 assert_eq "$(eval_max_context_tokens_estimate "$tmp/finalizer-content-only.log")" "0" "max context token estimate content contamination"
 assert_eq "$(eval_max_context_window_pct "$tmp/finalizer-content-only.log")" "0" "max context pct content contamination"
 assert_eq "$(eval_sum_answer_contract_violations "$tmp/finalizer-content-only.log")" "0" "answer contract violation content contamination"
+assert_eq "$(eval_sum_answer_contract_strict_violations "$tmp/finalizer-content-only.log")" "0" "answer contract strict content contamination"
 assert_eq "$(eval_sum_answer_contract_violations_for_section "$tmp/finalizer-content-only.log" lane_block_kind)" "0" "answer contract section content contamination"
+assert_eq "$(eval_sum_answer_contract_strict_violations_for_section "$tmp/finalizer-content-only.log" lane_block_kind)" "0" "answer contract strict section content contamination"
+
+cat >"$tmp/finalizer-contract-severity.log" <<'LOG'
+2026-06-08T00:00:01.000 DEBUG [diag finalizer] phase=answer_contract_check section=v2_block_oracles done elapsed=1ms violations=4 strict_violations=1 soft_violations=3
+2026-06-08T00:00:02.000 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind done elapsed=1ms violations=2 strict_violations=0 soft_violations=2
+LOG
+assert_eq "$(eval_sum_answer_contract_violations "$tmp/finalizer-contract-severity.log")" "6" "answer contract total preserves soft audit"
+assert_eq "$(eval_sum_answer_contract_strict_violations "$tmp/finalizer-contract-severity.log")" "1" "answer contract strict excludes soft advisory"
+assert_eq "$(eval_sum_answer_contract_violations_for_section "$tmp/finalizer-contract-severity.log" lane_block_kind)" "2" "answer contract section total preserves soft audit"
+assert_eq "$(eval_sum_answer_contract_strict_violations_for_section "$tmp/finalizer-contract-severity.log" lane_block_kind)" "0" "answer contract section strict excludes soft advisory"
 assert_eq "$(eval_count_agent_iterations "$tmp/finalizer-content-only.log" explorer)" "0" "agent iteration content contamination"
 assert_eq "$(eval_count_agent_dispatches "$tmp/finalizer-content-only.log" explorer)" "0" "agent dispatch content contamination"
 assert_eq "$(eval_count_semantic_quality_dispatches "$tmp/finalizer-content-only.log")" "0" "semantic dispatch content contamination"
@@ -408,7 +421,7 @@ cat >"$logdir/codrax-20260608-000001-000-1.log" <<'LOG'
 2026-06-08T00:00:01.000 INFO [cmd/route] single-shot turn policy raw_route=data route=data source=repo
 LOG
 cat >"$logdir/codrax-20260608-000002-000-1.log" <<'LOG'
-2026-06-08T00:00:02.000 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind violations=2 elapsed=1ms
+2026-06-08T00:00:02.000 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind violations=2 strict_violations=0 soft_violations=2 elapsed=1ms
 LOG
 printf 'aggregated-answer\n'
 FAKE
@@ -433,6 +446,7 @@ if ! grep -q '^log_file=.*run-1.logs.all.log$' "$multilog_dir/run-1.metrics.txt"
   fail "metrics did not point at aggregate log"
 fi
 assert_eq "$(grep '^answer_contract_violations=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "2" "aggregate log answer contract metric"
+assert_eq "$(grep '^answer_contract_strict_violations=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "0" "aggregate log strict answer contract metric"
 
 fake_write_apply="$tmp/fake-codrax-write-apply"
 cat >"$fake_write_apply" <<'FAKE'

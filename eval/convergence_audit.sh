@@ -166,6 +166,12 @@ wait
     sem="$(metric_number "$metrics" semantic_quality_concerns)"
     mermaid_repair="$(metric_number "$metrics" mermaid_source_repair_applied)"
     answer_contract="$(metric_number "$metrics" answer_contract_violations)"
+    answer_contract_strict_raw="$(metric_field "$metrics" answer_contract_strict_violations)"
+    if [[ -n "$answer_contract_strict_raw" && "$answer_contract_strict_raw" != "-" ]]; then
+      answer_contract_strict="$(metric_number "$metrics" answer_contract_strict_violations)"
+    else
+      answer_contract_strict="$answer_contract"
+    fi
     history_prunes="$(metric_number "$metrics" tool_history_prunes)"
     flags=""
     if [[ "$verdict" != "PASS" ]]; then
@@ -183,7 +189,7 @@ wait
     if [[ "$sem" -gt 0 ]]; then
       flags="${flags} semantic"
     fi
-    if [[ "$answer_contract" -gt 0 ]]; then
+    if [[ "$answer_contract_strict" -gt 0 ]]; then
       flags="${flags} contract_warning"
     fi
     if [[ "$mermaid_repair" -gt 0 ]]; then
@@ -209,7 +215,7 @@ wait
   echo
   echo "**flagged: $flagged / $total**"
   echo
-  echo "Flag meanings: \`finalizer\` = finalizer took multiple turns or had document/patch rejects/rewrite renders; \`explorer_long\` = multiple explorer dispatches or very high explorer iterations; \`wide_search\` = high read_file/repo_map/list_files cost; \`lane_wait\` = typed mixed-origin closure correctly waited for missing lanes; \`semantic\` = semantic reviewer emitted concerns; \`contract_warning\` = answer contract check logged advisory violations; \`auto_repair\` = renderer/compat auto-repair was applied; \`context_prune\` = tool history pruning occurred."
+  echo "Flag meanings: \`finalizer\` = finalizer took multiple turns or had document/patch rejects/rewrite renders; \`explorer_long\` = multiple explorer dispatches or very high explorer iterations; \`wide_search\` = high read_file/repo_map/list_files cost; \`lane_wait\` = typed mixed-origin closure correctly waited for missing lanes; \`semantic\` = semantic reviewer emitted concerns; \`contract_warning\` = answer contract check logged strict contract violations; soft advisory violations remain in metrics for audit but do not set this flag; \`auto_repair\` = renderer/compat auto-repair was applied; \`context_prune\` = tool history pruning occurred."
 } >"$SUMMARY"
 
 echo "summary written: $SUMMARY" >&2

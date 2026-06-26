@@ -82,7 +82,9 @@ type finalizerSummary struct {
 	DocumentRejects            int            `json:"document_rejects"`
 	PatchRejects               int            `json:"patch_rejects"`
 	ContractViolations         int            `json:"contract_violations"`
+	StrictContractViolations   int            `json:"strict_contract_violations"`
 	ContractViolationBySection map[string]int `json:"contract_violation_by_section,omitempty"`
+	StrictContractBySection    map[string]int `json:"strict_contract_violation_by_section,omitempty"`
 	RewriteRenders             int            `json:"rewrite_renders"`
 	ConsistencyRenders         int            `json:"consistency_renders"`
 	RepairPlans                int            `json:"repair_plans"`
@@ -161,7 +163,7 @@ var (
 	blocklistRe     = regexp.MustCompile(`blocklist_shadow:\s*(.*)$`)
 	toolRejectRe    = regexp.MustCompile(`TOOLRESULT\s+([a-zA-Z0-9_]+)\s+ok=false`)
 	repairPlanRe    = regexp.MustCompile(`repair_plan:\s*(.*)$`)
-	contractCheckRe = regexp.MustCompile(`answer_contract_check\s+section=([a-zA-Z0-9_]+).*violations=([0-9]+)`)
+	contractCheckRe = regexp.MustCompile(`answer_contract_check\s+section=([a-zA-Z0-9_]+)`)
 	richnessRe      = regexp.MustCompile(`\[richness\]\s+([a-zA-Z0-9_]+)\s+(.*)$`)
 	renderStageRe   = regexp.MustCompile(`(?:^|[^0-9])([1-4])/4(?:[^0-9]|$)`)
 	midLoopSignalRe = regexp.MustCompile(`phase=midloop_signal.*key="([^"]*)".*→\s*([a-zA-Z_]+)`)
@@ -215,6 +217,7 @@ func collect(paths []string) (report, error) {
 	c.report.Explorer.ByAction = map[string]int{}
 	c.report.Explorer.HighWaterByMetric = map[string]int{}
 	c.report.Finalizer.ContractViolationBySection = map[string]int{}
+	c.report.Finalizer.StrictContractBySection = map[string]int{}
 	c.report.Finalizer.RepairKinds = map[string]int{}
 	c.report.Finalizer.RepairTargets = map[string]int{}
 	c.report.Richness.ByKind = map[string]int{}
@@ -566,16 +569,39 @@ func (c *collector) observeRepairPlan(line string) {
 
 func (c *collector) observeContractCheck(line string, fm *fileMetrics) {
 	m := contractCheckRe.FindStringSubmatch(line)
-	if len(m) != 3 {
+	if len(m) != 2 {
 		return
 	}
-	n, err := strconv.Atoi(m[2])
-	if err != nil || n <= 0 {
+	total, ok := logIntField(line, "violations")
+	if !ok || total <= 0 {
 		return
 	}
-	c.report.Finalizer.ContractViolations += n
-	c.report.Finalizer.ContractViolationBySection[m[1]] += n
-	fm.finalizerRejects += n
+	strict, ok := logIntField(line, "strict_violations")
+	if !ok {
+		strict = total
+	}
+	c.report.Finalizer.ContractViolations += total
+	c.report.Finalizer.ContractViolationBySection[m[1]] += total
+	if strict > 0 {
+		c.report.Finalizer.StrictContractViolations += strict
+		c.report.Finalizer.StrictContractBySection[m[1]] += strict
+		fm.finalizerRejects += strict
+	}
+}
+
+func logIntField(line string, key string) (int, bool) {
+	prefix := key + "="
+	for _, field := range strings.Fields(line) {
+		if !strings.HasPrefix(field, prefix) {
+			continue
+		}
+		v, err := strconv.Atoi(strings.TrimPrefix(field, prefix))
+		if err != nil {
+			return 0, false
+		}
+		return v, true
+	}
+	return 0, false
 }
 
 func (c *collector) finalize() {
@@ -950,7 +976,11 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 		rep.Finalizer.DocumentRejects,
 		rep.Finalizer.PatchRejects,
 	)
-	fmt.Fprintf(w, "- contract violations: total=%d\n", rep.Finalizer.ContractViolations)
+	fmt.Fprintf(w, "- contract violations: total=%d strict=%d soft=%d\n",
+		rep.Finalizer.ContractViolations,
+		rep.Finalizer.StrictContractViolations,
+		rep.Finalizer.ContractViolations-rep.Finalizer.StrictContractViolations,
+	)
 	fmt.Fprintf(w, "- rewrites: render_lines=%d consistency_lines=%d repair_plans=%d\n",
 		rep.Finalizer.RewriteRenders,
 		rep.Finalizer.ConsistencyRenders,
@@ -959,6 +989,7 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 	writeTopMap(w, "Repair kinds", rep.Finalizer.RepairKinds, 10)
 	writeTopMap(w, "Repair targets", rep.Finalizer.RepairTargets, 10)
 	writeTopMap(w, "Contract violation sections", rep.Finalizer.ContractViolationBySection, 10)
+	writeTopMap(w, "Strict contract violation sections", rep.Finalizer.StrictContractBySection, 10)
 
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "## Richness")

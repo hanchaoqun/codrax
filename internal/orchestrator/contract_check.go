@@ -74,11 +74,12 @@ func (t contractCheckTrace) run(name string, fn func() []types.Violation) []type
 	}
 	stop := t.start(name)
 	out := fn()
-	stop(len(out))
+	strict, soft := contractViolationSeverityCounts(out)
+	stop(len(out), strict, soft)
 	return out
 }
 
-func (t contractCheckTrace) start(name string) func(int) {
+func (t contractCheckTrace) start(name string) func(int, int, int) {
 	start := time.Now()
 	done := make(chan struct{})
 	go func() {
@@ -95,14 +96,25 @@ func (t contractCheckTrace) start(name string) func(int) {
 			}
 		}
 	}()
-	return func(violations int) {
+	return func(violations int, strictViolations int, softViolations int) {
 		close(done)
-		logging.Debug("[diag finalizer] phase=answer_contract_check section=%s done elapsed=%s violations=%d",
-			name, time.Since(start).Round(time.Millisecond), violations)
+		logging.Debug("[diag finalizer] phase=answer_contract_check section=%s done elapsed=%s violations=%d strict_violations=%d soft_violations=%d",
+			name, time.Since(start).Round(time.Millisecond), violations, strictViolations, softViolations)
 		if t.canceled() {
 			logging.Warning("[diag finalizer] phase=answer_contract_check section=%s canceled after run err=%v", name, t.ctx.Err())
 		}
 	}
+}
+
+func contractViolationSeverityCounts(vs []types.Violation) (strict int, soft int) {
+	for _, v := range vs {
+		if isSoftViolationKind(v.Kind) {
+			soft++
+			continue
+		}
+		strict++
+	}
+	return strict, soft
 }
 
 type contractCheckOptions struct {
@@ -195,7 +207,8 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	}
 	stopCore := trace.start("contract_core")
 	result := contract.CheckWithOracle(draft, c, oracle)
-	stopCore(len(result.Violations))
+	coreStrict, coreSoft := contractViolationSeverityCounts(result.Violations)
+	stopCore(len(result.Violations), coreStrict, coreSoft)
 
 	// Commit 53 P2 — Answer Shape Oracle. After the contract.Check
 	// suite, run additional read-mode-only coherence checks that need
@@ -264,7 +277,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			// AllowedBlocks.
 			stopSupportPlan := trace.start("support_plan")
 			supportPlan := types.BuildAnswerSupportPlanForBusContext(o.busCtx)
-			stopSupportPlan(0)
+			stopSupportPlan(0, 0, 0)
 			if supportPlan != nil {
 				result.Violations = append(result.Violations,
 					trace.run("lane_block_kind", func() []types.Violation {

@@ -25,7 +25,7 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 		`2026-05-19T10:00:00.030 INFO [render]   ⟳ 1/4 模型响应出错,正在重新理解问题`,
 		`2026-05-19T10:00:00.040 DEBUG [diag analyzer] iter=0 phase=toolresult TOOLRESULT emit_analysis ok=false len=32: emit_analysis rejected: keywords below hard floor got=1 want≥3`,
 		`2026-05-19T10:00:00.050 DEBUG [diag finalizer] iter=0 phase=toolresult TOOLRESULT emit_answer_document ok=false len=99: bad citation`,
-		`2026-05-19T10:00:00.055 DEBUG [diag finalizer] phase=answer_contract_check section=v2_block_oracles done elapsed=2ms violations=3`,
+		`2026-05-19T10:00:00.055 DEBUG [diag finalizer] phase=answer_contract_check section=v2_block_oracles done elapsed=2ms violations=3 strict_violations=1 soft_violations=2`,
 		`2026-05-19T10:00:00.060 INFO [render]   ⟳ 4/4 答案待完善，正在重写`,
 		`2026-05-19T10:00:00.061 INFO [render]   › 4/4 正在生成最终答案`,
 		`2026-05-19T10:00:00.062 INFO [render]   ✓ 2/4 已归纳探索结果`,
@@ -80,6 +80,9 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 	if rep.Finalizer.ContractViolations != 3 || rep.Finalizer.ContractViolationBySection["v2_block_oracles"] != 3 {
 		t.Fatalf("contract violations not parsed: %+v", rep.Finalizer)
 	}
+	if rep.Finalizer.StrictContractViolations != 1 || rep.Finalizer.StrictContractBySection["v2_block_oracles"] != 1 {
+		t.Fatalf("strict contract violations not parsed: %+v", rep.Finalizer)
+	}
 	if rep.Richness.Events != 1 ||
 		rep.Richness.ByKind["facet_softened"] != 1 ||
 		rep.Richness.ByFamily["architecture"] != 1 ||
@@ -113,6 +116,26 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 	}
 }
 
+func TestCollectContractCheckLegacyLogsFallbackToStrict(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "codrax.log")
+	body := `2026-05-19T10:00:00.055 DEBUG [diag finalizer] phase=answer_contract_check section=v2_block_oracles done elapsed=2ms violations=3`
+	if err := os.WriteFile(logPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := collect([]string{dir})
+	if err != nil {
+		t.Fatalf("collect returned error: %v", err)
+	}
+	if rep.Finalizer.ContractViolations != 3 || rep.Finalizer.StrictContractViolations != 3 {
+		t.Fatalf("legacy contract telemetry should fallback to strict total: %+v", rep.Finalizer)
+	}
+	if rep.FilesByRetryScore[0].FinalizerRejects != 3 {
+		t.Fatalf("legacy retry score should preserve old finalizer reject accounting: %+v", rep.FilesByRetryScore)
+	}
+}
+
 func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 	rep := report{
 		Files: 1,
@@ -136,7 +159,9 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 		Finalizer: finalizerSummary{
 			ToolRejects:                1,
 			ContractViolations:         2,
+			StrictContractViolations:   1,
 			ContractViolationBySection: map[string]int{"support_plan": 2},
+			StrictContractBySection:    map[string]int{"support_plan": 1},
 			RepairKinds:                map[string]int{"diagram_edge_endpoint_hallucinated": 1},
 		},
 		Explorer: explorerSummary{
@@ -176,6 +201,7 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 		"explorer.mid-loop.read-without-emit",
 		"explorer_iters",
 		"diagram_edge_endpoint_hallucinated",
+		"contract violations: total=2 strict=1 soft=1",
 		"support_plan",
 		"facet_softened",
 		"stage_regressions=1",

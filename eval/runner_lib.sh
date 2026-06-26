@@ -748,6 +748,76 @@ eval_sum_answer_contract_violations_for_section() {
   ' "$file"
 }
 
+eval_sum_answer_contract_strict_violations() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  LC_ALL=C awk '
+    /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ DEBUG \[diag finalizer\][^:]*phase=answer_contract_check / {
+      strict = ""
+      total = ""
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^strict_violations=[0-9]+$/) {
+          split($i, a, "=")
+          strict = a[2] + 0
+        } else if ($i ~ /^violations=[0-9]+$/) {
+          split($i, b, "=")
+          total = b[2] + 0
+        }
+      }
+      if (strict != "") {
+        sum += strict
+      } else if (total != "") {
+        # Legacy logs did not split strict/soft, so keep old behavior
+        # when auditing pre-D1-F10g.83 results.
+        sum += total
+      }
+    }
+    END { print sum + 0 }
+  ' "$file"
+}
+
+eval_sum_answer_contract_strict_violations_for_section() {
+  local file="$1"
+  local section="$2"
+  if [[ -z "$file" || ! -f "$file" || -z "$section" ]]; then
+    echo 0
+    return
+  fi
+  LC_ALL=C awk -v section="$section" '
+    /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ DEBUG \[diag finalizer\][^:]*phase=answer_contract_check / {
+      matched = 0
+      for (i = 1; i <= NF; i++) {
+        if ($i == "section=" section) {
+          matched = 1
+        }
+      }
+      if (!matched) {
+        next
+      }
+      strict = ""
+      total = ""
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^strict_violations=[0-9]+$/) {
+          split($i, a, "=")
+          strict = a[2] + 0
+        } else if ($i ~ /^violations=[0-9]+$/) {
+          split($i, b, "=")
+          total = b[2] + 0
+        }
+      }
+      if (strict != "") {
+        sum += strict
+      } else if (total != "") {
+        sum += total
+      }
+    }
+    END { print sum + 0 }
+  ' "$file"
+}
+
 eval_count_agent_iterations() {
   local file="$1"
   local agent="$2"
@@ -917,7 +987,9 @@ eval_materialize_partial_run_result() {
       echo "max_context_window=$(eval_max_context_window_tokens "$log")"
       echo "max_context_window_pct=$(eval_max_context_window_pct "$log")"
       echo "answer_contract_violations=$(eval_sum_answer_contract_violations "$log")"
+      echo "answer_contract_strict_violations=$(eval_sum_answer_contract_strict_violations "$log")"
       echo "answer_contract_lane_block_kind_violations=$(eval_sum_answer_contract_violations_for_section "$log" lane_block_kind)"
+      echo "answer_contract_lane_block_kind_strict_violations=$(eval_sum_answer_contract_strict_violations_for_section "$log" lane_block_kind)"
       echo "midloop_inject=$(eval_count_midloop_injects "$log")"
       echo "parallel_sibling_skips=$(eval_count_pattern 'skipping non-winning parallel explore sibling' "$log")"
       echo "mixed_origin_autocomplete_blocks=$(eval_count_pattern 'accepted investigation closure cannot auto-complete mixed-origin explore window' "$log")"

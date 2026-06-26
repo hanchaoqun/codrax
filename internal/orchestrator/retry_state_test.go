@@ -296,6 +296,19 @@ func TestIsSoftViolationKind_CitationDisplaySoftByDefault(t *testing.T) {
 	}
 }
 
+func TestContractViolationSeverityCountsUsesSoftPolicy(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	strict, soft := contractViolationSeverityCounts([]types.Violation{
+		{Kind: types.ViolCitation},
+		{Kind: types.ViolationKind("never_emitted_kind_for_contract_trace_test")},
+	})
+	if strict != 1 || soft != 1 {
+		t.Fatalf("strict=%d soft=%d, want strict=1 soft=1", strict, soft)
+	}
+}
+
 // TestPopulateRetryState_PrimaryOwnerStability pins Phase 1-A2:
 // populateRetryState writes LastPrimaryOwner / OwnerStableAttempts /
 // LastPrimaryViolation from BuildRepairPlan. Stability counter
