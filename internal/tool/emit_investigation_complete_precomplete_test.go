@@ -2893,6 +2893,12 @@ func build() {
 		ToolName: "exec_command",
 		Summary:  "count=1\n",
 		Success:  true,
+		CommandMeasurement: &types.ToolCommandMeasurement{
+			Kind:        types.ToolCommandMeasurementKindCount,
+			Value:       1,
+			Origin:      types.AnswerEvidenceOriginCommandMeasurement,
+			ProofSource: "exec_command",
+		},
 	})
 	res, err = tool.Execute(bus, params)
 	if err != nil {
@@ -3162,6 +3168,13 @@ func TestDeterministicHistoryCountToolResultValue_AcceptsOnlyLabeledGitProof(t *
 		ToolName: "exec_command",
 		Summary:  "[exec_command: $ git log --format=%H -20 -- internal/orchestrator | awk 'END { print \"answer_count=0\" }']\nanswer_count=0\n",
 		Success:  true,
+		CommandMeasurement: &types.ToolCommandMeasurement{
+			Kind:        types.ToolCommandMeasurementKindCount,
+			Value:       0,
+			Origin:      types.AnswerEvidenceOriginVCSMetadata,
+			ProofSource: "exec_command_git_history",
+			History:     true,
+		},
 	})
 	got, ok := deterministicHistoryCountToolResultValue(&types.BusContext{Mutable: mut})
 	if !ok || got != 0 {
@@ -3185,10 +3198,29 @@ func TestDeterministicHistoryCountToolResultValue_AcceptsGitHistorySearchProof(t
 		ToolName: "git_history_search",
 		Summary:  "[git_history_search: window_path=internal/orchestrator window_count=20 diff_path=internal/orchestrator/orchestrator.go contains=runTaskGraph]\nwindow_size=20\nanswer_count=1\nmatched_commits:\n- 5305ef76 Stabilize write-mode analysis fallback\nunmatched=19\n",
 		Success:  true,
+		CommandMeasurement: &types.ToolCommandMeasurement{
+			Kind:        types.ToolCommandMeasurementKindCount,
+			Value:       1,
+			Origin:      types.AnswerEvidenceOriginVCSMetadata,
+			ProofSource: "git_history_search",
+			History:     true,
+		},
 	})
 	got, ok := deterministicHistoryCountToolResultValue(&types.BusContext{Mutable: mut})
 	if !ok || got != 1 {
 		t.Fatalf("deterministicHistoryCountToolResultValue = (%d,%v), want (1,true)", got, ok)
+	}
+}
+
+func TestDeterministicHistoryCountToolResultValue_RejectsSummaryOnlyGitHistorySearchProof(t *testing.T) {
+	mut := types.NewMutableState("history count")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "git_history_search",
+		Summary:  "[git_history_search: window_path=internal/orchestrator window_count=20 diff_path=internal/orchestrator/orchestrator.go contains=runTaskGraph]\nwindow_size=20\nanswer_count=1\nmatched_commits:\n- 5305ef76 Stabilize write-mode analysis fallback\nunmatched=19\n",
+		Success:  true,
+	})
+	if got, ok := deterministicHistoryCountToolResultValue(&types.BusContext{Mutable: mut}); ok {
+		t.Fatalf("summary-only git_history_search proof must not be accepted: (%d,true)", got)
 	}
 }
 
@@ -3198,6 +3230,13 @@ func TestEmitInvestigationComplete_PreCompleteCheck_HistoryCountAcceptsGitHistor
 		ToolName: "git_history_search",
 		Summary:  "[git_history_search: window_path=internal/orchestrator window_count=20 diff_path=internal/orchestrator/orchestrator.go contains=runTaskGraph]\nwindow_size=20\nanswer_count=1\nmatched_commits:\n- 5305ef76 Stabilize write-mode analysis fallback\nunmatched=19\n",
 		Success:  true,
+		CommandMeasurement: &types.ToolCommandMeasurement{
+			Kind:        types.ToolCommandMeasurementKindCount,
+			Value:       1,
+			Origin:      types.AnswerEvidenceOriginVCSMetadata,
+			ProofSource: "git_history_search",
+			History:     true,
+		},
 	})
 	bus := &types.BusContext{
 		Mutable: mut,
@@ -3254,6 +3293,13 @@ func TestEmitInvestigationComplete_PreCompleteCheck_HistoryCountAcceptsLabeledVC
 		ToolName: "exec_command",
 		Summary:  "[exec_command: $ git log --format=%H -20 -- internal/orchestrator | awk 'END { print \"answer_count=0\" }']\nanswer_count=0\n",
 		Success:  true,
+		CommandMeasurement: &types.ToolCommandMeasurement{
+			Kind:        types.ToolCommandMeasurementKindCount,
+			Value:       0,
+			Origin:      types.AnswerEvidenceOriginVCSMetadata,
+			ProofSource: "exec_command_git_history",
+			History:     true,
+		},
 	})
 	bus := &types.BusContext{
 		Mutable: mut,

@@ -636,7 +636,8 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 		}, nil
 	}
 
-	payload := execCommandPayloadWithTypedOrigins(banner, command, output)
+	measurement := execCommandMeasurement(command, output)
+	payload := execCommandPayloadWithTypedOrigins(banner, command, output, measurement)
 	if advisory := execCommandSearchShapeAdvisory(command, output, nil); advisory != "" {
 		payload += advisory
 	}
@@ -645,12 +646,13 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	}
 	summary, ref := StoreBlob(ctx, t.Name(), payload)
 	return types.ToolResult{
-		ToolName:   t.Name(),
-		Success:    true,
-		Summary:    summary,
-		RawRef:     ref,
-		Refinement: execCommandRefinement(ctx, command, "", len(payload)),
-		Timestamp:  time.Now(),
+		ToolName:           t.Name(),
+		Success:            true,
+		Summary:            summary,
+		RawRef:             ref,
+		Refinement:         execCommandRefinement(ctx, command, "", len(payload)),
+		CommandMeasurement: measurement,
+		Timestamp:          time.Now(),
 	}, nil
 }
 
@@ -976,9 +978,9 @@ func execCommandTokenIsRepoRoot(token string) bool {
 	return token == "" || token == "." || token == "./"
 }
 
-func execCommandPayloadWithTypedOrigins(banner, command, output string) string {
+func execCommandPayloadWithTypedOrigins(banner, command, output string, measurement *types.ToolCommandMeasurement) string {
 	payload := banner + output
-	originLine := execCommandTypedOriginLine(command, output)
+	originLine := execCommandTypedOriginLine(command, measurement)
 	if originLine == "" {
 		return payload
 	}
@@ -1257,14 +1259,10 @@ func execCommandOutputLineStartsWithNumber(line string) bool {
 	return i > 0 && i < len(line) && line[i] == ':'
 }
 
-func execCommandTypedOriginLine(command, output string) string {
+func execCommandTypedOriginLine(command string, measurement *types.ToolCommandMeasurement) string {
 	metadata, diff := execCommandGitOrigins(command)
-	proofSummary := fmt.Sprintf("[exec_command: $ %s]\n%s", sanitizeForBanner(command), output)
-	_, measurement := types.DeterministicCountProofInteger(proofSummary)
-	if !measurement {
-		_, measurement = deterministicHistoryCountProofInteger(proofSummary)
-	}
-	if !metadata && !diff && !measurement {
+	hasMeasurement := measurement != nil
+	if !metadata && !diff && !hasMeasurement {
 		return ""
 	}
 	var kv []string
@@ -1273,19 +1271,42 @@ func execCommandTypedOriginLine(command, output string) string {
 		kv = append(kv, "evidence_origin", string(types.AnswerEvidenceOriginVCSMetadata))
 	case diff:
 		kv = append(kv, "evidence_origin", string(types.AnswerEvidenceOriginVCSDiff))
-	case measurement:
+	case hasMeasurement:
 		kv = append(kv, "evidence_origin", string(types.AnswerEvidenceOriginCommandMeasurement))
 	}
 	if diff && metadata {
 		kv = append(kv, "diff_origin", string(types.AnswerEvidenceOriginVCSDiff))
 	}
-	if measurement && (metadata || diff) {
+	if hasMeasurement && (metadata || diff) {
 		kv = append(kv, "measurement_origin", string(types.AnswerEvidenceOriginCommandMeasurement))
 	}
-	if measurement {
+	if hasMeasurement {
 		kv = append(kv, "measurement", "count")
 	}
 	return kvBanner("exec_command", kv...)
+}
+
+func execCommandMeasurement(command, output string) *types.ToolCommandMeasurement {
+	if value, ok := deterministicHistoryCountProofInteger(output); ok && execCommandHasGitHistoryCommand(command) {
+		return &types.ToolCommandMeasurement{
+			Kind:        types.ToolCommandMeasurementKindCount,
+			Value:       value,
+			Origin:      types.AnswerEvidenceOriginVCSMetadata,
+			ProofSource: "exec_command_git_history",
+			Command:     strings.TrimSpace(command),
+			History:     true,
+		}
+	}
+	if value, ok := types.DeterministicCountProofInteger(output); ok {
+		return &types.ToolCommandMeasurement{
+			Kind:        types.ToolCommandMeasurementKindCount,
+			Value:       value,
+			Origin:      types.AnswerEvidenceOriginCommandMeasurement,
+			ProofSource: "exec_command",
+			Command:     strings.TrimSpace(command),
+		}
+	}
+	return nil
 }
 
 func execCommandGitOrigins(command string) (metadata bool, diff bool) {
@@ -5322,7 +5343,14 @@ func (t *GitHistorySearch) Execute(ctx *types.BusContext, params json.RawMessage
 		Summary:    summary,
 		RawRef:     ref,
 		Refinement: gitHistorySearchRefinement(p, windowPath, diffPath, order, count, inspected, len(payload)),
-		Timestamp:  time.Now(),
+		CommandMeasurement: &types.ToolCommandMeasurement{
+			Kind:        types.ToolCommandMeasurementKindCount,
+			Value:       len(matches),
+			Origin:      types.AnswerEvidenceOriginVCSMetadata,
+			ProofSource: "git_history_search",
+			History:     true,
+		},
+		Timestamp: time.Now(),
 	}, nil
 }
 

@@ -7308,13 +7308,17 @@ func deterministicCountToolResultValue(ctx *types.BusContext) (int, bool) {
 	var value int
 	found := false
 	for _, tr := range deterministicCountToolResults(ctx) {
-		if tr.ToolName != "exec_command" || !tr.Success {
+		if !tr.Success {
 			continue
 		}
-		n, ok := types.DeterministicCountProofInteger(tr.Summary)
-		if !ok {
+		measurement := tr.CommandMeasurement
+		if measurement == nil ||
+			measurement.Kind != types.ToolCommandMeasurementKindCount ||
+			measurement.History ||
+			measurement.Origin != types.AnswerEvidenceOriginCommandMeasurement {
 			continue
 		}
+		n := measurement.Value
 		if found && n != value {
 			return 0, false
 		}
@@ -7337,21 +7341,22 @@ func deterministicHistoryCountToolResult(ctx *types.BusContext) (int, string, bo
 		if !tr.Success {
 			continue
 		}
-		candidateSource := tr.ToolName
-		switch tr.ToolName {
-		case "exec_command":
-			if !deterministicHistoryCountCommand(tr.Summary) {
-				continue
-			}
-			candidateSource = "exec_command_git_history"
-		case "git_history_search":
+		measurement := tr.CommandMeasurement
+		if measurement == nil ||
+			measurement.Kind != types.ToolCommandMeasurementKindCount ||
+			!measurement.History {
+			continue
+		}
+		candidateSource := strings.TrimSpace(measurement.ProofSource)
+		if candidateSource == "" {
+			candidateSource = tr.ToolName
+		}
+		switch candidateSource {
+		case "exec_command_git_history", "git_history_search", "git_log", "git_show":
 		default:
 			continue
 		}
-		n, ok := deterministicHistoryCountProofInteger(tr.Summary)
-		if !ok {
-			continue
-		}
+		n := measurement.Value
 		if found && n != value {
 			return 0, "", false
 		}
@@ -7360,27 +7365,6 @@ func deterministicHistoryCountToolResult(ctx *types.BusContext) (int, string, bo
 		found = true
 	}
 	return value, source, found
-}
-
-func deterministicHistoryCountCommand(summary string) bool {
-	cmd := deterministicCountCommandBanner(summary)
-	if cmd == "" {
-		return false
-	}
-	return execCommandHasGitHistoryCommand(cmd)
-}
-
-func deterministicCountCommandBanner(summary string) string {
-	for _, line := range strings.Split(strings.ReplaceAll(summary, "\r\n", "\n"), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "[exec_command: $ ") {
-			continue
-		}
-		line = strings.TrimPrefix(line, "[exec_command: $ ")
-		line = strings.TrimSuffix(line, "]")
-		return strings.TrimSpace(line)
-	}
-	return ""
 }
 
 func deterministicHistoryCountProofInteger(summary string) (int, bool) {

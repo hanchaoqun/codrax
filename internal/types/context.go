@@ -5348,8 +5348,9 @@ type ToolRuntimeTiming struct {
 }
 
 const (
-	ToolPathDiscoveryKindGrep      = "grep"
-	ToolPathDiscoveryKindListFiles = "list_files"
+	ToolPathDiscoveryKindGrep       = "grep"
+	ToolPathDiscoveryKindListFiles  = "list_files"
+	ToolCommandMeasurementKindCount = "count"
 )
 
 // ToolPathDiscovery is the typed call-shape/result carrier for tools that
@@ -5368,14 +5369,28 @@ type ToolPathDiscovery struct {
 	ResultCount      int    `json:"result_count,omitempty"`
 }
 
+// ToolCommandMeasurement is the typed scalar/count measurement surface for
+// command-like tools. The producer computes it from schema parameters and raw
+// tool output before rendering Summary; downstream completion gates must not
+// parse the rendered Summary to recover these facts.
+type ToolCommandMeasurement struct {
+	Kind        string               `json:"kind,omitempty"`
+	Value       int                  `json:"value"`
+	Origin      AnswerEvidenceOrigin `json:"origin,omitempty"`
+	ProofSource string               `json:"proof_source,omitempty"`
+	Command     string               `json:"command,omitempty"`
+	History     bool                 `json:"history,omitempty"`
+}
+
 type ToolResult struct {
-	ToolName      string              `json:"tool_name"`
-	Summary       string              `json:"summary"`
-	Repair        *ToolRepair         `json:"repair,omitempty"`
-	Refinement    *ToolRefinementHint `json:"refinement,omitempty"`
-	Handoff       *ToolHandoffCarrier `json:"handoff,omitempty"`
-	RawRef        string              `json:"raw_ref,omitempty"`
-	PathDiscovery *ToolPathDiscovery  `json:"path_discovery,omitempty"`
+	ToolName           string                  `json:"tool_name"`
+	Summary            string                  `json:"summary"`
+	Repair             *ToolRepair             `json:"repair,omitempty"`
+	Refinement         *ToolRefinementHint     `json:"refinement,omitempty"`
+	Handoff            *ToolHandoffCarrier     `json:"handoff,omitempty"`
+	RawRef             string                  `json:"raw_ref,omitempty"`
+	PathDiscovery      *ToolPathDiscovery      `json:"path_discovery,omitempty"`
+	CommandMeasurement *ToolCommandMeasurement `json:"command_measurement,omitempty"`
 
 	// Observations are optional producer-published typed observation rows for
 	// this tool result — the ToolResult companion to MCPResponse.Observations.

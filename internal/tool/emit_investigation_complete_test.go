@@ -6625,6 +6625,12 @@ func TestEmitInvestigationComplete_ReconcilesSinglePrincipalCountWithCommandMeas
 		ToolName: "exec_command",
 		Success:  true,
 		Summary:  "[exec_command: $ find internal/tool -name \"*.go\" ! -name \"*_test.go\" | wc -l]\n[exec_command: evidence_origin=command_measurement measurement=count]\n     140\n",
+		CommandMeasurement: &types.ToolCommandMeasurement{
+			Kind:        types.ToolCommandMeasurementKindCount,
+			Value:       140,
+			Origin:      types.AnswerEvidenceOriginCommandMeasurement,
+			ProofSource: "exec_command",
+		},
 	})
 	bus := &types.BusContext{
 		Mutable: mut,
@@ -6669,12 +6675,60 @@ func TestEmitInvestigationComplete_ReconcilesSinglePrincipalCountWithCommandMeas
 	assertAggregateDimension(t, facts[0], "answer_axis", "count")
 }
 
+func TestEmitInvestigationComplete_DoesNotReconcileSummaryOnlyCommandMeasurement(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Success:  true,
+		Summary:  "[exec_command: $ find internal/tool -name \"*.go\" ! -name \"*_test.go\" | wc -l]\n[exec_command: evidence_origin=command_measurement measurement=count]\n     140\n",
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Predicates: types.SemanticPredicates{IsCountQuestion: true, IsScalarAnswer: true},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"count collected from a command",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"total_count",
+			"label":"non-test source files",
+			"value":"13",
+			"role":"principal_answer",
+			"dimensions":[
+				{"name":"scope","value":"internal/tool"},
+				{"name":"proof_source","value":"exec_command"}
+			]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("summary-only command output should not break completion: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Value != "13" {
+		t.Fatalf("summary-only command output must not rewrite model count, got %+v", facts)
+	}
+}
+
 func TestEmitInvestigationComplete_DoesNotReconcileAmbiguousGroupedCounts(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.AppendDispatchToolResult(types.ToolResult{
 		ToolName: "exec_command",
 		Success:  true,
 		Summary:  "[exec_command: $ find . -name '*.go' | wc -l]\n[exec_command: evidence_origin=command_measurement measurement=count]\n10\n",
+		CommandMeasurement: &types.ToolCommandMeasurement{
+			Kind:        types.ToolCommandMeasurementKindCount,
+			Value:       10,
+			Origin:      types.AnswerEvidenceOriginCommandMeasurement,
+			ProofSource: "exec_command",
+		},
 	})
 	bus := &types.BusContext{
 		Mutable: mut,
@@ -6709,9 +6763,12 @@ func TestEmitInvestigationComplete_DoesNotReconcileAmbiguousGroupedCounts(t *tes
 }
 
 func TestDeterministicHistoryCountExecCommandUsesVCSOrigin(t *testing.T) {
-	summary := "[exec_command: $ git -C . log --format=%H -20 -- internal/orchestrator | awk 'END { print \"answer_count=3\" }']\nanswer_count=3\n"
-	if !deterministicHistoryCountCommand(summary) {
-		t.Fatalf("git history command with global options should be classified as VCS history")
+	measurement := execCommandMeasurement(
+		"git -C . log --format=%H -20 -- internal/orchestrator | awk 'END { print \"answer_count=3\" }'",
+		"answer_count=3\n",
+	)
+	if measurement == nil || !measurement.History || measurement.Value != 3 || measurement.ProofSource != "exec_command_git_history" {
+		t.Fatalf("git history command should publish typed history measurement, got %+v", measurement)
 	}
 	if got := deterministicCountAggregateOrigin("exec_command_git_history"); got != string(types.AnswerEvidenceOriginVCSMetadata) {
 		t.Fatalf("exec git history origin = %q, want %q", got, types.AnswerEvidenceOriginVCSMetadata)

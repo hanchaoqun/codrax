@@ -1093,6 +1093,13 @@ func TestExecCommandFindCountMeasurementAllowed(t *testing.T) {
 	if !strings.Contains(result.Summary, "evidence_origin=command_measurement") {
 		t.Fatalf("find count should remain a command measurement, got %q", result.Summary)
 	}
+	if result.CommandMeasurement == nil ||
+		result.CommandMeasurement.Kind != types.ToolCommandMeasurementKindCount ||
+		result.CommandMeasurement.Value != 1 ||
+		result.CommandMeasurement.Origin != types.AnswerEvidenceOriginCommandMeasurement ||
+		result.CommandMeasurement.ProofSource != "exec_command" {
+		t.Fatalf("find count should publish typed command measurement, got %+v", result.CommandMeasurement)
+	}
 }
 
 func TestExecCommandFindCountMeasurementBlockedDuringSourceInventoryDebt(t *testing.T) {
@@ -1506,16 +1513,15 @@ func TestExecCommand(t *testing.T) {
 
 func TestExecCommandTypedOrigins(t *testing.T) {
 	tests := []struct {
-		name       string
-		command    string
-		output     string
-		want       []string
-		mustAbsent []string
+		name        string
+		command     string
+		measurement *types.ToolCommandMeasurement
+		want        []string
+		mustAbsent  []string
 	}{
 		{
 			name:    "quoted git text is not command",
 			command: "printf 'git log -1\\n'",
-			output:  "git log -1\n",
 			mustAbsent: []string{
 				"vcs_metadata",
 				"command_measurement",
@@ -1524,7 +1530,6 @@ func TestExecCommandTypedOrigins(t *testing.T) {
 		{
 			name:    "git show default is metadata and diff",
 			command: "git show HEAD",
-			output:  "commit abc\n--- a/file\n+++ b/file\n",
 			want: []string{
 				"evidence_origin=vcs_metadata",
 				"diff_origin=vcs_diff",
@@ -1533,7 +1538,6 @@ func TestExecCommandTypedOrigins(t *testing.T) {
 		{
 			name:    "git show no patch is metadata only",
 			command: "git show --no-patch HEAD",
-			output:  "commit abc\n",
 			want: []string{
 				"evidence_origin=vcs_metadata",
 			},
@@ -1542,7 +1546,6 @@ func TestExecCommandTypedOrigins(t *testing.T) {
 		{
 			name:    "git diff is diff evidence",
 			command: "git -C . diff --stat",
-			output:  " file.go | 2 +-\n",
 			want: []string{
 				"evidence_origin=vcs_diff",
 			},
@@ -1551,7 +1554,13 @@ func TestExecCommandTypedOrigins(t *testing.T) {
 		{
 			name:    "git history count carries metadata and measurement",
 			command: "git log --format=%H -20 -- internal/orchestrator | awk 'END { print \"answer_count=3\" }'",
-			output:  "answer_count=3\n",
+			measurement: &types.ToolCommandMeasurement{
+				Kind:        types.ToolCommandMeasurementKindCount,
+				Value:       3,
+				Origin:      types.AnswerEvidenceOriginVCSMetadata,
+				ProofSource: "exec_command_git_history",
+				History:     true,
+			},
 			want: []string{
 				"evidence_origin=vcs_metadata",
 				"measurement_origin=command_measurement",
@@ -1561,7 +1570,12 @@ func TestExecCommandTypedOrigins(t *testing.T) {
 		{
 			name:    "env wrapper is accepted",
 			command: "GIT_CONFIG_NOSYSTEM=1 env git rev-list --count HEAD",
-			output:  "7\n",
+			measurement: &types.ToolCommandMeasurement{
+				Kind:        types.ToolCommandMeasurementKindCount,
+				Value:       7,
+				Origin:      types.AnswerEvidenceOriginCommandMeasurement,
+				ProofSource: "exec_command",
+			},
 			want: []string{
 				"evidence_origin=vcs_metadata",
 				"measurement_origin=command_measurement",
@@ -1570,7 +1584,7 @@ func TestExecCommandTypedOrigins(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := execCommandTypedOriginLine(tt.command, tt.output)
+			got := execCommandTypedOriginLine(tt.command, tt.measurement)
 			for _, want := range tt.want {
 				if !strings.Contains(got, want) {
 					t.Fatalf("origin line missing %q for command %q: %q", want, tt.command, got)
@@ -4088,6 +4102,14 @@ func TestGitHistorySearchCountsBoundedDiffMatches(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("git_history_search failed: %s", res.Summary)
 	}
+	if res.CommandMeasurement == nil ||
+		res.CommandMeasurement.Kind != types.ToolCommandMeasurementKindCount ||
+		res.CommandMeasurement.Value != 1 ||
+		res.CommandMeasurement.Origin != types.AnswerEvidenceOriginVCSMetadata ||
+		res.CommandMeasurement.ProofSource != "git_history_search" ||
+		!res.CommandMeasurement.History {
+		t.Fatalf("git_history_search should publish typed history measurement, got %+v", res.CommandMeasurement)
+	}
 	for _, want := range []string{"evidence_origin=vcs_metadata", "window_size=2", "answer_count=1", "touch runTaskGraph", "unmatched=1"} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
@@ -4134,6 +4156,14 @@ func TestGitHistorySearchOldestOrderFindsEarliestMatch(t *testing.T) {
 	}
 	if !res.Success {
 		t.Fatalf("git_history_search failed: %s", res.Summary)
+	}
+	if res.CommandMeasurement == nil ||
+		res.CommandMeasurement.Kind != types.ToolCommandMeasurementKindCount ||
+		res.CommandMeasurement.Value != 1 ||
+		res.CommandMeasurement.Origin != types.AnswerEvidenceOriginVCSMetadata ||
+		res.CommandMeasurement.ProofSource != "git_history_search" ||
+		!res.CommandMeasurement.History {
+		t.Fatalf("git_history_search should publish typed history measurement, got %+v", res.CommandMeasurement)
 	}
 	for _, want := range []string{"order=oldest", "window_size=2", "answer_count=1", "first EvidenceClosure"} {
 		if !strings.Contains(res.Summary, want) {
