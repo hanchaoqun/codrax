@@ -2398,6 +2398,12 @@ Remaining follow-up:
     3. Consumer change: planner rejection reasons now prefer `PlanRepairPack` metadata from `ToolRepair`, then typed `ToolRepair{code,fields,targets,hint}`. Summary-only structured emit failures fall back to a generic structured-validation error; operator logs keep the summary for audit.
     4. Guardrail tests: typed old-text mismatch repair still surfaces `old_text_mismatch`, paths, fields, current-byte coordinates, and retry instruction; summary-only rejection text does not enter `StageOutput.Error`.
     5. Red-line boundary: planner retry/error control consumes only typed plan repair metadata, tool identity, success state, partial-plan state, and deterministic missing-body lists. It does not parse rendered tool Summary, user text, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
+  - **Delivered D1-F10g.119 extractor literal fallback typed evidence-field cutover（code complete / full regression passed）**:
+    1. Target gap: extractor literal fallback could synthesize `AnswerSymbol{kind=literal}` by parsing `EvidenceItem.Summary` for quoted strings or resolution-chain terminal text.
+    2. Risk: `EvidenceItem.Summary` is model-authored prose. Even though the evidence row itself is grounded, summary prose is not the typed literal authority; using it to auto-fill answer symbols can turn model narrative into final-answer facts.
+    3. Consumer change: literal fallback now consumes only line-shaped evidence fields that are typed/source-grounded for literal use: `AnchorKind=string_literal + AnchorSymbol`, validated `surface_terms`, and quoted literals in structured `Object`; `Summary` stays display/ranking context only.
+    4. Guardrail tests: summary-only quoted literals do not synthesize answer symbols; typed string-literal anchors and surface terms still synthesize literal answer symbols.
+    5. Red-line boundary: extractor fallback does not parse evidence Summary, user text, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels to create answer symbols.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

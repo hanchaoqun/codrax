@@ -2240,18 +2240,19 @@ func extractorDeclarativeLiteralFallback(ctx *types.AgentContext) []types.Answer
 		//
 		// This fallback consumes only structured evidence fields the
 		// investigator already emitted. It deliberately does not scan
-		// raw read_file text near the evidence line; if a visible
-		// literal is load-bearing, the explorer must carry it through
-		// Object / Summary / surface_terms on emit_evidence so the
-		// downstream answer is model-authored rather than system-filled.
+		// raw read_file text near the evidence line, and it does not parse
+		// Summary prose. If a visible literal is load-bearing, the explorer
+		// must carry it through Object, AnchorStringLiteral/AnchorSymbol, or
+		// validated surface_terms on emit_evidence so downstream synthesis is
+		// driven by typed, source-grounded fields rather than model prose.
 		if !ev.Scope.IsLineShaped() {
 			continue
 		}
-		if ev.Kind == types.EvidenceDataflowPath && ev.Predicate == "resolution_chain" {
-			add(subject.ChainTerminalToken(ev.Summary), false, ev.Source, ev.LineStart, ev.Summary, "terminal literal inferred from resolution chain")
+		if ev.AnchorKind == types.AnchorStringLiteral {
+			add(ev.AnchorSymbol, true, ev.Source, ev.LineStart, ev.AnchorSymbol, "literal extracted from source-grounded string literal anchor")
 		}
-		for _, lit := range extractQuotedLiterals(ev.Summary) {
-			add(lit, true, ev.Source, ev.LineStart, ev.Summary, "literal extracted from grounded evidence")
+		for _, term := range ev.SurfaceTerms {
+			add(term, true, ev.Source, ev.LineStart, term, "literal extracted from source-grounded surface term")
 		}
 		for _, lit := range extractQuotedLiterals(ev.Object) {
 			add(lit, true, ev.Source, ev.LineStart, ev.Object, "literal extracted from grounded evidence")

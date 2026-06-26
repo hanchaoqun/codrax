@@ -212,6 +212,84 @@ func TestExtractor_ParseOutputDrainsEmittedBuffers(t *testing.T) {
 	}
 }
 
+func TestExtractorDeclarativeLiteralFallback_DoesNotParseEvidenceSummary(t *testing.T) {
+	ctx := extractorLiteralFallbackCtxForTest([]types.EvidenceItem{{
+		ID:              "summary-only-literal",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/example/routes.ts",
+		LineStart:       12,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "register",
+		Summary:         `model prose mentions "not-a-grounded-route" but no typed literal field carries it`,
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	if !declarativeLiteralFallbackRelevant(ctx) {
+		t.Fatal("fixture must enable declarative literal fallback")
+	}
+	if got := extractorDeclarativeLiteralFallback(ctx); len(got) != 0 {
+		t.Fatalf("summary-only literal must not synthesize answer symbols: %+v", got)
+	}
+}
+
+func TestExtractorDeclarativeLiteralFallback_UsesTypedLiteralFields(t *testing.T) {
+	ctx := extractorLiteralFallbackCtxForTest([]types.EvidenceItem{{
+		ID:              "typed-literal",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/example/routes.ts",
+		LineStart:       12,
+		AnchorKind:      types.AnchorStringLiteral,
+		AnchorSymbol:    "/api/v1/users",
+		Summary:         `model prose also mentions "not-a-grounded-route"`,
+		SurfaceTerms:    []string{"/api/v1/admin"},
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	got := extractorDeclarativeLiteralFallback(ctx)
+	if len(got) != 2 {
+		t.Fatalf("expected typed anchor + surface term symbols, got %+v", got)
+	}
+	names := map[string]bool{}
+	for _, sym := range got {
+		names[sym.Name] = true
+		if strings.Contains(sym.Name, "not-a-grounded-route") {
+			t.Fatalf("summary-only literal leaked into answer symbols: %+v", got)
+		}
+	}
+	for _, want := range []string{"/api/v1/users", "/api/v1/admin"} {
+		if !names[want] {
+			t.Fatalf("missing typed literal %q in %+v", want, got)
+		}
+	}
+}
+
+func extractorLiteralFallbackCtxForTest(items []types.EvidenceItem) *types.AgentContext {
+	mu := types.NewMutableState("literal fallback")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles:             []string{"internal/example/routes.ts"},
+		TerminalEvidenceCount: len(items),
+		EvidenceItems:         items,
+	})
+	mu.AppendEvidence(items)
+	return &types.AgentContext{
+		Objective:     "typed literal enumeration",
+		Mutable:       mu,
+		EvidenceItems: items,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
+				AnalyzerHints: types.AnalyzerHints{Kind: "enumeration"},
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "all literal routes"},
+				AnswerSubject:          types.AnswerSubject{Kind: types.SubjectStringLiteral, Confidence: 0.95},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+}
+
 // -----------------------------------------------------------------------------
 // P2.1 Phase 9 — cardinality validator tests
 // -----------------------------------------------------------------------------
