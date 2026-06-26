@@ -4,7 +4,7 @@ Guidance for Claude Code working in this repository. Detail lives in `docs/archi
 
 ## Project Overview
 
-Codrax is a Go code-analysis + change-proposal tool. **Read mode** (default): natural-language question → 4-stage LLM pipeline (analyze → explore → extract → finalize) → grounded structured answer; no source files touched. **Write mode** (per-invocation opt-in via `--mode=write --write-phase=plan|apply|verify`; `codrax.yaml :: write_enabled: false` is the organisational kill switch — default true): adds plan → apply → verify inside a git worktree; main repo HEAD bytes never change automatically.
+Codrax is a Go code-analysis + change-proposal tool. **Read mode** (default): natural-language question → 4-stage LLM pipeline (analyze → explore → extract → finalize) → grounded structured answer; no source files touched. **Write mode** (CLI opt-in via `--mode=write`, defaulting to Auto Pilot apply; `--write-phase=plan|verify` are advanced lanes; REPL opt-in via `/mode write` / `/write`, or auto mode structured `route=write`): runs controller-first Auto Pilot inside an isolated git worktree. The controller may explore, split, plan, apply, verify, and replan; low/medium deterministic risk proceeds automatically, high risk pauses for approval, critical risk denies, and main repo HEAD/merge never changes automatically. `codrax.yaml :: write_enabled: false` is the organization-level kill switch, absent defaults to enabled.
 
 The analyzer makes one LLM call to classify the request; TaskGraph / EvidencePlan / hypotheses / quality gate are built deterministically by 14 sub-packages under `internal/analysis/`. Fail-loud: missing `emit_analysis` → stage errors and retries.
 
@@ -19,7 +19,7 @@ go test ./internal/orchestrator/ -run TestRunTaskGraph_HappyPath
 
 ```bash
 ./codrax --repo . --branch main --request "task" --pipeline-max-steps 50
-./codrax                      # REPL: /exit /clear /history /compact /log /paste /chat /help
+./codrax                      # REPL: /help (common paths), /help all (full table), /exit /clear /history /compact /log /paste /chat
 ./codrax --log-level debug --log-stdout --request "task"
 
 # Log/perf-triage: attach a runtime artifact so analyzer extracts anchors and seeds RequiredFiles
@@ -28,23 +28,26 @@ kubectl logs pod/foo | ./codrax --repo . --request "analyse crash" --log -
 # REPL: /log <path>  |  /log (paste, end /end)  |  /log clear  |  /log show
 # Same shape: --htrace / --atrace and /htrace / /atrace.
 
-# Write mode (per-invocation opt-in; write_enabled: false in yaml is the kill switch):
-./codrax --mode=write --write-phase=plan --request "add X" --plan-out /tmp/p.json
-./codrax --mode=write --write-phase=apply --plan-file=/tmp/p.json --auto-apply
+# Write mode (CLI explicit opt-in; REPL auto route enters Auto Pilot; refused when write_enabled: false):
+./codrax --mode=write --request "add X"
+./codrax --mode=write --write-phase=plan --request "add X" --plan-out /tmp/p.json  # advanced plan-only
+./codrax --mode=write --write-phase=apply --plan-file=/tmp/p.json                  # advanced saved-plan apply
 ./codrax --mode=write --write-phase=verify --plan-file=/tmp/p.json
-# REPL: /mode [read|plan|apply|verify]  /plan [show|clear|list]  /approve  /reject [reason]
+# REPL: type a clear code-change request. /write <request> forces one write turn; /mode write keeps later code-change goals in Auto Pilot.
+# Routine Auto Pilot should not need /workflow or /plan commands; safe active runs auto-resume and typed status cards say when user action is required.
+# Advanced recovery/audit only: /workflow show|list|resume|clear  /plan show|list  /approve  /reject  /verify  /merge
 ```
 
 ## Pipeline at a glance
 
-`[log_triage?] [perf_triage?] → analyze → explore → extract → finalize`, hardcoded in `internal/orchestrator/topology.go`. Pre-stages are conditional on `BusContext.AttachedLog` / `AttachedHitrace`. Orchestrator never calls tools/MCP/LLM directly — everything flows through an agent. Write mode runs the read analyzer as classifier (preserves L1 byte-identity), then `write_analyzer` emits `WriteAnalysisIR`, then `BuildWriteTaskGraph` substitutes plan→apply→verify.
+`[log_triage?] [perf_triage?] → analyze → explore → extract → finalize`, hardcoded in `internal/orchestrator/topology.go`. Pre-stages are conditional on `BusContext.AttachedLog` / `AttachedHitrace`. Orchestrator never calls tools/MCP/LLM directly — everything flows through an agent. Write mode runs the read analyzer as classifier (preserves L1 byte-identity), then `write_analyzer` emits `WriteAnalysisIR`, then the write controller drives a durable dynamic DAG of explore/plan/apply/verify/replan/split/append/finish/block actions.
 
 For everything else — stage table, agent contracts, retry layering, write-mode hooks, ChangePlan validation, multi-phase groups, Failure Taxonomy, baseline cache, log/perf-triage layers, repomap language matrix + fallback tiers, analyzer post-processing chain, configuration knobs (codrax.yaml prefix groups, providers.yaml schema, lookup precedence, path anchors, multi-instance safety) — read `docs/architecture.md`.
 
 ## Red lines (enforced by structural tests)
 
 - **L1**: read mode byte-preserved — `runReadSchedulerLoop` is byte-identical to pre-T4 `runTaskGraph` body.
-- **L2**: write activation is per-invocation explicit (`--mode=write` / REPL `/mode write` — no classifier route may ever select write); an explicit `write_enabled: false` in yaml is the kill switch and refuses every write lane.
+- **L2**: write Auto Pilot can be entered explicitly (`/mode write` / `/write` / CLI `--mode=write`) or by REPL structured TurnPolicy `route=write`; classifier auto-route may enter `ModeApply` but cannot skip deterministic risk/approval/fingerprint/worktree gates or merge to main. Low-confidence write routes demote to repo analysis, unsettled plans/workflows block conflicting new writes, and explicit `write_enabled: false` refuses all write modes.
 - **L3**: write tools MUST NOT call `ground.BuildContext` / `ground.GroundItem`.
 - **L5**: worktree cleanup unconditional — outer defer in `Run()` calls `worktree.DiscardByPath` on any exit.
 - **L6**: write skills keep `exec_command` in `ToolSuggestions` (worktree contains blast radius).

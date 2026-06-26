@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -246,8 +248,22 @@ func TestAnalyzerRequiredFiles_ExternalSourceLogSkipsRepoSeeds(t *testing.T) {
 }
 
 func TestAnalyzerRequiredFiles_CapabilityQueryUsesAuthorityFiles(t *testing.T) {
+	repoRoot := t.TempDir()
+	for _, rel := range []string{
+		"internal/orchestrator/topology.go",
+		"internal/skill/analysis_contract.go",
+		"internal/agent/agent.go",
+		"internal/agent/analyzer.go",
+	} {
+		if err := os.MkdirAll(filepath.Join(repoRoot, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(filepath.Join(repoRoot, rel), []byte("package p\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
 	ctx := &types.AgentContext{
-		RepoRoot: t.TempDir(),
+		RepoRoot: repoRoot,
 		Mutable:  types.NewMutableState("test"),
 	}
 	rm := types.RequestModel{
@@ -272,6 +288,27 @@ func TestAnalyzerRequiredFiles_CapabilityQueryUsesAuthorityFiles(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("capability query required files = %v, want %v", got, want)
+	}
+}
+
+func TestAnalyzerRequiredFilesExistingOnlyDropsPhantomCurrentCheckoutPath(t *testing.T) {
+	repoRoot := t.TempDir()
+	real := "internal/agent/explorer.go"
+	if err := os.MkdirAll(filepath.Join(repoRoot, filepath.Dir(real)), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, real), []byte("package agent\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	ctx := &types.AgentContext{RepoRoot: repoRoot}
+
+	got := analyzerRequiredFilesExistingOnly(ctx, []string{
+		"history/old/removed_agent.go",
+		"./" + real,
+		"internal/agent/dir_only",
+	})
+	if !reflect.DeepEqual(got, []string{real}) {
+		t.Fatalf("existing-only required files = %v, want [%s]", got, real)
 	}
 }
 

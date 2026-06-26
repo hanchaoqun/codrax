@@ -2887,7 +2887,7 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	// we still run the ranker and merge — those queries benefit from
 	// ranker breadth the same way no-log queries do.
 	if logAuthoritative && len(logFiles) > 0 {
-		return append([]string(nil), logFiles...)
+		return analyzerRequiredFilesExistingOnly(ctx, logFiles)
 	}
 	if analyzerRuntimeArtifactSourceNavigationOptional(ctx, rm) {
 		return nil
@@ -2968,10 +2968,40 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 		tail = append(tail, siblings...)
 	}
 	merged := mergeRequiredFilePathLists(hi, tail, maxAnalyzerRequiredFilesCap())
+	merged = analyzerRequiredFilesExistingOnly(ctx, merged)
 	if len(logFiles) == 0 {
 		return merged
 	}
-	return logtriage.MergeResolvedFiles(logFiles, merged)
+	return analyzerRequiredFilesExistingOnly(ctx, logtriage.MergeResolvedFiles(logFiles, merged))
+}
+
+func analyzerRequiredFilesExistingOnly(ctx *types.AgentContext, files []string) []string {
+	if len(files) == 0 {
+		return nil
+	}
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return append([]string(nil), files...)
+	}
+	bus := &types.BusContext{
+		RepoRoot:        ctx.RepoRoot,
+		MultiGraph:      ctx.MultiGraph,
+		SubRepos:        ctx.SubRepos,
+		PendingSubRepos: ctx.PendingSubRepos,
+	}
+	out := make([]string, 0, len(files))
+	seen := make(map[string]bool, len(files))
+	for _, raw := range files {
+		qualified, ok := types.QualifyForcedReadSeedPath(bus, raw)
+		if !ok || qualified == "" || seen[qualified] {
+			continue
+		}
+		seen[qualified] = true
+		out = append(out, qualified)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func analyzerRuntimeArtifactSourceNavigationOptional(ctx *types.AgentContext, rm types.RequestModel) bool {

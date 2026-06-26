@@ -8335,11 +8335,7 @@ func qualifyForcedReadSeedPath(ctx *types.BusContext, raw string) (string, bool)
 	if ctx != nil {
 		repoRoot = ctx.RepoRoot
 	}
-	canon := canonicaliseAnchorPath(raw, repoRoot)
-	if canon == "" {
-		return "", false
-	}
-	qualified, ok := qualifyForcedReadPathForMultiRepo(ctx, canon)
+	qualified, ok := types.QualifyForcedReadSeedPath(ctx, raw)
 	if !ok {
 		return "", false
 	}

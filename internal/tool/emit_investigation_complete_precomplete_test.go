@@ -12,6 +12,21 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func writeForcedReadFixtureFiles(t *testing.T, repoRoot string, files ...string) {
+	t.Helper()
+	for _, rel := range files {
+		if rel == "" || types.LooksLikeRuntimeArtifactPath(rel) {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Join(repoRoot, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(filepath.Join(repoRoot, rel), []byte("package fixture\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+}
+
 func TestCompletionAggregateFactsAreOptional_SourceOptionalRuntimeDiagnostic(t *testing.T) {
 	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{
 		RequestModel: types.RequestModel{
@@ -3919,9 +3934,15 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceCurrentVerific
 	mut.EvidenceClosure().SetReadSet(map[string]bool{
 		"internal/llm/stream_errors.go": true,
 	})
+	repoRoot := t.TempDir()
+	writeForcedReadFixtureFiles(t, repoRoot,
+		"internal/llm/stream_errors.go",
+		"internal/llm/openai.go",
+		"internal/llm/retryable_error.go",
+	)
 	bus := &types.BusContext{
 		Mutable:  mut,
-		RepoRoot: t.TempDir(),
+		RepoRoot: repoRoot,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				Intent: types.IntentRootCause,
@@ -4599,9 +4620,17 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks(t *testin
 		"internal/agent/explorer.go": true,
 		"internal/agent/subagent.go": true,
 	})
+	repoRoot := t.TempDir()
+	writeForcedReadFixtureFiles(t, repoRoot,
+		"internal/agent/explorer.go",
+		"internal/agent/subagent.go",
+		"internal/tool/propose_sub_agents.go",
+		"internal/orchestrator/orchestrator.go",
+		"internal/agent/sub_explorer.go",
+	)
 	bus := &types.BusContext{
 		Mutable:  mut,
-		RepoRoot: t.TempDir(),
+		RepoRoot: repoRoot,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
@@ -4683,9 +4712,11 @@ func TestEmitInvestigationComplete_PreCompleteCheck_RequiredSourceSkipsRuntimeAr
 		{Path: "record_trace_20260526174055.systrace", Score: 95, ExactEntityRank: 3},
 		{Path: "internal/agent/explorer.go", Score: 80, ExactEntityRank: 2},
 	})
+	repoRoot := t.TempDir()
+	writeForcedReadFixtureFiles(t, repoRoot, "internal/agent/explorer.go")
 	bus := &types.BusContext{
 		Mutable:  mut,
-		RepoRoot: t.TempDir(),
+		RepoRoot: repoRoot,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				Intent:    types.IntentRootCause,
@@ -4776,9 +4807,14 @@ func TestEmitInvestigationComplete_PreCompleteCheck_HistoryCurrentExplicitCallCh
 		{Path: "internal/agent/explorer.go", Score: 60, ExactEntityRank: 2},
 		{Path: "internal/tool/emit_evidence.go", Score: 58, ExactEntityRank: 2},
 	})
+	repoRoot := t.TempDir()
+	writeForcedReadFixtureFiles(t, repoRoot,
+		"internal/agent/explorer.go",
+		"internal/tool/emit_evidence.go",
+	)
 	bus := &types.BusContext{
 		Mutable:  mut,
-		RepoRoot: t.TempDir(),
+		RepoRoot: repoRoot,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				Intent:        types.IntentTrace,
@@ -5255,9 +5291,14 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_ConfigMappingMu
 	closure.SetReadSet(map[string]bool{
 		"cmd/root.go": true,
 	})
+	repoRoot := t.TempDir()
+	writeForcedReadFixtureFiles(t, repoRoot,
+		"cmd/root.go",
+		"internal/types/config.go",
+	)
 	bus := &types.BusContext{
 		Mutable:  mut,
-		RepoRoot: t.TempDir(),
+		RepoRoot: repoRoot,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				AnalyzerHints: types.AnalyzerHints{Kind: "config_mapping"},
@@ -5299,9 +5340,14 @@ func TestEmitInvestigationComplete_PreCompleteCheck_PrimaryAnchorUnreadBlocks(t 
 		{Path: "internal/tool/repomap/tool.go", Score: 42, ExactEntityRank: 2},
 		{Path: "internal/context/builder.go", Score: 41},
 	})
+	repoRoot := t.TempDir()
+	writeForcedReadFixtureFiles(t, repoRoot,
+		"internal/tool/repomap/tool.go",
+		"internal/context/builder.go",
+	)
 	bus := &types.BusContext{
 		Mutable:  mut,
-		RepoRoot: t.TempDir(),
+		RepoRoot: repoRoot,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
@@ -6127,6 +6173,43 @@ func TestRaisePhase1UnreadPendingReads_SkipsUnavailablePathAfterFailedRead(t *te
 	}
 }
 
+func TestRaisePhase1UnreadPendingReads_SkipsPhantomSingleRepoSeedBeforeReadAttempt(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 1
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	repoRoot := t.TempDir()
+	missing := "history/old/removed_agent.go"
+	mut := types.NewMutableState("historical prescan path is absent from current checkout")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: missing, Score: 91, ExactEntityRank: 3},
+	})
+	closure := mut.EvidenceClosure()
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: repoRoot,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+
+	raisePhase1UnreadPendingReads(bus, closure, nil)
+
+	for _, pending := range closure.PendingReads() {
+		if pending.Origin == "phase1_unread" {
+			t.Fatalf("phantom pre-scan seed must not become pending forced-read debt: %+v", pending)
+		}
+	}
+	if closure.Phase1UnreadFired() {
+		t.Fatal("phantom pre-scan seed must not burn the phase1_unread latch")
+	}
+}
+
 func TestEmitInvestigationComplete_ClearsUnavailablePendingReadAfterFailedRead(t *testing.T) {
 	repoRoot := t.TempDir()
 	missing := "staticcommon/windowscene/src/main/ets/scene/manager/SCBCategoryResourceManager.ets"
@@ -6191,9 +6274,11 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadLatchFiresOnce(t
 	})
 	closure := mut.EvidenceClosure()
 	closure.SetReadSet(map[string]bool{"a.go": true}) // only 1 of 5 read
+	repoRoot := t.TempDir()
+	writeForcedReadFixtureFiles(t, repoRoot, "a.go", "b.go", "c.go", "d.go", "e.go")
 	bus := &types.BusContext{
 		Mutable:  mut,
-		RepoRoot: t.TempDir(),
+		RepoRoot: repoRoot,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
@@ -6481,6 +6566,9 @@ func TestApplyMultiPathAnchorChecks_SingleAnchorSkips(t *testing.T) {
 // would still be blocked and we are back to the pre-2026-05-01
 // pathology of stalling completion on signals we cannot defend.
 func TestApplyMultiPathAnchorChecks_AdvisoryHintNonBlocking(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeForcedReadFixtureFiles(t, repoRoot, "anchor_a.go", "anchor_b.go")
+
 	mut := types.NewMutableState("test")
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{
 		{Path: "anchor_a.go", Score: 60, ExactEntityRank: 2},
@@ -6492,7 +6580,7 @@ func TestApplyMultiPathAnchorChecks_AdvisoryHintNonBlocking(t *testing.T) {
 	// any symbol either. Engine should pick SignalOpaqueAdvisory.
 	bus := &types.BusContext{
 		Mutable:  mut,
-		RepoRoot: t.TempDir(),
+		RepoRoot: repoRoot,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				AnalyzerHints: types.AnalyzerHints{
@@ -6522,6 +6610,12 @@ func TestApplyMultiPathAnchorChecks_AdvisoryHintNonBlocking(t *testing.T) {
 }
 
 func TestApplyMultiPathAnchorChecks_CallChainUnrelatedSymbolDemandIsAdvisory(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeForcedReadFixtureFiles(t, repoRoot,
+		"internal/agent/analyzer.go",
+		"internal/analysis/dataflow/engine.go",
+	)
+
 	mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{
 		{Path: "internal/agent/analyzer.go", Score: 70, ExactEntityRank: 2},
@@ -6560,7 +6654,7 @@ func TestApplyMultiPathAnchorChecks_CallChainUnrelatedSymbolDemandIsAdvisory(t *
 	mut.AppendEvidence(evidence)
 	bus := &types.BusContext{
 		Mutable:  mut,
-		RepoRoot: t.TempDir(),
+		RepoRoot: repoRoot,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				Intent: types.IntentTrace,
@@ -6716,6 +6810,11 @@ func TestRaisePhase1UnreadPendingReads_MultiRepoQualifiesBarePathAndDrains(t *te
 			"packages/opencode/src/tool/shell.ts":       "opencode",
 		},
 	}
+	repoRoot := t.TempDir()
+	writeForcedReadFixtureFiles(t, repoRoot,
+		"opencode/packages/opencode/src/tool/apply_patch.ts",
+		"opencode/packages/opencode/src/tool/shell.ts",
+	)
 
 	mut := types.NewMutableState("multi-repo forced-read seed replay")
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{
@@ -6728,7 +6827,7 @@ func TestRaisePhase1UnreadPendingReads_MultiRepoQualifiesBarePathAndDrains(t *te
 	closure := mut.EvidenceClosure()
 	bus := &types.BusContext{
 		Mutable:    mut,
-		RepoRoot:   t.TempDir(),
+		RepoRoot:   repoRoot,
 		MultiGraph: gater,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
@@ -6875,6 +6974,11 @@ func TestApplyMultiPathAnchorChecks_MultiRepoQualifiesBareAnchors(t *testing.T) 
 			"packages/opencode/src/plugin/codex.ts": "opencode",
 		},
 	}
+	repoRoot := t.TempDir()
+	writeForcedReadFixtureFiles(t, repoRoot,
+		"opencode/packages/opencode/src/tool/read.ts",
+		"opencode/packages/opencode/src/plugin/codex.ts",
+	)
 	mut := types.NewMutableState("multi-repo multipath anchor qualification")
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{
 		{Path: "packages/opencode/src/tool/read.ts", Score: 60, ExactEntityRank: 2},
@@ -6905,7 +7009,7 @@ func TestApplyMultiPathAnchorChecks_MultiRepoQualifiesBareAnchors(t *testing.T) 
 	closure := mut.EvidenceClosure()
 	bus := &types.BusContext{
 		Mutable:    mut,
-		RepoRoot:   t.TempDir(),
+		RepoRoot:   repoRoot,
 		MultiGraph: gater,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{

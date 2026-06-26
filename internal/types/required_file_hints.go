@@ -2,6 +2,7 @@ package types
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/canonpath"
@@ -106,12 +107,15 @@ func QualifyForcedReadSeedPath(ctx *BusContext, raw string) (string, bool) {
 	if canon == "" {
 		return "", false
 	}
-	if ctx == nil || ctx.MultiGraph == nil {
+	if ctx == nil || strings.TrimSpace(repoRoot) == "" {
 		return canon, true
+	}
+	if ctx.MultiGraph == nil {
+		return qualifyExistingForcedReadSeed(repoRoot, canon)
 	}
 	gater, isGater := ctx.MultiGraph.(MultiRepoActiveSetGater)
 	if !isGater || gater == nil {
-		return canon, true
+		return qualifyExistingForcedReadSeed(repoRoot, canon)
 	}
 	gate := gater.ResolveActiveSetPath(ctx, "required_file_hint_seed", canon, func(abs string) bool {
 		info, err := os.Stat(abs)
@@ -121,11 +125,26 @@ func QualifyForcedReadSeedPath(ctx *BusContext, raw string) (string, bool) {
 		return canon, false
 	}
 	if gate.ResolvedPath == "" {
-		return canon, true
+		return qualifyExistingForcedReadSeed(repoRoot, canon)
 	}
 	qualified := CanonicalRequiredFileHintPath(gate.ResolvedPath, repoRoot)
 	if qualified == "" {
 		return "", false
 	}
-	return qualified, true
+	return qualifyExistingForcedReadSeed(repoRoot, qualified)
+}
+
+func qualifyExistingForcedReadSeed(repoRoot, rel string) (string, bool) {
+	rel = CanonicalRequiredFileHintPath(rel, repoRoot)
+	if rel == "" {
+		return "", false
+	}
+	if strings.TrimSpace(repoRoot) == "" {
+		return rel, true
+	}
+	info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(rel)))
+	if err != nil || info.IsDir() || !info.Mode().IsRegular() {
+		return "", false
+	}
+	return rel, true
 }

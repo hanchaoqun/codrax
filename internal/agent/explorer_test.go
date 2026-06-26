@@ -2555,6 +2555,27 @@ func TestFilterRequiredFiles_UniqueExactAnchorKeepsNeighborhood(t *testing.T) {
 	}
 }
 
+func TestFilterRequiredFiles_DropsPhantomCurrentCheckoutPath(t *testing.T) {
+	repoRoot := t.TempDir()
+	real := "internal/agent/explorer.go"
+	if err := os.MkdirAll(filepath.Join(repoRoot, filepath.Dir(real)), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, real), []byte("package agent\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{RepoRoot: repoRoot}
+
+	got := eval.filterRequiredFiles([]string{
+		"history/old/removed_agent.go",
+		real,
+	}, ctx)
+	if strings.Join(got, ",") != real {
+		t.Fatalf("phantom current-checkout path should be dropped, got %v", got)
+	}
+}
+
 func TestFilterEvidenceItemsByFileSet_DropsBridgeLiteralNoise(t *testing.T) {
 	items := []types.EvidenceItem{
 		{Source: "internal/tool/repomap/tool.go", Summary: "keep"},

@@ -8,6 +8,8 @@ package types
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -27,6 +29,32 @@ func TestRequiredFileHint_JSONRoundtrip(t *testing.T) {
 	}
 	if out != in {
 		t.Errorf("roundtrip: got %+v, want %+v", out, in)
+	}
+}
+
+func TestQualifyForcedReadSeedPath_SingleRepoRequiresExistingRegularFile(t *testing.T) {
+	root := t.TempDir()
+	real := "internal/agent/explorer.go"
+	if err := os.MkdirAll(filepath.Join(root, filepath.Dir(real)), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, real), []byte("package agent\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "internal/agent/dir_only"), 0o755); err != nil {
+		t.Fatalf("mkdir dir_only: %v", err)
+	}
+
+	ctx := &BusContext{RepoRoot: root}
+	got, ok := QualifyForcedReadSeedPath(ctx, "./"+real)
+	if !ok || got != real {
+		t.Fatalf("existing forced-read seed = (%q,%t), want (%q,true)", got, ok, real)
+	}
+	if got, ok := QualifyForcedReadSeedPath(ctx, "history/old/removed_file.go"); ok || got != "" {
+		t.Fatalf("missing forced-read seed should be rejected, got (%q,%t)", got, ok)
+	}
+	if got, ok := QualifyForcedReadSeedPath(ctx, "internal/agent/dir_only"); ok || got != "" {
+		t.Fatalf("directory forced-read seed should be rejected, got (%q,%t)", got, ok)
 	}
 }
 

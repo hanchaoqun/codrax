@@ -2887,10 +2887,18 @@ func (e *explorerEvaluator) filterRequiredFiles(files []string, ctxOpt ...*types
 	}
 	seen := make(map[string]bool, len(files))
 	out := make([]string, 0, len(files))
+	bus := explorerForcedReadSeedBus(ctx)
 	for _, path := range files {
 		canon := canonicalExplorerAgentPath(ctx, path)
 		if canon == "" || isNoisePath(canon) || seen[canon] {
 			continue
+		}
+		if bus != nil {
+			qualified, ok := types.QualifyForcedReadSeedPath(bus, canon)
+			if !ok || qualified == "" {
+				continue
+			}
+			canon = qualified
 		}
 		if !e.activeFocusAllowsFile(canon) {
 			continue
@@ -2899,6 +2907,18 @@ func (e *explorerEvaluator) filterRequiredFiles(files []string, ctxOpt ...*types
 		out = append(out, canon)
 	}
 	return out
+}
+
+func explorerForcedReadSeedBus(ctx *types.AgentContext) *types.BusContext {
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return nil
+	}
+	return &types.BusContext{
+		RepoRoot:        ctx.RepoRoot,
+		MultiGraph:      ctx.MultiGraph,
+		SubRepos:        ctx.SubRepos,
+		PendingSubRepos: ctx.PendingSubRepos,
+	}
 }
 
 func (e *explorerEvaluator) filterKeywordResults(results []keywordFileScore) []keywordFileScore {

@@ -559,6 +559,17 @@ func newTestOrch(t *testing.T) *Orchestrator {
 
 func TestSeedRequiredFileHintForcedReadsBeforeExplore_UsesSharedCurrentSourceContract(t *testing.T) {
 	o := newTestOrch(t)
+	for _, rel := range []string{
+		"internal/llm/openai.go",
+		"internal/orchestrator/read_stage_retry.go",
+	} {
+		if err := os.MkdirAll(filepath.Join(o.busCtx.RepoRoot, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(filepath.Join(o.busCtx.RepoRoot, rel), []byte("package p\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
 	o.busCtx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent: types.IntentExplain,
 		LogTriage: &types.LogBundle{
@@ -590,6 +601,39 @@ func TestSeedRequiredFileHintForcedReadsBeforeExplore_UsesSharedCurrentSourceCon
 	}
 	if again := o.seedRequiredFileHintForcedReadsBeforeExplore(); again != 0 {
 		t.Fatalf("second seed should dedupe existing pending reads, got %d", again)
+	}
+}
+
+func TestSeedRequiredFileHintForcedReadsBeforeExplore_SkipsPhantomSingleRepoPath(t *testing.T) {
+	o := newTestOrch(t)
+	real := "internal/llm/openai.go"
+	if err := os.MkdirAll(filepath.Join(o.busCtx.RepoRoot, filepath.Dir(real)), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(o.busCtx.RepoRoot, real), []byte("package p\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	o.busCtx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain,
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{Type: "first_byte_timeout"}},
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentVersionCheck: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{RequiredFileHints: []types.RequiredFileHint{
+			{Path: "history/old/removed_file.go", Confidence: 0.95},
+			{Path: real, Confidence: 0.9},
+		}},
+	}}
+
+	if got := o.seedRequiredFileHintForcedReadsBeforeExplore(); got != 1 {
+		t.Fatalf("seeded required-file pending reads = %d, want only the existing current file", got)
+	}
+	pending := o.busCtx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].File != real {
+		t.Fatalf("pending reads should exclude phantom history path, got %+v", pending)
 	}
 }
 
