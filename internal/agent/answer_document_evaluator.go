@@ -8554,19 +8554,11 @@ func answerDocStringSliceContains(values []string, want string) bool {
 }
 
 func answerDocPatchRejectCorrectionHint(result *types.ToolResult) string {
-	var summary string
 	var repair *types.ToolRepair
 	if result != nil {
-		summary = result.Summary
 		repair = result.Repair
 	}
 	detail := answerDocPatchRejectTypedDetail(repair)
-	if detail == "" {
-		detail = compactToolRejectSummary(summary)
-	}
-	if detail == "" {
-		detail = strings.TrimSpace(summary)
-	}
 	var b strings.Builder
 	b.WriteString("Your last `emit_answer_document_patch` call was rejected, but the repair is still patch-local. Keep using `emit_answer_document_patch`; do not switch to a full `emit_answer_document` rewrite. Correct only the patch operation named by the tool error")
 	if detail != "" {
@@ -8614,8 +8606,8 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	}
 	repair := obs.LastToolResult.Repair
 	rejectCode := answerDocRejectCodeFromRepair(repair)
-	summary := strings.TrimSpace(obs.LastToolResult.Summary)
-	if summary == "" && (repair == nil || strings.TrimSpace(repair.Hint) == "") {
+	summaryPresent := strings.TrimSpace(obs.LastToolResult.Summary) != ""
+	if !summaryPresent && (repair == nil || strings.TrimSpace(repair.Hint) == "") {
 		return LoopSignal{}
 	}
 
@@ -8632,10 +8624,6 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 			hint += " Do not write free-form prose outside the tool call."
 		}
 	}
-	if detail := compactToolRejectSummary(summary); detail != "" && (repair == nil || strings.TrimSpace(repair.Hint) == "") {
-		hint = answerDocStructuredRejectHint(detail, hasPatchBase)
-	}
-
 	var summaryLen, summaryCap int
 	if rejectCode == answerDocRejectCodeSummaryCap {
 		summaryLen, _ = strconv.Atoi(strings.TrimSpace(repair.Metadata["summary_length"]))
@@ -8812,7 +8800,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		if repair != nil && strings.TrimSpace(repair.Hint) != "" {
 			hint = strings.TrimSpace(repair.Hint)
 		} else {
-			hint = buildLiteralGroundingRetryHint(summary)
+			hint = "Your last `emit_answer_document` call was rejected by the LITERAL-GROUNDING gate. Re-emit `emit_answer_document` using only the already-provided grounded evidence: cite a file:line only when that line directly corroborates the visible literal or step; otherwise leave the item uncited and explain the evidence boundary in `summary`. Do NOT call `read_file`, `grep`, or any other tool to repair this; use the existing citations, evidence, and seeds only."
 		}
 	}
 	if repair != nil && len(repair.Fields) > 0 && !repairHintMentionsFields(hint, repair.Fields) {
@@ -8843,7 +8831,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	}
 	if answerDocShouldPreferPatchForFullReject(ctx, e, repair) {
 		e.preferPatchNext = true
-		hint = answerDocFullRejectPatchHint(repair, summary, hint)
+		hint = answerDocFullRejectPatchHint(repair, hint)
 		reasonKey = "patch-" + reasonKey
 	}
 	if !strings.Contains(hint, "Do not write free-form prose outside the tool call.") {
@@ -8884,13 +8872,10 @@ func answerDocShouldPreferPatchForFullReject(ctx *types.AgentContext, e *answerD
 	return answerDocumentPatchBaseAvailable(ctx, e.mu)
 }
 
-func answerDocFullRejectPatchHint(repair *types.ToolRepair, summary string, existingHint string) string {
-	detail := compactToolRejectSummary(summary)
+func answerDocFullRejectPatchHint(repair *types.ToolRepair, existingHint string) string {
+	detail := answerDocPatchRejectTypedDetail(repair)
 	if detail == "" && repair != nil {
 		detail = strings.TrimSpace(repair.Hint)
-	}
-	if detail == "" {
-		detail = strings.TrimSpace(summary)
 	}
 	if detail == "" {
 		detail = strings.TrimSpace(existingHint)
@@ -8947,110 +8932,6 @@ func answerDocRepairIsRegression(repair *types.ToolRepair) bool {
 	return code == "payload_regression" || strings.HasPrefix(code, "payload_regression:")
 }
 
-func compactToolRejectSummary(summary string) string {
-	if detail := compactStructuredToolFixSummary(summary, 3); detail != "" {
-		return detail
-	}
-	for _, line := range strings.Split(summary, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			return line
-		}
-	}
-	return ""
-}
-
-func compactStructuredToolFixSummary(summary string, limit int) string {
-	if limit <= 0 {
-		return ""
-	}
-	type fix struct {
-		field  string
-		action string
-	}
-	var fixes []fix
-	var current *fix
-	flush := func() {
-		if current == nil {
-			return
-		}
-		current.field = strings.TrimSpace(current.field)
-		current.action = strings.TrimSpace(current.action)
-		if current.field != "" && current.action != "" {
-			fixes = append(fixes, *current)
-		}
-		current = nil
-	}
-	for _, rawLine := range strings.Split(summary, "\n") {
-		line := strings.TrimSpace(rawLine)
-		if line == "" {
-			continue
-		}
-		line = trimToolRejectListPrefix(line)
-		switch {
-		case strings.HasPrefix(line, "Field:"):
-			flush()
-			field := strings.TrimSpace(strings.TrimPrefix(line, "Field:"))
-			field = strings.Trim(field, "` ")
-			current = &fix{field: field}
-		case strings.HasPrefix(line, "Action:"):
-			if current == nil {
-				continue
-			}
-			action := strings.TrimSpace(strings.TrimPrefix(line, "Action:"))
-			current.action = action
-		}
-	}
-	flush()
-	if len(fixes) == 0 {
-		return ""
-	}
-	partCap := len(fixes)
-	if partCap > limit {
-		partCap = limit
-	}
-	parts := make([]string, 0, partCap+1)
-	for i, f := range fixes {
-		if i >= limit {
-			break
-		}
-		parts = append(parts, fmt.Sprintf("`%s`: %s", f.field, truncateRejectAction(f.action, 900)))
-	}
-	if len(fixes) > limit {
-		parts = append(parts, fmt.Sprintf("... %d more field fix(es)", len(fixes)-limit))
-	}
-	return strings.Join(parts, "; ")
-}
-
-func trimToolRejectListPrefix(line string) string {
-	line = strings.TrimSpace(line)
-	i := 0
-	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
-		i++
-	}
-	if i == 0 || i >= len(line) {
-		return line
-	}
-	switch line[i] {
-	case '.', ')':
-		return strings.TrimSpace(line[i+1:])
-	default:
-		return line
-	}
-}
-
-func truncateRejectAction(s string, maxRunes int) string {
-	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
-	if maxRunes <= 0 || utf8.RuneCountInString(s) <= maxRunes {
-		return s
-	}
-	runes := []rune(s)
-	if maxRunes <= 1 {
-		return string(runes[:maxRunes])
-	}
-	return string(runes[:maxRunes-1]) + "…"
-}
-
 func repairHintMentionsFields(hint string, fields []string) bool {
 	hint = strings.TrimSpace(hint)
 	if hint == "" || len(fields) == 0 {
@@ -9093,13 +8974,6 @@ func answerDocDefaultFullRejectHint(hasPreviousDraft bool) string {
 		return answerDocPreserveHintIntro + " Re-emit a complete `emit_answer_document` payload now, fixing the field(s) named in the tool error. Build the full document from the already-provided evidence, support lanes, required answer blocks, and repair diagnostics. Do not refer to a previous structured payload because none is usable for this repair. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
 	}
 	return answerDocPreserveHintIntro + " Re-emit `emit_answer_document` now: paste the FULL previous payload byte-identical, then change ONLY the field(s) named in the tool error. Every other field — `blocks[]` (every block id and item id you previously emitted), `citations[]`, `claim_uses[]` annotations, `exact_resolution` — must reproduce the prior emit byte-identical. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
-}
-
-func answerDocStructuredRejectHint(detail string, hasPreviousDraft bool) string {
-	if !hasPreviousDraft {
-		return answerDocPreserveHintIntro + " Re-emit a complete `emit_answer_document` payload now and fix this exact tool error: " + detail + ". Build every required block and citation from the already-provided evidence; do not reopen files. Do not write free-form prose outside the tool call."
-	}
-	return answerDocPreserveHintIntro + " Re-emit `emit_answer_document` now: paste the FULL previous payload byte-identical, then change ONLY the field(s) named in this exact tool error: " + detail + ". Every other field must stay byte-identical to the prior emit; do not reopen files. Do not write free-form prose outside the tool call."
 }
 
 // answerDocFixOnlyDirective renders the "preserve everything except
@@ -9721,29 +9595,6 @@ func buildRetryDiagramFence(nodes []string) string {
 	return types.RenderLinearDiagramFence(nodes, 0)
 }
 
-func buildLiteralGroundingRetryHint(summary string) string {
-	firstLine := strings.TrimSpace(strings.SplitN(summary, "\n", 2)[0])
-	refField := "value.citation_ref"
-	subject := "`value.literal`"
-	context := "the literal is drawn from the attached log / external source (no grounded repo citation)"
-	extra := "Do NOT try to find a different file:line — if the literal came from an external trace (panic frame, log function name, etc.), no repo citation exists by definition; leave the structural citation carrier empty/uncited and explain that boundary in summary."
-	if idx, ok := parseLiteralGroundingStepIndex(firstLine); ok {
-		refField = fmt.Sprintf("steps[%d].citation_ref", idx)
-		subject = fmt.Sprintf("`steps[%d].description`", idx)
-		context = "that step summarizes a repo-wide search, aggregate absence, test-only proof, or other claim that has no single corroborating repo line"
-		extra = "Do NOT try to borrow a nearby file:line just to satisfy the schema — if the step summarizes an aggregate search result or absence conclusion rather than one corroborated line, leave the step uncited and explain that boundary in summary."
-	}
-	firstLine = sanitizeLiteralGroundingToolErrorForPrompt(firstLine)
-	return "Your last `emit_answer_document` call was rejected by the LITERAL-GROUNDING gate: the cited file:line does NOT corroborate " + subject + ". " +
-		fmt.Sprintf("The single-action fix: re-emit now with `%s` left uncited", refField) +
-		" AND add a sentence to `summary` stating that " + context + ". " +
-		extra + " Full tool error: " + firstLine
-}
-
-func sanitizeLiteralGroundingToolErrorForPrompt(s string) string {
-	return sanitizeNoCitationSentinelForPrompt(s)
-}
-
 func sanitizeNoCitationSentinelForPrompt(s string) string {
 	replacer := strings.NewReplacer(
 		"set citation_ref=-1 and state in summary that the answer is derived from log semantics (no grounded repo source)",
@@ -9766,20 +9617,6 @@ func sanitizeNoCitationSentinelForPrompt(s string) string {
 		"no current-repo citation",
 	)
 	return replacer.Replace(s)
-}
-
-var literalGroundingStepRe = regexp.MustCompile(`^steps\[(\d+)\]\.description\b`)
-
-func parseLiteralGroundingStepIndex(firstLine string) (int, bool) {
-	m := literalGroundingStepRe.FindStringSubmatch(strings.TrimSpace(firstLine))
-	if len(m) != 2 {
-		return 0, false
-	}
-	idx, err := strconv.Atoi(m[1])
-	if err != nil {
-		return 0, false
-	}
-	return idx, true
 }
 
 // answerDocumentStageData is the JSON payload shape written into

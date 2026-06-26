@@ -119,7 +119,15 @@ func TestEmitAnswerDocumentRejectSignal_FirstRejectPrefersPatchWhenDraftAvailabl
 		LastToolResult: &types.ToolResult{
 			ToolName: "emit_answer_document",
 			Success:  false,
-			Summary:  "Field: blocks[].kind=ordered_list\nAction: emit at least 1 block(s) of kind=ordered_list",
+			Summary:  "ShouldNotLeak: Field: blocks[].kind=ordered_list",
+			Repair: &types.ToolRepair{
+				Code:   "answer_doc_pre_emit_contract",
+				Fields: []string{"blocks[].kind=ordered_list"},
+				Hint:   "Apply the typed answer-document schema correction and preserve existing answer facts.",
+				Metadata: map[string]string{
+					"expected_shapes": "emit at least 1 block(s) of kind=ordered_list",
+				},
+			},
 		},
 	}
 
@@ -141,6 +149,9 @@ func TestEmitAnswerDocumentRejectSignal_FirstRejectPrefersPatchWhenDraftAvailabl
 	if strings.Contains(got.Hint, "paste the FULL previous payload") {
 		t.Fatalf("patch-first hint must not ask for full-payload paste:\n%s", got.Hint)
 	}
+	if strings.Contains(got.Hint, "ShouldNotLeak") {
+		t.Fatalf("patch-first hint must not include rendered tool summary detail:\n%s", got.Hint)
+	}
 	if !e.preferPatchNext {
 		t.Fatal("patch-first full-doc reject should prefer patch on the next schema pass")
 	}
@@ -153,7 +164,7 @@ func TestEmitAnswerDocumentRejectSignal_NoPatchBaseKeepsFullEmit(t *testing.T) {
 		LastToolResult: &types.ToolResult{
 			ToolName: "emit_answer_document",
 			Success:  false,
-			Summary:  "Field: blocks[].kind=ordered_list\nAction: emit at least 1 block(s) of kind=ordered_list",
+			Summary:  "ShouldNotLeak: Field: blocks[].kind=ordered_list",
 		},
 	}
 
@@ -166,6 +177,9 @@ func TestEmitAnswerDocumentRejectSignal_NoPatchBaseKeepsFullEmit(t *testing.T) {
 	}
 	if strings.Contains(got.Hint, "paste the FULL previous payload") {
 		t.Fatalf("without a patch base the hint must not ask for an unavailable previous payload:\n%s", got.Hint)
+	}
+	if strings.Contains(got.Hint, "ShouldNotLeak") || strings.Contains(got.Hint, "ordered_list") {
+		t.Fatalf("summary-only full-doc reject must stay generic:\n%s", got.Hint)
 	}
 	if e.preferPatchNext {
 		t.Fatal("no patch base must not prefer patch")

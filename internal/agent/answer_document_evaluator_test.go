@@ -5421,7 +5421,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryOnlyRejectDoesNotSelectSp
 			t.Fatalf("summary-only reject must not select special lane %q:\n%s", forbidden, sig.Hint)
 		}
 	}
-	if !strings.Contains(sig.Hint, "fix this exact tool error") {
+	if !strings.Contains(sig.Hint, "Re-emit a complete `emit_answer_document` payload") {
 		t.Fatalf("summary-only reject should remain generic diagnostic guidance: %q", sig.Hint)
 	}
 }
@@ -5446,32 +5446,7 @@ func TestAnswerDocumentEvaluator_Observe_UnexpectedFinalizerToolBypassesThrottle
 	}
 }
 
-func TestCompactToolRejectSummaryPrefersStructuredFieldActions(t *testing.T) {
-	summary := "The answer document does not yet meet the structural contract for this question.\n\n" +
-		"  1. Field: `citations[]`\n" +
-		"     Action: preserve / emit a top-level citations[] pool with at least 9 entries so every non-negative citation_ref resolves\n" +
-		"     Why: citation refs are zero-based\n" +
-		"  2. Field: `blocks[].items[].label/text OR blocks[].text`\n" +
-		"     Action: include every model-emitted principal member_set member in the visible answer\n" +
-		"  3. Field: `blocks[].text/count claims`\n" +
-		"     Action: make every visible count claim match the member_set cardinality; current_citation is INVALID, not a target. Use a candidate_citations entry when present, or change the label to an endpoint actually present at current_citation: block=\"main\" item=\"i6\" label=\"subExplorerEvaluator\" current_citation=internal/agent/explorer.go:30 candidate_citations=[internal/agent/sub_explorer.go:135, internal/agent/sub_explorer.go:139]\n"
-	got := compactToolRejectSummary(summary)
-	for _, want := range []string{
-		"`citations[]`: preserve / emit",
-		"`blocks[].items[].label/text OR blocks[].text`: include every model-emitted",
-		"`blocks[].text/count claims`: make every visible count claim",
-		"candidate_citations=[internal/agent/sub_explorer.go:135, internal/agent/sub_explorer.go:139]",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("compact structured summary missing %q:\n%s", want, got)
-		}
-	}
-	if strings.HasPrefix(got, "The answer document does not yet meet") {
-		t.Fatalf("compact summary should not stop at the generic heading: %q", got)
-	}
-}
-
-func TestAnswerDocumentEvaluator_Observe_MidLoopRejectHintIncludesFieldActions(t *testing.T) {
+func TestAnswerDocumentEvaluator_Observe_MidLoopRejectHintIgnoresSummaryFieldActions(t *testing.T) {
 	e := &answerDocumentEvaluator{maxRetries: 2}
 	sig := e.Observe(nil, LoopObservation{
 		Phase:     PhaseMidLoop,
@@ -5489,13 +5464,18 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopRejectHintIncludesFieldActions(t
 	if !sig.HintRequested {
 		t.Fatalf("tool reject should request a correction hint, got %+v", sig)
 	}
-	for _, want := range []string{
+	for _, forbidden := range []string{
+		"citations[] pool with at least 9 entries",
+		"structured answer anchor label(s)",
 		"`citations[]`: preserve / emit",
 		"`blocks[].items[].label`: structured answer anchor",
 	} {
-		if !strings.Contains(sig.Hint, want) {
-			t.Fatalf("reject hint missing compact action %q:\n%s", want, sig.Hint)
+		if strings.Contains(sig.Hint, forbidden) {
+			t.Fatalf("summary-only reject hint must stay generic and not parse %q:\n%s", forbidden, sig.Hint)
 		}
+	}
+	if !strings.Contains(sig.Hint, "Re-emit a complete `emit_answer_document` payload") {
+		t.Fatalf("summary-only reject should still get generic repair guidance:\n%s", sig.Hint)
 	}
 }
 
@@ -6216,19 +6196,21 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopGenericRejectSurfacesToolError(t
 		t.Fatalf("generic reject should request a correction hint, got %+v", sig)
 	}
 	for _, want := range []string{
-		"symbols[0].file is required when symbols[0].line is set",
 		"emit_answer_document",
 		// No previous structured draft exists in this path, so the
 		// repair must ask for a complete fresh payload rather than
 		// an impossible byte-identical paste from a missing prior
 		// emit. Separate patch-base tests cover the preserve wording.
 		"complete `emit_answer_document` payload",
-		"Build every required block and citation",
+		"Build the full document from the already-provided evidence",
 		"Do not write free-form prose outside the tool call",
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("generic reject hint missing %q: %q", want, sig.Hint)
 		}
+	}
+	if strings.Contains(sig.Hint, "symbols[0].file is required") || strings.Contains(sig.Hint, "extra detail follows") {
+		t.Fatalf("summary-only generic reject must not surface rendered tool detail: %q", sig.Hint)
 	}
 }
 
@@ -6392,26 +6374,26 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesAc
 		LastToolResult: &types.ToolResult{
 			ToolName: "emit_answer_document",
 			Success:  false,
-			Summary:  `value.literal "processRequest" is not corroborated by citations[0] (internal/agent/analyzer.go:1): the cited line and ±3-line window contain no identifier overlap with the literal. If this literal originates from the attached log / external source rather than repo code, set citation_ref=-1 and state in summary that the answer is derived from log semantics (no grounded repo source). Otherwise cite a real file:line where the literal appears.`,
+			Summary:  `ShouldNotLeak value.literal "processRequest" is not corroborated by citations[0].`,
 			Repair: &types.ToolRepair{
-				Code: "literal_grounding",
+				Code:   "literal_grounding",
+				Fields: []string{"value.citation_ref"},
+				Hint:   "Your last `emit_answer_document` call was rejected by the LITERAL-GROUNDING gate: keep `value.citation_ref` left uncited when the literal comes from an external source, and explain that evidence boundary in summary instead of borrowing a nearby repo citation.",
 			},
 		},
 	})
 	if !sig.HintRequested {
 		t.Fatalf("literal-grounding reject should request a correction hint, got %+v", sig)
 	}
-	// The action must appear BEFORE the diagnostic prose so the LLM
-	// acts on it before scrolling past.
 	actionIdx := strings.Index(sig.Hint, "`value.citation_ref` left uncited")
-	diagIdx := strings.Index(sig.Hint, "Full tool error")
-	if actionIdx < 0 || diagIdx < 0 || actionIdx > diagIdx {
-		t.Fatalf("uncited action must appear before diagnostic body "+
-			"(action at %d, diagnostic at %d); hint:\n%s",
-			actionIdx, diagIdx, sig.Hint)
+	if actionIdx < 0 {
+		t.Fatalf("uncited action must come from typed repair hint; hint:\n%s", sig.Hint)
 	}
 	if strings.Contains(sig.Hint, "citation_ref=-1") || strings.Contains(sig.Hint, "citation_ref = -1") {
 		t.Fatalf("literal-grounding hint should not teach visible sentinel wording:\n%s", sig.Hint)
+	}
+	if strings.Contains(sig.Hint, "ShouldNotLeak") || strings.Contains(sig.Hint, "processRequest") {
+		t.Fatalf("literal-grounding hint must not parse rendered Summary diagnostics:\n%s", sig.Hint)
 	}
 	if !strings.Contains(sig.Hint, "LITERAL-GROUNDING") {
 		t.Errorf("hint should name the gate so operators can trace the signal: %q", sig.Hint)
@@ -6429,9 +6411,11 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesSt
 		LastToolResult: &types.ToolResult{
 			ToolName: "emit_answer_document",
 			Success:  false,
-			Summary:  `steps[0].description "searched the repo and found no production definition" is not corroborated by citations[0] (internal/tool/emit_answer_document_test.go:805): the cited line and ±3-line window contain no identifier overlap with the claim. If this step paraphrases an aggregate absence conclusion rather than one corroborated line, set citation_ref=-1 so the renderer drops the suffix.`,
+			Summary:  `ShouldNotLeak steps[0].description "searched the repo and found no production definition" is not corroborated by citations[0].`,
 			Repair: &types.ToolRepair{
-				Code: "literal_grounding",
+				Code:   "literal_grounding",
+				Fields: []string{"steps[0].citation_ref", "steps[0].description"},
+				Hint:   "Your last `emit_answer_document` call was rejected by the LITERAL-GROUNDING gate: keep `steps[0].citation_ref` left uncited when `steps[0].description` summarizes a repo-wide search, aggregate absence, test-only proof, or other non-line-local conclusion. Do NOT try to borrow a nearby file:line just to satisfy the schema.",
 			},
 		},
 	})
@@ -6439,13 +6423,14 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesSt
 		t.Fatalf("step literal-grounding reject should request a correction hint, got %+v", sig)
 	}
 	actionIdx := strings.Index(sig.Hint, "`steps[0].citation_ref` left uncited")
-	diagIdx := strings.Index(sig.Hint, "Full tool error")
-	if actionIdx < 0 || diagIdx < 0 || actionIdx > diagIdx {
-		t.Fatalf("steps[0] uncited action must appear before diagnostic body (action at %d, diagnostic at %d); hint:\n%s",
-			actionIdx, diagIdx, sig.Hint)
+	if actionIdx < 0 {
+		t.Fatalf("steps[0] uncited action must come from typed repair hint; hint:\n%s", sig.Hint)
 	}
 	if strings.Contains(sig.Hint, "citation_ref=-1") || strings.Contains(sig.Hint, "citation_ref = -1") {
 		t.Fatalf("step literal-grounding hint should not teach visible sentinel wording:\n%s", sig.Hint)
+	}
+	if strings.Contains(sig.Hint, "ShouldNotLeak") || strings.Contains(sig.Hint, "searched the repo") {
+		t.Fatalf("step literal-grounding hint must not parse rendered Summary diagnostics:\n%s", sig.Hint)
 	}
 	for _, want := range []string{
 		"LITERAL-GROUNDING",
