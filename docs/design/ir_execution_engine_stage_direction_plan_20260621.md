@@ -2374,6 +2374,13 @@ Remaining follow-up:
     3. Consumer: explorer counts only that typed repair code. Summary-only historical text such as "kind=absent is not emittable" cannot trigger loop-control.
     4. Red-line boundary: legal negative evidence remains `scope=negative + evidence_kind=absent + negative_query + negative_scope`; whole-answer absence still belongs in `emit_investigation_complete(result_kind="absence", absence_justification=...)`. The system does not infer this from user keywords, model rationale, prompt prose, localized status, or rendered tool Summary.
     5. Guardrail tests added and passed: legal negative evidence still succeeds; line-shaped absent evidence rejects with typed repair; typed repair triggers redirect after repeated failures; summary-only legacy text does not.
+  - **Delivered D1-F10g.115 analyzer ClassificationGrep sidecar retirement（code complete / full regression passed）**:
+    1. Target gap: the old analyze-stage `ClassificationGrep` post-process hook still parsed rendered `grep` `ToolResult.Summary` lines into a mutable sidecar even though analyze now rejects `files_only=false` grep unconditionally and no production reducer consumes that sidecar.
+    2. Risk: keeping a dead Summary parser beside an evidence-lite hard boundary invites future control-plane regressions; a later change could accidentally reconnect line-level grep prose to classification state.
+    3. Consumer removal: `BaseAgent.executeTool` no longer calls the post-process hook; `MutableState` no longer carries `classificationGrepTriggered/calls/bytes/observations`; `ResetClassificationGrep` and `ClassificationObs` accessors are removed. Legacy config fields remain parse-compatible but cannot reopen a runtime lane.
+    4. Guardrail tests: analyzer validation still rejects `grep(files_only=false)` in analyze, including stale max_count/config shapes; non-analyze stages remain pass-through for ordinary line-level grep.
+    5. Red-line boundary: analyzer classification state consumes typed prescan carriers (`ToolPathDiscovery`, source-inventory carriers, blocked-tool intents) and emit_analysis only. It does not parse grep summaries, grep result lines, user text, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
+    6. Validation passed: `go test ./internal/agent ./internal/types ./internal/tool -run 'Classification|AnalyzerPrescan|FilesOnly|Declarative|PrescanHas' -count=1`; `go test ./...`; `make`.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

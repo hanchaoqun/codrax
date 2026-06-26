@@ -85,12 +85,6 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	}
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.ResetPrescanSummary()
-		// Session 11 C0' — also reset the classification grep state
-		// so cross-dispatch retries start with a clean budget. The
-		// trigger flag is flipped back on by the evaluator's Observe
-		// path once Round 1 completes and classification is found
-		// ambiguous (see maybeTriggerClassificationGrep below).
-		ctx.Mutable.ResetClassificationGrep()
 	}
 
 	// Heuristic multi-topic detection: count question marks and
@@ -3563,7 +3557,7 @@ func appendDeclarativeKeywords(kws *[]string) []string {
 	return added
 }
 
-// ── Session 11 C0' ClassificationGrep helpers ──────────────────────
+// ── Declarative pre-scan helpers ────────────────────────────────────
 
 // prescanHasDeclarativeCandidate reports whether the analyzer's typed pre-scan
 // corpus mentions any declarative-filename pattern. The corpus is generated

@@ -125,9 +125,10 @@ type AnalysisLimits struct {
 	WarnBelowEntityHitRatio float64
 
 	// Legacy ClassificationGrep knobs. The analyze-stage runtime gate
-	// now rejects files_only=false grep unconditionally to preserve the
-	// evidence-lite boundary; these fields remain for config compatibility
-	// and for tests that exercise stale sidecar accounting directly.
+	// rejects files_only=false grep unconditionally to preserve the
+	// evidence-lite boundary; these fields remain only so old configs parse.
+	// Runtime code must not use them to reopen line-level grep or Summary-
+	// parsed classification sidecars.
 
 	// ClassificationGrepEnabled is retained for backwards-compatible
 	// config parsing. validateAnalyzerPrescanToolCall rejects every
@@ -135,13 +136,13 @@ type AnalysisLimits struct {
 	// value.
 	ClassificationGrepEnabled bool
 
-	// ClassificationGrepMaxCalls is retained for legacy accounting.
+	// ClassificationGrepMaxCalls is retained for config compatibility.
 	ClassificationGrepMaxCalls int
 
-	// ClassificationGrepMaxMatchesPerCall is retained for legacy accounting.
+	// ClassificationGrepMaxMatchesPerCall is retained for config compatibility.
 	ClassificationGrepMaxMatchesPerCall int
 
-	// ClassificationGrepMaxTotalBytes is retained for legacy accounting.
+	// ClassificationGrepMaxTotalBytes is retained for config compatibility.
 	ClassificationGrepMaxTotalBytes int
 
 	// ClassificationGrepMinLLMSubjectConf is retained for config compatibility.
