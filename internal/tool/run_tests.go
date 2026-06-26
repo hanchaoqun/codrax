@@ -420,11 +420,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}
 		}
 		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   report != nil && report.Passed,
-			Summary:   summary,
-			RawRef:    ref,
-			Timestamp: time.Now(),
+			ToolName:   t.Name(),
+			Success:    report != nil && report.Passed,
+			Summary:    summary,
+			RawRef:     ref,
+			Refinement: runTestsRefinement(p, nil, ctx.RepoRoot, "", len(probe.Output)),
+			Timestamp:  time.Now(),
 		}, nil
 	}
 
@@ -542,25 +543,29 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 					})
 				}
 				report := probe.Report
-				_, ref := StoreBlob(ctx, t.Name()+"-verification-probes", strings.Join(combinedOutputs, "\n\n"))
+				payload := runTestsCombinedOutput(combinedOutputs)
+				_, ref := StoreBlob(ctx, t.Name()+"-verification-probes", payload)
 				installRunTestsReport(ctx, finishReport(report), dryRunProbe)
 				return types.ToolResult{
-					ToolName:  t.Name(),
-					Success:   true,
-					Summary:   renderVerificationProbePrimarySummary(report, surface),
-					RawRef:    ref,
-					Timestamp: time.Now(),
+					ToolName:   t.Name(),
+					Success:    true,
+					Summary:    renderVerificationProbePrimarySummary(report, surface),
+					RawRef:     ref,
+					Refinement: runTestsRefinement(p, nil, ctx.RepoRoot, "", len(payload)),
+					Timestamp:  time.Now(),
 				}, nil
 			case types.VerificationStatusFailed:
 				report := probe.Report
-				_, ref := StoreBlob(ctx, t.Name()+"-verification-probes", strings.Join(combinedOutputs, "\n\n"))
+				payload := runTestsCombinedOutput(combinedOutputs)
+				_, ref := StoreBlob(ctx, t.Name()+"-verification-probes", payload)
 				installRunTestsReport(ctx, finishReport(report), dryRunProbe)
 				return types.ToolResult{
-					ToolName:  t.Name(),
-					Success:   false,
-					Summary:   renderVerificationProbePrimarySummary(report, surface),
-					RawRef:    ref,
-					Timestamp: time.Now(),
+					ToolName:   t.Name(),
+					Success:    false,
+					Summary:    renderVerificationProbePrimarySummary(report, surface),
+					RawRef:     ref,
+					Refinement: runTestsRefinement(p, nil, ctx.RepoRoot, "", len(payload)),
+					Timestamp:  time.Now(),
 				}, nil
 			case types.VerificationStatusUnavailable:
 				logging.Warning("[run_tests] pre-suite verification_probe unavailable; continuing to typed project test surface")
@@ -779,13 +784,15 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				})
 				if report != nil && !report.Passed {
 					installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
-					_, ref := StoreBlob(ctx, t.Name()+"-syntax-preflight", strings.Join(combinedOutputs, "\n\n"))
+					payload := runTestsCombinedOutput(combinedOutputs)
+					_, ref := StoreBlob(ctx, t.Name()+"-syntax-preflight", payload)
 					return types.ToolResult{
-						ToolName:  t.Name(),
-						Success:   false,
-						Summary:   fmt.Sprintf("[run_tests: %s] syntax preflight failed before project tests; raw output stored for inspection", runnerPlanLabel(ctx.RepoRoot, plan)),
-						RawRef:    ref,
-						Timestamp: time.Now(),
+						ToolName:   t.Name(),
+						Success:    false,
+						Summary:    fmt.Sprintf("[run_tests: %s] syntax preflight failed before project tests; raw output stored for inspection", runnerPlanLabel(ctx.RepoRoot, plan)),
+						RawRef:     ref,
+						Refinement: runTestsRefinement(p, &plan, ctx.RepoRoot, "", len(payload)),
+						Timestamp:  time.Now(),
 					}, nil
 				}
 			}
@@ -893,7 +900,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		switch supRes.ExitKind {
 		case SupervisedExitTimeout:
 			setLastExecOutcome("timeout")
-			_, ref := StoreBlob(ctx, t.Name()+"-timeout", strings.Join(combinedOutputs, "\n\n"))
+			payload := runTestsCombinedOutput(combinedOutputs)
+			_, ref := StoreBlob(ctx, t.Name()+"-timeout", payload)
+			refinement := runTestsRefinement(p, &plan, ctx.RepoRoot, "run_tests_timeout", len(payload))
 			report := makeResourceExhaustionReport("timeout", fmt.Sprintf(
 				"command timed out after %v (set timeout_seconds to bump)", timeout))
 			if ref != "" {
@@ -902,24 +911,28 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			if adjusted, ok := probePrimarySuiteInfraReport(report.FailureKind, report.FailureSummary); ok {
 				installRunTestsReport(ctx, finishReport(adjusted), dryRunProbe)
 				return types.ToolResult{
-					ToolName:  t.Name(),
-					Success:   true,
-					Summary:   fmt.Sprintf("[run_tests: %s] project suite timed out after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan)),
-					RawRef:    ref,
-					Timestamp: time.Now(),
+					ToolName:   t.Name(),
+					Success:    true,
+					Summary:    fmt.Sprintf("[run_tests: %s] project suite timed out after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan)),
+					RawRef:     ref,
+					Refinement: refinement,
+					Timestamp:  time.Now(),
 				}, nil
 			}
 			installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
 			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   fmt.Sprintf("[run_tests: %s] command timed out after %v (set timeout_seconds to bump)", runnerPlanLabel(ctx.RepoRoot, plan), timeout),
-				RawRef:    ref,
-				Timestamp: time.Now(),
+				ToolName:   t.Name(),
+				Success:    false,
+				Summary:    fmt.Sprintf("[run_tests: %s] command timed out after %v (set timeout_seconds to bump)", runnerPlanLabel(ctx.RepoRoot, plan), timeout),
+				RawRef:     ref,
+				Refinement: refinement,
+				Timestamp:  time.Now(),
 			}, nil
 		case SupervisedExitOOM:
 			setLastExecOutcome("oom")
-			_, ref := StoreBlob(ctx, t.Name()+"-oom", strings.Join(combinedOutputs, "\n\n"))
+			payload := runTestsCombinedOutput(combinedOutputs)
+			_, ref := StoreBlob(ctx, t.Name()+"-oom", payload)
+			refinement := runTestsRefinement(p, &plan, ctx.RepoRoot, "run_tests_oom", len(payload))
 			// Neutral structural label — no prescribed-cause list.
 			// The model reads ChangeReport.FailureDetail (raw stderr)
 			// and decides the fix. Pre-2026-04-30 this string carried
@@ -934,24 +947,28 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			if adjusted, ok := probePrimarySuiteInfraReport(report.FailureKind, report.FailureSummary); ok {
 				installRunTestsReport(ctx, finishReport(adjusted), dryRunProbe)
 				return types.ToolResult{
-					ToolName:  t.Name(),
-					Success:   true,
-					Summary:   fmt.Sprintf("[run_tests: %s] project suite hit memory cap after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan)),
-					RawRef:    ref,
-					Timestamp: time.Now(),
+					ToolName:   t.Name(),
+					Success:    true,
+					Summary:    fmt.Sprintf("[run_tests: %s] project suite hit memory cap after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan)),
+					RawRef:     ref,
+					Refinement: refinement,
+					Timestamp:  time.Now(),
 				}, nil
 			}
 			installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
 			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   fmt.Sprintf("[run_tests: %s] killed by memory cap (limit=%d MiB) — see ChangeReport.FailureSummary for retry guidance", runnerPlanLabel(ctx.RepoRoot, plan), caps.MemoryLimitBytes/(1024*1024)),
-				RawRef:    ref,
-				Timestamp: time.Now(),
+				ToolName:   t.Name(),
+				Success:    false,
+				Summary:    fmt.Sprintf("[run_tests: %s] killed by memory cap (limit=%d MiB) — see ChangeReport.FailureSummary for retry guidance", runnerPlanLabel(ctx.RepoRoot, plan), caps.MemoryLimitBytes/(1024*1024)),
+				RawRef:     ref,
+				Refinement: refinement,
+				Timestamp:  time.Now(),
 			}, nil
 		case SupervisedExitCPULimit:
 			setLastExecOutcome("cpu_limit")
-			_, ref := StoreBlob(ctx, t.Name()+"-cpu", strings.Join(combinedOutputs, "\n\n"))
+			payload := runTestsCombinedOutput(combinedOutputs)
+			_, ref := StoreBlob(ctx, t.Name()+"-cpu", payload)
+			refinement := runTestsRefinement(p, &plan, ctx.RepoRoot, "run_tests_cpu_limit", len(payload))
 			// Neutral structural label — see OOM branch above for
 			// the rationale. Raw stderr is in FailureDetail.
 			report := makeResourceExhaustionReport("cpu_limit", fmt.Sprintf(
@@ -962,20 +979,22 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			if adjusted, ok := probePrimarySuiteInfraReport(report.FailureKind, report.FailureSummary); ok {
 				installRunTestsReport(ctx, finishReport(adjusted), dryRunProbe)
 				return types.ToolResult{
-					ToolName:  t.Name(),
-					Success:   true,
-					Summary:   fmt.Sprintf("[run_tests: %s] project suite hit CPU cap after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan)),
-					RawRef:    ref,
-					Timestamp: time.Now(),
+					ToolName:   t.Name(),
+					Success:    true,
+					Summary:    fmt.Sprintf("[run_tests: %s] project suite hit CPU cap after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan)),
+					RawRef:     ref,
+					Refinement: refinement,
+					Timestamp:  time.Now(),
 				}, nil
 			}
 			installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
 			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   fmt.Sprintf("[run_tests: %s] killed by CPU-time cap (limit=%ds) — see ChangeReport.FailureSummary for retry guidance", runnerPlanLabel(ctx.RepoRoot, plan), caps.CPULimitSeconds),
-				RawRef:    ref,
-				Timestamp: time.Now(),
+				ToolName:   t.Name(),
+				Success:    false,
+				Summary:    fmt.Sprintf("[run_tests: %s] killed by CPU-time cap (limit=%ds) — see ChangeReport.FailureSummary for retry guidance", runnerPlanLabel(ctx.RepoRoot, plan), caps.CPULimitSeconds),
+				RawRef:     ref,
+				Refinement: refinement,
+				Timestamp:  time.Now(),
 			}, nil
 		}
 
@@ -1043,7 +1062,8 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				combinedOutputs = append(combinedOutputs, probe.Output)
 				continue
 			}
-			_, ref := StoreBlob(ctx, t.Name()+"-runner-missing", strings.Join(combinedOutputs, "\n\n"))
+			payload := runTestsCombinedOutput(combinedOutputs)
+			_, ref := StoreBlob(ctx, t.Name()+"-runner-missing", payload)
 			report := makeRunnerMissingReport(runner, missingBinary, output, ctx.Language, missingReason, execExit)
 			// env_recommend integration: when enabled, replace the
 			// hardcoded hint with the new pipeline's diagnose +
@@ -1061,11 +1081,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				missingBinary, hint,
 				missingReason, execExit, output)
 			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   summary,
-				RawRef:    ref,
-				Timestamp: time.Now(),
+				ToolName:   t.Name(),
+				Success:    false,
+				Summary:    summary,
+				RawRef:     ref,
+				Refinement: runTestsRefinement(p, &plan, ctx.RepoRoot, "run_tests_runner_missing", len(payload)),
+				Timestamp:  time.Now(),
 			}, nil
 		}
 
@@ -1151,7 +1172,8 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				combinedOutputs = append(combinedOutputs, probe.Output)
 				continue
 			}
-			_, ref := StoreBlob(ctx, t.Name()+"-unparsed", strings.Join(combinedOutputs, "\n\n"))
+			payload := runTestsCombinedOutput(combinedOutputs)
+			_, ref := StoreBlob(ctx, t.Name()+"-unparsed", payload)
 			// A parser error must still leave a typed, durable report —
 			// the audit chain and the verify state machine read reports,
 			// not tool summaries. It is not authoritative evidence of a
@@ -1167,11 +1189,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}
 			installRunTestsReport(ctx, finishReport(qualifyChangeReport(parserReport, plan, ctx.RepoRoot)), dryRunProbe)
 			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   fmt.Sprintf("[run_tests: %s] output parser failed: %v — raw output stored for inspection", runnerPlanLabel(ctx.RepoRoot, plan), err),
-				RawRef:    ref,
-				Timestamp: time.Now(),
+				ToolName:   t.Name(),
+				Success:    false,
+				Summary:    fmt.Sprintf("[run_tests: %s] output parser failed: %v — raw output stored for inspection", runnerPlanLabel(ctx.RepoRoot, plan), err),
+				RawRef:     ref,
+				Refinement: runTestsRefinement(p, &plan, ctx.RepoRoot, "run_tests_unparsed_output", len(payload)),
+				Timestamp:  time.Now(),
 			}, nil
 		}
 		if report != nil && report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable {
@@ -1213,7 +1236,8 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	report.GeneratedAt = time.Now()
 
 	summary := renderAggregateTestSummary(ctx.RepoRoot, plans, projectReports, report)
-	_, ref := StoreBlob(ctx, t.Name(), strings.Join(combinedOutputs, "\n\n"))
+	payload := runTestsCombinedOutput(combinedOutputs)
+	_, ref := StoreBlob(ctx, t.Name(), payload)
 	// Module D: propagate the blob ref onto the report so the
 	// planner's iteration-history section + retry hint can point
 	// the next attempt at the FULL stderr (paged via read_file
@@ -1228,12 +1252,128 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		len(projectReports), report.Passed, len(report.TestResults), countFailed(report.TestResults))
 
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   success,
-		Summary:   summary,
-		RawRef:    ref,
-		Timestamp: time.Now(),
+		ToolName:   t.Name(),
+		Success:    success,
+		Summary:    summary,
+		RawRef:     ref,
+		Refinement: runTestsRefinement(p, singleRunTestsPlanForRefinement(plans), ctx.RepoRoot, "", len(payload)),
+		Timestamp:  time.Now(),
 	}, nil
+}
+
+func runTestsCombinedOutput(outputs []string) string {
+	return strings.Join(outputs, "\n\n")
+}
+
+func singleRunTestsPlanForRefinement(plans []runnerPlan) *runnerPlan {
+	if len(plans) != 1 {
+		return nil
+	}
+	return &plans[0]
+}
+
+func runTestsRefinement(params runTestsParams, plan *runnerPlan, repoRoot, reason string, payloadBytes int) *types.ToolRefinementHint {
+	reason = strings.TrimSpace(reason)
+	if reason == "" && payloadBytes <= MaxInlineBytes {
+		return nil
+	}
+	if reason == "" {
+		reason = "run_tests_output_truncated"
+	}
+	hint := types.ToolRefinementHint{
+		ReasonCode:        reason,
+		ResultTruncated:   payloadBytes > MaxInlineBytes,
+		PreferredNextTool: "run_tests",
+		PreferredParams:   runTestsRefinementPreferredParams(params, plan, repoRoot, reason),
+		RequiredFields:    runTestsRefinementRequiredFields(params, plan, repoRoot, reason),
+	}
+	normalized := types.NormalizeToolRefinementHint(hint)
+	if normalized.Empty() {
+		return nil
+	}
+	return &normalized
+}
+
+func runTestsRefinementPreferredParams(params runTestsParams, plan *runnerPlan, repoRoot, reason string) map[string]string {
+	preferred := map[string]string{}
+	set := func(key, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			preferred[key] = value
+		}
+	}
+	if plan != nil {
+		set("runner", plan.Runner)
+		set("framework", plan.Framework)
+		set("working_dir", runnerPlanRel(repoRoot, *plan))
+		set("suite", plan.Suite)
+	} else {
+		set("runner", params.Runner)
+		set("framework", params.Framework)
+		set("working_dir", params.WorkingDir)
+		set("suite", params.Suite)
+	}
+	if params.TimeoutSeconds > 0 {
+		set("timeout_seconds", fmt.Sprintf("%d", params.TimeoutSeconds))
+	} else if reason == "run_tests_timeout" {
+		set("timeout_seconds", fmt.Sprintf("%d", RunTestsDefaultTimeoutSeconds()))
+	}
+	if params.DryRun {
+		set("dry_run", "true")
+	}
+	if len(preferred) == 0 {
+		return nil
+	}
+	return preferred
+}
+
+func runTestsRefinementRequiredFields(params runTestsParams, plan *runnerPlan, repoRoot, reason string) []string {
+	hasRunner := strings.TrimSpace(params.Runner) != ""
+	hasWorkingDir := strings.TrimSpace(params.WorkingDir) != ""
+	hasSuite := strings.TrimSpace(params.Suite) != ""
+	if plan != nil {
+		hasRunner = hasRunner || strings.TrimSpace(plan.Runner) != ""
+		hasWorkingDir = hasWorkingDir || strings.TrimSpace(runnerPlanRel(repoRoot, *plan)) != ""
+		hasSuite = hasSuite || strings.TrimSpace(plan.Suite) != ""
+	}
+	var required []string
+	add := func(field string) {
+		for _, existing := range required {
+			if existing == field {
+				return
+			}
+		}
+		required = append(required, field)
+	}
+	switch reason {
+	case "run_tests_timeout", "run_tests_oom", "run_tests_cpu_limit":
+		if !hasSuite {
+			add("suite")
+		}
+		if !hasWorkingDir {
+			add("working_dir")
+		}
+	case "run_tests_runner_missing":
+		if !hasRunner {
+			add("runner")
+		}
+		add("verification_probe")
+	case "run_tests_unparsed_output":
+		if !hasRunner {
+			add("runner")
+		}
+		if !hasSuite {
+			add("suite")
+		}
+	case "run_tests_output_truncated":
+		if !hasSuite {
+			add("suite")
+		}
+		if !hasWorkingDir {
+			add("working_dir")
+		}
+	}
+	return required
 }
 
 func validateRunTestsSuiteSelector(suite string) string {
@@ -6397,10 +6537,11 @@ func synthesizeBuildFailureReport(
 	}
 	ctx.Mutable.SetChangeReport(report)
 	return types.ToolResult{
-		ToolName:  toolName,
-		Success:   false,
-		Summary:   fmt.Sprintf("[run_tests: runner=%s] %s", runner, failSummary),
-		RawRef:    ref,
-		Timestamp: time.Now(),
+		ToolName:   toolName,
+		Success:    false,
+		Summary:    fmt.Sprintf("[run_tests: runner=%s] %s", runner, failSummary),
+		RawRef:     ref,
+		Refinement: runTestsRefinement(runTestsParams{Runner: runner}, nil, "", "", len(output)),
+		Timestamp:  time.Now(),
 	}, nil
 }
