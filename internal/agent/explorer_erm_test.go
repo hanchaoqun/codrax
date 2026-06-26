@@ -995,6 +995,36 @@ func TestIdentifyAnswerChains_ConstructorOriginDemoted(t *testing.T) {
 	}
 }
 
+func TestIdentifyAnswerChains_UsesTypedSubjectBeforeSummary(t *testing.T) {
+	question := "which agent can call subagent?"
+	goodChain := "`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer → `SubExplorer.Name()` returns \"explorer\""
+	badChain := "`NewProposeSubAgents()` returns &ProposeSubAgents{ → `ProposeSubAgents.Name()` returns \"propose_sub_agents\""
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Subject:   badChain,
+			Summary:   goodChain,
+		},
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Subject:   goodChain,
+			Summary:   badChain,
+		},
+	}
+	reqs := []EvidenceRequirement{
+		{Kind: "registration", Entities: []string{"subagent", "agent"}},
+	}
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	if len(chains) == 0 {
+		t.Fatal("expected at least one chain")
+	}
+	if got := chains[0].Item.Subject; !strings.Contains(got, "RegisterDefaultSubAgents") {
+		t.Fatalf("typed Subject should control chain ranking before rendered Summary, got subject=%q summary=%q", got, chains[0].Item.Summary)
+	}
+}
+
 // TestIdentifyAnswerChains_TerminalRangeDemoted is the headline test for
 // L0-1: given two chains, one ending at a loop iterator and one ending
 // at a concrete symbol/literal, the concrete one must rank first even

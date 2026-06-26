@@ -1554,6 +1554,7 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 	for _, ev := range evidence {
 		// Base set: resolution chains and concrete registrations/returns.
 		isChain := ev.Kind == types.EvidenceDataflowPath && ev.Predicate == "resolution_chain"
+		chainText := resolutionChainControlText(ev)
 		isRegistration := isRegistrationShape(ev)
 		isConcreteReturn := ev.Kind == types.EvidenceConcrete && ev.Predicate == "returns"
 		// ERM-Kind-opened slots (T1.3).
@@ -1573,7 +1574,11 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		// directory (e.g. `agent`) matches every chain whose Summary
 		// embeds `internal/agent/...`, so package layout trumps
 		// semantic relevance during ranking.
-		text := normalizeForMatch(stripPathTokens(ev.Summary + " " + ev.Subject + " " + ev.Object))
+		surface := ev.Summary
+		if isChain {
+			surface = chainText
+		}
+		text := normalizeForMatch(stripPathTokens(surface + " " + ev.Subject + " " + ev.Object))
 		overlap := 0
 		for _, ent := range entities {
 			if strings.Contains(text, normalizeForMatch(ent)) {
@@ -1596,7 +1601,7 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		// returns, or assignments. This breaks ties between chains
 		// with equal entity overlap deterministically, without
 		// depending on chain iteration order.
-		if isChain && endsWithShortLiteralReturn(ev.Summary) {
+		if isChain && endsWithShortLiteralReturn(chainText) {
 			bonus *= 1.5
 		}
 		// Additional shape-based bonus: chains whose first segment is
@@ -1607,7 +1612,7 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		// from `NewFoo() returns &Foo{} → Foo.Name() returns "x"` — both
 		// end in a short literal but the register-linked one is the
 		// canonical registration-driven answer shape.
-		if isChain && firstSegmentIsBinds(ev.Summary) {
+		if isChain && firstSegmentIsBinds(chainText) {
 			bonus *= 1.3
 		}
 
@@ -1621,7 +1626,7 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		// factor so the two reasons are symmetric.
 		if isChain && len(entities) > 0 {
 			primary := entities[0]
-			if primary != "" && chainTerminalIsSelfRef(ev.Summary, primary) {
+			if primary != "" && chainTerminalIsSelfRef(chainText, primary) {
 				bonus *= 0.2
 				// Session 11 G7 R3 — ledger hookup via the
 				// ambient closure fn (set by the caller before
@@ -1656,10 +1661,10 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		strictOK := true
 		if len(terminalPreds) > 0 {
 			for _, p := range terminalPreds {
-				if !p(ev.Summary, graph) {
+				if !p(chainText, graph) {
 					bonus *= 0.2
 					strictOK = false
-					preview := ev.Summary
+					preview := chainText
 					if len(preview) > 120 {
 						preview = preview[:120] + "..."
 					}
@@ -1670,10 +1675,10 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		}
 		if strictOK && len(originPreds) > 0 {
 			for _, p := range originPreds {
-				if !p(ev.Summary, graph) {
+				if !p(chainText, graph) {
 					bonus *= 0.1
 					strictOK = false
-					preview := ev.Summary
+					preview := chainText
 					if len(preview) > 120 {
 						preview = preview[:120] + "..."
 					}
@@ -1690,7 +1695,7 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		// pair functions as a single hop. Lower is more precise —
 		// fewer intermediate indirections between the question entity
 		// and the terminal answer.
-		chainLen := strings.Count(ev.Summary, "→") + 1
+		chainLen := strings.Count(chainText, "→") + 1
 		if chainLen < 1 {
 			chainLen = 1
 		}
@@ -1711,7 +1716,7 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 			confidence:  ev.Confidence,
 			chainLength: chainLen,
 			sourceLine:  srcLine,
-			summary:     ev.Summary,
+			summary:     chainText,
 		})
 	}
 
@@ -1796,6 +1801,18 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		})
 	}
 	return out
+}
+
+func resolutionChainControlText(ev types.EvidenceItem) string {
+	if ev.Kind == types.EvidenceDataflowPath && ev.Predicate == "resolution_chain" {
+		if subject := strings.TrimSpace(ev.Subject); subject != "" {
+			return subject
+		}
+		if object := strings.TrimSpace(ev.Object); object != "" {
+			return object
+		}
+	}
+	return strings.TrimSpace(ev.Summary)
 }
 
 // hasTerminalEvidence reports whether any item in the strict subset

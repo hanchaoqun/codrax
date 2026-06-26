@@ -2445,6 +2445,11 @@ Remaining follow-up:
     2. Consumer change: positional refs now require the referenced location to match the member through typed evidence labels, read_file line text, source_inventory support labels, or exact quoted value-literal evidence. This preserves safe display aliases such as `Analyzer` backed by `AgentAnalyzer AgentName = "analyzer"` without accepting an unrelated grounded line.
     3. Guardrail tests: a correct positional enum alias still closes; an ungrounded positional ref remains blocking; a positional ref that points at another grounded member stays open with typed relation/member-set debt.
     4. Red-line boundary: positional member grounding consumes location-indexed typed evidence/read/source-inventory/value-literal surfaces only. It does not trust JSON array position alone, ordinary Summary prose, model rationale, user wording, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
+  - **Delivered D1-F10g.127 resolution-chain ranking typed subject boundary（code complete / focused regression passed）**:
+    1. Target gap: `identifyAnswerChains` still used `EvidenceItem.Summary` as the resolution-chain control text for entity overlap, short-literal bonus, registration-origin bonus, self-ref demotion, terminal/origin predicates, chain length, and deterministic tie-breaks. Production `dataflow_path/resolution_chain` rows already carry the deterministic chain in `Subject`, so rendered Summary should not steer chain ranking or repair.
+    2. Consumer change: `resolutionChainControlText` now selects `Subject`, then `Object`, before the legacy Summary fallback for `EvidenceDataflowPath + predicate=resolution_chain`. Non-chain evidence scoring remains unchanged.
+    3. Guardrail tests: when two deterministic chains carry intentionally swapped `Subject` and `Summary`, the chain with the correct typed `Subject` ranks first; existing Summary-only legacy fixtures still pass until they are migrated.
+    4. Red-line boundary: chain ranking consumes deterministic dataflow typed payload before rendered display prose. It does not parse ordinary LLM evidence Summary, user wording, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
