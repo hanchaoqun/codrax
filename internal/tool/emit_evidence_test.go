@@ -128,6 +128,9 @@ func TestEmitEvidence_MCPURIStaysExternalObservationNotUngroundedSourceEvidence(
 	if !res.Success {
 		t.Fatalf("external observation URI should produce an advisory success, got: %s", res.Summary)
 	}
+	if res.Repair == nil || res.Repair.Code != types.ToolRepairCodeEvidenceExternalObservationToClosure {
+		t.Fatalf("external observation URI should publish typed repair, got %+v", res.Repair)
+	}
 	if got := ctx.Mutable.EmittedEvidence(); len(got) != 0 {
 		t.Fatalf("MCP URI rows must not enter current-source evidence buffer: %+v", got)
 	}
@@ -143,6 +146,45 @@ func TestEmitEvidence_MCPURIStaysExternalObservationNotUngroundedSourceEvidence(
 	}
 	if strings.Contains(res.Summary, "→ ungrounded") || strings.Contains(res.Summary, "Current actionable repair targets") {
 		t.Fatalf("MCP URI rows should not be rendered as ungrounded source evidence:\n%s", res.Summary)
+	}
+}
+
+func TestEmitEvidence_RuntimeUnresolvedSourceStaysExternalObservation(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "NoMethodError",
+				"source": "runtime log (unresolved)",
+				"summary": "attached log reports NoMethodError",
+				"anchor_kind": "text_reference",
+				"anchor_symbol": "NoMethodError"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("runtime unresolved source should produce an advisory success, got: %s", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != types.ToolRepairCodeEvidenceExternalObservationToClosure {
+		t.Fatalf("runtime unresolved source should publish typed repair, got %+v", res.Repair)
+	}
+	if got := ctx.Mutable.EmittedEvidence(); len(got) != 0 {
+		t.Fatalf("runtime rows must not enter current-source evidence buffer: %+v", got)
+	}
+	if !strings.Contains(res.Summary, "runtime_log external observation") ||
+		!strings.Contains(res.Summary, "emit_investigation_complete.reason") {
+		t.Fatalf("runtime unresolved summary should redirect to external observation closure:\n%s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "does not look like a repo-relative file path") ||
+		strings.Contains(res.Summary, "→ ungrounded") {
+		t.Fatalf("runtime unresolved row must not be treated as invalid current-source evidence:\n%s", res.Summary)
 	}
 }
 

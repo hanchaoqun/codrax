@@ -1280,7 +1280,8 @@ func renderEmitEvidenceCommandScalarSoftSkipSummary(skipped []string) string {
 
 func emitEvidenceExternalObservationSoftSkipReason(in emitEvidenceItem, index int) (string, bool) {
 	source := strings.TrimSpace(in.Source)
-	if !emitEvidenceSourceIsExternalObservationURI(source) {
+	kind := emitEvidenceExternalObservationSourceKind(source)
+	if kind == "" {
 		return "", false
 	}
 	anchor := strings.TrimSpace(firstNonEmptyString([]string{in.AnchorSymbol, in.Subject, in.Object}))
@@ -1292,12 +1293,28 @@ func emitEvidenceExternalObservationSoftSkipReason(in emitEvidenceItem, index in
 	if line > 0 {
 		location = fmt.Sprintf("%s:%d", source, line)
 	}
-	return fmt.Sprintf("items[%d]: %s @ %s is an external observation URI, not a current-source read_file anchor", index, anchor, location), true
+	return fmt.Sprintf("items[%d]: %s @ %s is a %s external observation, not a current-source read_file anchor", index, anchor, location, kind), true
 }
 
 func emitEvidenceSourceIsExternalObservationURI(source string) bool {
 	source = strings.ToLower(strings.TrimSpace(source))
 	return strings.HasPrefix(source, "mcp://") || strings.HasPrefix(source, "mcp:/")
+}
+
+func emitEvidenceExternalObservationSourceKind(source string) string {
+	lower := strings.ToLower(strings.TrimSpace(source))
+	switch {
+	case emitEvidenceSourceIsExternalObservationURI(lower):
+		return "resource"
+	case lower == "runtime log (unresolved)":
+		return "runtime_log"
+	case lower == "runtime trace (unresolved)" || lower == "runtime artifact (unresolved)":
+		return "runtime_artifact"
+	case lower == string(types.TypedDenialExternalPerfStallUnresolved):
+		return "runtime_artifact"
+	default:
+		return ""
+	}
 }
 
 func renderEmitEvidenceExternalObservationSoftSkipSummary(skipped []string) string {
@@ -1312,8 +1329,8 @@ func renderEmitEvidenceExternalObservationSoftSkipSummary(skipped []string) stri
 
 func emitEvidenceExternalObservationRepair() *types.ToolRepair {
 	return &types.ToolRepair{
-		Code: "evidence_external_observation_to_closure",
-		Hint: "MCP/resource rows are external observations, not current-source read_file evidence. Carry verified rows through emit_investigation_complete.reason and aggregate_facts.",
+		Code: types.ToolRepairCodeEvidenceExternalObservationToClosure,
+		Hint: "MCP/resource/runtime/log/trace rows are external observations, not current-source read_file evidence. Carry verified rows through emit_investigation_complete.reason and aggregate_facts.",
 		Fields: []string{
 			"emit_investigation_complete.reason",
 			"emit_investigation_complete.aggregate_facts",

@@ -7442,6 +7442,9 @@ func TestObserveMidLoop_ExternalSourceLogRedirect(t *testing.T) {
 			ToolName: "emit_evidence",
 			Success:  false,
 			Summary:  `items[0]: source "runtime log (unresolved)" does not look like a repo-relative file path`,
+			Repair: &types.ToolRepair{
+				Code: types.ToolRepairCodeEvidenceExternalObservationToClosure,
+			},
 		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -7461,6 +7464,30 @@ func TestObserveMidLoop_ExternalSourceLogRedirect(t *testing.T) {
 	}
 	if !strings.Contains(sig.Hint, "not caller-side value provenance") {
 		t.Fatalf("hint should preserve direct-observation/upstream-inference boundary, got: %s", sig.Hint)
+	}
+}
+
+func TestObserveMidLoop_ExternalSourceLogRedirectIgnoresSummaryOnly(t *testing.T) {
+	eval := &explorerEvaluator{
+		logTriage: &types.LogBundle{
+			Errors: []types.LogError{{Type: "NoMethodError"}},
+		},
+	}
+	results := []types.ToolResult{
+		{
+			ToolName: "emit_evidence",
+			Success:  false,
+			Summary:  `items[0]: source "runtime log (unresolved)" does not look like a repo-relative file path`,
+		},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      1,
+		LastToolResult: &results[0],
+		AllToolResults: results,
+	})
+	if sig.HintRequested {
+		t.Fatalf("summary-only external-source rejection must not trigger redirect, got %+v", sig)
 	}
 }
 

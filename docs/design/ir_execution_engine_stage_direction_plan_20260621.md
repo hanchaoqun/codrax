@@ -2252,6 +2252,13 @@ Remaining follow-up:
      3. Consumer plan: `loopPolicyState` computes repeated-error class from `ToolRepair.Code + Fields` or `ToolRefinementHint.ReasonCode`; if neither exists, identical-error streak is not updated from Summary.
      4. Byte-identical tool-call guard remains unchanged, so exact repeated calls still stop even when the error is untyped.
      5. Validation passed: `go test ./internal/agent -run 'IdenticalErrorStreak|MalformedParamsRejectedBeforeToolExecution' -count=1`; `go test ./internal/agent -count=1`; `go test ./...`; `make`.
+   - **Delivered D1-F10g.101 external-observation evidence repair typed cutover（code complete / focused regression passed）**:
+     1. Target gap: `emit_evidence` already treats `mcp://...` rows as an external observation lane, but runtime/log/trace pseudo-sources such as unresolved runtime log rows can still fall through the current-source path validator. Explorer then recognizes the situation by scanning the failed tool `Summary` for phrases such as repo-relative path / runtime log unresolved / external perf stall.
+     2. Risk: this is a soft redirect, not an answer-hard gate, but it still teaches the model to repair the wrong thing from prose and can re-open broad source exploration after the runtime artifact already answers the diagnostic question.
+     3. Producer: `ToolRepairCodeEvidenceExternalObservationToClosure` is the canonical repair class for external observation rows that must be carried through `emit_investigation_complete.reason` / `aggregate_facts`. `emit_evidence` now soft-skips URI rows plus unresolved runtime/log/trace pseudo-source rows into that lane instead of failing them as generic invalid current-source paths.
+     4. Consumer: `postExternalLogRedirectSignal` reads only typed `ToolRepair.Code` from `emit_evidence` results. Rendered rejection text remains visible to the user but cannot trigger the redirect.
+     5. Guardrail tests: MCP URI rows and runtime/log unresolved rows both stay out of current-source evidence, publish the typed repair, and trigger the mid-loop redirect from typed repair only; a summary-only historical rejection does not trigger the redirect.
+     6. Validation passed: `go test ./internal/tool ./internal/agent ./internal/types -run 'ExternalObservation|ExternalSourceLogRedirect|RuntimeUnresolved|MCPURI|LoopPolicy|ReadFilePathMiss' -count=1`.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

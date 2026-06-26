@@ -6432,13 +6432,10 @@ func (e *explorerEvaluator) postExternalLogRedirectSignal(obs LoopObservation) L
 		return LoopSignal{}
 	}
 	for _, r := range obs.AllToolResults {
-		if r.Success || r.ToolName != "emit_evidence" {
+		if r.ToolName != "emit_evidence" || r.Repair == nil {
 			continue
 		}
-		summary := strings.ToLower(r.Summary)
-		if !strings.Contains(summary, "repo-relative file path") &&
-			!strings.Contains(summary, "runtime log (unresolved)") &&
-			!strings.Contains(summary, "external_perf_stall_unresolved") {
+		if strings.TrimSpace(r.Repair.Code) != types.ToolRepairCodeEvidenceExternalObservationToClosure {
 			continue
 		}
 		e.midLoopExternalArtifactSent = true
