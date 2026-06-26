@@ -3242,12 +3242,10 @@ func (idx *grepRelevanceIndex) addEvidenceSources(ctx *types.BusContext, items [
 
 func (idx *grepRelevanceIndex) addReadFilesFromToolResults(ctx *types.BusContext, results []types.ToolResult) {
 	for _, result := range results {
-		if result.ToolName != "read_file" || strings.TrimSpace(result.Summary) == "" {
+		if result.ToolName != "read_file" || !result.Success || result.ReadCoverage == nil {
 			continue
 		}
-		if file, _, _, ok := ground.ParseReadFileBanner(result.Summary); ok {
-			idx.addPath(ctx, file, grepRelevanceReadOrEvidenceFile)
-		}
+		idx.addPath(ctx, result.ReadCoverage.Path, grepRelevanceReadOrEvidenceFile)
 	}
 }
 

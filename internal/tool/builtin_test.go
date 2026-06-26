@@ -4534,6 +4534,40 @@ func TestReadFile_ResolvesAgainstRepoRoot(t *testing.T) {
 	}
 }
 
+func TestGrepRelevanceReadFileBoostUsesTypedCoverage(t *testing.T) {
+	ctx := newBusContext()
+
+	var summaryOnly grepRelevanceIndex
+	summaryOnly.addReadFilesFromToolResults(ctx, []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[src/hot.go: showing lines 1-20 of 200 total]\npackage src",
+		},
+	})
+	if got := summaryOnly.rank("src/hot.go", types.SourcePathRoleProduction).tier; got != grepRelevanceProduction {
+		t.Fatalf("summary-only read_file banner must not boost grep relevance, got tier=%v", got)
+	}
+
+	var typed grepRelevanceIndex
+	typed.addReadFilesFromToolResults(ctx, []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[src/hot.go: rendered read_file output kept for transparency]",
+			ReadCoverage: &types.ToolReadCoverage{
+				Path:       "src/hot.go",
+				LineStart:  1,
+				LineEnd:    20,
+				TotalLines: 200,
+			},
+		},
+	})
+	if got := typed.rank("src/hot.go", types.SourcePathRoleProduction).tier; got != grepRelevanceReadOrEvidenceFile {
+		t.Fatalf("typed read coverage should boost grep relevance, got tier=%v", got)
+	}
+}
+
 // TestListFiles_ResolvesAgainstRepoRoot confirms the same boundary
 // for list_files. The output paths preserve the LLM's relative form
 // so the LLM can feed them straight back into read_file / grep.

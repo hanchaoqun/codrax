@@ -965,12 +965,12 @@ func TestParseOutput_EnumerationEvidenceQualityHintUsesDynamicFloor(t *testing.T
 		structuredEvidence: evidence,
 		investigationNotes: []string{strings.Join(notes, "\n")},
 	}
-	out, err := eval.ParseOutput(parseOutputCtx(string(types.ReqEnumeration), ""), nil, []types.ToolResult{
+	out, err := eval.ParseOutput(parseOutputCtx(string(types.ReqEnumeration), ""), nil, withReadCoverage([]types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: strings.Join(grepLines, "\n")},
-		{ToolName: "read_file", Success: true, Summary: "[pkg/f0.go: showing lines 1-20 of 20 total]\n"},
-		{ToolName: "read_file", Success: true, Summary: "[pkg/f1.go: showing lines 1-20 of 20 total]\n"},
-		{ToolName: "read_file", Success: true, Summary: "[pkg/f2.go: showing lines 1-20 of 20 total]\n"},
-	}, nil)
+		readFileCoverageResult("pkg/f0.go", 1, 20, 20),
+		readFileCoverageResult("pkg/f1.go", 1, 20, 20),
+		readFileCoverageResult("pkg/f2.go", 1, 20, 20),
+	}), nil)
 	if err != nil {
 		t.Fatalf("ParseOutput error: %v", err)
 	}
@@ -1015,12 +1015,12 @@ func TestParseOutput_MechanismEvidenceDoesNotUseDirectRegistrationFloor(t *testi
 			},
 		},
 	}
-	out, err := eval.ParseOutput(ctx, nil, []types.ToolResult{
+	out, err := eval.ParseOutput(ctx, nil, withReadCoverage([]types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "a.go:10:match\nb.go:20:match\nc.go:30:match"},
-		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-50 of 50 total]"},
-		{ToolName: "read_file", Success: true, Summary: "[b.go: showing lines 1-50 of 50 total]"},
-		{ToolName: "read_file", Success: true, Summary: "[c.go: showing lines 1-50 of 50 total]"},
-	}, nil)
+		readFileCoverageResult("a.go", 1, 50, 50),
+		readFileCoverageResult("b.go", 1, 50, 50),
+		readFileCoverageResult("c.go", 1, 50, 50),
+	}), nil)
 	if err != nil {
 		t.Fatalf("ParseOutput error: %v", err)
 	}
@@ -1050,11 +1050,11 @@ func TestParseOutput_ERMUnsatisfiedDoesNotDemoteOtherwiseReady(t *testing.T) {
 			{Kind: "registration", Entities: []string{"NeverMentionedSymbol"}, Status: "unsatisfied"},
 		},
 	}
-	out, err := eval.ParseOutput(parseOutputCtx("", ""), nil, []types.ToolResult{
+	out, err := eval.ParseOutput(parseOutputCtx("", ""), nil, withReadCoverage([]types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "a.go:1\nb.go:5"},
-		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-20 of 20 total]"},
-		{ToolName: "read_file", Success: true, Summary: "[b.go: showing lines 1-20 of 20 total]"},
-	}, nil)
+		readFileCoverageResult("a.go", 1, 20, 20),
+		readFileCoverageResult("b.go", 1, 20, 20),
+	}), nil)
 	if err != nil {
 		t.Fatalf("ParseOutput error: %v", err)
 	}
@@ -1187,7 +1187,7 @@ func TestParseOutput_MechanismHandoffCapsRankedEvidence(t *testing.T) {
 	ctx.Mutable = types.NewMutableState("how does Foo continue?")
 	_, err := eval.ParseOutput(ctx, nil, []types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "a.go:1\na.go:2"},
-		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-100 of 100]"},
+		readFileCoverageResult("a.go", 1, 100, 100),
 	}, nil)
 	if err != nil {
 		t.Fatalf("ParseOutput error: %v", err)
@@ -1512,14 +1512,13 @@ func phase11Eval(question string) *explorerEvaluator {
 }
 
 func phase11ToolResults() []types.ToolResult {
-	// read_file summaries must start with "[path: ...]" for
-	// extractFileCoverage to pick up the read path. Each call covers
-	// exactly one file; that is the real shape the tool produces.
+	// Each read_file call covers exactly one file via the typed coverage
+	// carrier; summary text remains visible but non-authoritative.
 	return []types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "reg.go:10\na.go:1\nb.go:1"},
-		{ToolName: "read_file", Success: true, Summary: "[reg.go: showing lines 1-20 of 20]"},
-		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-30 of 30]"},
-		{ToolName: "read_file", Success: true, Summary: "[b.go: showing lines 1-40 of 40]"},
+		readFileCoverageResult("reg.go", 1, 20, 20),
+		readFileCoverageResult("a.go", 1, 30, 30),
+		readFileCoverageResult("b.go", 1, 40, 40),
 	}
 }
 

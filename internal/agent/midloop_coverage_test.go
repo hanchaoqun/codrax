@@ -42,9 +42,10 @@ func TestMidLoopCheck_IntentWindow_FiresOnTypedOverviewWithNarrowWindow(t *testi
 	history := []types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "[grep: 2 files]\ninternal/agent/agent.go\n"},
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/agent.go: showing lines 527-586 of 1549 total]\n...body...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/agent.go: showing lines 527-586 of 1549 total]\n...body...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/agent.go", LineStart: 527, LineEnd: 586, TotalLines: 1549},
 		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -80,9 +81,10 @@ func TestMidLoopCheck_IntentWindow_NoFireWithoutTypedOverview(t *testing.T) {
 	}
 	history := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/agent.go: showing lines 527-586 of 1549 total]\n...body...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/agent.go: showing lines 527-586 of 1549 total]\n...body...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/agent.go", LineStart: 527, LineEnd: 586, TotalLines: 1549},
 		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -114,9 +116,10 @@ func TestMidLoopCheck_IntentWindow_NoFireOnWideWindow(t *testing.T) {
 	}
 	history := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/agent.go: showing lines 1-400 of 1549 total]\n...body...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/agent.go: showing lines 1-400 of 1549 total]\n...body...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/agent.go", LineStart: 1, LineEnd: 400, TotalLines: 1549},
 		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -149,9 +152,10 @@ func TestMidLoopCheck_IntentWindow_NoFireOnSmallFile(t *testing.T) {
 	}
 	history := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/agent.go: showing lines 1-60 of 150 total]\n...body...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/agent.go: showing lines 1-60 of 150 total]\n...body...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/agent.go", LineStart: 1, LineEnd: 60, TotalLines: 150},
 		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -182,10 +186,10 @@ func TestMidLoopCheck_IntentWindow_OneShot(t *testing.T) {
 		}},
 	}
 	history := []types.ToolResult{{
-		ToolName: "read_file",
-		Success:  true,
-		Summary:  "[internal/agent/agent.go: showing lines 527-586 of 1549 total]\n...",
-	}}
+		ToolName:     "read_file",
+		Success:      true,
+		Summary:      "[internal/agent/agent.go: showing lines 527-586 of 1549 total]\n...",
+		ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/agent.go", LineStart: 527, LineEnd: 586, TotalLines: 1549}}}
 	first := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
 		Iteration:      19,
@@ -233,9 +237,10 @@ func TestMidLoopCheck_RankerCoverage_FiresWhenTopKMissing(t *testing.T) {
 	}
 	history := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/keyword_search.go: showing lines 1-80 of 200 total]\n...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/keyword_search.go: showing lines 1-80 of 200 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/keyword_search.go", LineStart: 1, LineEnd: 80, TotalLines: 200},
 		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -277,9 +282,10 @@ func TestMidLoopCheck_RankerCoverage_SkipsBoundedStructuralTrace(t *testing.T) {
 	}
 	history := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/analyzer.go: showing lines 1-80 of 200 total]\n...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/analyzer.go: showing lines 1-80 of 200 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 1, LineEnd: 80, TotalLines: 200},
 		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -315,15 +321,25 @@ func TestMidLoopCheck_RankerCoverage_NoFireWhenTopKCovered(t *testing.T) {
 	// opened too, but that's not the gate the check inspects.
 	history := []types.ToolResult{
 		{ToolName: "read_file", Success: true,
-			Summary: "[internal/agent/sub_explorer.go: showing lines 1-120 of 200 total]\n..."},
+			Summary:      "[internal/agent/sub_explorer.go: showing lines 1-120 of 200 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/sub_explorer.go", LineStart: 1, LineEnd: 120, TotalLines: 200},
+		},
 		{ToolName: "read_file", Success: true,
-			Summary: "[internal/agent/subagent_runtime.go: showing lines 1-90 of 180 total]\n..."},
+			Summary:      "[internal/agent/subagent_runtime.go: showing lines 1-90 of 180 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/subagent_runtime.go", LineStart: 1, LineEnd: 90, TotalLines: 180},
+		},
 		{ToolName: "read_file", Success: true,
-			Summary: "[internal/agent/explorer.go: showing lines 100-250 of 3000 total]\n..."},
+			Summary:      "[internal/agent/explorer.go: showing lines 100-250 of 3000 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/explorer.go", LineStart: 100, LineEnd: 250, TotalLines: 3000},
+		},
 		{ToolName: "read_file", Success: true,
-			Summary: "[internal/agent/agent.go: showing lines 1-160 of 300 total]\n..."},
+			Summary:      "[internal/agent/agent.go: showing lines 1-160 of 300 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/agent.go", LineStart: 1, LineEnd: 160, TotalLines: 300},
+		},
 		{ToolName: "read_file", Success: true,
-			Summary: "[internal/tool/dispatch.go: showing lines 1-60 of 100 total]\n..."},
+			Summary:      "[internal/tool/dispatch.go: showing lines 1-60 of 100 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/tool/dispatch.go", LineStart: 1, LineEnd: 60, TotalLines: 100},
+		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -434,15 +450,25 @@ func TestMidLoopCheck_RankerCoverage_HandlesAbsolutePathReadSet(t *testing.T) {
 	// search always emits relative paths).
 	history := []types.ToolResult{
 		{ToolName: "read_file", Success: true,
-			Summary: "[/mnt/d/opt/codrax-main/internal/agent/sub_explorer.go: showing lines 1-120 of 200 total]\n..."},
+			Summary:      "[/mnt/d/opt/codrax-main/internal/agent/sub_explorer.go: showing lines 1-120 of 200 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "/mnt/d/opt/codrax-main/internal/agent/sub_explorer.go", LineStart: 1, LineEnd: 120, TotalLines: 200},
+		},
 		{ToolName: "read_file", Success: true,
-			Summary: "[/mnt/d/opt/codrax-main/internal/agent/subagent_runtime.go: showing lines 1-90 of 180 total]\n..."},
+			Summary:      "[/mnt/d/opt/codrax-main/internal/agent/subagent_runtime.go: showing lines 1-90 of 180 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "/mnt/d/opt/codrax-main/internal/agent/subagent_runtime.go", LineStart: 1, LineEnd: 90, TotalLines: 180},
+		},
 		{ToolName: "read_file", Success: true,
-			Summary: "[/mnt/d/opt/codrax-main/internal/agent/explorer.go: showing lines 100-250 of 3000 total]\n..."},
+			Summary:      "[/mnt/d/opt/codrax-main/internal/agent/explorer.go: showing lines 100-250 of 3000 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "/mnt/d/opt/codrax-main/internal/agent/explorer.go", LineStart: 100, LineEnd: 250, TotalLines: 3000},
+		},
 		{ToolName: "read_file", Success: true,
-			Summary: "[/mnt/d/opt/codrax-main/internal/agent/agent.go: showing lines 1-160 of 300 total]\n..."},
+			Summary:      "[/mnt/d/opt/codrax-main/internal/agent/agent.go: showing lines 1-160 of 300 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "/mnt/d/opt/codrax-main/internal/agent/agent.go", LineStart: 1, LineEnd: 160, TotalLines: 300},
+		},
 		{ToolName: "read_file", Success: true,
-			Summary: "[/mnt/d/opt/codrax-main/internal/tool/dispatch.go: showing lines 1-60 of 100 total]\n..."},
+			Summary:      "[/mnt/d/opt/codrax-main/internal/tool/dispatch.go: showing lines 1-60 of 100 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "/mnt/d/opt/codrax-main/internal/tool/dispatch.go", LineStart: 1, LineEnd: 60, TotalLines: 100},
+		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -490,9 +516,10 @@ func TestMidLoopCheck_RankerCoverage_SkipsOnAuthoritativeLogTriage(t *testing.T)
 	}
 	history := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/analyzer.go: showing lines 240-330 of 1463 total]\n...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/analyzer.go: showing lines 240-330 of 1463 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 240, LineEnd: 330, TotalLines: 1463},
 		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -537,9 +564,10 @@ func TestMidLoopCheck_RankerCoverage_FiresWhenLogFrameUnread(t *testing.T) {
 	// in readSet yet, so F2.1's "covered" side is unsatisfied.
 	history := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/tool/dispatch.go: showing lines 1-100 of 200 total]\n...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/tool/dispatch.go: showing lines 1-100 of 200 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/tool/dispatch.go", LineStart: 1, LineEnd: 100, TotalLines: 200},
 		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -563,11 +591,7 @@ func TestMidLoopCheck_RankerCoverage_FiresWhenLogFrameUnread(t *testing.T) {
 // coverage mismatch.
 func TestExtractFileCoverage_CanonicalizesAbsoluteReadFilePath(t *testing.T) {
 	history := []types.ToolResult{
-		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[/mnt/d/opt/codrax-main/internal/agent/agent.go: showing lines 527-586 of 1549 total]\n...",
-		},
+		readFileCoverageResult("/mnt/d/opt/codrax-main/internal/agent/agent.go", 527, 586, 1549),
 	}
 	_, readSet, _ := extractFileCoverage(history, "/mnt/d/opt/codrax-main")
 	if !readSet["internal/agent/agent.go"] {
@@ -585,11 +609,7 @@ func TestExtractFileCoverage_CanonicalizesAbsoluteReadFilePath(t *testing.T) {
 // normalise separators). No panic, no regression.
 func TestExtractFileCoverage_EmptyRepoRootDegradesGracefully(t *testing.T) {
 	history := []types.ToolResult{
-		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[./internal/agent/agent.go: showing lines 1-10 of 100 total]\n...",
-		},
+		readFileCoverageResult("./internal/agent/agent.go", 1, 10, 100),
 	}
 	_, readSet, _ := extractFileCoverage(history, "")
 	if !readSet["internal/agent/agent.go"] {
@@ -635,7 +655,9 @@ func TestMidLoopCheck_Enumeration_OneShotWithinDispatch(t *testing.T) {
 				"internal/agent/analyzer.go\n" +
 				"internal/analysis/normalizer/normalizer.go"},
 		{ToolName: "read_file", Success: true,
-			Summary: "[internal/skill/defaults.go: showing lines 1-20 of 60 total]\n     1│ package skill\n"},
+			Summary:      "[internal/skill/defaults.go: showing lines 1-20 of 60 total]\n     1│ package skill\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/skill/defaults.go", LineStart: 1, LineEnd: 20, TotalLines: 60},
+		},
 	}
 	first := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,

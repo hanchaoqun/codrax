@@ -5037,15 +5037,17 @@ func readFileWindowStatsSince(results []types.ToolResult, prevLen int) readFileW
 		if !r.Success || r.ToolName != "read_file" {
 			continue
 		}
+		_, rng, _, ok := readCoverageFromToolResult(r, "")
+		if !ok {
+			continue
+		}
 		stats.reads++
 		if n := len(r.Summary); n > stats.maxBytes {
 			stats.maxBytes = n
 		}
-		if _, rng, _, ok := ground.ParseReadFileBanner(r.Summary); ok {
-			lines := rng.End - rng.Start + 1
-			if lines > stats.maxLines {
-				stats.maxLines = lines
-			}
+		lines := rng.End - rng.Start + 1
+		if lines > stats.maxLines {
+			stats.maxLines = lines
 		}
 	}
 	stats.large = stats.maxLines >= readWithoutEmitLargeWindowLines ||
@@ -5063,7 +5065,7 @@ func runtimeArtifactReadWindowSince(results []types.ToolResult, prevLen int) (ru
 		if !r.Success || r.ToolName != "read_file" {
 			continue
 		}
-		path, rng, total, ok := ground.ParseReadFileBanner(r.Summary)
+		path, rng, total, ok := readCoverageFromToolResult(r, "")
 		if !ok || !tool.LooksLikeRuntimeArtifactPath(path) {
 			nonRuntimeRead = true
 			continue
@@ -10805,7 +10807,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if b.Len() == 0 && !e.midLoopIntentWindowSent &&
 		obs.LastToolResult != nil && obs.LastToolResult.ToolName == "read_file" &&
 		obs.LastToolResult.Success && e.typedStructuralOverviewRequiresWideRead() {
-		if path, rng, total, ok := parseReadFileBanner(obs.LastToolResult.Summary); ok && total >= 300 {
+		if path, rng, total, ok := readCoverageFromToolResult(*obs.LastToolResult, e.repoRoot); ok && total >= 300 {
 			windowSize := rng.End - rng.Start + 1
 			if windowSize > 0 && float64(windowSize)/float64(total) < 0.15 {
 				windowPct := float64(windowSize) * 100 / float64(total)
@@ -12159,7 +12161,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// synthesis-LLM removal (2026-04-16) this merge lived inside
 	// SynthesisPrompt; now ParseOutput is the sole owner.
 	// cvReadRanges tracks the per-file [Start, End] slices the LLM
-	// actually fetched via read_file (see parseReadFileBanner): the
+	// actually fetched via read_file (see ToolReadCoverage): the
 	// range-aware chain promotion enforcer consults this via
 	// EvidenceClosure.HasReadLine so a paginated read that covered
 	// only lines 1-200 cannot grant coverage to a chain anchored at
@@ -17229,13 +17231,40 @@ func isValidFilePath(p string) bool {
 	return false
 }
 
+// readCoverageFromToolResult extracts the typed read_file coverage carrier.
+// It is the only authority for path/window/total facts used by explorer
+// coverage and mid-loop guidance. The rendered read_file Summary remains
+// transparent context for users/models, not a coverage signal.
+func readCoverageFromToolResult(r types.ToolResult, repoRoot string) (path string, rng types.LineRange, totalLines int, ok bool) {
+	if !r.Success || r.ToolName != "read_file" || r.ReadCoverage == nil {
+		return "", types.LineRange{}, 0, false
+	}
+	coverage := r.ReadCoverage
+	if repoRoot != "" {
+		path = ground.CanonicalRepoRelative(coverage.Path, repoRoot)
+	} else {
+		path = canonicalExplorerPath(coverage.Path)
+	}
+	if path == "" {
+		return "", types.LineRange{}, 0, false
+	}
+	start := coverage.LineStart
+	if start <= 0 {
+		start = 1
+	}
+	end := coverage.LineEnd
+	if end < start {
+		end = start
+	}
+	return path, types.LineRange{Start: start, End: end}, coverage.TotalLines, true
+}
+
 // parseReadFileBanner is the agent-package alias for the canonical
 // parser in ground.ParseReadFileBanner. Lifted into the ground package
 // so per-tool gates that fire mid-dispatch from internal/tool/ can
 // share it without reaching into the agent layer; this thin wrapper
-// stays so the existing in-agent callers (extractFileCoverage,
-// detectTruncatedUngrepped, detectPartiallyReadSymbols, extractor) do
-// not need to churn at every call site.
+// stays for display/body fallbacks and banner-compatibility tests only.
+// Load-bearing read coverage uses readCoverageFromToolResult.
 func parseReadFileBanner(summary string) (path string, rng types.LineRange, totalLines int, ok bool) {
 	return ground.ParseReadFileBanner(summary)
 }
@@ -17272,8 +17301,8 @@ func extractFileCoverage(history []types.ToolResult, repoRoot string) (
 }
 
 // extractFileCoverageWithTotals is the canonical walker that ALSO
-// returns per-file total line counts harvested from the read_file
-// banner. The original extractFileCoverage shape is preserved for
+// returns per-file total line counts harvested from ToolReadCoverage.
+// The original extractFileCoverage shape is preserved for
 // every caller that does not need totals; the multi-path symbol-
 // anchored gate (applyMultiPathAnchorChecks → multipath.EvaluateAnchor)
 // reads HasFullyRead and per-file totals via the closure that this
@@ -17354,22 +17383,16 @@ func extractFileCoverageWithTotals(history []types.ToolResult, repoRoot string) 
 				}
 			}
 		case "read_file":
-			// The banner carries both the path and the line range the
-			// LLM actually saw. Record the path into readSet (file-
-			// level, backward-compatible) AND the range into
-			// readRanges so CGEC I1 chain promotion can distinguish a
-			// partial paginated read from a full read. The total line
-			// count goes into `totals` so per-file CoverageRatio /
-			// HasFullyRead can compute against the real denominator
-			// instead of comparing absolute lines to max-file lines.
-			if path, rng, total, ok := parseReadFileBanner(r.Summary); ok {
-				path = canon(path)
-				if path != "" {
-					readSet[path] = true
-					readRanges[path] = append(readRanges[path], rng)
-					if total > 0 && total > totals[path] {
-						totals[path] = total
-					}
+			path, rng, total, ok := readCoverageFromToolResult(r, repoRoot)
+			if !ok {
+				continue
+			}
+			path = canon(path)
+			if path != "" {
+				readSet[path] = true
+				readRanges[path] = append(readRanges[path], rng)
+				if total > 0 && total > totals[path] {
+					totals[path] = total
 				}
 			}
 		case "exec_command":
@@ -17462,14 +17485,7 @@ func detectTruncatedUngrepped(history []types.ToolResult) ([]truncatedFileInfo, 
 		}
 		switch r.ToolName {
 		case "read_file":
-			// Use the shared canonical parser (which already strips
-			// `[forced_read]` / `[forced_read surgical]` trace prefixes
-			// before parsing the banner). Inline parsing here would
-			// silently skip every forced-read result because the
-			// trace prefix's own `[` collides with the banner's
-			// `[path: ...]` shape — same pre-existing bug the
-			// finalizer's grounder hit before commit 3238f9c.
-			path, rng, total, ok := ground.ParseReadFileBanner(r.Summary)
+			path, rng, total, ok := readCoverageFromToolResult(r, "")
 			if !ok {
 				continue
 			}
@@ -18179,16 +18195,7 @@ func readFileIntervalsFromHistory(history []types.ToolResult) map[string][]readI
 		if !r.Success || r.ToolName != "read_file" {
 			continue
 		}
-		// Use the shared canonical parser so this inline reader
-		// participates in the same forced-read-prefix-strip the
-		// finalizer's grounder + closure coverage walker already
-		// share. Without delegation, every `[forced_read surgical] `
-		// or `[forced_read] ` prefixed read would be silently skipped
-		// here — partial-read mid-loop hints would then under-count
-		// what the LLM has been shown via Lazy Auto-Read recovery
-		// and emit redundant "you read up to line N" hints for
-		// ranges already covered.
-		path, rng, _, ok := ground.ParseReadFileBanner(r.Summary)
+		path, rng, _, ok := readCoverageFromToolResult(r, "")
 		if !ok {
 			continue
 		}

@@ -362,14 +362,43 @@ func TestResolveConditionsChainTarget(t *testing.T) {
 	}
 }
 
+func readFileCoverageResult(path string, start, end, total int) types.ToolResult {
+	return types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[" + path + ": rendered read_file output kept for transparency]",
+		ReadCoverage: &types.ToolReadCoverage{
+			Path:       path,
+			LineStart:  start,
+			LineEnd:    end,
+			TotalLines: total,
+		},
+	}
+}
+
+func withReadCoverage(results []types.ToolResult) []types.ToolResult {
+	for i := range results {
+		if !results[i].Success || results[i].ToolName != "read_file" || results[i].ReadCoverage != nil {
+			continue
+		}
+		path, rng, total, ok := parseReadFileBanner(results[i].Summary)
+		if !ok {
+			continue
+		}
+		results[i].ReadCoverage = &types.ToolReadCoverage{
+			Path:       path,
+			LineStart:  rng.Start,
+			LineEnd:    rng.End,
+			TotalLines: total,
+		}
+	}
+	return results
+}
+
 func TestDetectTruncatedUngrepped(t *testing.T) {
 	t.Run("detects truncated read with no grep", func(t *testing.T) {
 		history := []types.ToolResult{
-			{
-				ToolName: "read_file",
-				Success:  true,
-				Summary:  "[internal/agent/explorer.go: showing lines 1-500 of 2383 total]\npackage agent\n...",
-			},
+			readFileCoverageResult("internal/agent/explorer.go", 1, 500, 2383),
 		}
 		truncated, grepped := detectTruncatedUngrepped(history)
 		if len(truncated) != 1 {
@@ -391,11 +420,7 @@ func TestDetectTruncatedUngrepped(t *testing.T) {
 
 	t.Run("small file not flagged", func(t *testing.T) {
 		history := []types.ToolResult{
-			{
-				ToolName: "read_file",
-				Success:  true,
-				Summary:  "[internal/agent/subagent.go: showing lines 1-66 of 66 total]\npackage agent\n...",
-			},
+			readFileCoverageResult("internal/agent/subagent.go", 1, 66, 66),
 		}
 		truncated, _ := detectTruncatedUngrepped(history)
 		if len(truncated) != 0 {
@@ -406,11 +431,7 @@ func TestDetectTruncatedUngrepped(t *testing.T) {
 	t.Run("file under 500 lines not flagged", func(t *testing.T) {
 		// Even if partially read, files ≤500 lines are not flagged.
 		history := []types.ToolResult{
-			{
-				ToolName: "read_file",
-				Success:  true,
-				Summary:  "[small.go: showing lines 1-200 of 400 total]\npackage x\n...",
-			},
+			readFileCoverageResult("small.go", 1, 200, 400),
 		}
 		truncated, _ := detectTruncatedUngrepped(history)
 		if len(truncated) != 0 {
@@ -420,11 +441,7 @@ func TestDetectTruncatedUngrepped(t *testing.T) {
 
 	t.Run("fully read large file not flagged", func(t *testing.T) {
 		history := []types.ToolResult{
-			{
-				ToolName: "read_file",
-				Success:  true,
-				Summary:  "[big.go: showing lines 1-800 of 800 total]\npackage x\n...",
-			},
+			readFileCoverageResult("big.go", 1, 800, 800),
 		}
 		truncated, _ := detectTruncatedUngrepped(history)
 		if len(truncated) != 0 {
@@ -434,11 +451,7 @@ func TestDetectTruncatedUngrepped(t *testing.T) {
 
 	t.Run("line-level grep marks file as grepped", func(t *testing.T) {
 		history := []types.ToolResult{
-			{
-				ToolName: "read_file",
-				Success:  true,
-				Summary:  "[internal/agent/explorer.go: showing lines 1-500 of 2383 total]\npackage agent\n...",
-			},
+			readFileCoverageResult("internal/agent/explorer.go", 1, 500, 2383),
 			{
 				ToolName: "grep",
 				Success:  true,
@@ -470,16 +483,8 @@ func TestDetectTruncatedUngrepped(t *testing.T) {
 
 	t.Run("multiple reads track max end line", func(t *testing.T) {
 		history := []types.ToolResult{
-			{
-				ToolName: "read_file",
-				Success:  true,
-				Summary:  "[big.go: showing lines 1-200 of 1000 total]\npackage x",
-			},
-			{
-				ToolName: "read_file",
-				Success:  true,
-				Summary:  "[big.go: showing lines 201-500 of 1000 total]\nfunc foo()",
-			},
+			readFileCoverageResult("big.go", 1, 200, 1000),
+			readFileCoverageResult("big.go", 201, 500, 1000),
 		}
 		truncated, _ := detectTruncatedUngrepped(history)
 		if len(truncated) != 1 {
@@ -487,6 +492,20 @@ func TestDetectTruncatedUngrepped(t *testing.T) {
 		}
 		if truncated[0].linesRead != 500 {
 			t.Fatalf("expected max linesRead=500, got %d", truncated[0].linesRead)
+		}
+	})
+
+	t.Run("summary-only banner is not coverage authority", func(t *testing.T) {
+		history := []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[big.go: showing lines 1-200 of 1000 total]\npackage x",
+			},
+		}
+		truncated, _ := detectTruncatedUngrepped(history)
+		if len(truncated) != 0 {
+			t.Fatalf("summary-only read_file banner must not drive truncation repair, got %+v", truncated)
 		}
 	})
 }
@@ -641,8 +660,8 @@ func TestPerFileGrepRedirect(t *testing.T) {
 
 	// First call: two truncated files, both should be redirected.
 	history1 := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[big_a.go: showing lines 1-100 of 2000 total]\npackage x"},
-		{ToolName: "read_file", Success: true, Summary: "[big_b.go: showing lines 1-100 of 1500 total]\npackage y"},
+		readFileCoverageResult("big_a.go", 1, 100, 2000),
+		readFileCoverageResult("big_b.go", 1, 100, 1500),
 	}
 	prompt1, cont1 := softStopExplorer(eval, "analyzing...", 0, 0, history1)
 	if !cont1 {
@@ -656,7 +675,13 @@ func TestPerFileGrepRedirect(t *testing.T) {
 	// Only the new file should be redirected.
 	history2 := append(history1, types.ToolResult{
 		ToolName: "read_file", Success: true,
-		Summary: "[big_c.go: showing lines 1-200 of 3000 total]\npackage z",
+		Summary: "[big_c.go: rendered read_file output kept for transparency]",
+		ReadCoverage: &types.ToolReadCoverage{
+			Path:       "big_c.go",
+			LineStart:  1,
+			LineEnd:    200,
+			TotalLines: 3000,
+		},
 	})
 	prompt2, cont2 := softStopExplorer(eval, "more analysis...", 1, 1, history2)
 	if !cont2 {
@@ -684,8 +709,7 @@ func TestDetectPartiallyReadSymbols(t *testing.T) {
 
 	t.Run("detects partial read", func(t *testing.T) {
 		history := []types.ToolResult{
-			{ToolName: "read_file", Success: true,
-				Summary: "[agent.go: showing lines 100-200 of 500 total]\ncode..."},
+			readFileCoverageResult("agent.go", 100, 200, 500),
 		}
 		hints := detectPartiallyReadSymbols(history, graph)
 		if len(hints) != 1 {
@@ -704,8 +728,7 @@ func TestDetectPartiallyReadSymbols(t *testing.T) {
 
 	t.Run("fully read function no hint", func(t *testing.T) {
 		history := []types.ToolResult{
-			{ToolName: "read_file", Success: true,
-				Summary: "[agent.go: showing lines 1-500 of 500 total]\ncode..."},
+			readFileCoverageResult("agent.go", 1, 500, 500),
 		}
 		hints := detectPartiallyReadSymbols(history, graph)
 		if len(hints) != 0 {
@@ -715,8 +738,7 @@ func TestDetectPartiallyReadSymbols(t *testing.T) {
 
 	t.Run("small function skipped", func(t *testing.T) {
 		history := []types.ToolResult{
-			{ToolName: "read_file", Success: true,
-				Summary: "[agent.go: showing lines 50-52 of 500 total]\ncode..."},
+			readFileCoverageResult("agent.go", 50, 52, 500),
 		}
 		hints := detectPartiallyReadSymbols(history, graph)
 		if len(hints) != 0 {
@@ -726,10 +748,8 @@ func TestDetectPartiallyReadSymbols(t *testing.T) {
 
 	t.Run("multiple reads aggregate", func(t *testing.T) {
 		history := []types.ToolResult{
-			{ToolName: "read_file", Success: true,
-				Summary: "[agent.go: showing lines 100-200 of 500 total]\npart1"},
-			{ToolName: "read_file", Success: true,
-				Summary: "[agent.go: showing lines 200-250 of 500 total]\npart2"},
+			readFileCoverageResult("agent.go", 100, 200, 500),
+			readFileCoverageResult("agent.go", 200, 250, 500),
 		}
 		hints := detectPartiallyReadSymbols(history, graph)
 		if len(hints) != 1 {
@@ -746,10 +766,12 @@ func TestDetectPartiallyReadSymbols(t *testing.T) {
 		// which is deep inside Execute (100-400). This is NOT a partial
 		// function read — the LLM is checking a specific spot, not
 		// trying to read the whole function.
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "read_file", Success: true,
-				Summary: "[agent.go: showing lines 350-380 of 500 total]\ncode..."},
-		}
+				Summary:      "[agent.go: showing lines 350-380 of 500 total]\ncode...",
+				ReadCoverage: &types.ToolReadCoverage{Path: "agent.go", LineStart: 350, LineEnd: 380, TotalLines: 500},
+			},
+		})
 		hints := detectPartiallyReadSymbols(history, graph)
 		if len(hints) != 0 {
 			t.Fatalf("expected 0 hints for targeted deep read, got %d: %+v", len(hints), hints)
@@ -760,12 +782,16 @@ func TestDetectPartiallyReadSymbols(t *testing.T) {
 		// LLM reads imports (lines 1-30) then does a grep-directed
 		// read at lines 350-380. Neither read started near Execute's
 		// beginning (line 100).
-		history := []types.ToolResult{
+		history := withReadCoverage([]types.ToolResult{
 			{ToolName: "read_file", Success: true,
-				Summary: "[agent.go: showing lines 1-30 of 500 total]\nimports..."},
+				Summary:      "[agent.go: showing lines 1-30 of 500 total]\nimports...",
+				ReadCoverage: &types.ToolReadCoverage{Path: "agent.go", LineStart: 1, LineEnd: 30, TotalLines: 500},
+			},
 			{ToolName: "read_file", Success: true,
-				Summary: "[agent.go: showing lines 350-380 of 500 total]\ncode..."},
-		}
+				Summary:      "[agent.go: showing lines 350-380 of 500 total]\ncode...",
+				ReadCoverage: &types.ToolReadCoverage{Path: "agent.go", LineStart: 350, LineEnd: 380, TotalLines: 500},
+			},
+		})
 		hints := detectPartiallyReadSymbols(history, graph)
 		if len(hints) != 0 {
 			t.Fatalf("expected 0 hints for import+targeted, got %d: %+v", len(hints), hints)
@@ -2526,14 +2552,16 @@ func TestMidLoopCheck_RankerCoverage_UsesPrimaryEntityFocus(t *testing.T) {
 	}
 	history := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/explorer.go: showing lines 1-120 of 200 total]\n...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/explorer.go: showing lines 1-120 of 200 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/explorer.go", LineStart: 1, LineEnd: 120, TotalLines: 200},
 		},
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/helper.go: showing lines 1-40 of 40 total]\n...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/helper.go: showing lines 1-40 of 40 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/helper.go", LineStart: 1, LineEnd: 40, TotalLines: 40},
 		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -2924,9 +2952,13 @@ func TestMidLoopCheck_ParallelCueSkippedOnParallelBatch(t *testing.T) {
 	// the previous observeMidLoop call.
 	results := append(midLoopFixtureResults(),
 		types.ToolResult{ToolName: "read_file", Success: true,
-			Summary: "[internal/fixture/beta.go: showing lines 1-20 of 20]\ncontent\n"},
+			Summary:      "[internal/fixture/beta.go: showing lines 1-20 of 20]\ncontent\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/fixture/beta.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
 		types.ToolResult{ToolName: "read_file", Success: true,
-			Summary: "[internal/fixture/gamma.go: showing lines 1-20 of 20]\ncontent\n"},
+			Summary:      "[internal/fixture/gamma.go: showing lines 1-20 of 20]\ncontent\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/fixture/gamma.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
 	)
 	// prev len=1, new len=4 → batch=3. Streak must reset to 0.
 	_, inject := midLoopExplorer(eval, 5, &results[len(results)-1], results)
@@ -3534,10 +3566,12 @@ func TestObservePrimaryRead_IdempotentAndSnapshots(t *testing.T) {
 		t.Fatalf("primaryReadIter must stay 0 on empty history, got %d", eval.primaryReadIter)
 	}
 	// History containing a read of the primary file → first detection at iter 4.
-	history := []types.ToolResult{
+	history := withReadCoverage([]types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "[grep: 1 matching files]\ninternal/agent/explorer.go\n"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/agent/explorer.go: showing lines 1-500 of 5000]\npackage agent\n"},
-	}
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/explorer.go: showing lines 1-500 of 5000]\npackage agent\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/explorer.go", LineStart: 1, LineEnd: 500, TotalLines: 5000},
+		},
+	})
 	eval.observePrimaryRead(4, history)
 	if !eval.primaryReadSeen {
 		t.Fatal("primaryReadSeen should be true after first detection")
@@ -3564,9 +3598,11 @@ func TestObservePrimaryRead_IterZeroLatches(t *testing.T) {
 		searchResult:    &keywordSearchResult{Graph: driftFixGraph()},
 		ermRequirements: []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"explorerEvaluator"}, Status: "unsatisfied"}},
 	}
-	history := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[internal/agent/explorer.go: showing lines 1-120 of 5000]\npackage agent\n"},
-	}
+	history := withReadCoverage([]types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/explorer.go: showing lines 1-120 of 5000]\npackage agent\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/explorer.go", LineStart: 1, LineEnd: 120, TotalLines: 5000},
+		},
+	})
 
 	eval.observePrimaryRead(0, history)
 	if !eval.primaryReadSeen {
@@ -3612,13 +3648,14 @@ func TestMidLoopCheck_PostPrimaryReadBypassesIterationFloor(t *testing.T) {
 		searchResult:    &keywordSearchResult{Graph: graph},
 		ermRequirements: []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"buildOrLoadGraph"}, Status: "unsatisfied"}},
 	}
-	history := []types.ToolResult{
+	history := withReadCoverage([]types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/tool/repomap/tool.go: showing lines 100-120 of 323 total]\nfunc buildOrLoadGraph(...)",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/tool/repomap/tool.go: showing lines 100-120 of 323 total]\nfunc buildOrLoadGraph(...)",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/tool/repomap/tool.go", LineStart: 100, LineEnd: 120, TotalLines: 323},
 		},
-	}
+	})
 
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -3748,13 +3785,14 @@ func TestMidLoopCheck_PostPrimaryReadPrefersAnchorLocalGrounding(t *testing.T) {
 		allScoredFiles:   []string{"internal/tool/repomap/facade.go"},
 		ermRequirements:  []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"buildOrLoadGraph"}, Status: "unsatisfied"}},
 	}
-	history := []types.ToolResult{
+	history := withReadCoverage([]types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/tool/repomap/tool.go: showing lines 201-323 of 323 total]\nfunc incrementalScan(...)",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/tool/repomap/tool.go: showing lines 201-323 of 323 total]\nfunc incrementalScan(...)",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/tool/repomap/tool.go", LineStart: 201, LineEnd: 323, TotalLines: 323},
 		},
-	}
+	})
 
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -3829,11 +3867,11 @@ func TestMidLoopCheck_PostPrimaryReadPrefersScalarRoleLocateMaterialization(t *t
 			AnswerContract: types.AnswerContract{},
 		},
 	}
-	history := []types.ToolResult{{
+	history := withReadCoverage([]types.ToolResult{{
 		ToolName: "read_file",
 		Success:  true,
 		Summary:  "[internal/agent/analyzer.go: showing lines 855-885 of 1400 total]\nfunc buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {",
-	}}
+	}})
 
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -3865,11 +3903,12 @@ func TestMidLoopCheck_EmitEvidenceRepairBypassesIterationFloor(t *testing.T) {
 		exactAnchorFiles: []string{"internal/tool/repomap/tool.go"},
 		searchResult:     &keywordSearchResult{Graph: &repomap.Graph{}},
 	}
-	history := []types.ToolResult{
+	history := withReadCoverage([]types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/tool/repomap/tool.go: showing lines 121-220 of 323 total]\nfunc buildOrLoadGraph(...)",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/tool/repomap/tool.go: showing lines 121-220 of 323 total]\nfunc buildOrLoadGraph(...)",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/tool/repomap/tool.go", LineStart: 121, LineEnd: 220, TotalLines: 323},
 		},
 		{
 			ToolName: "emit_evidence",
@@ -3888,7 +3927,7 @@ func TestMidLoopCheck_EmitEvidenceRepairBypassesIterationFloor(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -3962,7 +4001,7 @@ func TestMidLoopCheck_EmitEvidenceRepairHintStaysEmitOnlyWhenTargetsCovered(t *t
 		phase:        1,
 		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
 	}
-	history := []types.ToolResult{
+	history := withReadCoverage([]types.ToolResult{
 		{
 			ToolName: "read_file",
 			Success:  true,
@@ -3983,7 +4022,7 @@ func TestMidLoopCheck_EmitEvidenceRepairHintStaysEmitOnlyWhenTargetsCovered(t *t
 				}},
 			},
 		},
-	}
+	})
 
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:              PhaseMidLoop,
@@ -4114,7 +4153,7 @@ func TestExplorer_FilterToolSchemas_EvidenceRepairCoveredTargetsBecomeEmitOnly(t
 		midLoopEvidenceRepairSent:       true,
 		midLoopEvidenceRepairResultsLen: 1,
 	}
-	results := []types.ToolResult{
+	results := withReadCoverage([]types.ToolResult{
 		{
 			ToolName: "emit_evidence",
 			Success:  true,
@@ -4129,11 +4168,12 @@ func TestExplorer_FilterToolSchemas_EvidenceRepairCoveredTargetsBecomeEmitOnly(t
 			},
 		},
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/analyzer.go: showing lines 646-660 of 2003 total]\n651| ir, buildErr := buildAnalysisIR(ctx)",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/analyzer.go: showing lines 646-660 of 2003 total]\n651| ir, buildErr := buildAnalysisIR(ctx)",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 646, LineEnd: 660, TotalLines: 2003},
 		},
-	}
+	})
 	eval.syncEvidenceRepairState(results)
 
 	ctx := &types.AgentContext{Stage: types.StageExplore}
@@ -4817,7 +4857,9 @@ func TestExplorer_ReadWithoutEmitEscalationKeepsPathEndpointReadable(t *testing.
 	results := []types.ToolResult{
 		{ToolName: "read_file", Success: true, Summary: "[source.go: showing lines 1-80 of 200]\n10| func (s Source) Start() {}"},
 		{ToolName: "grep", Success: true, Summary: "[grep: 1 matching files]\nsource.go"},
-		{ToolName: "read_file", Success: true, Summary: "[source.go: showing lines 81-120 of 200]\n"},
+		{ToolName: "read_file", Success: true, Summary: "[source.go: showing lines 81-120 of 200]\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "source.go", LineStart: 81, LineEnd: 120, TotalLines: 200},
+		},
 	}
 
 	sig := eval.postReadWithoutEmitEscalationSignal(LoopObservation{
@@ -4841,11 +4883,11 @@ func TestExplorer_ReadWithoutEmitEscalationEmitsOnlyAfterPathEndpointCovered(t *
 	eval.midLoopNoEmitPushSent = true
 	eval.midLoopNoEmitPushIter = 1
 	eval.midLoopNoEmitPushResultsLen = 1
-	results := []types.ToolResult{
+	results := withReadCoverage([]types.ToolResult{
 		{ToolName: "read_file", Success: true, Summary: "[source.go: showing lines 1-80 of 200]\n10| func (s Source) Start() {}"},
 		{ToolName: "grep", Success: true, Summary: "[grep: 1 matching files]\nsink.go"},
 		{ToolName: "read_file", Success: true, Summary: "[sink.go: showing lines 20-45 of 120]\n30| func (s Sink) Done() {}"},
-	}
+	})
 
 	sig := eval.postReadWithoutEmitEscalationSignal(LoopObservation{
 		Iteration:      3,
@@ -5092,7 +5134,9 @@ func TestObserveMidLoop_EvidenceRepairClosureOnlySuppressesExpansion(t *testing.
 	}
 	results := []types.ToolResult{
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 item(s)"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/tool/repomap/tool.go: showing lines 121-180 of 323 total]\nfunc buildOrLoadGraph(...)"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/tool/repomap/tool.go: showing lines 121-180 of 323 total]\nfunc buildOrLoadGraph(...)",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/tool/repomap/tool.go", LineStart: 121, LineEnd: 180, TotalLines: 323},
+		},
 	}
 
 	sig := eval.observeMidLoop(LoopObservation{
@@ -5155,10 +5199,10 @@ func TestObserveMidLoop_EvidenceRepairClosureOnlyRendersStructuredTargetsOnce(t 
 	}
 
 	followup := append(append([]types.ToolResult(nil), initial...), types.ToolResult{
-		ToolName: "read_file",
-		Success:  true,
-		Summary:  "[internal/analysis/amplifier/amplifier.go: showing lines 89-108 of 131 total]\n   100| func Amplify(...)",
-	})
+		ToolName:     "read_file",
+		Success:      true,
+		Summary:      "[internal/analysis/amplifier/amplifier.go: showing lines 89-108 of 131 total]\n   100| func Amplify(...)",
+		ReadCoverage: &types.ToolReadCoverage{Path: "internal/analysis/amplifier/amplifier.go", LineStart: 89, LineEnd: 108, TotalLines: 131}})
 	second := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
 		Iteration:      5,
@@ -5226,9 +5270,10 @@ func TestObserveMidLoop_EvidenceRepairHintAdvancesBatchBaseline(t *testing.T) {
 
 	secondBatch := append(append([]types.ToolResult(nil), firstBatch...),
 		types.ToolResult{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/analyzer.go: showing lines 646-660 of 2003 total]\nir, buildErr := buildAnalysisIR(ctx)",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/analyzer.go: showing lines 646-660 of 2003 total]\nir, buildErr := buildAnalysisIR(ctx)",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 646, LineEnd: 660, TotalLines: 2003},
 		},
 	)
 	second := eval.observeMidLoop(LoopObservation{
@@ -5276,7 +5321,17 @@ func TestMidLoopCheck_ParallelCueSkippedBelowUnreadFloor(t *testing.T) {
 	readSummary := "[internal/fixture/alpha.go: showing lines 1-40 of 40]\ncontent\n"
 	results := []types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: grepSummary},
-		{ToolName: "read_file", Success: true, Summary: readSummary},
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  readSummary,
+			ReadCoverage: &types.ToolReadCoverage{
+				Path:       "internal/fixture/alpha.go",
+				LineStart:  1,
+				LineEnd:    40,
+				TotalLines: 40,
+			},
+		},
 	}
 	_, inject := midLoopExplorer(eval, 5, &results[len(results)-1], results)
 	if inject {
@@ -5376,8 +5431,7 @@ func TestExplorerSoftStop_FirstStop_HardBranch_PartialReadFires(t *testing.T) {
 		},
 	}
 	history := []types.ToolResult{
-		{ToolName: "read_file", Success: true,
-			Summary: "[agent.go: showing lines 100-200 of 500 total]\ncode..."},
+		readFileCoverageResult("agent.go", 100, 200, 500),
 	}
 
 	sig := softStopWithContinuations(eval, "BaseAgent.Execute runs a ReAct loop.", 4, 0, history)
@@ -5433,7 +5487,9 @@ func TestExplorerSoftStop_FirstStop_CloseReadySuppressesPartialRead(t *testing.T
 	}
 	history := []types.ToolResult{
 		{ToolName: "read_file", Success: true,
-			Summary: "[agent.go: showing lines 100-200 of 500 total]\ncode..."},
+			Summary:      "[agent.go: showing lines 100-200 of 500 total]\ncode...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "agent.go", LineStart: 100, LineEnd: 200, TotalLines: 500},
+		},
 		{ToolName: "emit_evidence", Success: true,
 			Summary: "emit_evidence accepted 2 item(s)"},
 	}
@@ -5480,9 +5536,10 @@ func TestExplorerSoftStop_FirstStop_EvidenceLikeContentRequestsEmitEvidence(t *t
 	}
 	history := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/tool/repomap/tool.go: showing lines 133-180 of 323 total]\nfunc buildOrLoadGraph(...)",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/tool/repomap/tool.go: showing lines 133-180 of 323 total]\nfunc buildOrLoadGraph(...)",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/tool/repomap/tool.go", LineStart: 133, LineEnd: 180, TotalLines: 323},
 		},
 	}
 
@@ -5565,7 +5622,9 @@ func TestExplorerSoftStop_FirstStop_UnanalyzedSuppressed(t *testing.T) {
 	// unanalyzed branch sees the file.
 	history := []types.ToolResult{
 		{ToolName: "read_file", Success: true,
-			Summary: "[internal/tool/exec.go: showing lines 1-100 of 100 total]\npackage tool"},
+			Summary:      "[internal/tool/exec.go: showing lines 1-100 of 100 total]\npackage tool",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/tool/exec.go", LineStart: 1, LineEnd: 100, TotalLines: 100},
+		},
 	}
 
 	sig := softStopWithContinuations(eval, "ExecCommand shells out to /bin/bash.", 4, 0, history)
@@ -5636,9 +5695,15 @@ func TestExplorerSoftStop_FirstStop_CloseReadySuppressesGrepRedirect(t *testing.
 		},
 	}
 	history := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 1-500 of 3635 total]\npackage agent"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/analysis/gate/gate.go: showing lines 1-40 of 40 total]\npackage gate"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/agent/helper.go: showing lines 1-30 of 30 total]\npackage agent"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 1-500 of 3635 total]\npackage agent",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 1, LineEnd: 500, TotalLines: 3635},
+		},
+		{ToolName: "read_file", Success: true, Summary: "[internal/analysis/gate/gate.go: showing lines 1-40 of 40 total]\npackage gate",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/analysis/gate/gate.go", LineStart: 1, LineEnd: 40, TotalLines: 40},
+		},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/helper.go: showing lines 1-30 of 30 total]\npackage agent",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/helper.go", LineStart: 1, LineEnd: 30, TotalLines: 30},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 item(s)"},
 	}
 
@@ -5853,14 +5918,16 @@ func TestExplorerSoftStop_SecondStop_CoverageUsesFocusedDeclarativeScope(t *test
 				"internal/agent/explorer.go",
 		},
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/skill/defaults.go: showing lines 1-80 of 80]\npackage skill\n",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/skill/defaults.go: showing lines 1-80 of 80]\npackage skill\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/skill/defaults.go", LineStart: 1, LineEnd: 80, TotalLines: 80},
 		},
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/skill/providers.go: showing lines 1-60 of 60]\npackage skill\n",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/skill/providers.go: showing lines 1-60 of 60]\npackage skill\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/skill/providers.go", LineStart: 1, LineEnd: 60, TotalLines: 60},
 		},
 	}
 
@@ -6125,9 +6192,10 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 				Summary:  "emit_investigation_complete rejected: already-read same-scope scope still needs grounded precedence evidence materialized.",
 			},
 			{
-				ToolName: "read_file",
-				Success:  true,
-				Summary:  "[codrax.yaml.example: showing lines 1-40 of 100 total]\n",
+				ToolName:     "read_file",
+				Success:      true,
+				Summary:      "[codrax.yaml.example: showing lines 1-40 of 100 total]\n",
+				ReadCoverage: &types.ToolReadCoverage{Path: "codrax.yaml.example", LineStart: 1, LineEnd: 40, TotalLines: 100},
 			},
 		}
 		sig := eval.observeMidLoop(LoopObservation{
@@ -6158,9 +6226,10 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 				Summary:  tool.EmitInvestigationCompleteDowngradePrefix + " — Tier-1 proven ratio too low.",
 			},
 			{
-				ToolName: "read_file",
-				Success:  true,
-				Summary:  "[internal/agent/analyzer.go: showing lines 400-430 of 1200 total]\n",
+				ToolName:     "read_file",
+				Success:      true,
+				Summary:      "[internal/agent/analyzer.go: showing lines 400-430 of 1200 total]\n",
+				ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 400, LineEnd: 430, TotalLines: 1200},
 			},
 		}
 		sig := eval.observeMidLoop(LoopObservation{
@@ -6278,11 +6347,11 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 // complete with zero Structured Evidence to hand off to Turn B.
 func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
-		return types.ToolResult{
+		return withReadCoverage([]types.ToolResult{{
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[" + path + ": showing lines 1-20 of 20]\npackage fixture\n",
-		}
+		}})[0]
 	}
 
 	t.Run("fires once when 2 read_file successes with 0 emit_evidence", func(t *testing.T) {
@@ -6331,10 +6400,10 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
 		}
 		results := []types.ToolResult{{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[large.go: showing lines 1-180 of 300 total]\npackage fixture\n",
-		}}
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[large.go: showing lines 1-180 of 300 total]\npackage fixture\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "large.go", LineStart: 1, LineEnd: 180, TotalLines: 300}}}
 
 		sig := eval.observeMidLoop(LoopObservation{
 			Phase:          PhaseMidLoop,
@@ -6356,10 +6425,10 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
 		}
 		results := []types.ToolResult{{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[record_trace.systrace: showing lines 1-200 of 1525954 total]\n# trace header\n",
-		}}
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[record_trace.systrace: showing lines 1-200 of 1525954 total]\n# trace header\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "record_trace.systrace", LineStart: 1, LineEnd: 200, TotalLines: 1525954}}}
 
 		sig := eval.observeMidLoop(LoopObservation{
 			Phase:          PhaseMidLoop,
@@ -6401,9 +6470,10 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		}
 		results := []types.ToolResult{
 			{
-				ToolName: "read_file",
-				Success:  true,
-				Summary:  "[record_trace.systrace: showing lines 1-200 of 1525954 total]\n# trace header\n",
+				ToolName:     "read_file",
+				Success:      true,
+				Summary:      "[record_trace.systrace: showing lines 1-200 of 1525954 total]\n# trace header\n",
+				ReadCoverage: &types.ToolReadCoverage{Path: "record_trace.systrace", LineStart: 1, LineEnd: 200, TotalLines: 1525954},
 			},
 			newReadResult("internal/agent/explorer.go"),
 		}
@@ -6432,14 +6502,16 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		}
 		results := []types.ToolResult{
 			{
-				ToolName: "read_file",
-				Success:  true,
-				Summary:  "[record_trace.systrace: showing lines 1102620-1102680 of 1525954 total]\ntrace rows\n",
+				ToolName:     "read_file",
+				Success:      true,
+				Summary:      "[record_trace.systrace: showing lines 1102620-1102680 of 1525954 total]\ntrace rows\n",
+				ReadCoverage: &types.ToolReadCoverage{Path: "record_trace.systrace", LineStart: 1102620, LineEnd: 1102680, TotalLines: 1525954},
 			},
 			{
-				ToolName: "read_file",
-				Success:  true,
-				Summary:  "[record_trace.systrace: showing lines 1139180-1139220 of 1525954 total]\ntrace rows\n",
+				ToolName:     "read_file",
+				Success:      true,
+				Summary:      "[record_trace.systrace: showing lines 1139180-1139220 of 1525954 total]\ntrace rows\n",
+				ReadCoverage: &types.ToolReadCoverage{Path: "record_trace.systrace", LineStart: 1139180, LineEnd: 1139220, TotalLines: 1525954},
 			},
 		}
 
@@ -6643,11 +6715,11 @@ func TestObserveSoftStop_ReadWithoutEmitBeatsPhase0Broaden(t *testing.T) {
 
 func TestObserveMidLoop_ReadWithoutEmitEscalation(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
-		return types.ToolResult{
+		return withReadCoverage([]types.ToolResult{{
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[" + path + ": showing lines 1-20 of 20]\npackage fixture\n",
-		}
+		}})[0]
 	}
 
 	eval := &explorerEvaluator{
@@ -6670,7 +6742,9 @@ func TestObserveMidLoop_ReadWithoutEmitEscalation(t *testing.T) {
 
 	followup := append(append([]types.ToolResult{}, initial...),
 		types.ToolResult{ToolName: "grep", Success: true, Summary: "[grep: 2 matching lines]\na.go:12: foo"},
-		types.ToolResult{ToolName: "read_file", Success: true, Summary: "[c.go: showing lines 10-30 of 80]\npackage fixture\n"},
+		types.ToolResult{ToolName: "read_file", Success: true, Summary: "[c.go: showing lines 10-30 of 80]\npackage fixture\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "c.go", LineStart: 10, LineEnd: 30, TotalLines: 80},
+		},
 	)
 	eval.midLoopLastResultsLen = len(initial)
 	sig := eval.observeMidLoop(LoopObservation{
@@ -6708,9 +6782,10 @@ func TestObserveMidLoop_ReadWithoutEmitSuppressesPartialReadUntilFirstEmit(t *te
 	}
 	results := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/analyzer.go: showing lines 612-758 of 1723 total]\nfunc buildAnalysisIR(...)",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/analyzer.go: showing lines 612-758 of 1723 total]\nfunc buildAnalysisIR(...)",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 612, LineEnd: 758, TotalLines: 1723},
 		},
 	}
 
@@ -6923,7 +6998,9 @@ func TestFilterPartialReadsByDebtSuppressesAdvisoryAfterEvidence(t *testing.T) {
 		coverage:   0.15,
 	}}
 	history := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[internal/orchestrator/scheduler.go: showing lines 100-160 of 900 total]\ncode"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/orchestrator/scheduler.go: showing lines 100-160 of 900 total]\ncode",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/orchestrator/scheduler.go", LineStart: 100, LineEnd: 160, TotalLines: 900},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
 	}
 
@@ -6956,7 +7033,9 @@ func TestFilterPartialReadsByDebtKeepsExactTargetPrincipal(t *testing.T) {
 		coverage:   0.15,
 	}}
 	history := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[internal/orchestrator/scheduler.go: showing lines 100-160 of 900 total]\ncode"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/orchestrator/scheduler.go: showing lines 100-160 of 900 total]\ncode",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/orchestrator/scheduler.go", LineStart: 100, LineEnd: 160, TotalLines: 900},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
 	}
 
@@ -6976,7 +7055,9 @@ func TestFilterPartialReadsByDebtLimitsSurgicalSpanToOneHint(t *testing.T) {
 		coverage:   0.33,
 	}}
 	history := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[src/pipeline.ts: showing lines 10-80 of 300 total]\ncode"},
+		{ToolName: "read_file", Success: true, Summary: "[src/pipeline.ts: showing lines 10-80 of 300 total]\ncode",
+			ReadCoverage: &types.ToolReadCoverage{Path: "src/pipeline.ts", LineStart: 10, LineEnd: 80, TotalLines: 300},
+		},
 	}
 
 	first := eval.filterPartialReadsByDebt(hints, history)
@@ -7003,7 +7084,9 @@ func TestReadWithoutEmitSuppressesAdvisoryPartialBacklog(t *testing.T) {
 	}
 	history := []types.ToolResult{
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
-		{ToolName: "read_file", Success: true, Summary: "[src/pipeline.ts: showing lines 80-140 of 300 total]\ncode"},
+		{ToolName: "read_file", Success: true, Summary: "[src/pipeline.ts: showing lines 80-140 of 300 total]\ncode",
+			ReadCoverage: &types.ToolReadCoverage{Path: "src/pipeline.ts", LineStart: 80, LineEnd: 140, TotalLines: 300},
+		},
 	}
 
 	if !eval.shouldSuppressReadWithoutEmitForAdvisoryPartial(history) {
@@ -7052,11 +7135,11 @@ func boundedTraceEndpointEval() *explorerEvaluator {
 
 func TestObserveMidLoop_ReadWithoutEmitHint_AddsAuthoritativeLogDriftReminder(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
-		return types.ToolResult{
+		return withReadCoverage([]types.ToolResult{{
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[" + path + ": showing lines 1-40 of 400]\npackage fixture\n",
-		}
+		}})[0]
 	}
 
 	eval := &explorerEvaluator{
@@ -7093,11 +7176,11 @@ func TestObserveMidLoop_ReadWithoutEmitHint_AddsAuthoritativeLogDriftReminder(t 
 
 func TestObserveMidLoop_ReadWithoutEmitHint_AddsAuthoritativeBackboneReminder(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
-		return types.ToolResult{
+		return withReadCoverage([]types.ToolResult{{
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[" + path + ": showing lines 1-40 of 400]\npackage fixture\n",
-		}
+		}})[0]
 	}
 
 	eval := &explorerEvaluator{
@@ -7139,11 +7222,19 @@ func TestObserveMidLoop_ReadWithoutEmitRefiresForNewBacklogAfterSuccessfulEmit(t
 		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
 	}
 	results := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-20 of 20]\npackage fixture\n"},
-		{ToolName: "read_file", Success: true, Summary: "[b.go: showing lines 1-20 of 20]\npackage fixture\n"},
+		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-20 of 20]\npackage fixture\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "a.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
+		{ToolName: "read_file", Success: true, Summary: "[b.go: showing lines 1-20 of 20]\npackage fixture\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "b.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
-		{ToolName: "read_file", Success: true, Summary: "[c.go: showing lines 1-20 of 20]\npackage fixture\n"},
-		{ToolName: "read_file", Success: true, Summary: "[d.go: showing lines 1-20 of 20]\npackage fixture\n"},
+		{ToolName: "read_file", Success: true, Summary: "[c.go: showing lines 1-20 of 20]\npackage fixture\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "c.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
+		{ToolName: "read_file", Success: true, Summary: "[d.go: showing lines 1-20 of 20]\npackage fixture\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "d.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
 	}
 
 	sig := eval.observeMidLoop(LoopObservation{
@@ -7169,8 +7260,12 @@ func TestObserveMidLoop_ReadWithoutEmitRepeatedFamilyUsesCompactHint(t *testing.
 		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
 	}
 	firstResults := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-20 of 20]\npackage fixture\n"},
-		{ToolName: "read_file", Success: true, Summary: "[b.go: showing lines 1-20 of 20]\npackage fixture\n"},
+		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-20 of 20]\npackage fixture\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "a.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
+		{ToolName: "read_file", Success: true, Summary: "[b.go: showing lines 1-20 of 20]\npackage fixture\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "b.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
 	}
 	first := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -7187,8 +7282,12 @@ func TestObserveMidLoop_ReadWithoutEmitRepeatedFamilyUsesCompactHint(t *testing.
 
 	secondResults := append(append([]types.ToolResult{}, firstResults...),
 		types.ToolResult{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
-		types.ToolResult{ToolName: "read_file", Success: true, Summary: "[c.go: showing lines 1-20 of 20]\npackage fixture\n"},
-		types.ToolResult{ToolName: "read_file", Success: true, Summary: "[d.go: showing lines 1-20 of 20]\npackage fixture\n"},
+		types.ToolResult{ToolName: "read_file", Success: true, Summary: "[c.go: showing lines 1-20 of 20]\npackage fixture\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "c.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
+		types.ToolResult{ToolName: "read_file", Success: true, Summary: "[d.go: showing lines 1-20 of 20]\npackage fixture\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "d.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
 	)
 	second := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -7222,9 +7321,10 @@ func TestObserveMidLoop_ReadWithoutEmitClosureOnlyRedirectIsOneShotAfterEscalati
 	}
 	results := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/agent.go: showing lines 1361-1380 of 2083 total]\n...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/agent.go: showing lines 1361-1380 of 2083 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/agent.go", LineStart: 1361, LineEnd: 1380, TotalLines: 2083},
 		},
 		{
 			ToolName: "grep",
@@ -7248,10 +7348,10 @@ func TestObserveMidLoop_ReadWithoutEmitClosureOnlyRedirectIsOneShotAfterEscalati
 		t.Fatalf("closure-only redirect should steer back to emit_evidence, got: %s", sig.Hint)
 	}
 	results = append(results, types.ToolResult{
-		ToolName: "read_file",
-		Success:  true,
-		Summary:  "[internal/agent/explorer.go: showing lines 1-20 of 20]\n...",
-	})
+		ToolName:     "read_file",
+		Success:      true,
+		Summary:      "[internal/agent/explorer.go: showing lines 1-20 of 20]\n...",
+		ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/explorer.go", LineStart: 1, LineEnd: 20, TotalLines: 20}})
 	again := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
 		Iteration:      7,
@@ -7265,11 +7365,11 @@ func TestObserveMidLoop_ReadWithoutEmitClosureOnlyRedirectIsOneShotAfterEscalati
 
 func TestObserveMidLoop_ExecRedirectBeforeEmit(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
-		return types.ToolResult{
+		return withReadCoverage([]types.ToolResult{{
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[" + path + ": showing lines 1-20 of 20]\npackage fixture\n",
-		}
+		}})[0]
 	}
 
 	eval := &explorerEvaluator{
@@ -7380,8 +7480,12 @@ func TestObserveMidLoop_ExactAbsenceClosureHint(t *testing.T) {
 		},
 	}
 	results := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 600-680 of 900]"},
-		{ToolName: "read_file", Success: true, Summary: "[codrax.yaml.example: showing lines 280-320 of 500]"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 600-680 of 900]",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/types/config.go", LineStart: 600, LineEnd: 680, TotalLines: 900},
+		},
+		{ToolName: "read_file", Success: true, Summary: "[codrax.yaml.example: showing lines 280-320 of 500]",
+			ReadCoverage: &types.ToolReadCoverage{Path: "codrax.yaml.example", LineStart: 280, LineEnd: 320, TotalLines: 500},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 4 item(s)"},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -7427,8 +7531,12 @@ func TestPostExactAbsenceClosureSignal_SuppressedByDefiningExactTargetProof(t *t
 		}},
 	}
 	results := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[internal/agent/loop_controller.go: showing lines 1-40 of 120]"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/agent/explorer.go: showing lines 1-40 of 120]"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/loop_controller.go: showing lines 1-40 of 120]",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/loop_controller.go", LineStart: 1, LineEnd: 40, TotalLines: 120},
+		},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/explorer.go: showing lines 1-40 of 120]",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/explorer.go", LineStart: 1, LineEnd: 40, TotalLines: 120},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
 	}
 
@@ -7444,11 +7552,11 @@ func TestPostExactAbsenceClosureSignal_SuppressedByDefiningExactTargetProof(t *t
 
 func TestObserveMidLoop_CompletionReadyHint(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
-		return types.ToolResult{
+		return withReadCoverage([]types.ToolResult{{
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[" + path + ": showing lines 1-20 of 20]\npackage fixture\n",
-		}
+		}})[0]
 	}
 
 	eval := &explorerEvaluator{
@@ -7618,9 +7726,15 @@ func TestObserveMidLoop_CompletionReadySuppressedByExactCandidateUniverse(t *tes
 	results := []types.ToolResult{
 		{ToolName: "list_files", Success: true, Summary: "[list_files: path=src recursive=false]\nsrc/alpha\nsrc/beta\nsrc/gamma\n"},
 		{ToolName: "grep", Success: true, Summary: "src/alpha\nsrc/beta\nsrc/gamma"},
-		{ToolName: "read_file", Success: true, Summary: "[src/alpha: showing lines 1-20 of 20]\nalpha\n"},
-		{ToolName: "read_file", Success: true, Summary: "[src/beta: showing lines 1-20 of 20]\nbeta\n"},
-		{ToolName: "read_file", Success: true, Summary: "[src/gamma: showing lines 1-20 of 20]\ngamma\n"},
+		{ToolName: "read_file", Success: true, Summary: "[src/alpha: showing lines 1-20 of 20]\nalpha\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "src/alpha", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
+		{ToolName: "read_file", Success: true, Summary: "[src/beta: showing lines 1-20 of 20]\nbeta\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "src/beta", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
+		{ToolName: "read_file", Success: true, Summary: "[src/gamma: showing lines 1-20 of 20]\ngamma\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "src/gamma", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
 	}
 
@@ -7699,7 +7813,9 @@ func TestObserveMidLoop_ExactCandidateUniverseSuppressesBroadEnumerationHint(t *
 	}
 	results := []types.ToolResult{
 		{ToolName: "list_files", Success: true, Summary: "[list_files: path=src recursive=true]\nsrc/alpha/a.go\nsrc/beta/b.go\nsrc/gamma/c.go\nsrc/delta/d.go\nsrc/epsilon/e.go\n"},
-		{ToolName: "read_file", Success: true, Summary: "[src/alpha/a.go: showing lines 1-20 of 20]\nalpha\n"},
+		{ToolName: "read_file", Success: true, Summary: "[src/alpha/a.go: showing lines 1-20 of 20]\nalpha\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "src/alpha/a.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item"},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -7770,7 +7886,9 @@ func TestExplorerSoftStop_ExactCandidateUniverseBeatsBroadCoverageHints(t *testi
 	}
 	history := []types.ToolResult{
 		{ToolName: "list_files", Success: true, Summary: "[list_files: path=src recursive=true]\nsrc/alpha/a.go\nsrc/beta/b.go\nsrc/gamma/c.go\nsrc/unrelated/runtime.go\n"},
-		{ToolName: "read_file", Success: true, Summary: "[src/alpha/a.go: showing lines 1-20 of 20]\nalpha\n"},
+		{ToolName: "read_file", Success: true, Summary: "[src/alpha/a.go: showing lines 1-20 of 20]\nalpha\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "src/alpha/a.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item"},
 	}
 
@@ -7890,11 +8008,11 @@ func TestTraceEndpointEvidenceSurfaceCompatible_QualifiedEndpointUsesSourceQuali
 
 func TestObserveMidLoop_CompletionReadyHint_AllowsTypedRelationSetBeforeDepth(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
-		return types.ToolResult{
+		return withReadCoverage([]types.ToolResult{{
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[" + path + ": showing lines 1-30 of 120]\npackage fixture\n",
-		}
+		}})[0]
 	}
 
 	eval := &explorerEvaluator{
@@ -8105,11 +8223,11 @@ func TestObserveMidLoop_CompletionReadyRequiresEmitEvidence(t *testing.T) {
 
 func TestObserveMidLoop_CompletionReadyBeatsReadWithoutEmitBacklog(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
-		return types.ToolResult{
+		return withReadCoverage([]types.ToolResult{{
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[" + path + ": showing lines 1-40 of 120 total]\npackage fixture\n",
-		}
+		}})[0]
 	}
 
 	eval := &explorerEvaluator{
@@ -8166,11 +8284,11 @@ func TestObserveMidLoop_CompletionReadyBeatsReadWithoutEmitBacklog(t *testing.T)
 
 func TestObserveMidLoop_CompletionReadyFiresForArchitectureNarrativeCarriers(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
-		return types.ToolResult{
+		return withReadCoverage([]types.ToolResult{{
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[" + path + ": showing lines 1-40 of 400]\npackage fixture\n",
-		}
+		}})[0]
 	}
 
 	eval := &explorerEvaluator{
@@ -8269,11 +8387,11 @@ func TestNarrativeClosureCarrierReady_DoesNotBypassEnumerationShape(t *testing.T
 
 func TestObserveMidLoop_CompletionReadyHint_UsesAuthoritativeLogCoverage(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
-		return types.ToolResult{
+		return withReadCoverage([]types.ToolResult{{
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[" + path + ": showing lines 1-40 of 400]\npackage fixture\n",
-		}
+		}})[0]
 	}
 
 	eval := &explorerEvaluator{
@@ -8350,11 +8468,11 @@ func TestObserveMidLoop_AuthoritativeTier1HintBeatsCompletionReady(t *testing.T)
 	defer tool.SetGroundingPolicy(prev)
 
 	newReadResult := func(path string) types.ToolResult {
-		return types.ToolResult{
+		return withReadCoverage([]types.ToolResult{{
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[" + path + ": showing lines 1-40 of 400]\npackage fixture\n",
-		}
+		}})[0]
 	}
 
 	eval := &explorerEvaluator{
@@ -8502,7 +8620,7 @@ func TestObserveMidLoop_CompletionReadyBeatsPartialReadWhenAuthoritativeLogCover
 	}
 	results := []types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 612-758 of 1723 total]\nfunc buildAnalysisIR(...)"},
+		readFileCoverageResult("internal/agent/analyzer.go", 612, 758, 1723),
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 3 items"},
 	}
 
@@ -8585,7 +8703,9 @@ func TestObserveMidLoop_CompletionReadyUsesStructuralAuthoritativeClosureAfterRe
 	}
 	results := []types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 605-614 of 2003 total]\nfunc (e *analyzerEvaluator) ParseOutput(...)"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 605-614 of 2003 total]\nfunc (e *analyzerEvaluator) ParseOutput(...)",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 605, LineEnd: 614, TotalLines: 2003},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 4 item(s)\n  [4] direct ParseOutput @ internal/agent/analyzer.go:606 -> ungrounded"},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
 	}
@@ -8658,7 +8778,9 @@ func TestObserveMidLoop_CompletionReadyHintAddsDriftBoundedGuardrail(t *testing.
 	}
 	results := []types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 645-870 of 2003 total]\n..."},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 645-870 of 2003 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 645, LineEnd: 870, TotalLines: 2003},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 item(s)"},
 	}
 
@@ -8739,7 +8861,9 @@ func TestObserveMidLoop_DriftBoundedAuthoritativeClosureBypassesUnsatisfiedERM(t
 	}
 	results := []types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 645-870 of 2003 total]\n..."},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 645-870 of 2003 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 645, LineEnd: 870, TotalLines: 2003},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 item(s)"},
 	}
 
@@ -8889,7 +9013,9 @@ func TestObserveMidLoop_CompletionReadyDoesNotFireForAuthoritativeCallOnlyEviden
 	}
 	results := []types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 645-655 of 2003 total]\nir, buildErr := buildAnalysisIR(ctx)"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 645-655 of 2003 total]\nir, buildErr := buildAnalysisIR(ctx)",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 645, LineEnd: 655, TotalLines: 2003},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
 	}
 
@@ -9002,9 +9128,10 @@ func TestObserveMidLoop_PostPrimaryReadRealignsToAuthoritativeLogFunction(t *tes
 	}
 	results := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/analyzer.go: showing lines 240-330 of 1463 total]\n...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/analyzer.go: showing lines 240-330 of 1463 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 240, LineEnd: 330, TotalLines: 1463},
 		},
 	}
 
@@ -9040,9 +9167,10 @@ func TestObserveMidLoop_CompletionReadyNavigationConsumesVerificationGrace(t *te
 	}
 	results := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/analyzer.go: showing lines 367-440 of 1723 total]\nfunc (e *analyzerEvaluator) ParseOutput(...)",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/analyzer.go: showing lines 367-440 of 1723 total]\nfunc (e *analyzerEvaluator) ParseOutput(...)",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 367, LineEnd: 440, TotalLines: 1723},
 		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -9087,9 +9215,10 @@ func TestObserveMidLoop_CompletionReadyEscalation(t *testing.T) {
 	}
 	results := []types.ToolResult{
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/analyzer.go: showing lines 441-500 of 1723 total]\n...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/analyzer.go: showing lines 441-500 of 1723 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 441, LineEnd: 500, TotalLines: 1723},
 		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -9116,7 +9245,9 @@ func TestObserveMidLoop_CompletionReadyStructuredProgressDoesNotConsumeVerificat
 	}
 	results := []types.ToolResult{
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 441-500 of 1723 total]\n..."},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 441-500 of 1723 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 441, LineEnd: 500, TotalLines: 1723},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item"},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -9145,8 +9276,12 @@ func TestObserveMidLoop_ClosureReadyBacklogBeatsGenericReadWithoutEmit(t *testin
 	}
 	results := []types.ToolResult{
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 1-20 of 40]\n..."},
-		{ToolName: "read_file", Success: true, Summary: "[internal/types/analysis_ir.go: showing lines 1-20 of 40]\n..."},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 1-20 of 40]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/analyzer.go", LineStart: 1, LineEnd: 20, TotalLines: 40},
+		},
+		{ToolName: "read_file", Success: true, Summary: "[internal/types/analysis_ir.go: showing lines 1-20 of 40]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/types/analysis_ir.go", LineStart: 1, LineEnd: 20, TotalLines: 40},
+		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -9176,7 +9311,9 @@ func TestObserveMidLoop_ExactAbsenceClosureBacklogBeatsGenericReadWithoutEmit(t 
 	}
 	results := []types.ToolResult{
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
-		{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 1-20 of 40]\n..."},
+		{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 1-20 of 40]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/types/config.go", LineStart: 1, LineEnd: 20, TotalLines: 40},
+		},
 		{ToolName: "grep", Success: true, Summary: "internal/types/config.go"},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -9256,11 +9393,11 @@ func TestObserveMidLoop_CompletionReadyHint_UsesRequirementBackedCarrierForMecha
 
 func TestObserveMidLoop_CompletionReadyFiresForMinimalScalarRoleLocate(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
-		return types.ToolResult{
+		return withReadCoverage([]types.ToolResult{{
 			ToolName: "read_file",
 			Success:  true,
 			Summary:  "[" + path + ": showing lines 1-40 of 120 total]\n",
-		}
+		}})[0]
 	}
 	eval := &explorerEvaluator{
 		phase: 1,
@@ -9352,7 +9489,9 @@ func TestObserveMidLoop_MultiTopicExplanationAnchorHint(t *testing.T) {
 		},
 	}
 	results := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[internal/types/analysis_ir.go: showing lines 560-905 of 1040 total]\n"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/types/analysis_ir.go: showing lines 560-905 of 1040 total]\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/types/analysis_ir.go", LineStart: 560, LineEnd: 905, TotalLines: 1040},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
 	}
 
@@ -9410,7 +9549,9 @@ func TestObserveMidLoop_ArchitectureDoesNotHardNudgeOptionalAnchorSkeleton(t *te
 		},
 	}
 	results := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[internal/types/enums.go: showing lines 20-40 of 120 total]\n"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/types/enums.go: showing lines 20-40 of 120 total]\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/types/enums.go", LineStart: 20, LineEnd: 40, TotalLines: 120},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
 	}
 
@@ -9441,9 +9582,10 @@ func TestObserveMidLoop_CompletionReadyClosureOnlyRedirectIsOneShotAfterEscalati
 			Summary:  "emit_evidence accepted 3 item(s)",
 		},
 		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[internal/agent/agent.go: showing lines 1361-1380 of 2083 total]\n...",
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[internal/agent/agent.go: showing lines 1361-1380 of 2083 total]\n...",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/agent/agent.go", LineStart: 1361, LineEnd: 1380, TotalLines: 2083},
 		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -9695,8 +9837,12 @@ func TestObserve_RefreshesStructuredEvidenceBeforeExactAbsenceCloseSignal(t *tes
 			Summary:  "emit_evidence accepted 2 item(s)",
 		},
 		AllToolResults: []types.ToolResult{
-			{ToolName: "read_file", Success: true, Summary: "[internal/config/runtime.go: showing lines 1-20 of 20]\n"},
-			{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 1-20 of 20]\n"},
+			{ToolName: "read_file", Success: true, Summary: "[internal/config/runtime.go: showing lines 1-20 of 20]\n",
+				ReadCoverage: &types.ToolReadCoverage{Path: "internal/config/runtime.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+			},
+			{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 1-20 of 20]\n",
+				ReadCoverage: &types.ToolReadCoverage{Path: "internal/types/config.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+			},
 			{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 item(s)"},
 		},
 	})
@@ -9765,8 +9911,12 @@ func TestPostExactAbsenceClosureSignal_PrefersStructuralPrecedenceNextHop(t *tes
 	sig := eval.postExactAbsenceClosureSignal(LoopObservation{
 		Iteration: 6,
 		AllToolResults: []types.ToolResult{
-			{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 1-20 of 20]\n"},
-			{ToolName: "read_file", Success: true, Summary: "[internal/config/runtime.go: showing lines 1-20 of 20]\n"},
+			{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 1-20 of 20]\n",
+				ReadCoverage: &types.ToolReadCoverage{Path: "internal/types/config.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+			},
+			{ToolName: "read_file", Success: true, Summary: "[internal/config/runtime.go: showing lines 1-20 of 20]\n",
+				ReadCoverage: &types.ToolReadCoverage{Path: "internal/config/runtime.go", LineStart: 1, LineEnd: 20, TotalLines: 20},
+			},
 			{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
 		},
 	})
@@ -10138,8 +10288,12 @@ func TestObserveMidLoop_ExactAbsenceReadsSameFamilyContextBeforeClose(t *testing
 		},
 	}
 	results := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 200-240 of 900]"},
-		{ToolName: "read_file", Success: true, Summary: "[codrax.yaml.example: showing lines 19-28 of 500]"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 200-240 of 900]",
+			ReadCoverage: &types.ToolReadCoverage{Path: "internal/types/config.go", LineStart: 200, LineEnd: 240, TotalLines: 900},
+		},
+		{ToolName: "read_file", Success: true, Summary: "[codrax.yaml.example: showing lines 19-28 of 500]",
+			ReadCoverage: &types.ToolReadCoverage{Path: "codrax.yaml.example", LineStart: 19, LineEnd: 28, TotalLines: 500},
+		},
 		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 3 item(s)"},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
@@ -10182,7 +10336,8 @@ func TestPostSameLaneLowNoveltySignal_NudgesAfterRepeatedNavigationWithoutTypedD
 			explorerEvidenceDeltaKey(item): true,
 		},
 	}
-	first := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[internal/orchestrator/orchestrator.go: showing lines 120-140 of 900]"}
+	first := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[internal/orchestrator/orchestrator.go: showing lines 120-140 of 900]",
+		ReadCoverage: &types.ToolReadCoverage{Path: "internal/orchestrator/orchestrator.go", LineStart: 120, LineEnd: 140, TotalLines: 900}}
 	sig := eval.postSameLaneLowNoveltySignal(LoopObservation{
 		Phase:              PhaseMidLoop,
 		Iteration:          3,
@@ -10329,7 +10484,8 @@ func TestPostSameLaneLowNoveltySignal_StreakIsScopedByOrigin(t *testing.T) {
 		AllToolResults:     []types.ToolResult{git, git},
 		CurrentToolResults: []types.ToolResult{git},
 	})
-	read1 := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[internal/config/runtime.go: showing lines 20-30 of 200]"}
+	read1 := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[internal/config/runtime.go: showing lines 20-30 of 200]",
+		ReadCoverage: &types.ToolReadCoverage{Path: "internal/config/runtime.go", LineStart: 20, LineEnd: 30, TotalLines: 200}}
 	sig := eval.postSameLaneLowNoveltySignal(LoopObservation{
 		Phase:              PhaseMidLoop,
 		Iteration:          5,
@@ -10375,7 +10531,8 @@ func TestPostSameLaneLowNoveltySignal_DoesNotThrottleAmbiguousSameOriginLanes(t 
 			},
 		}},
 	}
-	read1 := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[internal/config/runtime.go: showing lines 20-30 of 200]"}
+	read1 := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[internal/config/runtime.go: showing lines 20-30 of 200]",
+		ReadCoverage: &types.ToolReadCoverage{Path: "internal/config/runtime.go", LineStart: 20, LineEnd: 30, TotalLines: 200}}
 	read2 := types.ToolResult{ToolName: "grep", Success: true, Summary: "internal/config/runtime.go:20: type RuntimeConfig struct"}
 	_ = eval.postSameLaneLowNoveltySignal(LoopObservation{
 		Phase:              PhaseMidLoop,
@@ -10399,8 +10556,10 @@ func TestPostSameLaneLowNoveltySignal_DoesNotFireWithoutAcceptedTypedFacts(t *te
 		phase:      1,
 		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
 	}
-	first := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-20 of 200]"}
-	second := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 21-40 of 200]"}
+	first := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-20 of 200]",
+		ReadCoverage: &types.ToolReadCoverage{Path: "a.go", LineStart: 1, LineEnd: 20, TotalLines: 200}}
+	second := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 21-40 of 200]",
+		ReadCoverage: &types.ToolReadCoverage{Path: "a.go", LineStart: 21, LineEnd: 40, TotalLines: 200}}
 	_ = eval.postSameLaneLowNoveltySignal(LoopObservation{
 		Phase:              PhaseMidLoop,
 		Iteration:          3,
@@ -10439,7 +10598,9 @@ func TestObserveMidLoop_OrientationFinalizeHint(t *testing.T) {
 		},
 	}
 	history := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[README.md: showing all 50 lines]\n# project"},
+		{ToolName: "read_file", Success: true, Summary: "[README.md: showing all 50 lines]\n# project",
+			ReadCoverage: &types.ToolReadCoverage{Path: "README.md", LineStart: 1, LineEnd: 50, TotalLines: 50},
+		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -10477,7 +10638,9 @@ func TestObserveMidLoop_OrientationFinalize_LatchPreventsRepeat(t *testing.T) {
 		},
 	}
 	history := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[README.md: showing all 50 lines]\n# project"},
+		{ToolName: "read_file", Success: true, Summary: "[README.md: showing all 50 lines]\n# project",
+			ReadCoverage: &types.ToolReadCoverage{Path: "README.md", LineStart: 1, LineEnd: 50, TotalLines: 50},
+		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -10503,7 +10666,9 @@ func TestObserveMidLoop_OrientationFinalize_BelowThreshold(t *testing.T) {
 		},
 	}
 	history := []types.ToolResult{
-		{ToolName: "read_file", Success: true, Summary: "[README.md: showing all 50 lines]\n# x"},
+		{ToolName: "read_file", Success: true, Summary: "[README.md: showing all 50 lines]\n# x",
+			ReadCoverage: &types.ToolReadCoverage{Path: "README.md", LineStart: 1, LineEnd: 50, TotalLines: 50},
+		},
 	}
 	sig := eval.observeMidLoop(LoopObservation{
 		Phase:          PhaseMidLoop,

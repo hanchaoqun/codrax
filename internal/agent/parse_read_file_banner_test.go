@@ -107,12 +107,9 @@ func TestParseReadFileBanner_MalformedShapes(t *testing.T) {
 
 func TestExtractFileCoverage_PopulatesRanges(t *testing.T) {
 	history := []types.ToolResult{
-		{ToolName: "read_file", Success: true,
-			Summary: "[a.go: showing lines 1-50 of 500 total]\n  1│ pkg foo\n"},
-		{ToolName: "read_file", Success: true,
-			Summary: "[a.go: showing lines 200-300 of 500 total]\n"},
-		{ToolName: "read_file", Success: true,
-			Summary: "[b.go: showing all 30 lines (600 bytes); limit=200 expanded to full file]\n"},
+		readFileCoverageResult("a.go", 1, 50, 500),
+		readFileCoverageResult("a.go", 200, 300, 500),
+		readFileCoverageResult("b.go", 1, 30, 30),
 		{ToolName: "read_file", Success: false, // failed read is ignored
 			Summary: "[c.go: showing lines 1-10 of 10 total]\n"},
 	}
@@ -136,11 +133,7 @@ func TestExtractFileCoverage_PopulatesRanges(t *testing.T) {
 
 func TestExtractFileCoverage_CanonicalizesWindowsReadFilePaths(t *testing.T) {
 	history := []types.ToolResult{
-		{
-			ToolName: "read_file",
-			Success:  true,
-			Summary:  "[.\\internal\\tool\\repomap\\tool.go: showing lines 1-25 of 200 total]\n",
-		},
+		readFileCoverageResult(".\\internal\\tool\\repomap\\tool.go", 1, 25, 200),
 	}
 
 	_, readSet, ranges := extractFileCoverage(history, "")
