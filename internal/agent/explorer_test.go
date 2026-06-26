@@ -7491,6 +7491,45 @@ func TestObserveMidLoop_ExternalSourceLogRedirectIgnoresSummaryOnly(t *testing.T
 	}
 }
 
+func TestExplorerNavigationOriginsUsesTypedToolCarriers(t *testing.T) {
+	origins := explorerNavigationOrigins([]types.ToolResult{
+		{
+			ToolName: "trace_query",
+			Success:  true,
+			Observations: []types.ObservationRecord{{
+				Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			}},
+		},
+		{
+			ToolName: "custom_measure",
+			Success:  true,
+			CommandMeasurement: &types.ToolCommandMeasurement{
+				Kind:   types.ToolCommandMeasurementKindCount,
+				Origin: types.AnswerEvidenceOriginCommandMeasurement,
+			},
+		},
+	})
+	if !origins[types.AnswerEvidenceOriginRuntimeArtifact] {
+		t.Fatalf("typed runtime observation origin missing: %+v", origins)
+	}
+	if !origins[types.AnswerEvidenceOriginCommandMeasurement] {
+		t.Fatalf("typed command measurement origin missing: %+v", origins)
+	}
+}
+
+func TestExplorerNavigationOriginsIgnoresSummaryOnlyOriginTokens(t *testing.T) {
+	origins := explorerNavigationOrigins([]types.ToolResult{
+		{
+			ToolName: "custom_tool",
+			Success:  true,
+			Summary:  "origin=runtime_artifact evidence_origin=command_measurement diff_origin=vcs_diff",
+		},
+	})
+	if len(origins) != 0 {
+		t.Fatalf("summary-only origin tokens must not affect novelty routing: %+v", origins)
+	}
+}
+
 func TestObserveMidLoop_ExactAbsenceClosureHint(t *testing.T) {
 	eval := &explorerEvaluator{
 		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},

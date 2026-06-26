@@ -2266,6 +2266,12 @@ Remaining follow-up:
      4. Consumer: existing `continuationToolRefinementHint` renders the typed `PreferredParams`; its per-row cap was raised from 220 to 360 chars so a bounded line-window param set is not clipped. The legacy summary-prefix fallback remains until every producer that emits those prefixes has a typed carrier.
      5. Guardrail tests: runtime grep refinement exposes `read_file_path/read_file_line_offset/read_file_limit/grep_line_start/grep_line_end/line_windows`; continuation retry hint renders those typed params and ignores summary-only duplicate text when refinement is present.
      6. Validation passed: `go test ./internal/tool ./internal/orchestrator -run 'BroadGrep|RuntimeArtifact|ContinuationHint|ExploreFactRetryContinuationHint|Grep' -count=1`.
+   - **Delivered D1-F10g.103 explorer novelty origin typed projection cutover（code complete / focused regression passed）**:
+     1. Target gap: `sameLaneNoveltyOriginScope` calls `explorerNavigationOrigins`, which still scans rendered tool `Summary` for `origin=` / `evidence_origin=` / `diff_origin=` tokens. This can make user-visible tool prose affect lane-novelty routing.
+     2. Producer availability: current tools already publish typed carriers for the important non-source origins: `ToolResult.Observations` for trace/query runtime rows and `ToolCommandMeasurement` for deterministic command counts. Tool-name defaults cover current source, repo index, VCS metadata/diff, and command measurement.
+     3. Consumer: `explorerNavigationOrigins` now projects origins only from tool-name defaults and typed carrier fields. Summary token parsing remains only as an unused compatibility helper for audit; it is not called by the novelty scope path.
+     4. Guardrail tests: a typed runtime observation from a non-source tool contributes `runtime_artifact`; a typed command measurement contributes `command_measurement`; a summary-only `origin=runtime_artifact` token on an otherwise unknown tool does not affect the novelty scope.
+     5. Validation passed: `go test ./internal/agent -run 'ExplorerNavigationOrigins|ExternalSourceLogRedirect|Novelty' -count=1`.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

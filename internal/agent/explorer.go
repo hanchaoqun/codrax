@@ -8941,12 +8941,31 @@ func explorerNavigationOrigins(results []types.ToolResult) map[types.AnswerEvide
 		case "exec_command":
 			add(types.AnswerEvidenceOriginCommandMeasurement)
 		}
-		for _, origin := range explorerStructuredOriginsFromToolSummary(result.Summary) {
+		for _, origin := range explorerStructuredOriginsFromToolResult(result) {
 			add(origin)
 		}
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+func explorerStructuredOriginsFromToolResult(result types.ToolResult) []types.AnswerEvidenceOrigin {
+	var out []types.AnswerEvidenceOrigin
+	seen := map[types.AnswerEvidenceOrigin]bool{}
+	add := func(origin types.AnswerEvidenceOrigin) {
+		if origin == types.AnswerEvidenceOriginUnknown || !origin.IsValid() || seen[origin] {
+			return
+		}
+		seen[origin] = true
+		out = append(out, origin)
+	}
+	if result.CommandMeasurement != nil {
+		add(result.CommandMeasurement.Origin)
+	}
+	for _, record := range result.Observations {
+		add(record.Origin)
 	}
 	return out
 }
