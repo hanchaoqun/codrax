@@ -5279,104 +5279,6 @@ func unreadAnchorExternalTargetFiles(readSet map[string]bool, hops []anchorNextH
 	return files
 }
 
-func parseEmitEvidenceRepairTargets(summary string) []evidenceRepairTarget {
-	if !strings.Contains(summary, "emit_evidence accepted") {
-		return nil
-	}
-	targets := make(map[string]map[int]bool)
-	currentFile := ""
-	currentLine := 0
-	currentNeedsRepair := false
-	currentDrop := false
-	flushCurrent := func() {
-		if currentFile == "" || currentLine <= 0 || !currentNeedsRepair || currentDrop {
-			return
-		}
-		if targets[currentFile] == nil {
-			targets[currentFile] = make(map[int]bool)
-		}
-		targets[currentFile][currentLine] = true
-	}
-	for _, raw := range strings.Split(summary, "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "[") {
-			flushCurrent()
-			at := strings.Index(line, " @ ")
-			if at < 0 {
-				currentFile = ""
-				currentLine = 0
-				currentNeedsRepair = false
-				currentDrop = false
-				continue
-			}
-			loc := strings.TrimSpace(line[at+3:])
-			if dash := strings.Index(loc, " — "); dash >= 0 {
-				loc = loc[:dash]
-			} else if dash := strings.Index(loc, " - "); dash >= 0 {
-				loc = loc[:dash]
-			}
-			colon := strings.LastIndex(loc, ":")
-			if colon < 0 {
-				currentFile = ""
-				currentLine = 0
-				currentNeedsRepair = false
-				currentDrop = false
-				continue
-			}
-			n, err := strconv.Atoi(strings.TrimSpace(loc[colon+1:]))
-			if err != nil || n <= 0 {
-				currentFile = ""
-				currentLine = 0
-				currentNeedsRepair = false
-				currentDrop = false
-				continue
-			}
-			currentFile = canonicalExplorerPath(strings.TrimSpace(loc[:colon]))
-			currentLine = n
-			currentNeedsRepair = false
-			currentDrop = false
-			continue
-		}
-		if currentFile == "" || currentLine <= 0 {
-			continue
-		}
-		lower := strings.ToLower(line)
-		if strings.Contains(lower, "do not spend read_file budget") || strings.Contains(lower, "do not repair") {
-			currentDrop = true
-			continue
-		}
-		if !isEmitEvidenceStatusLine(line) {
-			continue
-		}
-		if !strings.Contains(line, "recovered") && !strings.Contains(line, "ungrounded") {
-			continue
-		}
-		currentNeedsRepair = true
-	}
-	flushCurrent()
-	if len(targets) == 0 {
-		return nil
-	}
-	files := make([]string, 0, len(targets))
-	for file := range targets {
-		files = append(files, file)
-	}
-	sort.Strings(files)
-	out := make([]evidenceRepairTarget, 0, len(files))
-	for _, file := range files {
-		var lines []int
-		for line := range targets[file] {
-			lines = append(lines, line)
-		}
-		sort.Ints(lines)
-		out = append(out, evidenceRepairTarget{file: file, lines: lines})
-	}
-	return out
-}
-
 func repairTargetsFromToolRepair(repair *types.ToolRepair) ([]evidenceRepairTarget, bool) {
 	if repair == nil || repair.Code != "evidence_line_text_repair" {
 		return nil, false
@@ -5410,7 +5312,7 @@ func (e *explorerEvaluator) evidenceRepairTargetsForToolResult(result *types.Too
 	}
 	targets, structured := repairTargetsFromToolRepair(result.Repair)
 	if !structured {
-		targets = parseEmitEvidenceRepairTargets(result.Summary)
+		return nil
 	}
 	if len(targets) == 0 {
 		return nil
@@ -5432,11 +5334,6 @@ func (e *explorerEvaluator) pendingEvidenceRepairTargets(results []types.ToolRes
 		return nil
 	}
 	return e.evidenceRepairTargetsForToolResult(&result)
-}
-
-func isEmitEvidenceStatusLine(line string) bool {
-	line = strings.TrimSpace(line)
-	return strings.HasPrefix(line, "→") || strings.HasPrefix(line, "->")
 }
 
 func filterEvidenceRepairTargetsByFiles(targets []evidenceRepairTarget, preferred []string) []evidenceRepairTarget {

@@ -3879,6 +3879,14 @@ func TestMidLoopCheck_EmitEvidenceRepairBypassesIterationFloor(t *testing.T) {
 				"      → recovered (tier=fqname_same_file, you claimed line 148, adjusted to 149)\n" +
 				"  [2] conditional loadFromCache @ internal/tool/repomap/tool.go:158 — Loads the graph from cache when no files have changed.\n" +
 				"      → recovered (tier=fqname_same_file, you claimed line 156, adjusted to 158)\n",
+			Repair: &types.ToolRepair{
+				Code: "evidence_line_text_repair",
+				Targets: []types.ToolRepairTarget{{
+					File:   "internal/tool/repomap/tool.go",
+					Lines:  []int{149, 158},
+					Action: string(types.RepairReadFile),
+				}},
+			},
 		},
 	}
 
@@ -3913,6 +3921,14 @@ func TestMidLoopCheck_EmitEvidenceRepairHintMatchesNextRepairToolSurface(t *test
 		Summary: "emit_evidence accepted 1 item(s)\n\n" +
 			"  [1] direct buildOrLoadGraph @ internal/tool/repomap/tool.go:149 — cache path\n" +
 			"      → recovered (tier=fqname_same_file, you claimed line 148, adjusted to 149)\n",
+		Repair: &types.ToolRepair{
+			Code: "evidence_line_text_repair",
+			Targets: []types.ToolRepairTarget{{
+				File:   "internal/tool/repomap/tool.go",
+				Lines:  []int{149},
+				Action: string(types.RepairReadFile),
+			}},
+		},
 	}}
 
 	sig := eval.observeMidLoop(LoopObservation{
@@ -3958,6 +3974,14 @@ func TestMidLoopCheck_EmitEvidenceRepairHintStaysEmitOnlyWhenTargetsCovered(t *t
 			Summary: "emit_evidence accepted 1 item(s)\n\n" +
 				"  [1] direct buildOrLoadGraph @ internal/tool/repomap/tool.go:149 — cache path\n" +
 				"      → recovered (tier=fqname_same_file, you claimed line 148, adjusted to 149)\n",
+			Repair: &types.ToolRepair{
+				Code: "evidence_line_text_repair",
+				Targets: []types.ToolRepairTarget{{
+					File:   "internal/tool/repomap/tool.go",
+					Lines:  []int{149},
+					Action: string(types.RepairReadFile),
+				}},
+			},
 		},
 	}
 
@@ -3990,13 +4014,18 @@ func TestMidLoopCheck_EmitEvidenceRepairHintStaysEmitOnlyWhenTargetsCovered(t *t
 	}
 }
 
-func TestParseEmitEvidenceRepairTargets_SkipsDropOnlyMentions(t *testing.T) {
-	summary := "emit_evidence accepted 1 item(s)\n\n" +
-		"  [1] direct explore_mid_loop_hint_budget @ internal/skill/analysis_contract.go:367 - documentation-only mention\n" +
-		"      -> ungrounded: documentation-style mention of the exact config key is not defining proof. Use absence_justification plus production anchors; do NOT repair this item.\n" +
-		"        fix: drop the item; do NOT spend read_file budget repairing this non-defining mention\n"
-	if got := parseEmitEvidenceRepairTargets(summary); len(got) != 0 {
-		t.Fatalf("drop-only exact-target mentions should not create repair targets, got %+v", got)
+func TestExplorer_EvidenceRepairSummaryOnlyDoesNotTriggerRepair(t *testing.T) {
+	eval := &explorerEvaluator{}
+	result := &types.ToolResult{
+		ToolName: "emit_evidence",
+		Success:  true,
+		Summary: "emit_evidence accepted 1 item(s)\n\n" +
+			"  [1] direct explore_mid_loop_hint_budget @ internal/skill/analysis_contract.go:367 - documentation-only mention\n" +
+			"      -> ungrounded: documentation-style mention of the exact config key is not defining proof. Use absence_justification plus production anchors; do NOT repair this item.\n" +
+			"        fix: drop the item; do NOT spend read_file budget repairing this non-defining mention\n",
+	}
+	if got := eval.evidenceRepairTargetsForToolResult(result); len(got) != 0 {
+		t.Fatalf("summary-only emit_evidence text must not create repair targets, got %+v", got)
 	}
 }
 
@@ -5216,15 +5245,20 @@ func TestObserveMidLoop_EvidenceRepairHintAdvancesBatchBaseline(t *testing.T) {
 	}
 }
 
-func TestParseEmitEvidenceRepairTargets_IgnoresAggregateCounters(t *testing.T) {
-	summary := "emit_evidence accepted 4 item(s)\n\n" +
-		"  [1] relationship buildAnalysisIR @ internal/agent/analyzer.go:412 - ParseOutput calls buildAnalysisIR\n" +
-		"      -> grounded (tier=line_text)\n" +
-		"  [2] direct buildAnalysisIR @ internal/agent/analyzer.go:612 - buildAnalysisIR definition\n" +
-		"      -> grounded (tier=line_text)\n" +
-		"\nEvidence so far: 4 grounded / 0 recovered / 0 ungrounded across 1 file(s).\n"
-	if got := parseEmitEvidenceRepairTargets(summary); len(got) != 0 {
-		t.Fatalf("aggregate counters should not create repair targets, got %+v", got)
+func TestExplorer_EvidenceRepairSummaryCountersDoNotTriggerRepair(t *testing.T) {
+	eval := &explorerEvaluator{}
+	result := &types.ToolResult{
+		ToolName: "emit_evidence",
+		Success:  true,
+		Summary: "emit_evidence accepted 4 item(s)\n\n" +
+			"  [1] relationship buildAnalysisIR @ internal/agent/analyzer.go:412 - ParseOutput calls buildAnalysisIR\n" +
+			"      -> grounded (tier=line_text)\n" +
+			"  [2] direct buildAnalysisIR @ internal/agent/analyzer.go:612 - buildAnalysisIR definition\n" +
+			"      -> grounded (tier=line_text)\n" +
+			"\nEvidence so far: 4 grounded / 0 recovered / 0 ungrounded across 1 file(s).\n",
+	}
+	if got := eval.evidenceRepairTargetsForToolResult(result); len(got) != 0 {
+		t.Fatalf("summary-only aggregate counters should not create repair targets, got %+v", got)
 	}
 }
 
