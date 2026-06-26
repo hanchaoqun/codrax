@@ -7129,10 +7129,7 @@ func citationFloorStructuredScopePrefixes(ctx *types.BusContext) []string {
 	}
 	if ctx.Mutable != nil {
 		for _, result := range aggregateSupportToolResults(ctx) {
-			if !result.Success || result.ToolName != "list_files" {
-				continue
-			}
-			add(sourceInventoryListFilesScope(result.Summary))
+			add(sourceInventoryListFilesToolScope(ctx, result))
 		}
 		observation := ctx.Mutable.SourceInventoryObservation()
 		if observation.IsActive() {

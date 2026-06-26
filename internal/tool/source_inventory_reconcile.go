@@ -260,14 +260,18 @@ func sourceInventoryAdvisoryQueryFromRequest(ctx *types.BusContext) string {
 }
 
 func sourceInventoryObservationFromListFilesToolResult(ctx *types.BusContext, result types.ToolResult) types.SourceInventoryObservation {
-	if types.CanonicalToolName(result.ToolName) != "list_files" || !sourceInventoryListFilesResultIsDirect(result.Summary) {
+	if types.CanonicalToolName(result.ToolName) != "list_files" ||
+		result.PathDiscovery == nil ||
+		result.PathDiscovery.Kind != types.ToolPathDiscoveryKindListFiles ||
+		result.PathDiscovery.Recursive ||
+		result.PathDiscovery.CandidateFilesTruncated {
 		return types.SourceInventoryObservation{}
 	}
-	listPath := sourceInventoryDiscoveryPathFromBanner(result.Summary, "list_files")
+	listPath := strings.TrimSpace(result.PathDiscovery.Path)
 	if listPath == "" {
 		listPath = "."
 	}
-	listPath, ok := sourceInventoryDiscoveryNormalizeToolPath(ctx, "list_files", listPath, result.Summary, "list_files")
+	listPath, ok := sourceInventoryDiscoveryNormalizeToolPath(ctx, "list_files", listPath, "", "")
 	if !ok {
 		return types.SourceInventoryObservation{}
 	}
@@ -290,11 +294,8 @@ func sourceInventoryObservationFromListFilesToolResult(ctx *types.BusContext, re
 		set.Members = append(set.Members, member)
 		set.Count = len(set.Members)
 	}
-	for _, line := range sourceInventoryDiscoveryResultLines(result.Summary) {
-		if strings.HasPrefix(line, "[list_files:") {
-			continue
-		}
-		rel := sourceInventoryDiscoverySafeResultPath(ctx, line)
+	for _, candidate := range result.PathDiscovery.CandidateFiles {
+		rel := sourceInventoryDiscoverySafeResultPath(ctx, candidate)
 		if rel == "" || !sourceInventoryDiscoveryResultPathExists(ctx, rel) {
 			continue
 		}
@@ -325,23 +326,6 @@ func sourceInventoryObservationFromListFilesToolResult(ctx *types.BusContext, re
 		return types.SourceInventoryObservation{}
 	}
 	return types.CloneSourceInventoryObservation(out)
-}
-
-func sourceInventoryListFilesResultIsDirect(summary string) bool {
-	for _, line := range strings.Split(summary, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "[list_files:") {
-			continue
-		}
-		for _, field := range strings.Fields(strings.TrimSuffix(strings.TrimPrefix(line, "[list_files:"), "]")) {
-			key, value, ok := strings.Cut(field, "=")
-			if ok && key == "recursive" && strings.EqualFold(strings.TrimSpace(value), "true") {
-				return false
-			}
-		}
-		return true
-	}
-	return false
 }
 
 func sourceInventoryObservationMemberFromListFilesPath(ctx *types.BusContext, rel string) types.SourceInventoryObservationMember {
@@ -890,11 +874,14 @@ func sourceInventoryDiscoveryObservationFromTool(ctx *types.BusContext, result t
 			AttrRoles:   attrRoles,
 		}
 	case "list_files":
-		pathSurface, pathOK := sourceInventoryDiscoveryNormalizeToolPath(ctx, toolName, p.Path, result.Summary, "list_files")
+		if result.PathDiscovery == nil || result.PathDiscovery.Kind != types.ToolPathDiscoveryKindListFiles {
+			return sourceInventoryDiscoveryObservation{}, false
+		}
+		pathSurface, pathOK := sourceInventoryDiscoveryNormalizeToolPath(ctx, toolName, result.PathDiscovery.Path, "", "")
 		if !pathOK {
 			return sourceInventoryDiscoveryObservation{}, false
 		}
-		files, scopes := sourceInventoryDiscoveryListFilesShape(ctx, result.Summary, pathSurface)
+		files, scopes := sourceInventoryDiscoveryCandidateFilesShape(ctx, result.PathDiscovery.CandidateFiles, pathSurface)
 		obs = sourceInventoryDiscoveryObservation{
 			ToolName:    toolName,
 			Path:        pathSurface,
@@ -904,14 +891,16 @@ func sourceInventoryDiscoveryObservationFromTool(ctx *types.BusContext, result t
 			AttrRoles:   attrRoles,
 		}
 	case "grep":
-		if !p.FilesOnly {
+		if result.PathDiscovery == nil ||
+			result.PathDiscovery.Kind != types.ToolPathDiscoveryKindGrep ||
+			!result.PathDiscovery.FilesOnly {
 			return sourceInventoryDiscoveryObservation{}, false
 		}
-		pathSurface, pathOK := sourceInventoryDiscoveryNormalizeToolPath(ctx, toolName, p.Path, result.Summary, "grep params")
+		pathSurface, pathOK := sourceInventoryDiscoveryNormalizeToolPath(ctx, toolName, result.PathDiscovery.Path, "", "")
 		if !pathOK {
 			return sourceInventoryDiscoveryObservation{}, false
 		}
-		files, scopes := sourceInventoryDiscoveryGrepFilesShape(ctx, result.Summary, pathSurface)
+		files, scopes := sourceInventoryDiscoveryCandidateFilesShape(ctx, result.PathDiscovery.CandidateFiles, pathSurface)
 		obs = sourceInventoryDiscoveryObservation{
 			ToolName:    toolName,
 			Path:        pathSurface,
@@ -934,24 +923,29 @@ func sourceInventoryDiscoveryObservationFromHistory(result types.ToolResult) (so
 	toolName := types.CanonicalToolName(result.ToolName)
 	switch toolName {
 	case "list_files":
-		pathSurface := sourceInventoryDiscoveryPathFromBanner(result.Summary, "list_files")
+		if result.PathDiscovery == nil || result.PathDiscovery.Kind != types.ToolPathDiscoveryKindListFiles {
+			return sourceInventoryDiscoveryObservation{}, false
+		}
+		pathSurface := strings.TrimSpace(result.PathDiscovery.Path)
 		if pathSurface == "" {
 			pathSurface = "."
 		}
-		files, scopes := sourceInventoryDiscoveryListFilesShape(nil, result.Summary, pathSurface)
+		files, scopes := sourceInventoryDiscoveryCandidateFilesShape(nil, result.PathDiscovery.CandidateFiles, pathSurface)
 		obs := sourceInventoryDiscoveryObservation{ToolName: toolName, Path: pathSurface, Files: files, ScopeGroups: scopes}
 		if sourceInventoryDiscoveryObservationBroad(obs) {
 			return obs, true
 		}
 	case "grep":
-		if !strings.Contains(result.Summary, "files_only=true") {
+		if result.PathDiscovery == nil ||
+			result.PathDiscovery.Kind != types.ToolPathDiscoveryKindGrep ||
+			!result.PathDiscovery.FilesOnly {
 			return sourceInventoryDiscoveryObservation{}, false
 		}
-		pathSurface := sourceInventoryDiscoveryPathFromBanner(result.Summary, "grep params")
+		pathSurface := strings.TrimSpace(result.PathDiscovery.Path)
 		if pathSurface == "" {
 			pathSurface = "."
 		}
-		files, scopes := sourceInventoryDiscoveryGrepFilesShape(nil, result.Summary, pathSurface)
+		files, scopes := sourceInventoryDiscoveryCandidateFilesShape(nil, result.PathDiscovery.CandidateFiles, pathSurface)
 		obs := sourceInventoryDiscoveryObservation{ToolName: toolName, Path: pathSurface, Files: files, ScopeGroups: scopes}
 		if sourceInventoryDiscoveryObservationBroad(obs) {
 			return obs, true
@@ -1083,36 +1077,12 @@ func sourceInventoryDiscoveryRepoMapShape(ctx *types.BusContext, summary, basePa
 	return len(seenFiles), scopes
 }
 
-func sourceInventoryDiscoveryListFilesShape(ctx *types.BusContext, summary, basePath string) (int, []string) {
+func sourceInventoryDiscoveryCandidateFilesShape(ctx *types.BusContext, candidateFiles []string, basePath string) (int, []string) {
 	seenFiles := map[string]bool{}
 	seenScopes := map[string]bool{}
 	var scopes []string
-	for _, line := range sourceInventoryDiscoveryResultLines(summary) {
-		if strings.HasPrefix(line, "[list_files:") {
-			continue
-		}
-		file := sourceInventoryDiscoverySafeResultPath(ctx, line)
-		if file == "" || seenFiles[file] {
-			continue
-		}
-		seenFiles[file] = true
-		if scope := sourceInventoryDiscoveryChildScope(file, basePath); scope != "" && !seenScopes[scope] {
-			seenScopes[scope] = true
-			scopes = append(scopes, scope)
-		}
-	}
-	return len(seenFiles), scopes
-}
-
-func sourceInventoryDiscoveryGrepFilesShape(ctx *types.BusContext, summary, basePath string) (int, []string) {
-	seenFiles := map[string]bool{}
-	seenScopes := map[string]bool{}
-	var scopes []string
-	for _, line := range sourceInventoryDiscoveryResultLines(summary) {
-		if strings.HasPrefix(line, "[") || strings.HasPrefix(line, "grep params") {
-			continue
-		}
-		file := sourceInventoryDiscoverySafeResultPath(ctx, line)
+	for _, candidate := range candidateFiles {
+		file := sourceInventoryDiscoverySafeResultPath(ctx, candidate)
 		if file == "" || seenFiles[file] {
 			continue
 		}
@@ -2034,7 +2004,7 @@ func sourceInventoryAdvisoryProvenance(ctx *types.BusContext, base []string) []s
 
 func sourceInventoryAdvisoryHasListFilesScope(ctx *types.BusContext) bool {
 	for _, result := range aggregateSupportToolResults(ctx) {
-		if result.Success && result.ToolName == "list_files" && sourceInventoryListFilesScope(result.Summary) != "" {
+		if sourceInventoryListFilesToolScope(ctx, result) != "" {
 			return true
 		}
 	}
@@ -3254,10 +3224,7 @@ func sourceInventoryRequestedScopes(ctx *types.BusContext, graph *repotypes.Grap
 		return out
 	}
 	for _, result := range aggregateSupportToolResults(ctx) {
-		if !result.Success || result.ToolName != "list_files" {
-			continue
-		}
-		add(sourceInventoryListFilesScope(result.Summary))
+		add(sourceInventoryListFilesToolScope(ctx, result))
 	}
 	if len(out) > 0 {
 		sort.Strings(out)
@@ -3273,28 +3240,22 @@ func sourceInventoryRequestedScopes(ctx *types.BusContext, graph *repotypes.Grap
 	return out
 }
 
-func sourceInventoryListFilesScope(summary string) string {
-	if strings.TrimSpace(summary) == "" {
+func sourceInventoryListFilesToolScope(ctx *types.BusContext, result types.ToolResult) string {
+	if !result.Success || types.CanonicalToolName(result.ToolName) != "list_files" {
 		return ""
 	}
-	firstLine := summary
-	if idx := strings.Index(firstLine, "\n"); idx >= 0 {
-		firstLine = firstLine[:idx]
-	}
-	firstLine = strings.TrimSpace(firstLine)
-	if !strings.HasPrefix(firstLine, "[list_files: ") || !strings.HasSuffix(firstLine, "]") {
+	if result.PathDiscovery == nil || result.PathDiscovery.Kind != types.ToolPathDiscoveryKindListFiles {
 		return ""
 	}
-	const key = "path="
-	idx := strings.Index(firstLine, key)
-	if idx < 0 {
+	raw := strings.TrimSpace(result.PathDiscovery.Path)
+	if raw == "" {
+		raw = "."
+	}
+	scope, ok := sourceInventoryDiscoveryNormalizeToolPath(ctx, "list_files", raw, "", "")
+	if !ok {
 		return ""
 	}
-	value := strings.TrimSpace(firstLine[idx+len(key) : len(firstLine)-1])
-	if split := strings.Index(value, " recursive="); split >= 0 {
-		value = strings.TrimSpace(value[:split])
-	}
-	return value
+	return scope
 }
 
 func sourceInventoryScopeForSurface(graph *repotypes.Graph, raw string) string {

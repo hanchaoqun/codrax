@@ -32,6 +32,12 @@ func TestPublishSourceInventoryObservationFromToolObservation_ListFilesDirectUni
 		ToolName: "list_files",
 		Success:  true,
 		Summary:  "[list_files: path=src recursive=false]\nsrc/alpha\nsrc/beta\nsrc/app.yaml\nsrc/main.py\n",
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:           types.ToolPathDiscoveryKindListFiles,
+			Path:           "src",
+			ResultCount:    4,
+			CandidateFiles: []string{"src/alpha", "src/beta", "src/app.yaml", "src/main.py"},
+		},
 	})
 	if !ok {
 		t.Fatal("direct list_files should publish an exact source-inventory observation")
@@ -234,6 +240,12 @@ func TestPublishSourceInventoryObservationFromToolObservation_ListFilesIgnoresRe
 			"- summary: member_rows=0",
 			"",
 		}, "\n"),
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:           types.ToolPathDiscoveryKindListFiles,
+			Path:           ".",
+			ResultCount:    2,
+			CandidateFiles: []string{"src", "README.md"},
+		},
 	})
 	if !ok {
 		t.Fatal("direct list_files should publish real rows and ignore rendered advisory text")
@@ -256,6 +268,29 @@ func TestPublishSourceInventoryObservationFromToolObservation_ListFilesIgnoresRe
 	}
 	if !memberSet["src"] || !memberSet["README.md"] || len(members) != 2 {
 		t.Fatalf("expected only the two real list_files rows, got members=%v observation=%+v", members, obs)
+	}
+}
+
+func TestPublishSourceInventoryObservationFromToolObservation_ListFilesIgnoresSummaryOnlyRows(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mut := types.NewMutableState("source inventory summary-only pollution")
+	ctx := &types.BusContext{RepoRoot: root, Mutable: mut}
+	ok := PublishSourceInventoryObservationFromToolObservation(ctx, types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+		Summary:  "[list_files: path=.]\nsrc\nREADME.md\n",
+	})
+	if ok {
+		t.Fatal("summary-only list_files rows must not publish source-inventory observation")
+	}
+	if obs := mut.SourceInventoryObservation(); obs.IsActive() {
+		t.Fatalf("summary-only list_files rows should not update observation: %+v", obs)
 	}
 }
 

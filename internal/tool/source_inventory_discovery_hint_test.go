@@ -25,23 +25,49 @@ func (g sourceInventoryDiscoveryAliasGater) ResolveActiveSetCommand(_ *types.Bus
 	return types.ActiveSetGateResult{Allowed: true}
 }
 
-func TestSourceInventoryDiscoveryHintFromListFilesBroadResultDedupe(t *testing.T) {
-	ctx := &types.BusContext{Mutable: types.NewMutableState("plain unrelated objective")}
-	result := types.ToolResult{
+func sourceInventoryDiscoveryListFilesResult(path string, files []string) types.ToolResult {
+	lines := append([]string{"[list_files: path=" + path + " recursive=false]"}, files...)
+	return types.ToolResult{
 		ToolName: "list_files",
 		Success:  true,
-		Summary: strings.Join([]string{
-			"[list_files: path=internal/analysis recursive=false]",
-			"internal/analysis/aggregator",
-			"internal/analysis/criterion",
-			"internal/analysis/normalizer",
-			"internal/analysis/subject",
-			"internal/analysis/sourcemix",
-			"internal/analysis/stopcond",
-			"internal/analysis/types",
-			"internal/analysis/trace",
-		}, "\n"),
+		Summary:  strings.Join(lines, "\n"),
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:           types.ToolPathDiscoveryKindListFiles,
+			Path:           path,
+			ResultCount:    len(files),
+			CandidateFiles: files,
+		},
 	}
+}
+
+func sourceInventoryDiscoveryGrepFilesOnlyResult(path string, files []string) types.ToolResult {
+	lines := append([]string{"[grep params: path=" + path + " files_only=true]"}, files...)
+	return types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  strings.Join(lines, "\n"),
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:           types.ToolPathDiscoveryKindGrep,
+			Path:           path,
+			FilesOnly:      true,
+			ResultCount:    len(files),
+			CandidateFiles: files,
+		},
+	}
+}
+
+func TestSourceInventoryDiscoveryHintFromListFilesBroadResultDedupe(t *testing.T) {
+	ctx := &types.BusContext{Mutable: types.NewMutableState("plain unrelated objective")}
+	result := sourceInventoryDiscoveryListFilesResult("internal/analysis", []string{
+		"internal/analysis/aggregator",
+		"internal/analysis/criterion",
+		"internal/analysis/normalizer",
+		"internal/analysis/subject",
+		"internal/analysis/sourcemix",
+		"internal/analysis/stopcond",
+		"internal/analysis/types",
+		"internal/analysis/trace",
+	})
 
 	hint := SourceInventoryDiscoveryHintFromToolObservation(ctx, result, json.RawMessage(`{"path":"internal/analysis"}`))
 	for _, want := range []string{
@@ -78,21 +104,16 @@ func TestSourceInventoryDiscoveryHintSuppressedDuringAnalyze(t *testing.T) {
 		Mutable:       types.NewMutableState("plain objective"),
 		PipelineStage: types.StageAnalyze,
 	}
-	result := types.ToolResult{
-		ToolName: "list_files",
-		Success:  true,
-		Summary: strings.Join([]string{
-			"[list_files: path=internal/analysis recursive=false]",
-			"internal/analysis/aggregator",
-			"internal/analysis/criterion",
-			"internal/analysis/normalizer",
-			"internal/analysis/subject",
-			"internal/analysis/sourcemix",
-			"internal/analysis/stopcond",
-			"internal/analysis/types",
-			"internal/analysis/trace",
-		}, "\n"),
-	}
+	result := sourceInventoryDiscoveryListFilesResult("internal/analysis", []string{
+		"internal/analysis/aggregator",
+		"internal/analysis/criterion",
+		"internal/analysis/normalizer",
+		"internal/analysis/subject",
+		"internal/analysis/sourcemix",
+		"internal/analysis/stopcond",
+		"internal/analysis/types",
+		"internal/analysis/trace",
+	})
 
 	if hint := SourceInventoryDiscoveryHintFromToolObservation(ctx, result, json.RawMessage(`{"path":"internal/analysis"}`)); hint != "" {
 		t.Fatalf("analyze stage must not advertise deep source-inventory expansion:\n%s", hint)
@@ -134,21 +155,16 @@ func TestSourceInventoryDiscoveryHintNormalizesAbsolutePathInsideRepo(t *testing
 	repoRoot := t.TempDir()
 	absPath := filepath.Join(repoRoot, "internal", "analysis")
 	ctx := &types.BusContext{Mutable: types.NewMutableState("plain objective"), RepoRoot: repoRoot}
-	result := types.ToolResult{
-		ToolName: "list_files",
-		Success:  true,
-		Summary: strings.Join([]string{
-			"[list_files: path=" + absPath + " recursive=false]",
-			filepath.Join(absPath, "aggregator"),
-			filepath.Join(absPath, "criterion"),
-			filepath.Join(absPath, "normalizer"),
-			filepath.Join(absPath, "subject"),
-			filepath.Join(absPath, "sourcemix"),
-			filepath.Join(absPath, "stopcond"),
-			filepath.Join(absPath, "types"),
-			filepath.Join(absPath, "trace"),
-		}, "\n"),
-	}
+	result := sourceInventoryDiscoveryListFilesResult(absPath, []string{
+		filepath.Join(absPath, "aggregator"),
+		filepath.Join(absPath, "criterion"),
+		filepath.Join(absPath, "normalizer"),
+		filepath.Join(absPath, "subject"),
+		filepath.Join(absPath, "sourcemix"),
+		filepath.Join(absPath, "stopcond"),
+		filepath.Join(absPath, "types"),
+		filepath.Join(absPath, "trace"),
+	})
 
 	hint := SourceInventoryDiscoveryHintFromToolObservation(ctx, result, json.RawMessage(`{"path":`+strconv.Quote(absPath)+`}`))
 	if !strings.Contains(hint, `repo_map {"path": "internal/analysis", "view": "source_inventory"`) ||
@@ -159,21 +175,16 @@ func TestSourceInventoryDiscoveryHintNormalizesAbsolutePathInsideRepo(t *testing
 
 func TestSourceInventoryDiscoveryHintRejectsUnsafePath(t *testing.T) {
 	ctx := &types.BusContext{Mutable: types.NewMutableState("plain objective")}
-	result := types.ToolResult{
-		ToolName: "list_files",
-		Success:  true,
-		Summary: strings.Join([]string{
-			"[list_files: path=../outside recursive=false]",
-			"../outside/a",
-			"../outside/b",
-			"../outside/c",
-			"../outside/d",
-			"../outside/e",
-			"../outside/f",
-			"../outside/g",
-			"../outside/h",
-		}, "\n"),
-	}
+	result := sourceInventoryDiscoveryListFilesResult("../outside", []string{
+		"../outside/a",
+		"../outside/b",
+		"../outside/c",
+		"../outside/d",
+		"../outside/e",
+		"../outside/f",
+		"../outside/g",
+		"../outside/h",
+	})
 
 	if hint := SourceInventoryDiscoveryHintFromToolObservation(ctx, result, json.RawMessage(`{"path":"../outside"}`)); hint != "" {
 		t.Fatalf("unsafe parent-escape path must not produce repo-lens hint:\n%s", hint)
@@ -182,21 +193,16 @@ func TestSourceInventoryDiscoveryHintRejectsUnsafePath(t *testing.T) {
 
 func TestSourceInventoryDiscoveryHintFromGrepFilesOnly(t *testing.T) {
 	ctx := &types.BusContext{Mutable: types.NewMutableState("plain objective")}
-	result := types.ToolResult{
-		ToolName: "grep",
-		Success:  true,
-		Summary: strings.Join([]string{
-			"[grep params: path=services files_only=true]",
-			"services/auth/login.py",
-			"services/auth/routes.py",
-			"services/billing/router.ts",
-			"services/billing/config.yaml",
-			"services/metrics/exporter.rs",
-			"services/metrics/routes.rb",
-			"services/search/indexer.java",
-			"services/search/config.toml",
-		}, "\n"),
-	}
+	result := sourceInventoryDiscoveryGrepFilesOnlyResult("services", []string{
+		"services/auth/login.py",
+		"services/auth/routes.py",
+		"services/billing/router.ts",
+		"services/billing/config.yaml",
+		"services/metrics/exporter.rs",
+		"services/metrics/routes.rb",
+		"services/search/indexer.java",
+		"services/search/config.toml",
+	})
 
 	hint := SourceInventoryDiscoveryHintFromToolObservation(ctx, result, json.RawMessage(`{"path":"services","files_only":true}`))
 	if !strings.Contains(hint, `repo_map {"path": "services", "view": "source_inventory"`) ||
@@ -205,7 +211,14 @@ func TestSourceInventoryDiscoveryHintFromGrepFilesOnly(t *testing.T) {
 	}
 
 	plainCtx := &types.BusContext{Mutable: types.NewMutableState("plain objective")}
-	if noHint := SourceInventoryDiscoveryHintFromToolObservation(plainCtx, result, json.RawMessage(`{"path":"services","files_only":false}`)); noHint != "" {
+	contentResult := result
+	contentResult.PathDiscovery = &types.ToolPathDiscovery{
+		Kind:        types.ToolPathDiscoveryKindGrep,
+		Path:        "services",
+		FilesOnly:   false,
+		ResultCount: result.PathDiscovery.ResultCount,
+	}
+	if noHint := SourceInventoryDiscoveryHintFromToolObservation(plainCtx, contentResult, json.RawMessage(`{"path":"services","files_only":false}`)); noHint != "" {
 		t.Fatalf("content grep must not produce broad source-inventory discovery hint:\n%s", noHint)
 	}
 }
@@ -269,6 +282,12 @@ func TestSourceInventoryDiscoveryHintFromToolHistory(t *testing.T) {
 				"pkg/g",
 				"pkg/h",
 			}, "\n"),
+			PathDiscovery: &types.ToolPathDiscovery{
+				Kind:           types.ToolPathDiscoveryKindListFiles,
+				Path:           "pkg",
+				ResultCount:    8,
+				CandidateFiles: []string{"pkg/a", "pkg/b", "pkg/c", "pkg/d", "pkg/e", "pkg/f", "pkg/g", "pkg/h"},
+			},
 		},
 	}
 
@@ -276,5 +295,27 @@ func TestSourceInventoryDiscoveryHintFromToolHistory(t *testing.T) {
 	if !strings.Contains(hint, "Repo Lens discovery hint") ||
 		!strings.Contains(hint, `repo_map {"path": "pkg", "view": "source_inventory"`) {
 		t.Fatalf("history-based discovery hint missing expected repo lens call:\n%s", hint)
+	}
+}
+
+func TestSourceInventoryDiscoveryHintFromToolHistoryIgnoresSummaryOnlyRows(t *testing.T) {
+	results := []types.ToolResult{{
+		ToolName: "list_files",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[list_files: path=pkg recursive=false]",
+			"pkg/a",
+			"pkg/b",
+			"pkg/c",
+			"pkg/d",
+			"pkg/e",
+			"pkg/f",
+			"pkg/g",
+			"pkg/h",
+		}, "\n"),
+	}}
+
+	if hint := SourceInventoryDiscoveryHintFromToolHistory(results); hint != "" {
+		t.Fatalf("summary-only path rows must not produce source-inventory history hint:\n%s", hint)
 	}
 }

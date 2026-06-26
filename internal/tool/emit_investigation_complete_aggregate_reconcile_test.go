@@ -574,6 +574,12 @@ func TestSourceInventoryRequestedScopes_UsesListFilesToolScope(t *testing.T) {
 		ToolName: "list_files",
 		Success:  true,
 		Summary:  "[list_files: path=src recursive=false]\nsrc/a.go\nsrc/nested\n",
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:           types.ToolPathDiscoveryKindListFiles,
+			Path:           "src",
+			ResultCount:    2,
+			CandidateFiles: []string{"src/a.go", "src/nested"},
+		},
 	}}})
 
 	got := sourceInventoryRequestedScopes(ctx, graph)
@@ -598,6 +604,12 @@ func TestReconcileCompletionAggregateFactsWithSourceInventory_ListFilesScope(t *
 		ToolName: "list_files",
 		Success:  true,
 		Summary:  "[list_files: path=src recursive=false]\nsrc/a.py\nsrc/B.java\n",
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:           types.ToolPathDiscoveryKindListFiles,
+			Path:           "src",
+			ResultCount:    2,
+			CandidateFiles: []string{"src/a.py", "src/B.java"},
+		},
 	}}})
 	facts := []types.AnswerAggregateFact{{
 		Kind:    types.AnswerAggregateMemberSet,
