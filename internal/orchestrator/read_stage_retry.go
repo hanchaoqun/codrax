@@ -562,14 +562,6 @@ func continuationToolResultHints(results []types.ToolResult, maxItems int) []str
 	if maxItems <= 0 || len(results) == 0 {
 		return nil
 	}
-	prefixes := []string{
-		"line_window_hint=",
-		"line_windows=",
-		"next_shape=",
-		"no_match_advisory=",
-		"line_window_note=",
-		"regex_compatibility_note=",
-	}
 	seen := map[string]bool{}
 	var out []string
 	for i := len(results) - 1; i >= 0 && len(out) < maxItems; i-- {
@@ -577,26 +569,6 @@ func continuationToolResultHints(results []types.ToolResult, maxItems int) []str
 			if !seen[hint] {
 				seen[hint] = true
 				out = append(out, hint)
-			}
-			continue
-		}
-		for _, line := range strings.Split(results[i].Summary, "\n") {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" {
-				continue
-			}
-			for _, prefix := range prefixes {
-				if strings.HasPrefix(trimmed, prefix) {
-					text := logging.Truncate(trimmed, 220)
-					if !seen[text] {
-						seen[text] = true
-						out = append(out, text)
-					}
-					break
-				}
-			}
-			if len(out) >= maxItems {
-				break
 			}
 		}
 	}

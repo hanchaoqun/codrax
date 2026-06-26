@@ -429,14 +429,14 @@ func TestBuildExploreFactRetryContinuationHintPrefersTypedRefinement(t *testing.
 	}
 }
 
-func TestContinuationToolResultHintsFallsBackToSummaryPrefixes(t *testing.T) {
+func TestContinuationToolResultHintsIgnoresSummaryOnlyPrefixes(t *testing.T) {
 	hints := continuationToolResultHints([]types.ToolResult{{
 		ToolName: "grep",
 		Success:  true,
 		Summary:  "line_window_hint=first returned match is trace.systrace:42; next use read_file\n",
 	}}, 4)
-	if len(hints) != 1 || !strings.Contains(hints[0], "line_window_hint=first returned match is trace.systrace:42") {
-		t.Fatalf("summary-prefix fallback not preserved: %+v", hints)
+	if len(hints) != 0 {
+		t.Fatalf("summary-only prefix should not drive retry continuation hints: %+v", hints)
 	}
 }
 
