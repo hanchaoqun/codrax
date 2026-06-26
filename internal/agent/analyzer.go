@@ -1403,13 +1403,15 @@ func analyzerGrepPrescanReady(result types.ToolResult) bool {
 	if result.ToolName != "grep" || !result.Success {
 		return false
 	}
-	summary := result.Summary
-	if !strings.Contains(summary, "[grep:") ||
-		!strings.Contains(summary, "matching files]") ||
-		!strings.Contains(summary, "files_only=true") {
+	discovery := result.PathDiscovery
+	if discovery == nil ||
+		discovery.Kind != types.ToolPathDiscoveryKindGrep ||
+		!discovery.FilesOnly ||
+		discovery.NoMatches ||
+		discovery.ResultCount <= 0 {
 		return false
 	}
-	return analyzerPrescanPathScoped(analyzerBannerValue(summary, "grep params", "path"))
+	return analyzerPrescanPathScoped(discovery.Path)
 }
 
 const analyzerListFilesStrongReadyChildCount = 4
@@ -1418,26 +1420,14 @@ func analyzerListFilesPrescanChildCount(result types.ToolResult) (int, bool) {
 	if result.ToolName != "list_files" || !result.Success {
 		return 0, false
 	}
-	pathSurface := analyzerBannerValue(result.Summary, "list_files", "path")
-	if !analyzerPrescanPathScoped(pathSurface) {
+	discovery := result.PathDiscovery
+	if discovery == nil ||
+		discovery.Kind != types.ToolPathDiscoveryKindListFiles ||
+		discovery.ResultCount <= 0 ||
+		!analyzerPrescanPathScoped(discovery.Path) {
 		return 0, false
 	}
-	scope := analyzerNormalizePrescanPathSurface(pathSurface)
-	seen := map[string]bool{}
-	for _, rawLine := range strings.Split(result.Summary, "\n") {
-		line := analyzerNormalizePrescanPathSurface(rawLine)
-		if line == "" || strings.HasPrefix(line, "[") || line == scope {
-			continue
-		}
-		if !analyzerListFilesEntryWithinScope(line, scope) {
-			continue
-		}
-		seen[line] = true
-	}
-	if len(seen) == 0 {
-		return 0, false
-	}
-	return len(seen), true
+	return discovery.ResultCount, true
 }
 
 func analyzerRepoMapSourceInventoryPrescanReady(result types.ToolResult) bool {
@@ -1476,15 +1466,6 @@ func analyzerPrescanPathScoped(pathSurface string) bool {
 	return true
 }
 
-func analyzerListFilesEntryWithinScope(entry, scope string) bool {
-	entry = analyzerNormalizePrescanPathSurface(entry)
-	scope = analyzerNormalizePrescanPathSurface(scope)
-	if entry == "" || scope == "" || entry == scope {
-		return false
-	}
-	return strings.HasPrefix(entry, scope+"/")
-}
-
 func analyzerNormalizePrescanPathSurface(raw string) string {
 	s := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
 	for strings.HasPrefix(s, "./") {
@@ -1495,68 +1476,6 @@ func analyzerNormalizePrescanPathSurface(raw string) string {
 		return ""
 	}
 	return s
-}
-
-func analyzerBannerValue(summary, bannerName, key string) string {
-	prefix := "[" + bannerName + ": "
-	start := strings.Index(summary, prefix)
-	if start < 0 {
-		return ""
-	}
-	rest := summary[start+len(prefix):]
-	end := strings.Index(rest, "]")
-	if end < 0 {
-		return ""
-	}
-	body := rest[:end]
-	want := key + "="
-	for i := 0; i < len(body); {
-		for i < len(body) && body[i] == ' ' {
-			i++
-		}
-		if i >= len(body) {
-			break
-		}
-		keyStart := i
-		for i < len(body) && body[i] != '=' && body[i] != ' ' {
-			i++
-		}
-		if i >= len(body) || body[i] != '=' {
-			for i < len(body) && body[i] != ' ' {
-				i++
-			}
-			continue
-		}
-		fieldKey := body[keyStart:i]
-		i++ // '='
-		valueStart := i
-		for i < len(body) {
-			if body[i] == ' ' && analyzerLooksLikeBannerField(body, i+1) {
-				break
-			}
-			i++
-		}
-		if fieldKey+"=" == want {
-			return strings.TrimSpace(body[valueStart:i])
-		}
-	}
-	return ""
-}
-
-func analyzerLooksLikeBannerField(body string, start int) bool {
-	if start >= len(body) || body[start] == ' ' || body[start] == '=' {
-		return false
-	}
-	i := start
-	for i < len(body) && body[i] != '=' && body[i] != ' ' {
-		c := body[i]
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' {
-			i++
-			continue
-		}
-		return false
-	}
-	return i > start && i < len(body) && body[i] == '='
 }
 
 func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {

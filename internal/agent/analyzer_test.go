@@ -807,6 +807,12 @@ func TestAnalyzer_PrescanBudget_PathScopedGrepHintsEmitBeforeBudgetWall(t *testi
 		ToolName: "grep",
 		Success:  true,
 		Summary:  "[grep: 1 matching files]\n[grep params: pattern=import path=internal/tool/emit_analysis.go files_only=true]\ninternal/tool/emit_analysis.go\n",
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:        types.ToolPathDiscoveryKindGrep,
+			Path:        "internal/tool/emit_analysis.go",
+			FilesOnly:   true,
+			ResultCount: 1,
+		},
 	}
 	sig := e.Observe(ctx, LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -841,6 +847,12 @@ func TestAnalyzer_PrescanReady_DefaultBudgetForcesEmitOnlySurface(t *testing.T) 
 		ToolName: "grep",
 		Success:  true,
 		Summary:  "[grep: 1 matching files]\n[grep params: pattern=import path=internal/tool/emit_analysis.go files_only=true]\ninternal/tool/emit_analysis.go\n",
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:        types.ToolPathDiscoveryKindGrep,
+			Path:        "internal/tool/emit_analysis.go",
+			FilesOnly:   true,
+			ResultCount: 1,
+		},
 	}
 	sig := e.Observe(ctx, LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -888,6 +900,12 @@ func TestAnalyzer_PrescanReady_LargerBudgetDoesNotCloseOnFirstScopedProbe(t *tes
 		ToolName: "grep",
 		Success:  true,
 		Summary:  "[grep: 1 matching files]\n[grep params: pattern=foo path=internal/agent files_only=true]\ninternal/agent/a.go\n",
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:        types.ToolPathDiscoveryKindGrep,
+			Path:        "internal/agent",
+			FilesOnly:   true,
+			ResultCount: 1,
+		},
 	}
 	sig := e.Observe(ctx, LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -933,6 +951,11 @@ func TestAnalyzer_PrescanReady_ListFilesChildScopeListingForcesEmitOnly(t *testi
 			"src modules/runtime",
 			"src modules/web",
 		}, "\n"),
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:        types.ToolPathDiscoveryKindListFiles,
+			Path:        "src modules",
+			ResultCount: 5,
+		},
 	}
 	sig := e.Observe(ctx, LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -1012,6 +1035,11 @@ func TestAnalyzer_PrescanReady_SmallListFilesRemainsSoftUnderLargerBudget(t *tes
 		ToolName: "list_files",
 		Success:  true,
 		Summary:  "[list_files: path=src/api recursive=false]\nsrc/api/routes.ts\nsrc/api/config.yaml\n",
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:        types.ToolPathDiscoveryKindListFiles,
+			Path:        "src/api",
+			ResultCount: 2,
+		},
 	}
 	sig := e.Observe(ctx, LoopObservation{
 		Phase:          PhaseMidLoop,
@@ -1033,10 +1061,23 @@ func TestAnalyzer_PrescanResultSupportsClassificationStop_GuardsBroadOrLineGreps
 		want bool
 	}{
 		{
-			name: "path scoped files-only match",
+			name: "summary-only files-only grep ignored",
 			res: types.ToolResult{
 				ToolName: "grep", Success: true,
 				Summary: "[grep: 2 matching files]\n[grep params: pattern=foo path=internal/agent files_only=true]\ninternal/agent/a.go\n",
+			},
+		},
+		{
+			name: "path scoped files-only match",
+			res: types.ToolResult{
+				ToolName: "grep", Success: true,
+				Summary: "transparent summary is not authoritative",
+				PathDiscovery: &types.ToolPathDiscovery{
+					Kind:        types.ToolPathDiscoveryKindGrep,
+					Path:        "internal/agent",
+					FilesOnly:   true,
+					ResultCount: 2,
+				},
 			},
 			want: true,
 		},
@@ -1044,7 +1085,12 @@ func TestAnalyzer_PrescanResultSupportsClassificationStop_GuardsBroadOrLineGreps
 			name: "path with spaces stays path scoped",
 			res: types.ToolResult{
 				ToolName: "grep", Success: true,
-				Summary: "[grep: 1 matching files]\n[grep params: pattern=foo path=sample project/src files_only=true]\nsample project/src/a.go\n",
+				PathDiscovery: &types.ToolPathDiscovery{
+					Kind:        types.ToolPathDiscoveryKindGrep,
+					Path:        "sample project/src",
+					FilesOnly:   true,
+					ResultCount: 1,
+				},
 			},
 			want: true,
 		},
@@ -1052,35 +1098,58 @@ func TestAnalyzer_PrescanResultSupportsClassificationStop_GuardsBroadOrLineGreps
 			name: "repo root too broad",
 			res: types.ToolResult{
 				ToolName: "grep", Success: true,
-				Summary: "[grep: 2 matching files]\n[grep params: pattern=foo path=. files_only=true]\na.go\n",
+				PathDiscovery: &types.ToolPathDiscovery{
+					Kind:        types.ToolPathDiscoveryKindGrep,
+					Path:        ".",
+					FilesOnly:   true,
+					ResultCount: 2,
+				},
 			},
 		},
 		{
 			name: "up-directory path ignored",
 			res: types.ToolResult{
 				ToolName: "grep", Success: true,
-				Summary: "[grep: 1 matching files]\n[grep params: pattern=foo path=../other files_only=true]\n../other/a.go\n",
+				PathDiscovery: &types.ToolPathDiscovery{
+					Kind:        types.ToolPathDiscoveryKindGrep,
+					Path:        "../other",
+					FilesOnly:   true,
+					ResultCount: 1,
+				},
 			},
 		},
 		{
 			name: "failed grep ignored",
 			res: types.ToolResult{
 				ToolName: "grep", Success: false,
-				Summary: "[grep: 1 matching files]\n[grep params: pattern=foo path=internal/agent files_only=true]\ninternal/agent/a.go\n",
+				PathDiscovery: &types.ToolPathDiscovery{
+					Kind:        types.ToolPathDiscoveryKindGrep,
+					Path:        "internal/agent",
+					FilesOnly:   true,
+					ResultCount: 1,
+				},
 			},
 		},
 		{
 			name: "non-files-only grep ignored",
 			res: types.ToolResult{
 				ToolName: "grep", Success: true,
-				Summary: "[grep: 2 matching files]\n[grep params: pattern=foo path=internal/agent]\ninternal/agent/a.go\n",
+				PathDiscovery: &types.ToolPathDiscovery{
+					Kind:        types.ToolPathDiscoveryKindGrep,
+					Path:        "internal/agent",
+					ResultCount: 2,
+				},
 			},
 		},
 		{
 			name: "line grep not analyzer classification proof",
 			res: types.ToolResult{
 				ToolName: "grep", Success: true,
-				Summary: "[grep: 2 matching lines]\n[grep params: pattern=foo path=internal/agent]\na.go:1:foo\n",
+				PathDiscovery: &types.ToolPathDiscovery{
+					Kind:        types.ToolPathDiscoveryKindGrep,
+					Path:        "internal/agent",
+					ResultCount: 2,
+				},
 			},
 		},
 		{
@@ -1094,29 +1163,53 @@ func TestAnalyzer_PrescanResultSupportsClassificationStop_GuardsBroadOrLineGreps
 			name: "scoped list files with child entries",
 			res: types.ToolResult{
 				ToolName: "list_files", Success: true,
-				Summary: "[list_files: path=src services recursive=false]\nsrc services/api\nsrc services/config\n",
+				Summary: "transparent summary is not authoritative",
+				PathDiscovery: &types.ToolPathDiscovery{
+					Kind:        types.ToolPathDiscoveryKindListFiles,
+					Path:        "src services",
+					ResultCount: 2,
+				},
 			},
 			want: true,
+		},
+		{
+			name: "summary-only list files ignored",
+			res: types.ToolResult{
+				ToolName: "list_files", Success: true,
+				Summary: "[list_files: path=src services recursive=false]\nsrc services/api\nsrc services/config\n",
+			},
 		},
 		{
 			name: "root list files ignored",
 			res: types.ToolResult{
 				ToolName: "list_files", Success: true,
-				Summary: "[list_files: path=. recursive=false]\ncmd\ninternal\npkg\n",
+				PathDiscovery: &types.ToolPathDiscovery{
+					Kind:        types.ToolPathDiscoveryKindListFiles,
+					Path:        ".",
+					ResultCount: 3,
+				},
 			},
 		},
 		{
 			name: "parent escape list files ignored",
 			res: types.ToolResult{
 				ToolName: "list_files", Success: true,
-				Summary: "[list_files: path=../outside recursive=false]\n../outside/a\n../outside/b\n",
+				PathDiscovery: &types.ToolPathDiscovery{
+					Kind:        types.ToolPathDiscoveryKindListFiles,
+					Path:        "../outside",
+					ResultCount: 2,
+				},
 			},
 		},
 		{
 			name: "failed list files ignored",
 			res: types.ToolResult{
 				ToolName: "list_files", Success: false,
-				Summary: "[list_files: path=src recursive=false]\nsrc/a\n",
+				PathDiscovery: &types.ToolPathDiscovery{
+					Kind:        types.ToolPathDiscoveryKindListFiles,
+					Path:        "src",
+					ResultCount: 1,
+				},
 			},
 		},
 	}

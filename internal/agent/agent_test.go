@@ -1057,6 +1057,11 @@ func TestAnalyzerSameBatchPrescanBoundary(t *testing.T) {
 				"internal/analysis/binder",
 				"internal/analysis/gate",
 			}, "\n"),
+			PathDiscovery: &types.ToolPathDiscovery{
+				Kind:        types.ToolPathDiscoveryKindListFiles,
+				Path:        "internal/analysis",
+				ResultCount: 4,
+			},
 		}
 
 		applyAnalyzerSameBatchPrescanBoundary(ctx, result)
@@ -1086,6 +1091,12 @@ func TestAnalyzerSameBatchPrescanBoundary(t *testing.T) {
 			ToolName: "grep",
 			Success:  true,
 			Summary:  "[grep: 1 matching files]\n[grep params: pattern=import path=internal/tool files_only=true]\ninternal/tool/emit_analysis.go\n",
+			PathDiscovery: &types.ToolPathDiscovery{
+				Kind:        types.ToolPathDiscoveryKindGrep,
+				Path:        "internal/tool",
+				FilesOnly:   true,
+				ResultCount: 1,
+			},
 		}
 
 		applyAnalyzerSameBatchPrescanBoundary(ctx, result)
