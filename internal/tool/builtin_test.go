@@ -4095,6 +4095,86 @@ func TestGitHistorySearchRejectsRepoPathOutsideRepo(t *testing.T) {
 	}
 }
 
+func TestGitToolsAttachTypedRefinementForLargeHistoryOutputs(t *testing.T) {
+	t.Run("strategy helpers use the shared refinement carrier", func(t *testing.T) {
+		cases := []struct {
+			name     string
+			hint     *types.ToolRefinementHint
+			reason   string
+			toolName string
+		}{
+			{
+				name:     "git_diff",
+				hint:     gitDiffRefinement(gitDiffParams{Ref: "HEAD~1..HEAD"}, MaxInlineBytes+1),
+				reason:   "git_diff_result_truncated",
+				toolName: "git_diff",
+			},
+			{
+				name:     "git_show",
+				hint:     gitShowRefinement(gitShowParams{Ref: "HEAD"}, MaxInlineBytes+1),
+				reason:   "git_show_result_truncated",
+				toolName: "git_show",
+			},
+			{
+				name:     "git_log",
+				hint:     gitLogRefinement(gitLogParams{Count: 80, Format: "full"}, 80, "full", MaxInlineBytes+1),
+				reason:   "git_log_result_truncated",
+				toolName: "git_log",
+			},
+			{
+				name:     "git_history_search",
+				hint:     gitHistorySearchRefinement(gitHistorySearchParams{WindowPath: ".", Contains: "needle"}, ".", ".", "recent", 50, 50, MaxInlineBytes+1),
+				reason:   "git_history_search_window_exhausted",
+				toolName: "git_history_search",
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				if tc.hint == nil {
+					t.Fatalf("expected refinement")
+				}
+				if tc.hint.ReasonCode != tc.reason {
+					t.Fatalf("reason = %q, want %q; hint=%+v", tc.hint.ReasonCode, tc.reason, tc.hint)
+				}
+				if tc.hint.PreferredNextTool != tc.toolName {
+					t.Fatalf("preferred tool = %q, want %q", tc.hint.PreferredNextTool, tc.toolName)
+				}
+				if len(tc.hint.RequiredFields) == 0 {
+					t.Fatalf("expected required narrowing fields, got %+v", tc.hint)
+				}
+			})
+		}
+	})
+
+	t.Run("git_log execution projects refinement into handoff", func(t *testing.T) {
+		prev := MaxInlineBytes
+		MaxInlineBytes = 120
+		t.Cleanup(func() { MaxInlineBytes = prev })
+
+		ctx := gitWorktreeFixture(t, "seed\n")
+		ctx.WorkDir = t.TempDir()
+		tool := &GitLog{}
+		params, _ := json.Marshal(gitLogParams{Count: 1, Format: "full"})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("git_log failed: %s", result.Summary)
+		}
+		if result.Refinement == nil || result.Refinement.ReasonCode != "git_log_result_truncated" {
+			t.Fatalf("expected git_log_result_truncated refinement, got %+v", result.Refinement)
+		}
+		attached := types.AttachToolHandoffCarrier(result)
+		if attached.Handoff == nil || attached.Handoff.Refinement == nil {
+			t.Fatalf("expected handoff refinement, got %+v", attached.Handoff)
+		}
+		if attached.Handoff.Refinement.PreferredNextTool != "git_log" {
+			t.Fatalf("handoff preferred tool = %q", attached.Handoff.Refinement.PreferredNextTool)
+		}
+	})
+}
+
 // TestResolveToolPath_RootsRelativeAtRepoRoot pins the boundary
 // behavior that fixes the Q2 glamour-vs-codrax bug: when the LLM passes
 // "." or a relative path, tools must operate against ctx.RepoRoot, not

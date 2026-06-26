@@ -4834,13 +4834,15 @@ func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 		}, nil
 	}
 
-	summary, ref := StoreBlob(ctx, t.Name(), banner+stdout.String())
+	payload := banner + stdout.String()
+	summary, ref := StoreBlob(ctx, t.Name(), payload)
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   summary,
-		RawRef:    ref,
-		Timestamp: time.Now(),
+		ToolName:   t.Name(),
+		Success:    true,
+		Summary:    summary,
+		RawRef:     ref,
+		Refinement: gitDiffRefinement(p, len(payload)),
+		Timestamp:  time.Now(),
 	}, nil
 }
 
@@ -4974,11 +4976,12 @@ func (t *GitShow) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 	body += stdout.String()
 	summary, refBlob := StoreBlob(ctx, t.Name(), body)
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   summary,
-		RawRef:    refBlob,
-		Timestamp: time.Now(),
+		ToolName:   t.Name(),
+		Success:    true,
+		Summary:    summary,
+		RawRef:     refBlob,
+		Refinement: gitShowRefinement(p, len(body)),
+		Timestamp:  time.Now(),
 	}, nil
 }
 
@@ -5139,11 +5142,12 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 	body += stdout.String()
 	summary, ref := StoreBlob(ctx, t.Name(), body)
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   summary,
-		RawRef:    ref,
-		Timestamp: time.Now(),
+		ToolName:   t.Name(),
+		Success:    true,
+		Summary:    summary,
+		RawRef:     ref,
+		Refinement: gitLogRefinement(p, count, format, len(body)),
+		Timestamp:  time.Now(),
 	}, nil
 }
 
@@ -5277,13 +5281,167 @@ func (t *GitHistorySearch) Execute(ctx *types.BusContext, params json.RawMessage
 	}
 	fmt.Fprintf(&b, "unmatched=%d\n", inspected-len(matches))
 
-	summary, ref := StoreBlob(ctx, t.Name(), b.String())
-	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: summary, RawRef: ref, Timestamp: time.Now()}, nil
+	payload := b.String()
+	summary, ref := StoreBlob(ctx, t.Name(), payload)
+	return types.ToolResult{
+		ToolName:   t.Name(),
+		Success:    true,
+		Summary:    summary,
+		RawRef:     ref,
+		Refinement: gitHistorySearchRefinement(p, windowPath, diffPath, order, count, inspected, len(payload)),
+		Timestamp:  time.Now(),
+	}, nil
 }
 
 type gitHistorySearchCommit struct {
 	Hash    string
 	Subject string
+}
+
+func gitDiffRefinement(p gitDiffParams, payloadBytes int) *types.ToolRefinementHint {
+	if payloadBytes <= MaxInlineBytes {
+		return nil
+	}
+	params := map[string]string{}
+	setGitRefinementParam(params, "path", p.Path)
+	setGitRefinementParam(params, "ref", p.Ref)
+	if p.Staged {
+		params["staged"] = "true"
+	}
+	switch {
+	case p.Stat:
+		params["stat"] = "true"
+	case p.NameOnly:
+		params["name_only"] = "true"
+	default:
+		params["stat"] = "true"
+	}
+	return normalizeGitToolRefinement(types.ToolRefinementHint{
+		ReasonCode:        "git_diff_result_truncated",
+		ResultTruncated:   true,
+		PreferredNextTool: "git_diff",
+		PreferredParams:   params,
+		RequiredFields:    []string{"path", "stat", "name_only"},
+	})
+}
+
+func gitShowRefinement(p gitShowParams, payloadBytes int) *types.ToolRefinementHint {
+	if payloadBytes <= MaxInlineBytes {
+		return nil
+	}
+	params := map[string]string{}
+	setGitRefinementParam(params, "repo_path", p.RepoPath)
+	setGitRefinementParam(params, "ref", p.Ref)
+	setGitRefinementParam(params, "path", p.Path)
+	setGitRefinementParam(params, "format", p.Format)
+	switch {
+	case p.NoPatch:
+		params["no_patch"] = "true"
+	case p.Stat:
+		params["stat"] = "true"
+	case p.NameOnly:
+		params["name_only"] = "true"
+	default:
+		params["stat"] = "true"
+	}
+	return normalizeGitToolRefinement(types.ToolRefinementHint{
+		ReasonCode:        "git_show_result_truncated",
+		ResultTruncated:   true,
+		PreferredNextTool: "git_show",
+		PreferredParams:   params,
+		RequiredFields:    []string{"ref", "path", "stat", "name_only", "no_patch"},
+	})
+}
+
+func gitLogRefinement(p gitLogParams, count int, format string, payloadBytes int) *types.ToolRefinementHint {
+	if payloadBytes <= MaxInlineBytes {
+		return nil
+	}
+	params := map[string]string{}
+	setGitRefinementParam(params, "path", p.Path)
+	setGitRefinementParam(params, "pathspec", p.Pathspec)
+	setGitRefinementParam(params, "ref", p.Ref)
+	params["count"] = strconv.Itoa(minPositiveInt(count, 20))
+	setGitRefinementParam(params, "format", format)
+	switch {
+	case p.Stat:
+		params["stat"] = "true"
+	case p.NameOnly:
+		params["name_only"] = "true"
+	default:
+		params["name_only"] = "true"
+	}
+	if p.MergesOnly {
+		params["merges_only"] = "true"
+	}
+	if p.NoMerges {
+		params["no_merges"] = "true"
+	}
+	if p.FirstParent {
+		params["first_parent"] = "true"
+	}
+	return normalizeGitToolRefinement(types.ToolRefinementHint{
+		ReasonCode:        "git_log_result_truncated",
+		ResultTruncated:   true,
+		PreferredNextTool: "git_log",
+		PreferredParams:   params,
+		RequiredFields:    []string{"pathspec", "count"},
+	})
+}
+
+func gitHistorySearchRefinement(p gitHistorySearchParams, windowPath, diffPath, order string, count, inspected, payloadBytes int) *types.ToolRefinementHint {
+	windowExhausted := order == "recent" && inspected >= count && count >= 50
+	if payloadBytes <= MaxInlineBytes && !windowExhausted {
+		return nil
+	}
+	reason := "git_history_search_result_truncated"
+	if windowExhausted {
+		reason = "git_history_search_window_exhausted"
+	}
+	params := map[string]string{}
+	setGitRefinementParam(params, "repo_path", p.RepoPath)
+	setGitRefinementParam(params, "window_path", windowPath)
+	setGitRefinementParam(params, "diff_path", diffPath)
+	setGitRefinementParam(params, "contains", p.Contains)
+	setGitRefinementParam(params, "order", order)
+	params["window_count"] = strconv.Itoa(minPositiveInt(count, 20))
+	if p.CaseInsensitive {
+		params["case_insensitive"] = "true"
+	}
+	return normalizeGitToolRefinement(types.ToolRefinementHint{
+		ReasonCode:               reason,
+		ResultTruncated:          payloadBytes > MaxInlineBytes,
+		CandidateBudgetTruncated: windowExhausted,
+		PreferredNextTool:        "git_history_search",
+		PreferredParams:          params,
+		RequiredFields:           []string{"window_path", "diff_path", "contains"},
+	})
+}
+
+func normalizeGitToolRefinement(hint types.ToolRefinementHint) *types.ToolRefinementHint {
+	out := types.NormalizeToolRefinementHint(hint)
+	if out.Empty() {
+		return nil
+	}
+	return &out
+}
+
+func setGitRefinementParam(params map[string]string, key, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	params[key] = value
+}
+
+func minPositiveInt(value, cap int) int {
+	if value <= 0 {
+		return cap
+	}
+	if value < cap {
+		return value
+	}
+	return cap
 }
 
 func normalizeGitHistoryPathspec(s string, repoRoot string) string {
