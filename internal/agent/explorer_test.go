@@ -1687,6 +1687,18 @@ func TestExtractFileCoverageGrepFormats(t *testing.T) {
 	})
 }
 
+func TestExtractFileCoverageExecCommandSummaryOnlyIgnored(t *testing.T) {
+	history := []types.ToolResult{{
+		ToolName: "exec_command",
+		Success:  true,
+		Summary:  "[exec_command: $ find . -type f]\ninternal/agent/explorer.go\ninternal/tool/builtin.go\n",
+	}}
+	discovered, _, _ := extractFileCoverage(history, "")
+	if len(discovered) != 0 {
+		t.Fatalf("exec_command rendered output must not become discovered-file coverage, got %v", discovered)
+	}
+}
+
 // TestDetectDetailListingIntent was retired 2026-05-03 (Phase 6
 // stage 17). The classified detectDetailListingIntent function had
 // zero production callers (only this test reached it) and used

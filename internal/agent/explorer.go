@@ -17386,25 +17386,6 @@ func extractFileCoverageWithTotals(history []types.ToolResult, repoRoot string) 
 					totals[path] = total
 				}
 			}
-		case "exec_command":
-			// Best-effort file path extraction from exec_command
-			// output. Handles find/ls/tree output where each line
-			// is a file path. Non-path lines (counts, errors,
-			// binary output) are filtered by isValidFilePath.
-			for _, line := range strings.Split(r.Summary, "\n") {
-				path := strings.TrimSpace(line)
-				if path == "" || path[0] == '[' {
-					continue
-				}
-				path = canon(path)
-				if !isValidFilePath(path) || isNoisePath(path) {
-					continue
-				}
-				if !discoveredSet[path] {
-					discoveredSet[path] = true
-					discovered = append(discovered, path)
-				}
-			}
 		}
 	}
 	return readSet, readRanges, totals, discovered
