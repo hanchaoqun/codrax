@@ -34,6 +34,9 @@ func ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts []AnswerAggregate
 	if sourceInventoryPrincipalFactUniverseComplete(refs, rowKeys) {
 		return out
 	}
+	if sourceInventoryPrincipalRowSetDisjointFromExistingPrincipal(refs, rowSet) {
+		return out
+	}
 	principalIndexes := map[int]bool{}
 	for _, ref := range refs {
 		principalIndexes[ref.Index] = true
@@ -116,19 +119,6 @@ func NormalizeSourceInventoryPrincipalRowSet(rowSet SourceInventoryPrincipalRowS
 func sourceInventoryAllPrincipalRows(rowSet SourceInventoryPrincipalRowSet) []SourceInventoryRow {
 	rows := append([]SourceInventoryRow(nil), rowSet.PrincipalRows...)
 	return sourceInventoryFamilyBalancedRows(rows)
-}
-
-func sourceInventoryPrincipalFactUniverseComplete(refs []AnswerAggregateFactRef, want map[string]bool) bool {
-	if len(refs) == 0 || len(want) == 0 {
-		return false
-	}
-	for _, ref := range refs {
-		got := sourceInventoryAggregateFactRowKeys(ref.Fact)
-		if sourceInventoryRowKeySetsEqual(got, want) && aggregateMemberSetSupportCoverage(ref.Fact) >= len(want) {
-			return true
-		}
-	}
-	return false
 }
 
 func sourceInventoryAggregateFactHasAnyRowSetOverlap(fact AnswerAggregateFact, rowKeys map[string]bool) bool {

@@ -84,6 +84,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_profile.go":                     229,
 	"../types/source_inventory_principal_row_set.go":           297,
 	"../types/source_inventory_row_set_projection_boundary.go": 45,
+	"../types/source_inventory_row_set_projection_family.go":   154,
 	"../types/source_inventory_row_set_projection.go":          351,
 	"../types/source_inventory_scope.go":                       119,
 	"../types/source_inventory_shape.go":                       30,

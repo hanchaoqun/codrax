@@ -126,6 +126,42 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_IgnoresIncompleteOb
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DoesNotOverrideDisjointPrincipalFamily(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "parseCangjie", Role: AnswerCandidateRoleFunction, File: "internal/tool/repomap/index/extract_cangjie.go", Line: 41, Language: "go"},
+		SourceInventoryObservationMember{Name: "cangjieParser", Role: AnswerCandidateRoleFunction, File: "internal/tool/repomap/index/cangjie_parser.go", Line: 18, Language: "go"},
+	)
+	existing := AnswerAggregateFact{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "requested source rows",
+		Value:      "3",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "explorer",
+		Members: []string{
+			"Bridge",
+			"Cart",
+			"App",
+		},
+		SupportRefs: []string{
+			"Bridge @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:8",
+			"Cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:4",
+			"App @ eval/fixtures/testdata/cangjie_minimal/main.cj:5",
+		},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts([]AnswerAggregateFact{existing}, obs, rm)
+	if len(got) != 1 {
+		t.Fatalf("disjoint navigation inventory must not become a synthetic hard principal row-set, got %+v", got)
+	}
+	if got[0].Provenance != "explorer" || got[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("existing grounded principal fact should remain authoritative, got %+v", got[0])
+	}
+	if strings.Join(got[0].Members, ",") != "Bridge,Cart,App" {
+		t.Fatalf("existing principal members changed: %+v", got[0].Members)
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PrincipleUsesRequestedRoleOnly(t *testing.T) {
 	rm := sourceInventoryProjectionRequestModel(nil)
 	obs := sourceInventoryProjectionObservation(
