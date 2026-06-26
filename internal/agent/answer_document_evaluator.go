@@ -8606,10 +8606,6 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	}
 	repair := obs.LastToolResult.Repair
 	rejectCode := answerDocRejectCodeFromRepair(repair)
-	summaryPresent := strings.TrimSpace(obs.LastToolResult.Summary) != ""
-	if !summaryPresent && (repair == nil || strings.TrimSpace(repair.Hint) == "") {
-		return LoopSignal{}
-	}
 
 	hasPatchBase := answerDocumentPatchBaseAvailable(ctx, e.mu)
 	hint := answerDocDefaultFullRejectHint(hasPatchBase)

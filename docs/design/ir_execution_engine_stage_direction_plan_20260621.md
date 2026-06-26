@@ -2387,6 +2387,11 @@ Remaining follow-up:
     3. Consumer change: `looksLikeInternalDraftParagraph` now filters only precise structural artifacts: placeholder payloads, explicit tool/XML markup, and JSON objects that parse as answer-document payloads (`shape` plus answer-document fields). Natural-language paragraphs are preserved, even when self-reflective or schema-ish.
     4. Guardrail tests: structural JSON payloads and tool markup are filtered; unrelated JSON and natural-language paragraphs mentioning response structure / emit wording are preserved.
     5. Red-line boundary: prior-draft salvage can strip deterministic machine scaffolding, but must not parse user text, model rationale, localized prose, self-talk wording, final-answer prose, elapsed time, or eval labels to decide which natural-language paragraphs survive.
+  - **Delivered D1-F10g.117 finalizer reject signal summary-free gate（code complete / focused regression passed）**:
+    1. Target gap: finalizer mid-loop reject handling still read `LastToolResult.Summary` to decide whether an `emit_answer_document` failure deserved a generic correction hint.
+    2. Consumer change: `emitAnswerDocumentRejectSignal` now relies on precise tool identity plus `Success=false` and optional `ToolRepair`; empty Summary no longer suppresses generic repair, and typed repair still overrides the generic hint.
+    3. Guardrail tests: a failed `emit_answer_document` result with empty Summary still emits the generic correction hint; typed repair-specific lanes remain unchanged.
+    4. Red-line boundary: finalizer reject loop-control does not inspect rendered tool Summary. Tool summaries remain transparent user/model context only.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

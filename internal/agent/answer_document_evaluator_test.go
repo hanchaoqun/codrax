@@ -6471,6 +6471,26 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopRejectStopsHintingAfterBudget(t 
 	}
 }
 
+func TestAnswerDocumentEvaluator_RejectSignal_DoesNotRequireSummaryText(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 1}
+	obs := LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "",
+		},
+	}
+	sig := e.emitAnswerDocumentRejectSignal(nil, obs)
+	if !sig.HintRequested {
+		t.Fatalf("failed emit_answer_document should request generic repair even with empty summary, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "Re-emit") || !strings.Contains(sig.Hint, "`emit_answer_document`") {
+		t.Fatalf("generic repair hint missing emit instruction: %q", sig.Hint)
+	}
+}
+
 // TestAnswerDocumentEvaluator_ParseOutput_Happy — a fully-populated
 // AnswerDocument in Mutable is rendered into FinalAnswer.
 
