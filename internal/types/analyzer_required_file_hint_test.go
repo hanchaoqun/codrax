@@ -56,6 +56,20 @@ func TestQualifyForcedReadSeedPath_SingleRepoRequiresExistingRegularFile(t *test
 	if got, ok := QualifyForcedReadSeedPath(ctx, "internal/agent/dir_only"); ok || got != "" {
 		t.Fatalf("directory forced-read seed should be rejected, got (%q,%t)", got, ok)
 	}
+	if got, ok := QualifyForcedReadSeedPath(ctx, "../outside.go"); ok || got != "" {
+		t.Fatalf("parent-traversal forced-read seed should be rejected, got (%q,%t)", got, ok)
+	}
+	external := filepath.Join(t.TempDir(), "external.go")
+	if err := os.WriteFile(external, []byte("package external\n"), 0o644); err != nil {
+		t.Fatalf("write external: %v", err)
+	}
+	if got, ok := QualifyForcedReadSeedPath(ctx, external); ok || got != "" {
+		t.Fatalf("repo-external absolute forced-read seed should be rejected, got (%q,%t)", got, ok)
+	}
+	absoluteInside := filepath.Join(root, filepath.FromSlash(real))
+	if got, ok := QualifyForcedReadSeedPath(ctx, absoluteInside); !ok || got != real {
+		t.Fatalf("repo-internal absolute forced-read seed = (%q,%t), want (%q,true)", got, ok, real)
+	}
 }
 
 func TestRequiredFileHint_OmitemptyRationale(t *testing.T) {

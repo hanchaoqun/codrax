@@ -95,9 +95,10 @@ func CanonicalRequiredFileHintPath(path, repoRoot string) string {
 }
 
 // QualifyForcedReadSeedPath resolves a required-file/forced-read seed against
-// the active multi-repo set. Single-repo callers pass through; ambiguous or
-// inactive multi-repo seeds return ok=false so the caller does not enqueue a
-// PendingRead that can never drain.
+// the active checkout and multi-repo set. Seeds must resolve to a regular file
+// inside the current repo/active sub-repo; ambiguous, inactive, repo-external,
+// parent-traversal, directory, or missing paths return ok=false so callers do
+// not enqueue or execute a PendingRead that can never drain.
 func QualifyForcedReadSeedPath(ctx *BusContext, raw string) (string, bool) {
 	repoRoot := ""
 	if ctx != nil {
@@ -105,6 +106,9 @@ func QualifyForcedReadSeedPath(ctx *BusContext, raw string) (string, bool) {
 	}
 	canon := CanonicalRequiredFileHintPath(raw, repoRoot)
 	if canon == "" {
+		return "", false
+	}
+	if ForcedReadSeedEscapesRepo(canon) {
 		return "", false
 	}
 	if ctx == nil || strings.TrimSpace(repoRoot) == "" {
@@ -139,6 +143,9 @@ func qualifyExistingForcedReadSeed(repoRoot, rel string) (string, bool) {
 	if rel == "" {
 		return "", false
 	}
+	if ForcedReadSeedEscapesRepo(rel) {
+		return "", false
+	}
 	if strings.TrimSpace(repoRoot) == "" {
 		return rel, true
 	}
@@ -147,4 +154,26 @@ func qualifyExistingForcedReadSeed(repoRoot, rel string) (string, bool) {
 		return "", false
 	}
 	return rel, true
+}
+
+// ForcedReadSeedEscapesRepo reports whether a canonical forced-read seed points
+// outside the active checkout. Forced-read producers and executors share this
+// helper so historical, absolute-external, and parent-traversal paths cannot
+// become hard read debt through a side entrance.
+func ForcedReadSeedEscapesRepo(path string) bool {
+	path = strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	if path == "" {
+		return false
+	}
+	if path == ".." || strings.HasPrefix(path, "../") {
+		return true
+	}
+	if strings.HasPrefix(path, "/") {
+		return true
+	}
+	return len(path) >= 3 && isASCIIAlpha(path[0]) && path[1] == ':' && path[2] == '/'
+}
+
+func isASCIIAlpha(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }

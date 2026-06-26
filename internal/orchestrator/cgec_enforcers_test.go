@@ -152,20 +152,27 @@ func TestRunForcedReads_AcceptedClosureKeepsLoadBearingPendingReads(t *testing.T
 func TestRunForcedReads_BudgetCap(t *testing.T) {
 	o := newTestOrch(t)
 	closure := o.busCtx.Mutable.EvidenceClosure()
-	// Queue more than the cap. Use a path that DOES NOT exist on
-	// disk so the read fails — we just want to confirm the cap is
-	// applied (the loop attempts only N before stopping).
+	// Queue more than the cap using real current-checkout files. Missing
+	// paths are cleared by the final qualification boundary before they can
+	// consume the read budget, so cap behavior must be pinned with executable
+	// forced-read seeds.
 	for i := 0; i < cgecForcedReadsPerRound+5; i++ {
+		rel := fmt.Sprintf("budget/file_%02d.go", i)
+		if err := os.MkdirAll(filepath.Join(o.busCtx.RepoRoot, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(o.busCtx.RepoRoot, rel), []byte("package budget\n"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
 		closure.AddPendingRead(types.PendingRead{
-			File:      string(rune('a'+i)) + "/missing.go",
+			File:      rel,
 			Rationale: "test",
 			Origin:    "test",
 		})
 	}
-	// Calling runForcedReads with no real files just returns 0
-	// successful reads. The important assertion is that PendingReads
-	// is NOT entirely emptied — over-the-cap entries remain.
-	o.runForcedReads()
+	if got := o.runForcedReads(); got != cgecForcedReadsPerRound {
+		t.Fatalf("forced reads = %d, want cap %d", got, cgecForcedReadsPerRound)
+	}
 	remaining := closure.PendingReads()
 	if len(remaining) < 5 {
 		t.Errorf("over-cap entries should remain unread; got %d remaining (started with %d)",
@@ -476,11 +483,11 @@ func TestRunForcedReads_NotExist_AbandonsAndAdvises(t *testing.T) {
 		t.Errorf("ENOENT path's PendingRead must be cleared by abandon path; got %+v", pending)
 	}
 	advisoryFound := false
-	for _, r := range closure.ActiveRepairs() {
-		if r.Origin == "forced_read.unrecoverable.test.missing" && r.Kind == types.RepairExpandSearch {
+	for _, r := range closure.PendingRepairs() {
+		if r.Origin == "forced_read.unqualified.test.missing" && r.Kind == types.RepairExpandSearch {
 			advisoryFound = true
-			if !strings.Contains(r.Rationale, "framework cannot read") {
-				t.Errorf("advisory rationale should explain 'framework cannot read'; got: %s", r.Rationale)
+			if !strings.Contains(r.Rationale, "skipped forced-read seed") {
+				t.Errorf("advisory rationale should explain pre-execution skip; got: %s", r.Rationale)
 			}
 			if !strings.Contains(r.Rationale, "file not found") {
 				t.Errorf("advisory rationale should classify the failure (file not found); got: %s", r.Rationale)
@@ -488,7 +495,7 @@ func TestRunForcedReads_NotExist_AbandonsAndAdvises(t *testing.T) {
 		}
 	}
 	if !advisoryFound {
-		t.Fatalf("expected RepairExpandSearch advisory with origin forced_read.unrecoverable.test.missing; got %+v", closure.ActiveRepairs())
+		t.Fatalf("expected RepairExpandSearch advisory with origin forced_read.unqualified.test.missing; got %+v", closure.PendingRepairs())
 	}
 }
 
@@ -737,8 +744,8 @@ func TestRunForcedReads_PathIsDirectory_AbandonsAcrossPlatforms(t *testing.T) {
 		t.Errorf("directory PendingRead must be cleared on every OS; got %+v", pending)
 	}
 	advisoryFound := false
-	for _, r := range closure.ActiveRepairs() {
-		if r.Origin == "forced_read.unrecoverable.test.isdir" {
+	for _, r := range closure.PendingRepairs() {
+		if r.Origin == "forced_read.unqualified.test.isdir" {
 			advisoryFound = true
 			if !strings.Contains(r.Rationale, "directory") {
 				t.Errorf("directory advisory should classify the failure as 'directory'; got: %s", r.Rationale)
@@ -746,7 +753,59 @@ func TestRunForcedReads_PathIsDirectory_AbandonsAcrossPlatforms(t *testing.T) {
 		}
 	}
 	if !advisoryFound {
-		t.Fatalf("expected directory advisory; got %+v", closure.ActiveRepairs())
+		t.Fatalf("expected directory advisory; got %+v", closure.PendingRepairs())
+	}
+}
+
+func TestRunForcedReads_SkipsUnqualifiedHistoricalAndExternalPendingReads(t *testing.T) {
+	o := newTestOrch(t)
+	repoRoot := o.busCtx.RepoRoot
+	real := "internal/agent/real.go"
+	if err := os.MkdirAll(filepath.Join(repoRoot, filepath.Dir(real)), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, real), []byte("package agent\n"), 0o644); err != nil {
+		t.Fatalf("write real: %v", err)
+	}
+	external := filepath.Join(t.TempDir(), "external.go")
+	if err := os.WriteFile(external, []byte("package external\n"), 0o644); err != nil {
+		t.Fatalf("write external: %v", err)
+	}
+	closure := o.busCtx.Mutable.EvidenceClosure()
+	for _, pending := range []types.PendingRead{
+		{File: "history/old/removed.go", Origin: "test.missing", Rationale: "historical ranked path"},
+		{File: "../outside.go", Origin: "test.traversal", Rationale: "parent traversal"},
+		{File: external, Origin: "test.external", Rationale: "repo-external absolute path"},
+		{File: real, Origin: "test.real", Rationale: "current checkout path"},
+	} {
+		closure.AddPendingRead(pending)
+	}
+
+	if got := o.runForcedReads(); got != 1 {
+		t.Fatalf("forced reads = %d, want only the current checkout file", got)
+	}
+	if pending := closure.PendingReads(); len(pending) != 0 {
+		t.Fatalf("all executable/unqualified pending reads should be drained or cleared, got %+v", pending)
+	}
+	if !closure.HasRead(real) {
+		t.Fatalf("real current-checkout file should be read")
+	}
+	repairs := closure.PendingRepairs()
+	for _, origin := range []string{
+		"forced_read.unqualified.test.missing",
+		"forced_read.unqualified.test.traversal",
+		"forced_read.unqualified.test.external",
+	} {
+		found := false
+		for _, repair := range repairs {
+			if repair.Origin == origin && repair.Advisory {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("missing advisory repair for %s in %+v", origin, repairs)
+		}
 	}
 }
 

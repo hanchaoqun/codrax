@@ -173,6 +173,16 @@ func (o *Orchestrator) runForcedReads() int {
 			closure.ClearPendingReadFor(p.File)
 			continue
 		}
+		qualified, ok, cause := qualifyPendingForcedReadForExecution(o.busCtx, closure, p)
+		if !ok {
+			if cause == "already read" {
+				continue
+			}
+			logging.Warning("[CGEC] E2 forced-read skipped before execution: file=%s origin=%s cause=%s", p.File, p.Origin, cause)
+			o.emitAbandonEvent(p.File, cause)
+			continue
+		}
+		p.File = qualified
 		if !closure.IsScanned(p.File) {
 			logging.Warning("[CGEC] D4 runForcedReads: attempting read of file=%s origin=%s NOT in ScannedSet — may be ghost path", p.File, p.Origin)
 		}
@@ -361,6 +371,63 @@ func (o *Orchestrator) runForcedReads() int {
 		})
 	}
 	return success
+}
+
+func qualifyPendingForcedReadForExecution(busCtx *types.BusContext, closure *types.EvidenceClosure, pending types.PendingRead) (string, bool, string) {
+	if closure == nil {
+		return "", false, "not a current-checkout regular file"
+	}
+	qualified, ok := types.QualifyForcedReadSeedPath(busCtx, pending.File)
+	if ok && qualified != "" {
+		if closure.HasRead(qualified) {
+			closure.ClearPendingReadFor(pending.File)
+			return "", false, "already read"
+		}
+		if qualified != pending.File {
+			closure.ClearPendingReadFor(pending.File)
+			pending.File = qualified
+			closure.AddPendingRead(pending)
+		}
+		return qualified, true, ""
+	}
+	cause := forcedReadQualificationFailureCause(busCtx, pending.File)
+	closure.ClearPendingReadFor(pending.File)
+	closure.AddRepair(types.RepairDirective{
+		Kind:      types.RepairExpandSearch,
+		Files:     []string{pending.File},
+		Rationale: fmt.Sprintf("framework skipped forced-read seed `%s` before execution because %s. Treat this as an audit caveat for the seed producer; do not reopen broad exploration solely to satisfy this path.", pending.File, cause),
+		Origin:    "forced_read.unqualified." + pending.Origin,
+		Advisory:  true,
+	})
+	return "", false, cause
+}
+
+func forcedReadQualificationFailureCause(busCtx *types.BusContext, file string) string {
+	repoRoot := ""
+	if busCtx != nil {
+		repoRoot = busCtx.RepoRoot
+	}
+	if strings.TrimSpace(repoRoot) != "" {
+		rel := types.CanonicalRequiredFileHintPath(file, repoRoot)
+		if rel == "" || types.ForcedReadSeedEscapesRepo(rel) {
+			return "path is outside the current checkout"
+		}
+		info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(rel)))
+		if err != nil {
+			return summarizeReadFailure(err, false, nil, "")
+		}
+		if info.IsDir() {
+			return "path is a directory, not a file"
+		}
+		if !info.Mode().IsRegular() {
+			return "path is not a regular file"
+		}
+	}
+	canon := types.CanonicalRequiredFileHintPath(file, "")
+	if types.ForcedReadSeedEscapesRepo(canon) {
+		return "path is outside the current checkout"
+	}
+	return "not a current-checkout regular file"
 }
 
 func (o *Orchestrator) seedRequiredFileHintForcedReadsBeforeExplore() int {
