@@ -3513,8 +3513,9 @@ func scalarSingleLiteral(text string) string {
 
 // scalarValueSupportPool unions the typed surfaces the literal may
 // legitimately come from: the block's own cited evidence rows
-// (Snippet / SurfaceTerms / Subject / Object / AnchorSymbol /
-// Summary) and the accepted aggregate facts (Value / Members).
+// (Snippet / SurfaceTerms / Subject / Object / AnchorSymbol and
+// explicitly opted-in LoadBearingSummary) and the accepted aggregate
+// facts (Value / Members).
 func scalarValueSupportPool(b *types.AnswerBlock, doc *types.AnswerDocumentV2, mut *types.MutableState, idx *answerEvidenceIndex) []string {
 	var pool []string
 	add := func(s string) {
@@ -3532,7 +3533,9 @@ func scalarValueSupportPool(b *types.AnswerBlock, doc *types.AnswerDocumentV2, m
 				add(ev.Subject)
 				add(ev.Object)
 				add(ev.AnchorSymbol)
-				add(ev.Summary)
+				if ev.LoadBearingSummary {
+					add(ev.Summary)
+				}
 				for _, term := range ev.SurfaceTerms {
 					add(term)
 				}

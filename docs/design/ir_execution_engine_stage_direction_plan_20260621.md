@@ -2428,6 +2428,12 @@ Remaining follow-up:
     3. Consumer change: `collectExactResolutionSymbolCandidatesFromGraph` now consumes graph symbols plus typed `fileSymbolItems` only. The legacy `parseExactResolutionSymbolSummary` fallback was removed.
     4. Guardrail tests: existing exact-resolution symbol-candidate tests now build typed `repomap.Symbol` fixtures; string summary fixtures can no longer be passed into the candidate collector.
     5. Red-line boundary: exact-resolution context candidate selection consumes repo_map graph symbols, typed symbol cache, grounded evidence anchors, and typed contract terms only. It does not parse repo_map display strings, evidence Summary, stage reports, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
+  - **Delivered D1-F10g.124 scalar-value support pool load-bearing-summary boundary（code complete / focused regression passed）**:
+    1. Target gap: `scalarValueSupportPool` added every cited `EvidenceItem.Summary` to the support pool used by `validateScalarValueGrounding`. That could let ordinary evidence prose suppress `ViolScalarValueUngrounded`, effectively turning model-authored summaries into scalar proof.
+    2. Consumer change: scalar support now accepts `Summary` only when the evidence row explicitly carries `LoadBearingSummary=true`; otherwise the support pool uses `Snippet`, `Subject`, `Object`, `AnchorSymbol`, `SurfaceTerms`, and accepted aggregate facts.
+    3. Boundary: `LoadBearingSummary` already has emit-time validation and is reserved for scalar values that cannot be represented by typed fields alone, such as commit hashes, versions, or single concrete values from deterministic tools.
+    4. Guardrail tests: a summary-only mention of `7` no longer suppresses the scalar grounding violation when the snippet says `5`; an explicit load-bearing summary with `7` still supports the scalar.
+    5. Red-line boundary: scalar-value post-finalize support consumes citation refs, typed evidence fields, explicit load-bearing-summary opt-in, and aggregate facts only. It does not parse ordinary evidence Summary, stage reports, model rationale, prompt prose, localized status, unrelated final-answer prose, elapsed time, or eval labels.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

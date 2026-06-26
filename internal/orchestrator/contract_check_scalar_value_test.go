@@ -66,6 +66,43 @@ func TestScalarValueGroundingAggregateSupport(t *testing.T) {
 	}
 }
 
+func TestScalarValueGroundingDoesNotUseSummaryUnlessLoadBearing(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "ev-summary-only",
+		Subject:         "MaxRetries",
+		Object:          "configured retry cap",
+		Source:          "internal/a.go",
+		LineStart:       10,
+		LineEnd:         14,
+		Snippet:         "const MaxRetries = 5",
+		Summary:         "operator-facing note mentions 7",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+
+	v := validateScalarValueGrounding(scalarDoc("7", types.ClaimAssignmentFact, 0), mut)
+	if len(v) != 1 || v[0].Kind != types.ViolScalarValueUngrounded {
+		t.Fatalf("summary-only scalar support must not suppress grounding violation, got %v", v)
+	}
+
+	mut = types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:                 "ev-load-bearing-summary",
+		Subject:            "MaxRetries",
+		Object:             "configured retry cap",
+		Source:             "internal/a.go",
+		LineStart:          10,
+		LineEnd:            14,
+		Snippet:            "const MaxRetries = fallbackValue",
+		Summary:            "7",
+		LoadBearingSummary: true,
+		GroundingStatus:    types.GroundingGrounded,
+	}})
+	if v := validateScalarValueGrounding(scalarDoc("7", types.ClaimAssignmentFact, 0), mut); v != nil {
+		t.Fatalf("explicit load-bearing summary scalar must remain usable, got %v", v)
+	}
+}
+
 // The typed escapes: undeclared claim form never gates;
 // external_observation routes to the artifact lane (skip); empty
 // support pool is set-side noise; multi-token prose is skipped.
