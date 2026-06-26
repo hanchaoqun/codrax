@@ -487,6 +487,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	)
 	var preSuiteProbe *verificationProbeRunResult
 	preSuiteProbeConsumed := false
+	preSuiteProbeNonAuthoritative := false
 	preSuiteProbeContinuationReason := ""
 	if shouldRunPreSuiteVerificationProbes(ctx, dryRunProbe) {
 		if probe, ok := runPlanVerificationProbes(ctx, "pre_suite_verification_probe"); ok {
@@ -555,6 +556,25 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 					Timestamp:  time.Now(),
 				}, nil
 			case types.VerificationStatusFailed:
+				if verificationProbeFailureAllowsProjectSuiteContinuation(probe.Report, surface, plans) {
+					preSuiteProbeConsumed = true
+					preSuiteProbeNonAuthoritative = true
+					for _, plan := range plans {
+						cmdPreview, _ := buildRunCommandForPlan(plan, plan.Suite, ctx.MainRepoRoot)
+						executedCmds = append(executedCmds, types.ExecutedCommand{
+							Runner:     plan.Runner,
+							Framework:  plan.Framework,
+							WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+							Suite:      strings.TrimSpace(plan.Suite),
+							Command:    cmdPreview,
+							Source:     verificationProbeContinuationSourceProbeSuiteContinued,
+							Outcome:    "suite_continued",
+							ReasonCode: "probe_non_authoritative",
+						})
+					}
+					logging.Warning("[run_tests] pre-suite verification_probe produced non-authoritative diagnostics; continuing to project suite")
+					break
+				}
 				report := probe.Report
 				payload := runTestsCombinedOutput(combinedOutputs)
 				_, ref := StoreBlob(ctx, t.Name()+"-verification-probes", payload)
@@ -700,12 +720,14 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				projectReports = append(projectReports, qualifyChangeReport(preSuiteProbe.Report, plan, ctx.RepoRoot))
 				continue
 			}
-			if probe, ok := runPlanVerificationProbes(ctx, "no_tests_verification_probe"); ok {
-				carryVerificationDiagnostics(probe.Report)
-				executedCmds = append(executedCmds, probe.Commands...)
-				projectReports = append(projectReports, qualifyChangeReport(probe.Report, plan, ctx.RepoRoot))
-				combinedOutputs = append(combinedOutputs, probe.Output)
-				continue
+			if !preSuiteProbeNonAuthoritative {
+				if probe, ok := runPlanVerificationProbes(ctx, "no_tests_verification_probe"); ok {
+					carryVerificationDiagnostics(probe.Report)
+					executedCmds = append(executedCmds, probe.Commands...)
+					projectReports = append(projectReports, qualifyChangeReport(probe.Report, plan, ctx.RepoRoot))
+					combinedOutputs = append(combinedOutputs, probe.Output)
+					continue
+				}
 			}
 			exts := sourceCheckExtensionsForNoTestWork(runner)
 			if len(exts) > 0 {
@@ -1509,6 +1531,33 @@ func verificationProbeContinuationAllowsInfraDowngrade(reason string) bool {
 	default:
 		return false
 	}
+}
+
+func verificationProbeFailureAllowsProjectSuiteContinuation(report *types.ChangeReport, surface types.TestSurface, plans []runnerPlan) bool {
+	if report == nil || report.Passed || len(plans) == 0 {
+		return false
+	}
+	cand := selectedSurfaceCandidate(surface)
+	if cand == nil || !cand.HasTestSignal {
+		return false
+	}
+	failed := countFailed(report.TestResults)
+	if failed == 0 || len(report.VerificationDiagnostics) < failed {
+		return false
+	}
+	seenNonAuthoritative := false
+	for _, diag := range report.VerificationDiagnostics {
+		if strings.EqualFold(strings.TrimSpace(diag.Severity), "error") {
+			return false
+		}
+		switch strings.TrimSpace(diag.Category) {
+		case "probe_authoring", "probe_import_or_environment", "probe_unavailable":
+			seenNonAuthoritative = true
+		default:
+			return false
+		}
+	}
+	return seenNonAuthoritative
 }
 
 func verificationProbeMissingRequiredContractRefs(plan *types.ChangePlan) []string {

@@ -3208,6 +3208,80 @@ exit 1
 	}
 }
 
+func TestRunTestsPreSuiteProbeAuthoringFailureContinuesGoSuite(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/probeapp\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc greet() string { return \"ok\" }\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	testSource := "package main\n\nimport \"testing\"\n\nfunc TestGreet(t *testing.T) {\n\tif greet() != \"ok\" { t.Fatal(\"bad greet\") }\n}\n"
+	if err := os.WriteFile(filepath.Join(root, "main_test.go"), []byte(testSource), 0o644); err != nil {
+		t.Fatalf("write main_test.go: %v", err)
+	}
+	mu := types.NewMutableState("go probe authoring")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-go-probe-authoring",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"main.go"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "bad_import_boundary",
+			Language: "go",
+			Code:     "package main\n\nimport _ \"example.com/probeapp\"\n\nfunc main() {}\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "go",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("project suite should carry verdict after non-authoritative probe failure, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusPassed {
+		t.Fatalf("VerificationStatus = %q, want passed; report=%+v", got, report)
+	}
+	if report.FailureKind != "" || strings.TrimSpace(report.FailureReasonCode) != "" {
+		t.Fatalf("suite pass must not retain probe failure fields: kind=%q reason=%q report=%+v", report.FailureKind, report.FailureReasonCode, report)
+	}
+	if !changeReportHasVerificationDiagnostic(report, "probe_authoring", "verification_probe_unclassified") {
+		t.Fatalf("probe authoring diagnostic should be retained, got %+v", report.VerificationDiagnostics)
+	}
+	foundProbe := false
+	foundContinuation := false
+	foundSuite := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "verification_probe" && cmd.Framework == "go" && cmd.Source == "pre_suite_verification_probe" {
+			foundProbe = true
+		}
+		if cmd.Runner == "go" && cmd.Source == "probe_primary_suite_continued" && cmd.Outcome == "suite_continued" && cmd.ReasonCode == "probe_non_authoritative" {
+			foundContinuation = true
+		}
+		if cmd.Runner == "go" && cmd.Outcome == "executed" {
+			foundSuite = true
+		}
+	}
+	if !foundProbe || !foundContinuation || !foundSuite {
+		t.Fatalf("expected probe, continuation, and go suite command evidence; got %+v", report.ExecutedCommands)
+	}
+}
+
 func TestRunGoCompileFallback_PassWhenPackageCompilesWithoutTests(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go not on PATH; skip")
