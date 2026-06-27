@@ -1334,11 +1334,18 @@ func extractBlocksByBraceBalanceDetailed(raw json.RawMessage) (json.RawMessage, 
 		case '"':
 			inStr = true
 		case '{':
-			if depth == 0 {
+			if depth <= 0 {
 				elemStart = i
+				depth = 1
+				continue
 			}
 			depth++
 		case '}':
+			if depth <= 0 {
+				depth = 0
+				elemStart = -1
+				continue
+			}
 			depth--
 			if depth == 0 && elemStart >= 0 {
 				candidate := strings.TrimSpace(scan[elemStart : i+1])
@@ -1351,7 +1358,11 @@ func extractBlocksByBraceBalanceDetailed(raw json.RawMessage) (json.RawMessage, 
 				}
 				var probe map[string]json.RawMessage
 				if err := json.Unmarshal([]byte(candidate), &probe); err == nil && isAnswerBlockCandidate(probe) {
-					elements = append(elements, json.RawMessage(candidate))
+					recovered := json.RawMessage(candidate)
+					if annotated, ok := mergeTrailingAnswerBlockAnnotations(probe, scan[i+1:]); ok {
+						recovered = annotated
+					}
+					elements = append(elements, recovered)
 					if kind, ok := blockKindFromObject(probe); ok {
 						recoveredKinds = append(recoveredKinds, kind)
 					}
@@ -1375,6 +1386,8 @@ func extractBlocksByBraceBalanceDetailed(raw json.RawMessage) (json.RawMessage, 
 		case ']':
 			if depth > 0 {
 				depth--
+			} else {
+				depth = 0
 			}
 		}
 	}
@@ -1436,6 +1449,108 @@ func extractBlocksByBraceBalanceDetailed(raw json.RawMessage) (json.RawMessage, 
 		report.DroppedVisiblePayload = len(attachments) > 0
 	}
 	return patched, report, true
+}
+
+func mergeTrailingAnswerBlockAnnotations(probe map[string]json.RawMessage, tail string) (json.RawMessage, bool) {
+	if !isAnswerBlockCandidate(probe) {
+		return nil, false
+	}
+	bounded := strings.TrimSpace(answerBlockAnnotationTail(tail))
+	if bounded == "" {
+		return nil, false
+	}
+	merged := cloneRawMessageMap(probe)
+	changed := false
+	for _, field := range []struct {
+		name  string
+		open  byte
+		close byte
+	}{
+		{"facet_ids", '[', ']'},
+		{"claim_uses", '[', ']'},
+		{"edge_anchors", '[', ']'},
+	} {
+		if _, exists := merged[field.name]; exists {
+			continue
+		}
+		raw, ok := extractLooseJSONFieldValue(bounded, field.name, field.open, field.close)
+		if !ok {
+			continue
+		}
+		merged[field.name] = raw
+		changed = true
+	}
+	for _, field := range []string{"surface_role", "title"} {
+		if _, exists := merged[field]; exists {
+			continue
+		}
+		value, ok := extractJSONStringFieldLoose(bounded, field)
+		if !ok {
+			continue
+		}
+		raw, err := json.Marshal(value)
+		if err != nil {
+			continue
+		}
+		merged[field] = raw
+		changed = true
+	}
+	if !changed {
+		return nil, false
+	}
+	out, err := json.Marshal(merged)
+	if err != nil || !json.Valid(out) {
+		return nil, false
+	}
+	var wire emitAnswerBlockV2
+	if err := json.Unmarshal(out, &wire); err != nil {
+		return nil, false
+	}
+	if _, err := NormalizeEmitAnswerBlock(wire, "recovered_blocks[0]"); err != nil {
+		return nil, false
+	}
+	return json.RawMessage(out), true
+}
+
+func answerBlockAnnotationTail(tail string) string {
+	if tail == "" {
+		return ""
+	}
+	depth := 0
+	inStr := false
+	esc := false
+	for i := 0; i < len(tail); i++ {
+		c := tail[i]
+		if inStr {
+			if esc {
+				esc = false
+				continue
+			}
+			switch c {
+			case '\\':
+				esc = true
+			case '"':
+				inStr = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inStr = true
+		case '{':
+			if depth == 0 {
+				return tail[:i]
+			}
+			depth++
+		case '[':
+			depth++
+		case '}', ']':
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	return tail
 }
 
 func countAnswerBlockKindMarkers(s string) int {

@@ -1599,6 +1599,74 @@ func TestEmitAnswerDocumentV2_StringifiedBlocksMissingOuterBlockCloseAccepted(t 
 	}
 }
 
+func TestEmitAnswerDocumentV2_StringifiedBlocksFieldBoundaryDriftAccepted(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	body := `[
+{"id":"s1","kind":"summary","text":"lead","items":[{"id":"c0","citation_ref":0}]}], "facet_ids":["enumeration_item"], "surface_role":"principal", "claim_uses":[{"claim_form":"definition_fact"}]},
+{"id":"t1","kind":"table","title":"Rows","columns":["Name"],"items":[{"id":"r1","label":"A","cells":["A"],"citation_ref":0}]}], "facet_ids":["enumeration_item"], "surface_role":"principal", "claim_uses":[{"claim_form":"definition_fact"}]}
+]`
+	rawBlocks, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal blocks body: %v", err)
+	}
+	raw := json.RawMessage(`{"blocks":` + string(rawBlocks) + `,"citations":[{"file":"x.go","line":1}]}`)
+
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("field-boundary drift should be repaired losslessly, got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("expected both visible blocks preserved, got %+v", doc)
+	}
+	for i, blk := range doc.Blocks {
+		if blk.SurfaceRole != types.SurfacePrincipal {
+			t.Fatalf("block %d surface_role not salvaged: %+v", i, blk)
+		}
+		if len(blk.FacetIDs) != 1 || blk.FacetIDs[0] != "enumeration_item" {
+			t.Fatalf("block %d facet_ids not salvaged: %+v", i, blk)
+		}
+		if len(blk.ClaimUses) != 1 || blk.ClaimUses[0].ClaimForm != types.ClaimDefinitionFact {
+			t.Fatalf("block %d claim_uses not salvaged: %+v", i, blk)
+		}
+	}
+	if got := bus.Mutable.AnswerDisplayAttachments(); len(got) != 0 {
+		t.Fatalf("lossless field-boundary repair should not create fallback display attachments: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentV2_StringifiedBlocksFieldBoundaryStillRejectsDroppedVisibleBlock(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	body := `[
+{"id":"s1","kind":"summary","text":"lead"}], "facet_ids":["enumeration_item"]},
+{"id":"list1","kind":"ordered_list","items":[{"id":"i1","label":"broken "quote"}]}]
+]`
+	rawBlocks, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal blocks body: %v", err)
+	}
+	raw := json.RawMessage(`{"blocks":` + string(rawBlocks) + `}`)
+
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("lossy field-boundary recovery must not publish partial visible answer: %+v", res)
+	}
+	if res.Repair == nil || res.Repair.Code != "answer_doc_lossy_blocks_string_recovery" {
+		t.Fatalf("lossy recovery should carry typed repair metadata, got %+v", res.Repair)
+	}
+	if doc := bus.Mutable.AnswerDocumentV2(); doc != nil {
+		t.Fatalf("partial recovered document must not be published, got %+v", doc)
+	}
+}
+
 func TestRepairBlocksAsString_BraceFallbackSkipsCitationObjects(t *testing.T) {
 	raw := json.RawMessage(`{"blocks": "[{\"id\":\"b1\",\"kind\":\"summary\",\"text\":\"hi\"}], \"citations\": [{\"file\":\"x.go\",\"line\":1}], trailing"}`)
 	patched, ok := repairBlocksAsString(raw)
