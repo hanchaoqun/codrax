@@ -1553,6 +1553,94 @@ func TestEmitInvestigationComplete_RuntimeArtifactDropsInvalidOptionalAggregateF
 	}
 }
 
+func TestEmitInvestigationComplete_DropsSupportingRepoSourceNegativeObservationWhenPrincipalSurvives(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"principal member_set is complete; EntryAbility is only related context",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"@Entry 页面入口",
+				"value":"1",
+				"role":"principal_answer",
+				"members":["Index"]
+			},
+			{
+				"kind":"negative_observation",
+				"label":"EntryAbility 无 @Entry 装饰器",
+				"value":"0",
+				"role":"supporting_coverage",
+				"provenance":"read_file",
+				"dimensions":[
+					{"name":"scope","value":"internal/thirdparty/tree-sitter-arkts/corpus/sources/06_entry_ability_stage_model.ets"},
+					{"name":"target","value":"@Entry decorator"},
+					{"name":"searched_at","value":"current_investigation"}
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("supporting repo-source negative context should drop locally, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "dropped contextual aggregate_facts") {
+		t.Fatalf("summary should disclose contextual aggregate drop: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Kind != types.AnswerAggregateMemberSet || facts[0].Members[0] != "Index" {
+		t.Fatalf("principal member_set should survive while contextual negative drops: %+v", facts)
+	}
+}
+
+func TestEmitInvestigationComplete_DoesNotDropPrincipalRepoSourceNegativeObservation(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"invalid principal current-source negative observation",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"context",
+				"value":"1",
+				"role":"principal_answer",
+				"members":["Index"]
+			},
+			{
+				"kind":"negative_observation",
+				"label":"principal repo absence",
+				"value":"0",
+				"role":"principal_answer",
+				"origin":"current_source",
+				"target":"binder",
+				"scope":"internal",
+				"matches":0
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected execution error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("principal repo-source negative_observation must still reject: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "requires a non-repo origin dimension") {
+		t.Fatalf("rejection should preserve non-repo origin hard gate, got: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_RejectsInconsistentAggregateFacts(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}

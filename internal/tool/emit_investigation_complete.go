@@ -824,33 +824,151 @@ func normalizeCompletionAggregateFacts(
 		notes = append(preNotes, notes...)
 		return normalized, notes, nil
 	}
-	if len(raw) == 0 || !completionAggregateFactsAreOptional(ctx, resultKind) {
+	optionalAggregates := completionAggregateFactsAreOptional(ctx, resultKind)
+	if len(raw) == 0 || (!optionalAggregates && !completionAggregateFactsCanDropContextualNegativeObservation(ctx, resultKind, raw)) {
 		return normalized, preNotes, err
 	}
 	out := make([]types.AnswerAggregateFact, 0, len(raw))
 	notes := append([]string(nil), preNotes...)
+	droppedContextualNegative := false
 	for i, fact := range raw {
 		one, oneErr := types.NormalizeAnswerAggregateFacts([]types.AnswerAggregateFact{fact})
 		if oneErr != nil {
-			notes = append(notes, fmt.Sprintf("dropped optional aggregate_facts[%d]: %v", i, oneErr))
+			if !optionalAggregates && !completionAggregateFactIsDroppableContextualNegativeObservation(fact) {
+				return normalized, preNotes, err
+			}
+			if optionalAggregates {
+				notes = append(notes, fmt.Sprintf("dropped optional aggregate_facts[%d]: %v", i, oneErr))
+			} else {
+				notes = append(notes, fmt.Sprintf("dropped contextual aggregate_facts[%d]: %v", i, oneErr))
+				droppedContextualNegative = true
+			}
 			continue
 		}
 		out = append(out, one...)
 	}
+	if droppedContextualNegative && !completionAggregateFactsHavePrincipalSurvivor(ctx, out) {
+		return normalized, preNotes, err
+	}
 	if len(out) == 0 {
-		notes = append(notes, fmt.Sprintf("ignored optional aggregate_facts payload after validation error: %v", err))
+		if optionalAggregates {
+			notes = append(notes, fmt.Sprintf("ignored optional aggregate_facts payload after validation error: %v", err))
+		} else {
+			notes = append(notes, fmt.Sprintf("ignored contextual aggregate_facts payload after validation error: %v", err))
+		}
 		return nil, notes, nil
 	}
 	merged, mergeErr := types.NormalizeAnswerAggregateFacts(out)
 	if mergeErr != nil {
-		notes = append(notes, fmt.Sprintf("ignored optional aggregate_facts payload after merge validation error: %v", mergeErr))
+		if optionalAggregates {
+			notes = append(notes, fmt.Sprintf("ignored optional aggregate_facts payload after merge validation error: %v", mergeErr))
+		} else {
+			notes = append(notes, fmt.Sprintf("ignored contextual aggregate_facts payload after merge validation error: %v", mergeErr))
+		}
 		return nil, notes, nil
 	}
 	var reconcileNotes []string
 	merged, reconcileNotes = reconcileCompletionAggregateFactsWithDeterministicCount(ctx, merged)
 	notes = append(notes, reconcileNotes...)
-	notes = append(notes, fmt.Sprintf("kept %d/%d optional aggregate_facts after dropping invalid entries", len(merged), len(raw)))
+	if optionalAggregates {
+		notes = append(notes, fmt.Sprintf("kept %d/%d optional aggregate_facts after dropping invalid entries", len(merged), len(raw)))
+	} else {
+		notes = append(notes, fmt.Sprintf("kept %d/%d aggregate_facts after dropping contextual non-principal entries", len(merged), len(raw)))
+	}
 	return merged, notes, nil
+}
+
+func completionAggregateFactsCanDropContextualNegativeObservation(ctx *types.BusContext, resultKind string, facts []types.AnswerAggregateFact) bool {
+	if !strings.EqualFold(strings.TrimSpace(resultKind), "resolved") {
+		return false
+	}
+	hasDroppable := false
+	for _, fact := range facts {
+		if completionAggregateFactIsDroppableContextualNegativeObservation(fact) {
+			hasDroppable = true
+			continue
+		}
+		if one, err := types.NormalizeAnswerAggregateFacts([]types.AnswerAggregateFact{fact}); err == nil &&
+			completionAggregateFactsHavePrincipalSurvivor(ctx, one) {
+			continue
+		}
+	}
+	return hasDroppable
+}
+
+func completionAggregateFactIsDroppableContextualNegativeObservation(fact types.AnswerAggregateFact) bool {
+	if fact.Kind != types.AnswerAggregateNegativeObservation {
+		return false
+	}
+	role := types.NormalizeAnswerAggregateRole(fact.Role)
+	if role != types.AnswerAggregateRoleSupportingCoverage && role != types.AnswerAggregateRoleAuditLedger {
+		return false
+	}
+	if !completionAggregateFactHasRepoSourceOrigin(fact) {
+		return false
+	}
+	candidate := completionAggregateFactWithSyntheticOrigin(fact, string(types.AnswerEvidenceOriginRuntimeArtifact))
+	if _, err := types.NormalizeAnswerAggregateFacts([]types.AnswerAggregateFact{candidate}); err != nil {
+		return false
+	}
+	return true
+}
+
+func completionAggregateFactHasRepoSourceOrigin(fact types.AnswerAggregateFact) bool {
+	values := []string{fact.Provenance}
+	for _, dim := range fact.Dimensions {
+		name := normalizeAggregateFactCompatDimensionKey(dim.Name)
+		if name == "origin" || name == "evidence_origin" {
+			values = append(values, dim.Value)
+		}
+	}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if types.AnswerEvidenceOriginFromStructuredToken(value) == types.AnswerEvidenceOriginCurrentSource {
+			return true
+		}
+		switch strings.ToLower(value) {
+		case "read_file", "repo_map", "source_inventory":
+			return true
+		}
+	}
+	return false
+}
+
+func completionAggregateFactWithSyntheticOrigin(fact types.AnswerAggregateFact, origin string) types.AnswerAggregateFact {
+	out := fact
+	out.Provenance = origin
+	dims := make([]types.AnswerAggregateDimension, 0, len(fact.Dimensions)+1)
+	replaced := false
+	for _, dim := range fact.Dimensions {
+		name := normalizeAggregateFactCompatDimensionKey(dim.Name)
+		if name == "origin" || name == "evidence_origin" {
+			if !replaced {
+				dims = append(dims, types.AnswerAggregateDimension{Name: "origin", Value: origin})
+				replaced = true
+			}
+			continue
+		}
+		dims = append(dims, dim)
+	}
+	if !replaced {
+		dims = append(dims, types.AnswerAggregateDimension{Name: "origin", Value: origin})
+	}
+	out.Dimensions = dims
+	return out
+}
+
+func completionAggregateFactsHavePrincipalSurvivor(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {
+	rm := requestModelForAggregateSupport(ctx)
+	for _, fact := range facts {
+		if types.AnswerAggregateFactRoleForRequest(fact, rm) == types.AnswerAggregateRolePrincipalAnswer {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeCompletionAggregateFactCompat(ctx *types.BusContext, raw []types.AnswerAggregateFact) ([]types.AnswerAggregateFact, []string) {
