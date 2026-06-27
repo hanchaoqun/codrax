@@ -1069,7 +1069,17 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.dock != nil {
-		return
+		if r.animStop != nil {
+			return
+		}
+		// Defensive recovery for a half-closed live region: the dock
+		// pointer can survive a buggy/local shutdown path while the
+		// animation ticker is gone. A later REPL turn would otherwise
+		// render a static "Calling the model" row until some unrelated
+		// event repaints it. Clear the stale region and start a fresh
+		// spinner lifecycle.
+		r.dock.clearDock()
+		r.dock = nil
 	}
 	r.objective = ""
 	r.objectiveDone = false

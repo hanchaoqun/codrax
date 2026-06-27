@@ -411,6 +411,34 @@ func TestRenderer_SpinnerActiveTracksLiveDock(t *testing.T) {
 	}
 }
 
+func TestRenderer_StartSpinnerClearsStaleDockWithoutTicker(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+	r.dock = newDock(&buf)
+	r.dock.paintDock([dockRowCount]string{"stale-1", "stale-2", "stale-3"})
+	r.animStop = nil
+	r.startTime = time.Now().Add(-30 * time.Second)
+	r.activity = activityState{kind: activityRequesting}
+
+	buf.Reset()
+	r.StartSpinnerWithCancelHint("Ctrl+C")
+
+	if r.dock != nil {
+		t.Fatal("non-TTY stale dock must be cleared instead of leaving a static live region")
+	}
+	if r.activity.kind != activityWaitingPipeline {
+		t.Fatalf("fresh spinner lifecycle should reset activity, got %v", r.activity.kind)
+	}
+	if r.startTime.IsZero() || time.Since(r.startTime) > time.Second {
+		t.Fatalf("fresh spinner lifecycle should reset start time, got %v", r.startTime)
+	}
+	out := stripAnsiEscapes(buf.String())
+	if strings.Contains(out, "stale-1") || strings.Contains(out, "stale-2") || strings.Contains(out, "stale-3") {
+		t.Fatalf("stale dock rows should be cleared before the next spinner start, got %q", out)
+	}
+}
+
 func TestRenderer_EmitsRejectedFirstAnswerDraftPreviewOnce(t *testing.T) {
 	var buf bytes.Buffer
 	r := New(&buf, false)

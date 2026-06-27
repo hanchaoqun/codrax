@@ -1048,7 +1048,7 @@ func (c *llmChitchatClassifier) Classify(ctx context.Context, userLine, priorTur
 		{Role: "user", Content: userContent},
 	}
 	tools := []llm.ToolSchema{chitchatClassifierTool}
-	resp, err := c.adapter.Chat(ctx, messages, tools, llm.ChatOptions{ToolChoice: "required"})
+	resp, err := chatWithClassifierHardTimeout(ctx, c.adapter, messages, tools, llm.ChatOptions{ToolChoice: "required"})
 	c.lastTrace = traceFromLLMResponse("chitchat_classifier", resp)
 	if err != nil {
 		return false, fmt.Errorf("chitchat classifier llm call: %w", err)
@@ -1086,6 +1086,37 @@ func (c *llmChitchatClassifier) LastReplLLMTrace() replLLMCallTrace {
 		return replLLMCallTrace{}
 	}
 	return c.lastTrace
+}
+
+type classifierChatResult struct {
+	resp llm.Response
+	err  error
+}
+
+func chatWithClassifierHardTimeout(ctx context.Context, adapter llm.Adapter, messages []llm.Message, tools []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
+	if adapter == nil {
+		return llm.Response{}, fmt.Errorf("classifier llm adapter is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	timeout := turnPolicyClassifierTimeout
+	if timeout <= 0 {
+		return adapter.Chat(ctx, messages, tools, opts)
+	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	done := make(chan classifierChatResult, 1)
+	go func() {
+		resp, err := adapter.Chat(callCtx, messages, tools, opts)
+		done <- classifierChatResult{resp: resp, err: err}
+	}()
+	select {
+	case result := <-done:
+		return result.resp, result.err
+	case <-callCtx.Done():
+		return llm.Response{}, callCtx.Err()
+	}
 }
 
 // oneLineClamp collapses a string to a single line and clips to n

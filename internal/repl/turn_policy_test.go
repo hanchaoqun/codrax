@@ -94,6 +94,25 @@ func (blockingTurnPolicyAdapter) RequestTimeout() time.Duration { return 0 }
 
 func (blockingTurnPolicyAdapter) RetryMaxAttempts() int { return 0 }
 
+type nonResponsiveTurnPolicyAdapter struct {
+	release <-chan struct{}
+}
+
+func (a nonResponsiveTurnPolicyAdapter) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	<-a.release
+	return llm.Response{}, errors.New("released after caller timeout")
+}
+
+func (nonResponsiveTurnPolicyAdapter) ModelID() string { return "nonresponsive-turn-policy-test" }
+
+func (nonResponsiveTurnPolicyAdapter) MaxContextTokens() int { return 0 }
+
+func (nonResponsiveTurnPolicyAdapter) MaxOutputTokens() int { return 0 }
+
+func (nonResponsiveTurnPolicyAdapter) RequestTimeout() time.Duration { return 0 }
+
+func (nonResponsiveTurnPolicyAdapter) RetryMaxAttempts() int { return 0 }
+
 type stubDataTaskPlanner struct {
 	plan            dataquery.TaskPlan
 	err             error
@@ -1017,6 +1036,48 @@ func TestClassifyPolicy_TimesOutRouteClassifier(t *testing.T) {
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("timeout error should wrap context deadline exceeded, got %v", err)
+	}
+}
+
+func TestClassifyPolicy_HardTimesOutNonResponsiveRouteClassifier(t *testing.T) {
+	old := turnPolicyClassifierTimeout
+	turnPolicyClassifierTimeout = 10 * time.Millisecond
+	defer func() { turnPolicyClassifierTimeout = old }()
+	release := make(chan struct{})
+	defer close(release)
+
+	c := &llmChitchatClassifier{adapter: nonResponsiveTurnPolicyAdapter{release: release}}
+	start := time.Now()
+	_, err := c.ClassifyPolicy(context.Background(), "分析这个项目的架构", "", false)
+	if err == nil {
+		t.Fatal("non-responsive classifier should return a timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("hard timeout took too long: %s", elapsed)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("hard timeout error should wrap context deadline exceeded, got %v", err)
+	}
+}
+
+func TestClassify_HardTimesOutNonResponsiveLegacyClassifier(t *testing.T) {
+	old := turnPolicyClassifierTimeout
+	turnPolicyClassifierTimeout = 10 * time.Millisecond
+	defer func() { turnPolicyClassifierTimeout = old }()
+	release := make(chan struct{})
+	defer close(release)
+
+	c := &llmChitchatClassifier{adapter: nonResponsiveTurnPolicyAdapter{release: release}}
+	start := time.Now()
+	_, err := c.Classify(context.Background(), "分析这个项目的架构", "")
+	if err == nil {
+		t.Fatal("non-responsive legacy classifier should return a timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("legacy hard timeout took too long: %s", elapsed)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("legacy hard timeout error should wrap context deadline exceeded, got %v", err)
 	}
 }
 

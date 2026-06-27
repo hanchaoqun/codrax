@@ -7153,6 +7153,10 @@ func (r *REPL) tryLegacyChitchatFallback(line, display, hint string, cause error
 	if r.chitchatClassifier == nil {
 		return false
 	}
+	if errors.Is(cause, context.DeadlineExceeded) {
+		logging.Warning("[repl/chitchat] skipping legacy fallback after turn-policy timeout; falling through to pipeline")
+		return false
+	}
 	classifierCtx := r.startTurn()
 	isChat, err := r.chitchatClassifier.Classify(classifierCtx, line, hint)
 	r.endTurn()
