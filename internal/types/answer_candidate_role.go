@@ -154,6 +154,28 @@ func (p *AnswerExclusionPolicy) ExcludesRole(role AnswerCandidateRole) bool {
 	return false
 }
 
+// ExcludesAuxiliarySourceClasses reports whether the exclusion policy carries
+// a typed, current-request-backed exclusion for repo-owned auxiliary source
+// classes. It deliberately consumes only candidate-role enums that survived
+// emit_analysis source_quote validation; no downstream hard gate should infer
+// this from raw user prose or model rationale text.
+func (p *AnswerExclusionPolicy) ExcludesAuxiliarySourceClasses() bool {
+	if !p.Active() {
+		return false
+	}
+	for _, role := range p.ExcludedCandidateRoles {
+		switch role {
+		case AnswerCandidateRoleTest,
+			AnswerCandidateRoleDocumentation,
+			AnswerCandidateRoleExample,
+			AnswerCandidateRoleFixture,
+			AnswerCandidateRoleGenerated:
+			return true
+		}
+	}
+	return false
+}
+
 // AnswerRoleProfile is the analyzer-emitted typed lane for positive
 // role-binding requests such as "the retry budget parameter", "the attempt
 // counter", "the guard condition", "the tool name", or "the commit hash".

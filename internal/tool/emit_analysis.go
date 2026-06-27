@@ -1494,6 +1494,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if warning := normalizeSourceInventoryProductionScope(&rm); warning != "" {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if conflict := validateAuxiliaryPrincipalExclusionConflict(rm); conflict != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -1514,6 +1518,62 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Summary:   buildEmitAnalysisSummary(p, rm, val),
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func normalizeSourceInventoryProductionScope(rm *types.RequestModel) string {
+	if rm == nil ||
+		rm.SourceScopeProfile == nil ||
+		rm.SourceInventoryProfile == nil ||
+		!rm.SourceInventoryProfile.Active() ||
+		rm.SourceScopeProfile.RequestedScope != types.SourceScopeProduction ||
+		SourceInventoryHasExplicitAuxiliaryExclusion(*rm) {
+		return ""
+	}
+	if sourceScopeEchoesInventoryTargets(rm.SourceScopeProfile.SourceQuotes, rm.SourceInventoryProfile.SourceQuotes) {
+		rm.SourceScopeProfile = nil
+		return "source_scope_profile auto-softened: production scope quote echoed source-inventory target categories without a typed auxiliary exclusion"
+	}
+	return ""
+}
+
+func sourceScopeEchoesInventoryTargets(scopeQuotes, inventoryQuotes []string) bool {
+	normalizedInventory := make([]string, 0, len(inventoryQuotes))
+	seen := map[string]bool{}
+	for _, quote := range inventoryQuotes {
+		key := normalizeSourceScopeEchoQuote(quote)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		normalizedInventory = append(normalizedInventory, key)
+	}
+	if len(normalizedInventory) < 2 {
+		return false
+	}
+	for _, scopeQuote := range scopeQuotes {
+		scope := normalizeSourceScopeEchoQuote(scopeQuote)
+		if scope == "" {
+			continue
+		}
+		matches := 0
+		for _, inv := range normalizedInventory {
+			if strings.Contains(scope, inv) {
+				matches++
+			}
+		}
+		if matches >= 2 {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeSourceScopeEchoQuote(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" {
+		return ""
+	}
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func synthesizeSourceInventoryProfileForTypedEnumeration(rm *types.RequestModel, raw string, attempted *emitSourceInventoryProfileParam) string {

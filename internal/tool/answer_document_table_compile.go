@@ -84,7 +84,7 @@ func enumerationDisplayRowsForIncompleteTable(block types.AnswerBlock, index map
 			continue
 		}
 		visible++
-		if label == "" || len(cells) > 0 {
+		if label == "" || text != "" || len(cells) > 0 {
 			return nil, false
 		}
 		row, ok := index[normalizeEnumerationDisplayTableKey(label)]

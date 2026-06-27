@@ -2751,21 +2751,7 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 // as a ranking preference for source-inventory lenses, not as an absence-proof
 // hard filter over fixture/corpus/example surfaces.
 func SourceInventoryHasExplicitAuxiliaryExclusion(rm types.RequestModel) bool {
-	policy := rm.AnswerExclusionPolicy
-	if policy == nil || !policy.Active() {
-		return false
-	}
-	for _, role := range policy.ExcludedCandidateRoles {
-		switch role {
-		case types.AnswerCandidateRoleTest,
-			types.AnswerCandidateRoleDocumentation,
-			types.AnswerCandidateRoleExample,
-			types.AnswerCandidateRoleFixture,
-			types.AnswerCandidateRoleGenerated:
-			return true
-		}
-	}
-	return false
+	return rm.AnswerExclusionPolicy.ExcludesAuxiliarySourceClasses()
 }
 
 func sourceInventoryFilterCandidateSetByQuery(set sourceInventoryCandidateSet, rawQuery string) sourceInventoryCandidateSet {

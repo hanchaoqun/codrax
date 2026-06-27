@@ -901,6 +901,35 @@ func TestAnalysisSkill_WorkflowGuidesRepoMapWithBoundedSourceInventoryNavigation
 	}
 }
 
+func TestAnalysisSkill_SourceInventoryCoversConstructInventoryWithoutHardRouting(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	rendered := strings.Join(append([]string{sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"members, declarations, or language constructs",
+		"decorators/annotations",
+		"extension blocks",
+		"external/native/foreign declarations",
+		"package/module declarations",
+		"map construct families to their closest structural carrier",
+		"Preserve user-named construct families in `source_quotes[]`",
+		"Do NOT emit `source_inventory_profile` merely because a call-chain / dispatch / trace / relation-flow answer will mention key functions or files",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("analysis skill must cover construct inventories without hard routing; missing %q in:\n%s", want, rendered)
+		}
+	}
+	for _, forbidden := range []string{
+		"if the request contains \"extend\"",
+		"if the user says @Entry",
+		"foreign func means Cangjie",
+		"public class means",
+	} {
+		if strings.Contains(rendered, forbidden) {
+			t.Fatalf("analysis skill must not encode keyword-specific routing text %q:\n%s", forbidden, rendered)
+		}
+	}
+}
+
 // TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere is the batch
 // 3A 3-way consistency gate: every top-level required field in the
 // emit_analysis JSON schema must also be named in the skill's

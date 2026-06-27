@@ -3356,6 +3356,149 @@ func TestEmitAnalysis_Execute_PersistsSourceScopeProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_SourceInventorySoftensEchoedProductionScope(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("仓库里有哪些 extend 块、哪些 foreign func 声明、哪些 public class？分别列出文件路径和符号名，并指出包路径（package 声明）。")
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "complex",
+		"keywords": ["extend", "foreign func", "public class", "package"],
+		"entities": ["extend", "foreign func", "public class"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.85,
+		"kind_confidence": 0.95,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": true
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.95
+		},
+		"source_scope_profile": {
+			"requested_scope": "production",
+			"source_quotes": ["仓库里有哪些 extend 块、哪些 foreign func 声明、哪些 public class"],
+			"confidence": 0.95,
+			"rationale": "model inferred production from broad grep"
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["function", "type"],
+			"requested_fields": ["name", "location", "summary"],
+			"source_quotes": ["extend 块", "foreign func 声明", "public class"],
+			"confidence": 0.95
+		}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		t.Fatalf("source_inventory_profile should remain active: %+v", rm)
+	}
+	if rm.SourceScopeProfile != nil {
+		t.Fatalf("echoed production source scope should be softened before persistence: %+v", rm.SourceScopeProfile)
+	}
+	if !types.SourceInventoryRequiresRepoWideLens(*rm) {
+		t.Fatalf("softened source-inventory request should require repo-wide lens: %+v", rm)
+	}
+	if !strings.Contains(res.Summary, "auto-softened") {
+		t.Fatalf("summary should disclose source-scope softening, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_SourceInventoryKeepsProductionWithTypedAuxiliaryExclusion(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("列出 production files 里的 public functions，不包含 fixtures。")
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["production files", "public functions", "fixtures"],
+		"entities": ["public functions"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.85,
+		"kind_confidence": 0.95,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": true
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.95
+		},
+		"source_scope_profile": {
+			"requested_scope": "production",
+			"source_quotes": ["production files"],
+			"confidence": 0.95
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["function"],
+			"requested_fields": ["name", "location"],
+			"source_quotes": ["public functions"],
+			"confidence": 0.95
+		},
+		"answer_exclusion_policy": {
+			"is_exclusion_requested": true,
+			"excluded_candidate_roles": ["fixture"],
+			"source_quotes": ["不包含 fixtures"],
+			"confidence": 0.95
+		}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceScopeProfile == nil {
+		t.Fatalf("production source scope should persist with typed auxiliary exclusion: %+v", rm)
+	}
+	if rm.SourceScopeProfile.RequestedScope != types.SourceScopeProduction {
+		t.Fatalf("source scope = %+v, want production", rm.SourceScopeProfile)
+	}
+	if types.SourceInventoryRequiresRepoWideLens(*rm) {
+		t.Fatalf("typed auxiliary exclusion should allow bounded production lens: %+v", rm)
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsChangeImpactProfile(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

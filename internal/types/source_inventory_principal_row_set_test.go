@@ -41,7 +41,7 @@ func TestBuildSourceInventoryPrincipalRowSet_RepoWideKeepsAuxiliaryPrincipal(t *
 	}
 }
 
-func TestBuildSourceInventoryPrincipalRowSet_ExplicitProductionDemotesAuxiliary(t *testing.T) {
+func TestBuildSourceInventoryPrincipalRowSet_ProductionWithoutExclusionKeepsRepoWidePrincipal(t *testing.T) {
 	observation := SourceInventoryObservation{
 		Active:   true,
 		Complete: true,
@@ -61,6 +61,43 @@ func TestBuildSourceInventoryPrincipalRowSet_ExplicitProductionDemotesAuxiliary(
 			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
 		},
 		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeProduction},
+	}
+
+	view := BuildSourceInventoryPrincipalRowSet(SourceInventoryPrincipalRowSetInput{
+		Observation:      observation,
+		RequestModel:     rm,
+		MaxPrincipalRows: 10,
+		MaxSupportRows:   10,
+	})
+	if view.PrincipalScope != SourceScopeAll || !view.RepoWidePrincipal || view.PrincipalTotal != 2 || view.SupportTotal != 0 {
+		t.Fatalf("production scope without typed auxiliary exclusion should stay repo-wide principal: %+v", view)
+	}
+}
+
+func TestBuildSourceInventoryPrincipalRowSet_ExplicitProductionExclusionDemotesAuxiliary(t *testing.T) {
+	observation := SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleFunction,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{
+				{Name: "Run", Role: AnswerCandidateRoleFunction, File: "src/run.go", Line: 10, Language: "go"},
+				{Name: "FixtureRun", Role: AnswerCandidateRoleFunction, File: "testdata/run_fixture.go", Line: 11, Language: "go"},
+			},
+		}},
+	}
+	rm := RequestModel{
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+		},
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeProduction},
+		AnswerExclusionPolicy: &AnswerExclusionPolicy{
+			IsExclusionRequested:   true,
+			ExcludedCandidateRoles: []AnswerCandidateRole{AnswerCandidateRoleFixture},
+		},
 	}
 
 	view := BuildSourceInventoryPrincipalRowSet(SourceInventoryPrincipalRowSetInput{

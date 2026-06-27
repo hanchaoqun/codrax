@@ -59,6 +59,10 @@ func TestSourceInventoryCompletionAuthority_AcceptedExactUniverseCanCloseBounded
 			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
 		},
 		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeProduction},
+		AnswerExclusionPolicy: &AnswerExclusionPolicy{
+			IsExclusionRequested:   true,
+			ExcludedCandidateRoles: []AnswerCandidateRole{AnswerCandidateRoleFixture},
+		},
 	}
 
 	auth := BuildSourceInventoryCompletionAuthority(obs, rm, true)

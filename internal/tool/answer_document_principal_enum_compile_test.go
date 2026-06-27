@@ -441,6 +441,90 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsSupplementForIncompatible
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_PreservesAuthoredSameLabelTableRows(t *testing.T) {
+	mu := types.NewMutableState("列出 foreign func 声明")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("bridge_native_add", "native_add", "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6, "foreign func native_add 属于 package demo.bridge。"),
+		enumEvidence("ffi_native_add", "native_add", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6, "foreign func native_add 属于 package demo.ffi。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "foreign func 声明",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"native_add"},
+		SupportRefs: []string{"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldSummary,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "foreign_section",
+				Kind:  types.BlockSection,
+				Title: "foreign func 声明",
+				Text:  "仓库中发现 2 处 foreign func 声明，涉及同一函数名 native_add。",
+			},
+			{
+				ID:          "foreign_table",
+				Kind:        types.BlockTable,
+				Title:       "foreign func 声明",
+				SurfaceRole: types.SurfacePrincipal,
+				Columns:     []string{"符号名", "文件路径", "package 声明"},
+				Items: []types.AnswerBlockItem{
+					{
+						ID:          "bridge",
+						Label:       "native_add",
+						Text:        "foreign func native_add 在 eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6，属于 package demo.bridge",
+						CitationRef: 0,
+					},
+					{
+						ID:          "ffi",
+						Label:       "native_add",
+						Text:        "foreign func native_add 在 internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6，属于 package demo.ffi",
+						CitationRef: 1,
+					},
+				},
+			},
+		},
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6},
+		},
+	}
+
+	_ = normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	table := answerDocumentTestBlockByID(t, doc, "foreign_table")
+	if len(table.Items) != 2 {
+		t.Fatalf("authored same-label rows with distinct source/package detail must remain visible: %+v", doc.Blocks)
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, want := range []string{"demo.bridge", "demo.ffi", "07_foreign_ffi.cj:6"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("visible answer lost authored row detail %q:\n%s", want, visible)
+		}
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_UsesEnglishFieldSupplementForIncompatibleStructuredTable(t *testing.T) {
 	mu := types.NewMutableState("list exported functions")
 	mu.AppendEvidence([]types.EvidenceItem{

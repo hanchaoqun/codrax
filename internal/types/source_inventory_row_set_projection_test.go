@@ -514,6 +514,10 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PrincipleUsesReques
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_ProductionScopeExcludesAuxiliaryRows(t *testing.T) {
 	scope := SourceScopeProduction
 	rm := sourceInventoryProjectionRequestModel(&scope)
+	rm.AnswerExclusionPolicy = &AnswerExclusionPolicy{
+		IsExclusionRequested:   true,
+		ExcludedCandidateRoles: []AnswerCandidateRole{AnswerCandidateRoleFixture},
+	}
 	obs := sourceInventoryProjectionObservation(
 		SourceInventoryObservationMember{Name: "FixtureRun", Role: AnswerCandidateRoleFunction, File: "eval/fixtures/run.cj", Line: 3, Language: "cangjie"},
 		SourceInventoryObservationMember{Name: "Serve", Role: AnswerCandidateRoleFunction, File: "src/serve.cj", Line: 12, Language: "cangjie"},

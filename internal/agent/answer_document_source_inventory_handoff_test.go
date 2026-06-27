@@ -92,6 +92,12 @@ func TestRenderAnswerDocSourceInventoryHandoffSplitsSupportScope(t *testing.T) {
 				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
 			},
 			SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction},
+			AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+				IsExclusionRequested: true,
+				ExcludedCandidateRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleFixture,
+				},
+			},
 		}},
 	}
 

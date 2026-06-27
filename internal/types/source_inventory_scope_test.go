@@ -110,9 +110,15 @@ func TestSourceInventoryRequiresRepoWideLens_TypedScopeOnly(t *testing.T) {
 		t.Fatal("missing source-scope profile should prefer root inventory over analyzer RequiredFiles-derived narrowing")
 	}
 	rm.SourceScopeProfile = &SourceScopeProfile{RequestedScope: SourceScopeProduction}
-	rm.SourceScopeProfile.RequestedScope = SourceScopeProduction
+	if !SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("production source scope without explicit auxiliary exclusion should still prefer repo-wide inventory")
+	}
+	rm.AnswerExclusionPolicy = &AnswerExclusionPolicy{
+		IsExclusionRequested:   true,
+		ExcludedCandidateRoles: []AnswerCandidateRole{AnswerCandidateRoleFixture, AnswerCandidateRoleExample},
+	}
 	if SourceInventoryRequiresRepoWideLens(rm) {
-		t.Fatal("production source scope may use bounded typed scopes")
+		t.Fatal("production source scope with typed auxiliary exclusion may use bounded typed scopes")
 	}
 	rm.SourceInventoryProfile = nil
 	if SourceInventoryRequiresRepoWideLens(rm) {
