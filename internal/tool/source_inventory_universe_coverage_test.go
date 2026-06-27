@@ -1783,7 +1783,7 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_ProductionScopeSt
 	}
 }
 
-func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_AggregateFamilyCanCloseWithoutExactUniverseRows(t *testing.T) {
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_RepoWideBlocksLocalClassAggregateOnly(t *testing.T) {
 	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
 		Role:    types.SourcePathRoleFixture,
 		Count:   3,
@@ -1806,11 +1806,37 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_AggregateFamilyCa
 		Label: "principal source constructs",
 		Members: []string{
 			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		},
+	}}
+	if SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("repo-wide requested universe must not close from one local source-class aggregate while same-language census remains uncovered")
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_BoundedScopeAllowsAggregateOnlyWithoutExactUniverseRows(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
+		Role:    types.SourcePathRoleFixture,
+		Count:   3,
+		Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"},
+	}, {
+		Role:    types.SourcePathRoleThirdParty,
+		Count:   8,
+		Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj"},
+	}})
+	ctx.AnalysisIR.RequestModel.SourceScopeProfile = &types.SourceScopeProfile{
+		RequestedScope: types.SourceScopeTest,
+		Confidence:     0.9,
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "principal source constructs",
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
 			"runOnMainThread @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:12",
 		},
 	}}
 	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
-		t.Fatalf("principal source-family coverage plus source-class census should close even when repo_map rows are not exact-universe carriers")
+		t.Fatalf("bounded typed scope may still close from principal source-family coverage plus source-class census")
 	}
 }
 
