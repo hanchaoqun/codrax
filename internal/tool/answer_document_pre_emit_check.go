@@ -736,7 +736,7 @@ func normalizeCurrentSourceCitationSupplement(doc *types.AnswerDocumentV2, ctx *
 		block.Items = append(block.Items, types.AnswerBlockItem{
 			ID:          fmt.Sprintf("source_anchor_%d", i+1),
 			Label:       currentSourceCitationSupplementLabel(row.ev),
-			Text:        strings.TrimSpace(row.ev.Summary),
+			Text:        currentSourceCitationSupplementNote(row.ev),
 			Cells:       currentSourceCitationSupplementCells(row.ev, zh),
 			CitationRef: ref,
 		})
@@ -851,7 +851,13 @@ func currentSourceCitationSupplementVisibleHit(ev types.EvidenceItem, visible st
 	if preEmitItemSurfaceMentionsEvidence("", visible, ev) {
 		return true
 	}
-	return strings.TrimSpace(ev.Summary) != "" && types.AnswerCodeSurfaceAppearsInText(visible, ev.Summary)
+	note := currentSourceCitationSupplementNote(ev)
+	if note != "" && types.AnswerCodeSurfaceAppearsInText(visible, note) {
+		return true
+	}
+	return ev.LoadBearingSummary &&
+		strings.TrimSpace(ev.Summary) != "" &&
+		types.AnswerCodeSurfaceAppearsInText(visible, ev.Summary)
 }
 
 func currentSourceEvidenceCitable(ev types.EvidenceItem) bool {
@@ -916,7 +922,7 @@ func currentSourceCitationSupplementScore(ev types.EvidenceItem, visible string,
 	case types.AnchorCall, types.AnchorCondition, types.AnchorReturn:
 		score += 5
 	}
-	if strings.TrimSpace(ev.Summary) != "" {
+	if currentSourceCitationSupplementNote(ev) != "" {
 		score += 5
 	}
 	return score
@@ -940,8 +946,12 @@ func currentSourceCitationSupplementCells(ev types.EvidenceItem, zh bool) []stri
 	return []string{
 		currentSourceEvidenceLocation(ev),
 		currentSourceCitationSupplementLabel(ev),
-		strings.TrimSpace(ev.Summary),
+		currentSourceCitationSupplementNote(ev),
 	}
+}
+
+func currentSourceCitationSupplementNote(ev types.EvidenceItem) string {
+	return strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(ev, false))
 }
 
 func currentSourceEvidenceLocation(ev types.EvidenceItem) string {

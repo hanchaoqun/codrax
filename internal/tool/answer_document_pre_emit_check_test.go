@@ -4865,6 +4865,58 @@ func TestNormalizeCurrentSourceCitationSupplement_DoesNotAppendGenericAnchorAppe
 	}
 }
 
+func TestNormalizeCurrentSourceCitationSupplement_IgnoresOrdinarySummaryVisibility(t *testing.T) {
+	newContext := func(loadBearing bool) (*types.AnswerDocumentV2, *types.BusContext) {
+		mu := types.NewMutableState("结合当前源码说明当前状态")
+		mu.AppendEvidence([]types.EvidenceItem{{
+			Kind:               types.EvidenceDirect,
+			AnchorKind:         types.AnchorDefinition,
+			AnchorSymbol:       "NeverMentionedAnchor",
+			Source:             "internal/example/source.go",
+			LineStart:          12,
+			Scope:              types.ScopeLine,
+			GroundingStatus:    types.GroundingGrounded,
+			Origin:             types.ClaimOriginCurrentRepo,
+			Summary:            "OnlySummaryCurrentSourceFact",
+			LoadBearingSummary: loadBearing,
+		}})
+		ctx := &types.BusContext{
+			Mutable: mu,
+			AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationVerifyCurrentStatus},
+					SourceQuotes:                        []string{"current source"},
+				},
+			}},
+		}
+		doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			Text:        "OnlySummaryCurrentSourceFact",
+			SurfaceRole: types.SurfacePrincipal,
+		}}}
+		return doc, ctx
+	}
+
+	doc, ctx := newContext(false)
+	if fixed := normalizeCurrentSourceCitationSupplement(doc, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("ordinary evidence Summary must not trigger current-source supplement, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+
+	doc, ctx = newContext(true)
+	if fixed := normalizeCurrentSourceCitationSupplement(doc, ctx, newPreEmitCheckContext(ctx)); fixed != 1 {
+		t.Fatalf("explicit LoadBearingSummary should remain a supplement trigger, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	visible := answerDocumentVisibleText(doc)
+	if !strings.Contains(visible, "OnlySummaryCurrentSourceFact") ||
+		!strings.Contains(visible, "internal/example/source.go:12") {
+		t.Fatalf("load-bearing supplement should keep note and citation location:\n%s", visible)
+	}
+}
+
 func TestNormalizeAggregateNegativeProofSupplement_MaterializesRepoNegativeSearch(t *testing.T) {
 	mu := types.NewMutableState("确认 legacy_config_key 是否仍存在")
 	mu.SetInvestigationResultKind("absence")
