@@ -26,11 +26,15 @@ func ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts []AnswerAggregate
 	if !rowSet.Active || rowSet.PrincipalTotal == 0 {
 		return out
 	}
+	refs := PrincipalAggregateMemberSetFactRefsForRequest(out, &rm)
+	rowSet = sourceInventoryFilterPrincipalRowSetToExistingPrincipalFamilies(rowSet, refs)
+	if !rowSet.Active || rowSet.PrincipalTotal == 0 {
+		return out
+	}
 	rowKeys := sourceInventoryPrincipalRowSetKeys(rowSet)
 	if len(rowKeys) == 0 {
 		return out
 	}
-	refs := PrincipalAggregateMemberSetFactRefsForRequest(out, &rm)
 	if sourceInventoryPrincipalFactUniverseComplete(refs, rowKeys) {
 		return out
 	}

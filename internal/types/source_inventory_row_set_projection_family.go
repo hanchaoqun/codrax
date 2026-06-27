@@ -52,17 +52,7 @@ func sourceInventoryPrincipalRowSetDisjointFromExistingPrincipal(refs []AnswerAg
 func sourceInventoryProjectionFamiliesFromRowSet(rowSet SourceInventoryPrincipalRowSet) []sourceInventoryProjectionFamily {
 	var out []sourceInventoryProjectionFamily
 	for _, row := range sourceInventoryAllPrincipalRows(rowSet) {
-		if family, ok := sourceInventoryProjectionFamilyFromPath(row.Member.File, row.Language); ok {
-			if row.SourceClass != "" && row.SourceClass != SourcePathRoleUnknown {
-				family.sourceClass = row.SourceClass
-			}
-			out = append(out, family)
-			continue
-		}
-		if family, ok := sourceInventoryProjectionFamilyFromSupportSurface(row.Member.SupportRef); ok {
-			if row.SourceClass != "" && row.SourceClass != SourcePathRoleUnknown {
-				family.sourceClass = row.SourceClass
-			}
+		if family, ok := sourceInventoryProjectionFamilyFromRow(row); ok {
 			out = append(out, family)
 		}
 	}

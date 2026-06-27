@@ -3035,6 +3035,51 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsCompactSourceSupportRefs(t *t
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_AcceptsSourceLocationMemberSplitAcrossItem(t *testing.T) {
+	const arkFile = "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"
+	mu := types.NewMutableState("ArkTS decorator aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "@Entry 页面入口",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			arkFile + ": Index",
+		},
+		SupportRefs: []string{
+			"Index @ " + arkFile + ":7",
+		},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all decorator entries",
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "entry_rows",
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{{
+				Label: "Index",
+				Text:  "@Entry + @Component 页面入口 struct，位于 " + arkFile + ":7",
+			}},
+		}},
+	}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("source-location member split across label/text should satisfy member_set visibility, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_AcceptsSignatureSupportRefSplitRows(t *testing.T) {
 	mu := types.NewMutableState("signature relation aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

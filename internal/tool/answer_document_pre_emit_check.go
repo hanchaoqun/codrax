@@ -4039,6 +4039,9 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 			if preEmitAggregateMemberIndexedSupportRefAppearsInDocument(fact, memberIdx, member, doc) {
 				continue
 			}
+			if preEmitAggregateMemberIndexedSupportSurfaceAppearsInDocument(fact, memberIdx, member, doc) {
+				continue
+			}
 			candidates := preEmitAggregateMemberDisplayCandidates(member)
 			if len(candidates) == 0 {
 				continue
@@ -4922,6 +4925,74 @@ func preEmitAggregateMemberIndexedSupportRefAppearsInDocument(fact types.AnswerA
 			if preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, itemSurface) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func preEmitAggregateMemberIndexedSupportSurfaceAppearsInDocument(fact types.AnswerAggregateFact, memberIdx int, member string, doc *types.AnswerDocumentV2) bool {
+	if doc == nil || memberIdx < 0 || memberIdx >= len(fact.SupportRefs) {
+		return false
+	}
+	refMember, loc, ok := preEmitAggregateSupportRefMemberLocation(fact.SupportRefs[memberIdx])
+	if !ok || strings.TrimSpace(loc.File) == "" || loc.LineStart <= 0 {
+		return false
+	}
+	memberCandidates := preEmitAggregateMemberDisplayCandidates(member)
+	if refMember != "" {
+		memberCandidates = append(memberCandidates, preEmitAggregateMemberDisplayCandidates(refMember)...)
+	}
+	memberCandidates = dedupPreEmitStringCandidates(memberCandidates)
+	fileCandidates := preEmitAggregateSupportRefFileCandidates(loc.File)
+	if len(memberCandidates) == 0 || len(fileCandidates) == 0 {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if preEmitSupportRefMemberAndFileAppearInSameSurface(block.Title+"\n"+block.Text, memberCandidates, fileCandidates) {
+			return true
+		}
+		for _, item := range block.Items {
+			if preEmitSupportRefMemberAndFileAppearInSameSurface(types.AnswerBlockItemVisibleSurface(item), memberCandidates, fileCandidates) {
+				return true
+			}
+		}
+		if block.Diagram != nil && preEmitSupportRefMemberAndFileAppearInSameSurface(block.Diagram.Body, memberCandidates, fileCandidates) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitAggregateSupportRefFileCandidates(file string) []string {
+	file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
+	if file == "" {
+		return nil
+	}
+	out := []string{file}
+	if base := path.Base(file); base != "." && base != "/" && base != "" {
+		out = append(out, base)
+	}
+	return dedupPreEmitStringCandidates(out)
+}
+
+func preEmitSupportRefMemberAndFileAppearInSameSurface(surface string, memberCandidates, fileCandidates []string) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return false
+	}
+	memberOK := false
+	for _, member := range memberCandidates {
+		if preEmitAggregateMemberSurfaceAppearsInText(member, surface) {
+			memberOK = true
+			break
+		}
+	}
+	if !memberOK {
+		return false
+	}
+	for _, file := range fileCandidates {
+		if preEmitAggregateDisplayPartAppears(file, surface) {
+			return true
 		}
 	}
 	return false

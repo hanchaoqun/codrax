@@ -19,6 +19,8 @@ const (
 	RequestedAnswerDimensionFunctionOrPurpose RequestedAnswerDimensionRole = "function_or_purpose"
 	RequestedAnswerDimensionImpact            RequestedAnswerDimensionRole = "impact"
 	RequestedAnswerDimensionComparisonAxis    RequestedAnswerDimensionRole = "comparison_axis"
+	RequestedAnswerDimensionCount             RequestedAnswerDimensionRole = "count"
+	RequestedAnswerDimensionMemberSet         RequestedAnswerDimensionRole = "member_set"
 	RequestedAnswerDimensionEvidenceSource    RequestedAnswerDimensionRole = "evidence_source"
 	RequestedAnswerDimensionBoundary          RequestedAnswerDimensionRole = "boundary"
 	RequestedAnswerDimensionStageWorkflow     RequestedAnswerDimensionRole = "stage_or_workflow"
@@ -32,6 +34,8 @@ func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
 		RequestedAnswerDimensionFunctionOrPurpose,
 		RequestedAnswerDimensionImpact,
 		RequestedAnswerDimensionComparisonAxis,
+		RequestedAnswerDimensionCount,
+		RequestedAnswerDimensionMemberSet,
 		RequestedAnswerDimensionEvidenceSource,
 		RequestedAnswerDimensionBoundary,
 		RequestedAnswerDimensionStageWorkflow,

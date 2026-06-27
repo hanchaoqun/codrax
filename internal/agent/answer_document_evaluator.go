@@ -7808,12 +7808,65 @@ func missingRequestedAnswerDimensionsInDocument(ctx *types.AgentContext, doc *ty
 	}
 	var missing []types.RequestedAnswerDimension
 	for _, dim := range dims {
+		if requestedDimensionCoveredByTypedDocumentShape(ctx, dim, doc) {
+			continue
+		}
 		if requestedDimensionCoveredByVisibleText(dim, visible) {
 			continue
 		}
 		missing = append(missing, dim)
 	}
 	return missing
+}
+
+func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim types.RequestedAnswerDimension, doc *types.AnswerDocumentV2) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || doc == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	switch dim.Role {
+	case types.RequestedAnswerDimensionCount:
+		return answerDocumentHasScalarPayload(doc)
+	case types.RequestedAnswerDimensionMemberSet:
+		return (rm.Intent == types.IntentEnumerate || rm.Predicates.IsCategoryEnumeration) &&
+			answerDocumentHasMemberSetPayload(doc)
+	default:
+		return false
+	}
+}
+
+func answerDocumentHasScalarPayload(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.Kind != types.BlockScalar {
+			continue
+		}
+		if strings.TrimSpace(block.Text) != "" || len(block.Items) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocumentHasMemberSetPayload(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		switch block.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+			for _, item := range block.Items {
+				if strings.TrimSpace(item.Label) != "" ||
+					strings.TrimSpace(item.Text) != "" ||
+					len(item.Cells) > 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func requestedDimensionsToCover(in []types.RequestedAnswerDimension) []types.RequestedAnswerDimension {

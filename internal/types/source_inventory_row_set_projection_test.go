@@ -162,6 +162,55 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DoesNotOverrideDisj
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_FiltersMixedLanguageRowsWhenModelFactIsGrounded(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{AnswerCandidateRoleFunction, AnswerCandidateRoleType}
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "Index", Role: AnswerCandidateRoleType, File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", Line: 5, Language: "arkts", SurfaceTerms: []string{"@Entry", "@Component"}},
+		SourceInventoryObservationMember{Name: "defaultHeader", Role: AnswerCandidateRoleFunction, File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", Line: 8, Language: "arkts", SurfaceTerms: []string{"@Builder"}},
+		SourceInventoryObservationMember{Name: "extractStableBuilderIdentity", Role: AnswerCandidateRoleFunction, File: "internal/agent/explorer.go", Line: 16120, Language: "go"},
+	)
+	obs.Sets = append(obs.Sets, SourceInventoryObservationSet{
+		Role:     AnswerCandidateRoleType,
+		Complete: true,
+		Members: []SourceInventoryObservationMember{{
+			Name:          "Index",
+			Role:          AnswerCandidateRoleType,
+			File:          "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+			Line:          5,
+			Language:      "arkts",
+			SurfaceTerms:  []string{"@Entry", "@Component"},
+			CoverageState: SourceInventoryCoverageObserved,
+		}},
+	})
+	existing := AnswerAggregateFact{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "ArkTS decorator members",
+		Value:      "2",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "explorer",
+		Members: []string{
+			"Index",
+			"defaultHeader",
+		},
+		SupportRefs: []string{
+			"Index @ internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:5",
+			"defaultHeader @ internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:8",
+		},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts([]AnswerAggregateFact{existing}, obs, rm)
+	if len(got) != 1 {
+		t.Fatalf("mixed-language source_inventory helpers must stay advisory once a grounded principal family exists, got %+v", got)
+	}
+	if got[0].Provenance != "explorer" || got[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("existing ArkTS principal fact should remain authoritative, got %+v", got[0])
+	}
+	if strings.Join(got[0].Members, ",") != "Index,defaultHeader" {
+		t.Fatalf("existing ArkTS members changed: %+v", got[0].Members)
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PrincipleUsesRequestedRoleOnly(t *testing.T) {
 	rm := sourceInventoryProjectionRequestModel(nil)
 	obs := sourceInventoryProjectionObservation(

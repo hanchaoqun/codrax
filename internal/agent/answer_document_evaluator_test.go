@@ -202,6 +202,46 @@ func TestAnswerDocumentEvaluator_ObserveStopsWhenRequestedDimensionsVisible(t *t
 	}
 }
 
+func TestAnswerDocumentEvaluator_ObserveStopsWhenTypedCountAndMemberSetShapesPresent(t *testing.T) {
+	mut := types.NewMutableState("给出总数和完整成员名")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsCountQuestion:       true,
+				},
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{
+						{Label: "总数", Role: types.RequestedAnswerDimensionCount, Required: true, Index: 1},
+						{Label: "完整成员名", Role: types.RequestedAnswerDimensionMemberSet, Required: true, Index: 2},
+					},
+				},
+			},
+		},
+		Mutable: mut,
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "members",
+				Kind:  types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{{ID: "explorer", Label: "explorer"}},
+			},
+			{ID: "count", Kind: types.BlockScalar, Text: "1"},
+		},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.StopRequested || sig.HintRequested {
+		t.Fatalf("typed count/member-set structural carriers should stop without dimension repair hint, got %+v", sig)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ObserveHintsMissingExternalObservationSelectorValue(t *testing.T) {
 	mut := types.NewMutableState("explain mcp line 12")
 	ctx := &types.AgentContext{
