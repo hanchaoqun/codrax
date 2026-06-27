@@ -8473,10 +8473,59 @@ func forcedReadSeedHadFailedReadAttempt(ctx *types.BusContext, canon string) boo
 		if result.Success || types.CanonicalToolName(result.ToolName) != "read_file" {
 			continue
 		}
-		summary := strings.ReplaceAll(result.Summary, `\`, `/`)
-		if strings.Contains(summary, canon) || (absNeedle != "" && strings.Contains(summary, absNeedle)) {
+		if readFilePathRepairMatchesForcedRead(ctx, result.Repair, canon, absNeedle) {
 			return true
 		}
+	}
+	return false
+}
+
+func readFilePathRepairMatchesForcedRead(ctx *types.BusContext, repair *types.ToolRepair, canon, absNeedle string) bool {
+	if repair == nil {
+		return false
+	}
+	switch strings.TrimSpace(repair.Code) {
+	case types.ToolRepairCodeReadFilePathMissing, types.ToolRepairCodeReadFilePathIsDirectory:
+	default:
+		return false
+	}
+	if readFilePathRepairMetadataMatches(ctx, repair.Metadata, "path", canon, absNeedle) {
+		return true
+	}
+	if readFilePathRepairMetadataMatches(ctx, repair.Metadata, "resolved_path", canon, absNeedle) {
+		return true
+	}
+	for _, target := range repair.Targets {
+		if readFileRepairPathMatches(ctx, target.File, canon, absNeedle) {
+			return true
+		}
+	}
+	return false
+}
+
+func readFilePathRepairMetadataMatches(ctx *types.BusContext, metadata map[string]string, key, canon, absNeedle string) bool {
+	if metadata == nil {
+		return false
+	}
+	return readFileRepairPathMatches(ctx, metadata[key], canon, absNeedle)
+}
+
+func readFileRepairPathMatches(ctx *types.BusContext, raw, canon, absNeedle string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || canon == "" {
+		return false
+	}
+	repoRoot := ""
+	if ctx != nil {
+		repoRoot = ctx.RepoRoot
+	}
+	normalized := phase1UnreadCanonPath(raw, repoRoot)
+	if normalized == canon {
+		return true
+	}
+	rawSlash := strings.ReplaceAll(raw, `\`, `/`)
+	if absNeedle != "" && rawSlash == absNeedle {
+		return true
 	}
 	return false
 }

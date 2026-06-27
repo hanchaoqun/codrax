@@ -909,7 +909,6 @@ CitationReq.Required = false
 			},
 		},
 	}
-
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
 		"reason":      "direct assignment count is covered",
@@ -6585,7 +6584,14 @@ func TestRaisePhase1UnreadPendingReads_SkipsUnavailablePathAfterFailedRead(t *te
 	mut.AppendDispatchToolResult(types.ToolResult{
 		ToolName: "read_file",
 		Success:  false,
-		Summary:  "read failed: open " + filepath.ToSlash(filepath.Join(repoRoot, filepath.FromSlash(missing))) + ": no such file or directory",
+		Summary:  "read failed without a load-bearing display path",
+		Repair: &types.ToolRepair{
+			Code: types.ToolRepairCodeReadFilePathMissing,
+			Metadata: map[string]string{
+				"path":          missing,
+				"resolved_path": filepath.Join(repoRoot, filepath.FromSlash(missing)),
+			},
+		},
 	})
 	closure := mut.EvidenceClosure()
 	bus := &types.BusContext{
@@ -6660,7 +6666,14 @@ func TestEmitInvestigationComplete_ClearsUnavailablePendingReadAfterFailedRead(t
 	mut.AppendDispatchToolResult(types.ToolResult{
 		ToolName: "read_file",
 		Success:  false,
-		Summary:  "read failed: open " + filepath.ToSlash(filepath.Join(repoRoot, filepath.FromSlash(missing))) + ": no such file or directory",
+		Summary:  "read failed without a load-bearing display path",
+		Repair: &types.ToolRepair{
+			Code: types.ToolRepairCodeReadFilePathMissing,
+			Metadata: map[string]string{
+				"path":          missing,
+				"resolved_path": filepath.Join(repoRoot, filepath.FromSlash(missing)),
+			},
+		},
 	})
 	bus := &types.BusContext{
 		Mutable:  mut,
@@ -6670,6 +6683,9 @@ func TestEmitInvestigationComplete_ClearsUnavailablePendingReadAfterFailedRead(t
 				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
 			},
 		},
+	}
+	if !forcedReadSeedUnavailableAfterAttempt(bus, missing) {
+		t.Fatal("typed missing-path repair should prove the historical pending read is unavailable before completion")
 	}
 
 	tool := &EmitInvestigationComplete{}
@@ -6769,6 +6785,96 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadLatchFiresOnce(t
 	}
 	if phase1Queued {
 		t.Errorf("latch must suppress second firing; found phase1_unread PendingRead: %s", res2.Summary)
+	}
+}
+
+func TestForcedReadSeedHadFailedReadAttempt_IgnoresSummaryOnlyPathMiss(t *testing.T) {
+	repoRoot := t.TempDir()
+	mut := types.NewMutableState("summary-only failed read")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  false,
+		Summary:  "read failed: open internal/missing.go: no such file or directory",
+	})
+	bus := &types.BusContext{Mutable: mut, RepoRoot: repoRoot}
+
+	if forcedReadSeedHadFailedReadAttempt(bus, "internal/missing.go") {
+		t.Fatal("rendered read_file Summary must not prove a forced-read path was attempted")
+	}
+	if forcedReadSeedUnavailableAfterAttempt(bus, "internal/missing.go") {
+		t.Fatal("summary-only path miss must not mark a forced-read seed unavailable")
+	}
+	closure := mut.EvidenceClosure()
+	closure.AddPendingRead(types.PendingRead{File: "internal/missing.go", Origin: "phase1_unread"})
+	if cleared := clearUnavailablePendingReadsAfterFailedRead(bus, closure); cleared != 0 {
+		t.Fatalf("summary-only path miss must not clear pending reads, cleared=%d", cleared)
+	}
+	if got := closure.PendingReads(); len(got) != 1 {
+		t.Fatalf("pending read should remain after summary-only miss, got %+v", got)
+	}
+}
+
+func TestForcedReadSeedHadFailedReadAttempt_UsesTypedReadFileRepair(t *testing.T) {
+	repoRoot := t.TempDir()
+	mut := types.NewMutableState("typed failed read")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  false,
+		Summary:  "read failed without a useful display path",
+		Repair: &types.ToolRepair{
+			Code: types.ToolRepairCodeReadFilePathMissing,
+			Metadata: map[string]string{
+				"path": `.\internal\missing.go`,
+			},
+		},
+	})
+	bus := &types.BusContext{Mutable: mut, RepoRoot: repoRoot}
+
+	if !forcedReadSeedHadFailedReadAttempt(bus, "internal/missing.go") {
+		t.Fatal("typed read_file path-missing repair should prove the forced-read seed was attempted")
+	}
+	if !forcedReadSeedUnavailableAfterAttempt(bus, "internal/missing.go") {
+		t.Fatal("typed missing-path repair should mark absent forced-read seed unavailable")
+	}
+	closure := mut.EvidenceClosure()
+	closure.AddPendingRead(types.PendingRead{File: "internal/missing.go", Origin: "phase1_unread"})
+	if cleared := clearUnavailablePendingReadsAfterFailedRead(bus, closure); cleared != 1 {
+		t.Fatalf("typed path miss should clear exactly one pending read, cleared=%d", cleared)
+	}
+	if got := closure.PendingReads(); len(got) != 0 {
+		t.Fatalf("pending read should be cleared after typed path miss, got %+v", got)
+	}
+}
+
+func TestForcedReadSeedHadFailedReadAttempt_UsesTypedDirectoryRepairResolvedPath(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "internal", "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir fixture directory: %v", err)
+	}
+	mut := types.NewMutableState("typed directory read")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  false,
+		Summary:  "read failed without a useful display path",
+		Repair: &types.ToolRepair{
+			Code: types.ToolRepairCodeReadFilePathIsDirectory,
+			Metadata: map[string]string{
+				"resolved_path": filepath.Join(repoRoot, "internal", "pkg"),
+			},
+		},
+	})
+	bus := &types.BusContext{Mutable: mut, RepoRoot: repoRoot}
+
+	if !forcedReadSeedHadFailedReadAttempt(bus, "internal/pkg") {
+		t.Fatal("typed read_file directory repair should match by resolved_path metadata")
+	}
+	if !forcedReadSeedUnavailableAfterAttempt(bus, "internal/pkg") {
+		t.Fatal("typed directory repair should mark directory forced-read seed unavailable")
+	}
+	closure := mut.EvidenceClosure()
+	closure.AddPendingRead(types.PendingRead{File: "internal/pkg", Origin: "phase1_unread"})
+	if cleared := clearUnavailablePendingReadsAfterFailedRead(bus, closure); cleared != 1 {
+		t.Fatalf("typed directory repair should clear exactly one pending read, cleared=%d", cleared)
 	}
 }
 
