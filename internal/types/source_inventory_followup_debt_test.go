@@ -50,6 +50,101 @@ func TestDeriveSourceInventoryFollowupDebt_MissingSourceClassUsesSampleScope(t *
 	}
 }
 
+func TestDeriveSourceInventoryFollowupDebt_CompleteZeroLensCoversExactMissingSourceClass(t *testing.T) {
+	obs := sourceInventoryFollowupDebtMissingThirdPartyFixture()
+	obs.CompleteLenses = []SourceInventoryCompleteLens{{
+		Role:          AnswerCandidateRoleType,
+		Scopes:        []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources"},
+		SourceClasses: []SourcePathRole{SourcePathRoleThirdParty},
+		Count:         0,
+		Total:         0,
+	}}
+	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+	}}
+
+	debt := DeriveSourceInventoryFollowupDebt(obs, rm)
+	if !debt.IsActive() || debt.ReasonCode != SourceInventoryFollowupDebtPagination {
+		t.Fatalf("complete zero lens should demote missing-class debt to pagination/advisory debt, got %+v", debt)
+	}
+	if len(debt.MissingClasses) != 0 {
+		t.Fatalf("missing classes = %+v, want none", debt.MissingClasses)
+	}
+	if !sourceInventoryPathRolesContain(debt.CoveredClasses, SourcePathRoleThirdParty) {
+		t.Fatalf("covered classes = %+v, want thirdparty carried from exact zero lens", debt.CoveredClasses)
+	}
+}
+
+func TestDeriveSourceInventoryFollowupDebt_CompleteZeroLensRequiresExactRoleAndScope(t *testing.T) {
+	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+	}}
+	for name, lens := range map[string]SourceInventoryCompleteLens{
+		"wrong role": {
+			Role:          AnswerCandidateRoleFunction,
+			Scopes:        []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources"},
+			SourceClasses: []SourcePathRole{SourcePathRoleThirdParty},
+		},
+		"wrong scope": {
+			Role:          AnswerCandidateRoleType,
+			Scopes:        []string{"internal/thirdparty/tree-sitter-arkts/corpus/sources"},
+			SourceClasses: []SourcePathRole{SourcePathRoleThirdParty},
+		},
+		"wrong source class": {
+			Role:          AnswerCandidateRoleType,
+			Scopes:        []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources"},
+			SourceClasses: []SourcePathRole{SourcePathRoleFixture},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			obs := sourceInventoryFollowupDebtMissingThirdPartyFixture()
+			lens.Count = 0
+			lens.Total = 0
+			obs.CompleteLenses = []SourceInventoryCompleteLens{lens}
+			debt := DeriveSourceInventoryFollowupDebt(obs, rm)
+			if !debt.IsActive() || debt.ReasonCode != SourceInventoryFollowupDebtMissingSourceClass {
+				t.Fatalf("mismatched zero lens must not cover missing class, got %+v", debt)
+			}
+			if len(debt.MissingClasses) != 1 || debt.MissingClasses[0] != SourcePathRoleThirdParty {
+				t.Fatalf("missing classes = %+v", debt.MissingClasses)
+			}
+		})
+	}
+}
+
+func TestDeriveSourceInventoryFollowupDebt_CompleteZeroLensRequiresEveryRequestedRole(t *testing.T) {
+	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType, AnswerCandidateRoleFunction},
+	}}
+	obs := sourceInventoryFollowupDebtMissingThirdPartyFixture()
+	obs.CompleteLenses = []SourceInventoryCompleteLens{{
+		Role:          AnswerCandidateRoleType,
+		Scopes:        []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources"},
+		SourceClasses: []SourcePathRole{SourcePathRoleThirdParty},
+		Count:         0,
+		Total:         0,
+	}}
+	debt := DeriveSourceInventoryFollowupDebt(obs, rm)
+	if !debt.IsActive() || debt.ReasonCode != SourceInventoryFollowupDebtMissingSourceClass {
+		t.Fatalf("single-role zero lens must not cover multi-role requested family, got %+v", debt)
+	}
+
+	obs.CompleteLenses = append(obs.CompleteLenses, SourceInventoryCompleteLens{
+		Role:          AnswerCandidateRoleFunction,
+		Scopes:        []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources"},
+		SourceClasses: []SourcePathRole{SourcePathRoleThirdParty},
+		Count:         0,
+		Total:         0,
+	})
+	debt = DeriveSourceInventoryFollowupDebt(obs, rm)
+	if !debt.IsActive() || debt.ReasonCode != SourceInventoryFollowupDebtPagination {
+		t.Fatalf("all requested roles covered by exact zero lenses should demote missing-class debt, got %+v", debt)
+	}
+}
+
 func TestDeriveSourceInventoryFollowupDebt_MissingSourceClassBalancesLanguageFamilies(t *testing.T) {
 	obs := SourceInventoryObservation{
 		Active:       true,
@@ -187,5 +282,40 @@ func TestDeriveSourceInventoryFollowupDebt_NoBudgetDebtNoops(t *testing.T) {
 	}
 	if debt := DeriveSourceInventoryFollowupDebt(obs, RequestModel{}); debt.IsActive() {
 		t.Fatalf("complete observation without budget/page debt must not schedule follow-up: %+v", debt)
+	}
+}
+
+func sourceInventoryFollowupDebtMissingThirdPartyFixture() SourceInventoryObservation {
+	return SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       []string{"."},
+		SourceClasses: []SourceInventorySourceClassCount{
+			{Role: SourcePathRoleProduction, Count: 2, Complete: true, Samples: []string{"src/app/main.go"}},
+			{
+				Role:     SourcePathRoleThirdParty,
+				Count:    1,
+				Complete: true,
+				Samples:  []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"},
+				Languages: []SourceInventoryLanguageCount{{
+					Language: "cangjie",
+					Count:    1,
+					InScope:  true,
+					Samples:  []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"},
+				}},
+			},
+		},
+		RepoLanguages: []SourceInventoryLanguageCount{{Language: "cangjie", Count: 1, InScope: false, Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"}}},
+		Page:          &SourceInventoryObservationPage{Offset: 0, Emitted: 24, Total: 48, NextCursor: "24", Complete: false},
+		Execution:     &SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleType,
+			Members: []SourceInventoryObservationMember{{
+				Name: "Run",
+				Role: AnswerCandidateRoleType,
+				File: "src/app/main.go",
+			}},
+		}},
 	}
 }

@@ -2477,6 +2477,53 @@ func TestSourceInventoryResolvedCompletionDowngrade_RequiresExecutableMissingCla
 	}
 }
 
+func TestSourceInventoryResolvedCompletionDowngrade_ExactZeroLensDemotesMissingClassFollowup(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMemberWithLanguage("RootType", types.AnswerCandidateRoleType, "cmd/root.go", 10, "go"),
+		sourceInventoryRequestedUniverseMemberWithLanguage("extend String", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", 6, "cangjie"),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleFixture,
+		Count:     3,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 3, Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"}}},
+	}, {
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     8,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 8, Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"}}},
+	}})
+	obs := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	obs.Lens = []string{"members", "source_class_universe", "repo_languages"}
+	obs.CompleteLenses = []types.SourceInventoryCompleteLens{{
+		Role:          types.AnswerCandidateRoleType,
+		Scopes:        []string{"eval/fixtures/testdata/cangjie_minimal/bridge"},
+		SourceClasses: []types.SourcePathRole{types.SourcePathRoleFixture},
+		Count:         0,
+		Total:         0,
+	}, {
+		Role:          types.AnswerCandidateRoleFunction,
+		Scopes:        []string{"eval/fixtures/testdata/cangjie_minimal/bridge"},
+		SourceClasses: []types.SourcePathRole{types.SourcePathRoleFixture},
+		Count:         0,
+		Total:         0,
+	}}
+	ctx.Mutable.SetSourceInventoryObservation(obs)
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "principal source constructs",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"extend String @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+		},
+	}}
+	downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, "resolved", facts)
+	if downgrade != "" {
+		t.Fatalf("exact complete-zero lens for every requested role should not hard-downgrade:\n%s", downgrade)
+	}
+	caveats := ctx.Mutable.EvidenceClosure().CompletionCaveats()
+	if len(caveats) != 1 || caveats[0].Lane != types.DowngradeLaneSourceInventoryCompletion {
+		t.Fatalf("expected advisory caveat after exact zero lens convergence, got %+v", caveats)
+	}
+}
+
 func TestSourceInventoryCompletionAuthorityForContext_UsesAcceptedEvidenceWhenFactMembersDropPaths(t *testing.T) {
 	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
 		sourceInventoryRequestedUniverseMemberWithLanguage("RootType", types.AnswerCandidateRoleType, "cmd/root.go", 10, "go"),

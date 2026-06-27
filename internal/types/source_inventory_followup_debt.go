@@ -46,7 +46,7 @@ func DeriveSourceInventoryFollowupDebt(observation SourceInventoryObservation, r
 	if len(roles) == 0 {
 		return SourceInventoryFollowupDebt{}
 	}
-	covered := sourceInventoryObservedPathRoles(observation)
+	covered := sourceInventoryObservedPathRolesForRoles(observation, roles)
 	missingClasses, scopes := sourceInventoryMissingClassScopes(observation.SourceClasses, covered)
 	query := SourceInventoryLensQuery{
 		Path:              ".",
@@ -101,7 +101,7 @@ func sourceInventoryFollowupPrincipalRoles(observation SourceInventoryObservatio
 	return normalizeSourceInventoryFollowupRoles(roles)
 }
 
-func sourceInventoryObservedPathRoles(observation SourceInventoryObservation) map[SourcePathRole]bool {
+func sourceInventoryObservedPathRolesForRoles(observation SourceInventoryObservation, roles []AnswerCandidateRole) map[SourcePathRole]bool {
 	out := map[SourcePathRole]bool{}
 	add := func(file string) {
 		role := ClassifySourcePathRole(file)
@@ -117,24 +117,10 @@ func sourceInventoryObservedPathRoles(observation SourceInventoryObservation) ma
 			}
 		}
 	}
-	return out
-}
-
-func sourceInventoryMissingClassScopes(classes []SourceInventorySourceClassCount, covered map[SourcePathRole]bool) ([]SourcePathRole, []string) {
-	var missing []SourcePathRole
-	var scopes []string
-	for _, class := range classes {
-		if class.Role == SourcePathRoleUnknown || class.Count <= 0 || covered[class.Role] {
-			continue
-		}
-		missing = append(missing, class.Role)
-		for _, sample := range sourceInventoryFollowupClassSamples(class) {
-			if scope := sourceInventoryFollowupScopeForSample(sample); scope != "" {
-				scopes = append(scopes, scope)
-			}
-		}
+	for _, class := range sourceInventoryCompleteLensCoveredPathRoles(observation, roles) {
+		out[class] = true
 	}
-	return normalizeSourceInventoryPathRoles(missing), sourceInventoryFollowupScopes(scopes)
+	return out
 }
 
 func sourceInventoryMissingLanguages(observation SourceInventoryObservation) []string {

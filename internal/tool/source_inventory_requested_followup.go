@@ -15,6 +15,7 @@ func sourceInventoryRequestedUniverseFollowupDebt(ctx *types.BusContext, observa
 	if len(covered.languages) == 0 {
 		return types.SourceInventoryFollowupDebt{}
 	}
+	roles := rm.SourceInventoryProfile.PrincipalTargetRoles()
 	var missingClasses []types.SourcePathRole
 	var scopes []string
 	for _, class := range observation.SourceClasses {
@@ -25,13 +26,16 @@ func sourceInventoryRequestedUniverseFollowupDebt(ctx *types.BusContext, observa
 		if len(classScopes) == 0 {
 			continue
 		}
+		if sourceInventoryRequestedUniverseClassCoveredByCompleteZeroLens(observation, class.Role, classScopes, roles) {
+			covered.classes[class.Role] = true
+			continue
+		}
 		missingClasses = append(missingClasses, class.Role)
 		scopes = append(scopes, classScopes...)
 	}
 	if len(missingClasses) == 0 || len(scopes) == 0 {
 		return types.SourceInventoryFollowupDebt{}
 	}
-	roles := rm.SourceInventoryProfile.PrincipalTargetRoles()
 	return types.NormalizeSourceInventoryFollowupDebt(types.SourceInventoryFollowupDebt{
 		Active:           true,
 		ReasonCode:       types.SourceInventoryFollowupDebtMissingSourceClass,
