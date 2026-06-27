@@ -1740,16 +1740,21 @@ func promoteSourceToolRefinementToRepoMap(ctx *types.BusContext, hint types.Tool
 		return hint
 	}
 	policy := types.CompileRepoMapNavigationPolicy(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract, ctx.ExploreLanePlan)
-	step, ok := policy.FirstHopStep()
-	if !ok {
-		if ctx.AnalysisIR.RequestModel.SourceInventoryProfile == nil || !ctx.AnalysisIR.RequestModel.SourceInventoryProfile.Active() {
-			return hint
-		}
+	var step types.RepoMapNavigationStep
+	var ok bool
+	if types.SourceInventoryPrincipalNavigationActive(ctx.AnalysisIR.RequestModel) {
 		step = types.RepoMapNavigationStep{
 			Route:   types.RepoMapNavigationRouteSourceInventory,
 			Purpose: types.RepoMapNavigationPurposeInventory,
 			Params:  []string{"scope", "roles", "include_attributes=false"},
 		}
+		ok = true
+	}
+	if !ok {
+		step, ok = policy.FirstHopStep()
+	}
+	if !ok {
+		return hint
 	}
 	params := repoMapPreferredParamsFromNavigationStep(step, policy, ctx.AnalysisIR.RequestModel)
 	if len(params) == 0 {
@@ -3086,6 +3091,9 @@ func grepBroadResultRelationNavigationHint(ctx *types.BusContext, params grepToo
 		return ""
 	}
 	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
+		return ""
+	}
+	if types.SourceInventoryPrincipalNavigationActive(ctx.AnalysisIR.RequestModel) {
 		return ""
 	}
 	policy := types.CompileRepoMapNavigationPolicy(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract, ctx.ExploreLanePlan)

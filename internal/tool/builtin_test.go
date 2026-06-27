@@ -2901,6 +2901,57 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("broad source-inventory grep suppresses relation hint and prefers inventory lens", func(t *testing.T) {
+		ctx := newBusContext()
+		ctx.AnalysisIR = &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
+				PredicateAxis: types.AxisCall,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqEnumeration),
+					Keywords: []string{"extend", "foreign", "class"},
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleType,
+						types.AnswerCandidateRoleFunction,
+					},
+					Confidence: 0.9,
+				},
+			},
+		}
+		var raw strings.Builder
+		for i := 0; i < 100; i++ {
+			fmt.Fprintf(&raw, "src/lang/file%03d.cj:%d:public class Target%d {}\n", i%7, i+1, i)
+		}
+
+		got, _, ok := compactBroadGrepOutput(ctx, grepToolParams{Pattern: "public class"}, "", "", raw.String(), raw.String())
+		if !ok {
+			t.Fatalf("expected broad grep to compact")
+		}
+		if strings.Contains(got, "relation_navigation_hint=") || strings.Contains(got, `repo_map(view="relation_map"`) {
+			t.Fatalf("principal source-inventory grep must not nudge relation_map:\n%s", got)
+		}
+
+		refinement := grepBroadResultRefinement(ctx, grepToolParams{Pattern: "public class"}, raw.String())
+		if refinement == nil {
+			t.Fatal("expected broad source-inventory grep refinement")
+		}
+		if refinement.PreferredNextTool != "repo_map" {
+			t.Fatalf("preferred tool = %q; refinement=%+v", refinement.PreferredNextTool, refinement)
+		}
+		if got := refinement.PreferredParams["view"]; got != "source_inventory" {
+			t.Fatalf("repo_map view = %q; refinement=%+v", got, refinement)
+		}
+		if got := refinement.PreferredParams["roles"]; !strings.Contains(got, "type") || !strings.Contains(got, "function") {
+			t.Fatalf("source-inventory refinement should carry typed roles, got %q; refinement=%+v", got, refinement)
+		}
+	})
+
 	t.Run("broad runtime artifact grep does not suggest repo relation map", func(t *testing.T) {
 		ctx := newBusContext()
 		ctx.AnalysisIR = &types.AnalysisIR{

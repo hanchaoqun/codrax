@@ -217,6 +217,23 @@ func SourceInventoryLaneConflictsWithRelationFlow(rm RequestModel) bool {
 	}
 }
 
+// SourceInventoryPrincipalNavigationActive reports whether source_inventory is
+// the principal navigation lane for tool refinements. It is intentionally
+// schema-only and softer than completion authority: callers use it to choose
+// guidance order, not to prove answer completeness.
+func SourceInventoryPrincipalNavigationActive(rm RequestModel) bool {
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	if SourceInventoryCompletionIsSupportOnly(rm) {
+		return false
+	}
+	if SourceInventoryLaneConflictsWithRelationFlow(rm) {
+		return false
+	}
+	return true
+}
+
 // RequiresExhaustiveEnumerationMemberSetHandoff reports whether a
 // set-valued enumeration answer must be carried downstream as a
 // model-authored aggregate_facts.member_set before later stages are

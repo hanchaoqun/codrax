@@ -35,6 +35,49 @@ func TestCompileRepoMapNavigationPolicy_SourceInventory(t *testing.T) {
 	}
 }
 
+func TestSourceInventoryPrincipalNavigationActive(t *testing.T) {
+	principal := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqEnumeration)},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			Confidence:        0.9,
+		},
+	}
+	if !SourceInventoryPrincipalNavigationActive(principal) {
+		t.Fatal("principal source-inventory lane should own navigation refinement")
+	}
+
+	supportOnly := principal
+	supportOnly.SourceInventoryProfile = &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+		RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldValues},
+		Confidence:        0.9,
+	}
+	if SourceInventoryPrincipalNavigationActive(supportOnly) {
+		t.Fatal("support-only source-inventory profile must not own navigation refinement")
+	}
+
+	relationFlow := RequestModel{
+		Intent:        IntentTrace,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqCallChain)},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+			Confidence:        0.9,
+		},
+	}
+	if SourceInventoryPrincipalNavigationActive(relationFlow) {
+		t.Fatal("relation-flow source-inventory support must leave relation navigation active")
+	}
+}
+
 func TestCompileRepoMapNavigationPolicy_RelationFlow(t *testing.T) {
 	rm := RequestModel{
 		Intent:        IntentTrace,
