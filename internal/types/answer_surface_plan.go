@@ -681,8 +681,8 @@ func explanationAnchorTopicLabel(topic SubTopic, index int) string {
 }
 
 func explanationAnchorTopicTerms(topic SubTopic) []string {
-	seen := make(map[string]bool, len(topic.Entities)+1)
-	out := make([]string, 0, len(topic.Entities)+1)
+	seen := make(map[string]bool, len(topic.Entities))
+	out := make([]string, 0, len(topic.Entities))
 	for _, raw := range topic.Entities {
 		term := strings.TrimSpace(raw)
 		if term == "" {
@@ -694,12 +694,6 @@ func explanationAnchorTopicTerms(topic SubTopic) []string {
 		}
 		seen[key] = true
 		out = append(out, term)
-	}
-	if summary := strings.TrimSpace(topic.Summary); summary != "" {
-		key := strings.ToLower(summary)
-		if !seen[key] {
-			out = append(out, summary)
-		}
 	}
 	return out
 }
@@ -744,13 +738,6 @@ func explanationAnchorCandidateScore(topic SubTopic, item EvidenceItem) int {
 			score += 14
 		case EvidenceItemStructurallyMentionsAnyTerm(item, []string{trimmed}):
 			score += 8
-		case EvidenceItemMentionsAnyTerm(item, []string{trimmed}):
-			score += 4
-		}
-	}
-	if summary := strings.TrimSpace(topic.Summary); summary != "" {
-		if overlap := explanationAnchorSharedSummaryRun(summary, item.Summary); overlap >= 5 {
-			score += minInt(10, overlap)
 		}
 	}
 	if score == 0 {
@@ -788,40 +775,6 @@ func explanationAnchorWinsTie(candidate, incumbent StepSurfaceAnchor) bool {
 		return candidate.Name < incumbent.Name
 	}
 	return false
-}
-
-func explanationAnchorSharedSummaryRun(a, b string) int {
-	a = explanationAnchorNormalizeSurfaceText(a)
-	b = explanationAnchorNormalizeSurfaceText(b)
-	if a == "" || b == "" {
-		return 0
-	}
-	ar := []rune(a)
-	br := []rune(b)
-	prev := make([]int, len(br)+1)
-	best := 0
-	for i := 1; i <= len(ar); i++ {
-		curr := make([]int, len(br)+1)
-		for j := 1; j <= len(br); j++ {
-			if ar[i-1] != br[j-1] {
-				continue
-			}
-			curr[j] = prev[j-1] + 1
-			if curr[j] > best {
-				best = curr[j]
-			}
-		}
-		prev = curr
-	}
-	return best
-}
-
-func explanationAnchorNormalizeSurfaceText(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	if s == "" {
-		return ""
-	}
-	return strings.Join(strings.Fields(s), " ")
 }
 
 func minInt(a, b int) int {

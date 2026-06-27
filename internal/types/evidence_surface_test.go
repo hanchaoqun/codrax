@@ -1586,7 +1586,7 @@ func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneSkipsAuxiliaryEvidence(
 	}
 }
 
-func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneUsesGroundedSummaryBridge(t *testing.T) {
+func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneUsesGroundedStructureBridge(t *testing.T) {
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{
 			SubTopics: []SubTopic{
@@ -1603,6 +1603,7 @@ func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneUsesGroundedSummaryBrid
 			LineStart:       727,
 			AnchorKind:      AnchorDefinition,
 			AnchorSymbol:    "ResolvedExampleSettings",
+			Snippet:         `if settings["missing_key"] == "" { settings["missing_key"] = defaultMissingKey }`,
 			Summary:         "ResolvedExampleSettings 实现各字段最终有效值的计算逻辑，零值时回填默认值。",
 			GroundingStatus: GroundingGrounded,
 		},
@@ -1612,6 +1613,7 @@ func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneUsesGroundedSummaryBrid
 			LineStart:       2144,
 			AnchorKind:      AnchorCondition,
 			AnchorSymbol:    "flagExample",
+			Snippet:         "code default -> codrax.yaml -> CLI flag",
 			Summary:         "注释明确声明 code default → codrax.yaml → CLI flag 的三层覆盖优先级。",
 			GroundingStatus: GroundingGrounded,
 		},
@@ -1629,6 +1631,40 @@ func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneUsesGroundedSummaryBrid
 	}
 	if len(plan.ExplanationAnchorMissingTopics) != 0 {
 		t.Fatalf("missing topics = %v, want none", plan.ExplanationAnchorMissingTopics)
+	}
+}
+
+func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneIgnoresSummaryOnlyBridge(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			SubTopics: []SubTopic{
+				{Summary: "missing_key 配置键的最终有效值的计算逻辑", Entities: []string{"missing_key"}},
+				{Summary: "CLI 覆盖优先级", Entities: []string{"CLI"}},
+			},
+		},
+		AnswerContract: AnswerContract{},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceConditional,
+			Source:          "internal/types/config.go",
+			LineStart:       727,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "ResolvedExampleSettings",
+			Summary:         "Rendered prose mentions missing_key, but the typed evidence payload does not.",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	anchors, missing, claim := CompileExplanationAnchorBackbone(ir, evidence)
+	if len(anchors) != 0 {
+		t.Fatalf("summary-only topic bridge must not materialize explanation anchors, got %+v", anchors)
+	}
+	if len(missing) != 2 {
+		t.Fatalf("missing topics = %v, want two missing structural topics", missing)
+	}
+	if claim != CompletenessUnknown {
+		t.Fatalf("completeness = %q, want unknown when no structural anchor matched", claim)
 	}
 }
 

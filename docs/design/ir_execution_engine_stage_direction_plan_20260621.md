@@ -2465,6 +2465,11 @@ Remaining follow-up:
     2. Consumer change: `ExactResolutionEvidenceBlocksAbsence`, `ExactResolutionEvidenceMentionsAnyTarget`, emit-evidence exact-target helpers, diagram code-layer eligibility, and finalizer exact-evidence scoring now use structural fields (`Subject`/`Predicate`/`Object`/`AnchorSymbol`/`Condition`/`Snippet`) plus typed carriers (`SurfaceTerms`, `NegativeQuery`, `CrossfileQuery`) only.
     3. Guardrail tests: proof-grade anchors with target only in summary do not block absence; absence-support rows with target only in summary do not prove absence; finalizer exact-evidence scoring gives no positive boost to summary-only target mentions while preserving structural/snippet target boosts.
     4. Red-line boundary: exact-target proof and scoring consume typed evidence payload only. They do not parse ordinary evidence Summary, prompt prose, user wording, model rationale, localized status, final-answer prose, elapsed time, or eval labels.
+  - **Delivered D1-F10g.131 explanation-anchor backbone summary-free handoff boundary（code complete / focused regression passed）**:
+    1. Target gap: explanation-anchor backbone materialization used analyzer subtopic `Summary` as a matching term and ordinary evidence `Summary` as an overlap bonus. This is not a hard gate, but it influences finalizer handoff/Top-N answer skeletons and can promote prose-only matches over grounded code anchors.
+    2. Consumer change: explanation-anchor matching now uses subtopic typed `Entities` plus evidence structural fields only. Summary remains visible rationale/display text and no longer materializes or boosts backbone anchors.
+    3. Guardrail tests: structural/snippet bridges still produce complete explanation anchors; summary-only bridges no longer materialize anchors and are recorded as missing structural topics.
+    4. Red-line boundary: answer-surface backbone consumes typed topic entities and evidence payload fields. It does not parse subtopic summary prose, evidence Summary, prompt prose, user wording, model rationale, localized status, final-answer prose, elapsed time, or eval labels.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
