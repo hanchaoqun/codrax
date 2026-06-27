@@ -831,6 +831,7 @@ func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *te
 			AnchorKind:      types.AnchorCall,
 			Object:          "get_page_from_freelist",
 			Summary:         "首次分配尝试调用快速路径。",
+			SurfaceTerms:    []string{"快速路径"},
 			GroundingStatus: types.GroundingGrounded,
 		},
 	}})

@@ -1623,6 +1623,9 @@ func preEmitUniqueEvidenceCitationForItemSurfaceWithContext(pctx *preEmitCheckCo
 	if label == "" && text == "" {
 		return types.Citation{}, false
 	}
+	if cit, ok := preEmitUniqueSurfaceTermEvidenceCitationForItemSurfaceWithContext(pctx, label, text); ok {
+		return cit, true
+	}
 	var out []types.Citation
 	seen := make(map[string]bool)
 	for _, ev := range pctx.evidenceItems() {
@@ -1632,6 +1635,43 @@ func preEmitUniqueEvidenceCitationForItemSurfaceWithContext(pctx *preEmitCheckCo
 			continue
 		}
 		if !preEmitItemSurfaceMentionsEvidence(label, text, ev) {
+			continue
+		}
+		cit := pctx.canonicalCitation(types.Citation{
+			File:          ev.Source,
+			Line:          ev.LineStart,
+			LineEnd:       ev.LineEnd,
+			Scope:         ev.Scope,
+			SectionPath:   ev.SectionPath,
+			FileRoleLabel: ev.FileRoleLabel,
+		})
+		if cit.File == "" || cit.Line <= 0 {
+			continue
+		}
+		key := preEmitCitationLocationKey(cit)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, cit)
+	}
+	if len(out) != 1 {
+		return types.Citation{}, false
+	}
+	return out[0], true
+}
+
+func preEmitUniqueSurfaceTermEvidenceCitationForItemSurfaceWithContext(pctx *preEmitCheckContext, label, text string) (types.Citation, bool) {
+	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
+		return types.Citation{}, false
+	}
+	var out []types.Citation
+	seen := make(map[string]bool)
+	for _, ev := range pctx.evidenceItems() {
+		if ev.GroundingStatus == types.GroundingUngrounded ||
+			strings.TrimSpace(ev.Source) == "" ||
+			ev.LineStart <= 0 ||
+			!preEmitItemSurfaceMentionsEvidenceSurfaceTerm(label, text, ev) {
 			continue
 		}
 		cit := pctx.canonicalCitation(types.Citation{
@@ -1668,13 +1708,29 @@ func preEmitItemSurfaceMentionsEvidence(label, text string, ev types.EvidenceIte
 			return true
 		}
 	}
-	for _, term := range ev.SurfaceTerms {
-		if preEmitCodeSurfaceAppearsVerbatim(term, surface) {
-			return true
-		}
+	if preEmitItemSurfaceMentionsEvidenceSurfaceTerm(label, text, ev) {
+		return true
 	}
 	if preEmitSourceSurfaceMatchesLabel(label, ev.Source) {
 		return true
+	}
+	return false
+}
+
+func preEmitItemSurfaceMentionsEvidenceSurfaceTerm(label, text string, ev types.EvidenceItem) bool {
+	surface := strings.TrimSpace(strings.Join([]string{label, text}, "\n"))
+	if surface == "" {
+		return false
+	}
+	for _, term := range ev.SurfaceTerms {
+		term = strings.TrimSpace(term)
+		if term == "" {
+			continue
+		}
+		if preEmitCodeSurfaceAppearsVerbatim(term, surface) ||
+			preEmitTextContainsLoose(surface, term) {
+			return true
+		}
 	}
 	return false
 }
@@ -6438,13 +6494,22 @@ func preEmitEvidenceTextContainsQualifier(ev types.EvidenceItem, qualifier strin
 		return false
 	}
 	if preEmitCodeSurfaceAppearsVerbatim(qualifier, ev.Snippet) ||
-		preEmitCodeSurfaceAppearsVerbatim(qualifier, ev.Summary) {
+		preEmitEvidenceLoadBearingSummaryContainsCodeSurface(ev, qualifier) {
 		return true
 	}
-	if preEmitTextContainsLoose(ev.Snippet, qualifier) || preEmitTextContainsLoose(ev.Summary, qualifier) {
+	if preEmitTextContainsLoose(ev.Snippet, qualifier) ||
+		preEmitEvidenceLoadBearingSummaryContainsLoose(ev, qualifier) {
 		return true
 	}
 	return preEmitSurfaceTermsSupportToken(ev.SurfaceTerms, qualifier)
+}
+
+func preEmitEvidenceLoadBearingSummaryContainsCodeSurface(ev types.EvidenceItem, surface string) bool {
+	return ev.LoadBearingSummary && preEmitCodeSurfaceAppearsVerbatim(surface, ev.Summary)
+}
+
+func preEmitEvidenceLoadBearingSummaryContainsLoose(ev types.EvidenceItem, needle string) bool {
+	return ev.LoadBearingSummary && preEmitTextContainsLoose(ev.Summary, needle)
 }
 
 func preEmitSurfaceTermsSupportToken(terms []string, token string) bool {
@@ -6602,7 +6667,7 @@ func preEmitQualifiedCodeSurfaceMatchesEvidence(surface string, ev types.Evidenc
 	if preEmitEvidenceEndpointSupportsExactSurface(ev, surface) {
 		return true, true
 	}
-	if preEmitCodeSurfaceAppearsVerbatim(surface, ev.Summary) &&
+	if preEmitEvidenceLoadBearingSummaryContainsCodeSurface(ev, surface) &&
 		preEmitEvidenceEndpointSupportsToken(ev, member) &&
 		preEmitQualifiedOwnerSupportedByEvidence(ev, owner, member) {
 		return true, true

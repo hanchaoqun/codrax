@@ -148,6 +148,46 @@ func TestPreCheckNegativeCitationBoundsRejectsUnboundedAbsenceCitation(t *testin
 	}
 }
 
+func TestPreEmitEvidenceTextContainsQualifier_IgnoresOrdinarySummary(t *testing.T) {
+	ev := types.EvidenceItem{
+		AnchorSymbol: "Builder",
+		Snippet:      "func Builder() {}",
+		Summary:      "Builder carries the subject qualifier",
+	}
+	if preEmitEvidenceTextContainsQualifier(ev, "subject") {
+		t.Fatal("ordinary evidence Summary must not support a pre-emit hard qualifier")
+	}
+
+	ev.SurfaceTerms = []string{"subject"}
+	if !preEmitEvidenceTextContainsQualifier(ev, "subject") {
+		t.Fatal("typed surface_terms should support a pre-emit hard qualifier")
+	}
+
+	ev.SurfaceTerms = nil
+	ev.Summary = "Builder carries the subject qualifier"
+	ev.LoadBearingSummary = true
+	if !preEmitEvidenceTextContainsQualifier(ev, "subject") {
+		t.Fatal("explicit LoadBearingSummary should support a pre-emit hard qualifier")
+	}
+}
+
+func TestPreEmitDecoratedLabelMatchesEvidence_IgnoresOrdinarySummaryQualifier(t *testing.T) {
+	ev := types.EvidenceItem{
+		AnchorSymbol: "Builder",
+		Source:       "internal/arkts/builder.go",
+		Snippet:      "func Builder() {}",
+		Summary:      "Builder is the subject helper",
+	}
+	if preEmitDecoratedLabelMatchesEvidence("Builder (subject)", ev) {
+		t.Fatal("decorated label qualifier must not be grounded by ordinary evidence Summary")
+	}
+
+	ev.SurfaceTerms = []string{"subject"}
+	if !preEmitDecoratedLabelMatchesEvidence("Builder (subject)", ev) {
+		t.Fatal("decorated label qualifier should still be grounded by typed surface_terms")
+	}
+}
+
 func TestPreEmitStructuredMemberBlockCoversFactAcrossBlocks(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{
