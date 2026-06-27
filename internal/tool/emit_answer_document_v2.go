@@ -2257,6 +2257,9 @@ func answerBlocksArraySyntaxCandidates(rawArray string) []string {
 	add(rawArray)
 	for i := 0; i < len(candidates) && len(candidates) < 16; i++ {
 		base := candidates[i]
+		if repaired, changed := repairAnswerBlockProseFieldQuotes(base); changed {
+			add(repaired)
+		}
 		if repaired, changed := insertMissingTopLevelBlockObjectClosers(base); changed {
 			add(repaired)
 		}
@@ -2265,6 +2268,145 @@ func answerBlocksArraySyntaxCandidates(rawArray string) []string {
 		}
 	}
 	return candidates
+}
+
+// repairAnswerBlockProseFieldQuotes fixes malformed JSON only when the bad
+// quote sits inside a known prose carrier. Structural fields such as id/kind/
+// label remain untouched so authority-bearing schema mistakes still fail loud.
+func repairAnswerBlockProseFieldQuotes(s string) (string, bool) {
+	if strings.TrimSpace(s) == "" {
+		return s, false
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	changed := false
+	for i := 0; i < len(s); {
+		if s[i] != '"' {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		key, ok := quotedObjectKeyAt(s, i)
+		if !ok || !answerBlockProseQuoteRepairField(key) {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		valueQuote := answerBlockStringFieldValueQuoteAt(s, i)
+		if valueQuote < 0 {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		b.WriteString(s[i:valueQuote])
+		lit, end, litChanged, ok := repairJSONStringObjectValueLiteralQuotes(s, valueQuote)
+		if !ok {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		b.WriteString(lit)
+		if litChanged {
+			changed = true
+		}
+		i = end
+	}
+	if !changed {
+		return s, false
+	}
+	return b.String(), true
+}
+
+func answerBlockProseQuoteRepairField(field string) bool {
+	switch field {
+	case "text", "body", "quote", "crossfile_summary":
+		return true
+	default:
+		return false
+	}
+}
+
+func answerBlockStringFieldValueQuoteAt(s string, keyQuoteAt int) int {
+	if keyQuoteAt < 0 || keyQuoteAt >= len(s) || s[keyQuoteAt] != '"' {
+		return -1
+	}
+	i := keyQuoteAt + 1
+	esc := false
+	for ; i < len(s); i++ {
+		ch := s[i]
+		if esc {
+			esc = false
+			continue
+		}
+		if ch == '\\' {
+			esc = true
+			continue
+		}
+		if ch == '"' {
+			i++
+			break
+		}
+	}
+	for i < len(s) && isJSONSpaceByte(s[i]) {
+		i++
+	}
+	if i >= len(s) || s[i] != ':' {
+		return -1
+	}
+	i++
+	for i < len(s) && isJSONSpaceByte(s[i]) {
+		i++
+	}
+	if i >= len(s) || s[i] != '"' {
+		return -1
+	}
+	return i
+}
+
+func repairJSONStringObjectValueLiteralQuotes(s string, quoteAt int) (string, int, bool, bool) {
+	if quoteAt < 0 || quoteAt >= len(s) || s[quoteAt] != '"' {
+		return "", 0, false, false
+	}
+	var b strings.Builder
+	b.Grow(64)
+	b.WriteByte('"')
+	changed := false
+	esc := false
+	for i := quoteAt + 1; i < len(s); i++ {
+		ch := s[i]
+		if esc {
+			b.WriteByte(ch)
+			esc = false
+			continue
+		}
+		if ch == '\\' {
+			b.WriteByte(ch)
+			esc = true
+			continue
+		}
+		if ch != '"' {
+			b.WriteByte(ch)
+			continue
+		}
+		if jsonObjectStringValueCanCloseAt(s, i) {
+			b.WriteByte('"')
+			return b.String(), i + 1, changed, true
+		}
+		b.WriteByte('\\')
+		b.WriteByte('"')
+		changed = true
+	}
+	return "", 0, false, false
+}
+
+func jsonObjectStringValueCanCloseAt(s string, quoteAt int) bool {
+	for i := quoteAt + 1; i < len(s); i++ {
+		if isJSONSpaceByte(s[i]) {
+			continue
+		}
+		return s[i] == ',' || s[i] == '}'
+	}
+	return false
 }
 
 func rawAnswerBlockArrayLooksValid(blocks []json.RawMessage) bool {

@@ -1767,6 +1767,34 @@ func TestEmitAnswerDocumentV2_BraceFallbackRejectsUnattachedDroppedBlock(t *test
 	}
 }
 
+func TestEmitAnswerDocumentV2_BlocksStringRepairsUnescapedQuotesInTextField(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	blocks := `[` +
+		`{"id":"sum1","kind":"summary","text":"lead"},` +
+		`{"id":"list1","kind":"ordered_list","items":[{"id":"i1","label":"mode","text":"payload map["mode"]="large_trace_recipe_discovery" kept"}]},` +
+		`{"id":"caveat1","kind":"caveat","text":"bounded"}]`
+	encodedBlocks, err := json.Marshal(blocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := json.RawMessage(`{"blocks":` + string(encodedBlocks) + `}`)
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("prose-field quote repair should preserve the full document, got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 3 {
+		t.Fatalf("answer document was not fully recovered: %+v", doc)
+	}
+	if got := doc.Blocks[1].Items[0].Text; !strings.Contains(got, `map["mode"]="large_trace_recipe_discovery"`) {
+		t.Fatalf("text quote content not preserved: %q", got)
+	}
+}
+
 func TestEmitAnswerDocumentV2_BlocksStringStripsDanglingCompositeQuote(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
