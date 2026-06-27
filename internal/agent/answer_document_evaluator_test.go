@@ -242,6 +242,47 @@ func TestAnswerDocumentEvaluator_ObserveStopsWhenTypedCountAndMemberSetShapesPre
 	}
 }
 
+func TestAnswerDocumentEvaluator_ObserveStopsWhenBoundaryDimensionHasTypedBoundaryCarrier(t *testing.T) {
+	mut := types.NewMutableState("说明窗口统计和平台时基")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{
+						{Label: "窗口统计", Role: types.RequestedAnswerDimensionStageWorkflow, SourceQuote: "窗口统计", Required: true, Index: 1},
+						{Label: "平台时基", Role: types.RequestedAnswerDimensionBoundary, SourceQuote: "平台时基", Required: true, Index: 2},
+					},
+				},
+			},
+		},
+		Mutable: mut,
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "s1",
+				Kind: types.BlockSummary,
+				Text: "窗口统计显示时间戳单位为秒，窗口跨度约 0.452ms。",
+			},
+			{
+				ID:       "b1",
+				Kind:     types.BlockCaveat,
+				Text:     "边界：这个结论只覆盖当前 trace 窗口和已观测线程。",
+				FacetIDs: []string{string(types.FacetUncertaintyBoundary)},
+			},
+		},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.StopRequested || sig.HintRequested {
+		t.Fatalf("typed boundary carrier should satisfy boundary presentation dimension, got %+v", sig)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ObserveHintsMissingExternalObservationSelectorValue(t *testing.T) {
 	mut := types.NewMutableState("explain mcp line 12")
 	ctx := &types.AgentContext{

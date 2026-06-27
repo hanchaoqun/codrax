@@ -7840,6 +7840,8 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 	case types.RequestedAnswerDimensionMemberSet:
 		return (rm.Intent == types.IntentEnumerate || rm.Predicates.IsCategoryEnumeration) &&
 			answerDocumentHasMemberSetPayload(doc)
+	case types.RequestedAnswerDimensionBoundary:
+		return answerDocumentHasBoundaryPayload(doc)
 	default:
 		return false
 	}
@@ -7874,6 +7876,41 @@ func answerDocumentHasMemberSetPayload(doc *types.AnswerDocumentV2) bool {
 					return true
 				}
 			}
+		}
+	}
+	return false
+}
+
+func answerDocumentHasBoundaryPayload(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) == "" {
+			continue
+		}
+		if block.Kind == types.BlockCaveat {
+			return true
+		}
+		if answerBlockHasFacet(block, string(types.FacetUncertaintyBoundary)) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerBlockHasFacet(block types.AnswerBlock, facetID string) bool {
+	if strings.TrimSpace(facetID) == "" {
+		return false
+	}
+	for _, id := range block.FacetIDs {
+		if strings.TrimSpace(id) == facetID {
+			return true
+		}
+	}
+	for _, claim := range block.ClaimUses {
+		if strings.TrimSpace(claim.FacetID) == facetID {
+			return true
 		}
 	}
 	return false
