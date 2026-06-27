@@ -144,6 +144,61 @@ func TestNormalizeRuntimeArtifactCitationRefs_MixedRuntimeCurrentSourceKeepsCurr
 	}
 }
 
+func TestNormalizeRuntimeArtifactCitationRefs_RouteBackedMixedRootCauseKeepsCurrentCitations(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "LLM timeout"}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: mut.LogTriage(),
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic: true,
+				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					SourceQuotes:         []string{"LLM timeout"},
+					Confidence:           0.9,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/llm/openai.go", Line: 472}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "source",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "retry",
+				Label:       "ErrStreamFirstByteTimeout",
+				Text:        "当前源码定义了 first-byte timeout 的重试边界。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx); fixed != 0 {
+		t.Fatalf("route-backed mixed runtime+source answer should keep current citations, fixed=%d doc=%+v", fixed, doc)
+	}
+	if len(doc.Citations) != 1 || doc.Citations[0].File != "internal/llm/openai.go" || doc.Blocks[0].Items[0].CitationRef != 0 {
+		t.Fatalf("current-source citation was not preserved: %+v", doc)
+	}
+	if hints := preCheckRuntimeObservationRepoContamination(doc, ctx); len(hints) != 0 {
+		t.Fatalf("route-backed mixed runtime+source citations should not be rejected, got %+v", hints)
+	}
+}
+
 func TestNormalizeRuntimeArtifactCitationRefs_DriftedObservedFrameRemapsMixedPool(t *testing.T) {
 	ctx := artifactFrameDriftBusContext()
 	doc := &types.AnswerDocumentV2{

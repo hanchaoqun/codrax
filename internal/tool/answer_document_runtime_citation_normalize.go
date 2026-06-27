@@ -46,6 +46,17 @@ func answerDocumentHasCurrentSourceObservationSupport(ctx *types.BusContext) boo
 	return false
 }
 
+func answerDocumentRequiresCurrentSourceLane(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	if rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
+		return true
+	}
+	return types.RouteBackedExternalObservationRequiresCurrentSource(rm, ctx.TurnRouteHint)
+}
+
 func answerDocumentExternalObservationOnly(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
@@ -148,7 +159,9 @@ func normalizeRuntimeArtifactCitationRefs(doc *types.AnswerDocumentV2, ctx *type
 	remove := make(map[int]bool)
 	if plan.RuntimeGroundingDisposition.IsActive() &&
 		!plan.CurrentStatusDiagnosticRequired &&
-		!plan.CurrentSourceEvidenceOrigin {
+		!plan.CurrentSourceEvidenceOrigin &&
+		!answerDocumentRequiresCurrentSourceLane(ctx) &&
+		!answerDocumentHasCurrentSourceObservationSupport(ctx) {
 		for i := range doc.Citations {
 			remove[i] = true
 		}

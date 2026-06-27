@@ -7085,9 +7085,8 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsRequestedDimensionSourceQuot
 	}
 }
 
-func TestAnswerDocumentEvaluator_ParseOutput_AppendsReadOwnerAnchorSupplement(t *testing.T) {
-	mu := types.NewMutableState("")
-	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+func TestRenderReadOwnerAnchorSupplement_RendersOwnerRows(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
 		Blocks: []types.AnswerBlock{{
 			ID:          "summary",
@@ -7112,13 +7111,8 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsReadOwnerAnchorSupplement(t 
 			Kind:     types.SourceLocalizationAnchorReadFile,
 			Strength: types.SourceLocalizationAnchorObserved,
 		}},
-	})
-	ctx := &types.AgentContext{Mutable: mu}
-	e := &answerDocumentEvaluator{language: "zh"}
-	out, err := e.ParseOutput(ctx, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("ParseOutput err: %v", err)
 	}
+	got := renderReadOwnerAnchorSupplement(nil, doc, "zh")
 	for _, want := range []string{
 		"系统补充：源码定位锚点核对",
 		"`internal/agent/subagent_runtime.go`",
@@ -7126,12 +7120,12 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsReadOwnerAnchorSupplement(t 
 		"`internal/agent/subagent_runtime.go:218` (`ev-owner`)",
 		"`owner`",
 	} {
-		if !strings.Contains(out.FinalAnswer, want) {
-			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
+		if !strings.Contains(got, want) {
+			t.Fatalf("supplement missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(out.FinalAnswer, "observed") {
-		t.Fatalf("observed read_file-only anchors must not render as owner proof:\n%s", out.FinalAnswer)
+	if strings.Contains(got, "observed") {
+		t.Fatalf("observed read_file-only anchors must not render as owner proof:\n%s", got)
 	}
 }
 
@@ -7333,7 +7327,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_SuppressesReadAuditSupplementsWhenP
 	}
 }
 
-func TestAnswerDocumentEvaluator_ParseOutput_KeepsReadAuditSupplementsWhenAuditPathNotCovered(t *testing.T) {
+func TestAnswerDocumentEvaluator_ParseOutput_RoutesNonCriticalReadAuditSupplementsOutOfFinalAnswer(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
 		DocumentModel: "v2",
@@ -7377,6 +7371,78 @@ func TestAnswerDocumentEvaluator_ParseOutput_KeepsReadAuditSupplementsWhenAuditP
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
+	if !strings.Contains(out.FinalAnswer, "Router") {
+		t.Fatalf("principal answer lost:\n%s", out.FinalAnswer)
+	}
+	for _, banned := range []string{
+		"系统补充：源码定位状态",
+		"系统补充：读模式定位补充请求",
+		"系统补充：源码定位锚点核对",
+	} {
+		if strings.Contains(out.FinalAnswer, banned) {
+			t.Fatalf("non-critical audit path should route to status/report, not final answer %q:\n%s", banned, out.FinalAnswer)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_KeepsAnswerCriticalReadAuditSupplementForVisibleUncitedPath(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "principal",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "handler",
+				Label:       "handle_request",
+				Text:        "真正入口在 pkg/handler.py 的 handle_request，但当前引用还指向路由层。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{
+			File: "pkg/router.py",
+			Line: 12,
+		}},
+		ReadSourceLocalization: &types.SourceLocalizationReview{
+			Source:              "read_turn_a",
+			Status:              types.SourceLocalizationWeak,
+			SourcePaths:         []string{"pkg/handler.py", "pkg/unrelated.py"},
+			OwnerMissingPaths:   []string{"pkg/handler.py"},
+			OwnerSupportedPaths: []string{"pkg/router.py", "pkg/unrelated.py"},
+		},
+		ReadNavigationCoverage: &types.RepoMapNavigationCoverage{
+			State:          types.RepoMapNavigationCoveragePartial,
+			ReasonCode:     "repo_map_navigation_partial",
+			RequiredRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap, types.RepoMapNavigationRouteRelationMap},
+			CoveredRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap},
+			MissingRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+		},
+		ReadLocalizerFollowup: &types.ReadLocalizerFollowup{
+			State:          types.ReadLocalizerFollowupNeeded,
+			ReasonCode:     "read_localizer_owner_missing",
+			CandidatePaths: []string{"pkg/handler.py"},
+		},
+		ReadOwnerAnchors: []types.OwnerAnchorViewItem{{
+			Path:         "pkg/handler.py",
+			Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+			Strength:     types.SourceLocalizationAnchorOwner,
+			OwnerSymbol:  "handle_request",
+			AnchorSymbol: "handle_request",
+		}, {
+			Path:         "pkg/unrelated.py",
+			Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+			Strength:     types.SourceLocalizationAnchorOwner,
+			OwnerSymbol:  "unrelated_owner",
+			AnchorSymbol: "unrelated_owner",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
 	for _, want := range []string{
 		"系统补充：源码定位状态",
 		"系统补充：读模式定位补充请求",
@@ -7384,7 +7450,18 @@ func TestAnswerDocumentEvaluator_ParseOutput_KeepsReadAuditSupplementsWhenAuditP
 		"`pkg/handler.py`",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
-			t.Fatalf("audit path not covered by principal citation; missing %q:\n%s", want, out.FinalAnswer)
+			t.Fatalf("answer-critical visible uncited path should preserve audit supplement %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+	if strings.Contains(out.FinalAnswer, "系统补充：repo_map 导航覆盖") {
+		t.Fatalf("navigation coverage is status/report material, not answer-critical final-answer supplement:\n%s", out.FinalAnswer)
+	}
+	for _, banned := range []string{
+		"`pkg/unrelated.py`",
+		"unrelated_owner",
+	} {
+		if strings.Contains(out.FinalAnswer, banned) {
+			t.Fatalf("non-critical audit rows should not leak into final answer %q:\n%s", banned, out.FinalAnswer)
 		}
 	}
 }

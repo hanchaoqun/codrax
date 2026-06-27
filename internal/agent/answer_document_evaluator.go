@@ -10417,32 +10417,40 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
 		}
 	}
-	if supplement := renderReadLocalizationAuthoritySupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
-		if strings.TrimSpace(prose) == "" {
-			prose = strings.TrimSpace(supplement)
-		} else {
-			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementLocalizationAuthority); supplementDoc != nil {
+		if supplement := renderReadLocalizationAuthoritySupplement(ctx, supplementDoc, e.language); strings.TrimSpace(supplement) != "" {
+			if strings.TrimSpace(prose) == "" {
+				prose = strings.TrimSpace(supplement)
+			} else {
+				prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+			}
 		}
 	}
-	if supplement := renderReadNavigationCoverageSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
-		if strings.TrimSpace(prose) == "" {
-			prose = strings.TrimSpace(supplement)
-		} else {
-			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementNavigationCoverage); supplementDoc != nil {
+		if supplement := renderReadNavigationCoverageSupplement(ctx, supplementDoc, e.language); strings.TrimSpace(supplement) != "" {
+			if strings.TrimSpace(prose) == "" {
+				prose = strings.TrimSpace(supplement)
+			} else {
+				prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+			}
 		}
 	}
-	if supplement := renderReadLocalizerFollowupSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
-		if strings.TrimSpace(prose) == "" {
-			prose = strings.TrimSpace(supplement)
-		} else {
-			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementLocalizerFollowup); supplementDoc != nil {
+		if supplement := renderReadLocalizerFollowupSupplement(ctx, supplementDoc, e.language); strings.TrimSpace(supplement) != "" {
+			if strings.TrimSpace(prose) == "" {
+				prose = strings.TrimSpace(supplement)
+			} else {
+				prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+			}
 		}
 	}
-	if supplement := renderReadOwnerAnchorSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
-		if strings.TrimSpace(prose) == "" {
-			prose = strings.TrimSpace(supplement)
-		} else {
-			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementOwnerAnchor); supplementDoc != nil {
+		if supplement := renderReadOwnerAnchorSupplement(ctx, supplementDoc, e.language); strings.TrimSpace(supplement) != "" {
+			if strings.TrimSpace(prose) == "" {
+				prose = strings.TrimSpace(supplement)
+			} else {
+				prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+			}
 		}
 	}
 	if supplement := renderRequestedAnswerDimensionSourceQuoteSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
@@ -10454,11 +10462,253 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 	return prose
 }
 
-func renderReadLocalizationAuthoritySupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
-	if doc == nil || !types.SourceLocalizationReviewHasSignal(doc.ReadSourceLocalization) {
-		return ""
+type readAuditSupplementKind string
+
+const (
+	readAuditSupplementLocalizationAuthority readAuditSupplementKind = "localization_authority"
+	readAuditSupplementNavigationCoverage    readAuditSupplementKind = "navigation_coverage"
+	readAuditSupplementLocalizerFollowup     readAuditSupplementKind = "localizer_followup"
+	readAuditSupplementOwnerAnchor           readAuditSupplementKind = "owner_anchor"
+)
+
+func readAuditSupplementShouldAppendToAnswer(ctx *types.AgentContext, doc *types.AnswerDocumentV2, kind readAuditSupplementKind) bool {
+	if doc == nil {
+		return false
+	}
+	view := types.AnswerDocumentPrincipalEvidenceView(doc)
+	if view.HasGroundedPrincipalEvidence() &&
+		kind != readAuditSupplementNavigationCoverage &&
+		answerDocPrincipalMentionsUncitedSourcePath(doc, readAuditSupplementAnswerCriticalPaths(doc, kind)) {
+		return true
 	}
 	if answerDocPrincipalSourceSurfaceResolvedForContext(ctx, doc) {
+		return false
+	}
+	if !view.HasGroundedPrincipalEvidence() {
+		return kind == readAuditSupplementLocalizationAuthority &&
+			types.SourceLocalizationReviewHasSignal(doc.ReadSourceLocalization)
+	}
+	if kind == readAuditSupplementNavigationCoverage {
+		return false
+	}
+	return len(answerDocPrincipalUncitedSourcePaths(doc, readAuditSupplementAnswerCriticalPaths(doc, kind))) > 0
+}
+
+func readAuditSupplementDocumentForAnswer(ctx *types.AgentContext, doc *types.AnswerDocumentV2, kind readAuditSupplementKind) *types.AnswerDocumentV2 {
+	if !readAuditSupplementShouldAppendToAnswer(ctx, doc, kind) {
+		return nil
+	}
+	view := types.AnswerDocumentPrincipalEvidenceView(doc)
+	if !view.HasGroundedPrincipalEvidence() {
+		return doc
+	}
+	paths := answerDocPrincipalUncitedSourcePaths(doc, readAuditSupplementAnswerCriticalPaths(doc, kind))
+	if len(paths) == 0 {
+		return nil
+	}
+	out := *doc
+	switch kind {
+	case readAuditSupplementLocalizationAuthority:
+		out.ReadSourceLocalization = filterReadSourceLocalizationReviewForAnswerPaths(doc.ReadSourceLocalization, paths)
+		if out.ReadSourceLocalization == nil {
+			return nil
+		}
+	case readAuditSupplementLocalizerFollowup:
+		out.ReadLocalizerFollowup = filterReadLocalizerFollowupForAnswerPaths(doc.ReadLocalizerFollowup, paths)
+		if out.ReadLocalizerFollowup == nil {
+			return nil
+		}
+	case readAuditSupplementOwnerAnchor:
+		out.ReadOwnerAnchors = filterReadOwnerAnchorsForAnswerPaths(doc.ReadOwnerAnchors, paths)
+		if len(out.ReadOwnerAnchors) == 0 {
+			return nil
+		}
+	default:
+		return nil
+	}
+	return &out
+}
+
+func readAuditSupplementAnswerCriticalPaths(doc *types.AnswerDocumentV2, kind readAuditSupplementKind) []string {
+	if doc == nil {
+		return nil
+	}
+	switch kind {
+	case readAuditSupplementLocalizationAuthority:
+		return answerDocReadSourceLocalizationPaths(doc.ReadSourceLocalization)
+	case readAuditSupplementLocalizerFollowup:
+		if doc.ReadLocalizerFollowup == nil {
+			return nil
+		}
+		followup := types.NormalizeReadLocalizerFollowup(*doc.ReadLocalizerFollowup)
+		return answerDocDedupSourceFilePaths(followup.CandidatePaths)
+	case readAuditSupplementOwnerAnchor:
+		return answerDocStrongOwnerAnchorSourcePaths(doc)
+	default:
+		return nil
+	}
+}
+
+func answerDocPrincipalMentionsUncitedSourcePath(doc *types.AnswerDocumentV2, paths []string) bool {
+	paths = answerDocDedupSourceFilePaths(paths)
+	if len(paths) == 0 {
+		return false
+	}
+	surface := answerDocPrincipalStructuredVisibleSurface(doc)
+	if strings.TrimSpace(surface) == "" {
+		return false
+	}
+	citedFiles := answerDocPrincipalCitationFileSet(doc)
+	for _, path := range paths {
+		key := answerDocSourceFileKey(path)
+		if key == "" || citedFiles[key] {
+			continue
+		}
+		if answerDocPrincipalSurfaceCoversSourceFile(path, surface, nil) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocPrincipalUncitedSourcePaths(doc *types.AnswerDocumentV2, paths []string) []string {
+	paths = answerDocDedupSourceFilePaths(paths)
+	if len(paths) == 0 {
+		return nil
+	}
+	surface := answerDocPrincipalStructuredVisibleSurface(doc)
+	if strings.TrimSpace(surface) == "" {
+		return nil
+	}
+	citedFiles := answerDocPrincipalCitationFileSet(doc)
+	var out []string
+	for _, path := range paths {
+		key := answerDocSourceFileKey(path)
+		if key == "" || citedFiles[key] {
+			continue
+		}
+		if answerDocPrincipalSurfaceCoversSourceFile(path, surface, nil) {
+			out = append(out, path)
+		}
+	}
+	return answerDocDedupSourceFilePaths(out)
+}
+
+func filterReadSourceLocalizationReviewForAnswerPaths(review *types.SourceLocalizationReview, paths []string) *types.SourceLocalizationReview {
+	if review == nil {
+		return nil
+	}
+	keep := answerDocSourcePathKeySet(paths)
+	if len(keep) == 0 {
+		return nil
+	}
+	in := types.NormalizeSourceLocalizationReview(*review)
+	out := types.SourceLocalizationReview{
+		Status:      in.Status,
+		Source:      in.Source,
+		PlanID:      in.PlanID,
+		BatchID:     in.BatchID,
+		Goal:        in.Goal,
+		ReasonCodes: append([]string(nil), in.ReasonCodes...),
+	}
+	out.SourcePaths = filterAnswerDocSourcePathSlice(in.SourcePaths, keep)
+	out.PriorContextPaths = filterAnswerDocSourcePathSlice(in.PriorContextPaths, keep)
+	out.SupportedPaths = filterAnswerDocSourcePathSlice(in.SupportedPaths, keep)
+	out.MissingPaths = filterAnswerDocSourcePathSlice(in.MissingPaths, keep)
+	out.OwnerSupportedPaths = filterAnswerDocSourcePathSlice(in.OwnerSupportedPaths, keep)
+	out.OwnerMissingPaths = filterAnswerDocSourcePathSlice(in.OwnerMissingPaths, keep)
+	out.AuxiliaryPaths = filterAnswerDocSourcePathSlice(in.AuxiliaryPaths, keep)
+	for _, ref := range in.EvidenceRefs {
+		if answerDocSourcePathKeyKept(ref.Source, keep) {
+			out.EvidenceRefs = append(out.EvidenceRefs, ref)
+		}
+	}
+	for _, anchor := range in.Anchors {
+		if answerDocSourcePathKeyKept(anchor.Path, keep) ||
+			(anchor.EvidenceRef != nil && answerDocSourcePathKeyKept(anchor.EvidenceRef.Source, keep)) {
+			out.Anchors = append(out.Anchors, anchor)
+		}
+	}
+	normalized := types.NormalizeSourceLocalizationReview(out)
+	if !types.SourceLocalizationReviewHasSignal(&normalized) {
+		return nil
+	}
+	return &normalized
+}
+
+func filterReadLocalizerFollowupForAnswerPaths(followup *types.ReadLocalizerFollowup, paths []string) *types.ReadLocalizerFollowup {
+	if followup == nil {
+		return nil
+	}
+	keep := answerDocSourcePathKeySet(paths)
+	if len(keep) == 0 {
+		return nil
+	}
+	in := types.NormalizeReadLocalizerFollowup(*followup)
+	out := types.ReadLocalizerFollowup{
+		State:                in.State,
+		ReasonCode:           in.ReasonCode,
+		Source:               in.Source,
+		RequiredRoutes:       append([]types.RepoMapNavigationRoute(nil), in.RequiredRoutes...),
+		MissingRoutes:        append([]types.RepoMapNavigationRoute(nil), in.MissingRoutes...),
+		EvidenceRequirements: append([]string(nil), in.EvidenceRequirements...),
+		CandidatePaths:       filterAnswerDocSourcePathSlice(in.CandidatePaths, keep),
+	}
+	normalized := types.NormalizeReadLocalizerFollowup(out)
+	if normalized.State != types.ReadLocalizerFollowupNeeded || len(normalized.CandidatePaths) == 0 {
+		return nil
+	}
+	return &normalized
+}
+
+func filterReadOwnerAnchorsForAnswerPaths(items []types.OwnerAnchorViewItem, paths []string) []types.OwnerAnchorViewItem {
+	if len(items) == 0 {
+		return nil
+	}
+	keep := answerDocSourcePathKeySet(paths)
+	if len(keep) == 0 {
+		return nil
+	}
+	var out []types.OwnerAnchorViewItem
+	for _, item := range items {
+		if answerDocSourcePathKeyKept(item.Path, keep) ||
+			(item.EvidenceRef != nil && answerDocSourcePathKeyKept(item.EvidenceRef.Source, keep)) {
+			out = append(out, item)
+		}
+	}
+	return types.NormalizeOwnerAnchorView(types.OwnerAnchorView{Items: out}, 0).Items
+}
+
+func answerDocSourcePathKeySet(paths []string) map[string]bool {
+	out := map[string]bool{}
+	for _, path := range paths {
+		if key := answerDocSourceFileKey(path); key != "" {
+			out[key] = true
+		}
+	}
+	return out
+}
+
+func answerDocSourcePathKeyKept(path string, keep map[string]bool) bool {
+	key := answerDocSourceFileKey(path)
+	return key != "" && keep[key]
+}
+
+func filterAnswerDocSourcePathSlice(paths []string, keep map[string]bool) []string {
+	if len(paths) == 0 || len(keep) == 0 {
+		return nil
+	}
+	var out []string
+	for _, path := range paths {
+		if answerDocSourcePathKeyKept(path, keep) {
+			out = append(out, path)
+		}
+	}
+	return answerDocDedupSourceFilePaths(out)
+}
+
+func renderReadLocalizationAuthoritySupplement(_ *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+	if doc == nil || !types.SourceLocalizationReviewHasSignal(doc.ReadSourceLocalization) {
 		return ""
 	}
 	authority := loopkernel.DeriveLocalizationAuthority(doc.ReadSourceLocalization)
@@ -10569,11 +10819,8 @@ func readNavigationCoverageRouteList(routes []types.RepoMapNavigationRoute, limi
 	return strings.Join(parts, ", ")
 }
 
-func renderReadLocalizerFollowupSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+func renderReadLocalizerFollowupSupplement(_ *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
 	if doc == nil || doc.ReadLocalizerFollowup == nil {
-		return ""
-	}
-	if answerDocPrincipalSourceSurfaceResolvedForContext(ctx, doc) {
 		return ""
 	}
 	followup := types.NormalizeReadLocalizerFollowup(*doc.ReadLocalizerFollowup)
@@ -10648,9 +10895,6 @@ type readOwnerAnchorSupplementRow struct {
 }
 
 func renderReadOwnerAnchorSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
-	if answerDocPrincipalSourceSurfaceResolvedForContext(ctx, doc) {
-		return ""
-	}
 	rows := readOwnerAnchorSupplementRows(ctx, doc)
 	if len(rows) == 0 {
 		return ""

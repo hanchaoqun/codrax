@@ -585,7 +585,9 @@ func preCheckRuntimeObservationRepoContamination(doc *types.AnswerDocumentV2, ct
 	plan := answerSurfacePlan(ctx)
 	if plan == nil || !plan.RuntimeGroundingDisposition.IsActive() ||
 		plan.CurrentStatusDiagnosticRequired ||
-		plan.CurrentSourceEvidenceOrigin {
+		plan.CurrentSourceEvidenceOrigin ||
+		answerDocumentRequiresCurrentSourceLane(ctx) ||
+		answerDocumentHasCurrentSourceObservationSupport(ctx) {
 		return nil
 	}
 	if len(doc.Citations) > 0 {
