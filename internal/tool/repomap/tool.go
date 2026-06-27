@@ -446,7 +446,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		Success:       true,
 		Summary:       summary,
 		RawRef:        ref,
-		Refinement:    repoMapNavigationRefinement(graph, p, viewParams, viewData),
+		Refinement:    repoMapNavigationRefinement(ctx, graph, p, viewParams, viewData),
 		PathDiscovery: repoMapViewPathDiscovery(graph, p, viewData),
 		Observations:  observations,
 		Timestamp:     now,

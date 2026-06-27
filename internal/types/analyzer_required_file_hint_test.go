@@ -150,6 +150,36 @@ func TestRequiredFileHintCoverage_SourceInventoryUsesInventoryCap(t *testing.T) 
 	}
 }
 
+func TestRequiredFileHintCoverage_MixedRuntimeCurrentSourceUsesTightCap(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentExplain,
+		PerfTrace: &PerfBundle{
+			Frames: []PerfFrame{{FrameNo: 1, DurationMs: 86.1, Janky: true}},
+		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+			SourceQuotes:                        []string{"结合当前源码解释"},
+			Confidence:                          0.9,
+		},
+		AnalyzerHints: AnalyzerHints{RequiredFileHints: []RequiredFileHint{
+			{Path: "internal/tracequery/parse.go", Confidence: 0.9},
+			{Path: "internal/hitraceconv/types.go", Confidence: 0.9},
+			{Path: "internal/agent/perf_triager.go", Confidence: 0.9},
+		}},
+	}
+
+	if !RequiredFileHintCurrentSourceCoverageApplies(rm) {
+		t.Fatal("mixed runtime/current-source required-file hints should remain source obligations")
+	}
+	if !MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) {
+		t.Fatal("mixed runtime/current-source request should use the mixed coverage shape")
+	}
+	if got := RequiredFileHintCoverageMaxForRequest(rm); got != MixedRuntimeCurrentSourceRequiredFileHintCoverageMax {
+		t.Fatalf("coverage cap=%d, want mixed cap %d", got, MixedRuntimeCurrentSourceRequiredFileHintCoverageMax)
+	}
+}
+
 func TestRequiredFileHintCoverage_ObservationOnlyRuntimeSkipsInventoryShape(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentEnumerate,

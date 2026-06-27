@@ -1227,6 +1227,12 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 				HintKey:       "analyzer.source-inventory-boundary",
 				Hint:          analyzerSourceInventoryBoundaryGuidance(),
 			}
+		case analyzerRuntimeSourceInventoryPrescanCode:
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       "analyzer.runtime-source-inventory-boundary",
+				Hint:          "The current classification already has typed runtime-artifact context. Do not use repo_map(view=\"source_inventory\") as an analyzer pre-scan for runtime/current-source localization. Use repo_map overview/task_map/file_map only for a bounded source-owner hint, or call emit_analysis now and let exploration run any source_inventory lens only if source_inventory_profile is emitted.",
+			}
 		}
 	}
 	if !isPrescanTool(obs.LastToolResult.ToolName) {

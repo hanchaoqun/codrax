@@ -14,6 +14,14 @@ import (
 // gate so both layers enforce the same typed contract.
 const RequiredFileHintCoverageMax = 4
 
+// MixedRuntimeCurrentSourceRequiredFileHintCoverageMax bounds automatic
+// current-source reads for turns that combine an external runtime artifact with
+// current-checkout explanation. These turns need source evidence, but analyzer
+// file hints are usually competing owner candidates rather than an exhaustive
+// file universe. Keep the burst smaller than pure current-source reads so
+// navigation/localization can narrow before context is packed.
+const MixedRuntimeCurrentSourceRequiredFileHintCoverageMax = 2
+
 // SourceInventoryRequiredFileHintCoverageMax is the bounded source-inventory
 // variant of RequiredFileHintCoverageMax. Inventory/enumeration tasks often
 // need a handful of peer files to avoid false completeness, but the cap must
@@ -47,6 +55,9 @@ func RequiredFileHintCoverageMaxForRequest(rm RequestModel) int {
 	if SourceInventoryRequiredFileCoverageShape(rm) {
 		return SourceInventoryRequiredFileHintCoverageMax
 	}
+	if MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) {
+		return MixedRuntimeCurrentSourceRequiredFileHintCoverageMax
+	}
 	return RequiredFileHintCoverageMax
 }
 
@@ -76,6 +87,23 @@ func SourceInventoryRequiredFileCoverageShape(rm RequestModel) bool {
 	}
 	return IsTypedSourceEnumerationShape(rm) &&
 		(rm.CompletenessObligation.IsActive() || rm.EnumerationBoundary != nil || HasPrincipalCategoryEnumerationMemberLane(rm))
+}
+
+// MixedRuntimeCurrentSourceRequiredFileCoverageShape reports whether
+// required-file hints belong to a mixed external-observation plus
+// current-source lane. The hints are still source obligations, but not an
+// exhaustive source universe: cap deterministic forced reads tightly and let
+// repo_map/localization pick the owner before broad context packing.
+func MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm RequestModel) bool {
+	if SourceInventoryRequiredFileCoverageShape(rm) ||
+		rm.HasObservationOnlyRuntimeArtifact() ||
+		(rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource()) ||
+		!rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
+		return false
+	}
+	return rm.HasExternalOnlyRuntimeArtifact() ||
+		rm.HasExternalObservationArtifactReference() ||
+		rm.HasRuntimeArtifactPathReference()
 }
 
 // CanonicalRequiredFileHintPath collapses required_file hint paths to the same

@@ -883,6 +883,7 @@ func TestAnalysisSkill_WorkflowGuidesRepoMapWithBoundedSourceInventoryNavigation
 		`repo_map(view="source_inventory")`,
 		"one bounded",
 		"source_inventory_profile",
+		"do not use `repo_map(view=\"source_inventory\")` as this location pass",
 		"call `emit_analysis`",
 	} {
 		if !strings.Contains(workflowCorpus, want) {

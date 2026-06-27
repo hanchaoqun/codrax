@@ -4708,9 +4708,11 @@ func applyAnalyzerSameBatchPrescanBoundary(ctx *types.AgentContext, result *type
 //     Summary so the LLM sees the error in the next iteration's
 //     message stream and can retry correctly.
 //   - `repo_map(view="source_inventory")` is allowed as a bounded
-//     navigation pass for member-inventory classification. The analyzer
-//     must still emit source_inventory_profile, and later evidence
-//     gathering remains responsible for source reads and answer proof.
+//     navigation pass for member-inventory classification. Runtime
+//     artifact turns are the exception: analyzer must not introduce a
+//     source-inventory universe before emitting the typed request model.
+//     Later exploration can run the lens when source_inventory_profile
+//     proves the request is actually an inventory.
 //
 // Returns nil when no violation is detected — the caller then
 // proceeds to the normal tool execution path. Returns a
@@ -4738,6 +4740,10 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	if analyzerExternalObservationFirstBlocksTool(ctx, tc.Name) {
 		return rejectAnalyzerPrescanTool(ctx, tc, analyzerExternalObservationFirstEmitOnlyCode,
 			"classification is external-observation-first for an attached runtime artifact; do not run repo_map / grep / list_files just to classify trace or log terms. Call emit_analysis now from the typed runtime artifact context. Later exploration will use trace_query or current-source tools if the structured request model requires them.")
+	}
+	if analyzerRuntimeArtifactSourceInventoryPrescanBlocked(ctx, tc) {
+		return rejectAnalyzerPrescanTool(ctx, tc, analyzerRuntimeSourceInventoryPrescanCode,
+			"classification includes a typed runtime artifact carrier; repo_map(view=\"source_inventory\") is not available in this analyzer pre-scan because it creates a broad member inventory before the request model proves one is needed. Use repo_map overview/task_map/file_map for source-owner orientation, grep(files_only=true) or list_files only if a lightweight location check is still necessary, or call emit_analysis now. If a source inventory is truly part of the request, encode it in source_inventory_profile so exploration can run the bounded lens.")
 	}
 	if ctx.EmitStageRetryAttempt > 0 {
 		return rejectAnalyzerPrescanTool(ctx, tc, analyzerPrescanTerminalEmitModeCode,
@@ -4778,9 +4784,20 @@ const (
 	analyzerPrescanBudgetReachedCode                = "analyzer_prescan_budget_reached"
 	analyzerGrepFilesOnlyRequiredCode               = "analyzer_grep_files_only_required"
 	analyzerSourceInventoryAnalyzeBoundaryCode      = "analyzer_source_inventory_analyze_boundary"
+	analyzerRuntimeSourceInventoryPrescanCode       = "analyzer_runtime_source_inventory_prescan"
 	analyzerExternalObservationFirstEmitOnlyCode    = "analyzer_external_observation_first_emit_only"
 	analyzerExplicitRuntimeArtifactPathEmitOnlyCode = "analyzer_explicit_runtime_artifact_path_emit_only"
 )
+
+func analyzerRuntimeArtifactSourceInventoryPrescanBlocked(ctx *types.AgentContext, tc llm.ToolCall) bool {
+	if ctx == nil || ctx.Stage != types.StageAnalyze {
+		return false
+	}
+	if strings.TrimSpace(tc.Name) != "repo_map" || !analyzerRepoMapSourceInventoryView(tc.Params) {
+		return false
+	}
+	return analyzerHasRuntimeArtifactCarrier(ctx)
+}
 
 var analyzerRuntimeArtifactPathTokenRE = regexp.MustCompile(`(?i)[^\s"'` + "`" + `<>()[\]{}，。；;、]+?(?:\.tracebundle\.json|\.perf\.data|\.perftrace|\.systrace|\.htrace|\.atrace|\.ftrace|\.perfetto|\.trace|\.log)`)
 

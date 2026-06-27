@@ -759,6 +759,47 @@ func TestSeedRequiredFileHintForcedReadsBeforeExplore_SourceInventoryUsesInvento
 	}
 }
 
+func TestSeedRequiredFileHintForcedReadsBeforeExplore_MixedRuntimeCurrentSourceUsesTightCap(t *testing.T) {
+	o := newTestOrch(t)
+	var hints []types.RequiredFileHint
+	for i := 0; i < types.RequiredFileHintCoverageMax; i++ {
+		rel := fmt.Sprintf("internal/runtime/source_%02d.go", i)
+		if err := os.MkdirAll(filepath.Join(o.busCtx.RepoRoot, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(o.busCtx.RepoRoot, rel), []byte("package runtime\n"), 0o644); err != nil {
+			t.Fatalf("write fixture %d: %v", i, err)
+		}
+		hints = append(hints, types.RequiredFileHint{Path: rel, Confidence: 0.9})
+	}
+	o.busCtx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain,
+		PerfTrace: &types.PerfBundle{
+			Frames: []types.PerfFrame{{FrameNo: 1, DurationMs: 86.1, Janky: true}},
+		},
+		CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+			SourceQuotes:                        []string{"结合当前源码解释"},
+			Confidence:                          0.9,
+		},
+		AnalyzerHints: types.AnalyzerHints{RequiredFileHints: hints},
+	}}
+
+	if got := o.seedRequiredFileHintForcedReadsBeforeExplore(); got != types.MixedRuntimeCurrentSourceRequiredFileHintCoverageMax {
+		t.Fatalf("queued=%d, want mixed runtime/source cap %d", got, types.MixedRuntimeCurrentSourceRequiredFileHintCoverageMax)
+	}
+	if pending := o.busCtx.Mutable.EvidenceClosure().PendingReads(); len(pending) != types.MixedRuntimeCurrentSourceRequiredFileHintCoverageMax {
+		t.Fatalf("pending=%d, want mixed runtime/source cap %d: %+v", len(pending), types.MixedRuntimeCurrentSourceRequiredFileHintCoverageMax, pending)
+	}
+	if got := o.runForcedReads(); got != types.MixedRuntimeCurrentSourceRequiredFileHintCoverageMax {
+		t.Fatalf("forced reads=%d, want mixed runtime/source cap %d", got, types.MixedRuntimeCurrentSourceRequiredFileHintCoverageMax)
+	}
+	if pending := o.busCtx.Mutable.EvidenceClosure().PendingReads(); len(pending) != 0 {
+		t.Fatalf("mixed pre-dispatch reads should drain queued cap, got %+v", pending)
+	}
+}
+
 // TestRunForcedReads_PathIsDirectory_AbandonsAcrossPlatforms pins
 // the IsDir cross-platform branch: a PendingRead pointing at a
 // directory (broken classification, race, manifest-included path

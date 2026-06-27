@@ -158,8 +158,12 @@ func (o *Orchestrator) runForcedReads() int {
 	// operator a grep-able heads-up before the attempt.
 	var toRead []types.PendingRead
 	limit := cgecForcedReadsPerRound
-	if hasPreDispatchRequiredFilePendingRead(closure) && limit < types.RequiredFileHintCoverageMax {
-		limit = types.RequiredFileHintCoverageMax
+	requiredFileHintCap := types.RequiredFileHintCoverageMax
+	if o != nil && o.busCtx != nil && o.busCtx.AnalysisIR != nil {
+		requiredFileHintCap = types.RequiredFileHintCoverageMaxForRequest(o.busCtx.AnalysisIR.RequestModel)
+	}
+	if hasPreDispatchRequiredFilePendingRead(closure) && limit < requiredFileHintCap {
+		limit = requiredFileHintCap
 	}
 	for _, p := range closure.PendingReads() {
 		// 2026-05-10 path-canonicalization audit: switched from

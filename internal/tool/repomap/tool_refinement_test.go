@@ -9,7 +9,7 @@ import (
 func TestRepoMapNavigationRefinementRelationMapBroadFallback(t *testing.T) {
 	graph := budgetTestGraph(1000)
 	params := ViewParams{}
-	hint := repoMapNavigationRefinement(graph, repoMapParams{
+	hint := repoMapNavigationRefinement(nil, graph, repoMapParams{
 		Path: ".",
 		View: "relation_map",
 	}, params, GenerateViewData(graph, "relation_map", params))
@@ -30,7 +30,7 @@ func TestRepoMapNavigationRefinementRelationMapBroadFallback(t *testing.T) {
 func TestRepoMapNavigationRefinementTaskMapMissingQuery(t *testing.T) {
 	graph := budgetTestGraph(1000)
 	params := ViewParams{}
-	hint := repoMapNavigationRefinement(graph, repoMapParams{
+	hint := repoMapNavigationRefinement(nil, graph, repoMapParams{
 		Path: ".",
 		View: "task_map",
 	}, params, GenerateViewData(graph, "task_map", params))
@@ -48,7 +48,7 @@ func TestRepoMapNavigationRefinementTaskMapMissingQuery(t *testing.T) {
 func TestRepoMapNavigationRefinementLargeOverviewPrefersTaskMapQuery(t *testing.T) {
 	graph := budgetTestGraph(6000)
 	params := ViewParams{}
-	hint := repoMapNavigationRefinement(graph, repoMapParams{
+	hint := repoMapNavigationRefinement(nil, graph, repoMapParams{
 		Path: ".",
 		View: "overview",
 	}, params, GenerateViewData(graph, "overview", params))
@@ -66,11 +66,71 @@ func TestRepoMapNavigationRefinementLargeOverviewPrefersTaskMapQuery(t *testing.
 	}
 }
 
+func TestRepoMapNavigationRefinementLargeFileMapDefaultsToSourceInventory(t *testing.T) {
+	graph := budgetTestGraph(6000)
+	params := ViewParams{Query: "AgentName registry"}
+	hint := repoMapNavigationRefinement(nil, graph, repoMapParams{
+		Path:  ".",
+		View:  "file_map",
+		Query: params.Query,
+	}, params, GenerateViewData(graph, "file_map", params))
+	if hint == nil {
+		t.Fatal("expected large file_map refinement")
+	}
+	if hint.ReasonCode != "repo_map_file_map_large_scope" || !hint.ResultTruncated {
+		t.Fatalf("unexpected hint: %+v", hint)
+	}
+	if hint.PreferredParams["view"] != "source_inventory" {
+		t.Fatalf("ordinary large file_map should still prefer source_inventory narrowing, got %+v", hint.PreferredParams)
+	}
+	if !sameStringSetForRepoMapTest(hint.RequiredFields, []string{"scope", "roles"}) {
+		t.Fatalf("required fields = %+v", hint.RequiredFields)
+	}
+}
+
+func TestRepoMapNavigationRefinementMixedRuntimeCurrentSourceAvoidsSourceInventory(t *testing.T) {
+	graph := budgetTestGraph(6000)
+	params := ViewParams{Query: "trace_query hitrace parsing"}
+	ctx := &ctypes.BusContext{
+		AnalysisIR: &ctypes.AnalysisIR{RequestModel: ctypes.RequestModel{
+			PerfTrace: &ctypes.PerfBundle{
+				Observations: []ctypes.PerfObservation{{Kind: "span_duration"}},
+			},
+			CurrentSourceExplanationProfile: &ctypes.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes:                               []ctypes.CurrentSourceExplanationMode{ctypes.CurrentSourceExplanationExplainCurrentMechanism},
+				SourceQuotes:                        []string{"current source explains trace parsing"},
+				Confidence:                          0.95,
+			},
+		}},
+	}
+	hint := repoMapNavigationRefinement(ctx, graph, repoMapParams{
+		Path:  ".",
+		View:  "file_map",
+		Query: params.Query,
+	}, params, GenerateViewData(graph, "file_map", params))
+	if hint == nil {
+		t.Fatal("expected large file_map refinement")
+	}
+	if hint.ReasonCode != "repo_map_file_map_large_scope" || !hint.ResultTruncated {
+		t.Fatalf("unexpected hint: %+v", hint)
+	}
+	if got := hint.PreferredParams["view"]; got != "task_map" {
+		t.Fatalf("mixed runtime/current-source file_map should avoid source_inventory refinement, got view=%q params=%+v", got, hint.PreferredParams)
+	}
+	if _, bad := hint.PreferredParams["include_attributes"]; bad {
+		t.Fatalf("non-inventory refinement must not carry source_inventory-only params: %+v", hint.PreferredParams)
+	}
+	if len(hint.RequiredFields) != 0 {
+		t.Fatalf("query-backed task_map refinement should not require source_inventory fields, got %+v", hint.RequiredFields)
+	}
+}
+
 func TestRepoMapNavigationRefinementTargetedViewsStaySilent(t *testing.T) {
 	graph := budgetTestGraph(6000)
 	for _, view := range []string{"call_path", "edit_impact", "implementers"} {
 		params := ViewParams{Query: "Runnable", TargetFile: "src/app.go", EntryPoint: "cmd/app.go"}
-		hint := repoMapNavigationRefinement(graph, repoMapParams{
+		hint := repoMapNavigationRefinement(nil, graph, repoMapParams{
 			Path: ".",
 			View: view,
 		}, params, GenerateViewData(graph, view, params))

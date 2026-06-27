@@ -7,7 +7,7 @@ import (
 	ctypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
-func repoMapNavigationRefinement(graph *Graph, p repoMapParams, params ViewParams, data *ViewData) *ctypes.ToolRefinementHint {
+func repoMapNavigationRefinement(ctx *ctypes.BusContext, graph *Graph, p repoMapParams, params ViewParams, data *ViewData) *ctypes.ToolRefinementHint {
 	if graph == nil {
 		return nil
 	}
@@ -73,6 +73,13 @@ func repoMapNavigationRefinement(graph *Graph, p repoMapParams, params ViewParam
 		}
 		hint.ReasonCode = "repo_map_file_map_large_scope"
 		hint.ResultTruncated = true
+		if repoMapRuntimeCurrentSourceAvoidsSourceInventoryRefinement(ctx) {
+			hint.PreferredParams["view"] = "task_map"
+			if strings.TrimSpace(params.Query) == "" {
+				hint.RequiredFields = []string{"query"}
+			}
+			break
+		}
 		hint.PreferredParams["view"] = "source_inventory"
 		hint.PreferredParams["include_attributes"] = "false"
 		hint.RequiredFields = []string{"scope", "roles"}
@@ -91,6 +98,17 @@ func repoMapNavigationRefinement(graph *Graph, p repoMapParams, params ViewParam
 		return nil
 	}
 	return &out
+}
+
+func repoMapRuntimeCurrentSourceAvoidsSourceInventoryRefinement(ctx *ctypes.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if ctypes.SourceInventoryPrincipalNavigationActive(rm) {
+		return false
+	}
+	return ctypes.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm)
 }
 
 func repoMapExplicitTopNBroad(view string, tier SizeTier, topN int) bool {

@@ -983,6 +983,33 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 		}
 	})
 
+	t.Run("runtime artifact blocks analyzer source inventory prescan", func(t *testing.T) {
+		ctx := &types.AgentContext{
+			Stage:           types.StageAnalyze,
+			AttachedHitrace: "sched_switch app-20 rival-30",
+			TurnRouteHint: types.TurnRouteHint{
+				Route:           "repo",
+				Source:          "external_tool",
+				NeedsRepoAccess: true,
+			},
+		}
+		got := validateAnalyzerPrescanToolCall(ctx, llm.ToolCall{
+			Name:   "repo_map",
+			Params: json.RawMessage(`{"path":".","view":"source_inventory","scope":"tracequery","roles":["function"],"top_n":24}`),
+		})
+		if got == nil {
+			t.Fatal("runtime artifact analyzer prescan must reject source_inventory before it creates broad inventory debt")
+		}
+		if got.Repair == nil || got.Repair.Code != analyzerRuntimeSourceInventoryPrescanCode {
+			t.Fatalf("expected runtime source_inventory repair code, got %+v", got)
+		}
+		for _, want := range []string{"overview/task_map/file_map", "emit_analysis", "source_inventory_profile"} {
+			if !strings.Contains(got.Summary, want) {
+				t.Fatalf("runtime source_inventory rejection should guide bounded recovery; missing %q in %q", want, got.Summary)
+			}
+		}
+	})
+
 	t.Run("analyze stage allows bounded source inventory navigation", func(t *testing.T) {
 		ctx := &types.AgentContext{Stage: types.StageAnalyze}
 		tc := llm.ToolCall{
