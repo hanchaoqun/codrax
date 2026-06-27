@@ -6466,24 +6466,17 @@ func (r *REPL) memorySummaryLine() string {
 	if r.store == nil {
 		return ""
 	}
-	recent := r.store.Recent()
-	idx := r.store.Index()
-	if len(recent) == 0 && len(idx) == 0 {
+	stats := r.store.CachedStats()
+	if stats.RecentTurns == 0 && stats.IndexEntries == 0 {
 		return ""
 	}
-	bytes := 0
-	for _, t := range recent {
-		bytes += len(t.Request) + len(t.Response)
-	}
-	for _, e := range idx {
-		bytes += len(e.Topic) + len(e.Summary)
-	}
+	bytes := stats.RecentBytes + stats.IndexBytes
 	if isZh(r.language) {
 		return pterm.FgDarkGray.Sprintf("记忆: %d 条近期 + %d 条压缩, %s",
-			len(recent), len(idx), humanByteSize(bytes))
+			stats.RecentTurns, stats.IndexEntries, humanByteSize(bytes))
 	}
 	return pterm.FgDarkGray.Sprintf("Memory: %d recent + %d compacted, %s",
-		len(recent), len(idx), humanByteSize(bytes))
+		stats.RecentTurns, stats.IndexEntries, humanByteSize(bytes))
 }
 
 // humanByteSize renders a byte count in the smallest unit that keeps

@@ -1748,6 +1748,28 @@ func TestHumanByteSize(t *testing.T) {
 	}
 }
 
+func TestMemorySummaryLineUsesCachedStats(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+	if err := store.Append(memory.Turn{
+		ID:        "turn-1",
+		Request:   "hello",
+		Response:  "hi",
+		Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	r := &REPL{store: store, language: "en"}
+	got := stripANSIOnly(r.memorySummaryLine())
+	if !strings.Contains(got, "Memory: 1 recent + 0 compacted, 7 B") {
+		t.Fatalf("memorySummaryLine = %q", got)
+	}
+}
+
 func TestBannerIncludesLocalizedModelAndStatusLines(t *testing.T) {
 	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
 	if err != nil {

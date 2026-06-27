@@ -529,6 +529,51 @@ func TestCachedCountsDoesNotBlockWhenMemoryIndexLockBusy(t *testing.T) {
 	}
 }
 
+func TestCachedStatsDoesNotBlockWhenMemoryIndexLockBusy(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer s.Close()
+	turn := Turn{
+		ID:       "t0",
+		Request:  "kw0 architecture question",
+		Response: "answer from prior turn",
+	}
+	if err := s.Append(turn); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	blocker, err := newFileLock(filepath.Join(dir, "MEMORY.md.lock"))
+	if err != nil {
+		t.Fatalf("newFileLock: %v", err)
+	}
+	if err := blocker.lock(); err != nil {
+		_ = blocker.close()
+		t.Fatalf("lock blocker: %v", err)
+	}
+	defer blocker.close()
+
+	done := make(chan CachedStats, 1)
+	go func() {
+		done <- s.CachedStats()
+	}()
+
+	select {
+	case got := <-done:
+		if got.RecentTurns != 1 || got.IndexEntries != 0 {
+			t.Fatalf("CachedStats counts = (%d,%d), want (1,0)", got.RecentTurns, got.IndexEntries)
+		}
+		wantBytes := len(turn.Request) + len(turn.Response)
+		if got.RecentBytes != wantBytes || got.IndexBytes != 0 {
+			t.Fatalf("CachedStats bytes = (%d,%d), want (%d,0)", got.RecentBytes, got.IndexBytes, wantBytes)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("CachedStats blocked on a busy MEMORY.md lock; REPL foreground UI must remain responsive")
+	}
+}
+
 func TestClearRemovesEverything(t *testing.T) {
 	dir := t.TempDir()
 	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})

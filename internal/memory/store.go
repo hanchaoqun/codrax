@@ -962,17 +962,46 @@ func (s *Store) Recent() []Turn {
 	return out
 }
 
+// CachedStats is an in-process snapshot of memory-store size signals. It does
+// not imply that MEMORY.md has been reloaded from sibling processes.
+type CachedStats struct {
+	RecentTurns  int
+	IndexEntries int
+	RecentBytes  int
+	IndexBytes   int
+}
+
+// CachedStats returns in-process recent/index counts and byte estimates
+// without touching the cross-process MEMORY.md lock. It is intended for
+// foreground UI hints where a stale snapshot is preferable to blocking the
+// prompt; model-facing retrieval paths should continue to use
+// BuildContext/Search/Index as appropriate.
+func (s *Store) CachedStats() CachedStats {
+	if s == nil {
+		return CachedStats{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stats := CachedStats{
+		RecentTurns:  len(s.recent),
+		IndexEntries: len(s.index),
+	}
+	for _, t := range s.recent {
+		stats.RecentBytes += len(t.Request) + len(t.Response)
+	}
+	for _, e := range s.index {
+		stats.IndexBytes += len(e.Topic) + len(e.Summary)
+	}
+	return stats
+}
+
 // CachedCounts returns in-process recent/index counts without touching the
 // cross-process MEMORY.md lock. It is intended for foreground UI hints where a
 // stale count is preferable to blocking the prompt; model-facing retrieval
 // paths should continue to use BuildContext/Search/Index as appropriate.
 func (s *Store) CachedCounts() (recentTurns int, indexEntries int) {
-	if s == nil {
-		return 0, 0
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.recent), len(s.index)
+	stats := s.CachedStats()
+	return stats.RecentTurns, stats.IndexEntries
 }
 
 // Index returns a copy of the parsed MEMORY.md entries. The on-disk
