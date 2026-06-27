@@ -72,6 +72,57 @@ func TestDedupeResolutionChains_InputOrderDoesNotMatter(t *testing.T) {
 	}
 }
 
+func TestDedupeResolutionChains_UsesTypedSubjectBeforeSummary(t *testing.T) {
+	typedChain := "`Register()` binds NewFoo → `Foo.Name()` returns \"foo\""
+	items := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Subject:   typedChain,
+			Summary:   "`DisplayOnlyA()` binds NewA → `A.Name()` returns \"a\"",
+			Producer:  "concrete_values",
+		},
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Subject:   typedChain,
+			Summary:   "`DisplayOnlyB()` binds NewB → `B.Name()` returns \"b\"",
+			Producer:  "bridge_literal",
+			Source:    "internal/foo/foo.go",
+		},
+	}
+	out := dedupeResolutionChains(items)
+	if len(out) != 1 {
+		t.Fatalf("same typed chain payload must collapse despite different display summaries, got %d: %+v", len(out), out)
+	}
+	if out[0].Producer != "bridge_literal" {
+		t.Fatalf("expected producer-rank winner after typed-key collapse, got %q", out[0].Producer)
+	}
+}
+
+func TestDedupeResolutionChains_DoesNotMergeDistinctSubjectsWithSameSummary(t *testing.T) {
+	items := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Subject:   "`Register()` binds NewFoo → `Foo.Name()` returns \"foo\"",
+			Summary:   "`Display()` binds NewShared → `Shared.Name()` returns \"shared\"",
+			Producer:  "concrete_values",
+		},
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Subject:   "`Register()` binds NewBar → `Bar.Name()` returns \"bar\"",
+			Summary:   "`Display()` binds NewShared → `Shared.Name()` returns \"shared\"",
+			Producer:  "concrete_values",
+		},
+	}
+	out := dedupeResolutionChains(items)
+	if len(out) != 2 {
+		t.Fatalf("distinct typed chain payloads must not merge through shared display summary, got %d: %+v", len(out), out)
+	}
+}
+
 func TestDedupeResolutionChains_DifferentLiteralsAreDistinct(t *testing.T) {
 	items := []types.EvidenceItem{
 		{

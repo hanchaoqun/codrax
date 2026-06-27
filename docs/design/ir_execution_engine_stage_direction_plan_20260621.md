@@ -2450,6 +2450,11 @@ Remaining follow-up:
     2. Consumer change: `resolutionChainControlText` now selects `Subject`, then `Object`, before the legacy Summary fallback for `EvidenceDataflowPath + predicate=resolution_chain`. Non-chain evidence scoring remains unchanged.
     3. Guardrail tests: when two deterministic chains carry intentionally swapped `Subject` and `Summary`, the chain with the correct typed `Subject` ranks first; existing Summary-only legacy fixtures still pass until they are migrated.
     4. Red-line boundary: chain ranking consumes deterministic dataflow typed payload before rendered display prose. It does not parse ordinary LLM evidence Summary, user wording, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
+  - **Delivered D1-F10g.128 resolution-chain dedupe/count typed payload boundary（code complete / focused regression passed）**:
+    1. Target gap: after D1-F10g.127, two downstream consumers still read `EvidenceItem.Summary` for resolution-chain control: strict terminal baseline counting and `dedupeResolutionChains` grouping. Both influence extractor cardinality/handoff surfaces, so rendered display prose could still alter convergence.
+    2. Consumer change: both consumers now use `resolutionChainControlText`, which prefers deterministic `Subject`, then `Object`, and only falls back to `Summary` for legacy rows without a typed chain payload.
+    3. Guardrail tests: identical typed chain payloads collapse even when display summaries differ; distinct typed chain payloads remain distinct even when summaries are identical; legacy Summary-only chain fixtures remain supported.
+    4. Red-line boundary: terminal baseline and dedupe consume deterministic dataflow typed payload before rendered display prose. They do not parse ordinary LLM evidence Summary, user wording, model rationale, prompt prose, localized status, final-answer prose, elapsed time, or eval labels.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。

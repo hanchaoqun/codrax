@@ -12492,7 +12492,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		if !hasTerminalEvidence([]types.EvidenceItem{c.Item}) {
 			continue
 		}
-		key := normalizedChainTerminal(c.Item.Summary)
+		key := normalizedChainTerminal(resolutionChainControlText(c.Item))
 		if key == "" {
 			terminalEvidenceCount++
 			continue
@@ -15032,7 +15032,7 @@ func dedupeResolutionChains(items []types.EvidenceItem) []types.EvidenceItem {
 			kept = append(kept, it)
 			continue
 		}
-		key := normalizeChainKey(it.Summary)
+		key := normalizeChainKey(resolutionChainControlText(it))
 		if key == "||" {
 			kept = append(kept, it)
 			continue
