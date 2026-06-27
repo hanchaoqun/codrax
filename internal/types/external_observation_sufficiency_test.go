@@ -250,6 +250,41 @@ func TestAssessExternalObservationSufficiency_RouteBackedRepoArtifactBlocksRunti
 	}
 }
 
+func TestAssessExternalObservationSufficiency_RouteBackedMixedSourceBlocksRuntimeOnlyCompletion(t *testing.T) {
+	records := []ObservationRecord{{
+		ID:     "log:error:0",
+		Origin: AnswerEvidenceOriginRuntimeArtifact,
+		SourceRef: ObservationSourceRef{
+			Kind:       ObservationSourceRuntimeArtifact,
+			ArtifactID: "attached_log",
+		},
+		Span:    ObservationSpan{LineStart: 2, LineEnd: 3},
+		Summary: "first_byte_timeout exceeded after 40s",
+	}}
+	hint := TurnRouteHint{
+		Route:           "hybrid",
+		Source:          "mixed",
+		NeedsRepoAccess: true,
+		Confidence:      0.9,
+	}
+	if hint.ExternalObservationFirst() {
+		t.Fatalf("source=mixed must not be external-observation-first")
+	}
+	if !hint.ExternalObservationParticipates() {
+		t.Fatalf("source=mixed should keep external observation lane in scope")
+	}
+	got := AssessExternalObservationSufficiency(records, &RequestModel{
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+	}, hint)
+	if got.Status != ExternalObservationSufficiencyBlockedByCurrentSource {
+		t.Fatalf("route-backed mixed runtime/source turn should block runtime-only sufficiency, got %+v", got)
+	}
+}
+
 func TestAssessExternalObservationSufficiency_ExplicitSourceExclusionOverridesRouteBackedRepoArtifact(t *testing.T) {
 	records := []ObservationRecord{{
 		ID:     "log:error:0",

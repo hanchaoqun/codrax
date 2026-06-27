@@ -5035,6 +5035,9 @@ func analyzerExternalObservationFirstBlocksTool(ctx *types.AgentContext, name st
 	if !ctx.TurnRouteHint.ExternalObservationFirst() || !analyzerHasRuntimeArtifactCarrier(ctx) {
 		return false
 	}
+	if ctx.TurnRouteHint.NeedsRepoAccess {
+		return false
+	}
 	if rm := requestModelFromContext(ctx); rm != nil && rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
 		return false
 	}

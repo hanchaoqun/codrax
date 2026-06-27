@@ -5373,6 +5373,15 @@ func TestObserveMidLoop_EvidenceRepairClosureOnlyRendersStructuredTargetsOnce(t 
 	if !strings.Contains(second.Hint, "Auto-recovered line numbers are audit feedback") {
 		t.Fatalf("closure-only redirect should explain recovered evidence is not repaired yet, got: %s", second.Hint)
 	}
+	if !strings.Contains(second.Hint, "emit-only closure window") ||
+		!strings.Contains(second.Hint, "Navigation, search, and context-fetching tools are not callable") {
+		t.Fatalf("closure-only redirect should state the narrowed tool surface, got: %s", second.Hint)
+	}
+	for _, noisy := range []string{"just-read", "open more files", "fetch more context"} {
+		if strings.Contains(second.Hint, noisy) {
+			t.Fatalf("closure-only redirect should not encourage extra reads with %q: %s", noisy, second.Hint)
+		}
+	}
 	followup = append(followup, types.ToolResult{
 		ToolName: "grep",
 		Success:  true,

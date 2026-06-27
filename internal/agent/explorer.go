@@ -5427,7 +5427,8 @@ func renderEmitEvidenceRepairClosureOnlyHint(targets []evidenceRepairTarget) str
 	}
 	var b strings.Builder
 	b.WriteString("Progress check: the previous recovered/ungrounded `emit_evidence` rows are still not line-text grounded. Auto-recovered line numbers are audit feedback, not a completed repair for strict citations.\n")
-	b.WriteString("Re-emit `emit_evidence` now only for rows whose already-read gutter lines confirm the same proof. If the gutter shows the row is stale, wrong-file, or merely related context, emit a grounded replacement from a visible correct line, omit the stale row, or close from accepted evidence.\n")
+	b.WriteString("This is an emit-only closure window: use `emit_evidence` for replacements or `emit_investigation_complete` when accepted evidence is enough. Navigation, search, and context-fetching tools are not callable in this turn.\n")
+	b.WriteString("Use only already-visible gutters from the transcript. Re-emit rows only when those visible lines confirm the same proof. If a desired definition or sentinel is not already visible, omit that stale row or finish with an explicit limitation instead of requesting additional context.\n")
 	b.WriteString("Audit candidates from the previous repair window:\n")
 	for _, target := range targets[:maxFiles] {
 		lines := renderRepairLineList(target.lines, 4)
@@ -5437,8 +5438,8 @@ func renderEmitEvidenceRepairClosureOnlyHint(targets []evidenceRepairTarget) str
 		}
 		fmt.Fprintf(&b, "  - `%s` near lines %s\n", target.file, lines)
 	}
-	b.WriteString("\nIf the just-read gutter proves a previous row's anchor is stale, absent, or belongs to another location, do not keep repairing that exact row. Emit grounded replacement rows, or omit the bad row and close from the accepted evidence you can actually cite.")
-	b.WriteString("\nDo not open more files until the repaired or replacement `emit_evidence(items=[...])` call succeeds, unless the accepted evidence is already sufficient to call `emit_investigation_complete`.")
+	b.WriteString("\nIf the visible gutter proves a previous row's anchor is stale, absent, or belongs to another location, do not keep repairing that exact row. Emit grounded replacement rows only from visible lines, or omit the bad row and close from the accepted evidence you can actually cite.")
+	b.WriteString("\nDo not spend another turn requesting additional context from this closure-only surface; either emit the grounded repair batch or complete with a typed limitation.")
 	return b.String()
 }
 

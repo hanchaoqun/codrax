@@ -3733,6 +3733,178 @@ func TestEmitAnalysis_ExternalObservationPolicyExcludeRequiresAnchoredQuote(t *t
 	}
 }
 
+func TestEmitAnalysis_SynthesizesCurrentSourceAllowFromRouteBackedRuntimeArtifact(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("explain attached log against the current checkout")
+	mu.SetLogTriage(&types.LogBundle{
+		Observations: []types.LogObservation{{
+			Kind:      types.LogObservationRetryCycle,
+			Subject:   "finalizer timeout",
+			Summary:   "first_byte_timeout exceeded after 40s",
+			LineStart: 2,
+		}},
+	})
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["finalizer", "timeout", "validation"],
+		"entities": ["finalizer", "LLM stream timeout", "validation failure"],
+		"question_kind": "mechanism"
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "artifact",
+			Operation:       "investigate",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+	}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("route-backed runtime artifact should synthesize allow policy, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil ||
+		rm.ExternalObservationPolicy.CurrentSourceMode != types.ExternalObservationCurrentSourceAllow {
+		t.Fatalf("route-backed runtime artifact should synthesize current-source allow policy: %+v", rm)
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
+		t.Fatalf("route-backed synthesized allow should require current source, got %s", got)
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatalf("route-backed synthesized allow must not be source-optional: %+v", rm)
+	}
+	for _, want := range []string{"external_observation_policy=allow", "synthesized as allow from typed route metadata"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary should expose synthesized allow policy %q, got %q", want, res.Summary)
+		}
+	}
+}
+
+func TestEmitAnalysis_SynthesizesCurrentSourceAllowFromMixedRuntimeRoute(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("explain attached log together with current source")
+	mu.SetLogTriage(&types.LogBundle{
+		Observations: []types.LogObservation{{
+			Kind:      types.LogObservationRetryCycle,
+			Subject:   "finalizer timeout",
+			Summary:   "first_byte_timeout exceeded after 40s",
+			LineStart: 2,
+		}},
+	})
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["finalizer", "timeout", "validation"],
+		"entities": ["finalizer", "LLM stream timeout", "validation failure"],
+		"question_kind": "mechanism"
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "hybrid",
+			Source:          "mixed",
+			Operation:       "investigate",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+	}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("mixed runtime/source route should synthesize allow policy, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil ||
+		rm.ExternalObservationPolicy.CurrentSourceMode != types.ExternalObservationCurrentSourceAllow {
+		t.Fatalf("mixed runtime/source route should synthesize current-source allow policy: %+v", rm)
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
+		t.Fatalf("mixed route synthesized allow should require current source, got %s", got)
+	}
+	if !strings.Contains(res.Summary, "synthesized as allow from typed route metadata") {
+		t.Fatalf("summary should expose synthesized mixed-route allow policy, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_RouteBackedRuntimeArtifactDoesNotOverrideExplicitSourceExclude(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("只分析日志，不要读取源码")
+	mu.SetLogTriage(&types.LogBundle{
+		Observations: []types.LogObservation{{
+			Kind:      types.LogObservationRetryCycle,
+			Subject:   "finalizer timeout",
+			Summary:   "first_byte_timeout exceeded after 40s",
+			LineStart: 2,
+		}},
+	})
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["log", "timeout"],
+		"entities": ["finalizer"],
+		"question_kind": "mechanism",
+		"external_observation_policy": {
+			"current_source_mode": "exclude",
+			"exclusion_kind": "explicit_user_exclusion",
+			"source_quotes": ["不要读取源码"],
+			"confidence": 0.9
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "artifact",
+			Operation:       "investigate",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+	}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("explicit source exclusion should remain valid, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		t.Fatalf("explicit source exclusion should not be overridden by route hint: %+v", rm)
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneExcluded {
+		t.Fatalf("explicit source exclusion should win over route hint, got %s", got)
+	}
+	if strings.Contains(res.Summary, "synthesized as allow") {
+		t.Fatalf("summary should not claim synthesized allow when explicit exclude wins: %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_ExternalObservationPolicyUnanchoredExcludeDefaults(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

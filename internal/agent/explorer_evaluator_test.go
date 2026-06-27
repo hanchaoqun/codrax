@@ -491,6 +491,44 @@ func TestExplorer_BuildInitialInstruction_RouteBackedExternalObservationKeepsBre
 	}
 }
 
+func TestExplorer_BuildInitialInstruction_RouteBackedMixedObservationKeepsBreadthWhenRepoNeeded(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: `分析这段日志，并结合当前源码解释 finalizer retry`,
+		Stage:     types.StageExplore,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "hybrid",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				LogTriage: &types.LogBundle{
+					Observations: []types.LogObservation{{
+						Kind:      types.LogObservationRetryCycle,
+						Subject:   "finalizer timeout",
+						Summary:   "first_byte_timeout exceeded after 40s",
+						LineStart: 2,
+					}},
+				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.9,
+				},
+			},
+		},
+	}
+
+	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "External Observation First Start") {
+		t.Fatalf("mixed runtime/source turn must not render source-optional external start:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "## Breadth Scan") {
+		t.Fatalf("mixed runtime/source turn should keep source breadth prompt:\n%s", prompt)
+	}
+}
+
 func TestRenderExtractorSourceInventoryAdvisory_RendersCandidateAttributes(t *testing.T) {
 	out := renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
 		SourceInventoryAdvisory: types.SourceInventoryAdvisory{

@@ -200,21 +200,33 @@ func runtimeArtifactWithoutRequiredSourceForExplorer(ctx *types.AgentContext) bo
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource()
+	rm := ctx.AnalysisIR.RequestModel
+	if types.RouteBackedExternalObservationRequiresCurrentSource(&rm, ctx.TurnRouteHint) {
+		return false
+	}
+	return rm.HasRuntimeArtifactWithoutRequiredCurrentSource()
 }
 
 func runtimeArtifactObservationOnlySurfaceForExplorer(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactObservationOnlySurface()
+	rm := ctx.AnalysisIR.RequestModel
+	if types.RouteBackedExternalObservationRequiresCurrentSource(&rm, ctx.TurnRouteHint) {
+		return false
+	}
+	return rm.HasRuntimeArtifactObservationOnlySurface()
 }
 
 func runtimeArtifactSourceOptionalMixedSurfaceForExplorer(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactSourceOptionalMixedSurface()
+	rm := ctx.AnalysisIR.RequestModel
+	if types.RouteBackedExternalObservationRequiresCurrentSource(&rm, ctx.TurnRouteHint) {
+		return false
+	}
+	return rm.HasRuntimeArtifactSourceOptionalMixedSurface()
 }
 
 func explorerHasTraceQueryRuntimeTraceCarrier(ctx *types.AgentContext) bool {

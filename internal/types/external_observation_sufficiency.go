@@ -103,7 +103,7 @@ func externalObservationSufficiencyCurrentSourceRequired(rm *RequestModel, hint 
 // evidence: it can block external-only sufficiency, but it never creates
 // citations or answer facts by itself.
 func RouteBackedExternalObservationRequiresCurrentSource(rm *RequestModel, hint TurnRouteHint) bool {
-	if !hint.ExternalObservationFirst() || !hint.NeedsRepoAccess {
+	if !hint.ExternalObservationParticipates() || !hint.NeedsRepoAccess {
 		return false
 	}
 	if rm != nil && rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {

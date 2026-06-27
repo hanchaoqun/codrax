@@ -46,3 +46,20 @@ func (h TurnRouteHint) ExternalObservationFirst() bool {
 		return false
 	}
 }
+
+// ExternalObservationParticipates reports whether the route classifier kept an
+// external observation lane in the current turn. Unlike ExternalObservationFirst,
+// this includes mixed runtime/source turns where repository evidence is still
+// expected to carry part of the answer. It is route metadata only; callers must
+// still rely on RequestModel/runtime artifacts for evidence and citations.
+func (h TurnRouteHint) ExternalObservationParticipates() bool {
+	if h.IsZero() || h.ConcreteOperation || h.NeedsOperationAccess {
+		return false
+	}
+	switch strings.TrimSpace(h.Source) {
+	case "external_tool", "artifact", "mixed":
+		return true
+	default:
+		return false
+	}
+}

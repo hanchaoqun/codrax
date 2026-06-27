@@ -845,6 +845,28 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 		}
 	})
 
+	t.Run("external runtime first with route-backed repo access allows bounded prescan tools", func(t *testing.T) {
+		ctx := &types.AgentContext{
+			Stage:       types.StageAnalyze,
+			AttachedLog: "2026-05-23T10:00:40Z WARN first_byte_timeout exceeded after 40s",
+			TurnRouteHint: types.TurnRouteHint{
+				Route:           "repo",
+				Source:          "artifact",
+				NeedsRepoAccess: true,
+				Confidence:      0.9,
+			},
+		}
+		for _, tc := range []llm.ToolCall{
+			{Name: "repo_map", Params: json.RawMessage(`{"path":".","view":"task_map","query":"finalizer timeout"}`)},
+			{Name: "grep", Params: json.RawMessage(`{"pattern":"first_byte_timeout","files_only":true}`)},
+			{Name: "list_files", Params: json.RawMessage(`{"path":"internal"}`)},
+		} {
+			if got := validateAnalyzerPrescanToolCall(ctx, tc); got != nil {
+				t.Fatalf("tool=%s should remain available when route keeps repo access in scope, got %+v", tc.Name, got)
+			}
+		}
+	})
+
 	t.Run("explicit runtime artifact path blocks artifact prescan", func(t *testing.T) {
 		dir := t.TempDir()
 		logPath := filepath.Join(dir, "runtime_path_panic.log")

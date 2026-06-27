@@ -1087,6 +1087,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if synthesized, warning := synthesizeExternalObservationPolicyFromRouteHint(ctx, externalObservationPolicy); warning != "" {
+		externalObservationPolicy = synthesized
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if normalizedDiagnostic, warnings := normalizeDiagnosticProfileForExternalObservationPolicy(diagnosticProfile, externalObservationPolicy); len(warnings) > 0 {
 		diagnosticProfile = normalizedDiagnostic
 		for _, warning := range warnings {
@@ -3232,6 +3237,48 @@ func emitAnalysisObservationOnlyRuntimeArtifact(ctx *types.BusContext, policy *t
 		}
 	}
 	return rm.HasObservationOnlyRuntimeArtifact()
+}
+
+func synthesizeExternalObservationPolicyFromRouteHint(ctx *types.BusContext, policy *types.ExternalObservationPolicy) (*types.ExternalObservationPolicy, string) {
+	if ctx == nil || !ctx.TurnRouteHint.ExternalObservationParticipates() || !ctx.TurnRouteHint.NeedsRepoAccess {
+		return policy, ""
+	}
+	if !emitAnalysisHasRuntimeArtifactCarrier(ctx) {
+		return policy, ""
+	}
+	if policy != nil {
+		if policy.ExcludesCurrentSource() ||
+			policy.CurrentSourceMode == types.ExternalObservationCurrentSourceAllow {
+			return policy, ""
+		}
+		clone := *policy
+		clone.CurrentSourceMode = types.ExternalObservationCurrentSourceAllow
+		if clone.Confidence <= 0 {
+			clone.Confidence = 0.75
+		}
+		if strings.TrimSpace(clone.Rationale) == "" {
+			clone.Rationale = "route metadata kept repository access in scope for an external-observation turn"
+		}
+		return &clone, "external_observation_policy current_source_mode synthesized as allow from typed route metadata"
+	}
+	return &types.ExternalObservationPolicy{
+		CurrentSourceMode: types.ExternalObservationCurrentSourceAllow,
+		Confidence:        0.75,
+		Rationale:         "route metadata kept repository access in scope for an external-observation turn",
+	}, "external_observation_policy current_source_mode synthesized as allow from typed route metadata"
+}
+
+func emitAnalysisHasRuntimeArtifactCarrier(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if strings.TrimSpace(ctx.AttachedLog) != "" || strings.TrimSpace(ctx.AttachedHitrace) != "" {
+		return true
+	}
+	if ctx.Mutable != nil {
+		return ctx.Mutable.LogTriage() != nil || ctx.Mutable.PerfTrace() != nil
+	}
+	return false
 }
 
 func attachRuntimeArtifactsToRequestModel(ctx *types.BusContext, rm *types.RequestModel) {
