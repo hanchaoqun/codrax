@@ -52,6 +52,8 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"source_inventory_lens_observation.go":                          18,
 	"source_inventory_context_attributes.go":                        150,
 	"source_inventory_construct_surface.go":                         70,
+	"source_inventory_duplicate_location_gap.go":                    200,
+	"source_inventory_surface_family_gap.go":                        177,
 	"source_inventory_navigation_render.go":                         50,
 	"source_inventory_completion_repair.go":                         25,
 	"source_inventory_source_class_matrix.go":                       130,

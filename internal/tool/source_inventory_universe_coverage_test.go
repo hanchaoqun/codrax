@@ -2566,6 +2566,118 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_PrincipalAggregat
 	}
 }
 
+func TestSourceInventoryObservedDuplicateLocationCoverageGap_BlocksPartialDuplicateSurface(t *testing.T) {
+	first := sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6)
+	first.SurfaceTerms = []string{"foreign func native_add"}
+	second := sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6)
+	second.SurfaceTerms = []string{"foreign func native_add"}
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{first, second}, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleFixture,
+		Count:     1,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 1}},
+	}, {
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     1,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 1}},
+	}})
+	ctx.AnalysisIR.RequestModel.CompletenessObligation = &types.CompletenessObligation{Required: true, SourceQuote: "all source declarations"}
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "foreign func declarations",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"foreign func native_add(a: Int64, b: Int64): Int64 @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)",
+		},
+		SupportRefs: []string{"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6"},
+	}}
+	gap := SourceInventoryObservedDuplicateLocationCoverageGap(ctx, facts)
+	if !gap.Blocking || len(gap.Missing) != 1 || gap.Missing[0].File != "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj" {
+		t.Fatalf("partial duplicate-location surface should block with missing second location, got %+v", gap)
+	}
+	if downgrade := exhaustiveEnumerationMemberSetDowngrade(ctx, ctx.Mutable.EvidenceClosure(), facts); !strings.Contains(downgrade, "duplicate-location") {
+		t.Fatalf("pre-complete downgrade should explain duplicate-location family gap, got:\n%s", downgrade)
+	}
+}
+
+func TestSourceInventoryObservedDuplicateLocationCoverageGap_ExplicitExclusionSatisfiesDuplicateSurface(t *testing.T) {
+	first := sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6)
+	first.SurfaceTerms = []string{"foreign func native_add"}
+	second := sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6)
+	second.SurfaceTerms = []string{"foreign func native_add"}
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{first, second}, nil)
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "foreign func declarations",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"foreign func native_add(a: Int64, b: Int64): Int64 @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)",
+		},
+		SupportRefs: []string{"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6"},
+		Excluded:    []string{"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6"},
+	}}
+	if gap := SourceInventoryObservedDuplicateLocationCoverageGap(ctx, facts); gap.IsActive() {
+		t.Fatalf("explicit location exclusion should satisfy duplicate-location gap, got %+v", gap)
+	}
+}
+
+func TestSourceInventoryObservedSurfaceFamilyCoverageGap_BlocksPartialTypedFamily(t *testing.T) {
+	first := sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 15)
+	first.SurfaceTerms = []string{"public class", "public class Bridge"}
+	second := sourceInventoryRequestedUniverseMember("Greeter", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", 6)
+	second.SurfaceTerms = []string{"public class", "public class Greeter"}
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{first, second}, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleFixture,
+		Count:     1,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 1}},
+	}, {
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     1,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 1}},
+	}})
+	ctx.AnalysisIR.RequestModel.CompletenessObligation = &types.CompletenessObligation{Required: true, SourceQuote: "all source declarations"}
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "public class declarations",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"public class Bridge @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15 (package demo.bridge)",
+		},
+		SupportRefs: []string{"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15"},
+	}}
+	gap := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, facts)
+	if !gap.Blocking || len(gap.Missing) != 1 || gap.Missing[0].File != "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj" {
+		t.Fatalf("partial typed surface-family coverage should block with missing second location, got %+v", gap)
+	}
+	if downgrade := exhaustiveEnumerationMemberSetDowngrade(ctx, ctx.Mutable.EvidenceClosure(), facts); !strings.Contains(downgrade, "surface_family") {
+		t.Fatalf("pre-complete downgrade should explain surface-family gap, got:\n%s", downgrade)
+	}
+}
+
+func TestSourceInventoryObservedSurfaceFamilyCoverageGap_ExplicitExclusionSatisfiesFamily(t *testing.T) {
+	first := sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 15)
+	first.SurfaceTerms = []string{"public class", "public class Bridge"}
+	second := sourceInventoryRequestedUniverseMember("Greeter", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", 6)
+	second.SurfaceTerms = []string{"public class", "public class Greeter"}
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{first, second}, nil)
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "public class declarations",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"public class Bridge @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15 (package demo.bridge)",
+		},
+		SupportRefs: []string{"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15"},
+		Excluded:    []string{"public class Greeter @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj:6"},
+	}}
+	if gap := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, facts); gap.IsActive() {
+		t.Fatalf("explicit location exclusion should satisfy surface-family gap, got %+v", gap)
+	}
+}
+
 func TestSourceInventoryAcceptedClosureCoversExactUniverse_RequiresFullCoverage(t *testing.T) {
 	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta", "gamma"})
 	partial := []types.AnswerAggregateFact{{

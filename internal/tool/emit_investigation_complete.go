@@ -4044,11 +4044,13 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, aggregateFacts)
 	countGaps := exhaustiveEnumerationPrincipalGroupedCountGaps(ctx, aggregateFacts)
 	universeGap := SourceInventoryCandidateUniverseCoverageGap(ctx, aggregateFacts)
+	duplicateLocationGap := SourceInventoryObservedDuplicateLocationCoverageGap(ctx, aggregateFacts)
+	surfaceFamilyGap := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, aggregateFacts)
 	originSpecificOnlyMemberSet := exhaustiveEnumerationHasOriginSpecificOnlyMemberSet(ctx, aggregateFacts)
-	if ok && len(countGaps) == 0 && !universeGap.Blocking {
+	if ok && len(countGaps) == 0 && !universeGap.Blocking && !duplicateLocationGap.Blocking && !surfaceFamilyGap.Blocking {
 		return ""
 	}
-	if strings.TrimSpace(invalid) == "" && len(countGaps) == 0 && !universeGap.Blocking {
+	if strings.TrimSpace(invalid) == "" && len(countGaps) == 0 && !universeGap.Blocking && !duplicateLocationGap.Blocking && !surfaceFamilyGap.Blocking {
 		if syms, claim := ctx.Mutable.EmittedAnswerSymbols(); len(syms) > 0 && claim == types.CompletenessComplete {
 			return ""
 		}
@@ -4094,6 +4096,12 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 	}
 	if universeGap.Blocking {
 		fmt.Fprintf(&b, "An exact candidate universe observed through structured navigation is not covered or excluded by your current principal `member_set`: %s. This does not mean every candidate is automatically part of the final answer, but a complete close must either include verified principal members, explicitly list excluded candidates in `excluded`, or emit a matching `excluded_count` disclosure for candidates you intentionally ruled out.\n\n", universeGap.Summary(16))
+	}
+	if duplicateLocationGap.Blocking {
+		fmt.Fprintf(&b, "A typed source-inventory row surface appears at multiple source locations, but the current principal `member_set` covers only part of that observed duplicate-location family: %s. A complete close must include each verified location for that selected member surface or explicitly exclude the non-answer locations.\n\n", duplicateLocationGap.Summary(16))
+	}
+	if surfaceFamilyGap.Blocking {
+		fmt.Fprintf(&b, "A typed source-inventory surface family has multiple observed principal source rows, but the current principal `member_set` covers only part of that selected family: %s. A complete close must include each verified row for the selected surface family or explicitly exclude the non-answer locations.\n\n", surfaceFamilyGap.Summary(16))
 	}
 	if checklist := sourceInventoryMemberSetRepairChecklist(ctx, 16); checklist != "" {
 		b.WriteString(checklist)
