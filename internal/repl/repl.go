@@ -1453,9 +1453,6 @@ func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer
 		return
 	}
 
-	ctx := r.startTurn()
-	defer r.endTurn()
-
 	prior := ""
 	if r.store != nil {
 		prior = r.store.BuildContext(line, memory.BuildOpts{
@@ -1490,9 +1487,12 @@ func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer
 		reply string
 		err   error
 	)
-	if local, ok := r.chitchatResponder.(LocalResponder); ok {
-		reply, err = local.RespondLocal(ctx, line, prior, lastAnswer, policy.PresentationDirective)
-	} else {
+	err = r.runREPLDirectLLMInFlight(func(ctx context.Context) error {
+		if local, ok := r.chitchatResponder.(LocalResponder); ok {
+			var localErr error
+			reply, localErr = local.RespondLocal(ctx, line, prior, lastAnswer, policy.PresentationDirective)
+			return localErr
+		}
 		// Fallback: bake the structured channels into the
 		// priorContext blob a vanilla Respond consumer expects.
 		// The constraint surface is weaker here (the local system
@@ -1514,8 +1514,10 @@ func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer
 			b.WriteString("## Prior conversation\n")
 			b.WriteString(pc)
 		}
-		reply, err = r.chitchatResponder.Respond(ctx, line, b.String())
-	}
+		var respondErr error
+		reply, respondErr = r.chitchatResponder.Respond(ctx, line, b.String())
+		return respondErr
+	})
 	if r.renderer != nil {
 		armDockTerminalState(r.renderer, err)
 		r.renderer.StopSpinner()
@@ -6110,6 +6112,28 @@ func (r *REPL) runInFlightWrap(fn func() (*types.BusContext, error)) (*types.Bus
 	return fn()
 }
 
+// runREPLDirectLLMInFlight wraps REPL-owned direct LLM calls that do not go
+// through the orchestrator Runner: turn-policy classification, local reply, and
+// chat reply. These calls still close the input box and may sit on the live
+// dock, so SIGINT must treat them as in-flight work and cancel the per-turn
+// context rather than as an idle prompt.
+//
+// Deliberately does NOT start the non-TTY stdin /cancel listener. Route
+// classifiers often run before a scripted next line such as /exit is read; a
+// concurrent scanner there can consume normal input and create a new class of
+// second-turn hangs. Pipeline Run keeps the full runInFlightWrap above.
+func (r *REPL) runREPLDirectLLMInFlight(fn func(context.Context) error) error {
+	if fn == nil {
+		return nil
+	}
+	r.installCancelSignalHandler()
+	ctx := r.startTurn()
+	r.runInFlight.Store(true)
+	defer r.runInFlight.Store(false)
+	defer r.endTurn()
+	return fn(ctx)
+}
+
 func (r *REPL) Loop() error {
 	r.banner()
 	memNudgeShown := false
@@ -6853,9 +6877,15 @@ func (r *REPL) dispatch(line, display string) {
 		// legacy binary path below.
 		if tpc, ok := r.chitchatClassifier.(TurnPolicyClassifier); ok {
 			lastAnswer := r.lastAnswerText()
-			classifierCtx := r.startTurn()
-			policy, err := tpc.ClassifyPolicy(classifierCtx, line, hint, lastAnswer != "")
-			r.endTurn()
+			logging.Info("[repl/turn_policy] classifier start: %s", oneLine(line))
+			started := time.Now()
+			var policy TurnPolicy
+			err := r.runREPLDirectLLMInFlight(func(classifierCtx context.Context) error {
+				var classifyErr error
+				policy, classifyErr = tpc.ClassifyPolicy(classifierCtx, line, hint, lastAnswer != "")
+				return classifyErr
+			})
+			logging.Info("[repl/turn_policy] classifier end: elapsed=%s err=%t", time.Since(started).Truncate(time.Millisecond), err != nil)
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
 					logging.Warning("[repl/turn_policy] classifier timed out: %v — falling back to pipeline", err)
@@ -6937,9 +6967,15 @@ func (r *REPL) dispatch(line, display string) {
 			// Legacy binary path. Preserved verbatim so test stubs
 			// implementing ChitchatClassifier-only continue to work
 			// byte-for-byte.
-			classifierCtx := r.startTurn()
-			isChat, err := r.chitchatClassifier.Classify(classifierCtx, line, hint)
-			r.endTurn()
+			logging.Info("[repl/chitchat] legacy classifier start: %s", oneLine(line))
+			started := time.Now()
+			var isChat bool
+			err := r.runREPLDirectLLMInFlight(func(classifierCtx context.Context) error {
+				var classifyErr error
+				isChat, classifyErr = r.chitchatClassifier.Classify(classifierCtx, line, hint)
+				return classifyErr
+			})
+			logging.Info("[repl/chitchat] legacy classifier end: elapsed=%s err=%t", time.Since(started).Truncate(time.Millisecond), err != nil)
 			if err != nil {
 				logging.Warning("[repl/chitchat] classifier error: %v — falling back to pipeline", err)
 			} else if isChat {
@@ -7161,9 +7197,15 @@ func (r *REPL) tryLegacyChitchatFallback(line, display, hint string, cause error
 		logging.Warning("[repl/chitchat] skipping legacy fallback after turn-policy timeout; falling through to pipeline")
 		return false
 	}
-	classifierCtx := r.startTurn()
-	isChat, err := r.chitchatClassifier.Classify(classifierCtx, line, hint)
-	r.endTurn()
+	logging.Info("[repl/chitchat] legacy fallback classifier start: %s", oneLine(line))
+	started := time.Now()
+	var isChat bool
+	err := r.runREPLDirectLLMInFlight(func(classifierCtx context.Context) error {
+		var classifyErr error
+		isChat, classifyErr = r.chitchatClassifier.Classify(classifierCtx, line, hint)
+		return classifyErr
+	})
+	logging.Info("[repl/chitchat] legacy fallback classifier end: elapsed=%s err=%t", time.Since(started).Truncate(time.Millisecond), err != nil)
 	if err != nil {
 		logging.Warning("[repl/chitchat] legacy fallback classifier error after turn-policy failure (%v): %v", cause, err)
 		return false

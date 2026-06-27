@@ -694,12 +694,6 @@ func (r *REPL) chitchatDispatch(line, display string) {
 		return
 	}
 
-	// Per-turn ctx: SIGINT handler can cancel us via cancelTurn()
-	// so an in-flight chitchat HTTP request unwinds immediately
-	// instead of waiting for the LLM call's natural completion.
-	ctx := r.startTurn()
-	defer r.endTurn()
-
 	prior := r.store.BuildContext(line, memory.BuildOpts{
 		Kind:      memory.KindChitchat,
 		SessionID: r.sessionID,
@@ -735,22 +729,30 @@ func (r *REPL) chitchatDispatch(line, display string) {
 	//   3. plain Respond → single-call sync with spinner.
 	var response string
 	var err error
-	switch {
-	case r.chitchatResponder != nil && r.memory != nil && isToolableChitchat(r.chitchatResponder):
-		response, err = r.runToolableChitchat(ctx, line, prior)
-	case isStreamingChitchat(r.chitchatResponder) && r.renderer != nil:
-		streamer := r.chitchatResponder.(streamingChitchatResponder)
-		response, err = r.runStreamingChitchat(ctx, streamer, line, prior)
-	default:
-		if r.renderer != nil {
-			r.renderer.StartSpinner()
+	err = r.runREPLDirectLLMInFlight(func(ctx context.Context) error {
+		switch {
+		case r.chitchatResponder != nil && r.memory != nil && isToolableChitchat(r.chitchatResponder):
+			var chatErr error
+			response, chatErr = r.runToolableChitchat(ctx, line, prior)
+			return chatErr
+		case isStreamingChitchat(r.chitchatResponder) && r.renderer != nil:
+			streamer := r.chitchatResponder.(streamingChitchatResponder)
+			var chatErr error
+			response, chatErr = r.runStreamingChitchat(ctx, streamer, line, prior)
+			return chatErr
+		default:
+			if r.renderer != nil {
+				r.renderer.StartSpinner()
+			}
+			var chatErr error
+			response, chatErr = r.chitchatResponder.Respond(ctx, line, prior)
+			if r.renderer != nil {
+				armDockTerminalState(r.renderer, chatErr)
+				r.renderer.StopSpinner()
+			}
+			return chatErr
 		}
-		response, err = r.chitchatResponder.Respond(ctx, line, prior)
-		if r.renderer != nil {
-			armDockTerminalState(r.renderer, err)
-			r.renderer.StopSpinner()
-		}
-	}
+	})
 
 	if err != nil {
 		logging.Warning("[repl/chitchat] responder failed: %v", err)

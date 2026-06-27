@@ -56,16 +56,20 @@ type stubTurnPolicyClassifier struct {
 	calls         []string
 	hints         []string
 	hadPriorFlags []bool
+	onPolicy      func(context.Context)
 }
 
 func (s *stubTurnPolicyClassifier) Classify(_ context.Context, line, hint string) (bool, error) {
 	return false, errors.New("stubTurnPolicyClassifier.Classify should not be invoked when TurnPolicyClassifier path is preferred")
 }
 
-func (s *stubTurnPolicyClassifier) ClassifyPolicy(_ context.Context, line, hint string, hasPriorAnswer bool) (TurnPolicy, error) {
+func (s *stubTurnPolicyClassifier) ClassifyPolicy(ctx context.Context, line, hint string, hasPriorAnswer bool) (TurnPolicy, error) {
 	s.calls = append(s.calls, line)
 	s.hints = append(s.hints, hint)
 	s.hadPriorFlags = append(s.hadPriorFlags, hasPriorAnswer)
+	if s.onPolicy != nil {
+		s.onPolicy(ctx)
+	}
 	return s.policy, s.err
 }
 
@@ -206,6 +210,7 @@ type stubLocalResponder struct {
 	localCalls []stubLocalCall
 	localReply string
 	localErr   error
+	onLocal    func(context.Context)
 }
 
 type stubLocalCall struct {
@@ -215,13 +220,16 @@ type stubLocalCall struct {
 	directive  string
 }
 
-func (s *stubLocalResponder) RespondLocal(_ context.Context, userLine, prior, lastAnswer, directive string) (string, error) {
+func (s *stubLocalResponder) RespondLocal(ctx context.Context, userLine, prior, lastAnswer, directive string) (string, error) {
 	s.localCalls = append(s.localCalls, stubLocalCall{
 		userLine:   userLine,
 		prior:      prior,
 		lastAnswer: lastAnswer,
 		directive:  directive,
 	})
+	if s.onLocal != nil {
+		s.onLocal(ctx)
+	}
 	if s.localErr != nil {
 		return "", s.localErr
 	}
@@ -1421,6 +1429,87 @@ func TestTurnPolicyDispatch_LocalTransformReusesAnswer(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "mermaid") {
 		t.Errorf("local reply body missing; got %q", out.String())
+	}
+}
+
+func TestTurnPolicyDispatch_ClassifierRunsInInFlightLifecycle(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:           RouteRepo,
+			NeedsRepoAccess: true,
+			Operation:       "investigate",
+			Source:          "repo",
+			Confidence:      0.9,
+			Reason:          "fresh repository investigation",
+		},
+	}
+	r, runner, _ := newTurnPolicyREPL(t, store, classifier, &stubResponder{reply: "unused"}, "分析当前系统有哪些 agent\n/exit\n")
+	classifier.onPolicy = func(ctx context.Context) {
+		if ctx == nil {
+			t.Fatal("classifier ctx is nil")
+		}
+		if !r.runInFlight.Load() {
+			t.Fatal("turn-policy classifier must run inside REPL in-flight lifecycle")
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("classifier ctx should be live during normal classification")
+		default:
+		}
+	}
+
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 1 {
+		t.Fatalf("repo route should dispatch runner once, got %d", len(runner.requests))
+	}
+	if r.runInFlight.Load() {
+		t.Fatal("in-flight lifecycle must clear after dispatch")
+	}
+}
+
+func TestTurnPolicyDispatch_LocalResponderRunsInInFlightLifecycle(t *testing.T) {
+	store := newPolicyStore(t)
+	seedPriorAnswer(t, store,
+		"当前系统有哪些 agent",
+		"系统包含 Analyzer、Explorer 等 agent。")
+
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:                 RouteLocal,
+			Operation:             "transform",
+			Source:                "last_answer",
+			Confidence:            0.92,
+			PresentationDirective: "markdown table",
+			Reason:                "transformation of previous answer",
+		},
+	}
+	responder := &stubLocalResponder{localReply: "| agent | role |\n|---|---|\n| Analyzer | classify |"}
+	r, runner, _ := newTurnPolicyREPL(t, store, classifier, responder, "换成表格\n/exit\n")
+	responder.onLocal = func(ctx context.Context) {
+		if ctx == nil {
+			t.Fatal("local responder ctx is nil")
+		}
+		if !r.runInFlight.Load() {
+			t.Fatal("local responder must run inside REPL in-flight lifecycle")
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("local responder ctx should be live during normal response")
+		default:
+		}
+	}
+
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("route=local must not dispatch runner, got %d", len(runner.requests))
+	}
+	if r.runInFlight.Load() {
+		t.Fatal("in-flight lifecycle must clear after local reply")
 	}
 }
 
