@@ -4455,6 +4455,113 @@ func TestExplorer_FilterToolSchemas_SourceInventoryFollowupSurfaceStaysNarrow(t 
 	}
 }
 
+func TestExplorer_SourceInventoryLensInlineFollowupNarrowsBeforeCompletion(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := sourceInventoryInlineFollowupContextForExplorerTest()
+	result := sourceInventoryLensNavigationResultForExplorerTest()
+
+	sig := eval.Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      0,
+		LastToolResult: &result,
+		AllToolResults: []types.ToolResult{result},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("first incomplete source_inventory lens should request inline follow-up, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.source-inventory-followup" {
+		t.Fatalf("HintKey = %q, want source-inventory follow-up", sig.HintKey)
+	}
+	for _, want := range []string{"repo_map", "source_inventory", "internal/thirdparty/tree-sitter-cangjie/corpus/sources", "include_attributes=false"} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("inline follow-up hint missing %q:\n%s", want, sig.Hint)
+		}
+	}
+	if !ctx.SourceInventoryFollowupDebt.IsActive() {
+		t.Fatalf("inline follow-up should install typed debt on context")
+	}
+
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "exec_command"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "repo_map,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("inline follow-up must keep the next turn narrow, got %v", gotNames)
+	}
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"public class"}`)}); got == nil || got.Success {
+		t.Fatalf("inline follow-up route must reject broad grep, got %+v", got)
+	}
+	exact := llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"view":"source_inventory","path":".","scopes":["internal/thirdparty/tree-sitter-cangjie/corpus/sources"],"roles":["type","function","constant"],"include_counts":true,"include_attributes":false,"top_n":24}`)}
+	if got := validateExplorerToolBoundary(ctx, eval, exact); got != nil {
+		t.Fatalf("inline follow-up exact route should be allowed, got %+v", got)
+	}
+}
+
+func TestExplorer_SourceInventoryInlineFollowupReleasesAfterOneRoute(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := sourceInventoryInlineFollowupContextForExplorerTest()
+	first := sourceInventoryLensNavigationResultForExplorerTest()
+	_ = eval.Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      0,
+		LastToolResult: &first,
+		AllToolResults: []types.ToolResult{first},
+	})
+	if !eval.sourceInventoryInlineFollowupActive {
+		t.Fatalf("inline follow-up should be active after first lens")
+	}
+	second := sourceInventoryLensNavigationResultForExplorerTest()
+	_ = eval.Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      1,
+		LastToolResult: &second,
+		AllToolResults: []types.ToolResult{first, second},
+	})
+	if eval.sourceInventoryInlineFollowupActive {
+		t.Fatalf("inline follow-up should release after one source_inventory follow-up route")
+	}
+	if ctx.SourceInventoryFollowupDebt.IsActive() {
+		t.Fatalf("context follow-up debt should clear after inline follow-up route")
+	}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "exec_command"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,grep,repo_map,exec_command,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("inline follow-up should release ordinary tool surface after one route, got %v", gotNames)
+	}
+}
+
+func TestExplorer_SourceInventoryInlineFollowupSkipsSupportOnlyInventory(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := sourceInventoryInlineFollowupContextForExplorerTest()
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile.TargetRoles = []types.AnswerCandidateRole{types.AnswerCandidateRoleType}
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile.RequestedFields = []types.SourceInventoryRequestedField{types.SourceInventoryFieldValues}
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile.RequiresConstSet = false
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile.TypeUnderlying = types.SourceInventoryTypeUnderlyingUnknown
+	result := sourceInventoryLensNavigationResultForExplorerTest()
+
+	sig := eval.Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      0,
+		LastToolResult: &result,
+		AllToolResults: []types.ToolResult{result},
+	})
+	if sig.HintKey == "explorer.mid-loop.source-inventory-followup" || eval.sourceInventoryInlineFollowupActive {
+		t.Fatalf("support-only inventory lane must not activate inline follow-up, sig=%+v active=%t", sig, eval.sourceInventoryInlineFollowupActive)
+	}
+}
+
 func TestExplorer_FilterToolSchemas_ReadDispatchPolicy(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{
@@ -4820,6 +4927,86 @@ func sourceInventoryFollowupDebtForExplorerTest(cursor string) types.SourceInven
 		MissingClasses: []types.SourcePathRole{types.SourcePathRoleThirdParty},
 		Roles:          []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
 	})
+}
+
+func sourceInventoryInlineFollowupContextForExplorerTest() *types.AgentContext {
+	mut := types.NewMutableState("inventory")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       []string{"."},
+		Provenance: []string{
+			"repo_lens:tool_query",
+			"repo_lens:candidate_budget_truncated",
+			"source_class_universe:repo_tracked",
+		},
+		Lens: []string{"members", "source_class_universe", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{
+			{
+				Role:     types.SourcePathRoleFixture,
+				Count:    1,
+				Complete: true,
+				Samples:  []string{"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj"},
+			},
+			{
+				Role:     types.SourcePathRoleThirdParty,
+				Count:    1,
+				Complete: true,
+				Samples:  []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"},
+			},
+		},
+		Execution: &types.SourceInventoryExecutionState{CandidateBudgetTruncated: true},
+		Page: &types.SourceInventoryObservationPage{
+			Offset:     0,
+			Limit:      50,
+			Total:      51,
+			Emitted:    1,
+			NextCursor: "50",
+			Complete:   false,
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: false,
+			Count:    1,
+			Total:    51,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:     "Cart",
+				Role:     types.AnswerCandidateRoleType,
+				File:     "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+				Line:     14,
+				Language: "cangjie",
+			}},
+		}},
+	})
+	return &types.AgentContext{
+		Stage:              types.StageExplore,
+		ExploreToolSurface: types.ExploreToolSurfaceSourceInventoryLens,
+		Mutable:            mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleType,
+					types.AnswerCandidateRoleFunction,
+					types.AnswerCandidateRoleConstant,
+				},
+				SourceQuotes: []string{"extend 块", "foreign func 声明", "public class"},
+			},
+		}},
+	}
+}
+
+func sourceInventoryLensNavigationResultForExplorerTest() types.ToolResult {
+	return types.ToolResult{
+		ToolName: "repo_map",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			Producer:  "repo_map",
+			Predicate: types.RepoMapNavigationObservationPredicate,
+			Value:     string(types.RepoMapNavigationRouteSourceInventory),
+		}},
+	}
 }
 
 func sourceInventoryPaginationFollowupDebtForExplorerTest(cursor string) types.SourceInventoryFollowupDebt {

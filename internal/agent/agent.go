@@ -5203,14 +5203,15 @@ func validateExplorerSourceInventoryLensToolCall(ctx *types.AgentContext, eval *
 	if ctx == nil || ctx.Stage != types.StageExplore || !ctx.ExploreToolSurface.IsSourceInventory() {
 		return nil
 	}
-	if eval != nil && eval.sourceInventoryLensSurfaceReleased && !ctx.ExploreToolSurface.IsSourceInventoryFollowup() {
+	followupRouteActive := eval != nil && eval.sourceInventoryFollowupRouteActive(ctx)
+	if eval != nil && eval.sourceInventoryLensSurfaceReleased && !followupRouteActive {
 		return nil
 	}
 	name := strings.TrimSpace(tc.Name)
 	switch name {
 	case "repo_map":
 		if analyzerRepoMapSourceInventoryView(tc.Params) {
-			if ctx.ExploreToolSurface.IsSourceInventoryFollowup() {
+			if followupRouteActive {
 				if reason, blocked := explorerSourceInventoryFollowupRouteViolation(ctx, tc.Params); blocked {
 					return rejectExplorerSourceInventoryLensToolWithCode(ctx, tc, explorerSourceInventoryLensScopeCode, reason)
 				}

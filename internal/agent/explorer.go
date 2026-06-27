@@ -162,35 +162,39 @@ type explorerEvaluator struct {
 	// orientation finalize nudge. Without this latch the nudge would
 	// re-render every iteration after the threshold fires, drowning
 	// the LLM in repeated "you have enough" reminders.
-	midLoopOrientationFinalizeSent     bool
-	midLoopNoEmitPushSent              bool // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
-	midLoopNoEmitEscalated             bool // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
-	midLoopNoEmitClosureOnlySent       bool // one-shot: materialization-only redirect after the escalation was ignored
-	midLoopNoEmitEndpointSent          bool // one-shot: bounded trace backlog could not be narrowed because the terminal endpoint is not covered yet
-	midLoopExecRedirectSent            bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
-	midLoopExplanationAnchorSent       bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
-	midLoopCompletionReadySent         bool // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
-	midLoopCandidateUniverseSent       bool // one-shot: exact candidate universe is not yet covered/excluded by a structured member_set
-	midLoopCompletionReadyEscalated    bool // one-shot: stronger close-now escalation after the completion-ready hint was ignored
-	midLoopCompletionReadyClosureSent  bool // one-shot: post-ready navigation grace was already consumed without structured progress
-	midLoopCompletionReadyIter         int  // iteration where completion-ready first fired
-	sourceInventoryLensSurfaceReleased bool
-	midLoopNoveltySeen                 map[string]bool
-	midLoopNoNoveltyNavigationStreak   int
-	midLoopNoNoveltyStreakByScope      map[string]int
-	midLoopLowNoveltyHintSent          bool
-	midLoopNoEmitPushIter              int // iteration where the current backlog window's read-without-emit nudge fired
-	midLoopNoEmitPushResultsLen        int // allResults length when the current backlog window's read-without-emit nudge fired
-	midLoopEmitBacklogBaseLen          int // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
-	midLoopReadWithoutEmitFamilyHints  int // dispatch-level semantic-family count; repeated backlog windows get compact hints
-	midLoopPartialReadHinted           map[string]types.RepairDebtClass
-	midLoopPartialReadBacklogKey       string
-	midLoopPartialReadBacklogClass     types.RepairDebtClass
-	primaryReadSeen                    bool // df3-drift: whether any primary-entity file has entered readSet this dispatch
-	primaryReadIter                    int  // df3-drift: iter at which a primary-entity file first entered readSet
-	notesLenAtPrimaryRead              int  // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
-	investigationComplete              bool // set when emit_investigation_complete tool was observed in MidLoop
-	mergedEmittedEvidenceLen           int  // number of Mutable.EmittedEvidence rows already folded into structuredEvidence this dispatch
+	midLoopOrientationFinalizeSent          bool
+	midLoopNoEmitPushSent                   bool // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
+	midLoopNoEmitEscalated                  bool // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
+	midLoopNoEmitClosureOnlySent            bool // one-shot: materialization-only redirect after the escalation was ignored
+	midLoopNoEmitEndpointSent               bool // one-shot: bounded trace backlog could not be narrowed because the terminal endpoint is not covered yet
+	midLoopExecRedirectSent                 bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
+	midLoopExplanationAnchorSent            bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
+	midLoopCompletionReadySent              bool // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
+	midLoopCandidateUniverseSent            bool // one-shot: exact candidate universe is not yet covered/excluded by a structured member_set
+	midLoopCompletionReadyEscalated         bool // one-shot: stronger close-now escalation after the completion-ready hint was ignored
+	midLoopCompletionReadyClosureSent       bool // one-shot: post-ready navigation grace was already consumed without structured progress
+	midLoopCompletionReadyIter              int  // iteration where completion-ready first fired
+	sourceInventoryLensSurfaceReleased      bool
+	sourceInventoryInlineFollowupActive     bool
+	sourceInventoryInlineFollowupSent       bool
+	sourceInventoryInlineFollowupResultsLen int
+	sourceInventoryInlineFollowupDebt       types.SourceInventoryFollowupDebt
+	midLoopNoveltySeen                      map[string]bool
+	midLoopNoNoveltyNavigationStreak        int
+	midLoopNoNoveltyStreakByScope           map[string]int
+	midLoopLowNoveltyHintSent               bool
+	midLoopNoEmitPushIter                   int // iteration where the current backlog window's read-without-emit nudge fired
+	midLoopNoEmitPushResultsLen             int // allResults length when the current backlog window's read-without-emit nudge fired
+	midLoopEmitBacklogBaseLen               int // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
+	midLoopReadWithoutEmitFamilyHints       int // dispatch-level semantic-family count; repeated backlog windows get compact hints
+	midLoopPartialReadHinted                map[string]types.RepairDebtClass
+	midLoopPartialReadBacklogKey            string
+	midLoopPartialReadBacklogClass          types.RepairDebtClass
+	primaryReadSeen                         bool // df3-drift: whether any primary-entity file has entered readSet this dispatch
+	primaryReadIter                         int  // df3-drift: iter at which a primary-entity file first entered readSet
+	notesLenAtPrimaryRead                   int  // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
+	investigationComplete                   bool // set when emit_investigation_complete tool was observed in MidLoop
+	mergedEmittedEvidenceLen                int  // number of Mutable.EmittedEvidence rows already folded into structuredEvidence this dispatch
 
 	// answerSubject is the AnswerSubject classification copied from
 	// the analyzer's IR at BuildInitialInstruction time. The chain
@@ -6899,11 +6903,22 @@ func (e *explorerEvaluator) sourceInventoryLensSurfaceActive(ctx *types.AgentCon
 	if ctx == nil || ctx.Stage != types.StageExplore {
 		return false
 	}
-	if ctx.ExploreToolSurface.IsSourceInventoryFollowup() {
+	if e.sourceInventoryFollowupRouteActive(ctx) {
 		return true
 	}
 	return ctx.ExploreToolSurface.IsSourceInventoryLens() &&
 		(e == nil || !e.sourceInventoryLensSurfaceReleased)
+}
+
+func (e *explorerEvaluator) sourceInventoryFollowupRouteActive(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Stage != types.StageExplore {
+		return false
+	}
+	if ctx.ExploreToolSurface.IsSourceInventoryFollowup() {
+		return true
+	}
+	return e != nil && e.sourceInventoryInlineFollowupActive &&
+		types.NormalizeSourceInventoryFollowupDebt(ctx.SourceInventoryFollowupDebt).IsActive()
 }
 
 func (e *explorerEvaluator) materializationOnlyToolSurfaceActive() bool {
@@ -10516,6 +10531,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if sig := e.postClosureReadyBacklogSignal(obs); sig.HintRequested {
 		return sig
 	}
+	if sig := e.postSourceInventoryInlineFollowupSignal(obs); sig.HintRequested {
+		return sig
+	}
 	if sig := e.postExplanationAnchorSignal(obs); sig.HintRequested {
 		return sig
 	}
@@ -12028,6 +12046,7 @@ func (e *explorerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	case PhaseMidLoop:
 		e.refreshMidLoopStructuredEvidence(ctx)
 		e.observeSourceInventoryLensSurfaceProgress(ctx, obs)
+		e.refreshSourceInventoryInlineFollowup(ctx, obs)
 		return e.observeMidLoop(obs)
 	case PhaseSoftStop:
 		return e.observeSoftStop(obs)
@@ -12044,6 +12063,127 @@ func (e *explorerEvaluator) observeSourceInventoryLensSurfaceProgress(ctx *types
 			e.sourceInventoryLensSurfaceReleased = true
 			return
 		}
+	}
+}
+
+func (e *explorerEvaluator) refreshSourceInventoryInlineFollowup(ctx *types.AgentContext, obs LoopObservation) {
+	if e == nil || ctx == nil || ctx.Stage != types.StageExplore {
+		return
+	}
+	if e.sourceInventoryInlineFollowupActive {
+		if e.sourceInventoryInlineFollowupObserved(obs.AllToolResults) {
+			e.sourceInventoryInlineFollowupActive = false
+			e.sourceInventoryInlineFollowupDebt = types.SourceInventoryFollowupDebt{}
+			ctx.SourceInventoryFollowupDebt = types.SourceInventoryFollowupDebt{}
+		}
+		return
+	}
+	if e.sourceInventoryInlineFollowupSent || !ctx.ExploreToolSurface.IsSourceInventoryLens() || !e.sourceInventoryLensSurfaceReleased {
+		return
+	}
+	if ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return
+	}
+	if !types.SourceInventoryPrincipalNavigationActive(ctx.AnalysisIR.RequestModel) {
+		return
+	}
+	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	debt := types.DeriveSourceInventoryFollowupDebt(observation, ctx.AnalysisIR.RequestModel)
+	if !sourceInventoryInlineFollowupDebtExecutable(debt) {
+		return
+	}
+	if query := sourceInventoryInlineFollowupQuery(ctx); query != "" {
+		debt.Query.Query = query
+		debt = types.NormalizeSourceInventoryFollowupDebt(debt)
+	}
+	e.sourceInventoryInlineFollowupActive = true
+	e.sourceInventoryInlineFollowupResultsLen = len(obs.AllToolResults)
+	e.sourceInventoryInlineFollowupDebt = debt
+	ctx.SourceInventoryFollowupDebt = debt
+}
+
+func (e *explorerEvaluator) sourceInventoryInlineFollowupObserved(results []types.ToolResult) bool {
+	if e == nil || !e.sourceInventoryInlineFollowupActive {
+		return false
+	}
+	start := e.sourceInventoryInlineFollowupResultsLen
+	if start < 0 {
+		start = 0
+	}
+	if start > len(results) {
+		start = len(results)
+	}
+	for _, result := range results[start:] {
+		if toolResultHasSourceInventoryLensObservation(result) {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryInlineFollowupDebtExecutable(debt types.SourceInventoryFollowupDebt) bool {
+	debt = types.NormalizeSourceInventoryFollowupDebt(debt)
+	return debt.Active &&
+		debt.ReasonCode == types.SourceInventoryFollowupDebtMissingSourceClass &&
+		len(debt.Query.Scopes) > 0 &&
+		len(debt.Query.Roles) > 0 &&
+		len(debt.MissingClasses) > 0 &&
+		len(debt.CoveredClasses) > 0
+}
+
+func sourceInventoryInlineFollowupQuery(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
+	if profile == nil || !profile.Active() {
+		return ""
+	}
+	var parts []string
+	for _, quote := range profile.SourceQuotes {
+		quote = strings.TrimSpace(quote)
+		if quote != "" {
+			parts = append(parts, quote)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func (e *explorerEvaluator) postSourceInventoryInlineFollowupSignal(obs LoopObservation) LoopSignal {
+	if e == nil || !e.sourceInventoryInlineFollowupActive || e.sourceInventoryInlineFollowupSent {
+		return LoopSignal{}
+	}
+	debt := types.NormalizeSourceInventoryFollowupDebt(e.sourceInventoryInlineFollowupDebt)
+	if !sourceInventoryInlineFollowupDebtExecutable(debt) {
+		return LoopSignal{}
+	}
+	var b strings.Builder
+	b.WriteString("Progress check: the first source_inventory lens found an answer-critical source-class gap. Before broad grep/list/read or completion, run the typed follow-up route exactly once.\n")
+	b.WriteString("NEXT ACTION: call `repo_map` with `view=\"source_inventory\"`")
+	if len(debt.Query.Scopes) > 0 {
+		b.WriteString(", `scopes=[")
+		b.WriteString(strings.Join(debt.Query.Scopes, ", "))
+		b.WriteString("]`")
+	}
+	if len(debt.Query.Roles) > 0 {
+		b.WriteString(", `roles=[")
+		b.WriteString(strings.Join(sourceInventoryRoleNames(debt.Query.Roles), ", "))
+		b.WriteString("]`")
+	}
+	if debt.Query.Query != "" {
+		b.WriteString(", `query=\"")
+		b.WriteString(debt.Query.Query)
+		b.WriteString("\"`")
+	}
+	b.WriteString(", `include_counts=true`, and `include_attributes=false`. Do not substitute grep/list_files/read_file for this typed inventory follow-up.\n")
+	e.sourceInventoryInlineFollowupSent = true
+	return LoopSignal{
+		HintRequested:  true,
+		Progress:       true,
+		HintKey:        "explorer.mid-loop.source-inventory-followup",
+		Hint:           b.String(),
+		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
