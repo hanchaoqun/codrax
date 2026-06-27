@@ -148,10 +148,14 @@ ADVISORY_MAX_TOOL_READ_FILE="${ADVISORY_MAX_TOOL_READ_FILE:-8}"
 ADVISORY_MAX_TOOL_LIST_FILES="${ADVISORY_MAX_TOOL_LIST_FILES:-4}"
 ADVISORY_MAX_CONTEXT_TOKENS_EST="${ADVISORY_MAX_CONTEXT_TOKENS_EST:-60000}"
 ADVISORY_MAX_CONTEXT_WINDOW_PCT="${ADVISORY_MAX_CONTEXT_WINDOW_PCT:-30}"
+ADVISORY_MAX_TRANSIENT_RETRY_CHECKPOINTS="${ADVISORY_MAX_TRANSIENT_RETRY_CHECKPOINTS:-0}"
+ADVISORY_MAX_MERMAID_SOURCE_REPAIR_APPLIED="${ADVISORY_MAX_MERMAID_SOURCE_REPAIR_APPLIED:-0}"
 ADVISORY_MAX_TOOL_HISTORY_PRUNES="${ADVISORY_MAX_TOOL_HISTORY_PRUNES:-0}"
 ADVISORY_MAX_UNAVAILABLE_TOOL_ATTEMPTS="${ADVISORY_MAX_UNAVAILABLE_TOOL_ATTEMPTS:-0}"
+ADVISORY_MAX_ANSWER_CONTRACT_ADVISORIES="${ADVISORY_MAX_ANSWER_CONTRACT_ADVISORIES:-0}"
 ADVISORY_MAX_FINALIZER_REJECTS="${ADVISORY_MAX_FINALIZER_REJECTS:-1}"
 ADVISORY_MAX_INVESTIGATION_COMPLETE_REJECTS="${ADVISORY_MAX_INVESTIGATION_COMPLETE_REJECTS:-1}"
+ADVISORY_MAX_PIPELINE_DISPATCHES="${ADVISORY_MAX_PIPELINE_DISPATCHES:-8}"
 MAX_WALL_SECONDS="${MAX_WALL_SECONDS:-}"
 MAX_EXPLORER_ITERS="${MAX_EXPLORER_ITERS:-}"
 MAX_MIDLOOP_INJECT="${MAX_MIDLOOP_INJECT:-}"
@@ -159,10 +163,14 @@ MAX_TOOL_READ_FILE="${MAX_TOOL_READ_FILE:-}"
 MAX_TOOL_LIST_FILES="${MAX_TOOL_LIST_FILES:-}"
 MAX_CONTEXT_TOKENS_EST="${MAX_CONTEXT_TOKENS_EST:-}"
 MAX_CONTEXT_WINDOW_PCT="${MAX_CONTEXT_WINDOW_PCT:-}"
+MAX_TRANSIENT_RETRY_CHECKPOINTS="${MAX_TRANSIENT_RETRY_CHECKPOINTS:-}"
+MAX_MERMAID_SOURCE_REPAIR_APPLIED="${MAX_MERMAID_SOURCE_REPAIR_APPLIED:-}"
 MAX_TOOL_HISTORY_PRUNES="${MAX_TOOL_HISTORY_PRUNES:-}"
 MAX_UNAVAILABLE_TOOL_ATTEMPTS="${MAX_UNAVAILABLE_TOOL_ATTEMPTS:-}"
+MAX_ANSWER_CONTRACT_ADVISORIES="${MAX_ANSWER_CONTRACT_ADVISORIES:-}"
 MAX_FINALIZER_REJECTS="${MAX_FINALIZER_REJECTS:-}"
 MAX_INVESTIGATION_COMPLETE_REJECTS="${MAX_INVESTIGATION_COMPLETE_REJECTS:-}"
+MAX_PIPELINE_DISPATCHES="${MAX_PIPELINE_DISPATCHES:-}"
 
 case "$MODE" in
   "" | read | plan | apply) ;;
@@ -1153,10 +1161,14 @@ run_one() {
       tool_list_files "$MAX_TOOL_LIST_FILES" \
       max_context_tokens_est "$MAX_CONTEXT_TOKENS_EST" \
       max_context_window_pct "$MAX_CONTEXT_WINDOW_PCT" \
+      transient_retry_checkpoints "$MAX_TRANSIENT_RETRY_CHECKPOINTS" \
+      mermaid_source_repair_applied "$MAX_MERMAID_SOURCE_REPAIR_APPLIED" \
       tool_history_prunes "$MAX_TOOL_HISTORY_PRUNES" \
       unavailable_tool_attempts "$MAX_UNAVAILABLE_TOOL_ATTEMPTS" \
+      answer_contract_advisories "$MAX_ANSWER_CONTRACT_ADVISORIES" \
       finalizer_rejects "$MAX_FINALIZER_REJECTS" \
-      investigation_complete_rejects "$MAX_INVESTIGATION_COMPLETE_REJECTS"
+      investigation_complete_rejects "$MAX_INVESTIGATION_COMPLETE_REJECTS" \
+      pipeline_dispatches "$MAX_PIPELINE_DISPATCHES"
   )
 
   local provider_blocked
@@ -1354,7 +1366,7 @@ PYEOF
   # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
   # aggregate them into the summary table so they show up next to
   # the legacy 12 mechanism counters with median.
-  metric_keys="data_rounds data_repair_rounds data_record_count data_action_failed data_answer_len tool_read_file tool_repo_map tool_list_files tool_trace_query tool_mcp_read_resource repeated_mcp_resource_reads mcp_tool_calls source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied answer_contract_violations answer_contract_strict_violations answer_contract_advisories answer_contract_lane_block_kind_violations answer_contract_lane_block_kind_strict_violations answer_contract_lane_block_kind_advisories repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events strict_decode_carrier_events strict_decode_element_shape_events"
+  metric_keys="data_rounds data_repair_rounds data_record_count data_action_failed data_answer_len tool_read_file tool_repo_map tool_list_files tool_trace_query tool_mcp_read_resource repeated_mcp_resource_reads mcp_tool_calls source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied answer_contract_violations answer_contract_strict_violations answer_contract_advisories answer_contract_lane_block_kind_violations answer_contract_lane_block_kind_strict_violations answer_contract_lane_block_kind_advisories repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches pipeline_dispatches completion_lane_fired investigation_complete_calls investigation_complete_rejects repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events strict_decode_carrier_events strict_decode_element_shape_events"
   for key in $metric_keys; do
     row="| $key |"
     vals=()
@@ -1419,16 +1431,28 @@ PYEOF
     if eval_print_efficiency_advisory_row "$metrics_file" "$i" high_context_window_pct max_context_window_pct "$ADVISORY_MAX_CONTEXT_WINDOW_PCT"; then
       advisory_count=$((advisory_count + 1))
     fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" transient_retry_checkpoint transient_retry_checkpoints "$ADVISORY_MAX_TRANSIENT_RETRY_CHECKPOINTS"; then
+      advisory_count=$((advisory_count + 1))
+    fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" mermaid_source_repair_churn mermaid_source_repair_applied "$ADVISORY_MAX_MERMAID_SOURCE_REPAIR_APPLIED"; then
+      advisory_count=$((advisory_count + 1))
+    fi
     if eval_print_efficiency_advisory_row "$metrics_file" "$i" tool_history_pruned tool_history_prunes "$ADVISORY_MAX_TOOL_HISTORY_PRUNES"; then
       advisory_count=$((advisory_count + 1))
     fi
     if eval_print_efficiency_advisory_row "$metrics_file" "$i" unavailable_tool_attempts unavailable_tool_attempts "$ADVISORY_MAX_UNAVAILABLE_TOOL_ATTEMPTS"; then
       advisory_count=$((advisory_count + 1))
     fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" answer_contract_advisory_churn answer_contract_advisories "$ADVISORY_MAX_ANSWER_CONTRACT_ADVISORIES"; then
+      advisory_count=$((advisory_count + 1))
+    fi
     if eval_print_efficiency_advisory_row "$metrics_file" "$i" finalizer_reject_churn finalizer_rejects "$ADVISORY_MAX_FINALIZER_REJECTS"; then
       advisory_count=$((advisory_count + 1))
     fi
     if eval_print_efficiency_advisory_row "$metrics_file" "$i" investigation_complete_reject_churn investigation_complete_rejects "$ADVISORY_MAX_INVESTIGATION_COMPLETE_REJECTS"; then
+      advisory_count=$((advisory_count + 1))
+    fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" high_pipeline_dispatches pipeline_dispatches "$ADVISORY_MAX_PIPELINE_DISPATCHES"; then
       advisory_count=$((advisory_count + 1))
     fi
   done

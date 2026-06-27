@@ -19,6 +19,8 @@
 - Finalizer rejects: 0
 - Answer contract strict violations: 0
 - Answer contract advisories: 1
+- Transient retry checkpoints: 1
+- Mermaid source repairs: 6
 
 ## New Advisory Surface
 
@@ -29,6 +31,8 @@ high_wall_seconds: wall_seconds=217 limit=180
 ```
 
 This is the intended boundary for D1-G46: routine correctness verdicts remain stable, and commercially rough convergence is visible for audit and prioritization. Focused eval cases can opt into hard budgets with explicit `MAX_*` knobs; defaults remain advisory-only.
+
+Follow-up audit of the same run showed two additional typed churn signals that should also be visible by default: `transient_retry_checkpoints=1` and `mermaid_source_repair_applied=6`. The harness now includes those metrics, plus contract-advisory and pipeline-dispatch churn, in the same typed advisory/budget surface.
 
 ## Follow-Up
 

@@ -476,10 +476,12 @@ while [[ $# -gt 0 ]]; do
 done
 mkdir -p "$logdir"
 cat >"$logdir/codrax-20260608-000004-000-1.log" <<'LOG'
+2026-06-08T00:00:04.000 DEBUG [diag orchestrator] phase=transient_retry_checkpoint stage=explore installed=true
 2026-06-08T00:00:04.000 DEBUG [diag explorer] DISPATCH stage=explore attempt=1
 2026-06-08T00:00:04.001 DEBUG [diag explorer] iter=0 ASSISTANT content_len=12
 2026-06-08T00:00:04.002 DEBUG [diag explorer] phase=toolcall tool=read_file params={"path":"internal/foo.go"}
 2026-06-08T00:00:04.003 DEBUG [diag explorer] phase=midloop_inject key="explorer.mid-loop.read-without-emit"
+2026-06-08T00:00:04.004 DEBUG [mermaidcompat] source repair applied before_bytes=1 after_bytes=2
 LOG
 printf 'working\n━━━\nanswer has enough content for the budget test\n'
 FAKE
@@ -492,6 +494,8 @@ QUESTION="runner efficiency budget smoke"
 MIN_OUTPUT_CHARS=1
 MAX_TOOL_READ_FILE=0
 ADVISORY_MAX_TOOL_READ_FILE=0
+ADVISORY_MAX_TRANSIENT_RETRY_CHECKPOINTS=0
+ADVISORY_MAX_MERMAID_SOURCE_REPAIR_APPLIED=0
 EXPECT_CONTAINS="answer has enough content"
 CASE
 CODRAX_BIN="$fake_efficiency" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$efficiency_case" 1 >/dev/null 2>"$tmp/runner-efficiency.err"
@@ -509,6 +513,12 @@ case "$efficiency_verdict" in
 esac
 if ! grep -q '| 1 | high_source_reads | tool_read_file=1 limit=0 |' "$efficiency_dir/summary.md"; then
   fail "efficiency advisory summary missing source-read row"
+fi
+if ! grep -q '| 1 | transient_retry_checkpoint | transient_retry_checkpoints=1 limit=0 |' "$efficiency_dir/summary.md"; then
+  fail "efficiency advisory summary missing transient retry row"
+fi
+if ! grep -q '| 1 | mermaid_source_repair_churn | mermaid_source_repair_applied=1 limit=0 |' "$efficiency_dir/summary.md"; then
+  fail "efficiency advisory summary missing mermaid repair row"
 fi
 
 fake_write_apply="$tmp/fake-codrax-write-apply"
