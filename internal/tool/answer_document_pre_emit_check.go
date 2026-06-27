@@ -4111,6 +4111,9 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 			if preEmitAggregateMemberAppearsInDocument(member, doc, surface) {
 				continue
 			}
+			if preEmitAggregateMemberAppearsInDocumentWithCategory(fact, member, doc) {
+				continue
+			}
 			if preEmitAggregateMemberIndexedSupportRefAppearsInDocument(fact, memberIdx, member, doc) {
 				continue
 			}
@@ -4972,6 +4975,84 @@ func preEmitAggregateMemberAppearsInDocument(member string, doc *types.AnswerDoc
 		return true
 	}
 	return false
+}
+
+func preEmitAggregateMemberAppearsInDocumentWithCategory(fact types.AnswerAggregateFact, member string, doc *types.AnswerDocumentV2) bool {
+	if doc == nil || strings.TrimSpace(fact.Label) == "" {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if preEmitAggregateMemberAppearsInCategorySurface(fact.Label, member, block.Title+"\n"+block.Text) {
+			return true
+		}
+		for _, item := range block.Items {
+			if preEmitAggregateMemberAppearsInCategorySurface(fact.Label, member, types.AnswerBlockItemVisibleSurface(item)) {
+				return true
+			}
+		}
+		if block.Diagram != nil && preEmitAggregateMemberAppearsInCategorySurface(fact.Label, member, block.Diagram.Body) {
+			return true
+		}
+	}
+	for _, caveat := range doc.Caveats {
+		if preEmitAggregateMemberAppearsInCategorySurface(fact.Label, member, caveat) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitAggregateMemberAppearsInCategorySurface(label, member, surface string) bool {
+	if !preEmitAggregateLabelAppearsInSurface(label, surface) &&
+		!preEmitAggregateDisplayPartAppears(label, surface) {
+		return false
+	}
+	for _, candidate := range preEmitAggregateMemberCoreCandidates(member, label) {
+		if preEmitAggregateDisplayPartAppears(candidate, surface) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitAggregateMemberCoreCandidates(member, label string) []string {
+	var out []string
+	add := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate != "" {
+			out = append(out, candidate)
+		}
+	}
+	for _, surface := range preEmitAggregateMemberDisplayCandidates(member) {
+		core := preEmitAggregateMemberCoreSurface(surface)
+		add(core)
+		labelAtoms := preEmitCodeIdentityAtomSet(label)
+		for _, atom := range preEmitCodeIdentityAtoms(core) {
+			atom = strings.TrimSpace(atom)
+			if atom == "" || len(atom) < 2 || labelAtoms[strings.ToLower(atom)] {
+				continue
+			}
+			add(atom)
+		}
+	}
+	return dedupPreEmitStringCandidates(out)
+}
+
+func preEmitAggregateMemberCoreSurface(member string) string {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return ""
+	}
+	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		member = strings.TrimSpace(label)
+	}
+	if idx := strings.Index(member, " @ "); idx > 0 {
+		member = strings.TrimSpace(member[:idx])
+	}
+	if idx := strings.LastIndex(member, " ("); idx > 0 && strings.Contains(member[idx:], ":") {
+		member = strings.TrimSpace(member[:idx])
+	}
+	return member
 }
 
 func preEmitAggregateMemberIndexedSupportRefAppearsInDocument(fact types.AnswerAggregateFact, memberIdx int, member string, doc *types.AnswerDocumentV2) bool {

@@ -3251,6 +3251,69 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsSourceLocationMemberSplitAcro
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_AcceptsCategoryAndSymbolSplitTable(t *testing.T) {
+	const (
+		extendFile = "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"
+		ffiFile    = "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj"
+	)
+	mu := types.NewMutableState("source-inventory construct aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "extend 块",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"extend String (" + extendFile + ":6, package demo.stringext)",
+		},
+		SupportRefs: []string{
+			"extend String @ " + extendFile + ":6",
+		},
+	}, {
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "foreign func 声明",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"foreign func native_add(a: Int64, b: Int64): Int64 (" + ffiFile + ":6, package demo.ffi)",
+		},
+		SupportRefs: []string{
+			"native_add @ " + ffiFile + ":6",
+		},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all constructs",
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleFunction},
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "construct_table",
+			Kind: types.BlockTable,
+			Text: "| 类别 | 符号名 | 文件路径 | 包路径 |\n" +
+				"|---|---|---|---|\n" +
+				"| extend 块 | String | " + extendFile + ":6 | demo.stringext |\n" +
+				"| foreign func 声明 | native_add | " + ffiFile + ":6 | demo.ffi |\n",
+		}},
+	}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("category+symbol split table should satisfy member-set visibility, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_AcceptsSignatureSupportRefSplitRows(t *testing.T) {
 	mu := types.NewMutableState("signature relation aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

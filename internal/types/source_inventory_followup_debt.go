@@ -8,6 +8,8 @@ import (
 const (
 	SourceInventoryFollowupDebtMissingSourceClass = "missing_source_class_family"
 	SourceInventoryFollowupDebtPagination         = "pagination_debt"
+
+	sourceInventoryFollowupMaxScopes = 8
 )
 
 type SourceInventoryFollowupDebt struct {
@@ -126,7 +128,7 @@ func sourceInventoryMissingClassScopes(classes []SourceInventorySourceClassCount
 			continue
 		}
 		missing = append(missing, class.Role)
-		for _, sample := range class.Samples {
+		for _, sample := range sourceInventoryFollowupClassSamples(class) {
 			if scope := sourceInventoryFollowupScopeForSample(sample); scope != "" {
 				scopes = append(scopes, scope)
 			}
@@ -161,6 +163,9 @@ func sourceInventoryFollowupScopes(scopes []string) []string {
 	out := normalizeSourceInventoryFollowupStrings(scopes)
 	if len(out) == 0 {
 		return []string{"."}
+	}
+	if len(out) > sourceInventoryFollowupMaxScopes {
+		return out[:sourceInventoryFollowupMaxScopes]
 	}
 	return out
 }

@@ -50,6 +50,77 @@ func TestDeriveSourceInventoryFollowupDebt_MissingSourceClassUsesSampleScope(t *
 	}
 }
 
+func TestDeriveSourceInventoryFollowupDebt_MissingSourceClassBalancesLanguageFamilies(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       []string{"."},
+		SourceClasses: []SourceInventorySourceClassCount{
+			{Role: SourcePathRoleProduction, Count: 1, Complete: true, Samples: []string{"internal/tool/main.go"}},
+			{
+				Role:     SourcePathRoleThirdParty,
+				Count:    14,
+				Complete: true,
+				Samples: []string{
+					"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+					"internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets",
+				},
+				Languages: []SourceInventoryLanguageCount{
+					{
+						Language: "cangjie",
+						Count:    8,
+						InScope:  true,
+						Samples: []string{
+							"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj",
+							"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+						},
+					},
+					{
+						Language: "arkts",
+						Count:    6,
+						InScope:  true,
+						Samples: []string{
+							"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+						},
+					},
+				},
+			},
+		},
+		Page:      &SourceInventoryObservationPage{Offset: 0, Emitted: 24, Total: 80, NextCursor: "24", Complete: false},
+		Execution: &SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleType,
+			Members: []SourceInventoryObservationMember{{
+				Name: "Main",
+				Role: AnswerCandidateRoleType,
+				File: "internal/tool/main.go",
+			}},
+		}},
+	}
+	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType, AnswerCandidateRoleFunction},
+	}}
+
+	debt := DeriveSourceInventoryFollowupDebt(obs, rm)
+	if !debt.IsActive() || debt.ReasonCode != SourceInventoryFollowupDebtMissingSourceClass {
+		t.Fatalf("debt = %+v", debt)
+	}
+	wantScopes := []string{
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources",
+	}
+	if len(debt.Query.Scopes) != len(wantScopes) {
+		t.Fatalf("scopes = %+v, want %+v", debt.Query.Scopes, wantScopes)
+	}
+	for i, want := range wantScopes {
+		if debt.Query.Scopes[i] != want {
+			t.Fatalf("scopes = %+v, want %+v", debt.Query.Scopes, wantScopes)
+		}
+	}
+}
+
 func TestNormalizeSourceInventoryFollowupDebt_ClearsCursorForScopeChangingDebt(t *testing.T) {
 	debt := NormalizeSourceInventoryFollowupDebt(SourceInventoryFollowupDebt{
 		Active:     true,
