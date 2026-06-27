@@ -48,6 +48,14 @@ assert_eq "$(eval_count_pattern 'reject' "$tmp/log.txt")" "2" "pattern count"
 assert_eq "$(eval_count_pattern 'reject$' "$tmp/log.txt")" "2" "pattern count with NUL line"
 assert_eq "$(eval_count_pattern 'reject' "$tmp/missing.log")" "0" "missing log pattern count"
 
+cat >"$tmp/mermaid-repair-dedupe.log" <<'LOG'
+2026-05-24T00:00:00.001 DEBUG [mermaidcompat] source repair applied repair_hash=aaa before_bytes=100 after_bytes=120
+2026-05-24T00:00:00.002 DEBUG [mermaidcompat] source repair applied repair_hash=aaa before_bytes=100 after_bytes=120
+2026-05-24T00:00:00.003 DEBUG [mermaidcompat] source repair applied repair_hash=bbb before_bytes=90 after_bytes=110
+2026-05-24T00:00:00.004 DEBUG [mermaidcompat] source repair applied before_bytes=10 after_bytes=20
+LOG
+assert_eq "$(eval_count_mermaid_source_repairs "$tmp/mermaid-repair-dedupe.log")" "3" "mermaid repair hash dedupe count"
+
 mkdir -p "$tmp/write-eval" "$tmp/write-scratch" "$tmp/write-worktree/.codrax/plans"
 cat >"$tmp/write-eval/run-1.plan.json" <<JSON
 {

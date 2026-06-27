@@ -722,7 +722,30 @@ eval_count_mermaid_source_repairs() {
     echo 0
     return
   fi
-  eval_count_control_pattern 'DEBUG \[mermaidcompat\] source repair applied' "$file"
+  LC_ALL=C awk '
+    /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ DEBUG \[mermaidcompat\] source repair applied/ {
+      hash = ""
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^repair_hash=/) {
+          split($i, kv, "=")
+          hash = kv[2]
+          break
+        }
+      }
+      if (hash != "") {
+        seen[hash] = 1
+      } else {
+        legacy++
+      }
+    }
+    END {
+      total = legacy
+      for (h in seen) {
+        total++
+      }
+      print total + 0
+    }
+  ' "$file"
 }
 
 eval_count_repair_debt_checkpoints() {

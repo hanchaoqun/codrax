@@ -1,6 +1,7 @@
 package mermaidcompat
 
 import (
+	"hash/fnv"
 	"strconv"
 	"strings"
 	"unicode"
@@ -29,9 +30,18 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeFlowchartNodeLabels(body)
 	body = NormalizeFlowchartPipeLabels(body)
 	if body != original {
-		logging.Debug("[mermaidcompat] source repair applied before_bytes=%d after_bytes=%d", len(original), len(body))
+		logging.Debug("[mermaidcompat] source repair applied repair_hash=%s before_bytes=%d after_bytes=%d",
+			sourceRepairHash(original, body), len(original), len(body))
 	}
 	return body
+}
+
+func sourceRepairHash(before, after string) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(before))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(after))
+	return strconv.FormatUint(h.Sum64(), 16)
 }
 
 // NormalizeFlowchartMalformedBracketLabels repairs node labels whose visible

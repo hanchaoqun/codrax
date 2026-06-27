@@ -24,6 +24,22 @@ func TestNormalizeSequenceStops_RewritesBareStop(t *testing.T) {
 	}
 }
 
+func TestSourceRepairHash_UsesBeforeAndAfter(t *testing.T) {
+	a := sourceRepairHash("before", "after")
+	if a == "" {
+		t.Fatal("hash is empty")
+	}
+	if got := sourceRepairHash("before", "after"); got != a {
+		t.Fatalf("hash must be deterministic: got %q want %q", got, a)
+	}
+	if got := sourceRepairHash("before", "after!"); got == a {
+		t.Fatalf("hash must include after source")
+	}
+	if got := sourceRepairHash("before!", "after"); got == a {
+		t.Fatalf("hash must include before source")
+	}
+}
+
 func TestNormalizeSequenceStops_LeavesNonSequenceBodiesAlone(t *testing.T) {
 	in := "flowchart TD\n  stop[stop] --> B"
 	if got := NormalizeSequenceStops(in); got != in {
