@@ -35,6 +35,13 @@ assert_eq "$(eval_metric_field "$tmp/metrics.txt" analyzer_dispatches)" "2" "met
 assert_eq "$(eval_metric_field "$tmp/metrics.txt" string_metric)" "complete" "string metric field parse"
 assert_eq "$(eval_metric_field "$tmp/metrics.txt" nul_metric)" "7" "metric field parse with NUL"
 assert_eq "$(eval_metric_field "$tmp/metrics.txt" missing_key)" "-" "missing metric field"
+assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" analyzer_dispatches)" "2" "metric int field parse"
+assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" string_metric)" "0" "metric int non-numeric fallback"
+assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" missing_key)" "0" "missing metric int fallback"
+metric_row="$(eval_print_efficiency_advisory_row "$tmp/metrics.txt" 1 high_analyzer_dispatches analyzer_dispatches 1 || true)"
+assert_eq "$metric_row" "| 1 | high_analyzer_dispatches | analyzer_dispatches=2 limit=1 |" "metric advisory row"
+assert_eq "$(eval_print_efficiency_advisory_row "$tmp/metrics.txt" 1 high_analyzer_dispatches analyzer_dispatches 2 || true)" "" "metric advisory row under limit"
+assert_eq "$(eval_metric_budget_reasons "$tmp/metrics.txt" analyzer_dispatches 1 finalizer_dispatches 10)" "perf_budget:analyzer_dispatches:2>1" "metric budget reason"
 
 printf 'one\nreject\000\nreject\n' >"$tmp/log.txt"
 assert_eq "$(eval_count_pattern 'reject' "$tmp/log.txt")" "2" "pattern count"
@@ -450,6 +457,59 @@ fi
 assert_eq "$(grep '^answer_contract_violations=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "0" "aggregate log answer contract metric excludes advisory"
 assert_eq "$(grep '^answer_contract_strict_violations=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "0" "aggregate log strict answer contract metric"
 assert_eq "$(grep '^answer_contract_advisories=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "2" "aggregate log advisory answer contract metric"
+
+fake_efficiency="$tmp/fake-codrax-efficiency-budget"
+cat >"$fake_efficiency" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+logdir=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --log-dir)
+      logdir="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+mkdir -p "$logdir"
+cat >"$logdir/codrax-20260608-000004-000-1.log" <<'LOG'
+2026-06-08T00:00:04.000 DEBUG [diag explorer] DISPATCH stage=explore attempt=1
+2026-06-08T00:00:04.001 DEBUG [diag explorer] iter=0 ASSISTANT content_len=12
+2026-06-08T00:00:04.002 DEBUG [diag explorer] phase=toolcall tool=read_file params={"path":"internal/foo.go"}
+2026-06-08T00:00:04.003 DEBUG [diag explorer] phase=midloop_inject key="explorer.mid-loop.read-without-emit"
+LOG
+printf 'working\n━━━\nanswer has enough content for the budget test\n'
+FAKE
+chmod +x "$fake_efficiency"
+efficiency_case="$tmp/runner_efficiency_budget.case"
+cat >"$efficiency_case" <<'CASE'
+ID=runner_efficiency_budget
+NAME="runner efficiency budget"
+QUESTION="runner efficiency budget smoke"
+MIN_OUTPUT_CHARS=1
+MAX_TOOL_READ_FILE=0
+ADVISORY_MAX_TOOL_READ_FILE=0
+EXPECT_CONTAINS="answer has enough content"
+CASE
+CODRAX_BIN="$fake_efficiency" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$efficiency_case" 1 >/dev/null 2>"$tmp/runner-efficiency.err"
+efficiency_dir="$(find "$tmp/eval-results" -maxdepth 1 -type d -name 'runner_efficiency_budget-*' | sort | tail -1)"
+if [[ -z "$efficiency_dir" ]]; then
+  fail "eval/run.sh did not write efficiency-budget result dir"
+fi
+efficiency_verdict="$(cat "$efficiency_dir/run-1.verdict")"
+case "$efficiency_verdict" in
+  FAIL*perf_budget:tool_read_file:1\>0*)
+    ;;
+  *)
+    fail "efficiency hard budget should fail from typed metric: $efficiency_verdict"
+    ;;
+esac
+if ! grep -q '| 1 | high_source_reads | tool_read_file=1 limit=0 |' "$efficiency_dir/summary.md"; then
+  fail "efficiency advisory summary missing source-read row"
+fi
 
 fake_write_apply="$tmp/fake-codrax-write-apply"
 cat >"$fake_write_apply" <<'FAKE'

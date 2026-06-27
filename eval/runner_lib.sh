@@ -94,6 +94,71 @@ eval_metric_field() {
   printf '%s\n' "${line#*=}" | tr -d '\000'
 }
 
+eval_is_uint() {
+  case "$1" in
+    ""|*[!0-9]*)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+eval_metric_int_field() {
+  local file="$1"
+  local key="$2"
+  local v
+  v="$(eval_metric_field "$file" "$key")"
+  if eval_is_uint "$v"; then
+    echo "$v"
+    return 0
+  fi
+  echo 0
+}
+
+eval_metric_exceeds() {
+  local file="$1"
+  local key="$2"
+  local limit="$3"
+  local v
+  if ! eval_is_uint "$limit"; then
+    return 1
+  fi
+  v="$(eval_metric_int_field "$file" "$key")"
+  [[ "$v" -gt "$limit" ]]
+}
+
+eval_print_efficiency_advisory_row() {
+  local file="$1"
+  local run_id="$2"
+  local advisory="$3"
+  local key="$4"
+  local limit="$5"
+  local v
+  if ! eval_metric_exceeds "$file" "$key" "$limit"; then
+    return 1
+  fi
+  v="$(eval_metric_int_field "$file" "$key")"
+  printf '| %s | %s | %s=%s limit=%s |\n' "$run_id" "$advisory" "$key" "$v" "$limit"
+  return 0
+}
+
+eval_metric_budget_reasons() {
+  local file="$1"
+  shift
+  local key limit v
+  while [[ $# -ge 2 ]]; do
+    key="$1"
+    limit="$2"
+    shift 2
+    if eval_metric_exceeds "$file" "$key" "$limit"; then
+      v="$(eval_metric_int_field "$file" "$key")"
+      printf 'perf_budget:%s:%s>%s\n' "$key" "$v" "$limit"
+    fi
+  done
+}
+
 eval_count_pattern() {
   local pattern="$1"
   local file="$2"

@@ -138,6 +138,32 @@ DATA_FIXTURE="${DATA_FIXTURE:-}"
 # output contract explicitly requires a tiny payload.
 MIN_OUTPUT_CHARS="${MIN_OUTPUT_CHARS:-20}"
 
+# Eval efficiency telemetry is deliberately metrics-based and does not affect
+# product routing. Defaults surface commercially rough convergence in the
+# markdown summary; MAX_* knobs are opt-in hard budgets for focused eval cases.
+ADVISORY_MAX_WALL_SECONDS="${ADVISORY_MAX_WALL_SECONDS:-180}"
+ADVISORY_MAX_EXPLORER_ITERS="${ADVISORY_MAX_EXPLORER_ITERS:-12}"
+ADVISORY_MAX_MIDLOOP_INJECT="${ADVISORY_MAX_MIDLOOP_INJECT:-4}"
+ADVISORY_MAX_TOOL_READ_FILE="${ADVISORY_MAX_TOOL_READ_FILE:-8}"
+ADVISORY_MAX_TOOL_LIST_FILES="${ADVISORY_MAX_TOOL_LIST_FILES:-4}"
+ADVISORY_MAX_CONTEXT_TOKENS_EST="${ADVISORY_MAX_CONTEXT_TOKENS_EST:-60000}"
+ADVISORY_MAX_CONTEXT_WINDOW_PCT="${ADVISORY_MAX_CONTEXT_WINDOW_PCT:-30}"
+ADVISORY_MAX_TOOL_HISTORY_PRUNES="${ADVISORY_MAX_TOOL_HISTORY_PRUNES:-0}"
+ADVISORY_MAX_UNAVAILABLE_TOOL_ATTEMPTS="${ADVISORY_MAX_UNAVAILABLE_TOOL_ATTEMPTS:-0}"
+ADVISORY_MAX_FINALIZER_REJECTS="${ADVISORY_MAX_FINALIZER_REJECTS:-1}"
+ADVISORY_MAX_INVESTIGATION_COMPLETE_REJECTS="${ADVISORY_MAX_INVESTIGATION_COMPLETE_REJECTS:-1}"
+MAX_WALL_SECONDS="${MAX_WALL_SECONDS:-}"
+MAX_EXPLORER_ITERS="${MAX_EXPLORER_ITERS:-}"
+MAX_MIDLOOP_INJECT="${MAX_MIDLOOP_INJECT:-}"
+MAX_TOOL_READ_FILE="${MAX_TOOL_READ_FILE:-}"
+MAX_TOOL_LIST_FILES="${MAX_TOOL_LIST_FILES:-}"
+MAX_CONTEXT_TOKENS_EST="${MAX_CONTEXT_TOKENS_EST:-}"
+MAX_CONTEXT_WINDOW_PCT="${MAX_CONTEXT_WINDOW_PCT:-}"
+MAX_TOOL_HISTORY_PRUNES="${MAX_TOOL_HISTORY_PRUNES:-}"
+MAX_UNAVAILABLE_TOOL_ATTEMPTS="${MAX_UNAVAILABLE_TOOL_ATTEMPTS:-}"
+MAX_FINALIZER_REJECTS="${MAX_FINALIZER_REJECTS:-}"
+MAX_INVESTIGATION_COMPLETE_REJECTS="${MAX_INVESTIGATION_COMPLETE_REJECTS:-}"
+
 case "$MODE" in
   "" | read | plan | apply) ;;
   *)
@@ -1113,6 +1139,26 @@ run_one() {
     extra_reasons+=("apply_exit:$rc")
   fi
 
+  local metrics_file="$OUTDIR/run-$i.metrics.txt"
+  local budget_reason
+  while IFS= read -r budget_reason; do
+    [[ -z "$budget_reason" ]] && continue
+    extra_reasons+=("$budget_reason")
+  done < <(
+    eval_metric_budget_reasons "$metrics_file" \
+      wall_seconds "$MAX_WALL_SECONDS" \
+      explorer_iters "$MAX_EXPLORER_ITERS" \
+      midloop_inject "$MAX_MIDLOOP_INJECT" \
+      tool_read_file "$MAX_TOOL_READ_FILE" \
+      tool_list_files "$MAX_TOOL_LIST_FILES" \
+      max_context_tokens_est "$MAX_CONTEXT_TOKENS_EST" \
+      max_context_window_pct "$MAX_CONTEXT_WINDOW_PCT" \
+      tool_history_prunes "$MAX_TOOL_HISTORY_PRUNES" \
+      unavailable_tool_attempts "$MAX_UNAVAILABLE_TOOL_ATTEMPTS" \
+      finalizer_rejects "$MAX_FINALIZER_REJECTS" \
+      investigation_complete_rejects "$MAX_INVESTIGATION_COMPLETE_REJECTS"
+  )
+
   local provider_blocked
   provider_blocked="$(eval_detect_provider_blocked "$log")"
   if [[ -n "$provider_blocked" ]]; then
@@ -1331,6 +1377,7 @@ PYEOF
   echo "|----:|----------|--------|"
   advisory_count=0
   for i in $(seq 1 "$N"); do
+    metrics_file="$OUTDIR/run-$i.metrics.txt"
     repeated_mcp=$(grep "^repeated_mcp_resource_reads=" "$OUTDIR/run-$i.metrics.txt" 2>/dev/null | cut -d= -f2 || echo 0)
     mcp_tools=$(grep "^mcp_tool_calls=" "$OUTDIR/run-$i.metrics.txt" 2>/dev/null | cut -d= -f2 || echo 0)
     mcp_resources=$(grep "^tool_mcp_read_resource=" "$OUTDIR/run-$i.metrics.txt" 2>/dev/null | cut -d= -f2 || echo 0)
@@ -1350,6 +1397,39 @@ PYEOF
     if [[ "$mcp_resources" -gt 0 && "$source_reads" -gt 0 ]]; then
       advisory_count=$((advisory_count + 1))
       echo "| $i | mixed_mcp_and_source_reads | mcp_resources=$mcp_resources source_reads=$source_reads |"
+    fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" high_wall_seconds wall_seconds "$ADVISORY_MAX_WALL_SECONDS"; then
+      advisory_count=$((advisory_count + 1))
+    fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" high_explorer_iters explorer_iters "$ADVISORY_MAX_EXPLORER_ITERS"; then
+      advisory_count=$((advisory_count + 1))
+    fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" repeated_midloop_inject midloop_inject "$ADVISORY_MAX_MIDLOOP_INJECT"; then
+      advisory_count=$((advisory_count + 1))
+    fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" high_source_reads tool_read_file "$ADVISORY_MAX_TOOL_READ_FILE"; then
+      advisory_count=$((advisory_count + 1))
+    fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" high_list_files tool_list_files "$ADVISORY_MAX_TOOL_LIST_FILES"; then
+      advisory_count=$((advisory_count + 1))
+    fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" high_context_tokens max_context_tokens_est "$ADVISORY_MAX_CONTEXT_TOKENS_EST"; then
+      advisory_count=$((advisory_count + 1))
+    fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" high_context_window_pct max_context_window_pct "$ADVISORY_MAX_CONTEXT_WINDOW_PCT"; then
+      advisory_count=$((advisory_count + 1))
+    fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" tool_history_pruned tool_history_prunes "$ADVISORY_MAX_TOOL_HISTORY_PRUNES"; then
+      advisory_count=$((advisory_count + 1))
+    fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" unavailable_tool_attempts unavailable_tool_attempts "$ADVISORY_MAX_UNAVAILABLE_TOOL_ATTEMPTS"; then
+      advisory_count=$((advisory_count + 1))
+    fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" finalizer_reject_churn finalizer_rejects "$ADVISORY_MAX_FINALIZER_REJECTS"; then
+      advisory_count=$((advisory_count + 1))
+    fi
+    if eval_print_efficiency_advisory_row "$metrics_file" "$i" investigation_complete_reject_churn investigation_complete_rejects "$ADVISORY_MAX_INVESTIGATION_COMPLETE_REJECTS"; then
+      advisory_count=$((advisory_count + 1))
     fi
   done
   if [[ "$advisory_count" -eq 0 ]]; then
