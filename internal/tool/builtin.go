@@ -4171,15 +4171,24 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}
 	data, err := os.ReadFile(fsPath)
 	if err != nil {
-		hint := ""
+		pathMissAdvice := sourceInventoryReadFilePathMissAdvice{}
 		if errors.Is(err, fs.ErrNotExist) {
-			hint = sourceInventoryReadFilePathMissHint(ctx, p.Path)
+			pathMissAdvice = sourceInventoryReadFilePathMissAdviceFor(ctx, p.Path)
 		}
 		repair, refinement := readFilePathFailureRepair(p.Path, fsPath, err)
+		if repair != nil && len(pathMissAdvice.Metadata) > 0 {
+			if repair.Metadata == nil {
+				repair.Metadata = map[string]string{}
+			}
+			for key, value := range pathMissAdvice.Metadata {
+				repair.Metadata[key] = value
+			}
+		}
+		refinement = mergeToolRefinementHints(pathMissAdvice.Refinement, refinement)
 		return types.ToolResult{
 			ToolName:   t.Name(),
 			Success:    false,
-			Summary:    fmt.Sprintf("read failed: %v%s", err, hint),
+			Summary:    fmt.Sprintf("read failed: %v%s", err, pathMissAdvice.Summary),
 			Repair:     repair,
 			Refinement: refinement,
 			Timestamp:  time.Now(),

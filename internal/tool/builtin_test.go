@@ -506,6 +506,26 @@ func TestReadFilePathMissIncludesSourceInventorySameScopeHint(t *testing.T) {
 	if strings.Contains(result.Summary, "run_beta") {
 		t.Fatalf("path-miss hint leaked sibling scope candidate:\n%s", result.Summary)
 	}
+	if result.Repair == nil || result.Repair.Code != types.ToolRepairCodeReadFilePathMissing {
+		t.Fatalf("source-inventory path miss should keep typed repair, got %+v", result.Repair)
+	}
+	for key, want := range map[string]string{
+		"source_inventory_candidate_sample":               "true",
+		"source_inventory_candidate_scope":                "src/alpha",
+		"source_inventory_candidate_sample_not_whitelist": "true",
+		"absence_requires_sibling_enumeration":            "true",
+	} {
+		if got := result.Repair.Metadata[key]; got != want {
+			t.Fatalf("repair metadata %s=%q, want %q in %+v", key, got, want, result.Repair.Metadata)
+		}
+	}
+	refinement := types.NormalizeToolRefinementHint(*result.Refinement)
+	if refinement.ReasonCode != sourceInventoryReadFilePathMissingSampleReason ||
+		refinement.PreferredNextTool != "list_files" ||
+		refinement.PreferredParams["path"] != "src/alpha" ||
+		refinement.PreferredParams["recursive"] != "false" {
+		t.Fatalf("source-inventory path miss should publish typed sibling enumeration refinement, got %+v", refinement)
+	}
 
 	params, _ = json.Marshal(readFileParams{Path: "src/gamma/missing.py"})
 	result, err = (&ReadFile{}).Execute(ctx, params)
