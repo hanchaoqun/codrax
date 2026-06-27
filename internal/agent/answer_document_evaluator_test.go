@@ -157,6 +157,126 @@ func TestAnswerDocumentEvaluator_ObserveHintsMissingRequestedDimensions(t *testi
 	}
 }
 
+func TestAnswerDocumentEvaluator_ObserveStopsWhenPresentationOnlyDimensionMissing(t *testing.T) {
+	mut := types.NewMutableState("说明影响")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{{
+						Label:    "影响",
+						Role:     types.RequestedAnswerDimensionImpact,
+						Required: true,
+						Index:    1,
+					}},
+				},
+			},
+		},
+		Mutable: mut,
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "核心机制已经说明。",
+		}},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.StopRequested || sig.HintRequested {
+		t.Fatalf("presentation-only requested dimensions should not trigger a second finalizer round, got %+v", sig)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ObserveStopsWhenEvidenceSourceDimensionHasTypedCarrier(t *testing.T) {
+	mut := types.NewMutableState("说明证据边界说明")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{{
+						Label:    "证据边界说明",
+						Role:     types.RequestedAnswerDimensionEvidenceSource,
+						Required: true,
+						Index:    1,
+					}},
+				},
+			},
+		},
+		Mutable: mut,
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "summary",
+				Kind:        types.BlockSummary,
+				SurfaceRole: types.SurfacePrincipal,
+				Text:        "当前源码说明了解析机制；attached trace 说明了运行时耗时。",
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimExternalObservation,
+				}},
+			},
+			{
+				ID:   "scope",
+				Kind: types.BlockCaveat,
+				Text: "边界：运行时观察不映射到当前 checkout 的源码行。",
+			},
+		},
+		Citations: []types.Citation{{
+			File: "internal/tracequery/parse.go",
+			Line: 1980,
+		}},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.StopRequested || sig.HintRequested {
+		t.Fatalf("typed evidence carrier should satisfy evidence_source dimension without retry, got %+v", sig)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ObserveHintsMissingEvidenceSourceCarrier(t *testing.T) {
+	mut := types.NewMutableState("说明证据边界说明")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{{
+						Label:    "证据边界说明",
+						Role:     types.RequestedAnswerDimensionEvidenceSource,
+						Required: true,
+						Index:    1,
+					}},
+				},
+			},
+		},
+		Mutable: mut,
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "当前结论是性能异常。",
+		}},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.HintRequested || sig.HintKey != "answer_doc.requested_dimensions" {
+		t.Fatalf("missing typed evidence carrier should still get one precise repair hint, got %+v", sig)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ObserveStopsWhenRequestedDimensionsVisible(t *testing.T) {
 	mut := types.NewMutableState("说明日志线索、当前关键代码、影响和边界")
 	ctx := &types.AgentContext{

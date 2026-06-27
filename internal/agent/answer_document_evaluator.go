@@ -145,8 +145,10 @@ type answerDocumentEvaluator struct {
 
 	// requestedDimensionCoverageHinted latches the bounded repair hint for
 	// user-requested answer dimensions. The dimensions are typed analyzer
-	// output, not free-prose intent; this hint is advisory and fires at most
-	// once per finalizer dispatch so a stubborn provider cannot loop forever.
+	// output, not free-prose intent; this hint only retries dimensions that
+	// have precise structural carriers. Label/presentation-only misses stay
+	// advisory so accepted answers do not pay another LLM round for noisy
+	// display wording.
 	requestedDimensionCoverageHinted bool
 
 	// externalObservationSelectorCoverageHinted latches a similarly bounded
@@ -7785,6 +7787,10 @@ func (e *answerDocumentEvaluator) requestedAnswerDimensionCoverageSignal(ctx *ty
 	if len(missing) == 0 {
 		return LoopSignal{}
 	}
+	missing = requestedAnswerDimensionsRequiringPatchRetry(missing)
+	if len(missing) == 0 {
+		return LoopSignal{}
+	}
 	e.requestedDimensionCoverageHinted = true
 	lang := e.language
 	if strings.TrimSpace(lang) == "" {
@@ -7842,6 +7848,33 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 			answerDocumentHasMemberSetPayload(doc)
 	case types.RequestedAnswerDimensionBoundary:
 		return answerDocumentHasBoundaryPayload(doc)
+	case types.RequestedAnswerDimensionEvidenceSource:
+		return answerDocumentHasEvidenceSourcePayload(doc)
+	default:
+		return false
+	}
+}
+
+func requestedAnswerDimensionsRequiringPatchRetry(in []types.RequestedAnswerDimension) []types.RequestedAnswerDimension {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.RequestedAnswerDimension, 0, len(in))
+	for _, dim := range in {
+		if requestedAnswerDimensionCanUsePrecisePatchRetry(dim.Role) {
+			out = append(out, dim)
+		}
+	}
+	return out
+}
+
+func requestedAnswerDimensionCanUsePrecisePatchRetry(role types.RequestedAnswerDimensionRole) bool {
+	switch role {
+	case types.RequestedAnswerDimensionCount,
+		types.RequestedAnswerDimensionMemberSet,
+		types.RequestedAnswerDimensionBoundary,
+		types.RequestedAnswerDimensionEvidenceSource:
+		return true
 	default:
 		return false
 	}
@@ -7895,6 +7928,40 @@ func answerDocumentHasBoundaryPayload(doc *types.AnswerDocumentV2) bool {
 		if answerBlockHasFacet(block, string(types.FacetUncertaintyBoundary)) {
 			return true
 		}
+	}
+	return false
+}
+
+func answerDocumentHasEvidenceSourcePayload(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	if len(doc.Citations) > 0 ||
+		len(doc.Snippets) > 0 ||
+		len(doc.ReadOwnerAnchors) > 0 ||
+		doc.ReadSourceLocalization != nil ||
+		doc.ReadNavigationCoverage != nil ||
+		doc.ReadReasoningGraph != nil {
+		return true
+	}
+	for _, block := range doc.Blocks {
+		if strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) == "" {
+			continue
+		}
+		if block.Kind == types.BlockCaveat {
+			return true
+		}
+		if len(block.FacetIDs) > 0 || len(block.ClaimUses) > 0 || len(block.EdgeAnchors) > 0 {
+			return true
+		}
+		for _, item := range block.Items {
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
+				return true
+			}
+		}
+	}
+	if len(doc.Caveats) > 0 {
+		return true
 	}
 	return false
 }
