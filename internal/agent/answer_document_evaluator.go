@@ -7346,7 +7346,7 @@ func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactRe
 		return math.MinInt / 8
 	}
 	text := strings.ToLower(strings.Join([]string{
-		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Summary, ev.Source,
+		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Snippet, ev.Source,
 	}, " "))
 	sourceLower := strings.ToLower(ev.Source)
 	isTestLike := types.LooksLikeTestFilePath(ev.Source) || strings.Contains(sourceLower, "/testdata/") || strings.Contains(sourceLower, "\\testdata\\")

@@ -1442,7 +1442,7 @@ func ExactResolutionEvidenceBlocksAbsence(c *ExactResolutionContract, item Evide
 		return false
 	}
 	if !ExactResolutionTextsMentionAnyTarget(c,
-		item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
+		item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet) {
 		return false
 	}
 	if !exactResolutionEvidenceHasProofGradeAnchor(item) {
@@ -1511,7 +1511,6 @@ func ExactResolutionEvidenceMentionsAnyTarget(c *ExactResolutionContract, item E
 		item.AnchorSymbol,
 		item.Condition,
 		item.Snippet,
-		item.Summary,
 	}
 	texts = append(texts, item.SurfaceTerms...)
 	if item.NegativeQuery != nil {

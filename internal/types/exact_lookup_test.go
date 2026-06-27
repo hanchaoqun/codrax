@@ -755,6 +755,30 @@ func TestExactResolutionEvidenceBlocksAbsence_RequiresProofGradeAnchor(t *testin
 	}
 }
 
+func TestExactResolutionEvidenceBlocksAbsence_IgnoresSummaryOnlyTargetMention(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:   SubjectConfigKey,
+		TargetLabel:  "config key",
+		Targets:      []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence: true,
+	}
+	item := EvidenceItem{
+		Source:          "internal/config/runtime.go",
+		LineStart:       271,
+		Subject:         "RuntimeSettings",
+		Predicate:       "documents",
+		Object:          "nearby config defaults",
+		AnchorKind:      AnchorAssignment,
+		AnchorSymbol:    "RuntimeSettings",
+		Summary:         "This rendered summary mentions explore_mid_loop_hint_budget, but the typed source anchor does not.",
+		ContextRole:     EvidenceContextRoleDefining,
+		GroundingStatus: GroundingGrounded,
+	}
+	if ExactResolutionEvidenceBlocksAbsence(contract, item) {
+		t.Fatal("summary-only exact-target mention must not block absence")
+	}
+}
+
 func TestExactResolutionEvidenceCanSatisfyRelatedContext_IgnoresSummaryOnlyTermMatches(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,
@@ -1442,5 +1466,29 @@ func TestExactResolutionEvidenceSupportsAbsence_RejectsPromptSupportConfigMentio
 	}
 	if ExactResolutionEvidenceSupportsAbsence(contract, item) {
 		t.Fatal("prompt-support config mention must not count as exact absence support")
+	}
+}
+
+func TestExactResolutionEvidenceSupportsAbsence_IgnoresSummaryOnlyTargetMention(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:   SubjectConfigKey,
+		TargetLabel:  "config key",
+		Targets:      []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence: true,
+	}
+	item := EvidenceItem{
+		Source:          "internal/types/config.go",
+		LineStart:       839,
+		Subject:         "DefaultExploreHeuristics",
+		Predicate:       "absence_support",
+		Object:          "nearby defaults",
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		ContextRole:     EvidenceContextRoleAbsenceSupport,
+		GroundingStatus: GroundingGrounded,
+		Summary:         "This rendered summary says explore_mid_loop_hint_budget is absent.",
+	}
+	if ExactResolutionEvidenceSupportsAbsence(contract, item) {
+		t.Fatal("summary-only exact-target mention must not support absence")
 	}
 }

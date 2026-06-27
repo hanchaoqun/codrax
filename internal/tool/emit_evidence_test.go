@@ -3251,14 +3251,14 @@ func TestEmitEvidence_KeepsFreeformExactMentionAsRelatedContextWithoutAnchoredTa
 	if got[0].ContextRole != types.EvidenceContextRoleRelatedContext {
 		t.Fatalf("context role = %q, want related_context", got[0].ContextRole)
 	}
-	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "nearby context only") {
-		t.Fatalf("freeform exact mention should stay nearby-context only, got: %q", got[0].GroundingNote)
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "context only") {
+		t.Fatalf("freeform summary-only exact mention should stay non-defining context, got: %q", got[0].GroundingNote)
 	}
 	if strings.Contains(strings.ToLower(got[0].Summary), "context only") {
 		t.Fatalf("evidence summary should stay semantic; context-only guidance belongs in grounding_note, got: %q", got[0].Summary)
 	}
-	if !strings.Contains(strings.ToLower(res.Summary), "nearby context only") {
-		t.Fatalf("tool summary should still surface nearby-context guidance, got: %q", res.Summary)
+	if !strings.Contains(strings.ToLower(res.Summary), "context only") {
+		t.Fatalf("tool summary should still surface context-only guidance, got: %q", res.Summary)
 	}
 }
 

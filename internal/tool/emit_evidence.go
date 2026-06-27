@@ -2356,7 +2356,7 @@ func evidenceCanBeAbsenceSupport(ev types.EvidenceItem, contract *types.ExactRes
 		return false
 	}
 	return types.ExactResolutionTextsMentionAnyTarget(contract,
-		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Condition, ev.Snippet, ev.Summary)
+		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Condition, ev.Snippet)
 }
 
 func evidenceCanBeDiagramCodeLayer(ev types.EvidenceItem, contract *types.ExactResolutionContract, requiredFiles []string) bool {
@@ -2377,7 +2377,7 @@ func evidenceCanBeDiagramCodeLayer(ev types.EvidenceItem, contract *types.ExactR
 	}
 	terms := types.ExactResolutionContextTerms(contract)
 	if !types.ExactResolutionTextsMentionAnyTarget(contract,
-		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Condition, ev.Snippet, ev.Summary) &&
+		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Condition, ev.Snippet) &&
 		!types.EvidenceItemStructurallyMentionsAnyTerm(ev, terms) {
 		return false
 	}
@@ -4068,7 +4068,9 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, gc *ground.Context
 		return false
 	}
 	changed := false
-	if ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly && exactResolutionEvidenceMentionsAnyTarget(contract, *ev) {
+	structuredMention := exactResolutionEvidenceMentionsAnyTarget(contract, *ev)
+	groundedWindowMention := evidenceGroundedWindowMentionsAnyTarget(*ev, gc, contract)
+	if ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly && structuredMention {
 		note := fmt.Sprintf(
 			"illustrative mention of the exact %s is not defining proof. Use absence_justification plus grounded defining anchors; do NOT repair this item.",
 			exactResolutionTargetLabel(contract),
@@ -4087,9 +4089,9 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, gc *ground.Context
 		}, "\n")
 		sameFamily := types.ExactResolutionSameFamilyMatchScore(contract, surface) > 0 ||
 			types.ExactResolutionEvidenceCanSatisfyRelatedContext(contract, *ev, nil)
-		targetMention := exactResolutionEvidenceMentionsAnyTarget(contract, *ev) ||
+		targetMention := structuredMention ||
 			exactResolutionEvidenceDirectlyAnchorsAnyTarget(contract, *ev) ||
-			evidenceGroundedWindowMentionsAnyTarget(*ev, gc, contract)
+			groundedWindowMention
 		if targetMention || sameFamily {
 			if targetMention {
 				ev.ContextRole = types.EvidenceContextRoleAbsenceSupport
@@ -4113,13 +4115,13 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, gc *ground.Context
 		}
 	}
 	if ev.ContextRole != types.EvidenceContextRoleIllustrativeOnly &&
-		exactResolutionEvidenceMentionsAnyTarget(contract, *ev) &&
+		(structuredMention || groundedWindowMention) &&
 		!exactResolutionEvidenceDirectlyAnchorsAnyTarget(contract, *ev) {
 		note := fmt.Sprintf(
 			"this item names the requested exact %s only in explanatory context, not as a defining anchor. Treat it as nearby context only; do NOT repair this item.",
 			exactResolutionTargetLabel(contract),
 		)
-		if evidenceGroundedWindowMentionsAnyTarget(*ev, gc, contract) {
+		if groundedWindowMention {
 			if ev.ContextRole != types.EvidenceContextRoleAbsenceSupport {
 				ev.ContextRole = types.EvidenceContextRoleAbsenceSupport
 				changed = true
@@ -4139,7 +4141,7 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, gc *ground.Context
 	if len(pendingTargets) == 0 {
 		return changed
 	}
-	if ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly || exactResolutionEvidenceMentionsAnyTarget(contract, *ev) {
+	if ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly || structuredMention || groundedWindowMention {
 		return changed
 	}
 	if ev.ContextRole == types.EvidenceContextRoleUnknown || ev.ContextRole == types.EvidenceContextRoleDefining {
@@ -4188,7 +4190,7 @@ func exactResolutionEvidenceDirectlyAnchorsAnyTarget(contract *types.ExactResolu
 
 func exactResolutionEvidenceMentionsAnyTarget(contract *types.ExactResolutionContract, ev types.EvidenceItem) bool {
 	return types.ExactResolutionTextsMentionAnyTarget(contract,
-		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Condition, ev.Snippet, ev.Summary)
+		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Condition, ev.Snippet)
 }
 
 func evidenceGroundedWindowMentionsAnyTarget(ev types.EvidenceItem, gc *ground.Context, contract *types.ExactResolutionContract) bool {
