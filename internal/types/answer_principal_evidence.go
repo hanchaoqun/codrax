@@ -43,6 +43,31 @@ func (v AnswerPrincipalEvidenceView) HasGroundedPrincipalEnumerationEvidence() b
 		v.PrincipalEnumerationInvalidCitations == 0
 }
 
+// AnswerBlockHasStructuralPrincipalEnumerationCarrier reports whether a
+// rendered block already carries a visible, cited principal item surface that
+// can safely stand as the enumeration_item carrier even when the LLM omitted
+// the non-visible facet metadata. It is intentionally narrower than general
+// "visible payload": summaries, diagrams, uncited rows, and non-principal
+// support lists do not qualify.
+func AnswerBlockHasStructuralPrincipalEnumerationCarrier(doc *AnswerDocumentV2, block AnswerBlock) bool {
+	if doc == nil || block.SurfaceRole != SurfacePrincipal || !AnswerBlockKindRendersStructuredItems(block.Kind) {
+		return false
+	}
+	for _, item := range block.Items {
+		if AnswerBlockItemVisibleSurface(item) == "" {
+			continue
+		}
+		if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+			continue
+		}
+		cit := doc.Citations[item.CitationRef]
+		if cit.File != "" && cit.Line > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // AnswerDocumentPrincipalEvidenceView computes the typed principal-evidence
 // projection used by renderers, caveat gates, and audit/status cards. It keeps
 // the hard signal precise: a citation counts only when the index is in-range

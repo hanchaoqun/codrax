@@ -1126,6 +1126,59 @@ func TestValidateFacetCoverage_ClaimUseFacetIDCounts(t *testing.T) {
 	}
 }
 
+func TestValidateFacetCoverage_StructuralPrincipalEnumerationCarrierCounts(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/types/enums.go", Line: 130},
+			{File: "internal/types/enums.go", Line: 131},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "agents",
+			Kind:        types.BlockBulletList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{ID: "analyzer", Label: "AgentAnalyzer", Text: "分类请求。", CitationRef: 0},
+				{ID: "explorer", Label: "AgentExplorer", Text: "收集证据。", CitationRef: 1},
+			},
+		}},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{{
+				Kind:     types.FacetEnumerationItem,
+				Required: types.FacetHardRequired,
+			}},
+		},
+	}
+	if vs := validateFacetCoverage(doc, view); len(vs) != 0 {
+		t.Fatalf("visible cited principal enumeration items should count as enumeration_item coverage, got %+v", vs)
+	}
+}
+
+func TestValidateFacetCoverage_PlainSummaryDoesNotCoverEnumerationFacet(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/types/enums.go", Line: 130}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "系统包含多个 agent，但这里没有逐项枚举行。",
+		}},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{{
+				Kind:     types.FacetEnumerationItem,
+				Required: types.FacetHardRequired,
+			}},
+		},
+	}
+	vs := validateFacetCoverage(doc, view)
+	if len(vs) != 1 || vs[0].Kind != types.ViolFacetUncovered {
+		t.Fatalf("plain summary must not structurally cover enumeration_item, got %+v", vs)
+	}
+}
+
 // TestValidateFacetCoverage_NilGuards covers nil cases.
 func TestValidateFacetCoverage_NilGuards(t *testing.T) {
 	if vs := validateFacetCoverage(nil, &types.AnswerSemanticView{}); vs != nil {

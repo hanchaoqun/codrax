@@ -4238,6 +4238,41 @@ func TestNormalizeViewCompatibleAnswerDocument_AddsAutoRepairableRequiredFacetID
 	}
 }
 
+func TestNormalizeViewCompatibleAnswerDocument_AddsEnumerationFacetToPrincipalItemCarrier(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{{
+				Kind:     types.FacetEnumerationItem,
+				Required: types.FacetHardRequired,
+			}},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/types/enums.go", Line: 130},
+			{File: "internal/types/enums.go", Line: 131},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "agents",
+			Kind:        types.BlockBulletList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{ID: "analyzer", Label: "AgentAnalyzer", Text: "分类请求。", CitationRef: 0},
+				{ID: "explorer", Label: "AgentExplorer", Text: "收集证据。", CitationRef: 1},
+			},
+		}},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
+		t.Fatalf("expected enumeration facet metadata repair, got %d", fixed)
+	}
+	if got := doc.Blocks[0].FacetIDs; len(got) != 1 || got[0] != string(types.FacetEnumerationItem) {
+		t.Fatalf("enumeration facet should attach to cited principal item carrier, got %+v", got)
+	}
+	if hints := preCheckFacetCoverage(doc, view); len(hints) != 0 {
+		t.Fatalf("structural principal enumeration carrier should satisfy facet coverage, got %+v", hints)
+	}
+}
+
 func TestNormalizeViewCompatibleAnswerDocument_DropsScalarWhenExactResolutionAbsent(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		ExactResolution: &types.ExactResolutionContract{
@@ -4329,6 +4364,35 @@ func TestNormalizeViewCompatibleAnswerDocument_DoesNotInventShapeBearingFacetID(
 	}
 	if hints := preCheckFacetCoverage(doc, view); len(hints) == 0 {
 		t.Fatal("missing diagram_spine should remain a hard hint")
+	}
+}
+
+func TestNormalizeViewCompatibleAnswerDocument_DoesNotInventEnumerationFacetForPlainSummary(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{{
+				Kind:     types.FacetEnumerationItem,
+				Required: types.FacetHardRequired,
+			}},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/types/enums.go", Line: 130}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "系统包含多个 agent，但这里没有逐项枚举行。",
+		}},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("plain summary must not receive enumeration_item facet, got %d repair(s)", fixed)
+	}
+	if len(doc.Blocks[0].FacetIDs) != 0 {
+		t.Fatalf("unexpected enumeration facet mutation: %+v", doc.Blocks[0].FacetIDs)
+	}
+	if hints := preCheckFacetCoverage(doc, view); len(hints) == 0 {
+		t.Fatal("missing principal enumeration rows should remain a hard hint")
 	}
 }
 

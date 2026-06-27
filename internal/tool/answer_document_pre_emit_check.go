@@ -8328,7 +8328,7 @@ func normalizeAutoRepairableRequiredFacetIDs(doc *types.AnswerDocumentV2, view *
 	if doc == nil || view == nil || view.FacetCoverage == nil || len(view.FacetCoverage.Required) == 0 {
 		return 0
 	}
-	target := -1
+	genericTarget := -1
 	fixed := 0
 	for _, req := range view.FacetCoverage.Required {
 		facet := strings.TrimSpace(string(req.Kind))
@@ -8338,8 +8338,14 @@ func normalizeAutoRepairableRequiredFacetIDs(doc *types.AnswerDocumentV2, view *
 		if answerDocumentDeclaresFacetID(doc, facet) {
 			continue
 		}
-		if target < 0 {
-			target = preEmitAutoRepairFacetTarget(doc)
+		target := -1
+		if types.AnswerFacetKind(facet) == types.FacetEnumerationItem {
+			target = preEmitAutoRepairEnumerationFacetTarget(doc)
+		} else {
+			if genericTarget < 0 {
+				genericTarget = preEmitAutoRepairFacetTarget(doc)
+			}
+			target = genericTarget
 		}
 		if target < 0 {
 			continue
@@ -8352,16 +8358,21 @@ func normalizeAutoRepairableRequiredFacetIDs(doc *types.AnswerDocumentV2, view *
 
 func preEmitAutoRepairableFacetID(facet string) bool {
 	switch types.AnswerFacetKind(strings.TrimSpace(facet)) {
-	case types.FacetCurrentCodePath, types.FacetResolvedLiteralOrSymbol:
+	case types.FacetCurrentCodePath, types.FacetResolvedLiteralOrSymbol, types.FacetEnumerationItem:
 		// These are carrier metadata over already-rendered code paths /
 		// symbols. Adding the missing facet_id to a visible principal
 		// block does not invent a user-visible claim or change the answer
 		// shape, and avoids a full finalizer rewrite for non-visible JSON
 		// metadata.
+		//
+		// enumeration_item is accepted only when
+		// preEmitAutoRepairEnumerationFacetTarget finds an existing
+		// visible, cited principal item carrier; plain prose never
+		// qualifies.
 		return true
 	default:
-		// Shape-bearing facets (diagram_spine, enumeration_item, bucket
-		// labels, path edges, guards, etc.) stay with the normal typed gate:
+		// Shape-bearing facets (diagram_spine, bucket labels, path edges,
+		// guards, etc.) stay with the normal typed gate:
 		// auto-declaring them could hide a genuinely missing block, row, or
 		// diagram.
 		return false
@@ -8404,6 +8415,18 @@ func preEmitAutoRepairFacetTarget(doc *types.AnswerDocumentV2) int {
 			continue
 		}
 		if preEmitBlockCanCarryAutoFacet(doc, block) {
+			return i
+		}
+	}
+	return -1
+}
+
+func preEmitAutoRepairEnumerationFacetTarget(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return -1
+	}
+	for i, block := range doc.Blocks {
+		if types.AnswerBlockHasStructuralPrincipalEnumerationCarrier(doc, block) {
 			return i
 		}
 	}
@@ -9010,6 +9033,9 @@ func preCheckFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 		if kind == "" || covered[kind] {
 			continue
 		}
+		if types.AnswerFacetKind(kind) == types.FacetEnumerationItem && preEmitDocumentHasStructuralEnumerationFacetCarrier(doc) {
+			continue
+		}
 		out = append(out, emitFixHint{
 			Field: "blocks[].facet_ids OR blocks[].claim_uses[].facet_id",
 			ExpectedShape: fmt.Sprintf(
@@ -9019,6 +9045,18 @@ func preCheckFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 		})
 	}
 	return out
+}
+
+func preEmitDocumentHasStructuralEnumerationFacetCarrier(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if types.AnswerBlockHasStructuralPrincipalEnumerationCarrier(doc, block) {
+			return true
+		}
+	}
+	return false
 }
 
 // hasAnyClaimUse reports whether the block carries at least one

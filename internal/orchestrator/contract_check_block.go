@@ -1185,6 +1185,9 @@ func validateFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 		if covered[kind] {
 			continue
 		}
+		if answerDocumentStructurallyCoversFacet(doc, kind) {
+			continue
+		}
 		// Detail surfaces the typed evidence count so the LLM /
 		// operator can tell WHY this facet was promoted (always-hard
 		// vs evidence-sufficient).
@@ -1216,6 +1219,21 @@ func validateFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 		})
 	}
 	return out
+}
+
+func answerDocumentStructurallyCoversFacet(doc *types.AnswerDocumentV2, kind string) bool {
+	if doc == nil || strings.TrimSpace(kind) == "" {
+		return false
+	}
+	switch types.AnswerFacetKind(strings.TrimSpace(kind)) {
+	case types.FacetEnumerationItem:
+		for _, block := range doc.Blocks {
+			if types.AnswerBlockHasStructuralPrincipalEnumerationCarrier(doc, block) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // validateRichnessRegression (R2.3 V2 重接, post_shape_residual_audit
