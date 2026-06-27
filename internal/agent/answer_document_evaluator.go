@@ -10642,19 +10642,130 @@ func answerDocPrincipalSourceSurfaceResolved(doc *types.AnswerDocumentV2) bool {
 	if view.HasGroundedPrincipalEnumerationEvidence() {
 		return true
 	}
+	surface := answerDocPrincipalStructuredVisibleSurface(doc)
+	citedFiles := answerDocPrincipalCitationFileSet(doc)
 	if types.SourceLocalizationReviewHasSignal(doc.ReadSourceLocalization) {
 		authority := loopkernel.DeriveLocalizationAuthority(doc.ReadSourceLocalization)
-		return authority.State == loopkernel.LocalizationAuthorityOwnerSupported
+		if authority.State == loopkernel.LocalizationAuthorityOwnerSupported &&
+			answerDocPrincipalCoversEverySourcePath(answerDocReadSourceLocalizationPaths(doc.ReadSourceLocalization), surface, citedFiles) {
+			return true
+		}
 	}
-	anchors := types.NormalizeOwnerAnchorView(types.OwnerAnchorView{Items: doc.ReadOwnerAnchors}, 0)
-	return anchors.HasStrong
+	return answerDocPrincipalCoversEverySourcePath(answerDocStrongOwnerAnchorSourcePaths(doc), surface, citedFiles)
 }
 
 func answerDocPrincipalSourceSurfaceResolvedForContext(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
 	if answerDocPrincipalSourceSurfaceResolved(doc) {
 		return true
 	}
-	return answerDocSourceInventoryCompleteMemberSetCovered(ctx, doc)
+	if answerDocSourceInventoryCompleteMemberSetCovered(ctx, doc) {
+		return true
+	}
+	return answerDocPrincipalReadAuditSourcePathsCovered(doc)
+}
+
+func answerDocPrincipalReadAuditSourcePathsCovered(doc *types.AnswerDocumentV2) bool {
+	view := types.AnswerDocumentPrincipalEvidenceView(doc)
+	if !view.HasGroundedPrincipalEvidence() {
+		return false
+	}
+	paths := answerDocReadAuditSourcePaths(doc)
+	if len(paths) == 0 {
+		return false
+	}
+	return answerDocPrincipalCoversEverySourcePath(
+		paths,
+		answerDocPrincipalStructuredVisibleSurface(doc),
+		answerDocPrincipalCitationFileSet(doc),
+	)
+}
+
+func answerDocReadAuditSourcePaths(doc *types.AnswerDocumentV2) []string {
+	if doc == nil {
+		return nil
+	}
+	var paths []string
+	paths = append(paths, answerDocReadSourceLocalizationPaths(doc.ReadSourceLocalization)...)
+	if doc.ReadLocalizerFollowup != nil {
+		followup := types.NormalizeReadLocalizerFollowup(*doc.ReadLocalizerFollowup)
+		paths = append(paths, followup.CandidatePaths...)
+	}
+	paths = append(paths, answerDocStrongOwnerAnchorSourcePaths(doc)...)
+	return answerDocDedupSourceFilePaths(paths)
+}
+
+func answerDocReadSourceLocalizationPaths(review *types.SourceLocalizationReview) []string {
+	if review == nil {
+		return nil
+	}
+	normalized := types.NormalizeSourceLocalizationReview(*review)
+	var paths []string
+	paths = append(paths, normalized.SourcePaths...)
+	paths = append(paths, normalized.SupportedPaths...)
+	paths = append(paths, normalized.MissingPaths...)
+	paths = append(paths, normalized.OwnerSupportedPaths...)
+	paths = append(paths, normalized.OwnerMissingPaths...)
+	for _, ref := range normalized.EvidenceRefs {
+		paths = append(paths, ref.Source)
+	}
+	for _, anchor := range normalized.Anchors {
+		paths = append(paths, anchor.Path)
+		if anchor.EvidenceRef != nil {
+			paths = append(paths, anchor.EvidenceRef.Source)
+		}
+	}
+	return answerDocDedupSourceFilePaths(paths)
+}
+
+func answerDocStrongOwnerAnchorSourcePaths(doc *types.AnswerDocumentV2) []string {
+	if doc == nil || len(doc.ReadOwnerAnchors) == 0 {
+		return nil
+	}
+	view := types.NormalizeOwnerAnchorView(types.OwnerAnchorView{Items: doc.ReadOwnerAnchors}, 0)
+	var paths []string
+	for _, item := range view.Items {
+		if item.Path == "" || types.SourcePathRoleIsAuxiliary(item.Role) || item.Kind == types.SourceLocalizationAnchorScope {
+			continue
+		}
+		switch item.Strength {
+		case types.SourceLocalizationAnchorOwner, types.SourceLocalizationAnchorSupporting:
+			paths = append(paths, item.Path)
+			if item.EvidenceRef != nil {
+				paths = append(paths, item.EvidenceRef.Source)
+			}
+		}
+	}
+	return answerDocDedupSourceFilePaths(paths)
+}
+
+func answerDocPrincipalCoversEverySourcePath(paths []string, surface string, citedFiles map[string]bool) bool {
+	paths = answerDocDedupSourceFilePaths(paths)
+	if len(paths) == 0 {
+		return false
+	}
+	for _, path := range paths {
+		if !answerDocPrincipalSurfaceCoversSourceFile(path, surface, citedFiles) {
+			return false
+		}
+	}
+	return true
+}
+
+func answerDocDedupSourceFilePaths(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, raw := range in {
+		key := answerDocSourceFileKey(raw)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, raw)
+	}
+	return out
 }
 
 func answerDocSourceInventoryCompleteMemberSetCovered(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {

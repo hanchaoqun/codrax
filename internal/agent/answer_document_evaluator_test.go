@@ -7160,6 +7160,129 @@ func TestAnswerDocumentEvaluator_ParseOutput_SuppressesResolvedReadLastMileSuppl
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_SuppressesReadAuditSupplementsWhenPrincipalCoversAuditPaths(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "principal",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "handler",
+				Label:       "handle_request",
+				Text:        "请求入口由 handle_request 处理。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{
+			File: "pkg/handler.py",
+			Line: 42,
+		}},
+		ReadSourceLocalization: &types.SourceLocalizationReview{
+			Source:              "read_turn_a",
+			Status:              types.SourceLocalizationObserved,
+			SourcePaths:         []string{"pkg/handler.py"},
+			OwnerSupportedPaths: []string{"pkg/handler.py"},
+		},
+		ReadNavigationCoverage: &types.RepoMapNavigationCoverage{
+			State:          types.RepoMapNavigationCoveragePartial,
+			ReasonCode:     "repo_map_navigation_partial",
+			RequiredRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap, types.RepoMapNavigationRouteRelationMap},
+			CoveredRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap},
+			MissingRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+		},
+		ReadLocalizerFollowup: &types.ReadLocalizerFollowup{
+			State:          types.ReadLocalizerFollowupNeeded,
+			ReasonCode:     "read_localizer_navigation_missing",
+			CandidatePaths: []string{"pkg/handler.py"},
+			MissingRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+		},
+		ReadOwnerAnchors: []types.OwnerAnchorViewItem{{
+			Path:         "pkg/handler.py",
+			Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+			Strength:     types.SourceLocalizationAnchorOwner,
+			OwnerSymbol:  "handle_request",
+			AnchorSymbol: "handle_request",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if !strings.Contains(out.FinalAnswer, "handle_request") {
+		t.Fatalf("principal answer lost:\n%s", out.FinalAnswer)
+	}
+	for _, banned := range []string{
+		"系统补充：源码定位状态",
+		"系统补充：repo_map 导航覆盖",
+		"系统补充：读模式定位补充请求",
+		"系统补充：源码定位锚点核对",
+	} {
+		if strings.Contains(out.FinalAnswer, banned) {
+			t.Fatalf("principal citation covers audit paths; should not append %q:\n%s", banned, out.FinalAnswer)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_KeepsReadAuditSupplementsWhenAuditPathNotCovered(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "principal",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "router",
+				Label:       "Router",
+				Text:        "路由层在 Router 中分发。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{
+			File: "pkg/router.py",
+			Line: 12,
+		}},
+		ReadSourceLocalization: &types.SourceLocalizationReview{
+			Source:              "read_turn_a",
+			Status:              types.SourceLocalizationSupported,
+			SourcePaths:         []string{"pkg/handler.py"},
+			OwnerSupportedPaths: []string{"pkg/handler.py"},
+		},
+		ReadLocalizerFollowup: &types.ReadLocalizerFollowup{
+			State:          types.ReadLocalizerFollowupNeeded,
+			ReasonCode:     "read_localizer_owner_missing",
+			CandidatePaths: []string{"pkg/handler.py"},
+		},
+		ReadOwnerAnchors: []types.OwnerAnchorViewItem{{
+			Path:         "pkg/handler.py",
+			Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+			Strength:     types.SourceLocalizationAnchorOwner,
+			OwnerSymbol:  "handle_request",
+			AnchorSymbol: "handle_request",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"系统补充：源码定位状态",
+		"系统补充：读模式定位补充请求",
+		"系统补充：源码定位锚点核对",
+		"`pkg/handler.py`",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("audit path not covered by principal citation; missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_SuppressesReadSupplementsForGroundedEnumerationSection(t *testing.T) {
 	mu := types.NewMutableState("grounded source inventory")
 	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
