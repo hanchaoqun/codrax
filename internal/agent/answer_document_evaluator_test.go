@@ -995,16 +995,17 @@ func TestSelectAnswerDocTypedEnrichmentFacts_PrincipalDefinitionRowsPreserveDeta
 			GroundingStatus: types.GroundingGrounded,
 		},
 		{
-			ID:              "registered-kinds",
-			Kind:            types.EvidenceDirect,
-			Scope:           types.ScopeLine,
-			Source:          "internal/types/grammar.go",
-			LineStart:       106,
-			AnchorKind:      types.AnchorDefinition,
-			AnchorSymbol:    "RegisteredKinds",
-			Subject:         "RegisteredKinds",
-			Summary:         "returns all registered kinds with stable ordering",
-			GroundingStatus: types.GroundingGrounded,
+			ID:                 "registered-kinds",
+			Kind:               types.EvidenceDirect,
+			Scope:              types.ScopeLine,
+			Source:             "internal/types/grammar.go",
+			LineStart:          106,
+			AnchorKind:         types.AnchorDefinition,
+			AnchorSymbol:       "RegisteredKinds",
+			Subject:            "RegisteredKinds",
+			Summary:            "returns all registered kinds with stable ordering",
+			LoadBearingSummary: true,
+			GroundingStatus:    types.GroundingGrounded,
 		},
 	}
 
@@ -4168,6 +4169,70 @@ func TestCollectExactResolutionSeeds_ConfigTraceRequiresDiagramRoleForNearbyCont
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected config-lineage seed %q, got: %s", want, text)
 		}
+	}
+}
+
+func TestAnswerDocumentAuthoritativeSurfacesIgnoreOrdinarySummary(t *testing.T) {
+	ordinary := types.EvidenceItem{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/example/thing.go",
+		LineStart:       7,
+		Summary:         "ordinary summary claims the target is fully proven",
+		GroundingStatus: types.GroundingGrounded,
+	}
+
+	if got := formatExactResolutionSeed(ordinary); strings.Contains(got, "ordinary summary claims") {
+		t.Fatalf("exact-resolution seed leaked ordinary summary: %q", got)
+	}
+	if got := formatExactResolutionSurfaceSeed(ordinary); strings.Contains(got, "ordinary summary claims") {
+		t.Fatalf("surface seed leaked ordinary summary: %q", got)
+	}
+	row, ok := answerDocRelationSurfaceRowForEvidence(nil, types.EvidenceItem{
+		Kind:            types.EvidenceDataflowPath,
+		Producer:        "consumer_gate",
+		Subject:         "handoff",
+		Source:          "internal/example/flow.go",
+		LineStart:       12,
+		Summary:         "ordinary summary invents the receiving component",
+		GroundingStatus: types.GroundingGrounded,
+	}, 0)
+	if !ok {
+		t.Fatal("relation surface should keep typed subject-only rows")
+	}
+	if strings.Contains(row.surface, "ordinary summary invents") {
+		t.Fatalf("relation surface leaked ordinary summary: %+v", row)
+	}
+
+	ctx := &types.AgentContext{
+		EvidenceItems: []types.EvidenceItem{ordinary},
+	}
+	if rows := answerDocumentFallbackEvidenceRows(ctx, 8, 200); len(rows) != 0 {
+		t.Fatalf("degraded fallback evidence rows must not use ordinary summary-only evidence: %+v", rows)
+	}
+}
+
+func TestAnswerDocumentAuthoritativeSurfacesAllowLoadBearingSummary(t *testing.T) {
+	item := types.EvidenceItem{
+		Kind:               types.EvidenceDirect,
+		Source:             "internal/example/version.go",
+		LineStart:          9,
+		Summary:            "version stamp v1.2.3",
+		LoadBearingSummary: true,
+		GroundingStatus:    types.GroundingGrounded,
+	}
+
+	if got := formatExactResolutionSeed(item); !strings.Contains(got, "v1.2.3") {
+		t.Fatalf("load-bearing exact-resolution seed lost summary scalar: %q", got)
+	}
+	if got := formatExactResolutionSurfaceSeed(item); !strings.Contains(got, "v1.2.3") {
+		t.Fatalf("load-bearing surface seed lost summary scalar: %q", got)
+	}
+	ctx := &types.AgentContext{
+		EvidenceItems: []types.EvidenceItem{item},
+	}
+	rows := answerDocumentFallbackEvidenceRows(ctx, 8, 200)
+	if len(rows) != 1 || !strings.Contains(rows[0].text, "v1.2.3") {
+		t.Fatalf("load-bearing fallback evidence row lost summary scalar: %+v", rows)
 	}
 }
 

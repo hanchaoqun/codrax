@@ -4634,7 +4634,7 @@ func answerDocRelationSurfaceRowForEvidence(ctx *types.AgentContext, item types.
 	}
 	surface := strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(item, false))
 	if surface == "" {
-		surface = strings.TrimSpace(item.Summary)
+		return answerDocRelationSurfaceRow{}, false
 	}
 	surface = truncateAnswerDocPromptText(surface, answerDocMaxEnrichmentSurfaceBytes)
 	if ctx != nil && ctx.AnalysisIR != nil {
@@ -4660,7 +4660,7 @@ func answerDocEvidenceHasStructuredRelationSurface(item types.EvidenceItem, incl
 	case types.EvidenceRelationship, types.EvidenceRegistration, types.EvidenceDataflowPath:
 		if item.Kind == types.EvidenceDataflowPath &&
 			answerDocStructuredRelationChainProducer(item.Producer) &&
-			(strings.TrimSpace(item.Subject) != "" || strings.TrimSpace(item.Summary) != "") {
+			(strings.TrimSpace(item.Subject) != "" || strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(item, false)) != "") {
 			return true
 		}
 		return hasEndpoint || strings.TrimSpace(item.AnchorSymbol) != ""
@@ -5450,6 +5450,9 @@ func answerDocPathMatches(a, b string) bool {
 }
 
 func answerDocDefinitionSurfaceWithSummary(item types.EvidenceItem, surface string) string {
+	if !item.LoadBearingSummary {
+		return surface
+	}
 	summary := strings.TrimSpace(item.Summary)
 	if summary == "" {
 		return surface
@@ -7084,7 +7087,7 @@ func exactResolutionSeedsFromItems(items []types.EvidenceItem, classify func(typ
 		if text == "" {
 			continue
 		}
-		key := fmt.Sprintf("%s:%d:%s:%s", ev.Source, ev.LineStart, ev.AnchorSymbol, ev.Summary)
+		key := fmt.Sprintf("%s:%d:%s:%s:%s:%s", ev.Source, ev.LineStart, ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol)
 		if key == "" || seen[key] {
 			continue
 		}
@@ -7120,8 +7123,8 @@ func formatExactResolutionSurfaceSeed(ev types.EvidenceItem) string {
 		parts = append(parts, subject)
 	}
 	if len(parts) == 0 {
-		if summary := strings.TrimSpace(ev.Summary); summary != "" {
-			parts = append(parts, summary)
+		if surface := strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(ev, false)); surface != "" {
+			parts = append(parts, surface)
 		}
 	}
 	text := strings.Join(parts, " - ")
@@ -7207,7 +7210,7 @@ func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactR
 	seen := make(map[string]bool)
 	out := make([]exactResolutionSeed, 0, 4)
 	for _, cand := range candidates {
-		key := fmt.Sprintf("%s:%d:%s:%s:%s:%s", cand.ev.Source, cand.ev.LineStart, cand.ev.Subject, cand.ev.Predicate, cand.ev.Object, cand.ev.Summary)
+		key := fmt.Sprintf("%s:%d:%s:%s:%s:%s", cand.ev.Source, cand.ev.LineStart, cand.ev.Subject, cand.ev.Predicate, cand.ev.Object, cand.ev.AnchorSymbol)
 		if seen[key] {
 			continue
 		}
@@ -7426,9 +7429,15 @@ func formatExactResolutionSeed(ev types.EvidenceItem) string {
 	if triple := strings.TrimSpace(strings.Join(filterEmptyStrings(ev.Subject, ev.Predicate, ev.Object), " ")); triple != "" {
 		parts = append(parts, triple)
 	}
-	if summary := strings.TrimSpace(ev.Summary); summary != "" {
-		if len(parts) == 0 || !strings.Contains(summary, parts[0]) {
-			parts = append(parts, summary)
+	surface := strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(ev, false))
+	if len(parts) == 0 {
+		if surface != "" {
+			parts = append(parts, surface)
+		}
+	} else if ev.LoadBearingSummary && surface != "" {
+		summary := strings.TrimSpace(ev.Summary)
+		if summary != "" && !strings.Contains(strings.Join(parts, "\n"), summary) {
+			parts = append(parts, surface)
 		}
 	}
 	text := strings.Join(parts, " — ")
@@ -7471,8 +7480,9 @@ func hasIllustrativeExactResolutionMention(ctx *types.AgentContext, contract *ty
 		if ev.ContextRole != types.EvidenceContextRoleIllustrativeOnly {
 			continue
 		}
+		surface := strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(ev, false))
 		text := strings.Join([]string{
-			ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Summary, ev.Snippet,
+			ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Snippet, surface,
 		}, "\n")
 		for _, target := range contract.Targets {
 			if types.ExactResolutionTextMentionsTarget(contract, text, target) {
@@ -9906,9 +9916,6 @@ func answerDocumentFallbackEvidenceRows(ctx *types.AgentContext, limit, textLimi
 			continue
 		}
 		text := strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(item, false))
-		if text == "" {
-			text = strings.TrimSpace(item.Summary)
-		}
 		if text == "" {
 			text = strings.TrimSpace(item.Snippet)
 		}
