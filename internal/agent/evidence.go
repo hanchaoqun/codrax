@@ -774,7 +774,7 @@ func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFile
 	// though it is THE cross-file join the extractor needs to see —
 	// the literal `sub_agents` token breaks the contiguous substring
 	// match that the pre-2026-04-17 scorer relied on.
-	text := stripPathTokens(strings.ToLower(item.Subject + " " + item.Object + " " + item.Summary + " " + item.Predicate))
+	text := stripPathTokens(strings.ToLower(evidenceScoringText(item)))
 	normText := normalizeEntityHaystack(text)
 	overlap := 0
 	for _, ent := range entities {
@@ -1042,12 +1042,39 @@ var mechanismConcretePatterns = []string{
 	".find(",
 }
 
+func evidenceScoringText(item types.EvidenceItem) string {
+	parts := []string{
+		item.Subject,
+		item.Object,
+		item.Predicate,
+		item.AnchorSymbol,
+		item.OwnerSymbol,
+		item.Snippet,
+		strings.Join(item.SurfaceTerms, " "),
+	}
+	if item.LoadBearingSummary {
+		parts = append(parts, item.Summary)
+	}
+	return strings.Join(parts, " ")
+}
+
+func evidenceMechanismPatternText(item types.EvidenceItem) string {
+	parts := []string{
+		item.Object,
+		item.Snippet,
+	}
+	if item.LoadBearingSummary {
+		parts = append(parts, item.Summary)
+	}
+	return strings.Join(parts, " ")
+}
+
 // looksLikeMechanismConcreteValue reports whether a concrete_value
 // item is describing a cross-file mechanism (registry lookup /
 // binding / gate) rather than a plain return value. normText is the
-// lowercased, path-stripped, underscore-normalised combination of
-// Subject + Object + Summary + Predicate — passed in by the caller
-// so we reuse the work already done for entity scoring.
+// lowercased, path-stripped, underscore-normalised typed scoring
+// surface — passed in by the caller so we reuse the work already done
+// for entity scoring.
 //
 // The check requires BOTH a mechanism-call pattern AND at least one
 // entity overlap. The entity prerequisite prevents us from boosting
@@ -1071,10 +1098,12 @@ func looksLikeMechanismConcreteValue(item types.EvidenceItem, normText string, e
 	if !hasEntity {
 		return false
 	}
-	// Check raw Object + Summary (not normText) so `.Get(` survives
-	// the underscore strip — the pattern needs its parenthesis to
-	// disambiguate method calls from bare identifiers.
-	haystack := strings.ToLower(item.Object + " " + item.Summary)
+	// Check raw object/snippet surfaces (not normText) so `.Get(`
+	// survives the underscore strip — the pattern needs its parenthesis
+	// to disambiguate method calls from bare identifiers. Ordinary
+	// evidence Summary is not part of this authority surface; it is
+	// included only via the explicit LoadBearingSummary opt-in.
+	haystack := strings.ToLower(evidenceMechanismPatternText(item))
 	for _, p := range mechanismConcretePatterns {
 		if strings.Contains(haystack, p) {
 			return true

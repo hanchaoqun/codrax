@@ -804,6 +804,29 @@ func TestLooksLikeMechanismConcreteValue(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "ordinary summary cannot supply missing mechanism entity",
+			item: types.EvidenceItem{
+				Kind:     types.EvidenceConcrete,
+				Producer: "concrete_values",
+				Subject:  "Registry.default",
+				Object:   `registry.Get("default")`,
+				Summary:  `SubAgent registry lookup`,
+			},
+			want: false,
+		},
+		{
+			name: "load-bearing summary can opt into mechanism entity",
+			item: types.EvidenceItem{
+				Kind:               types.EvidenceConcrete,
+				Producer:           "concrete_values",
+				Subject:            "Registry.default",
+				Object:             `registry.Get("default")`,
+				Summary:            `SubAgent registry lookup`,
+				LoadBearingSummary: true,
+			},
+			want: true,
+		},
+		{
 			name: "simple return value — no mechanism pattern",
 			item: types.EvidenceItem{
 				Kind:     types.EvidenceConcrete,
@@ -827,8 +850,7 @@ func TestLooksLikeMechanismConcreteValue(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			text := normalizeEntityHaystack(strings.ToLower(
-				c.item.Subject + " " + c.item.Object + " " + c.item.Summary + " " + c.item.Predicate))
+			text := normalizeEntityHaystack(strings.ToLower(evidenceScoringText(c.item)))
 			got := looksLikeMechanismConcreteValue(c.item, text, entities)
 			if got != c.want {
 				t.Errorf("got %v, want %v", got, c.want)
