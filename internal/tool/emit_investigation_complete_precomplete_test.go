@@ -5062,6 +5062,34 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks(t *testin
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_DiagnosticMechanismGroundedBoundarySkipsGenericPrimaryAnchor(t *testing.T) {
+	mut := types.NewMutableState("why did finalization retry")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/agent/finalizer.go", Score: 95, ExactEntityRank: 3},
+	})
+	repoRoot := t.TempDir()
+	writeForcedReadFixtureFiles(t, repoRoot, "internal/agent/finalizer.go")
+	mut.AppendEvidence([]types.EvidenceItem{
+		diagnosticMechanismEvidenceForTest(types.EvidenceMechanism, "internal/llm/openai.go", 374),
+		diagnosticMechanismEvidenceForTest(types.EvidenceRelationship, "internal/orchestrator/orchestrator.go", 4612),
+		diagnosticMechanismEvidenceForTest(types.EvidenceConditional, "internal/orchestrator/contract_check.go", 72),
+	})
+	bus := diagnosticMechanismBoundaryBusForTest(mut)
+	bus.RepoRoot = repoRoot
+
+	downgrade := preCompleteContractCheckWithPreflight(bus, "", completionPreflightView{
+		Evidence: mut.EmittedEvidence(),
+	})
+	if downgrade != "" {
+		t.Fatalf("grounded diagnostic mechanism evidence should not be blocked by a broad generic primary anchor: %s", downgrade)
+	}
+	for _, pending := range mut.EvidenceClosure().PendingReads() {
+		if pending.File == "internal/agent/finalizer.go" {
+			t.Fatalf("generic primary anchor should not be queued after typed diagnostic boundary is satisfied: %+v", pending)
+		}
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_RuntimeArtifactSourceOptionalDoesNotForceRead(t *testing.T) {
 	mut := types.NewMutableState("runtime trace")
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{

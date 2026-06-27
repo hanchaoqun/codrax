@@ -9496,6 +9496,9 @@ func genericForcedReadBoundarySatisfied(ctx *types.BusContext, aggregateFacts []
 	if sourceInventoryMemberSetCompletesGenericForcedReadBoundary(ctx, aggregateFacts) {
 		return true
 	}
+	if diagnosticMechanismGroundedEvidenceCompletesForcedReadBoundary(ctx, evidence) {
+		return true
+	}
 	if genericForcedReadBoundarySatisfiedByGroundedEvidence(ctx, evidence) {
 		return true
 	}
@@ -9519,6 +9522,86 @@ func genericForcedReadBoundarySatisfied(ctx *types.BusContext, aggregateFacts []
 		}
 	}
 	return false
+}
+
+func diagnosticMechanismGroundedEvidenceCompletesForcedReadBoundary(ctx *types.BusContext, evidence []types.EvidenceItem) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || len(evidence) == 0 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent != types.IntentExplain || !rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsRoleLocateLookup ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsCategoryEnumeration ||
+		types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
+		types.RequiresRelationMemberSetHandoff(rm) {
+		return false
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return false
+	}
+	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case types.ReqMechanism, types.ReqConditional, types.ReqCallChain:
+	default:
+		return false
+	}
+	seenItems := make(map[string]bool)
+	seenFiles := make(map[string]bool)
+	for _, item := range evidence {
+		if !evidenceItemSupportsGenericForcedReadBoundary(item) {
+			continue
+		}
+		if !currentSourceCoverageEvidenceItem(item) {
+			continue
+		}
+		if !diagnosticMechanismEvidenceKindSupportsBoundary(item.Kind) {
+			continue
+		}
+		source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+		key := fmt.Sprintf("%s:%d", source, item.LineStart)
+		if seenItems[key] {
+			continue
+		}
+		seenItems[key] = true
+		seenFiles[source] = true
+	}
+	minItems, minFiles := diagnosticMechanismGroundedBoundaryThresholds(ctx)
+	return len(seenItems) >= minItems && len(seenFiles) >= minFiles
+}
+
+func diagnosticMechanismEvidenceKindSupportsBoundary(kind types.EvidenceKind) bool {
+	switch kind {
+	case types.EvidenceMechanism,
+		types.EvidenceRelationship,
+		types.EvidenceConditional,
+		types.EvidenceConcrete,
+		types.EvidenceDirect,
+		types.EvidenceRegistration:
+		return true
+	default:
+		return false
+	}
+}
+
+func diagnosticMechanismGroundedBoundaryThresholds(ctx *types.BusContext) (minItems int, minFiles int) {
+	minItems, minFiles = 3, 2
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.AnswerContract.CitationReq.Required {
+		if want := ctx.AnalysisIR.AnswerContract.CitationReq.MinCitations; want > minItems {
+			minItems = want
+		}
+	}
+	if minItems < 1 {
+		minItems = 1
+	}
+	return minItems, minFiles
 }
 
 func sourceInventoryMemberSetCompletesGenericForcedReadBoundary(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) bool {

@@ -2398,6 +2398,86 @@ func TestGenericForcedReadBoundarySatisfiedByCompleteRelationMemberSet(t *testin
 	}
 }
 
+func TestGenericForcedReadBoundarySatisfiedByDiagnosticMechanismGroundedEvidence(t *testing.T) {
+	mut := types.NewMutableState("why did finalization retry")
+	mut.AppendEvidence([]types.EvidenceItem{
+		diagnosticMechanismEvidenceForTest(types.EvidenceMechanism, "internal/llm/openai.go", 374),
+		diagnosticMechanismEvidenceForTest(types.EvidenceRelationship, "internal/orchestrator/orchestrator.go", 4612),
+		diagnosticMechanismEvidenceForTest(types.EvidenceConditional, "internal/orchestrator/contract_check.go", 72),
+	})
+	bus := diagnosticMechanismBoundaryBusForTest(mut)
+	if !genericForcedReadBoundarySatisfied(bus, nil, mut.EmittedEvidence()) {
+		t.Fatal("diagnostic mechanism answer with grounded multi-file current-source evidence should satisfy generic forced-read boundary")
+	}
+
+	mut = types.NewMutableState("why did finalization retry")
+	mut.AppendEvidence([]types.EvidenceItem{
+		diagnosticMechanismEvidenceForTest(types.EvidenceMechanism, "internal/llm/openai.go", 374),
+		diagnosticMechanismEvidenceForTest(types.EvidenceRelationship, "internal/llm/openai.go", 390),
+		diagnosticMechanismEvidenceForTest(types.EvidenceConditional, "internal/llm/openai.go", 412),
+	})
+	bus = diagnosticMechanismBoundaryBusForTest(mut)
+	if genericForcedReadBoundarySatisfied(bus, nil, mut.EmittedEvidence()) {
+		t.Fatal("single-file diagnostic evidence should not bypass cross-file forced-read coverage")
+	}
+
+	mut = types.NewMutableState("list all agents")
+	mut.AppendEvidence([]types.EvidenceItem{
+		diagnosticMechanismEvidenceForTest(types.EvidenceMechanism, "internal/llm/openai.go", 374),
+		diagnosticMechanismEvidenceForTest(types.EvidenceRelationship, "internal/orchestrator/orchestrator.go", 4612),
+		diagnosticMechanismEvidenceForTest(types.EvidenceConditional, "internal/orchestrator/contract_check.go", 72),
+	})
+	bus = diagnosticMechanismBoundaryBusForTest(mut)
+	bus.AnalysisIR.RequestModel.Predicates.IsCategoryEnumeration = true
+	if genericForcedReadBoundarySatisfied(bus, nil, mut.EmittedEvidence()) {
+		t.Fatal("diagnostic evidence shortcut must not weaken exhaustive enumeration obligations")
+	}
+}
+
+func diagnosticMechanismBoundaryBusForTest(mut *types.MutableState) *types.BusContext {
+	return &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentExplain,
+				Scenario:      types.ScenarioRootCause,
+				PredicateAxis: types.AxisCondition,
+				Predicates: types.SemanticPredicates{
+					IsDiagnosticQuestion: true,
+					IsCrossComponent:     true,
+				},
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic:        true,
+					CurrentVersionCheck: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 3},
+			},
+		},
+	}
+}
+
+func diagnosticMechanismEvidenceForTest(kind types.EvidenceKind, source string, line int) types.EvidenceItem {
+	return types.EvidenceItem{
+		Kind:            kind,
+		Subject:         "finalizer observation",
+		Object:          "current source mechanism",
+		Source:          source,
+		LineStart:       line,
+		LineEnd:         line,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "boundary",
+		Snippet:         "func boundary() {}",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+		Scope:           types.ScopeLine,
+		Origin:          types.ClaimOriginCurrentRepo,
+		Authority:       types.AuthorityFactual,
+	}
+}
+
 func TestEmitInvestigationComplete_CallChainRejectsLargeTailGapAfterLateEvidence(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.AppendEvidence([]types.EvidenceItem{
