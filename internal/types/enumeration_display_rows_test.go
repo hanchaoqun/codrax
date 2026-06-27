@@ -275,6 +275,100 @@ func TestCompileEnumerationDisplaySets_SourceInventoryRowAttributesPreservePacka
 	}
 }
 
+func TestCompileEnumerationDisplaySets_SourceInventoryAttributesStayLocationScopedForDuplicateLabels(t *testing.T) {
+	rm := &RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+			RequestedFields: []SourceInventoryRequestedField{
+				SourceInventoryFieldName,
+				SourceInventoryFieldLocation,
+			},
+			Confidence: 0.95,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "native declarations",
+			Value: "2",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Members: []string{
+				"native_add @ fixtures/bridge.cj:6",
+				"native_add @ thirdparty/ffi.cj:6",
+			},
+			SupportRefs: []string{
+				"native_add @ fixtures/bridge.cj:6",
+				"native_add @ thirdparty/ffi.cj:6",
+			},
+		}},
+		SourceInventoryObservation: SourceInventoryObservation{
+			Active:   true,
+			Complete: true,
+			Scopes:   []string{"."},
+			Sets: []SourceInventoryObservationSet{{
+				Role:     AnswerCandidateRoleFunction,
+				Complete: true,
+				Count:    2,
+				Members: []SourceInventoryObservationMember{
+					{
+						Name:          "native_add",
+						File:          "fixtures/bridge.cj",
+						Line:          6,
+						Language:      "cangjie",
+						CoverageState: SourceInventoryCoverageObserved,
+						Attributes: []SourceInventoryObservationAttribute{{
+							Name:          "demo.bridge",
+							Role:          AnswerCandidateRolePackage,
+							File:          "fixtures/bridge.cj",
+							Line:          4,
+							Language:      "cangjie",
+							CoverageState: SourceInventoryCoverageObserved,
+						}},
+					},
+					{
+						Name:          "native_add",
+						File:          "thirdparty/ffi.cj",
+						Line:          6,
+						Language:      "cangjie",
+						CoverageState: SourceInventoryCoverageObserved,
+						Attributes: []SourceInventoryObservationAttribute{{
+							Name:          "demo.ffi",
+							Role:          AnswerCandidateRolePackage,
+							File:          "thirdparty/ffi.cj",
+							Line:          4,
+							Language:      "cangjie",
+							CoverageState: SourceInventoryCoverageObserved,
+						}},
+					},
+				},
+			}},
+		},
+	}
+
+	sets := CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) != 1 || len(sets[0].Rows) != 2 {
+		t.Fatalf("sets = %+v", sets)
+	}
+	byLocation := map[string][]EnumerationDisplayRowAttribute{}
+	for _, row := range sets[0].Rows {
+		byLocation[row.Location] = row.Attributes
+	}
+	assertAttr := func(location, want string) {
+		t.Helper()
+		attrs := byLocation[location]
+		if len(attrs) != 1 || attrs[0].Name != want {
+			t.Fatalf("location %s attrs = %+v, want exactly %s", location, attrs, want)
+		}
+	}
+	assertAttr("fixtures/bridge.cj:6", "demo.bridge")
+	assertAttr("thirdparty/ffi.cj:6", "demo.ffi")
+}
+
 func TestCompileEnumerationDisplaySets_UsesCanonicalMembersAndSupportRefs(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

@@ -4176,7 +4176,14 @@ func preCheckSourceInventoryCandidateUniverseCoverage(doc *types.AnswerDocumentV
 	if view == nil || view.Family != types.QFEnumeration || !view.NeedsEnumerationSlate() {
 		return nil
 	}
-	gap := SourceInventoryCandidateUniverseCoverageGap(ctx, preEmitStableAggregateFacts(ctx))
+	facts := preEmitStableAggregateFacts(ctx)
+	gap := SourceInventoryCandidateUniverseCoverageGap(ctx, facts)
+	if duplicate := SourceInventoryObservedDuplicateLocationCoverageGap(ctx, facts); sourceInventoryCandidateUniverseGapBetter(duplicate, gap) {
+		gap = duplicate
+	}
+	if surfaceFamily := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, facts); sourceInventoryCandidateUniverseGapBetter(surfaceFamily, gap) {
+		gap = surfaceFamily
+	}
 	if !gap.Blocking {
 		return nil
 	}
@@ -4184,9 +4191,13 @@ func preCheckSourceInventoryCandidateUniverseCoverage(doc *types.AnswerDocumentV
 		return nil
 	}
 	surface := preEmitVisibleAnswerSurface(doc)
+	locationStrict := strings.HasPrefix(gap.Scope, "duplicate_location:") || strings.HasPrefix(gap.Scope, "surface_family:")
 	var missing []string
 	for _, member := range gap.Missing {
-		if preEmitSourceInventoryUniverseMemberAppearsInDocument(member, doc, surface) {
+		if locationStrict && preEmitSourceInventoryUniverseMemberLocationAppearsInDocument(member, surface) {
+			continue
+		}
+		if !locationStrict && preEmitSourceInventoryUniverseMemberAppearsInDocument(member, doc, surface) {
 			continue
 		}
 		name := strings.TrimSpace(member.Name)
@@ -4211,6 +4222,38 @@ func preCheckSourceInventoryCandidateUniverseCoverage(doc *types.AnswerDocumentV
 		ExpectedShape: "preserve the exact candidate-universe contract before presenting a complete enumeration: " + gap.Summary(SourceInventoryCandidateUniverseSummaryLimit),
 		Reason:        "structured navigation observed an exact candidate universe, but the accepted investigation handoff did not cover or exclude every observed candidate. The system will not add those candidates to the answer; the model must either include verified principal members, explicitly exclude non-answer candidates, or disclose the remaining scope boundary in a caveat.",
 	}}
+}
+
+func preEmitSourceInventoryUniverseMemberLocationAppearsInDocument(member types.SourceInventoryObservationMember, surface string) bool {
+	for _, raw := range []string{member.SupportRef, member.File} {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if loc, ok := types.ParseAnswerSourceLocationSurface(raw); ok {
+			if preEmitTextContainsLoose(surface, preEmitSourceInventoryLocationSurface(loc)) {
+				return true
+			}
+		}
+		if _, loc, ok := types.ParseAnswerSupportRefMemberLocation(raw); ok {
+			if preEmitTextContainsLoose(surface, preEmitSourceInventoryLocationSurface(loc)) {
+				return true
+			}
+		}
+	}
+	if member.File == "" || member.Line <= 0 {
+		return false
+	}
+	loc := types.AnswerSourceLocationSurface{File: member.File, LineStart: member.Line}
+	return preEmitTextContainsLoose(surface, preEmitSourceInventoryLocationSurface(loc))
+}
+
+func preEmitSourceInventoryLocationSurface(loc types.AnswerSourceLocationSurface) string {
+	file := strings.Trim(strings.ReplaceAll(strings.TrimSpace(loc.File), `\`, `/`), "/")
+	if file == "" || loc.LineStart <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", file, loc.LineStart)
 }
 
 func preEmitSourceInventoryUniverseMemberAppearsInDocument(member types.SourceInventoryObservationMember, doc *types.AnswerDocumentV2, surface string) bool {

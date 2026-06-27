@@ -409,13 +409,17 @@ func (idx *enumerationDisplaySourceInventoryAttributeIndex) attributesFor(member
 		if entry.Source != "" {
 			out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label+"\x00"+normalizeAnswerSupportPath(entry.Source)])
 		}
-		out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label])
+		if entry.Source == "" && len(out) == 0 {
+			out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label])
+		}
 	}
 	if label := aggregateMemberKey(entry.Text); label != "" && !strings.EqualFold(label, aggregateMemberKey(member)) {
 		if entry.Source != "" {
 			out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label+"\x00"+normalizeAnswerSupportPath(entry.Source)])
 		}
-		out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label])
+		if entry.Source == "" && len(out) == 0 {
+			out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label])
+		}
 	}
 	return out
 }

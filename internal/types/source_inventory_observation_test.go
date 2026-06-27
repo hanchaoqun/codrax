@@ -232,6 +232,38 @@ func TestSourceInventoryObservation_MergeCompleteLensSupersedesEarlierTruncatedS
 	}
 }
 
+func TestSourceInventoryObservationFromAdvisory_PreservesCompleteZeroSetLens(t *testing.T) {
+	obs := SourceInventoryObservationFromAdvisory(SourceInventoryAdvisory{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources"},
+		Provenance: []string{
+			"repo_lens:tool_query",
+		},
+		Sets: []SourceInventoryAdvisorySet{{
+			Role:     AnswerCandidateRoleType,
+			Complete: true,
+			Total:    0,
+		}},
+	})
+	if !obs.IsActive() {
+		t.Fatalf("complete zero source-inventory observation should stay active: %+v", obs)
+	}
+	if len(obs.Sets) != 1 || obs.Sets[0].Role != AnswerCandidateRoleType || !obs.Sets[0].Complete || obs.Sets[0].Count != 0 || obs.Sets[0].Total != 0 {
+		t.Fatalf("complete zero set was not preserved: %+v", obs.Sets)
+	}
+	if len(obs.CompleteLenses) != 1 {
+		t.Fatalf("complete zero set should produce a complete lens, got %+v", obs.CompleteLenses)
+	}
+	lens := obs.CompleteLenses[0]
+	if lens.Role != AnswerCandidateRoleType || lens.Count != 0 || lens.Total != 0 {
+		t.Fatalf("zero complete lens has wrong role/count: %+v", lens)
+	}
+	if len(lens.SourceClasses) != 1 || lens.SourceClasses[0] != SourcePathRoleThirdParty {
+		t.Fatalf("zero complete lens should carry source class from scope, got %+v", lens.SourceClasses)
+	}
+}
+
 func TestSourceInventoryObservation_MergePreservesScopedCompleteLensProof(t *testing.T) {
 	prior := SourceInventoryObservation{
 		Active:     true,

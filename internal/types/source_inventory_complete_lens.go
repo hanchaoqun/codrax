@@ -101,7 +101,7 @@ func sourceInventoryCompleteLensesFromObservation(observation SourceInventoryObs
 		if !ok {
 			role = AnswerCandidateRoleUnknown
 		}
-		if role == "" || role == AnswerCandidateRoleUnknown || !set.Complete || len(set.Members) == 0 {
+		if role == "" || role == AnswerCandidateRoleUnknown || !set.Complete {
 			continue
 		}
 		lens := SourceInventoryCompleteLens{
@@ -111,17 +111,7 @@ func sourceInventoryCompleteLensesFromObservation(observation SourceInventoryObs
 			Total:      set.Total,
 			Provenance: append([]string(nil), observation.Provenance...),
 		}
-		langs := map[string]bool{}
-		classes := map[SourcePathRole]bool{}
-		for _, member := range set.Members {
-			sourceInventoryCompleteLensAddMember(lens.Role, member, langs, classes)
-		}
-		for lang := range langs {
-			lens.Languages = append(lens.Languages, lang)
-		}
-		for class := range classes {
-			lens.SourceClasses = append(lens.SourceClasses, class)
-		}
+		sourceInventoryCompleteLensPopulateSurface(&lens, observation.Scopes, set.Members)
 		out = append(out, lens)
 	}
 	return mergeSourceInventoryCompleteLenses(nil, out)

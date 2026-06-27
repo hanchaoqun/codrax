@@ -162,17 +162,15 @@ func SourceInventoryObservationFromAdvisory(advisory SourceInventoryAdvisory) So
 		Sets:         make([]SourceInventoryObservationSet, 0, len(advisory.Sets)),
 	}
 	for _, set := range advisory.Sets {
-		if len(set.Candidates) == 0 {
-			if !set.Complete {
-				out.Sets = append(out.Sets, SourceInventoryObservationSet{
-					Role:     set.Role,
-					Complete: false,
-				})
-			}
+		if sourceInventoryObservationAppendZeroSetFromAdvisory(&out, set) {
+			continue
+		}
+		role, ok := NormalizeAnswerCandidateRole(string(set.Role))
+		if !ok || role == AnswerCandidateRoleUnknown {
 			continue
 		}
 		obsSet := SourceInventoryObservationSet{
-			Role:     set.Role,
+			Role:     role,
 			Complete: set.Complete,
 			Total:    set.Total,
 			Members:  make([]SourceInventoryObservationMember, 0, len(set.Candidates)),
