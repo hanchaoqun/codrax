@@ -1370,7 +1370,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 	justification := strings.TrimSpace(p.AbsenceJustification)
-	resultKind, justification = normalizeExactAbsenceCompletionWithEvidenceAndAggregates(ctx, resultKind, reason, justification, evidenceSnapshot, aggregateFacts)
+	resultKind, justification = normalizeExactAbsenceCompletionWithEvidenceAndAggregates(ctx, resultKind, justification, evidenceSnapshot, aggregateFacts)
 	aggregateFactNormalizationNotes := aggregateFactValueCanonicalizationNotes(p.AggregateFacts, aggregateFacts)
 	aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, softAggregateNotes...)
 	earlyDowngradeConverged := false
@@ -1693,7 +1693,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}
 		if evidence := preflight.Evidence; preflight.GenericEvidenceTally.hasAny() &&
 			!completionFactsContainPrincipalEmptyMemberSetWithTypedNoHitSupport(ctx, effectiveAggregateFacts) &&
-			!allowsContextualEvidenceForAbsence(ctx, reason, justification, evidence) {
+			!allowsContextualEvidenceForAbsence(ctx, evidence) {
 			return types.ToolResult{
 				ToolName: t.Name(),
 				Summary: "emit_investigation_complete rejected: absence_justification is reserved for honest-zero answers " +
@@ -10731,7 +10731,7 @@ func hasGroundedOrRecovered(items []types.EvidenceItem) bool {
 	return completionGenericEvidenceTally(items).hasAny()
 }
 
-func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justification string, evidence []types.EvidenceItem) bool {
+func allowsContextualEvidenceForAbsence(ctx *types.BusContext, evidence []types.EvidenceItem) bool {
 	if groundedEvidenceIsContextOnly(evidence) {
 		return true
 	}
@@ -10747,7 +10747,6 @@ func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justifica
 	if ctx != nil && ctx.Mutable != nil {
 		requiredFiles = types.ExactResolutionRequiredContextFiles(contract, ctx.Mutable)
 	}
-	text := reason + "\n" + justification
 	targets := exactAbsencePendingTargets(ctx)
 	if len(targets) == 0 {
 		targets = append(targets, contract.Targets...)
@@ -10755,26 +10754,13 @@ func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justifica
 	if types.ExactResolutionAbsenceClosureReady(contract, scenario, targets, evidence, requiredFiles) {
 		return true
 	}
-	mentioned := false
-	for _, target := range targets {
-		if !types.ExactResolutionTextMentionsTarget(contract, text, target) {
-			continue
-		}
-		mentioned = true
-		if evidenceHasAnyDefiningExactTargetProof(contract, evidence, []string{target}) {
-			continue
-		}
-		return true
-	}
-	if mentioned {
-		return false
-	}
 	// Once the upstream exact-target lane has already established a
 	// pending "not found" target, absence closure may still be valid
-	// even if the reason/justification paraphrases the search outcome
-	// without repeating the literal on every line. In that state,
-	// supporting evidence is allowed as long as no defining proof for
-	// the exact target was emitted.
+	// even if the human-readable completion fields do not repeat the
+	// literal on every line. In that state, supporting evidence is
+	// allowed as long as no defining proof for the exact target was
+	// emitted. The reason / absence_justification prose is explanatory
+	// only and must not decide this gate.
 	return len(targets) > 0 && !evidenceHasAnyDefiningExactTargetProof(contract, evidence, targets)
 }
 
@@ -10871,16 +10857,8 @@ func exactResolutionContractForCompletion(ctx *types.BusContext) *types.ExactRes
 	return types.BuildExactResolutionContract(ctx.AnalysisIR.RequestModel)
 }
 
-func normalizeExactAbsenceCompletion(ctx *types.BusContext, resultKind, reason, justification string) (string, string) {
-	var evidence []types.EvidenceItem
-	if ctx != nil && ctx.Mutable != nil {
-		evidence = ctx.Mutable.EmittedEvidence()
-	}
-	return normalizeExactAbsenceCompletionWithEvidence(ctx, resultKind, reason, justification, evidence)
-}
-
-func normalizeExactAbsenceCompletionWithEvidenceAndAggregates(ctx *types.BusContext, resultKind, reason, justification string, evidence []types.EvidenceItem, aggregateFacts []types.AnswerAggregateFact) (string, string) {
-	resultKind, justification = normalizeExactAbsenceCompletionWithEvidence(ctx, resultKind, reason, justification, evidence)
+func normalizeExactAbsenceCompletionWithEvidenceAndAggregates(ctx *types.BusContext, resultKind, justification string, evidence []types.EvidenceItem, aggregateFacts []types.AnswerAggregateFact) (string, string) {
+	resultKind, justification = normalizeExactAbsenceCompletionWithEvidence(ctx, resultKind, justification, evidence)
 	if justification != "" || (resultKind != "absence" && resultKind != "resolved") {
 		return resultKind, justification
 	}
@@ -10905,7 +10883,7 @@ func normalizeExactAbsenceCompletionWithEvidenceAndAggregates(ctx *types.BusCont
 	return "absence", auto
 }
 
-func normalizeExactAbsenceCompletionWithEvidence(ctx *types.BusContext, resultKind, reason, justification string, evidence []types.EvidenceItem) (string, string) {
+func normalizeExactAbsenceCompletionWithEvidence(ctx *types.BusContext, resultKind, justification string, evidence []types.EvidenceItem) (string, string) {
 	if ctx == nil || ctx.Mutable == nil {
 		return resultKind, justification
 	}
@@ -11213,34 +11191,6 @@ func evidenceHasGroundedRelatedContextProof(contract *types.ExactResolutionContr
 	}
 	for _, item := range items {
 		if types.ExactResolutionEvidenceCanSatisfyRelatedContext(contract, item, requiredFiles) {
-			return true
-		}
-	}
-	return false
-}
-
-func looksLikeHonestZeroClaim(reason, justification string) bool {
-	text := strings.ToLower(strings.TrimSpace(reason + "\n" + justification))
-	if text == "" {
-		return false
-	}
-	if containsAnySubstr(text,
-		"enough evidence", "sufficient evidence", "collected enough evidence", "found enough evidence",
-		"fully traced", "fully track", "already found enough", "all necessary evidence",
-		"充分的证据", "找到充分", "已经找到", "已收集", "完全追踪", "完整追踪", "证据均已") {
-		return false
-	}
-	return containsAnySubstr(text,
-		"no such", "does not exist", "doesn't exist", "not found", "nothing found",
-		"found no", "not present",
-		"none", "zero", "zero hit", "zero match", "0 hit", "0 match", "0 file", "0 files",
-		"no handler", "no symbol", "no file", "no key", "no config key", "no exact", "absent",
-		"不存在", "没有", "未找到", "找不到", "无此", "无该", "零", "0 个", "0个", "空结果")
-}
-
-func containsAnySubstr(text string, needles ...string) bool {
-	for _, needle := range needles {
-		if needle != "" && strings.Contains(text, needle) {
 			return true
 		}
 	}

@@ -1908,6 +1908,44 @@ func TestEmitInvestigationComplete_ConfigTraceAbsencePrefersMaterializeOverUnrea
 	}
 }
 
+func TestAllowsContextualEvidenceForAbsence_UsesTypedTargetsNotCompletionProse(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("q"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Scenario: types.ScenarioConfigTrace},
+			AnswerContract: types.AnswerContract{ExactResolution: &types.ExactResolutionContract{
+				TargetKind:   types.SubjectConfigKey,
+				TargetLabel:  "config key",
+				Targets:      []string{"existing_key", "missing_key"},
+				AllowAbsence: true,
+			}},
+		},
+	}
+
+	if allowsContextualEvidenceForAbsence(bus, []types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/config/runtime.go",
+		LineStart:       10,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "existing_key",
+		GroundingStatus: types.GroundingGrounded,
+	}}) {
+		t.Fatal("typed defining proof for any exact target must block absence; completion prose must not choose another target")
+	}
+
+	if !allowsContextualEvidenceForAbsence(bus, []types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/config/runtime.go",
+		LineStart:       20,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		GroundingStatus: types.GroundingGrounded,
+	}}) {
+		t.Fatal("typed related-context evidence should remain compatible with exact absence")
+	}
+}
+
 func TestEmitInvestigationComplete_ConfigTraceContextOnlyEvidenceRequiresValidatedPrecedenceRole(t *testing.T) {
 	missingKey := "explore_mid_loop_hint_budget"
 	mut := types.NewMutableState("q")
