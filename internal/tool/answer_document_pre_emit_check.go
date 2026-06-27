@@ -2881,15 +2881,7 @@ func aggregateMemberSetEvidenceMatchesAny(ev types.EvidenceItem, candidates []st
 	if len(candidates) == 0 {
 		return false
 	}
-	hay := strings.Join([]string{
-		ev.AnchorSymbol,
-		ev.Subject,
-		ev.Object,
-		ev.OwnerSymbol,
-		strings.Join(ev.SurfaceTerms, "\n"),
-		ev.Snippet,
-		ev.Summary,
-	}, "\n")
+	hay := aggregateMemberSetEvidenceSupportText(ev)
 	for _, candidate := range candidates {
 		candidate = strings.TrimSpace(candidate)
 		if candidate == "" {
@@ -2900,6 +2892,21 @@ func aggregateMemberSetEvidenceMatchesAny(ev types.EvidenceItem, candidates []st
 		}
 	}
 	return false
+}
+
+func aggregateMemberSetEvidenceSupportText(ev types.EvidenceItem) string {
+	parts := []string{
+		ev.AnchorSymbol,
+		ev.Subject,
+		ev.Object,
+		ev.OwnerSymbol,
+		strings.Join(ev.SurfaceTerms, "\n"),
+		ev.Snippet,
+	}
+	if ev.LoadBearingSummary {
+		parts = append(parts, ev.Summary)
+	}
+	return strings.Join(parts, "\n")
 }
 
 func principalSupportMemberCarrierBlockIndex(doc *types.AnswerDocumentV2) int {

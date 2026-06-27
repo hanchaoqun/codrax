@@ -188,6 +188,26 @@ func TestPreEmitDecoratedLabelMatchesEvidence_IgnoresOrdinarySummaryQualifier(t 
 	}
 }
 
+func TestAggregateMemberSetEvidenceMatchesAny_IgnoresOrdinarySummary(t *testing.T) {
+	ev := types.EvidenceItem{
+		Summary: "OnlySummaryMember appears only in model-authored evidence prose.",
+	}
+	if aggregateMemberSetEvidenceMatchesAny(ev, []string{"OnlySummaryMember"}) {
+		t.Fatal("ordinary evidence Summary must not support aggregate member identity")
+	}
+
+	ev.SurfaceTerms = []string{"OnlySummaryMember"}
+	if !aggregateMemberSetEvidenceMatchesAny(ev, []string{"OnlySummaryMember"}) {
+		t.Fatal("typed surface_terms should support aggregate member identity")
+	}
+
+	ev.SurfaceTerms = nil
+	ev.LoadBearingSummary = true
+	if !aggregateMemberSetEvidenceMatchesAny(ev, []string{"OnlySummaryMember"}) {
+		t.Fatal("explicit LoadBearingSummary should remain an opt-in support surface")
+	}
+}
+
 func TestPreEmitStructuredMemberBlockCoversFactAcrossBlocks(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{
