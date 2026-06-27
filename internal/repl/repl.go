@@ -6774,6 +6774,7 @@ func (r *REPL) dispatch(line, display string) {
 	spinnerStarted := false
 	if r.renderer != nil {
 		r.setRendererTotalStagesForCurrentMode()
+		logging.Info("[repl] starting request renderer: mode=%s user_mode=%s", r.currentMode, r.userMode.Normalize())
 		r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
 		spinnerStarted = true
 	}

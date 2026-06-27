@@ -1069,15 +1069,13 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.dock != nil {
-		if r.animStop != nil {
-			return
-		}
-		// Defensive recovery for a half-closed live region: the dock
-		// pointer can survive a buggy/local shutdown path while the
-		// animation ticker is gone. A later REPL turn would otherwise
-		// render a static "Calling the model" row until some unrelated
-		// event repaints it. Clear the stale region and start a fresh
-		// spinner lifecycle.
+		// StartSpinner is a new run boundary. A previous REPL turn can
+		// leave a live dock behind after cancel, panic, or a light-route
+		// handoff; reusing it preserves the old start time/activity and
+		// can freeze the next turn at a stale "requesting model" row.
+		// Always stop the old ticker and clear the live region before
+		// starting a fresh lifecycle.
+		r.stopAnimLocked()
 		r.dock.clearDock()
 		r.dock = nil
 	}

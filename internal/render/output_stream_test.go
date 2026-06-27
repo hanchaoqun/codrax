@@ -439,6 +439,43 @@ func TestRenderer_StartSpinnerClearsStaleDockWithoutTicker(t *testing.T) {
 	}
 }
 
+func TestRenderer_StartSpinnerReplacesStaleDockWithTicker(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+	r.dock = newDock(&buf)
+	r.dock.paintDock([dockRowCount]string{"old-request", "old-stage", "old-time"})
+	oldStop := make(chan struct{})
+	r.animStop = oldStop
+	r.startTime = time.Now().Add(-30 * time.Second)
+	r.activity = activityState{kind: activityRequesting}
+
+	buf.Reset()
+	r.StartSpinnerWithCancelHint("Ctrl+C")
+
+	select {
+	case <-oldStop:
+	default:
+		t.Fatal("fresh spinner lifecycle should stop the stale animation ticker")
+	}
+	if r.animStop != nil {
+		t.Fatal("non-TTY fresh start should not leave the old animation channel installed")
+	}
+	if r.dock != nil {
+		t.Fatal("non-TTY stale dock must be cleared even when its ticker was still present")
+	}
+	if r.activity.kind != activityWaitingPipeline {
+		t.Fatalf("fresh spinner lifecycle should reset activity, got %v", r.activity.kind)
+	}
+	if r.startTime.IsZero() || time.Since(r.startTime) > time.Second {
+		t.Fatalf("fresh spinner lifecycle should reset start time, got %v", r.startTime)
+	}
+	out := stripAnsiEscapes(buf.String())
+	if strings.Contains(out, "old-request") || strings.Contains(out, "old-stage") || strings.Contains(out, "old-time") {
+		t.Fatalf("stale dock rows should be cleared before the next spinner start, got %q", out)
+	}
+}
+
 func TestRenderer_EmitsRejectedFirstAnswerDraftPreviewOnce(t *testing.T) {
 	var buf bytes.Buffer
 	r := New(&buf, false)
