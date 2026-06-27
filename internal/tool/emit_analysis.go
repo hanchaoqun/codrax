@@ -529,7 +529,7 @@ func buildEmitAnalysisSchema() {
 					"target_roles":        map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": answerCandidateRoleValues()}, "description": "Principal source-member roles requested by the user, such as function, method, type, constant, variable, or field."},
 					"type_underlying":     map[string]any{"type": "string", "enum": sourceInventoryTypeUnderlyingValues(), "description": "Optional structural facet for type inventories. Use string for requests like Go `type X string`; use unknown when no underlying type facet is requested."},
 					"requires_const_set":  map[string]any{"type": "boolean", "description": "True when a type inventory requires an associated const/enum declaration set, such as string enum types. False or omit for ordinary type inventories."},
-					"requested_fields":    map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": sourceInventoryRequestedFieldValues()}, "description": "Fields the user wants shown: name, location, summary, values, count. Do not include values unless the request asks for enum/member literal values."},
+					"requested_fields":    map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": sourceInventoryRequestedFieldValues()}, "description": "Display fields the user wants shown: name, location, summary, values, count. Do not put construct/member roles such as package, module, file, route, import_path, function, type, method, field, or constant here; put those in target_roles and preserve the user's construct wording in source_quotes. Do not include values unless the request asks for enum/member literal values."},
 					"source_quotes":       map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that state the inventory shape or structural facet."},
 					"confidence":          map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this source-inventory profile in [0,1]."},
 					"rationale":           map[string]any{"type": "string", "description": "Short audit rationale for why this inventory profile applies."},
@@ -2447,10 +2447,11 @@ func parseSourceInventoryProfile(raw string, p *emitSourceInventoryProfileParam)
 	for i, rawField := range p.RequestedFields {
 		field := types.SourceInventoryRequestedField(strings.TrimSpace(rawField))
 		if !field.IsValid() {
-			return nil, fmt.Sprintf(
-				"source_inventory_profile.requested_fields[%d] %q is invalid; use one of %s",
+			warnings = append(warnings, fmt.Sprintf(
+				"source_inventory_profile.requested_fields[%d] %q ignored because it is not one of %s",
 				i, rawField, strings.Join(sourceInventoryRequestedFieldValues(), ", "),
-			), nil
+			))
+			continue
 		}
 		if seenFields[field] {
 			continue

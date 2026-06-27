@@ -3428,6 +3428,80 @@ func TestEmitAnalysis_SourceInventorySoftensEchoedProductionScope(t *testing.T) 
 	}
 }
 
+func TestEmitAnalysis_SourceInventoryDropsInvalidRequestedFieldsWithoutDroppingProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("列出仓库里的 package 声明及位置。")
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["package", "声明", "位置"],
+		"entities": ["package 声明"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.95,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": true
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.95
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["package"],
+			"requested_fields": ["name", "package", "module", "location"],
+			"source_quotes": ["package 声明"],
+			"confidence": 0.95
+		}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed after dropping invalid display fields, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	profile := rm.SourceInventoryProfile
+	if profile == nil || !profile.Active() {
+		t.Fatalf("source_inventory_profile should remain active: %+v", profile)
+	}
+	if len(profile.TargetRoles) != 1 || profile.TargetRoles[0] != types.AnswerCandidateRolePackage {
+		t.Fatalf("target role should remain package, got %+v", profile.TargetRoles)
+	}
+	gotFields := map[types.SourceInventoryRequestedField]bool{}
+	for _, field := range profile.RequestedFields {
+		gotFields[field] = true
+	}
+	if !gotFields[types.SourceInventoryFieldName] || !gotFields[types.SourceInventoryFieldLocation] {
+		t.Fatalf("valid display fields should survive, got %+v", profile.RequestedFields)
+	}
+	if gotFields[types.SourceInventoryRequestedField("package")] || gotFields[types.SourceInventoryRequestedField("module")] {
+		t.Fatalf("construct roles must not be persisted as display fields: %+v", profile.RequestedFields)
+	}
+	if !strings.Contains(res.Summary, "requested_fields") || !strings.Contains(res.Summary, "ignored") {
+		t.Fatalf("summary should disclose ignored invalid requested_fields, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_SourceInventoryKeepsProductionWithTypedAuxiliaryExclusion(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
