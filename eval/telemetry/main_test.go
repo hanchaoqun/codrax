@@ -77,11 +77,15 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 	if rep.Finalizer.DocumentRejects != 1 || rep.Finalizer.RewriteRenders != 1 || rep.Finalizer.RepairPlans != 1 {
 		t.Fatalf("finalizer counters wrong: %+v", rep.Finalizer)
 	}
-	if rep.Finalizer.ContractViolations != 3 || rep.Finalizer.ContractViolationBySection["v2_block_oracles"] != 3 {
+	if rep.Finalizer.ContractViolations != 1 || rep.Finalizer.ContractViolationBySection["v2_block_oracles"] != 1 {
 		t.Fatalf("contract violations not parsed: %+v", rep.Finalizer)
 	}
 	if rep.Finalizer.StrictContractViolations != 1 || rep.Finalizer.StrictContractBySection["v2_block_oracles"] != 1 {
 		t.Fatalf("strict contract violations not parsed: %+v", rep.Finalizer)
+	}
+	if rep.Finalizer.AdvisoryContractViolations != 2 || rep.Finalizer.AdvisoryContractBySection["v2_block_oracles"] != 2 ||
+		rep.Finalizer.ContractObservations != 3 || rep.Finalizer.ContractObservationBySection["v2_block_oracles"] != 3 {
+		t.Fatalf("contract advisory/observation telemetry not parsed: %+v", rep.Finalizer)
 	}
 	if rep.Richness.Events != 1 ||
 		rep.Richness.ByKind["facet_softened"] != 1 ||
@@ -128,7 +132,8 @@ func TestCollectContractCheckLegacyLogsFallbackToStrict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collect returned error: %v", err)
 	}
-	if rep.Finalizer.ContractViolations != 3 || rep.Finalizer.StrictContractViolations != 3 {
+	if rep.Finalizer.ContractViolations != 3 || rep.Finalizer.StrictContractViolations != 3 ||
+		rep.Finalizer.ContractObservations != 3 || rep.Finalizer.AdvisoryContractViolations != 0 {
 		t.Fatalf("legacy contract telemetry should fallback to strict total: %+v", rep.Finalizer)
 	}
 	if rep.FilesByRetryScore[0].FinalizerRejects != 3 {
@@ -157,12 +162,16 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 			},
 		},
 		Finalizer: finalizerSummary{
-			ToolRejects:                1,
-			ContractViolations:         2,
-			StrictContractViolations:   1,
-			ContractViolationBySection: map[string]int{"support_plan": 2},
-			StrictContractBySection:    map[string]int{"support_plan": 1},
-			RepairKinds:                map[string]int{"diagram_edge_endpoint_hallucinated": 1},
+			ToolRejects:                  1,
+			ContractViolations:           1,
+			ContractObservations:         2,
+			StrictContractViolations:     1,
+			AdvisoryContractViolations:   1,
+			ContractViolationBySection:   map[string]int{"support_plan": 1},
+			ContractObservationBySection: map[string]int{"support_plan": 2},
+			StrictContractBySection:      map[string]int{"support_plan": 1},
+			AdvisoryContractBySection:    map[string]int{"support_plan": 1},
+			RepairKinds:                  map[string]int{"diagram_edge_endpoint_hallucinated": 1},
 		},
 		Explorer: explorerSummary{
 			MidLoopSignals:    2,
@@ -201,7 +210,7 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 		"explorer.mid-loop.read-without-emit",
 		"explorer_iters",
 		"diagram_edge_endpoint_hallucinated",
-		"contract violations: total=2 strict=1 soft=1",
+		"contract findings: strict=1 advisory=1 observations=2",
 		"support_plan",
 		"facet_softened",
 		"stage_regressions=1",

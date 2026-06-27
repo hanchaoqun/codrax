@@ -6868,15 +6868,8 @@ func (o *Orchestrator) emitCGECSummary() {
 		// that match the pre-session-11 prefix still work. The tail
 		// prints nothing when the ledger is empty (zero cost when
 		// F1 hookups are a no-op on a healthy run).
-		if stats.ViolationsLogged > 0 {
-			if topField, topCount, topConf := closure.TopSuspectedField(); topField != "" {
-				line = fmt.Sprintf("%s violations=%d by_field=%s top_suspected=(%s,conf=%.2f,events=%d)",
-					line, stats.ViolationsLogged,
-					formatViolationFieldTally(closure.ViolationFieldTally()),
-					topField, topConf, topCount)
-			} else {
-				line = fmt.Sprintf("%s violations=%d (no_suspected_root)", line, stats.ViolationsLogged)
-			}
+		if suffix := formatCGECViolationLedgerSummary(closure, stats); suffix != "" {
+			line = line + suffix
 		}
 	}
 	// Phase 5 (Semantic Surface Contract, 2026-05-02) — richness

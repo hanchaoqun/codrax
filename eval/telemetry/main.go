@@ -78,18 +78,22 @@ type blocklistSum struct {
 }
 
 type finalizerSummary struct {
-	ToolRejects                int            `json:"tool_rejects"`
-	DocumentRejects            int            `json:"document_rejects"`
-	PatchRejects               int            `json:"patch_rejects"`
-	ContractViolations         int            `json:"contract_violations"`
-	StrictContractViolations   int            `json:"strict_contract_violations"`
-	ContractViolationBySection map[string]int `json:"contract_violation_by_section,omitempty"`
-	StrictContractBySection    map[string]int `json:"strict_contract_violation_by_section,omitempty"`
-	RewriteRenders             int            `json:"rewrite_renders"`
-	ConsistencyRenders         int            `json:"consistency_renders"`
-	RepairPlans                int            `json:"repair_plans"`
-	RepairKinds                map[string]int `json:"repair_kinds,omitempty"`
-	RepairTargets              map[string]int `json:"repair_targets,omitempty"`
+	ToolRejects                  int            `json:"tool_rejects"`
+	DocumentRejects              int            `json:"document_rejects"`
+	PatchRejects                 int            `json:"patch_rejects"`
+	ContractViolations           int            `json:"contract_violations"`
+	ContractObservations         int            `json:"contract_observations"`
+	StrictContractViolations     int            `json:"strict_contract_violations"`
+	AdvisoryContractViolations   int            `json:"contract_advisories"`
+	ContractViolationBySection   map[string]int `json:"contract_violation_by_section,omitempty"`
+	ContractObservationBySection map[string]int `json:"contract_observation_by_section,omitempty"`
+	StrictContractBySection      map[string]int `json:"strict_contract_violation_by_section,omitempty"`
+	AdvisoryContractBySection    map[string]int `json:"contract_advisory_by_section,omitempty"`
+	RewriteRenders               int            `json:"rewrite_renders"`
+	ConsistencyRenders           int            `json:"consistency_renders"`
+	RepairPlans                  int            `json:"repair_plans"`
+	RepairKinds                  map[string]int `json:"repair_kinds,omitempty"`
+	RepairTargets                map[string]int `json:"repair_targets,omitempty"`
 }
 
 type richnessSummary struct {
@@ -217,7 +221,9 @@ func collect(paths []string) (report, error) {
 	c.report.Explorer.ByAction = map[string]int{}
 	c.report.Explorer.HighWaterByMetric = map[string]int{}
 	c.report.Finalizer.ContractViolationBySection = map[string]int{}
+	c.report.Finalizer.ContractObservationBySection = map[string]int{}
 	c.report.Finalizer.StrictContractBySection = map[string]int{}
+	c.report.Finalizer.AdvisoryContractBySection = map[string]int{}
 	c.report.Finalizer.RepairKinds = map[string]int{}
 	c.report.Finalizer.RepairTargets = map[string]int{}
 	c.report.Richness.ByKind = map[string]int{}
@@ -576,16 +582,29 @@ func (c *collector) observeContractCheck(line string, fm *fileMetrics) {
 	if !ok || total <= 0 {
 		return
 	}
-	strict, ok := logIntField(line, "strict_violations")
-	if !ok {
+	strict, hasStrict := logIntField(line, "strict_violations")
+	if !hasStrict {
 		strict = total
 	}
-	c.report.Finalizer.ContractViolations += total
-	c.report.Finalizer.ContractViolationBySection[m[1]] += total
+	advisory, hasAdvisory := logIntField(line, "soft_violations")
+	if !hasAdvisory && hasStrict {
+		advisory = total - strict
+		if advisory < 0 {
+			advisory = 0
+		}
+	}
+	c.report.Finalizer.ContractObservations += total
+	c.report.Finalizer.ContractObservationBySection[m[1]] += total
 	if strict > 0 {
+		c.report.Finalizer.ContractViolations += strict
+		c.report.Finalizer.ContractViolationBySection[m[1]] += strict
 		c.report.Finalizer.StrictContractViolations += strict
 		c.report.Finalizer.StrictContractBySection[m[1]] += strict
 		fm.finalizerRejects += strict
+	}
+	if advisory > 0 {
+		c.report.Finalizer.AdvisoryContractViolations += advisory
+		c.report.Finalizer.AdvisoryContractBySection[m[1]] += advisory
 	}
 }
 
@@ -976,10 +995,10 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 		rep.Finalizer.DocumentRejects,
 		rep.Finalizer.PatchRejects,
 	)
-	fmt.Fprintf(w, "- contract violations: total=%d strict=%d soft=%d\n",
-		rep.Finalizer.ContractViolations,
+	fmt.Fprintf(w, "- contract findings: strict=%d advisory=%d observations=%d\n",
 		rep.Finalizer.StrictContractViolations,
-		rep.Finalizer.ContractViolations-rep.Finalizer.StrictContractViolations,
+		rep.Finalizer.AdvisoryContractViolations,
+		rep.Finalizer.ContractObservations,
 	)
 	fmt.Fprintf(w, "- rewrites: render_lines=%d consistency_lines=%d repair_plans=%d\n",
 		rep.Finalizer.RewriteRenders,
@@ -988,7 +1007,9 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 	)
 	writeTopMap(w, "Repair kinds", rep.Finalizer.RepairKinds, 10)
 	writeTopMap(w, "Repair targets", rep.Finalizer.RepairTargets, 10)
-	writeTopMap(w, "Contract violation sections", rep.Finalizer.ContractViolationBySection, 10)
+	writeTopMap(w, "Contract strict sections", rep.Finalizer.ContractViolationBySection, 10)
+	writeTopMap(w, "Contract advisory sections", rep.Finalizer.AdvisoryContractBySection, 10)
+	writeTopMap(w, "Contract observation sections", rep.Finalizer.ContractObservationBySection, 10)
 	writeTopMap(w, "Strict contract violation sections", rep.Finalizer.StrictContractBySection, 10)
 
 	fmt.Fprintln(w)

@@ -310,10 +310,12 @@ cat >"$tmp/finalizer-contract-severity.log" <<'LOG'
 2026-06-08T00:00:01.000 DEBUG [diag finalizer] phase=answer_contract_check section=v2_block_oracles done elapsed=1ms violations=4 strict_violations=1 soft_violations=3
 2026-06-08T00:00:02.000 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind done elapsed=1ms violations=2 strict_violations=0 soft_violations=2
 LOG
-assert_eq "$(eval_sum_answer_contract_violations "$tmp/finalizer-contract-severity.log")" "6" "answer contract total preserves soft audit"
+assert_eq "$(eval_sum_answer_contract_violations "$tmp/finalizer-contract-severity.log")" "1" "answer contract violations excludes soft advisory"
 assert_eq "$(eval_sum_answer_contract_strict_violations "$tmp/finalizer-contract-severity.log")" "1" "answer contract strict excludes soft advisory"
-assert_eq "$(eval_sum_answer_contract_violations_for_section "$tmp/finalizer-contract-severity.log" lane_block_kind)" "2" "answer contract section total preserves soft audit"
+assert_eq "$(eval_sum_answer_contract_advisories "$tmp/finalizer-contract-severity.log")" "5" "answer contract advisory metric preserves soft audit"
+assert_eq "$(eval_sum_answer_contract_violations_for_section "$tmp/finalizer-contract-severity.log" lane_block_kind)" "0" "answer contract section violations excludes soft advisory"
 assert_eq "$(eval_sum_answer_contract_strict_violations_for_section "$tmp/finalizer-contract-severity.log" lane_block_kind)" "0" "answer contract section strict excludes soft advisory"
+assert_eq "$(eval_sum_answer_contract_advisories_for_section "$tmp/finalizer-contract-severity.log" lane_block_kind)" "2" "answer contract section advisory metric preserves soft audit"
 assert_eq "$(eval_count_agent_iterations "$tmp/finalizer-content-only.log" explorer)" "0" "agent iteration content contamination"
 assert_eq "$(eval_count_agent_dispatches "$tmp/finalizer-content-only.log" explorer)" "0" "agent dispatch content contamination"
 assert_eq "$(eval_count_semantic_quality_dispatches "$tmp/finalizer-content-only.log")" "0" "semantic dispatch content contamination"
@@ -445,8 +447,9 @@ assert_eq "$(cat "$multilog_dir/run-1.verdict")" "PASS" "multilog verdict should
 if ! grep -q '^log_file=.*run-1.logs.all.log$' "$multilog_dir/run-1.metrics.txt"; then
   fail "metrics did not point at aggregate log"
 fi
-assert_eq "$(grep '^answer_contract_violations=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "2" "aggregate log answer contract metric"
+assert_eq "$(grep '^answer_contract_violations=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "0" "aggregate log answer contract metric excludes advisory"
 assert_eq "$(grep '^answer_contract_strict_violations=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "0" "aggregate log strict answer contract metric"
+assert_eq "$(grep '^answer_contract_advisories=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "2" "aggregate log advisory answer contract metric"
 
 fake_write_apply="$tmp/fake-codrax-write-apply"
 cat >"$fake_write_apply" <<'FAKE'
