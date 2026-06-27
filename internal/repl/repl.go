@@ -1080,15 +1080,12 @@ func (r *REPL) warn(format string, args ...interface{}) {
 // well below the hard memory-store cap. Once tripped, the prompt
 // shows [mem!] and a one-shot nudge runs.
 func (r *REPL) memoryUnderPressure() bool {
-	if r.store == nil {
-		return false
-	}
 	const (
 		recentThreshold = 30
 		indexThreshold  = 60
 	)
-	return len(r.store.Recent()) >= recentThreshold ||
-		len(r.store.Index()) >= indexThreshold
+	recent, idx := r.memoryStats()
+	return recent >= recentThreshold || idx >= indexThreshold
 }
 
 // memoryStats returns (recentTurns, indexEntries) for the pressure
@@ -1098,7 +1095,7 @@ func (r *REPL) memoryStats() (int, int) {
 	if r.store == nil {
 		return 0, 0
 	}
-	return len(r.store.Recent()), len(r.store.Index())
+	return r.store.CachedCounts()
 }
 
 // buildPriorTurnHint produces the compact 1-line hint the chitchat

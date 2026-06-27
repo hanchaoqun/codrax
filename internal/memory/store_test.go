@@ -482,6 +482,53 @@ func TestBuildContextDoesNotBlockWhenMemoryIndexLockBusy(t *testing.T) {
 	}
 }
 
+func TestCachedCountsDoesNotBlockWhenMemoryIndexLockBusy(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer s.Close()
+	if err := s.Append(Turn{
+		ID:       "t0",
+		Request:  "kw0 architecture question",
+		Response: "answer from prior turn",
+	}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	blocker, err := newFileLock(filepath.Join(dir, "MEMORY.md.lock"))
+	if err != nil {
+		t.Fatalf("newFileLock: %v", err)
+	}
+	if err := blocker.lock(); err != nil {
+		_ = blocker.close()
+		t.Fatalf("lock blocker: %v", err)
+	}
+	defer blocker.close()
+
+	done := make(chan struct {
+		recent int
+		index  int
+	}, 1)
+	go func() {
+		recent, index := s.CachedCounts()
+		done <- struct {
+			recent int
+			index  int
+		}{recent: recent, index: index}
+	}()
+
+	select {
+	case got := <-done:
+		if got.recent != 1 || got.index != 0 {
+			t.Fatalf("CachedCounts = (%d,%d), want (1,0)", got.recent, got.index)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("CachedCounts blocked on a busy MEMORY.md lock; REPL foreground hints must remain responsive")
+	}
+}
+
 func TestClearRemovesEverything(t *testing.T) {
 	dir := t.TempDir()
 	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})

@@ -962,6 +962,19 @@ func (s *Store) Recent() []Turn {
 	return out
 }
 
+// CachedCounts returns in-process recent/index counts without touching the
+// cross-process MEMORY.md lock. It is intended for foreground UI hints where a
+// stale count is preferable to blocking the prompt; model-facing retrieval
+// paths should continue to use BuildContext/Search/Index as appropriate.
+func (s *Store) CachedCounts() (recentTurns int, indexEntries int) {
+	if s == nil {
+		return 0, 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.recent), len(s.index)
+}
+
 // Index returns a copy of the parsed MEMORY.md entries. The on-disk
 // state is reloaded under the shared cross-process lock so callers
 // see any entries written by sibling instances since the last call.
