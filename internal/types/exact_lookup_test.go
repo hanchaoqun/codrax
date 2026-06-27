@@ -777,6 +777,30 @@ func TestExactResolutionEvidenceCanSatisfyRelatedContext_IgnoresSummaryOnlyTermM
 	}
 }
 
+func TestExactResolutionContextSurfaceRelevant_IgnoresSummaryOnlyTargetMention(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	item := EvidenceItem{
+		Source:          "internal/skill/glossary.go",
+		LineStart:       32,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "ProjectSpecificIdentifierBlocklist",
+		Subject:         "ProjectSpecificIdentifierBlocklist",
+		Summary:         "Prompt hygiene docs mention explore_mid_loop_hint_budget but do not define runtime config behavior",
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		GroundingStatus: GroundingGrounded,
+	}
+	if ExactResolutionContextSurfaceRelevant(contract, item) {
+		t.Fatal("summary-only exact-target mention must not make context surface relevant")
+	}
+}
+
 func TestExactResolutionAnswerContextAnchorAllowedInFiles_RestrictsUngradedSameScopeContextToRequiredFiles(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,
@@ -1326,7 +1350,33 @@ func TestConfigTraceSurfaceDiagramRoleInFiles_InfersRequestedConfigFromAbsenceSu
 	}
 }
 
-func TestConfigTraceSurfaceDiagramRoleInFiles_UsesGroundedSummaryForSameFamilyDefaultInference(t *testing.T) {
+func TestConfigTraceSurfaceDiagramRoleInFiles_UsesGroundedStructureForSameFamilyDefaultInference(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:            SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:          true,
+		RelatedContextPolicy:  ExactContextSameFamilyGrounded,
+		RelatedContextTerms:   []string{"explore"},
+		RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+	}
+	item := EvidenceItem{
+		Source:          "internal/config/runtime.go",
+		LineStart:       329,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "RuntimeSettings",
+		ContextRole:     EvidenceContextRoleDefining,
+		GroundingStatus: GroundingGrounded,
+		Snippet:         "type RuntimeSettings struct { ExploreMidLoopMinIteration int }",
+		Summary:         "RuntimeSettings exposes explore_* fields such as ExploreMidLoopMinIteration and related midloop heuristics, but no hint_budget variant",
+	}
+	got := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, []string{"internal/config/runtime.go", "codrax.yaml.example"})
+	if got != EvidenceDiagramRoleDefault {
+		t.Fatalf("surface role = %s, want default", got)
+	}
+}
+
+func TestConfigTraceSurfaceDiagramRoleInFiles_RejectsSummaryOnlySameFamilyDefaultInference(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:            SubjectConfigKey,
 		TargetLabel:           "config key",
@@ -1345,9 +1395,8 @@ func TestConfigTraceSurfaceDiagramRoleInFiles_UsesGroundedSummaryForSameFamilyDe
 		GroundingStatus: GroundingGrounded,
 		Summary:         "RuntimeSettings exposes explore_* fields such as ExploreMidLoopMinIteration and related midloop heuristics, but no hint_budget variant",
 	}
-	got := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, []string{"internal/config/runtime.go", "codrax.yaml.example"})
-	if got != EvidenceDiagramRoleDefault {
-		t.Fatalf("surface role = %s, want default", got)
+	if got := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, []string{"internal/config/runtime.go", "codrax.yaml.example"}); got != EvidenceDiagramRoleUnknown {
+		t.Fatalf("summary-only surface role = %s, want unknown", got)
 	}
 }
 

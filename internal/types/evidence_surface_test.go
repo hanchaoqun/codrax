@@ -613,6 +613,7 @@ func TestBuildAnswerSurfacePlan_ConfigTraceCompilesFenceFromImplicitConfigAndDef
 			AnchorSymbol:    "RuntimeSettings",
 			ContextRole:     EvidenceContextRoleDefining,
 			GroundingStatus: GroundingGrounded,
+			Snippet:         "type RuntimeSettings struct { ExploreMidLoopMinIteration int }",
 			Summary:         "RuntimeSettings exposes explore_* fields such as ExploreMidLoopMinIteration and related midloop heuristics, but no hint_budget variant",
 		},
 	}

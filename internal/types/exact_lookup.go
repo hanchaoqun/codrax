@@ -840,7 +840,7 @@ func exactResolutionEvidenceCanSatisfyRelatedContextWithStatuses(c *ExactResolut
 	}
 	if item.ContextRole == EvidenceContextRoleDefining &&
 		ExactResolutionTextsMentionAnyTarget(c,
-			item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
+			item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet) {
 		return false
 	}
 	if len(requiredFiles) > 0 && !exactResolutionRequiredFilesContain(requiredFiles, item.Source) {
@@ -1663,13 +1663,13 @@ func ExactResolutionContextSurfaceRelevant(c *ExactResolutionContract, item Evid
 		return false
 	}
 	if ExactResolutionTextsMentionAnyTarget(c,
-		item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
+		item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet) {
 		return true
 	}
 	if ExactResolutionSameFamilyMatchScore(c, exactResolutionEvidenceSurface(item)) > 0 {
 		return true
 	}
-	return EvidenceItemMentionsAnyTerm(item, ExactResolutionContextTerms(c))
+	return EvidenceItemStructurallyMentionsAnyTerm(item, ExactResolutionContextTerms(c))
 }
 
 func exactResolutionValidatedContextTerms(targetKind AnswerSubjectKind, policy ExactResolutionContextPolicy, targets, explicit, keywords []string) []string {
@@ -1943,7 +1943,6 @@ func exactResolutionEvidenceSurface(item EvidenceItem) string {
 		item.AnchorSymbol,
 		item.Condition,
 		item.Snippet,
-		item.Summary,
 	}
 	parts = append(parts, item.SurfaceTerms...)
 	if item.NegativeQuery != nil {
