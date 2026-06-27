@@ -5639,6 +5639,9 @@ func enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx *types.BusC
 			continue
 		}
 		if len(out[factIdx].SupportRefs) > 0 {
+			if refs, ok := aggregateMemberSetRepairedExistingSupportRefs(out[factIdx], support); ok {
+				out[factIdx].SupportRefs = refs
+			}
 			continue
 		}
 		if refs, ok := aggregateMemberSetUniqueEvidenceSupportRefs(out[factIdx], support); ok {
@@ -5732,6 +5735,128 @@ func aggregateMemberSetUniqueReadFileSupportRefs(fact types.AnswerAggregateFact,
 		refs[idx] = loc
 	}
 	return refs, true
+}
+
+func aggregateMemberSetRepairedExistingSupportRefs(fact types.AnswerAggregateFact, support aggregateMemberSupportIndex) ([]string, bool) {
+	if fact.Kind != types.AnswerAggregateMemberSet ||
+		len(fact.Members) == 0 ||
+		len(fact.SupportRefs) != len(fact.Members) {
+		return nil, false
+	}
+	refs := append([]string(nil), fact.SupportRefs...)
+	changed := false
+	for idx, member := range fact.Members {
+		if aggregateMemberSetSupportRefsResolveMember(fact, member, support) {
+			continue
+		}
+		if ref, ok := aggregateMemberUniqueEvidenceSupportRef(member, support); ok {
+			refs[idx] = ref
+			changed = true
+			continue
+		}
+		if ref, ok := aggregateMemberReadFileSupportRef(member, support); ok {
+			if loc, ok := aggregateSupportRefLocationOnly(ref); ok {
+				refs[idx] = loc
+			} else {
+				refs[idx] = ref
+			}
+			changed = true
+			continue
+		}
+		if ref, ok := aggregateMemberCanonicalExistingSupportRef(fact.SupportRefs[idx], member, support); ok {
+			refs[idx] = ref
+			changed = true
+			continue
+		}
+		return nil, false
+	}
+	if !changed {
+		return nil, false
+	}
+	repaired := fact
+	repaired.SupportRefs = refs
+	for idx, member := range repaired.Members {
+		if !aggregateMemberSetMemberUsableAt(repaired, member, idx, support) &&
+			!aggregateMemberSetSupportRefsResolveMember(repaired, member, support) {
+			return nil, false
+		}
+	}
+	return refs, true
+}
+
+func aggregateMemberCanonicalExistingSupportRef(raw string, member string, support aggregateMemberSupportIndex) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	_, loc, ok := aggregateMemberSupportRefParts(raw)
+	if !ok || loc == "" {
+		return "", false
+	}
+	labels := aggregateMemberDisplayCandidates(member)
+	if len(labels) == 0 || !aggregateSupportLocationCompatibleWithMember(member, loc) {
+		return "", false
+	}
+	if aggregateSupportLocationMatchesMemberLabels(loc, labels, support) {
+		return loc, true
+	}
+	canon, ok := aggregateCanonicalSupportLocationByUniqueSuffix(loc, labels, support)
+	if !ok || !aggregateSupportLocationCompatibleWithMember(member, canon) {
+		return "", false
+	}
+	return canon, true
+}
+
+func aggregateCanonicalSupportLocationByUniqueSuffix(location string, labels []string, support aggregateMemberSupportIndex) (string, bool) {
+	file, line, ok := aggregateSupportLocationParts(location)
+	if !ok {
+		return "", false
+	}
+	seen := map[string]bool{}
+	var matches []string
+	consider := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || seen[candidate] {
+			return
+		}
+		candidateFile, candidateLine, ok := aggregateSupportLocationParts(candidate)
+		if !ok || candidateLine != line {
+			return
+		}
+		if !aggregateReadFilePathMatchesQualifier(candidateFile, file) {
+			return
+		}
+		if !aggregateSupportLocationMatchesMemberLabels(candidate, labels, support) {
+			return
+		}
+		seen[candidate] = true
+		matches = append(matches, candidate)
+	}
+	for candidate := range support.byLocation {
+		consider(candidate)
+	}
+	for candidate := range support.toolLinesByLocation {
+		consider(candidate)
+	}
+	for candidate := range support.sourceInventoryLabelsByLocation {
+		consider(candidate)
+	}
+	if len(matches) != 1 {
+		return "", false
+	}
+	return matches[0], true
+}
+
+func aggregateSupportLocationParts(location string) (string, int, bool) {
+	surface, ok := types.ParseAnswerSourceLocationSurface(location)
+	if !ok || surface.File == "" || surface.LineStart <= 0 {
+		return "", 0, false
+	}
+	file := strings.TrimSpace(strings.ReplaceAll(surface.File, `\`, `/`))
+	if file == "" {
+		return "", 0, false
+	}
+	return file, surface.LineStart, true
 }
 
 func aggregateSupportRefLocationOnly(ref string) (string, bool) {

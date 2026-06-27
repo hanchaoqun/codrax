@@ -3573,6 +3573,61 @@ func TestEmitInvestigationComplete_AutoFillsMemberSupportFromUniqueGroundedEvide
 	}
 }
 
+func TestEmitInvestigationComplete_RepairsDecoratedMemberSupportRefFromUniqueGroundedEvidence(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List decorator declarations")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "arkts-extend-highlight",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets",
+		LineStart:       11,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "highlight",
+		Subject:         "@Extend decorator",
+		Snippet:         "@Extend(Text) function highlight(color: string) {",
+		SurfaceTerms:    []string{"@Extend(Text)"},
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"decorator declaration is fully grounded",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"extend decorators",
+			"value":"1",
+			"role":"principal_answer",
+			"members":["@Extend(Text) @ 04_styles_extend.ets:11 (ArkTS decorator)"],
+			"support_refs":["04_styles_extend.ets:11"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("unique grounded decorated member support_ref should be repaired locally: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 {
+		t.Fatalf("stable aggregate facts = %+v, want one repaired member_set; summary=%s complete=%v reason=%q",
+			facts, res.Summary, mut.IsInvestigationComplete(), mut.InvestigationCompleteReason())
+	}
+	want := "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets:11"
+	if len(facts[0].SupportRefs) != 1 || facts[0].SupportRefs[0] != want {
+		t.Fatalf("support_refs = %+v, want %q", facts[0].SupportRefs, want)
+	}
+}
+
 func TestEnrichCompletionAggregateFactsWithMemberSupport_SkipsAmbiguousGroundedEvidence(t *testing.T) {
 	mut := types.NewMutableState("List the matching agents")
 	evidence := []types.EvidenceItem{
@@ -3614,6 +3669,64 @@ func TestEnrichCompletionAggregateFactsWithMemberSupport_SkipsAmbiguousGroundedE
 	}
 	if len(got[0].SupportRefs) != 0 {
 		t.Fatalf("ambiguous evidence must not be auto-filled, got %+v", got[0].SupportRefs)
+	}
+}
+
+func TestEmitInvestigationComplete_DoesNotRepairAmbiguousDecoratedMemberSupportRefs(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List decorator declarations")
+	for _, source := range []string{
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets",
+		"examples/arkts/04_styles_extend.ets",
+	} {
+		mut.AppendEvidence([]types.EvidenceItem{{
+			ID:              source,
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          source,
+			LineStart:       11,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "highlight",
+			Subject:         "@Extend decorator",
+			Snippet:         "@Extend(Text) function highlight(color: string) {",
+			SurfaceTerms:    []string{"@Extend(Text)"},
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		}})
+	}
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"decorator declarations collected",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"extend decorators",
+			"value":"1",
+			"role":"principal_answer",
+			"members":["@Extend(Text) @ 04_styles_extend.ets:11 (ArkTS decorator)"],
+			"support_refs":["04_styles_extend.ets:11"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ambiguous support debt should downgrade instead of tool-failing: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("ambiguous decorated member support_refs must not be repaired into accepted completion")
+	}
+	if !strings.Contains(res.Summary, EmitInvestigationCompleteDowngradePrefix) ||
+		!strings.Contains(res.Summary, "support_refs") {
+		t.Fatalf("expected bounded completion-form downgrade, got: %s", res.Summary)
 	}
 }
 
