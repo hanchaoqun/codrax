@@ -1413,6 +1413,9 @@ func (rm RequestModel) HasTypedCurrentSourceScopeRequest() bool {
 		rm.ExternalObservationPolicy.CurrentSourceMode == ExternalObservationCurrentSourceAllow {
 		return true
 	}
+	if rm.sourceScopeHasCurrentRequestAnchor() {
+		return true
+	}
 	return rm.hasRequiredCurrentKeyCodeDimension()
 }
 
@@ -1537,6 +1540,13 @@ func (rm RequestModel) hasRequiredCurrentKeyCodeDimension() bool {
 		}
 	}
 	return false
+}
+
+func (rm RequestModel) sourceScopeHasCurrentRequestAnchor() bool {
+	if rm.SourceScopeProfile == nil {
+		return false
+	}
+	return len(rm.SourceScopeProfile.SourceQuotes) > 0
 }
 
 func (rm RequestModel) externalObservationDefaultArtifactOnly() bool {

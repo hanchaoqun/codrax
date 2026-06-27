@@ -2362,6 +2362,7 @@ func (o *Orchestrator) appendCumulativePatchReviewFollowupIfNeeded(run *types.Wr
 	}
 	items := selectImpactRepairQueueItems(plan, report, 0)
 	items = filterPassedVerifyGraphTelemetryItems(run, run.ActiveBatchID, items)
+	items = filterPassedVerifyAdvisoryProofTelemetryItems(report, items)
 	if len(items) == 0 {
 		return false
 	}
@@ -7003,6 +7004,7 @@ func proofFollowupChangedSymbolRefsFromCriteria(criteria []string) []string {
 func impactObligationRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatchID string, plan *types.ChangePlan, report *types.ChangeReport) *writeflow.WriteBatchPlan {
 	items := selectImpactRepairQueueItems(plan, report, 0)
 	items = filterPassedVerifyGraphTelemetryItems(run, activeBatchID, items)
+	items = filterPassedVerifyAdvisoryProofTelemetryItems(report, items)
 	items = filterPendingImpactRepairQueueItems(run, items)
 	if len(items) == 0 {
 		return nil
@@ -7096,6 +7098,28 @@ func filterPassedVerifyGraphTelemetryItems(run *types.WriteWorkflowRun, activeBa
 		out = append(out, item)
 	}
 	return out
+}
+
+func filterPassedVerifyAdvisoryProofTelemetryItems(report *types.ChangeReport, items []impactRepairQueueItem) []impactRepairQueueItem {
+	if len(items) == 0 || !changeReportHasConcretePassedTestResult(report) {
+		return items
+	}
+	out := make([]impactRepairQueueItem, 0, len(items))
+	for _, item := range items {
+		if impactRepairQueueItemIsAdvisoryProofWarning(item) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func changeReportHasConcretePassedTestResult(report *types.ChangeReport) bool {
+	if report == nil || !report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		return false
+	}
+	passed, total := report.Score()
+	return total > 0 && passed == total
 }
 
 func activeBatchLatestVerifyStatus(run *types.WriteWorkflowRun, activeBatchID string) string {
@@ -7489,6 +7513,17 @@ func impactRepairQueueItemRequiresFollowup(item impactRepairQueueItem) bool {
 
 func impactRepairQueueItemFromVerificationConfidence(item impactRepairQueueItem) bool {
 	return strings.TrimSpace(item.Source) == "verification_confidence"
+}
+
+func impactRepairQueueItemIsAdvisoryProofWarning(item impactRepairQueueItem) bool {
+	item = normalizeImpactRepairQueueItem(item)
+	switch item.Code {
+	case "verification_probe_missing_soft_contract_ref",
+		"verification_probe_baseline_not_run":
+		return impactRepairQueueItemFromVerificationProof(item)
+	default:
+		return false
+	}
 }
 
 func impactRepairQueueItemFromVerificationProof(item impactRepairQueueItem) bool {

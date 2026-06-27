@@ -165,6 +165,42 @@ func TestAssessExternalObservationSufficiency_BlockedByTypedSourceScope(t *testi
 	}
 }
 
+func TestAssessExternalObservationSufficiency_BlockedBySourceScopeQuote(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		LogBundle: &LogBundle{
+			Observations: []LogObservation{{
+				Kind:      LogObservationRetryCycle,
+				Subject:   "finalizer timeout",
+				Summary:   "runtime log shows retry after timeout",
+				LineStart: 2,
+			}},
+		},
+	})
+	rm := &RequestModel{
+		LogTriage: &LogBundle{
+			Observations: []LogObservation{{
+				Kind:      LogObservationRetryCycle,
+				Subject:   "finalizer timeout",
+				Summary:   "runtime log shows retry after timeout",
+				LineStart: 2,
+			}},
+		},
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeAll,
+			SourceQuotes:   []string{"请结合当前源码解释"},
+			Confidence:     0.8,
+		},
+	}
+	got := AssessExternalObservationSufficiency(ledger.Records, rm, TurnRouteHint{
+		Route:           "repo",
+		Source:          "artifact",
+		NeedsRepoAccess: true,
+	})
+	if got.Status != ExternalObservationSufficiencyBlockedByCurrentSource {
+		t.Fatalf("runtime artifact plus source-scope quote must block external-only sufficiency, got %+v", got)
+	}
+}
+
 func TestAssessExternalObservationSufficiency_RouteHintOverridesDefaultSourceRequirement(t *testing.T) {
 	records := []ObservationRecord{{
 		ID:     "row",

@@ -5096,6 +5096,65 @@ func TestNormalizeControllerTypedStateDecisionMissingSoftProofAppendsProofFollow
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionPassedLocalVerifySoftProofStaysTelemetry(t *testing.T) {
+	mu := types.NewMutableState("verified with concrete test but soft proof missing")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-soft-proof-tested",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"pkg/axis.py", "tests/test_axis.py"},
+	})
+	mu.SetChangeReport(&types.ChangeReport{
+		PlanID:             "plan-soft-proof-tested",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindUnit,
+			AssertionID: "TestAxisConvert",
+			Passed:      true,
+		}},
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_soft_contract_refs",
+			Status:       "missing",
+			Severity:     "warning",
+			ReasonCode:   "verification_probe_missing_soft_contract_ref",
+			ContractRefs: []string{"soft-outcome"},
+		}, {
+			Source:     "verification_probe",
+			Category:   "probe_baseline",
+			Status:     "missing",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_baseline_not_run",
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-soft-proof-tested",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-soft-proof-tested"},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-soft-proof-tested"},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: "done",
+	}, run)
+
+	if got.Action != writeflow.ActionFinish {
+		t.Fatalf("soft proof warning with concrete passed local verify should remain telemetry, got %+v", got)
+	}
+	if workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_requested") {
+		t.Fatalf("advisory soft proof warning should not request follow-up: %+v", run.ProgressLedger)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionMissingProofWithoutRefsDoesNotAppendBlindBatch(t *testing.T) {
 	mu := types.NewMutableState("verified but proof record has no refs")
 	mu.SetChangePlan(&types.ChangePlan{

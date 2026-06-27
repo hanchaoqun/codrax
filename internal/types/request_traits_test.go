@@ -575,6 +575,51 @@ func TestCurrentSourceLaneDecision_DefaultExternalArtifactCurrentKeyCodeRequires
 	}
 }
 
+func TestCurrentSourceLaneDecision_RuntimeArtifactSourceScopeQuoteRequiresSource(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		LogTriage: &LogBundle{
+			Observations: []LogObservation{{
+				Kind:      LogObservationRetryCycle,
+				Subject:   "finalizer timeout",
+				Summary:   "runtime log shows retry after timeout",
+				LineStart: 2,
+			}},
+		},
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeAll,
+			SourceQuotes:   []string{"请结合当前源码解释"},
+			Confidence:     0.8,
+		},
+	}
+	if !rm.HasTypedCurrentSourceScopeRequest() {
+		t.Fatal("runtime artifact plus typed source-scope quote should request current-source evidence")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("source-scoped runtime artifact should require current source, got %s", got)
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("source-scoped runtime artifact must not be treated as source-optional")
+	}
+
+	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
+		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
+		SourceQuotes:      []string{"只分析日志"},
+		Confidence:        0.9,
+	}
+	if rm.HasTypedCurrentSourceScopeRequest() {
+		t.Fatal("explicit source exclusion must override typed source-scope quote")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneExcluded {
+		t.Fatalf("explicit source exclusion should exclude current source, got %s", got)
+	}
+}
+
 func TestCurrentSourceLaneDecision_DefaultExternalArtifactMetricDimensionStaysOptional(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,
