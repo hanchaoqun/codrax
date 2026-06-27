@@ -6131,7 +6131,15 @@ func (r *REPL) runREPLDirectLLMInFlight(fn func(context.Context) error) error {
 	r.runInFlight.Store(true)
 	defer r.runInFlight.Store(false)
 	defer r.endTurn()
-	return fn(ctx)
+	err := fn(ctx)
+	if r.renderer != nil {
+		r.renderer.Emitter()(render.Event{
+			Kind:      render.EventAgentResponse,
+			Timestamp: time.Now(),
+			Agent:     types.AgentName("repl_direct"),
+		})
+	}
+	return err
 }
 
 func (r *REPL) Loop() error {

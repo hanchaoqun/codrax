@@ -256,6 +256,7 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 			Success:      true,
 			Summary:      preview,
 			RawRef:       rawRef,
+			Refinement:   traceQueryRefinement(searchResult, searchQ, searchP, sourceLabel),
 			Observations: traceQueryTypedObservations(searchResult, sourceLabel, payloadRef, rawRef, "", now),
 			Timestamp:    now,
 		}, true
@@ -311,6 +312,7 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 		Success:      true,
 		Summary:      preview,
 		RawRef:       rawRef,
+		Refinement:   traceQueryRefinement(result, q, boundedP, sourceLabel),
 		Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
 		Timestamp:    now,
 	}, true
@@ -582,6 +584,7 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 		Success:      true,
 		Summary:      preview,
 		RawRef:       rawRef,
+		Refinement:   traceQueryAutoWindowCandidatesRefinement(ctx, p, sourceLabel, path, children),
 		Observations: observations,
 		Timestamp:    now,
 	}
@@ -675,6 +678,73 @@ func traceQueryRefinement(result tracequery.Result, q tracequery.Query, p traceQ
 }
 
 const tTraceQueryName = "trace_query"
+
+func traceQueryHeavyViewGuardRefinement(ctx *types.BusContext, p traceQueryParams, sourceLabel, path string) *types.ToolRefinementHint {
+	next := p
+	next.View = "event_search"
+	next.EventTypes = TraceEventTypes{"trace_mark"}
+	if next.Limit.Int() <= 0 {
+		next.Limit = FlexInt(40)
+	}
+	return traceQueryParamsRefinement(ctx, "trace_query_heavy_view_requires_scope", next, sourceLabel, path, true, []string{"pattern"})
+}
+
+func traceQueryRecipeDiscoveryRefinement(ctx *types.BusContext, p traceQueryParams, sourceLabel, path string, markers []traceQueryRecipeDiscoveryMarker, truncated bool) *types.ToolRefinementHint {
+	next := p
+	if len(markers) > 0 {
+		first := firstPrimaryTraceQueryMarker(markers)
+		start := first.Line - 200
+		if start < 1 {
+			start = 1
+		}
+		next.View = "recipe"
+		next.RecipeName = firstNonEmptyTraceString(p.RecipeName, "jank")
+		next.LineStart = FlexInt(start)
+		next.LineEnd = FlexInt(first.Line + 200)
+		return traceQueryParamsRefinement(ctx, "trace_query_recipe_discovery_marker_window", next, sourceLabel, path, truncated, nil)
+	}
+	next.View = "event_search"
+	next.EventTypes = TraceEventTypes{"trace_mark"}
+	if next.Limit.Int() <= 0 {
+		next.Limit = FlexInt(40)
+	}
+	return traceQueryParamsRefinement(ctx, "trace_query_recipe_discovery_needs_scope", next, sourceLabel, path, truncated, []string{"pattern"})
+}
+
+func traceQueryAutoWindowCandidatesRefinement(ctx *types.BusContext, p traceQueryParams, sourceLabel, path string, children []traceQueryAutoWindowChild) *types.ToolRefinementHint {
+	for _, child := range children {
+		if child.Error != "" {
+			continue
+		}
+		next := p
+		next.TimeStart = traceSecondFromAutoWindow(child.Candidate.Start)
+		next.TimeEnd = traceSecondFromAutoWindow(child.Candidate.End)
+		return traceQueryParamsRefinement(ctx, "trace_query_auto_window_candidate", next, sourceLabel, path, len(children) > 1, nil)
+	}
+	return nil
+}
+
+func traceQueryParamsRefinement(ctx *types.BusContext, reasonCode string, p traceQueryParams, sourceLabel, path string, resultTruncated bool, requiredFields []string) *types.ToolRefinementHint {
+	reasonCode = strings.TrimSpace(reasonCode)
+	if reasonCode == "" {
+		return nil
+	}
+	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, p.TimeStart.Seconds(), p.TimeEnd.Seconds())
+	hint := types.NormalizeToolRefinementHint(types.ToolRefinementHint{
+		ReasonCode:        reasonCode,
+		ResultTruncated:   resultTruncated,
+		PreferredNextTool: tTraceQueryName,
+		PreferredParams: traceQueryRefinementPreferredParams(tracequery.Result{
+			View:       firstNonEmptyTraceString(p.View, q.View),
+			SourcePath: path,
+		}, q, p, sourceLabel),
+		RequiredFields: requiredFields,
+	})
+	if hint.Empty() {
+		return nil
+	}
+	return &hint
+}
 
 func traceQueryEventSearchLimitReached(result tracequery.Result, q tracequery.Query) bool {
 	if traceQueryCanonicalView(result, q) != "event_search" {
@@ -880,11 +950,12 @@ func (t *TraceQuery) maybeLargeTraceHeavyViewGuard(ctx *types.BusContext, p trac
 	summary := traceQueryHeavyViewGuardSummary(path, sourceLabel, p, info.Size())
 	preview, rawRef := StoreBlob(ctx, t.Name(), summary)
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   preview,
-		RawRef:    rawRef,
-		Timestamp: time.Now(),
+		ToolName:   t.Name(),
+		Success:    true,
+		Summary:    preview,
+		RawRef:     rawRef,
+		Refinement: traceQueryHeavyViewGuardRefinement(ctx, p, sourceLabel, path),
+		Timestamp:  time.Now(),
 	}, true
 }
 
@@ -1219,11 +1290,12 @@ func (t *TraceQuery) maybeLargeRecipeDiscovery(ctx *types.BusContext, p traceQue
 		rawRef = payloadRef
 	}
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   preview,
-		RawRef:    rawRef,
-		Timestamp: time.Now(),
+		ToolName:   t.Name(),
+		Success:    true,
+		Summary:    preview,
+		RawRef:     rawRef,
+		Refinement: traceQueryRecipeDiscoveryRefinement(ctx, p, sourceLabel, path, markers, truncated),
+		Timestamp:  time.Now(),
 	}, true
 }
 

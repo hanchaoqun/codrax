@@ -118,6 +118,34 @@ func (a directTraceToolDeltaStubAdapter) RequestTimeout() time.Duration { return
 
 func (a directTraceToolDeltaStubAdapter) RetryMaxAttempts() int { return 1 }
 
+type directTraceCanceledStubAdapter struct{}
+
+func (a directTraceCanceledStubAdapter) Chat(ctx context.Context, messages []llm.Message, tools []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
+	if opts.OnContentDelta != nil {
+		opts.OnContentDelta("late content")
+	}
+	if opts.OnReasoningDelta != nil {
+		opts.OnReasoningDelta("late reasoning")
+	}
+	if opts.OnToolCallDelta != nil {
+		opts.OnToolCallDelta(0, "emit_turn_policy", `{"route":"repo"}`)
+	}
+	return llm.Response{
+		Content:          "late final content",
+		ReasoningContent: "late final reasoning",
+	}, ctx.Err()
+}
+
+func (a directTraceCanceledStubAdapter) ModelID() string { return "stub-direct-canceled" }
+
+func (a directTraceCanceledStubAdapter) MaxContextTokens() int { return 200000 }
+
+func (a directTraceCanceledStubAdapter) MaxOutputTokens() int { return 0 }
+
+func (a directTraceCanceledStubAdapter) RequestTimeout() time.Duration { return time.Minute }
+
+func (a directTraceCanceledStubAdapter) RetryMaxAttempts() int { return 1 }
+
 func TestDirectLLMTraceAdapterKeepsCallbacksPassive(t *testing.T) {
 	var out bytes.Buffer
 	wrapped := NewDirectLLMTraceAdapter(directTraceStubAdapter{response: llm.Response{
@@ -199,6 +227,31 @@ func TestDirectLLMTraceAdapterSurfacesStreamingToolArguments(t *testing.T) {
 	}
 	if strings.Contains(gotText, strings.Repeat("x", 256)) {
 		t.Fatalf("tool argument stream preview should not dump raw JSON payload:\n%s", gotText)
+	}
+}
+
+func TestDirectLLMTraceAdapterSuppressesLateEventsAfterContextCancel(t *testing.T) {
+	var events []render.Event
+	wrapped := &directLLMTraceAdapter{
+		inner: directTraceCanceledStubAdapter{},
+		emit: func(ev render.Event) {
+			events = append(events, ev)
+		},
+		agent: types.AgentName("turn_policy"),
+		stage: types.StageAnalyze,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := wrapped.Chat(ctx, nil, nil, llm.ChatOptions{})
+	if err == nil {
+		t.Fatal("expected canceled direct trace call to return an error")
+	}
+	for _, ev := range events {
+		switch ev.Kind {
+		case render.EventAgentContent, render.EventAgentResponse, render.EventAgentReasoning:
+			t.Fatalf("late canceled direct LLM event leaked into renderer: %+v", ev)
+		}
 	}
 }
 

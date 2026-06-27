@@ -38,6 +38,9 @@ func (a *directLLMTraceAdapter) Chat(ctx context.Context, messages []llm.Message
 	if a == nil || a.inner == nil {
 		return llm.Response{}, nil
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	telemetry := llm.BuildRequestTelemetry(a.inner, messages, tools)
 	now := time.Now()
 	if a.emit != nil {
@@ -52,12 +55,15 @@ func (a *directLLMTraceAdapter) Chat(ctx context.Context, messages []llm.Message
 		})
 	}
 	stream := newDirectLLMStreamPreview(a.emit, a.agent, a.stage)
-	opts.OnContentDelta = chainStringCallback(opts.OnContentDelta, stream.onDelta)
-	opts.OnReasoningDelta = chainStringCallback(opts.OnReasoningDelta, stream.onDelta)
-	opts.OnToolCallDelta = chainToolCallCallback(opts.OnToolCallDelta, stream.onToolCallDelta)
+	opts.OnContentDelta = chainStringCallback(opts.OnContentDelta, stream.onDeltaWithContext(ctx))
+	opts.OnReasoningDelta = chainStringCallback(opts.OnReasoningDelta, stream.onDeltaWithContext(ctx))
+	opts.OnToolCallDelta = chainToolCallCallback(opts.OnToolCallDelta, stream.onToolCallDeltaWithContext(ctx))
 	opts.OnRetry = chainRetryCallback(opts.OnRetry, a.emit, a.agent, a.stage)
 	opts.OnFallback = chainFallbackCallback(opts.OnFallback, a.emit, a.agent, a.stage)
 	resp, err := a.inner.Chat(ctx, messages, tools, opts)
+	if ctx.Err() != nil {
+		return resp, err
+	}
 	stream.flush()
 	if a.emit != nil {
 		a.emit(render.Event{
@@ -136,6 +142,15 @@ func (b *directLLMStreamPreview) onDelta(delta string) {
 	b.emitLivePreview(b.buf.String())
 }
 
+func (b *directLLMStreamPreview) onDeltaWithContext(ctx context.Context) func(string) {
+	return func(delta string) {
+		if ctx != nil && ctx.Err() != nil {
+			return
+		}
+		b.onDelta(delta)
+	}
+}
+
 func (b *directLLMStreamPreview) onToolCallDelta(index int, name string, argsChunk string) {
 	if b == nil || b.emit == nil || argsChunk == "" {
 		return
@@ -155,6 +170,15 @@ func (b *directLLMStreamPreview) onToolCallDelta(index int, name string, argsChu
 		label = "tool_call"
 	}
 	b.emitLivePreview(formatDirectToolCallStreamPreview(label, b.toolArgBytes[index]))
+}
+
+func (b *directLLMStreamPreview) onToolCallDeltaWithContext(ctx context.Context) func(int, string, string) {
+	return func(index int, name string, argsChunk string) {
+		if ctx != nil && ctx.Err() != nil {
+			return
+		}
+		b.onToolCallDelta(index, name, argsChunk)
+	}
 }
 
 func (b *directLLMStreamPreview) emitLivePreview(preview string) {

@@ -17,6 +17,20 @@ func (l *fileLock) rlock() error {
 	return syscall.Flock(int(l.f.Fd()), syscall.LOCK_SH)
 }
 
+// tryRLock attempts to acquire a shared lock without blocking. It is used by
+// foreground prompt-context reads so a slow peer/background compaction cannot
+// freeze an interactive REPL turn.
+func (l *fileLock) tryRLock() (bool, error) {
+	err := syscall.Flock(int(l.f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
+	if err == nil {
+		return true, nil
+	}
+	if err == syscall.EWOULDBLOCK {
+		return false, nil
+	}
+	return false, err
+}
+
 // unlock releases whatever lock the fd currently holds. A no-op when
 // nothing is held.
 func (l *fileLock) unlock() error {

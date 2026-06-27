@@ -643,6 +643,19 @@ func (s *Store) withSharedLock(fn func() error) error {
 	return fn()
 }
 
+// withSharedLockBestEffort is the non-blocking read-side lock path for
+// foreground REPL context assembly. If MEMORY.md is busy (peer writer or local
+// background compaction), callers can safely keep using the in-memory cached
+// index/recent snapshot rather than freezing the interactive turn.
+func (s *Store) withSharedLockBestEffort(fn func() error) (bool, error) {
+	ok, err := s.flock.tryRLock()
+	if err != nil || !ok {
+		return ok, err
+	}
+	defer func() { _ = s.flock.unlock() }()
+	return true, fn()
+}
+
 // loadOrphanRecent scans turns/ for files that are not referenced by
 // any MEMORY.md entry and resurrects the most recent maxRecent of them
 // into s.recent. Filenames are <id>.md where id is "turn-<unix-nano>"
@@ -993,7 +1006,11 @@ func (s *Store) BuildContext(currentRequest string, optOverride ...BuildOpts) st
 	}
 	policy := policyFor(opts.Kind, s.settings)
 
-	_ = s.withSharedLock(s.loadIndexLocked)
+	if ok, err := s.withSharedLockBestEffort(s.loadIndexLocked); err != nil {
+		logging.Warning("[memory] BuildContext skipped index reload after lock error: %v", err)
+	} else if !ok {
+		logging.Debug("[memory] BuildContext skipped index reload because MEMORY.md is busy; using cached memory index")
+	}
 	s.mu.Lock()
 	recent := append([]Turn(nil), s.recent...)
 	idx := append([]IndexEntry(nil), s.index...)
@@ -2007,4 +2024,3 @@ type SearchOpts struct {
 // IncludeBody payload. Lives at file scope so test fixtures can
 // inject canned bodies for assertions.
 func bodyOf(e IndexEntry) string { return e.body }
-

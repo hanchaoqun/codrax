@@ -442,6 +442,46 @@ func TestBuildContextSummaryOnly(t *testing.T) {
 	}
 }
 
+func TestBuildContextDoesNotBlockWhenMemoryIndexLockBusy(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer s.Close()
+	if err := s.Append(Turn{
+		ID:       "t0",
+		Request:  "kw0 architecture question",
+		Response: "answer from prior turn",
+	}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	blocker, err := newFileLock(filepath.Join(dir, "MEMORY.md.lock"))
+	if err != nil {
+		t.Fatalf("newFileLock: %v", err)
+	}
+	if err := blocker.lock(); err != nil {
+		_ = blocker.close()
+		t.Fatalf("lock blocker: %v", err)
+	}
+	defer blocker.close()
+
+	done := make(chan string, 1)
+	go func() {
+		done <- s.BuildContext("kw0 follow-up")
+	}()
+
+	select {
+	case got := <-done:
+		if !strings.Contains(got, "answer from prior turn") {
+			t.Fatalf("BuildContext should use cached recent turns while index lock is busy, got %q", got)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("BuildContext blocked on a busy MEMORY.md lock; REPL foreground turns must remain responsive")
+	}
+}
+
 func TestClearRemovesEverything(t *testing.T) {
 	dir := t.TempDir()
 	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})

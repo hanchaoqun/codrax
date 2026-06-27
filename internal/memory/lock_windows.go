@@ -96,6 +96,19 @@ func (l *fileLock) rlock() error {
 	return l.lockWhole(0)
 }
 
+// tryRLock attempts to acquire a shared lock without blocking. It mirrors
+// tryLock but without LOCKFILE_EXCLUSIVE_LOCK.
+func (l *fileLock) tryRLock() (bool, error) {
+	err := l.lockWhole(lockfileFailImmediately)
+	if err == nil {
+		return true, nil
+	}
+	if errno, ok := err.(syscall.Errno); ok && errno == errorLockViolation {
+		return false, nil
+	}
+	return false, err
+}
+
 // unlock releases whatever lock the fd currently holds. UnlockFileEx
 // takes the same range we passed to LockFileEx.
 func (l *fileLock) unlock() error {

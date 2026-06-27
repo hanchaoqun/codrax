@@ -1406,6 +1406,24 @@ func TestTraceQueryLargeHeavyViewWithoutWindowUsesGuard(t *testing.T) {
 	if strings.Contains(res.Summary, "parsed_events=") {
 		t.Fatalf("guard should return before parsing the heavy trace:\n%s", res.Summary)
 	}
+	if res.Refinement == nil {
+		t.Fatalf("heavy view guard should attach typed refinement")
+	}
+	refinement := types.NormalizeToolRefinementHint(*res.Refinement)
+	if refinement.ReasonCode != "trace_query_heavy_view_requires_scope" || !refinement.ResultTruncated {
+		t.Fatalf("unexpected heavy guard refinement: %+v", refinement)
+	}
+	if refinement.PreferredNextTool != "trace_query" ||
+		refinement.PreferredParams["view"] != "event_search" ||
+		refinement.PreferredParams["path"] != "heavy_guard.systrace" ||
+		refinement.PreferredParams["thread"] != "app" ||
+		refinement.PreferredParams["event_types"] != "trace_mark" ||
+		refinement.PreferredParams["limit"] != "40" {
+		t.Fatalf("heavy guard preferred params should describe a bounded trace_query narrowing call: %+v", refinement.PreferredParams)
+	}
+	if !sameStringSliceForTest(refinement.RequiredFields, []string{"pattern"}) {
+		t.Fatalf("heavy guard should require a narrowing pattern, got %v", refinement.RequiredFields)
+	}
 }
 
 func TestTraceQueryLargeUnboundedNewHeavyViewsUseGuard(t *testing.T) {
@@ -1556,6 +1574,59 @@ func TestTraceQuerySummaryReportsParseQualityCounters(t *testing.T) {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("parse-quality summary missing %q:\n%s", want, res.Summary)
 		}
+	}
+}
+
+func TestTraceQueryLargeRecipeDiscoveryNoMarkerSurfacesTypedRefinement(t *testing.T) {
+	oldThreshold := traceQueryLargeRecipeDiscoveryMinBytes
+	traceQueryLargeRecipeDiscoveryMinBytes = 1
+	defer func() { traceQueryLargeRecipeDiscoveryMinBytes = oldThreshold }()
+
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "recipe_discovery_empty.systrace")
+	trace := strings.Join([]string{
+		`worker-10 (10) [000] .... 1.000000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [001] .... 1.010000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":      "path",
+		"path":        "recipe_discovery_empty.systrace",
+		"view":        "recipe",
+		"recipe_name": "jank",
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"mode=large_trace_recipe_discovery",
+		"no_marker_advisory",
+		"Provide pattern with one exact literal frame id/span label/marker token",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("recipe discovery summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if res.Refinement == nil {
+		t.Fatalf("recipe discovery no-marker result should attach typed refinement")
+	}
+	refinement := types.NormalizeToolRefinementHint(*res.Refinement)
+	if refinement.ReasonCode != "trace_query_recipe_discovery_needs_scope" {
+		t.Fatalf("unexpected recipe discovery refinement: %+v", refinement)
+	}
+	if refinement.PreferredParams["view"] != "event_search" ||
+		refinement.PreferredParams["path"] != "recipe_discovery_empty.systrace" ||
+		refinement.PreferredParams["event_types"] != "trace_mark" ||
+		refinement.PreferredParams["limit"] != "40" {
+		t.Fatalf("recipe discovery refinement should point to a narrow event_search call: %+v", refinement.PreferredParams)
+	}
+	if !sameStringSliceForTest(refinement.RequiredFields, []string{"pattern"}) {
+		t.Fatalf("recipe discovery should require a narrowing pattern, got %v", refinement.RequiredFields)
 	}
 }
 
@@ -1764,6 +1835,20 @@ func TestTraceQueryLargeNewHeavyViewsPatternMultiCandidateBounded(t *testing.T) 
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("multi-candidate new-heavy auto-window summary missing %q:\n%s", want, res.Summary)
 		}
+	}
+	if res.Refinement == nil {
+		t.Fatalf("multi-candidate auto-window should attach typed refinement")
+	}
+	refinement := types.NormalizeToolRefinementHint(*res.Refinement)
+	if refinement.ReasonCode != "trace_query_auto_window_candidate" || !refinement.ResultTruncated {
+		t.Fatalf("unexpected auto-window refinement: %+v", refinement)
+	}
+	if refinement.PreferredParams["view"] != "wakeup_chain" ||
+		refinement.PreferredParams["path"] != "new_heavy_pattern_multi.systrace" ||
+		refinement.PreferredParams["pid"] != "20" ||
+		refinement.PreferredParams["time_start"] != "2.750000" ||
+		refinement.PreferredParams["time_end"] != "4.000000" {
+		t.Fatalf("auto-window refinement should carry the first padded bounded candidate: %+v", refinement.PreferredParams)
 	}
 }
 
