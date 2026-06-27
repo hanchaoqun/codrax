@@ -514,6 +514,9 @@ func sourceInventorySourceClassUniverseForLens(ctx *types.BusContext, query type
 	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
 		return nil
 	}
+	if ctx.AnalysisIR != nil && types.SourceInventoryRequiresRepoWideLens(ctx.AnalysisIR.RequestModel) {
+		query = types.SourceInventoryLensQuery{Path: ".", Scopes: []string{"."}}
+	}
 	files, complete := SourceInventoryTrackedSourceFilesForLens(ctx.RepoRoot, query)
 	return sourceInventorySourceClassUniverseForTrackedFiles(files, complete)
 }

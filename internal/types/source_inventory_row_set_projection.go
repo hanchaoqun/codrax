@@ -16,6 +16,7 @@ const SourceInventoryPrincipalRowSetAggregateProvenance = "system:source_invento
 // prose, grep counts, or elapsed-time narratives.
 func ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts []AnswerAggregateFact, observation SourceInventoryObservation, rm RequestModel) []AnswerAggregateFact {
 	out := cloneAnswerAggregateFacts(facts)
+	out = sourceInventoryDemoteAttributeMemberSetFacts(out, observation, rm)
 	if sourceInventoryPrincipalRowSetProjectionDisabled(observation, rm) {
 		return out
 	}
@@ -28,11 +29,15 @@ func ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts []AnswerAggregate
 	}
 	refs := PrincipalAggregateMemberSetFactRefsForRequest(out, &rm)
 	rowSet = sourceInventoryFilterPrincipalRowSetToExistingPrincipalFamilies(rowSet, refs)
+	rowSet, constrainedToExistingRows := sourceInventoryFilterMixedPrincipalRowSetToExistingRows(rowSet, refs)
 	if !rowSet.Active || rowSet.PrincipalTotal == 0 {
 		return out
 	}
 	rowKeys := sourceInventoryPrincipalRowSetKeys(rowSet)
 	if len(rowKeys) == 0 {
+		return out
+	}
+	if constrainedToExistingRows && sourceInventoryPrincipalFactsCoverRows(refs, rowKeys) {
 		return out
 	}
 	if sourceInventoryPrincipalFactUniverseComplete(refs, rowKeys) {
@@ -258,6 +263,7 @@ func sourceInventoryPrincipalRowNote(row SourceInventoryRow) string {
 	if note := strings.TrimSpace(row.Member.Note); note != "" {
 		parts = append(parts, note)
 	}
+	parts = append(parts, sourceInventoryPrincipalRowAttributeNotes(row.Member.Attributes)...)
 	if row.SourceClass != "" && row.SourceClass != SourcePathRoleUnknown {
 		parts = append(parts, "source_class="+string(row.SourceClass))
 	}

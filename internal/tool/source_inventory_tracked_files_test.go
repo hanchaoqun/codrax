@@ -91,6 +91,43 @@ func TestSourceInventorySourceClassUniverseCarriesClassLanguageMatrix(t *testing
 	}
 }
 
+func TestSourceInventorySourceClassUniverseRepoWideRequestIgnoresNarrowToolScope(t *testing.T) {
+	repo := t.TempDir()
+	writeTrackedSourceFilesTestFile(t, repo, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", "package demo.cart\npublic class Cart {}\n")
+	writeTrackedSourceFilesTestFile(t, repo, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", "package demo.stringext\nextend String {}\n")
+	writeTrackedSourceFilesTestFile(t, repo, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", "package demo.ffi\nforeign func native_add(a: Int64, b: Int64): Int64\n")
+
+	runGitForTrackedSourceFilesTest(t, repo, "init")
+	runGitForTrackedSourceFilesTest(t, repo, "add",
+		"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+	)
+
+	classes := sourceInventorySourceClassUniverseForLens(&types.BusContext{
+		RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+			},
+		}},
+	}, types.SourceInventoryLensQuery{
+		Path:   ".",
+		Scopes: []string{"eval/fixtures/testdata/cangjie_minimal"},
+	})
+	byRole := map[types.SourcePathRole]types.SourceInventorySourceClassCount{}
+	for _, class := range classes {
+		byRole[class.Role] = class
+	}
+	if got := sourceInventoryTestClassLanguageCount(byRole[types.SourcePathRoleFixture], "cangjie"); got != 1 {
+		t.Fatalf("fixture cangjie count = %d, want 1; classes=%+v", got, classes)
+	}
+	if got := sourceInventoryTestClassLanguageCount(byRole[types.SourcePathRoleThirdParty], "cangjie"); got != 2 {
+		t.Fatalf("repo-wide source inventory must keep thirdparty class universe despite narrow tool scope; got %d classes=%+v", got, classes)
+	}
+}
+
 func sourceInventoryTestClassLanguageCount(class types.SourceInventorySourceClassCount, language string) int {
 	for _, item := range class.Languages {
 		if item.Language == language {

@@ -1300,6 +1300,73 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsUniqueCandidate(t
 	}
 }
 
+func TestNormalizeItemCitationRefsByTypedCandidateRole_PrefersDeclarationOverPackageAttribute(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "decls",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:            "extend-cart",
+				Label:         "extend Cart",
+				Text:          "package demo.cart",
+				CandidateRole: types.AnswerCandidateRoleFunction,
+				CitationRef:   0,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 4, Quote: "package demo.cart"},
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 30, Quote: "extend Cart {"},
+		},
+	}
+	mut := types.NewMutableState("enumerate source inventory declarations")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "extend Cart",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+				Line:          30,
+				Language:      "cangjie",
+				CoverageState: types.SourceInventoryCoverageObserved,
+				Attributes: []types.SourceInventoryObservationAttribute{{
+					Name:          "demo.cart",
+					Role:          types.AnswerCandidateRolePackage,
+					File:          "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+					Line:          4,
+					Language:      "cangjie",
+					CoverageState: types.SourceInventoryCoverageObserved,
+				}},
+			}},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeAll,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			},
+		}},
+	}
+
+	fixed := normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx))
+	if fixed != 1 {
+		t.Fatalf("expected typed candidate-role repair from package line to declaration line, got %d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("principal item citation_ref = %d, want declaration citation index 1", got)
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsSectionItems(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
