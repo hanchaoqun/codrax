@@ -32,7 +32,9 @@ func SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx *types.BusContext
 		return sourceInventoryRequestedUniverseAggregateFamilyCoversCensus(observation, aggregateFamily)
 	}
 	roleSet := sourceInventoryRequestedUniverseRoleSet(rm, observation, included)
-	familyClosedByCompleteLens := sourceInventoryRequestedUniverseAggregateFamilyCoversCensus(observation, aggregateFamily) &&
+	completeLensFamily := sourceInventoryRequestedUniverseCompleteLensBackedFamily(observation, aggregateFamily, roleSet)
+	familyForCensus := sourceInventoryRequestedUniverseMergeFamilies(aggregateFamily, completeLensFamily)
+	familyClosedByCompleteLens := sourceInventoryRequestedUniverseAggregateFamilyCoversCensus(observation, familyForCensus) &&
 		sourceInventoryRequestedUniverseFamilyBackedByCompleteLens(observation, aggregateFamily, roleSet)
 	covered := sourceInventoryRequestedUniverseFamily{
 		languages: map[string]bool{},

@@ -2144,6 +2144,125 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_CompleteLensSurvi
 	}
 }
 
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_CompleteLensUsesSupportRefsAcrossMixedClassLanguages(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleProduction,
+		Count:     966,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 966, Samples: []string{"cmd/root.go"}}},
+	}, {
+		Role:  types.SourcePathRoleThirdParty,
+		Count: 14,
+		Languages: []types.SourceInventoryLanguageCount{
+			{Language: "arkts", Count: 6, Samples: []string{"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"}},
+			{Language: "cangjie", Count: 8, Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj"}},
+		},
+	}})
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile = &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles: []types.AnswerCandidateRole{
+			types.AnswerCandidateRoleFunction,
+			types.AnswerCandidateRoleMethod,
+			types.AnswerCandidateRoleType,
+		},
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+		},
+		Confidence: 0.95,
+	}
+	prior := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	prior.Sets = []types.SourceInventoryObservationSet{{
+		Role:     types.AnswerCandidateRoleFunction,
+		Complete: false,
+		Total:    200,
+		Members: []types.SourceInventoryObservationMember{
+			sourceInventoryRequestedUniverseMemberWithLanguage("runRoot", types.AnswerCandidateRoleFunction, "cmd/root.go", 10, "go"),
+		},
+	}, {
+		Role:     types.AnswerCandidateRoleType,
+		Complete: false,
+		Total:    200,
+		Members: []types.SourceInventoryObservationMember{
+			sourceInventoryRequestedUniverseMemberWithLanguage("Root", types.AnswerCandidateRoleType, "cmd/root.go", 12, "go"),
+		},
+	}}
+	prior.Complete = false
+	prior.Scopes = []string{"."}
+	prior.Execution = &types.SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true}
+	current := types.SourceInventoryObservation{
+		Active:     true,
+		Complete:   true,
+		Scopes:     []string{"internal/thirdparty/tree-sitter-arkts/corpus/sources"},
+		Provenance: []string{"repo_lens:tool_query", "repo_lens:scopes"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{
+				sourceInventoryRequestedUniverseMemberWithLanguage("defaultHeader", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", 8, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("GlobalCard", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", 26, "arkts"),
+			},
+		}, {
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{
+				sourceInventoryRequestedUniverseMemberWithLanguage("Index", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", 5, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("ParentComponent", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/03_state_management.ets", 32, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("StyledPage", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", 17, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("ListPage", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets", 30, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("EntryAbility", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/06_entry_ability_stage_model.ets", 12, "arkts"),
+			},
+		}},
+	}
+	ctx.Mutable.SetSourceInventoryObservation(types.MergeSourceInventoryObservation(prior, current))
+
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "@Entry page entries",
+		Value: "4",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "language", Value: "arkts"},
+			{Name: "bounded_scope", Value: "internal/thirdparty/tree-sitter-arkts/corpus/sources"},
+		},
+		Members: []string{
+			"struct Index",
+			"struct ParentComponent",
+			"struct StyledPage",
+			"struct ListPage",
+		},
+		SupportRefs: []string{
+			"01_entry_component_minimal.ets:5",
+			"03_state_management.ets:32",
+			"04_styles_extend.ets:17",
+			"05_foreach_lazyforeach.ets:30",
+		},
+		Excluded: []string{"EntryAbility"},
+	}, {
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "@Builder fragments",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "language", Value: "arkts"},
+			{Name: "bounded_scope", Value: "internal/thirdparty/tree-sitter-arkts/corpus/sources"},
+		},
+		Members: []string{
+			"function defaultHeader",
+			"function GlobalCard",
+		},
+		SupportRefs: []string{
+			"02_builder_decorator.ets:8",
+			"02_builder_decorator.ets:26",
+		},
+	}}
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("complete ArkTS lens plus typed support_refs should close the requested language universe without scanning same-class Cangjie files; obs=%+v", types.SourceInventoryObservationFromMutable(ctx.Mutable))
+	}
+	if downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, "resolved", facts); downgrade != "" {
+		t.Fatalf("complete support-ref-backed ArkTS closure should not downgrade:\n%s", downgrade)
+	}
+}
+
 func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_MemberLocationSurfacesCloseScopedLens(t *testing.T) {
 	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
 		Role:      types.SourcePathRoleThirdParty,

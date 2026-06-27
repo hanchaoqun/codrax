@@ -53,12 +53,7 @@ func sourceInventoryRequestedUniverseFamilyAddPath(family *sourceInventoryReques
 	if path == "" || !types.IsCodeOrConfigPathExtension(filepath.Ext(path)) {
 		return
 	}
-	for _, lang := range sourceInventoryPathLanguages(path) {
-		family.languages[lang] = true
-	}
-	if class := types.ClassifySourcePathRole(path); class != types.SourcePathRoleUnknown {
-		family.classes[class] = true
-	}
+	sourceInventoryRequestedUniverseFamilyAddClassifiedPath(family, path)
 }
 
 func sourceInventoryAggregateMemberKey(surface string) string {

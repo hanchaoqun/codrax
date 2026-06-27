@@ -1,10 +1,6 @@
 package tool
 
-import (
-	"strings"
-
-	"github.com/hanchaoqun/codrax/internal/types"
-)
+import "github.com/hanchaoqun/codrax/internal/types"
 
 func sourceInventoryRequestedUniverseAggregateFamilyCoversCensus(observation types.SourceInventoryObservation, covered sourceInventoryRequestedUniverseFamily) bool {
 	if len(covered.languages) == 0 && len(covered.classes) == 0 {
@@ -43,15 +39,6 @@ func sourceInventoryRequestedUniverseFamilyAddSurface(family *sourceInventoryReq
 		paths = append(paths, loc.File)
 	}
 	for _, file := range paths {
-		file = strings.TrimSpace(file)
-		if file == "" {
-			continue
-		}
-		for _, lang := range sourceInventoryPathLanguages(file) {
-			family.languages[lang] = true
-		}
-		if class := types.ClassifySourcePathRole(file); class != types.SourcePathRoleUnknown {
-			family.classes[class] = true
-		}
+		sourceInventoryRequestedUniverseFamilyAddClassifiedPath(family, file)
 	}
 }

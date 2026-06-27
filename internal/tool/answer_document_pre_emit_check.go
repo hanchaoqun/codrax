@@ -6904,15 +6904,15 @@ func preCheckModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *types.BusContex
 		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList && b.Kind != types.BlockTable {
 			continue
 		}
-		if b.Kind == types.BlockTable && strings.TrimSpace(b.Text) != "" {
-			continue
-		}
 		for _, it := range b.Items {
 			if it.CitationRef < 0 || it.CitationRef >= len(doc.Citations) {
 				continue
 			}
 			cite := doc.Citations[it.CitationRef]
 			missing := missingSurfaceTermsForItem(it, cite, evidence)
+			if b.Kind == types.BlockTable && strings.TrimSpace(b.Text) != "" {
+				missing = removeSurfaceTermsVisibleInText(missing, b.Text)
+			}
 			if len(missing) == 0 {
 				continue
 			}
@@ -6949,6 +6949,7 @@ func materializeRequiredModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *type
 			continue
 		}
 		if block.Kind == types.BlockTable && strings.TrimSpace(block.Text) != "" {
+			fixed += materializeRequiredModelSurfaceTermsIntoMarkdownTable(block, doc, ctx, evidence)
 			continue
 		}
 		for ii := range block.Items {
@@ -6971,6 +6972,248 @@ func materializeRequiredModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *type
 		}
 	}
 	return fixed
+}
+
+func removeSurfaceTermsVisibleInText(terms []string, text string) []string {
+	if len(terms) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(terms))
+	for _, term := range terms {
+		term = strings.TrimSpace(term)
+		if term == "" || principalSupportSurfaceTermAppears(term, text) {
+			continue
+		}
+		out = appendMissingSurfaceTerms(out, []string{term})
+	}
+	return out
+}
+
+func materializeRequiredModelSurfaceTermsIntoMarkdownTable(
+	block *types.AnswerBlock,
+	doc *types.AnswerDocumentV2,
+	ctx *types.BusContext,
+	evidence []types.EvidenceItem,
+) int {
+	if block == nil || doc == nil || len(evidence) == 0 || len(block.Items) == 0 {
+		return 0
+	}
+	table, ok := parsePreEmitMarkdownTable(block.Text)
+	if !ok {
+		return 0
+	}
+	patchesByLine := make(map[int][]string)
+	for _, item := range block.Items {
+		if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+			continue
+		}
+		cite := doc.Citations[item.CitationRef]
+		missing := requiredVisibleSurfaceTermsForItem(missingSurfaceTermsForItem(item, cite, evidence))
+		if len(missing) == 0 {
+			continue
+		}
+		lineIdx, ok := markdownTableUniqueRowForSurfaceTermItem(table, item)
+		if !ok {
+			continue
+		}
+		patchesByLine[lineIdx] = appendMissingSurfaceTerms(patchesByLine[lineIdx], missing)
+	}
+	if len(patchesByLine) == 0 {
+		return 0
+	}
+	label := "Verified labels"
+	if principalEnumerationPrefersZH(ctx) {
+		label = "已验证标签"
+	}
+	changed, patched := materializeSurfaceTermsIntoMarkdownTableText(table, label, patchesByLine)
+	if !changed {
+		return 0
+	}
+	block.Text = patched
+	return len(patchesByLine)
+}
+
+type preEmitMarkdownTable struct {
+	lines     []string
+	headerIdx int
+	separator int
+	rows      map[int][]string
+}
+
+func parsePreEmitMarkdownTable(text string) (preEmitMarkdownTable, bool) {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	for i := 0; i+1 < len(lines); i++ {
+		header := principalEnumerationMarkdownTableCells(lines[i])
+		if len(header) < 2 {
+			continue
+		}
+		if !isPreEmitMarkdownTableSeparatorLine(lines[i+1]) {
+			continue
+		}
+		rows := make(map[int][]string)
+		for j := i + 2; j < len(lines); j++ {
+			cells := principalEnumerationMarkdownTableCells(lines[j])
+			if len(cells) < 2 {
+				continue
+			}
+			rows[j] = cells
+		}
+		if len(rows) == 0 {
+			continue
+		}
+		return preEmitMarkdownTable{
+			lines:     lines,
+			headerIdx: i,
+			separator: i + 1,
+			rows:      rows,
+		}, true
+	}
+	return preEmitMarkdownTable{}, false
+}
+
+func isPreEmitMarkdownTableSeparatorLine(line string) bool {
+	cells := principalEnumerationMarkdownTableCells(line)
+	if len(cells) < 2 {
+		return false
+	}
+	return principalEnumerationMarkdownSeparatorRow(cells)
+}
+
+func markdownTableUniqueRowForSurfaceTermItem(table preEmitMarkdownTable, item types.AnswerBlockItem) (int, bool) {
+	label := strings.TrimSpace(item.Label)
+	if label == "" {
+		return 0, false
+	}
+	matched := -1
+	for idx, cells := range table.rows {
+		if !markdownTableRowMatchesSurfaceTermItem(cells, label) {
+			continue
+		}
+		if matched >= 0 {
+			return 0, false
+		}
+		matched = idx
+	}
+	return matched, matched >= 0
+}
+
+func markdownTableRowMatchesSurfaceTermItem(cells []string, label string) bool {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return false
+	}
+	for _, cell := range cells {
+		if principalSupportSurfacesOverlap(label, cell) ||
+			preEmitAggregateScalarValueAppears(label, cell) ||
+			preEmitAggregateScalarValueAppears(cell, label) {
+			return true
+		}
+	}
+	return false
+}
+
+func materializeSurfaceTermsIntoMarkdownTableText(table preEmitMarkdownTable, columnLabel string, patchesByLine map[int][]string) (bool, string) {
+	if len(patchesByLine) == 0 || len(table.lines) == 0 {
+		return false, ""
+	}
+	header := principalEnumerationMarkdownTableCells(table.lines[table.headerIdx])
+	if len(header) < 2 {
+		return false, ""
+	}
+	targetCol := preEmitMarkdownTableColumnIndex(header, columnLabel)
+	if targetCol < 0 {
+		header = append(header, columnLabel)
+		targetCol = len(header) - 1
+		table.lines[table.headerIdx] = formatPreEmitMarkdownTableRow(header)
+		table.lines[table.separator] = formatPreEmitMarkdownTableSeparator(len(header))
+	}
+	changed := false
+	for idx, cells := range table.rows {
+		terms := patchesByLine[idx]
+		if len(terms) == 0 {
+			continue
+		}
+		for len(cells) < len(header) {
+			cells = append(cells, "")
+		}
+		next := appendMissingMarkdownCellTerms(cells[targetCol], terms)
+		if next == cells[targetCol] {
+			continue
+		}
+		cells[targetCol] = next
+		table.lines[idx] = formatPreEmitMarkdownTableRow(cells)
+		changed = true
+	}
+	if !changed && targetCol == len(header)-1 {
+		return false, ""
+	}
+	return changed, strings.Join(table.lines, "\n")
+}
+
+func preEmitMarkdownTableColumnIndex(header []string, label string) int {
+	want := strings.ToLower(strings.TrimSpace(label))
+	for idx, raw := range header {
+		if strings.ToLower(strings.TrimSpace(raw)) == want {
+			return idx
+		}
+	}
+	return -1
+}
+
+func formatPreEmitMarkdownTableRow(cells []string) string {
+	out := make([]string, len(cells))
+	for i, cell := range cells {
+		out[i] = strings.TrimSpace(cell)
+	}
+	return "| " + strings.Join(out, " | ") + " |"
+}
+
+func formatPreEmitMarkdownTableSeparator(cols int) string {
+	if cols <= 0 {
+		return ""
+	}
+	parts := make([]string, cols)
+	for i := range parts {
+		parts[i] = "---"
+	}
+	return "|" + strings.Join(parts, "|") + "|"
+}
+
+func appendMissingMarkdownCellTerms(cell string, terms []string) string {
+	cell = strings.TrimSpace(cell)
+	missing := make([]string, 0, len(terms))
+	for _, term := range terms {
+		term = strings.TrimSpace(term)
+		if term == "" || principalSupportSurfaceTermAppears(term, cell) {
+			continue
+		}
+		missing = appendMissingSurfaceTerms(missing, []string{term})
+	}
+	if len(missing) == 0 {
+		return cell
+	}
+	if cell == "" {
+		return strings.Join(missing, ", ")
+	}
+	return cell + "; " + strings.Join(missing, ", ")
+}
+
+func appendMissingSurfaceTerms(dst []string, src []string) []string {
+	seen := make(map[string]bool, len(dst)+len(src))
+	out := make([]string, 0, len(dst)+len(src))
+	for _, term := range append(dst, src...) {
+		term = strings.TrimSpace(term)
+		if term == "" {
+			continue
+		}
+		key := strings.ToLower(term)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, term)
+	}
+	return out
 }
 
 func requiredVisibleSurfaceTermsForItem(terms []string) []string {

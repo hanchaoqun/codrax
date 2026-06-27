@@ -480,6 +480,9 @@ func sourceInventoryAggregateCoverageKeys(facts []types.AnswerAggregateFact, rm 
 			for _, member := range fact.Members {
 				addMany(included, member)
 			}
+			for _, ref := range fact.SupportRefs {
+				included = sourceInventoryUniverseAppendSupportRefKeys(included, ref)
+			}
 		}
 		for _, member := range fact.Excluded {
 			addMany(excluded, member)

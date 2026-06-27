@@ -208,6 +208,117 @@ func TestAggregateMemberSetEvidenceMatchesAny_IgnoresOrdinarySummary(t *testing.
 	}
 }
 
+func TestMaterializeRequiredModelSurfaceTerms_MarkdownTableGetsVerifiedLabelColumn(t *testing.T) {
+	mut := types.NewMutableState("enumerate decorated declarations")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "ev-index",
+		Producer:        EmitEvidenceProducer,
+		Kind:            types.EvidenceDirect,
+		Subject:         "Index",
+		AnchorSymbol:    "Index",
+		AnchorKind:      types.AnchorDefinition,
+		Source:          "src/pages/Index.ets",
+		LineStart:       7,
+		LineEnd:         7,
+		SurfaceTerms:    []string{"@Entry", "@Component"},
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Language: "zh",
+			Intent:   types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "src/pages/Index.ets", Line: 7}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "entry-pages",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			Text: strings.Join([]string{
+				"| 页面入口 | 文件 | 行号 |",
+				"|---|---|---|",
+				"| `Index` | src/pages/Index.ets | 7 |",
+			}, "\n"),
+			Items: []types.AnswerBlockItem{{
+				ID:          "idx",
+				Label:       "Index",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	hints := preCheckModelSurfaceTerms(doc, ctx)
+	if len(hints) == 0 {
+		t.Fatal("expected missing surface_terms advisory before materialization")
+	}
+	if fixed := materializeRequiredModelSurfaceTerms(doc, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1; doc=%+v", fixed, doc.Blocks[0])
+	}
+	visible := doc.Blocks[0].Text
+	for _, want := range []string{"已验证标签", "@Entry", "@Component"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("materialized markdown table missing %q:\n%s", want, visible)
+		}
+	}
+	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) != 0 {
+		t.Fatalf("surface_terms should be satisfied after materialization: %+v", hints)
+	}
+}
+
+func TestMaterializeRequiredModelSurfaceTerms_MarkdownTableAmbiguousRowStaysAdvisory(t *testing.T) {
+	mut := types.NewMutableState("enumerate decorated declarations")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:           "ev-index",
+		Producer:     EmitEvidenceProducer,
+		Kind:         types.EvidenceDirect,
+		Subject:      "Index",
+		AnchorSymbol: "Index",
+		AnchorKind:   types.AnchorDefinition,
+		Source:       "src/pages/Index.ets",
+		LineStart:    7,
+		LineEnd:      7,
+		SurfaceTerms: []string{"@Component"},
+	}})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Language: "zh",
+			Intent:   types.IntentEnumerate,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "src/pages/Index.ets", Line: 7}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "entry-pages",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			Text: strings.Join([]string{
+				"| 页面入口 | 文件 | 行号 |",
+				"|---|---|---|",
+				"| `Index` | src/pages/Index.ets | 7 |",
+				"| `Index` | src/pages/Other.ets | 9 |",
+			}, "\n"),
+			Items: []types.AnswerBlockItem{{
+				ID:          "idx",
+				Label:       "Index",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := materializeRequiredModelSurfaceTerms(doc, ctx); fixed != 0 {
+		t.Fatalf("ambiguous markdown row must not be auto-patched, fixed=%d doc=%+v", fixed, doc.Blocks[0])
+	}
+	if strings.Contains(doc.Blocks[0].Text, "已验证标签") {
+		t.Fatalf("ambiguous row should remain advisory, not mutate markdown table:\n%s", doc.Blocks[0].Text)
+	}
+}
+
 func TestPreEmitStructuredMemberBlockCoversFactAcrossBlocks(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{
