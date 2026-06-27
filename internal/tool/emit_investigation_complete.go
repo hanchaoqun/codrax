@@ -4192,7 +4192,7 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 	roles := sourceInventoryCompletionRepairRoleLabels(authority, observation)
 	scopes := sourceInventoryCompletionRepairScopes(authority)
 	repoMapPath, repoMapScopes := sourceInventoryLensExecutionRepoMapCallShape(scopes)
-	nextCursor := sourceInventoryObservationNextCursor(observation)
+	nextCursor := sourceInventoryCompletionRepairCursor(authority)
 	subject := fmt.Sprintf("Continue the incomplete source-inventory lens with path=%q, view=\"source_inventory\", roles=[%s], scopes=[%s], include_counts=true, and include_attributes=false.",
 		repoMapPath, strings.Join(roles, ", "), sourceInventoryLensExecutionQuotedList(repoMapScopes))
 	if query := sourceInventoryResolvedCompletionRepairQuery(ctx); query != "" {
@@ -4214,7 +4214,7 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — source-inventory result is still incomplete for a resolved exhaustive answer.\n\n")
 	b.WriteString(sourceInventoryResolvedCompletionSummary(observation, profile) + "\n\n")
-	b.WriteString("Continue with the typed `repo_map(view=\"source_inventory\")` lens using the cursor or a narrower typed family/scope before closing as resolved. Do not replace an incomplete repo-wide inventory with a smaller fixture/support subtree unless the final handoff explicitly declares that bounded scope.\n")
+	b.WriteString("Continue with the typed `repo_map(view=\"source_inventory\")` follow-up route before closing as resolved. Cursor is valid only for the same lens identity; a missing source-class follow-up starts from the first page of its narrower typed family/scope. Do not replace an incomplete repo-wide inventory with a smaller fixture/support subtree unless the final handoff explicitly declares that bounded scope.\n")
 	if len(repoMapScopes) > 0 || nextCursor != "" {
 		b.WriteString("\nSuggested typed follow-up to target the typed requested construct/language surface: ")
 		b.WriteString(fmt.Sprintf("repo_map path=%q view=\"source_inventory\" roles=[%s]", repoMapPath, strings.Join(roles, ", ")))
@@ -4339,6 +4339,14 @@ func sourceInventoryResolvedCompletionRepairScopes(ctx *types.BusContext, observ
 
 func sourceInventoryResolvedCompletionRepairQuery(ctx *types.BusContext) string {
 	return strings.TrimSpace(sourceInventoryAdvisorySnapshotQuery(ctx))
+}
+
+func sourceInventoryCompletionRepairCursor(authority types.SourceInventoryCompletionAuthority) string {
+	debt := types.NormalizeSourceInventoryFollowupDebt(authority.FollowupDebt)
+	if !debt.IsActive() || debt.ReasonCode != types.SourceInventoryFollowupDebtPagination {
+		return ""
+	}
+	return strings.TrimSpace(debt.Query.Cursor)
 }
 
 func sourceInventoryObservationResolvedCompletionIncomplete(observation types.SourceInventoryObservation) bool {

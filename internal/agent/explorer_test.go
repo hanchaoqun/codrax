@@ -4595,7 +4595,6 @@ func TestExplorer_BuildInitialInstruction_SourceInventoryFollowupSurface(t *test
 		"missing_source_class_family",
 		"route roles: `type`",
 		"route scopes: `internal/thirdparty/tree-sitter-cangjie/corpus/sources`",
-		"route cursor: `24`",
 		"include_counts=true",
 		"include_attributes=false",
 	} {
@@ -4605,6 +4604,29 @@ func TestExplorer_BuildInitialInstruction_SourceInventoryFollowupSurface(t *test
 	}
 	if strings.Contains(got, "Breadth Scan") {
 		t.Fatalf("follow-up dispatch must not render broad breadth-scan instructions:\n%s", got)
+	}
+	if strings.Contains(got, "route cursor") {
+		t.Fatalf("missing source-class follow-up must not render a prior broad-lens cursor:\n%s", got)
+	}
+}
+
+func TestExplorer_BuildInitialInstruction_SourceInventoryPaginationFollowupSurface(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage:                       types.StageExplore,
+		ExploreToolSurface:          types.ExploreToolSurfaceSourceInventoryFollowup,
+		SourceInventoryFollowupDebt: sourceInventoryPaginationFollowupDebtForExplorerTest("24"),
+	}
+
+	got := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"source-inventory follow-up",
+		"pagination_debt",
+		"route cursor: `24`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("pagination source-inventory follow-up instruction missing %q:\n%s", want, got)
+		}
 	}
 }
 
@@ -4728,7 +4750,7 @@ func TestExplorer_RuntimeBoundary_SourceInventoryFollowupRejectsRouteDrift(t *te
 	ctx := &types.AgentContext{
 		Stage:                       types.StageExplore,
 		ExploreToolSurface:          types.ExploreToolSurfaceSourceInventoryFollowup,
-		SourceInventoryFollowupDebt: sourceInventoryFollowupDebtForExplorerTest("24"),
+		SourceInventoryFollowupDebt: sourceInventoryPaginationFollowupDebtForExplorerTest("24"),
 	}
 	cases := []struct {
 		name   string
@@ -4797,6 +4819,23 @@ func sourceInventoryFollowupDebtForExplorerTest(cursor string) types.SourceInven
 		},
 		MissingClasses: []types.SourcePathRole{types.SourcePathRoleThirdParty},
 		Roles:          []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+	})
+}
+
+func sourceInventoryPaginationFollowupDebtForExplorerTest(cursor string) types.SourceInventoryFollowupDebt {
+	return types.NormalizeSourceInventoryFollowupDebt(types.SourceInventoryFollowupDebt{
+		Active:     true,
+		ReasonCode: types.SourceInventoryFollowupDebtPagination,
+		Query: types.SourceInventoryLensQuery{
+			Path:              ".",
+			Scopes:            []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources"},
+			Roles:             []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			IncludeCounts:     true,
+			IncludeAttributes: false,
+			TopN:              24,
+			Cursor:            cursor,
+		},
+		Roles: []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
 	})
 }
 

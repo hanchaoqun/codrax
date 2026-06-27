@@ -13,6 +13,7 @@ func TestDeriveSourceInventoryFollowupDebt_MissingSourceClassUsesSampleScope(t *
 			{Role: SourcePathRoleThirdParty, Count: 1, Complete: true, Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"}},
 		},
 		RepoLanguages: []SourceInventoryLanguageCount{{Language: "cangjie", Count: 1, InScope: false, Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"}}},
+		Page:          &SourceInventoryObservationPage{Offset: 0, Emitted: 24, Total: 48, NextCursor: "24", Complete: false},
 		Execution:     &SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
 		Sets: []SourceInventoryObservationSet{{
 			Role: AnswerCandidateRoleType,
@@ -41,8 +42,33 @@ func TestDeriveSourceInventoryFollowupDebt_MissingSourceClassUsesSampleScope(t *
 	if len(debt.Query.Roles) != 1 || debt.Query.Roles[0] != AnswerCandidateRoleType {
 		t.Fatalf("roles = %+v", debt.Query.Roles)
 	}
+	if debt.Query.Cursor != "" || debt.Query.Offset != 0 {
+		t.Fatalf("missing source-class follow-up must not inherit the prior broad lens page cursor: %+v", debt.Query)
+	}
 	if len(debt.MissingLanguages) != 1 || debt.MissingLanguages[0] != "cangjie" {
 		t.Fatalf("missing languages = %+v", debt.MissingLanguages)
+	}
+}
+
+func TestNormalizeSourceInventoryFollowupDebt_ClearsCursorForScopeChangingDebt(t *testing.T) {
+	debt := NormalizeSourceInventoryFollowupDebt(SourceInventoryFollowupDebt{
+		Active:     true,
+		ReasonCode: SourceInventoryFollowupDebtMissingSourceClass,
+		Query: SourceInventoryLensQuery{
+			Path:   ".",
+			Scopes: []string{"thirdparty/corpus"},
+			Roles:  []AnswerCandidateRole{AnswerCandidateRoleType},
+			Cursor: "50",
+			Offset: 50,
+		},
+		MissingClasses: []SourcePathRole{SourcePathRoleThirdParty},
+		Roles:          []AnswerCandidateRole{AnswerCandidateRoleType},
+	})
+	if !debt.IsActive() {
+		t.Fatalf("debt should remain active: %+v", debt)
+	}
+	if debt.Query.Cursor != "" || debt.Query.Offset != 0 {
+		t.Fatalf("scope-changing debt must restart from the first page, got %+v", debt.Query)
 	}
 }
 

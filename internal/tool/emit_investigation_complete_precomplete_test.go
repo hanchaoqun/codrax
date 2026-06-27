@@ -2435,6 +2435,12 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryMissingSameLa
 	if sourceInventoryTestStringSliceContains(auth.FollowupDebt.Query.Scopes, ".") {
 		t.Fatalf("repair must not fall back to repo root when sample scopes exist, got %+v", auth.FollowupDebt.Query.Scopes)
 	}
+	if auth.FollowupDebt.Query.Cursor != "" || auth.FollowupDebt.Query.Offset != 0 {
+		t.Fatalf("missing source-class follow-up must restart at the first page, got %+v", auth.FollowupDebt.Query)
+	}
+	if strings.Contains(res.Summary, `cursor="50"`) || strings.Contains(res.Summary, `cursor: "50"`) {
+		t.Fatalf("missing source-class follow-up must not render the prior broad-lens cursor:\n%s", res.Summary)
+	}
 	if caveats := mut.EvidenceClosure().CompletionCaveats(); len(caveats) != 0 {
 		t.Fatalf("executable source-class follow-up should not become caveat before convergence, got %+v", caveats)
 	}

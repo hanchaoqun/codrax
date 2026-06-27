@@ -27,6 +27,7 @@ func (d SourceInventoryFollowupDebt) IsActive() bool {
 func NormalizeSourceInventoryFollowupDebt(d SourceInventoryFollowupDebt) SourceInventoryFollowupDebt {
 	d.ReasonCode = strings.TrimSpace(d.ReasonCode)
 	d.Query = normalizeSourceInventoryFollowupQuery(d.Query)
+	d = normalizeSourceInventoryFollowupCursor(d)
 	d.MissingClasses = normalizeSourceInventoryPathRoles(d.MissingClasses)
 	d.CoveredClasses = normalizeSourceInventoryPathRoles(d.CoveredClasses)
 	d.MissingLanguages = normalizeSourceInventoryFollowupStrings(d.MissingLanguages)
@@ -215,18 +216,4 @@ func sourceInventoryCoveredClassList(covered map[SourcePathRole]bool) []SourcePa
 		out = append(out, role)
 	}
 	return normalizeSourceInventoryPathRoles(out)
-}
-
-func normalizeSourceInventoryFollowupStrings(in []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, raw := range in {
-		value := strings.Trim(strings.ReplaceAll(strings.TrimSpace(raw), `\`, `/`), "/")
-		if value == "" || seen[value] {
-			continue
-		}
-		seen[value] = true
-		out = append(out, value)
-	}
-	return out
 }

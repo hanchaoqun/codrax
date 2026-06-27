@@ -2469,6 +2469,9 @@ func TestSourceInventoryResolvedCompletionDowngrade_RequiresExecutableMissingCla
 	if !sourceInventoryTestStringSliceContains(auth.FollowupDebt.Query.Scopes, "eval/fixtures/testdata/cangjie_minimal/bridge") {
 		t.Fatalf("repair should target the missing same-language class sample scope, got %+v", auth.FollowupDebt.Query.Scopes)
 	}
+	if auth.FollowupDebt.Query.Cursor != "" || auth.FollowupDebt.Query.Offset != 0 {
+		t.Fatalf("missing source-class follow-up must not inherit the previous lens cursor: %+v", auth.FollowupDebt.Query)
+	}
 	if caveats := ctx.Mutable.EvidenceClosure().CompletionCaveats(); len(caveats) != 0 {
 		t.Fatalf("executable missing source-class debt should not be downgraded to caveat before convergence, got %+v", caveats)
 	}

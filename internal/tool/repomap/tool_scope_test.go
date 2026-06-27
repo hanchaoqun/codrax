@@ -1166,6 +1166,78 @@ func TestRepoMapSourceInventoryNarrowAuxiliaryScopeProjectsCorpus(t *testing.T) 
 	}
 }
 
+func TestRepoMapSourceInventoryNarrowAuxiliaryScopeProjectsCangjieConstructs(t *testing.T) {
+	repo := t.TempDir()
+	for rel, body := range map[string]string{
+		"internal/app/main.go": "package app\nfunc Run() {}\n",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj": "package demo.greeter\n\npublic class Greeter {}\n",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj":    "package demo.stringext\n\nextend String {\n    public func shout(): String { return this }\n}\n",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj":        "package demo.ffi\n\nforeign func native_add(a: Int64, b: Int64): Int64\n",
+	} {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mut := types.NewMutableState("source inventory narrow auxiliary cangjie projection")
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleFunction,
+					types.AnswerCandidateRoleType,
+					types.AnswerCandidateRoleConstant,
+					types.AnswerCandidateRoleField,
+				},
+				SourceQuotes: []string{"extend 块", "foreign func 声明", "public class"},
+				Confidence:   0.95,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"query": "extend 块 foreign func 声明 public class",
+		"scope": "internal/thirdparty/tree-sitter-cangjie/corpus/sources",
+		"roles": ["function", "type", "constant", "field"],
+		"include_counts": true,
+		"include_attributes": false,
+		"top_n": 24
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"repo_lens:auxiliary_projection",
+		"source_classes:",
+		"thirdparty:3",
+		"`Greeter`",
+		"package=demo.greeter",
+		"`String`",
+		"package=demo.stringext",
+		"`native_add`",
+		"package=demo.ffi",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("narrow Cangjie auxiliary projection missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestRepoMapSourceInventoryAutoNarrowsBroadNoRowsToRequiredFiles(t *testing.T) {
 	repo := t.TempDir()
 	for rel, body := range map[string]string{
