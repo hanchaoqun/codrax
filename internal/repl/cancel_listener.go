@@ -80,6 +80,17 @@ func startCancelListener(stdin io.Reader, canceller runnerCanceller, warn func(f
 	return cl
 }
 
+// startCancelListenerForREPL is the REPL-facing policy gate over the low-level
+// listener. In interactive mode (r.in == nil), stdin belongs to the prompt
+// implementation and must never have a background reader, even if the host
+// terminal/ConPTY reports as non-TTY. Ctrl+C covers interactive cancellation.
+func startCancelListenerForREPL(stdin io.Reader, interactive bool, canceller runnerCanceller, warn func(format string, args ...any)) *cancelListener {
+	if interactive {
+		return nil
+	}
+	return startCancelListener(stdin, canceller, warn)
+}
+
 // stop signals the listener to wind down. Idempotent. The goroutine
 // exits at the next Scan() return — for piped producers that are
 // done, this is immediate (EOF); for long-lived producers, the

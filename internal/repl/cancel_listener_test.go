@@ -163,6 +163,34 @@ func TestCancelListener_NilCancellerSkips(t *testing.T) {
 	cl.stop() // nil-safe
 }
 
+func TestCancelListenerForREPL_InteractiveSkipsEvenWithReadableStdin(t *testing.T) {
+	stdin := strings.NewReader("/cancel\n")
+	stub := &stubCanceller{}
+
+	cl := startCancelListenerForREPL(stdin, true, stub, nil)
+	if cl != nil {
+		t.Fatal("interactive REPL must not start a stdin cancel listener")
+	}
+	time.Sleep(20 * time.Millisecond)
+	if stub.IsCanceled() {
+		t.Fatal("interactive REPL listener consumed stdin and fired cancel")
+	}
+}
+
+func TestCancelListenerForREPL_ScriptedKeepsSlashCancel(t *testing.T) {
+	stdin := strings.NewReader("/cancel\n")
+	stub := &stubCanceller{}
+
+	cl := startCancelListenerForREPL(stdin, false, stub, nil)
+	if cl == nil {
+		t.Fatal("scripted REPL should keep stdin /cancel listener")
+	}
+	defer cl.stop()
+	if !waitForCancel(stub, 200*time.Millisecond) {
+		t.Fatal("scripted /cancel did not fire")
+	}
+}
+
 // TestCancelListener_StopUnblocksOnEOF covers the lifecycle: stop()
 // flips the flag, the goroutine exits naturally when the underlying
 // reader hits EOF (which strings.NewReader does after consumption).

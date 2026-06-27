@@ -6102,7 +6102,7 @@ func (r *REPL) cancelTurn() {
 func (r *REPL) runInFlightWrap(fn func() (*types.BusContext, error)) (*types.BusContext, error) {
 	r.installCancelSignalHandler()
 	canceller, _ := r.runner.(runnerCanceller)
-	listener := startCancelListener(r.in, canceller, r.warn)
+	listener := startCancelListenerForREPL(r.in, r.interactive(), canceller, r.warn)
 	defer listener.stop() // nil-safe
 	r.runInFlight.Store(true)
 	defer r.runInFlight.Store(false)
