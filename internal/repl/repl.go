@@ -6857,7 +6857,11 @@ func (r *REPL) dispatch(line, display string) {
 			policy, err := tpc.ClassifyPolicy(classifierCtx, line, hint, lastAnswer != "")
 			r.endTurn()
 			if err != nil {
-				logging.Warning("[repl/turn_policy] classifier error: %v — trying legacy binary classifier fallback", err)
+				if errors.Is(err, context.DeadlineExceeded) {
+					logging.Warning("[repl/turn_policy] classifier timed out: %v — falling back to pipeline", err)
+				} else {
+					logging.Warning("[repl/turn_policy] classifier error: %v — trying legacy binary classifier fallback", err)
+				}
 				if r.tryLegacyChitchatFallback(line, display, hint, err) {
 					return
 				}
