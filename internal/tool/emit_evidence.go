@@ -346,7 +346,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						"context_role_hint": map[string]any{
 							"type":        "string",
 							"enum":        emitEvidenceContextRoleNames(),
-							"description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, related_context = grounded nearby context but not the exact target itself, illustrative_only = comment/doc/test/example mention that should NOT be treated as defining proof. The tool validates and may downgrade the hint.",
+							"description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, related_context = grounded nearby context but not the exact target itself, illustrative_only = documentation/prompt-support prose or a comment-only anchored line that should NOT be treated as defining proof. Test, fixture, example, third-party, vendor, and generated source paths are not automatically illustrative; the tool validates the anchored line and may downgrade the hint.",
 						},
 						"diagram_role_hint": map[string]any{
 							"type":        "string",
@@ -495,7 +495,7 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
           "line_end":      {"type": "integer", "description": "Last line of the cited range. Defaults to line_start when omitted."},
           "condition":     {"type": "string", "description": "For conditional items: the exact IF clause that triggers the behaviour."},
           "summary":       {"type": "string", "description": "Free-text rationale describing the fact. Keep concise; do not paraphrase numbers or string literals. For exhaustive list members, explain the member's role from already-read code (signature, RHS value, registry mapping, caller/callee relation, or visible comment); do not use summary only for ordinal/category wording such as 'Nth item'."},
-          "context_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, absence_support = grounded evidence that helps justify why the exact target is absent but does NOT define it, related_context = grounded nearby context but not the exact target itself, illustrative_only = comment/doc/test/example mention that should NOT be treated as defining proof. The tool validates and may downgrade the hint."},
+          "context_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, absence_support = grounded evidence that helps justify why the exact target is absent but does NOT define it, related_context = grounded nearby context but not the exact target itself, illustrative_only = documentation/prompt-support prose or a comment-only anchored line that should NOT be treated as defining proof. Test, fixture, example, third-party, vendor, and generated source paths are not automatically illustrative; the tool validates the anchored line and may downgrade the hint."},
           "diagram_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, config = repo/user config-file layer (YAML/JSON/TOML/INI/etc.), runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints."},
           "surface_terms": {"type": "array", "items": {"type": "string"}, "description": "OPTIONAL exact source/log/trace strings that should remain visible in the final answer as aliases or labels, including labels from leading documentation/header comments attached to the cited anchor. Every accepted term must appear verbatim in the already-read source window; ungrounded optional terms are dropped with a summary note."},
           "anchor_kind":   {"type": "string", "enum": %s, "description": "REQUIRED. What line_start points at: 'definition' = symbol declaration, 'call' = function/method call site, 'condition' = if/when/switch/case/guard line, 'return' = return or yield, 'assignment' = := or = assignment/write, 'initializer' = field/property/member inside a struct/object/named-argument/designated/config literal, 'import' = import/use/require statement, 'string_literal' = source-code string/char/template literal value itself, 'text_reference' = visible source/config/doc/comment text itself. string_literal/text_reference cannot prove a definition/call/assignment."},
@@ -2316,17 +2316,27 @@ func appendDiagramRoleValidationNote(ev *types.EvidenceItem, requested types.Evi
 }
 
 func evidenceLooksIllustrative(ev types.EvidenceItem, gc *ground.Context) bool {
-	if types.LooksLikeAuxiliaryEvidencePath(ev.Source) {
+	if ev.Source == "" {
+		return false
+	}
+	if gc != nil && len(gc.LineIndex) > 0 && ev.LineStart > 0 {
+		if fileLines, ok := gc.LineIndex[ev.Source]; ok {
+			if ground.LineLooksCommentOnly(fileLines, ev.LineStart, ev.Source) {
+				return true
+			}
+			return evidencePathDefaultsToIllustrativeText(ev.Source)
+		}
+	}
+	return evidencePathDefaultsToIllustrativeText(ev.Source)
+}
+
+func evidencePathDefaultsToIllustrativeText(source string) bool {
+	switch types.ClassifySourcePathRole(source) {
+	case types.SourcePathRoleDocumentation, types.SourcePathRolePromptSupport:
 		return true
-	}
-	if gc == nil || len(gc.LineIndex) == 0 || ev.Source == "" || ev.LineStart <= 0 {
+	default:
 		return false
 	}
-	fileLines, ok := gc.LineIndex[ev.Source]
-	if !ok {
-		return false
-	}
-	return ground.LineLooksCommentOnly(fileLines, ev.LineStart, ev.Source)
 }
 
 func evidenceCanBeDefining(ev types.EvidenceItem) bool {

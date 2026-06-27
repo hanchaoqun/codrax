@@ -3201,6 +3201,58 @@ func TestEmitEvidence_ConfigPrecedenceCommentCanGroundWithoutExactAnchorSymbol(t
 	}
 }
 
+func TestEmitEvidence_AuxiliarySourceDeclarationIsNotPathOnlyIllustrative(t *testing.T) {
+	paths := []string{
+		"tests/fixtures/entry.ets",
+		"examples/entry.ets",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/entry.ets",
+		"vendor/acme/entry.ets",
+		"generated/entry.ets",
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			tool := &EmitEvidence{}
+			ctx := newEmitCtx()
+			seedReadFileHistory(ctx, path, 12, "export struct EntryComponent {")
+			params := json.RawMessage(fmt.Sprintf(`{
+				"items": [
+					{
+						"kind": "direct",
+						"subject": "EntryComponent",
+						"predicate": "defines",
+						"source": %q,
+						"line_start": 12,
+						"summary": "EntryComponent is a real auxiliary source declaration.",
+						"anchor_kind": "definition",
+						"anchor_symbol": "EntryComponent",
+						"context_role_hint": "defining"
+					}
+				]
+			}`, path))
+			res, err := tool.Execute(ctx, params)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !res.Success {
+				t.Fatalf("expected success, got: %s", res.Summary)
+			}
+			got := ctx.Mutable.EmittedEvidence()
+			if len(got) != 1 {
+				t.Fatalf("want 1 item in buffer, got %d", len(got))
+			}
+			if got[0].ContextRole != types.EvidenceContextRoleDefining {
+				t.Fatalf("context role = %q, want defining for real auxiliary source declaration", got[0].ContextRole)
+			}
+			if got[0].Kind == types.EvidenceUnresolved || got[0].GroundingStatus == types.GroundingUngrounded {
+				t.Fatalf("auxiliary source declaration must not be downgraded as illustrative path noise: kind=%q grounding=%q note=%q", got[0].Kind, got[0].GroundingStatus, got[0].GroundingNote)
+			}
+			if strings.Contains(strings.ToLower(got[0].GroundingNote), "illustrative") {
+				t.Fatalf("grounding note should not mark real source declaration illustrative: %q", got[0].GroundingNote)
+			}
+		})
+	}
+}
+
 func TestEmitEvidence_KeepsFreeformExactMentionAsRelatedContextWithoutAnchoredTargetWindow(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
