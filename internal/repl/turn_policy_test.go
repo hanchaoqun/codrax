@@ -29,6 +29,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -71,6 +72,42 @@ func (s *stubTurnPolicyClassifier) ClassifyPolicy(ctx context.Context, line, hin
 		s.onPolicy(ctx)
 	}
 	return s.policy, s.err
+}
+
+type secondTurnBlockingPolicyClassifier struct {
+	release chan struct{}
+
+	mu    sync.Mutex
+	calls int
+}
+
+func (s *secondTurnBlockingPolicyClassifier) Classify(_ context.Context, _, _ string) (bool, error) {
+	return false, errors.New("legacy classifier should not run after structured timeout")
+}
+
+func (s *secondTurnBlockingPolicyClassifier) ClassifyPolicy(_ context.Context, _, _ string, _ bool) (TurnPolicy, error) {
+	s.mu.Lock()
+	s.calls++
+	call := s.calls
+	s.mu.Unlock()
+	if call == 1 {
+		return TurnPolicy{
+			Route:           RouteRepo,
+			NeedsRepoAccess: true,
+			Operation:       "investigate",
+			Source:          "repo",
+			Confidence:      0.9,
+			Reason:          "first turn repository investigation",
+		}, nil
+	}
+	<-s.release
+	return TurnPolicy{}, errors.New("released after dispatcher timeout")
+}
+
+func (s *secondTurnBlockingPolicyClassifier) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
 }
 
 type structuredErrorLegacyClassifier struct {
@@ -1467,6 +1504,41 @@ func TestTurnPolicyDispatch_ClassifierRunsInInFlightLifecycle(t *testing.T) {
 	}
 	if r.runInFlight.Load() {
 		t.Fatal("in-flight lifecycle must clear after dispatch")
+	}
+}
+
+func TestTurnPolicyDispatch_SecondTurnClassifierOuterTimeoutFallsThroughToPipeline(t *testing.T) {
+	old := turnPolicyClassifierTimeout
+	turnPolicyClassifierTimeout = 10 * time.Millisecond
+	defer func() { turnPolicyClassifierTimeout = old }()
+
+	store := newPolicyStore(t)
+	release := make(chan struct{})
+	classifier := &secondTurnBlockingPolicyClassifier{release: release}
+	defer close(release)
+	r, runner, _ := newTurnPolicyREPL(t, store, classifier, &stubResponder{reply: "unused"}, "分析当前系统有哪些 agent\n继续分析关系\n/exit\n")
+
+	done := make(chan error, 1)
+	go func() {
+		done <- r.Loop()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Loop: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("REPL must not hang when the second-turn classifier ignores context")
+	}
+	if got := classifier.callCount(); got != 2 {
+		t.Fatalf("classifier calls: got %d, want 2", got)
+	}
+	if len(runner.requests) != 2 {
+		t.Fatalf("both turns should fail-safe to the repo pipeline, got %d requests: %v", len(runner.requests), runner.requests)
+	}
+	if r.runInFlight.Load() {
+		t.Fatal("in-flight lifecycle must clear after second-turn timeout")
 	}
 }
 

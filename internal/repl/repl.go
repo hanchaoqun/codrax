@@ -6109,6 +6109,28 @@ func (r *REPL) runInFlightWrap(fn func() (*types.BusContext, error)) (*types.Bus
 	return fn()
 }
 
+func (r *REPL) beginREPLDirectLLMInFlight() (context.Context, func()) {
+	r.installCancelSignalHandler()
+	ctx := r.startTurn()
+	r.runInFlight.Store(true)
+	return ctx, func() {
+		r.emitREPLDirectLLMResponse()
+		r.runInFlight.Store(false)
+		r.endTurn()
+	}
+}
+
+func (r *REPL) emitREPLDirectLLMResponse() {
+	if r.renderer == nil {
+		return
+	}
+	r.renderer.Emitter()(render.Event{
+		Kind:      render.EventAgentResponse,
+		Timestamp: time.Now(),
+		Agent:     types.AgentName("repl_direct"),
+	})
+}
+
 // runREPLDirectLLMInFlight wraps REPL-owned direct LLM calls that do not go
 // through the orchestrator Runner: turn-policy classification, local reply, and
 // chat reply. These calls still close the input box and may sit on the live
@@ -6123,20 +6145,75 @@ func (r *REPL) runREPLDirectLLMInFlight(fn func(context.Context) error) error {
 	if fn == nil {
 		return nil
 	}
-	r.installCancelSignalHandler()
-	ctx := r.startTurn()
-	r.runInFlight.Store(true)
-	defer r.runInFlight.Store(false)
-	defer r.endTurn()
-	err := fn(ctx)
-	if r.renderer != nil {
-		r.renderer.Emitter()(render.Event{
-			Kind:      render.EventAgentResponse,
-			Timestamp: time.Now(),
-			Agent:     types.AgentName("repl_direct"),
-		})
+	ctx, finish := r.beginREPLDirectLLMInFlight()
+	defer finish()
+	return fn(ctx)
+}
+
+type replTurnPolicyClassifierResult struct {
+	policy TurnPolicy
+	err    error
+}
+
+func (r *REPL) runTurnPolicyClassifierInFlight(fn func(context.Context) (TurnPolicy, error)) (TurnPolicy, error) {
+	if fn == nil {
+		return TurnPolicy{}, nil
 	}
-	return err
+	ctx, finish := r.beginREPLDirectLLMInFlight()
+	defer finish()
+	return runBoundedTurnPolicyClassifier(ctx, turnPolicyClassifierTimeout, fn)
+}
+
+func runBoundedTurnPolicyClassifier(ctx context.Context, timeout time.Duration, fn func(context.Context) (TurnPolicy, error)) (TurnPolicy, error) {
+	if timeout <= 0 {
+		return fn(ctx)
+	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	done := make(chan replTurnPolicyClassifierResult, 1)
+	go func() {
+		policy, err := fn(callCtx)
+		done <- replTurnPolicyClassifierResult{policy: policy, err: err}
+	}()
+	select {
+	case result := <-done:
+		return result.policy, result.err
+	case <-callCtx.Done():
+		return TurnPolicy{}, callCtx.Err()
+	}
+}
+
+type replBoolClassifierResult struct {
+	value bool
+	err   error
+}
+
+func (r *REPL) runBoolClassifierInFlight(fn func(context.Context) (bool, error)) (bool, error) {
+	if fn == nil {
+		return false, nil
+	}
+	ctx, finish := r.beginREPLDirectLLMInFlight()
+	defer finish()
+	return runBoundedBoolClassifier(ctx, turnPolicyClassifierTimeout, fn)
+}
+
+func runBoundedBoolClassifier(ctx context.Context, timeout time.Duration, fn func(context.Context) (bool, error)) (bool, error) {
+	if timeout <= 0 {
+		return fn(ctx)
+	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	done := make(chan replBoolClassifierResult, 1)
+	go func() {
+		value, err := fn(callCtx)
+		done <- replBoolClassifierResult{value: value, err: err}
+	}()
+	select {
+	case result := <-done:
+		return result.value, result.err
+	case <-callCtx.Done():
+		return false, callCtx.Err()
+	}
 }
 
 func (r *REPL) Loop() error {
@@ -6878,11 +6955,8 @@ func (r *REPL) dispatch(line, display string) {
 			lastAnswer := r.lastAnswerText()
 			logging.Info("[repl/turn_policy] classifier start: %s", oneLine(line))
 			started := time.Now()
-			var policy TurnPolicy
-			err := r.runREPLDirectLLMInFlight(func(classifierCtx context.Context) error {
-				var classifyErr error
-				policy, classifyErr = tpc.ClassifyPolicy(classifierCtx, line, hint, lastAnswer != "")
-				return classifyErr
+			policy, err := r.runTurnPolicyClassifierInFlight(func(classifierCtx context.Context) (TurnPolicy, error) {
+				return tpc.ClassifyPolicy(classifierCtx, line, hint, lastAnswer != "")
 			})
 			logging.Info("[repl/turn_policy] classifier end: elapsed=%s err=%t", time.Since(started).Truncate(time.Millisecond), err != nil)
 			if err != nil {
@@ -6968,11 +7042,8 @@ func (r *REPL) dispatch(line, display string) {
 			// byte-for-byte.
 			logging.Info("[repl/chitchat] legacy classifier start: %s", oneLine(line))
 			started := time.Now()
-			var isChat bool
-			err := r.runREPLDirectLLMInFlight(func(classifierCtx context.Context) error {
-				var classifyErr error
-				isChat, classifyErr = r.chitchatClassifier.Classify(classifierCtx, line, hint)
-				return classifyErr
+			isChat, err := r.runBoolClassifierInFlight(func(classifierCtx context.Context) (bool, error) {
+				return r.chitchatClassifier.Classify(classifierCtx, line, hint)
 			})
 			logging.Info("[repl/chitchat] legacy classifier end: elapsed=%s err=%t", time.Since(started).Truncate(time.Millisecond), err != nil)
 			if err != nil {
@@ -7198,11 +7269,8 @@ func (r *REPL) tryLegacyChitchatFallback(line, display, hint string, cause error
 	}
 	logging.Info("[repl/chitchat] legacy fallback classifier start: %s", oneLine(line))
 	started := time.Now()
-	var isChat bool
-	err := r.runREPLDirectLLMInFlight(func(classifierCtx context.Context) error {
-		var classifyErr error
-		isChat, classifyErr = r.chitchatClassifier.Classify(classifierCtx, line, hint)
-		return classifyErr
+	isChat, err := r.runBoolClassifierInFlight(func(classifierCtx context.Context) (bool, error) {
+		return r.chitchatClassifier.Classify(classifierCtx, line, hint)
 	})
 	logging.Info("[repl/chitchat] legacy fallback classifier end: elapsed=%s err=%t", time.Since(started).Truncate(time.Millisecond), err != nil)
 	if err != nil {
