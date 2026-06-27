@@ -11361,11 +11361,6 @@ func runtimeTracePerfQualityRecord(record types.ObservationRecord) bool {
 	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact || !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 		return false
 	}
-	claim := strings.ToLower(strings.TrimSpace(record.ClaimKey))
-	predicate := strings.ToLower(strings.TrimSpace(record.Predicate))
-	if strings.Contains(claim, "perf") || strings.Contains(predicate, "perf") {
-		return true
-	}
 	for _, note := range record.RichNotes {
 		if _, _, ok := runtimeTracePerfQualityNote(note); ok {
 			return true

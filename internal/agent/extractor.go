@@ -2103,7 +2103,7 @@ func extractorPrincipalDefinitionSymbolFallback(ctx *types.AgentContext) []types
 			File:      source,
 			Line:      ev.LineStart,
 			Kind:      extractorDefinitionAnswerSymbolKind(ctx),
-			Chain:     strings.TrimSpace(ev.Summary),
+			Chain:     extractorDefinitionSymbolChain(ev),
 			Rationale: "principal definition extracted from grounded structured evidence",
 		}
 		key := answerSymbolDedupKey(sym)
@@ -2117,6 +2117,10 @@ func extractorPrincipalDefinitionSymbolFallback(ctx *types.AgentContext) []types
 		return nil
 	}
 	return out
+}
+
+func extractorDefinitionSymbolChain(ev types.EvidenceItem) string {
+	return strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(ev, false))
 }
 
 func extractorDefinitionSymbolName(ev types.EvidenceItem) string {

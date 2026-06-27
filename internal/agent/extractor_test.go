@@ -3692,6 +3692,7 @@ func TestExtractor_ParseOutput_EmptySlateFallsBackToPrincipalDefinitionSymbols(t
 				LineStart:       642,
 				AnchorKind:      types.AnchorDefinition,
 				AnchorSymbol:    "Intent",
+				Summary:         "ordinary model prose must not become answer-symbol chain authority",
 				Producer:        "explorer.emit_evidence",
 				GroundingStatus: types.GroundingGrounded,
 			},
@@ -3730,6 +3731,9 @@ func TestExtractor_ParseOutput_EmptySlateFallsBackToPrincipalDefinitionSymbols(t
 	for _, want := range []string{"Intent", "Complexity"} {
 		if got[want].Line == 0 {
 			t.Fatalf("definition fallback missing %q: %+v", want, out.AnswerSymbols)
+		}
+		if strings.Contains(got[want].Chain, "ordinary model prose") {
+			t.Fatalf("definition fallback chain should not include ordinary evidence summary: %+v", got[want])
 		}
 	}
 }
