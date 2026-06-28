@@ -49,6 +49,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -59,6 +60,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+var preEmitVisibleSourceLocationRe = regexp.MustCompile(`[\p{Han}A-Za-z0-9_.\-/\\]+?\.(?:go|ts|tsx|js|jsx|py|java|kt|kts|rs|rb|cpp|cc|cxx|c|h|hpp|hh|m|mm|swift|cj|ets|arkts|xml|json|yaml|yml|toml|md):[0-9]+`)
 
 // preEmitOracleFromCtx pulls the SymbolOracle the orchestrator
 // stashed on Mutable. Returns nil when:
@@ -6319,6 +6322,195 @@ func preEmitBlockUsesNonSymbolLabelSurface(b types.AnswerBlock, view *types.Answ
 	}
 	return view != nil && view.Family == types.QFConfigPrecedence &&
 		containsBlockFacet(b, types.FacetConfigPrecedenceRole)
+}
+
+func normalizeVisibleSourceLocationCarriers(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext) int {
+	if doc == nil || pctx == nil {
+		return 0
+	}
+	fixed := 0
+	rewriteField := func(value *string) []int {
+		if value == nil || strings.TrimSpace(*value) == "" {
+			return nil
+		}
+		rewritten, refs, count := normalizeVisibleSourceLocationString(*value, doc, pctx)
+		if count > 0 {
+			*value = rewritten
+			fixed += count
+		}
+		return refs
+	}
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		rewriteField(&block.Title)
+		rewriteField(&block.Text)
+		if block.Diagram != nil && block.Diagram.Body != "" {
+			rewriteField(&block.Diagram.Body)
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			var itemRefs []int
+			itemRefs = append(itemRefs, rewriteField(&item.Label)...)
+			itemRefs = append(itemRefs, rewriteField(&item.Text)...)
+			for ci := range item.Cells {
+				itemRefs = append(itemRefs, rewriteField(&item.Cells[ci])...)
+			}
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
+				continue
+			}
+			if ref, ok := uniquePreEmitCitationRef(itemRefs); ok {
+				item.CitationRef = ref
+				fixed++
+			}
+		}
+	}
+	return fixed
+}
+
+func normalizeVisibleSourceLocationString(s string, doc *types.AnswerDocumentV2, pctx *preEmitCheckContext) (string, []int, int) {
+	matches := preEmitVisibleSourceLocationRe.FindAllStringIndex(s, -1)
+	if len(matches) == 0 {
+		return s, nil, 0
+	}
+	var b strings.Builder
+	last := 0
+	fixed := 0
+	var refs []int
+	for _, span := range matches {
+		raw := s[span[0]:span[1]]
+		file, line, ok := parsePreEmitLocation(raw)
+		if !ok {
+			continue
+		}
+		cit, ok := preEmitVisibleSourceLocationCitation(pctx, doc, file, line)
+		if !ok {
+			continue
+		}
+		ref := appendOrReusePreEmitCitation(doc, cit)
+		if ref >= 0 {
+			refs = append(refs, ref)
+		}
+		b.WriteString(s[last:span[0]])
+		b.WriteString(fmt.Sprintf("%s:%d", cit.File, cit.Line))
+		last = span[1]
+		fixed++
+	}
+	if fixed == 0 {
+		return s, nil, 0
+	}
+	b.WriteString(s[last:])
+	return b.String(), refs, fixed
+}
+
+func preEmitVisibleSourceLocationCitation(pctx *preEmitCheckContext, doc *types.AnswerDocumentV2, file string, line int) (types.Citation, bool) {
+	if pctx == nil || strings.TrimSpace(file) == "" || line <= 0 {
+		return types.Citation{}, false
+	}
+	cit := pctx.canonicalCitation(types.Citation{File: file, Line: line})
+	if cit.File != "" {
+		if _, ok := pctx.citedEvidenceItems(cit); ok {
+			return cit, true
+		}
+		if doc != nil {
+			for _, existing := range doc.Citations {
+				existing = pctx.canonicalCitation(existing)
+				if preEmitCitationSameLocation(existing, cit) {
+					return existing, true
+				}
+			}
+		}
+	}
+	if cit, ok := preEmitUniqueEvidenceCitationByBasenameLine(pctx, file, line); ok {
+		return cit, true
+	}
+	if cit, ok := preEmitUniqueDocumentCitationByBasenameLine(pctx, doc, file, line); ok {
+		return cit, true
+	}
+	return types.Citation{}, false
+}
+
+func preEmitUniqueEvidenceCitationByBasenameLine(pctx *preEmitCheckContext, file string, line int) (types.Citation, bool) {
+	base := preEmitLocationBase(file)
+	if pctx == nil || base == "" || line <= 0 {
+		return types.Citation{}, false
+	}
+	var out []types.Citation
+	seen := map[string]bool{}
+	for _, ev := range pctx.evidenceItems() {
+		if ev.GroundingStatus == types.GroundingUngrounded || strings.TrimSpace(ev.Source) == "" || ev.LineStart <= 0 {
+			continue
+		}
+		if !strings.EqualFold(preEmitLocationBase(ev.Source), base) {
+			continue
+		}
+		end := ev.LineEnd
+		if end <= 0 {
+			end = ev.LineStart
+		}
+		if line < ev.LineStart || line > end {
+			continue
+		}
+		cit := pctx.canonicalCitation(types.Citation{File: ev.Source, Line: line})
+		key := preEmitCitationLocationKey(cit)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, cit)
+	}
+	if len(out) != 1 {
+		return types.Citation{}, false
+	}
+	return out[0], true
+}
+
+func preEmitUniqueDocumentCitationByBasenameLine(pctx *preEmitCheckContext, doc *types.AnswerDocumentV2, file string, line int) (types.Citation, bool) {
+	base := preEmitLocationBase(file)
+	if pctx == nil || doc == nil || base == "" || line <= 0 {
+		return types.Citation{}, false
+	}
+	var out []types.Citation
+	seen := map[string]bool{}
+	for _, cit := range doc.Citations {
+		cit = pctx.canonicalCitation(cit)
+		if cit.File == "" || cit.Line != line || !strings.EqualFold(preEmitLocationBase(cit.File), base) {
+			continue
+		}
+		key := preEmitCitationLocationKey(cit)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, cit)
+	}
+	if len(out) != 1 {
+		return types.Citation{}, false
+	}
+	return out[0], true
+}
+
+func preEmitLocationBase(file string) string {
+	file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
+	if file == "" {
+		return ""
+	}
+	return path.Base(file)
+}
+
+func uniquePreEmitCitationRef(refs []int) (int, bool) {
+	seen := map[int]bool{}
+	out := -1
+	for _, ref := range refs {
+		if ref < 0 || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		if out >= 0 && out != ref {
+			return -1, false
+		}
+		out = ref
+	}
+	return out, out >= 0
 }
 
 func containsBlockFacet(b types.AnswerBlock, facet types.AnswerFacetKind) bool {

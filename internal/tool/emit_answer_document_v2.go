@@ -581,6 +581,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeRequiredMechanismAnchorCarriersWithContext(doc, view, ctx, pctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d required mechanism anchor carrier(s)", toolName, fixed)
 	}
+	if fixed := normalizeVisibleSourceLocationCarriers(doc, pctx); fixed > 0 {
+		logging.Warning("[%s] repaired %d visible source-location carrier(s) by grounded evidence", toolName, fixed)
+	}
 	if fixed := normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc, view); fixed > 0 {
 		logging.Warning("[%s] repaired %d qualified item label(s) by graph-derived enclosing function", toolName, fixed)
 	}
