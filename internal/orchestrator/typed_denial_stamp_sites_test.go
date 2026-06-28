@@ -13,8 +13,8 @@ type denialStubOracle struct{}
 func (denialStubOracle) SymbolExists(string) (bool, int)     { return false, 0 }
 func (denialStubOracle) SymbolExistsFlat(string) (bool, int) { return false, 0 }
 
-// A confirmed-fabricated enumeration label stamps the oracle-symbol
-// denial alongside the violation; a nil set stays a no-op.
+// A confirmed-fabricated enumeration label stamps an answer-surface
+// symbol denial alongside the violation; a nil set stays a no-op.
 func TestHallucinationSiteStampsOracleDenial(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "l1", Kind: types.BlockOrderedList,
@@ -27,6 +27,10 @@ func TestHallucinationSiteStampsOracleDenial(t *testing.T) {
 	}
 	if !denials.IsSymbolDenied("completelyFabricatedIdentifierName") {
 		t.Fatalf("confirmed fabrication must stamp the symbol denial")
+	}
+	snap := denials.Snapshot()
+	if len(snap) != 1 || snap[0].Class != types.TypedDenialAnswerSurfaceSymbolUnverified {
+		t.Fatalf("answer-surface validator must stamp surface-local denial, got %+v", snap)
 	}
 	// nil set: violation still fires, no panic.
 	if v := validateEnumerationItemLabelHallucination(doc, denialStubOracle{}, nil); len(v) == 0 {

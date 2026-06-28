@@ -42,13 +42,22 @@ func runDeniedTokenAnswerCheck(doc *types.AnswerDocumentV2, denials *types.Typed
 	// token when a longer one ALSO appears (e.g. "internal/foo.go"
 	// vs "foo.go").
 	type denialEntry struct {
-		Token    string
-		Class    types.TypedDenialClass
-		Reason   string
-		IsPath   bool
+		Token  string
+		Class  types.TypedDenialClass
+		Reason string
+		IsPath bool
 	}
 	entries := make([]denialEntry, 0, denials.Len())
 	for _, d := range denials.Snapshot() {
+		if d.Class == types.TypedDenialAnswerSurfaceSymbolUnverified {
+			// This class is owned by the current answer-surface validators
+			// (label / diagram / inline-code checks). Those validators
+			// return precise current-result violations and can be
+			// deterministically repaired. Re-reading the append-only run
+			// stamp here would turn a repaired draft into a stale user-visible
+			// caveat whenever the identifier remains as ordinary prose.
+			continue
+		}
 		isPath := d.Class == types.TypedDenialExternalLogFrameUnresolved ||
 			d.Class == types.TypedDenialExternalPerfStallUnresolved ||
 			d.Class == types.TypedDenialDriftFrameRelocated ||

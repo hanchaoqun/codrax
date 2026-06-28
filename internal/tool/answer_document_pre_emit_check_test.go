@@ -3210,6 +3210,48 @@ func TestPreCheckAggregateCardinalityConsistency_MultipleSetsRequireExplicitLabe
 	}
 }
 
+func TestPreCheckAggregateCardinalityConsistency_OverviewGroupingCountDoesNotBindMemberSets(t *testing.T) {
+	mu := types.NewMutableState("source inventory overview grouping")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "extend 块",
+		Value:   "2",
+		Members: []string{"extend Cart", "extend String"},
+	}, {
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "foreign func 声明",
+		Value:   "2",
+		Members: []string{"native_add @ Bridge.cj:6", "native_add @ 07_foreign_ffi.cj:6"},
+	}, {
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "public class",
+		Value:   "8",
+		Members: []string{"Bridge", "Cart", "App", "Greeter", "Version", "Animal", "Dog", "Service"},
+	}})
+	mu.SetInvestigationComplete("structured member sets accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "本答案按 extend 块、foreign func 声明、public class 三个维度分别呈现。",
+	}}}
+
+	if got := preCheckAggregateCardinalityConsistency(doc, ctx); len(got) != 0 {
+		t.Fatalf("overview grouping count must not bind to individual member-set cardinalities, got %+v", got)
+	}
+
+	doc.Blocks[0].Text = "extend 块有 3 个，foreign func 声明有 2 个，public class 有 8 个。"
+	hints := preCheckAggregateCardinalityConsistency(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("per-label local count drift should still be reported, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, `label="extend 块"`) ||
+		!strings.Contains(hints[0].ExpectedShape, "expected_count=2") ||
+		!strings.Contains(hints[0].ExpectedShape, "visible_count=3") {
+		t.Fatalf("hint should remain bound to the local per-label count, got %+v", hints[0])
+	}
+}
+
 func TestPreCheckAggregateCardinalityConsistency_CaveatScopeCountDoesNotBindDistantLabel(t *testing.T) {
 	mu := types.NewMutableState("source inventory member-set cardinality")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

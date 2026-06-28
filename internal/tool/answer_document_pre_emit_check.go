@@ -4550,7 +4550,7 @@ func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt
 			})
 			continue
 		}
-		for _, claim := range preEmitAggregateScopedCountClaims(doc, fact, ref.MemberBindingMin) {
+		for _, claim := range preEmitAggregateScopedCountClaims(doc, fact, ref.MemberBindingMin, refs) {
 			if claim.value == expected {
 				continue
 			}
@@ -4737,7 +4737,7 @@ func preEmitParseAggregateFactCount(value string) (int, bool) {
 	return n, true
 }
 
-func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact, memberBindingMin int) []preEmitAggregateCountClaim {
+func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact, memberBindingMin int, refs []preEmitAggregateCardinalityRef) []preEmitAggregateCountClaim {
 	if doc == nil {
 		return nil
 	}
@@ -4754,7 +4754,7 @@ func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.A
 		if surface == "" {
 			continue
 		}
-		for _, scopedSurface := range preEmitAggregateCountClaimSurfaces(block, surface, fact, memberBindingMin) {
+		for _, scopedSurface := range preEmitAggregateCountClaimSurfaces(block, surface, fact, memberBindingMin, refs) {
 			for _, value := range preEmitScopedCountValues(scopedSurface, expected) {
 				out = append(out, preEmitAggregateCountClaim{
 					value:   value,
@@ -4806,20 +4806,37 @@ func preEmitBlockBindsToAggregateCount(block types.AnswerBlock, surface string, 
 	}
 }
 
-func preEmitAggregateCountClaimSurfaces(block types.AnswerBlock, surface string, fact types.AnswerAggregateFact, memberBindingMin int) []string {
-	if block.Kind == types.BlockCaveat {
-		var out []string
-		for _, segment := range preEmitAggregateCountLocalSegments(surface) {
-			if preEmitBlockBindsToAggregateCount(block, segment, fact, memberBindingMin) {
-				out = append(out, segment)
+func preEmitAggregateCountClaimSurfaces(block types.AnswerBlock, surface string, fact types.AnswerAggregateFact, memberBindingMin int, refs []preEmitAggregateCardinalityRef) []string {
+	var out []string
+	for _, segment := range preEmitAggregateCountLocalSegments(surface) {
+		if preEmitAggregateCountSegmentMentionsMultipleAggregateLabels(segment, fact, refs) {
+			continue
+		}
+		if preEmitBlockBindsToAggregateCount(block, segment, fact, memberBindingMin) {
+			out = append(out, segment)
+		}
+	}
+	return out
+}
+
+func preEmitAggregateCountSegmentMentionsMultipleAggregateLabels(surface string, fact types.AnswerAggregateFact, refs []preEmitAggregateCardinalityRef) bool {
+	if strings.TrimSpace(fact.Label) == "" || !preEmitAggregateDisplayPartAppears(fact.Label, surface) {
+		return false
+	}
+	matched := 0
+	for _, ref := range refs {
+		label := strings.TrimSpace(ref.Fact.Label)
+		if label == "" {
+			continue
+		}
+		if preEmitAggregateDisplayPartAppears(label, surface) {
+			matched++
+			if matched > 1 {
+				return true
 			}
 		}
-		return out
 	}
-	if !preEmitBlockBindsToAggregateCount(block, surface, fact, memberBindingMin) {
-		return nil
-	}
-	return []string{surface}
+	return false
 }
 
 func preEmitAggregateCountLocalSegments(surface string) []string {
@@ -4829,7 +4846,7 @@ func preEmitAggregateCountLocalSegments(surface string) []string {
 	}
 	parts := strings.FieldsFunc(surface, func(r rune) bool {
 		switch r {
-		case '\n', '\r', '。', '；', ';', '！', '!', '？', '?':
+		case '\n', '\r', '。', '；', ';', '！', '!', '？', '?', ',', '，':
 			return true
 		default:
 			return false

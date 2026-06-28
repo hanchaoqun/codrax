@@ -3683,7 +3683,7 @@ func stampOracleSymbolDenial(denials *types.TypedDenialSet, ident, surface strin
 		return
 	}
 	denials.Add(types.TypedDenial{
-		Class:  types.TypedDenialOracleSymbolUnverified,
+		Class:  types.TypedDenialAnswerSurfaceSymbolUnverified,
 		Token:  ident,
 		Reason: fmt.Sprintf("identifier %q failed symbol-oracle verification on the %s surface after every escape lane", ident, surface),
 	})

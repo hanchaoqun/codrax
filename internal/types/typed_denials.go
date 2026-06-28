@@ -30,6 +30,16 @@ const (
 	// symbol the typed graph does not know about.
 	TypedDenialOracleSymbolUnverified TypedDenialClass = "oracle_symbol_unverified"
 
+	// TypedDenialAnswerSurfaceSymbolUnverified fires when an answer-side
+	// validator sees a rendered identifier (item label, diagram endpoint,
+	// inline code span) that the symbol oracle cannot verify after every
+	// local escape lane. It is a surface-repair signal owned by the answer
+	// validator, not durable negative knowledge about an external input.
+	// Downstream answer-caveat materialization must therefore consume the
+	// current violation result, not this run-level stamp, to avoid stale
+	// caveats after deterministic finalizer repair.
+	TypedDenialAnswerSurfaceSymbolUnverified TypedDenialClass = "answer_surface_symbol_unverified"
+
 	// TypedDenialDriftFrameRelocated fires when authority's drift
 	// detector returns FileMoved / Unmappable for a frame: the symbol
 	// existed at some point but the current code's location does not
@@ -54,6 +64,7 @@ func IsValidTypedDenialClass(c TypedDenialClass) bool {
 	case TypedDenialExternalLogFrameUnresolved,
 		TypedDenialExternalPerfStallUnresolved,
 		TypedDenialOracleSymbolUnverified,
+		TypedDenialAnswerSurfaceSymbolUnverified,
 		TypedDenialDriftFrameRelocated,
 		TypedDenialEvidenceSubjectUnverified,
 		TypedDenialAttachedExtractedUnscoped:
@@ -69,7 +80,12 @@ func IsValidTypedDenialClass(c TypedDenialClass) bool {
 // unverifiable.
 //
 // Downstream consumers — prompt sanitisers, tool registries, answer
-// validators — MUST treat tokens here as hard prohibitions:
+// validators — MUST treat durable negative-knowledge tokens here as hard
+// prohibitions. Answer-surface repair stamps are explicitly softer: they
+// prevent the same unverified identifier from being re-promoted into an
+// authoritative structured slot, but they do not by themselves create a
+// user-visible caveat once the current answer has been deterministically
+// repaired.
 //
 //   - Prompt rendering: replace verbatim mentions with <unverified-X>
 //     placeholders so the LLM does not see the original token.
@@ -433,6 +449,7 @@ func (d TypedDenial) classIsPathShaped() bool {
 func (d TypedDenial) classIsSymbolShaped() bool {
 	switch d.Class {
 	case TypedDenialOracleSymbolUnverified,
+		TypedDenialAnswerSurfaceSymbolUnverified,
 		TypedDenialEvidenceSubjectUnverified,
 		// external_perf_stall_unresolved straddles both axes:
 		// emit_perf_trace stamps the stall FILE (path token) and the
@@ -459,6 +476,8 @@ func sanitiseClassSuffix(c TypedDenialClass) string {
 	case TypedDenialExternalPerfStallUnresolved:
 		return "external-source"
 	case TypedDenialOracleSymbolUnverified:
+		return "unknown-symbol"
+	case TypedDenialAnswerSurfaceSymbolUnverified:
 		return "unknown-symbol"
 	case TypedDenialDriftFrameRelocated:
 		return "moved-or-removed"
@@ -496,6 +515,8 @@ func (d TypedDenial) HumanRefusalReason(scope string) string {
 		return "This path appears in an attached performance trace's tag, but the named symbol does not actually exist in the file at this path inside the current repository. The trace likely captured a different application or a different build. Do not retry this path — answer from what the trace itself shows (the duration, the kind of stall, the call sequence). The repository file at this path will not provide grounding."
 	case TypedDenialOracleSymbolUnverified:
 		return "This symbol name does not exist in any source file indexed for the current repository (or workspace, for multi-repo). Searching the repository for it will return nothing useful. If the user's question is about this name, it likely refers to something outside the codebase — answer from the surrounding context (the attached input, the user's prose) without trying to ground a definition site."
+	case TypedDenialAnswerSurfaceSymbolUnverified:
+		return "This symbol name appeared in a previous answer draft, but it was not verified against the repository index. Do not promote it into a definition, item label, or diagram endpoint unless a current source anchor supports it."
 	case TypedDenialDriftFrameRelocated:
 		return "The position originally referenced (file/line) no longer holds the symbol the input attributes to it — the code has been moved, renamed, or removed since the input was captured. Do not retry the original location; answer from the input's own description and acknowledge that the current code position is not stable for this symbol."
 	case TypedDenialEvidenceSubjectUnverified:
