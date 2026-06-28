@@ -5284,6 +5284,69 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForRelationFlow(t *testing.T) 
 	}
 }
 
+func TestEmitAnalysis_Execute_NormalizesSourceInventoryConstructRoleAliases(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	rawRequest := "仓库里有哪些 extend 块、哪些 foreign func 声明、哪些 public class？分别列出文件路径和符号名，并指出包路径（package 声明）。"
+	mu := types.NewMutableState(rawRequest)
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "complex",
+		"keywords": ["extend", "foreign func", "public class"],
+		"entities": ["extend", "foreign func", "public class"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.94,
+		"complexity_confidence": 0.86,
+		"kind_confidence": 0.92,
+		"predicate_axis": "define",
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": true
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.95
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["extend_block", "foreign_func", "public_class"],
+			"requested_fields": ["name", "location", "package"],
+			"source_quotes": ["extend 块", "foreign func 声明", "public class"],
+			"confidence": 0.9
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		t.Fatalf("source_inventory_profile should survive construct-family target_roles, rm=%+v", rm)
+	}
+	got := rm.SourceInventoryProfile.PrincipalTargetRoles()
+	want := []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleFunction}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("principal target roles = %+v, want %+v", got, want)
+	}
+	if strings.Contains(res.Summary, "target_roles omitted or empty") {
+		t.Fatalf("summary should not drop source inventory profile: %s", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_Execute_SourceInventoryConstSetDoesNotImplyValuesField(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

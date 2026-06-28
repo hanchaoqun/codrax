@@ -2731,6 +2731,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			}
 		} else {
 			// ── SEQUENTIAL PATH (original) ──
+			analyzerPrescanClosedThisBatch := false
 			for _, tc := range resp.ToolCalls {
 				toolStart := time.Now()
 				b.deps.Emit(render.Event{
@@ -2749,7 +2750,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 				var result *types.ToolResult
 				var mcpResp *types.MCPResponse
-				if !toolCallAvailableInCurrentSurface(tc, effectiveToolNames) {
+				if skipped := analyzerSameBatchStalePrescanSkipResult(ctx, tc, analyzerPrescanClosedThisBatch); skipped != nil {
+					result = skipped
+				} else if !toolCallAvailableInCurrentSurface(tc, effectiveToolNames) {
 					b.observeToolRejected(ctx, tc, "tool_not_available_in_surface", "tool_unavailable")
 					result = unavailableToolResult(ctx, tc, effectiveToolNames)
 				} else {
@@ -2775,7 +2778,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					logging.Debug("[diag %s] iter=%d phase=toolresult TOOLRESULT %s ok=%v len=%d:\n%s\n---",
 						b.name, i, result.ToolName, result.Success, len(result.Summary),
 						truncForLog(result.Summary, 2000))
-					applyAnalyzerSameBatchPrescanBoundary(ctx, result)
+					if applyAnalyzerSameBatchPrescanBoundary(ctx, result) {
+						analyzerPrescanClosedThisBatch = true
+					}
 				}
 				if mcpResp != nil {
 					toolOK = mcpResp.Success
@@ -4704,20 +4709,20 @@ func canExecuteToolBatchInParallel(ctx *types.AgentContext, calls []llm.ToolCall
 	return canParallelizeToolBatch(calls)
 }
 
-func applyAnalyzerSameBatchPrescanBoundary(ctx *types.AgentContext, result *types.ToolResult) {
+func applyAnalyzerSameBatchPrescanBoundary(ctx *types.AgentContext, result *types.ToolResult) bool {
 	if ctx == nil || ctx.Stage != types.StageAnalyze || ctx.Mutable == nil || result == nil {
-		return
+		return false
 	}
 	readiness := analyzerPrescanResultReadiness(*result)
 	if !readiness.ready {
-		return
+		return false
 	}
 	closeNow := readiness.closeNow
 	if limit := ctx.Mutable.PrescanRoundLimit(); limit > 0 && limit <= 2 {
 		closeNow = true
 	}
 	if !closeNow || ctx.Mutable.PrescanReady() {
-		return
+		return false
 	}
 	ctx.Mutable.MarkPrescanReady()
 	ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
@@ -4727,6 +4732,29 @@ func applyAnalyzerSameBatchPrescanBoundary(ctx *types.AgentContext, result *type
 		Detail: result.ToolName + " (same-batch)",
 	})
 	logging.Debug("[analyzer] same-batch prescan boundary closed after %s: %s", result.ToolName, readiness.reason)
+	return true
+}
+
+func analyzerSameBatchStalePrescanSkipResult(ctx *types.AgentContext, tc llm.ToolCall, prescanClosedThisBatch bool) *types.ToolResult {
+	if !prescanClosedThisBatch || ctx == nil || ctx.Stage != types.StageAnalyze || !isPrescanTool(tc.Name) {
+		return nil
+	}
+	reason := fmt.Sprintf("skipped stale analyzer pre-scan tool %q: an earlier tool in the same assistant response already established enough typed classification signal. This is not a failed search and not evidence absence; call emit_analysis next with the best structured request model you already have.", tc.Name)
+	logging.Debug("[analyzer] tool %q skipped after same-batch prescan close: %s", tc.Name, reason)
+	if ctx.Mutable != nil {
+		ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
+			Kind:   "prescan_same_batch_skipped",
+			Stage:  string(types.StageAnalyze),
+			Reason: reason,
+			Detail: tc.Name,
+		})
+	}
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Success:   true,
+		Summary:   reason,
+		Timestamp: time.Now(),
+	}
 }
 
 // validateAnalyzerPrescanToolCall is the runtime hard-enforcement

@@ -98,9 +98,18 @@ func normalizeAnswerCandidateRoleAlias(raw string) string {
 	switch role {
 	case "interface", "class", "struct", "enum":
 		return string(AnswerCandidateRoleType)
+	case "type_declaration", "class_declaration", "struct_declaration", "interface_declaration", "enum_declaration",
+		"extend_block", "extension_block", "extension":
+		return string(AnswerCandidateRoleType)
 	case "func", "procedure":
 		return string(AnswerCandidateRoleFunction)
+	case "function_declaration", "func_declaration", "foreign_func", "foreign_function", "foreign_declaration",
+		"native_func", "native_function", "native_declaration", "external_func", "external_function",
+		"external_declaration", "ffi_func", "ffi_function":
+		return string(AnswerCandidateRoleFunction)
 	case "member_function":
+		return string(AnswerCandidateRoleMethod)
+	case "method_declaration", "member_method":
 		return string(AnswerCandidateRoleMethod)
 	case "const":
 		return string(AnswerCandidateRoleConstant)
@@ -109,6 +118,8 @@ func normalizeAnswerCandidateRoleAlias(raw string) string {
 	case "property", "prop", "member", "struct_field", "object_field", "field_member":
 		return string(AnswerCandidateRoleField)
 	case "module", "namespace":
+		return string(AnswerCandidateRolePackage)
+	case "package_declaration", "module_declaration", "namespace_declaration":
 		return string(AnswerCandidateRolePackage)
 	case "filepath", "file_path", "path":
 		return string(AnswerCandidateRoleFile)
@@ -122,6 +133,26 @@ func normalizeAnswerCandidateRoleAlias(raw string) string {
 		return string(AnswerCandidateRoleLiteralValue)
 	case "guard":
 		return string(AnswerCandidateRoleGuardCondition)
+	}
+	if AnswerCandidateRole(role).IsValid() {
+		return role
+	}
+	switch {
+	case strings.HasSuffix(role, "_class"),
+		strings.HasSuffix(role, "_struct"),
+		strings.HasSuffix(role, "_interface"),
+		strings.HasSuffix(role, "_enum"),
+		strings.HasSuffix(role, "_type"):
+		return string(AnswerCandidateRoleType)
+	case strings.HasSuffix(role, "_function"),
+		strings.HasSuffix(role, "_func"):
+		return string(AnswerCandidateRoleFunction)
+	case strings.HasSuffix(role, "_method"):
+		return string(AnswerCandidateRoleMethod)
+	case strings.HasSuffix(role, "_package"),
+		strings.HasSuffix(role, "_module"),
+		strings.HasSuffix(role, "_namespace"):
+		return string(AnswerCandidateRolePackage)
 	}
 	return role
 }

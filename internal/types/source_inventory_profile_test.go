@@ -11,6 +11,30 @@ func TestNormalizeAnswerCandidateRole_FieldAliases(t *testing.T) {
 	}
 }
 
+func TestNormalizeAnswerCandidateRole_SourceInventoryConstructFamilyAliases(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want AnswerCandidateRole
+	}{
+		{raw: "public_class", want: AnswerCandidateRoleType},
+		{raw: "class_declaration", want: AnswerCandidateRoleType},
+		{raw: "extend_block", want: AnswerCandidateRoleType},
+		{raw: "foreign_func", want: AnswerCandidateRoleFunction},
+		{raw: "native_function", want: AnswerCandidateRoleFunction},
+		{raw: "method_declaration", want: AnswerCandidateRoleMethod},
+		{raw: "module_declaration", want: AnswerCandidateRolePackage},
+	}
+	for _, tt := range tests {
+		got, ok := NormalizeAnswerCandidateRole(tt.raw)
+		if !ok || got != tt.want {
+			t.Fatalf("NormalizeAnswerCandidateRole(%q) = %q, %v; want %q", tt.raw, got, ok, tt.want)
+		}
+	}
+	if got, ok := NormalizeAnswerCandidateRole("decorator_occurrence"); ok || got != AnswerCandidateRoleUnknown {
+		t.Fatalf("ambiguous construct occurrence should remain invalid, got %q ok=%v", got, ok)
+	}
+}
+
 func TestSourceInventoryProfile_PrincipalTargetRolesTreatsConstSetAsQualifier(t *testing.T) {
 	profile := &SourceInventoryProfile{
 		IsSourceInventory: true,

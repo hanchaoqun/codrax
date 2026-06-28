@@ -1113,19 +1113,34 @@ func TestAnalyzerSameBatchPrescanBoundary(t *testing.T) {
 			},
 		}
 
-		applyAnalyzerSameBatchPrescanBoundary(ctx, result)
+		if !applyAnalyzerSameBatchPrescanBoundary(ctx, result) {
+			t.Fatal("strong same-batch list_files result should report prescan closure")
+		}
 		if !mu.PrescanReady() {
 			t.Fatal("strong same-batch list_files result should close analyzer prescan")
+		}
+		skipped := analyzerSameBatchStalePrescanSkipResult(ctx, llm.ToolCall{
+			Name:   "list_files",
+			Params: json.RawMessage(`{"path":"internal/analysis/gate"}`),
+		}, true)
+		if skipped == nil || !skipped.Success {
+			t.Fatalf("same-batch stale prescan call should be skipped successfully, got %+v", skipped)
+		}
+		if skipped.Repair != nil {
+			t.Fatalf("same-batch stale prescan skip must not become repair debt, got %+v", skipped.Repair)
+		}
+		if !strings.Contains(skipped.Summary, "not evidence absence") {
+			t.Fatalf("skip summary should prevent false absence interpretation, got %q", skipped.Summary)
 		}
 		got := validateAnalyzerToolBoundary(ctx, llm.ToolCall{
 			Name:   "list_files",
 			Params: json.RawMessage(`{"path":"internal/analysis/gate"}`),
 		})
 		if got == nil || got.Success {
-			t.Fatalf("subsequent same-batch prescan call should be rejected, got %+v", got)
+			t.Fatalf("next-turn prescan call should remain rejected after prescan closure, got %+v", got)
 		}
 		if got.Repair == nil || got.Repair.Code != analyzerPrescanTerminalEmitModeCode {
-			t.Fatalf("repair code = %+v, want %q", got.Repair, analyzerPrescanTerminalEmitModeCode)
+			t.Fatalf("next-turn repair code = %+v, want %q", got.Repair, analyzerPrescanTerminalEmitModeCode)
 		}
 		if rejected := validateAnalyzerToolBoundary(ctx, llm.ToolCall{Name: "emit_analysis", Params: json.RawMessage(`{}`)}); rejected != nil {
 			t.Fatalf("emit_analysis must remain available after same-batch close, got %+v", rejected)
