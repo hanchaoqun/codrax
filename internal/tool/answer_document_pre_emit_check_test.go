@@ -2734,6 +2734,86 @@ func TestNormalizeItemCitationRefsByTypedCandidateRole_SourceInventoryRow(t *tes
 	}
 }
 
+func TestNormalizeItemCitationRefsByTypedCandidateRole_UsesRowAttributeForDuplicateLabels(t *testing.T) {
+	mu := types.NewMutableState("list foreign func declarations with packages")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true,
+		Scopes: []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{
+					Name:     "native_add",
+					Role:     types.AnswerCandidateRoleFunction,
+					File:     "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+					Line:     6,
+					Language: "cangjie",
+					Attributes: []types.SourceInventoryObservationAttribute{{
+						Role: types.AnswerCandidateRolePackage,
+						Name: "demo.bridge",
+					}},
+				},
+				{
+					Name:     "native_add",
+					Role:     types.AnswerCandidateRoleFunction,
+					File:     "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+					Line:     6,
+					Language: "cangjie",
+					Attributes: []types.SourceInventoryObservationAttribute{{
+						Role: types.AnswerCandidateRolePackage,
+						Name: "demo.ffi",
+					}},
+				},
+			},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "foreign",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{ID: "bridge", Label: "native_add", Text: "package 声明为 demo.bridge", CandidateRole: types.AnswerCandidateRoleFunction, CitationRef: 1},
+				{ID: "ffi", Label: "native_add", Text: "package 声明为 demo.ffi", CandidateRole: types.AnswerCandidateRoleFunction, CitationRef: 0},
+			},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 2 {
+		t.Fatalf("fixed=%d, want 2", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("bridge citation_ref=%d, want 0", got)
+	}
+	if got := doc.Blocks[0].Items[1].CitationRef; got != 1 {
+		t.Fatalf("ffi citation_ref=%d, want 1", got)
+	}
+	if got := preCheckItemCitationAlignmentWithContext(doc, nil, newPreEmitCheckContext(ctx)); len(got) != 0 {
+		t.Fatalf("repaired duplicate labels should pass citation alignment, got %+v", got)
+	}
+}
+
 func TestNormalizeItemCitationRefsByTypedCandidateRole_DoesNotGuessAmbiguousRows(t *testing.T) {
 	mu := types.NewMutableState("source inventory ambiguous typed citation repair")
 	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{

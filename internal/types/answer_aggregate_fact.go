@@ -781,8 +781,8 @@ func answerAggregateMemberSetMergeKey(fact AnswerAggregateFact) string {
 func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregateFact {
 	dst = cloneAnswerAggregateFacts([]AnswerAggregateFact{dst})[0]
 	memberKeys := make(map[string]bool, len(dst.Members)+len(src.Members))
-	for _, member := range dst.Members {
-		key := AnswerAggregateMemberSurfaceKey(member)
+	for i, member := range dst.Members {
+		key := answerAggregateMemberSetEntryKey(dst, i, member)
 		if key != "" {
 			memberKeys[key] = true
 		}
@@ -792,7 +792,7 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 		if member == "" {
 			continue
 		}
-		key := AnswerAggregateMemberSurfaceKey(member)
+		key := answerAggregateMemberSetEntryKey(src, i, member)
 		if key == "" || memberKeys[key] {
 			continue
 		}
@@ -817,6 +817,44 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 	dst.Value = strconv.Itoa(len(dst.Members))
 	dst.Label = normalizeAggregateMemberSetLabelCardinality(dst.Label, len(dst.Members))
 	return dst
+}
+
+func answerAggregateMemberSetEntryKey(fact AnswerAggregateFact, memberIdx int, member string) string {
+	base := AnswerAggregateMemberSurfaceKey(member)
+	if base == "" {
+		base = strings.ToLower(strings.TrimSpace(member))
+	}
+	if base == "" {
+		return ""
+	}
+	if loc := answerAggregateMemberSetEntryLocationKey(fact, memberIdx, member); loc != "" {
+		return base + "\x00loc:" + loc
+	}
+	return base
+}
+
+func answerAggregateMemberSetEntryLocationKey(fact AnswerAggregateFact, memberIdx int, member string) string {
+	if surface, ok := ParseAnswerSourceLocationSurface(member); ok {
+		return normalizeAnswerSupportLocation(aggregateMemberStartLocation(surface))
+	}
+	if _, loc, ok := ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(loc.File) != "" && loc.LineStart > 0 {
+		return normalizeAnswerSupportLocation(aggregateMemberStartLocation(loc))
+	}
+	if memberIdx < 0 || memberIdx >= len(fact.SupportRefs) {
+		return ""
+	}
+	ref := strings.TrimSpace(fact.SupportRefs[memberIdx])
+	if ref == "" {
+		return ""
+	}
+	refMember, loc, ok := ParseAnswerSupportRefMemberLocation(ref)
+	if !ok || strings.TrimSpace(loc.File) == "" || loc.LineStart <= 0 {
+		return ""
+	}
+	if !aggregateSupportRefCanDescribeMember(refMember, aggregateMemberSupportSurfaceLabel(member)) {
+		return ""
+	}
+	return normalizeAnswerSupportLocation(aggregateMemberStartLocation(loc))
 }
 
 func normalizeAggregateMemberSetLabelCardinality(label string, memberCount int) string {

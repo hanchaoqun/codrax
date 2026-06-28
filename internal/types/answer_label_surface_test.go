@@ -23,6 +23,19 @@ func TestParseAnswerSourceLocationSurface_CrossLanguagePaths(t *testing.T) {
 	}
 }
 
+func TestParseAnswerSourceLocationSurface_PreservesDisplayPathCasing(t *testing.T) {
+	loc, ok := ParseAnswerSourceLocationSurface("eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6")
+	if !ok {
+		t.Fatal("source location with mixed-case file should parse")
+	}
+	if loc.File != "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj" {
+		t.Fatalf("parsed display file = %q, want original casing", loc.File)
+	}
+	if !AnswerSourceLocationSurfaceMatchesCitation(loc, Citation{File: "eval/fixtures/testdata/cangjie_minimal/bridge/bridge.cj", Line: 6}) {
+		t.Fatal("citation matching should remain case-insensitive/canonical even when display casing is preserved")
+	}
+}
+
 func TestParseAnswerSourceLocationSurface_DoesNotSwallowSupportRefComposite(t *testing.T) {
 	if _, ok := ParseAnswerSourceLocationSurface("explorerEvaluator @ internal/agent/explorer.go:30"); ok {
 		t.Fatal("support-ref composite member must not parse as a single source location")
@@ -69,6 +82,19 @@ func TestParseAnswerSupportRefMemberLocation_CompositeDisplays(t *testing.T) {
 			t.Fatalf("ParseAnswerSupportRefMemberLocation(%q) = (%q, %+v), want %q %s:%d",
 				tc.raw, label, loc, tc.label, tc.file, tc.line)
 		}
+	}
+}
+
+func TestParseAnswerSupportRefMemberLocation_PreservesDisplayPathCasing(t *testing.T) {
+	label, loc, ok := ParseAnswerSupportRefMemberLocation("native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)")
+	if !ok {
+		t.Fatal("support-ref member location should parse")
+	}
+	if label != "native_add" {
+		t.Fatalf("label = %q, want native_add", label)
+	}
+	if loc.File != "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj" {
+		t.Fatalf("parsed support file = %q, want original casing", loc.File)
 	}
 }
 

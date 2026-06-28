@@ -578,7 +578,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersSourceInventoryH
 		"principal_roles: `package`",
 		"row_lanes: principal=2, support=0, audit=0",
 		"### Principal candidate rows",
-		"member=`billing`, role=package, source_class=production, language=typescript, location=`services/billing/index.ts:12`, coverage_state=observed, attributes=1",
+		"member=`billing`, role=package, source_class=production, language=typescript, location=`services/billing/index.ts:12`, coverage_state=observed, attributes=[`attribute:createBillingService @ services/billing/index.ts:16`]",
 		"member=`identity`, role=package, source_class=production, language=python, location=`services/identity/main.py:7`, coverage_state=observed",
 	} {
 		if !strings.Contains(prompt, want) {

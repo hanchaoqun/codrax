@@ -50,6 +50,71 @@ func TestDeriveSourceInventoryFollowupDebt_MissingSourceClassUsesSampleScope(t *
 	}
 }
 
+func TestDeriveSourceInventoryFollowupDebt_FileRowsDoNotCoverPrincipalMemberRoles(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       []string{"."},
+		SourceClasses: []SourceInventorySourceClassCount{
+			{
+				Role:  SourcePathRoleFixture,
+				Count: 2,
+				Languages: []SourceInventoryLanguageCount{{
+					Language: "cangjie",
+					Count:    2,
+					InScope:  true,
+					Samples:  []string{"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj"},
+				}},
+			},
+			{
+				Role:  SourcePathRoleThirdParty,
+				Count: 8,
+				Languages: []SourceInventoryLanguageCount{{
+					Language: "cangjie",
+					Count:    8,
+					InScope:  true,
+					Samples:  []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"},
+				}},
+			},
+		},
+		Page:      &SourceInventoryObservationPage{Offset: 0, Emitted: 24, Total: 80, NextCursor: "24", Complete: false},
+		Execution: &SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleType,
+			Members: []SourceInventoryObservationMember{{
+				Name:     "Cart",
+				Role:     AnswerCandidateRoleType,
+				File:     "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+				Language: "cangjie",
+			}},
+		}, {
+			Role: AnswerCandidateRoleFile,
+			Members: []SourceInventoryObservationMember{{
+				Name:     "04_extend_operator.cj",
+				Role:     AnswerCandidateRoleFile,
+				File:     "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj",
+				Language: "cangjie",
+			}},
+		}},
+	}
+	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType, AnswerCandidateRoleFunction},
+	}}
+
+	debt := DeriveSourceInventoryFollowupDebt(obs, rm)
+	if !debt.IsActive() || debt.ReasonCode != SourceInventoryFollowupDebtMissingSourceClass {
+		t.Fatalf("file rows must not satisfy type/function source-class coverage, got %+v", debt)
+	}
+	if !sourceInventoryPathRolesContain(debt.MissingClasses, SourcePathRoleThirdParty) {
+		t.Fatalf("missing classes = %+v, want thirdparty", debt.MissingClasses)
+	}
+	if len(debt.Query.Scopes) != 1 || debt.Query.Scopes[0] != "internal/thirdparty/tree-sitter-cangjie/corpus/sources" {
+		t.Fatalf("query scopes = %+v", debt.Query.Scopes)
+	}
+}
+
 func TestDeriveSourceInventoryFollowupDebt_CompleteZeroLensCoversExactMissingSourceClass(t *testing.T) {
 	obs := sourceInventoryFollowupDebtMissingThirdPartyFixture()
 	obs.CompleteLenses = []SourceInventoryCompleteLens{{

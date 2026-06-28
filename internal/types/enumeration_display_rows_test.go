@@ -746,6 +746,129 @@ func TestCompileEnumerationDisplaySets_DedupesEquivalentPrincipalFactRefs(t *tes
 	}
 }
 
+func TestCompileEnumerationDisplaySets_PreservesSameMemberAtDistinctSourceLocations(t *testing.T) {
+	rm := &RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+		},
+	}
+	facts, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "foreign func 声明（Cangjie）",
+		Value: "2",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)",
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 (package demo.ffi)",
+		},
+		SupportRefs: []string{
+			"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("NormalizeAnswerAggregateFacts failed: %v", err)
+	}
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: facts,
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "ev-fixture-native-add",
+				Kind:            EvidenceDirect,
+				Subject:         "Bridge.cj",
+				Object:          "foreign func native_add",
+				AnchorSymbol:    "native_add",
+				AnchorKind:      AnchorDefinition,
+				Source:          "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+				LineStart:       6,
+				Scope:           ScopeLine,
+				GroundingStatus: GroundingGrounded,
+				Summary:         "foreign func 声明，属于 package demo.bridge",
+			},
+			{
+				ID:              "ev-corpus-native-add",
+				Kind:            EvidenceDirect,
+				Subject:         "07_foreign_ffi.cj",
+				Object:          "foreign func native_add",
+				AnchorSymbol:    "native_add",
+				AnchorKind:      AnchorDefinition,
+				Source:          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+				LineStart:       6,
+				Scope:           ScopeLine,
+				GroundingStatus: GroundingGrounded,
+				Summary:         "foreign func 声明，属于 package demo.ffi",
+			},
+		},
+		SourceInventoryObservation: SourceInventoryObservation{
+			Active:   true,
+			Complete: true,
+			Sets: []SourceInventoryObservationSet{{
+				Role:     AnswerCandidateRoleFunction,
+				Complete: true,
+				Count:    2,
+				Members: []SourceInventoryObservationMember{
+					{
+						Name:          "native_add",
+						Role:          AnswerCandidateRoleFunction,
+						File:          "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+						Line:          6,
+						CoverageState: SourceInventoryCoverageObserved,
+						Attributes: []SourceInventoryObservationAttribute{{
+							Role: AnswerCandidateRolePackage,
+							Name: "demo.bridge",
+							File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+							Line: 1,
+						}},
+					},
+					{
+						Name:          "native_add",
+						Role:          AnswerCandidateRoleFunction,
+						File:          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+						Line:          6,
+						CoverageState: SourceInventoryCoverageObserved,
+						Attributes: []SourceInventoryObservationAttribute{{
+							Role: AnswerCandidateRolePackage,
+							Name: "demo.ffi",
+							File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+							Line: 1,
+						}},
+					},
+				},
+			}},
+		},
+	}
+
+	sets := CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) != 1 || len(sets[0].Rows) != 2 {
+		t.Fatalf("same-name declarations should compile as distinct rows: %+v", sets)
+	}
+	seen := map[string]string{}
+	rowIDs := map[string]bool{}
+	for _, row := range sets[0].Rows {
+		if rowIDs[row.RowID] {
+			t.Fatalf("same-name declaration rows must not share row_id: %+v", sets[0].Rows)
+		}
+		rowIDs[row.RowID] = true
+		seen[normalizeAnswerSupportLocation(row.Location)] = row.Attributes[0].Name
+		if row.Member != "native_add" {
+			t.Fatalf("member label should remain stable while location disambiguates, got %+v", row)
+		}
+	}
+	for loc, wantPackage := range map[string]string{
+		"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6":                  "demo.bridge",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6": "demo.ffi",
+	} {
+		if gotPackage := seen[normalizeAnswerSupportLocation(loc)]; gotPackage != wantPackage {
+			t.Fatalf("location %s package = %q, want %q; rows=%+v", loc, gotPackage, wantPackage, sets[0].Rows)
+		}
+	}
+}
+
 func TestCompileEnumerationDisplaySets_AppendsExtractorRationaleAsEnrichment(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

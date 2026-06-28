@@ -2044,7 +2044,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Timestamp: time.Now(),
 			}, nil
 		}
-	} else if downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, resultKind, effectiveAggregateFacts); downgrade != "" {
+	} else if downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, resultKind, mergeCompletionAggregateFacts(effectiveAggregateFacts, aggregateFacts)); downgrade != "" {
 		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_source_inventory_completion", preCompleteStart, len(preflight.Evidence))
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneSourceInventoryCompletion) {
 			if ctx != nil && ctx.Mutable != nil {
@@ -2973,13 +2973,11 @@ func effectiveCompletionAggregateFacts(ctx *types.BusContext, current []types.An
 	if ctx == nil || ctx.Mutable == nil {
 		return current
 	}
-	// A non-empty emit_investigation_complete.aggregate_facts payload is the
-	// current closure's complete typed handoff. Do not merge older retained
-	// facts back into it here: failed repairs and sibling exploration attempts
-	// can otherwise leak stale member sets into extraction/finalization. Empty
-	// current payloads still carry forward the last accepted handoff for the
-	// narrow repair-window case described on RetainInvestigationAggregateFacts.
 	if len(current) > 0 {
+		if stable := completionMonotonicStableAggregateFacts(ctx, current); len(stable) > 0 {
+			merged := append(cloneCompletionAggregateFacts(stable), current...)
+			return types.MergeAnswerAggregateFacts(merged)
+		}
 		return current
 	}
 	stable := ctx.Mutable.StableInvestigationAggregateFacts()
@@ -2989,6 +2987,43 @@ func effectiveCompletionAggregateFacts(ctx *types.BusContext, current []types.An
 		}
 	}
 	return cloneCompletionAggregateFacts(stable)
+}
+
+func completionMonotonicStableAggregateFacts(ctx *types.BusContext, current []types.AnswerAggregateFact) []types.AnswerAggregateFact {
+	if ctx == nil || ctx.Mutable == nil || len(current) == 0 {
+		return nil
+	}
+	stable := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(stable) == 0 {
+		return nil
+	}
+	var out []types.AnswerAggregateFact
+	for _, stableFact := range stable {
+		for _, currentFact := range current {
+			if completionAggregateFactsMonotonicCompatible(stableFact, currentFact) {
+				out = append(out, stableFact)
+				break
+			}
+		}
+	}
+	return out
+}
+
+func completionAggregateFactsMonotonicCompatible(stable, current types.AnswerAggregateFact) bool {
+	if stable.Kind != types.AnswerAggregateMemberSet || current.Kind != types.AnswerAggregateMemberSet {
+		return false
+	}
+	stableLabel := strings.TrimSpace(stable.Label)
+	currentLabel := strings.TrimSpace(current.Label)
+	if stableLabel == "" || currentLabel == "" || !strings.EqualFold(stableLabel, currentLabel) {
+		return false
+	}
+	stableRole := types.AnswerAggregateFactRoleForRequest(stable, nil)
+	currentRole := types.AnswerAggregateFactRoleForRequest(current, nil)
+	if stableRole != currentRole {
+		return false
+	}
+	return true
 }
 
 func effectiveCompletionAggregateFactsForValidation(ctx *types.BusContext, current []types.AnswerAggregateFact, evidence []types.EvidenceItem) []types.AnswerAggregateFact {
@@ -4189,6 +4224,9 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 	if profile == nil || !profile.Active() {
 		return ""
 	}
+	if gap := sourceInventoryResolvedCompletionPreciseCoverageGap(ctx, aggregateFacts); gap.Blocking {
+		return sourceInventoryResolvedCompletionPreciseCoverageDowngrade(ctx, gap)
+	}
 	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
 	authority := sourceInventoryCompletionAuthorityForContext(ctx, observation, aggregateFacts)
 	if !authority.Blocking {
@@ -4238,6 +4276,94 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 		b.WriteString(".\n")
 	}
 	return b.String()
+}
+
+func sourceInventoryResolvedCompletionPreciseCoverageGap(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) SourceInventoryCandidateUniverseGap {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || len(aggregateFacts) == 0 {
+		return SourceInventoryCandidateUniverseGap{}
+	}
+	if SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, aggregateFacts) {
+		return SourceInventoryCandidateUniverseGap{}
+	}
+	best := SourceInventoryCandidateUniverseCoverageGap(ctx, aggregateFacts)
+	if duplicate := SourceInventoryObservedDuplicateLocationCoverageGap(ctx, aggregateFacts); sourceInventoryCandidateUniverseGapBetter(duplicate, best) {
+		best = duplicate
+	}
+	if surfaceFamily := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, aggregateFacts); sourceInventoryCandidateUniverseGapBetter(surfaceFamily, best) {
+		best = surfaceFamily
+	}
+	if !best.Blocking {
+		return SourceInventoryCandidateUniverseGap{}
+	}
+	return best
+}
+
+func sourceInventoryResolvedCompletionPreciseCoverageDowngrade(ctx *types.BusContext, gap SourceInventoryCandidateUniverseGap) string {
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+			Kind:    types.RepairStructuredHandoff,
+			Tools:   []string{"emit_investigation_complete"},
+			Subject: sourceInventoryPreciseCoverageRepairSubject(gap),
+			Rationale: "The typed source_inventory row-set already observed a precise principal row family that the current aggregate_facts.member_set only partially covered. Repair the structured handoff or explicitly exclude the missing rows; do not reopen broad repository exploration.",
+			Origin:    "pre_complete.source_inventory_precise_coverage",
+			Stage:     string(types.StageExplore),
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — source-inventory principal row-set is partially covered.\n\n")
+	b.WriteString("This is an exact typed row-set mismatch, not broad pagination debt. Repair `aggregate_facts.member_set` so it includes every observed row in the same source-inventory family, or add an explicit bounded exclusion for rows that should not be counted.\n\n")
+	b.WriteString("Missing precise row(s): " + gap.Summary(SourceInventoryCandidateUniverseSummaryLimit) + "\n")
+	if rows := sourceInventoryPreciseCoverageMissingRows(gap); rows != "" {
+		b.WriteString("Missing row locations: " + rows + "\n")
+	}
+	return b.String()
+}
+
+func sourceInventoryPreciseCoverageRepairSubject(gap SourceInventoryCandidateUniverseGap) string {
+	summary := gap.Summary(SourceInventoryCandidateUniverseSummaryLimit)
+	if summary == "" {
+		return "Repair aggregate_facts.member_set for the precise source_inventory row-set coverage gap."
+	}
+	return "Repair aggregate_facts.member_set for precise source_inventory coverage: " + summary
+}
+
+func sourceInventoryPreciseCoverageMissingRows(gap SourceInventoryCandidateUniverseGap) string {
+	if len(gap.Missing) == 0 {
+		return ""
+	}
+	rows := make([]string, 0, min(len(gap.Missing), SourceInventoryCandidateUniverseSummaryLimit))
+	for _, member := range gap.Missing {
+		label := strings.TrimSpace(member.Name)
+		if label == "" {
+			label = strings.TrimSpace(member.Key)
+		}
+		if label == "" {
+			label = "member"
+		}
+		file := strings.TrimSpace(strings.ReplaceAll(member.File, `\`, `/`))
+		if file == "" {
+			if _, loc, ok := types.ParseAnswerSupportRefMemberLocation(member.SupportRef); ok {
+				file = strings.TrimSpace(strings.ReplaceAll(loc.File, `\`, `/`))
+				if member.Line <= 0 {
+					member.Line = loc.LineStart
+				}
+			}
+		}
+		if file != "" && member.Line > 0 {
+			rows = append(rows, fmt.Sprintf("%s @ %s:%d", label, file, member.Line))
+		} else if file != "" {
+			rows = append(rows, fmt.Sprintf("%s @ %s", label, file))
+		} else {
+			rows = append(rows, label)
+		}
+		if len(rows) >= SourceInventoryCandidateUniverseSummaryLimit {
+			break
+		}
+	}
+	if len(gap.Missing) > len(rows) {
+		rows = append(rows, fmt.Sprintf("+%d more", len(gap.Missing)-len(rows)))
+	}
+	return strings.Join(rows, "; ")
 }
 
 func sourceInventoryResolvedCompletionDebtIsAdvisory(ctx *types.BusContext, authority types.SourceInventoryCompletionAuthority, observation types.SourceInventoryObservation) bool {

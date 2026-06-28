@@ -600,6 +600,78 @@ func TestMergeAnswerAggregateFacts_UnionsCompatibleMemberSets(t *testing.T) {
 	}
 }
 
+func TestMergeAnswerAggregateFacts_UnionsSameMemberAtDistinctSourceLocations(t *testing.T) {
+	got := MergeAnswerAggregateFacts(
+		[]AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "foreign func declarations",
+			Value:       "1",
+			Role:        AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)"},
+			SupportRefs: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6"},
+		}},
+		[]AnswerAggregateFact{{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "foreign func declarations",
+			Value: "2",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Members: []string{
+				"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)",
+				"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 (package demo.ffi)",
+			},
+			SupportRefs: []string{
+				"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+				"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+			},
+		}},
+	)
+	if len(got) != 1 {
+		t.Fatalf("merged facts = %+v, want one compatible member_set", got)
+	}
+	if got[0].Value != "2" || len(got[0].Members) != 2 {
+		t.Fatalf("same member at distinct source locations was not unioned: %+v", got[0])
+	}
+	if len(got[0].SupportRefs) != 2 ||
+		!strings.Contains(got[0].SupportRefs[0], "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6") ||
+		!strings.Contains(got[0].SupportRefs[1], "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6") {
+		t.Fatalf("support refs not aligned after merge: %+v", got[0].SupportRefs)
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_PreservesSameMemberAtDistinctSourceLocations(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "foreign func declarations",
+		Value: "2",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)",
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 (package demo.ffi)",
+		},
+		SupportRefs: []string{
+			"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("NormalizeAnswerAggregateFacts failed: %v", err)
+	}
+	if len(got) != 1 || len(got[0].Members) != 2 {
+		t.Fatalf("same member at distinct source locations collapsed: %+v", got)
+	}
+	if got[0].Value != "2" {
+		t.Fatalf("member_set value = %q, want 2", got[0].Value)
+	}
+	for i, want := range []string{
+		"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+	} {
+		if i >= len(got[0].SupportRefs) || !strings.Contains(got[0].SupportRefs[i], want) {
+			t.Fatalf("support refs not aligned with distinct same-name members: %+v", got[0].SupportRefs)
+		}
+	}
+}
+
 func TestMergeAnswerAggregateFacts_RemovesStaleCountQualifierFromMemberSetLabel(t *testing.T) {
 	members := []string{
 		"KindSymbolPresent", "KindNoCallSites", "KindAnswerSetBounded", "KindAnswerSetUnbounded",
@@ -1390,7 +1462,7 @@ func TestNormalizeAnswerAggregateFacts_PreservesSameLabelDistinctSourceLocations
 	}
 	if len(got[0].SupportRefs) != 2 ||
 		got[0].SupportRefs[0] != "native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6" ||
-		got[0].SupportRefs[1] != "native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/bridge.cj:6" {
+		got[0].SupportRefs[1] != "native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6" {
 		t.Fatalf("distinct support refs should remain aligned: %+v", got[0].SupportRefs)
 	}
 }

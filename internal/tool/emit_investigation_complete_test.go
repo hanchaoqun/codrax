@@ -604,6 +604,41 @@ func TestEffectiveCompletionAggregateFacts_CurrentPayloadReplacesStaleRetainedFa
 	}
 }
 
+func TestEffectiveCompletionAggregateFacts_MonotonicMergesSamePrincipalMemberSet(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "foreign func 声明",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 (package demo.ffi)",
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)",
+		},
+	}})
+	mut.SetInvestigationComplete("previous accepted closure")
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mut}
+
+	current := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "foreign func 声明",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)"},
+	}}
+	got := effectiveCompletionAggregateFacts(ctx, current)
+	if len(got) != 1 || got[0].Value != "2" || len(got[0].Members) != 2 {
+		t.Fatalf("same principal member_set must merge monotonically instead of narrowing: %+v", got)
+	}
+	visible := strings.Join(append(append([]string{}, got[0].Members...), got[0].SupportRefs...), "\n")
+	for _, want := range []string{"07_foreign_ffi.cj:6", "Bridge.cj:6"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("merged member_set lost %q: %+v", want, got[0].Members)
+		}
+	}
+}
+
 func TestEffectiveCompletionAggregateFacts_EmptyPayloadCarriesForwardRetainedFacts(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

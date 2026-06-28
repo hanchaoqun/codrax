@@ -70,8 +70,8 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
 		t.Fatal("expected deterministic principal enumeration normalization")
 	}
-	if len(doc.Blocks) != 2 {
-		t.Fatalf("normalizer should preserve the authored table without appending a competing system table: %+v", doc.Blocks)
+	if len(doc.Blocks) != 3 {
+		t.Fatalf("normalizer should preserve the authored table and append missing typed rows: %+v", doc.Blocks)
 	}
 	if doc.Blocks[0].Text != "公开函数（func）共 3 个：Eval、EvalAll、SetExternalArtifactFloor。" {
 		t.Fatalf("model-authored summary should be preserved: %q", doc.Blocks[0].Text)
@@ -80,8 +80,11 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 	if table.Text == "" || table.Kind != types.BlockTable || len(table.Items) != 0 {
 		t.Fatalf("authored markdown table should be preserved, got: %+v", table)
 	}
-	if joined := answerDocumentTestVisibleSurface(doc); strings.Contains(joined, "系统按已验证证据补充") {
-		t.Fatalf("authored enum carrier must suppress system补表 even when rows are incomplete:\n%s", joined)
+	joined := answerDocumentTestVisibleSurface(doc)
+	for _, want := range []string{"系统按已验证证据补充缺失成员", "IsRegistered", "RegisteredKinds"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing typed row supplement lost %q:\n%s", want, joined)
+		}
 	}
 }
 
@@ -310,6 +313,77 @@ func TestNormalizePrincipalEnumerationRowBlocks_RedlineDoesNotSynthesizeSummaryF
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_AppendsMissingSameNameDifferentLocationRow(t *testing.T) {
+	mu := types.NewMutableState("列出 foreign func")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("native_bridge", "native_add", "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6, "foreign func native_add，包路径 demo.bridge。"),
+		enumEvidence("native_ffi", "native_add", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6, "foreign func native_add，包路径 demo.ffi。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "foreign func 声明",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+		SupportRefs: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldSummary,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6}},
+		Blocks: []types.AnswerBlock{{
+			ID:    "foreign",
+			Kind:  types.BlockOrderedList,
+			Title: "foreign func 声明",
+			Items: []types.AnswerBlockItem{{
+				ID:          "bridge",
+				Label:       "native_add",
+				Text:        "位于 eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6，包路径 demo.bridge。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected missing same-name source-location row supplement")
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, want := range []string{
+		"系统按已验证证据补充缺失成员",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		"demo.ffi",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("same-name different-location supplement lost %q:\n%s", want, visible)
+		}
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForCorruptMarkdownSourceInventoryTable(t *testing.T) {
 	mu := types.NewMutableState("列出公开字符串枚举类型")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -371,8 +445,8 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForCorrupt
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
 		t.Fatal("expected source-inventory missing-row supplement")
 	}
-	if len(doc.Blocks) != 2 {
-		t.Fatalf("near-complete source inventory table should preserve model output without competing system rows: %+v", doc.Blocks)
+	if len(doc.Blocks) != 3 {
+		t.Fatalf("near-complete source inventory table should preserve model output and append missing typed rows: %+v", doc.Blocks)
 	}
 	modelTable := answerDocumentTestBlockByID(t, doc, "enum_table")
 	if strings.TrimSpace(modelTable.Text) == "" || len(modelTable.Items) != 0 {
@@ -384,8 +458,11 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForCorrupt
 			t.Fatalf("model table should be preserved with authored content %q:\n%s", want, modelVisible)
 		}
 	}
-	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "系统按已验证证据补充") {
-		t.Fatalf("model-authored source-inventory table must suppress system补表:\n%s", visible)
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, want := range []string{"系统按已验证证据补充缺失成员", "QuestionFamily", "AnswerRequestedOutput"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("source-inventory missing row supplement lost %q:\n%s", want, visible)
+		}
 	}
 }
 
@@ -631,14 +708,17 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsMissingRowsForCorruptComp
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
 		t.Fatal("expected deterministic missing-row supplement for corrupt complete table")
 	}
-	if len(doc.Blocks) != 1 {
-		t.Fatalf("authored markdown table should not receive a synthetic system summary or competing table; got %+v", doc.Blocks)
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("authored markdown table should remain and receive missing typed rows only; got %+v", doc.Blocks)
 	}
 	if !strings.Contains(types.AnswerBlockVisibleSurface(doc.Blocks[0]), "GammaKindTypo") {
 		t.Fatalf("model-authored table should remain visibly separate, got %+v", doc.Blocks[0])
 	}
-	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "系统按已验证证据补充") {
-		t.Fatalf("corrupt but authored table must not be overwritten by system补表:\n%s", visible)
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, want := range []string{"系统按已验证证据补充缺失成员", "BetaKind", "GammaKind"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("corrupt authored table missing deterministic supplement %q:\n%s", want, visible)
+		}
 	}
 }
 
@@ -1692,11 +1772,14 @@ func TestNormalizePrincipalEnumerationRowBlocks_UsesEnglishSupplementTitle(t *te
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
 		t.Fatal("expected deterministic principal enumeration normalization")
 	}
-	if len(doc.Blocks) != 1 {
-		t.Fatalf("authored English table should not receive a synthetic system summary or supplement, got %+v", doc.Blocks)
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("authored English table should remain and receive missing typed rows only, got %+v", doc.Blocks)
 	}
-	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "System-verified") {
-		t.Fatalf("authored English table must suppress system supplement:\n%s", visible)
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, want := range []string{"System-verified missing member supplement", "EvalAll"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("English missing row supplement lost %q:\n%s", want, visible)
+		}
 	}
 }
 
@@ -2169,8 +2252,9 @@ func TestNormalizePrincipalEnumerationRowBlocks_CrossColumnMemberRequiresSameFil
 
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 	joined := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(joined, "系统按已验证证据补充缺失成员") {
-		t.Fatalf("different-file mismatch must not trigger a competing system补表 once model supplied a carrier:\n%s", joined)
+	if !strings.Contains(joined, "系统按已验证证据补充缺失成员") ||
+		!strings.Contains(joined, "internal/analysis/counterfactual/expander.go:59") {
+		t.Fatalf("different-file mismatch should append the precise typed row instead of accepting the wrong file:\n%s", joined)
 	}
 }
 

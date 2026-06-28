@@ -22,10 +22,10 @@ func SourceInventoryObservedSurfaceFamilyCoverageGap(ctx *types.BusContext, fact
 	if !rowSet.Active || len(rowSet.PrincipalRows) == 0 {
 		return SourceInventoryCandidateUniverseGap{}
 	}
-	included, excluded, selected := sourceInventoryDuplicateAggregateCoverage(facts, &ctx.AnalysisIR.RequestModel)
+	included, excluded, _ := sourceInventoryDuplicateAggregateCoverage(facts, &ctx.AnalysisIR.RequestModel)
 	best := SourceInventoryCandidateUniverseGap{}
 	for _, group := range sourceInventorySurfaceFamilyGroups(rowSet.PrincipalRows) {
-		if len(group.members) < 2 || !sourceInventorySurfaceSelected(group.family, selected) {
+		if len(group.members) < 2 {
 			continue
 		}
 		gap := sourceInventorySurfaceFamilyCoverageForGroup(group, included, excluded)

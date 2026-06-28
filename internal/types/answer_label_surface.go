@@ -54,7 +54,7 @@ func ParseAnswerSourceLocationSurface(label string) (AnswerSourceLocationSurface
 		return AnswerSourceLocationSurface{}, false
 	}
 	return AnswerSourceLocationSurface{
-		File:      normalizeAnswerLocationFile(file),
+		File:      displayAnswerLocationFile(file),
 		LineStart: lineStart,
 		LineEnd:   lineEnd,
 	}, true
@@ -269,7 +269,7 @@ func ParseAnswerFilePathSurface(label string) (string, bool) {
 	if !IsCodeOrConfigPathExtension(filepath.Ext(raw)) {
 		return "", false
 	}
-	return normalizeAnswerLocationFile(raw), true
+	return displayAnswerLocationFile(raw), true
 }
 
 // AnswerFilePathLabelMatchesCitation reports whether a file-path principal
@@ -371,7 +371,20 @@ func normalizeAnswerLocationFile(file string) string {
 	return strings.ToLower(file)
 }
 
+func displayAnswerLocationFile(file string) string {
+	file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
+	for strings.HasPrefix(file, "./") {
+		file = strings.TrimPrefix(file, "./")
+	}
+	return file
+}
+
 func answerLocationFileMatches(labelFile, citationFile string) bool {
+	labelFile = normalizeAnswerLocationFile(labelFile)
+	citationFile = normalizeAnswerLocationFile(citationFile)
+	if labelFile == "" || citationFile == "" {
+		return false
+	}
 	if labelFile == citationFile {
 		return true
 	}

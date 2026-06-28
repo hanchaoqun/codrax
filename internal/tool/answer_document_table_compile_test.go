@@ -528,6 +528,141 @@ func TestCompileEnumerationDisplayTableRows_RequiresUniqueExactRowMatch(t *testi
 	}
 }
 
+func TestCompileEnumerationDisplayTableRows_FillsTypedAttributeColumnsByCitation(t *testing.T) {
+	mut := types.NewMutableState("列出 foreign func 的文件路径和 package")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "foreign func 声明",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: "explorer",
+		Members: []string{
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 (package demo.ffi)",
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)",
+		},
+	}})
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{
+					Name:     "native_add",
+					Role:     types.AnswerCandidateRoleFunction,
+					File:     "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+					Line:     6,
+					Language: "cangjie",
+					Attributes: []types.SourceInventoryObservationAttribute{{
+						Role: types.AnswerCandidateRolePackage,
+						Name: "demo.ffi",
+					}},
+				},
+				{
+					Name:     "native_add",
+					Role:     types.AnswerCandidateRoleFunction,
+					File:     "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+					Line:     6,
+					Language: "cangjie",
+					Attributes: []types.SourceInventoryObservationAttribute{{
+						Role: types.AnswerCandidateRolePackage,
+						Name: "demo.bridge",
+					}},
+				},
+			},
+		}},
+	})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentEnumerate,
+				Language: "zh",
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:      "foreign_func",
+			Kind:    types.BlockTable,
+			Title:   "foreign func 声明",
+			Columns: []string{"符号名", "文件路径", "包路径"},
+			Items: []types.AnswerBlockItem{
+				{
+					ID:          "ffi",
+					Label:       "native_add",
+					Text:        "声明外部原生函数",
+					CitationRef: 0,
+				},
+				{
+					ID:          "bridge",
+					Label:       "native_add",
+					Text:        "声明外部原生函数",
+					CitationRef: 1,
+				},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6},
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6},
+		},
+	}
+
+	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed != 2 {
+		plan := answerSurfacePlan(ctx)
+		var sets []types.EnumerationDisplaySet
+		var rows []types.EnumerationDisplayRow
+		var rowsOK bool
+		var shape enumerationDisplayExistingShape
+		var shapeOK bool
+		if plan != nil {
+			sets = types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+			labelIndex := enumerationDisplayRowIndex(sets)
+			locationIndex := enumerationDisplayRowLocationIndex(sets)
+			rows, rowsOK = enumerationDisplayRowsForIncompleteTable(doc.Blocks[0], doc.Citations, labelIndex, locationIndex)
+			if rowsOK {
+				shape, shapeOK = enumerationDisplayExistingTableShape(doc.Blocks[0], rows)
+			}
+		}
+		t.Fatalf("fixed=%d, want 2; rowsOK=%v shapeOK=%v shape=%+v doc=%+v rows=%+v sets=%+v", fixed, rowsOK, shapeOK, shape, doc.Blocks[0], rows, sets)
+	}
+	table := doc.Blocks[0]
+	if got, want := table.Columns, []string{"符号名", "文件路径", "包路径", "说明"}; len(got) != len(want) {
+		t.Fatalf("columns=%v, want %v", got, want)
+	} else {
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("columns=%v, want %v", got, want)
+			}
+		}
+	}
+	wantRows := [][]string{
+		{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6", "demo.ffi", "声明外部原生函数"},
+		{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6", "demo.bridge", "声明外部原生函数"},
+	}
+	for i, want := range wantRows {
+		item := table.Items[i]
+		if item.Text != "" {
+			t.Fatalf("item text should move into the structured note cell to avoid renderer column drift: %+v", item)
+		}
+		if len(item.Cells) != 3 {
+			t.Fatalf("row %d cells=%+v, want location/package/note", i, item.Cells)
+		}
+		for cellIdx, wantCell := range want {
+			if item.Cells[cellIdx] != wantCell {
+				t.Fatalf("row %d cells=%+v, want cell %d=%q", i, item.Cells, cellIdx, wantCell)
+			}
+		}
+	}
+}
+
 func TestCompileCitationBackedTableRows_PreservesExplicitCells(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

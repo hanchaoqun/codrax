@@ -2033,6 +2033,84 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryResolvedRequi
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryPreciseObservedGapBlocksResolved(t *testing.T) {
+	first := sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6)
+	first.SurfaceTerms = []string{"foreign func", "foreign func native_add"}
+	second := sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6)
+	second.SurfaceTerms = []string{"foreign func", "foreign func native_add"}
+	bus := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{first, second}, nil)
+	obs := types.SourceInventoryObservationFromMutable(bus.Mutable)
+	obs.Provenance = append(obs.Provenance, "repo_lens:tool_query")
+	bus.Mutable.SetSourceInventoryObservation(obs)
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:              "ev-native-add-fixture",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+		LineStart:       6,
+		LineEnd:         6,
+		AnchorSymbol:    "native_add",
+		AnchorKind:      types.AnchorDefinition,
+		Subject:         "native_add",
+		Predicate:       "defines",
+		Object:          "foreign func native_add",
+		Snippet:         "foreign func native_add(a: Int64, b: Int64): Int64",
+		Producer:        EmitEvidenceProducer,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus.AnalysisIR.RequestModel.Intent = types.IntentExplain
+	bus.AnalysisIR.RequestModel.Scenario = types.ScenarioArchitectureExplain
+	bus.AnalysisIR.RequestModel.Complexity = types.ComplexityComplex
+	bus.AnalysisIR.RequestModel.Predicates.IsCrossComponent = true
+	bus.AnalysisIR.AnswerContract = types.AnswerContract{CitationReq: types.CitationReq{Required: false}}
+
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "foreign func 声明",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6"},
+		SupportRefs: []string{"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6"},
+	}}
+	if gap := sourceInventoryResolvedCompletionPreciseCoverageGap(bus, facts); !gap.Blocking {
+		t.Fatalf("precise source-inventory coverage helper did not detect observed row-set omission: %+v", gap)
+	}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "one observed foreign function row was carried",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": facts,
+	})
+	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, want := range []string{
+		"source-inventory principal row-set is partially covered",
+		"surface_family:foreign func",
+		"07_foreign_ffi.cj",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("precise source-inventory coverage downgrade missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if bus.Mutable.IsInvestigationComplete() {
+		t.Fatal("precise observed source-inventory omission must keep investigation open for local handoff repair")
+	}
+	repairs := bus.Mutable.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 {
+		t.Fatal("expected structured handoff repair for precise row-set omission")
+	}
+	last := repairs[len(repairs)-1]
+	if last.Kind != types.RepairStructuredHandoff ||
+		last.Origin != "pre_complete.source_inventory_precise_coverage" ||
+		len(last.Tools) != 1 ||
+		last.Tools[0] != "emit_investigation_complete" {
+		t.Fatalf("unexpected precise coverage repair: %+v", last)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryNavigationDebtDoesNotOverridePrincipalClosure(t *testing.T) {
 	mut := types.NewMutableState("解释当前系统的组件、职责和调用关系")
 	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{

@@ -21,6 +21,12 @@ func SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx *types.BusContext
 	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return false
 	}
+	if gap := SourceInventoryObservedDuplicateLocationCoverageGap(ctx, facts); gap.Blocking {
+		return false
+	}
+	if gap := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, facts); gap.Blocking {
+		return false
+	}
 	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
 	aggregateFamily := sourceInventoryAggregatePrincipalSourceFamily(ctx, facts, &rm)
 	universes := sourceInventoryExactUniverseSets(observation)

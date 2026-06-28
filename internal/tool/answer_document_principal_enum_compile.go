@@ -62,7 +62,9 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 		missingRows := missingBySet[set.ID]
 		supplementRows := missingRows
 		supplementMode := principalEnumerationSupplementMissing
-		if authoredCarrier {
+		if authoredCarrier && len(missingRows) == 0 {
+			supplementRows = nil
+		} else if authoredCarrier && principalEnumerationProseCategorySuppressesMissingSupplement(doc, ctx, set) {
 			supplementRows = nil
 		} else if principalEnumerationNeedsVerifiedFieldSupplement(doc, set) {
 			supplementRows = set.Rows
@@ -96,6 +98,7 @@ func removeRedundantPrincipalEnumerationIncompleteTables(doc *types.AnswerDocume
 	if len(index) == 0 {
 		return 0
 	}
+	locationIndex := enumerationDisplayRowLocationIndex(sets)
 	out := doc.Blocks[:0]
 	removed := 0
 	for i, block := range doc.Blocks {
@@ -103,8 +106,8 @@ func removeRedundantPrincipalEnumerationIncompleteTables(doc *types.AnswerDocume
 			removed++
 			continue
 		}
-		rows, ok := enumerationDisplayRowsForIncompleteTable(block, index)
-		if ok && principalEnumerationRowsCoveredOutsideBlock(doc, i, rows) {
+		rows, ok := enumerationDisplayRowsForIncompleteTable(block, doc.Citations, index, locationIndex)
+		if ok && principalEnumerationTableRowsAreShellOnly(block) && principalEnumerationRowsCoveredOutsideBlock(doc, i, rows) {
 			removed++
 			continue
 		}
@@ -114,6 +117,18 @@ func removeRedundantPrincipalEnumerationIncompleteTables(doc *types.AnswerDocume
 		doc.Blocks = out
 	}
 	return removed
+}
+
+func principalEnumerationTableRowsAreShellOnly(block types.AnswerBlock) bool {
+	if block.Kind != types.BlockTable || strings.TrimSpace(block.Text) != "" || len(block.Items) == 0 {
+		return false
+	}
+	for _, item := range block.Items {
+		if strings.TrimSpace(item.Text) != "" || len(nonEmptyAnswerTableCompileCells(item.Cells)) > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func principalEnumerationIncompleteTableCoveredOutsideBlock(doc *types.AnswerDocumentV2, skip int, block types.AnswerBlock) bool {
@@ -486,6 +501,18 @@ func principalEnumerationModelAuthoredCarrierExists(doc *types.AnswerDocumentV2,
 			return true
 		}
 		if singleSet && surface != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationProseCategorySuppressesMissingSupplement(doc *types.AnswerDocumentV2, ctx *types.BusContext, set types.EnumerationDisplaySet) bool {
+	if doc == nil || len(set.Rows) == 0 {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if principalEnumerationProseCategoryCarrierSuppressesSupplement(ctx, block, set) {
 			return true
 		}
 	}
@@ -1230,11 +1257,12 @@ func principalEnumerationHasIncompatibleStructuredTableAttempt(doc *types.Answer
 	if len(index) == 0 {
 		return false
 	}
+	locationIndex := enumerationDisplayRowLocationIndex([]types.EnumerationDisplaySet{set})
 	for _, block := range doc.Blocks {
 		if block.Kind != types.BlockTable || strings.TrimSpace(block.Text) != "" {
 			continue
 		}
-		rows, ok := enumerationDisplayRowsForIncompleteTable(block, index)
+		rows, ok := enumerationDisplayRowsForIncompleteTable(block, doc.Citations, index, locationIndex)
 		if !ok || !principalEnumerationRowsHaveLocationOrNote(rows) {
 			continue
 		}
@@ -1396,6 +1424,7 @@ func principalEnumerationRowsBlockTitle(set types.EnumerationDisplaySet, rows []
 
 type principalEnumerationTableShape struct {
 	includeLocation bool
+	includePackage  bool
 	includeNote     bool
 }
 
@@ -1404,6 +1433,9 @@ func principalEnumerationTableShapeForRows(rows []types.EnumerationDisplayRow, e
 	for _, row := range rows {
 		if strings.TrimSpace(row.Location) != "" {
 			shape.includeLocation = true
+		}
+		if strings.TrimSpace(enumerationDisplayPackageCell(row)) != "" {
+			shape.includePackage = true
 		}
 		if strings.TrimSpace(principalEnumerationRowNote(row, existingNotes)) != "" {
 			shape.includeNote = true
@@ -1419,6 +1451,13 @@ func principalEnumerationTableColumns(zh bool, shape principalEnumerationTableSh
 			columns = append(columns, "定义位置")
 		} else {
 			columns = append(columns, "Location")
+		}
+	}
+	if shape.includePackage {
+		if zh {
+			columns = append(columns, "包路径")
+		} else {
+			columns = append(columns, "Package")
 		}
 	}
 	if shape.includeNote {
@@ -1577,6 +1616,9 @@ func principalEnumerationTableCells(row types.EnumerationDisplayRow, note string
 	cells := make([]string, 0, 2)
 	if shape.includeLocation {
 		cells = append(cells, strings.TrimSpace(row.Location))
+	}
+	if shape.includePackage {
+		cells = append(cells, strings.TrimSpace(enumerationDisplayPackageCell(row)))
 	}
 	if shape.includeNote {
 		cells = append(cells, strings.TrimSpace(note))

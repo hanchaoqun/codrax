@@ -63,6 +63,9 @@ func TestSourceInventoryProfile_NormalizesValuesAfterTypeSubjectInference(t *tes
 			SourceInventoryFieldName,
 			SourceInventoryFieldLocation,
 			SourceInventoryFieldValues,
+			SourceInventoryFieldPackage,
+			SourceInventoryFieldModule,
+			SourceInventoryFieldNamespace,
 		},
 		Confidence: 0.95,
 	}
@@ -76,5 +79,10 @@ func TestSourceInventoryProfile_NormalizesValuesAfterTypeSubjectInference(t *tes
 	}
 	if !profile.RequestsField(SourceInventoryFieldName) || !profile.RequestsField(SourceInventoryFieldLocation) {
 		t.Fatalf("name/location fields should be preserved: %+v", profile.RequestedFields)
+	}
+	if !profile.RequestsField(SourceInventoryFieldPackage) ||
+		!profile.RequestsField(SourceInventoryFieldModule) ||
+		!profile.RequestsField(SourceInventoryFieldNamespace) {
+		t.Fatalf("package/module/namespace fields should be preserved: %+v", profile.RequestedFields)
 	}
 }

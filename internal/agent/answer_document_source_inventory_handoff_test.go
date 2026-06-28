@@ -70,6 +70,55 @@ func TestRenderAnswerDocSourceInventoryHandoffUsesPrincipalRowSet(t *testing.T) 
 	}
 }
 
+func TestRenderAnswerDocSourceInventoryHandoffRendersRowLocalPackageAttribute(t *testing.T) {
+	mu := types.NewMutableState("list cangjie declarations and packages")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Count:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Greeter",
+				Role:          types.AnswerCandidateRoleType,
+				File:          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj",
+				Line:          6,
+				Language:      "cangjie",
+				CoverageState: types.SourceInventoryCoverageObserved,
+				Attributes: []types.SourceInventoryObservationAttribute{{
+					Name:          "demo.greeter",
+					Role:          types.AnswerCandidateRolePackage,
+					File:          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj",
+					Line:          4,
+					Language:      "cangjie",
+					CoverageState: types.SourceInventoryCoverageObserved,
+				}},
+			}},
+		}},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			},
+		}},
+	}
+
+	out := renderAnswerDocSourceInventoryHandoff(ctx)
+	for _, want := range []string{
+		"member=`Greeter`",
+		"attributes=[`package:demo.greeter @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj:4`]",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("source-inventory handoff missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderAnswerDocSourceInventoryHandoffSplitsSupportScope(t *testing.T) {
 	mu := types.NewMutableState("list production handlers")
 	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{

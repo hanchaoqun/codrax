@@ -68,6 +68,46 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesEqualCompl
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesModelMembersWithInlineLocationsAndAttributes(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "native_add", Role: AnswerCandidateRoleFunction, File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6, Language: "cangjie", Attributes: []SourceInventoryObservationAttribute{{Role: AnswerCandidateRolePackage, Name: "demo.bridge"}}},
+		SourceInventoryObservationMember{Name: "native_add", Role: AnswerCandidateRoleFunction, File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6, Language: "cangjie", Attributes: []SourceInventoryObservationAttribute{{Role: AnswerCandidateRolePackage, Name: "demo.ffi"}}},
+	)
+	existing := AnswerAggregateFact{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "foreign func 声明",
+		Value:      "2",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "explorer",
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)",
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 (package demo.ffi)",
+		},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts([]AnswerAggregateFact{existing}, obs, rm)
+	if len(got) != 1 {
+		t.Fatalf("inline-located model fact should be preserved without synthetic duplicate, got %+v", got)
+	}
+	if got[0].Provenance != "explorer" || got[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("model fact was unexpectedly rewritten: %+v", got[0])
+	}
+	sets := CompileEnumerationDisplaySets(&rm, &AnswerSurfacePlan{
+		StableAggregateFacts:       got,
+		SourceInventoryObservation: obs,
+	})
+	if len(sets) != 1 || len(sets[0].Rows) != 2 {
+		t.Fatalf("inline-located model fact should compile two same-name rows, got %+v", sets)
+	}
+	visible := sets[0].Rows[0].Location + "\n" + sets[0].Rows[1].Location
+	for _, want := range []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("compiled rows lost source location %q:\n%s", want, visible)
+		}
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DemotesIncompleteModelFact(t *testing.T) {
 	rm := sourceInventoryProjectionRequestModel(nil)
 	obs := sourceInventoryProjectionObservation(

@@ -116,8 +116,7 @@ func sourceInventoryDuplicateAggregateCoverage(facts []types.AnswerAggregateFact
 		}
 	}
 	for _, fact := range facts {
-		role := types.AnswerAggregateFactRoleForRequest(fact, rm)
-		if role == types.AnswerAggregateRolePrincipalAnswer && types.AnswerAggregateFactCarriesCompleteMemberSet(fact) {
+		if sourceInventoryAggregateFactIsPrincipalCoverage(fact, rm) && types.AnswerAggregateFactCarriesCompleteMemberSet(fact) {
 			for _, member := range fact.Members {
 				addSurface(member)
 				addLocations(included, member)

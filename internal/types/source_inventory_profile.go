@@ -32,39 +32,6 @@ func (u SourceInventoryTypeUnderlying) IsValid() bool {
 	return false
 }
 
-// SourceInventoryRequestedField captures the answer fields the user asked the
-// inventory to include. This is a typed request-shape carrier, not a rendering
-// instruction; downstream may use it to avoid surfacing enum values when the
-// user asked only for names and definition locations.
-type SourceInventoryRequestedField string
-
-const (
-	SourceInventoryFieldName     SourceInventoryRequestedField = "name"
-	SourceInventoryFieldLocation SourceInventoryRequestedField = "location"
-	SourceInventoryFieldSummary  SourceInventoryRequestedField = "summary"
-	SourceInventoryFieldValues   SourceInventoryRequestedField = "values"
-	SourceInventoryFieldCount    SourceInventoryRequestedField = "count"
-)
-
-func AllSourceInventoryRequestedFields() []SourceInventoryRequestedField {
-	return []SourceInventoryRequestedField{
-		SourceInventoryFieldName,
-		SourceInventoryFieldLocation,
-		SourceInventoryFieldSummary,
-		SourceInventoryFieldValues,
-		SourceInventoryFieldCount,
-	}
-}
-
-func (f SourceInventoryRequestedField) IsValid() bool {
-	for _, declared := range AllSourceInventoryRequestedFields() {
-		if f == declared {
-			return true
-		}
-	}
-	return false
-}
-
 // SourceInventoryProfile is the analyzer LLM's typed lane for bounded source
 // inventories. It lets deterministic parser/graph code supply membership
 // authority without inferring the user's requested role or structural facets

@@ -1239,10 +1239,16 @@ func preEmitUniqueSourceInventoryCandidateRoleCitationForItem(pctx *preEmitCheck
 	if !rowSet.Active || len(rowSet.PrincipalRows) == 0 {
 		return types.Citation{}, false
 	}
-	var out []types.Citation
+	var strong []types.Citation
+	var fallback []types.Citation
 	seen := map[string]bool{}
 	for _, row := range rowSet.PrincipalRows {
-		if row.Role != role || !preEmitSourceInventoryRowMatchesItem(row, label, text) {
+		if row.Role != role {
+			continue
+		}
+		surface := strings.TrimSpace(strings.Join([]string{label, text}, "\n"))
+		attrMatch := preEmitSourceInventoryRowAttributeMatchesItem(row.Member, label, text, surface)
+		if !attrMatch && !preEmitSourceInventoryRowMatchesItem(row, label, text) {
 			continue
 		}
 		cit, ok := preEmitSourceInventoryRowCitation(row)
@@ -1255,7 +1261,15 @@ func preEmitUniqueSourceInventoryCandidateRoleCitationForItem(pctx *preEmitCheck
 			continue
 		}
 		seen[key] = true
-		out = append(out, cit)
+		if attrMatch {
+			strong = append(strong, cit)
+		} else {
+			fallback = append(fallback, cit)
+		}
+	}
+	out := fallback
+	if len(strong) > 0 {
+		out = strong
 	}
 	if len(out) != 1 {
 		return types.Citation{}, false
@@ -1286,6 +1300,39 @@ func preEmitSourceInventoryRowMatchesItem(row types.SourceInventoryRow, label, t
 		}
 	}
 	for _, term := range member.SurfaceTerms {
+		term = strings.TrimSpace(term)
+		if term != "" && preEmitCodeSurfaceAppearsVerbatim(term, surface) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitSourceInventoryRowAttributeMatchesItem(member types.SourceInventoryObservationMember, label, text, surface string) bool {
+	for _, attr := range member.Attributes {
+		if preEmitSourceInventoryAttributeMatchesItem(attr, label, text, surface) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitSourceInventoryAttributeMatchesItem(attr types.SourceInventoryObservationAttribute, label, text, surface string) bool {
+	for _, candidate := range []string{
+		attr.Name,
+		attr.Key,
+		preEmitSourceInventorySupportRefLabel(attr.SupportRef),
+	} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if preEmitAggregateMemberLabelTextMatches(label, text, candidate) ||
+			types.CodeSurfaceAppearsAsToken(candidate, surface) {
+			return true
+		}
+	}
+	for _, term := range attr.SurfaceTerms {
 		term = strings.TrimSpace(term)
 		if term != "" && preEmitCodeSurfaceAppearsVerbatim(term, surface) {
 			return true

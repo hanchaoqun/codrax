@@ -159,6 +159,7 @@ func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 			set.Rows = append(set.Rows, row)
 		}
 		if len(set.Rows) > 0 {
+			set.Rows = dedupeEnumerationDisplayRowIDs(set.Rows)
 			out = append(out, set)
 		}
 	}
@@ -300,6 +301,35 @@ func compileEnumerationDisplayRow(
 	row.Note = SanitizeSourceInventoryNoteForRequest(rm, row.Note)
 	row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
 	return row, true
+}
+
+func dedupeEnumerationDisplayRowIDs(rows []EnumerationDisplayRow) []EnumerationDisplayRow {
+	if len(rows) < 2 {
+		return rows
+	}
+	counts := map[string]int{}
+	for _, row := range rows {
+		id := strings.TrimSpace(row.RowID)
+		if id == "" {
+			continue
+		}
+		counts[id]++
+	}
+	out := rows
+	seen := map[string]int{}
+	for i := range out {
+		id := strings.TrimSpace(out[i].RowID)
+		if id == "" || counts[id] <= 1 {
+			continue
+		}
+		seen[id]++
+		suffix := sanitizeEnumerationDisplayID(out[i].Location)
+		if suffix == "" {
+			suffix = strconv.Itoa(seen[id])
+		}
+		out[i].RowID = id + "-" + suffix
+	}
+	return out
 }
 
 type enumerationDisplaySourceInventoryAttributeIndex struct {

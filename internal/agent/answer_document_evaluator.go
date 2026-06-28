@@ -3971,8 +3971,8 @@ func renderAnswerDocSourceInventoryHandoff(ctx *types.AgentContext) string {
 			if state := strings.TrimSpace(string(member.CoverageState)); state != "" {
 				fmt.Fprintf(&b, ", coverage_state=%s", state)
 			}
-			if len(member.Attributes) > 0 {
-				fmt.Fprintf(&b, ", attributes=%d", len(member.Attributes))
+			if attrs := renderAnswerDocSourceInventoryRowAttributes(member.Attributes); attrs != "" {
+				fmt.Fprintf(&b, ", attributes=%s", attrs)
 			}
 			b.WriteString("\n")
 			emitted++
@@ -4077,14 +4077,67 @@ func renderAnswerDocSourceInventoryRows(b *strings.Builder, rows []types.SourceI
 		if state := strings.TrimSpace(string(member.CoverageState)); state != "" {
 			fmt.Fprintf(b, ", coverage_state=%s", state)
 		}
-		if len(member.Attributes) > 0 {
-			fmt.Fprintf(b, ", attributes=%d", len(member.Attributes))
+		if attrs := renderAnswerDocSourceInventoryRowAttributes(member.Attributes); attrs != "" {
+			fmt.Fprintf(b, ", attributes=%s", attrs)
 		}
 		if includeReason && strings.TrimSpace(row.ReasonCode) != "" {
 			fmt.Fprintf(b, ", lane=%s reason=%s", row.Lane, row.ReasonCode)
 		}
 		b.WriteByte('\n')
 	}
+}
+
+func renderAnswerDocSourceInventoryRowAttributes(attrs []types.SourceInventoryObservationAttribute) string {
+	const maxAttrs = 4
+	if len(attrs) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(attrs))
+	for _, attr := range attrs {
+		name := strings.TrimSpace(attr.Name)
+		if name == "" {
+			name = strings.TrimSpace(attr.Key)
+		}
+		if name == "" {
+			continue
+		}
+		role := strings.TrimSpace(string(attr.Role))
+		if role == "" {
+			role = "attribute"
+		}
+		item := role + ":" + name
+		if loc := answerDocSourceInventoryAttributeLocation(attr); loc != "" {
+			item += " @ " + loc
+		}
+		if attr.Ambiguity != "" {
+			item += " ambiguity=" + strings.TrimSpace(attr.Ambiguity)
+		}
+		parts = append(parts, "`"+strings.ReplaceAll(item, "`", "'")+"`")
+		if len(parts) >= maxAttrs {
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if hidden := len(attrs) - len(parts); hidden > 0 {
+		parts = append(parts, fmt.Sprintf("+%d more", hidden))
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+func answerDocSourceInventoryAttributeLocation(attr types.SourceInventoryObservationAttribute) string {
+	if _, loc, ok := types.ParseAnswerSupportRefMemberLocation(attr.SupportRef); ok {
+		file := strings.TrimSpace(strings.ReplaceAll(loc.File, `\`, `/`))
+		if file != "" && loc.LineStart > 0 {
+			return fmt.Sprintf("%s:%d", file, loc.LineStart)
+		}
+	}
+	file := strings.TrimSpace(strings.ReplaceAll(attr.File, `\`, `/`))
+	if file == "" || attr.Line <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", file, attr.Line)
 }
 
 func answerDocSourceInventoryObservation(ctx *types.AgentContext) types.SourceInventoryObservation {

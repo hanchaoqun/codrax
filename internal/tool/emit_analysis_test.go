@@ -3428,7 +3428,7 @@ func TestEmitAnalysis_SourceInventorySoftensEchoedProductionScope(t *testing.T) 
 	}
 }
 
-func TestEmitAnalysis_SourceInventoryDropsInvalidRequestedFieldsWithoutDroppingProfile(t *testing.T) {
+func TestEmitAnalysis_SourceInventoryKeepsPackageModuleRequestedFields(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -3474,7 +3474,7 @@ func TestEmitAnalysis_SourceInventoryDropsInvalidRequestedFieldsWithoutDroppingP
 		t.Fatalf("Execute: %v", err)
 	}
 	if !res.Success {
-		t.Fatalf("Execute should succeed after dropping invalid display fields, got %q", res.Summary)
+		t.Fatalf("Execute should succeed with package/module display fields, got %q", res.Summary)
 	}
 	rm := mu.RequestModel()
 	if rm == nil {
@@ -3494,11 +3494,11 @@ func TestEmitAnalysis_SourceInventoryDropsInvalidRequestedFieldsWithoutDroppingP
 	if !gotFields[types.SourceInventoryFieldName] || !gotFields[types.SourceInventoryFieldLocation] {
 		t.Fatalf("valid display fields should survive, got %+v", profile.RequestedFields)
 	}
-	if gotFields[types.SourceInventoryRequestedField("package")] || gotFields[types.SourceInventoryRequestedField("module")] {
-		t.Fatalf("construct roles must not be persisted as display fields: %+v", profile.RequestedFields)
+	if !gotFields[types.SourceInventoryFieldPackage] || !gotFields[types.SourceInventoryFieldModule] {
+		t.Fatalf("package/module display attributes should survive, got %+v", profile.RequestedFields)
 	}
-	if !strings.Contains(res.Summary, "requested_fields") || !strings.Contains(res.Summary, "ignored") {
-		t.Fatalf("summary should disclose ignored invalid requested_fields, got %q", res.Summary)
+	if strings.Contains(res.Summary, "requested_fields") && strings.Contains(res.Summary, "ignored") {
+		t.Fatalf("package/module display fields should not be treated as invalid: %q", res.Summary)
 	}
 }
 

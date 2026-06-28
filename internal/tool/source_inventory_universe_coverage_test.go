@@ -2729,6 +2729,80 @@ func TestSourceInventoryObservedSurfaceFamilyCoverageGap_BlocksPartialTypedFamil
 	}
 }
 
+func TestSourceInventoryObservedSurfaceFamilyCoverageGap_UsesCoveredLocationNotModelSurfaceText(t *testing.T) {
+	first := sourceInventoryRequestedUniverseMemberWithLanguage("ClinicConfig", types.AnswerCandidateRoleType, "eval/fixtures/java-layered-service/src/main/java/com/clinic/config/ClinicConfig.java", 12, "java")
+	first.SurfaceTerms = []string{"public class", "public class ClinicConfig"}
+	second := sourceInventoryRequestedUniverseMember("Greeter", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", 6)
+	second.SurfaceTerms = []string{"public class", "public class Greeter"}
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{first, second}, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleFixture,
+		Count:     1,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "java", Count: 1}},
+	}, {
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     1,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 1}},
+	}})
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "typed classes",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"ClinicConfig @ eval/fixtures/java-layered-service/src/main/java/com/clinic/config/ClinicConfig.java:12",
+		},
+		SupportRefs: []string{"ClinicConfig: eval/fixtures/java-layered-service/src/main/java/com/clinic/config/ClinicConfig.java:12"},
+	}}
+	gap := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, facts)
+	if !gap.Blocking || len(gap.Missing) != 1 || gap.Missing[0].Name != "Greeter" {
+		t.Fatalf("typed surface-family coverage must not depend on model member text repeating the surface label, got %+v", gap)
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_BlocksObservedSurfaceFamilyGapBeforeCensusClosure(t *testing.T) {
+	javaClass := sourceInventoryRequestedUniverseMemberWithLanguage("ClinicConfig", types.AnswerCandidateRoleType, "eval/fixtures/java-layered-service/src/main/java/com/clinic/config/ClinicConfig.java", 12, "java")
+	javaClass.SurfaceTerms = []string{"public class", "public class ClinicConfig"}
+	cangjieClass := sourceInventoryRequestedUniverseMember("Greeter", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", 6)
+	cangjieClass.SurfaceTerms = []string{"public class", "public class Greeter"}
+	foreignFunc := sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6)
+	foreignFunc.SurfaceTerms = []string{"foreign func", "foreign func native_add"}
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		javaClass,
+		cangjieClass,
+		foreignFunc,
+	}, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleFixture,
+		Count:     1,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "java", Count: 1}},
+	}, {
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     2,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 2}},
+	}})
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "Cangjie foreign func 声明",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+		SupportRefs: []string{"native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6"},
+	}, {
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "Java public class",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"ClinicConfig @ eval/fixtures/java-layered-service/src/main/java/com/clinic/config/ClinicConfig.java:12",
+		},
+		SupportRefs: []string{"ClinicConfig: eval/fixtures/java-layered-service/src/main/java/com/clinic/config/ClinicConfig.java:12"},
+	}}
+	if SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("requested-universe closure must not ignore an observed typed surface-family miss just because source-class/language census is otherwise covered")
+	}
+}
+
 func TestSourceInventoryObservedSurfaceFamilyCoverageGap_ExplicitExclusionSatisfiesFamily(t *testing.T) {
 	first := sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 15)
 	first.SurfaceTerms = []string{"public class", "public class Bridge"}
