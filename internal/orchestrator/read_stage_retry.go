@@ -600,6 +600,9 @@ func continuationToolRefinementHint(result types.ToolResult) string {
 	if refinement.UniverseExcludedReason != "" {
 		parts = append(parts, "excluded_reason="+refinement.UniverseExcludedReason)
 	}
+	if refinement.ResultTruncated || refinement.CandidateBudgetTruncated || refinement.PreferredNextTool != "" || len(refinement.PreferredParams) > 0 {
+		parts = append(parts, "action=soft_narrow_if_answer_critical_else_caveat")
+	}
 	if refinement.PreferredNextTool != "" {
 		parts = append(parts, "preferred_tool="+refinement.PreferredNextTool)
 	}

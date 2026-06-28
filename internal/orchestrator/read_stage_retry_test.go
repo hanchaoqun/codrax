@@ -411,6 +411,7 @@ func TestBuildExploreFactRetryContinuationHintPrefersTypedRefinement(t *testing.
 		"Useful preserved typed tool refinement hints:",
 		"tool_refinement tool=grep reason=grep_result_truncated",
 		"flags=result_truncated",
+		"action=soft_narrow_if_answer_critical_else_caveat",
 		"preferred_tool=repo_map",
 		"query=Owner",
 		"read_file_path=record_trace.systrace",
@@ -461,6 +462,7 @@ func TestContinuationToolResultHintsReadsHandoffRefinement(t *testing.T) {
 	}}, 4)
 	if len(hints) != 1 ||
 		!strings.Contains(hints[0], "tool_refinement tool=list_files") ||
+		!strings.Contains(hints[0], "action=soft_narrow_if_answer_critical_else_caveat") ||
 		!strings.Contains(hints[0], "preferred_params=include=*.go,path=internal") {
 		t.Fatalf("handoff refinement not rendered: %+v", hints)
 	}

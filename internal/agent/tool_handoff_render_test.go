@@ -104,6 +104,7 @@ func TestRenderTypedToolHandoffCarriersKeepsRefinementBeforePlainObservations(t 
 
 	out := renderTypedToolHandoffCarriers("### Typed handoff", carriers)
 	if !strings.Contains(out, "tool=`grep`") ||
+		!strings.Contains(out, "refine_action=`soft_narrow_if_answer_critical_else_caveat`") ||
 		!strings.Contains(out, "preferred_tool=`repo_map`") ||
 		!strings.Contains(out, "preferred_params=`query=Owner,view=task_map`") {
 		t.Fatalf("actionable refinement was dropped behind plain observations:\n%s", out)

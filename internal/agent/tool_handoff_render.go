@@ -141,6 +141,9 @@ func renderTypedToolRefinementParts(refinement *types.ToolRefinementHint, option
 	if hint.UniverseExcludedReason != "" {
 		parts = append(parts, "excluded_reason="+quoteHandoffValue(hint.UniverseExcludedReason))
 	}
+	if hint.ResultTruncated || hint.CandidateBudgetTruncated || hint.PreferredNextTool != "" || len(hint.PreferredParams) > 0 {
+		parts = append(parts, "refine_action=`soft_narrow_if_answer_critical_else_caveat`")
+	}
 	if hint.PreferredNextTool != "" {
 		field := "preferred_tool"
 		if opts.HistoricalProducerLabels {
