@@ -4935,13 +4935,60 @@ func TestExplorer_RuntimeBoundary_SourceInventoryFollowupRejectsRouteDrift(t *te
 			if got == nil || got.Success {
 				t.Fatalf("route drift should be rejected, got %+v", got)
 			}
-			if got.Repair == nil || got.Repair.Code != explorerSourceInventoryLensScopeCode {
-				t.Fatalf("route drift should carry source-inventory scope repair, got %+v", got.Repair)
+			if got.Repair == nil || got.Repair.Code != explorerSourceInventoryFollowupRouteMismatchCode {
+				t.Fatalf("route drift should carry source-inventory follow-up route repair, got %+v", got.Repair)
+			}
+			if got.Repair.Metadata["reason_code"] != "route_mismatch" ||
+				got.Repair.Metadata["expected_scopes"] != "internal/thirdparty/tree-sitter-cangjie/corpus/sources" ||
+				got.Repair.Metadata["expected_roles"] != "type" ||
+				got.Repair.Metadata["expected_cursor"] != "24" {
+				t.Fatalf("route drift repair metadata = %+v", got.Repair.Metadata)
 			}
 			if !strings.Contains(got.Summary, tc.want) {
 				t.Fatalf("route drift summary should mention %q, got %q", tc.want, got.Summary)
 			}
 		})
+	}
+}
+
+func TestExplorer_SourceInventoryFollowupRouteMismatchReleasesSurface(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage:                       types.StageExplore,
+		ExploreToolSurface:          types.ExploreToolSurfaceSourceInventoryFollowup,
+		SourceInventoryFollowupDebt: sourceInventoryPaginationFollowupDebtForExplorerTest("24"),
+	}
+	result := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{
+		Name:   "repo_map",
+		Params: json.RawMessage(`{"view":"source_inventory","path":".","scopes":["src"],"roles":["type"],"cursor":"24","include_counts":true,"include_attributes":false,"top_n":24}`),
+	})
+	if result == nil || result.Repair == nil || result.Repair.Code != explorerSourceInventoryFollowupRouteMismatchCode {
+		t.Fatalf("expected typed follow-up route mismatch repair, got %+v", result)
+	}
+
+	_ = eval.Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		LastToolResult: result,
+		AllToolResults: []types.ToolResult{*result},
+	})
+
+	if ctx.SourceInventoryFollowupDebt.IsActive() {
+		t.Fatalf("route mismatch should clear follow-up debt, got %+v", ctx.SourceInventoryFollowupDebt)
+	}
+	if ctx.ExploreToolSurface != types.ExploreToolSurfaceDefault {
+		t.Fatalf("route mismatch should release follow-up tool surface, got %q", ctx.ExploreToolSurface)
+	}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "exec_command"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,grep,repo_map,exec_command,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("route mismatch should release schema surface, got %v", gotNames)
 	}
 }
 

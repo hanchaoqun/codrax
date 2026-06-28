@@ -12193,6 +12193,7 @@ func (e *explorerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	switch obs.Phase {
 	case PhaseMidLoop:
 		e.refreshMidLoopStructuredEvidence(ctx)
+		e.observeSourceInventoryFollowupRouteMismatch(ctx, obs)
 		e.observeSourceInventoryLensSurfaceProgress(ctx, obs)
 		e.refreshSourceInventoryInlineFollowup(ctx, obs)
 		return e.observeMidLoop(obs)
@@ -12200,6 +12201,30 @@ func (e *explorerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 		return e.observeSoftStop(obs)
 	}
 	return LoopSignal{}
+}
+
+func (e *explorerEvaluator) observeSourceInventoryFollowupRouteMismatch(ctx *types.AgentContext, obs LoopObservation) {
+	if e == nil || ctx == nil || !e.sourceInventoryFollowupRouteActive(ctx) {
+		return
+	}
+	for _, result := range obs.AllToolResults {
+		if !toolResultIsSourceInventoryFollowupRouteMismatch(result) {
+			continue
+		}
+		e.sourceInventoryInlineFollowupActive = false
+		e.sourceInventoryInlineFollowupDebt = types.SourceInventoryFollowupDebt{}
+		ctx.SourceInventoryFollowupDebt = types.SourceInventoryFollowupDebt{}
+		if ctx.ExploreToolSurface.IsSourceInventoryFollowup() {
+			ctx.ExploreToolSurface = types.ExploreToolSurfaceDefault
+		}
+		e.sourceInventoryLensSurfaceReleased = true
+		return
+	}
+}
+
+func toolResultIsSourceInventoryFollowupRouteMismatch(result types.ToolResult) bool {
+	return result.Repair != nil &&
+		strings.TrimSpace(result.Repair.Code) == explorerSourceInventoryFollowupRouteMismatchCode
 }
 
 func (e *explorerEvaluator) observeSourceInventoryLensSurfaceProgress(ctx *types.AgentContext, obs LoopObservation) {

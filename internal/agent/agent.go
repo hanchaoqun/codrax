@@ -5122,6 +5122,7 @@ func isAnalyzerStageAllowedTool(name string) bool {
 const explorerRestrictedToolSurfaceCode = "explorer_restricted_tool_surface"
 const explorerSourceInventoryLensSurfaceCode = "explorer_source_inventory_lens_surface"
 const explorerSourceInventoryLensScopeCode = "explorer_source_inventory_lens_scope"
+const explorerSourceInventoryFollowupRouteMismatchCode = "source_inventory_followup_route_mismatch"
 const explorerTraceQueryFirstCode = "explorer_trace_query_first"
 const explorerTraceQuerySufficientRuntimeEvidenceCode = "explorer_trace_query_sufficient_runtime_evidence"
 const explorerReadDispatchPolicyCode = "explorer_read_dispatch_policy"
@@ -5230,7 +5231,7 @@ func validateExplorerSourceInventoryLensToolCall(ctx *types.AgentContext, eval *
 		if analyzerRepoMapSourceInventoryView(tc.Params) {
 			if followupRouteActive {
 				if reason, blocked := explorerSourceInventoryFollowupRouteViolation(ctx, tc.Params); blocked {
-					return rejectExplorerSourceInventoryLensToolWithCode(ctx, tc, explorerSourceInventoryLensScopeCode, reason)
+					return rejectExplorerSourceInventoryFollowupRouteTool(ctx, tc, reason)
 				}
 				return nil
 			}
@@ -5405,6 +5406,23 @@ func repoMapRootScopeSurface(raw string) bool {
 
 func rejectExplorerSourceInventoryLensTool(ctx *types.AgentContext, tc llm.ToolCall, reason string) *types.ToolResult {
 	return rejectExplorerSourceInventoryLensToolWithCode(ctx, tc, explorerSourceInventoryLensSurfaceCode, reason)
+}
+
+func rejectExplorerSourceInventoryFollowupRouteTool(ctx *types.AgentContext, tc llm.ToolCall, reason string) *types.ToolResult {
+	result := rejectExplorerSourceInventoryLensToolWithCode(ctx, tc, explorerSourceInventoryFollowupRouteMismatchCode, reason)
+	if result == nil || result.Repair == nil || ctx == nil {
+		return result
+	}
+	debt := types.NormalizeSourceInventoryFollowupDebt(ctx.SourceInventoryFollowupDebt)
+	result.Repair.Metadata = map[string]string{
+		"reason_code":     "route_mismatch",
+		"expected_path":   debt.Query.Path,
+		"expected_scopes": strings.Join(debt.Query.Scopes, ","),
+		"expected_roles":  strings.Join(sourceInventoryRoleNames(debt.Query.Roles), ","),
+		"expected_cursor": debt.Query.Cursor,
+		"followup_reason": debt.ReasonCode,
+	}
+	return result
 }
 
 func rejectExplorerSourceInventoryLensToolWithCode(ctx *types.AgentContext, tc llm.ToolCall, code, reason string) *types.ToolResult {
