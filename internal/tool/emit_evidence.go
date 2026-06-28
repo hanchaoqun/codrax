@@ -660,7 +660,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 					"emit_investigation_complete.aggregate_facts",
 				},
 				Metadata: map[string]string{
-					"repair_status": "advisory",
+					"repair_status": types.ToolRepairStatusAdvisory,
 				},
 			}),
 			Timestamp: now,
@@ -921,7 +921,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		summary = b.String()
 	}
 	repair := buildEmitEvidenceRepair(ctx, built, reports)
-	if repair == nil || (repair.Metadata != nil && repair.Metadata["repair_status"] != "action_required") {
+	if repair == nil || (repair.Metadata != nil && repair.Metadata["repair_status"] != types.ToolRepairStatusActionRequired) {
 		if surfaceReview != nil {
 			repair = surfaceReview
 		}
@@ -1346,7 +1346,7 @@ func emitEvidenceExternalObservationRepair() *types.ToolRepair {
 			"emit_investigation_complete.aggregate_facts",
 		},
 		Metadata: map[string]string{
-			"repair_status": "advisory",
+			"repair_status": types.ToolRepairStatusAdvisory,
 		},
 	}
 }
@@ -1388,7 +1388,7 @@ func emitEvidenceAbsenceCompletionRepair() *types.ToolRepair {
 			"emit_investigation_complete.absence_justification",
 		},
 		Metadata: map[string]string{
-			"repair_status": "action_required",
+			"repair_status": types.ToolRepairStatusActionRequired,
 			"lane":          "completion_absence",
 		},
 	}
@@ -3760,19 +3760,19 @@ func buildEmitEvidenceRepair(ctx *types.BusContext, items []types.EvidenceItem, 
 		return nil
 	}
 	repair := &types.ToolRepair{
-		Code: "evidence_line_text_repair",
+		Code: types.ToolRepairCodeEvidenceLineTextRepair,
 		Metadata: map[string]string{
 			"repair_scope": "line_text_grounding",
 			"repair_stage": "explorer",
 		},
 	}
 	if len(targets) == 0 {
-		repair.Metadata["repair_status"] = "satisfied_or_non_actionable"
+		repair.Metadata["repair_status"] = types.ToolRepairStatusSatisfiedOrNonActionable
 		return repair
 	}
 	repair.Hint = renderEmitEvidenceRepairToolHint(targets)
 	repair.Targets = targets
-	repair.Metadata["repair_status"] = "action_required"
+	repair.Metadata["repair_status"] = types.ToolRepairStatusActionRequired
 	return repair
 }
 
@@ -4801,7 +4801,7 @@ func buildEmitEvidenceSurfaceTermReview(items []types.EvidenceItem, gc *ground.C
 		Metadata: map[string]string{
 			"repair_scope":  "surface_terms",
 			"repair_stage":  "explorer",
-			"repair_status": "action_recommended",
+			"repair_status": types.ToolRepairStatusActionRecommended,
 		},
 	}
 }

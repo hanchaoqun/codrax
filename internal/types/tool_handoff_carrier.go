@@ -105,24 +105,26 @@ func ToolHandoffCarrierFromToolResult(result ToolResult) (ToolHandoffCarrier, bo
 	}
 	if result.Repair != nil {
 		repair := cloneToolRepairPtr(result.Repair)
-		carrier.Repair = repair
-		carrier.RepairCode = trimToolHandoffText(repair.Code)
-		carrier.ReasonCode = toolRepairReasonCode(repair)
-		if surface, ok := ToolJSONSurfaceDescriptorFromToolRepair(carrier.ToolName, repair); ok {
-			carrier.SupportedJSON = &surface
-		}
-		if pack, ok := PlanRepairPackFromToolRepair(repair); ok {
-			pack = NormalizePlanRepairPack(pack)
-			carrier.PlanRepairPack = &pack
-			if carrier.ReasonCode == "" {
-				carrier.ReasonCode = pack.ReasonCode
-			}
-			surface := toolJSONSurfaceFromPlanRepairPack(pack)
-			if carrier.SupportedJSON != nil {
-				surface = mergeToolJSONSurfaceDescriptor(*carrier.SupportedJSON, surface)
-			}
-			if !surface.Empty() {
+		if ToolRepairActionableForHandoff(repair) {
+			carrier.Repair = repair
+			carrier.RepairCode = trimToolHandoffText(repair.Code)
+			carrier.ReasonCode = toolRepairReasonCode(repair)
+			if surface, ok := ToolJSONSurfaceDescriptorFromToolRepair(carrier.ToolName, repair); ok {
 				carrier.SupportedJSON = &surface
+			}
+			if pack, ok := PlanRepairPackFromToolRepair(repair); ok {
+				pack = NormalizePlanRepairPack(pack)
+				carrier.PlanRepairPack = &pack
+				if carrier.ReasonCode == "" {
+					carrier.ReasonCode = pack.ReasonCode
+				}
+				surface := toolJSONSurfaceFromPlanRepairPack(pack)
+				if carrier.SupportedJSON != nil {
+					surface = mergeToolJSONSurfaceDescriptor(*carrier.SupportedJSON, surface)
+				}
+				if !surface.Empty() {
+					carrier.SupportedJSON = &surface
+				}
 			}
 		}
 	}
@@ -262,8 +264,7 @@ func NormalizeToolHandoffCarrier(in ToolHandoffCarrier) ToolHandoffCarrier {
 }
 
 func (c ToolHandoffCarrier) Empty() bool {
-	return c.ToolName == "" &&
-		c.ReasonCode == "" &&
+	return c.ReasonCode == "" &&
 		c.RepairCode == "" &&
 		c.Repair == nil &&
 		c.Refinement == nil &&
@@ -593,6 +594,30 @@ func toolRepairReasonCode(repair *ToolRepair) string {
 		}
 	}
 	return trimToolHandoffText(repair.Code)
+}
+
+// ToolRepairActionableForHandoff reports whether a ToolRepair should be carried
+// forward as work for a later model stage. Non-actionable evidence-line repair
+// records remain in the original ToolResult for audit, but they are deliberately
+// not projected into typed handoff prompts because they describe completed or
+// omitted audit rows rather than a current repair obligation.
+func ToolRepairActionableForHandoff(repair *ToolRepair) bool {
+	repair = normalizeToolRepairPtr(repair)
+	if repair == nil {
+		return false
+	}
+	status := ""
+	if repair.Metadata != nil {
+		status = trimToolHandoffText(repair.Metadata["repair_status"])
+	}
+	if repair.Code == ToolRepairCodeEvidenceLineTextRepair &&
+		status == ToolRepairStatusSatisfiedOrNonActionable &&
+		repair.Hint == "" &&
+		len(repair.Targets) == 0 &&
+		len(repair.Fields) == 0 {
+		return false
+	}
+	return true
 }
 
 func toolJSONSurfaceFromPlanRepairPack(pack PlanRepairPack) ToolJSONSurfaceDescriptor {

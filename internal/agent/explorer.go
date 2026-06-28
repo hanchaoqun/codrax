@@ -5294,7 +5294,7 @@ func unreadAnchorExternalTargetFiles(readSet map[string]bool, hops []anchorNextH
 }
 
 func repairTargetsFromToolRepair(repair *types.ToolRepair) ([]evidenceRepairTarget, bool) {
-	if repair == nil || repair.Code != "evidence_line_text_repair" {
+	if repair == nil || repair.Code != types.ToolRepairCodeEvidenceLineTextRepair {
 		return nil, false
 	}
 	if len(repair.Targets) == 0 {

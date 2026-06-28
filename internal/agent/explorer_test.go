@@ -4032,7 +4032,7 @@ func TestMidLoopCheck_EmitEvidenceRepairBypassesIterationFloor(t *testing.T) {
 				"  [2] conditional loadFromCache @ internal/tool/repomap/tool.go:158 — Loads the graph from cache when no files have changed.\n" +
 				"      → recovered (tier=fqname_same_file, you claimed line 156, adjusted to 158)\n",
 			Repair: &types.ToolRepair{
-				Code: "evidence_line_text_repair",
+				Code: types.ToolRepairCodeEvidenceLineTextRepair,
 				Targets: []types.ToolRepairTarget{{
 					File:   "internal/tool/repomap/tool.go",
 					Lines:  []int{149, 158},
@@ -4074,7 +4074,7 @@ func TestMidLoopCheck_EmitEvidenceRepairHintMatchesNextRepairToolSurface(t *test
 			"  [1] direct buildOrLoadGraph @ internal/tool/repomap/tool.go:149 — cache path\n" +
 			"      → recovered (tier=fqname_same_file, you claimed line 148, adjusted to 149)\n",
 		Repair: &types.ToolRepair{
-			Code: "evidence_line_text_repair",
+			Code: types.ToolRepairCodeEvidenceLineTextRepair,
 			Targets: []types.ToolRepairTarget{{
 				File:   "internal/tool/repomap/tool.go",
 				Lines:  []int{149},
@@ -4127,7 +4127,7 @@ func TestMidLoopCheck_EmitEvidenceRepairHintStaysEmitOnlyWhenTargetsCovered(t *t
 				"  [1] direct buildOrLoadGraph @ internal/tool/repomap/tool.go:149 — cache path\n" +
 				"      → recovered (tier=fqname_same_file, you claimed line 148, adjusted to 149)\n",
 			Repair: &types.ToolRepair{
-				Code: "evidence_line_text_repair",
+				Code: types.ToolRepairCodeEvidenceLineTextRepair,
 				Targets: []types.ToolRepairTarget{{
 					File:   "internal/tool/repomap/tool.go",
 					Lines:  []int{149},
@@ -4272,7 +4272,7 @@ func TestExplorer_FilterToolSchemas_EvidenceRepairCoveredTargetsBecomeEmitOnly(t
 			Success:  true,
 			Summary:  "emit_evidence accepted 1 item(s)",
 			Repair: &types.ToolRepair{
-				Code: "evidence_line_text_repair",
+				Code: types.ToolRepairCodeEvidenceLineTextRepair,
 				Targets: []types.ToolRepairTarget{{
 					File:   "internal/agent/analyzer.go",
 					Lines:  []int{651},
@@ -4329,7 +4329,7 @@ func TestExplorer_FilterToolSchemas_CloseReadyEvidenceRepairUsesOneSurgicalRead(
 			Success:  true,
 			Summary:  "emit_evidence accepted 1 item(s)",
 			Repair: &types.ToolRepair{
-				Code: "evidence_line_text_repair",
+				Code: types.ToolRepairCodeEvidenceLineTextRepair,
 				Targets: []types.ToolRepairTarget{{
 					File:   "internal/agent/analyzer.go",
 					Lines:  []int{651},
@@ -5369,7 +5369,7 @@ func TestObserveMidLoop_EvidenceRepairPrefersStructuredTargets(t *testing.T) {
 			Success:  true,
 			Summary:  "emit_evidence accepted 5 item(s)\n\n  [1] summary intentionally truncated before any drop-note lines ...",
 			Repair: &types.ToolRepair{
-				Code: "evidence_line_text_repair",
+				Code: types.ToolRepairCodeEvidenceLineTextRepair,
 				Targets: []types.ToolRepairTarget{
 					{File: "codrax.yaml.example", Lines: []int{22}, Action: string(types.RepairReadFile)},
 				},
@@ -5446,8 +5446,8 @@ func TestObserveMidLoop_EvidenceRepairStructuredNoopSuppressesSummaryFallback(t 
 				"  [2] direct buildAnalysisIR @ internal/agent/analyzer.go:852 — companion comment\n" +
 				"      → recovered (tier=fqname_same_file, you claimed line 849, adjusted to 852)\n",
 			Repair: &types.ToolRepair{
-				Code:     "evidence_line_text_repair",
-				Metadata: map[string]string{"repair_status": "satisfied_or_non_actionable"},
+				Code:     types.ToolRepairCodeEvidenceLineTextRepair,
+				Metadata: map[string]string{"repair_status": types.ToolRepairStatusSatisfiedOrNonActionable},
 			},
 		},
 	}
@@ -5519,7 +5519,7 @@ func TestObserveMidLoop_EvidenceRepairClosureOnlyRendersStructuredTargetsOnce(t 
 		Success:  true,
 		Summary:  "emit_evidence accepted 2 item(s)",
 		Repair: &types.ToolRepair{
-			Code: "evidence_line_text_repair",
+			Code: types.ToolRepairCodeEvidenceLineTextRepair,
 			Targets: []types.ToolRepairTarget{{
 				File:   "internal/analysis/amplifier/amplifier.go",
 				Lines:  []int{100},
@@ -5596,7 +5596,7 @@ func TestObserveMidLoop_EvidenceRepairHintAdvancesBatchBaseline(t *testing.T) {
 			Success:  true,
 			Summary:  "emit_evidence accepted 1 item(s)",
 			Repair: &types.ToolRepair{
-				Code: "evidence_line_text_repair",
+				Code: types.ToolRepairCodeEvidenceLineTextRepair,
 				Targets: []types.ToolRepairTarget{
 					{File: "internal/agent/analyzer.go", Lines: []int{651}, Action: string(types.RepairReadFile)},
 				},

@@ -2439,7 +2439,7 @@ func TestEmitEvidence_QueuesStructuredRepairTargetsForRecoveredEvidence(t *testi
 	if !res.Success {
 		t.Fatalf("expected success with structured repair feedback, got: %s", res.Summary)
 	}
-	if res.Repair == nil || res.Repair.Code != "evidence_line_text_repair" {
+	if res.Repair == nil || res.Repair.Code != types.ToolRepairCodeEvidenceLineTextRepair {
 		t.Fatalf("expected structured line-text repair metadata, got %+v", res.Repair)
 	}
 	if len(res.Repair.Targets) != 1 {
@@ -2585,13 +2585,13 @@ func TestBuildEmitEvidenceRepair_EmitsStructuredNoopEnvelopeForCoveredRecoveredI
 	if repair == nil {
 		t.Fatal("expected structured repair envelope even when no actionable line-text repair remains")
 	}
-	if repair.Code != "evidence_line_text_repair" {
+	if repair.Code != types.ToolRepairCodeEvidenceLineTextRepair {
 		t.Fatalf("repair code=%q, want evidence_line_text_repair", repair.Code)
 	}
 	if len(repair.Targets) != 0 {
 		t.Fatalf("covered recovered sibling should not produce actionable targets, got %+v", repair.Targets)
 	}
-	if got := repair.Metadata["repair_status"]; got != "satisfied_or_non_actionable" {
+	if got := repair.Metadata["repair_status"]; got != types.ToolRepairStatusSatisfiedOrNonActionable {
 		t.Fatalf("repair_status=%q, want satisfied_or_non_actionable", got)
 	}
 }

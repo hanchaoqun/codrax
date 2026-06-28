@@ -83,6 +83,41 @@ func TestToolHandoffCarrierFromToolResultUsesJSONSurfaceMetadata(t *testing.T) {
 	}
 }
 
+func TestToolHandoffCarrierFromToolResultDropsNonActionableEvidenceLineRepair(t *testing.T) {
+	result := AttachToolHandoffCarrier(ToolResult{
+		ToolName: "emit_evidence",
+		Success:  true,
+		Repair: &ToolRepair{
+			Code: ToolRepairCodeEvidenceLineTextRepair,
+			Metadata: map[string]string{
+				"repair_status": ToolRepairStatusSatisfiedOrNonActionable,
+			},
+		},
+	})
+	if result.Handoff != nil {
+		t.Fatalf("non-actionable evidence-line repair must not become model-facing handoff: %+v", result.Handoff)
+	}
+
+	actionable := AttachToolHandoffCarrier(ToolResult{
+		ToolName: "emit_evidence",
+		Success:  true,
+		Repair: &ToolRepair{
+			Code: ToolRepairCodeEvidenceLineTextRepair,
+			Targets: []ToolRepairTarget{{
+				File:   "internal/app/main.go",
+				Lines:  []int{12},
+				Action: string(RepairReadFile),
+			}},
+			Metadata: map[string]string{
+				"repair_status": ToolRepairStatusActionRequired,
+			},
+		},
+	})
+	if actionable.Handoff == nil || actionable.Handoff.RepairCode != ToolRepairCodeEvidenceLineTextRepair {
+		t.Fatalf("action-required evidence-line repair should still be carried: %+v", actionable.Handoff)
+	}
+}
+
 func TestToolHandoffCarrierFromToolResultUsesTypedRefinement(t *testing.T) {
 	result := AttachToolHandoffCarrier(ToolResult{
 		ToolName: "grep",

@@ -5473,8 +5473,14 @@ type ToolRepair struct {
 const (
 	ToolRepairCodeReadFilePathMissing                  = "read_file_path_missing"
 	ToolRepairCodeReadFilePathIsDirectory              = "read_file_path_is_directory"
+	ToolRepairCodeEvidenceLineTextRepair               = "evidence_line_text_repair"
 	ToolRepairCodeEvidenceExternalObservationToClosure = "evidence_external_observation_to_closure"
 	ToolRepairCodeEvidenceAbsenceToCompletion          = "evidence_absence_to_completion"
+
+	ToolRepairStatusActionRequired           = "action_required"
+	ToolRepairStatusSatisfiedOrNonActionable = "satisfied_or_non_actionable"
+	ToolRepairStatusAdvisory                 = "advisory"
+	ToolRepairStatusActionRecommended        = "action_recommended"
 )
 
 // ToolRefinementHint is the typed, cross-stage advisory surface a tool may
