@@ -6891,12 +6891,19 @@ func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[s
 		return mergeRestrictedToolSurfaceWithActiveRepairs(evidenceRepairToolNames, ctx)
 	}
 	if e.midLoopNoEmitPushSent && e.midLoopNoEmitEscalated {
-		if e.originSpecificObservationLaneActive() {
+		if e.originSpecificObservationLaneActive() && !e.mixedRuntimeCurrentSourceLandingSurfaceActive() {
 			return nil
 		}
 		return mergeRestrictedToolSurfaceWithActiveRepairs(completionProgressToolNames, ctx)
 	}
 	return nil
+}
+
+func (e *explorerEvaluator) mixedRuntimeCurrentSourceLandingSurfaceActive() bool {
+	if e == nil || e.analysisIR == nil {
+		return false
+	}
+	return types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(e.analysisIR.RequestModel)
 }
 
 func (e *explorerEvaluator) sourceInventoryLensSurfaceActive(ctx *types.AgentContext) bool {

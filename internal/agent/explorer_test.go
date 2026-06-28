@@ -4759,6 +4759,40 @@ func TestExplorer_RuntimeBoundary_ReadWithoutEmitRejectsNavigation(t *testing.T)
 	}
 }
 
+func TestExplorer_RuntimeBoundary_ReadWithoutEmitRejectsNavigationForMixedOrigin(t *testing.T) {
+	eval := &explorerEvaluator{
+		midLoopNoEmitPushSent:  true,
+		midLoopNoEmitEscalated: true,
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			LogTriage: &types.LogBundle{
+				Observations: []types.LogObservation{{Kind: types.LogObservationRetryCycle, Summary: "first_byte_timeout"}},
+			},
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+				SourceQuotes:                        []string{"结合当前源码"},
+				Confidence:                          0.9,
+			},
+		}},
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+
+	got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"timeout"}`)})
+	if got == nil || got.Success {
+		t.Fatalf("mixed-origin read-without-emit surface should reject navigation after escalation, got %+v", got)
+	}
+	if got.Repair == nil || got.Repair.Code != explorerRestrictedToolSurfaceCode {
+		t.Fatalf("expected repair code %q, got %+v", explorerRestrictedToolSurfaceCode, got.Repair)
+	}
+	if ok := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_investigation_complete", Params: json.RawMessage(`{}`)}); ok != nil {
+		t.Fatalf("completion should remain available for origin-specific facts, got %+v", ok)
+	}
+}
+
 func TestExplorer_BuildInitialInstruction_ReadDispatchPolicy(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{
