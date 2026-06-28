@@ -139,7 +139,7 @@ func TestSkillTierAwareWorkflow_NilSkill(t *testing.T) {
 // directly comparable; check each flag individually.
 func TestBuildAppliesToContext_NilAgentContext(t *testing.T) {
 	got := buildAppliesToContext(nil)
-	if got.HasDiagram || got.HasLog || got.HasBuckets || got.IsAbsence ||
+	if got.HasDiagram || got.HasLog || got.HasTrace || got.HasBuckets || got.IsAbsence ||
 		got.PrincipalKind != "" || got.Intent != "" || len(got.RetryViolations) > 0 {
 		t.Errorf("nil ctx: should produce zero-value AppliesToContext; got %+v", got)
 	}
@@ -154,6 +154,94 @@ func TestBuildAppliesToContext_LogTriagePopulated(t *testing.T) {
 	got := buildAppliesToContext(ac)
 	if !got.HasLog {
 		t.Errorf("LogTriage non-nil should set HasLog=true; got %+v", got)
+	}
+}
+
+func TestSkillTierAwareWorkflow_TraceGatedByTypedArtifact(t *testing.T) {
+	sk := &skill.Config{
+		Workflow: []string{"source rule"},
+		WorkflowTierB: []skill.TierBItem{
+			{Body: "trace-only rule", AppliesTo: skill.AppliesToFilter{RequiresTrace: true}},
+		},
+	}
+	if got := skillTierAwareWorkflow(&types.AgentContext{}, sk); len(got) != 1 || got[0] != "source rule" {
+		t.Fatalf("trace-only rule must stay hidden without typed trace signal: %v", got)
+	}
+	for name, ac := range map[string]*types.AgentContext{
+		"context perf bundle": {PerfTrace: &types.PerfBundle{}},
+		"attached hitrace":    {AttachedHitraceSource: "/tmp/run.systrace"},
+		"analysis perf": {
+			AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+				PerfTrace: &types.PerfBundle{},
+			}},
+		},
+		"mutable perf": func() *types.AgentContext {
+			mut := types.NewMutableState("test")
+			mut.SetPerfTrace(&types.PerfBundle{})
+			return &types.AgentContext{Mutable: mut}
+		}(),
+	} {
+		got := skillTierAwareWorkflow(ac, sk)
+		if len(got) != 2 || got[1] != "trace-only rule" {
+			t.Fatalf("%s: typed trace signal should admit trace-only rule, got %v", name, got)
+		}
+		if !buildAppliesToContext(ac).HasTrace {
+			t.Fatalf("%s: buildAppliesToContext should set HasTrace", name)
+		}
+	}
+}
+
+func TestBuildPromptContext_ExploreSkillHidesTraceWorkflowWithoutTypedTrace(t *testing.T) {
+	r := skill.NewRegistry()
+	skill.RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill): %v", err)
+	}
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Objective: "Explain the agent registry relationships.",
+	}
+	pc := BuildPromptContext(ac, sk)
+	var rendered strings.Builder
+	for _, msg := range ToMessages(pc) {
+		rendered.WriteString(msg.Content)
+		rendered.WriteByte('\n')
+	}
+	for _, banned := range []string{"RUNTIME TRACE FIRST", "TRACE QUERY:", "frame_root_cause_bundle"} {
+		if strings.Contains(rendered.String(), banned) {
+			t.Fatalf("non-trace explore prompt leaked trace-only guidance %q:\n%s", banned, rendered.String())
+		}
+	}
+	if !strings.Contains(rendered.String(), "PHASE 1") || !strings.Contains(rendered.String(), "repo_map") {
+		t.Fatalf("non-trace explore prompt should retain source navigation guidance:\n%s", rendered.String())
+	}
+}
+
+func TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForTypedTrace(t *testing.T) {
+	r := skill.NewRegistry()
+	skill.RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill): %v", err)
+	}
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Objective: "Analyze the attached trace.",
+		PerfTrace: &types.PerfBundle{},
+	}
+	pc := BuildPromptContext(ac, sk)
+	var rendered strings.Builder
+	for _, msg := range ToMessages(pc) {
+		rendered.WriteString(msg.Content)
+		rendered.WriteByte('\n')
+	}
+	for _, want := range []string{"RUNTIME TRACE FIRST", "TRACE QUERY:", "frame_root_cause_bundle"} {
+		if !strings.Contains(rendered.String(), want) {
+			t.Fatalf("typed trace explore prompt missing %q:\n%s", want, rendered.String())
+		}
 	}
 }
 

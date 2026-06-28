@@ -69,6 +69,9 @@ func (o *Orchestrator) suppressReadStatusEvent(ev render.Event) bool {
 	if !ok {
 		return false
 	}
+	if readStatusShouldSuppressSkippedLifecycle(ev) {
+		return true
+	}
 	cursor := o.readStatusDebounceCursor(ev)
 	switch o.readStatusDebouncer.lifecycleDecision(ev, o.readStatusLifecycleCursor(ev)) {
 	case readStatusLifecycleSuppress:
@@ -77,6 +80,23 @@ func (o *Orchestrator) suppressReadStatusEvent(ev render.Event) bool {
 		return false
 	}
 	return o.readStatusDebouncer.Suppress(key, cursor)
+}
+
+func readStatusShouldSuppressSkippedLifecycle(ev render.Event) bool {
+	switch ev.Kind {
+	case render.EventTaskNodeStart, render.EventTaskNodeEnd:
+	default:
+		return false
+	}
+	if !ev.NodeSkipped {
+		return false
+	}
+	switch readStatusEventNodeKind(ev) {
+	case types.NodeEvidence, types.NodeProbe:
+		return true
+	default:
+		return false
+	}
 }
 
 type readStatusLifecycleDecision int

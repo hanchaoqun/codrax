@@ -105,6 +105,15 @@ func buildAppliesToContext(ac *types.AgentContext) skill.AppliesToContext {
 		if ac.Mutable.LogTriage() != nil || ac.Mutable.PerfTrace() != nil {
 			out.HasLog = true
 		}
+		if ac.Mutable.PerfTrace() != nil {
+			out.HasTrace = true
+		}
+	}
+	if ac.PerfTrace != nil || ac.AttachedHitrace != "" || ac.AttachedHitraceSource != "" {
+		out.HasTrace = true
+	}
+	if ac.AnalysisIR != nil && ac.AnalysisIR.RequestModel.PerfTrace != nil {
+		out.HasTrace = true
 	}
 
 	// Buckets — projected from RequestModel.Buckets when non-empty.

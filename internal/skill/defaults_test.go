@@ -205,26 +205,45 @@ func TestExploreSkill_TeachesCascadedRepoLensNavigation(t *testing.T) {
 	}
 }
 
-func TestExploreSkill_TraceQueryFirstPrecedesGenericBreadthScan(t *testing.T) {
+func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
 	sk, err := r.Get("explore-skill")
 	if err != nil {
 		t.Fatalf("Get(explore-skill) returned error: %v", err)
 	}
-	if len(sk.Workflow) < 2 {
+	if len(sk.Workflow) < 1 {
 		t.Fatalf("explore-skill Workflow too short: %#v", sk.Workflow)
 	}
-	if !strings.Contains(sk.Workflow[0], "RUNTIME TRACE FIRST") ||
-		!strings.Contains(sk.Workflow[0], "start with `trace_query`") ||
-		!strings.Contains(sk.Workflow[0], "pattern=\"<literal>\"") ||
-		!strings.Contains(sk.Workflow[0], "not a regex") ||
-		!strings.Contains(sk.Workflow[0], "mixed trace+source") {
-		t.Fatalf("first workflow item should teach trace_query-first routing:\n%s", sk.Workflow[0])
+	if strings.Contains(strings.Join(sk.Workflow, "\n"), "TRACE QUERY:") ||
+		strings.Contains(strings.Join(sk.Workflow, "\n"), "RUNTIME TRACE FIRST") {
+		t.Fatalf("runtime trace guidance must not live in always-rendered explorer workflow:\n%v", sk.Workflow)
 	}
-	if !strings.Contains(sk.Workflow[1], "PHASE 1") ||
-		!strings.Contains(sk.Workflow[1], "repo_map") {
-		t.Fatalf("generic source breadth scan should remain after trace routing:\n%s", sk.Workflow[1])
+	if !strings.Contains(sk.Workflow[0], "PHASE 1") ||
+		!strings.Contains(sk.Workflow[0], "repo_map") {
+		t.Fatalf("generic source breadth scan should remain the first always-rendered item:\n%s", sk.Workflow[0])
+	}
+	if len(sk.WorkflowTierB) < 3 {
+		t.Fatalf("explore-skill should carry trace guidance in WorkflowTierB: %#v", sk.WorkflowTierB)
+	}
+	traceTier := strings.Join([]string{sk.WorkflowTierB[0].Body, sk.WorkflowTierB[1].Body, sk.WorkflowTierB[2].Body}, "\n")
+	for i := 0; i < 3; i++ {
+		if !sk.WorkflowTierB[i].AppliesTo.RequiresTrace {
+			t.Fatalf("trace workflow item %d must be gated by RequiresTrace: %+v", i, sk.WorkflowTierB[i].AppliesTo)
+		}
+	}
+	for _, want := range []string{
+		"RUNTIME TRACE FIRST",
+		"start with `trace_query`",
+		"TRACE QUERY:",
+		"pattern=\"<literal>\"",
+		"not regex",
+		"mixed trace+source",
+		"PERF SAMPLE PROVENANCE",
+	} {
+		if !strings.Contains(traceTier, want) {
+			t.Fatalf("trace-gated workflow missing %q:\n%s", want, traceTier)
+		}
 	}
 }
 

@@ -79,6 +79,51 @@ func TestReadStatusDebounceSuppressesEvidenceNodeLifecycleFlapWithoutProgress(t 
 	}
 }
 
+func TestReadStatusDebounceSuppressesSkippedReadNodeLifecycle(t *testing.T) {
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		Mode:          types.ModeRead,
+		PipelineStage: types.StageExplore,
+		Mutable:       types.NewMutableState("read status skipped lifecycle"),
+	}
+	var events []render.Event
+	o.SetEmitter(func(ev render.Event) {
+		events = append(events, ev)
+	})
+	now := time.Now()
+	for _, kind := range []types.TaskNodeType{types.NodeEvidence, types.NodeProbe} {
+		start := render.Event{
+			Kind:        render.EventTaskNodeStart,
+			Timestamp:   now,
+			NodeID:      "skip-" + string(kind),
+			NodeKind:    string(kind),
+			NodeSkipped: true,
+		}
+		end := render.Event{
+			Kind:        render.EventTaskNodeEnd,
+			Timestamp:   now.Add(time.Millisecond),
+			NodeID:      "skip-" + string(kind),
+			NodeKind:    string(kind),
+			NodeSkipped: true,
+		}
+		o.emit(start)
+		o.emit(end)
+	}
+	if len(events) != 0 {
+		t.Fatalf("skipped read node lifecycle is internal DAG bookkeeping and should not render, got %d: %+v", len(events), events)
+	}
+	o.emit(render.Event{
+		Kind:        render.EventTaskNodeEnd,
+		Timestamp:   now,
+		NodeID:      "skip-reconcile",
+		NodeKind:    string(types.NodeReconcile),
+		NodeSkipped: true,
+	})
+	if len(events) != 1 {
+		t.Fatalf("skipped reconcile terminal event should remain structurally observable, got %d: %+v", len(events), events)
+	}
+}
+
 func TestReadStatusDebounceCoalescesReadFamilyRestartAfterSuccessfulEnd(t *testing.T) {
 	o := New(types.PipelineSettings{}, nil, nil, nil)
 	o.busCtx = &types.BusContext{

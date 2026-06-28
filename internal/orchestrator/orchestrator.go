@@ -5072,7 +5072,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				o.recordAcceptedClosureValidationBoundaries(window, env, "pre_dispatch_auto_complete")
 				for _, n := range window {
 					state.markRunning(n.ID)
-					o.emitNodeStart(n.ID)
+					o.emitNodeStartSkipped(n.ID)
 					state.markDone(n.ID)
 					o.emitNodeEnd(n.ID, true, "skipped: accepted investigation closure")
 				}
@@ -7669,6 +7669,14 @@ func (o *Orchestrator) emitAnalysisReady() {
 // at every state.markRunning / markDone / markFailed / requeue site
 // so the renderer's row state stays in lockstep with the scheduler.
 func (o *Orchestrator) emitNodeStart(id string) {
+	o.emitNodeStartEvent(id, false)
+}
+
+func (o *Orchestrator) emitNodeStartSkipped(id string) {
+	o.emitNodeStartEvent(id, true)
+}
+
+func (o *Orchestrator) emitNodeStartEvent(id string, skipped bool) {
 	if id == "" || o.busCtx == nil || o.busCtx.AnalysisIR == nil {
 		return
 	}
@@ -7682,6 +7690,7 @@ func (o *Orchestrator) emitNodeStart(id string) {
 		NodeID:        id,
 		NodeKind:      string(n.Type),
 		NodeObjective: n.Objective,
+		NodeSkipped:   skipped,
 	})
 }
 

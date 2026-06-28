@@ -63,13 +63,14 @@ type TierBItem struct {
 // (used for items the design says are Tier B but should always render
 // — rare; reserved as an escape hatch).
 type AppliesToFilter struct {
-	Always           bool                     `json:"always,omitempty" yaml:"always,omitempty"`
-	PrincipalKinds   []types.AnswerBlockKind  `json:"principal_kinds,omitempty" yaml:"principal_kinds,omitempty"`
-	Intents          []types.Intent           `json:"intents,omitempty" yaml:"intents,omitempty"`
-	RequiresDiagram  bool                     `json:"requires_diagram,omitempty" yaml:"requires_diagram,omitempty"`
-	RequiresLog      bool                     `json:"requires_log,omitempty" yaml:"requires_log,omitempty"`
-	RequiresBuckets  bool                     `json:"requires_buckets,omitempty" yaml:"requires_buckets,omitempty"`
-	AbsenceContract  bool                     `json:"absence_contract,omitempty" yaml:"absence_contract,omitempty"`
+	Always          bool                    `json:"always,omitempty" yaml:"always,omitempty"`
+	PrincipalKinds  []types.AnswerBlockKind `json:"principal_kinds,omitempty" yaml:"principal_kinds,omitempty"`
+	Intents         []types.Intent          `json:"intents,omitempty" yaml:"intents,omitempty"`
+	RequiresDiagram bool                    `json:"requires_diagram,omitempty" yaml:"requires_diagram,omitempty"`
+	RequiresLog     bool                    `json:"requires_log,omitempty" yaml:"requires_log,omitempty"`
+	RequiresTrace   bool                    `json:"requires_trace,omitempty" yaml:"requires_trace,omitempty"`
+	RequiresBuckets bool                    `json:"requires_buckets,omitempty" yaml:"requires_buckets,omitempty"`
+	AbsenceContract bool                    `json:"absence_contract,omitempty" yaml:"absence_contract,omitempty"`
 }
 
 // AppliesToContext is the runtime projection the renderer reads to
@@ -83,6 +84,7 @@ type AppliesToContext struct {
 	Intent          types.Intent
 	HasDiagram      bool
 	HasLog          bool
+	HasTrace        bool
 	HasBuckets      bool
 	IsAbsence       bool
 	RetryViolations []types.ViolationKind
@@ -119,6 +121,9 @@ func (f AppliesToFilter) MatchesAppliesTo(ctx AppliesToContext) bool {
 	if f.RequiresLog && !ctx.HasLog {
 		return false
 	}
+	if f.RequiresTrace && !ctx.HasTrace {
+		return false
+	}
 	if f.RequiresBuckets && !ctx.HasBuckets {
 		return false
 	}
@@ -130,7 +135,7 @@ func (f AppliesToFilter) MatchesAppliesTo(ctx AppliesToContext) bool {
 	if len(f.PrincipalKinds) == 0 && len(f.Intents) == 0 {
 		// All bool gates passed (or were unset and no slice
 		// gates declared) → admit.
-		return f.RequiresDiagram || f.RequiresLog || f.RequiresBuckets || f.AbsenceContract
+		return f.RequiresDiagram || f.RequiresLog || f.RequiresTrace || f.RequiresBuckets || f.AbsenceContract
 	}
 	for _, k := range f.PrincipalKinds {
 		if k == ctx.PrincipalKind {
