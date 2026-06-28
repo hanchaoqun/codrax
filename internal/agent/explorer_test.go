@@ -9747,7 +9747,6 @@ func TestPostCompletionReadySignal_MixedRuntimeCurrentSourceCarrier(t *testing.T
 				Object:          "timeout",
 				Source:          "internal/llm/stream_errors.go",
 				LineStart:       42,
-				Origin:          types.ClaimOriginCurrentRepo,
 				GroundingStatus: types.GroundingGrounded,
 			},
 			{
@@ -9757,7 +9756,6 @@ func TestPostCompletionReadySignal_MixedRuntimeCurrentSourceCarrier(t *testing.T
 				Object:          "classify",
 				Source:          "internal/llm/retryable_error.go",
 				LineStart:       17,
-				Origin:          types.ClaimOriginCurrentRepo,
 				GroundingStatus: types.GroundingGrounded,
 			},
 		},
@@ -9779,6 +9777,184 @@ func TestPostCompletionReadySignal_MixedRuntimeCurrentSourceCarrier(t *testing.T
 	}
 	if !strings.Contains(sig.Hint, "mixed runtime/current-source evidence") {
 		t.Fatalf("hint should expose the typed mixed carrier, got: %s", sig.Hint)
+	}
+}
+
+func TestPostCompletionReadySignal_MixedRuntimeCurrentSourceCarrierFromExploreLanePlan(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+		}},
+		exploreLanePlan: types.ExploreLanePlan{Lanes: []types.ExploreLane{
+			{Origin: types.AnswerEvidenceOriginCurrentSource, Label: "current source"},
+			{Origin: types.AnswerEvidenceOriginRuntimeArtifact, Label: "runtime artifact"},
+		}},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceMechanism,
+				Subject:         "timeout",
+				Predicate:       "classified_by",
+				Object:          "stream error policy",
+				Source:          "internal/llm/stream_errors.go",
+				LineStart:       42,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceRelationship,
+				Subject:         "retry policy",
+				Predicate:       "uses",
+				Object:          "timeout classifier",
+				Source:          "internal/llm/retryable_error.go",
+				LineStart:       17,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "emit_evidence", Success: true, Summary: "accepted current-source anchors"},
+	}
+	sig := eval.postCompletionReadySignal(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		LastToolResult: &results[0],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("typed dual-origin explore lane plan should activate mixed runtime/current-source carrier, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey=%q, want completion-ready", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "mixed runtime/current-source evidence") {
+		t.Fatalf("hint should expose the typed mixed carrier, got: %s", sig.Hint)
+	}
+}
+
+func TestPostCompletionReadySignal_MixedRuntimeCarrierDoesNotRequireEverySubtopicAnchor(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+				SourceQuotes:                        []string{"combine runtime observation with current source"},
+				Confidence:                          0.9,
+			},
+			SubTopics: []types.SubTopic{
+				{Summary: "runtime observation lane"},
+				{Summary: "validation observation lane"},
+				{Summary: "scope boundary lane"},
+			},
+		}},
+		exploreLanePlan: types.ExploreLanePlan{Lanes: []types.ExploreLane{
+			{Origin: types.AnswerEvidenceOriginCurrentSource, Label: "current source"},
+			{Origin: types.AnswerEvidenceOriginRuntimeArtifact, Label: "runtime artifact"},
+		}},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceMechanism,
+				Subject:         "StreamFirstByteTimeoutError",
+				Predicate:       "records",
+				Object:          "first byte timeout",
+				Source:          "internal/llm/stream_errors.go",
+				LineStart:       97,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceRelationship,
+				Subject:         "FilterFinalizerRetryRootViolationsForBus",
+				Predicate:       "drives",
+				Object:          "finalizer retry",
+				Source:          "internal/orchestrator/orchestrator.go",
+				LineStart:       6109,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "emit_evidence", Success: true, Summary: "accepted current-source anchors"},
+	}
+	readiness := eval.completionReadiness(results, -1, false, false)
+	if !readiness.MixedRuntimeSourceCarrier {
+		t.Fatalf("test setup should satisfy mixed runtime/current-source carrier, got %+v", readiness)
+	}
+	if readiness.ExplanationAnchorTotal == 0 || readiness.ExplanationAnchorReady {
+		t.Fatalf("test setup should have an incomplete multi-topic explanation skeleton, got %+v", readiness)
+	}
+	if !readiness.HasEnough {
+		t.Fatalf("mixed runtime/current-source carrier should keep completion readiness advisory-eligible despite incomplete topic anchors, got %+v", readiness)
+	}
+	sig := eval.postCompletionReadySignal(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		LastToolResult: &results[0],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("mixed carrier should fire completion-ready even when optional topic anchors are incomplete, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "mixed runtime/current-source evidence") {
+		t.Fatalf("hint should explain the typed mixed carrier, got: %s", sig.Hint)
+	}
+}
+
+func TestMixedRuntimeCurrentSourceCarrierActiveRequiresDualOriginLanePlan(t *testing.T) {
+	eval := &explorerEvaluator{
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}},
+		exploreLanePlan: types.ExploreLanePlan{Lanes: []types.ExploreLane{
+			{Origin: types.AnswerEvidenceOriginCurrentSource, Label: "current source"},
+		}},
+	}
+	if eval.mixedRuntimeCurrentSourceCarrierActive(eval.analysisIR.RequestModel) {
+		t.Fatal("current-source-only lane plan must not activate mixed runtime/current-source carrier")
+	}
+	eval.exploreLanePlan = types.ExploreLanePlan{Lanes: []types.ExploreLane{
+		{Origin: types.AnswerEvidenceOriginRuntimeArtifact, Label: "runtime artifact"},
+	}}
+	if eval.mixedRuntimeCurrentSourceCarrierActive(eval.analysisIR.RequestModel) {
+		t.Fatal("runtime-only lane plan must not activate mixed runtime/current-source carrier")
+	}
+	eval.exploreLanePlan = types.ExploreLanePlan{Lanes: []types.ExploreLane{
+		{Origin: types.AnswerEvidenceOriginCurrentSource, Label: "current source"},
+		{Origin: types.AnswerEvidenceOriginRuntimeArtifact, Label: "runtime artifact"},
+	}}
+	if !eval.mixedRuntimeCurrentSourceCarrierActive(eval.analysisIR.RequestModel) {
+		t.Fatal("dual-origin lane plan should activate mixed runtime/current-source carrier")
+	}
+}
+
+func TestMixedRuntimeCurrentSourceCarrierOriginHonorsAuthorityZeroValue(t *testing.T) {
+	base := types.EvidenceItem{
+		Kind:            types.EvidenceMechanism,
+		AnchorKind:      types.AnchorDefinition,
+		Source:          "internal/llm/openai.go",
+		LineStart:       634,
+		GroundingStatus: types.GroundingGrounded,
+	}
+	for _, origin := range []types.ClaimOrigin{
+		types.ClaimOriginUnknown,
+		types.ClaimOriginCurrentRepo,
+		types.ClaimOriginCrossSource,
+	} {
+		ev := base
+		ev.Origin = origin
+		if !mixedRuntimeCurrentSourceEvidenceCarrier(ev) {
+			t.Fatalf("origin %q should be current-source eligible for mixed runtime/current-source carrier", origin)
+		}
+	}
+	for _, origin := range []types.ClaimOrigin{
+		types.ClaimOriginLog,
+		types.ClaimOriginPerf,
+	} {
+		ev := base
+		ev.Origin = origin
+		if mixedRuntimeCurrentSourceEvidenceCarrier(ev) {
+			t.Fatalf("artifact-only origin %q must not count as current-source carrier", origin)
+		}
 	}
 }
 

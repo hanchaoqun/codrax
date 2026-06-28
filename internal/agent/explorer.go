@@ -6903,7 +6903,7 @@ func (e *explorerEvaluator) mixedRuntimeCurrentSourceLandingSurfaceActive() bool
 	if e == nil || e.analysisIR == nil {
 		return false
 	}
-	return types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(e.analysisIR.RequestModel)
+	return e.mixedRuntimeCurrentSourceCarrierActive(e.analysisIR.RequestModel)
 }
 
 func (e *explorerEvaluator) sourceInventoryLensSurfaceActive(ctx *types.AgentContext) bool {
@@ -7858,7 +7858,7 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 			explanationAnchorTotal = len(e.analysisIR.RequestModel.SubTopics)
 			explanationAnchorReady = explanationAnchorTotal == 0
 		}
-		if !explanationAnchorReady {
+		if !explanationAnchorReady && !mixedRuntimeSourceCarrier {
 			hasEnough = false
 		}
 	}
@@ -7877,7 +7877,7 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 		evidenceQuality,
 		len(e.ermRequirements) > 0,
 		ermSatisfied,
-		explanationAnchorTotal > 0,
+		explanationAnchorTotal > 0 && !mixedRuntimeSourceCarrier,
 		explanationAnchorReady,
 		authoritativeClosure,
 	)
@@ -8019,10 +8019,12 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	}
 	readiness := e.completionReadiness(obs.AllToolResults, -1, false, false)
 	if !readiness.HasEnough {
+		e.logCompletionReadySkip("not_enough", readiness, false)
 		return LoopSignal{}
 	}
 	scalarLocateReady := e.scalarRoleLocateClosureReady()
 	if !e.completionReadinessHasAnswerCarrier(readiness, scalarLocateReady) {
+		e.logCompletionReadySkip("no_answer_carrier", readiness, scalarLocateReady)
 		return LoopSignal{}
 	}
 	if gap := e.sourceInventoryCandidateUniverseCoverageGap(); gap.Blocking {
@@ -8088,6 +8090,39 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func (e *explorerEvaluator) logCompletionReadySkip(reason string, readiness explorerCompletionReadiness, scalarLocateReady bool) {
+	if e == nil {
+		return
+	}
+	logging.Debug("[explorer] completion_ready_skip reason=%s phase=%d tool_sources=%d read_count=%d direct=%d/%d req_carriers=%d/%d mixed_runtime_source=%t narrative=%t authoritative=%t scalar_locate=%t anchors=%d/%d anchor_ready=%t trace_endpoints=%d/%d trace_missing=%q ready_faces=%q missing_faces=%q coverage=%.2f scope=%d/%d discovered=%d relevant_read=%d",
+		reason,
+		e.phase,
+		readiness.ToolSources,
+		readiness.ReadCount,
+		readiness.DirectCount,
+		readiness.MinDirectCount,
+		readiness.RequirementCarrierCount,
+		readiness.MinRequirementCarrier,
+		readiness.MixedRuntimeSourceCarrier,
+		readiness.NarrativeCarrier,
+		readiness.AuthoritativeClosure,
+		scalarLocateReady,
+		readiness.ExplanationAnchorCovered,
+		readiness.ExplanationAnchorTotal,
+		readiness.ExplanationAnchorReady,
+		readiness.TraceEndpointCovered,
+		readiness.TraceEndpointTotal,
+		readiness.TraceEndpointMissing,
+		readiness.ReadyFaces,
+		readiness.MissingFaces,
+		readiness.Coverage,
+		readiness.ScopeReadCount,
+		readiness.ScopeTotalCount,
+		readiness.DiscoveredCount,
+		readiness.RelevantRead,
+	)
 }
 
 func (e *explorerEvaluator) sourceInventoryCandidateUniverseCoverageGap() tool.SourceInventoryCandidateUniverseGap {
@@ -8328,9 +8363,7 @@ func (e *explorerEvaluator) mixedRuntimeCurrentSourceCarrierReady() bool {
 		return false
 	}
 	rm := e.analysisIR.RequestModel
-	if !types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) ||
-		!e.mixedRuntimeCurrentSourceRuntimeLanePresent(rm) ||
-		types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+	if !e.mixedRuntimeCurrentSourceCarrierActive(rm) {
 		return false
 	}
 	requiredCurrentAnchors := types.MixedRuntimeCurrentSourceRequiredFileHintCoverageMax
@@ -8354,6 +8387,33 @@ func (e *explorerEvaluator) mixedRuntimeCurrentSourceCarrierReady() bool {
 	return false
 }
 
+func (e *explorerEvaluator) mixedRuntimeCurrentSourceCarrierActive(rm types.RequestModel) bool {
+	if types.SourceInventoryRequiredFileCoverageShape(rm) ||
+		types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+		return false
+	}
+	if e != nil && types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) && e.mixedRuntimeCurrentSourceRuntimeLanePresent(rm) {
+		return true
+	}
+	if e == nil || e.exploreLanePlan.Empty() {
+		return false
+	}
+	return exploreLanePlanHasOrigin(e.exploreLanePlan, types.AnswerEvidenceOriginCurrentSource) &&
+		exploreLanePlanHasOrigin(e.exploreLanePlan, types.AnswerEvidenceOriginRuntimeArtifact)
+}
+
+func exploreLanePlanHasOrigin(plan types.ExploreLanePlan, want types.AnswerEvidenceOrigin) bool {
+	if want == types.AnswerEvidenceOriginUnknown || !want.IsValid() {
+		return false
+	}
+	for _, lane := range plan.Lanes {
+		if lane.Origin == want {
+			return true
+		}
+	}
+	return false
+}
+
 func (e *explorerEvaluator) mixedRuntimeCurrentSourceRuntimeLanePresent(rm types.RequestModel) bool {
 	if rm.HasExternalOnlyRuntimeArtifact() ||
 		rm.HasExternalObservationArtifactReference() ||
@@ -8364,12 +8424,19 @@ func (e *explorerEvaluator) mixedRuntimeCurrentSourceRuntimeLanePresent(rm types
 }
 
 func mixedRuntimeCurrentSourceEvidenceCarrier(ev types.EvidenceItem) bool {
-	switch ev.Origin {
-	case types.ClaimOriginCurrentRepo, types.ClaimOriginCrossSource:
-	default:
+	if !mixedRuntimeCurrentSourceCarrierOrigin(ev.Origin) {
 		return false
 	}
 	return narrativeClosureEvidenceCarrier(ev)
+}
+
+func mixedRuntimeCurrentSourceCarrierOrigin(origin types.ClaimOrigin) bool {
+	switch origin {
+	case types.ClaimOriginUnknown, types.ClaimOriginCurrentRepo, types.ClaimOriginCrossSource:
+		return true
+	default:
+		return false
+	}
 }
 
 func narrativeClosureEvidenceCarrier(ev types.EvidenceItem) bool {
@@ -12845,7 +12912,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			} else {
 				out.RetryHint = fmt.Sprintf("Previous attempt collected %d [DIRECT]/[REGISTRATION] evidence entries, but this answer shape needs ≥%d. Read more files and extract structured evidence with [DIRECT], [REGISTRATION], [CONDITIONAL] tags.", readiness.DirectCount, readiness.MinDirectCount)
 			}
-		} else if !readiness.ExplanationAnchorReady {
+		} else if !readiness.ExplanationAnchorReady && !readiness.MixedRuntimeSourceCarrier {
 			hintKey = "explorer.retry.explanation-anchor"
 			out.RetryHint = fmt.Sprintf("Previous attempt covered %d of %d required explanation anchors. Read the missing topic anchors and emit grounded evidence for each before completing.", readiness.ExplanationAnchorCovered, readiness.ExplanationAnchorTotal)
 		} else {
