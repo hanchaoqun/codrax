@@ -2033,14 +2033,22 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryResolvedRequi
 	}
 }
 
-func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryPreciseObservedGapBlocksResolved(t *testing.T) {
+func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryPreciseObservedGapProjectsLandingRepair(t *testing.T) {
 	first := sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6)
 	first.SurfaceTerms = []string{"foreign func", "foreign func native_add"}
 	second := sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6)
 	second.SurfaceTerms = []string{"foreign func", "foreign func native_add"}
 	bus := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{first, second}, nil)
 	obs := types.SourceInventoryObservationFromMutable(bus.Mutable)
+	obs.Complete = true
+	obs.AdvisoryOnly = false
 	obs.Provenance = append(obs.Provenance, "repo_lens:tool_query")
+	obs.Execution = &types.SourceInventoryExecutionState{Budgeted: true}
+	for i := range obs.Sets {
+		obs.Sets[i].Complete = true
+		obs.Sets[i].Count = len(obs.Sets[i].Members)
+		obs.Sets[i].Total = len(obs.Sets[i].Members)
+	}
 	bus.Mutable.SetSourceInventoryObservation(obs)
 	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
 		ID:              "ev-native-add-fixture",
@@ -2059,10 +2067,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryPreciseObserv
 		GroundingStatus: types.GroundingGrounded,
 		GroundingTier:   types.TierLineText,
 	}})
-	bus.AnalysisIR.RequestModel.Intent = types.IntentExplain
-	bus.AnalysisIR.RequestModel.Scenario = types.ScenarioArchitectureExplain
-	bus.AnalysisIR.RequestModel.Complexity = types.ComplexityComplex
-	bus.AnalysisIR.RequestModel.Predicates.IsCrossComponent = true
+	bus.AnalysisIR.RequestModel.CompletenessObligation = &types.CompletenessObligation{Required: true, SourceQuote: "all foreign func declarations"}
 	bus.AnalysisIR.AnswerContract = types.AnswerContract{CitationReq: types.CitationReq{Required: false}}
 
 	facts := []types.AnswerAggregateFact{{
@@ -2086,28 +2091,28 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryPreciseObserv
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
+	if strings.Contains(res.Summary, "source-inventory principal row-set is partially covered") {
+		t.Fatalf("precise row-set landing repair should avoid a model retry:\n%s", res.Summary)
+	}
+	if !bus.Mutable.IsInvestigationComplete() {
+		t.Fatalf("precise observed source-inventory omission should be repaired locally, summary:\n%s", res.Summary)
+	}
+	if repairs := bus.Mutable.EvidenceClosure().PendingRepairs(); len(repairs) != 0 {
+		t.Fatalf("local landing repair should not queue model handoff repair, got %+v", repairs)
+	}
+	stable := bus.Mutable.StableInvestigationAggregateFacts()
+	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(stable, &bus.AnalysisIR.RequestModel)
+	if len(refs) != 1 || refs[0].Fact.Provenance != types.SourceInventoryPrincipalRowSetAggregateProvenance {
+		t.Fatalf("stable aggregate facts should carry one system-projected source_inventory row-set, got %+v", stable)
+	}
+	gotRefs := strings.Join(refs[0].Fact.SupportRefs, "\n")
 	for _, want := range []string{
-		"source-inventory principal row-set is partially covered",
-		"surface_family:foreign func",
-		"07_foreign_ffi.cj",
+		"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
 	} {
-		if !strings.Contains(res.Summary, want) {
-			t.Fatalf("precise source-inventory coverage downgrade missing %q:\n%s", want, res.Summary)
+		if !strings.Contains(gotRefs, want) {
+			t.Fatalf("projected support_refs missing %q, got %+v", want, refs[0].Fact.SupportRefs)
 		}
-	}
-	if bus.Mutable.IsInvestigationComplete() {
-		t.Fatal("precise observed source-inventory omission must keep investigation open for local handoff repair")
-	}
-	repairs := bus.Mutable.EvidenceClosure().PendingRepairs()
-	if len(repairs) == 0 {
-		t.Fatal("expected structured handoff repair for precise row-set omission")
-	}
-	last := repairs[len(repairs)-1]
-	if last.Kind != types.RepairStructuredHandoff ||
-		last.Origin != "pre_complete.source_inventory_precise_coverage" ||
-		len(last.Tools) != 1 ||
-		last.Tools[0] != "emit_investigation_complete" {
-		t.Fatalf("unexpected precise coverage repair: %+v", last)
 	}
 }
 

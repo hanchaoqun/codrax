@@ -1504,6 +1504,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	aggregateFacts = sourceInventoryPrincipalRowSetLandingFacts(ctx, aggregateFacts)
 	// has_per_member_table completion obligation (2026-06-12
 	// sequence-table forensics): the analyzer-declared typed shape
 	// makes the bounded member set part of the answer, so a resolved
@@ -3039,8 +3040,22 @@ func effectiveCompletionAggregateFactsForValidation(ctx *types.BusContext, curre
 	if ctx != nil && ctx.AnalysisIR != nil {
 		effective = types.NormalizeAggregateFactRolesForRequest(effective, &ctx.AnalysisIR.RequestModel)
 	}
+	effective = sourceInventoryPrincipalRowSetLandingFacts(ctx, effective)
 	effective = normalizeAggregateFactsForTypedExclusion(ctx, effective)
 	return effective
+}
+
+func sourceInventoryPrincipalRowSetLandingFacts(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFact {
+	facts = cloneCompletionAggregateFacts(facts)
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return facts
+	}
+	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	return types.ProjectSourceInventoryPrincipalRowSetAggregateFacts(
+		facts,
+		observation,
+		ctx.AnalysisIR.RequestModel,
+	)
 }
 
 func cloneCompletionAggregateFacts(in []types.AnswerAggregateFact) []types.AnswerAggregateFact {
