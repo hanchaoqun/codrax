@@ -410,6 +410,9 @@ func normalizeHarmonyPriorityClaims(b *types.PerfBundle, ctx *types.BusContext, 
 		return
 	}
 	summary := "Harmony priority class normalized from raw prio fields: " + strings.Join(classes, ", ") + ". Rule: 数值越大优先级越高; 1-40=CFS, 41-139=RT."
+	if harmonyPriorityTextContradicts(b.Meta.Summary) {
+		b.Meta.Summary = summary
+	}
 	for i := range b.Observations {
 		obs := &b.Observations[i]
 		if obs.Kind == "priority_semantics" || obs.Kind == "time_semantics" {
@@ -420,6 +423,7 @@ func normalizeHarmonyPriorityClaims(b *types.PerfBundle, ctx *types.BusContext, 
 			continue
 		}
 		obs.Kind = "priority_semantics_normalized"
+		obs.Subject = "HarmonyOS priority semantics"
 		obs.Summary = summary
 		obs.Evidence = "system-normalized conflicting model-authored priority class label; raw event timing remains available in adjacent observations"
 		if obs.LineStart == 0 {

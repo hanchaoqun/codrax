@@ -200,7 +200,7 @@ func TestEmitPerfTrace_Execute_NormalizesConflictingHarmonyPriorityObservation(t
 		}, "\n"),
 	}
 	params, err := json.Marshal(emitPerfTraceParams{
-		Meta: emitPerfTraceMeta{Source: "hitrace", Summary: "scheduler sample"},
+		Meta: emitPerfTraceMeta{Source: "hitrace", Summary: "ACCS0与Binder均为CFS普通优先级prio=120"},
 		Observations: []emitPerfTraceObservation{{
 			Kind:       "scheduler",
 			Subject:    "Priority semantics: HarmonyOS CFS",
@@ -231,12 +231,21 @@ func TestEmitPerfTrace_Execute_NormalizesConflictingHarmonyPriorityObservation(t
 	if normalized.Kind != "priority_semantics_normalized" {
 		t.Fatalf("conflicting priority observation was not normalized: %+v", bundle.Observations)
 	}
+	if normalized.Subject != "HarmonyOS priority semantics" {
+		t.Fatalf("normalized subject retained model-authored class label: %q", normalized.Subject)
+	}
 	if strings.Contains(strings.ToLower(normalized.Summary), "nice=0") || strings.Contains(strings.ToLower(normalized.Summary), "cfs baseline") {
 		t.Fatalf("normalized summary retained conflicting prose: %q", normalized.Summary)
+	}
+	if strings.Contains(strings.ToLower(bundle.Meta.Summary), "cfs baseline") || strings.Contains(strings.ToLower(bundle.Meta.Summary), "120位于cfs") {
+		t.Fatalf("meta summary retained conflicting priority prose: %q", bundle.Meta.Summary)
 	}
 	for _, want := range []string{"prio=98/ohos_rt", "prio=120/ohos_rt", "prio=124/ohos_rt", "1-40=CFS", "41-139=RT"} {
 		if !strings.Contains(normalized.Summary, want) {
 			t.Fatalf("normalized summary missing %q: %q", want, normalized.Summary)
 		}
+	}
+	if !strings.Contains(bundle.Meta.Summary, "41-139=RT") {
+		t.Fatalf("meta summary was not normalized to Harmony priority rule: %q", bundle.Meta.Summary)
 	}
 }

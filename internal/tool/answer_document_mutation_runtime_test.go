@@ -49,6 +49,76 @@ func TestApplyAndPersistMutation_ReplaceAllPersistsDocAndClearsPatchFlag(t *test
 	}
 }
 
+func TestApplyAndPersistMutation_NormalizesHarmonyPriorityClassSurface(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.Mutable.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace"},
+		Observations: []types.PerfObservation{{
+			Kind:    "priority_semantics_normalized",
+			Summary: "Harmony priority class normalized from raw prio fields: prio=98/ohos_rt, prio=120/ohos_rt. Rule: 数值越大优先级越高; 1-40=CFS, 41-139=RT.",
+			Tags:    []string{"harmony_priority_normalized", "prio=98/ohos_rt", "prio=120/ohos_rt"},
+		}},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "Harmony priority semantics: 数值越大优先级越高; 1-40=CFS, 41-139=RT. Observed classes: prio=98/ohos_rt, prio=120/ohos_rt. rcu_preempt 处于 CFS 类（prio=98）。窗口内观察到 prio=98（CFS，rcu_preempt）。prio=98 落入 CFS 1–40 波段。",
+		}, {
+			ID:          "prio",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:    "p98",
+				Label: "prio=98/ohos_rt (rcu_preempt)",
+				Text:  "规则为 1-40=CFS、41-139=RT；rcu_preempt 线程在 CPU0 上运行，属于 CFS 区间（1-40）。",
+			}, {
+				ID:    "p120",
+				Label: "prio=120/ohos_rt (ACCS0)",
+				Text:  "ACCS0 线程处于 RT 区间（41-139）。",
+			}},
+		}, {
+			ID:   "table",
+			Kind: types.BlockTable,
+			Text: "| 线程 | 优先级值 | 调度类 |\n|---|---|---|\n| rcu_preempt | prio=98/ohos_cfs | ohos_cfs（CFS） |",
+		}},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected mutation success, got %+v", res)
+	}
+	stored := bus.Mutable.AnswerDocumentV2()
+	if stored == nil || len(stored.Blocks) < 2 || len(stored.Blocks[1].Items) < 2 {
+		t.Fatalf("stored answer missing priority rows: %+v", stored)
+	}
+	if got := stored.Blocks[1].Items[0].Text; !strings.Contains(got, "属于 RT 区间（41-139）") || strings.Contains(got, "属于 CFS 区间（1-40）") {
+		t.Fatalf("prio=98/ohos_rt row was not normalized from typed class: %q", got)
+	}
+	if got := stored.Blocks[0].Text; !strings.Contains(got, "1-40=CFS, 41-139=RT") {
+		t.Fatalf("rule text should not be rewritten: %q", got)
+	}
+	if got := stored.Blocks[0].Text; !strings.Contains(got, "处于 RT 类（prio=98）") || strings.Contains(got, "处于 CFS 类（prio=98）") {
+		t.Fatalf("bare prio=98 summary class should be normalized from typed map while preserving rule text: %q", got)
+	}
+	if got := stored.Blocks[0].Text; !strings.Contains(got, "prio=98（RT，rcu_preempt）") || strings.Contains(got, "prio=98（CFS，rcu_preempt）") {
+		t.Fatalf("paren class after bare prio should be normalized from typed map: %q", got)
+	}
+	if got := stored.Blocks[0].Text; !strings.Contains(got, "prio=98 落入 RT 41-139 波段") || strings.Contains(got, "prio=98 落入 CFS 1–40 波段") {
+		t.Fatalf("class/range phrase after bare prio should be normalized from typed map: %q", got)
+	}
+	if got := stored.Blocks[1].Items[1].Text; !strings.Contains(got, "RT 区间（41-139）") {
+		t.Fatalf("already-correct row should be preserved: %q", got)
+	}
+	if got := stored.Blocks[2].Text; !strings.Contains(got, "prio=98/ohos_rt") || !strings.Contains(got, "ohos_rt（RT）") || strings.Contains(got, "ohos_cfs") {
+		t.Fatalf("table row should be normalized from typed priority map: %q", got)
+	}
+}
+
 func TestApplyAndPersistMutation_StampsReadOwnerAnchorsFromTurnA(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{

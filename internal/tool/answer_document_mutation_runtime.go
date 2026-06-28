@@ -2,6 +2,7 @@ package tool
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -154,6 +155,9 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTracePerfQualityBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace perf quality block from structured observation notes", toolName)
 	}
+	if fixed := normalizeHarmonyPriorityAnswerSurface(merged, ctx); fixed > 0 {
+		logging.Warning("[%s] repaired %d Harmony priority class surface(s) from typed prio/class facts", toolName, fixed)
+	}
 	if materializeRuntimeTraceObservationBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace observation block from structured perf facts", toolName)
 	}
@@ -169,6 +173,9 @@ func persistMergedAnswerDocument(
 	}
 	if stampReadReasoningGraph(ctx, merged) {
 		logging.Info("[%s] stamped read reasoning graph summary from typed read artifacts", toolName)
+	}
+	if fixed := normalizeHarmonyPriorityAnswerSurface(merged, ctx); fixed > 0 {
+		logging.Warning("[%s] repaired %d late Harmony priority class surface(s) from typed prio/class facts", toolName, fixed)
 	}
 	if deduped := dedupeVisibleAnswerBlocks(merged); deduped > 0 {
 		logging.Warning("[%s] dropped %d duplicate visible answer block(s) before persist", toolName, deduped)
@@ -1345,6 +1352,309 @@ func runtimeTraceObservationLabel(obs types.PerfObservation) string {
 		return "优先级归一化"
 	default:
 		return ""
+	}
+}
+
+var runtimeHarmonyPrioClassRE = regexp.MustCompile(`prio=([0-9]+)/(ohos_(?:rt|cfs))`)
+
+func normalizeHarmonyPriorityAnswerSurface(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || !runtimeAnswerHasHarmonyPriorityAuthority(ctx) {
+		return 0
+	}
+	classMap := runtimeHarmonyPriorityClassMap(ctx)
+	fixed := 0
+	for i := range doc.Blocks {
+		fixed += normalizeHarmonyPriorityString(&doc.Blocks[i].Title, "", classMap)
+		fixed += normalizeHarmonyPriorityString(&doc.Blocks[i].Text, "", classMap)
+		for j := range doc.Blocks[i].Items {
+			item := &doc.Blocks[i].Items[j]
+			authoritySurface := strings.Join([]string{item.Label, item.Text, strings.Join(item.Cells, " ")}, " ")
+			fixed += normalizeHarmonyPriorityString(&item.Text, authoritySurface, classMap)
+			for k := range item.Cells {
+				fixed += normalizeHarmonyPriorityString(&item.Cells[k], authoritySurface, classMap)
+			}
+		}
+	}
+	for i := range doc.Caveats {
+		fixed += normalizeHarmonyPriorityString(&doc.Caveats[i], "", classMap)
+	}
+	return fixed
+}
+
+func runtimeAnswerHasHarmonyPriorityAuthority(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	perf := ctx.Mutable.PerfTrace()
+	if perf == nil || !runtimePerfTraceSourceIsHarmony(perf.Meta.Source) {
+		return false
+	}
+	for _, obs := range perf.Observations {
+		switch strings.TrimSpace(obs.Kind) {
+		case "priority_semantics", "priority_semantics_normalized":
+			return true
+		}
+		for _, tag := range obs.Tags {
+			switch strings.TrimSpace(tag) {
+			case "harmony_priority", "harmony_priority_normalized":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func runtimeHarmonyPriorityClassMap(ctx *types.BusContext) map[int]string {
+	out := map[int]string{}
+	if ctx == nil || ctx.Mutable == nil {
+		return out
+	}
+	perf := ctx.Mutable.PerfTrace()
+	if perf == nil {
+		return out
+	}
+	addSurface := func(surface string) {
+		for _, match := range runtimeHarmonyPrioClassRE.FindAllStringSubmatch(surface, -1) {
+			if len(match) < 3 {
+				continue
+			}
+			prio, err := strconv.Atoi(match[1])
+			if err != nil || prio <= 0 {
+				continue
+			}
+			out[prio] = match[2]
+		}
+	}
+	for _, obs := range perf.Observations {
+		if obs.Kind == "priority_semantics" || obs.Kind == "priority_semantics_normalized" {
+			addSurface(strings.Join([]string{obs.Subject, obs.Summary, obs.Evidence, strings.Join(obs.Tags, " ")}, " "))
+			continue
+		}
+		for _, tag := range obs.Tags {
+			if tag == "harmony_priority" || tag == "harmony_priority_normalized" {
+				addSurface(strings.Join([]string{obs.Subject, obs.Summary, obs.Evidence, strings.Join(obs.Tags, " ")}, " "))
+				break
+			}
+		}
+	}
+	return out
+}
+
+func runtimePerfTraceSourceIsHarmony(source string) bool {
+	switch strings.TrimSpace(source) {
+	case "hitrace", "harmony_hitrace":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeHarmonyPriorityString(s *string, authoritySurface string, classMap map[int]string) int {
+	if s == nil || strings.TrimSpace(*s) == "" {
+		return 0
+	}
+	class, ok := uniqueHarmonyPriorityClass(strings.Join([]string{authoritySurface, *s}, " "), classMap)
+	if !ok {
+		return 0
+	}
+	hasPriorityAuthority := hasHarmonyPriorityClassSurface(authoritySurface, classMap) || hasHarmonyPriorityClassSurface(*s, classMap)
+	lines := strings.Split(*s, "\n")
+	fixed := 0
+	for i, line := range lines {
+		if line == "" || (harmonyPriorityLineIsRule(line) && !hasPriorityAuthority) {
+			continue
+		}
+		before := line
+		lines[i] = normalizeHarmonyPriorityLine(line, class, classMap)
+		if lines[i] != before {
+			fixed++
+		}
+	}
+	if fixed > 0 {
+		*s = strings.Join(lines, "\n")
+	}
+	return fixed
+}
+
+func uniqueHarmonyPriorityClass(surface string, classMap map[int]string) (string, bool) {
+	classes := harmonyPriorityClassesInSurface(surface, classMap)
+	if len(classes) == 0 {
+		return "", false
+	}
+	class := ""
+	for candidate := range classes {
+		if class == "" {
+			class = candidate
+			continue
+		}
+		if class != candidate {
+			return "", false
+		}
+	}
+	return class, true
+}
+
+func hasHarmonyPriorityClassSurface(surface string, classMap map[int]string) bool {
+	return len(harmonyPriorityClassesInSurface(surface, classMap)) > 0
+}
+
+func harmonyPriorityClassesInSurface(surface string, classMap map[int]string) map[string]bool {
+	out := map[string]bool{}
+	matches := runtimeHarmonyPrioClassRE.FindAllStringSubmatch(surface, -1)
+	for _, match := range matches {
+		if len(match) < 3 {
+			continue
+		}
+		prio, err := strconv.Atoi(match[1])
+		if err == nil && prio > 0 {
+			if class := classMap[prio]; class != "" {
+				out[class] = true
+				continue
+			}
+		}
+		out[match[2]] = true
+	}
+	for _, match := range perfTracePrioTextRE.FindAllStringSubmatch(surface, -1) {
+		if len(match) < 2 {
+			continue
+		}
+		prio, err := strconv.Atoi(match[1])
+		if err != nil || prio <= 0 {
+			continue
+		}
+		if class := classMap[prio]; class != "" {
+			out[class] = true
+		}
+	}
+	return out
+}
+
+func harmonyPriorityLineIsRule(line string) bool {
+	if runtimeHarmonyPrioClassRE.MatchString(line) {
+		return false
+	}
+	lower := strings.ToLower(line)
+	return strings.Contains(lower, "1-40") &&
+		strings.Contains(lower, "41-139") &&
+		strings.Contains(lower, "cfs") &&
+		strings.Contains(lower, "rt")
+}
+
+func normalizeHarmonyPriorityLine(line, class string, classMap map[int]string) string {
+	switch class {
+	case "ohos_rt":
+		line = replaceHarmonyPriorityClassPhrases(line, "CFS", "RT", "1-40", "41-139", classMap)
+	case "ohos_cfs":
+		line = replaceHarmonyPriorityClassPhrases(line, "RT", "CFS", "41-139", "1-40", classMap)
+	}
+	return line
+}
+
+func replaceHarmonyPriorityClassPhrases(line, wrongClass, correctClass, wrongRange, correctRange string, classMap map[int]string) string {
+	replacements := []struct {
+		old string
+		new string
+	}{
+		{"属于 " + wrongClass + " 区间（" + wrongRange + "）", "属于 " + correctClass + " 区间（" + correctRange + "）"},
+		{"属于 " + wrongClass + " 区间(" + wrongRange + ")", "属于 " + correctClass + " 区间(" + correctRange + ")"},
+		{wrongClass + " 区间（" + wrongRange + "）", correctClass + " 区间（" + correctRange + "）"},
+		{wrongClass + " 区间(" + wrongRange + ")", correctClass + " 区间(" + correctRange + ")"},
+		{wrongClass + " range", correctClass + " range"},
+		{"in " + wrongClass, "in " + correctClass},
+	}
+	if correctClass == "RT" {
+		replacements = append(replacements,
+			struct {
+				old string
+				new string
+			}{"处于 CFS 类", "处于 RT 类"},
+			struct {
+				old string
+				new string
+			}{"处于CFS类", "处于RT类"},
+		)
+	}
+	if correctClass == "CFS" {
+		replacements = append(replacements,
+			struct {
+				old string
+				new string
+			}{"处于 RT 类", "处于 CFS 类"},
+			struct {
+				old string
+				new string
+			}{"处于RT类", "处于CFS类"},
+		)
+	}
+	for _, repl := range replacements {
+		line = strings.ReplaceAll(line, repl.old, repl.new)
+	}
+	line = replaceHarmonyPriorityClassNearBarePrio(line, wrongClass, correctClass, classMap)
+	return line
+}
+
+func replaceHarmonyPriorityClassNearBarePrio(line, wrongClass, correctClass string, classMap map[int]string) string {
+	if len(classMap) == 0 {
+		return line
+	}
+	for prio, class := range classMap {
+		want := ""
+		wrongOhos := ""
+		correctOhos := ""
+		switch class {
+		case "ohos_rt":
+			want = "RT"
+			wrongOhos = "ohos_cfs"
+			correctOhos = "ohos_rt"
+		case "ohos_cfs":
+			want = "CFS"
+			wrongOhos = "ohos_rt"
+			correctOhos = "ohos_cfs"
+		default:
+			continue
+		}
+		if want != correctClass {
+			continue
+		}
+		prioText := fmt.Sprintf("prio=%d", prio)
+		line = strings.ReplaceAll(line, prioText+"（"+wrongClass+" 类）", prioText+"（"+correctClass+" 类）")
+		line = strings.ReplaceAll(line, prioText+"("+wrongClass+" 类)", prioText+"("+correctClass+" 类)")
+		line = strings.ReplaceAll(line, prioText+"（"+wrongClass+"类）", prioText+"（"+correctClass+"类）")
+		line = strings.ReplaceAll(line, prioText+"("+wrongClass+"类)", prioText+"("+correctClass+"类)")
+		line = strings.ReplaceAll(line, prioText+"（"+wrongClass+"，", prioText+"（"+correctClass+"，")
+		line = strings.ReplaceAll(line, prioText+"（"+wrongClass+",", prioText+"（"+correctClass+",")
+		line = strings.ReplaceAll(line, prioText+"("+wrongClass+",", prioText+"("+correctClass+",")
+		line = strings.ReplaceAll(line, prioText+"（"+wrongClass+"、", prioText+"（"+correctClass+"、")
+		line = strings.ReplaceAll(line, prioText+"/"+wrongOhos, prioText+"/"+correctOhos)
+		for _, wrongRange := range harmonyPriorityRangeVariants(wrongClass) {
+			for _, correctRange := range harmonyPriorityRangeVariants(correctClass) {
+				line = strings.ReplaceAll(line, wrongClass+" "+wrongRange+" 波段", correctClass+" "+correctRange+" 波段")
+				line = strings.ReplaceAll(line, wrongClass+" "+wrongRange+" 区间", correctClass+" "+correctRange+" 区间")
+				line = strings.ReplaceAll(line, wrongClass+" "+wrongRange+" range", correctClass+" "+correctRange+" range")
+			}
+		}
+		line = strings.ReplaceAll(line, wrongOhos+"（"+wrongClass+"）", correctOhos+"（"+correctClass+"）")
+		line = strings.ReplaceAll(line, wrongOhos+"("+wrongClass+")", correctOhos+"("+correctClass+")")
+		line = strings.ReplaceAll(line, wrongOhos+"（"+wrongClass+"类）", correctOhos+"（"+correctClass+"类）")
+		line = strings.ReplaceAll(line, wrongOhos+"("+wrongClass+"类)", correctOhos+"("+correctClass+"类)")
+		line = strings.ReplaceAll(line, wrongClass+" 类（"+prioText+"）", correctClass+" 类（"+prioText+"）")
+		line = strings.ReplaceAll(line, wrongClass+"类（"+prioText+"）", correctClass+"类（"+prioText+"）")
+		line = strings.ReplaceAll(line, wrongClass+" 类("+prioText+")", correctClass+" 类("+prioText+")")
+		line = strings.ReplaceAll(line, wrongClass+"类("+prioText+")", correctClass+"类("+prioText+")")
+		line = strings.ReplaceAll(line, prioText+" "+wrongClass+" 类", prioText+" "+correctClass+" 类")
+		line = strings.ReplaceAll(line, prioText+" "+wrongClass+"类", prioText+" "+correctClass+"类")
+	}
+	return line
+}
+
+func harmonyPriorityRangeVariants(class string) []string {
+	switch class {
+	case "CFS":
+		return []string{"1-40", "1–40"}
+	case "RT":
+		return []string{"41-139", "41–139"}
+	default:
+		return nil
 	}
 }
 
