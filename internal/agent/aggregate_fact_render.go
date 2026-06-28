@@ -114,8 +114,20 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 	for displayIdx := 0; displayIdx < maxFacts; displayIdx++ {
 		i := order[displayIdx]
 		fact := facts[i]
-		fmt.Fprintf(&b, "- kind=`%s`, label=%s, value=`%s`",
-			fact.Kind, fact.Label, fact.Value)
+		compactMembers := opts.compactMemberSetRows[i] &&
+			fact.Kind == types.AnswerAggregateMemberSet &&
+			types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
+			len(fact.Members) > 0
+		compactShadowed := opts.compactShadowedRows[i] &&
+			fact.Kind == types.AnswerAggregateMemberSet &&
+			types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
+			len(fact.Members) > 0
+		fmt.Fprintf(&b, "- kind=`%s`, label=%s", fact.Kind, fact.Label)
+		if compactShadowed {
+			fmt.Fprintf(&b, ", value_omitted=shadowed_by_authoritative_principal_rows")
+		} else {
+			fmt.Fprintf(&b, ", value=`%s`", fact.Value)
+		}
 		if role := aggregatePromptRoleForFact(i, fact, principalFacts, roleByIndex); role != "" {
 			fmt.Fprintf(&b, ", role=`%s`", role)
 		}
@@ -131,22 +143,12 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		if dims := renderAggregateDimensions(fact.Dimensions); dims != "" {
 			fmt.Fprintf(&b, ", dimensions=[%s]", dims)
 		}
-		compactMembers := opts.compactMemberSetRows[i] &&
-			fact.Kind == types.AnswerAggregateMemberSet &&
-			types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
-			len(fact.Members) > 0
-		compactShadowed := opts.compactShadowedRows[i] &&
-			fact.Kind == types.AnswerAggregateMemberSet &&
-			types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
-			len(fact.Members) > 0
-		if compactMembers || compactShadowed {
+		if compactMembers {
 			fmt.Fprintf(&b, ", member_count=%d", len(fact.Members))
-			if compactMembers {
-				fmt.Fprintf(&b, ", members_rendered_in=authoritative_principal_member_rows")
-			}
-			if compactShadowed {
-				fmt.Fprintf(&b, ", members_compacted_due_to=shadowed_by_authoritative_principal_rows")
-			}
+			fmt.Fprintf(&b, ", members_rendered_in=authoritative_principal_member_rows")
+		} else if compactShadowed {
+			fmt.Fprintf(&b, ", shadowed_aggregate=metadata_only")
+			fmt.Fprintf(&b, ", members_omitted=shadowed_by_authoritative_principal_rows")
 		} else {
 			memberLimit := aggregateFactPromptMemberLimit(fact)
 			if members := renderAggregateStringList(fact.Members, memberLimit); members != "" {
@@ -160,9 +162,13 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 				fmt.Fprintf(&b, ", excluded=[%s]", excluded)
 			}
 		}
-		if compactMembers || compactShadowed {
+		if compactMembers {
 			if len(fact.SupportRefs) > 0 {
 				fmt.Fprintf(&b, ", support_ref_count=%d", len(fact.SupportRefs))
+			}
+		} else if compactShadowed {
+			if len(fact.SupportRefs) > 0 {
+				fmt.Fprintf(&b, ", support_refs_omitted=shadowed_by_authoritative_principal_rows")
 			}
 		} else {
 			refLimit := aggregateFactPromptSupportRefLimit(fact)

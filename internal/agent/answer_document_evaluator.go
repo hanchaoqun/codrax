@@ -4960,7 +4960,7 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString("- For `member_set` rows, `role=principal_answer` marks the concrete principal slate. `role=supporting_coverage` / `role=audit_ledger` rows are context or investigation bookkeeping and must not create duplicate principal rows.\n")
 	b.WriteString("- Grounded definition evidence from read files and the requested source scope is the detail/citation authority for those principal members. Aggregate facts organize the slate/counts; they must not cause you to drop richer per-member summaries already present in the evidence pool or typed exploration enrichment rows.\n")
 	if rows != "" {
-		b.WriteString("- Because principal enumeration rows are available, this prompt renders the rich member/citation list exactly once in `Principal Enumeration Rows`; aggregate metadata below keeps counts/dimensions only for those same member sets.\n")
+		b.WriteString("- Because principal enumeration rows are available, this prompt renders the rich member/citation list exactly once in `Principal Enumeration Rows`; aggregate metadata below keeps only non-conflicting audit dimensions. If a supporting aggregate is shadowed by authoritative principal rows, its concrete value/count/member fields are intentionally hidden and must not be reconstructed.\n")
 	}
 	if relationRefs := answerDocPrincipalRelationMemberSetRefs(ctx, plan.StableAggregateFacts); len(relationRefs) > 0 {
 		b.WriteString("- Relation contract: principal relation `member_set` rows answer a qualifying-member lookup. Start from the qualifying member(s) in that typed set, then explain the relation evidence; do not substitute a mechanism-only architecture explanation for the direct member answer.\n")
@@ -4977,7 +4977,7 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	if rows != "" {
 		b.WriteString(rows)
 		b.WriteString("## Aggregate Fact Metadata\n\n")
-		b.WriteString("- Principal member-set bodies are compacted here to avoid a second dry copy of the same rows. Non-member aggregate values remain exact.\n\n")
+		b.WriteString("- Principal member-set bodies are compacted here to avoid a second dry copy of the same rows. Aggregate facts shadowed by an authoritative source-inventory principal row set are audit metadata only: do not use their hidden values, counts, member counts, or support-ref counts as answer payloads. Non-member aggregate values remain exact.\n\n")
 	}
 	b.WriteString(renderStructuredAggregateFactsForContext(ctx, plan.StableAggregateFacts))
 	b.WriteString("\n")

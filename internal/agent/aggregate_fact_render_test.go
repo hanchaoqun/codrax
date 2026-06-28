@@ -323,8 +323,19 @@ func TestRenderStructuredAggregateFactsCompactsShadowedSourceInventoryMemberSets
 		strings.Contains(got, "`runOnMainThread: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:16`") {
 		t.Fatalf("shadowed source-inventory support rows must not leak as prompt members:\n%s", got)
 	}
-	if !strings.Contains(got, "members_compacted_due_to=shadowed_by_authoritative_principal_rows") ||
-		!strings.Contains(got, "support_ref_count=2") {
+	for _, notWant := range []string{
+		"value=`3`",
+		"member_count=2",
+		"support_ref_count=2",
+	} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("shadowed aggregate must not expose competing count metadata %q:\n%s", notWant, got)
+		}
+	}
+	if !strings.Contains(got, "value_omitted=shadowed_by_authoritative_principal_rows") ||
+		!strings.Contains(got, "shadowed_aggregate=metadata_only") ||
+		!strings.Contains(got, "members_omitted=shadowed_by_authoritative_principal_rows") ||
+		!strings.Contains(got, "support_refs_omitted=shadowed_by_authoritative_principal_rows") {
 		t.Fatalf("shadowed aggregate should stay auditable as compact metadata:\n%s", got)
 	}
 	if !strings.Contains(got, "members_rendered_in=authoritative_principal_member_rows") {
