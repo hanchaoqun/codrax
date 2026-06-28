@@ -95,6 +95,52 @@ read_loop_add_proof_consumed=0
 METRICS
 assert_eq "$(eval_convergence_flags "$tmp/convergence-adaptive-loop.metrics" PASS)" "adaptive_loop" "repeated adaptive read loops should be flagged"
 
+cat >"$tmp/convergence-contract-repaired.metrics" <<'METRICS'
+tool_read_file=1
+tool_repo_map=1
+tool_list_files=0
+explorer_iters=6
+explorer_dispatches=1
+semantic_quality_concerns=0
+finalizer_iters=1
+finalizer_rejects=0
+finalizer_rewrites=0
+mermaid_source_repair_applied=0
+answer_contract_violations=2
+answer_contract_strict_violations=2
+answer_contract_first_pass_strict_violations=2
+answer_contract_final_strict_violations=0
+answer_contract_auto_repaired_strict_violations=2
+tool_history_prunes=0
+mixed_origin_autocomplete_blocks=0
+analyze_refine_dispatches=0
+read_loop_add_proof_consumed=0
+METRICS
+assert_eq "$(eval_convergence_flags "$tmp/convergence-contract-repaired.metrics" PASS)" "—" "auto-repaired contract strict findings should not flag final convergence"
+
+cat >"$tmp/convergence-contract-final.metrics" <<'METRICS'
+tool_read_file=1
+tool_repo_map=1
+tool_list_files=0
+explorer_iters=6
+explorer_dispatches=1
+semantic_quality_concerns=0
+finalizer_iters=1
+finalizer_rejects=0
+finalizer_rewrites=0
+mermaid_source_repair_applied=0
+answer_contract_violations=2
+answer_contract_strict_violations=2
+answer_contract_first_pass_strict_violations=2
+answer_contract_final_strict_violations=1
+answer_contract_auto_repaired_strict_violations=1
+tool_history_prunes=0
+mixed_origin_autocomplete_blocks=0
+analyze_refine_dispatches=0
+read_loop_add_proof_consumed=0
+METRICS
+assert_eq "$(eval_convergence_flags "$tmp/convergence-contract-final.metrics" PASS)" "contract_warning" "remaining final contract strict findings should still flag convergence"
+
 metric_row="$(eval_print_efficiency_advisory_row "$tmp/metrics.txt" 1 high_analyzer_dispatches analyzer_dispatches 1 || true)"
 assert_eq "$metric_row" "| 1 | high_analyzer_dispatches | analyzer_dispatches=2 limit=1 |" "metric advisory row"
 assert_eq "$(eval_print_efficiency_advisory_row "$tmp/metrics.txt" 1 high_analyzer_dispatches analyzer_dispatches 2 || true)" "" "metric advisory row under limit"
@@ -394,6 +440,19 @@ assert_eq "$(eval_sum_answer_contract_advisories "$tmp/finalizer-contract-severi
 assert_eq "$(eval_sum_answer_contract_violations_for_section "$tmp/finalizer-contract-severity.log" lane_block_kind)" "0" "answer contract section violations excludes soft advisory"
 assert_eq "$(eval_sum_answer_contract_strict_violations_for_section "$tmp/finalizer-contract-severity.log" lane_block_kind)" "0" "answer contract section strict excludes soft advisory"
 assert_eq "$(eval_sum_answer_contract_advisories_for_section "$tmp/finalizer-contract-severity.log" lane_block_kind)" "2" "answer contract section advisory metric preserves soft audit"
+
+cat >"$tmp/finalizer-contract-phases.log" <<'LOG'
+2026-06-08T00:00:01.000 DEBUG [diag finalizer] phase=answer_contract_check section=v2_block_oracles done elapsed=1ms violations=3 strict_violations=2 soft_violations=1
+2026-06-08T00:00:02.000 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind done elapsed=1ms violations=1 strict_violations=1 soft_violations=0
+2026-06-08T00:00:03.000 DEBUG [diag finalizer] phase=answer_contract_check section=v2_block_oracles done elapsed=1ms violations=1 strict_violations=0 soft_violations=1
+2026-06-08T00:00:04.000 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind done elapsed=1ms violations=0 strict_violations=0 soft_violations=0
+LOG
+assert_eq "$(eval_first_pass_answer_contract_strict_violations "$tmp/finalizer-contract-phases.log")" "3" "answer contract first-pass strict sum"
+assert_eq "$(eval_final_answer_contract_strict_violations "$tmp/finalizer-contract-phases.log")" "0" "answer contract final strict sum"
+assert_eq "$(eval_auto_repaired_answer_contract_strict_violations "$tmp/finalizer-contract-phases.log")" "3" "answer contract auto-repaired strict sum"
+assert_eq "$(eval_first_pass_answer_contract_strict_violations_for_section "$tmp/finalizer-contract-phases.log" lane_block_kind)" "1" "answer contract section first-pass strict"
+assert_eq "$(eval_final_answer_contract_strict_violations_for_section "$tmp/finalizer-contract-phases.log" lane_block_kind)" "0" "answer contract section final strict"
+assert_eq "$(eval_auto_repaired_answer_contract_strict_violations_for_section "$tmp/finalizer-contract-phases.log" lane_block_kind)" "1" "answer contract section auto-repaired strict"
 assert_eq "$(eval_count_agent_iterations "$tmp/finalizer-content-only.log" explorer)" "0" "agent iteration content contamination"
 assert_eq "$(eval_count_agent_dispatches "$tmp/finalizer-content-only.log" explorer)" "0" "agent dispatch content contamination"
 assert_eq "$(eval_count_semantic_quality_dispatches "$tmp/finalizer-content-only.log")" "0" "semantic dispatch content contamination"

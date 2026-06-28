@@ -85,10 +85,16 @@ type finalizerSummary struct {
 	ContractObservations         int            `json:"contract_observations"`
 	StrictContractViolations     int            `json:"strict_contract_violations"`
 	AdvisoryContractViolations   int            `json:"contract_advisories"`
+	FirstPassStrictContracts     int            `json:"first_pass_strict_contract_violations"`
+	FinalStrictContracts         int            `json:"final_strict_contract_violations"`
+	AutoRepairedStrictContracts  int            `json:"auto_repaired_strict_contract_violations"`
 	ContractViolationBySection   map[string]int `json:"contract_violation_by_section,omitempty"`
 	ContractObservationBySection map[string]int `json:"contract_observation_by_section,omitempty"`
 	StrictContractBySection      map[string]int `json:"strict_contract_violation_by_section,omitempty"`
 	AdvisoryContractBySection    map[string]int `json:"contract_advisory_by_section,omitempty"`
+	FirstPassStrictBySection     map[string]int `json:"first_pass_strict_contract_by_section,omitempty"`
+	FinalStrictBySection         map[string]int `json:"final_strict_contract_by_section,omitempty"`
+	AutoRepairedStrictBySection  map[string]int `json:"auto_repaired_strict_contract_by_section,omitempty"`
 	RewriteRenders               int            `json:"rewrite_renders"`
 	ConsistencyRenders           int            `json:"consistency_renders"`
 	RepairPlans                  int            `json:"repair_plans"`
@@ -224,6 +230,9 @@ func collect(paths []string) (report, error) {
 	c.report.Finalizer.ContractObservationBySection = map[string]int{}
 	c.report.Finalizer.StrictContractBySection = map[string]int{}
 	c.report.Finalizer.AdvisoryContractBySection = map[string]int{}
+	c.report.Finalizer.FirstPassStrictBySection = map[string]int{}
+	c.report.Finalizer.FinalStrictBySection = map[string]int{}
+	c.report.Finalizer.AutoRepairedStrictBySection = map[string]int{}
 	c.report.Finalizer.RepairKinds = map[string]int{}
 	c.report.Finalizer.RepairTargets = map[string]int{}
 	c.report.Richness.ByKind = map[string]int{}
@@ -579,7 +588,7 @@ func (c *collector) observeContractCheck(line string, fm *fileMetrics) {
 		return
 	}
 	total, ok := logIntField(line, "violations")
-	if !ok || total <= 0 {
+	if !ok || total < 0 {
 		return
 	}
 	strict, hasStrict := logIntField(line, "strict_violations")
@@ -602,6 +611,10 @@ func (c *collector) observeContractCheck(line string, fm *fileMetrics) {
 		c.report.Finalizer.StrictContractBySection[m[1]] += strict
 		fm.finalizerRejects += strict
 	}
+	if _, ok := c.report.Finalizer.FirstPassStrictBySection[m[1]]; !ok {
+		c.report.Finalizer.FirstPassStrictBySection[m[1]] = strict
+	}
+	c.report.Finalizer.FinalStrictBySection[m[1]] = strict
 	if advisory > 0 {
 		c.report.Finalizer.AdvisoryContractViolations += advisory
 		c.report.Finalizer.AdvisoryContractBySection[m[1]] += advisory
@@ -624,6 +637,7 @@ func logIntField(line string, key string) (int, bool) {
 }
 
 func (c *collector) finalize() {
+	c.finalizeContractPhases()
 	out := make([]fileRetrySnapshot, 0, len(c.files))
 	for _, fm := range c.files {
 		if fm.firstDraftPreviews > 0 && fm.finalizerRejects == 0 && fm.finalizerRewrites == 0 && fm.repairPlans == 0 {
@@ -656,6 +670,23 @@ func (c *collector) finalize() {
 		return out[i].Path < out[j].Path
 	})
 	c.report.FilesByRetryScore = out
+}
+
+func (c *collector) finalizeContractPhases() {
+	if c == nil {
+		return
+	}
+	for section, first := range c.report.Finalizer.FirstPassStrictBySection {
+		final := c.report.Finalizer.FinalStrictBySection[section]
+		c.report.Finalizer.FirstPassStrictContracts += first
+		c.report.Finalizer.FinalStrictContracts += final
+		delta := first - final
+		if delta <= 0 {
+			continue
+		}
+		c.report.Finalizer.AutoRepairedStrictBySection[section] = delta
+		c.report.Finalizer.AutoRepairedStrictContracts += delta
+	}
 }
 
 func parseInts(s string) map[string]int {
@@ -1000,6 +1031,11 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 		rep.Finalizer.AdvisoryContractViolations,
 		rep.Finalizer.ContractObservations,
 	)
+	fmt.Fprintf(w, "- contract phases: first_pass_strict=%d final_strict=%d auto_repaired_strict=%d\n",
+		rep.Finalizer.FirstPassStrictContracts,
+		rep.Finalizer.FinalStrictContracts,
+		rep.Finalizer.AutoRepairedStrictContracts,
+	)
 	fmt.Fprintf(w, "- rewrites: render_lines=%d consistency_lines=%d repair_plans=%d\n",
 		rep.Finalizer.RewriteRenders,
 		rep.Finalizer.ConsistencyRenders,
@@ -1011,6 +1047,9 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 	writeTopMap(w, "Contract advisory sections", rep.Finalizer.AdvisoryContractBySection, 10)
 	writeTopMap(w, "Contract observation sections", rep.Finalizer.ContractObservationBySection, 10)
 	writeTopMap(w, "Strict contract violation sections", rep.Finalizer.StrictContractBySection, 10)
+	writeTopMap(w, "First-pass strict contract sections", rep.Finalizer.FirstPassStrictBySection, 10)
+	writeTopMap(w, "Final strict contract sections", rep.Finalizer.FinalStrictBySection, 10)
+	writeTopMap(w, "Auto-repaired strict contract sections", rep.Finalizer.AutoRepairedStrictBySection, 10)
 
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "## Richness")

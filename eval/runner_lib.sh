@@ -596,7 +596,7 @@ eval_convergence_flags() {
   local metrics="$1"
   local verdict="${2:-UNKNOWN}"
   local read_calls repo_map_calls list_files_calls exp exp_disp sem
-  local fin fin_reject fin_rewrite mermaid_repair answer_contract answer_contract_strict_raw answer_contract_strict
+  local fin fin_reject fin_rewrite mermaid_repair answer_contract answer_contract_strict_raw answer_contract_final_strict_raw answer_contract_strict
   local history_prunes origin_block analyze_refine_dispatches read_loop_add_proof_consumed flags
 
   read_calls="$(eval_metric_int_field "$metrics" tool_read_file)"
@@ -610,8 +610,11 @@ eval_convergence_flags() {
   fin_rewrite="$(eval_metric_int_field "$metrics" finalizer_rewrites)"
   mermaid_repair="$(eval_metric_int_field "$metrics" mermaid_source_repair_applied)"
   answer_contract="$(eval_metric_int_field "$metrics" answer_contract_violations)"
+  answer_contract_final_strict_raw="$(eval_metric_field "$metrics" answer_contract_final_strict_violations)"
   answer_contract_strict_raw="$(eval_metric_field "$metrics" answer_contract_strict_violations)"
-  if [[ -n "$answer_contract_strict_raw" && "$answer_contract_strict_raw" != "-" ]]; then
+  if [[ -n "$answer_contract_final_strict_raw" && "$answer_contract_final_strict_raw" != "-" ]]; then
+    answer_contract_strict="$(eval_metric_int_field "$metrics" answer_contract_final_strict_violations)"
+  elif [[ -n "$answer_contract_strict_raw" && "$answer_contract_strict_raw" != "-" ]]; then
     answer_contract_strict="$(eval_metric_int_field "$metrics" answer_contract_strict_violations)"
   else
     answer_contract_strict="$answer_contract"
@@ -1067,6 +1070,157 @@ eval_sum_answer_contract_strict_violations_for_section() {
   ' "$file"
 }
 
+eval_answer_contract_phase_strict_violations() {
+  local file="$1"
+  local phase="$2"
+  if [[ -z "$file" || ! -f "$file" || -z "$phase" ]]; then
+    echo 0
+    return
+  fi
+  LC_ALL=C awk -v phase="$phase" '
+    function field_value(name,    i, pat, a) {
+      pat = "^" name "=[0-9]+$"
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ pat) {
+          split($i, a, "=")
+          return a[2] + 0
+        }
+      }
+      return -1
+    }
+    function section_value(    i, a) {
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^section=[^[:space:]]+$/) {
+          split($i, a, "=")
+          return a[2]
+        }
+      }
+      return "unknown"
+    }
+    /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ DEBUG \[diag finalizer\][^:]*phase=answer_contract_check / {
+      section = section_value()
+      strict = field_value("strict_violations")
+      if (strict < 0) {
+        strict = field_value("violations")
+      }
+      if (strict < 0) {
+        strict = 0
+      }
+      if (!(section in seen)) {
+        first[section] = strict
+        seen[section] = 1
+      }
+      final[section] = strict
+    }
+    END {
+      sum = 0
+      for (section in seen) {
+        if (phase == "first") {
+          sum += first[section]
+        } else if (phase == "final") {
+          sum += final[section]
+        } else if (phase == "auto_repaired") {
+          delta = first[section] - final[section]
+          if (delta > 0) {
+            sum += delta
+          }
+        }
+      }
+      print sum + 0
+    }
+  ' "$file"
+}
+
+eval_answer_contract_phase_strict_violations_for_section() {
+  local file="$1"
+  local section_filter="$2"
+  local phase="$3"
+  if [[ -z "$file" || ! -f "$file" || -z "$section_filter" || -z "$phase" ]]; then
+    echo 0
+    return
+  fi
+  LC_ALL=C awk -v section_filter="$section_filter" -v phase="$phase" '
+    function field_value(name,    i, pat, a) {
+      pat = "^" name "=[0-9]+$"
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ pat) {
+          split($i, a, "=")
+          return a[2] + 0
+        }
+      }
+      return -1
+    }
+    function section_value(    i, a) {
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^section=[^[:space:]]+$/) {
+          split($i, a, "=")
+          return a[2]
+        }
+      }
+      return "unknown"
+    }
+    /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ DEBUG \[diag finalizer\][^:]*phase=answer_contract_check / {
+      section = section_value()
+      if (section != section_filter) {
+        next
+      }
+      strict = field_value("strict_violations")
+      if (strict < 0) {
+        strict = field_value("violations")
+      }
+      if (strict < 0) {
+        strict = 0
+      }
+      if (!seen) {
+        first = strict
+        seen = 1
+      }
+      final = strict
+    }
+    END {
+      if (!seen) {
+        print 0
+      } else if (phase == "first") {
+        print first + 0
+      } else if (phase == "final") {
+        print final + 0
+      } else if (phase == "auto_repaired") {
+        delta = first - final
+        if (delta < 0) {
+          delta = 0
+        }
+        print delta + 0
+      } else {
+        print 0
+      }
+    }
+  ' "$file"
+}
+
+eval_first_pass_answer_contract_strict_violations() {
+  eval_answer_contract_phase_strict_violations "$1" first
+}
+
+eval_final_answer_contract_strict_violations() {
+  eval_answer_contract_phase_strict_violations "$1" final
+}
+
+eval_auto_repaired_answer_contract_strict_violations() {
+  eval_answer_contract_phase_strict_violations "$1" auto_repaired
+}
+
+eval_first_pass_answer_contract_strict_violations_for_section() {
+  eval_answer_contract_phase_strict_violations_for_section "$1" "$2" first
+}
+
+eval_final_answer_contract_strict_violations_for_section() {
+  eval_answer_contract_phase_strict_violations_for_section "$1" "$2" final
+}
+
+eval_auto_repaired_answer_contract_strict_violations_for_section() {
+  eval_answer_contract_phase_strict_violations_for_section "$1" "$2" auto_repaired
+}
+
 eval_count_agent_iterations() {
   local file="$1"
   local agent="$2"
@@ -1238,9 +1392,15 @@ eval_materialize_partial_run_result() {
       echo "answer_contract_violations=$(eval_sum_answer_contract_violations "$log")"
       echo "answer_contract_strict_violations=$(eval_sum_answer_contract_strict_violations "$log")"
       echo "answer_contract_advisories=$(eval_sum_answer_contract_advisories "$log")"
+      echo "answer_contract_first_pass_strict_violations=$(eval_first_pass_answer_contract_strict_violations "$log")"
+      echo "answer_contract_final_strict_violations=$(eval_final_answer_contract_strict_violations "$log")"
+      echo "answer_contract_auto_repaired_strict_violations=$(eval_auto_repaired_answer_contract_strict_violations "$log")"
       echo "answer_contract_lane_block_kind_violations=$(eval_sum_answer_contract_violations_for_section "$log" lane_block_kind)"
       echo "answer_contract_lane_block_kind_strict_violations=$(eval_sum_answer_contract_strict_violations_for_section "$log" lane_block_kind)"
       echo "answer_contract_lane_block_kind_advisories=$(eval_sum_answer_contract_advisories_for_section "$log" lane_block_kind)"
+      echo "answer_contract_lane_block_kind_first_pass_strict_violations=$(eval_first_pass_answer_contract_strict_violations_for_section "$log" lane_block_kind)"
+      echo "answer_contract_lane_block_kind_final_strict_violations=$(eval_final_answer_contract_strict_violations_for_section "$log" lane_block_kind)"
+      echo "answer_contract_lane_block_kind_auto_repaired_strict_violations=$(eval_auto_repaired_answer_contract_strict_violations_for_section "$log" lane_block_kind)"
       echo "midloop_inject=$(eval_count_midloop_injects "$log")"
       echo "analyze_refine_dispatches=$(eval_count_analyze_refine_dispatches "$log")"
       echo "read_loop_add_proof_selected=$(eval_count_read_loop_add_proof_selected "$log")"

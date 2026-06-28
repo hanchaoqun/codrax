@@ -87,6 +87,13 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 		rep.Finalizer.ContractObservations != 3 || rep.Finalizer.ContractObservationBySection["v2_block_oracles"] != 3 {
 		t.Fatalf("contract advisory/observation telemetry not parsed: %+v", rep.Finalizer)
 	}
+	if rep.Finalizer.FirstPassStrictContracts != 1 ||
+		rep.Finalizer.FinalStrictContracts != 1 ||
+		rep.Finalizer.AutoRepairedStrictContracts != 0 ||
+		rep.Finalizer.FirstPassStrictBySection["v2_block_oracles"] != 1 ||
+		rep.Finalizer.FinalStrictBySection["v2_block_oracles"] != 1 {
+		t.Fatalf("contract phase telemetry not parsed: %+v", rep.Finalizer)
+	}
 	if rep.Richness.Events != 1 ||
 		rep.Richness.ByKind["facet_softened"] != 1 ||
 		rep.Richness.ByFamily["architecture"] != 1 ||
@@ -138,6 +145,38 @@ func TestCollectContractCheckLegacyLogsFallbackToStrict(t *testing.T) {
 	}
 	if rep.FilesByRetryScore[0].FinalizerRejects != 3 {
 		t.Fatalf("legacy retry score should preserve old finalizer reject accounting: %+v", rep.FilesByRetryScore)
+	}
+}
+
+func TestCollectContractCheckPhaseTelemetrySeparatesRepairedFinalState(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "codrax.log")
+	body := strings.Join([]string{
+		`2026-05-19T10:00:00.055 DEBUG [diag finalizer] phase=answer_contract_check section=v2_block_oracles done elapsed=2ms violations=3 strict_violations=2 soft_violations=1`,
+		`2026-05-19T10:00:00.065 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind done elapsed=2ms violations=1 strict_violations=1 soft_violations=0`,
+		`2026-05-19T10:00:00.075 DEBUG [diag finalizer] phase=answer_contract_check section=v2_block_oracles done elapsed=2ms violations=1 strict_violations=0 soft_violations=1`,
+		`2026-05-19T10:00:00.085 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind done elapsed=2ms violations=0 strict_violations=0 soft_violations=0`,
+	}, "\n")
+	if err := os.WriteFile(logPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := collect([]string{dir})
+	if err != nil {
+		t.Fatalf("collect returned error: %v", err)
+	}
+	if rep.Finalizer.StrictContractViolations != 3 {
+		t.Fatalf("legacy cumulative strict contract count should remain for audit: %+v", rep.Finalizer)
+	}
+	if rep.Finalizer.FirstPassStrictContracts != 3 ||
+		rep.Finalizer.FinalStrictContracts != 0 ||
+		rep.Finalizer.AutoRepairedStrictContracts != 3 {
+		t.Fatalf("contract phase totals wrong: %+v", rep.Finalizer)
+	}
+	if rep.Finalizer.FirstPassStrictBySection["v2_block_oracles"] != 2 ||
+		rep.Finalizer.AutoRepairedStrictBySection["v2_block_oracles"] != 2 ||
+		rep.Finalizer.FinalStrictBySection["lane_block_kind"] != 0 {
+		t.Fatalf("contract phase sections wrong: %+v", rep.Finalizer)
 	}
 }
 
