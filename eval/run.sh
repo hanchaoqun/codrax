@@ -283,6 +283,14 @@ count_pattern() {
   echo "${n:-0}"
 }
 
+eval_count_completion_lane_fired() {
+  local file="$1"
+  # Count the typed mid-loop completion-ready family only when it actually
+  # takes an action. Older eval summaries counted a prompt fragment, which
+  # missed the production signal and made completion readiness look absent.
+  count_pattern 'phase=midloop_signal .*key="explorer\.mid-loop\.completion-ready[^"]*".*→[[:space:]]*(inject_hint|stop)' "$file"
+}
+
 # scope_stdout <out-file> → prints ANSI-stripped, post-'━━━'-only body.
 # Read-mode only: cmd/root.go prints the separator on stderr between
 # thinking trace and final answer. Write-mode outputs (plan.json,
@@ -611,7 +619,7 @@ write_metrics() {
     echo "finalizer_rejects=$(eval_count_finalizer_rejects "$log")"
     echo "wall_seconds=$(cat "$OUTDIR/run-$i.wall" 2>/dev/null || echo 0)"
     echo "pipeline_dispatches=$(count_pattern 'DEBUG \[diag [^]]+\] DISPATCH stage=' "$log")"
-    echo "completion_lane_fired=$(count_pattern 'completion obligation lane: one bounded' "$log")"
+    echo "completion_lane_fired=$(eval_count_completion_lane_fired "$log")"
     echo "investigation_complete_calls=$(eval_count_tool_calls "$log" emit_investigation_complete)"
     echo "investigation_complete_rejects=$(eval_count_tool_rejects "$log" emit_investigation_complete)"
     echo "hypothesis_verdict_rejects=$(eval_count_tool_rejects "$log" emit_hypothesis_verdict)"
