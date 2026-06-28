@@ -957,6 +957,16 @@
 #   被拒绝;该配置只控制失败前再提醒几次 emit_analysis。默认 3。0 关闭。
 # analysis_emit_only_correction_retries: 3
 
+# analysis_terminal_emit_only_timeout_seconds — wall-clock cap for a single
+#   analyzer LLM request after the tool surface has been narrowed to
+#   emit_analysis only. Timeout fails the current analyze attempt loudly and
+#   lets the stage retry budget recover; it does not change normal exploration
+#   requests. Default 45.
+#   analyzer 工具面已经收窄到只允许 emit_analysis 后,单次模型请求的墙钟
+#   上限。超时会让当前 analyze 尝试显式失败,交给阶段重试恢复;不影响普通
+#   探索请求。默认 45。
+# analysis_terminal_emit_only_timeout_seconds: 45
+
 # analysis_warn_below_keyword_hit_ratio / analysis_warn_below_entity_hit_ratio
 #   — soft floors on the fraction of emitted keywords / entities actually
 #   observed in the pre-scan blob. 0 disables (probe still computed).

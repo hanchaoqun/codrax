@@ -216,6 +216,11 @@ type RuntimeSettings struct {
 	//     calls remain rejected; the knob only controls how many times
 	//     the loop asks for emit_analysis again before failing loud.
 	//     Default 3. 0 disables these grace turns.
+	//   - analysis_terminal_emit_only_timeout_seconds: per-request wall
+	//     clock cap once the analyzer is physically narrowed to
+	//     emit_analysis-only. Timeout fails the analyze attempt loudly
+	//     and lets stage retry recover; non-positive values inherit the
+	//     code default.
 	//   - analysis_warn_below_keyword_hit_ratio: soft floor on the
 	//     runtime quality probe's keyword_hit_ratio (0.0-1.0).
 	//     When the fraction of emit_analysis.keywords observed in
@@ -228,14 +233,15 @@ type RuntimeSettings struct {
 	//     entity_hit_ratio. Entities are higher signal than
 	//     keywords so this is the stricter of the two knobs in
 	//     practice. 0 disables. Default 0.
-	AnalysisWarnBelowKeywords         *int     `yaml:"analysis_warn_below_keywords"`
-	AnalysisRejectBelowKeywords       *int     `yaml:"analysis_reject_below_keywords"`
-	AnalysisGenericEntityBlocklist    []string `yaml:"analysis_generic_entity_blocklist"`
-	AnalysisRejectMultipleEmit        *bool    `yaml:"analysis_reject_multiple_emit"`
-	AnalysisMaxPrescanRounds          *int     `yaml:"analysis_max_prescan_rounds"`
-	AnalysisEmitOnlyCorrectionRetries *int     `yaml:"analysis_emit_only_correction_retries"`
-	AnalysisWarnBelowKeywordHitRatio  *float64 `yaml:"analysis_warn_below_keyword_hit_ratio"`
-	AnalysisWarnBelowEntityHitRatio   *float64 `yaml:"analysis_warn_below_entity_hit_ratio"`
+	AnalysisWarnBelowKeywords              *int     `yaml:"analysis_warn_below_keywords"`
+	AnalysisRejectBelowKeywords            *int     `yaml:"analysis_reject_below_keywords"`
+	AnalysisGenericEntityBlocklist         []string `yaml:"analysis_generic_entity_blocklist"`
+	AnalysisRejectMultipleEmit             *bool    `yaml:"analysis_reject_multiple_emit"`
+	AnalysisMaxPrescanRounds               *int     `yaml:"analysis_max_prescan_rounds"`
+	AnalysisEmitOnlyCorrectionRetries      *int     `yaml:"analysis_emit_only_correction_retries"`
+	AnalysisTerminalEmitOnlyTimeoutSeconds *int     `yaml:"analysis_terminal_emit_only_timeout_seconds"`
+	AnalysisWarnBelowKeywordHitRatio       *float64 `yaml:"analysis_warn_below_keyword_hit_ratio"`
+	AnalysisWarnBelowEntityHitRatio        *float64 `yaml:"analysis_warn_below_entity_hit_ratio"`
 
 	// Evidence grounding knobs. `evidence_*` prefix mirrors the
 	// analysis_* namespace. Shipped with the 2026-04-17 redesign.

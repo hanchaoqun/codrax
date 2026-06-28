@@ -1865,6 +1865,61 @@ func TestBaseAgentStopsImmediatelyAfterSuccessfulTerminalEmit(t *testing.T) {
 	}
 }
 
+type requestBudgetEvaluator struct {
+	stubEvaluator
+	timeout time.Duration
+	reason  string
+}
+
+func (e *requestBudgetEvaluator) LLMRequestTimeout(_ *types.AgentContext, _ LLMRequestBudgetObservation) (time.Duration, string) {
+	return e.timeout, e.reason
+}
+
+type contextDeadlineLLM struct {
+	sawDeadline bool
+}
+
+func (l *contextDeadlineLLM) Chat(ctx context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= 200*time.Millisecond {
+		l.sawDeadline = true
+	}
+	<-ctx.Done()
+	return llm.Response{}, ctx.Err()
+}
+
+func (*contextDeadlineLLM) ModelID() string               { return "context-deadline" }
+func (*contextDeadlineLLM) MaxContextTokens() int         { return 128000 }
+func (*contextDeadlineLLM) MaxOutputTokens() int          { return 4096 }
+func (*contextDeadlineLLM) RequestTimeout() time.Duration { return 0 }
+func (*contextDeadlineLLM) RetryMaxAttempts() int         { return 0 }
+
+func TestBaseAgentAppliesEvaluatorLLMRequestBudget(t *testing.T) {
+	llmAdapter := &contextDeadlineLLM{}
+	eval := &requestBudgetEvaluator{timeout: 20 * time.Millisecond, reason: "test_budget"}
+	b := NewBaseAgent(types.AgentAnalyzer, &Dependencies{
+		LLM:           llmAdapter,
+		Tools:         tool.NewRegistry(),
+		MaxIterations: 1,
+		Emit:          func(render.Event) {},
+	}, eval)
+
+	start := time.Now()
+	_, err := b.Execute(&types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Mutable:   types.NewMutableState("budget"),
+	}, &skill.Config{})
+	if err == nil {
+		t.Fatal("Execute should surface the request deadline error")
+	}
+	if !llmAdapter.sawDeadline {
+		t.Fatal("LLM adapter did not receive a request-scoped deadline")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("request budget should fail fast, elapsed=%s", elapsed)
+	}
+}
+
 func TestBaseAgent_PersistsReasoningContentAfterStreamingPreview(t *testing.T) {
 	registry := tool.NewRegistry()
 	registry.Register(traceTool{})

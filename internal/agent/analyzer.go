@@ -1116,6 +1116,21 @@ func (e *analyzerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	return out
 }
 
+func (e *analyzerEvaluator) LLMRequestTimeout(ctx *types.AgentContext, obs LLMRequestBudgetObservation) (time.Duration, string) {
+	if ctx == nil || ctx.Stage != types.StageAnalyze {
+		return 0, ""
+	}
+	terminal := e.terminalEmitOnlyInstructionIssued || analyzerEmitOnly(ctx) || analyzerRequestSurfaceOnlyEmitAnalysis(obs)
+	if !terminal {
+		return 0, ""
+	}
+	timeout := tool.CurrentAnalysisLimits().TerminalEmitOnlyRequestTimeout()
+	if timeout <= 0 {
+		return 0, ""
+	}
+	return timeout, "analyzer_terminal_emit_only"
+}
+
 // Observe enforces the pre-scan budget at runtime. The final legal
 // pre-scan round injects a must-emit hint; after that the schema filter
 // exposes only emit_analysis. If a provider still returns a blocked
@@ -1130,6 +1145,16 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	// The analyzer's contract requires emit_analysis — stopping
 	// before that is always wrong.
 	if obs.Phase == PhaseSoftStop {
+		if analyzerEmitOnly(ctx) || e.terminalEmitOnlyInstructionIssued || analyzerRequestSurfaceOnlyEmitAnalysis(LLMRequestBudgetObservation{
+			ToolSurfaceKnown:   obs.ToolSurfaceKnown,
+			AvailableToolNames: obs.AvailableToolNames,
+		}) {
+			e.terminalEmitOnlyInstructionIssued = true
+			return LoopSignal{
+				StopRequested: true,
+				StopReason:    "terminal emit-only analyzer response omitted emit_analysis",
+			}
+		}
 		// Use a unique key per iteration so LoopPolicy dedup doesn't
 		// swallow the second continuation — the LLM tends to produce
 		// multiple content-only turns before finally issuing tool calls.
@@ -1322,6 +1347,19 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 		e.prescanRounds, max)
 	logging.Warning("[analyzer] %s", reason)
 	return LoopSignal{StopRequested: true, StopReason: reason}
+}
+
+func analyzerRequestSurfaceOnlyEmitAnalysis(obs LLMRequestBudgetObservation) bool {
+	if obs.ToolSurfaceKnown && len(obs.AvailableToolNames) > 0 {
+		if len(obs.AvailableToolNames) != 1 {
+			return false
+		}
+		return obs.AvailableToolNames["emit_analysis"]
+	}
+	if len(obs.ToolNames) == 1 {
+		return obs.ToolNames[0] == "emit_analysis"
+	}
+	return false
 }
 
 func analyzerTerminalEmitOnlyHint() string {

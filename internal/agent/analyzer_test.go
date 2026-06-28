@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/tool"
@@ -1550,6 +1551,51 @@ func TestAnalyzer_Observe_EmitOnlyCorrectionRetriesZeroStopsImmediately(t *testi
 	}
 	if !strings.Contains(sig.StopReason, "correction budget exhausted") {
 		t.Fatalf("StopReason = %q, want correction budget context", sig.StopReason)
+	}
+}
+
+func TestAnalyzer_LLMRequestTimeout_TerminalEmitOnlyUsesConfiguredBudget(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{TerminalEmitOnlyRequestTimeoutSeconds: 2})
+
+	e := &analyzerEvaluator{terminalEmitOnlyInstructionIssued: true}
+	got, reason := e.LLMRequestTimeout(&types.AgentContext{Stage: types.StageAnalyze}, LLMRequestBudgetObservation{
+		ToolSurfaceKnown:   true,
+		AvailableToolNames: map[string]bool{"emit_analysis": true},
+	})
+	if got != 2*time.Second {
+		t.Fatalf("timeout = %s, want 2s", got)
+	}
+	if reason != "analyzer_terminal_emit_only" {
+		t.Fatalf("reason = %q", reason)
+	}
+
+	cold, coldReason := (&analyzerEvaluator{}).LLMRequestTimeout(&types.AgentContext{Stage: types.StageAnalyze}, LLMRequestBudgetObservation{
+		ToolSurfaceKnown:   true,
+		AvailableToolNames: map[string]bool{"emit_analysis": true, "repo_map": true},
+	})
+	if cold != 0 || coldReason != "" {
+		t.Fatalf("non-terminal analyzer request should not get short budget, got %s %q", cold, coldReason)
+	}
+}
+
+func TestAnalyzer_Observe_TerminalEmitOnlyNoToolStopsCurrentAttempt(t *testing.T) {
+	e := &analyzerEvaluator{terminalEmitOnlyInstructionIssued: true}
+	sig := e.Observe(&types.AgentContext{Stage: types.StageAnalyze}, LoopObservation{
+		Phase:              PhaseSoftStop,
+		Iteration:          2,
+		Response:           llm.Response{Content: "I should call emit_analysis now."},
+		ToolSurfaceKnown:   true,
+		AvailableToolNames: map[string]bool{"emit_analysis": true},
+	})
+	if !sig.StopRequested {
+		t.Fatalf("terminal emit-only no-tool response should stop current attempt, got %+v", sig)
+	}
+	if sig.HintRequested {
+		t.Fatalf("terminal emit-only no-tool response should not inject another broad hint, got %+v", sig)
+	}
+	if !strings.Contains(sig.StopReason, "emit_analysis") {
+		t.Fatalf("stop reason should name missing emit_analysis, got %q", sig.StopReason)
 	}
 }
 

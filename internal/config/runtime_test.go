@@ -33,6 +33,7 @@ analysis_generic_entity_blocklist:
 analysis_reject_multiple_emit: true
 analysis_max_prescan_rounds: 3
 analysis_emit_only_correction_retries: 4
+analysis_terminal_emit_only_timeout_seconds: 17
 analysis_warn_below_keyword_hit_ratio: 0.5
 analysis_warn_below_entity_hit_ratio: 0.75
 analysis_evidence_profile: balanced
@@ -137,6 +138,9 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.AnalysisEmitOnlyCorrectionRetries == nil || *s.AnalysisEmitOnlyCorrectionRetries != 4 {
 		t.Errorf("AnalysisEmitOnlyCorrectionRetries = %v", s.AnalysisEmitOnlyCorrectionRetries)
+	}
+	if s.AnalysisTerminalEmitOnlyTimeoutSeconds == nil || *s.AnalysisTerminalEmitOnlyTimeoutSeconds != 17 {
+		t.Errorf("AnalysisTerminalEmitOnlyTimeoutSeconds = %v", s.AnalysisTerminalEmitOnlyTimeoutSeconds)
 	}
 	if s.AnalysisWarnBelowKeywordHitRatio == nil || *s.AnalysisWarnBelowKeywordHitRatio != 0.5 {
 		t.Errorf("AnalysisWarnBelowKeywordHitRatio = %v", s.AnalysisWarnBelowKeywordHitRatio)
@@ -308,6 +312,7 @@ func TestLoadRuntimeSettings_Empty(t *testing.T) {
 		s.AnalysisRejectMultipleEmit != nil ||
 		s.AnalysisMaxPrescanRounds != nil ||
 		s.AnalysisEmitOnlyCorrectionRetries != nil ||
+		s.AnalysisTerminalEmitOnlyTimeoutSeconds != nil ||
 		s.AnalysisWarnBelowKeywordHitRatio != nil || s.AnalysisWarnBelowEntityHitRatio != nil ||
 		s.MarkdownPreviewServer != nil || s.MarkdownPreviewHost != nil || s.MarkdownPreviewPort != nil {
 		t.Errorf("empty file should leave all fields nil, got %+v", s)

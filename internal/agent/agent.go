@@ -282,6 +282,25 @@ type ToolSchemaFilter interface {
 	FilterToolSchemas(ctx *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema
 }
 
+// LLMRequestBudgetObservation is the typed request-surface snapshot consumed by
+// evaluators that need a shorter per-request wall-clock budget for a precise
+// protocol state, such as terminal emit-only tool surfaces. It deliberately
+// carries tool names and stage metadata rather than model prose.
+type LLMRequestBudgetObservation struct {
+	Iteration          int
+	ToolSurfaceKnown   bool
+	AvailableToolNames map[string]bool
+	ToolNames          []string
+	ToolChoice         string
+}
+
+// LLMRequestBudgetController lets an evaluator shorten a single LLM request
+// when the current protocol state is precise enough to justify a wall-clock
+// guard. A zero duration means "use the adapter/default context".
+type LLMRequestBudgetController interface {
+	LLMRequestTimeout(ctx *types.AgentContext, obs LLMRequestBudgetObservation) (time.Duration, string)
+}
+
 // LoopPhase names the point in the ReAct iteration where
 // LoopController.Observe is being consulted. The phase lets a single
 // Observe hook handle both the "LLM is still calling tools — should
@@ -2250,8 +2269,25 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		if disableToolsThisTurn || len(effectiveTools) == 0 {
 			toolChoice = ""
 		}
+		requestCtx := ctx.Context()
+		cancelRequestCtx := func() {}
+		if budgetCtrl, ok := b.eval.(LLMRequestBudgetController); ok {
+			if timeout, reason := budgetCtrl.LLMRequestTimeout(ctx, LLMRequestBudgetObservation{
+				Iteration:          i,
+				ToolSurfaceKnown:   true,
+				AvailableToolNames: effectiveToolNames,
+				ToolNames:          sortedToolSchemaNames(effectiveTools),
+				ToolChoice:         toolChoice,
+			}); timeout > 0 {
+				var cancel context.CancelFunc
+				requestCtx, cancel = context.WithTimeout(requestCtx, timeout)
+				cancelRequestCtx = cancel
+				logging.Debug("[diag %s] iter=%d phase=llm_request_budget timeout=%s reason=%s tools=%s",
+					b.name, i, timeout, reason, strings.Join(sortedToolSchemaNames(effectiveTools), ","))
+			}
+		}
 		stopLLMRequestWatchdog := b.startLLMRequestWatchdog(ctx, i, telemetry)
-		resp, err := b.deps.LLM.Chat(ctx.Context(), requestMessages, effectiveTools, llm.ChatOptions{
+		resp, err := b.deps.LLM.Chat(requestCtx, requestMessages, effectiveTools, llm.ChatOptions{
 			ToolChoice:       toolChoice,
 			OnContentDelta:   streamBuf.onDelta,
 			OnReasoningDelta: streamBuf.onDelta,
@@ -2259,6 +2295,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			OnRetry:          onRetry,
 			OnFallback:       onFallback,
 		})
+		cancelRequestCtx()
 		stopLLMRequestWatchdog()
 		streamBuf.flush()
 		// Flush any throttled-out summary preview chunks before the

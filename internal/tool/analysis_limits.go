@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // analysis_limits.go holds the runtime-tunable validation policy for
@@ -115,6 +116,14 @@ type AnalysisLimits struct {
 	// warning threshold. Operators raise this to enforce evidence
 	// coupling between the pre-scan loop and the classification.
 	WarnBelowKeywordHitRatio float64
+
+	// TerminalEmitOnlyRequestTimeoutSeconds bounds a single LLM request
+	// after the analyzer has deterministically narrowed the tool surface to
+	// emit_analysis only. This is a protocol/liveness budget, not a semantic
+	// hard gate: a timeout fails the current analyze attempt loudly and lets
+	// the orchestrator's stage retry budget decide whether to re-dispatch.
+	// Non-positive values inherit the code default through SetAnalysisLimits.
+	TerminalEmitOnlyRequestTimeoutSeconds int
 
 	// WarnBelowEntityHitRatio is the same soft floor for
 	// emit_analysis.entities. Same 0.0-1.0 scale, same disabled-at-0
@@ -358,23 +367,24 @@ func DefaultAnalysisLimits() AnalysisLimits {
 		// default 4). Net effect: ~+1 LLM call on the 35% of cases
 		// that previously exhausted, no extra call on cases that
 		// finished in ≤2 rounds.
-		MaxPrescanRounds:                    3,
-		EmitOnlyCorrectionRetries:           3,
-		WarnBelowKeywordHitRatio:            0,
-		WarnBelowEntityHitRatio:             0,
-		ClassificationGrepEnabled:           true,
-		ClassificationGrepMaxCalls:          3,
-		ClassificationGrepMaxMatchesPerCall: 20,
-		ClassificationGrepMaxTotalBytes:     8192,
-		ClassificationGrepMinLLMSubjectConf: 0.80,
-		GhostAnchorExpandSearchThreshold:    3,
-		Phase1UnreadTopK:                    5,
-		Phase1UnreadMinUnread:               2,
-		MultiPathMinGroundedPerAnchor:       2,
-		MultiPathSymbolContextLines:         15,
-		MultiPathKeywordContextLines:        15,
-		MultiPathSmallFileThreshold:         300,
-		MultiPathMaxKeywordAnchorsPerFile:   30,
+		MaxPrescanRounds:                      3,
+		EmitOnlyCorrectionRetries:             3,
+		WarnBelowKeywordHitRatio:              0,
+		WarnBelowEntityHitRatio:               0,
+		TerminalEmitOnlyRequestTimeoutSeconds: 45,
+		ClassificationGrepEnabled:             true,
+		ClassificationGrepMaxCalls:            3,
+		ClassificationGrepMaxMatchesPerCall:   20,
+		ClassificationGrepMaxTotalBytes:       8192,
+		ClassificationGrepMinLLMSubjectConf:   0.80,
+		GhostAnchorExpandSearchThreshold:      3,
+		Phase1UnreadTopK:                      5,
+		Phase1UnreadMinUnread:                 2,
+		MultiPathMinGroundedPerAnchor:         2,
+		MultiPathSymbolContextLines:           15,
+		MultiPathKeywordContextLines:          15,
+		MultiPathSmallFileThreshold:           300,
+		MultiPathMaxKeywordAnchorsPerFile:     30,
 		GenericEntityBlocklist: []string{
 			"agent", "agents",
 			"class", "classes",
@@ -412,7 +422,7 @@ var (
 func SetAnalysisLimits(l AnalysisLimits) {
 	analysisLimitsMu.Lock()
 	defer analysisLimitsMu.Unlock()
-	analysisLimits = l
+	analysisLimits = ResolveAnalysisLimits(l)
 }
 
 // CurrentAnalysisLimits returns a snapshot of the current policy. Used
@@ -427,6 +437,25 @@ func CurrentAnalysisLimits() AnalysisLimits {
 		out.GenericEntityBlocklist = append([]string(nil), out.GenericEntityBlocklist...)
 	}
 	return out
+}
+
+// ResolveAnalysisLimits fills safety-critical zero values that must not
+// silently disable liveness guards when callers build a partial literal.
+func ResolveAnalysisLimits(l AnalysisLimits) AnalysisLimits {
+	if l.TerminalEmitOnlyRequestTimeoutSeconds <= 0 {
+		l.TerminalEmitOnlyRequestTimeoutSeconds = DefaultAnalysisLimits().TerminalEmitOnlyRequestTimeoutSeconds
+	}
+	return l
+}
+
+// TerminalEmitOnlyRequestTimeout returns the terminal emit-only request budget
+// as a duration. A zero duration means the guard is disabled; production
+// defaults keep it positive.
+func (l AnalysisLimits) TerminalEmitOnlyRequestTimeout() time.Duration {
+	if l.TerminalEmitOnlyRequestTimeoutSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(l.TerminalEmitOnlyRequestTimeoutSeconds) * time.Second
 }
 
 // analysisValidationResult is the structured output of the emit_analysis
