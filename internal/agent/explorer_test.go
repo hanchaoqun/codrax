@@ -9902,6 +9902,77 @@ func TestPostCompletionReadySignal_MixedRuntimeCarrierDoesNotRequireEverySubtopi
 	}
 }
 
+func TestObserveMidLoop_PromotesPhase0MaterializedEvidenceBeforeCompletionReady(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        0,
+		heuristics:   types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+		}},
+		exploreLanePlan: types.ExploreLanePlan{Lanes: []types.ExploreLane{
+			{Origin: types.AnswerEvidenceOriginCurrentSource, Label: "current source"},
+			{Origin: types.AnswerEvidenceOriginRuntimeArtifact, Label: "runtime artifact"},
+		}},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "ErrStreamFirstByteTimeout",
+				Source:          "internal/llm/stream_errors.go",
+				LineStart:       78,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "StreamFirstByteTimeoutError",
+				Source:          "internal/llm/stream_errors.go",
+				LineStart:       97,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "emit_evidence", Success: true, Summary: "accepted current-source anchors"},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		LastToolResult: &results[0],
+		AllToolResults: results,
+	})
+	if eval.phase != 1 {
+		t.Fatalf("phase = %d, want materialized evidence to promote phase 0 to phase 1", eval.phase)
+	}
+	if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("materialized evidence promotion should let completion-ready fire, got %+v", sig)
+	}
+}
+
+func TestPromoteDepthPhaseFromMaterializedEvidenceRequiresEmitEvidence(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase: 0,
+		structuredEvidence: []types.EvidenceItem{{
+			Kind:            types.EvidenceDirect,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ErrStreamFirstByteTimeout",
+			Source:          "internal/llm/stream_errors.go",
+			LineStart:       78,
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	results := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[internal/llm/stream_errors.go:78]"},
+	}
+	if eval.promoteDepthPhaseFromMaterializedEvidence(LoopObservation{AllToolResults: results}) {
+		t.Fatal("read_file-only navigation must not promote phase 0 to phase 1")
+	}
+	if eval.phase != 0 {
+		t.Fatalf("phase = %d, want unchanged phase 0", eval.phase)
+	}
+}
+
 func TestMixedRuntimeCurrentSourceCarrierActiveRequiresDualOriginLanePlan(t *testing.T) {
 	eval := &explorerEvaluator{
 		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}},

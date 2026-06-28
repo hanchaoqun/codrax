@@ -8092,6 +8092,18 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	}
 }
 
+func (e *explorerEvaluator) promoteDepthPhaseFromMaterializedEvidence(obs LoopObservation) bool {
+	if e == nil || e.phase != 0 || e.investigationComplete {
+		return false
+	}
+	if len(e.structuredEvidence) == 0 || !hasSuccessfulTool(obs.AllToolResults, "emit_evidence") {
+		return false
+	}
+	e.phase = 1
+	logging.Info("[explorer] Phase 0 → Phase 1 transition: structured evidence materialized, entering evidence collection")
+	return true
+}
+
 func (e *explorerEvaluator) logCompletionReadySkip(reason string, readiness explorerCompletionReadiness, scalarLocateReady bool) {
 	if e == nil {
 		return
@@ -10614,6 +10626,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			return LoopSignal{StopRequested: true, StopReason: "emit_investigation_complete called"}
 		}
 	}
+	e.promoteDepthPhaseFromMaterializedEvidence(obs)
 
 	// Track primary-entity file reads for S1's df3-drift gate. Runs
 	// unconditionally so even "quiet" observeMidLoop calls still
