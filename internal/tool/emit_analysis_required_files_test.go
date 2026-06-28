@@ -272,6 +272,52 @@ func TestProjectAnalyzerPrescanRequiredFileHints_SkipsLowConfidenceUnboundedInve
 	}
 }
 
+func TestProjectAnalyzerPrescanRequiredFileHints_HighConfidenceRepoWideStillNeedsBoundedScope(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{
+		"internal/tool/source_inventory_language_census.go",
+		"internal/skill/defaults.go",
+		"cmd/root.go",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, rel), []byte("package sample\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mut := types.NewMutableState("repo-wide source inventory")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "[grep: 3 matching files]\n./internal/tool/source_inventory_language_census.go\n./internal/skill/defaults.go\n./cmd/root.go",
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:           types.ToolPathDiscoveryKindGrep,
+			FilesOnly:      true,
+			ResultCount:    3,
+			CandidateFiles: []string{"internal/tool/source_inventory_language_census.go", "internal/skill/defaults.go", "cmd/root.go"},
+		},
+	})
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleFunction},
+			SourceQuotes:      []string{"extend 块", "foreign func 声明", "public class"},
+			Confidence:        0.95,
+		},
+	}
+	ctx := &types.BusContext{Mutable: mut, RepoRoot: root}
+
+	if added := projectAnalyzerPrescanRequiredFileHints(ctx, &rm, nil); added != 0 {
+		t.Fatalf("high-confidence repo-wide source-inventory must not project unbounded prescan support files, added=%d hints=%+v", added, rm.AnalyzerHints.RequiredFileHints)
+	}
+}
+
 func TestProjectAnalyzerPrescanRequiredFileHints_LowConfidenceUsesBoundedListFilesBeforeGrepNoise(t *testing.T) {
 	root := t.TempDir()
 	noiseFiles := []string{

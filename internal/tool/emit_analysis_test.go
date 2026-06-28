@@ -4520,6 +4520,92 @@ func TestEmitAnalysis_Execute_RejectsAuxiliaryPrincipalExclusionConflict(t *test
 	}
 }
 
+func TestEmitAnalysis_Execute_SoftensRepoWideInventoryAuxiliaryExclusion(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	repo := t.TempDir()
+	for _, rel := range []string{
+		"internal/tool/source_inventory_language_census.go",
+		"internal/tool/repomap/index/extract_cangjie.go",
+		"internal/tool/repomap/index/cangjie_parser.go",
+	} {
+		path := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("package fixture\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mu := types.NewMutableState("仓库里有哪些 extend 块、哪些 foreign func 声明、哪些 public class？分别列出文件路径和符号名，并指出包路径（package 声明）。")
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "complex",
+		"keywords": ["extend", "foreign func", "public class"],
+		"entities": ["extend", "foreign func", "public class"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.85,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": true,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"required_files": [
+			{"path":"internal/tool/source_inventory_language_census.go","confidence":0.8,"rationale":"support implementation, not a user-named source scope"},
+			{"path":"internal/tool/repomap/index/extract_cangjie.go","confidence":0.75,"rationale":"support implementation"},
+			{"path":"internal/tool/repomap/index/cangjie_parser.go","confidence":0.75,"rationale":"support implementation"}
+		],
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["type", "function", "constant"],
+			"requested_fields": ["name", "location", "package", "summary"],
+			"source_quotes": ["extend 块", "foreign func 声明", "public class"],
+			"confidence": 0.9
+		},
+		"answer_exclusion_policy": {
+			"is_exclusion_requested": true,
+			"excluded_candidate_roles": ["fixture", "example", "test", "generated"],
+			"source_quotes": ["extend 块", "foreign func 声明", "public class"],
+			"confidence": 0.94,
+			"rationale": "incorrectly treating positive inventory buckets as exclusions"
+		}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, RepoRoot: repo}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo-wide inventory should soften imprecise exclusion/support hints, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.AnswerExclusionPolicy != nil && rm.AnswerExclusionPolicy.Active() {
+		t.Fatalf("target-category exclusion should be softened, got %+v", rm.AnswerExclusionPolicy)
+	}
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		t.Fatalf("source_inventory_profile should remain active: %+v", rm.SourceInventoryProfile)
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsAnswerVisibilityProfile(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

@@ -1503,6 +1503,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if warning := normalizeSourceInventoryAuxiliaryExclusion(&rm); warning != "" {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if conflict := validateAuxiliaryPrincipalExclusionConflict(rm); conflict != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -1541,6 +1545,27 @@ func normalizeSourceInventoryProductionScope(rm *types.RequestModel) string {
 	return ""
 }
 
+func normalizeSourceInventoryAuxiliaryExclusion(rm *types.RequestModel) string {
+	if rm == nil ||
+		rm.SourceInventoryProfile == nil ||
+		!rm.SourceInventoryProfile.Active() ||
+		rm.AnswerExclusionPolicy == nil ||
+		!rm.AnswerExclusionPolicy.ExcludesAuxiliarySourceClasses() {
+		return ""
+	}
+	if rm.SourceScopeProfile != nil {
+		if rm.SourceScopeProfile.AllowsAuxiliaryPrincipal() ||
+			rm.SourceScopeProfile.RequestedScope == types.SourceScopeProduction {
+			return ""
+		}
+	}
+	if !sourceQuoteSetEchoesInventoryTargets(rm.AnswerExclusionPolicy.SourceQuotes, rm.SourceInventoryProfile.SourceQuotes) {
+		return ""
+	}
+	rm.AnswerExclusionPolicy = nil
+	return "answer_exclusion_policy auto-softened: auxiliary exclusions echoed source-inventory target categories without a precise production source scope"
+}
+
 func sourceScopeEchoesInventoryTargets(scopeQuotes, inventoryQuotes []string) bool {
 	normalizedInventory := make([]string, 0, len(inventoryQuotes))
 	seen := map[string]bool{}
@@ -1571,6 +1596,36 @@ func sourceScopeEchoesInventoryTargets(scopeQuotes, inventoryQuotes []string) bo
 		}
 	}
 	return false
+}
+
+func sourceQuoteSetEchoesInventoryTargets(scopeQuotes, inventoryQuotes []string) bool {
+	if sourceScopeEchoesInventoryTargets(scopeQuotes, inventoryQuotes) {
+		return true
+	}
+	inventory := make([]string, 0, len(inventoryQuotes))
+	seenInventory := map[string]bool{}
+	for _, quote := range inventoryQuotes {
+		key := normalizeSourceScopeEchoQuote(quote)
+		if key == "" || seenInventory[key] {
+			continue
+		}
+		seenInventory[key] = true
+		inventory = append(inventory, key)
+	}
+	if len(inventory) < 2 {
+		return false
+	}
+	matched := 0
+	for _, inv := range inventory {
+		for _, quote := range scopeQuotes {
+			scope := normalizeSourceScopeEchoQuote(quote)
+			if scope != "" && (strings.Contains(scope, inv) || strings.Contains(inv, scope)) {
+				matched++
+				break
+			}
+		}
+	}
+	return matched >= 2
 }
 
 func normalizeSourceScopeEchoQuote(s string) string {
@@ -1642,6 +1697,41 @@ func sourceInventoryProfileRepairSourceQuotes(raw string, attempted *emitSourceI
 		out = append(out, quote)
 	}
 	return out
+}
+
+func sourceInventoryRequiredHintsFormBoundedScope(ctx *types.BusContext, rm types.RequestModel, candidates []string) bool {
+	var paths []string
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		paths = append(paths, hint.Path)
+	}
+	paths = append(paths, candidates...)
+	repoRoot := ""
+	if ctx != nil {
+		repoRoot = ctx.RepoRoot
+	}
+	files := types.BoundedSourceEnumerationScopeFiles(rm, paths, repoRoot)
+	return len(files) >= types.BoundedSourceEnumerationMinFiles &&
+		types.BoundedSourceEnumerationCommonScope(files) != ""
+}
+
+func sourceInventoryPrescanPeerSupplementAllowed(ctx *types.BusContext, rm types.RequestModel, candidates []string) bool {
+	if len(rm.AnalyzerHints.RequiredFileHints) == 0 || len(candidates) == 0 {
+		return false
+	}
+	var highConfidence []string
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if hint.Confidence >= 0.8 {
+			highConfidence = append(highConfidence, hint.Path)
+		}
+	}
+	if len(highConfidence) == 0 {
+		return false
+	}
+	files := analyzerPrescanBoundedRequiredFileCandidates(ctx, rm, append(append([]string{}, highConfidence...), candidates...))
+	if len(files) < 2 {
+		return false
+	}
+	return types.BoundedSourceEnumerationCommonScope(files) != ""
 }
 
 func recordExactTargetPrescanFindings(ctx *types.BusContext, rm types.RequestModel, seenBlob string) {
@@ -4499,19 +4589,31 @@ func sourceInventoryPrescanRequiredFileProjectionAllowed(ctx *types.BusContext, 
 	if profile == nil || !profile.Active() {
 		return false
 	}
-	if profile.Confidence >= 0.6 {
+	if !types.SourceInventoryRequiresRepoWideLens(rm) {
 		return true
 	}
-	files := types.BoundedSourceEnumerationScopeFiles(rm, nil, "")
-	if ctx != nil {
-		files = types.BoundedSourceEnumerationScopeFiles(rm, nil, ctx.RepoRoot)
-	}
-	if len(files) > 0 && types.BoundedSourceEnumerationCommonScope(files) != "" {
+	if sourceInventoryPrescanExplicitScopeProjectionAllowed(ctx, rm, candidates) {
 		return true
 	}
-	files = analyzerPrescanBoundedRequiredFileCandidates(ctx, rm, candidates)
+	if sourceInventoryRequiredHintsFormBoundedScope(ctx, rm, candidates) {
+		return true
+	}
+	if sourceInventoryPrescanPeerSupplementAllowed(ctx, rm, candidates) {
+		return true
+	}
+	files := analyzerPrescanBoundedRequiredFileCandidates(ctx, rm, candidates)
 	return len(files) >= types.BoundedSourceEnumerationMinFiles &&
 		types.BoundedSourceEnumerationCommonScope(files) != ""
+}
+
+func sourceInventoryPrescanExplicitScopeProjectionAllowed(ctx *types.BusContext, rm types.RequestModel, candidates []string) bool {
+	if rm.SourceScopeProfile == nil ||
+		rm.SourceScopeProfile.RequestedScope == types.SourceScopeUnknown ||
+		len(rm.SourceScopeProfile.SourceQuotes) == 0 {
+		return false
+	}
+	files := analyzerPrescanBoundedRequiredFileCandidates(ctx, rm, candidates)
+	return len(files) >= 2 && types.BoundedSourceEnumerationCommonScope(files) != ""
 }
 
 func analyzerPrescanBoundedRequiredFileCandidates(ctx *types.BusContext, rm types.RequestModel, candidates []string) []string {
