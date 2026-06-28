@@ -1012,6 +1012,55 @@ func TestSelectEvidenceItemsForRenderPreservesProducerRankOrder(t *testing.T) {
 	}
 }
 
+func TestEvidenceRenderLimitForAgentContext_MixedRuntimeSourceFinalizerCompact(t *testing.T) {
+	mixed := types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioRootCause,
+		LogTriage: &types.LogBundle{
+			Observations: []types.LogObservation{{
+				Kind:    types.LogObservationRetryCycle,
+				Summary: "retry loop",
+			}},
+		},
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+			IsCrossComponent:     true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentVersionCheck: true,
+			Confidence:          0.9,
+		},
+	}
+	if !types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(mixed) {
+		t.Fatal("fixture must exercise the mixed runtime/current-source shape")
+	}
+	mixedFinalizer := &types.AgentContext{
+		AgentName:  types.AgentFinalizer,
+		Stage:      types.StageFinalize,
+		AnalysisIR: &types.AnalysisIR{RequestModel: mixed},
+	}
+	if got := evidenceRenderLimitForAgentContext(mixedFinalizer); got != mixedRuntimeCurrentSourceFinalizerEvidenceLimit {
+		t.Fatalf("mixed finalizer evidence limit=%d, want %d", got, mixedRuntimeCurrentSourceFinalizerEvidenceLimit)
+	}
+	ordinaryFinalizer := &types.AgentContext{
+		AgentName:  types.AgentFinalizer,
+		Stage:      types.StageFinalize,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}},
+	}
+	if got := evidenceRenderLimitForAgentContext(ordinaryFinalizer); got != defaultEvidenceRenderLimit {
+		t.Fatalf("ordinary finalizer evidence limit=%d, want %d", got, defaultEvidenceRenderLimit)
+	}
+	mixedExplorer := &types.AgentContext{
+		AgentName:  types.AgentExplorer,
+		Stage:      types.StageExplore,
+		AnalysisIR: &types.AnalysisIR{RequestModel: mixed},
+	}
+	if got := evidenceRenderLimitForAgentContext(mixedExplorer); got != defaultEvidenceRenderLimit {
+		t.Fatalf("explorer evidence limit=%d, want default %d", got, defaultEvidenceRenderLimit)
+	}
+}
+
 func TestBuildPromptContext_FinalizerStructuredEvidenceNeutralizesExactResolutionNotes(t *testing.T) {
 	target := "explore_mid_loop_hint_budget"
 	ac := &types.AgentContext{

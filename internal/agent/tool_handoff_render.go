@@ -16,6 +16,8 @@ const (
 type toolHandoffRenderOptions struct {
 	HistoricalProducerLabels bool
 	CurrentStageAllowedTools []string
+	MaxCarriers              int
+	MaxRefs                  int
 }
 
 func renderTypedToolHandoffCarriers(title string, carriers []types.ToolHandoffCarrier, options ...toolHandoffRenderOptions) string {
@@ -30,8 +32,16 @@ func renderTypedToolHandoffCarriers(title string, carriers []types.ToolHandoffCa
 	sort.SliceStable(carriers, func(i, j int) bool {
 		return toolHandoffCarrierRank(carriers[i]) < toolHandoffCarrierRank(carriers[j])
 	})
-	if len(carriers) > toolHandoffRenderMaxCarriers {
-		carriers = carriers[:toolHandoffRenderMaxCarriers]
+	maxCarriers := opts.MaxCarriers
+	if maxCarriers <= 0 {
+		maxCarriers = toolHandoffRenderMaxCarriers
+	}
+	maxRefs := opts.MaxRefs
+	if maxRefs <= 0 {
+		maxRefs = toolHandoffRenderMaxRefs
+	}
+	if len(carriers) > maxCarriers {
+		carriers = carriers[:maxCarriers]
 	}
 	title = strings.TrimSpace(title)
 	if title == "" {
@@ -58,10 +68,10 @@ func renderTypedToolHandoffCarriers(title string, carriers []types.ToolHandoffCa
 		b.WriteString("- ")
 		b.WriteString(line)
 		b.WriteString("\n")
-		if refs := renderTypedToolHandoffEvidenceRefs(carrier.AcceptedEvidence, toolHandoffRenderMaxRefs); refs != "" {
+		if refs := renderTypedToolHandoffEvidenceRefs(carrier.AcceptedEvidence, maxRefs); refs != "" {
 			b.WriteString(refs)
 		}
-		if refs := renderTypedToolHandoffObservationRefs(carrier.ObservationRefs, toolHandoffRenderMaxRefs); refs != "" {
+		if refs := renderTypedToolHandoffObservationRefs(carrier.ObservationRefs, maxRefs); refs != "" {
 			b.WriteString(refs)
 		}
 	}

@@ -3906,6 +3906,12 @@ func renderAnswerDocToolHandoffCarriers(ctx *types.AgentContext) string {
 	if ta == nil || len(ta.HandoffCarriers) == 0 {
 		return ""
 	}
+	if answerDocMixedRuntimeCurrentSourceShape(ctx) {
+		return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", ta.HandoffCarriers, toolHandoffRenderOptions{
+			MaxCarriers: 4,
+			MaxRefs:     6,
+		})
+	}
 	return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", ta.HandoffCarriers)
 }
 

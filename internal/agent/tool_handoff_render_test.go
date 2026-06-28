@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -184,5 +185,87 @@ func TestRenderAnswerDocToolHandoffCarriersConsumesTurnA(t *testing.T) {
 	if !strings.Contains(out, "## Typed Repair And Evidence Handoff") ||
 		!strings.Contains(out, "evidence=`ev-accepted` @ `src/owner.ts:5`") {
 		t.Fatalf("finalizer handoff not rendered:\n%s", out)
+	}
+}
+
+func TestRenderTypedToolHandoffCarriersHonorsProjectionBudget(t *testing.T) {
+	carriers := []types.ToolHandoffCarrier{}
+	for i := 0; i < 3; i++ {
+		carriers = append(carriers, types.ToolHandoffCarrier{
+			Version:    types.ToolHandoffCarrierVersion,
+			ToolName:   fmt.Sprintf("emit_evidence_%d", i),
+			ReasonCode: fmt.Sprintf("accepted_evidence_handoff_%d", i),
+			AcceptedEvidence: []types.AcceptedEvidenceRef{
+				{ID: fmt.Sprintf("ev-a-%d", i), Source: "src/a.go", LineStart: 1},
+				{ID: fmt.Sprintf("ev-b-%d", i), Source: "src/b.go", LineStart: 2},
+			},
+		})
+	}
+	out := renderTypedToolHandoffCarriers("### Typed handoff", carriers, toolHandoffRenderOptions{
+		MaxCarriers: 2,
+		MaxRefs:     1,
+	})
+	if strings.Count(out, "tool=`emit_evidence_") != 2 {
+		t.Fatalf("expected exactly two rendered carriers:\n%s", out)
+	}
+	if strings.Count(out, "evidence=`ev-a-") != 2 {
+		t.Fatalf("expected one evidence ref per rendered carrier:\n%s", out)
+	}
+	if strings.Contains(out, "evidence=`ev-b-") {
+		t.Fatalf("handoff projection ignored MaxRefs:\n%s", out)
+	}
+}
+
+func TestRenderAnswerDocToolHandoffCarriersMixedRuntimeSourceUsesCompactBudget(t *testing.T) {
+	mut := types.NewMutableState("q")
+	carriers := []types.ToolHandoffCarrier{}
+	for i := 0; i < 5; i++ {
+		carriers = append(carriers, types.ToolHandoffCarrier{
+			Version:    types.ToolHandoffCarrierVersion,
+			ToolName:   fmt.Sprintf("emit_evidence_%d", i),
+			ReasonCode: fmt.Sprintf("accepted_evidence_handoff_%d", i),
+			AcceptedEvidence: []types.AcceptedEvidenceRef{
+				{ID: fmt.Sprintf("ev-a-%d", i), Source: "src/a.go", LineStart: 1},
+				{ID: fmt.Sprintf("ev-b-%d", i), Source: "src/b.go", LineStart: 2},
+				{ID: fmt.Sprintf("ev-c-%d", i), Source: "src/c.go", LineStart: 3},
+				{ID: fmt.Sprintf("ev-d-%d", i), Source: "src/d.go", LineStart: 4},
+				{ID: fmt.Sprintf("ev-e-%d", i), Source: "src/e.go", LineStart: 5},
+				{ID: fmt.Sprintf("ev-f-%d", i), Source: "src/f.go", LineStart: 6},
+				{ID: fmt.Sprintf("ev-g-%d", i), Source: "src/g.go", LineStart: 7},
+			},
+		})
+	}
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{HandoffCarriers: carriers})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioRootCause,
+			LogTriage: &types.LogBundle{
+				Observations: []types.LogObservation{{
+					Kind:    types.LogObservationRetryCycle,
+					Summary: "retry loop",
+				}},
+			},
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+				IsCrossComponent:     true,
+			},
+			DiagnosticProfile: types.DiagnosticIntentProfile{
+				IsDiagnostic:        true,
+				CurrentVersionCheck: true,
+				Confidence:          0.9,
+			},
+		}},
+	}
+	out := renderAnswerDocToolHandoffCarriers(ctx)
+	if strings.Count(out, "tool=`emit_evidence_") != 4 {
+		t.Fatalf("mixed answer-doc handoff should render four carriers:\n%s", out)
+	}
+	if strings.Count(out, "evidence=`ev-f-") != 4 {
+		t.Fatalf("mixed answer-doc handoff should keep six refs per rendered carrier:\n%s", out)
+	}
+	if strings.Contains(out, "evidence=`ev-g-") {
+		t.Fatalf("mixed answer-doc handoff projection ignored compact MaxRefs:\n%s", out)
 	}
 }

@@ -1028,7 +1028,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		evidenceOpts.AuthoritativeSurface = true
 		evidenceOpts.TypedRelationHints = nil
 	}
-	evidence := formatEvidenceItemsWithOptions(evidenceItems, 18, evidenceOpts)
+	evidence := formatEvidenceItemsWithOptions(evidenceItems, evidenceRenderLimitForAgentContext(ac), evidenceOpts)
 	findings := formatFlowFindings(ac.FlowFindings, 10)
 	logging.Debug("[builder] %s/%s: evidence_section_len=%d findings_section_len=%d", ac.AgentName, ac.Stage, len(evidence), len(findings))
 	// Phase 1 of Semantic Surface Contract
@@ -1052,7 +1052,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 				i, req.Kind, req.Required, req.AcceptableForms, len(req.SourceCandidate))
 		}
 	}
-	// Structured Evidence carries the full top-18 evidence dump.
+	// Structured Evidence carries a bounded evidence dump.
 	// Skipped for the extract-skill: that dispatch already sees the
 	// top-12 via Prior Stage Findings' Primary Evidence subsection
 	// and the curated view via the Turn A digest its evaluator
@@ -1575,6 +1575,22 @@ func formatEvidenceItems(items []types.EvidenceItem, limit int, strictLocation b
 	return formatEvidenceItemsWithOptions(items, limit, evidenceRenderOptions{
 		StrictLocation: strictLocation,
 	})
+}
+
+const (
+	defaultEvidenceRenderLimit                      = 18
+	mixedRuntimeCurrentSourceFinalizerEvidenceLimit = 10
+)
+
+func evidenceRenderLimitForAgentContext(ac *types.AgentContext) int {
+	if ac == nil || ac.AgentName != types.AgentFinalizer || ac.Stage != types.StageFinalize ||
+		ac.AnalysisIR == nil {
+		return defaultEvidenceRenderLimit
+	}
+	if types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(ac.AnalysisIR.RequestModel) {
+		return mixedRuntimeCurrentSourceFinalizerEvidenceLimit
+	}
+	return defaultEvidenceRenderLimit
 }
 
 func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts evidenceRenderOptions) string {
