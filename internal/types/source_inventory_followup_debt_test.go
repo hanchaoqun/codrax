@@ -319,6 +319,151 @@ func TestDeriveSourceInventoryFollowupDebt_MissingSourceClassBalancesLanguageFam
 	}
 }
 
+func TestDeriveSourceInventoryFollowupDebt_TargetLanguageFiltersMixedClassScopes(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       []string{"."},
+		SourceClasses: []SourceInventorySourceClassCount{
+			{Role: SourcePathRoleProduction, Count: 1, Complete: true, Samples: []string{"internal/tool/main.go"}},
+			{
+				Role:  SourcePathRoleThirdParty,
+				Count: 14,
+				Languages: []SourceInventoryLanguageCount{
+					{
+						Language: "cangjie",
+						Count:    8,
+						InScope:  true,
+						Samples: []string{
+							"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj",
+							"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+						},
+					},
+					{
+						Language: "arkts",
+						Count:    6,
+						InScope:  true,
+						Samples: []string{
+							"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+						},
+					},
+				},
+			},
+		},
+		Page:      &SourceInventoryObservationPage{Offset: 0, Emitted: 24, Total: 80, NextCursor: "24", Complete: false},
+		Execution: &SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleType,
+			Members: []SourceInventoryObservationMember{{
+				Name:     "Cart",
+				Role:     AnswerCandidateRoleType,
+				File:     "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+				Language: "cangjie",
+			}},
+		}},
+	}
+	rm := RequestModel{
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType, AnswerCandidateRoleFunction},
+		},
+	}
+
+	debt := DeriveSourceInventoryFollowupDebtWithRequiredFiles(obs, rm, []string{
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj",
+	})
+	if !debt.IsActive() || debt.ReasonCode != SourceInventoryFollowupDebtMissingSourceClass {
+		t.Fatalf("debt = %+v", debt)
+	}
+	if len(debt.Query.Scopes) != 1 || debt.Query.Scopes[0] != "internal/thirdparty/tree-sitter-cangjie/corpus/sources" {
+		t.Fatalf("query scopes = %+v, want only cangjie thirdparty scope", debt.Query.Scopes)
+	}
+	for _, scope := range debt.Query.Scopes {
+		if scope == "internal/thirdparty/tree-sitter-arkts/corpus/sources" {
+			t.Fatalf("target-language follow-up leaked arkts scope: %+v", debt.Query.Scopes)
+		}
+	}
+}
+
+func TestDeriveSourceInventoryFollowupDebt_BroadRequiredFilesDoNotOverrideClassUniverse(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       []string{"."},
+		SourceClasses: []SourceInventorySourceClassCount{
+			{
+				Role:  SourcePathRoleProduction,
+				Count: 3,
+				Languages: []SourceInventoryLanguageCount{{
+					Language: "go",
+					Count:    3,
+					InScope:  true,
+					Samples:  []string{"cmd/root.go"},
+				}},
+			},
+			{
+				Role:  SourcePathRoleFixture,
+				Count: 3,
+				Languages: []SourceInventoryLanguageCount{{
+					Language: "cpp",
+					Count:    3,
+					InScope:  true,
+					Samples:  []string{"eval/fixtures/github_issues/fmt_tm_year_overflow/tests/test_tmfmt.cpp"},
+				}},
+			},
+			{
+				Role:  SourcePathRoleThirdParty,
+				Count: 14,
+				Languages: []SourceInventoryLanguageCount{
+					{
+						Language: "cangjie",
+						Count:    8,
+						InScope:  true,
+						Samples: []string{
+							"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj",
+							"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+						},
+					},
+					{
+						Language: "arkts",
+						Count:    6,
+						InScope:  true,
+						Samples: []string{
+							"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+						},
+					},
+				},
+			},
+		},
+		Page:      &SourceInventoryObservationPage{Offset: 0, Emitted: 24, Total: 80, NextCursor: "24", Complete: false},
+		Execution: &SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleType,
+			Members: []SourceInventoryObservationMember{{
+				Name: "Root",
+				Role: AnswerCandidateRoleType,
+				File: "cmd/root.go",
+			}},
+		}},
+	}
+	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+	}}
+
+	debt := DeriveSourceInventoryFollowupDebtWithRequiredFiles(obs, rm, []string{
+		"cmd/root.go",
+		"eval/fixtures/github_issues/chrono_duration_min/tests/check_duration_min.py",
+		"eval/fixtures/github_issues/fmt_tm_year_overflow/tests/test_tmfmt.cpp",
+		"eval/fixtures/github_issues/dayjs_duration_nan/tests/duration_nan.js",
+	})
+	if debt.IsActive() {
+		t.Fatalf("broad mixed-language required files must not create a forced follow-up route: %+v", debt)
+	}
+}
+
 func TestNormalizeSourceInventoryFollowupDebt_ClearsCursorForScopeChangingDebt(t *testing.T) {
 	debt := NormalizeSourceInventoryFollowupDebt(SourceInventoryFollowupDebt{
 		Active:     true,

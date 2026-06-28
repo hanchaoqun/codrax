@@ -1,9 +1,6 @@
 package types
 
-import (
-	"path"
-	"strings"
-)
+import "strings"
 
 const (
 	SourceInventoryFollowupDebtMissingSourceClass = "missing_source_class_family"
@@ -39,6 +36,10 @@ func NormalizeSourceInventoryFollowupDebt(d SourceInventoryFollowupDebt) SourceI
 }
 
 func DeriveSourceInventoryFollowupDebt(observation SourceInventoryObservation, rm RequestModel) SourceInventoryFollowupDebt {
+	return DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation, rm, nil)
+}
+
+func DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation SourceInventoryObservation, rm RequestModel, requiredFiles []string) SourceInventoryFollowupDebt {
 	if SourceInventoryCompletionIsSupportOnly(rm) {
 		return SourceInventoryFollowupDebt{}
 	}
@@ -50,7 +51,11 @@ func DeriveSourceInventoryFollowupDebt(observation SourceInventoryObservation, r
 		return SourceInventoryFollowupDebt{}
 	}
 	covered := sourceInventoryObservedPathRolesForRoles(observation, roles)
-	missingClasses, scopes := sourceInventoryMissingClassScopes(observation.SourceClasses, covered)
+	targetLanguages := sourceInventoryFollowupTargetLanguages(rm, requiredFiles)
+	missingClasses, scopes := sourceInventoryMissingClassScopesForLanguages(observation.SourceClasses, covered, targetLanguages)
+	if len(targetLanguages) == 0 && len(missingClasses) > 1 {
+		return SourceInventoryFollowupDebt{}
+	}
 	query := SourceInventoryLensQuery{
 		Path:              ".",
 		Scopes:            scopes,
@@ -74,7 +79,7 @@ func DeriveSourceInventoryFollowupDebt(observation SourceInventoryObservation, r
 		Query:            query,
 		MissingClasses:   missingClasses,
 		CoveredClasses:   sourceInventoryCoveredClassList(covered),
-		MissingLanguages: sourceInventoryMissingLanguages(observation),
+		MissingLanguages: sourceInventoryMissingLanguagesForTarget(observation, targetLanguages),
 		Roles:            roles,
 	})
 }
@@ -114,16 +119,18 @@ func sourceInventoryMissingLanguages(observation SourceInventoryObservation) []s
 	return normalizeSourceInventoryFollowupStrings(out)
 }
 
-func sourceInventoryFollowupScopeForSample(sample string) string {
-	sample = strings.Trim(strings.ReplaceAll(strings.TrimSpace(sample), `\`, `/`), "/")
-	if sample == "" {
-		return ""
+func sourceInventoryMissingLanguagesForTarget(observation SourceInventoryObservation, targetLanguages map[string]bool) []string {
+	if len(targetLanguages) == 0 {
+		return sourceInventoryMissingLanguages(observation)
 	}
-	dir := path.Dir(sample)
-	if dir == "." || dir == "/" {
-		return "."
+	var out []string
+	for _, lang := range observation.RepoLanguages {
+		normalized := strings.ToLower(strings.TrimSpace(lang.Language))
+		if lang.Count > 0 && normalized != "" && !lang.InScope && targetLanguages[normalized] {
+			out = append(out, normalized)
+		}
 	}
-	return dir
+	return normalizeSourceInventoryFollowupStrings(out)
 }
 
 func sourceInventoryFollowupScopes(scopes []string) []string {

@@ -4122,6 +4122,77 @@ func TestEmitAnalysis_RouteBackedRuntimeArtifactDoesNotOverrideExplicitSourceExc
 	}
 }
 
+func TestEmitAnalysis_CurrentSourceExplanationSoftensConflictingExternalExclude(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("这份 trace 里 RenderService span 怎么被系统解析？请结合当前源码解释，不要把 trace 行号当成源码引用。")
+	mu.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"RenderService"}},
+		Observations: []types.PerfObservation{{
+			Kind:       "span",
+			Subject:    "RenderService",
+			Summary:    "RenderService span observed in trace",
+			LineStart:  7,
+			Confidence: 0.95,
+		}},
+	})
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["trace", "RenderService", "current source"],
+		"entities": ["RenderService", "trace parser"],
+		"question_kind": "mechanism",
+		"current_source_explanation_profile": {
+			"is_current_source_explanation_requested": true,
+			"modes": ["trace_current_flow", "explain_current_mechanism"],
+			"source_quotes": ["请结合当前源码解释"],
+			"confidence": 0.95
+		},
+		"external_observation_policy": {
+			"current_source_mode": "exclude",
+			"exclusion_kind": "explicit_user_exclusion",
+			"artifact_citation_mode": "external_only",
+			"source_quotes": ["不要把 trace 行号当成源码引用"],
+			"confidence": 0.9
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("conflicting current-source/exclude policy should be normalized, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.CurrentSourceExplanationProfile == nil || !rm.CurrentSourceExplanationProfile.Active() {
+		t.Fatalf("current-source explanation profile should survive: %+v", rm)
+	}
+	if rm.ExternalObservationPolicy == nil {
+		t.Fatalf("external observation policy should survive for artifact citation mode: %+v", rm)
+	}
+	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceAllow {
+		t.Fatalf("CurrentSourceMode=%q, want allow after conflicting exclude normalization", got)
+	}
+	if rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		t.Fatalf("conflicting exclude must not suppress current source: %+v", rm.ExternalObservationPolicy)
+	}
+	if got := rm.ExternalObservationPolicy.ArtifactCitationMode; got != types.ExternalObservationArtifactCitationExternalOnly {
+		t.Fatalf("artifact citation mode should survive, got %q", got)
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
+		t.Fatalf("current-source profile should require source lane, got %s", got)
+	}
+	if !strings.Contains(res.Summary, "auto-softened to allow") {
+		t.Fatalf("summary should expose policy normalization warning, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_ExternalObservationPolicyUnanchoredExcludeDefaults(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

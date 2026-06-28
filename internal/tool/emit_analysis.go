@@ -1092,6 +1092,24 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	currentSourceExplanation, currentSourceExplanationErr, currentSourceExplanationWarnings := parseCurrentSourceExplanationProfile(raw, p.CurrentSourceExplanation)
+	if currentSourceExplanationErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + currentSourceExplanationErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	for _, warning := range currentSourceExplanationWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
+	if normalizedPolicy, warning := normalizeExternalObservationPolicyForCurrentSourceExplanation(externalObservationPolicy, currentSourceExplanation); warning != "" {
+		externalObservationPolicy = normalizedPolicy
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if normalizedDiagnostic, warnings := normalizeDiagnosticProfileForExternalObservationPolicy(diagnosticProfile, externalObservationPolicy); len(warnings) > 0 {
 		diagnosticProfile = normalizedDiagnostic
 		for _, warning := range warnings {
@@ -1250,19 +1268,6 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}, nil
 	}
 	for _, warning := range requestedAnswerDimensionsWarnings {
-		logging.Warning("[emit_analysis] %s", warning)
-		val.Warnings = append(val.Warnings, warning)
-	}
-	currentSourceExplanation, currentSourceExplanationErr, currentSourceExplanationWarnings := parseCurrentSourceExplanationProfile(raw, p.CurrentSourceExplanation)
-	if currentSourceExplanationErr != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_analysis rejected: " + currentSourceExplanationErr,
-			Timestamp: time.Now(),
-		}, nil
-	}
-	for _, warning := range currentSourceExplanationWarnings {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -2152,6 +2157,20 @@ func normalizeDiagnosticProfileForExternalObservationPolicy(
 		warnings = append(warnings, "external_observation_policy current_source_mode=exclude repaired diagnostic_profile.historical_regression true→false")
 	}
 	return diagnostic, warnings
+}
+
+func normalizeExternalObservationPolicyForCurrentSourceExplanation(
+	policy *types.ExternalObservationPolicy,
+	currentSource *types.CurrentSourceExplanationProfile,
+) (*types.ExternalObservationPolicy, string) {
+	if policy == nil || currentSource == nil || !currentSource.Active() ||
+		policy.CurrentSourceMode != types.ExternalObservationCurrentSourceExclude {
+		return policy, ""
+	}
+	normalized := *policy
+	normalized.CurrentSourceMode = types.ExternalObservationCurrentSourceAllow
+	normalized.ExclusionKind = types.ExternalObservationSourceExclusionNone
+	return &normalized, "external_observation_policy current_source_mode=exclude auto-softened to allow because current_source_explanation_profile is active; citation-only artifact boundaries must use artifact_citation_mode, not source exclusion"
 }
 
 // normalizeDiagnosticRoute absorbs a narrow, typed self-consistency

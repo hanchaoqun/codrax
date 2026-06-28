@@ -12236,7 +12236,7 @@ func (e *explorerEvaluator) refreshSourceInventoryInlineFollowup(ctx *types.Agen
 		return
 	}
 	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
-	debt := types.DeriveSourceInventoryFollowupDebt(observation, ctx.AnalysisIR.RequestModel)
+	debt := types.DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation, ctx.AnalysisIR.RequestModel, ctx.AnalysisIR.EvidencePlan.RequiredFiles)
 	if !sourceInventoryInlineFollowupDebtExecutable(debt) {
 		return
 	}

@@ -5298,13 +5298,13 @@ func explorerSourceInventoryFollowupRouteViolation(ctx *types.AgentContext, para
 		return "source_inventory follow-up must keep path=\".\" and narrow with typed scope/scopes", true
 	}
 	if !sameSourceInventoryRouteStrings(sourceInventoryRouteScopesFromParams(p.Scope, p.Scopes), debt.Query.Scopes) {
-		return "source_inventory follow-up scope/scopes must match the scheduler-provided typed route", true
+		return "source_inventory follow-up scope/scopes must match the scheduler-provided typed route; " + explorerSourceInventoryFollowupRouteExpectation(debt), true
 	}
 	if !sameSourceInventoryRouteRoles(p.Roles, debt.Query.Roles) {
-		return "source_inventory follow-up roles must match the scheduler-provided typed route", true
+		return "source_inventory follow-up roles must match the scheduler-provided typed route; " + explorerSourceInventoryFollowupRouteExpectation(debt), true
 	}
 	if strings.TrimSpace(p.Cursor) != debt.Query.Cursor {
-		return "source_inventory follow-up cursor must match the scheduler-provided typed route", true
+		return "source_inventory follow-up cursor must match the scheduler-provided typed route; " + explorerSourceInventoryFollowupRouteExpectation(debt), true
 	}
 	if debt.Query.IncludeCounts && (p.IncludeCounts == nil || !*p.IncludeCounts) {
 		return "source_inventory follow-up must set include_counts=true", true
@@ -5316,6 +5316,11 @@ func explorerSourceInventoryFollowupRouteViolation(ctx *types.AgentContext, para
 		return "source_inventory follow-up top_n exceeds the scheduler-provided typed route", true
 	}
 	return "", false
+}
+
+func explorerSourceInventoryFollowupRouteExpectation(debt types.SourceInventoryFollowupDebt) string {
+	debt = types.NormalizeSourceInventoryFollowupDebt(debt)
+	return fmt.Sprintf("expected scopes=%v roles=%v cursor=%q", debt.Query.Scopes, sourceInventoryRoleNames(debt.Query.Roles), debt.Query.Cursor)
 }
 
 func sourceInventoryRouteScopesFromParams(scope string, scopes []string) []string {

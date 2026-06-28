@@ -61,29 +61,6 @@ func sourceInventoryCompleteLensCoversSourceClassRole(lenses []SourceInventoryCo
 	return len(covered) == len(scopes)
 }
 
-func sourceInventoryMissingClassScopes(classes []SourceInventorySourceClassCount, covered map[SourcePathRole]bool) ([]SourcePathRole, []string) {
-	var missing []SourcePathRole
-	var scopes []string
-	for _, class := range classes {
-		if class.Role == SourcePathRoleUnknown || class.Count <= 0 || covered[class.Role] {
-			continue
-		}
-		missing = append(missing, class.Role)
-		scopes = append(scopes, sourceInventoryClassFollowupScopes(class)...)
-	}
-	return normalizeSourceInventoryPathRoles(missing), sourceInventoryFollowupScopes(scopes)
-}
-
-func sourceInventoryClassFollowupScopes(class SourceInventorySourceClassCount) []string {
-	var scopes []string
-	for _, sample := range sourceInventoryFollowupClassSamples(class) {
-		if scope := sourceInventoryFollowupScopeForSample(sample); scope != "" {
-			scopes = append(scopes, scope)
-		}
-	}
-	return sourceInventoryFollowupScopes(scopes)
-}
-
 func sourceInventoryPathRolesContain(classes []SourcePathRole, want SourcePathRole) bool {
 	if want == "" || want == SourcePathRoleUnknown {
 		return false
