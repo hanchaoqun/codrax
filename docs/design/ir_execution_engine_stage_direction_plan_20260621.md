@@ -3152,8 +3152,19 @@ Remaining follow-up:
     3. Tests/eval: source-inventory explicit inventory still blocks on missing same-language/source-class families; explanation/registry/support-only source-inventory remains caveat-only; representative ArkTS/Cangjie/qf cases should reduce source_lens counts without correctness loss.
   - **Open D1-F10g.211 finalizer citation-ref repair/filter boundary（P1 / newly found in 208c manual audit）**:
     1. Gap source: focused Cangjie 208c produced a functionally correct answer and a verified structured supplement, but model-authored `citation_ref` indexes in the first answer block could point to neighboring same-name fixture citations. This is a projection-layer support mismatch, not a principal evidence absence.
-    2. Target architecture: answer-document materialization should validate each citation_ref against accepted evidence/support_refs/source-inventory row identity. If a unique target exists, deterministic repair rewrites the ref; if not, the citation display for that block is filtered/demoted and the verified row table remains. Do not hard-block the thematic answer for citation display when the principal member set is otherwise supported.
-    3. Tests: malformed/shifted citation_ref cannot render a wrong file:line next to a principal row; verified source-inventory supplement remains visible once; no parser may read model rationale/final prose/user keywords to choose the repair.
+    2. Code audit: the pre-emit chain already has `normalizeItemCitationRefsByTypedCandidateRoleWithContext`, `normalizeItemCitationRefsByUniqueLabelCitationWithContext`, `detachInvalidItemCitationRefsWithoutSafeCandidateWithContext`, and `normalizePrincipalEnumerationRowBlocks`. The class gap is coverage, not missing architecture: source-inventory rows can be uniquely proven by typed row attributes/support refs, but the model-authored visible item may omit `CandidateRole`, so the existing role-gated repair path skips it.
+    3. Target architecture: answer-document materialization should validate each presentation `citation_ref` against accepted evidence/support_refs/source-inventory row identity. If a unique typed target exists, deterministic repair rewrites the ref; if not, the citation display for that item/block is detached/demoted and the verified row table remains. Do not hard-block the thematic answer for citation display when the principal member set is otherwise supported.
+    4. Implementation tasks:
+       - Extend the existing citation normalizer with a role-agnostic source-inventory row lookup that only returns a repair when typed row identity is unique across role/source-class candidates.
+       - Reuse existing `SourceInventoryPrincipalRowSet`, accepted support refs, row attributes, surface terms, and canonical citation helpers; do not introduce a fifth taxonomy or parse model rationale/final prose/user keywords.
+       - Preserve the current stronger path when `CandidateRole` is present; the new path only covers missing/unknown candidate-role presentation items.
+       - If the typed row lookup is ambiguous or unsupported, leave the answer content intact and detach/filter only the unsafe citation carrier; never re-enter finalizer retries for this presentation-only issue.
+       - Keep the deterministic verified source-inventory supplement as the richest carrier, and avoid duplicating contradictory first-block rows.
+    5. Tests:
+       - Missing `CandidateRole` + duplicate member label + row attribute/package/path uniquely identifies the intended source-inventory row -> citation_ref is repaired.
+       - Missing `CandidateRole` + duplicate label without unique typed row evidence -> no guessed repair, and the block must not render a confidently wrong source location.
+       - Existing candidate-role repair and principal enumeration supplement tests remain passing.
+       - Focused command: `go test ./internal/tool -run 'NormalizeItemCitationRefs|PrincipalEnumerationRowBlocks|CitationRef' -count=1`; full package/regression after implementation.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
