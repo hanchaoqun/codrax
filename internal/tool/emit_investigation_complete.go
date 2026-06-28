@@ -5663,7 +5663,8 @@ func aggregateMemberSetSupportRefsResolveMember(fact types.AnswerAggregateFact, 
 		if !aggregateSupportLocationCompatibleWithMember(member, loc) {
 			return false
 		}
-		return aggregateSupportLocationMatchesMemberLabels(loc, labels, support)
+		return aggregateSupportLocationMatchesMemberLabels(loc, labels, support) ||
+			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, labels, support)
 	}
 	for _, ref := range fact.SupportRefs {
 		ref = strings.TrimSpace(ref)
@@ -5686,7 +5687,8 @@ func aggregateMemberSetSupportRefsResolveMember(fact types.AnswerAggregateFact, 
 		refLabels := aggregateSupportLabels(label, aggregateMemberLocationSupportLabels(member, labels))
 		if aggregateLocationEvidenceMatchesLabels(loc, refLabels, support.byLocation) ||
 			aggregateToolLocationMatchesLabels(loc, refLabels, support.toolLinesByLocation) ||
-			aggregateSourceInventoryLocationMatchesLabels(loc, refLabels, support.sourceInventoryLabelsByLocation) {
+			aggregateSourceInventoryLocationMatchesLabels(loc, refLabels, support.sourceInventoryLabelsByLocation) ||
+			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, refLabels, support) {
 			return true
 		}
 	}
@@ -6143,7 +6145,8 @@ func aggregateMemberSetMemberUsableAt(fact types.AnswerAggregateFact, member str
 	}
 	if loc, ok := aggregateMemberSetPositionalSupportLocation(fact, memberIdx, labels); ok &&
 		aggregateSupportLocationCompatibleWithMember(member, loc) &&
-		aggregateSupportLocationMatchesMemberLabels(loc, labels, support) {
+		(aggregateSupportLocationMatchesMemberLabels(loc, labels, support) ||
+			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, labels, support)) {
 		return true
 	}
 	if label, loc, ok := aggregateMemberSupportRefParts(member); ok {
@@ -6187,7 +6190,8 @@ func aggregateMemberSetMemberUsableAt(fact types.AnswerAggregateFact, member str
 		}
 		refLabels := aggregateSupportLabels(label, aggregateMemberLocationSupportLabels(member, labels))
 		if aggregateLocationEvidenceMatchesLabels(loc, refLabels, support.byLocation) ||
-			aggregateToolLocationMatchesLabels(loc, refLabels, support.toolLinesByLocation) {
+			aggregateToolLocationMatchesLabels(loc, refLabels, support.toolLinesByLocation) ||
+			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, refLabels, support) {
 			return true
 		}
 	}
@@ -6785,6 +6789,25 @@ func aggregateToolLocationMatchesLabels(location string, labels []string, byLoca
 	}
 	for _, line := range lines {
 		if aggregateToolLineSupportsLabels(line, labels) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateSupportLocationNearbyToolValueMatchesLabels(location string, labels []string, support aggregateMemberSupportIndex) bool {
+	file, line, ok := aggregateSupportLocationParts(location)
+	if !ok || len(labels) == 0 || len(support.readFileLines) == 0 {
+		return false
+	}
+	for _, toolLine := range support.readFileLines {
+		if toolLine.Line < line || toolLine.Line > line+4 {
+			continue
+		}
+		if !aggregateReadFilePathMatchesQualifier(toolLine.File, file) {
+			continue
+		}
+		if aggregateQuotedValueTextContainsAnyLabel(toolLine.Text, labels) {
 			return true
 		}
 	}

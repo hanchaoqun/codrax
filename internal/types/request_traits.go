@@ -136,6 +136,14 @@ func HasTypedRelationMemberSetShape(rm RequestModel) bool {
 		HasInterfaceTypedRelationDiagramShape(rm)
 }
 
+// SourceInventoryLaneConflictsWithPrincipalAnswer reports whether source
+// inventory may assist navigation but must not own completion authority.
+func SourceInventoryLaneConflictsWithPrincipalAnswer(rm RequestModel) bool {
+	return SourceInventoryLaneConflictsWithRoleBinding(rm) ||
+		SourceInventoryLaneConflictsWithRelationFlow(rm) ||
+		HasTypedRelationMemberSetShape(rm)
+}
+
 // SourceInventoryProfileConflictsWithRelationFlow reports whether an analyzer
 // emitted source_inventory_profile for a request whose principal answer shape
 // is a structural flow/trace rather than a bounded source member inventory.

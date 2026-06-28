@@ -1322,6 +1322,53 @@ func TestSourceInventoryLensExecutionGap_TypedQueryAdvisoryRequiresLens(t *testi
 	}
 }
 
+func TestSourceInventoryLensExecutionGap_RoleBindingAdvisoryDoesNotRequireLens(t *testing.T) {
+	mut := types.NewMutableState("registry member set")
+	mut.SetSourceInventoryAdvisory(types.SourceInventoryAdvisory{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"internal/agent"},
+		Provenance: []string{
+			"request_traits:typed_source_enumeration_query",
+			"request_traits:query_root_scope",
+			"pre_explore_typed_request",
+			"repomap_graph",
+		},
+		Sets: []types.SourceInventoryAdvisorySet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Candidates: []types.SourceInventoryAdvisoryCandidate{{
+				Member:     "RegisterDefaultSubAgents",
+				Key:        "internal/agent/subagent.go::RegisterDefaultSubAgents",
+				SupportRef: "RegisterDefaultSubAgents: internal/agent/subagent.go:63",
+				Role:       types.AnswerCandidateRoleFunction,
+				File:       "internal/agent/subagent.go",
+				Line:       63,
+				Language:   "go",
+			}},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisRegister,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "完整成员名",
+			},
+		}},
+	}
+
+	if gap := SourceInventoryLensExecutionGapForContext(ctx); gap.Blocking {
+		t.Fatalf("registry/binding member-set advisory must not become a source_inventory hard prerequisite: %+v", gap)
+	}
+}
+
 func TestSourceInventoryLensExecutionGap_SatisfiedByClosureOnlyLensMarker(t *testing.T) {
 	mut := types.NewMutableState("source inventory")
 	mut.SetSourceInventoryAdvisory(types.SourceInventoryAdvisory{

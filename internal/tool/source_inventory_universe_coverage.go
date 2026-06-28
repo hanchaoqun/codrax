@@ -154,8 +154,10 @@ func sourceInventoryAdvisoryIsTypedQueryLane(ctx *types.BusContext, advisory typ
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if !types.SourceInventoryPrincipalAuthorityActive(rm) &&
-		(rm.SourceInventoryProfile != nil || !types.IsTypedSourceEnumerationShape(rm)) {
+	if types.SourceInventoryLaneConflictsWithPrincipalAnswer(rm) {
+		return false
+	}
+	if !types.SourceInventoryPrincipalAuthorityActive(rm) && (rm.SourceInventoryProfile != nil || !types.IsTypedSourceEnumerationShape(rm)) {
 		return false
 	}
 	for _, provenance := range advisory.Provenance {

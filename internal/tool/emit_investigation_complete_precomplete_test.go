@@ -2771,6 +2771,127 @@ func TestEmitInvestigationComplete_PreCompleteCheck_GenericMemberSupportRefUsesG
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_OwnerLineSupportRefUsesNearbyQuotedReadFileValue(t *testing.T) {
+	mut := types.NewMutableState("默认注册的 SubAgent 名称是什么？")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/agent/sub_explorer.go",
+		LineStart:       32,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Name",
+		Snippet:         "func (s *SubExplorer) Name() string {",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(t,
+		"internal/agent/sub_explorer.go", 32, 40,
+		"func (s *SubExplorer) Name() string {",
+		"\treturn \"explorer\"",
+		"}",
+	))
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "默认注册的 SubAgent 名称"},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "SubExplorer.Name returns the registered SubAgent name.",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "默认注册 SubAgent 完整成员名",
+			"value":        "1",
+			"members":      []string{"explorer"},
+			"support_refs": []string{"Member: internal/agent/sub_explorer.go:32"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "exhaustive member-set handoff is missing") {
+		t.Fatalf("owner-line support_ref should use the nearby quoted read_file value: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("owner-line support_ref should allow completion once the exact member appears in the read_file window")
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_OwnerLineSupportRefRequiresNearbyQuotedMember(t *testing.T) {
+	mut := types.NewMutableState("默认注册的 SubAgent 名称是什么？")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/agent/sub_explorer.go",
+		LineStart:       32,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Name",
+		Snippet:         "func (s *SubExplorer) Name() string {",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(t,
+		"internal/agent/sub_explorer.go", 32, 40,
+		"func (s *SubExplorer) Name() string {",
+		"\treturn \"explorer\"",
+		"}",
+	))
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "默认注册的 SubAgent 名称"},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "wrong member should remain blocked",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "默认注册 SubAgent 完整成员名",
+			"value":        "1",
+			"members":      []string{"worker"},
+			"support_refs": []string{"Member: internal/agent/sub_explorer.go:32"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "exhaustive member-set handoff is missing") ||
+		!strings.Contains(res.Summary, "worker") {
+		t.Fatalf("owner-line support_ref must not certify an absent member: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open when the requested member is absent from the read_file window")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_GenericMemberSupportRefStillRequiresMemberAtLocation(t *testing.T) {
 	mut := types.NewMutableState("默认注册的 SubAgent 名称是什么？")
 	mut.AppendEvidence([]types.EvidenceItem{{
