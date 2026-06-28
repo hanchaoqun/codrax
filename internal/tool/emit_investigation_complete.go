@@ -2723,6 +2723,9 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 		blocking, advisory := partitionPendingReadsForAcceptedClosure(ctx, pending, aggregateFacts, evidence)
 		if len(advisory) > 0 {
 			logging.Info("[emit_investigation_complete] %d generic/advisory pending read(s) no longer block model-owned completion boundary", len(advisory))
+			if cleared := closure.ClearPendingReadsMatching(advisory...); cleared > 0 {
+				logging.Info("[emit_investigation_complete] cleared %d advisory pending read(s) after accepted completion boundary", cleared)
+			}
 		}
 		pending = blocking
 	}
@@ -4301,9 +4304,9 @@ func sourceInventoryResolvedCompletionPreciseCoverageGap(ctx *types.BusContext, 
 func sourceInventoryResolvedCompletionPreciseCoverageDowngrade(ctx *types.BusContext, gap SourceInventoryCandidateUniverseGap) string {
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
-			Kind:    types.RepairStructuredHandoff,
-			Tools:   []string{"emit_investigation_complete"},
-			Subject: sourceInventoryPreciseCoverageRepairSubject(gap),
+			Kind:      types.RepairStructuredHandoff,
+			Tools:     []string{"emit_investigation_complete"},
+			Subject:   sourceInventoryPreciseCoverageRepairSubject(gap),
 			Rationale: "The typed source_inventory row-set already observed a precise principal row family that the current aggregate_facts.member_set only partially covered. Repair the structured handoff or explicitly exclude the missing rows; do not reopen broad repository exploration.",
 			Origin:    "pre_complete.source_inventory_precise_coverage",
 			Stage:     string(types.StageExplore),
@@ -10010,6 +10013,10 @@ func partitionPendingReadsForAcceptedClosure(ctx *types.BusContext, pending []ty
 			advisory = append(advisory, p)
 			continue
 		}
+		if modelBoundary && mixedRuntimeCurrentSourceAcceptedBoundaryDemotesRequiredFilePendingRead(ctx, p) {
+			advisory = append(advisory, p)
+			continue
+		}
 		if modelBoundary && (!types.PendingReadBlocksAcceptedClosure(p) || types.IsGenericForcedReadOrigin(p.Origin)) {
 			advisory = append(advisory, p)
 			continue
@@ -10017,6 +10024,39 @@ func partitionPendingReadsForAcceptedClosure(ctx *types.BusContext, pending []ty
 		blocking = append(blocking, p)
 	}
 	return blocking, advisory
+}
+
+func mixedRuntimeCurrentSourceAcceptedBoundaryDemotesRequiredFilePendingRead(ctx *types.BusContext, pending types.PendingRead) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	origin := types.NormalizePendingReadOrigin(pending.Origin)
+	if origin != "required_file_hint_unread" && origin != "pre_dispatch.required_file_hint_unread" {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) {
+		return false
+	}
+	cap := types.RequiredFileHintCoverageMaxForRequest(rm)
+	if cap <= 0 {
+		return false
+	}
+	return highConfidenceRequiredFileHintCount(ctx, rm) > cap
+}
+
+func highConfidenceRequiredFileHintCount(ctx *types.BusContext, rm types.RequestModel) int {
+	count := 0
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if hint.Confidence < 0.8 {
+			continue
+		}
+		if _, ok := types.QualifyForcedReadSeedPath(ctx, hint.Path); !ok {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 func sourceInventoryAcceptedClosureDemotesPendingRead(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact, pending types.PendingRead) bool {

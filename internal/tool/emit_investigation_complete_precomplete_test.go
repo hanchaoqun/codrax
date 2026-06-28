@@ -2077,9 +2077,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryPreciseObserv
 		t.Fatalf("precise source-inventory coverage helper did not detect observed row-set omission: %+v", gap)
 	}
 	params, _ := json.Marshal(map[string]any{
-		"reason":      "one observed foreign function row was carried",
-		"confidence":  "high",
-		"result_kind": "resolved",
+		"reason":          "one observed foreign function row was carried",
+		"confidence":      "high",
+		"result_kind":     "resolved",
 		"aggregate_facts": facts,
 	})
 	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
@@ -6014,6 +6014,63 @@ func TestEmitInvestigationComplete_PreCompleteCheck_PrincipalMechanismBoundaryBy
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_MixedRuntimeOverflowRequiredFileCandidatesClearAfterBoundary(t *testing.T) {
+	root := t.TempDir()
+	required := []string{
+		"internal/tracequery/parse.go",
+		"internal/analysis/perftriage/merge.go",
+		"internal/hitraceconv/trace_validation.go",
+	}
+	writeForcedReadFixtureFiles(t, root, required...)
+	ctx := mixedRuntimeCurrentSourcePartitionTestContext(root, required)
+	mut := ctx.Mutable
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/tracequery/parse.go",
+			LineStart:       1656,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "classifyEventType",
+			Subject:         "classifyEventType",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/analysis/perftriage/merge.go",
+			LineStart:       306,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "mergedDeriveIntentHint",
+			Subject:         "mergedDeriveIntentHint",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	mut.AppendEvidence(evidence)
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		"internal/tracequery/parse.go":          true,
+		"internal/analysis/perftriage/merge.go": true,
+	})
+
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "trace span parsing and perf classification are covered by grounded current-source evidence",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := (&EmitInvestigationComplete{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") || strings.Contains(res.Summary, "Forced Read List") {
+		t.Fatalf("overflow mixed runtime/source required-file candidate should not block after grounded boundary, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatal("investigation should complete after grounded mixed runtime/source boundary")
+	}
+	if pending := closure.PendingReads(); len(pending) != 0 {
+		t.Fatalf("accepted mixed runtime/source boundary should clear advisory required-file candidate, got %+v", pending)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_GroundedNarrativeEvidenceBypassesGenericForcedReadsWithoutAggregateFacts(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -6395,6 +6452,111 @@ func TestPartitionPendingReadsForAcceptedClosure_SourceInventoryDemotesSupportRe
 	}
 	if len(advisory) != 2 || advisory[0].File != goSupport || advisory[1].File != docSupport {
 		t.Fatalf("support/docs required reads should become advisory after accepted source-inventory closure, got blocking=%+v advisory=%+v", blocking, advisory)
+	}
+}
+
+func TestPartitionPendingReadsForAcceptedClosure_MixedRuntimeDemotesOverflowRequiredFileCandidates(t *testing.T) {
+	root := t.TempDir()
+	required := []string{
+		"internal/tracequery/parse.go",
+		"internal/analysis/perftriage/merge.go",
+		"internal/hitraceconv/trace_validation.go",
+	}
+	writeForcedReadFixtureFiles(t, root, required...)
+	ctx := mixedRuntimeCurrentSourcePartitionTestContext(root, required)
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/tracequery/parse.go",
+			LineStart:       1656,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "classifyEventType",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/analysis/perftriage/merge.go",
+			LineStart:       306,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "mergedDeriveIntentHint",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	blocking, advisory := partitionPendingReadsForAcceptedClosure(ctx, []types.PendingRead{{
+		File:   "internal/hitraceconv/trace_validation.go",
+		Origin: "required_file_hint_unread",
+	}}, nil, evidence)
+	if len(blocking) != 0 || len(advisory) != 1 || advisory[0].File != "internal/hitraceconv/trace_validation.go" {
+		t.Fatalf("overflow mixed runtime/source required-file candidate should become advisory after grounded boundary, blocking=%+v advisory=%+v", blocking, advisory)
+	}
+}
+
+func TestPartitionPendingReadsForAcceptedClosure_MixedRuntimeKeepsSingleRequiredFileBlocking(t *testing.T) {
+	root := t.TempDir()
+	required := []string{"internal/hitraceconv/trace_validation.go"}
+	writeForcedReadFixtureFiles(t, root,
+		"internal/hitraceconv/trace_validation.go",
+		"internal/tracequery/parse.go",
+		"internal/analysis/perftriage/merge.go",
+	)
+	ctx := mixedRuntimeCurrentSourcePartitionTestContext(root, required)
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/tracequery/parse.go",
+			LineStart:       1656,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "classifyEventType",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/analysis/perftriage/merge.go",
+			LineStart:       306,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "mergedDeriveIntentHint",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	blocking, advisory := partitionPendingReadsForAcceptedClosure(ctx, []types.PendingRead{{
+		File:   "internal/hitraceconv/trace_validation.go",
+		Origin: "required_file_hint_unread",
+	}}, nil, evidence)
+	if len(advisory) != 0 || len(blocking) != 1 || blocking[0].File != "internal/hitraceconv/trace_validation.go" {
+		t.Fatalf("single mixed runtime/source required-file hint must remain blocking, blocking=%+v advisory=%+v", blocking, advisory)
+	}
+}
+
+func mixedRuntimeCurrentSourcePartitionTestContext(root string, required []string) *types.BusContext {
+	hints := make([]types.RequiredFileHint, 0, len(required))
+	for _, file := range required {
+		hints = append(hints, types.RequiredFileHint{Path: file, Confidence: 0.9})
+	}
+	return &types.BusContext{
+		RepoRoot: root,
+		Mutable:  types.NewMutableState("trace span mechanism"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentExplain,
+				Scenario:   types.ScenarioArchitectureExplain,
+				Complexity: types.ComplexityModerate,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:              string(types.ReqMechanism),
+					RequiredFileHints: hints,
+				},
+				PerfTrace: &types.PerfBundle{
+					Frames: []types.PerfFrame{{FrameNo: 1, DurationMs: 86.1, Janky: true}},
+				},
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+					SourceQuotes:                        []string{"current source"},
+					Confidence:                          0.9,
+				},
+			},
+		},
 	}
 }
 

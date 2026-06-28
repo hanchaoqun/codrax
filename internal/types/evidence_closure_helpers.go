@@ -3,6 +3,7 @@ package types
 import (
 	"hash/fnv"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -157,6 +158,74 @@ func clonePendingReads(in []PendingRead) []PendingRead {
 		out[i].LineRanges = cloneLineRanges(p.LineRanges)
 	}
 	return out
+}
+
+// ClearPendingReadsMatching removes only the concrete pending-read entries that
+// a precise completion preflight has reclassified as non-blocking for the
+// current accepted boundary. It intentionally matches on the pending-read
+// identity (canonical file + origin + surgical line ranges) instead of on a
+// broad origin class so principal reads from the same producer keep carrying
+// weight.
+func (c *EvidenceClosure) ClearPendingReadsMatching(entries ...PendingRead) int {
+	if c == nil || len(entries) == 0 {
+		return 0
+	}
+	wanted := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		if canon := c.canonicalize(entry.File); canon != "" {
+			entry.File = canon
+		}
+		if key := pendingReadIdentityKey(entry); key != "" {
+			wanted[key] = true
+		}
+	}
+	if len(wanted) == 0 {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.pendingReads) == 0 {
+		return 0
+	}
+	kept := c.pendingReads[:0]
+	cleared := 0
+	for _, pending := range c.pendingReads {
+		if wanted[pendingReadIdentityKey(pending)] {
+			cleared++
+			continue
+		}
+		kept = append(kept, pending)
+	}
+	c.pendingReads = kept
+	return cleared
+}
+
+func pendingReadIdentityKey(p PendingRead) string {
+	file := strings.TrimSpace(p.File)
+	origin := NormalizePendingReadOrigin(p.Origin)
+	if file == "" || origin == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(file)
+	b.WriteByte('\x00')
+	b.WriteString(origin)
+	for _, rng := range p.LineRanges {
+		if rng.Start <= 0 && rng.End <= 0 {
+			continue
+		}
+		b.WriteByte('\x00')
+		b.WriteString(fmtLineRangeIdentity(rng))
+	}
+	return b.String()
+}
+
+func fmtLineRangeIdentity(rng LineRange) string {
+	var b strings.Builder
+	b.WriteString(strconv.Itoa(rng.Start))
+	b.WriteByte(':')
+	b.WriteString(strconv.Itoa(rng.End))
+	return b.String()
 }
 
 func cloneRepairDirectives(in []RepairDirective) []RepairDirective {

@@ -553,6 +553,50 @@ func TestClearPendingReadsByDebtClass_DropsOnlySelectedDebt(t *testing.T) {
 	}
 }
 
+func TestClearPendingReadsMatching_DropsOnlyConcreteEntries(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddPendingRead(PendingRead{
+		File:      "./support.go",
+		Origin:    "phase1_unread",
+		Rationale: "generic support",
+	})
+	c.AddPendingRead(PendingRead{
+		File:      "support.go",
+		Origin:    "required_file_hint_unread",
+		Rationale: "principal required file",
+	})
+	c.AddPendingRead(PendingRead{
+		File:       "range.go",
+		Origin:     "auto_bridge.pre_complete.primary_anchor",
+		Rationale:  "old surgical range",
+		LineRanges: []LineRange{{Start: 10, End: 12}},
+	})
+	c.AddPendingRead(PendingRead{
+		File:       "range.go",
+		Origin:     "pre_complete.primary_anchor",
+		Rationale:  "new surgical range",
+		LineRanges: []LineRange{{Start: 20, End: 22}},
+	})
+
+	cleared := c.ClearPendingReadsMatching(
+		PendingRead{File: "support.go", Origin: "phase1_unread"},
+		PendingRead{File: "range.go", Origin: "pre_complete.primary_anchor", LineRanges: []LineRange{{Start: 10, End: 12}}},
+	)
+	if cleared != 2 {
+		t.Fatalf("cleared=%d, want 2", cleared)
+	}
+	pending := c.PendingReads()
+	if len(pending) != 2 {
+		t.Fatalf("remaining pending reads=%d, want 2: %+v", len(pending), pending)
+	}
+	if pending[0].File != "support.go" || pending[0].Origin != "required_file_hint_unread" {
+		t.Fatalf("required-file pending read should remain, got %+v", pending[0])
+	}
+	if pending[1].File != "range.go" || len(pending[1].LineRanges) != 1 || pending[1].LineRanges[0].Start != 20 {
+		t.Fatalf("non-matching surgical range should remain, got %+v", pending[1])
+	}
+}
+
 // TestAddRepair_ExpandSearch_BumpsStats is the B1 producer
 // regression: every RepairExpandSearch written to the closure MUST
 // bump ClosureStats.ExpandSearchRaised (on top of the generic
