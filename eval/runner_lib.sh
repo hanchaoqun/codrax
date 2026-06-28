@@ -592,6 +592,65 @@ eval_count_finalizer_rewrites() {
   eval_count_control_pattern 'INFO \[render\][[:space:]]+⟳ 4/4 .*(答案待完善|正在重写答案|检测到 .*前后不一致)' "$file"
 }
 
+eval_convergence_flags() {
+  local metrics="$1"
+  local verdict="${2:-UNKNOWN}"
+  local read_calls repo_map_calls list_files_calls exp exp_disp sem
+  local fin fin_reject fin_rewrite mermaid_repair answer_contract answer_contract_strict_raw answer_contract_strict
+  local history_prunes origin_block flags
+
+  read_calls="$(eval_metric_int_field "$metrics" tool_read_file)"
+  repo_map_calls="$(eval_metric_int_field "$metrics" tool_repo_map)"
+  list_files_calls="$(eval_metric_int_field "$metrics" tool_list_files)"
+  exp="$(eval_metric_int_field "$metrics" explorer_iters)"
+  exp_disp="$(eval_metric_int_field "$metrics" explorer_dispatches)"
+  sem="$(eval_metric_int_field "$metrics" semantic_quality_concerns)"
+  fin="$(eval_metric_int_field "$metrics" finalizer_iters)"
+  fin_reject="$(eval_metric_int_field "$metrics" finalizer_rejects)"
+  fin_rewrite="$(eval_metric_int_field "$metrics" finalizer_rewrites)"
+  mermaid_repair="$(eval_metric_int_field "$metrics" mermaid_source_repair_applied)"
+  answer_contract="$(eval_metric_int_field "$metrics" answer_contract_violations)"
+  answer_contract_strict_raw="$(eval_metric_field "$metrics" answer_contract_strict_violations)"
+  if [[ -n "$answer_contract_strict_raw" && "$answer_contract_strict_raw" != "-" ]]; then
+    answer_contract_strict="$(eval_metric_int_field "$metrics" answer_contract_strict_violations)"
+  else
+    answer_contract_strict="$answer_contract"
+  fi
+  history_prunes="$(eval_metric_int_field "$metrics" tool_history_prunes)"
+  origin_block="$(eval_metric_int_field "$metrics" mixed_origin_autocomplete_blocks)"
+
+  flags=""
+  if [[ "$verdict" != "PASS" ]]; then
+    flags="${flags} verdict"
+  fi
+  if [[ "$fin" -gt 1 || "$fin_reject" -gt 0 || "$fin_rewrite" -gt 0 ]]; then
+    flags="${flags} finalizer"
+  fi
+  if [[ "$mermaid_repair" -gt 0 && ( "$fin" -gt 1 || "$fin_reject" -gt 0 || "$fin_rewrite" -gt 0 ) ]]; then
+    flags="${flags} repair_churn"
+  fi
+  if [[ "$exp_disp" -gt 1 || "$exp" -gt 25 ]]; then
+    flags="${flags} explorer_long"
+  fi
+  if [[ "$read_calls" -gt 30 || "$repo_map_calls" -gt 8 || "$list_files_calls" -gt 12 ]]; then
+    flags="${flags} wide_search"
+  fi
+  if [[ "$sem" -gt 0 ]]; then
+    flags="${flags} semantic"
+  fi
+  if [[ "$answer_contract_strict" -gt 0 ]]; then
+    flags="${flags} contract_warning"
+  fi
+  if [[ "$history_prunes" -gt 0 ]]; then
+    flags="${flags} context_prune"
+  fi
+  if [[ "$origin_block" -gt 0 ]]; then
+    flags="${flags} lane_wait"
+  fi
+  flags="${flags# }"
+  printf '%s\n' "${flags:-—}"
+}
+
 eval_count_answer_document_patch_calls() {
   local file="$1"
   if [[ -z "$file" || ! -f "$file" ]]; then

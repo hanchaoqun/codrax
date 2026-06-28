@@ -38,6 +38,42 @@ assert_eq "$(eval_metric_field "$tmp/metrics.txt" missing_key)" "-" "missing met
 assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" analyzer_dispatches)" "2" "metric int field parse"
 assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" string_metric)" "0" "metric int non-numeric fallback"
 assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" missing_key)" "0" "missing metric int fallback"
+
+cat >"$tmp/convergence-lossless-repair.metrics" <<'METRICS'
+tool_read_file=9
+tool_repo_map=0
+tool_list_files=0
+explorer_iters=7
+explorer_dispatches=1
+semantic_quality_concerns=0
+finalizer_iters=1
+finalizer_rejects=0
+finalizer_rewrites=0
+mermaid_source_repair_applied=2
+answer_contract_violations=0
+answer_contract_strict_violations=0
+tool_history_prunes=0
+mixed_origin_autocomplete_blocks=0
+METRICS
+assert_eq "$(eval_convergence_flags "$tmp/convergence-lossless-repair.metrics" PASS)" "—" "lossless deterministic repair should not flag convergence"
+
+cat >"$tmp/convergence-repair-churn.metrics" <<'METRICS'
+tool_read_file=9
+tool_repo_map=0
+tool_list_files=0
+explorer_iters=7
+explorer_dispatches=1
+semantic_quality_concerns=0
+finalizer_iters=2
+finalizer_rejects=1
+finalizer_rewrites=0
+mermaid_source_repair_applied=2
+answer_contract_violations=0
+answer_contract_strict_violations=0
+tool_history_prunes=0
+mixed_origin_autocomplete_blocks=0
+METRICS
+assert_eq "$(eval_convergence_flags "$tmp/convergence-repair-churn.metrics" PASS)" "finalizer repair_churn" "repair with finalizer churn should be flagged precisely"
 metric_row="$(eval_print_efficiency_advisory_row "$tmp/metrics.txt" 1 high_analyzer_dispatches analyzer_dispatches 1 || true)"
 assert_eq "$metric_row" "| 1 | high_analyzer_dispatches | analyzer_dispatches=2 limit=1 |" "metric advisory row"
 assert_eq "$(eval_print_efficiency_advisory_row "$tmp/metrics.txt" 1 high_analyzer_dispatches analyzer_dispatches 2 || true)" "" "metric advisory row under limit"

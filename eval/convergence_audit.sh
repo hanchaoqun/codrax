@@ -164,45 +164,7 @@ wait
     fin_reject="$(metric_number "$metrics" finalizer_rejects)"
     fin_rewrite="$(metric_number "$metrics" finalizer_rewrites)"
     sem="$(metric_number "$metrics" semantic_quality_concerns)"
-    mermaid_repair="$(metric_number "$metrics" mermaid_source_repair_applied)"
-    answer_contract="$(metric_number "$metrics" answer_contract_violations)"
-    answer_contract_strict_raw="$(metric_field "$metrics" answer_contract_strict_violations)"
-    if [[ -n "$answer_contract_strict_raw" && "$answer_contract_strict_raw" != "-" ]]; then
-      answer_contract_strict="$(metric_number "$metrics" answer_contract_strict_violations)"
-    else
-      answer_contract_strict="$answer_contract"
-    fi
-    history_prunes="$(metric_number "$metrics" tool_history_prunes)"
-    flags=""
-    if [[ "$verdict" != "PASS" ]]; then
-      flags="${flags} verdict"
-    fi
-    if [[ "$fin" -gt 1 || "$fin_reject" -gt 0 || "$fin_rewrite" -gt 0 ]]; then
-      flags="${flags} finalizer"
-    fi
-    if [[ "$exp_disp" -gt 1 || "$exp" -gt 25 ]]; then
-      flags="${flags} explorer_long"
-    fi
-    if [[ "$read_calls" -gt 30 || "$repo_map_calls" -gt 8 || "$list_files_calls" -gt 12 ]]; then
-      flags="${flags} wide_search"
-    fi
-    if [[ "$sem" -gt 0 ]]; then
-      flags="${flags} semantic"
-    fi
-    if [[ "$answer_contract_strict" -gt 0 ]]; then
-      flags="${flags} contract_warning"
-    fi
-    if [[ "$mermaid_repair" -gt 0 ]]; then
-      flags="${flags} auto_repair"
-    fi
-    if [[ "$history_prunes" -gt 0 ]]; then
-      flags="${flags} context_prune"
-    fi
-    if [[ "$origin_block" -gt 0 ]]; then
-      flags="${flags} lane_wait"
-    fi
-    flags="${flags# }"
-    flags="${flags:-—}"
+    flags="$(eval_convergence_flags "$metrics" "$verdict")"
     if [[ "$flags" != "—" ]]; then
       flagged=$((flagged + 1))
     fi
@@ -215,7 +177,7 @@ wait
   echo
   echo "**flagged: $flagged / $total**"
   echo
-  echo "Flag meanings: \`finalizer\` = finalizer took multiple turns or had document/patch rejects/rewrite renders; \`explorer_long\` = multiple explorer dispatches or very high explorer iterations; \`wide_search\` = high read_file/repo_map/list_files cost; \`lane_wait\` = typed mixed-origin closure correctly waited for missing lanes; \`semantic\` = semantic reviewer emitted concerns; \`contract_warning\` = answer contract check logged strict contract violations; soft advisory violations remain in metrics for audit but do not set this flag; \`auto_repair\` = renderer/compat auto-repair was applied; \`context_prune\` = tool history pruning occurred."
+  echo "Flag meanings: \`finalizer\` = finalizer took multiple turns or had document/patch rejects/rewrite renders; \`repair_churn\` = deterministic repair coincided with finalizer retry/reject/rewrite, suggesting repair instability rather than harmless carrier normalization; \`explorer_long\` = multiple explorer dispatches or very high explorer iterations; \`wide_search\` = high read_file/repo_map/list_files cost; \`lane_wait\` = typed mixed-origin closure correctly waited for missing lanes; \`semantic\` = semantic reviewer emitted concerns; \`contract_warning\` = answer contract check logged strict contract violations; soft advisory violations remain in metrics for audit but do not set this flag; \`context_prune\` = tool history pruning occurred. Lossless deterministic carrier/render repairs remain visible in per-case metrics/advisories but do not create a top-level flag by themselves."
 } >"$SUMMARY"
 
 echo "summary written: $SUMMARY" >&2
