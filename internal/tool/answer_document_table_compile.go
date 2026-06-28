@@ -44,13 +44,21 @@ func compileEnumerationDisplayTableRows(doc *types.AnswerDocumentV2, ctx *types.
 			continue
 		}
 		shape, ok := enumerationDisplayExistingTableShape(doc.Blocks[blockIdx], rows)
+		if !ok && !implicitColumns &&
+			enumerationDisplayBlockColumnsHaveLocationHeader(doc.Blocks[blockIdx].Columns) &&
+			enumerationDisplayBlockRowsAllCitationBacked(doc.Blocks[blockIdx], doc.Citations) {
+			shape, ok = enumerationDisplayImplicitCitationBackedTableShape(rows)
+			if ok {
+				doc.Blocks[blockIdx].Columns = enumerationDisplayImplicitTableColumns(ctx, shape, rows)
+			}
+		}
 		if !ok && implicitColumns {
 			shape, ok = enumerationDisplayImplicitTypedAttributeTableShape(rows)
 			if ok {
 				doc.Blocks[blockIdx].Columns = enumerationDisplayImplicitTableColumns(ctx, shape, rows)
 			}
 		}
-		if !ok || !enumerationDisplayShapeHasTypedAttributeColumn(shape) {
+		if !ok || !enumerationDisplayShapeCanCompileInline(shape, doc.Blocks[blockIdx], doc.Citations) {
 			continue
 		}
 		if enumerationDisplayTableNeedsNoteColumn(doc.Blocks[blockIdx], rows, shape) {
@@ -96,6 +104,25 @@ func enumerationDisplayImplicitTypedAttributeTableShape(rows []types.Enumeration
 	}
 	if !enumerationDisplayShapeHasTypedAttributeColumn(shape) {
 		return enumerationDisplayExistingShape{}, false
+	}
+	for _, row := range rows {
+		if !enumerationDisplayRowCompatibleWithExistingShape(row, row.Note, shape) {
+			return enumerationDisplayExistingShape{}, false
+		}
+	}
+	return shape, true
+}
+
+func enumerationDisplayImplicitCitationBackedTableShape(rows []types.EnumerationDisplayRow) (enumerationDisplayExistingShape, bool) {
+	if len(rows) == 0 || !enumerationDisplayRowsHaveLocation(rows) {
+		return enumerationDisplayExistingShape{}, false
+	}
+	shape := enumerationDisplayExistingShape{roles: []enumerationDisplayColumnRole{enumerationDisplayColumnLocation}}
+	if enumerationDisplayRowsHavePackageCell(rows) {
+		shape.roles = append(shape.roles, enumerationDisplayColumnPackage)
+	}
+	if enumerationDisplayRowsHaveNote(rows) {
+		shape.roles = append(shape.roles, enumerationDisplayColumnNote)
 	}
 	for _, row := range rows {
 		if !enumerationDisplayRowCompatibleWithExistingShape(row, row.Note, shape) {
@@ -439,6 +466,55 @@ func enumerationDisplayShapeHasTypedAttributeColumn(shape enumerationDisplayExis
 		}
 	}
 	return false
+}
+
+func enumerationDisplayShapeCanCompileInline(shape enumerationDisplayExistingShape, block types.AnswerBlock, citations []types.Citation) bool {
+	if enumerationDisplayShapeHasTypedAttributeColumn(shape) {
+		return true
+	}
+	if !enumerationDisplayShapeHasLocationColumn(shape) {
+		return false
+	}
+	return enumerationDisplayBlockColumnsHaveLocationHeader(block.Columns) &&
+		enumerationDisplayBlockRowsAllCitationBacked(block, citations)
+}
+
+func enumerationDisplayShapeHasLocationColumn(shape enumerationDisplayExistingShape) bool {
+	for _, role := range shape.roles {
+		if role == enumerationDisplayColumnLocation {
+			return true
+		}
+	}
+	return false
+}
+
+func enumerationDisplayBlockColumnsHaveLocationHeader(columns []string) bool {
+	for _, column := range columns {
+		if enumerationDisplayColumnRoleForHeader(column) == enumerationDisplayColumnLocation {
+			return true
+		}
+	}
+	return false
+}
+
+func enumerationDisplayBlockRowsAllCitationBacked(block types.AnswerBlock, citations []types.Citation) bool {
+	visible := 0
+	for _, item := range block.Items {
+		if strings.TrimSpace(item.Label) == "" &&
+			strings.TrimSpace(item.Text) == "" &&
+			len(nonEmptyAnswerTableCompileCells(item.Cells)) == 0 {
+			continue
+		}
+		visible++
+		if item.CitationRef < 0 || item.CitationRef >= len(citations) {
+			return false
+		}
+		cit := citations[item.CitationRef]
+		if strings.TrimSpace(cit.File) == "" || cit.Line <= 0 {
+			return false
+		}
+	}
+	return visible > 0
 }
 
 func enumerationDisplayTableNeedsNoteColumn(block types.AnswerBlock, rows []types.EnumerationDisplayRow, shape enumerationDisplayExistingShape) bool {

@@ -834,7 +834,9 @@ func normalizeCompletionAggregateFacts(
 	for i, fact := range raw {
 		one, oneErr := types.NormalizeAnswerAggregateFacts([]types.AnswerAggregateFact{fact})
 		if oneErr != nil {
-			if !optionalAggregates && !completionAggregateFactIsDroppableContextualNegativeObservation(fact) {
+			if !optionalAggregates &&
+				!completionAggregateFactIsDroppableContextualNegativeObservation(fact) &&
+				!completionAggregateFactIsDroppableImpreciseRepoNegativeObservation(fact) {
 				return normalized, preNotes, err
 			}
 			if optionalAggregates {
@@ -884,7 +886,8 @@ func completionAggregateFactsCanDropContextualNegativeObservation(ctx *types.Bus
 	}
 	hasDroppable := false
 	for _, fact := range facts {
-		if completionAggregateFactIsDroppableContextualNegativeObservation(fact) {
+		if completionAggregateFactIsDroppableContextualNegativeObservation(fact) ||
+			completionAggregateFactIsDroppableImpreciseRepoNegativeObservation(fact) {
 			hasDroppable = true
 			continue
 		}
@@ -904,7 +907,7 @@ func completionAggregateFactIsDroppableContextualNegativeObservation(fact types.
 	if role != types.AnswerAggregateRoleSupportingCoverage && role != types.AnswerAggregateRoleAuditLedger {
 		return false
 	}
-	if !completionAggregateFactHasRepoSourceOrigin(fact) {
+	if !completionAggregateFactHasRepoSourceBoundary(fact) {
 		return false
 	}
 	candidate := completionAggregateFactWithSyntheticOrigin(fact, string(types.AnswerEvidenceOriginRuntimeArtifact))
@@ -912,6 +915,43 @@ func completionAggregateFactIsDroppableContextualNegativeObservation(fact types.
 		return false
 	}
 	return true
+}
+
+func completionAggregateFactIsDroppableImpreciseRepoNegativeObservation(fact types.AnswerAggregateFact) bool {
+	if fact.Kind != types.AnswerAggregateNegativeObservation {
+		return false
+	}
+	if types.NormalizeAnswerAggregateRole(fact.Role) != types.AnswerAggregateRoleUnknown {
+		return false
+	}
+	if !completionAggregateFactHasRepoSourceBoundary(fact) {
+		return false
+	}
+	if !completionAggregateFactZeroResult(fact) {
+		return false
+	}
+	dims := completionAggregateDimensionMap(fact.Dimensions)
+	if dims["target"] != "" || dims["query"] != "" || dims["pattern"] != "" || dims["predicate"] != "" {
+		return false
+	}
+	return completionAggregateFactObservedSurface(dims) != ""
+}
+
+func completionAggregateFactZeroResult(fact types.AnswerAggregateFact) bool {
+	value := strings.TrimSpace(fact.Value)
+	if value == "" {
+		for _, dim := range fact.Dimensions {
+			if normalizeAggregateFactCompatDimensionKey(dim.Name) == "result_count" {
+				value = strings.TrimSpace(dim.Value)
+				break
+			}
+		}
+	}
+	if value == "" {
+		value = "0"
+	}
+	n, err := strconv.Atoi(value)
+	return err == nil && n == 0
 }
 
 func completionAggregateFactHasRepoSourceOrigin(fact types.AnswerAggregateFact) bool {
@@ -936,6 +976,22 @@ func completionAggregateFactHasRepoSourceOrigin(fact types.AnswerAggregateFact) 
 		}
 	}
 	return false
+}
+
+func completionAggregateFactHasRepoSourceBoundary(fact types.AnswerAggregateFact) bool {
+	if completionAggregateFactHasRepoSourceOrigin(fact) {
+		return true
+	}
+	return completionAggregateFactObservedSurface(completionAggregateDimensionMap(fact.Dimensions)) != ""
+}
+
+func completionAggregateFactObservedSurface(dims map[string]string) string {
+	for _, key := range []string{"scope", "file", "path", "source", "source_ref", "repo_path"} {
+		if value := strings.TrimSpace(dims[key]); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func completionAggregateFactWithSyntheticOrigin(fact types.AnswerAggregateFact, origin string) types.AnswerAggregateFact {
@@ -1271,7 +1327,8 @@ func completionAggregateDimensionMap(dims []types.AnswerAggregateDimension) map[
 		switch name {
 		case "origin", "evidence_origin",
 			"target", "query", "pattern", "predicate",
-			"scope", "artifact_id", "trace_window", "commit_range", "tool_result", "source_ref":
+			"scope", "artifact_id", "trace_window", "commit_range", "tool_result", "source_ref",
+			"file", "path", "repo_path":
 			if out[name] == "" {
 				out[name] = strings.TrimSpace(dim.Value)
 			}

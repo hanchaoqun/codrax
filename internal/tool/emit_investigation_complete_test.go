@@ -1734,6 +1734,125 @@ func TestEmitInvestigationComplete_DropsSupportingRepoSourceNegativeObservationW
 	}
 }
 
+func TestEmitInvestigationComplete_DropsImpreciseRepoSourceNegativeObservationWhenPrincipalSurvives(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"principal member_set is complete; the zero row is only a non-precise source-inventory coverage note",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"@Entry 页面入口",
+				"value":"1",
+				"role":"principal_answer",
+				"members":["Index"]
+			},
+			{
+				"kind":"negative_observation",
+				"label":"04_styles_extend.ets zero source-inventory rows",
+				"value":"0",
+				"origin":"source_inventory",
+				"dimensions":[
+					{"name":"scope","value":"internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets"},
+					{"name":"searched_at","value":"current_investigation"}
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("imprecise contextual repo negative observation should drop locally, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "dropped contextual aggregate_facts") {
+		t.Fatalf("summary should disclose contextual aggregate drop: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Kind != types.AnswerAggregateMemberSet || facts[0].Members[0] != "Index" {
+		t.Fatalf("principal member_set should survive while imprecise contextual negative drops: %+v", facts)
+	}
+}
+
+func TestEmitInvestigationComplete_DropsFileBoundRepoNegativeObservationSidecar(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"principal member sets are complete; one bounded file merely lacks the decorator",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"@Entry 页面入口",
+				"value":"1",
+				"role":"principal_answer",
+				"members":["Index"]
+			},
+			{
+				"kind":"negative_observation",
+				"label":"@Entry 装饰器不存在",
+				"value":"0",
+				"provenance":"read_file full file + scope=negative cross-check",
+				"dimensions":[
+					{"name":"file","value":"src/pages/EntryAbility.ets"},
+					{"name":"reason","value":"EntryAbility 使用 UIAbility，无 @Entry 装饰器"}
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("file-bound repo negative sidecar should drop locally, got: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Kind != types.AnswerAggregateMemberSet || facts[0].Members[0] != "Index" {
+		t.Fatalf("principal member_set should survive while file-bound negative sidecar drops: %+v", facts)
+	}
+}
+
+func TestEmitInvestigationComplete_DoesNotDropOnlyImpreciseRepoSourceNegativeObservation(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"invalid lone current-source negative observation",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"negative_observation",
+			"label":"repo absence without target",
+			"value":"0",
+			"origin":"source_inventory",
+			"dimensions":[
+				{"name":"scope","value":"internal"},
+				{"name":"searched_at","value":"current_investigation"}
+			]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected execution error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("lone imprecise repo-source negative_observation must still reject: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "requires a non-repo origin dimension") {
+		t.Fatalf("rejection should preserve non-repo origin hard gate, got: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_DoesNotDropPrincipalRepoSourceNegativeObservation(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}

@@ -4415,6 +4415,7 @@ func TestExplorer_FilterToolSchemas_SourceInventoryLensSurface(t *testing.T) {
 	}
 	schemas := []llm.ToolSchema{
 		{Name: "read_file"},
+		{Name: "list_files"},
 		{Name: "grep"},
 		{Name: "repo_map"},
 		{Name: "exec_command"},
@@ -4437,7 +4438,7 @@ func TestExplorer_FilterToolSchemas_SourceInventoryLensSurface(t *testing.T) {
 		}},
 	}}})
 	got = eval.FilterToolSchemas(ctx, schemas)
-	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,grep,repo_map,exec_command,emit_evidence,emit_investigation_complete" {
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,list_files,grep,repo_map,exec_command,emit_evidence,emit_investigation_complete" {
 		t.Fatalf("source-inventory lens surface should release after typed lens observation, got %v", gotNames)
 	}
 }
@@ -4532,6 +4533,56 @@ func TestExplorer_FilterToolSchemas_SourceInventoryMechanicalLandingWaitsForMiss
 	}
 	if blocked := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"vendor/pkg/entry.py"}`)}); blocked != nil {
 		t.Fatalf("missing source-class debt should not reject read_file, got %+v", blocked)
+	}
+}
+
+func TestExplorer_FilterToolSchemas_SourceInventoryMechanicalLandingWaitsForUncoveredRequiredFile(t *testing.T) {
+	eval := &explorerEvaluator{sourceInventoryLensSurfaceReleased: true}
+	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(false)
+	ctx.ExploreToolSurface = types.ExploreToolSurfaceSourceInventoryLens
+	ctx.AnalysisIR.EvidencePlan.RequiredFiles = []string{"src/run.py", "src/serve.py", "src/missing.py"}
+	obs := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	obs.CompleteLenses = append(obs.CompleteLenses, types.SourceInventoryCompleteLens{
+		Role:       types.AnswerCandidateRoleFunction,
+		Scopes:     []string{"src/empty.py"},
+		Count:      0,
+		Total:      0,
+		Provenance: []string{"repo_lens:tool_query"},
+	})
+	ctx.Mutable.SetSourceInventoryObservation(obs)
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "exec_command"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,repo_map,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("uncovered required file must keep only narrow verification tools available, got %v", gotNames)
+	}
+	if blocked := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"src/missing.py"}`)}); blocked != nil {
+		t.Fatalf("uncovered required file should not hit completion-only surface, got %+v", blocked)
+	}
+	if blocked := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "list_files", Params: json.RawMessage(`{"path":"."}`)}); blocked == nil || blocked.Success {
+		t.Fatalf("uncovered required file should reject broad file discovery, got %+v", blocked)
+	} else if !strings.Contains(blocked.Summary, "uncovered bounded required files") {
+		t.Fatalf("uncovered required file rejection should explain bounded verification, got %q", blocked.Summary)
+	}
+
+	obs.CompleteLenses = append(obs.CompleteLenses, types.SourceInventoryCompleteLens{
+		Role:       types.AnswerCandidateRoleFunction,
+		Scopes:     []string{"src/missing.py"},
+		Count:      0,
+		Total:      0,
+		Provenance: []string{"repo_lens:tool_query"},
+	})
+	ctx.Mutable.SetSourceInventoryObservation(obs)
+	got = eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_investigation_complete" {
+		t.Fatalf("zero complete lens should cover the bounded required file and allow landing surface, got %v", gotNames)
 	}
 }
 

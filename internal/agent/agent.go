@@ -5306,6 +5306,9 @@ func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc ll
 	}
 	allowedNames := sortedToolNames(allowed)
 	reason := fmt.Sprintf("tool %q is not available in the current explorer repair state; available tools here: %s. Use the already-read or exact repair context to emit structured evidence before widening scope.", tc.Name, strings.Join(allowedNames, ", "))
+	if explorerEval.sourceInventoryRequiredFileVerificationSurfaceActive(ctx) {
+		reason = fmt.Sprintf("tool %q is not available because the typed source_inventory lane still has uncovered bounded required files; available tools here: %s. Verify only the already-bounded files with read_file or a narrower repo_map(source_inventory) call, then emit evidence or complete the investigation. Do not reopen broad file discovery.", tc.Name, strings.Join(allowedNames, ", "))
+	}
 	if explorerEval.sourceInventoryMechanicalLandingSurfaceActive(ctx) {
 		reason = fmt.Sprintf("tool %q is not available because the typed source_inventory row-set already covers this mechanical inventory lane; available tools here: %s. Close with emit_investigation_complete and carry row-set counts/members/locations through reason or aggregate_facts instead of reading or re-emitting every candidate file.", tc.Name, strings.Join(allowedNames, ", "))
 	}

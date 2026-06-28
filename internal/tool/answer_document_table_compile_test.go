@@ -528,6 +528,90 @@ func TestCompileEnumerationDisplayTableRows_RequiresUniqueExactRowMatch(t *testi
 	}
 }
 
+func TestCompileEnumerationDisplayTableRows_FillsCitationBackedLocationTableWhenModelColumnsDrift(t *testing.T) {
+	mut := types.NewMutableState("列出文件路径和函数名")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "@Entry 页面入口",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Unit:        "入口",
+		Members:     []string{"Index", "ParentComponent"},
+		SupportRefs: []string{"Index @ src/pages/Index.ets:7", "ParentComponent @ src/pages/Parent.ets:34"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentEnumerate,
+				Language: "zh",
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:      "entry_table",
+			Kind:    types.BlockTable,
+			Title:   "@Entry 标记的页面入口",
+			Columns: []string{"文件路径", "行号", "函数名", "说明"},
+			Items: []types.AnswerBlockItem{
+				{
+					ID:          "index",
+					Label:       "Index",
+					Text:        "@Entry 标记的页面入口组件",
+					CitationRef: 0,
+				},
+				{
+					ID:          "parent",
+					Label:       "ParentComponent",
+					Text:        "@Entry 标记的页面入口组件",
+					CitationRef: 1,
+				},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "src/pages/Index.ets", Line: 7},
+			{File: "src/pages/Parent.ets", Line: 34},
+		},
+	}
+
+	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed != 2 {
+		t.Fatalf("fixed=%d, want 2; doc=%+v", fixed, doc.Blocks[0])
+	}
+	table := doc.Blocks[0]
+	if got, want := table.Columns, []string{"符号名称", "定义位置", "说明"}; len(got) != len(want) {
+		t.Fatalf("columns=%v, want %v", got, want)
+	} else {
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("columns=%v, want %v", got, want)
+			}
+		}
+	}
+	wantRows := [][]string{
+		{"src/pages/Index.ets:7", "@Entry 标记的页面入口组件"},
+		{"src/pages/Parent.ets:34", "@Entry 标记的页面入口组件"},
+	}
+	for i, want := range wantRows {
+		item := table.Items[i]
+		if item.Text != "" {
+			t.Fatalf("item text should move into deterministic cells, got %+v", item)
+		}
+		if len(item.Cells) != len(want) {
+			t.Fatalf("row %d cells=%+v, want %v", i, item.Cells, want)
+		}
+		for j, wantCell := range want {
+			if item.Cells[j] != wantCell {
+				t.Fatalf("row %d cells=%+v, want cell %d=%q", i, item.Cells, j, wantCell)
+			}
+		}
+	}
+}
+
 func TestCompileEnumerationDisplayTableRows_FillsTypedAttributeColumnsByCitation(t *testing.T) {
 	mut := types.NewMutableState("列出 foreign func 的文件路径和 package")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

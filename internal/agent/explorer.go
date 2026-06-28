@@ -6766,6 +6766,13 @@ var investigationCompleteOnlyToolNames = map[string]bool{
 	"emit_investigation_complete": true,
 }
 
+var sourceInventoryRequiredFileVerificationToolNames = map[string]bool{
+	"read_file":                   true,
+	"repo_map":                    true,
+	"emit_evidence":               true,
+	"emit_investigation_complete": true,
+}
+
 var evidenceRepairToolNames = map[string]bool{
 	"read_file":                   true,
 	"emit_evidence":               true,
@@ -6827,6 +6834,9 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	// repair asks for a tool that the schema filter removed.
 	if ctx.CompletionOnlySurface {
 		allowed := completionOnlyToolSurface(ctx)
+		if e.sourceInventoryRequiredFileVerificationSurfaceActive(ctx) {
+			allowed = sourceInventoryRequiredFileVerificationToolNames
+		}
 		if e.sourceInventoryMechanicalLandingSurfaceActive(ctx) {
 			allowed = investigationCompleteOnlyToolNames
 		}
@@ -6903,6 +6913,9 @@ func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[s
 	if e == nil {
 		return nil
 	}
+	if e.sourceInventoryRequiredFileVerificationSurfaceActive(ctx) {
+		return sourceInventoryRequiredFileVerificationToolNames
+	}
 	if e.sourceInventoryMechanicalLandingSurfaceActive(ctx) {
 		return investigationCompleteOnlyToolNames
 	}
@@ -6963,6 +6976,9 @@ func (e *explorerEvaluator) sourceInventoryMechanicalLandingSurfaceActive(ctx *t
 	if !observation.IsActive() {
 		return false
 	}
+	if !sourceInventoryMechanicalLandingRequiredFilesCovered(observation, ctx.AnalysisIR.EvidencePlan.RequiredFiles) {
+		return false
+	}
 	debt := types.DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation, rm, ctx.AnalysisIR.EvidencePlan.RequiredFiles)
 	if sourceInventoryInlineFollowupDebtExecutable(debt) {
 		return false
@@ -6978,6 +6994,113 @@ func (e *explorerEvaluator) sourceInventoryMechanicalLandingSurfaceActive(ctx *t
 		MultiGraph: ctx.MultiGraph,
 	}, projected)
 	return !gap.Blocking
+}
+
+func (e *explorerEvaluator) sourceInventoryRequiredFileVerificationSurfaceActive(ctx *types.AgentContext) bool {
+	if e == nil || e.investigationComplete || ctx == nil || ctx.Stage != types.StageExplore ||
+		ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if e.sourceInventoryFollowupRouteActive(ctx) ||
+		(ctx.ExploreToolSurface.IsSourceInventoryLens() && !e.sourceInventoryLensSurfaceReleased) {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.MechanicalRowsOnly() {
+		return false
+	}
+	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	if !observation.IsActive() {
+		return false
+	}
+	required := sourceInventoryMechanicalLandingRequiredFileSet(ctx.AnalysisIR.EvidencePlan.RequiredFiles)
+	return len(required) > 0 && !sourceInventoryMechanicalLandingRequiredFilesCovered(observation, ctx.AnalysisIR.EvidencePlan.RequiredFiles)
+}
+
+func sourceInventoryMechanicalLandingRequiredFilesCovered(observation types.SourceInventoryObservation, requiredFiles []string) bool {
+	required := sourceInventoryMechanicalLandingRequiredFileSet(requiredFiles)
+	if len(required) == 0 {
+		return true
+	}
+	covered := map[string]bool{}
+	for _, set := range observation.Sets {
+		for _, member := range set.Members {
+			sourceInventoryMechanicalLandingMarkCoveredFile(covered, member.File)
+			for _, attr := range member.Attributes {
+				sourceInventoryMechanicalLandingMarkCoveredFile(covered, attr.File)
+			}
+		}
+	}
+	for _, lens := range observation.CompleteLenses {
+		if lens.Count != 0 {
+			continue
+		}
+		for _, scope := range lens.Scopes {
+			scope = sourceInventoryMechanicalLandingCleanPath(scope)
+			if scope == "" {
+				continue
+			}
+			for file := range required {
+				if sourceInventoryMechanicalLandingPathCoveredByScope(file, scope) {
+					covered[file] = true
+				}
+			}
+		}
+	}
+	for file := range required {
+		if !covered[file] {
+			return false
+		}
+	}
+	return true
+}
+
+func sourceInventoryMechanicalLandingRequiredFileSet(files []string) map[string]bool {
+	out := map[string]bool{}
+	for _, file := range files {
+		file = sourceInventoryMechanicalLandingCleanPath(file)
+		if file == "" {
+			continue
+		}
+		out[file] = true
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func sourceInventoryMechanicalLandingMarkCoveredFile(covered map[string]bool, file string) {
+	file = sourceInventoryMechanicalLandingCleanPath(file)
+	if file == "" {
+		return
+	}
+	covered[file] = true
+}
+
+func sourceInventoryMechanicalLandingCleanPath(raw string) string {
+	path := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	path = filepath.Clean(path)
+	path = strings.Trim(strings.ReplaceAll(path, `\`, `/`), "/")
+	if path == "." {
+		return "."
+	}
+	if path == "" {
+		return ""
+	}
+	return path
+}
+
+func sourceInventoryMechanicalLandingPathCoveredByScope(file, scope string) bool {
+	file = sourceInventoryMechanicalLandingCleanPath(file)
+	scope = sourceInventoryMechanicalLandingCleanPath(scope)
+	if file == "" || scope == "" {
+		return false
+	}
+	if scope == "." || file == scope {
+		return true
+	}
+	return strings.HasPrefix(file, scope+"/")
 }
 
 func (e *explorerEvaluator) sourceInventoryFollowupRouteActive(ctx *types.AgentContext) bool {
