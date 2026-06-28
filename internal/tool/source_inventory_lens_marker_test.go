@@ -39,3 +39,15 @@ func TestPersistSourceInventoryLensExecutionMarkerDropsNavigationRows(t *testing
 		t.Fatalf("execution marker must not persist broad navigation rows as durable member authority: %+v", stored.Sets)
 	}
 }
+
+func TestSourceInventoryLensStageProvenanceUsesPipelineStage(t *testing.T) {
+	if got := SourceInventoryLensStageProvenance(&types.BusContext{PipelineStage: types.StageAnalyze}); got != types.SourceInventoryProvenanceStageAnalyze {
+		t.Fatalf("analyze stage provenance = %q, want %q", got, types.SourceInventoryProvenanceStageAnalyze)
+	}
+	if got := SourceInventoryLensStageProvenance(&types.BusContext{PipelineStage: types.StageExplore}); got != types.SourceInventoryProvenanceStageExplore {
+		t.Fatalf("explore stage provenance = %q, want %q", got, types.SourceInventoryProvenanceStageExplore)
+	}
+	if got := SourceInventoryLensStageProvenance(&types.BusContext{}); got != "" {
+		t.Fatalf("empty stage provenance = %q, want empty", got)
+	}
+}

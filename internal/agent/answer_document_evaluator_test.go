@@ -1307,6 +1307,67 @@ func TestSelectAnswerDocTypedEnrichmentFacts_SupportScopeFiltersUnrelatedRowsAcr
 	}
 }
 
+func TestSelectAnswerDocTypedEnrichmentFacts_SourceLocationBeatsSameAnchor(t *testing.T) {
+	supportScope := supportLaneScopeFromPlan(&types.AnswerSupportPlan{
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLanePrincipalEvidence,
+			Entries: []types.AnswerSupportEntry{{
+				EvidenceID:   "support-cart-extension",
+				Source:       "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+				LineStart:    30,
+				AnchorSymbol: "Cart",
+				Subject:      "Cart",
+			}},
+		}},
+	}, true, extractorValueRankEnumeration)
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			ID:              "same-anchor-wrong-location",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/03_struct_interface.cj",
+			LineStart:       30,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Cart",
+			Subject:         "Cart",
+			Snippet:         `println("Circle at ...")`,
+			SurfaceTerms:    []string{"extend Cart"},
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "exact-cart-extension",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+			LineStart:       30,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Cart",
+			Subject:         "Cart",
+			Snippet:         "extend Cart {",
+			SurfaceTerms:    []string{"extend Cart"},
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	got := selectAnswerDocTypedEnrichmentFacts(ctx, evidence, true, supportScope)
+	if len(got) != 1 {
+		t.Fatalf("support scope should keep only exact source-location evidence, got %+v", got)
+	}
+	if got[0].item.ID != "exact-cart-extension" {
+		t.Fatalf("same-anchor wrong-location evidence leaked into enrichment: %+v", got)
+	}
+}
+
 func TestSelectAnswerDocFlowEnrichmentLines_DiagnosticSupportScopeFiltersUnrelatedFlow(t *testing.T) {
 	supportScope := supportLaneScopeFromPlan(&types.AnswerSupportPlan{
 		Lanes: []types.AnswerSupportLane{{

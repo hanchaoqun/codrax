@@ -369,6 +369,133 @@ func TestCompileEnumerationDisplaySets_SourceInventoryAttributesStayLocationScop
 	assertAttr("thirdparty/ffi.cj:6", "demo.ffi")
 }
 
+func TestCompileEnumerationDisplaySets_SurfaceTermsStayLineScopedForSameFileDuplicateLabels(t *testing.T) {
+	rm := &RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			RequestedFields: []SourceInventoryRequestedField{
+				SourceInventoryFieldName,
+				SourceInventoryFieldLocation,
+				SourceInventoryFieldPackage,
+			},
+			SourceQuotes: []string{"extend", "public class"},
+			Confidence:   0.95,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "Cangjie declarations",
+			Value: "2",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Members: []string{
+				"Cart @ src/cart/Cart.cj:30 (package demo.cart)",
+				"Cart @ src/cart/Cart.cj:14 (package demo.cart)",
+			},
+			SupportRefs: []string{
+				"Cart @ src/cart/Cart.cj:30",
+				"Cart @ src/cart/Cart.cj:14",
+			},
+		}},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "extend-cart",
+				Kind:            EvidenceDirect,
+				Subject:         "Cart",
+				Object:          "extend Cart",
+				AnchorSymbol:    "Cart",
+				AnchorKind:      AnchorDefinition,
+				Source:          "src/cart/Cart.cj",
+				LineStart:       30,
+				Scope:           ScopeLine,
+				GroundingStatus: GroundingGrounded,
+				SurfaceTerms:    []string{"extend", "extend Cart"},
+			},
+			{
+				ID:              "class-cart",
+				Kind:            EvidenceDirect,
+				Subject:         "Cart",
+				Object:          "public class Cart",
+				AnchorSymbol:    "Cart",
+				AnchorKind:      AnchorDefinition,
+				Source:          "src/cart/Cart.cj",
+				LineStart:       14,
+				Scope:           ScopeLine,
+				GroundingStatus: GroundingGrounded,
+				SurfaceTerms:    []string{"public class", "public class Cart"},
+			},
+		},
+		SourceInventoryObservation: SourceInventoryObservation{
+			Active:   true,
+			Complete: true,
+			Scopes:   []string{"src/cart"},
+			Sets: []SourceInventoryObservationSet{{
+				Role:     AnswerCandidateRoleType,
+				Complete: true,
+				Count:    2,
+				Members: []SourceInventoryObservationMember{
+					{
+						Name:          "Cart",
+						File:          "src/cart/Cart.cj",
+						Line:          30,
+						Language:      "cangjie",
+						SurfaceTerms:  []string{"extend", "extend Cart"},
+						CoverageState: SourceInventoryCoverageObserved,
+						Attributes: []SourceInventoryObservationAttribute{{
+							Name:          "demo.cart",
+							Role:          AnswerCandidateRolePackage,
+							File:          "src/cart/Cart.cj",
+							Line:          1,
+							Language:      "cangjie",
+							CoverageState: SourceInventoryCoverageObserved,
+						}},
+					},
+					{
+						Name:          "Cart",
+						File:          "src/cart/Cart.cj",
+						Line:          14,
+						Language:      "cangjie",
+						SurfaceTerms:  []string{"public class", "public class Cart"},
+						CoverageState: SourceInventoryCoverageObserved,
+						Attributes: []SourceInventoryObservationAttribute{{
+							Name:          "demo.cart",
+							Role:          AnswerCandidateRolePackage,
+							File:          "src/cart/Cart.cj",
+							Line:          1,
+							Language:      "cangjie",
+							CoverageState: SourceInventoryCoverageObserved,
+						}},
+					},
+				},
+			}},
+		},
+	}
+
+	sets := CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) != 1 || len(sets[0].Rows) != 2 {
+		t.Fatalf("sets = %+v", sets)
+	}
+	byLocation := map[string]EnumerationDisplayRow{}
+	for _, row := range sets[0].Rows {
+		byLocation[row.Location] = row
+	}
+	extendRow := byLocation["src/cart/Cart.cj:30"]
+	if strings.Contains(strings.Join(extendRow.SurfaceTerms, "\n"), "public class") ||
+		strings.Contains(extendRow.Note, "public class") {
+		t.Fatalf("extend row inherited public-class terms from same-file class row: %+v", extendRow)
+	}
+	classRow := byLocation["src/cart/Cart.cj:14"]
+	if strings.Contains(strings.Join(classRow.SurfaceTerms, "\n"), "extend") ||
+		strings.Contains(classRow.Note, "extend") {
+		t.Fatalf("class row inherited extend terms from same-file extend row: %+v", classRow)
+	}
+}
+
 func TestCompileEnumerationDisplaySets_UsesCanonicalMembersAndSupportRefs(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

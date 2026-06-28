@@ -5216,6 +5216,68 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForRegistryBindingMemberSet(t 
 	}
 }
 
+func TestEmitAnalysis_Execute_KeepsPreciseSourceInventoryWhenAnswerRoleProfileDrifts(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("仓库里有哪些声明？分别列出文件路径和符号名。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["declaration", "source inventory", "path", "symbol"],
+		"entities": ["declaration"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.75,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": true
+		},
+		"source_scope_profile": {
+			"requested_scope": "all",
+			"confidence": 0.9
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["type", "function"],
+			"requested_fields": ["name", "location", "package"],
+			"source_quotes": ["declarations"],
+			"confidence": 0.9,
+			"rationale": "bounded declaration inventory"
+		},
+		"answer_role_profile": {
+			"is_role_binding_requested": true,
+			"required_candidate_roles": ["type", "function"],
+			"source_quotes": ["declarations"],
+			"confidence": 0.85
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		t.Fatalf("precise source inventory declaration lane should be retained despite noisy answer_role_profile: %+v", rm)
+	}
+	if !types.SourceInventoryPrincipalNavigationActive(*rm) {
+		t.Fatalf("retained source inventory should own principal navigation: %+v", rm)
+	}
+}
+
 func TestEmitAnalysis_Execute_DropsSourceInventoryForRelationFlow(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

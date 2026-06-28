@@ -5722,6 +5722,9 @@ func (s *supportLaneScope) allowsEvidence(item types.EvidenceItem) bool {
 	if s.hasLocation(item.Source, item.LineStart) {
 		return true
 	}
+	if s.requiresExactLocationForConcreteSourceEvidence(item) {
+		return false
+	}
 	for _, raw := range []string{
 		item.Subject,
 		item.Object,
@@ -5740,6 +5743,21 @@ func (s *supportLaneScope) allowsEvidence(item types.EvidenceItem) bool {
 		}
 	}
 	return false
+}
+
+func (s *supportLaneScope) requiresExactLocationForConcreteSourceEvidence(item types.EvidenceItem) bool {
+	if s == nil || len(s.locations) == 0 {
+		return false
+	}
+	switch item.Origin {
+	case types.ClaimOriginLog, types.ClaimOriginPerf:
+		return false
+	}
+	source := strings.TrimSpace(item.Source)
+	if source == "" || item.LineStart <= 0 {
+		return false
+	}
+	return supportLaneScopeFileKey(source) != ""
 }
 
 func (s *supportLaneScope) allowsFlowFinding(ff types.FlowFindingDigest) bool {

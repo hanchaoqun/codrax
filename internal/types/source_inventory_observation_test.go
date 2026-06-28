@@ -708,4 +708,20 @@ func TestSourceInventoryLensExecutedSeparatesClassUniverseSeed(t *testing.T) {
 	if !SourceInventoryLensExecuted(withMembers) {
 		t.Fatalf("member-set observation should count as executable lens: %+v", withMembers)
 	}
+	analyzePrescan := withMembers
+	analyzePrescan.Provenance = []string{
+		SourceInventoryProvenanceRepoLensToolQuery,
+		SourceInventoryProvenanceStageAnalyze,
+	}
+	if SourceInventoryLensExecuted(analyzePrescan) {
+		t.Fatalf("analyze-stage prescan must remain advisory and not suppress explore lens probe: %+v", analyzePrescan)
+	}
+	exploreLens := analyzePrescan
+	exploreLens.Provenance = []string{
+		SourceInventoryProvenanceRepoLensToolQuery,
+		SourceInventoryProvenanceStageExplore,
+	}
+	if !SourceInventoryLensExecuted(exploreLens) {
+		t.Fatalf("explore-stage source-inventory observation should count as executable lens: %+v", exploreLens)
+	}
 }

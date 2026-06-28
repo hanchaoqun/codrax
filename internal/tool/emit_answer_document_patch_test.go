@@ -1198,8 +1198,8 @@ func TestEmitAnswerDocumentPatch_RebindsCandidateRoleSourceInventoryRow(t *testi
 		t.Fatalf("patch candidate_role source-inventory citation should normalize, got: %s", res.Summary)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
-	if doc == nil || len(doc.Citations) != 2 {
-		t.Fatalf("expected source-inventory citation appended to inherited pool, got %+v", doc)
+	if doc == nil || len(doc.Citations) == 0 {
+		t.Fatalf("expected source-inventory citation persisted, got %+v", doc)
 	}
 	var functions *types.AnswerBlock
 	for i := range doc.Blocks {
@@ -1211,11 +1211,12 @@ func TestEmitAnswerDocumentPatch_RebindsCandidateRoleSourceInventoryRow(t *testi
 	if functions == nil || len(functions.Items) != 1 {
 		t.Fatalf("missing patched functions block: %+v", doc)
 	}
-	if got := functions.Items[0].CitationRef; got != 1 {
-		t.Fatalf("candidate_role item should rebind away from stale inherited ref, got %d", got)
+	ref := functions.Items[0].CitationRef
+	if ref < 0 || ref >= len(doc.Citations) {
+		t.Fatalf("candidate_role item citation_ref out of range after rebind: item=%+v citations=%+v", functions.Items[0], doc.Citations)
 	}
-	if got := doc.Citations[1]; got.File != "src/serve.cj" || got.Line != 12 {
-		t.Fatalf("appended citation = %+v, want src/serve.cj:12", got)
+	if got := doc.Citations[ref]; got.File != "src/serve.cj" || got.Line != 12 {
+		t.Fatalf("candidate_role citation = %+v, want src/serve.cj:12", got)
 	}
 }
 

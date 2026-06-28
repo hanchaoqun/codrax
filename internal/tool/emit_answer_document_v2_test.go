@@ -127,6 +127,106 @@ func TestEmitAnswerDocumentV2_PrunesUnusedCitationPoolEntries(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_PersistsPrincipalEnumerationPruneBeforeSave(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("列出 public class"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				SourceQuotes:      []string{"public class"},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	bus.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:       types.AnswerAggregateMemberSet,
+			Label:      "public class supporting coverage",
+			Value:      "3",
+			Role:       types.AnswerAggregateRoleSupportingCoverage,
+			Provenance: "explorer",
+			Members: []string{
+				"Bridge @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15 (package demo.bridge)",
+				"Cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14 (package demo.cart)",
+				"Item @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:6 (package demo.cart)",
+			},
+			SupportRefs: []string{
+				"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+				"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+				"Item: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:6",
+			},
+		},
+		{
+			Kind:       types.AnswerAggregateMemberSet,
+			Label:      "source inventory principal rows",
+			Value:      "2",
+			Role:       types.AnswerAggregateRolePrincipalAnswer,
+			Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+			Members: []string{
+				"Bridge @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15 (package demo.bridge)",
+				"Cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14 (package demo.cart)",
+			},
+			SupportRefs: []string{
+				"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+				"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+			},
+		},
+	})
+	bus.Mutable.RetainInvestigationAggregateFacts()
+
+	raw := json.RawMessage(`{
+		"blocks": [{
+			"id": "classes",
+			"kind": "ordered_list",
+			"title": "public class 声明",
+			"surface_role": "principal",
+			"items": [
+				{"id": "bridge", "label": "Bridge", "text": "public class Bridge，package=demo.bridge", "citation_ref": 0},
+				{"id": "cart", "label": "Cart", "text": "public class Cart，package=demo.cart", "citation_ref": 1},
+				{"id": "item", "label": "Item", "text": "public class Item，package=demo.cart", "citation_ref": 2}
+			]
+		}],
+		"citations": [
+			{"file": "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", "line": 15, "quote": "public class Bridge {"},
+			{"file": "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", "line": 14, "quote": "public class Cart {"},
+			{"file": "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", "line": 6, "quote": "public struct Item {"}
+		]
+	}`)
+	res, err := (&EmitAnswerDocument{}).Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected emit to succeed, got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		t.Fatal("V2 doc not written")
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(visible, "Item") || strings.Contains(visible, "public struct") {
+		t.Fatalf("persisted final document leaked supporting coverage item:\n%s", visible)
+	}
+	citationSurface := ""
+	for _, citation := range doc.Citations {
+		citationSurface += citation.File + "\n" + citation.Quote + "\n"
+	}
+	if strings.Contains(citationSurface, "public struct") {
+		t.Fatalf("unused public-struct citation should be pruned after item removal: %+v", doc.Citations)
+	}
+}
+
 func TestEmitAnswerDocumentV2_KeepsGlobalCitationPoolWithoutItemRefs(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

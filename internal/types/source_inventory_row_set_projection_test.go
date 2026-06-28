@@ -534,7 +534,11 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_MixedRoleUniverseCo
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DemotesOverBroadSurfaceFamilyFact(t *testing.T) {
 	scope := SourceScopeAll
 	rm := sourceInventoryProjectionRequestModel(&scope)
-	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{AnswerCandidateRoleType}
+	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{
+		AnswerCandidateRoleType,
+		AnswerCandidateRoleFunction,
+		AnswerCandidateRoleConstant,
+	}
 	rm.SourceInventoryProfile.SourceQuotes = []string{"public class"}
 	obs := SourceInventoryObservation{
 		Active:   true,
@@ -594,6 +598,91 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DemotesOverBroadSur
 	for _, notWant := range []string{"Item", "Drawable"} {
 		if stringSliceContains(systemFact.Members, notWant) {
 			t.Fatalf("projection leaked non-requested family member %q: %+v", notWant, systemFact.Members)
+		}
+	}
+}
+
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_CompleteLensProjectsRequestedFamilyWhenRoleSetIncomplete(t *testing.T) {
+	scope := SourceScopeAll
+	rm := sourceInventoryProjectionRequestModel(&scope)
+	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{AnswerCandidateRoleType}
+	rm.SourceInventoryProfile.SourceQuotes = []string{"public class"}
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: false,
+		Scopes: []string{
+			".",
+			"eval/fixtures/testdata/cangjie_minimal/bridge",
+			"eval/fixtures/testdata/cangjie_minimal/cart",
+			"internal/thirdparty/tree-sitter-cangjie/corpus/sources",
+		},
+		CompleteLenses: []SourceInventoryCompleteLens{{
+			Role:          AnswerCandidateRoleType,
+			Scopes:        []string{"eval/fixtures/testdata/cangjie_minimal/bridge", "eval/fixtures/testdata/cangjie_minimal/cart", "internal/thirdparty/tree-sitter-cangjie/corpus/sources"},
+			Languages:     []string{"cangjie"},
+			SourceClasses: []SourcePathRole{SourcePathRoleFixture, SourcePathRoleThirdParty},
+			Count:         3,
+			Total:         3,
+			Provenance:    []string{"repo_lens:stage:explore"},
+		}},
+		Sets: []SourceInventoryObservationSet{
+			{
+				Role:     AnswerCandidateRoleType,
+				Complete: false,
+				Total:    23,
+				Members: []SourceInventoryObservationMember{
+					{Name: "Bridge", Role: AnswerCandidateRoleType, File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 15, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Bridge"}, CoverageState: SourceInventoryCoverageObserved},
+					{Name: "Service", Role: AnswerCandidateRoleType, File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", Line: 32, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Service", "public abstract class", "public abstract class Service"}, CoverageState: SourceInventoryCoverageObserved},
+					{Name: "Item", Role: AnswerCandidateRoleType, File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"public struct", "public struct Item"}, CoverageState: SourceInventoryCoverageObserved},
+				},
+			},
+			{
+				Role:     AnswerCandidateRoleConstant,
+				Complete: false,
+				Total:    43,
+				Members: []SourceInventoryObservationMember{
+					{Name: "KindSourceInventoryLensMissing", Role: AnswerCandidateRoleConstant, File: "internal/analysis/criterion/grammar.go", Line: 47, Language: "go", CoverageState: SourceInventoryCoverageObserved},
+				},
+			},
+		},
+	}
+	existing := AnswerAggregateFact{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "public class 完整列表",
+		Value:      "3",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "explorer",
+		Members: []string{
+			"Bridge @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+			"Service @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:32",
+			"Item @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:6 (public struct)",
+		},
+		SupportRefs: []string{
+			"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+			"Service: internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:32",
+			"Item: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:6",
+		},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts([]AnswerAggregateFact{existing}, obs, rm)
+	if len(got) != 2 {
+		t.Fatalf("expected demoted model fact plus precise complete-lens projection, got %+v", got)
+	}
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("over-broad model fact should be demoted, got %+v", got[0])
+	}
+	systemFact := got[1]
+	if systemFact.Provenance != SourceInventoryPrincipalRowSetAggregateProvenance ||
+		systemFact.Role != AnswerAggregateRolePrincipalAnswer ||
+		systemFact.Value != "2" {
+		t.Fatalf("expected complete-lens backed public-class principal fact, got %+v", systemFact)
+	}
+	if gotMembers := strings.Join(systemFact.Members, ","); gotMembers != "Bridge,Service" {
+		t.Fatalf("projection should keep only requested complete-lens public-class rows, got %q", gotMembers)
+	}
+	for _, notWant := range []string{"Item", "KindSourceInventoryLensMissing"} {
+		if stringSliceContains(systemFact.Members, notWant) {
+			t.Fatalf("projection leaked non-requested row %q: %+v", notWant, systemFact.Members)
 		}
 	}
 }

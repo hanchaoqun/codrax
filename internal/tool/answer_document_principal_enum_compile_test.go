@@ -2329,6 +2329,66 @@ func TestNormalizePrincipalEnumerationRowBlocks_DuplicateLabelsUseMemberLocation
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_PrunesExtraItemsOutsideAcceptedSet(t *testing.T) {
+	mu := types.NewMutableState("列出 foreign func 声明，包含文件路径和包路径")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("native_bridge", "native_add", "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6, "foreign func native_add 属于 package demo.bridge"),
+		enumEvidence("native_ffi", "native_add", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6, "foreign func native_add 属于 package demo.ffi"),
+		enumEvidence("run_on_main", "runOnMainThread", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 16, "public func runOnMainThread 是相关上下文但不是 accepted foreign func member_set"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "foreign func 声明",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 — package demo.bridge",
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 — package demo.ffi",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 16},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "foreign_funcs",
+			Kind:        types.BlockOrderedList,
+			Title:       "foreign func 声明",
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{ID: "native_bridge", Label: "native_add", Text: "包路径 demo.bridge，文件路径 eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6", CitationRef: 0},
+				{ID: "native_ffi", Label: "native_add", Text: "包路径 demo.ffi，文件路径 internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6", CitationRef: 1},
+				{ID: "run_on_main", Label: "runOnMainThread", Text: "public func runOnMainThread 是 FFI 相关上下文。", CitationRef: 2},
+			},
+		}},
+	}
+
+	if changed := normalizePrincipalEnumerationRowBlocks(doc, ctx); changed == 0 {
+		t.Fatal("expected deterministic pruning of extra principal item")
+	}
+	block := answerDocumentTestBlockByID(t, doc, "foreign_funcs")
+	if len(block.Items) != 2 {
+		t.Fatalf("foreign func principal block items = %+v, want only accepted two native_add rows", block.Items)
+	}
+	joined := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(joined, "runOnMainThread") {
+		t.Fatalf("supporting non-member leaked into principal foreign func block:\n%s", joined)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_StructuredItemRelationFieldsPreventMissingSupplement(t *testing.T) {
 	mu := types.NewMutableState("列出 internal/analysis 子包和入口函数")
 	mu.AppendEvidence([]types.EvidenceItem{
@@ -3346,6 +3406,327 @@ func TestNormalizePrincipalEnumerationRowBlocks_RemovesRedundantPathOnlyDetailTa
 	}
 	if !strings.Contains(visible, "demo.bridge") || !strings.Contains(visible, "demo.ffi") {
 		t.Fatalf("principal path/package answer should be preserved:\n%s", visible)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_PrunesSourceInventorySupportingCoverageLeak(t *testing.T) {
+	mu := types.NewMutableState("列出 extend、foreign func 和 public class")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:       types.AnswerAggregateMemberSet,
+			Label:      "public class 声明",
+			Value:      "9",
+			Role:       types.AnswerAggregateRoleSupportingCoverage,
+			Provenance: "explorer",
+			Members: []string{
+				"Bridge @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15 (package demo.bridge)",
+				"Item @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:6 (package demo.cart)",
+			},
+			SupportRefs: []string{
+				"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+				"Item: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:6",
+			},
+		},
+		{
+			Kind:       types.AnswerAggregateMemberSet,
+			Label:      "source inventory principal rows",
+			Value:      "2",
+			Role:       types.AnswerAggregateRolePrincipalAnswer,
+			Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+			Members: []string{
+				"Bridge @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15 (package demo.bridge)",
+				"Cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14 (package demo.cart)",
+			},
+			SupportRefs: []string{
+				"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+				"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+			},
+		},
+	})
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: false,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: false,
+			Members: []types.SourceInventoryObservationMember{
+				{
+					Name:          "Bridge",
+					Role:          types.AnswerCandidateRoleType,
+					File:          "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+					Line:          15,
+					Language:      "cangjie",
+					SurfaceTerms:  []string{"public class", "public class Bridge"},
+					CoverageState: types.SourceInventoryCoverageObserved,
+					Attributes:    []types.SourceInventoryObservationAttribute{{Role: types.AnswerCandidateRolePackage, Name: "demo.bridge"}},
+				},
+				{
+					Name:          "Cart",
+					Role:          types.AnswerCandidateRoleType,
+					File:          "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+					Line:          14,
+					Language:      "cangjie",
+					SurfaceTerms:  []string{"public class", "public class Cart"},
+					CoverageState: types.SourceInventoryCoverageObserved,
+					Attributes:    []types.SourceInventoryObservationAttribute{{Role: types.AnswerCandidateRolePackage, Name: "demo.cart"}},
+				},
+				{
+					Name:          "Item",
+					Role:          types.AnswerCandidateRoleType,
+					File:          "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+					Line:          6,
+					Language:      "cangjie",
+					SurfaceTerms:  []string{"public struct", "public struct Item"},
+					CoverageState: types.SourceInventoryCoverageObserved,
+					Attributes:    []types.SourceInventoryObservationAttribute{{Role: types.AnswerCandidateRolePackage, Name: "demo.cart"}},
+				},
+			},
+		}},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				SourceQuotes:      []string{"public class"},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 15, Quote: "public class Bridge {"},
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 14, Quote: "public class Cart {"},
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 6, Quote: "public struct Item {"},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "public-class",
+			Kind:        types.BlockOrderedList,
+			Title:       "public class 声明",
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{ID: "bridge", Label: "Bridge", Text: "public class Bridge，package=demo.bridge", CitationRef: 0},
+				{ID: "cart", Label: "Cart", Text: "public class Cart，package=demo.cart", CitationRef: 1},
+				{ID: "item", Label: "Item", Text: "public class Item，package=demo.cart", CitationRef: 2},
+			},
+		}},
+	}
+
+	_ = materializeRequiredModelSurfaceTerms(doc, ctx)
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatalf("expected source-inventory principal row-set to prune supporting coverage leak: %+v", doc.Blocks)
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(visible, "Item") || strings.Contains(visible, "public struct") {
+		t.Fatalf("supporting coverage Item must not remain in principal public-class list:\n%s", visible)
+	}
+	if !strings.Contains(visible, "Bridge") || !strings.Contains(visible, "Cart") {
+		t.Fatalf("accepted public-class rows should remain:\n%s", visible)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_DoesNotTreatSameFileDifferentLineAsCovered(t *testing.T) {
+	mu := types.NewMutableState("列出 extend 和 public class")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "source inventory principal rows",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members: []string{
+			"Bridge @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15 (package demo.bridge)",
+			"Cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14 (package demo.cart)",
+		},
+		SupportRefs: []string{
+			"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+			"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				SourceQuotes:      []string{"public class"},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 30, Quote: "extend Cart {"},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "summary",
+				Kind: types.BlockSummary,
+				Text: "public class 公开类声明共 2 个，extend Cart 另在同文件。",
+			},
+			{
+				ID:    "extend",
+				Kind:  types.BlockSection,
+				Title: "extend 块",
+				Items: []types.AnswerBlockItem{{
+					ID:          "extend-cart",
+					Label:       "extend Cart",
+					Text:        "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30；package demo.cart",
+					CitationRef: 0,
+				}},
+			},
+		},
+	}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatalf("expected missing public-class rows to be supplemented: %+v", doc.Blocks)
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, want := range []string{
+		"Bridge",
+		"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+		"Cart",
+		"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("missing precise source-inventory row %q:\n%s", want, visible)
+		}
+	}
+	if strings.Count(visible, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14") != 1 {
+		t.Fatalf("public class Cart row should be rendered exactly once, not covered by extend Cart:\n%s", visible)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_PrunesWrongLocationAndExtraSameFamilyItems(t *testing.T) {
+	mu := types.NewMutableState("列出 extend 块和 foreign func")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "source inventory principal rows",
+		Value:      "4",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members: []string{
+			"String",
+			"Cart",
+			"native_add",
+			"native_add",
+		},
+		SupportRefs: []string{
+			"String: internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+			"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+			"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+		MemberNotes: []string{
+			"surface=extend extend String; package=demo.stringext",
+			"surface=extend extend Cart; package=demo.cart",
+			"surface=foreign func foreign func native_add; package=demo.bridge",
+			"surface=foreign func foreign func native_add; package=demo.ffi",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleFunction},
+				SourceQuotes:      []string{"extend", "foreign func"},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", Line: 6, Quote: "extend String {"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/03_struct_interface.cj", Line: 30, Quote: `println("Circle at ...")`},
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6, Quote: "foreign func native_add(a: Int64, b: Int64): Int64"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6, Quote: "foreign func native_add(a: Int64, b: Int64): Int64"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 16, Quote: "public func runOnMainThread(callback: () -> Unit): Unit {"},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "extend-section",
+				Kind:        types.BlockSection,
+				Title:       "extend 块",
+				Text:        "extend 块共 2 个：",
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{string(types.FacetEnumerationItem)},
+				Items: []types.AnswerBlockItem{
+					{ID: "ext-string", Label: "String", Text: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6，package demo.stringext", CitationRef: 0},
+					{ID: "ext-cart-wrong", Label: "Cart", Text: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/03_struct_interface.cj:30，package demo.cart", CitationRef: 1},
+				},
+			},
+			{
+				ID:          "foreign-section",
+				Kind:        types.BlockSection,
+				Title:       "foreign func 声明",
+				Text:        "foreign func 声明共 3 个：",
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{string(types.FacetEnumerationItem)},
+				Items: []types.AnswerBlockItem{
+					{ID: "ff-bridge", Label: "native_add", Text: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6，package demo.bridge", CitationRef: 2},
+					{ID: "ff-ffi", Label: "native_add", Text: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6，package demo.ffi", CitationRef: 3},
+					{ID: "ff-extra", Label: "runOnMainThread", Text: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:16，package demo.ffi", CitationRef: 4},
+				},
+			},
+		},
+	}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatalf("expected authoritative row-set normalizer to prune and supplement: %+v", doc.Blocks)
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, notWant := range []string{
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/03_struct_interface.cj:30",
+		"runOnMainThread",
+		"foreign func 声明共 3",
+	} {
+		if strings.Contains(visible, notWant) {
+			t.Fatalf("non-authoritative row/count leaked into answer:\n%s", visible)
+		}
+	}
+	for _, want := range []string{
+		"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+		"foreign func 声明共 2",
+		"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("missing authoritative row/count %q:\n%s", want, visible)
+		}
 	}
 }
 

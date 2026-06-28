@@ -157,6 +157,7 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTraceObservationBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace observation block from structured perf facts", toolName)
 	}
+	normalizeAnswerDocumentRowsBeforePersist(toolName, ctx, merged)
 	if stamped := stampReadOwnerAnchorsFromTurnA(ctx, merged); stamped > 0 {
 		logging.Info("[%s] stamped %d read owner anchor(s) from typed source localization", toolName, stamped)
 	}
@@ -189,6 +190,38 @@ func persistMergedAnswerDocument(
 			summarizeV2Blocks(merged.Blocks)),
 		Timestamp: now,
 	}, nil
+}
+
+func normalizeAnswerDocumentRowsBeforePersist(toolName string, ctx *types.BusContext, doc *types.AnswerDocumentV2) {
+	if doc == nil || ctx == nil {
+		return
+	}
+	itemsBefore := answerDocumentStructuredItemCount(doc)
+	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] compiled %d deterministic enumeration table row(s) from accepted principal evidence handoff before persist", toolName, fixed)
+	}
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] normalized %d principal enumeration block(s) from accepted evidence-rich row contract before persist", toolName, fixed)
+	}
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] materialized %d principal aggregate member row(s) from accepted exhaustive enumeration handoff before persist", toolName, fixed)
+	}
+	if itemsAfter := answerDocumentStructuredItemCount(doc); itemsAfter < itemsBefore {
+		if fixed := normalizeUnusedCitationPoolEntries(doc); fixed > 0 {
+			logging.Warning("[%s] pruned/remapped %d unused citation-pool slot(s) after pre-persist answer-row normalization", toolName, fixed)
+		}
+	}
+}
+
+func answerDocumentStructuredItemCount(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return 0
+	}
+	count := 0
+	for _, block := range doc.Blocks {
+		count += len(block.Items)
+	}
+	return count
 }
 
 func dedupeVisibleAnswerBlocks(doc *types.AnswerDocumentV2) int {

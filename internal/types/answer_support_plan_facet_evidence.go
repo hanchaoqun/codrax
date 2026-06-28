@@ -787,7 +787,8 @@ func aggregateMemberEvidenceCanCoAnchor(member string, ev EvidenceItem, support 
 	if sameAggregateMemberEvidenceLocation(ev, source, line) {
 		return false
 	}
-	if normalizeAnswerSupportPath(ev.Source) == normalizeAnswerSupportPath(source) {
+	if (strings.TrimSpace(source) == "" || line <= 0) &&
+		normalizeAnswerSupportPath(ev.Source) == normalizeAnswerSupportPath(source) {
 		return true
 	}
 	return aggregateMemberEvidenceUniqueForMember(member, ev, support)

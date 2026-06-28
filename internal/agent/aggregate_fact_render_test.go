@@ -278,6 +278,60 @@ func TestRenderStructuredAggregateFactsOmitExcludedCandidatesUnderTypedPolicy(t 
 	}
 }
 
+func TestRenderStructuredAggregateFactsCompactsShadowedSourceInventoryMemberSets(t *testing.T) {
+	facts := []types.AnswerAggregateFact{
+		{
+			Kind:       types.AnswerAggregateMemberSet,
+			Label:      "foreign func 声明",
+			Value:      "3",
+			Role:       types.AnswerAggregateRoleSupportingCoverage,
+			Provenance: "explorer;demoted:shadowed_by_source_inventory_principal_row_set",
+			Members: []string{
+				"native_add",
+				"runOnMainThread",
+			},
+			SupportRefs: []string{
+				"native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+				"runOnMainThread: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:16",
+			},
+		},
+		{
+			Kind:       types.AnswerAggregateMemberSet,
+			Label:      "source inventory principal rows",
+			Value:      "1",
+			Role:       types.AnswerAggregateRolePrincipalAnswer,
+			Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+			Members:    []string{"native_add"},
+			SupportRefs: []string{
+				"native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+			},
+		},
+	}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		},
+	}}}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	if strings.Contains(got, "`runOnMainThread`") ||
+		strings.Contains(got, "`runOnMainThread: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:16`") {
+		t.Fatalf("shadowed source-inventory support rows must not leak as prompt members:\n%s", got)
+	}
+	if !strings.Contains(got, "members_compacted_due_to=shadowed_by_authoritative_principal_rows") ||
+		!strings.Contains(got, "support_ref_count=2") {
+		t.Fatalf("shadowed aggregate should stay auditable as compact metadata:\n%s", got)
+	}
+	if !strings.Contains(got, "members_rendered_in=authoritative_principal_member_rows") {
+		t.Fatalf("system principal row-set should remain the visible member carrier:\n%s", got)
+	}
+}
+
 func TestStructuredAggregatePromptFactLimitExpandsForComplexTypedQuestions(t *testing.T) {
 	var facts []types.AnswerAggregateFact
 	for i := 0; i < 24; i++ {

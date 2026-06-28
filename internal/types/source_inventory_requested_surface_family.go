@@ -15,6 +15,12 @@ func sourceInventoryFilterRowsToRequestedSurfaceFamilies(rm RequestModel, princi
 	for _, row := range principal {
 		byRole := requested[row.Role]
 		if len(byRole) == 0 {
+			if sourceInventorySymbolRoleRequiresRequestedSurfaceFamily(row.Role) {
+				row.Lane = SourceInventoryRowLaneSupport
+				row.ReasonCode = SourceInventoryRowReasonSurfaceFamily
+				demoted = append(demoted, row)
+				continue
+			}
 			filtered = append(filtered, row)
 			continue
 		}
@@ -58,20 +64,6 @@ func sourceInventoryRequestedSurfaceFamiliesByRole(quotes []string, rows []Sourc
 	return out
 }
 
-func sourceInventoryRequestedSurfaceQuoteKeys(quotes []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, quote := range quotes {
-		key := sourceInventoryRequestedSurfaceTextKey(quote)
-		if key == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, key)
-	}
-	return out
-}
-
 func sourceInventorySurfaceFamilyRequestedByQuotes(family string, quoteKeys []string) bool {
 	family = sourceInventoryRequestedSurfaceTextKey(family)
 	if family == "" {
@@ -93,8 +85,4 @@ func sourceInventorySurfaceFamilyRequestedByQuotes(family string, quoteKeys []st
 		}
 	}
 	return false
-}
-
-func sourceInventoryRequestedSurfaceTextKey(raw string) string {
-	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(raw))), " ")
 }

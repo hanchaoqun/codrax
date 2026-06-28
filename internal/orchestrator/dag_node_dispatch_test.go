@@ -435,6 +435,35 @@ func TestSourceInventoryLensFirstWindowNoopsWhenInactiveOrExecuted(t *testing.T)
 	}
 }
 
+func TestSourceInventoryLensFirstWindowDoesNotTreatAnalyzePrescanAsExecuted(t *testing.T) {
+	lens := &types.TaskNode{
+		ID:       "n_source_inventory_lens",
+		Type:     types.NodeProbe,
+		Optional: true,
+		EntryConditions: []types.Criterion{{
+			Kind: types.CritSourceInventoryLensMissing,
+		}},
+	}
+	evidence := &types.TaskNode{ID: "n_evidence", Type: types.NodeEvidence}
+	analyzePrescan := types.SourceInventoryObservation{
+		Active: true,
+		Provenance: []string{
+			types.SourceInventoryProvenanceRepoLensToolQuery,
+			types.SourceInventoryProvenanceStageAnalyze,
+		},
+		Lens: []string{"members", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:    types.AnswerCandidateRoleType,
+			Members: []types.SourceInventoryObservationMember{{Name: "Agent"}},
+		}},
+	}
+
+	got := sourceInventoryLensFirstWindow([]*types.TaskNode{evidence, lens}, true, types.SourceInventoryLensExecuted(analyzePrescan))
+	if len(got) != 1 || got[0] != lens {
+		t.Fatalf("analyze-stage prescan must not suppress explore source-inventory lens probe: %+v", idsOf(got))
+	}
+}
+
 func TestSourceInventoryFollowupFirstWindowPrioritizesTypedDebt(t *testing.T) {
 	followup := &types.TaskNode{
 		ID:       "n_source_inventory_followup",

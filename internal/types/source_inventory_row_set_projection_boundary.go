@@ -18,17 +18,22 @@ func sourceInventoryCanProjectCompletePrincipalRowSet(observation SourceInventor
 		roleSet[role] = true
 	}
 	seenPrincipalRows := false
+	allPrincipalSetsComplete := true
 	for _, set := range observation.Sets {
 		role := sourceInventoryObservationSetEffectiveRole(set)
 		if !roleSet[role] || len(set.Members) == 0 {
 			continue
 		}
 		if !set.Complete {
-			return false
+			allPrincipalSetsComplete = false
+			continue
 		}
 		seenPrincipalRows = true
 	}
-	return seenPrincipalRows
+	if seenPrincipalRows && allPrincipalSetsComplete {
+		return true
+	}
+	return sourceInventoryRequestedSurfaceFamilyBackedByCompleteLens(observation, rm, roles)
 }
 
 func sourceInventoryObservationSetEffectiveRole(set SourceInventoryObservationSet) AnswerCandidateRole {

@@ -189,11 +189,24 @@ func SourceInventoryLaneConflictsWithRoleBinding(rm RequestModel) bool {
 	if rm.PredicateAxis != AxisRegister && !roleBindingRequested {
 		return false
 	}
+	if rm.PredicateAxis != AxisRegister && sourceInventoryPrincipalLaneOverridesRoleBindingProfile(rm) {
+		return false
+	}
 	return IsCategoryEnumerationAnswerShape(rm) ||
 		rm.Predicates.IsCountQuestion ||
 		rm.CompletenessObligation.IsActive() ||
 		RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
 		RequiresRelationMemberSetHandoff(rm)
+}
+
+func sourceInventoryPrincipalLaneOverridesRoleBindingProfile(rm RequestModel) bool {
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	if !IsCategoryEnumerationAnswerShape(rm) || rm.Intent != IntentEnumerate {
+		return false
+	}
+	return SourceInventoryProfileHasPrincipalPrecision(rm)
 }
 
 // SourceInventoryLaneConflictsWithRelationFlow reports whether synthesizing or

@@ -2,21 +2,23 @@ package types
 
 import "strings"
 
-// SourceInventoryLensExecuted reports whether the observation came from an
-// executable source-inventory lens, as opposed to a class-universe-only seed
-// that exists solely to make absence gates repo-truth-aware.
+// SourceInventoryLensExecuted reports whether the observation came from an executable source-inventory lens.
 func SourceInventoryLensExecuted(o SourceInventoryObservation) bool {
 	if !o.IsActive() {
 		return false
 	}
-	if len(o.Sets) > 0 {
+	executable, hasToolQuery, hasStage, hasAnalyzeStage := sourceInventoryExecutionProvenance(o.Provenance)
+	if executable {
 		return true
 	}
-	for _, provenance := range o.Provenance {
-		switch strings.TrimSpace(provenance) {
-		case "repo_lens:tool_query", "pre_explore_typed_request":
-			return true
-		}
+	if hasAnalyzeStage {
+		return false
+	}
+	if len(o.Sets) > 0 && !hasStage {
+		return true
+	}
+	if hasToolQuery && !hasStage {
+		return true
 	}
 	for _, lens := range o.Lens {
 		switch strings.TrimSpace(lens) {

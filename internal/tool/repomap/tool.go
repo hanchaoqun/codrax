@@ -1026,7 +1026,11 @@ func repoMapSourceInventoryMaybeBoundBroadNavigationLens(ctx *ctypes.BusContext,
 	guardedQuery.Roles = roles
 	guardedQuery.TopN = topN
 	guardedQuery.IncludeAttributes = false
-	guardedQuery.Provenance = append(append([]string(nil), query.Provenance...),
+	guardedQuery.Provenance = append([]string(nil), query.Provenance...)
+	if stage := tool.SourceInventoryLensStageProvenance(ctx); stage != "" {
+		guardedQuery.Provenance = append(guardedQuery.Provenance, stage)
+	}
+	guardedQuery.Provenance = append(guardedQuery.Provenance,
 		"repo_lens:broad_navigation_guard",
 		"repo_lens:candidate_budget_truncated",
 	)

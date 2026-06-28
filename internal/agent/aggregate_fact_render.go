@@ -24,6 +24,7 @@ func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []t
 	return renderStructuredAggregateFactsWithOptions(facts, structuredAggregatePromptFactLimit(ctx, facts), structuredAggregatePrincipalMemberSetRefs(ctx, facts), aggregateFactRenderOptions{
 		omitExcludedCandidates: aggregateFactPromptOmitExcludedCandidates(ctx),
 		compactMemberSetRows:   structuredAggregateCompactPrincipalMemberSetIndexes(ctx, facts),
+		compactShadowedRows:    structuredAggregateCompactShadowedMemberSetIndexes(ctx, facts),
 		requestModel:           aggregateFactRenderRequestModel(ctx),
 	})
 }
@@ -80,6 +81,7 @@ func renderStructuredAggregateFactsWithPrincipalRefs(facts []types.AnswerAggrega
 type aggregateFactRenderOptions struct {
 	omitExcludedCandidates bool
 	compactMemberSetRows   map[int]bool
+	compactShadowedRows    map[int]bool
 	requestModel           *types.RequestModel
 }
 
@@ -133,8 +135,18 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 			fact.Kind == types.AnswerAggregateMemberSet &&
 			types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
 			len(fact.Members) > 0
-		if compactMembers {
-			fmt.Fprintf(&b, ", member_count=%d, members_rendered_in=authoritative_principal_member_rows", len(fact.Members))
+		compactShadowed := opts.compactShadowedRows[i] &&
+			fact.Kind == types.AnswerAggregateMemberSet &&
+			types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
+			len(fact.Members) > 0
+		if compactMembers || compactShadowed {
+			fmt.Fprintf(&b, ", member_count=%d", len(fact.Members))
+			if compactMembers {
+				fmt.Fprintf(&b, ", members_rendered_in=authoritative_principal_member_rows")
+			}
+			if compactShadowed {
+				fmt.Fprintf(&b, ", members_compacted_due_to=shadowed_by_authoritative_principal_rows")
+			}
 		} else {
 			memberLimit := aggregateFactPromptMemberLimit(fact)
 			if members := renderAggregateStringList(fact.Members, memberLimit); members != "" {
@@ -148,7 +160,7 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 				fmt.Fprintf(&b, ", excluded=[%s]", excluded)
 			}
 		}
-		if compactMembers {
+		if compactMembers || compactShadowed {
 			if len(fact.SupportRefs) > 0 {
 				fmt.Fprintf(&b, ", support_ref_count=%d", len(fact.SupportRefs))
 			}
@@ -322,6 +334,40 @@ func structuredAggregateCompactPrincipalMemberSetIndexes(ctx *types.AgentContext
 		return nil
 	}
 	return out
+}
+
+func structuredAggregateCompactShadowedMemberSetIndexes(ctx *types.AgentContext, facts []types.AnswerAggregateFact) map[int]bool {
+	if ctx == nil || ctx.AnalysisIR == nil || len(facts) == 0 || !structuredAggregateHasSourceInventoryPrincipalRows(facts) {
+		return nil
+	}
+	out := map[int]bool{}
+	for i, fact := range facts {
+		if !strings.Contains(fact.Provenance, "demoted:shadowed_by_source_inventory_principal_row_set") {
+			continue
+		}
+		if fact.Kind != types.AnswerAggregateMemberSet ||
+			!types.AnswerAggregateFactCarriesCompleteMemberSet(fact) ||
+			len(fact.Members) == 0 {
+			continue
+		}
+		out[i] = true
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func structuredAggregateHasSourceInventoryPrincipalRows(facts []types.AnswerAggregateFact) bool {
+	for _, fact := range facts {
+		if strings.TrimSpace(fact.Provenance) == types.SourceInventoryPrincipalRowSetAggregateProvenance &&
+			fact.Kind == types.AnswerAggregateMemberSet &&
+			types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
+			len(fact.Members) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func structuredAggregatePrincipalFactIndexes(ctx *types.AgentContext, facts []types.AnswerAggregateFact) map[int]bool {
