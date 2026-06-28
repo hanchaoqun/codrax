@@ -192,7 +192,12 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// entry.modelIndex, never the loop position: validation-error
 	// fieldPaths must name the block's index in the MODEL's own
 	// blocks[] array, not its system-shifted post-split position.
-	for _, entry := range splitFusedDiagramBlocks(toolName, p.Blocks) {
+	blockEntries, displayFields := compactNativeDisplayOnlyBlockFragments(p.Blocks)
+	if len(displayFields) > 0 {
+		logging.Warning("[emit_answer_document] native display-only block fragment(s) absorbed without retry: %s",
+			strings.Join(displayFields, ", "))
+	}
+	for _, entry := range splitFusedDiagramBlockEntries(toolName, blockEntries) {
 		blk, err := NormalizeEmitAnswerBlock(entry.raw, fmt.Sprintf("blocks[%d]", entry.modelIndex))
 		if err != nil {
 			persistRecoveredAnswerDraft(ctx, raw, mergeAnswerDocumentRecoveryAttachments(recovery, doc), doc)

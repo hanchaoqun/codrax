@@ -289,19 +289,89 @@ func stripOuterDiagramFence(body string) string {
 // answer_document_table_compile.go — the system never rewrites
 // model-authored surface content; it only re-homes the two payloads
 // the model fused so BOTH stay visible.
+func compactNativeDisplayOnlyBlockFragments(blocks []emitAnswerBlockV2) ([]splitEmitBlockEntry, []string) {
+	out := make([]splitEmitBlockEntry, 0, len(blocks))
+	var fields []string
+	for i, b := range blocks {
+		text, ok := nativeDisplayOnlyBlockFragmentText(b)
+		if ok && len(out) > 0 && canAbsorbNativeDisplayOnlyBlockFragment(out[len(out)-1].raw) {
+			prev := &out[len(out)-1]
+			prev.raw.Text = joinAnswerBlockDisplayText(prev.raw.Text, text)
+			fields = append(fields, fmt.Sprintf("blocks[%d].text→blocks[%d].text", i, prev.modelIndex))
+			continue
+		}
+		out = append(out, splitEmitBlockEntry{raw: b, modelIndex: i})
+	}
+	return out, fields
+}
+
+func nativeDisplayOnlyBlockFragmentText(raw emitAnswerBlockV2) (string, bool) {
+	if strings.TrimSpace(raw.ID) != "" || strings.TrimSpace(raw.Kind) != "" {
+		return "", false
+	}
+	if len(raw.Items) > 0 || len(raw.Columns) > 0 || raw.Diagram != nil ||
+		len(raw.ClaimUses) > 0 || len(raw.EdgeAnchors) > 0 || len(raw.FacetIDs) > 0 ||
+		strings.TrimSpace(raw.SurfaceRole) != "" ||
+		strings.TrimSpace(raw.Caveat) != "" ||
+		strings.TrimSpace(raw.ErrorGranularityVerdict) != "" ||
+		strings.TrimSpace(raw.CurrentStatusVerdict) != "" ||
+		strings.TrimSpace(raw.ScopeDisclosure) != "" {
+		return "", false
+	}
+	text := strings.TrimSpace(raw.Text)
+	if text == "" {
+		return "", false
+	}
+	if title := strings.TrimSpace(raw.Title); title != "" {
+		text = title + "\n\n" + text
+	}
+	return text, true
+}
+
+func canAbsorbNativeDisplayOnlyBlockFragment(prev emitAnswerBlockV2) bool {
+	if strings.TrimSpace(prev.ID) == "" {
+		return false
+	}
+	kind := types.AnswerBlockKind(strings.TrimSpace(prev.Kind))
+	if kind == types.BlockDiagram || !types.IsValidAnswerBlockKind(kind) {
+		return false
+	}
+	return true
+}
+
+func joinAnswerBlockDisplayText(existing, extra string) string {
+	existing = strings.TrimSpace(existing)
+	extra = strings.TrimSpace(extra)
+	switch {
+	case existing == "":
+		return extra
+	case extra == "":
+		return existing
+	case strings.Contains(existing, extra):
+		return existing
+	default:
+		return existing + "\n\n" + extra
+	}
+}
+
 func splitFusedDiagramBlocks(logLabel string, blocks []emitAnswerBlockV2) []splitEmitBlockEntry {
+	entries := make([]splitEmitBlockEntry, 0, len(blocks))
+	for i, b := range blocks {
+		entries = append(entries, splitEmitBlockEntry{raw: b, modelIndex: i})
+	}
+	return splitFusedDiagramBlockEntries(logLabel, entries)
+}
+
+func splitFusedDiagramBlockEntries(logLabel string, entries []splitEmitBlockEntry) []splitEmitBlockEntry {
 	fused := 0
-	for _, b := range blocks {
-		if isFusedDiagramBlock(b) {
+	for _, entry := range entries {
+		if isFusedDiagramBlock(entry.raw) {
 			fused++
 		}
 	}
-	out := make([]splitEmitBlockEntry, 0, len(blocks)+fused)
+	out := make([]splitEmitBlockEntry, 0, len(entries)+fused)
 	if fused == 0 {
-		for i, b := range blocks {
-			out = append(out, splitEmitBlockEntry{raw: b, modelIndex: i})
-		}
-		return out
+		return append(out, entries...)
 	}
 	// Cap budget: every split adds exactly one block to the FINAL
 	// document, so the projected final count is len(blocks) + splits.
@@ -314,10 +384,10 @@ func splitFusedDiagramBlocks(logLabel string, blocks []emitAnswerBlockV2) []spli
 	// behavior for every fused block before the split existed. The
 	// budget is position-independent — an at-cap emit is protected
 	// wherever the fused block sits, not only in the last slot.
-	budget := maxBlocksPerDoc - len(blocks)
-	used := make(map[string]bool, len(blocks)+fused)
-	for _, b := range blocks {
-		used[strings.TrimSpace(b.ID)] = true
+	budget := maxBlocksPerDoc - len(entries)
+	used := make(map[string]bool, len(entries)+fused)
+	for _, entry := range entries {
+		used[strings.TrimSpace(entry.raw.ID)] = true
 	}
 	// Duplicates get identical treatment (mirror of the patch split's
 	// memo): if a stutter-emitted copy of an already-split block were
@@ -334,9 +404,10 @@ func splitFusedDiagramBlocks(logLabel string, blocks []emitAnswerBlockV2) []spli
 	// of a passed-through block passes through.
 	var seen []fusedSeen
 	split, dupsOfSplit := 0, 0
-	for i, b := range blocks {
+	for _, entry := range entries {
+		i, b := entry.modelIndex, entry.raw
 		if !isFusedDiagramBlock(b) {
-			out = append(out, splitEmitBlockEntry{raw: b, modelIndex: i})
+			out = append(out, entry)
 			continue
 		}
 		canonical, canonicalOK := canonicalFusedBlock(b)

@@ -1715,6 +1715,86 @@ func TestEmitAnswerDocumentV2_StringifiedBlocksFieldBoundaryDriftAccepted(t *tes
 	}
 }
 
+func TestEmitAnswerDocumentV2_NativeDisplayOnlyBlockFragmentAbsorbed(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"id":"s1","kind":"summary","text":"lead"},
+			{"id":"tbl","kind":"table","items":[{"id":"r1","label":"Cart","text":"structured row"}]},
+			{"text":"| Symbol | Package |\n|---|---|\n| Cart | demo.cart |"},
+			{"id":"caveat","kind":"caveat","text":"bounded"}
+		],
+		"citations": [{"file":"internal/demo.go","line":1}]
+	}`)
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("display-only fragment should be absorbed without finalizer retry, got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 3 {
+		t.Fatalf("expected summary/table/caveat after compaction, got %+v", doc)
+	}
+	if doc.Blocks[1].ID != "tbl" || doc.Blocks[1].Kind != types.BlockTable {
+		t.Fatalf("fragment should preserve previous typed block identity, got %+v", doc.Blocks[1])
+	}
+	if !strings.Contains(doc.Blocks[1].Text, "| Cart | demo.cart |") {
+		t.Fatalf("fragment text not preserved on previous block: %+v", doc.Blocks[1])
+	}
+	if len(doc.Blocks[1].Items) != 1 || doc.Blocks[1].Items[0].Label != "Cart" {
+		t.Fatalf("previous structured row should remain typed: %+v", doc.Blocks[1].Items)
+	}
+	if got := bus.Mutable.AnswerDisplayAttachments(); len(got) != 0 {
+		t.Fatalf("native display-fragment repair should not create fallback attachments: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentV2_NativeDisplayOnlyBlockFragmentKeepsModelErrorIndex(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"id":"s1","kind":"summary","text":"lead"},
+			{"text":"display-only detail"},
+			{"id":"bad","kind":"not_a_real_kind","text":"bad"}
+		]
+	}`)
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("invalid later block kind should still reject")
+	}
+	if !strings.Contains(res.Summary, `blocks[2]: kind="not_a_real_kind"`) {
+		t.Fatalf("rejection should preserve original model index after compaction, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocumentV2_NativeMissingIDWithStructureStillRejects(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"id":"s1","kind":"summary","text":"lead"},
+			{"kind":"table","items":[{"id":"r1","label":"A","text":"row"}]}
+		]
+	}`)
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("structured block missing id must not be guessed into validity")
+	}
+	if !strings.Contains(res.Summary, "blocks[1]: id is required") {
+		t.Fatalf("expected ordinary missing-id rejection, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocumentV2_StringifiedBlocksFieldBoundaryStillRejectsDroppedVisibleBlock(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

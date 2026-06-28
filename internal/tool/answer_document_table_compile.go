@@ -35,10 +35,21 @@ func compileEnumerationDisplayTableRows(doc *types.AnswerDocumentV2, ctx *types.
 	changed := 0
 	for blockIdx := range doc.Blocks {
 		rows, ok := enumerationDisplayRowsForIncompleteTable(doc.Blocks[blockIdx], doc.Citations, labelIndex, locationIndex)
+		implicitColumns := false
+		if !ok {
+			rows, ok = enumerationDisplayRowsForImplicitNoColumnTable(doc.Blocks[blockIdx], doc.Citations, labelIndex, locationIndex)
+			implicitColumns = ok
+		}
 		if !ok {
 			continue
 		}
 		shape, ok := enumerationDisplayExistingTableShape(doc.Blocks[blockIdx], rows)
+		if !ok && implicitColumns {
+			shape, ok = enumerationDisplayImplicitTypedAttributeTableShape(rows)
+			if ok {
+				doc.Blocks[blockIdx].Columns = enumerationDisplayImplicitTableColumns(ctx, shape, rows)
+			}
+		}
 		if !ok || !enumerationDisplayShapeHasTypedAttributeColumn(shape) {
 			continue
 		}
@@ -67,6 +78,95 @@ const (
 
 type enumerationDisplayExistingShape struct {
 	roles []enumerationDisplayColumnRole
+}
+
+func enumerationDisplayImplicitTypedAttributeTableShape(rows []types.EnumerationDisplayRow) (enumerationDisplayExistingShape, bool) {
+	if len(rows) == 0 {
+		return enumerationDisplayExistingShape{}, false
+	}
+	shape := enumerationDisplayExistingShape{}
+	if enumerationDisplayRowsHaveLocation(rows) {
+		shape.roles = append(shape.roles, enumerationDisplayColumnLocation)
+	}
+	if enumerationDisplayRowsHavePackageCell(rows) {
+		shape.roles = append(shape.roles, enumerationDisplayColumnPackage)
+	}
+	if enumerationDisplayRowsHaveNote(rows) {
+		shape.roles = append(shape.roles, enumerationDisplayColumnNote)
+	}
+	if !enumerationDisplayShapeHasTypedAttributeColumn(shape) {
+		return enumerationDisplayExistingShape{}, false
+	}
+	for _, row := range rows {
+		if !enumerationDisplayRowCompatibleWithExistingShape(row, row.Note, shape) {
+			return enumerationDisplayExistingShape{}, false
+		}
+	}
+	return shape, true
+}
+
+func enumerationDisplayRowsHaveLocation(rows []types.EnumerationDisplayRow) bool {
+	for _, row := range rows {
+		if strings.TrimSpace(row.Location) == "" {
+			return false
+		}
+	}
+	return len(rows) > 0
+}
+
+func enumerationDisplayRowsHavePackageCell(rows []types.EnumerationDisplayRow) bool {
+	for _, row := range rows {
+		if strings.TrimSpace(enumerationDisplayPackageCell(row)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func enumerationDisplayRowsHaveNote(rows []types.EnumerationDisplayRow) bool {
+	for _, row := range rows {
+		if strings.TrimSpace(row.Note) == "" {
+			return false
+		}
+	}
+	return len(rows) > 0
+}
+
+func enumerationDisplayImplicitTableColumns(ctx *types.BusContext, shape enumerationDisplayExistingShape, rows []types.EnumerationDisplayRow) []string {
+	zh := principalEnumerationPrefersZH(ctx)
+	columns := []string{principalEnumerationPrimaryColumnLabel(zh, rows)}
+	for _, role := range shape.roles {
+		columns = append(columns, enumerationDisplayColumnHeader(ctx, role))
+	}
+	return columns
+}
+
+func enumerationDisplayColumnHeader(ctx *types.BusContext, role enumerationDisplayColumnRole) string {
+	zh := principalEnumerationPrefersZH(ctx)
+	switch role {
+	case enumerationDisplayColumnCategory:
+		if zh {
+			return "类别"
+		}
+		return "Category"
+	case enumerationDisplayColumnLocation:
+		if zh {
+			return "定义位置"
+		}
+		return "Location"
+	case enumerationDisplayColumnPackage:
+		if zh {
+			return "包路径"
+		}
+		return "Package"
+	case enumerationDisplayColumnNote:
+		return enumerationDisplayDefaultNoteColumn(ctx)
+	default:
+		if zh {
+			return "说明"
+		}
+		return "Notes"
+	}
 }
 
 func enumerationDisplayRowIndex(sets []types.EnumerationDisplaySet) map[string]types.EnumerationDisplayRow {
@@ -132,6 +232,40 @@ func enumerationDisplayRowsForIncompleteTable(
 	locationIndex map[string]types.EnumerationDisplayRow,
 ) ([]types.EnumerationDisplayRow, bool) {
 	if block.Kind != types.BlockTable || strings.TrimSpace(block.Text) != "" || len(block.Items) == 0 || len(block.Columns) < 2 {
+		return nil, false
+	}
+	rows := make([]types.EnumerationDisplayRow, len(block.Items))
+	visible := 0
+	for i, item := range block.Items {
+		label := strings.TrimSpace(item.Label)
+		text := strings.TrimSpace(item.Text)
+		cells := nonEmptyAnswerTableCompileCells(item.Cells)
+		if label == "" && text == "" && len(cells) == 0 {
+			continue
+		}
+		visible++
+		if label == "" || len(cells) > 0 {
+			return nil, false
+		}
+		row, ok := enumerationDisplayRowForTableItem(item, citations, labelIndex, locationIndex)
+		if !ok {
+			return nil, false
+		}
+		rows[i] = row
+	}
+	if visible == 0 {
+		return nil, false
+	}
+	return rows, true
+}
+
+func enumerationDisplayRowsForImplicitNoColumnTable(
+	block types.AnswerBlock,
+	citations []types.Citation,
+	labelIndex map[string]types.EnumerationDisplayRow,
+	locationIndex map[string]types.EnumerationDisplayRow,
+) ([]types.EnumerationDisplayRow, bool) {
+	if block.Kind != types.BlockTable || strings.TrimSpace(block.Text) != "" || len(block.Items) == 0 || len(block.Columns) != 0 {
 		return nil, false
 	}
 	rows := make([]types.EnumerationDisplayRow, len(block.Items))

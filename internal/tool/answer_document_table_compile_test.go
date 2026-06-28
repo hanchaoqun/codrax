@@ -663,6 +663,170 @@ func TestCompileEnumerationDisplayTableRows_FillsTypedAttributeColumnsByCitation
 	}
 }
 
+func TestCompileEnumerationDisplayTableRows_AddsTypedAttributeColumnsWhenModelUsesDefaultTableShape(t *testing.T) {
+	mut := types.NewMutableState("列出 foreign func 的文件路径和 package")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "foreign func 声明",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: "explorer",
+		Members: []string{
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 (package demo.ffi)",
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)",
+		},
+	}})
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{
+					Name:     "native_add",
+					Role:     types.AnswerCandidateRoleFunction,
+					File:     "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+					Line:     6,
+					Language: "cangjie",
+					Attributes: []types.SourceInventoryObservationAttribute{{
+						Role: types.AnswerCandidateRolePackage,
+						Name: "demo.ffi",
+					}},
+				},
+				{
+					Name:     "native_add",
+					Role:     types.AnswerCandidateRoleFunction,
+					File:     "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+					Line:     6,
+					Language: "cangjie",
+					Attributes: []types.SourceInventoryObservationAttribute{{
+						Role: types.AnswerCandidateRolePackage,
+						Name: "demo.bridge",
+					}},
+				},
+			},
+		}},
+	})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentEnumerate,
+				Language: "zh",
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:    "foreign_func",
+			Kind:  types.BlockTable,
+			Title: "foreign func 声明",
+			Items: []types.AnswerBlockItem{
+				{
+					ID:          "ffi",
+					Label:       "native_add",
+					Text:        "声明外部原生函数",
+					CitationRef: 0,
+				},
+				{
+					ID:          "bridge",
+					Label:       "native_add",
+					Text:        "声明外部原生函数",
+					CitationRef: 1,
+				},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6},
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6},
+		},
+	}
+
+	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed != 2 {
+		t.Fatalf("fixed=%d, want 2; doc=%+v", fixed, doc.Blocks[0])
+	}
+	table := doc.Blocks[0]
+	if got, want := table.Columns, []string{"符号名称", "定义位置", "包路径", "说明"}; len(got) != len(want) {
+		t.Fatalf("columns=%v, want %v", got, want)
+	} else {
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("columns=%v, want %v", got, want)
+			}
+		}
+	}
+	wantRows := [][]string{
+		{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6", "demo.ffi", "声明外部原生函数"},
+		{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6", "demo.bridge", "声明外部原生函数"},
+	}
+	for i, want := range wantRows {
+		item := table.Items[i]
+		if item.Text != "" {
+			t.Fatalf("item text should move into cells, got %+v", item)
+		}
+		if len(item.Cells) != 3 {
+			t.Fatalf("row %d cells=%+v, want location/package/note", i, item.Cells)
+		}
+		for cellIdx, wantCell := range want {
+			if item.Cells[cellIdx] != wantCell {
+				t.Fatalf("row %d cells=%+v, want cell %d=%q", i, item.Cells, cellIdx, wantCell)
+			}
+		}
+	}
+}
+
+func TestCompileEnumerationDisplayTableRows_LeavesDefaultTableShapeWithoutTypedAttributes(t *testing.T) {
+	mut := types.NewMutableState("列出函数")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "函数",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Run @ src/run.cj:7"},
+		SupportRefs: []string{"src/run.cj:7"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentEnumerate,
+				Language: "zh",
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "funcs",
+			Kind: types.BlockTable,
+			Items: []types.AnswerBlockItem{{
+				ID:          "run",
+				Label:       "Run",
+				Text:        "entry function",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "src/run.cj", Line: 7}},
+	}
+
+	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed != 0 {
+		t.Fatalf("table without typed row attributes should stay model-authored, fixed=%d doc=%+v", fixed, doc.Blocks[0])
+	}
+	if len(doc.Blocks[0].Columns) != 0 || len(doc.Blocks[0].Items[0].Cells) != 0 || doc.Blocks[0].Items[0].Text != "entry function" {
+		t.Fatalf("default table shape changed unexpectedly: %+v", doc.Blocks[0])
+	}
+}
+
 func TestCompileCitationBackedTableRows_PreservesExplicitCells(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

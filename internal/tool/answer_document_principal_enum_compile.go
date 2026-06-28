@@ -3,6 +3,7 @@ package tool
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -217,18 +218,22 @@ func normalizePrincipalEnumerationItemCitationRefs(doc *types.AnswerDocumentV2, 
 		return 0
 	}
 	index := principalEnumerationExactLabelRowIndex(sets)
-	if len(index) == 0 {
+	rows := principalEnumerationAllRows(sets)
+	if len(index) == 0 && len(rows) == 0 {
 		return 0
 	}
 	changed := 0
 	for bi := range doc.Blocks {
 		block := &doc.Blocks[bi]
-		if !principalEnumerationBlockCanCarryRows(*block) || strings.TrimSpace(block.Text) != "" {
+		if !principalEnumerationBlockCanCarryRows(*block) {
+			continue
+		}
+		if block.Kind == types.BlockTable && strings.TrimSpace(block.Text) != "" {
 			continue
 		}
 		for ii := range block.Items {
 			item := &block.Items[ii]
-			row, ok := index[normalizeEnumerationDisplayTableKey(item.Label)]
+			row, ok := principalEnumerationUniqueItemRow(*item, rows, index)
 			if !ok || !principalEnumerationItemCitationRefShouldCorrect(*item, doc, row) {
 				continue
 			}
@@ -241,6 +246,128 @@ func normalizePrincipalEnumerationItemCitationRefs(doc *types.AnswerDocumentV2, 
 		}
 	}
 	return changed
+}
+
+func principalEnumerationAllRows(sets []types.EnumerationDisplaySet) []types.EnumerationDisplayRow {
+	var rows []types.EnumerationDisplayRow
+	for _, set := range sets {
+		rows = append(rows, set.Rows...)
+	}
+	return rows
+}
+
+func principalEnumerationUniqueItemRow(
+	item types.AnswerBlockItem,
+	rows []types.EnumerationDisplayRow,
+	exactIndex map[string]types.EnumerationDisplayRow,
+) (types.EnumerationDisplayRow, bool) {
+	if row, ok := exactIndex[normalizeEnumerationDisplayTableKey(item.Label)]; ok {
+		return row, true
+	}
+	var strong []types.EnumerationDisplayRow
+	var weak []types.EnumerationDisplayRow
+	seenStrong := map[string]bool{}
+	seenWeak := map[string]bool{}
+	for _, row := range rows {
+		if !principalEnumerationItemWeaklyIdentifiesRow(item, row) {
+			continue
+		}
+		key := principalEnumerationRowIdentityKey(row)
+		if principalEnumerationItemStronglyIdentifiesRow(item, row) {
+			if !seenStrong[key] {
+				seenStrong[key] = true
+				strong = append(strong, row)
+			}
+			continue
+		}
+		if !seenWeak[key] {
+			seenWeak[key] = true
+			weak = append(weak, row)
+		}
+	}
+	if len(strong) == 1 {
+		return strong[0], true
+	}
+	if len(strong) > 1 {
+		return types.EnumerationDisplayRow{}, false
+	}
+	if len(weak) == 1 {
+		return weak[0], true
+	}
+	return types.EnumerationDisplayRow{}, false
+}
+
+func principalEnumerationItemWeaklyIdentifiesRow(item types.AnswerBlockItem, row types.EnumerationDisplayRow) bool {
+	surface := types.AnswerBlockItemVisibleSurface(item)
+	if principalEnumerationAnySurfaceMatchesRow([]string{strings.TrimSpace(item.Label), surface}, row) {
+		return true
+	}
+	return principalEnumerationItemSurfaceHasRowLocation(surface, row)
+}
+
+func principalEnumerationItemStronglyIdentifiesRow(item types.AnswerBlockItem, row types.EnumerationDisplayRow) bool {
+	surface := types.AnswerBlockItemVisibleSurface(item)
+	return principalEnumerationItemSurfaceHasRowLocation(surface, row) ||
+		principalEnumerationItemSurfaceHasRowAttribute(surface, row)
+}
+
+func principalEnumerationItemSurfaceHasRowLocation(surface string, row types.EnumerationDisplayRow) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" || strings.TrimSpace(row.Source) == "" {
+		return false
+	}
+	for _, loc := range aggregateToolLocationPattern.FindAllString(surface, -1) {
+		candidate := principalEnumerationLocationKey(loc)
+		if principalEnumerationLocationKeyMatches(candidate, principalEnumerationLocationKey(row.Location)) ||
+			principalEnumerationLocationKeyMatches(candidate, principalEnumerationLocationKey(fmt.Sprintf("%s:%d", row.Source, row.LineStart))) {
+			return true
+		}
+	}
+	if strings.TrimSpace(row.Location) != "" && principalEnumerationSurfaceContainsLocation(surface, row.Location) {
+		return true
+	}
+	return principalEnumerationSurfaceContainsLocation(surface, row.Source)
+}
+
+func principalEnumerationSurfaceContainsLocation(surface, location string) bool {
+	surfaceKey := principalEnumerationLocationKey(surface)
+	locationKey := principalEnumerationLocationKey(location)
+	if surfaceKey == "" || locationKey == "" {
+		return false
+	}
+	return strings.Contains(surfaceKey, locationKey)
+}
+
+func principalEnumerationItemSurfaceHasRowAttribute(surface string, row types.EnumerationDisplayRow) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return false
+	}
+	for _, attr := range row.Attributes {
+		for _, candidate := range []string{attr.Name, attr.Location, answerTableCompileLocationKey(attr.Source, attr.Line)} {
+			candidate = strings.TrimSpace(candidate)
+			if candidate == "" {
+				continue
+			}
+			if preEmitAggregateScalarValueAppears(candidate, surface) || types.CodeSurfaceAppearsAsToken(candidate, surface) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func principalEnumerationRowIdentityKey(row types.EnumerationDisplayRow) string {
+	if strings.TrimSpace(row.RowID) != "" {
+		return row.RowID
+	}
+	return strings.Join([]string{
+		row.SetID,
+		row.DisplayLabel,
+		row.Member,
+		row.Source,
+		strconv.Itoa(row.LineStart),
+	}, "\x00")
 }
 
 func principalEnumerationExactLabelRowIndex(sets []types.EnumerationDisplaySet) map[string]types.EnumerationDisplayRow {
@@ -278,9 +405,6 @@ func principalEnumerationItemCitationRefShouldCorrect(item types.AnswerBlockItem
 		return false
 	}
 	if principalEnumerationItemCitationCompatible(item, doc, row) {
-		return false
-	}
-	if !principalEnumerationCitationFileMatches(doc.Citations[item.CitationRef], row) {
 		return false
 	}
 	surface := types.AnswerBlockItemVisibleSurface(item)
