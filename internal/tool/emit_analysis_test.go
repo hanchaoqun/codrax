@@ -5632,7 +5632,7 @@ func TestEmitAnalysis_Execute_RejectsInvalidErrorGranularityOption(t *testing.T)
 	}
 }
 
-func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
+func TestEmitAnalysis_Execute_DropsInvalidOptionalExactTargets(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -5669,11 +5669,18 @@ func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
-	if res.Success {
-		t.Fatal("invalid exact_targets must reject")
+	if !res.Success {
+		t.Fatalf("invalid optional exact_targets should be dropped, got %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "exact_targets") {
-		t.Fatalf("reject summary should mention exact_targets, got %q", res.Summary)
+	if !strings.Contains(res.Summary, "dropped invalid optional exact_targets") {
+		t.Fatalf("summary should disclose exact_targets cleanup, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel should persist")
+	}
+	if len(rm.AnalyzerHints.ExactTargets) != 0 {
+		t.Fatalf("invalid exact_targets should be dropped, got %+v", rm.AnalyzerHints.ExactTargets)
 	}
 }
 

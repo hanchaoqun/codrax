@@ -7328,3 +7328,63 @@ func TestEmitInvestigationComplete_AcceptsDecoratedMemberSetWithSupportRefs(t *t
 		t.Fatalf("decorated member_set WITH support_refs should pass: %s", res.Summary)
 	}
 }
+
+func TestEmitInvestigationComplete_RepairsSwappedDecoratedSupportRefsFromReadFile(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(t,
+		"internal/llm/stream_errors.go",
+		35,
+		120,
+		"type StreamStalledError struct {",
+	))
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(t,
+		"internal/llm/stream_errors.go",
+		97,
+		120,
+		"type StreamFirstByteTimeoutError struct {",
+	))
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"stream timeout variants are grounded",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"模型响应超时信号类型",
+				"value":"2",
+				"role":"principal_answer",
+				"members":[
+					"StreamFirstByteTimeoutError (首字节超时)",
+					"StreamStalledError (流停滞)"
+				],
+				"support_refs":[
+					"internal/llm/stream_errors.go:35",
+					"internal/llm/stream_errors.go:97"
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("swapped support_refs should be repaired without model retry: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("repaired completion should mark investigation complete, summary=%s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 {
+		t.Fatalf("aggregate facts = %+v, want one", facts)
+	}
+	want := []string{
+		"internal/llm/stream_errors.go:97",
+		"internal/llm/stream_errors.go:35",
+	}
+	if !reflect.DeepEqual(facts[0].SupportRefs, want) {
+		t.Fatalf("support_refs = %+v, want %+v", facts[0].SupportRefs, want)
+	}
+}

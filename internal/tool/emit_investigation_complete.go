@@ -6283,7 +6283,7 @@ func aggregateDecoratedMemberReadFileSupportRef(member string, support aggregate
 	}
 	lineNo, ok := aggregateDecoratedLineQualifierNumber(qualifier)
 	if !ok {
-		return "", false
+		return aggregateDecoratedBaseOnlyReadFileSupportRef(base, labels, support)
 	}
 	var matches []string
 	seen := map[string]bool{}
@@ -6291,6 +6291,30 @@ func aggregateDecoratedMemberReadFileSupportRef(member string, support aggregate
 		if line.Line != lineNo {
 			continue
 		}
+		if !aggregateToolLineSupportsLabels(line.Text, labels) {
+			continue
+		}
+		loc := aggregateSupportLocationKey(line.File, line.Line)
+		if loc == "" || seen[loc] {
+			continue
+		}
+		seen[loc] = true
+		matches = append(matches, loc)
+	}
+	if len(matches) != 1 {
+		return "", false
+	}
+	return base + ": " + matches[0], true
+}
+
+func aggregateDecoratedBaseOnlyReadFileSupportRef(base string, labels []string, support aggregateMemberSupportIndex) (string, bool) {
+	base = strings.TrimSpace(base)
+	if base == "" || !types.IsCodeIdentitySurface(base) || len(labels) == 0 {
+		return "", false
+	}
+	var matches []string
+	seen := map[string]bool{}
+	for _, line := range support.readFileLines {
 		if !aggregateToolLineSupportsLabels(line.Text, labels) {
 			continue
 		}
@@ -6516,6 +6540,15 @@ func aggregateMemberDisplayCandidates(member string) []string {
 	}
 	out := []string{member}
 	out = append(out, types.AnswerAggregateMemberDisplayCandidates(member)...)
+	if base, _, ok := types.AnswerAggregateDecoratedLabelParts(member); ok {
+		base = strings.TrimSpace(base)
+		if base != "" && types.IsCodeIdentitySurface(base) {
+			out = append(out, base)
+			if tail := types.NormalizedSurfaceSymbolTail(base); tail != "" {
+				out = append(out, tail)
+			}
+		}
+	}
 	if base, ok := aggregateDecoratedSourceSupportBase(member); ok {
 		out = append(out, base)
 	}

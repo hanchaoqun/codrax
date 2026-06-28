@@ -3147,7 +3147,7 @@ func validateExactTargets(raw string, in []string, requiredFiles []emitRequiredF
 			(predicates.IsCategoryEnumeration || sourceInventoryRequested(sourceInventory)) {
 			return nil, "", "dropped exact_targets that were not current-request verbatim but already appeared in required_files for a scoped inventory/enumeration"
 		}
-		return nil, "exact_targets were provided, but none are explicitly present in the current request text; omit the field when unsure", ""
+		return nil, "", "dropped invalid optional exact_targets: none were explicitly present in the current request text"
 	}
 	var invalid []string
 	seen := make(map[string]bool, len(validated))
@@ -3162,10 +3162,10 @@ func validateExactTargets(raw string, in []string, requiredFiles []emitRequiredF
 		invalid = append(invalid, strings.TrimSpace(item))
 	}
 	sort.Strings(invalid)
-	return nil, fmt.Sprintf(
-		"exact_targets must be copied verbatim from the current request text; these item(s) were not validated: %s",
+	return validated, "", fmt.Sprintf(
+		"dropped invalid optional exact_targets not copied verbatim from the current request text: %s",
 		strings.Join(invalid, ", "),
-	), ""
+	)
 }
 
 func demoteRequiredFileContextExactTargets(raw string, exactTargets []string, requiredFiles []emitRequiredFileParam, answerSubject types.AnswerSubject, entities []string) ([]string, string) {
