@@ -802,7 +802,7 @@ func materializeRuntimeTraceMetricSnapshotBlock(doc *types.AnswerDocumentV2, ctx
 	if answerDocumentHasBlockID(doc, "runtime_trace_metric_snapshot") {
 		return false
 	}
-	items := runtimeTraceMetricSnapshotItems(ctx)
+	items := runtimeTraceMetricSnapshotItems(doc, ctx)
 	if len(items) == 0 {
 		return false
 	}
@@ -839,7 +839,7 @@ func answerDocumentHasBlockID(doc *types.AnswerDocumentV2, id string) bool {
 	return false
 }
 
-func runtimeTraceMetricSnapshotItems(ctx *types.BusContext) []types.AnswerBlockItem {
+func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.BusContext) []types.AnswerBlockItem {
 	if ctx == nil {
 		return nil
 	}
@@ -847,11 +847,15 @@ func runtimeTraceMetricSnapshotItems(ctx *types.BusContext) []types.AnswerBlockI
 	if len(ledger.Records) == 0 {
 		return nil
 	}
+	visible := answerDocumentVisibleSurfaceForRuntimeTrace(doc)
 	seen := make(map[string]bool)
 	var out []types.AnswerBlockItem
 	for _, record := range ledger.Records {
 		text := runtimeTraceMetricSnapshotFromObservationRecord(record)
 		if text == "" {
+			continue
+		}
+		if runtimeTraceMetricSnapshotCoveredByAnswer(visible, record, text) {
 			continue
 		}
 		if seen[text] {
@@ -872,6 +876,103 @@ func runtimeTraceMetricSnapshotItems(ctx *types.BusContext) []types.AnswerBlockI
 		})
 		if len(out) >= 2 {
 			break
+		}
+	}
+	return out
+}
+
+func runtimeTraceMetricSnapshotCoveredByAnswer(visible string, record types.ObservationRecord, snapshot string) bool {
+	visible = strings.TrimSpace(visible)
+	snapshot = strings.TrimSpace(snapshot)
+	if visible == "" || snapshot == "" {
+		return false
+	}
+	if strings.Contains(visible, snapshot) {
+		return true
+	}
+	visibleLower := strings.ToLower(visible)
+	subject := strings.ToLower(strings.TrimSpace(record.Subject))
+	if subject != "" && !strings.Contains(visibleLower, subject) {
+		return false
+	}
+	pairs := runtimeTraceMetricSnapshotPairs(snapshot)
+	if len(pairs) == 0 {
+		return false
+	}
+	for key, value := range pairs {
+		if !runtimeTraceMetricPairCoveredByAnswer(visibleLower, key, value) {
+			return false
+		}
+	}
+	return true
+}
+
+func runtimeTraceMetricSnapshotPairs(snapshot string) map[string]string {
+	out := map[string]string{}
+	for _, token := range strings.FieldsFunc(snapshot, runtimeTraceMetricSummaryTokenSeparator) {
+		key, value, ok := strings.Cut(strings.TrimSpace(token), "=")
+		if !ok {
+			continue
+		}
+		key = strings.ToLower(strings.TrimSpace(key))
+		value = strings.ToLower(strings.Trim(strings.TrimSpace(value), `"'()[]{}<>`))
+		if key == "" || value == "" {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func runtimeTraceMetricPairCoveredByAnswer(visibleLower, key, value string) bool {
+	key = strings.ToLower(strings.TrimSpace(key))
+	value = strings.ToLower(strings.TrimSpace(value))
+	if key == "" || value == "" || !strings.Contains(visibleLower, key) {
+		return false
+	}
+	for _, variant := range runtimeTraceMetricValueVariants(value) {
+		if variant != "" && strings.Contains(visibleLower, variant) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeTraceMetricValueVariants(value string) []string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(v string) {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v == "" || seen[v] {
+			return
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	add(value)
+	base := value
+	hadMS := false
+	if strings.HasSuffix(base, "ms") {
+		base = strings.TrimSpace(strings.TrimSuffix(base, "ms"))
+		hadMS = true
+		add(base)
+	}
+	if f, err := strconv.ParseFloat(base, 64); err == nil {
+		for _, v := range []string{
+			strconv.FormatFloat(f, 'f', 3, 64),
+			strconv.FormatFloat(f, 'f', 2, 64),
+			strconv.FormatFloat(f, 'f', 1, 64),
+			strconv.FormatFloat(f, 'f', 0, 64),
+			strconv.FormatFloat(f, 'g', -1, 64),
+		} {
+			add(v)
+			if hadMS || strings.HasSuffix(value, "ms") {
+				add(v + "ms")
+			}
 		}
 	}
 	return out

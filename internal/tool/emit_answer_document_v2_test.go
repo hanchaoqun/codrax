@@ -496,6 +496,62 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromTypedObs
 	}
 }
 
+func TestEmitAnswerDocumentV2_SuppressesRuntimeTraceMetricSnapshotWhenPrincipalAnswerCoversMetrics(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:       "trace_query:state_churn:1",
+			Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query",
+			Subject:  "app-20",
+			Value:    "5.000",
+			RichNotes: []string{
+				"dominant_state=runnable",
+				"running=3.500",
+				"runnable=5.000",
+				"sleep=0.000",
+				"d_state=0.000",
+				"io_wait=0.000",
+				"fragments=21",
+				"switches=20",
+				"max_segment=0.500",
+				"p95_segment=0.500",
+			},
+		}},
+	}}
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [
+			{
+				"id": "s1",
+				"kind": "summary",
+				"text": "app-20 的 state_churn 已覆盖：dominant_state=runnable，running=3.5ms，runnable=5ms，sleep=0ms，d_state=0ms，io_wait=0ms，fragments=21，switches=20，max_segment=0.5ms，p95_segment=0.5ms。"
+			},
+			{"id": "scope", "kind": "caveat", "text": "仅限该 trace 窗口。"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		t.Fatal("answer document not persisted")
+	}
+	for _, block := range doc.Blocks {
+		if block.ID == "runtime_trace_metric_snapshot" {
+			t.Fatalf("metric snapshot should stay hidden when principal answer covers the same typed key/value set: %+v", block)
+		}
+	}
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("expected only model answer plus caveat, got %+v", doc.Blocks)
+	}
+}
+
 func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromSummaryTokens(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.ToolResults = []types.ToolResult{{
