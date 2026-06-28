@@ -8894,6 +8894,11 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		}
 	}
 
+	if rejectCode == "answer_doc_lossy_blocks_string_recovery" {
+		reasonKey = "lossy-blocks-string"
+		hint = answerDocLossyBlocksStringRecoveryHint(repair)
+	}
+
 	if rejectCode == answerDocRejectCodeMissingDiagram {
 		reasonKey = "missing-diagram"
 		hint = "Your last `emit_answer_document` call was rejected because this dispatch REQUIRES a grounded `diagram` block. Re-emit `emit_answer_document` now with the same answer payload, but add a `diagram` block: set `diagram.kind` to the SEMANTIC family the user section names (`flow` / `sequence` / `architecture` / `call_dag`) — NOT a Mermaid keyword — and put the Mermaid syntax inside `diagram.body` (using `flowchart` for `flow`/`architecture`/`call_dag` family, `sequenceDiagram` for `sequence`). Set `diagram.language=\"mermaid\"`. Keep every filename inside the diagram grounded by `citations[]` or the Log Triage frames; do not write free-form prose outside the tool call."
@@ -9202,6 +9207,35 @@ func repairHintMentionsFields(hint string, fields []string) bool {
 		}
 	}
 	return true
+}
+
+func answerDocLossyBlocksStringRecoveryHint(repair *types.ToolRepair) string {
+	hint := "Your last `emit_answer_document` call was rejected because `blocks` was a JSON-encoded string and local recovery would have lost at least one visible block. Re-emit the full answer now with `blocks` as a native JSON array of block objects, not a quoted string."
+	if repair != nil && repair.Metadata != nil {
+		candidate := strings.TrimSpace(repair.Metadata["candidate_blocks"])
+		recovered := strings.TrimSpace(repair.Metadata["recovered_blocks"])
+		attachments := strings.TrimSpace(repair.Metadata["recovered_attachments"])
+		recoveredKinds := strings.TrimSpace(repair.Metadata["recovered_kinds"])
+		candidateKinds := strings.TrimSpace(repair.Metadata["candidate_kinds"])
+		var details []string
+		if candidate != "" || recovered != "" {
+			details = append(details, fmt.Sprintf("Recovery saw candidate_blocks=%s and recovered_blocks=%s.", firstNonEmptyString(candidate, "?"), firstNonEmptyString(recovered, "?")))
+		}
+		if attachments != "" {
+			details = append(details, "Recovered display attachments="+attachments+".")
+		}
+		if recoveredKinds != "" {
+			details = append(details, "Structured recovered block kinds: "+recoveredKinds+".")
+		}
+		if candidateKinds != "" {
+			details = append(details, "Candidate block kinds seen before loss: "+candidateKinds+".")
+		}
+		if len(details) > 0 {
+			hint += " " + strings.Join(details, " ")
+		}
+	}
+	hint += " Keep the recovered structured blocks and `citations[]` intact; restore the missing visible block as a valid native block only if you can do so from the previous draft, otherwise deliberately omit that optional block and keep the principal answer in the recovered blocks. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
+	return hint
 }
 
 // answerDocPreserveHintIntro is the standard "preserve everything,

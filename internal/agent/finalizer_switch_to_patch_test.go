@@ -186,6 +186,52 @@ func TestEmitAnswerDocumentRejectSignal_NoPatchBaseKeepsFullEmit(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentRejectSignal_LossyBlocksStringUsesRecoveryMetadata(t *testing.T) {
+	e := &answerDocumentEvaluator{}
+	obs := LoopObservation{
+		Phase: PhaseMidLoop,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "ShouldNotLeak: structured recovery could not preserve every visible block",
+			Repair: &types.ToolRepair{
+				Code:   "answer_doc_lossy_blocks_string_recovery",
+				Fields: []string{"blocks"},
+				Hint:   "Generic hint should be replaced by the typed lossy-blocks hint.",
+				Metadata: map[string]string{
+					"candidate_blocks":      "4",
+					"recovered_blocks":      "3",
+					"recovered_attachments": "0",
+					"candidate_kinds":       "summary,ordered_list,caveat",
+					"recovered_kinds":       "summary,ordered_list,caveat",
+					"recovery_mode":         "brace_balanced_blocks",
+				},
+			},
+		},
+	}
+
+	got := e.emitAnswerDocumentRejectSignal(&types.AgentContext{Mutable: types.NewMutableState("q")}, obs)
+	if !got.HintRequested {
+		t.Fatalf("lossy blocks-string reject should request a local repair hint; got %+v", got)
+	}
+	for _, want := range []string{
+		"JSON-encoded string",
+		"native JSON array",
+		"candidate_blocks=4",
+		"recovered_blocks=3",
+		"Structured recovered block kinds: summary,ordered_list,caveat",
+		"Keep the recovered structured blocks and `citations[]` intact",
+		"Do not reopen files",
+	} {
+		if !strings.Contains(got.Hint, want) {
+			t.Fatalf("lossy blocks-string hint missing %q:\n%s", want, got.Hint)
+		}
+	}
+	if strings.Contains(got.Hint, "ShouldNotLeak") || strings.Contains(got.Hint, "Generic hint") {
+		t.Fatalf("hint must use typed repair metadata, not rendered summary/generic prose:\n%s", got.Hint)
+	}
+}
+
 func TestEmitSwitchToPatchSignal_NoPatchBase_NoNudge(t *testing.T) {
 	e := &answerDocumentEvaluator{}
 	obs := LoopObservation{

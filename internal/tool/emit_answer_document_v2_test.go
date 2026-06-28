@@ -1835,6 +1835,9 @@ func TestEmitAnswerDocumentV2_BraceFallbackRejectsUnattachedDroppedBlock(t *test
 	if got := res.Repair.Metadata["recovered_blocks"]; got != "1" {
 		t.Fatalf("repair metadata recovered_blocks = %q, want 1; repair=%+v", got, res.Repair)
 	}
+	if got := res.Repair.Metadata["recovered_kinds"]; got != "summary" {
+		t.Fatalf("repair metadata recovered_kinds = %q, want summary; repair=%+v", got, res.Repair)
+	}
 	if !strings.Contains(res.Repair.Hint, "native JSON array") {
 		t.Fatalf("repair hint should explain native blocks[] array, got %q", res.Repair.Hint)
 	}

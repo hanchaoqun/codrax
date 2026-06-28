@@ -420,9 +420,26 @@ func answerDocumentLossyBlocksRecoveryRepair(report answerDocumentRecoveryReport
 			"candidate_blocks":      strconv.Itoa(report.CandidateBlocks),
 			"recovered_blocks":      strconv.Itoa(report.RecoveredBlocks),
 			"recovered_attachments": strconv.Itoa(len(report.Attachments)),
+			"candidate_kinds":       answerDocumentBlockKindsMetadata(report.CandidateKinds),
+			"recovered_kinds":       answerDocumentBlockKindsMetadata(report.RecoveredKinds),
 			"recovery_mode":         strings.TrimSpace(report.Mode),
 		},
 	}
+}
+
+func answerDocumentBlockKindsMetadata(kinds []types.AnswerBlockKind) string {
+	if len(kinds) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		s := strings.TrimSpace(string(kind))
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return strings.Join(out, ",")
 }
 
 func renderRecoveredAnswerDocumentDraft(doc *types.AnswerDocumentV2) string {
