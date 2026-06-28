@@ -113,7 +113,17 @@ const (
 // turnPolicyClassifierTimeout bounds only the lightweight REPL route
 // classifier. On timeout the dispatcher falls back to the normal read
 // pipeline, so a slow classifier cannot pin the interactive prompt.
-var turnPolicyClassifierTimeout = 20 * time.Second
+var turnPolicyClassifierTimeout = 10 * time.Second
+
+// SetTurnPolicyClassifierTimeout updates the REPL route-classifier wall clock.
+// Non-positive durations keep the current value: callers should fail-soft to
+// the code default rather than accidentally disabling the guard.
+func SetTurnPolicyClassifierTimeout(timeout time.Duration) {
+	if timeout <= 0 {
+		return
+	}
+	turnPolicyClassifierTimeout = timeout
+}
 
 // TurnPolicy is the structured classification result. All fields
 // optional for stub implementations; the dispatcher applies

@@ -2139,6 +2139,9 @@ func initApp(cmd *cobra.Command, args []string) error {
 		if rs.ReplPasteFoldMinChars != nil {
 			app.replPasteFoldMinChars = *rs.ReplPasteFoldMinChars
 		}
+		if rs.ReplTurnPolicyTimeoutSeconds != nil && *rs.ReplTurnPolicyTimeoutSeconds > 0 {
+			repl.SetTurnPolicyClassifierTimeout(time.Duration(*rs.ReplTurnPolicyTimeoutSeconds) * time.Second)
+		}
 		if rs.OperationRouteEnabled != nil {
 			app.operationRouteEnabled = *rs.OperationRouteEnabled
 		}

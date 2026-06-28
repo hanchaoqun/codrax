@@ -1344,6 +1344,15 @@
 #   --chitchat-classifier 可按次覆盖。默认 true。
 # chitchat_classifier_enabled: true
 
+# repl_turn_policy_timeout_seconds — wall-clock cap for the lightweight REPL
+#   structured route classifier. Timeout fails safe to the normal repo pipeline.
+#   Keep this small because routing is an ergonomics layer, not a blocker.
+#   Default 10.
+#   REPL 结构化路由分类器的墙钟超时。超时会安全降级到普通仓库分析
+#   流水线。建议保持较小,因为路由只是易用层,不能阻塞真实读/写任务。
+#   默认 10。
+# repl_turn_policy_timeout_seconds: 10
+
 # chitchat_recall_default_limit / chitchat_recall_max_limit — default and
 #   hard-cap for the `limit` arg of the recall_memory tool inside /chat.
 #   Defaults 5 / 10.

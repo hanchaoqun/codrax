@@ -43,6 +43,7 @@ data_task_max_repair_rounds: 9
 data_task_max_data_rounds: 18
 write_workflow_engine: controller
 verify_wall_timeout_seconds: 901
+repl_turn_policy_timeout_seconds: 7
 providers_config: /etc/codrax/providers.yaml
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -87,6 +88,9 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.VerifyWallTimeoutSeconds == nil || *s.VerifyWallTimeoutSeconds != 901 {
 		t.Errorf("VerifyWallTimeoutSeconds = %v", s.VerifyWallTimeoutSeconds)
+	}
+	if s.ReplTurnPolicyTimeoutSeconds == nil || *s.ReplTurnPolicyTimeoutSeconds != 7 {
+		t.Errorf("ReplTurnPolicyTimeoutSeconds = %v", s.ReplTurnPolicyTimeoutSeconds)
 	}
 	// blob_*
 	if s.BlobMaxInlineBytes == nil || *s.BlobMaxInlineBytes != 65536 {

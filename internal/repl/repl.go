@@ -6932,6 +6932,8 @@ func (r *REPL) dispatch(line, display string) {
 		// (e.g. "expand 10" after a list_memory listing). Empty
 		// hint on first turn / no recent buffer / nil store
 		// preserves byte-identical pre-fix behaviour.
+		preflightStart := time.Now()
+		logging.Info("[repl/turn_policy] preflight start: has_attachment=%t", hasAttach)
 		hint := r.buildPriorTurnHint()
 		// Add structured attachment signal so the LLM can route
 		// based on whether the user is referencing the attachment.
@@ -6953,6 +6955,11 @@ func (r *REPL) dispatch(line, display string) {
 		// legacy binary path below.
 		if tpc, ok := r.chitchatClassifier.(TurnPolicyClassifier); ok {
 			lastAnswer := r.lastAnswerText()
+			logging.Info("[repl/turn_policy] preflight end: elapsed=%s hint=%t last_answer=%t timeout=%s",
+				time.Since(preflightStart).Truncate(time.Millisecond),
+				strings.TrimSpace(hint) != "",
+				strings.TrimSpace(lastAnswer) != "",
+				turnPolicyClassifierTimeout)
 			logging.Info("[repl/turn_policy] classifier start: %s", oneLine(line))
 			started := time.Now()
 			policy, err := r.runTurnPolicyClassifierInFlight(func(classifierCtx context.Context) (TurnPolicy, error) {

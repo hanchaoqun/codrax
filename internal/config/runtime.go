@@ -1060,6 +1060,13 @@ type RuntimeSettings struct {
 	// false or pass --chitchat-classifier=false at startup.
 	ChitchatClassifierEnabled *bool `yaml:"chitchat_classifier_enabled"`
 
+	// ReplTurnPolicyTimeoutSeconds bounds the lightweight REPL
+	// structured route classifier. On timeout Codrax falls back to the
+	// normal repo pipeline, so this should stay small: the classifier is
+	// an ergonomics layer, not a blocker for real code/read work.
+	// Non-positive values are ignored and the code default is used.
+	ReplTurnPolicyTimeoutSeconds *int `yaml:"repl_turn_policy_timeout_seconds"`
+
 	// Chitchat tool-use numeric knobs. /chat now runs a bounded
 	// 2-round ReAct loop with the recall_memory tool when memory
 	// is wired; these caps shape the LLM's `limit` parameter.

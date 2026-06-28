@@ -1084,6 +1084,20 @@ func TestClassifyPolicy_TimesOutRouteClassifier(t *testing.T) {
 	}
 }
 
+func TestSetTurnPolicyClassifierTimeout(t *testing.T) {
+	old := turnPolicyClassifierTimeout
+	defer func() { turnPolicyClassifierTimeout = old }()
+
+	SetTurnPolicyClassifierTimeout(3 * time.Second)
+	if turnPolicyClassifierTimeout != 3*time.Second {
+		t.Fatalf("timeout = %s, want 3s", turnPolicyClassifierTimeout)
+	}
+	SetTurnPolicyClassifierTimeout(0)
+	if turnPolicyClassifierTimeout != 3*time.Second {
+		t.Fatalf("non-positive override must keep current guard, got %s", turnPolicyClassifierTimeout)
+	}
+}
+
 func TestClassifyPolicy_HardTimesOutNonResponsiveRouteClassifier(t *testing.T) {
 	old := turnPolicyClassifierTimeout
 	turnPolicyClassifierTimeout = 10 * time.Millisecond
