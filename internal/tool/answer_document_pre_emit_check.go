@@ -63,6 +63,8 @@ import (
 
 var preEmitVisibleSourceLocationRe = regexp.MustCompile(`[\p{Han}A-Za-z0-9_.\-/\\]+?\.(?:go|ts|tsx|js|jsx|py|java|kt|kts|rs|rb|cpp|cc|cxx|c|h|hpp|hh|m|mm|swift|cj|ets|arkts|xml|json|yaml|yml|toml|md):[0-9]+`)
 
+const preEmitAttachedMetadataMaxLines = 12
+
 // preEmitOracleFromCtx pulls the SymbolOracle the orchestrator
 // stashed on Mutable. Returns nil when:
 //   - ctx or Mutable is nil (unit-test / no-bus paths)
@@ -3169,7 +3171,7 @@ func normalizePrincipalSupportSurfaceTermSupplement(doc *types.AnswerDocumentV2,
 	if !principalSupportSurfaceTermSupplementRequested(ctx) {
 		return 0
 	}
-	evidence := modelSurfaceTermEvidence(ctx)
+	evidence := modelSurfaceTermEvidenceForDocument(ctx, doc)
 	if len(evidence) == 0 {
 		return 0
 	}
@@ -7446,7 +7448,7 @@ func preCheckModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *types.BusContex
 	if doc == nil || ctx == nil {
 		return nil
 	}
-	evidence := modelSurfaceTermEvidence(ctx)
+	evidence := modelSurfaceTermEvidenceForDocument(ctx, doc)
 	if len(evidence) == 0 {
 		return nil
 	}
@@ -7486,7 +7488,7 @@ func materializeRequiredModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *type
 	if doc == nil || ctx == nil {
 		return 0
 	}
-	evidence := modelSurfaceTermEvidence(ctx)
+	evidence := modelSurfaceTermEvidenceForDocument(ctx, doc)
 	if len(evidence) == 0 {
 		return 0
 	}
@@ -7843,13 +7845,25 @@ func modelSurfaceTermEvidence(ctx *types.BusContext) []types.EvidenceItem {
 	if ctx != nil {
 		pool = append(pool, ctx.EvidenceItems...)
 	}
+	return dedupeModelSurfaceTermEvidence(pool)
+}
+
+func modelSurfaceTermEvidenceForDocument(ctx *types.BusContext, doc *types.AnswerDocumentV2) []types.EvidenceItem {
+	pool := modelSurfaceTermEvidence(ctx)
+	pool = append(pool, currentSourceMetadataSurfaceTermEvidence(ctx, doc)...)
+	return dedupeModelSurfaceTermEvidence(pool)
+}
+
+func dedupeModelSurfaceTermEvidence(pool []types.EvidenceItem) []types.EvidenceItem {
 	out := make([]types.EvidenceItem, 0, len(pool))
 	seen := make(map[string]bool, len(pool))
 	for _, ev := range pool {
 		if len(ev.SurfaceTerms) == 0 {
 			continue
 		}
-		if ev.Producer != EmitEvidenceProducer && ev.Producer != "source_inventory_observation" {
+		if ev.Producer != EmitEvidenceProducer &&
+			ev.Producer != "source_inventory_observation" &&
+			ev.Producer != "current_source_metadata" {
 			continue
 		}
 		key := ev.ID
@@ -7863,6 +7877,127 @@ func modelSurfaceTermEvidence(ctx *types.BusContext) []types.EvidenceItem {
 		out = append(out, ev)
 	}
 	return out
+}
+
+func currentSourceMetadataSurfaceTermEvidence(ctx *types.BusContext, doc *types.AnswerDocumentV2) []types.EvidenceItem {
+	if ctx == nil || doc == nil || len(doc.Citations) == 0 {
+		return nil
+	}
+	repoRoot := strings.TrimSpace(ctx.RepoRoot)
+	if repoRoot == "" && ctx.Mutable != nil {
+		repoRoot = strings.TrimSpace(ctx.Mutable.RepoRoot())
+	}
+	if repoRoot == "" {
+		return nil
+	}
+	linesByFile := map[string][]string{}
+	var out []types.EvidenceItem
+	for idx, cite := range doc.Citations {
+		if strings.TrimSpace(cite.File) == "" || cite.Line <= 0 || strings.TrimSpace(cite.NegativePattern) != "" {
+			continue
+		}
+		fileKey := strings.TrimSpace(strings.ReplaceAll(cite.File, `\`, `/`))
+		lines := linesByFile[fileKey]
+		if lines == nil {
+			var ok bool
+			lines, ok = currentSourceCitationLines(repoRoot, cite.File)
+			if !ok {
+				linesByFile[fileKey] = []string{}
+				continue
+			}
+			linesByFile[fileKey] = lines
+		}
+		terms, start, end := citationAttachedMetadataSurfaceTerms(lines, cite.Line)
+		if len(terms) == 0 {
+			continue
+		}
+		out = append(out, types.EvidenceItem{
+			ID:           fmt.Sprintf("citation:%d:current_source_metadata", idx),
+			Producer:     "current_source_metadata",
+			Kind:         types.EvidenceDirect,
+			Source:       cite.File,
+			LineStart:    start,
+			LineEnd:      end,
+			SurfaceTerms: terms,
+		})
+	}
+	return out
+}
+
+func citationAttachedMetadataSurfaceTerms(lines []string, lineNo int) ([]string, int, int) {
+	if lineNo <= 0 || lineNo > len(lines) {
+		return nil, 0, 0
+	}
+	idx := lineNo - 1
+	start, end := -1, -1
+	if preEmitAttachedMetadataLine(lines[idx]) {
+		start, end = idx, idx
+		for i := idx - 1; i >= 0 && idx-i <= preEmitAttachedMetadataMaxLines; i-- {
+			if !preEmitAttachedMetadataLine(lines[i]) {
+				break
+			}
+			start = i
+		}
+		for i := idx + 1; i < len(lines) && i-idx <= preEmitAttachedMetadataMaxLines; i++ {
+			if !preEmitAttachedMetadataLine(lines[i]) {
+				break
+			}
+			end = i
+		}
+	} else {
+		end = idx - 1
+		for i := idx - 1; i >= 0 && idx-i <= preEmitAttachedMetadataMaxLines; i-- {
+			if !preEmitAttachedMetadataLine(lines[i]) {
+				break
+			}
+			start = i
+		}
+		if start < 0 {
+			return nil, 0, 0
+		}
+	}
+	var terms []string
+	for i := start; i <= end; i++ {
+		terms = appendMissingSurfaceTerms(terms, preEmitMetadataSurfaceTerms(lines[i]))
+	}
+	if len(terms) == 0 {
+		return nil, 0, 0
+	}
+	return terms, start + 1, end + 1
+}
+
+func preEmitAttachedMetadataLine(raw string) bool {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(trimmed, "@"):
+		return true
+	case strings.HasPrefix(trimmed, "#[") || strings.HasPrefix(trimmed, "#!["):
+		return true
+	case strings.HasPrefix(trimmed, "[["):
+		return true
+	case strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]"):
+		return true
+	case strings.HasPrefix(trimmed, "__attribute__") ||
+		strings.HasPrefix(trimmed, "__declspec") ||
+		strings.HasPrefix(trimmed, "alignas("):
+		return true
+	default:
+		return false
+	}
+}
+
+func preEmitMetadataSurfaceTerms(raw string) []string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	if strings.HasPrefix(trimmed, "@") {
+		return decoratorSurfaceTermRe.FindAllString(trimmed, -1)
+	}
+	return []string{trimmed}
 }
 
 func sourceInventorySurfaceTermEvidence(observation types.SourceInventoryObservation) []types.EvidenceItem {

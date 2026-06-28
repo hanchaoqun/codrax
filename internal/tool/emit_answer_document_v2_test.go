@@ -1233,6 +1233,128 @@ func TestEmitAnswerDocumentV2_MaterializesNonPathSurfaceTermsForPrincipalItem(t 
 	}
 }
 
+func TestEmitAnswerDocumentV2_MaterializesCitationDerivedDecoratorStack(t *testing.T) {
+	repo := t.TempDir()
+	rel := "src/pages/Index.ets"
+	body := strings.Join([]string{
+		"// Source: sample",
+		"// Surface: @Entry + @Component",
+		"",
+		"@Entry",
+		"@Component",
+		"struct Index {",
+		"  build() {}",
+		"}",
+		"",
+	}, "\n")
+	if err := os.MkdirAll(filepath.Join(repo, "src/pages"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, filepath.FromSlash(rel)), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bus := newV2TestBusContext()
+	bus.RepoRoot = repo
+	bus.Mutable.SetRepoRoot(repo)
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "entry_list",
+			"kind": "ordered_list",
+			"surface_role": "principal",
+			"items": [{
+				"id": "e1",
+				"label": "Index",
+				"text": "页面入口组件，被 @Entry 装饰器标记。",
+				"citation_ref": 0
+			}]
+		}],
+		"citations": [{
+			"file": "src/pages/Index.ets",
+			"line": 4
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].Items) != 1 {
+		t.Fatalf("document not written: %+v", doc)
+	}
+	got := doc.Blocks[0].Items[0].Text
+	if !strings.Contains(got, "@Component") {
+		t.Fatalf("citation-derived attached decorator stack should materialize @Component, got %q", got)
+	}
+	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) != 0 {
+		t.Fatalf("citation-derived decorator materialization should clear surface hints, got %+v", hints)
+	}
+}
+
+func TestEmitAnswerDocumentV2_CitationDerivedDecoratorStackDoesNotPullParentDecorator(t *testing.T) {
+	repo := t.TempDir()
+	rel := "src/pages/Card.ets"
+	body := strings.Join([]string{
+		"@Component",
+		"struct CardComponent {",
+		"  @BuilderParam customHeader: () => void",
+		"",
+		"  @Builder defaultHeader() {",
+		"    Text('Default Header')",
+		"  }",
+		"}",
+		"",
+	}, "\n")
+	if err := os.MkdirAll(filepath.Join(repo, "src/pages"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, filepath.FromSlash(rel)), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bus := newV2TestBusContext()
+	bus.RepoRoot = repo
+	bus.Mutable.SetRepoRoot(repo)
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "builder_list",
+			"kind": "ordered_list",
+			"surface_role": "principal",
+			"items": [{
+				"id": "b1",
+				"label": "defaultHeader",
+				"text": "成员复用片段。",
+				"citation_ref": 0
+			}]
+		}],
+		"citations": [{
+			"file": "src/pages/Card.ets",
+			"line": 5
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].Items) != 1 {
+		t.Fatalf("document not written: %+v", doc)
+	}
+	got := doc.Blocks[0].Items[0].Text
+	if !strings.Contains(got, "@Builder") {
+		t.Fatalf("citation-derived method decorator should materialize @Builder, got %q", got)
+	}
+	if strings.Contains(got, "@Component") {
+		t.Fatalf("inner method decorator stack must not inherit parent @Component, got %q", got)
+	}
+}
+
 func TestEmitAnswerDocumentV2_MaterializesSourceInventorySurfaceTermsForPrincipalItem(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{

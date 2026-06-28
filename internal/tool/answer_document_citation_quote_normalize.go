@@ -44,19 +44,23 @@ func currentSourceCitationLine(repoRoot, file string, lineNo int) (string, bool)
 	if lineNo <= 0 {
 		return "", false
 	}
-	path, ok := currentSourceCitationPath(repoRoot, file)
-	if !ok {
-		return "", false
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", false
-	}
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	if lineNo > len(lines) {
+	lines, ok := currentSourceCitationLines(repoRoot, file)
+	if !ok || lineNo > len(lines) {
 		return "", false
 	}
 	return lines[lineNo-1], true
+}
+
+func currentSourceCitationLines(repoRoot, file string) ([]string, bool) {
+	path, ok := currentSourceCitationPath(repoRoot, file)
+	if !ok {
+		return nil, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	return strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n"), true
 }
 
 func currentSourceCitationPath(repoRoot, file string) (string, bool) {
