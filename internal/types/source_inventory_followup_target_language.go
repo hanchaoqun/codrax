@@ -2,7 +2,8 @@ package types
 
 import "strings"
 
-func sourceInventoryFollowupTargetLanguages(rm RequestModel, requiredFiles []string) map[string]bool {
+func sourceInventoryFollowupTargetLanguages(observation SourceInventoryObservation, rm RequestModel, requiredFiles []string, roles []AnswerCandidateRole) map[string]bool {
+	observedLanguages := sourceInventoryFollowupObservedConstructLanguages(observation, rm, roles)
 	hintLanguages := map[string]bool{}
 	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
 		if hint.Confidence < 0.8 {
@@ -10,6 +11,7 @@ func sourceInventoryFollowupTargetLanguages(rm RequestModel, requiredFiles []str
 		}
 		sourceInventoryFollowupAddPathLanguages(hintLanguages, hint.Path)
 	}
+	hintLanguages = sourceInventoryFollowupReconcileRequiredFileLanguages(hintLanguages, observedLanguages)
 	if sourceInventoryFollowupLanguageSetCoherent(hintLanguages) {
 		return hintLanguages
 	}
@@ -17,8 +19,12 @@ func sourceInventoryFollowupTargetLanguages(rm RequestModel, requiredFiles []str
 	for _, file := range requiredFiles {
 		sourceInventoryFollowupAddPathLanguages(fileLanguages, file)
 	}
+	fileLanguages = sourceInventoryFollowupReconcileRequiredFileLanguages(fileLanguages, observedLanguages)
 	if sourceInventoryFollowupLanguageSetCoherent(fileLanguages) {
 		return fileLanguages
+	}
+	if sourceInventoryFollowupLanguageSetCoherent(observedLanguages) {
+		return observedLanguages
 	}
 	return nil
 }

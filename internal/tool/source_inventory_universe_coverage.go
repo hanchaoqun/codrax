@@ -294,7 +294,7 @@ func SourceInventoryCandidateUniverseCoverageGap(ctx *types.BusContext, facts []
 	included, excluded := sourceInventoryAggregateCoverageKeys(facts, rm)
 	best := SourceInventoryCandidateUniverseGap{}
 	for _, universe := range universes {
-		if len(universe.members) == 0 {
+		if len(universe.members) == 0 || !sourceInventoryExactUniverseRoleCanProveClosure(universe.role, rm) {
 			continue
 		}
 		gap := sourceInventoryCoverageForUniverse(universe, included, excluded)
@@ -351,7 +351,7 @@ func SourceInventoryAcceptedClosureCoversExactUniverse(ctx *types.BusContext, fa
 		return false
 	}
 	for _, universe := range universes {
-		if len(universe.members) == 0 {
+		if len(universe.members) == 0 || !sourceInventoryExactUniverseRoleCanProveClosure(universe.role, rm) {
 			continue
 		}
 		gap := sourceInventoryCoverageForUniverse(universe, included, excluded)

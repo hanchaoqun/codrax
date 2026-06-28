@@ -200,6 +200,8 @@ func parseAnswerSupportLocationSurface(raw string) (AnswerSourceLocationSurface,
 	for _, idx := range []int{
 		strings.Index(raw, " ("),
 		strings.Index(raw, " ["),
+		strings.Index(raw, " — "),
+		strings.Index(raw, " – "),
 	} {
 		if idx <= 0 {
 			continue

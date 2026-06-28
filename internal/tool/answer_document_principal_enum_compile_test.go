@@ -2258,6 +2258,77 @@ func TestNormalizePrincipalEnumerationRowBlocks_CrossColumnMemberRequiresSameFil
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_DuplicateLabelsUseMemberLocation(t *testing.T) {
+	mu := types.NewMutableState("列出 foreign func 声明，包含文件路径和包路径")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("native_bridge", "native_add", "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6, "foreign func native_add 属于 package demo.bridge"),
+		enumEvidence("native_ffi", "native_add", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6, "foreign func native_add 属于 package demo.ffi"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "foreign func 声明",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 — package demo.bridge",
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 — package demo.ffi",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, answerSurfacePlan(ctx))
+	if len(sets) != 1 || len(sets[0].Rows) != 2 {
+		t.Fatalf("expected two compiled duplicate-label rows, got %+v", sets)
+	}
+	var ffi types.EnumerationDisplayRow
+	for _, row := range sets[0].Rows {
+		if strings.Contains(row.Member, "07_foreign_ffi.cj:6") ||
+			strings.Contains(row.Location, "07_foreign_ffi.cj:6") ||
+			strings.Contains(row.Source, "07_foreign_ffi.cj") {
+			ffi = row
+			break
+		}
+	}
+	if ffi.Source != "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj" || ffi.LineStart != 6 {
+		t.Fatalf("duplicate native_add row borrowed the wrong location: %+v; all sets=%+v", ffi, sets)
+	}
+
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "foreign_funcs",
+		Kind:        types.BlockOrderedList,
+		Title:       "foreign func 声明",
+		SurfaceRole: types.SurfacePrincipal,
+		Items: []types.AnswerBlockItem{
+			{
+				ID:    "native_bridge",
+				Label: "native_add",
+				Text:  "包路径 demo.bridge，文件路径 eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			},
+			{
+				ID:    "native_ffi",
+				Label: "native_add",
+				Text:  "包路径 demo.ffi，文件路径 internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+			},
+		},
+	}}}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	joined := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(joined, "系统按已验证证据补充缺失成员") ||
+		strings.Contains(joined, "系统按已验证证据补充可校验字段") {
+		t.Fatalf("same-label rows already visible with their own source locations must not get a duplicate system table:\n%s", joined)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_StructuredItemRelationFieldsPreventMissingSupplement(t *testing.T) {
 	mu := types.NewMutableState("列出 internal/analysis 子包和入口函数")
 	mu.AppendEvidence([]types.EvidenceItem{

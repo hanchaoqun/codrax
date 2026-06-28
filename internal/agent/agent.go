@@ -4787,6 +4787,10 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 			"classification retry is already in terminal emit mode; do not call repo_map / grep / list_files again. Call emit_analysis now with the best classification you have.")
 	}
 	if ctx.Mutable != nil {
+		if ctx.Mutable.PrescanReady() {
+			return rejectAnalyzerPrescanTool(ctx, tc, analyzerPrescanTerminalEmitModeCode,
+				"classification pre-scan already has enough typed location/navigation signal; do not call repo_map / grep / list_files again. Call emit_analysis now with the best classification you have.")
+		}
 		limit := ctx.Mutable.PrescanRoundLimit()
 		if limit > 0 && ctx.Mutable.PrescanRoundCount() >= limit {
 			return rejectAnalyzerPrescanTool(ctx, tc, analyzerPrescanBudgetReachedCode,

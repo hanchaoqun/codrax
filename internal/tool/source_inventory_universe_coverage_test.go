@@ -1135,6 +1135,78 @@ func TestSourceInventoryCandidateUniverseCoverageGap_BlocksHighAlignmentOnly(t *
 	}
 }
 
+func TestSourceInventoryCandidateUniverseCoverageGap_IgnoresContainerFileUniverseForSymbolInventory(t *testing.T) {
+	ctx := sourceInventoryFileUniverseRoleContext(types.AnswerCandidateRoleType)
+	gap := SourceInventoryCandidateUniverseCoverageGap(ctx, []types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet,
+		Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Bridge @ src/alpha.cj:3",
+			"Cart @ src/beta.cj:4",
+		},
+	}})
+	if gap.IsActive() {
+		t.Fatalf("file-container exact universe must not block a type/member inventory, got %+v", gap)
+	}
+	if SourceInventoryAcceptedClosureCoversExactUniverse(ctx, []types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet,
+		Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Bridge @ src/alpha.cj:3",
+			"Cart @ src/beta.cj:4",
+			"Service @ src/gamma.cj:5",
+		},
+	}}) {
+		t.Fatalf("file-container exact universe must not prove closure for a symbol inventory")
+	}
+}
+
+func TestSourceInventoryCandidateUniverseCoverageGap_FileUniverseStillBlocksFileInventory(t *testing.T) {
+	ctx := sourceInventoryFileUniverseRoleContext(types.AnswerCandidateRoleFile)
+	gap := SourceInventoryCandidateUniverseCoverageGap(ctx, []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"src/alpha.cj", "src/beta.cj"},
+	}})
+	if !gap.Blocking || len(gap.Missing) != 1 || gap.Missing[0].File != "src/gamma.cj" {
+		t.Fatalf("file inventory must still block on missing exact file member, got %+v", gap)
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversExactUniverse_OwnerUniverseForAttributeInventory(t *testing.T) {
+	mut := types.NewMutableState("package entrypoint inventory")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRolePackage,
+			Complete: true,
+			Count:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "alpha", Key: "src/alpha", File: "src/alpha", Role: types.AnswerCandidateRolePackage, Provenance: []string{"tool:list_files:direct"}},
+				{Name: "beta", Key: "src/beta", File: "src/beta", Role: types.AnswerCandidateRolePackage, Provenance: []string{"tool:list_files:direct"}},
+			},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				Confidence:        0.9,
+			},
+		}},
+	}
+	if !SourceInventoryAcceptedClosureCoversExactUniverse(ctx, []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "package -> entrypoint",
+		Value:   "2",
+		Members: []string{"alpha -> Start", "beta -> Build"},
+	}}) {
+		t.Fatal("complete exact package owner universe should prove relation closure for function inventory")
+	}
+}
+
 func TestSourceInventoryCandidateUniverseCoverageGap_IgnoresAdvisoryRowsWithoutExactProvenance(t *testing.T) {
 	mut := types.NewMutableState("source inventory")
 	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
@@ -2963,6 +3035,56 @@ func sourceInventoryUniverseTestContext(names []string) *types.BusContext {
 		}},
 	})
 	return &types.BusContext{Mutable: mut}
+}
+
+func sourceInventoryFileUniverseRoleContext(requestedRole types.AnswerCandidateRole) *types.BusContext {
+	members := []types.SourceInventoryObservationMember{
+		sourceInventoryFileUniverseMember("alpha.cj"),
+		sourceInventoryFileUniverseMember("beta.cj"),
+		sourceInventoryFileUniverseMember("gamma.cj"),
+	}
+	mut := types.NewMutableState("source inventory file universe")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"src"},
+		Provenance:   []string{sourceInventoryExactUniverseProvenanceRepoLensDirectChildren},
+		Lens:         []string{"direct_children", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFile,
+			Complete: true,
+			Count:    len(members),
+			Total:    len(members),
+			Members:  members,
+		}},
+	})
+	return &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{requestedRole},
+				Confidence:        0.95,
+			},
+		}},
+	}
+}
+
+func sourceInventoryFileUniverseMember(name string) types.SourceInventoryObservationMember {
+	file := "src/" + name
+	return types.SourceInventoryObservationMember{
+		Name:          name,
+		Key:           file,
+		SupportRef:    file,
+		Provenance:    []string{sourceInventoryExactUniverseProvenanceRepoLensDirectChildren},
+		Role:          types.AnswerCandidateRoleFile,
+		File:          file,
+		Language:      "cangjie",
+		CoverageState: types.SourceInventoryCoverageObserved,
+	}
 }
 
 func sourceInventoryRequestedUniverseTestContext(members []types.SourceInventoryObservationMember, classes []types.SourceInventorySourceClassCount) *types.BusContext {

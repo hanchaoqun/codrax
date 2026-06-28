@@ -51,7 +51,7 @@ func DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation SourceInvent
 		return SourceInventoryFollowupDebt{}
 	}
 	covered := sourceInventoryObservedPathRolesForRoles(observation, roles)
-	targetLanguages := sourceInventoryFollowupTargetLanguages(rm, requiredFiles)
+	targetLanguages := sourceInventoryFollowupTargetLanguages(observation, rm, requiredFiles, roles)
 	missingClasses, scopes := sourceInventoryMissingClassScopesForLanguages(observation.SourceClasses, covered, targetLanguages)
 	if len(targetLanguages) == 0 && len(missingClasses) > 1 {
 		return SourceInventoryFollowupDebt{}

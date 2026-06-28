@@ -1021,6 +1021,19 @@ func TestAnalyzer_PrescanReady_SourceInventoryNavigationForcesEmitOnly(t *testin
 	if !strings.Contains(sig.Hint, "source-inventory") || !strings.Contains(sig.Hint, "emit_analysis") {
 		t.Fatalf("hint should preserve source-inventory classification boundary, got %q", sig.Hint)
 	}
+	rejected := validateAnalyzerPrescanToolCall(ctx, llm.ToolCall{
+		Name:   "repo_map",
+		Params: json.RawMessage(`{"path":".","view":"source_inventory","roles":["type"],"top_n":24}`),
+	})
+	if rejected == nil || rejected.Success {
+		t.Fatalf("prescan-ready source_inventory should reject stale follow-up navigation, got %+v", rejected)
+	}
+	if rejected.Repair == nil || rejected.Repair.Code != analyzerPrescanTerminalEmitModeCode {
+		t.Fatalf("expected terminal emit repair code, got %+v", rejected.Repair)
+	}
+	if !strings.Contains(rejected.Summary, "emit_analysis") {
+		t.Fatalf("stale source_inventory rejection should redirect to emit_analysis, got %q", rejected.Summary)
+	}
 }
 
 func TestAnalyzer_PrescanReady_SmallListFilesRemainsSoftUnderLargerBudget(t *testing.T) {

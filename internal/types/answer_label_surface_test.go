@@ -72,6 +72,7 @@ func TestParseAnswerSupportRefMemberLocation_CompositeDisplays(t *testing.T) {
 		{"explorer (via SubExplorer.Name @ internal/agent/sub_explorer.go:31)", "explorer", "internal/agent/sub_explorer.go", 31},
 		{"extend String @ 04_extend_operator.cj:6 (package demo.stringext)", "extend String", "04_extend_operator.cj", 6},
 		{"native_add @ 07_foreign_ffi.cj:6 [package demo.ffi]", "native_add", "07_foreign_ffi.cj", 6},
+		{"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 — package demo.ffi", "native_add", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6},
 		{"native_add (tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6, package demo.ffi)", "native_add", "tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6},
 	}
 	for _, tc := range cases {

@@ -464,6 +464,88 @@ func TestDeriveSourceInventoryFollowupDebt_BroadRequiredFilesDoNotOverrideClassU
 	}
 }
 
+func TestDeriveSourceInventoryFollowupDebt_ObservedConstructLanguageOverridesSupportRequiredFiles(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       []string{"."},
+		SourceClasses: []SourceInventorySourceClassCount{
+			{
+				Role:  SourcePathRoleProduction,
+				Count: 3,
+				Languages: []SourceInventoryLanguageCount{{
+					Language: "go",
+					Count:    3,
+					InScope:  true,
+					Samples:  []string{"internal/skill/defaults.go"},
+				}},
+			},
+			{
+				Role:  SourcePathRoleFixture,
+				Count: 3,
+				Languages: []SourceInventoryLanguageCount{{
+					Language: "cangjie",
+					Count:    3,
+					InScope:  true,
+					Samples:  []string{"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj"},
+				}},
+			},
+			{
+				Role:  SourcePathRoleThirdParty,
+				Count: 8,
+				Languages: []SourceInventoryLanguageCount{{
+					Language: "cangjie",
+					Count:    8,
+					InScope:  false,
+					Samples:  []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"},
+				}},
+			},
+		},
+		RepoLanguages: []SourceInventoryLanguageCount{{Language: "cangjie", Count: 8, InScope: false}},
+		Page:          &SourceInventoryObservationPage{Offset: 0, Emitted: 24, Total: 80, NextCursor: "24", Complete: false},
+		Execution:     &SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleType,
+			Members: []SourceInventoryObservationMember{{
+				Name:         "ParserHelper",
+				Role:         AnswerCandidateRoleType,
+				File:         "internal/skill/defaults.go",
+				Language:     "go",
+				SurfaceTerms: nil,
+			}, {
+				Name:         "Cart",
+				Role:         AnswerCandidateRoleType,
+				File:         "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+				Language:     "cangjie",
+				SurfaceTerms: []string{"public class", "public class Cart"},
+			}},
+		}},
+	}
+	rm := RequestModel{
+		AnalyzerHints: AnalyzerHints{RequiredFileHints: []RequiredFileHint{{
+			Path:       "internal/skill/defaults.go",
+			Confidence: 0.95,
+		}}},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			SourceQuotes:      []string{"public class"},
+		},
+	}
+
+	debt := DeriveSourceInventoryFollowupDebtWithRequiredFiles(obs, rm, []string{"internal/skill/defaults.go"})
+	if !debt.IsActive() || debt.ReasonCode != SourceInventoryFollowupDebtMissingSourceClass {
+		t.Fatalf("debt = %+v", debt)
+	}
+	if len(debt.Query.Scopes) != 1 || debt.Query.Scopes[0] != "internal/thirdparty/tree-sitter-cangjie/corpus/sources" {
+		t.Fatalf("observed construct language should route to cangjie thirdparty, got %+v", debt.Query.Scopes)
+	}
+	if len(debt.MissingLanguages) != 1 || debt.MissingLanguages[0] != "cangjie" {
+		t.Fatalf("missing languages = %+v, want cangjie", debt.MissingLanguages)
+	}
+}
+
 func TestNormalizeSourceInventoryFollowupDebt_ClearsCursorForScopeChangingDebt(t *testing.T) {
 	debt := NormalizeSourceInventoryFollowupDebt(SourceInventoryFollowupDebt{
 		Active:     true,
