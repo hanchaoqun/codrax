@@ -4341,14 +4341,92 @@ func TestEmitAnalysis_ExternalObservationPolicyExcludeRequiresTypedExclusionKind
 	if rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		t.Fatalf("exclude without typed exclusion_kind must not suppress current source: %+v", rm.ExternalObservationPolicy)
 	}
-	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceDefault {
-		t.Fatalf("CurrentSourceMode=%q, want default after repair", got)
+	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceAllow {
+		t.Fatalf("CurrentSourceMode=%q, want allow after runtime-artifact invalid exclude repair", got)
 	}
 	if got := rm.ExternalObservationPolicy.ArtifactCitationMode; got != types.ExternalObservationArtifactCitationExternalOnly {
 		t.Fatalf("artifact citation mode should survive, got %q", got)
 	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
+		t.Fatalf("invalid runtime-artifact exclude should fail open to required source lane, got %s", got)
+	}
 	if !strings.Contains(res.Summary, "exclusion_kind") {
 		t.Fatalf("summary should explain ignored exclusion_kind, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "invalid current_source_mode=exclude auto-softened to allow") {
+		t.Fatalf("summary should expose invalid-exclude promotion, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_RuntimeArtifactInvalidExcludePromotesAllow(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("这段 HiTrace 需要解释 trace span 解析机制和证据边界")
+	mu.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"RenderService"}},
+		Observations: []types.PerfObservation{{
+			Kind:       "span",
+			Subject:    "RenderService DoFrame",
+			Summary:    "RenderService DoFrame lasted 86.111ms",
+			LineStart:  5,
+			LineEnd:    6,
+			Confidence: 0.95,
+		}},
+	})
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "performance_bottleneck",
+		"complexity": "moderate",
+		"keywords": ["trace", "span", "RenderService"],
+		"entities": ["RenderService", "DoFrame"],
+		"question_kind": "mechanism",
+		"external_observation_policy": {
+			"current_source_mode": "exclude",
+			"exclusion_kind": "explicit_user_exclusion",
+			"artifact_citation_mode": "external_only",
+			"source_quotes": ["resolved_files=0"],
+			"confidence": 0.95
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("invalid runtime-artifact exclude should be repaired, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil {
+		t.Fatalf("policy should survive as allow/artifact-only citation: %+v", rm)
+	}
+	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceAllow {
+		t.Fatalf("CurrentSourceMode=%q, want allow", got)
+	}
+	if rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		t.Fatalf("invalid exclude must not suppress current source: %+v", rm.ExternalObservationPolicy)
+	}
+	if got := rm.ExternalObservationPolicy.ArtifactCitationMode; got != types.ExternalObservationArtifactCitationExternalOnly {
+		t.Fatalf("ArtifactCitationMode=%q, want external_only", got)
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
+		t.Fatalf("CurrentSourceLaneDecision=%s, want required", got)
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatalf("invalid exclude promotion must clear runtime-only completion: %+v", rm)
+	}
+	for _, want := range []string{
+		"source_quotes entry ignored",
+		"invalid current_source_mode=exclude auto-softened to allow",
+		"external_observation_policy=allow",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary should contain %q, got %q", want, res.Summary)
+		}
 	}
 }
 

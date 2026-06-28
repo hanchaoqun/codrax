@@ -1103,6 +1103,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if promoted, warning := promoteInvalidExternalObservationExcludeToAllow(ctx, p.ExternalObservationPolicy, externalObservationPolicy); warning != "" {
+		externalObservationPolicy = promoted
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if synthesized, warning := synthesizeExternalObservationPolicyFromRouteHint(ctx, externalObservationPolicy); warning != "" {
 		externalObservationPolicy = synthesized
 		logging.Warning("[emit_analysis] %s", warning)
@@ -2332,6 +2337,36 @@ func normalizeExternalObservationPolicyForCurrentSourceExplanation(
 	normalized.CurrentSourceMode = types.ExternalObservationCurrentSourceAllow
 	normalized.ExclusionKind = types.ExternalObservationSourceExclusionNone
 	return &normalized, "external_observation_policy current_source_mode=exclude auto-softened to allow because current_source_explanation_profile is active; citation-only artifact boundaries must use artifact_citation_mode, not source exclusion"
+}
+
+func promoteInvalidExternalObservationExcludeToAllow(
+	ctx *types.BusContext,
+	raw *emitExternalObservationPolicyParam,
+	policy *types.ExternalObservationPolicy,
+) (*types.ExternalObservationPolicy, string) {
+	if raw == nil ||
+		types.NormalizeExternalObservationCurrentSourceMode(raw.CurrentSourceMode) != types.ExternalObservationCurrentSourceExclude {
+		return policy, ""
+	}
+	if policy != nil && policy.ExcludesCurrentSource() {
+		return policy, ""
+	}
+	if !emitAnalysisHasRuntimeArtifactCarrier(ctx) {
+		return policy, ""
+	}
+	normalized := types.ExternalObservationPolicy{}
+	if policy != nil {
+		normalized = *policy
+	}
+	normalized.CurrentSourceMode = types.ExternalObservationCurrentSourceAllow
+	normalized.ExclusionKind = types.ExternalObservationSourceExclusionNone
+	if normalized.Confidence <= 0 {
+		normalized.Confidence = 0.75
+	}
+	if strings.TrimSpace(normalized.Rationale) == "" {
+		normalized.Rationale = "invalid runtime-artifact source exclusion lacked precise current-request provenance"
+	}
+	return &normalized, "external_observation_policy invalid current_source_mode=exclude auto-softened to allow for runtime artifact: only anchored explicit user exclusions may close the current-source lane"
 }
 
 // normalizeDiagnosticRoute absorbs a narrow, typed self-consistency
