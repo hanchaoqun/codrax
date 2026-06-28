@@ -7810,7 +7810,7 @@ func materializeSurfaceTermsIntoItem(item *types.AnswerBlockItem, terms []string
 	if item == nil || len(terms) == 0 {
 		return false
 	}
-	suffix := "source labels: " + strings.Join(terms, ", ")
+	suffix := strings.Join(terms, ", ")
 	if len(item.Cells) > 0 {
 		idx := len(item.Cells) - 1
 		item.Cells[idx] = appendSurfaceTermSuffix(item.Cells[idx], suffix)

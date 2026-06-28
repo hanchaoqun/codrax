@@ -1228,6 +1228,9 @@ func TestEmitAnswerDocumentV2_MaterializesNonPathSurfaceTermsForPrincipalItem(t 
 			t.Fatalf("required source-visible surface term %q was not materialized into %q", want, got)
 		}
 	}
+	if strings.Contains(got, "source labels") || strings.Contains(got, "surface_terms") {
+		t.Fatalf("materialized source-visible terms should not leak internal labels: %q", got)
+	}
 	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) != 0 {
 		t.Fatalf("materialized source labels should clear model surface-term hints, got %+v", hints)
 	}
@@ -1410,6 +1413,9 @@ func TestEmitAnswerDocumentV2_MaterializesSourceInventorySurfaceTermsForPrincipa
 		if !strings.Contains(got, want) {
 			t.Fatalf("source-inventory surface term %q was not materialized into %q", want, got)
 		}
+	}
+	if strings.Contains(got, "source labels") || strings.Contains(got, "surface_terms") {
+		t.Fatalf("materialized source-inventory terms should not leak internal labels: %q", got)
 	}
 	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) != 0 {
 		t.Fatalf("materialized source-inventory labels should clear model surface-term hints, got %+v", hints)
