@@ -75,6 +75,9 @@ func repoMapNavigationRefinement(ctx *ctypes.BusContext, graph *Graph, p repoMap
 		hint.ResultTruncated = true
 		if repoMapRuntimeCurrentSourceAvoidsSourceInventoryRefinement(ctx) {
 			hint.PreferredParams["view"] = "task_map"
+			if _, ok := hint.PreferredParams["top_n"]; !ok {
+				hint.PreferredParams["top_n"] = "12"
+			}
 			if strings.TrimSpace(params.Query) == "" {
 				hint.RequiredFields = []string{"query"}
 			}

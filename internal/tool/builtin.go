@@ -1782,6 +1782,14 @@ func repoMapPreferredParamsFromNavigationStep(step types.RepoMapNavigationStep, 
 			}
 		}
 	}
+	if step.Purpose == types.RepoMapNavigationPurposeExternalCurrent {
+		switch step.Route {
+		case types.RepoMapNavigationRouteTaskMap, types.RepoMapNavigationRouteFileMap:
+			if _, ok := params["top_n"]; !ok {
+				params["top_n"] = "12"
+			}
+		}
+	}
 	if len(step.RelationHint) > 0 {
 		if kinds := typedRelationKindsParam(step.RelationHint); kinds != "" {
 			params["relation_kinds"] = kinds

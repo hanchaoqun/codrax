@@ -345,8 +345,29 @@ func TestCompileRepoMapNavigationPolicy_MixedExternalCurrentSource(t *testing.T)
 	if !got.HasRoute(RepoMapNavigationRouteTaskMap) {
 		t.Fatalf("mixed external/current-source request should keep current-source narrowing route: %+v", got)
 	}
+	for _, route := range []RepoMapNavigationRoute{
+		RepoMapNavigationRouteTaskMap,
+		RepoMapNavigationRouteFileMap,
+		RepoMapNavigationRouteRelationMap,
+	} {
+		if !containsRepoMapPolicyRoutePurpose(got.Steps, route, RepoMapNavigationPurposeExternalCurrent) {
+			t.Fatalf("mixed external/current-source owner plan should include %s/%s: %+v", route, RepoMapNavigationPurposeExternalCurrent, got.Steps)
+		}
+	}
 	if !containsRepoMapPolicyTerm(got.QueryTerms, "auth.set") {
 		t.Fatalf("current-source target terms should enter query terms, got %+v", got.QueryTerms)
+	}
+	rendered := got.RenderMarkdownHint("", "")
+	for _, want := range []string{
+		"owner-localization plan",
+		"minimal owner files",
+		"adjacent constants/helpers stay supporting context",
+		`top_n=12`,
+		"do not map the whole repo",
+	} {
+		if !containsRepoMapPolicySubstring(rendered, want) {
+			t.Fatalf("mixed external/current-source route hint missing %q:\n%s", want, rendered)
+		}
 	}
 }
 
@@ -544,6 +565,15 @@ func containsRepoMapRoute(values []RepoMapNavigationRoute, want RepoMapNavigatio
 func containsRepoMapPolicyStepPurpose(values []RepoMapNavigationStep, want RepoMapNavigationPurpose) bool {
 	for _, value := range values {
 		if value.Purpose == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsRepoMapPolicyRoutePurpose(values []RepoMapNavigationStep, route RepoMapNavigationRoute, purpose RepoMapNavigationPurpose) bool {
+	for _, value := range values {
+		if value.Route == route && value.Purpose == purpose {
 			return true
 		}
 	}

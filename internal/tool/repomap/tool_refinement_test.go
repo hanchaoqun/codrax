@@ -118,6 +118,9 @@ func TestRepoMapNavigationRefinementMixedRuntimeCurrentSourceAvoidsSourceInvento
 	if got := hint.PreferredParams["view"]; got != "task_map" {
 		t.Fatalf("mixed runtime/current-source file_map should avoid source_inventory refinement, got view=%q params=%+v", got, hint.PreferredParams)
 	}
+	if got := hint.PreferredParams["top_n"]; got != "12" {
+		t.Fatalf("mixed runtime/current-source refinement should keep owner narrowing bounded, got top_n=%q params=%+v", got, hint.PreferredParams)
+	}
 	if _, bad := hint.PreferredParams["include_attributes"]; bad {
 		t.Fatalf("non-inventory refinement must not carry source_inventory-only params: %+v", hint.PreferredParams)
 	}

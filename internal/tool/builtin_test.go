@@ -3051,6 +3051,50 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("mixed runtime current-source grep refinement uses bounded owner map", func(t *testing.T) {
+		ctx := newBusContext()
+		ctx.AnalysisIR = &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+					Kind:    "span_duration",
+					Subject: "RenderService DoFrame",
+				}}},
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+					SourceQuotes:                        []string{"current source"},
+					TargetTerms:                         []string{"trace_query", "DoFrame"},
+					Confidence:                          0.95,
+				},
+			},
+		}
+		var raw strings.Builder
+		for i := 0; i < 100; i++ {
+			fmt.Fprintf(&raw, "internal/trace/file%03d.go:%d:func parseDoFrame%d() { trace_query() }\n", i%7, i+1, i)
+		}
+
+		refinement := grepBroadResultRefinement(ctx, grepToolParams{Pattern: "DoFrame"}, raw.String())
+		if refinement == nil {
+			t.Fatalf("expected broad mixed runtime/current-source grep refinement")
+		}
+		if refinement.PreferredNextTool != "repo_map" {
+			t.Fatalf("preferred tool = %q; refinement=%+v", refinement.PreferredNextTool, refinement)
+		}
+		if got := refinement.PreferredParams["view"]; got != "task_map" {
+			t.Fatalf("repo_map view = %q; refinement=%+v", got, refinement)
+		}
+		if got := refinement.PreferredParams["top_n"]; got != "12" {
+			t.Fatalf("repo_map top_n = %q; refinement=%+v", got, refinement)
+		}
+		if got := refinement.PreferredParams["query"]; got != "trace_query DoFrame" {
+			t.Fatalf("repo_map query = %q; refinement=%+v", got, refinement)
+		}
+		if _, bad := refinement.PreferredParams["include_attributes"]; bad {
+			t.Fatalf("mixed runtime/current-source refinement must not fall back to source_inventory params: %+v", refinement.PreferredParams)
+		}
+	})
+
 	t.Run("broad runtime artifact grep refinement stays artifact-local", func(t *testing.T) {
 		repoRoot := t.TempDir()
 		if err := os.WriteFile(filepath.Join(repoRoot, "record_trace.systrace"), []byte("trace\n"), 0o644); err != nil {

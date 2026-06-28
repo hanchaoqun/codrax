@@ -1397,6 +1397,15 @@ func TestBuildInitialInstructionRuntimeArtifactSuppressesGenericRepoMapFirstHop(
 	if !strings.Contains(prompt, "Typed Repo Map Route Hints") {
 		t.Fatalf("runtime-artifact mixed lanes should still keep repo_map route hints for later current-source verification:\n%s", prompt)
 	}
+	for _, want := range []string{
+		"owner-localization plan",
+		"minimal owner files",
+		"adjacent constants/helpers stay supporting context",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("runtime-artifact mixed lane route hint missing %q:\n%s", want, prompt)
+		}
+	}
 }
 
 func TestPhase0QualityGate(t *testing.T) {

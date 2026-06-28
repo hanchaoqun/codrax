@@ -178,6 +178,9 @@ func (p RepoMapNavigationPolicy) RenderMarkdownHint(title, lead string) string {
 			b.WriteString("- For partition scopes that name active sub-repos, set repo_map `path` to that sub-repo first; keep `sources`, `scope`, `scopes`, `target_file`, and `entry_point` relative to the selected sub-repo.\n")
 		}
 	}
+	if p.HasPurpose(RepoMapNavigationPurposeExternalCurrent) {
+		b.WriteString("- For mixed external/current-source mechanism work, treat these routes as an owner-localization plan: start with a compact `task_map` query from typed source terms, inspect only the selected owner files with `file_map`, and use `relation_map` only around chosen sources/scopes. Read the minimal owner files needed to prove the parsing mechanism, threshold, and boundary; adjacent constants/helpers stay supporting context once those principal anchors are grounded.\n")
+	}
 	if len(p.Steps) > 0 {
 		b.WriteString("- Recommended repo_map lens order for this typed shape:\n")
 		for _, step := range p.Steps {
@@ -235,7 +238,8 @@ func CompileRepoMapNavigationPolicy(rm RequestModel, contract *AnswerContract, l
 		})
 	}
 
-	if len(p.QueryTerms) > 0 && !sourceInventoryFirst {
+	externalCurrentSource := repoMapNavigationNeedsExternalCurrentSource(rm, contract, lanes)
+	if len(p.QueryTerms) > 0 && !sourceInventoryFirst && !externalCurrentSource {
 		add(RepoMapNavigationStep{
 			Route:   RepoMapNavigationRouteTaskMap,
 			Purpose: RepoMapNavigationPurposeOrientation,
@@ -247,6 +251,34 @@ func CompileRepoMapNavigationPolicy(rm RequestModel, contract *AnswerContract, l
 			Purpose: RepoMapNavigationPurposeOrientation,
 			When:    "when you need symbols grouped by selected files/directories",
 			Params:  []string{"path", "top_n"},
+		})
+	}
+
+	if externalCurrentSource {
+		add(RepoMapNavigationStep{
+			Route:   RepoMapNavigationRouteTaskMap,
+			Purpose: RepoMapNavigationPurposeExternalCurrent,
+			When:    "as the owner-localization start for mixed VCS/log/trace/command/MCP/web plus current-source mechanism proof",
+			Params:  []string{"query", "top_n=12"},
+			FollowUps: []RepoMapNavigationRoute{
+				RepoMapNavigationRouteFileMap,
+				RepoMapNavigationRouteRelationMap,
+			},
+		})
+		add(RepoMapNavigationStep{
+			Route:   RepoMapNavigationRouteFileMap,
+			Purpose: RepoMapNavigationPurposeExternalCurrent,
+			When:    "after task_map identifies candidate owner files/directories; inspect symbols in those files before reading helper sidecars",
+			Params:  []string{"path", "top_n=12"},
+			FollowUps: []RepoMapNavigationRoute{
+				RepoMapNavigationRouteRelationMap,
+			},
+		})
+		add(RepoMapNavigationStep{
+			Route:   RepoMapNavigationRouteRelationMap,
+			Purpose: RepoMapNavigationPurposeExternalCurrent,
+			When:    "only around selected owner sources/scopes to prove parsing, threshold, and boundary edges; do not map the whole repo",
+			Params:  []string{"sources", "scope", "scopes", "relation_kinds", "query"},
 		})
 	}
 
@@ -276,15 +308,6 @@ func CompileRepoMapNavigationPolicy(rm RequestModel, contract *AnswerContract, l
 			Purpose: RepoMapNavigationPurposeChangeImpact,
 			When:    "when the typed request asks what a target change would affect",
 			Params:  []string{"target_file", "query"},
-		})
-	}
-
-	if repoMapNavigationNeedsExternalCurrentSource(rm, contract, lanes) {
-		add(RepoMapNavigationStep{
-			Route:   RepoMapNavigationRouteTaskMap,
-			Purpose: RepoMapNavigationPurposeExternalCurrent,
-			When:    "after VCS/log/trace/command/MCP/web evidence identifies current-source terms that need code verification",
-			Params:  []string{"query"},
 		})
 	}
 
