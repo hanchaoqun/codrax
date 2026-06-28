@@ -3927,7 +3927,7 @@ func renderAnswerDocSourceInventoryHandoff(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Repo Lens Candidate Universe Handoff\n\n")
 	b.WriteString("- This section comes from `repo_map(view=\"source_inventory\")` / source-inventory observations. It verifies navigation facts such as scopes, files, candidate members, attributes, languages, support refs, and `count == len(members)`.\n")
-	b.WriteString("- It is not final answer text and not a semantic source citation. Use it to avoid losing the candidate universe or rereading the same scope. Preserve it as the answer slate only when accepted aggregate facts, evidence, or the model's own extraction already selected the same answer axis.\n")
+	b.WriteString("- It is not final answer text. Use it to avoid losing the candidate universe or rereading the same scope. " + types.SourceInventoryMechanicalFactBoundary + " Preserve it as the answer slate only when accepted aggregate facts, evidence, or the model's own extraction already selected the same answer axis.\n")
 	b.WriteString("- If accepted principal `aggregate_facts.member_set` rows below match this universe, their members/counts are the model-selected slate. If they do not match or are absent, treat this as advisory navigation and disclose ambiguity instead of auto-filling a table.\n")
 	if len(observation.Scopes) > 0 {
 		fmt.Fprintf(&b, "- scopes: `%s`\n", strings.Join(observation.Scopes, "`, `"))

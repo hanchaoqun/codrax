@@ -260,7 +260,7 @@ func (e *subExplorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, 
 	b.WriteString("**Rules:**\n")
 	b.WriteString("- **Line numbers must come from the gutter.** Every `read_file` result shows each line with its absolute line number in the left gutter (format `   123│ code...`). When you write `line N`, `N` MUST be the exact gutter number — do not estimate, do not interpolate. If you are not certain, leave the `line N` part off.\n")
 	b.WriteString("- Extract EVERY fact that might be relevant — err on over-collecting\n")
-	b.WriteString("- `repo_map` rows may verify candidate scopes/files/symbols/counts, but they are not semantic source citations. Cite behavior or implementation claims only after `read_file` or targeted `grep` verifies the selected file/symbol.\n")
+	b.WriteString("- `repo_map` source-inventory rows may verify candidate scopes/files/symbols/counts and row-local attributes. " + types.SourceInventoryMechanicalFactBoundary + "\n")
 	b.WriteString("- For short methods (getName, isEnabled, etc.): ALWAYS record the exact return value as [DIRECT]\n")
 	b.WriteString("- For [REGISTRATION]: note EXACT concrete values, not summaries\n")
 	b.WriteString("- Stay within scope — do not read files outside the specified directories\n")

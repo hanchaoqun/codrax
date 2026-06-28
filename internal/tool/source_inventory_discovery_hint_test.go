@@ -100,7 +100,7 @@ func TestSourceInventoryDiscoveryHintFromListFilesBroadResultDedupe(t *testing.T
 		`"view": "relation_map"`,
 		`"sources": ["<symbol-or-file>"]`,
 		`"relation_kinds": ["call", "import", "inheritance", "reference"]`,
-		"verified navigation/count/candidate-universe facts, not semantic source citations",
+		types.SourceInventoryMechanicalFactBoundary,
 	} {
 		if !strings.Contains(hint, want) {
 			t.Fatalf("discovery hint missing %q:\n%s", want, hint)

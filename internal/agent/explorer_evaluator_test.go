@@ -190,7 +190,7 @@ func TestExplorer_BuildInitialInstruction_RendersSourceInventoryAdvisory(t *test
 	for _, want := range []string{
 		"Principal Source Inventory Slate",
 		"Structured Source Inventory Progress",
-		"verified navigation/candidate-universe facts",
+		types.SourceInventoryMechanicalFactBoundary,
 		"first navigation authority",
 		"Generic no-hit searches are advisory",
 		"repo-lens observation invariants",

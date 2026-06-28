@@ -75,7 +75,7 @@ func TestIndexStatusBanner_FallbackCountWarnsAndAsksVerification(t *testing.T) {
 	if !strings.Contains(out, "parse fallback: 23 files") {
 		t.Errorf("missing fallback prose line:\n%s", out)
 	}
-	if !strings.Contains(out, "verify selected files with read_file or targeted grep") {
+	if !strings.Contains(out, "verify selected files with read_file or targeted grep before citing implementation behavior or exact source text") {
 		t.Errorf("missing verify reminder:\n%s", out)
 	}
 }

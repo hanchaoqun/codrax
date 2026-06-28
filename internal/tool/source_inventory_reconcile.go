@@ -1182,7 +1182,7 @@ func renderSourceInventoryDiscoveryHint(obs sourceInventoryDiscoveryObservation)
 	if len(obs.ScopeGroups) > 0 || obs.Files > 0 {
 		fmt.Fprintf(&b, " (scope_groups=%d candidate_files=%d)", len(obs.ScopeGroups), obs.Files)
 	}
-	b.WriteString(". To inspect it incrementally, consider `repo_map(view=\"source_inventory\")` before reading many files. These are verified navigation/count/candidate-universe facts, not semantic source citations.\n")
+	b.WriteString(". To inspect it incrementally, consider `repo_map(view=\"source_inventory\")` before reading many files. " + types.SourceInventoryMechanicalFactBoundary + "\n")
 	if len(obs.ScopeGroups) > 0 {
 		b.WriteString("- choose one branch before source_inventory expansion; do not expand all broad branches at once.\n")
 	} else {

@@ -1790,7 +1790,7 @@ func renderExplorerRepoMapNavigationPrimer(ctx *types.AgentContext) string {
 			"- When the task needs structural edges, use `view=\"relation_map\"` as the second navigation stage after task_map/file_map orientation: pass `sources` after you choose concrete symbols/files, pass `scope`/`scopes` for directory/module boundaries, and narrow `relation_kinds` to call/import/inheritance/implements/reference/type_usage when known. For call-chain / dispatch / trace answers, prefer this relation_map pass before broad grep/read expansion.\n" +
 			"- Use `view=\"semantic_subgraph\"` for topology questions about hubs/bridges/chains, `view=\"edit_impact\"` for changed-file impact, and `view=\"call_path\"` only when you have a concrete entry point path to trace.\n" +
 			"- If the context or a tool refusal lists multiple active sub-repos, call repo_map separately for each active sub-repo you need: set `path` to that sub-repo path, and then keep `sources`, `scope`, `scopes`, `target_file`, and `entry_point` relative to the selected sub-repo.\n" +
-			"- Treat lens rows as verified navigation/candidate-universe facts. Do not use them as semantic code citations; verify selected behavior/implementation claims with `read_file` or targeted `grep` before citing source text.\n" +
+			"- Treat lens rows as typed inventory facts. " + types.SourceInventoryMechanicalFactBoundary + "\n" +
 			"- Use repo-relative existing directories for `path`. If a path is uncertain, call `list_files` on the nearest known parent or `repo_map(path=\".\")` before guessing.\n\n")
 	b.WriteString(renderExplorerRepoMapTypedFirstHop(ctx))
 	b.WriteString(renderRepoMapTypedNavigationPolicy(ctx))
@@ -1808,10 +1808,10 @@ func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {
 	}
 	var b strings.Builder
 	b.WriteString("### Principal Source Inventory Slate (Structured Source Inventory Progress)\n\n")
-	b.WriteString("This typed graph-backed slate is the first navigation authority for the active source-inventory lane. It carries verified navigation/count/member candidates, but it is not final answer text and not a semantic source citation.\n")
+	b.WriteString("This typed graph-backed slate is the first navigation authority for the active source-inventory lane. It is not final answer text. " + types.SourceInventoryMechanicalFactBoundary + "\n")
 	b.WriteString("- Reconcile this slate before broad grep/list_files expansion, parser/helper reads, or absence closure. Generic no-hit searches are advisory until this typed slate is satisfied, contradicted, or explicitly scoped out.\n")
 	b.WriteString("- Use it to avoid re-enumerating the same scope in sibling lanes or transient retries.\n")
-	b.WriteString("- If the slate matches what you need, use its counts/members as the candidate universe, verify only the selected or disputed semantic claims, and carry the model-authored conclusion through emit_evidence / aggregate_facts.\n")
+	b.WriteString("- If the slate matches what you need, use its counts/members/locations/row-local attributes as the candidate universe, verify only selected or disputed behavior/text claims, and carry the model-authored conclusion through emit_evidence / aggregate_facts.\n")
 	b.WriteString("- If it does not match, keep your own investigation boundary and explain the gap in the structured closure instead of silently widening the answer.\n\n")
 	b.WriteString(renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
 		SourceInventoryAdvisory:    advisory,

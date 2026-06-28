@@ -573,7 +573,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersSourceInventoryH
 	for _, want := range []string{
 		"## Repo Lens Candidate Universe Handoff",
 		"verifies navigation facts",
-		"not final answer text and not a semantic source citation",
+		"not final answer text",
+		types.SourceInventoryMechanicalFactBoundary,
 		"model-selected slate",
 		"principal_roles: `package`",
 		"row_lanes: principal=2, support=0, audit=0",

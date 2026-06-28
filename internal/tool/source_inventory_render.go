@@ -48,11 +48,11 @@ func renderSourceInventoryAdvisoryToolHint(advisory types.SourceInventoryAdvisor
 	}
 	const maxRows = 24
 	var b strings.Builder
-	b.WriteString("Structured source-inventory candidate checklist (verified navigation/count facts, not final answer text):\n")
+	b.WriteString("Structured source-inventory candidate checklist (typed mechanical inventory facts, not final answer text):\n")
 	if len(advisory.Scopes) > 0 {
 		fmt.Fprintf(&b, "- scoped to: %s\n", strings.Join(advisory.Scopes, ", "))
 	}
-	b.WriteString("- reuse this checklist to avoid re-listing the same scope; verify/read selected semantic claims before emitting source-cited evidence or aggregate_facts.\n")
+	b.WriteString("- reuse this checklist to avoid re-listing the same scope. " + types.SourceInventoryMechanicalFactBoundary + "\n")
 	b.WriteString("- for a compact scoped member/count checklist, call repo_map with view=\"source_inventory\", roles=[...], include_attributes=false instead of reading every candidate file; add attribute_roles only after choosing a narrow scope/member.\n")
 	if cascadeView := renderSourceInventoryCascadeGuideView(
 		types.SourceInventoryObservationFromAdvisory(advisory),
@@ -193,7 +193,8 @@ func renderSourceInventoryCascadeGuideView(observation types.SourceInventoryObse
 	}
 	var b strings.Builder
 	b.WriteString("## Cascaded Repo Lens Guide (advisory)\n\n")
-	b.WriteString("Use this first as a navigation summary. It verifies candidate scopes/files/symbols/counts and helps you choose the next narrower `repo_map(view=\"source_inventory\")` call; it does not decide the final answer and is not a semantic source citation.\n\n")
+	b.WriteString("Use this first as a navigation summary. It helps you choose the next narrower `repo_map(view=\"source_inventory\")` call; it does not decide the final answer. ")
+	b.WriteString(types.SourceInventoryMechanicalFactBoundary + "\n\n")
 	fmt.Fprintf(&b, "- summary: member_rows=%d", totalMembers)
 	if len(groups) > 0 {
 		fmt.Fprintf(&b, " scope_groups=%d candidate_files=%d candidate_items=%d ambiguous_groups=%d",
@@ -217,7 +218,7 @@ func renderSourceInventoryCascadeGuideView(observation types.SourceInventoryObse
 		fmt.Fprintf(&b, "- page the current checklist instead of widening blindly: `%s`\n",
 			sourceInventoryCascadeRepoMapCall(sourceInventoryLensQueryPath(query), "", sourceInventoryGroupScopesFromQuery(query, observation), roles, attributeRoles, query.IncludeAttributes, 24, "<next_cursor>"))
 	}
-	b.WriteString("- after you choose a candidate from a narrower lens, verify with `read_file` or `grep` before citing implementation behavior or exact source text.\n")
+	b.WriteString("- after you choose a candidate from a narrower lens, keep membership/path/count/package/module facts from the typed rows; verify with `read_file` or `grep` only before citing implementation behavior or exact source text.\n")
 	if len(groups) == 0 {
 		return strings.TrimSpace(b.String())
 	}
@@ -408,7 +409,8 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 	includeAttributes := query.IncludeAttributes
 	var b strings.Builder
 	b.WriteString("# Repo Lens: Source Inventory\n\n")
-	b.WriteString("This is a repo-map observation checklist for navigation and mechanical member/count checks. It is not final answer text; semantic conclusions still need grounded evidence or explicit model-authored aggregate facts.\n\n")
+	b.WriteString("This is a repo-map observation checklist for navigation and mechanical member/count checks. It is not final answer text. ")
+	b.WriteString(types.SourceInventoryMechanicalFactBoundary + "\n\n")
 	if len(observation.Scopes) > 0 {
 		fmt.Fprintf(&b, "- scopes: `%s`\n", strings.Join(observation.Scopes, "`, `"))
 	}
@@ -561,7 +563,8 @@ func renderSourceInventoryCandidateFileSamplesViewWithLimits(observation types.S
 	}
 	var b strings.Builder
 	b.WriteString("## Candidate File Samples to Verify (advisory)\n\n")
-	b.WriteString("These are bounded examples from the same structured rows, useful after choosing a scope from the cascade guide. They are not a hard whitelist, not semantic source citations, and not a final answer slate.\n\n")
+	b.WriteString("These are bounded examples from the same structured rows, useful after choosing a scope from the cascade guide. They are not a hard whitelist and not a final answer slate. ")
+	b.WriteString(types.SourceInventoryMechanicalFactBoundary + "\n\n")
 	renderedGroups := 0
 	for _, group := range groups {
 		if renderedGroups >= maxGroups {

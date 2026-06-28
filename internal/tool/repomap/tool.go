@@ -56,7 +56,7 @@ func (t *RepoMapV2) Name() string { return "repo_map" }
 func (t *RepoMapV2) Description() string {
 	return "Navigation index for the repository — shows which files, directories/modules/packages, symbols, routes, and config surfaces exist and where they are. " +
 		"It provides verified navigation and candidate-universe facts such as existing scopes, files, symbols, languages, and counts. " +
-		"It is not a semantic source citation: read or grep the selected files when you need to cite code behavior, implementation details, or exact source text. " +
+		ctypes.SourceInventoryMechanicalFactBoundary + " " +
 		"Supports views: overview (module summary), file_map (symbols per file), " +
 		"task_map (relevant subgraph for a query), call_path (dependency chain from entry point), " +
 		"edit_impact (what changes to a file would affect), " +
@@ -143,7 +143,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
         "x-codrax-enum-style-alias": true
       },
       "x-codrax-split-string-array": true,
-      "description": "For source_inventory view: row-local candidate roles to attach under each listed member, e.g. functions/methods/types/routes/config keys under a directory/module/package/file. Use only for bounded scopes; omit for top-level architecture/module overview. These are verified candidate-universe rows; verify selected rows with read_file/grep before using them as semantic source citations."
+      "description": "For source_inventory view: row-local candidate roles to attach under each listed member, e.g. functions/methods/types/routes/config keys under a directory/module/package/file. Use only for bounded scopes; omit for top-level architecture/module overview. These are verified mechanical inventory rows for member existence, source locations, counts, languages, source classes, and row-local attributes. Use read_file/grep only for implementation behavior, control-flow claims, or exact source text."
     },
     "include_attributes": {
       "type": "boolean",
@@ -2293,7 +2293,7 @@ func prependRepoMapIndexStatusBanner(graph *Graph, output string) string {
 			graph.Metadata.FallbackFileCount)
 	}
 	if graph.Metadata.FallbackFileCount > 0 || st.Freshness != IndexFreshnessFresh {
-		b.WriteString("- verify selected files with read_file or targeted grep before citing implementation behavior\n")
+		b.WriteString("- source_inventory rows can carry mechanical member/location/count facts; verify selected files with read_file or targeted grep before citing implementation behavior or exact source text\n")
 	}
 	b.WriteString("\n")
 	return b.String() + output

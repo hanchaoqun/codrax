@@ -4573,7 +4573,7 @@ func sourceInventoryLensExecutionDowngrade(ctx *types.BusContext, aggregateFacts
 	repoMapPath, repoMapScopes := sourceInventoryLensExecutionRepoMapCallShape(scopes)
 	subject := fmt.Sprintf("Run `repo_map` with path=%q, `view=\"source_inventory\"`, roles=[%s], scopes=[%s], include_counts=true, and include_attributes=false for the broad pass.",
 		repoMapPath, strings.Join(roles, ", "), sourceInventoryLensExecutionQuotedList(repoMapScopes))
-	rationale := "The active `source_inventory_profile` makes this a bounded source-inventory lane. Advisory graph rows and direct `list_files` universes are navigation context only; before closing, execute the typed source_inventory lens, then verify selected rows with read_file/targeted grep and hand off the model-authored principal set through aggregate_facts.member_set or an honest absence boundary."
+	rationale := "The active `source_inventory_profile` makes this a bounded source-inventory lane. Advisory graph rows and direct `list_files` universes are navigation context only; before closing, execute the typed source_inventory lens, then hand off the model-authored principal set through aggregate_facts.member_set or an honest absence boundary. " + types.SourceInventoryMechanicalFactBoundary
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
 			Kind:      types.RepairStructuredHandoff,

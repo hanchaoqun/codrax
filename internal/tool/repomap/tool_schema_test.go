@@ -19,7 +19,7 @@ func TestRepoMapSchemaTeachesLensParameters(t *testing.T) {
 		"scopes",
 		"relation_kinds",
 		"verified navigation",
-		"not a semantic source citation",
+		types.SourceInventoryMechanicalFactBoundary,
 		"reserve attribute_roles for narrowed scopes",
 		"top-level architecture",
 		"semantic_subgraph",
