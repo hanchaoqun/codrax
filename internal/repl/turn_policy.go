@@ -115,6 +115,11 @@ const (
 // pipeline, so a slow classifier cannot pin the interactive prompt.
 var turnPolicyClassifierTimeout = 10 * time.Second
 
+// replMemoryContextTimeout bounds foreground prior-memory assembly in the REPL.
+// Memory context is useful continuity, not a prerequisite for dispatch; timeout
+// therefore fails open to an empty prior-context block.
+var replMemoryContextTimeout = 2 * time.Second
+
 // SetTurnPolicyClassifierTimeout updates the REPL route-classifier wall clock.
 // Non-positive durations keep the current value: callers should fail-soft to
 // the code default rather than accidentally disabling the guard.
@@ -123,6 +128,16 @@ func SetTurnPolicyClassifierTimeout(timeout time.Duration) {
 		return
 	}
 	turnPolicyClassifierTimeout = timeout
+}
+
+// SetMemoryContextTimeout updates the REPL foreground memory-context guard.
+// Non-positive durations keep the current value so operators cannot
+// accidentally disable the fail-open boundary.
+func SetMemoryContextTimeout(timeout time.Duration) {
+	if timeout <= 0 {
+		return
+	}
+	replMemoryContextTimeout = timeout
 }
 
 // TurnPolicy is the structured classification result. All fields

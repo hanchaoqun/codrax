@@ -1067,6 +1067,13 @@ type RuntimeSettings struct {
 	// Non-positive values are ignored and the code default is used.
 	ReplTurnPolicyTimeoutSeconds *int `yaml:"repl_turn_policy_timeout_seconds"`
 
+	// ReplMemoryContextTimeoutSeconds bounds foreground prior-memory
+	// assembly in the REPL before dispatch enters the orchestrator. On
+	// timeout Codrax keeps running the current request without prior
+	// conversation memory; memory continuity must not block real work.
+	// Non-positive values are ignored and the code default is used.
+	ReplMemoryContextTimeoutSeconds *int `yaml:"repl_memory_context_timeout_seconds"`
+
 	// Chitchat tool-use numeric knobs. /chat now runs a bounded
 	// 2-round ReAct loop with the recall_memory tool when memory
 	// is wired; these caps shape the LLM's `limit` parameter.

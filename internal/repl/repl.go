@@ -1450,13 +1450,7 @@ func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer
 		return
 	}
 
-	prior := ""
-	if r.store != nil {
-		prior = r.store.BuildContext(line, memory.BuildOpts{
-			Kind:      memory.KindChitchat,
-			SessionID: r.sessionID,
-		})
-	}
+	prior := r.buildTurnMemoryContext("local", line, memory.KindChitchat)
 
 	// Arm the dock shutdown override BEFORE StartSpinner so the
 	// commitDockShutdownLocked call inside StopSpinner swaps the
@@ -6216,6 +6210,49 @@ func runBoundedBoolClassifier(ctx context.Context, timeout time.Duration, fn fun
 	}
 }
 
+func runBoundedMemoryContext(timeout time.Duration, build func() string) (string, bool) {
+	if build == nil {
+		return "", false
+	}
+	if timeout <= 0 {
+		return build(), false
+	}
+	done := make(chan string, 1)
+	go func() {
+		done <- build()
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case prior := <-done:
+		return prior, false
+	case <-timer.C:
+		return "", true
+	}
+}
+
+func (r *REPL) buildTurnMemoryContext(label, line string, kind memory.Kind) string {
+	if r == nil || r.store == nil {
+		return ""
+	}
+	timeout := replMemoryContextTimeout
+	started := time.Now()
+	logging.Info("[repl/memory] context start: label=%s kind=%s timeout=%s", label, kind, timeout)
+	prior, timedOut := runBoundedMemoryContext(timeout, func() string {
+		return r.store.BuildContext(line, memory.BuildOpts{
+			Kind:      kind,
+			SessionID: r.sessionID,
+		})
+	})
+	elapsed := time.Since(started).Truncate(time.Millisecond)
+	if timedOut {
+		logging.Warning("[repl/memory] context timeout: label=%s kind=%s elapsed=%s; continuing without prior memory", label, kind, elapsed)
+		return ""
+	}
+	logging.Info("[repl/memory] context end: label=%s kind=%s elapsed=%s prior=%t", label, kind, elapsed, strings.TrimSpace(prior) != "")
+	return prior
+}
+
 func (r *REPL) Loop() error {
 	r.banner()
 	memNudgeShown := false
@@ -7065,10 +7102,7 @@ func (r *REPL) dispatch(line, display string) {
 
 	r.maybeRestoreRuntimeArtifactForPolicy(resolvedTurnPolicy)
 
-	prior := r.store.BuildContext(line, memory.BuildOpts{
-		Kind:      memory.KindPipeline,
-		SessionID: r.sessionID,
-	})
+	prior := r.buildTurnMemoryContext("pipeline", line, memory.KindPipeline)
 	// Effective request = optional prior-conversation block + ORIGINAL line.
 	// The presentation directive is propagated out-of-band below so status
 	// lines, repo_map task maps, and memory stay user-authentic.

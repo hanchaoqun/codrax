@@ -2142,6 +2142,9 @@ func initApp(cmd *cobra.Command, args []string) error {
 		if rs.ReplTurnPolicyTimeoutSeconds != nil && *rs.ReplTurnPolicyTimeoutSeconds > 0 {
 			repl.SetTurnPolicyClassifierTimeout(time.Duration(*rs.ReplTurnPolicyTimeoutSeconds) * time.Second)
 		}
+		if rs.ReplMemoryContextTimeoutSeconds != nil && *rs.ReplMemoryContextTimeoutSeconds > 0 {
+			repl.SetMemoryContextTimeout(time.Duration(*rs.ReplMemoryContextTimeoutSeconds) * time.Second)
+		}
 		if rs.OperationRouteEnabled != nil {
 			app.operationRouteEnabled = *rs.OperationRouteEnabled
 		}

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -149,7 +150,7 @@ func (s *RuntimeArtifactStore) Load(ref RuntimeArtifactRef, maxBytes int) (strin
 	if limit <= 0 {
 		limit = 512 * 1024 * 1024
 	}
-	data, err := os.ReadFile(path)
+	data, err := readRuntimeArtifactPrefix(path, limit)
 	if err != nil {
 		return "", err
 	}
@@ -163,6 +164,18 @@ func (s *RuntimeArtifactStore) Load(ref RuntimeArtifactRef, maxBytes int) (strin
 		}
 	}
 	return string(data), nil
+}
+
+func readRuntimeArtifactPrefix(path string, limit int) ([]byte, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("invalid runtime artifact read limit")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, int64(limit)))
 }
 
 func (r RuntimeArtifactRef) Valid() bool {

@@ -694,10 +694,7 @@ func (r *REPL) chitchatDispatch(line, display string) {
 		return
 	}
 
-	prior := r.store.BuildContext(line, memory.BuildOpts{
-		Kind:      memory.KindChitchat,
-		SessionID: r.sessionID,
-	})
+	prior := r.buildTurnMemoryContext("chitchat", line, memory.KindChitchat)
 
 	logging.Info("[repl/chitchat] dispatching: %s", oneLine(line))
 

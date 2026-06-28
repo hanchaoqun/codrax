@@ -1353,6 +1353,14 @@
 #   默认 10。
 # repl_turn_policy_timeout_seconds: 10
 
+# repl_memory_context_timeout_seconds — wall-clock cap for foreground REPL
+#   prior-memory assembly before a turn enters the runner. Timeout fails open:
+#   Codrax continues the current request without prior memory instead of
+#   blocking the interactive prompt. Default 2.
+#   REPL 前台构造上一轮记忆上下文的墙钟超时。超时安全降级为空记忆,
+#   当前请求继续进入流水线,避免第二轮交互被记忆/索引异常卡住。默认 2。
+# repl_memory_context_timeout_seconds: 2
+
 # chitchat_recall_default_limit / chitchat_recall_max_limit — default and
 #   hard-cap for the `limit` arg of the recall_memory tool inside /chat.
 #   Defaults 5 / 10.

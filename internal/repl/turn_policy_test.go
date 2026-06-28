@@ -1098,6 +1098,40 @@ func TestSetTurnPolicyClassifierTimeout(t *testing.T) {
 	}
 }
 
+func TestSetMemoryContextTimeout(t *testing.T) {
+	old := replMemoryContextTimeout
+	defer func() { replMemoryContextTimeout = old }()
+
+	SetMemoryContextTimeout(1500 * time.Millisecond)
+	if replMemoryContextTimeout != 1500*time.Millisecond {
+		t.Fatalf("timeout = %s, want 1500ms", replMemoryContextTimeout)
+	}
+	SetMemoryContextTimeout(0)
+	if replMemoryContextTimeout != 1500*time.Millisecond {
+		t.Fatalf("non-positive override must keep current guard, got %s", replMemoryContextTimeout)
+	}
+}
+
+func TestRunBoundedMemoryContextTimesOut(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+
+	start := time.Now()
+	prior, timedOut := runBoundedMemoryContext(10*time.Millisecond, func() string {
+		<-release
+		return "late prior"
+	})
+	if !timedOut {
+		t.Fatalf("timedOut=false, want true")
+	}
+	if prior != "" {
+		t.Fatalf("prior=%q, want empty on timeout", prior)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("memory context timeout took too long: %s", elapsed)
+	}
+}
+
 func TestClassifyPolicy_HardTimesOutNonResponsiveRouteClassifier(t *testing.T) {
 	old := turnPolicyClassifierTimeout
 	turnPolicyClassifierTimeout = 10 * time.Millisecond
