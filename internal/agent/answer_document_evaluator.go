@@ -3829,6 +3829,7 @@ func answerDocClaimBindingLedgerRecordIDs(binding types.AnswerClaimBinding, ledg
 }
 
 const answerDocObservationLedgerPromptLimit = 18
+const answerDocMixedRuntimeSourceObservationLedgerPromptLimit = 10
 
 func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	ledger := answerDocObservationLedger(ctx)
@@ -4171,7 +4172,39 @@ func answerDocObservationPromptRecords(ctx *types.AgentContext, records []types.
 		rm = &ctx.AnalysisIR.RequestModel
 		contract = &ctx.AnalysisIR.AnswerContract
 	}
-	return types.ProjectObservationPromptRecords(records, rm, contract, types.DefaultObservationPromptProjectionOptions(limit))
+	return types.ProjectObservationPromptRecords(records, rm, contract, answerDocObservationPromptProjectionOptions(ctx, limit))
+}
+
+func answerDocObservationPromptProjectionOptions(ctx *types.AgentContext, limit int) types.ObservationPromptProjectionOptions {
+	if limit <= 0 {
+		limit = answerDocObservationLedgerPromptLimit
+	}
+	opts := types.DefaultObservationPromptProjectionOptions(limit)
+	if !answerDocMixedRuntimeCurrentSourceShape(ctx) {
+		return opts
+	}
+	if opts.Limit > answerDocMixedRuntimeSourceObservationLedgerPromptLimit {
+		opts.Limit = answerDocMixedRuntimeSourceObservationLedgerPromptLimit
+	}
+	opts.SourceMaxLen = 72
+	opts.ValueMaxLen = 96
+	opts.SummaryMaxLen = 128
+	opts.NoteMaxLen = 120
+	opts.ExcerptMaxLen = 96
+	opts.PrincipalExcerptMaxLen = 160
+	opts.NoteLimit = 1
+	opts.PrincipalNoteLimit = 2
+	opts.StrongCurrentSourceNoteLimit = 2
+	opts.OriginSpecificSupportingNoteLimit = 3
+	opts.OriginSpecificPrincipalNoteLimit = 3
+	return opts
+}
+
+func answerDocMixedRuntimeCurrentSourceShape(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(ctx.AnalysisIR.RequestModel)
 }
 
 func answerDocObservationRowSetWriter(ctx *types.AgentContext) types.ObservationRowSetWriter {
