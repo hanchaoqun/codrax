@@ -72,6 +72,105 @@ func TestExplorerFilterToolSchemasCompletionOnlyAllowsTypedRepairTools(t *testin
 	}
 }
 
+func TestExplorerFilterToolSchemasCompletionOnlySuppressesReadRepairForMechanicalSourceInventory(t *testing.T) {
+	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(false)
+	ctx.CompletionOnlySurface = true
+	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:   types.RepairStructuredHandoff,
+		Tools:  []string{"read_file"},
+		Origin: "pre_complete.citation_floor_support_refs",
+		Stage:  string(types.StageExplore),
+	})
+	schemas := []llm.ToolSchema{
+		{Name: "grep"}, {Name: "read_file"}, {Name: "repo_map"},
+		{Name: "emit_evidence"}, {Name: "emit_investigation_complete"},
+	}
+
+	got := (&explorerEvaluator{sourceInventoryLensSurfaceReleased: true}).FilterToolSchemas(ctx, schemas)
+	names := map[string]bool{}
+	for _, schema := range got {
+		names[schema.Name] = true
+	}
+	for _, want := range []string{"emit_evidence", "emit_investigation_complete"} {
+		if !names[want] {
+			t.Fatalf("mechanical completion surface missing %q: %+v", want, got)
+		}
+	}
+	for _, blocked := range []string{"grep", "read_file", "repo_map"} {
+		if names[blocked] {
+			t.Fatalf("mechanical completion surface must not reopen %q: %+v", blocked, got)
+		}
+	}
+}
+
+func TestExplorerFilterToolSchemasCompletionOnlyKeepsReadRepairForSourceTextInventory(t *testing.T) {
+	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(true)
+	ctx.CompletionOnlySurface = true
+	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:   types.RepairStructuredHandoff,
+		Tools:  []string{"read_file"},
+		Origin: "pre_complete.citation_floor_support_refs",
+		Stage:  string(types.StageExplore),
+	})
+	schemas := []llm.ToolSchema{
+		{Name: "grep"}, {Name: "read_file"}, {Name: "repo_map"},
+		{Name: "emit_evidence"}, {Name: "emit_investigation_complete"},
+	}
+
+	got := (&explorerEvaluator{sourceInventoryLensSurfaceReleased: true}).FilterToolSchemas(ctx, schemas)
+	names := map[string]bool{}
+	for _, schema := range got {
+		names[schema.Name] = true
+	}
+	for _, want := range []string{"read_file", "emit_evidence", "emit_investigation_complete"} {
+		if !names[want] {
+			t.Fatalf("source-text inventory repair surface missing %q: %+v", want, got)
+		}
+	}
+}
+
+func TestExplorerFilterToolSchemasCompletionOnlyKeepsTypedFollowupWhenMechanicalUniverseIncomplete(t *testing.T) {
+	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(false)
+	ctx.CompletionOnlySurface = true
+	obs := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	obs.Complete = false
+	obs.Execution = &types.SourceInventoryExecutionState{CandidateBudgetTruncated: true}
+	obs.Page = &types.SourceInventoryObservationPage{Offset: 0, Emitted: 2, Total: 3, NextCursor: "2", Complete: false}
+	obs.SourceClasses = append(obs.SourceClasses, types.SourceInventorySourceClassCount{
+		Role:     types.SourcePathRoleThirdParty,
+		Count:    1,
+		Complete: true,
+		Languages: []types.SourceInventoryLanguageCount{{
+			Language: "python",
+			Count:    1,
+			InScope:  true,
+			Samples:  []string{"vendor/pkg/entry.py"},
+		}},
+		Samples: []string{"vendor/pkg/entry.py"},
+	})
+	ctx.Mutable.SetSourceInventoryObservation(obs)
+	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:  types.RepairStructuredHandoff,
+		Tools: []string{"repo_map"},
+		Stage: string(types.StageExplore),
+	})
+	schemas := []llm.ToolSchema{
+		{Name: "grep"}, {Name: "read_file"}, {Name: "repo_map"},
+		{Name: "emit_evidence"}, {Name: "emit_investigation_complete"},
+	}
+
+	got := (&explorerEvaluator{sourceInventoryLensSurfaceReleased: true}).FilterToolSchemas(ctx, schemas)
+	names := map[string]bool{}
+	for _, schema := range got {
+		names[schema.Name] = true
+	}
+	for _, want := range []string{"repo_map", "emit_evidence", "emit_investigation_complete"} {
+		if !names[want] {
+			t.Fatalf("incomplete source-class universe should keep typed follow-up %q: %+v", want, got)
+		}
+	}
+}
+
 func TestExplorerFilterToolSchemasNoEmitEscalationAllowsTypedRepairTools(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.EvidenceClosure().AddRepair(types.RepairDirective{

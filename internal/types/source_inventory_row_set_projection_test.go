@@ -531,6 +531,73 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_MixedRoleUniverseCo
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DemotesOverBroadSurfaceFamilyFact(t *testing.T) {
+	scope := SourceScopeAll
+	rm := sourceInventoryProjectionRequestModel(&scope)
+	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{AnswerCandidateRoleType}
+	rm.SourceInventoryProfile.SourceQuotes = []string{"public class"}
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		SourceClasses: []SourceInventorySourceClassCount{
+			{Role: SourcePathRoleFixture, Count: 2, Complete: true},
+			{Role: SourcePathRoleThirdParty, Count: 2, Complete: true},
+		},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleType,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{
+				{Name: "Bridge", Role: AnswerCandidateRoleType, File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 15, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Bridge"}, CoverageState: SourceInventoryCoverageObserved},
+				{Name: "Service", Role: AnswerCandidateRoleType, File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", Line: 32, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Service", "public abstract class", "public abstract class Service"}, CoverageState: SourceInventoryCoverageObserved},
+				{Name: "Item", Role: AnswerCandidateRoleType, File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"public struct", "public struct Item"}, CoverageState: SourceInventoryCoverageObserved},
+				{Name: "Drawable", Role: AnswerCandidateRoleType, File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/03_interfaces.cj", Line: 4, Language: "cangjie", SurfaceTerms: []string{"public interface", "public interface Drawable"}, CoverageState: SourceInventoryCoverageObserved},
+			},
+		}},
+	}
+	existing := AnswerAggregateFact{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "public class/type",
+		Value:      "4",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "explorer",
+		Members: []string{
+			"Bridge",
+			"Service",
+			"Item",
+			"Drawable",
+		},
+		SupportRefs: []string{
+			"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+			"Service: internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:32",
+			"Item: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:6",
+			"Drawable: internal/thirdparty/tree-sitter-cangjie/corpus/sources/03_interfaces.cj:4",
+		},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts([]AnswerAggregateFact{existing}, obs, rm)
+	if len(got) != 2 {
+		t.Fatalf("expected over-broad model fact plus narrowed source-inventory projection, got %+v", got)
+	}
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("over-broad model fact should be demoted, got %+v", got[0])
+	}
+	systemFact := got[1]
+	if systemFact.Provenance != SourceInventoryPrincipalRowSetAggregateProvenance ||
+		systemFact.Role != AnswerAggregateRolePrincipalAnswer ||
+		systemFact.Value != "2" {
+		t.Fatalf("expected narrowed source-inventory principal fact, got %+v", systemFact)
+	}
+	if gotMembers := strings.Join(systemFact.Members, ","); gotMembers != "Bridge,Service" {
+		t.Fatalf("projection should keep only requested public-class family, got %q", gotMembers)
+	}
+	for _, notWant := range []string{"Item", "Drawable"} {
+		if stringSliceContains(systemFact.Members, notWant) {
+			t.Fatalf("projection leaked non-requested family member %q: %+v", notWant, systemFact.Members)
+		}
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesRowAttributesInSyntheticNotes(t *testing.T) {
 	scope := SourceScopeAll
 	rm := sourceInventoryProjectionRequestModel(&scope)

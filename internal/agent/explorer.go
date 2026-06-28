@@ -6819,6 +6819,9 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	// repair asks for a tool that the schema filter removed.
 	if ctx.CompletionOnlySurface {
 		allowed := completionOnlyToolSurface(ctx)
+		if e.sourceInventoryMechanicalLandingSurfaceActive(ctx) {
+			allowed = completionProgressToolNames
+		}
 		out := make([]llm.ToolSchema, 0, len(allowed))
 		for _, schema := range schemas {
 			if allowed[strings.TrimSpace(schema.Name)] {

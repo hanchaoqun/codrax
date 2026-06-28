@@ -22,6 +22,7 @@ const (
 	SourceInventoryRowReasonSupportScope   = "support_scope"
 	SourceInventoryRowReasonNonPrincipal   = "non_principal_role"
 	SourceInventoryRowReasonNoLocation     = "no_location"
+	SourceInventoryRowReasonSurfaceFamily  = "non_requested_surface_family"
 )
 
 // SourceInventoryPrincipalRowSetInput is the import-cycle-safe input for
@@ -106,6 +107,7 @@ func BuildSourceInventoryPrincipalRowSet(input SourceInventoryPrincipalRowSetInp
 		}
 	}
 	principal = sourceInventoryFamilyBalancedRows(principal)
+	principal, support = sourceInventoryFilterRowsToRequestedSurfaceFamilies(input.RequestModel, principal, support)
 	support = sourceInventoryStableRows(support)
 	audit = sourceInventoryStableRows(audit)
 	out := SourceInventoryPrincipalRowSet{

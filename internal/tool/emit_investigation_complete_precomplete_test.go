@@ -2368,6 +2368,138 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryRepoWideRepai
 	}
 }
 
+func TestEmitInvestigationComplete_NormalizesOverBroadSourceInventorySurfaceFamilyFact(t *testing.T) {
+	mut := types.NewMutableState("列出仓库里的 Cangjie public class")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		Provenance: []string{
+			"source_inventory_profile",
+			"repo_lens:tool_query",
+		},
+		Lens: []string{"members", "symbols", "count", "source_class_universe"},
+		SourceClasses: []types.SourceInventorySourceClassCount{
+			{Role: types.SourcePathRoleFixture, Count: 2, Complete: true},
+			{Role: types.SourcePathRoleThirdParty, Count: 2, Complete: true},
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Count:    4,
+			Total:    4,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Bridge",
+				Key:           "Bridge",
+				SupportRef:    "Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+				Role:          types.AnswerCandidateRoleType,
+				File:          "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+				Line:          15,
+				Language:      "cangjie",
+				SurfaceTerms:  []string{"public class", "public class Bridge"},
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}, {
+				Name:          "Service",
+				Key:           "Service",
+				SupportRef:    "Service: internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:32",
+				Role:          types.AnswerCandidateRoleType,
+				File:          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj",
+				Line:          32,
+				Language:      "cangjie",
+				SurfaceTerms:  []string{"public class", "public class Service", "public abstract class", "public abstract class Service"},
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}, {
+				Name:          "Item",
+				Key:           "Item",
+				SupportRef:    "Item: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:6",
+				Role:          types.AnswerCandidateRoleType,
+				File:          "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+				Line:          6,
+				Language:      "cangjie",
+				SurfaceTerms:  []string{"public struct", "public struct Item"},
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}, {
+				Name:          "Drawable",
+				Key:           "Drawable",
+				SupportRef:    "Drawable: internal/thirdparty/tree-sitter-cangjie/corpus/sources/03_interfaces.cj:4",
+				Role:          types.AnswerCandidateRoleType,
+				File:          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/03_interfaces.cj",
+				Line:          4,
+				Language:      "cangjie",
+				SurfaceTerms:  []string{"public interface", "public interface Drawable"},
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "Cangjie public class",
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+					SourceQuotes:      []string{"public class"},
+					Confidence:        0.95,
+				},
+			},
+			AnswerContract: types.AnswerContract{CitationReq: types.CitationReq{Required: false}},
+		},
+	}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "typed source inventory rows were verified",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":    "member_set",
+			"label":   "public class/type",
+			"value":   "4",
+			"role":    "principal_answer",
+			"members": []string{"Bridge", "Service", "Item", "Drawable"},
+			"support_refs": []string{
+				"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+				"Service: internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:32",
+				"Item: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:6",
+				"Drawable: internal/thirdparty/tree-sitter-cangjie/corpus/sources/03_interfaces.cj:4",
+			},
+		}},
+	})
+	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success || !mut.IsInvestigationComplete() {
+		t.Fatalf("over-broad source-family fact should normalize and complete, result=%+v complete=%t", res, mut.IsInvestigationComplete())
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	var principal types.AnswerAggregateFact
+	for _, fact := range facts {
+		if fact.Provenance == types.SourceInventoryPrincipalRowSetAggregateProvenance &&
+			types.AnswerAggregateFactRoleForRequest(fact, &bus.AnalysisIR.RequestModel) == types.AnswerAggregateRolePrincipalAnswer {
+			principal = fact
+			break
+		}
+	}
+	if principal.Value != "2" || strings.Join(principal.Members, ",") != "Bridge,Service" {
+		t.Fatalf("stored principal source-inventory fact should be narrowed to public class rows, got %+v all=%+v", principal, facts)
+	}
+	for _, fact := range facts {
+		if types.AnswerAggregateFactRoleForRequest(fact, &bus.AnalysisIR.RequestModel) != types.AnswerAggregateRolePrincipalAnswer {
+			continue
+		}
+		for _, member := range fact.Members {
+			if member == "Item" || member == "Drawable" {
+				t.Fatalf("non-requested surface family member leaked into principal fact %+v", fact)
+			}
+		}
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryMissingSameLanguageClassRequiresFollowup(t *testing.T) {
 	mut := types.NewMutableState("列出仓库里的 Cangjie extend / foreign func / public class")
 	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
