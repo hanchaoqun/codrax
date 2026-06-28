@@ -74,6 +74,27 @@ tool_history_prunes=0
 mixed_origin_autocomplete_blocks=0
 METRICS
 assert_eq "$(eval_convergence_flags "$tmp/convergence-repair-churn.metrics" PASS)" "finalizer repair_churn" "repair with finalizer churn should be flagged precisely"
+
+cat >"$tmp/convergence-adaptive-loop.metrics" <<'METRICS'
+tool_read_file=1
+tool_repo_map=1
+tool_list_files=0
+explorer_iters=6
+explorer_dispatches=1
+semantic_quality_concerns=0
+finalizer_iters=1
+finalizer_rejects=0
+finalizer_rewrites=0
+mermaid_source_repair_applied=0
+answer_contract_violations=0
+answer_contract_strict_violations=0
+tool_history_prunes=0
+mixed_origin_autocomplete_blocks=0
+analyze_refine_dispatches=2
+read_loop_add_proof_consumed=0
+METRICS
+assert_eq "$(eval_convergence_flags "$tmp/convergence-adaptive-loop.metrics" PASS)" "adaptive_loop" "repeated adaptive read loops should be flagged"
+
 metric_row="$(eval_print_efficiency_advisory_row "$tmp/metrics.txt" 1 high_analyzer_dispatches analyzer_dispatches 1 || true)"
 assert_eq "$metric_row" "| 1 | high_analyzer_dispatches | analyzer_dispatches=2 limit=1 |" "metric advisory row"
 assert_eq "$(eval_print_efficiency_advisory_row "$tmp/metrics.txt" 1 high_analyzer_dispatches analyzer_dispatches 2 || true)" "" "metric advisory row under limit"
@@ -216,6 +237,9 @@ cat >"$tmp/finalizer-control.log" <<'LOG'
 2026-05-24T00:00:00.068 DEBUG [diag orchestrator] phase=transient_retry_checkpoint stage=explore installed=true len=512
 2026-05-24T00:00:00.068 DEBUG [orchestrator] window hint applied key="orchestrator.dag-window" len=400 body="Checkpoint summary (non-authoritative counts): structured evidence rows=2. DAG-scheduled investigation window. Cover every node objective below in this dispatch:"
 2026-05-24T00:00:00.068 DEBUG [repo_lens] discovery_hint stage=explore agent=explorer tool=list_files len=512
+2026-05-24T00:00:00.068 DEBUG [diag orchestrator] phase=read_dag_dispatch stage=explore reason=read_dag_explore_window key="n_analyze_refine" kind=probe surface=default node_ids=n_analyze_refine criteria=progress_replan_required analyze_refine=true
+2026-05-24T00:00:00.068 DEBUG [diag orchestrator] phase=read_loop_next_action_selected action=add_proof reason=proof_weak proof_state=weak truth_action=add_proof route_surface=verify route_reason=loop_tool_route_verification policy_active=true policy_tools=run_tests,repo_map,read_file trigger=retry
+2026-05-24T00:00:00.068 DEBUG [diag orchestrator] phase=read_loop_next_action_consumed action=add_proof reason=proof_weak proof_state=weak truth_action=add_proof route_surface=verify route_reason=loop_tool_route_verification policy_active=true policy_tools=run_tests,repo_map,read_file
 2026-05-24T00:00:00.068 DEBUG [diag explorer] iter=2 phase=midloop_signal hint=true progress=true stop=false key="explorer.mid-loop.read-without-emit-closure-only.2" → inject_hint ()
 2026-05-24T00:00:00.068 WARN [agent] tool "grep" rejected before execution: not in current tool schema
 2026-05-24T00:00:00.068 WARN [explorer] tool "read_file" rejected: tool "read_file" is not available in the current explorer repair state; available tools here: emit_evidence
@@ -237,6 +261,9 @@ assert_eq "$(eval_count_midloop_injects "$tmp/finalizer-control.log")" "1" "midl
 assert_eq "$(eval_count_tool_calls "$tmp/finalizer-control.log" repo_map)" "1" "tool-call control count"
 assert_eq "$(eval_count_source_inventory_tool_calls "$tmp/finalizer-control.log")" "1" "source inventory tool-call count"
 assert_eq "$(eval_count_repo_lens_discovery_hints "$tmp/finalizer-control.log")" "1" "repo lens discovery hint control count"
+assert_eq "$(eval_count_analyze_refine_dispatches "$tmp/finalizer-control.log")" "1" "analyze-refine dispatch count"
+assert_eq "$(eval_count_read_loop_add_proof_selected "$tmp/finalizer-control.log")" "1" "read loop add-proof selected count"
+assert_eq "$(eval_count_read_loop_add_proof_consumed "$tmp/finalizer-control.log")" "1" "read loop add-proof consumed count"
 assert_eq "$(eval_count_tool_calls "$tmp/finalizer-control.log" read_file)" "1" "read-file tool-call control count"
 assert_eq "$(eval_count_transient_retry_checkpoints "$tmp/finalizer-control.log")" "1" "transient retry checkpoint control count"
 assert_eq "$(eval_count_unavailable_tool_attempts "$tmp/finalizer-control.log")" "2" "unavailable tool attempt control count"

@@ -50,6 +50,16 @@ func (o *Orchestrator) recordReadLoopNextActionForRetry(state *graphState, reaso
 	state.setReadLoopNextAction(decision)
 	logging.Debug("[orchestrator] read loop next-action selected for %s: action=%s reason=%s",
 		firstNonEmptyRetryString(reason, "retry"), decision.Action, decision.ReasonCode)
+	logging.Debug("[diag orchestrator] phase=read_loop_next_action_selected action=%s reason=%s proof_state=%s truth_action=%s route_surface=%s route_reason=%s policy_active=%t policy_tools=%s trigger=%s",
+		firstNonEmptyRetryString(string(decision.Action), "none"),
+		firstNonEmptyRetryString(decision.ReasonCode, "none"),
+		firstNonEmptyRetryString(string(decision.ProofState), "unknown"),
+		firstNonEmptyRetryString(string(decision.TruthAction), "none"),
+		firstNonEmptyRetryString(string(decision.RouteSurface), "none"),
+		firstNonEmptyRetryString(decision.RouteReasonCode, "none"),
+		decision.Policy.IsActive(),
+		strings.Join(decision.Policy.AllowedTools, ","),
+		firstNonEmptyRetryString(reason, "retry"))
 }
 
 func applyReadLoopNextActionHint(state *graphState, hint *string, parallelHints []string) (types.ReadDispatchPolicy, bool) {
@@ -60,6 +70,15 @@ func applyReadLoopNextActionHint(state *graphState, hint *string, parallelHints 
 	if !ok {
 		return types.ReadDispatchPolicy{}, false
 	}
+	logging.Debug("[diag orchestrator] phase=read_loop_next_action_consumed action=%s reason=%s proof_state=%s truth_action=%s route_surface=%s route_reason=%s policy_active=%t policy_tools=%s",
+		firstNonEmptyRetryString(string(decision.Action), "none"),
+		firstNonEmptyRetryString(decision.ReasonCode, "none"),
+		firstNonEmptyRetryString(string(decision.ProofState), "unknown"),
+		firstNonEmptyRetryString(string(decision.TruthAction), "none"),
+		firstNonEmptyRetryString(string(decision.RouteSurface), "none"),
+		firstNonEmptyRetryString(decision.RouteReasonCode, "none"),
+		decision.Policy.IsActive(),
+		strings.Join(decision.Policy.AllowedTools, ","))
 	actionHint := renderReadLoopNextActionDirective(decision)
 	if strings.TrimSpace(actionHint) == "" {
 		return decision.Policy, decision.Policy.IsActive()

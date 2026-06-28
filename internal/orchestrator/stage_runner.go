@@ -2,9 +2,11 @@ package orchestrator
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -88,6 +90,7 @@ func (o *Orchestrator) executeStageRequest(req StageExecutionRequest) StageExecu
 }
 
 func (o *Orchestrator) executeExploreStageRequest(req StageExecutionRequest, start time.Time) StageExecutionResult {
+	logReadStageExecutionRequest(req)
 	prevDispatchKey := o.busCtx.ExploreDispatchKey
 	prevDispatchKind := o.busCtx.ExploreDispatchKind
 	prevToolSurface := o.busCtx.ExploreToolSurface
@@ -99,4 +102,61 @@ func (o *Orchestrator) executeExploreStageRequest(req StageExecutionRequest, sta
 	o.busCtx.ExploreDispatchKind = prevDispatchKind
 	o.busCtx.ExploreToolSurface = prevToolSurface
 	return StageExecutionResult{Stage: types.StageExplore, Output: out, Err: err, Elapsed: time.Since(start)}
+}
+
+func logReadStageExecutionRequest(req StageExecutionRequest) {
+	if req.Stage != types.StageExplore {
+		return
+	}
+	nodeIDs, criteria := readStageExecutionRequestTypedSurfaces(req.Window)
+	logging.Debug("[diag orchestrator] phase=read_dag_dispatch stage=%s reason=%s key=%q kind=%s surface=%s node_ids=%s criteria=%s analyze_refine=%t",
+		req.Stage,
+		firstNonEmptyRetryString(req.ReasonCode, "none"),
+		req.ExploreDispatchKey,
+		req.ExploreDispatchKind,
+		req.ExploreToolSurface,
+		joinOrDash(nodeIDs),
+		joinOrDash(criteria),
+		readStageStringSliceContains(criteria, types.CritProgressReplanRequired))
+}
+
+func readStageExecutionRequestTypedSurfaces(window []*types.TaskNode) ([]string, []string) {
+	seenNodes := map[string]bool{}
+	seenCriteria := map[string]bool{}
+	var nodeIDs []string
+	var criteria []string
+	for _, node := range window {
+		if node == nil {
+			continue
+		}
+		if id := strings.TrimSpace(node.ID); id != "" && !seenNodes[id] {
+			seenNodes[id] = true
+			nodeIDs = append(nodeIDs, id)
+		}
+		for _, crit := range node.EntryConditions {
+			kind := strings.TrimSpace(crit.Kind)
+			if kind == "" || seenCriteria[kind] {
+				continue
+			}
+			seenCriteria[kind] = true
+			criteria = append(criteria, kind)
+		}
+	}
+	return nodeIDs, criteria
+}
+
+func joinOrDash(values []string) string {
+	if len(values) == 0 {
+		return "-"
+	}
+	return strings.Join(values, ",")
+}
+
+func readStageStringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

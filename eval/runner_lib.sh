@@ -597,7 +597,7 @@ eval_convergence_flags() {
   local verdict="${2:-UNKNOWN}"
   local read_calls repo_map_calls list_files_calls exp exp_disp sem
   local fin fin_reject fin_rewrite mermaid_repair answer_contract answer_contract_strict_raw answer_contract_strict
-  local history_prunes origin_block flags
+  local history_prunes origin_block analyze_refine_dispatches read_loop_add_proof_consumed flags
 
   read_calls="$(eval_metric_int_field "$metrics" tool_read_file)"
   repo_map_calls="$(eval_metric_int_field "$metrics" tool_repo_map)"
@@ -618,6 +618,8 @@ eval_convergence_flags() {
   fi
   history_prunes="$(eval_metric_int_field "$metrics" tool_history_prunes)"
   origin_block="$(eval_metric_int_field "$metrics" mixed_origin_autocomplete_blocks)"
+  analyze_refine_dispatches="$(eval_metric_int_field "$metrics" analyze_refine_dispatches)"
+  read_loop_add_proof_consumed="$(eval_metric_int_field "$metrics" read_loop_add_proof_consumed)"
 
   flags=""
   if [[ "$verdict" != "PASS" ]]; then
@@ -647,6 +649,9 @@ eval_convergence_flags() {
   if [[ "$origin_block" -gt 0 ]]; then
     flags="${flags} lane_wait"
   fi
+  if [[ "$analyze_refine_dispatches" -gt 1 || "$read_loop_add_proof_consumed" -gt 1 ]]; then
+    flags="${flags} adaptive_loop"
+  fi
   flags="${flags# }"
   printf '%s\n' "${flags:-—}"
 }
@@ -667,6 +672,33 @@ eval_count_midloop_injects() {
     return
   fi
   eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=midloop_inject' "$file"
+}
+
+eval_count_analyze_refine_dispatches() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[diag orchestrator\][^:]*phase=read_dag_dispatch .*analyze_refine=true' "$file"
+}
+
+eval_count_read_loop_add_proof_selected() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[diag orchestrator\][^:]*phase=read_loop_next_action_selected .*action=add_proof' "$file"
+}
+
+eval_count_read_loop_add_proof_consumed() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[diag orchestrator\][^:]*phase=read_loop_next_action_consumed .*action=add_proof' "$file"
 }
 
 eval_count_tool_calls() {
@@ -1210,6 +1242,9 @@ eval_materialize_partial_run_result() {
       echo "answer_contract_lane_block_kind_strict_violations=$(eval_sum_answer_contract_strict_violations_for_section "$log" lane_block_kind)"
       echo "answer_contract_lane_block_kind_advisories=$(eval_sum_answer_contract_advisories_for_section "$log" lane_block_kind)"
       echo "midloop_inject=$(eval_count_midloop_injects "$log")"
+      echo "analyze_refine_dispatches=$(eval_count_analyze_refine_dispatches "$log")"
+      echo "read_loop_add_proof_selected=$(eval_count_read_loop_add_proof_selected "$log")"
+      echo "read_loop_add_proof_consumed=$(eval_count_read_loop_add_proof_consumed "$log")"
       echo "parallel_sibling_skips=$(eval_count_pattern 'skipping non-winning parallel explore sibling' "$log")"
       echo "mixed_origin_autocomplete_blocks=$(eval_count_pattern 'accepted investigation closure cannot auto-complete mixed-origin explore window' "$log")"
       echo "finalizer_rejects=$(eval_count_finalizer_rejects "$log")"

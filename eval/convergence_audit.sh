@@ -126,8 +126,8 @@ wait
   echo
   echo "This report is advisory. It helps decide whether a typed runtime fix is justified; it must not be interpreted as permission to override a model answer that is fully supported by evidence."
   echo
-  echo "| case | verdict | data_status | data_r | data_rep | data_ans | read | repo_map | list_files | source_lens | ana_it | exp_it | exp_disp | midloop | sibling_skip | origin_block | fin_it | fin_reject | fin_rewrite | sem | flags |"
-  echo "|------|---------|-------------|-------:|---------:|---------:|-----:|---------:|-----------:|------------:|-------:|-------:|---------:|--------:|-------------:|-------------:|-------:|-----------:|------------:|----:|-------|"
+  echo "| case | verdict | data_status | data_r | data_rep | data_ans | read | repo_map | list_files | source_lens | ana_it | exp_it | exp_disp | midloop | refine | proof | sibling_skip | origin_block | fin_it | fin_reject | fin_rewrite | sem | flags |"
+  echo "|------|---------|-------------|-------:|---------:|---------:|-----:|---------:|-----------:|------------:|-------:|-------:|---------:|--------:|-------:|------:|-------------:|-------------:|-------:|-----------:|------------:|----:|-------|"
 
   total=0
   flagged=0
@@ -136,7 +136,7 @@ wait
     case_id="$(case_id_for_file "$case_file")"
     dir="$(eval_latest_result_dir "$RESULTS_ROOT" "$case_id" "$SWEEP_START" || true)"
     if [[ -z "$dir" ]]; then
-      printf '| %s | MISSING | - | - | - | - | - | - | - | - | - | - | no_result_dir |\n' "$case_id"
+      printf '| %s | MISSING | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | no_result_dir |\n' "$case_id"
       flagged=$((flagged + 1))
       continue
     fi
@@ -158,6 +158,8 @@ wait
     exp="$(metric_number "$metrics" explorer_iters)"
     exp_disp="$(metric_number "$metrics" explorer_dispatches)"
     midloop="$(metric_number "$metrics" midloop_inject)"
+    refine="$(metric_number "$metrics" analyze_refine_dispatches)"
+    proof="$(metric_number "$metrics" read_loop_add_proof_consumed)"
     sibling="$(metric_number "$metrics" parallel_sibling_skips)"
     origin_block="$(metric_number "$metrics" mixed_origin_autocomplete_blocks)"
     fin="$(metric_number "$metrics" finalizer_iters)"
@@ -169,15 +171,15 @@ wait
       flagged=$((flagged + 1))
     fi
     total=$((total + 1))
-    printf '| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+    printf '| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
       "$case_id" "$verdict" "$data_status" "$data_rounds" "$data_repairs" "$data_answer_len" "$read_calls" "$repo_map_calls" "$list_files_calls" "$source_lens" \
-      "$ana" "$exp" "$exp_disp" "$midloop" "$sibling" "$origin_block" \
+      "$ana" "$exp" "$exp_disp" "$midloop" "$refine" "$proof" "$sibling" "$origin_block" \
       "$fin" "$fin_reject" "$fin_rewrite" "$sem" "$flags"
   done
   echo
   echo "**flagged: $flagged / $total**"
   echo
-  echo "Flag meanings: \`finalizer\` = finalizer took multiple turns or had document/patch rejects/rewrite renders; \`repair_churn\` = deterministic repair coincided with finalizer retry/reject/rewrite, suggesting repair instability rather than harmless carrier normalization; \`explorer_long\` = multiple explorer dispatches or very high explorer iterations; \`wide_search\` = high read_file/repo_map/list_files cost; \`lane_wait\` = typed mixed-origin closure correctly waited for missing lanes; \`semantic\` = semantic reviewer emitted concerns; \`contract_warning\` = answer contract check logged strict contract violations; soft advisory violations remain in metrics for audit but do not set this flag; \`context_prune\` = tool history pruning occurred. Lossless deterministic carrier/render repairs remain visible in per-case metrics/advisories but do not create a top-level flag by themselves."
+  echo "Flag meanings: \`finalizer\` = finalizer took multiple turns or had document/patch rejects/rewrite renders; \`repair_churn\` = deterministic repair coincided with finalizer retry/reject/rewrite, suggesting repair instability rather than harmless carrier normalization; \`adaptive_loop\` = AnalyzeRefine or read-loop add-proof was consumed more than once in one run; \`explorer_long\` = multiple explorer dispatches or very high explorer iterations; \`wide_search\` = high read_file/repo_map/list_files cost; \`lane_wait\` = typed mixed-origin closure correctly waited for missing lanes; \`semantic\` = semantic reviewer emitted concerns; \`contract_warning\` = answer contract check logged strict contract violations; soft advisory violations remain in metrics for audit but do not set this flag; \`context_prune\` = tool history pruning occurred. Lossless deterministic carrier/render repairs remain visible in per-case metrics/advisories but do not create a top-level flag by themselves."
 } >"$SUMMARY"
 
 echo "summary written: $SUMMARY" >&2
