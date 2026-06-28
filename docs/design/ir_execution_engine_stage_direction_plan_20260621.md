@@ -3171,6 +3171,16 @@ Remaining follow-up:
        - `TestNormalizeItemCitationRefsByTypedSourceInventoryRows_DetachesAmbiguousMissingCandidateRole` pins the no-guess fallback for ambiguous duplicate labels.
        - Existing candidate-role repair and principal enumeration supplement tests remain passing.
        - Passed: `go test ./internal/tool -run 'NormalizeItemCitationRefs|PrincipalEnumerationRowBlocks|CitationRef' -count=1`; `go test ./internal/tool -count=1`.
+  - **Open D1-F10g.212 duplicate-label aggregate support projection（P0 / next code batch）**:
+    1. Gap source: `eval/convergence_audit_summary_20260628_d2_after_f10g210a.md` reran ArkTS/Cangjie/qf after D1-F10g.210a. ArkTS and qf passed, but Cangjie failed with `missing_dimension:package:demo.ffi`. Manual log audit shows exploration and raw `emit_investigation_complete.aggregate_facts` did include both `native_add` declarations and both packages (`demo.bridge`, `demo.ffi`); the loss happened later in answer support/finalizer projection, where the `foreign func 声明` principal support view collapsed to one same-label row.
+    2. Class-level root cause: member-set projection still has a weak identity path for duplicate display labels when the model emits full source locations in `members` but shorter basename-only `support_refs`. The normalizer must preserve or upgrade the member-specific precise source location before support-lane de-duplication, because display label alone is not a row identity for inventories, overloads, multi-package declarations, duplicate route names, same class names in different modules, or generated/fixture/vendor mirrors.
+    3. Target architecture: principal aggregate rows must use `(canonical display label, precise source location, requested typed dimension attributes)` as row identity whenever a location/dimension exists. Support projection may compress prose, but it must not drop a supported row from `aggregate_facts.members` or source-inventory principal rows. Citation/display repairs remain soft projection fixes; this is a principal row preservation issue.
+    4. Planned tasks:
+       - Add a focused regression that reproduces the observed payload shape: duplicate `native_add` members with full paths, basename-only aligned `support_refs`, accepted evidence at full paths, and source-inventory package attributes.
+       - Fix aggregate member/support-ref normalization or support-entry resolution so shorter aligned support refs cannot downgrade a more precise member location.
+       - Verify `CompileEnumerationDisplaySets` and `BuildAnswerSupportPlan` both expose two support rows with distinct locations and package attributes.
+       - Rerun focused `internal/types` tests, then rerun the Cangjie source-inventory eval and update this ledger with pass/fail and remaining gaps.
+    5. Safety boundary: the fix may consume only typed `aggregate_facts.members`, aligned `support_refs`, accepted evidence source/line anchors, source-inventory row attributes, and source-location parsers. It must not parse final answer prose, model reasoning prose, localized REPL text, user keyword tables, elapsed time, prompt fragments, or eval labels.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
