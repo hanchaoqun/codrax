@@ -1501,6 +1501,43 @@ func TestSourceInventoryProfileConflictsWithRoleBinding_TypedBoundary(t *testing
 	}
 }
 
+func TestSourceInventoryPrincipalAuthorityRequiresTypedPrecision(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCountQuestion:       true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqEnumeration)},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation, SourceInventoryFieldSummary},
+			Confidence:        0.7,
+		},
+	}
+	if SourceInventoryPrincipalAuthorityActive(rm) {
+		t.Fatal("plain unscoped type/function inventory profile must stay advisory")
+	}
+
+	rm.SourceScopeProfile = &SourceScopeProfile{RequestedScope: SourceScopeAll}
+	if !SourceInventoryPrincipalAuthorityActive(rm) {
+		t.Fatal("explicit typed source scope should make source inventory principal")
+	}
+
+	rm.SourceScopeProfile = nil
+	rm.SourceInventoryProfile.TypeUnderlying = SourceInventoryTypeUnderlyingString
+	if !SourceInventoryPrincipalAuthorityActive(rm) {
+		t.Fatal("structural type-underlying facet should make source inventory principal")
+	}
+
+	rm.SourceInventoryProfile.TypeUnderlying = SourceInventoryTypeUnderlyingUnknown
+	rm.SourceInventoryProfile.RequiresConstSet = true
+	if !SourceInventoryPrincipalAuthorityActive(rm) {
+		t.Fatal("const-set facet should make source inventory principal")
+	}
+}
+
 func TestSourceInventoryLaneConflictsWithRelationFlow_BeforeProfileSynthesis(t *testing.T) {
 	rm := RequestModel{
 		Intent:        IntentTrace,

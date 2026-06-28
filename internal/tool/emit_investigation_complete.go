@@ -4280,7 +4280,7 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 		return ""
 	}
 	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
-	if profile == nil || !profile.Active() {
+	if profile == nil || !types.SourceInventoryPrincipalAuthorityActive(ctx.AnalysisIR.RequestModel) {
 		return ""
 	}
 	if gap := sourceInventoryResolvedCompletionPreciseCoverageGap(ctx, aggregateFacts); gap.Blocking {
@@ -9963,7 +9963,7 @@ func sourceInventoryMemberSetCompletesGenericForcedReadBoundary(ctx *types.BusCo
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+	if !types.SourceInventoryPrincipalAuthorityActive(rm) {
 		return false
 	}
 	return SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, aggregateFacts) ||
@@ -10055,7 +10055,7 @@ func genericForcedReadBoundaryCanUseModelPrincipalSet(rm types.RequestModel) boo
 		types.RequiresRelationMemberSetHandoff(rm) {
 		return false
 	}
-	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() &&
+	if types.SourceInventoryPrincipalAuthorityActive(rm) &&
 		(rm.Intent == types.IntentEnumerate || rm.Predicates.IsCategoryEnumeration || rm.QuestionStructure().HasAnyObligation()) {
 		return false
 	}

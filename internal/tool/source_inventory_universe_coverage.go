@@ -110,24 +110,17 @@ func (g SourceInventoryCandidateUniverseGap) MissingNames(max int) []string {
 	return out
 }
 
-// SourceInventoryLensExecutionGapForContext reports whether an active
-// source_inventory_profile has reached the executable repo-map lens boundary.
-//
-// Advisory graph rows and direct list_files universes are useful context, but
-// they do not prove that the model/tool loop actually ran the typed
-// source_inventory navigation lens for this inventory lane. This helper is the
-// pre-complete guard for that missing step. It consumes only typed request
-// fields, structured observation provenance, and typed tool observation
-// records; it does not inspect user prose, model rationale, or rendered tool
-// summaries.
+// SourceInventoryLensExecutionGapForContext reports whether a principal
+// source_inventory lane has reached the executable repo-map lens boundary.
 func SourceInventoryLensExecutionGapForContext(ctx *types.BusContext) SourceInventoryLensExecutionGap {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return SourceInventoryLensExecutionGap{}
 	}
-	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
+	rm := ctx.AnalysisIR.RequestModel
+	profile := rm.SourceInventoryProfile
 	advisory := ctx.Mutable.SourceInventoryAdvisory()
 	var roles []types.AnswerCandidateRole
-	if profile != nil && profile.Active() {
+	if types.SourceInventoryPrincipalAuthorityActive(rm) {
 		roles = profile.PrincipalTargetRoles()
 		if len(roles) == 0 {
 			roles = append([]types.AnswerCandidateRole(nil), profile.TargetRoles...)
@@ -157,7 +150,12 @@ func SourceInventoryLensExecutionGapForContext(ctx *types.BusContext) SourceInve
 }
 
 func sourceInventoryAdvisoryIsTypedQueryLane(ctx *types.BusContext, advisory types.SourceInventoryAdvisory) bool {
-	if ctx == nil || ctx.AnalysisIR == nil || !types.IsTypedSourceEnumerationShape(ctx.AnalysisIR.RequestModel) || !advisory.IsActive() {
+	if ctx == nil || ctx.AnalysisIR == nil || !advisory.IsActive() {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !types.SourceInventoryPrincipalAuthorityActive(rm) &&
+		(rm.SourceInventoryProfile != nil || !types.IsTypedSourceEnumerationShape(rm)) {
 		return false
 	}
 	for _, provenance := range advisory.Provenance {

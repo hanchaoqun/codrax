@@ -19,6 +19,7 @@ func TestCompileRepoMapNavigationPolicy_SourceInventory(t *testing.T) {
 			IsSourceInventory: true,
 			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
 		},
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeAll},
 	}
 	got := CompileRepoMapNavigationPolicy(rm, nil, ExploreLanePlan{})
 	if !got.HasRoute(RepoMapNavigationRouteSourceInventory) {
@@ -47,6 +48,7 @@ func TestSourceInventoryPrincipalNavigationActive(t *testing.T) {
 			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
 			Confidence:        0.9,
 		},
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeAll},
 	}
 	if !SourceInventoryPrincipalNavigationActive(principal) {
 		t.Fatal("principal source-inventory lane should own navigation refinement")
@@ -256,6 +258,11 @@ func TestCompileRepoMapNavigationPolicy_InventoryStepTeachesImplementersAlternat
 		AnalyzerHints: AnalyzerHints{
 			Entities: []string{"Tool"},
 		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+		},
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeAll},
 	}
 	got := CompileRepoMapNavigationPolicy(rm, nil, ExploreLanePlan{})
 	if len(got.Steps) == 0 || got.Steps[0].Route != RepoMapNavigationRouteSourceInventory {
@@ -270,6 +277,36 @@ func TestCompileRepoMapNavigationPolicy_InventoryStepTeachesImplementersAlternat
 	}
 	if strings.Contains(rendered, "- `view=\"implementers\"` —") {
 		t.Fatalf("implementers must render inside the inventory step, not as a competing first-hop step:\n%s", rendered)
+	}
+}
+
+func TestCompileRepoMapNavigationPolicy_GenericEnumerationDoesNotStartWithSourceInventory(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCountQuestion:       true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqEnumeration),
+			Entities: []string{"Registry", "DefaultBinding"},
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation, SourceInventoryFieldSummary},
+			Confidence:        0.7,
+		},
+	}
+	if SourceInventoryPrincipalNavigationActive(rm) {
+		t.Fatal("unscoped source-inventory profile without structural facets must not own navigation")
+	}
+	got := CompileRepoMapNavigationPolicy(rm, nil, ExploreLanePlan{})
+	if len(got.Steps) == 0 {
+		t.Fatalf("expected ordinary source navigation hints, got %+v", got)
+	}
+	if got.Steps[0].Route == RepoMapNavigationRouteSourceInventory {
+		t.Fatalf("non-precise inventory profile must not make source_inventory the first hop: %+v", got.Steps)
 	}
 }
 

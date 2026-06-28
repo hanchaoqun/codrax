@@ -389,14 +389,10 @@ func repoMapNavigationCallChainShape(rm RequestModel) bool {
 }
 
 func repoMapNavigationNeedsSourceInventory(rm RequestModel) bool {
-	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+	if SourceInventoryPrincipalNavigationActive(rm) {
 		return true
 	}
-	if RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
-		HasBoundedCategoryEnumerationMembers(rm) ||
-		rm.Predicates.IsCategoryEnumeration ||
-		rm.Predicates.IsCountQuestion ||
-		rm.Intent == IntentEnumerate {
+	if HasBoundedSourceEnumerationScope(rm, nil, "") {
 		return true
 	}
 	return false

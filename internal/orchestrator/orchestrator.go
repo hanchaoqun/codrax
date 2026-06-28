@@ -4907,8 +4907,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			env.InvestigationComplete = o.busCtx.Mutable.IsInvestigationComplete()
 			sourceInventoryObservation := types.SourceInventoryObservationFromMutable(o.busCtx.Mutable)
 			env.SourceInventoryProfileActive = ir != nil &&
-				ir.RequestModel.SourceInventoryProfile != nil &&
-				ir.RequestModel.SourceInventoryProfile.Active()
+				types.SourceInventoryPrincipalAuthorityActive(ir.RequestModel)
 			env.SourceInventoryActive = sourceInventoryObservation.IsActive()
 			env.SourceInventoryLensExecuted = types.SourceInventoryLensExecuted(sourceInventoryObservation)
 			env.SourceClassUniverseComplete = types.SourceInventorySourceClassesComplete(sourceInventoryObservation.SourceClasses)

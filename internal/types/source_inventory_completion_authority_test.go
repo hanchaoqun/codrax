@@ -27,6 +27,8 @@ func TestSourceInventoryCompletionAuthority_BlocksWithFollowupDebt(t *testing.T)
 	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
 		IsSourceInventory: true,
 		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+	}, SourceScopeProfile: &SourceScopeProfile{
+		RequestedScope: SourceScopeAll,
 	}}
 
 	auth := BuildSourceInventoryCompletionAuthority(obs, rm, false)
@@ -86,6 +88,8 @@ func TestSourceInventoryCompletionAuthority_RepoWideStillBlocksAcceptedPartial(t
 	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
 		IsSourceInventory: true,
 		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+	}, SourceScopeProfile: &SourceScopeProfile{
+		RequestedScope: SourceScopeAll,
 	}}
 
 	auth := BuildSourceInventoryCompletionAuthority(obs, rm, true)
@@ -116,6 +120,8 @@ func TestSourceInventoryCompletionAuthority_RequestedUniverseCanCloseRepoWideDeb
 	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
 		IsSourceInventory: true,
 		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+	}, SourceScopeProfile: &SourceScopeProfile{
+		RequestedScope: SourceScopeAll,
 	}}
 
 	auth := BuildSourceInventoryCompletionAuthorityWithOptions(obs, rm, SourceInventoryCompletionAuthorityOptions{
@@ -227,6 +233,8 @@ func TestSourceInventoryCompletionAuthority_InactiveWithoutExecutableLens(t *tes
 	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
 		IsSourceInventory: true,
 		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+	}, SourceScopeProfile: &SourceScopeProfile{
+		RequestedScope: SourceScopeAll,
 	}}
 
 	auth := BuildSourceInventoryCompletionAuthority(obs, rm, false)

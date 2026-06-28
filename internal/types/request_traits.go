@@ -223,6 +223,21 @@ func SourceInventoryLaneConflictsWithRelationFlow(rm RequestModel) bool {
 // schema-only and softer than completion authority: callers use it to choose
 // guidance order, not to prove answer completeness.
 func SourceInventoryPrincipalNavigationActive(rm RequestModel) bool {
+	return SourceInventoryPrincipalAuthorityActive(rm)
+}
+
+// SourceInventoryPrincipalAuthorityActive reports whether a source-inventory
+// profile is precise enough to carry scheduling / completion authority.
+//
+// A model-emitted `source_inventory_profile` by itself is not enough: broad
+// category/count questions about registries, bindings, roles, or architecture
+// can accidentally look like "list all types/functions" even though the answer
+// is proven by owner/relationship evidence. The authority boundary therefore
+// consumes only typed, structural precision signals: an explicit source scope,
+// language-neutral structural facets such as type-underlying / const-set, or a
+// bounded same-directory source universe. Model rationale, raw request prose,
+// and localized keyword tables never participate.
+func SourceInventoryPrincipalAuthorityActive(rm RequestModel) bool {
 	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return false
 	}
@@ -235,7 +250,41 @@ func SourceInventoryPrincipalNavigationActive(rm RequestModel) bool {
 	if SourceInventoryLaneConflictsWithRelationFlow(rm) {
 		return false
 	}
-	return true
+	return SourceInventoryProfileHasPrincipalPrecision(rm)
+}
+
+// SourceInventoryProfileHasPrincipalPrecision is the structural precision
+// check behind SourceInventoryPrincipalAuthorityActive. It deliberately does
+// not read profile rationale. A model confidence value, when present and low,
+// is allowed to demote an otherwise unscoped profile because that is a
+// fail-open-to-ordinary-navigation choice: low-confidence source_inventory
+// remains available as advisory context, but it cannot own the loop.
+func SourceInventoryProfileHasPrincipalPrecision(rm RequestModel) bool {
+	profile := rm.SourceInventoryProfile
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	if profile.RequiresConstSet ||
+		(profile.TypeUnderlying != "" && profile.TypeUnderlying != SourceInventoryTypeUnderlyingUnknown) {
+		return true
+	}
+	if sourceInventoryHasExplicitTypedScope(rm.SourceScopeProfile) {
+		return true
+	}
+	files := BoundedSourceEnumerationScopeFiles(rm, nil, "")
+	if len(files) >= BoundedSourceEnumerationMinFiles &&
+		BoundedSourceEnumerationCommonScope(files) != "" {
+		return true
+	}
+	return profile.Confidence <= 0 || profile.Confidence >= 0.8
+}
+
+func sourceInventoryHasExplicitTypedScope(profile *SourceScopeProfile) bool {
+	if profile == nil {
+		return false
+	}
+	scope := profile.RequestedScope
+	return scope != "" && scope != SourceScopeUnknown && scope.IsValid()
 }
 
 // RequiresExhaustiveEnumerationMemberSetHandoff reports whether a

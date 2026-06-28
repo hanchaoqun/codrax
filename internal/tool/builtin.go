@@ -807,8 +807,7 @@ func readModeExecFileDiscoveryShouldRepair(command string) bool {
 func execCommandActiveSourceInventoryProfile(ctx *types.BusContext) bool {
 	return ctx != nil &&
 		ctx.AnalysisIR != nil &&
-		ctx.AnalysisIR.RequestModel.SourceInventoryProfile != nil &&
-		ctx.AnalysisIR.RequestModel.SourceInventoryProfile.Active()
+		types.SourceInventoryPrincipalAuthorityActive(ctx.AnalysisIR.RequestModel)
 }
 
 func execCommandActiveSourceInventoryDebt(ctx *types.BusContext) bool {
