@@ -10228,8 +10228,7 @@ func sourceInventoryMechanicalRequiredFilePendingReadCanBecomeAdvisory(rm types.
 	if origin != "required_file_hint_unread" && origin != "pre_dispatch.required_file_hint_unread" {
 		return false
 	}
-	if rm.SourceInventoryProfile.RequestsField(types.SourceInventoryFieldSummary) ||
-		rm.SourceInventoryProfile.RequestsField(types.SourceInventoryFieldValues) {
+	if rm.SourceInventoryProfile.RequestsSourceText() {
 		return false
 	}
 	return true

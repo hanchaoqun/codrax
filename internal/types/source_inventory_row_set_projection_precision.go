@@ -12,11 +12,16 @@ func sourceInventoryFilterMixedPrincipalRowSetToExistingRows(rowSet SourceInvent
 	if len(existing) == 0 {
 		return rowSet, false
 	}
+	selectedFamilies := sourceInventorySelectedSurfaceFamilies(rowSet.PrincipalRows, existing)
 	filtered := make([]SourceInventoryRow, 0, len(rowSet.PrincipalRows))
 	var demoted []SourceInventoryRow
 	for _, row := range rowSet.PrincipalRows {
 		key := sourceInventoryPrincipalRowKey(row)
 		if key != "" && existing[key] {
+			filtered = append(filtered, row)
+			continue
+		}
+		if family, ok := sourceInventoryProjectionSurfaceFamilyForRow(row); ok && selectedFamilies[family] {
 			filtered = append(filtered, row)
 			continue
 		}
@@ -33,35 +38,6 @@ func sourceInventoryFilterMixedPrincipalRowSetToExistingRows(rowSet SourceInvent
 	rowSet.PrincipalTotal = len(filtered)
 	rowSet.SupportTotal += len(demoted)
 	return NormalizeSourceInventoryPrincipalRowSet(rowSet), true
-}
-
-func sourceInventoryPrincipalRolesAreMixedSymbolUniverse(roles []AnswerCandidateRole) bool {
-	roles = normalizeSourceInventoryFollowupRoles(roles)
-	if len(roles) >= 3 {
-		return true
-	}
-	if len(roles) <= 1 {
-		return false
-	}
-	seen := map[AnswerCandidateRole]bool{}
-	for _, role := range roles {
-		seen[role] = true
-	}
-	if !seen[AnswerCandidateRoleField] {
-		return false
-	}
-	for _, role := range []AnswerCandidateRole{
-		AnswerCandidateRoleFunction,
-		AnswerCandidateRoleMethod,
-		AnswerCandidateRoleType,
-		AnswerCandidateRoleConstant,
-		AnswerCandidateRoleVariable,
-	} {
-		if seen[role] {
-			return true
-		}
-	}
-	return false
 }
 
 func sourceInventoryPrincipalRefRowKeys(refs []AnswerAggregateFactRef) map[string]bool {

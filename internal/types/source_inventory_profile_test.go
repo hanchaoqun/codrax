@@ -86,3 +86,30 @@ func TestSourceInventoryProfile_NormalizesValuesAfterTypeSubjectInference(t *tes
 		t.Fatalf("package/module/namespace fields should be preserved: %+v", profile.RequestedFields)
 	}
 }
+
+func TestSourceInventoryProfile_MechanicalRowsOnlyBoundary(t *testing.T) {
+	mechanical := &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+		RequestedFields: []SourceInventoryRequestedField{
+			SourceInventoryFieldName,
+			SourceInventoryFieldLocation,
+			SourceInventoryFieldCount,
+			SourceInventoryFieldPackage,
+		},
+	}
+	if !mechanical.MechanicalRowsOnly() || mechanical.RequestsSourceText() {
+		t.Fatalf("mechanical inventory should not require source text: %+v", mechanical)
+	}
+
+	for _, field := range []SourceInventoryRequestedField{SourceInventoryFieldSummary, SourceInventoryFieldValues} {
+		profile := &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, field},
+		}
+		if profile.MechanicalRowsOnly() || !profile.RequestsSourceText() {
+			t.Fatalf("%s inventory should require source text: %+v", field, profile)
+		}
+	}
+}

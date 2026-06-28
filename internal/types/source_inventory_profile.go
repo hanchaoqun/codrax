@@ -194,3 +194,16 @@ func (p *SourceInventoryProfile) RequestsField(field SourceInventoryRequestedFie
 	}
 	return false
 }
+
+// RequestsSourceText reports whether this inventory asks for source-body
+// semantics that typed row metadata alone cannot prove. Mechanical fields such
+// as name, location, count, package, module, and namespace can ride on
+// parser/source-inventory rows; summaries and values require source text.
+func (p *SourceInventoryProfile) RequestsSourceText() bool {
+	return p != nil && p.Active() &&
+		(p.RequestsField(SourceInventoryFieldSummary) || p.RequestsField(SourceInventoryFieldValues))
+}
+
+func (p *SourceInventoryProfile) MechanicalRowsOnly() bool {
+	return p != nil && p.Active() && !p.RequestsSourceText()
+}

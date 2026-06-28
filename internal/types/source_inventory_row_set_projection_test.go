@@ -455,6 +455,82 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_MixedRoleUniverseDo
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_MixedRoleUniverseCompletesSelectedSurfaceFamily(t *testing.T) {
+	scope := SourceScopeAll
+	rm := sourceInventoryProjectionRequestModel(&scope)
+	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{
+		AnswerCandidateRoleFunction,
+		AnswerCandidateRoleType,
+		AnswerCandidateRoleField,
+	}
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		SourceClasses: []SourceInventorySourceClassCount{
+			{Role: SourcePathRoleFixture, Count: 2, Complete: true},
+			{Role: SourcePathRoleThirdParty, Count: 2, Complete: true},
+		},
+		Sets: []SourceInventoryObservationSet{
+			{
+				Role:     AnswerCandidateRoleFunction,
+				Complete: true,
+				Members: []SourceInventoryObservationMember{
+					{Name: "native_add", Role: AnswerCandidateRoleFunction, File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"foreign func", "foreign func native_add"}, CoverageState: SourceInventoryCoverageObserved},
+				},
+			},
+			{
+				Role:     AnswerCandidateRoleType,
+				Complete: true,
+				Members: []SourceInventoryObservationMember{
+					{Name: "Bridge", Role: AnswerCandidateRoleType, File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 15, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Bridge"}, CoverageState: SourceInventoryCoverageObserved},
+					{Name: "Greeter", Role: AnswerCandidateRoleType, File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Greeter"}, CoverageState: SourceInventoryCoverageObserved},
+					{Name: "Version", Role: AnswerCandidateRoleType, File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj", Line: 18, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Version"}, CoverageState: SourceInventoryCoverageObserved},
+					{Name: "Item", Role: AnswerCandidateRoleType, File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"public struct", "public struct Item"}, CoverageState: SourceInventoryCoverageObserved},
+				},
+			},
+			{
+				Role:     AnswerCandidateRoleField,
+				Complete: true,
+				Members: []SourceInventoryObservationMember{
+					{Name: "label", Role: AnswerCandidateRoleField, File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 16, Language: "cangjie", CoverageState: SourceInventoryCoverageObserved},
+				},
+			},
+		},
+	}
+	existing := AnswerAggregateFact{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "public class declarations",
+		Value:      "1",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "explorer",
+		Members:    []string{"Bridge"},
+		SupportRefs: []string{
+			"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+		},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts([]AnswerAggregateFact{existing}, obs, rm)
+	if len(got) != 2 {
+		t.Fatalf("expected existing fact plus completed typed surface-family projection, got %+v", got)
+	}
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("partial model fact should be demoted under completed source-inventory family, got %+v", got[0])
+	}
+	systemFact := got[1]
+	if systemFact.Provenance != SourceInventoryPrincipalRowSetAggregateProvenance || systemFact.Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("missing source-inventory principal projection: %+v", systemFact)
+	}
+	if gotMembers := strings.Join(systemFact.Members, ","); gotMembers != "Bridge,Greeter,Version" {
+		t.Fatalf("projection should complete selected public-class family only, got %q", gotMembers)
+	}
+	for _, notWant := range []string{"native_add", "Item", "label"} {
+		if strings.Contains(strings.Join(systemFact.Members, ","), notWant) {
+			t.Fatalf("projection leaked non-selected mixed-family member %q: %+v", notWant, systemFact.Members)
+		}
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesRowAttributesInSyntheticNotes(t *testing.T) {
 	scope := SourceScopeAll
 	rm := sourceInventoryProjectionRequestModel(&scope)

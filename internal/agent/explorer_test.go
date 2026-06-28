@@ -4464,6 +4464,95 @@ func TestExplorer_FilterToolSchemas_SourceInventoryFollowupSurfaceStaysNarrow(t 
 	}
 }
 
+func TestExplorer_FilterToolSchemas_SourceInventoryMechanicalLandingSurface(t *testing.T) {
+	eval := &explorerEvaluator{sourceInventoryLensSurfaceReleased: true}
+	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(false)
+	ctx.ExploreToolSurface = types.ExploreToolSurfaceSourceInventoryLens
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "exec_command"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_evidence,emit_investigation_complete" {
+		t.Fatalf("complete mechanical source-inventory row-set should switch to landing surface, got %v", gotNames)
+	}
+	blocked := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"src/run.py"}`)})
+	if blocked == nil || blocked.Success {
+		t.Fatalf("mechanical landing surface should reject more read_file calls, got %+v", blocked)
+	}
+	if !strings.Contains(blocked.Summary, "typed source_inventory row-set already covers") {
+		t.Fatalf("read_file rejection should explain typed row-set closure, got %q", blocked.Summary)
+	}
+	if ok := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_investigation_complete", Params: json.RawMessage(`{}`)}); ok != nil {
+		t.Fatalf("completion tool should remain available, got %+v", ok)
+	}
+}
+
+func TestExplorer_FilterToolSchemas_SourceInventoryMechanicalLandingWaitsForMissingSourceClass(t *testing.T) {
+	eval := &explorerEvaluator{sourceInventoryLensSurfaceReleased: true}
+	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(false)
+	ctx.ExploreToolSurface = types.ExploreToolSurfaceSourceInventoryLens
+	obs := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	obs.Complete = false
+	obs.Execution = &types.SourceInventoryExecutionState{CandidateBudgetTruncated: true}
+	obs.Page = &types.SourceInventoryObservationPage{Offset: 0, Emitted: 2, Total: 3, NextCursor: "2", Complete: false}
+	obs.SourceClasses = append(obs.SourceClasses, types.SourceInventorySourceClassCount{
+		Role:     types.SourcePathRoleThirdParty,
+		Count:    1,
+		Complete: true,
+		Languages: []types.SourceInventoryLanguageCount{{
+			Language: "python",
+			Count:    1,
+			InScope:  true,
+			Samples:  []string{"vendor/pkg/entry.py"},
+		}},
+		Samples: []string{"vendor/pkg/entry.py"},
+	})
+	ctx.Mutable.SetSourceInventoryObservation(obs)
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "exec_command"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,grep,repo_map,exec_command,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("missing source-class debt must keep exploration tools available, got %v", gotNames)
+	}
+	if blocked := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"vendor/pkg/entry.py"}`)}); blocked != nil {
+		t.Fatalf("missing source-class debt should not reject read_file, got %+v", blocked)
+	}
+}
+
+func TestExplorer_FilterToolSchemas_SourceInventorySummaryKeepsReadSurface(t *testing.T) {
+	eval := &explorerEvaluator{sourceInventoryLensSurfaceReleased: true}
+	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(true)
+	ctx.ExploreToolSurface = types.ExploreToolSurfaceSourceInventoryLens
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,grep,repo_map,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("summary/value source-inventory still needs source-text tools, got %v", gotNames)
+	}
+	if blocked := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"src/run.py"}`)}); blocked != nil {
+		t.Fatalf("summary inventory should not reject read_file, got %+v", blocked)
+	}
+}
+
 func TestExplorer_SourceInventoryFollowupRouteMatchingIsSetEquivalent(t *testing.T) {
 	debt := types.NormalizeSourceInventoryFollowupDebt(types.SourceInventoryFollowupDebt{
 		Active:     true,
@@ -4683,7 +4772,7 @@ func TestExplorer_BuildInitialInstruction_SourceInventoryLensSurface(t *testing.
 	}
 
 	got := eval.BuildInitialInstruction(ctx, nil)
-	for _, want := range []string{"Source Inventory Lens Probe", `repo_map`, `view="source_inventory"`, "Before that first lens result", "typed principal roles"} {
+	for _, want := range []string{"Source Inventory Lens Probe", `repo_map`, `view="source_inventory"`, "Before that first lens result", "typed principal roles", "mechanical field boundary"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("source-inventory lens instruction missing %q:\n%s", want, got)
 		}
@@ -5122,6 +5211,94 @@ func sourceInventoryInlineFollowupContextForExplorerTest() *types.AgentContext {
 				SourceQuotes: []string{"extend 块", "foreign func 声明", "public class"},
 			},
 		}},
+	}
+}
+
+func sourceInventoryMechanicalLandingContextForExplorerTest(withSummary bool) *types.AgentContext {
+	mut := types.NewMutableState("inventory")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		Provenance: []string{
+			"repo_lens:tool_query",
+			"source_class_universe:repo_tracked",
+		},
+		Lens: []string{"members", "source_class_universe", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleProduction,
+			Count:    2,
+			Complete: true,
+			Samples:  []string{"src/run.py", "src/serve.py"},
+		}},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Run",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "src/run.py",
+				Line:          7,
+				Language:      "python",
+				CoverageState: types.SourceInventoryCoverageObserved,
+				Attributes: []types.SourceInventoryObservationAttribute{{
+					Role:          types.AnswerCandidateRolePackage,
+					Name:          "demo.runner",
+					File:          "src/run.py",
+					Line:          1,
+					Language:      "python",
+					CoverageState: types.SourceInventoryCoverageObserved,
+				}},
+			}, {
+				Name:          "Serve",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "src/serve.py",
+				Line:          12,
+				Language:      "python",
+				CoverageState: types.SourceInventoryCoverageObserved,
+				Attributes: []types.SourceInventoryObservationAttribute{{
+					Role:          types.AnswerCandidateRolePackage,
+					Name:          "demo.server",
+					File:          "src/serve.py",
+					Line:          1,
+					Language:      "python",
+					CoverageState: types.SourceInventoryCoverageObserved,
+				}},
+			}},
+		}},
+	})
+	fields := []types.SourceInventoryRequestedField{
+		types.SourceInventoryFieldName,
+		types.SourceInventoryFieldLocation,
+		types.SourceInventoryFieldCount,
+		types.SourceInventoryFieldPackage,
+	}
+	if withSummary {
+		fields = append(fields, types.SourceInventoryFieldSummary)
+	}
+	return &types.AgentContext{
+		Stage:   types.StageExplore,
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all functions",
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				RequestedFields:   fields,
+				Confidence:        0.95,
+			},
+		}},
+		RepoRoot: ".",
 	}
 }
 

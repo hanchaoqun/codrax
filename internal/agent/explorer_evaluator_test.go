@@ -191,6 +191,7 @@ func TestExplorer_BuildInitialInstruction_RendersSourceInventoryAdvisory(t *test
 		"Principal Source Inventory Slate",
 		"Structured Source Inventory Progress",
 		types.SourceInventoryMechanicalFactBoundary,
+		"Mechanical inventory closure",
 		"first navigation authority",
 		"Generic no-hit searches are advisory",
 		"repo-lens observation invariants",

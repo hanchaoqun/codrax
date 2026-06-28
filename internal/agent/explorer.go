@@ -429,8 +429,17 @@ func renderExplorerSourceInventoryLensSurfaceInstruction(ctx *types.AgentContext
 			b.WriteString("`\n")
 		}
 	}
+	if explorerSourceInventoryMechanicalRowsOnly(ctx) {
+		b.WriteString("- mechanical field boundary: this request asks for row metadata such as name/location/count/package/module/namespace. After a complete typed row-set, materialize/close from the row-set; do not read every candidate file unless one selected row has a concrete contradiction or the requested fields later require source text.\n")
+	}
 	b.WriteString("\nAfter the lens result, emit structured evidence or complete the investigation only if the returned observation covers the requested source-class universe; otherwise let the typed validator drive the next bounded follow-up.\n")
 	return b.String()
+}
+
+func explorerSourceInventoryMechanicalRowsOnly(ctx *types.AgentContext) bool {
+	return ctx != nil && ctx.AnalysisIR != nil &&
+		ctx.AnalysisIR.RequestModel.SourceInventoryProfile != nil &&
+		ctx.AnalysisIR.RequestModel.SourceInventoryProfile.MechanicalRowsOnly()
 }
 
 func renderExplorerReadDispatchPolicyInstruction(ctx *types.AgentContext) string {
@@ -1812,6 +1821,9 @@ func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {
 	b.WriteString("- Reconcile this slate before broad grep/list_files expansion, parser/helper reads, or absence closure. Generic no-hit searches are advisory until this typed slate is satisfied, contradicted, or explicitly scoped out.\n")
 	b.WriteString("- Use it to avoid re-enumerating the same scope in sibling lanes or transient retries.\n")
 	b.WriteString("- If the slate matches what you need, use its counts/members/locations/row-local attributes as the candidate universe, verify only selected or disputed behavior/text claims, and carry the model-authored conclusion through emit_evidence / aggregate_facts.\n")
+	if explorerSourceInventoryMechanicalRowsOnly(ctx) {
+		b.WriteString("- Mechanical inventory closure: name/location/count/package/module/namespace rows can be carried directly from this typed slate. Do not read every listed file just to restate those row fields; read source text only for a selected contradiction or a requested summary/value/body detail.\n")
+	}
 	b.WriteString("- If it does not match, keep your own investigation boundary and explain the gap in the structured closure instead of silently widening the answer.\n\n")
 	b.WriteString(renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
 		SourceInventoryAdvisory:    advisory,
@@ -6877,6 +6889,9 @@ func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[s
 	if e == nil {
 		return nil
 	}
+	if e.sourceInventoryMechanicalLandingSurfaceActive(ctx) {
+		return completionProgressToolNames
+	}
 	if e.midLoopEvidenceRepairSent && e.midLoopEvidenceRepairResultsLen > 0 {
 		// Merge active-repair required tools (e.g. a repo_map demand from the
 		// source-class absence downgrade) onto the evidence-repair surface, the
@@ -6915,6 +6930,40 @@ func (e *explorerEvaluator) sourceInventoryLensSurfaceActive(ctx *types.AgentCon
 	}
 	return ctx.ExploreToolSurface.IsSourceInventoryLens() &&
 		(e == nil || !e.sourceInventoryLensSurfaceReleased)
+}
+
+func (e *explorerEvaluator) sourceInventoryMechanicalLandingSurfaceActive(ctx *types.AgentContext) bool {
+	if e == nil || e.investigationComplete || ctx == nil || ctx.Stage != types.StageExplore ||
+		ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if e.sourceInventoryFollowupRouteActive(ctx) ||
+		(ctx.ExploreToolSurface.IsSourceInventoryLens() && !e.sourceInventoryLensSurfaceReleased) {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.MechanicalRowsOnly() {
+		return false
+	}
+	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	if !observation.IsActive() {
+		return false
+	}
+	debt := types.DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation, rm, ctx.AnalysisIR.EvidencePlan.RequiredFiles)
+	if sourceInventoryInlineFollowupDebtExecutable(debt) {
+		return false
+	}
+	projected := types.ProjectSourceInventoryPrincipalRowSetAggregateFacts(nil, observation, rm)
+	if len(types.PrincipalAggregateMemberSetFactRefsForRequest(projected, &rm)) == 0 {
+		return false
+	}
+	gap := tool.SourceInventoryCandidateUniverseCoverageGap(&types.BusContext{
+		RepoRoot:   ctx.RepoRoot,
+		Mutable:    ctx.Mutable,
+		AnalysisIR: ctx.AnalysisIR,
+		MultiGraph: ctx.MultiGraph,
+	}, projected)
+	return !gap.Blocking
 }
 
 func (e *explorerEvaluator) sourceInventoryFollowupRouteActive(ctx *types.AgentContext) bool {
