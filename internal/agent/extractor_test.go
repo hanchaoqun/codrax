@@ -1277,6 +1277,69 @@ func TestExtractor_BuildPrompt_PlainCallChainSkipsAnswerSymbolFloor(t *testing.T
 	if !contains(prompt, "This dispatch does NOT require `emit_answer_symbol`") {
 		t.Fatalf("plain call-chain prompt must explicitly say emit_answer_symbol is inactive: %q", prompt)
 	}
+	if !contains(prompt, "### Current extract-stage tool obligations") ||
+		!contains(prompt, "allowed_tools: [`emit_answer_symbol`, `emit_hypothesis_verdict`]") ||
+		!contains(prompt, "required_tool_calls: none") {
+		t.Fatalf("plain call-chain prompt must carry the single no-work obligation view:\n%s", prompt)
+	}
+	if ExtractStageHasRequiredWork(ctx) {
+		t.Fatalf("scheduler required-work gate must agree with extractor obligation view")
+	}
+}
+
+func TestExtractor_ToolObligationView_PendingHypothesisDoesNotRequireAnswerSymbol(t *testing.T) {
+	mu := types.NewMutableState("agent hypothesis")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{TerminalEvidenceCount: 3})
+	mu.AppendEmittedHypothesisVerdicts([]types.HypothesisVerdict{{
+		HypothesisID: "h1",
+		Status:       types.HypConfirmed,
+		Rationale:    "already covered",
+	}})
+	ctx := &types.AgentContext{
+		Objective: "explain the agent relation",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+			},
+			HypothesisSet: []types.Hypothesis{
+				{ID: "h1", Status: types.HypUnknown, Statement: "already decided"},
+				{ID: "h2", Status: types.HypUnknown, Statement: "needs a verdict"},
+			},
+		},
+	}
+
+	view := buildExtractorToolObligationView(ctx)
+	if view.NeedAnswerSymbol {
+		t.Fatalf("architecture explanation with pending verdict must not force answer_symbol: %+v", view)
+	}
+	if !view.NeedHypothesisVerdict || strings.Join(view.PendingHypothesisIDs, ",") != "h2" {
+		t.Fatalf("pending hypothesis obligation = %+v, want only h2", view)
+	}
+	if !ExtractStageHasRequiredWork(ctx) {
+		t.Fatalf("scheduler required-work gate should stay active for pending verdict")
+	}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"required_tool_calls: emit_hypothesis_verdict:pending=h2",
+		"`emit_answer_symbol`: inactive",
+		"## Pending hypotheses",
+	} {
+		if !contains(prompt, want) {
+			t.Fatalf("prompt missing obligation surface %q:\n%s", want, prompt)
+		}
+	}
+
+	e := &extractorEvaluator{maxRetries: 1}
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseSoftStop})
+	if !sig.HintRequested {
+		t.Fatal("soft-stop should request the one missing hypothesis-verdict emit")
+	}
+	if !contains(sig.Hint, "emit_hypothesis_verdict") || contains(sig.Hint, "emit_answer_symbol") {
+		t.Fatalf("soft-stop hint should ask only for the pending verdict, got:\n%s", sig.Hint)
+	}
 }
 
 func TestExtractor_BuildPrompt_AlreadyDecidedHypothesesAreNotReEmitted(t *testing.T) {

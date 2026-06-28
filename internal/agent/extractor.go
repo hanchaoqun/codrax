@@ -70,6 +70,122 @@ const (
 	extractorMaxSoftGuidanceNames = 32
 )
 
+type extractorToolObligationView struct {
+	AllowedTools              []string
+	NeedAnswerSymbol          bool
+	AnswerSymbolReason        string
+	RequiredAnswerSymbolCount int
+	NeedHypothesisVerdict     bool
+	PendingHypothesisIDs      []string
+}
+
+func buildExtractorToolObligationView(ctx *types.AgentContext) extractorToolObligationView {
+	view := extractorToolObligationView{
+		AllowedTools: extractorAllowedToolNames(),
+	}
+	view.NeedAnswerSymbol = needsAnswerSymbols(ctx)
+	if view.NeedAnswerSymbol {
+		view.RequiredAnswerSymbolCount = requiredAnswerSymbolCount(ctx)
+		view.AnswerSymbolReason = extractorAnswerSymbolObligationReason(ctx)
+	}
+	view.PendingHypothesisIDs = pendingHypothesisIDs(ctx)
+	view.NeedHypothesisVerdict = len(view.PendingHypothesisIDs) > 0
+	return view
+}
+
+func (view extractorToolObligationView) hasRequiredWork() bool {
+	return view.NeedAnswerSymbol || view.NeedHypothesisVerdict
+}
+
+func (view extractorToolObligationView) requiredToolSummary() string {
+	var parts []string
+	if view.NeedAnswerSymbol {
+		reason := strings.TrimSpace(view.AnswerSymbolReason)
+		if reason == "" {
+			reason = "typed_answer_symbol"
+		}
+		if view.RequiredAnswerSymbolCount > 0 {
+			parts = append(parts, fmt.Sprintf("%s:%s:%d", emitAnswerSymbolToolName, reason, view.RequiredAnswerSymbolCount))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s:%s", emitAnswerSymbolToolName, reason))
+		}
+	}
+	if view.NeedHypothesisVerdict {
+		if len(view.PendingHypothesisIDs) > 0 {
+			parts = append(parts, fmt.Sprintf("%s:pending=%s", emitHypothesisVerdictToolName, strings.Join(view.PendingHypothesisIDs, ",")))
+		} else {
+			parts = append(parts, emitHypothesisVerdictToolName)
+		}
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, "; ")
+}
+
+func renderExtractorToolObligationPrompt(ctx *types.AgentContext) string {
+	view := buildExtractorToolObligationView(ctx)
+	var b strings.Builder
+	b.WriteString("### Current extract-stage tool obligations\n\n")
+	fmt.Fprintf(&b, "- allowed_tools: [%s]\n", extractorToolNameList(view.AllowedTools))
+	fmt.Fprintf(&b, "- required_tool_calls: %s\n", view.requiredToolSummary())
+	if !view.hasRequiredWork() {
+		b.WriteString("- action: no extract-stage tool call is required; preserve the accepted investigation snapshot for final rendering instead of creating a new tool debt.\n")
+	} else {
+		if view.NeedAnswerSymbol {
+			fmt.Fprintf(&b, "- `%s`: required", emitAnswerSymbolToolName)
+			if view.AnswerSymbolReason != "" {
+				fmt.Fprintf(&b, " (%s)", view.AnswerSymbolReason)
+			}
+			if view.RequiredAnswerSymbolCount > 0 {
+				fmt.Fprintf(&b, "; minimum_items=%d", view.RequiredAnswerSymbolCount)
+			}
+			b.WriteString("\n")
+		} else {
+			fmt.Fprintf(&b, "- `%s`: inactive for this dispatch; do not call it just to mirror soft subtopics, historical notes, or support lanes.\n", emitAnswerSymbolToolName)
+		}
+		if view.NeedHypothesisVerdict {
+			fmt.Fprintf(&b, "- `%s`: required for pending hypotheses", emitHypothesisVerdictToolName)
+			if len(view.PendingHypothesisIDs) > 0 {
+				fmt.Fprintf(&b, " [%s]", strings.Join(view.PendingHypothesisIDs, ", "))
+			}
+			b.WriteString("\n")
+		} else {
+			fmt.Fprintf(&b, "- `%s`: inactive; no pending typed hypothesis verdict remains.\n", emitHypothesisVerdictToolName)
+		}
+	}
+	b.WriteString("- historical producer/refinement tools in the handoff are context only; read/search/evidence tools are not callable in this stage.\n\n")
+	return b.String()
+}
+
+func extractorToolNameList(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("`%s`", name))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func extractorAnswerSymbolObligationReason(ctx *types.AgentContext) string {
+	switch {
+	case viewNeedsBoundedPrincipalList(ctx):
+		return "bounded_principal_member_slate"
+	case requiresMultiTopicAnchorSkeleton(ctx):
+		return "anchor_skeleton"
+	case viewNeedsEnumerationSlate(ctx):
+		return "symbol_enumeration"
+	default:
+		return "typed_answer_symbol"
+	}
+}
+
 // extractorEvaluator is the Turn B evaluator. It is a separate type
 // from explorerEvaluator so the two turns cannot accidentally share
 // state. Implements LoopController so the mid-loop path can stop
@@ -353,6 +469,8 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			b.WriteString("This dispatch does NOT require `emit_answer_symbol`. The principal answer will be rendered downstream from typed ordered_list / diagram / prose support lanes, so do not manufacture a symbol slate just because the user asked for a call chain, mechanism walk, architecture explanation, relation-edge evidence enumeration, or non-symbol evidence enumeration. Only an explicit Anchor skeleton block, a Requested Set Boundary, or a symbol-backed enumeration without a principal relation/evidence lane activates `emit_answer_symbol` as a hard obligation; analyzer sub-topics alone are guidance.\n\n")
 		}
 	}
+
+	b.WriteString(renderExtractorToolObligationPrompt(ctx))
 
 	// -------- Hypothesis-verdict citation lanes (artifact turns) --------
 	// Pre-states the SAME typed condition emit_hypothesis_verdict
@@ -2844,6 +2962,7 @@ func mergeEvidenceForAxisCheck(ctx *types.AgentContext) []types.EvidenceItem {
 // semantics: last-written wins); it simply isn't forced to.
 func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	if obs.Phase == PhaseMidLoop {
+		obligations := buildExtractorToolObligationView(ctx)
 		if unsupported := extractorUnsupportedToolCalls(obs.Response.ToolCalls); len(unsupported) > 0 &&
 			!extractorHasSuccessfulAllowedToolResult(obs.AllToolResults) &&
 			e.retriesUsed < e.maxRetries {
@@ -2852,8 +2971,10 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 				HintRequested: true,
 				HintKey:       fmt.Sprintf("extractor.unsupported_tool.%d", e.retriesUsed),
 				Hint: fmt.Sprintf(
-					"The extractor stage cannot use tool(s): %s. Use only `emit_answer_symbol` and `emit_hypothesis_verdict`; do not read/search files or re-emit evidence here because the investigation snapshot is already fixed. If no structured extraction emit is required, stop without calling unavailable tools.",
-					strings.Join(unsupported, ", ")),
+					"The extractor stage cannot use tool(s): %s. Current allowed tools are [%s]. Current required tool calls: %s. Please do not read/search files or re-emit evidence here because the investigation snapshot is already fixed. If no structured extraction emit is required, stop without calling unavailable tools.",
+					strings.Join(unsupported, ", "),
+					extractorToolNameList(obligations.AllowedTools),
+					obligations.requiredToolSummary()),
 			}
 		}
 		gotSymbols, gotVerdicts := false, false
@@ -2868,8 +2989,8 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 				gotVerdicts = true
 			}
 		}
-		needSymbols := needsAnswerSymbols(ctx)
-		needVerdicts := hasPendingHypotheses(ctx)
+		needSymbols := obligations.NeedAnswerSymbol
+		needVerdicts := obligations.NeedHypothesisVerdict
 		if needSymbols && gotSymbols && !hasSufficientAnswerSymbols(ctx) && e.retriesUsed < e.maxRetries {
 			e.retriesUsed++
 			hint := answerSymbolMaterializationHint(ctx)
@@ -2939,8 +3060,9 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return LoopSignal{}
 	}
-	missingSymbols := needsAnswerSymbols(ctx) && !hasSufficientAnswerSymbols(ctx)
-	missingVerdicts := hasPendingHypotheses(ctx)
+	obligations := buildExtractorToolObligationView(ctx)
+	missingSymbols := obligations.NeedAnswerSymbol && !hasSufficientAnswerSymbols(ctx)
+	missingVerdicts := obligations.NeedHypothesisVerdict
 	if !missingSymbols && !missingVerdicts {
 		return LoopSignal{}
 	}
@@ -3051,6 +3173,10 @@ func extractorAllowedToolName(name string) bool {
 	}
 }
 
+func extractorAllowedToolNames() []string {
+	return []string{emitAnswerSymbolToolName, emitHypothesisVerdictToolName}
+}
+
 // ExtractStageHasRequiredWork is the scheduler-facing authority for whether
 // StageExtract needs an LLM dispatch. It consumes only typed stage state:
 // answer-symbol requirements and pending hypothesis verdicts. When both are
@@ -3060,7 +3186,7 @@ func ExtractStageHasRequiredWork(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return true
 	}
-	return needsAnswerSymbols(ctx) || hasPendingHypotheses(ctx)
+	return buildExtractorToolObligationView(ctx).hasRequiredWork()
 }
 
 func extractorHasSuccessfulAllowedToolResult(results []types.ToolResult) bool {
@@ -3554,25 +3680,30 @@ func requiresMultiTopicAnchorSkeleton(ctx *types.AgentContext) bool {
 // still override by emitting in parallel at iter=0, but is not nagged
 // to do so.
 func hasPendingHypotheses(ctx *types.AgentContext) bool {
+	return len(pendingHypothesisIDs(ctx)) > 0
+}
+
+func pendingHypothesisIDs(ctx *types.AgentContext) []string {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
-		return false
+		return nil
 	}
 	if len(ctx.AnalysisIR.HypothesisSet) == 0 {
-		return false
+		return nil
 	}
 	if extractorRuntimeArtifactWithoutRequiredCurrentSource(ctx) {
-		return false
+		return nil
 	}
 	verdicted := make(map[string]bool)
 	for _, v := range ctx.Mutable.EmittedHypothesisVerdicts() {
 		verdicted[v.HypothesisID] = true
 	}
+	var out []string
 	for _, h := range ctx.AnalysisIR.HypothesisSet {
 		if !verdicted[h.ID] {
-			return true
+			out = append(out, h.ID)
 		}
 	}
-	return false
+	return out
 }
 
 // extractorInvestigationEmpty reports whether Turn A left the
