@@ -1078,6 +1078,28 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 }
 
 func TestAnalyzerSameBatchPrescanBoundary(t *testing.T) {
+	t.Run("repo_map prescan prunes same-batch grep before history", func(t *testing.T) {
+		mu := types.NewMutableState("source inventory classification")
+		ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mu}
+		calls := []llm.ToolCall{
+			{Name: "repo_map", Params: json.RawMessage(`{"path":".","view":"source_inventory","roles":["type","function"]}`)},
+			{Name: "grep", Params: json.RawMessage(`{"pattern":"public\\s+class","files_only":true}`)},
+			{Name: "list_files", Params: json.RawMessage(`{"path":"internal"}`)},
+		}
+
+		got := pruneAnalyzerPrescanBatchBeforeHistory(ctx, calls)
+		if len(got) != 1 || got[0].Name != "repo_map" {
+			t.Fatalf("same-batch prescan pruning should keep only repo_map, got %v", toolCallNames(got))
+		}
+		if strings.Contains(string(got[0].Params), "public") {
+			t.Fatalf("grep params leaked into pruned call history: %s", got[0].Params)
+		}
+		signals := mu.AnalyzerDecisions()
+		if len(signals) == 0 || signals[len(signals)-1].Kind != "prescan_same_batch_pruned" {
+			t.Fatalf("expected analyzer pruning decision, got %+v", signals)
+		}
+	})
+
 	t.Run("analyze prescan batches execute sequentially", func(t *testing.T) {
 		ctx := &types.AgentContext{Stage: types.StageAnalyze}
 		calls := []llm.ToolCall{

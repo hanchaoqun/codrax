@@ -1236,6 +1236,40 @@ func TestAnalyzer_PrescanResultSupportsClassificationStop_GuardsBroadOrLineGreps
 	}
 }
 
+func TestAnalyzer_SameBatchPrescanSignalSkipsSiblingFanoutWithoutGlobalReady(t *testing.T) {
+	mu := types.NewMutableState("source inventory shape")
+	mu.SetPrescanRoundLimit(4)
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mu}
+	result := &types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:        types.ToolPathDiscoveryKindGrep,
+			Path:        ".",
+			FilesOnly:   true,
+			ResultCount: 228,
+		},
+	}
+
+	if !applyAnalyzerSameBatchPrescanBoundary(ctx, result) {
+		t.Fatal("root-scoped files-only grep should close only the current assistant batch to prevent fan-out")
+	}
+	if mu.PrescanReady() {
+		t.Fatal("root-scoped files-only grep must not become global PrescanReady")
+	}
+	skipped := analyzerSameBatchStalePrescanSkipResult(ctx, llm.ToolCall{
+		Name:   "list_files",
+		Params: json.RawMessage(`{"path":"."}`),
+	}, true)
+	if skipped == nil || !skipped.Success {
+		t.Fatalf("sibling prescan should be skipped as non-failure, got %+v", skipped)
+	}
+	if !strings.Contains(skipped.Summary, "same assistant response") ||
+		!strings.Contains(skipped.Summary, "not evidence absence") {
+		t.Fatalf("skip summary should explain local fan-out suppression without absence semantics: %q", skipped.Summary)
+	}
+}
+
 func TestAnalyzer_FilterToolSchemas_NormalDropsContentTools(t *testing.T) {
 	e := &analyzerEvaluator{}
 	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: types.NewMutableState("question")}

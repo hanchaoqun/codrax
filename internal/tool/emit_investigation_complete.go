@@ -4171,7 +4171,14 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 		files := completionMaterializationReadFiles(closure)
 		keywords := dedupStringsPreserveOrder(append(append([]string{}, rm.AnalyzerHints.ExactTargets...), append(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities...)...))
 		subject := ""
-		if originSpecificOnlyMemberSet {
+		if types.SourceInventoryPrincipalNavigationActive(rm) {
+			repairKind = types.RepairStructuredHandoff
+			repairOrigin = types.RepairOriginCompletionFormPrefix + "source_inventory_member_set"
+			repairRationale = "source-inventory enumeration needs a corrected aggregate_facts.member_set handoff using existing source-inventory row locations; do not reopen broad evidence collection for completion-form debt"
+			files = nil
+			keywords = nil
+			subject = "Repair aggregate_facts.member_set from the current typed source-inventory row set. Use member-specific support_refs copied from row locations already visible in this turn."
+		} else if originSpecificOnlyMemberSet {
 			repairKind = types.RepairStructuredHandoff
 			repairOrigin = "pre_complete.exhaustive_member_set.origin_specific"
 			repairRationale = "origin-specific external observations need a corrected aggregate_facts.member_set handoff with principal_answer role, exact members, and structured origin/provenance; do not repair this by emitting current-source evidence for the external artifact"
@@ -4216,7 +4223,9 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 		b.WriteString(checklist)
 		b.WriteString("\n\n")
 	}
-	if originSpecificOnlyMemberSet {
+	if types.SourceInventoryPrincipalNavigationActive(rm) {
+		b.WriteString("Repair `aggregate_facts` with kind=`member_set`, role=`principal_answer`, value equal to the exact selected source-inventory member count, and `members` containing only the requested principal source rows. Use the source-inventory row locations already visible in this turn as member-specific `support_refs` (`Member @ path/file.ext:123` or positional `path/file.ext:123`). Do not call tools that are not present in the current turn, and do not reopen broad exploration solely to satisfy completion-form debt. If a candidate cannot be grounded from the current typed source-inventory row set or already-read evidence, omit it from the principal set or disclose it as a caveat/exclusion rather than inventing support. Then re-call `emit_investigation_complete`.")
+	} else if originSpecificOnlyMemberSet {
 		b.WriteString("Either emit the completed `emit_answer_symbol` slate, or repair `aggregate_facts` with kind=`member_set`, role=`principal_answer`, value equal to the exact member count, and `members` containing every principal answer member copied from the origin-specific tool/resource results. Preserve structured origin/provenance dimensions such as origin=`runtime_artifact`, artifact_id/artifact_kind, payload_ref/row_set_ref, or the producer token that identifies the external observation lane. Do not call `emit_evidence` for external trace/log/document/resource rows, and do not invent repo file:line `support_refs` for artifact-local members. If the external result has artifact-local line/row/time coordinates, carry them in dimensions/supporting aggregate facts or member notes rather than converting them into current-source citations. Then re-call `emit_investigation_complete`.")
 	} else {
 		b.WriteString("Either emit the completed `emit_answer_symbol` slate, or include `aggregate_facts` with kind=`member_set`, value equal to the exact member count, and `members` containing every principal answer member copied from your verified search/read/command results. For a verified empty set, use value=\"0\" and members=[] together with typed zero-result support such as `negative_search` or `negative_observation`; do not use `scalar_value` as the principal set carrier. For code symbols, paths, routes, config keys, macros, spans, and source-location members, each non-empty member must be backed by typed evidence already emitted through `emit_evidence`, or by member-specific `support_refs` such as `Member @ path/file.ext:123` that point to the same grounded evidence line. Exclude related-context/helper candidates from the principal member_set. If your broad candidate search count is different from the verified member_set count, also emit companion total_count/excluded_count aggregate facts with dimensions that name the candidate stage and exclusion basis. Then re-call `emit_investigation_complete`.")

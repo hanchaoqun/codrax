@@ -3406,6 +3406,48 @@ func TestEmitInvestigationComplete_DowngradesDeclaredEnumerationWithoutMemberSet
 	}
 }
 
+func TestExhaustiveEnumerationMemberSetDowngrade_SourceInventoryUsesStructuredHandoffRepair(t *testing.T) {
+	mut := types.NewMutableState("仓库里有哪些 extend 块、哪些 foreign func 声明、哪些 public class？")
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.AnalyzerHints = types.AnalyzerHints{
+		Kind:     string(types.ReqEnumeration),
+		Entities: []string{"extend 块", "foreign func 声明", "public class"},
+	}
+	ir.RequestModel.SourceInventoryProfile = &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleFunction},
+		SourceQuotes:      []string{"extend 块", "foreign func 声明", "public class"},
+		Confidence:        0.9,
+	}
+	ir.RequestModel.SourceScopeProfile = &types.SourceScopeProfile{RequestedScope: types.SourceScopeAll}
+	bus := &types.BusContext{
+		Mutable:    mut,
+		AnalysisIR: ir,
+	}
+
+	summary := exhaustiveEnumerationMemberSetDowngrade(bus, mut.EvidenceClosure(), nil)
+	if !strings.Contains(summary, "source-inventory") {
+		t.Fatalf("expected source-inventory-specific structured handoff guidance, got: %s", summary)
+	}
+	for _, notWant := range []string{"emit_answer_symbol", "emit_evidence"} {
+		if strings.Contains(summary, notWant) {
+			t.Fatalf("source-inventory completion-form debt must not ask for unavailable %s: %s", notWant, summary)
+		}
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 {
+		t.Fatalf("expected structured handoff repair directive")
+	}
+	last := repairs[len(repairs)-1]
+	if last.Kind != types.RepairStructuredHandoff ||
+		last.Origin != types.RepairOriginCompletionFormPrefix+"source_inventory_member_set" {
+		t.Fatalf("expected completion-form structured_handoff repair, got %+v", last)
+	}
+	if tools := types.RepairDirectiveRequiredTools(last); len(tools) != 0 {
+		t.Fatalf("completion-form source-inventory repair must not require extra tools, got %+v", tools)
+	}
+}
+
 func TestEmitInvestigationComplete_AllowsExhaustiveEnumerationMemberSet(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})

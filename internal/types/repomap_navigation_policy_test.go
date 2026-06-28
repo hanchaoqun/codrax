@@ -36,6 +36,37 @@ func TestCompileRepoMapNavigationPolicy_SourceInventory(t *testing.T) {
 	}
 }
 
+func TestCompileRepoMapNavigationPolicy_SourceInventoryQueryUsesSourceQuotesBeforeNoisyAnalyzerTerms(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqEnumeration),
+			Entities: []string{"ArkTS", "CangjieParser"},
+			Keywords: []string{"ArkTS", "language-specific", "helper implementation"},
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType, AnswerCandidateRoleFunction},
+			SourceQuotes:      []string{"extend 块", "foreign func 声明", "public class"},
+			Confidence:        0.9,
+		},
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeAll},
+	}
+
+	got := CompileRepoMapNavigationPolicy(rm, nil, ExploreLanePlan{})
+	if strings.Join(got.QueryTerms, "|") != "extend 块|foreign func 声明|public class" {
+		t.Fatalf("source-inventory query terms should come from typed source_quotes, got %+v", got.QueryTerms)
+	}
+	for _, noisy := range []string{"ArkTS", "CangjieParser", "helper implementation"} {
+		if containsRepoMapPolicyTerm(got.QueryTerms, noisy) {
+			t.Fatalf("noisy analyzer term %q must not widen source-inventory query terms: %+v", noisy, got.QueryTerms)
+		}
+	}
+}
+
 func TestSourceInventoryPrincipalNavigationActive(t *testing.T) {
 	principal := RequestModel{
 		Intent: IntentEnumerate,

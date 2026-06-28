@@ -384,6 +384,66 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsMissingSameNameDifferentL
 	}
 }
 
+func TestNormalizePrincipalEnumerationItemCitationRefs_UsesTypedSurfaceTermsForSameLabelRows(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "extend-table",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "extend-cart",
+				Label:       "Cart",
+				Text:        "extend Cart { ... }，包路径 demo.cart",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "src/cart/Cart.cj", Line: 14, Quote: "public class Cart {"},
+		},
+	}
+	sets := []types.EnumerationDisplaySet{{
+		ID:    "source-inventory-extend",
+		Label: "extend 块成员集",
+		Rows: []types.EnumerationDisplayRow{
+			{
+				RowID:        "extend-cart",
+				SetID:        "source-inventory-extend",
+				SetLabel:     "extend 块成员集",
+				Member:       "Cart @ src/cart/Cart.cj:30",
+				DisplayLabel: "Cart",
+				Source:       "src/cart/Cart.cj",
+				LineStart:    30,
+				Location:     "src/cart/Cart.cj:30",
+				HasCitation:  true,
+				SurfaceTerms: []string{"extend", "extend Cart"},
+			},
+			{
+				RowID:        "class-cart",
+				SetID:        "source-inventory-class",
+				SetLabel:     "public class 成员集",
+				Member:       "Cart @ src/cart/Cart.cj:14",
+				DisplayLabel: "Cart",
+				Source:       "src/cart/Cart.cj",
+				LineStart:    14,
+				Location:     "src/cart/Cart.cj:14",
+				HasCitation:  true,
+				SurfaceTerms: []string{"public class", "public class Cart"},
+			},
+		},
+	}}
+
+	if fixed := normalizePrincipalEnumerationItemCitationRefs(doc, sets); fixed != 1 {
+		t.Fatalf("expected one same-label typed surface citation repair, got %d; doc=%+v", fixed, doc)
+	}
+	ref := doc.Blocks[0].Items[0].CitationRef
+	if ref < 0 || ref >= len(doc.Citations) {
+		t.Fatalf("citation_ref out of range after repair: %d citations=%+v", ref, doc.Citations)
+	}
+	if got := doc.Citations[ref]; got.File != "src/cart/Cart.cj" || got.Line != 30 {
+		t.Fatalf("same-label row repaired to wrong citation %+v; citations=%+v", got, doc.Citations)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForCorruptMarkdownSourceInventoryTable(t *testing.T) {
 	mu := types.NewMutableState("列出公开字符串枚举类型")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

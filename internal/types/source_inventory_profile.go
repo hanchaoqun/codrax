@@ -79,8 +79,12 @@ func (p *SourceInventoryProfile) PrincipalTargetRoles() []AnswerCandidateRole {
 	}
 	out := make([]AnswerCandidateRole, 0, len(p.TargetRoles))
 	seen := map[AnswerCandidateRole]bool{}
+	dropDisplayAttributes := p.hasStructuralPrincipalRole() && p.requestsPackageLikeDisplayField()
 	for _, role := range p.TargetRoles {
 		if role == AnswerCandidateRoleUnknown || seen[role] {
+			continue
+		}
+		if dropDisplayAttributes && sourceInventoryDisplayAttributeRole(role) {
 			continue
 		}
 		seen[role] = true

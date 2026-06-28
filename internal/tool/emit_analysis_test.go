@@ -3502,6 +3502,70 @@ func TestEmitAnalysis_SourceInventoryKeepsPackageModuleRequestedFields(t *testin
 	}
 }
 
+func TestEmitAnalysis_SourceInventoryDemotesPackageDisplayRoleWithConstructPrincipals(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("仓库里有哪些 extend 块、哪些 foreign func 声明、哪些 public class？分别列出文件路径和符号名，并指出包路径（package 声明）。")
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["extend", "foreign func", "public class", "package"],
+		"entities": ["extend", "foreign func", "public class", "package"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.95,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.95
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["function", "type", "package"],
+			"requested_fields": ["name", "location", "package", "module", "namespace"],
+			"source_quotes": ["extend 块", "foreign func 声明", "public class"],
+			"confidence": 0.95
+		}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceInventoryProfile == nil {
+		t.Fatalf("RequestModel/source_inventory_profile not persisted: %+v", rm)
+	}
+	roles := rm.SourceInventoryProfile.PrincipalTargetRoles()
+	if len(roles) != 2 || roles[0] != types.AnswerCandidateRoleFunction || roles[1] != types.AnswerCandidateRoleType {
+		t.Fatalf("package display role should not remain principal with construct roles, got %+v profile=%+v", roles, rm.SourceInventoryProfile)
+	}
+	if rm.SourceInventoryProfile.RequiresPrincipalRole(types.AnswerCandidateRolePackage) {
+		t.Fatalf("package display field leaked into principal source-inventory roles: %+v", rm.SourceInventoryProfile)
+	}
+	if !strings.Contains(res.Summary, "display attribute role") {
+		t.Fatalf("normalization should be disclosed in summary warnings, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_SourceInventoryKeepsProductionWithTypedAuxiliaryExclusion(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -4880,6 +4944,146 @@ func TestEmitAnalysis_SynthesizedInventoryPreservesValidatedSourceQuotesFromInva
 	}
 }
 
+func TestEmitAnalysis_EnrichesSynthesizedInventoryFromAnalyzerPrescan(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	mu := types.NewMutableState("仓库里有哪些 extend 块、哪些 foreign func 声明、哪些 public class？分别列出文件路径和符号名，并指出包路径（package 声明）。")
+	prescan := types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       []string{"."},
+		Provenance: []string{
+			types.SourceInventoryProvenanceRepoLensToolQuery,
+			types.SourceInventoryProvenanceStageAnalyze,
+			"repo_lens:candidate_budget_truncated",
+		},
+		Execution: &types.SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets: []types.SourceInventoryObservationSet{
+			{
+				Role: types.AnswerCandidateRoleType,
+				Members: []types.SourceInventoryObservationMember{
+					{Name: "Cart", Role: types.AnswerCandidateRoleType, File: "demo/cart/Cart.cj", Line: 14, SurfaceTerms: []string{"public class", "public class Cart"}},
+					{Name: "extend Cart", Role: types.AnswerCandidateRoleType, File: "demo/cart/Cart.cj", Line: 30, SurfaceTerms: []string{"extend", "extend Cart"}},
+				},
+			},
+			{
+				Role: types.AnswerCandidateRoleFunction,
+				Members: []types.SourceInventoryObservationMember{
+					{Name: "native_add", Role: types.AnswerCandidateRoleFunction, File: "demo/bridge/Bridge.cj", Line: 6, SurfaceTerms: []string{"foreign func", "foreign func native_add"}},
+				},
+			},
+			{
+				Role: types.AnswerCandidateRolePackage,
+				Members: []types.SourceInventoryObservationMember{
+					{Name: "demo.cart", Role: types.AnswerCandidateRolePackage, File: "demo/cart/Cart.cj", Line: 4, SurfaceTerms: []string{"package demo.cart"}},
+				},
+			},
+			{
+				Role: types.AnswerCandidateRoleField,
+				Members: []types.SourceInventoryObservationMember{
+					{Name: "count", Role: types.AnswerCandidateRoleField, File: "demo/cart/Cart.cj", Line: 16, SurfaceTerms: []string{"field count"}},
+				},
+			},
+			{
+				Role: types.AnswerCandidateRoleVariable,
+				Members: []types.SourceInventoryObservationMember{
+					{Name: "temp", Role: types.AnswerCandidateRoleVariable, File: "demo/cart/Cart.cj", Line: 21, SurfaceTerms: []string{"variable temp"}},
+				},
+			},
+			{
+				Role: types.AnswerCandidateRoleConstant,
+				Members: []types.SourceInventoryObservationMember{
+					{Name: "VERSION", Role: types.AnswerCandidateRoleConstant, File: "demo/cart/Cart.cj", Line: 8, SurfaceTerms: []string{"constant VERSION"}},
+				},
+			},
+		},
+	}
+	mu.AppendDispatchToolResult(types.ToolResult{
+		ToolName:        "repo_map",
+		Success:         true,
+		SourceInventory: &prescan,
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode:        "source_inventory_candidate_budget_truncated",
+			PreferredNextTool: "repo_map",
+			PreferredParams: map[string]string{
+				"view":  "source_inventory",
+				"query": "extend foreign func public class",
+			},
+		},
+	})
+	payload := withRequiredAnswerRoleProfile(`{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "complex",
+		"keywords": ["extend", "foreign", "foreign func", "public", "class", "package"],
+		"entities": ["extend", "foreign func", "public class", "package 声明"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.80,
+		"kind_confidence": 0.95,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": true
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		}
+	}`)
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		t.Fatalf("prescan should synthesize source_inventory_profile: %+v", rm)
+	}
+	for _, want := range []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleFunction} {
+		if !rm.SourceInventoryProfile.RequiresRole(want) {
+			t.Fatalf("source_inventory_profile roles = %+v, want %s", rm.SourceInventoryProfile.TargetRoles, want)
+		}
+	}
+	for _, notWant := range []types.AnswerCandidateRole{
+		types.AnswerCandidateRolePackage,
+		types.AnswerCandidateRoleField,
+		types.AnswerCandidateRoleVariable,
+		types.AnswerCandidateRoleConstant,
+	} {
+		if rm.SourceInventoryProfile.RequiresRole(notWant) {
+			t.Fatalf("advisory prescan observation role %s must not widen synthesized principal roles: %+v", notWant, rm.SourceInventoryProfile.TargetRoles)
+		}
+	}
+	gotQuotes := strings.Join(rm.SourceInventoryProfile.SourceQuotes, "|")
+	for _, want := range []string{"extend", "foreign func", "public class"} {
+		if !strings.Contains(gotQuotes, want) {
+			t.Fatalf("source_inventory_profile quotes = %+v, want %q", rm.SourceInventoryProfile.SourceQuotes, want)
+		}
+	}
+	if strings.Contains(gotQuotes, "public class Cart") || strings.Contains(gotQuotes, "foreign func native_add") {
+		t.Fatalf("row-specific surface terms not present in the current request must not become hard profile quotes: %+v", rm.SourceInventoryProfile.SourceQuotes)
+	}
+	if !strings.Contains(res.Summary, "source_inventory=") {
+		t.Fatalf("summary should expose enriched inventory lane, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_ProjectsPrescanFilesForSourceInventoryCoverage(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -5361,6 +5565,11 @@ func TestEmitAnalysis_Execute_NormalizesSourceInventoryConstructRoleAliases(t *t
 		"keywords": ["extend", "foreign func", "public class"],
 		"entities": ["extend", "foreign func", "public class"],
 		"question_kind": "enumeration",
+		"sub_topics": [
+			{"summary": "列出仓库中所有 ArkTS extend 块", "entities": ["ArkTS", "extend"]},
+			{"summary": "列出仓库中所有 ArkTS foreign func 声明", "entities": ["ArkTS", "foreign func"]},
+			{"summary": "列出仓库中所有 ArkTS public class", "entities": ["ArkTS", "public class"]}
+		],
 		"intent_confidence": 0.94,
 		"complexity_confidence": 0.86,
 		"kind_confidence": 0.92,
@@ -5406,6 +5615,14 @@ func TestEmitAnalysis_Execute_NormalizesSourceInventoryConstructRoleAliases(t *t
 	}
 	if strings.Contains(res.Summary, "target_roles omitted or empty") {
 		t.Fatalf("summary should not drop source inventory profile: %s", res.Summary)
+	}
+	if len(rm.SubTopics) != 3 {
+		t.Fatalf("source inventory subtopics should be reconstructed from source_quotes, got %+v", rm.SubTopics)
+	}
+	for _, topic := range rm.SubTopics {
+		if strings.Contains(topic.Summary, "ArkTS") {
+			t.Fatalf("prescan-only language guesses must not survive source_inventory subtopic normalization: %+v", rm.SubTopics)
+		}
 	}
 }
 

@@ -56,6 +56,54 @@ func TestSourceInventoryProfile_PrincipalTargetRolesTreatsConstSetAsQualifier(t 
 	}
 }
 
+func TestSourceInventoryProfile_NormalizesPackageDisplayRoleDrift(t *testing.T) {
+	profile := &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles: []AnswerCandidateRole{
+			AnswerCandidateRoleFunction,
+			AnswerCandidateRoleType,
+			AnswerCandidateRolePackage,
+		},
+		RequestedFields: []SourceInventoryRequestedField{
+			SourceInventoryFieldName,
+			SourceInventoryFieldLocation,
+			SourceInventoryFieldPackage,
+			SourceInventoryFieldModule,
+			SourceInventoryFieldNamespace,
+		},
+		Confidence: 0.95,
+	}
+
+	removed := NormalizeSourceInventoryDisplayAttributeRoles(profile)
+	if len(removed) != 1 || removed[0] != AnswerCandidateRolePackage {
+		t.Fatalf("removed roles = %+v, want package", removed)
+	}
+	got := profile.PrincipalTargetRoles()
+	if len(got) != 2 || got[0] != AnswerCandidateRoleFunction || got[1] != AnswerCandidateRoleType {
+		t.Fatalf("package display field should not remain principal with structural roles, got %+v", got)
+	}
+	if profile.RequiresPrincipalRole(AnswerCandidateRolePackage) {
+		t.Fatalf("package requested field must not be a principal role: %+v", profile)
+	}
+}
+
+func TestSourceInventoryProfile_KeepsPackageOnlyInventoryPrincipal(t *testing.T) {
+	profile := &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRolePackage},
+		RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldPackage},
+		Confidence:        0.95,
+	}
+
+	if removed := NormalizeSourceInventoryDisplayAttributeRoles(profile); len(removed) != 0 {
+		t.Fatalf("package-only inventory should stay principal, removed %+v", removed)
+	}
+	got := profile.PrincipalTargetRoles()
+	if len(got) != 1 || got[0] != AnswerCandidateRolePackage {
+		t.Fatalf("package-only inventory principal roles = %+v", got)
+	}
+}
+
 func TestSourceInventoryProfile_InfersTypeNameSubjectFromTypedInventory(t *testing.T) {
 	profile := &SourceInventoryProfile{
 		IsSourceInventory: true,

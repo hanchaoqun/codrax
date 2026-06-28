@@ -484,7 +484,8 @@ func principalEnumerationRowRequiresExactLocationIdentity(row types.EnumerationD
 func principalEnumerationItemStronglyIdentifiesRow(item types.AnswerBlockItem, row types.EnumerationDisplayRow) bool {
 	surface := types.AnswerBlockItemVisibleSurface(item)
 	return principalEnumerationItemSurfaceHasRowLocation(surface, row) ||
-		principalEnumerationItemSurfaceHasRowAttribute(surface, row)
+		principalEnumerationItemSurfaceHasRowAttribute(surface, row) ||
+		principalEnumerationItemSurfaceHasTypedSurfaceTerm(surface, row)
 }
 
 func principalEnumerationItemSurfaceHasRowLocation(surface string, row types.EnumerationDisplayRow) bool {
@@ -546,6 +547,42 @@ func principalEnumerationItemSurfaceHasRowAttribute(surface string, row types.En
 		}
 	}
 	return false
+}
+
+func principalEnumerationItemSurfaceHasTypedSurfaceTerm(surface string, row types.EnumerationDisplayRow) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" || len(row.SurfaceTerms) == 0 {
+		return false
+	}
+	generic := principalEnumerationGenericRowSurfaceTermKeys(row)
+	for _, term := range row.SurfaceTerms {
+		term = strings.TrimSpace(term)
+		if term == "" || generic[normalizeEnumerationDisplayTableKey(term)] {
+			continue
+		}
+		if preEmitAggregateScalarValueAppears(term, surface) ||
+			types.CodeSurfaceAppearsAsToken(term, surface) ||
+			principalEnumerationLooseSurfaceCoversCandidate(surface, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationGenericRowSurfaceTermKeys(row types.EnumerationDisplayRow) map[string]bool {
+	out := map[string]bool{}
+	for _, raw := range []string{row.DisplayLabel, row.Subject, row.AnchorSymbol, row.Member} {
+		key := normalizeEnumerationDisplayTableKey(raw)
+		if key != "" {
+			out[key] = true
+		}
+	}
+	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(row.Member); ok {
+		if key := normalizeEnumerationDisplayTableKey(label); key != "" {
+			out[key] = true
+		}
+	}
+	return out
 }
 
 func principalEnumerationRowIdentityKey(row types.EnumerationDisplayRow) string {
@@ -2079,6 +2116,13 @@ func principalEnumerationRowSurfaceCandidates(row types.EnumerationDisplayRow) [
 	raw := []string{row.DisplayLabel, row.Member}
 	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(row.Member); ok {
 		raw = append(raw, label)
+	}
+	generic := principalEnumerationGenericRowSurfaceTermKeys(row)
+	for _, term := range row.SurfaceTerms {
+		if generic[normalizeEnumerationDisplayTableKey(term)] {
+			continue
+		}
+		raw = append(raw, term)
 	}
 	return dedupPreEmitStringCandidates(raw)
 }

@@ -4459,7 +4459,7 @@ func TestExplorer_FilterToolSchemas_SourceInventoryFollowupSurfaceStaysNarrow(t 
 	}
 
 	got := eval.FilterToolSchemas(ctx, schemas)
-	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "repo_map,emit_evidence,emit_investigation_complete" {
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "repo_map,emit_investigation_complete" {
 		t.Fatalf("source-inventory follow-up surface must stay narrow for the whole dispatch, got %v", gotNames)
 	}
 }
@@ -4629,11 +4629,14 @@ func TestExplorer_SourceInventoryLensInlineFollowupNarrowsBeforeCompletion(t *te
 		{Name: "emit_investigation_complete"},
 	}
 	got := eval.FilterToolSchemas(ctx, schemas)
-	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "repo_map,emit_evidence,emit_investigation_complete" {
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "repo_map,emit_investigation_complete" {
 		t.Fatalf("inline follow-up must keep the next turn narrow, got %v", gotNames)
 	}
 	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"public class"}`)}); got == nil || got.Success {
 		t.Fatalf("inline follow-up route must reject broad grep, got %+v", got)
+	}
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_evidence", Params: json.RawMessage(`{"items":[]}`)}); got == nil || got.Success {
+		t.Fatalf("inline follow-up route must reject emit_evidence before typed repo_map follow-up, got %+v", got)
 	}
 	exact := llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"view":"source_inventory","path":".","scopes":["internal/thirdparty/tree-sitter-cangjie/corpus/sources"],"roles":["type","function","constant"],"include_counts":true,"include_attributes":false,"top_n":24}`)}
 	if got := validateExplorerToolBoundary(ctx, eval, exact); got != nil {
@@ -5062,11 +5065,6 @@ func TestExplorer_RuntimeBoundary_SourceInventoryFollowupRejectsRouteDrift(t *te
 			params: `{"view":"source_inventory","path":".","scopes":["internal/thirdparty/tree-sitter-cangjie/corpus/sources"],"roles":["type"],"cursor":"24","include_counts":true,"include_attributes":true,"top_n":24}`,
 			want:   "include_attributes=false",
 		},
-		{
-			name:   "top_n_too_high",
-			params: `{"view":"source_inventory","path":".","scopes":["internal/thirdparty/tree-sitter-cangjie/corpus/sources"],"roles":["type"],"cursor":"24","include_counts":true,"include_attributes":false,"top_n":99}`,
-			want:   "top_n",
-		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -5087,6 +5085,18 @@ func TestExplorer_RuntimeBoundary_SourceInventoryFollowupRejectsRouteDrift(t *te
 				t.Fatalf("route drift summary should mention %q, got %q", tc.want, got.Summary)
 			}
 		})
+	}
+}
+
+func TestExplorer_RuntimeBoundary_SourceInventoryFollowupAllowsPresentationBudgetDrift(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage:                       types.StageExplore,
+		ExploreToolSurface:          types.ExploreToolSurfaceSourceInventoryFollowup,
+		SourceInventoryFollowupDebt: sourceInventoryPaginationFollowupDebtForExplorerTest("24"),
+	}
+	call := llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"view":"source_inventory","path":".","scopes":["internal/thirdparty/tree-sitter-cangjie/corpus/sources"],"roles":["type"],"cursor":"24","include_counts":true,"include_attributes":false,"top_n":99}`)}
+	if got := validateExplorerToolBoundary(ctx, &explorerEvaluator{}, call); got != nil {
+		t.Fatalf("top_n is a presentation budget and should not reject the typed follow-up route, got %+v", got)
 	}
 }
 

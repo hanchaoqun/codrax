@@ -1601,6 +1601,9 @@ func repoMapSourceInventoryRefinement(observation ctypes.SourceInventoryObservat
 			hint.PreferredParams["scope"] = scopes
 		}
 	}
+	if queryText := strings.TrimSpace(query.Query); queryText != "" {
+		hint.PreferredParams["query"] = queryText
+	}
 	if candidateBudgetTruncated && repoMapSourceInventoryQueryIsBroad(query) {
 		hint.RequiredFields = []string{"scope"}
 		delete(hint.PreferredParams, "scope")

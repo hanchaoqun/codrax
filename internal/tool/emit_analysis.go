@@ -811,6 +811,22 @@ func sourceInventoryRequestedFieldValues() []string {
 	return out
 }
 
+func answerCandidateRoleListForWarning(roles []types.AnswerCandidateRole) string {
+	if len(roles) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(roles))
+	seen := map[types.AnswerCandidateRole]bool{}
+	for _, role := range roles {
+		if role == types.AnswerCandidateRoleUnknown || seen[role] {
+			continue
+		}
+		seen[role] = true
+		out = append(out, string(role))
+	}
+	return strings.Join(out, ", ")
+}
+
 func impactRequestedOutputValues() []string {
 	values := types.AllImpactRequestedOutputs()
 	out := make([]string, 0, len(values))
@@ -1499,11 +1515,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if warning := enrichSourceInventoryProfileFromAnalyzerPrescan(ctx, &rm, raw); warning != "" {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if warning := normalizeSourceInventoryProductionScope(&rm); warning != "" {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
 	if warning := normalizeSourceInventoryAuxiliaryExclusion(&rm); warning != "" {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
+	if warning := normalizeSourceInventorySubTopicsFromProfile(&rm); warning != "" {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -1564,6 +1588,53 @@ func normalizeSourceInventoryAuxiliaryExclusion(rm *types.RequestModel) string {
 	}
 	rm.AnswerExclusionPolicy = nil
 	return "answer_exclusion_policy auto-softened: auxiliary exclusions echoed source-inventory target categories without a precise production source scope"
+}
+
+func normalizeSourceInventorySubTopicsFromProfile(rm *types.RequestModel) string {
+	if rm == nil ||
+		rm.SourceInventoryProfile == nil ||
+		!types.SourceInventoryPrincipalNavigationActive(*rm) ||
+		!rm.SourceInventoryProfile.MechanicalRowsOnly() ||
+		len(rm.SourceInventoryProfile.SourceQuotes) == 0 {
+		return ""
+	}
+	var topics []types.SubTopic
+	seen := map[string]bool{}
+	for _, quote := range rm.SourceInventoryProfile.SourceQuotes {
+		quote = strings.TrimSpace(quote)
+		if quote == "" {
+			continue
+		}
+		key := strings.ToLower(quote)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		topics = append(topics, types.SubTopic{
+			Summary:  "source inventory: " + quote,
+			Entities: []string{quote},
+		})
+	}
+	if len(topics) == 0 || sourceInventorySubTopicsEqual(rm.SubTopics, topics) {
+		return ""
+	}
+	rm.SubTopics = topics
+	return "source_inventory sub_topics normalized from source_quotes so prescan-only language/source guesses remain advisory"
+}
+
+func sourceInventorySubTopicsEqual(a, b []types.SubTopic) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if strings.TrimSpace(a[i].Summary) != strings.TrimSpace(b[i].Summary) {
+			return false
+		}
+		if strings.Join(trimStringSlice(a[i].Entities), "\x00") != strings.Join(trimStringSlice(b[i].Entities), "\x00") {
+			return false
+		}
+	}
+	return true
 }
 
 func sourceScopeEchoesInventoryTargets(scopeQuotes, inventoryQuotes []string) bool {
@@ -2577,7 +2648,7 @@ func parseSourceInventoryProfile(raw string, p *emitSourceInventoryProfileParam)
 		}
 		warnings = append(warnings, "source_inventory_profile.source_quotes entry ignored because it is not copied verbatim from the current request")
 	}
-	return &types.SourceInventoryProfile{
+	profile := &types.SourceInventoryProfile{
 		IsSourceInventory: true,
 		TargetRoles:       roles,
 		TypeUnderlying:    underlying,
@@ -2586,7 +2657,14 @@ func parseSourceInventoryProfile(raw string, p *emitSourceInventoryProfileParam)
 		SourceQuotes:      append([]string(nil), keptQuotes...),
 		Confidence:        confidence,
 		Rationale:         strings.TrimSpace(p.Rationale),
-	}, "", warnings
+	}
+	if removed := types.NormalizeSourceInventoryDisplayAttributeRoles(profile); len(removed) > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"source_inventory_profile.target_roles moved display attribute role(s) %s to requested_fields because structural principal roles are already present",
+			answerCandidateRoleListForWarning(removed),
+		))
+	}
+	return profile, "", warnings
 }
 
 func normalizeSourceInventoryRequestedFieldsForAnswerSubject(profile *types.SourceInventoryProfile, answerSubject types.AnswerSubject) string {

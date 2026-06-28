@@ -6843,6 +6843,9 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	}
 	if e.sourceInventoryLensSurfaceActive(ctx) {
 		allowed := sourceInventoryLensToolSurface()
+		if e.sourceInventoryFollowupRouteActive(ctx) {
+			allowed = sourceInventoryFollowupToolSurface()
+		}
 		out := make([]llm.ToolSchema, 0, len(allowed))
 		for _, schema := range schemas {
 			if allowed[strings.TrimSpace(schema.Name)] {

@@ -524,6 +524,17 @@ func repoMapNavigationQueryTerms(rm RequestModel) []string {
 			add(value, trusted)
 		}
 	}
+	if SourceInventoryPrincipalNavigationActive(rm) &&
+		rm.SourceInventoryProfile != nil &&
+		rm.SourceInventoryProfile.MechanicalRowsOnly() {
+		addAll(rm.SourceInventoryProfile.SourceQuotes, true)
+		if len(preferred) > 0 {
+			if len(preferred) > 16 {
+				return append([]string(nil), preferred[:16]...)
+			}
+			return append([]string(nil), preferred...)
+		}
+	}
 	addAll(rm.AnalyzerHints.ExactTargets, true)
 	addAll(rm.AnalyzerHints.MentionedEntities, false)
 	addAll(rm.AnalyzerHints.PrimaryEntities, false)

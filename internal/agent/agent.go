@@ -2354,6 +2354,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 
 		resp.ToolCalls = b.normalizeToolCallParamsWithContext(ctx, resp.ToolCalls, effectiveTools)
+		resp.ToolCalls = pruneAnalyzerPrescanBatchBeforeHistory(ctx, resp.ToolCalls)
 
 		// DIAGNOSTIC — dump assistant response (debug only).
 		logging.Debug("[diag %s] iter=%d ASSISTANT content_len=%d tool_calls=%d",
@@ -4709,29 +4710,93 @@ func canExecuteToolBatchInParallel(ctx *types.AgentContext, calls []llm.ToolCall
 	return canParallelizeToolBatch(calls)
 }
 
+func pruneAnalyzerPrescanBatchBeforeHistory(ctx *types.AgentContext, calls []llm.ToolCall) []llm.ToolCall {
+	if ctx == nil || ctx.Stage != types.StageAnalyze || len(calls) <= 1 {
+		return calls
+	}
+	for _, tc := range calls {
+		if !isPrescanTool(strings.TrimSpace(tc.Name)) {
+			return calls
+		}
+	}
+	keep := analyzerPrescanBatchPrimaryIndex(calls)
+	if keep < 0 {
+		return calls
+	}
+	pruned := append([]llm.ToolCall(nil), calls[keep])
+	if ctx.Mutable != nil {
+		ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
+			Kind:   "prescan_same_batch_pruned",
+			Stage:  string(types.StageAnalyze),
+			Reason: "same assistant response contained multiple analyzer pre-scan calls; kept the highest-authority typed navigation call before history so skipped sibling grep/list_files calls cannot be misread as evidence absence",
+			Detail: calls[keep].Name,
+		})
+	}
+	logging.Debug("[analyzer] pruned %d same-batch prescan sibling tool(s) before history; kept %s", len(calls)-1, calls[keep].Name)
+	return pruned
+}
+
+func analyzerPrescanBatchPrimaryIndex(calls []llm.ToolCall) int {
+	best := -1
+	bestRank := 0
+	for i, tc := range calls {
+		rank := analyzerPrescanBatchToolRank(tc)
+		if rank > bestRank {
+			best = i
+			bestRank = rank
+		}
+	}
+	return best
+}
+
+func analyzerPrescanBatchToolRank(tc llm.ToolCall) int {
+	switch strings.TrimSpace(tc.Name) {
+	case "repo_map":
+		if analyzerRepoMapSourceInventoryView(tc.Params) {
+			return 4
+		}
+		return 3
+	case "list_files":
+		return 2
+	case "grep":
+		return 1
+	default:
+		return 0
+	}
+}
+
 func applyAnalyzerSameBatchPrescanBoundary(ctx *types.AgentContext, result *types.ToolResult) bool {
 	if ctx == nil || ctx.Stage != types.StageAnalyze || ctx.Mutable == nil || result == nil {
 		return false
 	}
 	readiness := analyzerPrescanResultReadiness(*result)
-	if !readiness.ready {
+	if readiness.ready {
+		closeNow := readiness.closeNow
+		if limit := ctx.Mutable.PrescanRoundLimit(); limit > 0 && limit <= 2 {
+			closeNow = true
+		}
+		if closeNow && !ctx.Mutable.PrescanReady() {
+			ctx.Mutable.MarkPrescanReady()
+			ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
+				Kind:   "prescan_ready",
+				Stage:  string(types.StageAnalyze),
+				Reason: readiness.reason,
+				Detail: result.ToolName + " (same-batch)",
+			})
+			logging.Debug("[analyzer] same-batch prescan boundary closed globally after %s: %s", result.ToolName, readiness.reason)
+		}
+		return true
+	}
+	if !analyzerPrescanResultHasSameBatchSignal(*result) {
 		return false
 	}
-	closeNow := readiness.closeNow
-	if limit := ctx.Mutable.PrescanRoundLimit(); limit > 0 && limit <= 2 {
-		closeNow = true
-	}
-	if !closeNow || ctx.Mutable.PrescanReady() {
-		return false
-	}
-	ctx.Mutable.MarkPrescanReady()
 	ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
-		Kind:   "prescan_ready",
+		Kind:   "prescan_same_batch_local_signal",
 		Stage:  string(types.StageAnalyze),
-		Reason: readiness.reason,
+		Reason: "one analyzer pre-scan result already returned structured signal in this assistant response; skip sibling pre-scan fan-out and let the model emit or continue in a new turn",
 		Detail: result.ToolName + " (same-batch)",
 	})
-	logging.Debug("[analyzer] same-batch prescan boundary closed after %s: %s", result.ToolName, readiness.reason)
+	logging.Debug("[analyzer] same-batch prescan boundary closed locally after %s", result.ToolName)
 	return true
 }
 
@@ -4754,6 +4819,30 @@ func analyzerSameBatchStalePrescanSkipResult(ctx *types.AgentContext, tc llm.Too
 		Success:   true,
 		Summary:   reason,
 		Timestamp: time.Now(),
+	}
+}
+
+func analyzerPrescanResultHasSameBatchSignal(result types.ToolResult) bool {
+	if !result.Success || !isPrescanTool(result.ToolName) {
+		return false
+	}
+	switch result.ToolName {
+	case "grep":
+		discovery := result.PathDiscovery
+		return discovery != nil &&
+			discovery.Kind == types.ToolPathDiscoveryKindGrep &&
+			discovery.FilesOnly &&
+			!discovery.NoMatches &&
+			discovery.ResultCount > 0
+	case "list_files":
+		discovery := result.PathDiscovery
+		return discovery != nil &&
+			discovery.Kind == types.ToolPathDiscoveryKindListFiles &&
+			discovery.ResultCount > 0
+	case "repo_map":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -5289,6 +5378,13 @@ func sourceInventoryLensToolSurface() map[string]bool {
 	}
 }
 
+func sourceInventoryFollowupToolSurface() map[string]bool {
+	return map[string]bool{
+		"repo_map":                    true,
+		"emit_investigation_complete": true,
+	}
+}
+
 func validateExplorerSourceInventoryLensToolCall(ctx *types.AgentContext, eval *explorerEvaluator, tc llm.ToolCall) *types.ToolResult {
 	if ctx == nil || ctx.Stage != types.StageExplore || !ctx.ExploreToolSurface.IsSourceInventory() {
 		return nil
@@ -5313,11 +5409,21 @@ func validateExplorerSourceInventoryLensToolCall(ctx *types.AgentContext, eval *
 			return nil
 		}
 		return rejectExplorerSourceInventoryLensTool(ctx, tc, "repo_map must use view=\"source_inventory\" in this scheduler-owned lens probe")
-	case "emit_evidence", "emit_investigation_complete":
+	case "emit_evidence":
+		if followupRouteActive {
+			return rejectExplorerSourceInventoryLensTool(ctx, tc,
+				"source_inventory follow-up debt is still route-first; do not emit evidence from an incomplete or mismatched lens before running the typed repo_map follow-up. Use repo_map(view=\"source_inventory\") for the provided route, or emit_investigation_complete only if the current aggregate handoff is ready with a caveat.")
+		}
+		return nil
+	case "emit_investigation_complete":
 		return nil
 	default:
+		available := "emit_evidence, emit_investigation_complete, repo_map(view=\"source_inventory\")"
+		if followupRouteActive {
+			available = "emit_investigation_complete, repo_map(view=\"source_inventory\")"
+		}
 		return rejectExplorerSourceInventoryLensTool(ctx, tc,
-			fmt.Sprintf("tool %q is outside this scheduler-owned source-inventory lens probe; available tools here: emit_evidence, emit_investigation_complete, repo_map(view=\"source_inventory\")", name))
+			fmt.Sprintf("tool %q is outside this scheduler-owned source-inventory lens probe; available tools here: %s", name, available))
 	}
 }
 
@@ -5384,9 +5490,6 @@ func explorerSourceInventoryFollowupRouteViolation(ctx *types.AgentContext, para
 	}
 	if p.IncludeAttributes == nil || *p.IncludeAttributes {
 		return "source_inventory follow-up must set include_attributes=false", true
-	}
-	if debt.Query.TopN > 0 && p.TopN > debt.Query.TopN {
-		return "source_inventory follow-up top_n exceeds the scheduler-provided typed route", true
 	}
 	return "", false
 }
