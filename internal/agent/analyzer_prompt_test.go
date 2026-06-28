@@ -915,6 +915,9 @@ func TestAnalysisSkill_SourceInventoryCoversConstructInventoryWithoutHardRouting
 		"Preserve user-named construct families in `source_quotes[]`",
 		"Construct/member roles, source classes, package/module/import families, and language-specific construct names belong in `target_roles[]` and `source_quotes[]`, not in `requested_fields[]`",
 		"`requested_fields[]` is display columns only",
+		"Registry/catalog/binding/default-registration member-set questions are relation/role-binding answers",
+		"`predicate_axis=register`",
+		"`answer_role_profile`",
 		"Do NOT emit `source_inventory_profile` merely because a call-chain / dispatch / trace / relation-flow answer will mention key functions or files",
 	} {
 		if !strings.Contains(rendered, want) {

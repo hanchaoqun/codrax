@@ -1470,8 +1470,20 @@ func TestSourceInventoryProfileConflictsWithRoleBinding_TypedBoundary(t *testing
 	}
 
 	rm.PredicateAxis = AxisDefine
+	rm.AnswerRoleProfile = nil
 	if SourceInventoryProfileConflictsWithRoleBinding(rm) {
 		t.Fatal("plain source definition inventory should keep source inventory authority")
+	}
+	rm.PredicateAxis = AxisUnknown
+	rm.AnswerRoleProfile = &AnswerRoleProfile{
+		IsRoleBindingRequested: true,
+		RequiredCandidateRoles: []AnswerCandidateRole{AnswerCandidateRoleType},
+	}
+	if !SourceInventoryProfileConflictsWithRoleBinding(rm) {
+		t.Fatal("typed answer-role binding request should demote source inventory authority even when predicate_axis is missing")
+	}
+	if SourceInventoryPrincipalNavigationActive(rm) {
+		t.Fatal("role-binding support lane must not remain source_inventory-principal navigation")
 	}
 	rm.PredicateAxis = AxisRegister
 	rm.AnswerRoleProfile = nil

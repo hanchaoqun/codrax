@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -458,6 +459,44 @@ func TestSourceInventoryFollowupFirstWindowPrioritizesTypedDebt(t *testing.T) {
 	}
 	if got := sourceInventoryFollowupFirstWindow([]*types.TaskNode{evidence, followup}, false); len(got) != 0 {
 		t.Fatalf("inactive typed debt must not reorder window: %+v", idsOf(got))
+	}
+}
+
+func TestPrioritizeSourceInventoryLensWindow_SuppressesFollowupAfterCompletionCaveat(t *testing.T) {
+	followup := &types.TaskNode{
+		ID:       "n_source_inventory_followup",
+		Type:     types.NodeProbe,
+		Optional: true,
+		EntryConditions: []types.Criterion{{
+			Kind: types.CritSourceInventoryFollowupDebt,
+		}},
+	}
+	evidence := &types.TaskNode{ID: "n_evidence", Type: types.NodeEvidence}
+	mut := types.NewMutableState("q")
+	mut.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane:       types.DowngradeLaneSourceInventoryCompletion,
+		ReasonCode: types.ProgressReasonConverged,
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+
+	got := o.prioritizeSourceInventoryLensWindow([]*types.TaskNode{evidence, followup}, criterion.Env{
+		SourceInventoryFollowupDebt: types.NormalizeSourceInventoryFollowupDebt(types.SourceInventoryFollowupDebt{
+			Active:     true,
+			ReasonCode: types.SourceInventoryFollowupDebtPagination,
+			Query: types.SourceInventoryLensQuery{
+				Path:          ".",
+				Scopes:        []string{"."},
+				Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				IncludeCounts: true,
+			},
+			Roles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		}),
+	})
+	if len(got) != 1 || got[0] != evidence {
+		t.Fatalf("completion caveat should filter follow-up instead of prioritizing it: %+v", idsOf(got))
+	}
+	if o.busCtx.SourceInventoryFollowupDebt.IsActive() {
+		t.Fatalf("completion-caveated source-inventory follow-up debt should be cleared: %+v", o.busCtx.SourceInventoryFollowupDebt)
 	}
 }
 

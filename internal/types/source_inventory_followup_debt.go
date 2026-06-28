@@ -39,6 +39,9 @@ func NormalizeSourceInventoryFollowupDebt(d SourceInventoryFollowupDebt) SourceI
 }
 
 func DeriveSourceInventoryFollowupDebt(observation SourceInventoryObservation, rm RequestModel) SourceInventoryFollowupDebt {
+	if SourceInventoryCompletionIsSupportOnly(rm) {
+		return SourceInventoryFollowupDebt{}
+	}
 	if !observation.IsActive() || !sourceInventoryObservationBudgetDebt(observation) {
 		return SourceInventoryFollowupDebt{}
 	}

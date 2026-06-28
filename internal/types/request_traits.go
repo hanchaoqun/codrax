@@ -177,7 +177,8 @@ func SourceInventoryProfileConflictsWithRoleBinding(rm RequestModel) bool {
 // evidence and a structured member_set, not by exhausting every source
 // function/type in the repository.
 func SourceInventoryLaneConflictsWithRoleBinding(rm RequestModel) bool {
-	if rm.PredicateAxis != AxisRegister {
+	roleBindingRequested := rm.AnswerRoleProfile != nil && rm.AnswerRoleProfile.IsRoleBindingRequested
+	if rm.PredicateAxis != AxisRegister && !roleBindingRequested {
 		return false
 	}
 	return IsCategoryEnumerationAnswerShape(rm) ||
@@ -226,6 +227,9 @@ func SourceInventoryPrincipalNavigationActive(rm RequestModel) bool {
 		return false
 	}
 	if SourceInventoryCompletionIsSupportOnly(rm) {
+		return false
+	}
+	if SourceInventoryLaneConflictsWithRoleBinding(rm) {
 		return false
 	}
 	if SourceInventoryLaneConflictsWithRelationFlow(rm) {

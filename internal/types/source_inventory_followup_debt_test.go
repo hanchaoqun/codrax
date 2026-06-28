@@ -50,6 +50,44 @@ func TestDeriveSourceInventoryFollowupDebt_MissingSourceClassUsesSampleScope(t *
 	}
 }
 
+func TestDeriveSourceInventoryFollowupDebt_RoleBindingSupportOnlyNoops(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       []string{"."},
+		SourceClasses: []SourceInventorySourceClassCount{
+			{Role: SourcePathRoleProduction, Count: 2, Complete: true, Samples: []string{"internal/agent/subagent.go"}},
+			{Role: SourcePathRoleThirdParty, Count: 1, Complete: true, Samples: []string{"internal/thirdparty/example/source.go"}},
+		},
+		RepoLanguages: []SourceInventoryLanguageCount{{Language: "go", Count: 1, InScope: false, Samples: []string{"internal/thirdparty/example/source.go"}}},
+		Page:          &SourceInventoryObservationPage{Offset: 0, Emitted: 24, Total: 48, NextCursor: "24", Complete: false},
+		Execution:     &SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleType,
+			Members: []SourceInventoryObservationMember{{
+				Name: "SubAgentRegistry",
+				Role: AnswerCandidateRoleType,
+				File: "internal/agent/subagent.go",
+			}},
+		}},
+	}
+	rm := RequestModel{
+		Intent:        IntentEnumerate,
+		PredicateAxis: AxisRegister,
+		Predicates:    SemanticPredicates{IsCategoryEnumeration: true},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction, AnswerCandidateRoleType},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+		},
+	}
+
+	if debt := DeriveSourceInventoryFollowupDebt(obs, rm); debt.IsActive() {
+		t.Fatalf("role-binding source_inventory support lane must not create follow-up debt: %+v", debt)
+	}
+}
+
 func TestDeriveSourceInventoryFollowupDebt_FileRowsDoNotCoverPrincipalMemberRoles(t *testing.T) {
 	obs := SourceInventoryObservation{
 		Active:       true,
