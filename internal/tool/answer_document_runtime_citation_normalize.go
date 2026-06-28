@@ -251,6 +251,30 @@ func dropAnswerDocumentCitationsByIndex(doc *types.AnswerDocumentV2, remove map[
 	return changed
 }
 
+func normalizeUnusedCitationPoolEntries(doc *types.AnswerDocumentV2) int {
+	if doc == nil || len(doc.Citations) == 0 {
+		return 0
+	}
+	used := make(map[int]bool)
+	for _, block := range doc.Blocks {
+		for _, item := range block.Items {
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
+				used[item.CitationRef] = true
+			}
+		}
+	}
+	if len(used) == 0 || len(used) == len(doc.Citations) {
+		return 0
+	}
+	remove := make(map[int]bool, len(doc.Citations)-len(used))
+	for i := range doc.Citations {
+		if !used[i] {
+			remove[i] = true
+		}
+	}
+	return dropAnswerDocumentCitationsByIndex(doc, remove)
+}
+
 // normalizeRuntimeArtifactVisibleCitationSentinels removes internal
 // citation-carrier vocabulary that a model copied into visible runtime-artifact
 // prose. The decision is typed: only observation-only attached log/trace

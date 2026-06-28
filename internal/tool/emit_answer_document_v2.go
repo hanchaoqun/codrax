@@ -267,6 +267,9 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			logSoftPreEmitAdvisory(toolName, "model-emitted surface_terms", hints)
 		}
 	}
+	if fixed := normalizeUnusedCitationPoolEntries(doc); fixed > 0 {
+		logging.Warning("[%s] pruned/remapped %d unused citation-pool slot(s) after deterministic citation normalization", toolName, fixed)
+	}
 
 	// v3 B4 (2026-05-04): route the full-emit write through the
 	// unified mutation runtime — same chokepoint as the patch path,

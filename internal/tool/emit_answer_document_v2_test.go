@@ -85,6 +85,74 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_PrunesUnusedCitationPoolEntries(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{
+		"blocks": [{
+			"id": "list",
+			"kind": "ordered_list",
+			"items": [
+				{"id": "a", "label": "A", "citation_ref": 0},
+				{"id": "c", "label": "C", "citation_ref": 2}
+			]
+		}],
+		"citations": [
+			{"file": "a.go", "line": 1},
+			{"file": "unused.go", "line": 2},
+			{"file": "c.go", "line": 3}
+		]
+	}`)
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected emit to succeed, got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		t.Fatal("V2 doc not written")
+	}
+	if len(doc.Citations) != 2 ||
+		doc.Citations[0].File != "a.go" ||
+		doc.Citations[1].File != "c.go" {
+		t.Fatalf("unused citation pool entries were not pruned: %+v", doc.Citations)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("first item citation_ref = %d, want 0", got)
+	}
+	if got := doc.Blocks[0].Items[1].CitationRef; got != 1 {
+		t.Fatalf("second item citation_ref = %d, want remapped 1", got)
+	}
+}
+
+func TestEmitAnswerDocumentV2_KeepsGlobalCitationPoolWithoutItemRefs(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{
+		"blocks": [{"id": "summary", "kind": "summary", "text": "Global citation-only draft"}],
+		"citations": [
+			{"file": "a.go", "line": 1},
+			{"file": "b.go", "line": 2}
+		]
+	}`)
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected emit to succeed, got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		t.Fatal("V2 doc not written")
+	}
+	if len(doc.Citations) != 2 {
+		t.Fatalf("citation pool without item refs should stay intact, got %+v", doc.Citations)
+	}
+}
+
 func TestEmitAnswerDocumentV2_BlocksStringSiblingCitationsIgnoreNestedCitationPools(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
