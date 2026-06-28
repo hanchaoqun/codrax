@@ -3411,7 +3411,82 @@ func principalSupportSurfaceTermAppears(term, surface string) bool {
 	if types.CodeSurfaceAppearsAsToken(term, surface) || preEmitDisplaySurfaceAppears(term, surface) {
 		return true
 	}
+	if principalSupportSurfaceTermStructurallyCovered(term, surface) {
+		return true
+	}
 	return strings.Contains(surface, term)
+}
+
+func principalSupportSurfaceTermStructurallyCovered(term, surface string) bool {
+	if surfaceTermLooksLikePathOrFilename(term) {
+		return false
+	}
+	tokens := principalSupportSurfaceTermTokens(term)
+	if len(tokens) < 2 {
+		return false
+	}
+	surfaceTokens := principalSupportSurfaceTermTokenSet(surface)
+	if len(surfaceTokens) == 0 {
+		return false
+	}
+	covered := 0
+	for _, token := range tokens {
+		if surfaceTokens[token] {
+			covered++
+		}
+	}
+	if covered == len(tokens) {
+		return true
+	}
+	return len(tokens) >= 3 && covered >= len(tokens)-1 && covered >= 2
+}
+
+func principalSupportSurfaceTermTokenSet(surface string) map[string]bool {
+	tokens := principalSupportSurfaceTermTokens(surface)
+	out := make(map[string]bool, len(tokens))
+	for _, token := range tokens {
+		out[token] = true
+	}
+	return out
+}
+
+func principalSupportSurfaceTermTokens(s string) []string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return nil
+	}
+	var out []string
+	var b strings.Builder
+	flush := func() {
+		token := strings.TrimSpace(b.String())
+		b.Reset()
+		if len([]rune(token)) < 2 {
+			return
+		}
+		out = append(out, token)
+	}
+	for _, r := range s {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r), r == '_':
+			b.WriteRune(r)
+		default:
+			flush()
+		}
+	}
+	flush()
+	if len(out) < 2 {
+		return out
+	}
+	seen := map[string]bool{}
+	deduped := out[:0]
+	for _, token := range out {
+		if seen[token] {
+			continue
+		}
+		seen[token] = true
+		deduped = append(deduped, token)
+	}
+	return deduped
 }
 
 func principalSupportSurfaceTermTitle(zh bool, n int) string {
@@ -7844,7 +7919,7 @@ func missingSurfaceTermsForItem(item types.AnswerBlockItem, cite types.Citation,
 	if strings.TrimSpace(cite.File) == "" {
 		return nil
 	}
-	hay := strings.ToLower(types.AnswerBlockItemVisibleSurface(item))
+	hay := types.AnswerBlockItemVisibleSurface(item)
 	seen := make(map[string]bool)
 	var missing []string
 	for _, ev := range evidence {
@@ -7859,7 +7934,7 @@ func missingSurfaceTermsForItem(item types.AnswerBlockItem, cite types.Citation,
 		}
 		for _, term := range ev.SurfaceTerms {
 			term = strings.TrimSpace(term)
-			if term == "" || strings.Contains(hay, strings.ToLower(term)) {
+			if term == "" || principalSupportSurfaceTermAppears(term, hay) {
 				continue
 			}
 			if !types.SurfaceTermShouldBeRequiredForEvidence(term, ev, item.Label) {
@@ -7892,17 +7967,54 @@ func surfaceTermLineClose(ev types.EvidenceItem, cite types.Citation) bool {
 }
 
 func surfaceTermEvidenceAppliesToItem(ev types.EvidenceItem, item types.AnswerBlockItem) bool {
-	hay := strings.ToLower(types.AnswerBlockItemVisibleSurface(item))
+	hay := types.AnswerBlockItemVisibleSurface(item)
 	for _, key := range []string{ev.Subject, ev.AnchorSymbol, ev.Object, ev.OwnerSymbol} {
 		key = strings.TrimSpace(key)
 		if key == "" {
 			continue
 		}
-		if strings.Contains(hay, strings.ToLower(key)) {
+		if surfaceTermEvidenceKeyAppearsInItem(key, hay) {
 			return true
 		}
 	}
 	return strings.TrimSpace(ev.Subject) == "" && strings.TrimSpace(ev.AnchorSymbol) == ""
+}
+
+func surfaceTermEvidenceKeyAppearsInItem(key, surface string) bool {
+	key = strings.TrimSpace(key)
+	surface = strings.TrimSpace(surface)
+	if key == "" || surface == "" {
+		return false
+	}
+	if !contract.IsIdentifierShaped(key) {
+		return strings.Contains(strings.ToLower(surface), strings.ToLower(key))
+	}
+	hay := strings.ToLower(surface)
+	needle := strings.ToLower(key)
+	start := 0
+	for {
+		rel := strings.Index(hay[start:], needle)
+		if rel < 0 {
+			return false
+		}
+		idx := start + rel
+		end := idx + len(needle)
+		if surfaceTermIdentifierBoundary(hay, idx-1) && surfaceTermIdentifierBoundary(hay, end) {
+			return true
+		}
+		start = end
+	}
+}
+
+func surfaceTermIdentifierBoundary(surface string, idx int) bool {
+	if idx < 0 || idx >= len(surface) {
+		return true
+	}
+	c := surface[idx]
+	return !((c >= 'a' && c <= 'z') ||
+		(c >= '0' && c <= '9') ||
+		c == '_' ||
+		c == '-')
 }
 
 // preCheckEnumerationLabelGrounding mirrors the post-emit

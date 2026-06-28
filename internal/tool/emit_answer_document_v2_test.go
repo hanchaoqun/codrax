@@ -1138,6 +1138,131 @@ func TestEmitAnswerDocumentV2_MaterializesSourceInventorySurfaceTermsForPrincipa
 	}
 }
 
+func TestEmitAnswerDocumentV2_SourceInventorySurfaceTermsDoNotMatchIdentifierSubstrings(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:         "Cart",
+				Key:          "Cart",
+				SupportRef:   "Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+				SurfaceTerms: []string{"public class"},
+				Role:         types.AnswerCandidateRoleType,
+				File:         "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+				Line:         14,
+				Attributes: []types.SourceInventoryObservationAttribute{{
+					Role:         types.AnswerCandidateRoleType,
+					Name:         "Item",
+					File:         "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+					Line:         6,
+					SurfaceTerms: []string{"public struct", "public struct Item"},
+				}},
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "classes",
+			"kind": "ordered_list",
+			"surface_role": "principal",
+			"items": [{
+				"id": "cart",
+				"label": "Cart",
+				"text": "public class Cart，包含 items 字段和 add/size 方法。",
+				"citation_ref": 0
+			}]
+		}],
+		"citations": [{
+			"file": "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+			"line": 14
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].Items) != 1 {
+		t.Fatalf("document not written: %+v", doc)
+	}
+	got := doc.Blocks[0].Items[0].Text
+	if strings.Contains(got, "source labels") || strings.Contains(got, "public struct") {
+		t.Fatalf("nearby Item/public-struct surface terms must not attach to Cart/items substring: %q", got)
+	}
+	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) != 0 {
+		t.Fatalf("nearby source-inventory attribute terms should not become required hints: %+v", hints)
+	}
+}
+
+func TestEmitAnswerDocumentV2_SourceInventorySurfaceTermsRespectSplitItemCoverage(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Greeter",
+				Key:           "Greeter",
+				SupportRef:    "Greeter: internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj:6",
+				SurfaceTerms:  []string{"public class Greeter"},
+				Role:          types.AnswerCandidateRoleType,
+				File:          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj",
+				Line:          6,
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "classes",
+			"kind": "ordered_list",
+			"surface_role": "principal",
+			"items": [{
+				"id": "greeter",
+				"label": "Greeter",
+				"text": "Cangjie public class，示例类初始化与方法测试用例。",
+				"citation_ref": 0
+			}]
+		}],
+		"citations": [{
+			"file": "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj",
+			"line": 6
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].Items) != 1 {
+		t.Fatalf("document not written: %+v", doc)
+	}
+	got := doc.Blocks[0].Items[0].Text
+	if strings.Contains(got, "source labels") {
+		t.Fatalf("split label/text coverage should not append source labels: %q", got)
+	}
+	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) != 0 {
+		t.Fatalf("split label/text coverage should clear source term hints: %+v", hints)
+	}
+}
+
 func TestEmitAnswerDocumentV2_AcceptsPreservedModelSurfaceTerm(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.Mutable.AppendEvidence([]types.EvidenceItem{{

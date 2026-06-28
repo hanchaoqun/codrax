@@ -6573,11 +6573,45 @@ func TestPartitionPendingReadsForAcceptedClosure_SourceInventoryDemotesSupportRe
 		{File: nativeFile, Origin: "required_file_hint_unread"},
 	}
 	blocking, advisory := partitionPendingReadsForAcceptedClosure(ctx, pending, facts, nil)
-	if len(blocking) != 1 || blocking[0].File != nativeFile {
-		t.Fatalf("principal source file should remain blocking, got blocking=%+v advisory=%+v", blocking, advisory)
+	if len(blocking) != 0 {
+		t.Fatalf("mechanical source-inventory closure should not be blocked by required-file hints, got blocking=%+v advisory=%+v", blocking, advisory)
 	}
-	if len(advisory) != 2 || advisory[0].File != goSupport || advisory[1].File != docSupport {
-		t.Fatalf("support/docs required reads should become advisory after accepted source-inventory closure, got blocking=%+v advisory=%+v", blocking, advisory)
+	if len(advisory) != 3 || advisory[0].File != goSupport || advisory[1].File != docSupport || advisory[2].File != nativeFile {
+		t.Fatalf("all required-file hints should become advisory after accepted mechanical source-inventory closure, got blocking=%+v advisory=%+v", blocking, advisory)
+	}
+}
+
+func TestPartitionPendingReadsForAcceptedClosure_SourceInventorySummaryFieldKeepsPrincipalRequiredReadBlocking(t *testing.T) {
+	const bridgeFile = "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, bridgeFile, 15),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:    types.SourcePathRoleFixture,
+		Count:   1,
+		Samples: []string{bridgeFile},
+	}})
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile.RequestedFields = []types.SourceInventoryRequestedField{
+		types.SourceInventoryFieldName,
+		types.SourceInventoryFieldLocation,
+		types.SourceInventoryFieldSummary,
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "Cangjie public classes",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Bridge @ " + bridgeFile + ":15"},
+		SupportRefs: []string{"Bridge: " + bridgeFile + ":15"},
+	}}
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatal("test setup must satisfy source-inventory accepted closure")
+	}
+	blocking, advisory := partitionPendingReadsForAcceptedClosure(ctx, []types.PendingRead{{
+		File:   bridgeFile,
+		Origin: "required_file_hint_unread",
+	}}, facts, nil)
+	if len(blocking) != 1 || blocking[0].File != bridgeFile || len(advisory) != 0 {
+		t.Fatalf("summary source-inventory requests still need source text reads, blocking=%+v advisory=%+v", blocking, advisory)
 	}
 }
 

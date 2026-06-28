@@ -5400,10 +5400,15 @@ func sameSourceInventoryRouteStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for i := range a {
-		if a[i] != b[i] {
+	seen := make(map[string]int, len(a))
+	for _, value := range a {
+		seen[value]++
+	}
+	for _, value := range b {
+		if seen[value] == 0 {
 			return false
 		}
+		seen[value]--
 	}
 	return true
 }
@@ -5414,10 +5419,15 @@ func sameSourceInventoryRouteRoles(a, b []types.AnswerCandidateRole) bool {
 	if len(na) != len(nb) {
 		return false
 	}
-	for i := range na {
-		if na[i] != nb[i] {
+	seen := make(map[types.AnswerCandidateRole]int, len(na))
+	for _, role := range na {
+		seen[role]++
+	}
+	for _, role := range nb {
+		if seen[role] == 0 {
 			return false
 		}
+		seen[role]--
 	}
 	return true
 }

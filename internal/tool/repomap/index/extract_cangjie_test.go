@@ -128,6 +128,45 @@ func packagef(): Unit {}
 	}
 }
 
+func TestExtractCangjie_PublicModifierSequencesRemainTypeDeclarations(t *testing.T) {
+	src := []byte(`
+package demo.modifiers
+
+public sealed class Animal {}
+public abstract class Service {}
+open class Hook {}
+internal class Cache {}
+`)
+	_, syms, _, _, tier := extractCangjie(src, "modifiers.cj")
+	if tier != 1 {
+		t.Fatalf("modifier sequence fixture should stay on Tier 1 parser, got tier %d", tier)
+	}
+	want := map[string]struct {
+		kind     string
+		exported bool
+		doc      string
+	}{
+		"Animal":  {"class", true, "public sealed"},
+		"Service": {"class", true, "public abstract"},
+		"Hook":    {"class", true, "open"},
+		"Cache":   {"class", false, "internal"},
+	}
+	for _, s := range syms {
+		exp, ok := want[s.Name]
+		if !ok {
+			continue
+		}
+		if s.Kind != exp.kind || s.Exported != exp.exported || s.Doc != exp.doc {
+			t.Fatalf("%s symbol = kind=%q exported=%v doc=%q, want kind=%q exported=%v doc=%q; all=%+v",
+				s.Name, s.Kind, s.Exported, s.Doc, exp.kind, exp.exported, exp.doc, symKeys(syms))
+		}
+		delete(want, s.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing modifier-sequence symbols %v in %v", want, symKeys(syms))
+	}
+}
+
 func TestExtractCangjie_EndLinesPresentForBodies(t *testing.T) {
 	src := []byte(`
 package demo.lines

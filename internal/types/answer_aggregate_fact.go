@@ -1193,6 +1193,7 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 		return refs
 	}
 	hasRicherPrincipalMemberSet := aggregateFactRefsContainPrincipalMemberSet(refs)
+	hasSupportedNonPathPrincipalMemberSet := aggregateFactRefsContainSupportedNonPathPrincipalMemberSet(refs)
 	if !hasRicherPrincipalMemberSet && aggregateRequestRequiresPathMemberSetAsPrincipal(*rm) {
 		return refs
 	}
@@ -1202,6 +1203,9 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 			continue
 		}
 		if aggregateFactOutsideRequestedSourceInventoryScope(ref.Fact, rm) {
+			continue
+		}
+		if aggregateMemberSetIsUnsupportedSourcePathCoverageSibling(rm, ref.Fact, hasSupportedNonPathPrincipalMemberSet) {
 			continue
 		}
 		if AggregateCountFactMembersAreSupportOnlyForRequest(rm, ref.Fact) {
@@ -1525,6 +1529,7 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 	out := cloneAnswerAggregateFacts(facts)
 	changed := false
 	hasRicherPrincipalMemberSet := aggregateFactsContainPrincipalMemberSetCarrier(out, rm)
+	hasSupportedNonPathPrincipalMemberSet := aggregateFactsContainSupportedNonPathPrincipalMemberSetCarrier(out)
 	for i := range out {
 		role := NormalizeAnswerAggregateRole(out[i].Role)
 		if role == AnswerAggregateRoleAuditLedger {
@@ -1536,6 +1541,17 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 				out[i].Provenance = appendAggregateFactProvenance(
 					out[i].Provenance,
 					"demoted:outside_requested_source_inventory_scope",
+				)
+				changed = true
+			}
+			continue
+		}
+		if aggregateMemberSetIsUnsupportedSourcePathCoverageSibling(rm, out[i], hasSupportedNonPathPrincipalMemberSet) {
+			if role != AnswerAggregateRoleSupportingCoverage {
+				out[i].Role = AnswerAggregateRoleSupportingCoverage
+				out[i].Provenance = appendAggregateFactProvenance(
+					out[i].Provenance,
+					"demoted:source_path_coverage_sibling",
 				)
 				changed = true
 			}
@@ -2569,6 +2585,36 @@ func aggregateFactRefsContainPrincipalMemberSet(refs []AnswerAggregateFactRef) b
 	return false
 }
 
+func aggregateFactRefsContainSupportedNonPathPrincipalMemberSet(refs []AnswerAggregateFactRef) bool {
+	for _, ref := range refs {
+		if aggregateFactIsSupportedNonPathPrincipalMemberSet(ref.Fact, ref.Role) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateFactsContainSupportedNonPathPrincipalMemberSetCarrier(facts []AnswerAggregateFact) bool {
+	for _, fact := range facts {
+		role := NormalizeAnswerAggregateRole(fact.Role)
+		if role == AnswerAggregateRoleUnknown && fact.Kind == AnswerAggregateMemberSet {
+			role = AnswerAggregateRolePrincipalAnswer
+		}
+		if aggregateFactIsSupportedNonPathPrincipalMemberSet(fact, role) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateFactIsSupportedNonPathPrincipalMemberSet(fact AnswerAggregateFact, role AnswerAggregateRole) bool {
+	return fact.Kind == AnswerAggregateMemberSet &&
+		answerAggregateFactCarriesCompleteMemberSet(fact) &&
+		NormalizeAnswerAggregateRole(role) == AnswerAggregateRolePrincipalAnswer &&
+		!answerAggregateMemberSetAllSourcePathSurfaces(fact) &&
+		aggregateMemberSetSupportCoverage(fact) >= len(fact.Members)
+}
+
 func aggregateFactsContainPrincipalMemberSetCarrier(facts []AnswerAggregateFact, rm *RequestModel) bool {
 	for _, fact := range facts {
 		if fact.Kind != AnswerAggregateMemberSet || !answerAggregateFactCarriesCompleteMemberSet(fact) {
@@ -3032,6 +3078,26 @@ func aggregateMemberSetIsSourcePathCoverageOnly(fact AnswerAggregateFact, rm Req
 		rm.Predicates.IsDiagnosticQuestion ||
 		rm.Predicates.IsScalarAnswer ||
 		rm.Predicates.IsRoleLocateLookup {
+		return false
+	}
+	return true
+}
+
+func aggregateMemberSetIsUnsupportedSourcePathCoverageSibling(rm *RequestModel, fact AnswerAggregateFact, hasSupportedNonPathPrincipalMemberSet bool) bool {
+	if rm == nil || !hasSupportedNonPathPrincipalMemberSet ||
+		fact.Kind != AnswerAggregateMemberSet ||
+		!answerAggregateFactCarriesCompleteMemberSet(fact) ||
+		!answerAggregateMemberSetAllSourcePathSurfaces(fact) ||
+		aggregateMemberSetSupportCoverage(fact) > 0 {
+		return false
+	}
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	if rm.SourceInventoryProfile.RequiresPrincipalRole(AnswerCandidateRoleFile) ||
+		rm.SourceInventoryProfile.RequiresPrincipalRole(AnswerCandidateRoleConfigFile) ||
+		rm.SourceInventoryProfile.RequiresPrincipalRole(AnswerCandidateRolePackage) ||
+		rm.SourceInventoryProfile.RequiresPrincipalRole(AnswerCandidateRoleImportPath) {
 		return false
 	}
 	return true

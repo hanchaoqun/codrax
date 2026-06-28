@@ -1077,6 +1077,114 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_SourceInventoryRelativeLo
 	}
 }
 
+func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesUnsupportedPathCoverageSiblingForSourceInventory(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "extend blocks",
+		Value: "2",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"extend Cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+			"extend String @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+		},
+		SupportRefs: []string{
+			"extend Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+			"extend String: internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+		},
+	}, {
+		Kind:  AnswerAggregateMemberSet,
+		Label: "public classes",
+		Value: "2",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+			"Greeter @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj:6",
+		},
+		SupportRefs: []string{
+			"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+			"Greeter: internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj:6",
+		},
+	}, {
+		Kind:  AnswerAggregateMemberSet,
+		Label: "source files touched during inventory",
+		Value: "4",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+			"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+			"internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj",
+			"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj",
+		},
+	}}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			HasPerMemberTable:     true,
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction, AnswerCandidateRoleType},
+		},
+	}
+
+	got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm)
+	if len(got) != 2 || got[0].Index != 0 || got[1].Index != 1 {
+		t.Fatalf("path-only coverage sibling must not become principal refs, got %+v", got)
+	}
+	normalized := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if role := NormalizeAnswerAggregateRole(normalized[2].Role); role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("path-only coverage sibling role = %q, want supporting_coverage; facts=%+v", role, normalized)
+	}
+	if !strings.Contains(normalized[2].Provenance, "demoted:source_path_coverage_sibling") {
+		t.Fatalf("demotion provenance missing: %+v", normalized[2])
+	}
+}
+
+func TestPrincipalAggregateMemberSetFactRefsForRequest_KeepsPathSetWhenFileRoleIsPrincipal(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "entry symbols",
+		Value: "1",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Main @ src/main.py:10",
+		},
+		SupportRefs: []string{
+			"Main: src/main.py:10",
+		},
+	}, {
+		Kind:  AnswerAggregateMemberSet,
+		Label: "source files",
+		Value: "2",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"src/main.py",
+			"src/worker.py",
+		},
+	}}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			HasPerMemberTable:     true,
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFile},
+		},
+	}
+
+	got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm)
+	if len(got) != 2 || got[0].Index != 0 || got[1].Index != 1 {
+		t.Fatalf("file-role source inventory should keep path member_set principal, got %+v", got)
+	}
+	normalized := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if role := NormalizeAnswerAggregateRole(normalized[1].Role); role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("file-role path set role = %q, want principal_answer; facts=%+v", role, normalized)
+	}
+}
+
 func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesNarrativeGroupedCountsForArchitecture(t *testing.T) {
 	facts := []AnswerAggregateFact{{
 		Kind:    AnswerAggregateGroupedCount,

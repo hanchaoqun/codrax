@@ -10201,6 +10201,9 @@ func sourceInventoryAcceptedClosureDemotesPendingRead(ctx *types.BusContext, agg
 		!SourceInventoryAcceptedClosureCoversExactUniverse(ctx, aggregateFacts) {
 		return false
 	}
+	if sourceInventoryMechanicalRequiredFilePendingReadCanBecomeAdvisory(rm, pending) {
+		return true
+	}
 	principalFiles := types.PrincipalSourceInventoryMemberSetSourceFiles(aggregateFacts, &rm)
 	if len(principalFiles) == 0 {
 		return false
@@ -10213,6 +10216,21 @@ func sourceInventoryAcceptedClosureDemotesPendingRead(ctx *types.BusContext, agg
 		if sourceInventoryAcceptedClosurePendingReadFileKey(file, ctx.RepoRoot) == pendingFile {
 			return false
 		}
+	}
+	return true
+}
+
+func sourceInventoryMechanicalRequiredFilePendingReadCanBecomeAdvisory(rm types.RequestModel, pending types.PendingRead) bool {
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	origin := types.NormalizePendingReadOrigin(pending.Origin)
+	if origin != "required_file_hint_unread" && origin != "pre_dispatch.required_file_hint_unread" {
+		return false
+	}
+	if rm.SourceInventoryProfile.RequestsField(types.SourceInventoryFieldSummary) ||
+		rm.SourceInventoryProfile.RequestsField(types.SourceInventoryFieldValues) {
+		return false
 	}
 	return true
 }

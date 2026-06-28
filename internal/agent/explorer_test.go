@@ -4464,6 +4464,44 @@ func TestExplorer_FilterToolSchemas_SourceInventoryFollowupSurfaceStaysNarrow(t 
 	}
 }
 
+func TestExplorer_SourceInventoryFollowupRouteMatchingIsSetEquivalent(t *testing.T) {
+	debt := types.NormalizeSourceInventoryFollowupDebt(types.SourceInventoryFollowupDebt{
+		Active:     true,
+		ReasonCode: types.SourceInventoryFollowupDebtMissingSourceClass,
+		Query: types.SourceInventoryLensQuery{
+			Path:   ".",
+			Scopes: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources", "eval/fixtures/testdata/cangjie_minimal/bridge", "eval/fixtures/testdata/cangjie_minimal/cart"},
+			Roles: []types.AnswerCandidateRole{
+				types.AnswerCandidateRoleFunction,
+				types.AnswerCandidateRoleMethod,
+				types.AnswerCandidateRoleType,
+			},
+			IncludeCounts:     true,
+			IncludeAttributes: false,
+			TopN:              24,
+		},
+	})
+	ctx := &types.AgentContext{
+		Stage:                       types.StageExplore,
+		SourceInventoryFollowupDebt: debt,
+	}
+	params := map[string]any{
+		"path":               ".",
+		"view":               "source_inventory",
+		"scopes":             []string{debt.Query.Scopes[2], debt.Query.Scopes[0], debt.Query.Scopes[1]},
+		"roles":              []types.AnswerCandidateRole{debt.Query.Roles[2], debt.Query.Roles[0], debt.Query.Roles[1]},
+		"include_counts":     true,
+		"include_attributes": false,
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reason, violated := explorerSourceInventoryFollowupRouteViolation(ctx, raw); violated {
+		t.Fatalf("same typed follow-up route with reordered scopes/roles should pass; reason=%s", reason)
+	}
+}
+
 func TestExplorer_SourceInventoryLensInlineFollowupNarrowsBeforeCompletion(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := sourceInventoryInlineFollowupContextForExplorerTest()
