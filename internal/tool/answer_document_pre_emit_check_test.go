@@ -2814,6 +2814,176 @@ func TestNormalizeItemCitationRefsByTypedCandidateRole_UsesRowAttributeForDuplic
 	}
 }
 
+func TestNormalizeItemCitationRefsByTypedSourceInventoryRows_RepairsMissingCandidateRole(t *testing.T) {
+	mu := types.NewMutableState("list foreign declarations without item roles")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true,
+		Scopes: []string{"."},
+		Sets: []types.SourceInventoryObservationSet{
+			{
+				Role:     types.AnswerCandidateRoleFunction,
+				Complete: true,
+				Count:    2,
+				Total:    2,
+				Members: []types.SourceInventoryObservationMember{
+					{
+						Name:     "native_add",
+						Role:     types.AnswerCandidateRoleFunction,
+						File:     "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+						Line:     6,
+						Language: "cangjie",
+						Attributes: []types.SourceInventoryObservationAttribute{{
+							Role: types.AnswerCandidateRolePackage,
+							Name: "demo.bridge",
+						}},
+					},
+					{
+						Name:     "native_add",
+						Role:     types.AnswerCandidateRoleFunction,
+						File:     "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+						Line:     6,
+						Language: "cangjie",
+						Attributes: []types.SourceInventoryObservationAttribute{{
+							Role: types.AnswerCandidateRolePackage,
+							Name: "demo.ffi",
+						}},
+					},
+				},
+			},
+			{
+				Role:     types.AnswerCandidateRoleType,
+				Complete: true,
+				Count:    2,
+				Total:    2,
+				Members: []types.SourceInventoryObservationMember{
+					{
+						Name:     "extend String",
+						Role:     types.AnswerCandidateRoleType,
+						File:     "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_extend_string.cj",
+						Line:     3,
+						Language: "cangjie",
+						Attributes: []types.SourceInventoryObservationAttribute{{
+							Role: types.AnswerCandidateRolePackage,
+							Name: "demo.stringext",
+						}},
+					},
+					{
+						Name:     "extend Cart",
+						Role:     types.AnswerCandidateRoleType,
+						File:     "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+						Line:     4,
+						Language: "cangjie",
+						Attributes: []types.SourceInventoryObservationAttribute{{
+							Role: types.AnswerCandidateRolePackage,
+							Name: "demo.cart",
+						}},
+					},
+				},
+			},
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope:              types.SourceScopeAll,
+				IncludeAuxiliaryAsPrincipal: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleFunction,
+					types.AnswerCandidateRoleType,
+				},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6},
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 4},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_extend_string.cj", Line: 3},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "decls",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{ID: "ffi", Label: "native_add", Text: "package 声明为 demo.ffi", CitationRef: 0},
+				{ID: "stringext", Label: "extend String", Text: "package 声明为 demo.stringext", CitationRef: 2},
+			},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 2 {
+		t.Fatalf("fixed=%d, want 2", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("ffi citation_ref=%d, want 1", got)
+	}
+	if got := doc.Blocks[0].Items[1].CitationRef; got != 3 {
+		t.Fatalf("stringext citation_ref=%d, want 3", got)
+	}
+}
+
+func TestNormalizeItemCitationRefsByTypedSourceInventoryRows_DetachesAmbiguousMissingCandidateRole(t *testing.T) {
+	mu := types.NewMutableState("ambiguous source inventory row without item role")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true,
+		Scopes: []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "Serve", Role: types.AnswerCandidateRoleFunction, File: "src/serve.cj", Line: 12, Language: "cangjie"},
+				{Name: "Serve", Role: types.AnswerCandidateRoleFunction, File: "fixtures/serve.cj", Line: 18, Language: "cangjie"},
+			},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope:              types.SourceScopeAll,
+				IncludeAuxiliaryAsPrincipal: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "old/stale.go", Line: 1}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "functions",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "serve",
+				Label:       "Serve",
+				Text:        "入口函数。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1 detached unsafe citation", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != -1 {
+		t.Fatalf("citation_ref=%d, want detached ambiguous source-inventory citation", got)
+	}
+}
+
 func TestNormalizeItemCitationRefsByTypedCandidateRole_DoesNotGuessAmbiguousRows(t *testing.T) {
 	mu := types.NewMutableState("source inventory ambiguous typed citation repair")
 	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{

@@ -1199,16 +1199,28 @@ func normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc *types.AnswerD
 		}
 		for ii := range block.Items {
 			item := &block.Items[ii]
-			role := item.CandidateRole
-			if role == types.AnswerCandidateRoleUnknown || role == types.AnswerCandidateRoleOther {
-				continue
-			}
 			label := strings.TrimSpace(item.Label)
 			text := preEmitItemNonLabelSurface(*item)
 			if label == "" && strings.TrimSpace(text) == "" {
 				continue
 			}
-			cit, ok := preEmitUniqueSourceInventoryCandidateRoleCitationForItem(pctx, role, label, text)
+			role := item.CandidateRole
+			var cit types.Citation
+			var ok bool
+			if role == types.AnswerCandidateRoleUnknown || role == types.AnswerCandidateRoleOther {
+				cit, ok = preEmitUniqueSourceInventoryCitationForItemAnyRole(pctx, label, text)
+				if !ok {
+					if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+						preEmitSourceInventoryItemHasTypedCandidatesAnyRole(pctx, label, text) &&
+						!preEmitCitationMatchesAnySourceInventoryCandidate(pctx, doc.Citations[item.CitationRef], label, text) {
+						item.CitationRef = -1
+						fixed++
+					}
+					continue
+				}
+			} else {
+				cit, ok = preEmitUniqueSourceInventoryCandidateRoleCitationForItem(pctx, role, label, text)
+			}
 			if !ok {
 				continue
 			}
@@ -1221,6 +1233,88 @@ func normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc *types.AnswerD
 		}
 	}
 	return fixed
+}
+
+func preEmitUniqueSourceInventoryCitationForItemAnyRole(pctx *preEmitCheckContext, label, text string) (types.Citation, bool) {
+	out := preEmitSourceInventoryCandidateCitationsForItemAnyRole(pctx, label, text)
+	if len(out) != 1 {
+		return types.Citation{}, false
+	}
+	return out[0], true
+}
+
+func preEmitSourceInventoryItemHasTypedCandidatesAnyRole(pctx *preEmitCheckContext, label, text string) bool {
+	return len(preEmitSourceInventoryCandidateCitationsForItemAnyRole(pctx, label, text)) > 0
+}
+
+func preEmitCitationMatchesAnySourceInventoryCandidate(pctx *preEmitCheckContext, cit types.Citation, label, text string) bool {
+	if pctx != nil {
+		cit = pctx.canonicalCitation(cit)
+	}
+	want := preEmitCitationLocationKey(cit)
+	if want == "" {
+		return false
+	}
+	for _, candidate := range preEmitSourceInventoryCandidateCitationsForItemAnyRole(pctx, label, text) {
+		if preEmitCitationLocationKey(candidate) == want || preEmitCitationSameLocation(candidate, cit) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitSourceInventoryCandidateCitationsForItemAnyRole(pctx *preEmitCheckContext, label, text string) []types.Citation {
+	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
+		return nil
+	}
+	rm := types.RequestModel{}
+	if pctx.ctx.AnalysisIR != nil {
+		rm = pctx.ctx.AnalysisIR.RequestModel
+	}
+	rowSet := types.BuildSourceInventoryPrincipalRowSet(types.SourceInventoryPrincipalRowSetInput{
+		Observation:  types.SourceInventoryObservationFromMutable(pctx.ctx.Mutable),
+		RequestModel: rm,
+	})
+	if !rowSet.Active || len(rowSet.PrincipalRows) == 0 {
+		return nil
+	}
+	var strong []types.Citation
+	var fallback []types.Citation
+	seenStrong := map[string]bool{}
+	seenFallback := map[string]bool{}
+	surface := strings.TrimSpace(strings.Join([]string{label, text}, "\n"))
+	for _, row := range rowSet.PrincipalRows {
+		attrMatch := preEmitSourceInventoryRowAttributeMatchesItem(row.Member, label, text, surface)
+		if !attrMatch && !preEmitSourceInventoryRowMatchesItem(row, label, text) {
+			continue
+		}
+		cit, ok := preEmitSourceInventoryRowCitation(row)
+		if !ok {
+			continue
+		}
+		cit = pctx.canonicalCitation(cit)
+		key := preEmitCitationLocationKey(cit)
+		if key == "" {
+			continue
+		}
+		if attrMatch {
+			if seenStrong[key] {
+				continue
+			}
+			seenStrong[key] = true
+			strong = append(strong, cit)
+			continue
+		}
+		if seenFallback[key] {
+			continue
+		}
+		seenFallback[key] = true
+		fallback = append(fallback, cit)
+	}
+	if len(strong) > 0 {
+		return strong
+	}
+	return fallback
 }
 
 func preEmitUniqueSourceInventoryCandidateRoleCitationForItem(pctx *preEmitCheckContext, role types.AnswerCandidateRole, label, text string) (types.Citation, bool) {
