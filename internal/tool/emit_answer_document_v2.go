@@ -212,6 +212,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			recovery.CandidateBlocks, recovery.RecoveredBlocks, len(recovery.Attachments))
 	}
 	visibleRecovery := mergeAnswerDocumentRecoveryAttachments(recovery, doc)
+	logCurrentSourceCitationQuoteRepairs(toolName, normalizeCurrentSourceCitationQuotes(doc, ctx))
 	normalizeTypedExcludedAnswerSurface(doc, ctx)
 
 	// P1 (2026-05-10) — emit-time pre-validation chokepoint.
@@ -1643,7 +1644,7 @@ func extractLooseAnswerDocumentSiblingFields(body string) map[string]json.RawMes
 		{"missing_requested_roles", '[', ']'},
 		{"exact_resolution", '{', '}'},
 	} {
-		if raw, ok := extractLooseJSONFieldValue(body, field.name, field.open, field.close); ok {
+		if raw, ok := extractLooseTopLevelJSONFieldValue(body, field.name, field.open, field.close); ok {
 			if !looseAnswerDocumentSiblingFieldValid(field.name, raw) {
 				continue
 			}
@@ -1654,6 +1655,144 @@ func extractLooseAnswerDocumentSiblingFields(body string) map[string]json.RawMes
 		return nil
 	}
 	return out
+}
+
+func extractLooseTopLevelJSONFieldValue(s, field string, open, close byte) (json.RawMessage, bool) {
+	depth := 0
+	inStr := false
+	esc := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if inStr {
+			if esc {
+				esc = false
+				continue
+			}
+			switch c {
+			case '\\':
+				esc = true
+			case '"':
+				inStr = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			end := findJSONStringEnd(s, i)
+			if end < 0 {
+				return extractLooseTrailingSiblingJSONFieldValue(s, field, open, close)
+			}
+			if depth <= 1 && s[i+1:end] == field {
+				cur := end + 1
+				for cur < len(s) && isAnswerDocJSONSpace(s[cur]) {
+					cur++
+				}
+				if cur < len(s) && s[cur] == ':' {
+					cur++
+					for cur < len(s) && isAnswerDocJSONSpace(s[cur]) {
+						cur++
+					}
+					if cur < len(s) && s[cur] == open {
+						valueEnd := findMatchingJSONClose(s, cur, open, close)
+						if valueEnd >= 0 {
+							raw := strings.TrimSpace(s[cur : valueEnd+1])
+							if json.Valid([]byte(raw)) {
+								return json.RawMessage(raw), true
+							}
+						}
+					}
+				}
+			}
+			i = end
+		case '{', '[':
+			depth++
+		case '}', ']':
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	return extractLooseTrailingSiblingJSONFieldValue(s, field, open, close)
+}
+
+func extractLooseTrailingSiblingJSONFieldValue(s, field string, open, close byte) (json.RawMessage, bool) {
+	needle := `"` + field + `"`
+	search := s
+	base := 0
+	for {
+		idx := strings.LastIndex(search, needle)
+		if idx < 0 {
+			return nil, false
+		}
+		idx += base
+		raw, end, ok := extractLooseJSONFieldValueAt(s, idx, field, open, close)
+		if ok && !looseFieldValueLooksNestedBlockSuffix(s[end+1:]) {
+			return raw, true
+		}
+		if idx <= 0 {
+			return nil, false
+		}
+		search = s[:idx]
+		base = 0
+	}
+}
+
+func extractLooseJSONFieldValueAt(s string, idx int, field string, open, close byte) (json.RawMessage, int, bool) {
+	needle := `"` + field + `"`
+	if idx < 0 || idx+len(needle) > len(s) || s[idx:idx+len(needle)] != needle {
+		return nil, -1, false
+	}
+	cur := idx + len(needle)
+	for cur < len(s) && isAnswerDocJSONSpace(s[cur]) {
+		cur++
+	}
+	if cur >= len(s) || s[cur] != ':' {
+		return nil, -1, false
+	}
+	cur++
+	for cur < len(s) && isAnswerDocJSONSpace(s[cur]) {
+		cur++
+	}
+	if cur >= len(s) || s[cur] != open {
+		return nil, -1, false
+	}
+	end := findMatchingJSONClose(s, cur, open, close)
+	if end < 0 {
+		return nil, -1, false
+	}
+	raw := strings.TrimSpace(s[cur : end+1])
+	if !json.Valid([]byte(raw)) {
+		return nil, -1, false
+	}
+	return json.RawMessage(raw), end, true
+}
+
+func looseFieldValueLooksNestedBlockSuffix(s string) bool {
+	trimmed := strings.TrimLeft(s, " \t\r\n")
+	if strings.HasPrefix(trimmed, "}]") || strings.HasPrefix(trimmed, "},") {
+		return true
+	}
+	return false
+}
+
+func findJSONStringEnd(s string, start int) int {
+	if start < 0 || start >= len(s) || s[start] != '"' {
+		return -1
+	}
+	esc := false
+	for i := start + 1; i < len(s); i++ {
+		if esc {
+			esc = false
+			continue
+		}
+		switch s[i] {
+		case '\\':
+			esc = true
+		case '"':
+			return i
+		}
+	}
+	return -1
 }
 
 func extractLooseJSONFieldValue(s, field string, open, close byte) (json.RawMessage, bool) {
@@ -2115,36 +2254,54 @@ func isolateBlocksStringBody(raw json.RawMessage) (body string, lead map[string]
 		}
 		return string(bs[cur : closeAt+1]), nil, nil, true
 	case '"':
-		// Find balanced closing `"` via state-machine.
-		esc := false
-		closeAt := -1
-		for j := cur + 1; j < len(bs); j++ {
-			c := bs[j]
-			if esc {
-				esc = false
-				continue
-			}
-			if c == '\\' {
-				esc = true
-				continue
-			}
-			if c == '"' {
-				closeAt = j
-				break
-			}
-		}
+		closeAt := likelyMalformedJSONStringClose(bs, cur)
 		if closeAt < 0 {
 			return "", nil, nil, false
 		}
 		// json.Unmarshal the quoted string to get the decoded body.
 		var encoded string
 		if err := json.Unmarshal(bs[cur:closeAt+1], &encoded); err != nil {
-			return "", nil, nil, false
+			encoded = decodeEscapedTextLoose(string(bs[cur+1 : closeAt]))
 		}
 		return encoded, nil, nil, true
 	default:
 		return "", nil, nil, false
 	}
+}
+
+func likelyMalformedJSONStringClose(bs []byte, openAt int) int {
+	if openAt < 0 || openAt >= len(bs) || bs[openAt] != '"' {
+		return -1
+	}
+	end := len(bs) - 1
+	for end > openAt && (bs[end] == ' ' || bs[end] == '\t' || bs[end] == '\r' || bs[end] == '\n') {
+		end--
+	}
+	if end > openAt && bs[end] == '}' {
+		end--
+		for end > openAt && (bs[end] == ' ' || bs[end] == '\t' || bs[end] == '\r' || bs[end] == '\n') {
+			end--
+		}
+		if end > openAt && bs[end] == '"' {
+			return end
+		}
+	}
+	esc := false
+	for j := openAt + 1; j < len(bs); j++ {
+		c := bs[j]
+		if esc {
+			esc = false
+			continue
+		}
+		if c == '\\' {
+			esc = true
+			continue
+		}
+		if c == '"' {
+			return j
+		}
+	}
+	return -1
 }
 
 // finishStringWrappedRepair takes the outer `probe` (top-level keys

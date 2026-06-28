@@ -2,6 +2,8 @@ package tool
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -80,6 +82,80 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 	if len(doc.Blocks) != 1 || doc.Blocks[0].ID != "b1" || doc.Blocks[0].Kind != types.BlockSummary {
 		t.Errorf("blocks not deserialised: got %+v", doc.Blocks)
+	}
+}
+
+func TestEmitAnswerDocumentV2_BlocksStringSiblingCitationsIgnoreNestedCitationPools(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	blocks := `[
+		{
+			"id": "s1",
+			"kind": "summary",
+			"text": "hello",
+			"items": [{"id": "i1", "citation_ref": 0}],
+			"citations": [{"file": "wrong.go", "line": 1, "quote": "wrong nested quote"}]
+		}
+	], "citations": [{"file": "right.go", "line": 2, "quote": "right top-level quote"}]`
+	raw, err := json.Marshal(map[string]string{"blocks": blocks})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected emit to succeed, got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		t.Fatal("V2 doc not written")
+	}
+	if len(doc.Citations) != 1 {
+		t.Fatalf("citation pool size = %d, want 1: %+v", len(doc.Citations), doc.Citations)
+	}
+	if doc.Citations[0].File != "right.go" || doc.Citations[0].Quote != "right top-level quote" {
+		t.Fatalf("nested block citation pool polluted top-level citations: %+v", doc.Citations)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("item citation_ref = %d, want 0", got)
+	}
+}
+
+func TestEmitAnswerDocumentV2_NormalizesCitationQuoteFromCurrentSource(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "pkg", "a.go"), []byte("package pkg\nfunc Real() {}\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	bus := newV2TestBusContext()
+	bus.RepoRoot = repo
+	bus.Mutable.SetRepoRoot(repo)
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "ParseLine", "items": [{"id": "i1", "citation_ref": 0}]}
+		],
+		"citations": [{"file": "pkg/a.go", "line": 2, "quote": "func Wrong() {}"}]
+	}`)
+
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected emit to succeed, got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 1 {
+		t.Fatalf("unexpected doc citations: %+v", doc)
+	}
+	if got := doc.Citations[0].Quote; got != "func Real() {}" {
+		t.Fatalf("citation quote = %q, want real file line", got)
 	}
 }
 
