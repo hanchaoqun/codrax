@@ -7510,33 +7510,34 @@ func (e *explorerEvaluator) postClosureRepairClosureOnlySignal(obs LoopObservati
 }
 
 type explorerCompletionReadiness struct {
-	HasEnough                bool
-	ERMSatisfied             bool
-	ToolDiversity            bool
-	FileCoverage             bool
-	EvidenceQuality          bool
-	NarrativeCarrier         bool
-	AuthoritativeCoverage    bool
-	AuthoritativeClosure     bool
-	ExplanationAnchorReady   bool
-	ExplanationAnchorCovered int
-	ExplanationAnchorTotal   int
-	TraceEndpointCovered     int
-	TraceEndpointTotal       int
-	TraceEndpointMissing     []string
-	ToolSources              int
-	ReadCount                int
-	DirectCount              int
-	MinDirectCount           int
-	RequirementCarrierCount  int
-	MinRequirementCarrier    int
-	ScopeReadCount           int
-	ScopeTotalCount          int
-	DiscoveredCount          int
-	RelevantRead             int
-	Coverage                 float64
-	ReadyFaces               []string
-	MissingFaces             []string
+	HasEnough                 bool
+	ERMSatisfied              bool
+	ToolDiversity             bool
+	FileCoverage              bool
+	EvidenceQuality           bool
+	NarrativeCarrier          bool
+	MixedRuntimeSourceCarrier bool
+	AuthoritativeCoverage     bool
+	AuthoritativeClosure      bool
+	ExplanationAnchorReady    bool
+	ExplanationAnchorCovered  int
+	ExplanationAnchorTotal    int
+	TraceEndpointCovered      int
+	TraceEndpointTotal        int
+	TraceEndpointMissing      []string
+	ToolSources               int
+	ReadCount                 int
+	DirectCount               int
+	MinDirectCount            int
+	RequirementCarrierCount   int
+	MinRequirementCarrier     int
+	ScopeReadCount            int
+	ScopeTotalCount           int
+	DiscoveredCount           int
+	RelevantRead              int
+	Coverage                  float64
+	ReadyFaces                []string
+	MissingFaces              []string
 }
 
 func (e *explorerEvaluator) strictEnumerationReadinessFloor() bool {
@@ -7775,12 +7776,18 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 	groundedCarrierCount := e.groundedRequirementCarrierCount()
 	minRequirementCarrier := e.minRequirementCarrierCount()
 	narrativeCarrier := e.narrativeClosureCarrierReady()
+	mixedRuntimeSourceCarrier := e.mixedRuntimeCurrentSourceCarrierReady()
 	if !e.strictEnumerationReadinessFloor() &&
 		(hasGroundedTerminalEvidence(e.structuredEvidence) ||
 			groundedCarrierCount >= minRequirementCarrier ||
 			narrativeCarrier ||
+			mixedRuntimeSourceCarrier ||
 			len(e.flowFindings) > 0) {
 		evidenceQuality = true
+	}
+	if mixedRuntimeSourceCarrier {
+		toolDiversity = true
+		fileCoverage = true
 	}
 	authoritativeClosure := false
 	if authoritativeCoverage {
@@ -7879,33 +7886,34 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 	}
 
 	return explorerCompletionReadiness{
-		HasEnough:                hasEnough,
-		ERMSatisfied:             ermSatisfied,
-		ToolDiversity:            toolDiversity,
-		FileCoverage:             fileCoverage,
-		EvidenceQuality:          evidenceQuality,
-		NarrativeCarrier:         narrativeCarrier,
-		AuthoritativeCoverage:    authoritativeCoverage,
-		AuthoritativeClosure:     authoritativeClosure,
-		ExplanationAnchorReady:   explanationAnchorReady,
-		ExplanationAnchorCovered: explanationAnchorCovered,
-		ExplanationAnchorTotal:   explanationAnchorTotal,
-		TraceEndpointCovered:     traceEndpointCovered,
-		TraceEndpointTotal:       traceEndpointTotal,
-		TraceEndpointMissing:     append([]string(nil), traceEndpointMissing...),
-		ToolSources:              sourceCount,
-		ReadCount:                len(readSet),
-		DirectCount:              directCount,
-		MinDirectCount:           minDirect,
-		RequirementCarrierCount:  groundedCarrierCount,
-		MinRequirementCarrier:    minRequirementCarrier,
-		ScopeReadCount:           scopeReadCount,
-		ScopeTotalCount:          len(scope),
-		DiscoveredCount:          len(discovered),
-		RelevantRead:             relevantRead,
-		Coverage:                 coverage,
-		ReadyFaces:               readyFaces,
-		MissingFaces:             missingFaces,
+		HasEnough:                 hasEnough,
+		ERMSatisfied:              ermSatisfied,
+		ToolDiversity:             toolDiversity,
+		FileCoverage:              fileCoverage,
+		EvidenceQuality:           evidenceQuality,
+		NarrativeCarrier:          narrativeCarrier,
+		MixedRuntimeSourceCarrier: mixedRuntimeSourceCarrier,
+		AuthoritativeCoverage:     authoritativeCoverage,
+		AuthoritativeClosure:      authoritativeClosure,
+		ExplanationAnchorReady:    explanationAnchorReady,
+		ExplanationAnchorCovered:  explanationAnchorCovered,
+		ExplanationAnchorTotal:    explanationAnchorTotal,
+		TraceEndpointCovered:      traceEndpointCovered,
+		TraceEndpointTotal:        traceEndpointTotal,
+		TraceEndpointMissing:      append([]string(nil), traceEndpointMissing...),
+		ToolSources:               sourceCount,
+		ReadCount:                 len(readSet),
+		DirectCount:               directCount,
+		MinDirectCount:            minDirect,
+		RequirementCarrierCount:   groundedCarrierCount,
+		MinRequirementCarrier:     minRequirementCarrier,
+		ScopeReadCount:            scopeReadCount,
+		ScopeTotalCount:           len(scope),
+		DiscoveredCount:           len(discovered),
+		RelevantRead:              relevantRead,
+		Coverage:                  coverage,
+		ReadyFaces:                readyFaces,
+		MissingFaces:              missingFaces,
 	}
 }
 
@@ -8058,6 +8066,9 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	if readiness.NarrativeCarrier {
 		b.WriteString("- architecture/mechanism explanation has enough grounded defining/mechanism carriers for the requested narrative shape\n")
 	}
+	if readiness.MixedRuntimeSourceCarrier {
+		b.WriteString("- mixed runtime/current-source evidence has enough grounded current-source mechanism carriers for the external-observation lane\n")
+	}
 	if readiness.ExplanationAnchorTotal > 0 {
 		fmt.Fprintf(&b, "- topic anchors ready: %d / %d\n",
 			readiness.ExplanationAnchorCovered, readiness.ExplanationAnchorTotal)
@@ -8153,6 +8164,7 @@ func (e *explorerEvaluator) completionReadinessHasAnswerCarrier(readiness explor
 		len(e.flowFindings) > 0 ||
 		hasGroundedRequirementCarrier(e.structuredEvidence, e.ermRequirements) ||
 		readiness.NarrativeCarrier ||
+		readiness.MixedRuntimeSourceCarrier ||
 		readiness.AuthoritativeClosure ||
 		scalarLocateReady
 }
@@ -8309,6 +8321,55 @@ func (e *explorerEvaluator) narrativeClosureCarrierReady() bool {
 		return false
 	}
 	return true
+}
+
+func (e *explorerEvaluator) mixedRuntimeCurrentSourceCarrierReady() bool {
+	if e == nil || e.analysisIR == nil || len(e.structuredEvidence) == 0 {
+		return false
+	}
+	rm := e.analysisIR.RequestModel
+	if !types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) ||
+		!e.mixedRuntimeCurrentSourceRuntimeLanePresent(rm) ||
+		types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+		return false
+	}
+	requiredCurrentAnchors := types.MixedRuntimeCurrentSourceRequiredFileHintCoverageMax
+	if requiredCurrentAnchors <= 0 {
+		requiredCurrentAnchors = 2
+	}
+	currentAnchors := map[string]bool{}
+	for _, ev := range e.structuredEvidence {
+		if !mixedRuntimeCurrentSourceEvidenceCarrier(ev) {
+			continue
+		}
+		source := canonicalEvidenceSourcePath(ev.Source)
+		if source == "" || ev.LineStart <= 0 {
+			continue
+		}
+		currentAnchors[fmt.Sprintf("%s:%d", source, ev.LineStart)] = true
+		if len(currentAnchors) >= requiredCurrentAnchors {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *explorerEvaluator) mixedRuntimeCurrentSourceRuntimeLanePresent(rm types.RequestModel) bool {
+	if rm.HasExternalOnlyRuntimeArtifact() ||
+		rm.HasExternalObservationArtifactReference() ||
+		rm.HasRuntimeArtifactPathReference() {
+		return true
+	}
+	return e != nil && (e.logTriage != nil || e.perfTrace != nil)
+}
+
+func mixedRuntimeCurrentSourceEvidenceCarrier(ev types.EvidenceItem) bool {
+	switch ev.Origin {
+	case types.ClaimOriginCurrentRepo, types.ClaimOriginCrossSource:
+	default:
+		return false
+	}
+	return narrativeClosureEvidenceCarrier(ev)
 }
 
 func narrativeClosureEvidenceCarrier(ev types.EvidenceItem) bool {

@@ -9723,6 +9723,65 @@ func TestObserveMidLoop_CompletionReadyNavigationConsumesVerificationGrace(t *te
 	}
 }
 
+func TestPostCompletionReadySignal_MixedRuntimeCurrentSourceCarrier(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			PerfTrace: &types.PerfBundle{
+				Frames: []types.PerfFrame{{FrameNo: 1, DurationMs: 86.1, Janky: true}},
+			},
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+				SourceQuotes:                        []string{"typed source lane"},
+				Confidence:                          0.9,
+			},
+		}},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceMechanism,
+				Subject:         "classify",
+				Predicate:       "maps",
+				Object:          "timeout",
+				Source:          "internal/llm/stream_errors.go",
+				LineStart:       42,
+				Origin:          types.ClaimOriginCurrentRepo,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceRelationship,
+				Subject:         "retry",
+				Predicate:       "calls",
+				Object:          "classify",
+				Source:          "internal/llm/retryable_error.go",
+				LineStart:       17,
+				Origin:          types.ClaimOriginCurrentRepo,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "emit_evidence", Success: true, Summary: "accepted current-source anchors"},
+	}
+	sig := eval.postCompletionReadySignal(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		LastToolResult: &results[0],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("mixed runtime/current-source carriers should make completion-ready fire, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey=%q, want completion-ready", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "mixed runtime/current-source evidence") {
+		t.Fatalf("hint should expose the typed mixed carrier, got: %s", sig.Hint)
+	}
+}
+
 func TestObserveMidLoop_CompletionReadyEscalation(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                           1,
