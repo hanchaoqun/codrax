@@ -91,12 +91,12 @@ func TestExplorerFilterToolSchemasCompletionOnlySuppressesReadRepairForMechanica
 	for _, schema := range got {
 		names[schema.Name] = true
 	}
-	for _, want := range []string{"emit_evidence", "emit_investigation_complete"} {
+	for _, want := range []string{"emit_investigation_complete"} {
 		if !names[want] {
 			t.Fatalf("mechanical completion surface missing %q: %+v", want, got)
 		}
 	}
-	for _, blocked := range []string{"grep", "read_file", "repo_map"} {
+	for _, blocked := range []string{"grep", "read_file", "repo_map", "emit_evidence"} {
 		if names[blocked] {
 			t.Fatalf("mechanical completion surface must not reopen %q: %+v", blocked, got)
 		}

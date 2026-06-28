@@ -5218,7 +5218,7 @@ func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc ll
 	allowedNames := sortedToolNames(allowed)
 	reason := fmt.Sprintf("tool %q is not available in the current explorer repair state; available tools here: %s. Use the already-read or exact repair context to emit structured evidence before widening scope.", tc.Name, strings.Join(allowedNames, ", "))
 	if explorerEval.sourceInventoryMechanicalLandingSurfaceActive(ctx) {
-		reason = fmt.Sprintf("tool %q is not available because the typed source_inventory row-set already covers this mechanical inventory lane; available tools here: %s. Materialize the row-set with emit_evidence or close with emit_investigation_complete instead of reading every candidate file.", tc.Name, strings.Join(allowedNames, ", "))
+		reason = fmt.Sprintf("tool %q is not available because the typed source_inventory row-set already covers this mechanical inventory lane; available tools here: %s. Close with emit_investigation_complete and carry row-set counts/members/locations through reason or aggregate_facts instead of reading or re-emitting every candidate file.", tc.Name, strings.Join(allowedNames, ", "))
 	}
 	logging.Warning("[explorer] tool %q rejected: %s", tc.Name, reason)
 	return &types.ToolResult{

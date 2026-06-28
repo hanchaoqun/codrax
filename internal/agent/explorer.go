@@ -432,7 +432,11 @@ func renderExplorerSourceInventoryLensSurfaceInstruction(ctx *types.AgentContext
 	if explorerSourceInventoryMechanicalRowsOnly(ctx) {
 		b.WriteString("- mechanical field boundary: this request asks for row metadata such as name/location/count/package/module/namespace. After a complete typed row-set, materialize/close from the row-set; do not read every candidate file unless one selected row has a concrete contradiction or the requested fields later require source text.\n")
 	}
-	b.WriteString("\nAfter the lens result, emit structured evidence or complete the investigation only if the returned observation covers the requested source-class universe; otherwise let the typed validator drive the next bounded follow-up.\n")
+	if explorerSourceInventoryMechanicalRowsOnly(ctx) {
+		b.WriteString("\nAfter the lens result, if the returned observation covers the requested source-class universe, close with `emit_investigation_complete` using the row-set counts/members/locations as the structured handoff. Do not first convert every repo_map row into `emit_evidence`. If the observation does not cover the universe, let the typed validator drive the next bounded follow-up.\n")
+	} else {
+		b.WriteString("\nAfter the lens result, emit structured evidence or complete the investigation only if the returned observation covers the requested source-class universe; otherwise let the typed validator drive the next bounded follow-up.\n")
+	}
 	return b.String()
 }
 
@@ -1822,7 +1826,7 @@ func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {
 	b.WriteString("- Use it to avoid re-enumerating the same scope in sibling lanes or transient retries.\n")
 	b.WriteString("- If the slate matches what you need, use its counts/members/locations/row-local attributes as the candidate universe, verify only selected or disputed behavior/text claims, and carry the model-authored conclusion through emit_evidence / aggregate_facts.\n")
 	if explorerSourceInventoryMechanicalRowsOnly(ctx) {
-		b.WriteString("- Mechanical inventory closure: name/location/count/package/module/namespace rows can be carried directly from this typed slate. Do not read every listed file just to restate those row fields; read source text only for a selected contradiction or a requested summary/value/body detail.\n")
+		b.WriteString("- Mechanical inventory closure: name/location/count/package/module/namespace rows can be carried directly from this typed slate. A complete typed row-set is already a structured landing artifact; do not call `emit_evidence` merely to repackage repo_map rows, and do not read every listed file just to restate those row fields. Use `emit_investigation_complete.reason` / `aggregate_facts` for the final handoff; read source text only for a selected contradiction or a requested summary/value/body detail.\n")
 	}
 	b.WriteString("- If it does not match, keep your own investigation boundary and explain the gap in the structured closure instead of silently widening the answer.\n\n")
 	b.WriteString(renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
@@ -6758,6 +6762,10 @@ var completionProgressToolNames = map[string]bool{
 	"emit_investigation_complete": true,
 }
 
+var investigationCompleteOnlyToolNames = map[string]bool{
+	"emit_investigation_complete": true,
+}
+
 var evidenceRepairToolNames = map[string]bool{
 	"read_file":                   true,
 	"emit_evidence":               true,
@@ -6820,7 +6828,7 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	if ctx.CompletionOnlySurface {
 		allowed := completionOnlyToolSurface(ctx)
 		if e.sourceInventoryMechanicalLandingSurfaceActive(ctx) {
-			allowed = completionProgressToolNames
+			allowed = investigationCompleteOnlyToolNames
 		}
 		out := make([]llm.ToolSchema, 0, len(allowed))
 		for _, schema := range schemas {
@@ -6893,7 +6901,7 @@ func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[s
 		return nil
 	}
 	if e.sourceInventoryMechanicalLandingSurfaceActive(ctx) {
-		return completionProgressToolNames
+		return investigationCompleteOnlyToolNames
 	}
 	if e.midLoopEvidenceRepairSent && e.midLoopEvidenceRepairResultsLen > 0 {
 		// Merge active-repair required tools (e.g. a repo_map demand from the

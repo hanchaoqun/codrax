@@ -2486,6 +2486,55 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalMemberO
 	}
 }
 
+func TestRenderAnswerDocPrincipalMemberObligations_DedupesEnumerationRowsByLocationAndLabel(t *testing.T) {
+	coverage := answerDocPrincipalEnumerationRowCoverage{
+		byEvidenceID: map[string]bool{},
+		byRowKey:     map[string]bool{},
+		rows: []types.EnumerationDisplayRow{{
+			RowID:        "source-inventory-public-class-cart",
+			Member:       "Cart",
+			DisplayLabel: "Cart",
+			Source:       "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+			LineStart:    14,
+			Location:     "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+			CitationKey:  "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+		}},
+		rowCount: 1,
+	}
+	for _, key := range answerDocPrincipalEnumerationRowKeys(coverage.rows[0]) {
+		coverage.byRowKey[key] = true
+	}
+	plan := &types.AnswerSupportPlan{
+		Family:                  types.QFEnumeration,
+		PrincipalMemberCoverage: types.PrincipalMemberCoveragePolicyRequired,
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLanePrincipalEvidence,
+			Entries: []types.AnswerSupportEntry{{
+				Text:       "Cart",
+				Location:   "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+				Source:     "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+				LineStart:  14,
+				EvidenceID: "different-support-lane-id",
+				ClaimForm:  types.ClaimDefinitionFact,
+			}},
+		}},
+	}
+
+	got := renderAnswerDocPrincipalMemberObligations(plan, coverage)
+	for _, want := range []string{
+		"1 answer-grade member obligation(s) are already rendered once in `Principal Enumeration Rows` above",
+		"The typed principal lane contains 1 answer-grade member(s). Render each member from `Principal Enumeration Rows`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("deduped obligation prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "different-support-lane-id") ||
+		strings.Contains(got, "still need explicit obligation rows") {
+		t.Fatalf("same location+label support row should be covered by principal enumeration rows:\n%s", got)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_FileImpactObligationsUseFileCount(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

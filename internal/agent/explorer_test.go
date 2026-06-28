@@ -4478,7 +4478,7 @@ func TestExplorer_FilterToolSchemas_SourceInventoryMechanicalLandingSurface(t *t
 	}
 
 	got := eval.FilterToolSchemas(ctx, schemas)
-	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_evidence,emit_investigation_complete" {
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_investigation_complete" {
 		t.Fatalf("complete mechanical source-inventory row-set should switch to landing surface, got %v", gotNames)
 	}
 	blocked := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"src/run.py"}`)})
@@ -4487,6 +4487,9 @@ func TestExplorer_FilterToolSchemas_SourceInventoryMechanicalLandingSurface(t *t
 	}
 	if !strings.Contains(blocked.Summary, "typed source_inventory row-set already covers") {
 		t.Fatalf("read_file rejection should explain typed row-set closure, got %q", blocked.Summary)
+	}
+	if strings.Contains(blocked.Summary, "emit_evidence") {
+		t.Fatalf("mechanical landing rejection must not tell the model to repackage rows through emit_evidence: %q", blocked.Summary)
 	}
 	if ok := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_investigation_complete", Params: json.RawMessage(`{}`)}); ok != nil {
 		t.Fatalf("completion tool should remain available, got %+v", ok)
@@ -4772,7 +4775,7 @@ func TestExplorer_BuildInitialInstruction_SourceInventoryLensSurface(t *testing.
 	}
 
 	got := eval.BuildInitialInstruction(ctx, nil)
-	for _, want := range []string{"Source Inventory Lens Probe", `repo_map`, `view="source_inventory"`, "Before that first lens result", "typed principal roles", "mechanical field boundary"} {
+	for _, want := range []string{"Source Inventory Lens Probe", `repo_map`, `view="source_inventory"`, "Before that first lens result", "typed principal roles", "mechanical field boundary", "Do not first convert every repo_map row into `emit_evidence`"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("source-inventory lens instruction missing %q:\n%s", want, got)
 		}

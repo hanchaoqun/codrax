@@ -6152,6 +6152,7 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 
 type answerDocPrincipalEnumerationRowCoverage struct {
 	byEvidenceID map[string]bool
+	byRowKey     map[string]bool
 	rows         []types.EnumerationDisplayRow
 	rowCount     int
 }
@@ -6159,7 +6160,10 @@ type answerDocPrincipalEnumerationRowCoverage struct {
 func answerDocPrincipalEnumerationCoverage(ctx *types.AgentContext) answerDocPrincipalEnumerationRowCoverage {
 	plan := answerSurfacePlan(ctx)
 	sets := answerDocPrincipalEnumerationSets(ctx, plan)
-	coverage := answerDocPrincipalEnumerationRowCoverage{byEvidenceID: map[string]bool{}}
+	coverage := answerDocPrincipalEnumerationRowCoverage{
+		byEvidenceID: map[string]bool{},
+		byRowKey:     map[string]bool{},
+	}
 	for _, set := range sets {
 		for _, row := range set.Rows {
 			coverage.rowCount++
@@ -6167,18 +6171,53 @@ func answerDocPrincipalEnumerationCoverage(ctx *types.AgentContext) answerDocPri
 			if id := strings.TrimSpace(row.EvidenceID); id != "" {
 				coverage.byEvidenceID[id] = true
 			}
+			for _, key := range answerDocPrincipalEnumerationRowKeys(row) {
+				coverage.byRowKey[key] = true
+			}
 		}
 	}
 	return coverage
 }
 
 func (c answerDocPrincipalEnumerationRowCoverage) Active() bool {
-	return c.rowCount > 0 && len(c.byEvidenceID) > 0
+	return c.rowCount > 0 && (len(c.byEvidenceID) > 0 || len(c.byRowKey) > 0)
 }
 
 func (c answerDocPrincipalEnumerationRowCoverage) CoversEvidenceID(id string) bool {
 	id = strings.TrimSpace(id)
 	return id != "" && c.byEvidenceID[id]
+}
+
+func (c answerDocPrincipalEnumerationRowCoverage) CoversSupportEntry(entry types.AnswerSupportEntry) bool {
+	if !c.Active() {
+		return false
+	}
+	if c.CoversEvidenceID(entry.EvidenceID) {
+		return true
+	}
+	return c.coversAnyRowKey(answerDocPrincipalEnumerationSupportEntryKeys(entry))
+}
+
+func (c answerDocPrincipalEnumerationRowCoverage) CoversObligation(ob types.AnswerSupportMemberObligation) bool {
+	if !c.Active() {
+		return false
+	}
+	if c.CoversEvidenceID(ob.EvidenceID) {
+		return true
+	}
+	return c.coversAnyRowKey(answerDocPrincipalEnumerationObligationKeys(ob))
+}
+
+func (c answerDocPrincipalEnumerationRowCoverage) coversAnyRowKey(keys []string) bool {
+	if len(keys) == 0 || len(c.byRowKey) == 0 {
+		return false
+	}
+	for _, key := range keys {
+		if c.byRowKey[key] {
+			return true
+		}
+	}
+	return false
 }
 
 func answerDocSplitEntriesCoveredByPrincipalEnumerationRows(entries []types.AnswerSupportEntry, coverage answerDocPrincipalEnumerationRowCoverage) (int, []types.AnswerSupportEntry) {
@@ -6188,7 +6227,7 @@ func answerDocSplitEntriesCoveredByPrincipalEnumerationRows(entries []types.Answ
 	remaining := make([]types.AnswerSupportEntry, 0, len(entries))
 	rendered := 0
 	for _, entry := range entries {
-		if coverage.CoversEvidenceID(entry.EvidenceID) {
+		if coverage.CoversSupportEntry(entry) {
 			rendered++
 			continue
 		}
@@ -6206,7 +6245,7 @@ func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan, co
 	if coverage.Active() {
 		filtered := obligations[:0]
 		for _, ob := range obligations {
-			if coverage.CoversEvidenceID(ob.EvidenceID) {
+			if coverage.CoversObligation(ob) {
 				coveredCount++
 				continue
 			}
@@ -6262,6 +6301,112 @@ func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan, co
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocPrincipalEnumerationRowKeys(row types.EnumerationDisplayRow) []string {
+	locations := []string{
+		row.Location,
+		row.CitationKey,
+		answerDocPrincipalEnumerationSourceLine(row.Source, row.LineStart),
+	}
+	locations = append(locations, row.EquivalentLocations...)
+	labels := []string{
+		row.Member,
+		row.DisplayLabel,
+		row.Subject,
+		row.Object,
+		row.AnchorSymbol,
+		row.OwnerSymbol,
+	}
+	labels = append(labels, row.SurfaceTerms...)
+	return answerDocPrincipalEnumerationKeys(locations, labels)
+}
+
+func answerDocPrincipalEnumerationSupportEntryKeys(entry types.AnswerSupportEntry) []string {
+	locations := []string{
+		entry.Location,
+		answerDocPrincipalEnumerationSourceLine(entry.Source, entry.LineStart),
+	}
+	locations = append(locations, entry.EquivalentLocations...)
+	labels := []string{
+		entry.Text,
+		entry.Subject,
+		entry.Object,
+		entry.AnchorSymbol,
+		entry.OwnerSymbol,
+	}
+	labels = append(labels, entry.SurfaceTerms...)
+	return answerDocPrincipalEnumerationKeys(locations, labels)
+}
+
+func answerDocPrincipalEnumerationObligationKeys(ob types.AnswerSupportMemberObligation) []string {
+	locations := []string{
+		ob.Location,
+		ob.StableCitationKey(),
+		answerDocPrincipalEnumerationSourceLine(ob.Source, ob.LineStart),
+	}
+	locations = append(locations, ob.EquivalentLocations...)
+	labels := []string{ob.Label}
+	labels = append(labels, ob.SurfaceTerms...)
+	return answerDocPrincipalEnumerationKeys(locations, labels)
+}
+
+func answerDocPrincipalEnumerationSourceLine(source string, line int) string {
+	source = strings.TrimSpace(strings.ReplaceAll(source, `\`, `/`))
+	if source == "" || line <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", source, line)
+}
+
+func answerDocPrincipalEnumerationKeys(locations []string, labels []string) []string {
+	normLocs := answerDocPrincipalEnumerationNormalizedUnique(locations)
+	normLabels := answerDocPrincipalEnumerationNormalizedUnique(labels)
+	if len(normLocs) == 0 {
+		return nil
+	}
+	labelCount := len(normLabels)
+	if labelCount == 0 {
+		labelCount = 1
+	}
+	keys := make([]string, 0, len(normLocs)*labelCount)
+	seen := map[string]bool{}
+	add := func(key string) {
+		if key == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	if len(normLabels) == 0 {
+		for _, loc := range normLocs {
+			add("loc\x00" + loc)
+		}
+		return keys
+	}
+	for _, loc := range normLocs {
+		for _, label := range normLabels {
+			add("loc_label\x00" + loc + "\x00" + label)
+		}
+	}
+	return keys
+}
+
+func answerDocPrincipalEnumerationNormalizedUnique(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		normalized := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(value, `\`, `/`)))
+		if normalized == "" || seen[normalized] {
+			continue
+		}
+		seen[normalized] = true
+		out = append(out, normalized)
+	}
+	return out
 }
 
 func answerDocCoveredEquivalentAnchorLines(coverage answerDocPrincipalEnumerationRowCoverage) string {
