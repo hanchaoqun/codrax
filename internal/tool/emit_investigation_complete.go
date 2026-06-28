@@ -9791,7 +9791,10 @@ func diagnosticMechanismGroundedEvidenceCompletesForcedReadBoundary(ctx *types.B
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if rm.Intent != types.IntentExplain || !rm.Predicates.IsDiagnosticQuestion {
+	if rm.Intent != types.IntentExplain && rm.Intent != types.IntentRootCause {
+		return false
+	}
+	if !rm.Predicates.IsDiagnosticQuestion {
 		return false
 	}
 	if rm.Predicates.IsScalarAnswer ||

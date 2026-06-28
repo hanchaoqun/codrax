@@ -2444,6 +2444,10 @@ func TestGenericForcedReadBoundarySatisfiedByDiagnosticMechanismGroundedEvidence
 	if !genericForcedReadBoundarySatisfied(bus, nil, mut.EmittedEvidence()) {
 		t.Fatal("diagnostic mechanism answer with grounded multi-file current-source evidence should satisfy generic forced-read boundary")
 	}
+	bus.AnalysisIR.RequestModel.Intent = types.IntentRootCause
+	if !genericForcedReadBoundarySatisfied(bus, nil, mut.EmittedEvidence()) {
+		t.Fatal("root-cause diagnostic mechanism answer should use the same grounded forced-read boundary")
+	}
 
 	mut = types.NewMutableState("why did finalization retry")
 	mut.AppendEvidence([]types.EvidenceItem{
