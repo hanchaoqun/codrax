@@ -3470,7 +3470,7 @@ func (e *explorerEvaluator) buildCapabilityFocusedStartInstruction(ctx *types.Ag
 func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Explicit Runtime Trace Path Start\n\n")
-	b.WriteString("The user named a runtime trace artifact path and did not ask for current-source verification. Treat this as a runtime-artifact investigation first, not a source-code breadth scan.\n\n")
+	b.WriteString("This turn has a runtime trace artifact. Treat it as a runtime-artifact investigation first, not a source-code breadth scan; if a current-source question remains unresolved after trace_query, use a focused source follow-up and keep that evidence in a separate lane.\n\n")
 	b.WriteString("Workflow:\n")
 	b.WriteString("- Start with `trace_query` for scheduler/time-window causality: use " + skill.RenderTraceQueryViewMatrix() + ".\n")
 	b.WriteString("- When `window_stats` or `root_cause_rank` reports `state_churn` / `fragmented_*`, treat it as a cumulative fragmented-state signal: use `dominant_state`, `impact`, and `cumulative_impact_ms` to identify the main contributor, keep `running/runnable/sleep/d_state/io_wait` totals as supporting detail, and follow the rendered `next_step` instead of looking only for one long continuous interval.\n")
@@ -3483,7 +3483,7 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 	b.WriteString("- Once a `trace_query` result gives a selected time/line window, carry that same `time_start`/`time_end` or `line_start`/`line_end` into every follow-up heavy view (`scheduler_latency_stats`, `root_cause_rank`, `window_stats`, `critical_blocking_calls`, `recipe`); thread/pid alone is not a bounded query on large traces.\n")
 	b.WriteString("- Trace timestamps are seconds end-to-end, so values such as 2942.124416 and 2942.260210 are seconds, not milliseconds; durations from the tool are reported in ms.\n")
 	b.WriteString("- Use targeted `grep`, `read_file`, or deterministic `exec_command` only after `trace_query` narrows the line windows or if `trace_query` reports an unsupported/incomplete format.\n")
-	b.WriteString("- A successful answer-grade `trace_query` result already publishes typed runtime-artifact observations; do not call `emit_evidence` just to repackage those rows. Complete with `emit_investigation_complete` once the trace_query views cover the requested window, chain, and resource context.\n")
+	b.WriteString("- A successful answer-grade `trace_query` result already publishes typed runtime-artifact observations; do not call `emit_evidence` just to repackage those rows. Complete with `emit_investigation_complete` once the trace_query views cover the requested window, chain, and resource context, unless a focused current-source lane is still part of the typed request.\n")
 	b.WriteString("- Preserve any additional model-authored synthesis through `emit_investigation_complete.reason` and, when useful, `aggregate_facts`. Use `emit_evidence` only for load-bearing trace line gutters you manually read outside trace_query, and never turn trace rows into current-source citations.\n")
 	b.WriteString("- If you later need current-code proof because the question truly asks for it, read source files separately and keep that source evidence in a separate lane.\n\n")
 	if ctx != nil {

@@ -5481,7 +5481,7 @@ func validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx *types.AgentContext, 
 		return nil
 	}
 	rm := requestModelFromContext(ctx)
-	if rm != nil && rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
+	if !explorerTraceQuerySourceFallbackHardBlocked(rm) {
 		return nil
 	}
 	if !explorerTraceQueryRuntimeEvidenceAvailable(ctx) {
@@ -5512,6 +5512,16 @@ func validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx *types.AgentContext, 
 	}
 }
 
+func explorerTraceQuerySourceFallbackHardBlocked(rm *types.RequestModel) bool {
+	if rm == nil {
+		return true
+	}
+	if rm.HasObservationOnlyRuntimeArtifact() {
+		return true
+	}
+	return rm.CurrentSourceLaneDecision() == types.CurrentSourceLaneExcluded
+}
+
 func explorerTraceQueryRuntimeEvidenceAvailable(ctx *types.AgentContext) bool {
 	return ctx != nil && ctx.Mutable != nil && ctx.Mutable.TraceQueryRuntimeObservationCount() > 0
 }
@@ -5529,7 +5539,9 @@ func explorerTraceQueryFirstRequired(ctx *types.AgentContext, traceQueryInCurren
 	if ctx == nil || ctx.Stage != types.StageExplore || !traceQueryInCurrentSurface {
 		return false
 	}
-	if !traceQueryToolAvailable(ctx) || explorerTraceQueryAlreadyAttempted(ctx) {
+	if !traceQueryToolAvailable(ctx) ||
+		explorerTraceQueryAlreadyAttempted(ctx) ||
+		explorerTraceQueryRuntimeEvidenceAvailable(ctx) {
 		return false
 	}
 	rm := requestModelFromContext(ctx)

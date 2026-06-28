@@ -713,7 +713,7 @@ func TestValidateExplorerTraceQueryFirstToolCall_AllowsFallbackAfterTraceAttempt
 	}
 }
 
-func TestValidateExplorerTraceQueryFirstToolCall_BlocksSourceFallbackAfterRuntimeObservations(t *testing.T) {
+func TestValidateExplorerTraceQueryFirstToolCall_AllowsDefaultMixedSourceFallbackAfterRuntimeObservations(t *testing.T) {
 	mut := types.NewMutableState("trace state churn")
 	mut.AppendDispatchToolResult(types.ToolResult{
 		ToolName: "trace_query",
@@ -734,11 +734,8 @@ func TestValidateExplorerTraceQueryFirstToolCall_BlocksSourceFallbackAfterRuntim
 			Name:   toolName,
 			Params: json.RawMessage(`{"path":"internal/tracequery/types.go"}`),
 		}, true)
-		if got == nil {
-			t.Fatalf("%s should be rejected after trace_query published runtime observations", toolName)
-		}
-		if got.Repair == nil || got.Repair.Code != explorerTraceQuerySufficientRuntimeEvidenceCode {
-			t.Fatalf("%s repair code = %+v, want %q", toolName, got.Repair, explorerTraceQuerySufficientRuntimeEvidenceCode)
+		if got != nil {
+			t.Fatalf("%s should remain available for default mixed runtime/current-source follow-up, got %+v", toolName, got)
 		}
 	}
 	for _, toolName := range []string{"trace_query", "emit_investigation_complete"} {
@@ -755,8 +752,46 @@ func TestValidateExplorerTraceQueryFirstToolCall_BlocksSourceFallbackAfterRuntim
 		Name:   "read_file",
 		Params: json.RawMessage(`{"path":"internal/tracequery/types.go"}`),
 	}, true)
-	if got == nil || got.Repair == nil || got.Repair.Code != explorerTraceQuerySufficientRuntimeEvidenceCode {
-		t.Fatalf("runtime observation count should block source fallback after dispatch reset, got %+v", got)
+	if got != nil {
+		t.Fatalf("runtime observation count should not hard-block default mixed source fallback after dispatch reset, got %+v", got)
+	}
+}
+
+func TestValidateExplorerTraceQueryFirstToolCall_BlocksSourceFallbackAfterRuntimeObservationsWhenSourceExcluded(t *testing.T) {
+	mut := types.NewMutableState("trace state churn")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Summary:  "root_cause_rank returned structured runtime rows",
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:attached#root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace"},
+			ClaimKey:        "root_cause_primary",
+		}},
+	})
+	rm := traceQueryFirstRuntimeRequestModel()
+	rm.ExternalObservationPolicy = &types.ExternalObservationPolicy{
+		ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+		CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+		ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
+		SourceQuotes:         []string{"只分析 trace"},
+		Confidence:           0.9,
+	}
+	ctx := traceQueryFirstTestContext(rm, mut)
+	for _, toolName := range []string{"read_file", "grep", "repo_map", "list_files", "exec_command"} {
+		got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+			Name:   toolName,
+			Params: json.RawMessage(`{"path":"internal/tracequery/types.go"}`),
+		}, true)
+		if got == nil {
+			t.Fatalf("%s should be rejected for explicit observation-only trace after runtime observations", toolName)
+		}
+		if got.Repair == nil || got.Repair.Code != explorerTraceQuerySufficientRuntimeEvidenceCode {
+			t.Fatalf("%s repair code = %+v, want %q", toolName, got.Repair, explorerTraceQuerySufficientRuntimeEvidenceCode)
+		}
 	}
 }
 

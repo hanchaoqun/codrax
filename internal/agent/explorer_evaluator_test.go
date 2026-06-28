@@ -344,7 +344,8 @@ func TestExplorer_BuildInitialInstruction_SourceOptionalTraceStartsWithTraceQuer
 	for _, want := range []string{
 		"Explicit Runtime Trace Path Start",
 		"Start with `trace_query`",
-		"Treat this as a runtime-artifact investigation first",
+		"Treat it as a runtime-artifact investigation first",
+		"focused source follow-up",
 		"trace_query` result already publishes typed runtime-artifact observations",
 		"do not call `emit_evidence` just to repackage those rows",
 		"Complete with `emit_investigation_complete`",
