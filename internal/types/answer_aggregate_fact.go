@@ -3475,6 +3475,9 @@ func normalizeAggregateMemberSetMemberSupportNoteSurfaces(members []string, refs
 		if i < len(notes) {
 			note = trimAggregateText(notes[i])
 		}
+		if qualifier := aggregateMemberStructuredAttributeQualifier(member); qualifier != "" {
+			note = MergeEvidenceSummaries(qualifier, note)
+		}
 		surface := normalizeAggregateMemberSupportSurface(member, ref)
 		surface.note = note
 		if surface.member == "" {
@@ -3585,6 +3588,108 @@ func normalizeAggregateMemberSupportSurface(member string, ref string) aggregate
 		surface.label = member
 	}
 	return surface
+}
+
+func aggregateMemberStructuredAttributeQualifier(member string) string {
+	_, qualifier, ok := AnswerAggregateDecoratedLabelParts(member)
+	if !ok {
+		return ""
+	}
+	role, name, ok := aggregateMemberAttributeQualifierFromDecorator(qualifier)
+	if !ok {
+		return ""
+	}
+	return string(role) + " " + name
+}
+
+func aggregateMemberAttributeQualifierFromDecorator(qualifier string) (AnswerCandidateRole, string, bool) {
+	if role, name, ok := aggregateMemberAttributeQualifierParts(qualifier); ok {
+		return role, name, true
+	}
+	for _, part := range aggregateMemberAttributeQualifierSegments(qualifier) {
+		if role, name, ok := aggregateMemberAttributeQualifierParts(part); ok {
+			return role, name, true
+		}
+	}
+	return AnswerCandidateRoleUnknown, "", false
+}
+
+func aggregateMemberAttributeQualifierSegments(qualifier string) []string {
+	qualifier = strings.TrimSpace(qualifier)
+	if qualifier == "" {
+		return nil
+	}
+	fields := []string{qualifier}
+	for _, sep := range []string{",", "，", ";", "；"} {
+		var next []string
+		for _, field := range fields {
+			next = append(next, strings.Split(field, sep)...)
+		}
+		fields = next
+	}
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field != "" {
+			out = append(out, field)
+		}
+	}
+	return out
+}
+
+func aggregateMemberAttributeQualifierParts(qualifier string) (AnswerCandidateRole, string, bool) {
+	qualifier = strings.Join(strings.Fields(strings.TrimSpace(qualifier)), " ")
+	if qualifier == "" {
+		return AnswerCandidateRoleUnknown, "", false
+	}
+	for _, sep := range []string{"=", ":"} {
+		if idx := strings.Index(qualifier, sep); idx > 0 {
+			role, ok := NormalizeAnswerCandidateRole(strings.TrimSpace(qualifier[:idx]))
+			name := strings.TrimSpace(qualifier[idx+len(sep):])
+			if aggregateMemberAttributeRoleAllowed(role, ok) && aggregateMemberAttributeNameAllowed(name) {
+				return role, name, true
+			}
+			return AnswerCandidateRoleUnknown, "", false
+		}
+	}
+	parts := strings.SplitN(qualifier, " ", 2)
+	if len(parts) != 2 {
+		return AnswerCandidateRoleUnknown, "", false
+	}
+	role, ok := NormalizeAnswerCandidateRole(parts[0])
+	name := strings.TrimSpace(parts[1])
+	if !aggregateMemberAttributeRoleAllowed(role, ok) || !aggregateMemberAttributeNameAllowed(name) {
+		return AnswerCandidateRoleUnknown, "", false
+	}
+	return role, name, true
+}
+
+func aggregateMemberAttributeRoleAllowed(role AnswerCandidateRole, ok bool) bool {
+	if !ok {
+		return false
+	}
+	switch role {
+	case AnswerCandidateRolePackage, AnswerCandidateRoleImportPath, AnswerCandidateRoleFile:
+		return true
+	default:
+		return false
+	}
+}
+
+func aggregateMemberAttributeNameAllowed(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" || strings.ContainsAny(name, "\n\r") {
+		return false
+	}
+	if strings.Contains(name, " @ ") ||
+		strings.Contains(name, "；") ||
+		strings.Contains(name, "，") ||
+		strings.Contains(name, ";") ||
+		strings.Contains(strings.ToLower(name), "source_class=") ||
+		strings.Contains(strings.ToLower(name), "language=") {
+		return false
+	}
+	return true
 }
 
 func aggregateMemberSupportSurfaceLabel(member string) string {

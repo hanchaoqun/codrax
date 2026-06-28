@@ -147,6 +147,11 @@ func ParseAnswerSupportRefMemberLocation(raw string) (label string, location Ans
 			if surface, parsed := ParseAnswerSourceLocationSurface(inner); parsed {
 				return strings.TrimSpace(raw[:idx]), surface, true
 			}
+			if locationPart, parsed := answerDecoratedLocationAttributeLocationPart(inner); parsed {
+				if surface, parsed := ParseAnswerSourceLocationSurface(locationPart); parsed {
+					return strings.TrimSpace(raw[:idx]), surface, true
+				}
+			}
 		}
 	}
 	if idx := strings.LastIndex(raw, "@"); idx > 0 && idx < len(raw)-1 {
@@ -162,6 +167,26 @@ func ParseAnswerSupportRefMemberLocation(raw string) (label string, location Ans
 		return "", surface, true
 	}
 	return "", AnswerSourceLocationSurface{}, false
+}
+
+func answerDecoratedLocationAttributeLocationPart(inner string) (string, bool) {
+	inner = strings.TrimSpace(inner)
+	if inner == "" {
+		return "", false
+	}
+	for _, sep := range []string{",", "，", ";", "；"} {
+		if idx := strings.Index(inner, sep); idx > 0 {
+			location := strings.TrimSpace(inner[:idx])
+			attribute := strings.TrimSpace(inner[idx+len(sep):])
+			if location != "" && attribute != "" {
+				if _, _, ok := aggregateMemberAttributeQualifierFromDecorator(attribute); !ok {
+					continue
+				}
+				return location, true
+			}
+		}
+	}
+	return "", false
 }
 
 func parseAnswerSupportLocationSurface(raw string) (AnswerSourceLocationSurface, bool) {

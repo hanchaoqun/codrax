@@ -510,6 +510,59 @@ func TestCompileEnumerationDisplaySets_PreservesSameLabelDistinctSourceLocations
 	}
 }
 
+func TestCompileEnumerationDisplaySets_PreservesDecoratedPackageAttributesWithoutSourceInventory(t *testing.T) {
+	rm := &RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			RequestedFields: []SourceInventoryRequestedField{
+				SourceInventoryFieldName,
+				SourceInventoryFieldLocation,
+				SourceInventoryFieldPackage,
+			},
+			Confidence: 0.95,
+		},
+	}
+	facts, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "foreign func 声明",
+		Value: "2",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Unit:  "function",
+		Members: []string{
+			"native_add (internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6, package demo.ffi)",
+			"native_add (eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6, package demo.bridge)",
+		},
+		SupportRefs: []string{
+			"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+			"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("NormalizeAnswerAggregateFacts returned error: %v", err)
+	}
+	sets := CompileEnumerationDisplaySets(rm, &AnswerSurfacePlan{StableAggregateFacts: facts})
+	if len(sets) != 1 || len(sets[0].Rows) != 2 {
+		t.Fatalf("decorated package rows should compile two rows, got %+v", sets)
+	}
+	byLocation := map[string][]EnumerationDisplayRowAttribute{}
+	for _, row := range sets[0].Rows {
+		byLocation[row.Location] = row.Attributes
+	}
+	for location, wantPackage := range map[string]string{
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6": "demo.ffi",
+		"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6":                  "demo.bridge",
+	} {
+		attrs := byLocation[location]
+		if len(attrs) != 1 || attrs[0].Role != AnswerCandidateRolePackage || attrs[0].Name != wantPackage {
+			t.Fatalf("location %s package attribute = %+v, want %s", location, attrs, wantPackage)
+		}
+	}
+}
+
 func TestCompileEnumerationDisplaySets_ImportPathSuffixDisambiguatesSameTail(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

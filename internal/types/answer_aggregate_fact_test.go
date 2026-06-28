@@ -1574,6 +1574,35 @@ func TestNormalizeAnswerAggregateFacts_PreservesSameLabelDistinctSourceLocations
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_PreservesParenthesizedLocationAttributeRows(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "foreign func declarations",
+		Value: "2",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add (bridge/Bridge.cj:6, package demo.bridge)",
+			"native_add (tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6, package demo.ffi)",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("parenthesized location+attribute members should normalize: %v", err)
+	}
+	if len(got) != 1 || got[0].Value != "2" || len(got[0].Members) != 2 {
+		t.Fatalf("parenthesized same-label rows should stay distinct, got %+v", got)
+	}
+	if len(got[0].SupportRefs) != 2 ||
+		got[0].SupportRefs[0] != "native_add @ bridge/Bridge.cj:6" ||
+		got[0].SupportRefs[1] != "native_add @ tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6" {
+		t.Fatalf("support refs not derived from parenthesized locations: %+v", got[0].SupportRefs)
+	}
+	if len(got[0].MemberNotes) != 2 ||
+		got[0].MemberNotes[0] != "package demo.bridge" ||
+		got[0].MemberNotes[1] != "package demo.ffi" {
+		t.Fatalf("package qualifiers should be preserved as aligned notes: %+v", got[0].MemberNotes)
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_DedupesQualifiedRelationMemberSetVariants(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{
 		{

@@ -282,9 +282,12 @@ func compileEnumerationDisplayRow(
 		Producer:            entry.Producer,
 		GroundingTier:       entry.GroundingTier,
 		EvidenceOrigins:     cloneEnumerationDisplayOrigins(set.EvidenceOrigins),
-		Attributes:          sourceInventoryAttributes.attributesFor(member, entry),
-		Note:                note,
-		Detail:              enumerationDisplayDetail(entry.Detail, note),
+		Attributes: mergeEnumerationDisplayRowAttributes(
+			sourceInventoryAttributes.attributesFor(member, entry),
+			enumerationDisplayAggregateMemberAttributes(member, answerAggregateMemberNoteAt(fact.MemberNotes, memberIdx), entry),
+		),
+		Note:   note,
+		Detail: enumerationDisplayDetail(entry.Detail, note),
 	}
 	if anchorNote := enumerationDisplayAnchorSummaryNoteForRow(row, anchorSummaries); anchorNote != "" {
 		row.Note = MergeEvidenceSummaries(row.Note, anchorNote)
@@ -301,6 +304,27 @@ func compileEnumerationDisplayRow(
 	row.Note = SanitizeSourceInventoryNoteForRequest(rm, row.Note)
 	row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
 	return row, true
+}
+
+func enumerationDisplayAggregateMemberAttributes(member string, memberNote string, entry AnswerSupportEntry) []EnumerationDisplayRowAttribute {
+	_, qualifier, ok := AnswerAggregateDecoratedLabelParts(member)
+	if !ok {
+		qualifier = strings.TrimSpace(memberNote)
+	}
+	role, name, ok := aggregateMemberAttributeQualifierParts(qualifier)
+	if !ok {
+		return nil
+	}
+	attr := EnumerationDisplayRowAttribute{
+		Role:   role,
+		Name:   name,
+		Source: strings.TrimSpace(entry.Source),
+		Line:   entry.LineStart,
+	}
+	if attr.Source != "" {
+		attr.Location = aggregateSupportLocationKeyForDisplay(attr.Source, attr.Line)
+	}
+	return []EnumerationDisplayRowAttribute{attr}
 }
 
 func dedupeEnumerationDisplayRowIDs(rows []EnumerationDisplayRow) []EnumerationDisplayRow {
