@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestDeriveSourceInventoryFollowupDebt_MissingSourceClassUsesSampleScope(t *testing.T) {
 	obs := SourceInventoryObservation{
@@ -538,11 +541,61 @@ func TestDeriveSourceInventoryFollowupDebt_ObservedConstructLanguageOverridesSup
 	if !debt.IsActive() || debt.ReasonCode != SourceInventoryFollowupDebtMissingSourceClass {
 		t.Fatalf("debt = %+v", debt)
 	}
-	if len(debt.Query.Scopes) != 1 || debt.Query.Scopes[0] != "internal/thirdparty/tree-sitter-cangjie/corpus/sources" {
-		t.Fatalf("observed construct language should route to cangjie thirdparty, got %+v", debt.Query.Scopes)
+	wantScopes := []string{
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources",
+		"eval/fixtures/testdata/cangjie_minimal/cart",
+	}
+	if len(debt.Query.Scopes) != len(wantScopes) {
+		t.Fatalf("observed construct language should route to the full cangjie source-class universe, got %+v want %+v", debt.Query.Scopes, wantScopes)
+	}
+	for i, want := range wantScopes {
+		if debt.Query.Scopes[i] != want {
+			t.Fatalf("query scopes = %+v, want %+v", debt.Query.Scopes, wantScopes)
+		}
+	}
+	for _, scope := range debt.Query.Scopes {
+		if strings.Contains(scope, "internal/skill") {
+			t.Fatalf("support-language Go scope leaked into cangjie follow-up: %+v", debt.Query.Scopes)
+		}
 	}
 	if len(debt.MissingLanguages) != 1 || debt.MissingLanguages[0] != "cangjie" {
 		t.Fatalf("missing languages = %+v, want cangjie", debt.MissingLanguages)
+	}
+}
+
+func TestDeriveSourceInventoryFollowupDebt_TargetLanguageUniverseDoesNotBroadenScopedInventory(t *testing.T) {
+	obs := sourceInventoryFollowupDebtMissingThirdPartyFixture()
+	obs.SourceClasses = append(obs.SourceClasses, SourceInventorySourceClassCount{
+		Role:     SourcePathRoleFixture,
+		Count:    2,
+		Complete: true,
+		Samples:  []string{"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj"},
+		Languages: []SourceInventoryLanguageCount{{
+			Language: "cangjie",
+			Count:    2,
+			InScope:  true,
+			Samples:  []string{"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj"},
+		}},
+	})
+	obs.Sets[0].Members[0].File = "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj"
+	obs.Sets[0].Members[0].Language = "cangjie"
+	obs.Sets[0].Members[0].SurfaceTerms = []string{"public class", "public class Cart"}
+	rm := RequestModel{
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeAuxiliary},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			SourceQuotes:      []string{"public class"},
+		},
+	}
+
+	debt := DeriveSourceInventoryFollowupDebt(obs, rm)
+	if !debt.IsActive() || debt.ReasonCode != SourceInventoryFollowupDebtMissingSourceClass {
+		t.Fatalf("debt = %+v", debt)
+	}
+	wantScopes := []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources"}
+	if len(debt.Query.Scopes) != len(wantScopes) || debt.Query.Scopes[0] != wantScopes[0] {
+		t.Fatalf("scoped source-inventory follow-up should stay on missing class only, got %+v want %+v", debt.Query.Scopes, wantScopes)
 	}
 }
 

@@ -56,6 +56,9 @@ func DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation SourceInvent
 	if len(targetLanguages) == 0 && len(missingClasses) > 1 {
 		return SourceInventoryFollowupDebt{}
 	}
+	if len(missingClasses) > 0 && len(targetLanguages) > 0 && SourceInventoryRequiresRepoWideLens(rm) {
+		scopes = sourceInventoryTargetLanguageUniverseScopes(observation.SourceClasses, scopes, targetLanguages)
+	}
 	query := SourceInventoryLensQuery{
 		Path:              ".",
 		Scopes:            scopes,
