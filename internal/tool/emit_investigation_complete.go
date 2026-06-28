@@ -3124,7 +3124,7 @@ func completionAggregateMemberSetSupersetMerged(out *[]types.AnswerAggregateFact
 			continue
 		}
 		switch {
-		case completionAggregateMembersCover(current.Members, stable.Members):
+		case completionAggregateMembersCoverFacts(current, stable):
 			if completionAggregateFactPreferred(stable, current) {
 				cloned := cloneCompletionAggregateFacts([]types.AnswerAggregateFact{stable})
 				if len(cloned) > 0 {
@@ -3132,7 +3132,7 @@ func completionAggregateMemberSetSupersetMerged(out *[]types.AnswerAggregateFact
 				}
 			}
 			return true
-		case completionAggregateMembersCover(stable.Members, current.Members):
+		case completionAggregateMembersCoverFacts(stable, current):
 			cloned := cloneCompletionAggregateFacts([]types.AnswerAggregateFact{stable})
 			if len(cloned) > 0 {
 				(*out)[i] = cloned[0]
@@ -3185,18 +3185,27 @@ func completionAggregateMemberSetMergeKey(fact types.AnswerAggregateFact) string
 }
 
 func completionAggregateMembersCover(have []string, want []string) bool {
+	return completionAggregateMembersCoverFacts(
+		types.AnswerAggregateFact{Members: have},
+		types.AnswerAggregateFact{Members: want},
+	)
+}
+
+func completionAggregateMembersCoverFacts(haveFact, wantFact types.AnswerAggregateFact) bool {
+	have := haveFact.Members
+	want := wantFact.Members
 	if len(have) == 0 || len(want) == 0 || len(have) < len(want) {
 		return false
 	}
 	haveSet := make(map[string]bool, len(have)*2)
-	for _, member := range have {
-		for _, key := range completionAggregateMemberKeys(member) {
+	for idx, member := range have {
+		for _, key := range completionAggregateMemberKeysForFact(haveFact, idx, member) {
 			haveSet[key] = true
 		}
 	}
-	for _, member := range want {
+	for idx, member := range want {
 		matched := false
-		for _, key := range completionAggregateMemberKeys(member) {
+		for _, key := range completionAggregateMemberKeysForFact(wantFact, idx, member) {
 			if haveSet[key] {
 				matched = true
 				break
@@ -3210,6 +3219,10 @@ func completionAggregateMembersCover(have []string, want []string) bool {
 }
 
 func completionAggregateMemberKeys(member string) []string {
+	return completionAggregateMemberKeysForFact(types.AnswerAggregateFact{Members: []string{member}}, 0, member)
+}
+
+func completionAggregateMemberKeysForFact(fact types.AnswerAggregateFact, memberIdx int, member string) []string {
 	member = strings.TrimSpace(member)
 	if member == "" {
 		return nil
@@ -3234,7 +3247,50 @@ func completionAggregateMemberKeys(member string) []string {
 			add(candidate)
 		}
 	}
+	if loc := completionAggregateMemberLocationKey(fact, memberIdx, member); loc != "" {
+		for _, key := range append([]string(nil), out...) {
+			add(key + "\x00loc:" + loc)
+		}
+	}
 	return out
+}
+
+func completionAggregateMemberLocationKey(fact types.AnswerAggregateFact, memberIdx int, member string) string {
+	if surface, ok := types.ParseAnswerSourceLocationSurface(member); ok {
+		return normalizeAnswerSupportLocationForCompletion(aggregateMemberStartLocationForCompletion(surface))
+	}
+	if _, loc, ok := types.ParseAnswerSupportRefMemberLocation(member); ok &&
+		strings.TrimSpace(loc.File) != "" && loc.LineStart > 0 {
+		return normalizeAnswerSupportLocationForCompletion(aggregateMemberStartLocationForCompletion(loc))
+	}
+	if memberIdx < 0 || memberIdx >= len(fact.SupportRefs) {
+		return ""
+	}
+	ref := strings.TrimSpace(fact.SupportRefs[memberIdx])
+	if ref == "" {
+		return ""
+	}
+	_, loc, ok := types.ParseAnswerSupportRefMemberLocation(ref)
+	if !ok || strings.TrimSpace(loc.File) == "" || loc.LineStart <= 0 {
+		return ""
+	}
+	return normalizeAnswerSupportLocationForCompletion(aggregateMemberStartLocationForCompletion(loc))
+}
+
+func aggregateMemberStartLocationForCompletion(loc types.AnswerSourceLocationSurface) string {
+	file := strings.TrimSpace(strings.ReplaceAll(loc.File, `\`, `/`))
+	if file == "" || loc.LineStart <= 0 {
+		return ""
+	}
+	return file + ":" + strconv.Itoa(loc.LineStart)
+}
+
+func normalizeAnswerSupportLocationForCompletion(location string) string {
+	location = strings.TrimSpace(strings.ReplaceAll(location, `\`, `/`))
+	if location == "" {
+		return ""
+	}
+	return strings.ToLower(location)
 }
 
 func repoGroundingBypassLabel(ctx *types.BusContext) (string, bool) {

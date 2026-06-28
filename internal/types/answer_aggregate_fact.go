@@ -781,10 +781,14 @@ func answerAggregateMemberSetMergeKey(fact AnswerAggregateFact) string {
 func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregateFact {
 	dst = cloneAnswerAggregateFacts([]AnswerAggregateFact{dst})[0]
 	memberKeys := make(map[string]bool, len(dst.Members)+len(src.Members))
+	locationSlots := make(map[string]int, len(dst.Members))
 	for i, member := range dst.Members {
 		key := answerAggregateMemberSetEntryKey(dst, i, member)
 		if key != "" {
 			memberKeys[key] = true
+		}
+		if loc := answerAggregateMemberSetEntryLocationKey(dst, i, member); loc != "" {
+			locationSlots[loc] = i
 		}
 	}
 	for i, member := range src.Members {
@@ -796,6 +800,16 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 		if key == "" || memberKeys[key] {
 			continue
 		}
+		if loc := answerAggregateMemberSetEntryLocationKey(src, i, member); loc != "" {
+			if existingIdx, ok := locationSlots[loc]; ok &&
+				answerAggregateMemberSetEntryLabelsCompatible(dst.Members[existingIdx], member) {
+				dst = mergeAnswerAggregateMemberSetEntryAt(dst, existingIdx, src, i, member)
+				if updatedKey := answerAggregateMemberSetEntryKey(dst, existingIdx, dst.Members[existingIdx]); updatedKey != "" {
+					memberKeys[updatedKey] = true
+				}
+				continue
+			}
+		}
 		memberKeys[key] = true
 		dst.Members = append(dst.Members, member)
 		if len(src.SupportRefs) > i {
@@ -803,6 +817,9 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 		}
 		if len(src.MemberNotes) > i {
 			dst.MemberNotes = appendAggregateStringAtMemberIndex(dst.MemberNotes, len(dst.Members)-1, src.MemberNotes[i])
+		}
+		if loc := answerAggregateMemberSetEntryLocationKey(dst, len(dst.Members)-1, member); loc != "" {
+			locationSlots[loc] = len(dst.Members) - 1
 		}
 	}
 	if AnswerAggregateRolePriority(src.Role) > AnswerAggregateRolePriority(dst.Role) {
@@ -817,6 +834,100 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 	dst.Value = strconv.Itoa(len(dst.Members))
 	dst.Label = normalizeAggregateMemberSetLabelCardinality(dst.Label, len(dst.Members))
 	return dst
+}
+
+func mergeAnswerAggregateMemberSetEntryAt(dst AnswerAggregateFact, dstIdx int, src AnswerAggregateFact, srcIdx int, srcMember string) AnswerAggregateFact {
+	if dstIdx < 0 || dstIdx >= len(dst.Members) {
+		return dst
+	}
+	dstRef := ""
+	if dstIdx < len(dst.SupportRefs) {
+		dstRef = dst.SupportRefs[dstIdx]
+	}
+	srcRef := ""
+	if srcIdx < len(src.SupportRefs) {
+		srcRef = src.SupportRefs[srcIdx]
+	}
+	existing := normalizeAggregateMemberSupportSurface(dst.Members[dstIdx], dstRef)
+	incoming := normalizeAggregateMemberSupportSurface(srcMember, srcRef)
+	preferIncomingMember := aggregateMemberSupportSurfacePrefersMember(incoming, existing)
+	merged := mergeAggregateMemberSupportSurface(existing, incoming)
+	if preferIncomingMember && incoming.ref != "" {
+		merged.ref = incoming.ref
+	}
+	if merged.member != "" {
+		dst.Members[dstIdx] = merged.member
+	}
+	if merged.ref != "" {
+		dst.SupportRefs = setAggregateStringAtMemberIndex(dst.SupportRefs, dstIdx, merged.ref)
+	}
+	if srcIdx < len(src.MemberNotes) {
+		dst.MemberNotes = appendAggregateStringAtMemberIndex(dst.MemberNotes, dstIdx, src.MemberNotes[srcIdx])
+	}
+	return dst
+}
+
+func setAggregateStringAtMemberIndex(values []string, memberIndex int, value string) []string {
+	value = trimAggregateText(value)
+	for len(values) < memberIndex {
+		values = append(values, "")
+	}
+	if len(values) == memberIndex {
+		values = append(values, value)
+		return values
+	}
+	values[memberIndex] = value
+	return values
+}
+
+func answerAggregateMemberSetEntryLabelsCompatible(a, b string) bool {
+	aKeys := answerAggregateMemberSetEntryLabelKeys(a)
+	bKeys := answerAggregateMemberSetEntryLabelKeys(b)
+	if len(aKeys) == 0 || len(bKeys) == 0 {
+		return false
+	}
+	for key := range aKeys {
+		if bKeys[key] {
+			return true
+		}
+	}
+	return false
+}
+
+func answerAggregateMemberSetEntryLabelKeys(raw string) map[string]bool {
+	out := map[string]bool{}
+	visited := map[string]bool{}
+	var addCandidate func(string)
+	addCandidate = func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			return
+		}
+		visitKey := strings.ToLower(candidate)
+		if visited[visitKey] {
+			return
+		}
+		visited[visitKey] = true
+		for _, surface := range AnswerAggregateMemberDisplayCandidates(candidate) {
+			if key := aggregateMemberSetProjectionMemberKey(surface); key != "" {
+				out[key] = true
+			}
+			if tail := NormalizedSurfaceSymbolTail(surface); tail != "" {
+				out["symbol:"+tail] = true
+			}
+			if base, ok := aggregateRelationCallableSignatureBase(surface); ok {
+				out["symbol:"+strings.ToLower(strings.TrimSpace(base))] = true
+			}
+		}
+		if label, _, ok := ParseAnswerSupportRefMemberLocation(candidate); ok {
+			addCandidate(label)
+		}
+		if base, _, ok := AnswerAggregateDecoratedLabelParts(candidate); ok {
+			addCandidate(base)
+		}
+	}
+	addCandidate(raw)
+	return out
 }
 
 func answerAggregateMemberSetEntryKey(fact AnswerAggregateFact, memberIdx int, member string) string {
@@ -3224,10 +3335,19 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 	}
 	fact.Dimensions = dims
 	fact.Dimensions = normalizeAggregateFactOriginDimensions(fact)
-	fact.Members = normalizeAggregateStrings(raw.Members, maxAnswerAggregateMembers)
+	if fact.Kind == AnswerAggregateMemberSet {
+		fact.Members = normalizeAggregateStringSlots(raw.Members, maxAnswerAggregateMembers)
+	} else {
+		fact.Members = normalizeAggregateStrings(raw.Members, maxAnswerAggregateMembers)
+	}
 	fact.Excluded = normalizeAggregateStrings(raw.Excluded, maxAnswerAggregateMembers)
-	fact.SupportRefs = normalizeAggregateStrings(raw.SupportRefs, maxAnswerAggregateMembers)
-	fact.MemberNotes = normalizeAggregateStrings(raw.MemberNotes, maxAnswerAggregateMembers)
+	if fact.Kind == AnswerAggregateMemberSet {
+		fact.SupportRefs = normalizeAggregateStringSlots(raw.SupportRefs, maxAnswerAggregateMembers)
+		fact.MemberNotes = normalizeAggregateStringSlots(raw.MemberNotes, maxAnswerAggregateMembers)
+	} else {
+		fact.SupportRefs = normalizeAggregateStrings(raw.SupportRefs, maxAnswerAggregateMembers)
+		fact.MemberNotes = normalizeAggregateStrings(raw.MemberNotes, maxAnswerAggregateMembers)
+	}
 	if fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 {
 		fact.Members, fact.SupportRefs, fact.MemberNotes = normalizeAggregateMemberSetMemberSupportNoteSurfaces(fact.Members, fact.SupportRefs, fact.MemberNotes)
 	}
@@ -3539,11 +3659,22 @@ func aggregateMemberSupportSurfacesEquivalent(a, b aggregateMemberSupportSurface
 	if aLabel == "" || bLabel == "" || aLabel != bLabel {
 		return false
 	}
-	if !a.hasLoc || !b.hasLoc {
+	if a.hasLoc || b.hasLoc {
+		if a.hasLoc && b.hasLoc {
+			return a.loc.LineStart == b.loc.LineStart &&
+				aggregateSupportRefPathCorresponds(a.loc.File, b.loc.File)
+		}
 		return true
 	}
-	return a.loc.LineStart == b.loc.LineStart &&
-		aggregateSupportRefPathCorresponds(a.loc.File, b.loc.File)
+	return true
+}
+
+func aggregateMemberSupportSurfaceLocationKey(loc AnswerSourceLocationSurface) string {
+	file := normalizeAnswerLocationFile(loc.File)
+	if file == "" || loc.LineStart <= 0 {
+		return ""
+	}
+	return file + ":" + strconv.Itoa(loc.LineStart)
 }
 
 func mergeAggregateMemberSupportSurface(existing, candidate aggregateMemberSupportSurface) aggregateMemberSupportSurface {
@@ -4534,6 +4665,27 @@ func normalizeAggregateStrings(in []string, limit int) []string {
 			continue
 		}
 		seen[key] = true
+		out = append(out, item)
+		if len(out) >= limit {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeAggregateStringSlots(in []string, limit int) []string {
+	if len(in) == 0 || limit <= 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		item := trimAggregateText(raw)
+		if item == "" {
+			continue
+		}
 		out = append(out, item)
 		if len(out) >= limit {
 			break

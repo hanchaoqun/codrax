@@ -252,6 +252,105 @@ func TestEmitInvestigationComplete_AcceptsStructuredAggregateFacts(t *testing.T)
 	}
 }
 
+func TestEmitInvestigationComplete_RefreshesStaleMemberSetWithLaterCompleteSet(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	first := json.RawMessage(`{
+		"reason":"fixture surface was enumerated first",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"foreign func 声明",
+			"value":"1",
+			"role":"principal_answer",
+			"unit":"处",
+			"members":["native_add(a: Int64, b: Int64): Int64 @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6"],
+			"support_refs":["Bridge.cj:6"],
+			"member_notes":["foreign func native_add(a: Int64, b: Int64): Int64，包 demo.bridge"]
+		}]
+	}`)
+	if res, err := tool.Execute(bus, first); err != nil || !res.Success {
+		t.Fatalf("first completion failed: res=%+v err=%v", res, err)
+	}
+
+	secondFact := types.AnswerAggregateFact{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "foreign func 声明",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Unit:  "处",
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+		SupportRefs: []string{"Bridge.cj:6", "07_foreign_ffi.cj:6"},
+		MemberNotes: []string{
+			"foreign func native_add(a: Int64, b: Int64): Int64，包 demo.bridge",
+			"foreign func native_add(a: Int64, b: Int64): Int64，包 demo.ffi",
+		},
+	}
+	normalizedSecond, _, err := normalizeCompletionAggregateFacts(bus, "resolved", []types.AnswerAggregateFact{secondFact})
+	if err != nil {
+		t.Fatalf("normalize second facts failed: %v", err)
+	}
+	if len(normalizedSecond) != 1 || normalizedSecond[0].Value != "2" || len(normalizedSecond[0].Members) != 2 {
+		t.Fatalf("normalized second facts should keep two rows, got %+v", normalizedSecond)
+	}
+	mergedProbe := types.MergeAnswerAggregateFacts(mut.StableInvestigationAggregateFacts(), normalizedSecond)
+	if len(mergedProbe) != 1 || mergedProbe[0].Value != "2" || len(mergedProbe[0].Members) != 2 {
+		t.Fatalf("types merge should prefer later complete set before preflight, got %+v", mergedProbe)
+	}
+	probeEffective := effectiveCompletionAggregateFactsForValidation(bus, normalizedSecond, nil)
+	if len(probeEffective) != 1 || probeEffective[0].Value != "2" || len(probeEffective[0].Members) != 2 {
+		t.Fatalf("preflight effective facts should prefer later complete set before Execute, got %+v", probeEffective)
+	}
+
+	second := json.RawMessage(`{
+		"reason":"all source classes were enumerated after follow-up",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"foreign func 声明",
+			"value":"2",
+			"role":"principal_answer",
+			"unit":"处",
+			"members":[
+				"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+				"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6"
+			],
+			"support_refs":["Bridge.cj:6","07_foreign_ffi.cj:6"],
+			"member_notes":[
+				"foreign func native_add(a: Int64, b: Int64): Int64，包 demo.bridge",
+				"foreign func native_add(a: Int64, b: Int64): Int64，包 demo.ffi"
+			]
+		}]
+	}`)
+	secondRes, err := tool.Execute(bus, second)
+	if err != nil || !secondRes.Success {
+		t.Fatalf("second completion failed: res=%+v err=%v", secondRes, err)
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 || got[0].Kind != types.AnswerAggregateMemberSet {
+		t.Fatalf("stable aggregate facts = %+v, want one member_set", got)
+	}
+	if got[0].Value != "2" || len(got[0].Members) != 2 {
+		t.Fatalf("later complete member_set should refresh stale subset, got %+v; second summary=%s", got[0], secondRes.Summary)
+	}
+	visible := strings.Join(got[0].SupportRefs, "\n")
+	for _, want := range []string{
+		"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("stable support refs lost %q: %+v", want, got[0].SupportRefs)
+		}
+	}
+}
+
 func TestEmitInvestigationComplete_DropsPartialCountMembers(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}

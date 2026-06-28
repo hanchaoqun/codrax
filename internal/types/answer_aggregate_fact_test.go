@@ -638,6 +638,113 @@ func TestMergeAnswerAggregateFacts_UnionsSameMemberAtDistinctSourceLocations(t *
 	}
 }
 
+func TestMergeAnswerAggregateFacts_ReplacesStaleSubsetWithLaterCompleteMemberSet(t *testing.T) {
+	got := MergeAnswerAggregateFacts(
+		[]AnswerAggregateFact{{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "foreign func 声明",
+			Value: "1",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Unit:  "处",
+			Members: []string{
+				"native_add(a: Int64, b: Int64): Int64 @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			},
+			SupportRefs: []string{"Bridge.cj:6"},
+			MemberNotes: []string{
+				"foreign func native_add(a: Int64, b: Int64): Int64，包 demo.bridge",
+			},
+		}},
+		[]AnswerAggregateFact{{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "foreign func 声明",
+			Value: "2",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Unit:  "处",
+			Members: []string{
+				"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+				"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+			},
+			SupportRefs: []string{
+				"Bridge.cj:6",
+				"07_foreign_ffi.cj:6",
+			},
+			MemberNotes: []string{
+				"foreign func native_add(a: Int64, b: Int64): Int64，包 demo.bridge",
+				"foreign func native_add(a: Int64, b: Int64): Int64，包 demo.ffi",
+			},
+		}},
+	)
+	if len(got) != 1 {
+		t.Fatalf("merged facts = %+v, want one refreshed member_set", got)
+	}
+	if got[0].Value != "2" || len(got[0].Members) != 2 {
+		t.Fatalf("later complete member_set should replace stale subset, got %+v", got[0])
+	}
+	visible := strings.Join(got[0].SupportRefs, "\n")
+	for _, want := range []string{
+		"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("merged support refs lost %q: %+v", want, got[0].SupportRefs)
+		}
+	}
+}
+
+func TestMergeAnswerAggregateFacts_RefreshesNormalizedStaleSubset(t *testing.T) {
+	current := []AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "foreign func 声明",
+		Value: "2",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Unit:  "处",
+		Members: []string{
+			"native_add",
+			"native_add",
+		},
+		SupportRefs: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+		MemberNotes: []string{
+			"foreign func native_add(a: Int64, b: Int64): Int64，包 demo.bridge",
+			"foreign func native_add(a: Int64, b: Int64): Int64，包 demo.ffi",
+		},
+	}}
+	normalizedCurrent, err := NormalizeAnswerAggregateFacts(current)
+	if err != nil {
+		t.Fatalf("NormalizeAnswerAggregateFacts(current) failed: %v", err)
+	}
+	if len(normalizedCurrent) != 1 || len(normalizedCurrent[0].Members) != 2 || normalizedCurrent[0].Value != "2" {
+		t.Fatalf("normalized current should keep two same-label locations, got %+v", normalizedCurrent)
+	}
+	got := MergeAnswerAggregateFacts(
+		[]AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "foreign func 声明",
+			Value:       "1",
+			Role:        AnswerAggregateRolePrincipalAnswer,
+			Unit:        "处",
+			Members:     []string{"native_add"},
+			SupportRefs: []string{"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6"},
+			MemberNotes: []string{"foreign func native_add(a: Int64, b: Int64): Int64，包 demo.bridge"},
+		}},
+		current,
+	)
+	if len(got) != 1 || got[0].Value != "2" || len(got[0].Members) != 2 {
+		t.Fatalf("normalized stale subset should refresh to later complete set, got %+v", got)
+	}
+	visible := strings.Join(got[0].SupportRefs, "\n")
+	for _, want := range []string{
+		"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("support refs lost distinct location %q: %+v", want, got[0].SupportRefs)
+		}
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_PreservesSameMemberAtDistinctSourceLocations(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:  AnswerAggregateMemberSet,

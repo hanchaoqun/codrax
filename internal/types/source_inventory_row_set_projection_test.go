@@ -74,6 +74,7 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesModelMembe
 		SourceInventoryObservationMember{Name: "native_add", Role: AnswerCandidateRoleFunction, File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6, Language: "cangjie", Attributes: []SourceInventoryObservationAttribute{{Role: AnswerCandidateRolePackage, Name: "demo.bridge"}}},
 		SourceInventoryObservationMember{Name: "native_add", Role: AnswerCandidateRoleFunction, File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6, Language: "cangjie", Attributes: []SourceInventoryObservationAttribute{{Role: AnswerCandidateRolePackage, Name: "demo.ffi"}}},
 	)
+	obs.Active = true
 	existing := AnswerAggregateFact{
 		Kind:       AnswerAggregateMemberSet,
 		Label:      "foreign func 声明",
@@ -104,6 +105,128 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesModelMembe
 	for _, want := range []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6"} {
 		if !strings.Contains(visible, want) {
 			t.Fatalf("compiled rows lost source location %q:\n%s", want, visible)
+		}
+	}
+}
+
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_UpgradesShortSupportRefsForDuplicateLabels(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "native_add", Role: AnswerCandidateRoleFunction, File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6, Language: "cangjie", Attributes: []SourceInventoryObservationAttribute{{Role: AnswerCandidateRolePackage, Name: "demo.bridge"}}},
+		SourceInventoryObservationMember{Name: "native_add", Role: AnswerCandidateRoleFunction, File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6, Language: "cangjie", Attributes: []SourceInventoryObservationAttribute{{Role: AnswerCandidateRolePackage, Name: "demo.ffi"}}},
+	)
+	existing := AnswerAggregateFact{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "foreign func 声明",
+		Value:      "2",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "explorer",
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+		SupportRefs: []string{
+			"Bridge.cj:6",
+			"07_foreign_ffi.cj:6",
+		},
+		MemberNotes: []string{
+			"package demo.bridge",
+			"package demo.ffi",
+		},
+	}
+	facts, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{existing})
+	if err != nil {
+		t.Fatalf("NormalizeAnswerAggregateFacts failed: %v", err)
+	}
+	if len(facts) != 1 || len(facts[0].Members) != 2 || facts[0].Value != "2" {
+		t.Fatalf("normalization should preserve two duplicate-label locations before projection, got %+v", facts)
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts, obs, rm)
+	if len(got) != 1 {
+		t.Fatalf("short support refs should not trigger a synthetic duplicate row-set, got %+v", got)
+	}
+	if got[0].Value != "2" || len(got[0].Members) != 2 || len(got[0].SupportRefs) != 2 {
+		t.Fatalf("duplicate labels at distinct locations must remain two principal members, got %+v", got[0])
+	}
+	for _, want := range []string{
+		"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+	} {
+		if !strings.Contains(strings.Join(got[0].SupportRefs, "\n"), want) {
+			t.Fatalf("support_refs should preserve precise member location %q, got %+v", want, got[0].SupportRefs)
+		}
+	}
+
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts:       got,
+		SourceInventoryObservation: obs,
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "ev-bridge-native-add",
+				Kind:            EvidenceDirect,
+				Subject:         "Bridge.cj",
+				Object:          "foreign func native_add",
+				AnchorSymbol:    "native_add",
+				AnchorKind:      AnchorDefinition,
+				Source:          "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+				LineStart:       6,
+				Scope:           ScopeLine,
+				GroundingStatus: GroundingGrounded,
+				Summary:         "foreign func native_add belongs to package demo.bridge",
+			},
+			{
+				ID:              "ev-ffi-native-add",
+				Kind:            EvidenceDirect,
+				Subject:         "07_foreign_ffi.cj",
+				Object:          "foreign func native_add",
+				AnchorSymbol:    "native_add",
+				AnchorKind:      AnchorDefinition,
+				Source:          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+				LineStart:       6,
+				Scope:           ScopeLine,
+				GroundingStatus: GroundingGrounded,
+				Summary:         "foreign func native_add belongs to package demo.ffi",
+			},
+		},
+	}
+	sets := CompileEnumerationDisplaySets(&rm, plan)
+	if len(sets) != 1 || len(sets[0].Rows) != 2 {
+		t.Fatalf("short support refs should still compile two duplicate-label rows, got %+v", sets)
+	}
+	seenRows := map[string]string{}
+	for _, row := range sets[0].Rows {
+		if row.DisplayLabel != "native_add" || row.Location == "" || len(row.Attributes) != 1 {
+			t.Fatalf("row lost duplicate-label location or package attribute: %+v", row)
+		}
+		seenRows[normalizeAnswerSupportLocation(row.Location)] = row.Attributes[0].Name
+	}
+	for loc, wantPackage := range map[string]string{
+		"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6":                  "demo.bridge",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6": "demo.ffi",
+	} {
+		if gotPackage := seenRows[normalizeAnswerSupportLocation(loc)]; gotPackage != wantPackage {
+			t.Fatalf("display row %s package = %q, want %q; rows=%+v", loc, gotPackage, wantPackage, sets[0].Rows)
+		}
+	}
+	supportPlan := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(supportPlan, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 2 {
+		t.Fatalf("support plan should preserve two duplicate-label principal rows, got %+v", supportPlan)
+	}
+	seenEntries := map[string]bool{}
+	for _, entry := range lane.Entries {
+		if entry.Text != "native_add" || entry.Location == "" {
+			t.Fatalf("support entry lost duplicate-label location: %+v", entry)
+		}
+		seenEntries[normalizeAnswerSupportLocation(entry.Location)] = true
+	}
+	for _, want := range []string{
+		"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+	} {
+		if !seenEntries[normalizeAnswerSupportLocation(want)] {
+			t.Fatalf("support plan lost location %s; entries=%+v", want, lane.Entries)
 		}
 	}
 }
@@ -640,6 +763,7 @@ func sourceInventoryProjectionObservation(members ...SourceInventoryObservationM
 		}
 	}
 	return SourceInventoryObservation{
+		Active:   true,
 		Complete: true,
 		Scopes:   []string{"."},
 		SourceClasses: []SourceInventorySourceClassCount{
