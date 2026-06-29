@@ -11,3 +11,7 @@ EXPECT_CONTAINS="EchoHandler UpperHandler StatsHandler /echo /upper /stats"
 EXPECT_MATCHES_REGEX="(EchoHandler).*(/echo)|(/echo).*(EchoHandler)
 (UpperHandler).*(/upper)|(/upper).*(UpperHandler)
 (StatsHandler).*(/stats)|(/stats).*(StatsHandler)"
+EXPECT_INVENTORY_ROWSETS="handler_route"
+EXPECT_INVENTORY_ROW_SCOPE_HANDLER_ROUTE="document"
+EXPECT_INVENTORY_COUNT_HANDLER_ROUTE=3
+EXPECT_INVENTORY_ROWS_HANDLER_ROUTE=$'EchoHandler|/echo|EchoHandler.java\nUpperHandler|/upper|UpperHandler.java\nStatsHandler|/stats|StatsHandler.java'

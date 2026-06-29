@@ -12,3 +12,7 @@ EXPECT_CONTAINS="ExponentialBackoff FixedDelay retry.ts JitterHelper"
 EXPECT_MATCHES_REGEX="(ExponentialBackoff).*(retry\\.ts|packages/core)|(retry\\.ts|packages/core).*(ExponentialBackoff)
 (FixedDelay).*(retry\\.ts|packages/core)|(retry\\.ts|packages/core).*(FixedDelay)
 (JitterHelper).*(不是|不算|并非|不属于|helper|辅助|NOT)|(不是|不算|并非|不属于|helper|辅助).*(JitterHelper)"
+EXPECT_INVENTORY_ROWSETS="retry_implementer"
+EXPECT_INVENTORY_ROW_SCOPE_RETRY_IMPLEMENTER="document"
+EXPECT_INVENTORY_COUNT_RETRY_IMPLEMENTER=2
+EXPECT_INVENTORY_ROWS_RETRY_IMPLEMENTER=$'ExponentialBackoff|retry.ts\nFixedDelay|retry.ts'

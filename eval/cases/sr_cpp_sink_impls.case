@@ -11,3 +11,7 @@ EXPECT_CONTAINS="ConsoleSink FileSink RotatingSink"
 EXPECT_MATCHES_REGEX="(RotatingSink).*(FileSink)
 (ConsoleSink).*(Sink|console_sink)|(Sink|console_sink).*(ConsoleSink)
 (继承|派生|derives|inherits|subclass|extends|二级|间接|transitiv)"
+EXPECT_INVENTORY_ROWSETS="sink_implementer"
+EXPECT_INVENTORY_ROW_SCOPE_SINK_IMPLEMENTER="document"
+EXPECT_INVENTORY_COUNT_SINK_IMPLEMENTER=3
+EXPECT_INVENTORY_ROWS_SINK_IMPLEMENTER=$'ConsoleSink|console_sink.hpp\nFileSink|file_sink.hpp\nRotatingSink|rotating_sink.hpp'
