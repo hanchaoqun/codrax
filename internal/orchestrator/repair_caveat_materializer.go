@@ -492,9 +492,6 @@ func suppressGenericSoftCaveatsForAcceptedSurface(violations []types.Violation, 
 }
 
 func acceptedPrincipalEnumerationVisibleAndFullyCited(ctx *types.BusContext, rm *types.RequestModel) bool {
-	if !acceptedPrincipalEnumerationFullyCited(ctx, rm) {
-		return false
-	}
 	if ctx == nil || ctx.Mutable == nil {
 		return false
 	}
@@ -502,34 +499,8 @@ func acceptedPrincipalEnumerationVisibleAndFullyCited(ctx *types.BusContext, rm 
 	if doc == nil {
 		return false
 	}
-	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
-	sets := types.CompileEnumerationDisplaySets(rm, plan)
-	if len(sets) == 0 {
-		return false
-	}
-	return types.AnswerDocumentCoversEnumerationDisplaySets(doc, sets)
-}
-
-func acceptedPrincipalEnumerationFullyCited(ctx *types.BusContext, rm *types.RequestModel) bool {
-	if ctx == nil || rm == nil {
-		return false
-	}
-	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
-	sets := types.CompileEnumerationDisplaySets(rm, plan)
-	if len(sets) == 0 {
-		return false
-	}
-	for _, set := range sets {
-		if len(set.Rows) == 0 {
-			return false
-		}
-		for _, row := range set.Rows {
-			if !row.HasCitation || strings.TrimSpace(row.Source) == "" || row.LineStart <= 0 {
-				return false
-			}
-		}
-	}
-	return true
+	view := types.AnswerDocumentAcceptedEnumerationDisplayCoverage(ctx, rm, doc)
+	return view.RowsFullyCited() && view.Complete()
 }
 
 func genericSelfContradictionCaveatIsRepairTelemetry(v types.Violation) bool {

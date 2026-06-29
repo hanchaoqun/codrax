@@ -296,6 +296,59 @@ func TestSourceInventoryConvergence_ExactAbsenceHardGatesUseAnswerAuthority(t *t
 	}
 }
 
+// Clause E — deterministic source-inventory count/list consistency must consume
+// SourceInventoryAnswerPreEmitAuthority. Generic enumeration fallback may still
+// calculate missing rows for non-source-inventory lanes, but source-inventory
+// final-answer repair / supplement / hard-check code must not re-open a local
+// row coverage view outside the shared answer authority. This guards D1-G156:
+// the visible count, visible row list, pre-emit view, and eval audit must not
+// become four independently interpreted row-set authorities again.
+func TestSourceInventoryConvergence_SourceInventoryRowCoverageUsesAnswerAuthority(t *testing.T) {
+	allowed := map[string]bool{
+		"answer_document_principal_enum_compile.go":    true, // generic fallback plus explicit authority overlay
+		"source_inventory_answer_preemit_authority.go": true,
+	}
+	forbiddenCalls := []string{
+		"AnswerDocumentEnumerationDisplayCoverage(",
+		"AnswerDocumentCoversEnumerationDisplayRow(",
+		"AnswerDocumentCoversEnumerationDisplaySet(",
+		"AnswerDocumentCoversEnumerationDisplaySets(",
+		"principalEnumerationMissingRows(",
+	}
+	var violations []string
+	for _, path := range sourceInventoryProductionGoFiles(t, []string{".", "../orchestrator", "../agent"}) {
+		key := sourceInventoryClusterFileKey(path)
+		if allowed[key] {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		text := string(data)
+		if !strings.Contains(text, "SourceInventory") &&
+			!strings.Contains(text, "sourceInventory") &&
+			!strings.Contains(text, "source inventory") &&
+			!strings.Contains(text, "source_inventory") {
+			continue
+		}
+		for i, line := range strings.Split(text, "\n") {
+			for _, call := range forbiddenCalls {
+				if !strings.Contains(line, call) {
+					continue
+				}
+				if strings.Contains(line, "func "+strings.TrimSuffix(call, "(")+"(") {
+					continue
+				}
+				violations = append(violations, key+":"+strconv.Itoa(i+1)+": "+call)
+			}
+		}
+	}
+	if len(violations) > 0 {
+		t.Fatalf("source-inventory row coverage/count-list hard path bypasses SourceInventoryAnswerPreEmitAuthority; route source-inventory presentation coverage through BuildSourceInventoryAnswerPreEmitAuthority and keep generic enumeration fallback non-source-inventory only:\n  %s", strings.Join(violations, "\n  "))
+	}
+}
+
 func sourceInventoryProductionGoFiles(t *testing.T, roots []string) []string {
 	t.Helper()
 	var files []string

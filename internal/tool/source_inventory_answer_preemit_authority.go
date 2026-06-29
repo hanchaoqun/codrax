@@ -79,12 +79,12 @@ func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []t
 			observation,
 		)
 	}
-	enumSets := sourceInventoryAnswerPreEmitEnumerationSets(ctx)
+	enumCoverageView := types.AnswerDocumentAcceptedEnumerationDisplayCoverage(ctx, nil, doc)
+	enumSets := enumCoverageView.Sets
 	enumRowCount := 0
 	for _, set := range enumSets {
 		enumRowCount += len(set.Rows)
 	}
-	enumCoverage := types.AnswerDocumentEnumerationDisplayCoverage(doc, enumSets)
 	out := SourceInventoryAnswerPreEmitAuthority{
 		Active:                    snapshot.Active || candidate.IsActive() || duplicate.IsActive() || surfaceFamily.IsActive() || absenceBlocking,
 		Snapshot:                  types.NormalizeSourceInventoryAuthoritySnapshot(snapshot),
@@ -99,7 +99,7 @@ func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []t
 		StableAggregateFactCount:  len(facts),
 		EnumerationSetCount:       len(enumSets),
 		EnumerationRowCount:       enumRowCount,
-		EnumerationCoverage:       enumCoverage,
+		EnumerationCoverage:       enumCoverageView.Coverage,
 	}
 	if out.EnumerationRowCount > 0 {
 		out.Active = true
@@ -107,17 +107,6 @@ func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []t
 	out.Blocking = best.Blocking || out.ExactAbsenceBlocking
 	out.ReasonCodes = sourceInventoryAnswerPreEmitReasonCodes(out)
 	return out
-}
-
-func sourceInventoryAnswerPreEmitEnumerationSets(ctx *types.BusContext) []types.EnumerationDisplaySet {
-	if ctx == nil || ctx.AnalysisIR == nil {
-		return nil
-	}
-	plan := answerSurfacePlan(ctx)
-	if plan == nil {
-		return nil
-	}
-	return types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
 }
 
 func sourceInventoryAnswerPreEmitReasonCodes(a SourceInventoryAnswerPreEmitAuthority) []string {

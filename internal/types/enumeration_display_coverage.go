@@ -18,10 +18,67 @@ type EnumerationDisplayCoverage struct {
 	MissingRows []EnumerationDisplayRow
 }
 
+// EnumerationDisplayCoverageView is the shared projection for accepted
+// principal enumeration rows against the current answer document. It lets
+// final-answer repair, source-inventory pre-emit authority, and caveat
+// materialization consume one row/count visibility view instead of each
+// rebuilding coverage from local partial state.
+type EnumerationDisplayCoverageView struct {
+	Sets     []EnumerationDisplaySet
+	Coverage EnumerationDisplayCoverage
+}
+
 // Complete reports whether every row in the accepted row-set surface is
 // already represented by a visible principal item with a compatible citation.
 func (c EnumerationDisplayCoverage) Complete() bool {
 	return c.RowCount > 0 && c.CoveredRows == c.RowCount && len(c.MissingRows) == 0
+}
+
+// Complete reports whether the current answer document covers every accepted
+// row in the view.
+func (v EnumerationDisplayCoverageView) Complete() bool {
+	return v.Coverage.Complete()
+}
+
+// RowsFullyCited reports whether every accepted row is backed by a concrete
+// row-local source citation. This is a typed row property, not a check over
+// model prose or rendered output.
+func (v EnumerationDisplayCoverageView) RowsFullyCited() bool {
+	if len(v.Sets) == 0 {
+		return false
+	}
+	for _, set := range v.Sets {
+		if len(set.Rows) == 0 {
+			return false
+		}
+		for _, row := range set.Rows {
+			if !row.HasCitation || strings.TrimSpace(row.Source) == "" || row.LineStart <= 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// AnswerDocumentAcceptedEnumerationDisplayCoverage compiles accepted principal
+// enumeration row sets from the bus context and evaluates their visible,
+// citation-compatible coverage in doc. If rm is nil, the AnalysisIR request
+// model from ctx is used. This is the canonical row/list/count coverage
+// projector; hard paths should consume this view instead of rebuilding
+// source-inventory-specific coverage locally.
+func AnswerDocumentAcceptedEnumerationDisplayCoverage(ctx *BusContext, rm *RequestModel, doc *AnswerDocumentV2) EnumerationDisplayCoverageView {
+	if ctx == nil {
+		return EnumerationDisplayCoverageView{}
+	}
+	if rm == nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	plan := BuildAnswerSurfacePlanForBusContext(ctx)
+	sets := CompileEnumerationDisplaySets(rm, plan)
+	return EnumerationDisplayCoverageView{
+		Sets:     sets,
+		Coverage: AnswerDocumentEnumerationDisplayCoverage(doc, sets),
+	}
 }
 
 // AnswerDocumentEnumerationDisplayCoverage computes row-level visible coverage
