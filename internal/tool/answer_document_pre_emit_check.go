@@ -4398,7 +4398,7 @@ func preCheckSourceInventoryCandidateUniverseCoverage(doc *types.AnswerDocumentV
 		return nil
 	}
 	facts := preEmitStableAggregateFacts(ctx)
-	authority := BuildSourceInventoryAnswerPreEmitAuthority(ctx, facts)
+	authority := BuildSourceInventoryAnswerPreEmitAuthority(ctx, facts, doc)
 	gap := authority.BestUniverseGap
 	if !gap.Blocking {
 		return nil

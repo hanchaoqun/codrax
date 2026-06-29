@@ -75,6 +75,56 @@ func TestSourceInventoryAnswerPreEmitAuthority_ProjectsExactAbsenceDebt(t *testi
 	}
 }
 
+func TestSourceInventoryAnswerPreEmitAuthority_ProjectsEnumerationDisplayCoverage(t *testing.T) {
+	mut := types.NewMutableState("列出 package")
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "packages",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"alpha", "beta"},
+		SupportRefs: []string{"alpha: src/alpha.go:3", "beta: src/beta.go:7"},
+	}}
+	mut.SetInvestigationAggregateFacts(facts)
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "src/alpha.go", Line: 3, Quote: "package alpha"},
+			{File: "src/beta.go", Line: 7, Quote: "package beta"},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "packages",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{ID: "alpha", Label: "alpha", Text: "src/alpha.go:3", CitationRef: 0},
+				{ID: "beta", Label: "beta", Text: "src/beta.go:7", CitationRef: 1},
+			},
+		}},
+	}
+
+	auth := BuildSourceInventoryAnswerPreEmitAuthority(ctx, facts, doc)
+	if auth.EnumerationSetCount != 1 || auth.EnumerationRowCount != 2 {
+		t.Fatalf("authority should project accepted enumeration rows, got sets=%d rows=%d auth=%+v",
+			auth.EnumerationSetCount, auth.EnumerationRowCount, auth)
+	}
+	if !auth.EnumerationCoverage.Complete() {
+		t.Fatalf("authority should project visible row coverage, got %+v", auth.EnumerationCoverage)
+	}
+	if !sourceInventoryAnswerPreEmitReasonCodeContains(auth, "accepted_enumeration_rows_visible") {
+		t.Fatalf("reason codes should include visible enumeration coverage, got %+v", auth.ReasonCodes)
+	}
+}
+
 func sourceInventoryAnswerPreEmitReasonCodeContains(auth SourceInventoryAnswerPreEmitAuthority, want string) bool {
 	for _, got := range auth.ReasonCodes {
 		if got == want {

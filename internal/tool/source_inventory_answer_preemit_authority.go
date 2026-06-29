@@ -27,11 +27,18 @@ type SourceInventoryAnswerPreEmitAuthority struct {
 	AcceptedExactUniverse     bool                                   `json:"accepted_exact_universe,omitempty"`
 	AcceptedRequestedUniverse bool                                   `json:"accepted_requested_universe,omitempty"`
 	StableAggregateFactCount  int                                    `json:"stable_aggregate_fact_count,omitempty"`
+	EnumerationSetCount       int                                    `json:"enumeration_set_count,omitempty"`
+	EnumerationRowCount       int                                    `json:"enumeration_row_count,omitempty"`
+	EnumerationCoverage       types.EnumerationDisplayCoverage       `json:"enumeration_coverage,omitempty"`
 }
 
-func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []types.AnswerAggregateFact) SourceInventoryAnswerPreEmitAuthority {
+func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []types.AnswerAggregateFact, docs ...*types.AnswerDocumentV2) SourceInventoryAnswerPreEmitAuthority {
 	if ctx == nil {
 		return SourceInventoryAnswerPreEmitAuthority{}
+	}
+	var doc *types.AnswerDocumentV2
+	if len(docs) > 0 {
+		doc = docs[0]
 	}
 	var observation types.SourceInventoryObservation
 	if ctx.Mutable != nil {
@@ -72,6 +79,12 @@ func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []t
 			observation,
 		)
 	}
+	enumSets := sourceInventoryAnswerPreEmitEnumerationSets(ctx)
+	enumRowCount := 0
+	for _, set := range enumSets {
+		enumRowCount += len(set.Rows)
+	}
+	enumCoverage := types.AnswerDocumentEnumerationDisplayCoverage(doc, enumSets)
 	out := SourceInventoryAnswerPreEmitAuthority{
 		Active:                    snapshot.Active || candidate.IsActive() || duplicate.IsActive() || surfaceFamily.IsActive() || absenceBlocking,
 		Snapshot:                  types.NormalizeSourceInventoryAuthoritySnapshot(snapshot),
@@ -84,10 +97,27 @@ func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []t
 		AcceptedExactUniverse:     acceptedExact,
 		AcceptedRequestedUniverse: acceptedRequested,
 		StableAggregateFactCount:  len(facts),
+		EnumerationSetCount:       len(enumSets),
+		EnumerationRowCount:       enumRowCount,
+		EnumerationCoverage:       enumCoverage,
+	}
+	if out.EnumerationRowCount > 0 {
+		out.Active = true
 	}
 	out.Blocking = best.Blocking || out.ExactAbsenceBlocking
 	out.ReasonCodes = sourceInventoryAnswerPreEmitReasonCodes(out)
 	return out
+}
+
+func sourceInventoryAnswerPreEmitEnumerationSets(ctx *types.BusContext) []types.EnumerationDisplaySet {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return nil
+	}
+	return types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
 }
 
 func sourceInventoryAnswerPreEmitReasonCodes(a SourceInventoryAnswerPreEmitAuthority) []string {
@@ -124,6 +154,12 @@ func sourceInventoryAnswerPreEmitReasonCodes(a SourceInventoryAnswerPreEmitAutho
 	}
 	if a.AcceptedRequestedUniverse {
 		add("accepted_requested_universe")
+	}
+	if a.EnumerationRowCount > 0 {
+		add("accepted_enumeration_rows")
+	}
+	if a.EnumerationCoverage.Complete() {
+		add("accepted_enumeration_rows_visible")
 	}
 	return out
 }
