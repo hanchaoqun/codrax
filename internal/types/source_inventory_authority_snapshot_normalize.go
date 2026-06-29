@@ -7,10 +7,13 @@ package types
 func NormalizeSourceInventoryAuthoritySnapshot(s SourceInventoryAuthoritySnapshot) SourceInventoryAuthoritySnapshot {
 	s.CompletionAuthority = NormalizeSourceInventoryCompletionAuthority(s.CompletionAuthority)
 	s.FollowupDebt = NormalizeSourceInventoryFollowupDebt(s.FollowupDebt)
-	if s.CompletionAuthority.FollowupDebt.IsActive() {
+	completionBlocking := s.CompletionAuthority.IsBlocking()
+	if !completionBlocking {
+		s.FollowupDebt = SourceInventoryFollowupDebt{}
+	} else if s.CompletionAuthority.FollowupDebt.IsActive() {
 		s.FollowupDebt = s.CompletionAuthority.FollowupDebt
 	}
-	s.NeedsFollowup = s.CompletionAuthority.IsBlocking() || s.FollowupDebt.IsActive()
+	s.NeedsFollowup = completionBlocking
 	if s.NeedsFollowup {
 		s.CanUseMechanicalRowsForCite = false
 		s.CanEnterMechanicalLanding = false

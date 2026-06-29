@@ -1310,6 +1310,63 @@ func TestExecCommandBroadGrepBlockedDuringSourceInventoryDebt(t *testing.T) {
 	}
 }
 
+func TestExecCommandSourceInventoryDebtHonorsAcceptedRequestedUniverse(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 15),
+		sourceInventoryRequestedUniverseMember("Cart", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 14),
+		sourceInventoryRequestedUniverseMember("Greeter", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", 6),
+		sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6),
+		sourceInventoryRequestedUniverseMember("runOnMainThread", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 12),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:    types.SourcePathRoleFixture,
+		Count:   3,
+		Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"},
+	}, {
+		Role:    types.SourcePathRoleThirdParty,
+		Count:   8,
+		Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj"},
+	}, {
+		Role:    types.SourcePathRoleProduction,
+		Count:   20,
+		Samples: []string{"internal/tool/source_inventory_universe_coverage.go"},
+	}})
+	ctx.RepoRoot = t.TempDir()
+	ctx.Mode = types.ModeRead
+	ctx.PipelineStage = types.StageExplore
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "Cangjie requested constructs",
+		Value:   "5",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Bridge", "Cart", "Greeter", "native_add", "runOnMainThread"},
+	}}
+	ctx.Mutable.SetInvestigationAggregateFacts(facts)
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+	ctx.SourceInventoryFollowupDebt = types.NormalizeSourceInventoryFollowupDebt(types.SourceInventoryFollowupDebt{
+		Active:     true,
+		ReasonCode: types.SourceInventoryFollowupDebtMissingSourceClass,
+		Query: types.SourceInventoryLensQuery{
+			Path:  ".",
+			Roles: []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			TopN:  24,
+		},
+		Roles: []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+	})
+
+	tool := &ExecCommand{}
+	params, _ := json.Marshal(execCommandParams{Command: `find . -type f -name "*.go" | wc -l`})
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("accepted requested universe should suppress stale source-inventory debt, got %q repair=%+v", result.Summary, result.Repair)
+	}
+	if result.Repair != nil && result.Repair.Code == "exec_command_source_inventory_debt_use_typed_inventory" {
+		t.Fatalf("stale source-inventory debt repair should not fire after accepted requested universe: %+v", result.Repair)
+	}
+}
+
 func TestExecCommandBroadContentEnumerationClassifier(t *testing.T) {
 	blocked := []string{
 		`grep -rn "needle" --include="*.cj" . | head -30`,

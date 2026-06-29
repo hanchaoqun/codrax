@@ -814,22 +814,26 @@ func execCommandActiveSourceInventoryDebt(ctx *types.BusContext) bool {
 	if !execCommandActiveSourceInventoryProfile(ctx) {
 		return false
 	}
-	if types.NormalizeSourceInventoryFollowupDebt(ctx.SourceInventoryFollowupDebt).IsActive() {
-		return true
-	}
 	if ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return types.NormalizeSourceInventoryFollowupDebt(ctx.SourceInventoryFollowupDebt).IsActive()
+	}
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	snapshot := types.BuildSourceInventoryAuthoritySnapshot(types.SourceInventoryAuthoritySnapshotInput{
+		Observation:               types.SourceInventoryObservationFromMutable(ctx.Mutable),
+		RequestModel:              ctx.AnalysisIR.RequestModel,
+		ExistingAggregateFacts:    facts,
+		AcceptedExactUniverse:     SourceInventoryAcceptedClosureCoversExactUniverse(ctx, facts),
+		AcceptedRequestedUniverse: SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts),
+		RequiredFiles:             ctx.AnalysisIR.EvidencePlan.RequiredFiles,
+		MaxPrincipalRows:          32,
+		MaxSupportRows:            16,
+		MaxAuditRows:              8,
+	})
+	snapshot = types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
+	if snapshot.SupportOnly {
 		return false
 	}
-	snapshot := types.BuildSourceInventoryAuthoritySnapshot(types.SourceInventoryAuthoritySnapshotInput{
-		Observation:            types.SourceInventoryObservationFromMutable(ctx.Mutable),
-		RequestModel:           ctx.AnalysisIR.RequestModel,
-		ExistingAggregateFacts: ctx.Mutable.StableInvestigationAggregateFacts(),
-		RequiredFiles:          ctx.AnalysisIR.EvidencePlan.RequiredFiles,
-		MaxPrincipalRows:       32,
-		MaxSupportRows:         16,
-		MaxAuditRows:           8,
-	})
-	return types.NormalizeSourceInventoryAuthoritySnapshot(snapshot).NeedsFollowup
+	return snapshot.NeedsFollowup || (snapshot.PrincipalAuthority && !snapshot.LensExecuted)
 }
 
 func execCommandLooksLikeFindDiscovery(command string) bool {

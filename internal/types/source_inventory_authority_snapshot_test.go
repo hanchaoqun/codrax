@@ -119,6 +119,10 @@ func TestSourceInventoryAuthoritySnapshot_FollowupDebtBlocksLanding(t *testing.T
 		Complete: false,
 		Scopes:   []string{"."},
 		Lens:     []string{"members"},
+		Provenance: []string{
+			SourceInventoryProvenanceRepoLensToolQuery,
+			SourceInventoryProvenanceStageExplore,
+		},
 		SourceClasses: []SourceInventorySourceClassCount{{
 			Role: SourcePathRoleProduction, Count: 1, Complete: true, Samples: []string{"src/a.cj"},
 		}, {
@@ -154,6 +158,58 @@ func TestSourceInventoryAuthoritySnapshot_FollowupDebtBlocksLanding(t *testing.T
 	}
 	if snap.CanUseMechanicalRowsForCite || snap.CanEnterMechanicalLanding {
 		t.Fatalf("follow-up debt must block mechanical landing: %+v", snap)
+	}
+}
+
+func TestSourceInventoryAuthoritySnapshot_AcceptedRequestedUniverseSuppressesStaleFollowup(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: false,
+		Scopes:   []string{"."},
+		Lens:     []string{"members"},
+		Provenance: []string{
+			SourceInventoryProvenanceRepoLensToolQuery,
+			SourceInventoryProvenanceStageExplore,
+		},
+		SourceClasses: []SourceInventorySourceClassCount{{
+			Role: SourcePathRoleProduction, Count: 1, Complete: true, Samples: []string{"src/a.cj"},
+		}, {
+			Role: SourcePathRoleThirdParty, Count: 1, Complete: true, Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj"},
+		}},
+		Execution: &SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleType,
+			Complete: false,
+			Members: []SourceInventoryObservationMember{{
+				Name: "LocalOnly", Role: AnswerCandidateRoleType, File: "src/a.cj", Line: 3, Language: "cangjie",
+			}},
+		}},
+	}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all types"},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+			Confidence:        0.9,
+		},
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeAll},
+	}
+
+	snap := BuildSourceInventoryAuthoritySnapshot(SourceInventoryAuthoritySnapshotInput{
+		Observation:               obs,
+		RequestModel:              rm,
+		AcceptedRequestedUniverse: true,
+	})
+	if snap.CompletionAuthority.IsBlocking() {
+		t.Fatalf("accepted requested universe should close completion authority: %+v", snap)
+	}
+	if snap.NeedsFollowup || snap.FollowupDebt.IsActive() {
+		t.Fatalf("accepted requested universe must suppress lower-level stale follow-up debt: %+v", snap)
 	}
 }
 

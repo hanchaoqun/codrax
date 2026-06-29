@@ -65,7 +65,10 @@ func BuildSourceInventoryAuthoritySnapshot(input SourceInventoryAuthoritySnapsho
 	})
 	projected := ProjectSourceInventoryPrincipalRowSetAggregateFacts(input.ExistingAggregateFacts, observation, rm)
 	principalRefs := PrincipalAggregateMemberSetFactRefsForRequest(projected, &rm)
-	followup := DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation, rm, input.RequiredFiles)
+	var followup SourceInventoryFollowupDebt
+	if completion.IsBlocking() {
+		followup = DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation, rm, input.RequiredFiles)
+	}
 	requiredFiles := sourceInventorySnapshotRequiredFileSet(input.RequiredFiles)
 	requiredCovered := sourceInventorySnapshotRequiredFilesCovered(observation, requiredFiles)
 
@@ -81,7 +84,7 @@ func BuildSourceInventoryAuthoritySnapshot(input SourceInventoryAuthoritySnapsho
 		PrincipalAggregateFactCount:  len(principalRefs),
 		CanUseMechanicalRowsForCite:  false,
 		CanEnterMechanicalLanding:    false,
-		NeedsFollowup:                completion.IsBlocking() || followup.IsActive(),
+		NeedsFollowup:                completion.IsBlocking(),
 		RequestedFields:              cloneSourceInventoryRequestedFields(nil),
 		PrincipalRoles:               normalizeSourceInventoryFollowupRoles(rowSet.PrincipalRoles),
 		PrincipalScope:               rowSet.PrincipalScope,

@@ -258,19 +258,7 @@ func readStatusSourceInventoryShapeForContext(ctx *types.BusContext, mut *types.
 	if ctx == nil || ctx.AnalysisIR == nil || mut == nil {
 		return readStatusSourceInventoryShape(obs)
 	}
-	snapshot := types.BuildSourceInventoryAuthoritySnapshot(types.SourceInventoryAuthoritySnapshotInput{
-		Observation:            obs,
-		RequestModel:           ctx.AnalysisIR.RequestModel,
-		ExistingAggregateFacts: mut.StableInvestigationAggregateFacts(),
-		RequiredFiles:          ctx.AnalysisIR.EvidencePlan.RequiredFiles,
-		MaxPrincipalRows:       32,
-		MaxSupportRows:         16,
-		MaxAuditRows:           8,
-	})
-	if debt := types.NormalizeSourceInventoryFollowupDebt(ctx.SourceInventoryFollowupDebt); debt.IsActive() {
-		snapshot.FollowupDebt = debt
-	}
-	snapshot = types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
+	snapshot := sourceInventoryAuthoritySnapshotForReadScheduler(ctx, ctx.AnalysisIR, obs)
 	return readStatusSourceInventorySnapshotShape(obs, snapshot)
 }
 
