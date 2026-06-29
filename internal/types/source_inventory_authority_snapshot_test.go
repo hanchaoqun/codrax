@@ -7,7 +7,11 @@ func TestSourceInventoryAuthoritySnapshot_MechanicalRowsCanLand(t *testing.T) {
 		Active:   true,
 		Complete: true,
 		Scopes:   []string{"."},
-		Lens:     []string{"members"},
+		Provenance: []string{
+			SourceInventoryProvenanceRepoLensToolQuery,
+			SourceInventoryProvenanceStageExplore,
+		},
+		Lens: []string{"members"},
 		SourceClasses: []SourceInventorySourceClassCount{{
 			Role: SourcePathRoleThirdParty, Count: 1, Complete: true, Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj"},
 		}},

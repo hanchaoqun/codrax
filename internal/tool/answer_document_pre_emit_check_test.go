@@ -4237,6 +4237,40 @@ func TestPreCheckCitationPoolIntegrity_CatchesMissingAndOutOfRangeRefs(t *testin
 	}
 }
 
+func TestNormalizeInvisibleOutOfRangeCitationRefs_DetachesPresentationOnlyCarrier(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "a.go", Line: 1}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "The visible answer is already grounded by later rows.",
+			Items: []types.AnswerBlockItem{
+				{ID: "invisible", CitationRef: 3},
+				{ID: "visible", Label: "Visible row", CitationRef: 4},
+			},
+		}},
+	}
+
+	if fixed := normalizeInvisibleOutOfRangeCitationRefs(doc); fixed != 1 {
+		t.Fatalf("expected exactly one invisible out-of-range citation_ref repair, got %d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != types.CitationRefUnset {
+		t.Fatalf("invisible citation-only carrier citation_ref=%d, want unset", got)
+	}
+	if got := doc.Blocks[0].Items[1].CitationRef; got != 4 {
+		t.Fatalf("visible item citation_ref should stay for typed repair/advisory, got %d", got)
+	}
+
+	hints := preCheckCitationPoolIntegrity(doc)
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, "at least 5") {
+		t.Fatalf("remaining visible out-of-range citation should still be reported, got %+v", hints)
+	}
+	doc.Blocks[0].Items[1].CitationRef = types.CitationRefUnset
+	if hints := preCheckCitationPoolIntegrity(doc); len(hints) != 0 {
+		t.Fatalf("presentation-only citation carrier repair should clear citation-pool advisory, got %+v", hints)
+	}
+}
+
 func TestRunPreEmitChecks_CitationPoolShortCircuitsSemanticMemberHints(t *testing.T) {
 	mut := types.NewMutableState("citation carrier failure")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

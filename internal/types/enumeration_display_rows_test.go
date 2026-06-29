@@ -279,6 +279,60 @@ func TestCompileEnumerationDisplaySets_SourceInventoryRowAttributesPreservePacka
 	}
 }
 
+func TestCompileEnumerationDisplaySets_PreservesPackageAttributeFromAlignedMemberNotes(t *testing.T) {
+	rm := &RequestModel{
+		Intent:   IntentEnumerate,
+		Language: "zh",
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+			RequestedFields: []SourceInventoryRequestedField{
+				SourceInventoryFieldName,
+				SourceInventoryFieldLocation,
+				SourceInventoryFieldPackage,
+			},
+			Confidence: 0.95,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "foreign func 声明",
+			Value:       "2",
+			Role:        AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"foreign func native_add", "foreign func native_add"},
+			SupportRefs: []string{"foreign func native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6", "foreign func native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6"},
+			MemberNotes: []string{
+				"foreign func native_add 声明，FFI 外部函数声明，package demo.bridge，两个文件均声明 native_add",
+				"foreign func native_add 声明，FFI 外部函数声明，package demo.ffi",
+			},
+		}},
+	}
+
+	sets := CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) != 1 || len(sets[0].Rows) != 2 {
+		t.Fatalf("sets = %+v", sets)
+	}
+	seen := map[string]string{}
+	for _, row := range sets[0].Rows {
+		if len(row.Attributes) != 1 {
+			t.Fatalf("row should carry one typed package attribute: %+v", row)
+		}
+		seen[normalizeAnswerSupportLocation(row.Location)] = row.Attributes[0].Name
+	}
+	for loc, want := range map[string]string{
+		"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6":                  "demo.bridge",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6": "demo.ffi",
+	} {
+		if got := seen[normalizeAnswerSupportLocation(loc)]; got != want {
+			t.Fatalf("package for %s = %q, want %q; rows=%+v", loc, got, want, sets[0].Rows)
+		}
+	}
+}
+
 func TestCompileEnumerationDisplaySets_SourceInventoryAttributesStayLocationScopedForDuplicateLabels(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

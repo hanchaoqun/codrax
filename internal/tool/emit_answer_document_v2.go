@@ -580,6 +580,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if pctx == nil {
 		pctx = newPreEmitCheckContext(ctx)
 	}
+	if fixed := normalizeInvisibleOutOfRangeCitationRefs(doc); fixed > 0 {
+		logging.Warning("[%s] detached %d invisible out-of-range citation_ref carrier(s)", toolName, fixed)
+	}
 	if fixed := normalizeDiagramDefinitionLabelsByEvidence(doc, pctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d diagram definition label(s) by evidence-defined source", toolName, fixed)
 	}
@@ -618,6 +621,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	}
 	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed > 0 {
 		logging.Warning("[%s] compiled %d deterministic enumeration table row(s) from accepted principal evidence handoff", toolName, fixed)
+	}
+	if fixed := normalizeEnumerationDisplayRequestedFieldSurfaces(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] materialized %d requested source-inventory field surface(s) from typed principal rows", toolName, fixed)
 	}
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed > 0 {
 		logging.Warning("[%s] normalized %d principal enumeration block(s) from accepted evidence-rich row contract", toolName, fixed)
@@ -669,6 +675,27 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeExternalObservationVisibleCitationSentinels(doc, ctx); fixed > 0 {
 		logging.Warning("[%s] sanitized %d external-observation visible citation sentinel(s)", toolName, fixed)
 	}
+}
+
+func normalizeInvisibleOutOfRangeCitationRefs(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return 0
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		for ii := range doc.Blocks[bi].Items {
+			item := &doc.Blocks[bi].Items[ii]
+			if item.CitationRef < 0 || item.CitationRef < len(doc.Citations) {
+				continue
+			}
+			if strings.TrimSpace(types.AnswerBlockItemVisibleSurface(*item)) != "" {
+				continue
+			}
+			item.CitationRef = types.CitationRefUnset
+			fixed++
+		}
+	}
+	return fixed
 }
 
 func normalizeClaimUseEvidenceIDsByProjection(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {

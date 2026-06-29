@@ -1588,6 +1588,9 @@ func TestPublishSourceInventoryAdvisoryFromTypedRequest_QuerySynthesizesProfileA
 	if !sourceInventoryObservationHasRepoLensToolQuery(obs) {
 		t.Fatalf("auto-observed source inventory missing repo_lens provenance: %+v", obs)
 	}
+	if len(obs.Sets) == 0 || len(obs.Sets[0].Members) == 0 {
+		t.Fatalf("auto-observed source inventory must preserve candidate row-set authority: %+v", obs)
+	}
 	if gap := SourceInventoryLensExecutionGapForContext(ctx); gap.Blocking {
 		t.Fatalf("auto-observed source inventory should satisfy lens gate, got %+v", gap)
 	}

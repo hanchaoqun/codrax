@@ -12,17 +12,16 @@ func publishAndPersistSourceInventoryObservationFromLens(ctx *types.BusContext, 
 }
 
 // persistSourceInventoryLensExecutionMarker records that an executable
-// source_inventory lens ran without turning broad navigation rows into durable
-// answer-member authority. Downstream scheduler/preflight gates need the
-// deterministic repo_lens provenance; final-answer member sets still come from
-// model-emitted aggregate facts and verified source citations.
+// source_inventory lens ran and preserves its typed candidate row-set. The
+// rows stay advisory navigation facts, not model-authored answer prose, but
+// source-inventory completion/finalizer authorities need the durable row
+// universe to detect omissions and materialize mechanical inventory fields.
 func persistSourceInventoryLensExecutionMarker(ctx *types.BusContext, observation types.SourceInventoryObservation) {
 	if ctx == nil || ctx.Mutable == nil || !observation.IsActive() {
 		return
 	}
 	marker := types.CloneSourceInventoryObservation(observation)
 	marker.AdvisoryOnly = true
-	marker.Sets = nil
 	if !marker.IsActive() {
 		return
 	}

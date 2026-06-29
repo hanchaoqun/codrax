@@ -6,7 +6,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestPersistSourceInventoryLensExecutionMarkerDropsNavigationRows(t *testing.T) {
+func TestPersistSourceInventoryLensExecutionMarkerPreservesCandidateRows(t *testing.T) {
 	ctx := &types.BusContext{Mutable: types.NewMutableState("source inventory")}
 	obs := types.SourceInventoryObservation{
 		Active:       true,
@@ -35,8 +35,14 @@ func TestPersistSourceInventoryLensExecutionMarkerDropsNavigationRows(t *testing
 	if !types.SourceInventoryLensExecuted(stored) {
 		t.Fatalf("execution marker should satisfy lens-executed authority: %+v", stored)
 	}
-	if len(stored.Sets) != 0 {
-		t.Fatalf("execution marker must not persist broad navigation rows as durable member authority: %+v", stored.Sets)
+	if !stored.AdvisoryOnly {
+		t.Fatalf("execution marker rows must remain advisory navigation facts: %+v", stored)
+	}
+	if len(stored.Sets) != 1 || len(stored.Sets[0].Members) != 2 {
+		t.Fatalf("execution marker must preserve candidate row-set universe: %+v", stored.Sets)
+	}
+	if stored.Sets[0].Members[0].Name != "Run" || stored.Sets[0].Members[1].Name != "Stop" {
+		t.Fatalf("candidate rows changed while persisting marker: %+v", stored.Sets[0].Members)
 	}
 }
 

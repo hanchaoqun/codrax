@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -744,6 +745,107 @@ func TestCompileEnumerationDisplayTableRows_FillsTypedAttributeColumnsByCitation
 				t.Fatalf("row %d cells=%+v, want cell %d=%q", i, item.Cells, cellIdx, wantCell)
 			}
 		}
+	}
+}
+
+func TestNormalizeEnumerationDisplayRequestedFieldSurfaces_AddsPackageToOrderedListItems(t *testing.T) {
+	mut := types.NewMutableState("列出 foreign func 的文件路径和 package")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "foreign func 声明",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members: []string{
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		},
+		SupportRefs: []string{
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		},
+	}})
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{
+					Name:     "native_add",
+					Role:     types.AnswerCandidateRoleFunction,
+					File:     "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+					Line:     6,
+					Language: "cangjie",
+					Attributes: []types.SourceInventoryObservationAttribute{{
+						Role: types.AnswerCandidateRolePackage,
+						Name: "demo.ffi",
+					}},
+				},
+				{
+					Name:     "native_add",
+					Role:     types.AnswerCandidateRoleFunction,
+					File:     "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+					Line:     6,
+					Language: "cangjie",
+					Attributes: []types.SourceInventoryObservationAttribute{{
+						Role: types.AnswerCandidateRolePackage,
+						Name: "demo.bridge",
+					}},
+				},
+			},
+		}},
+	})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:    "foreign_func",
+			Kind:  types.BlockOrderedList,
+			Title: "foreign func 声明",
+			Items: []types.AnswerBlockItem{
+				{ID: "ffi", Label: "native_add", Text: "FFI 声明外部原生函数", CitationRef: 0},
+				{ID: "bridge", Label: "native_add", Text: "FFI 声明外部原生函数", CitationRef: 1},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6},
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6},
+		},
+	}
+
+	if fixed := normalizeEnumerationDisplayRequestedFieldSurfaces(doc, ctx); fixed != 2 {
+		t.Fatalf("fixed=%d, want 2; doc=%+v", fixed, doc.Blocks[0])
+	}
+	if got := doc.Blocks[0].Items[0].Text; !strings.Contains(got, "包路径：demo.ffi") {
+		t.Fatalf("first item text=%q, want package dimension", got)
+	}
+	if got := doc.Blocks[0].Items[1].Text; !strings.Contains(got, "包路径：demo.bridge") {
+		t.Fatalf("second item text=%q, want package dimension", got)
+	}
+	if fixed := normalizeEnumerationDisplayRequestedFieldSurfaces(doc, ctx); fixed != 0 {
+		t.Fatalf("second normalization fixed=%d, want 0; doc=%+v", fixed, doc.Blocks[0])
 	}
 }
 

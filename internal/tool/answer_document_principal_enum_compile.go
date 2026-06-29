@@ -2736,6 +2736,7 @@ func principalEnumerationRowKeys(row types.EnumerationDisplayRow) []string {
 	if surface, ok := types.ParseAnswerSourceLocationSurface(row.Member); ok {
 		raw = append(raw, surface.File)
 	}
+	raw = append(raw, principalEnumerationRowSurfaceCandidates(row)...)
 	var out []string
 	seen := map[string]bool{}
 	for _, value := range raw {

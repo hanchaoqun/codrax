@@ -75,6 +75,141 @@ func compileEnumerationDisplayTableRows(doc *types.AnswerDocumentV2, ctx *types.
 	return changed
 }
 
+func normalizeEnumerationDisplayRequestedFieldSurfaces(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
+		return 0
+	}
+	fieldLabel := enumerationDisplayRequestedPackageLikeLabel(ctx, ctx.AnalysisIR.RequestModel.SourceInventoryProfile)
+	if fieldLabel == "" {
+		return 0
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return 0
+	}
+	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+	if len(sets) == 0 {
+		return 0
+	}
+	labelIndex := enumerationDisplayRowIndex(sets)
+	locationIndex := enumerationDisplayRowLocationIndex(sets)
+	fixed := 0
+	for blockIdx := range doc.Blocks {
+		block := &doc.Blocks[blockIdx]
+		if block.Kind != types.BlockOrderedList && block.Kind != types.BlockBulletList {
+			continue
+		}
+		for itemIdx := range block.Items {
+			row, ok := enumerationDisplayRowForListItem(block.Items[itemIdx], doc.Citations, labelIndex, locationIndex)
+			if !ok {
+				continue
+			}
+			values := enumerationDisplayMissingPackageLikeValues(block.Items[itemIdx], row)
+			if len(values) == 0 {
+				continue
+			}
+			suffix := enumerationDisplayRequestedAttributeSuffix(ctx, fieldLabel, values)
+			if suffix == "" {
+				continue
+			}
+			if block.Items[itemIdx].Text = appendEnumerationDisplayItemSuffix(block.Items[itemIdx].Text, suffix, ctx); strings.Contains(block.Items[itemIdx].Text, suffix) {
+				fixed++
+			}
+		}
+	}
+	return fixed
+}
+
+func enumerationDisplayRequestedPackageLikeLabel(ctx *types.BusContext, profile *types.SourceInventoryProfile) string {
+	if profile == nil || !profile.Active() {
+		return ""
+	}
+	zh := principalEnumerationPrefersZH(ctx)
+	for _, field := range profile.RequestedFields {
+		switch field {
+		case types.SourceInventoryFieldPackage:
+			if zh {
+				return "包路径"
+			}
+			return "Package"
+		case types.SourceInventoryFieldModule:
+			if zh {
+				return "模块"
+			}
+			return "Module"
+		case types.SourceInventoryFieldNamespace:
+			if zh {
+				return "命名空间"
+			}
+			return "Namespace"
+		}
+	}
+	return ""
+}
+
+func enumerationDisplayRowForListItem(
+	item types.AnswerBlockItem,
+	citations []types.Citation,
+	labelIndex map[string]types.EnumerationDisplayRow,
+	locationIndex map[string]types.EnumerationDisplayRow,
+) (types.EnumerationDisplayRow, bool) {
+	if item.CitationRef >= 0 && item.CitationRef < len(citations) {
+		if row, ok := locationIndex[normalizeEnumerationDisplayLocationKey(answerTableCompileCitationLocationKey(citations[item.CitationRef]))]; ok {
+			return row, true
+		}
+	}
+	row, ok := labelIndex[normalizeEnumerationDisplayTableKey(item.Label)]
+	return row, ok
+}
+
+func enumerationDisplayMissingPackageLikeValues(item types.AnswerBlockItem, row types.EnumerationDisplayRow) []string {
+	surface := types.AnswerBlockItemVisibleSurface(item)
+	seen := map[string]bool{}
+	var out []string
+	for _, attr := range row.Attributes {
+		if attr.Role != types.AnswerCandidateRolePackage {
+			continue
+		}
+		value := strings.TrimSpace(attr.Name)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		if strings.Contains(surface, value) {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
+func enumerationDisplayRequestedAttributeSuffix(ctx *types.BusContext, label string, values []string) string {
+	label = strings.TrimSpace(label)
+	if label == "" || len(values) == 0 {
+		return ""
+	}
+	value := strings.Join(values, ", ")
+	if principalEnumerationPrefersZH(ctx) {
+		return label + "：" + value
+	}
+	return label + ": " + value
+}
+
+func appendEnumerationDisplayItemSuffix(text, suffix string, ctx *types.BusContext) string {
+	text = strings.TrimSpace(text)
+	suffix = strings.TrimSpace(suffix)
+	if suffix == "" || strings.Contains(text, suffix) {
+		return text
+	}
+	if text == "" {
+		return suffix
+	}
+	if principalEnumerationPrefersZH(ctx) {
+		return text + "；" + suffix
+	}
+	return text + "; " + suffix
+}
+
 type enumerationDisplayColumnRole string
 
 const (

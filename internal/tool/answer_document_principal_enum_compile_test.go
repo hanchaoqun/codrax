@@ -3737,6 +3737,292 @@ func TestNormalizePrincipalEnumerationRowBlocks_SourceInventorySectionItemsSuppr
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_PreservesVisibleSourceInventorySectionRowsWithCitationSidecars(t *testing.T) {
+	mu := types.NewMutableState("列出 extend、foreign func 和 public class")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "source inventory principal rows",
+		Value:      "12",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members: []string{
+			"Cart",
+			"String",
+			"native_add",
+			"native_add",
+			"Bridge",
+			"Greeter",
+			"Cart",
+			"Version",
+			"App",
+			"Animal",
+			"Dog",
+			"Service",
+		},
+		SupportRefs: []string{
+			"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+			"String: internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+			"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+			"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+			"Greeter: internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj:6",
+			"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+			"Version: internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj:18",
+			"App: eval/fixtures/testdata/cangjie_minimal/main.cj:11",
+			"Animal: internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:6",
+			"Dog: internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:22",
+			"Service: internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:32",
+		},
+	}})
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []types.SourceInventoryObservationSet{
+			{
+				Role:     types.AnswerCandidateRoleType,
+				Complete: true,
+				Members: []types.SourceInventoryObservationMember{
+					sourceInventoryScopedMarkdownTestMember("Cart", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 30, "demo.cart", "extend", "extend Cart"),
+					sourceInventoryScopedMarkdownTestMember("String", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", 6, "demo.stringext", "extend", "extend String"),
+					sourceInventoryScopedMarkdownTestMember("Bridge", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 15, "demo.bridge", "public class", "public class Bridge"),
+					sourceInventoryScopedMarkdownTestMember("Greeter", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", 6, "demo.greeter", "public class", "public class Greeter"),
+					sourceInventoryScopedMarkdownTestMember("Cart", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 14, "demo.cart", "public class", "public class Cart"),
+					sourceInventoryScopedMarkdownTestMember("Version", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj", 18, "demo.generics", "public class", "public class Version"),
+					sourceInventoryScopedMarkdownTestMember("App", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/main.cj", 11, "demo.app", "public class", "public class App"),
+					sourceInventoryScopedMarkdownTestMember("Animal", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", 6, "demo.modifiers", "public class", "public sealed class Animal"),
+					sourceInventoryScopedMarkdownTestMember("Dog", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", 22, "demo.modifiers", "public class", "public class Dog"),
+					sourceInventoryScopedMarkdownTestMember("Service", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", 32, "demo.modifiers", "public class", "public abstract class Service"),
+				},
+			},
+			{
+				Role:     types.AnswerCandidateRoleFunction,
+				Complete: true,
+				Members: []types.SourceInventoryObservationMember{
+					sourceInventoryScopedMarkdownTestMember("native_add", types.AnswerCandidateRoleFunction, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6, "demo.bridge", "foreign func", "foreign func native_add"),
+					sourceInventoryScopedMarkdownTestMember("native_add", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6, "demo.ffi", "foreign func", "foreign func native_add"),
+				},
+			},
+		},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleType,
+					types.AnswerCandidateRoleFunction,
+				},
+				SourceQuotes: []string{"extend 块", "foreign func 声明", "public class"},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6, Quote: "foreign func native_add(a: Int64, b: Int64): Int64"},
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 15, Quote: "public class Bridge {"},
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 14, Quote: "public class Cart {"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", Line: 6, Quote: "extend String {"},
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 30, Quote: "extend Cart {"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6, Quote: "foreign func native_add(a: Int64, b: Int64): Int64"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", Line: 6, Quote: "public class Greeter {"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj", Line: 18, Quote: "public class Version <: Comparable<Version> {"},
+			{File: "eval/fixtures/testdata/cangjie_minimal/main.cj", Line: 11, Quote: "public class App {"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", Line: 6, Quote: "public sealed class Animal {"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", Line: 22, Quote: "public class Dog <: Animal {"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", Line: 32, Quote: "public abstract class Service {"},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "summary",
+				Kind:        types.BlockSummary,
+				SurfaceRole: types.SurfacePrincipal,
+				Text:        "仓库中 cangjie 语言的 extend 块共 2 个、foreign func 声明共 2 个、public class 共 8 个。",
+				Items: []types.AnswerBlockItem{
+					{ID: "c0", CitationRef: 0},
+					{ID: "c1", CitationRef: 1},
+					{ID: "c2", CitationRef: 2},
+					{ID: "c3", CitationRef: 3},
+					{ID: "c4", CitationRef: 4},
+					{ID: "c5", CitationRef: 5},
+					{ID: "c6", CitationRef: 6},
+					{ID: "c7", CitationRef: 7},
+					{ID: "c8", CitationRef: 8},
+					{ID: "c9", CitationRef: 9},
+					{ID: "c10", CitationRef: 10},
+					{ID: "c11", CitationRef: 11},
+				},
+			},
+			{
+				ID:          "extend_list",
+				Kind:        types.BlockSection,
+				Title:       "extend 块",
+				SurfaceRole: types.SurfacePrincipal,
+				Text:        "extend 块用于为已有类型扩展方法。找到 2 个：",
+				FacetIDs:    []string{string(types.FacetEnumerationItem)},
+				Items: []types.AnswerBlockItem{
+					{ID: "e1", Label: "extend Cart", Text: "扩展购物车类型的 isEmpty 方法，位于 eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30，package=demo.cart", CitationRef: 4},
+					{ID: "e2", Label: "extend String", Text: "为 String 类型扩展 >> 操作符重载函数，位于 internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6，package=demo.stringext", CitationRef: 3},
+				},
+			},
+			{
+				ID:          "foreign_list",
+				Kind:        types.BlockSection,
+				Title:       "foreign func 声明",
+				SurfaceRole: types.SurfacePrincipal,
+				Text:        "foreign func 声明用于桥接到外部原生函数。找到 2 个：",
+				FacetIDs:    []string{string(types.FacetEnumerationItem)},
+				Items: []types.AnswerBlockItem{
+					{ID: "f1", Label: "native_add", Text: "外部原生函数，位于 eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6，package=demo.bridge", CitationRef: 0},
+					{ID: "f2", Label: "native_add", Text: "同签名外部原生函数，位于 internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6，package=demo.ffi", CitationRef: 5},
+				},
+			},
+			{
+				ID:          "public_class_list",
+				Kind:        types.BlockSection,
+				Title:       "public class",
+				SurfaceRole: types.SurfacePrincipal,
+				Text:        "public class 声明。找到 8 个：",
+				FacetIDs:    []string{string(types.FacetEnumerationItem)},
+				Items: []types.AnswerBlockItem{
+					{ID: "p1", Label: "Bridge", Text: "位于 eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15，package=demo.bridge", CitationRef: 1},
+					{ID: "p2", Label: "Greeter", Text: "位于 internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj:6，package=demo.greeter", CitationRef: 6},
+					{ID: "p3", Label: "Cart", Text: "位于 eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14，package=demo.cart", CitationRef: 2},
+					{ID: "p4", Label: "Version", Text: "位于 internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj:18，package=demo.generics", CitationRef: 7},
+					{ID: "p5", Label: "App", Text: "位于 eval/fixtures/testdata/cangjie_minimal/main.cj:11，package=demo.app", CitationRef: 8},
+					{ID: "p6", Label: "Animal", Text: "位于 internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:6，package=demo.modifiers", CitationRef: 9},
+					{ID: "p7", Label: "Dog", Text: "位于 internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:22，package=demo.modifiers", CitationRef: 10},
+					{ID: "p8", Label: "Service", Text: "位于 internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:32，package=demo.modifiers", CitationRef: 11},
+				},
+			},
+		},
+	}
+
+	normalizeEnumerationDisplayRequestedFieldSurfaces(doc, ctx)
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	extend := answerDocumentTestBlockByID(t, doc, "extend_list")
+	if len(extend.Items) != 2 {
+		t.Fatalf("visible extend section rows must remain load-bearing, got %+v", extend)
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, want := range []string{
+		"extend Cart",
+		"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+		"demo.cart",
+		"extend String",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+		"demo.stringext",
+		"native_add",
+		"demo.bridge",
+		"demo.ffi",
+		"Service",
+		"demo.modifiers",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("normalizer lost visible source-inventory row field %q:\n%s", want, visible)
+		}
+	}
+	if strings.Contains(visible, "系统按已验证证据补充缺失成员") {
+		t.Fatalf("visible section rows already cover the scoped source-inventory sets; duplicate supplement leaked:\n%s", visible)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_FillsPackageColumnFromAlignedMemberNotes(t *testing.T) {
+	mu := types.NewMutableState("列出 foreign func 声明，包含文件路径和包路径")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "foreign func 声明",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"foreign func native_add", "foreign func native_add"},
+		SupportRefs: []string{"foreign func native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6", "foreign func native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6"},
+		MemberNotes: []string{
+			"foreign func native_add 声明，FFI 外部函数声明，package demo.bridge，两个文件均声明 native_add",
+			"foreign func native_add 声明，FFI 外部函数声明，package demo.ffi",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6, Quote: "foreign func native_add(a: Int64, b: Int64): Int64"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6, Quote: "foreign func native_add(a: Int64, b: Int64): Int64"},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "foreign func 声明共 2 个。",
+		}},
+	}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatalf("expected deterministic supplement table, got %+v", doc.Blocks)
+	}
+	var table types.AnswerBlock
+	for _, block := range doc.Blocks {
+		if block.Kind == types.BlockTable && strings.Contains(block.Title, "foreign func 声明") {
+			table = block
+			break
+		}
+	}
+	if len(table.Items) != 2 {
+		t.Fatalf("expected two deterministic table rows, got %+v", doc.Blocks)
+	}
+	wantRows := [][]string{
+		{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6", "demo.bridge"},
+		{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6", "demo.ffi"},
+	}
+	if got, want := table.Columns, []string{"符号名称", "定义位置", "包路径", "说明"}; len(got) != len(want) {
+		t.Fatalf("columns=%+v, want %+v", got, want)
+	} else {
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("columns=%+v, want %+v", got, want)
+			}
+		}
+	}
+	for i, want := range wantRows {
+		if len(table.Items[i].Cells) < 2 {
+			t.Fatalf("row %d cells=%+v, want location/package", i, table.Items[i].Cells)
+		}
+		if table.Items[i].Cells[0] != want[0] || table.Items[i].Cells[1] != want[1] {
+			t.Fatalf("row %d cells=%+v, want location/package %+v", i, table.Items[i].Cells, want)
+		}
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_RebuildsScopedSourceInventoryMarkdownTables(t *testing.T) {
 	mu := types.NewMutableState("列出 extend、foreign func 和 public class")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

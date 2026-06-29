@@ -140,6 +140,56 @@ func TestSourceInventoryObservation_CloneAndMergePreservesCountInvariant(t *test
 	}
 }
 
+func TestSourceInventoryObservation_MergeKeepsSameFileSameNameDistinctLines(t *testing.T) {
+	prior := SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleType,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{{
+				Name:          "Cart",
+				Role:          AnswerCandidateRoleType,
+				File:          "src/cart/Cart.cj",
+				Line:          30,
+				SurfaceTerms:  []string{"extend", "extend Cart"},
+				CoverageState: SourceInventoryCoverageObserved,
+			}},
+		}},
+	}
+	current := SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleType,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{{
+				Name:          "Cart",
+				Role:          AnswerCandidateRoleType,
+				File:          "src/cart/Cart.cj",
+				Line:          14,
+				SurfaceTerms:  []string{"public class", "public class Cart"},
+				CoverageState: SourceInventoryCoverageObserved,
+			}},
+		}},
+	}
+
+	merged := MergeSourceInventoryObservation(prior, current)
+	if len(merged.Sets) != 1 || len(merged.Sets[0].Members) != 2 || merged.Sets[0].Count != 2 {
+		t.Fatalf("same-name declarations on distinct lines must remain distinct rows: %+v", merged.Sets)
+	}
+	byLine := map[int]SourceInventoryObservationMember{}
+	for _, member := range merged.Sets[0].Members {
+		byLine[member.Line] = member
+	}
+	if strings.Contains(strings.Join(byLine[30].SurfaceTerms, "\n"), "public class") {
+		t.Fatalf("line 30 extend row inherited class terms: %+v", byLine[30])
+	}
+	if strings.Contains(strings.Join(byLine[14].SurfaceTerms, "\n"), "extend") {
+		t.Fatalf("line 14 class row inherited extend terms: %+v", byLine[14])
+	}
+}
+
 func TestSourceInventoryObservation_MergeCompleteLensSupersedesEarlierTruncatedSameScope(t *testing.T) {
 	prior := SourceInventoryObservation{
 		Active:     true,
@@ -705,8 +755,8 @@ func TestSourceInventoryLensExecutedSeparatesClassUniverseSeed(t *testing.T) {
 		Count:    1,
 		Members:  []SourceInventoryObservationMember{{Name: "Handle"}},
 	}}
-	if !SourceInventoryLensExecuted(withMembers) {
-		t.Fatalf("member-set observation should count as executable lens: %+v", withMembers)
+	if SourceInventoryLensExecuted(withMembers) {
+		t.Fatalf("member-set observation without executable provenance must not count as lens execution: %+v", withMembers)
 	}
 	analyzePrescan := withMembers
 	analyzePrescan.Provenance = []string{
@@ -723,5 +773,10 @@ func TestSourceInventoryLensExecutedSeparatesClassUniverseSeed(t *testing.T) {
 	}
 	if !SourceInventoryLensExecuted(exploreLens) {
 		t.Fatalf("explore-stage source-inventory observation should count as executable lens: %+v", exploreLens)
+	}
+	listFilesSupport := withMembers
+	listFilesSupport.Provenance = []string{"tool:list_files:direct", "repo_lens:query_roles"}
+	if SourceInventoryLensExecuted(listFilesSupport) {
+		t.Fatalf("list_files/path-discovery support rows must not suppress executable repo_map source_inventory lens: %+v", listFilesSupport)
 	}
 }

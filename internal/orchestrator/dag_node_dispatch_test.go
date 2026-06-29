@@ -464,6 +464,42 @@ func TestSourceInventoryLensFirstWindowDoesNotTreatAnalyzePrescanAsExecuted(t *t
 	}
 }
 
+func TestSourceInventoryLensFirstWindowDoesNotTreatListFilesSupportAsExecuted(t *testing.T) {
+	lens := &types.TaskNode{
+		ID:       "n_source_inventory_lens",
+		Type:     types.NodeProbe,
+		Optional: true,
+		EntryConditions: []types.Criterion{{
+			Kind: types.CritSourceInventoryLensMissing,
+		}},
+	}
+	evidence := &types.TaskNode{ID: "n_evidence", Type: types.NodeEvidence}
+	listFilesSupport := types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Provenance:   []string{"tool:list_files:direct", "repo_lens:query_roles"},
+		Lens:         []string{"members", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: false,
+			Count:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:       "Greeter",
+				Role:       types.AnswerCandidateRoleType,
+				File:       "corpus/Greeter.cj",
+				Line:       6,
+				Provenance: []string{"tool:list_files:direct"},
+			}},
+		}},
+	}
+
+	got := sourceInventoryLensFirstWindow([]*types.TaskNode{evidence, lens}, true, types.SourceInventoryLensExecuted(listFilesSupport))
+	if len(got) != 1 || got[0] != lens {
+		t.Fatalf("list_files support inventory must not suppress executable source_inventory lens probe: %+v", idsOf(got))
+	}
+}
+
 func TestSourceInventoryFollowupFirstWindowPrioritizesTypedDebt(t *testing.T) {
 	followup := &types.TaskNode{
 		ID:       "n_source_inventory_followup",

@@ -102,6 +102,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_observation_class_normalize.go":       70,
 	"../types/source_inventory_observation_classes.go":               81,
 	"../types/source_inventory_observation_cover.go":                 186,
+	"../types/source_inventory_observation_identity.go":              40,
 	"../types/source_inventory_observation_merge.go":                 200,
 	"../types/source_inventory_observation_normalize.go":             17,
 	"../types/source_inventory_observation_page.go":                  41,

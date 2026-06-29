@@ -3,7 +3,7 @@ package types
 import "testing"
 
 func TestSourceInventoryCompletionAuthority_BlocksWithFollowupDebt(t *testing.T) {
-	obs := SourceInventoryObservation{
+	obs := sourceInventoryCompletionAuthorityTestLens(SourceInventoryObservation{
 		Active:   true,
 		Complete: false,
 		Scopes:   []string{"."},
@@ -23,7 +23,7 @@ func TestSourceInventoryCompletionAuthority_BlocksWithFollowupDebt(t *testing.T)
 				File: "src/a.go",
 			}},
 		}},
-	}
+	})
 	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
 		IsSourceInventory: true,
 		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
@@ -44,7 +44,7 @@ func TestSourceInventoryCompletionAuthority_BlocksWithFollowupDebt(t *testing.T)
 }
 
 func TestSourceInventoryCompletionAuthority_AcceptedExactUniverseCanCloseBoundedScope(t *testing.T) {
-	obs := SourceInventoryObservation{
+	obs := sourceInventoryCompletionAuthorityTestLens(SourceInventoryObservation{
 		Active:   true,
 		Complete: false,
 		Scopes:   []string{"pkg"},
@@ -54,7 +54,7 @@ func TestSourceInventoryCompletionAuthority_AcceptedExactUniverseCanCloseBounded
 			Complete: false,
 			Members:  []SourceInventoryObservationMember{{Name: "Run", Role: AnswerCandidateRoleFunction, File: "pkg/a.go"}},
 		}},
-	}
+	})
 	rm := RequestModel{
 		SourceInventoryProfile: &SourceInventoryProfile{
 			IsSourceInventory: true,
@@ -74,7 +74,7 @@ func TestSourceInventoryCompletionAuthority_AcceptedExactUniverseCanCloseBounded
 }
 
 func TestSourceInventoryCompletionAuthority_RepoWideStillBlocksAcceptedPartial(t *testing.T) {
-	obs := SourceInventoryObservation{
+	obs := sourceInventoryCompletionAuthorityTestLens(SourceInventoryObservation{
 		Active:   true,
 		Complete: false,
 		Scopes:   []string{"pkg"},
@@ -84,7 +84,7 @@ func TestSourceInventoryCompletionAuthority_RepoWideStillBlocksAcceptedPartial(t
 			Complete: false,
 			Members:  []SourceInventoryObservationMember{{Name: "Run", Role: AnswerCandidateRoleFunction, File: "pkg/a.go"}},
 		}},
-	}
+	})
 	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
 		IsSourceInventory: true,
 		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
@@ -102,7 +102,7 @@ func TestSourceInventoryCompletionAuthority_RepoWideStillBlocksAcceptedPartial(t
 }
 
 func TestSourceInventoryCompletionAuthority_RequestedUniverseCanCloseRepoWideDebt(t *testing.T) {
-	obs := SourceInventoryObservation{
+	obs := sourceInventoryCompletionAuthorityTestLens(SourceInventoryObservation{
 		Active:   true,
 		Complete: false,
 		Scopes:   []string{"."},
@@ -116,7 +116,7 @@ func TestSourceInventoryCompletionAuthority_RequestedUniverseCanCloseRepoWideDeb
 			Complete: false,
 			Members:  []SourceInventoryObservationMember{{Name: "Run", Role: AnswerCandidateRoleFunction, File: "pkg/a.go"}},
 		}},
-	}
+	})
 	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
 		IsSourceInventory: true,
 		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
@@ -198,7 +198,7 @@ func TestSourceInventoryCompletionAuthority_RoleBindingProfileIsInactive(t *test
 }
 
 func TestSourceInventoryCompletionAuthority_EnumValueInventoryStillBlocks(t *testing.T) {
-	obs := SourceInventoryObservation{
+	obs := sourceInventoryCompletionAuthorityTestLens(SourceInventoryObservation{
 		Active:   true,
 		Complete: false,
 		Scopes:   []string{"."},
@@ -208,7 +208,7 @@ func TestSourceInventoryCompletionAuthority_EnumValueInventoryStillBlocks(t *tes
 			Complete: false,
 			Members:  []SourceInventoryObservationMember{{Name: "Mode", Role: AnswerCandidateRoleType, File: "pkg/mode.go"}},
 		}},
-	}
+	})
 	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
 		IsSourceInventory: true,
 		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
@@ -221,6 +221,11 @@ func TestSourceInventoryCompletionAuthority_EnumValueInventoryStillBlocks(t *tes
 	if !auth.Blocking || auth.ReasonCode != SourceInventoryCompletionReasonIncompleteObservation {
 		t.Fatalf("enum-like value inventory should remain blocking until complete, got %+v", auth)
 	}
+}
+
+func sourceInventoryCompletionAuthorityTestLens(obs SourceInventoryObservation) SourceInventoryObservation {
+	obs.Provenance = append([]string(nil), SourceInventoryProvenanceRepoLensToolQuery, SourceInventoryProvenanceStageExplore)
+	return obs
 }
 
 func TestSourceInventoryCompletionAuthority_InactiveWithoutExecutableLens(t *testing.T) {

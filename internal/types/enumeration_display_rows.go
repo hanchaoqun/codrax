@@ -339,20 +339,30 @@ func enumerationDisplayAggregateMemberAttributes(member string, memberNote strin
 	if !ok {
 		qualifier = strings.TrimSpace(memberNote)
 	}
-	role, name, ok := aggregateMemberAttributeQualifierParts(qualifier)
-	if !ok {
-		return nil
+	var out []EnumerationDisplayRowAttribute
+	add := func(role AnswerCandidateRole, name string) {
+		attr := EnumerationDisplayRowAttribute{
+			Role:   role,
+			Name:   name,
+			Source: strings.TrimSpace(entry.Source),
+			Line:   entry.LineStart,
+		}
+		if attr.Source != "" {
+			attr.Location = aggregateSupportLocationKeyForDisplay(attr.Source, attr.Line)
+		}
+		out = mergeEnumerationDisplayRowAttributes(out, []EnumerationDisplayRowAttribute{attr})
 	}
-	attr := EnumerationDisplayRowAttribute{
-		Role:   role,
-		Name:   name,
-		Source: strings.TrimSpace(entry.Source),
-		Line:   entry.LineStart,
+	if role, name, ok := aggregateMemberAttributeQualifierFromDecorator(qualifier); ok {
+		add(role, name)
 	}
-	if attr.Source != "" {
-		attr.Location = aggregateSupportLocationKeyForDisplay(attr.Source, attr.Line)
+	for _, segment := range aggregateMemberAttributeQualifierSegments(memberNote) {
+		role, name, ok := aggregateMemberAttributeQualifierParts(segment)
+		if !ok {
+			continue
+		}
+		add(role, name)
 	}
-	return []EnumerationDisplayRowAttribute{attr}
+	return out
 }
 
 func dedupeEnumerationDisplayRowIDs(rows []EnumerationDisplayRow) []EnumerationDisplayRow {
@@ -389,6 +399,7 @@ type enumerationDisplaySourceInventoryAttributeIndex struct {
 	byMember          map[string][]EnumerationDisplayRowAttribute
 	surfaceByLocation map[string][]string
 	surfaceByMember   map[string][]string
+	memberLocations   map[string]map[string]bool
 }
 
 func sourceInventoryRowAttributeIndex(observation SourceInventoryObservation) *enumerationDisplaySourceInventoryAttributeIndex {
@@ -400,6 +411,7 @@ func sourceInventoryRowAttributeIndex(observation SourceInventoryObservation) *e
 		byMember:          map[string][]EnumerationDisplayRowAttribute{},
 		surfaceByLocation: map[string][]string{},
 		surfaceByMember:   map[string][]string{},
+		memberLocations:   map[string]map[string]bool{},
 	}
 	for _, set := range observation.Sets {
 		for _, member := range set.Members {
@@ -467,15 +479,22 @@ func (idx *enumerationDisplaySourceInventoryAttributeIndex) addSourceInventoryMe
 	}
 	source := strings.TrimSpace(member.File)
 	line := member.Line
+	memberLocation := enumerationDisplayLocationKey(source, line)
+	if memberLocation == "" && source != "" {
+		memberLocation = normalizeAnswerSupportPath(source)
+	}
 	if key := enumerationDisplayLocationKey(source, line); key != "" {
 		idx.byLocation[key] = mergeEnumerationDisplayRowAttributes(idx.byLocation[key], attrs)
 		idx.surfaceByLocation[key] = dedupeAggregateMemberTerms(append(idx.surfaceByLocation[key], terms...))
 	}
 	if label := aggregateMemberKey(member.Name); label != "" {
 		if source != "" {
-			idx.byMember[label+"\x00"+normalizeAnswerSupportPath(source)] = mergeEnumerationDisplayRowAttributes(idx.byMember[label+"\x00"+normalizeAnswerSupportPath(source)], attrs)
-			idx.surfaceByMember[label+"\x00"+normalizeAnswerSupportPath(source)] = dedupeAggregateMemberTerms(append(idx.surfaceByMember[label+"\x00"+normalizeAnswerSupportPath(source)], terms...))
+			key := label + "\x00" + normalizeAnswerSupportPath(source)
+			idx.recordMemberLookupLocation(key, memberLocation)
+			idx.byMember[key] = mergeEnumerationDisplayRowAttributes(idx.byMember[key], attrs)
+			idx.surfaceByMember[key] = dedupeAggregateMemberTerms(append(idx.surfaceByMember[key], terms...))
 		}
+		idx.recordMemberLookupLocation(label, memberLocation)
 		idx.byMember[label] = mergeEnumerationDisplayRowAttributes(idx.byMember[label], attrs)
 		idx.surfaceByMember[label] = dedupeAggregateMemberTerms(append(idx.surfaceByMember[label], terms...))
 	}
@@ -485,6 +504,32 @@ func (idx *enumerationDisplaySourceInventoryAttributeIndex) addSourceInventoryMe
 			idx.surfaceByLocation[key] = dedupeAggregateMemberTerms(append(idx.surfaceByLocation[key], terms...))
 		}
 	}
+}
+
+func (idx *enumerationDisplaySourceInventoryAttributeIndex) recordMemberLookupLocation(key string, location string) {
+	if idx == nil {
+		return
+	}
+	key = strings.TrimSpace(key)
+	location = strings.TrimSpace(location)
+	if key == "" || location == "" {
+		return
+	}
+	if idx.memberLocations == nil {
+		idx.memberLocations = map[string]map[string]bool{}
+	}
+	if idx.memberLocations[key] == nil {
+		idx.memberLocations[key] = map[string]bool{}
+	}
+	idx.memberLocations[key][location] = true
+}
+
+func (idx *enumerationDisplaySourceInventoryAttributeIndex) memberLookupAmbiguous(key string) bool {
+	if idx == nil {
+		return false
+	}
+	locations := idx.memberLocations[strings.TrimSpace(key)]
+	return len(locations) > 1
 }
 
 func (idx *enumerationDisplaySourceInventoryAttributeIndex) attributesFor(member string, entry AnswerSupportEntry) []EnumerationDisplayRowAttribute {
@@ -502,17 +547,23 @@ func (idx *enumerationDisplaySourceInventoryAttributeIndex) attributesFor(member
 	}
 	if label := aggregateMemberKey(member); label != "" {
 		if entry.Source != "" {
-			out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label+"\x00"+normalizeAnswerSupportPath(entry.Source)])
+			key := label + "\x00" + normalizeAnswerSupportPath(entry.Source)
+			if !idx.memberLookupAmbiguous(key) {
+				out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[key])
+			}
 		}
-		if entry.Source == "" && len(out) == 0 {
+		if entry.Source == "" && len(out) == 0 && !idx.memberLookupAmbiguous(label) {
 			out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label])
 		}
 	}
 	if label := aggregateMemberKey(entry.Text); label != "" && !strings.EqualFold(label, aggregateMemberKey(member)) {
 		if entry.Source != "" {
-			out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label+"\x00"+normalizeAnswerSupportPath(entry.Source)])
+			key := label + "\x00" + normalizeAnswerSupportPath(entry.Source)
+			if !idx.memberLookupAmbiguous(key) {
+				out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[key])
+			}
 		}
-		if entry.Source == "" && len(out) == 0 {
+		if entry.Source == "" && len(out) == 0 && !idx.memberLookupAmbiguous(label) {
 			out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label])
 		}
 	}
@@ -536,17 +587,23 @@ func (idx *enumerationDisplaySourceInventoryAttributeIndex) surfaceTermsFor(memb
 	}
 	if label := aggregateMemberKey(member); label != "" {
 		if entry.Source != "" {
-			out = dedupeAggregateMemberTerms(append(out, idx.surfaceByMember[label+"\x00"+normalizeAnswerSupportPath(entry.Source)]...))
+			key := label + "\x00" + normalizeAnswerSupportPath(entry.Source)
+			if !idx.memberLookupAmbiguous(key) {
+				out = dedupeAggregateMemberTerms(append(out, idx.surfaceByMember[key]...))
+			}
 		}
-		if entry.Source == "" && len(out) == 0 {
+		if entry.Source == "" && len(out) == 0 && !idx.memberLookupAmbiguous(label) {
 			out = dedupeAggregateMemberTerms(append(out, idx.surfaceByMember[label]...))
 		}
 	}
 	if label := aggregateMemberKey(entry.Text); label != "" && !strings.EqualFold(label, aggregateMemberKey(member)) {
 		if entry.Source != "" {
-			out = dedupeAggregateMemberTerms(append(out, idx.surfaceByMember[label+"\x00"+normalizeAnswerSupportPath(entry.Source)]...))
+			key := label + "\x00" + normalizeAnswerSupportPath(entry.Source)
+			if !idx.memberLookupAmbiguous(key) {
+				out = dedupeAggregateMemberTerms(append(out, idx.surfaceByMember[key]...))
+			}
 		}
-		if entry.Source == "" && len(out) == 0 {
+		if entry.Source == "" && len(out) == 0 && !idx.memberLookupAmbiguous(label) {
 			out = dedupeAggregateMemberTerms(append(out, idx.surfaceByMember[label]...))
 		}
 	}

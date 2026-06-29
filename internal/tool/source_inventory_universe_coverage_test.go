@@ -3113,6 +3113,7 @@ func sourceInventoryRequestedUniverseTestContext(members []types.SourceInventory
 		AdvisoryOnly:  true,
 		Complete:      false,
 		Scopes:        []string{"."},
+		Provenance:    []string{types.SourceInventoryProvenanceRepoLensToolQuery, types.SourceInventoryProvenanceStageExplore},
 		SourceClasses: classes,
 		Execution:     &types.SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
 		Sets:          sets,
