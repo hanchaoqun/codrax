@@ -3864,6 +3864,12 @@ Remaining follow-up:
     6. Residual tracking: remaining source-inventory work should be classified as either correctness authority cutover, cost/noise steering, or presentation repair. Eval-specific symptoms must first map to one of those owners; do not add Cangjie/ArkTS/package/member-set shape patches without a class-level owner and structural test.
     7. Safety boundary: this fix consumes only typed source-inventory observation, stable aggregate facts, accepted-universe helpers, request model, required files, and support refs. It does not parse raw user keywords, model rationale/prose, rendered repo_map/list_files output, localized UI text, final-answer prose, elapsed time, or eval labels.
 
+  - **Completed D1-G179: source-inventory accepted-closure input cutover lacked a structural tripwire（P0 / ping-pong prevention / fixed）**:
+    1. Evidence: after D1-G174 and D1-G178, all known production callers of `types.BuildSourceInventoryAuthoritySnapshot` pass `AcceptedExactUniverse` and `AcceptedRequestedUniverse`, but this was only protected by behavior tests near individual call sites. A future caller could add a new snapshot projection without accepted closure inputs and recreate the same "completion accepted, downstream re-opens broad inventory debt" ping-pong.
+    2. Delivered D1-F10g.301: added an AST-based structural convergence test over production `internal/tool`, `internal/orchestrator`, and `internal/agent` code. Every `SourceInventoryAuthoritySnapshotInput{...}` composite literal must explicitly set both accepted-closure fields; positional literals are also rejected. This covers finalizer, explorer, scheduler, completion, command-policy, and answer-preemit construction sites without relying on grep line text.
+    3. Validation: focused `go test ./internal/tool -run 'SourceInventoryConvergence_AuthoritySnapshotsCarryAcceptedClosureInputs|SourceInventoryConvergence_SchedulersDoNotDeriveFollowupDebtDirectly|SourceInventoryConvergence' -count=1` passed.
+    4. Safety boundary: this is a compile-time structural guard only. It does not alter runtime behavior, parse user intent, read model prose, inspect rendered tool summaries, consume localized UI text, or influence eval verdicts.
+
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
 - Focused packages: `go test ./internal/types ./internal/analysis/compiler ./internal/analysis/criterion ./internal/orchestrator ./internal/agent -run 'Dependency|Artifact|ReadLoopNextAction|DispatchPolicy|ExecutionPolicy|StageRunner|EvidenceReducer|ReadRunSnapshot'`

@@ -434,6 +434,67 @@ func TestSourceInventoryConvergence_SchedulersDoNotDeriveFollowupDebtDirectly(t 
 	}
 }
 
+// Clause H — every production SourceInventoryAuthoritySnapshot construction
+// must carry accepted exact/requested universe inputs explicitly. Omitting
+// those fields recreates the recent ping-pong: one layer accepts a precise
+// aggregate member_set closure while another layer sees only an incomplete
+// broad observation and re-opens pagination/exploration debt.
+func TestSourceInventoryConvergence_AuthoritySnapshotsCarryAcceptedClosureInputs(t *testing.T) {
+	var violations []string
+	for _, path := range sourceInventoryProductionGoFiles(t, []string{".", "../orchestrator", "../agent"}) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		text := string(data)
+		if !strings.Contains(text, "SourceInventoryAuthoritySnapshotInput") {
+			continue
+		}
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, data, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			lit, ok := n.(*ast.CompositeLit)
+			if !ok || sourceInventoryAuthorityInputCompositeName(lit.Type) != "SourceInventoryAuthoritySnapshotInput" {
+				return true
+			}
+			keys := map[string]bool{}
+			for _, elt := range lit.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					pos := fset.Position(elt.Pos())
+					violations = append(violations, pos.String()+": positional SourceInventoryAuthoritySnapshotInput")
+					continue
+				}
+				if ident, ok := kv.Key.(*ast.Ident); ok {
+					keys[ident.Name] = true
+				}
+			}
+			if !keys["AcceptedExactUniverse"] || !keys["AcceptedRequestedUniverse"] {
+				pos := fset.Position(lit.Pos())
+				violations = append(violations, pos.String()+": missing AcceptedExactUniverse/AcceptedRequestedUniverse")
+			}
+			return true
+		})
+	}
+	if len(violations) > 0 {
+		t.Fatalf("source-inventory authority snapshots must consume accepted closure inputs so finalizer/explorer/scheduler/pre-emit cannot diverge:\n  %s", strings.Join(violations, "\n  "))
+	}
+}
+
+func sourceInventoryAuthorityInputCompositeName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		return t.Sel.Name
+	default:
+		return ""
+	}
+}
+
 func sourceInventoryProductionGoFiles(t *testing.T, roots []string) []string {
 	t.Helper()
 	var files []string
