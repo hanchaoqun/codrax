@@ -551,6 +551,17 @@ write_metrics() {
   local i="$1" rc="$2" log="$3"
   local metrics="$OUTDIR/run-$i.metrics.txt"
   local data_terminal_path="" data_terminal_status="" data_rounds="0" data_repair_rounds="0" data_record_count="0" data_result_summary="" data_answer_len="0" data_action_failed="0"
+  local runtime_attachment_kind="none" log_triage_dispatches="0" perf_triage_dispatches="0" emit_log_triage_calls="0" emit_perf_trace_calls="0" runtime_prestage_dispatches="0"
+  if [[ -n "$LOG" || -n "$LOG_FILE" ]]; then
+    runtime_attachment_kind="log"
+  elif [[ -n "$HTRACE" || -n "$HTRACE_FILE" ]]; then
+    runtime_attachment_kind="trace"
+  fi
+  log_triage_dispatches="$(eval_count_stage_dispatches "$log" log_triage)"
+  perf_triage_dispatches="$(eval_count_stage_dispatches "$log" perf_triage)"
+  emit_log_triage_calls="$(eval_count_tool_calls "$log" emit_log_triage)"
+  emit_perf_trace_calls="$(eval_count_tool_calls "$log" emit_perf_trace)"
+  runtime_prestage_dispatches=$(( ${log_triage_dispatches:-0} + ${perf_triage_dispatches:-0} ))
   data_terminal_path="$(latest_data_terminal_path "$log" 2>/dev/null || true)"
   if [[ -n "$data_terminal_path" && -f "$data_terminal_path" ]]; then
     data_terminal_status="$(json_string_field "$data_terminal_path" "status" || true)"
@@ -581,6 +592,13 @@ write_metrics() {
     echo "tool_repo_map=$(eval_count_tool_calls "$log" repo_map)"
     echo "tool_list_files=$(eval_count_tool_calls "$log" list_files)"
     echo "tool_trace_query=$(eval_count_tool_calls "$log" trace_query)"
+    echo "runtime_artifact_attached=$runtime_attachment_kind"
+    echo "runtime_authority_path=$(eval_runtime_authority_path "$runtime_attachment_kind" "$log")"
+    echo "runtime_prestage_dispatches=$runtime_prestage_dispatches"
+    echo "log_triage_dispatches=$log_triage_dispatches"
+    echo "perf_triage_dispatches=$perf_triage_dispatches"
+    echo "emit_log_triage_calls=$emit_log_triage_calls"
+    echo "emit_perf_trace_calls=$emit_perf_trace_calls"
     echo "tool_mcp_read_resource=$(eval_count_tool_calls "$log" mcp_read_resource)"
     echo "repeated_mcp_resource_reads=$(eval_count_repeated_mcp_resource_reads "$log")"
     echo "mcp_tool_calls=$(eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=toolcall [^:]*tool=[A-Za-z0-9_-]+__[A-Za-z0-9_-]+' "$log")"
@@ -1394,7 +1412,7 @@ PYEOF
   # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
   # aggregate them into the summary table so they show up next to
   # the legacy 12 mechanism counters with median.
-  metric_keys="data_rounds data_repair_rounds data_record_count data_action_failed data_answer_len tool_read_file tool_repo_map tool_list_files tool_trace_query tool_mcp_read_resource repeated_mcp_resource_reads mcp_tool_calls source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied answer_contract_violations answer_contract_strict_violations answer_contract_advisories answer_contract_first_pass_strict_violations answer_contract_final_strict_violations answer_contract_auto_repaired_strict_violations answer_contract_lane_block_kind_violations answer_contract_lane_block_kind_strict_violations answer_contract_lane_block_kind_advisories answer_contract_lane_block_kind_first_pass_strict_violations answer_contract_lane_block_kind_final_strict_violations answer_contract_lane_block_kind_auto_repaired_strict_violations repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject analyze_refine_dispatches read_loop_add_proof_selected read_loop_add_proof_consumed parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches pipeline_dispatches completion_lane_fired investigation_complete_calls investigation_complete_rejects repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events strict_decode_carrier_events strict_decode_element_shape_events"
+  metric_keys="data_rounds data_repair_rounds data_record_count data_action_failed data_answer_len tool_read_file tool_repo_map tool_list_files tool_trace_query runtime_prestage_dispatches log_triage_dispatches perf_triage_dispatches emit_log_triage_calls emit_perf_trace_calls tool_mcp_read_resource repeated_mcp_resource_reads mcp_tool_calls source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied answer_contract_violations answer_contract_strict_violations answer_contract_advisories answer_contract_first_pass_strict_violations answer_contract_final_strict_violations answer_contract_auto_repaired_strict_violations answer_contract_lane_block_kind_violations answer_contract_lane_block_kind_strict_violations answer_contract_lane_block_kind_advisories answer_contract_lane_block_kind_first_pass_strict_violations answer_contract_lane_block_kind_final_strict_violations answer_contract_lane_block_kind_auto_repaired_strict_violations repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject analyze_refine_dispatches read_loop_add_proof_selected read_loop_add_proof_consumed parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches pipeline_dispatches completion_lane_fired investigation_complete_calls investigation_complete_rejects repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events strict_decode_carrier_events strict_decode_element_shape_events"
   for key in $metric_keys; do
     row="| $key |"
     vals=()
@@ -1409,6 +1427,26 @@ PYEOF
     row+=" $median |"
     echo "$row"
   done
+  echo
+
+  echo "## Runtime authority path audit"
+  echo
+  echo "| run | attachment | authority_path | log_triage | perf_triage | trace_query | emit_log | emit_perf |"
+  echo "|----:|------------|----------------|-----------:|------------:|------------:|---------:|----------:|"
+  runtime_rows=0
+  for i in $(seq 1 "$N"); do
+    metrics_file="$OUTDIR/run-$i.metrics.txt"
+    attachment="$(eval_metric_field "$metrics_file" runtime_artifact_attached)"
+    authority_path="$(eval_metric_field "$metrics_file" runtime_authority_path)"
+    if [[ "$attachment" == "-" || "$attachment" == "none" ]]; then
+      continue
+    fi
+    runtime_rows=$((runtime_rows + 1))
+    echo "| $i | $attachment | $authority_path | $(eval_metric_field "$metrics_file" log_triage_dispatches) | $(eval_metric_field "$metrics_file" perf_triage_dispatches) | $(eval_metric_field "$metrics_file" tool_trace_query) | $(eval_metric_field "$metrics_file" emit_log_triage_calls) | $(eval_metric_field "$metrics_file" emit_perf_trace_calls) |"
+  done
+  if [[ "$runtime_rows" -eq 0 ]]; then
+    echo "| — | none | — | 0 | 0 | 0 | 0 | 0 |"
+  fi
   echo
 
   echo "## Efficiency advisories"

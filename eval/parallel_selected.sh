@@ -100,8 +100,8 @@ echo "- parallel: $PARALLEL" >>"$SUMMARY"
 echo "- timeout: ${TIMEOUT}s per case" >>"$SUMMARY"
 echo "- results_root: $RESULTS_ROOT" >>"$SUMMARY"
 echo "" >>"$SUMMARY"
-echo "| # | case | verdict | reason | sec | ana | exp | ext | fin | repair | rejects | patch | sem | self | result_dir |" >>"$SUMMARY"
-echo "|--:|------|---------|--------|----:|----:|----:|----:|----:|-------:|--------:|------:|----:|-----:|------------|" >>"$SUMMARY"
+echo "| # | case | verdict | reason | sec | ana | exp | ext | fin | repair | rejects | patch | sem | self | runtime | result_dir |" >>"$SUMMARY"
+echo "|--:|------|---------|--------|----:|----:|----:|----:|----:|-------:|--------:|------:|----:|-----:|---------|------------|" >>"$SUMMARY"
 
 eval_selected_wait_for_slot() {
   while [[ "$(jobs -pr | wc -l | tr -d ' ')" -ge "$PARALLEL" ]]; do
@@ -112,7 +112,7 @@ eval_selected_wait_for_slot() {
 eval_selected_run_one() {
   local idx="$1"
   local case_file="$2"
-  local case_id start_ts end_ts elapsed rc dir verdict reason metrics log analyzer explorer extractor finalizer repair rejects patches sem self
+  local case_id start_ts end_ts elapsed rc dir verdict reason metrics log analyzer explorer extractor finalizer repair rejects patches sem self runtime_auth
   case_id="$(basename "$case_file" .case)"
   start_ts="$(date +%s)"
   echo "[$(date +%H:%M:%S)] [$idx/$TOTAL] start $case_id" >&2
@@ -156,9 +156,10 @@ eval_selected_run_one() {
   patches="$(eval_count_answer_document_patch_calls "$log")"
   sem="$(eval_count_semantic_quality_concerns "$log")"
   self="$(eval_count_self_consistency_concerns "$log")"
-  printf "| %d | %s | %s | %s | %ds | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n" \
+  runtime_auth="$(eval_metric_field "$metrics" runtime_authority_path)"
+  printf "| %d | %s | %s | %s | %ds | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n" \
     "$idx" "$case_id" "$verdict" "$reason" "$elapsed" \
-    "$analyzer" "$explorer" "$extractor" "$finalizer" "$repair" "$rejects" "$patches" "$sem" "$self" "$dir" >>"$SUMMARY"
+    "$analyzer" "$explorer" "$extractor" "$finalizer" "$repair" "$rejects" "$patches" "$sem" "$self" "$runtime_auth" "$dir" >>"$SUMMARY"
   echo "[$(date +%H:%M:%S)] [$idx/$TOTAL] done $case_id -> $verdict (${elapsed}s)" >&2
 }
 

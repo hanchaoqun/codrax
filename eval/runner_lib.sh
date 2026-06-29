@@ -852,6 +852,72 @@ eval_count_tool_calls() {
   eval_count_control_pattern "DEBUG \\[diag [^]]+\\][^:]*phase=toolcall [^:]*tool=${tool}( |$)" "$file"
 }
 
+eval_count_stage_dispatches() {
+  local file="$1"
+  local stage="$2"
+  if [[ -z "$file" || ! -f "$file" || -z "$stage" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern "DEBUG \\[diag [^]]+\\] DISPATCH stage=${stage}( |$)" "$file"
+}
+
+eval_runtime_attachment_kind_from_log() {
+  local file="$1"
+  local log_triage perf_triage trace_query emit_log emit_perf
+  log_triage="$(eval_count_stage_dispatches "$file" log_triage)"
+  perf_triage="$(eval_count_stage_dispatches "$file" perf_triage)"
+  trace_query="$(eval_count_tool_calls "$file" trace_query)"
+  emit_log="$(eval_count_tool_calls "$file" emit_log_triage)"
+  emit_perf="$(eval_count_tool_calls "$file" emit_perf_trace)"
+  if [[ "${perf_triage:-0}" -gt 0 || "${emit_perf:-0}" -gt 0 || "${trace_query:-0}" -gt 0 ]]; then
+    echo trace
+    return
+  fi
+  if [[ "${log_triage:-0}" -gt 0 || "${emit_log:-0}" -gt 0 ]]; then
+    echo log
+    return
+  fi
+  echo none
+}
+
+eval_runtime_authority_path() {
+  local attachment="$1"
+  local file="$2"
+  local log_triage perf_triage trace_query emit_log emit_perf
+  attachment="${attachment:-none}"
+  log_triage="$(eval_count_stage_dispatches "$file" log_triage)"
+  perf_triage="$(eval_count_stage_dispatches "$file" perf_triage)"
+  trace_query="$(eval_count_tool_calls "$file" trace_query)"
+  emit_log="$(eval_count_tool_calls "$file" emit_log_triage)"
+  emit_perf="$(eval_count_tool_calls "$file" emit_perf_trace)"
+  case "$attachment" in
+    log)
+      if [[ "${log_triage:-0}" -gt 0 || "${emit_log:-0}" -gt 0 ]]; then
+        echo log_triage
+      elif [[ "${trace_query:-0}" -gt 0 ]]; then
+        echo trace_query
+      else
+        echo missing_runtime_authority
+      fi
+      ;;
+    trace)
+      if [[ "${trace_query:-0}" -gt 0 && ( "${perf_triage:-0}" -gt 0 || "${emit_perf:-0}" -gt 0 ) ]]; then
+        echo perf_triage+trace_query
+      elif [[ "${trace_query:-0}" -gt 0 ]]; then
+        echo trace_query
+      elif [[ "${perf_triage:-0}" -gt 0 || "${emit_perf:-0}" -gt 0 ]]; then
+        echo perf_triage
+      else
+        echo missing_runtime_authority
+      fi
+      ;;
+    *)
+      echo none
+      ;;
+  esac
+}
+
 eval_count_repeated_mcp_resource_reads() {
   local file="$1"
   if [[ -z "$file" || ! -f "$file" ]]; then
@@ -1508,6 +1574,16 @@ eval_materialize_partial_run_result() {
       echo "tool_repo_map=$(eval_count_tool_calls "$log" repo_map)"
       echo "tool_list_files=$(eval_count_tool_calls "$log" list_files)"
       echo "tool_trace_query=$(eval_count_tool_calls "$log" trace_query)"
+      runtime_attachment_kind="$(eval_runtime_attachment_kind_from_log "$log")"
+      log_triage_dispatches="$(eval_count_stage_dispatches "$log" log_triage)"
+      perf_triage_dispatches="$(eval_count_stage_dispatches "$log" perf_triage)"
+      echo "runtime_artifact_attached=$runtime_attachment_kind"
+      echo "runtime_authority_path=$(eval_runtime_authority_path "$runtime_attachment_kind" "$log")"
+      echo "runtime_prestage_dispatches=$(( ${log_triage_dispatches:-0} + ${perf_triage_dispatches:-0} ))"
+      echo "log_triage_dispatches=$log_triage_dispatches"
+      echo "perf_triage_dispatches=$perf_triage_dispatches"
+      echo "emit_log_triage_calls=$(eval_count_tool_calls "$log" emit_log_triage)"
+      echo "emit_perf_trace_calls=$(eval_count_tool_calls "$log" emit_perf_trace)"
       echo "tool_mcp_read_resource=$(eval_count_tool_calls "$log" mcp_read_resource)"
       echo "repeated_mcp_resource_reads=$(eval_count_repeated_mcp_resource_reads "$log")"
       echo "mcp_tool_calls=$(eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=toolcall [^:]*tool=[A-Za-z0-9_-]+__[A-Za-z0-9_-]+' "$log")"

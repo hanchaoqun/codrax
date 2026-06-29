@@ -640,6 +640,63 @@ assert_eq "$(grep '^answer_contract_violations=' "$multilog_dir/run-1.metrics.tx
 assert_eq "$(grep '^answer_contract_strict_violations=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "0" "aggregate log strict answer contract metric"
 assert_eq "$(grep '^answer_contract_advisories=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "2" "aggregate log advisory answer contract metric"
 
+runtime_log="$tmp/runtime-authority.log"
+cat >"$runtime_log" <<'LOG'
+2026-06-08T00:00:03.000 DEBUG [diag perf_triager] DISPATCH stage=perf_triage attempt=0
+2026-06-08T00:00:03.010 DEBUG [diag perf_triager] iter=0 phase=toolcall call[0] tool=emit_perf_trace params={}
+2026-06-08T00:00:03.020 DEBUG [diag explorer] iter=0 phase=toolcall call[0] tool=trace_query params={"view":"window_stats"}
+LOG
+assert_eq "$(eval_count_stage_dispatches "$runtime_log" perf_triage)" "1" "runtime perf pre-stage dispatch metric"
+assert_eq "$(eval_runtime_attachment_kind_from_log "$runtime_log")" "trace" "runtime attachment inference"
+assert_eq "$(eval_runtime_authority_path trace "$runtime_log")" "perf_triage+trace_query" "runtime authority path helper"
+
+fake_runtime="$tmp/fake-codrax-runtime-authority"
+cat >"$fake_runtime" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+logdir=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --log-dir)
+      logdir="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+mkdir -p "$logdir"
+cat >"$logdir/codrax-20260608-000003-000-1.log" <<'LOG'
+2026-06-08T00:00:03.000 DEBUG [diag perf_triager] DISPATCH stage=perf_triage attempt=0
+2026-06-08T00:00:03.010 DEBUG [diag perf_triager] iter=0 phase=toolcall call[0] tool=emit_perf_trace params={}
+2026-06-08T00:00:03.020 DEBUG [diag explorer] iter=0 phase=toolcall call[0] tool=trace_query params={"view":"window_stats"}
+LOG
+printf 'runtime authority answer\n'
+FAKE
+chmod +x "$fake_runtime"
+runtime_case="$tmp/runner_runtime_authority.case"
+cat >"$runtime_case" <<'CASE'
+ID=runner_runtime_authority
+NAME="runner runtime authority"
+QUESTION="runner runtime authority smoke"
+HTRACE="# tracer: nop"
+MIN_OUTPUT_CHARS=1
+EXPECT_CONTAINS="runtime authority answer"
+CASE
+CODRAX_BIN="$fake_runtime" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$runtime_case" 1 >/dev/null 2>"$tmp/runner-runtime-authority.err"
+runtime_dir="$(find "$tmp/eval-results" -maxdepth 1 -type d -name 'runner_runtime_authority-*' | sort | tail -1)"
+if [[ -z "$runtime_dir" ]]; then
+  fail "eval/run.sh did not write runtime-authority result dir"
+fi
+assert_eq "$(eval_metric_field "$runtime_dir/run-1.metrics.txt" runtime_artifact_attached)" "trace" "runtime artifact attached metric"
+assert_eq "$(eval_metric_field "$runtime_dir/run-1.metrics.txt" runtime_authority_path)" "perf_triage+trace_query" "runtime authority path metric"
+assert_eq "$(eval_metric_field "$runtime_dir/run-1.metrics.txt" perf_triage_dispatches)" "1" "runtime perf dispatch metric"
+assert_eq "$(eval_metric_field "$runtime_dir/run-1.metrics.txt" emit_perf_trace_calls)" "1" "runtime emit perf metric"
+if ! grep -q '| 1 | trace | perf_triage+trace_query | 0 | 1 | 1 | 0 | 1 |' "$runtime_dir/summary.md"; then
+  fail "runtime authority path audit summary missing expected row"
+fi
+
 fake_efficiency="$tmp/fake-codrax-efficiency-budget"
 cat >"$fake_efficiency" <<'FAKE'
 #!/usr/bin/env bash
