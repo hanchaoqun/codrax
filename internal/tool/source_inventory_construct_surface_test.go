@@ -62,6 +62,18 @@ func TestSourceInventorySurfaceFamilyGroups_PublicClassModifierVariants(t *testi
 	}
 }
 
+func TestSourceInventorySurfaceFamilyGroups_ConsumesRowLocalFamilyCarrier(t *testing.T) {
+	rows := []types.SourceInventoryRow{
+		{Role: types.AnswerCandidateRoleType, SurfaceFamily: "public class", Member: types.SourceInventoryObservationMember{Name: "Dog", Role: types.AnswerCandidateRoleType, File: "dog.cj", Line: 10}},
+		{Role: types.AnswerCandidateRoleType, SurfaceFamily: "public class", Member: types.SourceInventoryObservationMember{Name: "Animal", Role: types.AnswerCandidateRoleType, File: "animal.cj", Line: 6}},
+		{Role: types.AnswerCandidateRoleType, SurfaceFamily: "public struct", Member: types.SourceInventoryObservationMember{Name: "Item", Role: types.AnswerCandidateRoleType, File: "item.cj", Line: 3}},
+	}
+	groups := sourceInventorySurfaceFamilyGroups(rows)
+	if len(groups) != 1 || groups[0].family != "public class" || len(groups[0].members) != 2 {
+		t.Fatalf("surface family grouping should consume row-local carrier, got %+v", groups)
+	}
+}
+
 func sourceInventorySurfaceFamilyTestRow(name, file string, line int, terms []string) types.SourceInventoryRow {
 	return types.SourceInventoryRow{
 		Role: types.AnswerCandidateRoleType,

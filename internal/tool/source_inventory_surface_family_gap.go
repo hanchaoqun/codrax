@@ -54,7 +54,10 @@ func sourceInventorySurfaceFamilyGroups(rows []types.SourceInventoryRow) []sourc
 		if sourceInventoryDuplicateRowLocationKey(member) == "" {
 			continue
 		}
-		family := sourceInventorySurfaceFamilyKey(member.SurfaceTerms)
+		family := types.SourceInventorySurfaceTermKey(row.SurfaceFamily)
+		if family == "" {
+			family = types.SourceInventorySurfaceFamilyKey(member.SurfaceTerms)
+		}
 		if family == "" {
 			continue
 		}
@@ -131,33 +134,6 @@ func sourceInventoryMostSpecificSurfaceKey(terms []string) string {
 		best = key
 	}
 	return best
-}
-
-func sourceInventorySurfaceFamilyKey(terms []string) string {
-	keys := sourceInventoryUniverseDedupKeys(sourceInventorySurfaceTermKeys(terms))
-	for _, candidate := range keys {
-		for _, other := range keys {
-			if other != candidate && strings.HasPrefix(other, candidate+" ") {
-				return candidate
-			}
-		}
-	}
-	for _, key := range keys {
-		if idx := strings.LastIndex(key, " "); idx > 0 {
-			return strings.TrimSpace(key[:idx])
-		}
-	}
-	return ""
-}
-
-func sourceInventorySurfaceTermKeys(terms []string) []string {
-	var out []string
-	for _, term := range terms {
-		if key := sourceInventoryUniverseSurfaceKey(term); key != "" {
-			out = append(out, key)
-		}
-	}
-	return out
 }
 
 func sourceInventorySurfaceSelected(surface string, selected map[string]bool) bool {

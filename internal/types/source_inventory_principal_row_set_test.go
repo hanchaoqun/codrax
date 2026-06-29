@@ -278,6 +278,11 @@ func TestBuildSourceInventoryPrincipalRowSet_FiltersEachRequestedSurfaceFamilyBy
 	if view.PrincipalTotal != 3 || view.SupportTotal != 2 {
 		t.Fatalf("requested families should filter independently by role: %+v", view)
 	}
+	for _, row := range view.PrincipalRows {
+		if row.SurfaceFamily == "" {
+			t.Fatalf("principal row should carry row-local surface family: %+v", row)
+		}
+	}
 	for _, want := range []string{"Bridge", "extend String", "native_add"} {
 		if !sourceInventoryPrincipalRowSetTestHasPrincipal(view, want) {
 			t.Fatalf("principal rows missing %q: %+v", want, view.PrincipalRows)

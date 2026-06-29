@@ -60,12 +60,16 @@ type SourceInventoryPrincipalRowSet struct {
 // SourceInventoryRow is one row from SourceInventoryObservation with lane and
 // source-class metadata attached.
 type SourceInventoryRow struct {
-	Lane        SourceInventoryRowLane           `json:"lane,omitempty"`
-	ReasonCode  string                           `json:"reason_code,omitempty"`
-	SourceClass SourcePathRole                   `json:"source_class,omitempty"`
-	Role        AnswerCandidateRole              `json:"role,omitempty"`
-	Language    string                           `json:"language,omitempty"`
-	Member      SourceInventoryObservationMember `json:"member,omitempty"`
+	Lane        SourceInventoryRowLane `json:"lane,omitempty"`
+	ReasonCode  string                 `json:"reason_code,omitempty"`
+	SourceClass SourcePathRole         `json:"source_class,omitempty"`
+	Role        AnswerCandidateRole    `json:"role,omitempty"`
+	// SurfaceFamily is derived only from this row's typed SurfaceTerms. It is a
+	// row-local construct-family authority; file-level, nearby-row, model prose,
+	// and rendered summaries must not populate it.
+	SurfaceFamily string                           `json:"surface_family,omitempty"`
+	Language      string                           `json:"language,omitempty"`
+	Member        SourceInventoryObservationMember `json:"member,omitempty"`
 }
 
 type sourceInventoryRowFamilyKey struct {
@@ -180,10 +184,11 @@ func sourceInventoryRowFromMember(
 	class := ClassifySourcePathRole(member.File)
 	language := strings.ToLower(strings.TrimSpace(member.Language))
 	row := SourceInventoryRow{
-		SourceClass: class,
-		Role:        role,
-		Language:    language,
-		Member:      cloneSourceInventoryObservationMember(member),
+		SourceClass:   class,
+		Role:          role,
+		SurfaceFamily: SourceInventorySurfaceFamilyKey(member.SurfaceTerms),
+		Language:      language,
+		Member:        cloneSourceInventoryObservationMember(member),
 	}
 	if !principalRoles[role] {
 		row.Lane = SourceInventoryRowLaneAudit
