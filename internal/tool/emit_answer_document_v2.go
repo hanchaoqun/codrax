@@ -613,6 +613,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, pctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed label/citation corroboration", toolName, fixed)
 	}
+	if fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, view, ctx, pctx); fixed > 0 {
+		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed pre-emit citation candidates", toolName, fixed)
+	}
 	if fixed := detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc, view, ctx, pctx); fixed > 0 {
 		logging.Warning("[%s] detached %d invalid item citation_ref value(s) with no safe replacement candidate", toolName, fixed)
 		// G6 (2026-06-12 sweep): a detached reference is a visible

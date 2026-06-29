@@ -1464,6 +1464,89 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_AppendsUniqueEvidenceCan
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_RebindsAggregateItemCandidate(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "mechanisms",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "span-pair",
+				Label:       "span_window",
+				Text:        "trace_query 同时提到 span_window begin 和 span_window end 两个源码机制点。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/types/perf_bundle.go", Line: 164},
+			{File: "internal/skill/trace_query_views.go", Line: 31},
+		},
+	}
+	mut := types.NewMutableState("trace current-source mechanism")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "span parsing mechanism",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"span_window B|E 配对"},
+		SupportRefs: []string{"span_window B|E 配对 @ internal/skill/trace_query_views.go:31"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mut}
+
+	fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx))
+	if fixed != 1 {
+		t.Fatalf("expected one aggregate candidate citation_ref repair, got %d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref = %d, want unique candidate index 1", got)
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("unique aggregate candidate repair should satisfy citation alignment, got %+v", hints)
+	}
+}
+
+func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_DoesNotGuessAmbiguousAggregateCandidates(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "mechanisms",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "span-pair",
+				Label:       "span_window B|E 配对",
+				Text:        "trace_query 使用 span_window B|E 配对恢复 slice 起止边界。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/types/perf_bundle.go", Line: 164},
+			{File: "internal/skill/trace_query_views.go", Line: 31},
+			{File: "internal/skill/trace_query_views.go", Line: 52},
+		},
+	}
+	mut := types.NewMutableState("trace current-source mechanism")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "span parsing mechanism",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"span_window begin", "span_window end"},
+		SupportRefs: []string{
+			"span_window begin @ internal/skill/trace_query_views.go:31",
+			"span_window end @ internal/skill/trace_query_views.go:52",
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mut}
+
+	fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx))
+	if fixed != 0 {
+		t.Fatalf("ambiguous aggregate candidates must stay advisory, got fixed=%d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("ambiguous candidate citation_ref changed to %d", got)
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsDirectoryMemberToScopedCitation(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

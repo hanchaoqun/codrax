@@ -1542,6 +1542,62 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 	return fixed
 }
 
+func normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext, pctx *preEmitCheckContext) int {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return 0
+	}
+	if pctx == nil {
+		pctx = newPreEmitCheckContext(ctx)
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if !preEmitBlockRendersItemSurface(block.Kind) {
+			continue
+		}
+		if preEmitBlockUsesNonSymbolLabelSurface(*block, view) {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			label := strings.TrimSpace(item.Label)
+			if label == "" {
+				continue
+			}
+			text := preEmitItemNonLabelSurface(*item)
+			if !preEmitItemCitationAlignmentAppliesWithContext(pctx, label, text) {
+				continue
+			}
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitItemCitationAlreadyAlignedWithContext(pctx, *block, label, text, doc.Citations[item.CitationRef]) {
+				continue
+			}
+			cit, ok := preEmitUniqueCandidateCitationForItemWithContext(pctx, label, text)
+			if !ok {
+				continue
+			}
+			target := appendOrReusePreEmitCitation(doc, cit)
+			if target < 0 || target == item.CitationRef {
+				continue
+			}
+			item.CitationRef = target
+			fixed++
+		}
+	}
+	return fixed
+}
+
+func preEmitItemCitationAlignmentAppliesWithContext(pctx *preEmitCheckContext, label, text string) bool {
+	return preEmitLabelNeedsCitationAlignment(label) ||
+		preEmitItemMatchesPrincipalAggregateMemberWithContext(pctx, label, text)
+}
+
+func preEmitItemCitationAlreadyAlignedWithContext(pctx *preEmitCheckContext, block types.AnswerBlock, label, text string, cit types.Citation) bool {
+	return preEmitItemCitationAlignedWithContext(pctx, label, text, cit) ||
+		preEmitEnumerationDirectoryLabelCitationScoped(block, label, cit) ||
+		preEmitCitationMatchesAnySourceInventoryCandidate(pctx, cit, label, text)
+}
+
 func detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext, pctx *preEmitCheckContext) int {
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
 		return 0
