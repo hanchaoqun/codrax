@@ -8,11 +8,11 @@ import (
 
 // SourceInventoryAnswerPreEmitAuthority is the answer-side source-inventory
 // authority view. It folds the shared source-inventory snapshot together with
-// the precise pre-emit sensors that need the visible answer document/fact lane.
+// precise answer-document / structured-handoff sensors.
 //
 // The sensors remain precise, typed checks; this view is the single consumer
-// surface so final-answer validation does not independently reinterpret the
-// same source-inventory universe.
+// surface so pre-complete and pre-emit validation do not independently
+// reinterpret the same source-inventory universe.
 type SourceInventoryAnswerPreEmitAuthority struct {
 	Active                    bool                                   `json:"active,omitempty"`
 	Blocking                  bool                                   `json:"blocking,omitempty"`

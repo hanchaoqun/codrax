@@ -34,6 +34,39 @@ func TestSourceInventoryAnswerPreEmitAuthority_ProjectsCandidateUniverseGap(t *t
 	}
 }
 
+func TestSourceInventoryAnswerPreEmitAuthority_PreCompleteUsesSamePreciseCoverageView(t *testing.T) {
+	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta", "gamma"})
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+			Confidence:        0.95,
+		},
+	}}
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "packages",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"alpha", "beta"},
+		SupportRefs: []string{"alpha: src/alpha:1", "beta: src/beta:1"},
+	}}
+
+	authority := BuildSourceInventoryAnswerPreEmitAuthority(ctx, facts)
+	gap := sourceInventoryResolvedCompletionPreciseCoverageGap(ctx, facts)
+	if !authority.BestUniverseGap.Blocking || !gap.Blocking {
+		t.Fatalf("both pre-complete and pre-emit authority should see the exact typed gap: auth=%+v gap=%+v", authority.BestUniverseGap, gap)
+	}
+	if authority.BestUniverseGap.Scope != gap.Scope ||
+		authority.BestUniverseGap.Role != gap.Role ||
+		len(authority.BestUniverseGap.Missing) != len(gap.Missing) {
+		t.Fatalf("pre-complete gap must be projected from the same authority view: auth=%+v gap=%+v",
+			authority.BestUniverseGap, gap)
+	}
+}
+
 func TestSourceInventoryAnswerPreEmitAuthority_ProjectsExactAbsenceDebt(t *testing.T) {
 	mut := types.NewMutableState("source inventory absence")
 	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{

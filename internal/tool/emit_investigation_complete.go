@@ -4213,9 +4213,10 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 	}
 	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, aggregateFacts)
 	countGaps := exhaustiveEnumerationPrincipalGroupedCountGaps(ctx, aggregateFacts)
-	universeGap := SourceInventoryCandidateUniverseCoverageGap(ctx, aggregateFacts)
-	duplicateLocationGap := SourceInventoryObservedDuplicateLocationCoverageGap(ctx, aggregateFacts)
-	surfaceFamilyGap := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, aggregateFacts)
+	sourceInventoryAuthority := BuildSourceInventoryAnswerPreEmitAuthority(ctx, aggregateFacts)
+	universeGap := sourceInventoryAuthority.CandidateUniverseGap
+	duplicateLocationGap := sourceInventoryAuthority.DuplicateLocationGap
+	surfaceFamilyGap := sourceInventoryAuthority.SurfaceFamilyGap
 	originSpecificOnlyMemberSet := exhaustiveEnumerationHasOriginSpecificOnlyMemberSet(ctx, aggregateFacts)
 	if ok && len(countGaps) == 0 && !universeGap.Blocking && !duplicateLocationGap.Blocking && !surfaceFamilyGap.Blocking {
 		return ""
@@ -4429,13 +4430,7 @@ func sourceInventoryResolvedCompletionPreciseCoverageGap(ctx *types.BusContext, 
 	if SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, aggregateFacts) {
 		return SourceInventoryCandidateUniverseGap{}
 	}
-	best := SourceInventoryCandidateUniverseCoverageGap(ctx, aggregateFacts)
-	if duplicate := SourceInventoryObservedDuplicateLocationCoverageGap(ctx, aggregateFacts); sourceInventoryCandidateUniverseGapBetter(duplicate, best) {
-		best = duplicate
-	}
-	if surfaceFamily := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, aggregateFacts); sourceInventoryCandidateUniverseGapBetter(surfaceFamily, best) {
-		best = surfaceFamily
-	}
+	best := BuildSourceInventoryAnswerPreEmitAuthority(ctx, aggregateFacts).BestUniverseGap
 	if !best.Blocking {
 		return SourceInventoryCandidateUniverseGap{}
 	}
