@@ -132,3 +132,32 @@ func TestLocalLandingRepairStopsAfterCompletionFormCaveat(t *testing.T) {
 		t.Fatalf("local landing must not activate after completion-form convergence; policy=%+v hint=%q", policy, hint)
 	}
 }
+
+func TestConsumeExploreRepairsCompletionFormCaveatDoesNotReopenExploration(t *testing.T) {
+	mut := types.NewMutableState("accepted closure with converged completion-form debt")
+	mut.SetInvestigationComplete("substantive answer accepted before form debt convergence")
+	mut.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane:       types.DowngradeLaneCompletionForm,
+		ReasonCode: types.ProgressReasonConverged,
+		Reason:     "completion form debt converged under bounded local repair",
+	})
+	mut.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:          types.RepairStructuredHandoff,
+		Origin:        types.RepairOriginCompletionFormPrefix + "member_set_support_refs",
+		Subject:       "completion_form:member_set_support_refs",
+		DowngradeLane: types.DowngradeLaneCompletionForm,
+		Rationale:     "support refs form debt after substantive closure",
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+
+	repairs, policy, hint, active := o.consumeExploreRepairsAndLocalLandingPolicy(nil, nil, "", "")
+	if active || policy.IsActive() || strings.TrimSpace(hint) != "" {
+		t.Fatalf("converged completion-form debt must not activate landing or broad exploration; active=%t policy=%+v hint=%q", active, policy, hint)
+	}
+	if len(repairs) != 0 {
+		t.Fatalf("converged completion-form repair should be dropped before retry hint render: %+v", repairs)
+	}
+	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("accepted closure with only converged completion-form caveat should auto-complete instead of reopening exploration")
+	}
+}
