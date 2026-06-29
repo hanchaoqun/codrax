@@ -847,6 +847,53 @@ func TestCurrentSourceLaneDecision_CurrentSourceProfileRequiresSource(t *testing
 	}
 }
 
+func TestCurrentSourceLaneDecision_RuntimeMechanismDimensionRequiresSource(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "H:RenderService:DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:       "span 解析机制",
+				Role:        RequestedAnswerDimensionFunctionOrPurpose,
+				SourceQuote: "系统如何解析 trace span",
+				Required:    true,
+				Index:       1,
+			}},
+			Confidence: 0.9,
+		},
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("required runtime mechanism dimension should require current source, got %s", got)
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("required runtime mechanism dimension must not collapse into runtime-observation-only completion")
+	}
+
+	rm.RequestedAnswerDimensions.Dimensions[0].Role = RequestedAnswerDimensionBoundary
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneAllowedOptional {
+		t.Fatalf("runtime evidence-boundary dimension should remain source-optional, got %s", got)
+	}
+}
+
 func TestHasBoundedCategoryEnumerationMembers_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Predicates: SemanticPredicates{IsCategoryEnumeration: true},

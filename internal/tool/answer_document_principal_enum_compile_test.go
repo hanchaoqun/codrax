@@ -4055,6 +4055,357 @@ func TestNormalizePrincipalEnumerationRowBlocks_PreservesVisibleSourceInventoryS
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_RepairsSamePackageSiblingDeclarationCitation(t *testing.T) {
+	mu := types.NewMutableState("列出 extend 和 public class")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "source inventory principal rows",
+		Value:      "3",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members: []string{
+			"Cart",
+			"String",
+			"Cart",
+		},
+		SupportRefs: []string{
+			"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+			"String: internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+			"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+		},
+	}})
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{
+				sourceInventoryScopedMarkdownTestMember("Cart", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 30, "demo.cart", "extend", "extend Cart"),
+				sourceInventoryScopedMarkdownTestMember("String", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", 6, "demo.stringext", "extend", "extend String"),
+				sourceInventoryScopedMarkdownTestMember("Cart", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 14, "demo.cart", "public class", "public class Cart"),
+			},
+		}},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				SourceQuotes:      []string{"extend 块", "public class"},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 14, Quote: "public class Cart {"},
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 30, Quote: "extend Cart {"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", Line: 6, Quote: "extend String {"},
+		},
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "发现 2 个 extend 块和 1 个 public class。"},
+			{ID: "extend-section", Kind: types.BlockSection, Title: "extend 块", Text: "extend 块共 2 个：", SurfaceRole: types.SurfacePrincipal},
+			{
+				ID:          "extend-list",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{string(types.FacetEnumerationItem)},
+				Items: []types.AnswerBlockItem{
+					{ID: "extend-cart", Label: "extend Cart", Text: "为 Cart 类添加扩展成员，包路径为 demo.cart", CitationRef: 0},
+					{ID: "extend-string", Label: "extend String", Text: "为 String 类型扩展操作符，包路径为 demo.stringext", CitationRef: 2},
+				},
+			},
+			{ID: "class-section", Kind: types.BlockSection, Title: "public class", Text: "public class 共 1 个：", SurfaceRole: types.SurfacePrincipal},
+			{
+				ID:          "class-list",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{string(types.FacetEnumerationItem)},
+				Items: []types.AnswerBlockItem{
+					{ID: "class-cart", Label: "Cart", Text: "public class Cart，包路径为 demo.cart", CitationRef: 0},
+				},
+			},
+		},
+	}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatalf("expected sibling declaration citation repair")
+	}
+	extend := answerDocumentTestBlockByID(t, doc, "extend-list")
+	if len(extend.Items) != 2 {
+		t.Fatalf("extend rows should not be pruned after repair: %+v", extend)
+	}
+	if got := doc.Citations[extend.Items[0].CitationRef]; got.File != "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj" || got.Line != 30 {
+		t.Fatalf("extend Cart should cite extend row, got %+v item=%+v", got, extend.Items[0])
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, want := range []string{"extend Cart", "extend String", "public class"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("missing visible row surface %q:\n%s", want, visible)
+		}
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_PreservesDirectSectionSourceInventoryCarriers(t *testing.T) {
+	mu := types.NewMutableState("列出 extend 块和 foreign func 声明，包含文件路径和包路径")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "source inventory principal rows",
+		Value:      "4",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members: []string{
+			"Cart",
+			"String",
+			"native_add",
+			"native_add",
+		},
+		SupportRefs: []string{
+			"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+			"String: internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+			"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+	}})
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []types.SourceInventoryObservationSet{
+			{
+				Role:     types.AnswerCandidateRoleType,
+				Complete: true,
+				Members: []types.SourceInventoryObservationMember{
+					sourceInventoryScopedMarkdownTestMember("Cart", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 30, "demo.cart", "extend", "extend Cart"),
+					sourceInventoryScopedMarkdownTestMember("String", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", 6, "demo.stringext", "extend", "extend String"),
+				},
+			},
+			{
+				Role:     types.AnswerCandidateRoleFunction,
+				Complete: true,
+				Members: []types.SourceInventoryObservationMember{
+					sourceInventoryScopedMarkdownTestMember("native_add", types.AnswerCandidateRoleFunction, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6, "demo.bridge", "foreign func", "foreign func native_add"),
+					sourceInventoryScopedMarkdownTestMember("native_add", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6, "demo.ffi", "foreign func", "foreign func native_add"),
+				},
+			},
+		},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleType,
+					types.AnswerCandidateRoleFunction,
+				},
+				SourceQuotes: []string{"extend 块", "foreign func 声明"},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6, Quote: "foreign func native_add(a: Int64, b: Int64): Int64"},
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 14, Quote: "public class Cart {"},
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 30, Quote: "extend Cart {"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6, Quote: "foreign func native_add(a: Int64, b: Int64): Int64"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", Line: 6, Quote: "extend String {"},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "summary",
+				Kind:        types.BlockSummary,
+				SurfaceRole: types.SurfacePrincipal,
+				Text:        "共发现 extend 块 2 个、foreign func 声明 2 个。",
+			},
+			{
+				ID:          "sec-extend",
+				Kind:        types.BlockSection,
+				Title:       "extend 块",
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{string(types.FacetEnumerationItem)},
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimDefinitionFact,
+					FacetID:   string(types.FacetEnumerationItem),
+				}},
+				Items: []types.AnswerBlockItem{
+					{ID: "e1", Label: "extend Cart", Text: "为 Cart 类扩展方法 isEmpty()，package=demo.cart", CitationRef: 1},
+					{ID: "e2", Label: "extend String", Text: "扩展 String 类的运算符方法，package=demo.stringext", CitationRef: 4},
+				},
+			},
+			{
+				ID:          "sec-foreign-func",
+				Kind:        types.BlockSection,
+				Title:       "foreign func 声明",
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{string(types.FacetEnumerationItem)},
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimDefinitionFact,
+					FacetID:   string(types.FacetEnumerationItem),
+				}},
+				Items: []types.AnswerBlockItem{
+					{ID: "f1", Label: "native_add", Text: "外部原生函数绑定，package=demo.bridge", CitationRef: 0},
+					{ID: "f2", Label: "native_add", Text: "外部原生函数绑定，package=demo.ffi，与 demo.bridge 中的 native_add 同名但位于不同包", CitationRef: 3},
+				},
+			},
+		},
+	}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatalf("expected direct section carriers to be normalized")
+	}
+	extend := answerDocumentTestBlockByID(t, doc, "sec-extend")
+	if len(extend.Items) != 2 {
+		t.Fatalf("extend direct section items should be preserved: %+v", extend)
+	}
+	if got := doc.Citations[extend.Items[0].CitationRef]; got.File != "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj" || got.Line != 30 {
+		t.Fatalf("extend Cart should cite extend row, got %+v item=%+v", got, extend.Items[0])
+	}
+	foreign := answerDocumentTestBlockByID(t, doc, "sec-foreign-func")
+	if len(foreign.Items) != 2 {
+		t.Fatalf("foreign func direct section items should be preserved: %+v", foreign)
+	}
+	if got := doc.Citations[foreign.Items[1].CitationRef]; got.File != "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj" || got.Line != 6 {
+		t.Fatalf("demo.ffi duplicate native_add should keep its source row citation, got %+v item=%+v", got, foreign.Items[1])
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, want := range []string{
+		"extend Cart",
+		"extend String",
+		"demo.stringext",
+		"demo.ffi",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("missing direct section row surface %q:\n%s", want, visible)
+		}
+	}
+	if strings.Contains(visible, "系统按已验证证据补充缺失成员") {
+		t.Fatalf("direct section carriers should not be replaced by generic supplement:\n%s", visible)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_MaterializesEmptySourceInventorySections(t *testing.T) {
+	mu := types.NewMutableState("列出 extend 块，包含文件路径和包路径")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "source inventory principal rows",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members: []string{
+			"Cart",
+			"String",
+		},
+		SupportRefs: []string{
+			"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+			"String: internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+		},
+	}})
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{
+				sourceInventoryScopedMarkdownTestMember("Cart", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 30, "demo.cart", "extend", "extend Cart"),
+				sourceInventoryScopedMarkdownTestMember("String", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", 6, "demo.stringext", "extend", "extend String"),
+			},
+		}},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				SourceQuotes:      []string{"extend 块"},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 30, Quote: "extend Cart {"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", Line: 6, Quote: "extend String {"},
+		},
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "extend 块共 2 个。"},
+			{
+				ID:          "sec-extend",
+				Kind:        types.BlockSection,
+				Title:       "extend 块",
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{string(types.FacetEnumerationItem)},
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimDefinitionFact,
+					FacetID:   string(types.FacetEnumerationItem),
+				}},
+				Text: "extend 块为已有类型添加扩展方法/操作符，仓库中共 2 处。",
+			},
+		},
+	}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatalf("expected empty source-inventory section to materialize typed rows")
+	}
+	section := answerDocumentTestBlockByID(t, doc, "sec-extend")
+	if len(section.Items) != 2 {
+		t.Fatalf("empty source-inventory section should carry typed rows, got %+v", section)
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, want := range []string{
+		"extend Cart",
+		"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+		"demo.cart",
+		"extend String",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+		"demo.stringext",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("missing materialized source-inventory section field %q:\n%s", want, visible)
+		}
+	}
+	if strings.Contains(visible, "系统按已验证证据补充缺失成员") {
+		t.Fatalf("empty source-inventory section should materialize in place instead of appending supplement:\n%s", visible)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_FillsPackageColumnFromAlignedMemberNotes(t *testing.T) {
 	mu := types.NewMutableState("列出 foreign func 声明，包含文件路径和包路径")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

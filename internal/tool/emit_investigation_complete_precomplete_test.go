@@ -4751,6 +4751,80 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MCPOriginDoesNotWaiveRequire
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_RuntimeMechanismDimensionRequiresActualSourceCoverage(t *testing.T) {
+	perfBundle := &types.PerfBundle{
+		Observations: []types.PerfObservation{{
+			Kind:       "trace_mark",
+			Subject:    "H:RenderService:DoFrame",
+			Summary:    "runtime trace span is janky",
+			LineStart:  5,
+			LineEnd:    6,
+			DurationMs: 86.111,
+		}},
+	}
+	mut := types.NewMutableState("trace plus current source mechanism")
+	mut.SetPerfTrace(perfBundle)
+	repoRoot := t.TempDir()
+	writeForcedReadFixtureFiles(t, repoRoot, "internal/types/perf_bundle.go")
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: repoRoot,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioPerformanceBottleneck,
+				Predicates: types.SemanticPredicates{
+					IsDiagnosticQuestion: true,
+				},
+				PerfTrace: perfBundle,
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.9,
+				},
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{{
+						Label:       "span 解析机制",
+						Role:        types.RequestedAnswerDimensionFunctionOrPurpose,
+						SourceQuote: "系统如何解析 trace span",
+						Required:    true,
+						Index:       1,
+					}},
+					Confidence: 0.9,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{{
+						Path:       "internal/types/perf_bundle.go",
+						Confidence: 0.9,
+						Rationale:  "likely trace parser owner",
+					}},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "trace_query answered the runtime span but no current-source implementation evidence was read",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("runtime mechanism source lane should require actual source coverage, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete must remain false until current-source evidence/read coverage exists")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceCurrentVerificationRequiresHintRead(t *testing.T) {
 	logBundle := &types.LogBundle{
 		Observations: []types.LogObservation{{
@@ -5608,8 +5682,11 @@ func TestEmitInvestigationComplete_PreCompleteCheck_RequiredSourceSkipsRuntimeAr
 	if strings.Contains(res.Summary, "record_trace_20260526174055.systrace") {
 		t.Fatalf("runtime artifact path must not appear as forced source read: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "internal/agent/explorer.go") {
-		t.Fatalf("current-source seed should still be forced: %s", res.Summary)
+	if !strings.Contains(res.Summary, "current-source evidence/read coverage") {
+		t.Fatalf("required source lane should be blocked by actual coverage, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete must remain false until current-source evidence/read coverage exists")
 	}
 }
 

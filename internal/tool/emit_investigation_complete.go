@@ -8653,9 +8653,6 @@ func currentSourceLaneCoverageDowngrade(ctx *types.BusContext, preflight complet
 	if currentSourceLaneHasCoverage(ctx, preflight) {
 		return ""
 	}
-	if currentSourceLaneHasSpecificSourceSeed(ctx) {
-		return ""
-	}
 	if ctx.Mutable != nil {
 		rm := ctx.AnalysisIR.RequestModel
 		ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{

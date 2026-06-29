@@ -6151,6 +6151,95 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_UsesDecoratedAggregateFi
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_PreservesExactSourceInventoryRowCitation(t *testing.T) {
+	mu := types.NewMutableState("列出同名 foreign func 的文件路径和 package")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "foreign func 声明",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"native_add"},
+		SupportRefs: []string{"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6"},
+	}})
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{
+					Name: "native_add",
+					Role: types.AnswerCandidateRoleFunction,
+					File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+					Line: 6,
+					Attributes: []types.SourceInventoryObservationAttribute{{
+						Role: types.AnswerCandidateRolePackage,
+						Name: "demo.bridge",
+					}},
+				},
+				{
+					Name: "native_add",
+					Role: types.AnswerCandidateRoleFunction,
+					File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+					Line: 6,
+					Attributes: []types.SourceInventoryObservationAttribute{{
+						Role: types.AnswerCandidateRolePackage,
+						Name: "demo.ffi",
+					}},
+				},
+			},
+		}},
+	})
+	mu.SetInvestigationComplete("source-inventory row citation preservation")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "foreign_func",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "ffi",
+				Label:       "native_add",
+				Text:        "foreign func 声明，声明于 package demo.ffi 文件第6行。",
+				CitationRef: 1,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("exact source-inventory row citation should not be rewritten, fixed=%d doc=%+v", fixed, doc.Blocks[0].Items[0])
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref=%d, want row-local ffi citation; item=%+v", got, doc.Blocks[0].Items[0])
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniqueLabelCitation_KeepsDirectoryScopedEnumerationCitation(t *testing.T) {
 	block := types.AnswerBlock{
 		ID:       "enum",
@@ -6304,6 +6393,36 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_DoesNotUseFuzzyFirstCand
 	}
 	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
 		t.Fatalf("citation_ref changed to %d; fuzzy ambiguity should remain model-authored", got)
+	}
+}
+
+func TestNormalizeVisibleSourceLocationCarriers_RepairsMismatchedItemCitationByExactLocation(t *testing.T) {
+	mu := types.NewMutableState("解释 trace span 解析机制")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/types/perf_bundle.go", Line: 145},
+			{File: "internal/types/perf_bundle.go", Line: 169},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "hops",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetCurrentCodePath)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "janky",
+				Label:       "PerfFrame.Janky 标记逻辑",
+				Text:        "`Janky` 字段（internal/types/perf_bundle.go:169）记录帧是否 jank。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeVisibleSourceLocationCarriers(doc, newPreEmitCheckContext(ctx)); fixed == 0 {
+		t.Fatalf("fixed=%d, want at least one exact-location repair; item=%+v", fixed, doc.Blocks[0].Items[0])
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref=%d, want explicit file:line citation", got)
 	}
 }
 

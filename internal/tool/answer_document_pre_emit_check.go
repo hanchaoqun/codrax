@@ -1466,6 +1466,9 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
 		return 0
 	}
+	if pctx == nil {
+		pctx = newPreEmitCheckContext(ctx)
+	}
 	fixed := 0
 	for bi := range doc.Blocks {
 		block := &doc.Blocks[bi]
@@ -1505,6 +1508,10 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 			}
 			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
 				preEmitItemCitationAlignedWithContext(pctx, label, text, doc.Citations[item.CitationRef]) {
+				continue
+			}
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitCitationMatchesAnySourceInventoryCandidate(pctx, doc.Citations[item.CitationRef], label, text) {
 				continue
 			}
 			match := preEmitUniqueCitationIndex(doc.Citations, item.CitationRef, func(cit types.Citation) bool {
@@ -6559,10 +6566,10 @@ func normalizeVisibleSourceLocationCarriers(doc *types.AnswerDocumentV2, pctx *p
 			for ci := range item.Cells {
 				itemRefs = append(itemRefs, rewriteField(&item.Cells[ci])...)
 			}
-			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
-				continue
-			}
 			if ref, ok := uniquePreEmitCitationRef(itemRefs); ok {
+				if item.CitationRef == ref {
+					continue
+				}
 				item.CitationRef = ref
 				fixed++
 			}

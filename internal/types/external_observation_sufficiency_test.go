@@ -340,6 +340,56 @@ func TestAssessExternalObservationSufficiency_TraceQueryRuntimeRecordSufficient(
 	}
 }
 
+func TestAssessExternalObservationSufficiency_TraceQueryRuntimeRecordBlockedByMechanismDimension(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		ToolResults: []ToolResult{{
+			ToolName: "trace_query",
+			Success:  true,
+			Summary: strings.Join([]string{
+				"[trace_query params: view=span_window source=attached_trace origin=runtime_artifact artifact_id=attached_trace artifact_kind=trace payload_ref=/tmp/trace-query.json]",
+				"## Span window",
+				"- span=H:RenderService:DoFrame duration=86.111ms lines=5-6",
+			}, "\n"),
+		}},
+	})
+	rm := &RequestModel{
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "H:RenderService:DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:       "span 解析机制",
+				Role:        RequestedAnswerDimensionFunctionOrPurpose,
+				SourceQuote: "系统如何解析 trace span",
+				Required:    true,
+				Index:       1,
+			}},
+			Confidence: 0.9,
+		},
+	}
+	got := AssessExternalObservationSufficiency(ledger.Records, rm, TurnRouteHint{
+		Route:      "repo",
+		Source:     "external_tool",
+		Confidence: 0.8,
+	})
+	if got.Status != ExternalObservationSufficiencyBlockedByCurrentSource {
+		t.Fatalf("trace_query rows must not close a required runtime mechanism source lane, got %+v", got)
+	}
+}
+
 func TestAssessExternalObservationSufficiency_BroadExternalRowsNotDirectlySufficient(t *testing.T) {
 	var records []ObservationRecord
 	for i := 0; i < externalObservationSufficiencyMaxDirectRecords+1; i++ {

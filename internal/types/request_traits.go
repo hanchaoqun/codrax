@@ -1577,6 +1577,9 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 		rm.currentSourceExplanationHasCurrentSourceQuote() {
 		return true
 	}
+	if rm.hasRequiredRuntimeCurrentSourceMechanismDimension() {
+		return true
+	}
 	if rm.LogTriage != nil && len(rm.LogTriage.ResolvedFiles) > 0 {
 		return true
 	}
@@ -1637,6 +1640,27 @@ func (rm RequestModel) hasRequiredCurrentKeyCodeDimension() bool {
 	for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
 		if dim.Required && dim.Role == RequestedAnswerDimensionCurrentKeyCode {
 			return true
+		}
+	}
+	return false
+}
+
+func (rm RequestModel) hasRequiredRuntimeCurrentSourceMechanismDimension() bool {
+	if rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
+		return false
+	}
+	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
+	for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+		if !dim.Required {
+			continue
+		}
+		switch dim.Role {
+		case RequestedAnswerDimensionFunctionOrPurpose:
+			if rm.dimensionHasCurrentSourceAnchor(dim) {
+				return true
+			}
 		}
 	}
 	return false
