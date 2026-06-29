@@ -989,32 +989,37 @@ func TestValidateAnalysisInput_WarnBelowKeywords(t *testing.T) {
 	}
 }
 
-func TestValidateAnalysisInput_RejectBelowKeywords(t *testing.T) {
+func TestValidateAnalysisInput_DeprecatedRejectBelowKeywordsWarnsOnly(t *testing.T) {
 	limits := AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 5}
 	res := validateAnalysisInput([]string{"a", "b"}, nil, limits, "", 0)
 
-	if res.RejectReason == "" {
-		t.Fatal("hard floor must reject")
+	if res.RejectReason != "" {
+		t.Fatalf("deprecated keyword reject floor must not reject, got %q", res.RejectReason)
 	}
-	if !strings.Contains(res.RejectReason, "got=2") || !strings.Contains(res.RejectReason, "want≥5") {
-		t.Errorf("reject reason missing count details, got %q", res.RejectReason)
+	if len(res.Warnings) != 1 {
+		t.Fatalf("expected advisory warning, got %+v", res.Warnings)
 	}
-	if !strings.Contains(res.RejectReason, "hard floor") {
-		t.Errorf("reject reason should say 'hard floor', got %q", res.RejectReason)
+	if !strings.Contains(res.Warnings[0], "got=2") || !strings.Contains(res.Warnings[0], "want≥5") {
+		t.Errorf("warning missing count details, got %q", res.Warnings[0])
+	}
+	if !strings.Contains(res.Warnings[0], "advisory") {
+		t.Errorf("warning should say advisory, got %q", res.Warnings[0])
 	}
 }
 
-func TestValidateAnalysisInput_RejectWinsOverWarn(t *testing.T) {
-	// When both thresholds trip, reject must win so the caller gets
-	// the machine-readable failure signal instead of only a soft warning.
+func TestValidateAnalysisInput_DeprecatedRejectMergesWithWarn(t *testing.T) {
 	limits := AnalysisLimits{WarnBelowKeywords: 8, RejectBelowKeywords: 6}
 	res := validateAnalysisInput([]string{"a", "b"}, nil, limits, "", 0)
 
-	if res.RejectReason == "" {
-		t.Fatal("hard floor must reject when both thresholds trip")
+	if res.RejectReason != "" {
+		t.Fatalf("keyword floors are advisory only, got reject %q", res.RejectReason)
 	}
-	// Warnings may or may not also fire; the reject reason is the
-	// load-bearing signal so we do not assert on Warnings content.
+	if len(res.Warnings) != 1 {
+		t.Fatalf("expected one merged advisory warning, got %+v", res.Warnings)
+	}
+	if !strings.Contains(res.Warnings[0], "want≥8") {
+		t.Fatalf("higher soft floor should remain the visible advisory floor, got %q", res.Warnings[0])
+	}
 }
 
 func TestValidateAnalysisInput_DropsGenericEntities(t *testing.T) {
@@ -1676,7 +1681,7 @@ func TestSetAnalysisLimits_RoundTrip(t *testing.T) {
 	SetAnalysisLimits(custom)
 
 	got := CurrentAnalysisLimits()
-	if got.WarnBelowKeywords != 5 || got.RejectBelowKeywords != 2 || got.EmitOnlyCorrectionRetries != 4 {
+	if got.WarnBelowKeywords != 5 || got.RejectBelowKeywords != 0 || got.EmitOnlyCorrectionRetries != 4 {
 		t.Errorf("limits not installed: %+v", got)
 	}
 	if len(got.GenericEntityBlocklist) != 2 {
@@ -2400,7 +2405,7 @@ func TestEmitAnalysis_Execute_WarnPathStillPersists(t *testing.T) {
 	}
 }
 
-func TestEmitAnalysis_Execute_RejectPathDoesNotPersist(t *testing.T) {
+func TestEmitAnalysis_Execute_DeprecatedRejectPathPersistsWithWarning(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 5})
@@ -2415,14 +2420,17 @@ func TestEmitAnalysis_Execute_RejectPathDoesNotPersist(t *testing.T) {
 	}`
 	res, mu := runEmitAnalysis(t, payload)
 
-	if res.Success {
-		t.Fatalf("reject path must fail, got summary=%q", res.Summary)
+	if !res.Success {
+		t.Fatalf("deprecated reject path must fail-open, got summary=%q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "rejected") {
-		t.Errorf("reject Summary should say 'rejected', got %q", res.Summary)
+	if strings.Contains(res.Summary, "rejected") {
+		t.Errorf("deprecated keyword floor must not reject, got %q", res.Summary)
 	}
-	if rm := mu.RequestModel(); rm != nil {
-		t.Errorf("reject path must not persist RequestModel, got %+v", rm)
+	if !strings.Contains(res.Summary, "warn:") || !strings.Contains(res.Summary, "recommended") {
+		t.Errorf("deprecated reject path should persist with warning, got %q", res.Summary)
+	}
+	if rm := mu.RequestModel(); rm == nil {
+		t.Error("deprecated reject path must persist RequestModel")
 	}
 }
 

@@ -918,9 +918,11 @@
 #   软下限:analyzer 关键词少于此值时附加警告。默认 8。0 关闭。
 # analysis_warn_below_keywords: 8
 
-# analysis_reject_below_keywords — hard floor: fail emit_analysis when
-#   keyword count is below this. Default 0 (disabled).
-#   硬下限:关键词低于此值时判 emit_analysis 失败。默认 0(关闭)。
+# analysis_reject_below_keywords — deprecated compatibility field.
+#   Positive values are treated as an advisory warning floor; keyword count is
+#   not precise enough to fail emit_analysis. Default 0.
+#   已废弃的兼容字段。正值会转为警告阈值;关键词数量不再作为
+#   emit_analysis 失败条件。默认 0。
 # analysis_reject_below_keywords: 0
 
 # analysis_generic_entity_blocklist — lowercase generic nouns dropped from

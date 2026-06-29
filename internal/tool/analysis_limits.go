@@ -30,12 +30,11 @@ type AnalysisLimits struct {
 	// disables the warning.
 	WarnBelowKeywords int
 
-	// RejectBelowKeywords is the hard floor. Execute fails the tool
-	// call with Success=false when len(keywords) < this value. Zero
-	// disables rejection entirely — only the warning fires. This is
-	// the codrax default because rejecting a classification purely
-	// for having 7 instead of 8 keywords wastes an LLM round trip
-	// that the downstream IR builder could still make progress from.
+	// RejectBelowKeywords is a deprecated compatibility knob. It used
+	// to fail emit_analysis when len(keywords) was below this value,
+	// but keyword count is not a precise signal and must not be a hard
+	// gate. Runtime now treats any positive value as an advisory warning
+	// floor and preserves progress.
 	RejectBelowKeywords int
 
 	// GenericEntityBlocklist is the set of words (lowercased) that
@@ -445,6 +444,12 @@ func ResolveAnalysisLimits(l AnalysisLimits) AnalysisLimits {
 	if l.TerminalEmitOnlyRequestTimeoutSeconds <= 0 {
 		l.TerminalEmitOnlyRequestTimeoutSeconds = DefaultAnalysisLimits().TerminalEmitOnlyRequestTimeoutSeconds
 	}
+	if l.RejectBelowKeywords > 0 {
+		if l.WarnBelowKeywords < l.RejectBelowKeywords {
+			l.WarnBelowKeywords = l.RejectBelowKeywords
+		}
+		l.RejectBelowKeywords = 0
+	}
 	return l
 }
 
@@ -584,17 +589,19 @@ func validateAnalysisInput(keywords, entities []string, limits AnalysisLimits, s
 			"kept_generic_verified_entities: "+strings.Join(kept, ", "))
 	}
 
-	// Keyword floor. RejectBelowKeywords wins over WarnBelowKeywords
-	// when both trigger so the hard signal is visible to the caller.
+	// Keyword floors are advisory only. A short keyword list is useful
+	// telemetry, but it is not a precise signal and must not reject an
+	// otherwise usable structured classification.
 	kwCount := len(keywords)
-	switch {
-	case limits.RejectBelowKeywords > 0 && kwCount < limits.RejectBelowKeywords:
-		res.RejectReason = formatKeywordFloorMsg("keywords below hard floor",
-			kwCount, limits.RejectBelowKeywords)
-	case limits.WarnBelowKeywords > 0 && kwCount < limits.WarnBelowKeywords:
+	warnFloor := limits.WarnBelowKeywords
+	warnLabel := "keywords below recommended floor"
+	if limits.RejectBelowKeywords > warnFloor {
+		warnFloor = limits.RejectBelowKeywords
+		warnLabel = "keywords below deprecated reject floor (advisory only)"
+	}
+	if warnFloor > 0 && kwCount < warnFloor {
 		res.Warnings = append(res.Warnings,
-			formatKeywordFloorMsg("keywords below recommended floor",
-				kwCount, limits.WarnBelowKeywords))
+			formatKeywordFloorMsg(warnLabel, kwCount, warnFloor))
 	}
 
 	// Runtime quality probe. Always computed when a seenBlob is

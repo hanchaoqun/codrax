@@ -195,10 +195,10 @@ type RuntimeSettings struct {
 	//     attaches a "[warn: ...]" tag to the ToolResult.Summary
 	//     when the analyzer emits fewer keywords. 0 disables the
 	//     warning. Default 8.
-	//   - analysis_reject_below_keywords: hard floor; the tool
-	//     fails the emit call with Success=false when the keyword
-	//     count is below this value. 0 disables rejection (only
-	//     the warning fires). Default 0.
+	//   - analysis_reject_below_keywords: deprecated compatibility
+	//     field. Positive values are folded into the warning floor;
+	//     keyword count is not a precise signal and no longer rejects
+	//     emit_analysis. Default 0.
 	//   - analysis_generic_entity_blocklist: lowercase words the
 	//     validator drops from the entities slice because they
 	//     poison ERM ranking. Empty disables the filter. Default
