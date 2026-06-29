@@ -2024,11 +2024,12 @@ func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.E
 	blockSet.Rows = append([]types.EnumerationDisplayRow(nil), rows...)
 	shape := principalEnumerationTableShapeForRows(blockSet.Rows, nil)
 	block := types.AnswerBlock{
-		ID:          uniqueAnswerBlockID(doc, "principal_enum_"+sanitizeEnumerationBlockID(set.ID)),
-		Kind:        types.BlockTable,
-		Title:       principalEnumerationRowsBlockTitle(set, rows, zh, mode),
-		SurfaceRole: types.SurfacePrincipal,
-		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		ID:                  uniqueAnswerBlockID(doc, "principal_enum_"+sanitizeEnumerationBlockID(set.ID)),
+		Kind:                types.BlockTable,
+		Title:               principalEnumerationRowsBlockTitle(set, rows, zh, mode),
+		SurfaceRole:         types.SurfacePrincipal,
+		SystemGeneratedKind: principalEnumerationRowsBlockSystemKind(mode),
+		FacetIDs:            []string{string(types.FacetEnumerationItem)},
 		ClaimUses: []types.RenderedClaimUse{{
 			ClaimForm: types.ClaimDefinitionFact,
 			FacetID:   string(types.FacetEnumerationItem),
@@ -2037,6 +2038,19 @@ func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.E
 	}
 	block.Items = principalEnumerationItemsForSet(doc, blockSet, block.Kind, nil, shape)
 	return block
+}
+
+func principalEnumerationRowsBlockSystemKind(mode principalEnumerationSupplementMode) types.AnswerSystemGeneratedBlockKind {
+	switch mode {
+	case principalEnumerationSupplementMissing:
+		return types.AnswerSystemGeneratedPrincipalEnumerationMissing
+	case principalEnumerationSupplementVerifiedFields:
+		return types.AnswerSystemGeneratedPrincipalEnumerationFields
+	case principalEnumerationSupplementVerifiedNotes:
+		return types.AnswerSystemGeneratedPrincipalEnumerationNotes
+	default:
+		return types.AnswerSystemGeneratedPrincipalEnumerationRows
+	}
 }
 
 func principalEnumerationNeedsVerifiedFieldSupplement(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) bool {

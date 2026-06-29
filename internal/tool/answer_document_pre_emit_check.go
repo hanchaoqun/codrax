@@ -4972,20 +4972,11 @@ func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.A
 }
 
 func preEmitSystemMissingMemberSupplementBlock(block types.AnswerBlock) bool {
-	title := strings.TrimSpace(block.Title)
-	return strings.HasPrefix(title, "系统按已验证证据补充缺失成员：") ||
-		strings.HasPrefix(title, "System-verified missing member supplement:")
+	return block.SystemGeneratedKind == types.AnswerSystemGeneratedPrincipalEnumerationMissing
 }
 
 func preEmitSystemEnumerationRowSupplementBlock(block types.AnswerBlock) bool {
-	title := strings.TrimSpace(block.Title)
-	return preEmitSystemMissingMemberSupplementBlock(block) ||
-		strings.HasPrefix(title, "系统按已验证证据补充成员：") ||
-		strings.HasPrefix(title, "System-verified member supplement:") ||
-		strings.HasPrefix(title, "系统按已验证证据补充可校验字段：") ||
-		strings.HasPrefix(title, "System-verified field supplement:") ||
-		strings.HasPrefix(title, "系统按已验证证据补充说明：") ||
-		strings.HasPrefix(title, "System-verified note supplement:")
+	return block.SystemGeneratedKind.IsPrincipalEnumerationSupplement()
 }
 
 func preEmitBlockBindsToAggregateCount(block types.AnswerBlock, surface string, fact types.AnswerAggregateFact, memberBindingMin int) bool {

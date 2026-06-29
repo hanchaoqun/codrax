@@ -3197,9 +3197,10 @@ func TestPreCheckAggregateCardinalityConsistency_IgnoresSystemMissingMemberSuppl
 	mu.SetInvestigationComplete("structured member set accepted")
 	ctx := &types.BusContext{Mutable: mu}
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
-		ID:    "supplement",
-		Kind:  types.BlockTable,
-		Title: "系统按已验证证据补充缺失成员：commit c9d1fe22 涉及文件（3）",
+		ID:                  "supplement",
+		Kind:                types.BlockTable,
+		Title:               "系统按已验证证据补充缺失成员：commit c9d1fe22 涉及文件（3）",
+		SystemGeneratedKind: types.AnswerSystemGeneratedPrincipalEnumerationMissing,
 		Columns: []string{
 			"文件",
 		},
@@ -6553,30 +6554,33 @@ func TestPreEmitDisplaySurfaceAppears_NineNineOhNineForensicReplay(t *testing.T)
 	}
 }
 
-func TestPreEmitSystemEnumerationRowSupplementBlock_RecognizesAllSystemSupplementTitles(t *testing.T) {
-	systemTitles := []string{
-		"系统按已验证证据补充缺失成员：公开函数（2）",
-		"System-verified missing member supplement: exported functions (2)",
-		"系统按已验证证据补充成员：公开函数（2）",
-		"System-verified member supplement: exported functions (2)",
-		"系统按已验证证据补充可校验字段：公开函数（2）",
-		"System-verified field supplement: exported functions (2)",
-		"系统按已验证证据补充说明：公开函数（2）",
-		"System-verified note supplement: exported functions (2)",
+func TestPreEmitSystemEnumerationRowSupplementBlock_UsesTypedSystemMarkerNotTitle(t *testing.T) {
+	title := "系统按已验证证据补充缺失成员：公开函数（2）"
+	if preEmitSystemEnumerationRowSupplementBlock(types.AnswerBlock{Title: title}) {
+		t.Fatalf("title-only block must not be classified as system supplement")
 	}
-	for _, title := range systemTitles {
-		if !preEmitSystemEnumerationRowSupplementBlock(types.AnswerBlock{Title: title}) {
-			t.Fatalf("system supplement title was not recognized: %q", title)
-		}
+	cases := []struct {
+		name    string
+		kind    types.AnswerSystemGeneratedBlockKind
+		missing bool
+	}{
+		{"missing", types.AnswerSystemGeneratedPrincipalEnumerationMissing, true},
+		{"rows", types.AnswerSystemGeneratedPrincipalEnumerationRows, false},
+		{"fields", types.AnswerSystemGeneratedPrincipalEnumerationFields, false},
+		{"notes", types.AnswerSystemGeneratedPrincipalEnumerationNotes, false},
 	}
-	modelTitles := []string{
-		"模型给出的公开函数表",
-		"Exported functions",
-		"系统设计说明：公开函数",
-	}
-	for _, title := range modelTitles {
-		if preEmitSystemEnumerationRowSupplementBlock(types.AnswerBlock{Title: title}) {
-			t.Fatalf("model-authored title must not be classified as system supplement: %q", title)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			block := types.AnswerBlock{
+				Title:               "model-visible title is display-only",
+				SystemGeneratedKind: tc.kind,
+			}
+			if !preEmitSystemEnumerationRowSupplementBlock(block) {
+				t.Fatalf("typed system marker %q was not recognized", tc.kind)
+			}
+			if got := preEmitSystemMissingMemberSupplementBlock(block); got != tc.missing {
+				t.Fatalf("missing supplement predicate = %v, want %v", got, tc.missing)
+			}
+		})
 	}
 }

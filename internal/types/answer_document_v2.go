@@ -252,6 +252,13 @@ type AnswerBlock struct {
 	// counts only fire on principal blocks.
 	SurfaceRole SurfaceRole `json:"surface_role,omitempty"`
 
+	// SystemGeneratedKind is an in-memory marker set only by deterministic
+	// normalizers after the model has emitted an AnswerDocument. It is excluded
+	// from JSON so the LLM cannot author or repair it. Pre-emit validators use
+	// this marker instead of inferring system supplement identity from rendered
+	// titles or localized prose.
+	SystemGeneratedKind AnswerSystemGeneratedBlockKind `json:"-"`
+
 	// EdgeAnchors carry typed (from_node, to_node, claim_form)
 	// triples that anchor labelled diagram edges to typed
 	// claim_form values. Phase 1-B source-fix (V2 runtime eval
@@ -269,6 +276,29 @@ type AnswerBlock struct {
 	// read this field to match labelled edges against typed
 	// claim_form expectations.
 	EdgeAnchors []DiagramEdgeAnchor `json:"edge_anchors,omitempty"`
+}
+
+type AnswerSystemGeneratedBlockKind string
+
+const (
+	AnswerSystemGeneratedBlockUnknown AnswerSystemGeneratedBlockKind = ""
+
+	AnswerSystemGeneratedPrincipalEnumerationMissing AnswerSystemGeneratedBlockKind = "principal_enumeration_missing"
+	AnswerSystemGeneratedPrincipalEnumerationRows    AnswerSystemGeneratedBlockKind = "principal_enumeration_rows"
+	AnswerSystemGeneratedPrincipalEnumerationFields  AnswerSystemGeneratedBlockKind = "principal_enumeration_fields"
+	AnswerSystemGeneratedPrincipalEnumerationNotes   AnswerSystemGeneratedBlockKind = "principal_enumeration_notes"
+)
+
+func (k AnswerSystemGeneratedBlockKind) IsPrincipalEnumerationSupplement() bool {
+	switch k {
+	case AnswerSystemGeneratedPrincipalEnumerationMissing,
+		AnswerSystemGeneratedPrincipalEnumerationRows,
+		AnswerSystemGeneratedPrincipalEnumerationFields,
+		AnswerSystemGeneratedPrincipalEnumerationNotes:
+		return true
+	default:
+		return false
+	}
 }
 
 // DiagramEdgeAnchor is a typed edge-anchor record. Each entry binds

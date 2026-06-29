@@ -4060,6 +4060,17 @@ Remaining follow-up:
     4. Validation: focused `go test ./internal/tool -run 'UniquePreEmitCandidate|UniqueLabelCitation|PreCheckItemCitationAlignment' -count=1` passed.
     5. Safety boundary: this consumes only structured answer items, citation pool entries, pre-emit candidate citation calculations, exact source-location parser output, typed aggregate facts, and typed evidence/support refs. It does not parse user keywords, model rationale/prose, rendered tool markdown, localized UI text, elapsed time, eval labels, free-form hint strings, or `candidate_citations` prose; the hint remains advisory, and the repair is driven by the same typed candidate functions that produced the hint.
 
+  - **Completed D1-G198: system-generated supplement identity depended on rendered titles（P1 / hard-gate precision + prompt-red-line hygiene / fixed）**:
+    1. Evidence: hard-gate audit after D1-G194 found `preEmitSystemMissingMemberSupplementBlock` / `preEmitSystemEnumerationRowSupplementBlock` identifying deterministic system supplements by localized rendered titles such as `系统按已验证证据补充缺失成员：...` and `System-verified member supplement: ...`. The skip itself is correct: system-created partial supplements must not trip aggregate-count drift checks. The identity source was wrong: pre-emit should not infer internal provenance from visible title prose.
+    2. Target architecture: deterministic normalizers that append answer blocks must stamp an internal typed marker before pre-emit checks run. Validators may consume that marker; rendered titles remain display-only and may change without affecting count/citation/cardinality gates. Model-authored blocks with the same title text must not be treated as system supplements.
+    3. Delivered D1-F10g.318:
+       - D1-F10g.318a: added `AnswerBlock.SystemGeneratedKind` as an in-memory `json:"-"` field plus closed `AnswerSystemGeneratedBlockKind` enums for principal-enumeration supplements.
+       - D1-F10g.318b: `buildPrincipalEnumerationRowsBlock` stamps the marker according to supplement mode (`missing`, `rows`, `fields`, `notes`).
+       - D1-F10g.318c: pre-emit system-supplement predicates now consume only the typed marker. Title-only blocks no longer bypass aggregate-count checks.
+       - D1-F10g.318d: focused regressions prove marker-based recognition, missing-member count suppression via marker, redline matrix behavior, and JSON serialization does not expose the internal marker or enum values to the model/tool schema.
+    4. Validation: focused `go test ./internal/tool -run 'PreEmitSystemEnumerationRowSupplementBlock|AnswerDocumentRedlineMatrix|PrincipalEnumeration|AggregateCardinality|UniquePreEmitCandidate' -count=1` and `go test ./internal/types -run 'AnswerDocument|SystemGenerated|AnswerBlock' -count=1` passed.
+    5. Safety boundary: this fix consumes only an internal typed enum written by deterministic code after model emission. It does not parse user text, model rationale/prose, rendered answer titles, localized UI text, eval labels, elapsed time, or prompt fragments. The marker is not exposed in the LLM JSON schema and cannot be authored by the model.
+
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
 - Focused packages: `go test ./internal/types ./internal/analysis/compiler ./internal/analysis/criterion ./internal/orchestrator ./internal/agent -run 'Dependency|Artifact|ReadLoopNextAction|DispatchPolicy|ExecutionPolicy|StageRunner|EvidenceReducer|ReadRunSnapshot'`
