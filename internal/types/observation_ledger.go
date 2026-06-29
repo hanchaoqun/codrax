@@ -1914,6 +1914,9 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 	impact := traceQueryFieldMS(fields, "impact")
 	cumulativeImpact := traceQueryFieldMS(fields, "cumulative_impact")
 	targetImpact := traceQueryFieldMS(fields, "target_impact")
+	projectedImpact := traceQueryFieldMS(fields, "projected_impact")
+	actualImpact := traceQueryFieldMS(fields, "actual_impact")
+	actualTotal := traceQueryFieldMS(fields, "actual_total")
 	score := traceQueryFieldFloat(fields, "score")
 	conf := traceQueryFieldFloat(fields, "confidence")
 	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
@@ -1932,7 +1935,19 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 	}
 	notes := traceQuerySelectedRichNotes(fields, []string{"occurrence_windows"})
 	notes = append(notes, traceQueryPriorityRichNotes(rank, tier, typ, fields["source"], fields["causality"], traceQueryFieldInt(fields, "chain_depth"), score, impact, cumulativeImpact, targetImpact)...)
-	notes = append(notes, traceQuerySelectedRichNotes(fields, []string{"chain_relevance", "dominant_state", "running", "runnable", "sleep", "d_state", "io_wait"})...)
+	if projectedImpact > 0 {
+		notes = append(notes, fmt.Sprintf("projected_impact_ms=%.3f", projectedImpact))
+	}
+	if projectedTotal := traceQueryFieldMS(fields, "projected_total"); projectedTotal > 0 {
+		notes = append(notes, fmt.Sprintf("projected_total_ms=%.3f", projectedTotal))
+	}
+	if actualImpact > 0 {
+		notes = append(notes, fmt.Sprintf("actual_impact_ms=%.3f", actualImpact))
+	}
+	if actualTotal > 0 {
+		notes = append(notes, fmt.Sprintf("actual_total_ms=%.3f", actualTotal))
+	}
+	notes = append(notes, traceQuerySelectedRichNotes(fields, []string{"actual_window", "chain_relevance", "dominant_state", "running", "runnable", "sleep", "d_state", "io_wait"})...)
 	role := AnswerAggregateRolePrincipalAnswer
 	provenance := ObservationProvenanceObservedDirectCause
 	claimKey := firstNonEmptyString("root_cause_"+tier, typ)
@@ -2000,7 +2015,7 @@ func traceQueryCausalImpactRecord(index, ordinal int, line string, ref Observati
 		Value:           value,
 		Unit:            "ms",
 		Summary:         summary,
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"depth", "causality", "dominant_state", "impact", "total", "target_impact", "fragments", "switches", "max_segment", "p95_segment", "running", "runnable", "sleep", "d_state", "io_wait", "prio", "target_prio", "priority_relation", "priority_inversion_candidate"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"depth", "causality", "dominant_state", "impact", "projected_impact", "total", "projected_total", "actual_impact", "actual_total", "actual_window", "target_impact", "fragments", "switches", "max_segment", "p95_segment", "running", "runnable", "sleep", "d_state", "io_wait", "actual_running", "actual_runnable", "actual_sleep", "actual_d_state", "actual_io_wait", "prio", "target_prio", "priority_relation", "priority_inversion_candidate"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.78,
@@ -2039,7 +2054,7 @@ func traceQueryCausalAggregateRecord(index, ordinal int, line string, ref Observ
 		Value:           value,
 		Unit:            "ms",
 		Summary:         summary,
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"depth", "path", "occurrences", "occurrence_windows", "dominant_state", "impact", "total", "target_impact", "fragments", "switches", "max_segment", "running", "runnable", "sleep", "d_state", "io_wait", "priority_relation", "priority_inversion_candidate"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"depth", "path", "occurrences", "occurrence_windows", "dominant_state", "impact", "projected_impact", "total", "projected_total", "actual_impact", "actual_total", "actual_window", "target_impact", "fragments", "switches", "max_segment", "running", "runnable", "sleep", "d_state", "io_wait", "actual_running", "actual_runnable", "actual_sleep", "actual_d_state", "actual_io_wait", "priority_relation", "priority_inversion_candidate"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.80,

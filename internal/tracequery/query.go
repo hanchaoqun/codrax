@@ -1005,17 +1005,21 @@ func makeIntervalWithWake(thread ThreadRef, state ThreadState, start, end float6
 	if end < start {
 		end = start
 	}
+	durationMs := (end - start) * 1000
 	return Interval{
-		Thread:       thread,
-		State:        state,
-		StartTs:      start,
-		EndTs:        end,
-		DurationMs:   (end - start) * 1000,
-		StartLine:    startLine,
-		EndLine:      endLine,
-		WakeupLine:   wakeLine,
-		PrevStateRaw: prevState,
-		Summary:      fmt.Sprintf("%s for %.3f ms", state, (end-start)*1000),
+		Thread:           thread,
+		State:            state,
+		StartTs:          start,
+		EndTs:            end,
+		DurationMs:       durationMs,
+		ActualStartTs:    start,
+		ActualEndTs:      end,
+		ActualDurationMs: durationMs,
+		StartLine:        startLine,
+		EndLine:          endLine,
+		WakeupLine:       wakeLine,
+		PrevStateRaw:     prevState,
+		Summary:          fmt.Sprintf("%s for %.3f ms", state, durationMs),
 	}
 }
 
@@ -1049,6 +1053,11 @@ func clampIntervals(in []Interval, q Query) []Interval {
 			it.EndTs = q.TimeEnd
 		}
 		it.DurationMs = (it.EndTs - it.StartTs) * 1000
+		if it.ActualStartTs == 0 && it.ActualEndTs == 0 {
+			it.ActualStartTs = it.StartTs
+			it.ActualEndTs = it.EndTs
+			it.ActualDurationMs = it.DurationMs
+		}
 		if it.DurationMs >= 0 {
 			out = append(out, it)
 		}
@@ -5904,11 +5913,18 @@ func aggregateWakeupCausalImpacts(chain ChainResult) []WakeupCausalAggregate {
 			a.item.ChainDepth = impact.ChainDepth
 		}
 		a.item.TotalMs += impact.TotalMs
+		a.item.ProjectedTotalMs += firstPositiveFloat(impact.ProjectedTotalMs, impact.TotalMs)
+		a.item.ActualTotalMs += impact.ActualTotalMs
 		a.item.RunningMs += impact.RunningMs
 		a.item.RunnableMs += impact.RunnableMs
 		a.item.SleepMs += impact.SleepMs
 		a.item.DStateMs += impact.DStateMs
 		a.item.IOWaitMs += impact.IOWaitMs
+		a.item.ActualRunningMs += impact.ActualRunningMs
+		a.item.ActualRunnableMs += impact.ActualRunnableMs
+		a.item.ActualSleepMs += impact.ActualSleepMs
+		a.item.ActualDStateMs += impact.ActualDStateMs
+		a.item.ActualIOWaitMs += impact.ActualIOWaitMs
 		a.item.TargetBlockedMs += impact.TargetBlockedMs
 		a.item.FragmentCount += impact.FragmentCount
 		a.item.StateSwitches += impact.StateSwitches
@@ -5920,6 +5936,12 @@ func aggregateWakeupCausalImpacts(chain ChainResult) []WakeupCausalAggregate {
 		}
 		if impact.Window.EndTs > a.item.LastTs {
 			a.item.LastTs = impact.Window.EndTs
+		}
+		if impact.ActualWindow.StartTs > 0 && (a.item.ActualFirstTs == 0 || impact.ActualWindow.StartTs < a.item.ActualFirstTs) {
+			a.item.ActualFirstTs = impact.ActualWindow.StartTs
+		}
+		if impact.ActualWindow.EndTs > a.item.ActualLastTs {
+			a.item.ActualLastTs = impact.ActualWindow.EndTs
 		}
 		if impact.LineStart > 0 && (a.item.LineStart == 0 || impact.LineStart < a.item.LineStart) {
 			a.item.LineStart = impact.LineStart
@@ -5941,6 +5963,8 @@ func aggregateWakeupCausalImpacts(chain ChainResult) []WakeupCausalAggregate {
 			continue
 		}
 		a.item.DominantState, a.item.DominantImpactMs = dominantAggregateState(a.item)
+		a.item.ProjectedImpactMs = aggregateBlockingMs(a.item)
+		a.item.ActualImpactMs = actualAggregateBlockingMs(a.item)
 		a.item.PriorityRelation = mostFrequentString(a.prioVotes)
 		a.item.PriorityInversion = a.invCount > 0
 		a.item.OccurrenceWindows = trimWakeupCausalOccurrences(a.item.OccurrenceWindows, wakeupCausalAggregateOccurrenceCap)
@@ -5964,23 +5988,33 @@ func aggregateWakeupCausalImpacts(chain ChainResult) []WakeupCausalAggregate {
 
 func wakeupCausalOccurrenceFromImpact(impact WakeupCausalImpact) WakeupCausalOccurrence {
 	return WakeupCausalOccurrence{
-		Window:           impact.Window,
-		DominantState:    impact.DominantState,
-		DominantImpactMs: impact.DominantImpactMs,
-		TotalMs:          impact.TotalMs,
-		TargetBlockedMs:  impact.TargetBlockedMs,
-		RunningMs:        impact.RunningMs,
-		RunnableMs:       impact.RunnableMs,
-		SleepMs:          impact.SleepMs,
-		DStateMs:         impact.DStateMs,
-		IOWaitMs:         impact.IOWaitMs,
-		FragmentCount:    impact.FragmentCount,
-		StateSwitches:    impact.StateSwitches,
-		MaxSegmentMs:     impact.MaxSegmentMs,
-		P95SegmentMs:     impact.P95SegmentMs,
-		LineStart:        impact.LineStart,
-		LineEnd:          impact.LineEnd,
-		Summary:          impact.Summary,
+		Window:            impact.Window,
+		ActualWindow:      impact.ActualWindow,
+		DominantState:     impact.DominantState,
+		DominantImpactMs:  impact.DominantImpactMs,
+		ProjectedImpactMs: impact.ProjectedImpactMs,
+		TotalMs:           impact.TotalMs,
+		ProjectedTotalMs:  firstPositiveFloat(impact.ProjectedTotalMs, impact.TotalMs),
+		ActualImpactMs:    impact.ActualImpactMs,
+		ActualTotalMs:     impact.ActualTotalMs,
+		TargetBlockedMs:   impact.TargetBlockedMs,
+		RunningMs:         impact.RunningMs,
+		RunnableMs:        impact.RunnableMs,
+		SleepMs:           impact.SleepMs,
+		DStateMs:          impact.DStateMs,
+		IOWaitMs:          impact.IOWaitMs,
+		ActualRunningMs:   impact.ActualRunningMs,
+		ActualRunnableMs:  impact.ActualRunnableMs,
+		ActualSleepMs:     impact.ActualSleepMs,
+		ActualDStateMs:    impact.ActualDStateMs,
+		ActualIOWaitMs:    impact.ActualIOWaitMs,
+		FragmentCount:     impact.FragmentCount,
+		StateSwitches:     impact.StateSwitches,
+		MaxSegmentMs:      impact.MaxSegmentMs,
+		P95SegmentMs:      impact.P95SegmentMs,
+		LineStart:         impact.LineStart,
+		LineEnd:           impact.LineEnd,
+		Summary:           impact.Summary,
 	}
 }
 
@@ -6091,8 +6125,8 @@ func wakeupChainPathFromThread(chain ChainResult, thread ThreadRef) string {
 }
 
 func renderWakeupCausalAggregateSummary(item WakeupCausalAggregate) string {
-	summary := fmt.Sprintf("%s aggregated on wakeup chain occurrences=%d dominant_state=%s impact=%.3fms total=%.3fms target_blocked=%.3fms fragments=%d switches=%d max_segment=%.3fms totals running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms",
-		threadLabel(item.Thread), item.OccurrenceCount, item.DominantState, item.DominantImpactMs, item.TotalMs, item.TargetBlockedMs, item.FragmentCount, item.StateSwitches, item.MaxSegmentMs, item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs)
+	summary := fmt.Sprintf("%s aggregated on wakeup chain occurrences=%d dominant_state=%s impact=%.3fms total=%.3fms projected_impact=%.3fms projected_total=%.3fms actual_impact=%.3fms actual_total=%.3fms actual_window=%.6f..%.6f target_blocked=%.3fms fragments=%d switches=%d max_segment=%.3fms totals running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms actual_totals running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms",
+		threadLabel(item.Thread), item.OccurrenceCount, item.DominantState, item.DominantImpactMs, item.TotalMs, item.ProjectedImpactMs, item.ProjectedTotalMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualFirstTs, item.ActualLastTs, item.TargetBlockedMs, item.FragmentCount, item.StateSwitches, item.MaxSegmentMs, item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs, item.ActualRunningMs, item.ActualRunnableMs, item.ActualSleepMs, item.ActualDStateMs, item.ActualIOWaitMs)
 	if item.Path != "" {
 		summary += " path=" + item.Path
 	}
@@ -7148,6 +7182,7 @@ func rootCauseItem(typ string, thread ThreadRef, impactMs float64, confidence fl
 		Type:               typ,
 		Thread:             thread,
 		ImpactMs:           impactMs,
+		ProjectedImpactMs:  impactMs,
 		CumulativeImpactMs: impactMs,
 		Score:              impactMs * confidence * rootCauseTypeWeight(typ),
 		Confidence:         confidence,
@@ -7176,12 +7211,17 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 	item.TargetImpactMs = impact.TargetBlockedMs
 	item.StartTs = impact.Window.StartTs
 	item.EndTs = impact.Window.EndTs
+	item.ActualStartTs = impact.ActualWindow.StartTs
+	item.ActualEndTs = impact.ActualWindow.EndTs
 	item.DominantState = impact.DominantState
 	item.RunningMs = impact.RunningMs
 	item.RunnableMs = impact.RunnableMs
 	item.SleepMs = impact.SleepMs
 	item.DStateMs = impact.DStateMs
 	item.IOWaitMs = impact.IOWaitMs
+	item.ProjectedImpactMs = firstPositiveFloat(impact.ProjectedImpactMs, impactMs)
+	item.ActualImpactMs = impact.ActualImpactMs
+	item.ActualTotalMs = impact.ActualTotalMs
 	item.Score = impactMs * conf * 2.0
 	return item
 }
@@ -7204,12 +7244,17 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 	item.TargetImpactMs = aggregate.TargetBlockedMs
 	item.StartTs = aggregate.FirstTs
 	item.EndTs = aggregate.LastTs
+	item.ActualStartTs = aggregate.ActualFirstTs
+	item.ActualEndTs = aggregate.ActualLastTs
 	item.DominantState = aggregate.DominantState
 	item.RunningMs = aggregate.RunningMs
 	item.RunnableMs = aggregate.RunnableMs
 	item.SleepMs = aggregate.SleepMs
 	item.DStateMs = aggregate.DStateMs
 	item.IOWaitMs = aggregate.IOWaitMs
+	item.ProjectedImpactMs = firstPositiveFloat(aggregate.ProjectedImpactMs, impactMs)
+	item.ActualImpactMs = aggregate.ActualImpactMs
+	item.ActualTotalMs = aggregate.ActualTotalMs
 	item.OccurrenceWindows = append([]WakeupCausalOccurrence(nil), aggregate.OccurrenceWindows...)
 	item.Score = impactMs * conf * 2.05
 	return item
@@ -7220,6 +7265,26 @@ func aggregateBlockingMs(item WakeupCausalAggregate) float64 {
 		return item.DStateMs + item.IOWaitMs
 	}
 	return item.DominantImpactMs
+}
+
+func actualAggregateBlockingMs(item WakeupCausalAggregate) float64 {
+	if item.DominantState == string(StateDSleep) || item.DominantState == string(StateIOWait) {
+		return item.ActualDStateMs + item.ActualIOWaitMs
+	}
+	switch item.DominantState {
+	case string(StateRunning):
+		return item.ActualRunningMs
+	case string(StateRunnable):
+		return item.ActualRunnableMs
+	case string(StateSSleep):
+		return item.ActualSleepMs
+	case string(StateDSleep):
+		return item.ActualDStateMs
+	case string(StateIOWait):
+		return item.ActualIOWaitMs
+	default:
+		return item.ActualTotalMs
+	}
 }
 
 func aggregateRootCauseIsPrioritySensitive(item WakeupCausalAggregate) bool {
@@ -8754,6 +8819,10 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, thread ThreadRef, interval
 			continue
 		}
 		item.TotalMs += it.DurationMs
+		item.ProjectedTotalMs += it.DurationMs
+		actualDuration := intervalActualDurationMs(it)
+		item.ActualTotalMs += actualDuration
+		extendActualWindow(&item.ActualWindow, it)
 		item.FragmentCount++
 		segments = append(segments, it.DurationMs)
 		if it.DurationMs > item.MaxSegmentMs {
@@ -8766,14 +8835,19 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, thread ThreadRef, interval
 		switch it.State {
 		case StateRunning:
 			item.RunningMs += it.DurationMs
+			item.ActualRunningMs += actualDuration
 		case StateRunnable:
 			item.RunnableMs += it.DurationMs
+			item.ActualRunnableMs += actualDuration
 		case StateSSleep:
 			item.SleepMs += it.DurationMs
+			item.ActualSleepMs += actualDuration
 		case StateDSleep:
 			item.DStateMs += it.DurationMs
+			item.ActualDStateMs += actualDuration
 		case StateIOWait:
 			item.IOWaitMs += it.DurationMs
+			item.ActualIOWaitMs += actualDuration
 		}
 	}
 	if item.FragmentCount > 0 {
@@ -8781,6 +8855,8 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, thread ThreadRef, interval
 	}
 	item.P95SegmentMs = percentileFloat64(segments, 0.95)
 	item.DominantState, item.DominantImpactMs = dominantCausalImpactState(item)
+	item.ProjectedImpactMs = causalImpactBlockingMs(item)
+	item.ActualImpactMs = actualCausalImpactBlockingMs(item)
 	item.Priority, item.PriorityClass = threadPriorityNear(idx, q.TraceFlavor, thread, (start+end)/2)
 	item.TargetPriority, item.TargetPriorityClass = threadPriorityNear(idx, q.TraceFlavor, target, start)
 	item.PriorityRelation = dependencyPriorityRelation(q.TraceFlavor, item.TargetPriority, item.Priority, depth)
@@ -8788,6 +8864,35 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, thread ThreadRef, interval
 	item.NextStep = causalImpactNextStep(item)
 	item.Summary = renderWakeupCausalImpactSummary(item)
 	return item
+}
+
+func intervalActualDurationMs(it Interval) float64 {
+	if it.ActualDurationMs > 0 {
+		return it.ActualDurationMs
+	}
+	if it.ActualEndTs > it.ActualStartTs {
+		return (it.ActualEndTs - it.ActualStartTs) * 1000
+	}
+	return it.DurationMs
+}
+
+func extendActualWindow(window *TimeWindow, it Interval) {
+	if window == nil {
+		return
+	}
+	start, end := it.ActualStartTs, it.ActualEndTs
+	if start == 0 && end == 0 {
+		start, end = it.StartTs, it.EndTs
+	}
+	if end < start {
+		end = start
+	}
+	if start > 0 && (window.StartTs == 0 || start < window.StartTs) {
+		window.StartTs = start
+	}
+	if end > window.EndTs {
+		window.EndTs = end
+	}
 }
 
 func dominantCausalImpactState(item WakeupCausalImpact) (string, float64) {
@@ -8827,6 +8932,26 @@ func causalImpactBlockingMs(item WakeupCausalImpact) float64 {
 	return item.DominantImpactMs
 }
 
+func actualCausalImpactBlockingMs(item WakeupCausalImpact) float64 {
+	if item.DominantState == string(StateDSleep) || item.DominantState == string(StateIOWait) {
+		return item.ActualDStateMs + item.ActualIOWaitMs
+	}
+	switch item.DominantState {
+	case string(StateRunning):
+		return item.ActualRunningMs
+	case string(StateRunnable):
+		return item.ActualRunnableMs
+	case string(StateSSleep):
+		return item.ActualSleepMs
+	case string(StateDSleep):
+		return item.ActualDStateMs
+	case string(StateIOWait):
+		return item.ActualIOWaitMs
+	default:
+		return item.ActualTotalMs
+	}
+}
+
 func causalImpactNextStep(item WakeupCausalImpact) string {
 	base := stateChurnNextStep(item.DominantState)
 	if item.PriorityInversionCandidate {
@@ -8836,8 +8961,8 @@ func causalImpactNextStep(item WakeupCausalImpact) string {
 }
 
 func renderWakeupCausalImpactSummary(item WakeupCausalImpact) string {
-	summary := fmt.Sprintf("%s on wakeup chain depth=%d dominant_state=%s impact=%.3fms total=%.3fms target_blocked=%.3fms fragments=%d switches=%d max_segment=%.3fms p95_segment=%.3fms totals running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms",
-		threadLabel(item.Thread), item.ChainDepth, item.DominantState, item.DominantImpactMs, item.TotalMs, item.TargetBlockedMs, item.FragmentCount, item.StateSwitches, item.MaxSegmentMs, item.P95SegmentMs, item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs)
+	summary := fmt.Sprintf("%s on wakeup chain depth=%d dominant_state=%s impact=%.3fms total=%.3fms projected_impact=%.3fms projected_total=%.3fms actual_impact=%.3fms actual_total=%.3fms actual_window=%.6f..%.6f target_blocked=%.3fms fragments=%d switches=%d max_segment=%.3fms p95_segment=%.3fms totals running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms actual_totals running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms",
+		threadLabel(item.Thread), item.ChainDepth, item.DominantState, item.DominantImpactMs, item.TotalMs, item.ProjectedImpactMs, item.ProjectedTotalMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualWindow.StartTs, item.ActualWindow.EndTs, item.TargetBlockedMs, item.FragmentCount, item.StateSwitches, item.MaxSegmentMs, item.P95SegmentMs, item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs, item.ActualRunningMs, item.ActualRunnableMs, item.ActualSleepMs, item.ActualDStateMs, item.ActualIOWaitMs)
 	if item.Priority > 0 || item.TargetPriority > 0 {
 		summary = fmt.Sprintf("%s priority=%d/%s target_priority=%d/%s relation=%s", summary, item.Priority, item.PriorityClass, item.TargetPriority, item.TargetPriorityClass, item.PriorityRelation)
 	}

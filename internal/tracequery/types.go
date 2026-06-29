@@ -351,16 +351,19 @@ const (
 )
 
 type Interval struct {
-	Thread       ThreadRef   `json:"thread"`
-	State        ThreadState `json:"state"`
-	StartTs      float64     `json:"start_ts"`
-	EndTs        float64     `json:"end_ts"`
-	DurationMs   float64     `json:"duration_ms"`
-	StartLine    int         `json:"start_line,omitempty"`
-	EndLine      int         `json:"end_line,omitempty"`
-	WakeupLine   int         `json:"wakeup_line,omitempty"`
-	PrevStateRaw string      `json:"prev_state_raw,omitempty"`
-	Summary      string      `json:"summary,omitempty"`
+	Thread           ThreadRef   `json:"thread"`
+	State            ThreadState `json:"state"`
+	StartTs          float64     `json:"start_ts"`
+	EndTs            float64     `json:"end_ts"`
+	DurationMs       float64     `json:"duration_ms"`
+	ActualStartTs    float64     `json:"actual_start_ts,omitempty"`
+	ActualEndTs      float64     `json:"actual_end_ts,omitempty"`
+	ActualDurationMs float64     `json:"actual_duration_ms,omitempty"`
+	StartLine        int         `json:"start_line,omitempty"`
+	EndLine          int         `json:"end_line,omitempty"`
+	WakeupLine       int         `json:"wakeup_line,omitempty"`
+	PrevStateRaw     string      `json:"prev_state_raw,omitempty"`
+	Summary          string      `json:"summary,omitempty"`
 }
 
 type TimelineResult struct {
@@ -1121,6 +1124,8 @@ type RootCauseRankItem struct {
 	PerfContexts       []RootCausePerfRoleContext `json:"perf_contexts,omitempty"`
 	StartTs            float64                    `json:"start_ts,omitempty"`
 	EndTs              float64                    `json:"end_ts,omitempty"`
+	ActualStartTs      float64                    `json:"actual_start_ts,omitempty"`
+	ActualEndTs        float64                    `json:"actual_end_ts,omitempty"`
 	DominantState      string                     `json:"dominant_state,omitempty"`
 	RunningMs          float64                    `json:"running_ms,omitempty"`
 	RunnableMs         float64                    `json:"runnable_ms,omitempty"`
@@ -1128,8 +1133,11 @@ type RootCauseRankItem struct {
 	DStateMs           float64                    `json:"d_state_ms,omitempty"`
 	IOWaitMs           float64                    `json:"io_wait_ms,omitempty"`
 	ImpactMs           float64                    `json:"impact_ms,omitempty"`
+	ProjectedImpactMs  float64                    `json:"projected_impact_ms,omitempty"`
 	CumulativeImpactMs float64                    `json:"cumulative_impact_ms,omitempty"`
 	TargetImpactMs     float64                    `json:"target_impact_ms,omitempty"`
+	ActualImpactMs     float64                    `json:"actual_impact_ms,omitempty"`
+	ActualTotalMs      float64                    `json:"actual_total_ms,omitempty"`
 	Score              float64                    `json:"score,omitempty"`
 	Confidence         float64                    `json:"confidence,omitempty"`
 	LineStart          int                        `json:"line_start,omitempty"`
@@ -1392,16 +1400,26 @@ type WakeupEdge struct {
 type WakeupCausalImpact struct {
 	Thread                     ThreadRef  `json:"thread"`
 	Window                     TimeWindow `json:"window"`
+	ActualWindow               TimeWindow `json:"actual_window,omitempty"`
 	ChainDepth                 int        `json:"chain_depth,omitempty"`
 	OnChain                    bool       `json:"on_chain,omitempty"`
 	DominantState              string     `json:"dominant_state,omitempty"`
 	DominantImpactMs           float64    `json:"dominant_impact_ms,omitempty"`
+	ProjectedImpactMs          float64    `json:"projected_impact_ms,omitempty"`
 	TotalMs                    float64    `json:"total_ms,omitempty"`
+	ProjectedTotalMs           float64    `json:"projected_total_ms,omitempty"`
+	ActualImpactMs             float64    `json:"actual_impact_ms,omitempty"`
+	ActualTotalMs              float64    `json:"actual_total_ms,omitempty"`
 	RunningMs                  float64    `json:"running_ms,omitempty"`
 	RunnableMs                 float64    `json:"runnable_ms,omitempty"`
 	SleepMs                    float64    `json:"sleep_ms,omitempty"`
 	DStateMs                   float64    `json:"d_state_ms,omitempty"`
 	IOWaitMs                   float64    `json:"io_wait_ms,omitempty"`
+	ActualRunningMs            float64    `json:"actual_running_ms,omitempty"`
+	ActualRunnableMs           float64    `json:"actual_runnable_ms,omitempty"`
+	ActualSleepMs              float64    `json:"actual_sleep_ms,omitempty"`
+	ActualDStateMs             float64    `json:"actual_d_state_ms,omitempty"`
+	ActualIOWaitMs             float64    `json:"actual_io_wait_ms,omitempty"`
 	FragmentCount              int        `json:"fragment_count,omitempty"`
 	StateSwitches              int        `json:"state_switches,omitempty"`
 	MaxSegmentMs               float64    `json:"max_segment_ms,omitempty"`
@@ -1420,23 +1438,33 @@ type WakeupCausalImpact struct {
 }
 
 type WakeupCausalOccurrence struct {
-	Window           TimeWindow `json:"window,omitempty"`
-	DominantState    string     `json:"dominant_state,omitempty"`
-	DominantImpactMs float64    `json:"dominant_impact_ms,omitempty"`
-	TotalMs          float64    `json:"total_ms,omitempty"`
-	TargetBlockedMs  float64    `json:"target_blocked_ms,omitempty"`
-	RunningMs        float64    `json:"running_ms,omitempty"`
-	RunnableMs       float64    `json:"runnable_ms,omitempty"`
-	SleepMs          float64    `json:"sleep_ms,omitempty"`
-	DStateMs         float64    `json:"d_state_ms,omitempty"`
-	IOWaitMs         float64    `json:"io_wait_ms,omitempty"`
-	FragmentCount    int        `json:"fragment_count,omitempty"`
-	StateSwitches    int        `json:"state_switches,omitempty"`
-	MaxSegmentMs     float64    `json:"max_segment_ms,omitempty"`
-	P95SegmentMs     float64    `json:"p95_segment_ms,omitempty"`
-	LineStart        int        `json:"line_start,omitempty"`
-	LineEnd          int        `json:"line_end,omitempty"`
-	Summary          string     `json:"summary,omitempty"`
+	Window            TimeWindow `json:"window,omitempty"`
+	ActualWindow      TimeWindow `json:"actual_window,omitempty"`
+	DominantState     string     `json:"dominant_state,omitempty"`
+	DominantImpactMs  float64    `json:"dominant_impact_ms,omitempty"`
+	ProjectedImpactMs float64    `json:"projected_impact_ms,omitempty"`
+	TotalMs           float64    `json:"total_ms,omitempty"`
+	ProjectedTotalMs  float64    `json:"projected_total_ms,omitempty"`
+	ActualImpactMs    float64    `json:"actual_impact_ms,omitempty"`
+	ActualTotalMs     float64    `json:"actual_total_ms,omitempty"`
+	TargetBlockedMs   float64    `json:"target_blocked_ms,omitempty"`
+	RunningMs         float64    `json:"running_ms,omitempty"`
+	RunnableMs        float64    `json:"runnable_ms,omitempty"`
+	SleepMs           float64    `json:"sleep_ms,omitempty"`
+	DStateMs          float64    `json:"d_state_ms,omitempty"`
+	IOWaitMs          float64    `json:"io_wait_ms,omitempty"`
+	ActualRunningMs   float64    `json:"actual_running_ms,omitempty"`
+	ActualRunnableMs  float64    `json:"actual_runnable_ms,omitempty"`
+	ActualSleepMs     float64    `json:"actual_sleep_ms,omitempty"`
+	ActualDStateMs    float64    `json:"actual_d_state_ms,omitempty"`
+	ActualIOWaitMs    float64    `json:"actual_io_wait_ms,omitempty"`
+	FragmentCount     int        `json:"fragment_count,omitempty"`
+	StateSwitches     int        `json:"state_switches,omitempty"`
+	MaxSegmentMs      float64    `json:"max_segment_ms,omitempty"`
+	P95SegmentMs      float64    `json:"p95_segment_ms,omitempty"`
+	LineStart         int        `json:"line_start,omitempty"`
+	LineEnd           int        `json:"line_end,omitempty"`
+	Summary           string     `json:"summary,omitempty"`
 }
 
 type WakeupCausalAggregate struct {
@@ -1446,18 +1474,29 @@ type WakeupCausalAggregate struct {
 	OccurrenceCount   int                      `json:"occurrence_count,omitempty"`
 	DominantState     string                   `json:"dominant_state,omitempty"`
 	DominantImpactMs  float64                  `json:"dominant_impact_ms,omitempty"`
+	ProjectedImpactMs float64                  `json:"projected_impact_ms,omitempty"`
 	TotalMs           float64                  `json:"total_ms,omitempty"`
+	ProjectedTotalMs  float64                  `json:"projected_total_ms,omitempty"`
+	ActualImpactMs    float64                  `json:"actual_impact_ms,omitempty"`
+	ActualTotalMs     float64                  `json:"actual_total_ms,omitempty"`
 	RunningMs         float64                  `json:"running_ms,omitempty"`
 	RunnableMs        float64                  `json:"runnable_ms,omitempty"`
 	SleepMs           float64                  `json:"sleep_ms,omitempty"`
 	DStateMs          float64                  `json:"d_state_ms,omitempty"`
 	IOWaitMs          float64                  `json:"io_wait_ms,omitempty"`
+	ActualRunningMs   float64                  `json:"actual_running_ms,omitempty"`
+	ActualRunnableMs  float64                  `json:"actual_runnable_ms,omitempty"`
+	ActualSleepMs     float64                  `json:"actual_sleep_ms,omitempty"`
+	ActualDStateMs    float64                  `json:"actual_d_state_ms,omitempty"`
+	ActualIOWaitMs    float64                  `json:"actual_io_wait_ms,omitempty"`
 	TargetBlockedMs   float64                  `json:"target_blocked_ms,omitempty"`
 	FragmentCount     int                      `json:"fragment_count,omitempty"`
 	StateSwitches     int                      `json:"state_switches,omitempty"`
 	MaxSegmentMs      float64                  `json:"max_segment_ms,omitempty"`
 	FirstTs           float64                  `json:"first_ts,omitempty"`
 	LastTs            float64                  `json:"last_ts,omitempty"`
+	ActualFirstTs     float64                  `json:"actual_first_ts,omitempty"`
+	ActualLastTs      float64                  `json:"actual_last_ts,omitempty"`
 	LineStart         int                      `json:"line_start,omitempty"`
 	LineEnd           int                      `json:"line_end,omitempty"`
 	PriorityRelation  string                   `json:"priority_relation,omitempty"`

@@ -1899,6 +1899,49 @@ func TestWakeupChainCausalImpactPromotesLongRunnableDependency(t *testing.T) {
 	}
 }
 
+func TestWakeupChainSeparatesProjectedAndActualImpactDurations(t *testing.T) {
+	idx := buildTraceIndex(t, "causal_actual_duration.systrace", `
+     worker-200 (100) [002] .... 8.000000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=D ==> next_comm=idle/2 next_pid=0 next_prio=120
+       irq-2 (2) [002] .... 8.100000: sched_blocked_reason: pid=200 iowait=1 caller=f2fs_wait_on_block
+        app-100 (100) [001] .... 13.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+       irq-2 (2) [002] .... 18.000000: sched_wakeup: comm=worker pid=200 prio=20 target_cpu=002
+     worker-200 (100) [002] .... 18.010000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 18.020000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 18.030000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	q := Query{PID: 100, TimeStart: 13.0, TimeEnd: 18.03, MaxDepth: 4, MaxBranches: 1, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace}
+	chain := BuildWakeupChain(idx, q)
+	var worker *WakeupCausalImpact
+	for i := range chain.CausalImpacts {
+		if chain.CausalImpacts[i].Thread.PID == 200 {
+			worker = &chain.CausalImpacts[i]
+			break
+		}
+	}
+	if worker == nil {
+		t.Fatalf("expected worker causal impact: %+v", chain.CausalImpacts)
+	}
+	if worker.DominantState != string(StateIOWait) {
+		t.Fatalf("expected worker D-state to be enriched as IO wait: %+v", worker)
+	}
+	if !near(worker.ProjectedImpactMs, 5000, 0.001) || !near(worker.DominantImpactMs, 5000, 0.001) || !near(worker.IOWaitMs, 5000, 0.001) {
+		t.Fatalf("projected impact should be clipped to target blocking window, got %+v", worker)
+	}
+	if !near(worker.ActualImpactMs, 10000, 0.001) || !near(worker.ActualIOWaitMs, 10000, 0.001) {
+		t.Fatalf("actual impact should preserve the full D/IO interval, got %+v", worker)
+	}
+	if !near(worker.ActualWindow.StartTs, 8.0, 0.000001) || !near(worker.ActualWindow.EndTs, 18.02, 0.000001) {
+		t.Fatalf("actual window should preserve full scheduler segment span, got %+v", worker.ActualWindow)
+	}
+	rank := BuildRootCauseRank(idx, q)
+	if len(rank.Items) == 0 || rank.Items[0].Thread.PID != 200 || rank.Items[0].ChainRelevance != "on_chain" {
+		t.Fatalf("expected on-chain worker as primary root cause: %+v", rank.Items)
+	}
+	if !near(rank.Items[0].ProjectedImpactMs, 5000, 0.001) || !near(rank.Items[0].ActualImpactMs, 10000, 0.001) || !near(rank.Items[0].ActualStartTs, 8.0, 0.000001) {
+		t.Fatalf("root cause rank should carry projected and actual durations: %+v", rank.Items[0])
+	}
+}
+
 func TestWakeupChainUsesBoundaryToleranceForAdjacentWakeup(t *testing.T) {
 	idx := buildTraceIndex(t, "boundary.systrace", `
         app-100 (100) [001] .... 1.020000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
