@@ -1215,6 +1215,24 @@ func TestFormatAnalysisToolResultSummaryUsesNormalizedRequiredFiles(t *testing.T
 	}
 }
 
+func TestFormatAnalysisToolResultSummaryClearsDroppedRequiredFiles(t *testing.T) {
+	params := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "complex",
+		"question_kind": "enumeration",
+		"keywords": ["extend"],
+		"required_files": [
+			{"path": "internal/tool/repomap/index/cangjie_parser.go"}
+		]
+	}`
+	summary := `analysis emitted: intent=enumerate scenario=generic complexity=complex kw=1 ent=0 kind=enumeration required_files=[] source_inventory=type,function | warn: required_files: dropped 1 model-authored source-inventory path hint(s) that were not exact paths in the current request`
+	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_analysis", params, summary, "zh", 0))
+	if strings.Contains(got, "建议文件") || strings.Contains(got, "cangjie_parser.go") {
+		t.Fatalf("analysis summary must not resurrect dropped required_files from raw params; got:\n%s", got)
+	}
+}
+
 func TestFormatAnalysisToolResultSummaryUsesResultSummaryTopicsAndDimensions(t *testing.T) {
 	summary := `analysis emitted: intent=trace scenario=performance_bottleneck complexity=complex kw=2 ent=1 kind=root_cause sub_topics=["唤醒链","CPU 供给"] answer_dimensions=["根因结论","证据支撑"]`
 	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_analysis", "", summary, "zh", 0))

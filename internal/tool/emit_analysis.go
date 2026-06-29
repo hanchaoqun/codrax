@@ -4159,6 +4159,8 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 		if encoded := encodeRequiredFileHintSummaryPaths(h.RequiredFileHints); encoded != "" {
 			fmt.Fprintf(&b, " required_files=%s", encoded)
 		}
+	} else if len(raw.RequiredFiles) > 0 {
+		b.WriteString(" required_files=[]")
 	}
 	if encoded := encodeSubTopicSummaryLabels(rm.SubTopics); encoded != "" {
 		fmt.Fprintf(&b, " sub_topics=%s", encoded)

@@ -4749,6 +4749,9 @@ func TestEmitAnalysis_Execute_SoftensRepoWideInventoryAuxiliaryExclusion(t *test
 	if len(rm.AnalyzerHints.RequiredFileHints) != 0 {
 		t.Fatalf("model-authored source-inventory support files must stay soft, got required_file hints: %+v", rm.AnalyzerHints.RequiredFileHints)
 	}
+	if !strings.Contains(res.Summary, "required_files=[]") {
+		t.Fatalf("summary should expose normalized empty required_files lane, got %q", res.Summary)
+	}
 	if !strings.Contains(res.Summary, "model-authored source-inventory path hint") {
 		t.Fatalf("summary should disclose source-inventory required_files softening, got %q", res.Summary)
 	}
@@ -6493,6 +6496,9 @@ func TestEmitAnalysis_Execute_DropsRequiredFileExactTargetsForSourceInventory(t 
 	}
 	if len(rm.AnalyzerHints.RequiredFileHints) != 0 {
 		t.Fatalf("non-verbatim source-inventory required file hints should stay soft: %+v", rm.AnalyzerHints.RequiredFileHints)
+	}
+	if !strings.Contains(res.Summary, "required_files=[]") {
+		t.Fatalf("summary should expose normalized empty required_files lane, got %q", res.Summary)
 	}
 	if !strings.Contains(res.Summary, "model-authored source-inventory path hint") {
 		t.Fatalf("summary should disclose source-inventory required_files softening, got %q", res.Summary)

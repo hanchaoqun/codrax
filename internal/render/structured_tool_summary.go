@@ -790,7 +790,7 @@ func formatAnalysisToolResultSummary(paramsJSON, resultSummary, lang string) str
 	} else {
 		p = mergeAnalysisSummaryPayload(p, resultPayload)
 	}
-	if paths := analysisRequiredFilesFromResult(resultSummary); len(paths) > 0 {
+	if paths, ok := analysisRequiredFilesFromResult(resultSummary); ok {
 		p.RequiredFiles = make([]struct {
 			Path string `json:"path"`
 		}, 0, len(paths))
@@ -1111,19 +1111,19 @@ func analysisStringListFromResult(summary, key string) []string {
 	return out
 }
 
-func analysisRequiredFilesFromResult(summary string) []string {
+func analysisRequiredFilesFromResult(summary string) ([]string, bool) {
 	idx := strings.Index(summary, "required_files=")
 	if idx < 0 {
-		return nil
+		return nil, false
 	}
 	raw := strings.TrimSpace(summary[idx+len("required_files="):])
 	if raw == "" {
-		return nil
+		return nil, false
 	}
 	dec := json.NewDecoder(strings.NewReader(raw))
 	var paths []string
 	if err := dec.Decode(&paths); err != nil {
-		return nil
+		return nil, false
 	}
 	out := make([]string, 0, len(paths))
 	seen := make(map[string]bool, len(paths))
@@ -1135,7 +1135,7 @@ func analysisRequiredFilesFromResult(summary string) []string {
 		seen[path] = true
 		out = append(out, path)
 	}
-	return out
+	return out, true
 }
 
 func analysisHeader(zh bool) string {
