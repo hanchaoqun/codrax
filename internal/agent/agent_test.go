@@ -1549,16 +1549,34 @@ func TestBuildToolSchemas_ObservationOnlyRuntimeKeepsAnalyzerPrescanTools(t *tes
 	}
 }
 
+// explicitRuntimeArtifactLog creates a real runtime-artifact log file under a
+// fresh temp dir and returns the file path plus its parent dir. The analyzer's
+// explicit-runtime-artifact-path detector requires the path to resolve on disk
+// (os.Stat), so tests must point at a real file rather than a machine-absolute
+// fixture path that only existed on the author's box.
+func explicitRuntimeArtifactLog(t *testing.T) (logPath, dir string) {
+	t.Helper()
+	dir = t.TempDir()
+	logPath = filepath.Join(dir, "runtime_path_panic.log")
+	body := "FATAL panic: runtime error: index out of range\n" +
+		"  at app/main.go:42\n  at app/server.go:88\n"
+	if err := os.WriteFile(logPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("write runtime artifact log: %v", err)
+	}
+	return logPath, dir
+}
+
 func TestBuildToolSchemas_ExplicitRuntimeArtifactPathHidesAnalyzerPrescanTools(t *testing.T) {
 	registry := tool.NewRegistry()
 	registry.Register(&tool.GrepTool{})
 	registry.Register(&tool.ListFiles{})
 	registry.Register(&tool.EmitAnalysis{})
 
+	logPath, _ := explicitRuntimeArtifactLog(t)
 	agent := NewBaseAgent(types.AgentAnalyzer, &Dependencies{Tools: registry}, &stubEvaluator{})
 	ctx := &types.AgentContext{
 		Stage:     types.StageAnalyze,
-		Objective: "只分析 /Users/han/opt/codrax/eval/fixtures/runtime_path_panic.log 这个日志文件，不分析代码。",
+		Objective: "只分析 " + logPath + " 这个日志文件，不分析代码。",
 	}
 	schemas := agent.buildToolSchemas(&skill.Config{
 		ToolSuggestions: []string{"grep", "list_files", "emit_analysis"},

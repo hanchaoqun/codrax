@@ -1382,14 +1382,19 @@ func TestAnalyzer_RejectsContentToolBeforeExecution(t *testing.T) {
 }
 
 func TestAnalyzer_Observe_ExplicitRuntimeArtifactPathHintIsEmitOnly(t *testing.T) {
+	logPath, dir := explicitRuntimeArtifactLog(t)
 	ctx := &types.AgentContext{
 		Stage:     types.StageAnalyze,
-		Objective: "只分析 /Users/han/opt/codrax/eval/fixtures/runtime_path_panic.log 这个日志文件，不分析代码。",
+		Objective: "只分析 " + logPath + " 这个日志文件，不分析代码。",
 		Mutable:   types.NewMutableState("question"),
+	}
+	listParams, err := json.Marshal(map[string]string{"path": dir})
+	if err != nil {
+		t.Fatalf("marshal list_files params: %v", err)
 	}
 	res := validateAnalyzerToolBoundary(ctx, llm.ToolCall{
 		Name:   "list_files",
-		Params: json.RawMessage(`{"path":"/Users/han/opt/codrax/eval/fixtures"}`),
+		Params: json.RawMessage(listParams),
 	})
 	if res == nil || res.Repair == nil || res.Repair.Code != analyzerExplicitRuntimeArtifactPathEmitOnlyCode {
 		t.Fatalf("expected explicit runtime artifact path repair, got %+v", res)

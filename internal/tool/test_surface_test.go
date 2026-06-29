@@ -33,22 +33,48 @@ func surfaceCandidate(t *testing.T, surface types.TestSurface, runner string) ty
 	return types.TestSurfaceCandidate{}
 }
 
-func fakePython3WithoutPytest(t *testing.T) {
+// fakePytestUnavailable makes "pytest" look uninstalled to the runner,
+// hermetically, regardless of what the host actually has on PATH. It must
+// shadow EVERY pytest entrypoint the python interpreter resolver probes
+// (run_tests.go pythonInterpreterForPlan):
+//
+//   - the standalone `pytest` binary (preferred via exec.LookPath("pytest")),
+//   - `<python> -m pytest`.
+//
+// A previous version only stubbed `python3 -m pytest`. On hosts that also
+// carry a standalone `pytest` (e.g. CI images, dev sandboxes), the resolver
+// picked that real binary first and the "pytest missing" precondition silently
+// did not hold — the escalation-chain tests then exercised the host's real
+// pytest instead of the intended runner_missing path. The fake `pytest` exits
+// 127 so detectRunnerMissingForPlan classifies it as runner_missing
+// (exit_code_127), matching the `<python> -m pytest` "No module named pytest"
+// signal.
+func fakePytestUnavailable(t *testing.T) {
 	t.Helper()
 	realPython, err := exec.LookPath("python3")
 	if err != nil {
 		t.Skip("python3 not available on PATH")
 	}
 	fakeBin := t.TempDir()
+
+	fakePytest := filepath.Join(fakeBin, "pytest")
+	pytestScript := `#!/bin/sh
+echo "pytest: command not found" >&2
+exit 127
+`
+	if err := os.WriteFile(fakePytest, []byte(pytestScript), 0o755); err != nil {
+		t.Fatalf("write fake pytest: %v", err)
+	}
+
 	fakePython := filepath.Join(fakeBin, "python3")
-	script := fmt.Sprintf(`#!/bin/sh
+	pythonScript := fmt.Sprintf(`#!/bin/sh
 if [ "$1" = "-m" ] && [ "$2" = "pytest" ]; then
   echo "No module named pytest" >&2
   exit 1
 fi
 exec %q "$@"
 `, realPython)
-	if err := os.WriteFile(fakePython, []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(fakePython, []byte(pythonScript), 0o755); err != nil {
 		t.Fatalf("write fake python3: %v", err)
 	}
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -319,7 +345,7 @@ func TestRunTests_ParserZeroTestsEscalatesAgainToMake(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not available on PATH")
 	}
-	fakePython3WithoutPytest(t)
+	fakePytestUnavailable(t)
 	root := t.TempDir()
 	writeSurfaceFile(t, root, "pyproject.toml", "[tool.pytest.ini_options]\n")
 	writeSurfaceFile(t, root, "Makefile", "check:\n\tPYTHONPATH=. python3 -m unittest discover -s tests -v\n")
@@ -377,7 +403,7 @@ func TestNextTestSurfaceEscalationForRunnerDoesNotCrossLanguage(t *testing.T) {
 }
 
 func TestRunTests_ParserZeroTestsWithoutEscalationFinishesUnverified(t *testing.T) {
-	fakePython3WithoutPytest(t)
+	fakePytestUnavailable(t)
 	root := t.TempDir()
 	writeSurfaceFile(t, root, "pyproject.toml", "[tool.pytest.ini_options]\n")
 	writeSurfaceFile(t, root, "tests/test_tokenizer.py", "import unittest\n\nclass TokenizerTest(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n")
