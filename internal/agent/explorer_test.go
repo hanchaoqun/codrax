@@ -1000,7 +1000,7 @@ func TestBuildInitialInstructionRetry(t *testing.T) {
 	if !strings.Contains(prompt1, "Breadth Scan") {
 		t.Error("first call should contain 'Breadth Scan'")
 	}
-	for _, want := range []string{"Repo Map Navigation", `view="source_inventory"`, "include_attributes=false", "attribute_roles", "after narrowing", "Do not use source_inventory as a substitute", `view="relation_map"`, "second navigation stage", "relation_kinds", types.SourceInventoryMechanicalFactBoundary, `view="semantic_subgraph"`, `view="edit_impact"`, `view="call_path"`, "active sub-repo", "relative to the selected sub-repo", "Typed Repo Map Route Hints", "not read obligations", "Prefer concise exact code surfaces as `query`"} {
+	for _, want := range []string{"Repo Map Navigation", `view="source_inventory"`, "include_attributes=false", "attribute_roles", "bounded narrowing cascade", "same paged lens identity", "Do not use source_inventory as a substitute", `view="relation_map"`, "second navigation stage", "relation_kinds", types.SourceInventoryMechanicalFactBoundary, `view="semantic_subgraph"`, `view="edit_impact"`, `view="call_path"`, "active sub-repo", "relative to the selected sub-repo", "Typed Repo Map Route Hints", "not read obligations", "Prefer concise exact code surfaces as `query`"} {
 		if !strings.Contains(prompt1, want) {
 			t.Fatalf("breadth scan should teach cascaded repo_map navigation; missing %q:\n%s", want, prompt1)
 		}
@@ -1106,6 +1106,46 @@ func TestBuildInitialInstruction_CallChainTypedRepoMapOutranksGenericGrep(t *tes
 	}
 	if strings.Contains(prompt, "Batch both versions as parallel grep calls") {
 		t.Fatalf("call-chain prompt must not make translated grep batching stronger than typed repo_map policy:\n%s", prompt)
+	}
+}
+
+func TestBuildInitialInstruction_SourceInventoryGuidanceStartsNarrow(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Objective: "列出这个模块里的声明及其包名",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleFunction},
+					RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldPackage},
+					Confidence:        0.9,
+				},
+			},
+		},
+		RepoRoot: ".",
+	}
+
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		`view="source_inventory"`,
+		"narrowest typed/requested `scope`",
+		"compact `query`",
+		"do not make broad root inventory the default first hop",
+		"same paged lens identity",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("source-inventory prompt missing narrowing guidance %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{"broad `source_inventory` member/count summary first", "broad summary first", "include_attributes=false for broad passes"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("source-inventory prompt must not revive broad-first wording %q:\n%s", forbidden, prompt)
+		}
 	}
 }
 

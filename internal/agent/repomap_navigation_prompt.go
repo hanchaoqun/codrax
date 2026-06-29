@@ -59,6 +59,10 @@ func renderExplorerRepoMapTypedFirstHop(ctx *types.AgentContext) string {
 	return b.String()
 }
 
+func renderRepoMapSourceInventoryNarrowingGuidance() string {
+	return "When the task needs a source inventory or member/count checklist, call `repo_map` with `view=\"source_inventory\"`, the narrowest typed/requested `scope` or `scopes` available, model-chosen `roles`, a compact `query` when exact surfaces are known, and `include_attributes=false` by default. If no typed scope exists yet, use at most one bounded root summary as orientation with low `top_n` and no row-local attributes, then narrow by `scope`/`roles` before paging; do not make broad root inventory the default first hop, and do not page a broad root lens merely to satisfy non-inventory architecture/relation questions. Add `attribute_roles` only after choosing a narrow scope/member that needs row-local details."
+}
+
 func repoMapPolicyStartsWithSourceInventory(policy types.RepoMapNavigationPolicy) bool {
 	return len(policy.Steps) > 0 &&
 		policy.Steps[0].Route == types.RepoMapNavigationRouteSourceInventory &&

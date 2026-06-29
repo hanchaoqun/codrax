@@ -105,7 +105,9 @@ func TestSubExplorerInitialInstructionTeachesRepoMapWithoutUnavailableTools(t *t
 		"pass a compact `query` before widening",
 		`view="source_inventory"`,
 		"include_attributes=false",
-		"add `attribute_roles` only after choosing a narrow scope/member",
+		"narrowest typed/requested `scope`",
+		"do not make broad root inventory the default first hop",
+		"Add `attribute_roles` only after choosing a narrow scope/member",
 		`view="relation_map"`,
 		"relation_kinds",
 		"Verify selected navigation rows with `read_file` or targeted `grep",
@@ -118,6 +120,11 @@ func TestSubExplorerInitialInstructionTeachesRepoMapWithoutUnavailableTools(t *t
 	for _, forbidden := range []string{"emit_evidence", "emit_investigation_complete", "exec_command", "propose_sub_agents"} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("sub_explorer prompt mentions unavailable tool %q:\n%s", forbidden, prompt)
+		}
+	}
+	for _, forbidden := range []string{"broad summary first", "include_attributes=false for broad passes"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("sub_explorer prompt must not revive broad source_inventory first-hop wording %q:\n%s", forbidden, prompt)
 		}
 	}
 }
