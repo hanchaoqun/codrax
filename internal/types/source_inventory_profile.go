@@ -151,42 +151,6 @@ func AnswerSubjectForSourceInventoryProfile(profile *SourceInventoryProfile) (An
 	}, true
 }
 
-// NormalizeSourceInventoryRequestedFieldsForAnswerSubject removes contradictory
-// requested-field drift after the answer subject has been inferred. A string
-// enum "type X string + const set" inventory asks for type identities unless
-// the source-inventory profile survives as a non-type subject; in that type
-// inventory shape, const/member values are a membership qualifier, not a
-// requested visible field.
-func NormalizeSourceInventoryRequestedFieldsForAnswerSubject(profile *SourceInventoryProfile, answerSubject AnswerSubject) bool {
-	if profile == nil || !profile.Active() || !profile.RequestsField(SourceInventoryFieldValues) {
-		return false
-	}
-	if answerSubject.Kind != SubjectTypeName {
-		return false
-	}
-	if profile.TypeUnderlying != SourceInventoryTypeUnderlyingString || !profile.RequiresConstSet {
-		return false
-	}
-	principalRoles := profile.PrincipalTargetRoles()
-	if len(principalRoles) != 1 || principalRoles[0] != AnswerCandidateRoleType {
-		return false
-	}
-	fields := make([]SourceInventoryRequestedField, 0, len(profile.RequestedFields))
-	removed := false
-	for _, field := range profile.RequestedFields {
-		if field == SourceInventoryFieldValues {
-			removed = true
-			continue
-		}
-		fields = append(fields, field)
-	}
-	if !removed {
-		return false
-	}
-	profile.RequestedFields = fields
-	return true
-}
-
 func (p *SourceInventoryProfile) RequestsField(field SourceInventoryRequestedField) bool {
 	if p == nil || field == "" {
 		return false

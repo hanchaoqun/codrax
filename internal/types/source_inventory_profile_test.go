@@ -159,6 +159,49 @@ func TestSourceInventoryProfile_NormalizesValuesAfterTypeSubjectInference(t *tes
 	}
 }
 
+func TestSourceInventoryProfile_NormalizesValuesAfterFunctionNameSubjectInference(t *testing.T) {
+	profile := &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+		RequestedFields: []SourceInventoryRequestedField{
+			SourceInventoryFieldName,
+			SourceInventoryFieldLocation,
+			SourceInventoryFieldValues,
+		},
+		Confidence: 0.95,
+	}
+
+	changed := NormalizeSourceInventoryRequestedFieldsForAnswerSubject(profile, AnswerSubject{Kind: SubjectFunctionName})
+	if !changed {
+		t.Fatal("expected values field to be removed for function-name inventory")
+	}
+	if profile.RequestsField(SourceInventoryFieldValues) {
+		t.Fatalf("values should not survive as a requested field: %+v", profile.RequestedFields)
+	}
+	if !profile.MechanicalRowsOnly() {
+		t.Fatalf("function name/location inventory should stay mechanical after normalization: %+v", profile)
+	}
+}
+
+func TestSourceInventoryProfile_KeepsValuesForReturnValueSubject(t *testing.T) {
+	profile := &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+		RequestedFields: []SourceInventoryRequestedField{
+			SourceInventoryFieldName,
+			SourceInventoryFieldValues,
+		},
+		Confidence: 0.95,
+	}
+
+	if NormalizeSourceInventoryRequestedFieldsForAnswerSubject(profile, AnswerSubject{Kind: SubjectReturnValue}) {
+		t.Fatal("return-value subject must keep values as source-text support")
+	}
+	if !profile.RequestsField(SourceInventoryFieldValues) {
+		t.Fatalf("values should remain for return-value inventory support: %+v", profile.RequestedFields)
+	}
+}
+
 func TestSourceInventoryProfile_MechanicalRowsOnlyBoundary(t *testing.T) {
 	mechanical := &SourceInventoryProfile{
 		IsSourceInventory: true,

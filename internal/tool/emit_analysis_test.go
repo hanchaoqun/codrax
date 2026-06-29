@@ -6119,6 +6119,73 @@ func TestEmitAnalysis_Execute_NormalizesSourceInventoryConstructRoleAliases(t *t
 	}
 }
 
+func TestEmitAnalysis_Execute_SourceInventoryInfersSubjectBeforeValuesNormalization(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	mu := types.NewMutableState("列出 ArkTS 里 @Entry 标记的页面入口和 @Builder 复用片段，给出文件路径和函数名。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["ArkTS", "@Entry", "@Builder", "function"],
+		"entities": ["@Entry", "@Builder"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.94,
+		"complexity_confidence": 0.86,
+		"kind_confidence": 0.92,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false, "has_per_member_table": true
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.95
+		},
+		"source_scope_profile": {
+			"requested_scope": "all",
+			"include_auxiliary_as_principal": true,
+			"confidence": 0.9,
+			"source_quotes": ["ArkTS"]
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["function"],
+			"requested_fields": ["name", "location", "values"],
+			"source_quotes": ["@Entry", "@Builder"],
+			"confidence": 0.9
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		t.Fatalf("source_inventory_profile should persist: %+v", rm)
+	}
+	if rm.AnswerSubject.Kind != types.SubjectFunctionName {
+		t.Fatalf("answer_subject should be inferred from source_inventory target role, got %+v", rm.AnswerSubject)
+	}
+	if rm.SourceInventoryProfile.RequestsField(types.SourceInventoryFieldValues) {
+		t.Fatalf("values display drift should be removed for function-name inventory: %+v", rm.SourceInventoryProfile.RequestedFields)
+	}
+	if !types.SourceInventoryPrincipalNavigationActive(*rm) {
+		t.Fatalf("normalized marker/decorator inventory should own source_inventory navigation: %+v", rm.SourceInventoryProfile)
+	}
+}
+
 func TestEmitAnalysis_Execute_SourceInventoryConstSetDoesNotImplyValuesField(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

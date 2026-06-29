@@ -1436,6 +1436,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		answerSubject = normalized
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if normalized, warning := normalizeMissingAnswerSubjectForSourceInventory(sourceInventoryProfile, answerSubject); warning != "" {
+		answerSubject = normalized
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if warning := normalizeSourceInventoryRequestedFieldsForAnswerSubject(sourceInventoryProfile, answerSubject); warning != "" {
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -2822,7 +2826,18 @@ func normalizeSourceInventoryRequestedFieldsForAnswerSubject(profile *types.Sour
 	if !types.NormalizeSourceInventoryRequestedFieldsForAnswerSubject(profile, answerSubject) {
 		return ""
 	}
-	return "source_inventory_profile.requested_fields removed values because answer_subject=type_name and requires_const_set is a structural qualifier for the requested type inventory"
+	return "source_inventory_profile.requested_fields removed values because typed answer_subject/source_inventory_profile define an identity inventory; literal/source values are not a mechanical row-set display field"
+}
+
+func normalizeMissingAnswerSubjectForSourceInventory(profile *types.SourceInventoryProfile, answerSubject types.AnswerSubject) (types.AnswerSubject, string) {
+	if answerSubject.Kind != types.SubjectUnknown || profile == nil || !profile.Active() {
+		return answerSubject, ""
+	}
+	inferred, ok := types.AnswerSubjectForSourceInventoryProfile(profile)
+	if !ok {
+		return answerSubject, ""
+	}
+	return inferred, "answer_subject inferred from source_inventory_profile.target_roles before source-inventory field normalization"
 }
 
 func dropSourceInventoryProfileForTypedRelation(rm *types.RequestModel) (bool, string) {

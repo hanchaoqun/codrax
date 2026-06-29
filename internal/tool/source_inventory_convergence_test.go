@@ -107,6 +107,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_observation_normalize.go":             17,
 	"../types/source_inventory_observation_page.go":                  41,
 	"../types/source_inventory_profile.go":                           229,
+	"../types/source_inventory_profile_normalize.go":                 95,
 	"../types/source_inventory_profile_roles.go":                     70,
 	"../types/source_inventory_prompt_boundary.go":                   10,
 	"../types/source_inventory_requested_field.go":                   60,
