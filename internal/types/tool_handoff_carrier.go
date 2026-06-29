@@ -203,9 +203,27 @@ func NormalizeToolHandoffCarriers(in []ToolHandoffCarrier) []ToolHandoffCarrier 
 		out = append(out, carrier)
 	}
 	if len(out) > toolHandoffMaxCarriers {
-		out = out[len(out)-toolHandoffMaxCarriers:]
+		sort.SliceStable(out, func(i, j int) bool {
+			return toolHandoffCarrierProjectionRank(out[i]) < toolHandoffCarrierProjectionRank(out[j])
+		})
+		out = out[:toolHandoffMaxCarriers]
 	}
 	return out
+}
+
+func toolHandoffCarrierProjectionRank(carrier ToolHandoffCarrier) int {
+	switch {
+	case carrier.SupportedJSON != nil || carrier.PlanRepairPack != nil || carrier.Repair != nil:
+		return 0
+	case len(carrier.AcceptedEvidence) > 0:
+		return 1
+	case carrier.Refinement != nil:
+		return 2
+	case len(carrier.ObservationRefs) > 0:
+		return 3
+	default:
+		return 4
+	}
 }
 
 func NormalizeToolHandoffCarrier(in ToolHandoffCarrier) ToolHandoffCarrier {

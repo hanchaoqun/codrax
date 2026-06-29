@@ -3842,6 +3842,13 @@ Remaining follow-up:
     4. Validation: focused orchestrator precise-signal lint passed after broadening the file family; focused hard-gate/pre-emit/source-inventory orchestrator and tool regressions passed.
     5. Safety boundary: this is a structural test guard only. It does not parse user intent, model prose, rendered tool output, localized UI, final answers, elapsed time, or eval labels, and it does not alter runtime behavior.
 
+  - **Completed D1-G176: ToolHandoffCarrier budget dropped actionable refinement before rendering（P1 / handoff fidelity + noise reduction / fixed before next eval）**:
+    1. Evidence: D1-G106/D1-F10g.66 had already made wide `grep/list_files/read_file/repo_map/trace_query/exec_command/git/run_tests` results emit typed `ToolRefinementHint`, and the renderer ranked refinement before plain observations. However `NormalizeToolHandoffCarriers` applied the global carrier budget before rank sorting by keeping the last N carriers. If an early broad tool produced the only actionable `preferred_next_tool/preferred_params` hint and later turns produced many ordinary observation carriers, the refinement could be discarded before extractor/finalizer/status projections saw it.
+    2. Target architecture: typed handoff compaction must preserve actionability before recency. Repair/schema carriers, accepted evidence, and refinement carriers are higher-priority than plain observation refs; recency can decide only within the same priority class.
+    3. Delivered D1-F10g.298: carrier normalization now ranks over-budget carriers by the same priority family used by prompt rendering before truncation. A regression proves an early `grep_result_truncated` refinement with `preferred_next_tool=repo_map` survives even when many later plain trace observations exceed the carrier budget.
+    4. Validation: focused `internal/types` and `internal/agent` handoff/refinement tests passed.
+    5. Safety boundary: this consumes only typed `ToolHandoffCarrier` fields and `ToolRefinementHint` payloads. It does not parse tool summaries, user text, model rationale, rendered repo_map/list_files/trace output, localized UI, final-answer prose, elapsed time, or eval labels, and it remains soft guidance rather than a hard gate.
+
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
 - Focused packages: `go test ./internal/types ./internal/analysis/compiler ./internal/analysis/criterion ./internal/orchestrator ./internal/agent -run 'Dependency|Artifact|ReadLoopNextAction|DispatchPolicy|ExecutionPolicy|StageRunner|EvidenceReducer|ReadRunSnapshot'`

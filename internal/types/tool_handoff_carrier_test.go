@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+)
 
 func TestToolHandoffCarrierFromToolResultUsesTypedRepairAndObservations(t *testing.T) {
 	pack := NormalizePlanRepairPack(PlanRepairPack{
@@ -154,6 +157,54 @@ func TestToolHandoffCarrierFromToolResultUsesTypedRefinement(t *testing.T) {
 	}
 	if len(refinement.RequiredFields) != 1 || refinement.RequiredFields[0] != "pattern" {
 		t.Fatalf("required fields = %+v", refinement.RequiredFields)
+	}
+}
+
+func TestNormalizeToolHandoffCarriersPreservesActionableRefinementUnderBudget(t *testing.T) {
+	carriers := []ToolHandoffCarrier{{
+		Version:    ToolHandoffCarrierVersion,
+		ToolName:   "grep",
+		ReasonCode: "grep_result_truncated",
+		Refinement: &ToolRefinementHint{
+			ReasonCode:        "grep_result_truncated",
+			ResultTruncated:   true,
+			PreferredNextTool: "repo_map",
+			PreferredParams: map[string]string{
+				"query": "Owner",
+				"view":  "task_map",
+			},
+		},
+	}}
+	for i := 0; i < toolHandoffMaxCarriers+12; i++ {
+		carriers = append(carriers, ToolHandoffCarrier{
+			Version:    ToolHandoffCarrierVersion,
+			ToolName:   "trace_query",
+			ReasonCode: "tool_observation_handoff_" + strconv.Itoa(i),
+			ObservationRefs: []ToolObservationRef{{
+				ID:       "obs-" + strconv.Itoa(i),
+				Producer: "trace_query",
+				ClaimKey: "runtime",
+			}},
+		})
+	}
+
+	got := NormalizeToolHandoffCarriers(carriers)
+	if len(got) != toolHandoffMaxCarriers {
+		t.Fatalf("normalized carrier budget = %d, want %d", len(got), toolHandoffMaxCarriers)
+	}
+	var refinement *ToolHandoffCarrier
+	for i := range got {
+		if got[i].Refinement != nil && got[i].Refinement.ReasonCode == "grep_result_truncated" {
+			refinement = &got[i]
+			break
+		}
+	}
+	if refinement == nil {
+		t.Fatalf("actionable refinement was dropped behind later plain observations: %+v", got)
+	}
+	if refinement.Refinement.PreferredNextTool != "repo_map" ||
+		refinement.Refinement.PreferredParams["view"] != "task_map" {
+		t.Fatalf("refinement payload changed: %+v", refinement.Refinement)
 	}
 }
 
