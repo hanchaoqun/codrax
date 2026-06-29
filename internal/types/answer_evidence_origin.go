@@ -26,6 +26,9 @@ func AnswerAggregateFactEvidenceOrigins(fact AnswerAggregateFact, rm *RequestMod
 	}
 
 	if rm != nil {
+		if rm.CurrentSourceLaneDecision().RequiresCurrentSource() && answerAggregateFactHasExactCurrentSourceSupportRef(fact) {
+			add(AnswerEvidenceOriginCurrentSource)
+		}
 		if rm.Predicates.IsHistoryLookup && aggregateFactKindCanCarryVCSMetadata(fact.Kind) {
 			add(AnswerEvidenceOriginVCSMetadata)
 		}
@@ -75,6 +78,15 @@ func AnswerAggregateFactPrimaryEvidenceOrigin(fact AnswerAggregateFact, rm *Requ
 		return AnswerEvidenceOriginUnknown
 	}
 	return origins[0]
+}
+
+func answerAggregateFactHasExactCurrentSourceSupportRef(fact AnswerAggregateFact) bool {
+	for _, ref := range fact.SupportRefs {
+		if answerSupportRefHasSourceLine(ref) {
+			return true
+		}
+	}
+	return false
 }
 
 // AnswerEvidenceOriginCarriesOriginSpecificSupport reports whether an origin is

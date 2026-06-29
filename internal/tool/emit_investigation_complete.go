@@ -6424,6 +6424,9 @@ func aggregateSourceInventorySupportRefMatchesLabels(ref string, labels []string
 }
 
 func aggregateMemberReadFileSupportRef(member string, support aggregateMemberSupportIndex) (string, bool) {
+	if ref, ok := aggregateMemberEmbeddedLocationReadFileSupportRef(member, support); ok {
+		return ref, true
+	}
 	if ref, ok := aggregateDecoratedMemberReadFileSupportRef(member, support); ok {
 		return ref, true
 	}
@@ -6454,6 +6457,80 @@ func aggregateMemberReadFileSupportRef(member string, support aggregateMemberSup
 		return "Member @ " + loc, true
 	}
 	return "", false
+}
+
+func aggregateMemberEmbeddedLocationReadFileSupportRef(member string, support aggregateMemberSupportIndex) (string, bool) {
+	for _, loc := range aggregateMemberEmbeddedSourceLocations(member) {
+		canon, ok := aggregateCanonicalSupportLocationByUniqueSuffixNoLabel(loc, support)
+		if !ok {
+			continue
+		}
+		return "Member @ " + canon, true
+	}
+	return "", false
+}
+
+func aggregateMemberEmbeddedSourceLocations(member string) []string {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, raw := range aggregateToolLocationPattern.FindAllString(member, -1) {
+		raw = strings.Trim(strings.TrimSpace(raw), "`'\".,;，；。)")
+		if raw == "" {
+			continue
+		}
+		surface, ok := types.ParseAnswerSourceLocationSurface(raw)
+		if !ok || strings.TrimSpace(surface.File) == "" || surface.LineStart <= 0 {
+			continue
+		}
+		loc := aggregateSupportLocationKey(surface.File, surface.LineStart)
+		if loc == "" || seen[loc] {
+			continue
+		}
+		seen[loc] = true
+		out = append(out, loc)
+	}
+	return out
+}
+
+func aggregateCanonicalSupportLocationByUniqueSuffixNoLabel(location string, support aggregateMemberSupportIndex) (string, bool) {
+	file, line, ok := aggregateSupportLocationParts(location)
+	if !ok {
+		return "", false
+	}
+	seen := map[string]bool{}
+	var matches []string
+	consider := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || seen[candidate] {
+			return
+		}
+		candidateFile, candidateLine, ok := aggregateSupportLocationParts(candidate)
+		if !ok || candidateLine != line {
+			return
+		}
+		if !aggregateReadFilePathMatchesQualifier(candidateFile, file) {
+			return
+		}
+		seen[candidate] = true
+		matches = append(matches, candidate)
+	}
+	for candidate := range support.byLocation {
+		consider(candidate)
+	}
+	for candidate := range support.toolLinesByLocation {
+		consider(candidate)
+	}
+	for candidate := range support.sourceInventoryLabelsByLocation {
+		consider(candidate)
+	}
+	if len(matches) != 1 {
+		return "", false
+	}
+	return matches[0], true
 }
 
 func aggregateBareMemberReadFileSupportRef(member string, support aggregateMemberSupportIndex) (string, bool) {

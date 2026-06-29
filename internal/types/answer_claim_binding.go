@@ -267,6 +267,9 @@ func answerAggregateFactHasExactCurrentSourceSupport(fact AnswerAggregateFact) b
 }
 
 func answerSupportRefHasSourceLine(raw string) bool {
+	if loc, ok := ParseAnswerSourceLocationSurface(raw); ok {
+		return strings.TrimSpace(loc.File) != "" && loc.LineStart > 0
+	}
 	_, loc, ok := ParseAnswerSupportRefMemberLocation(raw)
 	return ok && strings.TrimSpace(loc.File) != "" && loc.LineStart > 0
 }

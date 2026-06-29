@@ -126,6 +126,7 @@ func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 	if rm == nil || !ShouldCompileEnumerationDisplaySetsForRequest(*rm) {
 		return nil
 	}
+	originalFacts := cloneAnswerAggregateFacts(plan.StableAggregateFacts)
 	stableFacts := NormalizeAnswerAggregateMemberSetSurfaces(plan.StableAggregateFacts)
 	refs := PrincipalAggregateMemberSetFactRefsForRequest(stableFacts, rm)
 	if len(refs) == 0 {
@@ -142,6 +143,10 @@ func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 		if !AnswerAggregateFactCarriesCompleteMemberSet(fact) || len(fact.Members) == 0 {
 			continue
 		}
+		origins := cloneEnumerationDisplayOrigins(AnswerAggregateFactEvidenceOrigins(fact, rm))
+		if original := enumerationDisplayOriginalFactForRef(originalFacts, ref.Index); enumerationDisplayShouldUseOriginalOriginOnly(original, rm) {
+			origins = cloneEnumerationDisplayOrigins(AnswerAggregateFactEvidenceOrigins(original, rm))
+		}
 		set := EnumerationDisplaySet{
 			ID:              enumerationDisplaySetID(ref.Index, fact),
 			FactIndex:       ref.Index,
@@ -149,7 +154,7 @@ func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 			Value:           strings.TrimSpace(fact.Value),
 			Unit:            strings.TrimSpace(fact.Unit),
 			Role:            AnswerAggregateFactRoleForRequest(fact, rm),
-			EvidenceOrigins: cloneEnumerationDisplayOrigins(AnswerAggregateFactEvidenceOrigins(fact, rm)),
+			EvidenceOrigins: origins,
 		}
 		for memberIdx, member := range fact.Members {
 			row, ok := compileEnumerationDisplayRow(rm, set, fact, ref.Index, memberIdx, member, support, anchorSummaries, stepSupport, sourceInventoryAttributes)
@@ -167,6 +172,21 @@ func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 		return nil
 	}
 	return out
+}
+
+func enumerationDisplayOriginalFactForRef(facts []AnswerAggregateFact, index int) AnswerAggregateFact {
+	if index < 0 || index >= len(facts) {
+		return AnswerAggregateFact{}
+	}
+	return facts[index]
+}
+
+func enumerationDisplayShouldUseOriginalOriginOnly(fact AnswerAggregateFact, rm *RequestModel) bool {
+	if len(fact.SupportRefs) > 0 {
+		return false
+	}
+	origins := AnswerAggregateFactEvidenceOrigins(fact, rm)
+	return AnswerEvidenceOriginsAreOriginSpecificOnly(origins)
 }
 
 func dedupeEnumerationDisplayFactRefs(refs []AnswerAggregateFactRef) []AnswerAggregateFactRef {

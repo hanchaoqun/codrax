@@ -161,6 +161,34 @@ func TestAnswerAggregateFactEvidenceOrigins_SupportRefsCarryMCPOrigin(t *testing
 	}
 }
 
+func TestAnswerAggregateFactEvidenceOrigins_CurrentSourceRequiredSupportRefsAugmentRuntimeOrigin(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind:        AnswerAggregateMemberSet,
+		Label:       "parse layers",
+		Value:       "1",
+		Members:     []string{"ftraceLineRE line parser"},
+		SupportRefs: []string{"internal/tracequery/parse.go:22"},
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "origin", Value: string(AnswerEvidenceOriginRuntimeArtifact)},
+		},
+	}
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+			SourceQuotes:                        []string{"结合当前源码解释"},
+			Confidence:                          0.9,
+		},
+	}
+	got := AnswerAggregateFactEvidenceOrigins(fact, &rm)
+	if !answerEvidenceOriginTestContains(got, AnswerEvidenceOriginRuntimeArtifact) ||
+		!answerEvidenceOriginTestContains(got, AnswerEvidenceOriginCurrentSource) {
+		t.Fatalf("runtime aggregate with exact current-source support should carry both origins, got %#v", got)
+	}
+}
+
 func TestAnswerAggregateFactEvidenceOrigins_ExternalArtifactRequestDefaultsToMCP(t *testing.T) {
 	fact := AnswerAggregateFact{
 		Kind:  AnswerAggregateMemberSet,
@@ -184,6 +212,15 @@ func TestAnswerAggregateFactEvidenceOrigins_ExternalArtifactRequestDefaultsToMCP
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("origins mismatch\ngot:  %#v\nwant: %#v", got, want)
 	}
+}
+
+func answerEvidenceOriginTestContains(origins []AnswerEvidenceOrigin, want AnswerEvidenceOrigin) bool {
+	for _, origin := range origins {
+		if origin == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestAnswerEvidenceOriginsAreOriginSpecificOnly(t *testing.T) {

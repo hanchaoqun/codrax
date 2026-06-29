@@ -7648,3 +7648,67 @@ func TestEmitInvestigationComplete_RepairsSwappedDecoratedSupportRefsFromReadFil
 		t.Fatalf("support_refs = %+v, want %+v", facts[0].SupportRefs, want)
 	}
 }
+
+func TestCompletionAggregateSupportRepair_EmbeddedSourceLocationsFromReadFile(t *testing.T) {
+	mut := types.NewMutableState("trace current-source mechanism")
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(t,
+		"internal/tracequery/parse.go",
+		22,
+		2296,
+		"var ftraceLineRE = regexp.MustCompile(`trace row`)",
+	))
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(t,
+		"internal/tracequery/flavor.go",
+		25,
+		286,
+		"func flavorVote(line string) traceFlavor {",
+	))
+	mut.AppendDispatchToolResult(readFileRawRefResultForTest(t,
+		"internal/tracequery/query.go",
+		4254,
+		4428,
+		"func computeTraceMarks(events []Event) []Span {",
+	))
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+				SourceQuotes:                        []string{"结合当前源码解释"},
+				Confidence:                          0.9,
+			},
+		}},
+	}
+	facts := enrichCompletionAggregateFactsWithMemberSupport(bus, []types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "parse layers for HiTrace span",
+		Value:      "3",
+		Role:       types.AnswerAggregateRoleSupportingCoverage,
+		Provenance: "demoted:runtime_observation_advisory_aggregate",
+		Dimensions: []types.AnswerAggregateDimension{{Name: "origin", Value: "runtime_artifact"}},
+		Members: []string{
+			"ftraceLineRE 行解析 parse.go:22",
+			"flavorVote 特征检测 flavor.go:25-49",
+			"B|E 配对 + duration 计算 query.go:4254-4267",
+		},
+	}})
+	if len(facts) != 1 {
+		t.Fatalf("aggregate facts = %+v, want one", facts)
+	}
+	wantRefs := []string{
+		"internal/tracequery/parse.go:22",
+		"internal/tracequery/flavor.go:25",
+		"internal/tracequery/query.go:4254",
+	}
+	if !reflect.DeepEqual(facts[0].SupportRefs, wantRefs) {
+		t.Fatalf("support_refs = %+v, want %+v", facts[0].SupportRefs, wantRefs)
+	}
+	origins := types.AnswerAggregateFactEvidenceOrigins(facts[0], &bus.AnalysisIR.RequestModel)
+	if !answerOriginsContain(origins, types.AnswerEvidenceOriginRuntimeArtifact) ||
+		!answerOriginsContain(origins, types.AnswerEvidenceOriginCurrentSource) {
+		t.Fatalf("repaired aggregate should carry runtime and current-source origins, got %+v", origins)
+	}
+}
