@@ -188,9 +188,9 @@ func selfConsistencyContradictionMessage(lang string, rewrite bool, count int) s
 // actual action: a validation pass needs steadier evidence.
 func softRetryHintMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return retryNotice("验证还不够稳，正在补一轮")
+		return retryNotice("正在补齐校验信息")
 	}
-	return retryNotice("Validation needs one more pass")
+	return retryNotice("Completing validation checks")
 }
 
 // plannerProseFallbackMessage is the user-visible explanation when

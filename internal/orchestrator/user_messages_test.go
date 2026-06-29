@@ -58,10 +58,10 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			// user-facing, but avoid the vague "上下文信息"
 			// phrase and avoid implying every retry is evidence
 			// collection; some are answer-shape validation retries.
-			if c.zh && !strings.Contains(got, "验证") {
+			if c.zh && !strings.Contains(got, "校验") {
 				t.Errorf("zh: retry-hint must be Chinese, got %q", got)
 			}
-			if !c.zh && !strings.Contains(got, "Validation") {
+			if !c.zh && !strings.Contains(got, "validation") {
 				t.Errorf("en: retry-hint must be English, got %q", got)
 			}
 
@@ -129,6 +129,8 @@ func TestSoftRetryHintMessage_DropsInternalPromptMarkup(t *testing.T) {
 		"not yet satisfied",
 		"return_value",
 		"Previous attempt",
+		"验证还不够稳",
+		"Validation needs one more pass",
 	}
 	for _, lang := range []string{"en", "zh"} {
 		m := softRetryHintMessage(lang)
