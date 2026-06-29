@@ -245,6 +245,41 @@ func TestRecordTaskFinalizeWritesOutputDumpForFallbackAnswer(t *testing.T) {
 	}
 }
 
+func TestRecordTaskFinalizeSurfacesCJKGluedRequestArtifact(t *testing.T) {
+	// Regression: a trace named by path in the question (no --htrace flag),
+	// written flush against Chinese prose, must still surface as a runtime
+	// artifact in the generated markdown/HTML dump.
+	dir := filepath.Join(t.TempDir(), "output")
+	traceDir := t.TempDir()
+	tracePath := filepath.Join(traceDir, "frame.systrace")
+	if err := os.WriteFile(tracePath, []byte("tracing_mark_write: B|1|doFrame\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mut := types.NewMutableState("分析" + tracePath + "的卡顿")
+	o := &Orchestrator{
+		busCtx:        &types.BusContext{Mutable: mut},
+		outputDumpDir: dir,
+		outputDumpMax: 10,
+		emit:          func(render.Event) {},
+	}
+
+	o.recordTaskFinalize(&agent.StageOutput{FinalAnswer: "answer body"})
+
+	path := mut.FinalAnswerMarkdownPath()
+	if path == "" {
+		t.Fatal("expected markdown dump path")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read markdown dump %s: %v", path, err)
+	}
+	for _, want := range []string{"## 运行时附件", "| trace | " + tracePath + " |"} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("dump missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestRecordTaskFinalizeUsesExpandedTranscriptRequest(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "output")
 	folded := "[Pasted text #0 +3 lines +42 chars]"
