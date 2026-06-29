@@ -478,12 +478,11 @@ func suppressGenericSoftCaveatsForAcceptedSurface(violations []types.Violation, 
 		return violations
 	}
 	intentContract := types.CompileAnswerIntentContract(*rm, answerContract)
-	completeCitedEnumeration := acceptedPrincipalEnumerationFullyCited(ctx, rm)
 	visibleCompleteCitedEnumeration := acceptedPrincipalEnumerationVisibleAndFullyCited(ctx, rm)
 	out := make([]types.Violation, 0, len(violations))
 	for _, v := range violations {
 		if genericAcceptedPathCaveatIsTelemetry(v, rm, intentContract) ||
-			(completeCitedEnumeration && enumerationDepthCaveatIsRepairTelemetry(v.Kind)) ||
+			(visibleCompleteCitedEnumeration && enumerationDepthCaveatIsRepairTelemetry(v.Kind)) ||
 			(visibleCompleteCitedEnumeration && genericSelfContradictionCaveatIsRepairTelemetry(v)) {
 			continue
 		}
@@ -503,7 +502,12 @@ func acceptedPrincipalEnumerationVisibleAndFullyCited(ctx *types.BusContext, rm 
 	if doc == nil {
 		return false
 	}
-	return types.AnswerDocumentPrincipalEvidenceView(doc).HasGroundedPrincipalEnumerationEvidence()
+	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
+	sets := types.CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) == 0 {
+		return false
+	}
+	return types.AnswerDocumentCoversEnumerationDisplaySets(doc, sets)
 }
 
 func acceptedPrincipalEnumerationFullyCited(ctx *types.BusContext, rm *types.RequestModel) bool {

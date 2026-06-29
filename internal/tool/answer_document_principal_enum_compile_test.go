@@ -2492,6 +2492,56 @@ func TestNormalizePrincipalEnumerationRowBlocks_StructuredItemRelationFieldsPrev
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_CitedPrincipalRelationRowSuppressesSupplement(t *testing.T) {
+	mu := types.NewMutableState("哪些 subagent 已注册")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("subexplorer", "explorer", "internal/agent/sub_explorer.go", 32, "SubExplorer exposes the registered subagent name explorer."),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "默认注册的 SubAgent 名称",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"explorer"},
+		SupportRefs: []string{"explorer @ internal/agent/sub_explorer.go:32"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "registered_subagents",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "explorer",
+				Label:       "explorer",
+				Text:        "默认注册的 SubAgent。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/agent/sub_explorer.go", Line: 32}},
+	}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	joined := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(joined, "系统按已验证证据补充缺失成员") {
+		t.Fatalf("complete cited principal row should not receive deterministic supplement:\n%s", joined)
+	}
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("normalizer should keep the model-authored cited row as the only principal carrier: %+v", doc.Blocks)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateVisibleVerifiedNotes(t *testing.T) {
 	mu := types.NewMutableState("列出 Kind 常量")
 	mu.AppendEvidence([]types.EvidenceItem{

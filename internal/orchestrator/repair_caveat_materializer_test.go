@@ -1066,6 +1066,23 @@ func TestAppendSoftContractCaveatsToAnswer_SuppressesEnumDepthWhenMemberSetFully
 		},
 	}})
 	mut.RetainInvestigationAggregateFacts()
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "kind_constants",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{
+				{ID: "present", Label: "KindSymbolPresent", Text: "symbol-presence criterion", CitationRef: 0},
+				{ID: "no_call_sites", Label: "KindNoCallSites", Text: "no-call-site criterion", CitationRef: 1},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/analysis/criterion/grammar.go", Line: 29},
+			{File: "internal/analysis/criterion/grammar.go", Line: 30},
+		},
+	})
 	ctx := &types.BusContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
@@ -1097,6 +1114,70 @@ func TestAppendSoftContractCaveatsToAnswer_SuppressesEnumDepthWhenMemberSetFully
 	}}, "zh", ctx)
 	if !strings.Contains(out, "枚举类条目") {
 		t.Fatalf("hallucinated enumeration labels must still display the enum-depth caveat:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswer_RelationRowVisibleCoverageSuppressesEnumDepth(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	mut := types.NewMutableState("哪些 RetryPolicy 实现")
+	rm := types.RequestModel{
+		RawRequest: "哪些 RetryPolicy 实现",
+		Intent:     types.IntentEnumerate,
+		Language:   "zh",
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	mut.SetRequestModel(rm)
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "ev-exp-backoff",
+		Kind:            types.EvidenceDirect,
+		Subject:         "ExponentialBackoffRetryPolicy",
+		AnchorSymbol:    "ExponentialBackoffRetryPolicy",
+		AnchorKind:      types.AnchorDefinition,
+		Source:          "src/retry.ts",
+		LineStart:       42,
+		Scope:           types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+		Summary:         "ExponentialBackoffRetryPolicy implements RetryPolicy.",
+	}})
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "RetryPolicy 实现类",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"RetryPolicy → ExponentialBackoffRetryPolicy"},
+		SupportRefs: []string{"RetryPolicy → ExponentialBackoffRetryPolicy @ src/retry.ts:42"},
+	}})
+	mut.SetInvestigationComplete("accepted complete relation row-set")
+	mut.RetainInvestigationAggregateFacts()
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "impls",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "exp_backoff",
+				Label:       "ExponentialBackoffRetryPolicy",
+				Text:        "实现 RetryPolicy。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "src/retry.ts", Line: 42}},
+	})
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	sets := types.CompileEnumerationDisplaySets(&rm, types.BuildAnswerSurfacePlanForBusContext(ctx))
+	if len(sets) != 1 || !types.AnswerDocumentCoversEnumerationDisplaySets(mut.AnswerDocumentV2(), sets) {
+		t.Fatalf("test setup should compile one visible cited relation row-set: %+v", sets)
+	}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind: types.ViolEnumerationEvidenceUnderspecified,
+	}}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("visible cited relation row should suppress enum-depth repair caveat:\n%s", out)
 	}
 }
 

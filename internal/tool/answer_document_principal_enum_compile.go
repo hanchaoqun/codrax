@@ -805,6 +805,9 @@ func principalEnumerationDocumentCoversRow(doc *types.AnswerDocumentV2, row type
 	if doc == nil {
 		return false
 	}
+	if types.AnswerDocumentCoversEnumerationDisplayRow(doc, row) {
+		return true
+	}
 	if principalEnumerationRuntimeArtifactRowCoveredByAnyVisibleText(doc, row) {
 		return true
 	}
@@ -829,6 +832,9 @@ func principalEnumerationRowRequiresStructuredCarrier(row types.EnumerationDispl
 func principalEnumerationModelAuthoredCarrierExists(doc *types.AnswerDocumentV2, ctx *types.BusContext, set types.EnumerationDisplaySet, singleSet bool) bool {
 	if doc == nil || len(set.Rows) == 0 {
 		return false
+	}
+	if types.AnswerDocumentCoversEnumerationDisplaySet(doc, set) {
+		return true
 	}
 	for _, block := range doc.Blocks {
 		if preEmitSystemEnumerationRowSupplementBlock(block) {
