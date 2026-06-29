@@ -1029,16 +1029,17 @@ type BinderWaitSummary struct {
 }
 
 type TraceSpanSummary struct {
-	Thread      ThreadRef `json:"thread"`
-	Kind        string    `json:"kind,omitempty"`
-	Name        string    `json:"name,omitempty"`
-	Category    string    `json:"category,omitempty"`
-	Subcategory string    `json:"subcategory,omitempty"`
-	StartTs     float64   `json:"start_ts,omitempty"`
-	EndTs       float64   `json:"end_ts,omitempty"`
-	DurationMs  float64   `json:"duration_ms,omitempty"`
-	StartLine   int       `json:"start_line,omitempty"`
-	EndLine     int       `json:"end_line,omitempty"`
+	Thread        ThreadRef `json:"thread"`
+	Kind          string    `json:"kind,omitempty"`
+	Name          string    `json:"name,omitempty"`
+	Category      string    `json:"category,omitempty"`
+	Subcategory   string    `json:"subcategory,omitempty"`
+	SemanticClass string    `json:"semantic_class,omitempty"`
+	StartTs       float64   `json:"start_ts,omitempty"`
+	EndTs         float64   `json:"end_ts,omitempty"`
+	DurationMs    float64   `json:"duration_ms,omitempty"`
+	StartLine     int       `json:"start_line,omitempty"`
+	EndLine       int       `json:"end_line,omitempty"`
 }
 
 type TraceCounterSummary struct {
@@ -1151,6 +1152,11 @@ type RootCauseRankItem struct {
 	NearestChainThread ThreadRef                  `json:"nearest_chain_thread,omitempty"`
 	NearestChainWindow TimeWindow                 `json:"nearest_chain_window,omitempty"`
 	OccurrenceWindows  []WakeupCausalOccurrence   `json:"occurrence_windows,omitempty"`
+	SpanName           string                     `json:"span_name,omitempty"`
+	SpanKind           string                     `json:"span_kind,omitempty"`
+	SpanCategory       string                     `json:"span_category,omitempty"`
+	SpanSubcategory    string                     `json:"span_subcategory,omitempty"`
+	SemanticClass      string                     `json:"semantic_class,omitempty"`
 	Summary            string                     `json:"summary,omitempty"`
 }
 

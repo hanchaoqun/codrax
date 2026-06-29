@@ -2182,6 +2182,74 @@ func TestRootCauseRankDoesNotPromoteTraceSpanOverOnChainStateCause(t *testing.T)
 	}
 }
 
+func TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork(t *testing.T) {
+	idx := buildTraceIndex(t, "chain_semantic_span_work.systrace", `
+        app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 5.000400: tracing_mark_write: B|200|VerifyClass com.example.Foo
+     worker-200 (100) [002] .... 5.001000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 5.006000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200 (100) [002] .... 5.006200: tracing_mark_write: E|200
+        app-100 (100) [001] .... 5.006500: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.007, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	found := false
+	for _, item := range rank.Items {
+		if item.Type != "class_verification" {
+			continue
+		}
+		found = true
+		if item.ChainRelevance != "on_chain" || item.Causality != "on_wakeup_chain" {
+			t.Fatalf("semantic span work should be on-chain: %+v all=%+v", item, rank.Items)
+		}
+		if item.Tier != "primary" {
+			t.Fatalf("on-chain semantic span work should be co-primary eligible: %+v", item)
+		}
+		if item.SpanName != "VerifyClass com.example.Foo" || item.SemanticClass != "class_verification" || item.SpanCategory != "runtime_verification" {
+			t.Fatalf("semantic span fields not preserved: %+v", item)
+		}
+		if item.ProjectedImpactMs <= 0 || item.ActualImpactMs < item.ProjectedImpactMs {
+			t.Fatalf("semantic span should carry projected and actual durations: %+v", item)
+		}
+	}
+	if !found {
+		t.Fatalf("expected on-chain class_verification root cause: %+v", rank.Items)
+	}
+}
+
+func TestRootCauseRankKeepsOffChainSemanticTraceSpanAsSupporting(t *testing.T) {
+	idx := buildTraceIndex(t, "chain_offchain_semantic_span.systrace", `
+        app-100 (100) [001] .... 6.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+  RenderThread-900 (900) [006] .... 6.000200: tracing_mark_write: B|900|ShaderCompile pipeline warmup
+  RenderThread-900 (900) [006] .... 6.020000: tracing_mark_write: E|900
+     worker-200 (100) [002] .... 6.001000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=D ==> next_comm=idle/2 next_pid=0 next_prio=120
+       irq-2 (2) [002] .... 6.001100: sched_blocked_reason: pid=200 iowait=1 caller=f2fs_wait_on_block
+       irq-2 (2) [002] .... 6.008000: sched_wakeup: comm=worker pid=200 prio=20 target_cpu=002
+     worker-200 (100) [002] .... 6.008500: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 6.009000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 6.009200: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 6.0, TimeEnd: 6.021, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	foundDirectDIO := false
+	for _, item := range rank.Items {
+		if item.Thread.PID == 200 && item.ChainRelevance == "on_chain" && (item.Type == "d_state_or_io_wait" || item.Type == "io_wait" || item.Type == "priority_inversion_candidate") {
+			foundDirectDIO = true
+		}
+		if item.Type == "shader_compile" {
+			t.Fatalf("off-chain semantic span must not become direct semantic root cause: %+v all=%+v", item, rank.Items)
+		}
+		if item.Thread.PID == 900 && (item.ChainRelevance != "background" || item.Tier == "primary") {
+			t.Fatalf("off-chain shader span should stay supporting/background: %+v all=%+v", item, rank.Items)
+		}
+	}
+	if !foundDirectDIO {
+		t.Fatalf("expected direct chain D/IO candidate to stay in ranked causes: %+v", rank.Items)
+	}
+	stats := ComputeWindowStats(idx, Query{TimeStart: 6.0, TimeEnd: 6.021})
+	if len(stats.TraceSpans) == 0 || stats.TraceSpans[0].SemanticClass != "shader_compile" {
+		t.Fatalf("window_stats should still expose semantic span classification: %+v", stats.TraceSpans)
+	}
+}
+
 func TestRootCauseTierKeepsOnChainDIOAsCoPrimary(t *testing.T) {
 	items := []RootCauseRankItem{
 		{

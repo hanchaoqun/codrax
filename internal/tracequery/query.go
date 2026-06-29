@@ -4333,16 +4333,17 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 
 func traceSpanFromEvents(start, end Event, kind string) TraceSpanSummary {
 	return TraceSpanSummary{
-		Thread:      threadRefFromEvent(start),
-		Kind:        kind,
-		Name:        start.SpanName,
-		Category:    traceSpanCategory(start.SpanName),
-		Subcategory: traceSpanSubcategory(start.SpanName),
-		StartTs:     start.Ts,
-		EndTs:       end.Ts,
-		DurationMs:  (end.Ts - start.Ts) * 1000,
-		StartLine:   start.Line,
-		EndLine:     end.Line,
+		Thread:        threadRefFromEvent(start),
+		Kind:          kind,
+		Name:          start.SpanName,
+		Category:      traceSpanCategory(start.SpanName),
+		Subcategory:   traceSpanSubcategory(start.SpanName),
+		SemanticClass: traceSpanSemanticClass(start.SpanName),
+		StartTs:       start.Ts,
+		EndTs:         end.Ts,
+		DurationMs:    (end.Ts - start.Ts) * 1000,
+		StartLine:     start.Line,
+		EndLine:       end.Line,
 	}
 }
 
@@ -6440,9 +6441,18 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		items = append(items, rootCauseItem("cpu_frequency_limit", ThreadRef{}, windowImpactMs, 0.58, limit.Line, limit.Line, "window_stats", fmt.Sprintf("cpu=%d had frequency limit min=%dkHz max=%dkHz in the selected window (count=%d)", limit.CPU, limit.MinFrequency, limit.MaxFrequency, limit.Count)))
 	}
 	for _, span := range stats.TraceSpans {
+		if item, ok := rootCauseItemFromSemanticTraceSpan(q, chain, span, hasCausalChain); ok {
+			items = append(items, item)
+			continue
+		}
 		item := rootCauseItem("trace_span", span.Thread, span.DurationMs, 0.74, span.StartLine, span.EndLine, "window_stats", fmt.Sprintf("trace span %q lasted %.3fms", span.Name, span.DurationMs))
 		item.StartTs = span.StartTs
 		item.EndTs = span.EndTs
+		item.SpanName = span.Name
+		item.SpanKind = span.Kind
+		item.SpanCategory = span.Category
+		item.SpanSubcategory = span.Subcategory
+		item.SemanticClass = span.SemanticClass
 		items = append(items, item)
 	}
 	for _, td := range stats.RunnableTop {
@@ -7260,6 +7270,188 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 	return item
 }
 
+type semanticTraceSpanProjection struct {
+	StartTs       float64
+	EndTs         float64
+	ImpactMs      float64
+	DominantState string
+	ChainDepth    int
+	OnChain       bool
+}
+
+func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSpanSummary, hasCausalChain bool) (RootCauseRankItem, bool) {
+	work, ok := traceSpanSemanticWorkClass(span.Name)
+	if !ok || span.DurationMs <= 0 || span.EndTs <= span.StartTs {
+		return RootCauseRankItem{}, false
+	}
+	projection := semanticTraceSpanProjectionForRootCause(q, chain, span)
+	if projection.ImpactMs <= 0 {
+		return RootCauseRankItem{}, false
+	}
+	summary := fmt.Sprintf("%s span %q overlapped %s for %.3fms; actual_span=%.3fms window=%.6f..%.6f",
+		work.Label, span.Name, semanticTraceSpanProjectionScope(projection, hasCausalChain), projection.ImpactMs, span.DurationMs, span.StartTs, span.EndTs)
+	if projection.DominantState != "" {
+		summary = fmt.Sprintf("%s; overlapped_chain_state=%s", summary, projection.DominantState)
+	}
+	item := rootCauseItem(work.RootCauseType, span.Thread, projection.ImpactMs, work.Confidence, span.StartLine, span.EndLine, "window_stats.trace_spans.semantic", summary)
+	item.StartTs = projection.StartTs
+	item.EndTs = projection.EndTs
+	item.ActualStartTs = span.StartTs
+	item.ActualEndTs = span.EndTs
+	item.ActualImpactMs = span.DurationMs
+	item.ActualTotalMs = span.DurationMs
+	item.ProjectedImpactMs = projection.ImpactMs
+	item.CumulativeImpactMs = projection.ImpactMs
+	item.SpanName = span.Name
+	item.SpanKind = span.Kind
+	item.SpanCategory = firstNonEmpty(span.Category, work.Category)
+	item.SpanSubcategory = firstNonEmpty(span.Subcategory, work.Subcategory)
+	item.SemanticClass = work.SemanticClass
+	item.DominantState = projection.DominantState
+	item.ChainDepth = projection.ChainDepth
+	if projection.OnChain {
+		item.Causality = "on_wakeup_chain"
+		item.ChainRelevance = "on_chain"
+	}
+	applySemanticTraceSpanState(&item, projection.DominantState, projection.ImpactMs)
+	item.Score = item.ImpactMs * item.Confidence * rootCauseTypeWeight(item.Type)
+	return item, true
+}
+
+func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span TraceSpanSummary) semanticTraceSpanProjection {
+	start, end, ok := selectedTraceSpanWindow(q, span)
+	if !ok {
+		return semanticTraceSpanProjection{}
+	}
+	if len(chain.Nodes) > 0 || len(chain.Edges) > 0 || len(chain.CausalImpacts) > 0 {
+		var out semanticTraceSpanProjection
+		bestImpactMs := 0.0
+		for _, node := range chain.Nodes {
+			if !sameThreadRef(node.Thread, span.Thread) {
+				continue
+			}
+			overlapStart, overlapEnd, overlapOK := overlapTimeWindow(start, end, node.Window.StartTs, node.Window.EndTs)
+			if !overlapOK {
+				continue
+			}
+			impactMs := (overlapEnd - overlapStart) * 1000
+			if impactMs <= 0 {
+				continue
+			}
+			if out.ImpactMs == 0 || overlapStart < out.StartTs {
+				out.StartTs = overlapStart
+			}
+			if overlapEnd > out.EndTs {
+				out.EndTs = overlapEnd
+			}
+			out.ImpactMs += impactMs
+			if impactMs > bestImpactMs || out.DominantState == "" {
+				bestImpactMs = impactMs
+				out.DominantState = string(node.Dominant)
+				if node.Impact != nil {
+					out.ChainDepth = node.Impact.ChainDepth
+					if out.DominantState == "" {
+						out.DominantState = node.Impact.DominantState
+					}
+				}
+			}
+			out.OnChain = true
+		}
+		if out.ImpactMs <= 0 {
+			for _, impact := range chain.CausalImpacts {
+				if !sameThreadRef(impact.Thread, span.Thread) {
+					continue
+				}
+				overlapStart, overlapEnd, overlapOK := overlapTimeWindow(start, end, impact.Window.StartTs, impact.Window.EndTs)
+				if !overlapOK {
+					continue
+				}
+				impactMs := (overlapEnd - overlapStart) * 1000
+				if impactMs <= 0 {
+					continue
+				}
+				if out.ImpactMs == 0 || overlapStart < out.StartTs {
+					out.StartTs = overlapStart
+				}
+				if overlapEnd > out.EndTs {
+					out.EndTs = overlapEnd
+				}
+				out.ImpactMs += impactMs
+				if impactMs > bestImpactMs || out.DominantState == "" {
+					bestImpactMs = impactMs
+					out.DominantState = impact.DominantState
+					out.ChainDepth = impact.ChainDepth
+				}
+				out.OnChain = true
+			}
+		}
+		return out
+	}
+	if q.PID > 0 && span.Thread.PID > 0 && q.PID != span.Thread.PID {
+		return semanticTraceSpanProjection{}
+	}
+	return semanticTraceSpanProjection{
+		StartTs:  start,
+		EndTs:    end,
+		ImpactMs: (end - start) * 1000,
+	}
+}
+
+func selectedTraceSpanWindow(q Query, span TraceSpanSummary) (float64, float64, bool) {
+	if span.EndTs <= span.StartTs {
+		return 0, 0, false
+	}
+	start, end := span.StartTs, span.EndTs
+	if q.TimeEnd > q.TimeStart {
+		var ok bool
+		start, end, ok = overlapTimeWindow(start, end, q.TimeStart, q.TimeEnd)
+		if !ok {
+			return 0, 0, false
+		}
+	}
+	return start, end, end > start
+}
+
+func overlapTimeWindow(aStart, aEnd, bStart, bEnd float64) (float64, float64, bool) {
+	if aEnd <= aStart || bEnd <= bStart {
+		return 0, 0, false
+	}
+	start := maxFloat(aStart, bStart)
+	end := minFloat(aEnd, bEnd)
+	if end <= start {
+		return 0, 0, false
+	}
+	return start, end, true
+}
+
+func semanticTraceSpanProjectionScope(projection semanticTraceSpanProjection, hasCausalChain bool) string {
+	if projection.OnChain {
+		return "direct wakeup-chain interval"
+	}
+	if hasCausalChain {
+		return "selected non-chain interval"
+	}
+	return "selected window"
+}
+
+func applySemanticTraceSpanState(item *RootCauseRankItem, state string, impactMs float64) {
+	if item == nil || impactMs <= 0 {
+		return
+	}
+	switch state {
+	case string(StateRunning):
+		item.RunningMs = impactMs
+	case string(StateRunnable):
+		item.RunnableMs = impactMs
+	case string(StateSSleep):
+		item.SleepMs = impactMs
+	case string(StateDSleep):
+		item.DStateMs = impactMs
+	case string(StateIOWait):
+		item.IOWaitMs = impactMs
+	}
+}
+
 func aggregateBlockingMs(item WakeupCausalAggregate) float64 {
 	if item.DominantState == string(StateDSleep) || item.DominantState == string(StateIOWait) {
 		return item.DStateMs + item.IOWaitMs
@@ -7447,6 +7639,7 @@ func rootCauseTypeCanBeDirectOnChain(typ string) bool {
 	case "runnable_wait", "scheduler_latency", "priority_inversion_runnable_wait", "fragmented_runnable_wait",
 		"running", "fragmented_running",
 		"compute_supply", "low_frequency", "cpu_affinity_or_cpuset",
+		"jit_compile", "class_verification", "shader_compile", "runtime_compile",
 		"io_wait", "d_state_or_io_wait", "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "fragmented_d_state_or_io_wait",
 		"priority_inversion_candidate", "binder_wait":
 		return true
@@ -7643,6 +7836,8 @@ func rootCauseTypeWeight(typ string) float64 {
 		return 0.92
 	case "running", "fragmented_running":
 		return 1.0
+	case "jit_compile", "class_verification", "shader_compile", "runtime_compile":
+		return 1.02
 	case "cpu_frequency_limit":
 		return 0.7
 	case "trace_span":
@@ -7744,6 +7939,7 @@ func rootCauseShouldBeCoPrimary(item RootCauseRankItem) bool {
 	case "runnable_wait", "scheduler_latency", "priority_inversion_runnable_wait", "fragmented_runnable_wait",
 		"running", "fragmented_running",
 		"compute_supply", "low_frequency", "cpu_affinity_or_cpuset",
+		"jit_compile", "class_verification", "shader_compile", "runtime_compile",
 		"io_wait", "d_state_or_io_wait", "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "fragmented_d_state_or_io_wait":
 		return true
 	case "priority_inversion_candidate":
@@ -8077,13 +8273,16 @@ func frameSpans(frame FramePipelineResult) []TraceSpanSummary {
 	out := make([]TraceSpanSummary, 0, len(frame.Items))
 	for _, item := range frame.Items {
 		out = append(out, TraceSpanSummary{
-			Thread:     item.Thread,
-			Name:       item.Name,
-			StartTs:    item.StartTs,
-			EndTs:      item.EndTs,
-			DurationMs: item.DurationMs,
-			StartLine:  item.StartLine,
-			EndLine:    item.EndLine,
+			Thread:        item.Thread,
+			Name:          item.Name,
+			Category:      traceSpanCategory(item.Name),
+			Subcategory:   traceSpanSubcategory(item.Name),
+			SemanticClass: traceSpanSemanticClass(item.Name),
+			StartTs:       item.StartTs,
+			EndTs:         item.EndTs,
+			DurationMs:    item.DurationMs,
+			StartLine:     item.StartLine,
+			EndLine:       item.EndLine,
 		})
 	}
 	return out
@@ -8093,13 +8292,16 @@ func frameTimelineSpans(frame FrameTimelineResult) []TraceSpanSummary {
 	out := make([]TraceSpanSummary, 0, len(frame.Items))
 	for _, item := range frame.Items {
 		out = append(out, TraceSpanSummary{
-			Thread:     item.Thread,
-			Name:       item.Name,
-			StartTs:    item.StartTs,
-			EndTs:      item.EndTs,
-			DurationMs: item.DurationMs,
-			StartLine:  item.StartLine,
-			EndLine:    item.EndLine,
+			Thread:        item.Thread,
+			Name:          item.Name,
+			Category:      traceSpanCategory(item.Name),
+			Subcategory:   traceSpanSubcategory(item.Name),
+			SemanticClass: traceSpanSemanticClass(item.Name),
+			StartTs:       item.StartTs,
+			EndTs:         item.EndTs,
+			DurationMs:    item.DurationMs,
+			StartLine:     item.StartLine,
+			EndLine:       item.EndLine,
 		})
 	}
 	return out
@@ -8115,8 +8317,140 @@ func isFrameLikeSpan(name string) bool {
 	return false
 }
 
+type traceSpanSemanticWork struct {
+	RootCauseType string
+	Category      string
+	Subcategory   string
+	SemanticClass string
+	Label         string
+	Confidence    float64
+}
+
+func traceSpanSemanticClass(name string) string {
+	work, ok := traceSpanSemanticWorkClass(name)
+	if !ok {
+		return ""
+	}
+	return work.SemanticClass
+}
+
+func traceSpanSemanticWorkClass(name string) (traceSpanSemanticWork, bool) {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "" {
+		return traceSpanSemanticWork{}, false
+	}
+	tokens := traceSpanNameTokenSet(lower)
+	switch {
+	case traceSpanLooksLikeJITCompile(lower, tokens):
+		return traceSpanSemanticWork{
+			RootCauseType: "jit_compile",
+			Category:      "runtime_compile",
+			Subcategory:   "jit",
+			SemanticClass: "jit_compile",
+			Label:         "JIT compilation",
+			Confidence:    0.82,
+		}, true
+	case traceSpanLooksLikeClassVerification(lower, tokens):
+		return traceSpanSemanticWork{
+			RootCauseType: "class_verification",
+			Category:      "runtime_verification",
+			Subcategory:   "class_verification",
+			SemanticClass: "class_verification",
+			Label:         "class verification",
+			Confidence:    0.82,
+		}, true
+	case traceSpanLooksLikeShaderCompile(lower, tokens):
+		return traceSpanSemanticWork{
+			RootCauseType: "shader_compile",
+			Category:      "shader_compile",
+			Subcategory:   "shader",
+			SemanticClass: "shader_compile",
+			Label:         "shader compilation",
+			Confidence:    0.80,
+		}, true
+	case traceSpanLooksLikeRuntimeCompile(lower, tokens):
+		return traceSpanSemanticWork{
+			RootCauseType: "runtime_compile",
+			Category:      "runtime_compile",
+			Subcategory:   "compile",
+			SemanticClass: "runtime_compile",
+			Label:         "runtime compilation",
+			Confidence:    0.78,
+		}, true
+	default:
+		return traceSpanSemanticWork{}, false
+	}
+}
+
+func traceSpanNameTokenSet(lower string) map[string]bool {
+	tokens := map[string]bool{}
+	for _, token := range strings.FieldsFunc(lower, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
+	}) {
+		if token != "" {
+			tokens[token] = true
+		}
+	}
+	return tokens
+}
+
+func traceSpanLooksLikeJITCompile(lower string, tokens map[string]bool) bool {
+	return tokens["jit"] ||
+		strings.Contains(lower, "jitcompile") ||
+		strings.Contains(lower, "jit_compile") ||
+		strings.Contains(lower, "jit compile") ||
+		strings.Contains(lower, "just-in-time")
+}
+
+func traceSpanLooksLikeClassVerification(lower string, tokens map[string]bool) bool {
+	return strings.Contains(lower, "verifyclass") ||
+		strings.Contains(lower, "verify_class") ||
+		strings.Contains(lower, "classverification") ||
+		strings.Contains(lower, "class_verification") ||
+		strings.Contains(lower, "class verifier") ||
+		strings.Contains(lower, "classverifier") ||
+		((tokens["verify"] || tokens["verifier"] || tokens["verification"]) && tokens["class"])
+}
+
+func traceSpanLooksLikeShaderCompile(lower string, tokens map[string]bool) bool {
+	if !strings.Contains(lower, "shader") {
+		return false
+	}
+	return strings.Contains(lower, "compile") ||
+		tokens["compilation"] ||
+		tokens["compiler"] ||
+		tokens["pipeline"] ||
+		tokens["program"] ||
+		tokens["link"] ||
+		tokens["warmup"]
+}
+
+func traceSpanLooksLikeRuntimeCompile(lower string, tokens map[string]bool) bool {
+	compileLike := strings.Contains(lower, "compile") ||
+		tokens["compiler"] ||
+		tokens["compilation"] ||
+		strings.Contains(lower, "dex2oat") ||
+		tokens["aot"]
+	if !compileLike {
+		return false
+	}
+	return tokens["ark"] ||
+		tokens["arkts"] ||
+		strings.Contains(lower, "arkts") ||
+		tokens["art"] ||
+		tokens["dex"] ||
+		strings.Contains(lower, "dex2oat") ||
+		tokens["bytecode"] ||
+		tokens["wasm"] ||
+		tokens["js"] ||
+		tokens["runtime"]
+}
+
 func traceSpanCategory(name string) string {
 	lower := strings.ToLower(strings.TrimSpace(name))
+	if work, ok := traceSpanSemanticWorkClass(name); ok {
+		return work.Category
+	}
 	switch {
 	case lower == "":
 		return ""
@@ -8147,6 +8481,9 @@ func traceSpanCategory(name string) string {
 
 func traceSpanSubcategory(name string) string {
 	lower := strings.ToLower(strings.TrimSpace(name))
+	if work, ok := traceSpanSemanticWorkClass(name); ok {
+		return work.Subcategory
+	}
 	switch {
 	case strings.Contains(lower, "expected"):
 		return "expected"

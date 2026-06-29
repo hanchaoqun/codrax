@@ -223,11 +223,11 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		!strings.Contains(sk.Workflow[0], "repo_map") {
 		t.Fatalf("generic source breadth scan should remain the first always-rendered item:\n%s", sk.Workflow[0])
 	}
-	if len(sk.WorkflowTierB) < 3 {
+	if len(sk.WorkflowTierB) < 4 {
 		t.Fatalf("explore-skill should carry trace guidance in WorkflowTierB: %#v", sk.WorkflowTierB)
 	}
-	traceTier := strings.Join([]string{sk.WorkflowTierB[0].Body, sk.WorkflowTierB[1].Body, sk.WorkflowTierB[2].Body}, "\n")
-	for i := 0; i < 3; i++ {
+	traceTier := strings.Join([]string{sk.WorkflowTierB[0].Body, sk.WorkflowTierB[1].Body, sk.WorkflowTierB[2].Body, sk.WorkflowTierB[3].Body}, "\n")
+	for i := 0; i < 4; i++ {
 		if !sk.WorkflowTierB[i].AppliesTo.RequiresTrace {
 			t.Fatalf("trace workflow item %d must be gated by RequiresTrace: %+v", i, sk.WorkflowTierB[i].AppliesTo)
 		}
@@ -239,6 +239,8 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		"pattern=\"<literal>\"",
 		"not regex",
 		"mixed trace+source",
+		"TRACE SEMANTIC SPAN ROOT CAUSES",
+		"semantic span-work",
 		"PERF SAMPLE PROVENANCE",
 	} {
 		if !strings.Contains(traceTier, want) {

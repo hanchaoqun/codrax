@@ -102,6 +102,10 @@ func RegisterDefaults(r *Registry) {
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
+				Body:      "TRACE SEMANTIC SPAN ROOT CAUSES: root_cause_rank can emit dedicated semantic span-work types (`jit_compile`, `class_verification`, `shader_compile`, `runtime_compile`) only when a complete trace span overlaps an on-chain interval; consume their span_name/span_kind/span_category/span_subcategory/semantic_class plus projected_impact_ms and actual_* fields. Generic `trace_span` / trace_mark_category rows are supporting context and must not be promoted into the direct wakeup-chain cause unless root_cause_rank emits one of those dedicated semantic types with chain_relevance=on_chain.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
 				Body:      "PERF SAMPLE PROVENANCE: preserve trace_query perf sample `source` and `symbolization_status` in final markdown/html reports. `raw_perfdata_fallback` / `unsymbolized` rows are useful for time/thread/DSO/IP correlation but lower confidence than official hiperf/simpleperf symbolized output.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
