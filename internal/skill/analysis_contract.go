@@ -432,7 +432,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("- Abbreviations and full forms (e.g. config → configuration, ctx → context)\n")
 	of.WriteString("- CamelCase and snake_case identifiers (e.g. getUser, get_user)\n")
 	of.WriteString("- Compound identifiers that cross-combine core terms\n")
-	of.WriteString("For non-English questions, include BOTH the original language AND English programming equivalents. Each keyword is expanded into case variants later, so produce diverse STEMS rather than repeating the same word. Validate a handful of stems via pre-scan grep to avoid wasting later search on non-existent terms.\n\n")
+	of.WriteString("For non-English questions, include BOTH the original language AND English programming equivalents. Each keyword is expanded into case variants later, so produce diverse STEMS rather than repeating the same word. For ordinary symbol/location classification, a small `grep(files_only=true)` check can validate stems when repo_map is unavailable, empty, or ambiguous. For source_inventory / inventory-style questions, do NOT validate construct-family stems by repeated grep; preserve the user-named construct families in `source_inventory_profile.source_quotes[]` and use at most one bounded `repo_map(view=\"source_inventory\")` navigation pass, then call emit_analysis.\n\n")
 	of.WriteString("## Sub-topic detection (sub_topics field)\n\n")
 	of.WriteString("When the user's question contains multiple independently-answerable sub-topics, list each in sub_topics. Rules:\n")
 	of.WriteString("- Each sub_topic has a one-sentence summary and its own entities\n")

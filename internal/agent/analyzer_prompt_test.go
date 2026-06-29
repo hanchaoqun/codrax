@@ -951,6 +951,29 @@ func TestAnalysisSkill_SourceInventoryCoversConstructInventoryWithoutHardRouting
 	}
 }
 
+func TestAnalysisSkill_SourceInventoryDoesNotTeachGrepStemValidation(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	rendered := strings.Join(append([]string{sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"For source_inventory / inventory-style questions",
+		"do NOT validate construct-family stems by repeated grep",
+		`repo_map(view="source_inventory")`,
+		"preserve the user-named construct families",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("analysis prompt must avoid source-inventory grep stem loops; missing %q in:\n%s", want, rendered)
+		}
+	}
+	for _, forbidden := range []string{
+		"Validate a handful of stems via pre-scan grep",
+		"validate construct-family stems by grep",
+	} {
+		if strings.Contains(rendered, forbidden) {
+			t.Fatalf("analysis prompt reintroduced inventory grep-stem validation wording %q:\n%s", forbidden, rendered)
+		}
+	}
+}
+
 // TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere is the batch
 // 3A 3-way consistency gate: every top-level required field in the
 // emit_analysis JSON schema must also be named in the skill's
