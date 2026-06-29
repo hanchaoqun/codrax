@@ -1529,6 +1529,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if warning := normalizeSourceInventoryConstructOnlySourceScope(&rm); warning != "" {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if warning := normalizeSourceInventoryAuxiliaryExclusion(&rm); warning != "" {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
@@ -1573,6 +1577,28 @@ func normalizeSourceInventoryProductionScope(rm *types.RequestModel) string {
 		return "source_scope_profile auto-softened: production scope quote echoed source-inventory target categories without a typed auxiliary exclusion"
 	}
 	return ""
+}
+
+func normalizeSourceInventoryConstructOnlySourceScope(rm *types.RequestModel) string {
+	if rm == nil ||
+		rm.SourceScopeProfile == nil ||
+		rm.SourceInventoryProfile == nil ||
+		!rm.SourceInventoryProfile.Active() ||
+		rm.SourceScopeProfile.RequestedScope == "" ||
+		rm.SourceScopeProfile.RequestedScope == types.SourceScopeUnknown ||
+		len(rm.SourceScopeProfile.SourceQuotes) == 0 {
+		return ""
+	}
+	if rm.SourceScopeProfile.RequestedScope == types.SourceScopeProduction &&
+		SourceInventoryHasExplicitAuxiliaryExclusion(*rm) {
+		return ""
+	}
+	if !sourceScopeQuotesOnlyInventoryTargets(rm.SourceScopeProfile.SourceQuotes, rm.SourceInventoryProfile.SourceQuotes) {
+		return ""
+	}
+	scope := rm.SourceScopeProfile.RequestedScope
+	rm.SourceScopeProfile = nil
+	return fmt.Sprintf("source_scope_profile auto-softened: %s scope quote(s) were covered only by source-inventory construct quote(s)", scope)
 }
 
 func normalizeSourceInventoryAuxiliaryExclusion(rm *types.RequestModel) string {
@@ -1711,6 +1737,38 @@ func normalizeSourceScopeEchoQuote(s string) string {
 		return ""
 	}
 	return strings.Join(strings.Fields(s), " ")
+}
+
+func sourceScopeQuotesOnlyInventoryTargets(scopeQuotes, inventoryQuotes []string) bool {
+	normalizedInventory := make([]string, 0, len(inventoryQuotes))
+	seen := map[string]bool{}
+	for _, quote := range inventoryQuotes {
+		key := normalizeSourceScopeEchoQuote(quote)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		normalizedInventory = append(normalizedInventory, key)
+	}
+	if len(normalizedInventory) == 0 {
+		return false
+	}
+	checked := 0
+	covered := 0
+	for _, quote := range scopeQuotes {
+		scope := normalizeSourceScopeEchoQuote(quote)
+		if scope == "" {
+			continue
+		}
+		checked++
+		for _, inv := range normalizedInventory {
+			if scope == inv || strings.Contains(inv, scope) {
+				covered++
+				break
+			}
+		}
+	}
+	return checked >= 2 && covered == checked
 }
 
 func synthesizeSourceInventoryProfileForTypedEnumeration(rm *types.RequestModel, raw string, attempted *emitSourceInventoryProfileParam) string {

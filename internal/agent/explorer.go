@@ -7489,18 +7489,24 @@ func renderRepairLineRangeList(ranges []types.LineRange, max int) string {
 	return "(" + strings.Join(parts, ", ") + suffix + ")"
 }
 
-func renderClosureRepairHint(repairs []types.RepairDirective) string {
+func renderClosureRepairHint(repairs []types.RepairDirective, landingOnly ...bool) string {
 	if len(repairs) == 0 {
 		return ""
 	}
 	repairs = mergeClosureRepairsForHint(repairs)
+	completionLandingOnly := len(landingOnly) > 0 && landingOnly[0]
 	var b strings.Builder
 	b.WriteString("Progress check: the last completion attempt already queued structured closure repairs. Finish the blocking repair first instead of returning to generic navigation.\n\n")
 	limit := len(repairs)
 	if limit > 2 {
 		limit = 2
 	}
+	suppressedNonLanding := false
 	for i := 0; i < limit; i++ {
+		if completionLandingOnly && !closureRepairCanRenderInCompletionLanding(repairs[i]) {
+			suppressedNonLanding = true
+			continue
+		}
 		rendered := renderCompactClosureRepairSection(repairs[i])
 		if rendered == "" {
 			continue
@@ -7508,15 +7514,67 @@ func renderClosureRepairHint(repairs []types.RepairDirective) string {
 		b.WriteString(rendered)
 		b.WriteString("\n\n")
 	}
+	if completionLandingOnly && suppressedNonLanding {
+		b.WriteString("## Landing-Safe Completion Repair\n")
+		b.WriteString("Some queued repair details require evidence/search/read tools, but the current dispatch surface is closed to those tools. Use only the existing evidence/context pack and source-inventory row-set; omit or caveat any unsupported candidate instead of widening exploration.\n\n")
+	}
 	if len(repairs) > limit {
 		fmt.Fprintf(&b, "... and %d more queued repair(s).\n\n", len(repairs)-limit)
 	}
-	if closureRepairsAreStructuredHandoffOnly(repairs[:limit]) {
+	if completionLandingOnly || closureRepairsAreStructuredHandoffOnly(repairs[:limit]) {
 		b.WriteString("After one structured handoff repair succeeds, retry `emit_investigation_complete(reason, confidence, result_kind)` using the existing evidence/context pack. Do not call tools that are not present in the current turn.")
 	} else {
 		b.WriteString("After one repair succeeds, re-emit grounded evidence if needed, then retry `emit_investigation_complete(reason, confidence, result_kind)`.")
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func closureRepairCanRenderInCompletionLanding(repair types.RepairDirective) bool {
+	switch repair.Kind {
+	case types.RepairStructuredHandoff, types.RepairRebindSubject, types.RepairSwapView, types.RepairForceCompleteDowngrade:
+		return true
+	default:
+		return false
+	}
+}
+
+func (e *explorerEvaluator) closureRepairHintCompletionLandingOnly(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Stage != types.StageExplore {
+		return false
+	}
+	if policy := types.NormalizeReadDispatchPolicy(ctx.ReadDispatchPolicy); policy.Active && policy.Action == types.ReadDispatchPolicyActionLandingRepair {
+		return policy.AllowsTool("emit_investigation_complete") &&
+			!policy.AllowsTool("emit_evidence") &&
+			!policy.AllowsTool("read_file") &&
+			!policy.AllowsTool("repo_map") &&
+			!policy.AllowsTool("grep") &&
+			!policy.AllowsTool("list_files") &&
+			!policy.AllowsTool("trace_query") &&
+			!policy.AllowsTool("run_tests") &&
+			!policy.AllowsTool("exec_command")
+	}
+	if e != nil && e.sourceInventoryMechanicalLandingSurfaceActive(ctx) {
+		return true
+	}
+	if !ctx.CompletionOnlySurface {
+		return false
+	}
+	allowed := completionOnlyToolSurface(ctx)
+	if e != nil && e.sourceInventoryRequiredFileVerificationSurfaceActive(ctx) {
+		allowed = sourceInventoryRequiredFileVerificationToolNames
+	}
+	if e != nil && e.sourceInventoryMechanicalLandingSurfaceActive(ctx) {
+		allowed = investigationCompleteOnlyToolNames
+	}
+	return allowed["emit_investigation_complete"] &&
+		!allowed["emit_evidence"] &&
+		!allowed["read_file"] &&
+		!allowed["repo_map"] &&
+		!allowed["grep"] &&
+		!allowed["list_files"] &&
+		!allowed["trace_query"] &&
+		!allowed["run_tests"] &&
+		!allowed["exec_command"]
 }
 
 func closureRepairsAreStructuredHandoffOnly(repairs []types.RepairDirective) bool {
@@ -7610,7 +7668,7 @@ func emitInvestigationCompleteSoftDowngrade(result *types.ToolResult, mutable *t
 	return !mutable.IsInvestigationComplete()
 }
 
-func (e *explorerEvaluator) postClosureRepairSignal(obs LoopObservation) LoopSignal {
+func (e *explorerEvaluator) postClosureRepairSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	if e.midLoopClosureRepairSent || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_investigation_complete" {
 		return LoopSignal{}
 	}
@@ -7631,27 +7689,27 @@ func (e *explorerEvaluator) postClosureRepairSignal(obs LoopObservation) LoopSig
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.closure-repair",
-		Hint:           renderClosureRepairHint(repairs),
+		Hint:           renderClosureRepairHint(repairs, e.closureRepairHintCompletionLandingOnly(ctx)),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
 }
 
-func (e *explorerEvaluator) postProactiveClosureTargetSignal(obs LoopObservation) LoopSignal {
+func (e *explorerEvaluator) postProactiveClosureTargetSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	if e == nil || e.midLoopClosureRepairSent || e.investigationComplete || e.mutable == nil || e.analysisIR == nil {
 		return LoopSignal{}
 	}
 	if obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_evidence" || !obs.LastToolResult.Success {
 		return LoopSignal{}
 	}
-	ctx := &types.BusContext{
+	busCtx := &types.BusContext{
 		RepoRoot:   e.repoRoot,
 		Mutable:    e.mutable,
 		AnalysisIR: e.analysisIR,
 		MultiGraph: e.multiGraphHandle,
 	}
-	if !tool.QueueProactiveCallChainClosureRepairs(ctx) {
+	if !tool.QueueProactiveCallChainClosureRepairs(busCtx) {
 		return LoopSignal{}
 	}
 	repairs := closureRepairDirectives(e.mutable)
@@ -7665,7 +7723,7 @@ func (e *explorerEvaluator) postProactiveClosureTargetSignal(obs LoopObservation
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.proactive-closure-target",
-		Hint:           renderClosureRepairHint(repairs),
+		Hint:           renderClosureRepairHint(repairs, e.closureRepairHintCompletionLandingOnly(ctx)),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -10796,6 +10854,10 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // midLoopParallelInjected) stays on the evaluator because it drives
 // phase-specific behavior the policy can't express.
 func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
+	return e.observeMidLoopWithContext(nil, obs)
+}
+
+func (e *explorerEvaluator) observeMidLoopWithContext(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	e.ensureHeuristics()
 	e.syncEmitBacklogWindow(obs.AllToolResults)
 	e.syncEvidenceRepairState(obs.AllToolResults)
@@ -10866,7 +10928,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if e.awaitingEvidenceRepair(obs.AllToolResults) {
 		return LoopSignal{}
 	}
-	if sig := e.postClosureRepairSignal(obs); sig.HintRequested {
+	if sig := e.postClosureRepairSignal(ctx, obs); sig.HintRequested {
 		return sig
 	}
 	if sig := e.postClosureRepairClosureOnlySignal(obs); sig.HintRequested {
@@ -10890,7 +10952,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if sig := e.postAuthoritativeTier1CompletionSignal(obs); sig.HintRequested {
 		return sig
 	}
-	if sig := e.postProactiveClosureTargetSignal(obs); sig.HintRequested {
+	if sig := e.postProactiveClosureTargetSignal(ctx, obs); sig.HintRequested {
 		return sig
 	}
 	// Completion-ready is a typed close signal. It must beat generic
@@ -12398,7 +12460,7 @@ func (e *explorerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 		e.observeSourceInventoryFollowupRouteMismatch(ctx, obs)
 		e.observeSourceInventoryLensSurfaceProgress(ctx, obs)
 		e.refreshSourceInventoryInlineFollowup(ctx, obs)
-		return e.observeMidLoop(obs)
+		return e.observeMidLoopWithContext(ctx, obs)
 	case PhaseSoftStop:
 		return e.observeSoftStop(obs)
 	}

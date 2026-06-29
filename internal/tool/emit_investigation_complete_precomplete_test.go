@@ -4180,6 +4180,98 @@ func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorPrefersStructur
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryMechanicalRowSetSatisfiesCitationFloor(t *testing.T) {
+	const (
+		bridgeFile = "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"
+		nativeFile = "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj"
+	)
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, bridgeFile, 15),
+		sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, nativeFile, 6),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:    types.SourcePathRoleFixture,
+		Count:   1,
+		Samples: []string{bridgeFile},
+	}, {
+		Role:    types.SourcePathRoleThirdParty,
+		Count:   1,
+		Samples: []string{nativeFile},
+	}})
+	ctx.AnalysisIR.AnswerContract.CitationReq = types.CitationReq{Required: true, MinCitations: 3}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "typed source-inventory row-set covers the requested mechanical fields",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":    "member_set",
+			"label":   "requested declarations",
+			"value":   "2",
+			"role":    "principal_answer",
+			"members": []string{"Bridge", "native_add"},
+			"support_refs": []string{
+				"Bridge: " + bridgeFile + ":15",
+				"native_add: " + nativeFile + ":6",
+			},
+		}},
+	})
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") ||
+		strings.Contains(res.Summary, "citation preflight") ||
+		strings.Contains(res.Summary, "Forced Read List") {
+		t.Fatalf("mechanical source-inventory row-set should satisfy citation floor, got: %s", res.Summary)
+	}
+	if !ctx.Mutable.IsInvestigationComplete() {
+		t.Fatalf("mechanical source-inventory row-set should complete without read_file evidence")
+	}
+	if repairs := ctx.Mutable.EvidenceClosure().PendingRepairs(); len(repairs) != 0 {
+		t.Fatalf("mechanical source-inventory row-set should not queue citation-floor read repairs, got %+v", repairs)
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventorySummaryFieldKeepsCitationFloor(t *testing.T) {
+	const bridgeFile = "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, bridgeFile, 15),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:    types.SourcePathRoleFixture,
+		Count:   1,
+		Samples: []string{bridgeFile},
+	}})
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile.RequestedFields = []types.SourceInventoryRequestedField{
+		types.SourceInventoryFieldName,
+		types.SourceInventoryFieldLocation,
+		types.SourceInventoryFieldSummary,
+	}
+	ctx.AnalysisIR.AnswerContract.CitationReq = types.CitationReq{Required: true, MinCitations: 2}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "summary field needs source text",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "requested declarations",
+			"value":        "1",
+			"role":         "principal_answer",
+			"members":      []string{"Bridge"},
+			"support_refs": []string{"Bridge: " + bridgeFile + ":15"},
+		}},
+	})
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("summary/source-text inventory should keep citation floor, got: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorFallsBackToExpandSearchWithoutStructuredTargets(t *testing.T) {
 	mut := types.NewMutableState("test")
 	bus := &types.BusContext{

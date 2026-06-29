@@ -6746,6 +6746,56 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 		}
 	})
 
+	t.Run("local landing policy suppresses unavailable read and evidence repair hints", func(t *testing.T) {
+		mut := types.NewMutableState("q")
+		mut.EvidenceClosure().AddRepair(types.RepairDirective{
+			Kind:      types.RepairReadFile,
+			Files:     []string{"internal/agent/analyzer.go"},
+			Rationale: "citation floor would normally read a supporting source file",
+			Origin:    "emit_investigation_complete.citation_floor",
+		})
+		eval := &explorerEvaluator{phase: 1, mutable: mut}
+		ctx := &types.AgentContext{
+			Stage:   types.StageExplore,
+			Mutable: mut,
+			ReadDispatchPolicy: types.ReadDispatchPolicy{
+				Active:         true,
+				Action:         types.ReadDispatchPolicyActionLandingRepair,
+				RouteSurface:   types.ReadDispatchPolicySurfaceHandoff,
+				AllowedTools:   []string{"emit_investigation_complete"},
+				DeniedTools:    []string{"repo_map", "grep", "read_file", "list_files", "exec_command", "trace_query", "run_tests", "emit_evidence"},
+				PreferredTools: []string{"emit_investigation_complete"},
+				OneShot:        true,
+			},
+		}
+		downgradeResult := types.ToolResult{
+			ToolName: "emit_investigation_complete",
+			Success:  true,
+			Summary:  tool.EmitInvestigationCompleteDowngradePrefix + " — pre-complete citation preflight failed.",
+		}
+		results := []types.ToolResult{downgradeResult}
+
+		sig := eval.observeMidLoopWithContext(ctx, LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      6,
+			LastToolResult: &results[0],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.closure-repair" {
+			t.Fatalf("downgraded completion should still surface local closure repair, got %+v", sig)
+		}
+		for _, forbidden := range []string{"Forced Read List", "re-emit grounded evidence if needed", "Read these blocking source file"} {
+			if strings.Contains(sig.Hint, forbidden) {
+				t.Fatalf("local landing hint must not invite unavailable repair action %q:\n%s", forbidden, sig.Hint)
+			}
+		}
+		for _, want := range []string{"Landing-Safe Completion Repair", "existing evidence/context pack", "Do not call tools that are not present"} {
+			if !strings.Contains(sig.Hint, want) {
+				t.Fatalf("local landing hint missing %q:\n%s", want, sig.Hint)
+			}
+		}
+	})
+
 	t.Run("multiple read repairs render one forced-read section", func(t *testing.T) {
 		hint := renderClosureRepairHint([]types.RepairDirective{
 			{
@@ -7033,7 +7083,7 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 			Summary:  "emit_evidence accepted 2 item(s)",
 		}}
 
-		sig := eval.postProactiveClosureTargetSignal(LoopObservation{
+		sig := eval.postProactiveClosureTargetSignal(nil, LoopObservation{
 			Phase:          PhaseMidLoop,
 			Iteration:      5,
 			LastToolResult: &results[0],

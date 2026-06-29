@@ -2896,6 +2896,10 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 		logging.Info("[emit_investigation_complete] citation-floor capped by principal member_set: base=%d effective=%d", min, effective)
 		min = effective
 	}
+	if sourceInventoryMechanicalRowSetSatisfiesCitationFloor(ctx, aggregateFacts) {
+		logging.Info("[emit_investigation_complete] citation-floor satisfied by exact source-inventory mechanical row-set")
+		return ""
+	}
 	readSet := closure.ReadSet()
 	eligible := 0
 	for _, e := range evidence {
@@ -7705,6 +7709,9 @@ func completionMaterializationReadFiles(closure *types.EvidenceClosure) []string
 }
 
 func citationFloorStructuredReadRepair(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact, needed int) (types.RepairDirective, bool) {
+	if sourceInventoryMechanicalRowSetSatisfiesCitationFloor(ctx, aggregateFacts) {
+		return types.RepairDirective{}, false
+	}
 	files := citationFloorStructuredReadFiles(ctx, aggregateFacts, needed)
 	if len(files) == 0 {
 		return types.RepairDirective{}, false
@@ -10136,6 +10143,24 @@ func sourceInventoryMemberSetCompletesGenericForcedReadBoundary(ctx *types.BusCo
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	if !types.SourceInventoryPrincipalAuthorityActive(rm) {
+		return false
+	}
+	return SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, aggregateFacts) ||
+		SourceInventoryAcceptedClosureCoversExactUniverse(ctx, aggregateFacts)
+}
+
+func sourceInventoryMechanicalRowSetSatisfiesCitationFloor(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || len(aggregateFacts) == 0 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	if rm.SourceInventoryProfile.RequestsSourceText() {
+		return false
+	}
+	if gap := sourceInventoryResolvedCompletionPreciseCoverageGap(ctx, aggregateFacts); gap.Blocking {
 		return false
 	}
 	return SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, aggregateFacts) ||
