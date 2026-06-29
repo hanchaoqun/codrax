@@ -389,6 +389,51 @@ func TestSourceInventoryConvergence_SchedulersUseAnswerAuthorityForUniverseGaps(
 	}
 }
 
+// Clause G — read scheduling must not derive source-inventory follow-up debt
+// from the lower-level sensor directly. The sensor is precise, but if scheduler
+// code consumes it outside SourceInventoryAuthoritySnapshot it can diverge from
+// completion/pre-emit accepted-universe and caveat state, recreating the recent
+// "fix one layer, reopen another layer" ping-pong. The scheduler may consume
+// the normalized debt carried by the shared snapshot or by BusContext once the
+// snapshot has produced it.
+func TestSourceInventoryConvergence_SchedulersDoNotDeriveFollowupDebtDirectly(t *testing.T) {
+	forbiddenCalls := []string{
+		"DeriveSourceInventoryFollowupDebt(",
+		"DeriveSourceInventoryFollowupDebtWithRequiredFiles(",
+	}
+	allowed := map[string]bool{
+		"source_inventory_authority_snapshot.go": true,
+	}
+	var violations []string
+	for _, path := range sourceInventoryProductionGoFiles(t, []string{"../orchestrator", "../agent"}) {
+		key := sourceInventoryClusterFileKey(path)
+		if allowed[key] {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		text := string(data)
+		if !strings.Contains(text, "SourceInventory") &&
+			!strings.Contains(text, "sourceInventory") &&
+			!strings.Contains(text, "source inventory") &&
+			!strings.Contains(text, "source_inventory") {
+			continue
+		}
+		for i, line := range strings.Split(text, "\n") {
+			for _, call := range forbiddenCalls {
+				if strings.Contains(line, call) {
+					violations = append(violations, key+":"+strconv.Itoa(i+1)+": "+call)
+				}
+			}
+		}
+	}
+	if len(violations) > 0 {
+		t.Fatalf("source-inventory scheduler path derives follow-up debt outside SourceInventoryAuthoritySnapshot; route through sourceInventoryAuthoritySnapshotForReadScheduler / BuildSourceInventoryAuthoritySnapshot instead:\n  %s", strings.Join(violations, "\n  "))
+	}
+}
+
 func sourceInventoryProductionGoFiles(t *testing.T, roots []string) []string {
 	t.Helper()
 	var files []string

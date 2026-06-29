@@ -4912,7 +4912,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			env.SourceInventoryLensExecuted = types.SourceInventoryLensExecuted(sourceInventoryObservation)
 			env.SourceClassUniverseComplete = types.SourceInventorySourceClassesComplete(sourceInventoryObservation.SourceClasses)
 			if ir != nil && !sourceInventoryFollowupSuppressedByCompletionCaveat(o.busCtx) {
-				env.SourceInventoryFollowupDebt = types.DeriveSourceInventoryFollowupDebtWithRequiredFiles(sourceInventoryObservation, ir.RequestModel, ir.EvidencePlan.RequiredFiles)
+				env.SourceInventoryFollowupDebt = sourceInventoryAuthoritySnapshotForReadScheduler(o.busCtx, ir, sourceInventoryObservation).FollowupDebt
 			}
 			if closure := o.busCtx.Mutable.EvidenceClosure(); closure != nil {
 				env.ProgressDecision = closure.LatestProgressDecision()
