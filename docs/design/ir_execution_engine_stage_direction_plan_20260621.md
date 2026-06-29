@@ -3849,6 +3849,12 @@ Remaining follow-up:
     4. Validation: focused `internal/types` and `internal/agent` handoff/refinement tests passed.
     5. Safety boundary: this consumes only typed `ToolHandoffCarrier` fields and `ToolRefinementHint` payloads. It does not parse tool summaries, user text, model rationale, rendered repo_map/list_files/trace output, localized UI, final-answer prose, elapsed time, or eval labels, and it remains soft guidance rather than a hard gate.
 
+  - **Completed D1-G177: handoff projection rank had two local definitions（P2 / architecture hygiene + ping-pong prevention / fixed）**:
+    1. Evidence: after D1-G176, `NormalizeToolHandoffCarriers` and `renderTypedToolHandoffCarriers` both used the same repair/evidence/refinement/observation priority, but the rank function existed once in `types` and once in `agent`. That left a future drift risk: durable carrier truncation and prompt Top-N rendering could disagree again if one definition changed.
+    2. Delivered D1-F10g.299: the rank is now a single exported typed helper, `types.ToolHandoffCarrierProjectionRank`, consumed by both normalization and rendering. A type-level regression pins the actionability order.
+    3. Validation: focused handoff tests passed.
+    4. Safety boundary: this is priority projection over typed carriers only. It does not inspect summaries, user text, model rationale, rendered tool output, localized UI, final answers, elapsed time, or eval labels.
+
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
 - Focused packages: `go test ./internal/types ./internal/analysis/compiler ./internal/analysis/criterion ./internal/orchestrator ./internal/agent -run 'Dependency|Artifact|ReadLoopNextAction|DispatchPolicy|ExecutionPolicy|StageRunner|EvidenceReducer|ReadRunSnapshot'`

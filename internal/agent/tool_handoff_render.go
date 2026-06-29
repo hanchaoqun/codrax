@@ -30,7 +30,7 @@ func renderTypedToolHandoffCarriers(title string, carriers []types.ToolHandoffCa
 		return ""
 	}
 	sort.SliceStable(carriers, func(i, j int) bool {
-		return toolHandoffCarrierRank(carriers[i]) < toolHandoffCarrierRank(carriers[j])
+		return types.ToolHandoffCarrierProjectionRank(carriers[i]) < types.ToolHandoffCarrierProjectionRank(carriers[j])
 	})
 	maxCarriers := opts.MaxCarriers
 	if maxCarriers <= 0 {
@@ -281,21 +281,6 @@ func renderTypedToolHandoffObservationRefs(refs []types.ToolObservationRef, limi
 		b.WriteString("\n")
 	}
 	return b.String()
-}
-
-func toolHandoffCarrierRank(carrier types.ToolHandoffCarrier) int {
-	switch {
-	case carrier.SupportedJSON != nil || carrier.PlanRepairPack != nil || carrier.Repair != nil:
-		return 0
-	case len(carrier.AcceptedEvidence) > 0:
-		return 1
-	case carrier.Refinement != nil:
-		return 2
-	case len(carrier.ObservationRefs) > 0:
-		return 3
-	default:
-		return 4
-	}
 }
 
 func quoteHandoffValue(value string) string {

@@ -208,6 +208,49 @@ func TestNormalizeToolHandoffCarriersPreservesActionableRefinementUnderBudget(t 
 	}
 }
 
+func TestToolHandoffCarrierProjectionRankOrdersActionability(t *testing.T) {
+	cases := []struct {
+		name    string
+		carrier ToolHandoffCarrier
+		want    int
+	}{
+		{
+			name: "repair",
+			carrier: ToolHandoffCarrier{
+				Repair: &ToolRepair{Code: "schema_repair"},
+			},
+			want: 0,
+		},
+		{
+			name: "accepted evidence",
+			carrier: ToolHandoffCarrier{
+				AcceptedEvidence: []AcceptedEvidenceRef{{ID: "ev-1"}},
+			},
+			want: 1,
+		},
+		{
+			name: "refinement",
+			carrier: ToolHandoffCarrier{
+				Refinement: &ToolRefinementHint{ReasonCode: "grep_result_truncated", ResultTruncated: true},
+			},
+			want: 2,
+		},
+		{
+			name: "observation",
+			carrier: ToolHandoffCarrier{
+				ObservationRefs: []ToolObservationRef{{ID: "obs-1"}},
+			},
+			want: 3,
+		},
+		{name: "empty", carrier: ToolHandoffCarrier{}, want: 4},
+	}
+	for _, tc := range cases {
+		if got := ToolHandoffCarrierProjectionRank(tc.carrier); got != tc.want {
+			t.Fatalf("%s rank = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestSetTurnAArtifactsProjectsAcceptedEvidenceCarrier(t *testing.T) {
 	mut := NewMutableState("q")
 	mut.SetTurnAArtifacts(TurnAArtifacts{

@@ -204,14 +204,14 @@ func NormalizeToolHandoffCarriers(in []ToolHandoffCarrier) []ToolHandoffCarrier 
 	}
 	if len(out) > toolHandoffMaxCarriers {
 		sort.SliceStable(out, func(i, j int) bool {
-			return toolHandoffCarrierProjectionRank(out[i]) < toolHandoffCarrierProjectionRank(out[j])
+			return ToolHandoffCarrierProjectionRank(out[i]) < ToolHandoffCarrierProjectionRank(out[j])
 		})
 		out = out[:toolHandoffMaxCarriers]
 	}
 	return out
 }
 
-func toolHandoffCarrierProjectionRank(carrier ToolHandoffCarrier) int {
+func ToolHandoffCarrierProjectionRank(carrier ToolHandoffCarrier) int {
 	switch {
 	case carrier.SupportedJSON != nil || carrier.PlanRepairPack != nil || carrier.Repair != nil:
 		return 0
