@@ -183,6 +183,37 @@ func TestRuntimeArtifactsFromRequestReportsExplicitPaths(t *testing.T) {
 	}
 }
 
+func TestRuntimeArtifactsFromRequestCJKGluedPath(t *testing.T) {
+	// Regression: when a trace/log is named by path in a Chinese question
+	// with no whitespace separating the path from the surrounding prose, the
+	// runtime-artifact attachment table must still render in the md/html dump.
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "frame.systrace")
+	if err := os.WriteFile(tracePath, []byte("tracing_mark_write: B|1|doFrame\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	artifacts := RuntimeArtifactsFromRequest("分析" + tracePath + "的卡顿原因")
+	body := BuildBody(Args{
+		Request:          "why",
+		Answer:           "answer",
+		RuntimeArtifacts: artifacts,
+	})
+	for _, want := range []string{
+		"## 运行时附件",
+		"| trace | " + tracePath + " |",
+		"referenced in request",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("CJK-glued runtime artifact table missing %q:\n%s", want, body)
+		}
+	}
+	// The carved source must be the clean path, not the prose-fused token.
+	if strings.Contains(body, "分析"+tracePath) {
+		t.Fatalf("runtime artifact source leaked glued CJK prose:\n%s", body)
+	}
+}
+
 func TestRuntimeArtifactsFromRequestExpandsTraceBundlePath(t *testing.T) {
 	dir := t.TempDir()
 	bundlePath := filepath.Join(dir, "capture.tracebundle.json")

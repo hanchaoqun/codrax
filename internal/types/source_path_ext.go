@@ -3,6 +3,7 @@ package types
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // codeOrConfigSourcePathExtensions is the canonical set of file
@@ -159,6 +160,76 @@ func LooksLikeRuntimeArtifactPath(s string) bool {
 	return RuntimeArtifactPathKind(s) != ""
 }
 
+// RuntimeArtifactPathInToken carves an embedded runtime-artifact path out of a
+// single whitespace/punctuation-delimited token that may have CJK prose glued
+// directly to it with no separator, e.g.
+//
+//	"分析/tmp/frame.systrace的卡顿" -> "/tmp/frame.systrace"
+//
+// It returns "" when the token does not contain a recognized log/trace
+// artifact path. This is the gap behind the "by-name in the question" display
+// regression: the request tokenizer treats CJK punctuation as a separator but
+// not bare CJK ideographs, so a path written flush against Chinese prose stays
+// fused to it and the suffix match in RuntimeArtifactPathKind fails.
+//
+// Legitimate paths that themselves contain CJK directory/file names are
+// preserved: trimming only removes a LEADING or TRAILING run of CJK prose and
+// only when the trimmed result is still a recognized artifact path, so a middle
+// component like /tmp/中文/x.systrace is never split. Still path-shape only; it
+// must not be used to infer user intent from prose.
+func RuntimeArtifactPathInToken(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ""
+	}
+	if RuntimeArtifactPathKind(token) != "" {
+		if lead := dropLeadingArtifactProse(token); lead != token && RuntimeArtifactPathKind(lead) != "" {
+			return lead
+		}
+		return token
+	}
+	trimmed := dropTrailingArtifactProse(token)
+	if trimmed == token || RuntimeArtifactPathKind(trimmed) == "" {
+		return ""
+	}
+	if lead := dropLeadingArtifactProse(trimmed); lead != trimmed && RuntimeArtifactPathKind(lead) != "" {
+		return lead
+	}
+	return trimmed
+}
+
+func dropLeadingArtifactProse(s string) string {
+	for i, r := range s {
+		if !isArtifactPathProseRune(r) {
+			return s[i:]
+		}
+	}
+	return ""
+}
+
+func dropTrailingArtifactProse(s string) string {
+	end := len(s)
+	for end > 0 {
+		r, size := utf8.DecodeLastRuneInString(s[:end])
+		if !isArtifactPathProseRune(r) {
+			break
+		}
+		end -= size
+	}
+	return s[:end]
+}
+
+// isArtifactPathProseRune reports whether r is a CJK prose rune that would be
+// glued directly to an ASCII-ish artifact path in Chinese/Japanese/Korean
+// questions. ASCII letters are deliberately excluded — English prose is
+// whitespace-delimited, so the existing tokenizer already splits it.
+func isArtifactPathProseRune(r rune) bool {
+	return unicode.Is(unicode.Han, r) ||
+		unicode.Is(unicode.Hiragana, r) ||
+		unicode.Is(unicode.Katakana, r) ||
+		unicode.Is(unicode.Hangul, r)
+}
+
 // RuntimeArtifactPathKindInText returns the runtime artifact family when a
 // structured analyzer/source-policy field contains a path-shaped runtime
 // artifact token embedded in a longer quote. It is still path-shape only: the
@@ -179,7 +250,10 @@ func RuntimeArtifactPathTokensInText(s string) []string {
 	seen := map[string]bool{}
 	add := func(raw string) {
 		token := strings.Trim(raw, "`\"'()[]{}<>，。；；,;：:")
-		if RuntimeArtifactPathKind(token) == "" {
+		// Carve out a runtime-artifact path even when CJK prose is glued
+		// directly to it (no separator), e.g. "分析/tmp/x.systrace的卡顿".
+		token = RuntimeArtifactPathInToken(token)
+		if token == "" {
 			return
 		}
 		key := strings.ToLower(token)

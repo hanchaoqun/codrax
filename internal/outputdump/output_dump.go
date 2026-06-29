@@ -244,7 +244,20 @@ func RuntimeArtifactsFromRequest(request string) []RuntimeArtifact {
 	var out []RuntimeArtifact
 	add := func(raw string) {
 		source := normalizeRequestRuntimeArtifactPath(raw)
-		if source == "" || seen[source] {
+		if source == "" {
+			return
+		}
+		// A path written by name in the question may be glued directly to
+		// surrounding CJK prose with no whitespace (e.g.
+		// "分析/tmp/frame.systrace的卡顿"). Carve the embedded artifact path
+		// out so the runtime-artifact attachment still surfaces in the dump.
+		// Only override when the carve yields a recognized artifact path;
+		// otherwise keep the raw token so the explicit-locator content-sniff
+		// fallback below still runs for non-suffixed runtime files.
+		if carved := types.RuntimeArtifactPathInToken(source); carved != "" {
+			source = carved
+		}
+		if seen[source] {
 			return
 		}
 		kind, resolved := runtimeArtifactKindForRequestPath(source)
