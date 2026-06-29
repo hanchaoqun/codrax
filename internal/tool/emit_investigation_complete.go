@@ -3112,11 +3112,11 @@ func sourceInventoryPrincipalRowSetLandingFacts(ctx *types.BusContext, facts []t
 		return facts
 	}
 	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
-	return types.ProjectSourceInventoryPrincipalRowSetAggregateFacts(
-		facts,
-		observation,
-		ctx.AnalysisIR.RequestModel,
-	)
+	snapshot := sourceInventoryAuthoritySnapshotForCompletion(ctx, observation, facts)
+	if len(snapshot.ProjectedPrincipalAggregates) == 0 {
+		return facts
+	}
+	return snapshot.ProjectedPrincipalAggregates
 }
 
 func cloneCompletionAggregateFacts(in []types.AnswerAggregateFact) []types.AnswerAggregateFact {
@@ -4575,15 +4575,24 @@ func sourceInventoryResolvedCompletionDebtHasExecutableMissingClass(authority ty
 }
 
 func sourceInventoryCompletionAuthorityForContext(ctx *types.BusContext, observation types.SourceInventoryObservation, aggregateFacts []types.AnswerAggregateFact) types.SourceInventoryCompletionAuthority {
+	return sourceInventoryAuthoritySnapshotForCompletion(ctx, observation, aggregateFacts).CompletionAuthority
+}
+
+func sourceInventoryAuthoritySnapshotForCompletion(ctx *types.BusContext, observation types.SourceInventoryObservation, aggregateFacts []types.AnswerAggregateFact) types.SourceInventoryAuthoritySnapshot {
 	if ctx == nil || ctx.AnalysisIR == nil {
-		return types.SourceInventoryCompletionAuthority{}
+		return types.SourceInventoryAuthoritySnapshot{}
 	}
 	acceptedExact := SourceInventoryAcceptedClosureCoversExactUniverse(ctx, aggregateFacts)
 	acceptedRequested := SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, aggregateFacts)
-	authority := types.BuildSourceInventoryCompletionAuthorityWithOptions(observation, ctx.AnalysisIR.RequestModel, types.SourceInventoryCompletionAuthorityOptions{
+	snapshot := types.BuildSourceInventoryAuthoritySnapshot(types.SourceInventoryAuthoritySnapshotInput{
+		Observation:               observation,
+		RequestModel:              ctx.AnalysisIR.RequestModel,
+		ExistingAggregateFacts:    aggregateFacts,
 		AcceptedExactUniverse:     acceptedExact,
 		AcceptedRequestedUniverse: acceptedRequested,
+		RequiredFiles:             ctx.AnalysisIR.EvidencePlan.RequiredFiles,
 	})
+	authority := snapshot.CompletionAuthority
 	if authority.Blocking && !acceptedRequested {
 		if debt := sourceInventoryRequestedUniverseFollowupDebt(ctx, observation, ctx.AnalysisIR.RequestModel, aggregateFacts); debt.IsActive() {
 			authority.FollowupDebt = debt
@@ -4595,7 +4604,11 @@ func sourceInventoryCompletionAuthorityForContext(ctx *types.BusContext, observa
 		debt.Query.Query = sourceInventoryResolvedCompletionRepairQuery(ctx)
 		authority.FollowupDebt = types.NormalizeSourceInventoryFollowupDebt(debt)
 	}
-	return types.NormalizeSourceInventoryCompletionAuthority(authority)
+	snapshot.CompletionAuthority = types.NormalizeSourceInventoryCompletionAuthority(authority)
+	if snapshot.CompletionAuthority.FollowupDebt.IsActive() {
+		snapshot.FollowupDebt = snapshot.CompletionAuthority.FollowupDebt
+	}
+	return types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
 }
 
 func sourceInventoryResolvedCompletionRequiresRepoWideAuthority(ctx *types.BusContext, observation types.SourceInventoryObservation) bool {
