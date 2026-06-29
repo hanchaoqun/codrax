@@ -284,7 +284,7 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 				"source=/tmp/a.systrace lines=100 parsed_events=20 timestamp_unit=seconds selected_window=1.000000..1.200000 seconds",
 				"## Root cause rank",
 				"- rank=1 tier=primary type=scheduler_latency thread=com.app-42 impact=107.900ms target_impact=120.000ms score=86.320 confidence=0.88 lines=110-120 source=scheduler_latency_stats causality=on_wakeup_chain chain_depth=1 — com.app-42 runnable wait dominated the frame window",
-				"- rank=2 tier=secondary type=cpu_pressure thread= impact=51.500ms score=30.900 confidence=0.74 lines=130-150 source=window_stats — cpu=10 had high runnable pressure",
+				"- rank=2 tier=secondary type=cpu_pressure thread= impact=51.500ms score=30.900 confidence=0.74 lines=130-150 source=window_stats causality=background chain_relevance=background — cpu=10 had high runnable pressure",
 				"## Wakeup chain",
 				"- wakeup_chain path=worker-21 -> com.app-42",
 				"- causal_impact thread=worker-21 depth=1 causality=on_wakeup_chain dominant_state=runnable impact=8.250ms total=9.000ms target_impact=12.500ms fragments=3 switches=2 max_segment=4.000ms p95_segment=4.000ms running=0.000ms runnable=8.250ms sleep=0.750ms d_state=0.000ms io_wait=0.000ms prio=20/ohos_cfs target_prio=52/ohos_rt priority_relation=lower_priority_dependency priority_inversion_candidate=true lines=80-88 — worker runnable dependency dominated the wakeup chain",
@@ -334,6 +334,13 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 		!observationLedgerTestContainsString(primary.RichNotes, "chain_depth=1") ||
 		!observationLedgerTestContainsString(primary.RichNotes, "legacy_summary_fallback=true; not_answer_grade=true") {
 		t.Fatalf("trace_query primary root cause should preserve rank/tier/score notes: %+v", primary.RichNotes)
+	}
+	backgroundRank := findObservationRecord(t, ledger, "tool:0#trace_query:root_cause_rank:2")
+	if backgroundRank.Predicate != "root_cause_background" ||
+		backgroundRank.ProvenanceLane != ObservationProvenanceArtifactSpan ||
+		!observationLedgerTestContainsString(backgroundRank.RichNotes, "chain_relevance=background") ||
+		!observationLedgerTestContainsString(backgroundRank.RichNotes, "causality=background") {
+		t.Fatalf("legacy trace_query background root rank should stay supporting/background: %+v", backgroundRank)
 	}
 	causal := findObservationRecord(t, ledger, "tool:0#trace_query:wakeup_causal_impact:1")
 	if causal.Role != AnswerAggregateRoleAuditLedger ||

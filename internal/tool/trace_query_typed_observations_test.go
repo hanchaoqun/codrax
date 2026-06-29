@@ -592,6 +592,13 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		!strings.Contains(ioPressureRow.Summary, "file_bytes=4096") {
 		t.Fatalf("IO pressure typed summary must keep top inode/dev/name/bytes together: %+v", ioPressureRow)
 	}
+	for _, row := range []*types.ObservationRecord{runnableContext, churnRow, fileIORow, storageLatencyRow, ioPressureRow} {
+		if row.Role != types.AnswerAggregateRoleSupportingCoverage ||
+			row.ProvenanceLane != types.ObservationProvenanceArtifactSpan ||
+			row.GroundingPolicy != types.ClaimGroundingHard {
+			t.Fatalf("window_stats rows should stay supporting/background facts, got %+v", row)
+		}
+	}
 
 	// Facts beyond the 16-fact prose preview cap must survive.
 	for _, ordinal := range []int{17, 18, 19, 20} {

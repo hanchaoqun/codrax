@@ -119,7 +119,7 @@ func Run(idx *Index, q Query) Result {
 			}
 			stats := getStats()
 			rank := buildRootCauseRankFrom(q, chain, stats)
-			rank = enrichRootCauseRankWithScheduler(q, rank, getLatency(), stats)
+			rank = enrichRootCauseRankWithScheduler(q, rank, getLatency(), stats, chain)
 			rank = attachPerfContextToRootCauseRank(idx, q, rank, stats)
 			cachedRootCause = rank
 			cachedRootCauseOK = true
@@ -6257,7 +6257,7 @@ func BuildRootCauseRank(idx *Index, q Query) RootCauseRankResult {
 	stats := ComputeWindowStats(idx, q)
 	rank := buildRootCauseRankFrom(q, chain, stats)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
-	rank = enrichRootCauseRankWithScheduler(q, rank, latency, stats)
+	rank = enrichRootCauseRankWithScheduler(q, rank, latency, stats, chain)
 	return attachPerfContextToRootCauseRank(idx, q, rank, stats)
 }
 
@@ -6528,13 +6528,17 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 	return res
 }
 
-func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency SchedulerLatencyResult, stats WindowStats) RootCauseRankResult {
+func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency SchedulerLatencyResult, stats WindowStats, chain ChainResult) RootCauseRankResult {
 	cpus := map[int]CPUStats{}
 	for _, cpu := range stats.CPU {
 		cpus[cpu.CPU] = cpu
 	}
-	chainThreads := rankCausalThreadSet(rank)
-	hasCausalChain := len(chainThreads) > 0
+	chainThreads := wakeupChainThreadSet(chain)
+	hasCausalChain := len(chainThreads) > 1
+	if !hasCausalChain {
+		chainThreads = rankCausalThreadSet(rank)
+		hasCausalChain = len(chainThreads) > 0
+	}
 	for _, item := range latency.Items {
 		conf := 0.78
 		if item.HighPriorityRunningMs > 0 {
@@ -7018,16 +7022,16 @@ func normalizeRootCauseChainRelevance(items []RootCauseRankItem, hasCausalChain 
 		return
 	}
 	for i := range items {
-		if strings.TrimSpace(items[i].ChainRelevance) != "" {
-			continue
+		relevance := strings.TrimSpace(items[i].ChainRelevance)
+		if relevance == "" {
+			relevance = chainRelevanceFromCausality(items[i].Causality)
 		}
-		if rel := chainRelevanceFromCausality(items[i].Causality); rel != "" {
-			items[i].ChainRelevance = rel
-			continue
+		if relevance == "" {
+			relevance = "background"
 		}
-		items[i].ChainRelevance = "background"
-		if strings.TrimSpace(items[i].Causality) == "" {
-			items[i].Causality = "background"
+		items[i].ChainRelevance = relevance
+		if causality := causalityFromChainRelevance(relevance); causality != "" {
+			items[i].Causality = causality
 		}
 	}
 }
@@ -7333,9 +7337,10 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 				ctx.relevance = ""
 			}
 		}
+		ctx = rootCauseChainContextForItem(items[i], ctx)
 		items[i].ChainRelevance = ctx.relevance
-		if items[i].Causality == "" {
-			items[i].Causality = causalityFromChainRelevance(ctx.relevance)
+		if causality := causalityFromChainRelevance(ctx.relevance); causality != "" {
+			items[i].Causality = causality
 		}
 		if ctx.edgeCount > 0 {
 			items[i].EdgeCount = ctx.edgeCount
@@ -7349,6 +7354,40 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 		}
 	}
 	return items
+}
+
+func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateContext) chainCandidateContext {
+	if ctx.relevance != "on_chain" || rootCauseItemCanBeDirectOnChain(item) {
+		return ctx
+	}
+	ctx.relevance = "adjacent"
+	return ctx
+}
+
+func rootCauseItemCanBeDirectOnChain(item RootCauseRankItem) bool {
+	if !rootCauseTypeCanBeDirectOnChain(item.Type) {
+		return false
+	}
+	if strings.HasPrefix(strings.TrimSpace(item.Source), "wakeup_chain") {
+		return true
+	}
+	if item.Thread.PID <= 0 && strings.TrimSpace(item.Thread.Comm) == "" {
+		return false
+	}
+	return true
+}
+
+func rootCauseTypeCanBeDirectOnChain(typ string) bool {
+	switch typ {
+	case "runnable_wait", "scheduler_latency", "priority_inversion_runnable_wait", "fragmented_runnable_wait",
+		"running", "fragmented_running",
+		"compute_supply", "low_frequency", "cpu_affinity_or_cpuset",
+		"io_wait", "d_state_or_io_wait", "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "fragmented_d_state_or_io_wait",
+		"priority_inversion_candidate", "binder_wait":
+		return true
+	default:
+		return false
+	}
 }
 
 func chainContextForCandidate(chain ChainResult, thread ThreadRef, start, end float64) chainCandidateContext {
@@ -7640,7 +7679,7 @@ func rootCauseShouldBeCoPrimary(item RootCauseRankItem) bool {
 	case "runnable_wait", "scheduler_latency", "priority_inversion_runnable_wait", "fragmented_runnable_wait",
 		"running", "fragmented_running",
 		"compute_supply", "low_frequency", "cpu_affinity_or_cpuset",
-		"io_wait", "d_state_or_io_wait", "io_latency", "io_pressure", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "fragmented_d_state_or_io_wait":
+		"io_wait", "d_state_or_io_wait", "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "fragmented_d_state_or_io_wait":
 		return true
 	case "priority_inversion_candidate":
 		return rootCauseItemHasDStateOrIO(item) || rootCauseItemHasRunnableOrRunning(item)
@@ -7801,7 +7840,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	}
 	rank := buildRootCauseRankFrom(q, chain, stats)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
-	rank = enrichRootCauseRankWithScheduler(q, rank, latency, stats)
+	rank = enrichRootCauseRankWithScheduler(q, rank, latency, stats, chain)
 	rank = attachPerfContextToRootCauseRank(idx, q, rank, stats)
 	var chainPtr *ChainResult
 	if len(chain.Nodes) > 0 || len(chain.Edges) > 0 || len(chain.CausalImpacts) > 0 || chain.Target.PID > 0 || chain.Target.Comm != "" {

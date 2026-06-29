@@ -1933,18 +1933,28 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 	notes := traceQuerySelectedRichNotes(fields, []string{"occurrence_windows"})
 	notes = append(notes, traceQueryPriorityRichNotes(rank, tier, typ, fields["source"], fields["causality"], traceQueryFieldInt(fields, "chain_depth"), score, impact, cumulativeImpact, targetImpact)...)
 	notes = append(notes, traceQuerySelectedRichNotes(fields, []string{"chain_relevance", "dominant_state", "running", "runnable", "sleep", "d_state", "io_wait"})...)
+	role := AnswerAggregateRolePrincipalAnswer
+	provenance := ObservationProvenanceObservedDirectCause
+	claimKey := firstNonEmptyString("root_cause_"+tier, typ)
+	predicate := "root_cause_" + tier
+	if traceQueryRootCauseFieldsAreBackground(fields) {
+		role = AnswerAggregateRoleSupportingCoverage
+		provenance = ObservationProvenanceArtifactSpan
+		claimKey = "root_cause_background"
+		predicate = "root_cause_background"
+	}
 	return ObservationRecord{
 		ID:              fmt.Sprintf("tool:%d#trace_query:root_cause_rank:%d", index, rank),
 		Origin:          AnswerEvidenceOriginRuntimeArtifact,
 		Producer:        "trace_query",
-		Role:            AnswerAggregateRolePrincipalAnswer,
+		Role:            role,
 		GroundingPolicy: ClaimGroundingHard,
-		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		ProvenanceLane:  provenance,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
-		ClaimKey:        firstNonEmptyString("root_cause_"+tier, typ),
+		ClaimKey:        claimKey,
 		Subject:         thread,
-		Predicate:       "root_cause_" + tier,
+		Predicate:       predicate,
 		Object:          typ,
 		Value:           value,
 		Unit:            "ms",
@@ -1954,6 +1964,11 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 		ObservedAt:      observedAt,
 		Confidence:      conf,
 	}, true
+}
+
+func traceQueryRootCauseFieldsAreBackground(fields map[string]string) bool {
+	return strings.TrimSpace(fields["causality"]) == "background" ||
+		strings.TrimSpace(fields["chain_relevance"]) == "background"
 }
 
 func traceQueryCausalImpactRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
@@ -2123,7 +2138,7 @@ func traceQueryStateChurnRecord(index, ordinal int, line string, ref Observation
 		Producer:        "trace_query",
 		Role:            AnswerAggregateRoleSupportingCoverage,
 		GroundingPolicy: ClaimGroundingHard,
-		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
 		ClaimKey:        "state_churn:" + dominant,
@@ -2194,7 +2209,7 @@ func traceQueryThreadCPULoadRecord(index, ordinal int, line string, ref Observat
 		Producer:        "trace_query",
 		Role:            AnswerAggregateRoleSupportingCoverage,
 		GroundingPolicy: ClaimGroundingHard,
-		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
 		ClaimKey:        "thread_cpu_load:" + thread,
@@ -2229,7 +2244,7 @@ func traceQueryCPUConstraintRecord(index, ordinal int, line string, ref Observat
 		Producer:        "trace_query",
 		Role:            AnswerAggregateRoleSupportingCoverage,
 		GroundingPolicy: ClaimGroundingHard,
-		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
 		ClaimKey:        "cpu_constraint:" + thread,
@@ -2266,7 +2281,7 @@ func traceQueryRunnableContextRecord(index, ordinal int, line string, ref Observ
 		Producer:        "trace_query",
 		Role:            AnswerAggregateRoleSupportingCoverage,
 		GroundingPolicy: ClaimGroundingHard,
-		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
 		ClaimKey:        "runnable_context:" + thread,
@@ -2303,7 +2318,7 @@ func traceQueryProcessCPULoadRecord(index, ordinal int, line string, ref Observa
 		Producer:        "trace_query",
 		Role:            AnswerAggregateRoleSupportingCoverage,
 		GroundingPolicy: ClaimGroundingHard,
-		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
 		ClaimKey:        "process_cpu_load:" + process,
@@ -2350,7 +2365,7 @@ func traceQueryFileIORecord(index, ordinal int, line string, ref ObservationSour
 		Producer:        "trace_query",
 		Role:            AnswerAggregateRoleSupportingCoverage,
 		GroundingPolicy: ClaimGroundingHard,
-		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
 		ClaimKey:        "file_io:" + firstNonEmptyString(inode, name, op),
@@ -2382,7 +2397,7 @@ func traceQueryPageCacheRecord(index, ordinal int, line string, ref ObservationS
 		Producer:        "trace_query",
 		Role:            AnswerAggregateRoleSupportingCoverage,
 		GroundingPolicy: ClaimGroundingHard,
-		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
 		ClaimKey:        "page_cache:" + firstNonEmptyString(inode, dev),
@@ -2431,7 +2446,7 @@ func traceQueryStorageLatencyRecord(index, ordinal int, line string, ref Observa
 		Producer:        "trace_query",
 		Role:            AnswerAggregateRoleSupportingCoverage,
 		GroundingPolicy: ClaimGroundingHard,
-		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
 		ClaimKey:        "storage_latency:" + firstNonEmptyString(layer, event),
@@ -2479,7 +2494,7 @@ func traceQueryIOPressureRecord(index, ordinal int, line string, ref Observation
 		Producer:        "trace_query",
 		Role:            AnswerAggregateRoleSupportingCoverage,
 		GroundingPolicy: ClaimGroundingHard,
-		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
 		ClaimKey:        "io_pressure:" + signal,

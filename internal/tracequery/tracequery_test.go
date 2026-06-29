@@ -2030,6 +2030,115 @@ func TestRootCauseRankKeepsOffChainPressureAsBackground(t *testing.T) {
 	}
 }
 
+func TestRootCauseRankKeepsGlobalIOPressureBehindDirectWakeupChain(t *testing.T) {
+	idx := buildTraceIndex(t, "chain_vs_global_io.systrace", `
+        app-100 (100) [001] .... 3.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     logger-900 (900) [006] .... 3.000100: sched_switch: prev_comm=logger prev_pid=900 prev_prio=20 prev_state=D ==> next_comm=idle/6 next_pid=0 next_prio=120
+     logger-900 (900) [006] .... 3.000200: sched_blocked_reason: pid=900 iowait=1 caller=f2fs_wait_on_block
+     logger-900 (900) [006] .... 3.000300: android_fs_datawrite_start: dev=259:1 ino=0xdead entry_name=log.db offset=0 bytes=67108864 rw=W
+     logger-900 (900) [006] .... 3.018000: android_fs_datawrite_end: dev=259:1 ino=0xdead entry_name=log.db offset=0 bytes=67108864 rw=W ret=67108864 latency_us=17700
+      irq-10 (10) [006] .... 3.019000: sched_wakeup: comm=logger pid=900 prio=20 target_cpu=006
+     worker-200 (100) [002] .... 3.000500: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+       irq-2 (2) [002] .... 3.001000: sched_wakeup: comm=worker pid=200 prio=20 target_cpu=002
+     worker-200 (100) [002] .... 3.005000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 3.006000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 3.006020: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 3.0, TimeEnd: 3.020, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	if len(rank.Items) == 0 {
+		t.Fatalf("expected root-cause candidates")
+	}
+	if rank.Items[0].ChainRelevance != "on_chain" || rank.Items[0].Causality != "on_wakeup_chain" {
+		t.Fatalf("on-chain candidates should outrank global IO pressure: %+v", rank.Items)
+	}
+	foundBackgroundIO := false
+	foundWorker := false
+	for _, item := range rank.Items {
+		if item.Thread.PID == 200 && item.ChainRelevance == "on_chain" {
+			foundWorker = true
+		}
+		if item.Thread.PID == 900 || item.Type == "io_pressure" || item.Type == "file_io_hot_inode" {
+			if item.ChainRelevance != "background" || item.Causality != "background" || item.Tier == "primary" {
+				t.Fatalf("off-chain IO/D-state should remain background/supporting, got %+v all=%+v", item, rank.Items)
+			}
+			foundBackgroundIO = true
+		}
+	}
+	if !foundWorker {
+		t.Fatalf("expected direct wakeup-chain worker to remain on-chain: %+v", rank.Items)
+	}
+	if !foundBackgroundIO {
+		t.Fatalf("expected retained background IO pressure for audit context: %+v", rank.Items)
+	}
+}
+
+func TestRootCauseRankDoesNotPromoteAggregateIOPressureByRepresentativeThread(t *testing.T) {
+	idx := buildTraceIndex(t, "chain_io_pressure_summary.systrace", `
+        app-100 (100) [001] .... 3.100000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 3.100200: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=D ==> next_comm=idle/2 next_pid=0 next_prio=120
+       irq-2 (2) [002] .... 3.100300: sched_blocked_reason: pid=200 iowait=1 caller=f2fs_wait_on_block
+     worker-200 (100) [002] .... 3.100400: android_fs_datawrite_start: dev=259:1 ino=0xbeef entry_name=cache.db offset=0 bytes=67108864 rw=W
+     worker-200 (100) [002] .... 3.109000: android_fs_datawrite_end: dev=259:1 ino=0xbeef entry_name=cache.db offset=0 bytes=67108864 rw=W ret=67108864 latency_us=8600
+       irq-2 (2) [002] .... 3.110000: sched_wakeup: comm=worker pid=200 prio=20 target_cpu=002
+     worker-200 (100) [002] .... 3.111000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 3.112000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 3.112020: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 3.100, TimeEnd: 3.113, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	if len(rank.Items) == 0 || rank.Items[0].ChainRelevance != "on_chain" || rank.Items[0].Thread.PID != 200 {
+		t.Fatalf("direct worker dependency should stay ahead of aggregate IO pressure: %+v", rank.Items)
+	}
+	foundDirectState := false
+	foundConcreteIO := false
+	foundAggregatePressure := false
+	for _, item := range rank.Items {
+		if item.Thread.PID == 200 && item.ChainRelevance == "on_chain" && item.DominantState == string(StateIOWait) {
+			foundDirectState = true
+		}
+		if item.Type == "file_io_hot_inode" && item.Thread.PID == 200 && item.ChainRelevance == "on_chain" {
+			foundConcreteIO = true
+		}
+		if item.Type == "io_pressure" {
+			foundAggregatePressure = true
+			if item.ChainRelevance == "on_chain" || item.Causality == "on_wakeup_chain" || item.Tier == "primary" {
+				t.Fatalf("aggregate io_pressure must remain supporting context even when its representative thread is on-chain: %+v all=%+v", item, rank.Items)
+			}
+		}
+	}
+	if !foundDirectState {
+		t.Fatalf("expected concrete on-chain D/IO state candidate: %+v", rank.Items)
+	}
+	if !foundConcreteIO {
+		t.Fatalf("expected concrete file IO candidate to carry chain relevance separately from aggregate pressure: %+v", rank.Items)
+	}
+	if !foundAggregatePressure {
+		t.Fatalf("expected aggregate io_pressure candidate for supporting context: %+v", rank.Items)
+	}
+}
+
+func TestRootCauseRankDoesNotPromoteTraceSpanOverOnChainStateCause(t *testing.T) {
+	idx := buildTraceIndex(t, "chain_span_context.systrace", `
+        app-100 (100) [001] .... 4.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 4.000100: tracing_mark_write: B|200|LongWorkerMarker
+     worker-200 (100) [002] .... 4.001000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=D ==> next_comm=idle/2 next_pid=0 next_prio=120
+       irq-2 (2) [002] .... 4.001100: sched_blocked_reason: pid=200 iowait=1 caller=f2fs_wait_on_block
+       irq-2 (2) [002] .... 4.006000: sched_wakeup: comm=worker pid=200 prio=20 target_cpu=002
+     worker-200 (100) [002] .... 4.006500: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 4.007000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200 (100) [002] .... 4.007500: tracing_mark_write: E|200
+        app-100 (100) [001] .... 4.007520: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 4.0, TimeEnd: 4.008, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	if len(rank.Items) == 0 || rank.Items[0].Thread.PID != 200 || rank.Items[0].DominantState != string(StateIOWait) {
+		t.Fatalf("on-chain D/IO state should remain the primary cause before marker spans: %+v", rank.Items)
+	}
+	for _, item := range rank.Items {
+		if item.Type == "trace_span" && item.ChainRelevance == "on_chain" {
+			t.Fatalf("trace span markers should be adjacent context, not direct on-chain root causes: %+v", item)
+		}
+	}
+}
+
 func TestRootCauseTierKeepsOnChainDIOAsCoPrimary(t *testing.T) {
 	items := []RootCauseRankItem{
 		{
