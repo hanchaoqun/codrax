@@ -468,6 +468,136 @@ func TestContinuationToolResultHintsReadsHandoffRefinement(t *testing.T) {
 	}
 }
 
+func TestContinuationToolResultHintsSuppressesAcceptedSourceInventoryDisplayDebt(t *testing.T) {
+	mut := types.NewMutableState("inventory")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: false,
+		Scopes:   []string{"."},
+		Lens:     []string{"members", "source_class_universe", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleProduction,
+			Count:    1,
+			Complete: true,
+			Languages: []types.SourceInventoryLanguageCount{{
+				Language: "python",
+				Count:    1,
+				InScope:  true,
+				Samples:  []string{"src/run.py"},
+			}},
+			Samples: []string{"src/run.py"},
+		}, {
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    1,
+			Complete: true,
+			Languages: []types.SourceInventoryLanguageCount{{
+				Language: "python",
+				Count:    1,
+				InScope:  true,
+				Samples:  []string{"internal/thirdparty/pkg/entry.py"},
+			}},
+			Samples: []string{"internal/thirdparty/pkg/entry.py"},
+		}},
+		Execution: &types.SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Page:      &types.SourceInventoryObservationPage{Offset: 0, Emitted: 2, Total: 100, NextCursor: "2", Complete: false},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: false,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Run",
+				Key:           "Run",
+				SupportRef:    "Run: src/run.py:7",
+				Provenance:    []string{"repo_lens:direct_children"},
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "src/run.py",
+				Line:          7,
+				Language:      "python",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}, {
+				Name:          "VendorEntry",
+				Key:           "VendorEntry",
+				SupportRef:    "VendorEntry: internal/thirdparty/pkg/entry.py:3",
+				Provenance:    []string{"repo_lens:direct_children"},
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "internal/thirdparty/pkg/entry.py",
+				Line:          3,
+				Language:      "python",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "requested functions",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Run", "VendorEntry"},
+		SupportRefs: []string{
+			"Run: src/run.py:7",
+			"VendorEntry: internal/thirdparty/pkg/entry.py:3",
+		},
+	}}
+	mut.SetInvestigationAggregateFacts(facts)
+	mut.SetInvestigationComplete("requested source-inventory rows closed")
+	mut.SetInvestigationResultKind("resolved")
+	mut.RetainInvestigationAggregateFacts()
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	snapshot := sourceInventoryAuthoritySnapshotForReadScheduler(bus, bus.AnalysisIR, types.SourceInventoryObservationFromMutable(mut))
+	if !types.SourceInventoryAuthoritySuppressesStaleDisplayDebt(snapshot) {
+		t.Fatalf("fixture should suppress stale source-inventory display debt: %+v", snapshot)
+	}
+	hints := continuationToolResultHintsForContext(bus, []types.ToolResult{{
+		ToolName: "repo_map",
+		Success:  true,
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode:               types.SourceInventoryRefinementReasonCandidateBudgetTruncated,
+			CandidateBudgetTruncated: true,
+			PreferredNextTool:        "repo_map",
+			PreferredParams: map[string]string{
+				"view":               "source_inventory",
+				"include_attributes": "false",
+			},
+			RequiredFields: []string{"scope"},
+			NextCursor:     "50",
+		},
+		Handoff: &types.ToolHandoffCarrier{
+			Version:    types.ToolHandoffCarrierVersion,
+			ToolName:   "repo_map",
+			ReasonCode: types.SourceInventoryRefinementReasonCandidateBudgetTruncated,
+			Refinement: &types.ToolRefinementHint{
+				ReasonCode:               types.SourceInventoryRefinementReasonCandidateBudgetTruncated,
+				CandidateBudgetTruncated: true,
+				PreferredNextTool:        "repo_map",
+				PreferredParams:          map[string]string{"view": "source_inventory"},
+				NextCursor:               "50",
+			},
+			ObservationRefs: []types.ToolObservationRef{{ID: "obs-1", ClaimKey: "source_inventory"}},
+		},
+	}}, 4)
+	if len(hints) != 0 {
+		t.Fatalf("accepted source-inventory universe should suppress stale continuation hints, got %+v", hints)
+	}
+}
+
 func TestSoftAgentOutputRetryMessageRuntimeContinuationLocalized(t *testing.T) {
 	bus := &types.BusContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

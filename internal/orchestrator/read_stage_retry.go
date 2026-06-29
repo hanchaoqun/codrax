@@ -386,7 +386,7 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 	if agg := aggregateFactContinuationSummary(aggregateFacts, 3); agg != "" {
 		body = append(body, "Preserved aggregate facts: "+agg)
 	}
-	if hints := continuationToolResultHints(toolResults, 8); len(hints) > 0 {
+	if hints := continuationToolResultHintsForContext(o.busCtx, toolResults, 8); len(hints) > 0 {
 		body = append(body, "Useful preserved typed tool refinement hints:\n- "+strings.Join(hints, "\n- "))
 	}
 	body = append(body, "If the checkpoint already covers the active objective, call `emit_investigation_complete`. If a concrete anchor is still missing, use one narrow search/read for that anchor, then materialize or close.")
@@ -559,9 +559,14 @@ func aggregateFactContinuationSummary(facts []types.AnswerAggregateFact, maxItem
 }
 
 func continuationToolResultHints(results []types.ToolResult, maxItems int) []string {
+	return continuationToolResultHintsForContext(nil, results, maxItems)
+}
+
+func continuationToolResultHintsForContext(ctx *types.BusContext, results []types.ToolResult, maxItems int) []string {
 	if maxItems <= 0 || len(results) == 0 {
 		return nil
 	}
+	results = stripStaleSourceInventoryDisplayDebtForContinuation(ctx, results)
 	seen := map[string]bool{}
 	var out []string
 	for i := len(results) - 1; i >= 0 && len(out) < maxItems; i-- {
@@ -571,6 +576,25 @@ func continuationToolResultHints(results []types.ToolResult, maxItems int) []str
 				out = append(out, hint)
 			}
 		}
+	}
+	return out
+}
+
+func stripStaleSourceInventoryDisplayDebtForContinuation(ctx *types.BusContext, results []types.ToolResult) []types.ToolResult {
+	if len(results) == 0 || ctx == nil || ctx.Mutable == nil {
+		return results
+	}
+	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	if !observation.IsActive() {
+		return results
+	}
+	snapshot := sourceInventoryAuthoritySnapshotForReadScheduler(ctx, ctx.AnalysisIR, observation)
+	if !types.SourceInventoryAuthoritySuppressesStaleDisplayDebt(snapshot) {
+		return results
+	}
+	out := make([]types.ToolResult, len(results))
+	for i, result := range results {
+		out[i] = types.StripSourceInventoryStaleDisplayDebtFromToolResult(result)
 	}
 	return out
 }

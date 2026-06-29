@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -185,6 +186,132 @@ func TestRenderAnswerDocToolHandoffCarriersConsumesTurnA(t *testing.T) {
 	if !strings.Contains(out, "## Typed Repair And Evidence Handoff") ||
 		!strings.Contains(out, "evidence=`ev-accepted` @ `src/owner.ts:5`") {
 		t.Fatalf("finalizer handoff not rendered:\n%s", out)
+	}
+}
+
+func TestRenderAnswerDocToolHandoffCarriersSuppressesAcceptedSourceInventoryDisplayDebt(t *testing.T) {
+	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(false)
+	obs := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	obs.Complete = false
+	obs.Execution = &types.SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true}
+	obs.Page = &types.SourceInventoryObservationPage{Offset: 0, Emitted: 3, Total: 128, NextCursor: "3", Complete: false}
+	obs.SourceClasses = append(obs.SourceClasses, types.SourceInventorySourceClassCount{
+		Role:     types.SourcePathRoleThirdParty,
+		Count:    1,
+		Complete: true,
+		Languages: []types.SourceInventoryLanguageCount{{
+			Language: "python",
+			Count:    1,
+			InScope:  true,
+			Samples:  []string{"internal/thirdparty/pkg/entry.py"},
+		}},
+		Samples: []string{"internal/thirdparty/pkg/entry.py"},
+	})
+	obs.Sets[0].Members = append(obs.Sets[0].Members, types.SourceInventoryObservationMember{
+		Name:          "VendorEntry",
+		Key:           "VendorEntry",
+		SupportRef:    "VendorEntry: internal/thirdparty/pkg/entry.py:3",
+		Provenance:    []string{"repo_lens:direct_children"},
+		Role:          types.AnswerCandidateRoleFunction,
+		File:          "internal/thirdparty/pkg/entry.py",
+		Line:          3,
+		Language:      "python",
+		CoverageState: types.SourceInventoryCoverageObserved,
+	})
+	obs.Sets[0].Complete = false
+	obs.Sets[0].Count = len(obs.Sets[0].Members)
+	obs.Sets[0].Total = len(obs.Sets[0].Members)
+	ctx.Mutable.SetSourceInventoryObservation(obs)
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "requested functions",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Run", "Serve", "VendorEntry"},
+		SupportRefs: []string{
+			"Run: src/run.py:7",
+			"Serve: src/serve.py:12",
+			"VendorEntry: internal/thirdparty/pkg/entry.py:3",
+		},
+	}}
+	ctx.Mutable.SetInvestigationAggregateFacts(facts)
+	ctx.Mutable.SetInvestigationComplete("requested function inventory closed")
+	ctx.Mutable.SetInvestigationResultKind("resolved")
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+	bus := &types.BusContext{RepoRoot: ctx.RepoRoot, Mutable: ctx.Mutable, AnalysisIR: ctx.AnalysisIR}
+	if !tool.SourceInventoryAcceptedClosureCoversRequestedUniverse(bus, facts) {
+		t.Fatalf("fixture should prove accepted requested source-inventory universe")
+	}
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		HandoffCarriers: []types.ToolHandoffCarrier{{
+			Version:    types.ToolHandoffCarrierVersion,
+			ToolName:   "repo_map",
+			ReasonCode: types.SourceInventoryRefinementReasonCandidateBudgetTruncated,
+			Refinement: &types.ToolRefinementHint{
+				ReasonCode:               types.SourceInventoryRefinementReasonCandidateBudgetTruncated,
+				CandidateBudgetTruncated: true,
+				PreferredNextTool:        "repo_map",
+				PreferredParams: map[string]string{
+					"view":               "source_inventory",
+					"include_attributes": "false",
+				},
+				RequiredFields: []string{"scope"},
+				NextCursor:     "50",
+			},
+			ObservationRefs: []types.ToolObservationRef{{
+				ID:       "repo_map:source_inventory#navigation",
+				Producer: "repo_map",
+				ClaimKey: "source_inventory",
+			}},
+		}},
+	})
+
+	out := renderAnswerDocToolHandoffCarriers(ctx)
+	if !strings.Contains(out, "tool_observation_handoff") ||
+		!strings.Contains(out, "observation=`repo_map:source_inventory#navigation`") {
+		t.Fatalf("source-inventory observations should remain visible after stripping stale refinement:\n%s", out)
+	}
+	for _, forbidden := range []string{
+		"candidate_budget_truncated",
+		"soft_narrow_if_answer_critical_else_caveat",
+		"preferred_tool=`repo_map`",
+		"next_cursor=`50`",
+	} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("accepted source-inventory universe leaked stale refinement %q:\n%s", forbidden, out)
+		}
+	}
+}
+
+func TestRenderAnswerDocAcceptedClosureTreatsAcceptedSourceInventoryBoundariesAsAuditOnly(t *testing.T) {
+	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(false)
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "requested functions",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Run", "Serve"},
+		SupportRefs: []string{"Run: src/run.py:7", "Serve: src/serve.py:12"},
+	}})
+	ctx.Mutable.SetInvestigationComplete("function source-inventory rows are closed")
+	ctx.Mutable.SetInvestigationResultKind("resolved")
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ValidationBoundaryNotes: []string{"source=pre_dispatch_auto_complete; criterion=evidence_count; downstream=\"disclose the scope/evidence boundary\""},
+	})
+
+	out := renderAnswerDocAcceptedClosure(ctx)
+	for _, want := range []string{
+		"post-closure validation audit notes",
+		"Source-inventory authority has accepted the requested/exact universe",
+		"Do not convert stale broad-lens budget",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("accepted closure status missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "disclose the boundary in summary/caveat text") {
+		t.Fatalf("accepted source-inventory closure should not prompt user-visible caveats:\n%s", out)
 	}
 }
 

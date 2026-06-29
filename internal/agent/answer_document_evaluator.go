@@ -3631,6 +3631,7 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 		len(plan.StableValidationBoundaryNotes) == 0 {
 		return ""
 	}
+	sourceInventoryAccepted := answerDocSourceInventorySuppressesStaleDisplayDebt(ctx)
 	var b strings.Builder
 	b.WriteString("## Accepted Closure Status\n\n")
 	b.WriteString("- A prior exploration window already reached a stable closure for this dispatch.\n")
@@ -3655,7 +3656,11 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- absence justification: %s\n", truncateAnswerDocPromptText(justification, 500))
 	}
 	if len(plan.StableValidationBoundaryNotes) > 0 {
-		b.WriteString("- post-closure validation boundaries:\n")
+		if sourceInventoryAccepted {
+			b.WriteString("- post-closure validation audit notes (not user-visible caveats for the accepted source-inventory universe):\n")
+		} else {
+			b.WriteString("- post-closure validation boundaries:\n")
+		}
 		for i, note := range plan.StableValidationBoundaryNotes {
 			trimmed := strings.TrimSpace(note)
 			if trimmed == "" {
@@ -3666,7 +3671,11 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	}
 	b.WriteString("- Treat this closure as a structured exploration handoff, not as a citation and not as system-written answer text.\n")
 	b.WriteString("- Preserve resolved counts, listed members, excluded categories/counts, scope boundaries, and verdicts from the closure only when the same value is carried by structured aggregate facts, typed support lanes, current citations, or raw tool outputs below. If unstructured closure prose conflicts with typed member obligations, principal support lanes, or structured aggregate facts, prefer the typed/structured handoff.\n")
-	b.WriteString("- When post-closure validation boundaries say the supported candidate set remains broad, unresolved, or under-constrained, converge the answer by prioritizing/grouping the supported facts and disclose the boundary in summary/caveat text. Do not invent missing precision solely to satisfy a validation criterion.\n")
+	if sourceInventoryAccepted {
+		b.WriteString("- Source-inventory authority has accepted the requested/exact universe. Do not convert stale broad-lens budget, pagination, or post-closure audit notes into a user-visible caveat; answer from the Principal Enumeration Rows and source-inventory authority handoff unless another precise hard gap is present.\n")
+	} else {
+		b.WriteString("- When post-closure validation boundaries say the supported candidate set remains broad, unresolved, or under-constrained, converge the answer by prioritizing/grouping the supported facts and disclose the boundary in summary/caveat text. Do not invent missing precision solely to satisfy a validation criterion.\n")
+	}
 	b.WriteString("- Rebuild the user-visible prose yourself inside `emit_answer_document`; do not invent facts beyond the closure/evidence boundary.\n\n")
 	return b.String()
 }
@@ -3906,13 +3915,32 @@ func renderAnswerDocToolHandoffCarriers(ctx *types.AgentContext) string {
 	if ta == nil || len(ta.HandoffCarriers) == 0 {
 		return ""
 	}
+	carriers := answerDocToolHandoffCarriersForFinalizer(ctx, ta.HandoffCarriers)
+	if len(carriers) == 0 {
+		return ""
+	}
 	if answerDocMixedRuntimeCurrentSourceShape(ctx) {
-		return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", ta.HandoffCarriers, toolHandoffRenderOptions{
+		return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", carriers, toolHandoffRenderOptions{
 			MaxCarriers: 4,
 			MaxRefs:     6,
 		})
 	}
-	return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", ta.HandoffCarriers)
+	return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", carriers)
+}
+
+func answerDocToolHandoffCarriersForFinalizer(ctx *types.AgentContext, carriers []types.ToolHandoffCarrier) []types.ToolHandoffCarrier {
+	carriers = types.NormalizeToolHandoffCarriers(carriers)
+	if len(carriers) == 0 || !answerDocSourceInventorySuppressesStaleDisplayDebt(ctx) {
+		return carriers
+	}
+	out := make([]types.ToolHandoffCarrier, 0, len(carriers))
+	for _, carrier := range carriers {
+		carrier = types.StripSourceInventoryStaleDisplayDebtFromToolHandoffCarrier(carrier)
+		if !carrier.Empty() {
+			out = append(out, carrier)
+		}
+	}
+	return types.NormalizeToolHandoffCarriers(out)
 }
 
 func renderAnswerDocSourceInventoryHandoff(ctx *types.AgentContext) string {
@@ -4023,6 +4051,14 @@ func answerDocSourceInventoryAuthoritySnapshot(ctx *types.AgentContext, observat
 		MaxAuditRows:              4,
 	})
 	return types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
+}
+
+func answerDocSourceInventorySuppressesStaleDisplayDebt(ctx *types.AgentContext) bool {
+	observation := answerDocSourceInventoryObservation(ctx)
+	if !observation.IsActive() {
+		return false
+	}
+	return types.SourceInventoryAuthoritySuppressesStaleDisplayDebt(answerDocSourceInventoryAuthoritySnapshot(ctx, observation))
 }
 
 func renderAnswerDocSourceInventoryRowSet(b *strings.Builder, rowSet types.SourceInventoryPrincipalRowSet) {
