@@ -4338,6 +4338,9 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 			if preEmitAggregateMemberIndexedSupportRefAppearsInDocument(fact, memberIdx, member, doc) {
 				continue
 			}
+			if preEmitAggregateMemberIndexedSourceInventorySurfaceAppearsInDocument(ctx, fact, memberIdx, doc) {
+				continue
+			}
 			if preEmitAggregateMemberIndexedSupportSurfaceAppearsInDocument(fact, memberIdx, member, doc) {
 				continue
 			}
@@ -5357,6 +5360,121 @@ func preEmitAggregateMemberIndexedSupportRefAppearsInDocument(fact types.AnswerA
 			if preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, itemSurface) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func preEmitAggregateMemberIndexedSourceInventorySurfaceAppearsInDocument(ctx *types.BusContext, fact types.AnswerAggregateFact, memberIdx int, doc *types.AnswerDocumentV2) bool {
+	if ctx == nil || ctx.Mutable == nil || doc == nil || memberIdx < 0 || memberIdx >= len(fact.SupportRefs) {
+		return false
+	}
+	refMember, loc, ok := preEmitAggregateSupportRefMemberLocation(fact.SupportRefs[memberIdx])
+	if !ok || strings.TrimSpace(loc.File) == "" || loc.LineStart <= 0 {
+		return false
+	}
+	terms := preEmitSourceInventorySurfaceTermsForLocation(types.SourceInventoryObservationFromMutable(ctx.Mutable), loc, refMember)
+	if len(terms) == 0 {
+		return false
+	}
+	fileCandidates := preEmitAggregateSupportRefFileCandidates(loc.File)
+	for _, block := range doc.Blocks {
+		if preEmitSourceInventoryTermsAndLocationAppearInSurface(block.Title+"\n"+block.Text, terms, fileCandidates) {
+			return true
+		}
+		for _, item := range block.Items {
+			itemSurface := types.AnswerBlockItemVisibleSurface(item)
+			if strings.TrimSpace(itemSurface) == "" {
+				continue
+			}
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitCitationMatchesSourceLocation(doc.Citations[item.CitationRef], loc) &&
+				preEmitAnySourceInventorySurfaceTermAppears(terms, itemSurface) {
+				return true
+			}
+			if preEmitSourceInventoryTermsAndLocationAppearInSurface(itemSurface, terms, fileCandidates) {
+				return true
+			}
+		}
+		if block.Diagram != nil && preEmitSourceInventoryTermsAndLocationAppearInSurface(block.Diagram.Body, terms, fileCandidates) {
+			return true
+		}
+	}
+	for _, caveat := range doc.Caveats {
+		if preEmitSourceInventoryTermsAndLocationAppearInSurface(caveat, terms, fileCandidates) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitSourceInventorySurfaceTermsForLocation(observation types.SourceInventoryObservation, loc types.AnswerSourceLocationSurface, refMember string) []string {
+	if strings.TrimSpace(loc.File) == "" || loc.LineStart <= 0 {
+		return nil
+	}
+	var out []string
+	add := func(values ...string) {
+		for _, value := range values {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				out = append(out, value)
+			}
+		}
+	}
+	for _, set := range observation.Sets {
+		for _, member := range set.Members {
+			if preEmitSourceInventoryMemberMatchesLocation(member.File, member.Line, member.SupportRef, loc) {
+				add(member.SurfaceTerms...)
+				add(member.Name, member.Key)
+				if strings.TrimSpace(refMember) != "" {
+					add(refMember)
+				}
+			}
+			for _, attr := range member.Attributes {
+				if preEmitSourceInventoryMemberMatchesLocation(attr.File, attr.Line, attr.SupportRef, loc) {
+					add(attr.SurfaceTerms...)
+					add(attr.Name, attr.Key)
+					if strings.TrimSpace(refMember) != "" {
+						add(refMember)
+					}
+				}
+			}
+		}
+	}
+	return dedupPreEmitStringCandidates(out)
+}
+
+func preEmitSourceInventoryMemberMatchesLocation(file string, line int, supportRef string, loc types.AnswerSourceLocationSurface) bool {
+	if strings.TrimSpace(file) != "" && line > 0 &&
+		preEmitCitationMatchesSourceLocation(types.Citation{File: file, Line: line}, loc) {
+		return true
+	}
+	if _, refLoc, ok := preEmitAggregateSupportRefMemberLocation(supportRef); ok &&
+		preEmitCitationMatchesSourceLocation(types.Citation{File: refLoc.File, Line: refLoc.LineStart}, loc) {
+		return true
+	}
+	return false
+}
+
+func preEmitSourceInventoryTermsAndLocationAppearInSurface(surface string, terms, fileCandidates []string) bool {
+	if strings.TrimSpace(surface) == "" || len(terms) == 0 || len(fileCandidates) == 0 {
+		return false
+	}
+	if !preEmitAnySourceInventorySurfaceTermAppears(terms, surface) {
+		return false
+	}
+	for _, file := range fileCandidates {
+		if preEmitAggregateDisplayPartAppears(file, surface) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitAnySourceInventorySurfaceTermAppears(terms []string, surface string) bool {
+	for _, term := range terms {
+		if preEmitAggregateMemberSurfaceAppearsInText(term, surface) {
+			return true
 		}
 	}
 	return false

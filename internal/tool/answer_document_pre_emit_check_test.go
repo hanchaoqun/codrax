@@ -1096,6 +1096,64 @@ func TestPreCheckAggregateMemberSetCoverage_ScalarCountTreatsMembersAsSupportOnl
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_SourceInventorySurfaceAliasCoversExactRow(t *testing.T) {
+	const path = "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj"
+	mu := types.NewMutableState("source inventory row surface alias")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "public class",
+		Value:      "1",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members:    []string{"public class Service"},
+		SupportRefs: []string{
+			"Service: " + path + ":32",
+		},
+	}})
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Service",
+				Key:           "Service",
+				Role:          types.AnswerCandidateRoleType,
+				File:          path,
+				Line:          32,
+				Language:      "cangjie",
+				SurfaceTerms:  []string{"public class", "public class Service", "public abstract class", "public abstract class Service"},
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	mu.SetInvestigationComplete("structured source inventory member set accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: path, Line: 32}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "class-list",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "service",
+				Label:       "public abstract class Service",
+				Text:        "所在包为 demo.modifiers。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("row-local typed source surface alias at the same file:line should cover the aggregate member, got %+v", got)
+	}
+
+	doc.Citations[0] = types.Citation{File: path, Line: 22}
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) == 0 {
+		t.Fatal("same visible alias on a different source row must not satisfy the precise source-inventory member")
+	}
+}
+
 func TestPreCheckSourceInventoryCandidateUniverseCoverage_RequiresCoverageOrCaveat(t *testing.T) {
 	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta", "gamma"})
 	ctx.AnalysisIR = &types.AnalysisIR{
