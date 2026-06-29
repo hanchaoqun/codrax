@@ -196,10 +196,12 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 	if p.View == "source_inventory" {
 		if summary, ok := repoMapSourceInventoryParamPreflight(p); !ok {
 			return ctypes.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   summary,
-				Timestamp: time.Now(),
+				ToolName:   t.Name(),
+				Success:    false,
+				Summary:    summary,
+				Repair:     repoMapSourceInventoryFileRoleRepair(p),
+				Refinement: repoMapSourceInventoryFileRoleRefinement(p),
+				Timestamp:  time.Now(),
 			}, nil
 		}
 	}
@@ -906,6 +908,54 @@ func repoMapSourceInventoryParamPreflight(p repoMapParams) (string, bool) {
 		return "", true
 	}
 	return "repo_map refused: source_inventory with roles=[\"file\"] as the only primary role is a path-discovery request, not a semantic source-inventory lens. Use `list_files` with recursive=true plus include/file_type filters for file-path or file-family discovery; use source_inventory with semantic roles such as function, method, type, constant, variable, field, package, config_file, config_key, route, import_path, or literal_value when you need a member/count checklist.", false
+}
+
+func repoMapSourceInventoryFileRoleRepair(p repoMapParams) *ctypes.ToolRepair {
+	return &ctypes.ToolRepair{
+		Code: "repo_map_source_inventory_file_role_path_discovery",
+		Hint: "source_inventory roles=[\"file\"] is file-path discovery; use list_files for path families, or source_inventory with semantic member roles for declaration/member inventories.",
+		Fields: []string{
+			"roles",
+			"attribute_roles",
+			"scope",
+			"scopes",
+		},
+		Metadata: map[string]string{
+			"view":                    string(p.View),
+			"preferred_next_tool":     "list_files",
+			"preferred_semantic_view": "source_inventory",
+		},
+	}
+}
+
+func repoMapSourceInventoryFileRoleRefinement(p repoMapParams) *ctypes.ToolRefinementHint {
+	params := map[string]string{
+		"path":      firstNonEmptyRepoMapPath(p.Path, "."),
+		"recursive": "true",
+	}
+	refinement := ctypes.NormalizeToolRefinementHint(ctypes.ToolRefinementHint{
+		ReasonCode:        "source_inventory_file_role_path_discovery",
+		PreferredNextTool: "list_files",
+		PreferredParams:   params,
+		RequiredFields: []string{
+			"include",
+			"file_type",
+		},
+	})
+	if refinement.Empty() {
+		return nil
+	}
+	return &refinement
+}
+
+func firstNonEmptyRepoMapPath(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 const (

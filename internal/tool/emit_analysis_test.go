@@ -4746,6 +4746,84 @@ func TestEmitAnalysis_Execute_SoftensRepoWideInventoryAuxiliaryExclusion(t *test
 	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		t.Fatalf("source_inventory_profile should remain active: %+v", rm.SourceInventoryProfile)
 	}
+	if len(rm.AnalyzerHints.RequiredFileHints) != 0 {
+		t.Fatalf("model-authored source-inventory support files must stay soft, got required_file hints: %+v", rm.AnalyzerHints.RequiredFileHints)
+	}
+	if !strings.Contains(res.Summary, "model-authored source-inventory path hint") {
+		t.Fatalf("summary should disclose source-inventory required_files softening, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_KeepsExplicitSourceInventoryRequiredFile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	repo := t.TempDir()
+	rel := "internal/tool/source_inventory_language_census.go"
+	path := filepath.Join(repo, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package tool\nfunc Census() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mu := types.NewMutableState("只列 internal/tool/source_inventory_language_census.go 里的函数。")
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["source_inventory_language_census.go", "function"],
+		"entities": ["internal/tool/source_inventory_language_census.go", "function"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.75,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"required_files": [
+			{"path":"internal/tool/source_inventory_language_census.go","confidence":0.91,"rationale":"user named exact source file"}
+		],
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["function"],
+			"requested_fields": ["name", "location", "summary"],
+			"source_quotes": ["函数"],
+			"confidence": 0.9
+		}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, RepoRoot: repo}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("explicit source-inventory file should be preserved, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || len(rm.AnalyzerHints.RequiredFileHints) != 1 {
+		t.Fatalf("explicit required file hint not persisted: rm=%+v summary=%q", rm, res.Summary)
+	}
+	if got := rm.AnalyzerHints.RequiredFileHints[0].Path; got != rel {
+		t.Fatalf("required_file path = %q, want %q", got, rel)
+	}
+	if strings.Contains(res.Summary, "model-authored source-inventory path hint") {
+		t.Fatalf("explicit path must not be softened: %q", res.Summary)
+	}
 }
 
 func TestEmitAnalysis_Execute_PersistsAnswerVisibilityProfile(t *testing.T) {
@@ -5280,6 +5358,103 @@ func TestEmitAnalysis_ProjectsPrescanFilesForSourceInventoryCoverage(t *testing.
 	}
 	if !types.RequiredFileHintCurrentSourceCoverageApplies(*rm) {
 		t.Fatalf("projected source inventory hints should activate required-file coverage: %+v", rm.AnalyzerHints.RequiredFileHints)
+	}
+}
+
+func TestEmitAnalysis_DoesNotProjectDocumentationPrescanFilesForCodeConstructInventory(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	repo := t.TempDir()
+	for _, rel := range []string{"AGENTS.md", "README.md", "docs/architecture.md"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(repo, rel)), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, rel), []byte("source inventory docs\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mu := types.NewMutableState("仓库里有哪些 extend 块、哪些 foreign func 声明、哪些 public class？")
+	mu.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+		PathDiscovery: &types.ToolPathDiscovery{
+			Kind:        types.ToolPathDiscoveryKindListFiles,
+			Path:        ".",
+			Recursive:   true,
+			ResultCount: 3,
+			CandidateFiles: []string{
+				"AGENTS.md",
+				"README.md",
+				"docs/architecture.md",
+			},
+		},
+	})
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["extend", "foreign", "public", "class"],
+		"entities": ["extend", "foreign func", "public class"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.94,
+		"complexity_confidence": 0.76,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false, "has_per_member_table": true
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"source_scope_profile": {
+			"requested_scope": "all",
+			"confidence": 0.9,
+			"rationale": "the request asks about source declarations"
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["type", "function"],
+			"requested_fields": ["name", "location"],
+			"source_quotes": ["extend 块", "foreign func 声明", "public class"],
+			"confidence": 0.95,
+			"rationale": "current request asks for a source declaration inventory"
+		}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mu,
+	}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel missing")
+	}
+	if got := rm.AnalyzerHints.RequiredFileHints; len(got) != 0 {
+		t.Fatalf("documentation prescan files must remain navigation context, not source-inventory coverage hints: %+v", got)
+	}
+	if types.RequiredFileHintCurrentSourceCoverageApplies(*rm) {
+		t.Fatalf("documentation-only prescan must not activate source-inventory required-file coverage: %+v", rm.AnalyzerHints.RequiredFileHints)
+	}
+	if strings.Contains(res.Summary, "required_files: projected") {
+		t.Fatalf("summary should not claim projected required files for documentation-only prescan: %q", res.Summary)
 	}
 }
 
@@ -6316,8 +6491,11 @@ func TestEmitAnalysis_Execute_DropsRequiredFileExactTargetsForSourceInventory(t 
 	if len(rm.AnalyzerHints.ExactTargets) != 0 {
 		t.Fatalf("non-verbatim file exact_targets should be dropped: %+v", rm.AnalyzerHints.ExactTargets)
 	}
-	if len(rm.AnalyzerHints.RequiredFileHints) != 2 {
-		t.Fatalf("required file hints should be preserved: %+v", rm.AnalyzerHints.RequiredFileHints)
+	if len(rm.AnalyzerHints.RequiredFileHints) != 0 {
+		t.Fatalf("non-verbatim source-inventory required file hints should stay soft: %+v", rm.AnalyzerHints.RequiredFileHints)
+	}
+	if !strings.Contains(res.Summary, "model-authored source-inventory path hint") {
+		t.Fatalf("summary should disclose source-inventory required_files softening, got %q", res.Summary)
 	}
 }
 

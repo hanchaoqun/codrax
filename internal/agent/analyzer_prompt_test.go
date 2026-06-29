@@ -835,6 +835,20 @@ func TestAnalysisSkill_PromptTeachesRepoMapFirstForStructuralLocationPrescan(t *
 	}
 }
 
+func TestAnalysisSkill_PromptKeepsSourceInventoryRequiredFilesSoft(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	rendered := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"For source_inventory / inventory-style questions",
+		"do not list guessed sample files as required_files",
+		"unless the user named the exact path",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("analysis-skill prompt must keep source-inventory guessed files out of hard required_files; missing %q in:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestAnalysisSkill_PromptDocumentsDirectHistoryClassification(t *testing.T) {
 	sk := skill.BuildAnalysisSkill()
 	rendered := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")

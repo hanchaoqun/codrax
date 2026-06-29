@@ -709,7 +709,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"required_files": map[string]any{
 				"type":        "array",
-				"description": "Optional. When you can identify specific files structurally needed to answer the user's question, list them here with confidence and a short rationale. Confidence ≥ 0.8 means the file is treated as a primary file AND its content is pre-read into the prompt; 0.5 ≤ conf < 0.8 means the file is a soft hint (pre-read eligible only); below 0.5 the entry is discarded — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. Empty list is fine: omit when you do not have file-level conviction.",
+				"description": "Optional. When you can identify specific files structurally needed to answer the user's question, list them here with confidence and a short rationale. Confidence ≥ 0.8 means the file is treated as a primary file AND its content is pre-read into the prompt; 0.5 ≤ conf < 0.8 means the file is a soft hint (pre-read eligible only); below 0.5 the entry is discarded — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. For source_inventory / inventory-style questions, do not list guessed sample files as required_files; rely on source_inventory_profile and repo_map unless the user named the exact path. Empty list is fine: omit when you do not have file-level conviction.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -1444,6 +1444,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	sanitizedSubTopics := sanitizeSubTopics(subTopics)
 
 	requiredFileHints := validateAndBuildRequiredFileHintsWithContext(ctx, p.RequiredFiles, &val)
+	requiredFileHints = softenModelAuthoredRequiredFilesForSourceInventory(raw, sourceInventoryProfile, requiredFileHints, &val)
 	irrelevantFiles := validateAndBuildIrrelevantFiles(p.IrrelevantFiles, &val)
 	requiredFileHints, irrelevantFiles, sourceScopeProfile = reconcilePrincipalScopeIrrelevantFiles(
 		ctx,
@@ -4645,6 +4646,41 @@ func validateAndBuildRequiredFileHintsWithContext(ctx *types.BusContext, in []em
 	return out
 }
 
+func softenModelAuthoredRequiredFilesForSourceInventory(raw string, profile *types.SourceInventoryProfile, in []types.RequiredFileHint, val *analysisValidationResult) []types.RequiredFileHint {
+	if profile == nil || !profile.Active() || len(in) == 0 {
+		return in
+	}
+	out := make([]types.RequiredFileHint, 0, len(in))
+	dropped := 0
+	for _, hint := range in {
+		if sourceInventoryRequiredFilePathExplicitInRequest(raw, hint.Path) {
+			out = append(out, hint)
+			continue
+		}
+		dropped++
+	}
+	if dropped > 0 && val != nil {
+		val.Warnings = append(val.Warnings,
+			fmt.Sprintf("required_files: dropped %d model-authored source-inventory path hint(s) that were not exact paths in the current request; repo_map/source_inventory remains the coverage authority", dropped))
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func sourceInventoryRequiredFilePathExplicitInRequest(raw, rel string) bool {
+	raw = strings.TrimSpace(raw)
+	rel = types.CanonicalRequiredFileHintPath(rel, "")
+	if raw == "" || rel == "" {
+		return false
+	}
+	lowerRaw := strings.ToLower(strings.ReplaceAll(raw, `\`, `/`))
+	lowerRel := strings.ToLower(strings.ReplaceAll(rel, `\`, `/`))
+	return strings.Contains(lowerRaw, lowerRel) ||
+		strings.Contains(lowerRaw, "./"+lowerRel)
+}
+
 func projectAnalyzerPrescanRequiredFileHints(ctx *types.BusContext, rm *types.RequestModel, val *analysisValidationResult) int {
 	if ctx == nil || ctx.Mutable == nil || rm == nil || !types.SourceInventoryRequiredFileCoverageShape(*rm) {
 		return 0
@@ -4804,11 +4840,44 @@ func analyzerPrescanRequiredFileCandidate(ctx *types.BusContext, rm types.Reques
 	if !ok || canon == "" || !types.HasCodeOrConfigPathSuffix(canon) {
 		return "", false
 	}
+	if !sourceInventoryPrescanCandidateCanCarryPrincipalCoverage(rm, canon) {
+		return "", false
+	}
 	profile := emitAnalysisEffectiveInventoryScopeProfileForPrescanProjection(rm)
 	if !emitAnalysisPrincipalSourcePathAllowed(ctx, canon, profile) {
 		return "", false
 	}
 	return canon, true
+}
+
+func sourceInventoryPrescanCandidateCanCarryPrincipalCoverage(rm types.RequestModel, rel string) bool {
+	profile := rm.SourceInventoryProfile
+	if profile == nil || !profile.Active() {
+		return true
+	}
+	role := types.ClassifySourcePathRole(rel)
+	switch role {
+	case types.SourcePathRoleDocumentation, types.SourcePathRolePromptSupport:
+		return sourceInventoryPrincipalRolesAllowDocumentationCoverage(profile) ||
+			(rm.SourceScopeProfile != nil && rm.SourceScopeProfile.RequestedScope == types.SourceScopeDocumentation)
+	default:
+		return true
+	}
+}
+
+func sourceInventoryPrincipalRolesAllowDocumentationCoverage(profile *types.SourceInventoryProfile) bool {
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	for _, role := range profile.PrincipalTargetRoles() {
+		switch role {
+		case types.AnswerCandidateRoleFile,
+			types.AnswerCandidateRoleDocumentation,
+			types.AnswerCandidateRoleConfigFile:
+			return true
+		}
+	}
+	return false
 }
 
 func resolveRequiredFileHintPath(ctx *types.BusContext, raw string) (string, bool, bool) {

@@ -237,6 +237,16 @@ func TestRepoMapSourceInventoryRejectsSoleFileRoleBeforeIndexWork(t *testing.T) 
 	if res.Success {
 		t.Fatalf("sole file role should be rejected before index work: %+v", res)
 	}
+	if res.Repair == nil || res.Repair.Code != "repo_map_source_inventory_file_role_path_discovery" {
+		t.Fatalf("sole file-role refusal should publish typed repair: %+v", res.Repair)
+	}
+	if res.Refinement == nil ||
+		res.Refinement.ReasonCode != "source_inventory_file_role_path_discovery" ||
+		res.Refinement.PreferredNextTool != "list_files" ||
+		res.Refinement.PreferredParams["path"] != "." ||
+		res.Refinement.PreferredParams["recursive"] != "true" {
+		t.Fatalf("sole file-role refusal should publish typed list_files refinement: %+v", res.Refinement)
+	}
 	for _, want := range []string{
 		"roles=[\"file\"]",
 		"path-discovery request",
@@ -273,6 +283,12 @@ func TestRepoMapSourceInventoryRejectsBroadRootFileRoleWithAttributesBeforeIndex
 	}
 	if res.Success {
 		t.Fatalf("broad root file role with attributes should be rejected before index work: %+v", res)
+	}
+	if res.Repair == nil || res.Refinement == nil ||
+		res.Refinement.PreferredNextTool != "list_files" ||
+		!containsString(res.Refinement.RequiredFields, "include") ||
+		!containsString(res.Refinement.RequiredFields, "file_type") {
+		t.Fatalf("broad file-role refusal should publish typed path-discovery refinement: repair=%+v refinement=%+v", res.Repair, res.Refinement)
 	}
 	for _, want := range []string{"roles=[\"file\"]", "path-discovery request", "list_files", "file_type"} {
 		if !strings.Contains(res.Summary, want) {
