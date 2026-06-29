@@ -1054,6 +1054,14 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("- Keep the owner context and the leaf field/value surface together when filtering matches. A bare leaf field in an unrelated owner is context, not a principal hit.\n")
 			b.WriteString("- Classify every candidate as production assignment, comment/doc/test, or unrelated. Do not close on a direct selector grep if aggregate/object/designated-initializer candidates remain unread.\n\n")
 		}
+		if rm.RuntimeArtifactValueProfile != nil && rm.RuntimeArtifactValueProfile.Active() {
+			b.WriteString("### Runtime Artifact Value Handoff\n\n")
+			fmt.Fprintf(&b, "This request carries an artifact-derived value target `%s = %s`. Treat this as a log/trace/perf observation lane, not a current-source field assignment search.\n",
+				rm.RuntimeArtifactValueProfile.Target, rm.RuntimeArtifactValueProfile.Value)
+			b.WriteString("- Prefer existing Log/Trace Triage observations and `trace_query` rows for artifact support; use current-source reads only when the request also asks to explain or verify current code.\n")
+			b.WriteString("- Preserve artifact ids, observation ids, artifact-local line/time ranges, and units in evidence or aggregate facts. Do not invent repo file:line citations for artifact-only values.\n")
+			b.WriteString("- If the artifact value is already backed by typed observations, close with `scalar_value` / key-value aggregate facts instead of re-opening broad grep/list/repo_map discovery.\n\n")
+		}
 		if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() && rm.ChangeImpactProfile.RequestedBroadAffectedSites() {
 			target := strings.TrimSpace(rm.ChangeImpactProfile.Target)
 			if target == "" {
@@ -13382,7 +13390,8 @@ func (e *explorerEvaluator) concreteValueEvidenceExportLimit() int {
 	case rm.Predicates.IsScalarAnswer ||
 		types.IsScalarSourceLiteralLookup(rm) ||
 		rm.Predicates.IsCountQuestion ||
-		(rm.FieldValueProfile != nil && rm.FieldValueProfile.Active()):
+		(rm.FieldValueProfile != nil && rm.FieldValueProfile.Active()) ||
+		(rm.RuntimeArtifactValueProfile != nil && rm.RuntimeArtifactValueProfile.Active()):
 		return concreteValueEvidenceExportScalarLiteralLimit
 	case rm.Predicates.IsRelationalLookup ||
 		rm.PredicateAxis == types.AxisCall ||

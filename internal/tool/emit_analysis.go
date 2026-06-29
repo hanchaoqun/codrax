@@ -81,6 +81,7 @@ type emitAnalysisParams struct {
 	SourceInventoryProfile       *emitSourceInventoryProfileParam       `json:"source_inventory_profile,omitempty"`
 	ChangeImpactProfile          *emitChangeImpactProfileParam          `json:"change_impact_profile,omitempty"`
 	FieldValueProfile            *emitFieldValueProfileParam            `json:"field_value_profile,omitempty"`
+	RuntimeArtifactValueProfile  *emitRuntimeArtifactValueProfileParam  `json:"artifact_value_profile,omitempty"`
 	AnswerExclusionPolicy        *emitAnswerExclusionPolicyParam        `json:"answer_exclusion_policy,omitempty"`
 	AnswerRoleProfile            *emitAnswerRoleProfileParam            `json:"answer_role_profile,omitempty"`
 	ErrorGranularityProfile      *emitErrorGranularityProfileParam      `json:"error_granularity_profile,omitempty"`
@@ -235,6 +236,18 @@ type emitFieldValueProfileParam struct {
 	SourceQuote        string   `json:"source_quote,omitempty"`
 	Confidence         *float64 `json:"confidence"`
 	Rationale          string   `json:"rationale,omitempty"`
+}
+
+type emitRuntimeArtifactValueProfileParam struct {
+	IsArtifactValueLookup *bool    `json:"is_artifact_value_lookup"`
+	Target                string   `json:"target,omitempty"`
+	Value                 string   `json:"value,omitempty"`
+	Unit                  string   `json:"unit,omitempty"`
+	LiteralKind           string   `json:"literal_kind,omitempty"`
+	ArtifactRefs          []string `json:"artifact_refs,omitempty"`
+	ObservationRefs       []string `json:"observation_refs,omitempty"`
+	Confidence            *float64 `json:"confidence"`
+	Rationale             string   `json:"rationale,omitempty"`
 }
 
 type emitAnswerExclusionPolicyParam struct {
@@ -560,7 +573,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"field_value_profile": map[string]any{
 				"type":        "object",
-				"description": "Optional typed profile for exact field/member/config literal lookups. Use when the CURRENT request asks how many sites, which sites, or what scalar answer depends on a named target being set/equal to a specific literal value. Do not emit for unrelated counts or ordinary mechanism explanations.",
+				"description": "Optional typed profile for exact current-request field/member/config literal lookups. Use when the CURRENT request itself asks how many sites, which sites, or what scalar answer depends on a named source/config target being set/equal to a specific literal value. Do not emit for unrelated counts, ordinary mechanism explanations, or values observed in attached logs/traces/perf artifacts; use artifact_value_profile for artifact-derived values.",
 				"properties": map[string]any{
 					"is_field_value_lookup": map[string]any{"type": "boolean", "description": "True only when the current request explicitly binds a named target to an exact literal value."},
 					"target":                map[string]any{"type": "string", "description": "The exact field/member/config surface, such as CitationReq.Required, server.port, Namespace::Option, or Owner.member."},
@@ -571,6 +584,22 @@ func buildEmitAnalysisSchema() {
 					"rationale":             map[string]any{"type": "string", "description": "Short audit rationale for why this is a field/member literal lookup."},
 				},
 				"required": []string{"is_field_value_lookup", "confidence"},
+			},
+			"artifact_value_profile": map[string]any{
+				"type":        "object",
+				"description": "Optional typed profile for exact values observed in attached logs, traces, perf artifacts, or trace_query/log-triage facts. Use this when the value is supported by runtime artifact observations rather than by a verbatim current-request field=value phrase. This is a soft artifact lane; later stages must verify against typed runtime observations before treating the value as factual.",
+				"properties": map[string]any{
+					"is_artifact_value_lookup": map[string]any{"type": "boolean", "description": "True only when the scalar/key-value target is an exact value observed in a runtime artifact."},
+					"target":                   map[string]any{"type": "string", "description": "Runtime-artifact value target, such as GC span duration, frame jank duration, binder latency, thread state, or trace line number. It does not need to be an owner-qualified source member."},
+					"value":                    map[string]any{"type": "string", "description": "Exact observed value from the runtime artifact, copied without paraphrase."},
+					"unit":                     map[string]any{"type": "string", "description": "Optional unit such as ms, s, %, kHz, line, count, or state."},
+					"literal_kind":             map[string]any{"type": "string", "enum": fieldValueLiteralKindValues(), "description": "Kind of observed value when known."},
+					"artifact_refs":            map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Runtime artifact ids, paths, or typed source refs supporting the value. Prefer stable refs exposed by log/trace triage or trace_query."},
+					"observation_refs":         map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Typed observation ids supporting this value when available."},
+					"confidence":               map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this artifact value profile in [0,1]."},
+					"rationale":                map[string]any{"type": "string", "description": "Short audit rationale for why the value is artifact-derived."},
+				},
+				"required": []string{"is_artifact_value_lookup", "confidence"},
 			},
 			"answer_exclusion_policy": map[string]any{
 				"type":        "object",
@@ -968,6 +997,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		"source_scope_profile",
 		"change_impact_profile",
 		"field_value_profile",
+		"artifact_value_profile",
 		"answer_exclusion_policy",
 		"answer_role_profile",
 		"error_granularity_profile",
@@ -1292,7 +1322,33 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	runtimeArtifactCarrier := emitAnalysisHasRuntimeArtifactCarrier(ctx)
+	runtimeArtifactValueProfile, runtimeArtifactValueErr := parseRuntimeArtifactValueProfile(runtimeArtifactCarrier, p.RuntimeArtifactValueProfile)
+	if runtimeArtifactValueErr != "" {
+		if !runtimeArtifactCarrier && p.RuntimeArtifactValueProfile != nil && p.RuntimeArtifactValueProfile.IsArtifactValueLookup != nil && *p.RuntimeArtifactValueProfile.IsArtifactValueLookup {
+			warning := "dropped invalid optional artifact_value_profile outside runtime artifact context: " + runtimeArtifactValueErr
+			logging.Warning("[emit_analysis] %s", warning)
+			val.Warnings = append(val.Warnings, warning)
+		} else {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   "emit_analysis rejected: " + runtimeArtifactValueErr,
+				Timestamp: time.Now(),
+			}, nil
+		}
+	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
+	if fieldValueErr != "" {
+		if runtimeArtifactCarrier && runtimeArtifactValueProfile == nil {
+			if converted, warning := runtimeArtifactValueProfileFromFieldValueParam(ctx, p.FieldValueProfile, fieldValueErr); converted != nil {
+				runtimeArtifactValueProfile = converted
+				fieldValueErr = ""
+				logging.Warning("[emit_analysis] %s", warning)
+				val.Warnings = append(val.Warnings, warning)
+			}
+		}
+	}
 	if fieldValueErr != "" {
 		if !shouldDropInvalidOptionalFieldValueProfile(artifactOnlyRuntime, predicates, currentSourceExplanation, p.FieldValueProfile) {
 			return types.ToolResult{
@@ -1489,6 +1545,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		SourceInventoryProfile:          sourceInventoryProfile,
 		ChangeImpactProfile:             changeImpactProfile,
 		FieldValueProfile:               fieldValueProfile,
+		RuntimeArtifactValueProfile:     runtimeArtifactValueProfile,
 		AnswerExclusionPolicy:           answerExclusionPolicy,
 		AnswerRoleProfile:               answerRoleProfile,
 		ErrorGranularityProfile:         errorGranularityProfile,
@@ -2945,6 +3002,159 @@ func parseFieldValueProfile(raw string, p *emitFieldValueProfileParam) (*types.F
 	}, ""
 }
 
+func parseRuntimeArtifactValueProfile(runtimeArtifactCarrier bool, p *emitRuntimeArtifactValueProfileParam) (*types.RuntimeArtifactValueProfile, string) {
+	if p == nil {
+		return nil, ""
+	}
+	var missing []string
+	if p.IsArtifactValueLookup == nil {
+		missing = append(missing, "is_artifact_value_lookup")
+	}
+	if p.Confidence == nil {
+		missing = append(missing, "confidence")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Sprintf(
+			"artifact_value_profile missing required field(s): %s",
+			strings.Join(missing, ", "),
+		)
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return nil, fmt.Sprintf("artifact_value_profile.confidence %.2f out of [0,1]", *p.Confidence)
+	}
+	if !*p.IsArtifactValueLookup {
+		return nil, ""
+	}
+	if !runtimeArtifactCarrier {
+		return nil, "artifact_value_profile requires an attached runtime artifact or accepted runtime observation"
+	}
+	value := strings.TrimSpace(p.Value)
+	if value == "" {
+		return nil, "artifact_value_profile.value is required when is_artifact_value_lookup=true"
+	}
+	target := strings.TrimSpace(p.Target)
+	artifactRefs := trimNonEmptyStrings(p.ArtifactRefs)
+	observationRefs := trimNonEmptyStrings(p.ObservationRefs)
+	if target == "" && len(artifactRefs) == 0 && len(observationRefs) == 0 {
+		return nil, "artifact_value_profile needs target, artifact_refs, or observation_refs"
+	}
+	literalKind := types.FieldValueLiteralKind(strings.TrimSpace(p.LiteralKind))
+	if !literalKind.IsValid() {
+		return nil, fmt.Sprintf(
+			"artifact_value_profile.literal_kind %q is invalid; use one of %s",
+			p.LiteralKind, strings.Join(fieldValueLiteralKindValues(), ", "),
+		)
+	}
+	return &types.RuntimeArtifactValueProfile{
+		IsArtifactValueLookup: true,
+		Target:                target,
+		Value:                 value,
+		Unit:                  strings.TrimSpace(p.Unit),
+		LiteralKind:           literalKind,
+		ArtifactRefs:          artifactRefs,
+		ObservationRefs:       observationRefs,
+		Confidence:            *p.Confidence,
+		Rationale:             strings.TrimSpace(p.Rationale),
+	}, ""
+}
+
+func runtimeArtifactValueProfileFromFieldValueParam(ctx *types.BusContext, p *emitFieldValueProfileParam, reason string) (*types.RuntimeArtifactValueProfile, string) {
+	if p == nil || p.IsFieldValueLookup == nil || !*p.IsFieldValueLookup {
+		return nil, ""
+	}
+	value := strings.TrimSpace(p.Literal)
+	if value == "" {
+		return nil, ""
+	}
+	target := firstNonEmptyEmitAnalysisString(p.Target, p.SourceQuote, p.Rationale)
+	if target == "" {
+		target = "runtime artifact value"
+	}
+	literalKind := types.FieldValueLiteralKind(strings.TrimSpace(p.LiteralKind))
+	if !literalKind.IsValid() {
+		literalKind = types.FieldValueLiteralUnknown
+	}
+	confidence := 0.5
+	if p.Confidence != nil && *p.Confidence >= 0 && *p.Confidence <= 1 {
+		confidence = *p.Confidence
+	}
+	refs := runtimeArtifactValueContextRefs(ctx)
+	profile := &types.RuntimeArtifactValueProfile{
+		IsArtifactValueLookup: true,
+		Target:                target,
+		Value:                 value,
+		LiteralKind:           literalKind,
+		ArtifactRefs:          refs,
+		Confidence:            confidence,
+		Rationale:             strings.TrimSpace(p.Rationale),
+	}
+	if !profile.Active() {
+		return nil, ""
+	}
+	return profile, "converted runtime-artifact field_value_profile to artifact_value_profile: " + reason
+}
+
+func runtimeArtifactValueContextRefs(ctx *types.BusContext) []string {
+	if ctx == nil {
+		return nil
+	}
+	var refs []string
+	add := func(ref string) {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			return
+		}
+		for _, existing := range refs {
+			if existing == ref {
+				return
+			}
+		}
+		refs = append(refs, ref)
+	}
+	if strings.TrimSpace(ctx.AttachedLog) != "" {
+		add("attached_log")
+	}
+	if strings.TrimSpace(ctx.AttachedHitrace) != "" {
+		add("attached_trace")
+	}
+	if ctx.Mutable != nil {
+		if log := ctx.Mutable.LogTriage(); log != nil {
+			add("log_triage")
+		}
+		if perf := ctx.Mutable.PerfTrace(); perf != nil {
+			if strings.TrimSpace(perf.Meta.Source) != "" {
+				add(perf.Meta.Source)
+			}
+			add("perf_trace")
+		}
+	}
+	return refs
+}
+
+func trimNonEmptyStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		out = append(out, raw)
+	}
+	return out
+}
+
+func firstNonEmptyEmitAnalysisString(values ...string) string {
+	for _, value := range values {
+		if s := strings.TrimSpace(value); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
 func shouldDropInvalidOptionalFieldValueProfile(artifactOnlyRuntime bool, predicates types.SemanticPredicates, currentSource *types.CurrentSourceExplanationProfile, p *emitFieldValueProfileParam) bool {
 	if artifactOnlyRuntime {
 		return true
@@ -4271,6 +4481,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
 		fmt.Fprintf(&b, " field_value=%s=%s", rm.FieldValueProfile.Target, rm.FieldValueProfile.Literal)
+	}
+	if rm.RuntimeArtifactValueProfile != nil && rm.RuntimeArtifactValueProfile.Active() {
+		fmt.Fprintf(&b, " artifact_value=%s=%s", rm.RuntimeArtifactValueProfile.Target, rm.RuntimeArtifactValueProfile.Value)
 	}
 	if rm.AnswerExclusionPolicy != nil && rm.AnswerExclusionPolicy.Active() {
 		roles := make([]string, 0, len(rm.AnswerExclusionPolicy.ExcludedCandidateRoles))

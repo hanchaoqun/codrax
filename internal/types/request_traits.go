@@ -568,6 +568,9 @@ func HistoryLookupPrefersVCSNarrativePrincipal(rm RequestModel, contract *Answer
 	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
 		return false
 	}
+	if rm.RuntimeArtifactValueProfile != nil && rm.RuntimeArtifactValueProfile.Active() {
+		return false
+	}
 	if rm.Scenario == ScenarioArchitectureExplain && kind != ReqHistory {
 		return false
 	}
@@ -646,6 +649,9 @@ func IsHistoryBackedCurrentCodeExplanation(rm RequestModel) bool {
 		return false
 	}
 	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
+		return false
+	}
+	if rm.RuntimeArtifactValueProfile != nil && rm.RuntimeArtifactValueProfile.Active() {
 		return false
 	}
 	if rm.DiagramHint != nil && rm.DiagramHint.Kind != "" {
@@ -896,6 +902,9 @@ func IsArchitectureInventoryShape(rm RequestModel) bool {
 		return false
 	}
 	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
+		return false
+	}
+	if rm.RuntimeArtifactValueProfile != nil && rm.RuntimeArtifactValueProfile.Active() {
 		return false
 	}
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {

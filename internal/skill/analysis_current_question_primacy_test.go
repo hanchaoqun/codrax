@@ -142,6 +142,7 @@ func TestAnalysisSkill_CurrentQuestionPrimacy_NamesEveryIntentField(t *testing.T
 		"source_scope_profile",
 		"change_impact_profile",
 		"field_value_profile",
+		"artifact_value_profile",
 		"answer_exclusion_policy",
 		"answer_role_profile",
 		"error_granularity_profile",

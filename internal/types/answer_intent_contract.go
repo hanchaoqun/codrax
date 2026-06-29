@@ -199,7 +199,8 @@ func CompileAnswerIntentContract(rm RequestModel, contract *AnswerContract) Answ
 	if rm.HasExternalOnlyRuntimeArtifact() ||
 		rm.LogTriage != nil ||
 		rm.PerfTrace != nil ||
-		rm.ArtifactObservationProfile != nil {
+		rm.ArtifactObservationProfile != nil ||
+		(rm.RuntimeArtifactValueProfile != nil && rm.RuntimeArtifactValueProfile.Active()) {
 		addOrigin(AnswerEvidenceOriginRuntimeArtifact)
 	}
 	if requestModelHasMCPResourceReference(rm) {
@@ -221,6 +222,10 @@ func CompileAnswerIntentContract(rm RequestModel, contract *AnswerContract) Answ
 	}
 	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
 		addOutput(AnswerRequestedOutputKeyValue)
+	}
+	if rm.RuntimeArtifactValueProfile != nil && rm.RuntimeArtifactValueProfile.Active() {
+		addOutput(AnswerRequestedOutputKeyValue)
+		addOutput(AnswerRequestedOutputScalar)
 	}
 	if shouldRequestEnumerationOutput(rm) {
 		addOutput(AnswerRequestedOutputEnumeration)

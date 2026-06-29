@@ -1959,7 +1959,8 @@ func OriginSpecificMemberSetIsPrincipalList(rm *RequestModel, fact AnswerAggrega
 			rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
 			rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() ||
 			(rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active()) ||
-			(rm.FieldValueProfile != nil && rm.FieldValueProfile.Active())) {
+			(rm.FieldValueProfile != nil && rm.FieldValueProfile.Active()) ||
+			(rm.RuntimeArtifactValueProfile != nil && rm.RuntimeArtifactValueProfile.Active())) {
 		return false
 	}
 	if rm != nil && rm.Predicates.IsHistoryLookup && historyMemberSetHasVCSOrigin(rm, fact) &&
@@ -2018,7 +2019,8 @@ func historyMemberSetIsImplicitPrincipalList(rm *RequestModel, fact AnswerAggreg
 		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
 		rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() ||
 		(rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active()) ||
-		(rm.FieldValueProfile != nil && rm.FieldValueProfile.Active()) {
+		(rm.FieldValueProfile != nil && rm.FieldValueProfile.Active()) ||
+		(rm.RuntimeArtifactValueProfile != nil && rm.RuntimeArtifactValueProfile.Active()) {
 		return false
 	}
 	role := NormalizeAnswerAggregateRole(fact.Role)

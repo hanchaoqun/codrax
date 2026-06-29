@@ -144,6 +144,15 @@ type RequestModel struct {
 	// carrier, not RawRequest/keyword scans.
 	FieldValueProfile *FieldValueLookupProfile `json:"field_value_profile,omitempty"`
 
+	// RuntimeArtifactValueProfile is the analyzer LLM's typed lane for exact
+	// values observed in an attached log/trace/perf artifact. It is separate
+	// from FieldValueProfile because artifact-derived values are supported by
+	// artifact refs / observation refs, not by a verbatim current-request
+	// source_quote or owner-qualified source member. Downstream hard gates must
+	// still verify the value against typed runtime observations before treating
+	// it as factual.
+	RuntimeArtifactValueProfile *RuntimeArtifactValueProfile `json:"artifact_value_profile,omitempty"`
+
 	// AnswerExclusionPolicy is the analyzer LLM's typed lane for user-stated
 	// candidate categories that must stay out of the principal answer rows.
 	// Downstream hard gates consume only this policy plus answer-row
@@ -436,6 +445,30 @@ func (p *FieldValueLookupProfile) Active() bool {
 	return strings.TrimSpace(p.Target) != "" &&
 		strings.TrimSpace(p.Field) != "" &&
 		strings.TrimSpace(p.Literal) != ""
+}
+
+type RuntimeArtifactValueProfile struct {
+	IsArtifactValueLookup bool                  `json:"is_artifact_value_lookup"`
+	Target                string                `json:"target,omitempty"`
+	Value                 string                `json:"value,omitempty"`
+	Unit                  string                `json:"unit,omitempty"`
+	LiteralKind           FieldValueLiteralKind `json:"literal_kind,omitempty"`
+	ArtifactRefs          []string              `json:"artifact_refs,omitempty"`
+	ObservationRefs       []string              `json:"observation_refs,omitempty"`
+	Confidence            float64               `json:"confidence,omitempty"`
+	Rationale             string                `json:"rationale,omitempty"`
+}
+
+func (p *RuntimeArtifactValueProfile) Active() bool {
+	if p == nil || !p.IsArtifactValueLookup {
+		return false
+	}
+	if strings.TrimSpace(p.Value) == "" {
+		return false
+	}
+	return strings.TrimSpace(p.Target) != "" ||
+		len(p.ArtifactRefs) > 0 ||
+		len(p.ObservationRefs) > 0
 }
 
 func ParseFieldValueTarget(target string) (full, owner, field string, ok bool) {

@@ -3966,7 +3966,7 @@ func TestEmitAnalysis_Execute_RejectsUngroundedFieldValueProfile(t *testing.T) {
 	}
 }
 
-func TestEmitAnalysis_Execute_DropsInvalidFieldValueProfileForRuntimeArtifact(t *testing.T) {
+func TestEmitAnalysis_Execute_ConvertsFieldValueProfileForRuntimeArtifact(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -4036,6 +4036,97 @@ func TestEmitAnalysis_Execute_DropsInvalidFieldValueProfileForRuntimeArtifact(t 
 	}
 	if rm.FieldValueProfile != nil {
 		t.Fatalf("invalid runtime-artifact field_value_profile should be dropped, got %+v", rm.FieldValueProfile)
+	}
+	if rm.RuntimeArtifactValueProfile == nil || !rm.RuntimeArtifactValueProfile.Active() {
+		t.Fatalf("runtime artifact field value should be preserved as artifact_value_profile: %+v", rm.RuntimeArtifactValueProfile)
+	}
+	if got := rm.RuntimeArtifactValueProfile.Value; got != "8ms" {
+		t.Fatalf("artifact value = %q, want 8ms", got)
+	}
+	if got := rm.RuntimeArtifactValueProfile.Target; !strings.Contains(got, "GC span") {
+		t.Fatalf("artifact target should preserve the runtime value surface, got %q", got)
+	}
+	if !strings.Contains(res.Summary, "artifact_value=") {
+		t.Fatalf("summary should surface artifact_value profile, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_PersistsRuntimeArtifactValueProfileInMixedCurrentSourceTurn(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("结合当前源码解释 trace 里 H:Frame duration 86.1ms 为什么发生")
+	mu.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "frame.tracebundle.json", Signals: []string{"frame-jank"}},
+		Frames: []types.PerfFrame{{
+			FrameNo:    42,
+			DurationMs: 86.1,
+			Janky:      true,
+		}},
+	})
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "explain",
+		"scenario": "performance_bottleneck",
+		"complexity": "medium",
+		"keywords": ["H:Frame", "duration", "86.1ms", "源码"],
+		"entities": ["H:Frame"],
+		"question_kind": "explanation",
+		"answer_subject": {"kind": "numeric", "confidence": 0.9},
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": true, "has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": true,
+			"current_risk": true,
+			"historical_regression": false,
+			"current_version_check": true,
+			"confidence": 0.8
+		},
+		"current_source_explanation_profile": {
+			"is_current_source_explanation_requested": true,
+			"modes": ["explain_current_mechanism"],
+			"source_quotes": ["结合当前源码解释"],
+			"target_terms": ["H:Frame"],
+			"confidence": 0.85
+		},
+		"artifact_value_profile": {
+			"is_artifact_value_lookup": true,
+			"target": "H:Frame duration",
+			"value": "86.1",
+			"unit": "ms",
+			"literal_kind": "number",
+			"artifact_refs": ["frame.tracebundle.json"],
+			"observation_refs": ["frame:42"],
+			"confidence": 0.94,
+			"rationale": "trace frame observation supplies the exact duration"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("artifact_value_profile should persist in mixed trace/current-source turn, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.RuntimeArtifactValueProfile == nil || !rm.RuntimeArtifactValueProfile.Active() {
+		t.Fatalf("RuntimeArtifactValueProfile not persisted: %+v", rm)
+	}
+	if rm.FieldValueProfile != nil {
+		t.Fatalf("artifact_value_profile must not become current-source field_value_profile: %+v", rm.FieldValueProfile)
+	}
+	contract := types.CompileAnswerIntentContract(*rm, nil)
+	if !contract.HasOrigin(types.AnswerEvidenceOriginRuntimeArtifact) ||
+		!contract.HasOutput(types.AnswerRequestedOutputKeyValue) {
+		t.Fatalf("artifact value should request runtime key-value support, got %+v", contract)
 	}
 }
 
