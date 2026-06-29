@@ -46,6 +46,9 @@ func TestLocalLandingRepairDispatchPolicyCompletionFormDebt(t *testing.T) {
 	if strings.Contains(combined, "DAG-scheduled investigation window") {
 		t.Fatalf("local landing hint must not include broad DAG window objectives:\n%s", combined)
 	}
+	if strings.Contains(combined, "re-emit grounded evidence if needed") {
+		t.Fatalf("local landing hint must not suggest unavailable evidence emission:\n%s", combined)
+	}
 	if !strings.Contains(combined, "Structured Handoff Repair") {
 		t.Fatalf("local landing hint should preserve structured repair details:\n%s", combined)
 	}

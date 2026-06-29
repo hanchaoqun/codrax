@@ -7511,8 +7511,24 @@ func renderClosureRepairHint(repairs []types.RepairDirective) string {
 	if len(repairs) > limit {
 		fmt.Fprintf(&b, "... and %d more queued repair(s).\n\n", len(repairs)-limit)
 	}
-	b.WriteString("After one repair succeeds, re-emit grounded evidence if needed, then retry `emit_investigation_complete(reason, confidence, result_kind)`.")
+	if closureRepairsAreStructuredHandoffOnly(repairs[:limit]) {
+		b.WriteString("After one structured handoff repair succeeds, retry `emit_investigation_complete(reason, confidence, result_kind)` using the existing evidence/context pack. Do not call tools that are not present in the current turn.")
+	} else {
+		b.WriteString("After one repair succeeds, re-emit grounded evidence if needed, then retry `emit_investigation_complete(reason, confidence, result_kind)`.")
+	}
 	return strings.TrimSpace(b.String())
+}
+
+func closureRepairsAreStructuredHandoffOnly(repairs []types.RepairDirective) bool {
+	if len(repairs) == 0 {
+		return false
+	}
+	for _, repair := range repairs {
+		if repair.Kind != types.RepairStructuredHandoff {
+			return false
+		}
+	}
+	return true
 }
 
 func mergeClosureRepairsForHint(repairs []types.RepairDirective) []types.RepairDirective {

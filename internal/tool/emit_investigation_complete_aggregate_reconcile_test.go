@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -767,6 +768,157 @@ const (
 	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, got)
 	if !ok {
 		t.Fatalf("effective source-inventory fact should be pre-complete usable, invalid=%s facts=%#v", invalid, got)
+	}
+}
+
+func TestEmitInvestigationComplete_SourceInventoryShadowedMemberSetSkipsSupportRefsDebt(t *testing.T) {
+	ctx := sourceInventoryTestContext("", nil, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+		},
+		Confidence: 0.95,
+	})
+	ctx.AnalysisIR.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all functions",
+	}
+	ctx.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:     true,
+		Complete:   true,
+		Scopes:     []string{"src"},
+		Provenance: []string{"repo_lens:tool_query", types.SourceInventoryProvenanceStageExplore},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{
+					Name:       "run_alpha",
+					Key:        "run_alpha",
+					Role:       types.AnswerCandidateRoleFunction,
+					File:       "src/alpha/a.py",
+					Line:       7,
+					SupportRef: "run_alpha: src/alpha/a.py:7",
+				},
+				{
+					Name:       "run_beta",
+					Key:        "run_beta",
+					Role:       types.AnswerCandidateRoleFunction,
+					File:       "src/beta/b.py",
+					Line:       12,
+					SupportRef: "run_beta: src/beta/b.py:12",
+				},
+			},
+		}},
+	})
+
+	res, err := (&EmitInvestigationComplete{}).Execute(ctx, json.RawMessage(`{
+		"reason":"source-inventory rows are complete",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"function rows",
+			"value":"2",
+			"role":"principal_answer",
+			"members":["run_alpha (entry point)","run_beta (worker)"],
+			"support_refs":["run_alpha: nowhere.py:1","run_beta: nowhere.py:2"]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success || strings.Contains(res.Summary, EmitInvestigationCompleteDowngradePrefix) {
+		t.Fatalf("shadowed source-inventory member_set should complete without support_refs repair, got success=%v summary=%s", res.Success, res.Summary)
+	}
+	if !ctx.Mutable.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete on first call")
+	}
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(facts) == 0 {
+		t.Fatalf("stable aggregate facts missing")
+	}
+	hasSystemFact := false
+	for _, fact := range facts {
+		if strings.TrimSpace(fact.Provenance) != types.SourceInventoryPrincipalRowSetAggregateProvenance {
+			continue
+		}
+		hasSystemFact = true
+		if !reflect.DeepEqual(fact.Members, []string{"run_alpha", "run_beta"}) {
+			t.Fatalf("system source-inventory members = %#v", fact.Members)
+		}
+		if len(fact.SupportRefs) != 2 {
+			t.Fatalf("system support_refs = %#v, want one per member", fact.SupportRefs)
+		}
+	}
+	if !hasSystemFact {
+		t.Fatalf("stable facts did not include authoritative source-inventory row-set: %+v", facts)
+	}
+}
+
+func TestExhaustiveEnumerationMemberSetUsableAcceptsExactSystemSourceInventoryRowSet(t *testing.T) {
+	scope := types.SourceScopeAll
+	ctx := sourceInventoryTestContext("", nil, ".", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+		SourceQuotes:      []string{"public class"},
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+		},
+		Confidence: 0.95,
+	})
+	ctx.AnalysisIR.RequestModel.SourceScopeProfile.RequestedScope = scope
+	ctx.AnalysisIR.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all public class declarations",
+	}
+	ctx.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: false,
+		Scopes:   []string{"."},
+		CompleteLenses: []types.SourceInventoryCompleteLens{{
+			Role:          types.AnswerCandidateRoleType,
+			Scopes:        []string{"eval/fixtures/testdata/cangjie_minimal/bridge", "internal/thirdparty/tree-sitter-cangjie/corpus/sources"},
+			Languages:     []string{"cangjie"},
+			SourceClasses: []types.SourcePathRole{types.SourcePathRoleFixture, types.SourcePathRoleThirdParty},
+			Count:         2,
+			Total:         2,
+			Provenance:    []string{"repo_lens:stage:explore", "repo_lens:tool_query"},
+		}},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: false,
+			Total:    23,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "Bridge", Role: types.AnswerCandidateRoleType, File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 15, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Bridge"}, CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "Greeter", Role: types.AnswerCandidateRoleType, File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Greeter"}, CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "Item", Role: types.AnswerCandidateRoleType, File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"public struct", "public struct Item"}, CoverageState: types.SourceInventoryCoverageObserved},
+			},
+		}},
+	})
+
+	facts := sourceInventoryPrincipalRowSetLandingFacts(ctx, nil)
+	if len(facts) != 1 || strings.TrimSpace(facts[0].Provenance) != types.SourceInventoryPrincipalRowSetAggregateProvenance {
+		t.Fatalf("expected one system source-inventory row-set fact, got %+v", facts)
+	}
+	if !reflect.DeepEqual(facts[0].Members, []string{"Bridge", "Greeter"}) {
+		t.Fatalf("system row-set members = %#v, want selected public-class rows only", facts[0].Members)
+	}
+	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, facts)
+	if !ok {
+		t.Fatalf("exact system source-inventory row-set should be usable without reopening evidence landing, invalid=%s facts=%+v", invalid, facts)
+	}
+
+	spoofed := cloneCompletionAggregateFacts(facts)
+	spoofed[0].SupportRefs[0] = "Bridge @ elsewhere.cj:99"
+	ok, _ = exhaustiveEnumerationMemberSetUsable(ctx, spoofed)
+	if ok {
+		t.Fatal("spoofed system provenance with rows that do not match the current typed projection must not pass")
 	}
 }
 

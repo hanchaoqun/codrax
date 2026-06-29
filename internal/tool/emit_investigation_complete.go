@@ -5090,6 +5090,9 @@ func exhaustiveEnumerationMemberSetUsable(ctx *types.BusContext, facts []types.A
 		if aggregateMemberSetCanRelyOnOriginSpecificProvenance(ctx, fact) {
 			return true, ""
 		}
+		if aggregateMemberSetCanRelyOnSourceInventoryPrincipalRowSet(ctx, fact) {
+			return true, ""
+		}
 		allUsable := true
 		for memberIdx, member := range fact.Members {
 			if aggregateMemberSetMemberUsableAt(fact, member, memberIdx, support) {
@@ -5112,6 +5115,50 @@ func exhaustiveEnumerationMemberSetUsable(ctx *types.BusContext, facts []types.A
 		return false, ""
 	}
 	return false, strings.Join(invalid, "; ")
+}
+
+func aggregateMemberSetCanRelyOnSourceInventoryPrincipalRowSet(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil ||
+		strings.TrimSpace(fact.Provenance) != types.SourceInventoryPrincipalRowSetAggregateProvenance ||
+		!types.AnswerAggregateFactCarriesCompleteMemberSet(fact) ||
+		len(fact.Members) == 0 ||
+		len(fact.SupportRefs) != len(fact.Members) {
+		return false
+	}
+	for _, candidate := range sourceInventoryPrincipalRowSetLandingFacts(ctx, nil) {
+		if strings.TrimSpace(candidate.Provenance) != types.SourceInventoryPrincipalRowSetAggregateProvenance ||
+			!types.AnswerAggregateFactCarriesCompleteMemberSet(candidate) ||
+			len(candidate.Members) == 0 ||
+			len(candidate.SupportRefs) != len(candidate.Members) {
+			continue
+		}
+		if aggregateMemberSetSameSystemInventoryRows(candidate, fact) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateMemberSetSameSystemInventoryRows(a, b types.AnswerAggregateFact) bool {
+	if a.Kind != b.Kind ||
+		types.AnswerAggregateFactRoleForRequest(a, nil) != types.AnswerAggregateFactRoleForRequest(b, nil) ||
+		!aggregateStringSlicesEqual(a.Members, b.Members) ||
+		!aggregateStringSlicesEqual(a.SupportRefs, b.SupportRefs) {
+		return false
+	}
+	return strings.TrimSpace(a.Value) == strings.TrimSpace(b.Value)
+}
+
+func aggregateStringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if strings.TrimSpace(a[i]) != strings.TrimSpace(b[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func exactEmptyMemberSetHasTypedNoHitSupport(fact types.AnswerAggregateFact, facts []types.AnswerAggregateFact) bool {
@@ -5676,6 +5723,9 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 		if fact.Kind != types.AnswerAggregateMemberSet {
 			continue
 		}
+		if aggregateMemberSetShadowedBySourceInventoryPrincipalRows(fact, facts) {
+			continue
+		}
 		var missing []string
 		var unresolved []string
 		for _, member := range fact.Members {
@@ -5733,6 +5783,24 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 		)
 	}
 	return nil
+}
+
+func aggregateMemberSetShadowedBySourceInventoryPrincipalRows(fact types.AnswerAggregateFact, facts []types.AnswerAggregateFact) bool {
+	if fact.Kind != types.AnswerAggregateMemberSet ||
+		!strings.Contains(fact.Provenance, "demoted:shadowed_by_source_inventory_principal_row_set") {
+		return false
+	}
+	for _, candidate := range facts {
+		if candidate.Kind != types.AnswerAggregateMemberSet ||
+			strings.TrimSpace(candidate.Provenance) != types.SourceInventoryPrincipalRowSetAggregateProvenance ||
+			!types.AnswerAggregateFactCarriesCompleteMemberSet(candidate) ||
+			len(candidate.Members) == 0 ||
+			len(candidate.SupportRefs) != len(candidate.Members) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func aggregateMemberSetSupportRefsResolveMember(fact types.AnswerAggregateFact, member string, support aggregateMemberSupportIndex) bool {
