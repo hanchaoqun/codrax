@@ -1252,6 +1252,39 @@ func TestFormatAnalysisToolResultSummaryUsesResultSummaryTopicsAndDimensions(t *
 	}
 }
 
+func TestFormatAnalysisToolResultSummaryPrefersNormalizedResultOverRawParams(t *testing.T) {
+	params := `{
+		"intent": "explain",
+		"scenario": "performance_bottleneck",
+		"complexity": "moderate",
+		"question_kind": "mechanism",
+		"requested_answer_dimensions": {
+			"is_dimensioned_answer": true,
+			"dimensions": [
+				{"index": 1, "label": "span解析机制", "role": "function_or_purpose", "required": true},
+				{"index": 2, "label": "耗时判定逻辑", "role": "comparison_axis", "required": true},
+				{"index": 3, "label": "证据边界", "role": "evidence_source", "required": true}
+			]
+		}
+	}`
+	summary := `analysis emitted: intent=root_cause scenario=performance_bottleneck complexity=complex kw=20 ent=6 kind=mechanism answer_dimensions=["证据边界"] | normalized: intent "explain"→"root_cause" | warn: requested_answer_dimensions ignored unanchored dimension span解析机制; requested_answer_dimensions ignored unanchored dimension 耗时判定逻辑`
+	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_analysis", params, summary, "zh", 0))
+	for _, want := range []string{
+		"意图 root_cause · 类型 mechanism · 场景 performance_bottleneck · 复杂度 complex",
+		"分析拆分为 1 个答案维度：",
+		"① 证据边界",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("analysis summary should render normalized result field %q; got:\n%s", want, got)
+		}
+	}
+	for _, stale := range []string{"意图 explain", "span解析机制", "耗时判定逻辑"} {
+		if strings.Contains(got, stale) {
+			t.Fatalf("analysis summary should not render stale raw param %q after normalization; got:\n%s", stale, got)
+		}
+	}
+}
+
 func TestFormatAnswerDocumentToolResultSummaryRejectedZh(t *testing.T) {
 	summary := "The answer document does not yet meet the structural contract for this question.\n\n" +
 		"  1. Field: `blocks[].items[].label`\n" +

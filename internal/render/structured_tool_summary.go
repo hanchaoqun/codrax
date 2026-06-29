@@ -866,19 +866,29 @@ func formatAnalysisToolResultSummary(paramsJSON, resultSummary, lang string) str
 }
 
 func mergeAnalysisSummaryPayload(primary, fallback analysisSummaryPayload) analysisSummaryPayload {
-	if primary.Intent == "" {
+	if fallback.Intent != "" {
+		primary.Intent = fallback.Intent
+	} else if primary.Intent == "" {
 		primary.Intent = fallback.Intent
 	}
-	if primary.Scenario == "" {
+	if fallback.Scenario != "" {
+		primary.Scenario = fallback.Scenario
+	} else if primary.Scenario == "" {
 		primary.Scenario = fallback.Scenario
 	}
-	if primary.Complexity == "" {
+	if fallback.Complexity != "" {
+		primary.Complexity = fallback.Complexity
+	} else if primary.Complexity == "" {
 		primary.Complexity = fallback.Complexity
 	}
-	if primary.QuestionKind == "" {
+	if fallback.QuestionKind != "" {
+		primary.QuestionKind = fallback.QuestionKind
+	} else if primary.QuestionKind == "" {
 		primary.QuestionKind = fallback.QuestionKind
 	}
-	if primary.PredicateAxis == "" {
+	if fallback.PredicateAxis != "" {
+		primary.PredicateAxis = fallback.PredicateAxis
+	} else if primary.PredicateAxis == "" {
 		primary.PredicateAxis = fallback.PredicateAxis
 	}
 	if len(primary.Keywords) == 0 {
@@ -887,7 +897,9 @@ func mergeAnalysisSummaryPayload(primary, fallback analysisSummaryPayload) analy
 	if len(primary.Entities) == 0 {
 		primary.Entities = fallback.Entities
 	}
-	if len(primary.SubTopics) == 0 {
+	if len(fallback.SubTopics) > 0 {
+		primary.SubTopics = fallback.SubTopics
+	} else if len(primary.SubTopics) == 0 {
 		primary.SubTopics = fallback.SubTopics
 	}
 	if len(primary.Buckets) == 0 {
@@ -896,10 +908,14 @@ func mergeAnalysisSummaryPayload(primary, fallback analysisSummaryPayload) analy
 	if primary.AnswerSubject == nil {
 		primary.AnswerSubject = fallback.AnswerSubject
 	}
-	if primary.DiagramHint == nil {
+	if fallback.DiagramHint != nil {
+		primary.DiagramHint = fallback.DiagramHint
+	} else if primary.DiagramHint == nil {
 		primary.DiagramHint = fallback.DiagramHint
 	}
-	if primary.RequestedAnswerDimensions == nil || len(primary.RequestedAnswerDimensions.Dimensions) == 0 {
+	if fallback.RequestedAnswerDimensions != nil && len(fallback.RequestedAnswerDimensions.Dimensions) > 0 {
+		primary.RequestedAnswerDimensions = fallback.RequestedAnswerDimensions
+	} else if primary.RequestedAnswerDimensions == nil || len(primary.RequestedAnswerDimensions.Dimensions) == 0 {
 		primary.RequestedAnswerDimensions = fallback.RequestedAnswerDimensions
 	}
 	if primary.CurrentSourceExplanationProfile == nil {
