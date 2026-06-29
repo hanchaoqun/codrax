@@ -192,6 +192,127 @@ eval_json_escape() {
   printf '%s' "$1" | LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
+eval_env_key() {
+  LC_ALL=C tr '[:lower:]' '[:upper:]' <<<"$1" | LC_ALL=C sed -E 's/[^A-Z0-9]+/_/g; s/^_+//; s/_+$//'
+}
+
+eval_trim() {
+  LC_ALL=C sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' <<<"$1"
+}
+
+eval_reason_slug() {
+  printf '%s' "$1" |
+    LC_ALL=C tr '\n\r\t ' '____' |
+    LC_ALL=C sed -E 's/[^A-Za-z0-9_.:@+\/-]+/_/g; s/_+/_/g; s/^_+//; s/_+$//' |
+    LC_ALL=C cut -c1-120
+}
+
+eval_inventory_row_tokens_visible() {
+  local text="$1"
+  local row="$2"
+  local old_ifs token seen
+  local -a row_tokens
+  old_ifs="$IFS"
+  IFS='|'
+  read -r -a row_tokens <<<"$row"
+  IFS="$old_ifs"
+  seen=0
+  for token in "${row_tokens[@]}"; do
+    token="$(eval_trim "$token")"
+    [[ -z "$token" ]] && continue
+    seen=1
+    if ! LC_ALL=C grep -aqiF -- "$token" <<<"$text"; then
+      return 1
+    fi
+  done
+  [[ "$seen" -eq 1 ]]
+}
+
+eval_inventory_row_visible() {
+  local cleaned="$1"
+  local row="$2"
+  local scope="${3:-document}"
+  local old_ifs line
+  case "$scope" in
+    line|row)
+      old_ifs="$IFS"
+      IFS=$'\n'
+      for line in $cleaned; do
+        if eval_inventory_row_tokens_visible "$line" "$row"; then
+          IFS="$old_ifs"
+          return 0
+        fi
+      done
+      IFS="$old_ifs"
+      return 1
+      ;;
+    *)
+      eval_inventory_row_tokens_visible "$cleaned" "$row"
+      ;;
+  esac
+}
+
+eval_inventory_rowset_reasons() {
+  local cleaned="$1"
+  local rowsets="${EXPECT_INVENTORY_ROWSETS:-}"
+  [[ -n "$rowsets" ]] || return 0
+
+  local rowset rowset_key rows_var rows count_var expected_count
+  local banned_var banned_rows scope_var row_scope old_ifs row matched total reason_row
+  for rowset in $rowsets; do
+    rowset_key="$(eval_env_key "$rowset")"
+    rows_var="EXPECT_INVENTORY_ROWS_${rowset_key}"
+    rows="${!rows_var:-}"
+    count_var="EXPECT_INVENTORY_COUNT_${rowset_key}"
+    expected_count="${!count_var:-}"
+    scope_var="EXPECT_INVENTORY_ROW_SCOPE_${rowset_key}"
+    row_scope="${!scope_var:-document}"
+
+    matched=0
+    total=0
+    if [[ -n "$rows" ]]; then
+      old_ifs="$IFS"
+      IFS=$'\n'
+      for row in $rows; do
+        row="$(eval_trim "$row")"
+        [[ -z "$row" ]] && continue
+        total=$((total + 1))
+        reason_row="$(eval_reason_slug "$row")"
+        if eval_inventory_row_visible "$cleaned" "$row" "$row_scope"; then
+          matched=$((matched + 1))
+        else
+          printf 'missing_inventory_row:%s:%s\n' "$rowset" "$reason_row"
+        fi
+      done
+      IFS="$old_ifs"
+    fi
+
+    if [[ -z "$expected_count" ]]; then
+      expected_count="$total"
+    fi
+    if ! eval_is_uint "$expected_count"; then
+      printf 'invalid_inventory_count:%s:%s\n' "$rowset" "$(eval_reason_slug "$expected_count")"
+    elif [[ "$matched" -ne "$expected_count" ]]; then
+      printf 'inventory_count_mismatch:%s:got%s:want%s\n' "$rowset" "$matched" "$expected_count"
+    fi
+
+    banned_var="EXPECT_INVENTORY_BANNED_ROWS_${rowset_key}"
+    banned_rows="${!banned_var:-}"
+    if [[ -n "$banned_rows" ]]; then
+      old_ifs="$IFS"
+      IFS=$'\n'
+      for row in $banned_rows; do
+        row="$(eval_trim "$row")"
+        [[ -z "$row" ]] && continue
+        if eval_inventory_row_visible "$cleaned" "$row" "$row_scope"; then
+          printf 'banned_inventory_row:%s:%s\n' "$rowset" "$(eval_reason_slug "$row")"
+        fi
+      done
+      IFS="$old_ifs"
+    fi
+  done
+}
+
 eval_json_top_string_field() {
   local file="$1"
   local field="$2"

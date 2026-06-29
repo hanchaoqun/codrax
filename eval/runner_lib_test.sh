@@ -384,6 +384,58 @@ case "$(cat "$dimension_missing_dir/run-1.verdict")" in
     ;;
 esac
 
+inventory_answer=$'| category | symbol | path | package |\n| extend | extend Cart | eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj | demo.cart |\n| foreign func | native_add | eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj | demo.bridge |'
+EXPECT_INVENTORY_ROWSETS="extend foreign_func"
+EXPECT_INVENTORY_ROW_SCOPE_EXTEND="line"
+EXPECT_INVENTORY_ROWS_EXTEND=$'extend Cart|Cart.cj|demo.cart'
+EXPECT_INVENTORY_COUNT_EXTEND=1
+EXPECT_INVENTORY_ROW_SCOPE_FOREIGN_FUNC="line"
+EXPECT_INVENTORY_ROWS_FOREIGN_FUNC=$'native_add|Bridge.cj|demo.bridge'
+EXPECT_INVENTORY_COUNT_FOREIGN_FUNC=1
+EXPECT_INVENTORY_BANNED_ROWS_FOREIGN_FUNC=$'foreign func|runOnMainThread|Bridge.cj'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_answer")" "" "inventory row oracle pass"
+
+inventory_missing=$'| category | symbol | path | package |\n| extend | extend Cart | eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj | demo.cart |'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_missing")" "missing_inventory_row:foreign_func:native_add_Bridge.cj_demo.bridge
+inventory_count_mismatch:foreign_func:got0:want1" "inventory row oracle missing row"
+
+inventory_banned="${inventory_answer}"$'\n| foreign func | runOnMainThread | eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj | demo.bridge |'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_banned")" "banned_inventory_row:foreign_func:foreign_func_runOnMainThread_Bridge.cj" "inventory row oracle banned row"
+unset EXPECT_INVENTORY_ROWSETS EXPECT_INVENTORY_ROW_SCOPE_EXTEND EXPECT_INVENTORY_ROWS_EXTEND EXPECT_INVENTORY_COUNT_EXTEND
+unset EXPECT_INVENTORY_ROW_SCOPE_FOREIGN_FUNC EXPECT_INVENTORY_ROWS_FOREIGN_FUNC EXPECT_INVENTORY_COUNT_FOREIGN_FUNC EXPECT_INVENTORY_BANNED_ROWS_FOREIGN_FUNC
+
+cat >"$tmp/fake-codrax-inventory-rowset" <<'SH'
+#!/usr/bin/env bash
+echo 'thinking stream'
+echo '━━━'
+echo '| category | symbol | path | package |'
+echo '| extend | extend Cart | eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj | demo.cart |'
+SH
+chmod +x "$tmp/fake-codrax-inventory-rowset"
+cat >"$tmp/inventory-rowset.case" <<'CASE'
+ID="inventory_rowset"
+NAME="inventory rowset"
+QUESTION="inventory test"
+MIN_OUTPUT_CHARS=1
+EXPECT_INVENTORY_ROWSETS="extend foreign_func"
+EXPECT_INVENTORY_ROW_SCOPE_EXTEND="line"
+EXPECT_INVENTORY_ROWS_EXTEND=$'extend Cart|Cart.cj|demo.cart'
+EXPECT_INVENTORY_COUNT_EXTEND=1
+EXPECT_INVENTORY_ROW_SCOPE_FOREIGN_FUNC="line"
+EXPECT_INVENTORY_ROWS_FOREIGN_FUNC=$'native_add|Bridge.cj|demo.bridge'
+EXPECT_INVENTORY_COUNT_FOREIGN_FUNC=1
+CASE
+CODRAX_BIN="$tmp/fake-codrax-inventory-rowset" EVAL_RESULTS_ROOT="$tmp/inventory-results" CODRAX_PROVIDER_ARGS_RAW="" eval/run.sh "$tmp/inventory-rowset.case" 1 >/dev/null || fail "inventory rowset eval failed to run"
+inventory_rowset_dir="$(eval_latest_result_dir "$tmp/inventory-results" inventory_rowset 00000000-000000 || true)"
+[[ -n "$inventory_rowset_dir" ]] || fail "inventory rowset result dir missing"
+case "$(cat "$inventory_rowset_dir/run-1.verdict")" in
+  "FAIL missing_inventory_row:foreign_func:native_add_Bridge.cj_demo.bridge inventory_count_mismatch:foreign_func:got0:want1")
+    ;;
+  *)
+    fail "inventory rowset verdict should report missing typed row, got: $(cat "$inventory_rowset_dir/run-1.verdict")"
+    ;;
+esac
+
 cat >"$tmp/finalizer-content-only.log" <<'LOG'
 2026-05-24T00:00:00.000 DEBUG [diag finalizer] iter=0 ASSISTANT content: the source code contains TOOLRESULT emit_answer_document ok=false and finalizer_rewrites strings
 2026-05-24T00:00:00.001 DEBUG [diag explorer] iter=0 ASSISTANT content: 客户日志片段里有 成文校验未通过 和 ⟳ 4/4 答案待完善，正在重写

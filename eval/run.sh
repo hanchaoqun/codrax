@@ -15,7 +15,8 @@
 # sides of "A vs B" to be mentioned), EXPECT_MATCHES_TEXT_REGEX
 # (newline-separated ERE over whitespace-folded answer text, useful for
 # rich multi-section answers where related signals may land on adjacent
-# lines), and EXPECT_LOG_MATCHES_REGEX /
+# lines), EXPECT_INVENTORY_ROWSETS plus typed row/count declarations
+# for category-level inventory correctness, and EXPECT_LOG_MATCHES_REGEX /
 # EXPECT_LOG_NOT_MATCHES_REGEX (newline-separated ERE patterns over
 # the control-plane log, useful for hidden subsystem-execution guards).
 # Extracts mechanism trace metrics from each run's debug log, and
@@ -65,6 +66,7 @@ EXPECT_MATCHES_REGEX="${EXPECT_MATCHES_REGEX:-}"
 EXPECT_MATCHES_TEXT_REGEX="${EXPECT_MATCHES_TEXT_REGEX:-}"
 EXPECT_SECTIONS="${EXPECT_SECTIONS:-}"
 EXPECT_DIMENSIONS="${EXPECT_DIMENSIONS:-}"
+EXPECT_INVENTORY_ROWSETS="${EXPECT_INVENTORY_ROWSETS:-}"
 # Runtime-artifact eval cases may attach either inline text or a file path:
 # LOG=<inline panic> / LOG_FILE=<path> exercise --log-text / --log, while
 # HTRACE=<inline trace> / HTRACE_FILE=<path> exercise --htrace-text / --htrace.
@@ -820,7 +822,7 @@ write_verdict() {
   if [[ -n "$EXPECT_DIMENSIONS" ]]; then
     local dim dim_key values_var values value regex_var regexes old_ifs rx
     for dim in $EXPECT_DIMENSIONS; do
-      dim_key="$(LC_ALL=C tr '[:lower:]' '[:upper:]' <<<"$dim" | LC_ALL=C sed -E 's/[^A-Z0-9]+/_/g; s/^_+//; s/_+$//')"
+      dim_key="$(eval_env_key "$dim")"
       values_var="EXPECT_DIMENSION_VALUES_${dim_key}"
       values="${!values_var:-}"
       regex_var="EXPECT_DIMENSION_REGEX_${dim_key}"
@@ -852,6 +854,21 @@ write_verdict() {
         reasons+=("missing_dimension:$dim")
       fi
     done
+  fi
+
+  # EXPECT_INVENTORY_ROWSETS: optional eval-only typed oracle for inventory
+  # cases. Each row-set is declared by the case file with newline-separated
+  # EXPECT_INVENTORY_ROWS_<ROWSET>, where every row is a pipe-separated set of
+  # literal tokens that must co-occur in the checked output. This catches
+  # category row/count mismatches without turning production routing into
+  # keyword or model-prose logic.
+  if [[ -n "$EXPECT_INVENTORY_ROWSETS" ]]; then
+    local inventory_reason
+    while IFS= read -r inventory_reason; do
+      [[ -z "$inventory_reason" ]] && continue
+      pass=0
+      reasons+=("$inventory_reason")
+    done < <(eval_inventory_rowset_reasons "$cleaned")
   fi
 
   if [[ $pass -eq 1 ]]; then
