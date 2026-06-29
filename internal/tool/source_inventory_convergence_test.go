@@ -349,6 +349,45 @@ func TestSourceInventoryConvergence_SourceInventoryRowCoverageUsesAnswerAuthorit
 	}
 }
 
+// Clause F — explorer/finalizer scheduling must not directly consume
+// lower-level source-inventory row-universe sensors. Those sensors are precise,
+// but letting agent/orchestrator code call them independently recreated the
+// recent ping-pong class: completion, mid-loop readiness, tool-surface
+// filtering, and answer pre-emit could each reinterpret the same observed
+// inventory rows. Scheduling code must consume BuildSourceInventoryAnswerPreEmitAuthority.
+func TestSourceInventoryConvergence_SchedulersUseAnswerAuthorityForUniverseGaps(t *testing.T) {
+	forbiddenCalls := []string{
+		"SourceInventoryCandidateUniverseCoverageGap(",
+		"SourceInventoryObservedDuplicateLocationCoverageGap(",
+		"SourceInventoryObservedSurfaceFamilyCoverageGap(",
+	}
+	var violations []string
+	for _, path := range sourceInventoryProductionGoFiles(t, []string{"../orchestrator", "../agent"}) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		text := string(data)
+		if !strings.Contains(text, "SourceInventory") &&
+			!strings.Contains(text, "sourceInventory") &&
+			!strings.Contains(text, "source inventory") &&
+			!strings.Contains(text, "source_inventory") {
+			continue
+		}
+		for i, line := range strings.Split(text, "\n") {
+			for _, call := range forbiddenCalls {
+				if !strings.Contains(line, call) {
+					continue
+				}
+				violations = append(violations, sourceInventoryClusterFileKey(path)+":"+strconv.Itoa(i+1)+": "+call)
+			}
+		}
+	}
+	if len(violations) > 0 {
+		t.Fatalf("source-inventory scheduling path bypasses SourceInventoryAnswerPreEmitAuthority; route through BuildSourceInventoryAnswerPreEmitAuthority so completion/readiness/tool-surface decisions share one typed universe view:\n  %s", strings.Join(violations, "\n  "))
+	}
+}
+
 func sourceInventoryProductionGoFiles(t *testing.T, roots []string) []string {
 	t.Helper()
 	var files []string

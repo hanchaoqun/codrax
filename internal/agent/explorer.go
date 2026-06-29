@@ -6980,13 +6980,8 @@ func (e *explorerEvaluator) sourceInventoryMechanicalLandingSurfaceActive(ctx *t
 	if !snapshot.CanEnterMechanicalLanding || sourceInventoryInlineFollowupDebtExecutable(snapshot.FollowupDebt) {
 		return false
 	}
-	gap := tool.SourceInventoryCandidateUniverseCoverageGap(&types.BusContext{
-		RepoRoot:   ctx.RepoRoot,
-		Mutable:    ctx.Mutable,
-		AnalysisIR: ctx.AnalysisIR,
-		MultiGraph: ctx.MultiGraph,
-	}, snapshot.ProjectedPrincipalAggregates)
-	return !gap.Blocking
+	authority := e.sourceInventoryAnswerAuthority(ctx, snapshot.ProjectedPrincipalAggregates)
+	return !authority.BestUniverseGap.Blocking
 }
 
 func (e *explorerEvaluator) sourceInventoryRequiredFileVerificationSurfaceActive(ctx *types.AgentContext) bool {
@@ -7022,6 +7017,42 @@ func (e *explorerEvaluator) sourceInventoryAuthoritySnapshot(ctx *types.AgentCon
 		snapshot.FollowupDebt = debt
 	}
 	return types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
+}
+
+func (e *explorerEvaluator) sourceInventoryAnswerAuthority(ctx *types.AgentContext, facts []types.AnswerAggregateFact) tool.SourceInventoryAnswerPreEmitAuthority {
+	if e == nil {
+		return tool.SourceInventoryAnswerPreEmitAuthority{}
+	}
+	mutable := e.mutable
+	analysisIR := e.analysisIR
+	repoRoot := e.repoRoot
+	multiGraph := e.multiGraphHandle
+	if ctx != nil {
+		if mutable == nil {
+			mutable = ctx.Mutable
+		}
+		if analysisIR == nil {
+			analysisIR = ctx.AnalysisIR
+		}
+		if strings.TrimSpace(repoRoot) == "" {
+			repoRoot = ctx.RepoRoot
+		}
+		if multiGraph == nil {
+			multiGraph = ctx.MultiGraph
+		}
+	}
+	if mutable == nil || analysisIR == nil {
+		return tool.SourceInventoryAnswerPreEmitAuthority{}
+	}
+	if facts == nil {
+		facts = mutable.StableInvestigationAggregateFacts()
+	}
+	return tool.BuildSourceInventoryAnswerPreEmitAuthority(&types.BusContext{
+		RepoRoot:   repoRoot,
+		Mutable:    mutable,
+		AnalysisIR: analysisIR,
+		MultiGraph: multiGraph,
+	}, facts)
 }
 
 func (e *explorerEvaluator) sourceInventoryFollowupRouteActive(ctx *types.AgentContext) bool {
@@ -8352,12 +8383,7 @@ func (e *explorerEvaluator) sourceInventoryCandidateUniverseCoverageGapFor(ctx *
 	if !e.needsStructuredMemberSetHandoff(handoffCtx) {
 		return tool.SourceInventoryCandidateUniverseGap{}
 	}
-	return tool.SourceInventoryCandidateUniverseCoverageGap(&types.BusContext{
-		RepoRoot:   e.repoRoot,
-		Mutable:    mutable,
-		AnalysisIR: analysisIR,
-		MultiGraph: e.multiGraphHandle,
-	}, mutable.StableInvestigationAggregateFacts())
+	return e.sourceInventoryAnswerAuthority(handoffCtx, nil).BestUniverseGap
 }
 
 func (e *explorerEvaluator) postCandidateUniversePendingSignal(gap tool.SourceInventoryCandidateUniverseGap) LoopSignal {
