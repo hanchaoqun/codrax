@@ -18,6 +18,7 @@ type SourceInventoryAuthoritySnapshot struct {
 	LensExecuted                 bool                               `json:"lens_executed,omitempty"`
 	RepoWideRequired             bool                               `json:"repo_wide_required,omitempty"`
 	ObservationComplete          bool                               `json:"observation_complete,omitempty"`
+	RequiredFileCount            int                                `json:"required_file_count,omitempty"`
 	RequiredFilesCovered         bool                               `json:"required_files_covered,omitempty"`
 	PrincipalAggregateFactCount  int                                `json:"principal_aggregate_fact_count,omitempty"`
 	CanUseMechanicalRowsForCite  bool                               `json:"can_use_mechanical_rows_for_citation,omitempty"`
@@ -65,7 +66,8 @@ func BuildSourceInventoryAuthoritySnapshot(input SourceInventoryAuthoritySnapsho
 	projected := ProjectSourceInventoryPrincipalRowSetAggregateFacts(input.ExistingAggregateFacts, observation, rm)
 	principalRefs := PrincipalAggregateMemberSetFactRefsForRequest(projected, &rm)
 	followup := DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation, rm, input.RequiredFiles)
-	requiredCovered := sourceInventorySnapshotRequiredFilesCovered(observation, input.RequiredFiles)
+	requiredFiles := sourceInventorySnapshotRequiredFileSet(input.RequiredFiles)
+	requiredCovered := sourceInventorySnapshotRequiredFilesCovered(observation, requiredFiles)
 
 	out := SourceInventoryAuthoritySnapshot{
 		Active:                       observation.IsActive() || SourceInventoryPrincipalAuthorityActive(rm),
@@ -74,6 +76,7 @@ func BuildSourceInventoryAuthoritySnapshot(input SourceInventoryAuthoritySnapsho
 		LensExecuted:                 SourceInventoryLensExecuted(observation),
 		RepoWideRequired:             SourceInventoryRequiresRepoWideLens(rm),
 		ObservationComplete:          observation.Complete,
+		RequiredFileCount:            len(requiredFiles),
 		RequiredFilesCovered:         requiredCovered,
 		PrincipalAggregateFactCount:  len(principalRefs),
 		CanUseMechanicalRowsForCite:  false,
@@ -128,8 +131,7 @@ func cloneSourceInventoryRequestedFields(in []SourceInventoryRequestedField) []S
 	return out
 }
 
-func sourceInventorySnapshotRequiredFilesCovered(observation SourceInventoryObservation, requiredFiles []string) bool {
-	required := sourceInventorySnapshotRequiredFileSet(requiredFiles)
+func sourceInventorySnapshotRequiredFilesCovered(observation SourceInventoryObservation, required map[string]bool) bool {
 	if len(required) == 0 {
 		return true
 	}

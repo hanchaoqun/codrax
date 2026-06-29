@@ -6968,23 +6968,8 @@ func (e *explorerEvaluator) sourceInventoryMechanicalLandingSurfaceActive(ctx *t
 		(ctx.ExploreToolSurface.IsSourceInventoryLens() && !e.sourceInventoryLensSurfaceReleased) {
 		return false
 	}
-	rm := ctx.AnalysisIR.RequestModel
-	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.MechanicalRowsOnly() {
-		return false
-	}
-	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
-	if !observation.IsActive() {
-		return false
-	}
-	if !sourceInventoryMechanicalLandingRequiredFilesCovered(observation, ctx.AnalysisIR.EvidencePlan.RequiredFiles) {
-		return false
-	}
-	debt := types.DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation, rm, ctx.AnalysisIR.EvidencePlan.RequiredFiles)
-	if sourceInventoryInlineFollowupDebtExecutable(debt) {
-		return false
-	}
-	projected := types.ProjectSourceInventoryPrincipalRowSetAggregateFacts(nil, observation, rm)
-	if len(types.PrincipalAggregateMemberSetFactRefsForRequest(projected, &rm)) == 0 {
+	snapshot := e.sourceInventoryAuthoritySnapshot(ctx)
+	if !snapshot.CanEnterMechanicalLanding || sourceInventoryInlineFollowupDebtExecutable(snapshot.FollowupDebt) {
 		return false
 	}
 	gap := tool.SourceInventoryCandidateUniverseCoverageGap(&types.BusContext{
@@ -6992,7 +6977,7 @@ func (e *explorerEvaluator) sourceInventoryMechanicalLandingSurfaceActive(ctx *t
 		Mutable:    ctx.Mutable,
 		AnalysisIR: ctx.AnalysisIR,
 		MultiGraph: ctx.MultiGraph,
-	}, projected)
+	}, snapshot.ProjectedPrincipalAggregates)
 	return !gap.Blocking
 }
 
@@ -7005,102 +6990,26 @@ func (e *explorerEvaluator) sourceInventoryRequiredFileVerificationSurfaceActive
 		(ctx.ExploreToolSurface.IsSourceInventoryLens() && !e.sourceInventoryLensSurfaceReleased) {
 		return false
 	}
-	rm := ctx.AnalysisIR.RequestModel
-	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.MechanicalRowsOnly() {
-		return false
-	}
-	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
-	if !observation.IsActive() {
-		return false
-	}
-	required := sourceInventoryMechanicalLandingRequiredFileSet(ctx.AnalysisIR.EvidencePlan.RequiredFiles)
-	return len(required) > 0 && !sourceInventoryMechanicalLandingRequiredFilesCovered(observation, ctx.AnalysisIR.EvidencePlan.RequiredFiles)
+	snapshot := e.sourceInventoryAuthoritySnapshot(ctx)
+	return snapshot.Active &&
+		snapshot.PrincipalAuthority &&
+		snapshot.MechanicalRowsOnly &&
+		snapshot.RequiredFileCount > 0 &&
+		!snapshot.RequiredFilesCovered
 }
 
-func sourceInventoryMechanicalLandingRequiredFilesCovered(observation types.SourceInventoryObservation, requiredFiles []string) bool {
-	required := sourceInventoryMechanicalLandingRequiredFileSet(requiredFiles)
-	if len(required) == 0 {
-		return true
+func (e *explorerEvaluator) sourceInventoryAuthoritySnapshot(ctx *types.AgentContext) types.SourceInventoryAuthoritySnapshot {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return types.SourceInventoryAuthoritySnapshot{}
 	}
-	covered := map[string]bool{}
-	for _, set := range observation.Sets {
-		for _, member := range set.Members {
-			sourceInventoryMechanicalLandingMarkCoveredFile(covered, member.File)
-			for _, attr := range member.Attributes {
-				sourceInventoryMechanicalLandingMarkCoveredFile(covered, attr.File)
-			}
-		}
-	}
-	for _, lens := range observation.CompleteLenses {
-		if lens.Count != 0 {
-			continue
-		}
-		for _, scope := range lens.Scopes {
-			scope = sourceInventoryMechanicalLandingCleanPath(scope)
-			if scope == "" {
-				continue
-			}
-			for file := range required {
-				if sourceInventoryMechanicalLandingPathCoveredByScope(file, scope) {
-					covered[file] = true
-				}
-			}
-		}
-	}
-	for file := range required {
-		if !covered[file] {
-			return false
-		}
-	}
-	return true
-}
-
-func sourceInventoryMechanicalLandingRequiredFileSet(files []string) map[string]bool {
-	out := map[string]bool{}
-	for _, file := range files {
-		file = sourceInventoryMechanicalLandingCleanPath(file)
-		if file == "" {
-			continue
-		}
-		out[file] = true
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func sourceInventoryMechanicalLandingMarkCoveredFile(covered map[string]bool, file string) {
-	file = sourceInventoryMechanicalLandingCleanPath(file)
-	if file == "" {
-		return
-	}
-	covered[file] = true
-}
-
-func sourceInventoryMechanicalLandingCleanPath(raw string) string {
-	path := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
-	path = filepath.Clean(path)
-	path = strings.Trim(strings.ReplaceAll(path, `\`, `/`), "/")
-	if path == "." {
-		return "."
-	}
-	if path == "" {
-		return ""
-	}
-	return path
-}
-
-func sourceInventoryMechanicalLandingPathCoveredByScope(file, scope string) bool {
-	file = sourceInventoryMechanicalLandingCleanPath(file)
-	scope = sourceInventoryMechanicalLandingCleanPath(scope)
-	if file == "" || scope == "" {
-		return false
-	}
-	if scope == "." || file == scope {
-		return true
-	}
-	return strings.HasPrefix(file, scope+"/")
+	return types.BuildSourceInventoryAuthoritySnapshot(types.SourceInventoryAuthoritySnapshotInput{
+		Observation:      types.SourceInventoryObservationFromMutable(ctx.Mutable),
+		RequestModel:     ctx.AnalysisIR.RequestModel,
+		RequiredFiles:    ctx.AnalysisIR.EvidencePlan.RequiredFiles,
+		MaxPrincipalRows: 32,
+		MaxSupportRows:   16,
+		MaxAuditRows:     8,
+	})
 }
 
 func (e *explorerEvaluator) sourceInventoryFollowupRouteActive(ctx *types.AgentContext) bool {
