@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -839,6 +840,9 @@ func TestSubtopicCoherence_R1_5_UserMentionedFieldAndLocalSurfacesPass(t *testin
 		Predicates: types.SemanticPredicates{
 			IsCrossComponent: true,
 		},
+		AnalyzerHints: types.AnalyzerHints{
+			MentionedEntities: []string{"EvidenceItem.Source", "bySource"},
+		},
 		SubTopics: []types.SubTopic{
 			{Summary: "source normalizer", Entities: []string{"canonicalCallChainSource"}},
 			{Summary: "field surface", Entities: []string{"EvidenceItem.Source"}},
@@ -850,10 +854,45 @@ func TestSubtopicCoherence_R1_5_UserMentionedFieldAndLocalSurfacesPass(t *testin
 		t.Fatalf("R1.5 must not reject exact user-mentioned field/local-variable search leads; got %+v", check)
 	}
 	if !subTopicEntityResolvedForCoherence("EvidenceItem.Source", rm, resolver) {
-		t.Fatal("user-mentioned field path should satisfy coherence as a search lead")
+		t.Fatal("typed mentioned field path should satisfy coherence as a search lead")
 	}
 	if !subTopicEntityResolvedForCoherence("bySource", rm, resolver) {
-		t.Fatal("user-mentioned local variable should satisfy coherence as a search lead")
+		t.Fatal("typed mentioned local variable should satisfy coherence as a search lead")
+	}
+}
+
+func TestSubtopicCoherence_R1_5_RawRequestOnlyDoesNotSatisfyHardCoherence(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"canonicalCallChainSource": {{Canonical: "canonicalCallChainSource", Domain: "tool"}},
+		},
+	}
+	rm := types.RequestModel{
+		RawRequest: "在 callChainPrincipalSpanDemandForEvidence 里，EvidenceItem.Source 是如何经过 canonicalCallChainSource 再被放入 bySource map 的？",
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "source normalizer", Entities: []string{"canonicalCallChainSource"}},
+			{Summary: "field surface", Entities: []string{"EvidenceItem.Source"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	if check.Passed {
+		t.Fatalf("RawRequest-only mention must not satisfy hard R1.5 coherence without typed mentioned_entities; got %+v", check)
+	}
+	if !strings.Contains(check.Detail, "R1.5") {
+		t.Fatalf("expected R1.5 detail for unresolved typed carrier, got %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_ProductionGateDoesNotReadRawRequest(t *testing.T) {
+	body, err := os.ReadFile("coherence.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), ".RawRequest") {
+		t.Fatalf("hard coherence gate must consume typed request carriers instead of direct RawRequest scans")
 	}
 }
 

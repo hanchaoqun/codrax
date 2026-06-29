@@ -27,12 +27,13 @@ import (
 //
 // Both gates compare LLM-emitted IR fields against each other and
 // against the repomap-verified TermGraph domains. No keyword tables,
-// no language-specific cue lists — every input is either a typed
-// enum (AnswerSubject.Kind, AnswerSemanticView.Family), an LLM
-// self-judged bool (SemanticPredicates), or a structural signal
-// (TermGraph.Canonical, PrimaryEntities, SubTopics). When a gate
-// fires the GateReport.Retryable bit re-enters the analyzer's emit
-// loop with the IR-field-level detail rendered into the next
+// no language-specific cue lists, and no direct RawRequest scans —
+// every input is either a typed enum (AnswerSubject.Kind,
+// AnswerSemanticView.Family), an LLM self-judged bool
+// (SemanticPredicates), or a structural signal (TermGraph.Canonical,
+// PrimaryEntities, SubTopics, AnalyzerHints.MentionedEntities). When
+// a gate fires the GateReport.Retryable bit re-enters the analyzer's
+// emit loop with the IR-field-level detail rendered into the next
 // dispatch's retry hint.
 
 // Tunables for the coherence checks. These are deliberately *not*
@@ -926,7 +927,7 @@ func subTopicEntityResolvedForCoherence(surface string, rm types.RequestModel, r
 			}
 		}
 	}
-	if subTopicEntityMentionedByCurrentRequest(trimmed, rm) {
+	if subTopicEntityMentionedByTypedCarrier(trimmed, rm) {
 		return true
 	}
 	if sourceInventoryDecoratedEntityResolvedForCoherence(trimmed, rm) {
@@ -1004,15 +1005,25 @@ func coherenceEntitySuffixNamesCandidateRole(suffix string) bool {
 	return false
 }
 
-func subTopicEntityMentionedByCurrentRequest(surface string, rm types.RequestModel) bool {
-	raw := strings.TrimSpace(rm.RawRequest)
-	if raw == "" || strings.TrimSpace(surface) == "" {
+func subTopicEntityMentionedByTypedCarrier(surface string, rm types.RequestModel) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
 		return false
 	}
-	if types.CodeSurfaceAppearsAsToken(surface, raw) {
-		return true
+	surfaceKey := types.ExactResolutionLookupKey("symbol", surface)
+	if surfaceKey == "" {
+		return false
 	}
-	return len(types.MentionedEntitiesFromRawRequest(raw, []string{surface})) > 0
+	for _, mentioned := range rm.AnalyzerHints.MentionedEntities {
+		mentioned = strings.TrimSpace(mentioned)
+		if mentioned == "" {
+			continue
+		}
+		if types.ExactResolutionLookupKey("symbol", mentioned) == surfaceKey {
+			return true
+		}
+	}
+	return false
 }
 
 func typedEnumerationMemberSurfaceForCoherence(surface string, rm types.RequestModel) bool {
