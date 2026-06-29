@@ -1560,19 +1560,15 @@ func normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc *types.Ans
 		}
 		for ii := range block.Items {
 			item := &block.Items[ii]
-			label := strings.TrimSpace(item.Label)
-			if label == "" {
-				continue
-			}
-			text := preEmitItemNonLabelSurface(*item)
-			if !preEmitItemCitationAlignmentAppliesWithContext(pctx, label, text) {
+			surfaces := preEmitItemCitationCandidateSurfaces(*item)
+			if len(surfaces) == 0 {
 				continue
 			}
 			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
-				preEmitItemCitationAlreadyAlignedWithContext(pctx, *block, label, text, doc.Citations[item.CitationRef]) {
+				preEmitItemCitationAlreadyAlignedForAnySurface(pctx, *block, surfaces, doc.Citations[item.CitationRef]) {
 				continue
 			}
-			cit, ok := preEmitUniqueCandidateCitationForItemWithContext(pctx, label, text)
+			cit, ok := preEmitUniqueCandidateCitationForItemSurfacesWithContext(pctx, surfaces)
 			if !ok {
 				continue
 			}
@@ -1585,6 +1581,77 @@ func normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc *types.Ans
 		}
 	}
 	return fixed
+}
+
+type preEmitItemCitationCandidateSurface struct {
+	label string
+	text  string
+}
+
+func preEmitItemCitationCandidateSurfaces(item types.AnswerBlockItem) []preEmitItemCitationCandidateSurface {
+	label := strings.TrimSpace(item.Label)
+	text := preEmitItemNonLabelSurface(item)
+	if label != "" {
+		return []preEmitItemCitationCandidateSurface{{label: label, text: text}}
+	}
+	var out []preEmitItemCitationCandidateSurface
+	seen := map[string]bool{}
+	add := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			return
+		}
+		key := preEmitCodeIdentityKey(candidate)
+		if key == "" {
+			key = strings.ToLower(candidate)
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, preEmitItemCitationCandidateSurface{label: candidate, text: text})
+	}
+	for _, cell := range item.Cells {
+		add(cell)
+	}
+	add(item.Text)
+	return out
+}
+
+func preEmitItemCitationAlreadyAlignedForAnySurface(pctx *preEmitCheckContext, block types.AnswerBlock, surfaces []preEmitItemCitationCandidateSurface, cit types.Citation) bool {
+	for _, surface := range surfaces {
+		if !preEmitItemCitationAlignmentAppliesWithContext(pctx, surface.label, surface.text) {
+			continue
+		}
+		if preEmitItemCitationAlreadyAlignedWithContext(pctx, block, surface.label, surface.text, cit) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitUniqueCandidateCitationForItemSurfacesWithContext(pctx *preEmitCheckContext, surfaces []preEmitItemCitationCandidateSurface) (types.Citation, bool) {
+	var out []types.Citation
+	seen := map[string]bool{}
+	for _, surface := range surfaces {
+		if !preEmitItemCitationAlignmentAppliesWithContext(pctx, surface.label, surface.text) {
+			continue
+		}
+		cit, ok := preEmitUniqueCandidateCitationForItemWithContext(pctx, surface.label, surface.text)
+		if !ok {
+			continue
+		}
+		key := preEmitCitationLocationKey(cit)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, cit)
+	}
+	if len(out) != 1 {
+		return types.Citation{}, false
+	}
+	return out[0], true
 }
 
 func preEmitItemCitationAlignmentAppliesWithContext(pctx *preEmitCheckContext, label, text string) bool {
