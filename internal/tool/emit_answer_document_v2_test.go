@@ -1756,18 +1756,22 @@ func TestEmitAnswerDocumentV2_RejectsEmptyBlocks(t *testing.T) {
 	}
 }
 
-func TestEmitAnswerDocumentV2_RejectsMissingBlockID(t *testing.T) {
+func TestEmitAnswerDocumentV2_MaterializesMissingBlockID(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
 	bad := json.RawMessage(`{
 		"blocks": [{"kind": "summary", "text": "x"}]
 	}`)
 	res, _ := tool.Execute(bus, bad)
-	if res.Success {
-		t.Fatal("expected missing block id to be rejected")
+	if !res.Success {
+		t.Fatalf("expected full emit missing block id to be repaired, got %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "id is required") {
-		t.Errorf("error message should mention id requirement; got %q", res.Summary)
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 {
+		t.Fatalf("doc not persisted: %+v", doc)
+	}
+	if got := doc.Blocks[0].ID; got != "auto_summary_1" {
+		t.Fatalf("materialized id = %q, want auto_summary_1", got)
 	}
 }
 
@@ -2251,7 +2255,7 @@ func TestEmitAnswerDocumentV2_NativeDisplayOnlyBlockFragmentKeepsModelErrorIndex
 	}
 }
 
-func TestEmitAnswerDocumentV2_NativeMissingIDWithStructureStillRejects(t *testing.T) {
+func TestEmitAnswerDocumentV2_NativeMissingIDWithStructureMaterializes(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
 	raw := json.RawMessage(`{
@@ -2264,11 +2268,15 @@ func TestEmitAnswerDocumentV2_NativeMissingIDWithStructureStillRejects(t *testin
 	if err != nil {
 		t.Fatalf("emit error: %v", err)
 	}
-	if res.Success {
-		t.Fatalf("structured block missing id must not be guessed into validity")
+	if !res.Success {
+		t.Fatalf("structured full-emit block missing id should be repaired, got %+v", res)
 	}
-	if !strings.Contains(res.Summary, "blocks[1]: id is required") {
-		t.Fatalf("expected ordinary missing-id rejection, got %q", res.Summary)
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("doc not persisted: %+v", doc)
+	}
+	if got := doc.Blocks[1].ID; got != "auto_table_2" {
+		t.Fatalf("table block materialized id = %q, want auto_table_2", got)
 	}
 }
 

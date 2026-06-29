@@ -21,7 +21,8 @@ import (
 // docs/migration/block_only_carrier.md §3):
 //   - blocks[] MUST be present and non-empty
 //   - every block.kind MUST be in AllAnswerBlockKinds()
-//   - every block.id MUST be non-empty
+//   - full emit may materialize missing block.id from typed block kind +
+//     model index; patch emit remains strict because delta ops address ids
 //   - V1 fields (shape / steps / symbols / value / boolean /
 //     symbols_completeness) MUST NOT appear at the top level —
 //     V1-or-V2 hybrid emits are rejected to keep the carriers
@@ -196,6 +197,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	if len(displayFields) > 0 {
 		logging.Warning("[emit_answer_document] native display-only block fragment(s) absorbed without retry: %s",
 			strings.Join(displayFields, ", "))
+	}
+	if repaired, fields := materializeFullEmitBlockIDs(blockEntries); len(fields) > 0 {
+		blockEntries = repaired
+		logging.Warning("[emit_answer_document] materialized missing internal block id(s) without retry: %s",
+			strings.Join(fields, ", "))
 	}
 	for _, entry := range splitFusedDiagramBlockEntries(toolName, blockEntries) {
 		blk, err := NormalizeEmitAnswerBlock(entry.raw, fmt.Sprintf("blocks[%d]", entry.modelIndex))
@@ -933,6 +939,34 @@ func uniqueAnswerBlockID(doc *types.AnswerDocumentV2, base string) string {
 			return candidate
 		}
 	}
+}
+
+func materializeFullEmitBlockIDs(entries []splitEmitBlockEntry) ([]splitEmitBlockEntry, []string) {
+	if len(entries) == 0 {
+		return entries, nil
+	}
+	out := append([]splitEmitBlockEntry(nil), entries...)
+	used := make(map[string]bool, len(out))
+	for _, entry := range out {
+		if id := strings.TrimSpace(entry.raw.ID); id != "" {
+			used[id] = true
+		}
+	}
+	var fields []string
+	for i := range out {
+		if strings.TrimSpace(out[i].raw.ID) != "" {
+			continue
+		}
+		kind := types.AnswerBlockKind(strings.TrimSpace(out[i].raw.Kind))
+		if kind == "" || !types.IsValidAnswerBlockKind(kind) {
+			continue
+		}
+		id := uniquePatchBlockID(used, fmt.Sprintf("auto_%s_%d", kind, out[i].modelIndex+1))
+		used[id] = true
+		out[i].raw.ID = id
+		fields = append(fields, fmt.Sprintf("blocks[%d].id→%q", out[i].modelIndex, id))
+	}
+	return out, fields
 }
 
 func materializeRequiredCaveatWhenOnlyMissing(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, hints []emitFixHint, ctx *types.BusContext) int {

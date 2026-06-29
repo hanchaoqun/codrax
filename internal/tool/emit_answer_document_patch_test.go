@@ -86,6 +86,21 @@ func TestEmitAnswerDocumentPatch_EmptyPatchRejects(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_AddBlockMissingIDStillRejects(t *testing.T) {
+	bus := newPatchTestBusContext()
+	tool := &EmitAnswerDocumentPatch{}
+	res, err := tool.Execute(bus, json.RawMessage(`{"add_blocks":[{"kind":"summary","text":"extra"}]}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("patch add block without id must remain strict; got %+v", res)
+	}
+	if !strings.Contains(res.Summary, "id is required") {
+		t.Fatalf("patch rejection should name id requirement, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_PreEmitSoftHintsStayAdvisory(t *testing.T) {
 	bus := newPatchTestBusContext()
 	bus.AnalysisIR = &types.AnalysisIR{
