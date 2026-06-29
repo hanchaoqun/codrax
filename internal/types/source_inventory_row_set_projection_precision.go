@@ -83,23 +83,3 @@ func sourceInventoryPrincipalFactsCoverRows(refs []AnswerAggregateFactRef, want 
 	}
 	return true
 }
-
-func sourceInventoryPrincipalRowAttributeNotes(attrs []SourceInventoryObservationAttribute) []string {
-	var out []string
-	for _, attr := range sourceInventoryRowContextAttributes(attrs) {
-		name := strings.TrimSpace(attr.Name)
-		if name == "" {
-			continue
-		}
-		role := strings.TrimSpace(string(attr.Role))
-		if role == "" {
-			role = "attribute"
-		}
-		if attr.Location != "" {
-			out = append(out, role+"="+name+" @ "+attr.Location)
-		} else {
-			out = append(out, role+"="+name)
-		}
-	}
-	return out
-}

@@ -601,6 +601,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeVisibleSourceLocationCarriers(doc, pctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d visible source-location carrier(s) by grounded evidence", toolName, fixed)
 	}
+	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc); fixed > 0 {
+		logging.Warning("[%s] repaired %d item citation_ref value(s) by explicit code-surface citation quotes", toolName, fixed)
+	}
 	if fixed := normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc, view); fixed > 0 {
 		logging.Warning("[%s] repaired %d qualified item label(s) by graph-derived enclosing function", toolName, fixed)
 	}

@@ -6426,6 +6426,56 @@ func TestNormalizeVisibleSourceLocationCarriers_RepairsMismatchedItemCitationByE
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueBacktickCitationQuote_RepairsUniqueCodeSurface(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/tool/emit_perf_trace.go", Line: 66, Quote: "type emitPerfTraceJank struct {"},
+			{File: "internal/tool/emit_perf_trace.go", Line: 380, Quote: "var perfTraceTimestampRE = regexp.MustCompile(`...`)"},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "trace-chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "timestamp-regex",
+				Label:       "时间戳正则解析",
+				Text:        "正则 `perfTraceTimestampRE` 从 tracing_mark_write 行提取秒级时间戳。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref=%d, want 1", got)
+	}
+}
+
+func TestNormalizeItemCitationRefsByUniqueBacktickCitationQuote_LeavesAmbiguousCodeSurface(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/tool/emit_perf_trace.go", Line: 380, Quote: "var perfTraceTimestampRE = regexp.MustCompile(`...`)"},
+			{File: "internal/tool/emit_perf_trace_test.go", Line: 44, Quote: "func TestPerfTraceTimestampRE(t *testing.T) {"},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "trace-chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "timestamp-regex",
+				Label:       "时间戳正则解析",
+				Text:        "正则 `perfTraceTimestampRE` 从 tracing_mark_write 行提取秒级时间戳。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc); fixed != 0 {
+		t.Fatalf("fixed=%d, want 0", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref=%d, want unchanged 0", got)
+	}
+}
+
 // === preEmitDisplaySurfaceAppears typographic normalisation ===
 //
 // docs/design/post_phase2a_forensic_followups.md §2.3 — finalizer

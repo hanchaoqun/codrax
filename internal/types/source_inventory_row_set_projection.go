@@ -260,15 +260,10 @@ func sourceInventoryPrincipalRowLocation(row SourceInventoryRow) string {
 
 func sourceInventoryPrincipalRowNote(row SourceInventoryRow) string {
 	var parts []string
-	if note := strings.TrimSpace(row.Member.Note); note != "" {
-		parts = append(parts, note)
-	}
-	parts = append(parts, sourceInventoryPrincipalRowAttributeNotes(row.Member.Attributes)...)
-	if row.SourceClass != "" && row.SourceClass != SourcePathRoleUnknown {
-		parts = append(parts, "source_class="+string(row.SourceClass))
-	}
-	if lang := strings.TrimSpace(row.Language); lang != "" {
-		parts = append(parts, "language="+lang)
+	for _, note := range sourceInventoryPrincipalRowVisibleNoteSegments(row.Member.Note) {
+		if note != "" {
+			parts = append(parts, note)
+		}
 	}
 	return strings.Join(parts, "; ")
 }

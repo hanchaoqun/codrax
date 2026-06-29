@@ -687,7 +687,7 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_CompleteLensProject
 	}
 }
 
-func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesRowAttributesInSyntheticNotes(t *testing.T) {
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DoesNotMirrorTypedMetadataInSyntheticNotes(t *testing.T) {
 	scope := SourceScopeAll
 	rm := sourceInventoryProjectionRequestModel(&scope)
 	obs := SourceInventoryObservation{
@@ -702,6 +702,8 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesRowAttribu
 			Complete: true,
 			Members: []SourceInventoryObservationMember{{
 				Name:          "extend String",
+				Note:          "user-facing declaration note",
+				SurfaceTerms:  []string{"extend extend String"},
 				Role:          AnswerCandidateRoleFunction,
 				File:          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj",
 				Line:          6,
@@ -724,9 +726,13 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesRowAttribu
 		t.Fatalf("expected synthetic source-inventory row-set fact, got %+v", got)
 	}
 	if len(got[0].MemberNotes) != 1 ||
-		!strings.Contains(got[0].MemberNotes[0], "package=demo.stringext") ||
-		!strings.Contains(got[0].MemberNotes[0], "04_extend_operator.cj:4") {
-		t.Fatalf("package attribute should be preserved in member note, got %+v", got[0].MemberNotes)
+		got[0].MemberNotes[0] != "user-facing declaration note" {
+		t.Fatalf("projection should keep only row-authored notes, got %+v", got[0].MemberNotes)
+	}
+	for _, forbidden := range []string{"package=", "source_class=", "language=", "surface="} {
+		if strings.Contains(strings.Join(got[0].MemberNotes, "\n"), forbidden) {
+			t.Fatalf("typed metadata should not be mirrored into member notes: %+v", got[0].MemberNotes)
+		}
 	}
 	sets := CompileEnumerationDisplaySets(&rm, &AnswerSurfacePlan{
 		StableAggregateFacts:       got,
@@ -738,6 +744,26 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesRowAttribu
 	attrs := sets[0].Rows[0].Attributes
 	if len(attrs) != 1 || attrs[0].Role != AnswerCandidateRolePackage || attrs[0].Name != "demo.stringext" || attrs[0].Location != "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:4" {
 		t.Fatalf("package attribute not preserved on row: %+v", sets[0].Rows[0])
+	}
+}
+
+func TestSourceInventoryPrincipalRowNote_DropsSurfaceCarrierNotes(t *testing.T) {
+	row := SourceInventoryRow{
+		Member: SourceInventoryObservationMember{
+			Name: "Animal",
+			Note: "surface=public class public class Animal",
+		},
+	}
+	if got := sourceInventoryPrincipalRowNote(row); got != "" {
+		t.Fatalf("surface carrier note should not render as member note, got %q", got)
+	}
+	row.Member.Note = "surface=public class Animal; package=demo.modifiers; primary Cangjie class declaration"
+	if got := sourceInventoryPrincipalRowNote(row); got != "primary Cangjie class declaration" {
+		t.Fatalf("mixed system carriers should be stripped while preserving human note, got %q", got)
+	}
+	row.Member.Note = "primary Cangjie class declaration"
+	if got := sourceInventoryPrincipalRowNote(row); got != "primary Cangjie class declaration" {
+		t.Fatalf("human note should be preserved, got %q", got)
 	}
 }
 

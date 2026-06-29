@@ -4159,6 +4159,70 @@ func TestNormalizePrincipalEnumerationRowBlocks_RepairsSamePackageSiblingDeclara
 	}
 }
 
+func TestPrincipalEnumerationStructuredSourceInventoryItemText_DeduplicatesTypedDisplayMetadata(t *testing.T) {
+	row := types.EnumerationDisplayRow{
+		Member:       "Cart",
+		DisplayLabel: "Cart",
+		Source:       "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+		LineStart:    30,
+		Location:     "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+		SurfaceTerms: []string{
+			"extend",
+			"extend extend Cart",
+		},
+		Attributes: []types.EnumerationDisplayRowAttribute{{
+			Role: types.AnswerCandidateRolePackage,
+			Name: "demo.cart",
+		}},
+	}
+	note := "extend 块，扩展 Cart 类添加 isEmpty 方法，surface=extend extend Cart，package=demo.cart，package=demo.cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj，source_class=fixture，language=cangjie"
+	got := principalEnumerationStructuredSourceInventoryItemText(row, note, principalEnumerationTableShape{
+		includeLocation: true,
+		includePackage:  true,
+		includeNote:     true,
+	})
+	for _, want := range []string{
+		"extend Cart",
+		"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+		"package=demo.cart",
+		"扩展 Cart 类添加 isEmpty 方法",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("deduped text lost %q: %q", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"extend extend",
+		"surface=",
+		"source_class=",
+		"language=",
+		"package=demo.cart @",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("deduped text still contains %q: %q", forbidden, got)
+		}
+	}
+	got2 := principalEnumerationStructuredSourceInventoryItemText(row, got, principalEnumerationTableShape{
+		includeLocation: true,
+		includePackage:  true,
+		includeNote:     true,
+	})
+	if got2 != got {
+		t.Fatalf("display dedupe should be idempotent:\nfirst:  %q\nsecond: %q", got, got2)
+	}
+}
+
+func TestPrincipalEnumerationCleanSourceInventoryDisplaySurface_CollapsesRepeatedAliasFamilies(t *testing.T) {
+	row := types.EnumerationDisplayRow{
+		Member:       "Animal",
+		DisplayLabel: "Animal",
+	}
+	got := principalEnumerationCleanSourceInventoryDisplaySurface(row, "public class public class Animal public sealed class public sealed class Animal")
+	if got != "public sealed class Animal" {
+		t.Fatalf("surface=%q, want public sealed class Animal", got)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_PreservesDirectSectionSourceInventoryCarriers(t *testing.T) {
 	mu := types.NewMutableState("列出 extend 块和 foreign func 声明，包含文件路径和包路径")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

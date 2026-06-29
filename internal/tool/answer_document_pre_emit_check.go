@@ -6578,6 +6578,76 @@ func normalizeVisibleSourceLocationCarriers(doc *types.AnswerDocumentV2, pctx *p
 	return fixed
 }
 
+func normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc *types.AnswerDocumentV2) int {
+	if doc == nil || len(doc.Citations) == 0 {
+		return 0
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if !preEmitBlockRendersItemSurface(block.Kind) {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			surfaces := preEmitExplicitCodeSurfacesFromItem(*item)
+			if len(surfaces) == 0 {
+				continue
+			}
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitCitationQuoteMatchesAnyCodeSurface(doc.Citations[item.CitationRef], surfaces) {
+				continue
+			}
+			ref, ok := preEmitUniqueCitationRefForCodeSurfaces(doc.Citations, surfaces)
+			if !ok || ref < 0 || ref == item.CitationRef {
+				continue
+			}
+			item.CitationRef = ref
+			fixed++
+		}
+	}
+	return fixed
+}
+
+func preEmitExplicitCodeSurfacesFromItem(item types.AnswerBlockItem) []string {
+	var out []string
+	for _, surface := range []string{item.Label, item.Text} {
+		out = append(out, preEmitBacktickCodeSurfaces(surface)...)
+	}
+	for _, cell := range item.Cells {
+		out = append(out, preEmitBacktickCodeSurfaces(cell)...)
+	}
+	return dedupPreEmitStringCandidates(out)
+}
+
+func preEmitUniqueCitationRefForCodeSurfaces(citations []types.Citation, surfaces []string) (int, bool) {
+	seen := -1
+	for i, cit := range citations {
+		if !preEmitCitationQuoteMatchesAnyCodeSurface(cit, surfaces) {
+			continue
+		}
+		if seen >= 0 && seen != i {
+			return -1, false
+		}
+		seen = i
+	}
+	return seen, seen >= 0
+}
+
+func preEmitCitationQuoteMatchesAnyCodeSurface(cit types.Citation, surfaces []string) bool {
+	quote := strings.TrimSpace(cit.Quote)
+	if quote == "" {
+		return false
+	}
+	for _, surface := range surfaces {
+		if preEmitCodeSurfaceAppearsVerbatim(surface, quote) ||
+			types.CodeSurfaceAppearsAsToken(surface, quote) {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeVisibleSourceLocationString(s string, doc *types.AnswerDocumentV2, pctx *preEmitCheckContext) (string, []int, int) {
 	matches := preEmitVisibleSourceLocationRe.FindAllStringIndex(s, -1)
 	if len(matches) == 0 {

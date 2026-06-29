@@ -401,7 +401,7 @@ func principalEnumerationStructuredSourceInventoryItemsForSet(doc *types.AnswerD
 
 func principalEnumerationStructuredSourceInventoryItemText(row types.EnumerationDisplayRow, note string, shape principalEnumerationTableShape) string {
 	parts := []string{}
-	if surface := principalEnumerationPreferredSourceInventorySurface(row); surface != "" &&
+	if surface := principalEnumerationCleanSourceInventoryDisplaySurface(row, principalEnumerationPreferredSourceInventorySurface(row)); surface != "" &&
 		!preEmitAggregateScalarValueAppears(surface, row.DisplayLabel) {
 		parts = append(parts, surface)
 	}
@@ -413,7 +413,7 @@ func principalEnumerationStructuredSourceInventoryItemText(row types.Enumeration
 			parts = append(parts, "package="+pkg)
 		}
 	}
-	if note = strings.TrimSpace(note); note != "" {
+	if note = principalEnumerationCleanSourceInventoryDisplayNote(row, note, parts); note != "" {
 		parts = append(parts, note)
 	}
 	return strings.Join(dedupPreEmitStringCandidates(parts), "；")
@@ -432,6 +432,250 @@ func principalEnumerationPreferredSourceInventorySurface(row types.EnumerationDi
 		return term
 	}
 	return ""
+}
+
+func principalEnumerationCleanSourceInventoryDisplaySurface(row types.EnumerationDisplayRow, surface string) string {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return ""
+	}
+	surface = principalEnumerationCollapseAdjacentRepeatedWordGroups(surface)
+	label := strings.TrimSpace(firstNonEmptyAnswerString(row.DisplayLabel, row.Member))
+	if label == "" {
+		return surface
+	}
+	labelKey := normalizeEnumerationDisplayTableKey(label)
+	if labelKey == "" {
+		return surface
+	}
+	parts := strings.Fields(surface)
+	if len(parts) == 0 {
+		return surface
+	}
+	labelParts := strings.Fields(label)
+	if len(labelParts) == 0 {
+		return surface
+	}
+	last := -1
+	for i := 0; i+len(labelParts) <= len(parts); i++ {
+		if normalizeEnumerationDisplayTableKey(strings.Join(parts[i:i+len(labelParts)], " ")) == labelKey {
+			last = i
+		}
+	}
+	if last <= 0 {
+		return surface
+	}
+	// If a generated surface repeats the same row label through multiple
+	// aliases, keep the nearest alias ending at the last label. This is display
+	// polish only; row identity and citation authority remain unchanged.
+	start := last
+	for start > 0 && last-start < 4 {
+		prev := strings.ToLower(parts[start-1])
+		if normalizeEnumerationDisplayTableKey(prev) == labelKey {
+			break
+		}
+		if strings.Contains(prev, "/") || strings.Contains(prev, ":") {
+			break
+		}
+		start--
+	}
+	out := strings.Join(parts[start:last+len(labelParts)], " ")
+	outParts := strings.Fields(out)
+	if len(outParts) > len(labelParts) &&
+		normalizeEnumerationDisplayTableKey(strings.Join(outParts[:len(labelParts)], " ")) == labelKey {
+		labelOccurrences := 0
+		for i := 0; i+len(labelParts) <= len(outParts); i++ {
+			if normalizeEnumerationDisplayTableKey(strings.Join(outParts[i:i+len(labelParts)], " ")) == labelKey {
+				labelOccurrences++
+			}
+		}
+		if labelOccurrences > 1 {
+			out = strings.Join(outParts[len(labelParts):], " ")
+		}
+	}
+	return out
+}
+
+func principalEnumerationCollapseAdjacentRepeatedWordGroups(surface string) string {
+	parts := strings.Fields(strings.TrimSpace(surface))
+	if len(parts) < 2 {
+		return strings.TrimSpace(surface)
+	}
+	for {
+		changed := false
+		for width := len(parts) / 2; width >= 1; width-- {
+			for i := 0; i+2*width <= len(parts); i++ {
+				if !principalEnumerationWordGroupEqual(parts[i:i+width], parts[i+width:i+2*width]) {
+					continue
+				}
+				parts = append(append([]string{}, parts[:i+width]...), parts[i+2*width:]...)
+				changed = true
+				break
+			}
+			if changed {
+				break
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func principalEnumerationWordGroupEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if normalizeEnumerationDisplayTableKey(a[i]) != normalizeEnumerationDisplayTableKey(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func principalEnumerationCleanSourceInventoryDisplayNote(row types.EnumerationDisplayRow, note string, visibleParts []string) string {
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return ""
+	}
+	segments := splitPrincipalEnumerationDisplayNoteSegments(note)
+	if len(segments) == 0 {
+		segments = []string{note}
+	}
+	pkg := strings.TrimSpace(enumerationDisplayPackageCell(row))
+	location := strings.TrimSpace(firstNonEmptyAnswerString(row.Location, row.Source))
+	rawSurface := principalEnumerationPreferredSourceInventorySurface(row)
+	surface := principalEnumerationCleanSourceInventoryDisplaySurface(row, rawSurface)
+	typedValues := []string{
+		pkg,
+		location,
+		rawSurface,
+		surface,
+		row.DisplayLabel,
+		row.Member,
+	}
+	typedValues = append(typedValues, visibleParts...)
+	var kept []string
+	for _, segment := range segments {
+		segment = strings.TrimSpace(segment)
+		if segment == "" {
+			continue
+		}
+		if principalEnumerationSourceInventoryDisplayNoteSegmentIsRedundantTypedValue(segment, typedValues) {
+			continue
+		}
+		kept = append(kept, segment)
+	}
+	return strings.Join(dedupPreEmitStringCandidates(kept), "，")
+}
+
+func splitPrincipalEnumerationDisplayNoteSegments(note string) []string {
+	return strings.FieldsFunc(note, func(r rune) bool {
+		switch r {
+		case '；', ';', '，', ',':
+			return true
+		default:
+			return false
+		}
+	})
+}
+
+func principalEnumerationSourceInventoryDisplayNoteSegmentIsRedundantTypedValue(segment string, typedValues []string) bool {
+	segment = strings.TrimSpace(segment)
+	if segment == "" {
+		return true
+	}
+	if principalEnumerationDisplayNoteValueMatchesAny(segment, typedValues) {
+		return true
+	}
+	if value, ok := principalEnumerationDisplayNoteStructuredPayload(segment); ok {
+		if principalEnumerationDisplayNoteValueMatchesAny(value, typedValues) {
+			return true
+		}
+		if principalEnumerationDisplayNotePayloadLooksMachineAtom(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationDisplayNoteStructuredPayload(segment string) (string, bool) {
+	key, value, ok := strings.Cut(strings.TrimSpace(segment), "=")
+	if !ok || !principalEnumerationDisplayNoteSchemaKey(key) {
+		return "", false
+	}
+	value = strings.TrimSpace(value)
+	if before, _, ok := strings.Cut(value, " @ "); ok {
+		value = strings.TrimSpace(before)
+	}
+	return value, true
+}
+
+func principalEnumerationDisplayNoteSchemaKey(key string) bool {
+	key = strings.TrimSpace(key)
+	if key == "" || len(key) > 48 {
+		return false
+	}
+	for _, r := range key {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '-' || r == '.':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func principalEnumerationDisplayNotePayloadLooksMachineAtom(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, " \t\n\r") {
+		return false
+	}
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '-' || r == '.' || r == '/' || r == ':':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func principalEnumerationDisplayNoteValueMatchesAny(value string, typedValues []string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	valueKey := normalizeEnumerationDisplayTableKey(value)
+	if valueKey == "" {
+		return false
+	}
+	for _, typedValue := range typedValues {
+		typedValue = strings.TrimSpace(typedValue)
+		if typedValue == "" {
+			continue
+		}
+		typedKey := normalizeEnumerationDisplayTableKey(typedValue)
+		if valueKey == typedKey || principalEnumerationDisplayNoteLocationValueMatches(value, typedValue) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationDisplayNoteLocationValueMatches(value, typedValue string) bool {
+	if !aggregateToolLocationPattern.MatchString(value) && !aggregateToolLocationPattern.MatchString(typedValue) {
+		return false
+	}
+	return principalEnumerationSurfaceContainsLocation(value, typedValue)
 }
 
 func principalEnumerationAuthoritativeMarkdownTableShape(block types.AnswerBlock, rows []types.EnumerationDisplayRow) principalEnumerationTableShape {
