@@ -3647,6 +3647,122 @@ func TestNormalizePrincipalEnumerationRowBlocks_PrunesSourceInventorySupportingC
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_RepairsDuplicateLabelWithinScopedInventoryBlock(t *testing.T) {
+	mu := types.NewMutableState("列出 extend 块和 public class")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "source inventory principal rows",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members: []string{
+			"Cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30 (package demo.cart)",
+			"Cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14 (package demo.cart)",
+		},
+		SupportRefs: []string{
+			"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+			"Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+		},
+	}})
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role: types.AnswerCandidateRoleType,
+			Members: []types.SourceInventoryObservationMember{
+				{
+					Name:          "Cart",
+					Role:          types.AnswerCandidateRoleType,
+					File:          "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+					Line:          30,
+					Language:      "cangjie",
+					SurfaceTerms:  []string{"extend", "extend Cart"},
+					CoverageState: types.SourceInventoryCoverageObserved,
+					Attributes:    []types.SourceInventoryObservationAttribute{{Role: types.AnswerCandidateRolePackage, Name: "demo.cart"}},
+				},
+				{
+					Name:          "Cart",
+					Role:          types.AnswerCandidateRoleType,
+					File:          "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+					Line:          14,
+					Language:      "cangjie",
+					SurfaceTerms:  []string{"public class", "public class Cart"},
+					CoverageState: types.SourceInventoryCoverageObserved,
+					Attributes:    []types.SourceInventoryObservationAttribute{{Role: types.AnswerCandidateRolePackage, Name: "demo.cart"}},
+				},
+			},
+		}},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				SourceQuotes:      []string{"extend", "public class"},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 30, Quote: "extend Cart {"},
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 14, Quote: "public class Cart {"},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "extend",
+				Kind:        types.BlockSection,
+				Title:       "extend 块",
+				SurfaceRole: types.SurfacePrincipal,
+				Items: []types.AnswerBlockItem{
+					{ID: "extend-cart", Label: "Cart", Text: "package: demo.cart", CitationRef: 0},
+				},
+			},
+			{
+				ID:          "public-class",
+				Kind:        types.BlockSection,
+				Title:       "public class",
+				SurfaceRole: types.SurfacePrincipal,
+				Items: []types.AnswerBlockItem{
+					{ID: "class-cart", Label: "Cart", Text: "package: demo.cart", CitationRef: 0},
+				},
+			},
+		},
+	}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected scoped duplicate-label row normalization")
+	}
+	var classBlock *types.AnswerBlock
+	for i := range doc.Blocks {
+		if doc.Blocks[i].ID == "public-class" {
+			classBlock = &doc.Blocks[i]
+			break
+		}
+	}
+	if classBlock == nil || len(classBlock.Items) != 1 {
+		t.Fatalf("public-class Cart item should be preserved after scoped normalization: %+v", doc.Blocks)
+	}
+	if classBlock.Items[0].CitationRef < 0 || classBlock.Items[0].CitationRef >= len(doc.Citations) {
+		t.Fatalf("public-class Cart citation should be repaired: %+v", classBlock.Items[0])
+	}
+	cit := doc.Citations[classBlock.Items[0].CitationRef]
+	if cit.Line != 14 || cit.File != "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj" {
+		t.Fatalf("public-class Cart should cite the class row, got citation=%+v item=%+v", cit, classBlock.Items[0])
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_SourceInventorySectionItemsSuppressSupplement(t *testing.T) {
 	mu := types.NewMutableState("列出 extend 块")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

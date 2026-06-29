@@ -608,9 +608,19 @@ func normalizePrincipalEnumerationItemCitationRefs(doc *types.AnswerDocumentV2, 
 		if block.Kind == types.BlockTable && strings.TrimSpace(block.Text) != "" {
 			continue
 		}
+		blockRows := rows
+		blockIndex := index
+		if scopedRows, _ := principalEnumerationPruneRowsForBlockWithMode(*block, sets); len(scopedRows) > 0 {
+			blockRows = scopedRows
+			blockIndex = principalEnumerationExactLabelRowIndex([]types.EnumerationDisplaySet{{
+				ID:    "scoped-block",
+				Label: strings.TrimSpace(block.Title),
+				Rows:  scopedRows,
+			}})
+		}
 		for ii := range block.Items {
 			item := &block.Items[ii]
-			row, ok := principalEnumerationUniqueItemRow(*item, rows, index)
+			row, ok := principalEnumerationUniqueItemRow(*item, blockRows, blockIndex)
 			if !ok || !principalEnumerationItemCitationRefShouldCorrect(*item, doc, row) {
 				continue
 			}

@@ -161,6 +161,22 @@ POST_APPLY_FILE="src/main.py"
 CASE
 assert_eq "$(eval_case_oracle_surface "$tmp/oracle-surface.case")" "typed_inventory_rowset,dimension_substring,log_regex,trace_attachment,write_apply,write_patch_oracle,answer_contains,metric_hard_budget,metric_advisory_budget" "case oracle surface classification"
 
+cat >"$tmp/oracle-read-regex.case" <<'CASE'
+ID="oracle_read_regex"
+QUESTION="read regex smoke"
+EXPECT_MATCHES_REGEX="foo"
+CASE
+assert_eq "$(eval_case_oracle_surface "$tmp/oracle-read-regex.case")" "answer_regex" "read EXPECT_MATCHES_REGEX should be answer regex oracle"
+
+cat >"$tmp/oracle-write-post-apply-regex.case" <<'CASE'
+ID="oracle_write_post_apply_regex"
+MODE="apply"
+QUESTION="write post apply regex smoke"
+POST_APPLY_FILE="src/main.py"
+EXPECT_MATCHES_REGEX="return foo"
+CASE
+assert_eq "$(eval_case_oracle_surface "$tmp/oracle-write-post-apply-regex.case")" "write_apply,write_patch_oracle" "post-apply EXPECT_MATCHES_REGEX should stay write patch oracle only"
+
 cat >"$tmp/oracle-basic.case" <<'CASE'
 ID="oracle_basic"
 QUESTION="basic smoke"
@@ -425,6 +441,21 @@ inventory_banned="${inventory_answer}"$'\n| foreign func | runOnMainThread | eva
 assert_eq "$(eval_inventory_rowset_reasons "$inventory_banned")" "banned_inventory_row:foreign_func:foreign_func_runOnMainThread_Bridge.cj" "inventory row oracle banned row"
 unset EXPECT_INVENTORY_ROWSETS EXPECT_INVENTORY_ROW_SCOPE_EXTEND EXPECT_INVENTORY_ROWS_EXTEND EXPECT_INVENTORY_COUNT_EXTEND
 unset EXPECT_INVENTORY_ROW_SCOPE_FOREIGN_FUNC EXPECT_INVENTORY_ROWS_FOREIGN_FUNC EXPECT_INVENTORY_COUNT_FOREIGN_FUNC EXPECT_INVENTORY_BANNED_ROWS_FOREIGN_FUNC
+
+EXPECT_INVENTORY_ROWSETS="extend public_class"
+EXPECT_INVENTORY_ROW_SCOPE_EXTEND="line"
+EXPECT_INVENTORY_ROWS_EXTEND=$'Cart|Cart.cj|demo.cart'
+EXPECT_INVENTORY_COUNT_EXTEND=1
+EXPECT_INVENTORY_ROW_SCOPE_PUBLIC_CLASS="line"
+EXPECT_INVENTORY_ROWS_PUBLIC_CLASS=$'Cart|Cart.cj|demo.cart'
+EXPECT_INVENTORY_COUNT_PUBLIC_CLASS=1
+inventory_cross_bucket=$'### extend\n- Cart — package: demo.cart (`Cart.cj:30` — extend Cart {)\n\n### public class\n- Bridge — package: demo.bridge (`Bridge.cj:15` — public class Bridge {)'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_cross_bucket")" "missing_inventory_row:public_class:Cart_Cart.cj_demo.cart
+inventory_count_mismatch:public_class:got0:want1" "inventory row oracle should not satisfy a row from a sibling section"
+inventory_cross_bucket_ok=$'### extend\n- Cart — package: demo.cart (`Cart.cj:30` — extend Cart {)\n\n### public class\n- Cart — package: demo.cart (`Cart.cj:14` — public class Cart {)'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_cross_bucket_ok")" "" "inventory row oracle should pass when the row appears in the matching section"
+unset EXPECT_INVENTORY_ROWSETS EXPECT_INVENTORY_ROW_SCOPE_EXTEND EXPECT_INVENTORY_ROWS_EXTEND EXPECT_INVENTORY_COUNT_EXTEND
+unset EXPECT_INVENTORY_ROW_SCOPE_PUBLIC_CLASS EXPECT_INVENTORY_ROWS_PUBLIC_CLASS EXPECT_INVENTORY_COUNT_PUBLIC_CLASS
 
 cat >"$tmp/fake-codrax-inventory-rowset" <<'SH'
 #!/usr/bin/env bash

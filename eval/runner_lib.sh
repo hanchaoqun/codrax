@@ -215,10 +215,13 @@ eval_case_oracle_surface() {
   if LC_ALL=C grep -aEq '^[[:space:]]*MODE=["'\'']?plan' "$file"; then
     eval_case_oracle_surface_add "write_plan"
   fi
-  if LC_ALL=C grep -aEq '^[[:space:]]*(PLAN_EXPECT_REGEX|POST_APPLY_FILE|EXPECT_MATCHES_REGEX)=' "$file"; then
+  if LC_ALL=C grep -aEq '^[[:space:]]*(PLAN_EXPECT_REGEX|POST_APPLY_FILE)=' "$file"; then
     eval_case_oracle_surface_add "write_patch_oracle"
   fi
-  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_REGEX=' "$file"; then
+  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_REGEX=' "$file" || {
+    LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_MATCHES_REGEX=' "$file" &&
+      ! LC_ALL=C grep -aEq '^[[:space:]]*POST_APPLY_FILE=' "$file"
+  }; then
     eval_case_oracle_surface_add "answer_regex"
   fi
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_CONTAINS=' "$file"; then
@@ -286,6 +289,38 @@ eval_inventory_row_tokens_visible() {
   [[ "$seen" -eq 1 ]]
 }
 
+eval_inventory_rowset_label_regex() {
+  local rowset="$1"
+  local words
+  words="$(printf '%s' "$rowset" | LC_ALL=C sed -E 's/[_-]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//')"
+  printf '%s' "$words" | LC_ALL=C sed -E 's/[[:space:]]+/[[:space:]]+/g'
+}
+
+eval_inventory_rowset_section_text() {
+  local cleaned="$1"
+  local rowset="$2"
+  local label_regex
+  label_regex="$(eval_inventory_rowset_label_regex "$rowset")"
+  awk -v label="$label_regex" '
+    BEGIN { in_section = 0; found = 0 }
+    /^[[:space:]]*#{1,6}[[:space:]]+/ {
+      if (in_section) {
+        exit
+      }
+      lower = tolower($0)
+      label_lower = tolower(label)
+      if (lower ~ label_lower) {
+        in_section = 1
+        found = 1
+        print
+        next
+      }
+    }
+    in_section { print }
+    END { if (!found) exit 1 }
+  ' <<<"$cleaned"
+}
+
 eval_inventory_row_visible() {
   local cleaned="$1"
   local row="$2"
@@ -316,7 +351,7 @@ eval_inventory_rowset_reasons() {
   [[ -n "$rowsets" ]] || return 0
 
   local rowset rowset_key rows_var rows count_var expected_count
-  local banned_var banned_rows scope_var row_scope old_ifs row matched total reason_row
+  local banned_var banned_rows scope_var row_scope rowset_text old_ifs row matched total reason_row
   for rowset in $rowsets; do
     rowset_key="$(eval_env_key "$rowset")"
     rows_var="EXPECT_INVENTORY_ROWS_${rowset_key}"
@@ -325,6 +360,10 @@ eval_inventory_rowset_reasons() {
     expected_count="${!count_var:-}"
     scope_var="EXPECT_INVENTORY_ROW_SCOPE_${rowset_key}"
     row_scope="${!scope_var:-document}"
+    rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset" || true)"
+    if [[ -z "$rowset_text" ]]; then
+      rowset_text="$cleaned"
+    fi
 
     matched=0
     total=0
@@ -336,7 +375,7 @@ eval_inventory_rowset_reasons() {
         [[ -z "$row" ]] && continue
         total=$((total + 1))
         reason_row="$(eval_reason_slug "$row")"
-        if eval_inventory_row_visible "$cleaned" "$row" "$row_scope"; then
+        if eval_inventory_row_visible "$rowset_text" "$row" "$row_scope"; then
           matched=$((matched + 1))
         else
           printf 'missing_inventory_row:%s:%s\n' "$rowset" "$reason_row"
@@ -362,7 +401,7 @@ eval_inventory_rowset_reasons() {
       for row in $banned_rows; do
         row="$(eval_trim "$row")"
         [[ -z "$row" ]] && continue
-        if eval_inventory_row_visible "$cleaned" "$row" "$row_scope"; then
+        if eval_inventory_row_visible "$rowset_text" "$row" "$row_scope"; then
           printf 'banned_inventory_row:%s:%s\n' "$rowset" "$(eval_reason_slug "$row")"
         fi
       done
