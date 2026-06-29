@@ -3920,22 +3920,20 @@ func renderAnswerDocSourceInventoryHandoff(ctx *types.AgentContext) string {
 	if !observation.IsActive() {
 		return ""
 	}
-	var rm types.RequestModel
-	if ctx != nil && ctx.AnalysisIR != nil {
-		rm = ctx.AnalysisIR.RequestModel
-	}
-	rowSet := types.BuildSourceInventoryPrincipalRowSet(types.SourceInventoryPrincipalRowSetInput{
-		Observation:      observation,
-		RequestModel:     rm,
-		MaxPrincipalRows: 36,
-		MaxSupportRows:   8,
-		MaxAuditRows:     4,
-	})
+	snapshot := answerDocSourceInventoryAuthoritySnapshot(ctx, observation)
+	rowSet := snapshot.PrincipalRowSet
 	var b strings.Builder
 	b.WriteString("## Repo Lens Candidate Universe Handoff\n\n")
 	b.WriteString("- This section comes from `repo_map(view=\"source_inventory\")` / source-inventory observations. It verifies navigation facts such as scopes, files, candidate members, attributes, languages, support refs, and `count == len(members)`.\n")
 	b.WriteString("- It is not final answer text. Use it to avoid losing the candidate universe or rereading the same scope. " + types.SourceInventoryMechanicalFactBoundary + " Preserve it as the answer slate only when accepted aggregate facts, evidence, or the model's own extraction already selected the same answer axis.\n")
 	b.WriteString("- If accepted principal `aggregate_facts.member_set` rows below match this universe, their members/counts are the model-selected slate. If they do not match or are absent, treat this as advisory navigation and disclose ambiguity instead of auto-filling a table.\n")
+	if snapshot.Active {
+		fmt.Fprintf(&b, "- authority: principal=%t support_only=%t needs_followup=%t mechanical_landing=%t\n",
+			snapshot.PrincipalAuthority, snapshot.SupportOnly, snapshot.NeedsFollowup, snapshot.CanEnterMechanicalLanding)
+		if len(snapshot.ReasonCodes) > 0 {
+			fmt.Fprintf(&b, "- authority_reason_codes: `%s`\n", strings.Join(snapshot.ReasonCodes, "`, `"))
+		}
+	}
 	if len(observation.Scopes) > 0 {
 		fmt.Fprintf(&b, "- scopes: `%s`\n", strings.Join(observation.Scopes, "`, `"))
 	}
@@ -3990,6 +3988,33 @@ func renderAnswerDocSourceInventoryHandoff(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocSourceInventoryAuthoritySnapshot(ctx *types.AgentContext, observation types.SourceInventoryObservation) types.SourceInventoryAuthoritySnapshot {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return types.SourceInventoryAuthoritySnapshot{PrincipalRowSet: types.BuildSourceInventoryPrincipalRowSet(types.SourceInventoryPrincipalRowSetInput{
+			Observation:      observation,
+			MaxPrincipalRows: 36,
+			MaxSupportRows:   8,
+			MaxAuditRows:     4,
+		})}
+	}
+	var existing []types.AnswerAggregateFact
+	var required []string
+	if ctx.Mutable != nil {
+		existing = ctx.Mutable.StableInvestigationAggregateFacts()
+	}
+	required = ctx.AnalysisIR.EvidencePlan.RequiredFiles
+	snapshot := types.BuildSourceInventoryAuthoritySnapshot(types.SourceInventoryAuthoritySnapshotInput{
+		Observation:            observation,
+		RequestModel:           ctx.AnalysisIR.RequestModel,
+		ExistingAggregateFacts: existing,
+		RequiredFiles:          required,
+		MaxPrincipalRows:       36,
+		MaxSupportRows:         8,
+		MaxAuditRows:           4,
+	})
+	return types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
 }
 
 func renderAnswerDocSourceInventoryRowSet(b *strings.Builder, rowSet types.SourceInventoryPrincipalRowSet) {

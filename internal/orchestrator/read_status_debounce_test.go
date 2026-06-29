@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -266,5 +267,62 @@ func TestReadStatusDebounceDoesNotSuppressWriteModeTaskNodeLifecycle(t *testing.
 	o.emit(done)
 	if len(events) != 4 {
 		t.Fatalf("write mode task-node lifecycle must not be suppressed by read-status debounce, got %d: %+v", len(events), events)
+	}
+}
+
+func TestReadStatusSourceInventoryShapeUsesAuthoritySnapshot(t *testing.T) {
+	mut := types.NewMutableState("list source inventory functions")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"src"},
+		Lens:     []string{"members"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:     "Run",
+				Role:     types.AnswerCandidateRoleFunction,
+				File:     "src/run.go",
+				Line:     7,
+				Language: "go",
+			}},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			EvidencePlan: types.EvidencePlan{RequiredFiles: []string{"src/run.go", "src/missing.go"}},
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "all functions"},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+					RequestedFields: []types.SourceInventoryRequestedField{
+						types.SourceInventoryFieldName,
+						types.SourceInventoryFieldLocation,
+					},
+					Confidence: 0.9,
+				},
+				SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction},
+			},
+		},
+	}
+
+	got := readStatusSourceInventoryShapeForContext(ctx, mut)
+	for _, want := range []string{
+		"authority=true",
+		"need=",
+		"landing=false",
+		"required_files_uncovered",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("source-inventory status shape missing %q:\n%s", want, got)
+		}
 	}
 }

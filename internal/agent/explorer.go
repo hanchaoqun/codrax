@@ -7002,7 +7002,7 @@ func (e *explorerEvaluator) sourceInventoryAuthoritySnapshot(ctx *types.AgentCon
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
 		return types.SourceInventoryAuthoritySnapshot{}
 	}
-	return types.BuildSourceInventoryAuthoritySnapshot(types.SourceInventoryAuthoritySnapshotInput{
+	snapshot := types.BuildSourceInventoryAuthoritySnapshot(types.SourceInventoryAuthoritySnapshotInput{
 		Observation:      types.SourceInventoryObservationFromMutable(ctx.Mutable),
 		RequestModel:     ctx.AnalysisIR.RequestModel,
 		RequiredFiles:    ctx.AnalysisIR.EvidencePlan.RequiredFiles,
@@ -7010,6 +7010,10 @@ func (e *explorerEvaluator) sourceInventoryAuthoritySnapshot(ctx *types.AgentCon
 		MaxSupportRows:   16,
 		MaxAuditRows:     8,
 	})
+	if debt := types.NormalizeSourceInventoryFollowupDebt(ctx.SourceInventoryFollowupDebt); debt.IsActive() {
+		snapshot.FollowupDebt = debt
+	}
+	return types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
 }
 
 func (e *explorerEvaluator) sourceInventoryFollowupRouteActive(ctx *types.AgentContext) bool {
@@ -12433,8 +12437,7 @@ func (e *explorerEvaluator) refreshSourceInventoryInlineFollowup(ctx *types.Agen
 	if !types.SourceInventoryPrincipalNavigationActive(ctx.AnalysisIR.RequestModel) {
 		return
 	}
-	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
-	debt := types.DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation, ctx.AnalysisIR.RequestModel, ctx.AnalysisIR.EvidencePlan.RequiredFiles)
+	debt := e.sourceInventoryAuthoritySnapshot(ctx).FollowupDebt
 	if !sourceInventoryInlineFollowupDebtExecutable(debt) {
 		return
 	}

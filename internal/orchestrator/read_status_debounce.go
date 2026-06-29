@@ -226,7 +226,7 @@ func (o *Orchestrator) readStatusDebounceCursorWithEvent(ev render.Event, includ
 			progress := closure.LatestProgressDecision()
 			progressReason = strings.TrimSpace(progress.ReasonCode)
 		}
-		sourceInventoryShape = readStatusSourceInventoryShape(types.SourceInventoryObservationFromMutable(mut))
+		sourceInventoryShape = readStatusSourceInventoryShapeForContext(ctx, mut)
 	}
 	eventPart := ""
 	if includeEvent {
@@ -251,6 +251,27 @@ func (o *Orchestrator) readStatusDebounceCursorWithEvent(ev render.Event, includ
 		progressReason,
 		sourceInventoryShape,
 	)
+}
+
+func readStatusSourceInventoryShapeForContext(ctx *types.BusContext, mut *types.MutableState) string {
+	obs := types.SourceInventoryObservationFromMutable(mut)
+	if ctx == nil || ctx.AnalysisIR == nil || mut == nil {
+		return readStatusSourceInventoryShape(obs)
+	}
+	snapshot := types.BuildSourceInventoryAuthoritySnapshot(types.SourceInventoryAuthoritySnapshotInput{
+		Observation:            obs,
+		RequestModel:           ctx.AnalysisIR.RequestModel,
+		ExistingAggregateFacts: mut.StableInvestigationAggregateFacts(),
+		RequiredFiles:          ctx.AnalysisIR.EvidencePlan.RequiredFiles,
+		MaxPrincipalRows:       32,
+		MaxSupportRows:         16,
+		MaxAuditRows:           8,
+	})
+	if debt := types.NormalizeSourceInventoryFollowupDebt(ctx.SourceInventoryFollowupDebt); debt.IsActive() {
+		snapshot.FollowupDebt = debt
+	}
+	snapshot = types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
+	return readStatusSourceInventorySnapshotShape(obs, snapshot)
 }
 
 func readStatusSourceInventoryShape(obs types.SourceInventoryObservation) string {
@@ -282,5 +303,23 @@ func readStatusSourceInventoryShape(obs types.SourceInventoryObservation) string
 		len(obs.RepoLanguages),
 		page,
 		exec,
+	)
+}
+
+func readStatusSourceInventorySnapshotShape(obs types.SourceInventoryObservation, snapshot types.SourceInventoryAuthoritySnapshot) string {
+	base := readStatusSourceInventoryShape(obs)
+	if !snapshot.Active {
+		return base
+	}
+	reasons := "none"
+	if len(snapshot.ReasonCodes) > 0 {
+		reasons = strings.Join(snapshot.ReasonCodes, ",")
+	}
+	return fmt.Sprintf("%s:authority=%t:need=%t:landing=%t:reasons=%s",
+		base,
+		snapshot.PrincipalAuthority,
+		snapshot.NeedsFollowup,
+		snapshot.CanEnterMechanicalLanding,
+		reasons,
 	)
 }

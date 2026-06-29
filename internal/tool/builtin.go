@@ -820,12 +820,16 @@ func execCommandActiveSourceInventoryDebt(ctx *types.BusContext) bool {
 	if ctx.Mutable == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
-	if !observation.IsActive() {
-		return false
-	}
-	authority := types.BuildSourceInventoryCompletionAuthority(observation, ctx.AnalysisIR.RequestModel, false)
-	return authority.IsBlocking()
+	snapshot := types.BuildSourceInventoryAuthoritySnapshot(types.SourceInventoryAuthoritySnapshotInput{
+		Observation:            types.SourceInventoryObservationFromMutable(ctx.Mutable),
+		RequestModel:           ctx.AnalysisIR.RequestModel,
+		ExistingAggregateFacts: ctx.Mutable.StableInvestigationAggregateFacts(),
+		RequiredFiles:          ctx.AnalysisIR.EvidencePlan.RequiredFiles,
+		MaxPrincipalRows:       32,
+		MaxSupportRows:         16,
+		MaxAuditRows:           8,
+	})
+	return types.NormalizeSourceInventoryAuthoritySnapshot(snapshot).NeedsFollowup
 }
 
 func execCommandLooksLikeFindDiscovery(command string) bool {

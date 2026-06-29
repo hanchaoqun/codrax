@@ -48,6 +48,7 @@ func TestRenderAnswerDocSourceInventoryHandoffUsesPrincipalRowSet(t *testing.T) 
 
 	out := renderAnswerDocSourceInventoryHandoff(ctx)
 	for _, want := range []string{
+		"authority: principal=true",
 		"Principal candidate rows",
 		"principal_roles: `type`",
 		"source_classes: production:4, thirdparty:1",
