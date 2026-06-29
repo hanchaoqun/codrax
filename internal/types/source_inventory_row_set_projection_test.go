@@ -750,16 +750,25 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DoesNotMirrorTypedM
 func TestSourceInventoryPrincipalRowNote_DropsSurfaceCarrierNotes(t *testing.T) {
 	row := SourceInventoryRow{
 		Member: SourceInventoryObservationMember{
-			Name: "Animal",
-			Note: "surface=public class public class Animal",
+			Name:         "Animal",
+			Note:         "surface=public class public class Animal",
+			SurfaceTerms: []string{"public class Animal", "public class public class Animal"},
 		},
 	}
 	if got := sourceInventoryPrincipalRowNote(row); got != "" {
 		t.Fatalf("surface carrier note should not render as member note, got %q", got)
 	}
+	row.Member.Attributes = []SourceInventoryObservationAttribute{{
+		Name: "demo.modifiers",
+		Role: AnswerCandidateRolePackage,
+	}}
 	row.Member.Note = "surface=public class Animal; package=demo.modifiers; primary Cangjie class declaration"
 	if got := sourceInventoryPrincipalRowNote(row); got != "primary Cangjie class declaration" {
 		t.Fatalf("mixed system carriers should be stripped while preserving human note, got %q", got)
+	}
+	row.Member.Note = "visibility=public; primary Cangjie class declaration"
+	if got := sourceInventoryPrincipalRowNote(row); got != "visibility=public; primary Cangjie class declaration" {
+		t.Fatalf("unmatched key/value note should be preserved, got %q", got)
 	}
 	row.Member.Note = "primary Cangjie class declaration"
 	if got := sourceInventoryPrincipalRowNote(row); got != "primary Cangjie class declaration" {

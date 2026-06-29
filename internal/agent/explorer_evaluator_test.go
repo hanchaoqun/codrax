@@ -360,6 +360,72 @@ func TestExplorer_BuildInitialInstruction_SourceOptionalTraceStartsWithTraceQuer
 	}
 }
 
+func TestExplorer_BuildInitialInstruction_CurrentSourceTraceStartsWithRuntimeProbePhase(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+			Kind:       "trace_mark",
+			Subject:    "H:RenderService:DoFrame",
+			Summary:    "runtime trace span is janky",
+			LineStart:  5,
+			LineEnd:    6,
+			DurationMs: 86.111,
+		}}},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []types.RequestedAnswerDimension{{
+				Label:       "span parsing mechanism",
+				Role:        types.RequestedAnswerDimensionFunctionOrPurpose,
+				SourceQuote: "how the current source parses trace spans",
+				Required:    true,
+				Index:       1,
+			}},
+			Confidence: 0.9,
+		},
+	}
+	ctx := &types.AgentContext{
+		Objective:  `结合当前源码解释 attached trace 里的 span 解析机制`,
+		Stage:      types.StageExplore,
+		PerfTrace:  rm.PerfTrace,
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm},
+	}
+
+	eval := &explorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if eval.phase != 1 {
+		t.Fatalf("current-source trace should start in runtime probe phase, got phase=%d", eval.phase)
+	}
+	for _, want := range []string{
+		"Explicit Runtime Trace Path Start",
+		"`phase=runtime_probe_first`, `current_source_lane=required`",
+		"one bounded `trace_query` runtime probe",
+		"Then collect focused current-source evidence",
+		"Start with `trace_query`",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("current-source trace prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"## Breadth Scan",
+		"Typed Repo Map First Hop",
+		`repo_map(view="task_map")`,
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("current-source trace prompt should not render repo/source first-hop %q before trace_query:\n%s", forbidden, prompt)
+		}
+	}
+}
+
 func TestExplorer_BuildInitialInstruction_SourceOptionalLogDoesNotUseTraceQueryStart(t *testing.T) {
 	rm := types.RequestModel{
 		Intent:   types.IntentRootCause,

@@ -260,7 +260,7 @@ func sourceInventoryPrincipalRowLocation(row SourceInventoryRow) string {
 
 func sourceInventoryPrincipalRowNote(row SourceInventoryRow) string {
 	var parts []string
-	for _, note := range sourceInventoryPrincipalRowVisibleNoteSegments(row.Member.Note) {
+	for _, note := range sourceInventoryPrincipalRowVisibleNoteSegments(row) {
 		if note != "" {
 			parts = append(parts, note)
 		}

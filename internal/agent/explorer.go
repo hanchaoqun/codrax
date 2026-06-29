@@ -881,12 +881,23 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 
 	if runtimeArtifactSourceOptionalMixedSurfaceForExplorer(ctx) {
 		e.phase = 1
+		if runtimeSourceTraceProbePromptPreferred(ctx) {
+			return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+		}
 		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExternalObservationFirstStartInstruction(ctx))
 	}
 
 	if externalObservationFirstSourceOptionalForExplorer(ctx) {
 		e.phase = 1
+		if runtimeSourceTraceProbePromptPreferred(ctx) {
+			return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+		}
 		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExternalObservationFirstStartInstruction(ctx))
+	}
+
+	if runtimeSourceTraceProbePromptPreferred(ctx) {
+		e.phase = 1
+		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
 	}
 
 	if ctx != nil && ctx.ExploreToolSurface.IsSourceInventory() {
@@ -3495,6 +3506,9 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 	var b strings.Builder
 	b.WriteString("## Explicit Runtime Trace Path Start\n\n")
 	b.WriteString("This turn has a runtime trace artifact. Treat it as a runtime-artifact investigation first, not a source-code breadth scan; if a current-source question remains unresolved after trace_query, use a focused source follow-up and keep that evidence in a separate lane.\n\n")
+	if phase := renderRuntimeSourceNavigationPhasePrompt(ctx); phase != "" {
+		b.WriteString(phase)
+	}
 	b.WriteString("Workflow:\n")
 	b.WriteString("- Start with `trace_query` for scheduler/time-window causality: use " + skill.RenderTraceQueryViewMatrix() + ".\n")
 	b.WriteString("- When `window_stats` or `root_cause_rank` reports `state_churn` / `fragmented_*`, treat it as a cumulative fragmented-state signal: use `dominant_state`, `impact`, and `cumulative_impact_ms` to identify the main contributor, keep `running/runnable/sleep/d_state/io_wait` totals as supporting detail, and follow the rendered `next_step` instead of looking only for one long continuous interval.\n")

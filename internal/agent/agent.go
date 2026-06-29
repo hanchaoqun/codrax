@@ -5636,7 +5636,8 @@ func validateExplorerTraceQueryFirstToolCall(ctx *types.AgentContext, tc llm.Too
 	if violation := validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx, tc, traceQueryInCurrentSurface); violation != nil {
 		return violation
 	}
-	if !explorerTraceQueryFirstRequired(ctx, traceQueryInCurrentSurface) {
+	phase := runtimeSourceNavigationPhaseForExplorer(ctx, traceQueryInCurrentSurface)
+	if !phase.RuntimeProbeHardRequired {
 		return nil
 	}
 	canonical := types.CanonicalToolName(tc.Name)
@@ -5644,9 +5645,9 @@ func validateExplorerTraceQueryFirstToolCall(ctx *types.AgentContext, tc llm.Too
 		return nil
 	}
 	reason := fmt.Sprintf(
-		"%s rejected: this explorer turn has an attached runtime trace and `trace_query` is available while current-source evidence is optional. "+
-			"Call `trace_query` first for the attached trace; use source tools or completion only after `trace_query` returns unsupported/incomplete, or when the typed request model requires a current-source lane.",
-		tc.Name)
+		"%s rejected: typed runtime/source navigation phase=%s requires one bounded `trace_query` runtime probe before source or completion tools. "+
+			"After `trace_query` has returned structured, unsupported, or incomplete coverage, source-owner tools may be used according to current_source_lane=%s.",
+		tc.Name, phase.Phase, phase.CurrentSourceLane)
 	logging.Warning("[explorer] tool %q rejected before trace_query first refusal: %s", tc.Name, reason)
 	return &types.ToolResult{
 		ToolName:  tc.Name,
@@ -5655,10 +5656,13 @@ func validateExplorerTraceQueryFirstToolCall(ctx *types.AgentContext, tc llm.Too
 		Timestamp: time.Now(),
 		Repair: &types.ToolRepair{
 			Code: explorerTraceQueryFirstCode,
-			Hint: "Use the available trace_query tool as the first evidence-producing/runtime-completion step for this attached trace. Treat earlier pre-triage tool-surface statements as stage-local; source tools are fallback after trace_query is attempted or when current-source evidence is structurally required.",
+			Hint: "Use `trace_query` as the first evidence-producing runtime probe for this attached trace. Treat source/navigation tools as the next phase after trace_query has produced structured, unsupported, or incomplete coverage.",
 			Metadata: map[string]string{
-				"tool":   canonical,
-				"policy": "runtime_trace_query_first",
+				"tool":                canonical,
+				"policy":              "runtime_trace_query_first",
+				"phase":               string(phase.Phase),
+				"next_tool":           "trace_query",
+				"current_source_lane": string(phase.CurrentSourceLane),
 			},
 		},
 	}
@@ -5724,19 +5728,7 @@ func explorerTraceQuerySourceFallbackTool(canonical string) bool {
 }
 
 func explorerTraceQueryFirstRequired(ctx *types.AgentContext, traceQueryInCurrentSurface bool) bool {
-	if ctx == nil || ctx.Stage != types.StageExplore || !traceQueryInCurrentSurface {
-		return false
-	}
-	if !traceQueryToolAvailable(ctx) ||
-		explorerTraceQueryAlreadyAttempted(ctx) ||
-		explorerTraceQueryRuntimeEvidenceAvailable(ctx) {
-		return false
-	}
-	rm := requestModelFromContext(ctx)
-	if rm != nil && rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
-		return false
-	}
-	return explorerHasRuntimeTraceArtifact(ctx, rm)
+	return runtimeSourceNavigationPhaseForExplorer(ctx, traceQueryInCurrentSurface).RuntimeProbeHardRequired
 }
 
 func explorerHasRuntimeTraceArtifact(ctx *types.AgentContext, rm *types.RequestModel) bool {

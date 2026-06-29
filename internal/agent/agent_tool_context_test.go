@@ -645,6 +645,17 @@ func TestValidateExplorerTraceQueryFirstToolCall_BlocksNonTraceToolsBeforeAttemp
 		if got.Repair == nil || got.Repair.Code != explorerTraceQueryFirstCode {
 			t.Fatalf("%s rejection should carry trace-query-first repair, got %+v", toolName, got)
 		}
+		if !strings.Contains(got.Summary, "phase=runtime_probe_first") {
+			t.Fatalf("%s rejection should explain the typed runtime/source phase, got %q", toolName, got.Summary)
+		}
+		if strings.Contains(got.Summary, "or when the typed request model requires") ||
+			strings.Contains(got.Repair.Hint, "or when current-source evidence") {
+			t.Fatalf("%s rejection must not mix refused source tools with source-required prose: %+v", toolName, got)
+		}
+		if got.Repair.Metadata["phase"] != string(runtimeSourceNavigationPhaseRuntimeProbeFirst) ||
+			got.Repair.Metadata["next_tool"] != "trace_query" {
+			t.Fatalf("%s repair metadata should carry typed phase + next tool, got %+v", toolName, got.Repair.Metadata)
+		}
 	}
 }
 

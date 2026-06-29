@@ -594,9 +594,6 @@ func principalEnumerationSourceInventoryDisplayNoteSegmentIsRedundantTypedValue(
 		if principalEnumerationDisplayNoteValueMatchesAny(value, typedValues) {
 			return true
 		}
-		if principalEnumerationDisplayNotePayloadLooksMachineAtom(value) {
-			return true
-		}
 	}
 	return false
 }
@@ -624,24 +621,6 @@ func principalEnumerationDisplayNoteSchemaKey(key string) bool {
 		case r >= 'A' && r <= 'Z':
 		case r >= '0' && r <= '9':
 		case r == '_' || r == '-' || r == '.':
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-func principalEnumerationDisplayNotePayloadLooksMachineAtom(value string) bool {
-	value = strings.TrimSpace(value)
-	if value == "" || strings.ContainsAny(value, " \t\n\r") {
-		return false
-	}
-	for _, r := range value {
-		switch {
-		case r >= 'a' && r <= 'z':
-		case r >= 'A' && r <= 'Z':
-		case r >= '0' && r <= '9':
-		case r == '_' || r == '-' || r == '.' || r == '/' || r == ':':
 		default:
 			return false
 		}

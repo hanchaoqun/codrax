@@ -4175,7 +4175,7 @@ func TestPrincipalEnumerationStructuredSourceInventoryItemText_DeduplicatesTyped
 			Name: "demo.cart",
 		}},
 	}
-	note := "extend 块，扩展 Cart 类添加 isEmpty 方法，surface=extend extend Cart，package=demo.cart，package=demo.cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj，source_class=fixture，language=cangjie"
+	note := "extend 块，扩展 Cart 类添加 isEmpty 方法，surface=extend extend Cart，package=demo.cart，package=demo.cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj，visibility=public"
 	got := principalEnumerationStructuredSourceInventoryItemText(row, note, principalEnumerationTableShape{
 		includeLocation: true,
 		includePackage:  true,
@@ -4186,6 +4186,7 @@ func TestPrincipalEnumerationStructuredSourceInventoryItemText_DeduplicatesTyped
 		"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
 		"package=demo.cart",
 		"扩展 Cart 类添加 isEmpty 方法",
+		"visibility=public",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("deduped text lost %q: %q", want, got)
@@ -4194,8 +4195,6 @@ func TestPrincipalEnumerationStructuredSourceInventoryItemText_DeduplicatesTyped
 	for _, forbidden := range []string{
 		"extend extend",
 		"surface=",
-		"source_class=",
-		"language=",
 		"package=demo.cart @",
 	} {
 		if strings.Contains(got, forbidden) {
