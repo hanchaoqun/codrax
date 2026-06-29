@@ -5092,6 +5092,63 @@ func TestListFilesBroadResult_UsesRepoMapWhenTypedNavigationPolicyExists(t *test
 	}
 }
 
+func TestListFilesBroadResult_SourceInventoryRepoMapCarriesNarrowScope(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "samples", "cangjie"), 0o755); err != nil {
+		t.Fatalf("seed cangjie dir: %v", err)
+	}
+	for i := 0; i < grepGovernorFileEntryThreshold+5; i++ {
+		name := filepath.Join(repoRoot, "samples", "cangjie", fmt.Sprintf("sample_%03d.cj", i))
+		if err := os.WriteFile(name, []byte("package demo\npublic class C {}\n"), 0o644); err != nil {
+			t.Fatalf("seed source %d: %v", i, err)
+		}
+	}
+
+	ctx := &types.BusContext{
+		RepoRoot: repoRoot,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleFunction},
+				},
+			},
+		},
+	}
+	result, err := (&ListFiles{}).Execute(ctx, json.RawMessage(`{"path":".","recursive":true,"file_type":"cangjie"}`))
+	if err != nil {
+		t.Fatalf("list_files: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("list_files failed: %s", result.Summary)
+	}
+	if result.Refinement == nil {
+		t.Fatalf("broad source-inventory list_files should expose typed refinement")
+	}
+	if result.Refinement.PreferredNextTool != "repo_map" {
+		t.Fatalf("preferred tool = %q; refinement=%+v", result.Refinement.PreferredNextTool, result.Refinement)
+	}
+	for key, want := range map[string]string{
+		"view":               "source_inventory",
+		"scope":              "samples/cangjie",
+		"roles":              "type,function",
+		"include_attributes": "false",
+	} {
+		if got := result.Refinement.PreferredParams[key]; got != want {
+			t.Fatalf("preferred param %s=%q, want %q in %+v", key, got, want, result.Refinement.PreferredParams)
+		}
+	}
+	for _, bad := range []string{"recursive", "file_type", "include"} {
+		if _, ok := result.Refinement.PreferredParams[bad]; ok {
+			t.Fatalf("repo_map source_inventory refinement must not carry list_files-only param %q: %+v", bad, result.Refinement)
+		}
+	}
+	if len(result.Refinement.RequiredFields) != 0 {
+		t.Fatalf("scope and roles were supplied, so required fields should be empty: %+v", result.Refinement.RequiredFields)
+	}
+}
+
 func sameStringSliceForTest(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

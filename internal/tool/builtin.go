@@ -1742,6 +1742,7 @@ func promoteSourceToolRefinementToRepoMap(ctx *types.BusContext, hint types.Tool
 	if ctx == nil || ctx.AnalysisIR == nil || hint.Empty() {
 		return hint
 	}
+	prior := hint
 	policy := types.CompileRepoMapNavigationPolicy(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract, ctx.ExploreLanePlan)
 	var step types.RepoMapNavigationStep
 	var ok bool
@@ -1763,10 +1764,38 @@ func promoteSourceToolRefinementToRepoMap(ctx *types.BusContext, hint types.Tool
 	if len(params) == 0 {
 		return hint
 	}
+	if step.Route == types.RepoMapNavigationRouteSourceInventory {
+		if scope := repoMapSourceInventoryScopeFromPriorRefinement(ctx, prior); scope != "" {
+			params["scope"] = scope
+		}
+	}
 	hint.PreferredNextTool = "repo_map"
 	hint.PreferredParams = params
 	hint.RequiredFields = repoMapRequiredFieldsFromNavigationStep(step, params)
 	return types.NormalizeToolRefinementHint(hint)
+}
+
+func repoMapSourceInventoryScopeFromPriorRefinement(ctx *types.BusContext, hint types.ToolRefinementHint) string {
+	hint = types.NormalizeToolRefinementHint(hint)
+	if len(hint.PreferredParams) == 0 {
+		return ""
+	}
+	raw := strings.TrimSpace(hint.PreferredParams["scope"])
+	if raw == "" {
+		raw = strings.TrimSpace(hint.PreferredParams["path"])
+	}
+	raw = strings.Trim(strings.ReplaceAll(raw, `\`, `/`), "/")
+	if raw == "" || raw == "." {
+		return ""
+	}
+	fsPath := resolveToolPath(ctx, raw)
+	if info, err := os.Stat(fsPath); err == nil && !info.IsDir() {
+		raw = strings.Trim(path.Dir(raw), "/")
+	}
+	if raw == "" || raw == "." {
+		return ""
+	}
+	return raw
 }
 
 func repoMapPreferredParamsFromNavigationStep(step types.RepoMapNavigationStep, policy types.RepoMapNavigationPolicy, rm types.RequestModel) map[string]string {
