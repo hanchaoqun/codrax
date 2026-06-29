@@ -252,6 +252,7 @@ func TestCompileEnumerationDisplaySets_SourceInventoryRowAttributesPreservePacka
 					File:          "src/cart/cart.cj",
 					Line:          30,
 					Language:      "cangjie",
+					SurfaceTerms:  []string{"extend", "extend Cart"},
 					CoverageState: SourceInventoryCoverageObserved,
 					Attributes: []SourceInventoryObservationAttribute{{
 						Name:          "demo.cart",
@@ -272,6 +273,9 @@ func TestCompileEnumerationDisplaySets_SourceInventoryRowAttributesPreservePacka
 	attrs := sets[0].Rows[0].Attributes
 	if len(attrs) != 1 || attrs[0].Role != AnswerCandidateRolePackage || attrs[0].Name != "demo.cart" {
 		t.Fatalf("row package attribute not preserved: %+v", sets[0].Rows[0])
+	}
+	if got := strings.Join(sets[0].Rows[0].SurfaceTerms, "|"); !strings.Contains(got, "extend") || !strings.Contains(got, "extend Cart") {
+		t.Fatalf("row-local source-inventory surface terms not preserved: %+v", sets[0].Rows[0].SurfaceTerms)
 	}
 }
 

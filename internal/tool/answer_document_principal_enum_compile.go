@@ -39,6 +39,9 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 	if removed := removeRedundantPrincipalEnumerationIncompleteTables(doc, sets); removed > 0 {
 		changed += removed
 	}
+	if normalizedMarkdown := normalizePrincipalEnumerationAuthoritativeMarkdownTables(doc, ctx, sets); normalizedMarkdown > 0 {
+		changed += normalizedMarkdown
+	}
 	if pruned := prunePrincipalEnumerationExtraneousItems(doc, sets); pruned > 0 {
 		changed += pruned
 	}
@@ -59,6 +62,9 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 	}
 	singleSet := len(sets) == 1
 	modelAuthoredCarrierExists := principalEnumerationAnyModelAuthoredCarrierExists(doc, ctx, sets, singleSet)
+	if normalizedSourceInventorySummary := normalizePrincipalEnumerationSourceInventorySummary(doc, sets, zh); normalizedSourceInventorySummary > 0 {
+		changed += normalizedSourceInventorySummary
+	}
 	if normalizePrincipalEnumerationSummary(doc, ctx, sets, !modelAuthoredCarrierExists) {
 		changed++
 	}
@@ -94,7 +100,13 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 			doc.Blocks = append(doc.Blocks, buildPrincipalEnumerationRowsBlock(doc, set, supplementRows, zh, supplementMode))
 			changed++
 		}
-		if normalizePrincipalEnumerationSectionBlocks(doc, set) > 0 {
+		if principalEnumerationSetIsSourceInventoryPrincipalRows(set) {
+			if normalizedSections := normalizePrincipalEnumerationSourceInventorySectionBlocks(doc, set); normalizedSections > 0 {
+				changed += normalizedSections
+			} else if normalizePrincipalEnumerationSectionBlocks(doc, set) > 0 {
+				changed++
+			}
+		} else if normalizePrincipalEnumerationSectionBlocks(doc, set) > 0 {
 			changed++
 		}
 	}
@@ -111,7 +123,7 @@ func prunePrincipalEnumerationExtraneousItems(doc *types.AnswerDocumentV2, sets 
 		if preEmitSystemEnumerationRowSupplementBlock(*block) || len(block.Items) == 0 || !principalEnumerationBlockCanCarryRows(*block) {
 			continue
 		}
-		rows := principalEnumerationPruneRowsForBlock(*block, sets)
+		rows, strictSourceInventoryRows := principalEnumerationPruneRowsForBlockWithMode(*block, sets)
 		if len(rows) == 0 {
 			continue
 		}
@@ -121,7 +133,11 @@ func prunePrincipalEnumerationExtraneousItems(doc *types.AnswerDocumentV2, sets 
 		}
 		out := block.Items[:0]
 		for _, item := range block.Items {
-			if principalEnumerationItemCoversAnyRow(item, doc, rows) {
+			keep := principalEnumerationItemCoversAnyRow(item, doc, rows)
+			if strictSourceInventoryRows {
+				keep = principalEnumerationItemCoversAnySourceInventoryScopedRow(item, doc, rows)
+			}
+			if keep {
 				out = append(out, item)
 				continue
 			}
@@ -133,13 +149,43 @@ func prunePrincipalEnumerationExtraneousItems(doc *types.AnswerDocumentV2, sets 
 }
 
 func principalEnumerationPruneRowsForBlock(block types.AnswerBlock, sets []types.EnumerationDisplaySet) []types.EnumerationDisplayRow {
+	rows, _ := principalEnumerationPruneRowsForBlockWithMode(block, sets)
+	return rows
+}
+
+func principalEnumerationPruneRowsForBlockWithMode(block types.AnswerBlock, sets []types.EnumerationDisplaySet) ([]types.EnumerationDisplayRow, bool) {
+	if scoped, ok := principalEnumerationBestSourceInventoryScopedSetForBlock(block, sets); ok {
+		return scoped.Rows, true
+	}
 	if set, ok := principalEnumerationUniqueBlockSet(block, sets); ok {
-		return set.Rows
+		if scoped, ok := principalEnumerationSourceInventoryScopedSetForBlock(block, set); ok {
+			return scoped.Rows, true
+		}
+		return set.Rows, principalEnumerationSetIsSourceInventoryPrincipalRows(set)
 	}
 	if principalEnumerationBlockHasEnumerationFacet(block) {
-		return principalEnumerationAllRows(sets)
+		return principalEnumerationAllRows(sets), false
 	}
-	return nil
+	return nil, false
+}
+
+func principalEnumerationItemCoversAnySourceInventoryScopedRow(item types.AnswerBlockItem, doc *types.AnswerDocumentV2, rows []types.EnumerationDisplayRow) bool {
+	for _, row := range rows {
+		if !principalEnumerationItemExactLabelMatchesRow(item, row) {
+			continue
+		}
+		if item.CitationRef >= 0 {
+			if principalEnumerationItemCitationCompatible(item, doc, row) {
+				return true
+			}
+			continue
+		}
+		surface := strings.Join([]string{item.Label, item.Text, strings.Join(item.Cells, " ")}, " ")
+		if principalEnumerationCandidateLocationCompatible(surface, row) {
+			return true
+		}
+	}
+	return false
 }
 
 func principalEnumerationBlockCoversAnyDisplayRow(block types.AnswerBlock, doc *types.AnswerDocumentV2, rows []types.EnumerationDisplayRow) bool {
@@ -206,6 +252,80 @@ func normalizePrincipalEnumerationCarrierItemCounts(doc *types.AnswerDocumentV2,
 	return changed
 }
 
+func normalizePrincipalEnumerationAuthoritativeMarkdownTables(doc *types.AnswerDocumentV2, ctx *types.BusContext, sets []types.EnumerationDisplaySet) int {
+	if doc == nil || len(sets) == 0 {
+		return 0
+	}
+	changed := 0
+	zh := principalEnumerationPrefersZH(ctx)
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if block.Kind != types.BlockTable || strings.TrimSpace(block.Text) == "" {
+			continue
+		}
+		set, ok := principalEnumerationUniqueBlockSet(*block, sets)
+		if !ok || !principalEnumerationSetIsSourceInventoryPrincipalRows(set) {
+			continue
+		}
+		scoped, ok := principalEnumerationSourceInventoryScopedSetForBlock(*block, set)
+		if !ok || len(scoped.Rows) == 0 {
+			continue
+		}
+		stats := principalEnumerationAuthoredMarkdownTableStats(*block, scoped)
+		if stats.dataRows == 0 || stats.missingRows > 0 {
+			continue
+		}
+		shape := principalEnumerationAuthoritativeMarkdownTableShape(*block, scoped.Rows)
+		block.Text = ""
+		block.Columns = principalEnumerationTableColumns(zh, shape, scoped.Rows)
+		block.Items = principalEnumerationItemsForSet(doc, scoped, block.Kind, nil, shape)
+		block.SurfaceRole = types.SurfacePrincipal
+		block.FacetIDs = mergeStringSet(block.FacetIDs, []string{string(types.FacetEnumerationItem)})
+		block.ClaimUses = appendRenderedClaimUseIfMissing(block.ClaimUses, types.ClaimDefinitionFact, string(types.FacetEnumerationItem))
+		changed++
+	}
+	return changed
+}
+
+func principalEnumerationAuthoritativeMarkdownTableShape(block types.AnswerBlock, rows []types.EnumerationDisplayRow) principalEnumerationTableShape {
+	shape := principalEnumerationTableShapeForRows(rows, nil)
+	// Markdown table text is model-authored presentation. When the typed
+	// source-inventory row authority lets us safely rebuild the table, preserve
+	// the requested mechanical columns (name/location/package/module) but avoid
+	// promoting verbose row notes such as source_class/language into the main
+	// answer unless the existing table explicitly had a notes-like column.
+	shape.includeNote = shape.includeNote && principalEnumerationMarkdownTableWantsNoteColumn(block)
+	return shape
+}
+
+func principalEnumerationMarkdownTableWantsNoteColumn(block types.AnswerBlock) bool {
+	for _, column := range block.Columns {
+		if principalEnumerationColumnLooksLikeNote(column) {
+			return true
+		}
+	}
+	rows := principalEnumerationMarkdownTableRows(block.Text)
+	if len(rows) == 0 {
+		return false
+	}
+	for _, column := range rows[0] {
+		if principalEnumerationColumnLooksLikeNote(column) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationColumnLooksLikeNote(raw string) bool {
+	key := principalEnumerationLabelKey(raw)
+	switch key {
+	case "说明", "备注", "描述", "详情", "note", "notes", "summary", "description", "detail", "details":
+		return true
+	default:
+		return false
+	}
+}
+
 func principalEnumerationTextHasMismatchedLocalCount(text string, expected int) bool {
 	text = strings.TrimSpace(text)
 	if text == "" || expected <= 0 {
@@ -235,6 +355,98 @@ func principalEnumerationCarrierCountText(block types.AnswerBlock, expected int)
 		return fmt.Sprintf("%s共 %d 项：", title, expected)
 	}
 	return fmt.Sprintf("%s has %d item(s):", title, expected)
+}
+
+func normalizePrincipalEnumerationSourceInventorySummary(doc *types.AnswerDocumentV2, sets []types.EnumerationDisplaySet, zh bool) int {
+	if doc == nil || len(sets) == 0 {
+		return 0
+	}
+	var sourceSet types.EnumerationDisplaySet
+	for _, set := range sets {
+		if principalEnumerationSetIsSourceInventoryPrincipalRows(set) {
+			sourceSet = set
+			break
+		}
+	}
+	if len(sourceSet.Rows) == 0 {
+		return 0
+	}
+	entries := principalEnumerationSourceInventoryScopedSummaryEntries(doc, sourceSet)
+	if len(entries) < 2 {
+		return 0
+	}
+	text := principalEnumerationSourceInventoryScopedSummaryText(entries, zh)
+	if text == "" {
+		return 0
+	}
+	idx := -1
+	for i := range doc.Blocks {
+		if doc.Blocks[i].Kind != types.BlockSummary {
+			continue
+		}
+		idx = i
+		break
+	}
+	if idx < 0 {
+		return 0
+	}
+	if strings.TrimSpace(doc.Blocks[idx].Text) == text {
+		return 0
+	}
+	doc.Blocks[idx].Text = text
+	doc.Blocks[idx].SurfaceRole = types.SurfacePrincipal
+	doc.Blocks[idx].FacetIDs = mergeStringSet(doc.Blocks[idx].FacetIDs, []string{string(types.FacetEnumerationItem)})
+	doc.Blocks[idx].ClaimUses = appendRenderedClaimUseIfMissing(doc.Blocks[idx].ClaimUses, types.ClaimDefinitionFact, string(types.FacetEnumerationItem))
+	return 1
+}
+
+type principalEnumerationSourceInventorySummaryEntry struct {
+	label string
+	count int
+}
+
+func principalEnumerationSourceInventoryScopedSummaryEntries(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) []principalEnumerationSourceInventorySummaryEntry {
+	seen := map[string]bool{}
+	var out []principalEnumerationSourceInventorySummaryEntry
+	for _, block := range doc.Blocks {
+		scoped, ok := principalEnumerationSourceInventoryScopedSetForBlock(block, set)
+		if !ok || len(scoped.Rows) == 0 {
+			continue
+		}
+		label := strings.TrimSpace(scoped.Label)
+		key := principalEnumerationLabelKey(label)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, principalEnumerationSourceInventorySummaryEntry{label: label, count: len(scoped.Rows)})
+	}
+	return out
+}
+
+func principalEnumerationSourceInventoryScopedSummaryText(entries []principalEnumerationSourceInventorySummaryEntry, zh bool) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		label := strings.TrimSpace(entry.label)
+		if label == "" || entry.count <= 0 {
+			continue
+		}
+		if zh {
+			parts = append(parts, fmt.Sprintf("%s %d 项", label, entry.count))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s: %d item(s)", label, entry.count))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if zh {
+		return "本答案按已验证 source_inventory 行集列出：" + strings.Join(parts, "、") + "。"
+	}
+	return "This answer lists the verified source_inventory row sets: " + strings.Join(parts, ", ") + "."
 }
 
 func containsHan(text string) bool {
@@ -832,6 +1044,9 @@ func principalEnumerationSourceInventoryAuthorityMissingRowsBySet(
 	}
 	missing := make(map[string][]types.EnumerationDisplayRow, len(sets))
 	for _, row := range auth.EnumerationCoverage.MissingRows {
+		if principalEnumerationDocumentCoversRow(doc, row) {
+			continue
+		}
 		setID := strings.TrimSpace(row.SetID)
 		if setID == "" {
 			continue
@@ -2561,8 +2776,14 @@ func normalizePrincipalEnumerationSectionBlocks(doc *types.AnswerDocumentV2, set
 	}
 	changed := 0
 	block := &doc.Blocks[bestIdx]
-	if !principalEnumerationSectionBlockIsGeneratedShell(*block, set, title, text) {
-		title, text = principalEnumerationAdjacentSectionTitleText(*block, set)
+	sectionSet := set
+	if scoped, ok := principalEnumerationSourceInventoryScopedSetForBlock(*block, set); ok {
+		sectionSet = scoped
+		title = principalEnumerationBlockTitle(sectionSet)
+		text = fmt.Sprintf("%s共 %d 项；完整成员、定义位置和说明见对应表格。", strings.TrimSpace(sectionSet.Label), len(sectionSet.Rows))
+	}
+	if !principalEnumerationSectionBlockIsGeneratedShell(*block, sectionSet, title, text) {
+		title, text = principalEnumerationAdjacentSectionTitleText(*block, sectionSet)
 	}
 	if block.Text != text {
 		block.Text = text
@@ -2576,10 +2797,130 @@ func normalizePrincipalEnumerationSectionBlocks(doc *types.AnswerDocumentV2, set
 	block.FacetIDs = mergeStringSet(block.FacetIDs, []string{string(types.FacetEnumerationItem)})
 	block.ClaimUses = appendRenderedClaimUseIfMissing(block.ClaimUses, types.ClaimDefinitionFact, string(types.FacetEnumerationItem))
 
-	if removed := removeRedundantPrincipalEnumerationSectionBlocks(doc, set, title, text, bestIdx); removed > 0 {
+	if removed := removeRedundantPrincipalEnumerationSectionBlocks(doc, sectionSet, title, text, bestIdx); removed > 0 {
 		changed += removed
 	}
 	return changed
+}
+
+func normalizePrincipalEnumerationSourceInventorySectionBlocks(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) int {
+	if doc == nil || !principalEnumerationSetIsSourceInventoryPrincipalRows(set) || len(set.Rows) == 0 {
+		return 0
+	}
+	changed := 0
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if !principalEnumerationSectionBlockCanSummarizeAdjacentCarrier(*block, set) {
+			continue
+		}
+		scoped, ok := principalEnumerationSourceInventoryScopedSetForBlock(*block, set)
+		if !ok || len(scoped.Rows) == 0 || !principalEnumerationSectionHasAdjacentCarrier(doc, i, scoped) {
+			continue
+		}
+		title, text := principalEnumerationAdjacentSectionTitleText(*block, scoped)
+		if block.Title != title {
+			block.Title = title
+			changed++
+		}
+		if block.Text != text {
+			block.Text = text
+			changed++
+		}
+		block.SurfaceRole = types.SurfacePrincipal
+		block.FacetIDs = mergeStringSet(block.FacetIDs, []string{string(types.FacetEnumerationItem)})
+		block.ClaimUses = appendRenderedClaimUseIfMissing(block.ClaimUses, types.ClaimDefinitionFact, string(types.FacetEnumerationItem))
+	}
+	return changed
+}
+
+func principalEnumerationSourceInventoryScopedSetForBlock(block types.AnswerBlock, set types.EnumerationDisplaySet) (types.EnumerationDisplaySet, bool) {
+	if !principalEnumerationSetIsSourceInventoryPrincipalRows(set) || len(set.Rows) <= 1 {
+		return types.EnumerationDisplaySet{}, false
+	}
+	label := principalEnumerationSourceInventoryScopedLabel(block.Title)
+	if label == "" {
+		return types.EnumerationDisplaySet{}, false
+	}
+	labelKey := principalEnumerationLabelKey(label)
+	if labelKey == "" {
+		return types.EnumerationDisplaySet{}, false
+	}
+	var rows []types.EnumerationDisplayRow
+	for _, row := range set.Rows {
+		if !principalEnumerationSourceInventoryRowMatchesScopedLabel(row, labelKey) {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	if len(rows) == 0 || len(rows) == len(set.Rows) {
+		return types.EnumerationDisplaySet{}, false
+	}
+	scoped := set
+	scoped.ID = set.ID + ":" + sanitizeEnumerationBlockID(label)
+	scoped.Label = label
+	scoped.Value = strconv.Itoa(len(rows))
+	scoped.Rows = rows
+	return scoped, true
+}
+
+func principalEnumerationBestSourceInventoryScopedSetForBlock(block types.AnswerBlock, sets []types.EnumerationDisplaySet) (types.EnumerationDisplaySet, bool) {
+	var best types.EnumerationDisplaySet
+	bestScore := 0
+	ties := 0
+	for _, set := range sets {
+		scoped, ok := principalEnumerationSourceInventoryScopedSetForBlock(block, set)
+		if !ok || len(scoped.Rows) == 0 {
+			continue
+		}
+		score := principalEnumerationBlockSetScore(block, scoped)
+		if score <= bestScore {
+			if score == bestScore && score > 0 {
+				ties++
+			}
+			continue
+		}
+		best = scoped
+		bestScore = score
+		ties = 1
+	}
+	if bestScore == 0 || ties != 1 {
+		return types.EnumerationDisplaySet{}, false
+	}
+	return best, true
+}
+
+func principalEnumerationSourceInventoryScopedLabel(title string) string {
+	label := strings.TrimSpace(stripPrincipalEnumerationParentheticalQualifiers(title))
+	if label == "" {
+		return ""
+	}
+	for {
+		trimmed := strings.TrimSpace(label)
+		next := strings.TrimSpace(strings.TrimSuffix(trimmed, "一览"))
+		next = strings.TrimSpace(strings.TrimSuffix(next, "列表"))
+		next = strings.TrimSpace(strings.TrimSuffix(next, "详情"))
+		next = strings.TrimSpace(strings.TrimSuffix(next, "明细"))
+		if next == "" || next == trimmed {
+			return trimmed
+		}
+		label = next
+	}
+}
+
+func principalEnumerationSourceInventoryRowMatchesScopedLabel(row types.EnumerationDisplayRow, labelKey string) bool {
+	if labelKey == "" {
+		return false
+	}
+	for _, term := range row.SurfaceTerms {
+		termKey := principalEnumerationLabelKey(term)
+		if termKey == "" {
+			continue
+		}
+		if strings.Contains(labelKey, termKey) || strings.Contains(termKey, labelKey) {
+			return true
+		}
+	}
+	return false
 }
 
 func principalEnumerationAdjacentSectionTitleText(block types.AnswerBlock, set types.EnumerationDisplaySet) (string, string) {
