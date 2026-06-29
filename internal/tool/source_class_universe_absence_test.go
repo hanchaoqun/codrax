@@ -36,13 +36,13 @@ func TestSourceInventoryClassUniverseAbsenceDowngrade(t *testing.T) {
 	}
 
 	// resolved result_kind: gate is inert (only absence is gated).
-	if got := sourceInventoryClassUniverseAbsenceDowngrade(newCtx(), "resolved"); got != "" {
+	if got := sourceInventoryClassUniverseAbsenceDowngrade(newCtx(), "resolved", nil); got != "" {
 		t.Fatalf("resolved must not trigger the absence gate, got %q", got)
 	}
 
 	// absence + open class universe: gate fires AND raises a repo_map repair.
 	ctx := newCtx()
-	got := sourceInventoryClassUniverseAbsenceDowngrade(ctx, "absence")
+	got := sourceInventoryClassUniverseAbsenceDowngrade(ctx, "absence", nil)
 	if got == "" {
 		t.Fatal("absence declared while the source-class universe is open must downgrade")
 	}
@@ -59,7 +59,7 @@ func TestSourceInventoryClassUniverseAbsenceDowngrade(t *testing.T) {
 	}
 
 	// nil-safety.
-	if sourceInventoryClassUniverseAbsenceDowngrade(nil, "absence") != "" {
+	if sourceInventoryClassUniverseAbsenceDowngrade(nil, "absence", nil) != "" {
 		t.Fatal("nil ctx must be inert")
 	}
 
@@ -69,7 +69,7 @@ func TestSourceInventoryClassUniverseAbsenceDowngrade(t *testing.T) {
 	obs := zeroCtx.Mutable.SourceInventoryObservation()
 	obs.Sets = []types.SourceInventoryObservationSet{{Role: types.AnswerCandidateRoleFunction, Complete: true, Count: 0}}
 	zeroCtx.Mutable.SetSourceInventoryObservation(obs)
-	if got := sourceInventoryClassUniverseAbsenceDowngrade(zeroCtx, "absence"); got != "" {
+	if got := sourceInventoryClassUniverseAbsenceDowngrade(zeroCtx, "absence", nil); got != "" {
 		t.Fatalf("a complete zero member_set is a genuine bounded absence and must close, got downgrade %q", got)
 	}
 }

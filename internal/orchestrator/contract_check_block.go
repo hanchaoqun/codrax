@@ -1907,18 +1907,14 @@ func validateSourceInventoryExactAbsenceBound(doc *types.AnswerDocumentV2, bus *
 		bus == nil || bus.AnalysisIR == nil || bus.Mutable == nil {
 		return nil
 	}
-	summary, blocked := tool.SourceInventoryExactAbsenceNeedsInventoryProofRepoTruth(
-		bus,
-		bus.AnalysisIR.RequestModel.SourceInventoryProfile,
-		types.SourceInventoryObservationFromMutable(bus.Mutable),
-	)
-	if !blocked {
+	authority := tool.BuildSourceInventoryAnswerPreEmitAuthority(bus, sourceInventoryContractStableAggregateFacts(bus), doc)
+	if !authority.ExactAbsenceBlocking {
 		return nil
 	}
 	return []types.Violation{{
 		Kind: types.ViolAbsenceScopeExceeded,
 		Detail: "source-inventory exact absence declared while the typed source-class universe is still open: " +
-			summary,
+			authority.ExactAbsenceSummary,
 		Repair:     "Route the source-inventory lane through a complete repo_map(source_inventory) / member_set proof for the requested principal roles before declaring exact absence. If the universe cannot be fully covered, emit unknown/caveated rather than exact_resolution.status=absent.",
 		ClusterKey: "root:source_inventory.absence_class_universe",
 		SuspectedRoot: types.SuspectedRoot{
@@ -1928,6 +1924,13 @@ func validateSourceInventoryExactAbsenceBound(doc *types.AnswerDocumentV2, bus *
 		},
 		Stage: string(types.StageFinalize),
 	}}
+}
+
+func sourceInventoryContractStableAggregateFacts(bus *types.BusContext) []types.AnswerAggregateFact {
+	if bus == nil || bus.Mutable == nil {
+		return nil
+	}
+	return bus.Mutable.StableInvestigationAggregateFacts()
 }
 
 // validateRequiredMechanismAnchorsRendered re-checks the typed

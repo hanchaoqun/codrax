@@ -265,6 +265,61 @@ func TestSourceInventoryConvergence_NoParallelSourceClassTaxonomy(t *testing.T) 
 	}
 }
 
+// Clause D — exact-absence hard gates must consume the answer authority view.
+// The lower-level repo-truth helper is a precise sensor, but letting finalize,
+// pre-complete, or handoff code call it directly recreates the authority split
+// that caused the source-inventory ping-pong fixes. The only production caller
+// outside the helper definition is the answer-preemit authority projector.
+func TestSourceInventoryConvergence_ExactAbsenceHardGatesUseAnswerAuthority(t *testing.T) {
+	allowed := map[string]bool{
+		"source_inventory_answer_preemit_authority.go": true,
+	}
+	var violations []string
+	for _, path := range sourceInventoryProductionGoFiles(t, []string{".", "../orchestrator", "../agent"}) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for i, line := range strings.Split(string(data), "\n") {
+			if !strings.Contains(line, "SourceInventoryExactAbsenceNeedsInventoryProofRepoTruth(") ||
+				strings.Contains(line, "func SourceInventoryExactAbsenceNeedsInventoryProofRepoTruth(") {
+				continue
+			}
+			key := sourceInventoryClusterFileKey(path)
+			if !allowed[key] {
+				violations = append(violations, key+":"+strconv.Itoa(i+1))
+			}
+		}
+	}
+	if len(violations) > 0 {
+		t.Fatalf("source-inventory exact-absence hard gate bypasses answer authority; route through BuildSourceInventoryAnswerPreEmitAuthority instead:\n  %s", strings.Join(violations, "\n  "))
+	}
+}
+
+func sourceInventoryProductionGoFiles(t *testing.T, roots []string) []string {
+	t.Helper()
+	var files []string
+	for _, root := range roots {
+		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info == nil || info.IsDir() ||
+				!strings.HasSuffix(path, ".go") ||
+				strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			files = append(files, path)
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", root, err)
+		}
+	}
+	sort.Strings(files)
+	return files
+}
+
 func findParallelSourceClassTaxonomy(f *ast.File, fset *token.FileSet, path string) []string {
 	var out []string
 	ast.Inspect(f, func(node ast.Node) bool {
