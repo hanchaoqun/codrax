@@ -3835,6 +3835,13 @@ Remaining follow-up:
     5. Validation: focused explorer source-inventory mechanical-landing tests passed.
     6. Safety boundary: this fix consumes only typed source-inventory observations, stable aggregate facts, accepted-universe helpers, request model, required files, and exact file:line support refs. It does not parse raw user keywords, model rationale/prose, rendered repo_map/list_files output, localized REPL text, final-answer prose, elapsed time, or eval labels.
 
+  - **Completed D1-G175: precise-signal lint file-family coverage was too narrow（P0 / prompt red-line防复发 / fixed before next eval）**:
+    1. Evidence: the existing `TestNoKeywordMatchOfUserIntentInGates` correctly rejected RawRequest-derived string-literal keyword matching, but it enumerated a small hand-written file list. Recent architecture work split completion, pre-emit, answer-document normalization, and source-inventory authorities across many helper files. A future helper could therefore reintroduce RawRequest keyword matching in a hard-gate family without being scanned.
+    2. Target architecture: hard-gate red-line tests must cover file families, not only the original files that existed when the guard was created. The detector should keep the same precise rule: `strings.Contains` / `HasPrefix` / related string ops on RawRequest-derived haystacks with string literals are banned; typed-token matches remain allowed.
+    3. Delivered D1-F10g.297: the lint now expands deterministic globs for orchestrator contract checks, analysis coherence gates, answer-document/pre-emit files, all `emit_investigation_complete*` helpers, `emit_evidence`, and all source-inventory authority files. Globs fail if they match no files and skip tests, so helper file growth is automatically covered.
+    4. Validation: focused orchestrator precise-signal lint passed after broadening the file family; focused hard-gate/pre-emit/source-inventory orchestrator and tool regressions passed.
+    5. Safety boundary: this is a structural test guard only. It does not parse user intent, model prose, rendered tool output, localized UI, final answers, elapsed time, or eval labels, and it does not alter runtime behavior.
+
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
 - Focused packages: `go test ./internal/types ./internal/analysis/compiler ./internal/analysis/criterion ./internal/orchestrator ./internal/agent -run 'Dependency|Artifact|ReadLoopNextAction|DispatchPolicy|ExecutionPolicy|StageRunner|EvidenceReducer|ReadRunSnapshot'`

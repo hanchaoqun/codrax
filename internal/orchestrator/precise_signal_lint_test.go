@@ -4,6 +4,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -28,22 +30,7 @@ func TestNoKeywordMatchOfUserIntentInGates(t *testing.T) {
 	// The precise hard-gate / contract-check files. The analyzer
 	// (emit_analysis) and prompt builders (plan_critic) legitimately consume
 	// RawRequest and are intentionally NOT in this set.
-	gateFiles := []string{
-		"contract_check_block.go",
-		"contract_check.go",
-		"answer_exclusion_policy_check.go",
-		"write_analysis_quality.go",
-		"../analysis/gate/coherence.go",
-		"../tool/answer_document_pre_emit_check.go",
-		"../tool/emit_answer_document_patch.go",
-		"../tool/emit_answer_document_v2.go",
-		"../tool/emit_evidence.go",
-		"../tool/emit_investigation_complete.go",
-		// gap 4: the absence / candidate-universe coverage decisions must stay
-		// typed (scope class, member sets, typed enums) — never keyword-match
-		// the request — so the absence authority cannot drift into prose gating.
-		"../tool/source_inventory_universe_coverage.go",
-	}
+	gateFiles := preciseSignalLintGateFiles(t)
 	fset := token.NewFileSet()
 	var violations []string
 	for _, path := range gateFiles {
@@ -56,6 +43,42 @@ func TestNoKeywordMatchOfUserIntentInGates(t *testing.T) {
 	if len(violations) > 0 {
 		t.Fatalf("keyword-match of user intent against raw_request in a hard gate — match a TYPED token (identifier/symbol/expected from the IR) via a sanctioned sink instead of a string literal:\n  %s", strings.Join(violations, "\n  "))
 	}
+}
+
+func preciseSignalLintGateFiles(t *testing.T) []string {
+	t.Helper()
+	patterns := []string{
+		"contract_check*.go",
+		"answer_exclusion_policy_check.go",
+		"write_analysis_quality.go",
+		"../analysis/gate/coherence.go",
+		"../tool/answer_document*.go",
+		"../tool/emit_answer_document*.go",
+		"../tool/emit_evidence.go",
+		"../tool/emit_investigation_complete*.go",
+		"../tool/pre_emit*.go",
+		"../tool/source_inventory*.go",
+	}
+	seen := map[string]bool{}
+	var files []string
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatalf("bad precise-signal lint glob %q: %v", pattern, err)
+		}
+		if len(matches) == 0 {
+			t.Fatalf("precise-signal lint glob %q matched no files", pattern)
+		}
+		for _, match := range matches {
+			if seen[match] || strings.HasSuffix(match, "_test.go") {
+				continue
+			}
+			seen[match] = true
+			files = append(files, match)
+		}
+	}
+	sort.Strings(files)
+	return files
 }
 
 var rawRequestStringOps = map[string]bool{
