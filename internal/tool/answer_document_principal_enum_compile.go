@@ -47,8 +47,12 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 	}
 	zh := principalEnumerationPrefersZH(ctx)
 	missingBySet := make(map[string][]types.EnumerationDisplayRow, len(sets))
+	authorityMissingBySet, authorityCoverageActive := principalEnumerationSourceInventoryAuthorityMissingRowsBySet(doc, ctx, sets)
 	for _, set := range sets {
 		missingRows := principalEnumerationMissingRows(doc, set)
+		if authorityCoverageActive {
+			missingRows = authorityMissingBySet[set.ID]
+		}
 		if len(missingRows) > 0 {
 			missingBySet[set.ID] = missingRows
 		}
@@ -799,6 +803,54 @@ func principalEnumerationMissingRows(doc *types.AnswerDocumentV2, set types.Enum
 		}
 	}
 	return missing
+}
+
+func principalEnumerationSourceInventoryAuthorityMissingRowsBySet(
+	doc *types.AnswerDocumentV2,
+	ctx *types.BusContext,
+	sets []types.EnumerationDisplaySet,
+) (map[string][]types.EnumerationDisplayRow, bool) {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil || len(sets) == 0 {
+		return nil, false
+	}
+	if !types.SourceInventoryPrincipalNavigationActive(ctx.AnalysisIR.RequestModel) {
+		return nil, false
+	}
+	hasSourceInventoryPrincipalSet := false
+	for _, set := range sets {
+		if principalEnumerationSetIsSourceInventoryPrincipalRows(set) {
+			hasSourceInventoryPrincipalSet = true
+			break
+		}
+	}
+	if !hasSourceInventoryPrincipalSet {
+		return nil, false
+	}
+	auth := BuildSourceInventoryAnswerPreEmitAuthority(ctx, preEmitStableAggregateFacts(ctx), doc)
+	if auth.EnumerationCoverage.RowCount == 0 {
+		return nil, false
+	}
+	missing := make(map[string][]types.EnumerationDisplayRow, len(sets))
+	for _, row := range auth.EnumerationCoverage.MissingRows {
+		setID := strings.TrimSpace(row.SetID)
+		if setID == "" {
+			continue
+		}
+		missing[setID] = append(missing[setID], row)
+	}
+	return missing, true
+}
+
+func principalEnumerationSetIsSourceInventoryPrincipalRows(set types.EnumerationDisplaySet) bool {
+	if strings.TrimSpace(set.Label) == "source inventory principal rows" {
+		return true
+	}
+	for _, row := range set.Rows {
+		if strings.TrimSpace(row.SetLabel) == "source inventory principal rows" {
+			return true
+		}
+	}
+	return false
 }
 
 func principalEnumerationDocumentCoversRow(doc *types.AnswerDocumentV2, row types.EnumerationDisplayRow) bool {

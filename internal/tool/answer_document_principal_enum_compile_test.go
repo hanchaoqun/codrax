@@ -3928,6 +3928,81 @@ func TestNormalizePrincipalEnumerationRowBlocks_NormalizesAdjacentSectionCount(t
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_SourceInventoryAuthorityCoverageAddsStructuredRows(t *testing.T) {
+	mu := types.NewMutableState("列出 foreign func")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "source inventory principal rows",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members: []string{
+			"native_add",
+			"native_add",
+		},
+		SupportRefs: []string{
+			"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+		MemberNotes: []string{
+			"surface=foreign func foreign func native_add; package=demo.bridge",
+			"surface=foreign func foreign func native_add; package=demo.ffi",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				SourceQuotes:      []string{"foreign func"},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "foreign-markdown",
+		Kind:        types.BlockTable,
+		Title:       "foreign func 声明",
+		SurfaceRole: types.SurfacePrincipal,
+		Text: strings.Join([]string{
+			"| 符号 | 文件 | package |",
+			"|---|---|---|",
+			"| native_add | eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 | demo.bridge |",
+			"| native_add | internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 | demo.ffi |",
+		}, "\n"),
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatalf("expected source-inventory answer-preemit authority to materialize structured cited rows")
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	if !strings.Contains(visible, "系统按已验证证据补充缺失成员：source inventory principal rows（2）") {
+		t.Fatalf("authority-backed source-inventory row supplement missing:\n%s", visible)
+	}
+	for _, want := range []string{
+		"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		"demo.bridge",
+		"demo.ffi",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("missing authority-backed row surface %q:\n%s", want, visible)
+		}
+	}
+}
+
 func enumEvidence(id, symbol, source string, line int, summary string) types.EvidenceItem {
 	return types.EvidenceItem{
 		ID:              id,
