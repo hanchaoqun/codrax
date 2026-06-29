@@ -1309,7 +1309,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	requestedAnswerDimensions, requestedAnswerDimensionsErr, requestedAnswerDimensionsWarnings := parseRequestedAnswerDimensions(raw, p.RequestedAnswerDimensions)
+	requestedAnswerDimensions, currentSourceObligationSignals, requestedAnswerDimensionsErr, requestedAnswerDimensionsWarnings := parseRequestedAnswerDimensions(raw, p.RequestedAnswerDimensions)
 	if requestedAnswerDimensionsErr != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -1554,6 +1554,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		AnswerRoleProfile:               answerRoleProfile,
 		ErrorGranularityProfile:         errorGranularityProfile,
 		RequestedAnswerDimensions:       requestedAnswerDimensions,
+		CurrentSourceObligationSignals:  currentSourceObligationSignals,
 		CurrentSourceExplanationProfile: currentSourceExplanation,
 		ExternalObservationPolicy:       externalObservationPolicy,
 		PredicateAxis:                   axis,
@@ -3389,9 +3390,9 @@ func parseErrorGranularityProfile(raw string, p *emitErrorGranularityProfilePara
 	}, "", warnings
 }
 
-func parseRequestedAnswerDimensions(raw string, p *emitRequestedAnswerDimensionsParam) (*types.RequestedAnswerDimensionProfile, string, []string) {
+func parseRequestedAnswerDimensions(raw string, p *emitRequestedAnswerDimensionsParam) (*types.RequestedAnswerDimensionProfile, []types.CurrentSourceObligationSignal, string, []string) {
 	if p == nil {
-		return nil, "", nil
+		return nil, nil, "", nil
 	}
 	var missing []string
 	if p.IsDimensionedAnswer == nil {
@@ -3401,16 +3402,16 @@ func parseRequestedAnswerDimensions(raw string, p *emitRequestedAnswerDimensions
 		missing = append(missing, "confidence")
 	}
 	if len(missing) > 0 {
-		return nil, fmt.Sprintf(
+		return nil, nil, fmt.Sprintf(
 			"requested_answer_dimensions missing required field(s): %s",
 			strings.Join(missing, ", "),
 		), nil
 	}
 	if *p.Confidence < 0 || *p.Confidence > 1 {
-		return nil, fmt.Sprintf("requested_answer_dimensions.confidence %.2f out of [0,1]", *p.Confidence), nil
+		return nil, nil, fmt.Sprintf("requested_answer_dimensions.confidence %.2f out of [0,1]", *p.Confidence), nil
 	}
 	if !*p.IsDimensionedAnswer {
-		return nil, "", nil
+		return nil, nil, "", nil
 	}
 	dimensions := make([]types.RequestedAnswerDimension, 0, len(p.Dimensions))
 	for _, dim := range p.Dimensions {
@@ -3432,7 +3433,8 @@ func parseRequestedAnswerDimensions(raw string, p *emitRequestedAnswerDimensions
 		Confidence:          *p.Confidence,
 		Rationale:           p.Rationale,
 	})
-	return profile, "", warnings
+	signals := types.CurrentSourceObligationSignalsFromRequestedDimensions(dimensions, profile)
+	return profile, signals, "", warnings
 }
 
 func parseCurrentSourceExplanationProfile(raw string, p *emitCurrentSourceExplanationParam) (*types.CurrentSourceExplanationProfile, string, []string) {
@@ -4528,6 +4530,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 		if encoded := encodeAnswerDimensionSummaryLabels(rm.RequestedAnswerDimensions.Dimensions); encoded != "" {
 			fmt.Fprintf(&b, " answer_dimensions=%s", encoded)
 		}
+	}
+	if len(rm.CurrentSourceObligationSignals) > 0 {
+		fmt.Fprintf(&b, " current_source_obligation_signals=%d", len(rm.CurrentSourceObligationSignals))
 	}
 	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
 		fmt.Fprintf(&b, " current_source_explanation=%d", len(rm.CurrentSourceExplanationProfile.Modes))

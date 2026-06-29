@@ -2,6 +2,7 @@ package types
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -73,6 +74,40 @@ type RequestedAnswerDimension struct {
 	SourceQuote string                       `json:"source_quote,omitempty"`
 	Required    bool                         `json:"required,omitempty"`
 	Index       int                          `json:"index,omitempty"`
+}
+
+// CurrentSourceObligationSignalKind records why a source-lane obligation had
+// to be preserved outside the soft presentation profile.
+type CurrentSourceObligationSignalKind string
+
+const (
+	CurrentSourceObligationSignalUnknown                   CurrentSourceObligationSignalKind = ""
+	CurrentSourceObligationSignalDroppedRequestedDimension CurrentSourceObligationSignalKind = "dropped_requested_dimension"
+)
+
+// CurrentSourceObligationSignal is a compact, typed routing/audit carrier for
+// current-source obligations that cannot be represented by a survived
+// RequestedAnswerDimension. It intentionally stores no free-form label or
+// rationale, so hard gates cannot grow prose/keyword dependencies.
+type CurrentSourceObligationSignal struct {
+	Kind  CurrentSourceObligationSignalKind `json:"kind,omitempty"`
+	Role  RequestedAnswerDimensionRole      `json:"role,omitempty"`
+	Index int                               `json:"index,omitempty"`
+}
+
+func (s CurrentSourceObligationSignal) Active() bool {
+	return s.Kind == CurrentSourceObligationSignalDroppedRequestedDimension &&
+		RequestedAnswerDimensionRoleCarriesCurrentSourceObligation(s.Role)
+}
+
+func RequestedAnswerDimensionRoleCarriesCurrentSourceObligation(role RequestedAnswerDimensionRole) bool {
+	switch role {
+	case RequestedAnswerDimensionCurrentKeyCode,
+		RequestedAnswerDimensionFunctionOrPurpose:
+		return true
+	default:
+		return false
+	}
 }
 
 // RequestedAnswerDimensionProfile is analyzer-emitted presentation guidance.
@@ -171,4 +206,61 @@ func NormalizeRequestedAnswerDimensionProfile(raw string, in *RequestedAnswerDim
 		Confidence:          confidence,
 		Rationale:           strings.TrimSpace(in.Rationale),
 	}, warnings
+}
+
+func CurrentSourceObligationSignalsFromRequestedDimensions(raw []RequestedAnswerDimension, normalized *RequestedAnswerDimensionProfile) []CurrentSourceObligationSignal {
+	if len(raw) == 0 {
+		return nil
+	}
+	var out []CurrentSourceObligationSignal
+	seen := map[string]struct{}{}
+	for _, dim := range raw {
+		role := dim.Role
+		if !role.IsValid() || role == RequestedAnswerDimensionUnknown {
+			role = RequestedAnswerDimensionOther
+		}
+		if !dim.Required || !RequestedAnswerDimensionRoleCarriesCurrentSourceObligation(role) {
+			continue
+		}
+		if requestedAnswerDimensionSurvivedNormalization(dim, role, normalized) {
+			continue
+		}
+		key := string(role) + "\x00" + normalizedDimensionIndexKey(dim.Index)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, CurrentSourceObligationSignal{
+			Kind:  CurrentSourceObligationSignalDroppedRequestedDimension,
+			Role:  role,
+			Index: dim.Index,
+		})
+	}
+	return out
+}
+
+func requestedAnswerDimensionSurvivedNormalization(raw RequestedAnswerDimension, role RequestedAnswerDimensionRole, normalized *RequestedAnswerDimensionProfile) bool {
+	if normalized == nil || !normalized.Active() {
+		return false
+	}
+	rawLabel := strings.TrimSpace(raw.Label)
+	for _, dim := range normalized.Dimensions {
+		if dim.Role != role {
+			continue
+		}
+		if raw.Index > 0 && dim.Index == raw.Index {
+			return true
+		}
+		if rawLabel != "" && strings.EqualFold(strings.TrimSpace(dim.Label), rawLabel) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizedDimensionIndexKey(index int) string {
+	if index <= 0 {
+		return ""
+	}
+	return strconv.Itoa(index)
 }

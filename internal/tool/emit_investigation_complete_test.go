@@ -1457,6 +1457,79 @@ func TestEmitInvestigationComplete_RequiredCurrentKeyCodeStillBlocksExternalOnly
 	}
 }
 
+func TestEmitInvestigationComplete_DroppedCurrentSourceObligationBlocksExternalOnlyWaiver(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}}},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+				Confidence:           0.95,
+			},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label:    "evidence boundary",
+					Role:     types.RequestedAnswerDimensionBoundary,
+					Required: true,
+					Index:    3,
+				}},
+				Confidence: 0.9,
+			},
+			CurrentSourceObligationSignals: []types.CurrentSourceObligationSignal{{
+				Kind:  types.CurrentSourceObligationSignalDroppedRequestedDimension,
+				Role:  types.RequestedAnswerDimensionCurrentKeyCode,
+				Index: 2,
+			}},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"runtime trace shows the observed span",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{
+			"reason":"external_only_trace",
+			"rationale":"the trace rows are external observations"
+		},
+		"aggregate_facts":[{
+			"kind":"behavior_outcome",
+			"label":"runtime outcome",
+			"value":"janky span",
+			"role":"principal_answer",
+			"dimensions":[{"name":"origin","value":"runtime_artifact"}]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("dropped-obligation downgrade should remain soft, got hard failure: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("dropped current-source obligation must not close through external-only waiver")
+	}
+	if !strings.Contains(res.Summary, "current-source") {
+		t.Fatalf("summary should point at current-source obligation, got: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_NormalizesNegativeObservationAliasPayload(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}

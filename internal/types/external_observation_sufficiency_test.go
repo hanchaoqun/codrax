@@ -122,6 +122,60 @@ func TestAssessExternalObservationSufficiency_BlockedByCurrentKeyCodeDimensionWi
 	}
 }
 
+func TestAssessExternalObservationSufficiency_BlockedByDroppedCurrentSourceObligationSignal(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		PerfBundle: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}},
+		},
+	})
+	rm := &RequestModel{
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:    "evidence boundary",
+				Role:     RequestedAnswerDimensionBoundary,
+				Required: true,
+				Index:    3,
+			}},
+			Confidence: 0.9,
+		},
+		CurrentSourceObligationSignals: []CurrentSourceObligationSignal{{
+			Kind:  CurrentSourceObligationSignalDroppedRequestedDimension,
+			Role:  RequestedAnswerDimensionCurrentKeyCode,
+			Index: 2,
+		}},
+	}
+	got := AssessExternalObservationSufficiency(ledger.Records, rm, TurnRouteHint{
+		Route:  "repo",
+		Source: "artifact",
+	})
+	if got.Status != ExternalObservationSufficiencyBlockedByCurrentSource {
+		t.Fatalf("dropped current-source obligation signal must block external-only sufficiency, got %+v", got)
+	}
+}
+
 func TestAssessExternalObservationSufficiency_BlockedByTypedSourceScope(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		PerfBundle: &PerfBundle{

@@ -1519,6 +1519,22 @@ func (rm RequestModel) HasTypedCurrentSourceScopeRequest() bool {
 	return rm.hasRequiredCurrentKeyCodeDimension()
 }
 
+// HasCurrentSourceObligationSignal reports that the analyzer emitted a typed
+// current-source/mechanism obligation that was later dropped from the soft
+// presentation profile. Runtime/log/trace gates may consume this as a source
+// lane obligation, but it carries no answer content and creates no citations.
+func (rm RequestModel) HasCurrentSourceObligationSignal() bool {
+	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
+	for _, signal := range rm.CurrentSourceObligationSignals {
+		if signal.Active() {
+			return true
+		}
+	}
+	return false
+}
+
 // CurrentSourceLaneDecision is the typed, non-prose decision used by hard
 // current-source gates. It separates "source analysis is allowed by default"
 // from "source evidence is required before completion"; external observations
@@ -1578,6 +1594,9 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 		return true
 	}
 	if rm.hasRequiredRuntimeCurrentSourceMechanismDimension() {
+		return true
+	}
+	if rm.HasCurrentSourceObligationSignal() {
 		return true
 	}
 	if rm.LogTriage != nil && len(rm.LogTriage.ResolvedFiles) > 0 {

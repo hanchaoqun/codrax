@@ -453,6 +453,91 @@ func TestEmitAnalysis_RequestedAnswerDimensionsSoftProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_DroppedRuntimeCurrentSourceDimensionsBecomeObligationSignals(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	objective := "请结合当前源码解释系统如何解析 trace span，并说明证据边界。"
+	mu := types.NewMutableState(objective)
+	mu.SetPerfTrace(&types.PerfBundle{
+		Observations: []types.PerfObservation{{
+			Kind:       "trace_mark",
+			Subject:    "H:RenderService:DoFrame",
+			Summary:    "runtime trace span is janky",
+			LineStart:  5,
+			LineEnd:    6,
+			DurationMs: 86.111,
+		}},
+	})
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "performance_bottleneck",
+		"complexity": "moderate",
+		"keywords": ["trace", "span", "source", "boundary"],
+		"entities": ["RenderService:DoFrame"],
+		"question_kind": "mechanism",
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": true
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": true,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.9
+		},
+		"external_observation_policy": {
+			"current_source_mode": "default",
+			"artifact_citation_mode": "external_only",
+			"confidence": 0.95
+		},
+		"requested_answer_dimensions": {
+			"is_dimensioned_answer": true,
+			"confidence": 0.9,
+			"dimensions": [
+				{"label": "trace 解析规则", "role": "function_or_purpose", "source_quote": "span 解析规则", "required": true, "index": 1},
+				{"label": "耗时判定逻辑", "role": "current_key_code", "source_quote": "帧预算阈值", "required": true, "index": 2},
+				{"label": "证据边界", "role": "boundary", "source_quote": "证据边界", "required": true, "index": 3}
+			]
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("runtime current-source dimensions should soft-normalize, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.RequestedAnswerDimensions == nil || len(rm.RequestedAnswerDimensions.Dimensions) != 1 ||
+		rm.RequestedAnswerDimensions.Dimensions[0].Role != types.RequestedAnswerDimensionBoundary {
+		t.Fatalf("only boundary display dimension should survive, got %+v", rm.RequestedAnswerDimensions)
+	}
+	if len(rm.CurrentSourceObligationSignals) != 2 {
+		t.Fatalf("current-source obligation signals=%d want 2: %+v", len(rm.CurrentSourceObligationSignals), rm.CurrentSourceObligationSignals)
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
+		t.Fatalf("dropped runtime current-source obligations should require source lane, got %s", got)
+	}
+	if !strings.Contains(res.Summary, "current_source_obligation_signals=2") {
+		t.Fatalf("summary should expose typed obligation signal count, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_CurrentSourceExplanationProfileSoftProfile(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

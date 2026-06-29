@@ -3522,6 +3522,9 @@ func runtimeArtifactCurrentSourceHardRequirement(ctx *types.BusContext) bool {
 	if requestModelHasRequiredCurrentKeyCodeDimension(rm) {
 		return true
 	}
+	if rm.HasCurrentSourceObligationSignal() {
+		return true
+	}
 	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
 		return true
 	}

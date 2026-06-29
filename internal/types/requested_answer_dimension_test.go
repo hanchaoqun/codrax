@@ -29,6 +29,55 @@ func TestNormalizeRequestedAnswerDimensionProfile_PreservesAnchoredDimensions(t 
 	}
 }
 
+func TestCurrentSourceObligationSignalsFromRequestedDimensions_RecordsDroppedSourceRoles(t *testing.T) {
+	raw := []RequestedAnswerDimension{
+		{Label: "parse rules", Role: RequestedAnswerDimensionFunctionOrPurpose, Required: true, Index: 1},
+		{Label: "current threshold code", Role: RequestedAnswerDimensionCurrentKeyCode, Required: true, Index: 2},
+		{Label: "evidence boundary", Role: RequestedAnswerDimensionBoundary, Required: true, Index: 3},
+	}
+	normalized := &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []RequestedAnswerDimension{{
+			Label:    "evidence boundary",
+			Role:     RequestedAnswerDimensionBoundary,
+			Required: true,
+			Index:    3,
+		}},
+		Confidence: 0.9,
+	}
+	signals := CurrentSourceObligationSignalsFromRequestedDimensions(raw, normalized)
+	if len(signals) != 2 {
+		t.Fatalf("signals=%d want 2: %+v", len(signals), signals)
+	}
+	if signals[0].Kind != CurrentSourceObligationSignalDroppedRequestedDimension ||
+		signals[0].Role != RequestedAnswerDimensionFunctionOrPurpose ||
+		signals[1].Role != RequestedAnswerDimensionCurrentKeyCode {
+		t.Fatalf("unexpected signals: %+v", signals)
+	}
+}
+
+func TestCurrentSourceObligationSignalsFromRequestedDimensions_SkipsSurvivedSourceRoles(t *testing.T) {
+	raw := []RequestedAnswerDimension{{
+		Label:    "current key code",
+		Role:     RequestedAnswerDimensionCurrentKeyCode,
+		Required: true,
+		Index:    2,
+	}}
+	normalized := &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []RequestedAnswerDimension{{
+			Label:    "current key code",
+			Role:     RequestedAnswerDimensionCurrentKeyCode,
+			Required: true,
+			Index:    2,
+		}},
+		Confidence: 0.9,
+	}
+	if signals := CurrentSourceObligationSignalsFromRequestedDimensions(raw, normalized); len(signals) != 0 {
+		t.Fatalf("survived dimension should not produce signal: %+v", signals)
+	}
+}
+
 func TestCompileAnswerPresentationContract_CarriesRequestedDimensions(t *testing.T) {
 	profile := &RequestedAnswerDimensionProfile{
 		IsDimensionedAnswer: true,

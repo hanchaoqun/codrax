@@ -894,6 +894,68 @@ func TestCurrentSourceLaneDecision_RuntimeMechanismDimensionRequiresSource(t *te
 	}
 }
 
+func TestCurrentSourceLaneDecision_DroppedRuntimeMechanismDimensionRequiresSource(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "H:RenderService:DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:    "evidence boundary",
+				Role:     RequestedAnswerDimensionBoundary,
+				Required: true,
+				Index:    3,
+			}},
+			Confidence: 0.9,
+		},
+		CurrentSourceObligationSignals: []CurrentSourceObligationSignal{{
+			Kind:  CurrentSourceObligationSignalDroppedRequestedDimension,
+			Role:  RequestedAnswerDimensionCurrentKeyCode,
+			Index: 2,
+		}},
+	}
+	if !rm.HasCurrentSourceObligationSignal() {
+		t.Fatal("dropped current-source dimension should expose typed obligation signal")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("dropped current-source obligation should require source lane, got %s", got)
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("dropped current-source obligation must not collapse into runtime-observation-only completion")
+	}
+
+	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
+		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
+		SourceQuotes:      []string{"explicit source exclusion"},
+		Confidence:        0.9,
+	}
+	if rm.HasCurrentSourceObligationSignal() {
+		t.Fatal("explicit typed current-source exclusion should suppress the obligation signal")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneExcluded {
+		t.Fatalf("explicit current-source exclusion should still win, got %s", got)
+	}
+}
+
 func TestHasBoundedCategoryEnumerationMembers_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Predicates: SemanticPredicates{IsCategoryEnumeration: true},

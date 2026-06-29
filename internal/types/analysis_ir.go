@@ -182,6 +182,14 @@ type RequestModel struct {
 	// content.
 	RequestedAnswerDimensions *RequestedAnswerDimensionProfile `json:"requested_answer_dimensions,omitempty"`
 
+	// CurrentSourceObligationSignals records source-lane obligations that were
+	// present in structured analyzer output but could not survive soft display
+	// profile provenance normalization. This prevents runtime/log/trace turns
+	// from collapsing to external-only completion just because a display label
+	// was dropped. The signal stores only typed role/reason metadata; raw user
+	// wording and model rationale are not consumed for hard routing.
+	CurrentSourceObligationSignals []CurrentSourceObligationSignal `json:"current_source_obligation_signals,omitempty"`
+
 	// CurrentSourceExplanationProfile is the analyzer LLM's soft typed lane
 	// for mixed external-observation + current-checkout questions. It says the
 	// answer should relate non-current evidence such as logs, traces, git,
