@@ -71,6 +71,71 @@ func TestRenderAnswerDocSourceInventoryHandoffUsesPrincipalRowSet(t *testing.T) 
 	}
 }
 
+func TestAnswerDocSourceInventoryAuthoritySnapshotHonorsAcceptedClosure(t *testing.T) {
+	mu := types.NewMutableState("source inventory accepted closure")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:     true,
+		Complete:   false,
+		Scopes:     []string{"src"},
+		Provenance: []string{"repo_lens:tool_query"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRolePackage,
+			Complete: false,
+			Count:    2,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "alpha",
+				Key:           "src/alpha",
+				SupportRef:    "src/alpha",
+				Provenance:    []string{"tool:list_files:direct"},
+				Role:          types.AnswerCandidateRolePackage,
+				File:          "src/alpha",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}, {
+				Name:          "beta",
+				Key:           "src/beta",
+				SupportRef:    "src/beta",
+				Provenance:    []string{"tool:list_files:direct"},
+				Role:          types.AnswerCandidateRolePackage,
+				File:          "src/beta",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "packages",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"alpha", "beta"},
+	}})
+	mu.SetInvestigationComplete("accepted exact package universe")
+	mu.SetInvestigationResultKind("resolved")
+
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeAuxiliary},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+				Confidence:        0.95,
+			},
+		}},
+	}
+
+	snapshot := answerDocSourceInventoryAuthoritySnapshot(ctx, types.SourceInventoryObservationFromMutable(mu))
+	if snapshot.NeedsFollowup || snapshot.CompletionAuthority.Blocking {
+		t.Fatalf("accepted exact closure should suppress finalizer follow-up debt: %+v", snapshot)
+	}
+	if snapshot.CompletionAuthority.ReasonCode != types.SourceInventoryCompletionReasonAcceptedExactUniverse {
+		t.Fatalf("completion reason = %q, want %q", snapshot.CompletionAuthority.ReasonCode, types.SourceInventoryCompletionReasonAcceptedExactUniverse)
+	}
+}
+
 func TestRenderAnswerDocSourceInventoryHandoffRendersRowLocalPackageAttribute(t *testing.T) {
 	mu := types.NewMutableState("list cangjie declarations and packages")
 	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{

@@ -4005,14 +4005,22 @@ func answerDocSourceInventoryAuthoritySnapshot(ctx *types.AgentContext, observat
 		existing = ctx.Mutable.StableInvestigationAggregateFacts()
 	}
 	required = ctx.AnalysisIR.EvidencePlan.RequiredFiles
+	busCtx := &types.BusContext{
+		RepoRoot:   ctx.RepoRoot,
+		Mutable:    ctx.Mutable,
+		AnalysisIR: ctx.AnalysisIR,
+		MultiGraph: ctx.MultiGraph,
+	}
 	snapshot := types.BuildSourceInventoryAuthoritySnapshot(types.SourceInventoryAuthoritySnapshotInput{
-		Observation:            observation,
-		RequestModel:           ctx.AnalysisIR.RequestModel,
-		ExistingAggregateFacts: existing,
-		RequiredFiles:          required,
-		MaxPrincipalRows:       36,
-		MaxSupportRows:         8,
-		MaxAuditRows:           4,
+		Observation:               observation,
+		RequestModel:              ctx.AnalysisIR.RequestModel,
+		ExistingAggregateFacts:    existing,
+		AcceptedExactUniverse:     tool.SourceInventoryAcceptedClosureCoversExactUniverse(busCtx, existing),
+		AcceptedRequestedUniverse: tool.SourceInventoryAcceptedClosureCoversRequestedUniverse(busCtx, existing),
+		RequiredFiles:             required,
+		MaxPrincipalRows:          36,
+		MaxSupportRows:            8,
+		MaxAuditRows:              4,
 	})
 	return types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
 }
