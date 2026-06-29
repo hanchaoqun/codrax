@@ -7005,13 +7005,23 @@ func (e *explorerEvaluator) sourceInventoryAuthoritySnapshot(ctx *types.AgentCon
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
 		return types.SourceInventoryAuthoritySnapshot{}
 	}
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	busCtx := &types.BusContext{
+		RepoRoot:   ctx.RepoRoot,
+		Mutable:    ctx.Mutable,
+		AnalysisIR: ctx.AnalysisIR,
+		MultiGraph: ctx.MultiGraph,
+	}
 	snapshot := types.BuildSourceInventoryAuthoritySnapshot(types.SourceInventoryAuthoritySnapshotInput{
-		Observation:      types.SourceInventoryObservationFromMutable(ctx.Mutable),
-		RequestModel:     ctx.AnalysisIR.RequestModel,
-		RequiredFiles:    ctx.AnalysisIR.EvidencePlan.RequiredFiles,
-		MaxPrincipalRows: 32,
-		MaxSupportRows:   16,
-		MaxAuditRows:     8,
+		Observation:               types.SourceInventoryObservationFromMutable(ctx.Mutable),
+		RequestModel:              ctx.AnalysisIR.RequestModel,
+		ExistingAggregateFacts:    facts,
+		AcceptedExactUniverse:     tool.SourceInventoryAcceptedClosureCoversExactUniverse(busCtx, facts),
+		AcceptedRequestedUniverse: tool.SourceInventoryAcceptedClosureCoversRequestedUniverse(busCtx, facts),
+		RequiredFiles:             ctx.AnalysisIR.EvidencePlan.RequiredFiles,
+		MaxPrincipalRows:          32,
+		MaxSupportRows:            16,
+		MaxAuditRows:              8,
 	})
 	if debt := types.NormalizeSourceInventoryFollowupDebt(ctx.SourceInventoryFollowupDebt); debt.IsActive() {
 		snapshot.FollowupDebt = debt

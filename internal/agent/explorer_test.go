@@ -4576,6 +4576,81 @@ func TestExplorer_FilterToolSchemas_SourceInventoryMechanicalLandingWaitsForMiss
 	}
 }
 
+func TestExplorer_FilterToolSchemas_SourceInventoryAcceptedRequestedUniverseSuppressesStaleBroadDebt(t *testing.T) {
+	eval := &explorerEvaluator{sourceInventoryLensSurfaceReleased: true}
+	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(false)
+	ctx.ExploreToolSurface = types.ExploreToolSurfaceSourceInventoryLens
+	obs := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	obs.Complete = false
+	obs.Execution = &types.SourceInventoryExecutionState{CandidateBudgetTruncated: true}
+	obs.Page = &types.SourceInventoryObservationPage{Offset: 0, Emitted: 3, Total: 128, NextCursor: "3", Complete: false}
+	obs.SourceClasses = append(obs.SourceClasses, types.SourceInventorySourceClassCount{
+		Role:     types.SourcePathRoleThirdParty,
+		Count:    1,
+		Complete: true,
+		Languages: []types.SourceInventoryLanguageCount{{
+			Language: "python",
+			Count:    1,
+			InScope:  true,
+			Samples:  []string{"internal/thirdparty/pkg/entry.py"},
+		}},
+		Samples: []string{"internal/thirdparty/pkg/entry.py"},
+	})
+	obs.Sets[0].Members = append(obs.Sets[0].Members, types.SourceInventoryObservationMember{
+		Name:          "VendorEntry",
+		Key:           "VendorEntry",
+		SupportRef:    "VendorEntry: internal/thirdparty/pkg/entry.py:3",
+		Provenance:    []string{"repo_lens:direct_children"},
+		Role:          types.AnswerCandidateRoleFunction,
+		File:          "internal/thirdparty/pkg/entry.py",
+		Line:          3,
+		Language:      "python",
+		CoverageState: types.SourceInventoryCoverageObserved,
+	})
+	obs.Sets[0].Count = len(obs.Sets[0].Members)
+	obs.Sets[0].Total = len(obs.Sets[0].Members)
+	ctx.Mutable.SetSourceInventoryObservation(obs)
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "requested functions",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Run", "Serve", "VendorEntry"},
+		SupportRefs: []string{
+			"Run: src/run.py:7",
+			"Serve: src/serve.py:12",
+			"VendorEntry: internal/thirdparty/pkg/entry.py:3",
+		},
+	}})
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	bus := &types.BusContext{RepoRoot: ctx.RepoRoot, Mutable: ctx.Mutable, AnalysisIR: ctx.AnalysisIR}
+	if !tool.SourceInventoryAcceptedClosureCoversRequestedUniverse(bus, facts) {
+		auth := tool.BuildSourceInventoryAnswerPreEmitAuthority(bus, facts)
+		t.Fatalf("test fixture should prove accepted requested universe; reason_codes=%v accepted_exact=%v accepted_requested=%v best_gap=%+v", auth.ReasonCodes, auth.AcceptedExactUniverse, auth.AcceptedRequestedUniverse, auth.BestUniverseGap)
+	}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "exec_command"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_investigation_complete" {
+		t.Fatalf("accepted requested universe should suppress stale broad inventory debt and land completion, got %v", gotNames)
+	}
+	blocked := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"internal/thirdparty/pkg/entry.py"}`)})
+	if blocked == nil || blocked.Success {
+		t.Fatalf("accepted requested universe should keep completion-only surface, got %+v", blocked)
+	}
+	if !strings.Contains(blocked.Summary, "typed source_inventory row-set already covers") {
+		t.Fatalf("completion-only rejection should explain accepted typed row-set, got %q", blocked.Summary)
+	}
+}
+
 func TestExplorer_FilterToolSchemas_SourceInventoryMechanicalLandingWaitsForUncoveredRequiredFile(t *testing.T) {
 	eval := &explorerEvaluator{sourceInventoryLensSurfaceReleased: true}
 	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(false)
@@ -5333,7 +5408,13 @@ func sourceInventoryMechanicalLandingContextForExplorerTest(withSummary bool) *t
 			Role:     types.SourcePathRoleProduction,
 			Count:    2,
 			Complete: true,
-			Samples:  []string{"src/run.py", "src/serve.py"},
+			Languages: []types.SourceInventoryLanguageCount{{
+				Language: "python",
+				Count:    2,
+				InScope:  true,
+				Samples:  []string{"src/run.py", "src/serve.py"},
+			}},
+			Samples: []string{"src/run.py", "src/serve.py"},
 		}},
 		Sets: []types.SourceInventoryObservationSet{{
 			Role:     types.AnswerCandidateRoleFunction,
@@ -5342,6 +5423,9 @@ func sourceInventoryMechanicalLandingContextForExplorerTest(withSummary bool) *t
 			Total:    2,
 			Members: []types.SourceInventoryObservationMember{{
 				Name:          "Run",
+				Key:           "Run",
+				SupportRef:    "Run: src/run.py:7",
+				Provenance:    []string{"repo_lens:direct_children"},
 				Role:          types.AnswerCandidateRoleFunction,
 				File:          "src/run.py",
 				Line:          7,
@@ -5357,6 +5441,9 @@ func sourceInventoryMechanicalLandingContextForExplorerTest(withSummary bool) *t
 				}},
 			}, {
 				Name:          "Serve",
+				Key:           "Serve",
+				SupportRef:    "Serve: src/serve.py:12",
+				Provenance:    []string{"repo_lens:direct_children"},
 				Role:          types.AnswerCandidateRoleFunction,
 				File:          "src/serve.py",
 				Line:          12,
