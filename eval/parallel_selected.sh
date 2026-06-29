@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+#
+# Run an explicit eval case list with bounded concurrency.
+#
+# Usage:
+#   PARALLEL=2 TIMEOUT=1200 bash eval/parallel_selected.sh \
+#     eval/cases/harmony/cangjie_repomap.case \
+#     eval/cases/qf_relation_subagent_registry.case
+#
+# This is the operator-safe path for representative batches. It reuses
+# runner_lib.sh timeout/process-group cleanup and snapshots ./codrax once,
+# avoiding host-specific timeout(1) commands and ad-hoc shell job control.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=eval/runner_lib.sh
+source "$SCRIPT_DIR/runner_lib.sh"
+
+if [[ $# -lt 1 ]]; then
+  echo "usage: $0 <case-file> [<case-file> ...]" >&2
+  exit 2
+fi
+
+PARALLEL="${PARALLEL:-2}"
+TIMEOUT="${TIMEOUT:-1200}"
+RESULTS_ROOT="${EVAL_RESULTS_ROOT:-eval/results}"
+SWEEP_START="$(date +%Y%m%d-%H%M%S)"
+SUMMARY="${EVAL_SELECTED_SUMMARY:-eval/parallel_selected_summary.md}"
+TOTAL="$#"
+
+case "$PARALLEL" in
+  ""|*[!0-9]*)
+    echo "PARALLEL must be a positive integer" >&2
+    exit 2
+    ;;
+esac
+if [[ "$PARALLEL" -lt 1 ]]; then
+  echo "PARALLEL must be >= 1" >&2
+  exit 2
+fi
+
+case "$TIMEOUT" in
+  ""|*[!0-9]*)
+    echo "TIMEOUT must be a positive integer" >&2
+    exit 2
+    ;;
+esac
+if [[ "$TIMEOUT" -lt 1 ]]; then
+  echo "TIMEOUT must be >= 1" >&2
+  exit 2
+fi
+
+for case_file in "$@"; do
+  if [[ ! -f "$case_file" ]]; then
+    echo "case file not found: $case_file" >&2
+    exit 2
+  fi
+done
+
+SWEEP_BIN="./.codrax-selected-${SWEEP_START}"
+cleanup() {
+  local pids
+  pids="$(jobs -pr || true)"
+  if [[ -n "$pids" ]]; then
+    # shellcheck disable=SC2086
+    kill $pids 2>/dev/null || true
+    sleep 1
+    pids="$(jobs -pr || true)"
+    if [[ -n "$pids" ]]; then
+      # shellcheck disable=SC2086
+      kill -9 $pids 2>/dev/null || true
+    fi
+  fi
+  rm -f "$SWEEP_BIN"
+}
+on_signal() {
+  local rc="$1"
+  cleanup
+  exit "$rc"
+}
+trap cleanup EXIT
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
+
+if [[ -x "./codrax" ]]; then
+  if cp ./codrax "$SWEEP_BIN" 2>/dev/null; then
+    chmod +x "$SWEEP_BIN" 2>/dev/null || true
+    export CODRAX_BIN="$SWEEP_BIN"
+    echo "[$(date +%H:%M:%S)] selected eval binary snapshot: $SWEEP_BIN" >&2
+  fi
+fi
+
+echo "# Selected parallel eval sweep" >"$SUMMARY"
+echo "" >>"$SUMMARY"
+echo "- date: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$SUMMARY"
+echo "- sweep_start_ts: $SWEEP_START" >>"$SUMMARY"
+echo "- total cases: $TOTAL" >>"$SUMMARY"
+echo "- parallel: $PARALLEL" >>"$SUMMARY"
+echo "- timeout: ${TIMEOUT}s per case" >>"$SUMMARY"
+echo "- results_root: $RESULTS_ROOT" >>"$SUMMARY"
+echo "" >>"$SUMMARY"
+echo "| # | case | verdict | reason | sec | ana | exp | ext | fin | repair | rejects | patch | sem | self | result_dir |" >>"$SUMMARY"
+echo "|--:|------|---------|--------|----:|----:|----:|----:|----:|-------:|--------:|------:|----:|-----:|------------|" >>"$SUMMARY"
+
+eval_selected_wait_for_slot() {
+  while [[ "$(jobs -pr | wc -l | tr -d ' ')" -ge "$PARALLEL" ]]; do
+    sleep 1
+  done
+}
+
+eval_selected_run_one() {
+  local idx="$1"
+  local case_file="$2"
+  local case_id start_ts end_ts elapsed rc dir verdict reason metrics log analyzer explorer extractor finalizer repair rejects patches sem self
+  case_id="$(basename "$case_file" .case)"
+  start_ts="$(date +%s)"
+  echo "[$(date +%H:%M:%S)] [$idx/$TOTAL] start $case_id" >&2
+  eval_run_with_timeout "$TIMEOUT" bash eval/run.sh "$case_file" 1 >/dev/null 2>&1
+  rc=$?
+  end_ts="$(date +%s)"
+  elapsed=$((end_ts - start_ts))
+  dir="$(eval_latest_result_dir "$RESULTS_ROOT" "$case_id" "$SWEEP_START" 2>/dev/null || true)"
+  if [[ -n "$dir" && ( "$rc" -ne 0 || ! -f "$dir/run-1.metrics.txt" || ! -f "$dir/run-1.verdict" ) ]]; then
+    eval_materialize_partial_run_result "$dir" 1 "$rc" "$elapsed" "selected_eval_worker_incomplete"
+  fi
+  verdict="UNKNOWN"
+  reason="-"
+  if [[ -n "$dir" && -f "$dir/run-1.verdict" ]]; then
+    local first_line
+    first_line="$(head -1 "$dir/run-1.verdict")"
+    verdict="$(echo "$first_line" | awk '{print $1}')"
+    reason="$(echo "$first_line" | cut -d' ' -f2- | head -c 120)"
+    if [[ -z "$reason" || "$reason" == "$verdict" ]]; then
+      reason="-"
+    fi
+  fi
+  if [[ "$rc" -eq 124 ]]; then
+    verdict="TIMEOUT"
+    reason="exceeded ${TIMEOUT}s wall-time"
+  elif [[ -z "$dir" ]]; then
+    verdict="LAUNCH_FAIL"
+    reason="no fresh result dir produced"
+  fi
+  metrics="$dir/run-1.metrics.txt"
+  log=""
+  if [[ -n "$dir" ]]; then
+    log="$(ls -t "$dir"/run-1.logs/codrax-*.log 2>/dev/null | head -1)"
+  fi
+  analyzer="$(eval_metric_field "$metrics" analyzer_dispatches)"
+  explorer="$(eval_metric_field "$metrics" explorer_dispatches)"
+  extractor="$(eval_metric_field "$metrics" extractor_dispatches)"
+  finalizer="$(eval_metric_field "$metrics" finalizer_dispatches)"
+  repair="$(eval_metric_field "$metrics" repair_plan_lines)"
+  rejects="$(eval_count_finalizer_rejects "$log")"
+  patches="$(eval_count_answer_document_patch_calls "$log")"
+  sem="$(eval_count_semantic_quality_concerns "$log")"
+  self="$(eval_count_self_consistency_concerns "$log")"
+  printf "| %d | %s | %s | %s | %ds | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n" \
+    "$idx" "$case_id" "$verdict" "$reason" "$elapsed" \
+    "$analyzer" "$explorer" "$extractor" "$finalizer" "$repair" "$rejects" "$patches" "$sem" "$self" "$dir" >>"$SUMMARY"
+  echo "[$(date +%H:%M:%S)] [$idx/$TOTAL] done $case_id -> $verdict (${elapsed}s)" >&2
+}
+
+idx=0
+for case_file in "$@"; do
+  idx=$((idx + 1))
+  eval_selected_wait_for_slot
+  eval_selected_run_one "$idx" "$case_file" &
+done
+wait
+
+pass_count="$(grep -c '| PASS |' "$SUMMARY" || true)"
+fail_count="$(grep -cE '\| FAIL |\| TIMEOUT |\| LAUNCH_FAIL ' "$SUMMARY" || true)"
+echo "" >>"$SUMMARY"
+echo "**Pass: $pass_count / $TOTAL — Fail/Timeout/LaunchFail: $fail_count**" >>"$SUMMARY"
+echo "[$(date +%H:%M:%S)] selected sweep complete — pass=$pass_count fail=$fail_count of $TOTAL" >&2

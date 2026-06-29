@@ -30,6 +30,23 @@ def kill_group(sig):
     except ProcessLookupError:
         pass
 
+def terminate(signum, _frame):
+    kill_group(signal.SIGTERM)
+    grace_deadline = time.time() + 10
+    while True:
+        rc = p.poll()
+        if rc is not None:
+            sys.exit(128 + signum)
+        if time.time() >= grace_deadline:
+            break
+        time.sleep(min(0.25, max(0.0, grace_deadline - time.time())))
+    kill_group(signal.SIGKILL)
+    p.wait()
+    sys.exit(128 + signum)
+
+signal.signal(signal.SIGTERM, terminate)
+signal.signal(signal.SIGINT, terminate)
+
 try:
     while True:
         rc = p.poll()
