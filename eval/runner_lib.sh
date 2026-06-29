@@ -176,6 +176,64 @@ eval_metric_budget_reasons() {
   done
 }
 
+eval_case_oracle_surface() {
+  local file="$1"
+  local surfaces=""
+
+  eval_case_oracle_surface_add() {
+    local item="$1"
+    if [[ -z "$surfaces" ]]; then
+      surfaces="$item"
+    else
+      surfaces="${surfaces},${item}"
+    fi
+  }
+
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo "unknown"
+    return 0
+  fi
+
+  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_INVENTORY_ROWSETS=' "$file"; then
+    eval_case_oracle_surface_add "typed_inventory_rowset"
+  fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_DIMENSIONS=' "$file"; then
+    eval_case_oracle_surface_add "dimension_substring"
+  fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_LOG_MATCHES_REGEX=' "$file"; then
+    eval_case_oracle_surface_add "log_regex"
+  fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*(HTRACE|HTRACE_FILE)=' "$file"; then
+    eval_case_oracle_surface_add "trace_attachment"
+  fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*(LOG|LOG_FILE)=' "$file"; then
+    eval_case_oracle_surface_add "log_attachment"
+  fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*MODE=["'\'']?apply' "$file"; then
+    eval_case_oracle_surface_add "write_apply"
+  fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*MODE=["'\'']?plan' "$file"; then
+    eval_case_oracle_surface_add "write_plan"
+  fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*(PLAN_EXPECT_REGEX|POST_APPLY_FILE|EXPECT_MATCHES_REGEX)=' "$file"; then
+    eval_case_oracle_surface_add "write_patch_oracle"
+  fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_REGEX=' "$file"; then
+    eval_case_oracle_surface_add "answer_regex"
+  fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_CONTAINS=' "$file"; then
+    eval_case_oracle_surface_add "answer_contains"
+  fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*MAX_[A-Z0-9_]+=' "$file"; then
+    eval_case_oracle_surface_add "metric_hard_budget"
+  fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*ADVISORY_MAX_[A-Z0-9_]+=' "$file"; then
+    eval_case_oracle_surface_add "metric_advisory_budget"
+  fi
+
+  echo "${surfaces:-basic_output}"
+}
+
 eval_count_pattern() {
   local pattern="$1"
   local file="$2"

@@ -146,6 +146,28 @@ assert_eq "$metric_row" "| 1 | high_analyzer_dispatches | analyzer_dispatches=2 
 assert_eq "$(eval_print_efficiency_advisory_row "$tmp/metrics.txt" 1 high_analyzer_dispatches analyzer_dispatches 2 || true)" "" "metric advisory row under limit"
 assert_eq "$(eval_metric_budget_reasons "$tmp/metrics.txt" analyzer_dispatches 1 finalizer_dispatches 10)" "perf_budget:analyzer_dispatches:2>1" "metric budget reason"
 
+cat >"$tmp/oracle-surface.case" <<'CASE'
+ID="oracle_surface"
+MODE="apply"
+QUESTION="oracle surface smoke"
+HTRACE="# tracer"
+EXPECT_CONTAINS="answer"
+EXPECT_DIMENSIONS="package"
+EXPECT_INVENTORY_ROWSETS="package"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
+MAX_TOOL_READ_FILE=4
+ADVISORY_MAX_MIDLOOP_INJECT=2
+POST_APPLY_FILE="src/main.py"
+CASE
+assert_eq "$(eval_case_oracle_surface "$tmp/oracle-surface.case")" "typed_inventory_rowset,dimension_substring,log_regex,trace_attachment,write_apply,write_patch_oracle,answer_contains,metric_hard_budget,metric_advisory_budget" "case oracle surface classification"
+
+cat >"$tmp/oracle-basic.case" <<'CASE'
+ID="oracle_basic"
+QUESTION="basic smoke"
+CASE
+assert_eq "$(eval_case_oracle_surface "$tmp/oracle-basic.case")" "basic_output" "case oracle surface basic fallback"
+assert_eq "$(eval_case_oracle_surface "$tmp/missing.case")" "unknown" "case oracle surface missing file"
+
 printf 'one\nreject\000\nreject\n' >"$tmp/log.txt"
 assert_eq "$(eval_count_pattern 'reject' "$tmp/log.txt")" "2" "pattern count"
 assert_eq "$(eval_count_pattern 'reject$' "$tmp/log.txt")" "2" "pattern count with NUL line"
