@@ -3790,6 +3790,94 @@ func TestNormalizePrincipalEnumerationRowBlocks_PrunesWrongLocationAndExtraSameF
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_NormalizesAdjacentSectionCount(t *testing.T) {
+	mu := types.NewMutableState("列出 foreign func")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "source inventory principal rows",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members: []string{
+			"native_add",
+			"native_add",
+		},
+		SupportRefs: []string{
+			"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+		MemberNotes: []string{
+			"surface=foreign func foreign func native_add; package=demo.bridge",
+			"surface=foreign func foreign func native_add; package=demo.ffi",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				SourceQuotes:      []string{"foreign func"},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6, Quote: "foreign func native_add(a: Int64, b: Int64): Int64"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6, Quote: "foreign func native_add(a: Int64, b: Int64): Int64"},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 16, Quote: "public func runOnMainThread(callback: () -> Unit): Unit {"},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "foreign-section",
+				Kind:        types.BlockSection,
+				Title:       "foreign func 声明",
+				Text:        "共 3 个 foreign func 声明，均为 native_add 或 runOnMainThread 的外部函数绑定。",
+				SurfaceRole: types.SurfacePrincipal,
+			},
+			{
+				ID:          "foreign-list",
+				Kind:        types.BlockOrderedList,
+				Title:       "foreign func 声明",
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{string(types.FacetEnumerationItem)},
+				Items: []types.AnswerBlockItem{
+					{ID: "ff-bridge", Label: "native_add", Text: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6，package demo.bridge", CitationRef: 0},
+					{ID: "ff-ffi", Label: "native_add", Text: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6，package demo.ffi", CitationRef: 1},
+					{ID: "ff-extra", Label: "runOnMainThread", Text: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:16，package demo.ffi", CitationRef: 2},
+				},
+			},
+		},
+	}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatalf("expected adjacent section/list count normalization")
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, notWant := range []string{"runOnMainThread", "共 3 个", "foreign func 声明共 3"} {
+		if strings.Contains(visible, notWant) {
+			t.Fatalf("stale item/count leaked into visible answer:\n%s", visible)
+		}
+	}
+	for _, want := range []string{"foreign func 声明（2）", "foreign func 声明共 2 项", "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("missing normalized section/list surface %q:\n%s", want, visible)
+		}
+	}
+}
+
 func enumEvidence(id, symbol, source string, line int, summary string) types.EvidenceItem {
 	return types.EvidenceItem{
 		ID:              id,

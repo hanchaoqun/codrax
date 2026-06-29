@@ -2496,10 +2496,16 @@ func normalizePrincipalEnumerationSectionBlocks(doc *types.AnswerDocumentV2, set
 		}
 	}
 	if bestIdx < 0 {
+		bestIdx = principalEnumerationAdjacentSectionBlockIndex(doc, set)
+	}
+	if bestIdx < 0 {
 		return 0
 	}
 	changed := 0
 	block := &doc.Blocks[bestIdx]
+	if !principalEnumerationSectionBlockIsGeneratedShell(*block, set, title, text) {
+		title, text = principalEnumerationAdjacentSectionTitleText(*block, set)
+	}
 	if block.Text != text {
 		block.Text = text
 		changed++
@@ -2516,6 +2522,85 @@ func normalizePrincipalEnumerationSectionBlocks(doc *types.AnswerDocumentV2, set
 		changed += removed
 	}
 	return changed
+}
+
+func principalEnumerationAdjacentSectionTitleText(block types.AnswerBlock, set types.EnumerationDisplaySet) (string, string) {
+	label := strings.TrimSpace(stripPrincipalEnumerationParentheticalQualifiers(block.Title))
+	if label == "" {
+		label = strings.TrimSpace(set.Label)
+	}
+	if label == "" {
+		label = "成员清单"
+	}
+	return fmt.Sprintf("%s（%d）", label, len(set.Rows)),
+		fmt.Sprintf("%s共 %d 项；完整成员、定义位置和说明见对应表格。", label, len(set.Rows))
+}
+
+func principalEnumerationAdjacentSectionBlockIndex(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) int {
+	if doc == nil || len(set.Rows) == 0 {
+		return -1
+	}
+	for i := range doc.Blocks {
+		if !principalEnumerationSectionBlockCanSummarizeAdjacentCarrier(doc.Blocks[i], set) {
+			continue
+		}
+		if principalEnumerationSectionHasAdjacentCarrier(doc, i, set) {
+			return i
+		}
+	}
+	return -1
+}
+
+func principalEnumerationSectionBlockCanSummarizeAdjacentCarrier(block types.AnswerBlock, set types.EnumerationDisplaySet) bool {
+	if block.Kind != types.BlockSection || len(block.Items) > 0 || len(block.Columns) > 0 || block.Diagram != nil {
+		return false
+	}
+	return true
+}
+
+func principalEnumerationSectionHasAdjacentCarrier(doc *types.AnswerDocumentV2, idx int, set types.EnumerationDisplaySet) bool {
+	section := doc.Blocks[idx]
+	for i := idx + 1; i < len(doc.Blocks); i++ {
+		block := doc.Blocks[i]
+		if principalEnumerationBlockCanCarryRows(block) {
+			return principalEnumerationBlockCoversAnyRow(block, doc, set) &&
+				principalEnumerationSectionTitleMatchesSetOrCarrier(section.Title, set, block)
+		}
+		if strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) == "" {
+			continue
+		}
+		return false
+	}
+	return false
+}
+
+func principalEnumerationSectionTitleMatchesSetOrCarrier(title string, set types.EnumerationDisplaySet, carrier types.AnswerBlock) bool {
+	if principalEnumerationSetLabelMatchScore(title, set) >= 35 ||
+		principalEnumerationSectionTitleMatchesTypedSurface(title, set) {
+		return true
+	}
+	titleKey := principalEnumerationLabelKey(title)
+	carrierKey := principalEnumerationLabelKey(carrier.Title)
+	return titleKey != "" && carrierKey != "" && titleKey == carrierKey
+}
+
+func principalEnumerationSectionTitleMatchesTypedSurface(title string, set types.EnumerationDisplaySet) bool {
+	titleKey := principalEnumerationLabelKey(title)
+	if titleKey == "" {
+		return false
+	}
+	for _, row := range set.Rows {
+		for _, term := range row.SurfaceTerms {
+			termKey := principalEnumerationLabelKey(term)
+			if termKey == "" {
+				continue
+			}
+			if strings.Contains(titleKey, termKey) || strings.Contains(termKey, titleKey) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func removeRedundantPrincipalEnumerationSectionBlocks(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet, title, text string, keepIdx int) int {
