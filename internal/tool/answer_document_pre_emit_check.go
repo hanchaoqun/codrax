@@ -4398,13 +4398,8 @@ func preCheckSourceInventoryCandidateUniverseCoverage(doc *types.AnswerDocumentV
 		return nil
 	}
 	facts := preEmitStableAggregateFacts(ctx)
-	gap := SourceInventoryCandidateUniverseCoverageGap(ctx, facts)
-	if duplicate := SourceInventoryObservedDuplicateLocationCoverageGap(ctx, facts); sourceInventoryCandidateUniverseGapBetter(duplicate, gap) {
-		gap = duplicate
-	}
-	if surfaceFamily := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, facts); sourceInventoryCandidateUniverseGapBetter(surfaceFamily, gap) {
-		gap = surfaceFamily
-	}
+	authority := BuildSourceInventoryAnswerPreEmitAuthority(ctx, facts)
+	gap := authority.BestUniverseGap
 	if !gap.Blocking {
 		return nil
 	}
@@ -6189,11 +6184,8 @@ func preCheckSourceInventoryExactAbsenceBound(ctxOpt ...*types.BusContext) (stri
 		return "", false
 	}
 	ctx := ctxOpt[0]
-	return SourceInventoryExactAbsenceNeedsInventoryProofRepoTruth(
-		ctx,
-		ctx.AnalysisIR.RequestModel.SourceInventoryProfile,
-		types.SourceInventoryObservationFromMutable(ctx.Mutable),
-	)
+	authority := BuildSourceInventoryAnswerPreEmitAuthority(ctx, preEmitStableAggregateFacts(ctx))
+	return authority.ExactAbsenceSummary, authority.ExactAbsenceBlocking
 }
 
 func preEmitBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemanticView) []types.ClaimForm {
