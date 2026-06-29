@@ -621,6 +621,7 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 	caution := renderAnalyzerOverviewPrescanCaution(graph, objective)
 
 	var view, output, header string
+	navGuidance := skill.AnalysisRepoMapFirstPrescanGuidance()
 	if len(entities) > 0 {
 		// Query-directed: show files/symbols relevant to the entities.
 		view = "task_map"
@@ -631,7 +632,7 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 		header = fmt.Sprintf("## Repository overview (pre-computed for entities: %s)\n\n"+
 			"The following task_map shows files and symbols matching the entities from the user's question. "+
 			"Use this to inform your entity/keyword choices and pre-scan targets. "+
-			"If one more lightweight check is needed, use repo_map overview/task_map/file_map, grep(files_only=true), or list_files; use repo_map(view=\"source_inventory\") only as one bounded member-inventory navigation pass, and use repo_map(view=\"relation_map\") only for a narrow already-named source/scope relation orientation. "+
+			navGuidance+" "+
 			"After any successful source_inventory navigation pass, call emit_analysis and encode the inventory request in source_inventory_profile; do not page rows, read source content, or treat navigation rows as proof in this classification step.\n\n",
 			strings.Join(entities, ", "))
 	} else {
@@ -641,7 +642,7 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 		header = "## Repository overview (pre-computed, no tool call needed)\n\n" +
 			"The following overview shows the repository structure. " +
 			"Use this to orient your entity/keyword choices and pre-scan targets. " +
-			"If one more lightweight check is needed, use repo_map overview/task_map/file_map, grep(files_only=true), or list_files; use repo_map(view=\"source_inventory\") only as one bounded member-inventory navigation pass, and use repo_map(view=\"relation_map\") only for a narrow already-named source/scope relation orientation. " +
+			navGuidance + " " +
 			"After any successful source_inventory navigation pass, call emit_analysis and encode the inventory request in source_inventory_profile; do not page rows, read source content, or treat navigation rows as proof in this classification step.\n\n"
 	}
 
@@ -713,7 +714,9 @@ func buildMultiScopeRepoOverview(ctx *types.AgentContext, objective string, scop
 	}
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("## Repository overview (pre-computed for sub-repo scopes: %s)\n\n", strings.Join(scopes, ", ")))
-	b.WriteString("The following per-sub-repo task_map shows files and symbols matching the question for each named sub-repo. Use this to inform your sub-topic decomposition and pre-scan targets. You may still call repo_map, grep, or list_files for additional verification.\n\n")
+	b.WriteString("The following per-sub-repo task_map shows files and symbols matching the question for each named sub-repo. Use this to inform your sub-topic decomposition and pre-scan targets. ")
+	b.WriteString(skill.AnalysisRepoMapFirstPrescanGuidance())
+	b.WriteString("\n\n")
 	if header := renderMultiRepoOverviewHeader(mg, ctx.PendingSubRepos); header != "" {
 		b.WriteString(header)
 		b.WriteString("\n")

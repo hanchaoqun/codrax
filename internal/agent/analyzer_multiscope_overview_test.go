@@ -143,6 +143,14 @@ func TestBuildMultiScopeRepoOverview_RendersPerScope(t *testing.T) {
 	if !strings.Contains(out, "# Task Map: opencode") {
 		t.Errorf("missing opencode task_map section; got:\n%s", out)
 	}
+	for _, want := range []string{
+		"start with `repo_map` as the navigation pass",
+		"use `list_files` only when a concrete directory/scope is already known",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("multi-scope analyzer overview must use shared repo-map-first guidance; missing %q in:\n%s", want, out)
+		}
+	}
 }
 
 func TestBuildMultiScopeRepoOverview_BudgetSplit(t *testing.T) {

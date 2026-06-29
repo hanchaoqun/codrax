@@ -824,9 +824,10 @@ func TestAnalysisSkill_PromptTeachesRepoMapFirstForStructuralLocationPrescan(t *
 	sk := skill.BuildAnalysisSkill()
 	rendered := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
 	for _, want := range []string{
-		"mechanism, architecture, call-chain",
+		"mechanism, architecture, relationship, call-chain",
 		"start with `repo_map` as the navigation pass",
 		"use `grep(files_only=true)` only after repo_map is unavailable, empty/ambiguous",
+		"use `list_files` only when a concrete directory/scope is already known",
 		"do not treat relation rows as proof",
 	} {
 		if !strings.Contains(rendered, want) {
