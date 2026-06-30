@@ -47,6 +47,7 @@ verify_wall_timeout_seconds: 901
 repl_turn_policy_timeout_seconds: 7
 repl_memory_context_timeout_seconds: 3
 providers_config: /etc/codrax/providers.yaml
+perf_triage_llm_max_bytes: 1048576
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
@@ -84,6 +85,9 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.ProvidersConfig == nil || *s.ProvidersConfig != "/etc/codrax/providers.yaml" {
 		t.Errorf("ProvidersConfig = %v", s.ProvidersConfig)
+	}
+	if s.PerfTriageLLMMaxBytes == nil || *s.PerfTriageLLMMaxBytes != 1048576 {
+		t.Errorf("PerfTriageLLMMaxBytes = %v", s.PerfTriageLLMMaxBytes)
 	}
 	if s.WriteWorkflowEngine == nil || *s.WriteWorkflowEngine != "controller" {
 		t.Errorf("WriteWorkflowEngine = %v", s.WriteWorkflowEngine)

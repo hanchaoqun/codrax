@@ -58,6 +58,14 @@ type PerfTriageSettings struct {
 	// up to 10 per-segment, matching the segmenter's 10-segment cap).
 	// Default: 12.
 	MaxLLMCalls int
+
+	// LLMMaxBytes caps the legacy LLM pre-triage path. Larger trace
+	// artifacts should be handled by trace_query in the main runtime
+	// investigation, because read_file-pagination over multi-MiB blobs is
+	// slow, noisy, and duplicates the deterministic trace indexer. <=0
+	// disables this cap for operators who explicitly want legacy behavior.
+	// Default: 8 MiB.
+	LLMMaxBytes int
 }
 
 // DefaultPerfTriageSettings returns the conservative defaults.
@@ -70,6 +78,7 @@ func DefaultPerfTriageSettings() PerfTriageSettings {
 		TwoStepBytes:    64 * 1024,
 		TwoStepCoverage: 0.3,
 		MaxLLMCalls:     12,
+		LLMMaxBytes:     8 * 1024 * 1024,
 	}
 }
 
@@ -205,6 +214,10 @@ func (a *perfTriager) Execute(ctx *types.AgentContext, sk *skill.Config) (*Stage
 	if len(ctx.AttachedHitrace) < a.settings.MinBytes {
 		return a.skipped(ctx, fmt.Sprintf("trace size %d below min %d",
 			len(ctx.AttachedHitrace), a.settings.MinBytes)), nil
+	}
+	if a.settings.LLMMaxBytes > 0 && len(ctx.AttachedHitrace) > a.settings.LLMMaxBytes {
+		return a.skipped(ctx, fmt.Sprintf("trace size %d exceeds perf_triage_llm_max_bytes %d; detailed trace analysis is delegated to trace_query",
+			len(ctx.AttachedHitrace), a.settings.LLMMaxBytes)), nil
 	}
 
 	// Straight-to-two-step threshold.

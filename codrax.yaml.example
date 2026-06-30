@@ -1572,6 +1572,7 @@
 # perf_triage_two_step_bytes: 65536        # 64 KiB straight-to-two-step threshold / 64 KiB 直接两步阈值
 # perf_triage_two_step_coverage: 0.3
 # perf_triage_max_llm_calls: 12
+# perf_triage_llm_max_bytes: 8388608       # 8 MiB cap for legacy LLM pre-triage; larger traces go to trace_query / 旧 LLM 预分诊上限,更大 trace 交给 trace_query
 
 # ---------------------------------------------------------------------------
 # Attachment size caps (log_attach_* / trace_attach_*)  ·  附件大小上限

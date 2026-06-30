@@ -403,7 +403,7 @@ func TestStatus_PreStageLogTriage(t *testing.T) {
 		{stage: "perf_triage", agent: "perf_triager"},
 	}
 	zhOut := renderRows(t, "zh", rows...)
-	for _, want := range []string{"正在解析日志", "正在解析性能数据"} {
+	for _, want := range []string{"正在解析日志", "正在预检性能数据"} {
 		if !strings.Contains(zhOut, want) {
 			t.Errorf("zh pre-stage: expected %q in:\n%s", want, zhOut)
 		}
@@ -412,7 +412,7 @@ func TestStatus_PreStageLogTriage(t *testing.T) {
 		t.Errorf("zh pre-stage: must not fall through to generic phrasing; got:\n%s", zhOut)
 	}
 	enOut := renderRows(t, "en", rows...)
-	for _, want := range []string{"Parsing attached log", "Parsing performance trace"} {
+	for _, want := range []string{"Parsing attached log", "Pre-checking performance trace"} {
 		if !strings.Contains(enOut, want) {
 			t.Errorf("en pre-stage: expected %q in:\n%s", want, enOut)
 		}

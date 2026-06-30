@@ -1287,6 +1287,8 @@ type RuntimeSettings struct {
 	//   PerfTriageTwoStepBytes    — straight-to-two-step byte threshold (default 64 KB)
 	//   PerfTriageTwoStepCoverage — single-shot coverage floor before escalating (default 0.3)
 	//   PerfTriageMaxLLMCalls     — hard cap on total LLM calls per stage run (default 12)
+	//   PerfTriageLLMMaxBytes     — skip legacy LLM pre-triage above this size and
+	//                                let trace_query own detailed analysis (default 8 MiB)
 	PerfTriageEnabled         *bool    `yaml:"perf_triage_enabled"`
 	PerfTriageMinBytes        *int     `yaml:"perf_triage_min_bytes"`
 	PerfTriageMaxRetries      *int     `yaml:"perf_triage_max_retries"`
@@ -1294,6 +1296,7 @@ type RuntimeSettings struct {
 	PerfTriageTwoStepBytes    *int     `yaml:"perf_triage_two_step_bytes"`
 	PerfTriageTwoStepCoverage *float64 `yaml:"perf_triage_two_step_coverage"`
 	PerfTriageMaxLLMCalls     *int     `yaml:"perf_triage_max_llm_calls"`
+	PerfTriageLLMMaxBytes     *int     `yaml:"perf_triage_llm_max_bytes"`
 
 	// Log-attach knob. `log_attach_*` prefix groups the ingestion
 	// caps that fire BEFORE log_triage sees the payload. Applies to

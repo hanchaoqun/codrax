@@ -4084,6 +4084,9 @@ func initApp(cmd *cobra.Command, args []string) error {
 		if rs.PerfTriageMaxLLMCalls != nil {
 			perfSettings.MaxLLMCalls = *rs.PerfTriageMaxLLMCalls
 		}
+		if rs.PerfTriageLLMMaxBytes != nil {
+			perfSettings.LLMMaxBytes = *rs.PerfTriageLLMMaxBytes
+		}
 	}
 
 	// Lazy-bind the cancel-probe callback BEFORE RegisterDefaults so

@@ -865,6 +865,7 @@ stdin 读取用 `io.LimitReader(os.Stdin, int64(cap)+1)` 确保进程内存上�
 | `perf_triage_two_step_bytes` | 65536 (64 KiB) | 直转两步阈值 |
 | `perf_triage_two_step_coverage` | 0.3 | 升级两步的覆盖率门 |
 | `perf_triage_max_llm_calls` | 12 | 总 LLM 调用上限 |
+| `perf_triage_llm_max_bytes` | 8388608 (8 MiB) | 旧 LLM 预分诊输入上限;更大 trace 直接交给 `trace_query` |
 
 ### Repomap Fallback
 
