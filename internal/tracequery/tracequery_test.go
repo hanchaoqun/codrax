@@ -2312,6 +2312,102 @@ func TestStateFirstDrilldownKeepsLongSleepAndNestedWakeupChain(t *testing.T) {
 	}
 }
 
+func TestStateDrilldownRuleMatrixPinsRecentTracePolicies(t *testing.T) {
+	plan := buildStateDrilldownPlan(WindowStats{
+		SleepTop: []ThreadDuration{{
+			Thread:     ThreadRef{Comm: "long-sleep", PID: 101},
+			DurationMs: 90,
+			StartTs:    1.0,
+			EndTs:      1.09,
+			LineStart:  10,
+			LineEnd:    20,
+		}},
+		TopRunning: []ThreadDuration{{
+			Thread:     ThreadRef{Comm: "long-running", PID: 102},
+			DurationMs: 70,
+			StartTs:    1.0,
+			EndTs:      1.07,
+			LineStart:  30,
+			LineEnd:    40,
+		}},
+		StateChurn: []ThreadStateChurnSummary{
+			{
+				Thread:        ThreadRef{Comm: "fragmented-sleep", PID: 201},
+				DominantState: string(StateSSleep),
+				SleepMs:       60,
+				TotalMs:       80,
+				FragmentCount: 5,
+				StateSwitches: 4,
+				MaxSegmentMs:  8,
+				LineStart:     50,
+				LineEnd:       60,
+			},
+			{
+				Thread:        ThreadRef{Comm: "fragmented-runnable", PID: 202},
+				DominantState: string(StateRunnable),
+				RunnableMs:    55,
+				TotalMs:       80,
+				FragmentCount: 5,
+				StateSwitches: 4,
+				MaxSegmentMs:  9,
+				LineStart:     70,
+				LineEnd:       80,
+			},
+			{
+				Thread:        ThreadRef{Comm: "fragmented-io", PID: 203},
+				DominantState: string(StateIOWait),
+				IOWaitMs:      50,
+				DStateMs:      50,
+				TotalMs:       80,
+				FragmentCount: 5,
+				StateSwitches: 4,
+				MaxSegmentMs:  8,
+				LineStart:     90,
+				LineEnd:       100,
+			},
+		},
+	}, 12)
+
+	longSleep := findStateDrilldownStepForTest(plan, 101, "top_sleep", string(StateSSleep))
+	if longSleep == nil || !longSleep.ChainRequired || !longSleep.Recursive ||
+		!containsString(longSleep.RecommendedViews, "wakeup_chain") ||
+		!containsString(longSleep.RecommendedViews, "root_cause_rank") {
+		t.Fatalf("long top_sleep must recursively drill wakeup/root-cause chain: %+v all=%+v", longSleep, plan)
+	}
+	longRunning := findStateDrilldownStepForTest(plan, 102, "top_running", string(StateRunning))
+	if longRunning == nil || longRunning.ChainRequired || longRunning.Recursive ||
+		!containsString(longRunning.RecommendedViews, "trace_perf_bundle") ||
+		!containsString(longRunning.RecommendedViews, "root_cause_rank") {
+		t.Fatalf("long running must stay visible without mandatory wakeup recursion: %+v all=%+v", longRunning, plan)
+	}
+	fragmentedSleep := findStateDrilldownStepForTest(plan, 201, "state_churn", string(StateSSleep))
+	if fragmentedSleep == nil || fragmentedSleep.ChainRequired || fragmentedSleep.Recursive ||
+		containsString(fragmentedSleep.RecommendedViews, "wakeup_chain") {
+		t.Fatalf("fragmented sleep must be visible but non-recursive: %+v all=%+v", fragmentedSleep, plan)
+	}
+	fragmentedRunnable := findStateDrilldownStepForTest(plan, 202, "state_churn", string(StateRunnable))
+	if fragmentedRunnable == nil || !fragmentedRunnable.ChainRequired || !fragmentedRunnable.Recursive ||
+		!containsString(fragmentedRunnable.RecommendedViews, "scheduler_latency_stats") ||
+		!containsString(fragmentedRunnable.RecommendedViews, "root_cause_rank") {
+		t.Fatalf("fragmented runnable must remain a recursive scheduler/root-cause candidate: %+v all=%+v", fragmentedRunnable, plan)
+	}
+	fragmentedIO := findStateDrilldownStepForTest(plan, 203, "state_churn", string(StateIOWait))
+	if fragmentedIO == nil || !fragmentedIO.ChainRequired || !fragmentedIO.Recursive ||
+		!containsString(fragmentedIO.RecommendedViews, "critical_blocking_calls") ||
+		!containsString(fragmentedIO.RecommendedViews, "root_cause_rank") {
+		t.Fatalf("fragmented D/IO wait must remain a recursive blocking/root-cause candidate: %+v all=%+v", fragmentedIO, plan)
+	}
+}
+
+func findStateDrilldownStepForTest(steps []StateDrilldownStep, pid int, source, state string) *StateDrilldownStep {
+	for i := range steps {
+		if steps[i].Thread.PID == pid && steps[i].Source == source && steps[i].State == state {
+			return &steps[i]
+		}
+	}
+	return nil
+}
+
 func TestTopSleepKeepsRankedTopNWindowCandidates(t *testing.T) {
 	idx := buildTraceIndex(t, "top_sleep_ranked.systrace", `
        sleep1-101 (101) [001] .... 1.000000: sched_switch: prev_comm=sleep1 prev_pid=101 prev_prio=40 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
