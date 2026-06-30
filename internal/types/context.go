@@ -19,10 +19,15 @@ type RetryHintKind string
 const (
 	RetryHintKindUnknown                     RetryHintKind = ""
 	RetryHintKindDurableProgressContinuation RetryHintKind = "durable_progress_continuation"
+	RetryHintKindToolSurfaceProjection       RetryHintKind = "tool_surface_projection"
 )
 
 func (k RetryHintKind) IsDurableProgressContinuation() bool {
 	return k == RetryHintKindDurableProgressContinuation
+}
+
+func (k RetryHintKind) RequiresToolSurfaceProjection() bool {
+	return k == RetryHintKindToolSurfaceProjection
 }
 
 // TaskState captures the current pipeline execution state.

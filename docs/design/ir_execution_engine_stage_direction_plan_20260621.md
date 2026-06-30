@@ -4092,6 +4092,16 @@ Remaining follow-up:
     4. Regression: focused tests cover stage-scoped kind projection, durable continuation activation by kind, same checkpoint prose without kind not activating, checkpoint prompt rendering, graphState transient checkpoint kind, and read-run resume restoring a typed/hash-only checkpoint with durable-continuation kind.
     5. Safety boundary: this fix does not parse user text, model rationale/prose, rendered retry hints, localized UI, elapsed time, eval labels, or final-answer text. The hint body can still be shown for transparency; only the typed enum controls whether prompt shape switches into checkpoint-continuation mode.
 
+  - **Completed D1-G201: retry-hint tool-surface projection scanned hint prose for tool names（P1 / prompt-control precision / fixed）**:
+    1. Evidence: `retryHintForPromptToolSurface` tried to prevent extractor/finalizer from inheriting exploration-tool instructions by scanning `RetryHint` text for known tool names and comparing them to the current skill tool surface. The purpose was correct, but the control decision was derived from rendered prompt prose rather than a typed producer signal.
+    2. Target architecture: prompt-surface projection is allowed only when the retry-hint producer marks the hint semantics explicitly. Tool names inside transparent hint text remain audit/model context and must not decide whether the builder rewrites the section.
+    3. Delivered D1-F10g.321:
+       - D1-F10g.321a: added `RetryHintKindToolSurfaceProjection` / `RequiresToolSurfaceProjection`.
+       - D1-F10g.321b: removed `mentionedUnavailablePromptTools` / regex tool-name scanning from the prompt builder.
+       - D1-F10g.321c: builder now renders the stage-safe tool-surface projection only for typed `tool_surface_projection` hints; untyped hints are rendered as-is.
+    4. Regression: focused tests prove a typed projection hint is rewritten into the safe extractor surface, while the exact same prose without the typed kind is not rewritten by scanning `repo_map` / `grep` / `read_file` tokens.
+    5. Safety boundary: this fix consumes only `RetryHintKind` and the current skill `ToolSuggestions`. It does not parse raw user text, model rationale/prose, rendered retry-hint content, localized UI text, elapsed time, eval labels, or final-answer prose. Future producers that need this projection must stamp the typed kind instead of relying on text.
+
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
 - Focused packages: `go test ./internal/types ./internal/analysis/compiler ./internal/analysis/criterion ./internal/orchestrator ./internal/agent -run 'Dependency|Artifact|ReadLoopNextAction|DispatchPolicy|ExecutionPolicy|StageRunner|EvidenceReducer|ReadRunSnapshot'`

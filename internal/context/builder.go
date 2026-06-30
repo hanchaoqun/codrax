@@ -344,11 +344,10 @@ func skillToolSet(sk *skill.Config) map[string]bool {
 }
 
 // retryHintForPromptToolSurface projects the model-facing Retry Directive
-// through the current stage's typed tool surface before rendering it. This is
-// prompt hygiene only: scheduler decisions still come from typed artifacts, and
-// the original retry hint stays available in debug logs / task state. The
-// projection prevents an extract/finalize retry from inheriting an exploration
-// action plan after those tools are no longer callable.
+// through the current stage's typed tool surface only when the producer marks
+// the hint with RetryHintKindToolSurfaceProjection. This is prompt hygiene only:
+// scheduler decisions still come from typed artifacts, and the original retry
+// hint stays available in debug logs / task state.
 func retryHintForPromptToolSurface(ac *types.AgentContext, sk *skill.Config) string {
 	if ac == nil {
 		return ""
@@ -358,36 +357,10 @@ func retryHintForPromptToolSurface(ac *types.AgentContext, sk *skill.Config) str
 		return ""
 	}
 	available := skillToolSet(sk)
-	if len(mentionedUnavailablePromptTools(hint, available)) == 0 {
+	if !ac.RetryHintKind.RequiresToolSurfaceProjection() {
 		return hint
 	}
 	return renderCapabilityProjectedRetryHint(ac, available)
-}
-
-func mentionedUnavailablePromptTools(text string, available map[string]bool) []string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil
-	}
-	var out []string
-	for _, name := range types.KnownContractToolNames() {
-		if available[name] {
-			continue
-		}
-		if promptTextMentionsToolName(text, name) {
-			out = append(out, name)
-		}
-	}
-	return out
-}
-
-func promptTextMentionsToolName(text, name string) bool {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return false
-	}
-	re := regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta(name) + `([^A-Za-z0-9_]|$)`)
-	return re.FindStringIndex(text) != nil
 }
 
 func renderCapabilityProjectedRetryHint(ac *types.AgentContext, available map[string]bool) string {

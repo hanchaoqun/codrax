@@ -237,8 +237,9 @@ func TestBuildAgentContext_RetryHintScopedToOwningStage(t *testing.T) {
 
 func TestBuildPromptContext_RetryHintProjectsUnavailableToolsForExtractor(t *testing.T) {
 	ac := &types.AgentContext{
-		Stage:     types.StageExtract,
-		RetryHint: "Resolution Chain anchor line is outside the fetched slices; call repo_map, grep(files_only=true), and read_file on internal/agent/agent.go.",
+		Stage:         types.StageExtract,
+		RetryHint:     "Resolution Chain anchor line is outside the fetched slices; call repo_map, grep(files_only=true), and read_file on internal/agent/agent.go.",
+		RetryHintKind: types.RetryHintKindToolSurfaceProjection,
 	}
 	pc := BuildPromptContext(ac, &skill.Config{
 		Name:            "extract-skill",
@@ -257,6 +258,25 @@ func TestBuildPromptContext_RetryHintProjectsUnavailableToolsForExtractor(t *tes
 		if !strings.Contains(sec.Content, want) {
 			t.Fatalf("projected retry directive missing %q:\n%s", want, sec.Content)
 		}
+	}
+}
+
+func TestBuildPromptContext_RetryHintDoesNotInferToolProjectionFromProse(t *testing.T) {
+	hint := "Resolution Chain anchor line is outside the fetched slices; call repo_map, grep(files_only=true), and read_file on internal/agent/agent.go."
+	ac := &types.AgentContext{
+		Stage:     types.StageExtract,
+		RetryHint: hint,
+	}
+	pc := BuildPromptContext(ac, &skill.Config{
+		Name:            "extract-skill",
+		ToolSuggestions: []string{"emit_evidence", "emit_answer_symbol", "emit_hypothesis_verdict"},
+	})
+	sec := findSectionTitle(pc, SectionRetryDirective)
+	if sec == nil {
+		t.Fatal("missing retry directive section")
+	}
+	if sec.Content != hint {
+		t.Fatalf("untyped retry hint must not be rewritten by scanning prose:\n got: %q\nwant: %q", sec.Content, hint)
 	}
 }
 
