@@ -1110,6 +1110,9 @@ func completionAggregateFactsCanCompactForRuntime(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
+	if allowed, decided := runtimeSourceAuthorityAllowsRuntimeCompletionLanding(ctx); decided {
+		return allowed
+	}
 	rm := ctx.AnalysisIR.RequestModel
 	return rm.HasRuntimeArtifactWithoutRequiredCurrentSource()
 }
@@ -1365,6 +1368,8 @@ func completionRuntimeNegativeObservationDefaultScope(ctx *types.BusContext) str
 		return "attached_runtime_trace"
 	case rm.LogTriage != nil && rm.LogTriage.HasStructuredObservations():
 		return "attached_runtime_log"
+	case runtimeSourceAuthorityAllowsRuntimeCompletionLandingBool(ctx):
+		return "attached_runtime_artifact"
 	case rm.HasExternalOnlyRuntimeArtifact(),
 		rm.HasRuntimeArtifactPathReference(),
 		rm.HasRuntimeArtifactWithoutRequiredCurrentSource():
@@ -1401,6 +1406,9 @@ func completionAggregateFactsAreOptional(ctx *types.BusContext, resultKind strin
 	}
 	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
 		return false
+	}
+	if allowed, decided := runtimeSourceAuthorityAllowsRuntimeCompletionLanding(ctx); decided {
+		return allowed
 	}
 	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
 		return true
@@ -3398,7 +3406,7 @@ func completionGroundingBypassLabel(ctx *types.BusContext, aggregateFacts []type
 	if label, ok := repoGroundingBypassLabel(ctx); ok {
 		return label, true
 	}
-	if label, ok := traceQueryRuntimeObservationCompletionBypassLabel(ctx); ok {
+	if label, ok := traceQueryRuntimeObservationCompletionBypassLabel(ctx, aggregateFacts); ok {
 		return label, true
 	}
 	if label, ok := originSpecificCompletionBypassLabel(ctx, aggregateFacts); ok {
@@ -3407,8 +3415,11 @@ func completionGroundingBypassLabel(ctx *types.BusContext, aggregateFacts []type
 	return "", false
 }
 
-func traceQueryRuntimeObservationCompletionBypassLabel(ctx *types.BusContext) (string, bool) {
+func traceQueryRuntimeObservationCompletionBypassLabel(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) (string, bool) {
 	if ctx == nil || ctx.Mutable == nil {
+		return "", false
+	}
+	if len(aggregateFacts) > 0 {
 		return "", false
 	}
 	count := ctx.Mutable.TraceQueryRuntimeObservationCount()
@@ -3433,7 +3444,11 @@ func traceQueryRuntimeObservationCompletionBypassLabel(ctx *types.BusContext) (s
 	}
 	if ctx.AnalysisIR != nil {
 		rm := ctx.AnalysisIR.RequestModel
-		if rm.RequiresCurrentSourceForExternalObservation(&ctx.AnalysisIR.AnswerContract) {
+		if allowed, decided := runtimeSourceAuthorityAllowsRuntimeCompletionLanding(ctx); decided {
+			if !allowed {
+				return "", false
+			}
+		} else if rm.RequiresCurrentSourceForExternalObservation(&ctx.AnalysisIR.AnswerContract) {
 			return "", false
 		}
 		// A trace_query hard observation is already a typed runtime-artifact
@@ -3452,7 +3467,11 @@ func originSpecificCompletionBypassLabel(ctx *types.BusContext, aggregateFacts [
 		return "", false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if rm.RequiresCurrentSourceForExternalObservation(&ctx.AnalysisIR.AnswerContract) {
+	if allowed, decided := runtimeSourceAuthorityAllowsRuntimeCompletionLanding(ctx); decided {
+		if !allowed {
+			return "", false
+		}
+	} else if rm.RequiresCurrentSourceForExternalObservation(&ctx.AnalysisIR.AnswerContract) {
 		return "", false
 	}
 	originCounts := make(map[types.AnswerEvidenceOrigin]int)
@@ -3505,6 +3524,44 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 
 func runtimeSourceAnswerAuthorityForCompletion(ctx *types.BusContext) types.RuntimeSourceAnswerAuthoritySnapshot {
 	return types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
+}
+
+func runtimeSourceAuthorityAllowsRuntimeCompletionLanding(ctx *types.BusContext) (bool, bool) {
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	if !runtimeSourceAuthorityAppliesToCompletionLanding(authority) {
+		return false, false
+	}
+	return runtimeSourceAuthorityAllowsRuntimeCompletionLandingSnapshot(authority), true
+}
+
+func runtimeSourceAuthorityAllowsRuntimeCompletionLandingBool(ctx *types.BusContext) bool {
+	allowed, decided := runtimeSourceAuthorityAllowsRuntimeCompletionLanding(ctx)
+	return decided && allowed
+}
+
+func runtimeSourceAuthorityAppliesToCompletionLanding(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	return authority.RuntimeObservationCount > 0 ||
+		authority.DeterministicRuntimeQueryCount > 0 ||
+		authority.RuntimeOnlySufficient ||
+		authority.CanDowngradeToCaveat ||
+		authority.CanHardBlockCompletion ||
+		authority.CurrentSourceSatisfied
+}
+
+func runtimeSourceAuthorityAllowsRuntimeCompletionLandingSnapshot(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	if authority.CanHardBlockCompletion || authority.CurrentSourceSatisfied {
+		return false
+	}
+	return authority.RuntimeOnlySufficient ||
+		authority.CanUseRuntimeOnlyWithCaveat ||
+		authority.CanDowngradeToCaveat ||
+		(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired)
 }
 
 func runtimeArtifactCurrentSourceHardRequirement(ctx *types.BusContext) bool {
@@ -5359,6 +5416,9 @@ func aggregateMemberSetOriginRequiresCurrentSource(ctx *types.BusContext, rm *ty
 	if rm == nil {
 		return false
 	}
+	if allowed, decided := runtimeSourceAuthorityAllowsRuntimeCompletionLanding(ctx); decided {
+		return !allowed
+	}
 	var contract *types.AnswerContract
 	if ctx != nil && ctx.AnalysisIR != nil {
 		contract = &ctx.AnalysisIR.AnswerContract
@@ -5406,6 +5466,9 @@ func aggregateMemberSetOriginContextAvailable(ctx *types.BusContext, rm *types.R
 }
 
 func aggregateMemberSetRuntimeContextAvailable(ctx *types.BusContext, rm *types.RequestModel) bool {
+	if allowed, decided := runtimeSourceAuthorityAllowsRuntimeCompletionLanding(ctx); decided {
+		return allowed
+	}
 	if rm != nil && (rm.HasExternalOnlyRuntimeArtifact() || rm.HasRuntimeArtifactWithoutRequiredCurrentSource()) {
 		return true
 	}
@@ -5836,6 +5899,15 @@ func decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx *types.BusCo
 	if rm == nil {
 		return false
 	}
+	if authority := runtimeSourceAnswerAuthorityForCompletion(ctx); runtimeSourceAuthorityAppliesToCompletionLanding(authority) {
+		if !runtimeSourceAuthorityAllowsRuntimeCompletionLandingSnapshot(authority) {
+			return false
+		}
+		if aggregateFactHasExplicitRuntimeArtifactOrigin(fact) {
+			return true
+		}
+		return !runtimeSourceCompletionLandingRequiresExplicitRuntimeOrigin(ctx, rm)
+	}
 	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
 		return false
 	}
@@ -5858,6 +5930,42 @@ func decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx *types.BusCo
 		if origin == types.AnswerEvidenceOriginRuntimeArtifact {
 			return true
 		}
+	}
+	return false
+}
+
+func aggregateFactHasExplicitRuntimeArtifactOrigin(fact types.AnswerAggregateFact) bool {
+	if types.AnswerEvidenceOriginFromStructuredToken(fact.Provenance) == types.AnswerEvidenceOriginRuntimeArtifact {
+		return true
+	}
+	for _, dim := range fact.Dimensions {
+		if types.AnswerEvidenceOriginFromStructuredToken(dim.Value) == types.AnswerEvidenceOriginRuntimeArtifact {
+			return true
+		}
+	}
+	for _, ref := range fact.SupportRefs {
+		if types.AnswerEvidenceOriginFromStructuredToken(ref) == types.AnswerEvidenceOriginRuntimeArtifact {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeSourceCompletionLandingRequiresExplicitRuntimeOrigin(ctx *types.BusContext, rm *types.RequestModel) bool {
+	if rm == nil {
+		return false
+	}
+	if ctx != nil && types.RouteBackedExternalObservationRequiresCurrentSource(rm, ctx.TurnRouteHint) {
+		return true
+	}
+	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+		return true
+	}
+	if rm.HasTypedCurrentSourceScopeRequest() || rm.HasCurrentSourceObligationSignal() {
+		return true
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return true
 	}
 	return false
 }
@@ -11939,6 +12047,12 @@ func decoratedMemberSetFormRepairEligible(ctx *types.BusContext, resultKind stri
 	}
 	rm := requestModelForAggregateSupport(ctx)
 	if aggregateMemberSetOriginRequiresCurrentSource(ctx, rm) {
+		return false
+	}
+	if authority := runtimeSourceAnswerAuthorityForCompletion(ctx); runtimeSourceAuthorityAppliesToCompletionLanding(authority) &&
+		runtimeSourceAuthorityAllowsRuntimeCompletionLandingSnapshot(authority) &&
+		runtimeSourceCompletionLandingRequiresExplicitRuntimeOrigin(ctx, rm) &&
+		!aggregateFactHasExplicitRuntimeArtifactOrigin(fact) {
 		return false
 	}
 	origins := types.AnswerAggregateFactEvidenceOrigins(fact, rm)

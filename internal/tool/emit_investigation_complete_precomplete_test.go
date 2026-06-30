@@ -85,6 +85,111 @@ func TestCompletionAggregateFactsAreOptional_SourceOptionalRuntimeDiagnostic(t *
 	}
 }
 
+func TestRuntimeSourceAuthorityCompletionLanding_SoftProfileAllowsRuntimeFormLanding(t *testing.T) {
+	ctx := runtimeSourceAuthorityCompletionLandingContextForTest("current parser mechanism")
+	rm := &ctx.AnalysisIR.RequestModel
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	if !authority.Active || authority.CurrentSourceRequirement != types.RuntimeSourceRequirementSoft || !authority.CanDowngradeToCaveat {
+		t.Fatalf("test setup should be soft runtime/source authority, got %+v", authority)
+	}
+	if !completionAggregateFactsCanCompactForRuntime(ctx) {
+		t.Fatal("soft runtime/source authority should allow runtime aggregate compaction")
+	}
+	if !completionAggregateFactsAreOptional(ctx, "resolved") {
+		t.Fatal("soft runtime/source authority should allow aggregate facts to be optional landing context")
+	}
+	if got := completionRuntimeNegativeObservationDefaultScope(ctx); got != "attached_runtime_artifact" {
+		t.Fatalf("soft runtime/source authority should provide runtime default scope, got %q", got)
+	}
+	if !aggregateMemberSetRuntimeContextAvailable(ctx, rm) {
+		t.Fatal("soft runtime/source authority should make runtime member_set context available")
+	}
+	fact := types.AnswerAggregateFact{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "runtime rows",
+		Members:    []string{"TraceParser (runtime observation)"},
+		Provenance: string(types.AnswerEvidenceOriginRuntimeArtifact),
+	}
+	if !decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx, fact, fact.Members[0]) {
+		t.Fatal("soft runtime/source authority should allow decorated runtime member provenance")
+	}
+}
+
+func TestRuntimeSourceAuthorityCompletionLanding_PreciseProfileKeepsCurrentSourceFormPressure(t *testing.T) {
+	ctx := runtimeSourceAuthorityCompletionLandingContextForTest("internal/tracequery/parse.go:42")
+	rm := &ctx.AnalysisIR.RequestModel
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	if !authority.Active || authority.CurrentSourceRequirement != types.RuntimeSourceRequirementPrecise || !authority.CanHardBlockCompletion {
+		t.Fatalf("test setup should be precise runtime/source authority, got %+v", authority)
+	}
+	if completionAggregateFactsCanCompactForRuntime(ctx) {
+		t.Fatal("precise missing current-source authority must not allow runtime aggregate compaction")
+	}
+	if completionAggregateFactsAreOptional(ctx, "resolved") {
+		t.Fatal("precise missing current-source authority must keep aggregate facts required")
+	}
+	if got := completionRuntimeNegativeObservationDefaultScope(ctx); got != "" {
+		t.Fatalf("precise missing current-source authority must not synthesize runtime default scope, got %q", got)
+	}
+	if aggregateMemberSetRuntimeContextAvailable(ctx, rm) {
+		t.Fatal("precise missing current-source authority must not make runtime member_set context available")
+	}
+	fact := types.AnswerAggregateFact{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "runtime rows",
+		Members:    []string{"TraceParser (runtime observation)"},
+		Provenance: string(types.AnswerEvidenceOriginRuntimeArtifact),
+	}
+	if decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx, fact, fact.Members[0]) {
+		t.Fatal("precise missing current-source authority must not allow decorated runtime member provenance")
+	}
+}
+
+func runtimeSourceAuthorityCompletionLandingContextForTest(sourceQuote string) *types.BusContext {
+	mut := types.NewMutableState("runtime source completion landing")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:runtime#landing",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				ArtifactID:   "attached_trace",
+				ArtifactKind: "trace",
+				PayloadRef:   "blob://trace-query-result.json",
+			},
+			Subject: "frame",
+			Summary: "trace_query observed the runtime frame",
+			Span:    types.ObservationSpan{StartTsMs: 62380029.1},
+		}},
+	})
+	return &types.BusContext{
+		Mutable: mut,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioRootCause,
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+					SourceQuotes:                        []string{sourceQuote},
+					Confidence:                          0.9,
+				},
+			},
+		},
+	}
+}
+
 func TestCurrentSourceForcedReadGatesApply_AttachedTraceObservationOnly(t *testing.T) {
 	ctx := &types.BusContext{
 		AttachedHitrace: "app-100 (100) [001] .... 2.000000: sched_switch: prev_state=S",
