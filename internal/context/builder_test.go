@@ -1043,7 +1043,7 @@ func TestSelectEvidenceItemsForRenderPreservesProducerRankOrder(t *testing.T) {
 	}
 }
 
-func TestEvidenceRenderLimitForAgentContext_MixedRuntimeSourceFinalizerCompact(t *testing.T) {
+func TestEvidenceRenderLimitForAgentContext_RuntimeSourceAuthorityCompact(t *testing.T) {
 	mixed := types.RequestModel{
 		Intent:   types.IntentRootCause,
 		Scenario: types.ScenarioRootCause,
@@ -1072,7 +1072,7 @@ func TestEvidenceRenderLimitForAgentContext_MixedRuntimeSourceFinalizerCompact(t
 		AnalysisIR: &types.AnalysisIR{RequestModel: mixed},
 	}
 	if got := evidenceRenderLimitForAgentContext(mixedFinalizer); got != mixedRuntimeCurrentSourceFinalizerEvidenceLimit {
-		t.Fatalf("mixed finalizer evidence limit=%d, want %d", got, mixedRuntimeCurrentSourceFinalizerEvidenceLimit)
+		t.Fatalf("runtime/source finalizer evidence limit=%d, want %d", got, mixedRuntimeCurrentSourceFinalizerEvidenceLimit)
 	}
 	ordinaryFinalizer := &types.AgentContext{
 		AgentName:  types.AgentFinalizer,
@@ -1089,6 +1089,38 @@ func TestEvidenceRenderLimitForAgentContext_MixedRuntimeSourceFinalizerCompact(t
 	}
 	if got := evidenceRenderLimitForAgentContext(mixedExplorer); got != defaultEvidenceRenderLimit {
 		t.Fatalf("explorer evidence limit=%d, want default %d", got, defaultEvidenceRenderLimit)
+	}
+}
+
+func TestEvidenceRenderLimitForAgentContext_SoftSourceWithoutRuntimeCarrierDoesNotCompact(t *testing.T) {
+	ctx := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		TurnRouteHint: types.TurnRouteHint{
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+		},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes: []types.CurrentSourceExplanationMode{
+					types.CurrentSourceExplanationExplainCurrentMechanism,
+				},
+				SourceQuotes: []string{"current mechanism"},
+				Confidence:   0.9,
+			},
+		}},
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, types.ObservationLedger{})
+	if !authority.Active || authority.CurrentSourceRequirement != types.RuntimeSourceRequirementSoft {
+		t.Fatalf("fixture must exercise soft runtime/source authority without runtime evidence: %+v", authority)
+	}
+	if authority.RuntimeObservationCount != 0 || authority.RuntimeOnlySufficient {
+		t.Fatalf("fixture unexpectedly has runtime carrier: %+v", authority)
+	}
+	if got := evidenceRenderLimitForAgentContext(ctx); got != defaultEvidenceRenderLimit {
+		t.Fatalf("soft current-source without runtime carrier should keep default evidence budget=%d, got %d", defaultEvidenceRenderLimit, got)
 	}
 }
 

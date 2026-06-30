@@ -1568,10 +1568,53 @@ func evidenceRenderLimitForAgentContext(ac *types.AgentContext) int {
 		ac.AnalysisIR == nil {
 		return defaultEvidenceRenderLimit
 	}
-	if types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(ac.AnalysisIR.RequestModel) {
+	if evidenceRenderUsesCompactRuntimeSourceAuthority(ac) {
 		return mixedRuntimeCurrentSourceFinalizerEvidenceLimit
 	}
 	return defaultEvidenceRenderLimit
+}
+
+func evidenceRenderUsesCompactRuntimeSourceAuthority(ac *types.AgentContext) bool {
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ac, types.ObservationLedger{})
+	if !authority.Active {
+		return false
+	}
+	runtimeCarrier := authority.RuntimeObservationCount > 0 ||
+		authority.DeterministicRuntimeQueryCount > 0 ||
+		authority.RuntimeOnlySufficient ||
+		authority.CanUseRuntimeOnlyWithCaveat
+	if !runtimeCarrier {
+		return false
+	}
+	if !evidenceRenderRuntimeSourceRequestCarrierActive(ac, runtimeCarrier) {
+		return false
+	}
+	return authority.CurrentSourceRequirement != types.RuntimeSourceRequirementNone ||
+		authority.CurrentSourceRequired ||
+		authority.CanHardBlockCompletion ||
+		authority.CanDowngradeToCaveat ||
+		authority.CanCompleteWithCombinedProof
+}
+
+func evidenceRenderRuntimeSourceRequestCarrierActive(ac *types.AgentContext, runtimeCarrier bool) bool {
+	if ac == nil || ac.AnalysisIR == nil {
+		return false
+	}
+	rm := types.RuntimeSourceAuthorityRequestModelFromAgentContext(ac)
+	if rm == nil {
+		return false
+	}
+	if ac.TurnRouteHint.ExternalObservationParticipates() ||
+		rm.HasExternalOnlyRuntimeArtifact() ||
+		rm.HasExternalObservationArtifactReference() ||
+		rm.HasRuntimeArtifactPathReference() ||
+		rm.LogTriage != nil ||
+		rm.PerfTrace != nil {
+		return true
+	}
+	return runtimeCarrier &&
+		rm.CurrentSourceExplanationProfile != nil &&
+		rm.CurrentSourceExplanationProfile.Active()
 }
 
 func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts evidenceRenderOptions) string {
