@@ -2317,6 +2317,63 @@ func TestRootCauseRankKeepsGlobalIOPressureBehindDirectWakeupChain(t *testing.T)
 	}
 }
 
+func TestRootCauseRankPromotesOnChainIOWhenWakerIsRunning(t *testing.T) {
+	idx := buildTraceIndex(t, "running_waker_io.systrace", `
+        app-100 (100) [001] .... 3.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 3.001000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 3.002000: android_fs_dataread_start: dev=259:1 ino=0xbeef entry_name=cache.db offset=0 bytes=1048576 rw=R
+     worker-200 (100) [002] .... 3.112000: android_fs_dataread_end: dev=259:1 ino=0xbeef entry_name=cache.db offset=0 bytes=1048576 rw=R ret=1048576 latency_us=110000
+     worker-200 (100) [002] .... 3.119000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200 (100) [002] .... 3.119500: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+        app-100 (100) [001] .... 3.120000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	q := Query{PID: 100, TimeStart: 3.0, TimeEnd: 3.120, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12}
+	rank := BuildRootCauseRank(idx, q)
+	if len(rank.Items) == 0 {
+		t.Fatalf("expected ranked causes")
+	}
+	if rank.Items[0].Thread.PID != 200 || rank.Items[0].ChainRelevance != "on_chain" {
+		t.Fatalf("the direct wakeup dependency should remain primary/on-chain, got %+v", rank.Items)
+	}
+	if !rootCauseTypeIsResourceAttribution(rank.Items[0].Type) {
+		t.Fatalf("on-chain IO/resource work by a running waker should outrank generic running work, got %+v", rank.Items)
+	}
+	if rank.Items[0].EffectiveImpactMs < 100 || rank.Items[0].TargetImpactMs < 100 {
+		t.Fatalf("on-chain IO root cause should carry target-impact attribution, got %+v", rank.Items[0])
+	}
+}
+
+func TestRootCauseRankKeepsLongRunningWakerWithoutResourceCause(t *testing.T) {
+	idx := buildTraceIndex(t, "running_waker_no_resource.systrace", `
+        app-100 (100) [001] .... 3.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 3.001000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 3.119000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200 (100) [002] .... 3.119500: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+        app-100 (100) [001] .... 3.120000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	q := Query{PID: 100, TimeStart: 3.0, TimeEnd: 3.120, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 8}
+	rank := BuildRootCauseRank(idx, q)
+	if len(rank.Items) == 0 {
+		t.Fatalf("expected ranked causes")
+	}
+	var running *RootCauseRankItem
+	for i := range rank.Items {
+		if rank.Items[i].Thread.PID == 200 && rank.Items[i].Type == "running" && rank.Items[i].Source == "wakeup_chain.causal_impacts" {
+			running = &rank.Items[i]
+			break
+		}
+	}
+	if running == nil || running.ChainRelevance != "on_chain" || running.Tier != "primary" {
+		t.Fatalf("long running waker should remain an on-chain primary candidate when no deeper typed resource cause exists, got %+v", rank.Items)
+	}
+	if running.ImpactMs < 100 || running.TargetImpactMs < 100 {
+		t.Fatalf("running waker should carry the target blocking attribution, got %+v", running)
+	}
+	if !strings.Contains(running.Summary, "next_step=inspect trace spans/frame phases") {
+		t.Fatalf("running waker without deeper resource cause should preserve next-step caveat, got %+v", running)
+	}
+}
+
 func TestRootCauseRankDoesNotPromoteAggregateIOPressureByRepresentativeThread(t *testing.T) {
 	idx := buildTraceIndex(t, "chain_io_pressure_summary.systrace", `
         app-100 (100) [001] .... 3.100000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120

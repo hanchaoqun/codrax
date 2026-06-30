@@ -128,6 +128,41 @@ func TestTraceCausalProjectionPreservesMultiLayerChainRelevance(t *testing.T) {
 	}
 }
 
+func TestTraceCausalProjectionPreservesMultiHopPathWithRunningWaker(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		traceProjectionTestRootWithNotes("root-io", "threadpool-400", "io_burst_episode", "119.000", 119.0, 0.88, 1, []string{
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+			"chain_depth=1",
+		}),
+		traceProjectionTestRootWithNotes("root-running", "worker-200", "running", "118.000", 118.0, 0.86, 2, []string{
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+			"chain_depth=2",
+		}),
+		{
+			ID:              "path",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: ClaimGroundingHard,
+			Predicate:       "wakeup_chain",
+			ClaimKey:        "wakeup_chain:path",
+			Object:          "threadpool-400 -> worker-200 -> app-100",
+		},
+	}}
+
+	got := CompileTraceCausalProjection(ledger)
+	if len(got.PrimaryRootCauses) != 2 {
+		t.Fatalf("projection should preserve co-primary on-chain layers, got %+v", got.PrimaryRootCauses)
+	}
+	if got.PrimaryRootCauses[0].Subject != "threadpool-400" || got.PrimaryRootCauses[1].Subject != "worker-200" {
+		t.Fatalf("projection should keep ordered on-chain root layers, got %+v", got.PrimaryRootCauses)
+	}
+	if len(got.WakeupPath) != 3 || got.WakeupPath[0] != "threadpool-400" || got.WakeupPath[1] != "worker-200" || got.WakeupPath[2] != "app-100" {
+		t.Fatalf("multi-hop wakeup path must be preserved for answer rendering, got %+v", got.WakeupPath)
+	}
+}
+
 func traceProjectionTestRoot(id, subject, object, value string, cumulative, confidence float64, rank int) ObservationRecord {
 	return traceProjectionTestRootWithNotes(id, subject, object, value, cumulative, confidence, rank, []string{
 		"causality=on_wakeup_chain",

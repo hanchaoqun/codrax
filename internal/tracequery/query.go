@@ -6586,6 +6586,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		}
 	}
 	items = enrichRootCauseItemsWithChainContext(chain, items)
+	attributeOnChainResourceItemsToWakeupDependency(chain, items)
 	normalizeRootCauseChainRelevance(items, hasCausalChain)
 	normalizeRootCauseCumulativeImpact(items)
 	normalizeRootCauseEffectiveImpact(items)
@@ -6692,6 +6693,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		rank.Items = append(rank.Items, candidate)
 	}
 	normalizeRootCauseChainRelevance(rank.Items, hasCausalChain)
+	attributeOnChainResourceItemsToWakeupDependency(chain, rank.Items)
 	normalizeRootCauseCumulativeImpact(rank.Items)
 	normalizeRootCauseEffectiveImpact(rank.Items)
 	sortRootCauseRankItems(rank.Items, hasCausalChain)
@@ -7706,6 +7708,105 @@ func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateCont
 	}
 	ctx.relevance = "adjacent"
 	return ctx
+}
+
+func attributeOnChainResourceItemsToWakeupDependency(chain ChainResult, items []RootCauseRankItem) {
+	if len(items) == 0 || len(chain.CausalImpacts) == 0 {
+		return
+	}
+	impactByThread := strongestWakeupDependencyImpactByThread(chain)
+	if len(impactByThread) == 0 {
+		return
+	}
+	for i := range items {
+		item := &items[i]
+		if item == nil || !rootCauseTypeIsResourceAttribution(item.Type) || !rootCauseItemIsOnChain(*item) || item.Thread.PID <= 0 {
+			continue
+		}
+		impact, ok := impactByThread[item.Thread.PID]
+		if !ok || impact.TargetBlockedMs <= 0 {
+			continue
+		}
+		overlap := item.OverlapMs
+		if overlap <= 0 {
+			overlap = windowOverlapMs(item.StartTs, item.EndTs, impact.Window.StartTs, impact.Window.EndTs)
+		}
+		resourceMs := firstPositiveFloat(item.CumulativeImpactMs, item.ImpactMs, item.ProjectedImpactMs, overlap)
+		if !onChainResourceAttributionIsMaterial(resourceMs, overlap, impact.TargetBlockedMs) {
+			continue
+		}
+		if item.TargetImpactMs < impact.TargetBlockedMs {
+			item.TargetImpactMs = impact.TargetBlockedMs
+		}
+		if item.EffectiveImpactMs < impact.TargetBlockedMs {
+			item.EffectiveImpactMs = impact.TargetBlockedMs
+		}
+		if item.ChainDepth == 0 && impact.ChainDepth > 0 {
+			item.ChainDepth = impact.ChainDepth
+		}
+		if item.NearestChainThread.PID == 0 && strings.TrimSpace(item.NearestChainThread.Comm) == "" {
+			item.NearestChainThread = impact.Thread
+			item.NearestChainWindow = impact.Window
+		}
+		if item.OverlapMs <= 0 && overlap > 0 {
+			item.OverlapMs = overlap
+		}
+		item.Summary = appendRootCauseSummaryDetail(item.Summary,
+			fmt.Sprintf("on-chain resource overlapped wakeup dependency window %.6f..%.6f; target_blocked=%.3fms",
+				impact.Window.StartTs, impact.Window.EndTs, impact.TargetBlockedMs))
+	}
+}
+
+func strongestWakeupDependencyImpactByThread(chain ChainResult) map[int]WakeupCausalImpact {
+	out := map[int]WakeupCausalImpact{}
+	for _, impact := range chain.CausalImpacts {
+		if impact.Thread.PID <= 0 || impact.ChainDepth <= 0 || impact.TargetBlockedMs <= 0 {
+			continue
+		}
+		existing, ok := out[impact.Thread.PID]
+		if !ok || impact.TargetBlockedMs > existing.TargetBlockedMs ||
+			(impact.TargetBlockedMs == existing.TargetBlockedMs && rootCauseEffectiveWakeupImpactMs(impact) > rootCauseEffectiveWakeupImpactMs(existing)) {
+			out[impact.Thread.PID] = impact
+		}
+	}
+	return out
+}
+
+func rootCauseEffectiveWakeupImpactMs(impact WakeupCausalImpact) float64 {
+	return firstPositiveFloat(impact.ProjectedImpactMs, impact.DominantImpactMs, impact.TotalMs, impact.TargetBlockedMs)
+}
+
+func rootCauseTypeIsResourceAttribution(typ string) bool {
+	switch strings.TrimSpace(typ) {
+	case "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "page_cache_churn", "workqueue_activity":
+		return true
+	default:
+		return false
+	}
+}
+
+func onChainResourceAttributionIsMaterial(resourceMs, overlapMs, targetBlockedMs float64) bool {
+	materialMs := maxFloat(resourceMs, overlapMs)
+	if materialMs <= 0 || targetBlockedMs <= 0 {
+		return false
+	}
+	minMaterialMs := maxFloat(16, targetBlockedMs*0.35)
+	return materialMs >= minMaterialMs
+}
+
+func appendRootCauseSummaryDetail(summary, detail string) string {
+	summary = strings.TrimSpace(summary)
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		return summary
+	}
+	if summary == "" {
+		return detail
+	}
+	if strings.Contains(summary, detail) {
+		return summary
+	}
+	return summary + "; " + detail
 }
 
 func rootCauseItemCanBeDirectOnChain(item RootCauseRankItem) bool {
