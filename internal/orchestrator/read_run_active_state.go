@@ -75,7 +75,7 @@ func (s *graphState) applyReadRunActiveStateSeed(active types.ReadRunActiveState
 		s.setReadLoopNextAction(decision)
 	}
 	if active.TransientRetryPending {
-		s.setTransientRetryHint(readRunTransientRetryResumeHint(active))
+		s.setTransientRetryHint(readRunTransientRetryResumeHint(active), types.RetryHintKindDurableProgressContinuation)
 	}
 }
 

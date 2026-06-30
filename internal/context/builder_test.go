@@ -195,17 +195,24 @@ func TestBuildAgentContext_RetryHintScopedToOwningStage(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable: types.NewMutableState("q"),
 		TaskState: types.TaskState{
-			Stage:     types.StageExplore,
-			RetryHint: "DAG-scheduled investigation window",
+			Stage:         types.StageExplore,
+			RetryHint:     "DAG-scheduled investigation window",
+			RetryHintKind: types.RetryHintKindDurableProgressContinuation,
 		},
 	}
 	analyzer := BuildAgentContext(bus, types.AgentAnalyzer, types.StageAnalyze)
 	if analyzer.RetryHint != "" {
 		t.Fatalf("analyzer must not inherit explore retry hint, got %q", analyzer.RetryHint)
 	}
+	if analyzer.RetryHintKind != types.RetryHintKindUnknown {
+		t.Fatalf("analyzer must not inherit explore retry hint kind, got %q", analyzer.RetryHintKind)
+	}
 	explorer := BuildAgentContext(bus, types.AgentExplorer, types.StageExplore)
 	if explorer.RetryHint != "DAG-scheduled investigation window" {
 		t.Fatalf("explorer should receive its own retry hint, got %q", explorer.RetryHint)
+	}
+	if explorer.RetryHintKind != types.RetryHintKindDurableProgressContinuation {
+		t.Fatalf("explorer should receive its own retry hint kind, got %q", explorer.RetryHintKind)
 	}
 
 	bus.TaskState.Stage = types.StageExtract
@@ -215,9 +222,13 @@ func TestBuildAgentContext_RetryHintScopedToOwningStage(t *testing.T) {
 	if extractor.RetryHint != "" {
 		t.Fatalf("extractor must not inherit explore-owned retry hint, got %q", extractor.RetryHint)
 	}
+	if extractor.RetryHintKind != types.RetryHintKindUnknown {
+		t.Fatalf("extractor must not inherit explore-owned retry hint kind, got %q", extractor.RetryHintKind)
+	}
 
 	bus.TaskState.RetryHintStage = types.StageExtract
 	bus.TaskState.RetryHint = "Re-emit the hypothesis verdict from existing Turn A evidence"
+	bus.TaskState.RetryHintKind = types.RetryHintKindUnknown
 	extractor = BuildAgentContext(bus, types.AgentExtractor, types.StageExtract)
 	if extractor.RetryHint != "Re-emit the hypothesis verdict from existing Turn A evidence" {
 		t.Fatalf("extractor should receive extractor-owned retry hint, got %q", extractor.RetryHint)

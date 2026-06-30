@@ -218,10 +218,11 @@ func TestExplorer_BuildInitialInstruction_RendersSourceInventoryAdvisory(t *test
 
 func TestExplorer_BuildInitialInstruction_CheckpointContinuationSkipsBreadthScan(t *testing.T) {
 	ctx := &types.AgentContext{
-		Objective: "explain the current implementation from the accepted evidence",
-		RepoRoot:  ".",
-		Mutable:   types.NewMutableState("explain the current implementation from the accepted evidence"),
-		RetryHint: "A transient model stream error interrupted the previous explore dispatch after durable progress was preserved.\n\nCheckpoint summary (non-authoritative counts): structured evidence rows=4; aggregate facts=1.",
+		Objective:     "explain the current implementation from the accepted evidence",
+		RepoRoot:      ".",
+		Mutable:       types.NewMutableState("explain the current implementation from the accepted evidence"),
+		RetryHint:     "A transient model stream error interrupted the previous explore dispatch after durable progress was preserved.\n\nCheckpoint summary (non-authoritative counts): structured evidence rows=4; aggregate facts=1.",
+		RetryHintKind: types.RetryHintKindDurableProgressContinuation,
 	}
 	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{

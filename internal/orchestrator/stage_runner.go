@@ -21,6 +21,7 @@ type StageExecutionRequest struct {
 	ExploreDispatchKind types.TaskNodeType
 	ExploreToolSurface  types.ExploreToolSurface
 	RetryHint           string
+	RetryHintKind       types.RetryHintKind
 	ReasonCode          string
 }
 
@@ -43,8 +44,13 @@ func newExploreStageExecutionRequest(window []*types.TaskNode) StageExecutionReq
 }
 
 func newParallelExploreStageExecutionRequest(window []*types.TaskNode, retryHint string) StageExecutionRequest {
+	return newParallelExploreStageExecutionRequestWithHintKind(window, retryHint, types.RetryHintKindUnknown)
+}
+
+func newParallelExploreStageExecutionRequestWithHintKind(window []*types.TaskNode, retryHint string, retryHintKind types.RetryHintKind) StageExecutionRequest {
 	req := newExploreStageExecutionRequest(window)
 	req.RetryHint = retryHint
+	req.RetryHintKind = retryHintKind
 	req.ReasonCode = "read_dag_parallel_explore_window"
 	return req
 }

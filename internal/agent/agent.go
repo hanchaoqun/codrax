@@ -129,6 +129,11 @@ type StageOutput struct {
 	// directive. Forward transitions clear it.
 	RetryHint string `json:"retry_hint,omitempty"`
 
+	// RetryHintKind classifies RetryHint for control-plane consumers. The hint
+	// body is transparent model guidance; orchestrator/explorer prompt-shape
+	// decisions must consume this enum instead of matching RetryHint prose.
+	RetryHintKind types.RetryHintKind `json:"retry_hint_kind,omitempty"`
+
 	// StageReport is the LLM's own synthesis of what this stage
 	// discovered or decided — typically the last assistant message of
 	// the ReAct loop. BaseAgent.Execute auto-populates it from the

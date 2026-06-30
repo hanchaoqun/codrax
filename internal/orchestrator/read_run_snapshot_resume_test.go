@@ -138,7 +138,7 @@ func TestReadRunSnapshotSeedInstallsActiveStateSeed(t *testing.T) {
 	if _, ok := applyReadLoopNextActionHint(state, nil, nil); ok {
 		t.Fatal("resumed read-loop next action must remain one-shot")
 	}
-	if hint := state.consumeTransientRetryHint(); !strings.Contains(hint, "hint_hash="+strings.Repeat("b", 64)) || strings.Contains(hint, "raw retry") {
+	if hint, kind := state.consumeTransientRetryHint(); !strings.Contains(hint, "hint_hash="+strings.Repeat("b", 64)) || strings.Contains(hint, "raw retry") || kind != types.RetryHintKindDurableProgressContinuation {
 		t.Fatalf("transient retry resume hint should be typed/hash-only, got %q", hint)
 	}
 }

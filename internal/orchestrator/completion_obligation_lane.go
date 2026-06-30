@@ -95,13 +95,16 @@ func (o *Orchestrator) runCompletionObligationLane(laneFired *bool, stepsUsed *i
 		strings.Join(pending, "; "))
 
 	prevHint := o.busCtx.TaskState.RetryHint
+	prevHintKind := o.busCtx.TaskState.RetryHintKind
 	prevHintStage := o.busCtx.TaskState.RetryHintStage
 	prevSurface := o.busCtx.CompletionOnlySurface
 	o.busCtx.TaskState.RetryHint = completionObligationLaneHint(pending)
+	o.busCtx.TaskState.RetryHintKind = types.RetryHintKindUnknown
 	o.busCtx.TaskState.RetryHintStage = types.StageExplore
 	o.busCtx.CompletionOnlySurface = true
 	out, err := o.dispatchStage(types.StageExplore)
 	o.busCtx.TaskState.RetryHint = prevHint
+	o.busCtx.TaskState.RetryHintKind = prevHintKind
 	o.busCtx.TaskState.RetryHintStage = prevHintStage
 	o.busCtx.CompletionOnlySurface = prevSurface
 	if stepsUsed != nil {

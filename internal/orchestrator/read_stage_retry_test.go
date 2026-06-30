@@ -197,7 +197,7 @@ func TestGraphStateReadLoopNextActionIsOneShot(t *testing.T) {
 func TestReadRunActiveStateFromGraphStateOmitsRawRetryHint(t *testing.T) {
 	state := &graphState{}
 	rawHint := "raw retry hint with model-facing checkpoint body"
-	state.setTransientRetryHint(rawHint)
+	state.setTransientRetryHint(rawHint, types.RetryHintKindDurableProgressContinuation)
 	state.setReadLoopNextAction(readLoopNextActionDecision{
 		Active:          true,
 		Action:          loopkernel.LoopActionAddProof,

@@ -31,6 +31,15 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 	hints []string,
 	parallelism int,
 ) (*agent.StageOutput, error) {
+	return o.dispatchExploreWindowsParallelWithHintKind(windows, hints, parallelism, types.RetryHintKindUnknown)
+}
+
+func (o *Orchestrator) dispatchExploreWindowsParallelWithHintKind(
+	windows [][]*types.TaskNode,
+	hints []string,
+	parallelism int,
+	retryHintKind types.RetryHintKind,
+) (*agent.StageOutput, error) {
 	if len(windows) == 0 {
 		return nil, nil
 	}
@@ -95,7 +104,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 				if i < len(hints) {
 					hint = hints[i]
 				}
-				req := newParallelExploreStageExecutionRequest(windows[i], hint)
+				req := newParallelExploreStageExecutionRequestWithHintKind(windows[i], hint, retryHintKind)
 				fork := o.busCtx.Mutable.ForkForExploreDispatch()
 				unitID := unitIDs[i]
 				var lanePlan types.ExploreLanePlan
@@ -299,6 +308,7 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	}
 	workerBus.TaskState.Stage = stage
 	workerBus.TaskState.RetryHint = req.RetryHint
+	workerBus.TaskState.RetryHintKind = req.RetryHintKind
 	workerBus.TaskState.RetryHintStage = stage
 	workerBus.TaskState.LastError = ""
 	agentCtx := ctxbuilder.BuildAgentContext(workerBus, agentName, stage)

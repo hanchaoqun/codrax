@@ -10,6 +10,21 @@ import (
 	"github.com/hanchaoqun/codrax/internal/canonpath"
 )
 
+// RetryHintKind classifies the control-plane meaning of TaskState.RetryHint.
+// The hint body remains model-facing text for transparency; scheduler and
+// prompt-control decisions must consume this typed kind instead of parsing
+// prose fragments from the hint.
+type RetryHintKind string
+
+const (
+	RetryHintKindUnknown                     RetryHintKind = ""
+	RetryHintKindDurableProgressContinuation RetryHintKind = "durable_progress_continuation"
+)
+
+func (k RetryHintKind) IsDurableProgressContinuation() bool {
+	return k == RetryHintKindDurableProgressContinuation
+}
+
 // TaskState captures the current pipeline execution state.
 type TaskState struct {
 	Stage        PipelineStage `json:"stage"`
@@ -28,6 +43,12 @@ type TaskState struct {
 	// any forward transition. The prompt builder renders it as the
 	// most prominent user section.
 	RetryHint string `json:"retry_hint,omitempty"`
+
+	// RetryHintKind is the typed control-plane meaning of RetryHint. Empty
+	// means generic prompt guidance only. Producers must set this when a
+	// downstream consumer needs to branch on the hint kind; consumers must not
+	// infer the kind from RetryHint prose.
+	RetryHintKind RetryHintKind `json:"retry_hint_kind,omitempty"`
 
 	// RetryHintStage records which pipeline stage owns RetryHint. It lets
 	// prompt construction enforce capability-scoped handoff: an exploration
@@ -6335,6 +6356,11 @@ type AgentContext struct {
 	// prominent user section to override the agent's instinct to
 	// repeat the same approach.
 	RetryHint string `json:"retry_hint,omitempty"`
+
+	// RetryHintKind mirrors TaskState.RetryHintKind after the same stage-scope
+	// filter as RetryHint. The RetryHint text is transparent model guidance;
+	// this enum is the only supported control-plane carrier for hint semantics.
+	RetryHintKind RetryHintKind `json:"retry_hint_kind,omitempty"`
 
 	RepoRoot string `json:"repo_root"`
 	Branch   string `json:"branch"`

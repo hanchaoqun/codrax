@@ -1780,13 +1780,7 @@ func explorerDurableProgressContinuationActive(ctx *types.AgentContext) bool {
 	if ctx == nil {
 		return false
 	}
-	hint := strings.TrimSpace(ctx.RetryHint)
-	if hint == "" {
-		return false
-	}
-	return strings.Contains(hint, "A transient model stream error interrupted") ||
-		strings.Contains(hint, "Explorer continuation checkpoint:") ||
-		strings.Contains(hint, toolHistoryPruneCheckpointPrefix)
+	return ctx.RetryHintKind.IsDurableProgressContinuation()
 }
 
 func (e *explorerEvaluator) buildDurableProgressContinuationInstruction(ctx *types.AgentContext) string {

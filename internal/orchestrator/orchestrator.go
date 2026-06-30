@@ -4469,6 +4469,7 @@ func (o *Orchestrator) requeueExploreWindowForFactRetry(state *graphState, windo
 	}
 	if checkpoint := o.buildExploreFactRetryContinuationHint(output); strings.TrimSpace(checkpoint) != "" {
 		output.RetryHint = prependRetryHint(checkpoint, output.RetryHint)
+		output.RetryHintKind = types.RetryHintKindDurableProgressContinuation
 		logging.Debug("[orchestrator] explore fact retry checkpoint installed len=%d", len(checkpoint))
 	}
 	o.recordReadLoopNextActionForRetry(state, "explore fact retry")
@@ -4746,6 +4747,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 
 	var pendingViolation string
 	var pendingStageRetry string
+	var pendingStageRetryKind types.RetryHintKind
 	var pendingValidationTargets []string
 	lowGroundingWarned := false
 
@@ -5060,6 +5062,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					pendingValidationTargets = nil
 					pendingViolation = ""
 					pendingStageRetry = ""
+					pendingStageRetryKind = types.RetryHintKindUnknown
 					o.emitAcceptedClosureAdvisoryDebtSkippedNotice()
 				}
 			}
@@ -5149,13 +5152,20 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				}
 				return stepsUsed
 			}
-			if checkpointHint := state.consumeTransientRetryHint(); checkpointHint != "" && !localLandingActive {
+			var windowRetryHintKind types.RetryHintKind
+			if strings.TrimSpace(pendingStageRetry) != "" && pendingStageRetryKind != types.RetryHintKindUnknown {
+				windowRetryHintKind = pendingStageRetryKind
+			}
+			if checkpointHint, checkpointKind := state.consumeTransientRetryHint(); checkpointHint != "" && !localLandingActive {
 				if len(parallelWindows) > 0 {
 					for i := range parallelHints {
 						parallelHints[i] = prependRetryHint(checkpointHint, parallelHints[i])
 					}
 				} else {
 					hint = prependRetryHint(checkpointHint, hint)
+				}
+				if checkpointKind != types.RetryHintKindUnknown {
+					windowRetryHintKind = checkpointKind
 				}
 			}
 			var readDispatchPolicy types.ReadDispatchPolicy
@@ -5170,11 +5180,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			}
 			pendingViolation = ""
 			pendingStageRetry = ""
+			pendingStageRetryKind = types.RetryHintKindUnknown
 			pendingValidationTargets = nil
 			if len(parallelWindows) > 0 {
 				o.applyWindowHint("", "")
 			} else {
-				o.applyWindowHint(types.StageExplore, hint)
+				o.applyWindowHintWithKind(types.StageExplore, hint, windowRetryHintKind)
 			}
 			for _, n := range window {
 				state.markRunning(n.ID)
@@ -5226,7 +5237,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			restoreReadDispatchPolicy := o.installReadDispatchPolicyForExplore(readDispatchPolicy, readDispatchPolicyActive)
 			if len(parallelWindows) > 0 {
 				stageStart := emitParallelExploreStageStart(o)
-				out, dispatchErr = o.dispatchExploreWindowsParallel(parallelWindows, parallelHints, parallelism)
+				out, dispatchErr = o.dispatchExploreWindowsParallelWithHintKind(parallelWindows, parallelHints, parallelism, windowRetryHintKind)
 				stageErr := ""
 				if dispatchErr != nil {
 					stageErr = dispatchErr.Error()
@@ -5265,6 +5276,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				stepsUsed += dispatchStepCount
 				if o.requeueExploreWindowForFactRetry(state, window, out) {
 					pendingStageRetry = out.RetryHint
+					pendingStageRetryKind = out.RetryHintKind
 					continue
 				}
 				// Post-dispatch criterion evaluation. Separate
@@ -7054,11 +7066,17 @@ func formatStageHealthSnapshot(snapshot map[string]types.StageStats) string {
 // modifies on BusContext outside the standard PipelineStage / Stage
 // fields. Empty hint clears the slot.
 func (o *Orchestrator) applyWindowHint(owner types.PipelineStage, hint string) {
+	o.applyWindowHintWithKind(owner, hint, types.RetryHintKindUnknown)
+}
+
+func (o *Orchestrator) applyWindowHintWithKind(owner types.PipelineStage, hint string, kind types.RetryHintKind) {
 	o.busCtx.TaskState.RetryHint = hint
 	if strings.TrimSpace(hint) == "" {
 		o.busCtx.TaskState.RetryHintStage = ""
+		o.busCtx.TaskState.RetryHintKind = types.RetryHintKindUnknown
 	} else {
 		o.busCtx.TaskState.RetryHintStage = owner
+		o.busCtx.TaskState.RetryHintKind = kind
 	}
 	const hintKey = "orchestrator.dag-window"
 	if hint == "" {
@@ -8658,6 +8676,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	// the start of the NEXT window via applyWindowHint.
 	if output.RetryHint != "" {
 		o.busCtx.TaskState.RetryHint = output.RetryHint
+		o.busCtx.TaskState.RetryHintKind = output.RetryHintKind
 		o.busCtx.TaskState.RetryHintStage = o.busCtx.TaskState.Stage
 		// Surface a soft, localized retry cue so the user sees the
 		// pipeline is still working — NOT a verbatim dump of the

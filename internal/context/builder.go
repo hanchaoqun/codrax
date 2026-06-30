@@ -219,6 +219,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	// the generic TaskState.RetryHint flow into analyzer retries can leak a
 	// downstream DAG window directive back into request classification.
 	ac.RetryHint = retryHintForAgentContext(bus, stage)
+	ac.RetryHintKind = retryHintKindForAgentContext(bus, stage)
 
 	return ac
 }
@@ -238,6 +239,13 @@ func retryHintForAgentContext(bus *types.BusContext, stage types.PipelineStage) 
 		return ""
 	}
 	return bus.TaskState.RetryHint
+}
+
+func retryHintKindForAgentContext(bus *types.BusContext, stage types.PipelineStage) types.RetryHintKind {
+	if strings.TrimSpace(retryHintForAgentContext(bus, stage)) == "" {
+		return types.RetryHintKindUnknown
+	}
+	return bus.TaskState.RetryHintKind
 }
 
 // thinkAloudDirective is injected into every agent's system prompt.
