@@ -1717,6 +1717,29 @@ func TestFrameRootCauseBundleCarriesRoleSpecificPerfContexts(t *testing.T) {
 	}
 }
 
+func TestRunFrameRootCauseBundleReusesBundleWindowStats(t *testing.T) {
+	idx := buildTraceIndex(t, "frame_bundle_stats_reuse.systrace", `
+        app-100   (  100) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100   (  100) [000] .... 1.003000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+     worker-200   (  200) [001] .... 1.004000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200   (  200) [001] .... 1.008000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=000
+        app-100   (  100) [000] .... 1.010000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	res := Run(idx, Query{View: "frame_root_cause_bundle", PID: 100, TimeStart: 1.0, TimeEnd: 1.010, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	if res.FrameRootCauseBundle == nil {
+		t.Fatal("frame_root_cause_bundle result missing bundle")
+	}
+	if res.WindowStats == nil || res.FrameRootCauseBundle.windowStats == nil {
+		t.Fatalf("frame_root_cause_bundle should expose reused window stats: result=%+v bundle=%+v", res.WindowStats, res.FrameRootCauseBundle.windowStats)
+	}
+	if res.WindowStats != res.FrameRootCauseBundle.windowStats {
+		t.Fatalf("Run(frame_root_cause_bundle) must reuse bundle stats instead of recomputing: result=%p bundle=%p", res.WindowStats, res.FrameRootCauseBundle.windowStats)
+	}
+	if res.WindowStats.EventCounts[EventSchedSwitch] == 0 {
+		t.Fatalf("reused window stats should still contain scheduler counts: %+v", res.WindowStats.EventCounts)
+	}
+}
+
 func TestFramePipelineCriticalBlockingAndRecipeViews(t *testing.T) {
 	idx := buildTraceIndex(t, "blocking.systrace", blockingTrace)
 	frame := Run(idx, Query{View: "frame_window", PID: 20, TimeStart: 6.0, TimeEnd: 6.1})

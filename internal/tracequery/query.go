@@ -233,8 +233,12 @@ func Run(idx *Index, q Query) Result {
 			res.CriticalBlocking = bundle.CriticalBlocking
 			res.EvidencePack = append(res.EvidencePack, evidenceFromCriticalBlocking(*bundle.CriticalBlocking)...)
 		}
-		stats := getStats()
-		res.WindowStats = &stats
+		if bundle.windowStats != nil {
+			res.WindowStats = bundle.windowStats
+		} else {
+			stats := getStats()
+			res.WindowStats = &stats
+		}
 	case "trace_perf_bundle":
 		stats := getStats()
 		res.WindowStats = &stats
@@ -900,6 +904,10 @@ func eventMentionsThread(ev Event, thread string) bool {
 func ThreadTimeline(idx *Index, q Query) TimelineResult {
 	q = ensureQueryFlavor(idx, q)
 	target := resolveThread(idx, q)
+	return threadTimelineForTarget(idx, q, target, nil, nil, false)
+}
+
+func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []int, blockedReasonIDs []int, useIndexedEvents bool) TimelineResult {
 	res := TimelineResult{
 		Thread: target,
 		Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
@@ -908,19 +916,23 @@ func ThreadTimeline(idx *Index, q Query) TimelineResult {
 		res.Caveats = append(res.Caveats, "target thread not found; provide pid or a thread name visible in the trace")
 		return res
 	}
+	if idx == nil {
+		res.Caveats = append(res.Caveats, "trace index is empty")
+		return res
+	}
 	var runningStart float64
 	var runningLine int
 	var offStart float64
 	var offLine int
 	var offState string
 	var wake *Event
-	for _, ev := range idx.Events {
+	visit := func(ev Event) {
 		if q.LineStart > 0 || q.LineEnd > 0 {
 			if q.LineStart > 0 && ev.Line < q.LineStart {
-				continue
+				return
 			}
 			if q.LineEnd > 0 && ev.Line > q.LineEnd {
-				continue
+				return
 			}
 		}
 		switch ev.Type {
@@ -950,13 +962,25 @@ func ThreadTimeline(idx *Index, q Query) TimelineResult {
 			}
 		}
 	}
+	if useIndexedEvents {
+		for _, id := range eventIDs {
+			if id < 0 || id >= len(idx.Events) {
+				continue
+			}
+			visit(idx.Events[id])
+		}
+	} else {
+		for _, ev := range idx.Events {
+			visit(ev)
+		}
+	}
 	if runningStart > 0 {
 		res.Intervals = append(res.Intervals, makeInterval(target, StateRunning, runningStart, q.TimeEnd, runningLine, 0, ""))
 	}
 	if offStart > 0 {
 		res.Intervals = append(res.Intervals, offCPUIntervals(target, offStart, q.TimeEnd, offLine, 0, offState, wake)...)
 	}
-	enrichBlockedReasonIntervals(idx, target, res.Intervals)
+	enrichBlockedReasonIntervalsWithSelection(idx, target, res.Intervals, blockedReasonIDs, useIndexedEvents)
 	res.Intervals = clampIntervals(res.Intervals, q)
 	if len(res.Intervals) == 0 {
 		res.Caveats = append(res.Caveats, "no scheduler interval for the target thread was found in the selected window")
@@ -965,11 +989,15 @@ func ThreadTimeline(idx *Index, q Query) TimelineResult {
 }
 
 func enrichBlockedReasonIntervals(idx *Index, target ThreadRef, intervals []Interval) {
+	enrichBlockedReasonIntervalsWithSelection(idx, target, intervals, nil, false)
+}
+
+func enrichBlockedReasonIntervalsWithSelection(idx *Index, target ThreadRef, intervals []Interval, blockedReasonIDs []int, useIndexedEvents bool) {
 	for i := range intervals {
 		if intervals[i].State != StateDSleep {
 			continue
 		}
-		reason := findBlockedReasonFor(idx, target, intervals[i].StartTs, intervals[i].EndTs)
+		reason := findBlockedReasonForWithSelection(idx, target, intervals[i].StartTs, intervals[i].EndTs, blockedReasonIDs, useIndexedEvents)
 		if reason == nil {
 			continue
 		}
@@ -5857,9 +5885,13 @@ func sortedIntSet(in map[int]bool) []int {
 }
 
 func BuildWakeupChain(idx *Index, q Query) ChainResult {
+	return buildWakeupChainWithCache(idx, q, newChainQueryCache(idx))
+}
+
+func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) ChainResult {
 	q = normalizeQuery(idx, q)
 	q = ensureQueryFlavor(idx, q)
-	target := resolveThread(idx, q)
+	target := cache.resolveThread(q)
 	res := ChainResult{Target: target, Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
 	if target.PID == 0 && target.Comm == "" {
 		res.Caveats = append(res.Caveats, "target thread not found")
@@ -5868,12 +5900,12 @@ func BuildWakeupChain(idx *Index, q Query) ChainResult {
 	tq := q
 	tq.PID = target.PID
 	tq.Thread = target.Comm
-	targetTimeline := ThreadTimeline(idx, tq)
+	targetTimeline := cache.timeline(tq, target)
 	branches := interestingIntervals(targetTimeline.Intervals, q.MinDurationMs, q.MaxBranches)
 	if len(branches) == 0 {
 		visited := map[int]bool{}
 		targetBlockedMs := (q.TimeEnd - q.TimeStart) * 1000
-		expandChain(idx, q, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "")
+		expandChain(idx, q, cache, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "")
 		res.AggregatedImpacts = aggregateWakeupCausalImpacts(res)
 		attachIPCGraphToChain(idx, q, &res)
 		return res
@@ -5881,7 +5913,7 @@ func BuildWakeupChain(idx *Index, q Query) ChainResult {
 	for _, branch := range branches {
 		visited := map[int]bool{}
 		targetBlockedMs := (branch.EndTs - branch.StartTs) * 1000
-		expandChain(idx, q, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "")
+		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "")
 	}
 	res.AggregatedImpacts = aggregateWakeupCausalImpacts(res)
 	attachIPCGraphToChain(idx, q, &res)
@@ -8093,11 +8125,12 @@ func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 
 func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	q = normalizeQuery(idx, q)
+	cache := newChainQueryCache(idx)
 	stats := ComputeWindowStats(idx, q)
 	frame := BuildFrameTimeline(idx, q)
 	var chain ChainResult
 	if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
-		chain = BuildWakeupChain(idx, q)
+		chain = buildWakeupChainWithCache(idx, q, cache)
 	}
 	rank := buildRootCauseRankFrom(q, chain, stats)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
@@ -8129,6 +8162,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 		SupplyPressureSummary: stats.SupplyPressureSummary,
 		TraceMarkCategories:   stats.TraceMarkCategories,
 		AsyncFileWork:         stats.AsyncFileWork,
+		windowStats:           &stats,
 	}
 	if chainPtr != nil {
 		bundle.IOBurstEpisodes = enrichIOBurstEpisodesWithChainContext(*chainPtr, bundle.IOBurstEpisodes)
@@ -9027,7 +9061,206 @@ func tracePeerLabel(peer ThreadRef, edge IPCEdge) string {
 	return ""
 }
 
-func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, parentID string) string {
+type chainQueryCache struct {
+	idx             *Index
+	eventsByPID     map[int][]int
+	wakeupsByPID    map[int][]int
+	blockedByPID    map[int][]int
+	priorityByPID   map[int][]prioritySample
+	timelineByKey   map[string]TimelineResult
+	resolvedByQuery map[string]ThreadRef
+}
+
+type prioritySample struct {
+	ts   float64
+	prio int
+}
+
+func newChainQueryCache(idx *Index) *chainQueryCache {
+	cache := &chainQueryCache{
+		idx:             idx,
+		eventsByPID:     map[int][]int{},
+		wakeupsByPID:    map[int][]int{},
+		blockedByPID:    map[int][]int{},
+		priorityByPID:   map[int][]prioritySample{},
+		timelineByKey:   map[string]TimelineResult{},
+		resolvedByQuery: map[string]ThreadRef{},
+	}
+	if idx == nil {
+		return cache
+	}
+	for i := range idx.Events {
+		ev := idx.Events[i]
+		addEventPID := func(pid int) {
+			if pid <= 0 {
+				return
+			}
+			ids := cache.eventsByPID[pid]
+			if len(ids) > 0 && ids[len(ids)-1] == i {
+				return
+			}
+			cache.eventsByPID[pid] = append(ids, i)
+		}
+		addPriority := func(pid, prio int) {
+			if pid <= 0 || prio <= 0 {
+				return
+			}
+			cache.priorityByPID[pid] = append(cache.priorityByPID[pid], prioritySample{ts: ev.Ts, prio: prio})
+		}
+		switch ev.Type {
+		case EventSchedSwitch:
+			addEventPID(ev.PrevPID)
+			addEventPID(ev.NextPID)
+			addPriority(ev.PrevPID, ev.PrevPrio)
+			addPriority(ev.NextPID, ev.NextPrio)
+		case EventSchedWakeup, EventSchedWaking:
+			addEventPID(ev.WakeePID)
+			if ev.WakeePID > 0 {
+				cache.wakeupsByPID[ev.WakeePID] = append(cache.wakeupsByPID[ev.WakeePID], i)
+			}
+			addPriority(ev.WakeePID, ev.WakeePrio)
+		case EventSchedBlockedReason:
+			if ev.WakeePID > 0 {
+				cache.blockedByPID[ev.WakeePID] = append(cache.blockedByPID[ev.WakeePID], i)
+			}
+		}
+	}
+	for pid, samples := range cache.priorityByPID {
+		sort.SliceStable(samples, func(i, j int) bool {
+			return samples[i].ts < samples[j].ts
+		})
+		cache.priorityByPID[pid] = samples
+	}
+	return cache
+}
+
+func (c *chainQueryCache) resolveThread(q Query) ThreadRef {
+	if c == nil || c.idx == nil {
+		return ThreadRef{}
+	}
+	key := fmt.Sprintf("pid=%d/thread=%s/input=%s", q.PID, q.Thread, q.ThreadInput)
+	if ref, ok := c.resolvedByQuery[key]; ok {
+		return ref
+	}
+	ref := resolveThread(c.idx, q)
+	c.resolvedByQuery[key] = ref
+	return ref
+}
+
+func (c *chainQueryCache) timeline(q Query, thread ThreadRef) TimelineResult {
+	if c == nil || c.idx == nil {
+		return TimelineResult{
+			Thread:  thread,
+			Window:  TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+			Caveats: []string{"trace index is empty"},
+		}
+	}
+	key := fmt.Sprintf("%d/%s/%.9f/%.9f/%d/%d/%s", thread.PID, strings.ToLower(thread.Comm), q.TimeStart, q.TimeEnd, q.LineStart, q.LineEnd, q.TraceFlavor)
+	if tl, ok := c.timelineByKey[key]; ok {
+		return cloneTimelineResult(tl)
+	}
+	eventIDs, eventIndexed := c.eventsForThread(thread)
+	blockedIDs, blockedIndexed := c.blockedReasonsForThread(thread)
+	tl := threadTimelineForTarget(c.idx, q, thread, eventIDs, blockedIDs, eventIndexed && blockedIndexed)
+	c.timelineByKey[key] = cloneTimelineResult(tl)
+	return tl
+}
+
+func cloneTimelineResult(in TimelineResult) TimelineResult {
+	out := in
+	if len(in.Intervals) > 0 {
+		out.Intervals = append([]Interval(nil), in.Intervals...)
+	}
+	if len(in.Caveats) > 0 {
+		out.Caveats = append([]string(nil), in.Caveats...)
+	}
+	return out
+}
+
+func (c *chainQueryCache) eventsForThread(thread ThreadRef) ([]int, bool) {
+	if c == nil || thread.PID <= 0 {
+		return nil, false
+	}
+	ids := c.eventsByPID[thread.PID]
+	if ids == nil {
+		return []int{}, true
+	}
+	return ids, true
+}
+
+func (c *chainQueryCache) wakeupsForThread(thread ThreadRef) ([]int, bool) {
+	if c == nil || thread.PID <= 0 {
+		return nil, false
+	}
+	ids := c.wakeupsByPID[thread.PID]
+	if ids == nil {
+		return []int{}, true
+	}
+	return ids, true
+}
+
+func (c *chainQueryCache) blockedReasonsForThread(thread ThreadRef) ([]int, bool) {
+	if c == nil || thread.PID <= 0 {
+		return nil, false
+	}
+	ids := c.blockedByPID[thread.PID]
+	if ids == nil {
+		return []int{}, true
+	}
+	return ids, true
+}
+
+func (c *chainQueryCache) findWakeup(thread ThreadRef, start, end float64) (*Event, bool) {
+	if c == nil || c.idx == nil {
+		return nil, false
+	}
+	ids, indexed := c.wakeupsForThread(thread)
+	return findWakeupForWithSelection(c.idx, thread, start, end, ids, indexed)
+}
+
+func (c *chainQueryCache) findBlockedReason(thread ThreadRef, start, end float64) *Event {
+	if c == nil || c.idx == nil {
+		return nil
+	}
+	ids, indexed := c.blockedReasonsForThread(thread)
+	return findBlockedReasonForWithSelection(c.idx, thread, start, end, ids, indexed)
+}
+
+func (c *chainQueryCache) priorityNear(flavor TraceFlavor, thread ThreadRef, ts float64) (int, string) {
+	if c == nil || c.idx == nil {
+		return 0, ""
+	}
+	if thread.PID <= 0 {
+		return threadPriorityNear(c.idx, flavor, thread, ts)
+	}
+	samples := c.priorityByPID[thread.PID]
+	if len(samples) == 0 {
+		return threadPriorityNear(c.idx, flavor, thread, ts)
+	}
+	pos := sort.Search(len(samples), func(i int) bool {
+		return samples[i].ts >= ts
+	})
+	bestPrio := 0
+	bestDist := 0.0
+	consider := func(i int) {
+		if i < 0 || i >= len(samples) || samples[i].prio <= 0 {
+			return
+		}
+		dist := samples[i].ts - ts
+		if dist < 0 {
+			dist = -dist
+		}
+		if bestPrio == 0 || dist < bestDist {
+			bestPrio = samples[i].prio
+			bestDist = dist
+		}
+	}
+	consider(pos)
+	consider(pos - 1)
+	return bestPrio, classifyTracePriority(flavor, bestPrio)
+}
+
+func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, start, end float64, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, parentID string) string {
 	if depth >= q.MaxDepth {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("max_depth=%d reached at pid=%d", q.MaxDepth, thread.PID))
 		return ""
@@ -9045,8 +9278,8 @@ func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, dept
 	tq.Thread = thread.Comm
 	tq.TimeStart = start
 	tq.TimeEnd = end
-	tl := ThreadTimeline(idx, tq)
-	impact := summarizeWakeupCausalImpact(idx, q, thread, tl.Intervals, start, end, depth, targetBlockedMs, res.Target)
+	tl := cache.timeline(tq, thread)
+	impact := summarizeWakeupCausalImpact(idx, q, cache, thread, tl.Intervals, start, end, depth, targetBlockedMs, res.Target)
 	interesting := mostInterestingInterval(tl.Intervals, q.MinDurationMs)
 	nodeID := fmt.Sprintf("n%d", len(res.Nodes)+1)
 	node := ChainNode{ID: nodeID, Thread: thread, Window: TimeWindow{StartTs: start, EndTs: end}}
@@ -9079,7 +9312,7 @@ func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, dept
 	}
 	switch interesting.State {
 	case StateSSleep:
-		wakeup, usedTolerance := findWakeupFor(idx, thread, interesting.StartTs, interesting.EndTs)
+		wakeup, usedTolerance := cache.findWakeup(thread, interesting.StartTs, interesting.EndTs)
 		if wakeup == nil {
 			res.RootEvidence = append(res.RootEvidence, RootEvidence{
 				Type:       "missing_wakeup",
@@ -9096,12 +9329,12 @@ func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, dept
 			res.Caveats = append(res.Caveats, fmt.Sprintf("matched sched_wakeup for %s %.6f outside strict sleep end %.6f by %.3fus boundary tolerance", threadLabel(thread), wakeup.Ts, interesting.EndTs, (wakeup.Ts-interesting.EndTs)*1000000))
 		}
 		waker := ThreadRef{Comm: wakeup.Comm, PID: wakeup.PID, TGID: wakeup.TGID}
-		childID := expandChain(idx, q, waker, interesting.StartTs, wakeup.Ts, depth+1, targetBlockedMs, visited, res, nodeID)
+		childID := expandChain(idx, q, cache, waker, interesting.StartTs, wakeup.Ts, depth+1, targetBlockedMs, visited, res, nodeID)
 		if childID != "" {
-			wakerPrio, wakerClass := threadPriorityNear(idx, q.TraceFlavor, waker, wakeup.Ts)
+			wakerPrio, wakerClass := cache.priorityNear(q.TraceFlavor, waker, wakeup.Ts)
 			wakeePrio := wakeup.WakeePrio
 			if wakeePrio <= 0 {
-				wakeePrio, _ = threadPriorityNear(idx, q.TraceFlavor, thread, wakeup.Ts)
+				wakeePrio, _ = cache.priorityNear(q.TraceFlavor, thread, wakeup.Ts)
 			}
 			wakeeClass := classifyTracePriority(q.TraceFlavor, wakeePrio)
 			relation := priorityRelation(q.TraceFlavor, wakeePrio, wakerPrio)
@@ -9126,7 +9359,7 @@ func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, dept
 		res.RootEvidence = append(res.RootEvidence, rootEvidenceFromCausalImpact(impact, "thread was runnable but not running; inspect CPU pressure and priority context", 0.8))
 	case StateDSleep, StateIOWait:
 		root := rootEvidenceFromCausalImpact(impact, "thread slept in D state; IO or uninterruptible wait is a root-cause candidate", 0.88)
-		if reason := findBlockedReasonFor(idx, thread, interesting.StartTs, interesting.EndTs); reason != nil {
+		if reason := cache.findBlockedReason(thread, interesting.StartTs, interesting.EndTs); reason != nil {
 			if reason.IOWait > 0 {
 				root.Type = "io_wait"
 			}
@@ -9142,7 +9375,7 @@ func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, dept
 	return nodeID
 }
 
-func summarizeWakeupCausalImpact(idx *Index, q Query, thread ThreadRef, intervals []Interval, start, end float64, depth int, targetBlockedMs float64, target ThreadRef) WakeupCausalImpact {
+func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, intervals []Interval, start, end float64, depth int, targetBlockedMs float64, target ThreadRef) WakeupCausalImpact {
 	item := WakeupCausalImpact{
 		Thread:          thread,
 		Window:          TimeWindow{StartTs: start, EndTs: end},
@@ -9194,8 +9427,8 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, thread ThreadRef, interval
 	item.DominantState, item.DominantImpactMs = dominantCausalImpactState(item)
 	item.ProjectedImpactMs = causalImpactBlockingMs(item)
 	item.ActualImpactMs = actualCausalImpactBlockingMs(item)
-	item.Priority, item.PriorityClass = threadPriorityNear(idx, q.TraceFlavor, thread, (start+end)/2)
-	item.TargetPriority, item.TargetPriorityClass = threadPriorityNear(idx, q.TraceFlavor, target, start)
+	item.Priority, item.PriorityClass = cache.priorityNear(q.TraceFlavor, thread, (start+end)/2)
+	item.TargetPriority, item.TargetPriorityClass = cache.priorityNear(q.TraceFlavor, target, start)
 	item.PriorityRelation = dependencyPriorityRelation(q.TraceFlavor, item.TargetPriority, item.Priority, depth)
 	item.PriorityInversionCandidate = item.PriorityRelation == "lower_priority_dependency" && causalImpactIsPrioritySensitiveRoot(item)
 	item.NextStep = causalImpactNextStep(item)
@@ -9491,40 +9724,78 @@ func interestingIntervals(intervals []Interval, minDurationMs float64, max int) 
 }
 
 func findWakeupFor(idx *Index, thread ThreadRef, start, end float64) (*Event, bool) {
+	return findWakeupForWithSelection(idx, thread, start, end, nil, false)
+}
+
+func findWakeupForWithSelection(idx *Index, thread ThreadRef, start, end float64, eventIDs []int, useIndexedEvents bool) (*Event, bool) {
+	if idx == nil {
+		return nil, false
+	}
 	var best *Event
 	usedTolerance := false
-	for i := range idx.Events {
+	visit := func(i int) {
+		if i < 0 || i >= len(idx.Events) {
+			return
+		}
 		ev := &idx.Events[i]
 		if ev.Type != EventSchedWakeup && ev.Type != EventSchedWaking {
-			continue
+			return
 		}
 		if ev.Ts < start {
-			continue
+			return
 		}
 		inStrict := ev.Ts <= end
 		if !inStrict && ev.Ts > end+wakeupMatchToleranceSec {
-			continue
+			return
 		}
 		if threadMatches(thread, ev.WakeePID, ev.WakeeComm) {
 			best = ev
 			usedTolerance = !inStrict
 		}
 	}
+	if useIndexedEvents {
+		for _, id := range eventIDs {
+			visit(id)
+		}
+	} else {
+		for i := range idx.Events {
+			visit(i)
+		}
+	}
 	return best, usedTolerance
 }
 
 func findBlockedReasonFor(idx *Index, thread ThreadRef, start, end float64) *Event {
+	return findBlockedReasonForWithSelection(idx, thread, start, end, nil, false)
+}
+
+func findBlockedReasonForWithSelection(idx *Index, thread ThreadRef, start, end float64, eventIDs []int, useIndexedEvents bool) *Event {
+	if idx == nil {
+		return nil
+	}
 	var best *Event
-	for i := range idx.Events {
+	visit := func(i int) {
+		if i < 0 || i >= len(idx.Events) {
+			return
+		}
 		ev := &idx.Events[i]
 		if ev.Type != EventSchedBlockedReason {
-			continue
+			return
 		}
 		if ev.Ts < start || ev.Ts > end {
-			continue
+			return
 		}
 		if threadMatches(thread, ev.WakeePID, "") {
 			best = ev
+		}
+	}
+	if useIndexedEvents {
+		for _, id := range eventIDs {
+			visit(id)
+		}
+	} else {
+		for i := range idx.Events {
+			visit(i)
 		}
 	}
 	return best

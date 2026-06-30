@@ -1190,6 +1190,8 @@ type FrameRootCauseBundle struct {
 	TraceMarkCategories   []TraceMarkCategory     `json:"trace_mark_categories,omitempty"`
 	AsyncFileWork         []AsyncFileWorkSummary  `json:"async_file_work,omitempty"`
 	Caveats               []string                `json:"caveats,omitempty"`
+
+	windowStats *WindowStats `json:"-"`
 }
 
 type InteractionStatsResult struct {
