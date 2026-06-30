@@ -113,6 +113,10 @@ func answerDocumentExternalObservationOnly(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
+	if runtimeSourceAuthorityDisablesExternalObservationOnly(authority) {
+		return false
+	}
 	rm := ctx.AnalysisIR.RequestModel
 	contract := types.CompileAnswerIntentContract(rm, &ctx.AnalysisIR.AnswerContract)
 	hasExternal := false
@@ -152,6 +156,15 @@ func answerDocumentExternalObservationOnly(ctx *types.BusContext) bool {
 		}
 	}
 	return hasExternal
+}
+
+func runtimeSourceAuthorityDisablesExternalObservationOnly(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	return authority.CurrentSourceSatisfied ||
+		authority.CanHardBlockCompletion ||
+		authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise
 }
 
 func answerDocumentHasExternalObservationSupport(ctx *types.BusContext) bool {

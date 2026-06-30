@@ -726,6 +726,60 @@ func TestNormalizeExternalObservationVisibleCitationSentinels_DoesNotTouchMixedC
 	}
 }
 
+func TestNormalizeExternalObservationVisibleCitationSentinels_PreciseCurrentSourceAuthorityDoesNotTreatAsExternalOnly(t *testing.T) {
+	mut := types.NewMutableState("history plus precise current-source obligation")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "commit",
+		Value: "abc123",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: "vcs_metadata"},
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Language: "zh",
+		Mutable:  mut,
+		TurnRouteHint: types.TurnRouteHint{
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+		},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				SourceQuotes:                        []string{"internal/tracequery/parse.go:42"},
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+			},
+		}},
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
+	if !authority.Active ||
+		authority.CurrentSourceRequirement != types.RuntimeSourceRequirementPrecise ||
+		!authority.CanHardBlockCompletion {
+		t.Fatalf("test setup should expose precise current-source authority, got %+v", authority)
+	}
+	if answerDocumentExternalObservationOnly(ctx) {
+		t.Fatal("precise current-source authority must disable external-observation-only cleanup")
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "s",
+		Kind: types.BlockSummary,
+		Text: "这里讨论当前解析实现与历史变化，`citation_ref=-1` 是用户可见文本的一部分。",
+	}}}
+
+	if fixed := normalizeExternalObservationVisibleCitationSentinels(doc, ctx); fixed != 0 {
+		t.Fatalf("precise current-source authority should not sanitize as external-only, fixed=%d", fixed)
+	}
+	if !strings.Contains(doc.Blocks[0].Text, "citation_ref=-1") {
+		t.Fatalf("current-source-lane visible text should remain unchanged: %q", doc.Blocks[0].Text)
+	}
+}
+
 func TestNormalizeExternalObservationVisibleCitationSentinels_SanitizesCommandOnlyAnswers(t *testing.T) {
 	mut := types.NewMutableState("count lines")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
