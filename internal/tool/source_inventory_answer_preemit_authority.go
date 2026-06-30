@@ -108,7 +108,11 @@ func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []t
 	if out.EnumerationRowCount > 0 {
 		out.Active = true
 	}
-	out.Blocking = best.Blocking || out.ExactAbsenceBlocking
+	out.Blocking = sourceInventoryAnswerPreEmitBlocking(out)
 	out.ReasonCodes = sourceInventoryAnswerPreEmitReasonCodes(out)
 	return out
+}
+
+func sourceInventoryAnswerPreEmitBlocking(a SourceInventoryAnswerPreEmitAuthority) bool {
+	return a.View.CanBlockCompletion || a.BestUniverseGap.Blocking || a.ExactAbsenceBlocking
 }

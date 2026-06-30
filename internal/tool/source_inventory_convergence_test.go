@@ -490,6 +490,27 @@ func TestSourceInventoryConvergence_AuthoritySnapshotsCarryAcceptedClosureInputs
 	}
 }
 
+// Clause I — answer-side pre-emit blocking must consume the shared
+// SourceInventoryAnswerAuthorityView. Otherwise one layer can record
+// view:block_completion while another status/check surface reports
+// blocking=false, recreating source-inventory ping-pong where typed completion
+// debt is visible but not load-bearing.
+func TestSourceInventoryConvergence_PreEmitBlockingConsumesSharedAnswerView(t *testing.T) {
+	data, err := os.ReadFile("source_inventory_answer_preemit_authority.go")
+	if err != nil {
+		t.Fatalf("read source_inventory_answer_preemit_authority.go: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "out.Blocking = sourceInventoryAnswerPreEmitBlocking(out)") {
+		t.Fatalf("BuildSourceInventoryAnswerPreEmitAuthority must assign Blocking through sourceInventoryAnswerPreEmitBlocking(out)")
+	}
+	if !strings.Contains(text, "a.View.CanBlockCompletion") ||
+		!strings.Contains(text, "a.BestUniverseGap.Blocking") ||
+		!strings.Contains(text, "a.ExactAbsenceBlocking") {
+		t.Fatalf("sourceInventoryAnswerPreEmitBlocking must fold shared view, best universe gap, and exact absence blocker")
+	}
+}
+
 func sourceInventoryAuthorityInputCompositeName(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.Ident:

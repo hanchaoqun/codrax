@@ -67,6 +67,48 @@ func TestSourceInventoryAnswerPreEmitAuthority_PreCompleteUsesSamePreciseCoverag
 	}
 }
 
+func TestSourceInventoryAnswerPreEmitAuthority_BlocksOnSharedCompletionView(t *testing.T) {
+	auth := SourceInventoryAnswerPreEmitAuthority{
+		View: types.SourceInventoryAnswerAuthorityView{
+			CanBlockCompletion: true,
+			FollowupDebt: types.SourceInventoryFollowupDebt{
+				Active:           true,
+				ReasonCode:       types.SourceInventoryFollowupDebtMissingSourceClass,
+				MissingClasses:   []types.SourcePathRole{types.SourcePathRoleFixture},
+				CoveredClasses:   []types.SourcePathRole{types.SourcePathRoleThirdParty},
+				MissingLanguages: []string{"cangjie"},
+				Query: types.SourceInventoryLensQuery{
+					Path:          ".",
+					Scopes:        []string{"eval/fixtures/testdata/cangjie_minimal/bridge"},
+					Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+					IncludeCounts: true,
+					TopN:          24,
+				},
+				Roles: []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			},
+		},
+	}
+	auth.Blocking = sourceInventoryAnswerPreEmitBlocking(auth)
+	auth.ReasonCodes = sourceInventoryAnswerPreEmitReasonCodes(auth)
+	if !auth.Blocking {
+		t.Fatalf("pre-emit authority must not drop shared view blocking state, got %+v", auth)
+	}
+	if !sourceInventoryAnswerPreEmitReasonCodeContains(auth, "view:block_completion") {
+		t.Fatalf("reason codes should include the shared view blocker, got %+v", auth.ReasonCodes)
+	}
+
+	auth.View.CanBlockCompletion = false
+	auth.View.CanOnlyCaveat = true
+	auth.Blocking = sourceInventoryAnswerPreEmitBlocking(auth)
+	auth.ReasonCodes = sourceInventoryAnswerPreEmitReasonCodes(auth)
+	if auth.Blocking {
+		t.Fatalf("caveat-only source inventory debt must not become a pre-emit hard blocker, got %+v", auth)
+	}
+	if !sourceInventoryAnswerPreEmitReasonCodeContains(auth, "view:caveat_only") {
+		t.Fatalf("reason codes should preserve caveat-only state for status/handoff, got %+v", auth.ReasonCodes)
+	}
+}
+
 func TestSourceInventoryAnswerPreEmitAuthority_ProjectsExactAbsenceDebt(t *testing.T) {
 	mut := types.NewMutableState("source inventory absence")
 	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
