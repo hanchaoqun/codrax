@@ -8474,6 +8474,7 @@ func TestRenderAnswerDocObservationLedger_IncludesTraceObservationCoverage(t *te
 		Success:  true,
 		Observations: []types.ObservationRecord{
 			stageReportTraceObservation("root", "trace_query[0]", "root_cause_primary", "root_cause_primary", "main-1", "runnable", "11.000", []string{"chain_relevance=on_chain"}, types.ObservationSpan{StartTs: 1.0, EndTs: 1.2}),
+			stageReportTraceObservation("drill", "trace_query[0]", "state_drilldown", "state_drilldown:main-1:S", "main-1", "S", "21.000", []string{"source=top_sleep", "recommended_views=wakeup_chain,root_cause_rank", "chain_required=true", "recursive=true"}, types.ObservationSpan{StartTs: 1.0, EndTs: 1.2}),
 		},
 	}}})
 	ctx := &types.AgentContext{Mutable: mu}
@@ -8481,13 +8482,15 @@ func TestRenderAnswerDocObservationLedger_IncludesTraceObservationCoverage(t *te
 	got := renderAnswerDocObservationLedger(ctx)
 	for _, want := range []string{
 		"### Trace Observation Coverage",
-		"trace_query_calls=1; trace_observations=1",
-		"dimensions: root_cause_rank:1(on=1 adjacent=0 background=0)",
-		"soft_followup_candidates: `wakeup_chain`, `critical_blocking_calls`, `thread_timeline_or_window_stats`, `window_stats_resource_pressure`",
+		"trace_query_calls=1; trace_observations=2",
+		"dimensions: root_cause_rank:1(on=1 adjacent=0 background=0), state_drilldown:1",
+		"soft_followup_candidates: `wakeup_chain`, `critical_blocking_calls`, `window_stats_resource_pressure`",
 		"top[1] dimension=`root_cause_rank`; id=`root`",
 		"chain_relevance=`on_chain`",
 		"window=1.000000..1.200000",
 		"support_refs=`trace.systrace:10-20`",
+		"top[2] dimension=`state_drilldown`; id=`drill`; window=1.000000..1.200000",
+		"drilldown_source=`top_sleep`; recommended_views=`wakeup_chain`, `root_cause_rank`; chain_required=true; recursive=true",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("observation ledger missing trace coverage fragment %q:\n%s", want, got)
