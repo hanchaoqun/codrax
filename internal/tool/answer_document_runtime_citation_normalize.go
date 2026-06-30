@@ -89,8 +89,7 @@ func answerDocumentHasLoadBearingCurrentSourceLane(ctx *types.BusContext) bool {
 	if authority.Active {
 		return authority.KeepsCurrentSourceLaneLoadBearing()
 	}
-	rm := &ctx.AnalysisIR.RequestModel
-	return rm.CurrentSourceLaneDecision().RequiresCurrentSource()
+	return false
 }
 
 func answerDocumentExternalObservationOnly(ctx *types.BusContext) bool {

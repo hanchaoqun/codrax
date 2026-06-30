@@ -170,6 +170,50 @@ func TestNormalizeRuntimeArtifactCitationRefs_AcceptedCurrentSourceProofDisables
 	}
 }
 
+func TestAnswerDocumentHasLoadBearingCurrentSourceLane_UsesAuthorityPrecision(t *testing.T) {
+	softCtx := &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				SourceQuotes:                        []string{"current parser mechanism"},
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+				Confidence:                          0.9,
+			},
+		}},
+	}
+	softAuthority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(softCtx, types.ObservationLedger{})
+	if !softAuthority.Active ||
+		softAuthority.CurrentSourceRequirement != types.RuntimeSourceRequirementSoft ||
+		softAuthority.KeepsCurrentSourceLaneLoadBearing() {
+		t.Fatalf("test setup should expose soft non-load-bearing authority, got %+v", softAuthority)
+	}
+	if answerDocumentHasLoadBearingCurrentSourceLane(softCtx) {
+		t.Fatal("soft unanchored current-source profile must not become a citation cleanup hard boundary")
+	}
+
+	preciseCtx := &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				SourceQuotes:                        []string{"internal/tracequery/parse.go:42"},
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+				Confidence:                          0.9,
+			},
+		}},
+	}
+	preciseAuthority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(preciseCtx, types.ObservationLedger{})
+	if !preciseAuthority.Active ||
+		preciseAuthority.CurrentSourceRequirement != types.RuntimeSourceRequirementPrecise ||
+		!preciseAuthority.KeepsCurrentSourceLaneLoadBearing() {
+		t.Fatalf("test setup should expose precise load-bearing authority, got %+v", preciseAuthority)
+	}
+	if !answerDocumentHasLoadBearingCurrentSourceLane(preciseCtx) {
+		t.Fatal("precise anchored current-source profile must remain load-bearing")
+	}
+}
+
 func TestNormalizeRuntimeArtifactCitationRefs_MixedRuntimeCurrentSourceKeepsCurrentCitations(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{
