@@ -4430,7 +4430,7 @@ func answerDocRuntimeSourceAuthorityUsesCompactObservationPrompt(ctx *types.Agen
 	if !runtimeCarrier {
 		return false
 	}
-	if !answerDocRuntimeSourceRequestCarrierActive(ctx, runtimeCarrier) {
+	if !answerDocRuntimeSourceRequestCarrierActive(ctx, authority) {
 		return false
 	}
 	return authority.CurrentSourceRequirement != types.RuntimeSourceRequirementNone ||
@@ -4440,25 +4440,8 @@ func answerDocRuntimeSourceAuthorityUsesCompactObservationPrompt(ctx *types.Agen
 		authority.CanCompleteWithCombinedProof
 }
 
-func answerDocRuntimeSourceRequestCarrierActive(ctx *types.AgentContext, runtimeCarrier bool) bool {
-	if ctx == nil || ctx.AnalysisIR == nil {
-		return false
-	}
-	rm := types.RuntimeSourceAuthorityRequestModelFromAgentContext(ctx)
-	if rm == nil {
-		return false
-	}
-	if ctx.TurnRouteHint.ExternalObservationParticipates() ||
-		rm.HasExternalOnlyRuntimeArtifact() ||
-		rm.HasExternalObservationArtifactReference() ||
-		rm.HasRuntimeArtifactPathReference() ||
-		rm.LogTriage != nil ||
-		rm.PerfTrace != nil {
-		return true
-	}
-	return runtimeCarrier &&
-		rm.CurrentSourceExplanationProfile != nil &&
-		rm.CurrentSourceExplanationProfile.Active()
+func answerDocRuntimeSourceRequestCarrierActive(ctx *types.AgentContext, authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	return types.RuntimeSourceAuthorityRequestCarrierActiveForAgentContext(ctx, authority)
 }
 
 func answerDocObservationRowSetWriter(ctx *types.AgentContext) types.ObservationRowSetWriter {

@@ -1583,7 +1583,7 @@ func evidenceRenderUsesCompactRuntimeSourceAuthority(ac *types.AgentContext) boo
 	if !runtimeCarrier {
 		return false
 	}
-	if !evidenceRenderRuntimeSourceRequestCarrierActive(ac, runtimeCarrier) {
+	if !evidenceRenderRuntimeSourceRequestCarrierActive(ac, authority) {
 		return false
 	}
 	return authority.CurrentSourceRequirement != types.RuntimeSourceRequirementNone ||
@@ -1593,25 +1593,8 @@ func evidenceRenderUsesCompactRuntimeSourceAuthority(ac *types.AgentContext) boo
 		authority.CanCompleteWithCombinedProof
 }
 
-func evidenceRenderRuntimeSourceRequestCarrierActive(ac *types.AgentContext, runtimeCarrier bool) bool {
-	if ac == nil || ac.AnalysisIR == nil {
-		return false
-	}
-	rm := types.RuntimeSourceAuthorityRequestModelFromAgentContext(ac)
-	if rm == nil {
-		return false
-	}
-	if ac.TurnRouteHint.ExternalObservationParticipates() ||
-		rm.HasExternalOnlyRuntimeArtifact() ||
-		rm.HasExternalObservationArtifactReference() ||
-		rm.HasRuntimeArtifactPathReference() ||
-		rm.LogTriage != nil ||
-		rm.PerfTrace != nil {
-		return true
-	}
-	return runtimeCarrier &&
-		rm.CurrentSourceExplanationProfile != nil &&
-		rm.CurrentSourceExplanationProfile.Active()
+func evidenceRenderRuntimeSourceRequestCarrierActive(ac *types.AgentContext, authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	return types.RuntimeSourceAuthorityRequestCarrierActiveForAgentContext(ac, authority)
 }
 
 func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts evidenceRenderOptions) string {

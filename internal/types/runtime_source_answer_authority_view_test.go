@@ -381,6 +381,56 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_CarrierHelpers(t *testing.T) {
 	}
 }
 
+func TestRuntimeSourceAuthorityRequestCarrierActiveUsesSharedAuthority(t *testing.T) {
+	runtimeLedger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
+	runtimeOnly := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		Ledger: runtimeLedger,
+	})
+	if RuntimeSourceAuthorityRequestCarrierActive(TurnRouteHint{}, &RequestModel{}, runtimeOnly) {
+		t.Fatalf("runtime-only ledger without a request carrier must not activate mixed prompt budget: %+v", runtimeOnly)
+	}
+	if !RuntimeSourceAuthorityRequestCarrierActive(TurnRouteHint{Source: "mixed", NeedsRepoAccess: true}, &RequestModel{}, runtimeOnly) {
+		t.Fatalf("typed mixed route should activate runtime/source prompt budget when runtime evidence exists: %+v", runtimeOnly)
+	}
+
+	softRM := &RequestModel{
+		CurrentSourceObligationSignals: []CurrentSourceObligationSignal{{
+			Kind: CurrentSourceObligationSignalDroppedRequestedDimension,
+			Role: RequestedAnswerDimensionFunctionOrPurpose,
+		}},
+	}
+	softMixed := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel: softRM,
+		RouteHint:    TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},
+		Ledger:       runtimeLedger,
+	})
+	if !RuntimeSourceAuthorityRequestCarrierActive(TurnRouteHint{}, softRM, softMixed) {
+		t.Fatalf("soft source obligation should activate shared prompt budget without becoming a hard gate: %+v", softMixed)
+	}
+	if softMixed.CanHardBlockCompletion {
+		t.Fatalf("shared prompt budget activation must not imply hard completion blocking: %+v", softMixed)
+	}
+
+	preciseRM := &RequestModel{
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			SourceQuotes:                        []string{"internal/tracequery/parse.go"},
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+		},
+	}
+	preciseMixed := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel: preciseRM,
+		RouteHint:    TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},
+		Ledger:       runtimeLedger,
+	})
+	if !RuntimeSourceAuthorityRequestCarrierActive(TurnRouteHint{}, preciseRM, preciseMixed) {
+		t.Fatalf("precise source obligation should share the same request carrier predicate: %+v", preciseMixed)
+	}
+	if !preciseMixed.CanHardBlockCompletion {
+		t.Fatalf("precise source obligation should remain the only hard-gate candidate: %+v", preciseMixed)
+	}
+}
+
 func runtimeSourceTraceRecord(id, producer string) ObservationRecord {
 	return ObservationRecord{
 		ID:       id,

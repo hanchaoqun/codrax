@@ -224,6 +224,42 @@ func (s RuntimeSourceAnswerAuthoritySnapshot) HasMixedRuntimeCurrentSourceCarrie
 	return s.Active && s.HasRuntimeCarrier() && s.HasCurrentSourceCarrier()
 }
 
+// RuntimeSourceAuthorityRequestCarrierActiveForAgentContext reports whether an
+// agent prompt/budget consumer should treat the current turn as an intentional
+// runtime/source mixed surface. This is prompt and handoff budgeting guidance,
+// not a completion hard gate.
+func RuntimeSourceAuthorityRequestCarrierActiveForAgentContext(ctx *AgentContext, authority RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return RuntimeSourceAuthorityRequestCarrierActive(
+		ctx.TurnRouteHint,
+		RuntimeSourceAuthorityRequestModelFromAgentContext(ctx),
+		authority,
+	)
+}
+
+// RuntimeSourceAuthorityRequestCarrierActive centralizes the request-side
+// carrier predicate used by finalizer/context prompt-budget consumers. It keeps
+// local consumers from re-deriving the boundary from individual profile fields.
+func RuntimeSourceAuthorityRequestCarrierActive(hint TurnRouteHint, rm *RequestModel, authority RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if rm == nil || !authority.HasRuntimeCarrier() {
+		return false
+	}
+	if hint.ExternalObservationParticipates() ||
+		rm.HasExternalOnlyRuntimeArtifact() ||
+		rm.HasExternalObservationArtifactReference() ||
+		rm.HasRuntimeArtifactPathReference() ||
+		rm.LogTriage != nil ||
+		rm.PerfTrace != nil {
+		return true
+	}
+	return rm.HasCurrentSourceObligationSignal() ||
+		rm.HasTypedCurrentSourceScopeRequest() ||
+		rm.CurrentSourceExplanationProfile != nil &&
+			rm.CurrentSourceExplanationProfile.Active()
+}
+
 func runtimeSourceAuthorityCurrentSourceRequired(rm *RequestModel, hint TurnRouteHint, suff ExternalObservationSufficiency) bool {
 	if suff.Status == ExternalObservationSufficiencyBlockedByCurrentSource {
 		return true
