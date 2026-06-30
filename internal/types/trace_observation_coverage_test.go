@@ -69,6 +69,13 @@ func TestTraceObservationCoverageTreatsStateDrilldownAsStateCoverage(t *testing.
 	if state.Count != 1 || state.Examples[0].Subject != "target-1" {
 		t.Fatalf("state_drilldown should be a first-class trace coverage dimension, got %+v", got.Dimensions)
 	}
+	if state.Examples[0].DrilldownSource != "top_sleep" ||
+		!state.Examples[0].ChainRequired ||
+		!state.Examples[0].RecursiveDrilldown ||
+		!slices.Contains(state.Examples[0].RecommendedViews, "wakeup_chain") ||
+		!slices.Contains(state.Examples[0].RecommendedViews, "root_cause_rank") {
+		t.Fatalf("state drilldown metadata should survive typed coverage handoff, got %+v", state.Examples[0])
+	}
 	if slices.Contains(got.SoftMissingDimensions, "thread_timeline_or_window_stats") {
 		t.Fatalf("state_drilldown coverage should satisfy state/timeline soft obligation, got %+v", got.SoftMissingDimensions)
 	}

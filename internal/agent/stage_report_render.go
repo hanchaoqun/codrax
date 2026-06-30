@@ -238,6 +238,18 @@ func renderTraceObservationCoverageForStageReport(coverage types.TraceObservatio
 		if obs.Value != "" {
 			fmt.Fprintf(&b, " value=%q", obs.Value)
 		}
+		if obs.DrilldownSource != "" {
+			fmt.Fprintf(&b, " drilldown_source=%s", obs.DrilldownSource)
+		}
+		if len(obs.RecommendedViews) > 0 {
+			fmt.Fprintf(&b, " recommended_views=`%s`", strings.Join(obs.RecommendedViews, "`, `"))
+		}
+		if obs.ChainRequired {
+			b.WriteString(" chain_required=true")
+		}
+		if obs.RecursiveDrilldown {
+			b.WriteString(" recursive=true")
+		}
 		if obs.Summary != "" {
 			fmt.Fprintf(&b, " summary=%q", obs.Summary)
 		}

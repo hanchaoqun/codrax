@@ -48,20 +48,24 @@ type TraceObservationDimensionCoverage struct {
 }
 
 type TraceObservationCoverageRecord struct {
-	ID             string   `json:"id,omitempty"`
-	Dimension      string   `json:"dimension,omitempty"`
-	Subject        string   `json:"subject,omitempty"`
-	Predicate      string   `json:"predicate,omitempty"`
-	Object         string   `json:"object,omitempty"`
-	Value          string   `json:"value,omitempty"`
-	Unit           string   `json:"unit,omitempty"`
-	Summary        string   `json:"summary,omitempty"`
-	ChainRelevance string   `json:"chain_relevance,omitempty"`
-	Window         string   `json:"window,omitempty"`
-	Filter         string   `json:"filter,omitempty"`
-	Source         string   `json:"source,omitempty"`
-	Span           string   `json:"span,omitempty"`
-	SupportRefs    []string `json:"support_refs,omitempty"`
+	ID                 string   `json:"id,omitempty"`
+	Dimension          string   `json:"dimension,omitempty"`
+	Subject            string   `json:"subject,omitempty"`
+	Predicate          string   `json:"predicate,omitempty"`
+	Object             string   `json:"object,omitempty"`
+	Value              string   `json:"value,omitempty"`
+	Unit               string   `json:"unit,omitempty"`
+	Summary            string   `json:"summary,omitempty"`
+	ChainRelevance     string   `json:"chain_relevance,omitempty"`
+	DrilldownSource    string   `json:"drilldown_source,omitempty"`
+	RecommendedViews   []string `json:"recommended_views,omitempty"`
+	ChainRequired      bool     `json:"chain_required,omitempty"`
+	RecursiveDrilldown bool     `json:"recursive_drilldown,omitempty"`
+	Window             string   `json:"window,omitempty"`
+	Filter             string   `json:"filter,omitempty"`
+	Source             string   `json:"source,omitempty"`
+	Span               string   `json:"span,omitempty"`
+	SupportRefs        []string `json:"support_refs,omitempty"`
 }
 
 func BuildTraceObservationCoverage(ledger ObservationLedger) TraceObservationCoverage {
@@ -201,20 +205,24 @@ func traceObservationCoverageRecordView(record ObservationRecord, dimension stri
 		value += unit
 	}
 	return TraceObservationCoverageRecord{
-		ID:             strings.TrimSpace(record.ID),
-		Dimension:      dimension,
-		Subject:        strings.TrimSpace(record.Subject),
-		Predicate:      strings.TrimSpace(record.Predicate),
-		Object:         strings.TrimSpace(record.Object),
-		Value:          value,
-		Unit:           strings.TrimSpace(record.Unit),
-		Summary:        strings.TrimSpace(record.Summary),
-		ChainRelevance: traceObservationChainRelevance(record),
-		Window:         traceObservationWindow(record),
-		Filter:         traceObservationFilter(record),
-		Source:         FormatObservationSourceRef(record.SourceRef, 120),
-		Span:           FormatObservationSpan(record.Span, 80),
-		SupportRefs:    traceObservationCoverageLimitStrings(record.SupportRefs, 3),
+		ID:                 strings.TrimSpace(record.ID),
+		Dimension:          dimension,
+		Subject:            strings.TrimSpace(record.Subject),
+		Predicate:          strings.TrimSpace(record.Predicate),
+		Object:             strings.TrimSpace(record.Object),
+		Value:              value,
+		Unit:               strings.TrimSpace(record.Unit),
+		Summary:            strings.TrimSpace(record.Summary),
+		ChainRelevance:     traceObservationChainRelevance(record),
+		DrilldownSource:    traceObservationRichNoteValue(record.RichNotes, "source"),
+		RecommendedViews:   traceObservationRecommendedViews(record.RichNotes),
+		ChainRequired:      traceObservationRichNoteBool(record.RichNotes, "chain_required"),
+		RecursiveDrilldown: traceObservationRichNoteBool(record.RichNotes, "recursive"),
+		Window:             traceObservationWindow(record),
+		Filter:             traceObservationFilter(record),
+		Source:             FormatObservationSourceRef(record.SourceRef, 120),
+		Span:               FormatObservationSpan(record.Span, 80),
+		SupportRefs:        traceObservationCoverageLimitStrings(record.SupportRefs, 3),
 	}
 }
 
@@ -465,6 +473,35 @@ func traceObservationRichNoteValue(notes []string, key string) string {
 		}
 	}
 	return ""
+}
+
+func traceObservationRichNoteBool(notes []string, key string) bool {
+	switch strings.ToLower(traceObservationRichNoteValue(notes, key)) {
+	case "true", "1", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
+func traceObservationRecommendedViews(notes []string) []string {
+	raw := traceObservationRichNoteValue(notes, "recommended_views")
+	if raw == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case ',', ';', '|':
+			return true
+		default:
+			return false
+		}
+	})
+	var out []string
+	for _, field := range fields {
+		out = appendUniqueTraceObservationString(out, field)
+	}
+	return traceObservationCoverageLimitStrings(out, 5)
 }
 
 func traceObservationCoverageLimitRecords(records []TraceObservationCoverageRecord, limit int) []TraceObservationCoverageRecord {
