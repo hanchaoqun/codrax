@@ -14,10 +14,17 @@ var (
 
 func answerDocumentRuntimeObservationOnly(ctx *types.BusContext) bool {
 	plan := answerSurfacePlan(ctx)
-	return plan != nil &&
-		plan.RuntimeGroundingDisposition.IsActive() &&
-		!plan.CurrentStatusDiagnosticRequired &&
-		!plan.CurrentSourceEvidenceOrigin
+	if plan == nil ||
+		!plan.RuntimeGroundingDisposition.IsActive() ||
+		plan.CurrentStatusDiagnosticRequired ||
+		plan.CurrentSourceEvidenceOrigin {
+		return false
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
+	if !authority.Active {
+		return true
+	}
+	return runtimeSourceAuthorityAllowsObservationOnlyRuntimeSurface(authority)
 }
 
 func answerDocumentRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.BusContext) bool {
@@ -55,6 +62,20 @@ func runtimeSourceAuthorityAllowsArtifactCitationCleanup(authority types.Runtime
 		return false
 	}
 	if authority.CurrentSourceSatisfied || authority.CanHardBlockCompletion {
+		return false
+	}
+	return authority.RuntimeOnlySufficient ||
+		authority.CanUseRuntimeOnlyWithCaveat ||
+		authority.CanDowngradeToCaveat ||
+		(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired)
+}
+
+func runtimeSourceAuthorityAllowsObservationOnlyRuntimeSurface(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return true
+	}
+	if authority.CurrentSourceSatisfied || authority.CanHardBlockCompletion ||
+		authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise {
 		return false
 	}
 	return authority.RuntimeOnlySufficient ||

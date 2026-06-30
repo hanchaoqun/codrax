@@ -97,6 +97,79 @@ func TestNormalizeRuntimeArtifactCitationRefs_ObservationOnlyDropsCitationPool(t
 	}
 }
 
+func TestNormalizeRuntimeArtifactCitationRefs_AcceptedCurrentSourceProofDisablesObservationOnlyCleanup(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{
+			File: "src/main.cj",
+			Line: 18,
+			Func: "init",
+			Raw:  "src/main.cj:18 init",
+		}}}},
+	})
+	evidence := []types.EvidenceItem{{
+		ID:              "current-source-init",
+		Kind:            types.EvidenceDirect,
+		Origin:          types.ClaimOriginCurrentRepo,
+		Source:          "internal/runtime/init.go",
+		LineStart:       44,
+		LineEnd:         52,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "init",
+		Subject:         "init",
+		Summary:         "current source explains the init guard",
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	mut.AppendEvidence(evidence)
+	ctx := &types.BusContext{
+		Mutable:       mut,
+		EvidenceItems: evidence,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: mut.LogTriage(),
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic: true,
+				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
+				},
+			},
+		},
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
+	if !authority.Active || !authority.CurrentSourceSatisfied || authority.CanHardBlockCompletion {
+		t.Fatalf("test setup should expose accepted current-source proof through authority, got %+v", authority)
+	}
+	if answerDocumentRuntimeObservationOnly(ctx) {
+		t.Fatal("accepted current-source proof must disable observation-only cleanup")
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/runtime/init.go", Line: 44}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "当前源码中的 init guard 解释了运行时栈顶失败。",
+			Items: []types.AnswerBlockItem{{
+				ID:          "current",
+				Label:       "init guard",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx); fixed != 0 {
+		t.Fatalf("accepted current-source proof should keep current-source citations, fixed=%d doc=%+v", fixed, doc)
+	}
+	if len(doc.Citations) != 1 || doc.Blocks[0].Items[0].CitationRef != 0 {
+		t.Fatalf("current-source citation should be preserved: %+v", doc)
+	}
+}
+
 func TestNormalizeRuntimeArtifactCitationRefs_MixedRuntimeCurrentSourceKeepsCurrentCitations(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{
