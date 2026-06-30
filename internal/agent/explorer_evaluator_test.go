@@ -598,6 +598,113 @@ func TestExplorer_BuildInitialInstruction_RouteBackedSoftMixedObservationUsesRun
 	}
 }
 
+func TestExplorerAnswerSurfacePlan_SoftRuntimeSourceUsesSharedAuthority(t *testing.T) {
+	mut := types.NewMutableState("trace runtime observation")
+	mut.AppendDispatchToolResult(explorerRuntimeObservationToolResultForSurfacePlanTest())
+	eval := &explorerEvaluator{
+		analysisIR: explorerRuntimeCurrentStatusIRForSurfacePlanTest(),
+		mutable:    mut,
+		turnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+	}
+
+	plan := eval.answerSurfacePlan()
+	if plan == nil {
+		t.Fatal("explorer answer surface plan is nil")
+	}
+	if plan.CurrentStatusDiagnosticRequired {
+		t.Fatal("explorer surface plan should use runtime-source authority to downgrade soft current-status pressure")
+	}
+	if plan.CurrentSourceEvidenceOrigin {
+		t.Fatal("soft runtime/source authority should not force current-source origin in explorer surface plan")
+	}
+	if plan.RuntimeGroundingDisposition == nil || !plan.RuntimeGroundingDisposition.IsActive() {
+		t.Fatalf("runtime observation should preserve runtime grounding disposition: %+v", plan.RuntimeGroundingDisposition)
+	}
+}
+
+func TestExplorerAnswerSurfacePlan_PreciseRuntimeSourceKeepsDiagnostic(t *testing.T) {
+	mut := types.NewMutableState("trace runtime observation plus precise source anchor")
+	mut.AppendDispatchToolResult(explorerRuntimeObservationToolResultForSurfacePlanTest())
+	ir := explorerRuntimeCurrentStatusIRForSurfacePlanTest()
+	ir.RequestModel.CurrentSourceExplanationProfile = &types.CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		Modes: []types.CurrentSourceExplanationMode{
+			types.CurrentSourceExplanationExplainCurrentMechanism,
+		},
+		SourceQuotes: []string{"internal/tracequery/query.go:42"},
+		Confidence:   0.9,
+	}
+	eval := &explorerEvaluator{
+		analysisIR: ir,
+		mutable:    mut,
+		turnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+	}
+
+	plan := eval.answerSurfacePlan()
+	if plan == nil {
+		t.Fatal("explorer answer surface plan is nil")
+	}
+	if !plan.CurrentStatusDiagnosticRequired {
+		t.Fatal("precise current-source anchor must keep explorer current-status diagnostic")
+	}
+	if !plan.CurrentSourceEvidenceOrigin {
+		t.Fatal("precise current-source anchor must keep explorer current-source origin")
+	}
+}
+
+func explorerRuntimeCurrentStatusIRForSurfacePlanTest() *types.AnalysisIR {
+	return &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			DiagnosticProfile: types.DiagnosticIntentProfile{
+				IsDiagnostic: true,
+				CurrentRisk:  true,
+				Confidence:   0.9,
+			},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+				Confidence:           0.9,
+			},
+		},
+		AnswerContract: types.AnswerContract{
+			CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{Required: true},
+		},
+	}
+}
+
+func explorerRuntimeObservationToolResultForSurfacePlanTest() types.ToolResult {
+	return types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:attached#root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				ArtifactID:   "attached_trace",
+				ArtifactKind: "trace",
+			},
+			Span:     types.ObservationSpan{StartTsMs: 62380029.1},
+			ClaimKey: "root_cause_primary",
+		}},
+	}
+}
+
 func TestRenderExtractorSourceInventoryAdvisory_RendersCandidateAttributes(t *testing.T) {
 	out := renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
 		SourceInventoryAdvisory: types.SourceInventoryAdvisory{

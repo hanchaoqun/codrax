@@ -2508,14 +2508,17 @@ func (e *explorerEvaluator) answerSurfacePlan() *types.AnswerSurfacePlan {
 	if e == nil || e.analysisIR == nil {
 		return nil
 	}
-	return types.BuildAnswerSurfacePlan(
-		e.analysisIR,
-		e.mutable,
-		e.logTriage,
-		e.flowFindings,
-		nil,
-		e.structuredEvidence,
-	)
+	return types.BuildAnswerSurfacePlanForAgentContext(&types.AgentContext{
+		Stage:         types.StageExplore,
+		AnalysisIR:    e.analysisIR,
+		Mutable:       e.mutable,
+		LogTriage:     e.logTriage,
+		PerfTrace:     e.perfTrace,
+		FlowFindings:  e.flowFindings,
+		EvidenceItems: e.structuredEvidence,
+		MCPResponses:  e.mcpResponses,
+		TurnRouteHint: e.turnRouteHint,
+	})
 }
 
 func structuralCandidateFilesFromPaths(paths []string, questionKind string, axis types.PredicateAxis, isEnumeration bool, primaryRegistrationShape bool) []string {
