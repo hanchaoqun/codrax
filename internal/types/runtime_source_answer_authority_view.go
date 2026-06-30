@@ -57,6 +57,88 @@ type RuntimeSourceAnswerAuthorityInput struct {
 	AnswerSurfacePlan *AnswerSurfacePlan
 }
 
+// BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext compiles the shared
+// mixed runtime/current-source authority for prompt consumers. Callers may pass
+// a precompiled ledger to avoid rebuilding a large prompt view; when omitted the
+// helper uses the standard typed AgentContext ledger projection.
+func BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx *AgentContext, ledger ObservationLedger) RuntimeSourceAnswerAuthoritySnapshot {
+	if ctx == nil {
+		return RuntimeSourceAnswerAuthoritySnapshot{}
+	}
+	if ledger.Empty() {
+		ledger = CompileObservationLedger(ObservationLedgerInputFromAgentContext(ctx, 128))
+	}
+	return BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel:      RuntimeSourceAuthorityRequestModelFromAgentContext(ctx),
+		RouteHint:         ctx.TurnRouteHint,
+		Ledger:            ledger,
+		AnswerSurfacePlan: BuildAnswerSurfacePlanForAgentContext(ctx),
+	})
+}
+
+// BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext is the tool/reviewer
+// companion to BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext. It
+// keeps completion gates, status views, and prompt handoff on the same typed
+// authority surface instead of each consumer repacking runtime/source state.
+func BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx *BusContext, ledger ObservationLedger) RuntimeSourceAnswerAuthoritySnapshot {
+	if ctx == nil {
+		return RuntimeSourceAnswerAuthoritySnapshot{}
+	}
+	if ledger.Empty() {
+		ledger = CompileObservationLedger(ObservationLedgerInputFromBusContext(ctx, 128))
+	}
+	return BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel:      RuntimeSourceAuthorityRequestModelFromBusContext(ctx),
+		RouteHint:         ctx.TurnRouteHint,
+		Ledger:            ledger,
+		AnswerSurfacePlan: BuildAnswerSurfacePlanForBusContext(ctx),
+	})
+}
+
+// RuntimeSourceAuthorityRequestModelFromAgentContext returns a request-model
+// clone enriched with already-validated runtime bundles from the narrowed agent
+// view. The returned pointer is detached from AnalysisIR so consumers cannot
+// mutate analyzer output while filling missing LogTriage/PerfTrace carriers.
+func RuntimeSourceAuthorityRequestModelFromAgentContext(ctx *AgentContext) *RequestModel {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.LogTriage == nil {
+		if ctx.LogTriage != nil {
+			rm.LogTriage = ctx.LogTriage
+		} else if ctx.Mutable != nil {
+			rm.LogTriage = ctx.Mutable.LogTriage()
+		}
+	}
+	if rm.PerfTrace == nil {
+		if ctx.PerfTrace != nil {
+			rm.PerfTrace = ctx.PerfTrace
+		} else if ctx.Mutable != nil {
+			rm.PerfTrace = ctx.Mutable.PerfTrace()
+		}
+	}
+	return &rm
+}
+
+// RuntimeSourceAuthorityRequestModelFromBusContext is the BusContext equivalent
+// of RuntimeSourceAuthorityRequestModelFromAgentContext.
+func RuntimeSourceAuthorityRequestModelFromBusContext(ctx *BusContext) *RequestModel {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if ctx.Mutable != nil {
+		if rm.LogTriage == nil {
+			rm.LogTriage = ctx.Mutable.LogTriage()
+		}
+		if rm.PerfTrace == nil {
+			rm.PerfTrace = ctx.Mutable.PerfTrace()
+		}
+	}
+	return &rm
+}
+
 func BuildRuntimeSourceAnswerAuthoritySnapshot(in RuntimeSourceAnswerAuthorityInput) RuntimeSourceAnswerAuthoritySnapshot {
 	out := RuntimeSourceAnswerAuthoritySnapshot{}
 	rm := in.RequestModel

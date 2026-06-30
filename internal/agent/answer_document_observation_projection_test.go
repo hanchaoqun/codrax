@@ -64,6 +64,71 @@ func TestAnswerDocObservationPromptRecords_DefaultBudgetUnchanged(t *testing.T) 
 	}
 }
 
+func TestRenderAnswerDocRuntimeSourceAuthority_SoftRequirementHandoff(t *testing.T) {
+	ctx := &types.AgentContext{
+		TurnRouteHint: types.TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+			},
+		}},
+	}
+	ledger := types.ObservationLedger{Records: []types.ObservationRecord{answerDocRuntimeAuthorityRuntimeRecord()}}
+
+	got := renderAnswerDocRuntimeSourceAuthority(ctx, ledger)
+	for _, want := range []string{
+		"##",
+		"requirement_precision=`soft`",
+		"hard_block=false",
+		"caveat_only=true",
+		"current_source_soft",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("soft runtime/source authority handoff missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "requirement_precision=`precise`") {
+		t.Fatalf("soft authority handoff must not claim precise requirement:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocRuntimeSourceAuthority_PreciseRequirementHandoff(t *testing.T) {
+	ctx := &types.AgentContext{
+		TurnRouteHint: types.TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes: []types.CurrentSourceExplanationMode{
+					types.CurrentSourceExplanationExplainCurrentMechanism,
+				},
+				SourceQuotes: []string{"current parser mechanism"},
+				Confidence:   0.9,
+			},
+		}},
+	}
+	ledger := types.ObservationLedger{Records: []types.ObservationRecord{answerDocRuntimeAuthorityRuntimeRecord()}}
+
+	got := renderAnswerDocRuntimeSourceAuthority(ctx, ledger)
+	for _, want := range []string{
+		"requirement_precision=`precise`",
+		"hard_block=true",
+		"caveat_only=false",
+		"current_source_precise",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("precise runtime/source authority handoff missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderAnswerDocRuntimeSourceAuthority_InactiveOmitted(t *testing.T) {
+	if got := renderAnswerDocRuntimeSourceAuthority(&types.AgentContext{}, types.ObservationLedger{}); got != "" {
+		t.Fatalf("inactive runtime/source authority should not render, got:\n%s", got)
+	}
+}
+
 func answerDocProjectionBudgetRecords(n int) []types.ObservationRecord {
 	records := make([]types.ObservationRecord, 0, n+2)
 	records = append(records,
@@ -107,6 +172,23 @@ func answerDocProjectionBudgetRecords(n int) []types.ObservationRecord {
 		})
 	}
 	return records
+}
+
+func answerDocRuntimeAuthorityRuntimeRecord() types.ObservationRecord {
+	return types.ObservationRecord{
+		ID:       "runtime:trace",
+		Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query",
+		Role:     types.AnswerAggregateRolePrincipalAnswer,
+		SourceRef: types.ObservationSourceRef{
+			Kind:         types.ObservationSourceRuntimeArtifact,
+			ArtifactID:   "attached_trace",
+			ArtifactKind: "trace",
+			PayloadRef:   "blob://trace",
+		},
+		Span:    types.ObservationSpan{StartTsMs: 62380029.1},
+		Summary: "trace_query observed the selected runtime span",
+	}
 }
 
 func answerDocProjectionNotes(prefix string, n int) []string {

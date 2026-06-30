@@ -3856,6 +3856,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	b.WriteString("- Prefer these origin/role/policy fields over raw tool-output shape when deciding whether a fact is principal, repairable, support-only, negative, or citation-bearing.\n\n")
 	b.WriteString("- When naming how a runtime/trace fact was obtained, use the row's `producer` exactly: say `trace_query` only for rows whose producer is `trace_query`; for `perf_trace` / `log_triage` rows say they came from attached trace/log preprocessing or runtime artifact observations.\n\n")
 	b.WriteString("- Copy path-like, date-like, URL-like, commit-like, row/line/span, and connector/resource ID literals only from exact typed detail, raw payload, or row-set references. Do not expand abbreviated display strings such as git `--stat` paths containing `...`; if exact detail is unavailable, describe the scope without inventing the literal.\n\n")
+	if authority := renderAnswerDocRuntimeSourceAuthority(ctx, ledger); authority != "" {
+		b.WriteString(authority)
+	}
 	if len(ledger.Records) > len(records) {
 		fmt.Fprintf(&b, "*(showing %d prioritized record(s) of %d total)*\n\n", len(records), len(ledger.Records))
 	}
@@ -3905,6 +3908,67 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func renderAnswerDocRuntimeSourceAuthority(ctx *types.AgentContext, ledger types.ObservationLedger) string {
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, ledger)
+	if !authority.Active {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Runtime Source Authority\n\n")
+	b.WriteString("- This typed authority summarizes runtime/log/trace proof and current-source proof obligations for this answer. It is answer-writing handoff guidance only; do not treat it as a new reason to reopen exploration or invent citations.\n")
+	fmt.Fprintf(&b, "- current_source_lane=`%s`; requirement_precision=`%s`; current_source_required=%t; current_source_satisfied=%t\n",
+		authority.CurrentSourceLane,
+		runtimeSourceRequirementPromptValue(authority.CurrentSourceRequirement),
+		authority.CurrentSourceRequired,
+		authority.CurrentSourceSatisfied,
+	)
+	fmt.Fprintf(&b, "- runtime_observations=%d; deterministic_runtime_queries=%d; current_source_records=%d; exact_current_source_support=%d\n",
+		authority.RuntimeObservationCount,
+		authority.DeterministicRuntimeQueryCount,
+		authority.CurrentSourceRecordCount,
+		authority.ExactCurrentSourceSupportCount,
+	)
+	fmt.Fprintf(&b, "- proof_state: combined_ready=%t; runtime_only_with_caveat=%t; hard_block=%t; caveat_only=%t\n",
+		authority.CanCompleteWithCombinedProof,
+		authority.CanUseRuntimeOnlyWithCaveat,
+		authority.CanHardBlockCompletion,
+		authority.CanDowngradeToCaveat,
+	)
+	if authority.RuntimeCitationPolicy != "" {
+		fmt.Fprintf(&b, "- runtime_citation_policy=`%s`\n", authority.RuntimeCitationPolicy)
+	}
+	if len(authority.ReasonCodes) > 0 {
+		parts := make([]string, 0, len(authority.ReasonCodes))
+		for _, code := range authority.ReasonCodes {
+			if strings.TrimSpace(string(code)) != "" {
+				parts = append(parts, string(code))
+			}
+		}
+		if len(parts) > 0 {
+			fmt.Fprintf(&b, "- authority_reason_codes: `%s`\n", strings.Join(parts, "`, `"))
+		}
+	}
+	switch {
+	case authority.CanHardBlockCompletion:
+		b.WriteString("- guidance: a precise current-source obligation is still missing; if the final answer proceeds, disclose that source-proof boundary instead of presenting runtime rows as source citations.\n")
+	case authority.CanDowngradeToCaveat:
+		b.WriteString("- guidance: the missing current-source obligation is soft. Preserve runtime observations as answer-grade support and disclose the source boundary as a caveat when relevant; do not broaden the answer slate solely to satisfy this soft lane.\n")
+	case authority.CanCompleteWithCombinedProof:
+		b.WriteString("- guidance: runtime and current-source proof are both present; preserve both origins and keep their citations/provenance separate.\n")
+	case authority.RuntimeOnlySufficient:
+		b.WriteString("- guidance: runtime evidence is sufficient for the runtime artifact claim; keep source citations out unless current-source records are present.\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func runtimeSourceRequirementPromptValue(v types.RuntimeSourceRequirementPrecision) string {
+	if strings.TrimSpace(string(v)) == "" {
+		return "none"
+	}
+	return string(v)
 }
 
 func renderAnswerDocToolHandoffCarriers(ctx *types.AgentContext) string {

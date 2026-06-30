@@ -3489,7 +3489,7 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return true
 	}
-	rm := runtimeSourceRequestModelForCompletion(ctx)
+	rm := types.RuntimeSourceAuthorityRequestModelFromBusContext(ctx)
 	if rm == nil {
 		return true
 	}
@@ -3503,34 +3503,8 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 	return attachedRuntimeArtifact
 }
 
-func runtimeSourceRequestModelForCompletion(ctx *types.BusContext) *types.RequestModel {
-	if ctx == nil || ctx.AnalysisIR == nil {
-		return nil
-	}
-	rm := ctx.AnalysisIR.RequestModel
-	if ctx.Mutable != nil {
-		if rm.LogTriage == nil {
-			rm.LogTriage = ctx.Mutable.LogTriage()
-		}
-		if rm.PerfTrace == nil {
-			rm.PerfTrace = ctx.Mutable.PerfTrace()
-		}
-	}
-	return &rm
-}
-
 func runtimeSourceAnswerAuthorityForCompletion(ctx *types.BusContext) types.RuntimeSourceAnswerAuthoritySnapshot {
-	if ctx == nil {
-		return types.RuntimeSourceAnswerAuthoritySnapshot{}
-	}
-	rm := runtimeSourceRequestModelForCompletion(ctx)
-	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 128))
-	return types.BuildRuntimeSourceAnswerAuthoritySnapshot(types.RuntimeSourceAnswerAuthorityInput{
-		RequestModel:      rm,
-		RouteHint:         ctx.TurnRouteHint,
-		Ledger:            ledger,
-		AnswerSurfacePlan: types.BuildAnswerSurfacePlanForBusContext(ctx),
-	})
+	return types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
 }
 
 func runtimeArtifactCurrentSourceHardRequirement(ctx *types.BusContext) bool {

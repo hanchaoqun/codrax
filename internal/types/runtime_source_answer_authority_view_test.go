@@ -136,6 +136,41 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_CombinedProofSatisfiesCurrentSourc
 	}
 }
 
+func TestRuntimeSourceAnswerAuthoritySnapshot_ContextBuildersUseSharedAuthority(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+		},
+		CurrentSourceObligationSignals: []CurrentSourceObligationSignal{{
+			Kind: CurrentSourceObligationSignalDroppedRequestedDimension,
+			Role: RequestedAnswerDimensionFunctionOrPurpose,
+		}},
+	}}
+	hint := TurnRouteHint{Source: "mixed", NeedsRepoAccess: true}
+
+	agentGot := BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(&AgentContext{
+		AnalysisIR:    ir,
+		TurnRouteHint: hint,
+	}, ledger)
+	busGot := BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(&BusContext{
+		AnalysisIR:    ir,
+		TurnRouteHint: hint,
+	}, ledger)
+
+	for name, got := range map[string]RuntimeSourceAnswerAuthoritySnapshot{
+		"agent": agentGot,
+		"bus":   busGot,
+	} {
+		if got.CurrentSourceRequirement != RuntimeSourceRequirementSoft ||
+			!got.CanDowngradeToCaveat ||
+			got.CanHardBlockCompletion ||
+			got.RuntimeObservationCount != 1 {
+			t.Fatalf("%s shared authority mismatch: %+v", name, got)
+		}
+	}
+}
+
 func runtimeSourceTraceRecord(id, producer string) ObservationRecord {
 	return ObservationRecord{
 		ID:       id,
