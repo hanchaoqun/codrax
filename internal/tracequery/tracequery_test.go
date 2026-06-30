@@ -2173,6 +2173,14 @@ func TestWakeupChainFindsWakerAndRoot(t *testing.T) {
 	}
 }
 
+func TestNormalizeQueryDefaultsWakeupChainDepthToTen(t *testing.T) {
+	idx := buildSampleIndex(t)
+	q := normalizeQuery(idx, Query{View: "wakeup_chain", PID: 20, TimeStart: 1.10, TimeEnd: 1.22})
+	if q.MaxDepth != 10 {
+		t.Fatalf("default wakeup_chain max_depth = %d, want 10", q.MaxDepth)
+	}
+}
+
 func TestStateFirstDrilldownKeepsLongSleepAndNestedWakeupChain(t *testing.T) {
 	idx := buildTraceIndex(t, "nested_sleep_chain.systrace", `
         app-100 (100) [001] .... 1.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120

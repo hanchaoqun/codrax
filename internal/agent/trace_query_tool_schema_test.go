@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -122,5 +123,21 @@ func TestTraceQueryViewTeachingsMatchToolSchemaEnum(t *testing.T) {
 		if rows[i].View != view {
 			t.Fatalf("teaching table row %d is %q, schema enum has %q — keep the table in schema enum order", i, rows[i].View, view)
 		}
+	}
+}
+
+func TestTraceQueryToolSchemaDocumentsWakeupChainDefaultDepth(t *testing.T) {
+	var params struct {
+		Properties struct {
+			MaxDepth struct {
+				Description string `json:"description"`
+			} `json:"max_depth"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal((&toolpkg.TraceQuery{}).Parameters(), &params); err != nil {
+		t.Fatalf("unmarshal trace_query parameters: %v", err)
+	}
+	if !strings.Contains(params.Properties.MaxDepth.Description, "default 10") {
+		t.Fatalf("max_depth schema description = %q, want default 10", params.Properties.MaxDepth.Description)
 	}
 }
