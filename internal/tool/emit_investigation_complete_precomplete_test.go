@@ -7323,6 +7323,94 @@ func TestPartitionPendingReadsForAcceptedClosure_MixedRuntimeDemotesOverflowRequ
 	}
 }
 
+func TestPartitionPendingReadsForAcceptedClosure_RuntimeAuthorityDemotesOverflowRequiredFileCandidates(t *testing.T) {
+	root := t.TempDir()
+	required := []string{
+		"internal/tracequery/parse.go",
+		"internal/analysis/perftriage/merge.go",
+		"internal/hitraceconv/trace_validation.go",
+	}
+	writeForcedReadFixtureFiles(t, root, required...)
+	ctx := mixedRuntimeAuthorityPartitionTestContext(root, required)
+	if types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(ctx.AnalysisIR.RequestModel) {
+		t.Fatal("test must cover authority-backed runtime/source shape, not the legacy static mixed shape")
+	}
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	if !authority.CanHardBlockCompletion || authority.RuntimeObservationCount == 0 ||
+		!runtimeSourceAuthorityHardBlockComesOnlyFromRequiredFileHints(ctx, ctx.AnalysisIR.RequestModel, authority) {
+		t.Fatalf("test setup should produce runtime/source authority hard-blocked only by required-file candidates, got %+v", authority)
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/tracequery/parse.go",
+			LineStart:       1656,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "classifyEventType",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/analysis/perftriage/merge.go",
+			LineStart:       306,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "mergedDeriveIntentHint",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	blocking, advisory := partitionPendingReadsForAcceptedClosure(ctx, []types.PendingRead{{
+		File:   "internal/hitraceconv/trace_validation.go",
+		Origin: "required_file_hint_unread",
+	}}, nil, evidence)
+	if len(blocking) != 0 || len(advisory) != 1 || advisory[0].File != "internal/hitraceconv/trace_validation.go" {
+		t.Fatalf("authority-backed overflow mixed runtime/source candidate should become advisory, blocking=%+v advisory=%+v", blocking, advisory)
+	}
+}
+
+func TestPartitionPendingReadsForAcceptedClosure_RuntimeAuthorityKeepsPreciseCurrentSourceBlocking(t *testing.T) {
+	root := t.TempDir()
+	required := []string{
+		"internal/tracequery/parse.go",
+		"internal/analysis/perftriage/merge.go",
+		"internal/hitraceconv/trace_validation.go",
+	}
+	writeForcedReadFixtureFiles(t, root, required...)
+	ctx := mixedRuntimeAuthorityPartitionTestContext(root, required)
+	ctx.AnalysisIR.RequestModel.CurrentSourceExplanationProfile.SourceQuotes = []string{"internal/hitraceconv/trace_validation.go:12"}
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	if !authority.CanHardBlockCompletion ||
+		runtimeSourceAuthorityHardBlockComesOnlyFromRequiredFileHints(ctx, ctx.AnalysisIR.RequestModel, authority) {
+		t.Fatalf("test setup should produce a precise current-source hard block beyond required-file candidates, got %+v", authority)
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/tracequery/parse.go",
+			LineStart:       1656,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "classifyEventType",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/analysis/perftriage/merge.go",
+			LineStart:       306,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "mergedDeriveIntentHint",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	blocking, advisory := partitionPendingReadsForAcceptedClosure(ctx, []types.PendingRead{{
+		File:   "internal/hitraceconv/trace_validation.go",
+		Origin: "required_file_hint_unread",
+	}}, nil, evidence)
+	if len(blocking) != 1 || blocking[0].File != "internal/hitraceconv/trace_validation.go" || len(advisory) != 0 {
+		t.Fatalf("precise current-source anchor must keep pending read blocking, blocking=%+v advisory=%+v", blocking, advisory)
+	}
+}
+
 func TestPartitionPendingReadsForAcceptedClosure_MixedRuntimeKeepsSingleRequiredFileBlocking(t *testing.T) {
 	root := t.TempDir()
 	required := []string{"internal/hitraceconv/trace_validation.go"}
@@ -7358,6 +7446,39 @@ func TestPartitionPendingReadsForAcceptedClosure_MixedRuntimeKeepsSingleRequired
 	if len(advisory) != 0 || len(blocking) != 1 || blocking[0].File != "internal/hitraceconv/trace_validation.go" {
 		t.Fatalf("single mixed runtime/source required-file hint must remain blocking, blocking=%+v advisory=%+v", blocking, advisory)
 	}
+}
+
+func mixedRuntimeAuthorityPartitionTestContext(root string, required []string) *types.BusContext {
+	ctx := mixedRuntimeCurrentSourcePartitionTestContext(root, required)
+	ctx.AnalysisIR.RequestModel.PerfTrace = nil
+	ctx.TurnRouteHint = types.TurnRouteHint{
+		Source:          "mixed",
+		NeedsRepoAccess: true,
+	}
+	ctx.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:run1#root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			Predicate:       "root_cause_primary",
+			ClaimKey:        "root_cause_primary",
+			Subject:         "app-100",
+			Object:          "sleep_wait",
+			Value:           "42.000",
+			Unit:            "ms",
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				ArtifactKind: "trace",
+				ToolCallID:   "trace_query:run1",
+				PayloadRef:   "blob://trace/root-cause.json",
+			},
+			Span: types.ObservationSpan{StartTs: 1.0, EndTs: 1.1},
+		}},
+	}}
+	return ctx
 }
 
 func mixedRuntimeCurrentSourcePartitionTestContext(root string, required []string) *types.BusContext {

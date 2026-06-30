@@ -10585,14 +10585,58 @@ func mixedRuntimeCurrentSourceAcceptedBoundaryDemotesRequiredFilePendingRead(ctx
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if !types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) {
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	if !mixedRuntimeCurrentSourceRequiredFileOverflowBoundaryApplies(ctx, rm, authority) {
 		return false
 	}
-	cap := types.RequiredFileHintCoverageMaxForRequest(rm)
+	cap := mixedRuntimeCurrentSourceRequiredFileOverflowCap(rm, authority)
 	if cap <= 0 {
 		return false
 	}
 	return highConfidenceRequiredFileHintCount(ctx, rm) > cap
+}
+
+func mixedRuntimeCurrentSourceRequiredFileOverflowBoundaryApplies(ctx *types.BusContext, rm types.RequestModel, authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) {
+		return true
+	}
+	if len(rm.AnalyzerHints.RequiredFileHints) == 0 ||
+		!runtimeSourceAuthorityAppliesToCompletionLanding(authority) ||
+		!runtimeSourceAuthorityHasRuntimeCarrier(authority) {
+		return false
+	}
+	if authority.CanHardBlockCompletion &&
+		!runtimeSourceAuthorityHardBlockComesOnlyFromRequiredFileHints(ctx, rm, authority) {
+		return false
+	}
+	return authority.CurrentSourceRequired ||
+		authority.CanDowngradeToCaveat ||
+		authority.CanUseRuntimeOnlyWithCaveat ||
+		authority.RuntimeObservationCount > 0
+}
+
+func mixedRuntimeCurrentSourceRequiredFileOverflowCap(rm types.RequestModel, authority types.RuntimeSourceAnswerAuthoritySnapshot) int {
+	if types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) ||
+		(runtimeSourceAuthorityAppliesToCompletionLanding(authority) && runtimeSourceAuthorityHasRuntimeCarrier(authority)) {
+		return types.MixedRuntimeCurrentSourceRequiredFileHintCoverageMax
+	}
+	return types.RequiredFileHintCoverageMaxForRequest(rm)
+}
+
+func runtimeSourceAuthorityHardBlockComesOnlyFromRequiredFileHints(ctx *types.BusContext, rm types.RequestModel, authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || !authority.CanHardBlockCompletion || len(rm.AnalyzerHints.RequiredFileHints) == 0 {
+		return false
+	}
+	withoutHints := rm
+	withoutHints.AnalyzerHints.RequiredFileHints = nil
+	clonedCtx := *ctx
+	clonedIR := *ctx.AnalysisIR
+	clonedIR.RequestModel = withoutHints
+	clonedCtx.AnalysisIR = &clonedIR
+	rechecked := runtimeSourceAnswerAuthorityForCompletion(&clonedCtx)
+	return runtimeSourceAuthorityAppliesToCompletionLanding(rechecked) &&
+		runtimeSourceAuthorityHasRuntimeCarrier(rechecked) &&
+		!rechecked.CanHardBlockCompletion
 }
 
 func highConfidenceRequiredFileHintCount(ctx *types.BusContext, rm types.RequestModel) int {
