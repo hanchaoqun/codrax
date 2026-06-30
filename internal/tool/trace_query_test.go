@@ -1342,6 +1342,75 @@ func TestTraceQueryNestedWakeupChainCarriesLayerDrilldownHandoff(t *testing.T) {
 	}
 }
 
+func TestTraceQueryFragmentedSleepHandoffStaysNonRecursive(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "fragmented_sleep.systrace")
+	trace := strings.Join([]string{
+		`app-100 (100) [001] .... 1.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52`,
+		`app-100 (100) [001] .... 1.001000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`input-200 (200) [002] .... 1.006000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001`,
+		`app-100 (100) [001] .... 1.006500: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52`,
+		`app-100 (100) [001] .... 1.007500: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`input-200 (200) [002] .... 1.012500: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001`,
+		`app-100 (100) [001] .... 1.013000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52`,
+		`app-100 (100) [001] .... 1.014000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`input-200 (200) [002] .... 1.019000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001`,
+		`app-100 (100) [001] .... 1.019500: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52`,
+		`app-100 (100) [001] .... 1.020500: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`input-200 (200) [002] .... 1.025500: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001`,
+		`app-100 (100) [001] .... 1.026000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params := json.RawMessage(`{"source":"path","path":"fragmented_sleep.systrace","view":"root_cause_rank","pid":100,"time_start":1.0,"time_end":1.027,"trace_flavor":"harmony_hitrace","min_duration_ms":0.05,"limit":8}`)
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"state_drilldown rank=",
+		"source=state_churn",
+		"state=s_sleep",
+		"recommended_views=thread_timeline,interaction_stats,window_stats",
+		"chain_required=false",
+		"recursive=false",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("fragmented sleep handoff missing %q:\n%s", want, res.Summary)
+		}
+	}
+	for _, forbidden := range []string{
+		"source=top_sleep recommended_views=wakeup_chain,root_cause_rank chain_required=true",
+		"thread=app-100 state=s_sleep impact=18.000ms total=18.000ms source=top_sleep",
+	} {
+		if strings.Contains(res.Summary, forbidden) {
+			t.Fatalf("fragmented sleep must not be promoted to recursive top_sleep handoff %q:\n%s", forbidden, res.Summary)
+		}
+	}
+	var sawTypedNonRecursive bool
+	for _, obs := range res.Observations {
+		if obs.Predicate != "state_drilldown" || obs.Subject != "app-100" {
+			continue
+		}
+		notes := strings.Join(obs.RichNotes, "\n")
+		if strings.Contains(notes, "source=state_churn") &&
+			strings.Contains(notes, "recommended_views=thread_timeline,interaction_stats,window_stats") &&
+			strings.Contains(obs.Summary, "chain_required=false") &&
+			strings.Contains(obs.Summary, "recursive=false") {
+			sawTypedNonRecursive = true
+		}
+	}
+	if !sawTypedNonRecursive {
+		t.Fatalf("fragmented sleep state_drilldown observation should be visible but non-recursive: %+v", res.Observations)
+	}
+}
+
 func TestTraceQuerySummaryRendersInodeIOAndRepairsEventTypeAliases(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "inode_io.systrace")
