@@ -14,22 +14,23 @@ import (
 // surface so pre-complete and pre-emit validation do not independently
 // reinterpret the same source-inventory universe.
 type SourceInventoryAnswerPreEmitAuthority struct {
-	Active                    bool                                   `json:"active,omitempty"`
-	Blocking                  bool                                   `json:"blocking,omitempty"`
-	ReasonCodes               []string                               `json:"reason_codes,omitempty"`
-	Snapshot                  types.SourceInventoryAuthoritySnapshot `json:"snapshot,omitempty"`
-	CandidateUniverseGap      SourceInventoryCandidateUniverseGap    `json:"candidate_universe_gap,omitempty"`
-	DuplicateLocationGap      SourceInventoryCandidateUniverseGap    `json:"duplicate_location_gap,omitempty"`
-	SurfaceFamilyGap          SourceInventoryCandidateUniverseGap    `json:"surface_family_gap,omitempty"`
-	BestUniverseGap           SourceInventoryCandidateUniverseGap    `json:"best_universe_gap,omitempty"`
-	ExactAbsenceBlocking      bool                                   `json:"exact_absence_blocking,omitempty"`
-	ExactAbsenceSummary       string                                 `json:"exact_absence_summary,omitempty"`
-	AcceptedExactUniverse     bool                                   `json:"accepted_exact_universe,omitempty"`
-	AcceptedRequestedUniverse bool                                   `json:"accepted_requested_universe,omitempty"`
-	StableAggregateFactCount  int                                    `json:"stable_aggregate_fact_count,omitempty"`
-	EnumerationSetCount       int                                    `json:"enumeration_set_count,omitempty"`
-	EnumerationRowCount       int                                    `json:"enumeration_row_count,omitempty"`
-	EnumerationCoverage       types.EnumerationDisplayCoverage       `json:"enumeration_coverage,omitempty"`
+	Active                    bool                                     `json:"active,omitempty"`
+	Blocking                  bool                                     `json:"blocking,omitempty"`
+	ReasonCodes               []string                                 `json:"reason_codes,omitempty"`
+	Snapshot                  types.SourceInventoryAuthoritySnapshot   `json:"snapshot,omitempty"`
+	View                      types.SourceInventoryAnswerAuthorityView `json:"view,omitempty"`
+	CandidateUniverseGap      SourceInventoryCandidateUniverseGap      `json:"candidate_universe_gap,omitempty"`
+	DuplicateLocationGap      SourceInventoryCandidateUniverseGap      `json:"duplicate_location_gap,omitempty"`
+	SurfaceFamilyGap          SourceInventoryCandidateUniverseGap      `json:"surface_family_gap,omitempty"`
+	BestUniverseGap           SourceInventoryCandidateUniverseGap      `json:"best_universe_gap,omitempty"`
+	ExactAbsenceBlocking      bool                                     `json:"exact_absence_blocking,omitempty"`
+	ExactAbsenceSummary       string                                   `json:"exact_absence_summary,omitempty"`
+	AcceptedExactUniverse     bool                                     `json:"accepted_exact_universe,omitempty"`
+	AcceptedRequestedUniverse bool                                     `json:"accepted_requested_universe,omitempty"`
+	StableAggregateFactCount  int                                      `json:"stable_aggregate_fact_count,omitempty"`
+	EnumerationSetCount       int                                      `json:"enumeration_set_count,omitempty"`
+	EnumerationRowCount       int                                      `json:"enumeration_row_count,omitempty"`
+	EnumerationCoverage       types.EnumerationDisplayCoverage         `json:"enumeration_coverage,omitempty"`
 }
 
 func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []types.AnswerAggregateFact, docs ...*types.AnswerDocumentV2) SourceInventoryAnswerPreEmitAuthority {
@@ -85,9 +86,12 @@ func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []t
 	for _, set := range enumSets {
 		enumRowCount += len(set.Rows)
 	}
+	snapshot = types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
+	view := types.BuildSourceInventoryAnswerAuthorityView(snapshot)
 	out := SourceInventoryAnswerPreEmitAuthority{
-		Active:                    snapshot.Active || candidate.IsActive() || duplicate.IsActive() || surfaceFamily.IsActive() || absenceBlocking,
-		Snapshot:                  types.NormalizeSourceInventoryAuthoritySnapshot(snapshot),
+		Active:                    view.Active || candidate.IsActive() || duplicate.IsActive() || surfaceFamily.IsActive() || absenceBlocking,
+		Snapshot:                  snapshot,
+		View:                      view,
 		CandidateUniverseGap:      candidate,
 		DuplicateLocationGap:      duplicate,
 		SurfaceFamilyGap:          surfaceFamily,
@@ -106,49 +110,5 @@ func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []t
 	}
 	out.Blocking = best.Blocking || out.ExactAbsenceBlocking
 	out.ReasonCodes = sourceInventoryAnswerPreEmitReasonCodes(out)
-	return out
-}
-
-func sourceInventoryAnswerPreEmitReasonCodes(a SourceInventoryAnswerPreEmitAuthority) []string {
-	var out []string
-	add := func(code string) {
-		code = strings.TrimSpace(code)
-		if code == "" {
-			return
-		}
-		for _, existing := range out {
-			if existing == code {
-				return
-			}
-		}
-		out = append(out, code)
-	}
-	for _, code := range a.Snapshot.ReasonCodes {
-		add("snapshot:" + code)
-	}
-	if a.CandidateUniverseGap.Blocking {
-		add("candidate_universe_blocking")
-	}
-	if a.DuplicateLocationGap.Blocking {
-		add("duplicate_location_blocking")
-	}
-	if a.SurfaceFamilyGap.Blocking {
-		add("surface_family_blocking")
-	}
-	if a.ExactAbsenceBlocking {
-		add("exact_absence_requires_inventory_proof")
-	}
-	if a.AcceptedExactUniverse {
-		add("accepted_exact_universe")
-	}
-	if a.AcceptedRequestedUniverse {
-		add("accepted_requested_universe")
-	}
-	if a.EnumerationRowCount > 0 {
-		add("accepted_enumeration_rows")
-	}
-	if a.EnumerationCoverage.Complete() {
-		add("accepted_enumeration_rows_visible")
-	}
 	return out
 }

@@ -86,9 +86,10 @@ func preEmitOracleFromCtx(ctx *types.BusContext) types.SymbolOracle {
 }
 
 type preEmitCheckContext struct {
-	ctx       *types.BusContext
-	groundCtx *ground.Context
-	evidence  *preEmitEvidenceIndex
+	ctx                      *types.BusContext
+	groundCtx                *ground.Context
+	evidence                 *preEmitEvidenceIndex
+	sourceInventoryAuthority *SourceInventoryAnswerPreEmitAuthority
 }
 
 type preEmitEvidenceIndex struct {
@@ -150,6 +151,17 @@ func (c *preEmitCheckContext) canonicalPath(raw string) string {
 func (c *preEmitCheckContext) canonicalCitation(cit types.Citation) types.Citation {
 	cit.File = c.canonicalPath(cit.File)
 	return cit
+}
+
+func (c *preEmitCheckContext) sourceInventoryAnswerAuthority() SourceInventoryAnswerPreEmitAuthority {
+	if c == nil || c.ctx == nil || c.ctx.Mutable == nil {
+		return SourceInventoryAnswerPreEmitAuthority{}
+	}
+	if c.sourceInventoryAuthority == nil {
+		auth := BuildSourceInventoryAnswerPreEmitAuthority(c.ctx, preEmitStableAggregateFacts(c.ctx))
+		c.sourceInventoryAuthority = &auth
+	}
+	return *c.sourceInventoryAuthority
 }
 
 func newPreEmitEvidenceIndex(pctx *preEmitCheckContext) *preEmitEvidenceIndex {
@@ -1272,15 +1284,8 @@ func preEmitSourceInventoryCandidateCitationsForItemAnyRole(pctx *preEmitCheckCo
 	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
 		return nil
 	}
-	rm := types.RequestModel{}
-	if pctx.ctx.AnalysisIR != nil {
-		rm = pctx.ctx.AnalysisIR.RequestModel
-	}
-	rowSet := types.BuildSourceInventoryPrincipalRowSet(types.SourceInventoryPrincipalRowSetInput{
-		Observation:  types.SourceInventoryObservationFromMutable(pctx.ctx.Mutable),
-		RequestModel: rm,
-	})
-	if !rowSet.Active || len(rowSet.PrincipalRows) == 0 {
+	rows := pctx.sourceInventoryAnswerAuthority().View.PrincipalRows
+	if len(rows) == 0 {
 		return nil
 	}
 	var strong []types.Citation
@@ -1288,7 +1293,7 @@ func preEmitSourceInventoryCandidateCitationsForItemAnyRole(pctx *preEmitCheckCo
 	seenStrong := map[string]bool{}
 	seenFallback := map[string]bool{}
 	surface := strings.TrimSpace(strings.Join([]string{label, text}, "\n"))
-	for _, row := range rowSet.PrincipalRows {
+	for _, row := range rows {
 		attrMatch := preEmitSourceInventoryRowAttributeMatchesItem(row.Member, label, text, surface)
 		if !attrMatch && !preEmitSourceInventoryRowMatchesItem(row, label, text) {
 			continue
@@ -1327,21 +1332,14 @@ func preEmitUniqueSourceInventoryCandidateRoleCitationForItem(pctx *preEmitCheck
 		role == types.AnswerCandidateRoleUnknown || role == types.AnswerCandidateRoleOther {
 		return types.Citation{}, false
 	}
-	rm := types.RequestModel{}
-	if pctx.ctx.AnalysisIR != nil {
-		rm = pctx.ctx.AnalysisIR.RequestModel
-	}
-	rowSet := types.BuildSourceInventoryPrincipalRowSet(types.SourceInventoryPrincipalRowSetInput{
-		Observation:  types.SourceInventoryObservationFromMutable(pctx.ctx.Mutable),
-		RequestModel: rm,
-	})
-	if !rowSet.Active || len(rowSet.PrincipalRows) == 0 {
+	rows := pctx.sourceInventoryAnswerAuthority().View.PrincipalRows
+	if len(rows) == 0 {
 		return types.Citation{}, false
 	}
 	var strong []types.Citation
 	var fallback []types.Citation
 	seen := map[string]bool{}
-	for _, row := range rowSet.PrincipalRows {
+	for _, row := range rows {
 		if row.Role != role {
 			continue
 		}

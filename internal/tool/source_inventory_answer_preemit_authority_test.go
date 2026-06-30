@@ -158,6 +158,57 @@ func TestSourceInventoryAnswerPreEmitAuthority_ProjectsEnumerationDisplayCoverag
 	}
 }
 
+func TestSourceInventoryAnswerPreEmitAuthority_CarriesSharedAnswerAuthorityView(t *testing.T) {
+	mut := types.NewMutableState("source inventory authority view")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"src"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    1,
+			Total:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Serve",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "src/serve.cj",
+				Line:          12,
+				SupportRef:    "Serve: src/serve.cj:12",
+				Language:      "cangjie",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				Confidence:        0.95,
+			},
+		}},
+	}
+
+	auth := BuildSourceInventoryAnswerPreEmitAuthority(ctx, nil)
+	if !auth.View.Active || len(auth.View.PrincipalRows) != 1 {
+		t.Fatalf("pre-emit authority should carry the shared answer authority view, got %+v", auth.View)
+	}
+	if len(auth.View.CitationObligations) != 1 {
+		t.Fatalf("view should expose citation obligations for pre-emit consumers, got %+v", auth.View.CitationObligations)
+	}
+	obligation := auth.View.CitationObligations[0]
+	if obligation.Member != "Serve" || obligation.File != "src/serve.cj" || obligation.Line != 12 ||
+		obligation.Role != types.AnswerCandidateRoleFunction {
+		t.Fatalf("unexpected citation obligation: %+v", obligation)
+	}
+	if !sourceInventoryAnswerPreEmitReasonCodeContains(auth, "view:citation_obligations") {
+		t.Fatalf("pre-emit reason codes should include view citation obligations, got %+v", auth.ReasonCodes)
+	}
+}
+
 func sourceInventoryAnswerPreEmitReasonCodeContains(auth SourceInventoryAnswerPreEmitAuthority, want string) bool {
 	for _, got := range auth.ReasonCodes {
 		if got == want {
