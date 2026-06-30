@@ -3949,17 +3949,17 @@ func renderAnswerDocSourceInventoryHandoff(ctx *types.AgentContext) string {
 		return ""
 	}
 	snapshot := answerDocSourceInventoryAuthoritySnapshot(ctx, observation)
-	rowSet := snapshot.PrincipalRowSet
+	view := types.BuildSourceInventoryAnswerAuthorityView(snapshot)
 	var b strings.Builder
 	b.WriteString("## Repo Lens Candidate Universe Handoff\n\n")
 	b.WriteString("- This section comes from `repo_map(view=\"source_inventory\")` / source-inventory observations. It verifies navigation facts such as scopes, files, candidate members, attributes, languages, support refs, and `count == len(members)`.\n")
 	b.WriteString("- It is not final answer text. Use it to avoid losing the candidate universe or rereading the same scope. " + types.SourceInventoryMechanicalFactBoundary + " Preserve it as the answer slate only when accepted aggregate facts, evidence, or the model's own extraction already selected the same answer axis.\n")
 	b.WriteString("- If accepted principal `aggregate_facts.member_set` rows below match this universe, their members/counts are the model-selected slate. If they do not match or are absent, treat this as advisory navigation and disclose ambiguity instead of auto-filling a table.\n")
-	if snapshot.Active {
-		fmt.Fprintf(&b, "- authority: principal=%t support_only=%t needs_followup=%t mechanical_landing=%t\n",
-			snapshot.PrincipalAuthority, snapshot.SupportOnly, snapshot.NeedsFollowup, snapshot.CanEnterMechanicalLanding)
-		if len(snapshot.ReasonCodes) > 0 {
-			fmt.Fprintf(&b, "- authority_reason_codes: `%s`\n", strings.Join(snapshot.ReasonCodes, "`, `"))
+	if view.Active {
+		fmt.Fprintf(&b, "- authority: block_completion=%t caveat_only=%t needs_followup=%t mechanical_landing=%t\n",
+			view.CanBlockCompletion, view.CanOnlyCaveat, view.NeedsFollowup, view.CanEnterMechanicalLanding)
+		if len(view.ReasonCodes) > 0 {
+			fmt.Fprintf(&b, "- authority_reason_codes: `%s`\n", strings.Join(view.ReasonCodes, "`, `"))
 		}
 	}
 	if len(observation.Scopes) > 0 {
@@ -3968,8 +3968,8 @@ func renderAnswerDocSourceInventoryHandoff(ctx *types.AgentContext) string {
 	if len(observation.Provenance) > 0 {
 		fmt.Fprintf(&b, "- provenance: `%s`\n", strings.Join(observation.Provenance, "`, `"))
 	}
-	if rowSet.Active {
-		renderAnswerDocSourceInventoryRowSet(&b, rowSet)
+	if view.PrincipalTotal > 0 {
+		renderAnswerDocSourceInventoryAuthorityView(&b, view)
 		return b.String()
 	}
 	const maxRows = 24
@@ -4061,66 +4061,66 @@ func answerDocSourceInventorySuppressesStaleDisplayDebt(ctx *types.AgentContext)
 	return types.SourceInventoryAuthoritySuppressesStaleDisplayDebt(answerDocSourceInventoryAuthoritySnapshot(ctx, observation))
 }
 
-func renderAnswerDocSourceInventoryRowSet(b *strings.Builder, rowSet types.SourceInventoryPrincipalRowSet) {
-	if b == nil || !rowSet.Active {
+func renderAnswerDocSourceInventoryAuthorityView(b *strings.Builder, view types.SourceInventoryAnswerAuthorityView) {
+	if b == nil || view.PrincipalTotal <= 0 {
 		return
 	}
-	if len(rowSet.PrincipalRoles) > 0 {
-		roles := make([]string, 0, len(rowSet.PrincipalRoles))
-		for _, role := range rowSet.PrincipalRoles {
+	if len(view.PrincipalRoles) > 0 {
+		roles := make([]string, 0, len(view.PrincipalRoles))
+		for _, role := range view.PrincipalRoles {
 			roles = append(roles, string(role))
 		}
 		fmt.Fprintf(b, "- principal_roles: `%s`\n", strings.Join(roles, "`, `"))
 	}
-	if rowSet.PrincipalScope != "" {
-		fmt.Fprintf(b, "- principal_scope: `%s`", rowSet.PrincipalScope)
-		if rowSet.RepoWidePrincipal {
+	if view.PrincipalScope != "" {
+		fmt.Fprintf(b, "- principal_scope: `%s`", view.PrincipalScope)
+		if view.RepoWidePrincipal {
 			b.WriteString(" (repo-wide typed inventory)")
 		}
 		b.WriteByte('\n')
 	}
-	if len(rowSet.SourceClasses) > 0 {
-		parts := make([]string, 0, len(rowSet.SourceClasses))
-		for _, class := range rowSet.SourceClasses {
+	if len(view.SourceClasses) > 0 {
+		parts := make([]string, 0, len(view.SourceClasses))
+		for _, class := range view.SourceClasses {
 			parts = append(parts, fmt.Sprintf("%s:%d", class.Role, class.Count))
 		}
 		fmt.Fprintf(b, "- source_classes: %s\n", strings.Join(parts, ", "))
 	}
-	fmt.Fprintf(b, "- row_lanes: principal=%d", rowSet.PrincipalTotal)
-	if rowSet.PrincipalHiddenCount > 0 {
-		fmt.Fprintf(b, " (+%d hidden)", rowSet.PrincipalHiddenCount)
+	fmt.Fprintf(b, "- row_lanes: principal=%d", view.PrincipalTotal)
+	if view.PrincipalHiddenCount > 0 {
+		fmt.Fprintf(b, " (+%d hidden)", view.PrincipalHiddenCount)
 	}
-	fmt.Fprintf(b, ", support=%d", rowSet.SupportTotal)
-	if rowSet.SupportHiddenCount > 0 {
-		fmt.Fprintf(b, " (+%d hidden)", rowSet.SupportHiddenCount)
+	fmt.Fprintf(b, ", support=%d", view.SupportTotal)
+	if view.SupportHiddenCount > 0 {
+		fmt.Fprintf(b, " (+%d hidden)", view.SupportHiddenCount)
 	}
-	fmt.Fprintf(b, ", audit=%d", rowSet.AuditTotal)
-	if rowSet.AuditHiddenCount > 0 {
-		fmt.Fprintf(b, " (+%d hidden)", rowSet.AuditHiddenCount)
+	fmt.Fprintf(b, ", audit=%d", view.AuditTotal)
+	if view.AuditHiddenCount > 0 {
+		fmt.Fprintf(b, " (+%d hidden)", view.AuditHiddenCount)
 	}
 	b.WriteString("\n\n")
 	b.WriteString("### Principal candidate rows\n\n")
 	b.WriteString("These rows are selected from the full typed observation before prompt row limits, balanced by role/source-class/language family. Treat them as the candidate universe handoff, not as final prose.\n\n")
-	renderAnswerDocSourceInventoryRows(b, rowSet.PrincipalRows, false)
-	if rowSet.PrincipalHiddenCount > 0 {
-		fmt.Fprintf(b, "- ... %d additional principal row(s) are preserved in the typed observation but omitted from this bounded prompt view.\n", rowSet.PrincipalHiddenCount)
+	renderAnswerDocSourceInventoryRows(b, view.PrincipalRows, false)
+	if view.PrincipalHiddenCount > 0 {
+		fmt.Fprintf(b, "- ... %d additional principal row(s) are preserved in the typed observation but omitted from this bounded prompt view.\n", view.PrincipalHiddenCount)
 	}
 	b.WriteString("\n")
-	if rowSet.SupportTotal > 0 {
+	if view.SupportTotal > 0 {
 		b.WriteString("### Support/navigation rows\n\n")
 		b.WriteString("These rows are outside the principal scope or lack direct source location; use them for navigation or qualification only, not as replacement answer members.\n\n")
-		renderAnswerDocSourceInventoryRows(b, rowSet.SupportRows, true)
-		if rowSet.SupportHiddenCount > 0 {
-			fmt.Fprintf(b, "- ... %d additional support row(s) omitted from this bounded prompt view.\n", rowSet.SupportHiddenCount)
+		renderAnswerDocSourceInventoryRows(b, view.SupportRows, true)
+		if view.SupportHiddenCount > 0 {
+			fmt.Fprintf(b, "- ... %d additional support row(s) omitted from this bounded prompt view.\n", view.SupportHiddenCount)
 		}
 		b.WriteString("\n")
 	}
-	if rowSet.AuditTotal > 0 {
+	if view.AuditTotal > 0 {
 		b.WriteString("### Audit-only rows\n\n")
 		b.WriteString("These rows are non-principal roles under the current typed source-inventory profile. Keep them out of the answer slate unless another typed carrier makes them principal.\n\n")
-		renderAnswerDocSourceInventoryRows(b, rowSet.AuditRows, true)
-		if rowSet.AuditHiddenCount > 0 {
-			fmt.Fprintf(b, "- ... %d additional audit row(s) omitted from this bounded prompt view.\n", rowSet.AuditHiddenCount)
+		renderAnswerDocSourceInventoryRows(b, view.AuditRows, true)
+		if view.AuditHiddenCount > 0 {
+			fmt.Fprintf(b, "- ... %d additional audit row(s) omitted from this bounded prompt view.\n", view.AuditHiddenCount)
 		}
 		b.WriteString("\n")
 	}

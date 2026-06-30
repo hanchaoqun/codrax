@@ -29,8 +29,19 @@ type SourceInventoryAnswerAuthorityView struct {
 	FollowupDebt                        SourceInventoryFollowupDebt         `json:"followup_debt,omitempty"`
 	CanUseMechanicalRowsForCitation     bool                                `json:"can_use_mechanical_rows_for_citation,omitempty"`
 	CanEnterMechanicalLanding           bool                                `json:"can_enter_mechanical_landing,omitempty"`
+	PrincipalRoles                      []AnswerCandidateRole               `json:"principal_roles,omitempty"`
+	PrincipalScope                      SourceScope                         `json:"principal_scope,omitempty"`
+	RepoWidePrincipal                   bool                                `json:"repo_wide_principal,omitempty"`
+	SourceClasses                       []SourceInventorySourceClassCount   `json:"source_classes,omitempty"`
 	PrincipalTotal                      int                                 `json:"principal_total,omitempty"`
+	SupportTotal                        int                                 `json:"support_total,omitempty"`
+	AuditTotal                          int                                 `json:"audit_total,omitempty"`
+	PrincipalHiddenCount                int                                 `json:"principal_hidden_count,omitempty"`
+	SupportHiddenCount                  int                                 `json:"support_hidden_count,omitempty"`
+	AuditHiddenCount                    int                                 `json:"audit_hidden_count,omitempty"`
 	PrincipalRows                       []SourceInventoryRow                `json:"principal_rows,omitempty"`
+	SupportRows                         []SourceInventoryRow                `json:"support_rows,omitempty"`
+	AuditRows                           []SourceInventoryRow                `json:"audit_rows,omitempty"`
 	CitationObligations                 []SourceInventoryCitationObligation `json:"citation_obligations,omitempty"`
 	ReasonCodes                         []string                            `json:"reason_codes,omitempty"`
 	CompletionRequiresExactProof        bool                                `json:"completion_requires_exact_proof,omitempty"`
@@ -41,7 +52,7 @@ type SourceInventoryAnswerAuthorityView struct {
 func BuildSourceInventoryAnswerAuthorityView(snapshot SourceInventoryAuthoritySnapshot) SourceInventoryAnswerAuthorityView {
 	snapshot = NormalizeSourceInventoryAuthoritySnapshot(snapshot)
 	completion := NormalizeSourceInventoryCompletionAuthority(snapshot.CompletionAuthority)
-	rowSet := NormalizeSourceInventoryPrincipalRowSet(snapshot.PrincipalRowSet)
+	rowSet := normalizeSourceInventoryAnswerAuthorityRowSet(snapshot.PrincipalRowSet)
 	canOnlyCaveat := SourceInventoryCompletionAuthorityCanOnlyCaveat(completion)
 	out := SourceInventoryAnswerAuthorityView{
 		Active:                              snapshot.Active || rowSet.Active || completion.Active,
@@ -52,8 +63,19 @@ func BuildSourceInventoryAnswerAuthorityView(snapshot SourceInventoryAuthoritySn
 		FollowupDebt:                        NormalizeSourceInventoryFollowupDebt(snapshot.FollowupDebt),
 		CanUseMechanicalRowsForCitation:     snapshot.CanUseMechanicalRowsForCite,
 		CanEnterMechanicalLanding:           snapshot.CanEnterMechanicalLanding,
+		PrincipalRoles:                      normalizeSourceInventoryFollowupRoles(rowSet.PrincipalRoles),
+		PrincipalScope:                      rowSet.PrincipalScope,
+		RepoWidePrincipal:                   rowSet.RepoWidePrincipal,
+		SourceClasses:                       cloneSourceInventorySourceClassCounts(rowSet.SourceClasses),
 		PrincipalTotal:                      rowSet.PrincipalTotal,
+		SupportTotal:                        rowSet.SupportTotal,
+		AuditTotal:                          rowSet.AuditTotal,
+		PrincipalHiddenCount:                rowSet.PrincipalHiddenCount,
+		SupportHiddenCount:                  rowSet.SupportHiddenCount,
+		AuditHiddenCount:                    rowSet.AuditHiddenCount,
 		PrincipalRows:                       append([]SourceInventoryRow(nil), rowSet.PrincipalRows...),
+		SupportRows:                         append([]SourceInventoryRow(nil), rowSet.SupportRows...),
+		AuditRows:                           append([]SourceInventoryRow(nil), rowSet.AuditRows...),
 		CitationObligations:                 sourceInventoryCitationObligations(rowSet),
 		ReasonCodes:                         sourceInventorySnapshotUniqueStrings(snapshot.ReasonCodes),
 		CompletionRequiresExactProof:        completion.RequiresExactUniverseProof,
@@ -64,6 +86,20 @@ func BuildSourceInventoryAnswerAuthorityView(snapshot SourceInventoryAuthoritySn
 		out.FollowupDebt = NormalizeSourceInventoryFollowupDebt(out.FollowupDebt)
 	}
 	return out
+}
+
+func normalizeSourceInventoryAnswerAuthorityRowSet(rowSet SourceInventoryPrincipalRowSet) SourceInventoryPrincipalRowSet {
+	rowSet.Scopes = sourceInventoryFollowupScopes(rowSet.Scopes)
+	rowSet.PrincipalRoles = normalizeSourceInventoryFollowupRoles(rowSet.PrincipalRoles)
+	rowSet.SourceClasses = cloneSourceInventorySourceClassCounts(rowSet.SourceClasses)
+	rowSet.PrincipalRows = append([]SourceInventoryRow(nil), rowSet.PrincipalRows...)
+	rowSet.SupportRows = append([]SourceInventoryRow(nil), rowSet.SupportRows...)
+	rowSet.AuditRows = append([]SourceInventoryRow(nil), rowSet.AuditRows...)
+	rowSet.PrincipalTotal = maxSourceInventoryObservationTotal(rowSet.PrincipalTotal, len(rowSet.PrincipalRows))
+	rowSet.SupportTotal = maxSourceInventoryObservationTotal(rowSet.SupportTotal, len(rowSet.SupportRows))
+	rowSet.AuditTotal = maxSourceInventoryObservationTotal(rowSet.AuditTotal, len(rowSet.AuditRows))
+	rowSet.Active = rowSet.Active && rowSet.PrincipalTotal > 0
+	return rowSet
 }
 
 // SourceInventoryCompletionAuthorityCanOnlyCaveat reports whether the

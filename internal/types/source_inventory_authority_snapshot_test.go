@@ -83,6 +83,9 @@ func TestSourceInventoryAuthoritySnapshot_MechanicalRowsCanLand(t *testing.T) {
 	if len(view.CitationObligations) != 1 {
 		t.Fatalf("citation obligations = %+v, want one principal row", view.CitationObligations)
 	}
+	if containsSourceInventorySnapshotReason(view.ReasonCodes, "principal_rowset_missing") {
+		t.Fatalf("authority view must not claim rowset missing when rows are present: %+v", view.ReasonCodes)
+	}
 	if got := view.CitationObligations[0]; got.Member != "Greeter" ||
 		got.File != "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj" ||
 		got.Line != 6 ||

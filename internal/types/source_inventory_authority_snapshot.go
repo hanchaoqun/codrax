@@ -232,7 +232,7 @@ func sourceInventorySnapshotReasonCodes(s SourceInventoryAuthoritySnapshot) []st
 		add("required_files_uncovered")
 	}
 	if s.PrincipalAggregateFactCount == 0 && s.PrincipalAuthority {
-		add("principal_rowset_missing")
+		add("principal_aggregate_fact_missing")
 	}
 	if s.CanEnterMechanicalLanding {
 		add("mechanical_landing_ready")
