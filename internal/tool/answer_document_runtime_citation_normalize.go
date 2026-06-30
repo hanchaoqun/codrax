@@ -27,10 +27,41 @@ func answerDocumentRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.BusCon
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
+	if answerDocumentRuntimeSourceAuthorityAppliesToCitationCleanup(ctx, authority) {
+		return answerDocumentRuntimeSourceAuthorityAllowsCitationCleanup(authority)
+	}
 	if !ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(types.RuntimeArtifactContextActiveFromBus(ctx)) {
 		return false
 	}
 	return !answerDocumentHasCurrentSourceObservationSupport(ctx)
+}
+
+func answerDocumentRuntimeSourceAuthorityAppliesToCitationCleanup(ctx *types.BusContext, authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	if authority.RuntimeObservationCount > 0 ||
+		authority.DeterministicRuntimeQueryCount > 0 ||
+		authority.RuntimeOnlySufficient ||
+		authority.CanHardBlockCompletion ||
+		authority.CurrentSourceSatisfied {
+		return true
+	}
+	return ctx != nil && types.RuntimeArtifactContextActiveFromBus(ctx)
+}
+
+func answerDocumentRuntimeSourceAuthorityAllowsCitationCleanup(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	if authority.CurrentSourceSatisfied || authority.CanHardBlockCompletion {
+		return false
+	}
+	return authority.RuntimeOnlySufficient ||
+		authority.CanUseRuntimeOnlyWithCaveat ||
+		authority.CanDowngradeToCaveat ||
+		(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired)
 }
 
 func answerDocumentHasCurrentSourceObservationSupport(ctx *types.BusContext) bool {

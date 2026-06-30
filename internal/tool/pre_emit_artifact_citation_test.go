@@ -166,6 +166,80 @@ func TestNormalizeRuntimeArtifactCitationRefs_RouteBackedSoftMissingSourceDropsC
 	}
 }
 
+func TestNormalizeRuntimeArtifactCitationRefs_LedgerRuntimeObservationUsesAuthority(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "runtime_probe",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "runtime_probe:span:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "runtime_probe",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				ArtifactID:   "hiprofiler_data.htrace.systrace",
+				ArtifactKind: "trace",
+				RowSetRef:    "span:62380.029137877-62380.59491",
+			},
+			Subject:   "render span",
+			Predicate: "runtime_observed",
+			Summary:   "runtime probe observed the expensive render span",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+				Confidence:           0.8,
+			},
+		}},
+	}
+	if types.RuntimeArtifactContextActiveFromBus(ctx) {
+		t.Fatal("test must not rely on attached artifact or trace_query runtime counter")
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
+	if !authority.Active || authority.RuntimeObservationCount != 1 || !authority.CanDowngradeToCaveat || authority.CanHardBlockCompletion {
+		t.Fatalf("test setup must use soft ledger-backed runtime authority, got %+v", authority)
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{
+			File:  "hiprofiler_data.htrace.systrace",
+			Line:  1087530,
+			Quote: "runtime probe row",
+		}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "runtime probe observed the target span.",
+			Items: []types.AnswerBlockItem{{
+				ID:          "span",
+				Label:       "render span",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx)
+	if fixed == 0 {
+		t.Fatalf("ledger-backed runtime observation should activate artifact citation cleanup: %+v", doc)
+	}
+	if len(doc.Citations) != 0 || doc.Blocks[0].Items[0].CitationRef != -1 {
+		t.Fatalf("artifact citation should be detached without current-source proof: %+v", doc)
+	}
+}
+
 func TestNormalizeRuntimeArtifactCitationRefs_RouteBackedCombinedProofKeepsCurrentCitations(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{
