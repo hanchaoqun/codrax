@@ -632,6 +632,43 @@ func TestBuildIndexWithOptionsStopsAtEventLimit(t *testing.T) {
 	}
 }
 
+func TestStreamStateClusterPreservesDominantLongSleepWithoutFullIndex(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state_cluster.systrace")
+	body := strings.Join([]string{
+		`      app-20  (   20) [001] .... 2.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`      app-20  (   20) [001] .... 2.010000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`    waker-10  (   10) [000] .... 2.095000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`      app-20  (   20) [001] .... 2.100000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`      app-20  (   20) [001] .... 2.120000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := StreamStateCluster(context.Background(), path, Query{
+		PID:       20,
+		TimeStart: 2.0,
+		TimeEnd:   2.13,
+	}, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.WindowStats == nil || len(res.WindowStats.StateChurn) == 0 {
+		t.Fatalf("expected stream state cluster rows: %+v", res.WindowStats)
+	}
+	top := res.WindowStats.StateChurn[0]
+	if top.Thread.PID != 20 || top.DominantState != string(StateSSleep) || top.SleepMs < 80 {
+		t.Fatalf("dominant long sleep not preserved: %+v", top)
+	}
+	if len(res.WindowStats.TopRunning) == 0 || res.WindowStats.TopRunning[0].DurationMs < 20 {
+		t.Fatalf("running cluster missing: %+v", res.WindowStats.TopRunning)
+	}
+	if !containsSubstring(res.Caveats, "stream_state_cluster") {
+		t.Fatalf("stream state caveat missing: %+v", res.Caveats)
+	}
+}
+
 func TestBuildIndexCanonicalPathReusesCache(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "canonical.systrace")

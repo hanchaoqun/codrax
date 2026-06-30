@@ -207,6 +207,31 @@ func (t *TraceQuery) traceQueryIndexLimitResult(ctx *types.BusContext, p traceQu
 		return types.ToolResult{}, false
 	}
 	summary := traceQueryIndexLimitSummary(path, sourceLabel, p, limitErr)
+	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, p.TimeStart.Seconds(), p.TimeEnd.Seconds())
+	if cluster, clusterErr := tracequery.StreamStateCluster(contextFromBus(ctx), path, q, 8); clusterErr == nil && cluster.WindowStats != nil {
+		cluster.Caveats = append([]string{
+			fmt.Sprintf("index_event_limit_fallback=true; original_view=%s parsed_events=%d max_events=%d", sanitizeForBanner(firstNonEmptyTraceString(p.View, "window_stats")), limitErr.Events, limitErr.MaxEvents),
+		}, cluster.Caveats...)
+		payload, _ := json.MarshalIndent(cluster, "", "  ")
+		payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-state-cluster.json", string(payload))
+		summary += "\n" + traceQuerySummary(cluster, p, sourceLabel, payloadRef)
+		preview, rawRef := StoreBlob(ctx, t.Name(), summary)
+		if rawRef == "" {
+			rawRef = payloadRef
+		}
+		now := time.Now()
+		return types.ToolResult{
+			ToolName:     t.Name(),
+			Success:      true,
+			Summary:      preview,
+			RawRef:       rawRef,
+			Refinement:   traceQueryIndexLimitRefinement(ctx, p, sourceLabel, path),
+			Observations: traceQueryTypedObservations(cluster, sourceLabel, payloadRef, rawRef, "stream_state_cluster", now),
+			Timestamp:    now,
+		}, true
+	} else if clusterErr != nil {
+		summary += fmt.Sprintf("stream_state_cluster_unavailable=%s\n", sanitizeForBanner(clusterErr.Error()))
+	}
 	preview, rawRef := StoreBlob(ctx, t.Name(), summary)
 	now := time.Now()
 	return types.ToolResult{
@@ -240,6 +265,7 @@ func traceQueryIndexLimitSummary(path, sourceLabel string, p traceQueryParams, l
 	fmt.Fprintf(&b, "index_window=time %.6f..%.6f seconds lines %d..%d parsed_time=%.6f..%.6f\n",
 		limitErr.IndexTimeStart, limitErr.IndexTimeEnd, limitErr.IndexLineStart, limitErr.IndexLineEnd, limitErr.FirstTs, limitErr.LastTs)
 	b.WriteString("meaning=trace_query stopped before growing the in-memory Event index further; this is an OOM guard, not evidence that the trace/ftrace format is unsupported.\n")
+	b.WriteString("state_first_hint=before shrinking into arbitrary micro-windows, use the stream_state_cluster/window_stats rows below to identify the target thread's dominant and secondary states, then drill down by state family: sleep->wakeup_chain, runnable->scheduler_latency/root_cause_rank with same CPU competitors, running->perf/compute-supply/semantic span work, D-state/IO->critical_blocking/window_stats IO resources.\n")
 	fmt.Fprintf(&b, "next_call_hint=do not retry the same heavy view with the same dense scope. Split toward %.0f-%.0fms coverage windows for jank/stall root-cause views, add line_start/line_end from a prior event_search/span_window result, or first run event_search with exact timestamp/span/event_types filters to locate a tighter line window. Shrink below %.0fms only as a local micro-probe and do not extrapolate it to the broader requested period.\n",
 		traceQueryPreferredCoverageWindowMinSeconds*1000,
 		traceQueryPreferredCoverageWindowMaxSeconds*1000,
@@ -279,7 +305,7 @@ func traceQueryParamWindowDurationSeconds(p traceQueryParams) float64 {
 
 func traceQueryIndexLimitRefinement(ctx *types.BusContext, p traceQueryParams, sourceLabel, path string) *types.ToolRefinementHint {
 	next := p
-	required := []string{"time_start", "time_end"}
+	required := []string{"time_start", "time_end", "state_cluster_first"}
 	if next.LineStart.Int() <= 0 && next.LineEnd.Int() <= 0 {
 		next.View = "event_search"
 		if len(next.EventTypes.Strings()) == 0 {
@@ -290,7 +316,17 @@ func traceQueryIndexLimitRefinement(ctx *types.BusContext, p traceQueryParams, s
 		}
 		required = append(required, "line_start", "line_end")
 	}
-	return traceQueryParamsRefinement(ctx, "trace_query_index_event_limit", next, sourceLabel, path, true, required)
+	hint := traceQueryParamsRefinement(ctx, "trace_query_index_event_limit", next, sourceLabel, path, true, required)
+	if hint != nil {
+		if hint.PreferredParams == nil {
+			hint.PreferredParams = map[string]string{}
+		}
+		hint.PreferredParams["parent_coverage"] = "stream_state_cluster"
+		hint.PreferredParams["micro_window_policy"] = "sub_50ms_local_only"
+		normalized := types.NormalizeToolRefinementHint(*hint)
+		hint = &normalized
+	}
+	return hint
 }
 
 func traceQueryBuildQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel, path string, timeStart, timeEnd float64) tracequery.Query {
@@ -4325,6 +4361,9 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			}
 		}
 		appendNote("dominant_state", churn.DominantState)
+		if strings.HasPrefix(strings.TrimSpace(churn.Summary), "state_cluster ") {
+			appendNote("coverage_mode", "state_cluster")
+		}
 		if churn.FragmentCount > 0 {
 			appendNote("fragments", strconv.Itoa(churn.FragmentCount))
 		}

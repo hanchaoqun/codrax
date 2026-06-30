@@ -56,6 +56,59 @@ func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_AllowsValidationFeed
 	}
 }
 
+func TestRuntimeAcceptedClosureDowngradesSoftSourceFallbackOnly(t *testing.T) {
+	mut := types.NewMutableState("accepted runtime closure")
+	mut.SetInvestigationComplete("trace_query already answered the runtime-only root cause")
+	mut.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+				Confidence:           0.9,
+			},
+		}},
+	}}
+
+	if !o.shouldDowngradeRuntimeAcceptedClosureExploreFallback([]types.Violation{{Kind: types.ViolCitation}}) {
+		t.Fatal("runtime accepted closure should downgrade source/citation soft debt instead of reopening exploration")
+	}
+	if !o.shouldDowngradeRuntimeAcceptedClosureExploreFallback([]types.Violation{{Kind: types.ViolGhostAnchor}}) {
+		t.Fatal("runtime accepted closure should downgrade soft source anchor debt instead of reopening exploration")
+	}
+	if o.shouldDowngradeRuntimeAcceptedClosureExploreFallback([]types.Violation{{Kind: types.ViolCitation, RepairLocusOverride: types.LocusExplore}}) {
+		t.Fatal("typed explore-locus violation must remain load-bearing")
+	}
+	if o.shouldDowngradeRuntimeAcceptedClosureExploreFallback([]types.Violation{{Kind: types.ViolIntentTraceShallow}}) {
+		t.Fatal("answer-critical trace depth violations must still reopen bounded repair")
+	}
+}
+
+func TestRuntimeAcceptedClosureKeepsPreciseCurrentSourceFallback(t *testing.T) {
+	mut := types.NewMutableState("accepted mixed closure")
+	mut.SetInvestigationComplete("trace_query answered the runtime slice")
+	mut.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				SourceQuotes:                        []string{"internal/tracequery/query.go:42"},
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+			},
+		}},
+	}}
+
+	if o.shouldDowngradeRuntimeAcceptedClosureExploreFallback([]types.Violation{{Kind: types.ViolCitation}}) {
+		t.Fatal("precise current-source requirement must not be downgraded by runtime accepted closure")
+	}
+}
+
 func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_StillBlocksStageRetry(t *testing.T) {
 	mut := types.NewMutableState("accepted closure with explicit stage retry")
 	mut.SetInvestigationComplete("accepted closure")

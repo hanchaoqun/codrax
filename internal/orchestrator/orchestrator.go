@@ -6392,12 +6392,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// A4 + G1 telemetry: surface BOTH the underlying cluster
 		// structure (RepairPlan) AND the dispatch-ready queue
 		// (RepairExecutionPlan). Operators can grep `repair_plan=`
-		// for cluster composition and `repair_exec=` for queue
-		// state. Both lines are purely observational.
+		// for cluster composition and `repair_exec=` queue state.
 		logging.Info("[orchestrator] repair_plan: %s target=%s",
 			SummarizeRepairPlan(BuildRepairPlan(retryRes.Violations)), fallback)
 		logging.Info("[orchestrator] repair_exec: %s",
 			SummarizeRepairExecutionPlan(execPlan))
+		fallback = o.downgradeRuntimeAcceptedClosureExploreFallback(fallback, retryRes.Violations)
 		downgradedToFinalizerOnly := fallback == FallbackFinalizerOnly && preDowngrade != FallbackFinalizerOnly
 		if downgradedToFinalizerOnly {
 			finalizerLocalRetriesUsed++

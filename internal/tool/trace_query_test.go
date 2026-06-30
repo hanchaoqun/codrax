@@ -53,6 +53,18 @@ func TestTraceQueryExplicitPathProducesRuntimeArtifactSummary(t *testing.T) {
 
 func TestTraceQueryIndexLimitResultIsRecoverableScopeHint(t *testing.T) {
 	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "dense.ftrace")
+	trace := strings.Join([]string{
+		`      android.haitong-20  (   20) [001] .... 1.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=android.haitong next_pid=20 next_prio=53`,
+		`      android.haitong-20  (   20) [001] .... 1.010000: sched_switch: prev_comm=android.haitong prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`      render-10  (   10) [000] .... 1.095000: sched_wakeup: comm=android.haitong pid=20 prio=53 target_cpu=001`,
+		`      android.haitong-20  (   20) [001] .... 1.100000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=android.haitong next_pid=20 next_prio=53`,
+		`      android.haitong-20  (   20) [001] .... 1.130000: sched_switch: prev_comm=android.haitong prev_pid=20 prev_prio=53 prev_state=R ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
 	p := traceQueryParams{
 		View:      "root_cause_rank",
@@ -60,8 +72,8 @@ func TestTraceQueryIndexLimitResultIsRecoverableScopeHint(t *testing.T) {
 		TimeStart: traceSecondFromAutoWindow(1.0),
 		TimeEnd:   traceSecondFromAutoWindow(2.0),
 	}
-	res, ok := (&TraceQuery{}).traceQueryIndexLimitResult(ctx, p, filepath.Join(dir, "dense.ftrace"), "path", &tracequery.IndexEventLimitError{
-		Path:           filepath.Join(dir, "dense.ftrace"),
+	res, ok := (&TraceQuery{}).traceQueryIndexLimitResult(ctx, p, tracePath, "path", &tracequery.IndexEventLimitError{
+		Path:           tracePath,
 		MaxEvents:      3,
 		Events:         3,
 		Line:           42,
@@ -76,13 +88,47 @@ func TestTraceQueryIndexLimitResultIsRecoverableScopeHint(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("event limit should be recoverable, got failure: %s", res.Summary)
 	}
-	for _, want := range []string{"mode=index_event_limit", "not evidence that the trace/ftrace format is unsupported", "do not retry the same heavy view", "parent_window_strategy"} {
+	for _, want := range []string{
+		"mode=index_event_limit",
+		"not evidence that the trace/ftrace format is unsupported",
+		"state_first_hint",
+		"do not retry the same heavy view",
+		"parent_window_strategy",
+		"mode=stream_state_cluster",
+		"state_cluster android.haitong",
+	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("limit result missing %q:\nsummary=%s", want, res.Summary)
 		}
 	}
 	if res.Refinement == nil || res.Refinement.ReasonCode != "trace_query_index_event_limit" {
 		t.Fatalf("expected structured refinement, got %+v", res.Refinement)
+	}
+	if got := res.Refinement.PreferredParams["parent_coverage"]; got != "stream_state_cluster" {
+		t.Fatalf("parent coverage hint = %q, want stream_state_cluster", got)
+	}
+	if got := res.Refinement.PreferredParams["micro_window_policy"]; got != "sub_50ms_local_only" {
+		t.Fatalf("micro window policy = %q, want sub_50ms_local_only", got)
+	}
+	var sawStateChurn bool
+	var sawStateClusterCoverage bool
+	for _, obs := range res.Observations {
+		if obs.Producer == "trace_query" && obs.Predicate == "state_churn" {
+			sawStateChurn = true
+			for _, note := range obs.RichNotes {
+				if note == "coverage_mode=state_cluster" {
+					sawStateClusterCoverage = true
+					break
+				}
+			}
+			break
+		}
+	}
+	if !sawStateChurn {
+		t.Fatalf("index-limit fallback should emit typed state_churn observations: %+v", res.Observations)
+	}
+	if !sawStateClusterCoverage {
+		t.Fatalf("index-limit fallback should mark state_churn rows as state_cluster coverage: %+v", res.Observations)
 	}
 }
 
