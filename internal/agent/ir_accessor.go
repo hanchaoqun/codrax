@@ -179,12 +179,37 @@ func observationOnlyRuntimeArtifactForExplorer(ctx *types.AgentContext) bool {
 	return ctx.AnalysisIR.RequestModel.HasObservationOnlyRuntimeArtifact()
 }
 
+func runtimeSourceHardCurrentSourceObligationForExplorer(ctx *types.AgentContext) bool {
+	authority := runtimeSourceAnswerAuthorityForExplorer(ctx)
+	if authority.Active {
+		return authority.CanHardBlockCompletion
+	}
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return ctx.AnalysisIR.RequestModel.CurrentSourceLaneDecision().RequiresCurrentSource()
+}
+
+func runtimeSourceSoftCurrentSourceObligationForExplorer(ctx *types.AgentContext) bool {
+	authority := runtimeSourceAnswerAuthorityForExplorer(ctx)
+	return authority.Active &&
+		authority.CurrentSourceRequirement == types.RuntimeSourceRequirementSoft &&
+		authority.NeedsCurrentSourceEvidence
+}
+
+func runtimeSourceAnswerAuthorityForExplorer(ctx *types.AgentContext) types.RuntimeSourceAnswerAuthoritySnapshot {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return types.RuntimeSourceAnswerAuthoritySnapshot{}
+	}
+	return types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, types.ObservationLedger{})
+}
+
 func externalObservationFirstSourceOptionalForExplorer(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil || !ctx.TurnRouteHint.ExternalObservationFirst() {
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if types.RouteBackedExternalObservationRequiresCurrentSource(&rm, ctx.TurnRouteHint) {
+	if runtimeSourceHardCurrentSourceObligationForExplorer(ctx) {
 		return false
 	}
 	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
@@ -201,7 +226,7 @@ func runtimeArtifactWithoutRequiredSourceForExplorer(ctx *types.AgentContext) bo
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if types.RouteBackedExternalObservationRequiresCurrentSource(&rm, ctx.TurnRouteHint) {
+	if runtimeSourceHardCurrentSourceObligationForExplorer(ctx) {
 		return false
 	}
 	return rm.HasRuntimeArtifactWithoutRequiredCurrentSource()
@@ -212,7 +237,10 @@ func runtimeArtifactObservationOnlySurfaceForExplorer(ctx *types.AgentContext) b
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if types.RouteBackedExternalObservationRequiresCurrentSource(&rm, ctx.TurnRouteHint) {
+	if runtimeSourceHardCurrentSourceObligationForExplorer(ctx) {
+		return false
+	}
+	if runtimeSourceSoftCurrentSourceObligationForExplorer(ctx) {
 		return false
 	}
 	return rm.HasRuntimeArtifactObservationOnlySurface()
@@ -223,8 +251,12 @@ func runtimeArtifactSourceOptionalMixedSurfaceForExplorer(ctx *types.AgentContex
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if types.RouteBackedExternalObservationRequiresCurrentSource(&rm, ctx.TurnRouteHint) {
+	if runtimeSourceHardCurrentSourceObligationForExplorer(ctx) {
 		return false
+	}
+	if runtimeSourceSoftCurrentSourceObligationForExplorer(ctx) &&
+		rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(types.RuntimeArtifactContextActiveFromAgent(ctx)) {
+		return true
 	}
 	return rm.HasRuntimeArtifactSourceOptionalMixedSurface()
 }

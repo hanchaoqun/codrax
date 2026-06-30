@@ -530,7 +530,7 @@ func TestExplorer_BuildInitialInstruction_ExternalObservationFirstKeepsBreadthWh
 	}
 }
 
-func TestExplorer_BuildInitialInstruction_RouteBackedExternalObservationKeepsBreadthWhenRepoNeeded(t *testing.T) {
+func TestExplorer_BuildInitialInstruction_RouteBackedSoftExternalObservationUsesExternalFirst(t *testing.T) {
 	ctx := &types.AgentContext{
 		Objective: `分析这段日志，并结合当前源码解释 finalizer retry`,
 		Stage:     types.StageExplore,
@@ -552,15 +552,15 @@ func TestExplorer_BuildInitialInstruction_RouteBackedExternalObservationKeepsBre
 	}
 
 	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if strings.Contains(prompt, "External Observation First Start") {
-		t.Fatalf("route-backed repo artifact turn must not render source-optional external start:\n%s", prompt)
+	if !strings.Contains(prompt, "External Observation First Start") {
+		t.Fatalf("soft route-backed artifact turn should start with external observations:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "## Breadth Scan") {
-		t.Fatalf("route-backed repo artifact turn should keep source breadth prompt:\n%s", prompt)
+	if strings.Contains(prompt, "## Breadth Scan") {
+		t.Fatalf("soft route-backed artifact turn should not start with source breadth:\n%s", prompt)
 	}
 }
 
-func TestExplorer_BuildInitialInstruction_RouteBackedMixedObservationKeepsBreadthWhenRepoNeeded(t *testing.T) {
+func TestExplorer_BuildInitialInstruction_RouteBackedSoftMixedObservationUsesRuntimeFirst(t *testing.T) {
 	ctx := &types.AgentContext{
 		Objective: `分析这段日志，并结合当前源码解释 finalizer retry`,
 		Stage:     types.StageExplore,
@@ -590,11 +590,11 @@ func TestExplorer_BuildInitialInstruction_RouteBackedMixedObservationKeepsBreadt
 	}
 
 	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if strings.Contains(prompt, "External Observation First Start") {
-		t.Fatalf("mixed runtime/source turn must not render source-optional external start:\n%s", prompt)
+	if !strings.Contains(prompt, "External Observation First Start") {
+		t.Fatalf("soft mixed runtime/source turn should start with runtime/external observations:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "## Breadth Scan") {
-		t.Fatalf("mixed runtime/source turn should keep source breadth prompt:\n%s", prompt)
+	if strings.Contains(prompt, "## Breadth Scan") {
+		t.Fatalf("soft mixed runtime/source turn should not start with source breadth:\n%s", prompt)
 	}
 }
 
