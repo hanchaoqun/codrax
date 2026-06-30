@@ -4310,6 +4310,63 @@ func TestEmitAnalysis_Execute_PersistsTypedRuntimeTargets(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_RuntimeTargetInvalidSourceIsNonFatal(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "root_cause",
+		"scenario": "performance_bottleneck",
+		"complexity": "complex",
+		"keywords": ["trace", "pid", "42591", "jank"],
+		"entities": ["42591"],
+		"question_kind": "root_cause",
+		"intent_confidence": 0.92,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.85,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": true,
+			"has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": true,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.88
+		},
+		"runtime_targets": [{
+			"kind": "process",
+			"pid": 42591,
+			"source": "model guessed from prose",
+			"confidence": 0.96
+		}]
+	}`
+	res, mu := runEmitAnalysisPayload(t, "分析42591进程在6793222s 到 6793225s 期间滑动卡顿的深层次根因", payload)
+	if !res.Success {
+		t.Fatalf("invalid optional runtime target source should not reject analysis, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || len(rm.RuntimeTargets) != 1 {
+		t.Fatalf("runtime target should persist after clearing invalid source: %+v", rm)
+	}
+	got := rm.RuntimeTargets[0]
+	if got.PID != 42591 || got.Kind != types.RuntimeTargetKindProcess {
+		t.Fatalf("runtime target identity changed: %+v", got)
+	}
+	if got.Source != "" {
+		t.Fatalf("invalid source should be cleared, got %+v", got)
+	}
+}
+
 func TestEmitAnalysis_Execute_DropsInvalidFieldValueProfileForGenericCountCurrentSource(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

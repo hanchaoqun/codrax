@@ -3123,9 +3123,11 @@ func parseRuntimeTargets(in []emitRuntimeTargetParam) ([]types.RuntimeTarget, []
 			warnings = append(warnings, fmt.Sprintf("runtime_targets: dropped entries over cap of %d", maxRuntimeTargets))
 			break
 		}
-		target, warning := parseRuntimeTarget(item)
+		target, warning, ok := parseRuntimeTarget(item)
 		if warning != "" {
 			warnings = append(warnings, fmt.Sprintf("runtime_targets[%d]: %s", i, warning))
+		}
+		if !ok {
 			continue
 		}
 		key := fmt.Sprintf("%s:%d:%s", target.Kind, target.PID, strings.ToLower(target.Thread))
@@ -3140,16 +3142,16 @@ func parseRuntimeTargets(in []emitRuntimeTargetParam) ([]types.RuntimeTarget, []
 
 const emitRuntimeTargetMaxPID = 4194304
 
-func parseRuntimeTarget(p emitRuntimeTargetParam) (types.RuntimeTarget, string) {
+func parseRuntimeTarget(p emitRuntimeTargetParam) (types.RuntimeTarget, string, bool) {
 	kind := types.NormalizeRuntimeTargetKind(types.RuntimeTargetKind(p.Kind))
 	if kind == types.RuntimeTargetKindUnknown {
-		return types.RuntimeTarget{}, fmt.Sprintf("kind %q is invalid; use one of %s", p.Kind, strings.Join(runtimeTargetKindValues(), ", "))
+		return types.RuntimeTarget{}, fmt.Sprintf("kind %q is invalid; use one of %s", p.Kind, strings.Join(runtimeTargetKindValues(), ", ")), false
 	}
 	if p.Confidence == nil {
-		return types.RuntimeTarget{}, "confidence is required"
+		return types.RuntimeTarget{}, "confidence is required", false
 	}
 	if *p.Confidence < 0 || *p.Confidence > 1 {
-		return types.RuntimeTarget{}, fmt.Sprintf("confidence %.2f out of [0,1]", *p.Confidence)
+		return types.RuntimeTarget{}, fmt.Sprintf("confidence %.2f out of [0,1]", *p.Confidence), false
 	}
 	pid := 0
 	if p.PID != nil {
@@ -3157,29 +3159,43 @@ func parseRuntimeTarget(p emitRuntimeTargetParam) (types.RuntimeTarget, string) 
 	}
 	thread := strings.TrimSpace(p.Thread)
 	if pid <= 0 && thread == "" {
-		return types.RuntimeTarget{}, "pid or thread is required"
+		return types.RuntimeTarget{}, "pid or thread is required", false
 	}
 	if pid < 0 || pid > emitRuntimeTargetMaxPID {
-		return types.RuntimeTarget{}, fmt.Sprintf("pid %d is out of supported range", pid)
+		return types.RuntimeTarget{}, fmt.Sprintf("pid %d is out of supported range", pid), false
 	}
 	switch kind {
 	case types.RuntimeTargetKindProcess:
 		if pid <= 0 {
-			return types.RuntimeTarget{}, "process target requires pid"
+			return types.RuntimeTarget{}, "process target requires pid", false
 		}
 	case types.RuntimeTargetKindThread:
 		if pid <= 0 && thread == "" {
-			return types.RuntimeTarget{}, "thread target requires pid or thread"
+			return types.RuntimeTarget{}, "thread target requires pid or thread", false
 		}
 	}
+	source, sourceWarning := normalizeRuntimeTargetSource(p.Source)
 	return types.RuntimeTarget{
 		Kind:        kind,
 		PID:         pid,
 		Thread:      thread,
-		Source:      strings.TrimSpace(p.Source),
+		Source:      source,
 		Confidence:  *p.Confidence,
 		Description: strings.TrimSpace(p.Description),
-	}, ""
+	}, sourceWarning, true
+}
+
+func normalizeRuntimeTargetSource(raw string) (string, string) {
+	source := strings.TrimSpace(raw)
+	if source == "" {
+		return "", ""
+	}
+	switch source {
+	case "user_explicit", "artifact_metadata", "tool_handoff":
+		return source, ""
+	default:
+		return "", fmt.Sprintf("source %q is invalid; cleared optional provenance; use one of user_explicit, artifact_metadata, tool_handoff", source)
+	}
 }
 
 func runtimeArtifactValueProfileFromFieldValueParam(ctx *types.BusContext, p *emitFieldValueProfileParam, reason string) (*types.RuntimeArtifactValueProfile, string) {
