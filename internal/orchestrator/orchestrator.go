@@ -7813,7 +7813,7 @@ func (o *Orchestrator) runAutoVerdicts() {
 	if mu == nil {
 		return
 	}
-	if o.busCtx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(types.RuntimeArtifactContextActiveFromBus(o.busCtx)) {
+	if skipAutoVerdictsForRuntimeSourceAuthority(o.busCtx) {
 		logging.Debug("[orchestrator] auto-verdict skipped for runtime artifact without required current-source evidence")
 		return
 	}

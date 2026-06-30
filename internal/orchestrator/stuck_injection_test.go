@@ -187,6 +187,65 @@ func TestRunAutoVerdicts_SkipsSourceOptionalRuntimeArtifact(t *testing.T) {
 	}
 }
 
+func TestRunAutoVerdicts_SkipsLedgerOnlyRuntimeArtifactViaAuthority(t *testing.T) {
+	mut := types.NewMutableState("runtime probe")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "runtime_probe",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "runtime_probe:row:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "runtime_probe",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				ArtifactID:   "runtime_probe.json",
+				ArtifactKind: "trace",
+				RowSetRef:    "row:1",
+			},
+			Subject:   "app-20",
+			Predicate: "runtime_observed",
+			Summary:   "runtime probe observed app-20",
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioPerformanceBottleneck,
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.9,
+				},
+			},
+			HypothesisSet: []types.Hypothesis{{
+				ID:                     "h1",
+				Status:                 types.HypUnknown,
+				FalsificationCondition: types.Criterion{Kind: types.CritNoCallSites, Expr: "app-20"},
+			}},
+		},
+	}
+	if types.RuntimeArtifactContextActiveFromBus(bus) {
+		t.Fatal("test must not rely on attached artifact or trace_query runtime counter")
+	}
+	o := &Orchestrator{busCtx: bus}
+
+	o.runAutoVerdicts()
+
+	if got := bus.Mutable.EmittedHypothesisVerdicts(); len(got) != 0 {
+		t.Fatalf("ledger-only runtime artifact should not get repo-evidence auto-verdicts, got %+v", got)
+	}
+}
+
 func TestRunAutoVerdicts_SkipsAttachedTraceWithoutPerfBundle(t *testing.T) {
 	mut := types.NewMutableState("runtime trace")
 	bus := &types.BusContext{
