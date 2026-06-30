@@ -178,6 +178,49 @@ func TestRepoMapNavigationRefinementRuntimeSourceAuthorityAvoidsSourceInventoryW
 	}
 }
 
+func TestRepoMapNavigationRefinementObligationSignalUsesSharedRuntimeSourceCarrier(t *testing.T) {
+	graph := budgetTestGraph(6000)
+	params := ViewParams{Query: "current parser mechanism"}
+	ctx := &ctypes.BusContext{
+		AnalysisIR: &ctypes.AnalysisIR{RequestModel: ctypes.RequestModel{
+			Intent: ctypes.IntentRootCause,
+			CurrentSourceObligationSignals: []ctypes.CurrentSourceObligationSignal{{
+				Kind: ctypes.CurrentSourceObligationSignalDroppedRequestedDimension,
+				Role: ctypes.RequestedAnswerDimensionFunctionOrPurpose,
+			}},
+		}},
+		ToolResults: []ctypes.ToolResult{{
+			ToolName: "trace_query",
+			Success:  true,
+			Observations: []ctypes.ObservationRecord{{
+				ID:              "trace_query:window#root_cause_rank:1",
+				Origin:          ctypes.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				GroundingPolicy: ctypes.ClaimGroundingHard,
+				SourceRef:       ctypes.ObservationSourceRef{Kind: ctypes.ObservationSourceRuntimeArtifact, RawRef: "trace.systrace"},
+				Summary:         "trace_query ranked the target-thread delay",
+			}},
+		}},
+	}
+	if ctypes.MixedRuntimeCurrentSourceRequiredFileCoverageShape(ctx.AnalysisIR.RequestModel) {
+		t.Fatal("fixture must not depend on the legacy static mixed shape")
+	}
+	hint := repoMapNavigationRefinement(ctx, graph, repoMapParams{
+		Path:  ".",
+		View:  "file_map",
+		Query: params.Query,
+	}, params, GenerateViewData(graph, "file_map", params))
+	if hint == nil {
+		t.Fatal("expected large file_map refinement")
+	}
+	if got := hint.PreferredParams["view"]; got != "task_map" {
+		t.Fatalf("obligation-backed runtime/source file_map should avoid source_inventory via shared carrier, got view=%q params=%+v", got, hint.PreferredParams)
+	}
+	if _, bad := hint.PreferredParams["include_attributes"]; bad {
+		t.Fatalf("non-inventory refinement must not carry source_inventory-only params: %+v", hint.PreferredParams)
+	}
+}
+
 func TestRepoMapNavigationRefinementSoftCurrentSourceWithoutRuntimeCarrierUsesSourceInventory(t *testing.T) {
 	graph := budgetTestGraph(6000)
 	params := ViewParams{Query: "parser mechanism"}

@@ -134,17 +134,7 @@ func repoMapRuntimeSourceRequestCarrierActive(ctx *ctypes.BusContext, rm *ctypes
 	if ctx == nil || rm == nil {
 		return false
 	}
-	if ctx.TurnRouteHint.ExternalObservationParticipates() ||
-		rm.HasExternalOnlyRuntimeArtifact() ||
-		rm.HasExternalObservationArtifactReference() ||
-		rm.HasRuntimeArtifactPathReference() ||
-		rm.LogTriage != nil ||
-		rm.PerfTrace != nil {
-		return true
-	}
-	return authority.HasRuntimeCarrier() &&
-		rm.CurrentSourceExplanationProfile != nil &&
-		rm.CurrentSourceExplanationProfile.Active()
+	return ctypes.RuntimeSourceAuthorityRequestCarrierActive(ctx.TurnRouteHint, rm, authority)
 }
 
 func repoMapExplicitTopNBroad(view string, tier SizeTier, topN int) bool {
