@@ -176,6 +176,79 @@ func TestApplyAndPersistMutation_StampsReadOwnerAnchorsFromTurnA(t *testing.T) {
 	}
 }
 
+func TestApplyAndPersistMutation_SoftMixedRuntimeWithSourceProofKeepsSourceAuditSupplements(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AttachedLog = "WARN request timed out at artifact line 42"
+	logBundle := &types.LogBundle{Errors: []types.LogError{{Type: "timeout"}}}
+	bus.Mutable.SetLogTriage(logBundle)
+	bus.TurnRouteHint = types.TurnRouteHint{
+		Route:           "repo",
+		Source:          "mixed",
+		NeedsRepoAccess: true,
+		Confidence:      0.9,
+	}
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:    types.IntentRootCause,
+		Scenario:  types.ScenarioRootCause,
+		LogTriage: logBundle,
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+	}}
+	bus.EvidenceItems = []types.EvidenceItem{{
+		ID:        "ev-owner",
+		Source:    "pkg/owner.py",
+		LineStart: 12,
+		Summary:   "current source defines the timeout owner",
+		Origin:    types.ClaimOriginCurrentRepo,
+	}}
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		SourceLocalization: &types.SourceLocalizationReview{
+			Source:      "read_turn_a",
+			Status:      types.SourceLocalizationSupported,
+			SourcePaths: []string{"pkg/owner.py"},
+			Anchors: []types.SourceLocalizationAnchor{{
+				Path:        "pkg/owner.py",
+				Kind:        types.SourceLocalizationAnchorGroundedEvidence,
+				Strength:    types.SourceLocalizationAnchorOwner,
+				OwnerSymbol: "Owner.Handle",
+				EvidenceRef: &types.WriteExplorationEvidenceRef{
+					ID:          "ev-owner",
+					Source:      "pkg/owner.py",
+					LineStart:   12,
+					OwnerSymbol: "Owner.Handle",
+				},
+			}},
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "runtime answer with current-source proof"},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil {
+		t.Fatal("answer document not persisted")
+	}
+	if got.ReadSourceLocalization == nil || got.ReadSourceLocalization.Status != types.SourceLocalizationSupported {
+		t.Fatalf("accepted current-source proof should keep localization supplement: %+v", got.ReadSourceLocalization)
+	}
+	if len(got.ReadOwnerAnchors) != 1 || got.ReadOwnerAnchors[0].Path != "pkg/owner.py" {
+		t.Fatalf("accepted current-source proof should keep owner anchor supplement: %+v", got.ReadOwnerAnchors)
+	}
+}
+
 func TestApplyAndPersistMutation_StampsReadNavigationCoverageFromTurnA(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.AnalysisIR = &types.AnalysisIR{

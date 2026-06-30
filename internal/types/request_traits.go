@@ -1376,6 +1376,25 @@ func RuntimeArtifactReadSourceNavigationNotRequired(ir *AnalysisIR, attachedRunt
 	return RuntimeArtifactRequestSourceNavigationNotRequired(ir.RequestModel, attachedRuntimeArtifact)
 }
 
+// RuntimeArtifactReadSourceNavigationNotRequiredForBusContext is the
+// answer/report-stage companion to RuntimeArtifactReadSourceNavigationNotRequired.
+// It prefers RuntimeSourceAnswerAuthoritySnapshot when the run has accepted
+// runtime/source evidence so final report consumers do not reinterpret soft
+// route-backed source obligations independently.
+func RuntimeArtifactReadSourceNavigationNotRequiredForBusContext(ctx *BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if ctx.AnalysisIR.RequestModel.HasCurrentSourceObligationSignal() {
+		return false
+	}
+	authority := BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, ObservationLedger{})
+	if runtimeSourceAuthorityAppliesToReadSourceAudit(ctx, authority) {
+		return runtimeSourceAuthoritySuppressesReadSourceAudit(authority)
+	}
+	return RuntimeArtifactReadSourceNavigationNotRequired(ctx.AnalysisIR, RuntimeArtifactContextActiveFromBus(ctx))
+}
+
 // RuntimeArtifactRequestSourceNavigationNotRequired is the pre-IR companion to
 // RuntimeArtifactReadSourceNavigationNotRequired. Analyzer post-processing uses
 // it before AnalysisIR exists to avoid eager source graph construction for
@@ -1395,6 +1414,51 @@ func RuntimeArtifactReadSourceSupplementsNotRequired(ir *AnalysisIR, attachedRun
 		return false
 	}
 	return ir.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedRuntimeArtifact)
+}
+
+// RuntimeArtifactReadSourceSupplementsNotRequiredForBusContext uses the shared
+// runtime/source authority view for final-answer source audit suppression. It
+// keeps source audit available once current-source proof is accepted, even if the
+// original request was only a soft route-backed runtime/source mix.
+func RuntimeArtifactReadSourceSupplementsNotRequiredForBusContext(ctx *BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if ctx.AnalysisIR.RequestModel.HasCurrentSourceObligationSignal() {
+		return false
+	}
+	authority := BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, ObservationLedger{})
+	if runtimeSourceAuthorityAppliesToReadSourceAudit(ctx, authority) {
+		return runtimeSourceAuthoritySuppressesReadSourceAudit(authority)
+	}
+	return RuntimeArtifactReadSourceSupplementsNotRequired(ctx.AnalysisIR, RuntimeArtifactContextActiveFromBus(ctx))
+}
+
+func runtimeSourceAuthorityAppliesToReadSourceAudit(ctx *BusContext, authority RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	if authority.RuntimeObservationCount > 0 ||
+		authority.DeterministicRuntimeQueryCount > 0 ||
+		authority.RuntimeOnlySufficient ||
+		authority.CanHardBlockCompletion {
+		return true
+	}
+	return authority.ExactCurrentSourceSupportCount > 0 &&
+		ctx != nil &&
+		RuntimeArtifactContextActiveFromBus(ctx)
+}
+
+func runtimeSourceAuthoritySuppressesReadSourceAudit(authority RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	if authority.ExactCurrentSourceSupportCount > 0 || authority.CanHardBlockCompletion {
+		return false
+	}
+	return authority.CanUseRuntimeOnlyWithCaveat ||
+		authority.CanDowngradeToCaveat ||
+		(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired)
 }
 
 // HasRuntimeArtifactSourceOptionalMixedSurface is the counterpart of

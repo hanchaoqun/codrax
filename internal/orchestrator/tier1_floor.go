@@ -84,7 +84,7 @@ func readLocalizerFollowupForTier1(busCtx *types.BusContext, ir *types.AnalysisI
 	if busCtx == nil || busCtx.Mutable == nil || ir == nil {
 		return nil
 	}
-	if types.RuntimeArtifactReadSourceNavigationNotRequired(ir, types.RuntimeArtifactContextActiveFromBus(busCtx)) {
+	if types.RuntimeArtifactReadSourceNavigationNotRequiredForBusContext(busCtx) {
 		return nil
 	}
 	if runtimeObservationClosureSuppressesReadLocalizerFollowup(busCtx, ir) {

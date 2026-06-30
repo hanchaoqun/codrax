@@ -747,6 +747,47 @@ func TestRuntimeArtifactReadSourceSupplementsNotRequired_CurrentKeyCodeKeepsSupp
 	}
 }
 
+func TestRuntimeArtifactReadSourceSupplementsNotRequiredForBusContext_SoftMixedWithSourceProofKeepsSupplements(t *testing.T) {
+	mut := NewMutableState("runtime mixed")
+	mut.SetLogTriage(&LogBundle{Errors: []LogError{{Type: "timeout"}}})
+	ctx := &BusContext{
+		Mutable: mut,
+		TurnRouteHint: TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &AnalysisIR{RequestModel: RequestModel{
+			Intent:    IntentRootCause,
+			Scenario:  ScenarioRootCause,
+			LogTriage: mut.LogTriage(),
+			ExternalObservationPolicy: &ExternalObservationPolicy{
+				ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+				Confidence:           0.9,
+			},
+		}},
+		EvidenceItems: []EvidenceItem{{
+			ID:        "source-timeout-owner",
+			Source:    "internal/llm/openai.go",
+			LineStart: 472,
+			Summary:   "current source defines the timeout retry boundary",
+			Origin:    ClaimOriginCurrentRepo,
+		}},
+	}
+
+	if RuntimeArtifactReadSourceSupplementsNotRequired(ctx.AnalysisIR, true) == false {
+		t.Fatal("legacy request-trait helper should still classify the request as source-optional")
+	}
+	if RuntimeArtifactReadSourceSupplementsNotRequiredForBusContext(ctx) {
+		t.Fatal("accepted current-source proof should preserve final source audit supplements")
+	}
+	if RuntimeArtifactReadSourceNavigationNotRequiredForBusContext(ctx) {
+		t.Fatal("accepted current-source proof should preserve final source navigation follow-up")
+	}
+}
+
 func TestCurrentSourceLaneDecision_RuntimeExactTargetsRemainSourceOptional(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,

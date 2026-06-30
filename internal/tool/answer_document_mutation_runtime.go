@@ -486,7 +486,7 @@ func stampReadNavigationCoverageFromTurnA(ctx *types.BusContext, doc *types.Answ
 		doc.ReadNavigationCoverage = nil
 		return false
 	}
-	if types.RuntimeArtifactReadSourceNavigationNotRequired(ctx.AnalysisIR, types.RuntimeArtifactContextActiveFromBus(ctx)) {
+	if types.RuntimeArtifactReadSourceNavigationNotRequiredForBusContext(ctx) {
 		doc.ReadNavigationCoverage = nil
 		return false
 	}
@@ -508,7 +508,7 @@ func readFinalAnswerSourceSupplementsNotRequired(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	return types.RuntimeArtifactReadSourceSupplementsNotRequired(ctx.AnalysisIR, types.RuntimeArtifactContextActiveFromBus(ctx))
+	return types.RuntimeArtifactReadSourceSupplementsNotRequiredForBusContext(ctx)
 }
 
 func stampReadLocalizerFollowup(ctx *types.BusContext, doc *types.AnswerDocumentV2) bool {
