@@ -20,6 +20,7 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 		`2026-05-19T10:00:00.026 DEBUG [diag explorer] iter=3 phase=midloop_inject MIDLOOP inject len=675:`,
 		`2026-05-19T10:00:00.027 DEBUG [diag explorer] iter=5 phase=midloop_signal hint=true progress=true stop=false key="explorer.mid-loop.completion-ready" → stop ()`,
 		`2026-05-19T10:00:00.028 DEBUG [diag explorer] iter=5 phase=midloop_force_stop MIDLOOP force-stop: evaluator stop: completion ready`,
+		`2026-05-19T10:00:00.029 DEBUG [orchestrator] read_status_authority source_inventory=active:false:sets=1:complete_sets=0:members=3:classes=1:langs=1:authority=true:need=true:landing=false:block=true:caveat=false:reasons=required_files_uncovered,completion_followup`,
 		`| explorer_iters | 42 | 42 |`,
 		`| explorer_dispatches | 4 | 4 |`,
 		`2026-05-19T10:00:00.030 INFO [render]   ⟳ 1/4 模型响应出错,正在重新理解问题`,
@@ -73,6 +74,17 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 		rep.Explorer.HighWaterByMetric["explorer_iters"] != 1 ||
 		rep.Explorer.HighWaterByMetric["explorer_dispatches"] != 1 {
 		t.Fatalf("explorer mid-loop counters wrong: %+v", rep.Explorer)
+	}
+	if rep.SourceInventory.StatusEvents != 1 ||
+		rep.SourceInventory.ActiveEvents != 1 ||
+		rep.SourceInventory.AuthorityEvents != 1 ||
+		rep.SourceInventory.PrincipalAuthority != 1 ||
+		rep.SourceInventory.NeedsFollowup != 1 ||
+		rep.SourceInventory.BlockCapable != 1 ||
+		rep.SourceInventory.CaveatOnly != 0 ||
+		rep.SourceInventory.Reasons["required_files_uncovered"] != 1 ||
+		rep.SourceInventory.Reasons["completion_followup"] != 1 {
+		t.Fatalf("source-inventory authority telemetry not parsed: %+v", rep.SourceInventory)
 	}
 	if rep.Finalizer.DocumentRejects != 1 || rep.Finalizer.RewriteRenders != 1 || rep.Finalizer.RepairPlans != 1 {
 		t.Fatalf("finalizer counters wrong: %+v", rep.Finalizer)
@@ -237,6 +249,16 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 			SuspiciousFirstDraftPreviews: 1,
 			Anomalies:                    map[string]int{"stage_regression": 1},
 		},
+		SourceInventory: sourceInventorySum{
+			StatusEvents:       2,
+			ActiveEvents:       2,
+			AuthorityEvents:    2,
+			PrincipalAuthority: 1,
+			NeedsFollowup:      1,
+			BlockCapable:       1,
+			CaveatOnly:         1,
+			Reasons:            map[string]int{"required_files_uncovered": 1, "navigation_debt": 1},
+		},
 	}
 	var b bytes.Buffer
 	writeMarkdown(&b, rep, 5)
@@ -254,11 +276,41 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 		"facet_softened",
 		"stage_regressions=1",
 		"suspicious_without_retry=1",
+		"Source Inventory Authority",
+		"block=1 caveat=1",
+		"required_files_uncovered",
+		"navigation_debt",
 		"Agent",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("markdown missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestCollectSourceInventoryAuthorityIgnoresPromptAndAnalysisSummary(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "codrax.log")
+	body := strings.Join([]string{
+		`2026-05-19T10:00:00.000 DEBUG [diag explorer] iter=0 ASSISTANT content: quoted read_status_authority source_inventory=active:true:authority=true:block=true:reasons=quoted`,
+		`2026-05-19T10:00:00.010 INFO [emit_analysis] analysis emitted: source_inventory=type,function`,
+		`2026-05-19T10:00:00.020 DEBUG [orchestrator] read_status_authority source_inventory=inactive`,
+		`2026-05-19T10:00:00.030 DEBUG [orchestrator] read_status_authority source_inventory=active:true:sets=1:authority=false:need=false:landing=true:block=false:caveat=true:reasons=navigation_debt`,
+	}, "\n")
+	if err := os.WriteFile(logPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := collect([]string{dir})
+	if err != nil {
+		t.Fatalf("collect returned error: %v", err)
+	}
+	if rep.SourceInventory.StatusEvents != 1 ||
+		rep.SourceInventory.MechanicalLanding != 1 ||
+		rep.SourceInventory.CaveatOnly != 1 ||
+		rep.SourceInventory.BlockCapable != 0 ||
+		rep.SourceInventory.Reasons["navigation_debt"] != 1 ||
+		rep.SourceInventory.Reasons["quoted"] != 0 {
+		t.Fatalf("source inventory telemetry should consume only typed authority cursor logs: %+v", rep.SourceInventory)
 	}
 }
 

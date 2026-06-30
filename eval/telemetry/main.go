@@ -29,6 +29,7 @@ type report struct {
 	Finalizer         finalizerSummary    `json:"finalizer"`
 	Richness          richnessSummary     `json:"richness"`
 	Render            renderSummary       `json:"render"`
+	SourceInventory   sourceInventorySum  `json:"source_inventory"`
 	ToolParamCompat   toolParamCompat     `json:"tool_param_compat"`
 	LLM               llmSummary          `json:"llm"`
 	FilesByRetryScore []fileRetrySnapshot `json:"files_by_retry_score,omitempty"`
@@ -117,6 +118,18 @@ type renderSummary struct {
 	FirstDraftPreviews           int            `json:"first_draft_previews"`
 	SuspiciousFirstDraftPreviews int            `json:"suspicious_first_draft_previews"`
 	Anomalies                    map[string]int `json:"anomalies,omitempty"`
+}
+
+type sourceInventorySum struct {
+	StatusEvents       int            `json:"status_events"`
+	ActiveEvents       int            `json:"active_events"`
+	AuthorityEvents    int            `json:"authority_events"`
+	PrincipalAuthority int            `json:"principal_authority_events"`
+	NeedsFollowup      int            `json:"needs_followup_events"`
+	MechanicalLanding  int            `json:"mechanical_landing_events"`
+	BlockCapable       int            `json:"block_capable_events"`
+	CaveatOnly         int            `json:"caveat_only_events"`
+	Reasons            map[string]int `json:"reasons,omitempty"`
 }
 
 type toolParamCompat struct {
@@ -240,6 +253,7 @@ func collect(paths []string) (report, error) {
 	c.report.Richness.ByFacetKind = map[string]int{}
 	c.report.Render.StageCounts = map[string]int{}
 	c.report.Render.Anomalies = map[string]int{}
+	c.report.SourceInventory.Reasons = map[string]int{}
 	c.report.ToolParamCompat.Tools = map[string]int{}
 	c.report.LLM.ByAgent = map[string]int{}
 	c.report.LLM.ByModel = map[string]int{}
@@ -335,6 +349,7 @@ func (c *collector) observeLine(line string, fm *fileMetrics) {
 	if isControlComponentLine(line, "DEBUG", "diag explorer") {
 		c.observeExplorerLine(line, fm)
 	}
+	c.observeSourceInventoryAuthorityLine(line)
 	c.observeSummaryMetricLine(line, fm)
 	c.observeRenderLine(line, fm)
 	if (isControlComponentLine(line, "DEBUG", "diag analyzer") && strings.Contains(line, "TOOLRESULT emit_analysis ok=false")) ||
@@ -560,6 +575,41 @@ func (c *collector) observeRenderLine(line string, fm *fileMetrics) {
 	}
 }
 
+func (c *collector) observeSourceInventoryAuthorityLine(line string) {
+	if !isControlComponentLine(line, "DEBUG", "orchestrator") {
+		return
+	}
+	status, ok := parseSourceInventoryAuthorityStatus(line)
+	if !ok {
+		return
+	}
+	c.report.SourceInventory.StatusEvents++
+	if status.active {
+		c.report.SourceInventory.ActiveEvents++
+	}
+	if status.hasAuthorityFields {
+		c.report.SourceInventory.AuthorityEvents++
+	}
+	if status.principalAuthority {
+		c.report.SourceInventory.PrincipalAuthority++
+	}
+	if status.needsFollowup {
+		c.report.SourceInventory.NeedsFollowup++
+	}
+	if status.mechanicalLanding {
+		c.report.SourceInventory.MechanicalLanding++
+	}
+	if status.blockCapable {
+		c.report.SourceInventory.BlockCapable++
+	}
+	if status.caveatOnly {
+		c.report.SourceInventory.CaveatOnly++
+	}
+	for _, reason := range status.reasons {
+		c.report.SourceInventory.Reasons[reason]++
+	}
+}
+
 func (c *collector) observeRenderAnomaly(fm *fileMetrics, name string) {
 	c.report.Render.Anomalies[name]++
 	fm.renderAnomalies++
@@ -634,6 +684,82 @@ func logIntField(line string, key string) (int, bool) {
 		return v, true
 	}
 	return 0, false
+}
+
+type sourceInventoryAuthorityStatus struct {
+	active             bool
+	hasAuthorityFields bool
+	principalAuthority bool
+	needsFollowup      bool
+	mechanicalLanding  bool
+	blockCapable       bool
+	caveatOnly         bool
+	reasons            []string
+}
+
+func parseSourceInventoryAuthorityStatus(line string) (sourceInventoryAuthorityStatus, bool) {
+	const marker = "read_status_authority source_inventory="
+	idx := strings.Index(line, marker)
+	if idx < 0 {
+		return sourceInventoryAuthorityStatus{}, false
+	}
+	raw := strings.TrimSpace(line[idx+len(marker):])
+	if raw == "" {
+		return sourceInventoryAuthorityStatus{}, false
+	}
+	if stop := strings.IndexAny(raw, " \t\r\n"); stop >= 0 {
+		raw = raw[:stop]
+	}
+	if stop := strings.IndexByte(raw, '|'); stop >= 0 {
+		raw = raw[:stop]
+	}
+	parts := strings.Split(raw, ":")
+	if len(parts) == 0 || parts[0] != "active" {
+		return sourceInventoryAuthorityStatus{}, false
+	}
+	status := sourceInventoryAuthorityStatus{active: true}
+	for _, part := range parts[1:] {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "authority":
+			status.hasAuthorityFields = true
+			status.principalAuthority = value == "true"
+		case "need":
+			status.hasAuthorityFields = true
+			status.needsFollowup = value == "true"
+		case "landing":
+			status.hasAuthorityFields = true
+			status.mechanicalLanding = value == "true"
+		case "block":
+			status.hasAuthorityFields = true
+			status.blockCapable = value == "true"
+		case "caveat":
+			status.hasAuthorityFields = true
+			status.caveatOnly = value == "true"
+		case "reasons":
+			status.hasAuthorityFields = true
+			status.reasons = sourceInventoryAuthorityReasons(value)
+		}
+	}
+	if !status.hasAuthorityFields {
+		return sourceInventoryAuthorityStatus{}, false
+	}
+	return status, true
+}
+
+func sourceInventoryAuthorityReasons(raw string) []string {
+	var out []string
+	for _, reason := range strings.Split(raw, ",") {
+		reason = strings.TrimSpace(reason)
+		if reason == "" || reason == "none" {
+			continue
+		}
+		out = append(out, reason)
+	}
+	return out
 }
 
 func (c *collector) finalize() {
@@ -1017,6 +1143,21 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 	writeTopMap(w, "Explorer mid-loop keys", rep.Explorer.ByKey, 12)
 	writeTopMap(w, "Explorer mid-loop actions", rep.Explorer.ByAction, 8)
 	writeTopMap(w, "Explorer high-water metrics", rep.Explorer.HighWaterByMetric, 8)
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "## Source Inventory Authority")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "- status: events=%d active=%d authority=%d principal=%d need=%d landing=%d block=%d caveat=%d\n",
+		rep.SourceInventory.StatusEvents,
+		rep.SourceInventory.ActiveEvents,
+		rep.SourceInventory.AuthorityEvents,
+		rep.SourceInventory.PrincipalAuthority,
+		rep.SourceInventory.NeedsFollowup,
+		rep.SourceInventory.MechanicalLanding,
+		rep.SourceInventory.BlockCapable,
+		rep.SourceInventory.CaveatOnly,
+	)
+	writeTopMap(w, "Source inventory reasons", rep.SourceInventory.Reasons, 10)
 
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "## Finalizer")

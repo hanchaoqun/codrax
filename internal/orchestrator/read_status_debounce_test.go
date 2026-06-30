@@ -328,3 +328,23 @@ func TestReadStatusSourceInventoryShapeUsesAuthorityView(t *testing.T) {
 		}
 	}
 }
+
+func TestReadStatusSourceInventoryCursorPayloadOnlyExposesAuthorityView(t *testing.T) {
+	cursor := "stage=explore|ev=1|source_inventory=active:false:sets=1:authority=true:need=true:landing=false:block=false:caveat=true:reasons=navigation_debt"
+	got, ok := readStatusSourceInventoryCursorPayload(cursor)
+	if !ok {
+		t.Fatalf("expected authority payload from cursor")
+	}
+	if got != "active:false:sets=1:authority=true:need=true:landing=false:block=false:caveat=true:reasons=navigation_debt" {
+		t.Fatalf("payload = %q", got)
+	}
+	for _, cursor := range []string{
+		"stage=analyze|source_inventory=inactive",
+		"analysis emitted source_inventory=type,function",
+		"stage=explore|source_inventory=active:true:sets=1",
+	} {
+		if got, ok := readStatusSourceInventoryCursorPayload(cursor); ok {
+			t.Fatalf("non-authority cursor should not be exposed: %q -> %q", cursor, got)
+		}
+	}
+}

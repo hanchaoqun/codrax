@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -77,9 +78,38 @@ func (o *Orchestrator) suppressReadStatusEvent(ev render.Event) bool {
 	case readStatusLifecycleSuppress:
 		return true
 	case readStatusLifecycleBypassGeneric:
+		logReadStatusSourceInventoryAuthorityCursor(cursor)
 		return false
 	}
-	return o.readStatusDebouncer.Suppress(key, cursor)
+	suppressed := o.readStatusDebouncer.Suppress(key, cursor)
+	if !suppressed {
+		logReadStatusSourceInventoryAuthorityCursor(cursor)
+	}
+	return suppressed
+}
+
+func logReadStatusSourceInventoryAuthorityCursor(cursor string) {
+	payload, ok := readStatusSourceInventoryCursorPayload(cursor)
+	if !ok {
+		return
+	}
+	logging.Debug("read_status_authority source_inventory=%s", payload)
+}
+
+func readStatusSourceInventoryCursorPayload(cursor string) (string, bool) {
+	const marker = "source_inventory="
+	idx := strings.Index(cursor, marker)
+	if idx < 0 {
+		return "", false
+	}
+	payload := strings.TrimSpace(cursor[idx+len(marker):])
+	if !strings.HasPrefix(payload, "active:") || !strings.Contains(payload, ":authority=") {
+		return "", false
+	}
+	if stop := strings.IndexByte(payload, '|'); stop >= 0 {
+		payload = payload[:stop]
+	}
+	return payload, payload != ""
 }
 
 func readStatusShouldSuppressSkippedLifecycle(ev render.Event) bool {
