@@ -110,6 +110,28 @@ func TestCompileRequiredMechanismAnchors_DisabledForRuntimeArtifactWithoutRequir
 	}
 }
 
+func TestCompileRequiredMechanismAnchors_SoftRuntimeSourceDoesNotCreateHardAnchor(t *testing.T) {
+	rm := runtimeSourceExactContractFixture("current implementation")
+	if precision := RuntimeSourceRequestCurrentSourceRequirementPrecision(&rm, TurnRouteHint{}); precision != RuntimeSourceRequirementSoft {
+		t.Fatalf("fixture should be soft runtime/source, got %s", precision)
+	}
+	got := CompileRequiredMechanismAnchors(rm, AnswerContract{}, QFGeneric, nil)
+	if len(got) != 0 {
+		t.Fatalf("soft runtime/source current-source lane must not create required mechanism anchors: %+v", got)
+	}
+}
+
+func TestCompileRequiredMechanismAnchors_PreciseRuntimeSourceKeepsHardAnchor(t *testing.T) {
+	rm := runtimeSourceExactContractFixture("internal/tracequery/query.go:42")
+	if precision := RuntimeSourceRequestCurrentSourceRequirementPrecision(&rm, TurnRouteHint{}); precision != RuntimeSourceRequirementPrecise {
+		t.Fatalf("fixture should be precise runtime/source, got %s", precision)
+	}
+	got := CompileRequiredMechanismAnchors(rm, AnswerContract{}, QFGeneric, nil)
+	if len(got) != 1 || got[0].Text != "TraceQueryPlanner" {
+		t.Fatalf("precise runtime/source current-source lane should keep required mechanism anchor, got %+v", got)
+	}
+}
+
 func TestCompileRequiredMechanismAnchors_RuntimeCurrentSourceRequiredKeepsAnchors(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentExplain,

@@ -310,6 +310,86 @@ func carrier(s struct{ CanHardBlockCompletion bool }) bool {
 	}
 }
 
+func TestRuntimeSourceAnswerContractBuildersUseAuthorityPrecision(t *testing.T) {
+	paths := []string{"exact_lookup.go", "answer_required_anchor.go"}
+	fset := token.NewFileSet()
+	var violations []string
+	for _, path := range paths {
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		violations = append(violations, findRuntimeSourceAnswerContractPolicyBypasses(f, fset, path)...)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("types-level exact/anchor contract builders must consume RuntimeSourceRequestSuppressesCurrentSourceAnswerContract instead of local runtime/source policy:\n  %s", strings.Join(violations, "\n  "))
+	}
+}
+
+func findRuntimeSourceAnswerContractPolicyBypasses(f *ast.File, fset *token.FileSet, path string) []string {
+	targetFns := map[string]bool{
+		"BuildExactResolutionContract":    true,
+		"requiredMechanismAnchorsEnabled": true,
+	}
+	var out []string
+	ast.Inspect(f, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Body == nil || fn.Name == nil || !targetFns[fn.Name.Name] {
+			return true
+		}
+		ast.Inspect(fn.Body, func(m ast.Node) bool {
+			call, ok := m.(*ast.CallExpr)
+			if !ok || !isRuntimeSourceAnswerContractLocalPolicyCall(call) {
+				return true
+			}
+			out = append(out, filepath.ToSlash(path)+"::"+fn.Name.Name+":"+strconv.Itoa(fset.Position(call.Pos()).Line))
+			return true
+		})
+		return true
+	})
+	return out
+}
+
+func isRuntimeSourceAnswerContractLocalPolicyCall(call *ast.CallExpr) bool {
+	if isRuntimeSourceLegacyHelperCall(call) {
+		return true
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel == nil {
+		return false
+	}
+	switch sel.Sel.Name {
+	case "HasRuntimeArtifactWithoutRequiredCurrentSource",
+		"HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext",
+		"HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext":
+		return true
+	default:
+		return false
+	}
+}
+
+func TestRuntimeSourceAnswerContractBuilderLintDetectsViolations(t *testing.T) {
+	src := `package p
+func BuildExactResolutionContract(r interface{ HasRuntimeArtifactWithoutRequiredCurrentSource() bool }) bool {
+	return r.HasRuntimeArtifactWithoutRequiredCurrentSource()
+}
+func requiredMechanismAnchorsEnabled(r interface{ CurrentSourceLaneDecision() interface{ RequiresCurrentSource() bool } }) bool {
+	return r.CurrentSourceLaneDecision().RequiresCurrentSource()
+}
+func unrelated(r interface{ HasRuntimeArtifactWithoutRequiredCurrentSource() bool }) bool {
+	return r.HasRuntimeArtifactWithoutRequiredCurrentSource()
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "bad.go", src, 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := findRuntimeSourceAnswerContractPolicyBypasses(f, fset, "bad.go"); len(got) != 2 {
+		t.Fatalf("detector must flag exact/anchor builders only, got %d: %v", len(got), got)
+	}
+}
+
 // TestRuntimeSourceStaticMixedShapeStaysInFallbackChokepoints keeps the legacy
 // MixedRuntimeCurrentSourceRequiredFileCoverageShape helper from becoming a new
 // sibling authority. It is allowed only as compatibility fallback where the

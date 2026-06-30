@@ -141,6 +141,36 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_SoftExternalObservationCanDowngrad
 	}
 }
 
+func TestRuntimeSourceRequestSuppressesCurrentSourceAnswerContract_ExternalObservationSoft(t *testing.T) {
+	rm := &RequestModel{
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			SourceQuotes:                        []string{"current implementation"},
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+		},
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets: []string{"mcp://fixture/trace/sleep-wakeup#L12"},
+		},
+	}
+	if precision := RuntimeSourceRequestCurrentSourceRequirementPrecision(rm, TurnRouteHint{}); precision != RuntimeSourceRequirementSoft {
+		t.Fatalf("external observation + unanchored source profile should be soft, got %s", precision)
+	}
+	if !RuntimeSourceRequestSuppressesCurrentSourceAnswerContract(rm, TurnRouteHint{}) {
+		t.Fatal("soft external-observation/current-source request should suppress answer-level current-source contracts")
+	}
+
+	rm.CurrentSourceExplanationProfile.SourceQuotes = []string{"internal/tracequery/query.go:42"}
+	if precision := RuntimeSourceRequestCurrentSourceRequirementPrecision(rm, TurnRouteHint{}); precision != RuntimeSourceRequirementPrecise {
+		t.Fatalf("path-anchored external observation profile should be precise, got %s", precision)
+	}
+	if RuntimeSourceRequestSuppressesCurrentSourceAnswerContract(rm, TurnRouteHint{}) {
+		t.Fatal("precise external-observation/current-source request should keep answer-level source contracts available")
+	}
+}
+
 func TestRuntimeSourceAnswerAuthoritySnapshot_PathAnchoredCurrentSourceProfileCanHardBlock(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
 	rm := &RequestModel{

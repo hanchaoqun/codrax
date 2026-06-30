@@ -440,6 +440,53 @@ func TestBuildExactResolutionContract_RuntimeArtifactWithoutCurrentSourceDoesNot
 	}
 }
 
+func TestBuildExactResolutionContract_SoftRuntimeSourceDoesNotCreateHardContract(t *testing.T) {
+	rm := runtimeSourceExactContractFixture("current implementation")
+	if precision := RuntimeSourceRequestCurrentSourceRequirementPrecision(&rm, TurnRouteHint{}); precision != RuntimeSourceRequirementSoft {
+		t.Fatalf("fixture should be soft runtime/source, got %s", precision)
+	}
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("soft runtime/source current-source lane must not create exact-resolution hard contract: %+v", got)
+	}
+}
+
+func TestBuildExactResolutionContract_PreciseRuntimeSourceKeepsContract(t *testing.T) {
+	rm := runtimeSourceExactContractFixture("internal/tracequery/query.go:42")
+	if precision := RuntimeSourceRequestCurrentSourceRequirementPrecision(&rm, TurnRouteHint{}); precision != RuntimeSourceRequirementPrecise {
+		t.Fatalf("fixture should be precise runtime/source, got %s", precision)
+	}
+	got := BuildExactResolutionContract(rm)
+	if got == nil || len(got.Targets) != 1 || got.Targets[0] != "TraceQueryPlanner" {
+		t.Fatalf("precise runtime/source current-source lane should keep exact-resolution contract, got %+v", got)
+	}
+}
+
+func runtimeSourceExactContractFixture(sourceQuote string) RequestModel {
+	return RequestModel{
+		Intent:        IntentExplain,
+		Scenario:      ScenarioPerformanceBottleneck,
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName, Confidence: 0.9},
+		PerfTrace: &PerfBundle{Observations: []PerfObservation{{
+			Kind:       "trace_mark",
+			Subject:    "H:RenderService:DoFrame",
+			DurationMs: 86.111,
+		}}},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			SourceQuotes:                        []string{sourceQuote},
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+		},
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets:      []string{"TraceQueryPlanner"},
+			MentionedEntities: []string{"TraceQueryPlanner"},
+		},
+	}
+}
+
 func TestBuildExactResolutionContract_DoesNotPromoteEnumerationScopePath(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数。",

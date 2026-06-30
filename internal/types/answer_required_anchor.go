@@ -90,8 +90,7 @@ func CompileRequiredMechanismAnchors(rm RequestModel, contract AnswerContract, f
 }
 
 func requiredMechanismAnchorsEnabled(rm RequestModel, family QuestionFamily) bool {
-	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() ||
-		(rm.HasExternalObservationArtifactReference() && !rm.CurrentSourceLaneDecision().RequiresCurrentSource()) {
+	if RuntimeSourceRequestSuppressesCurrentSourceAnswerContract(&rm, TurnRouteHint{}) {
 		return false
 	}
 	if rm.Predicates.IsScalarAnswer ||

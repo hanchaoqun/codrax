@@ -317,6 +317,39 @@ func RuntimeSourceAuthorityRequestCarrierActive(hint TurnRouteHint, rm *RequestM
 			rm.CurrentSourceExplanationProfile.Active()
 }
 
+// RuntimeSourceRequestCurrentSourceRequirementPrecision compiles the
+// request-only side of the runtime/current-source authority. It is for static
+// answer-contract builders that run before an ObservationLedger exists; runtime
+// observations and completion gates should use BuildRuntimeSourceAnswerAuthoritySnapshot.
+func RuntimeSourceRequestCurrentSourceRequirementPrecision(rm *RequestModel, hint TurnRouteHint) RuntimeSourceRequirementPrecision {
+	required := runtimeSourceAuthorityCurrentSourceRequired(rm, hint, ExternalObservationSufficiency{})
+	return runtimeSourceAuthorityRequirementPrecision(rm, hint, required)
+}
+
+// RuntimeSourceRequestSuppressesCurrentSourceAnswerContract reports whether a
+// runtime/external-observation request should avoid creating current-source
+// exact-resolution or required-anchor answer contracts. Soft current-source
+// obligations remain useful exploration guidance, but they are not precise
+// enough to become final-answer hard contracts.
+func RuntimeSourceRequestSuppressesCurrentSourceAnswerContract(rm *RequestModel, hint TurnRouteHint) bool {
+	if rm == nil || !runtimeSourceRequestHasExternalObservationCarrier(rm, hint) {
+		return false
+	}
+	return RuntimeSourceRequestCurrentSourceRequirementPrecision(rm, hint) != RuntimeSourceRequirementPrecise
+}
+
+func runtimeSourceRequestHasExternalObservationCarrier(rm *RequestModel, hint TurnRouteHint) bool {
+	if rm == nil {
+		return hint.ExternalObservationParticipates()
+	}
+	return hint.ExternalObservationParticipates() ||
+		rm.HasExternalOnlyRuntimeArtifact() ||
+		rm.HasExternalObservationArtifactReference() ||
+		rm.HasRuntimeArtifactPathReference() ||
+		rm.LogTriage != nil ||
+		rm.PerfTrace != nil
+}
+
 func runtimeSourceAuthorityCurrentSourceRequired(rm *RequestModel, hint TurnRouteHint, suff ExternalObservationSufficiency) bool {
 	if suff.Status == ExternalObservationSufficiencyBlockedByCurrentSource {
 		return true

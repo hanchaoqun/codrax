@@ -16,8 +16,7 @@ func BuildExactResolutionContract(rm RequestModel) *ExactResolutionContract {
 	if HasCapabilitySurfaceHint(rm) {
 		return nil
 	}
-	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() ||
-		(rm.HasExternalObservationArtifactReference() && !rm.CurrentSourceLaneDecision().RequiresCurrentSource()) {
+	if RuntimeSourceRequestSuppressesCurrentSourceAnswerContract(&rm, TurnRouteHint{}) {
 		return nil
 	}
 	targets := ExactResolutionTargets(rm)
