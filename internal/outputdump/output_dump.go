@@ -3,6 +3,7 @@ package outputdump
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -52,6 +53,8 @@ type RuntimeArtifact struct {
 	Bytes  int
 	Detail string
 }
+
+const runtimeArtifactMetadataScanBytes = 1 << 20
 
 var requestPathTokenRE = regexp.MustCompile(`[^\s"'` + "`" + `<>()[\]{}，。；;、]+`)
 
@@ -218,7 +221,6 @@ func dumpLabels(lang string) dumpTextLabels {
 
 func RuntimeArtifactsFromAttachment(kind, body string) []RuntimeArtifact {
 	kind = strings.TrimSpace(kind)
-	body = strings.TrimSpace(body)
 	if kind == "" || body == "" {
 		return nil
 	}
@@ -411,9 +413,17 @@ func requestRuntimeArtifactBodyAndSize(resolved string) (string, int) {
 		return "", 0
 	}
 	bytes := safeInt64ToInt(info.Size())
-	data, err := os.ReadFile(resolved)
+	f, err := os.Open(resolved)
 	if err != nil {
 		return "", bytes
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, runtimeArtifactMetadataScanBytes+1))
+	if err != nil {
+		return "", bytes
+	}
+	if len(data) > runtimeArtifactMetadataScanBytes {
+		data = data[:runtimeArtifactMetadataScanBytes]
 	}
 	return string(data), bytes
 }
@@ -424,32 +434,88 @@ type attachmentSegment struct {
 }
 
 func attachmentSegments(body string) []attachmentSegment {
-	var out []attachmentSegment
-	current := &attachmentSegment{source: "(inline)"}
-	appendCurrent := func() {
-		if current == nil {
-			return
-		}
-		if current.source == "(inline)" && strings.TrimSpace(current.body) == "" {
-			return
-		}
-		out = append(out, *current)
+	if body == "" {
+		return nil
 	}
-	for _, line := range strings.Split(body, "\n") {
-		if source, ok := strings.CutPrefix(strings.TrimSpace(line), "# codrax-source: "); ok {
-			appendCurrent()
-			current = &attachmentSegment{source: strings.TrimSpace(source)}
+	headers := attachmentSourceHeaders(body)
+	if len(headers) == 0 {
+		if strings.TrimSpace(traceArtifactDetailSample(body)) == "" {
+			return nil
+		}
+		return []attachmentSegment{{source: "(inline)", body: body}}
+	}
+	out := make([]attachmentSegment, 0, len(headers)+1)
+	if prefix := strings.TrimSpace(body[:headers[0].start]); prefix != "" {
+		out = append(out, attachmentSegment{source: "(inline)", body: body[:headers[0].start]})
+	}
+	for i, header := range headers {
+		end := len(body)
+		if i+1 < len(headers) {
+			end = headers[i+1].start
+		}
+		if end < header.bodyStart {
+			end = header.bodyStart
+		}
+		out = append(out, attachmentSegment{
+			source: header.source,
+			body:   body[header.bodyStart:end],
+		})
+	}
+	return out
+}
+
+type attachmentSourceHeader struct {
+	start     int
+	bodyStart int
+	source    string
+}
+
+func attachmentSourceHeaders(body string) []attachmentSourceHeader {
+	const marker = "# codrax-source: "
+	var headers []attachmentSourceHeader
+	scanEnd := len(body)
+	if scanEnd > runtimeArtifactMetadataScanBytes {
+		scanEnd = runtimeArtifactMetadataScanBytes
+	}
+	scanBody := body[:scanEnd]
+	searchFrom := 0
+	for searchFrom < len(scanBody) {
+		idx := strings.Index(scanBody[searchFrom:], marker)
+		if idx < 0 {
+			break
+		}
+		idx += searchFrom
+		if idx != 0 && scanBody[idx-1] != '\n' {
+			searchFrom = idx + len(marker)
 			continue
 		}
-		if current != nil {
-			if current.body != "" {
-				current.body += "\n"
-			}
-			current.body += line
+		lineEnd := strings.IndexByte(scanBody[idx:], '\n')
+		if lineEnd < 0 {
+			break
+		} else {
+			lineEnd += idx
 		}
+		line := strings.TrimRight(scanBody[idx:lineEnd], "\r")
+		source := strings.TrimSpace(strings.TrimPrefix(line, marker))
+		if source == "" {
+			searchFrom = lineEnd
+			if searchFrom < len(scanBody) && scanBody[searchFrom] == '\n' {
+				searchFrom++
+			}
+			continue
+		}
+		bodyStart := lineEnd
+		if bodyStart < len(body) && body[bodyStart] == '\n' {
+			bodyStart++
+		}
+		headers = append(headers, attachmentSourceHeader{
+			start:     idx,
+			bodyStart: bodyStart,
+			source:    source,
+		})
+		searchFrom = bodyStart
 	}
-	appendCurrent()
-	return out
+	return headers
 }
 
 func runtimeArtifactsForSegment(kind, source, body string) []RuntimeArtifact {
@@ -610,7 +676,7 @@ func runtimeArtifactForSegment(kind, source, body string) RuntimeArtifact {
 	return RuntimeArtifact{
 		Kind:   artifactKind,
 		Source: source,
-		Bytes:  len([]byte(body)),
+		Bytes:  len(body),
 		Detail: detail,
 	}
 }
@@ -660,6 +726,9 @@ type traceBundleReportTraceCoverage struct {
 }
 
 func parseTraceBundleMetadata(body string) (traceBundleReportMetadata, bool) {
+	if len(body) > runtimeArtifactMetadataScanBytes {
+		return traceBundleReportMetadata{}, false
+	}
 	var bundle traceBundleReportMetadata
 	if err := json.Unmarshal([]byte(body), &bundle); err != nil {
 		return traceBundleReportMetadata{}, false
@@ -764,6 +833,7 @@ func safeInt64ToInt(v int64) int {
 
 func traceArtifactKindAndDetail(source, body string) (string, string) {
 	p := strings.ToLower(strings.TrimSpace(source))
+	sample := traceArtifactDetailSample(body)
 	detail := "runtime trace"
 	kind := "trace"
 	switch {
@@ -777,28 +847,36 @@ func traceArtifactKindAndDetail(source, body string) (string, string) {
 		kind = "perf_data"
 		detail = "raw perf.data sidecar"
 	}
-	if strings.Contains(body, "source=raw_perfdata_fallback") {
+	if strings.Contains(sample, "source=raw_perfdata_fallback") {
 		detail = appendDetail(detail, "source=raw_perfdata_fallback")
 	}
-	if strings.Contains(body, "symbolization_status=unsymbolized") {
+	if strings.Contains(sample, "symbolization_status=unsymbolized") {
 		detail = appendDetail(detail, "symbolization_status=unsymbolized")
 	}
-	if strings.Contains(body, "sample_kind=off_cpu") {
+	if strings.Contains(sample, "sample_kind=off_cpu") {
 		detail = appendDetail(detail, "sample_kind=off_cpu")
 	}
-	if strings.Contains(body, "cpu_known=false") {
+	if strings.Contains(sample, "cpu_known=false") {
 		detail = appendDetail(detail, "cpu_known=false")
 	}
-	if strings.Contains(body, "clock_confidence=assumed") {
+	if strings.Contains(sample, "clock_confidence=assumed") {
 		detail = appendDetail(detail, "clock_confidence=assumed")
-	} else if strings.Contains(body, "clock_confidence=unknown") {
+	} else if strings.Contains(sample, "clock_confidence=unknown") {
 		detail = appendDetail(detail, "clock_confidence=unknown")
 	}
-	if strings.Contains(body, "perf_sample:") && kind == "trace" {
+	if strings.Contains(sample, "perf_sample:") && kind == "trace" {
 		kind = "perftrace"
 		detail = appendDetail("perf sample text", "inline perf_sample rows")
 	}
 	return kind, detail
+}
+
+func traceArtifactDetailSample(body string) string {
+	if len(body) <= runtimeArtifactMetadataScanBytes {
+		return body
+	}
+	half := runtimeArtifactMetadataScanBytes / 2
+	return body[:half] + body[len(body)-half:]
 }
 
 func appendDetail(base, extra string) string {

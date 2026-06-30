@@ -150,6 +150,42 @@ func TestRuntimeArtifactsFromAttachmentKeepsInlinePreamble(t *testing.T) {
 	}
 }
 
+func TestRuntimeArtifactsFromAttachmentLargeTraceUsesBoundedMetadataScan(t *testing.T) {
+	traceBody := "# codrax-source: berlin.systrace\n" + strings.Repeat("sched_switch: prev_comm=app prev_pid=1 ==> next_comm=worker next_pid=2\n", 128*1024)
+	artifacts := RuntimeArtifactsFromAttachment("trace", traceBody)
+	if len(artifacts) != 1 {
+		t.Fatalf("large trace attachment should summarize as one artifact, got %+v", artifacts)
+	}
+	if artifacts[0].Kind != "trace" || artifacts[0].Source != "berlin.systrace" {
+		t.Fatalf("large trace artifact identity drifted: %+v", artifacts[0])
+	}
+	if artifacts[0].Bytes <= runtimeArtifactMetadataScanBytes {
+		t.Fatalf("test fixture should exceed metadata scan cap, got bytes=%d", artifacts[0].Bytes)
+	}
+	if strings.Contains(artifacts[0].Detail, "inline perf_sample rows") {
+		t.Fatalf("plain sched trace should not be promoted to perftrace: %+v", artifacts[0])
+	}
+}
+
+func TestRuntimeArtifactsFromRequestLargePathDoesNotNeedFullBody(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "large.systrace")
+	payload := []byte("sched_switch: prev_comm=app prev_pid=1 ==> next_comm=worker next_pid=2\n" + strings.Repeat("x", runtimeArtifactMetadataScanBytes+4096))
+	if err := os.WriteFile(tracePath, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	artifacts := RuntimeArtifactsFromRequest("分析 " + tracePath)
+	if len(artifacts) != 1 {
+		t.Fatalf("large request path should summarize as one artifact, got %+v", artifacts)
+	}
+	if artifacts[0].Kind != "trace" || artifacts[0].Source != tracePath {
+		t.Fatalf("large request path artifact identity drifted: %+v", artifacts[0])
+	}
+	if artifacts[0].Bytes != len(payload) {
+		t.Fatalf("large request path should preserve full file size, got %d want %d", artifacts[0].Bytes, len(payload))
+	}
+}
+
 func TestRuntimeArtifactsFromRequestReportsExplicitPaths(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "capture")
