@@ -806,6 +806,41 @@ func TestStreamEventSearchCompactedCaveatPreventsAbsenceInference(t *testing.T) 
 	}
 }
 
+func TestStreamEventSearchHonorsTimeWindowAndStopsAfterEnd(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stream_search_window.systrace")
+	body := strings.Join([]string{
+		`      app-20 (20) [000] .... 8.000000: print: B|20|BeforeWindow`,
+		`      app-20 (20) [000] .... 9.000000: print: B|20|InsideWindow`,
+		`      app-20 (20) [000] .... 9.001000: print: E|20`,
+		`      app-20 (20) [000] .... 10.000000: print: B|20|AfterWindow`,
+		`      app-20 (20) [000] .... 11.000000: print: B|20|ShouldNotScan`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := StreamEventSearch(context.Background(), path, Query{
+		TimeStart: 9.0,
+		TimeEnd:   9.5,
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Events) != 2 {
+		t.Fatalf("expected only in-window events, got %+v", res.Events)
+	}
+	if res.ScannedLineCount != 4 {
+		t.Fatalf("expected stream search to stop at first row after time_end, scanned=%d", res.ScannedLineCount)
+	}
+	for _, ev := range res.Events {
+		if ev.Ts < 9.0 || ev.Ts > 9.5 {
+			t.Fatalf("out-of-window event returned: %+v", ev)
+		}
+	}
+}
+
 func TestExternalPerfettoSchedBlockedFixture(t *testing.T) {
 	idx, err := BuildIndex(context.Background(), filepath.Join("testdata", "android_perfetto_sched_blocked.systrace"))
 	if err != nil {

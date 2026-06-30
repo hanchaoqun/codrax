@@ -86,6 +86,46 @@ func TestTraceQueryIndexLimitResultIsRecoverableScopeHint(t *testing.T) {
 	}
 }
 
+func TestTraceQueryLargeEventSearchWithWindowStreams(t *testing.T) {
+	oldMin := traceQueryWindowedIndexMinBytes
+	traceQueryWindowedIndexMinBytes = 1
+	defer func() { traceQueryWindowedIndexMinBytes = oldMin }()
+
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "large_window.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [001] .... 1.000000: print: B|20|BeforeWindow`,
+		`app-20 (20) [001] .... 2.000000: print: B|20|InsideWindow`,
+		`app-20 (20) [001] .... 2.010000: print: E|20`,
+		`app-20 (20) [001] .... 3.000000: print: B|20|AfterWindow`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":     "path",
+		"path":       "large_window.systrace",
+		"view":       "event_search",
+		"time_start": 2.0,
+		"time_end":   2.5,
+		"limit":      10,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "streamed_event_search=true") {
+		t.Fatalf("large windowed event_search should stream instead of building an index:\n%s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "BeforeWindow") || strings.Contains(res.Summary, "AfterWindow") {
+		t.Fatalf("streamed window search leaked out-of-window rows:\n%s", res.Summary)
+	}
+}
+
 func TestTraceQueryFtracePathParsesCompoundTimestampWindow(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "OHTrace_20260626_16.32.34.ftrace")

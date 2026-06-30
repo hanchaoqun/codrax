@@ -46,6 +46,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	intern := newStringInterner()
 	flavor := newFlavorVote(path)
 	reader := bufio.NewReaderSize(f, 256*1024)
+	seenTimeWindow := false
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 40
@@ -61,6 +62,35 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
+			if q.LineEnd > 0 && lineNo > q.LineEnd {
+				break
+			}
+			if q.LineStart > 0 && lineNo < q.LineStart {
+				if lineNo <= 200 {
+					flavor.observeRawLine(trimmed)
+				}
+				goto nextLine
+			}
+			if q.TimeStart > 0 || q.TimeEnd > 0 {
+				ts, hasTS := parseLineTimestamp(trimmed)
+				if hasTS {
+					if q.TimeEnd > 0 && ts > q.TimeEnd {
+						break
+					}
+					if q.TimeStart > 0 && ts < q.TimeStart {
+						if lineNo <= 200 {
+							flavor.observeRawLine(trimmed)
+						}
+						goto nextLine
+					}
+					seenTimeWindow = true
+				} else if q.TimeStart > 0 && !seenTimeWindow {
+					if lineNo <= 200 {
+						flavor.observeRawLine(trimmed)
+					}
+					goto nextLine
+				}
+			}
 			flavor.observeRawLine(trimmed)
 			if !streamEventSearchRawCandidate(trimmed, lineNo, q) {
 				goto nextLine

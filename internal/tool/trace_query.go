@@ -973,7 +973,7 @@ func traceQueryShouldStreamEventSearch(p traceQueryParams) bool {
 	if view != "" && view != "event_search" {
 		return false
 	}
-	return !traceQueryHasExplicitIndexWindow(p)
+	return true
 }
 
 func traceQueryBuildIndex(ctx context.Context, path string, p traceQueryParams, timeStart, timeEnd float64) (*tracequery.Index, error) {
