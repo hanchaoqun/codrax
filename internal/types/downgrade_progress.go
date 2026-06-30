@@ -13,6 +13,15 @@ func (c *EvidenceClosure) RecordDowngradeProgressDelta(lane DowngradeLane, block
 // default: evidence/location/risk gates still require the exact typed blocker
 // to repeat before convergence can force-complete.
 func (c *EvidenceClosure) RecordDowngradeProgressDeltaWithLaneChurn(lane DowngradeLane, blockerKey uint32, hardThreshold int, allowLaneChurn bool) ProgressDecision {
+	return c.RecordDowngradeProgressDeltaWithLaneChurnThresholds(lane, blockerKey, hardThreshold, hardThreshold, allowLaneChurn)
+}
+
+// RecordDowngradeProgressDeltaWithLaneChurnThresholds is the lane-aware form
+// used when an opted-in form lane should converge quickly on the exact same
+// blocker but remain more conservative when the blocker key keeps changing.
+// Evidence/location/risk lanes should keep using
+// RecordDowngradeProgressDeltaWithLaneChurn with allowLaneChurn=false.
+func (c *EvidenceClosure) RecordDowngradeProgressDeltaWithLaneChurnThresholds(lane DowngradeLane, blockerKey uint32, hardThreshold, laneChurnThreshold int, allowLaneChurn bool) ProgressDecision {
 	consecutive := c.AppendDowngradeFingerprint(DowngradeFingerprint{Lane: lane, BlockerKey: blockerKey})
 	decision := ShouldReplan(ProgressDelta{
 		Kind:          ProgressDeltaDowngradeBlocker,
@@ -23,13 +32,13 @@ func (c *EvidenceClosure) RecordDowngradeProgressDeltaWithLaneChurn(lane Downgra
 	})
 	if allowLaneChurn && decision.ShouldReplan {
 		laneConsecutive := c.ConsecutiveDowngradeLaneTail(lane)
-		if laneConsecutive >= hardThreshold {
+		if laneConsecutive >= laneChurnThreshold {
 			decision = ShouldReplan(ProgressDelta{
 				Kind:          ProgressDeltaDowngradeBlocker,
 				DowngradeLane: lane,
 				BlockerKey:    blockerKey,
 				Consecutive:   laneConsecutive,
-				HardThreshold: hardThreshold,
+				HardThreshold: laneChurnThreshold,
 			})
 		}
 	}

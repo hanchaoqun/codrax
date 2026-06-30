@@ -7269,25 +7269,23 @@ func TestEmitInvestigationComplete_CompletionFormSupportRefsConvergesWithCaveat(
 		]
 	}`)
 
-	for i := 1; i <= 2; i++ {
-		res, err := tool.Execute(bus, params)
-		if err != nil {
-			t.Fatalf("attempt %d unexpected error: %v", i, err)
-		}
-		if !res.Success || !strings.Contains(res.Summary, EmitInvestigationCompleteDowngradePrefix) {
-			t.Fatalf("attempt %d should be a tool-success downgrade, got success=%t summary=%s", i, res.Success, res.Summary)
-		}
-		if mut.IsInvestigationComplete() {
-			t.Fatalf("attempt %d must not complete before convergence", i)
-		}
-	}
-
 	res, err := tool.Execute(bus, params)
 	if err != nil {
-		t.Fatalf("third attempt unexpected error: %v", err)
+		t.Fatalf("first attempt unexpected error: %v", err)
+	}
+	if !res.Success || !strings.Contains(res.Summary, EmitInvestigationCompleteDowngradePrefix) {
+		t.Fatalf("first attempt should be a tool-success downgrade, got success=%t summary=%s", res.Success, res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("first attempt must not complete before local landing retry")
+	}
+
+	res, err = tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("second attempt unexpected error: %v", err)
 	}
 	if !res.Success {
-		t.Fatalf("third attempt should complete with caveat, got: %s", res.Summary)
+		t.Fatalf("second identical completion-form blocker should complete with caveat, got: %s", res.Summary)
 	}
 	if !mut.IsInvestigationComplete() {
 		t.Fatalf("completion-form convergence should mark investigation complete")

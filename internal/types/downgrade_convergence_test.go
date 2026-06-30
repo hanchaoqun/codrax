@@ -99,6 +99,32 @@ func TestProgressDeltaLaneChurnOnlyConvergesWhenExplicitlyAllowed(t *testing.T) 
 	}
 }
 
+func TestProgressDeltaLaneChurnCanUseSeparateExactAndChurnThresholds(t *testing.T) {
+	c := NewEvidenceClosure("")
+	first := c.RecordDowngradeProgressDeltaWithLaneChurnThresholds(DowngradeLaneCompletionForm, 111, 2, 3, true)
+	if !first.ShouldReplan || first.Delta.Consecutive != 1 || first.Delta.HardThreshold != 2 {
+		t.Fatalf("first exact-form decision = %+v, want continue with exact threshold 2", first)
+	}
+	secondSame := c.RecordDowngradeProgressDeltaWithLaneChurnThresholds(DowngradeLaneCompletionForm, 111, 2, 3, true)
+	if secondSame.ShouldReplan || secondSame.ReasonCode != ProgressReasonConverged || secondSame.Delta.Consecutive != 2 || secondSame.Delta.HardThreshold != 2 {
+		t.Fatalf("identical form blocker should converge at exact threshold 2: %+v", secondSame)
+	}
+
+	c = NewEvidenceClosure("")
+	first = c.RecordDowngradeProgressDeltaWithLaneChurnThresholds(DowngradeLaneCompletionForm, 111, 2, 3, true)
+	if !first.ShouldReplan {
+		t.Fatalf("first churn-form decision should continue: %+v", first)
+	}
+	secondChanged := c.RecordDowngradeProgressDeltaWithLaneChurnThresholds(DowngradeLaneCompletionForm, 222, 2, 3, true)
+	if !secondChanged.ShouldReplan || secondChanged.ReasonCode != ProgressReasonContinue {
+		t.Fatalf("changed form blocker should not converge at exact threshold 2: %+v", secondChanged)
+	}
+	thirdChanged := c.RecordDowngradeProgressDeltaWithLaneChurnThresholds(DowngradeLaneCompletionForm, 333, 2, 3, true)
+	if thirdChanged.ShouldReplan || thirdChanged.ReasonCode != ProgressReasonConverged || thirdChanged.Delta.Consecutive != 3 || thirdChanged.Delta.HardThreshold != 3 {
+		t.Fatalf("form blocker churn should converge only at lane threshold 3: %+v", thirdChanged)
+	}
+}
+
 func TestAppendCompletionCaveat_DedupByLane(t *testing.T) {
 	c := NewEvidenceClosure("")
 	c.AppendCompletionCaveat(CompletionCaveat{Lane: DowngradeLaneContractChain, ReasonCode: ProgressReasonConverged, Reason: "r1"})

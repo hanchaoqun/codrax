@@ -2358,14 +2358,26 @@ func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLa
 	}
 	blockerKey := types.ComputeDowngradeBlockerKey(closure.PendingReads(), closure.UnverifiedFindings(), closure.ActiveRepairs())
 	allowLaneChurn := lane == types.DowngradeLaneCompletionForm
-	decision := closure.RecordDowngradeProgressDeltaWithLaneChurn(lane, blockerKey, downgradeConvergenceHardThreshold, allowLaneChurn)
+	exactThreshold := downgradeConvergenceHardThreshold
+	laneChurnThreshold := downgradeConvergenceHardThreshold
+	if lane == types.DowngradeLaneCompletionForm {
+		exactThreshold = 2
+		if laneChurnThreshold < 3 {
+			laneChurnThreshold = 3
+		}
+	}
+	decision := closure.RecordDowngradeProgressDeltaWithLaneChurnThresholds(lane, blockerKey, exactThreshold, laneChurnThreshold, allowLaneChurn)
 	if decision.ShouldReplan {
 		return false
+	}
+	reason := "completed under low-delta convergence: the same blocker recurred across repeated attempts with no new grounded progress"
+	if lane == types.DowngradeLaneCompletionForm && decision.Delta.HardThreshold == laneChurnThreshold && decision.Delta.HardThreshold > exactThreshold {
+		reason = "completed under bounded completion-form convergence: structured landing debt recurred across repeated form-repair attempts without requiring broader exploration"
 	}
 	closure.AppendCompletionCaveat(types.CompletionCaveat{
 		Lane:       lane,
 		ReasonCode: decision.ReasonCode,
-		Reason:     "completed under low-delta convergence: the same blocker recurred across repeated attempts with no new grounded progress",
+		Reason:     reason,
 	})
 	logging.Info("[emit_investigation_complete] low-delta convergence force-complete lane=%s after %d consecutive no-progress attempts (blocker=%d reason=%s)",
 		lane, decision.Delta.Consecutive, blockerKey, decision.ReasonCode)
