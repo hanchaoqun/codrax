@@ -1900,6 +1900,35 @@ func TestEmitAnalysis_Execute_StringWrappedSubTopics(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_StringWrappedRuntimeTargets(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := withV4Required(`{
+		"intent": "root_cause",
+		"scenario": "performance_bottleneck",
+		"complexity": "complex",
+		"keywords": ["trace", "pid", "42591", "jank"],
+		"entities": ["42591"],
+		"question_kind": "root_cause",
+		"runtime_targets": "[{\"kind\":\"process\",\"pid\":42591,\"source\":\"user_explicit\",\"confidence\":0.96}]"
+	}`)
+	payload = strings.Replace(payload, `"is_diagnostic_question": false, "has_per_member_table": false`, `"is_diagnostic_question": true, "has_per_member_table": false`, 1)
+
+	res, mu := runEmitAnalysisPayload(t, "分析42591进程滑动卡顿的深层次根因，不要分析代码", payload)
+	if !res.Success {
+		t.Fatalf("string-wrapped runtime_targets should be repaired, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || len(rm.RuntimeTargets) != 1 {
+		t.Fatalf("runtime_targets not persisted after repair: %+v", rm)
+	}
+	if got := rm.RuntimeTargets[0]; got.PID != 42591 || got.Kind != types.RuntimeTargetKindProcess {
+		t.Fatalf("runtime target decoded incorrectly: %+v", got)
+	}
+}
+
 func TestEmitAnalysis_Execute_StringWrappedComplexProfilesWithTransportCloseTag(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -4220,6 +4249,64 @@ func TestEmitAnalysis_Execute_PersistsRuntimeArtifactValueProfileInMixedCurrentS
 	if !contract.HasOrigin(types.AnswerEvidenceOriginRuntimeArtifact) ||
 		!contract.HasOutput(types.AnswerRequestedOutputKeyValue) {
 		t.Fatalf("artifact value should request runtime key-value support, got %+v", contract)
+	}
+}
+
+func TestEmitAnalysis_Execute_PersistsTypedRuntimeTargets(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "root_cause",
+		"scenario": "performance_bottleneck",
+		"complexity": "complex",
+		"keywords": ["trace", "pid", "42591", "jank"],
+		"entities": ["42591", "berlin.systrace"],
+		"question_kind": "root_cause",
+		"intent_confidence": 0.92,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.85,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": true,
+			"has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": true,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.88
+		},
+		"runtime_targets": [{
+			"kind": "process",
+			"pid": 42591,
+			"source": "user_explicit",
+			"confidence": 0.96,
+			"description": "user explicitly named process id 42591"
+		}]
+	}`
+	res, mu := runEmitAnalysisPayload(t, "分析42591进程在6793222s 到 6793225s 期间滑动卡顿的深层次根因，不要分析代码", payload)
+	if !res.Success {
+		t.Fatalf("runtime_targets should persist, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || len(rm.RuntimeTargets) != 1 {
+		t.Fatalf("RuntimeTargets not persisted: %+v", rm)
+	}
+	got := rm.RuntimeTargets[0]
+	if got.Kind != types.RuntimeTargetKindProcess || got.PID != 42591 || got.Source != "user_explicit" {
+		t.Fatalf("RuntimeTargets[0] = %+v, want typed process pid=42591", got)
+	}
+	if !strings.Contains(res.Summary, "runtime_targets=1") {
+		t.Fatalf("summary should surface runtime target count, got %q", res.Summary)
 	}
 }
 

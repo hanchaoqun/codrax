@@ -153,6 +153,13 @@ type RequestModel struct {
 	// it as factual.
 	RuntimeArtifactValueProfile *RuntimeArtifactValueProfile `json:"artifact_value_profile,omitempty"`
 
+	// RuntimeTargets is the analyzer/tool typed lane for runtime artifact
+	// targets such as trace process IDs, thread IDs, and thread labels. Unlike
+	// AnalyzerHints entity strings, this field is already structured and may be
+	// consumed by trace tools to preserve target filters across follow-up calls.
+	// Producers must not derive it by scanning arbitrary answer prose.
+	RuntimeTargets []RuntimeTarget `json:"runtime_targets,omitempty"`
+
 	// AnswerExclusionPolicy is the analyzer LLM's typed lane for user-stated
 	// candidate categories that must stay out of the principal answer rows.
 	// Downstream hard gates consume only this policy plus answer-row
@@ -477,6 +484,38 @@ func (p *RuntimeArtifactValueProfile) Active() bool {
 	return strings.TrimSpace(p.Target) != "" ||
 		len(p.ArtifactRefs) > 0 ||
 		len(p.ObservationRefs) > 0
+}
+
+type RuntimeTargetKind string
+
+const (
+	RuntimeTargetKindUnknown RuntimeTargetKind = ""
+	RuntimeTargetKindProcess RuntimeTargetKind = "process"
+	RuntimeTargetKindThread  RuntimeTargetKind = "thread"
+)
+
+type RuntimeTarget struct {
+	Kind        RuntimeTargetKind `json:"kind,omitempty"`
+	PID         int               `json:"pid,omitempty"`
+	Thread      string            `json:"thread,omitempty"`
+	Source      string            `json:"source,omitempty"`
+	Confidence  float64           `json:"confidence,omitempty"`
+	Description string            `json:"description,omitempty"`
+}
+
+func NormalizeRuntimeTargetKind(kind RuntimeTargetKind) RuntimeTargetKind {
+	switch RuntimeTargetKind(strings.ToLower(strings.TrimSpace(string(kind)))) {
+	case RuntimeTargetKindProcess:
+		return RuntimeTargetKindProcess
+	case RuntimeTargetKindThread:
+		return RuntimeTargetKindThread
+	default:
+		return RuntimeTargetKindUnknown
+	}
+}
+
+func (t RuntimeTarget) Active() bool {
+	return t.PID > 0 || strings.TrimSpace(t.Thread) != ""
 }
 
 func ParseFieldValueTarget(target string) (full, owner, field string, ok bool) {

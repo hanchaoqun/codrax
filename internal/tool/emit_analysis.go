@@ -82,6 +82,7 @@ type emitAnalysisParams struct {
 	ChangeImpactProfile          *emitChangeImpactProfileParam          `json:"change_impact_profile,omitempty"`
 	FieldValueProfile            *emitFieldValueProfileParam            `json:"field_value_profile,omitempty"`
 	RuntimeArtifactValueProfile  *emitRuntimeArtifactValueProfileParam  `json:"artifact_value_profile,omitempty"`
+	RuntimeTargets               []emitRuntimeTargetParam               `json:"runtime_targets,omitempty"`
 	AnswerExclusionPolicy        *emitAnswerExclusionPolicyParam        `json:"answer_exclusion_policy,omitempty"`
 	AnswerRoleProfile            *emitAnswerRoleProfileParam            `json:"answer_role_profile,omitempty"`
 	ErrorGranularityProfile      *emitErrorGranularityProfileParam      `json:"error_granularity_profile,omitempty"`
@@ -248,6 +249,15 @@ type emitRuntimeArtifactValueProfileParam struct {
 	ObservationRefs       []string `json:"observation_refs,omitempty"`
 	Confidence            *float64 `json:"confidence"`
 	Rationale             string   `json:"rationale,omitempty"`
+}
+
+type emitRuntimeTargetParam struct {
+	Kind        string   `json:"kind,omitempty"`
+	PID         *int     `json:"pid,omitempty"`
+	Thread      string   `json:"thread,omitempty"`
+	Source      string   `json:"source,omitempty"`
+	Confidence  *float64 `json:"confidence,omitempty"`
+	Description string   `json:"description,omitempty"`
 }
 
 type emitAnswerExclusionPolicyParam struct {
@@ -601,6 +611,22 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"is_artifact_value_lookup", "confidence"},
 			},
+			"runtime_targets": map[string]any{
+				"type":        "array",
+				"description": "Optional typed runtime-artifact target list. Emit only when the current request explicitly identifies trace/log/perf targets as structured process IDs, thread IDs, or concrete thread labels. This is the only lane downstream trace tools may use to preserve omitted pid/thread filters; do not put timestamps, file paths, span names, generic entities, or guessed values here.",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"kind":        map[string]any{"type": "string", "enum": runtimeTargetKindValues(), "description": "process for process-level pid targets; thread for thread id or concrete thread label targets."},
+						"pid":         map[string]any{"type": "integer", "minimum": 1, "description": "Runtime pid/tid from the request when explicitly structured as the target."},
+						"thread":      map[string]any{"type": "string", "description": "Concrete runtime thread label when explicitly named, such as Thread-10 [56284] or android.haitong [56023]."},
+						"source":      map[string]any{"type": "string", "enum": []string{"user_explicit", "artifact_metadata", "tool_handoff"}, "description": "Typed provenance for this runtime target. Use user_explicit when the user named it in the current request."},
+						"confidence":  map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Confidence that this is the user's requested runtime target."},
+						"description": map[string]any{"type": "string", "description": "Short audit note. Do not include free-form evidence that is not already reflected by pid/thread/source."},
+					},
+					"required": []string{"kind", "confidence"},
+				},
+			},
 			"answer_exclusion_policy": map[string]any{
 				"type":        "object",
 				"description": "Optional typed profile for current-request candidate categories the user explicitly excludes from the principal answer, such as variables, tests, generated files, private helpers, or private symbols excluded by an explicit public/exported-only request. Explicit Chinese exclusions such as `不要列变量`, `不包含测试`, or `排除生成文件` should use roles variable/test/generated with the exact phrase in source_quotes. Do not infer categories from keywords; emit only when the request states the exclusion or public/exported-only export scope.",
@@ -881,6 +907,10 @@ func fieldValueLiteralKindValues() []string {
 		out = append(out, string(v))
 	}
 	return out
+}
+
+func runtimeTargetKindValues() []string {
+	return []string{string(types.RuntimeTargetKindProcess), string(types.RuntimeTargetKindThread)}
 }
 
 func answerCandidateRoleValues() []string {
@@ -1338,6 +1368,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			}, nil
 		}
 	}
+	runtimeTargets, runtimeTargetWarnings := parseRuntimeTargets(p.RuntimeTargets)
+	for _, warning := range runtimeTargetWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
 		if runtimeArtifactCarrier && runtimeArtifactValueProfile == nil {
@@ -1550,6 +1585,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		ChangeImpactProfile:             changeImpactProfile,
 		FieldValueProfile:               fieldValueProfile,
 		RuntimeArtifactValueProfile:     runtimeArtifactValueProfile,
+		RuntimeTargets:                  runtimeTargets,
 		AnswerExclusionPolicy:           answerExclusionPolicy,
 		AnswerRoleProfile:               answerRoleProfile,
 		ErrorGranularityProfile:         errorGranularityProfile,
@@ -3074,6 +3110,78 @@ func parseRuntimeArtifactValueProfile(runtimeArtifactCarrier bool, p *emitRuntim
 	}, ""
 }
 
+func parseRuntimeTargets(in []emitRuntimeTargetParam) ([]types.RuntimeTarget, []string) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	const maxRuntimeTargets = 8
+	out := make([]types.RuntimeTarget, 0, minInt(len(in), maxRuntimeTargets))
+	var warnings []string
+	seen := map[string]bool{}
+	for i, item := range in {
+		if len(out) >= maxRuntimeTargets {
+			warnings = append(warnings, fmt.Sprintf("runtime_targets: dropped entries over cap of %d", maxRuntimeTargets))
+			break
+		}
+		target, warning := parseRuntimeTarget(item)
+		if warning != "" {
+			warnings = append(warnings, fmt.Sprintf("runtime_targets[%d]: %s", i, warning))
+			continue
+		}
+		key := fmt.Sprintf("%s:%d:%s", target.Kind, target.PID, strings.ToLower(target.Thread))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, target)
+	}
+	return out, warnings
+}
+
+const emitRuntimeTargetMaxPID = 4194304
+
+func parseRuntimeTarget(p emitRuntimeTargetParam) (types.RuntimeTarget, string) {
+	kind := types.NormalizeRuntimeTargetKind(types.RuntimeTargetKind(p.Kind))
+	if kind == types.RuntimeTargetKindUnknown {
+		return types.RuntimeTarget{}, fmt.Sprintf("kind %q is invalid; use one of %s", p.Kind, strings.Join(runtimeTargetKindValues(), ", "))
+	}
+	if p.Confidence == nil {
+		return types.RuntimeTarget{}, "confidence is required"
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return types.RuntimeTarget{}, fmt.Sprintf("confidence %.2f out of [0,1]", *p.Confidence)
+	}
+	pid := 0
+	if p.PID != nil {
+		pid = *p.PID
+	}
+	thread := strings.TrimSpace(p.Thread)
+	if pid <= 0 && thread == "" {
+		return types.RuntimeTarget{}, "pid or thread is required"
+	}
+	if pid < 0 || pid > emitRuntimeTargetMaxPID {
+		return types.RuntimeTarget{}, fmt.Sprintf("pid %d is out of supported range", pid)
+	}
+	switch kind {
+	case types.RuntimeTargetKindProcess:
+		if pid <= 0 {
+			return types.RuntimeTarget{}, "process target requires pid"
+		}
+	case types.RuntimeTargetKindThread:
+		if pid <= 0 && thread == "" {
+			return types.RuntimeTarget{}, "thread target requires pid or thread"
+		}
+	}
+	return types.RuntimeTarget{
+		Kind:        kind,
+		PID:         pid,
+		Thread:      thread,
+		Source:      strings.TrimSpace(p.Source),
+		Confidence:  *p.Confidence,
+		Description: strings.TrimSpace(p.Description),
+	}, ""
+}
+
 func runtimeArtifactValueProfileFromFieldValueParam(ctx *types.BusContext, p *emitFieldValueProfileParam, reason string) (*types.RuntimeArtifactValueProfile, string) {
 	if p == nil || p.IsFieldValueLookup == nil || !*p.IsFieldValueLookup {
 		return nil, ""
@@ -4501,6 +4609,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.RuntimeArtifactValueProfile != nil && rm.RuntimeArtifactValueProfile.Active() {
 		fmt.Fprintf(&b, " artifact_value=%s=%s", rm.RuntimeArtifactValueProfile.Target, rm.RuntimeArtifactValueProfile.Value)
+	}
+	if len(rm.RuntimeTargets) > 0 {
+		fmt.Fprintf(&b, " runtime_targets=%d", len(rm.RuntimeTargets))
 	}
 	if rm.AnswerExclusionPolicy != nil && rm.AnswerExclusionPolicy.Active() {
 		roles := make([]string, 0, len(rm.AnswerExclusionPolicy.ExcludedCandidateRoles))

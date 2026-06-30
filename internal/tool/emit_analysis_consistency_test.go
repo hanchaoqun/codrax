@@ -463,6 +463,51 @@ func TestEmitAnalysisSchemaIncludesRuntimeArtifactValueProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysisSchemaIncludesRuntimeTargets(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	raw := (&EmitAnalysis{}).Parameters()
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v\nraw=%s", err, string(raw))
+	}
+	propRaw, ok := parsed.Properties["runtime_targets"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing property \"runtime_targets\"")
+	}
+	var prop struct {
+		Type  string `json:"type"`
+		Items struct {
+			Properties map[string]struct {
+				Type string   `json:"type"`
+				Enum []string `json:"enum"`
+			} `json:"properties"`
+			Required []string `json:"required"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(propRaw, &prop); err != nil {
+		t.Fatalf("runtime_targets property is not valid JSON schema: %v\nraw=%s", err, string(propRaw))
+	}
+	if prop.Type != "array" {
+		t.Fatalf("runtime_targets.type = %q, want array", prop.Type)
+	}
+	if !reflect.DeepEqual(prop.Items.Properties["kind"].Enum, []string{"process", "thread"}) {
+		t.Fatalf("runtime_targets.kind enum = %v, want [process thread]", prop.Items.Properties["kind"].Enum)
+	}
+	for _, want := range []string{"kind", "confidence"} {
+		found := false
+		for _, field := range prop.Items.Required {
+			if field == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("runtime_targets.items.required = %v, want %s included", prop.Items.Required, want)
+		}
+	}
+}
+
 func TestEmitAnalysisSchemaIncludesAnswerExclusionPolicy(t *testing.T) {
 	var parsed struct {
 		Properties map[string]json.RawMessage `json:"properties"`

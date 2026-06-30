@@ -298,9 +298,9 @@ func TestTraceQueryDoesNotInheritAmbiguousRequestModelTargets(t *testing.T) {
 	}
 }
 
-func TestTraceQueryDoesNotInferDroppedPIDFromRequestModelTargetWithTimestamps(t *testing.T) {
+func TestTraceQueryDoesNotInferDroppedPIDFromAnalyzerHintStringsWithTimestamps(t *testing.T) {
 	dir := t.TempDir()
-	tracePath := filepath.Join(dir, "inherit_pid.systrace")
+	tracePath := filepath.Join(dir, "untyped_pid.systrace")
 	trace := strings.Join([]string{
 		`target-42591 (42591) [004] .... 2.000000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=target next_pid=42591 next_prio=52`,
 		`peer-1494 (1494) [005] .... 2.010000: sched_switch: prev_comm=idle/5 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=peer next_pid=1494 next_prio=20`,
@@ -317,7 +317,7 @@ func TestTraceQueryDoesNotInferDroppedPIDFromRequestModelTargetWithTimestamps(t 
 	}
 	params, _ := json.Marshal(map[string]any{
 		"source":     "path",
-		"path":       "inherit_pid.systrace",
+		"path":       "untyped_pid.systrace",
 		"view":       "event_search",
 		"time_start": 2.0,
 		"time_end":   2.1,
@@ -330,14 +330,147 @@ func TestTraceQueryDoesNotInferDroppedPIDFromRequestModelTargetWithTimestamps(t 
 	if !res.Success {
 		t.Fatalf("trace_query failed: %s", res.Summary)
 	}
-	for _, want := range []string{"target-42591", "peer-1494", "matched_events=2"} {
+	for _, want := range []string{"trace_query_target_not_inherited=true", "target-42591", "peer-1494", "matched_events=2"} {
 		if !strings.Contains(res.Summary, want) {
-			t.Fatalf("omitted pid query should remain broad and include %q:\n%s", want, res.Summary)
+			t.Fatalf("untyped analyzer strings should remain broad and include %q:\n%s", want, res.Summary)
 		}
 	}
-	if strings.Contains(res.Summary, "trace_query_target_inherited=true") ||
-		strings.Contains(strings.SplitN(res.Summary, "\n", 2)[0], " pid=42591 ") {
-		t.Fatalf("omitted pid query should not inherit request metadata target:\n%s", res.Summary)
+	if strings.Contains(res.Summary, "trace_query_target_inherited=true") {
+		t.Fatalf("untyped analyzer strings must not be inherited as trace filters:\n%s", res.Summary)
+	}
+}
+
+func TestTraceQueryInheritsDroppedPIDFromTypedRuntimeTarget(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "typed_pid.systrace")
+	trace := strings.Join([]string{
+		`target-42591 (42591) [004] .... 2.000000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=target next_pid=42591 next_prio=52`,
+		`peer-1494 (1494) [005] .... 2.010000: sched_switch: prev_comm=idle/5 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=peer next_pid=1494 next_prio=20`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot: dir,
+		WorkDir:  dir,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RuntimeTargets: []types.RuntimeTarget{{
+				Kind:       types.RuntimeTargetKindProcess,
+				PID:        42591,
+				Source:     "user_explicit",
+				Confidence: 0.95,
+			}},
+		}},
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source":     "path",
+		"path":       "typed_pid.systrace",
+		"view":       "event_search",
+		"time_start": 2.0,
+		"time_end":   2.1,
+		"limit":      10,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	if target, ok := traceQuerySingleRuntimeTarget(ctx); !ok || target.PID != 42591 {
+		t.Fatalf("expected unique typed runtime target, got target=%+v ok=%v", target, ok)
+	}
+	for _, want := range []string{"trace_query_target_inherited=true", "pid=42591", "source=user_explicit", "target-42591", "matched_events=1"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("omitted pid query should inherit unique typed runtime target and include %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "peer-1494") {
+		t.Fatalf("inherited pid query should not include unrelated peer rows:\n%s", res.Summary)
+	}
+}
+
+func TestTraceQueryRecordsExplicitPIDForLaterTypedInheritance(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "recorded_pid.systrace")
+	trace := strings.Join([]string{
+		`target-42591 (42591) [004] .... 2.000000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=target next_pid=42591 next_prio=52`,
+		`peer-1494 (1494) [005] .... 2.010000: sched_switch: prev_comm=idle/5 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=peer next_pid=1494 next_prio=20`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mu := types.NewMutableState("analyze pid 42591")
+	initial := types.RequestModel{AnalyzerHints: types.AnalyzerHints{ExactTargets: []string{"42591"}}}
+	mu.SetRequestModel(initial)
+	ctx := &types.BusContext{
+		RepoRoot: dir,
+		WorkDir:  dir,
+		Mutable:  mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: initial,
+		},
+	}
+	explicitParams, _ := json.Marshal(map[string]any{
+		"source":     "path",
+		"path":       "recorded_pid.systrace",
+		"view":       "event_search",
+		"pid":        42591,
+		"time_start": 2.0,
+		"time_end":   2.1,
+		"limit":      10,
+	})
+	if res, err := (&TraceQuery{}).Execute(ctx, explicitParams); err != nil || !res.Success {
+		t.Fatalf("explicit pid trace_query failed: res=%+v err=%v", res, err)
+	}
+	if rm := mu.RequestModel(); rm == nil || len(rm.RuntimeTargets) != 1 || rm.RuntimeTargets[0].PID != 42591 {
+		t.Fatalf("explicit trace_query pid should record typed runtime target, got %+v", rm)
+	}
+	followupParams, _ := json.Marshal(map[string]any{
+		"source":     "path",
+		"path":       "recorded_pid.systrace",
+		"view":       "event_search",
+		"time_start": 2.0,
+		"time_end":   2.1,
+		"limit":      10,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, followupParams)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("follow-up trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{"trace_query_target_inherited=true", "pid=42591", "source=trace_query_explicit_tool_call", "target-42591", "matched_events=1"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("follow-up query should inherit recorded typed target and include %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "peer-1494") {
+		t.Fatalf("follow-up query should not include unrelated peer rows:\n%s", res.Summary)
+	}
+}
+
+func TestTraceQueryTypedRuntimeTargetKeepsThreadPIDPairingSafe(t *testing.T) {
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RuntimeTargets: []types.RuntimeTarget{{
+			Kind:       types.RuntimeTargetKindThread,
+			PID:        56284,
+			Thread:     "Thread-10 [56284]",
+			Source:     "user_explicit",
+			Confidence: 0.95,
+		}},
+	}}}
+	target, ok := traceQuerySingleRuntimeTarget(ctx)
+	if !ok || target.PID != 56284 || target.Thread != "Thread-10 [56284]" {
+		t.Fatalf("expected pid/thread pair from typed runtime target, got target=%+v ok=%v", target, ok)
+	}
+	ctx.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{
+		{Kind: types.RuntimeTargetKindProcess, PID: 42591, Source: "user_explicit", Confidence: 0.9},
+		{Kind: types.RuntimeTargetKindThread, Thread: "Thread-10", Source: "user_explicit", Confidence: 0.9},
+	}
+	if target, ok := traceQuerySingleRuntimeTarget(ctx); ok {
+		t.Fatalf("multiple typed runtime targets should not auto-inherit one filter, got %+v", target)
 	}
 }
 
@@ -1198,10 +1331,13 @@ func TestTraceQuerySchemaDocumentsFtraceAndCompoundTime(t *testing.T) {
 	}
 }
 
-func TestTraceQueryDescriptionDoesNotPromiseRawRequestTargetInheritance(t *testing.T) {
+func TestTraceQueryDescriptionDocumentsStructuredRequestTargetInheritanceBoundary(t *testing.T) {
 	description := (&TraceQuery{}).Description()
 	for _, want := range []string{
 		"set pid/thread explicitly in the tool call",
+		"structured request model exposes exactly one runtime_targets entry",
+		"trace_query_target_inherited",
+		"does not infer omitted pid/thread values from raw request prose, analyzer entity strings",
 		"does not infer omitted pid/thread values from raw request prose",
 	} {
 		if !strings.Contains(description, want) {
@@ -1209,9 +1345,6 @@ func TestTraceQueryDescriptionDoesNotPromiseRawRequestTargetInheritance(t *testi
 		}
 	}
 	for _, forbidden := range []string{
-		"structured request model exposes exactly one target",
-		"trace_query_target_inherited",
-		"inherits it",
 		"inherit omitted pid",
 		"inherit omitted thread",
 	} {
