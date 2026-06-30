@@ -897,6 +897,13 @@ func runtimeTraceCausalProjectionDetails(node types.TraceCausalProjectionNode, z
 	if causality := runtimeTraceCausalProjectionCausality(node.Causality, zh); causality != "" {
 		parts = append(parts, causality)
 	}
+	if node.ChainDepth > 0 {
+		if zh {
+			parts = append(parts, fmt.Sprintf("链路第 %d 层", node.ChainDepth))
+		} else {
+			parts = append(parts, fmt.Sprintf("chain depth %d", node.ChainDepth))
+		}
+	}
 	if node.Rank > 0 {
 		if zh {
 			parts = append(parts, fmt.Sprintf("排序第 %d", node.Rank))

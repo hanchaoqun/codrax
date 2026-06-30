@@ -12,6 +12,13 @@ const (
 	TraceCausalRoleRootCauseContext = "root_cause_context"
 )
 
+const (
+	traceCausalProjectionPrimaryLimit       = 4
+	traceCausalProjectionOnChainLimit       = 10
+	traceCausalProjectionContextBucketLimit = 4
+	traceCausalProjectionSupportingHopLimit = 10
+)
+
 type TraceCausalProjection struct {
 	PrimaryRootCause  *TraceCausalProjectionNode  `json:"primary_root_cause,omitempty"`
 	PrimaryRootCauses []TraceCausalProjectionNode `json:"primary_root_causes,omitempty"`
@@ -94,18 +101,18 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		return traceCausalProjectionHopLess(hops[i], hops[j], pathIndex)
 	})
 	hops = traceCausalProjectionDedupeNodes(hops)
-	if len(hops) > 4 {
-		hops = hops[:4]
+	if len(hops) > traceCausalProjectionSupportingHopLimit {
+		hops = hops[:traceCausalProjectionSupportingHopLimit]
 	}
 	sort.SliceStable(classified, func(i, j int) bool {
 		return traceCausalProjectionClassifiedLess(classified[i], classified[j], pathIndex)
 	})
 	classified = traceCausalProjectionDedupeNodes(classified)
 	out := TraceCausalProjection{
-		PrimaryRootCauses: traceCausalProjectionLimitNodes(primary, 4),
-		OnChainCauses:     traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "on_chain"), 4),
-		AdjacentCauses:    traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "adjacent"), 4),
-		BackgroundCauses:  traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "background"), 4),
+		PrimaryRootCauses: traceCausalProjectionLimitNodes(primary, traceCausalProjectionPrimaryLimit),
+		OnChainCauses:     traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "on_chain"), traceCausalProjectionOnChainLimit),
+		AdjacentCauses:    traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "adjacent"), traceCausalProjectionContextBucketLimit),
+		BackgroundCauses:  traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "background"), traceCausalProjectionContextBucketLimit),
 		WakeupPath:        wakeupPath,
 		SupportingHops:    hops,
 	}
@@ -166,7 +173,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		Tier:           traceCausalProjectionRichNoteValue(record.RichNotes, "tier"),
 		Causality:      traceCausalProjectionRichNoteValue(record.RichNotes, "causality"),
 		ChainRelevance: traceCausalProjectionChainRelevance(record.RichNotes),
-		ChainDepth:     traceCausalProjectionRichNoteInt(record.RichNotes, "chain_depth"),
+		ChainDepth:     traceCausalProjectionRichNoteFirstInt(record.RichNotes, "chain_depth", "depth"),
 		ImpactMS:       traceCausalProjectionImpact(record),
 		Confidence:     record.Confidence,
 	}
@@ -426,6 +433,15 @@ func traceCausalProjectionRichNoteInt(notes []string, key string) int {
 		return 0
 	}
 	return n
+}
+
+func traceCausalProjectionRichNoteFirstInt(notes []string, keys ...string) int {
+	for _, key := range keys {
+		if value := traceCausalProjectionRichNoteInt(notes, key); value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func traceCausalProjectionFloat(raw string) float64 {

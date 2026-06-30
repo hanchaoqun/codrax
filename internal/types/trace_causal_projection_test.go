@@ -202,6 +202,56 @@ func TestTraceCausalProjectionPreservesMultiHopPathWithRunningWaker(t *testing.T
 	}
 }
 
+func TestTraceCausalProjectionKeepsDefaultDepthSupportingHops(t *testing.T) {
+	records := []ObservationRecord{{
+		ID:              "path",
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		GroundingPolicy: ClaimGroundingHard,
+		Predicate:       "wakeup_chain",
+		ClaimKey:        "wakeup_chain:path",
+		Object:          "dep-1 -> dep-2 -> dep-3 -> dep-4 -> dep-5 -> dep-6 -> dep-7 -> dep-8 -> dep-9 -> dep-10 -> dep-11 -> dep-12 -> app-100",
+	}}
+	for depth := 1; depth <= 12; depth++ {
+		records = append(records, ObservationRecord{
+			ID:              fmt.Sprintf("hop-%02d", depth),
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: ClaimGroundingHard,
+			Predicate:       "wakeup_causal_impact",
+			ClaimKey:        fmt.Sprintf("wakeup_causal_impact:dep-%d", depth),
+			Subject:         fmt.Sprintf("dep-%d", depth),
+			Object:          "sleep_wait",
+			Value:           "1.000",
+			Unit:            "ms",
+			RichNotes: []string{
+				"causality=on_wakeup_chain",
+				fmt.Sprintf("depth=%d", depth),
+				"impact=1.000ms",
+			},
+			Confidence: 0.80,
+		})
+	}
+
+	got := CompileTraceCausalProjection(ObservationLedger{Records: records})
+	if len(got.SupportingHops) != 10 {
+		t.Fatalf("supporting hops should align with trace_query default max_depth=10, got %d: %+v", len(got.SupportingHops), got.SupportingHops)
+	}
+	if got.SupportingHops[0].Subject != "dep-1" || got.SupportingHops[0].ChainDepth != 1 ||
+		got.SupportingHops[9].Subject != "dep-10" || got.SupportingHops[9].ChainDepth != 10 {
+		t.Fatalf("supporting hops should preserve ordered depth alias values, got %+v", got.SupportingHops)
+	}
+	if len(got.OnChainCauses) != 10 || got.OnChainCauses[9].Subject != "dep-10" {
+		t.Fatalf("on-chain bucket should preserve the default-depth causal surface, got %+v", got.OnChainCauses)
+	}
+	for _, hop := range got.SupportingHops {
+		if hop.Subject == "dep-11" || hop.Subject == "dep-12" {
+			t.Fatalf("projection should stay bounded at default depth 10, got %+v", got.SupportingHops)
+		}
+	}
+}
+
 func traceProjectionTestRoot(id, subject, object, value string, cumulative, confidence float64, rank int) ObservationRecord {
 	return traceProjectionTestRootWithNotes(id, subject, object, value, cumulative, confidence, rank, []string{
 		"causality=on_wakeup_chain",

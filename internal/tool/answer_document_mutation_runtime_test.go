@@ -760,6 +760,75 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 	}
 }
 
+func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalHopDepth(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+	}}
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{
+			traceProjectionObservation("root-worker", "worker-200", "sleep_wait", "9.000", "9.000", 1),
+			{
+				ID:              "path",
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				GroundingPolicy: types.ClaimGroundingHard,
+				Predicate:       "wakeup_chain",
+				ClaimKey:        "wakeup_chain:path",
+				Object:          "io-500 -> net-400 -> binder-300 -> worker-200 -> app-100",
+			},
+			{
+				ID:              "hop-depth",
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				GroundingPolicy: types.ClaimGroundingHard,
+				Predicate:       "wakeup_causal_impact",
+				ClaimKey:        "wakeup_causal_impact:io-500",
+				Subject:         "io-500",
+				Object:          "io_wait",
+				Value:           "7.000",
+				Unit:            "ms",
+				RichNotes: []string{
+					"causality=on_wakeup_chain",
+					"depth=4",
+					"impact=7.000ms",
+				},
+				Confidence: 0.82,
+			},
+		},
+	}}
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "app-100 direct wait was observed."},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) < 2 {
+		t.Fatalf("answer document not persisted with projection: %+v", got)
+	}
+	projection := got.Blocks[1]
+	hop := answerBlockItemByID(projection.Items, "trace_causal_hop_1")
+	if hop == nil ||
+		hop.Label != "支撑节点" ||
+		!strings.Contains(hop.Text, "io-500 -> io_wait") ||
+		!strings.Contains(hop.Text, "链路第 4 层") ||
+		!strings.Contains(hop.Text, "直接唤醒链") {
+		t.Fatalf("projection should preserve supporting hop depth from typed trace_query notes: %+v", projection.Items)
+	}
+}
+
 func traceProjectionObservation(id, subject, object, value, cumulative string, rank int) types.ObservationRecord {
 	return types.ObservationRecord{
 		ID:              id,
