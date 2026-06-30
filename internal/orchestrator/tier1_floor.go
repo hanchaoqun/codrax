@@ -120,6 +120,13 @@ func runtimeObservationClosureSuppressesReadLocalizerFollowup(busCtx *types.BusC
 	if !types.RuntimeArtifactContextActiveFromBus(busCtx) {
 		return false
 	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(busCtx, types.ObservationLedger{})
+	if readLocalizerRuntimeSourceAuthorityKeepsFollowup(authority) {
+		return false
+	}
+	if readLocalizerRuntimeSourceAuthoritySuppressesFollowup(authority) {
+		return true
+	}
 	if readLocalizerTier1CurrentSourceRequired(ir.RequestModel) {
 		return false
 	}
@@ -131,6 +138,26 @@ func runtimeObservationClosureSuppressesReadLocalizerFollowup(busCtx *types.BusC
 		return true
 	}
 	return busCtx.Mutable.TraceQueryRuntimeObservationCount() > 0
+}
+
+func readLocalizerRuntimeSourceAuthorityKeepsFollowup(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	return authority.CanHardBlockCompletion || authority.CurrentSourceSatisfied
+}
+
+func readLocalizerRuntimeSourceAuthoritySuppressesFollowup(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	if readLocalizerRuntimeSourceAuthorityKeepsFollowup(authority) {
+		return false
+	}
+	return authority.CanUseRuntimeOnlyWithCaveat ||
+		authority.CanDowngradeToCaveat ||
+		authority.RuntimeOnlySufficient ||
+		(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired)
 }
 
 func readLocalizerTier1CurrentSourceRequired(rm types.RequestModel) bool {

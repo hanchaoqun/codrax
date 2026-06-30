@@ -687,6 +687,52 @@ func TestCheckTier1Floor_RuntimeTraceQuerySoftCurrentSourceObligationDowngradesT
 	}
 }
 
+func TestCheckTier1Floor_RuntimeTraceQuerySoftCurrentSourceProfileSuppressesLocalizer(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("explain trace parser mechanism from current source")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{})
+	mu.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "H:RenderService:DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}}},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+				Confidence:           0.9,
+			},
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes: []types.CurrentSourceExplanationMode{
+					types.CurrentSourceExplanationExplainCurrentMechanism,
+				},
+				SourceQuotes: []string{"current parser mechanism"},
+				Confidence:   0.9,
+			},
+		}},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("soft current-source profile with runtime proof should proceed with caveat instead of localizer follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
 func TestCheckTier1Floor_AttachedLogObservationOnlySkipsNavigationFollowup(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
