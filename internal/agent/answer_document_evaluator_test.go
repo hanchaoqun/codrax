@@ -5036,6 +5036,48 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_PreciseRuntimeSourceDoesNotRenderObservationOnly(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{
+			Func: "synthetic_frame",
+		}}}},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:  types.ScenarioRootCause,
+				Intent:    types.IntentRootCause,
+				LogTriage: mut.LogTriage(),
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+					SourceQuotes:                        []string{"internal/tracequery/parse.go:42"},
+					Confidence:                          0.9,
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+	if runtimeObservationOnlyForAnswerDoc(ctx) {
+		t.Fatal("precise current-source obligation must not render observation-only runtime disposition")
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, forbidden := range []string{
+		"This dispatch is runtime-artifact scoped: current checkout/source evidence is not required",
+		"Do not emit `current_status_verdict`, and do not use visible `still_present` / `fixed` status wording",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("precise runtime/source prompt should not contain observation-only wording %q:\n%s", forbidden, prompt)
+		}
+	}
+	if !strings.Contains(prompt, "Current repository citations may still be used") {
+		t.Fatalf("precise runtime/source prompt should preserve current citation allowance:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_SourceOptionalTraceSkipsCurrentStatus(t *testing.T) {
 	perf := &types.PerfBundle{
 		Observations: []types.PerfObservation{{
@@ -5359,8 +5401,13 @@ func TestAnswerDocumentEvaluator_CurrentSourceExplanationProfileSoftAuthorityRen
 	if strings.Contains(prompt, "请同时使用外部观察 lane 和 current-source lane") {
 		t.Fatalf("soft profile-backed authority must not render strong both-lane wording:\n%s", prompt)
 	}
-	if strings.Contains(prompt, "This dispatch is observation-only") {
-		t.Fatalf("profile-backed mixed runtime+current-source prompt must not claim observation-only:\n%s", prompt)
+	for _, forbidden := range []string{
+		"This dispatch is observation-only",
+		"This dispatch is runtime-artifact scoped: current checkout/source evidence is not required",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("profile-backed mixed runtime+current-source prompt must not claim observation-only %q:\n%s", forbidden, prompt)
+		}
 	}
 }
 

@@ -6177,7 +6177,7 @@ func runtimeObservationOnlyForAnswerDoc(ctx *types.AgentContext) bool {
 		return false
 	}
 	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, types.ObservationLedger{})
-	if authority.Active && authority.CurrentSourceRequired && !authority.CanHardBlockCompletion {
+	if authority.Active && authority.CurrentSourceRequired {
 		return false
 	}
 	return !plan.CurrentStatusDiagnosticRequired && !plan.CurrentSourceEvidenceOrigin
