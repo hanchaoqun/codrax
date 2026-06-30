@@ -30,6 +30,7 @@ type report struct {
 	Richness          richnessSummary     `json:"richness"`
 	Render            renderSummary       `json:"render"`
 	SourceInventory   sourceInventorySum  `json:"source_inventory"`
+	RuntimeSource     runtimeSourceSum    `json:"runtime_source"`
 	ToolParamCompat   toolParamCompat     `json:"tool_param_compat"`
 	LLM               llmSummary          `json:"llm"`
 	FilesByRetryScore []fileRetrySnapshot `json:"files_by_retry_score,omitempty"`
@@ -130,6 +131,22 @@ type sourceInventorySum struct {
 	BlockCapable       int            `json:"block_capable_events"`
 	CaveatOnly         int            `json:"caveat_only_events"`
 	Reasons            map[string]int `json:"reasons,omitempty"`
+}
+
+type runtimeSourceSum struct {
+	StatusEvents           int            `json:"status_events"`
+	ActiveEvents           int            `json:"active_events"`
+	RequiredEvents         int            `json:"required_events"`
+	SatisfiedEvents        int            `json:"satisfied_events"`
+	BlockCapable           int            `json:"block_capable_events"`
+	CaveatOnly             int            `json:"caveat_only_events"`
+	CombinedProof          int            `json:"combined_proof_events"`
+	RuntimeObservationRows int            `json:"runtime_observation_rows"`
+	CurrentSourceRows      int            `json:"current_source_rows"`
+	DeterministicQueryRows int            `json:"deterministic_query_rows"`
+	RequirementPrecision   map[string]int `json:"requirement_precision,omitempty"`
+	CurrentSourceLane      map[string]int `json:"current_source_lane,omitempty"`
+	Reasons                map[string]int `json:"reasons,omitempty"`
 }
 
 type toolParamCompat struct {
@@ -254,6 +271,9 @@ func collect(paths []string) (report, error) {
 	c.report.Render.StageCounts = map[string]int{}
 	c.report.Render.Anomalies = map[string]int{}
 	c.report.SourceInventory.Reasons = map[string]int{}
+	c.report.RuntimeSource.RequirementPrecision = map[string]int{}
+	c.report.RuntimeSource.CurrentSourceLane = map[string]int{}
+	c.report.RuntimeSource.Reasons = map[string]int{}
 	c.report.ToolParamCompat.Tools = map[string]int{}
 	c.report.LLM.ByAgent = map[string]int{}
 	c.report.LLM.ByModel = map[string]int{}
@@ -350,6 +370,7 @@ func (c *collector) observeLine(line string, fm *fileMetrics) {
 		c.observeExplorerLine(line, fm)
 	}
 	c.observeSourceInventoryAuthorityLine(line)
+	c.observeRuntimeSourceAuthorityLine(line)
 	c.observeSummaryMetricLine(line, fm)
 	c.observeRenderLine(line, fm)
 	if (isControlComponentLine(line, "DEBUG", "diag analyzer") && strings.Contains(line, "TOOLRESULT emit_analysis ok=false")) ||
@@ -610,6 +631,47 @@ func (c *collector) observeSourceInventoryAuthorityLine(line string) {
 	}
 }
 
+func (c *collector) observeRuntimeSourceAuthorityLine(line string) {
+	if !isControlComponentLine(line, "DEBUG", "orchestrator") {
+		return
+	}
+	status, ok := parseRuntimeSourceAuthorityStatus(line)
+	if !ok {
+		return
+	}
+	c.report.RuntimeSource.StatusEvents++
+	if status.active {
+		c.report.RuntimeSource.ActiveEvents++
+	}
+	if status.required {
+		c.report.RuntimeSource.RequiredEvents++
+	}
+	if status.satisfied {
+		c.report.RuntimeSource.SatisfiedEvents++
+	}
+	if status.blockCapable {
+		c.report.RuntimeSource.BlockCapable++
+	}
+	if status.caveatOnly {
+		c.report.RuntimeSource.CaveatOnly++
+	}
+	if status.combinedProof {
+		c.report.RuntimeSource.CombinedProof++
+	}
+	c.report.RuntimeSource.RuntimeObservationRows += status.runtimeRows
+	c.report.RuntimeSource.CurrentSourceRows += status.sourceRows
+	c.report.RuntimeSource.DeterministicQueryRows += status.queryRows
+	if status.requirementPrecision != "" {
+		c.report.RuntimeSource.RequirementPrecision[status.requirementPrecision]++
+	}
+	if status.currentSourceLane != "" {
+		c.report.RuntimeSource.CurrentSourceLane[status.currentSourceLane]++
+	}
+	for _, reason := range status.reasons {
+		c.report.RuntimeSource.Reasons[reason]++
+	}
+}
+
 func (c *collector) observeRenderAnomaly(fm *fileMetrics, name string) {
 	c.report.Render.Anomalies[name]++
 	fm.renderAnomalies++
@@ -697,6 +759,21 @@ type sourceInventoryAuthorityStatus struct {
 	reasons            []string
 }
 
+type runtimeSourceAuthorityStatus struct {
+	active               bool
+	requirementPrecision string
+	currentSourceLane    string
+	required             bool
+	satisfied            bool
+	runtimeRows          int
+	sourceRows           int
+	queryRows            int
+	blockCapable         bool
+	caveatOnly           bool
+	combinedProof        bool
+	reasons              []string
+}
+
 func parseSourceInventoryAuthorityStatus(line string) (sourceInventoryAuthorityStatus, bool) {
 	const marker = "read_status_authority source_inventory="
 	idx := strings.Index(line, marker)
@@ -760,6 +837,86 @@ func sourceInventoryAuthorityReasons(raw string) []string {
 		out = append(out, reason)
 	}
 	return out
+}
+
+func parseRuntimeSourceAuthorityStatus(line string) (runtimeSourceAuthorityStatus, bool) {
+	const marker = "read_status_authority runtime_source="
+	idx := strings.Index(line, marker)
+	if idx < 0 {
+		return runtimeSourceAuthorityStatus{}, false
+	}
+	raw := strings.TrimSpace(line[idx+len(marker):])
+	if raw == "" {
+		return runtimeSourceAuthorityStatus{}, false
+	}
+	if stop := strings.IndexAny(raw, " \t\r\n"); stop >= 0 {
+		raw = raw[:stop]
+	}
+	if stop := strings.IndexByte(raw, '|'); stop >= 0 {
+		raw = raw[:stop]
+	}
+	parts := strings.Split(raw, ":")
+	if len(parts) < 2 || parts[0] != "active" {
+		return runtimeSourceAuthorityStatus{}, false
+	}
+	status := runtimeSourceAuthorityStatus{active: parts[1] == "true"}
+	if !status.active {
+		return runtimeSourceAuthorityStatus{}, false
+	}
+	hasAuthorityFields := false
+	for _, part := range parts[2:] {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "req":
+			hasAuthorityFields = true
+			status.requirementPrecision = value
+		case "lane":
+			hasAuthorityFields = true
+			status.currentSourceLane = value
+		case "required":
+			hasAuthorityFields = true
+			status.required = value == "true"
+		case "satisfied":
+			hasAuthorityFields = true
+			status.satisfied = value == "true"
+		case "runtime":
+			hasAuthorityFields = true
+			status.runtimeRows = parseNonNegativeInt(value)
+		case "source":
+			hasAuthorityFields = true
+			status.sourceRows = parseNonNegativeInt(value)
+		case "query":
+			hasAuthorityFields = true
+			status.queryRows = parseNonNegativeInt(value)
+		case "block":
+			hasAuthorityFields = true
+			status.blockCapable = value == "true"
+		case "caveat":
+			hasAuthorityFields = true
+			status.caveatOnly = value == "true"
+		case "combined":
+			hasAuthorityFields = true
+			status.combinedProof = value == "true"
+		case "reasons":
+			hasAuthorityFields = true
+			status.reasons = sourceInventoryAuthorityReasons(value)
+		}
+	}
+	if !hasAuthorityFields {
+		return runtimeSourceAuthorityStatus{}, false
+	}
+	return status, true
+}
+
+func parseNonNegativeInt(raw string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 func (c *collector) finalize() {
@@ -1158,6 +1315,27 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 		rep.SourceInventory.CaveatOnly,
 	)
 	writeTopMap(w, "Source inventory reasons", rep.SourceInventory.Reasons, 10)
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "## Runtime Source Authority")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "- status: events=%d active=%d required=%d satisfied=%d block=%d caveat=%d combined=%d\n",
+		rep.RuntimeSource.StatusEvents,
+		rep.RuntimeSource.ActiveEvents,
+		rep.RuntimeSource.RequiredEvents,
+		rep.RuntimeSource.SatisfiedEvents,
+		rep.RuntimeSource.BlockCapable,
+		rep.RuntimeSource.CaveatOnly,
+		rep.RuntimeSource.CombinedProof,
+	)
+	fmt.Fprintf(w, "- rows: runtime=%d current_source=%d deterministic_query=%d\n",
+		rep.RuntimeSource.RuntimeObservationRows,
+		rep.RuntimeSource.CurrentSourceRows,
+		rep.RuntimeSource.DeterministicQueryRows,
+	)
+	writeTopMap(w, "Runtime source requirement precision", rep.RuntimeSource.RequirementPrecision, 6)
+	writeTopMap(w, "Runtime source lanes", rep.RuntimeSource.CurrentSourceLane, 6)
+	writeTopMap(w, "Runtime source reasons", rep.RuntimeSource.Reasons, 10)
 
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "## Finalizer")

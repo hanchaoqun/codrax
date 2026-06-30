@@ -21,6 +21,7 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 		`2026-05-19T10:00:00.027 DEBUG [diag explorer] iter=5 phase=midloop_signal hint=true progress=true stop=false key="explorer.mid-loop.completion-ready" → stop ()`,
 		`2026-05-19T10:00:00.028 DEBUG [diag explorer] iter=5 phase=midloop_force_stop MIDLOOP force-stop: evaluator stop: completion ready`,
 		`2026-05-19T10:00:00.029 DEBUG [orchestrator] read_status_authority source_inventory=active:false:sets=1:complete_sets=0:members=3:classes=1:langs=1:authority=true:need=true:landing=false:block=true:caveat=false:reasons=required_files_uncovered,completion_followup`,
+		`2026-05-19T10:00:00.029 DEBUG [orchestrator] read_status_authority runtime_source=active:true:req=soft:lane=required:required=true:satisfied=false:runtime=2:source=0:query=1:block=false:caveat=true:combined=false:reasons=current_source_required,current_source_soft`,
 		`| explorer_iters | 42 | 42 |`,
 		`| explorer_dispatches | 4 | 4 |`,
 		`2026-05-19T10:00:00.030 INFO [render]   ⟳ 1/4 模型响应出错,正在重新理解问题`,
@@ -85,6 +86,22 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 		rep.SourceInventory.Reasons["required_files_uncovered"] != 1 ||
 		rep.SourceInventory.Reasons["completion_followup"] != 1 {
 		t.Fatalf("source-inventory authority telemetry not parsed: %+v", rep.SourceInventory)
+	}
+	if rep.RuntimeSource.StatusEvents != 1 ||
+		rep.RuntimeSource.ActiveEvents != 1 ||
+		rep.RuntimeSource.RequiredEvents != 1 ||
+		rep.RuntimeSource.SatisfiedEvents != 0 ||
+		rep.RuntimeSource.BlockCapable != 0 ||
+		rep.RuntimeSource.CaveatOnly != 1 ||
+		rep.RuntimeSource.CombinedProof != 0 ||
+		rep.RuntimeSource.RuntimeObservationRows != 2 ||
+		rep.RuntimeSource.CurrentSourceRows != 0 ||
+		rep.RuntimeSource.DeterministicQueryRows != 1 ||
+		rep.RuntimeSource.RequirementPrecision["soft"] != 1 ||
+		rep.RuntimeSource.CurrentSourceLane["required"] != 1 ||
+		rep.RuntimeSource.Reasons["current_source_required"] != 1 ||
+		rep.RuntimeSource.Reasons["current_source_soft"] != 1 {
+		t.Fatalf("runtime-source authority telemetry not parsed: %+v", rep.RuntimeSource)
 	}
 	if rep.Finalizer.DocumentRejects != 1 || rep.Finalizer.RewriteRenders != 1 || rep.Finalizer.RepairPlans != 1 {
 		t.Fatalf("finalizer counters wrong: %+v", rep.Finalizer)
@@ -259,6 +276,21 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 			CaveatOnly:         1,
 			Reasons:            map[string]int{"required_files_uncovered": 1, "navigation_debt": 1},
 		},
+		RuntimeSource: runtimeSourceSum{
+			StatusEvents:           2,
+			ActiveEvents:           2,
+			RequiredEvents:         2,
+			SatisfiedEvents:        1,
+			BlockCapable:           1,
+			CaveatOnly:             1,
+			CombinedProof:          1,
+			RuntimeObservationRows: 2,
+			CurrentSourceRows:      1,
+			DeterministicQueryRows: 1,
+			RequirementPrecision:   map[string]int{"soft": 1, "precise": 1},
+			CurrentSourceLane:      map[string]int{"required": 2},
+			Reasons:                map[string]int{"current_source_soft": 1},
+		},
 	}
 	var b bytes.Buffer
 	writeMarkdown(&b, rep, 5)
@@ -280,6 +312,12 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 		"block=1 caveat=1",
 		"required_files_uncovered",
 		"navigation_debt",
+		"Runtime Source Authority",
+		"rows: runtime=2 current_source=1 deterministic_query=1",
+		"Runtime source requirement precision",
+		"soft",
+		"precise",
+		"current_source_soft",
 		"Agent",
 	} {
 		if !strings.Contains(out, want) {
@@ -311,6 +349,33 @@ func TestCollectSourceInventoryAuthorityIgnoresPromptAndAnalysisSummary(t *testi
 		rep.SourceInventory.Reasons["navigation_debt"] != 1 ||
 		rep.SourceInventory.Reasons["quoted"] != 0 {
 		t.Fatalf("source inventory telemetry should consume only typed authority cursor logs: %+v", rep.SourceInventory)
+	}
+}
+
+func TestCollectRuntimeSourceAuthorityIgnoresPromptAndAnalysisSummary(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "codrax.log")
+	body := strings.Join([]string{
+		`2026-05-19T10:00:00.000 DEBUG [diag explorer] iter=0 ASSISTANT content: quoted read_status_authority runtime_source=active:true:req=precise:block=true:reasons=quoted`,
+		`2026-05-19T10:00:00.010 INFO [emit_analysis] analysis emitted: runtime_source=req=soft`,
+		`2026-05-19T10:00:00.020 DEBUG [orchestrator] read_status_authority runtime_source=inactive`,
+		`2026-05-19T10:00:00.030 DEBUG [orchestrator] read_status_authority runtime_source=active:true:req=soft:lane=required:required=true:satisfied=false:runtime=1:source=0:query=1:block=false:caveat=true:combined=false:reasons=current_source_soft`,
+	}, "\n")
+	if err := os.WriteFile(logPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := collect([]string{dir})
+	if err != nil {
+		t.Fatalf("collect returned error: %v", err)
+	}
+	if rep.RuntimeSource.StatusEvents != 1 ||
+		rep.RuntimeSource.CaveatOnly != 1 ||
+		rep.RuntimeSource.BlockCapable != 0 ||
+		rep.RuntimeSource.RequirementPrecision["soft"] != 1 ||
+		rep.RuntimeSource.RequirementPrecision["precise"] != 0 ||
+		rep.RuntimeSource.Reasons["current_source_soft"] != 1 ||
+		rep.RuntimeSource.Reasons["quoted"] != 0 {
+		t.Fatalf("runtime source telemetry should consume only typed authority cursor logs: %+v", rep.RuntimeSource)
 	}
 }
 

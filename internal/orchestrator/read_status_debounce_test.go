@@ -348,3 +348,63 @@ func TestReadStatusSourceInventoryCursorPayloadOnlyExposesAuthorityView(t *testi
 		}
 	}
 }
+
+func TestReadStatusRuntimeSourceShapeUsesAuthoritySnapshot(t *testing.T) {
+	perf := &types.PerfBundle{Observations: []types.PerfObservation{{
+		Kind:      "trace_query",
+		Subject:   "frame",
+		Summary:   "trace_query observed a runtime span",
+		LineStart: 9,
+		StartTsMs: 120.5,
+		EndTsMs:   168.75,
+	}}}
+	mut := types.NewMutableState("runtime source status")
+	mut.SetPerfTrace(perf)
+	ctx := &types.BusContext{
+		Mutable:       mut,
+		TurnRouteHint: types.TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+			},
+		}},
+	}
+
+	got := readStatusRuntimeSourceShapeForContext(ctx)
+	for _, want := range []string{
+		"active:true",
+		"req=soft",
+		"required=true",
+		"runtime=1",
+		"source=0",
+		"block=false",
+		"caveat=true",
+		"current_source_soft",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("runtime/source status shape missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestReadStatusRuntimeSourceCursorPayloadOnlyExposesAuthorityView(t *testing.T) {
+	cursor := "stage=explore|runtime_source=active:true:req=soft:lane=required:required=true:satisfied=false:runtime=1:source=0:query=0:block=false:caveat=true:combined=false:reasons=current_source_soft"
+	got, ok := readStatusRuntimeSourceCursorPayload(cursor)
+	if !ok {
+		t.Fatalf("expected runtime-source authority payload from cursor")
+	}
+	want := "active:true:req=soft:lane=required:required=true:satisfied=false:runtime=1:source=0:query=0:block=false:caveat=true:combined=false:reasons=current_source_soft"
+	if got != want {
+		t.Fatalf("payload = %q", got)
+	}
+	for _, cursor := range []string{
+		"stage=analyze|runtime_source=inactive",
+		"analysis emitted runtime_source=soft",
+		"stage=explore|runtime_source=active:true:runtime=1",
+	} {
+		if got, ok := readStatusRuntimeSourceCursorPayload(cursor); ok {
+			t.Fatalf("non-authority cursor should not be exposed: %q -> %q", cursor, got)
+		}
+	}
+}

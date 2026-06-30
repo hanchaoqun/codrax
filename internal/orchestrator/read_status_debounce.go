@@ -78,14 +78,19 @@ func (o *Orchestrator) suppressReadStatusEvent(ev render.Event) bool {
 	case readStatusLifecycleSuppress:
 		return true
 	case readStatusLifecycleBypassGeneric:
-		logReadStatusSourceInventoryAuthorityCursor(cursor)
+		logReadStatusAuthorityCursors(cursor)
 		return false
 	}
 	suppressed := o.readStatusDebouncer.Suppress(key, cursor)
 	if !suppressed {
-		logReadStatusSourceInventoryAuthorityCursor(cursor)
+		logReadStatusAuthorityCursors(cursor)
 	}
 	return suppressed
+}
+
+func logReadStatusAuthorityCursors(cursor string) {
+	logReadStatusSourceInventoryAuthorityCursor(cursor)
+	logReadStatusRuntimeSourceAuthorityCursor(cursor)
 }
 
 func logReadStatusSourceInventoryAuthorityCursor(cursor string) {
@@ -96,6 +101,14 @@ func logReadStatusSourceInventoryAuthorityCursor(cursor string) {
 	logging.Debug("read_status_authority source_inventory=%s", payload)
 }
 
+func logReadStatusRuntimeSourceAuthorityCursor(cursor string) {
+	payload, ok := readStatusRuntimeSourceCursorPayload(cursor)
+	if !ok {
+		return
+	}
+	logging.Debug("read_status_authority runtime_source=%s", payload)
+}
+
 func readStatusSourceInventoryCursorPayload(cursor string) (string, bool) {
 	const marker = "source_inventory="
 	idx := strings.Index(cursor, marker)
@@ -104,6 +117,22 @@ func readStatusSourceInventoryCursorPayload(cursor string) (string, bool) {
 	}
 	payload := strings.TrimSpace(cursor[idx+len(marker):])
 	if !strings.HasPrefix(payload, "active:") || !strings.Contains(payload, ":authority=") {
+		return "", false
+	}
+	if stop := strings.IndexByte(payload, '|'); stop >= 0 {
+		payload = payload[:stop]
+	}
+	return payload, payload != ""
+}
+
+func readStatusRuntimeSourceCursorPayload(cursor string) (string, bool) {
+	const marker = "runtime_source="
+	idx := strings.Index(cursor, marker)
+	if idx < 0 {
+		return "", false
+	}
+	payload := strings.TrimSpace(cursor[idx+len(marker):])
+	if !strings.HasPrefix(payload, "active:") || !strings.Contains(payload, ":req=") {
 		return "", false
 	}
 	if stop := strings.IndexByte(payload, '|'); stop >= 0 {
@@ -245,6 +274,7 @@ func (o *Orchestrator) readStatusDebounceCursorWithEvent(ev render.Event, includ
 	stableCompleteReason := false
 	progressReason := ""
 	sourceInventoryShape := "inactive"
+	runtimeSourceShape := "inactive"
 	if mut != nil {
 		emittedEvidenceCount = len(mut.EmittedEvidence())
 		aggregateFactCount = len(mut.StableInvestigationAggregateFacts())
@@ -257,13 +287,14 @@ func (o *Orchestrator) readStatusDebounceCursorWithEvent(ev render.Event, includ
 			progressReason = strings.TrimSpace(progress.ReasonCode)
 		}
 		sourceInventoryShape = readStatusSourceInventoryShapeForContext(ctx, mut)
+		runtimeSourceShape = readStatusRuntimeSourceShapeForContext(ctx)
 	}
 	eventPart := ""
 	if includeEvent {
 		eventPart = fmt.Sprintf("event=%d|", ev.Kind)
 	}
 	return fmt.Sprintf(
-		"stage=%s|%sev=%d|emit_ev=%d|flow=%d|chain=%d|sym=%d|fact=%d|tool=%d|dispatch_tool=%d|mcp=%d|pending=%d|complete=%t|stable_complete=%t|progress=%s|source_inventory=%s",
+		"stage=%s|%sev=%d|emit_ev=%d|flow=%d|chain=%d|sym=%d|fact=%d|tool=%d|dispatch_tool=%d|mcp=%d|pending=%d|complete=%t|stable_complete=%t|progress=%s|source_inventory=%s|runtime_source=%s",
 		ctx.PipelineStage,
 		eventPart,
 		evidenceCount,
@@ -280,6 +311,43 @@ func (o *Orchestrator) readStatusDebounceCursorWithEvent(ev render.Event, includ
 		stableCompleteReason,
 		progressReason,
 		sourceInventoryShape,
+		runtimeSourceShape,
+	)
+}
+
+func readStatusRuntimeSourceShapeForContext(ctx *types.BusContext) string {
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
+	if !authority.Active {
+		return "inactive"
+	}
+	req := strings.TrimSpace(string(authority.CurrentSourceRequirement))
+	if req == "" {
+		req = "none"
+	}
+	reasons := "none"
+	if len(authority.ReasonCodes) > 0 {
+		parts := make([]string, 0, len(authority.ReasonCodes))
+		for _, reason := range authority.ReasonCodes {
+			if strings.TrimSpace(string(reason)) != "" {
+				parts = append(parts, string(reason))
+			}
+		}
+		if len(parts) > 0 {
+			reasons = strings.Join(parts, ",")
+		}
+	}
+	return fmt.Sprintf("active:true:req=%s:lane=%s:required=%t:satisfied=%t:runtime=%d:source=%d:query=%d:block=%t:caveat=%t:combined=%t:reasons=%s",
+		req,
+		authority.CurrentSourceLane,
+		authority.CurrentSourceRequired,
+		authority.CurrentSourceSatisfied,
+		authority.RuntimeObservationCount,
+		authority.CurrentSourceRecordCount,
+		authority.DeterministicRuntimeQueryCount,
+		authority.CanHardBlockCompletion,
+		authority.CanDowngradeToCaveat,
+		authority.CanCompleteWithCombinedProof,
+		reasons,
 	)
 }
 
