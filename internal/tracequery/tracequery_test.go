@@ -1333,6 +1333,23 @@ func TestRootCauseRankPromotesFragmentedStateChurn(t *testing.T) {
 		!strings.Contains(first.Summary, "sched_wakeup") {
 		t.Fatalf("fragmented root cause should explain next diagnostic step: %+v", first)
 	}
+	var drilldown *StateDrilldownStep
+	for i := range res.WindowStats.StateDrilldownPlan {
+		step := &res.WindowStats.StateDrilldownPlan[i]
+		if step.Thread.PID == 20 && step.Source == "state_churn" && step.State == string(StateRunnable) {
+			drilldown = step
+			break
+		}
+	}
+	if drilldown == nil {
+		t.Fatalf("fragmented runnable churn should remain in state drilldown handoff: %+v", res.WindowStats.StateDrilldownPlan)
+	}
+	if !drilldown.ChainRequired || !drilldown.Recursive {
+		t.Fatalf("fragmented runnable churn should keep recursive root-cause drilldown: %+v", drilldown)
+	}
+	if !containsString(drilldown.RecommendedViews, "scheduler_latency_stats") || !containsString(drilldown.RecommendedViews, "root_cause_rank") {
+		t.Fatalf("fragmented runnable churn should recommend scheduler/root-cause follow-up: %+v", drilldown.RecommendedViews)
+	}
 }
 
 func TestWindowStatsSummarizesInodeIOPageCacheAndPressure(t *testing.T) {
@@ -2267,6 +2284,57 @@ func TestFragmentedSleepChurnIsReportedWithoutRecursiveWakeupDrilldown(t *testin
 	}
 	if !sawFragmentedRank {
 		t.Fatalf("fragmented sleep should remain as a root-cause candidate: %+v", rank.Items)
+	}
+}
+
+func TestFragmentedIOChurnKeepsRecursiveRootCauseDrilldown(t *testing.T) {
+	idx := buildTraceIndex(t, "fragmented_io_churn.systrace", `
+	         io-40 (40) [003] .... 1.000000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=io next_pid=40 next_prio=40
+	         io-40 (40) [003] .... 1.000800: sched_switch: prev_comm=io prev_pid=40 prev_prio=40 prev_state=D ==> next_comm=idle/3 next_pid=0 next_prio=120
+	         irq-2 (2) [003] .... 1.000900: sched_blocked_reason: pid=40 iowait=1 caller=f2fs_wait_on_block
+	         irq-2 (2) [003] .... 1.002500: sched_wakeup: comm=io pid=40 prio=40 target_cpu=003
+	         io-40 (40) [003] .... 1.002800: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=io next_pid=40 next_prio=40
+	         io-40 (40) [003] .... 1.003400: sched_switch: prev_comm=io prev_pid=40 prev_prio=40 prev_state=D ==> next_comm=idle/3 next_pid=0 next_prio=120
+	         irq-2 (2) [003] .... 1.003500: sched_blocked_reason: pid=40 iowait=1 caller=f2fs_wait_on_block
+	         irq-2 (2) [003] .... 1.005000: sched_wakeup: comm=io pid=40 prio=40 target_cpu=003
+	         io-40 (40) [003] .... 1.005300: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=io next_pid=40 next_prio=40
+	         io-40 (40) [003] .... 1.005900: sched_switch: prev_comm=io prev_pid=40 prev_prio=40 prev_state=D ==> next_comm=idle/3 next_pid=0 next_prio=120
+	         irq-2 (2) [003] .... 1.006000: sched_blocked_reason: pid=40 iowait=1 caller=f2fs_wait_on_block
+	         irq-2 (2) [003] .... 1.007500: sched_wakeup: comm=io pid=40 prio=40 target_cpu=003
+	         io-40 (40) [003] .... 1.007800: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=io next_pid=40 next_prio=40
+	         io-40 (40) [003] .... 1.008400: sched_switch: prev_comm=io prev_pid=40 prev_prio=40 prev_state=D ==> next_comm=idle/3 next_pid=0 next_prio=120
+	         irq-2 (2) [003] .... 1.008500: sched_blocked_reason: pid=40 iowait=1 caller=f2fs_wait_on_block
+	         irq-2 (2) [003] .... 1.010000: sched_wakeup: comm=io pid=40 prio=40 target_cpu=003
+	         io-40 (40) [003] .... 1.010300: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=io next_pid=40 next_prio=40
+	`)
+	q := Query{PID: 40, TimeStart: 1.0, TimeEnd: 1.011, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 8}
+	stats := ComputeWindowStats(idx, q)
+	var drilldown *StateDrilldownStep
+	for i := range stats.StateDrilldownPlan {
+		step := &stats.StateDrilldownPlan[i]
+		if step.Thread.PID == 40 && step.Source == "state_churn" && step.State == string(StateIOWait) {
+			drilldown = step
+			break
+		}
+	}
+	if drilldown == nil {
+		t.Fatalf("fragmented IO wait should remain in state drilldown plan: %+v", stats.StateDrilldownPlan)
+	}
+	if !drilldown.ChainRequired || !drilldown.Recursive {
+		t.Fatalf("fragmented IO wait should keep recursive root-cause drilldown: %+v", drilldown)
+	}
+	if !containsString(drilldown.RecommendedViews, "critical_blocking_calls") || !containsString(drilldown.RecommendedViews, "root_cause_rank") {
+		t.Fatalf("fragmented IO wait should recommend blocking/root-cause follow-up: %+v", drilldown.RecommendedViews)
+	}
+	rank := BuildRootCauseRank(idx, q)
+	found := false
+	for _, item := range rank.Items {
+		if item.Thread.PID == 40 && item.Type == "fragmented_d_state_or_io_wait" && item.Source == "window_stats.state_churn" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("fragmented IO wait should remain as a root-cause candidate: %+v", rank.Items)
 	}
 }
 
