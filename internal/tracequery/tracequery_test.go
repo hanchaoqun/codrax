@@ -2231,6 +2231,61 @@ func TestStateFirstDrilldownKeepsLongSleepAndNestedWakeupChain(t *testing.T) {
 	}
 }
 
+func TestTopSleepKeepsRankedTopNWindowCandidates(t *testing.T) {
+	idx := buildTraceIndex(t, "top_sleep_ranked.systrace", `
+       sleep1-101 (101) [001] .... 1.000000: sched_switch: prev_comm=sleep1 prev_pid=101 prev_prio=40 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+       sleep2-102 (102) [002] .... 1.000000: sched_switch: prev_comm=sleep2 prev_pid=102 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+       sleep3-103 (103) [003] .... 1.000000: sched_switch: prev_comm=sleep3 prev_pid=103 prev_prio=40 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120
+       sleep4-104 (104) [004] .... 1.000000: sched_switch: prev_comm=sleep4 prev_pid=104 prev_prio=40 prev_state=S ==> next_comm=idle/4 next_pid=0 next_prio=120
+       sleep5-105 (105) [005] .... 1.000000: sched_switch: prev_comm=sleep5 prev_pid=105 prev_prio=40 prev_state=S ==> next_comm=idle/5 next_pid=0 next_prio=120
+       sleep6-106 (106) [006] .... 1.000000: sched_switch: prev_comm=sleep6 prev_pid=106 prev_prio=40 prev_state=S ==> next_comm=idle/6 next_pid=0 next_prio=120
+       sleep7-107 (107) [007] .... 1.000000: sched_switch: prev_comm=sleep7 prev_pid=107 prev_prio=40 prev_state=S ==> next_comm=idle/7 next_pid=0 next_prio=120
+       sleep8-108 (108) [000] .... 1.000000: sched_switch: prev_comm=sleep8 prev_pid=108 prev_prio=40 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+       sleep9-109 (109) [001] .... 1.000000: sched_switch: prev_comm=sleep9 prev_pid=109 prev_prio=40 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+      sleep10-110 (110) [002] .... 1.000000: sched_switch: prev_comm=sleep10 prev_pid=110 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+          waker-1 (  1) [000] .... 1.050000: sched_wakeup: comm=sleep1 pid=101 prio=40 target_cpu=001
+          waker-1 (  1) [000] .... 1.047000: sched_wakeup: comm=sleep2 pid=102 prio=40 target_cpu=002
+          waker-1 (  1) [000] .... 1.044000: sched_wakeup: comm=sleep3 pid=103 prio=40 target_cpu=003
+          waker-1 (  1) [000] .... 1.041000: sched_wakeup: comm=sleep4 pid=104 prio=40 target_cpu=004
+          waker-1 (  1) [000] .... 1.038000: sched_wakeup: comm=sleep5 pid=105 prio=40 target_cpu=005
+          waker-1 (  1) [000] .... 1.035000: sched_wakeup: comm=sleep6 pid=106 prio=40 target_cpu=006
+          waker-1 (  1) [000] .... 1.032000: sched_wakeup: comm=sleep7 pid=107 prio=40 target_cpu=007
+          waker-1 (  1) [000] .... 1.029000: sched_wakeup: comm=sleep8 pid=108 prio=40 target_cpu=000
+          waker-1 (  1) [000] .... 1.026000: sched_wakeup: comm=sleep9 pid=109 prio=40 target_cpu=001
+          waker-1 (  1) [000] .... 1.023000: sched_wakeup: comm=sleep10 pid=110 prio=40 target_cpu=002
+	`)
+	stats := ComputeWindowStats(idx, Query{TimeStart: 1.0, TimeEnd: 1.06, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	if len(stats.SleepTop) != 8 {
+		t.Fatalf("top_sleep should keep the ranked Top-N window, got %d rows: %+v", len(stats.SleepTop), stats.SleepTop)
+	}
+	for i, td := range stats.SleepTop {
+		wantPID := 101 + i
+		if td.Thread.PID != wantPID {
+			t.Fatalf("top_sleep[%d] pid=%d, want ranked pid %d; rows=%+v", i, td.Thread.PID, wantPID, stats.SleepTop)
+		}
+		if i > 0 && stats.SleepTop[i-1].DurationMs < td.DurationMs {
+			t.Fatalf("top_sleep rows should be sorted by descending duration: %+v", stats.SleepTop)
+		}
+	}
+	for _, td := range stats.SleepTop {
+		found := false
+		for _, step := range stats.StateDrilldownPlan {
+			if step.Thread.PID == td.Thread.PID && step.Source == "top_sleep" && step.ChainRequired && step.Recursive {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("top_sleep pid=%d should be carried into recursive state drilldown handoff: %+v", td.Thread.PID, stats.StateDrilldownPlan)
+		}
+	}
+	for _, step := range stats.StateDrilldownPlan {
+		if step.Source == "top_sleep" && (step.Thread.PID == 109 || step.Thread.PID == 110) {
+			t.Fatalf("state drilldown should not resurrect rows outside the ranked top_sleep window: %+v", stats.StateDrilldownPlan)
+		}
+	}
+}
+
 func TestFragmentedSleepChurnIsReportedWithoutRecursiveWakeupDrilldown(t *testing.T) {
 	idx := buildTraceIndex(t, "fragmented_sleep_churn.systrace", `
         app-100 (100) [001] .... 1.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
