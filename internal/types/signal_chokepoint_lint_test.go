@@ -221,13 +221,10 @@ func TestRuntimeSourceAuthorityLegacyHelpersStayInFallbackChokepoints(t *testing
 }
 
 var runtimeSourceLegacyHelperFallbackChokepoints = map[string]bool{
-	"../agent/agent.go::analyzerExternalObservationFirstBlocksTool":                             true,
-	"../agent/ir_accessor.go::runtimeSourceHardCurrentSourceObligationForExplorer":              true,
-	"../agent/ir_accessor.go::originSpecificCompletionCurrentSourceBlockedForExplorer":          true,
-	"../tool/emit_investigation_complete.go::traceQueryRuntimeObservationCompletionBypassLabel": true,
-	"../tool/emit_investigation_complete.go::originSpecificCompletionBypassLabel":               true,
-	"../tool/emit_investigation_complete.go::aggregateMemberSetOriginRequiresCurrentSource":     true,
-	"../tool/emit_investigation_complete.go::currentSourceForcedReadGatesApply":                 true,
+	"../agent/agent.go::analyzerExternalObservationFirstBlocksTool":                    true,
+	"../agent/ir_accessor.go::runtimeSourceHardCurrentSourceObligationForExplorer":     true,
+	"../agent/ir_accessor.go::originSpecificCompletionCurrentSourceBlockedForExplorer": true,
+	"../tool/emit_investigation_complete.go::currentSourceForcedReadGatesApply":        true,
 }
 
 func findRuntimeSourceLegacyHelperBypasses(f *ast.File, fset *token.FileSet, path string) []string {

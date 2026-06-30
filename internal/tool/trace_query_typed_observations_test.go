@@ -729,6 +729,107 @@ func TestTraceQueryTypedObservationsPublishFrameTargetResolution(t *testing.T) {
 	}
 }
 
+func TestTraceQueryTypedObservationsPublishStateDrilldownPolicy(t *testing.T) {
+	result := tracequery.Result{
+		View:       "window_stats",
+		SourcePath: "/traces/app.systrace",
+		TimeStart:  1.0,
+		TimeEnd:    1.12,
+		WindowStats: &tracequery.WindowStats{
+			StateDrilldownPlan: []tracequery.StateDrilldownStep{
+				{
+					Rank:             1,
+					Thread:           tracequery.ThreadRef{Comm: "app", PID: 20},
+					State:            string(tracequery.StateSSleep),
+					ImpactMs:         88.0,
+					TotalMs:          90.0,
+					Source:           "top_sleep",
+					RecommendedViews: []string{"wakeup_chain", "root_cause_rank"},
+					ChainRequired:    true,
+					Recursive:        true,
+					StartTs:          1.0,
+					EndTs:            1.09,
+					LineStart:        10,
+					LineEnd:          20,
+					Summary:          "long UI sleep requires recursive wakeup drilldown",
+				},
+				{
+					Rank:             2,
+					Thread:           tracequery.ThreadRef{Comm: "app", PID: 20},
+					State:            string(tracequery.StateSSleep),
+					ImpactMs:         18.0,
+					TotalMs:          30.0,
+					Source:           "state_churn",
+					RecommendedViews: []string{"thread_timeline", "interaction_stats", "window_stats"},
+					ChainRequired:    false,
+					Recursive:        false,
+					StartTs:          1.09,
+					EndTs:            1.12,
+					LineStart:        21,
+					LineEnd:          30,
+					Summary:          "fragmented sleep churn remains visible but non-recursive",
+				},
+			},
+		},
+	}
+	rows := traceQueryTypedObservations(result, "trace", "/blobs/state.json", "", "", time.Now())
+	var longSleep, fragmentedSleep *types.ObservationRecord
+	for i := range rows {
+		if !strings.Contains(rows[i].ID, "#state_drilldown:") {
+			continue
+		}
+		notes := strings.Join(rows[i].RichNotes, "\n")
+		switch {
+		case strings.Contains(notes, "source=top_sleep"):
+			longSleep = &rows[i]
+		case strings.Contains(notes, "source=state_churn"):
+			fragmentedSleep = &rows[i]
+		}
+	}
+	if longSleep == nil ||
+		longSleep.Predicate != "state_drilldown" ||
+		!strings.Contains(strings.Join(longSleep.RichNotes, "\n"), "recommended_views=wakeup_chain,root_cause_rank") ||
+		!strings.Contains(strings.Join(longSleep.RichNotes, "\n"), "chain_required=true") ||
+		!strings.Contains(strings.Join(longSleep.RichNotes, "\n"), "recursive=true") {
+		t.Fatalf("long top_sleep state_drilldown policy did not reach typed observations: %+v", longSleep)
+	}
+	if fragmentedSleep == nil ||
+		!strings.Contains(strings.Join(fragmentedSleep.RichNotes, "\n"), "recommended_views=thread_timeline,interaction_stats,window_stats") ||
+		!strings.Contains(strings.Join(fragmentedSleep.RichNotes, "\n"), "chain_required=false") ||
+		!strings.Contains(strings.Join(fragmentedSleep.RichNotes, "\n"), "recursive=false") {
+		t.Fatalf("fragmented sleep state_churn policy did not reach typed observations: %+v", fragmentedSleep)
+	}
+	coverage := types.TraceObservationCoverageFromObservationRecords(rows)
+	var stateCoverage *types.TraceObservationDimensionCoverage
+	for i := range coverage.Dimensions {
+		if coverage.Dimensions[i].Dimension == types.TraceObservationDimensionStateDrilldown {
+			stateCoverage = &coverage.Dimensions[i]
+			break
+		}
+	}
+	if stateCoverage == nil || stateCoverage.Count != 2 {
+		t.Fatalf("coverage should expose two state_drilldown rows, got %+v", coverage.Dimensions)
+	}
+	var sawRecursive, sawFragmented bool
+	for _, example := range stateCoverage.Examples {
+		if example.DrilldownSource == "top_sleep" &&
+			example.ChainRequired &&
+			example.RecursiveDrilldown &&
+			containsString(example.RecommendedViews, "wakeup_chain") {
+			sawRecursive = true
+		}
+		if example.DrilldownSource == "state_churn" &&
+			!example.ChainRequired &&
+			!example.RecursiveDrilldown &&
+			containsString(example.RecommendedViews, "interaction_stats") {
+			sawFragmented = true
+		}
+	}
+	if !sawRecursive || !sawFragmented {
+		t.Fatalf("coverage should preserve recursive and non-recursive state policies: %+v", stateCoverage.Examples)
+	}
+}
+
 // TestTraceQueryExecuteAttachesTypedObservations runs the real Execute path on
 // a small fixture and pins that the returned ToolResult carries typed rows of
 // runtime-artifact origin alongside the prose Summary.

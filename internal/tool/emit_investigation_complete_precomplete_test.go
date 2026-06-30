@@ -145,6 +145,35 @@ func TestRuntimeSourceAuthorityCompletionLanding_PreciseProfileKeepsCurrentSourc
 	}
 }
 
+func TestRuntimeSourceAuthorityCompletionLanding_CurrentAggregateRuntimeFactParticipates(t *testing.T) {
+	ctx := runtimeSourceAuthorityCompletionLandingContextForTest("current parser mechanism")
+	ctx.Mutable = types.NewMutableState("runtime source completion landing")
+	runtimeFact := types.AnswerAggregateFact{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "runtime rows",
+		Members:    []string{"TraceParser (runtime observation)"},
+		Provenance: string(types.AnswerEvidenceOriginRuntimeArtifact),
+	}
+	plainFact := types.AnswerAggregateFact{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "plain rows",
+		Members: []string{"TraceParser (unclassified row)"},
+	}
+
+	plainAuthority := runtimeSourceAnswerAuthorityForCompletionWithAggregateFacts(ctx, []types.AnswerAggregateFact{plainFact})
+	if plainAuthority.CurrentSourceRecordCount != 0 || plainAuthority.RuntimeObservationCount != 0 {
+		t.Fatalf("unclassified aggregate facts must not become authority source/runtime records: %+v", plainAuthority)
+	}
+	allowed, decided := runtimeSourceAuthorityAllowsRuntimeCompletionLandingWithAggregateFacts(ctx, []types.AnswerAggregateFact{runtimeFact})
+	if !decided || !allowed {
+		t.Fatalf("explicit runtime aggregate fact should participate in completion authority, decided=%v allowed=%v authority=%+v",
+			decided, allowed, runtimeSourceAnswerAuthorityForCompletionWithAggregateFacts(ctx, []types.AnswerAggregateFact{runtimeFact}))
+	}
+	if !decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx, runtimeFact, runtimeFact.Members[0]) {
+		t.Fatal("explicit runtime aggregate fact should avoid support_refs repair debt for decorated runtime rows")
+	}
+}
+
 func runtimeSourceAuthorityCompletionLandingContextForTest(sourceQuote string) *types.BusContext {
 	mut := types.NewMutableState("runtime source completion landing")
 	mut.AppendDispatchToolResult(types.ToolResult{
