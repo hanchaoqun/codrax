@@ -19,6 +19,9 @@ const wakeupCausalAggregateOccurrenceCap = 8
 func Run(idx *Index, q Query) Result {
 	explicitTimeStart := q.TimeStart != 0
 	explicitTimeEnd := q.TimeEnd != 0
+	if !explicitTimeStart && !explicitTimeEnd && strings.TrimSpace(q.Pattern) != "" {
+		q.FrameWindowAutoDerived = true
+	}
 	explicitWindowOrSelector := explicitTimeStart ||
 		explicitTimeEnd ||
 		q.LineStart != 0 ||
@@ -8177,26 +8180,33 @@ func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 
 func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	q = normalizeQuery(idx, q)
-	cache := newChainQueryCache(idx)
-	stats := ComputeWindowStats(idx, q)
 	frame := BuildFrameTimeline(idx, q)
-	var chain ChainResult
-	if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
-		chain = buildWakeupChainWithCache(idx, q, cache)
+	targetResolution := ResolveFrameTarget(idx, q, frame)
+	analysisQ := applyFrameTargetResolution(q, targetResolution)
+	if frameTargetResolutionWindowChanged(q, targetResolution) {
+		frame = BuildFrameTimeline(idx, analysisQ)
 	}
-	rank := buildRootCauseRankFrom(q, chain, stats)
-	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
-	rank = enrichRootCauseRankWithScheduler(q, rank, latency, stats, chain)
-	rank = attachPerfContextToRootCauseRank(idx, q, rank, stats)
+	cache := newChainQueryCache(idx)
+	stats := ComputeWindowStats(idx, analysisQ)
+	var chain ChainResult
+	if analysisQ.PID > 0 || analysisQ.Thread != "" || analysisQ.ThreadInput != "" {
+		chain = buildWakeupChainWithCache(idx, analysisQ, cache)
+	}
+	rank := buildRootCauseRankFrom(analysisQ, chain, stats)
+	latency := buildSchedulerLatencyStatsFromStats(idx, analysisQ, stats)
+	rank = enrichRootCauseRankWithScheduler(analysisQ, rank, latency, stats, chain)
+	rank = attachPerfContextToRootCauseRank(idx, analysisQ, rank, stats)
 	var chainPtr *ChainResult
 	if len(chain.Nodes) > 0 || len(chain.Edges) > 0 || len(chain.CausalImpacts) > 0 || chain.Target.PID > 0 || chain.Target.Comm != "" {
 		chainPtr = &chain
 	}
-	blocking := buildCriticalBlockingCallsFromStats(idx, q, stats, chainPtr)
-	perfContexts := buildFramePerfContexts(idx, q, stats, chainPtr, blocking, firstNonEmptyThread(chain.Target, resolveThread(idx, q)))
+	target := firstNonEmptyThread(chain.Target, targetResolution.Target, safeResolveThread(idx, analysisQ))
+	blocking := buildCriticalBlockingCallsFromStats(idx, analysisQ, stats, chainPtr)
+	perfContexts := buildFramePerfContexts(idx, analysisQ, stats, chainPtr, blocking, target)
 	bundle := FrameRootCauseBundle{
-		Target:                firstNonEmptyThread(chain.Target, resolveThread(idx, q)),
-		Window:                TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+		Target:                target,
+		TargetResolution:      frameTargetResolutionPtr(targetResolution),
+		Window:                TimeWindow{StartTs: analysisQ.TimeStart, EndTs: analysisQ.TimeEnd},
 		WakeupChain:           chainPtr,
 		FrameTimeline:         &frame,
 		RootCauseRank:         &rank,
@@ -8219,11 +8229,235 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	if chainPtr != nil {
 		bundle.IOBurstEpisodes = enrichIOBurstEpisodesWithChainContext(*chainPtr, bundle.IOBurstEpisodes)
 	}
+	bundle.Caveats = append(bundle.Caveats, targetResolution.Caveats...)
 	bundle.Caveats = append(bundle.Caveats, stats.Caveats...)
 	bundle.Caveats = append(bundle.Caveats, frame.Caveats...)
 	bundle.Caveats = append(bundle.Caveats, rank.Caveats...)
 	bundle.Caveats = append(bundle.Caveats, blocking.Caveats...)
 	return bundle
+}
+
+func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTargetResolution {
+	q = normalizeQuery(idx, q)
+	if q.PID > 0 || strings.TrimSpace(q.Thread) != "" || strings.TrimSpace(q.ThreadInput) != "" {
+		target := safeResolveThread(idx, q)
+		res := FrameTargetResolution{
+			Target:       firstNonEmptyThread(target, ThreadRef{Comm: q.Thread, PID: q.PID}),
+			Source:       "explicit_query_target",
+			Confidence:   1,
+			Window:       TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+			WindowSource: "query_window",
+		}
+		if res.Target.PID == 0 && strings.TrimSpace(res.Target.Comm) == "" {
+			res.Caveats = append(res.Caveats, "frame_target_resolution explicit target could not be resolved from trace events")
+		}
+		return res
+	}
+	candidates := frameTargetResolutionCandidates(q, frame)
+	res := FrameTargetResolution{
+		Source:       "frame_timeline_ui_candidate",
+		Window:       TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+		WindowSource: "query_window",
+		Candidates:   frameTargetResolutionLimitCandidates(candidates, 6),
+	}
+	if len(candidates) == 0 {
+		res.Source = "frame_timeline_no_ui_candidate"
+		if selector := strings.TrimSpace(firstNonEmpty(q.Pattern, q.SpanName)); selector != "" {
+			res.Caveats = append(res.Caveats, fmt.Sprintf("frame_target_resolution found no UI/main-like frame item matching selector %q; preserve query window and require explicit pid/thread for wakeup-chain target locking", selector))
+		} else {
+			res.Caveats = append(res.Caveats, "frame_target_resolution did not find a unique UI/main-like frame thread; preserve query window and require explicit pid/thread for wakeup-chain target locking")
+		}
+		return res
+	}
+	threads := map[string]FrameTargetCandidate{}
+	for _, candidate := range candidates {
+		key := frameTargetThreadKey(candidate.Thread)
+		if key == "" {
+			continue
+		}
+		if prev, ok := threads[key]; !ok || frameTargetCandidateLess(candidate, prev) {
+			threads[key] = candidate
+		}
+	}
+	if len(threads) != 1 {
+		res.Source = "frame_timeline_ambiguous_ui_candidate"
+		res.Caveats = append(res.Caveats, fmt.Sprintf("frame_target_resolution found %d UI/main-like frame thread candidates; not auto-locking target without explicit pid/thread", len(threads)))
+		return res
+	}
+	var selected FrameTargetCandidate
+	for _, candidate := range threads {
+		selected = candidate
+	}
+	res.Target = selected.Thread
+	res.Source = "frame_timeline_ui_unique"
+	res.Confidence = 0.86
+	res.SelectedFrame = &selected
+	if q.FrameWindowAutoDerived {
+		if prevEnd, ok := previousFrameEndForTarget(frame, selected); ok && prevEnd < selected.Window.EndTs {
+			res.Window = TimeWindow{StartTs: prevEnd, EndTs: selected.Window.EndTs}
+			res.WindowSource = "previous_frame_end_to_current_frame_end"
+		} else {
+			res.Caveats = append(res.Caveats, "frame_target_resolution could not find previous frame end; preserving query window")
+		}
+	}
+	return res
+}
+
+func frameTargetResolutionCandidates(q Query, frame FrameTimelineResult) []FrameTargetCandidate {
+	selector := strings.TrimSpace(firstNonEmpty(q.Pattern, q.SpanName))
+	var out []FrameTargetCandidate
+	for _, item := range frame.Items {
+		if item.Thread.PID == 0 && strings.TrimSpace(item.Thread.Comm) == "" {
+			continue
+		}
+		roleScore := frameTargetRoleScore(item.Role, item.Phase)
+		if roleScore <= 0 {
+			continue
+		}
+		score := roleScore
+		reason := "ui_or_main_like_frame_role"
+		if selector != "" && frameTimelineItemMatchesSelector(item, selector) {
+			score += 1000
+			reason = "exact_frame_selector_and_ui_role"
+		}
+		out = append(out, FrameTargetCandidate{
+			Thread:    item.Thread,
+			Role:      item.Role,
+			Phase:     item.Phase,
+			Name:      item.Name,
+			FrameID:   item.FrameID,
+			Window:    TimeWindow{StartTs: item.StartTs, EndTs: item.EndTs},
+			StartLine: item.StartLine,
+			EndLine:   item.EndLine,
+			Score:     score,
+			Reason:    reason,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return frameTargetCandidateLess(out[i], out[j])
+	})
+	if selector == "" {
+		return out
+	}
+	var exact []FrameTargetCandidate
+	for _, candidate := range out {
+		if strings.Contains(candidate.Reason, "exact_frame_selector") {
+			exact = append(exact, candidate)
+		}
+	}
+	if len(exact) > 0 {
+		return exact
+	}
+	return nil
+}
+
+func frameTargetRoleScore(role, phase string) float64 {
+	switch strings.TrimSpace(role) {
+	case "ui":
+		return 100
+	}
+	switch strings.TrimSpace(phase) {
+	case "frame_schedule", "ui_traversal":
+		return 90
+	default:
+		return 0
+	}
+}
+
+func frameTimelineItemMatchesSelector(item FrameTimelineItem, selector string) bool {
+	selector = strings.ToLower(strings.TrimSpace(selector))
+	if selector == "" {
+		return false
+	}
+	for _, value := range []string{item.Name, item.FrameID, item.Summary} {
+		if strings.Contains(strings.ToLower(value), selector) {
+			return true
+		}
+	}
+	return false
+}
+
+func frameTargetCandidateLess(a, b FrameTargetCandidate) bool {
+	if a.Score != b.Score {
+		return a.Score > b.Score
+	}
+	if a.Window.StartTs != b.Window.StartTs {
+		return a.Window.StartTs > b.Window.StartTs
+	}
+	return a.StartLine > b.StartLine
+}
+
+func previousFrameEndForTarget(frame FrameTimelineResult, selected FrameTargetCandidate) (float64, bool) {
+	var prevEnd float64
+	for _, item := range frame.Items {
+		if item.EndTs <= 0 || item.EndTs >= selected.Window.StartTs {
+			continue
+		}
+		if !threadMatches(selected.Thread, item.Thread.PID, item.Thread.Comm) {
+			continue
+		}
+		if item.EndTs > prevEnd {
+			prevEnd = item.EndTs
+		}
+	}
+	return prevEnd, prevEnd > 0
+}
+
+func applyFrameTargetResolution(q Query, resolution FrameTargetResolution) Query {
+	if resolution.Target.PID > 0 {
+		q.PID = resolution.Target.PID
+	}
+	if strings.TrimSpace(resolution.Target.Comm) != "" {
+		q.Thread = resolution.Target.Comm
+		q.ThreadInput = resolution.Target.Comm
+	}
+	if frameTargetWindowValid(resolution.Window) {
+		q.TimeStart = resolution.Window.StartTs
+		q.TimeEnd = resolution.Window.EndTs
+	}
+	return q
+}
+
+func frameTargetResolutionWindowChanged(q Query, resolution FrameTargetResolution) bool {
+	return frameTargetWindowValid(resolution.Window) &&
+		(resolution.Window.StartTs != q.TimeStart || resolution.Window.EndTs != q.TimeEnd)
+}
+
+func frameTargetWindowValid(window TimeWindow) bool {
+	return window.StartTs > 0 && window.EndTs > window.StartTs
+}
+
+func frameTargetResolutionPtr(resolution FrameTargetResolution) *FrameTargetResolution {
+	if resolution.Target.PID == 0 && strings.TrimSpace(resolution.Target.Comm) == "" &&
+		len(resolution.Candidates) == 0 && len(resolution.Caveats) == 0 && strings.TrimSpace(resolution.Source) == "" {
+		return nil
+	}
+	return &resolution
+}
+
+func frameTargetResolutionLimitCandidates(candidates []FrameTargetCandidate, limit int) []FrameTargetCandidate {
+	if limit <= 0 || len(candidates) <= limit {
+		return append([]FrameTargetCandidate(nil), candidates...)
+	}
+	return append([]FrameTargetCandidate(nil), candidates[:limit]...)
+}
+
+func frameTargetThreadKey(thread ThreadRef) string {
+	if thread.PID > 0 {
+		return fmt.Sprintf("pid:%d", thread.PID)
+	}
+	comm := strings.ToLower(strings.TrimSpace(thread.Comm))
+	if comm == "" {
+		return ""
+	}
+	return "comm:" + comm
+}
+
+func safeResolveThread(idx *Index, q Query) ThreadRef {
+	if idx == nil {
+		return ThreadRef{Comm: q.Thread, PID: q.PID}
+	}
+	return resolveThread(idx, q)
 }
 
 func enrichIOBurstEpisodesWithChainContext(chain ChainResult, items []IOBurstEpisodeSummary) []IOBurstEpisodeSummary {

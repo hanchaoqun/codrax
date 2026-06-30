@@ -374,6 +374,7 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 	logging.Debug("[trace_query] phase=auto_window_build view=%s path=%s done elapsed=%s events=%d lines=%d windowed=%v heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
 		p.View, path, time.Since(buildStart), len(idx.Events), idx.ScannedLineCount, idx.Windowed, heapAlloc, heapSys, gcCount)
 	q := traceQueryBuildQuery(ctx, boundedP, sourceLabel, path, start, end)
+	q.FrameWindowAutoDerived = true
 	runStart := time.Now()
 	result := tracequery.Run(idx, q)
 	heapAlloc, heapSys, gcCount = traceQueryMemoryForLog()
@@ -627,6 +628,7 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 		logging.Debug("[trace_query] phase=auto_window_candidate_build mode=%s view=%s path=%s rank=%d done events=%d lines=%d windowed=%v heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
 			mode, p.View, path, candidate.Rank, len(idx.Events), idx.ScannedLineCount, idx.Windowed, heapAlloc, heapSys, gcCount)
 		q := traceQueryBuildQuery(ctx, boundedP, sourceLabel, path, candidate.Start, candidate.End)
+		q.FrameWindowAutoDerived = true
 		runStart := time.Now()
 		result := tracequery.Run(idx, q)
 		heapAlloc, heapSys, gcCount = traceQueryMemoryForLog()
@@ -2349,6 +2351,19 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 	fmt.Fprintf(b, "- target=%s window=%.6f..%.6f root_causes=%d blocking=%d io_bursts=%d block_inode=%d irq=%d softirq=%d workqueue=%d trace_categories=%d async_file=%d\n",
 		traceThreadLabel(bundle.Target), bundle.Window.StartTs, bundle.Window.EndTs,
 		traceQueryBundleRootCauseCount(bundle), traceQueryBundleBlockingCount(bundle), len(bundle.IOBurstEpisodes), len(bundle.BlockIOByInode), len(bundle.IRQActivity), len(bundle.SoftIRQActivity), len(bundle.WorkqueueActivity), len(bundle.TraceMarkCategories), len(bundle.AsyncFileWork))
+	if bundle.TargetResolution != nil {
+		resolution := bundle.TargetResolution
+		fmt.Fprintf(b, "- target_resolution source=%s target=%s confidence=%.2f window_source=%s window=%.6f..%.6f candidates=%d\n",
+			sanitizeForBanner(resolution.Source), traceThreadLabel(resolution.Target), resolution.Confidence,
+			sanitizeForBanner(resolution.WindowSource), resolution.Window.StartTs, resolution.Window.EndTs, len(resolution.Candidates))
+		if resolution.SelectedFrame != nil {
+			selected := resolution.SelectedFrame
+			fmt.Fprintf(b, "  selected_frame role=%s phase=%s thread=%s frame_id=%s %.6f..%.6f lines=%d-%d name=%s\n",
+				sanitizeForBanner(selected.Role), sanitizeForBanner(selected.Phase), traceThreadLabel(selected.Thread),
+				sanitizeForBanner(selected.FrameID), selected.Window.StartTs, selected.Window.EndTs,
+				selected.StartLine, selected.EndLine, sanitizeForBanner(selected.Name))
+		}
+	}
 	if bundle.RootCauseRank != nil && len(bundle.RootCauseRank.Items) > 0 {
 		top := bundle.RootCauseRank.Items[0]
 		fmt.Fprintf(b, "- bundle_top_cause type=%s thread=%s chain_relevance=%s dominant_state=%s impact=%.3fms d_state=%.3fms io_wait=%.3fms score=%.3f source=%s — %s\n",
@@ -3463,6 +3478,61 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	}
 	at := observedAt.Format("2006-01-02T15:04:05Z07:00")
 	var out []types.ObservationRecord
+
+	if result.FrameRootCauseBundle != nil && result.FrameRootCauseBundle.TargetResolution != nil &&
+		(result.FrameRootCauseBundle.TargetResolution.Target.PID > 0 || strings.TrimSpace(result.FrameRootCauseBundle.TargetResolution.Target.Comm) != "") {
+		resolution := result.FrameRootCauseBundle.TargetResolution
+		lineStart, lineEnd := 0, 0
+		startTs, endTs := resolution.Window.StartTs, resolution.Window.EndTs
+		if resolution.SelectedFrame != nil {
+			lineStart = resolution.SelectedFrame.StartLine
+			lineEnd = resolution.SelectedFrame.EndLine
+			if resolution.SelectedFrame.Window.StartTs > 0 {
+				startTs = resolution.SelectedFrame.Window.StartTs
+			}
+			if resolution.SelectedFrame.Window.EndTs > resolution.SelectedFrame.Window.StartTs {
+				endTs = resolution.SelectedFrame.Window.EndTs
+			}
+		}
+		notes := traceQueryTypedKVNotes([][2]string{
+			{"source", resolution.Source},
+			{"window_source", resolution.WindowSource},
+			{"window", traceQueryTypedTimeWindow(resolution.Window)},
+			{"candidate_count", traceQueryTypedCount(len(resolution.Candidates))},
+		})
+		if resolution.SelectedFrame != nil {
+			notes = append(notes, traceQueryTypedKVNotes([][2]string{
+				{"selected_role", resolution.SelectedFrame.Role},
+				{"selected_phase", resolution.SelectedFrame.Phase},
+				{"selected_frame_id", resolution.SelectedFrame.FrameID},
+				{"selected_name", resolution.SelectedFrame.Name},
+			})...)
+		}
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#frame_target_resolution", scope),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span: types.ObservationSpan{
+				LineStart: lineStart,
+				LineEnd:   lineEnd,
+				StartTs:   startTs,
+				EndTs:     endTs,
+			},
+			ClaimKey:    "frame_target_resolution:" + firstNonEmptyTraceString(traceThreadLabel(resolution.Target), resolution.Source),
+			Subject:     traceThreadLabel(resolution.Target),
+			Predicate:   "frame_target_resolution",
+			Object:      resolution.Source,
+			Summary:     fmt.Sprintf("frame target resolved as %s from %s", traceThreadLabel(resolution.Target), resolution.Source),
+			RichNotes:   notes,
+			SupportRefs: traceQueryObservationSupportRefs(ref, lineStart, lineEnd),
+			ObservedAt:  at,
+			Confidence:  resolution.Confidence,
+		})
+	}
 
 	if result.RootCauseRank != nil {
 		hasForegroundRootCause := traceQueryRootCauseRankHasForeground(result.RootCauseRank.Items)

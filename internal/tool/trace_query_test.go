@@ -1283,6 +1283,7 @@ func TestTraceQueryFrameRootCauseBundleAliasSummaryAndObservations(t *testing.T)
 	for _, want := range []string{
 		"# Trace Query: frame_root_cause_bundle",
 		"Frame root cause bundle",
+		"target_resolution source=explicit_query_target",
 		"bundle_top_cause",
 		"chain_relevance=on_chain",
 		"bundle_io_burst",

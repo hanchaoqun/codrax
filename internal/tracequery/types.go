@@ -246,32 +246,33 @@ type Index struct {
 }
 
 type Query struct {
-	View                  string
-	Thread                string
-	ThreadInput           string
-	ThreadPIDInferred     bool
-	PID                   int
-	TimeStart             float64
-	TimeEnd               float64
-	LineStart             int
-	LineEnd               int
-	EventTypes            []EventType
-	Pattern               string
-	SpanName              string
-	InteractionDirection  string
-	RecipeName            string
-	MaxDepth              int
-	MaxBranches           int
-	MinDurationMs         float64
-	IncludeWindowStats    bool
-	Limit                 int
-	CoreTopology          string
-	TraceFlavor           TraceFlavor
-	TraceFlavorHint       TraceFlavor
-	TraceFlavorHintSource string
-	TracePlatform         TracePlatform
-	TracePlatformHint     TracePlatform
-	TracePlatformSource   string
+	View                   string
+	Thread                 string
+	ThreadInput            string
+	ThreadPIDInferred      bool
+	PID                    int
+	TimeStart              float64
+	TimeEnd                float64
+	LineStart              int
+	LineEnd                int
+	EventTypes             []EventType
+	Pattern                string
+	SpanName               string
+	FrameWindowAutoDerived bool
+	InteractionDirection   string
+	RecipeName             string
+	MaxDepth               int
+	MaxBranches            int
+	MinDurationMs          float64
+	IncludeWindowStats     bool
+	Limit                  int
+	CoreTopology           string
+	TraceFlavor            TraceFlavor
+	TraceFlavorHint        TraceFlavor
+	TraceFlavorHintSource  string
+	TracePlatform          TracePlatform
+	TracePlatformHint      TracePlatform
+	TracePlatformSource    string
 }
 
 type Result struct {
@@ -1172,6 +1173,7 @@ type RootCausePerfRoleContext struct {
 
 type FrameRootCauseBundle struct {
 	Target                ThreadRef               `json:"target,omitempty"`
+	TargetResolution      *FrameTargetResolution  `json:"target_resolution,omitempty"`
 	Window                TimeWindow              `json:"window"`
 	WakeupChain           *ChainResult            `json:"wakeup_chain,omitempty"`
 	FrameTimeline         *FrameTimelineResult    `json:"frame_timeline,omitempty"`
@@ -1193,6 +1195,30 @@ type FrameRootCauseBundle struct {
 	Caveats               []string                `json:"caveats,omitempty"`
 
 	windowStats *WindowStats `json:"-"`
+}
+
+type FrameTargetResolution struct {
+	Target        ThreadRef              `json:"target,omitempty"`
+	Source        string                 `json:"source,omitempty"`
+	Confidence    float64                `json:"confidence,omitempty"`
+	Window        TimeWindow             `json:"window,omitempty"`
+	WindowSource  string                 `json:"window_source,omitempty"`
+	SelectedFrame *FrameTargetCandidate  `json:"selected_frame,omitempty"`
+	Candidates    []FrameTargetCandidate `json:"candidates,omitempty"`
+	Caveats       []string               `json:"caveats,omitempty"`
+}
+
+type FrameTargetCandidate struct {
+	Thread    ThreadRef  `json:"thread,omitempty"`
+	Role      string     `json:"role,omitempty"`
+	Phase     string     `json:"phase,omitempty"`
+	Name      string     `json:"name,omitempty"`
+	FrameID   string     `json:"frame_id,omitempty"`
+	Window    TimeWindow `json:"window,omitempty"`
+	StartLine int        `json:"start_line,omitempty"`
+	EndLine   int        `json:"end_line,omitempty"`
+	Score     float64    `json:"score,omitempty"`
+	Reason    string     `json:"reason,omitempty"`
 }
 
 type InteractionStatsResult struct {

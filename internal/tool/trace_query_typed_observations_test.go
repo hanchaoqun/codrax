@@ -673,6 +673,62 @@ func TestTraceQueryTypedObservationsScopeSuffixKeepsMultiWindowIDsDistinct(t *te
 	}
 }
 
+func TestTraceQueryTypedObservationsPublishFrameTargetResolution(t *testing.T) {
+	result := tracequery.Result{
+		View:       "frame_root_cause_bundle",
+		SourcePath: "/traces/app.systrace",
+		FrameRootCauseBundle: &tracequery.FrameRootCauseBundle{
+			Target: tracequery.ThreadRef{Comm: "app", PID: 20},
+			Window: tracequery.TimeWindow{StartTs: 1.0, EndTs: 1.020},
+			TargetResolution: &tracequery.FrameTargetResolution{
+				Target:       tracequery.ThreadRef{Comm: "app", PID: 20},
+				Source:       "frame_timeline_ui_unique",
+				Confidence:   0.86,
+				Window:       tracequery.TimeWindow{StartTs: 0.916, EndTs: 1.020},
+				WindowSource: "previous_frame_end_to_current_frame_end",
+				SelectedFrame: &tracequery.FrameTargetCandidate{
+					Thread:    tracequery.ThreadRef{Comm: "app", PID: 20},
+					Role:      "ui",
+					Phase:     "frame_schedule",
+					Name:      "Choreographer#doFrame frame=42",
+					FrameID:   "42",
+					Window:    tracequery.TimeWindow{StartTs: 1.0, EndTs: 1.020},
+					StartLine: 10,
+					EndLine:   20,
+				},
+			},
+		},
+	}
+	rows := traceQueryTypedObservations(result, "path", "/blobs/frame.json", "", "", time.Now())
+	var target *types.ObservationRecord
+	for i := range rows {
+		if strings.HasSuffix(rows[i].ID, "#frame_target_resolution") {
+			target = &rows[i]
+			break
+		}
+	}
+	if target == nil {
+		t.Fatalf("missing frame target resolution observation: %+v", rows)
+	}
+	if target.Predicate != "frame_target_resolution" ||
+		target.Subject != "app-20" ||
+		target.GroundingPolicy != types.ClaimGroundingHard ||
+		!strings.Contains(strings.Join(target.RichNotes, "\n"), "window_source=previous_frame_end_to_current_frame_end") {
+		t.Fatalf("bad frame target resolution row: %+v", target)
+	}
+	coverage := types.TraceObservationCoverageFromObservationRecords(rows)
+	var found bool
+	for _, dim := range coverage.Dimensions {
+		if dim.Dimension == types.TraceObservationDimensionFrameTarget && dim.Count == 1 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("coverage should include frame target dimension, got %+v", coverage.Dimensions)
+	}
+}
+
 // TestTraceQueryExecuteAttachesTypedObservations runs the real Execute path on
 // a small fixture and pins that the returned ToolResult carries typed rows of
 // runtime-artifact origin alongside the prose Summary.

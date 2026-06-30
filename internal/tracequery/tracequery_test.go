@@ -1760,7 +1760,7 @@ func TestRootCauseRankAttachesPerfRoleContextToCPUPressure(t *testing.T) {
 
 func TestFrameRootCauseBundleCarriesRoleSpecificPerfContexts(t *testing.T) {
 	idx := buildTraceIndex(t, "frame_perf_roles.systrace", `
-        app-100   (  100) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	        app-100   (  100) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
         app-100   (  100) [000] .... 1.001000: binder_transaction: transaction=42 dest_node=0 dest_proc=200 dest_thread=201 reply=1 flags=0x0 code=0x3
  binder:200_1-201 (  200) [002] .... 1.002000: binder_transaction_received: transaction=42
         app-100   (  100) [000] .... 1.003000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=rival next_pid=300 next_prio=20
@@ -1786,9 +1786,119 @@ func TestFrameRootCauseBundleCarriesRoleSpecificPerfContexts(t *testing.T) {
 	}
 }
 
+func TestFrameRootCauseBundleResolvesUniqueUIFrameTargetAndPreviousFrameWindow(t *testing.T) {
+	idx := buildTraceIndex(t, "frame_target_resolution.systrace", `
+	        app-100   (  100) [000] .... 0.900000: print: B|100|Choreographer#doFrame frame=41
+	        app-100   (  100) [000] .... 0.916000: print: E|100
+	        app-100   (  100) [000] .... 1.000000: print: B|100|Choreographer#doFrame frame=42
+	        app-100   (  100) [000] .... 1.003000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+	     worker-200   (  100) [001] .... 1.004000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+	     worker-200   (  100) [001] .... 1.014000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=000
+	        app-100   (  100) [000] .... 1.016000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	        app-100   (  100) [000] .... 1.020000: print: E|100
+	`)
+	bundle := BuildFrameRootCauseBundle(idx, Query{
+		Pattern:                "frame=42",
+		TimeStart:              0.850,
+		TimeEnd:                1.100,
+		FrameWindowAutoDerived: true,
+		MaxDepth:               4,
+		MinDurationMs:          0.05,
+		TraceFlavorHint:        TraceFlavorHarmonyHitrace,
+		Limit:                  8,
+	})
+	if bundle.Target.PID != 100 {
+		t.Fatalf("expected unique UI frame target pid=100, got target=%+v resolution=%+v", bundle.Target, bundle.TargetResolution)
+	}
+	if bundle.TargetResolution == nil || bundle.TargetResolution.Source != "frame_timeline_ui_unique" ||
+		bundle.TargetResolution.WindowSource != "previous_frame_end_to_current_frame_end" {
+		t.Fatalf("expected previous-frame target resolution, got %+v", bundle.TargetResolution)
+	}
+	if !near(bundle.Window.StartTs, 0.916, 0.000001) || !near(bundle.Window.EndTs, 1.020, 0.000001) {
+		t.Fatalf("expected previous frame end to current frame end window, got %+v", bundle.Window)
+	}
+	if bundle.WakeupChain == nil || bundle.WakeupChain.Target.PID != 100 {
+		t.Fatalf("resolved target should feed wakeup_chain, got %+v", bundle.WakeupChain)
+	}
+	if bundle.RootCauseRank == nil || len(bundle.RootCauseRank.Items) == 0 {
+		t.Fatalf("resolved target should feed root cause rank, got %+v", bundle.RootCauseRank)
+	}
+}
+
+func TestFrameRootCauseBundleExplicitTargetWinsOverFrameTarget(t *testing.T) {
+	idx := buildTraceIndex(t, "frame_explicit_target.systrace", `
+	        app-100   (  100) [000] .... 1.000000: print: B|100|Choreographer#doFrame frame=42
+	        app-100   (  100) [000] .... 1.010000: print: E|100
+	     worker-200   (  100) [001] .... 1.002000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+	`)
+	bundle := BuildFrameRootCauseBundle(idx, Query{
+		PID:                    200,
+		Pattern:                "frame=42",
+		TimeStart:              0.950,
+		TimeEnd:                1.050,
+		FrameWindowAutoDerived: true,
+		TraceFlavorHint:        TraceFlavorHarmonyHitrace,
+	})
+	if bundle.Target.PID != 200 {
+		t.Fatalf("explicit pid should win over frame target, got target=%+v resolution=%+v", bundle.Target, bundle.TargetResolution)
+	}
+	if bundle.TargetResolution == nil || bundle.TargetResolution.Source != "explicit_query_target" {
+		t.Fatalf("expected explicit target resolution, got %+v", bundle.TargetResolution)
+	}
+	if !near(bundle.Window.StartTs, 0.950, 0.000001) || !near(bundle.Window.EndTs, 1.050, 0.000001) {
+		t.Fatalf("explicit target should preserve query window, got %+v", bundle.Window)
+	}
+}
+
+func TestFrameRootCauseBundleDoesNotAutoLockAmbiguousUIFrameTargets(t *testing.T) {
+	idx := buildTraceIndex(t, "frame_ambiguous_targets.systrace", `
+	       appA-100   (  100) [000] .... 1.000000: print: B|100|Choreographer#doFrame frame=42
+	       appA-100   (  100) [000] .... 1.010000: print: E|100
+	       appB-101   (  101) [001] .... 1.001000: print: B|101|Choreographer#doFrame frame=42
+	       appB-101   (  101) [001] .... 1.011000: print: E|101
+	`)
+	bundle := BuildFrameRootCauseBundle(idx, Query{
+		Pattern:                "frame=42",
+		TimeStart:              0.950,
+		TimeEnd:                1.050,
+		FrameWindowAutoDerived: true,
+		TraceFlavorHint:        TraceFlavorHarmonyHitrace,
+	})
+	if bundle.Target.PID != 0 || bundle.WakeupChain != nil {
+		t.Fatalf("ambiguous UI frame targets must not auto-lock, got target=%+v chain=%+v resolution=%+v", bundle.Target, bundle.WakeupChain, bundle.TargetResolution)
+	}
+	if bundle.TargetResolution == nil || bundle.TargetResolution.Source != "frame_timeline_ambiguous_ui_candidate" ||
+		len(bundle.TargetResolution.Candidates) != 2 {
+		t.Fatalf("expected ambiguous target resolution with two candidates, got %+v", bundle.TargetResolution)
+	}
+}
+
+func TestFrameRootCauseBundlePreservesQueryWindowWhenPreviousFrameMissing(t *testing.T) {
+	idx := buildTraceIndex(t, "frame_no_previous.systrace", `
+	        app-100   (  100) [000] .... 1.000000: print: B|100|Choreographer#doFrame frame=42
+	        app-100   (  100) [000] .... 1.010000: print: E|100
+	`)
+	bundle := BuildFrameRootCauseBundle(idx, Query{
+		Pattern:                "frame=42",
+		TimeStart:              0.950,
+		TimeEnd:                1.050,
+		FrameWindowAutoDerived: true,
+		TraceFlavorHint:        TraceFlavorHarmonyHitrace,
+	})
+	if bundle.Target.PID != 100 {
+		t.Fatalf("expected unique UI target despite missing previous frame, got %+v", bundle.Target)
+	}
+	if !near(bundle.Window.StartTs, 0.950, 0.000001) || !near(bundle.Window.EndTs, 1.050, 0.000001) {
+		t.Fatalf("missing previous frame should preserve query window, got %+v", bundle.Window)
+	}
+	if bundle.TargetResolution == nil || !containsSubstring(bundle.TargetResolution.Caveats, "previous frame end") {
+		t.Fatalf("expected previous-frame caveat, got %+v", bundle.TargetResolution)
+	}
+}
+
 func TestRunFrameRootCauseBundleReusesBundleWindowStats(t *testing.T) {
 	idx := buildTraceIndex(t, "frame_bundle_stats_reuse.systrace", `
-        app-100   (  100) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	        app-100   (  100) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
         app-100   (  100) [000] .... 1.003000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
      worker-200   (  200) [001] .... 1.004000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
      worker-200   (  200) [001] .... 1.008000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=000
