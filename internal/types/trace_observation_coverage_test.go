@@ -94,6 +94,41 @@ func TestTraceObservationCoverageSuggestsRepresentativeWindowForRepeatedMicroRoo
 	}
 }
 
+func TestTraceObservationCoveragePreservesParentAndMicroWindowRootCandidates(t *testing.T) {
+	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
+		traceCoverageRecord("parent-root", "trace_query:parent", "root_cause_primary", "root_cause_primary", "worker-200", "sleep_wait", "18.000", []string{"chain_relevance=on_chain", "cumulative_impact_ms=18.000"}, ObservationSpan{StartTs: 1.000, EndTs: 1.120}),
+		traceCoverageRecord("micro-root", "trace_query:micro", "root_cause_primary", "root_cause_primary", "worker-200", "running", "6.000", []string{"chain_relevance=on_chain", "cumulative_impact_ms=6.000"}, ObservationSpan{StartTs: 1.030, EndTs: 1.050}),
+		traceCoverageRecord("background-root", "trace_query:micro", "root_cause_primary", "root_cause_primary", "logger-900", "io_pressure", "40.000", []string{"chain_relevance=background", "cumulative_impact_ms=40.000"}, ObservationSpan{StartTs: 1.030, EndTs: 1.050}),
+	})
+	if slices.Contains(got.SoftMissingDimensions, "representative_window_coverage") {
+		t.Fatalf("parent representative window should prevent repeated micro-window debt, got %+v", got.SoftMissingDimensions)
+	}
+	if !slices.Contains(got.Windows, "1.000000..1.120000") ||
+		!slices.Contains(got.Windows, "1.030000..1.050000") {
+		t.Fatalf("coverage must retain both parent and micro windows: %+v", got.Windows)
+	}
+	if len(got.TopObservations) < 3 {
+		t.Fatalf("top observations should retain parent, micro, and background candidates: %+v", got.TopObservations)
+	}
+	positions := map[string]int{}
+	for i, record := range got.TopObservations {
+		positions[record.ID] = i
+	}
+	parentPos, parentOK := positions["parent-root"]
+	microPos, microOK := positions["micro-root"]
+	backgroundPos, backgroundOK := positions["background-root"]
+	if !parentOK || !microOK || !backgroundOK {
+		t.Fatalf("coverage should keep parent, micro, and background candidates: %+v", got.TopObservations)
+	}
+	if parentPos > backgroundPos || microPos > backgroundPos {
+		t.Fatalf("on-chain parent/micro candidates should remain before background noise: %+v", got.TopObservations)
+	}
+	if got.CausalProjection.PrimaryRootCause == nil ||
+		got.CausalProjection.PrimaryRootCause.Subject != "worker-200" {
+		t.Fatalf("coverage causal projection should keep on-chain candidate primary, got %+v", got.CausalProjection)
+	}
+}
+
 func TestTraceObservationCoverageDoesNotSuggestRepresentativeWindowWhenAdequateWindowExists(t *testing.T) {
 	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
 		traceCoverageRecord("root1", "trace_query:1", "root_cause_primary", "root_cause_primary", "target-1", "running", "12.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.000, EndTs: 1.020}),

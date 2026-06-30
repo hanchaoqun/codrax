@@ -128,6 +128,45 @@ func TestTraceCausalProjectionPreservesMultiLayerChainRelevance(t *testing.T) {
 	}
 }
 
+func TestTraceCausalProjectionKeepsOnChainPrimaryAheadOfLargerBackground(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		traceProjectionTestRootWithNotes("root-background", "logger-900", "io_pressure", "80.000", 80.0, 0.95, 1, []string{
+			"chain_relevance=background",
+			"causality=background",
+		}),
+		traceProjectionTestRootWithNotes("root-on-chain", "worker-200", "sleep_wait", "12.000", 12.0, 0.86, 2, []string{
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+			"chain_depth=1",
+		}),
+		{
+			ID:              "path",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: ClaimGroundingHard,
+			Predicate:       "wakeup_chain",
+			ClaimKey:        "wakeup_chain:path",
+			Object:          "worker-200 -> app-100",
+		},
+	}}
+
+	got := CompileTraceCausalProjection(ledger)
+	if got.PrimaryRootCause == nil || got.PrimaryRootCause.Subject != "worker-200" {
+		t.Fatalf("on-chain root cause must stay primary even when background impact is larger, got %+v", got.PrimaryRootCause)
+	}
+	if len(got.PrimaryRootCauses) < 2 ||
+		got.PrimaryRootCauses[0].Subject != "worker-200" ||
+		got.PrimaryRootCauses[1].Subject != "logger-900" {
+		t.Fatalf("primary ordering should preserve on-chain before background: %+v", got.PrimaryRootCauses)
+	}
+	if len(got.OnChainCauses) != 1 || got.OnChainCauses[0].Subject != "worker-200" {
+		t.Fatalf("on-chain bucket missing selected cause: %+v", got.OnChainCauses)
+	}
+	if len(got.BackgroundCauses) != 1 || got.BackgroundCauses[0].Subject != "logger-900" {
+		t.Fatalf("background pressure should remain visible as context, got %+v", got.BackgroundCauses)
+	}
+}
+
 func TestTraceCausalProjectionPreservesMultiHopPathWithRunningWaker(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{
 		traceProjectionTestRootWithNotes("root-io", "threadpool-400", "io_burst_episode", "119.000", 119.0, 0.88, 1, []string{
