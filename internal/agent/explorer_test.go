@@ -1457,14 +1457,14 @@ func TestBuildInitialInstructionRuntimeArtifactRestoresRepoMapFirstHopAfterRunti
 		Success:  true,
 		Summary:  "[trace_query params: view=root_cause_rank source=path path=trace.systrace origin=runtime_artifact artifact_id=trace artifact_kind=trace payload_ref=blob://trace]\nroot cause observation",
 		Observations: []types.ObservationRecord{{
-			ID:         "tool:0#trace_query:root_cause_rank:1",
-			Origin:     types.AnswerEvidenceOriginRuntimeArtifact,
-			Producer:   "trace_query",
-			SourceRef:  types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactKind: "trace", ArtifactID: "trace", PayloadRef: "blob://trace"},
+			ID:              "tool:0#trace_query:root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactKind: "trace", ArtifactID: "trace", PayloadRef: "blob://trace"},
 			GroundingPolicy: types.ClaimGroundingHard,
-			ClaimKey:   "runtime.root_cause",
-			Summary:    "runtime root cause observation",
-			Confidence: 0.9,
+			ClaimKey:        "runtime.root_cause",
+			Summary:         "runtime root cause observation",
+			Confidence:      0.9,
 		}},
 	})
 	ctx := &types.AgentContext{
@@ -10561,6 +10561,30 @@ func TestMixedRuntimeCurrentSourceCarrierActiveRequiresDualOriginLanePlan(t *tes
 	}}
 	if !eval.mixedRuntimeCurrentSourceCarrierActive(eval.analysisIR.RequestModel) {
 		t.Fatal("dual-origin lane plan should activate mixed runtime/current-source carrier")
+	}
+}
+
+func TestMixedRuntimeCurrentSourceCarrierActiveUsesRuntimeSourceAuthority(t *testing.T) {
+	mut := types.NewMutableState("trace runtime observation")
+	mut.AppendDispatchToolResult(explorerRuntimeObservationToolResultForSurfacePlanTest())
+	eval := &explorerEvaluator{
+		analysisIR: explorerRuntimeCurrentStatusIRForSurfacePlanTest(),
+		mutable:    mut,
+		turnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+	}
+	if types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(eval.analysisIR.RequestModel) {
+		t.Fatal("test fixture should exercise authority cutover, not legacy mixed-runtime shape")
+	}
+	if !eval.exploreLanePlan.Empty() {
+		t.Fatal("test fixture should not rely on dual-origin lane-plan fallback")
+	}
+	if !eval.mixedRuntimeCurrentSourceCarrierActive(eval.analysisIR.RequestModel) {
+		t.Fatal("typed runtime observation plus soft current-source authority should activate mixed carrier")
 	}
 }
 

@@ -8635,6 +8635,9 @@ func (e *explorerEvaluator) mixedRuntimeCurrentSourceCarrierActive(rm types.Requ
 		types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
 		return false
 	}
+	if authority := e.runtimeSourceAnswerAuthority(); mixedRuntimeCurrentSourceAuthorityCarrierActive(authority) {
+		return true
+	}
 	if e != nil && types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) && e.mixedRuntimeCurrentSourceRuntimeLanePresent(rm) {
 		return true
 	}
@@ -8643,6 +8646,40 @@ func (e *explorerEvaluator) mixedRuntimeCurrentSourceCarrierActive(rm types.Requ
 	}
 	return exploreLanePlanHasOrigin(e.exploreLanePlan, types.AnswerEvidenceOriginCurrentSource) &&
 		exploreLanePlanHasOrigin(e.exploreLanePlan, types.AnswerEvidenceOriginRuntimeArtifact)
+}
+
+func (e *explorerEvaluator) runtimeSourceAnswerAuthority() types.RuntimeSourceAnswerAuthoritySnapshot {
+	if e == nil || e.analysisIR == nil {
+		return types.RuntimeSourceAnswerAuthoritySnapshot{}
+	}
+	return types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(&types.AgentContext{
+		Stage:         types.StageExplore,
+		AnalysisIR:    e.analysisIR,
+		Mutable:       e.mutable,
+		LogTriage:     e.logTriage,
+		PerfTrace:     e.perfTrace,
+		FlowFindings:  e.flowFindings,
+		EvidenceItems: e.structuredEvidence,
+		MCPResponses:  e.mcpResponses,
+		TurnRouteHint: e.turnRouteHint,
+	}, types.ObservationLedger{})
+}
+
+func mixedRuntimeCurrentSourceAuthorityCarrierActive(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	runtimeCarrier := authority.RuntimeObservationCount > 0 ||
+		authority.DeterministicRuntimeQueryCount > 0 ||
+		authority.RuntimeOnlySufficient ||
+		authority.CanUseRuntimeOnlyWithCaveat ||
+		authority.CanCompleteWithCombinedProof
+	sourceCarrier := authority.CurrentSourceRequired ||
+		authority.CurrentSourceSatisfied ||
+		authority.CurrentSourceRecordCount > 0 ||
+		authority.ExactCurrentSourceSupportCount > 0 ||
+		authority.CurrentSourceRequirement != types.RuntimeSourceRequirementNone
+	return runtimeCarrier && sourceCarrier
 }
 
 func exploreLanePlanHasOrigin(plan types.ExploreLanePlan, want types.AnswerEvidenceOrigin) bool {
