@@ -1913,6 +1913,7 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 	thread := strings.TrimSpace(fields["thread"])
 	impact := traceQueryFieldMS(fields, "impact")
 	cumulativeImpact := traceQueryFieldMS(fields, "cumulative_impact")
+	effectiveImpact := traceQueryFieldMS(fields, "effective_impact")
 	targetImpact := traceQueryFieldMS(fields, "target_impact")
 	projectedImpact := traceQueryFieldMS(fields, "projected_impact")
 	actualImpact := traceQueryFieldMS(fields, "actual_impact")
@@ -1934,7 +1935,7 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 		value = fmt.Sprintf("%.3f", impact)
 	}
 	notes := traceQuerySelectedRichNotes(fields, []string{"occurrence_windows"})
-	notes = append(notes, traceQueryPriorityRichNotes(rank, tier, typ, fields["source"], fields["causality"], traceQueryFieldInt(fields, "chain_depth"), score, impact, cumulativeImpact, targetImpact)...)
+	notes = append(notes, traceQueryPriorityRichNotes(rank, tier, typ, fields["source"], fields["causality"], traceQueryFieldInt(fields, "chain_depth"), score, impact, cumulativeImpact, effectiveImpact, targetImpact)...)
 	if projectedImpact > 0 {
 		notes = append(notes, fmt.Sprintf("projected_impact_ms=%.3f", projectedImpact))
 	}
@@ -2777,7 +2778,7 @@ func traceQueryFieldLineSpan(raw string) (int, int) {
 	return start, end
 }
 
-func traceQueryPriorityRichNotes(rank int, tier, typ, source, causality string, chainDepth int, score, impact, cumulativeImpact, targetImpact float64) []string {
+func traceQueryPriorityRichNotes(rank int, tier, typ, source, causality string, chainDepth int, score, impact, cumulativeImpact, effectiveImpact, targetImpact float64) []string {
 	var notes []string
 	if rank > 0 {
 		notes = append(notes, fmt.Sprintf("rank=%d", rank))
@@ -2793,6 +2794,9 @@ func traceQueryPriorityRichNotes(rank int, tier, typ, source, causality string, 
 	}
 	if cumulativeImpact > 0 {
 		notes = append(notes, fmt.Sprintf("cumulative_impact_ms=%.3f", cumulativeImpact))
+	}
+	if effectiveImpact > 0 {
+		notes = append(notes, fmt.Sprintf("effective_impact_ms=%.3f", effectiveImpact))
 	}
 	if targetImpact > 0 {
 		notes = append(notes, fmt.Sprintf("target_impact_ms=%.3f", targetImpact))

@@ -46,6 +46,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 					ImpactMs:           12.5,
 					ProjectedImpactMs:  12.5,
 					CumulativeImpactMs: 18.5,
+					EffectiveImpactMs:  18.5,
 					TargetImpactMs:     16.0,
 					ActualImpactMs:     20.0,
 					ActualTotalMs:      22.0,
@@ -420,7 +421,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		t.Fatalf("primary root-cause fields drifted: %+v", rootCause)
 	}
 	rootNotes := strings.Join(rootCause.RichNotes, "\n")
-	for _, want := range []string{"occurrence_windows=1.010000..1.025000", "projected_impact=6.500ms", "actual_impact=8.000ms", "actual_window=0.900000..1.025000", "projected_impact_ms=12.500", "projected_total_ms=18.500", "actual_impact_ms=20.000", "actual_total_ms=22.000", "actual_window=0.900000..1.030000", "cumulative_impact_ms=18.500", "target_impact_ms=16.000", "causality=on_wakeup_chain", "chain_depth=2", "dominant_state=io_wait", "d_state=4.000", "io_wait=2.500"} {
+	for _, want := range []string{"occurrence_windows=1.010000..1.025000", "projected_impact=6.500ms", "actual_impact=8.000ms", "actual_window=0.900000..1.025000", "projected_impact_ms=12.500", "projected_total_ms=18.500", "actual_impact_ms=20.000", "actual_total_ms=22.000", "actual_window=0.900000..1.030000", "cumulative_impact_ms=18.500", "effective_impact_ms=18.500", "target_impact_ms=16.000", "causality=on_wakeup_chain", "chain_depth=2", "dominant_state=io_wait", "d_state=4.000", "io_wait=2.500"} {
 		if !strings.Contains(rootNotes, want) {
 			t.Fatalf("root-cause notes missing %q: %+v", want, rootCause.RichNotes)
 		}

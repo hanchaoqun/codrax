@@ -1136,6 +1136,7 @@ type RootCauseRankItem struct {
 	ImpactMs           float64                    `json:"impact_ms,omitempty"`
 	ProjectedImpactMs  float64                    `json:"projected_impact_ms,omitempty"`
 	CumulativeImpactMs float64                    `json:"cumulative_impact_ms,omitempty"`
+	EffectiveImpactMs  float64                    `json:"effective_impact_ms,omitempty"`
 	TargetImpactMs     float64                    `json:"target_impact_ms,omitempty"`
 	ActualImpactMs     float64                    `json:"actual_impact_ms,omitempty"`
 	ActualTotalMs      float64                    `json:"actual_total_ms,omitempty"`

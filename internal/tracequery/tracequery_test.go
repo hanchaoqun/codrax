@@ -2233,6 +2233,12 @@ func TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork(t *testing.T) {
 		if item.ProjectedImpactMs <= 0 || item.ActualImpactMs < item.ProjectedImpactMs {
 			t.Fatalf("semantic span should carry projected and actual durations: %+v", item)
 		}
+		if item.EffectiveImpactMs <= item.ProjectedImpactMs {
+			t.Fatalf("on-chain semantic span should carry boosted effective impact for ranking: %+v", item)
+		}
+		if !strings.Contains(item.Summary, "effective_impact=") || !strings.Contains(item.Summary, "hidden_cost_boost=true") {
+			t.Fatalf("semantic span summary should explain effective impact boost: %q", item.Summary)
+		}
 	}
 	if !found {
 		t.Fatalf("expected on-chain class_verification root cause: %+v", rank.Items)
@@ -2375,6 +2381,56 @@ func TestRootCauseRankSortsOnChainByCumulativeImpact(t *testing.T) {
 	sortRootCauseRankItems(items, true)
 	if items[0].Thread.PID != 300 || items[1].Thread.PID != 200 {
 		t.Fatalf("same-chain rows should sort by cumulative impact before score: %+v", items)
+	}
+	if items[2].ChainRelevance != "background" {
+		t.Fatalf("background pressure should stay behind on-chain rows despite higher score: %+v", items)
+	}
+}
+
+func TestRootCauseRankSortsShortOnChainSemanticSpanByEffectiveImpact(t *testing.T) {
+	items := []RootCauseRankItem{
+		{
+			Type:               "runnable_wait",
+			Thread:             ThreadRef{Comm: "longer-runnable", PID: 200},
+			ImpactMs:           3.0,
+			ProjectedImpactMs:  3.0,
+			CumulativeImpactMs: 3.0,
+			Score:              20,
+			ChainRelevance:     "on_chain",
+			Causality:          "on_wakeup_chain",
+			DominantState:      string(StateRunnable),
+			RunnableMs:         3.0,
+			LineStart:          20,
+		},
+		{
+			Type:               "jit_compile",
+			Thread:             ThreadRef{Comm: "jit-worker", PID: 300},
+			ImpactMs:           1.2,
+			ProjectedImpactMs:  1.2,
+			CumulativeImpactMs: 1.2,
+			EffectiveImpactMs:  4.0,
+			Score:              12,
+			ChainRelevance:     "on_chain",
+			Causality:          "on_wakeup_chain",
+			SemanticClass:      "jit_compile",
+			SpanName:           "JitCompileMethod",
+			LineStart:          30,
+		},
+		{
+			Type:               "cpu_pressure",
+			Thread:             ThreadRef{Comm: "background", PID: 900},
+			ImpactMs:           50,
+			CumulativeImpactMs: 50,
+			EffectiveImpactMs:  50,
+			Score:              1000,
+			ChainRelevance:     "background",
+			Causality:          "background",
+			LineStart:          10,
+		},
+	}
+	sortRootCauseRankItems(items, true)
+	if items[0].Thread.PID != 300 || items[1].Thread.PID != 200 {
+		t.Fatalf("same-chain semantic span work should sort by effective impact before raw cumulative duration: %+v", items)
 	}
 	if items[2].ChainRelevance != "background" {
 		t.Fatalf("background pressure should stay behind on-chain rows despite higher score: %+v", items)

@@ -6585,6 +6585,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 	items = enrichRootCauseItemsWithChainContext(chain, items)
 	normalizeRootCauseChainRelevance(items, hasCausalChain)
 	normalizeRootCauseCumulativeImpact(items)
+	normalizeRootCauseEffectiveImpact(items)
 	sortRootCauseRankItems(items, hasCausalChain)
 	limit := q.Limit
 	if limit <= 0 || limit > 12 {
@@ -6689,6 +6690,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	}
 	normalizeRootCauseChainRelevance(rank.Items, hasCausalChain)
 	normalizeRootCauseCumulativeImpact(rank.Items)
+	normalizeRootCauseEffectiveImpact(rank.Items)
 	sortRootCauseRankItems(rank.Items, hasCausalChain)
 	limit := q.Limit
 	if limit <= 0 || limit > 12 {
@@ -7121,6 +7123,15 @@ func normalizeRootCauseCumulativeImpact(items []RootCauseRankItem) {
 	}
 }
 
+func normalizeRootCauseEffectiveImpact(items []RootCauseRankItem) {
+	for i := range items {
+		if items[i].EffectiveImpactMs > 0 {
+			continue
+		}
+		items[i].EffectiveImpactMs = rootCauseEffectiveImpactMs(items[i])
+	}
+}
+
 func sortRootCauseRankItems(items []RootCauseRankItem, chainAware bool) {
 	sort.SliceStable(items, func(i, j int) bool {
 		if chainAware {
@@ -7130,8 +7141,8 @@ func sortRootCauseRankItems(items []RootCauseRankItem, chainAware bool) {
 				return ri < rj
 			}
 			if ri == chainRelevanceRank("on_chain") {
-				ci := rootCauseCumulativeImpactMs(items[i])
-				cj := rootCauseCumulativeImpactMs(items[j])
+				ci := rootCauseEffectiveImpactMs(items[i])
+				cj := rootCauseEffectiveImpactMs(items[j])
 				if ci != cj {
 					return ci > cj
 				}
@@ -7167,6 +7178,13 @@ func rootCauseCumulativeImpactMs(item RootCauseRankItem) float64 {
 		return item.ImpactMs
 	}
 	return item.TargetImpactMs
+}
+
+func rootCauseEffectiveImpactMs(item RootCauseRankItem) float64 {
+	if item.EffectiveImpactMs > 0 {
+		return item.EffectiveImpactMs
+	}
+	return rootCauseCumulativeImpactMs(item)
 }
 
 func runnableContextForThread(thread ThreadRef, contexts []RunnableContextSummary) (RunnableContextSummary, bool) {
@@ -7320,8 +7338,12 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	if projection.ImpactMs <= 0 {
 		return RootCauseRankItem{}, false
 	}
-	summary := fmt.Sprintf("%s span %q overlapped %s for %.3fms; actual_span=%.3fms window=%.6f..%.6f",
-		work.Label, span.Name, semanticTraceSpanProjectionScope(projection, hasCausalChain), projection.ImpactMs, span.DurationMs, span.StartTs, span.EndTs)
+	effectiveImpactMs := semanticTraceSpanEffectiveImpactMs(work, projection, span)
+	summary := fmt.Sprintf("%s span %q overlapped %s for %.3fms; effective_impact=%.3fms; actual_span=%.3fms window=%.6f..%.6f",
+		work.Label, span.Name, semanticTraceSpanProjectionScope(projection, hasCausalChain), projection.ImpactMs, effectiveImpactMs, span.DurationMs, span.StartTs, span.EndTs)
+	if projection.OnChain && effectiveImpactMs > projection.ImpactMs {
+		summary = fmt.Sprintf("%s; semantic_multiplier=%.2f hidden_cost_boost=true", summary, work.ImpactMultiplier)
+	}
 	if projection.DominantState != "" {
 		summary = fmt.Sprintf("%s; overlapped_chain_state=%s", summary, projection.DominantState)
 	}
@@ -7334,6 +7356,7 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	item.ActualTotalMs = span.DurationMs
 	item.ProjectedImpactMs = projection.ImpactMs
 	item.CumulativeImpactMs = projection.ImpactMs
+	item.EffectiveImpactMs = effectiveImpactMs
 	item.SpanName = span.Name
 	item.SpanKind = span.Kind
 	item.SpanCategory = firstNonEmpty(span.Category, work.Category)
@@ -7346,8 +7369,37 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 		item.ChainRelevance = "on_chain"
 	}
 	applySemanticTraceSpanState(&item, projection.DominantState, projection.ImpactMs)
-	item.Score = item.ImpactMs * item.Confidence * rootCauseTypeWeight(item.Type)
+	item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseTypeWeight(item.Type)
 	return item, true
+}
+
+func semanticTraceSpanEffectiveImpactMs(work traceSpanSemanticWork, projection semanticTraceSpanProjection, span TraceSpanSummary) float64 {
+	impact := projection.ImpactMs
+	if impact <= 0 {
+		return 0
+	}
+	if !projection.OnChain {
+		return impact
+	}
+	multiplier := work.ImpactMultiplier
+	if multiplier <= 0 {
+		multiplier = 1
+	}
+	effective := impact * multiplier
+	if work.MinOnChainImpactMs > 0 && span.DurationMs >= 0.5 && effective < work.MinOnChainImpactMs {
+		effective = work.MinOnChainImpactMs
+	}
+	capMs := maxFloat(span.DurationMs*4, impact*4)
+	if work.MinOnChainImpactMs > capMs {
+		capMs = work.MinOnChainImpactMs
+	}
+	if capMs > 0 && effective > capMs {
+		effective = capMs
+	}
+	if effective < impact {
+		return impact
+	}
+	return effective
 }
 
 func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span TraceSpanSummary) semanticTraceSpanProjection {
@@ -8352,12 +8404,14 @@ func isFrameLikeSpan(name string) bool {
 }
 
 type traceSpanSemanticWork struct {
-	RootCauseType string
-	Category      string
-	Subcategory   string
-	SemanticClass string
-	Label         string
-	Confidence    float64
+	RootCauseType      string
+	Category           string
+	Subcategory        string
+	SemanticClass      string
+	Label              string
+	Confidence         float64
+	ImpactMultiplier   float64
+	MinOnChainImpactMs float64
 }
 
 func traceSpanSemanticClass(name string) string {
@@ -8377,39 +8431,47 @@ func traceSpanSemanticWorkClass(name string) (traceSpanSemanticWork, bool) {
 	switch {
 	case traceSpanLooksLikeJITCompile(lower, tokens):
 		return traceSpanSemanticWork{
-			RootCauseType: "jit_compile",
-			Category:      "runtime_compile",
-			Subcategory:   "jit",
-			SemanticClass: "jit_compile",
-			Label:         "JIT compilation",
-			Confidence:    0.82,
+			RootCauseType:      "jit_compile",
+			Category:           "runtime_compile",
+			Subcategory:        "jit",
+			SemanticClass:      "jit_compile",
+			Label:              "JIT compilation",
+			Confidence:         0.82,
+			ImpactMultiplier:   2.60,
+			MinOnChainImpactMs: 4.0,
 		}, true
 	case traceSpanLooksLikeClassVerification(lower, tokens):
 		return traceSpanSemanticWork{
-			RootCauseType: "class_verification",
-			Category:      "runtime_verification",
-			Subcategory:   "class_verification",
-			SemanticClass: "class_verification",
-			Label:         "class verification",
-			Confidence:    0.82,
+			RootCauseType:      "class_verification",
+			Category:           "runtime_verification",
+			Subcategory:        "class_verification",
+			SemanticClass:      "class_verification",
+			Label:              "class verification",
+			Confidence:         0.82,
+			ImpactMultiplier:   2.40,
+			MinOnChainImpactMs: 4.0,
 		}, true
 	case traceSpanLooksLikeShaderCompile(lower, tokens):
 		return traceSpanSemanticWork{
-			RootCauseType: "shader_compile",
-			Category:      "shader_compile",
-			Subcategory:   "shader",
-			SemanticClass: "shader_compile",
-			Label:         "shader compilation",
-			Confidence:    0.80,
+			RootCauseType:      "shader_compile",
+			Category:           "shader_compile",
+			Subcategory:        "shader",
+			SemanticClass:      "shader_compile",
+			Label:              "shader compilation",
+			Confidence:         0.80,
+			ImpactMultiplier:   2.40,
+			MinOnChainImpactMs: 4.0,
 		}, true
 	case traceSpanLooksLikeRuntimeCompile(lower, tokens):
 		return traceSpanSemanticWork{
-			RootCauseType: "runtime_compile",
-			Category:      "runtime_compile",
-			Subcategory:   "compile",
-			SemanticClass: "runtime_compile",
-			Label:         "runtime compilation",
-			Confidence:    0.78,
+			RootCauseType:      "runtime_compile",
+			Category:           "runtime_compile",
+			Subcategory:        "compile",
+			SemanticClass:      "runtime_compile",
+			Label:              "runtime compilation",
+			Confidence:         0.78,
+			ImpactMultiplier:   2.10,
+			MinOnChainImpactMs: 3.5,
 		}, true
 	default:
 		return traceSpanSemanticWork{}, false
