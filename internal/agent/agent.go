@@ -2693,6 +2693,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				if er.result != nil {
 					attached := types.AttachToolHandoffCarrier(*er.result)
 					er.result = &attached
+					appendTypedToolRefinementFeedback(er.result)
 					b.observeToolRepairPackEmitted(ctx, er.result)
 					toolOK = er.result.Success
 					allToolResults = append(allToolResults, *er.result)
@@ -2771,6 +2772,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				if result != nil {
 					attached := types.AttachToolHandoffCarrier(*result)
 					result = &attached
+					appendTypedToolRefinementFeedback(result)
 					b.observeToolRepairPackEmitted(ctx, result)
 					toolOK = result.Success
 					allToolResults = append(allToolResults, *result)
@@ -4737,6 +4739,27 @@ func containsSequentialRuntimeTool(calls []llm.ToolCall) bool {
 		}
 	}
 	return false
+}
+
+func appendTypedToolRefinementFeedback(result *types.ToolResult) {
+	if result == nil || result.Refinement == nil {
+		return
+	}
+	fields := types.ToolRefinementPromptFields(result.Refinement, types.ToolRefinementPromptFieldOptions{
+		QuoteValues: true,
+	})
+	if len(fields) == 0 {
+		return
+	}
+	line := "[typed_tool_refinement: " + strings.Join(fields, " ") + "]"
+	if strings.Contains(result.Summary, line) {
+		return
+	}
+	result.Summary = strings.TrimRight(result.Summary, "\n")
+	if result.Summary != "" {
+		result.Summary += "\n"
+	}
+	result.Summary += line
 }
 
 const (

@@ -168,6 +168,62 @@ func TestPruneExploreToolBatchBeforeHistoryNoPruneHasNoGuardHint(t *testing.T) {
 	}
 }
 
+func TestAppendTypedToolRefinementFeedbackSurfacesTypedSoftGuidance(t *testing.T) {
+	result := &types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "raw grep result",
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode:        "grep_result_truncated",
+			ResultTruncated:   true,
+			PreferredNextTool: "repo_map",
+			PreferredParams: map[string]string{
+				"view": "source_inventory",
+				"path": "internal/agent",
+			},
+			RequiredFields: []string{"roles"},
+		},
+	}
+
+	appendTypedToolRefinementFeedback(result)
+
+	for _, want := range []string{
+		"[typed_tool_refinement:",
+		"refine_flags=`result_truncated`",
+		"refine_action=`soft_narrow_if_answer_critical_else_caveat`",
+		"preferred_tool=`repo_map`",
+		"preferred_params=`path=internal/agent,view=source_inventory`",
+		"required_fields=`roles`",
+	} {
+		if !strings.Contains(result.Summary, want) {
+			t.Fatalf("typed refinement feedback missing %q in %q", want, result.Summary)
+		}
+	}
+	if strings.Contains(result.Summary, "grep_result_truncated") {
+		t.Fatalf("model-facing feedback should render typed action fields, not reason-code prose: %q", result.Summary)
+	}
+}
+
+func TestAppendTypedToolRefinementFeedbackIsIdempotent(t *testing.T) {
+	result := &types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Summary:  "trace result",
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode:        "trace_query_result_compacted",
+			ResultTruncated:   true,
+			PreferredNextTool: "trace_query",
+		},
+	}
+
+	appendTypedToolRefinementFeedback(result)
+	appendTypedToolRefinementFeedback(result)
+
+	if got := strings.Count(result.Summary, "[typed_tool_refinement:"); got != 1 {
+		t.Fatalf("typed refinement feedback should be appended once, got %d in %q", got, result.Summary)
+	}
+}
+
 func TestCanExecuteToolBatchInParallelDisablesTraceQuery(t *testing.T) {
 	ctx := &types.AgentContext{Stage: types.StageExplore}
 	calls := []llm.ToolCall{
