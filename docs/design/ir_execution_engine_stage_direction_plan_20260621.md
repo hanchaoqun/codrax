@@ -4102,6 +4102,15 @@ Remaining follow-up:
     4. Regression: focused tests prove a typed projection hint is rewritten into the safe extractor surface, while the exact same prose without the typed kind is not rewritten by scanning `repo_map` / `grep` / `read_file` tokens.
     5. Safety boundary: this fix consumes only `RetryHintKind` and the current skill `ToolSuggestions`. It does not parse raw user text, model rationale/prose, rendered retry-hint content, localized UI text, elapsed time, eval labels, or final-answer prose. Future producers that need this projection must stamp the typed kind instead of relying on text.
 
+  - **Completed D1-G202: standalone dataflow prompt rendering scanned prior-report Markdown headings（P1 / prompt-control precision + noise governance / fixed）**:
+    1. Evidence: `BuildPromptContext` suppressed the standalone `Dataflow Findings` prompt section for finalizer by scanning `StageReport.Findings` for the rendered Markdown heading `## Dataflow Findings`. This was not an answer hard gate, but it still let model-authored or rendered report prose decide prompt structure, and it could hide typed `FlowFindings` merely because a prior report happened to contain the same heading text.
+    2. Target architecture: prompt de-duplication decisions must consume typed state. Markdown headings inside prior reports remain transparent context only; they must not decide whether typed dataflow observations are rendered. Noise suppression is allowed only when a structured downstream contract already carries the same authority.
+    3. Delivered D1-F10g.322:
+       - D1-F10g.322a: removed `priorReportsContainSection` and the `StageReport.Findings` substring check from standalone dataflow rendering.
+       - D1-F10g.322b: added `shouldRenderStandaloneDataflowFindings`, which renders only non-empty typed `FlowFindings` and suppresses the standalone section for typed-support finalizer mode where support lanes are the authoritative consumption surface.
+       - D1-F10g.322c: updated regressions so a prior-report Markdown heading no longer suppresses typed `FlowFindings`, while typed-support finalizer mode still avoids duplicate standalone dataflow prompt noise.
+    4. Safety boundary: this fix consumes only `AgentContext.FlowFindings`, `AgentName`, `Stage`, and the typed answer-support plan. It does not inspect user text, model rationale/prose, rendered prior reports, localized UI text, elapsed time, eval labels, or final-answer prose.
+
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
 - Focused packages: `go test ./internal/types ./internal/analysis/compiler ./internal/analysis/criterion ./internal/orchestrator ./internal/agent -run 'Dependency|Artifact|ReadLoopNextAction|DispatchPolicy|ExecutionPolicy|StageRunner|EvidenceReducer|ReadRunSnapshot'`

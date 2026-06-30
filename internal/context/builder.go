@@ -1074,7 +1074,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
-	if findings != "" && !(ac.Stage == types.StageFinalize && priorReportsContainSection(ac.PriorReports, "## Dataflow Findings")) {
+	if shouldRenderStandaloneDataflowFindings(ac, findings) {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionDataflowFindings,
 			Content: findings,
@@ -4665,6 +4665,13 @@ func suppressUnverifiedLeadsForTypedSupportFinalizer(ac *types.AgentContext) boo
 	return ac != nil && ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac)
 }
 
+func shouldRenderStandaloneDataflowFindings(ac *types.AgentContext, findings string) bool {
+	if strings.TrimSpace(findings) == "" {
+		return false
+	}
+	return ac == nil || ac.AgentName != types.AgentFinalizer || !finalizerUsesTypedAnswerSupport(ac)
+}
+
 func supportPlanEntryFile(location string) string {
 	location = strings.TrimSpace(strings.ReplaceAll(location, `\`, `/`))
 	if location == "" {
@@ -4701,18 +4708,6 @@ func isAllDigits(s string) bool {
 		}
 	}
 	return true
-}
-
-func priorReportsContainSection(reports []types.StageReport, heading string) bool {
-	if heading == "" {
-		return false
-	}
-	for _, r := range reports {
-		if strings.Contains(r.Findings, heading) {
-			return true
-		}
-	}
-	return false
 }
 
 // subjectMatchRenderCap bounds the number of top chains rendered in

@@ -2048,7 +2048,7 @@ func TestBuildPromptContext_FinalizerSkill_KeepsKnownFactsAndStructuredEvidence(
 	}
 }
 
-func TestBuildPromptContext_FinalizerSkill_SkipsDuplicateDataflowFindings(t *testing.T) {
+func TestBuildPromptContext_FinalizerSkill_PriorMarkdownTitleDoesNotSuppressDataflowFindings(t *testing.T) {
 	ac := acWithFactsAndEvidence()
 	ac.AgentName = types.AgentFinalizer
 	ac.Stage = types.StageFinalize
@@ -2072,8 +2072,59 @@ func TestBuildPromptContext_FinalizerSkill_SkipsDuplicateDataflowFindings(t *tes
 	if findSectionTitle(pc, SectionPriorStageFindings) == nil {
 		t.Fatal("test setup should render prior reports")
 	}
+	if findSectionTitle(pc, SectionDataflowFindings) == nil {
+		t.Fatal("prior report markdown headings must not suppress typed FlowFindings")
+	}
+}
+
+func TestBuildPromptContext_FinalizerSkill_TypedSupportSuppressesStandaloneDataflowFindings(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "runtime error",
+			Frames: []types.LogFrame{{
+				File:       "internal/demo.go",
+				Line:       12,
+				Func:       "Callee",
+				Raw:        "internal/demo.go:12 Callee",
+				Confidence: 0.9,
+			}},
+		}},
+		ResolvedFiles: []string{"internal/demo.go"},
+	}
+	ac := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		Objective: "q",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				LogTriage: logBundle,
+			},
+		},
+		LogTriage: logBundle,
+		EvidenceItems: []types.EvidenceItem{{
+			ID:           "ev-1",
+			Kind:         types.EvidenceMechanism,
+			Subject:      "Caller",
+			Object:       "Callee",
+			AnchorSymbol: "Callee",
+			Source:       "internal/demo.go",
+			LineStart:    12,
+		}},
+		FlowFindings: []types.FlowFindingDigest{{
+			Path:       []string{"Caller", "Callee"},
+			Sources:    []string{"Caller"},
+			Sinks:      []string{"Callee"},
+			Confidence: 0.8,
+		}},
+	}
+	if !finalizerUsesTypedAnswerSupport(ac) {
+		t.Fatal("test setup should compile typed answer-support lanes")
+	}
+
+	pc := BuildPromptContext(ac, finalizerSkill())
 	if findSectionTitle(pc, SectionDataflowFindings) != nil {
-		t.Fatal("finalizer should not render a second standalone Dataflow Findings section when prior reports already contain one")
+		t.Fatal("typed-support finalizer should consume support lanes instead of a duplicate standalone Dataflow Findings prompt section")
 	}
 }
 
