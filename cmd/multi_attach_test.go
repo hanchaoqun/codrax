@@ -169,6 +169,64 @@ func TestTruncateAttachedToCap_PerChannelLabel(t *testing.T) {
 	}
 }
 
+func TestCLIAttachmentProgressLinesExplainLargeTraceWork(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "berlin.systrace")
+	if err := os.WriteFile(tracePath, []byte(strings.Repeat("x", 4096)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lines := cliAttachmentReadPlanLines("zh", []cliAttachmentInput{{
+		Kind:  "trace",
+		Paths: []string{tracePath},
+		Cap:   512 * 1024 * 1024,
+	}})
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"正在准备运行时附件",
+		"读取完成后会进入日志/trace 预处理和模型分析",
+		"正在读取 trace 附件",
+		tracePath,
+		"size=4.0 KiB",
+		"上限 512.0 MiB",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("attachment read progress missing %q:\n%s", want, joined)
+		}
+	}
+
+	loaded := cliAttachmentLoadedLine("zh", "trace", 512*1024*1024, 512*1024*1024)
+	for _, want := range []string{"已加载 trace 附件", "512.0 MiB", "达到当前上限", "直接点名原始文件路径"} {
+		if !strings.Contains(loaded, want) {
+			t.Fatalf("attachment loaded line missing %q:\n%s", want, loaded)
+		}
+	}
+
+	kickoff := strings.Join(cliRuntimeAnalysisKickoffLines("zh", 0, 512*1024*1024), "\n")
+	for _, want := range []string{"运行时附件已就绪", "预处理/索引/摘要", "模型调查", "大 trace", "持续显示"} {
+		if !strings.Contains(kickoff, want) {
+			t.Fatalf("analysis kickoff missing %q:\n%s", want, kickoff)
+		}
+	}
+}
+
+func TestCLIAttachmentProgressLinesFollowEnglish(t *testing.T) {
+	lines := cliAttachmentReadPlanLines("en", []cliAttachmentInput{{
+		Kind:   "log",
+		Inline: true,
+		Cap:    1024,
+	}})
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"Preparing runtime artifacts",
+		"reading inline log attachment",
+		"limit 1.0 KiB",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("English attachment progress missing %q:\n%s", want, joined)
+		}
+	}
+}
+
 // TestHardCeilingClamp_Constant pins the OOM-protection bound. A
 // drift here would let a misconfigured codrax.yaml allocate
 // arbitrary memory on a single attachment.
@@ -290,7 +348,7 @@ func TestCLIRuntimeArtifactStatusLinesIncludeRequestTraceBundleAndLogPaths(t *te
 		"tracebundle=1",
 		"systrace=1",
 		"log=1",
-		"primary: tracebundle " + bundlePath,
+		"主附件: tracebundle " + bundlePath,
 		"referenced in request",
 		"trace_provider=trace_streamer_db",
 		"trace_db_coverage=scheduler/sched_slice",
@@ -301,6 +359,9 @@ func TestCLIRuntimeArtifactStatusLinesIncludeRequestTraceBundleAndLogPaths(t *te
 		if !strings.Contains(joined, want) {
 			t.Fatalf("request path tracebundle/log status missing %q:\n%s", want, joined)
 		}
+	}
+	if strings.Contains(joined, "[runtime artifacts]") || strings.Contains(joined, "primary:") {
+		t.Fatalf("Chinese runtime artifact status should not leak English headings:\n%s", joined)
 	}
 }
 

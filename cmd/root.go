@@ -772,6 +772,9 @@ func rootRun(cmd *cobra.Command, args []string) error {
 
 	// Resolve attached log (file / stdin / inline text) before Run so
 	// both CLI single-shot and REPL sticky-log paths share one source.
+	if request != "" {
+		printCLIAttachmentReadPlan(flagLang)
+	}
 	attached, err := loadAttachedLog()
 	if err != nil {
 		return err
@@ -779,6 +782,9 @@ func rootRun(cmd *cobra.Command, args []string) error {
 	if attached != "" {
 		app.orch.SetAttachedLog(attached)
 		logging.Info("[cmd] attached runtime log: %d bytes", len(attached))
+		if request != "" {
+			printCLIAttachmentLoaded(flagLang, "log", len(attached), maxAttachedLogBytes)
+		}
 	}
 	// Attach HiTrace / Android systrace separately so the independent
 	// perf_triage pre-stage can consume it without polluting the
@@ -791,9 +797,13 @@ func rootRun(cmd *cobra.Command, args []string) error {
 		app.orch.SetAttachedHitrace(trace)
 		app.orch.SetAttachedHitraceSource(traceSource)
 		logging.Info("[cmd] attached hitrace: %d bytes", len(trace))
+		if request != "" {
+			printCLIAttachmentLoaded(flagLang, "trace", len(trace), maxAttachedTraceBytes)
+		}
 	}
 	if request != "" {
 		printCLIRuntimeArtifactStatus(flagLang, request, attached, trace)
+		printCLIRuntimeAnalysisKickoff(flagLang, attached, trace)
 	}
 	if flagLogSourcePrefix != "" {
 		logtriage.SetSourcePrefix(flagLogSourcePrefix)
@@ -1182,6 +1192,216 @@ func truncateAttachedToCap(s string, cap int, kind string) string {
 	return s[:cap]
 }
 
+type cliAttachmentInput struct {
+	Kind   string
+	Paths  []string
+	Inline bool
+	Cap    int
+}
+
+func printCLIAttachmentReadPlan(lang string) {
+	printCLIStatusLines(cliAttachmentReadPlanLines(lang, cliAttachmentInputs()))
+}
+
+func printCLIAttachmentLoaded(lang, kind string, bytes, cap int) {
+	if line := cliAttachmentLoadedLine(lang, kind, bytes, cap); line != "" {
+		printCLIStatusLines([]string{line})
+	}
+}
+
+func printCLIRuntimeAnalysisKickoff(lang, logBody, traceBody string) {
+	printCLIStatusLines(cliRuntimeAnalysisKickoffLines(lang, len(logBody), len(traceBody)))
+}
+
+func printCLIStatusLines(lines []string) {
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fmt.Fprintln(os.Stderr, line)
+		logging.Info("[cmd] %s", line)
+	}
+}
+
+func cliAttachmentInputs() []cliAttachmentInput {
+	var inputs []cliAttachmentInput
+	if len(flagAttachLog) > 0 || flagAttachLogText != "" {
+		inputs = append(inputs, cliAttachmentInput{
+			Kind:   "log",
+			Paths:  append([]string(nil), flagAttachLog...),
+			Inline: flagAttachLogText != "",
+			Cap:    maxAttachedLogBytes,
+		})
+	}
+	tracePaths := flagAttachHitrace
+	traceInline := flagAttachHitraceText != ""
+	if len(flagAttachAtrace) > 0 {
+		tracePaths = flagAttachAtrace
+	}
+	if flagAttachAtraceText != "" {
+		traceInline = true
+	}
+	if len(tracePaths) > 0 || traceInline {
+		inputs = append(inputs, cliAttachmentInput{
+			Kind:   "trace",
+			Paths:  append([]string(nil), tracePaths...),
+			Inline: traceInline,
+			Cap:    maxAttachedTraceBytes,
+		})
+	}
+	return inputs
+}
+
+func cliAttachmentReadPlanLines(lang string, inputs []cliAttachmentInput) []string {
+	if len(inputs) == 0 {
+		return nil
+	}
+	zh := cliStatusUseChinese(lang)
+	lines := make([]string, 0, len(inputs)+1)
+	for _, input := range inputs {
+		if strings.TrimSpace(input.Kind) == "" {
+			continue
+		}
+		lines = append(lines, cliAttachmentReadPlanLine(zh, input))
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	if zh {
+		lines = append([]string{"› 正在准备运行时附件，读取完成后会进入日志/trace 预处理和模型分析。"}, lines...)
+	} else {
+		lines = append([]string{"› Preparing runtime artifacts; after loading, Codrax will run log/trace pre-processing and model analysis."}, lines...)
+	}
+	return lines
+}
+
+func cliAttachmentReadPlanLine(zh bool, input cliAttachmentInput) string {
+	kind := cliAttachmentKindLabel(input.Kind, zh)
+	limit := outputdump.HumanBytes(input.Cap)
+	switch {
+	case input.Inline:
+		if zh {
+			return fmt.Sprintf("· 正在读取内联 %s 附件（上限 %s）", kind, limit)
+		}
+		return fmt.Sprintf("· reading inline %s attachment (limit %s)", kind, limit)
+	case len(input.Paths) == 1:
+		size := cliAttachmentPathSize(input.Paths[0])
+		if size != "" {
+			size = " " + size
+		}
+		if zh {
+			return fmt.Sprintf("· 正在读取 %s 附件：%s%s（上限 %s）", kind, input.Paths[0], size, limit)
+		}
+		return fmt.Sprintf("· reading %s attachment: %s%s (limit %s)", kind, input.Paths[0], size, limit)
+	default:
+		list := cliAttachmentPathList(input.Paths, 3)
+		if zh {
+			return fmt.Sprintf("· 正在读取 %d 个 %s 附件：%s（合计上限 %s）", len(input.Paths), kind, list, limit)
+		}
+		return fmt.Sprintf("· reading %d %s attachments: %s (aggregate limit %s)", len(input.Paths), kind, list, limit)
+	}
+}
+
+func cliAttachmentLoadedLine(lang, kind string, bytes, cap int) string {
+	if bytes <= 0 {
+		return ""
+	}
+	zh := cliStatusUseChinese(lang)
+	label := cliAttachmentKindLabel(kind, zh)
+	size := outputdump.HumanBytes(bytes)
+	if cap > 0 && bytes >= cap {
+		if zh {
+			return fmt.Sprintf("✓ 已加载 %s 附件：%s（达到当前上限；后续仅基于已加载内容分析。若目标窗口不在已加载片段内，请在问题中直接点名原始文件路径或调高附件上限。）", label, size)
+		}
+		return fmt.Sprintf("✓ loaded %s attachment: %s (current limit reached; analysis uses the loaded slice only. If the target window is outside it, name the original file path in the question or raise the attachment limit.)", label, size)
+	}
+	if zh {
+		return fmt.Sprintf("✓ 已加载 %s 附件：%s", label, size)
+	}
+	return fmt.Sprintf("✓ loaded %s attachment: %s", label, size)
+}
+
+func cliRuntimeAnalysisKickoffLines(lang string, logBytes, traceBytes int) []string {
+	if logBytes <= 0 && traceBytes <= 0 {
+		return nil
+	}
+	zh := cliStatusUseChinese(lang)
+	parts := make([]string, 0, 2)
+	if logBytes > 0 {
+		parts = append(parts, "log="+outputdump.HumanBytes(logBytes))
+	}
+	if traceBytes > 0 {
+		parts = append(parts, "trace="+outputdump.HumanBytes(traceBytes))
+	}
+	if zh {
+		line := "› 运行时附件已就绪（" + strings.Join(parts, ", ") + "），开始分析：会先执行预处理/索引/摘要，再进入模型调查；大 trace 可能需要几十秒，后续进度会持续显示在本窗口。"
+		return []string{line}
+	}
+	line := "› Runtime artifacts ready (" + strings.Join(parts, ", ") + "); starting analysis. Codrax may first pre-process/index/summarize artifacts before model investigation; large traces can take tens of seconds and progress will continue in this terminal."
+	return []string{line}
+}
+
+func cliAttachmentKindLabel(kind string, zh bool) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "trace":
+		if zh {
+			return "trace"
+		}
+		return "trace"
+	case "log":
+		if zh {
+			return "日志"
+		}
+		return "log"
+	default:
+		if s := strings.TrimSpace(kind); s != "" {
+			return s
+		}
+		return "artifact"
+	}
+}
+
+func cliStatusUseChinese(lang string) bool {
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	return lang == "" || strings.HasPrefix(lang, "zh") || lang == "cn" || lang == "chinese"
+}
+
+func cliAttachmentPathSize(path string) string {
+	if strings.TrimSpace(path) == "" || path == "-" {
+		return ""
+	}
+	st, err := os.Stat(path)
+	if err != nil || st == nil || st.IsDir() {
+		return ""
+	}
+	size := st.Size()
+	if size > int64(maxAttachedLogHardCeiling) {
+		size = int64(maxAttachedLogHardCeiling)
+	}
+	return "size=" + outputdump.HumanBytes(int(size))
+}
+
+func cliAttachmentPathList(paths []string, max int) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	if max <= 0 {
+		max = len(paths)
+	}
+	shown := make([]string, 0, min(len(paths), max))
+	for i, path := range paths {
+		if i >= max {
+			break
+		}
+		shown = append(shown, path)
+	}
+	if len(paths) > max {
+		shown = append(shown, fmt.Sprintf("+%d more", len(paths)-max))
+	}
+	return strings.Join(shown, ", ")
+}
+
 // modeResolutionInputs groups the parameters resolveUserModeAndWritePhase
 // inspects so the function stays pure (no global-state access) and tests can
 // exercise every combination without constructing RuntimeSettings + cobra.
@@ -1465,11 +1685,11 @@ func cliRuntimeArtifactStatusLines(lang string, artifacts []outputdump.RuntimeAr
 		parts = append(parts, fmt.Sprintf("%s=%d", kind, counts[kind]))
 	}
 	primary := cliPrimaryRuntimeArtifact(artifacts)
-	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh") || strings.TrimSpace(lang) == ""
+	zh := cliStatusUseChinese(lang)
 	var lines []string
 	if zh {
-		lines = append(lines, fmt.Sprintf("[runtime artifacts] 共 %d 个：%s", len(artifacts), strings.Join(parts, ", ")))
-		lines = append(lines, fmt.Sprintf("[runtime artifacts] primary: %s %s", firstNonEmptyCLI(primary.Kind, "artifact"), firstNonEmptyCLI(primary.Source, "(unknown)")))
+		lines = append(lines, fmt.Sprintf("[运行时附件] 共 %d 个：%s", len(artifacts), strings.Join(parts, ", ")))
+		lines = append(lines, fmt.Sprintf("[运行时附件] 主附件: %s %s", firstNonEmptyCLI(primary.Kind, "artifact"), firstNonEmptyCLI(primary.Source, "(unknown)")))
 	} else {
 		lines = append(lines, fmt.Sprintf("[runtime artifacts] total=%d kinds=%s", len(artifacts), strings.Join(parts, ", ")))
 		lines = append(lines, fmt.Sprintf("[runtime artifacts] primary: %s %s", firstNonEmptyCLI(primary.Kind, "artifact"), firstNonEmptyCLI(primary.Source, "(unknown)")))
@@ -1484,11 +1704,19 @@ func cliRuntimeArtifactStatusLines(lang string, artifacts []outputdump.RuntimeAr
 		if detail != "" {
 			detail = " " + detail
 		}
-		lines = append(lines, fmt.Sprintf("[runtime artifacts] - %s %s %s%s",
-			firstNonEmptyCLI(artifact.Kind, "artifact"),
-			firstNonEmptyCLI(artifact.Source, "(unknown)"),
-			outputdump.HumanBytes(artifact.Bytes),
-			detail))
+		if zh {
+			lines = append(lines, fmt.Sprintf("[运行时附件] - %s %s %s%s",
+				firstNonEmptyCLI(artifact.Kind, "artifact"),
+				firstNonEmptyCLI(artifact.Source, "(unknown)"),
+				outputdump.HumanBytes(artifact.Bytes),
+				detail))
+		} else {
+			lines = append(lines, fmt.Sprintf("[runtime artifacts] - %s %s %s%s",
+				firstNonEmptyCLI(artifact.Kind, "artifact"),
+				firstNonEmptyCLI(artifact.Source, "(unknown)"),
+				outputdump.HumanBytes(artifact.Bytes),
+				detail))
+		}
 	}
 	return lines
 }
