@@ -1310,6 +1310,25 @@ func TestTraceQueryNestedWakeupChainCarriesLayerDrilldownHandoff(t *testing.T) {
 	if !sawStateDrilldown {
 		t.Fatalf("nested wakeup result must publish state_drilldown typed handoff, got %+v", res.Observations)
 	}
+	var sawRootCauseTypedHandoff bool
+	for _, obs := range res.Observations {
+		if obs.Predicate != "root_cause_primary" || obs.Producer != "trace_query" {
+			continue
+		}
+		notes := strings.Join(obs.RichNotes, "\n")
+		if strings.Contains(notes, "chain_relevance=on_chain") &&
+			strings.Contains(notes, "causality=on_wakeup_chain") &&
+			strings.Contains(notes, "chain_depth=") &&
+			strings.Contains(notes, "dominant_state=") &&
+			strings.Contains(notes, "effective_impact_ms=") &&
+			strings.Contains(notes, "target_impact_ms=") {
+			sawRootCauseTypedHandoff = true
+			break
+		}
+	}
+	if !sawRootCauseTypedHandoff {
+		t.Fatalf("root_cause_rank typed observations must preserve on-chain/depth/impact handoff notes, got %+v", res.Observations)
+	}
 	coverage := types.TraceObservationCoverageFromObservationRecords(res.Observations)
 	var sawCoverage bool
 	for _, dim := range coverage.Dimensions {
