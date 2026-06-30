@@ -107,11 +107,47 @@ func repoMapRuntimeCurrentSourceAvoidsSourceInventoryRefinement(ctx *ctypes.BusC
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	rm := ctx.AnalysisIR.RequestModel
-	if ctypes.SourceInventoryPrincipalNavigationActive(rm) {
+	rm := ctypes.RuntimeSourceAuthorityRequestModelFromBusContext(ctx)
+	if rm == nil {
 		return false
 	}
-	return ctypes.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm)
+	if ctypes.SourceInventoryPrincipalNavigationActive(*rm) {
+		return false
+	}
+	authority := ctypes.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, ctypes.ObservationLedger{})
+	if !authority.Active {
+		return false
+	}
+	if !repoMapRuntimeSourceRequestCarrierActive(ctx, rm, authority) {
+		return false
+	}
+	return authority.CurrentSourceRequirement != ctypes.RuntimeSourceRequirementNone ||
+		authority.CurrentSourceRequired ||
+		authority.CanHardBlockCompletion ||
+		authority.CanDowngradeToCaveat ||
+		authority.CanUseRuntimeOnlyWithCaveat ||
+		authority.CanCompleteWithCombinedProof ||
+		authority.RuntimeOnlySufficient
+}
+
+func repoMapRuntimeSourceRequestCarrierActive(ctx *ctypes.BusContext, rm *ctypes.RequestModel, authority ctypes.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if ctx == nil || rm == nil {
+		return false
+	}
+	if ctx.TurnRouteHint.ExternalObservationParticipates() ||
+		rm.HasExternalOnlyRuntimeArtifact() ||
+		rm.HasExternalObservationArtifactReference() ||
+		rm.HasRuntimeArtifactPathReference() ||
+		rm.LogTriage != nil ||
+		rm.PerfTrace != nil {
+		return true
+	}
+	return (authority.RuntimeObservationCount > 0 ||
+		authority.DeterministicRuntimeQueryCount > 0 ||
+		authority.RuntimeOnlySufficient ||
+		authority.CanUseRuntimeOnlyWithCaveat) &&
+		rm.CurrentSourceExplanationProfile != nil &&
+		rm.CurrentSourceExplanationProfile.Active()
 }
 
 func repoMapExplicitTopNBroad(view string, tier SizeTier, topN int) bool {
