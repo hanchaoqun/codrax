@@ -1234,6 +1234,67 @@ func TestTraceQuerySummaryRendersWakeupCausalImpactsAndRepairsAlias(t *testing.T
 	}
 }
 
+func TestTraceQueryNestedWakeupChainCarriesLayerDrilldownHandoff(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "nested_chain.systrace")
+	trace := strings.Join([]string{
+		`app-100 (100) [001] .... 1.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`worker-200 (100) [002] .... 1.005000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120`,
+		`io-300 (100) [003] .... 1.006000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=io next_pid=300 next_prio=30`,
+		`io-300 (100) [003] .... 1.020000: sched_wakeup: comm=worker pid=200 prio=40 target_cpu=002`,
+		`io-300 (100) [003] .... 1.021000: sched_switch: prev_comm=io prev_pid=300 prev_prio=30 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120`,
+		`worker-200 (100) [002] .... 1.025000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=40`,
+		`worker-200 (100) [002] .... 1.030000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001`,
+		`worker-200 (100) [002] .... 1.031000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120`,
+		`app-100 (100) [001] .... 1.035000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params := json.RawMessage(`{"source":"path","path":"nested_chain.systrace","view":"root_cause_rank","pid":100,"time_start":1.0,"time_end":1.04,"trace_flavor":"harmony_hitrace","min_duration_ms":0.05,"limit":12}`)
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"wakeup_chain path=io-300 -> worker-200 -> app-100",
+		"io-300 -> worker-200",
+		"worker-200 -> app-100",
+		"causal_impact thread=worker-200 depth=1",
+		"causal_impact thread=io-300 depth=2",
+		"state_drilldown rank=",
+		"chain_required=true",
+		"recommended_views=wakeup_chain,root_cause_rank",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("nested wakeup summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	var sawDepth2Handoff bool
+	for _, obs := range res.Observations {
+		if obs.Predicate != "wakeup_causal_impact" || obs.Subject != "io-300" {
+			continue
+		}
+		var hasDepth, hasViews bool
+		for _, note := range obs.RichNotes {
+			if note == "depth=2" {
+				hasDepth = true
+			}
+			if note == "recommended_views=trace_perf_bundle,perf_stats,root_cause_rank" {
+				hasViews = true
+			}
+		}
+		sawDepth2Handoff = hasDepth && hasViews
+	}
+	if !sawDepth2Handoff {
+		t.Fatalf("nested on-chain causal impact must carry per-layer drilldown handoff: %+v", res.Observations)
+	}
+}
+
 func TestTraceQuerySummaryRendersInodeIOAndRepairsEventTypeAliases(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "inode_io.systrace")

@@ -2156,6 +2156,120 @@ func TestWakeupChainFindsWakerAndRoot(t *testing.T) {
 	}
 }
 
+func TestStateFirstDrilldownKeepsLongSleepAndNestedWakeupChain(t *testing.T) {
+	idx := buildTraceIndex(t, "nested_sleep_chain.systrace", `
+        app-100 (100) [001] .... 1.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 1.005000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+         io-300 (100) [003] .... 1.006000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=io next_pid=300 next_prio=30
+         io-300 (100) [003] .... 1.020000: sched_wakeup: comm=worker pid=200 prio=40 target_cpu=002
+         io-300 (100) [003] .... 1.021000: sched_switch: prev_comm=io prev_pid=300 prev_prio=30 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 1.025000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=40
+     worker-200 (100) [002] .... 1.030000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200 (100) [002] .... 1.031000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+        app-100 (100) [001] .... 1.035000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	stats := ComputeWindowStats(idx, Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.04, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	if len(stats.SleepTop) < 2 || stats.SleepTop[0].Thread.PID != 100 || stats.SleepTop[0].DurationMs < 25 || stats.SleepTop[1].Thread.PID != 200 {
+		t.Fatalf("fixed target window should expose long top_sleep before any shrink: %+v", stats.SleepTop)
+	}
+	if len(stats.StateDrilldownPlan) == 0 || stats.StateDrilldownPlan[0].State != string(StateSSleep) || !stats.StateDrilldownPlan[0].ChainRequired {
+		t.Fatalf("state drilldown plan should require wakeup-chain drilldown for long sleep: %+v", stats.StateDrilldownPlan)
+	}
+	chain := BuildWakeupChain(idx, Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.04, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	if len(chain.Edges) < 2 {
+		t.Fatalf("default max_depth should preserve nested wakeup edges: %+v", chain.Edges)
+	}
+	var sawWorkerSleep, sawIORunning bool
+	for _, impact := range chain.CausalImpacts {
+		if impact.Thread.PID == 200 && impact.ChainDepth == 1 && impact.DominantState == string(StateSSleep) {
+			sawWorkerSleep = true
+		}
+		if impact.Thread.PID == 300 && impact.ChainDepth == 2 && impact.DominantState == string(StateRunning) {
+			sawIORunning = true
+		}
+	}
+	if !sawWorkerSleep || !sawIORunning {
+		t.Fatalf("chain should carry every layer's causal impact, got %+v", chain.CausalImpacts)
+	}
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.04, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	var rankedWorker, rankedIO bool
+	for _, item := range rank.Items {
+		if item.Thread.PID == 200 && item.ChainRelevance == "on_chain" {
+			rankedWorker = true
+		}
+		if item.Thread.PID == 300 && item.ChainRelevance == "on_chain" {
+			rankedIO = true
+		}
+	}
+	if !rankedWorker || !rankedIO {
+		t.Fatalf("root_cause_rank should rank each on-chain layer, got %+v", rank.Items)
+	}
+}
+
+func TestFragmentedSleepChurnIsReportedWithoutRecursiveWakeupDrilldown(t *testing.T) {
+	idx := buildTraceIndex(t, "fragmented_sleep_churn.systrace", `
+        app-100 (100) [001] .... 1.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100 (100) [001] .... 1.001000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     input-200 (200) [002] .... 1.006000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 1.006500: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100 (100) [001] .... 1.007500: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     input-200 (200) [002] .... 1.012500: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 1.013000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100 (100) [001] .... 1.014000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     input-200 (200) [002] .... 1.019000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 1.019500: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100 (100) [001] .... 1.020500: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     input-200 (200) [002] .... 1.025500: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 1.026000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	q := Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.027, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace}
+	stats := ComputeWindowStats(idx, q)
+	if len(stats.SleepTop) == 0 || stats.SleepTop[0].Thread.PID != 100 || stats.SleepTop[0].DurationMs < 18 {
+		t.Fatalf("fragmented sleep should remain visible in top_sleep: %+v", stats.SleepTop)
+	}
+	var fragmented ThreadStateChurnSummary
+	for _, churn := range stats.StateChurn {
+		if churn.Thread.PID == 100 && churn.DominantState == string(StateSSleep) {
+			fragmented = churn
+			break
+		}
+	}
+	if fragmented.Thread.PID == 0 || fragmented.FragmentCount < 4 || fragmented.MaxSegmentMs >= fragmented.SleepMs*0.70 {
+		t.Fatalf("expected fragmented sleep churn summary, got %+v", stats.StateChurn)
+	}
+	var sawFragmentedStep bool
+	for _, step := range stats.StateDrilldownPlan {
+		if step.Thread.PID != 100 {
+			continue
+		}
+		if step.Source == "top_sleep" {
+			t.Fatalf("fragmented sleep must not become a recursive top_sleep drilldown step: %+v", stats.StateDrilldownPlan)
+		}
+		if step.Source == "state_churn" && step.State == string(StateSSleep) {
+			sawFragmentedStep = true
+			if step.ChainRequired || step.Recursive {
+				t.Fatalf("fragmented sleep churn should be reported without recursive wakeup-chain drilldown: %+v", step)
+			}
+		}
+	}
+	if !sawFragmentedStep {
+		t.Fatalf("fragmented sleep churn should remain in state drilldown plan: %+v", stats.StateDrilldownPlan)
+	}
+	rank := BuildRootCauseRank(idx, q)
+	var sawFragmentedRank bool
+	for _, item := range rank.Items {
+		if item.Thread.PID == 100 && item.Source == "window_stats.sleep_top" {
+			t.Fatalf("fragmented sleep should not duplicate as sleep_top root cause: %+v", rank.Items)
+		}
+		if item.Thread.PID == 100 && item.Type == "fragmented_sleep_wait" && item.Source == "window_stats.state_churn" {
+			sawFragmentedRank = true
+		}
+	}
+	if !sawFragmentedRank {
+		t.Fatalf("fragmented sleep should remain as a root-cause candidate: %+v", rank.Items)
+	}
+}
+
 func TestWakeupChainCausalImpactPromotesLongRunnableDependency(t *testing.T) {
 	idx := buildTraceIndex(t, "causal_runnable.systrace", `
         app-100 (100) [001] .... 1.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120

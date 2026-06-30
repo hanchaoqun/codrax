@@ -102,7 +102,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "span_name": {"type":"string","description":"Optional trace span name substring. For span_window, returns matching sync B/E or async S/F span windows; sync B/E end rows do not repeat the span name and appear as E|<pid> or bare E on the same ftrace thread stack. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
     "interaction_direction": {"type":"string","enum":["both","incoming","outgoing"],"x-codrax-enum-style-alias":true,"description":"For interaction_stats: both is default; incoming counts peers waking/calling the target, outgoing counts target waking/calling peers."},
     "recipe_name": {"type":"string","enum":["auto","sleep_root_cause","jank","runnable_delay","binder_wait","io_wait","cpu_supply"],"x-codrax-enum-style-alias":true,"description":"For view=recipe: choose a standard deterministic evidence pack. auto picks from span_name/event_types/question-shape hints; recipes remain advisory and line-backed."},
-    "max_depth": {"type":"integer","description":"wakeup_chain recursion limit; default 6."},
+    "max_depth": {"type":"integer","description":"wakeup_chain recursion limit; default 10."},
     "max_branches": {"type":"integer","description":"Maximum branches to report; default 8."},
     "min_duration_ms": {"type":"number","description":"Ignore intervals shorter than this; default 1ms."},
     "include_window_stats": {"type":"boolean","description":"For wakeup_chain, include same-window CPU/IO/binder/irq stats; default true."},
@@ -2156,8 +2156,14 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, td := range result.WindowStats.RunnableTop {
 			fmt.Fprintf(&b, "- top_runnable %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
 		}
+		for _, td := range result.WindowStats.SleepTop {
+			fmt.Fprintf(&b, "- top_sleep %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
+		}
 		for _, td := range result.WindowStats.DStateTop {
 			fmt.Fprintf(&b, "- top_d_state %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
+		}
+		for _, td := range result.WindowStats.IOWaitTop {
+			fmt.Fprintf(&b, "- top_io_wait %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
 		}
 		for _, br := range result.WindowStats.BlockedReasons {
 			fmt.Fprintf(&b, "- blocked_reason %s iowait=%d count=%d line=%d caller=%s\n", traceThreadLabel(br.Thread), br.IOWait, br.Count, br.Line, br.Reason)
@@ -2202,6 +2208,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- async_file_work %s category=%s span=%s duration=%.3fms lines=%d-%d — %s\n",
 				traceThreadLabel(work.Thread), sanitizeForBanner(work.Category), sanitizeForBanner(work.Name), work.DurationMs, work.LineStart, work.LineEnd, sanitizeForBanner(work.Summary))
 		}
+		writeTraceStateDrilldownSummary(&b, result.WindowStats.StateDrilldownPlan)
 		for _, counter := range result.WindowStats.TraceCounters {
 			fmt.Fprintf(&b, "- trace_counter %s %q value=%s count=%d line=%d\n",
 				traceThreadLabel(counter.Thread), counter.Name, counter.Value, counter.Count, counter.Line)
@@ -2967,6 +2974,19 @@ func writeTraceCPUConstraint(b *strings.Builder, item tracequery.CPUConstraintSu
 		item.LineEnd,
 		sanitizeForBanner(item.Summary),
 	)
+}
+
+func writeTraceStateDrilldownSummary(b *strings.Builder, steps []tracequery.StateDrilldownStep) {
+	const summaryCap = 5
+	for i, step := range steps {
+		if i >= summaryCap {
+			fmt.Fprintf(b, "- state_drilldown_omitted count=%d see payload_ref\n", len(steps)-summaryCap)
+			return
+		}
+		fmt.Fprintf(b, "- state_drilldown rank=%d thread=%s state=%s impact=%.3fms total=%.3fms source=%s chain_required=%t recursive=%t recommended_views=%s lines=%d-%d — %s\n",
+			step.Rank, traceThreadLabel(step.Thread), sanitizeForBanner(step.State), step.ImpactMs, step.TotalMs, sanitizeForBanner(step.Source),
+			step.ChainRequired, step.Recursive, sanitizeForBanner(strings.Join(step.RecommendedViews, ",")), step.LineStart, step.LineEnd, sanitizeForBanner(step.Summary))
+	}
 }
 
 func traceKnownCPU(known bool, cpu int) string {
@@ -3962,6 +3982,7 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 }
 
 func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) []string {
+	views := traceQueryCausalImpactRecommendedViews(impact)
 	return traceQueryTypedKVNotes([][2]string{
 		{"depth", traceQueryTypedCount(impact.ChainDepth)},
 		{"causality", traceQueryCausalityLabel(impact.OnChain)},
@@ -3992,8 +4013,35 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{"target_priority", traceQueryPriorityPair(impact.TargetPriority, impact.TargetPriorityClass)},
 		{"priority_relation", impact.PriorityRelation},
 		{"priority_inversion_candidate", traceQueryTypedBool(impact.PriorityInversionCandidate)},
+		{"recommended_views", strings.Join(views, ",")},
+		{"chain_required", traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
+		{"recursive", traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
 		{"next_step", impact.NextStep},
 	})
+}
+
+func traceQueryCausalImpactRecommendedViews(impact tracequery.WakeupCausalImpact) []string {
+	switch impact.DominantState {
+	case string(tracequery.StateSSleep):
+		return []string{"wakeup_chain", "root_cause_rank"}
+	case string(tracequery.StateRunnable):
+		return []string{"scheduler_latency_stats", "root_cause_rank"}
+	case string(tracequery.StateRunning):
+		return []string{"trace_perf_bundle", "perf_stats", "root_cause_rank"}
+	case string(tracequery.StateDSleep), string(tracequery.StateIOWait):
+		return []string{"critical_blocking_calls", "window_stats", "root_cause_rank"}
+	default:
+		return []string{"thread_timeline", "window_stats"}
+	}
+}
+
+func traceQueryCausalImpactNeedsChain(state string) bool {
+	switch state {
+	case string(tracequery.StateSSleep), string(tracequery.StateRunnable), string(tracequery.StateDSleep), string(tracequery.StateIOWait):
+		return true
+	default:
+		return false
+	}
 }
 
 func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAggregate) []string {
@@ -4193,6 +4241,12 @@ func traceQueryWakeupEdgeSummary(edge tracequery.WakeupEdge) string {
 
 func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
 	var out []types.ObservationRecord
+
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.TopRunning, ref, scope, at, "top_running", "running_time", "running", "selected-window running time", 0.70)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.RunnableTop, ref, scope, at, "top_runnable", "runnable_wait", "runnable", "selected-window runnable wait", 0.75)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.SleepTop, ref, scope, at, "top_sleep", "sleep_wait", "sleep", "selected-window sleep before wakeup", 0.76)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.DStateTop, ref, scope, at, "top_d_state", "d_state_or_io_wait", "d_state", "selected-window D-state or IO-like wait", 0.80)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.IOWaitTop, ref, scope, at, "top_io_wait", "io_wait", "io_wait", "selected-window IO wait", 0.82)...)
 
 	for i, load := range stats.ThreadCPULoad {
 		if i >= traceQueryTypedFamilyRowCap {
@@ -4406,6 +4460,46 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			SupportRefs:     traceQueryObservationSupportRefs(ref, churn.LineStart, churn.LineEnd),
 			ObservedAt:      at,
 			Confidence:      churn.Confidence,
+		})
+	}
+
+	for i, step := range stats.StateDrilldownPlan {
+		if i >= traceQueryTypedFamilyRowCap {
+			break
+		}
+		if step.Thread.PID <= 0 || strings.TrimSpace(step.State) == "" {
+			continue
+		}
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#state_drilldown:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span:            types.ObservationSpan{LineStart: step.LineStart, LineEnd: step.LineEnd, StartTs: step.StartTs, EndTs: step.EndTs},
+			ClaimKey:        "state_drilldown:" + traceThreadLabel(step.Thread) + ":" + step.State,
+			Subject:         traceThreadLabel(step.Thread),
+			Predicate:       "state_drilldown",
+			Object:          step.State,
+			Value:           traceQueryObservationMSValue(step.ImpactMs),
+			Unit:            "ms",
+			Summary:         step.Summary,
+			RichNotes: traceQueryTypedKVNotes([][2]string{
+				{"rank", traceQueryTypedCount(step.Rank)},
+				{"state", step.State},
+				{"impact", traceQueryObservationMSValue(step.ImpactMs)},
+				{"total", traceQueryObservationMSValue(step.TotalMs)},
+				{"source", step.Source},
+				{"recommended_views", strings.Join(step.RecommendedViews, ",")},
+				{"chain_required", traceQueryTypedBool(step.ChainRequired)},
+				{"recursive", traceQueryTypedBool(step.Recursive)},
+				{"window", traceQueryWindowValue(step.StartTs, step.EndTs)},
+			}),
+			SupportRefs: traceQueryObservationSupportRefs(ref, step.LineStart, step.LineEnd),
+			ObservedAt:  at,
+			Confidence:  0.74,
 		})
 	}
 
@@ -4870,6 +4964,50 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 		}
 	}
 	out = append(out, traceQueryTypedPluginObservations(stats, ref, scope, at)...)
+	return out
+}
+
+func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration, ref types.ObservationSourceRef, scope, at, family, predicate, state, label string, confidence float64) []types.ObservationRecord {
+	var out []types.ObservationRecord
+	for i, td := range items {
+		if i >= traceQueryTypedFamilyRowCap {
+			break
+		}
+		thread := traceThreadLabel(td.Thread)
+		if strings.TrimSpace(thread) == "" || td.DurationMs <= 0 {
+			continue
+		}
+		notes := traceQueryTypedKVNotes([][2]string{
+			{"state", state},
+			{"duration", traceQueryObservationMSValue(td.DurationMs)},
+			{"window", traceQueryWindowValue(td.StartTs, td.EndTs)},
+			{"cpu", traceKnownCPU(td.CPU >= 0, td.CPU)},
+			{"core_class", td.CoreClass},
+			{"freq", traceQueryTypedCount(td.Frequency)},
+			{"priority", traceQueryPriorityPair(td.Priority, td.PriorityClass)},
+		})
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#%s:%d", scope, family, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span:            types.ObservationSpan{LineStart: td.LineStart, LineEnd: td.LineEnd, StartTs: td.StartTs, EndTs: td.EndTs},
+			ClaimKey:        predicate + ":" + thread,
+			Subject:         thread,
+			Predicate:       predicate,
+			Object:          state,
+			Value:           traceQueryObservationMSValue(td.DurationMs),
+			Unit:            "ms",
+			Summary:         fmt.Sprintf("%s %s %.3fms%s", thread, label, td.DurationMs, traceThreadDurationLocation(td)),
+			RichNotes:       notes,
+			SupportRefs:     traceQueryObservationSupportRefs(ref, td.LineStart, td.LineEnd),
+			ObservedAt:      at,
+			Confidence:      confidence,
+		})
+	}
 	return out
 }
 

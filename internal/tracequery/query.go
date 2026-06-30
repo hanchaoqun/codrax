@@ -609,7 +609,7 @@ func normalizeQuery(idx *Index, q Query) Query {
 		}
 	}
 	if q.MaxDepth <= 0 {
-		q.MaxDepth = 6
+		q.MaxDepth = 10
 	}
 	if q.MaxBranches <= 0 {
 		q.MaxBranches = 8
@@ -1321,10 +1321,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.CPU = applyCPUFrequencyResidency(stats.CPU, freqByCPU, q)
 	coreByCPU, topologySource := resolveCoreTopology(stats.CPU, q.CoreTopology)
 	applyCPUCoreClasses(stats.CPU, coreByCPU)
-	stats.RunnableTop, stats.DStateTop, stats.CPUPressure = computeOffCPUStats(idx, q, freqByCPU, pressure)
+	stats.RunnableTop, stats.DStateTop, stats.SleepTop, stats.IOWaitTop, stats.CPUPressure = computeOffCPUStats(idx, q, freqByCPU, pressure)
 	applyThreadCoreClasses(stats.TopRunning, coreByCPU)
 	applyThreadCoreClasses(stats.RunnableTop, coreByCPU)
+	applyThreadCoreClasses(stats.SleepTop, coreByCPU)
 	applyThreadCoreClasses(stats.DStateTop, coreByCPU)
+	applyThreadCoreClasses(stats.IOWaitTop, coreByCPU)
 	applyCPUPressureCoreClasses(stats.CPUPressure, coreByCPU)
 	stats.CoreTopology = buildCoreClassStats(stats.CPU, stats.CPUPressure, coreByCPU, topologySource)
 	stats.CPUConstraints = computeCPUConstraintSummaries(idx, q, coreByCPU, stats.RunnableTop, stats.CPU, 8)
@@ -1362,6 +1364,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	}
 	stats.ComputeSupply = computeSupplySummaries(stats, 8)
 	stats.StateChurn = enrichStateChurnWithCPUPressure(computeStateChurnSummaries(idx, q, 8), stats.CPUPressure)
+	stats.StateDrilldownPlan = buildStateDrilldownPlan(stats, 12)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
 	stats.RunnableContext = computeRunnableContextSummaries(latency.Items, stats.ThreadCPULoad, stats.ProcessCPULoad, stats.CPUConstraints, 8)
 	stats.IOPressureSummary = computeIOPressureSummary(stats)
@@ -2177,13 +2180,16 @@ type offCPUStart struct {
 	priorityClass string
 }
 
-func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure map[int]*cpuPressureAcc) ([]ThreadDuration, []ThreadDuration, []CPUPressureStats) {
+func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure map[int]*cpuPressureAcc) ([]ThreadDuration, []ThreadDuration, []ThreadDuration, []ThreadDuration, []CPUPressureStats) {
 	if idx == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
+	blockedReasons := blockedReasonsByPID(idx, q)
 	open := map[int]offCPUStart{}
 	runnable := map[string]ThreadDuration{}
+	sleep := map[string]ThreadDuration{}
 	dstate := map[string]ThreadDuration{}
+	iowait := map[string]ThreadDuration{}
 	addDuration := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int) {
 		startTs := start.ts
 		if q.TimeStart > 0 && startTs < q.TimeStart {
@@ -2237,8 +2243,13 @@ func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure
 				switch start.state {
 				case StateRunnable:
 					continue
+				case StateSSleep:
+					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
 					addDuration(dstate, start, ev.Ts, ev.Line)
+					if offCPUStateIsIOWait(start, ev.Ts, blockedReasons) {
+						addDuration(iowait, start, ev.Ts, ev.Line)
+					}
 				}
 			}
 			open[ev.WakeePID] = offCPUStart{
@@ -2260,15 +2271,20 @@ func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure
 				switch start.state {
 				case StateRunnable:
 					addDuration(runnable, start, ev.Ts, ev.Line)
+				case StateSSleep:
+					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
 					addDuration(dstate, start, ev.Ts, ev.Line)
+					if offCPUStateIsIOWait(start, ev.Ts, blockedReasons) {
+						addDuration(iowait, start, ev.Ts, ev.Line)
+					}
 				}
 				delete(open, ev.NextPID)
 			}
 		}
 		if ev.PrevPID > 0 {
 			state := stateFromPrevState(ev.PrevState)
-			if state == StateRunnable || state == StateDSleep || state == StateIOWait {
+			if state == StateRunnable || state == StateSSleep || state == StateDSleep || state == StateIOWait {
 				open[ev.PrevPID] = offCPUStart{
 					thread:        ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID},
 					state:         state,
@@ -2286,12 +2302,28 @@ func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure
 			switch start.state {
 			case StateRunnable:
 				addDuration(runnable, start, q.TimeEnd, 0)
+			case StateSSleep:
+				addDuration(sleep, start, q.TimeEnd, 0)
 			case StateDSleep, StateIOWait:
 				addDuration(dstate, start, q.TimeEnd, 0)
+				if offCPUStateIsIOWait(start, q.TimeEnd, blockedReasons) {
+					addDuration(iowait, start, q.TimeEnd, 0)
+				}
 			}
 		}
 	}
-	return topThreadDurations(runnable, 8), topThreadDurations(dstate, 8), buildCPUPressureStats(pressure, 8)
+	return topThreadDurations(runnable, 8), topThreadDurations(dstate, 8), topThreadDurations(sleep, 8), topThreadDurations(iowait, 8), buildCPUPressureStats(pressure, 8)
+}
+
+func offCPUStateIsIOWait(start offCPUStart, endTs float64, blockedReasons map[int][]Event) bool {
+	if start.state == StateIOWait {
+		return true
+	}
+	if start.state != StateDSleep {
+		return false
+	}
+	reason := blockedReasonForInterval(blockedReasons, start.thread, start.ts, endTs)
+	return reason != nil && reason.IOWait > 0
 }
 
 func BuildSchedulerLatencyStats(idx *Index, q Query) SchedulerLatencyResult {
@@ -3765,6 +3797,173 @@ func stateChurnNextStep(state string) string {
 	default:
 		return "inspect neighboring scheduler and resource events"
 	}
+}
+
+func buildStateDrilldownPlan(stats WindowStats, max int) []StateDrilldownStep {
+	var candidates []StateDrilldownStep
+	fragmentedSleep := fragmentedSleepChurnByThread(stats.StateChurn)
+	addDuration := func(source, state string, items []ThreadDuration) {
+		for _, td := range items {
+			if td.Thread.PID <= 0 || td.DurationMs <= 0 {
+				continue
+			}
+			if source == "top_sleep" && state == string(StateSSleep) {
+				if _, ok := fragmentedSleep[stateDrilldownThreadKey(td.Thread)]; ok {
+					continue
+				}
+			}
+			candidates = append(candidates, StateDrilldownStep{
+				Thread:           td.Thread,
+				State:            state,
+				ImpactMs:         td.DurationMs,
+				TotalMs:          td.DurationMs,
+				Source:           source,
+				RecommendedViews: stateDrilldownRecommendedViewsForSource(state, source),
+				ChainRequired:    stateDrilldownNeedsWakeupChainForSource(state, source),
+				Recursive:        stateDrilldownNeedsRecursiveChainForSource(state, source),
+				StartTs:          td.StartTs,
+				EndTs:            td.EndTs,
+				LineStart:        td.LineStart,
+				LineEnd:          td.LineEnd,
+			})
+		}
+	}
+	addDuration("top_sleep", string(StateSSleep), stats.SleepTop)
+	addDuration("top_runnable", string(StateRunnable), stats.RunnableTop)
+	addDuration("top_running", string(StateRunning), stats.TopRunning)
+	addDuration("top_io_wait", string(StateIOWait), stats.IOWaitTop)
+	addDuration("top_d_state", string(StateDSleep), stats.DStateTop)
+	for _, churn := range stats.StateChurn {
+		if churn.Thread.PID <= 0 || strings.TrimSpace(churn.DominantState) == "" {
+			continue
+		}
+		impact := stateChurnRankImpactMs(churn)
+		if impact <= 0 {
+			continue
+		}
+		candidates = append(candidates, StateDrilldownStep{
+			Thread:           churn.Thread,
+			State:            churn.DominantState,
+			ImpactMs:         impact,
+			TotalMs:          churn.TotalMs,
+			Source:           "state_churn",
+			RecommendedViews: stateDrilldownRecommendedViewsForSource(churn.DominantState, "state_churn"),
+			ChainRequired:    stateDrilldownNeedsWakeupChainForSource(churn.DominantState, "state_churn"),
+			Recursive:        stateDrilldownNeedsRecursiveChainForSource(churn.DominantState, "state_churn"),
+			LineStart:        churn.LineStart,
+			LineEnd:          churn.LineEnd,
+		})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		ci, cj := stateDrilldownPriority(candidates[i]), stateDrilldownPriority(candidates[j])
+		if ci != cj {
+			return ci > cj
+		}
+		if candidates[i].ImpactMs != candidates[j].ImpactMs {
+			return candidates[i].ImpactMs > candidates[j].ImpactMs
+		}
+		if candidates[i].TotalMs != candidates[j].TotalMs {
+			return candidates[i].TotalMs > candidates[j].TotalMs
+		}
+		return candidates[i].LineStart < candidates[j].LineStart
+	})
+	seen := map[string]bool{}
+	out := make([]StateDrilldownStep, 0, len(candidates))
+	for _, step := range candidates {
+		key := fmt.Sprintf("%d/%s/%s", step.Thread.PID, step.Thread.Comm, step.State)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		step.Rank = len(out) + 1
+		step.Summary = renderStateDrilldownStep(step)
+		out = append(out, step)
+		if max > 0 && len(out) >= max {
+			break
+		}
+	}
+	return out
+}
+
+func fragmentedSleepChurnByThread(churns []ThreadStateChurnSummary) map[string]ThreadStateChurnSummary {
+	out := map[string]ThreadStateChurnSummary{}
+	for _, churn := range churns {
+		if !isFragmentedSleepChurn(churn) {
+			continue
+		}
+		out[stateDrilldownThreadKey(churn.Thread)] = churn
+	}
+	return out
+}
+
+func isFragmentedSleepChurn(churn ThreadStateChurnSummary) bool {
+	return churn.Thread.PID > 0 &&
+		churn.DominantState == string(StateSSleep) &&
+		churn.SleepMs > 0 &&
+		churn.FragmentCount >= 4 &&
+		churn.StateSwitches >= 3 &&
+		churn.MaxSegmentMs > 0 &&
+		churn.MaxSegmentMs < churn.SleepMs*0.70
+}
+
+func stateDrilldownThreadKey(thread ThreadRef) string {
+	return fmt.Sprintf("%d/%s", thread.PID, thread.Comm)
+}
+
+func stateDrilldownPriority(step StateDrilldownStep) float64 {
+	score := step.ImpactMs
+	if step.ChainRequired {
+		score *= 1.25
+	}
+	return score
+}
+
+func stateDrilldownRecommendedViewsForSource(state, source string) []string {
+	if source == "state_churn" && state == string(StateSSleep) {
+		return []string{"thread_timeline", "interaction_stats", "window_stats"}
+	}
+	return stateDrilldownRecommendedViews(state)
+}
+
+func stateDrilldownRecommendedViews(state string) []string {
+	switch state {
+	case string(StateSSleep):
+		return []string{"wakeup_chain", "root_cause_rank"}
+	case string(StateRunnable):
+		return []string{"scheduler_latency_stats", "root_cause_rank"}
+	case string(StateRunning):
+		return []string{"trace_perf_bundle", "perf_stats", "root_cause_rank"}
+	case string(StateDSleep), string(StateIOWait):
+		return []string{"critical_blocking_calls", "window_stats", "root_cause_rank"}
+	default:
+		return []string{"thread_timeline", "window_stats"}
+	}
+}
+
+func stateDrilldownNeedsWakeupChainForSource(state, source string) bool {
+	if source == "state_churn" && state == string(StateSSleep) {
+		return false
+	}
+	return stateDrilldownNeedsWakeupChain(state)
+}
+
+func stateDrilldownNeedsWakeupChain(state string) bool {
+	switch state {
+	case string(StateSSleep), string(StateRunnable), string(StateDSleep), string(StateIOWait):
+		return true
+	default:
+		return false
+	}
+}
+
+func stateDrilldownNeedsRecursiveChainForSource(state, source string) bool {
+	return stateDrilldownNeedsWakeupChainForSource(state, source)
+}
+
+func renderStateDrilldownStep(step StateDrilldownStep) string {
+	return fmt.Sprintf("state_drilldown rank=%d thread=%s state=%s impact=%.3fms total=%.3fms source=%s recommended_views=%s chain_required=%t recursive=%t lines=%d-%d",
+		step.Rank, threadLabel(step.Thread), step.State, step.ImpactMs, step.TotalMs, step.Source,
+		strings.Join(step.RecommendedViews, ","), step.ChainRequired, step.Recursive, step.LineStart, step.LineEnd)
 }
 
 func topThreadDurations(in map[string]ThreadDuration, max int) []ThreadDuration {
@@ -6505,7 +6704,37 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		item.RunnableMs = td.DurationMs
 		items = append(items, item)
 	}
+	fragmentedSleep := fragmentedSleepChurnByThread(stats.StateChurn)
+	for _, td := range stats.SleepTop {
+		if _, ok := fragmentedSleep[stateDrilldownThreadKey(td.Thread)]; ok {
+			continue
+		}
+		onChain := threadInSet(chainThreads, td.Thread)
+		item := rootCauseItem("sleep_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.74, td.LineStart, td.LineEnd, "window_stats.sleep_top", fmt.Sprintf("%s slept for %.3fms before wakeup%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
+		item.CumulativeImpactMs = td.DurationMs
+		item.Causality = causalityLabel(hasCausalChain, onChain)
+		item.StartTs = td.StartTs
+		item.EndTs = td.EndTs
+		item.DominantState = string(StateSSleep)
+		item.SleepMs = td.DurationMs
+		items = append(items, item)
+	}
+	for _, td := range stats.IOWaitTop {
+		onChain := threadInSet(chainThreads, td.Thread)
+		item := rootCauseItem("io_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.84, td.LineStart, td.LineEnd, "window_stats.io_wait_top", fmt.Sprintf("%s was in IO wait for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
+		item.CumulativeImpactMs = td.DurationMs
+		item.Causality = causalityLabel(hasCausalChain, onChain)
+		item.StartTs = td.StartTs
+		item.EndTs = td.EndTs
+		item.DominantState = string(StateIOWait)
+		item.IOWaitMs = td.DurationMs
+		items = append(items, item)
+	}
+	exactIOWait := rootCauseExactThreadDurationSet(stats.IOWaitTop)
 	for _, td := range stats.DStateTop {
+		if rootCauseThreadDurationCovered(exactIOWait, td) {
+			continue
+		}
 		onChain := threadInSet(chainThreads, td.Thread)
 		item := rootCauseItem("d_state_or_io_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.82, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was in D-state/IO-like wait for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
 		item.CumulativeImpactMs = td.DurationMs
@@ -7260,6 +7489,33 @@ func rootCauseItem(typ string, thread ThreadRef, impactMs float64, confidence fl
 		Source:             source,
 		Summary:            summary,
 	}
+}
+
+func rootCauseExactThreadDurationSet(items []ThreadDuration) map[string][]ThreadDuration {
+	out := map[string][]ThreadDuration{}
+	for _, td := range items {
+		if td.Thread.PID <= 0 || td.DurationMs <= 0 {
+			continue
+		}
+		key := fmt.Sprintf("%d/%s", td.Thread.PID, td.Thread.Comm)
+		out[key] = append(out[key], td)
+	}
+	return out
+}
+
+func rootCauseThreadDurationCovered(exact map[string][]ThreadDuration, candidate ThreadDuration) bool {
+	if candidate.Thread.PID <= 0 || candidate.DurationMs <= 0 {
+		return false
+	}
+	for _, td := range exact[fmt.Sprintf("%d/%s", candidate.Thread.PID, candidate.Thread.Comm)] {
+		if windowOverlapMs(td.StartTs, td.EndTs, candidate.StartTs, candidate.EndTs) > 0 {
+			return true
+		}
+		if td.LineStart > 0 && candidate.LineStart > 0 && td.LineStart <= candidate.LineEnd && candidate.LineStart <= td.LineEnd {
+			return true
+		}
+	}
+	return false
 }
 
 func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem {
@@ -10311,6 +10567,36 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			Confidence: 0.75,
 		})
 		if len(out) >= 12 {
+			break
+		}
+	}
+	for _, td := range stats.SleepTop {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(td.Thread),
+			Predicate:  "sleep_wait",
+			Summary:    fmt.Sprintf("%s spent %.3f ms sleeping before wakeup in the selected window%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+			LineStart:  td.LineStart,
+			LineEnd:    td.LineEnd,
+			StartTs:    td.StartTs,
+			EndTs:      td.EndTs,
+			Confidence: 0.76,
+		})
+		if len(out) >= 16 {
+			break
+		}
+	}
+	for _, td := range stats.IOWaitTop {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(td.Thread),
+			Predicate:  "io_wait",
+			Summary:    fmt.Sprintf("%s spent %.3f ms in IO wait in the selected window%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+			LineStart:  td.LineStart,
+			LineEnd:    td.LineEnd,
+			StartTs:    td.StartTs,
+			EndTs:      td.EndTs,
+			Confidence: 0.82,
+		})
+		if len(out) >= 18 {
 			break
 		}
 	}

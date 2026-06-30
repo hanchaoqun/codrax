@@ -231,7 +231,10 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	accs := map[string]*stateChurnAcc{}
 	running := map[string]ThreadDuration{}
 	runnable := map[string]ThreadDuration{}
+	sleep := map[string]ThreadDuration{}
 	dstate := map[string]ThreadDuration{}
+	iowait := map[string]ThreadDuration{}
+	blockedReasons := map[int][]Event{}
 	seenTimeWindow := false
 	parsedEvents := 0
 
@@ -244,7 +247,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		if !streamStateClusterThreadAllowed(q, start.thread) {
 			return
 		}
-		addStreamStateClusterInterval(accs, running, runnable, dstate, start, endTs, endLine, q)
+		addStreamStateClusterInterval(accs, running, runnable, sleep, dstate, iowait, start, endTs, endLine, q, blockedReasons)
 	}
 	openState := func(thread ThreadRef, state ThreadState, ts float64, line int) {
 		if thread.PID <= 0 || state == StateUnknown {
@@ -308,6 +311,10 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 			}
 			flavor.observeEvent(ev)
 			switch ev.Type {
+			case EventSchedBlockedReason:
+				if ev.WakeePID > 0 {
+					blockedReasons[ev.WakeePID] = append(blockedReasons[ev.WakeePID], ev)
+				}
 			case EventSchedWakeup, EventSchedWaking:
 				if ev.WakeePID <= 0 {
 					continue
@@ -354,13 +361,16 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		Window:      TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
 		TopRunning:  streamStateTopDurations(running, max),
 		RunnableTop: streamStateTopDurations(runnable, max),
+		SleepTop:    streamStateTopDurations(sleep, max),
 		DStateTop:   streamStateTopDurations(dstate, max),
+		IOWaitTop:   streamStateTopDurations(iowait, max),
 		StateChurn:  streamStateClusterSummaries(accs, max),
 		Caveats: []string{
 			"stream_state_cluster=true; derived without materializing the full trace index",
 			"state_cluster is parent-window coverage for prioritizing drilldown; root_cause_rank/frame_root_cause_bundle may still be needed on bounded phase windows",
 		},
 	}
+	stats.StateDrilldownPlan = buildStateDrilldownPlan(stats, max)
 	if q.PID > 0 || strings.TrimSpace(q.ThreadInput) != "" || strings.TrimSpace(q.Thread) != "" {
 		stats.Caveats = append(stats.Caveats, "state_cluster filter="+streamStateClusterFilterLabel(q))
 	}
@@ -401,9 +411,16 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	}, nil
 }
 
-func addStreamStateClusterInterval(accs map[string]*stateChurnAcc, running, runnable, dstate map[string]ThreadDuration, start stateChurnOpen, endTs float64, endLine int, q Query) {
+func addStreamStateClusterInterval(accs map[string]*stateChurnAcc, running, runnable, sleep, dstate, iowait map[string]ThreadDuration, start stateChurnOpen, endTs float64, endLine int, q Query, blockedReasons map[int][]Event) {
 	if endTs <= start.ts {
 		return
+	}
+	state := start.state
+	if state == StateDSleep {
+		if reason := blockedReasonForInterval(blockedReasons, start.thread, start.ts, endTs); reason != nil && reason.IOWait > 0 {
+			state = StateIOWait
+			endLine = firstPositive(endLine, reason.Line)
+		}
 	}
 	clampedStart := start.ts
 	clampedEnd := endTs
@@ -450,7 +467,7 @@ func addStreamStateClusterInterval(accs map[string]*stateChurnAcc, running, runn
 		LineEnd:    firstPositive(endLine, start.line),
 		CPU:        -1,
 	}
-	switch start.state {
+	switch state {
 	case StateRunning:
 		acc.runningMs += durationMs
 		streamStateAccumulateDuration(running, td)
@@ -459,12 +476,14 @@ func addStreamStateClusterInterval(accs map[string]*stateChurnAcc, running, runn
 		streamStateAccumulateDuration(runnable, td)
 	case StateSSleep:
 		acc.sleepMs += durationMs
+		streamStateAccumulateDuration(sleep, td)
 	case StateDSleep:
 		acc.dStateMs += durationMs
 		streamStateAccumulateDuration(dstate, td)
 	case StateIOWait:
 		acc.ioWaitMs += durationMs
 		streamStateAccumulateDuration(dstate, td)
+		streamStateAccumulateDuration(iowait, td)
 	}
 }
 

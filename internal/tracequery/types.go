@@ -386,7 +386,9 @@ type WindowStats struct {
 	CoreTopology          []CoreClassStats          `json:"core_topology,omitempty"`
 	TopRunning            []ThreadDuration          `json:"top_running,omitempty"`
 	RunnableTop           []ThreadDuration          `json:"runnable_top,omitempty"`
+	SleepTop              []ThreadDuration          `json:"sleep_top,omitempty"`
 	DStateTop             []ThreadDuration          `json:"d_state_top,omitempty"`
+	IOWaitTop             []ThreadDuration          `json:"io_wait_top,omitempty"`
 	CPUPressure           []CPUPressureStats        `json:"cpu_pressure,omitempty"`
 	CPUConstraints        []CPUConstraintSummary    `json:"cpu_constraints,omitempty"`
 	ThreadCPULoad         []ThreadCPULoadSummary    `json:"thread_cpu_load,omitempty"`
@@ -444,6 +446,7 @@ type WindowStats struct {
 	ThreadDrifts          []ThreadDriftSummary      `json:"thread_drifts,omitempty"`
 	ComputeSupply         []ComputeSupplySummary    `json:"compute_supply,omitempty"`
 	StateChurn            []ThreadStateChurnSummary `json:"state_churn,omitempty"`
+	StateDrilldownPlan    []StateDrilldownStep      `json:"state_drilldown_plan,omitempty"`
 	PerfSamples           *PerfContext              `json:"perf_samples,omitempty"`
 	Caveats               []string                  `json:"caveats,omitempty"`
 }
@@ -747,6 +750,23 @@ type ThreadStateChurnSummary struct {
 	LineEnd                int       `json:"line_end,omitempty"`
 	Confidence             float64   `json:"confidence,omitempty"`
 	Summary                string    `json:"summary,omitempty"`
+}
+
+type StateDrilldownStep struct {
+	Rank             int       `json:"rank,omitempty"`
+	Thread           ThreadRef `json:"thread"`
+	State            string    `json:"state,omitempty"`
+	ImpactMs         float64   `json:"impact_ms,omitempty"`
+	TotalMs          float64   `json:"total_ms,omitempty"`
+	Source           string    `json:"source,omitempty"`
+	RecommendedViews []string  `json:"recommended_views,omitempty"`
+	ChainRequired    bool      `json:"chain_required,omitempty"`
+	Recursive        bool      `json:"recursive,omitempty"`
+	StartTs          float64   `json:"start_ts,omitempty"`
+	EndTs            float64   `json:"end_ts,omitempty"`
+	LineStart        int       `json:"line_start,omitempty"`
+	LineEnd          int       `json:"line_end,omitempty"`
+	Summary          string    `json:"summary,omitempty"`
 }
 
 type IOLatencySummary struct {
