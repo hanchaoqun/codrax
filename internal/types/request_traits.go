@@ -683,11 +683,7 @@ func historyBackedTraceHasExplicitEndpoints(rm RequestModel) bool {
 	if len(rm.AnalyzerHints.ExactTargets) >= 2 {
 		return true
 	}
-	mentioned := MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.MentionedEntities)
-	if len(mentioned) == 2 && len(mentioned) == len(rm.AnalyzerHints.MentionedEntities) {
-		return true
-	}
-	return false
+	return len(rm.AnalyzerHints.MentionedEntities) == 2
 }
 
 // IsCategoryEnumerationAnswerShape reports whether the user's answer

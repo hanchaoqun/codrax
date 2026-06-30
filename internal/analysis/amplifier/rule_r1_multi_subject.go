@@ -65,7 +65,7 @@ func distinctEntityCount(entities []string) int {
 //     context entities, but the principal answer is still one ordered
 //     trace, not a category enumeration. This guard reads only typed
 //     analyzer fields (Intent, PredicateAxis, AnalyzerHints.Kind,
-//     raw-request-validated exact_targets, predicates) so it stays
+//     typed exact_targets, predicates) so it stays
 //     language-neutral and avoids raw-request keyword matching.
 //  5. NOT single-topic mechanism explanation — a "how/when does X
 //     behave" question often emits several code identifiers because
@@ -184,7 +184,7 @@ func structuralEndpointTraceTargets(rm types.RequestModel) []string {
 	if targets := types.ExactResolutionTargets(rm); len(targets) > 0 {
 		return targets
 	}
-	return types.MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.ExactTargets)
+	return append([]string(nil), rm.AnalyzerHints.ExactTargets...)
 }
 
 func init() {

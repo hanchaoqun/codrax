@@ -1241,8 +1241,8 @@ func TestExtractor_BuildPrompt_AttributeBearingEnumerationSplitsCompletenessAxes
 	for _, want := range []string{
 		"Two-axis enumeration",
 		"Apply the `completeness` claim to the principal members only",
-		"Attribute gaps do not make the member set incomplete",
-		"Put the per-member attribute in `rationale`",
+		"Do not downgrade the principal member slate to `unknown` solely because some attributes are unresolved",
+		"put grounded attribute facts in each item's `rationale`",
 	} {
 		if !contains(prompt, want) {
 			t.Fatalf("attribute-bearing enumeration prompt missing %q:\n%s", want, prompt)

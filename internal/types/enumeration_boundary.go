@@ -33,10 +33,9 @@ import (
 //   - NormalizeRequestedEnumerationBoundary (typed validation:
 //     verifies LLM-emitted SourceQuote is verbatim in RawRequest and
 //     carries the declared decimal count; no regex, no keywords)
-//   - RequestedEnumerationBoundaryOwner (entity-based check via
-//     MentionedEntitiesFromRawRequest; used by step backbone
-//     enrichment in answer_surface_plan.go and the boundary-scope
-//     reconciler)
+//   - RequestedEnumerationBoundaryOwner (entity-based check via typed
+//     exact/mentioned carriers; used by step backbone enrichment in
+//     answer_surface_plan.go and the boundary-scope reconciler)
 //   - EnumerationBoundaryCountString (typed integer → string)
 
 // RequestedEnumerationBoundary captures a user-declared set boundary
@@ -148,23 +147,18 @@ func EnumerationBoundaryCountString(b *RequestedEnumerationBoundary) string {
 // owner entity for a bounded-set question. Empty means the request
 // either did not name a single owner or stayed ambiguous.
 //
-// Owner detection is purely entity-based — it consults
-// AnalyzerHints.{ExactTargets, MentionedEntities, PrimaryEntities}
-// (all already verified verbatim against RawRequest by upstream
-// helpers) and never inspects raw text via regex. Used downstream by
-// step-backbone enrichment (answer_surface_plan.go) and the
+// Owner detection is purely entity-based — it consults typed
+// AnalyzerHints.{ExactTargets, MentionedEntities} normalized by upstream
+// helpers and never inspects raw text. PrimaryEntities remain context
+// candidates and are deliberately not promoted into ownership here.
+// Used downstream by step-backbone enrichment (answer_surface_plan.go) and the
 // boundary-scope reconciler.
 func RequestedEnumerationBoundaryOwner(rm RequestModel) string {
-	if len(rm.AnalyzerHints.ExactTargets) > 0 {
-		if mentioned := MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.ExactTargets); len(mentioned) == 1 {
-			return mentioned[0]
-		}
+	if len(rm.AnalyzerHints.ExactTargets) == 1 {
+		return rm.AnalyzerHints.ExactTargets[0]
 	}
 	if len(rm.AnalyzerHints.MentionedEntities) == 1 {
 		return rm.AnalyzerHints.MentionedEntities[0]
-	}
-	if recovered := MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.PrimaryEntities); len(recovered) == 1 {
-		return recovered[0]
 	}
 	return ""
 }

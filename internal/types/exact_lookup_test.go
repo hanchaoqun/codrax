@@ -87,7 +87,7 @@ func TestBuildExactResolutionContract_ChangeImpactStepOutputKeepsExactContract(t
 	}
 }
 
-func TestBuildExactResolutionContract_PrefersRawRequestMentionedTargets(t *testing.T) {
+func TestBuildExactResolutionContract_PrefersTypedMentionedTargets(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",
 		Scenario:   ScenarioConfigTrace,
@@ -98,6 +98,7 @@ func TestBuildExactResolutionContract_PrefersRawRequestMentionedTargets(t *testi
 				"ExploreMidLoopMinIteration",
 				"DefaultExploreHeuristics",
 			},
+			MentionedEntities: []string{"explore_mid_loop_hint_budget"},
 		},
 		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
 	}
@@ -107,7 +108,26 @@ func TestBuildExactResolutionContract_PrefersRawRequestMentionedTargets(t *testi
 		t.Fatal("contract = nil, want non-nil")
 	}
 	if !reflect.DeepEqual(got.Targets, []string{"explore_mid_loop_hint_budget"}) {
-		t.Fatalf("Targets = %v, want only raw-request-mentioned target", got.Targets)
+		t.Fatalf("Targets = %v, want only typed mentioned target", got.Targets)
+	}
+}
+
+func TestBuildExactResolutionContract_RawRequestOnlyMentionDoesNotCreateContract(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",
+		Scenario:   ScenarioConfigTrace,
+		AnalyzerHints: AnalyzerHints{
+			Kind: "config_mapping",
+			PrimaryEntities: []string{
+				"explore_mid_loop_hint_budget",
+				"ExploreMidLoopMinIteration",
+			},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+	}
+
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("exact-resolution contract must not recover targets by scanning RawRequest, got %+v", got)
 	}
 }
 
@@ -121,6 +141,7 @@ func TestBuildExactResolutionContract_ConfigKeyFiltersOutFileContextWithoutExpli
 				"explore_mid_loop_hint_budget",
 				"codrax.yaml",
 			},
+			MentionedEntities: []string{"explore_mid_loop_hint_budget", "codrax.yaml"},
 		},
 		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
 	}
@@ -296,7 +317,8 @@ func TestBuildExactResolutionContract_FunctionNameFiltersOutPathContextMention(t
 	rm := RequestModel{
 		RawRequest: "buildAnalysisIR 在 internal/agent/analyzer.go 里定义在哪里？",
 		AnalyzerHints: AnalyzerHints{
-			PrimaryEntities: []string{"buildAnalysisIR", "internal/agent/analyzer.go"},
+			PrimaryEntities:   []string{"buildAnalysisIR", "internal/agent/analyzer.go"},
+			MentionedEntities: []string{"buildAnalysisIR", "internal/agent/analyzer.go"},
 		},
 		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName},
 		Predicates: SemanticPredicates{

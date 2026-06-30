@@ -83,7 +83,7 @@ func ExactResolutionTargets(rm RequestModel) []string {
 	if !exactResolutionEnabled(rm) {
 		return nil
 	}
-	if targets := exactResolutionSubjectCompatibleCandidates(rm, MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.ExactTargets)); len(targets) > 0 {
+	if targets := exactResolutionSubjectCompatibleCandidates(rm, rm.AnalyzerHints.ExactTargets); len(targets) > 0 {
 		return dedupeExactResolutionTargets(exactResolutionFindingKindForRM(rm), targets)
 	}
 	if targets := exactResolutionConversationReferenceTargets(rm); len(targets) > 0 {
@@ -98,11 +98,9 @@ func ExactResolutionTargets(rm RequestModel) []string {
 	candidates := exactResolutionSubjectCompatibleCandidates(rm, exactResolutionMentionedCandidates(rm))
 	switch len(candidates) {
 	case 0:
-		// Provenance-only contract: exact targets must come from the
-		// RawRequest-aligned mention lane (either analyzer-proposed
-		// exact_targets or deterministic recovery of MentionedEntities).
-		// Do NOT promote primary / derived context entities into exact
-		// targets when the current request text never named them.
+		// Provenance-only contract: exact targets must come from typed
+		// mention/exact-target lanes normalized by emit_analysis. Do NOT
+		// promote primary / derived context entities into exact targets here.
 		return nil
 	case 1:
 		return dedupeExactResolutionTargets(exactResolutionFindingKindForRM(rm), candidates)
@@ -212,10 +210,7 @@ func exactResolutionMentionedCandidates(rm RequestModel) []string {
 	if len(rm.AnalyzerHints.MentionedEntities) > 0 {
 		return append([]string(nil), rm.AnalyzerHints.MentionedEntities...)
 	}
-	if recovered := MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.PrimaryEntities); len(recovered) > 0 {
-		return recovered
-	}
-	return MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.Entities)
+	return nil
 }
 
 func exactResolutionSubjectCompatibleCandidates(rm RequestModel, candidates []string) []string {
@@ -562,10 +557,7 @@ func exactResolutionConfigMappingOverridesSubjectLabel(rm RequestModel) bool {
 	}
 	candidates := append([]string(nil), rm.AnalyzerHints.ExactTargets...)
 	if len(candidates) == 0 {
-		candidates = MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.PrimaryEntities)
-	}
-	if len(candidates) == 0 {
-		candidates = MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.Entities)
+		candidates = append([]string(nil), rm.AnalyzerHints.MentionedEntities...)
 	}
 	if len(candidates) == 0 {
 		switch rm.AnswerSubject.Kind {

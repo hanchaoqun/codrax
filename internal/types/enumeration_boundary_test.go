@@ -123,3 +123,15 @@ func TestRequestedEnumerationBoundaryOwner_MultipleEntitiesReturnsEmpty(t *testi
 		t.Errorf("multi-entity request must return empty; got %q", got)
 	}
 }
+
+func TestRequestedEnumerationBoundaryOwner_RawRequestOnlyPrimaryEntityReturnsEmpty(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "describe gate.Run behavior",
+		AnalyzerHints: AnalyzerHints{
+			PrimaryEntities: []string{"gate.Run"},
+		},
+	}
+	if got := RequestedEnumerationBoundaryOwner(rm); got != "" {
+		t.Errorf("owner must come from typed exact/mentioned carriers, got %q", got)
+	}
+}
