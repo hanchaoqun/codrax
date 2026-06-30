@@ -212,6 +212,71 @@ func TestBuildAnswerSurfacePlanForAgentContext_TraceQueryCountSuppressesCurrentS
 	}
 }
 
+func TestBuildAnswerSurfacePlanForBusContext_LedgerRuntimeObservationUsesAuthority(t *testing.T) {
+	mut := NewMutableState("runtime_probe bus context")
+	mut.AppendDispatchToolResult(runtimeProbeObservationToolResultForSurfacePlanTest())
+	bus := &BusContext{
+		Mutable: mut,
+		TurnRouteHint: TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: runtimeTraceCurrentStatusIRForTest(),
+	}
+	if RuntimeArtifactContextActiveFromBus(bus) {
+		t.Fatal("test must not rely on attached artifact or trace_query runtime counter")
+	}
+
+	plan := BuildAnswerSurfacePlanForBusContext(bus)
+	if plan == nil {
+		t.Fatal("surface plan is nil")
+	}
+	if plan.CurrentStatusDiagnosticRequired {
+		t.Fatal("ledger-backed runtime observation should suppress current-status diagnostic under soft source obligation")
+	}
+	if plan.CurrentSourceEvidenceOrigin {
+		t.Fatal("ledger-backed runtime observation should suppress current-source origin under soft source obligation")
+	}
+	if plan.RuntimeGroundingDisposition == nil || !plan.RuntimeGroundingDisposition.IsActive() {
+		t.Fatalf("ledger-backed runtime observation should activate runtime grounding disposition: %+v", plan.RuntimeGroundingDisposition)
+	}
+}
+
+func TestBuildAnswerSurfacePlanForBusContext_PreciseCurrentSourceKeepsDiagnosticsWithRuntimeObservation(t *testing.T) {
+	mut := NewMutableState("runtime_probe plus precise source obligation")
+	mut.AppendDispatchToolResult(runtimeProbeObservationToolResultForSurfacePlanTest())
+	ir := runtimeTraceCurrentStatusIRForTest()
+	ir.RequestModel.CurrentSourceExplanationProfile = &CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+		SourceQuotes:                        []string{"internal/tracequery/query.go:42"},
+		Confidence:                          0.9,
+	}
+	bus := &BusContext{
+		Mutable: mut,
+		TurnRouteHint: TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: ir,
+	}
+
+	plan := BuildAnswerSurfacePlanForBusContext(bus)
+	if plan == nil {
+		t.Fatal("surface plan is nil")
+	}
+	if !plan.CurrentStatusDiagnosticRequired {
+		t.Fatal("precise current-source obligation must keep current-status diagnostic with runtime observations")
+	}
+	if !plan.CurrentSourceEvidenceOrigin {
+		t.Fatal("precise current-source obligation must keep current-source origin with runtime observations")
+	}
+}
+
 func TestBuildAnswerSemanticViewForAgentContext_TraceQueryCountDropsCurrentStatusDecisionRequirement(t *testing.T) {
 	mut := NewMutableState("trace_query semantic view")
 	mut.AppendDispatchToolResult(traceQueryRuntimeObservationToolResultForSurfacePlanTest())
@@ -378,6 +443,28 @@ func traceQueryRuntimeObservationToolResultForSurfacePlanTest() ToolResult {
 			},
 			Subject: "app-20",
 			Summary: "root_cause_rank rank=1 state=runnable impact=8.0ms",
+		}},
+	}
+}
+
+func runtimeProbeObservationToolResultForSurfacePlanTest() ToolResult {
+	return ToolResult{
+		ToolName: "runtime_probe",
+		Success:  true,
+		RawRef:   "[runtime_probe params: source=runtime_artifact artifact_id=runtime_probe.json row_set_ref=row:1]",
+		Observations: []ObservationRecord{{
+			ID:              "tool:0#runtime_probe:row:1",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "runtime_probe",
+			GroundingPolicy: ClaimGroundingHard,
+			SourceRef: ObservationSourceRef{
+				Kind:         ObservationSourceRuntimeArtifact,
+				ArtifactID:   "runtime_probe.json",
+				ArtifactKind: "trace",
+				RowSetRef:    "row:1",
+			},
+			Subject: "app-20",
+			Summary: "runtime_probe observed the target span",
 		}},
 	}
 }

@@ -1907,6 +1907,7 @@ func BuildAnswerSurfacePlanForAgentContext(ctx *AgentContext) *AnswerSurfacePlan
 			ctx.AnalysisIR,
 			attachedRuntimeArtifact,
 			ledger,
+			ctx.TurnRouteHint,
 		)
 	}
 	ctx.storeAnswerSurfacePlan(plan)
@@ -1945,13 +1946,14 @@ func BuildAnswerSurfacePlanForBusContext(ctx *BusContext) *AnswerSurfacePlan {
 			ctx.AnalysisIR,
 			attachedRuntimeArtifact,
 			ledger,
+			ctx.TurnRouteHint,
 		)
 	}
 	ctx.storeAnswerSurfacePlan(plan)
 	return cloneAnswerSurfacePlan(plan)
 }
 
-func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *AnalysisIR, attachedRuntimeArtifact bool, ledger ObservationLedger) {
+func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *AnalysisIR, attachedRuntimeArtifact bool, ledger ObservationLedger, routeHint TurnRouteHint) {
 	if plan == nil || ir == nil {
 		return
 	}
@@ -1961,17 +1963,52 @@ func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *Ana
 	if observationLedgerHasTraceQueryRuntimeObservation(ledger) {
 		plan.ExternalObservationSeeds = filterPreTriagePerfExternalObservationSeeds(plan.ExternalObservationSeeds)
 	}
-	if !ir.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedRuntimeArtifact) {
-		return
-	}
-	if observationLedgerHasCurrentSourceRecord(ledger) {
-		return
+	authority := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel:      &ir.RequestModel,
+		RouteHint:         routeHint,
+		Ledger:            ledger,
+		AnswerSurfacePlan: plan,
+	})
+	if runtimeSourceAuthorityAppliesToSurfacePlan(authority) {
+		if !runtimeSourceAuthorityAllowsSourceOptionalSurfacePlan(authority) {
+			return
+		}
+	} else {
+		if !ir.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedRuntimeArtifact) {
+			return
+		}
+		if observationLedgerHasCurrentSourceRecord(ledger) {
+			return
+		}
 	}
 	plan.CurrentStatusDiagnosticRequired = false
 	plan.CurrentSourceEvidenceOrigin = false
 	if plan.RuntimeGroundingDisposition == nil || !plan.RuntimeGroundingDisposition.IsActive() {
 		plan.RuntimeGroundingDisposition = sourceOptionalRuntimeArtifactDisposition(ir.RequestModel, attachedRuntimeArtifact, ledger)
 	}
+}
+
+func runtimeSourceAuthorityAppliesToSurfacePlan(authority RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	return authority.RuntimeObservationCount > 0 ||
+		authority.DeterministicRuntimeQueryCount > 0 ||
+		authority.RuntimeOnlySufficient ||
+		authority.CurrentSourceSatisfied
+}
+
+func runtimeSourceAuthorityAllowsSourceOptionalSurfacePlan(authority RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	if authority.CurrentSourceSatisfied || authority.CanHardBlockCompletion {
+		return false
+	}
+	return authority.RuntimeOnlySufficient ||
+		authority.CanUseRuntimeOnlyWithCaveat ||
+		authority.CanDowngradeToCaveat ||
+		(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired)
 }
 
 func sourceOptionalRuntimeArtifactDisposition(rm RequestModel, attachedRuntimeArtifact bool, ledger ObservationLedger) *RuntimeGroundingDisposition {
