@@ -4928,6 +4928,78 @@ func TestEmitInvestigationComplete_PreCompleteCheck_TraceQueryPathObservationsWa
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_TraceQueryAggregateFactsWaiveCitationFloorWithoutAttachment(t *testing.T) {
+	mut := types.NewMutableState("trace-query aggregate observations")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:path#root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "explicit_runtime_trace", ArtifactKind: "trace", PayloadRef: ".codrax/blob/trace-query-result.json"},
+			Subject:         "app-42591",
+			Predicate:       "root_cause_primary",
+			Object:          "binder IPC burst plus UI rerender pressure",
+			Value:           "171",
+			Unit:            "binder_transactions",
+			Summary:         "trace_query ranked binder IPC burst plus UI rerender pressure inside the requested time window",
+		}},
+	})
+	mut.ResetDispatchToolResults()
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentRootCause,
+				RawRequest: "只分析 explicit_runtime_trace.systrace，不分析代码。",
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+					SourceQuotes:      []string{"不分析代码"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 2},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "trace_query isolated the root cause in the explicit runtime trace window",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":       "scalar_value",
+			"label":      "binder transactions in target window",
+			"value":      "171",
+			"unit":       "transactions",
+			"provenance": "trace_query.root_cause_rank",
+			"dimensions": []map[string]any{{
+				"name":  "origin",
+				"value": string(types.AnswerEvidenceOriginRuntimeArtifact),
+			}, {
+				"name":  "artifact_id",
+				"value": "explicit_runtime_trace",
+			}},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") || strings.Contains(res.Summary, "file:line evidence") {
+		t.Fatalf("trace_query aggregate handoff should not be converted into repo citation debt, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete should be set from trace_query observations plus aggregate handoff")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_MCPOriginWaivesCitationFloorWhenSourceOptional(t *testing.T) {
 	mut := types.NewMutableState("MCP line facts")
 	bus := &types.BusContext{

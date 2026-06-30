@@ -381,6 +381,69 @@ func TestBuildExploreFactRetryContinuationHintCarriesRuntimeFrontier(t *testing.
 	}
 }
 
+func TestBuildExploreFactRetryContinuationHintPreservesTraceQueryRuntimeObservations(t *testing.T) {
+	mut := types.NewMutableState("trace root cause")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:payload#root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				ArtifactID:   "attached_trace",
+				ArtifactKind: "trace",
+				PayloadRef:   ".codrax/blob/trace-query-result.json",
+			},
+			Subject:   "app-42591",
+			Predicate: "root_cause_primary",
+			Object:    "binder IPC burst plus UI rerender pressure",
+			Summary:   "trace_query isolated the target-window root cause",
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentRootCause,
+			Scenario:   types.ScenarioRootCause,
+			Complexity: types.ComplexityComplex,
+		}},
+	}}
+
+	got := o.buildExploreFactRetryContinuationHint(&agent.StageOutput{
+		ToolResults: []types.ToolResult{{
+			ToolName: "trace_query",
+			Success:  true,
+			Observations: []types.ObservationRecord{{
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				GroundingPolicy: types.ClaimGroundingHard,
+				SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact},
+			}},
+		}},
+	})
+	for _, want := range []string{
+		"`trace_query` has already published typed runtime observations",
+		"Preserve the observation summaries",
+		"do not convert trace_query payload/blob JSON into current-repo file citations",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("trace_query runtime checkpoint missing %q:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{
+		"Prefer `read_file` around returned line numbers",
+		"ground the selected vicinity with `read_file`",
+	} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("typed trace_query checkpoint must not render raw-file anchoring guidance %q:\n%s", banned, got)
+		}
+	}
+}
+
 func TestBuildExploreFactRetryContinuationHintPrefersTypedRefinement(t *testing.T) {
 	mut := types.NewMutableState("find owner")
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}

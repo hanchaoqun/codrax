@@ -378,7 +378,11 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 		"Reuse accepted evidence, aggregate facts, closure reason, already-read files, and tool-result summaries visible in the transcript before doing any broad rediscovery. This checkpoint is advisory only: it is not new evidence and it does not decide sufficiency for you.",
 	}
 	if exploreRuntimeTraceContinuationLikely(o.busCtx, toolResults) {
-		body = append(body, "Runtime/log/trace continuation: continue from already discovered line windows, timestamps, thread ids, event names, and current chain frontier. Prefer `read_file` around returned line numbers or `grep` with `line_start`/`line_end`; use `fixed_string=true` for punctuation-heavy literals. For numeric time-window filtering, a deterministic command is acceptable, then ground the selected vicinity with `read_file` before emitting line-scope evidence.")
+		if exploreRuntimeTraceTypedObservationLandingAvailable(o.busCtx, toolResults) {
+			body = append(body, "Runtime/log/trace continuation: `trace_query` has already published typed runtime observations. Preserve the observation summaries, payload_ref/raw_ref, timestamps, thread ids, event names, and window frontier as runtime-artifact evidence; do not convert trace_query payload/blob JSON into current-repo file citations or reopen broad read_file anchoring only to satisfy completion-form debt. Use `read_file` only when the user requested a verbatim raw excerpt, the trace format is unsupported by typed tools, or a precise current-source obligation is still active.")
+		} else {
+			body = append(body, "Runtime/log/trace continuation: continue from already discovered line windows, timestamps, thread ids, event names, and current chain frontier. Prefer `read_file` around returned line numbers or `grep` with `line_start`/`line_end`; use `fixed_string=true` for punctuation-heavy literals. For numeric time-window filtering, a deterministic command is acceptable, then ground the selected vicinity with `read_file` before emitting line-scope evidence.")
+		}
 	} else if exploreChainContinuationLikely(o.busCtx) {
 		body = append(body, "Chain/sequence continuation: keep the current frontier explicit. If one hop remains unresolved, do a narrow follow-up for that hop instead of restarting from all discovered candidates.")
 	}
@@ -495,6 +499,27 @@ func toolResultCarriesRuntimeArtifactSignal(result types.ToolResult) bool {
 	}
 	if refinement, ok := continuationToolResultRefinement(result); ok && toolRefinementCarriesRuntimeArtifactPath(refinement) {
 		return true
+	}
+	return false
+}
+
+func exploreRuntimeTraceTypedObservationLandingAvailable(bus *types.BusContext, toolResults []types.ToolResult) bool {
+	if bus != nil && bus.Mutable != nil && bus.Mutable.TraceQueryRuntimeObservationCount() > 0 {
+		return true
+	}
+	for _, result := range toolResults {
+		if !result.Success || types.CanonicalToolName(result.ToolName) != "trace_query" {
+			continue
+		}
+		for _, observation := range result.Observations {
+			if observation.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+				!types.RuntimeObservationProducerIsDeterministicQuery(observation.Producer) ||
+				observation.SourceRef.Kind != types.ObservationSourceRuntimeArtifact ||
+				observation.GroundingPolicy != types.ClaimGroundingHard {
+				continue
+			}
+			return true
+		}
 	}
 	return false
 }

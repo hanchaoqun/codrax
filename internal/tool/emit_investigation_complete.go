@@ -3419,9 +3419,6 @@ func traceQueryRuntimeObservationCompletionBypassLabel(ctx *types.BusContext, ag
 	if ctx == nil || ctx.Mutable == nil {
 		return "", false
 	}
-	if len(aggregateFacts) > 0 {
-		return "", false
-	}
 	count := ctx.Mutable.TraceQueryRuntimeObservationCount()
 	if count == 0 {
 		for _, result := range append(ctx.Mutable.DispatchToolResults(), ctx.ToolResults...) {
@@ -3457,9 +3454,62 @@ func traceQueryRuntimeObservationCompletionBypassLabel(ctx *types.BusContext, ag
 		// not require RequestModel path heuristics to rediscover the artifact at
 		// completion time. The current-source requirement check above is the
 		// contract boundary for mixed trace+source questions.
+		if !traceQueryRuntimeObservationBypassCompatibleWithAggregateFacts(ctx, aggregateFacts) {
+			return "", false
+		}
 		return fmt.Sprintf("trace_query_runtime_observations=%d", count), true
 	}
+	if !traceQueryRuntimeObservationBypassCompatibleWithAggregateFacts(ctx, aggregateFacts) {
+		return "", false
+	}
 	return fmt.Sprintf("trace_query_runtime_observations=%d", count), true
+}
+
+func traceQueryRuntimeObservationBypassCompatibleWithAggregateFacts(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) bool {
+	if len(aggregateFacts) == 0 {
+		return true
+	}
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	for _, fact := range aggregateFacts {
+		explicitOrigins := aggregateFactExplicitCompletionOrigins(fact)
+		for _, origin := range explicitOrigins {
+			if origin == types.AnswerEvidenceOriginCurrentSource ||
+				(origin != types.AnswerEvidenceOriginRuntimeArtifact && types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin)) {
+				return false
+			}
+		}
+		if aggregateMemberSetOriginRequiresCurrentSource(ctx, &rm) {
+			origins := types.AnswerAggregateFactEvidenceOrigins(fact, &rm)
+			if len(origins) == 0 || !types.AnswerEvidenceOriginsAreOriginSpecificOnly(origins) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func aggregateFactExplicitCompletionOrigins(fact types.AnswerAggregateFact) []types.AnswerEvidenceOrigin {
+	seen := map[types.AnswerEvidenceOrigin]bool{}
+	var out []types.AnswerEvidenceOrigin
+	add := func(raw string) {
+		origin := types.AnswerEvidenceOriginFromStructuredToken(raw)
+		if origin == types.AnswerEvidenceOriginUnknown || !origin.IsValid() || seen[origin] {
+			return
+		}
+		seen[origin] = true
+		out = append(out, origin)
+	}
+	add(fact.Provenance)
+	for _, dim := range fact.Dimensions {
+		add(dim.Value)
+	}
+	for _, ref := range fact.SupportRefs {
+		add(ref)
+	}
+	return out
 }
 
 func originSpecificCompletionBypassLabel(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) (string, bool) {
