@@ -644,7 +644,7 @@ func TestCheckTier1Floor_RuntimeTraceQueryClosureSkipsMechanismDimensionRepoMapD
 	}
 }
 
-func TestCheckTier1Floor_RuntimeTraceQueryCurrentSourceObligationKeepsNavigationFollowup(t *testing.T) {
+func TestCheckTier1Floor_RuntimeTraceQuerySoftCurrentSourceObligationDowngradesToCaveat(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
 	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
@@ -682,8 +682,8 @@ func TestCheckTier1Floor_RuntimeTraceQueryCurrentSourceObligationKeepsNavigation
 	})
 
 	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
-	if proceed || exhausted || !strings.Contains(msg, "repo_map") {
-		t.Fatalf("typed current-source obligation should keep navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("soft typed current-source obligation with runtime proof should proceed with caveat instead of repo_map follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
 }
 

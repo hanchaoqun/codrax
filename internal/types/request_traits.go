@@ -1381,12 +1381,12 @@ func RuntimeArtifactReadSourceNavigationNotRequiredForBusContext(ctx *BusContext
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	if ctx.AnalysisIR.RequestModel.HasCurrentSourceObligationSignal() {
-		return false
-	}
 	authority := BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, ObservationLedger{})
 	if runtimeSourceAuthorityAppliesToReadSourceAudit(ctx, authority) {
 		return runtimeSourceAuthoritySuppressesReadSourceAudit(authority)
+	}
+	if ctx.AnalysisIR.RequestModel.HasCurrentSourceObligationSignal() {
+		return false
 	}
 	return RuntimeArtifactReadSourceNavigationNotRequired(ctx.AnalysisIR, RuntimeArtifactContextActiveFromBus(ctx))
 }
@@ -1420,12 +1420,12 @@ func RuntimeArtifactReadSourceSupplementsNotRequiredForBusContext(ctx *BusContex
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	if ctx.AnalysisIR.RequestModel.HasCurrentSourceObligationSignal() {
-		return false
-	}
 	authority := BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, ObservationLedger{})
 	if runtimeSourceAuthorityAppliesToReadSourceAudit(ctx, authority) {
 		return runtimeSourceAuthoritySuppressesReadSourceAudit(authority)
+	}
+	if ctx.AnalysisIR.RequestModel.HasCurrentSourceObligationSignal() {
+		return false
 	}
 	return RuntimeArtifactReadSourceSupplementsNotRequired(ctx.AnalysisIR, RuntimeArtifactContextActiveFromBus(ctx))
 }

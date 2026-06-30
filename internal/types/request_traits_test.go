@@ -788,6 +788,91 @@ func TestRuntimeArtifactReadSourceSupplementsNotRequiredForBusContext_SoftMixedW
 	}
 }
 
+func TestRuntimeArtifactReadSourceAuditForBusContext_SoftObligationUsesAuthorityBeforeLegacySignal(t *testing.T) {
+	mut := NewMutableState("runtime mixed soft obligation")
+	mut.AppendDispatchToolResult(traceQueryRuntimeObservationToolResultForTest())
+	ctx := &BusContext{
+		Mutable: mut,
+		TurnRouteHint: TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &AnalysisIR{RequestModel: RequestModel{
+			Intent:   IntentRootCause,
+			Scenario: ScenarioPerformanceBottleneck,
+			ExternalObservationPolicy: &ExternalObservationPolicy{
+				ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+				Confidence:           0.9,
+			},
+			CurrentSourceObligationSignals: []CurrentSourceObligationSignal{{
+				Kind:  CurrentSourceObligationSignalDroppedRequestedDimension,
+				Role:  RequestedAnswerDimensionFunctionOrPurpose,
+				Index: 1,
+			}},
+		}},
+	}
+
+	if !ctx.AnalysisIR.RequestModel.HasCurrentSourceObligationSignal() {
+		t.Fatal("test setup must expose the legacy typed obligation signal")
+	}
+	authority := BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, ObservationLedger{})
+	if authority.CurrentSourceRequirement != RuntimeSourceRequirementSoft ||
+		authority.CanHardBlockCompletion ||
+		!authority.CanDowngradeToCaveat {
+		t.Fatalf("soft dropped-dimension obligation should be caveatable, got %+v", authority)
+	}
+	if !RuntimeArtifactReadSourceSupplementsNotRequiredForBusContext(ctx) {
+		t.Fatal("soft missing current-source obligation with accepted runtime proof should suppress audit supplements as caveat")
+	}
+	if !RuntimeArtifactReadSourceNavigationNotRequiredForBusContext(ctx) {
+		t.Fatal("soft missing current-source obligation with accepted runtime proof should suppress navigation follow-up as caveat")
+	}
+}
+
+func TestRuntimeArtifactReadSourceAuditForBusContext_PreciseObligationKeepsAudit(t *testing.T) {
+	mut := NewMutableState("runtime mixed precise obligation")
+	mut.AppendDispatchToolResult(traceQueryRuntimeObservationToolResultForTest())
+	ctx := &BusContext{
+		Mutable: mut,
+		TurnRouteHint: TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &AnalysisIR{RequestModel: RequestModel{
+			Intent:   IntentTrace,
+			Scenario: ScenarioPerformanceBottleneck,
+			RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []RequestedAnswerDimension{{
+					Label:    "current implementation",
+					Role:     RequestedAnswerDimensionCurrentKeyCode,
+					Required: true,
+					Index:    1,
+				}},
+				Confidence: 0.9,
+			},
+		}},
+	}
+
+	authority := BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, ObservationLedger{})
+	if authority.CurrentSourceRequirement != RuntimeSourceRequirementPrecise ||
+		!authority.CanHardBlockCompletion ||
+		authority.CanDowngradeToCaveat {
+		t.Fatalf("current-key-code obligation should remain precise, got %+v", authority)
+	}
+	if RuntimeArtifactReadSourceSupplementsNotRequiredForBusContext(ctx) {
+		t.Fatal("precise current-source obligation should preserve audit supplements")
+	}
+	if RuntimeArtifactReadSourceNavigationNotRequiredForBusContext(ctx) {
+		t.Fatal("precise current-source obligation should preserve navigation follow-up")
+	}
+}
+
 func TestCurrentSourceLaneDecision_RuntimeExactTargetsRemainSourceOptional(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,
