@@ -2365,6 +2365,17 @@ func TestStateDrilldownRuleMatrixPinsRecentTracePolicies(t *testing.T) {
 				LineStart:     90,
 				LineEnd:       100,
 			},
+			{
+				Thread:        ThreadRef{Comm: "fragmented-running", PID: 204},
+				DominantState: string(StateRunning),
+				RunningMs:     48,
+				TotalMs:       80,
+				FragmentCount: 5,
+				StateSwitches: 4,
+				MaxSegmentMs:  9,
+				LineStart:     110,
+				LineEnd:       120,
+			},
 		},
 	}, 12)
 
@@ -2396,6 +2407,12 @@ func TestStateDrilldownRuleMatrixPinsRecentTracePolicies(t *testing.T) {
 		!containsString(fragmentedIO.RecommendedViews, "critical_blocking_calls") ||
 		!containsString(fragmentedIO.RecommendedViews, "root_cause_rank") {
 		t.Fatalf("fragmented D/IO wait must remain a recursive blocking/root-cause candidate: %+v all=%+v", fragmentedIO, plan)
+	}
+	fragmentedRunning := findStateDrilldownStepForTest(plan, 204, "state_churn", string(StateRunning))
+	if fragmentedRunning == nil || fragmentedRunning.ChainRequired || fragmentedRunning.Recursive ||
+		!containsString(fragmentedRunning.RecommendedViews, "trace_perf_bundle") ||
+		!containsString(fragmentedRunning.RecommendedViews, "root_cause_rank") {
+		t.Fatalf("fragmented running must remain visible as CPU-work drilldown without mandatory wakeup recursion: %+v all=%+v", fragmentedRunning, plan)
 	}
 }
 
@@ -2575,6 +2592,64 @@ func TestFragmentedIOChurnKeepsRecursiveRootCauseDrilldown(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("fragmented IO wait should remain as a root-cause candidate: %+v", rank.Items)
+	}
+}
+
+func TestFragmentedRunningChurnStaysVisibleWithoutWakeupRecursion(t *testing.T) {
+	idx := buildTraceIndex(t, "fragmented_running_churn.systrace", `
+        app-100 (100) [001] .... 1.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100 (100) [001] .... 1.002000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+      input-1   (  1) [000] .... 1.002500: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 1.003000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100 (100) [001] .... 1.005000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+      input-1   (  1) [000] .... 1.005500: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 1.006000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100 (100) [001] .... 1.008000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+      input-1   (  1) [000] .... 1.008500: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 1.009000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100 (100) [001] .... 1.011000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+	`)
+	q := Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.012, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 8}
+	stats := ComputeWindowStats(idx, q)
+	var churn ThreadStateChurnSummary
+	for _, item := range stats.StateChurn {
+		if item.Thread.PID == 100 && item.DominantState == string(StateRunning) {
+			churn = item
+			break
+		}
+	}
+	if churn.Thread.PID == 0 || churn.RunningMs < 7.9 || churn.FragmentCount < 4 || churn.MaxSegmentMs >= churn.TotalMs*0.70 {
+		t.Fatalf("expected fragmented running churn summary, got %+v", stats.StateChurn)
+	}
+	var drilldown *StateDrilldownStep
+	for i := range stats.StateDrilldownPlan {
+		step := &stats.StateDrilldownPlan[i]
+		if step.Thread.PID == 100 && step.Source == "state_churn" && step.State == string(StateRunning) {
+			drilldown = step
+			break
+		}
+	}
+	if drilldown == nil {
+		t.Fatalf("fragmented running should remain in state drilldown plan: %+v", stats.StateDrilldownPlan)
+	}
+	if drilldown.ChainRequired || drilldown.Recursive {
+		t.Fatalf("fragmented running should be CPU-work drilldown, not mandatory wakeup-chain recursion: %+v", drilldown)
+	}
+	if !containsString(drilldown.RecommendedViews, "trace_perf_bundle") || !containsString(drilldown.RecommendedViews, "root_cause_rank") {
+		t.Fatalf("fragmented running should recommend perf/root-cause follow-up: %+v", drilldown.RecommendedViews)
+	}
+	rank := BuildRootCauseRank(idx, q)
+	found := false
+	for _, item := range rank.Items {
+		if item.Thread.PID == 100 && item.Type == "fragmented_running" && item.Source == "window_stats.state_churn" {
+			if item.DominantState != string(StateRunning) || item.RunningMs < 7.9 {
+				t.Fatalf("fragmented running root-cause row lost running totals: %+v", item)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("fragmented running should remain as a root-cause candidate: %+v", rank.Items)
 	}
 }
 
