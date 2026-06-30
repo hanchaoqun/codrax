@@ -42,8 +42,7 @@ func enrichSourceInventoryProfileFromAnalyzerPrescan(ctx *types.BusContext, rm *
 		if profile.Confidence < 0.55 {
 			profile.Confidence = 0.55
 		}
-		if strings.TrimSpace(profile.Rationale) == "" ||
-			strings.Contains(profile.Rationale, "typed source-enumeration request shape") {
+		if strings.TrimSpace(profile.Rationale) == "" {
 			profile.Rationale = "enriched from typed analyzer source-inventory prescan"
 		}
 		return "source_inventory_profile enriched from typed analyzer source-inventory prescan"

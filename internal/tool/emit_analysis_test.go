@@ -5565,6 +5565,69 @@ func TestEmitAnalysis_EnrichesSynthesizedInventoryFromAnalyzerPrescan(t *testing
 	}
 }
 
+func TestEnrichSourceInventoryProfileFromAnalyzerPrescan_PreservesNonEmptyRationale(t *testing.T) {
+	raw := "列出 extend 和 foreign func 声明"
+	mu := types.NewMutableState(raw)
+	prescan := types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Scopes:       []string{"."},
+		Provenance: []string{
+			types.SourceInventoryProvenanceRepoLensToolQuery,
+			types.SourceInventoryProvenanceStageAnalyze,
+		},
+		Sets: []types.SourceInventoryObservationSet{
+			{
+				Role: types.AnswerCandidateRoleFunction,
+				Members: []types.SourceInventoryObservationMember{
+					{Name: "native_add", Role: types.AnswerCandidateRoleFunction, File: "demo/bridge/Bridge.cj", Line: 6, SurfaceTerms: []string{"foreign func"}},
+				},
+			},
+			{
+				Role: types.AnswerCandidateRoleType,
+				Members: []types.SourceInventoryObservationMember{
+					{Name: "extend Cart", Role: types.AnswerCandidateRoleType, File: "demo/cart/Cart.cj", Line: 30, SurfaceTerms: []string{"extend"}},
+				},
+			},
+		},
+	}
+	mu.AppendDispatchToolResult(types.ToolResult{
+		ToolName:        "repo_map",
+		Success:         true,
+		SourceInventory: &prescan,
+	})
+	const rationale = "model-authored rationale stays audit-only"
+	rm := types.RequestModel{
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+			RequestedFields: []types.SourceInventoryRequestedField{
+				types.SourceInventoryFieldName,
+				types.SourceInventoryFieldLocation,
+			},
+			Confidence: 0.10,
+			Rationale:  rationale,
+		},
+	}
+
+	warning := enrichSourceInventoryProfileFromAnalyzerPrescan(&types.BusContext{Mutable: mu}, &rm, raw)
+	if warning == "" {
+		t.Fatal("prescan enrichment should report a typed profile update")
+	}
+	if rm.SourceInventoryProfile.Rationale != rationale {
+		t.Fatalf("non-empty rationale must stay audit-only, got %q want %q", rm.SourceInventoryProfile.Rationale, rationale)
+	}
+	if rm.SourceInventoryProfile.Confidence < 0.55 {
+		t.Fatalf("confidence was not upgraded from typed prescan observation: %+v", rm.SourceInventoryProfile)
+	}
+	gotQuotes := strings.Join(rm.SourceInventoryProfile.SourceQuotes, "|")
+	for _, want := range []string{"extend", "foreign func"} {
+		if !strings.Contains(gotQuotes, want) {
+			t.Fatalf("source_inventory_profile quotes = %+v, want %q", rm.SourceInventoryProfile.SourceQuotes, want)
+		}
+	}
+}
+
 func TestEmitAnalysis_ProjectsPrescanFilesForSourceInventoryCoverage(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
