@@ -38,7 +38,12 @@ func TestOriginSpecificObservationWithoutRequiredSourceForExplorer(t *testing.T)
 		Confidence:   0.9,
 		SourceQuotes: []string{"结合源码"},
 	}
+	if !originSpecificObservationWithoutRequiredSourceForExplorer(ctx, facts) {
+		t.Fatal("soft current-source profile should allow origin-specific completion with caveat")
+	}
+
+	ctx.AnalysisIR.RequestModel.CurrentSourceExplanationProfile.SourceQuotes = []string{"internal/tracequery/query.go:42"}
 	if originSpecificObservationWithoutRequiredSourceForExplorer(ctx, facts) {
-		t.Fatal("typed current-source request must keep source completion required")
+		t.Fatal("precise current-source profile must keep source completion required")
 	}
 }

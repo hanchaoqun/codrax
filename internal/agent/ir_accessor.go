@@ -281,7 +281,7 @@ func originSpecificObservationWithoutRequiredSourceForExplorer(ctx *types.AgentC
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if rm.RequiresCurrentSourceForExternalObservation(&ctx.AnalysisIR.AnswerContract) {
+	if originSpecificCompletionCurrentSourceBlockedForExplorer(ctx) {
 		return false
 	}
 	for _, fact := range facts {
@@ -298,6 +298,20 @@ func originSpecificObservationWithoutRequiredSourceForExplorer(ctx *types.AgentC
 		}
 	}
 	return false
+}
+
+func originSpecificCompletionCurrentSourceBlockedForExplorer(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	authority := runtimeSourceAnswerAuthorityForExplorer(ctx)
+	if authority.Active && authority.CurrentSourceRequirement != types.RuntimeSourceRequirementNone {
+		return authority.CanHardBlockCompletion ||
+			authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise ||
+			authority.CurrentSourceSatisfied
+	}
+	return rm.RequiresCurrentSourceForExternalObservation(&ctx.AnalysisIR.AnswerContract)
 }
 
 func observationOnlyRuntimeArtifactForAnalyzer(ctx *types.AgentContext) bool {
