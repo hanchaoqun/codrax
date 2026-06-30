@@ -4211,6 +4211,35 @@ func TestPrincipalEnumerationStructuredSourceInventoryItemText_DeduplicatesTyped
 	}
 }
 
+func TestPrincipalEnumerationCleanSourceInventoryDisplayNote_UsesTypedValuesNotMetadataKeywords(t *testing.T) {
+	row := types.EnumerationDisplayRow{
+		Member:       "Cart",
+		DisplayLabel: "Cart",
+		Source:       "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+		LineStart:    30,
+		Location:     "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+		SurfaceTerms: []string{"extend Cart"},
+		Attributes: []types.EnumerationDisplayRowAttribute{{
+			Role: types.AnswerCandidateRolePackage,
+			Name: "demo.cart",
+		}},
+	}
+	note := "owner=demo.cart，包路径为 demo.cart，说明=用户可见"
+	got := principalEnumerationStructuredSourceInventoryItemText(row, note, principalEnumerationTableShape{
+		includeLocation: true,
+		includePackage:  true,
+		includeNote:     true,
+	})
+	if strings.Contains(got, "owner=demo.cart") {
+		t.Fatalf("structured duplicate value should be removed without enumerating metadata keys: %q", got)
+	}
+	for _, want := range []string{"包路径为 demo.cart", "说明=用户可见"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("natural-language note segment must not be removed by keyword matching; missing %q in %q", want, got)
+		}
+	}
+}
+
 func TestPrincipalEnumerationCleanSourceInventoryDisplaySurface_CollapsesRepeatedAliasFamilies(t *testing.T) {
 	row := types.EnumerationDisplayRow{
 		Member:       "Animal",
