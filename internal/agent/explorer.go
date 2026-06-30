@@ -8666,20 +8666,7 @@ func (e *explorerEvaluator) runtimeSourceAnswerAuthority() types.RuntimeSourceAn
 }
 
 func mixedRuntimeCurrentSourceAuthorityCarrierActive(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
-	if !authority.Active {
-		return false
-	}
-	runtimeCarrier := authority.RuntimeObservationCount > 0 ||
-		authority.DeterministicRuntimeQueryCount > 0 ||
-		authority.RuntimeOnlySufficient ||
-		authority.CanUseRuntimeOnlyWithCaveat ||
-		authority.CanCompleteWithCombinedProof
-	sourceCarrier := authority.CurrentSourceRequired ||
-		authority.CurrentSourceSatisfied ||
-		authority.CurrentSourceRecordCount > 0 ||
-		authority.ExactCurrentSourceSupportCount > 0 ||
-		authority.CurrentSourceRequirement != types.RuntimeSourceRequirementNone
-	return runtimeCarrier && sourceCarrier
+	return authority.HasMixedRuntimeCurrentSourceCarrier()
 }
 
 func exploreLanePlanHasOrigin(plan types.ExploreLanePlan, want types.AnswerEvidenceOrigin) bool {

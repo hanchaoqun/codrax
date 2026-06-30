@@ -30,7 +30,7 @@ func (o *Orchestrator) shouldDowngradeRuntimeAcceptedClosureExploreFallback(viol
 		authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise {
 		return false
 	}
-	if authority.RuntimeObservationCount == 0 && !authority.RuntimeOnlySufficient && !authority.CanUseRuntimeOnlyWithCaveat {
+	if !authority.HasRuntimeCarrier() {
 		return false
 	}
 	for _, violation := range violations {

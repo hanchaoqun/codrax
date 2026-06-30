@@ -48,10 +48,7 @@ func runtimeSourceAuthorityAppliesToArtifactCitationCleanup(ctx *types.BusContex
 	if !authority.Active {
 		return false
 	}
-	if authority.RuntimeObservationCount > 0 ||
-		authority.DeterministicRuntimeQueryCount > 0 ||
-		authority.RuntimeOnlySufficient ||
-		authority.CurrentSourceSatisfied {
+	if authority.HasRuntimeCarrier() || authority.CurrentSourceSatisfied {
 		return true
 	}
 	return false

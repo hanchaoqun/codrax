@@ -1434,9 +1434,7 @@ func runtimeSourceAuthorityAppliesToReadSourceAudit(ctx *BusContext, authority R
 	if !authority.Active {
 		return false
 	}
-	if authority.RuntimeObservationCount > 0 ||
-		authority.DeterministicRuntimeQueryCount > 0 ||
-		authority.RuntimeOnlySufficient ||
+	if authority.HasRuntimeCarrier() ||
 		authority.CanHardBlockCompletion {
 		return true
 	}

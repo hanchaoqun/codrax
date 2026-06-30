@@ -4426,10 +4426,7 @@ func answerDocRuntimeSourceAuthorityUsesCompactObservationPrompt(ctx *types.Agen
 	if !authority.Active {
 		return false
 	}
-	runtimeCarrier := authority.RuntimeObservationCount > 0 ||
-		authority.DeterministicRuntimeQueryCount > 0 ||
-		authority.RuntimeOnlySufficient ||
-		authority.CanUseRuntimeOnlyWithCaveat
+	runtimeCarrier := authority.HasRuntimeCarrier()
 	if !runtimeCarrier {
 		return false
 	}

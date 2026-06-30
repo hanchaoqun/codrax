@@ -195,6 +195,35 @@ func BuildRuntimeSourceAnswerAuthoritySnapshot(in RuntimeSourceAnswerAuthorityIn
 	return out
 }
 
+// HasRuntimeCarrier reports whether the authority has answer-grade runtime or
+// external observation support. It deliberately consumes only typed authority
+// fields; consumers should not re-derive this from prompt prose or rendered
+// trace/log text.
+func (s RuntimeSourceAnswerAuthoritySnapshot) HasRuntimeCarrier() bool {
+	return s.RuntimeObservationCount > 0 ||
+		s.DeterministicRuntimeQueryCount > 0 ||
+		s.RuntimeOnlySufficient ||
+		s.CanUseRuntimeOnlyWithCaveat
+}
+
+// HasCurrentSourceCarrier reports whether a current-source proof lane is
+// present, required, or already satisfied. Soft obligations count as carriers
+// for handoff/navigation, but only CanHardBlockCompletion may drive hard gates.
+func (s RuntimeSourceAnswerAuthoritySnapshot) HasCurrentSourceCarrier() bool {
+	return s.CurrentSourceRequired ||
+		s.CurrentSourceSatisfied ||
+		s.CurrentSourceRecordCount > 0 ||
+		s.ExactCurrentSourceSupportCount > 0 ||
+		s.CurrentSourceRequirement != RuntimeSourceRequirementNone
+}
+
+// HasMixedRuntimeCurrentSourceCarrier is the shared typed predicate for mixed
+// trace/log/runtime plus current-source turns. It is a handoff/readiness helper,
+// not a hard completion gate.
+func (s RuntimeSourceAnswerAuthoritySnapshot) HasMixedRuntimeCurrentSourceCarrier() bool {
+	return s.Active && s.HasRuntimeCarrier() && s.HasCurrentSourceCarrier()
+}
+
 func runtimeSourceAuthorityCurrentSourceRequired(rm *RequestModel, hint TurnRouteHint, suff ExternalObservationSufficiency) bool {
 	if suff.Status == ExternalObservationSufficiencyBlockedByCurrentSource {
 		return true

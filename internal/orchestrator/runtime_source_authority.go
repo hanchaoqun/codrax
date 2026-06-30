@@ -17,9 +17,7 @@ func runtimeSourceAuthorityAppliesToAutoVerdictSkip(authority types.RuntimeSourc
 	if !authority.Active {
 		return false
 	}
-	return authority.RuntimeObservationCount > 0 ||
-		authority.DeterministicRuntimeQueryCount > 0 ||
-		authority.RuntimeOnlySufficient ||
+	return authority.HasRuntimeCarrier() ||
 		authority.CurrentSourceSatisfied
 }
 

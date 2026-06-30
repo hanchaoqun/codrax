@@ -142,10 +142,7 @@ func repoMapRuntimeSourceRequestCarrierActive(ctx *ctypes.BusContext, rm *ctypes
 		rm.PerfTrace != nil {
 		return true
 	}
-	return (authority.RuntimeObservationCount > 0 ||
-		authority.DeterministicRuntimeQueryCount > 0 ||
-		authority.RuntimeOnlySufficient ||
-		authority.CanUseRuntimeOnlyWithCaveat) &&
+	return authority.HasRuntimeCarrier() &&
 		rm.CurrentSourceExplanationProfile != nil &&
 		rm.CurrentSourceExplanationProfile.Active()
 }

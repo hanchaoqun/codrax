@@ -3605,9 +3605,7 @@ func runtimeSourceAuthorityAppliesToCompletionLanding(authority types.RuntimeSou
 	if !authority.Active {
 		return false
 	}
-	return authority.RuntimeObservationCount > 0 ||
-		authority.DeterministicRuntimeQueryCount > 0 ||
-		authority.RuntimeOnlySufficient ||
+	return authority.HasRuntimeCarrier() ||
 		authority.CanDowngradeToCaveat ||
 		authority.CanHardBlockCompletion ||
 		authority.CurrentSourceSatisfied
@@ -8866,10 +8864,7 @@ func currentSourceLaneRuntimeArtifactCarrier(ctx *types.BusContext) bool {
 }
 
 func runtimeSourceAuthorityHasRuntimeCarrier(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
-	return authority.RuntimeObservationCount > 0 ||
-		authority.DeterministicRuntimeQueryCount > 0 ||
-		authority.RuntimeOnlySufficient ||
-		authority.CanUseRuntimeOnlyWithCaveat
+	return authority.HasRuntimeCarrier()
 }
 
 func currentSourceLaneHasSpecificSourceSeed(ctx *types.BusContext) bool {

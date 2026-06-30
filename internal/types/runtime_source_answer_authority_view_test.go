@@ -337,6 +337,50 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_ContextBuildersUseSharedAuthority(
 	}
 }
 
+func TestRuntimeSourceAnswerAuthoritySnapshot_CarrierHelpers(t *testing.T) {
+	runtimeOnly := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RouteHint: TurnRouteHint{Source: "artifact"},
+		Ledger:    ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}},
+	})
+	if !runtimeOnly.HasRuntimeCarrier() || runtimeOnly.HasCurrentSourceCarrier() || runtimeOnly.HasMixedRuntimeCurrentSourceCarrier() {
+		t.Fatalf("runtime-only carrier mismatch: %+v", runtimeOnly)
+	}
+
+	softMixed := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel: &RequestModel{
+			CurrentSourceObligationSignals: []CurrentSourceObligationSignal{{
+				Kind: CurrentSourceObligationSignalDroppedRequestedDimension,
+				Role: RequestedAnswerDimensionFunctionOrPurpose,
+			}},
+		},
+		RouteHint: TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},
+		Ledger:    ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}},
+	})
+	if !softMixed.HasRuntimeCarrier() || !softMixed.HasCurrentSourceCarrier() || !softMixed.HasMixedRuntimeCurrentSourceCarrier() {
+		t.Fatalf("soft mixed runtime/source carrier mismatch: %+v", softMixed)
+	}
+	if softMixed.CanHardBlockCompletion {
+		t.Fatalf("soft mixed carrier helper must not imply a hard gate: %+v", softMixed)
+	}
+
+	sourceOnly := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel: &RequestModel{
+			CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				SourceQuotes:                        []string{"internal/tracequery/query.go"},
+				Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+			},
+		},
+		RouteHint: TurnRouteHint{Source: "repo", NeedsRepoAccess: true},
+	})
+	if sourceOnly.HasRuntimeCarrier() || !sourceOnly.HasCurrentSourceCarrier() || sourceOnly.HasMixedRuntimeCurrentSourceCarrier() {
+		t.Fatalf("source-only carrier mismatch: %+v", sourceOnly)
+	}
+	if !sourceOnly.CanHardBlockCompletion {
+		t.Fatalf("precise source-only obligation should remain a hard gate candidate: %+v", sourceOnly)
+	}
+}
+
 func runtimeSourceTraceRecord(id, producer string) ObservationRecord {
 	return ObservationRecord{
 		ID:       id,
