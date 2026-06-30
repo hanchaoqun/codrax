@@ -86,13 +86,24 @@ func TestPruneExploreToolBatchBeforeHistoryCapsValidateTraceQueries(t *testing.T
 		})
 	}
 
-	got := pruneExploreToolBatchBeforeHistory(ctx, calls)
+	got, hint := pruneExploreToolBatchBeforeHistory(ctx, calls)
 	if len(got) != exploreValidateTraceQueryBatchCap {
 		t.Fatalf("validate trace_query batch kept %d calls, want %d", len(got), exploreValidateTraceQueryBatchCap)
 	}
 	for i, call := range got {
 		if call.ID != fmt.Sprintf("trace-%02d", i) {
 			t.Fatalf("kept call[%d] = %s, want original order trace-%02d", i, call.ID, i)
+		}
+	}
+	for _, want := range []string{
+		"Tool batch guard",
+		"skipped 17 of 20",
+		"dispatch_kind=validate",
+		"trace_query=17(max_per_batch=3)",
+		"Continue from the executed tool results only",
+	} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("tool batch guard hint missing %q in %q", want, hint)
 		}
 	}
 }
@@ -116,7 +127,7 @@ func TestPruneExploreToolBatchBeforeHistoryPrioritizesLandingPolicyTools(t *test
 		{ID: "read", Name: "read_file", Params: json.RawMessage(`{"path":"x.go"}`)},
 	}
 
-	got := pruneExploreToolBatchBeforeHistory(ctx, calls)
+	got, hint := pruneExploreToolBatchBeforeHistory(ctx, calls)
 	if len(got) != 2 {
 		t.Fatalf("landing policy kept %d calls, want 2: %+v", len(got), got)
 	}
@@ -125,6 +136,35 @@ func TestPruneExploreToolBatchBeforeHistoryPrioritizesLandingPolicyTools(t *test
 	}
 	if got[1].ID != "trace-1" {
 		t.Fatalf("one blocked call should remain only to surface policy feedback, got %+v", got)
+	}
+	for _, want := range []string{
+		"scheduler_policy=landing_repair",
+		"max_tool_calls=2",
+		"allowed_tools=emit_investigation_complete",
+		"skipped_by_policy: read_file=1,trace_query=1",
+	} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("landing policy guard hint missing %q in %q", want, hint)
+		}
+	}
+}
+
+func TestPruneExploreToolBatchBeforeHistoryNoPruneHasNoGuardHint(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage:               types.StageExplore,
+		ExploreDispatchKind: types.NodeValidate,
+	}
+	calls := []llm.ToolCall{
+		{ID: "trace-1", Name: "trace_query", Params: json.RawMessage(`{"view":"root_cause_rank"}`)},
+		{ID: "trace-2", Name: "trace_query", Params: json.RawMessage(`{"view":"wakeup_chain"}`)},
+	}
+
+	got, hint := pruneExploreToolBatchBeforeHistory(ctx, calls)
+	if len(got) != len(calls) {
+		t.Fatalf("small trace batch should not be pruned: got %d want %d", len(got), len(calls))
+	}
+	if hint != "" {
+		t.Fatalf("small trace batch should not produce guard hint, got %q", hint)
 	}
 }
 

@@ -2360,7 +2360,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 		resp.ToolCalls = b.normalizeToolCallParamsWithContext(ctx, resp.ToolCalls, effectiveTools)
 		resp.ToolCalls = pruneAnalyzerPrescanBatchBeforeHistory(ctx, resp.ToolCalls)
-		resp.ToolCalls = pruneExploreToolBatchBeforeHistory(ctx, resp.ToolCalls)
+		var toolBatchGuardHint string
+		resp.ToolCalls, toolBatchGuardHint = pruneExploreToolBatchBeforeHistory(ctx, resp.ToolCalls)
 
 		// DIAGNOSTIC — dump assistant response (debug only).
 		logging.Debug("[diag %s] iter=%d ASSISTANT content_len=%d tool_calls=%d",
@@ -2818,6 +2819,15 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					DispatchKind:      string(ctx.ExploreDispatchKind),
 				})
 			}
+		}
+
+		if toolBatchGuardHint != "" {
+			messages = append(messages, llm.Message{
+				Role:    "user",
+				Content: toolBatchGuardHint,
+			})
+			logging.Debug("[diag %s] iter=%d phase=tool_batch_guard hint len=%d:\n%s\n---",
+				b.name, i, len(toolBatchGuardHint), logging.Truncate(toolBatchGuardHint, logging.HintBodyMax))
 		}
 
 		currentToolResults := allToolResults[toolResultsStart:]
@@ -4734,24 +4744,55 @@ const (
 	exploreDefaultTraceQueryBatchCap  = 4
 )
 
-func pruneExploreToolBatchBeforeHistory(ctx *types.AgentContext, calls []llm.ToolCall) []llm.ToolCall {
-	if ctx == nil || ctx.Stage != types.StageExplore || len(calls) <= 1 {
-		return calls
-	}
-	originalLen := len(calls)
-	calls = pruneReadDispatchPolicyToolBatch(ctx, calls)
-	calls = pruneExploreHeavyToolBatch(ctx, calls)
-	if len(calls) < originalLen {
-		logging.Warning("[agent] pruned explore tool batch from %d to %d calls (dispatch_kind=%s policy=%s)",
-			originalLen, len(calls), ctx.ExploreDispatchKind, types.NormalizeReadDispatchPolicy(ctx.ReadDispatchPolicy).Action)
-	}
-	return calls
+type exploreToolBatchPruneReport struct {
+	originalCount       int
+	keptCount           int
+	policyActive        bool
+	policyAction        string
+	policyMaxToolCalls  int
+	policyAllowedTools  []string
+	droppedByPolicyTool map[string]int
+	droppedByCapTool    map[string]int
+	capByTool           map[string]int
 }
 
-func pruneReadDispatchPolicyToolBatch(ctx *types.AgentContext, calls []llm.ToolCall) []llm.ToolCall {
+func pruneExploreToolBatchBeforeHistory(ctx *types.AgentContext, calls []llm.ToolCall) ([]llm.ToolCall, string) {
+	if ctx == nil || ctx.Stage != types.StageExplore || len(calls) <= 1 {
+		return calls, ""
+	}
+	report := &exploreToolBatchPruneReport{
+		originalCount:       len(calls),
+		droppedByPolicyTool: map[string]int{},
+		droppedByCapTool:    map[string]int{},
+		capByTool:           map[string]int{},
+	}
+	calls = pruneReadDispatchPolicyToolBatch(ctx, calls, report)
+	calls = pruneExploreHeavyToolBatch(ctx, calls, report)
+	report.keptCount = len(calls)
+	if len(calls) < report.originalCount {
+		logging.Warning("[agent] pruned explore tool batch from %d to %d calls (dispatch_kind=%s policy=%s)",
+			report.originalCount, len(calls), ctx.ExploreDispatchKind, types.NormalizeReadDispatchPolicy(ctx.ReadDispatchPolicy).Action)
+	}
+	return calls, renderExploreToolBatchGuardHint(ctx, report)
+}
+
+func pruneReadDispatchPolicyToolBatch(ctx *types.AgentContext, calls []llm.ToolCall, report *exploreToolBatchPruneReport) []llm.ToolCall {
 	policy := types.NormalizeReadDispatchPolicy(ctx.ReadDispatchPolicy)
 	if !policy.Active || policy.MaxToolCalls <= 0 || len(calls) <= policy.MaxToolCalls {
 		return calls
+	}
+	if report == nil {
+		report = &exploreToolBatchPruneReport{
+			droppedByPolicyTool: map[string]int{},
+			droppedByCapTool:    map[string]int{},
+			capByTool:           map[string]int{},
+		}
+	}
+	if report != nil {
+		report.policyActive = true
+		report.policyAction = policy.Action
+		report.policyMaxToolCalls = policy.MaxToolCalls
+		report.policyAllowedTools = append([]string(nil), policy.AllowedTools...)
 	}
 	allowed := make([]llm.ToolCall, 0, len(calls))
 	blocked := make([]llm.ToolCall, 0, len(calls))
@@ -4763,24 +4804,37 @@ func pruneReadDispatchPolicyToolBatch(ctx *types.AgentContext, calls []llm.ToolC
 		}
 	}
 	if len(allowed) == 0 {
-		return append([]llm.ToolCall(nil), calls[:policy.MaxToolCalls]...)
+		out := append([]llm.ToolCall(nil), calls[:policy.MaxToolCalls]...)
+		recordDroppedToolCounts(report.droppedByPolicyTool, calls, out)
+		return out
 	}
+	var out []llm.ToolCall
 	if len(allowed) >= policy.MaxToolCalls {
-		return append([]llm.ToolCall(nil), allowed[:policy.MaxToolCalls]...)
+		out = append([]llm.ToolCall(nil), allowed[:policy.MaxToolCalls]...)
+		recordDroppedToolCounts(report.droppedByPolicyTool, calls, out)
+		return out
 	}
-	out := append([]llm.ToolCall(nil), allowed...)
+	out = append([]llm.ToolCall(nil), allowed...)
 	for _, call := range blocked {
 		if len(out) >= policy.MaxToolCalls {
 			break
 		}
 		out = append(out, call)
 	}
+	recordDroppedToolCounts(report.droppedByPolicyTool, calls, out)
 	return out
 }
 
-func pruneExploreHeavyToolBatch(ctx *types.AgentContext, calls []llm.ToolCall) []llm.ToolCall {
+func pruneExploreHeavyToolBatch(ctx *types.AgentContext, calls []llm.ToolCall, report *exploreToolBatchPruneReport) []llm.ToolCall {
 	if len(calls) <= 1 {
 		return calls
+	}
+	if report == nil {
+		report = &exploreToolBatchPruneReport{
+			droppedByPolicyTool: map[string]int{},
+			droppedByCapTool:    map[string]int{},
+			capByTool:           map[string]int{},
+		}
 	}
 	perToolCap := map[string]int{}
 	if ctx.ExploreDispatchKind == types.NodeValidate {
@@ -4794,6 +4848,10 @@ func pruneExploreHeavyToolBatch(ctx *types.AgentContext, calls []llm.ToolCall) [
 		name := types.CanonicalToolName(call.Name)
 		if cap := perToolCap[name]; cap > 0 {
 			if used[name] >= cap {
+				if report != nil {
+					report.droppedByCapTool[name]++
+					report.capByTool[name] = cap
+				}
 				continue
 			}
 		}
@@ -4804,6 +4862,91 @@ func pruneExploreHeavyToolBatch(ctx *types.AgentContext, calls []llm.ToolCall) [
 		return calls
 	}
 	return out
+}
+
+func renderExploreToolBatchGuardHint(ctx *types.AgentContext, report *exploreToolBatchPruneReport) string {
+	if ctx == nil || report == nil || report.originalCount <= report.keptCount {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Tool batch guard: skipped %d of %d requested tool calls before execution to keep this read turn bounded",
+		report.originalCount-report.keptCount, report.originalCount)
+	if ctx.Stage != "" {
+		fmt.Fprintf(&b, " (stage=%s", ctx.Stage)
+		if ctx.ExploreDispatchKind != "" {
+			fmt.Fprintf(&b, " dispatch_kind=%s", ctx.ExploreDispatchKind)
+		}
+		b.WriteString(")")
+	}
+	fmt.Fprintf(&b, ". executed_calls=%d.", report.keptCount)
+	if rendered := renderToolCountMapWithCaps(report.droppedByCapTool, report.capByTool); rendered != "" {
+		fmt.Fprintf(&b, " skipped_by_cap: %s.", rendered)
+	}
+	if report.policyActive {
+		fmt.Fprintf(&b, " scheduler_policy=%s max_tool_calls=%d", firstNonEmptyString(report.policyAction, "active"), report.policyMaxToolCalls)
+		if len(report.policyAllowedTools) > 0 {
+			fmt.Fprintf(&b, " allowed_tools=%s", strings.Join(report.policyAllowedTools, ","))
+		}
+		if rendered := renderToolCountMapWithCaps(report.droppedByPolicyTool, nil); rendered != "" {
+			fmt.Fprintf(&b, " skipped_by_policy: %s.", rendered)
+		} else {
+			b.WriteString(".")
+		}
+	}
+	b.WriteString(" Continue from the executed tool results only. If more proof is answer-critical, send a smaller targeted batch within these caps; otherwise complete with a caveat instead of resending the skipped broad batch.")
+	return b.String()
+}
+
+func recordDroppedToolCounts(dst map[string]int, before, after []llm.ToolCall) {
+	if dst == nil {
+		return
+	}
+	remaining := toolCallCanonicalCounts(after)
+	for _, call := range before {
+		name := types.CanonicalToolName(call.Name)
+		if name == "" {
+			name = "tool"
+		}
+		if remaining[name] > 0 {
+			remaining[name]--
+			continue
+		}
+		dst[name]++
+	}
+}
+
+func toolCallCanonicalCounts(calls []llm.ToolCall) map[string]int {
+	counts := map[string]int{}
+	for _, call := range calls {
+		name := types.CanonicalToolName(call.Name)
+		if name == "" {
+			name = "tool"
+		}
+		counts[name]++
+	}
+	return counts
+}
+
+func renderToolCountMapWithCaps(counts, caps map[string]int) string {
+	if len(counts) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(counts))
+	for name, count := range counts {
+		if count > 0 {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		if caps != nil && caps[name] > 0 {
+			parts = append(parts, fmt.Sprintf("%s=%d(max_per_batch=%d)", name, counts[name], caps[name]))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%d", name, counts[name]))
+	}
+	return strings.Join(parts, ",")
 }
 
 func pruneAnalyzerPrescanBatchBeforeHistory(ctx *types.AgentContext, calls []llm.ToolCall) []llm.ToolCall {
