@@ -53,6 +53,11 @@ const maxCachedTraceIndexBytes int64 = 64 << 20
 // the LLM issues multiple trace_query calls in parallel.
 const defaultTraceIndexMaxEvents = 250000
 
+const (
+	maxPerfSampleTextFieldLen = 512
+	maxPerfCallchainFieldLen  = 2048
+)
+
 // traceIndexCacheBudgetBytes bounds the total Event bytes retained by the
 // index cache. Fixed package constant by design — no configuration knob:
 // eviction is pure latency (a miss re-parses through the indexBuilds
@@ -1384,33 +1389,33 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInt
 	if ev.PerfTID == 0 && ev.PID > 0 {
 		ev.PerfTID = ev.PID
 	}
-	ev.PerfComm = intern.intern(cleanTraceValue(firstNonEmpty(kv["thread_comm"], kv["comm"], kv["name"], ev.Comm)))
+	ev.PerfComm = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["thread_comm"], kv["comm"], kv["name"], ev.Comm), maxPerfSampleTextFieldLen))
 	ev.PerfPeriod = atoi64(firstNonEmpty(kv["sample_weight"], kv["period_weight"], kv["period"], kv["sample_period"], kv["event_count"], kv["count"]))
-	ev.PerfEvent = intern.intern(cleanTraceValue(firstNonEmpty(kv["event"], kv["type"])))
-	ev.PerfSymbol = intern.intern(cleanTraceValue(firstNonEmpty(kv["symbol"], kv["func"], kv["function"])))
-	ev.PerfDSO = intern.intern(cleanTraceValue(firstNonEmpty(kv["dso"], kv["file"], kv["path"])))
-	ev.PerfIP = intern.intern(cleanTraceValue(firstNonEmpty(kv["ip"], kv["addr"], kv["address"])))
-	ev.PerfAddr = intern.intern(cleanTraceValue(kv["addr"]))
-	ev.PerfSampleID = intern.intern(cleanTraceValue(kv["sample_id"]))
-	ev.PerfStreamID = intern.intern(cleanTraceValue(kv["stream_id"]))
+	ev.PerfEvent = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["event"], kv["type"]), maxPerfSampleTextFieldLen))
+	ev.PerfSymbol = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["symbol"], kv["func"], kv["function"]), maxPerfSampleTextFieldLen))
+	ev.PerfDSO = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["dso"], kv["file"], kv["path"]), maxPerfSampleTextFieldLen))
+	ev.PerfIP = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["ip"], kv["addr"], kv["address"]), maxPerfSampleTextFieldLen))
+	ev.PerfAddr = intern.intern(cleanTraceValueBounded(kv["addr"], maxPerfSampleTextFieldLen))
+	ev.PerfSampleID = intern.intern(cleanTraceValueBounded(kv["sample_id"], maxPerfSampleTextFieldLen))
+	ev.PerfStreamID = intern.intern(cleanTraceValueBounded(kv["stream_id"], maxPerfSampleTextFieldLen))
 	ev.PerfRawWeight = atoi64Auto(kv["perf_weight"])
-	ev.PerfDataSrc = intern.intern(cleanTraceValue(kv["data_src"]))
-	ev.PerfTransaction = intern.intern(cleanTraceValue(kv["transaction"]))
-	ev.PerfPhysAddr = intern.intern(cleanTraceValue(kv["phys_addr"]))
-	ev.PerfCGroupID = intern.intern(cleanTraceValue(kv["cgroup_id"]))
+	ev.PerfDataSrc = intern.intern(cleanTraceValueBounded(kv["data_src"], maxPerfSampleTextFieldLen))
+	ev.PerfTransaction = intern.intern(cleanTraceValueBounded(kv["transaction"], maxPerfSampleTextFieldLen))
+	ev.PerfPhysAddr = intern.intern(cleanTraceValueBounded(kv["phys_addr"], maxPerfSampleTextFieldLen))
+	ev.PerfCGroupID = intern.intern(cleanTraceValueBounded(kv["cgroup_id"], maxPerfSampleTextFieldLen))
 	ev.PerfDataPageSize = atoi64Auto(kv["data_page_size"])
 	ev.PerfCodePageSize = atoi64Auto(kv["code_page_size"])
 	ev.PerfRawSize = atoi64Auto(kv["raw_size"])
 	ev.PerfBranchCount = atoi64Auto(kv["branch_count"])
-	ev.PerfUserRegsABI = intern.intern(cleanTraceValue(kv["user_regs_abi"]))
+	ev.PerfUserRegsABI = intern.intern(cleanTraceValueBounded(kv["user_regs_abi"], maxPerfSampleTextFieldLen))
 	ev.PerfUserRegsCount = atoi64Auto(kv["user_regs_count"])
 	ev.PerfUserStackSize = atoi64Auto(kv["user_stack_size"])
 	ev.PerfAuxSize = atoi64Auto(kv["aux_size"])
-	ev.PerfCallchain = intern.intern(cleanTraceValue(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"])))
-	ev.PerfSource = intern.intern(cleanTraceValue(firstNonEmpty(kv["source"], kv["producer"])))
-	ev.PerfSampleKind = intern.intern(cleanTraceValue(firstNonEmpty(kv["sample_kind"], kv["sample_type"], kv["perf_sample_kind"])))
-	ev.PerfSymbolizationStatus = intern.intern(cleanTraceValue(firstNonEmpty(kv["symbolization_status"], kv["symbol_status"], kv["symbols"])))
-	ev.PerfClock = intern.intern(cleanTraceValue(firstNonEmpty(kv["clock"], kv["clockid"])))
+	ev.PerfCallchain = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"]), maxPerfCallchainFieldLen))
+	ev.PerfSource = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["source"], kv["producer"]), maxPerfSampleTextFieldLen))
+	ev.PerfSampleKind = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["sample_kind"], kv["sample_type"], kv["perf_sample_kind"]), maxPerfSampleTextFieldLen))
+	ev.PerfSymbolizationStatus = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["symbolization_status"], kv["symbol_status"], kv["symbols"]), maxPerfSampleTextFieldLen))
+	ev.PerfClock = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["clock"], kv["clockid"]), maxPerfSampleTextFieldLen))
 	if known, ok := boolMaybe(firstNonEmpty(kv["cpu_known"], kv["cpu_valid"], kv["cpu_available"])); ok {
 		ev.PerfCPUKnown = boolPtr(known)
 	}
@@ -1420,11 +1425,11 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInt
 	if ev.PerfSymbolizationStatus == "" {
 		ev.PerfSymbolizationStatus = intern.intern(defaultPerfSymbolizationStatus(*ev))
 	}
-	ev.PerfClockConfidence = intern.intern(cleanTraceValue(firstNonEmpty(kv["clock_confidence"], kv["time_alignment"], kv["time_alignment_confidence"])))
+	ev.PerfClockConfidence = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["clock_confidence"], kv["time_alignment"], kv["time_alignment_confidence"]), maxPerfSampleTextFieldLen))
 	if ev.PerfClockConfidence == "" {
 		ev.PerfClockConfidence = intern.intern(defaultPerfClockConfidence(*ev))
 	}
-	ev.PerfCallchainStatus = intern.intern(cleanTraceValue(firstNonEmpty(kv["callchain_status"], kv["stack_status"], kv["call_stack_status"])))
+	ev.PerfCallchainStatus = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["callchain_status"], kv["stack_status"], kv["call_stack_status"]), maxPerfSampleTextFieldLen))
 	if ev.PerfCallchainStatus == "" {
 		ev.PerfCallchainStatus = intern.intern(defaultPerfCallchainStatus(*ev))
 	}
@@ -2283,6 +2288,10 @@ func cleanTraceValue(raw string) string {
 	raw = strings.Trim(raw, `"'`)
 	raw = strings.TrimRight(raw, ",")
 	return raw
+}
+
+func cleanTraceValueBounded(raw string, maxLen int) string {
+	return clampString(cleanTraceValue(raw), maxLen)
 }
 
 func normalizeFileRW(raw string) string {

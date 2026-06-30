@@ -73,8 +73,12 @@ func repoMapFirstHopSuppressedForRuntimeArtifact(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	if runtimeSourceNavigationPhaseForExplorer(ctx, true).RuntimeProbePreferredBeforeSource {
+	phase := runtimeSourceNavigationPhaseForExplorer(ctx, true)
+	if phase.RuntimeProbePreferredBeforeSource {
 		return true
 	}
-	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactCurrentVerificationAnchor()
+	if phase.TraceQueryAttempted || phase.RuntimeObservationAvailable {
+		return false
+	}
+	return phase.RuntimeTraceCarrier && !phase.SourceOwnerRequired
 }

@@ -48,6 +48,10 @@ func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) 
 	if o.busCtx == nil || o.busCtx.Mutable == nil {
 		return "", true, false
 	}
+	if tier1FloorSuppressedByRuntimeSourceAuthority(o.busCtx) {
+		logging.Info("[orchestrator] pre-finalize Tier-1 floor suppressed: reason=runtime_source_authority")
+		return "", true, false
+	}
 	evidence := o.busCtx.Mutable.EmittedEvidence()
 	if len(evidence) == 0 {
 		// No evidence emitted at all — tool-only investigation
@@ -78,6 +82,20 @@ func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) 
 		return b.String(), false, true
 	}
 	return b.String(), false, false
+}
+
+func tier1FloorSuppressedByRuntimeSourceAuthority(busCtx *types.BusContext) bool {
+	if busCtx == nil || busCtx.Mutable == nil || busCtx.AnalysisIR == nil {
+		return false
+	}
+	if !types.RuntimeArtifactContextActiveFromBus(busCtx) {
+		return false
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(busCtx, types.ObservationLedger{})
+	if readLocalizerRuntimeSourceAuthorityKeepsFollowup(authority) {
+		return false
+	}
+	return readLocalizerRuntimeSourceAuthoritySuppressesFollowup(authority)
 }
 
 func readLocalizerFollowupForTier1(busCtx *types.BusContext, ir *types.AnalysisIR) *types.ReadLocalizerFollowup {

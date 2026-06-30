@@ -1412,6 +1412,7 @@ func TestBuildInitialInstructionRuntimeArtifactSuppressesGenericRepoMapFirstHop(
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{
 		Objective: "analyze the attached runtime trace and compare with current source",
+		Stage:     types.StageExplore,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				Intent: types.IntentExplain,
@@ -1445,6 +1446,59 @@ func TestBuildInitialInstructionRuntimeArtifactSuppressesGenericRepoMapFirstHop(
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("runtime-artifact mixed lane route hint missing %q:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestBuildInitialInstructionRuntimeArtifactRestoresRepoMapFirstHopAfterRuntimeProbe(t *testing.T) {
+	eval := &explorerEvaluator{}
+	mut := types.NewMutableState("analyze trace.systrace and explain current source architecture")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Summary:  "[trace_query params: view=root_cause_rank source=path path=trace.systrace origin=runtime_artifact artifact_id=trace artifact_kind=trace payload_ref=blob://trace]\nroot cause observation",
+		Observations: []types.ObservationRecord{{
+			ID:         "tool:0#trace_query:root_cause_rank:1",
+			Origin:     types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:   "trace_query",
+			SourceRef:  types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactKind: "trace", ArtifactID: "trace", PayloadRef: "blob://trace"},
+			GroundingPolicy: types.ClaimGroundingHard,
+			ClaimKey:   "runtime.root_cause",
+			Summary:    "runtime root cause observation",
+			Confidence: 0.9,
+		}},
+	})
+	ctx := &types.AgentContext{
+		Objective: "analyze trace.systrace and explain current source architecture",
+		Stage:     types.StageExplore,
+		Mutable:   mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "analyze trace.systrace and explain current source architecture",
+				Intent:     types.IntentExplain,
+				Scenario:   types.ScenarioArchitectureExplain,
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+					SourceQuotes:                        []string{"current source architecture"},
+					Confidence:                          0.9,
+				},
+			},
+		},
+		RepoRoot: ".",
+	}
+
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Typed Repo Map First Hop",
+		`repo_map(view="semantic_subgraph")`,
+		"architecture or topology questions",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("runtime/source prompt after trace probe should restore repo_map first-hop %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "Do not start with `repo_map`, `grep`, `list_files`, or `read_file` while this step is pending") {
+		t.Fatalf("trace-first pending guidance must not survive after trace_query attempted:\n%s", prompt)
 	}
 }
 

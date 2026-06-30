@@ -594,6 +594,102 @@ func TestCheckTier1Floor_RuntimeTraceQueryObservationSkipsNavigationFollowupWith
 	}
 }
 
+func TestCheckTier1Floor_RuntimeTraceQueryObservationSkipsCurrentRepoCitationFloor(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	policy := tool.DefaultGroundingPolicy()
+	policy.Tier1Floor = 1.0
+	tool.SetGroundingPolicy(policy)
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("analyze trace root cause")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{})
+	mu.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:              "runtime-row-repackaged",
+		Kind:            types.EvidenceDirect,
+		Subject:         "app-100",
+		Predicate:       "root cause",
+		Object:          "runnable",
+		Source:          "/tmp/app.systrace",
+		LineStart:       10,
+		Scope:           types.ScopeLine,
+		GroundingStatus: types.GroundingRecovered,
+		GroundingTier:   types.TierSymbolTable,
+		Origin:          types.ClaimOriginPerf,
+	}})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+				Confidence:           0.9,
+			},
+		}},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("runtime trace evidence must not be judged by current-source Tier-1 floor, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
+func TestCheckTier1Floor_PreciseCurrentSourceRequirementKeepsCurrentRepoCitationFloor(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	policy := tool.DefaultGroundingPolicy()
+	policy.Tier1Floor = 1.0
+	tool.SetGroundingPolicy(policy)
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("analyze trace and source")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{})
+	mu.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:              "current-source-recovered-only",
+		Kind:            types.EvidenceMechanism,
+		Subject:         "parse.go",
+		Predicate:       "mechanism",
+		Object:          "window parse",
+		Source:          "internal/tracequery/parse.go",
+		LineStart:       42,
+		Scope:           types.ScopeLine,
+		GroundingStatus: types.GroundingRecovered,
+		GroundingTier:   types.TierSymbolTable,
+		Origin:          types.ClaimOriginCurrentRepo,
+	}})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentTrace,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label:       "current implementation",
+					Role:        types.RequestedAnswerDimensionCurrentKeyCode,
+					SourceQuote: "internal/tracequery/parse.go:42",
+					Required:    true,
+					Index:       1,
+				}},
+				Confidence: 0.9,
+			},
+		}},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if proceed || exhausted || msg == "" {
+		t.Fatalf("precise current-source requirement should keep Tier-1 floor, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
 func TestCheckTier1Floor_RuntimeTraceQueryClosureSkipsMechanismDimensionRepoMapDebt(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())

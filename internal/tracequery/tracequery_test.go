@@ -1411,6 +1411,34 @@ func TestPerfSampleEventSearchAndWindowStats(t *testing.T) {
 	}
 }
 
+func TestPerfSampleFieldsAreBoundedBeforeIndexing(t *testing.T) {
+	longCallchain := strings.Repeat("0x7ff7a704da41;", 400)
+	longSymbol := strings.Repeat("VeryLongSymbol", 80)
+	idx := buildTraceIndex(t, "bounded.perftrace", `
+	app-5678 (1234) [005] .... 20.000100: perf_sample: pid=1234 tid=5678 cpu=5 period=10000 event=cpu-cycles symbol=`+longSymbol+` dso=libfoo.so ip=0x1234 callchain=`+longCallchain+`
+	`)
+	if len(idx.Events) != 1 {
+		t.Fatalf("expected one perf sample, got %d", len(idx.Events))
+	}
+	ev := idx.Events[0]
+	if len(ev.PerfCallchain) > maxPerfCallchainFieldLen {
+		t.Fatalf("perf callchain length = %d, want <= %d", len(ev.PerfCallchain), maxPerfCallchainFieldLen)
+	}
+	if !strings.HasSuffix(ev.PerfCallchain, "...") {
+		t.Fatalf("bounded perf callchain should retain truncation marker, got len=%d", len(ev.PerfCallchain))
+	}
+	if len(ev.PerfSymbol) > maxPerfSampleTextFieldLen {
+		t.Fatalf("perf symbol length = %d, want <= %d", len(ev.PerfSymbol), maxPerfSampleTextFieldLen)
+	}
+	stats := ComputeWindowStats(idx, Query{TimeStart: 20.0, TimeEnd: 20.001})
+	if stats.PerfSamples == nil || len(stats.PerfSamples.TopCallchains) == 0 {
+		t.Fatalf("expected top callchain summary: %+v", stats.PerfSamples)
+	}
+	if len(stats.PerfSamples.TopCallchains[0].Callchain) > maxPerfCallchainFieldLen {
+		t.Fatalf("top callchain summary escaped parser bound: len=%d", len(stats.PerfSamples.TopCallchains[0].Callchain))
+	}
+}
+
 func TestSystraceEmbeddedPerfSamplesWorkWithoutTraceBundle(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sql_primary.systrace")
