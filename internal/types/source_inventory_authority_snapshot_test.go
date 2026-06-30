@@ -77,6 +77,9 @@ func TestSourceInventoryAuthoritySnapshot_MechanicalRowsCanLand(t *testing.T) {
 	if !view.Active || view.CanBlockCompletion || view.CanOnlyCaveat {
 		t.Fatalf("complete authority view should be active and non-blocking: %+v", view)
 	}
+	if !view.PrincipalAuthority {
+		t.Fatalf("authority view should preserve principal-authority status: %+v", view)
+	}
 	if !view.CanUseMechanicalRowsForCitation || !view.CanEnterMechanicalLanding {
 		t.Fatalf("authority view should preserve mechanical landing flags: %+v", view)
 	}

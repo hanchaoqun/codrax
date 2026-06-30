@@ -29,3 +29,7 @@ func sourceInventoryAuthoritySnapshotForReadScheduler(ctx *types.BusContext, ir 
 	})
 	return types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
 }
+
+func sourceInventoryAnswerAuthorityViewForReadScheduler(ctx *types.BusContext, ir *types.AnalysisIR, observation types.SourceInventoryObservation) types.SourceInventoryAnswerAuthorityView {
+	return types.BuildSourceInventoryAnswerAuthorityView(sourceInventoryAuthoritySnapshotForReadScheduler(ctx, ir, observation))
+}

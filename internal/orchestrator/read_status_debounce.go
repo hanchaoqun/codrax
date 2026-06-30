@@ -258,8 +258,8 @@ func readStatusSourceInventoryShapeForContext(ctx *types.BusContext, mut *types.
 	if ctx == nil || ctx.AnalysisIR == nil || mut == nil {
 		return readStatusSourceInventoryShape(obs)
 	}
-	snapshot := sourceInventoryAuthoritySnapshotForReadScheduler(ctx, ctx.AnalysisIR, obs)
-	return readStatusSourceInventorySnapshotShape(obs, snapshot)
+	view := sourceInventoryAnswerAuthorityViewForReadScheduler(ctx, ctx.AnalysisIR, obs)
+	return readStatusSourceInventoryAuthorityViewShape(obs, view)
 }
 
 func readStatusSourceInventoryShape(obs types.SourceInventoryObservation) string {
@@ -294,20 +294,22 @@ func readStatusSourceInventoryShape(obs types.SourceInventoryObservation) string
 	)
 }
 
-func readStatusSourceInventorySnapshotShape(obs types.SourceInventoryObservation, snapshot types.SourceInventoryAuthoritySnapshot) string {
+func readStatusSourceInventoryAuthorityViewShape(obs types.SourceInventoryObservation, view types.SourceInventoryAnswerAuthorityView) string {
 	base := readStatusSourceInventoryShape(obs)
-	if !snapshot.Active {
+	if !view.Active {
 		return base
 	}
 	reasons := "none"
-	if len(snapshot.ReasonCodes) > 0 {
-		reasons = strings.Join(snapshot.ReasonCodes, ",")
+	if len(view.ReasonCodes) > 0 {
+		reasons = strings.Join(view.ReasonCodes, ",")
 	}
-	return fmt.Sprintf("%s:authority=%t:need=%t:landing=%t:reasons=%s",
+	return fmt.Sprintf("%s:authority=%t:need=%t:landing=%t:block=%t:caveat=%t:reasons=%s",
 		base,
-		snapshot.PrincipalAuthority,
-		snapshot.NeedsFollowup,
-		snapshot.CanEnterMechanicalLanding,
+		view.PrincipalAuthority,
+		view.NeedsFollowup,
+		view.CanEnterMechanicalLanding,
+		view.CanBlockCompletion,
+		view.CanOnlyCaveat,
 		reasons,
 	)
 }

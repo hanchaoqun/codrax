@@ -29,6 +29,7 @@ type SourceInventoryAnswerAuthorityView struct {
 	FollowupDebt                        SourceInventoryFollowupDebt         `json:"followup_debt,omitempty"`
 	CanUseMechanicalRowsForCitation     bool                                `json:"can_use_mechanical_rows_for_citation,omitempty"`
 	CanEnterMechanicalLanding           bool                                `json:"can_enter_mechanical_landing,omitempty"`
+	PrincipalAuthority                  bool                                `json:"principal_authority,omitempty"`
 	PrincipalRoles                      []AnswerCandidateRole               `json:"principal_roles,omitempty"`
 	PrincipalScope                      SourceScope                         `json:"principal_scope,omitempty"`
 	RepoWidePrincipal                   bool                                `json:"repo_wide_principal,omitempty"`
@@ -63,6 +64,7 @@ func BuildSourceInventoryAnswerAuthorityView(snapshot SourceInventoryAuthoritySn
 		FollowupDebt:                        NormalizeSourceInventoryFollowupDebt(snapshot.FollowupDebt),
 		CanUseMechanicalRowsForCitation:     snapshot.CanUseMechanicalRowsForCite,
 		CanEnterMechanicalLanding:           snapshot.CanEnterMechanicalLanding,
+		PrincipalAuthority:                  snapshot.PrincipalAuthority,
 		PrincipalRoles:                      normalizeSourceInventoryFollowupRoles(rowSet.PrincipalRoles),
 		PrincipalScope:                      rowSet.PrincipalScope,
 		RepoWidePrincipal:                   rowSet.RepoWidePrincipal,

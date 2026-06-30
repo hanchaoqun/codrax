@@ -270,7 +270,7 @@ func TestReadStatusDebounceDoesNotSuppressWriteModeTaskNodeLifecycle(t *testing.
 	}
 }
 
-func TestReadStatusSourceInventoryShapeUsesAuthoritySnapshot(t *testing.T) {
+func TestReadStatusSourceInventoryShapeUsesAuthorityView(t *testing.T) {
 	mut := types.NewMutableState("list source inventory functions")
 	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
 		Active:   true,
@@ -319,6 +319,8 @@ func TestReadStatusSourceInventoryShapeUsesAuthoritySnapshot(t *testing.T) {
 		"authority=true",
 		"need=",
 		"landing=false",
+		"block=",
+		"caveat=",
 		"required_files_uncovered",
 	} {
 		if !strings.Contains(got, want) {
