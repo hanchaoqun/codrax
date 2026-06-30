@@ -485,7 +485,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			b.WriteString("### Hypothesis-verdict citation lanes (runtime artifact attached)\n\n")
 			// Branch on the SAME typed predicate the verdict tool's
 			// accept/reject lanes read, so prompt and gate agree.
-			if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+			if !extractorRuntimeArtifactWithoutRequiredCurrentSource(ctx) {
 				b.WriteString("This question requires the current-source lane: confirmed/rejected verdicts about CURRENT code need a repo `path:line` citation or an `evidence_id` of an accepted grounded item. An artifact-local line (`log:3`, `trace:5-6`, `runtime_artifact:1-5`) is observation context only — keep it in the rationale, never in `citation` for a current-code verdict.\n\n")
 			} else {
 				b.WriteString("For observation-only verdicts about the attached log/trace, `citation` accepts an exact artifact-local gutter line: `log:3`, `trace:5-6`, or `runtime_artifact:1-5` — always with explicit line number(s); a bare `runtime_artifact` without `:line` is rejected. Prefer `evidence_id` when the accepted investigation snapshot already covers the verdict; repo `path:line` stays required for any claim about current code.\n\n")
@@ -2121,6 +2121,18 @@ func extractorObservationOnlyRuntimeArtifact(ctx *types.AgentContext) bool {
 func extractorRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, types.ObservationLedger{})
+	if authority.Active {
+		if authority.CurrentSourceSatisfied || authority.CanHardBlockCompletion {
+			return false
+		}
+		if authority.CanUseRuntimeOnlyWithCaveat ||
+			authority.CanDowngradeToCaveat ||
+			authority.RuntimeOnlySufficient ||
+			(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired) {
+			return true
+		}
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	return rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(types.RuntimeArtifactContextActiveFromAgent(ctx))
