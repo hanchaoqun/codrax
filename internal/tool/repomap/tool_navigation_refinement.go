@@ -118,7 +118,7 @@ func repoMapRuntimeCurrentSourceAvoidsSourceInventoryRefinement(ctx *ctypes.BusC
 	if !authority.Active {
 		return false
 	}
-	if !repoMapRuntimeSourceRequestCarrierActive(ctx, rm, authority) {
+	if !ctypes.RuntimeSourceAuthorityRequestCarrierActive(ctx.TurnRouteHint, rm, authority) {
 		return false
 	}
 	return authority.CurrentSourceRequirement != ctypes.RuntimeSourceRequirementNone ||
@@ -128,13 +128,6 @@ func repoMapRuntimeCurrentSourceAvoidsSourceInventoryRefinement(ctx *ctypes.BusC
 		authority.CanUseRuntimeOnlyWithCaveat ||
 		authority.CanCompleteWithCombinedProof ||
 		authority.RuntimeOnlySufficient
-}
-
-func repoMapRuntimeSourceRequestCarrierActive(ctx *ctypes.BusContext, rm *ctypes.RequestModel, authority ctypes.RuntimeSourceAnswerAuthoritySnapshot) bool {
-	if ctx == nil || rm == nil {
-		return false
-	}
-	return ctypes.RuntimeSourceAuthorityRequestCarrierActive(ctx.TurnRouteHint, rm, authority)
 }
 
 func repoMapExplicitTopNBroad(view string, tier SizeTier, topN int) bool {
