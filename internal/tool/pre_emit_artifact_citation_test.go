@@ -144,12 +144,55 @@ func TestNormalizeRuntimeArtifactCitationRefs_MixedRuntimeCurrentSourceKeepsCurr
 	}
 }
 
-func TestNormalizeRuntimeArtifactCitationRefs_RouteBackedMixedRootCauseKeepsCurrentCitations(t *testing.T) {
+func TestNormalizeRuntimeArtifactCitationRefs_RouteBackedSoftMissingSourceDropsCurrentCitations(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{
 		Errors: []types.LogError{{Type: "LLM timeout"}},
 	})
-	ctx := &types.BusContext{
+	ctx := routeBackedMixedRootCauseBusContext(mut, nil)
+	doc := routeBackedMixedRootCauseCitationDoc()
+
+	if hints := preCheckRuntimeObservationRepoContamination(doc, ctx); len(hints) == 0 {
+		t.Fatal("soft route-backed mixed runtime/source without source evidence should keep cleanup active")
+	}
+	if fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx); fixed == 0 {
+		t.Fatalf("soft route-backed mixed runtime/source citation should normalize without source evidence: %+v", doc)
+	}
+	if len(doc.Citations) != 0 || doc.Blocks[0].Items[0].CitationRef != -1 {
+		t.Fatalf("soft missing-source citation should be detached: %+v", doc)
+	}
+	if hints := preCheckRuntimeObservationRepoContamination(doc, ctx); len(hints) != 0 {
+		t.Fatalf("normalized soft missing-source answer should not be rejected, got %+v", hints)
+	}
+}
+
+func TestNormalizeRuntimeArtifactCitationRefs_RouteBackedCombinedProofKeepsCurrentCitations(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "LLM timeout"}},
+	})
+	ctx := routeBackedMixedRootCauseBusContext(mut, []types.EvidenceItem{{
+		ID:        "source-timeout-retry",
+		Source:    "internal/llm/openai.go",
+		LineStart: 472,
+		Summary:   "current source defines the first-byte timeout retry boundary",
+		Origin:    types.ClaimOriginCurrentRepo,
+	}})
+	doc := routeBackedMixedRootCauseCitationDoc()
+
+	if fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx); fixed != 0 {
+		t.Fatalf("route-backed mixed runtime+source answer with source evidence should keep current citations, fixed=%d doc=%+v", fixed, doc)
+	}
+	if len(doc.Citations) != 1 || doc.Citations[0].File != "internal/llm/openai.go" || doc.Blocks[0].Items[0].CitationRef != 0 {
+		t.Fatalf("current-source citation was not preserved: %+v", doc)
+	}
+	if hints := preCheckRuntimeObservationRepoContamination(doc, ctx); len(hints) != 0 {
+		t.Fatalf("combined runtime+current-source citations should not be rejected, got %+v", hints)
+	}
+}
+
+func routeBackedMixedRootCauseBusContext(mut *types.MutableState, evidence []types.EvidenceItem) *types.BusContext {
+	return &types.BusContext{
 		Mutable: mut,
 		TurnRouteHint: types.TurnRouteHint{
 			Route:           "repo",
@@ -173,8 +216,12 @@ func TestNormalizeRuntimeArtifactCitationRefs_RouteBackedMixedRootCauseKeepsCurr
 				},
 			},
 		},
+		EvidenceItems: evidence,
 	}
-	doc := &types.AnswerDocumentV2{
+}
+
+func routeBackedMixedRootCauseCitationDoc() *types.AnswerDocumentV2 {
+	return &types.AnswerDocumentV2{
 		Citations: []types.Citation{{File: "internal/llm/openai.go", Line: 472}},
 		Blocks: []types.AnswerBlock{{
 			ID:   "source",
@@ -186,16 +233,6 @@ func TestNormalizeRuntimeArtifactCitationRefs_RouteBackedMixedRootCauseKeepsCurr
 				CitationRef: 0,
 			}},
 		}},
-	}
-
-	if fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx); fixed != 0 {
-		t.Fatalf("route-backed mixed runtime+source answer should keep current citations, fixed=%d doc=%+v", fixed, doc)
-	}
-	if len(doc.Citations) != 1 || doc.Citations[0].File != "internal/llm/openai.go" || doc.Blocks[0].Items[0].CitationRef != 0 {
-		t.Fatalf("current-source citation was not preserved: %+v", doc)
-	}
-	if hints := preCheckRuntimeObservationRepoContamination(doc, ctx); len(hints) != 0 {
-		t.Fatalf("route-backed mixed runtime+source citations should not be rejected, got %+v", hints)
 	}
 }
 

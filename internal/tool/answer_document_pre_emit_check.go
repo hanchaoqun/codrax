@@ -603,7 +603,7 @@ func preCheckRuntimeObservationRepoContamination(doc *types.AnswerDocumentV2, ct
 	if plan == nil || !plan.RuntimeGroundingDisposition.IsActive() ||
 		plan.CurrentStatusDiagnosticRequired ||
 		plan.CurrentSourceEvidenceOrigin ||
-		answerDocumentRequiresCurrentSourceLane(ctx) ||
+		answerDocumentHasLoadBearingCurrentSourceLane(ctx) ||
 		answerDocumentHasCurrentSourceObservationSupport(ctx) {
 		return nil
 	}

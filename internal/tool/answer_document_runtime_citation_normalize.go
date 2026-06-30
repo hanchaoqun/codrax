@@ -46,15 +46,16 @@ func answerDocumentHasCurrentSourceObservationSupport(ctx *types.BusContext) boo
 	return false
 }
 
-func answerDocumentRequiresCurrentSourceLane(ctx *types.BusContext) bool {
+func answerDocumentHasLoadBearingCurrentSourceLane(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	rm := &ctx.AnalysisIR.RequestModel
-	if rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
-		return true
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
+	if authority.Active {
+		return authority.CanHardBlockCompletion || authority.CurrentSourceSatisfied
 	}
-	return types.RouteBackedExternalObservationRequiresCurrentSource(rm, ctx.TurnRouteHint)
+	rm := &ctx.AnalysisIR.RequestModel
+	return rm.CurrentSourceLaneDecision().RequiresCurrentSource()
 }
 
 func answerDocumentExternalObservationOnly(ctx *types.BusContext) bool {
@@ -160,7 +161,7 @@ func normalizeRuntimeArtifactCitationRefs(doc *types.AnswerDocumentV2, ctx *type
 	if plan.RuntimeGroundingDisposition.IsActive() &&
 		!plan.CurrentStatusDiagnosticRequired &&
 		!plan.CurrentSourceEvidenceOrigin &&
-		!answerDocumentRequiresCurrentSourceLane(ctx) &&
+		!answerDocumentHasLoadBearingCurrentSourceLane(ctx) &&
 		!answerDocumentHasCurrentSourceObservationSupport(ctx) {
 		for i := range doc.Citations {
 			remove[i] = true
