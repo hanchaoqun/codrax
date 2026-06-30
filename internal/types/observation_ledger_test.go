@@ -303,6 +303,7 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 				"- plugin_event kind=xpower domain=xpower event=xpower_cpu metric=CPU value=73 category=foreground thread=xpower-30 count=1 line=7 example=component=CPU energy=8.2 usage=73 scene=foreground",
 				"- plugin_event kind=hi_sysevent domain=POWER event=THERMAL_REPORT metric=STAT value=hot category=MINOR thread=hisys-40 count=1 line=8 example=domain=POWER eventname=THERMAL_REPORT type=STAT value=hot level=MINOR",
 				"- state_churn com.app-42 dominant_state=runnable impact=5.000ms total=8.000ms fragments=12 switches=11 max_segment=0.500ms p95_segment=0.500ms running=3.000ms runnable=5.000ms sleep=0.000ms d_state=0.000ms io_wait=0.000ms confidence=0.83 lines=111-119 — com.app-42 had frequent state switching; dominant_state=runnable impact=5.000ms total=8.000ms fragments=12 switches=11 max_segment=0.500ms p95_segment=0.500ms totals running=3.000ms runnable=5.000ms sleep=0.000ms d_state=0.000ms io_wait=0.000ms; next_step=inspect same-CPU pressure",
+				"- state_drilldown rank=1 thread=com.app-42 state=S impact=21.000ms total=30.000ms source=top_sleep chain_required=true recursive=true recommended_views=wakeup_chain,root_cause_rank lines=121-130 — com.app-42 long sleep requires wakeup-chain drilldown",
 				"- file_io inode=0xb9b8e dev=260:136 name=foo.db op=write thread=com.app-42 count=3 completions=2 bytes=12288 total_latency=1.500ms max_latency=1.000ms ret=4096 offsets=0..8192 example=entry_name=foo.db offset=0 bytes=4096 ret=4096 latency_us=700 lines=200-204 — inode=0xb9b8e dev=260:136 op=write count=3 bytes=12288 thread=com.app-42 name=foo.db",
 				"- page_cache inode=0xb9b8e dev=260:136 thread=com.app-42 adds=2 deletes=1 churn=3 bytes=0 offsets=0..8192 lines=205-207 — inode=0xb9b8e dev=260:136 page-cache adds=2 deletes=1 churn=3 thread=com.app-42",
 				"- storage_latency layer=scsi event=scsi_dispatch_cmd dev=12,80 op=read thread=com.app-42 count=2 paired=1 unpaired_start=0 unpaired_done=0 max_latency=2.000ms avg_latency=2.000ms bytes=8192 example=tag=7 dev=12,80 lba=4096 len=8192 opcode=READ latency_us=2000 lines=208-209 — layer=scsi event=scsi_dispatch_cmd dev=12,80 op=read count=2 paired=1 max_latency=2.000ms",
@@ -475,6 +476,23 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 		!observationLedgerTestContainsString(churn.RichNotes, "fragments=12") ||
 		!observationLedgerTestContainsString(churn.RichNotes, "max_segment=0.500ms") {
 		t.Fatalf("trace_query state_churn should survive as supporting runtime observation: %+v", churn)
+	}
+	drill := findObservationRecord(t, ledger, "tool:0#trace_query:state_drilldown:1")
+	if drill.Predicate != "state_drilldown" ||
+		drill.Object != "S" ||
+		drill.Subject != "com.app-42" ||
+		drill.Value != "21.000" ||
+		drill.Unit != "ms" ||
+		drill.Span.LineStart != 121 ||
+		drill.Span.LineEnd != 130 ||
+		drill.Role != AnswerAggregateRoleAuditLedger ||
+		drill.GroundingPolicy != ClaimGroundingDisplayOnly ||
+		drill.Confidence != 0.2 ||
+		!observationLedgerTestContainsString(drill.RichNotes, "source=top_sleep") ||
+		!observationLedgerTestContainsString(drill.RichNotes, "recommended_views=wakeup_chain,root_cause_rank") ||
+		!observationLedgerTestContainsString(drill.RichNotes, "chain_required=true") ||
+		!observationLedgerTestContainsString(drill.RichNotes, "legacy_summary_fallback=true; not_answer_grade=true") {
+		t.Fatalf("trace_query state_drilldown should survive fallback as audit-only handoff: %+v", drill)
 	}
 	fileIO := findObservationRecord(t, ledger, "tool:0#trace_query:file_io:1")
 	if fileIO.Predicate != "file_io_by_inode" ||

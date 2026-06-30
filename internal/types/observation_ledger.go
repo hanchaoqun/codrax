@@ -1776,6 +1776,7 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 	wakeupPathOrdinal := 0
 	blockingOrdinal := 0
 	stateChurnOrdinal := 0
+	stateDrilldownOrdinal := 0
 	threadCPULoadOrdinal := 0
 	cpuConstraintOrdinal := 0
 	runnableContextOrdinal := 0
@@ -1824,6 +1825,11 @@ func compileTraceQueryToolResultObservations(index int, result ToolResult, banne
 		case strings.HasPrefix(line, "- state_churn "):
 			stateChurnOrdinal++
 			if record, ok := traceQueryStateChurnRecord(index, stateChurnOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- state_drilldown "):
+			stateDrilldownOrdinal++
+			if record, ok := traceQueryStateDrilldownRecord(index, stateDrilldownOrdinal, line, ref, observedAt); ok {
 				add(record)
 			}
 		case strings.HasPrefix(line, "- thread_cpu_load "):
@@ -2203,6 +2209,61 @@ func traceQueryStateChurnRichNotes(fields map[string]string, total float64) []st
 		notes = append(notes, fmt.Sprintf("total=%.3fms", total))
 	}
 	return notes
+}
+
+func traceQueryStateDrilldownRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- state_drilldown ")
+	rank := traceQueryFieldInt(fields, "rank")
+	thread := strings.TrimSpace(fields["thread"])
+	state := strings.TrimSpace(fields["state"])
+	impact := traceQueryFieldMS(fields, "impact")
+	total := traceQueryFieldMS(fields, "total")
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if rank <= 0 {
+		rank = ordinal
+	}
+	if thread == "" && state == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if impact > 0 {
+		value = fmt.Sprintf("%.3f", impact)
+	}
+	notes := traceQuerySelectedRichNotes(fields, []string{"rank", "state", "impact", "total", "source", "recommended_views", "chain_required", "recursive", "window"})
+	if total > 0 && !observationRichNoteHasKey(notes, "total") {
+		notes = append(notes, fmt.Sprintf("total=%.3fms", total))
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:state_drilldown:%d", index, rank),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "state_drilldown:" + firstNonEmptyString(thread, state),
+		Subject:         thread,
+		Predicate:       "state_drilldown",
+		Object:          state,
+		Value:           value,
+		Unit:            "ms",
+		Summary:         firstNonEmptyString(summary, fmt.Sprintf("state_drilldown rank=%d thread=%s state=%s", rank, thread, state)),
+		RichNotes:       notes,
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      0.74,
+	}, true
+}
+
+func observationRichNoteHasKey(notes []string, key string) bool {
+	prefix := strings.TrimSpace(key) + "="
+	for _, note := range notes {
+		if strings.HasPrefix(strings.TrimSpace(note), prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func traceQueryThreadCPULoadRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
