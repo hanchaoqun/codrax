@@ -3713,8 +3713,11 @@ func aggregateMemberAttributeQualifierParts(qualifier string) (AnswerCandidateRo
 	for _, sep := range []string{"=", ":"} {
 		if idx := strings.Index(qualifier, sep); idx > 0 {
 			role, ok := NormalizeAnswerCandidateRole(strings.TrimSpace(qualifier[:idx]))
+			if !aggregateMemberAttributeRoleAllowed(role, ok) {
+				continue
+			}
 			name := strings.TrimSpace(qualifier[idx+len(sep):])
-			if aggregateMemberAttributeRoleAllowed(role, ok) && aggregateMemberAttributeNameAllowed(name) {
+			if aggregateMemberAttributeNameAllowed(name) {
 				return role, name, true
 			}
 			return AnswerCandidateRoleUnknown, "", false
@@ -3753,9 +3756,44 @@ func aggregateMemberAttributeNameAllowed(name string) bool {
 		strings.Contains(name, "；") ||
 		strings.Contains(name, "，") ||
 		strings.Contains(name, ";") ||
-		strings.Contains(strings.ToLower(name), "source_class=") ||
-		strings.Contains(strings.ToLower(name), "language=") {
+		aggregateMemberAttributeNameContainsStructuredCarrier(name) {
 		return false
+	}
+	return true
+}
+
+func aggregateMemberAttributeNameContainsStructuredCarrier(name string) bool {
+	fields := strings.Fields(strings.TrimSpace(name))
+	if len(fields) < 2 {
+		return false
+	}
+	for _, field := range fields[1:] {
+		if aggregateMemberAttributeFieldIsStructuredCarrier(field) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateMemberAttributeFieldIsStructuredCarrier(field string) bool {
+	field = strings.Trim(field, " \t\r\n()[]{}<>")
+	key, value, ok := strings.Cut(field, "=")
+	if !ok || strings.TrimSpace(value) == "" {
+		return false
+	}
+	key = strings.TrimSpace(key)
+	if key == "" || len(key) > 48 {
+		return false
+	}
+	for _, r := range key {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '-' || r == '.':
+		default:
+			return false
+		}
 	}
 	return true
 }

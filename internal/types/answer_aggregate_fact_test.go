@@ -1711,6 +1711,29 @@ func TestNormalizeAnswerAggregateFacts_PreservesParenthesizedLocationAttributeRo
 	}
 }
 
+func TestAggregateMemberAttributeQualifierRejectsAppendedStructuredCarrierGenerically(t *testing.T) {
+	for _, sample := range []string{
+		"package demo.bridge source_class=thirdparty",
+		"package demo.bridge language=cangjie",
+		"package demo.bridge source_family=auxiliary",
+		"package demo.bridge arbitrary_schema_key=value",
+	} {
+		if role, name, ok := aggregateMemberAttributeQualifierParts(sample); ok {
+			t.Fatalf("structured carrier should not become attribute value for %q: role=%q name=%q", sample, role, name)
+		}
+	}
+
+	for _, sample := range []string{
+		"package demo.bridge",
+		"file generated=name.cj",
+		"import_path github.com/acme/pkg",
+	} {
+		if role, name, ok := aggregateMemberAttributeQualifierParts(sample); !ok || name == "" {
+			t.Fatalf("ordinary attribute should still parse for %q: role=%q name=%q ok=%v", sample, role, name, ok)
+		}
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_DedupesQualifiedRelationMemberSetVariants(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{
 		{
