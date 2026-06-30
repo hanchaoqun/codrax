@@ -298,7 +298,7 @@ func TestTraceQueryDoesNotInheritAmbiguousRequestModelTargets(t *testing.T) {
 	}
 }
 
-func TestTraceQueryInheritsDroppedPIDFromRequestModelTargetWithTimestamps(t *testing.T) {
+func TestTraceQueryDoesNotInferDroppedPIDFromRequestModelTargetWithTimestamps(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "inherit_pid.systrace")
 	trace := strings.Join([]string{
@@ -330,27 +330,14 @@ func TestTraceQueryInheritsDroppedPIDFromRequestModelTargetWithTimestamps(t *tes
 	if !res.Success {
 		t.Fatalf("trace_query failed: %s", res.Summary)
 	}
-	if target, ok := traceQuerySingleRequestModelTarget(ctx); !ok || target.PID != 42591 {
-		t.Fatalf("expected unique request model pid target, got target=%+v ok=%v", target, ok)
-	}
-	for _, want := range []string{"trace_query_target_inherited=true", "pid=42591", "target-42591", "matched_events=1"} {
+	for _, want := range []string{"target-42591", "peer-1494", "matched_events=2"} {
 		if !strings.Contains(res.Summary, want) {
-			t.Fatalf("omitted pid query should inherit unique typed target and include %q:\n%s", want, res.Summary)
+			t.Fatalf("omitted pid query should remain broad and include %q:\n%s", want, res.Summary)
 		}
 	}
-	if strings.Contains(res.Summary, "peer-1494") {
-		t.Fatalf("inherited pid query should not include unrelated peer rows:\n%s", res.Summary)
-	}
-}
-
-func TestTraceQueryRequestModelTargetKeepsThreadPIDPairingSafe(t *testing.T) {
-	target, ok := traceQuerySingleTargetFromValues("test", []string{"Thread-10 [56284]"})
-	if !ok || target.PID != 56284 || target.Thread != "Thread-10 [56284]" {
-		t.Fatalf("expected pid/thread pair from structured thread label, got target=%+v ok=%v", target, ok)
-	}
-	target, ok = traceQuerySingleTargetFromValues("test", []string{"42591", "Thread-10"})
-	if !ok || target.PID != 42591 || target.Thread != "" {
-		t.Fatalf("expected bare pid to win without over-narrowing to unpaired thread label, got target=%+v ok=%v", target, ok)
+	if strings.Contains(res.Summary, "trace_query_target_inherited=true") ||
+		strings.Contains(strings.SplitN(res.Summary, "\n", 2)[0], " pid=42591 ") {
+		t.Fatalf("omitted pid query should not inherit request metadata target:\n%s", res.Summary)
 	}
 }
 
@@ -1211,12 +1198,10 @@ func TestTraceQuerySchemaDocumentsFtraceAndCompoundTime(t *testing.T) {
 	}
 }
 
-func TestTraceQueryDescriptionDocumentsStructuredRequestTargetInheritanceBoundary(t *testing.T) {
+func TestTraceQueryDescriptionDoesNotPromiseRawRequestTargetInheritance(t *testing.T) {
 	description := (&TraceQuery{}).Description()
 	for _, want := range []string{
 		"set pid/thread explicitly in the tool call",
-		"structured request model exposes exactly one target",
-		"trace_query_target_inherited",
 		"does not infer omitted pid/thread values from raw request prose",
 	} {
 		if !strings.Contains(description, want) {
@@ -1224,6 +1209,9 @@ func TestTraceQueryDescriptionDocumentsStructuredRequestTargetInheritanceBoundar
 		}
 	}
 	for _, forbidden := range []string{
+		"structured request model exposes exactly one target",
+		"trace_query_target_inherited",
+		"inherits it",
 		"inherit omitted pid",
 		"inherit omitted thread",
 	} {
