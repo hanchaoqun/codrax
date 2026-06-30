@@ -6129,10 +6129,14 @@ func renderAnswerDocRuntimeGroundingDisposition(ctx *types.AgentContext) string 
 
 func runtimeObservationOnlyForAnswerDoc(ctx *types.AgentContext) bool {
 	plan := answerSurfacePlan(ctx)
-	return plan != nil &&
-		plan.RuntimeGroundingDisposition.IsActive() &&
-		!plan.CurrentStatusDiagnosticRequired &&
-		!plan.CurrentSourceEvidenceOrigin
+	if plan == nil || !plan.RuntimeGroundingDisposition.IsActive() {
+		return false
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, types.ObservationLedger{})
+	if authority.Active && authority.CurrentSourceRequired && !authority.CanHardBlockCompletion {
+		return false
+	}
+	return !plan.CurrentStatusDiagnosticRequired && !plan.CurrentSourceEvidenceOrigin
 }
 
 func renderAnswerDocCurrentStatusDiagnostic(ctx *types.AgentContext) string {

@@ -1772,6 +1772,21 @@ func (rm RequestModel) currentSourceExplanationHasCurrentSourceQuote() bool {
 	return false
 }
 
+func (rm RequestModel) currentSourceExplanationHasPreciseCurrentSourceQuote() bool {
+	if rm.CurrentSourceExplanationProfile == nil || !rm.CurrentSourceExplanationProfile.Active() {
+		return false
+	}
+	for _, quote := range rm.CurrentSourceExplanationProfile.SourceQuotes {
+		if targetLooksLikeCurrentSourceAnchor(quote) {
+			return true
+		}
+		if loc, ok := ParseAnswerSourceLocationSurface(quote); ok && strings.TrimSpace(loc.File) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (rm RequestModel) dimensionHasCurrentSourceAnchor(dim RequestedAnswerDimension) bool {
 	artifactExternalOnly := rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ArtifactCitationsExternalOnly()
 	return textCanRepresentCurrentSourceAnchor(dim.SourceQuote, artifactExternalOnly) ||

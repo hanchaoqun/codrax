@@ -5745,7 +5745,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_RequiredSourceSkipsRuntimeAr
 				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
 					IsCurrentSourceExplanationRequested: true,
 					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
-					SourceQuotes:                        []string{"结合当前代码解释"},
+					SourceQuotes:                        []string{"internal/agent/explorer.go"},
 					Confidence:                          0.9,
 				},
 				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},

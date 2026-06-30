@@ -61,12 +61,42 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_SoftRequirementCanDowngradeToCavea
 	}
 }
 
-func TestRuntimeSourceAnswerAuthoritySnapshot_PreciseRequirementCanHardBlock(t *testing.T) {
+func TestRuntimeSourceAnswerAuthoritySnapshot_SoftCurrentSourceProfileCanDowngradeToCaveat(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
 	rm := &RequestModel{
 		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
 			IsCurrentSourceExplanationRequested: true,
 			SourceQuotes:                        []string{"compare with current parser"},
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+		},
+	}
+	got := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel: rm,
+		RouteHint: TurnRouteHint{
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+		},
+		Ledger: ledger,
+	})
+	if got.CurrentSourceRequirement != RuntimeSourceRequirementSoft ||
+		!got.CurrentSourceRequired ||
+		!got.NeedsCurrentSourceEvidence ||
+		got.CanHardBlockCompletion ||
+		!got.CanDowngradeToCaveat ||
+		!got.CanUseRuntimeOnlyWithCaveat {
+		t.Fatalf("soft current-source profile should caveat instead of hard-blocking: %+v", got)
+	}
+	if runtimeSourceAuthorityHasReason(got, RuntimeSourceAuthorityCurrentSourcePrecise) {
+		t.Fatalf("soft profile must not publish precise reason: %+v", got.ReasonCodes)
+	}
+}
+
+func TestRuntimeSourceAnswerAuthoritySnapshot_PathAnchoredCurrentSourceProfileCanHardBlock(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
+	rm := &RequestModel{
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			SourceQuotes:                        []string{"internal/tracequery/parse.go"},
 			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
 		},
 	}

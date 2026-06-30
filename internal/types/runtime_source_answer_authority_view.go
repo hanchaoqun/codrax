@@ -227,7 +227,7 @@ func runtimeSourceAuthorityPreciseCurrentSourceRequirement(rm *RequestModel) boo
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return false
 	}
-	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+	if rm.currentSourceExplanationHasPreciseCurrentSourceQuote() {
 		return true
 	}
 	if rm.HasTypedCurrentSourceScopeRequest() {

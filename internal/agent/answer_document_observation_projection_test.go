@@ -103,7 +103,7 @@ func TestRenderAnswerDocRuntimeSourceAuthority_PreciseRequirementHandoff(t *test
 				Modes: []types.CurrentSourceExplanationMode{
 					types.CurrentSourceExplanationExplainCurrentMechanism,
 				},
-				SourceQuotes: []string{"current parser mechanism"},
+				SourceQuotes: []string{"internal/tracequery/parse.go:42"},
 				Confidence:   0.9,
 			},
 		}},
