@@ -184,10 +184,11 @@ func runtimeSourceHardCurrentSourceObligationForExplorer(ctx *types.AgentContext
 	if authority.Active {
 		return authority.CanHardBlockCompletion
 	}
-	if ctx == nil || ctx.AnalysisIR == nil {
+	if ctx == nil {
 		return false
 	}
-	return ctx.AnalysisIR.RequestModel.CurrentSourceLaneDecision().RequiresCurrentSource()
+	rm := requestModelFromContext(ctx)
+	return types.RuntimeSourceRequestCurrentSourceRequirementPrecision(rm, ctx.TurnRouteHint) == types.RuntimeSourceRequirementPrecise
 }
 
 func runtimeSourceSoftCurrentSourceObligationForExplorer(ctx *types.AgentContext) bool {

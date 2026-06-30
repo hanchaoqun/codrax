@@ -221,7 +221,6 @@ func TestRuntimeSourceAuthorityLegacyHelpersStayInFallbackChokepoints(t *testing
 }
 
 var runtimeSourceLegacyHelperFallbackChokepoints = map[string]bool{
-	"../agent/ir_accessor.go::runtimeSourceHardCurrentSourceObligationForExplorer":     true,
 	"../agent/ir_accessor.go::originSpecificCompletionCurrentSourceBlockedForExplorer": true,
 	"../tool/emit_investigation_complete.go::currentSourceForcedReadGatesApply":        true,
 }
