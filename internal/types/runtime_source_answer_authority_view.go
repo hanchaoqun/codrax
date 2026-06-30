@@ -224,6 +224,63 @@ func (s RuntimeSourceAnswerAuthoritySnapshot) HasMixedRuntimeCurrentSourceCarrie
 	return s.Active && s.HasRuntimeCarrier() && s.HasCurrentSourceCarrier()
 }
 
+// KeepsCurrentSourceLaneLoadBearing reports whether downstream consumers should
+// preserve current-source proof pressure. This is the positive side of the
+// shared hard/soft split: precise current-source obligations and already-landed
+// current-source proof remain load-bearing; soft missing-source obligations
+// should not re-open broad source exploration merely because this field exists.
+func (s RuntimeSourceAnswerAuthoritySnapshot) KeepsCurrentSourceLaneLoadBearing() bool {
+	if !s.Active {
+		return false
+	}
+	return s.CurrentSourceSatisfied ||
+		s.CanHardBlockCompletion ||
+		s.CurrentSourceRequirement == RuntimeSourceRequirementPrecise
+}
+
+// AllowsRuntimeEvidenceWithoutCurrentSource reports whether runtime/external
+// observations can carry the answer with a caveat or runtime-only boundary
+// instead of forcing current-source proof. Consumers use this for cleanup,
+// prompt budgeting, source-audit suppression, and completion landing. It is not
+// a source-proof substitute: KeepsCurrentSourceLaneLoadBearing wins first.
+func (s RuntimeSourceAnswerAuthoritySnapshot) AllowsRuntimeEvidenceWithoutCurrentSource() bool {
+	if !s.Active || s.KeepsCurrentSourceLaneLoadBearing() {
+		return false
+	}
+	return s.RuntimeOnlySufficient ||
+		s.CanUseRuntimeOnlyWithCaveat ||
+		s.CanDowngradeToCaveat ||
+		(s.RuntimeObservationCount > 0 && !s.CurrentSourceRequired)
+}
+
+// AllowsProceedWithoutAdditionalCurrentSourceRead reports whether completion
+// can stop forcing more current-source reads. This is intentionally broader
+// than AllowsRuntimeEvidenceWithoutCurrentSource: already-satisfied
+// current-source proof also means no more forced reads are needed, while
+// cleanup/observation-only consumers should still preserve the landed source
+// lane through KeepsCurrentSourceLaneLoadBearing.
+func (s RuntimeSourceAnswerAuthoritySnapshot) AllowsProceedWithoutAdditionalCurrentSourceRead() bool {
+	if !s.Active {
+		return false
+	}
+	return s.CurrentSourceSatisfied || s.AllowsRuntimeEvidenceWithoutCurrentSource()
+}
+
+// HasRuntimeSourceHandoffSurface reports whether prompt/status/refinement
+// consumers should render the runtime/source authority as a compact mixed-lane
+// handoff surface. This is soft guidance only; hard gates must check
+// KeepsCurrentSourceLaneLoadBearing / CanHardBlockCompletion explicitly.
+func (s RuntimeSourceAnswerAuthoritySnapshot) HasRuntimeSourceHandoffSurface() bool {
+	if !s.Active {
+		return false
+	}
+	return s.CurrentSourceRequirement != RuntimeSourceRequirementNone ||
+		s.CurrentSourceRequired ||
+		s.KeepsCurrentSourceLaneLoadBearing() ||
+		s.AllowsRuntimeEvidenceWithoutCurrentSource() ||
+		s.CanCompleteWithCombinedProof
+}
+
 // RuntimeSourceAuthorityRequestCarrierActiveForAgentContext reports whether an
 // agent prompt/budget consumer should treat the current turn as an intentional
 // runtime/source mixed surface. This is prompt and handoff budgeting guidance,

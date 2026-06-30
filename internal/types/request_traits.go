@@ -1444,15 +1444,7 @@ func runtimeSourceAuthorityAppliesToReadSourceAudit(ctx *BusContext, authority R
 }
 
 func runtimeSourceAuthoritySuppressesReadSourceAudit(authority RuntimeSourceAnswerAuthoritySnapshot) bool {
-	if !authority.Active {
-		return false
-	}
-	if authority.ExactCurrentSourceSupportCount > 0 || authority.CanHardBlockCompletion {
-		return false
-	}
-	return authority.CanUseRuntimeOnlyWithCaveat ||
-		authority.CanDowngradeToCaveat ||
-		(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired)
+	return authority.AllowsRuntimeEvidenceWithoutCurrentSource()
 }
 
 // HasRuntimeArtifactSourceOptionalMixedSurface is the counterpart of

@@ -1997,16 +1997,7 @@ func runtimeSourceAuthorityAppliesToSurfacePlan(authority RuntimeSourceAnswerAut
 }
 
 func runtimeSourceAuthorityAllowsSourceOptionalSurfacePlan(authority RuntimeSourceAnswerAuthoritySnapshot) bool {
-	if !authority.Active {
-		return false
-	}
-	if authority.CurrentSourceSatisfied || authority.CanHardBlockCompletion {
-		return false
-	}
-	return authority.RuntimeOnlySufficient ||
-		authority.CanUseRuntimeOnlyWithCaveat ||
-		authority.CanDowngradeToCaveat ||
-		(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired)
+	return authority.AllowsRuntimeEvidenceWithoutCurrentSource()
 }
 
 func sourceOptionalRuntimeArtifactDisposition(rm RequestModel, attachedRuntimeArtifact bool, ledger ObservationLedger) *RuntimeGroundingDisposition {

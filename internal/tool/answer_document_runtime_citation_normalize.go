@@ -55,30 +55,17 @@ func runtimeSourceAuthorityAppliesToArtifactCitationCleanup(ctx *types.BusContex
 }
 
 func runtimeSourceAuthorityAllowsArtifactCitationCleanup(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
-	if !authority.Active {
-		return false
-	}
-	if authority.CurrentSourceSatisfied || authority.CanHardBlockCompletion {
-		return false
-	}
-	return authority.RuntimeOnlySufficient ||
-		authority.CanUseRuntimeOnlyWithCaveat ||
-		authority.CanDowngradeToCaveat ||
-		(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired)
+	return authority.AllowsRuntimeEvidenceWithoutCurrentSource()
 }
 
 func runtimeSourceAuthorityAllowsObservationOnlyRuntimeSurface(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
 	if !authority.Active {
 		return true
 	}
-	if authority.CurrentSourceSatisfied || authority.CanHardBlockCompletion ||
-		authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise {
+	if authority.KeepsCurrentSourceLaneLoadBearing() {
 		return false
 	}
-	return authority.RuntimeOnlySufficient ||
-		authority.CanUseRuntimeOnlyWithCaveat ||
-		authority.CanDowngradeToCaveat ||
-		(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired)
+	return authority.AllowsRuntimeEvidenceWithoutCurrentSource()
 }
 
 func answerDocumentHasCurrentSourceObservationSupport(ctx *types.BusContext) bool {
@@ -100,7 +87,7 @@ func answerDocumentHasLoadBearingCurrentSourceLane(ctx *types.BusContext) bool {
 	}
 	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
 	if authority.Active {
-		return authority.CanHardBlockCompletion || authority.CurrentSourceSatisfied
+		return authority.KeepsCurrentSourceLaneLoadBearing()
 	}
 	rm := &ctx.AnalysisIR.RequestModel
 	return rm.CurrentSourceLaneDecision().RequiresCurrentSource()
@@ -156,12 +143,7 @@ func answerDocumentExternalObservationOnly(ctx *types.BusContext) bool {
 }
 
 func runtimeSourceAuthorityDisablesExternalObservationOnly(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
-	if !authority.Active {
-		return false
-	}
-	return authority.CurrentSourceSatisfied ||
-		authority.CanHardBlockCompletion ||
-		authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise
+	return authority.KeepsCurrentSourceLaneLoadBearing()
 }
 
 func answerDocumentHasExternalObservationSupport(ctx *types.BusContext) bool {

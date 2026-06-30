@@ -121,13 +121,7 @@ func repoMapRuntimeCurrentSourceAvoidsSourceInventoryRefinement(ctx *ctypes.BusC
 	if !ctypes.RuntimeSourceAuthorityRequestCarrierActive(ctx.TurnRouteHint, rm, authority) {
 		return false
 	}
-	return authority.CurrentSourceRequirement != ctypes.RuntimeSourceRequirementNone ||
-		authority.CurrentSourceRequired ||
-		authority.CanHardBlockCompletion ||
-		authority.CanDowngradeToCaveat ||
-		authority.CanUseRuntimeOnlyWithCaveat ||
-		authority.CanCompleteWithCombinedProof ||
-		authority.RuntimeOnlySufficient
+	return authority.HasRuntimeSourceHandoffSurface()
 }
 
 func repoMapExplicitTopNBroad(view string, tier SizeTier, topN int) bool {

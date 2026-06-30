@@ -5476,9 +5476,7 @@ func analyzerExternalObservationFirstBlocksTool(ctx *types.AgentContext, name st
 		return false
 	}
 	if authority := runtimeSourceAnswerAuthorityForExplorer(ctx); authority.Active {
-		if authority.CanHardBlockCompletion ||
-			authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise ||
-			authority.CurrentSourceSatisfied {
+		if authority.KeepsCurrentSourceLaneLoadBearing() {
 			return false
 		}
 		return true

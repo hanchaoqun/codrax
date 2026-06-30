@@ -1586,11 +1586,7 @@ func evidenceRenderUsesCompactRuntimeSourceAuthority(ac *types.AgentContext) boo
 	if !evidenceRenderRuntimeSourceRequestCarrierActive(ac, authority) {
 		return false
 	}
-	return authority.CurrentSourceRequirement != types.RuntimeSourceRequirementNone ||
-		authority.CurrentSourceRequired ||
-		authority.CanHardBlockCompletion ||
-		authority.CanDowngradeToCaveat ||
-		authority.CanCompleteWithCombinedProof
+	return authority.HasRuntimeSourceHandoffSurface()
 }
 
 func evidenceRenderRuntimeSourceRequestCarrierActive(ac *types.AgentContext, authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {

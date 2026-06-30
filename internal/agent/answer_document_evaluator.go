@@ -4437,11 +4437,7 @@ func answerDocRuntimeSourceAuthorityUsesCompactObservationPrompt(ctx *types.Agen
 	if !answerDocRuntimeSourceRequestCarrierActive(ctx, authority) {
 		return false
 	}
-	return authority.CurrentSourceRequirement != types.RuntimeSourceRequirementNone ||
-		authority.CurrentSourceRequired ||
-		authority.CanHardBlockCompletion ||
-		authority.CanDowngradeToCaveat ||
-		authority.CanCompleteWithCombinedProof
+	return authority.HasRuntimeSourceHandoffSurface()
 }
 
 func answerDocRuntimeSourceRequestCarrierActive(ctx *types.AgentContext, authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
@@ -4653,11 +4649,7 @@ func renderAnswerDocCurrentSourceExplanationProfile(ctx *types.AgentContext) str
 }
 
 func answerDocCurrentSourceProfileShouldUseBothLanes(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
-	if !authority.Active {
-		return false
-	}
-	return authority.CanHardBlockCompletion ||
-		authority.CurrentSourceSatisfied ||
+	return authority.KeepsCurrentSourceLaneLoadBearing() ||
 		authority.CurrentSourceRecordCount > 0 ||
 		authority.ExactCurrentSourceSupportCount > 0
 }
@@ -4669,8 +4661,7 @@ func answerDocCurrentSourceProfileShouldUseSoftCaveat(authority types.RuntimeSou
 	if answerDocCurrentSourceProfileShouldUseBothLanes(authority) {
 		return false
 	}
-	return authority.CanDowngradeToCaveat ||
-		authority.CanUseRuntimeOnlyWithCaveat ||
+	return authority.AllowsRuntimeEvidenceWithoutCurrentSource() ||
 		(authority.CurrentSourceRequirement == types.RuntimeSourceRequirementSoft &&
 			authority.NeedsCurrentSourceEvidence)
 }

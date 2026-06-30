@@ -3612,16 +3612,7 @@ func runtimeSourceAuthorityAppliesToCompletionLanding(authority types.RuntimeSou
 }
 
 func runtimeSourceAuthorityAllowsRuntimeCompletionLandingSnapshot(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
-	if !authority.Active {
-		return false
-	}
-	if authority.CanHardBlockCompletion || authority.CurrentSourceSatisfied {
-		return false
-	}
-	return authority.RuntimeOnlySufficient ||
-		authority.CanUseRuntimeOnlyWithCaveat ||
-		authority.CanDowngradeToCaveat ||
-		(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired)
+	return authority.AllowsRuntimeEvidenceWithoutCurrentSource()
 }
 
 func runtimeArtifactCurrentSourceHardRequirement(ctx *types.BusContext) bool {
@@ -8767,16 +8758,17 @@ func currentSourceForcedReadGatesApply(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return true
 	}
+	// Source-inventory required-file coverage is a precise inventory-universe
+	// obligation. Keep it ahead of runtime/source caveat authority so runtime
+	// answer shortcuts cannot drain in-scope unread inventory files.
+	if types.RequiredFileHintSourceInventoryCoverageApplies(ctx.AnalysisIR.RequestModel) {
+		return true
+	}
 	if authority := runtimeSourceAnswerAuthorityForCompletion(ctx); runtimeSourceAuthorityAppliesToCompletionLanding(authority) {
 		if authority.CanHardBlockCompletion {
 			return true
 		}
-		if runtimeSourceAuthorityHasRuntimeCarrier(authority) &&
-			(authority.CurrentSourceSatisfied ||
-				authority.RuntimeOnlySufficient ||
-				authority.CanUseRuntimeOnlyWithCaveat ||
-				authority.CanDowngradeToCaveat ||
-				(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired)) {
+		if authority.AllowsProceedWithoutAdditionalCurrentSourceRead() {
 			return false
 		}
 	}
@@ -8784,9 +8776,6 @@ func currentSourceForcedReadGatesApply(ctx *types.BusContext) bool {
 		return false
 	}
 	if types.RouteBackedExternalObservationRequiresCurrentSource(&ctx.AnalysisIR.RequestModel, ctx.TurnRouteHint) {
-		return true
-	}
-	if types.RequiredFileHintSourceInventoryCoverageApplies(ctx.AnalysisIR.RequestModel) {
 		return true
 	}
 	return ctx.AnalysisIR.RequestModel.CurrentSourceLaneDecision().RequiresCurrentSource()

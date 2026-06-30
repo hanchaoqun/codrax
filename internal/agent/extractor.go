@@ -2124,13 +2124,10 @@ func extractorRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.AgentContex
 	}
 	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, types.ObservationLedger{})
 	if authority.Active {
-		if authority.CurrentSourceSatisfied || authority.CanHardBlockCompletion {
+		if authority.KeepsCurrentSourceLaneLoadBearing() {
 			return false
 		}
-		if authority.CanUseRuntimeOnlyWithCaveat ||
-			authority.CanDowngradeToCaveat ||
-			authority.RuntimeOnlySufficient ||
-			(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired) {
+		if authority.AllowsRuntimeEvidenceWithoutCurrentSource() {
 			return true
 		}
 	}

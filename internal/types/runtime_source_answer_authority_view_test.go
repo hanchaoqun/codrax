@@ -381,6 +381,106 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_CarrierHelpers(t *testing.T) {
 	}
 }
 
+func TestRuntimeSourceAnswerAuthoritySnapshot_SharedPolicyMethods(t *testing.T) {
+	runtimeLedger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
+	sourceLedger := ObservationLedger{Records: []ObservationRecord{
+		runtimeSourceTraceRecord("trace:root", "trace_query"),
+		{
+			ID:     "source:tracequery",
+			Origin: AnswerEvidenceOriginCurrentSource,
+			SourceRef: ObservationSourceRef{
+				Kind: ObservationSourceCurrentSource,
+				Path: "internal/tracequery/query.go",
+			},
+			Span: ObservationSpan{LineStart: 42},
+		},
+	}}
+	softRM := &RequestModel{
+		CurrentSourceObligationSignals: []CurrentSourceObligationSignal{{
+			Kind: CurrentSourceObligationSignalDroppedRequestedDimension,
+			Role: RequestedAnswerDimensionFunctionOrPurpose,
+		}},
+	}
+	preciseRM := &RequestModel{
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			SourceQuotes:                        []string{"internal/tracequery/query.go"},
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+		},
+	}
+	cases := []struct {
+		name          string
+		snapshot      RuntimeSourceAnswerAuthoritySnapshot
+		keepSource    bool
+		allowRuntime  bool
+		proceedNoRead bool
+		renderHandoff bool
+	}{
+		{
+			name:     "inactive",
+			snapshot: RuntimeSourceAnswerAuthoritySnapshot{},
+		},
+		{
+			name: "runtime only can carry with caveat",
+			snapshot: BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+				RouteHint: TurnRouteHint{Source: "artifact"},
+				Ledger:    runtimeLedger,
+			}),
+			allowRuntime:  true,
+			proceedNoRead: true,
+			renderHandoff: true,
+		},
+		{
+			name: "soft mixed source obligation can proceed with caveat",
+			snapshot: BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+				RequestModel: softRM,
+				RouteHint:    TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},
+				Ledger:       runtimeLedger,
+			}),
+			allowRuntime:  true,
+			proceedNoRead: true,
+			renderHandoff: true,
+		},
+		{
+			name: "precise missing source keeps source lane load-bearing",
+			snapshot: BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+				RequestModel: preciseRM,
+				RouteHint:    TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},
+				Ledger:       runtimeLedger,
+			}),
+			keepSource:    true,
+			renderHandoff: true,
+		},
+		{
+			name: "satisfied source proof stops more reads but preserves source lane",
+			snapshot: BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+				RequestModel: softRM,
+				RouteHint:    TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},
+				Ledger:       sourceLedger,
+			}),
+			keepSource:    true,
+			proceedNoRead: true,
+			renderHandoff: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.snapshot.KeepsCurrentSourceLaneLoadBearing(); got != tc.keepSource {
+				t.Fatalf("KeepsCurrentSourceLaneLoadBearing=%v, want %v for %+v", got, tc.keepSource, tc.snapshot)
+			}
+			if got := tc.snapshot.AllowsRuntimeEvidenceWithoutCurrentSource(); got != tc.allowRuntime {
+				t.Fatalf("AllowsRuntimeEvidenceWithoutCurrentSource=%v, want %v for %+v", got, tc.allowRuntime, tc.snapshot)
+			}
+			if got := tc.snapshot.AllowsProceedWithoutAdditionalCurrentSourceRead(); got != tc.proceedNoRead {
+				t.Fatalf("AllowsProceedWithoutAdditionalCurrentSourceRead=%v, want %v for %+v", got, tc.proceedNoRead, tc.snapshot)
+			}
+			if got := tc.snapshot.HasRuntimeSourceHandoffSurface(); got != tc.renderHandoff {
+				t.Fatalf("HasRuntimeSourceHandoffSurface=%v, want %v for %+v", got, tc.renderHandoff, tc.snapshot)
+			}
+		})
+	}
+}
+
 func TestRuntimeSourceAuthorityRequestCarrierActiveUsesSharedAuthority(t *testing.T) {
 	runtimeLedger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
 	runtimeOnly := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{

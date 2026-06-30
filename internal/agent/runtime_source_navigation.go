@@ -40,7 +40,7 @@ func runtimeSourceNavigationPhaseForExplorer(ctx *types.AgentContext, traceQuery
 		view.CurrentSourceSatisfied = authority.CurrentSourceSatisfied
 		view.CurrentSourceHardBlock = authority.CanHardBlockCompletion
 		if authority.Active {
-			view.SourceOwnerRequired = authority.CanHardBlockCompletion || authority.CurrentSourceSatisfied
+			view.SourceOwnerRequired = authority.KeepsCurrentSourceLaneLoadBearing()
 		} else {
 			view.SourceOwnerRequired = view.CurrentSourceLane.RequiresCurrentSource()
 		}

@@ -236,9 +236,7 @@ func externalObservationFirstSourceOptionalForExplorer(ctx *types.AgentContext) 
 	}
 	authority := runtimeSourceAnswerAuthorityForExplorer(ctx)
 	if authority.Active {
-		if authority.CanHardBlockCompletion ||
-			authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise ||
-			authority.CurrentSourceSatisfied {
+		if authority.KeepsCurrentSourceLaneLoadBearing() {
 			return false
 		}
 		return true
@@ -333,9 +331,7 @@ func originSpecificCompletionCurrentSourceBlockedForExplorer(ctx *types.AgentCon
 	rm := ctx.AnalysisIR.RequestModel
 	authority := runtimeSourceAnswerAuthorityForExplorer(ctx)
 	if authority.Active && authority.CurrentSourceRequirement != types.RuntimeSourceRequirementNone {
-		return authority.CanHardBlockCompletion ||
-			authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise ||
-			authority.CurrentSourceSatisfied
+		return authority.KeepsCurrentSourceLaneLoadBearing()
 	}
 	return rm.RequiresCurrentSourceForExternalObservation(&ctx.AnalysisIR.AnswerContract)
 }
