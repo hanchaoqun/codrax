@@ -40,6 +40,28 @@ func TestAnswerDocObservationPromptRecords_MixedRuntimeSourceUsesCompactBudget(t
 	}
 }
 
+func TestAnswerDocObservationPromptRecords_RouteBackedTypedRuntimeUsesAuthorityCompactBudget(t *testing.T) {
+	ctx := &types.AgentContext{
+		TurnRouteHint: types.TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes: []types.CurrentSourceExplanationMode{
+					types.CurrentSourceExplanationExplainCurrentMechanism,
+				},
+				SourceQuotes: []string{"current parser mechanism"},
+				Confidence:   0.9,
+			},
+		}},
+	}
+
+	got := answerDocObservationPromptRecords(ctx, answerDocProjectionBudgetRecords(14), answerDocObservationLedgerPromptLimit)
+	if len(got) != answerDocMixedRuntimeSourceObservationLedgerPromptLimit {
+		t.Fatalf("route-backed typed runtime/source observation prompt records=%d, want compact limit %d", len(got), answerDocMixedRuntimeSourceObservationLedgerPromptLimit)
+	}
+}
+
 func TestAnswerDocObservationPromptRecords_DefaultBudgetUnchanged(t *testing.T) {
 	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent: types.IntentExplain,

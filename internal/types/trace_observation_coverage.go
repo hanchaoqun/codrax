@@ -12,6 +12,7 @@ const (
 	TraceObservationDimensionWakeupChain      = "wakeup_chain"
 	TraceObservationDimensionCriticalBlocking = "critical_blocking"
 	TraceObservationDimensionStateChurn       = "state_churn"
+	TraceObservationDimensionStateDrilldown   = "state_drilldown"
 	TraceObservationDimensionThreadTimeline   = "thread_timeline"
 	TraceObservationDimensionResourcePressure = "resource_pressure"
 	TraceObservationDimensionEvidencePack     = "evidence_pack"
@@ -143,6 +144,9 @@ func traceObservationDimension(record ObservationRecord) string {
 	case predicate == "state_churn" ||
 		strings.HasPrefix(claimKey, "state_churn"):
 		return TraceObservationDimensionStateChurn
+	case predicate == "state_drilldown" ||
+		strings.HasPrefix(claimKey, "state_drilldown"):
+		return TraceObservationDimensionStateDrilldown
 	case traceObservationRecordIsThreadTimeline(predicate, claimKey):
 		return TraceObservationDimensionThreadTimeline
 	case traceObservationRecordIsResourcePressure(predicate, claimKey):
@@ -258,7 +262,9 @@ func traceObservationSoftMissingDimensions(byDimension map[string][]TraceObserva
 	hasRoot := len(byDimension[TraceObservationDimensionRootCauseRank]) > 0
 	hasWakeup := len(byDimension[TraceObservationDimensionWakeupChain]) > 0
 	hasBlocking := len(byDimension[TraceObservationDimensionCriticalBlocking]) > 0
-	hasTimeline := len(byDimension[TraceObservationDimensionThreadTimeline]) > 0 || len(byDimension[TraceObservationDimensionStateChurn]) > 0
+	hasTimeline := len(byDimension[TraceObservationDimensionThreadTimeline]) > 0 ||
+		len(byDimension[TraceObservationDimensionStateChurn]) > 0 ||
+		len(byDimension[TraceObservationDimensionStateDrilldown]) > 0
 	hasResource := len(byDimension[TraceObservationDimensionResourcePressure]) > 0
 	var missing []string
 	if hasRoot && !hasWakeup {
@@ -359,12 +365,14 @@ func traceObservationDimensionRank(dimension string) int {
 		return 3
 	case TraceObservationDimensionStateChurn:
 		return 4
-	case TraceObservationDimensionThreadTimeline:
+	case TraceObservationDimensionStateDrilldown:
 		return 5
-	case TraceObservationDimensionResourcePressure:
+	case TraceObservationDimensionThreadTimeline:
 		return 6
-	case TraceObservationDimensionEvidencePack:
+	case TraceObservationDimensionResourcePressure:
 		return 7
+	case TraceObservationDimensionEvidencePack:
+		return 8
 	default:
 		return 100
 	}

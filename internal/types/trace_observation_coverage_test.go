@@ -60,6 +60,23 @@ func TestTraceObservationCoverageSuggestsSoftFollowupsForSingleRootCauseDimensio
 	}
 }
 
+func TestTraceObservationCoverageTreatsStateDrilldownAsStateCoverage(t *testing.T) {
+	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
+		traceCoverageRecord("root", "trace_query:1", "root_cause_primary", "root_cause_primary", "target-1", "sleep_wait", "21.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.0, EndTs: 1.1}),
+		traceCoverageRecord("drill", "trace_query:1", "state_drilldown", "state_drilldown:target-1:S", "target-1", "S", "21.000", []string{"state=S", "source=top_sleep", "recommended_views=wakeup_chain,root_cause_rank", "chain_required=true", "recursive=true"}, ObservationSpan{StartTs: 1.0, EndTs: 1.1}),
+	})
+	state := traceCoverageDimensionFor(got, TraceObservationDimensionStateDrilldown)
+	if state.Count != 1 || state.Examples[0].Subject != "target-1" {
+		t.Fatalf("state_drilldown should be a first-class trace coverage dimension, got %+v", got.Dimensions)
+	}
+	if slices.Contains(got.SoftMissingDimensions, "thread_timeline_or_window_stats") {
+		t.Fatalf("state_drilldown coverage should satisfy state/timeline soft obligation, got %+v", got.SoftMissingDimensions)
+	}
+	if len(got.TopObservations) < 2 || got.TopObservations[1].Dimension != TraceObservationDimensionStateDrilldown {
+		t.Fatalf("state drilldown should survive top observation ordering, got %+v", got.TopObservations)
+	}
+}
+
 func TestTraceObservationCoverageSuggestsRepresentativeWindowForRepeatedMicroRootProbes(t *testing.T) {
 	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
 		traceCoverageRecord("root1", "trace_query:1", "root_cause_primary", "root_cause_primary", "target-1", "running", "12.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.000, EndTs: 1.020}),

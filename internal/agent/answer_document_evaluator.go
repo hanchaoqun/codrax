@@ -4048,13 +4048,17 @@ func renderAnswerDocToolHandoffCarriers(ctx *types.AgentContext) string {
 	if len(carriers) == 0 {
 		return ""
 	}
-	if answerDocMixedRuntimeCurrentSourceShape(ctx) {
+	if answerDocRuntimeSourceAuthorityUsesCompactToolHandoff(ctx) {
 		return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", carriers, toolHandoffRenderOptions{
 			MaxCarriers: 4,
 			MaxRefs:     6,
 		})
 	}
 	return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", carriers)
+}
+
+func answerDocRuntimeSourceAuthorityUsesCompactToolHandoff(ctx *types.AgentContext) bool {
+	return answerDocRuntimeSourceAuthorityUsesCompactObservationPrompt(ctx, types.ObservationLedger{})
 }
 
 func answerDocToolHandoffCarriersForFinalizer(ctx *types.AgentContext, carriers []types.ToolHandoffCarrier) []types.ToolHandoffCarrier {
@@ -4376,15 +4380,16 @@ func answerDocObservationPromptRecords(ctx *types.AgentContext, records []types.
 		rm = &ctx.AnalysisIR.RequestModel
 		contract = &ctx.AnalysisIR.AnswerContract
 	}
-	return types.ProjectObservationPromptRecords(records, rm, contract, answerDocObservationPromptProjectionOptions(ctx, limit))
+	ledger := types.ObservationLedger{Records: records}
+	return types.ProjectObservationPromptRecords(records, rm, contract, answerDocObservationPromptProjectionOptions(ctx, ledger, limit))
 }
 
-func answerDocObservationPromptProjectionOptions(ctx *types.AgentContext, limit int) types.ObservationPromptProjectionOptions {
+func answerDocObservationPromptProjectionOptions(ctx *types.AgentContext, ledger types.ObservationLedger, limit int) types.ObservationPromptProjectionOptions {
 	if limit <= 0 {
 		limit = answerDocObservationLedgerPromptLimit
 	}
 	opts := types.DefaultObservationPromptProjectionOptions(limit)
-	if !answerDocMixedRuntimeCurrentSourceShape(ctx) {
+	if !answerDocRuntimeSourceAuthorityUsesCompactObservationPrompt(ctx, ledger) {
 		return opts
 	}
 	if opts.Limit > answerDocMixedRuntimeSourceObservationLedgerPromptLimit {
@@ -4404,11 +4409,47 @@ func answerDocObservationPromptProjectionOptions(ctx *types.AgentContext, limit 
 	return opts
 }
 
-func answerDocMixedRuntimeCurrentSourceShape(ctx *types.AgentContext) bool {
+func answerDocRuntimeSourceAuthorityUsesCompactObservationPrompt(ctx *types.AgentContext, ledger types.ObservationLedger) bool {
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, ledger)
+	if !authority.Active {
+		return false
+	}
+	runtimeCarrier := authority.RuntimeObservationCount > 0 ||
+		authority.DeterministicRuntimeQueryCount > 0 ||
+		authority.RuntimeOnlySufficient ||
+		authority.CanUseRuntimeOnlyWithCaveat
+	if !runtimeCarrier {
+		return false
+	}
+	if !answerDocRuntimeSourceRequestCarrierActive(ctx, runtimeCarrier) {
+		return false
+	}
+	return authority.CurrentSourceRequirement != types.RuntimeSourceRequirementNone ||
+		authority.CurrentSourceRequired ||
+		authority.CanHardBlockCompletion ||
+		authority.CanDowngradeToCaveat ||
+		authority.CanCompleteWithCombinedProof
+}
+
+func answerDocRuntimeSourceRequestCarrierActive(ctx *types.AgentContext, runtimeCarrier bool) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	return types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(ctx.AnalysisIR.RequestModel)
+	rm := types.RuntimeSourceAuthorityRequestModelFromAgentContext(ctx)
+	if rm == nil {
+		return false
+	}
+	if ctx.TurnRouteHint.ExternalObservationParticipates() ||
+		rm.HasExternalOnlyRuntimeArtifact() ||
+		rm.HasExternalObservationArtifactReference() ||
+		rm.HasRuntimeArtifactPathReference() ||
+		rm.LogTriage != nil ||
+		rm.PerfTrace != nil {
+		return true
+	}
+	return runtimeCarrier &&
+		rm.CurrentSourceExplanationProfile != nil &&
+		rm.CurrentSourceExplanationProfile.Active()
 }
 
 func answerDocObservationRowSetWriter(ctx *types.AgentContext) types.ObservationRowSetWriter {
@@ -7210,7 +7251,7 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 		b.WriteString("- Runtime root-cause layering hint: when the same frame/window contains runnable scheduling delay, D-state/IO dependency delay, or on-chain compute-supply limits (`compute_supply`, `low_frequency`, `cpu_affinity_or_cpuset`, CPU/core/frequency/DDR/L3 supply context), report every `tier=primary` layer explicitly instead of choosing only one. Separate direct scheduler wait/priority-inversion evidence from upstream dependency-chain IO/D-state and compute-supply evidence, tie each layer to the concrete thread/window where it appears, and keep unrelated background pressure as auxiliary context.\n")
 		b.WriteString("- Runtime perf support hint: when running, CPU pressure, or compute-supply rows include `perf_contexts`, use those role labels (`candidate_thread`, `target_running`, `on_chain_dependency`, `same_cpu_competitor`, `cpu_pressure_top_running`, `compute_supply_cpu`) to explain which sampled symbols/DSOs/callchains consumed CPU time for that specific candidate. Keep perf as code-execution support, not standalone causality: scheduler overlap, wakeup-chain relevance, CPU/core/frequency/affinity, D-state/IO, and supply-pressure facts decide the root cause. If samples are unsymbolized or only have IP/DSO, state that limitation instead of inventing a symbol.\n")
 		b.WriteString("- Runtime direct-blocking hint: treat `critical_blocking_calls` as the direct blocking surface, not necessarily the final cause. For binder/futex/lock/sync waits, use `oneway`/`sync_like`/`blocking_candidate` instead of inferring blocking semantics from raw flags; then name the waiting thread, peer, duration, `chain_relevance`, and any `peer_state_*`/`peer_state` breakdown, and continue through peer/on-chain thread state, `wakeup_chain`, `root_cause_rank`, and same-window resource rows before stating the cause. If peer state or on-chain evidence is missing, keep the direct wait as a bounded symptom/candidate and state the caveat instead of promoting it to an independent root cause.\n")
-		b.WriteString("- Runtime trace handoff hint: when `trace_query` reports `frame_root_cause_bundle`, `root_cause_rank`, `critical_blocking_calls`, `state_churn`, `aggregated_impact`/`wakeup_causal_aggregate`, or fragmented root-cause rows, preserve `chain_relevance`, path, occurrences, `occurrence_windows`, overlap, edge_count, nearest_chain_thread/window, `dominant_state`, running/runnable/sleep/d_state/io_wait totals, `cumulative_impact_ms`, and, when `next_step=...` is present, preserve that next-step guidance visibly in the final answer. Treat `on_chain` rows as primary candidates, compare same-chain primary rows by cumulative impact before score, enumerate representative repeated windows when `occurrence_windows` is present, and keep `adjacent` rows as supporting context and `background` rows as auxiliary unless other bounded evidence proves direct impact. If a later `trace_query` result covers the requested window and conflicts with an earlier perf-triage/pre-scan caveat, prefer the bounded `trace_query` facts for metrics, selected-window coverage, and next-step guidance; keep weaker caveats only when they remain true after the trace_query result.\n")
+		b.WriteString("- Runtime trace handoff hint: when `trace_query` reports `frame_root_cause_bundle`, `root_cause_rank`, `critical_blocking_calls`, `state_churn`, `state_drilldown`, `aggregated_impact`/`wakeup_causal_aggregate`, or fragmented root-cause rows, preserve `chain_relevance`, path, occurrences, `occurrence_windows`, overlap, edge_count, nearest_chain_thread/window, `dominant_state`, running/runnable/sleep/d_state/io_wait totals, `cumulative_impact_ms`, and, when `next_step=...` or `recommended_views=...` is present, preserve that next-step guidance visibly in the final answer. Treat `on_chain` rows as primary candidates, compare same-chain primary rows by cumulative impact before score, enumerate representative repeated windows when `occurrence_windows` is present, and keep `adjacent` rows as supporting context and `background` rows as auxiliary unless other bounded evidence proves direct impact. If a later `trace_query` result covers the requested window and conflicts with an earlier perf-triage/pre-scan caveat, prefer the bounded `trace_query` facts for metrics, selected-window coverage, and next-step guidance; keep weaker caveats only when they remain true after the trace_query result.\n")
 		b.WriteString("- Runtime IO/supply hint: when trace_query provides `file_io`, `page_cache`, `storage_latency`, `block_io_by_inode`, `io_burst_episode`, `io_pressure`, `irq_activity`, `softirq_activity`, `workqueue_activity`, `supply_pressure`, `trace_mark_category`, or `async_file_work` observations, preserve inode/dev/op/bytes/count/latency/churn, thread/core/top-load context, and trace-marker category notes, then relate them to D-state/iowait/block-latency/runnable facts. Do not invent a file path from an inode alone; only name a path when the trace row included a full path or a separate filesystem mapping proves it. Treat `entry_name` as a basename-like trace label: never prefix it with `/`, `/data/`, or any directory unless that exact full path is grounded.\n")
 	}
 	b.WriteString("\n")
@@ -7267,6 +7308,7 @@ func answerDocRuntimeTraceGuidanceRecord(record types.ObservationRecord) bool {
 		"wakeup_causal_aggregate",
 		"critical_blocking",
 		"state_churn",
+		"state_drilldown",
 		"thread_cpu_load",
 		"cpu_constraint",
 		"runnable_context",
