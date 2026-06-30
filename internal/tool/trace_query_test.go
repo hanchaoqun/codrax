@@ -1071,6 +1071,28 @@ func TestTraceQuerySchemaDocumentsFtraceAndCompoundTime(t *testing.T) {
 	}
 }
 
+func TestTraceQueryDescriptionDoesNotPromiseRawRequestTargetInheritance(t *testing.T) {
+	description := (&TraceQuery{}).Description()
+	for _, want := range []string{
+		"set pid/thread explicitly in the tool call",
+		"does not infer omitted pid/thread values from raw request prose",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("trace_query description missing precision boundary %q:\n%s", want, description)
+		}
+	}
+	for _, forbidden := range []string{
+		"trace_query_target_inherited",
+		"inherits it",
+		"inherit omitted pid",
+		"inherit omitted thread",
+	} {
+		if strings.Contains(description, forbidden) {
+			t.Fatalf("trace_query description must not promise raw-request target inheritance %q:\n%s", forbidden, description)
+		}
+	}
+}
+
 func TestPerfQualitySampleCPUScope(t *testing.T) {
 	tests := []struct {
 		name string
