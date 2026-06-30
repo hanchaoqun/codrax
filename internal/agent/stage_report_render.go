@@ -122,6 +122,9 @@ func renderExplorerStageReport(
 		b.WriteString("## External Observations\n")
 		b.WriteString("These facts came from runtime/MCP/external observation lanes, not current-source citations. " +
 			"`evidence_items: 0` only means no current-source EvidenceItem rows were emitted; it does not erase these external observations.\n\n")
+		if coverage := renderTraceObservationCoverageForStageReport(types.TraceObservationCoverageFromObservationRecords(externalObservations)); coverage != "" {
+			b.WriteString(coverage)
+		}
 		const topN = 10
 		for i, record := range externalObservations {
 			if i >= topN {
@@ -192,6 +195,59 @@ func renderExplorerStageReport(
 	}
 
 	return strings.TrimRight(b.String(), "\n") + "\n"
+}
+
+func renderTraceObservationCoverageForStageReport(coverage types.TraceObservationCoverage) string {
+	if !coverage.Active {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "- trace_query_coverage: calls=%d observations=%d", coverage.QueryCount, coverage.TotalRecords)
+	if len(coverage.Windows) > 0 {
+		fmt.Fprintf(&b, " windows=`%s`", strings.Join(coverage.Windows, "`, `"))
+	}
+	if len(coverage.SoftMissingDimensions) > 0 {
+		fmt.Fprintf(&b, " soft_followups=`%s`", strings.Join(coverage.SoftMissingDimensions, "`, `"))
+	}
+	b.WriteByte('\n')
+	if len(coverage.Dimensions) > 0 {
+		parts := make([]string, 0, len(coverage.Dimensions))
+		for _, dim := range coverage.Dimensions {
+			item := fmt.Sprintf("%s:%d", dim.Dimension, dim.Count)
+			if dim.OnChainCount > 0 || dim.AdjacentCount > 0 || dim.BackgroundCount > 0 {
+				item += fmt.Sprintf("(on=%d adjacent=%d background=%d)", dim.OnChainCount, dim.AdjacentCount, dim.BackgroundCount)
+			}
+			parts = append(parts, item)
+		}
+		fmt.Fprintf(&b, "- trace_query_dimensions: %s\n", strings.Join(parts, ", "))
+	}
+	for i, obs := range coverage.TopObservations {
+		if i >= 4 {
+			break
+		}
+		fmt.Fprintf(&b, "- trace_query_top[%d]: dimension=%s id=%s", i+1, obs.Dimension, obs.ID)
+		if obs.ChainRelevance != "" {
+			fmt.Fprintf(&b, " chain_relevance=%s", obs.ChainRelevance)
+		}
+		if obs.Window != "" {
+			fmt.Fprintf(&b, " window=%s", obs.Window)
+		}
+		if obs.Filter != "" {
+			fmt.Fprintf(&b, " filter=%q", obs.Filter)
+		}
+		if obs.Value != "" {
+			fmt.Fprintf(&b, " value=%q", obs.Value)
+		}
+		if obs.Summary != "" {
+			fmt.Fprintf(&b, " summary=%q", obs.Summary)
+		}
+		if len(obs.SupportRefs) > 0 {
+			fmt.Fprintf(&b, " support_refs=`%s`", strings.Join(obs.SupportRefs, "`, `"))
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteByte('\n')
+	return b.String()
 }
 
 func primaryEvidenceForReport(items []types.EvidenceItem) []types.EvidenceItem {

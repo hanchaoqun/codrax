@@ -151,6 +151,27 @@ func TestRenderExplorerStageReport_RendersExternalObservationsSeparately(t *test
 	}
 }
 
+func TestRenderExplorerStageReport_RendersTraceObservationCoverage(t *testing.T) {
+	observations := []types.ObservationRecord{
+		stageReportTraceObservation("root", "trace_query[0]", "root_cause_primary", "root_cause_primary", "main-1", "runnable", "11.000", []string{"chain_relevance=on_chain"}, types.ObservationSpan{StartTs: 1.0, EndTs: 1.2}),
+		stageReportTraceObservation("path", "trace_query[0]", "wakeup_chain", "wakeup_chain:path", "main-1", "worker-2 -> main-1", "", []string{"path=worker-2 -> main-1"}, types.ObservationSpan{StartTs: 1.0, EndTs: 1.2}),
+	}
+
+	got := renderExplorerStageReport("trace", "runtime", nil, nil, nil, nil, nil, nil, false, observations...)
+	for _, want := range []string{
+		"trace_query_coverage: calls=1 observations=2",
+		"windows=`1.000000..1.200000`",
+		"trace_query_dimensions: root_cause_rank:1(on=1 adjacent=0 background=0), wakeup_chain:1",
+		"trace_query_top[1]: dimension=root_cause_rank id=root chain_relevance=on_chain",
+		"tool_call=trace_query[0]",
+		"support_refs=`trace.systrace:10-20`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("trace coverage stage report missing %q.\noutput:\n%s", want, got)
+		}
+	}
+}
+
 // TestRenderExplorerStageReport_NoSiblingProseLeak is the structural
 // replacement for the deleted F9 (`scrubSiblingEvidenceBlocks`) tests.
 //
@@ -211,6 +232,34 @@ func TestFormatEvidenceLineForReport_UngroundedTagPreserved(t *testing.T) {
 	got := formatEvidenceLineForReport(ev, nil)
 	if !strings.Contains(got, "[UNGROUNDED]") {
 		t.Errorf("ungrounded marker not preserved in render:\n%s", got)
+	}
+}
+
+func stageReportTraceObservation(id, toolCall, predicate, claimKey, subject, object, value string, notes []string, span types.ObservationSpan) types.ObservationRecord {
+	return types.ObservationRecord{
+		ID:              id,
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRolePrincipalAnswer,
+		GroundingPolicy: types.ClaimGroundingHard,
+		ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+		SourceRef: types.ObservationSourceRef{
+			Kind:       types.ObservationSourceRuntimeArtifact,
+			ToolCallID: toolCall,
+			PayloadRef: "blob://trace/payload",
+			RawRef:     "blob://trace/raw",
+		},
+		Span:        span,
+		ClaimKey:    claimKey,
+		Subject:     subject,
+		Predicate:   predicate,
+		Object:      object,
+		Value:       value,
+		Unit:        "ms",
+		Summary:     predicate + " " + subject,
+		RichNotes:   notes,
+		SupportRefs: []string{"trace.systrace:10-20"},
+		Confidence:  0.9,
 	}
 }
 

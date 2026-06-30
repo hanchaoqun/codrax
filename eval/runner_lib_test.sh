@@ -698,10 +698,20 @@ cat >"$runtime_log" <<'LOG'
 2026-06-08T00:00:03.000 DEBUG [diag perf_triager] DISPATCH stage=perf_triage attempt=0
 2026-06-08T00:00:03.010 DEBUG [diag perf_triager] iter=0 phase=toolcall call[0] tool=emit_perf_trace params={}
 2026-06-08T00:00:03.020 DEBUG [diag explorer] iter=0 phase=toolcall call[0] tool=trace_query params={"view":"window_stats"}
+2026-06-08T00:00:03.030 DEBUG [diag explorer] iter=0 phase=toolcall call[1] tool=trace_query params={"view":"root_cause_rank","pid":42591,"time_start":1.0,"time_end":1.1}
+2026-06-08T00:00:03.040 DEBUG [diag explorer] iter=0 phase=toolcall call[2] tool=trace_query params={"view":"wakeup_chain","thread":"main"}
+2026-06-08T00:00:03.050 DEBUG [diag explorer] iter=0 phase=toolresult TOOLRESULT trace_query ok=true summary="trace_query_target_inherited=true"
 LOG
 assert_eq "$(eval_count_stage_dispatches "$runtime_log" perf_triage)" "1" "runtime perf pre-stage dispatch metric"
 assert_eq "$(eval_runtime_attachment_kind_from_log "$runtime_log")" "trace" "runtime attachment inference"
 assert_eq "$(eval_runtime_authority_path trace "$runtime_log")" "perf_triage+trace_query" "runtime authority path helper"
+assert_eq "$(eval_count_trace_query_dimension_families "$runtime_log")" "4" "trace_query dimension family metric"
+assert_eq "$(eval_count_trace_query_view_family "$runtime_log" 'root_cause_rank|frame_root_cause_bundle|frame_bundle')" "1" "trace_query root view metric"
+assert_eq "$(eval_count_trace_query_view_family "$runtime_log" 'wakeup_chain|causal_impact|frame_root_cause_bundle|frame_bundle')" "1" "trace_query wakeup view metric"
+assert_eq "$(eval_count_trace_query_windowed_calls "$runtime_log")" "1" "trace_query windowed metric"
+assert_eq "$(eval_count_trace_query_pid_filtered_calls "$runtime_log")" "1" "trace_query pid filter metric"
+assert_eq "$(eval_count_trace_query_thread_filtered_calls "$runtime_log")" "1" "trace_query thread filter metric"
+assert_eq "$(eval_count_trace_query_target_inherited "$runtime_log")" "1" "trace_query inherited target metric"
 
 fake_runtime="$tmp/fake-codrax-runtime-authority"
 cat >"$fake_runtime" <<'FAKE'
@@ -724,8 +734,11 @@ cat >"$logdir/codrax-20260608-000003-000-1.log" <<'LOG'
 2026-06-08T00:00:03.000 DEBUG [diag perf_triager] DISPATCH stage=perf_triage attempt=0
 2026-06-08T00:00:03.010 DEBUG [diag perf_triager] iter=0 phase=toolcall call[0] tool=emit_perf_trace params={}
 2026-06-08T00:00:03.020 DEBUG [diag explorer] iter=0 phase=toolcall call[0] tool=trace_query params={"view":"window_stats"}
+2026-06-08T00:00:03.030 DEBUG [diag explorer] iter=0 phase=toolcall call[1] tool=trace_query params={"view":"root_cause_rank","pid":42591,"time_start":1.0,"time_end":1.1}
+2026-06-08T00:00:03.040 DEBUG [diag explorer] iter=0 phase=toolcall call[2] tool=trace_query params={"view":"wakeup_chain","thread":"main"}
+2026-06-08T00:00:03.050 DEBUG [diag explorer] iter=0 phase=toolresult TOOLRESULT trace_query ok=true summary="trace_query_target_inherited=true"
 LOG
-printf 'runtime authority answer\n'
+printf 'runtime authority answer\nTrace Causal Projection\n'
 FAKE
 chmod +x "$fake_runtime"
 runtime_case="$tmp/runner_runtime_authority.case"
@@ -746,8 +759,14 @@ assert_eq "$(eval_metric_field "$runtime_dir/run-1.metrics.txt" runtime_artifact
 assert_eq "$(eval_metric_field "$runtime_dir/run-1.metrics.txt" runtime_authority_path)" "perf_triage+trace_query" "runtime authority path metric"
 assert_eq "$(eval_metric_field "$runtime_dir/run-1.metrics.txt" perf_triage_dispatches)" "1" "runtime perf dispatch metric"
 assert_eq "$(eval_metric_field "$runtime_dir/run-1.metrics.txt" emit_perf_trace_calls)" "1" "runtime emit perf metric"
-if ! grep -q '| 1 | trace | perf_triage+trace_query | 0 | 1 | 1 | 0 | 1 |' "$runtime_dir/summary.md"; then
+assert_eq "$(eval_metric_field "$runtime_dir/run-1.metrics.txt" trace_query_dimension_families)" "4" "runtime trace dimension metric"
+assert_eq "$(eval_metric_field "$runtime_dir/run-1.metrics.txt" trace_query_target_inherited)" "1" "runtime trace inherited target metric"
+assert_eq "$(eval_metric_field "$runtime_dir/run-1.metrics.txt" trace_query_final_projection_blocks)" "1" "runtime trace final projection metric"
+if ! grep -q '| 1 | trace | perf_triage+trace_query | 0 | 1 | 3 | 0 | 1 |' "$runtime_dir/summary.md"; then
   fail "runtime authority path audit summary missing expected row"
+fi
+if ! grep -q '| 1 | 4 | 1 | 1 | 0 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |' "$runtime_dir/summary.md"; then
+  fail "trace query coverage audit summary missing expected row"
 fi
 
 fake_efficiency="$tmp/fake-codrax-efficiency-budget"

@@ -548,7 +548,7 @@ run_commandless_apply_step() {
 # for analyzer/explorer counters (expected — write stages don't emit
 # those log lines).
 write_metrics() {
-  local i="$1" rc="$2" log="$3"
+  local i="$1" rc="$2" log="$3" out_file="${4:-}"
   local metrics="$OUTDIR/run-$i.metrics.txt"
   local data_terminal_path="" data_terminal_status="" data_rounds="0" data_repair_rounds="0" data_record_count="0" data_result_summary="" data_answer_len="0" data_action_failed="0"
   local runtime_attachment_kind="none" log_triage_dispatches="0" perf_triage_dispatches="0" emit_log_triage_calls="0" emit_perf_trace_calls="0" runtime_prestage_dispatches="0"
@@ -592,6 +592,17 @@ write_metrics() {
     echo "tool_repo_map=$(eval_count_tool_calls "$log" repo_map)"
     echo "tool_list_files=$(eval_count_tool_calls "$log" list_files)"
     echo "tool_trace_query=$(eval_count_tool_calls "$log" trace_query)"
+    echo "trace_query_dimension_families=$(eval_count_trace_query_dimension_families "$log")"
+    echo "trace_query_root_cause_views=$(eval_count_trace_query_view_family "$log" 'root_cause_rank|frame_root_cause_bundle|frame_bundle')"
+    echo "trace_query_wakeup_views=$(eval_count_trace_query_view_family "$log" 'wakeup_chain|causal_impact|frame_root_cause_bundle|frame_bundle')"
+    echo "trace_query_blocking_views=$(eval_count_trace_query_view_family "$log" 'critical_blocking_calls|ipc_graph|frame_root_cause_bundle|frame_bundle')"
+    echo "trace_query_timeline_views=$(eval_count_trace_query_view_family "$log" 'window_stats|thread_timeline|scheduler_latency_stats|frame_root_cause_bundle|frame_bundle')"
+    echo "trace_query_resource_views=$(eval_count_trace_query_view_family "$log" 'window_stats|frame_root_cause_bundle|frame_bundle')"
+    echo "trace_query_windowed_calls=$(eval_count_trace_query_windowed_calls "$log")"
+    echo "trace_query_pid_filtered_calls=$(eval_count_trace_query_pid_filtered_calls "$log")"
+    echo "trace_query_thread_filtered_calls=$(eval_count_trace_query_thread_filtered_calls "$log")"
+    echo "trace_query_target_inherited=$(eval_count_trace_query_target_inherited "$log")"
+    echo "trace_query_final_projection_blocks=$(eval_count_trace_query_final_projection_blocks "$out_file")"
     echo "runtime_artifact_attached=$runtime_attachment_kind"
     echo "runtime_authority_path=$(eval_runtime_authority_path "$runtime_attachment_kind" "$log")"
     echo "runtime_prestage_dispatches=$runtime_prestage_dispatches"
@@ -1061,7 +1072,7 @@ run_one() {
     log="$all_log"
   fi
   echo "$(( $(date +%s) - run_started_epoch ))" >"$OUTDIR/run-$i.wall"
-  write_metrics "$i" "$rc" "$log"
+  write_metrics "$i" "$rc" "$log" "$out"
 
   # Verdict source bytes selection by MODE.
   local cleaned=""
@@ -1412,7 +1423,7 @@ PYEOF
   # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
   # aggregate them into the summary table so they show up next to
   # the legacy 12 mechanism counters with median.
-  metric_keys="data_rounds data_repair_rounds data_record_count data_action_failed data_answer_len tool_read_file tool_repo_map tool_list_files tool_trace_query runtime_prestage_dispatches log_triage_dispatches perf_triage_dispatches emit_log_triage_calls emit_perf_trace_calls tool_mcp_read_resource repeated_mcp_resource_reads mcp_tool_calls source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied answer_contract_violations answer_contract_strict_violations answer_contract_advisories answer_contract_first_pass_strict_violations answer_contract_final_strict_violations answer_contract_auto_repaired_strict_violations answer_contract_lane_block_kind_violations answer_contract_lane_block_kind_strict_violations answer_contract_lane_block_kind_advisories answer_contract_lane_block_kind_first_pass_strict_violations answer_contract_lane_block_kind_final_strict_violations answer_contract_lane_block_kind_auto_repaired_strict_violations repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject analyze_refine_dispatches read_loop_add_proof_selected read_loop_add_proof_consumed parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches pipeline_dispatches completion_lane_fired investigation_complete_calls investigation_complete_rejects repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events strict_decode_carrier_events strict_decode_element_shape_events"
+  metric_keys="data_rounds data_repair_rounds data_record_count data_action_failed data_answer_len tool_read_file tool_repo_map tool_list_files tool_trace_query trace_query_dimension_families trace_query_root_cause_views trace_query_wakeup_views trace_query_blocking_views trace_query_timeline_views trace_query_resource_views trace_query_windowed_calls trace_query_pid_filtered_calls trace_query_thread_filtered_calls trace_query_target_inherited trace_query_final_projection_blocks runtime_prestage_dispatches log_triage_dispatches perf_triage_dispatches emit_log_triage_calls emit_perf_trace_calls tool_mcp_read_resource repeated_mcp_resource_reads mcp_tool_calls source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied answer_contract_violations answer_contract_strict_violations answer_contract_advisories answer_contract_first_pass_strict_violations answer_contract_final_strict_violations answer_contract_auto_repaired_strict_violations answer_contract_lane_block_kind_violations answer_contract_lane_block_kind_strict_violations answer_contract_lane_block_kind_advisories answer_contract_lane_block_kind_first_pass_strict_violations answer_contract_lane_block_kind_final_strict_violations answer_contract_lane_block_kind_auto_repaired_strict_violations repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject analyze_refine_dispatches read_loop_add_proof_selected read_loop_add_proof_consumed parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches pipeline_dispatches completion_lane_fired investigation_complete_calls investigation_complete_rejects repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events strict_decode_carrier_events strict_decode_element_shape_events"
   for key in $metric_keys; do
     row="| $key |"
     vals=()
@@ -1446,6 +1457,26 @@ PYEOF
   done
   if [[ "$runtime_rows" -eq 0 ]]; then
     echo "| — | none | — | 0 | 0 | 0 | 0 | 0 |"
+  fi
+  echo
+
+  echo "## Trace query coverage audit"
+  echo
+  echo "| run | dimensions | root | wakeup | blocking | timeline | resource | windowed | pid | thread | inherited | final_projection |"
+  echo "|----:|-----------:|-----:|-------:|---------:|---------:|---------:|---------:|----:|-------:|----------:|-----------------:|"
+  trace_rows=0
+  for i in $(seq 1 "$N"); do
+    metrics_file="$OUTDIR/run-$i.metrics.txt"
+    trace_calls="$(eval_metric_int_field "$metrics_file" tool_trace_query)"
+    final_projection="$(eval_metric_int_field "$metrics_file" trace_query_final_projection_blocks)"
+    if [[ "$trace_calls" -eq 0 && "$final_projection" -eq 0 ]]; then
+      continue
+    fi
+    trace_rows=$((trace_rows + 1))
+    echo "| $i | $(eval_metric_field "$metrics_file" trace_query_dimension_families) | $(eval_metric_field "$metrics_file" trace_query_root_cause_views) | $(eval_metric_field "$metrics_file" trace_query_wakeup_views) | $(eval_metric_field "$metrics_file" trace_query_blocking_views) | $(eval_metric_field "$metrics_file" trace_query_timeline_views) | $(eval_metric_field "$metrics_file" trace_query_resource_views) | $(eval_metric_field "$metrics_file" trace_query_windowed_calls) | $(eval_metric_field "$metrics_file" trace_query_pid_filtered_calls) | $(eval_metric_field "$metrics_file" trace_query_thread_filtered_calls) | $(eval_metric_field "$metrics_file" trace_query_target_inherited) | $(eval_metric_field "$metrics_file" trace_query_final_projection_blocks) |"
+  done
+  if [[ "$trace_rows" -eq 0 ]]; then
+    echo "| — | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |"
   fi
   echo
 

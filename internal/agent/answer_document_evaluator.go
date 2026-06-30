@@ -3859,6 +3859,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocRuntimeSourceAuthority(ctx, ledger); authority != "" {
 		b.WriteString(authority)
 	}
+	if coverage := renderAnswerDocTraceObservationCoverage(ledger); coverage != "" {
+		b.WriteString(coverage)
+	}
 	if len(ledger.Records) > len(records) {
 		fmt.Fprintf(&b, "*(showing %d prioritized record(s) of %d total)*\n\n", len(records), len(ledger.Records))
 	}
@@ -3907,6 +3910,68 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) string {
+	coverage := types.BuildTraceObservationCoverage(ledger)
+	if !coverage.Active {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Trace Observation Coverage\n\n")
+	b.WriteString("- This typed coverage view is a soft handoff for trace/log answer writing. It summarizes which deterministic `trace_query` dimensions are already on the ledger; missing dimensions are follow-up suggestions only, not completion blockers.\n")
+	fmt.Fprintf(&b, "- trace_query_calls=%d; trace_observations=%d", coverage.QueryCount, coverage.TotalRecords)
+	if len(coverage.Windows) > 0 {
+		fmt.Fprintf(&b, "; windows=`%s`", strings.Join(coverage.Windows, "`, `"))
+	}
+	if len(coverage.SourceRefs) > 0 {
+		fmt.Fprintf(&b, "; sources=`%s`", strings.Join(coverage.SourceRefs, "`, `"))
+	}
+	b.WriteByte('\n')
+	if len(coverage.Dimensions) > 0 {
+		parts := make([]string, 0, len(coverage.Dimensions))
+		for _, dim := range coverage.Dimensions {
+			item := fmt.Sprintf("%s:%d", dim.Dimension, dim.Count)
+			if dim.OnChainCount > 0 || dim.AdjacentCount > 0 || dim.BackgroundCount > 0 {
+				item += fmt.Sprintf("(on=%d adjacent=%d background=%d)", dim.OnChainCount, dim.AdjacentCount, dim.BackgroundCount)
+			}
+			parts = append(parts, item)
+		}
+		fmt.Fprintf(&b, "- dimensions: %s\n", strings.Join(parts, ", "))
+	}
+	if len(coverage.SoftMissingDimensions) > 0 {
+		fmt.Fprintf(&b, "- soft_followup_candidates: `%s` (do not reopen exploration solely for these if the answer is otherwise sufficient; disclose as caveat or use bounded trace_query follow-up when budget allows)\n", strings.Join(coverage.SoftMissingDimensions, "`, `"))
+	}
+	for i, obs := range coverage.TopObservations {
+		if i >= 5 {
+			break
+		}
+		fmt.Fprintf(&b, "- top[%d] dimension=`%s`; id=`%s`", i+1, obs.Dimension, obs.ID)
+		if obs.ChainRelevance != "" {
+			fmt.Fprintf(&b, "; chain_relevance=`%s`", obs.ChainRelevance)
+		}
+		if obs.Window != "" {
+			fmt.Fprintf(&b, "; window=%s", obs.Window)
+		}
+		if obs.Filter != "" {
+			fmt.Fprintf(&b, "; filter=%q", obs.Filter)
+		}
+		if obs.Value != "" {
+			fmt.Fprintf(&b, "; value=%q", obs.Value)
+		}
+		if obs.Summary != "" {
+			fmt.Fprintf(&b, "; summary=%q", obs.Summary)
+		}
+		if obs.Span != "" {
+			fmt.Fprintf(&b, "; span=%s", obs.Span)
+		}
+		if len(obs.SupportRefs) > 0 {
+			fmt.Fprintf(&b, "; support_refs=`%s`", strings.Join(obs.SupportRefs, "`, `"))
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteByte('\n')
 	return b.String()
 }
 

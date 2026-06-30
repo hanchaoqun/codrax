@@ -1015,6 +1015,86 @@ eval_runtime_authority_path() {
   esac
 }
 
+eval_count_trace_query_view_family() {
+  local file="$1"
+  local views="$2"
+  if [[ -z "$file" || ! -f "$file" || -z "$views" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern "DEBUG \\[diag [^]]+\\][^:]*phase=toolcall [^:]*tool=trace_query params=.*\"view\"[[:space:]]*:[[:space:]]*\"(${views})\"" "$file"
+}
+
+eval_count_trace_query_windowed_calls() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=toolcall [^:]*tool=trace_query params=.*"(time_start|timeStart|time_end|timeEnd|line_start|lineStart|line_end|lineEnd)"[[:space:]]*:' "$file"
+}
+
+eval_count_trace_query_pid_filtered_calls() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=toolcall [^:]*tool=trace_query params=.*"pid"[[:space:]]*:' "$file"
+}
+
+eval_count_trace_query_thread_filtered_calls() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=toolcall [^:]*tool=trace_query params=.*"thread"[[:space:]]*:' "$file"
+}
+
+eval_count_trace_query_target_inherited() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[diag [^]]+\].*trace_query_target_inherited=true' "$file"
+}
+
+eval_count_trace_query_final_projection_blocks() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_pattern '(Trace 因果投影|Trace Causal Projection)' "$file"
+}
+
+eval_count_trace_query_dimension_families() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  local n=0
+  if [[ "$(eval_count_trace_query_view_family "$file" 'root_cause_rank|frame_root_cause_bundle|frame_bundle')" -gt 0 ]]; then
+    n=$((n + 1))
+  fi
+  if [[ "$(eval_count_trace_query_view_family "$file" 'wakeup_chain|causal_impact|frame_root_cause_bundle|frame_bundle')" -gt 0 ]]; then
+    n=$((n + 1))
+  fi
+  if [[ "$(eval_count_trace_query_view_family "$file" 'critical_blocking_calls|ipc_graph|frame_root_cause_bundle|frame_bundle')" -gt 0 ]]; then
+    n=$((n + 1))
+  fi
+  if [[ "$(eval_count_trace_query_view_family "$file" 'window_stats|thread_timeline|scheduler_latency_stats|frame_root_cause_bundle|frame_bundle')" -gt 0 ]]; then
+    n=$((n + 1))
+  fi
+  if [[ "$(eval_count_trace_query_view_family "$file" 'window_stats|frame_root_cause_bundle|frame_bundle')" -gt 0 ]]; then
+    n=$((n + 1))
+  fi
+  echo "$n"
+}
+
 eval_count_repeated_mcp_resource_reads() {
   local file="$1"
   if [[ -z "$file" || ! -f "$file" ]]; then
@@ -1671,6 +1751,17 @@ eval_materialize_partial_run_result() {
       echo "tool_repo_map=$(eval_count_tool_calls "$log" repo_map)"
       echo "tool_list_files=$(eval_count_tool_calls "$log" list_files)"
       echo "tool_trace_query=$(eval_count_tool_calls "$log" trace_query)"
+      echo "trace_query_dimension_families=$(eval_count_trace_query_dimension_families "$log")"
+      echo "trace_query_root_cause_views=$(eval_count_trace_query_view_family "$log" 'root_cause_rank|frame_root_cause_bundle|frame_bundle')"
+      echo "trace_query_wakeup_views=$(eval_count_trace_query_view_family "$log" 'wakeup_chain|causal_impact|frame_root_cause_bundle|frame_bundle')"
+      echo "trace_query_blocking_views=$(eval_count_trace_query_view_family "$log" 'critical_blocking_calls|ipc_graph|frame_root_cause_bundle|frame_bundle')"
+      echo "trace_query_timeline_views=$(eval_count_trace_query_view_family "$log" 'window_stats|thread_timeline|scheduler_latency_stats|frame_root_cause_bundle|frame_bundle')"
+      echo "trace_query_resource_views=$(eval_count_trace_query_view_family "$log" 'window_stats|frame_root_cause_bundle|frame_bundle')"
+      echo "trace_query_windowed_calls=$(eval_count_trace_query_windowed_calls "$log")"
+      echo "trace_query_pid_filtered_calls=$(eval_count_trace_query_pid_filtered_calls "$log")"
+      echo "trace_query_thread_filtered_calls=$(eval_count_trace_query_thread_filtered_calls "$log")"
+      echo "trace_query_target_inherited=$(eval_count_trace_query_target_inherited "$log")"
+      echo "trace_query_final_projection_blocks=0"
       runtime_attachment_kind="$(eval_runtime_attachment_kind_from_log "$log")"
       log_triage_dispatches="$(eval_count_stage_dispatches "$log" log_triage)"
       perf_triage_dispatches="$(eval_count_stage_dispatches "$log" perf_triage)"

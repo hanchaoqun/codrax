@@ -8467,6 +8467,37 @@ func TestAnswerDocumentEvaluator_ParseOutput_PrioritizesTraceQueryOccurrenceWind
 	}
 }
 
+func TestRenderAnswerDocObservationLedger_IncludesTraceObservationCoverage(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{
+			stageReportTraceObservation("root", "trace_query[0]", "root_cause_primary", "root_cause_primary", "main-1", "runnable", "11.000", []string{"chain_relevance=on_chain"}, types.ObservationSpan{StartTs: 1.0, EndTs: 1.2}),
+		},
+	}}})
+	ctx := &types.AgentContext{Mutable: mu}
+
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"### Trace Observation Coverage",
+		"trace_query_calls=1; trace_observations=1",
+		"dimensions: root_cause_rank:1(on=1 adjacent=0 background=0)",
+		"soft_followup_candidates: `wakeup_chain`, `critical_blocking_calls`, `thread_timeline_or_window_stats`, `window_stats_resource_pressure`",
+		"top[1] dimension=`root_cause_rank`; id=`root`",
+		"chain_relevance=`on_chain`",
+		"window=1.000000..1.200000",
+		"support_refs=`trace.systrace:10-20`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("observation ledger missing trace coverage fragment %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "hard_block=true") || strings.Contains(got, "completion_blocker=true") {
+		t.Fatalf("trace coverage should remain soft handoff, not hard blocker:\n%s", got)
+	}
+}
+
 func writeStageBindingFixture(t *testing.T, repo string) {
 	t.Helper()
 	dir := filepath.Join(repo, "internal", "types")
