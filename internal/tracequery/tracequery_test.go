@@ -2,6 +2,7 @@ package tracequery
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -595,6 +596,39 @@ func TestBuildIndexWithOptionsParsesOnlySelectedTimeWindow(t *testing.T) {
 	res := Run(idx, Query{View: "event_search", TimeStart: 2.0, TimeEnd: 2.1, Limit: 10})
 	if !res.IndexWindowed || !containsSubstring(res.Caveats, "windowed_index_parse=true") {
 		t.Fatalf("windowed result should surface caveat: %+v", res)
+	}
+}
+
+func TestBuildIndexWithOptionsStopsAtEventLimit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dense.systrace")
+	lines := []string{
+		`      app-20  (   20) [001] .... 2.000000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`      app-20  (   20) [001] .... 2.001000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`      app-20  (   20) [001] .... 2.002000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`      app-20  (   20) [001] .... 2.003000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		"",
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := BuildIndexWithOptions(context.Background(), path, BuildOptions{
+		TimeStart:          2.0,
+		TimeEnd:            2.1,
+		TimeStartSet:       true,
+		TimeEndSet:         true,
+		AllowWindowedParse: true,
+		MaxEvents:          3,
+	})
+	var limitErr *IndexEventLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("expected IndexEventLimitError, got %T %v", err, err)
+	}
+	if limitErr.MaxEvents != 3 || limitErr.Events != 3 {
+		t.Fatalf("unexpected limit metadata: %+v", limitErr)
+	}
+	if !strings.Contains(limitErr.Error(), "split the time window") {
+		t.Fatalf("limit error should guide refinement: %s", limitErr.Error())
 	}
 }
 

@@ -51,6 +51,41 @@ func TestTraceQueryExplicitPathProducesRuntimeArtifactSummary(t *testing.T) {
 	}
 }
 
+func TestTraceQueryIndexLimitResultIsRecoverableScopeHint(t *testing.T) {
+	dir := t.TempDir()
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	p := traceQueryParams{
+		View:      "root_cause_rank",
+		Thread:    "android.haitong",
+		TimeStart: traceSecondFromAutoWindow(1.0),
+		TimeEnd:   traceSecondFromAutoWindow(2.0),
+	}
+	res, ok := (&TraceQuery{}).traceQueryIndexLimitResult(ctx, p, filepath.Join(dir, "dense.ftrace"), "path", &tracequery.IndexEventLimitError{
+		Path:           filepath.Join(dir, "dense.ftrace"),
+		MaxEvents:      3,
+		Events:         3,
+		Line:           42,
+		ScannedLines:   42,
+		Windowed:       true,
+		IndexTimeStart: 1.0,
+		IndexTimeEnd:   2.0,
+	})
+	if !ok {
+		t.Fatalf("expected index limit result")
+	}
+	if !res.Success {
+		t.Fatalf("event limit should be recoverable, got failure: %s", res.Summary)
+	}
+	for _, want := range []string{"mode=index_event_limit", "not evidence that the trace/ftrace format is unsupported", "do not retry the same heavy view"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("limit result missing %q:\nsummary=%s", want, res.Summary)
+		}
+	}
+	if res.Refinement == nil || res.Refinement.ReasonCode != "trace_query_index_event_limit" {
+		t.Fatalf("expected structured refinement, got %+v", res.Refinement)
+	}
+}
+
 func TestTraceQueryFtracePathParsesCompoundTimestampWindow(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "OHTrace_20260626_16.32.34.ftrace")

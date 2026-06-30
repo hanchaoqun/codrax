@@ -47,6 +47,12 @@ type parseCacheKey struct {
 
 const maxCachedTraceIndexBytes int64 = 64 << 20
 
+// defaultTraceIndexMaxEvents bounds a single in-memory query index. Event is
+// intentionally rich and large; dense trace windows must be split before the
+// append backing array grows into process-wide OOM territory, especially when
+// the LLM issues multiple trace_query calls in parallel.
+const defaultTraceIndexMaxEvents = 250000
+
 // traceIndexCacheBudgetBytes bounds the total Event bytes retained by the
 // index cache. Fixed package constant by design — no configuration knob:
 // eviction is pure latency (a miss re-parses through the indexBuilds
@@ -150,6 +156,63 @@ type BuildOptions struct {
 	LinePaddingBefore  int
 	LinePaddingAfter   int
 	AllowWindowedParse bool
+	MaxEvents          int
+}
+
+type IndexEventLimitError struct {
+	Path           string
+	MaxEvents      int
+	Events         int
+	Line           int
+	ScannedLines   int
+	Windowed       bool
+	IndexTimeStart float64
+	IndexTimeEnd   float64
+	IndexLineStart int
+	IndexLineEnd   int
+	FirstTs        float64
+	LastTs         float64
+}
+
+func (e *IndexEventLimitError) Error() string {
+	if e == nil {
+		return "trace index event limit reached"
+	}
+	return fmt.Sprintf(
+		"trace index event limit reached: path=%s parsed_events=%d max_events=%d line=%d scanned_lines=%d windowed=%t index_time=%.6f..%.6f index_lines=%d..%d parsed_time=%.6f..%.6f; selected trace scope is too dense for a single in-memory index; split the time window, add line_start/line_end, or narrow with pid/thread/event_types/event_search before running heavy views",
+		e.Path,
+		e.Events,
+		e.MaxEvents,
+		e.Line,
+		e.ScannedLines,
+		e.Windowed,
+		e.IndexTimeStart,
+		e.IndexTimeEnd,
+		e.IndexLineStart,
+		e.IndexLineEnd,
+		e.FirstTs,
+		e.LastTs,
+	)
+}
+
+func newIndexEventLimitError(path string, idx *Index, opts BuildOptions, line, events int) *IndexEventLimitError {
+	err := &IndexEventLimitError{
+		Path:      path,
+		MaxEvents: opts.MaxEvents,
+		Events:    events,
+		Line:      line,
+	}
+	if idx != nil {
+		err.ScannedLines = idx.ScannedLineCount
+		err.Windowed = idx.Windowed
+		err.IndexTimeStart = idx.IndexTimeStart
+		err.IndexTimeEnd = idx.IndexTimeEnd
+		err.IndexLineStart = idx.IndexLineStart
+		err.IndexLineEnd = idx.IndexLineEnd
+		err.FirstTs = idx.FirstTs
+		err.LastTs = idx.LastTs
+	}
+	return err
 }
 
 func BuildIndex(ctx context.Context, path string) (*Index, error) {
@@ -377,8 +440,11 @@ func eventInBuildWindow(ev Event, idx *Index) bool {
 }
 
 func normalizeBuildOptions(opts BuildOptions) BuildOptions {
+	if opts.MaxEvents <= 0 {
+		opts.MaxEvents = defaultTraceIndexMaxEvents
+	}
 	if !opts.AllowWindowedParse {
-		return BuildOptions{}
+		return BuildOptions{MaxEvents: opts.MaxEvents}
 	}
 	if opts.TimePaddingBefore < 0 {
 		opts.TimePaddingBefore = 0
@@ -403,10 +469,11 @@ func (opts BuildOptions) cacheKey() string {
 	if !opts.windowed() {
 		return ""
 	}
-	return fmt.Sprintf("ts=%t:%.9f-%t:%.9f+%.6f/%.6f;ln=%d-%d+%d/%d",
+	return fmt.Sprintf("ts=%t:%.9f-%t:%.9f+%.6f/%.6f;ln=%d-%d+%d/%d;max_events=%d",
 		opts.TimeStartSet, opts.TimeStart, opts.TimeEndSet, opts.TimeEnd,
 		opts.TimePaddingBefore, opts.TimePaddingAfter,
-		opts.LineStart, opts.LineEnd, opts.LinePaddingBefore, opts.LinePaddingAfter)
+		opts.LineStart, opts.LineEnd, opts.LinePaddingBefore, opts.LinePaddingAfter,
+		opts.MaxEvents)
 }
 
 func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
@@ -498,6 +565,9 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					idx.ParsedKnown++
 				}
 				flavor.observeEvent(ev)
+				if opts.MaxEvents > 0 && len(idx.Events) >= opts.MaxEvents {
+					return nil, newIndexEventLimitError(path, idx, opts, lineNo, len(idx.Events))
+				}
 				idx.Events = append(idx.Events, ev)
 			} else if trimmed != "" && idx.ParseLinePanics == panicsBefore {
 				idx.UnparsedLines++
@@ -1062,6 +1132,9 @@ func parseTraceArtifactPathList(ctx context.Context, path string, size int64, mo
 			idx.FlavorConfidence = child.FlavorConfidence
 			idx.FlavorSignals = append([]string(nil), child.FlavorSignals...)
 			flavorSet = true
+		}
+		if opts.MaxEvents > 0 && len(child.Events) > 0 && len(idx.Events)+len(child.Events) > opts.MaxEvents {
+			return nil, newIndexEventLimitError(path, idx, opts, child.Events[0].Line, len(idx.Events)+len(child.Events))
 		}
 		idx.Events = append(idx.Events, child.Events...)
 	}
