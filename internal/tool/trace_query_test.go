@@ -76,7 +76,7 @@ func TestTraceQueryIndexLimitResultIsRecoverableScopeHint(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("event limit should be recoverable, got failure: %s", res.Summary)
 	}
-	for _, want := range []string{"mode=index_event_limit", "not evidence that the trace/ftrace format is unsupported", "do not retry the same heavy view"} {
+	for _, want := range []string{"mode=index_event_limit", "not evidence that the trace/ftrace format is unsupported", "do not retry the same heavy view", "parent_window_strategy"} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("limit result missing %q:\nsummary=%s", want, res.Summary)
 		}
@@ -1351,6 +1351,21 @@ func TestTraceQueryDescriptionDocumentsStructuredRequestTargetInheritanceBoundar
 	} {
 		if strings.Contains(description, forbidden) {
 			t.Fatalf("trace_query description must not promise raw-request target inheritance %q:\n%s", forbidden, description)
+		}
+	}
+}
+
+func TestTraceQueryDescriptionDocumentsWindowStrategyBoundary(t *testing.T) {
+	description := (&TraceQuery{}).Description()
+	for _, want := range []string{
+		"coverage windows around 80-150ms",
+		"sub-50ms windows are micro-probes",
+		"long transaction/lifecycle windows",
+		"preserve the full typed time window as parent coverage",
+		"discover phase boundaries",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("trace_query description missing window strategy %q:\n%s", want, description)
 		}
 	}
 }

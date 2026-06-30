@@ -1163,6 +1163,25 @@ func TestRootCauseRankTiersCandidates(t *testing.T) {
 	}
 }
 
+func TestRootCauseRankMicroWindowCarriesCoverageCaveat(t *testing.T) {
+	idx := buildSampleIndex(t)
+	res := Run(idx, Query{View: "root_cause_rank", PID: 20, TimeStart: 1.100, TimeEnd: 1.120, Limit: 5})
+	if !containsSubstring(res.Caveats, "micro-window probe") ||
+		!containsSubstring(res.Caveats, "80-150ms coverage windows") {
+		t.Fatalf("micro root-cause windows should carry coverage caveat: %+v", res.Caveats)
+	}
+}
+
+func TestRootCauseRankLongParentWindowCarriesHierarchyCaveat(t *testing.T) {
+	idx := buildSampleIndex(t)
+	res := Run(idx, Query{View: "root_cause_rank", PID: 20, TimeStart: 1.0, TimeEnd: 2.2, Limit: 5})
+	if !containsSubstring(res.Caveats, "parent/transaction window") ||
+		!containsSubstring(res.Caveats, "Preserve the full window as parent coverage") ||
+		!containsSubstring(res.Caveats, "heaviest phase windows") {
+		t.Fatalf("long root-cause windows should carry hierarchical parent-window caveat: %+v", res.Caveats)
+	}
+}
+
 func TestInteractionStatsCountsBidirectionalWakeups(t *testing.T) {
 	idx := buildSampleIndex(t)
 	res := Run(idx, Query{View: "interaction_stats", PID: 20, TimeStart: 1.0, TimeEnd: 1.3})

@@ -15,6 +15,10 @@ const unparsedLineCaveatRatio = 0.5
 
 const wakeupMatchToleranceSec = 0.000005
 const wakeupCausalAggregateOccurrenceCap = 8
+const microWindowProbeSeconds = 0.050
+const preferredCoverageWindowMinSeconds = 0.080
+const preferredCoverageWindowMaxSeconds = 0.150
+const parentWindowStrategySeconds = 1.000
 
 func Run(idx *Index, q Query) Result {
 	explicitTimeStart := q.TimeStart != 0
@@ -11094,8 +11098,48 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	if q.LineStart > 0 || q.LineEnd > 0 {
 		out = append(out, "line-window filtering was used; time-window statistics only cover parsed rows inside that line window")
 	}
+	out = append(out, traceWindowStrategyCaveats(q, res)...)
 	out = append(out, traceCompletenessCaveats(idx, q, res)...)
 	return out
+}
+
+func traceWindowStrategyCaveats(q Query, res Result) []string {
+	view := strings.TrimSpace(firstNonEmpty(res.View, q.View))
+	if !traceHeavyViewWindowStrategyApplies(view) {
+		return nil
+	}
+	duration := selectedWindowDurationSeconds(q.TimeStart, q.TimeEnd)
+	if duration <= 0 {
+		return nil
+	}
+	if duration >= parentWindowStrategySeconds {
+		return []string{fmt.Sprintf("trace window strategy: selected_window_duration=%.3fms is a parent/transaction window. Preserve the full window as parent coverage, summarize phase/span/marker boundaries first, then drill into the heaviest phase windows; do not present arbitrary micro-window samples as exhaustive coverage of the parent window.", duration*1000)}
+	}
+	if duration >= microWindowProbeSeconds {
+		return nil
+	}
+	return []string{fmt.Sprintf("trace window strategy: selected_window_duration=%.3fms is a micro-window probe. For broader jank/stall root-cause claims, prefer frame/span-derived windows or %.0f-%.0fms coverage windows first; use this sub-%.0fms result only as local evidence unless neighboring coverage windows corroborate it.",
+		duration*1000,
+		preferredCoverageWindowMinSeconds*1000,
+		preferredCoverageWindowMaxSeconds*1000,
+		microWindowProbeSeconds*1000)}
+}
+
+func traceHeavyViewWindowStrategyApplies(view string) bool {
+	switch strings.TrimSpace(view) {
+	case "window_stats", "scheduler_latency_stats", "wakeup_chain", "root_cause_rank", "frame_root_cause_bundle",
+		"critical_blocking_calls", "recipe", "evidence_pack", "trace_perf_bundle", "thread_timeline":
+		return true
+	default:
+		return false
+	}
+}
+
+func selectedWindowDurationSeconds(start, end float64) float64 {
+	if end <= start || start < 0 {
+		return 0
+	}
+	return end - start
 }
 
 func traceCompletenessCaveats(idx *Index, q Query, res Result) []string {

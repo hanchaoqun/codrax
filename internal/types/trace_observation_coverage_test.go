@@ -60,6 +60,26 @@ func TestTraceObservationCoverageSuggestsSoftFollowupsForSingleRootCauseDimensio
 	}
 }
 
+func TestTraceObservationCoverageSuggestsRepresentativeWindowForRepeatedMicroRootProbes(t *testing.T) {
+	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
+		traceCoverageRecord("root1", "trace_query:1", "root_cause_primary", "root_cause_primary", "target-1", "running", "12.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.000, EndTs: 1.020}),
+		traceCoverageRecord("root2", "trace_query:2", "root_cause_primary", "root_cause_primary", "target-1", "sleep", "9.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.020, EndTs: 1.040}),
+	})
+	if !slices.Contains(got.SoftMissingDimensions, "representative_window_coverage") {
+		t.Fatalf("repeated micro root-cause probes should suggest representative coverage, got %+v", got.SoftMissingDimensions)
+	}
+}
+
+func TestTraceObservationCoverageDoesNotSuggestRepresentativeWindowWhenAdequateWindowExists(t *testing.T) {
+	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
+		traceCoverageRecord("root1", "trace_query:1", "root_cause_primary", "root_cause_primary", "target-1", "running", "12.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.000, EndTs: 1.020}),
+		traceCoverageRecord("root2", "trace_query:2", "root_cause_primary", "root_cause_primary", "target-1", "sleep", "9.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.000, EndTs: 1.100}),
+	})
+	if slices.Contains(got.SoftMissingDimensions, "representative_window_coverage") {
+		t.Fatalf("adequate root-cause window should suppress representative coverage follow-up, got %+v", got.SoftMissingDimensions)
+	}
+}
+
 func traceCoverageRecord(id, toolCall, predicate, claimKey, subject, object, value string, notes []string, span ObservationSpan) ObservationRecord {
 	return ObservationRecord{
 		ID:              id,

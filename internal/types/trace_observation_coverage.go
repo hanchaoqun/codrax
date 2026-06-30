@@ -17,6 +17,12 @@ const (
 	TraceObservationDimensionEvidencePack     = "evidence_pack"
 )
 
+const (
+	traceObservationMicroWindowProbeMs           = 50.0
+	traceObservationRepresentativeWindowMinMs    = 80.0
+	traceObservationRepresentativeMicroWindowMin = 2
+)
+
 type TraceObservationCoverage struct {
 	Active                bool                                `json:"active,omitempty"`
 	TotalRecords          int                                 `json:"total_records,omitempty"`
@@ -107,7 +113,7 @@ func TraceObservationCoverageFromObservationRecords(records []ObservationRecord)
 		Windows:               traceObservationCoverageLimitStrings(windows, 6),
 		Filters:               traceObservationCoverageLimitStrings(filters, 8),
 		SourceRefs:            traceObservationCoverageLimitStrings(sources, 6),
-		SoftMissingDimensions: traceObservationSoftMissingDimensions(byDimension),
+		SoftMissingDimensions: traceObservationSoftMissingDimensions(byDimension, coverageRecords),
 		CausalProjection:      TraceCausalProjectionFromObservationRecords(records),
 	}
 	return out
@@ -245,7 +251,7 @@ func traceObservationDimensionCoverageRows(byDimension map[string][]TraceObserva
 	return out
 }
 
-func traceObservationSoftMissingDimensions(byDimension map[string][]TraceObservationCoverageRecord) []string {
+func traceObservationSoftMissingDimensions(byDimension map[string][]TraceObservationCoverageRecord, records []TraceObservationCoverageRecord) []string {
 	if len(byDimension) == 0 {
 		return nil
 	}
@@ -267,7 +273,68 @@ func traceObservationSoftMissingDimensions(byDimension map[string][]TraceObserva
 	if hasRoot && !hasResource {
 		missing = append(missing, "window_stats_resource_pressure")
 	}
+	if traceObservationNeedsRepresentativeWindowCoverage(records) {
+		missing = append(missing, "representative_window_coverage")
+	}
 	return missing
+}
+
+func traceObservationNeedsRepresentativeWindowCoverage(records []TraceObservationCoverageRecord) bool {
+	microWindows := map[string]bool{}
+	hasRepresentative := false
+	for _, record := range records {
+		if record.Dimension != TraceObservationDimensionRootCauseRank {
+			continue
+		}
+		durationMs, ok := traceObservationCoverageWindowDurationMs(record.Window)
+		if !ok {
+			continue
+		}
+		switch {
+		case durationMs >= traceObservationRepresentativeWindowMinMs:
+			hasRepresentative = true
+		case durationMs > 0 && durationMs < traceObservationMicroWindowProbeMs:
+			microWindows[strings.TrimSpace(record.Window)] = true
+		}
+	}
+	return !hasRepresentative && len(microWindows) >= traceObservationRepresentativeMicroWindowMin
+}
+
+func traceObservationCoverageWindowDurationMs(window string) (float64, bool) {
+	window = strings.TrimSpace(window)
+	if window == "" {
+		return 0, false
+	}
+	parts := strings.Split(window, "..")
+	if len(parts) != 2 {
+		return 0, false
+	}
+	start, startMS, ok := traceObservationCoverageParseWindowEndpoint(parts[0])
+	if !ok {
+		return 0, false
+	}
+	end, endMS, ok := traceObservationCoverageParseWindowEndpoint(parts[1])
+	if !ok || end <= start {
+		return 0, false
+	}
+	if startMS || endMS {
+		return end - start, true
+	}
+	return (end - start) * 1000, true
+}
+
+func traceObservationCoverageParseWindowEndpoint(raw string) (float64, bool, bool) {
+	value := strings.TrimSpace(raw)
+	isMS := false
+	if strings.HasSuffix(value, "ms") {
+		isMS = true
+		value = strings.TrimSpace(strings.TrimSuffix(value, "ms"))
+	}
+	var parsed float64
+	if _, err := fmt.Sscanf(value, "%f", &parsed); err != nil {
+		return 0, isMS, false
+	}
+	return parsed, isMS, true
 }
 
 func traceObservationCoverageRecordLess(a, b TraceObservationCoverageRecord) bool {
