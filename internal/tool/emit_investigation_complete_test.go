@@ -1457,7 +1457,7 @@ func TestEmitInvestigationComplete_RequiredCurrentKeyCodeStillBlocksExternalOnly
 	}
 }
 
-func TestEmitInvestigationComplete_DroppedCurrentSourceObligationBlocksExternalOnlyWaiver(t *testing.T) {
+func TestEmitInvestigationComplete_DroppedCurrentSourceObligationCompletesWithCaveat(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{
 		Mutable: mut,
@@ -1522,11 +1522,12 @@ func TestEmitInvestigationComplete_DroppedCurrentSourceObligationBlocksExternalO
 	if !res.Success {
 		t.Fatalf("dropped-obligation downgrade should remain soft, got hard failure: %s", res.Summary)
 	}
-	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
-		t.Fatalf("dropped current-source obligation must not close through external-only waiver")
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("dropped current-source obligation without a precise source anchor should close with caveat")
 	}
-	if !strings.Contains(res.Summary, "current-source") {
-		t.Fatalf("summary should point at current-source obligation, got: %s", res.Summary)
+	caveats := mut.EvidenceClosure().CompletionCaveats()
+	if len(caveats) != 1 || caveats[0].Lane != types.DowngradeLaneCurrentSourceLane {
+		t.Fatalf("dropped current-source obligation should be recorded as a current-source caveat, got: %#v", caveats)
 	}
 }
 

@@ -3489,6 +3489,24 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return true
 	}
+	rm := runtimeSourceRequestModelForCompletion(ctx)
+	if rm == nil {
+		return true
+	}
+	attachedRuntimeArtifact := runtimeArtifactContextActiveForCompletion(ctx, rm)
+	if runtimeArtifactCurrentSourceHardRequirement(ctx) {
+		return false
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedRuntimeArtifact) {
+		return true
+	}
+	return attachedRuntimeArtifact
+}
+
+func runtimeSourceRequestModelForCompletion(ctx *types.BusContext) *types.RequestModel {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
 	rm := ctx.AnalysisIR.RequestModel
 	if ctx.Mutable != nil {
 		if rm.LogTriage == nil {
@@ -3498,17 +3516,21 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 			rm.PerfTrace = ctx.Mutable.PerfTrace()
 		}
 	}
-	attachedRuntimeArtifact := runtimeArtifactContextActiveForCompletion(ctx, &rm)
-	if runtimeArtifactCurrentSourceHardRequirement(ctx) {
-		return false
+	return &rm
+}
+
+func runtimeSourceAnswerAuthorityForCompletion(ctx *types.BusContext) types.RuntimeSourceAnswerAuthoritySnapshot {
+	if ctx == nil {
+		return types.RuntimeSourceAnswerAuthoritySnapshot{}
 	}
-	if attachedRuntimeArtifact && types.RouteBackedExternalObservationRequiresCurrentSource(&rm, ctx.TurnRouteHint) {
-		return false
-	}
-	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(attachedRuntimeArtifact) {
-		return true
-	}
-	return attachedRuntimeArtifact
+	rm := runtimeSourceRequestModelForCompletion(ctx)
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 128))
+	return types.BuildRuntimeSourceAnswerAuthoritySnapshot(types.RuntimeSourceAnswerAuthorityInput{
+		RequestModel:      rm,
+		RouteHint:         ctx.TurnRouteHint,
+		Ledger:            ledger,
+		AnswerSurfacePlan: types.BuildAnswerSurfacePlanForBusContext(ctx),
+	})
 }
 
 func runtimeArtifactCurrentSourceHardRequirement(ctx *types.BusContext) bool {
@@ -3519,27 +3541,14 @@ func runtimeArtifactCurrentSourceHardRequirement(ctx *types.BusContext) bool {
 	if answerContractRequiresCurrentSourceProof(&ctx.AnalysisIR.AnswerContract) {
 		return true
 	}
-	if requestModelHasRequiredCurrentKeyCodeDimension(rm) {
-		return true
-	}
-	if rm.HasCurrentSourceObligationSignal() {
-		return true
-	}
-	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
-		return true
-	}
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
 		return true
 	}
 	if currentSourceLaneHasSpecificSourceSeed(ctx) {
 		return true
 	}
-	for _, target := range rm.AnalyzerHints.ExactTargets {
-		if currentSourceCoveragePath(target) {
-			return true
-		}
-	}
-	return false
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	return authority.CanHardBlockCompletion
 }
 
 func answerContractRequiresCurrentSourceProof(contract *types.AnswerContract) bool {
@@ -8629,10 +8638,17 @@ func currentSourceForcedReadGatesApply(ctx *types.BusContext) bool {
 }
 
 func currentSourceLaneCoverageDowngrade(ctx *types.BusContext, preflight completionPreflightView) string {
-	if ctx == nil || ctx.AnalysisIR == nil || !currentSourceForcedReadGatesApply(ctx) {
+	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
-	if !currentSourceLaneRuntimeArtifactCarrier(ctx) {
+	if currentSourceLaneRuntimeArtifactCarrier(ctx) {
+		authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+		if authority.Active && authority.NeedsCurrentSourceEvidence && !authority.CanHardBlockCompletion {
+			recordSoftCurrentSourceCompletionCaveat(ctx, authority)
+			return ""
+		}
+	}
+	if !currentSourceForcedReadGatesApply(ctx) || !currentSourceLaneRuntimeArtifactCarrier(ctx) {
 		return ""
 	}
 	if currentSourceLaneHasCoverage(ctx, preflight) {
@@ -8652,6 +8668,20 @@ func currentSourceLaneCoverageDowngrade(ctx *types.BusContext, preflight complet
 	b.WriteString("The runtime/external observation lane can be preserved as context, but it cannot close this investigation by itself. ")
 	b.WriteString("Run a focused source localization step (`repo_map`, files-only search, or `read_file` on a bounded owner path), then emit grounded current-source evidence before retrying `emit_investigation_complete`.\n")
 	return b.String()
+}
+
+func recordSoftCurrentSourceCompletionCaveat(ctx *types.BusContext, authority types.RuntimeSourceAnswerAuthoritySnapshot) {
+	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil {
+		return
+	}
+	if !authority.CanDowngradeToCaveat {
+		return
+	}
+	ctx.Mutable.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane:       types.DowngradeLaneCurrentSourceLane,
+		ReasonCode: types.ProgressReasonConverged,
+		Reason:     "soft current-source obligation was not backed by a precise source anchor; completed with runtime observation caveat instead of reopening broad source exploration",
+	})
 }
 
 func currentSourceLaneRuntimeArtifactCarrier(ctx *types.BusContext) bool {
