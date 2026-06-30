@@ -63,7 +63,85 @@ func TestTraceCausalProjectionPrefersAttributableChainRootCause(t *testing.T) {
 	}
 }
 
+func TestTraceCausalProjectionPreservesMultiLayerChainRelevance(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		traceProjectionTestRootWithNotes("root-on-chain", "binder-100", "runnable_delay", "9.000", 9.0, 0.93, 1, []string{
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+		}),
+		traceProjectionTestRootWithNotes("root-adjacent", "io-200", "io_wait", "7.000", 7.0, 0.90, 2, []string{
+			"chain_relevance=adjacent",
+			"causality=adjacent_to_wakeup_chain",
+		}),
+		{
+			ID:              "root-background",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: ClaimGroundingHard,
+			Predicate:       "root_cause_background",
+			ClaimKey:        "root_cause_background",
+			Subject:         "disk-300",
+			Object:          "background_io_pressure",
+			Value:           "18.000",
+			Unit:            "ms",
+			RichNotes: []string{
+				"rank=3",
+				"tier=supporting",
+				"chain_relevance=background",
+				"causality=background",
+				"impact_ms=18.000",
+				"cumulative_impact_ms=18.000",
+			},
+			Confidence: 0.88,
+		},
+		{
+			ID:              "path",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: ClaimGroundingHard,
+			Predicate:       "wakeup_chain",
+			ClaimKey:        "wakeup_chain:path",
+			Object:          "binder-100 -> target-400",
+		},
+	}}
+
+	got := CompileTraceCausalProjection(ledger)
+	if got.PrimaryRootCause == nil || got.PrimaryRootCause.Subject != "binder-100" {
+		t.Fatalf("expected on-chain primary to remain first, got %+v", got.PrimaryRootCause)
+	}
+	if len(got.PrimaryRootCauses) != 2 {
+		t.Fatalf("expected both primary root-cause layers to be retained, got %+v", got.PrimaryRootCauses)
+	}
+	if got.PrimaryRootCauses[0].ChainRelevance != "on_chain" ||
+		got.PrimaryRootCauses[1].ChainRelevance != "adjacent" {
+		t.Fatalf("primary layers should preserve typed chain relevance: %+v", got.PrimaryRootCauses)
+	}
+	if len(got.OnChainCauses) != 1 || got.OnChainCauses[0].Subject != "binder-100" {
+		t.Fatalf("on-chain cause projection missing: %+v", got.OnChainCauses)
+	}
+	if len(got.AdjacentCauses) != 1 || got.AdjacentCauses[0].Subject != "io-200" {
+		t.Fatalf("adjacent cause projection missing: %+v", got.AdjacentCauses)
+	}
+	if len(got.BackgroundCauses) != 1 || got.BackgroundCauses[0].Subject != "disk-300" {
+		t.Fatalf("background cause projection missing: %+v", got.BackgroundCauses)
+	}
+}
+
 func traceProjectionTestRoot(id, subject, object, value string, cumulative, confidence float64, rank int) ObservationRecord {
+	return traceProjectionTestRootWithNotes(id, subject, object, value, cumulative, confidence, rank, []string{
+		"causality=on_wakeup_chain",
+	})
+}
+
+func traceProjectionTestRootWithNotes(id, subject, object, value string, cumulative, confidence float64, rank int, extraNotes []string) ObservationRecord {
+	notes := []string{
+		"rank=" + strconv.Itoa(rank),
+		"tier=primary",
+		"impact_ms=" + value,
+		"cumulative_impact_ms=" + fmt.Sprintf("%.3f", cumulative),
+	}
+	notes = append(notes, extraNotes...)
 	return ObservationRecord{
 		ID:              id,
 		Origin:          AnswerEvidenceOriginRuntimeArtifact,
@@ -76,13 +154,7 @@ func traceProjectionTestRoot(id, subject, object, value string, cumulative, conf
 		Object:          object,
 		Value:           value,
 		Unit:            "ms",
-		RichNotes: []string{
-			"rank=" + strconv.Itoa(rank),
-			"tier=primary",
-			"impact_ms=" + value,
-			"cumulative_impact_ms=" + fmt.Sprintf("%.3f", cumulative),
-			"causality=on_wakeup_chain",
-		},
-		Confidence: confidence,
+		RichNotes:       notes,
+		Confidence:      confidence,
 	}
 }

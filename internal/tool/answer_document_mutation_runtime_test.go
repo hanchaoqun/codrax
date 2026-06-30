@@ -668,20 +668,33 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	if len(projection.ClaimUses) != 1 || projection.ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
 		t.Fatalf("projection must stay in external-observation lane: %+v", projection.ClaimUses)
 	}
-	if len(projection.Items) < 2 {
+	if len(projection.Items) < 3 {
 		t.Fatalf("projection items missing: %+v", projection.Items)
 	}
 	if projection.Items[0].Label != "主根因" ||
 		!strings.Contains(projection.Items[0].Text, "threadpool-400 -> io_wait") ||
 		!strings.Contains(projection.Items[0].Text, "累计影响 11.000ms") ||
+		!strings.Contains(projection.Items[0].Text, "on-chain") ||
 		!strings.Contains(projection.Items[0].Text, "直接唤醒链") ||
 		strings.Contains(projection.Items[0].Text, "cumulative_impact=") ||
 		strings.Contains(projection.Items[0].Text, "causality=") {
 		t.Fatalf("projection should select highest impact root cause first: %+v", projection.Items[0])
 	}
-	if projection.Items[1].Label != "因果链路" ||
-		!strings.Contains(projection.Items[1].Text, "threadpool-400 -> network-300 -> cookie-200 -> app-100") {
-		t.Fatalf("projection should preserve wakeup path: %+v", projection.Items[1])
+	if projection.Items[1].Label != "共同主因" ||
+		!strings.Contains(projection.Items[1].Text, "app-100 -> compute_supply") {
+		t.Fatalf("projection should preserve co-primary layers: %+v", projection.Items[1])
+	}
+	path := answerBlockItemByID(projection.Items, "trace_wakeup_path")
+	if path == nil ||
+		path.Label != "因果链路" ||
+		!strings.Contains(path.Text, "threadpool-400 -> network-300 -> cookie-200 -> app-100") {
+		t.Fatalf("projection should preserve wakeup path: %+v", projection.Items)
+	}
+	split := answerBlockItemByID(projection.Items, "trace_chain_relevance_split")
+	if split == nil ||
+		split.Label != "链路分层" ||
+		!strings.Contains(split.Text, "on-chain") {
+		t.Fatalf("projection should preserve chain relevance split: %+v", projection.Items)
 	}
 }
 
@@ -767,6 +780,15 @@ func traceProjectionObservation(id, subject, object, value, cumulative string, r
 		},
 		Confidence: 0.9,
 	}
+}
+
+func answerBlockItemByID(items []types.AnswerBlockItem, id string) *types.AnswerBlockItem {
+	for i := range items {
+		if items[i].ID == id {
+			return &items[i]
+		}
+	}
+	return nil
 }
 
 func mutationTraceQueryRuntimeToolResult() types.ToolResult {

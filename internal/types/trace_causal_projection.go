@@ -9,16 +9,27 @@ import (
 const (
 	TraceCausalRolePrimaryRootCause = "primary_root_cause"
 	TraceCausalRoleCausalHop        = "causal_hop"
+	TraceCausalRoleRootCauseContext = "root_cause_context"
 )
 
 type TraceCausalProjection struct {
-	PrimaryRootCause *TraceCausalProjectionNode  `json:"primary_root_cause,omitempty"`
-	WakeupPath       []string                    `json:"wakeup_path,omitempty"`
-	SupportingHops   []TraceCausalProjectionNode `json:"supporting_hops,omitempty"`
+	PrimaryRootCause  *TraceCausalProjectionNode  `json:"primary_root_cause,omitempty"`
+	PrimaryRootCauses []TraceCausalProjectionNode `json:"primary_root_causes,omitempty"`
+	OnChainCauses     []TraceCausalProjectionNode `json:"on_chain_causes,omitempty"`
+	AdjacentCauses    []TraceCausalProjectionNode `json:"adjacent_causes,omitempty"`
+	BackgroundCauses  []TraceCausalProjectionNode `json:"background_causes,omitempty"`
+	WakeupPath        []string                    `json:"wakeup_path,omitempty"`
+	SupportingHops    []TraceCausalProjectionNode `json:"supporting_hops,omitempty"`
 }
 
 func (p TraceCausalProjection) Active() bool {
-	return p.PrimaryRootCause != nil || len(p.WakeupPath) > 0 || len(p.SupportingHops) > 0
+	return p.PrimaryRootCause != nil ||
+		len(p.PrimaryRootCauses) > 0 ||
+		len(p.OnChainCauses) > 0 ||
+		len(p.AdjacentCauses) > 0 ||
+		len(p.BackgroundCauses) > 0 ||
+		len(p.WakeupPath) > 0 ||
+		len(p.SupportingHops) > 0
 }
 
 type TraceCausalProjectionNode struct {
@@ -36,6 +47,7 @@ type TraceCausalProjectionNode struct {
 	Rank               int      `json:"rank,omitempty"`
 	Tier               string   `json:"tier,omitempty"`
 	Causality          string   `json:"causality,omitempty"`
+	ChainRelevance     string   `json:"chain_relevance,omitempty"`
 	ChainDepth         int      `json:"chain_depth,omitempty"`
 	ImpactMS           float64  `json:"impact_ms,omitempty"`
 	CumulativeImpactMS float64  `json:"cumulative_impact_ms,omitempty"`
@@ -51,6 +63,7 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		return TraceCausalProjection{}
 	}
 	var primary []TraceCausalProjectionNode
+	var classified []TraceCausalProjectionNode
 	var hops []TraceCausalProjectionNode
 	var wakeupPath []string
 	for _, record := range records {
@@ -59,11 +72,17 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		}
 		switch {
 		case traceCausalProjectionIsPrimaryRootCause(record):
-			primary = append(primary, traceCausalProjectionNodeFromRecord(TraceCausalRolePrimaryRootCause, record))
+			node := traceCausalProjectionNodeFromRecord(TraceCausalRolePrimaryRootCause, record)
+			primary = append(primary, node)
+			classified = append(classified, node)
+		case traceCausalProjectionIsRootCauseContext(record):
+			classified = append(classified, traceCausalProjectionNodeFromRecord(TraceCausalRoleRootCauseContext, record))
 		case strings.TrimSpace(record.Predicate) == "wakeup_chain" && len(wakeupPath) == 0:
 			wakeupPath = traceCausalProjectionPath(record.Object)
 		case traceCausalProjectionIsCausalHop(record):
-			hops = append(hops, traceCausalProjectionNodeFromRecord(TraceCausalRoleCausalHop, record))
+			node := traceCausalProjectionNodeFromRecord(TraceCausalRoleCausalHop, record)
+			hops = append(hops, node)
+			classified = append(classified, node)
 		}
 	}
 	pathIndex := traceCausalProjectionPathIndex(wakeupPath)
@@ -78,9 +97,17 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	if len(hops) > 4 {
 		hops = hops[:4]
 	}
+	sort.SliceStable(classified, func(i, j int) bool {
+		return traceCausalProjectionClassifiedLess(classified[i], classified[j], pathIndex)
+	})
+	classified = traceCausalProjectionDedupeNodes(classified)
 	out := TraceCausalProjection{
-		WakeupPath:     wakeupPath,
-		SupportingHops: hops,
+		PrimaryRootCauses: traceCausalProjectionLimitNodes(primary, 4),
+		OnChainCauses:     traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "on_chain"), 4),
+		AdjacentCauses:    traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "adjacent"), 4),
+		BackgroundCauses:  traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "background"), 4),
+		WakeupPath:        wakeupPath,
+		SupportingHops:    hops,
 	}
 	if len(primary) > 0 {
 		node := primary[0]
@@ -103,6 +130,16 @@ func traceCausalProjectionIsPrimaryRootCause(record ObservationRecord) bool {
 		strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "root_cause_primary")
 }
 
+func traceCausalProjectionIsRootCauseContext(record ObservationRecord) bool {
+	predicate := strings.TrimSpace(record.Predicate)
+	claimKey := strings.TrimSpace(record.ClaimKey)
+	if predicate == "" && claimKey == "" {
+		return false
+	}
+	return strings.HasPrefix(predicate, "root_cause_") ||
+		strings.HasPrefix(claimKey, "root_cause_")
+}
+
 func traceCausalProjectionIsCausalHop(record ObservationRecord) bool {
 	switch strings.TrimSpace(record.Predicate) {
 	case "wakeup_causal_impact", "wakeup_causal_aggregate", "critical_blocking":
@@ -114,23 +151,24 @@ func traceCausalProjectionIsCausalHop(record ObservationRecord) bool {
 
 func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) TraceCausalProjectionNode {
 	node := TraceCausalProjectionNode{
-		Role:        role,
-		EvidenceID:  strings.TrimSpace(record.ID),
-		Subject:     strings.TrimSpace(record.Subject),
-		Predicate:   strings.TrimSpace(record.Predicate),
-		Object:      strings.TrimSpace(record.Object),
-		Value:       strings.TrimSpace(record.Value),
-		Unit:        strings.TrimSpace(record.Unit),
-		Summary:     strings.TrimSpace(record.Summary),
-		SupportRefs: cloneStringSlice(record.SupportRefs),
-		LineStart:   record.Span.LineStart,
-		LineEnd:     record.Span.LineEnd,
-		Rank:        traceCausalProjectionRichNoteInt(record.RichNotes, "rank"),
-		Tier:        traceCausalProjectionRichNoteValue(record.RichNotes, "tier"),
-		Causality:   traceCausalProjectionRichNoteValue(record.RichNotes, "causality"),
-		ChainDepth:  traceCausalProjectionRichNoteInt(record.RichNotes, "chain_depth"),
-		ImpactMS:    traceCausalProjectionImpact(record),
-		Confidence:  record.Confidence,
+		Role:           role,
+		EvidenceID:     strings.TrimSpace(record.ID),
+		Subject:        strings.TrimSpace(record.Subject),
+		Predicate:      strings.TrimSpace(record.Predicate),
+		Object:         strings.TrimSpace(record.Object),
+		Value:          strings.TrimSpace(record.Value),
+		Unit:           strings.TrimSpace(record.Unit),
+		Summary:        strings.TrimSpace(record.Summary),
+		SupportRefs:    cloneStringSlice(record.SupportRefs),
+		LineStart:      record.Span.LineStart,
+		LineEnd:        record.Span.LineEnd,
+		Rank:           traceCausalProjectionRichNoteInt(record.RichNotes, "rank"),
+		Tier:           traceCausalProjectionRichNoteValue(record.RichNotes, "tier"),
+		Causality:      traceCausalProjectionRichNoteValue(record.RichNotes, "causality"),
+		ChainRelevance: traceCausalProjectionChainRelevance(record.RichNotes),
+		ChainDepth:     traceCausalProjectionRichNoteInt(record.RichNotes, "chain_depth"),
+		ImpactMS:       traceCausalProjectionImpact(record),
+		Confidence:     record.Confidence,
 	}
 	node.CumulativeImpactMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "cumulative_impact_ms")
 	if node.CumulativeImpactMS <= 0 {
@@ -165,7 +203,7 @@ func traceCausalProjectionPrimaryLess(a, b TraceCausalProjectionNode, pathIndex 
 }
 
 func traceCausalProjectionPrimaryClass(node TraceCausalProjectionNode, pathIndex map[string]int) int {
-	onChain := strings.TrimSpace(node.Causality) == "on_wakeup_chain"
+	onChain := traceCausalProjectionNodeOnChain(node)
 	inPath := traceCausalProjectionNodeInPath(node, pathIndex)
 	known := traceCausalProjectionKnownSubject(node.Subject)
 	switch {
@@ -183,8 +221,8 @@ func traceCausalProjectionPrimaryClass(node TraceCausalProjectionNode, pathIndex
 }
 
 func traceCausalProjectionHopLess(a, b TraceCausalProjectionNode, pathIndex map[string]int) bool {
-	aOnChain := strings.TrimSpace(a.Causality) == "on_wakeup_chain"
-	bOnChain := strings.TrimSpace(b.Causality) == "on_wakeup_chain"
+	aOnChain := traceCausalProjectionNodeOnChain(a)
+	bOnChain := traceCausalProjectionNodeOnChain(b)
 	if aOnChain != bOnChain {
 		return aOnChain
 	}
@@ -197,6 +235,72 @@ func traceCausalProjectionHopLess(a, b TraceCausalProjectionNode, pathIndex map[
 		return a.ChainDepth < b.ChainDepth
 	}
 	return traceCausalProjectionNodeLess(a, b)
+}
+
+func traceCausalProjectionClassifiedLess(a, b TraceCausalProjectionNode, pathIndex map[string]int) bool {
+	aRelevance := traceCausalProjectionChainRelevanceRank(a.ChainRelevance)
+	bRelevance := traceCausalProjectionChainRelevanceRank(b.ChainRelevance)
+	if aRelevance != bRelevance {
+		return aRelevance < bRelevance
+	}
+	if a.Role != b.Role {
+		return traceCausalProjectionRoleRank(a.Role) < traceCausalProjectionRoleRank(b.Role)
+	}
+	return traceCausalProjectionHopLess(a, b, pathIndex)
+}
+
+func traceCausalProjectionRoleRank(role string) int {
+	switch strings.TrimSpace(role) {
+	case TraceCausalRolePrimaryRootCause:
+		return 0
+	case TraceCausalRoleCausalHop:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func traceCausalProjectionNodeOnChain(node TraceCausalProjectionNode) bool {
+	return strings.TrimSpace(node.ChainRelevance) == "on_chain" ||
+		strings.TrimSpace(node.Causality) == "on_wakeup_chain" ||
+		strings.TrimSpace(node.Causality) == "on_dependency_chain"
+}
+
+func traceCausalProjectionChainRelevanceRank(relevance string) int {
+	switch strings.TrimSpace(relevance) {
+	case "on_chain":
+		return 0
+	case "adjacent":
+		return 1
+	case "background":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func traceCausalProjectionLimitNodes(nodes []TraceCausalProjectionNode, limit int) []TraceCausalProjectionNode {
+	if limit <= 0 || len(nodes) == 0 {
+		return nil
+	}
+	if len(nodes) > limit {
+		nodes = nodes[:limit]
+	}
+	return append([]TraceCausalProjectionNode(nil), nodes...)
+}
+
+func traceCausalProjectionSelectChainRelevance(nodes []TraceCausalProjectionNode, relevance string) []TraceCausalProjectionNode {
+	relevance = strings.TrimSpace(relevance)
+	if relevance == "" {
+		return nil
+	}
+	var out []TraceCausalProjectionNode
+	for _, node := range nodes {
+		if strings.TrimSpace(node.ChainRelevance) == relevance {
+			out = append(out, node)
+		}
+	}
+	return traceCausalProjectionDedupeNodes(out)
 }
 
 func traceCausalProjectionPathIndex(path []string) map[string]int {
@@ -290,6 +394,24 @@ func traceCausalProjectionRichNoteValue(notes []string, key string) string {
 		}
 	}
 	return ""
+}
+
+func traceCausalProjectionChainRelevance(notes []string) string {
+	relevance := traceCausalProjectionRichNoteValue(notes, "chain_relevance")
+	switch strings.TrimSpace(relevance) {
+	case "on_chain", "adjacent", "background":
+		return strings.TrimSpace(relevance)
+	}
+	switch strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, "causality")) {
+	case "on_wakeup_chain", "on_dependency_chain":
+		return "on_chain"
+	case "adjacent_to_wakeup_chain", "adjacent_to_dependency_chain":
+		return "adjacent"
+	case "background", "off_chain":
+		return "background"
+	default:
+		return ""
+	}
 }
 
 func traceCausalProjectionRichNoteFloat(notes []string, key string) float64 {
