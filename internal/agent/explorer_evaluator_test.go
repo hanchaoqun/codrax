@@ -498,7 +498,7 @@ func TestExplorer_BuildInitialInstruction_ExternalObservationFirstSkipsSourceBre
 	}
 }
 
-func TestExplorer_BuildInitialInstruction_ExternalObservationFirstKeepsBreadthWhenSourceRequired(t *testing.T) {
+func TestExplorer_BuildInitialInstruction_ExternalObservationFirstSoftCurrentSourceProfileUsesExternalFirst(t *testing.T) {
 	ctx := &types.AgentContext{
 		Objective: `请用 MCP 资源并结合当前源码解释实现`,
 		Stage:     types.StageExplore,
@@ -522,11 +522,43 @@ func TestExplorer_BuildInitialInstruction_ExternalObservationFirstKeepsBreadthWh
 	}
 
 	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "External Observation First Start") {
+		t.Fatalf("soft current-source profile should start with external observation before bounded source follow-up:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "## Breadth Scan") {
+		t.Fatalf("soft current-source profile must not start with source breadth:\n%s", prompt)
+	}
+}
+
+func TestExplorer_BuildInitialInstruction_ExternalObservationFirstPreciseCurrentSourceProfileKeepsBreadth(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: `请用 MCP 资源并结合 internal/tracequery/query.go 当前源码解释实现`,
+		Stage:     types.StageExplore,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:      "repo",
+			Source:     "external_tool",
+			Confidence: 0.92,
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes: []types.CurrentSourceExplanationMode{
+						types.CurrentSourceExplanationExplainCurrentMechanism,
+					},
+					SourceQuotes: []string{"internal/tracequery/query.go"},
+					Confidence:   0.9,
+				},
+			},
+		},
+	}
+
+	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if strings.Contains(prompt, "External Observation First Start") {
-		t.Fatalf("current-source-required turn must not use external-only start:\n%s", prompt)
+		t.Fatalf("precise current-source profile must not use external-only start:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, "## Breadth Scan") {
-		t.Fatalf("current-source-required turn should keep source breadth prompt:\n%s", prompt)
+		t.Fatalf("precise current-source profile should keep source breadth/focused source path:\n%s", prompt)
 	}
 }
 

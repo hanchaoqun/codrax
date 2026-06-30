@@ -208,15 +208,14 @@ func externalObservationFirstSourceOptionalForExplorer(ctx *types.AgentContext) 
 	if ctx == nil || ctx.AnalysisIR == nil || !ctx.TurnRouteHint.ExternalObservationFirst() {
 		return false
 	}
-	rm := ctx.AnalysisIR.RequestModel
-	if runtimeSourceHardCurrentSourceObligationForExplorer(ctx) {
-		return false
-	}
-	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
-		return false
-	}
-	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
-		return false
+	authority := runtimeSourceAnswerAuthorityForExplorer(ctx)
+	if authority.Active {
+		if authority.CanHardBlockCompletion ||
+			authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise ||
+			authority.CurrentSourceSatisfied {
+			return false
+		}
+		return true
 	}
 	return true
 }
