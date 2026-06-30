@@ -661,39 +661,30 @@ func principalEnumerationAuthoritativeMarkdownTableShape(block types.AnswerBlock
 	shape := principalEnumerationTableShapeForRows(rows, nil)
 	// Markdown table text is model-authored presentation. When the typed
 	// source-inventory row authority lets us safely rebuild the table, preserve
-	// the requested mechanical columns (name/location/package/module) but avoid
-	// promoting verbose row notes such as source_class/language into the main
-	// answer unless the existing table explicitly had a notes-like column.
-	shape.includeNote = shape.includeNote && principalEnumerationMarkdownTableWantsNoteColumn(block)
+	// the requested mechanical columns (name/location/package/module). Notes are
+	// carried over only when the existing table's data rows already contain
+	// typed-row residual description content; column headings are model-authored
+	// display text and must not decide answer-shape behaviour.
+	shape.includeNote = shape.includeNote && principalEnumerationMarkdownTableCarriesTypedNoteContent(block, rows)
 	return shape
 }
 
-func principalEnumerationMarkdownTableWantsNoteColumn(block types.AnswerBlock) bool {
-	for _, column := range block.Columns {
-		if principalEnumerationColumnLooksLikeNote(column) {
-			return true
-		}
-	}
-	rows := principalEnumerationMarkdownTableRows(block.Text)
-	if len(rows) == 0 {
+func principalEnumerationMarkdownTableCarriesTypedNoteContent(block types.AnswerBlock, rows []types.EnumerationDisplayRow) bool {
+	if len(rows) == 0 || strings.TrimSpace(block.Text) == "" {
 		return false
 	}
-	for _, column := range rows[0] {
-		if principalEnumerationColumnLooksLikeNote(column) {
-			return true
+	for _, cells := range principalEnumerationMarkdownTableRows(block.Text) {
+		for _, row := range rows {
+			if strings.TrimSpace(row.Note) == "" ||
+				!principalEnumerationMarkdownRowCoversRow(cells, row) {
+				continue
+			}
+			if principalEnumerationMarkdownRowHasAuthoredDescription(cells, row) {
+				return true
+			}
 		}
 	}
 	return false
-}
-
-func principalEnumerationColumnLooksLikeNote(raw string) bool {
-	key := principalEnumerationLabelKey(raw)
-	switch key {
-	case "说明", "备注", "描述", "详情", "note", "notes", "summary", "description", "detail", "details":
-		return true
-	default:
-		return false
-	}
 }
 
 func principalEnumerationTextHasMismatchedLocalCount(text string, expected int) bool {
@@ -2242,6 +2233,17 @@ func principalEnumerationDescriptionRemovalCandidates(row types.EnumerationDispl
 	if category := strings.TrimSpace(row.Category); category != "" {
 		raw = append(raw, category)
 	}
+	if pkg := strings.TrimSpace(enumerationDisplayPackageCell(row)); pkg != "" {
+		raw = append(raw, pkg)
+	}
+	for _, attr := range row.Attributes {
+		if name := strings.TrimSpace(attr.Name); name != "" {
+			raw = append(raw, name)
+		}
+		if location := strings.TrimSpace(attr.Location); location != "" {
+			raw = append(raw, location)
+		}
+	}
 	for _, relationSurface := range principalEnumerationRelationSurfaceCandidates(row) {
 		left, right, ok := types.AnswerAggregateMemberRelationParts(relationSurface)
 		if !ok {
@@ -2311,14 +2313,11 @@ func principalEnumerationCellIsAuthoredDescription(raw string, row types.Enumera
 	if cell == "" {
 		return false
 	}
-	for _, candidate := range principalEnumerationRowSurfaceCandidates(row) {
+	cellKey := principalEnumerationNoteCoverageKey(cell)
+	for _, candidate := range principalEnumerationDescriptionRemovalCandidates(row) {
 		if principalEnumerationNoteCoverageKey(cell) == principalEnumerationNoteCoverageKey(candidate) {
 			return false
 		}
-	}
-	if category := strings.TrimSpace(row.Category); category != "" &&
-		principalEnumerationNoteCoverageKey(cell) == principalEnumerationNoteCoverageKey(category) {
-		return false
 	}
 	if row.Location != "" && principalEnumerationCandidateLocationCompatible(cell, row) &&
 		len(aggregateToolLocationPattern.FindAllString(cell, -1)) > 0 {
@@ -2326,6 +2325,9 @@ func principalEnumerationCellIsAuthoredDescription(raw string, row types.Enumera
 		if withoutLocations == "" {
 			return false
 		}
+	}
+	if cellKey == "" {
+		return false
 	}
 	return principalEnumerationDescriptionCellLooksMeaningful(cell)
 }

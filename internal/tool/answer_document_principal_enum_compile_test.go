@@ -4240,6 +4240,48 @@ func TestPrincipalEnumerationCleanSourceInventoryDisplayNote_UsesTypedValuesNotM
 	}
 }
 
+func TestPrincipalEnumerationAuthoritativeMarkdownTableShape_UsesDataCellsNotNoteHeaderKeywords(t *testing.T) {
+	row := types.EnumerationDisplayRow{
+		Member:       "Cart",
+		DisplayLabel: "Cart",
+		Source:       "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+		LineStart:    30,
+		Location:     "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+		Note:         "adds isEmpty extension",
+		Attributes: []types.EnumerationDisplayRowAttribute{{
+			Role: types.AnswerCandidateRolePackage,
+			Name: "demo.cart",
+		}},
+	}
+
+	mechanicalOnly := types.AnswerBlock{
+		Kind: types.BlockTable,
+		Text: strings.Join([]string{
+			"| Name | Location | Notes |",
+			"| --- | --- | --- |",
+			"| Cart | eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30 | demo.cart |",
+		}, "\n"),
+	}
+	shape := principalEnumerationAuthoritativeMarkdownTableShape(mechanicalOnly, []types.EnumerationDisplayRow{row})
+	if shape.includeNote {
+		t.Fatalf("note-like header must not turn typed package cells into authored notes: %+v", shape)
+	}
+	if !shape.includePackage || !shape.includeLocation {
+		t.Fatalf("typed mechanical fields should remain enabled: %+v", shape)
+	}
+
+	residualDescription := mechanicalOnly
+	residualDescription.Text = strings.Join([]string{
+		"| Name | Location | Extra |",
+		"| --- | --- | --- |",
+		"| Cart | eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30 | adds isEmpty extension |",
+	}, "\n")
+	shape = principalEnumerationAuthoritativeMarkdownTableShape(residualDescription, []types.EnumerationDisplayRow{row})
+	if !shape.includeNote {
+		t.Fatalf("typed residual description cells should preserve notes without relying on header wording: %+v", shape)
+	}
+}
+
 func TestPrincipalEnumerationCleanSourceInventoryDisplaySurface_CollapsesRepeatedAliasFamilies(t *testing.T) {
 	row := types.EnumerationDisplayRow{
 		Member:       "Animal",
