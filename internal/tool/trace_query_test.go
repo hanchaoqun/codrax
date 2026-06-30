@@ -1608,6 +1608,22 @@ func TestTraceQueryDescriptionDocumentsWindowStrategyBoundary(t *testing.T) {
 	}
 }
 
+func TestTraceQueryDescriptionDocumentsStateDrilldownRules(t *testing.T) {
+	description := (&TraceQuery{}).Description()
+	for _, want := range []string{
+		"state_drilldown rows are the state-first handoff",
+		"top_sleep is a ranked Top-N cumulative sleep surface",
+		"long top_sleep rows require wakeup_chain/root_cause_rank recursive drilldown",
+		"fragmented sleep churn stays visible but non-recursive",
+		"fragmented runnable or D/IO waits remain recursive root-cause candidates",
+		"Preserve state_drilldown source, recommended_views, chain_required, and recursive flags",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("trace_query description missing state-drilldown rule %q:\n%s", want, description)
+		}
+	}
+}
+
 func TestPerfQualitySampleCPUScope(t *testing.T) {
 	tests := []struct {
 		name string
