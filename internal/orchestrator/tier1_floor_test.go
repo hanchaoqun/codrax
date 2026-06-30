@@ -594,6 +594,99 @@ func TestCheckTier1Floor_RuntimeTraceQueryObservationSkipsNavigationFollowupWith
 	}
 }
 
+func TestCheckTier1Floor_RuntimeTraceQueryClosureSkipsMechanismDimensionRepoMapDebt(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("analyze trace path root cause")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{})
+	mu.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "artifact",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			AnalyzerHints: types.AnalyzerHints{
+				PrimaryEntities: []string{"OHTrace_20260626_16.32.34.ftrace", "android.haitong-56023"},
+			},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+				Confidence:           0.9,
+			},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label:       "deep runtime mechanism",
+					Role:        types.RequestedAnswerDimensionFunctionOrPurpose,
+					SourceQuote: "长时间运行的深层次原因",
+					Required:    true,
+					Index:       1,
+				}},
+				Confidence: 0.9,
+			},
+		}},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("answer-grade trace_query observations should suppress stale repo_map debt for runtime-only mechanism dimensions, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
+func TestCheckTier1Floor_RuntimeTraceQueryCurrentSourceObligationKeepsNavigationFollowup(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("explain trace parser mechanism from current source")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{})
+	mu.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "H:RenderService:DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}}},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+				Confidence:           0.9,
+			},
+			CurrentSourceObligationSignals: []types.CurrentSourceObligationSignal{{
+				Kind:  types.CurrentSourceObligationSignalDroppedRequestedDimension,
+				Role:  types.RequestedAnswerDimensionFunctionOrPurpose,
+				Index: 1,
+			}},
+		}},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if proceed || exhausted || !strings.Contains(msg, "repo_map") {
+		t.Fatalf("typed current-source obligation should keep navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
 func TestCheckTier1Floor_AttachedLogObservationOnlySkipsNavigationFollowup(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())

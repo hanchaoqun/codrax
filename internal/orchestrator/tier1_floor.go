@@ -87,6 +87,10 @@ func readLocalizerFollowupForTier1(busCtx *types.BusContext, ir *types.AnalysisI
 	if types.RuntimeArtifactReadSourceNavigationNotRequired(ir, types.RuntimeArtifactContextActiveFromBus(busCtx)) {
 		return nil
 	}
+	if runtimeObservationClosureSuppressesReadLocalizerFollowup(busCtx, ir) {
+		logging.Info("[orchestrator] pre-finalize read localizer follow-up suppressed: reason=runtime_observation_closure")
+		return nil
+	}
 	turnA := busCtx.Mutable.TurnAArtifacts()
 	if turnA == nil {
 		return nil
@@ -107,6 +111,80 @@ func readLocalizerFollowupForTier1(busCtx *types.BusContext, ir *types.AnalysisI
 		return nil
 	}
 	return followup
+}
+
+func runtimeObservationClosureSuppressesReadLocalizerFollowup(busCtx *types.BusContext, ir *types.AnalysisIR) bool {
+	if busCtx == nil || busCtx.Mutable == nil || ir == nil {
+		return false
+	}
+	if !types.RuntimeArtifactContextActiveFromBus(busCtx) {
+		return false
+	}
+	if readLocalizerTier1CurrentSourceRequired(ir.RequestModel) {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(busCtx, 128))
+	if suff := types.AssessExternalObservationSufficiency(ledger.Records, &ir.RequestModel, busCtx.TurnRouteHint); suff.Status.Sufficient() {
+		return true
+	}
+	if ledger.HasDeterministicRuntimeQueryObservation() {
+		return true
+	}
+	return busCtx.Mutable.TraceQueryRuntimeObservationCount() > 0
+}
+
+func readLocalizerTier1CurrentSourceRequired(rm types.RequestModel) bool {
+	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
+	if rm.ExternalObservationAllowsCurrentSource() {
+		return true
+	}
+	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+		return true
+	}
+	if rm.HasTypedCurrentSourceScopeRequest() || rm.HasCurrentSourceObligationSignal() {
+		return true
+	}
+	if rm.LogTriage != nil && len(rm.LogTriage.ResolvedFiles) > 0 {
+		return true
+	}
+	if rm.PerfTrace != nil && len(rm.PerfTrace.ResolvedFiles) > 0 {
+		return true
+	}
+	if readLocalizerHasRequiredCurrentKeyCodeDimension(rm) {
+		return true
+	}
+	return readLocalizerHasDiagnosticMechanismBridge(rm)
+}
+
+func readLocalizerHasRequiredCurrentKeyCodeDimension(rm types.RequestModel) bool {
+	if rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
+		return false
+	}
+	for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+		if dim.Required && dim.Role == types.RequestedAnswerDimensionCurrentKeyCode {
+			return true
+		}
+	}
+	return false
+}
+
+func readLocalizerHasDiagnosticMechanismBridge(rm types.RequestModel) bool {
+	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
+	if !rm.DiagnosticProfile.CurrentVersionCheck ||
+		!rm.Predicates.IsDiagnosticQuestion ||
+		!rm.Predicates.IsCrossComponent {
+		return false
+	}
+	switch rm.Intent {
+	case types.IntentRootCause, types.IntentExplain:
+		return true
+	default:
+		return false
+	}
 }
 
 func readPrincipalMemberSetLocalizationComplete(busCtx *types.BusContext, ir *types.AnalysisIR, turnA *types.TurnAArtifacts) bool {
