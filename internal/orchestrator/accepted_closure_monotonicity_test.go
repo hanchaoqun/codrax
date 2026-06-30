@@ -46,6 +46,26 @@ func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_AllowsCompletionForm
 	}
 }
 
+func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_AllowsValidationFeedbackDebt(t *testing.T) {
+	mut := types.NewMutableState("accepted closure with post-completion validation debt")
+	mut.SetInvestigationComplete("accepted trace investigation already covers the answer")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+
+	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure([]string{"trace_validate_upstream"}, "", "") {
+		t.Fatal("post-completion validation feedback must become a boundary note instead of reopening exploration")
+	}
+}
+
+func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_StillBlocksStageRetry(t *testing.T) {
+	mut := types.NewMutableState("accepted closure with explicit stage retry")
+	mut.SetInvestigationComplete("accepted closure")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+
+	if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "explicit structured handoff retry") {
+		t.Fatal("explicit stage retry carries its own repair route and should still block auto-complete")
+	}
+}
+
 func TestAcceptedClosureSuppressesCompletionFormRetryAfterReset(t *testing.T) {
 	mut := types.NewMutableState("accepted closure with converged completion-form debt")
 	mut.SetInvestigationComplete("completed with typed completion-form caveat")

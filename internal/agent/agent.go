@@ -2360,6 +2360,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 		resp.ToolCalls = b.normalizeToolCallParamsWithContext(ctx, resp.ToolCalls, effectiveTools)
 		resp.ToolCalls = pruneAnalyzerPrescanBatchBeforeHistory(ctx, resp.ToolCalls)
+		resp.ToolCalls = pruneExploreToolBatchBeforeHistory(ctx, resp.ToolCalls)
 
 		// DIAGNOSTIC — dump assistant response (debug only).
 		logging.Debug("[diag %s] iter=%d ASSISTANT content_len=%d tool_calls=%d",
@@ -4712,7 +4713,97 @@ func canExecuteToolBatchInParallel(ctx *types.AgentContext, calls []llm.ToolCall
 		// redundant list_files / repo_map / grep calls.
 		return false
 	}
+	if containsSequentialRuntimeTool(calls) {
+		return false
+	}
 	return canParallelizeToolBatch(calls)
+}
+
+func containsSequentialRuntimeTool(calls []llm.ToolCall) bool {
+	for _, tc := range calls {
+		switch types.CanonicalToolName(tc.Name) {
+		case "trace_query":
+			return true
+		}
+	}
+	return false
+}
+
+const (
+	exploreValidateTraceQueryBatchCap = 3
+	exploreDefaultTraceQueryBatchCap  = 4
+)
+
+func pruneExploreToolBatchBeforeHistory(ctx *types.AgentContext, calls []llm.ToolCall) []llm.ToolCall {
+	if ctx == nil || ctx.Stage != types.StageExplore || len(calls) <= 1 {
+		return calls
+	}
+	originalLen := len(calls)
+	calls = pruneReadDispatchPolicyToolBatch(ctx, calls)
+	calls = pruneExploreHeavyToolBatch(ctx, calls)
+	if len(calls) < originalLen {
+		logging.Warning("[agent] pruned explore tool batch from %d to %d calls (dispatch_kind=%s policy=%s)",
+			originalLen, len(calls), ctx.ExploreDispatchKind, types.NormalizeReadDispatchPolicy(ctx.ReadDispatchPolicy).Action)
+	}
+	return calls
+}
+
+func pruneReadDispatchPolicyToolBatch(ctx *types.AgentContext, calls []llm.ToolCall) []llm.ToolCall {
+	policy := types.NormalizeReadDispatchPolicy(ctx.ReadDispatchPolicy)
+	if !policy.Active || policy.MaxToolCalls <= 0 || len(calls) <= policy.MaxToolCalls {
+		return calls
+	}
+	allowed := make([]llm.ToolCall, 0, len(calls))
+	blocked := make([]llm.ToolCall, 0, len(calls))
+	for _, call := range calls {
+		if policy.AllowsTool(call.Name) {
+			allowed = append(allowed, call)
+		} else {
+			blocked = append(blocked, call)
+		}
+	}
+	if len(allowed) == 0 {
+		return append([]llm.ToolCall(nil), calls[:policy.MaxToolCalls]...)
+	}
+	if len(allowed) >= policy.MaxToolCalls {
+		return append([]llm.ToolCall(nil), allowed[:policy.MaxToolCalls]...)
+	}
+	out := append([]llm.ToolCall(nil), allowed...)
+	for _, call := range blocked {
+		if len(out) >= policy.MaxToolCalls {
+			break
+		}
+		out = append(out, call)
+	}
+	return out
+}
+
+func pruneExploreHeavyToolBatch(ctx *types.AgentContext, calls []llm.ToolCall) []llm.ToolCall {
+	if len(calls) <= 1 {
+		return calls
+	}
+	perToolCap := map[string]int{}
+	if ctx.ExploreDispatchKind == types.NodeValidate {
+		perToolCap["trace_query"] = exploreValidateTraceQueryBatchCap
+	} else {
+		perToolCap["trace_query"] = exploreDefaultTraceQueryBatchCap
+	}
+	used := map[string]int{}
+	out := make([]llm.ToolCall, 0, len(calls))
+	for _, call := range calls {
+		name := types.CanonicalToolName(call.Name)
+		if cap := perToolCap[name]; cap > 0 {
+			if used[name] >= cap {
+				continue
+			}
+		}
+		used[name]++
+		out = append(out, call)
+	}
+	if len(out) == len(calls) {
+		return calls
+	}
+	return out
 }
 
 func pruneAnalyzerPrescanBatchBeforeHistory(ctx *types.AgentContext, calls []llm.ToolCall) []llm.ToolCall {

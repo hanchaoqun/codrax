@@ -72,6 +72,73 @@ func TestStructuredToolDetailTraceQueryShowsFlavor(t *testing.T) {
 	}
 }
 
+func TestPruneExploreToolBatchBeforeHistoryCapsValidateTraceQueries(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage:               types.StageExplore,
+		ExploreDispatchKind: types.NodeValidate,
+	}
+	var calls []llm.ToolCall
+	for i := 0; i < 20; i++ {
+		calls = append(calls, llm.ToolCall{
+			ID:     fmt.Sprintf("trace-%02d", i),
+			Name:   "trace_query",
+			Params: json.RawMessage(`{"view":"root_cause_rank","path":"trace.systrace"}`),
+		})
+	}
+
+	got := pruneExploreToolBatchBeforeHistory(ctx, calls)
+	if len(got) != exploreValidateTraceQueryBatchCap {
+		t.Fatalf("validate trace_query batch kept %d calls, want %d", len(got), exploreValidateTraceQueryBatchCap)
+	}
+	for i, call := range got {
+		if call.ID != fmt.Sprintf("trace-%02d", i) {
+			t.Fatalf("kept call[%d] = %s, want original order trace-%02d", i, call.ID, i)
+		}
+	}
+}
+
+func TestPruneExploreToolBatchBeforeHistoryPrioritizesLandingPolicyTools(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage: types.StageExplore,
+		ReadDispatchPolicy: types.ReadDispatchPolicy{
+			Active:       true,
+			Action:       types.ReadDispatchPolicyActionLandingRepair,
+			AllowedTools: []string{"emit_investigation_complete"},
+			DeniedTools:  []string{"trace_query", "repo_map", "grep", "read_file"},
+			MaxToolCalls: 2,
+			OneShot:      true,
+		},
+	}
+	calls := []llm.ToolCall{
+		{ID: "trace-1", Name: "trace_query", Params: json.RawMessage(`{"view":"root_cause_rank"}`)},
+		{ID: "trace-2", Name: "trace_query", Params: json.RawMessage(`{"view":"wakeup_chain"}`)},
+		{ID: "complete", Name: "emit_investigation_complete", Params: json.RawMessage(`{"reason":"done","confidence":"high","result_kind":"resolved"}`)},
+		{ID: "read", Name: "read_file", Params: json.RawMessage(`{"path":"x.go"}`)},
+	}
+
+	got := pruneExploreToolBatchBeforeHistory(ctx, calls)
+	if len(got) != 2 {
+		t.Fatalf("landing policy kept %d calls, want 2: %+v", len(got), got)
+	}
+	if got[0].ID != "complete" {
+		t.Fatalf("landing tool should be preserved ahead of blocked broad calls, got %+v", got)
+	}
+	if got[1].ID != "trace-1" {
+		t.Fatalf("one blocked call should remain only to surface policy feedback, got %+v", got)
+	}
+}
+
+func TestCanExecuteToolBatchInParallelDisablesTraceQuery(t *testing.T) {
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+	calls := []llm.ToolCall{
+		{Name: "trace_query", Params: json.RawMessage(`{"view":"window_stats"}`)},
+		{Name: "trace_query", Params: json.RawMessage(`{"view":"root_cause_rank"}`)},
+	}
+	if canExecuteToolBatchInParallel(ctx, calls) {
+		t.Fatal("trace_query batches build runtime indexes and must execute sequentially")
+	}
+}
+
 // TestPruneToolHistoryKeepsRecentAndStubsOlder locks the ReAct
 // history-pruning contract that protects long explorer runs from
 // blowing the model's context window. The 2026-04-12 incident: 15
