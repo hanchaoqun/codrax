@@ -5475,6 +5475,14 @@ func analyzerExternalObservationFirstBlocksTool(ctx *types.AgentContext, name st
 	if ctx.TurnRouteHint.NeedsRepoAccess {
 		return false
 	}
+	if authority := runtimeSourceAnswerAuthorityForExplorer(ctx); authority.Active {
+		if authority.CanHardBlockCompletion ||
+			authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise ||
+			authority.CurrentSourceSatisfied {
+			return false
+		}
+		return true
+	}
 	if rm := requestModelFromContext(ctx); rm != nil && rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
 		return false
 	}

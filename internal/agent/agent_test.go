@@ -1030,6 +1030,73 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 		}
 	})
 
+	t.Run("external runtime first with soft current-source profile still blocks classification prescan", func(t *testing.T) {
+		mut := types.NewMutableState("trace + soft current source")
+		mut.SetRequestModel(types.RequestModel{
+			Intent: types.IntentTrace,
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes: []types.CurrentSourceExplanationMode{
+					types.CurrentSourceExplanationExplainCurrentMechanism,
+				},
+				SourceQuotes: []string{"current parser mechanism"},
+				Confidence:   0.9,
+			},
+		})
+		ctx := &types.AgentContext{
+			Stage:           types.StageAnalyze,
+			Mutable:         mut,
+			AttachedHitrace: "app-20 (20) [001] .... 11.0: sched_switch: prev_comm=app prev_pid=20 prev_state=R ==> next_comm=rival next_pid=30",
+			TurnRouteHint: types.TurnRouteHint{
+				Route:      "repo",
+				Source:     "external_tool",
+				Confidence: 0.9,
+			},
+		}
+		got := validateAnalyzerPrescanToolCall(ctx, llm.ToolCall{
+			Name:   "grep",
+			Params: json.RawMessage(`{"pattern":"trace","files_only":true}`),
+		})
+		if got == nil {
+			t.Fatal("soft current-source obligation should still emit analysis first instead of opening analyzer prescan")
+		}
+		if got.Repair == nil || got.Repair.Code != analyzerExternalObservationFirstEmitOnlyCode {
+			t.Fatalf("repair code = %+v, want %q", got.Repair, analyzerExternalObservationFirstEmitOnlyCode)
+		}
+	})
+
+	t.Run("external runtime first with precise current-source profile keeps bounded prescan available", func(t *testing.T) {
+		mut := types.NewMutableState("trace + precise current source")
+		mut.SetRequestModel(types.RequestModel{
+			Intent: types.IntentTrace,
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes: []types.CurrentSourceExplanationMode{
+					types.CurrentSourceExplanationExplainCurrentMechanism,
+				},
+				SourceQuotes: []string{"internal/tracequery/query.go:42"},
+				Confidence:   0.9,
+			},
+		})
+		ctx := &types.AgentContext{
+			Stage:           types.StageAnalyze,
+			Mutable:         mut,
+			AttachedHitrace: "app-20 (20) [001] .... 11.0: sched_switch: prev_comm=app prev_pid=20 prev_state=R ==> next_comm=rival next_pid=30",
+			TurnRouteHint: types.TurnRouteHint{
+				Route:      "repo",
+				Source:     "external_tool",
+				Confidence: 0.9,
+			},
+		}
+		got := validateAnalyzerPrescanToolCall(ctx, llm.ToolCall{
+			Name:   "grep",
+			Params: json.RawMessage(`{"pattern":"trace","files_only":true}`),
+		})
+		if got != nil {
+			t.Fatalf("precise current-source obligation should keep bounded analyzer prescan available, got %+v", got)
+		}
+	})
+
 	t.Run("explicit runtime artifact path blocks artifact prescan", func(t *testing.T) {
 		dir := t.TempDir()
 		logPath := filepath.Join(dir, "runtime_path_panic.log")

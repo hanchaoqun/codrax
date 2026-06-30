@@ -198,10 +198,36 @@ func runtimeSourceSoftCurrentSourceObligationForExplorer(ctx *types.AgentContext
 }
 
 func runtimeSourceAnswerAuthorityForExplorer(ctx *types.AgentContext) types.RuntimeSourceAnswerAuthoritySnapshot {
-	if ctx == nil || ctx.AnalysisIR == nil {
+	if ctx == nil {
 		return types.RuntimeSourceAnswerAuthoritySnapshot{}
 	}
-	return types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, types.ObservationLedger{})
+	rm := requestModelFromContext(ctx)
+	var requestModel *types.RequestModel
+	if rm != nil {
+		clone := *rm
+		if clone.LogTriage == nil {
+			if ctx.LogTriage != nil {
+				clone.LogTriage = ctx.LogTriage
+			} else if ctx.Mutable != nil {
+				clone.LogTriage = ctx.Mutable.LogTriage()
+			}
+		}
+		if clone.PerfTrace == nil {
+			if ctx.PerfTrace != nil {
+				clone.PerfTrace = ctx.PerfTrace
+			} else if ctx.Mutable != nil {
+				clone.PerfTrace = ctx.Mutable.PerfTrace()
+			}
+		}
+		requestModel = &clone
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromAgentContext(ctx, 128))
+	return types.BuildRuntimeSourceAnswerAuthoritySnapshot(types.RuntimeSourceAnswerAuthorityInput{
+		RequestModel:      requestModel,
+		RouteHint:         ctx.TurnRouteHint,
+		Ledger:            ledger,
+		AnswerSurfacePlan: types.BuildAnswerSurfacePlanForAgentContext(ctx),
+	})
 }
 
 func externalObservationFirstSourceOptionalForExplorer(ctx *types.AgentContext) bool {
