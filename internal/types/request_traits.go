@@ -1797,11 +1797,33 @@ func textCanRepresentCurrentSourceAnchor(raw string, artifactExternalOnly bool) 
 	if targetLooksLikeCurrentSourceAnchor(s) {
 		return true
 	}
+	if loc, ok := ParseAnswerSourceLocationSurface(s); ok && strings.TrimSpace(loc.File) != "" {
+		return true
+	}
 	if artifactExternalOnly &&
 		(looksLikeExternalObservationReference(s) || looksLikeExternalArtifactCoordinate(s)) {
 		return false
 	}
 	return !LooksLikeRuntimeArtifactPath(s)
+}
+
+func (rm RequestModel) dimensionHasPreciseCurrentSourceAnchor(dim RequestedAnswerDimension) bool {
+	return textHasPreciseCurrentSourceAnchor(dim.SourceQuote) ||
+		textHasPreciseCurrentSourceAnchor(dim.Label)
+}
+
+func textHasPreciseCurrentSourceAnchor(raw string) bool {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return false
+	}
+	if targetLooksLikeCurrentSourceAnchor(s) {
+		return true
+	}
+	if loc, ok := ParseAnswerSourceLocationSurface(s); ok && strings.TrimSpace(loc.File) != "" {
+		return true
+	}
+	return false
 }
 
 func targetLooksLikeCurrentSourceAnchor(raw string) bool {

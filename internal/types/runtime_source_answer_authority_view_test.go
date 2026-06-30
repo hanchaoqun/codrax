@@ -91,6 +91,56 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_SoftCurrentSourceProfileCanDowngra
 	}
 }
 
+func TestRuntimeSourceAnswerAuthoritySnapshot_SoftExternalObservationCanDowngradeToCaveat(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		MCPResponses: []MCPResponse{{
+			ServerName:  "fixture",
+			Method:      "tools/call:lookup_trace_fact",
+			Success:     true,
+			ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+			MIMEType:    "application/vnd.codrax.observation+json",
+			Observations: []MCPTypedObservation{{
+				Summary:     "helper wakes target",
+				ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+				LineStart:   12,
+				LineEnd:     12,
+				Selector:    "waker=helper",
+			}},
+		}},
+	})
+	rm := &RequestModel{
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			SourceQuotes:                        []string{"current implementation"},
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+		},
+	}
+
+	got := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel: rm,
+		RouteHint: TurnRouteHint{
+			Route:  "repo",
+			Source: "external_tool",
+		},
+		Ledger: ledger,
+	})
+	if got.ExternalObservationSufficiency != ExternalObservationSufficiencySufficientForAnswer ||
+		!got.RuntimeOnlySufficient ||
+		got.RuntimeObservationCount != 0 {
+		t.Fatalf("typed MCP rows should be sufficient external observations without becoming runtime rows: %+v", got)
+	}
+	if got.CurrentSourceRequirement != RuntimeSourceRequirementSoft ||
+		!got.CurrentSourceRequired ||
+		got.CanHardBlockCompletion ||
+		!got.CanDowngradeToCaveat ||
+		!got.CanUseRuntimeOnlyWithCaveat {
+		t.Fatalf("soft current-source profile should caveat over sufficient external observations: %+v", got)
+	}
+}
+
 func TestRuntimeSourceAnswerAuthoritySnapshot_PathAnchoredCurrentSourceProfileCanHardBlock(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
 	rm := &RequestModel{

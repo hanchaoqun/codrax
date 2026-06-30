@@ -79,22 +79,7 @@ func AssessExternalObservationSufficiency(records []ObservationRecord, rm *Reque
 }
 
 func externalObservationSufficiencyCurrentSourceRequired(rm *RequestModel, hint TurnRouteHint) bool {
-	if rm == nil {
-		return RouteBackedExternalObservationRequiresCurrentSource(nil, hint)
-	}
-	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
-		return true
-	}
-	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
-		return true
-	}
-	if rm.HasTypedCurrentSourceScopeRequest() {
-		return true
-	}
-	if RouteBackedExternalObservationRequiresCurrentSource(rm, hint) {
-		return true
-	}
-	return rm.CurrentSourceLaneDecision().RequiresCurrentSource() && !hint.ExternalObservationFirst()
+	return runtimeSourceAuthorityPreciseCurrentSourceRequirement(rm)
 }
 
 // RouteBackedExternalObservationRequiresCurrentSource reports that the

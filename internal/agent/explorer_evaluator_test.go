@@ -361,7 +361,7 @@ func TestExplorer_BuildInitialInstruction_SourceOptionalTraceStartsWithTraceQuer
 	}
 }
 
-func TestExplorer_BuildInitialInstruction_CurrentSourceTraceStartsWithRuntimeProbePhase(t *testing.T) {
+func TestExplorer_BuildInitialInstruction_SoftCurrentSourceTraceStartsWithRuntimeProbePhase(t *testing.T) {
 	rm := types.RequestModel{
 		Intent:   types.IntentRootCause,
 		Scenario: types.ScenarioPerformanceBottleneck,
@@ -407,9 +407,9 @@ func TestExplorer_BuildInitialInstruction_CurrentSourceTraceStartsWithRuntimePro
 	}
 	for _, want := range []string{
 		"Explicit Runtime Trace Path Start",
-		"`phase=runtime_probe_first`, `current_source_lane=required`",
+		"`phase=runtime_probe_first`, `current_source_lane=required`, `current_source_requirement=soft`",
 		"one bounded `trace_query` runtime probe",
-		"Then collect focused current-source evidence",
+		"soft current-source gaps should converge through bounded follow-up or a caveat",
 		"Start with `trace_query`",
 	} {
 		if !strings.Contains(prompt, want) {

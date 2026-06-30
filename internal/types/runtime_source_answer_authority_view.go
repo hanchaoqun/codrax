@@ -182,10 +182,11 @@ func BuildRuntimeSourceAnswerAuthoritySnapshot(in RuntimeSourceAnswerAuthorityIn
 	out.NeedsCurrentSourceEvidence = out.CurrentSourceRequired && !out.CurrentSourceSatisfied
 	out.CanHardBlockCompletion = out.NeedsCurrentSourceEvidence &&
 		out.CurrentSourceRequirement == RuntimeSourceRequirementPrecise
+	externalObservationAvailable := out.RuntimeObservationCount > 0 || out.RuntimeOnlySufficient
 	out.CanDowngradeToCaveat = out.NeedsCurrentSourceEvidence &&
 		out.CurrentSourceRequirement == RuntimeSourceRequirementSoft &&
-		out.RuntimeObservationCount > 0
-	out.CanUseRuntimeOnlyWithCaveat = out.RuntimeObservationCount > 0 &&
+		externalObservationAvailable
+	out.CanUseRuntimeOnlyWithCaveat = externalObservationAvailable &&
 		!out.CurrentSourceSatisfied &&
 		(!out.CurrentSourceRequired || out.CanDowngradeToCaveat)
 	out.CanCompleteWithCombinedProof = out.RuntimeObservationCount > 0 &&
@@ -248,7 +249,7 @@ func runtimeSourceAuthorityPreciseCurrentSourceRequirement(rm *RequestModel) boo
 			case RequestedAnswerDimensionCurrentKeyCode:
 				return true
 			case RequestedAnswerDimensionFunctionOrPurpose:
-				if rm.dimensionHasCurrentSourceAnchor(dim) {
+				if rm.dimensionHasPreciseCurrentSourceAnchor(dim) {
 					return true
 				}
 			}

@@ -34,7 +34,7 @@ func TestAssessExternalObservationSufficiency_MCPLineRowsSufficientWhenSourceOpt
 	}
 }
 
-func TestAssessExternalObservationSufficiency_BlockedByCurrentSourceProfile(t *testing.T) {
+func TestAssessExternalObservationSufficiency_SoftCurrentSourceProfileAllowsCaveatSufficiency(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		MCPResponses: []MCPResponse{{
 			ServerName:  "fixture",
@@ -66,8 +66,8 @@ func TestAssessExternalObservationSufficiency_BlockedByCurrentSourceProfile(t *t
 		Route:  "repo",
 		Source: "external_tool",
 	})
-	if got.Status != ExternalObservationSufficiencyBlockedByCurrentSource {
-		t.Fatalf("current-source profile must block external-only sufficiency, got %+v", got)
+	if !got.Status.Sufficient() {
+		t.Fatalf("soft current-source profile should allow external sufficiency with caveat, got %+v", got)
 	}
 }
 
@@ -96,8 +96,7 @@ func TestAssessExternalObservationSufficiency_BlockedByCurrentKeyCodeDimensionWi
 			}},
 		},
 		ExternalObservationPolicy: &ExternalObservationPolicy{
-			CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
-			ExclusionKind:        ExternalObservationSourceExclusionExplicitUserBoundary,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
 			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
 			SourceQuotes:         []string{"do not cite artifact lines as source"},
 			Confidence:           0.9,
@@ -122,7 +121,7 @@ func TestAssessExternalObservationSufficiency_BlockedByCurrentKeyCodeDimensionWi
 	}
 }
 
-func TestAssessExternalObservationSufficiency_BlockedByDroppedCurrentSourceObligationSignal(t *testing.T) {
+func TestAssessExternalObservationSufficiency_SoftDroppedCurrentSourceObligationAllowsCaveatSufficiency(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		PerfBundle: &PerfBundle{
 			Observations: []PerfObservation{{
@@ -171,8 +170,8 @@ func TestAssessExternalObservationSufficiency_BlockedByDroppedCurrentSourceOblig
 		Route:  "repo",
 		Source: "artifact",
 	})
-	if got.Status != ExternalObservationSufficiencyBlockedByCurrentSource {
-		t.Fatalf("dropped current-source obligation signal must block external-only sufficiency, got %+v", got)
+	if !got.Status.Sufficient() {
+		t.Fatalf("dropped current-source obligation signal should allow external sufficiency with caveat, got %+v", got)
 	}
 }
 
@@ -276,7 +275,7 @@ func TestAssessExternalObservationSufficiency_RouteHintOverridesDefaultSourceReq
 	}
 }
 
-func TestAssessExternalObservationSufficiency_RouteBackedRepoArtifactBlocksRuntimeOnlyCompletion(t *testing.T) {
+func TestAssessExternalObservationSufficiency_RouteBackedRepoArtifactAllowsCaveatSufficiency(t *testing.T) {
 	records := []ObservationRecord{{
 		ID:     "log:error:0",
 		Origin: AnswerEvidenceOriginRuntimeArtifact,
@@ -299,12 +298,12 @@ func TestAssessExternalObservationSufficiency_RouteBackedRepoArtifactBlocksRunti
 		NeedsRepoAccess: true,
 		Confidence:      0.9,
 	})
-	if got.Status != ExternalObservationSufficiencyBlockedByCurrentSource {
-		t.Fatalf("route-backed repo artifact should block runtime-only sufficiency, got %+v", got)
+	if !got.Status.Sufficient() {
+		t.Fatalf("route-backed repo artifact should allow external sufficiency with caveat, got %+v", got)
 	}
 }
 
-func TestAssessExternalObservationSufficiency_RouteBackedMixedSourceBlocksRuntimeOnlyCompletion(t *testing.T) {
+func TestAssessExternalObservationSufficiency_RouteBackedMixedSourceAllowsCaveatSufficiency(t *testing.T) {
 	records := []ObservationRecord{{
 		ID:     "log:error:0",
 		Origin: AnswerEvidenceOriginRuntimeArtifact,
@@ -334,8 +333,8 @@ func TestAssessExternalObservationSufficiency_RouteBackedMixedSourceBlocksRuntim
 			Confidence:           0.9,
 		},
 	}, hint)
-	if got.Status != ExternalObservationSufficiencyBlockedByCurrentSource {
-		t.Fatalf("route-backed mixed runtime/source turn should block runtime-only sufficiency, got %+v", got)
+	if !got.Status.Sufficient() {
+		t.Fatalf("route-backed mixed runtime/source turn should allow external sufficiency with caveat, got %+v", got)
 	}
 }
 
@@ -394,7 +393,7 @@ func TestAssessExternalObservationSufficiency_TraceQueryRuntimeRecordSufficient(
 	}
 }
 
-func TestAssessExternalObservationSufficiency_TraceQueryRuntimeRecordBlockedByMechanismDimension(t *testing.T) {
+func TestAssessExternalObservationSufficiency_TraceQueryRuntimeRecordSoftMechanismDimensionAllowsCaveatSufficiency(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		ToolResults: []ToolResult{{
 			ToolName: "trace_query",
@@ -439,8 +438,8 @@ func TestAssessExternalObservationSufficiency_TraceQueryRuntimeRecordBlockedByMe
 		Source:     "external_tool",
 		Confidence: 0.8,
 	})
-	if got.Status != ExternalObservationSufficiencyBlockedByCurrentSource {
-		t.Fatalf("trace_query rows must not close a required runtime mechanism source lane, got %+v", got)
+	if !got.Status.Sufficient() {
+		t.Fatalf("soft runtime mechanism source lane should allow trace_query sufficiency with caveat, got %+v", got)
 	}
 }
 
