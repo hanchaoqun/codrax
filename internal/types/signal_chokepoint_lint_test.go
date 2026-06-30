@@ -309,3 +309,98 @@ func carrier(s struct{ CanHardBlockCompletion bool }) bool {
 		t.Fatalf("detector must not flag authority field consumers, got %v", got)
 	}
 }
+
+// TestRuntimeSourceStaticMixedShapeStaysInFallbackChokepoints keeps the legacy
+// MixedRuntimeCurrentSourceRequiredFileCoverageShape helper from becoming a new
+// sibling authority. It is allowed only as compatibility fallback where the
+// shared RuntimeSourceAnswerAuthoritySnapshot cannot yet carry enough context
+// to cap required-file reads. New mixed runtime/source consumers must use the
+// shared authority carrier helpers instead.
+func TestRuntimeSourceStaticMixedShapeStaysInFallbackChokepoints(t *testing.T) {
+	dirs := []string{"../agent", "../tool", "../orchestrator", "../context"}
+	fset := token.NewFileSet()
+	var violations []string
+	for _, dir := range dirs {
+		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			f, perr := parser.ParseFile(fset, path, nil, 0)
+			if perr != nil {
+				return nil
+			}
+			violations = append(violations, findRuntimeSourceStaticMixedShapeBypasses(f, fset, path)...)
+			return nil
+		})
+	}
+	if len(violations) > 0 {
+		t.Fatalf("static mixed runtime/source shape used outside an authority fallback chokepoint — route through RuntimeSourceAnswerAuthoritySnapshot carrier helpers instead:\n  %s", strings.Join(violations, "\n  "))
+	}
+}
+
+var runtimeSourceStaticMixedShapeFallbackChokepoints = map[string]bool{
+	"../agent/explorer.go::mixedRuntimeCurrentSourceCarrierActive":                                         true,
+	"../tool/emit_investigation_complete.go::mixedRuntimeCurrentSourceRequiredFileOverflowBoundaryApplies": true,
+	"../tool/emit_investigation_complete.go::mixedRuntimeCurrentSourceRequiredFileOverflowCap":             true,
+}
+
+func findRuntimeSourceStaticMixedShapeBypasses(f *ast.File, fset *token.FileSet, path string) []string {
+	var out []string
+	ast.Inspect(f, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Body == nil || fn.Name == nil {
+			return true
+		}
+		ast.Inspect(fn.Body, func(m ast.Node) bool {
+			call, ok := m.(*ast.CallExpr)
+			if !ok || !isRuntimeSourceStaticMixedShapeCall(call) {
+				return true
+			}
+			key := filepath.ToSlash(path) + "::" + fn.Name.Name
+			if runtimeSourceStaticMixedShapeFallbackChokepoints[key] {
+				return true
+			}
+			out = append(out, key+":"+strconv.Itoa(fset.Position(call.Pos()).Line))
+			return true
+		})
+		return true
+	})
+	return out
+}
+
+func isRuntimeSourceStaticMixedShapeCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && sel.Sel != nil && sel.Sel.Name == "MixedRuntimeCurrentSourceRequiredFileCoverageShape"
+}
+
+func TestRuntimeSourceStaticMixedShapeLintDetectsViolations(t *testing.T) {
+	src := `package p
+func bad(t interface{ MixedRuntimeCurrentSourceRequiredFileCoverageShape(any) bool }, rm any) bool {
+	return t.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm)
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "bad.go", src, 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := findRuntimeSourceStaticMixedShapeBypasses(f, fset, "bad.go"); len(got) != 1 {
+		t.Fatalf("detector must flag static mixed-shape calls, got %d: %v", len(got), got)
+	}
+
+	good := `package p
+func good(s struct{ HasMixedRuntimeCurrentSourceCarrier bool }) bool {
+	return s.HasMixedRuntimeCurrentSourceCarrier
+}
+`
+	f2, err := parser.ParseFile(fset, "good.go", good, 0)
+	if err != nil {
+		t.Fatalf("parse good: %v", err)
+	}
+	if got := findRuntimeSourceStaticMixedShapeBypasses(f2, fset, "good.go"); len(got) != 0 {
+		t.Fatalf("detector must not flag authority-carrier field consumers, got %v", got)
+	}
+}
