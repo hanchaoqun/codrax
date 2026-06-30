@@ -8769,6 +8769,19 @@ func currentSourceForcedReadGatesApply(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return true
 	}
+	if authority := runtimeSourceAnswerAuthorityForCompletion(ctx); runtimeSourceAuthorityAppliesToCompletionLanding(authority) {
+		if authority.CanHardBlockCompletion {
+			return true
+		}
+		if runtimeSourceAuthorityHasRuntimeCarrier(authority) &&
+			(authority.CurrentSourceSatisfied ||
+				authority.RuntimeOnlySufficient ||
+				authority.CanUseRuntimeOnlyWithCaveat ||
+				authority.CanDowngradeToCaveat ||
+				(authority.RuntimeObservationCount > 0 && !authority.CurrentSourceRequired)) {
+			return false
+		}
+	}
 	if runtimeArtifactGroundingBypassAllowed(ctx) {
 		return false
 	}
@@ -8832,6 +8845,11 @@ func currentSourceLaneRuntimeArtifactCarrier(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
+	if authority := runtimeSourceAnswerAuthorityForCompletion(ctx); runtimeSourceAuthorityAppliesToCompletionLanding(authority) {
+		if runtimeSourceAuthorityHasRuntimeCarrier(authority) {
+			return true
+		}
+	}
 	rm := ctx.AnalysisIR.RequestModel
 	if rm.HasExternalOnlyRuntimeArtifact() || rm.HasRuntimeArtifactPathReference() {
 		return true
@@ -8845,6 +8863,13 @@ func currentSourceLaneRuntimeArtifactCarrier(ctx *types.BusContext) bool {
 		}
 	}
 	return false
+}
+
+func runtimeSourceAuthorityHasRuntimeCarrier(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	return authority.RuntimeObservationCount > 0 ||
+		authority.DeterministicRuntimeQueryCount > 0 ||
+		authority.RuntimeOnlySufficient ||
+		authority.CanUseRuntimeOnlyWithCaveat
 }
 
 func currentSourceLaneHasSpecificSourceSeed(ctx *types.BusContext) bool {

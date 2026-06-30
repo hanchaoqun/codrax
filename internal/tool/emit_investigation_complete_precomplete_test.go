@@ -231,6 +231,28 @@ func TestCurrentSourceForcedReadGatesApply_AttachedTraceAnchoredCurrentCodeDimen
 	}
 }
 
+func TestCurrentSourceForcedReadGatesApply_TypedTraceSoftProfileDowngradesToCaveat(t *testing.T) {
+	ctx := runtimeSourceAuthorityCompletionLandingContextForTest("current parser mechanism")
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	if !authority.Active || authority.CurrentSourceRequirement != types.RuntimeSourceRequirementSoft || !authority.CanDowngradeToCaveat {
+		t.Fatalf("test setup should be soft runtime/source authority, got %+v", authority)
+	}
+	if currentSourceForcedReadGatesApply(ctx) {
+		t.Fatal("typed trace_query runtime observation with soft current-source profile must not trigger forced current-source reads")
+	}
+	if !currentSourceLaneRuntimeArtifactCarrier(ctx) {
+		t.Fatal("typed trace_query runtime observation should count as runtime carrier for soft current-source caveat recording")
+	}
+	got := currentSourceLaneCoverageDowngrade(ctx, completionPreflightView{})
+	if got != "" {
+		t.Fatalf("soft current-source profile should finish with caveat instead of downgrade, got: %s", got)
+	}
+	caveats := ctx.Mutable.EvidenceClosure().CompletionCaveats()
+	if len(caveats) != 1 || caveats[0].Lane != types.DowngradeLaneCurrentSourceLane {
+		t.Fatalf("soft current-source profile should record one completion caveat, got %+v", caveats)
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_PendingReadsBlocks
 // is the CGEC E1 regression. When the closure has queued a
 // PendingRead the tool MUST return a downgrade message AND must NOT
