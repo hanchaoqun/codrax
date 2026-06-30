@@ -8638,9 +8638,6 @@ func (e *explorerEvaluator) mixedRuntimeCurrentSourceCarrierActive(rm types.Requ
 	if authority := e.runtimeSourceAnswerAuthority(); mixedRuntimeCurrentSourceAuthorityCarrierActive(authority) {
 		return true
 	}
-	if e != nil && types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) && e.mixedRuntimeCurrentSourceRuntimeLanePresent(rm) {
-		return true
-	}
 	if e == nil || e.exploreLanePlan.Empty() {
 		return false
 	}

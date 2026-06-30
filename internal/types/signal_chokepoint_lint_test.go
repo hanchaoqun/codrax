@@ -421,9 +421,7 @@ func TestRuntimeSourceStaticMixedShapeStaysInFallbackChokepoints(t *testing.T) {
 	}
 }
 
-var runtimeSourceStaticMixedShapeFallbackChokepoints = map[string]bool{
-	"../agent/explorer.go::mixedRuntimeCurrentSourceCarrierActive": true,
-}
+var runtimeSourceStaticMixedShapeFallbackChokepoints = map[string]bool{}
 
 func findRuntimeSourceStaticMixedShapeBypasses(f *ast.File, fset *token.FileSet, path string) []string {
 	var out []string
