@@ -5481,7 +5481,8 @@ func analyzerExternalObservationFirstBlocksTool(ctx *types.AgentContext, name st
 		}
 		return true
 	}
-	if rm := requestModelFromContext(ctx); rm != nil && rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
+	if rm := requestModelFromContext(ctx); rm != nil &&
+		types.RuntimeSourceRequestCurrentSourceRequirementPrecision(rm, ctx.TurnRouteHint) == types.RuntimeSourceRequirementPrecise {
 		return false
 	}
 	return true
