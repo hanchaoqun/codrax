@@ -204,7 +204,7 @@ func TestCurrentSourceForcedReadGatesApply_AttachedTraceObservationOnly(t *testi
 	}
 }
 
-func TestCurrentSourceForcedReadGatesApply_AttachedTraceCurrentCodeDimension(t *testing.T) {
+func TestCurrentSourceForcedReadGatesApply_AttachedTraceAnchoredCurrentCodeDimension(t *testing.T) {
 	ctx := &types.BusContext{
 		AttachedHitrace: "app-100 (100) [001] .... 2.000000: sched_switch: prev_state=S",
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
@@ -219,7 +219,7 @@ func TestCurrentSourceForcedReadGatesApply_AttachedTraceCurrentCodeDimension(t *
 				Dimensions: []types.RequestedAnswerDimension{{
 					Label:       "current key code",
 					Role:        types.RequestedAnswerDimensionCurrentKeyCode,
-					SourceQuote: "current key code",
+					SourceQuote: "internal/tracequery/parse.go:42",
 					Required:    true,
 				}},
 			},
@@ -227,7 +227,7 @@ func TestCurrentSourceForcedReadGatesApply_AttachedTraceCurrentCodeDimension(t *
 	}
 
 	if !currentSourceForcedReadGatesApply(ctx) {
-		t.Fatal("typed current-code dimension on an attached trace must keep current-source forced reads")
+		t.Fatal("path-anchored current-code dimension on an attached trace must keep current-source forced reads")
 	}
 }
 
@@ -4586,7 +4586,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_RouteBackedRuntimeRepoTurnSo
 	}
 }
 
-func TestEmitInvestigationComplete_PreCompleteCheck_PreciseRuntimeRepoCurrentSourceRequirementDowngrades(t *testing.T) {
+func TestEmitInvestigationComplete_PreCompleteCheck_UnanchoredRuntimeRepoCurrentSourceRequirementCaveats(t *testing.T) {
 	logBundle := &types.LogBundle{
 		Errors: []types.LogError{{
 			Type:    "first_byte_timeout",
@@ -4600,7 +4600,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_PreciseRuntimeRepoCurrentSou
 			LineStart: 3,
 		}},
 	}
-	mut := types.NewMutableState("runtime artifact plus precise current source")
+	mut := types.NewMutableState("runtime artifact plus unanchored current source")
 	mut.SetLogTriage(logBundle)
 	bus := &types.BusContext{
 		Mutable:  mut,
@@ -4658,8 +4658,92 @@ func TestEmitInvestigationComplete_PreCompleteCheck_PreciseRuntimeRepoCurrentSou
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("unanchored current-source requirement should not hard downgrade, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete should be set when only a soft unanchored current-source obligation is missing")
+	}
+	caveats := mut.EvidenceClosure().CompletionCaveats()
+	if len(caveats) != 1 || caveats[0].Lane != types.DowngradeLaneCurrentSourceLane {
+		t.Fatalf("soft unanchored current-source obligation should be recorded as a caveat, got %#v", caveats)
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_PathAnchoredRuntimeRepoCurrentSourceRequirementDowngrades(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "first_byte_timeout",
+			Message: "first_byte_timeout exceeded after 40s",
+			Frames:  []types.LogFrame{{Line: 2, Raw: "first_byte_timeout exceeded after 40s"}},
+		}},
+		Observations: []types.LogObservation{{
+			Kind:      types.LogObservationRetryCycle,
+			Severity:  types.LogObservationWarning,
+			Summary:   "finalizer attempt 1/3 failed: LLM stream timeout",
+			LineStart: 3,
+		}},
+	}
+	mut := types.NewMutableState("runtime artifact plus precise current source")
+	mut.SetLogTriage(logBundle)
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "artifact",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: logBundle,
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.9,
+				},
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{{
+						Label:       "current key code",
+						Role:        types.RequestedAnswerDimensionCurrentKeyCode,
+						SourceQuote: "internal/tracequery/parse.go:42",
+						Required:    true,
+						Index:       1,
+					}},
+					Confidence: 0.9,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 1},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "runtime log explains the timeout, and the answer asks for the anchored current key code",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":  "scalar_value",
+			"label": "observed timeout",
+			"value": "first_byte_timeout",
+			"dimensions": []map[string]any{{
+				"name":  "origin",
+				"value": string(types.AnswerEvidenceOriginRuntimeArtifact),
+			}},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
 	if !strings.Contains(res.Summary, "DOWNGRADED") {
-		t.Fatalf("precise current-source requirement should downgrade until coverage exists, got: %s", res.Summary)
+		t.Fatalf("path-anchored current-source requirement should downgrade until coverage exists, got: %s", res.Summary)
 	}
 	if !strings.Contains(res.Summary, "typed current-source lane is required") {
 		t.Fatalf("downgrade should explain current-source lane obligation, got: %s", res.Summary)

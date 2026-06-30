@@ -832,7 +832,7 @@ func TestRuntimeArtifactReadSourceAuditForBusContext_SoftObligationUsesAuthority
 	}
 }
 
-func TestRuntimeArtifactReadSourceAuditForBusContext_PreciseObligationKeepsAudit(t *testing.T) {
+func TestRuntimeArtifactReadSourceAuditForBusContext_PathAnchoredObligationKeepsAudit(t *testing.T) {
 	mut := NewMutableState("runtime mixed precise obligation")
 	mut.AppendDispatchToolResult(traceQueryRuntimeObservationToolResultForTest())
 	ctx := &BusContext{
@@ -849,10 +849,11 @@ func TestRuntimeArtifactReadSourceAuditForBusContext_PreciseObligationKeepsAudit
 			RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
 				IsDimensionedAnswer: true,
 				Dimensions: []RequestedAnswerDimension{{
-					Label:    "current implementation",
-					Role:     RequestedAnswerDimensionCurrentKeyCode,
-					Required: true,
-					Index:    1,
+					Label:       "current implementation",
+					Role:        RequestedAnswerDimensionCurrentKeyCode,
+					SourceQuote: "internal/tracequery/parse.go:42",
+					Required:    true,
+					Index:       1,
 				}},
 				Confidence: 0.9,
 			},
@@ -863,7 +864,7 @@ func TestRuntimeArtifactReadSourceAuditForBusContext_PreciseObligationKeepsAudit
 	if authority.CurrentSourceRequirement != RuntimeSourceRequirementPrecise ||
 		!authority.CanHardBlockCompletion ||
 		authority.CanDowngradeToCaveat {
-		t.Fatalf("current-key-code obligation should remain precise, got %+v", authority)
+		t.Fatalf("path-anchored current-key-code obligation should remain precise, got %+v", authority)
 	}
 	if RuntimeArtifactReadSourceSupplementsNotRequiredForBusContext(ctx) {
 		t.Fatal("precise current-source obligation should preserve audit supplements")

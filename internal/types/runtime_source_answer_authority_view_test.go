@@ -171,6 +171,92 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_PathAnchoredCurrentSourceProfileCa
 	}
 }
 
+func TestRuntimeSourceAnswerAuthoritySnapshot_UnanchoredCurrentKeyCodeCanDowngradeToCaveat(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
+	rm := &RequestModel{
+		PerfTrace: &PerfBundle{Observations: []PerfObservation{{
+			Kind:       "trace_mark",
+			Subject:    "H:RenderService:DoFrame",
+			DurationMs: 86.111,
+		}}},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:       "current key code",
+				Role:        RequestedAnswerDimensionCurrentKeyCode,
+				SourceQuote: "current key code",
+				Required:    true,
+				Index:       1,
+			}},
+			Confidence: 0.9,
+		},
+	}
+
+	got := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel: rm,
+		RouteHint:    TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},
+		Ledger:       ledger,
+	})
+	if got.CurrentSourceRequirement != RuntimeSourceRequirementSoft ||
+		!got.CurrentSourceRequired ||
+		!got.NeedsCurrentSourceEvidence ||
+		got.CanHardBlockCompletion ||
+		!got.CanDowngradeToCaveat ||
+		!got.CanUseRuntimeOnlyWithCaveat {
+		t.Fatalf("unanchored current-key-code obligation should stay soft and caveatable: %+v", got)
+	}
+	if runtimeSourceAuthorityHasReason(got, RuntimeSourceAuthorityCurrentSourcePrecise) {
+		t.Fatalf("unanchored current-key-code obligation must not publish precise reason: %+v", got.ReasonCodes)
+	}
+}
+
+func TestRuntimeSourceAnswerAuthoritySnapshot_PathAnchoredCurrentKeyCodeCanHardBlock(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
+	rm := &RequestModel{
+		PerfTrace: &PerfBundle{Observations: []PerfObservation{{
+			Kind:       "trace_mark",
+			Subject:    "H:RenderService:DoFrame",
+			DurationMs: 86.111,
+		}}},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:       "current parser implementation",
+				Role:        RequestedAnswerDimensionCurrentKeyCode,
+				SourceQuote: "internal/tracequery/parse.go:42",
+				Required:    true,
+				Index:       1,
+			}},
+			Confidence: 0.9,
+		},
+	}
+
+	got := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel: rm,
+		RouteHint:    TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},
+		Ledger:       ledger,
+	})
+	if got.CurrentSourceRequirement != RuntimeSourceRequirementPrecise ||
+		!got.CurrentSourceRequired ||
+		!got.NeedsCurrentSourceEvidence ||
+		!got.CanHardBlockCompletion ||
+		got.CanDowngradeToCaveat ||
+		got.CanUseRuntimeOnlyWithCaveat {
+		t.Fatalf("path-anchored current-key-code obligation should remain precise: %+v", got)
+	}
+	if !runtimeSourceAuthorityHasReason(got, RuntimeSourceAuthorityCurrentSourcePrecise) {
+		t.Fatalf("precise reason missing: %+v", got.ReasonCodes)
+	}
+}
+
 func TestRuntimeSourceAnswerAuthoritySnapshot_CombinedProofSatisfiesCurrentSourceLane(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{
 		runtimeSourceTraceRecord("trace:root", "trace_query:run2"),

@@ -71,7 +71,7 @@ func TestAssessExternalObservationSufficiency_SoftCurrentSourceProfileAllowsCave
 	}
 }
 
-func TestAssessExternalObservationSufficiency_BlockedByCurrentKeyCodeDimensionWithArtifactCitationPolicy(t *testing.T) {
+func TestAssessExternalObservationSufficiency_UnanchoredCurrentKeyCodeDimensionAllowsCaveatSufficiency(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		LogBundle: &LogBundle{
 			Observations: []LogObservation{{
@@ -116,8 +116,59 @@ func TestAssessExternalObservationSufficiency_BlockedByCurrentKeyCodeDimensionWi
 		Route:  "repo",
 		Source: "artifact",
 	})
+	if !got.Status.Sufficient() {
+		t.Fatalf("unanchored current_key_code dimension should not block external-only sufficiency, got %+v", got)
+	}
+}
+
+func TestAssessExternalObservationSufficiency_BlockedByAnchoredCurrentKeyCodeDimensionWithArtifactCitationPolicy(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		LogBundle: &LogBundle{
+			Observations: []LogObservation{{
+				Kind:       LogObservationRuntimeEvent,
+				Subject:    "finalizer",
+				Summary:    "attached log observed a finalizer retry",
+				LineStart:  1,
+				LineEnd:    4,
+				Confidence: 0.95,
+			}},
+		},
+	})
+	rm := &RequestModel{
+		LogTriage: &LogBundle{
+			Observations: []LogObservation{{
+				Kind:       LogObservationRuntimeEvent,
+				Subject:    "finalizer",
+				Summary:    "attached log observed a finalizer retry",
+				LineStart:  1,
+				LineEnd:    4,
+				Confidence: 0.95,
+			}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			SourceQuotes:         []string{"do not cite artifact lines as source"},
+			Confidence:           0.9,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:       "current key code",
+				Role:        RequestedAnswerDimensionCurrentKeyCode,
+				SourceQuote: "internal/tracequery/parse.go:42",
+				Required:    true,
+				Index:       1,
+			}},
+			Confidence: 0.9,
+		},
+	}
+	got := AssessExternalObservationSufficiency(ledger.Records, rm, TurnRouteHint{
+		Route:  "repo",
+		Source: "artifact",
+	})
 	if got.Status != ExternalObservationSufficiencyBlockedByCurrentSource {
-		t.Fatalf("current_key_code dimension must block external-only sufficiency even with artifact-only citation policy, got %+v", got)
+		t.Fatalf("path-anchored current_key_code dimension must block external-only sufficiency even with artifact-only citation policy, got %+v", got)
 	}
 }
 

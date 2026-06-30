@@ -247,7 +247,9 @@ func runtimeSourceAuthorityPreciseCurrentSourceRequirement(rm *RequestModel) boo
 			}
 			switch dim.Role {
 			case RequestedAnswerDimensionCurrentKeyCode:
-				return true
+				if rm.dimensionHasPreciseCurrentSourceAnchor(dim) {
+					return true
+				}
 			case RequestedAnswerDimensionFunctionOrPurpose:
 				if rm.dimensionHasPreciseCurrentSourceAnchor(dim) {
 					return true

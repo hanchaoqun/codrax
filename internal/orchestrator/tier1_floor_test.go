@@ -803,7 +803,7 @@ func TestCheckTier1Floor_RuntimeTraceCurrentSourceRequirementKeepsNavigationFoll
 	}
 }
 
-func TestCheckTier1Floor_RuntimeTraceQueryCurrentSourceRequirementKeepsNavigationFollowup(t *testing.T) {
+func TestCheckTier1Floor_RuntimeTraceQueryUnanchoredCurrentSourceRequirementDowngradesToCaveat(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
 	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
@@ -833,8 +833,44 @@ func TestCheckTier1Floor_RuntimeTraceQueryCurrentSourceRequirementKeepsNavigatio
 	})
 
 	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("trace_query with unanchored current-source requirement should proceed with caveat, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
+func TestCheckTier1Floor_RuntimeTraceQueryPathAnchoredCurrentSourceRequirementKeepsNavigationFollowup(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("analyze trace and current implementation")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{})
+	mu.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentTrace,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label:       "current implementation",
+					Role:        types.RequestedAnswerDimensionCurrentKeyCode,
+					SourceQuote: "internal/tracequery/parse.go:42",
+					Required:    true,
+					Index:       1,
+				}},
+				Confidence: 0.9,
+			},
+		}},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if proceed || exhausted || !strings.Contains(msg, "repo_map") {
-		t.Fatalf("trace_query with current-source requirement should keep navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+		t.Fatalf("trace_query with path-anchored current-source requirement should keep navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
 }
 
