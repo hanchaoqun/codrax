@@ -293,6 +293,44 @@ func TestNormalizeSourceForMarkdown_FlowchartQuotedLabelNewlinesStayInsideNode(t
 	}
 }
 
+func TestNormalizeSourceForMarkdown_SplitsQuotedFlowchartEdgeFragments(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    keymaster["keymaster@3.0-s-8595<br/>(prio=20/CFS)"] -->|"sched_wakeup<br/>5569.394008 / 36.562ms"| binder85_2["binder:85_2-8593<br/>(prio=20/CFS)"]codraxNode1>    "binder85_2 -->|&quot;sched_wakeup<br/>5569.395xxx / Coordinator&quot;| CookieMonsterBa[&quot;CookieMonsterBa-56265<br/>(prio=20/CFS)&quot;"]`,
+		`    CookieMonsterBa -->|"sched_wakeup<br/>延迟累积 / Coordinator"| CookieMonsterCl["CookieMonsterCl-56264<br/>(prio=20/CFS)"]codraxNode1>    "CookieMonsterCl -->|&quot;sched_wakeup<br/>延迟累积 / 15ms&quot;| mainRT[&quot;android.haitong-56023<br/>(prio=53/ohos_rt)&quot;"]`,
+		`    DefaultDispatch["DefaultDispatch-56273<br/>(prio=20/CFS)"] -->|"&quot;sched_wakeup<br/>5569.507993<br/>延迟43.726ms"| codraxNode2>    "Thread10[&quot;Thread-10-56284<br/>(prio=20/CFS)&quot;"] -->|"&quot;sched_wakeup<br/>5570.040054<br/>延迟15.137ms"| mainRT`,
+		`    style mainRT fill:#ffcccc`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	for _, bad := range []string{"codraxNode1>", "codraxNode2>", "&quot;", `|""`} {
+		if strings.Contains(got, bad) {
+			t.Fatalf("quoted edge fragment repair leaked %q in:\n%s", bad, got)
+		}
+	}
+	for _, want := range []string{
+		`keymaster["keymaster@3.0-s-8595<br/>(prio=20/CFS)"] -->|"sched_wakeup<br/>5569.394008 / 36.562ms"| binder85_2["binder:85_2-8593<br/>(prio=20/CFS)"]`,
+		`binder85_2 -->|"sched_wakeup<br/>5569.395xxx / Coordinator"| CookieMonsterBa["CookieMonsterBa-56265<br/>(prio=20/CFS)"]`,
+		`CookieMonsterCl -->|"sched_wakeup<br/>延迟累积 / 15ms"| mainRT["android.haitong-56023<br/>(prio=53/ohos_rt)"]`,
+		`DefaultDispatch["DefaultDispatch-56273<br/>(prio=20/CFS)"] -->|"sched_wakeup<br/>5569.507993<br/>延迟43.726ms"| Thread10["Thread-10-56284<br/>(prio=20/CFS)"]`,
+		`Thread10["Thread-10-56284<br/>(prio=20/CFS)"] -->|"sched_wakeup<br/>5570.040054<br/>延迟15.137ms"| mainRT`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("quoted edge fragment repair missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestNormalizeSourceForMarkdown_DoesNotSplitQuotedArrowInsideLabels(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    A["text says B --> C"] -->|"quoted label with X --> Y"| B["done"]`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if !strings.Contains(got, `A["text says B --> C"] -->|"quoted label with X --> Y"| B["done"]`) {
+		t.Fatalf("quoted arrow inside labels should remain one edge:\n%s", got)
+	}
+}
+
 func TestNormalizeSourceForMarkdown_MergesSplitUnquotedNodeLabelsBeforeAliasing(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",

@@ -19,6 +19,7 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeSequenceParticipantMessagePrefixes(body)
 	body = NormalizeSequenceStops(body)
 	body = NormalizeFlowchartQuotedLabelNewlines(body)
+	body = NormalizeFlowchartQuotedEdgeFragments(body)
 	body = NormalizeFlowchartSplitNodeLabels(body)
 	body = NormalizeFlowchartSubgraphTitles(body)
 	body = NormalizeFlowchartDanglingPunctuation(body)
@@ -129,6 +130,249 @@ func NormalizeFlowchartQuotedLabelNewlines(body string) string {
 		return body
 	}
 	return b.String()
+}
+
+// NormalizeFlowchartQuotedEdgeFragments repairs a malformed flowchart line
+// where one complete edge statement was appended to another line as a quoted
+// string. This usually happens after a model tries to protect Mermaid syntax
+// with quotes and accidentally emits:
+//
+//	A --> BcodraxNode1> "B -->|label| C"
+//
+// The repair splits the quoted edge into its own statement and removes or
+// replaces the dangling generated endpoint on the prefix line. It is purely
+// syntactic: the embedded fragment must parse as a Mermaid edge, and quoted
+// text inside normal node labels or pipe labels is left alone.
+func NormalizeFlowchartQuotedEdgeFragments(body string) string {
+	if !isFlowchartOrGraph(body) || !strings.Contains(body, `"`) || !flowchartBodyMayContainEdge(body) {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	changed := false
+	for i, line := range lines {
+		rewritten, ok := normalizeFlowchartQuotedEdgeFragmentsInLine(line)
+		if ok {
+			lines[i] = rewritten
+			changed = true
+		}
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(lines, "\n")
+}
+
+func flowchartBodyMayContainEdge(body string) bool {
+	for _, op := range []string{"-.->", "-->>", "-->", "==>", "->>", "---", "==", "->"} {
+		if strings.Contains(body, op) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeFlowchartQuotedEdgeFragmentsInLine(line string) (string, bool) {
+	current := line
+	indent := line[:len(line)-len(strings.TrimLeftFunc(line, unicode.IsSpace))]
+	out := make([]string, 0, 3)
+	changed := false
+	for i := 0; i < 8; i++ {
+		start, end, fragment, ok := findFlowchartQuotedEdgeFragment(current)
+		if !ok {
+			break
+		}
+		edge := normalizeFlowchartDecodedQuoteNoise(decodeMermaidFragmentEntities(fragment))
+		edge = strings.TrimSpace(edge)
+		from, _, _, _, ok := SplitEdgeLine(edge)
+		if !ok {
+			break
+		}
+		if prefix, ok := normalizeFlowchartQuotedEdgePrefix(current[:start], from); ok {
+			out = append(out, prefix)
+		}
+		out = append(out, indent+edge)
+		changed = true
+		current = current[end:]
+		if strings.TrimSpace(current) == "" {
+			current = ""
+			break
+		}
+		current = indent + strings.TrimSpace(current)
+	}
+	if !changed {
+		return line, false
+	}
+	if strings.TrimSpace(current) != "" {
+		out = append(out, current)
+	}
+	return strings.Join(out, "\n"), true
+}
+
+func findFlowchartQuotedEdgeFragment(line string) (start, end int, fragment string, ok bool) {
+	for i := 0; i < len(line); i++ {
+		if line[i] != '"' || !flowchartQuotedEdgeFragmentStartAllowed(line, i) {
+			continue
+		}
+		closeAt := findClosingQuote(line, i)
+		if closeAt < 0 {
+			return 0, 0, "", false
+		}
+		fragmentEnd := closeAt + 1
+		for fragmentEnd < len(line) && strings.ContainsRune("])}", rune(line[fragmentEnd])) {
+			fragmentEnd++
+		}
+		candidate := line[i+1:closeAt] + line[closeAt+1:fragmentEnd]
+		decoded := normalizeFlowchartDecodedQuoteNoise(decodeMermaidFragmentEntities(candidate))
+		if flowchartLineIsCompleteEdge(decoded) {
+			return i, fragmentEnd, candidate, true
+		}
+		tailCandidate := line[i+1:]
+		decodedTail := normalizeFlowchartDecodedQuoteNoise(decodeMermaidFragmentEntities(tailCandidate))
+		if flowchartLineIsCompleteEdge(decodedTail) {
+			return i, len(line), tailCandidate, true
+		}
+		i = closeAt
+	}
+	return 0, 0, "", false
+}
+
+func flowchartQuotedEdgeFragmentStartAllowed(line string, quoteAt int) bool {
+	for i := quoteAt - 1; i >= 0; i-- {
+		if unicode.IsSpace(rune(line[i])) {
+			continue
+		}
+		return line[i] == '>' || line[i] == ';'
+	}
+	return true
+}
+
+func findClosingQuote(line string, start int) int {
+	escaped := false
+	for i := start + 1; i < len(line); i++ {
+		ch := line[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == '"' {
+			return i
+		}
+	}
+	return -1
+}
+
+func normalizeFlowchartQuotedEdgePrefix(prefix, embeddedFrom string) (string, bool) {
+	prefix = strings.TrimRightFunc(prefix, unicode.IsSpace)
+	if strings.TrimSpace(prefix) == "" {
+		return "", false
+	}
+	prefix = normalizeFlowchartDecodedQuoteNoise(decodeMermaidFragmentEntities(prefix))
+	markerStart, markerEnd, hasMarker := flowchartTrailingGeneratedNodeMarker(prefix)
+	if !hasMarker {
+		if flowchartLineIsCompleteEdge(prefix) || flowchartLineLooksLikeStandaloneStatement(prefix) {
+			return prefix, true
+		}
+		return "", false
+	}
+	withoutMarker := strings.TrimRightFunc(prefix[:markerStart], unicode.IsSpace)
+	trailing := prefix[markerEnd:]
+	if flowchartLineIsCompleteEdge(withoutMarker) {
+		return withoutMarker + trailing, true
+	}
+	replacement := strings.TrimSpace(embeddedFrom)
+	if replacement == "" {
+		if strings.TrimSpace(withoutMarker) == "" {
+			return "", false
+		}
+		return withoutMarker + trailing, true
+	}
+	candidate := withoutMarker
+	if candidate != "" && !unicode.IsSpace(rune(candidate[len(candidate)-1])) {
+		candidate += " "
+	}
+	candidate += replacement
+	return candidate + trailing, strings.TrimSpace(candidate) != ""
+}
+
+func flowchartTrailingGeneratedNodeMarker(line string) (start, end int, ok bool) {
+	end = len(strings.TrimRightFunc(line, unicode.IsSpace))
+	if end == 0 || line[end-1] != '>' {
+		return 0, 0, false
+	}
+	digitsStart := end - 1
+	for digitsStart > 0 && unicode.IsDigit(rune(line[digitsStart-1])) {
+		digitsStart--
+	}
+	if digitsStart == end-1 {
+		return 0, 0, false
+	}
+	const prefix = "codraxNode"
+	start = digitsStart - len(prefix)
+	if start < 0 || line[start:digitsStart] != prefix {
+		return 0, 0, false
+	}
+	return start, end, true
+}
+
+func flowchartLineIsCompleteEdge(line string) bool {
+	from, to, _, _, ok := SplitEdgeLine(strings.TrimSpace(line))
+	if !ok {
+		return false
+	}
+	fromID, _, _ := ParseNodeTokenWithShape(from)
+	toID, _, _ := ParseNodeTokenWithShape(to)
+	return strings.TrimSpace(fromID) != "" && strings.TrimSpace(toID) != ""
+}
+
+func flowchartLineLooksLikeStandaloneStatement(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "%%") || flowchartLineIsHeader(trimmed) || trimmed == "end" {
+		return false
+	}
+	for _, prefix := range []string{"style ", "class ", "classDef ", "click ", "subgraph "} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func decodeMermaidFragmentEntities(s string) string {
+	for i := 0; i < 3; i++ {
+		before := s
+		s = strings.ReplaceAll(s, "&amp;quot;", "&quot;")
+		s = strings.ReplaceAll(s, "&#34;", `"`)
+		s = strings.ReplaceAll(s, "&quot;", `"`)
+		s = strings.ReplaceAll(s, "&#39;", `'`)
+		s = strings.ReplaceAll(s, "&apos;", `'`)
+		s = strings.ReplaceAll(s, "&lt;", "<")
+		s = strings.ReplaceAll(s, "&gt;", ">")
+		if s == before {
+			break
+		}
+	}
+	return s
+}
+
+func normalizeFlowchartDecodedQuoteNoise(s string) string {
+	replacements := [][2]string{
+		{`|""`, `|"`},
+		{`""|`, `"|`},
+		{`[""`, `["`},
+		{`""]`, `"]`},
+		{`(""`, `("`},
+		{`"")`, `")`},
+		{`{""`, `{"`},
+		{`""}`, `"}`},
+	}
+	for _, repl := range replacements {
+		s = strings.ReplaceAll(s, repl[0], repl[1])
+	}
+	return s
 }
 
 // NormalizeFlowchartSplitNodeLabels repairs physical line breaks inside

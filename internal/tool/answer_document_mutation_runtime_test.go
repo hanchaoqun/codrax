@@ -589,6 +589,9 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 		projection.SurfaceRole != types.SurfacePrincipal {
 		t.Fatalf("missing principal trace causal projection block: %+v", projection)
 	}
+	if projection.Text == "" || !strings.Contains(projection.Text, "怎么读") && !strings.Contains(projection.Text, "直接唤醒链") {
+		t.Fatalf("projection should carry human-readable guidance text: %+v", projection)
+	}
 	if len(projection.ClaimUses) != 1 || projection.ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
 		t.Fatalf("projection must stay in external-observation lane: %+v", projection.ClaimUses)
 	}
@@ -597,12 +600,75 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	}
 	if projection.Items[0].Label != "主根因" ||
 		!strings.Contains(projection.Items[0].Text, "threadpool-400 -> io_wait") ||
-		!strings.Contains(projection.Items[0].Text, "cumulative_impact=11.000ms") {
+		!strings.Contains(projection.Items[0].Text, "累计影响 11.000ms") ||
+		!strings.Contains(projection.Items[0].Text, "直接唤醒链") ||
+		strings.Contains(projection.Items[0].Text, "cumulative_impact=") ||
+		strings.Contains(projection.Items[0].Text, "causality=") {
 		t.Fatalf("projection should select highest impact root cause first: %+v", projection.Items[0])
 	}
 	if projection.Items[1].Label != "因果链路" ||
 		!strings.Contains(projection.Items[1].Text, "threadpool-400 -> network-300 -> cookie-200 -> app-100") {
 		t.Fatalf("projection should preserve wakeup path: %+v", projection.Items[1])
+	}
+}
+
+func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEnglish(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.Language = "en"
+	bus.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:   types.IntentTrace,
+			Scenario: types.ScenarioPerformanceBottleneck,
+		},
+		AnswerContract: types.AnswerContract{Language: "en"},
+	}
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{
+			traceProjectionObservation("root-threadpool", "threadpool-400", "io_wait", "11.000", "11.000", 1),
+			{
+				ID:              "path",
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				GroundingPolicy: types.ClaimGroundingHard,
+				Predicate:       "wakeup_chain",
+				ClaimKey:        "wakeup_chain:path",
+				Object:          "threadpool-400 -> network-300 -> app-100",
+			},
+		},
+	}}
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "app-100 direct wait was observed."},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) < 2 {
+		t.Fatalf("answer document not persisted with projection: %+v", got)
+	}
+	projection := got.Blocks[1]
+	if projection.Title != "Trace Causal Projection" {
+		t.Fatalf("projection title should follow language: %+v", projection)
+	}
+	if !strings.Contains(projection.Text, "automatically distilled") {
+		t.Fatalf("projection intro should be English: %+v", projection)
+	}
+	if len(projection.Items) < 2 ||
+		projection.Items[0].Label != "Primary root cause" ||
+		!strings.Contains(projection.Items[0].Text, "cumulative impact 11.000ms") ||
+		!strings.Contains(projection.Items[0].Text, "direct wakeup chain") ||
+		projection.Items[1].Label != "Causal path" {
+		t.Fatalf("projection items should follow language and remain readable: %+v", projection.Items)
 	}
 }
 
