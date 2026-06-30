@@ -178,6 +178,91 @@ func TestComputeForEvidence_RuntimeArtifactPathStaysArtifactOrigin(t *testing.T)
 	}
 }
 
+func TestComputeForEvidence_RuntimeArtifactPathOriginIgnoresSoftCurrentSourceLane(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("test-objective"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioPerformanceBottleneck,
+				PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+					Kind:    "state_churn",
+					Subject: "app",
+				}}},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.9,
+				},
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+					SourceQuotes:                        []string{"current parser mechanism"},
+					Confidence:                          0.9,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{{
+						Path:       "/tmp/capture.systrace",
+						Confidence: 0.8,
+					}},
+				},
+			},
+		},
+	}
+	if got := bus.AnalysisIR.RequestModel.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
+		t.Fatalf("fixture should open the source lane, got %s", got)
+	}
+	p := ComputeForEvidence(types.EvidenceItem{
+		Scope:           types.ScopeFile,
+		Source:          "/tmp/capture.systrace",
+		LineStart:       2891,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}, bus)
+	if p.Origin != types.ClaimOriginPerf {
+		t.Fatalf("soft mixed trace evidence should stay perf origin, got %s (reason=%q)", p.Origin, p.Reason)
+	}
+	if p.Authority != types.AuthorityHistorical {
+		t.Fatalf("soft mixed trace evidence authority = %s, want historical (reason=%q)", p.Authority, p.Reason)
+	}
+}
+
+func TestComputeForEvidence_RuntimeArtifactPathOriginIgnoresPreciseCurrentSourceLane(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("test-objective"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioPerformanceBottleneck,
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.9,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{
+						{Path: "/tmp/capture.systrace", Confidence: 0.8},
+						{Path: "internal/tracequery/parse.go", Confidence: 0.95},
+					},
+				},
+			},
+		},
+	}
+	if got := bus.AnalysisIR.RequestModel.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
+		t.Fatalf("fixture should require current source, got %s", got)
+	}
+	p := ComputeForEvidence(types.EvidenceItem{
+		Scope:           types.ScopeFile,
+		Source:          "/tmp/capture.systrace",
+		LineStart:       2891,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}, bus)
+	if p.Origin != types.ClaimOriginPerf {
+		t.Fatalf("precise mixed trace evidence should stay perf origin, got %s (reason=%q)", p.Origin, p.Reason)
+	}
+}
+
 // TestComputeForEvidence_RecoveredFactualWithoutLog: round-3
 // refinement — without an attached log/perf bundle, GroundingRecovered
 // is plain LLM line-typo correction (not drift). Treat as factual so

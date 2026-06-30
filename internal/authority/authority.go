@@ -345,9 +345,6 @@ func computeFromRuntimeArtifactPath(item types.EvidenceItem, bus *types.BusConte
 		!rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
 		return Projection{}, false
 	}
-	if rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
-		return Projection{}, false
-	}
 	origin := types.ClaimOriginPerf
 	if kind == "log" {
 		origin = types.ClaimOriginLog
