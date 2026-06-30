@@ -10581,9 +10581,6 @@ func mixedRuntimeCurrentSourceAcceptedBoundaryDemotesRequiredFilePendingRead(ctx
 }
 
 func mixedRuntimeCurrentSourceRequiredFileOverflowBoundaryApplies(ctx *types.BusContext, rm types.RequestModel, authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
-	if types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) {
-		return true
-	}
 	if len(rm.AnalyzerHints.RequiredFileHints) == 0 ||
 		!runtimeSourceAuthorityAppliesToCompletionLanding(authority) ||
 		!runtimeSourceAuthorityHasRuntimeCarrier(authority) {
@@ -10600,8 +10597,7 @@ func mixedRuntimeCurrentSourceRequiredFileOverflowBoundaryApplies(ctx *types.Bus
 }
 
 func mixedRuntimeCurrentSourceRequiredFileOverflowCap(rm types.RequestModel, authority types.RuntimeSourceAnswerAuthoritySnapshot) int {
-	if types.MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) ||
-		(runtimeSourceAuthorityAppliesToCompletionLanding(authority) && runtimeSourceAuthorityHasRuntimeCarrier(authority)) {
+	if runtimeSourceAuthorityAppliesToCompletionLanding(authority) && runtimeSourceAuthorityHasRuntimeCarrier(authority) {
 		return types.MixedRuntimeCurrentSourceRequiredFileHintCoverageMax
 	}
 	return types.RequiredFileHintCoverageMaxForRequest(rm)
