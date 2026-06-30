@@ -473,33 +473,28 @@ type attachmentSourceHeader struct {
 func attachmentSourceHeaders(body string) []attachmentSourceHeader {
 	const marker = "# codrax-source: "
 	var headers []attachmentSourceHeader
-	scanEnd := len(body)
-	if scanEnd > runtimeArtifactMetadataScanBytes {
-		scanEnd = runtimeArtifactMetadataScanBytes
-	}
-	scanBody := body[:scanEnd]
 	searchFrom := 0
-	for searchFrom < len(scanBody) {
-		idx := strings.Index(scanBody[searchFrom:], marker)
+	for searchFrom < len(body) {
+		idx := strings.Index(body[searchFrom:], marker)
 		if idx < 0 {
 			break
 		}
 		idx += searchFrom
-		if idx != 0 && scanBody[idx-1] != '\n' {
+		if idx != 0 && body[idx-1] != '\n' {
 			searchFrom = idx + len(marker)
 			continue
 		}
-		lineEnd := strings.IndexByte(scanBody[idx:], '\n')
+		lineEnd := strings.IndexByte(body[idx:], '\n')
 		if lineEnd < 0 {
 			break
 		} else {
 			lineEnd += idx
 		}
-		line := strings.TrimRight(scanBody[idx:lineEnd], "\r")
+		line := strings.TrimRight(body[idx:lineEnd], "\r")
 		source := strings.TrimSpace(strings.TrimPrefix(line, marker))
 		if source == "" {
 			searchFrom = lineEnd
-			if searchFrom < len(scanBody) && scanBody[searchFrom] == '\n' {
+			if searchFrom < len(body) && body[searchFrom] == '\n' {
 				searchFrom++
 			}
 			continue
@@ -866,9 +861,22 @@ func traceArtifactKindAndDetail(source, body string) (string, string) {
 	}
 	if strings.Contains(sample, "perf_sample:") && kind == "trace" {
 		kind = "perftrace"
-		detail = appendDetail("perf sample text", "inline perf_sample rows")
+		detail = traceArtifactRebaseDetail(detail, "runtime trace", "perf sample text")
+		detail = appendDetail(detail, "inline perf_sample rows")
 	}
 	return kind, detail
+}
+
+func traceArtifactRebaseDetail(detail, oldBase, newBase string) string {
+	out := strings.TrimSpace(newBase)
+	for _, part := range strings.Split(detail, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" || strings.EqualFold(part, oldBase) || strings.EqualFold(part, newBase) {
+			continue
+		}
+		out = appendDetail(out, part)
+	}
+	return out
 }
 
 func traceArtifactDetailSample(body string) string {

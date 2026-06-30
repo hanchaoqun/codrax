@@ -167,6 +167,39 @@ func TestRuntimeArtifactsFromAttachmentLargeTraceUsesBoundedMetadataScan(t *test
 	}
 }
 
+func TestRuntimeArtifactsFromAttachmentLargeTracePreservesLateSourceHeaders(t *testing.T) {
+	traceBody := "# codrax-source: first.systrace\n" +
+		strings.Repeat("sched_switch: prev_comm=app prev_pid=1 ==> next_comm=worker next_pid=2\n", 128*1024) +
+		"\n# codrax-source: second.perftrace\n" +
+		"perf_sample: pid=1 tid=2 symbol=foo dso=app source=raw_perfdata_fallback\n"
+	artifacts := RuntimeArtifactsFromAttachment("trace", traceBody)
+	if len(artifacts) != 2 {
+		t.Fatalf("large multi-source trace should preserve both artifact headers, got %+v", artifacts)
+	}
+	if artifacts[0].Source != "first.systrace" || artifacts[0].Kind != "trace" {
+		t.Fatalf("first large artifact identity drifted: %+v", artifacts[0])
+	}
+	if artifacts[1].Source != "second.perftrace" || artifacts[1].Kind != "perftrace" {
+		t.Fatalf("late artifact identity drifted: %+v", artifacts[1])
+	}
+}
+
+func TestRuntimeArtifactsFromAttachmentLargeTraceUsesTailMetadataSample(t *testing.T) {
+	traceBody := "# codrax-source: tail.systrace\n" +
+		strings.Repeat("x", runtimeArtifactMetadataScanBytes+4096) +
+		"\nperf_sample: pid=1 tid=2 symbol=foo dso=app sample_kind=off_cpu\n"
+	artifacts := RuntimeArtifactsFromAttachment("trace", traceBody)
+	if len(artifacts) != 1 {
+		t.Fatalf("large trace attachment should summarize as one artifact, got %+v", artifacts)
+	}
+	if artifacts[0].Kind != "perftrace" {
+		t.Fatalf("tail perf marker should classify bounded sample as perftrace, got %+v", artifacts[0])
+	}
+	if !strings.Contains(artifacts[0].Detail, "sample_kind=off_cpu") {
+		t.Fatalf("tail metadata sample should preserve detail marker, got %+v", artifacts[0])
+	}
+}
+
 func TestRuntimeArtifactsFromRequestLargePathDoesNotNeedFullBody(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "large.systrace")
