@@ -1467,6 +1467,21 @@ func TestTraceQuerySchemaDocumentsFtraceAndCompoundTime(t *testing.T) {
 	}
 }
 
+func TestTraceQuerySchemaDocumentsWakeupChainDefaultDepth(t *testing.T) {
+	body := string((&TraceQuery{}).Parameters())
+	for _, want := range []string{
+		`"max_depth"`,
+		"wakeup_chain recursion limit; default 10.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("trace_query schema missing wakeup-chain depth default %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "default 6") {
+		t.Fatalf("trace_query schema must not drift back to the old max_depth default:\n%s", body)
+	}
+}
+
 func TestTraceQueryDescriptionDocumentsStructuredRequestTargetInheritanceBoundary(t *testing.T) {
 	description := (&TraceQuery{}).Description()
 	for _, want := range []string{
