@@ -5314,7 +5314,7 @@ func TestAnswerDocumentEvaluator_MixedRuntimeCurrentSourceDoesNotRenderObservati
 	}
 }
 
-func TestAnswerDocumentEvaluator_CurrentSourceExplanationProfileRendersMixedGuidance(t *testing.T) {
+func TestAnswerDocumentEvaluator_CurrentSourceExplanationProfileSoftAuthorityRendersCaveatGuidance(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{
 		Errors: []types.LogError{{Type: "timeout"}},
@@ -5343,7 +5343,8 @@ func TestAnswerDocumentEvaluator_CurrentSourceExplanationProfileRendersMixedGuid
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"## 当前源码解释请求",
-		"外部观察 lane 和 current-source lane",
+		"soft/caveat-only",
+		"不要为了这个 soft lane 扩宽答案",
 		"`explain_current_mechanism`",
 		"当前源码解释",
 		"调度链路",
@@ -5355,8 +5356,108 @@ func TestAnswerDocumentEvaluator_CurrentSourceExplanationProfileRendersMixedGuid
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
 	}
+	if strings.Contains(prompt, "请同时使用外部观察 lane 和 current-source lane") {
+		t.Fatalf("soft profile-backed authority must not render strong both-lane wording:\n%s", prompt)
+	}
 	if strings.Contains(prompt, "This dispatch is observation-only") {
 		t.Fatalf("profile-backed mixed runtime+current-source prompt must not claim observation-only:\n%s", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_CurrentSourceExplanationProfilePreciseAuthorityRendersBothLaneGuidance(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "timeout"}},
+	})
+	ctx := &types.AgentContext{
+		Language: "zh",
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentExplain,
+				Scenario:  types.ScenarioArchitectureExplain,
+				Language:  "zh",
+				LogTriage: mut.LogTriage(),
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+					SourceQuotes:                        []string{"internal/tracequery/parse.go:42"},
+					TargetTerms:                         []string{"span parser"},
+					Confidence:                          0.9,
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## 当前源码解释请求",
+		"current-source 义务是精确的",
+		"请同时使用外部观察 lane 和 current-source lane",
+		"internal/tracequery/parse.go:42",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "soft/caveat-only") {
+		t.Fatalf("precise profile-backed authority must not render soft caveat wording:\n%s", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_CurrentSourceExplanationProfileCombinedProofRendersBothLaneGuidance(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "ev-current-trace-parser",
+		Kind:            types.EvidenceDirect,
+		Subject:         "current parser mechanism",
+		Source:          "internal/tracequery/parse.go",
+		LineStart:       42,
+		LineEnd:         45,
+		Scope:           types.ScopeLineRange,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "parseSpan",
+		GroundingStatus: types.GroundingGrounded,
+		Summary:         "current parser mechanism is grounded in source",
+	}})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName:     "trace_query",
+		Success:      true,
+		Observations: []types.ObservationRecord{answerDocRuntimeAuthorityRuntimeRecord()},
+	})
+	ctx := &types.AgentContext{
+		Language:      "en",
+		Mutable:       mut,
+		TurnRouteHint: types.TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Language: "en",
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+					SourceQuotes:                        []string{"current parser mechanism"},
+					Confidence:                          0.9,
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Current-Source Explanation Request",
+		"current-source evidence has already landed",
+		"Use both the external observation lane and the current-source lane",
+		"current_source_satisfied=true",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "soft/caveat-only") {
+		t.Fatalf("combined-proof authority must not render soft caveat wording:\n%s", prompt)
 	}
 }
 

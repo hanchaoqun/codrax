@@ -4471,17 +4471,38 @@ func renderAnswerDocCurrentSourceExplanationProfile(ctx *types.AgentContext) str
 	if profile == nil || !profile.Active() {
 		return ""
 	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, types.ObservationLedger{})
+	if authority.Active &&
+		!authority.CurrentSourceRequired &&
+		authority.RuntimeOnlySufficient &&
+		authority.CurrentSourceRecordCount == 0 {
+		return ""
+	}
 	lang := extractAnswerDocLang(ctx)
 	var b strings.Builder
 	if lang == "zh" {
 		b.WriteString("## 当前源码解释请求\n\n")
-		b.WriteString("- 当前问题要求把外部/非源码观察与当前 checkout 的源码证据结合起来说明。请同时使用外部观察 lane 和 current-source lane；不要把外部观察伪装成源码 `file:line`，也不要因为外部观察存在就省略当前源码解释。\n")
-		b.WriteString("- 如果已读的当前源码证据里有精确符号、函数、配置键、错误类型或字面量锚点，请把这些锚点自然写进正文解释；不要只把它们留在文末引用列表。若外部观察无法追到完整当前源码调用链，请明确边界，但仍解释已由源码证明的相邻机制。\n")
+		switch {
+		case answerDocCurrentSourceProfileShouldUseBothLanes(authority):
+			b.WriteString("- 共享 runtime/source authority 表明 current-source 义务是精确的，或已经有当前源码证据落地。请同时使用外部观察 lane 和 current-source lane；不要把外部观察伪装成源码 `file:line`，也不要因为外部观察存在就省略已落地的当前源码解释。\n")
+		case answerDocCurrentSourceProfileShouldUseSoftCaveat(authority):
+			b.WriteString("- 共享 runtime/source authority 将 current-source 义务判为 soft/caveat-only。保留外部观察作为答案级证据；只有在已落地当前源码证据时才写源码机制，否则用边界说明收敛，不要为了这个 soft lane 扩宽答案或补造源码引用。\n")
+		default:
+			b.WriteString("- 当前问题打开了 current-source 解释 lane。优先使用已落地的当前源码证据；如果没有足够源码证据，请把它作为证据边界说明，而不是把外部观察伪装成源码 `file:line`。\n")
+		}
+		b.WriteString("- 如果已读的当前源码证据里有精确符号、函数、配置键、错误类型或字面量锚点，请把这些锚点自然写进正文解释；不要只把它们留在文末引用列表。若外部观察无法追到完整当前源码调用链，请明确边界，只解释已由源码证明的相邻机制。\n")
 		b.WriteString("- 这是证据 lane 指引，不是系统补表许可；保留模型已经写好的丰富说明，证据不足时用边界说明而不是编造。\n\n")
 	} else {
 		b.WriteString("## Current-Source Explanation Request\n\n")
-		b.WriteString("- The current request asks the answer to combine external/non-source observations with current-checkout source evidence. Use both the external observation lane and the current-source lane; do not pretend external observations are source `file:line` proof, and do not omit current-source explanation just because an external observation exists.\n")
-		b.WriteString("- When already-read current-source evidence provides exact symbols, functions, config keys, error types, or literal anchors, weave those anchors into the visible explanation instead of leaving them only in the bibliography. If the external observation cannot be traced to a complete current-source call chain, state that boundary while still explaining the adjacent mechanism proven by source evidence.\n")
+		switch {
+		case answerDocCurrentSourceProfileShouldUseBothLanes(authority):
+			b.WriteString("- The shared runtime/source authority says the current-source obligation is precise, or current-source evidence has already landed. Use both the external observation lane and the current-source lane; do not pretend external observations are source `file:line` proof, and do not omit landed current-source explanation just because an external observation exists.\n")
+		case answerDocCurrentSourceProfileShouldUseSoftCaveat(authority):
+			b.WriteString("- The shared runtime/source authority classifies the current-source obligation as soft/caveat-only. Preserve external observations as answer-grade support; use current-source mechanism detail only when current-source evidence has landed, otherwise converge with a source-boundary note instead of broadening the answer or inventing source citations for this soft lane.\n")
+		default:
+			b.WriteString("- The current request opens a current-source explanation lane. Prefer landed current-source evidence; when source proof is insufficient, disclose that evidence boundary instead of pretending external observations are source `file:line` proof.\n")
+		}
+		b.WriteString("- When already-read current-source evidence provides exact symbols, functions, config keys, error types, or literal anchors, weave those anchors into the visible explanation instead of leaving them only in the bibliography. If the external observation cannot be traced to a complete current-source call chain, state that boundary while explaining only adjacent mechanisms proven by source evidence.\n")
 		b.WriteString("- This is evidence-lane guidance, not permission for system table replacement. Preserve model-authored explanation; disclose unsupported parts in a boundary note instead of inventing facts.\n\n")
 	}
 	if len(profile.Modes) > 0 {
@@ -4527,6 +4548,29 @@ func renderAnswerDocCurrentSourceExplanationProfile(ctx *types.AgentContext) str
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocCurrentSourceProfileShouldUseBothLanes(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	return authority.CanHardBlockCompletion ||
+		authority.CurrentSourceSatisfied ||
+		authority.CurrentSourceRecordCount > 0 ||
+		authority.ExactCurrentSourceSupportCount > 0
+}
+
+func answerDocCurrentSourceProfileShouldUseSoftCaveat(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if !authority.Active {
+		return false
+	}
+	if answerDocCurrentSourceProfileShouldUseBothLanes(authority) {
+		return false
+	}
+	return authority.CanDowngradeToCaveat ||
+		authority.CanUseRuntimeOnlyWithCaveat ||
+		(authority.CurrentSourceRequirement == types.RuntimeSourceRequirementSoft &&
+			authority.NeedsCurrentSourceEvidence)
 }
 
 func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) string {
