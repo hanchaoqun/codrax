@@ -3252,6 +3252,7 @@ func normalizePrincipalEnumerationSectionBlocks(doc *types.AnswerDocumentV2, set
 		block.Title = title
 		changed++
 	}
+	block.SystemGeneratedKind = types.AnswerSystemGeneratedPrincipalEnumerationSection
 	block.SurfaceRole = types.SurfacePrincipal
 	block.FacetIDs = mergeStringSet(block.FacetIDs, []string{string(types.FacetEnumerationItem)})
 	block.ClaimUses = appendRenderedClaimUseIfMissing(block.ClaimUses, types.ClaimDefinitionFact, string(types.FacetEnumerationItem))
@@ -3561,6 +3562,9 @@ func principalEnumerationSectionBlockIsGeneratedShell(block types.AnswerBlock, s
 	if block.Kind != types.BlockSection || len(block.Items) > 0 || len(block.Columns) > 0 || block.Diagram != nil {
 		return false
 	}
+	if block.SystemGeneratedKind != types.AnswerSystemGeneratedPrincipalEnumerationSection {
+		return false
+	}
 	blockTitle := strings.TrimSpace(block.Title)
 	blockText := strings.TrimSpace(block.Text)
 	title = strings.TrimSpace(title)
@@ -3571,10 +3575,7 @@ func principalEnumerationSectionBlockIsGeneratedShell(block types.AnswerBlock, s
 	if blockText == "" || blockText == text {
 		return true
 	}
-	label := strings.TrimSpace(set.Label)
-	return label != "" &&
-		strings.Contains(blockText, label) &&
-		strings.Contains(blockText, "完整成员、定义位置和说明见对应表格")
+	return false
 }
 
 func principalEnumerationSectionBlockIsRedundant(block types.AnswerBlock, set types.EnumerationDisplaySet, title, text string) bool {

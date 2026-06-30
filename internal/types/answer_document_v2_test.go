@@ -13,7 +13,7 @@ func TestAnswerBlockSystemGeneratedKindIsInternalOnly(t *testing.T) {
 			ID:                  "system-row-supplement",
 			Kind:                BlockTable,
 			Title:               "display title",
-			SystemGeneratedKind: AnswerSystemGeneratedPrincipalEnumerationMissing,
+			SystemGeneratedKind: AnswerSystemGeneratedPrincipalEnumerationSection,
 		}},
 	}
 	body, err := json.Marshal(doc)
@@ -25,6 +25,7 @@ func TestAnswerBlockSystemGeneratedKindIsInternalOnly(t *testing.T) {
 		"system_generated",
 		"SystemGeneratedKind",
 		string(AnswerSystemGeneratedPrincipalEnumerationMissing),
+		string(AnswerSystemGeneratedPrincipalEnumerationSection),
 	} {
 		if strings.Contains(raw, forbidden) {
 			t.Fatalf("internal system marker leaked into JSON: %q contains %q", raw, forbidden)

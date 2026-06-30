@@ -287,6 +287,7 @@ const (
 	AnswerSystemGeneratedPrincipalEnumerationRows    AnswerSystemGeneratedBlockKind = "principal_enumeration_rows"
 	AnswerSystemGeneratedPrincipalEnumerationFields  AnswerSystemGeneratedBlockKind = "principal_enumeration_fields"
 	AnswerSystemGeneratedPrincipalEnumerationNotes   AnswerSystemGeneratedBlockKind = "principal_enumeration_notes"
+	AnswerSystemGeneratedPrincipalEnumerationSection AnswerSystemGeneratedBlockKind = "principal_enumeration_section"
 )
 
 func (k AnswerSystemGeneratedBlockKind) IsPrincipalEnumerationSupplement() bool {

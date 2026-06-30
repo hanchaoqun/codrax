@@ -3058,9 +3058,9 @@ func TestNormalizePrincipalEnumerationRowBlocks_RemovesRedundantSectionShells(t 
 	}
 	sectionText := "类型成员共 3 项；完整成员、定义位置和说明见对应表格。"
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
-		{ID: "sec1", Kind: types.BlockSection, Title: "类型成员（3）", Text: sectionText},
-		{ID: "sec2", Kind: types.BlockSection, Title: "类型成员（3）", Text: sectionText},
-		{ID: "sec3", Kind: types.BlockSection, Title: "类型成员（3）", Text: sectionText},
+		{ID: "sec1", Kind: types.BlockSection, Title: "类型成员（3）", Text: sectionText, SystemGeneratedKind: types.AnswerSystemGeneratedPrincipalEnumerationSection},
+		{ID: "sec2", Kind: types.BlockSection, Title: "类型成员（3）", Text: sectionText, SystemGeneratedKind: types.AnswerSystemGeneratedPrincipalEnumerationSection},
+		{ID: "sec3", Kind: types.BlockSection, Title: "类型成员（3）", Text: sectionText, SystemGeneratedKind: types.AnswerSystemGeneratedPrincipalEnumerationSection},
 		{
 			ID:    "table",
 			Kind:  types.BlockTable,
@@ -3080,6 +3080,29 @@ func TestNormalizePrincipalEnumerationRowBlocks_RemovesRedundantSectionShells(t 
 	}
 	if sectionCount != 1 {
 		t.Fatalf("redundant section shells should collapse to one, got %d blocks: %+v", sectionCount, doc.Blocks)
+	}
+}
+
+func TestPrincipalEnumerationSectionBlockIsGeneratedShellRequiresSystemMarker(t *testing.T) {
+	set := types.EnumerationDisplaySet{
+		Label: "类型成员",
+		Rows:  []types.EnumerationDisplayRow{{Member: "Kind", DisplayLabel: "Kind"}},
+	}
+	title := "类型成员（1）"
+	text := "类型成员共 1 项；完整成员、定义位置和说明见对应表格。"
+	modelAuthored := types.AnswerBlock{
+		ID:    "model-section",
+		Kind:  types.BlockSection,
+		Title: title,
+		Text:  text,
+	}
+	if principalEnumerationSectionBlockIsGeneratedShell(modelAuthored, set, title, text) {
+		t.Fatal("visible generated-shell prose without internal marker must not be treated as a system-generated shell")
+	}
+	systemAuthored := modelAuthored
+	systemAuthored.SystemGeneratedKind = types.AnswerSystemGeneratedPrincipalEnumerationSection
+	if !principalEnumerationSectionBlockIsGeneratedShell(systemAuthored, set, title, text) {
+		t.Fatal("internal marker should identify deterministic principal-enumeration section shells")
 	}
 }
 
