@@ -669,6 +669,87 @@ func TestStreamStateClusterPreservesDominantLongSleepWithoutFullIndex(t *testing
 	}
 }
 
+func TestStreamStateClusterPreservesParentWindowStatePriorities(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state_cluster_priorities.systrace")
+	body := strings.Join([]string{
+		`      app-20  (   20) [001] .... 2.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`      app-20  (   20) [001] .... 2.010000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`   runner-30  (   30) [002] .... 2.000000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=runner next_pid=30 next_prio=40`,
+		`   waiter-40  (   40) [003] .... 2.015000: sched_switch: prev_comm=waiter prev_pid=40 prev_prio=40 prev_state=R ==> next_comm=idle/3 next_pid=0 next_prio=120`,
+		`       io-50  (   50) [004] .... 2.019000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=io next_pid=50 next_prio=40`,
+		`       io-50  (   50) [004] .... 2.020000: sched_switch: prev_comm=io prev_pid=50 prev_prio=40 prev_state=D ==> next_comm=idle/4 next_pid=0 next_prio=120`,
+		`       irq-2  (    2) [004] .... 2.021000: sched_blocked_reason: pid=50 iowait=1 caller=f2fs_wait_on_block`,
+		`       irq-2  (    2) [004] .... 2.080000: sched_wakeup: comm=io pid=50 prio=40 target_cpu=004`,
+		`   waiter-40  (   40) [003] .... 2.085000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=waiter next_pid=40 next_prio=40`,
+		`   runner-30  (   30) [002] .... 2.090000: sched_switch: prev_comm=runner prev_pid=30 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120`,
+		`    waker-10  (   10) [000] .... 2.095000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`      app-20  (   20) [001] .... 2.100000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := StreamStateCluster(context.Background(), path, Query{
+		TimeStart:       2.0,
+		TimeEnd:         2.12,
+		TraceFlavorHint: TraceFlavorHarmonyHitrace,
+	}, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.WindowStats == nil {
+		t.Fatalf("expected parent-window stream stats")
+	}
+	if td := threadDurationForPID(res.WindowStats.SleepTop, 20); td == nil || td.DurationMs < 80 {
+		t.Fatalf("parent state_cluster must preserve long sleep as a state priority: %+v", res.WindowStats.SleepTop)
+	}
+	if td := threadDurationForPID(res.WindowStats.RunnableTop, 40); td == nil || td.DurationMs < 60 {
+		t.Fatalf("parent state_cluster must preserve long runnable wait as a state priority: %+v", res.WindowStats.RunnableTop)
+	}
+	if td := threadDurationForPID(res.WindowStats.IOWaitTop, 50); td == nil || td.DurationMs < 55 {
+		t.Fatalf("parent state_cluster must preserve D/IO wait as a state priority: %+v", res.WindowStats.IOWaitTop)
+	}
+	if td := threadDurationForPID(res.WindowStats.TopRunning, 30); td == nil || td.DurationMs < 80 {
+		t.Fatalf("parent state_cluster must preserve running supply/cpu work as a state priority: %+v", res.WindowStats.TopRunning)
+	}
+	assertStateDrilldownStep(t, res.WindowStats.StateDrilldownPlan, 20, string(StateSSleep), true, true, "wakeup_chain", "root_cause_rank")
+	assertStateDrilldownStep(t, res.WindowStats.StateDrilldownPlan, 40, string(StateRunnable), true, true, "scheduler_latency_stats", "root_cause_rank")
+	assertStateDrilldownStep(t, res.WindowStats.StateDrilldownPlan, 50, string(StateIOWait), true, true, "critical_blocking_calls", "root_cause_rank")
+	assertStateDrilldownStep(t, res.WindowStats.StateDrilldownPlan, 30, string(StateRunning), false, false, "trace_perf_bundle", "root_cause_rank")
+	if !containsSubstring(res.Caveats, "state_cluster is parent-window coverage for prioritizing drilldown") {
+		t.Fatalf("parent-window state_cluster caveat missing: %+v", res.Caveats)
+	}
+}
+
+func threadDurationForPID(items []ThreadDuration, pid int) *ThreadDuration {
+	for i := range items {
+		if items[i].Thread.PID == pid {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func assertStateDrilldownStep(t *testing.T, steps []StateDrilldownStep, pid int, state string, chainRequired, recursive bool, recommendedViews ...string) {
+	t.Helper()
+	for _, step := range steps {
+		if step.Thread.PID != pid || step.State != state {
+			continue
+		}
+		if step.ChainRequired != chainRequired || step.Recursive != recursive {
+			t.Fatalf("state drilldown pid=%d state=%s chain/recursive mismatch: %+v", pid, state, step)
+		}
+		for _, view := range recommendedViews {
+			if !containsString(step.RecommendedViews, view) {
+				t.Fatalf("state drilldown pid=%d state=%s missing recommended view %q: %+v", pid, state, view, step)
+			}
+		}
+		return
+	}
+	t.Fatalf("missing state drilldown pid=%d state=%s in %+v", pid, state, steps)
+}
+
 func TestBuildIndexCanonicalPathReusesCache(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "canonical.systrace")
