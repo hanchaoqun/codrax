@@ -8393,6 +8393,101 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryObservationSupplem
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceStateDrilldownSupplement(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "trace_query",
+			Success:  true,
+			Observations: []types.ObservationRecord{
+				{
+					ID:              "trace_query:drilldown:top-sleep",
+					Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+					Producer:        "trace_query",
+					Role:            types.AnswerAggregateRoleSupportingCoverage,
+					GroundingPolicy: types.ClaimGroundingHard,
+					SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace.txt"},
+					Span:            types.ObservationSpan{LineStart: 210, LineEnd: 230},
+					ClaimKey:        "state_drilldown:main-1:S",
+					Subject:         "main-1",
+					Predicate:       "state_drilldown",
+					Object:          "S",
+					Value:           "21.000",
+					Unit:            "ms",
+					RichNotes: []string{
+						"source=top_sleep",
+						"recommended_views=wakeup_chain,root_cause_rank",
+						"chain_required=true",
+						"recursive=true",
+						"window=1.000000..1.200000",
+					},
+					SupportRefs: []string{"attached_trace.txt:210-230"},
+				},
+				{
+					ID:              "trace_query:drilldown:fragmented-sleep",
+					Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+					Producer:        "trace_query",
+					Role:            types.AnswerAggregateRoleSupportingCoverage,
+					GroundingPolicy: types.ClaimGroundingHard,
+					SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace.txt"},
+					Span:            types.ObservationSpan{LineStart: 240, LineEnd: 260},
+					ClaimKey:        "state_drilldown:main-1:S:fragmented",
+					Subject:         "main-1",
+					Predicate:       "state_drilldown",
+					Object:          "S",
+					Value:           "18.000",
+					Unit:            "ms",
+					RichNotes: []string{
+						"source=state_churn",
+						"recommended_views=thread_timeline,interaction_stats,window_stats",
+						"chain_required=false",
+						"recursive=false",
+					},
+					SupportRefs: []string{"attached_trace.txt:240-260"},
+				},
+			},
+		}},
+	})
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "主线程阻塞需要保留状态下钻结论。",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"系统补充：trace_query 关键观测核对",
+		"state_drilldown:main-1:S：main-1 -> S",
+		"value=21.000ms",
+		"source=top_sleep",
+		"recommended_views=wakeup_chain,root_cause_rank",
+		"chain_required=true",
+		"recursive=true",
+		"state_drilldown:main-1:S:fragmented：main-1 -> S",
+		"value=18.000ms",
+		"source=state_churn",
+		"recommended_views=thread_timeline,interaction_stats,window_stats",
+		"chain_required=false",
+		"recursive=false",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer missing trace state-drilldown supplement fragment %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+	if strings.Contains(out.FinalAnswer, "not_enough_evidence") ||
+		strings.Contains(out.FinalAnswer, "current-repo source citations") {
+		t.Fatalf("state_drilldown supplement must stay runtime-observation only:\n%s", out.FinalAnswer)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_PrioritizesTraceQueryOccurrenceWindowsSupplement(t *testing.T) {
 	observations := make([]types.ObservationRecord, 0, 9)
 	for i := 0; i < 8; i++ {

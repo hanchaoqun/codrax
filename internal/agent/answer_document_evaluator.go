@@ -11997,6 +11997,8 @@ func traceQueryObservationSupplementOrder(record types.ObservationRecord) int {
 		return 10
 	case strings.HasPrefix(claimKey, "critical_blocking"):
 		return 15
+	case strings.HasPrefix(claimKey, "state_drilldown"):
+		return 18
 	case claimKey == "wakeup_chain:path":
 		return 20
 	case strings.HasPrefix(claimKey, "root_cause_secondary"):
@@ -12102,6 +12104,7 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord) string
 		"occurrence_windows=",
 		"prio=", "target_prio=", "dominant_state=", "impact=", "impact_ms=", "cumulative_impact_ms=", "target_impact=",
 		"path=", "occurrences=", "total=", "fragments=", "switches=",
+		"source=", "recommended_views=", "chain_required=", "recursive=", "window=",
 		"running=", "runnable=", "sleep=", "d_state=", "io_wait=",
 		"peer_state_dominant=", "peer_state_total=", "peer_state_running=", "peer_state_runnable=",
 		"peer_state_sleep=", "peer_state_d_state=", "peer_state_io_wait=", "peer_state_fragments=",
