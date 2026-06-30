@@ -1313,9 +1313,14 @@ func emitEvidenceSourceIsExternalObservationURI(source string) bool {
 
 func emitEvidenceExternalObservationSourceKind(source string) string {
 	lower := strings.ToLower(strings.TrimSpace(source))
+	runtimeKind := types.RuntimeArtifactPathKind(source)
 	switch {
 	case emitEvidenceSourceIsExternalObservationURI(lower):
 		return "resource"
+	case runtimeKind == "log":
+		return "runtime_log"
+	case runtimeKind != "":
+		return "runtime_artifact"
 	case lower == "runtime log (unresolved)":
 		return "runtime_log"
 	case lower == "runtime trace (unresolved)" || lower == "runtime artifact (unresolved)":

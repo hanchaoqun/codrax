@@ -9195,7 +9195,8 @@ func successCriterionRepairLocusOverride(bus *types.BusContext, kind criterion.K
 	if err != nil || required <= 0 {
 		return ""
 	}
-	if citationGradeAnchorCapacity(bus) >= required {
+	if citationGradeAnchorCapacity(bus) >= required ||
+		runtimeArtifactCitationSupportCapacity(bus) >= required {
 		return types.LocusFinalizer
 	}
 	return ""
@@ -9203,6 +9204,13 @@ func successCriterionRepairLocusOverride(bus *types.BusContext, kind criterion.K
 
 func citationGradeAnchorCapacity(bus *types.BusContext) int {
 	return len(citationGradeAnchorKeys(bus))
+}
+
+func runtimeArtifactCitationSupportCapacity(bus *types.BusContext) int {
+	if !runtimeArtifactCitationFloorWaivedForBus(bus, nil) {
+		return 0
+	}
+	return runtimeArtifactObservationSupportCount(bus)
 }
 
 // runAnswerReviewerOnSuccess dispatches read-mode end-of-Run learning.

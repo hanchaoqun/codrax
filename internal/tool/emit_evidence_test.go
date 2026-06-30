@@ -188,6 +188,51 @@ func TestEmitEvidence_RuntimeUnresolvedSourceStaysExternalObservation(t *testing
 	}
 }
 
+func TestEmitEvidence_AttachedTraceBlobStaysExternalObservation(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "android.haitong-56023",
+				"source": ".codrax/blob/20260630-091213-000-29296/attached_trace.txt",
+				"line_start": 188556,
+				"summary": "trace_query identified the on-chain runnable blocker",
+				"anchor_kind": "text_reference",
+				"anchor_symbol": "android.haitong-56023"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("attached trace blob should produce an advisory success, got: %s", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != types.ToolRepairCodeEvidenceExternalObservationToClosure {
+		t.Fatalf("attached trace blob should publish typed repair, got %+v", res.Repair)
+	}
+	if got := ctx.Mutable.EmittedEvidence(); len(got) != 0 {
+		t.Fatalf("attached trace blob rows must not enter current-source evidence buffer: %+v", got)
+	}
+	for _, want := range []string{
+		"runtime_artifact external observation",
+		".codrax/blob/20260630-091213-000-29296/attached_trace.txt:188556",
+		"emit_investigation_complete.reason",
+		"aggregate_facts",
+	} {
+		if !strings.Contains(res.Summary, want) && (res.Repair == nil || !strings.Contains(res.Repair.Hint, want)) {
+			t.Fatalf("summary/repair missing %q; summary=%s repair=%+v", want, res.Summary, res.Repair)
+		}
+	}
+	if strings.Contains(res.Summary, "→ ungrounded") || strings.Contains(res.Summary, "Current actionable repair targets") {
+		t.Fatalf("attached trace blob rows should not be rendered as ungrounded source evidence:\n%s", res.Summary)
+	}
+}
+
 func TestEmitEvidence_RepairsStringLoadBearingSummary(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

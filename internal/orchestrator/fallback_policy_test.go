@@ -397,6 +397,47 @@ func TestSuccessCriterionRepairLocusOverride_CitationCountUsesExistingEvidence(t
 	}
 }
 
+func TestSuccessCriterionRepairLocusOverride_CitationCountUsesRuntimeTraceSupport(t *testing.T) {
+	mut := types.NewMutableState("只分析 OHTrace_20260626_16.32.34.ftrace，不分析代码")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{
+			runtimeTraceObservationForCitationFloorTest("trace_query:haitong:1", "android.haitong-56023", "runnable_blocked", "/tmp/OHTrace_20260626_16.32.34.ftrace:188556-188560"),
+			runtimeTraceObservationForCitationFloorTest("trace_query:haitong:2", "Thread-10-56284", "d_state_io", "/tmp/OHTrace_20260626_16.32.34.ftrace:191287-191300"),
+			runtimeTraceObservationForCitationFloorTest("trace_query:haitong:3", "DefaultDispatch-56273", "on_chain_running", "/tmp/OHTrace_20260626_16.32.34.ftrace:189000-189050"),
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioPerformanceBottleneck,
+				AnalyzerHints: types.AnalyzerHints{
+					ExactTargets: []string{"OHTrace_20260626_16.32.34.ftrace"},
+				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					SourceQuotes:         []string{"只分析 trace，不分析代码"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 3},
+			},
+		},
+	}
+
+	if got := successCriterionRepairLocusOverride(bus, criterion.Kind(types.CritCitationCountGE), "3"); got != types.LocusFinalizer {
+		t.Fatalf("citation_count_ge with enough runtime trace support should be finalizer-local, got %q", got)
+	}
+	if got := successCriterionRepairLocusOverride(bus, criterion.Kind(types.CritCitationCountGE), "4"); got != "" {
+		t.Fatalf("citation_count_ge without enough runtime trace support should not override, got %q", got)
+	}
+}
+
 // TestLocusOfTarget_AllTargetsMapped pins the FallbackTarget →
 // RepairLocus mapping completeness invariant.
 func TestLocusOfTarget_AllTargetsMapped(t *testing.T) {
