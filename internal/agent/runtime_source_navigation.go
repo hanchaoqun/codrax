@@ -22,6 +22,9 @@ type runtimeSourceNavigationPhaseView struct {
 	TraceQueryAttempted               bool
 	RuntimeObservationAvailable       bool
 	CurrentSourceLane                 types.CurrentSourceLaneDecision
+	CurrentSourceRequirement          types.RuntimeSourceRequirementPrecision
+	CurrentSourceSatisfied            bool
+	CurrentSourceHardBlock            bool
 	SourceOwnerRequired               bool
 	RuntimeProbePreferredBeforeSource bool
 	RuntimeProbeHardRequired          bool
@@ -32,7 +35,15 @@ func runtimeSourceNavigationPhaseForExplorer(ctx *types.AgentContext, traceQuery
 	rm := requestModelFromContext(ctx)
 	if rm != nil {
 		view.CurrentSourceLane = rm.CurrentSourceLaneDecision()
-		view.SourceOwnerRequired = view.CurrentSourceLane.RequiresCurrentSource()
+		authority := runtimeSourceAnswerAuthorityForExplorer(ctx)
+		view.CurrentSourceRequirement = authority.CurrentSourceRequirement
+		view.CurrentSourceSatisfied = authority.CurrentSourceSatisfied
+		view.CurrentSourceHardBlock = authority.CanHardBlockCompletion
+		if authority.Active {
+			view.SourceOwnerRequired = authority.CanHardBlockCompletion || authority.CurrentSourceSatisfied
+		} else {
+			view.SourceOwnerRequired = view.CurrentSourceLane.RequiresCurrentSource()
+		}
 	}
 	view.TraceQueryAvailable = traceQueryInCurrentSurface && traceQueryToolAvailable(ctx)
 	view.TraceQueryAttempted = explorerTraceQueryAlreadyAttempted(ctx)
@@ -66,12 +77,16 @@ func renderRuntimeSourceNavigationPhasePrompt(ctx *types.AgentContext) string {
 	}
 	var b strings.Builder
 	b.WriteString("Typed navigation phase: ")
-	fmt.Fprintf(&b, "`phase=%s`, `current_source_lane=%s`.\n", view.Phase, view.CurrentSourceLane)
+	requirement := strings.TrimSpace(string(view.CurrentSourceRequirement))
+	if requirement == "" {
+		requirement = "none"
+	}
+	fmt.Fprintf(&b, "`phase=%s`, `current_source_lane=%s`, `current_source_requirement=%s`.\n", view.Phase, view.CurrentSourceLane, requirement)
 	b.WriteString("- First run one bounded `trace_query` runtime probe for the attached trace. Do not start with `repo_map`, `grep`, `list_files`, or `read_file` while this step is pending.\n")
 	if view.SourceOwnerRequired {
 		b.WriteString("- Then collect focused current-source evidence after the runtime probe; use source-owner tools only for the unresolved source mechanism, not for broad repo discovery.\n\n")
 	} else {
-		b.WriteString("- Then use source-owner tools only if the trace result leaves a source question unresolved or reports unsupported/incomplete coverage.\n\n")
+		b.WriteString("- Then use source-owner tools only if the trace result leaves a precise source question unresolved or reports unsupported/incomplete coverage; soft current-source gaps should converge through bounded follow-up or a caveat, not broad repo discovery.\n\n")
 	}
 	return b.String()
 }

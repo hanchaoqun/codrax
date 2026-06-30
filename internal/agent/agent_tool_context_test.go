@@ -830,12 +830,56 @@ func TestValidateExplorerTraceQueryFirstToolCall_AllowsCurrentSourceRequired(t *
 		Confidence: 0.95,
 	}}
 	ctx := traceQueryFirstTestContext(rm, types.NewMutableState("trace source verification"))
+	phase := runtimeSourceNavigationPhaseForExplorer(ctx, true)
+	if phase.CurrentSourceRequirement != types.RuntimeSourceRequirementPrecise ||
+		!phase.SourceOwnerRequired ||
+		phase.RuntimeProbeHardRequired {
+		t.Fatalf("precise current-source hint should require source owner without trace-query-first hard block, got %+v", phase)
+	}
 	got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
 		Name:   "read_file",
 		Params: json.RawMessage(`{"path":"internal/tracequery/types.go"}`),
 	}, true)
 	if got != nil {
 		t.Fatalf("current-source required trace questions must keep source tools available, got %+v", got)
+	}
+}
+
+func TestValidateExplorerTraceQueryFirstToolCall_SoftCurrentSourceUsesTraceFirst(t *testing.T) {
+	rm := traceQueryFirstRuntimeRequestModel()
+	rm.CurrentSourceExplanationProfile = &types.CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+		SourceQuotes:                        []string{"current parser mechanism"},
+		Confidence:                          0.9,
+	}
+	ctx := traceQueryFirstTestContext(rm, types.NewMutableState("trace soft source"))
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
+		t.Fatalf("soft profile should still open the current-source lane, got %s", got)
+	}
+	phase := runtimeSourceNavigationPhaseForExplorer(ctx, true)
+	if phase.CurrentSourceRequirement != types.RuntimeSourceRequirementSoft ||
+		phase.SourceOwnerRequired ||
+		!phase.RuntimeProbeHardRequired {
+		t.Fatalf("soft current-source obligation should prefer trace_query and not require source owner, got %+v", phase)
+	}
+	prompt := renderRuntimeSourceNavigationPhasePrompt(ctx)
+	if !strings.Contains(prompt, "current_source_requirement=soft") ||
+		!strings.Contains(prompt, "soft current-source gaps should converge through bounded follow-up or a caveat") {
+		t.Fatalf("soft navigation prompt should explain bounded/caveat follow-up, got:\n%s", prompt)
+	}
+	got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"internal/tracequery/types.go"}`),
+	}, true)
+	if got == nil {
+		t.Fatal("soft mixed runtime/source trace should run trace_query before source fallback")
+	}
+	if got.Repair == nil || got.Repair.Code != explorerTraceQueryFirstCode {
+		t.Fatalf("soft trace-first repair code = %+v, want %q", got.Repair, explorerTraceQueryFirstCode)
+	}
+	if got.Repair.Metadata["current_source_lane"] != string(types.CurrentSourceLaneRequired) {
+		t.Fatalf("repair should still disclose the typed lane, got %+v", got.Repair.Metadata)
 	}
 }
 
