@@ -606,6 +606,10 @@ func hypothesisVerdictRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.Bus
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
+	if runtimeSourceAuthorityAppliesToArtifactCitationCleanup(ctx, authority) {
+		return runtimeSourceAuthorityAllowsArtifactCitationCleanup(authority)
+	}
 	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(types.RuntimeArtifactContextActiveFromBus(ctx))
 }
 

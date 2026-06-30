@@ -455,6 +455,74 @@ func TestEmitHypothesisVerdict_AcceptsRationaleOnlyRuntimeArtifactVerdictWhenSou
 	}
 }
 
+func TestEmitHypothesisVerdict_AcceptsLedgerOnlyRuntimeArtifactVerdictViaAuthority(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	mut := types.NewMutableState("runtime probe")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "runtime_probe",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "runtime_probe:row:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "runtime_probe",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				ArtifactID:   "runtime_probe.json",
+				ArtifactKind: "trace",
+				RowSetRef:    "row:1",
+			},
+			Subject:   "span",
+			Predicate: "runtime_observed",
+			Summary:   "runtime probe row grounds the confirmed hypothesis",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &types.AnalysisIR{
+			Version: types.AnalysisIRVersion,
+			RequestModel: types.RequestModel{
+				Language: "zh",
+				Intent:   types.IntentRootCause,
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.9,
+				},
+			},
+		},
+	}
+	if types.RuntimeArtifactContextActiveFromBus(ctx) {
+		t.Fatal("test must not rely on attached artifact or trace_query runtime counter")
+	}
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"runtime_probe 已经确认目标 span。"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ledger-only runtime artifact verdict should be accepted via authority, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 {
+		t.Fatalf("want 1 verdict, got %d", len(got))
+	}
+	if got[0].Citation != "" {
+		t.Fatalf("runtime artifact rationale must not become repo citation, got %q", got[0].Citation)
+	}
+	if !strings.Contains(got[0].Rationale, "附件运行时材料") {
+		t.Fatalf("rationale should preserve typed runtime artifact provenance, got %q", got[0].Rationale)
+	}
+}
+
 func TestEmitHypothesisVerdict_NormalizesExplicitPathRuntimeArtifactLineCitation(t *testing.T) {
 	tool := &EmitHypothesisVerdict{}
 	mut := types.NewMutableState("")
