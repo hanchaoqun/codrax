@@ -155,17 +155,20 @@ func TestRenderExplorerStageReport_RendersTraceObservationCoverage(t *testing.T)
 	observations := []types.ObservationRecord{
 		stageReportTraceObservation("root", "trace_query[0]", "root_cause_primary", "root_cause_primary", "main-1", "runnable", "11.000", []string{"chain_relevance=on_chain"}, types.ObservationSpan{StartTs: 1.0, EndTs: 1.2}),
 		stageReportTraceObservation("drill", "trace_query[0]", "state_drilldown", "state_drilldown:main-1:S", "main-1", "S", "21.000", []string{"source=top_sleep", "recommended_views=wakeup_chain,root_cause_rank", "chain_required=true", "recursive=true"}, types.ObservationSpan{StartTs: 1.0, EndTs: 1.2}),
+		stageReportTraceObservation("fragmented", "trace_query[0]", "state_drilldown", "state_drilldown:main-1:S:fragmented", "main-1", "S", "18.000", []string{"source=state_churn", "recommended_views=thread_timeline,interaction_stats,window_stats", "chain_required=false", "recursive=false"}, types.ObservationSpan{StartTs: 1.0, EndTs: 1.2}),
 		stageReportTraceObservation("path", "trace_query[0]", "wakeup_chain", "wakeup_chain:path", "main-1", "worker-2 -> main-1", "", []string{"path=worker-2 -> main-1"}, types.ObservationSpan{StartTs: 1.0, EndTs: 1.2}),
 	}
 
 	got := renderExplorerStageReport("trace", "runtime", nil, nil, nil, nil, nil, nil, false, observations...)
 	for _, want := range []string{
-		"trace_query_coverage: calls=1 observations=3",
+		"trace_query_coverage: calls=1 observations=4",
 		"windows=`1.000000..1.200000`",
-		"trace_query_dimensions: root_cause_rank:1(on=1 adjacent=0 background=0), wakeup_chain:1, state_drilldown:1",
+		"trace_query_dimensions: root_cause_rank:1(on=1 adjacent=0 background=0), wakeup_chain:1, state_drilldown:2",
 		"trace_query_top[1]: dimension=root_cause_rank id=root chain_relevance=on_chain",
 		"trace_query_top[3]: dimension=state_drilldown id=drill window=1.000000..1.200000",
 		"drilldown_source=top_sleep recommended_views=`wakeup_chain`, `root_cause_rank` chain_required=true recursive=true",
+		"trace_query_top[4]: dimension=state_drilldown id=fragmented window=1.000000..1.200000",
+		"drilldown_source=state_churn recommended_views=`thread_timeline`, `interaction_stats`, `window_stats` chain_required=false recursive=false",
 		"tool_call=trace_query[0]",
 		"support_refs=`trace.systrace:10-20`",
 	} {

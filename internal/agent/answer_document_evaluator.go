@@ -3966,11 +3966,15 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 		if len(obs.RecommendedViews) > 0 {
 			fmt.Fprintf(&b, "; recommended_views=`%s`", strings.Join(obs.RecommendedViews, "`, `"))
 		}
-		if obs.ChainRequired {
-			b.WriteString("; chain_required=true")
-		}
-		if obs.RecursiveDrilldown {
-			b.WriteString("; recursive=true")
+		if obs.Dimension == types.TraceObservationDimensionStateDrilldown {
+			fmt.Fprintf(&b, "; chain_required=%t; recursive=%t", obs.ChainRequired, obs.RecursiveDrilldown)
+		} else {
+			if obs.ChainRequired {
+				b.WriteString("; chain_required=true")
+			}
+			if obs.RecursiveDrilldown {
+				b.WriteString("; recursive=true")
+			}
 		}
 		if obs.Summary != "" {
 			fmt.Fprintf(&b, "; summary=%q", obs.Summary)

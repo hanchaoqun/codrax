@@ -64,9 +64,10 @@ func TestTraceObservationCoverageTreatsStateDrilldownAsStateCoverage(t *testing.
 	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
 		traceCoverageRecord("root", "trace_query:1", "root_cause_primary", "root_cause_primary", "target-1", "sleep_wait", "21.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.0, EndTs: 1.1}),
 		traceCoverageRecord("drill", "trace_query:1", "state_drilldown", "state_drilldown:target-1:S", "target-1", "S", "21.000", []string{"state=S", "source=top_sleep", "recommended_views=wakeup_chain,root_cause_rank", "chain_required=true", "recursive=true"}, ObservationSpan{StartTs: 1.0, EndTs: 1.1}),
+		traceCoverageRecord("fragmented", "trace_query:1", "state_drilldown", "state_drilldown:target-1:S:fragmented", "target-1", "S", "18.000", []string{"state=S", "source=state_churn", "recommended_views=thread_timeline,interaction_stats,window_stats", "chain_required=false", "recursive=false"}, ObservationSpan{StartTs: 1.0, EndTs: 1.1}),
 	})
 	state := traceCoverageDimensionFor(got, TraceObservationDimensionStateDrilldown)
-	if state.Count != 1 || state.Examples[0].Subject != "target-1" {
+	if state.Count != 2 || state.Examples[0].Subject != "target-1" {
 		t.Fatalf("state_drilldown should be a first-class trace coverage dimension, got %+v", got.Dimensions)
 	}
 	if state.Examples[0].DrilldownSource != "top_sleep" ||
@@ -81,6 +82,23 @@ func TestTraceObservationCoverageTreatsStateDrilldownAsStateCoverage(t *testing.
 	}
 	if len(got.TopObservations) < 2 || got.TopObservations[1].Dimension != TraceObservationDimensionStateDrilldown {
 		t.Fatalf("state drilldown should survive top observation ordering, got %+v", got.TopObservations)
+	}
+	var fragmented *TraceObservationCoverageRecord
+	for i := range state.Examples {
+		if state.Examples[i].ID == "fragmented" {
+			fragmented = &state.Examples[i]
+			break
+		}
+	}
+	if fragmented == nil {
+		t.Fatalf("fragmented sleep drilldown should remain visible in coverage examples: %+v", state.Examples)
+	}
+	if fragmented.DrilldownSource != "state_churn" ||
+		fragmented.ChainRequired ||
+		fragmented.RecursiveDrilldown ||
+		!slices.Contains(fragmented.RecommendedViews, "thread_timeline") ||
+		!slices.Contains(fragmented.RecommendedViews, "interaction_stats") {
+		t.Fatalf("fragmented sleep drilldown should be visible but non-recursive: %+v", fragmented)
 	}
 }
 
