@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -608,63 +607,13 @@ func continuationToolRefinementHint(result types.ToolResult) string {
 	if tool := strings.TrimSpace(result.ToolName); tool != "" {
 		parts = append(parts, "tool="+tool)
 	}
-	if refinement.ReasonCode != "" {
-		parts = append(parts, "reason="+refinement.ReasonCode)
+	if reason := strings.TrimSpace(refinement.ReasonCode); reason != "" {
+		parts = append(parts, "reason="+reason)
 	}
-	flags := []string{}
-	if refinement.ResultTruncated {
-		flags = append(flags, "result_truncated")
-	}
-	if refinement.CandidateBudgetTruncated {
-		flags = append(flags, "candidate_budget_truncated")
-	}
-	if len(flags) > 0 {
-		parts = append(parts, "flags="+strings.Join(flags, ","))
-	}
-	if refinement.UniverseExcludedReason != "" {
-		parts = append(parts, "excluded_reason="+refinement.UniverseExcludedReason)
-	}
-	if refinement.ResultTruncated || refinement.CandidateBudgetTruncated || refinement.PreferredNextTool != "" || len(refinement.PreferredParams) > 0 {
-		parts = append(parts, "action=soft_narrow_if_answer_critical_else_caveat")
-	}
-	if refinement.PreferredNextTool != "" {
-		parts = append(parts, "preferred_tool="+refinement.PreferredNextTool)
-	}
-	if len(refinement.PreferredParams) > 0 {
-		keys := make([]string, 0, len(refinement.PreferredParams))
-		for key := range refinement.PreferredParams {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		values := make([]string, 0, len(keys))
-		for _, key := range keys {
-			values = append(values, key+"="+refinement.PreferredParams[key])
-		}
-		parts = append(parts, "preferred_params="+strings.Join(values, ","))
-	}
-	if len(refinement.RequiredFields) > 0 {
-		parts = append(parts, "required_fields="+strings.Join(boundedRetryStrings(refinement.RequiredFields, 8), ","))
-	}
-	if refinement.NextCursor != "" {
-		parts = append(parts, "next_cursor="+refinement.NextCursor)
-	}
-	if len(refinement.SkippedLargeCandidates) > 0 {
-		parts = append(parts, "skipped_large="+strings.Join(boundedRetryStrings(refinement.SkippedLargeCandidates, 4), ","))
-	}
-	if len(refinement.ExcludedRoots) > 0 {
-		parts = append(parts, "excluded_roots="+strings.Join(boundedRetryStrings(refinement.ExcludedRoots, 4), ","))
-	}
-	if len(refinement.TopSourceClasses) > 0 {
-		classes := make([]string, 0, len(refinement.TopSourceClasses))
-		for _, role := range refinement.TopSourceClasses {
-			if role != "" {
-				classes = append(classes, string(role))
-			}
-		}
-		if len(classes) > 0 {
-			parts = append(parts, "top_source_classes="+strings.Join(boundedRetryStrings(classes, 6), ","))
-		}
-	}
+	parts = append(parts, types.ToolRefinementPromptFields(&refinement, types.ToolRefinementPromptFieldOptions{
+		FlagField:   "flags",
+		ActionField: "action",
+	})...)
 	if len(parts) == 0 {
 		return ""
 	}
@@ -685,13 +634,6 @@ func continuationToolResultRefinement(result types.ToolResult) (types.ToolRefine
 		}
 	}
 	return types.ToolRefinementHint{}, false
-}
-
-func boundedRetryStrings(values []string, limit int) []string {
-	if limit > 0 && len(values) > limit {
-		return values[:limit]
-	}
-	return values
 }
 
 func countSuccessfulToolResults(results []types.ToolResult) int {

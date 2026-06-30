@@ -130,85 +130,10 @@ func renderTypedToolRefinementParts(refinement *types.ToolRefinementHint, option
 	if len(options) > 0 {
 		opts = options[0]
 	}
-	if refinement == nil {
-		return nil
-	}
-	hint := types.NormalizeToolRefinementHint(*refinement)
-	if hint.Empty() {
-		return nil
-	}
-	parts := []string{}
-	flags := []string{}
-	if hint.ResultTruncated {
-		flags = append(flags, "result_truncated")
-	}
-	if hint.CandidateBudgetTruncated {
-		flags = append(flags, "candidate_budget_truncated")
-	}
-	if len(flags) > 0 {
-		parts = append(parts, "refine_flags="+quoteHandoffValue(strings.Join(flags, ",")))
-	}
-	if hint.UniverseExcludedReason != "" {
-		parts = append(parts, "excluded_reason="+quoteHandoffValue(hint.UniverseExcludedReason))
-	}
-	if hint.ResultTruncated || hint.CandidateBudgetTruncated || hint.PreferredNextTool != "" || len(hint.PreferredParams) > 0 {
-		parts = append(parts, "refine_action=`soft_narrow_if_answer_critical_else_caveat`")
-	}
-	if hint.PreferredNextTool != "" {
-		field := "preferred_tool"
-		if opts.HistoricalProducerLabels {
-			field = "prior_stage_preferred_tool"
-		}
-		parts = append(parts, field+"="+quoteHandoffValue(hint.PreferredNextTool))
-	}
-	if len(hint.PreferredParams) > 0 {
-		keys := make([]string, 0, len(hint.PreferredParams))
-		for key := range hint.PreferredParams {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		values := make([]string, 0, len(keys))
-		for _, key := range keys {
-			values = append(values, key+"="+hint.PreferredParams[key])
-		}
-		field := "preferred_params"
-		if opts.HistoricalProducerLabels {
-			field = "prior_stage_preferred_params"
-		}
-		parts = append(parts, field+"="+quoteHandoffValue(strings.Join(values, ",")))
-	}
-	if len(hint.RequiredFields) > 0 {
-		field := "required_fields"
-		if opts.HistoricalProducerLabels {
-			field = "prior_stage_required_fields"
-		}
-		parts = append(parts, field+"="+quoteHandoffValue(strings.Join(boundedStringSlice(hint.RequiredFields, 8), ",")))
-	}
-	if hint.NextCursor != "" {
-		field := "next_cursor"
-		if opts.HistoricalProducerLabels {
-			field = "prior_stage_next_cursor"
-		}
-		parts = append(parts, field+"="+quoteHandoffValue(hint.NextCursor))
-	}
-	if len(hint.SkippedLargeCandidates) > 0 {
-		parts = append(parts, "skipped_large="+quoteHandoffValue(strings.Join(boundedStringSlice(hint.SkippedLargeCandidates, 4), ",")))
-	}
-	if len(hint.ExcludedRoots) > 0 {
-		parts = append(parts, "excluded_roots="+quoteHandoffValue(strings.Join(boundedStringSlice(hint.ExcludedRoots, 4), ",")))
-	}
-	if len(hint.TopSourceClasses) > 0 {
-		classes := make([]string, 0, len(hint.TopSourceClasses))
-		for _, role := range hint.TopSourceClasses {
-			if role != "" {
-				classes = append(classes, string(role))
-			}
-		}
-		if len(classes) > 0 {
-			parts = append(parts, "top_source_classes="+quoteHandoffValue(strings.Join(boundedStringSlice(classes, 6), ",")))
-		}
-	}
-	return parts
+	return types.ToolRefinementPromptFields(refinement, types.ToolRefinementPromptFieldOptions{
+		HistoricalProducerLabels: opts.HistoricalProducerLabels,
+		QuoteValues:              true,
+	})
 }
 
 func boundedStringSlice(values []string, limit int) []string {
