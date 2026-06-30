@@ -687,7 +687,8 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	path := answerBlockItemByID(projection.Items, "trace_wakeup_path")
 	if path == nil ||
 		path.Label != "因果链路" ||
-		!strings.Contains(path.Text, "threadpool-400 -> network-300 -> cookie-200 -> app-100") {
+		!strings.Contains(path.Text, "threadpool-400 -> network-300 -> cookie-200 -> app-100") ||
+		!strings.Contains(path.Text, "逐级关系：threadpool-400 唤醒/依赖影响 network-300；network-300 唤醒/依赖影响 cookie-200；cookie-200 唤醒/依赖影响 app-100") {
 		t.Fatalf("projection should preserve wakeup path: %+v", projection.Items)
 	}
 	split := answerBlockItemByID(projection.Items, "trace_chain_relevance_split")
@@ -753,7 +754,8 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 		projection.Items[0].Label != "Primary root cause" ||
 		!strings.Contains(projection.Items[0].Text, "cumulative impact 11.000ms") ||
 		!strings.Contains(projection.Items[0].Text, "direct wakeup chain") ||
-		projection.Items[1].Label != "Causal path" {
+		projection.Items[1].Label != "Causal path" ||
+		!strings.Contains(projection.Items[1].Text, "Per-hop relation: threadpool-400 wakes or dependency-affects network-300; network-300 wakes or dependency-affects app-100") {
 		t.Fatalf("projection items should follow language and remain readable: %+v", projection.Items)
 	}
 }

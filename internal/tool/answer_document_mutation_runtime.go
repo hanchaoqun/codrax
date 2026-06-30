@@ -810,10 +810,37 @@ func runtimeTraceCausalProjectionLabel(kind string, zh bool) string {
 
 func runtimeTraceCausalProjectionPathText(path []string, zh bool) string {
 	joined := strings.Join(path, " -> ")
+	edges := runtimeTraceCausalProjectionPathEdgesText(path, zh)
 	if zh {
-		return "完整唤醒/依赖路径：" + joined + "。阅读方向为上游依赖或唤醒者逐步影响目标线程。"
+		return "完整唤醒/依赖路径：" + joined + "。阅读方向为上游依赖或唤醒者逐步影响目标线程。" + edges
 	}
-	return "Full wakeup/dependency path: " + joined + ". Read left to right as the upstream dependency or waker progressively affects the target thread."
+	return "Full wakeup/dependency path: " + joined + ". Read left to right as the upstream dependency or waker progressively affects the target thread." + edges
+}
+
+func runtimeTraceCausalProjectionPathEdgesText(path []string, zh bool) string {
+	if len(path) < 2 {
+		return ""
+	}
+	edges := make([]string, 0, len(path)-1)
+	for i := 0; i+1 < len(path); i++ {
+		from := strings.TrimSpace(path[i])
+		to := strings.TrimSpace(path[i+1])
+		if from == "" || to == "" {
+			continue
+		}
+		if zh {
+			edges = append(edges, from+" 唤醒/依赖影响 "+to)
+		} else {
+			edges = append(edges, from+" wakes or dependency-affects "+to)
+		}
+	}
+	if len(edges) == 0 {
+		return ""
+	}
+	if zh {
+		return " 逐级关系：" + strings.Join(edges, "；") + "。"
+	}
+	return " Per-hop relation: " + strings.Join(edges, "; ") + "."
 }
 
 func runtimeTraceCausalProjectionNodeText(node types.TraceCausalProjectionNode, zh bool) string {
