@@ -12,8 +12,8 @@ const (
 // universe, so older broad-lens refinement hints should stay in audit logs
 // instead of prompting answer caveats or another user-visible validation pass.
 func SourceInventoryAuthoritySuppressesStaleDisplayDebt(snapshot SourceInventoryAuthoritySnapshot) bool {
-	snapshot = NormalizeSourceInventoryAuthoritySnapshot(snapshot)
-	if !snapshot.Active || snapshot.NeedsFollowup || snapshot.CompletionAuthority.IsBlocking() {
+	view := BuildSourceInventoryAnswerAuthorityView(snapshot)
+	if !view.Active || view.NeedsFollowup || view.CanBlockCompletion {
 		return false
 	}
 	authority := NormalizeSourceInventoryCompletionAuthority(snapshot.CompletionAuthority)

@@ -73,6 +73,22 @@ func TestSourceInventoryAuthoritySnapshot_MechanicalRowsCanLand(t *testing.T) {
 	if snap.PrincipalRowSet.PrincipalTotal != 1 || snap.PrincipalRowSet.PrincipalRows[0].Member.Name != "Greeter" {
 		t.Fatalf("principal row-set = %+v", snap.PrincipalRowSet)
 	}
+	view := BuildSourceInventoryAnswerAuthorityView(snap)
+	if !view.Active || view.CanBlockCompletion || view.CanOnlyCaveat {
+		t.Fatalf("complete authority view should be active and non-blocking: %+v", view)
+	}
+	if !view.CanUseMechanicalRowsForCitation || !view.CanEnterMechanicalLanding {
+		t.Fatalf("authority view should preserve mechanical landing flags: %+v", view)
+	}
+	if len(view.CitationObligations) != 1 {
+		t.Fatalf("citation obligations = %+v, want one principal row", view.CitationObligations)
+	}
+	if got := view.CitationObligations[0]; got.Member != "Greeter" ||
+		got.File != "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj" ||
+		got.Line != 6 ||
+		got.SourceClass != SourcePathRoleThirdParty {
+		t.Fatalf("citation obligation not derived from typed row: %+v", got)
+	}
 }
 
 func TestSourceInventoryAuthoritySnapshot_SourceTextFieldBlocksMechanicalLanding(t *testing.T) {
@@ -252,6 +268,101 @@ func TestSourceInventoryAuthoritySnapshot_RequiredFileGapBlocksLanding(t *testin
 	}
 	if !containsSourceInventorySnapshotReason(snap.ReasonCodes, "required_files_uncovered") {
 		t.Fatalf("reason codes should preserve required-files gap: %+v", snap.ReasonCodes)
+	}
+}
+
+func TestSourceInventoryAnswerAuthorityView_NavigationDebtCanOnlyCaveat(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: false,
+		Scopes:   []string{"."},
+		Provenance: []string{
+			SourceInventoryProvenanceRepoLensToolQuery,
+			SourceInventoryProvenanceStageExplore,
+		},
+		Lens: []string{"members"},
+		Execution: &SourceInventoryExecutionState{
+			CandidateBudgetTruncated: true,
+		},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleType,
+			Complete: false,
+			Count:    24,
+			Total:    120,
+			Members: []SourceInventoryObservationMember{{
+				Name:     "Greeter",
+				Role:     AnswerCandidateRoleType,
+				File:     "src/greeter.go",
+				Line:     8,
+				Language: "go",
+			}},
+		}},
+	}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all types"},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+			Confidence:        0.9,
+		},
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeAll},
+	}
+
+	snap := BuildSourceInventoryAuthoritySnapshot(SourceInventoryAuthoritySnapshotInput{
+		Observation:   obs,
+		RequestModel:  rm,
+		RequiredFiles: []string{"src/greeter.go"},
+	})
+	view := BuildSourceInventoryAnswerAuthorityView(snap)
+	if !view.Active {
+		t.Fatalf("authority view inactive: %+v", view)
+	}
+	if !view.CanOnlyCaveat {
+		t.Fatalf("navigation debt should be caveat-only, got %+v", view)
+	}
+	if view.CanBlockCompletion {
+		t.Fatalf("non-precise navigation debt must not become answer-hard blocking: %+v", view)
+	}
+	if !SourceInventoryCompletionAuthorityCanOnlyCaveat(snap.CompletionAuthority) {
+		t.Fatalf("completion authority helper should agree with view: %+v", snap.CompletionAuthority)
+	}
+}
+
+func TestSourceInventoryAnswerAuthorityView_ExecutableMissingClassCanBlock(t *testing.T) {
+	authority := SourceInventoryCompletionAuthority{
+		Active:     true,
+		Blocking:   true,
+		ReasonCode: SourceInventoryCompletionReasonFollowupDebt,
+		FollowupDebt: SourceInventoryFollowupDebt{
+			Active:     true,
+			ReasonCode: SourceInventoryFollowupDebtMissingSourceClass,
+			Query: SourceInventoryLensQuery{
+				Scopes: []string{"internal/thirdparty"},
+				Roles:  []AnswerCandidateRole{AnswerCandidateRoleType},
+			},
+			MissingClasses:   []SourcePathRole{SourcePathRoleThirdParty},
+			CoveredClasses:   []SourcePathRole{SourcePathRoleProduction},
+			MissingLanguages: []string{"cangjie"},
+		},
+	}
+	snap := NormalizeSourceInventoryAuthoritySnapshot(SourceInventoryAuthoritySnapshot{
+		Active:              true,
+		CompletionAuthority: authority,
+	})
+	view := BuildSourceInventoryAnswerAuthorityView(snap)
+	if view.CanOnlyCaveat {
+		t.Fatalf("executable missing-class debt should stay block-capable: %+v", view)
+	}
+	if !view.CanBlockCompletion {
+		t.Fatalf("executable missing-class debt should be block-capable: %+v", view)
+	}
+	if !SourceInventoryCompletionAuthorityHasExecutableMissingClass(authority) {
+		t.Fatalf("missing-class helper should detect executable typed follow-up: %+v", authority)
 	}
 }
 

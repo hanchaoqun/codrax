@@ -4505,15 +4505,7 @@ func sourceInventoryPreciseCoverageMissingRows(gap SourceInventoryCandidateUnive
 
 func sourceInventoryResolvedCompletionDebtIsAdvisory(ctx *types.BusContext, authority types.SourceInventoryCompletionAuthority, observation types.SourceInventoryObservation) bool {
 	authority = types.NormalizeSourceInventoryCompletionAuthority(authority)
-	if !authority.Blocking {
-		return false
-	}
-	if sourceInventoryResolvedCompletionDebtHasExecutableMissingClass(authority) {
-		return false
-	}
-	switch authority.ReasonCode {
-	case "", types.SourceInventoryCompletionReasonIncompleteObservation, types.SourceInventoryCompletionReasonFollowupDebt:
-	default:
+	if !types.SourceInventoryCompletionAuthorityCanOnlyCaveat(authority) {
 		return false
 	}
 	// The source-inventory completion authority observes navigation/tool debt:
@@ -4555,16 +4547,6 @@ func sourceInventoryResolvedCompletionDebtIsAdvisory(ctx *types.BusContext, auth
 	logging.Info("[emit_investigation_complete] treating source-inventory completion debt as advisory: reason=%s truncated=%t page_incomplete=%t scopes=%s",
 		authority.ReasonCode, authority.CandidateBudgetTruncated || (observation.Execution != nil && observation.Execution.CandidateBudgetTruncated), authority.PageIncomplete, strings.Join(authority.Scopes, ","))
 	return true
-}
-
-func sourceInventoryResolvedCompletionDebtHasExecutableMissingClass(authority types.SourceInventoryCompletionAuthority) bool {
-	debt := types.NormalizeSourceInventoryFollowupDebt(authority.FollowupDebt)
-	return debt.IsActive() &&
-		debt.ReasonCode == types.SourceInventoryFollowupDebtMissingSourceClass &&
-		len(debt.Query.Scopes) > 0 &&
-		len(debt.MissingClasses) > 0 &&
-		len(debt.CoveredClasses) > 0 &&
-		len(debt.MissingLanguages) > 0
 }
 
 func sourceInventoryCompletionAuthorityForContext(ctx *types.BusContext, observation types.SourceInventoryObservation, aggregateFacts []types.AnswerAggregateFact) types.SourceInventoryCompletionAuthority {
