@@ -1529,6 +1529,32 @@ func TestExecCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("runtime grep pipeline recognizes ftrace suffix", func(t *testing.T) {
+		tmpFile := filepath.Join(t.TempDir(), "OHTrace_20260626_16.32.34.ftrace")
+		if err := os.WriteFile(tmpFile, []byte("android.haitong-56023 (56023) [004] .... 1.501565915: sched_switch\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		tool := &ExecCommand{}
+		params, _ := json.Marshal(execCommandParams{Command: "grep 'android.haitong' " + strconv.Quote(tmpFile)})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		for _, want := range []string{
+			"exec_command advisory",
+			"has no original line numbers",
+			"grep -n",
+			"read_file around the selected range",
+		} {
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("missing ftrace exec advisory %q:\n%s", want, result.Summary)
+			}
+		}
+	})
+
 	t.Run("runtime grep pipeline exit one gets no-match advisory", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "record_trace.systrace")
 		if err := os.WriteFile(tmpFile, []byte("2942.124416: sched_switch\n"), 0o644); err != nil {

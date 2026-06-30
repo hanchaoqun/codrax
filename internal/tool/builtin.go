@@ -1056,7 +1056,7 @@ func execCommandTargetsRuntimeTextArtifact(command string) bool {
 		return ok
 	}
 	lower := strings.ToLower(command)
-	for _, suffix := range []string{".systrace", ".htrace", ".atrace", ".perfetto", ".perftrace", ".tracebundle.json", ".trace", ".log"} {
+	for _, suffix := range []string{".systrace", ".htrace", ".atrace", ".ftrace", ".perfetto", ".perftrace", ".tracebundle.json", ".trace", ".log"} {
 		if strings.Contains(lower, suffix) {
 			return true
 		}

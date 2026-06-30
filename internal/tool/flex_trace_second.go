@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -22,6 +23,8 @@ type TraceSecond struct {
 	stringEncoded  bool
 }
 
+var traceSecondCompoundTermRE = regexp.MustCompile(`(?i)([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*(seconds|second|secs|sec|毫秒|微秒|纳秒|ms|µs|μs|us|ns|秒|s)`)
+
 func (ts TraceSecond) Seconds() float64 { return ts.seconds }
 func (ts TraceSecond) Set() bool        { return ts.set }
 func (ts TraceSecond) Raw() string      { return ts.raw }
@@ -36,6 +39,8 @@ func (ts TraceSecond) QueryToleranceSeconds() float64 {
 		tol = 0.5 * math.Pow10(-ts.fractionDigits) * 0.001
 	case "us":
 		tol = 0.5 * math.Pow10(-ts.fractionDigits) * 0.000001
+	case "ns":
+		tol = 0.5 * math.Pow10(-ts.fractionDigits) * 0.000000001
 	default:
 		if ts.fractionDigits <= 0 || ts.fractionDigits >= 6 {
 			return 0
@@ -91,6 +96,9 @@ func (ts *TraceSecond) UnmarshalJSON(data []byte) error {
 
 func parseTraceSecondLiteral(raw string) (TraceSecond, error) {
 	s := strings.TrimSpace(raw)
+	if parsed, ok, err := parseCompoundTraceSecondLiteral(s); ok || err != nil {
+		return parsed, err
+	}
 	lower := strings.ToLower(strings.ReplaceAll(s, " ", ""))
 	unit := "s"
 	scale := 1.0
@@ -107,9 +115,18 @@ func parseTraceSecondLiteral(raw string) (TraceSecond, error) {
 	case strings.HasSuffix(lower, "µs"):
 		unit, scale = "us", 0.000001
 		lower = strings.TrimSuffix(lower, "µs")
+	case strings.HasSuffix(lower, "μs"):
+		unit, scale = "us", 0.000001
+		lower = strings.TrimSuffix(lower, "μs")
 	case strings.HasSuffix(lower, "us"):
 		unit, scale = "us", 0.000001
 		lower = strings.TrimSuffix(lower, "us")
+	case strings.HasSuffix(lower, "纳秒"):
+		unit, scale = "ns", 0.000000001
+		lower = strings.TrimSuffix(lower, "纳秒")
+	case strings.HasSuffix(lower, "ns"):
+		unit, scale = "ns", 0.000000001
+		lower = strings.TrimSuffix(lower, "ns")
 	case strings.HasSuffix(lower, "seconds"):
 		lower = strings.TrimSuffix(lower, "seconds")
 	case strings.HasSuffix(lower, "second"):
@@ -139,6 +156,78 @@ func parseTraceSecondLiteral(raw string) (TraceSecond, error) {
 		fractionDigits: decimalDigits(lower),
 		scale:          scale,
 	}, nil
+}
+
+func parseCompoundTraceSecondLiteral(raw string) (TraceSecond, bool, error) {
+	matches := traceSecondCompoundTermRE.FindAllStringSubmatchIndex(raw, -1)
+	if len(matches) <= 1 {
+		return TraceSecond{}, false, nil
+	}
+	total := 0.0
+	lastEnd := 0
+	maxFractionDigits := 0
+	for _, match := range matches {
+		if !traceSecondCompoundSeparatorOnly(raw[lastEnd:match[0]]) {
+			return TraceSecond{}, false, fmt.Errorf("trace-second: cannot parse %q as a trace timestamp", raw)
+		}
+		valueRaw := raw[match[2]:match[3]]
+		unitRaw := raw[match[4]:match[5]]
+		value, err := strconv.ParseFloat(valueRaw, 64)
+		if err != nil {
+			return TraceSecond{}, false, fmt.Errorf("trace-second: cannot parse %q as a trace timestamp", raw)
+		}
+		scale, ok := traceSecondUnitScale(unitRaw)
+		if !ok {
+			return TraceSecond{}, false, fmt.Errorf("trace-second: cannot parse %q as a trace timestamp", raw)
+		}
+		total += value * scale
+		if digits := decimalDigits(valueRaw); digits > maxFractionDigits {
+			maxFractionDigits = digits
+		}
+		lastEnd = match[1]
+	}
+	if !traceSecondCompoundSeparatorOnly(raw[lastEnd:]) {
+		return TraceSecond{}, false, fmt.Errorf("trace-second: cannot parse %q as a trace timestamp", raw)
+	}
+	return TraceSecond{
+		seconds:        total,
+		set:            true,
+		raw:            raw,
+		unit:           "compound",
+		fractionDigits: maxFractionDigits,
+		scale:          1,
+	}, true, nil
+}
+
+func traceSecondCompoundSeparatorOnly(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return true
+	}
+	for _, r := range s {
+		switch r {
+		case '+', ',', '，', ';', '；', '、':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func traceSecondUnitScale(raw string) (float64, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "seconds", "second", "secs", "sec", "s", "秒":
+		return 1, true
+	case "ms", "毫秒":
+		return 0.001, true
+	case "us", "µs", "μs", "微秒":
+		return 0.000001, true
+	case "ns", "纳秒":
+		return 0.000000001, true
+	default:
+		return 0, false
+	}
 }
 
 func decimalDigits(raw string) int {

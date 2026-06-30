@@ -51,6 +51,94 @@ func TestTraceQueryExplicitPathProducesRuntimeArtifactSummary(t *testing.T) {
 	}
 }
 
+func TestTraceQueryFtracePathParsesCompoundTimestampWindow(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "OHTrace_20260626_16.32.34.ftrace")
+	trace := strings.Join([]string{
+		`android.haitong-56023 (56023) [004] .... 1.501565915: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=android.haitong next_pid=56023 next_prio=52`,
+		`Thread-10-56284 (56284) [005] .... 2.000000000: sched_switch: prev_comm=idle/5 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=Thread-10 next_pid=56284 next_prio=20`,
+		`android.haitong-56023 (56023) [004] .... 3.116000000: sched_switch: prev_comm=android.haitong prev_pid=56023 prev_prio=52 prev_state=S ==> next_comm=idle/4 next_pid=0 next_prio=120`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":     "path",
+		"path":       "OHTrace_20260626_16.32.34.ftrace",
+		"view":       "event_search",
+		"pattern":    "android.haitong",
+		"time_start": "1s 501ms 565μs 915ns",
+		"time_end":   "3s 116ms",
+		"limit":      10,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query should accept .ftrace with compound timestamps: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"OHTrace_20260626_16.32.34.ftrace",
+		"time_start=1.501566",
+		"time_end=3.116000",
+		"parsed_events=3",
+		"matched_events=2",
+		"android.haitong-56023",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf(".ftrace compound timestamp summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "unsupported") || strings.Contains(res.Summary, "future parser adapter") {
+		t.Fatalf(".ftrace parse should not be narrated as unsupported:\n%s", res.Summary)
+	}
+}
+
+func TestTraceQueryWindowedZeroEventsDoesNotImplyFtraceUnsupported(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "window_miss.ftrace")
+	trace := `android.haitong-56023 (56023) [004] .... 10.000000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=android.haitong next_pid=56023 next_prio=52`
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldMinBytes := traceQueryWindowedIndexMinBytes
+	traceQueryWindowedIndexMinBytes = 1
+	t.Cleanup(func() { traceQueryWindowedIndexMinBytes = oldMinBytes })
+
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":     "path",
+		"path":       "window_miss.ftrace",
+		"view":       "window_stats",
+		"time_start": 1.0,
+		"time_end":   2.0,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("empty bounded window should be a successful diagnostic result: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"index_windowed=true",
+		"parse_diagnostic=zero_events_in_selected_index_window",
+		"ftrace-compatible text is supported",
+		"verify time_start/time_end",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("bounded zero-event diagnostic missing %q:\n%s", want, res.Summary)
+		}
+	}
+	for _, bad := range []string{"future parser adapter", "ftrace is unsupported"} {
+		if strings.Contains(res.Summary, bad) {
+			t.Fatalf("bounded zero-event diagnostic must not imply unsupported ftrace via %q:\n%s", bad, res.Summary)
+		}
+	}
+}
+
 func TestTraceQueryAttachedTraceNormalizesDotPath(t *testing.T) {
 	dir := t.TempDir()
 	trace := strings.Join([]string{
@@ -888,6 +976,22 @@ func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "perf_stats", "perf_timeline", "trace_perf_bundle", "perf_bundle", "trace_plus_perf", "scheduler_latency_stats", "critical_blocking_calls", "direct blocking surfaces", "peer_state", "peer/on-chain evidence", "oneway", "sync_like", "blocking_candidate", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", "frame_bundle", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "view=state_churn is accepted and treated as view=window_stats", "causal_impacts", "aggregated_impact", "aggregated_impacts", "occurrence_windows", "representative repeated windows", "view=causal_impact is accepted as wakeup_chain", "chain_relevance", "on_chain", "adjacent", "background", "dominant_state", "cumulative_impact_ms", "same-chain primary", "compute-supply", "semantic span-work", "JIT compilation", "class verification", "shader compilation", "runtime compilation", "semantic_class", "perf_sample", "perf_samples", "perf_contexts", "candidate_thread", "target_running", "on_chain_dependency", "same_cpu_competitor", "cpu_pressure_top_running", "compute_supply_cpu", "top_symbols", "top_dso", "top_callchains", "source", "sample_kind", "sample_cpu_scope", "symbolization_status", "raw_perfdata_fallback", "unsymbolized", "lost_records", "lost_samples", "throttle_records", "aux_records", "ftrace-plugin structured metadata", "profiler plugin metadata", "dropped_events", "overrun", "commit_overrun", "overwrite", "trace_clock", "clock_details", "symbol_examples", "tracebundle is recommended context, not required input", "SQL-primary perf_sample rows embedded in systrace", "perf_thread_comm", "comm_source=trace_thread", "trace-aligned identity", "tracebundle_perf_capability", "tracebundle_perf_clock_alignment", "tracebundle_trace_provider", "tracebundle_trace_db_coverage", "tracebundle_trace_coverage", "tracebundle_trace_tool_gate", "SQL table coverage", "trace_query cross-validation", "role=resolver_index", "role=perftrace_text_output", "rows_emitted=0 is expected", "cpuSample", "perfSamples", "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer", "block_io_by_inode", "io_burst_episodes", "io_pressure_summary", "irq_activity", "softirq_activity", "ipi_activity", "sched_stat_accounting", "workqueue_activity", "supply_pressure_summary", "trace_mark_categories", "async_file_work", "completion", "completions/ret/example", "file_io", "page_cache", "android_fs", "f2fs", "scsi", "mmc", "storage_latency", "io_pressure", "inode_io", "pageCache", "storageLayerLatency", "pattern", "not a regex", "B/E/C/S/F", "span_action", "span_pid", "span_value", "kind=sync|async", "same ftrace thread stack", "E|<pid>|<span_name>", "marker pid + name + cookie", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "typed platform hint", "Raw user wording is not re-parsed", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "sched_wakeup_new", "sched_stat_wait", "sched_stat_iowait", "sched_stat_runtime", "ipi_raise", "ipi_entry", "ipi_exit", "block_rq_insert", "block_getrq", "block_bio_queue", "block_bio_complete", "tracing_mark_write_xacct", "xacct_tracing_mark_write", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "ipi", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestTraceQuerySchemaDocumentsFtraceAndCompoundTime(t *testing.T) {
+	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
+	for _, want := range []string{
+		".ftrace",
+		".trace",
+		"ftrace-compatible text",
+		"1s 501ms 565μs 915ns",
+		"zero-event result in a bounded window",
+		"not evidence that .ftrace is unsupported",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("trace_query ftrace/time teaching missing %q:\n%s", want, body)
 		}
 	}
 }
@@ -2134,6 +2238,26 @@ func TestTraceSecondParsesMilliseconds(t *testing.T) {
 	}
 	if holder.T.QueryToleranceSeconds() <= 0 || holder.T.QueryToleranceSeconds() > 0.0005 {
 		t.Fatalf("unexpected tolerance: %.9f", holder.T.QueryToleranceSeconds())
+	}
+}
+
+func TestTraceSecondParsesCompoundTimestampUnits(t *testing.T) {
+	tests := map[string]float64{
+		`"1s 501ms 565μs 915ns"`: 1.501565915,
+		`"1s501ms565µs915ns"`:    1.501565915,
+		`"3s 116ms"`:             3.116,
+		`"2秒 3毫秒 4微秒 5纳秒"`:       2.003004005,
+	}
+	for raw, want := range tests {
+		var holder struct {
+			T TraceSecond `json:"t"`
+		}
+		if err := json.Unmarshal([]byte(`{"t":`+raw+`}`), &holder); err != nil {
+			t.Fatalf("unmarshal %s: %v", raw, err)
+		}
+		if math.Abs(holder.T.Seconds()-want) > 0.000000001 {
+			t.Fatalf("%s normalized to %.12f, want %.12f", raw, holder.T.Seconds(), want)
+		}
 	}
 }
 

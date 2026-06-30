@@ -10381,7 +10381,16 @@ func evidenceFromEvents(events []EventView) []EvidenceFact {
 func resultCaveats(idx *Index, q Query, res Result) []string {
 	var out []string
 	if idx != nil && idx.ParsedKnown == 0 {
-		out = append(out, "no known ftrace scheduler/resource events were parsed; the file may need a future parser adapter")
+		switch {
+		case len(idx.Events) == 0 && idx.Windowed:
+			out = append(out, "no ftrace rows were parsed inside the selected bounded index window; ftrace-compatible text is supported, so verify time_start/time_end/line_start/line_end and timestamp units before concluding parser incompatibility")
+		case len(idx.Events) == 0 && idx.ScannedLineCount > 0 && idx.UnparsedLines >= idx.ScannedLineCount:
+			out = append(out, "no ftrace-compatible timestamped rows were parsed from the scanned lines; the input may be non-ftrace text, compressed/binary, converted incorrectly, or need a converter/parser adapter")
+		case len(idx.Events) == 0:
+			out = append(out, "trace index contains zero parsed rows; verify that the file contains ftrace-compatible timestamped text rows or pass a converted systrace/ftrace text artifact")
+		default:
+			out = append(out, "ftrace rows were parsed, but none mapped to known scheduler/resource event families; event_search can still inspect raw event labels, while structured root-cause views may need event-family support")
+		}
 	}
 	if idx != nil {
 		out = append(out, idx.Caveats...)
