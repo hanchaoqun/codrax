@@ -185,3 +185,127 @@ func toolFold(r struct{ ToolName string }) bool { return strings.EqualFold(r.Too
 		t.Fatalf("detector must NOT flag field-set / case / slice / non-family comparisons, got %v", got)
 	}
 }
+
+// TestRuntimeSourceAuthorityLegacyHelpersStayInFallbackChokepoints guards the
+// runtime/current-source authority cutover. The old RequestModel helpers
+// CurrentSourceLaneDecision().RequiresCurrentSource() and
+// RequiresCurrentSourceForExternalObservation() are still useful as compatibility
+// fallback inside a few named chokepoints, but new production consumers must not
+// make hard-gate or scheduling decisions from those helpers directly. They must
+// consume RuntimeSourceAnswerAuthoritySnapshot (or a helper built on it) so
+// soft obligations downgrade to bounded caveats while precise obligations remain
+// load-bearing.
+func TestRuntimeSourceAuthorityLegacyHelpersStayInFallbackChokepoints(t *testing.T) {
+	dirs := []string{"../agent", "../tool", "../orchestrator"}
+	fset := token.NewFileSet()
+	var violations []string
+	for _, dir := range dirs {
+		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			f, perr := parser.ParseFile(fset, path, nil, 0)
+			if perr != nil {
+				return nil
+			}
+			violations = append(violations, findRuntimeSourceLegacyHelperBypasses(f, fset, path)...)
+			return nil
+		})
+	}
+	if len(violations) > 0 {
+		t.Fatalf("runtime/source current-source legacy helper used outside an authority fallback chokepoint — route through RuntimeSourceAnswerAuthoritySnapshot or an existing authority helper instead:\n  %s", strings.Join(violations, "\n  "))
+	}
+}
+
+var runtimeSourceLegacyHelperFallbackChokepoints = map[string]bool{
+	"../agent/agent.go::analyzerExternalObservationFirstBlocksTool":                                        true,
+	"../agent/ir_accessor.go::runtimeSourceHardCurrentSourceObligationForExplorer":                         true,
+	"../agent/ir_accessor.go::originSpecificCompletionCurrentSourceBlockedForExplorer":                     true,
+	"../tool/answer_document_runtime_citation_normalize.go::answerDocumentHasLoadBearingCurrentSourceLane": true,
+	"../tool/emit_investigation_complete.go::traceQueryRuntimeObservationCompletionBypassLabel":            true,
+	"../tool/emit_investigation_complete.go::originSpecificCompletionBypassLabel":                          true,
+	"../tool/emit_investigation_complete.go::aggregateMemberSetOriginRequiresCurrentSource":                true,
+	"../tool/emit_investigation_complete.go::currentSourceForcedReadGatesApply":                            true,
+}
+
+func findRuntimeSourceLegacyHelperBypasses(f *ast.File, fset *token.FileSet, path string) []string {
+	var out []string
+	ast.Inspect(f, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Body == nil || fn.Name == nil {
+			return true
+		}
+		ast.Inspect(fn.Body, func(m ast.Node) bool {
+			call, ok := m.(*ast.CallExpr)
+			if !ok || !isRuntimeSourceLegacyHelperCall(call) {
+				return true
+			}
+			key := filepath.ToSlash(path) + "::" + fn.Name.Name
+			if runtimeSourceLegacyHelperFallbackChokepoints[key] {
+				return true
+			}
+			out = append(out, key+":"+strconv.Itoa(fset.Position(call.Pos()).Line))
+			return true
+		})
+		return true
+	})
+	return out
+}
+
+func isRuntimeSourceLegacyHelperCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel == nil {
+		return false
+	}
+	switch sel.Sel.Name {
+	case "RequiresCurrentSourceForExternalObservation":
+		return true
+	case "RequiresCurrentSource":
+		receiver, ok := sel.X.(*ast.CallExpr)
+		if !ok {
+			return false
+		}
+		receiverSel, ok := receiver.Fun.(*ast.SelectorExpr)
+		return ok && receiverSel.Sel != nil && receiverSel.Sel.Name == "CurrentSourceLaneDecision"
+	default:
+		return false
+	}
+}
+
+func TestRuntimeSourceAuthorityLegacyHelperLintDetectsViolations(t *testing.T) {
+	src := `package p
+func bad(r interface{ RequiresCurrentSourceForExternalObservation(any) bool }) bool {
+	return r.RequiresCurrentSourceForExternalObservation(nil)
+}
+func bad2(r interface{ CurrentSourceLaneDecision() interface{ RequiresCurrentSource() bool } }) bool {
+	return r.CurrentSourceLaneDecision().RequiresCurrentSource()
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "bad.go", src, 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := findRuntimeSourceLegacyHelperBypasses(f, fset, "bad.go"); len(got) != 2 {
+		t.Fatalf("detector must flag both legacy helper calls, got %d: %v", len(got), got)
+	}
+
+	allowed := `package p
+func currentSourceRequirementPrecise(s struct{ CurrentSourceRequirement string }) bool {
+	return s.CurrentSourceRequirement == "precise"
+}
+func carrier(s struct{ CanHardBlockCompletion bool }) bool {
+	return s.CanHardBlockCompletion
+}
+`
+	f2, err := parser.ParseFile(fset, "good.go", allowed, 0)
+	if err != nil {
+		t.Fatalf("parse good: %v", err)
+	}
+	if got := findRuntimeSourceLegacyHelperBypasses(f2, fset, "good.go"); len(got) != 0 {
+		t.Fatalf("detector must not flag authority field consumers, got %v", got)
+	}
+}
