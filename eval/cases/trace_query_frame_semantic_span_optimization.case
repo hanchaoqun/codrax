@@ -1,0 +1,31 @@
+# Trace query — full-pipeline frame drop with an on-chain semantic span
+#
+# O5 item 3 (analyzer→explore→extract→finalize full-pipeline eval):
+# a pinned main-thread frame window whose root cause runs through a worker
+# on the wakeup chain, and that worker spends part of its on-chain interval
+# in a VerifyClass (class-verification) runtime span. The deterministic
+# semantic-span channel + trace causal projection must carry that span all
+# the way to the final user-visible answer as an optimization point, even
+# though its absolute duration is modest — proving the low-impact semantic
+# span survives summary/cap/render truncation through the real pipeline.
+ID="trace_query_frame_semantic_span_optimization"
+NAME="trace query — frame drop with on-chain VerifyClass optimization point"
+QUESTION="只分析这份 trace，不分析代码。目标线程是 app-100，请分析它在 5.000s 到 5.007s 这一帧窗口内的丢帧根因。请分层说明直接唤醒/依赖关系、链上主要原因，并单独指出链路上遇到的确定性可优化点（如运行时编译/类校验/着色器编译等）。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+        app-100   (  100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200   (  200) [002] .... 5.000400: tracing_mark_write: B|200|VerifyClass com.example.Foo
+     worker-200   (  200) [002] .... 5.001000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200   (  200) [002] .... 5.005000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200   (  200) [002] .... 5.005400: tracing_mark_write: E|200
+     worker-200   (  200) [002] .... 5.005600: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+        app-100   (  100) [001] .... 5.005800: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100   (  100) [001] .... 5.007000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=R ==> next_comm=idle/1 next_pid=0 next_prio=120
+'
+EXPECT_CONTAINS="app-100 worker-200 VerifyClass"
+EXPECT_MATCHES_REGEX="(VerifyClass|类校验|class verification|class_verification|确定性优化点|确定性.*优化|deterministic optimization)
+(worker-200|worker).*(唤醒|wakeup|依赖|dependency|阻塞|block)|(唤醒|wakeup|依赖|dependency|阻塞|block).*(worker-200|worker)
+(app-100).*(sleep|睡眠|等待|阻塞|wakeup|唤醒)|(sleep|睡眠|等待|阻塞|wakeup|唤醒).*(app-100)
+5\\.00"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

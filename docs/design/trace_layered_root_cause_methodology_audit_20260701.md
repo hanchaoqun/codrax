@@ -443,7 +443,7 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 **未被任何测试覆盖的关键路径**:
 1. `computeTraceMarks(idx, q, 8)` 的"普通 Top-8 + 短语义 span sidecar"场景已由 v7 的 `TestComputeTraceMarksReservesSlotForShortSemanticSpanBehindLongerGenericSpans` 锁住,不再是未覆盖项。
 2. (v8 已补)贯穿到最终渲染文本的用例已由 `TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText` 覆盖:低影响语义 span 经 `render.RenderAnswerDocument` 后"确定性优化点"区块 + span 名仍在最终 markdown 里,不被 summary/cap 逻辑吞掉。
-3. 仍没有端到端(analyzer→explore→extract→finalize 全链路)的 trace 丢帧场景 eval/fixture,现有测试主要是 `internal/tracequery`、`internal/tool`、`internal/types` 包内的单元测试和结构投影测试。这是本文档剩余的唯一测试类开放项(见 §4-O5 第 3 项)。
+3. (v8 已补)端到端(analyzer→explore→extract→finalize 全链路)的 trace 丢帧场景 eval fixture 已由 `eval/cases/trace_query_frame_semantic_span_optimization.case` 落地,经 `eval/run.sh` 跑真实全链路 + 真实 LLM **PASS**——低影响 `VerifyClass` 语义 span 稳定出现在最终用户可见答案里(详见 §4-O5 第 3 项)。至此 §3 三项测试空白全部补齐。
 
 仓库本身"无 linter、无 CI 配置"(CLAUDE.md 原文),意味着这些测试目前只在有人记得手动跑 `go test ./...` 时才生效,不能拦截无意中破坏这些不变量的未来改动。
 
@@ -476,10 +476,10 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 现状(修复前):§2.5 指出投影不区分"落在用户原始窗口内"与"下钻过程中扩展查询到的相邻窗口"。
 **v8 落地**:`TraceCausalProjectionNode` 新增 `StartTs`/`EndTs`(先取 `record.Span`,回退解析 window RichNote,复用既有 `traceCausalProjectionFloat`)+ `WithinRequestedWindow *bool`(三态:未知/内/外)。用户窗口的唯一**精确非循环** anchor 是既有但此前被丢弃的 `frame_target_resolution` 观测记录——只认 `window_source ∈ {query_window, explicit_query_union_previous_frame_end_to_current_frame_end}`(精确 typed 串白名单,即 R1 固化触发/R9 并集场景),用交集语义判定 within;无 anchor 或节点无窗口时保持 nil 不臆造。渲染侧 `runtimeTraceCausalProjectionWindowDetail` 仅在非 nil 时追加"落在用户请求窗口内"/"下钻到请求窗口外的上游依赖"tag,保证无 anchor 场景 byte-identical。已知边界:primary root_cause 节点只有行号无 per-node 窗口,故天然标不出——诚实降级,已在测试里锁定(`TestTraceCausalProjection*WithinRequestedWindow` 等 5 条)。
 
-**O5(低成本、高价值)—— 🟡 v8 修复其中两项,第三项(全链路 eval fixture)仍开放 —— 补齐 §3 指出的回归测试空白。**
+**O5(低成本、高价值)—— ✅ v8 三项全部落地 —— 补齐 §3 指出的回归测试空白。**
 1. ✅ `computeTraceMarks` 截断 + 语义 span 共存:v7 已补 `TestComputeTraceMarksReservesSlotForShortSemanticSpanBehindLongerGenericSpans`。
 2. ✅ 端到端渲染:v8 补 `TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText`——2ms 语义 span 走 observation → 自动注入 projection block → `render.RenderAnswerDocument` 最终 markdown,断言"确定性优化点"+`VerifyClass`+`class_verification` 全程存活(render 已是 tool 既有依赖,零 import cycle)。
-3. 🔴 仍需一条 analyzer→explore→extract→finalize 全链路 trace 丢帧 eval/fixture,覆盖"短语义 span + 多窗口/多层唤醒链 + 最终答案可见"的真实 REPL 用户侧交付面(比第 2 项的单点渲染测试更全)。这是本文档剩余的唯一测试类开放项,规模比其它 O 项大,留待后续单独立项。
+3. ✅ **全链路真实 eval**:v8 新增自包含 case `eval/cases/trace_query_frame_semantic_span_optimization.case`(inline HTRACE:app-100 固化帧窗口 5.000~5.007s + worker-200 唤醒链 + on-chain `VerifyClass` 语义 span + 优先级反转),经 `eval/run.sh` 跑**真实 analyze→explore→extract→finalize 全链路 + 真实 LLM**,**PASS**(126s)。最终用户可见答案里:LLM 自己叙述"确定性可优化点为 VerifyClass 运行时字节码类校验…AOT 预编译预校验消除",系统自动注入的 projection block 第 8 项"确定性优化点 — worker-200 -> class_verification … chain_relevance=on_chain",并正确识别优先级反转(`priority=20/ohos_cfs` 阻塞 `target_priority=52/ohos_rt`,`relation=lower_priority_dependency`,鸿蒙优先级语义)。metrics:`tool_trace_query=1`、windowed+thread-filtered、`trace_query_final_projection_blocks=1`。这条 case 同时端到端验证了 v7 的 O1(语义 span 不被截断,`semantic_multiplier=2.40 hidden_cost_boost=true`)、O3(优先级反转下一跳)与 v8 的投影自动注入。
 
 **O6(文档性,不涉及代码)—— ✅ v8 已修复 —— 在 `docs/architecture.md` 新增一节补充 trace_query 的分层下钻方法论。**
 **v8 落地**:`docs/architecture.md` 新增 §7.2.1 "trace_query — 深度分层根因下钻引擎",纲要描述设计定位(确定性引擎非纯 LLM 推理)+ 四个核心机制(状态优先 Top-N / on-chain 递归 / 语义 span 独立通道 / 投影汇总)+ 窗口纪律,并指回本审计文档。
@@ -559,4 +559,4 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 
 **v8 复核说明(容量机制,并行提交 `29332679`)**:按当前代码再次复核 `ae8fc57f6 fix: expand trace causal handoff capacity` 与 `d0eddd6c7 docs: update trace audit doc with v7 fix status` 后确认,容量扩展机制仍在:`TraceCausalProjection` 的 primary/on-chain/context/semantic/supporting-hops cap 分别为 10/24/8/16/10,最终 `runtime_trace_causal_projection` 动态上限为 48,`trace_query 关键观测核对`上限为 40,链路分层摘要每类展示 4 个代表节点。此前 O1 的上游选择保真也已由 v7 的 `boundTraceMarkSpans` 修复,不再登记为 open gap。O5 的端到端渲染项已由下面的 v8 修订说明落地(`TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText`);唯一剩余的是 O5 第三项——analyzer→finalize 全链路 eval fixture。
 
-**v8 修订说明(第二批实际修复)**:动手前先跑一个 8-agent 设计+完备性 workflow(4 design + 4 adversarial verify),对每个剩余 gap 产出经对抗验证的 diff 级实现规范并让"完备性批判"agent 独立复核 v7 五项修复是否真生效。批判 agent 用真实 `Run()` 红测复现了 v7 O9 亲手引入的 `unionTimeWindows` explicit-0 起点收窄回归(R8 字面正确性 bug),v8 第一件事就修它。随后落地 R3(占比显著性)、O4(投影窗口标注)、O5 端到端渲染测试、O6(架构文档 §7.2.1),每项都有新单测,`go build ./... && go test ./...` 全绿。至此 §4 的 O1-O10 全部落地或明确判定(O2 撤销、O8 记录在案;剩余开放项:O5 第三项全链路 eval fixture、O7 中期 codrax.yaml 自定义模式化),R1-R9 九条规则全部满足或正确降级。
+**v8 修订说明(第二批实际修复)**:动手前先跑一个 8-agent 设计+完备性 workflow(4 design + 4 adversarial verify),对每个剩余 gap 产出经对抗验证的 diff 级实现规范并让"完备性批判"agent 独立复核 v7 五项修复是否真生效。批判 agent 用真实 `Run()` 红测复现了 v7 O9 亲手引入的 `unionTimeWindows` explicit-0 起点收窄回归(R8 字面正确性 bug),v8 第一件事就修它。随后落地 R3(占比显著性)、O4(投影窗口标注)、O5 端到端渲染测试、O6(架构文档 §7.2.1),每项都有新单测,`go build ./... && go test ./...` 全绿。O5 第三项(全链路真实 eval)也已在本轮补齐并 **PASS**——新增 `eval/cases/trace_query_frame_semantic_span_optimization.case`,经 `eval/run.sh` 跑真实 analyze→explore→extract→finalize + 真实 LLM,确认低影响 `VerifyClass` 语义 span、优先级反转、自动注入 projection block 都稳定出现在最终用户可见答案里(126s PASS)。至此 §4 的 O1-O10 全部落地或明确判定(O2 撤销、O8 记录在案),R1-R9 九条规则全部满足或正确降级;**唯一剩余的是 O7 中期增强项(codrax.yaml 自定义语义 span 模式化,属配置化增强而非缺口)**。
