@@ -8977,10 +8977,11 @@ func currentSourceForcedReadGatesApply(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return true
 	}
-	// Source-inventory required-file coverage is a precise inventory-universe
-	// obligation. Keep it ahead of runtime/source caveat authority so runtime
-	// answer shortcuts cannot drain in-scope unread inventory files.
-	if types.RequiredFileHintSourceInventoryCoverageApplies(ctx.AnalysisIR.RequestModel) {
+	// Source-inventory completion can still open the phase1 gate even when
+	// repo-wide prescan hints are only soft. The actual pending-read queue below
+	// still requires a precise source-inventory scope, so broad ranker noise
+	// cannot become a hard completion blocker here.
+	if types.SourceInventoryRequiredFileCoverageShape(ctx.AnalysisIR.RequestModel) {
 		return true
 	}
 	if authority := runtimeSourceAnswerAuthorityForCompletion(ctx); runtimeSourceAuthorityAppliesToCompletionLanding(authority) {

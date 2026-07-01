@@ -5145,7 +5145,7 @@ func projectAnalyzerPrescanRequiredFileHints(ctx *types.BusContext, rm *types.Re
 	if ctx == nil || ctx.Mutable == nil || rm == nil || !types.SourceInventoryRequiredFileCoverageShape(*rm) {
 		return 0
 	}
-	maxProjected := types.RequiredFileHintCoverageMaxForRequest(*rm)
+	maxProjected := types.SourceInventoryRequiredFileHintCoverageMax
 	if maxProjected <= 0 {
 		return 0
 	}

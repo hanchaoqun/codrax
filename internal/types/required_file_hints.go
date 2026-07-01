@@ -52,7 +52,7 @@ func RequiredFileHintCurrentSourceCoverageApplies(rm RequestModel) bool {
 // a request's required-file lane. Callers must use this instead of open-coding a
 // cap so pre-dispatch and completion gates stay aligned.
 func RequiredFileHintCoverageMaxForRequest(rm RequestModel) int {
-	if SourceInventoryRequiredFileCoverageShape(rm) {
+	if RequiredFileHintSourceInventoryCoverageApplies(rm) {
 		return SourceInventoryRequiredFileHintCoverageMax
 	}
 	if MixedRuntimeCurrentSourceRequiredFileCoverageShape(rm) {
@@ -69,7 +69,10 @@ func RequiredFileHintSourceInventoryCoverageApplies(rm RequestModel) bool {
 	if len(rm.AnalyzerHints.RequiredFileHints) == 0 || rm.HasObservationOnlyRuntimeArtifact() {
 		return false
 	}
-	return SourceInventoryRequiredFileCoverageShape(rm)
+	if !SourceInventoryRequiredFileCoverageShape(rm) {
+		return false
+	}
+	return !SourceInventoryRequiresRepoWideLens(rm)
 }
 
 // SourceInventoryRequiredFileCoverageShape reports whether a request has the

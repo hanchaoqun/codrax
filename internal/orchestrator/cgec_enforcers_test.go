@@ -720,7 +720,46 @@ func TestRunForcedReads_PreDispatchRequiredFilesUseSharedCoverageCap(t *testing.
 	}
 }
 
-func TestSeedRequiredFileHintForcedReadsBeforeExplore_SourceInventoryUsesInventoryCap(t *testing.T) {
+func TestSeedRequiredFileHintForcedReadsBeforeExplore_RepoWideSourceInventorySkipsPrescanHints(t *testing.T) {
+	o := newTestOrch(t)
+	for _, rel := range []string{
+		"internal/tool/repomap/index/cangjie_parser.go",
+		"docs/design/eval_full_sweep_20260526.md",
+	} {
+		if err := os.MkdirAll(filepath.Join(o.busCtx.RepoRoot, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(filepath.Join(o.busCtx.RepoRoot, rel), []byte("package support\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	o.busCtx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqEnumeration),
+			RequiredFileHints: []types.RequiredFileHint{
+				{Path: "internal/tool/repomap/index/cangjie_parser.go", Confidence: 0.95},
+				{Path: "docs/design/eval_full_sweep_20260526.md", Confidence: 0.9},
+			},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		},
+	}}
+
+	if got := o.seedRequiredFileHintForcedReadsBeforeExplore(); got != 0 {
+		t.Fatalf("repo-wide source inventory must start with the root lens, not forced-read prescan support files; queued=%d", got)
+	}
+	if pending := o.busCtx.Mutable.EvidenceClosure().PendingReads(); len(pending) != 0 {
+		t.Fatalf("pending reads = %+v, want none for repo-wide inventory prescan hints", pending)
+	}
+}
+
+func TestSeedRequiredFileHintForcedReadsBeforeExplore_BoundedSourceInventoryUsesInventoryCap(t *testing.T) {
 	o := newTestOrch(t)
 	var hints []types.RequiredFileHint
 	for i := 0; i < types.SourceInventoryRequiredFileHintCoverageMax+2; i++ {
@@ -748,6 +787,10 @@ func TestSeedRequiredFileHintForcedReadsBeforeExplore_SourceInventoryUsesInvento
 		SourceInventoryProfile: &types.SourceInventoryProfile{
 			IsSourceInventory: true,
 			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		},
+		SourceScopeProfile: &types.SourceScopeProfile{
+			RequestedScope: types.SourceScopeAuxiliary,
+			Confidence:     0.9,
 		},
 	}}
 

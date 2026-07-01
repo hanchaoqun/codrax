@@ -6054,8 +6054,14 @@ func TestEmitAnalysis_ProjectsPrescanFilesForSourceInventoryCoverage(t *testing.
 			t.Fatalf("unexpected projected path: %+v", hint)
 		}
 	}
-	if !types.RequiredFileHintCurrentSourceCoverageApplies(*rm) {
-		t.Fatalf("projected source inventory hints should activate required-file coverage: %+v", rm.AnalyzerHints.RequiredFileHints)
+	if !types.SourceInventoryRequiredFileCoverageShape(*rm) {
+		t.Fatalf("projected source inventory hints should preserve source-inventory shape: %+v", rm.AnalyzerHints.RequiredFileHints)
+	}
+	if !types.SourceInventoryRequiresRepoWideLens(*rm) {
+		t.Fatalf("scope=all source inventory should run the root lens before hard prescan coverage")
+	}
+	if types.RequiredFileHintCurrentSourceCoverageApplies(*rm) {
+		t.Fatalf("repo-wide projected source inventory hints are soft navigation hints, not hard required-file coverage: %+v", rm.AnalyzerHints.RequiredFileHints)
 	}
 }
 

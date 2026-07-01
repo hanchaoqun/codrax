@@ -120,7 +120,7 @@ func TestAnalyzerHints_RequiredFileHints_Populated(t *testing.T) {
 	}
 }
 
-func TestRequiredFileHintCoverage_SourceInventoryUsesInventoryCap(t *testing.T) {
+func TestRequiredFileHintCoverage_BoundedSourceInventoryUsesInventoryCap(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentEnumerate,
 		Predicates: SemanticPredicates{
@@ -137,6 +137,10 @@ func TestRequiredFileHintCoverage_SourceInventoryUsesInventoryCap(t *testing.T) 
 			IsSourceInventory: true,
 			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
 		},
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeAuxiliary,
+			Confidence:     0.9,
+		},
 	}
 
 	if !SourceInventoryRequiredFileCoverageShape(rm) {
@@ -147,6 +151,42 @@ func TestRequiredFileHintCoverage_SourceInventoryUsesInventoryCap(t *testing.T) 
 	}
 	if got := RequiredFileHintCoverageMaxForRequest(rm); got != SourceInventoryRequiredFileHintCoverageMax {
 		t.Fatalf("coverage cap=%d, want source inventory cap %d", got, SourceInventoryRequiredFileHintCoverageMax)
+	}
+}
+
+func TestRequiredFileHintCoverage_RepoWideSourceInventoryDemotesPrescanHints(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqEnumeration),
+			RequiredFileHints: []RequiredFileHint{{
+				Path:       "internal/tool/repomap/index/cangjie_parser.go",
+				Confidence: 0.95,
+			}},
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+		},
+	}
+
+	if !SourceInventoryRequiredFileCoverageShape(rm) {
+		t.Fatal("repo-wide source inventory should still have the inventory shape")
+	}
+	if !SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("missing source-scope inventory should require root lens before required-file coverage")
+	}
+	if RequiredFileHintSourceInventoryCoverageApplies(rm) {
+		t.Fatal("repo-wide inventory required-file hints are navigation/support hints, not hard coverage")
+	}
+	if RequiredFileHintCurrentSourceCoverageApplies(rm) {
+		t.Fatal("repo-wide inventory prescan hints must not activate forced-read coverage")
+	}
+	if got := RequiredFileHintCoverageMaxForRequest(rm); got != RequiredFileHintCoverageMax {
+		t.Fatalf("coverage cap=%d, want generic cap when source-inventory hints are soft", got)
 	}
 }
 
