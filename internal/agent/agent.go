@@ -3715,7 +3715,7 @@ func (b *BaseAgent) skillToolSuggestionBlocked(ctx *types.AgentContext, toolName
 	if writePlannerBlocksTool(ctx, toolName) {
 		return true
 	}
-	if types.CanonicalToolName(toolName) == "trace_query" && !traceQueryToolAvailable(ctx) {
+	if types.CanonicalToolName(toolName) == "trace_query" && !traceQueryToolVisible(ctx) {
 		return true
 	}
 	return toolName == "emit_answer_document_patch" && !answerDocumentPatchBaseAvailable(ctx, nil)
@@ -6205,6 +6205,18 @@ func toolSurfaceNarrowed(base, effective []llm.ToolSchema) bool {
 	return false
 }
 
+func traceQueryToolVisible(ctx *types.AgentContext) bool {
+	return traceQueryToolAvailable(ctx) || traceQueryToolVisibleFromRuntimePreflight(ctx)
+}
+
+func traceQueryToolVisibleFromRuntimePreflight(ctx *types.AgentContext) bool {
+	return ctx != nil && ctx.Stage == types.StageExplore && ctx.RuntimeArtifactPreflight.HasTraceArtifact()
+}
+
+// traceQueryToolAvailable is the strong trace carrier used by runtime/source
+// navigation hard gates. Do not add request-path preflight here: path preflight
+// is precise enough to expose trace_query and render soft trace-first guidance,
+// but it must not by itself force the runtime_probe_first hard gate.
 func traceQueryToolAvailable(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.Stage != types.StageExplore {
 		return false

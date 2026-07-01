@@ -44,6 +44,51 @@ func TestTraceQueryToolSchemaLazyRuntimeExposure(t *testing.T) {
 		t.Fatal("post-analyzer trace_query exposure must not re-parse raw objective path tokens")
 	}
 
+	preflightPathCtx := &types.AgentContext{
+		Stage:     types.StageExplore,
+		RepoRoot:  dir,
+		WorkDir:   dir,
+		Objective: "analyze record_trace.systrace for wakeup chain",
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "record_trace.systrace",
+				Carrier: "request_path",
+			}},
+		}),
+	}
+	if !hasToolSchema(base.buildToolSchemas(sk, preflightPathCtx), "trace_query") {
+		t.Fatal("trace_query should be exposed for typed runtime-artifact preflight trace paths")
+	}
+	if !traceQueryToolVisible(preflightPathCtx) {
+		t.Fatal("typed trace preflight should open the trace_query tool surface")
+	}
+	if traceQueryToolAvailable(preflightPathCtx) {
+		t.Fatal("typed trace preflight must not become a strong trace-query hard-gate carrier")
+	}
+	if explorerTraceQueryFirstRequired(preflightPathCtx, true) {
+		t.Fatal("typed trace preflight alone must not arm trace-query-first hard blocking")
+	}
+
+	logPreflightCtx := &types.AgentContext{
+		Stage:     types.StageExplore,
+		RepoRoot:  dir,
+		WorkDir:   dir,
+		Objective: "analyze app.log for crash reason",
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "log",
+				Source:  "app.log",
+				Carrier: "request_path",
+			}},
+		}),
+	}
+	if hasToolSchema(base.buildToolSchemas(sk, logPreflightCtx), "trace_query") {
+		t.Fatal("log-only runtime preflight must not expose trace_query")
+	}
+
 	pathCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, WorkDir: dir, Objective: "analyze record_trace.systrace for wakeup chain", AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		AnalyzerHints: types.AnalyzerHints{RequiredFileHints: []types.RequiredFileHint{{Path: "record_trace.systrace", Confidence: 0.9}}},
 	}}}

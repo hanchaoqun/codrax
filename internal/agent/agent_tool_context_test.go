@@ -740,6 +740,96 @@ func TestTraceQueryCarrierDoesNotReparseRawObjectiveAfterAnalyze(t *testing.T) {
 	}
 }
 
+func TestTraceQueryPreflightExposesToolWithoutHardGate(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage:     types.StageExplore,
+		Objective: "分析 capture.systrace 的调度问题",
+		RepoRoot:  t.TempDir(),
+		WorkDir:   t.TempDir(),
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "capture.systrace",
+				Carrier: "request_path",
+			}},
+		}),
+	}
+	if !traceQueryToolVisible(ctx) {
+		t.Fatal("typed runtime preflight trace should expose trace_query")
+	}
+	if traceQueryToolAvailable(ctx) {
+		t.Fatal("typed runtime preflight trace must not arm the strong trace_query hard-gate carrier")
+	}
+	if explorerHasTraceQueryRuntimeTraceCarrier(ctx) {
+		t.Fatal("ir accessor must not promote preflight-only trace paths into strong runtime trace carriers")
+	}
+	if explorerTraceQueryFirstRequired(ctx, true) {
+		t.Fatal("preflight-only trace paths should provide soft trace guidance without hard-blocking source tools")
+	}
+	got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"capture.systrace"}`),
+	}, true)
+	if got != nil {
+		t.Fatalf("preflight-only trace path must not hard-reject non-trace_query tools, got %+v", got)
+	}
+}
+
+func TestTraceOnlyTypedPolicyStillBlocksSourceToolsAfterRuntimeObservations(t *testing.T) {
+	mut := types.NewMutableState("trace only")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Summary:  "root_cause_rank returned structured runtime rows",
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:request_path#root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "capture.systrace"},
+			ClaimKey:        "root_cause_primary",
+		}},
+	})
+	ctx := &types.AgentContext{
+		Stage:     types.StageExplore,
+		Objective: "只分析 capture.systrace，不分析代码",
+		RepoRoot:  t.TempDir(),
+		WorkDir:   t.TempDir(),
+		Mutable:   mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				SourceQuotes:         []string{"不分析代码"},
+				Confidence:           0.9,
+			},
+			AnalyzerHints: types.AnalyzerHints{RequiredFileHints: []types.RequiredFileHint{{
+				Path:       "capture.systrace",
+				Confidence: 0.95,
+			}}},
+		}},
+	}
+	if !traceQueryToolAvailable(ctx) {
+		t.Fatal("typed RequestModel trace path should remain a strong trace_query carrier")
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !rm.HasObservationOnlyRuntimeArtifact() && !rm.HasRuntimeArtifactObservationOnlySurface() {
+		t.Fatalf("typed external-observation exclude should create an observation-only runtime surface: %+v", rm)
+	}
+	got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "grep",
+		Params: json.RawMessage(`{"pattern":"sched_switch"}`),
+	}, true)
+	if got == nil {
+		t.Fatal("typed observation-only trace policy should reject source/generic fallback after runtime observations")
+	}
+	if got.Repair == nil || got.Repair.Code != explorerTraceQuerySufficientRuntimeEvidenceCode {
+		t.Fatalf("repair code = %+v, want %q", got.Repair, explorerTraceQuerySufficientRuntimeEvidenceCode)
+	}
+}
+
 func TestValidateExplorerTraceQueryFirstToolCall_AllowsFallbackAfterTraceAttempt(t *testing.T) {
 	mut := types.NewMutableState("trace state churn")
 	mut.AppendDispatchToolResult(types.ToolResult{

@@ -35,6 +35,44 @@ func TestIsScalarSourceLiteralLookup_RoleLocateBlockedByLogFrames(t *testing.T) 
 	}
 }
 
+func TestRuntimeArtifactPreflightProfileTypedKindHelpers(t *testing.T) {
+	trace := NormalizeRuntimeArtifactPreflightProfile(RuntimeArtifactPreflightProfile{
+		SourceNavigationOptional: true,
+		Artifacts: []RuntimeArtifactPreflightArtifact{{
+			Kind:    "trace",
+			Source:  "record.systrace",
+			Carrier: "request_path",
+		}},
+	})
+	if !trace.HasTraceArtifact() {
+		t.Fatal("trace kind preflight should report a trace artifact")
+	}
+	if trace.HasLogArtifact() {
+		t.Fatal("trace kind preflight must not report a log artifact")
+	}
+
+	sourceOnlyTrace := NormalizeRuntimeArtifactPreflightProfile(RuntimeArtifactPreflightProfile{
+		Artifacts: []RuntimeArtifactPreflightArtifact{{
+			Source:  "capture.tracebundle.json",
+			Carrier: "request_path",
+		}},
+	})
+	if !sourceOnlyTrace.HasTraceArtifact() {
+		t.Fatal("typed preflight source path should classify trace artifacts without package-local reimplementation")
+	}
+
+	log := NormalizeRuntimeArtifactPreflightProfile(RuntimeArtifactPreflightProfile{
+		Artifacts: []RuntimeArtifactPreflightArtifact{{
+			Kind:    "log",
+			Source:  "app.log",
+			Carrier: "request_path",
+		}},
+	})
+	if !log.HasLogArtifact() || log.HasTraceArtifact() {
+		t.Fatalf("log preflight kind helpers drifted: %+v", log)
+	}
+}
+
 func TestHasAttributeBearingEnumeration_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Predicates: SemanticPredicates{

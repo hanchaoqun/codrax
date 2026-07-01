@@ -69,6 +69,40 @@ func (profile RuntimeArtifactPreflightProfile) HasRuntimeArtifact() bool {
 	return NormalizeRuntimeArtifactPreflightProfile(profile).Active
 }
 
+func (profile RuntimeArtifactPreflightProfile) HasTraceArtifact() bool {
+	return profile.HasArtifactKind("trace")
+}
+
+func (profile RuntimeArtifactPreflightProfile) HasLogArtifact() bool {
+	return profile.HasArtifactKind("log")
+}
+
+func (profile RuntimeArtifactPreflightProfile) HasArtifactKind(kind string) bool {
+	kind = strings.TrimSpace(strings.ToLower(kind))
+	if kind == "" {
+		return false
+	}
+	normalized := NormalizeRuntimeArtifactPreflightProfile(profile)
+	for _, artifact := range normalized.Artifacts {
+		if artifact.RuntimeArtifactKind() == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func (artifact RuntimeArtifactPreflightArtifact) RuntimeArtifactKind() string {
+	artifact = NormalizeRuntimeArtifactPreflightArtifact(artifact)
+	switch artifact.Kind {
+	case "trace", "log":
+		return artifact.Kind
+	}
+	if kind := RuntimeArtifactPathKind(artifact.Source); kind != "" {
+		return kind
+	}
+	return RuntimeArtifactPathKindInText(artifact.Source)
+}
+
 func (profile RuntimeArtifactPreflightProfile) SourceNavigationOptionalForAnalyze() bool {
 	normalized := NormalizeRuntimeArtifactPreflightProfile(profile)
 	return normalized.Active && normalized.SourceNavigationOptional

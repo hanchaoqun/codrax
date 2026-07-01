@@ -16,8 +16,6 @@
 package context
 
 import (
-	"strings"
-
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -160,12 +158,8 @@ func agentContextHasTraceCarrier(ac *types.AgentContext) bool {
 	if ac == nil {
 		return false
 	}
-	preflight := types.NormalizeRuntimeArtifactPreflightProfile(ac.RuntimeArtifactPreflight)
-	for _, artifact := range preflight.Artifacts {
-		if strings.EqualFold(strings.TrimSpace(artifact.Kind), "trace") ||
-			types.RuntimeArtifactPathKind(artifact.Source) == "trace" {
-			return true
-		}
+	if ac.RuntimeArtifactPreflight.HasTraceArtifact() {
+		return true
 	}
 	if ac.AnalysisIR == nil {
 		return false

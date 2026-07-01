@@ -26,6 +26,8 @@
 > 3. **O4 投影窗口标注**:`TraceCausalProjectionNode` 新增 `StartTs`/`EndTs`(解析 window RichNote)+ `WithinRequestedWindow *bool`(三态);anchor 唯一精确源 = `frame_target_resolution`(`window_source=query_window` 或 R9 union 白名单),交集语义,无 anchor 保持 nil 不臆造;渲染 tag 仅在非 nil 时追加(§2.5)。
 > 4. **O5 端到端渲染测试**:`TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText` 走 observation→projection→`RenderAnswerDocument` 最终 markdown,断言 2ms 语义 span 的"确定性优化点"+span 名存活(同时覆盖 O4 tag 渲染)。
 > 5. **O6 架构文档**:`docs/architecture.md` 新增 §7.2.1 trace_query 分层下钻纲要。
+>
+> **v11 更新(2026-07-02,工具面 carrier 修复)**:修复路径引用型大 trace(`request_path` preflight,无 `--htrace`、无内联 PerfTrace)在 explore 阶段看不到 `trace_query` 的工具面盲区。新增 `RuntimeArtifactPreflightProfile.HasTraceArtifact()` 作为唯一 typed preflight kind helper;`trace_query` 工具暴露改为消费 **strong carrier OR typed trace preflight**。同时保留硬门边界:`traceQueryToolAvailable` 仍只代表强 carrier,preflight-only 不触发 `runtime_probe_first` 硬拦。强排他场景("本轮必须只分析这个 trace")继续由 `ExternalObservationPolicy{current_source_mode=exclude, exclusion_kind=explicit_user_exclusion}` 承重,不从 raw request / objective 文本重解析意图。
 
 ## 背景:用户目标方法论(原始需求逐条整理)
 
@@ -502,6 +504,10 @@ v6 对着 §2.9.1 列出的三处入口重新看了一遍"两者都给"的场景
 现状(§2.9.1):`interestingIntervals`(query.go:10324-10381)把目标线程在用户窗口内的时间线按状态打分后只保留 Top `MaxBranches`(默认 8)个非-Running 区间进入 `expandChain` 递归展开,`res.Window` 元数据本身没有被收窄,但递归下钻的实际覆盖深度可能小于用户给定的整个窗口范围,且 Running 区间被无条件跳过链式展开(仍可通过独立候选流 §2.3.2 看到)。
 建议:这是一个比 O9 更值得先观察真实案例再决定是否要动的问题——如果后续在具体丢帧案例里发现"因为 MaxBranches=8 截断导致真正的根因区间被漏掉"的实例,再考虑提高默认 `MaxBranches`、或者在 `res.Caveats` 里显式提示"目标线程窗口内被裁剪掉 N 个候选区间"(当前没有这类 caveat,裁剪是完全静默的),让 LLM/用户至少能感知到覆盖不完整,而不是贸然改变递归展开的算法本身。
 **v7 落地建议的 caveat 部分**:`interestingIntervals` 现在返回截断前的合格总数,`buildWakeupChainWithCache` 据此追加可观测 caveat,详见 §2.9.1。是否提高默认 `MaxBranches` 仍留给后续基于真实案例判断,未在本批处理。
+
+**O11(工具面 carrier gap,2026-07-02)—— ✅ v11 已修复 —— 路径引用型 trace 必须看到 `trace_query`,但不能因此触发硬门。**
+现状(修复前):大 trace 只在请求里点名路径、没有通过 `--htrace` 附加、且 analyzer 尚未产出 `RequestModel` trace carrier 时,`RuntimeArtifactPreflight` 已经能确定这是一个真实 runtime trace artifact,但 explore 的 `skillToolSuggestionBlocked` 仍只看 `traceQueryToolAvailable` 强 carrier,导致 `trace_query` 被工具面移除;与此同时 context 的 `HasTrace` 已能渲染 trace-first 软提示,形成"提示模型用一个不可调用工具"的漂移。直接放宽 `traceQueryToolAvailable` 不可接受,因为它同时喂给 `RuntimeProbeHardRequired`,会把 request_path preflight 升级成硬拦。
+落地:v11 新增 `RuntimeArtifactPreflightProfile.HasTraceArtifact()` / `HasLogArtifact()` / `RuntimeArtifactPreflightArtifact.RuntimeArtifactKind()` 统一 kind 判定;新增 `traceQueryToolVisible = traceQueryToolAvailable || typed trace preflight`,只用于工具面暴露。`traceQueryToolAvailable` 保持强 carrier 语义并加注释防止回归。测试锁定三条边界:raw objective path 不暴露工具;typed preflight trace 暴露工具但不触发 `explorerTraceQueryFirstRequired`;typed `ExternalObservationPolicy` observation-only trace 仍能在 trace_query 有运行时观测后拒绝源码/grep fallback。
 
 ---
 
