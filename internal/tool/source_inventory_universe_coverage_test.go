@@ -628,6 +628,120 @@ func TestPublishSourceInventoryObservationFromLens_ProjectsTypedConstructSurface
 	}
 }
 
+func TestPublishSourceInventoryObservationFromLens_ExpandsCarrierRolesFromTypedSurfaceTerms(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "src/ui/Index.ets",
+		Language: "arkts",
+		Package:  "ui",
+		Symbols: []repotypes.Symbol{{
+			Name:     "Index",
+			Kind:     "component",
+			File:     "src/ui/Index.ets",
+			Line:     6,
+			Exported: true,
+			Doc:      "@ScreenEntry @Component",
+		}},
+	}, {
+		RelPath:  "src/api/routes.go",
+		Language: "go",
+		Package:  "api",
+		Symbols: []repotypes.Symbol{{
+			Name:     "GET /healthz",
+			Kind:     "route",
+			File:     "src/api/routes.go",
+			Line:     11,
+			Exported: true,
+		}},
+	}, {
+		RelPath:  "src/app/helper.go",
+		Language: "go",
+		Package:  "app",
+		Symbols: []repotypes.Symbol{{
+			Name:     "PlainHelper",
+			Kind:     "function",
+			File:     "src/app/helper.go",
+			Line:     4,
+			Exported: true,
+		}},
+	}})
+	profile := &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+		SourceQuotes:      []string{"@ScreenEntry", "GET /healthz"},
+		Confidence:        0.90,
+	}
+	ctx := sourceInventoryTestContext("", graph, ".", profile)
+
+	obs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        []string{"."},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeCounts: true,
+		Query:         "@ScreenEntry GET /healthz",
+		TopN:          10,
+	})
+	gotByRole := map[types.AnswerCandidateRole][]string{}
+	for _, set := range obs.Sets {
+		for _, member := range set.Members {
+			gotByRole[set.Role] = append(gotByRole[set.Role], member.Name)
+		}
+	}
+	if !containsString(gotByRole[types.AnswerCandidateRoleType], "Index") {
+		t.Fatalf("typed surface term should expand lens from function to type carrier, got %+v", obs.Sets)
+	}
+	if !containsString(gotByRole[types.AnswerCandidateRoleRoute], "GET /healthz") {
+		t.Fatalf("typed route surface should expand lens from function to route carrier, got %+v", obs.Sets)
+	}
+	if containsString(gotByRole[types.AnswerCandidateRoleFunction], "PlainHelper") {
+		t.Fatalf("query-driven carrier expansion leaked unmatched function rows: %+v", obs.Sets)
+	}
+	if got := profile.PrincipalTargetRoles(); len(got) != 1 || got[0] != types.AnswerCandidateRoleFunction {
+		t.Fatalf("lens carrier expansion must not mutate principal target roles, got %+v", got)
+	}
+}
+
+func TestPublishSourceInventoryObservationFromLens_UnmatchedSurfaceDoesNotExpandCarrierRoles(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "src/ui/Index.ets",
+		Language: "arkts",
+		Package:  "ui",
+		Symbols: []repotypes.Symbol{{
+			Name:     "Index",
+			Kind:     "component",
+			File:     "src/ui/Index.ets",
+			Line:     6,
+			Exported: true,
+			Doc:      "@ScreenEntry @Component",
+		}},
+	}})
+	profile := &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+		SourceQuotes:      []string{"unmatched structured surface"},
+		Confidence:        0.90,
+	}
+	ctx := sourceInventoryTestContext("", graph, ".", profile)
+
+	obs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        []string{"."},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeCounts: true,
+		Query:         "unmatched structured surface",
+		TopN:          10,
+	})
+	for _, set := range obs.Sets {
+		if set.Role != types.AnswerCandidateRoleFunction {
+			t.Fatalf("unmatched surface text must not fabricate carrier role %q: %+v", set.Role, obs.Sets)
+		}
+	}
+	if got := profile.PrincipalTargetRoles(); len(got) != 1 || got[0] != types.AnswerCandidateRoleFunction {
+		t.Fatalf("unmatched lens attempt must not mutate principal roles, got %+v", got)
+	}
+}
+
 func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterialization(t *testing.T) {
 	files := make([]*repotypes.FileInfo, 0, sourceInventoryExecBudgetFileThreshold+100)
 	for i := 0; i < sourceInventoryExecBudgetFileThreshold+100; i++ {

@@ -2706,33 +2706,6 @@ func sourceInventoryCandidateMatchesQuery(candidate sourceInventoryCandidate, fi
 	return sourceInventoryAnyQueryTokenMatches(parts, filter.Tokens)
 }
 
-func sourceInventorySymbolMatchesQuery(sym *repotypes.Symbol, graph *repotypes.Graph, filter sourceInventoryQueryFilter) bool {
-	if sym == nil || !filter.Active() {
-		return false
-	}
-	language := sourceInventoryGraphLanguageForFile(graph, sym.File)
-	if !sourceInventoryQueryLanguageMatches(language, filter) {
-		return false
-	}
-	parts := []string{
-		sym.Name,
-		sym.Kind,
-		sym.Doc,
-		sym.Parent,
-		sym.Receiver,
-		sym.Signature,
-	}
-	if graph != nil && graph.FileIndex != nil {
-		if fi := graph.FileIndex[sym.File]; fi != nil {
-			parts = append(parts, fi.Package)
-		}
-	}
-	if len(filter.Tokens) == 0 {
-		return true
-	}
-	return sourceInventoryAnyQueryTokenMatches(parts, filter.Tokens)
-}
-
 func sourceInventoryAnyQueryTokenMatches(parts []string, tokens []string) bool {
 	if len(tokens) == 0 {
 		return false
