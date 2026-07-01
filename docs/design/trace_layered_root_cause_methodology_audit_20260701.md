@@ -576,7 +576,7 @@ v6 对着 §2.9.1 列出的三处入口重新看了一遍"两者都给"的场景
 
 ## 7. 展示层 gap:『Trace 因果投影』章节渲染优化(2026-07-01,仅设计不改代码)
 
-> 本节由用户反馈提炼:最终 markdown/HTML 报告里"Trace 因果投影"章节的**排版表现不够直观、用户不友好**,属于**展示层 gap**(不是 correctness gap——底层 typed 证据大多已在,是渲染方式的问题)。先记录需求 + 经 9-agent 设计 workflow(4 理解 → 3 独立设计 → 综合 + 对抗审查)提炼的方案,**暂不改代码**。设计已逐条对照代码核实,并做了独立的无损性字段核算。
+> 本节由用户反馈提炼:最终 markdown/HTML 报告里"Trace 因果投影"章节的**排版表现不够直观、用户不友好**,属于**展示层 gap**(不是 correctness gap——底层 typed 证据大多已在,是渲染方式的问题)。初版先记录需求 + 经 9-agent 设计 workflow(4 理解 → 3 独立设计 → 综合 + 对抗审查)提炼方案;当前实现状态见 §7.9、§7.11、§7.12、§7.13。设计已逐条对照代码核实,并做了独立的无损性字段核算。
 
 ### 7.1 当前渲染现状(gap 的证据)
 
@@ -669,14 +669,16 @@ flowchart LR
 
 > 无 sleep 时"下钻→"列由 `renderV2CompactEmptyStructuredColumns` 自动压掉、sleep 下钻图不发,章节降为 intro + 唤醒链图 + 表。
 
-### 7.8 备选与待定(需用户裁定)
+### 7.8 历史备选与裁定状态(已由 §7.9 / §7.11-§7.13 承接)
+
+> **当前状态(2026-07-02)**:本节是 §7 初版设计时的备选记录,不再代表当前 open task。用户已裁定并落地"表骨架 + 两图";后续 §7.11-§7.13 又把单大表继续拆成根因总览、on-chain 链路、影响时长、背景支撑、证据索引多视图,并把证据索引从宽表改为审计列表。
 
 - **备选:纯 markdown 表、完全不用 mermaid**(最稳、零 L7/L8 暴露、改动面最小=渲染层+d/e 同样的编译字段)。代价是丢"一眼看懂"的链拓扑(b)与可见的症状→根因边(d),降级成 glyph 行 + 表格列。推荐的混合方案把表做骨架,正是为了"砍掉两张图=无损减法",若终端/CJK 对齐实测不佳可随时退到此备选。
-- **待定 1(无损 vs 噪音边界)**:`Summary` 里的原始机器 token(`effective_impact=`/`actual_impact=`/`priority=`/`relation=`/`next_step=`)本方案**逐字保留**在明细子行(严格无损)但不清洗。要不要把 token 清洗纳入本次(风险:静默丢用户依赖的字段内容),还是另开 typed 提取 pass?
-- **待定 2(effective/actual 三元组)**:struct 只有 `ImpactMS`+`CumulativeImpactMS`,真正的 effective/actual 只在 `Summary` 文本里。推荐**只展示这两个 typed 字段**+ actual 留明细子行(不造字段);若要 gap c 文案里的完整三列数字,需再抽 `EffectiveImpactMS`/`ActualImpactMS` 两个 typed 字段(额外 6-spot sync)。
-- **待定 3**:8 列在窄终端可能换行——要不要把次要列(语义/证据)折进明细子行以收窄主网格?
+- **已裁定 1(无损 vs 噪音边界)**:`Summary` 原始机器 token 不再塞回主读表;typed 字段优先进入专门视图,剩余审计字段保留在 evidence/audit 列表中,避免主表宽化。
+- **已裁定 2(effective/actual 三元组)**:已抽 `EffectiveImpactMS` / `ActualImpactMS` typed 字段,影响时长拆到独立 `runtime_trace_causal_projection_impact` 表。
+- **已裁定 3(窄终端表格宽度)**:已由 §7.12/§7.13 多视图重构、短 action label、`E#` 短引用和 bullet evidence index 收敛,不再依赖 8 列单大表作为主读面。
 
-**结论**:方案已完备、可行、可无损落地;**核心工作量 = 渲染层重写(block 簇 + 表 + 两图)+ d/e 三个 typed 字段的编译层增强(6-spot sync)+ ZH/EN golden 同步重写**。待用户就 §7.8 的备选/三个待定裁定后再进入实现。
+**结论**:本节仅保留历史设计取舍;当前承重实现和测试状态以 §7.9、§7.11、§7.12、§7.13 为准。
 
 ### 7.9 已实现(2026-07-01,用户裁定后落地)
 
