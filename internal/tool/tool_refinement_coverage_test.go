@@ -56,6 +56,21 @@ func TestBroadToolRefinementCoverageMatrix(t *testing.T) {
 			wantPreferred: "grep",
 		},
 		{
+			name: "read_file trace artifact truncation",
+			hint: readFileResultRefinement(nil,
+				"record_trace.systrace",
+				"record_trace.systrace",
+				1,
+				120,
+				300,
+				0,
+				0,
+				true,
+			),
+			wantReason:    "read_file_trace_artifact_truncated",
+			wantPreferred: "trace_query",
+		},
+		{
 			name: "list_files broad result",
 			hint: listFilesBroadResultRefinement(nil, listFilesParams{
 				Path:      ".",

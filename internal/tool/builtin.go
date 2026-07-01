@@ -4597,6 +4597,29 @@ func readFileResultRefinement(ctx *types.BusContext, requestedPath, fsPath strin
 	if preferredPath == "" {
 		return nil
 	}
+	if readFileTargetsTraceQueryArtifact(preferredPath, fsPath) {
+		hint := types.ToolRefinementHint{
+			ReasonCode:        "read_file_trace_artifact_truncated",
+			ResultTruncated:   true,
+			PreferredNextTool: "trace_query",
+			PreferredParams: map[string]string{
+				"path": preferredPath,
+				"view": "event_search",
+			},
+			RequiredFields: []string{"path", "view"},
+		}
+		if lineStart > 0 {
+			hint.PreferredParams["line_start"] = strconv.Itoa(lineStart)
+		}
+		if lineEnd >= lineStart && lineEnd > 0 {
+			hint.PreferredParams["line_end"] = strconv.Itoa(lineEnd)
+		}
+		out := types.NormalizeToolRefinementHint(hint)
+		if out.Empty() {
+			return nil
+		}
+		return &out
+	}
 	hint := types.ToolRefinementHint{
 		ReasonCode:      "read_file_result_truncated",
 		ResultTruncated: true,
@@ -4625,6 +4648,16 @@ func readFileResultRefinement(ctx *types.BusContext, requestedPath, fsPath strin
 		return nil
 	}
 	return &out
+}
+
+func readFileTargetsTraceQueryArtifact(preferredPath, fsPath string) bool {
+	if grepPathLooksLikeTraceQueryArtifact(preferredPath) {
+		return true
+	}
+	if fsPath != "" && fsPath != preferredPath && grepPathLooksLikeTraceQueryArtifact(fsPath) {
+		return true
+	}
+	return false
 }
 
 func readFileTypedCoverage(ctx *types.BusContext, requestedPath, fsPath, rawRef string, lineStart, lineEnd, totalLines int) *types.ToolReadCoverage {

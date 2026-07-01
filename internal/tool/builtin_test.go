@@ -395,6 +395,48 @@ func TestReadFile(t *testing.T) {
 		}
 	})
 
+	t.Run("large trace read publishes trace_query refinement", func(t *testing.T) {
+		repoRoot := t.TempDir()
+		var b strings.Builder
+		for i := 0; i < 400; i++ {
+			fmt.Fprintf(&b, "         app-%d [%03d] d..3 123.456789: sched_switch: prev_comm=app prev_pid=%d prev_state=S ==> next_comm=worker next_pid=%d %s\n",
+				i, i%8, 1000+i, 2000+i, strings.Repeat("x", 48))
+		}
+		if err := os.WriteFile(filepath.Join(repoRoot, "record_trace.systrace"), []byte(b.String()), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &ReadFile{}
+		result, err := tool.Execute(&types.BusContext{RepoRoot: repoRoot}, json.RawMessage(`{"path":"record_trace.systrace"}`))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if result.Refinement == nil {
+			t.Fatalf("trace read truncation should publish typed refinement")
+		}
+		if result.Refinement.ReasonCode != "read_file_trace_artifact_truncated" || !result.Refinement.ResultTruncated {
+			t.Fatalf("unexpected refinement: %+v", result.Refinement)
+		}
+		if result.Refinement.PreferredNextTool != "trace_query" {
+			t.Fatalf("preferred next tool = %q; refinement=%+v", result.Refinement.PreferredNextTool, result.Refinement)
+		}
+		if got := result.Refinement.PreferredParams["path"]; got != "record_trace.systrace" {
+			t.Fatalf("preferred path = %q; refinement=%+v", got, result.Refinement)
+		}
+		if got := result.Refinement.PreferredParams["view"]; got != "event_search" {
+			t.Fatalf("preferred view = %q; refinement=%+v", got, result.Refinement)
+		}
+		if result.Refinement.PreferredParams["line_start"] == "" || result.Refinement.PreferredParams["line_end"] == "" {
+			t.Fatalf("trace_query refinement should carry current line window: %+v", result.Refinement)
+		}
+		if !sameStringSliceForTest(result.Refinement.RequiredFields, []string{"path", "view"}) {
+			t.Fatalf("required fields = %v", result.Refinement.RequiredFields)
+		}
+	})
+
 	t.Run("log triage rejects repo files when no attachment blob exists", func(t *testing.T) {
 		repoRoot := t.TempDir()
 		src := filepath.Join(repoRoot, "internal", "agent")
