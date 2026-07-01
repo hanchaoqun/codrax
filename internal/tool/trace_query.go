@@ -1114,8 +1114,43 @@ func traceQueryWindowedIndexOptions(p traceQueryParams, timeStart, timeEnd float
 		}
 		opts.ScopePID = pid
 		opts.ScopeThread = strings.TrimSpace(p.Thread)
+		// Gap 3 Step 2: for the two causal-chain views whose consumption is
+		// provably a subset of {target pid + its scheduler wakers + binder},
+		// additionally pid-relation-prune the index so even a very dense GB-trace
+		// window fits. This is DELIBERATELY restricted to thread_timeline /
+		// wakeup_chain — root_cause_rank / frame_root_cause_bundle / window_stats
+		// consume whole-window × all-thread aggregates that pruning would
+		// silently drop, so they keep the full (Step-1 byte-budgeted) index.
+		// Requires an explicit pid (thread-only scoping is not relation-pruned).
+		if pid > 0 && traceQueryRelationScopedView(p.View) {
+			opts.RelationScoped = true
+			opts.ScopeMaxDepth = traceQueryRelationScopeMaxDepth(p)
+		}
 	}
 	return opts
+}
+
+// traceQueryRelationScopedView reports whether a view's event consumption is a
+// provable subset of the target pid's threads, their transitive scheduler
+// wakers, and binder rows — the only views for which relation-scope index
+// pruning is complete (verified design w9ffnwv29).
+func traceQueryRelationScopedView(view string) bool {
+	switch strings.TrimSpace(view) {
+	case "thread_timeline", "wakeup_chain":
+		return true
+	}
+	return false
+}
+
+// traceQueryRelationScopeMaxDepth returns the waker-closure depth for pass-1
+// discovery: at least the wakeup-chain query's default MaxDepth (10) plus one
+// buffer hop so the pruned index covers one level deeper than expandChain walks.
+func traceQueryRelationScopeMaxDepth(p traceQueryParams) int {
+	d := p.MaxDepth.Int()
+	if d < 10 {
+		d = 10
+	}
+	return d + 1
 }
 
 // traceQueryScopedIndexMaxEvents translates the scoped in-memory byte budget

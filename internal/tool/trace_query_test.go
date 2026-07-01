@@ -66,6 +66,37 @@ func TestTraceQueryWindowedIndexOptionsScopedRaise(t *testing.T) {
 // increase without importing an internal constant.
 const defaultTraceIndexEventCapForTest = 250000
 
+// TestTraceQueryRelationScopedOnlyForCausalChainViews is the reverse-protection
+// guard for Gap 3 Step 2: relation-scope index pruning is provably complete ONLY
+// for thread_timeline / wakeup_chain. It MUST NOT be enabled for the window-stats
+// family (root_cause_rank / frame_root_cause_bundle / window_stats /
+// critical_blocking_calls), which consume whole-window × all-thread aggregates
+// that pruning would silently drop. Those views keep the full Step-1 index.
+func TestTraceQueryRelationScopedOnlyForCausalChainViews(t *testing.T) {
+	relationScoped := map[string]bool{"thread_timeline": true, "wakeup_chain": true}
+	views := []string{
+		"thread_timeline", "wakeup_chain",
+		"root_cause_rank", "frame_root_cause_bundle", "window_stats",
+		"critical_blocking_calls", "scheduler_latency_stats",
+	}
+	for _, view := range views {
+		t.Run(view, func(t *testing.T) {
+			opts := traceQueryWindowedIndexOptions(traceQueryParams{View: view, PID: 42591}, 1.0, 2.0)
+			if opts.RelationScoped != relationScoped[view] {
+				t.Fatalf("view %q: RelationScoped = %v, want %v", view, opts.RelationScoped, relationScoped[view])
+			}
+			if relationScoped[view] && opts.ScopeMaxDepth < 11 {
+				t.Fatalf("view %q: relation-scoped build must set a waker-closure depth >= 11, got %d", view, opts.ScopeMaxDepth)
+			}
+		})
+	}
+	// Thread-only (no pid) must never relation-scope — pass-1 needs a pid to
+	// seed the closure.
+	if opts := traceQueryWindowedIndexOptions(traceQueryParams{View: "wakeup_chain", Thread: "app 20"}, 1.0, 2.0); opts.RelationScoped {
+		t.Fatal("thread-only wakeup_chain must not be relation-scoped (no pid to seed pass-1)")
+	}
+}
+
 func TestTraceQueryExplicitPathProducesRuntimeArtifactSummary(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "sample.systrace")

@@ -106,6 +106,14 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
 - 效果:客户 300ms 窗口(此前触 250K)现可在单次固化-pid 重型视图里建起来并跑出 root_cause_rank;更密的窗口拿到定制提示后拆子窗口,而非丢 pid。
 - 测试:`TestTraceQueryWindowedIndexOptionsScopedRaise`(4 例:pid-heavy 提上限 / thread-heavy 提上限 / unscoped 保默认 / pid-非heavy 保默认)+ `TestBuildIndexWithOptionsScopedLimitErrorGuidesWindowSplit`(真实 build 把 scope 带进 limit error、提示不含 narrow-with-pid、含 do-NOT-drop-pinned)。既有 `TestBuildIndexWithOptionsStopsAtEventLimit`("split the time window")仍绿。
 
-### Step 2 —— 关系裁剪(按验证设计推迟,仅在 Step 1 不够时上,且仅限 timeline/wakeup)
+### Step 2 —— 关系裁剪索引(已交付,严格仅限 `thread_timeline`/`wakeup_chain`)
 
-Step 2(pass-1 发现相关线程闭包 + pass-2 超集保留 + cacheKey scope 隔离 + absence caveat)风险高、面窄,按设计"先验证提上限是否够"的纪律推迟为独立批次。若客户 3.3s 级窗口在 1 GiB 预算下仍触顶,再按 workflow spec(见 session task `w9ffnwv29`)实现,严格只对 `thread_timeline`/`wakeup_chain`,超集保留(目标 CPU 全 sched_switch + 全 trace_mark + 全 binder + MaxDepth+1 waker 闭包),pruned 不入 cache 且带 absence caveat。
+按验证设计 workflow `w9ffnwv29` 实现,让两个因果链视图在超密 GB trace 窗口上真正跑起来(裁剪后事件数远小于全量,即便 1 GiB 预算的全量索引仍触顶时也能出唤醒链)。
+
+- **两遍流式**(`internal/tracequery/parse_relation_scope.go`):**pass-1** `discoverRelationScope` 复用同一 `windowGate` 扫窗口一遍、只累积两个小 map(`tid→tgid`、`wakee→waker` 边),不 append 任何 Event;随后 (a) 把 `ScopePID` 按 TGID 展开成目标进程全部 tid(对齐 `streamStateClusterThreadAllowed` 的 `pid==PID||tgid==PID`),(b) 沿 wakee→waker 边做**有界 BFS**(depth=`ScopeMaxDepth`,默认 11=查询 MaxDepth 10+1 冗余)求**传递 waker 闭包** → `relevantTids`。**pass-2**(主 parse 循环)在 `idx.Events = append` 前插一个 `relScope.keep(&ev)` 谓词:`SchedSwitch` 命中 `PrevPID`/`NextPID`∈relevantTids、`Wakeup/Waking/BlockedReason` 命中 `WakeePID`∈relevantTids、**所有 binder 行无条件保留**(按 TransactionID 配对 send↔received,pid 谓词看不出对端)。谓词与 `newChainQueryCache` 的索引口径逐一对齐,故对这两个视图**完备**。
+- **元数据不裁**:`FirstTs/LastTs/ClockRegressions/ParsedKnown/flavor/ScannedLineCount` 全在裁剪前更新,只有 `idx.Events` 被裁 → 裁剪索引对这两个视图的查询结果与全量索引**逐字段一致**。
+- **超集安全**:pass-1 收集窗口内**所有**曾唤醒某 relevant 线程的 waker(不止 expandChain 每个睡眠区间实选的那一个)并传递闭包,故 `relevantTids ⊇ 链实际走的线程集`;裁剪只删事件从不加,**永不比 Step 1 更差**(最坏退回 MaxEvents 上限)。
+- **cache 隔离**:`cacheKey()` 在 relation-scoped 时追加 `;scope=rel/pid:<n>/depth:<d>`,不同 pid / 非 scoped 落不同槽,pruned 索引永不串给别的查询;非 scoped key 逐字节不变。windowed 恒不入 `indexCache`(`shouldCacheTraceIndex` 返 false),且 relation-scoped **不走** `deriveWindowedIndex`(从全量 cache 派生会拿到未裁窗口)——已在 `BuildIndexWithOptions` 用 `!opts.relationScoped()` 堵死。
+- **严格视图门**:`internal/tool/trace_query.go` 仅对 `thread_timeline`/`wakeup_chain` + 显式 pid 置 `RelationScoped=true`;`root_cause_rank`/`frame_root_cause_bundle`/`window_stats`/`critical_blocking_calls` **绝不裁**(它们消费全窗口×全线程聚合:同 CPU 无关竞争 sched_switch、全 pid trace_mark 帧、全局 IO/clock/power,裁剪=静默正确性回归),继续走 Step 1 全量索引。thread-only(无 pid)也不裁(pass-1 需 pid 播种)。
+- **测试**:`TestRelationScopedIndexMatchesFullForCausalChains`(**golden 对拍**:wakeup_chain + thread_timeline 全量 vs 裁剪 `reflect.DeepEqual` 相等,裁剪事件数更少、噪音线程被删、binder 全留、元数据一致)、`TestRelationScopedIndexExpandsProcessTGID`(pid=进程展开兄弟线程)、`TestRelationScopedCacheKeyIsolation`(scope key 隔离、非 scoped key 不变)、`TestTraceQueryRelationScopedOnlyForCausalChainViews`(**反向保护**:window-stats 家族绝不置 RelationScoped)。全量 `go test ./...` 绿。
+- **未覆盖(可后续)**:thread-only 关系裁剪需 thread→pid 解析;若将来要让 `root_cause_rank` 也在超密窗口跑,需的是**流式分片聚合**(方案 2/3)而非裁剪,属独立设计。

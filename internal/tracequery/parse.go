@@ -172,6 +172,26 @@ type BuildOptions struct {
 	// the density message must steer toward splitting the window instead.
 	ScopePID    int
 	ScopeThread string
+	// RelationScoped (Gap 3 Step 2) opts this windowed index into
+	// pid-relation pruning: only events touching the target pid, its
+	// scheduling wakers (transitive, to ScopeMaxDepth), and all binder rows
+	// are retained. This is provably complete ONLY for the causal-chain views
+	// (thread_timeline / wakeup_chain) — it MUST NOT be set for
+	// root_cause_rank / frame_root_cause_bundle / window_stats, which consume
+	// whole-window × all-thread aggregates (CPU pressure from unrelated
+	// same-CPU threads, all-pid trace-mark frame spans, global IO/clock/power)
+	// that pruning would silently drop. The pruned index is a strict subset of
+	// the full window (only removes events), so it can never make a view worse
+	// than the Step-1 byte-budget path; it just lets those two views run on a
+	// far larger window. Gated on ScopePID > 0 (thread-only scoping keeps the
+	// full Step-1 index for now).
+	RelationScoped bool
+	// ScopeMaxDepth bounds the transitive waker-closure BFS in pass-1. It must
+	// be >= the query's wakeup-chain MaxDepth (default 10) plus a buffer so the
+	// discovered waker set is a superset of what expandChain actually
+	// traverses; a short closure would prune a deep waker's events and break
+	// the chain. Zero falls back to defaultRelationScopeMaxDepth.
+	ScopeMaxDepth int
 }
 
 type IndexEventLimitError struct {
@@ -279,7 +299,11 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 			return idx, nil
 		}
 	}
-	if opts.windowed() {
+	// A relation-scoped index must be built by pruning during the streamed
+	// parse; deriving it from a cached FULL index would hand back the unpruned
+	// window (correct data, but defeats the memory goal and misses the point).
+	// Only non-scoped windowed indices reuse the full-cache derive fast path.
+	if opts.windowed() && !opts.relationScoped() {
 		fullKey := parseCacheKey{
 			path:    path,
 			size:    info.Size(),
@@ -496,15 +520,73 @@ func (opts BuildOptions) windowed() bool {
 	return opts.AllowWindowedParse && (opts.TimeStartSet || opts.TimeEndSet || opts.LineStart > 0 || opts.LineEnd > 0)
 }
 
+// relationScoped reports whether this build should pid-relation-prune the
+// windowed index. It requires an explicit pid scope and a window; thread-only
+// scoping is intentionally excluded for now (it would need thread→pid
+// resolution before the pass-1 closure).
+func (opts BuildOptions) relationScoped() bool {
+	return opts.RelationScoped && opts.ScopePID > 0 && opts.windowed()
+}
+
+func (opts BuildOptions) scopeMaxDepth() int {
+	if opts.ScopeMaxDepth > 0 {
+		return opts.ScopeMaxDepth
+	}
+	return defaultRelationScopeMaxDepth
+}
+
 func (opts BuildOptions) cacheKey() string {
 	if !opts.windowed() {
 		return ""
 	}
-	return fmt.Sprintf("ts=%t:%.9f-%t:%.9f+%.6f/%.6f;ln=%d-%d+%d/%d;max_events=%d",
+	key := fmt.Sprintf("ts=%t:%.9f-%t:%.9f+%.6f/%.6f;ln=%d-%d+%d/%d;max_events=%d",
 		opts.TimeStartSet, opts.TimeStart, opts.TimeEndSet, opts.TimeEnd,
 		opts.TimePaddingBefore, opts.TimePaddingAfter,
 		opts.LineStart, opts.LineEnd, opts.LinePaddingBefore, opts.LinePaddingAfter,
 		opts.MaxEvents)
+	// Isolate pid-relation-scoped indices in their own cache slot. A pruned
+	// index is NOT a valid answer for a different pid or for an unscoped query,
+	// so it must never collide with them. Non-scoped keys are byte-identical to
+	// before (the scope segment is appended only when relation-scoped).
+	if opts.relationScoped() {
+		key += fmt.Sprintf(";scope=rel/pid:%d/depth:%d", opts.ScopePID, opts.scopeMaxDepth())
+	}
+	return key
+}
+
+// windowGate holds the padded line/time bounds of a windowed parse and decides,
+// for each scanned line, whether it falls before the window (skip), past it
+// (stop), or inside it (retain). Both the main parse loop and the relation-scope
+// discovery pass route through this single method so they observe a byte-
+// identical window line set — any drift between the two would corrupt pruning.
+type windowGate struct {
+	lineStart, lineEnd       int
+	timeStart, timeEnd       float64
+	timeStartSet, timeEndSet bool
+}
+
+func (w windowGate) decide(lineNo int, trimmed string, seenTimeWindow *bool) (skip, stop bool) {
+	if w.lineEnd > 0 && lineNo > w.lineEnd {
+		return false, true
+	}
+	if w.lineStart > 0 && lineNo < w.lineStart {
+		return true, false
+	}
+	if w.timeStartSet || w.timeEndSet {
+		ts, hasTS := parseLineTimestamp(trimmed)
+		if hasTS {
+			if w.timeStartSet && ts < w.timeStart {
+				return true, false
+			}
+			if w.timeEndSet && ts > w.timeEnd {
+				return false, true
+			}
+			*seenTimeWindow = true
+		} else if w.timeStartSet && !*seenTimeWindow {
+			return true, false
+		}
+	}
+	return false, false
 }
 
 func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
@@ -532,6 +614,28 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		idx.IndexLineStart = paddedLineStart(opts)
 		idx.IndexLineEnd = paddedLineEnd(opts)
 	}
+	gate := windowGate{
+		lineStart:    idx.IndexLineStart,
+		lineEnd:      idx.IndexLineEnd,
+		timeStart:    idx.IndexTimeStart,
+		timeEnd:      idx.IndexTimeEnd,
+		timeStartSet: opts.TimeStartSet,
+		timeEndSet:   opts.TimeEndSet,
+	}
+	// Gap 3 Step 2: for a pid-relation-scoped build, first stream the window
+	// once to discover the target pid's thread set and its transitive scheduler
+	// wakers; the main pass below then retains only events touching that set (plus
+	// all binder rows). All idx metadata (FirstTs/LastTs/flavor/…) is still
+	// computed over the FULL window, so only idx.Events is pruned — query results
+	// on the causal-chain views stay identical to the full index.
+	var relScope *relationScope
+	if opts.relationScoped() {
+		s, derr := discoverRelationScope(ctx, path, opts)
+		if derr != nil {
+			return nil, derr
+		}
+		relScope = s
+	}
 	r := bufio.NewReaderSize(f, 256*1024)
 	intern := newStringInterner()
 	flavor := newFlavorVote(path)
@@ -547,34 +651,15 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
 			if idx.Windowed {
-				if idx.IndexLineEnd > 0 && lineNo > idx.IndexLineEnd {
+				skip, stop := gate.decide(lineNo, trimmed, &seenTimeWindow)
+				if stop {
 					break
 				}
-				if idx.IndexLineStart > 0 && lineNo < idx.IndexLineStart {
+				if skip {
 					if lineNo <= 200 {
 						flavor.observeRawLine(trimmed)
 					}
 					goto nextLine
-				}
-				if opts.TimeStartSet || opts.TimeEndSet {
-					ts, hasTS := parseLineTimestamp(trimmed)
-					if hasTS {
-						if opts.TimeStartSet && ts < idx.IndexTimeStart {
-							if lineNo <= 200 {
-								flavor.observeRawLine(trimmed)
-							}
-							goto nextLine
-						}
-						if opts.TimeEndSet && ts > idx.IndexTimeEnd {
-							break
-						}
-						seenTimeWindow = true
-					} else if opts.TimeStartSet && !seenTimeWindow {
-						if lineNo <= 200 {
-							flavor.observeRawLine(trimmed)
-						}
-						goto nextLine
-					}
 				}
 			}
 			flavor.observeRawLine(trimmed)
@@ -596,6 +681,13 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					idx.ParsedKnown++
 				}
 				flavor.observeEvent(ev)
+				// Relation-scope pruning: keep only events the causal-chain
+				// views actually consume for the target pid + its wakers (plus
+				// all binder rows). Runs before the MaxEvents check so the cap
+				// counts retained events, letting a dense window fit.
+				if relScope != nil && !relScope.keep(&ev) {
+					goto nextLine
+				}
 				if opts.MaxEvents > 0 && len(idx.Events) >= opts.MaxEvents {
 					return nil, newIndexEventLimitError(path, idx, opts, lineNo, len(idx.Events))
 				}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -681,6 +682,163 @@ func TestBuildIndexWithOptionsScopedLimitErrorGuidesWindowSplit(t *testing.T) {
 	}
 	if !strings.Contains(msg, "split the time window") {
 		t.Fatalf("scoped limit error should still guide window splitting: %s", msg)
+	}
+}
+
+// relationScopeGoldenTrace: pid=20 sleeps and is woken by pid=10 (the causal
+// chain), pid=20 also binder-transacts with an unrelated peer pid=50, and
+// pids 97/98/99 are unrelated same-window noise on another CPU. Relation-scope
+// pruning for pid=20 must retain the chain + all binder rows and drop the noise,
+// yielding byte-identical wakeup_chain / thread_timeline results vs the full index.
+const relationScopeGoldenTrace = `
+      waker-10   (   10) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=waker next_pid=10 next_prio=20
+      waker-10   (   10) [000] .... 1.050000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001
+      waker-10   (   10) [000] .... 1.060000: sched_switch: prev_comm=waker prev_pid=10 prev_prio=20 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+        app-20   (   20) [001] .... 1.100000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+      noise-99   (   99) [003] .... 1.110000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=noise next_pid=99 next_prio=120
+      noise-99   (   99) [003] .... 1.130000: sched_switch: prev_comm=noise prev_pid=99 prev_prio=120 prev_state=R ==> next_comm=noise2 next_pid=98 next_prio=120
+      noise-98   (   98) [003] .... 1.150000: sched_wakeup: comm=noise3 pid=97 prio=120 target_cpu=003
+        app-20   (   20) [001] .... 1.160000: binder_transaction: transaction=99 dest_node=0 dest_proc=50 dest_thread=51 reply=0 flags=0x0 code=0x1
+ binder:50_1-51   (   50) [002] .... 1.165000: binder_transaction_received: transaction=99
+      waker-10   (   10) [000] .... 1.180000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001
+        app-20   (   20) [001] .... 1.220000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 1.260000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=idle/1 next_pid=0 next_prio=120
+`
+
+func buildRelationScopeGoldenIndices(t *testing.T) (full, scoped *Index) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "relscope.systrace")
+	if err := os.WriteFile(path, []byte(strings.TrimPrefix(relationScopeGoldenTrace, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := BuildOptions{
+		TimeStart: 1.09, TimeEnd: 1.24, TimeStartSet: true, TimeEndSet: true,
+		AllowWindowedParse: true, ScopePID: 20,
+	}
+	var err error
+	full, err = BuildIndexWithOptions(context.Background(), path, base)
+	if err != nil {
+		t.Fatalf("full build: %v", err)
+	}
+	scopedOpts := base
+	scopedOpts.RelationScoped = true
+	scoped, err = BuildIndexWithOptions(context.Background(), path, scopedOpts)
+	if err != nil {
+		t.Fatalf("scoped build: %v", err)
+	}
+	return full, scoped
+}
+
+// TestRelationScopedIndexMatchesFullForCausalChains is the Gap 3 Step 2 golden
+// guard: for wakeup_chain and thread_timeline, the pid-relation-scoped index
+// must produce results byte-identical to the full index, while retaining fewer
+// events (noise dropped, chain + binder kept). This is the direct proof that
+// pruning is complete for the two views it is enabled on.
+func TestRelationScopedIndexMatchesFullForCausalChains(t *testing.T) {
+	full, scoped := buildRelationScopeGoldenIndices(t)
+
+	if len(scoped.Events) >= len(full.Events) {
+		t.Fatalf("relation-scoped index should retain fewer events: scoped=%d full=%d", len(scoped.Events), len(full.Events))
+	}
+	// Metadata is computed over the full window, so it must be identical.
+	if scoped.FirstTs != full.FirstTs || scoped.LastTs != full.LastTs || scoped.ScannedLineCount != full.ScannedLineCount {
+		t.Fatalf("pruned index metadata drifted: scoped(first=%v last=%v scanned=%d) full(first=%v last=%v scanned=%d)",
+			scoped.FirstTs, scoped.LastTs, scoped.ScannedLineCount, full.FirstTs, full.LastTs, full.ScannedLineCount)
+	}
+	// Noise threads must be gone; chain threads + binder rows must remain.
+	for _, ev := range scoped.Events {
+		if ev.PrevPID == 99 || ev.NextPID == 99 || ev.PrevPID == 98 || ev.NextPID == 98 || ev.WakeePID == 97 {
+			t.Fatalf("relation-scoped index leaked unrelated noise event: %+v", ev)
+		}
+	}
+	binderKept := 0
+	for _, ev := range scoped.Events {
+		if ev.Type == EventBinderTransaction || ev.Type == EventBinderReceived {
+			binderKept++
+		}
+	}
+	if binderKept != 2 {
+		t.Fatalf("relation-scoped index must keep all binder rows (tx + received), got %d", binderKept)
+	}
+
+	q := Query{PID: 20, TimeStart: 1.10, TimeEnd: 1.22, MaxDepth: 4, MinDurationMs: 1}
+	if fc, sc := BuildWakeupChain(full, q), BuildWakeupChain(scoped, q); !reflect.DeepEqual(fc, sc) {
+		t.Fatalf("wakeup_chain differs between full and relation-scoped index:\nfull=%+v\nscoped=%+v", fc, sc)
+	}
+	if ft, st := ThreadTimeline(full, q), ThreadTimeline(scoped, q); !reflect.DeepEqual(ft, st) {
+		t.Fatalf("thread_timeline differs between full and relation-scoped index:\nfull=%+v\nscoped=%+v", ft, st)
+	}
+}
+
+// TestRelationScopedIndexExpandsProcessTGID confirms that when the scoped pid is
+// a process (TGID), pass-1 expands it into its sibling threads so their events
+// are retained (a sibling woken separately must not be pruned).
+func TestRelationScopedIndexExpandsProcessTGID(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tgid.systrace")
+	// pid 20 is the process; pid 21 is a sibling thread (tgid 20). Both run in
+	// the window; an unrelated pid 77 is noise.
+	body := `
+        app-20   (   20) [001] .... 2.100000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+     worker-21   (   20) [002] .... 2.110000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=21 next_prio=53
+       noise-77  (   77) [003] .... 2.120000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=noise next_pid=77 next_prio=120
+     worker-21   (   20) [002] .... 2.130000: sched_switch: prev_comm=worker prev_pid=21 prev_prio=53 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+        app-20   (   20) [001] .... 2.200000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+`
+	if err := os.WriteFile(path, []byte(strings.TrimPrefix(body, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := BuildIndexWithOptions(context.Background(), path, BuildOptions{
+		TimeStart: 2.09, TimeEnd: 2.21, TimeStartSet: true, TimeEndSet: true,
+		AllowWindowedParse: true, ScopePID: 20, RelationScoped: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawSibling, sawNoise := false, false
+	for _, ev := range idx.Events {
+		if ev.PrevPID == 21 || ev.NextPID == 21 {
+			sawSibling = true
+		}
+		if ev.PrevPID == 77 || ev.NextPID == 77 {
+			sawNoise = true
+		}
+	}
+	if !sawSibling {
+		t.Fatalf("process-scoped pruning must retain sibling thread 21 (tgid 20): %+v", idx.Events)
+	}
+	if sawNoise {
+		t.Fatalf("process-scoped pruning must drop unrelated pid 77: %+v", idx.Events)
+	}
+}
+
+// TestRelationScopedCacheKeyIsolation pins that a relation-scoped index gets a
+// distinct cache key (per pid), so a pruned index can never be served to a
+// different pid or an unscoped query.
+func TestRelationScopedCacheKeyIsolation(t *testing.T) {
+	base := BuildOptions{
+		TimeStart: 1.0, TimeEnd: 2.0, TimeStartSet: true, TimeEndSet: true,
+		AllowWindowedParse: true,
+	}
+	unscoped := base.cacheKey()
+	pid20 := base
+	pid20.ScopePID = 20
+	pid20.RelationScoped = true
+	pid30 := base
+	pid30.ScopePID = 30
+	pid30.RelationScoped = true
+
+	if unscoped == pid20.cacheKey() {
+		t.Fatalf("relation-scoped key must differ from unscoped: %q", unscoped)
+	}
+	if pid20.cacheKey() == pid30.cacheKey() {
+		t.Fatalf("different scoped pids must get different cache keys: %q", pid20.cacheKey())
+	}
+	// A non-relation-scoped windowed key must be byte-identical to before (no
+	// scope segment leaks in when RelationScoped is false).
+	if strings.Contains(unscoped, "scope=rel") {
+		t.Fatalf("non-scoped cache key must not carry a scope segment: %q", unscoped)
 	}
 }
 
