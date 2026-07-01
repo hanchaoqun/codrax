@@ -694,7 +694,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	if len(projection.Items) > 8 {
 		t.Fatalf("lead overview should stay compact, got %d rows: %+v", len(projection.Items), projection.Items)
 	}
-	if len(projection.Columns) < 6 || projection.Columns[5] != "处理方向" {
+	if len(projection.Columns) != 5 || projection.Columns[3] != "处理方向" {
 		t.Fatalf("lead overview should use compact action column: %+v", projection.Columns)
 	}
 
@@ -723,7 +723,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	if onChain == nil {
 		t.Fatalf("missing on-chain projection block:\n%s", text)
 	}
-	for _, want := range []string{"责任/影响", "链上累计", "本层投影"} {
+	for _, want := range []string{"本层含义", "影响"} {
 		if !stringSliceContains(onChain.Columns, want) {
 			t.Fatalf("on-chain table should expose responsibility and impact reading %q: %+v", want, onChain.Columns)
 		}
@@ -816,7 +816,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 	}
 	// gap d: the sleep symptom is marked non-root and drilled to its direct
 	// typed waker from the wakeup chain, not a global root.
-	for _, want := range []string{"💤", "非根因", "等待→查上游", "worker-200", "下钻到"} {
+	for _, want := range []string{"💤", "sleep症状→查上游", "worker-200", "下钻到"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("sleep drilldown must render (gap d): missing %q:\n%s", want, rendered)
 		}
@@ -829,8 +829,8 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 	}
 	// The section renders as a real GFM table (pipes + header separator) plus a
 	// mermaid flowchart — not a flat ordered list.
-	if !strings.Contains(rendered, "| 优先级 | 层级 | 节点 |") ||
-		!strings.Contains(rendered, "| 深度 | 上游 | 下游/影响点 | 状态 | 责任/影响 | 链上累计 | 本层投影 | 证据 |") ||
+	if !strings.Contains(rendered, "| 关注 | 根因/节点 | 影响 | 处理方向 | 证据 |") ||
+		!strings.Contains(rendered, "| 层 | 链路 | 本层含义 | 影响 | 证据 |") ||
 		!strings.Contains(rendered, "| 节点 | 强度 | 链上累计 | 本节点投影 | 有效归因 | 实际状态 |") ||
 		!strings.Contains(rendered, "```mermaid") {
 		t.Fatalf("section must render as a table + mermaid cluster:\n%s", rendered)
@@ -921,7 +921,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePre
 	if projection == nil || projection.Kind != types.BlockTable {
 		t.Fatalf("missing projection table: %+v", got.Blocks)
 	}
-	if len(projection.Columns) < 5 || projection.Columns[4] != "影响" {
+	if len(projection.Columns) < 3 || projection.Columns[2] != "影响" {
 		t.Fatalf("Chinese projection columns should localize impact: %+v", projection.Columns)
 	}
 	text := projectionClusterText(got.Blocks)

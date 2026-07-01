@@ -1192,3 +1192,34 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 
 - `go test ./internal/tool -run 'TraceCausalProjection|RuntimeTraceCausalProjection' -count=1`
 - `go test ./internal/types -run 'TraceCausalProjection|SemanticSpan|StateDrilldown' -count=1`
+
+### 7.23 最新反馈 gap:Trace 因果投影主读面仍偏宽、on-chain 影响不够一眼可读(2026-07-02)
+
+用户最新反馈指出:即使已经从单大表拆为多视图,`Trace 因果投影` 的用户面仍可能出现三类商用阅读问题:主表列数偏多导致窄屏换行,`层/节点` 等列承载过多身份文本,证据索引仍可能把长路径/长审计摘要带到阅读流;同时 on-chain 的"谁影响谁、为什么算主因、链上累计与本层投影各是多少"还不够一眼可读。
+
+这不是 trace_query 算法缺口,也不是 completion hard gate 缺口。正确修复层是 `AnswerDocumentV2` 的确定性展示投影:只消费 `TraceCausalProjectionNode` 里已有的 typed 字段(`Role/Tier/ChainDepth/ChainRelevance/StateKind/ImpactMS/CumulativeImpactMS/EffectiveImpactMS/ActualImpactMS/SupportRefs` 等),不引入模型散文、不从用户关键词判断意图、不新造平行证据源。
+
+**设计原则。**
+
+- 第一屏只承担"用户现在该看什么":减少列数,把 `优先级+层级` 合并为 `关注`,把状态/责任归并进短 `处理方向`,主表只保留短证据 ID。
+- on-chain 表只承担"链路和影响":用 `层 / 链路 / 本层含义 / 影响 / 证据` 五列表达,不在同一行塞长说明;完整四元时长继续由 `影响时长拆解` 表承载。
+- 证据索引只做短定位和轻审计:主表不出现完整本地绝对路径;索引最多展示短 locator + tier/rank/confidence 等 typed 审计字段,长 summary 留在原始 `trace_query` 记录。
+- 多视图继续保留:不要回退到单大表,不要把证据索引、影响四元、flowchart 挤回主表。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录最新展示 gap、边界和任务拆解,避免后续误把展示问题修到 trace_query 算法或 prompt hard gate。
+- **Batch 2: 第一屏总览瘦身。** 将总览表从 7 列收敛为 5 列:关注、根因/节点、影响、处理方向、证据;节点文本进一步 bounded,保持 `E#` 短证据。
+- **Batch 3: on-chain 表重排。** 将 on-chain 表收敛为 5 列:层、链路、本层含义、影响、证据;影响单元用 typed `链上累计/本层投影` 简写表达,完整四元仍保留在 impact 表。
+- **Batch 4: 证据索引降噪。** 证据索引 bullet 不再默认带节点长身份和 observation summary;只保留短 locator、typed audit 元数据和"完整定位见原始 trace_query 记录"提示。
+- **Batch 5: golden 测试看护。** 更新 ZH/EN projection tests,新增/调整长路径、短列、on-chain 五列表达、evidence index 不含绝对路径/长 summary 的断言。
+- **Batch 6: focused 验证与提交推送。** 跑 `go test ./internal/tool -run 'TraceCausalProjection|RuntimeTraceCausalProjection' -count=1` 和相关 types tests,通过后提交推送 main。
+
+**当前进展。**
+
+- Batch 1 已落地:本节记录最新展示 gap、边界和任务拆解。
+- Batch 2 已落地:总览表收敛为 5 列 `关注 / 根因或节点 / 影响 / 处理方向 / 证据`,不再把 priority、layer、state 分散成多列;节点文本进一步 bounded。
+- Batch 3 已落地:on-chain 表收敛为 5 列 `层 / 链路 / 本层含义 / 影响 / 证据`,用 `链 Xms / 本 Yms` 直接表达链上累计与本层投影;完整四元仍在 `影响时长拆解` 表。
+- Batch 4 已落地:证据索引只显示短 locator 与 typed audit 元数据,不再默认带节点长身份或 observation summary;路径展示只取最后一级并 bounded,完整定位继续以原始 `trace_query` 结构化记录为权威。
+- Batch 5 已落地:更新 projection golden tests,钉住 5 列总览、5 列 on-chain、短 action label、短证据、长路径不进入主表。
+- Batch 6 已验证:`go test ./internal/tool -run 'TraceCausalProjection|RuntimeTraceCausalProjection' -count=1`、`go test ./internal/types -run 'TraceCausalProjection|SemanticSpan|StateDrilldown' -count=1`、`go test ./internal/tool ./internal/types -count=1` 通过。

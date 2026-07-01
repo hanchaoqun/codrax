@@ -989,7 +989,6 @@ type runtimeTraceCausalProjectionEvidenceIndex struct {
 type runtimeTraceCausalProjectionEvidenceEntry struct {
 	ID      string
 	Ref     string
-	Node    string
 	Details string
 }
 
@@ -1014,25 +1013,22 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 	idx.order = append(idx.order, runtimeTraceCausalProjectionEvidenceEntry{
 		ID:      id,
 		Ref:     strings.TrimSpace(ref),
-		Node:    runtimeTraceCausalProjectionNodeSubject(node),
 		Details: runtimeTraceCausalProjectionAuditDetail(node, zh),
 	})
 	return id
 }
 
 func runtimeTraceCausalProjectionOverviewTable(projection types.TraceCausalProjection, evidence *runtimeTraceCausalProjectionEvidenceIndex, zh bool) ([]string, []types.AnswerBlockItem) {
-	columns := []string{"优先级", "层级", "节点", "状态", "影响", "处理方向", "证据"}
+	columns := []string{"关注", "根因/节点", "影响", "处理方向", "证据"}
 	if !zh {
-		columns = []string{"Priority", "Layer", "Node", "State", "Impact", "Action", "Evidence"}
+		columns = []string{"Focus", "Cause / node", "Impact", "Action", "Evidence"}
 	}
 	var rows []types.AnswerBlockItem
 	for _, node := range runtimeTraceCausalProjectionOverviewNodes(projection) {
 		rows = append(rows, types.AnswerBlockItem{
 			Cells: []string{
-				runtimeTraceCausalProjectionPriorityCell(node, zh),
-				runtimeTraceCausalProjectionLayerCell(node, zh),
+				runtimeTraceCausalProjectionFocusCell(node, zh),
 				runtimeTraceCausalProjectionNodeSubjectCell(node),
-				runtimeTraceCausalProjectionStateCell(node, zh),
 				runtimeTraceCausalProjectionImpactSummaryCell(node, zh),
 				runtimeTraceCausalProjectionActionCell(node, zh),
 				evidence.add(node, zh),
@@ -1081,9 +1077,9 @@ func runtimeTraceCausalProjectionOverviewNodes(projection types.TraceCausalProje
 }
 
 func runtimeTraceCausalProjectionOnChainTable(projection types.TraceCausalProjection, evidence *runtimeTraceCausalProjectionEvidenceIndex, zh bool) ([]string, []types.AnswerBlockItem) {
-	columns := []string{"深度", "上游", "下游/影响点", "状态", "责任/影响", "链上累计", "本层投影", "证据"}
+	columns := []string{"层", "链路", "本层含义", "影响", "证据"}
 	if !zh {
-		columns = []string{"Depth", "Upstream", "Downstream / impact", "State", "Responsibility / impact", "Chain total", "Node projection", "Evidence"}
+		columns = []string{"Layer", "Chain", "Meaning", "Impact", "Evidence"}
 	}
 	nodes := runtimeTraceCausalProjectionOnChainNodes(projection)
 	if len(nodes) == 0 {
@@ -1095,12 +1091,9 @@ func runtimeTraceCausalProjectionOnChainTable(projection types.TraceCausalProjec
 		rows = append(rows, types.AnswerBlockItem{
 			Cells: []string{
 				runtimeTraceCausalProjectionDepthCell(node, pathIndex, zh),
-				runtimeTraceCausalProjectionUpstreamCell(node),
-				runtimeTraceCausalProjectionDownstreamCell(node, projection.WakeupPath),
-				runtimeTraceCausalProjectionStateCell(node, zh),
+				runtimeTraceCausalProjectionChainCell(node, projection.WakeupPath),
 				runtimeTraceCausalProjectionImpactMeaningCell(node, zh),
-				runtimeTraceCausalProjectionOnChainImpactCell(node),
-				runtimeTraceCausalProjectionLocalImpactCell(node),
+				runtimeTraceCausalProjectionOnChainImpactPairCell(node, zh),
 				evidence.add(node, zh),
 			},
 			CitationRef: -1,
@@ -1168,23 +1161,19 @@ func runtimeTraceCausalProjectionEvidenceItems(evidence *runtimeTraceCausalProje
 	}
 	items := make([]types.AnswerBlockItem, 0, len(evidence.order))
 	for _, entry := range evidence.order {
-		node := runtimeTraceCausalProjectionCompactCellText(entry.Node, 64)
 		locator := runtimeTraceCausalProjectionEvidenceDisplayRef(entry.Ref)
-		audit := runtimeTraceCausalProjectionCompactCellText(entry.Details, 112)
-		if node == "" {
-			node = "trace causal node"
-		}
+		audit := runtimeTraceCausalProjectionCompactCellText(entry.Details, 72)
 		if locator == "" {
 			locator = "trace_query"
 		}
 		var text string
 		if zh {
-			text = fmt.Sprintf("节点: %s；定位: %s；审计: %s", node, locator, audit)
+			text = fmt.Sprintf("定位: %s；审计: %s", locator, audit)
 			if runtimeTraceCausalProjectionEvidenceRefShortened(entry.Ref, locator) {
 				text += "；完整定位见原始 trace_query 记录"
 			}
 		} else {
-			text = fmt.Sprintf("node: %s; locator: %s; audit: %s", node, locator, audit)
+			text = fmt.Sprintf("locator: %s; audit: %s", locator, audit)
 			if runtimeTraceCausalProjectionEvidenceRefShortened(entry.Ref, locator) {
 				text += "; full locator remains in the original trace_query record"
 			}
@@ -1310,6 +1299,19 @@ func runtimeTraceCausalProjectionPriorityCell(node types.TraceCausalProjectionNo
 	}
 }
 
+func runtimeTraceCausalProjectionFocusCell(node types.TraceCausalProjectionNode, zh bool) string {
+	priority := runtimeTraceCausalProjectionPriorityCell(node, zh)
+	layer := runtimeTraceCausalProjectionLayerCell(node, zh)
+	switch {
+	case priority != "" && layer != "":
+		return priority + " · " + layer
+	case priority != "":
+		return priority
+	default:
+		return layer
+	}
+}
+
 func runtimeTraceCausalProjectionLayerCell(node types.TraceCausalProjectionNode, zh bool) string {
 	if node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span" {
 		if zh {
@@ -1398,6 +1400,30 @@ func runtimeTraceCausalProjectionLocalImpactCell(node types.TraceCausalProjectio
 	return runtimeTraceCausalProjectionMSCell(node.EffectiveImpactMS)
 }
 
+func runtimeTraceCausalProjectionOnChainImpactPairCell(node types.TraceCausalProjectionNode, zh bool) string {
+	chain := runtimeTraceCausalProjectionOnChainImpactCell(node)
+	local := runtimeTraceCausalProjectionLocalImpactCell(node)
+	switch {
+	case chain != "" && local != "":
+		if zh {
+			return "链 " + chain + " / 本 " + local
+		}
+		return "chain " + chain + " / node " + local
+	case chain != "":
+		if zh {
+			return "链 " + chain
+		}
+		return "chain " + chain
+	case local != "":
+		if zh {
+			return "本 " + local
+		}
+		return "node " + local
+	default:
+		return ""
+	}
+}
+
 func runtimeTraceCausalProjectionActionCell(node types.TraceCausalProjectionNode, zh bool) string {
 	causeKind := strings.TrimSpace(strings.ToLower(firstNonEmptyAnswerString(node.Object, node.Predicate)))
 	stateKind := strings.TrimSpace(strings.ToLower(node.StateKind))
@@ -1407,20 +1433,20 @@ func runtimeTraceCausalProjectionActionCell(node types.TraceCausalProjectionNode
 	if node.IsSleepState() {
 		if node.Undrillable() {
 			if zh {
-				return "长 sleep·缺唤醒边"
+				return "sleep症状·缺唤醒边"
 			}
-			return "long sleep·no wake edge"
+			return "sleep symptom·no wake edge"
 		}
 		if strings.TrimSpace(node.DrilldownTarget) != "" {
 			if zh {
-				return "等待→查上游"
+				return "sleep症状→查上游"
 			}
-			return "wait→inspect upstream"
+			return "sleep symptom→upstream"
 		}
 		if zh {
-			return "等待症状"
+			return "sleep症状"
 		}
-		return "wait symptom"
+		return "sleep symptom"
 	}
 	if causeKind == "compute_supply" {
 		if zh {
@@ -1557,12 +1583,12 @@ func runtimeTraceCausalProjectionUpstreamCell(node types.TraceCausalProjectionNo
 	if subject == "" {
 		return runtimeTraceCausalProjectionNodeSubjectCell(node)
 	}
-	return runtimeTraceCausalProjectionCompactCellText(subject, 30)
+	return runtimeTraceCausalProjectionCompactCellText(subject, 24)
 }
 
 func runtimeTraceCausalProjectionDownstreamCell(node types.TraceCausalProjectionNode, path []string) string {
 	if next := runtimeTraceCausalProjectionNextPathNode(path, node.Subject); next != "" {
-		return runtimeTraceCausalProjectionCompactCellText(next, 30)
+		return runtimeTraceCausalProjectionCompactCellText(next, 24)
 	}
 	object := strings.TrimSpace(node.Object)
 	if object == "" && (node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span") {
@@ -1571,11 +1597,24 @@ func runtimeTraceCausalProjectionDownstreamCell(node types.TraceCausalProjection
 	if object == "" {
 		return ""
 	}
-	limit := 30
+	limit := 24
 	if node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span" {
-		limit = 44
+		limit = 34
 	}
 	return runtimeTraceCausalProjectionCompactCellText(object, limit)
+}
+
+func runtimeTraceCausalProjectionChainCell(node types.TraceCausalProjectionNode, path []string) string {
+	upstream := runtimeTraceCausalProjectionUpstreamCell(node)
+	downstream := runtimeTraceCausalProjectionDownstreamCell(node, path)
+	switch {
+	case upstream != "" && downstream != "":
+		return upstream + " ▸ " + downstream
+	case upstream != "":
+		return upstream
+	default:
+		return downstream
+	}
 }
 
 func runtimeTraceCausalProjectionNextPathNode(path []string, subject string) string {
@@ -1625,9 +1664,6 @@ func runtimeTraceCausalProjectionAuditDetail(node types.TraceCausalProjectionNod
 	}
 	if pred := strings.TrimSpace(node.Predicate); pred != "" {
 		parts = append(parts, "predicate="+pred)
-	}
-	if summary := strings.TrimSpace(node.Summary); summary != "" {
-		parts = append(parts, runtimeTraceCausalProjectionCompactCellText(summary, 96))
 	}
 	if len(parts) == 0 {
 		if zh {
@@ -1933,17 +1969,17 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 	if (node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span") && strings.TrimSpace(node.SpanName) != "" {
 		object = strings.TrimSpace(node.SpanName)
 	}
-	objectLimit := 26
+	objectLimit := 22
 	if node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span" {
-		objectLimit = 44
+		objectLimit = 36
 	}
 	switch {
 	case subject != "" && object != "":
-		return runtimeTraceCausalProjectionCompactCellText(subject, 34) + " → " + runtimeTraceCausalProjectionCompactCellText(object, objectLimit)
+		return runtimeTraceCausalProjectionCompactCellText(subject, 28) + " → " + runtimeTraceCausalProjectionCompactCellText(object, objectLimit)
 	case subject != "":
-		return runtimeTraceCausalProjectionCompactCellText(subject, 54)
+		return runtimeTraceCausalProjectionCompactCellText(subject, 44)
 	case object != "":
-		return runtimeTraceCausalProjectionCompactCellText(object, 54)
+		return runtimeTraceCausalProjectionCompactCellText(object, 44)
 	default:
 		return "trace causal node"
 	}
@@ -2029,13 +2065,13 @@ func runtimeTraceCausalProjectionEvidenceDisplayRef(ref string) string {
 	}
 	pathPart, suffix := runtimeTraceCausalProjectionSplitLineSuffix(ref)
 	if strings.TrimSpace(pathPart) == "" {
-		return runtimeTraceCausalProjectionCompactCellText(ref, 72)
+		return runtimeTraceCausalProjectionCompactCellText(ref, 56)
 	}
-	tail := runtimeTraceCausalProjectionPathTail(pathPart, 2)
+	tail := runtimeTraceCausalProjectionPathTail(pathPart, 1)
 	if tail == "" {
-		return runtimeTraceCausalProjectionCompactCellText(ref, 72)
+		return runtimeTraceCausalProjectionCompactCellText(ref, 56)
 	}
-	return runtimeTraceCausalProjectionCompactCellText(tail+suffix, 72)
+	return runtimeTraceCausalProjectionCompactCellText(tail+suffix, 56)
 }
 
 func runtimeTraceCausalProjectionEvidenceRefShortened(raw, display string) bool {
