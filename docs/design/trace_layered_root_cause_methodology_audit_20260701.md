@@ -804,7 +804,7 @@ flowchart LR
 **已实现(2026-07-02)。**
 
 - lead block `runtime_trace_causal_projection` 已从全字段大表改为"根因总览"小表:优先级、层级、节点、状态、影响、用户要关注什么、证据。它只承载 principal/on-chain/semantic/top adjacent 的用户决策面,不再穿插审计明细行。
-- 新增 `runtime_trace_causal_projection_on_chain`:只展示直接唤醒/依赖链节点,按 depth / path relation 表达"上游 → 下游"与每层影响。
+- 新增 `runtime_trace_causal_projection_on_chain`:只展示直接唤醒/依赖链节点,按 depth + `上游` / `下游或影响点` 拆列表达链路关系与每层影响。
 - 新增 `runtime_trace_causal_projection_impact`:把强度 bar、累计、投影、有效、实际、窗口、证据拆成独立列,避免四元时长挤在一个 cell。
 - 新增 `runtime_trace_causal_projection_background`:背景支撑单独展示,文案明确它是压力/环境证据,不自动等同于 on-chain 主因。
 - 新增 `runtime_trace_causal_projection_evidence`:主表只显示 `E#`;完整 support ref / artifact line / full node identity / typed audit fields 移入证据索引。
@@ -862,3 +862,33 @@ flowchart LR
 - `runtime_trace_causal_projection_evidence` 从宽 `BlockTable` 改为自然换行的 `BlockBulletList`:主读表继续只显示 `E#`,完整 node/ref/audit 字段只在索引列表中保留。
 - 删除旧单大表/ordered-list 展示 helper,避免未来维护时把已经退役的 `层/节点 + 斜体明细行` 路径重新接回。
 - 看护:focused projection tests 覆盖总览 8 行上限、短 action label、证据索引 list 化、长路径不进入主表、ZH/EN projection、sleep drilldown、coverage boundary;`go test ./internal/tool` 通过。
+
+### 7.14 展示层 gap:多视图后的 on-chain 可读性仍需二次收敛(2026-07-02)
+
+用户继续反馈:当前 `Trace 因果投影` 已经从单大表拆成总览、on-chain、影响、背景、证据索引,但实际阅读时仍有三个商用可读性短板:
+
+1. `runtime_trace_causal_projection_on_chain` 的 `上游 → 下游` 单列仍可能被两个长线程/span 名撑宽,层级关系看起来像一段文本,不够像逐层链路。
+2. on-chain 表的 `结论` 列仍使用解释句,在表格里显得偏长;第一眼应该看到短动作标签,长解释留给正文/证据索引/图。
+3. `runtime_trace_causal_projection_impact` 的 `累计/投影/有效/实际` 表头虽然本地化了,但业务含义仍不够直观;用户需要直接看出哪些是链上累计影响、哪个是本节点投影、哪个是排序/归因用的有效影响、哪个是底层状态实际持续。
+
+**原则。**
+
+- 继续复用现有 `TraceCausalProjection` typed projection,不新增模型字段、不解析用户原文/模型散文/工具 summary。
+- 表格主读面要更短:关系拆列、结论短标签、完整解释仍由图/证据索引/typed audit 保留。
+- 不改变 root-cause 排序、trace_query 观测、on-chain/off-chain 判定或 handoff 内容;本批只改展示投影。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录当前反馈、原则和任务拆解,避免后续把展示问题误修到 trace_query 算法或 completion hard gate。
+- **Batch 2: on-chain 表关系拆列。** 将 `上游 → 下游` 单列拆为 `上游` 与 `下游/影响点`,每个 cell 独立压缩,让链路层次比长文本更明显。
+- **Batch 3: on-chain 结论短标签化。** on-chain 表不再渲染长解释句,改用与总览一致的短 `关注/Focus` 标签:如 `等待→查上游`、`执行/算力`、`调度/优先级`、`阻塞/IO`、`确定性优化点`。
+- **Batch 4: 影响表业务列名。** 中文列改为 `链上累计 / 本节点投影 / 有效归因 / 实际状态`,英文改为 `Chain total / Node projection / Attribution / Actual state`,降低用户解释成本。
+- **Batch 5: 测试看护。** 更新 ZH/EN projection focused tests,断言 on-chain 表拆列、长解释不进入 on-chain 表、影响表业务列名存在、主表仍只使用 `E#` 短证据。
+
+**已实现(2026-07-02)。**
+
+- `runtime_trace_causal_projection_on_chain` 已从 `上游 → 下游` 单列改为 `上游` + `下游/影响点` 双列,每列独立压缩,避免两个长节点名把链路表撑宽。
+- on-chain 表的长 `结论` 句已退役,统一使用短 `关注/Focus` action label。sleep/running/runnable/IO/D-state/semantic span 分别渲染为 `等待→查上游`、`执行/算力`、`调度/优先级`、`阻塞/IO`、`优化点·<semantic_class>` 等短标签;完整解释仍通过 wakeup/sleep 图、影响表和证据索引保留。
+- `runtime_trace_causal_projection_impact` 中文列名改为 `链上累计 / 本节点投影 / 有效归因 / 实际状态`,英文列名改为 `Chain total / Node projection / Attribution / Actual state`。
+- 删除未调用的旧 `runtimeTraceCausalProjectionWhyCell` / `runtimeTraceCausalProjectionRelationCell` 展示 helper,避免未来把长解释列或单列链路误接回生产渲染。
+- 看护:focused projection tests 已覆盖短标签、双列链路、业务化时长列名、主表短证据与语义 class 保留。
