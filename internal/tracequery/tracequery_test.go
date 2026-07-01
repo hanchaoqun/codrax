@@ -3,6 +3,7 @@ package tracequery
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1266,6 +1267,56 @@ app-20 (20) [001] .... 2.030000: print: E|20
 	}
 }
 
+func TestSpanWindowExplicitQueryWindowUnionsMatchedSpanWindow(t *testing.T) {
+	idx := buildTraceIndex(t, "span_explicit_window_union.systrace", `
+app-20 (20) [001] .... 1.000000: print: B|20|MySpan
+app-20 (20) [001] .... 1.050000: print: E|20
+`)
+	res := Run(idx, Query{
+		View:         "span_window",
+		SpanName:     "MySpan",
+		TimeStart:    1.010,
+		TimeEnd:      1.030,
+		TimeStartSet: true,
+		TimeEndSet:   true,
+		Limit:        4,
+	})
+	if len(res.SpanWindows) != 1 {
+		t.Fatalf("expected one matched span, got %+v", res.SpanWindows)
+	}
+	if !near(res.TimeStart, 1.000, 0.000001) || !near(res.TimeEnd, 1.050, 0.000001) {
+		t.Fatalf("explicit query window narrower than the matched span should be unioned to the full span bounds, got start=%v end=%v", res.TimeStart, res.TimeEnd)
+	}
+	if !containsSubstring(res.Caveats, "preserved explicit query window") || !containsSubstring(res.Caveats, "unioned it with matched span") {
+		t.Fatalf("expected a caveat explaining the window union, got %+v", res.Caveats)
+	}
+}
+
+func TestSpanWindowExplicitQueryWindowAlreadyCoveringSpanIsUnchanged(t *testing.T) {
+	idx := buildTraceIndex(t, "span_explicit_window_no_union.systrace", `
+app-20 (20) [001] .... 1.000000: print: B|20|MySpan
+app-20 (20) [001] .... 1.010000: print: E|20
+`)
+	res := Run(idx, Query{
+		View:         "span_window",
+		SpanName:     "MySpan",
+		TimeStart:    0.900,
+		TimeEnd:      1.100,
+		TimeStartSet: true,
+		TimeEndSet:   true,
+		Limit:        4,
+	})
+	if len(res.SpanWindows) != 1 {
+		t.Fatalf("expected one matched span, got %+v", res.SpanWindows)
+	}
+	if !near(res.TimeStart, 0.900, 0.000001) || !near(res.TimeEnd, 1.100, 0.000001) {
+		t.Fatalf("explicit query window already covering the matched span must stay untouched, got start=%v end=%v", res.TimeStart, res.TimeEnd)
+	}
+	if containsSubstring(res.Caveats, "unioned it with matched span") {
+		t.Fatalf("no union caveat expected when the explicit window already covers the span: %+v", res.Caveats)
+	}
+}
+
 func TestRootCauseRankTiersCandidates(t *testing.T) {
 	idx := buildSampleIndex(t)
 	res := Run(idx, Query{View: "root_cause_rank", PID: 20, TimeStart: 1.10, TimeEnd: 1.22, Limit: 5})
@@ -2288,6 +2339,30 @@ func TestWakeupChainFindsWakerAndRoot(t *testing.T) {
 	}
 }
 
+func TestWakeupChainCaveatsWhenBranchesExceedMaxBranches(t *testing.T) {
+	idx := buildTraceIndex(t, "fragmented_branch_cap.systrace", fragmentedChurnTrace)
+	chain := BuildWakeupChain(idx, Query{PID: 20, TimeStart: 11.0, TimeEnd: 11.009, MinDurationMs: 0.3, MaxBranches: 8, MaxDepth: 4})
+	found := false
+	for _, caveat := range chain.Caveats {
+		if strings.Contains(caveat, "candidate state segment") && strings.Contains(caveat, "were not recursed into") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a caveat about dropped candidate segments beyond max_branches=8, got %+v", chain.Caveats)
+	}
+}
+
+func TestWakeupChainNoCaveatWhenBranchesFitMaxBranches(t *testing.T) {
+	idx := buildSampleIndex(t)
+	chain := BuildWakeupChain(idx, Query{PID: 20, TimeStart: 1.10, TimeEnd: 1.22, MaxDepth: 4, MinDurationMs: 1, MaxBranches: 8})
+	for _, caveat := range chain.Caveats {
+		if strings.Contains(caveat, "were not recursed into") {
+			t.Fatalf("no branch should have been dropped in this small fixture: %+v", chain.Caveats)
+		}
+	}
+}
+
 func TestNormalizeQueryDefaultsWakeupChainDepthToTen(t *testing.T) {
 	idx := buildSampleIndex(t)
 	q := normalizeQuery(idx, Query{View: "wakeup_chain", PID: 20, TimeStart: 1.10, TimeEnd: 1.22})
@@ -3096,6 +3171,26 @@ func TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork(t *testing.T) {
 	}
 }
 
+func TestRootCauseRankCaveatsUnclassifiedCompileLikeSpanName(t *testing.T) {
+	idx := buildTraceIndex(t, "chain_semantic_span_near_miss.systrace", `
+        app-100   (  100) [001] .... 5.500000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200   (  100) [002] .... 5.500400: tracing_mark_write: B|200|PreCompileCache
+     worker-200   (  100) [002] .... 5.501000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200   (  100) [002] .... 5.506000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200   (  100) [002] .... 5.506200: tracing_mark_write: E|200
+        app-100   (  100) [001] .... 5.506500: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+`)
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 5.5, TimeEnd: 5.507, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	for _, item := range rank.Items {
+		if item.SpanName == "PreCompileCache" && item.SemanticClass != "" {
+			t.Fatalf("PreCompileCache does not match any known semantic pattern and must not be classified: %+v", item)
+		}
+	}
+	if !containsSubstring(rank.Caveats, "PreCompileCache") || !containsSubstring(rank.Caveats, "naming convention may have changed") {
+		t.Fatalf("expected a naming-drift caveat mentioning the unclassified span name: %+v", rank.Caveats)
+	}
+}
+
 func TestRootCauseRankKeepsOffChainSemanticTraceSpanAsSupporting(t *testing.T) {
 	idx := buildTraceIndex(t, "chain_offchain_semantic_span.systrace", `
         app-100 (100) [001] .... 6.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
@@ -3127,6 +3222,93 @@ func TestRootCauseRankKeepsOffChainSemanticTraceSpanAsSupporting(t *testing.T) {
 	stats := ComputeWindowStats(idx, Query{TimeStart: 6.0, TimeEnd: 6.021})
 	if len(stats.TraceSpans) == 0 || stats.TraceSpans[0].SemanticClass != "shader_compile" {
 		t.Fatalf("window_stats should still expose semantic span classification: %+v", stats.TraceSpans)
+	}
+}
+
+func TestComputeTraceMarksReservesSlotForShortSemanticSpanBehindLongerGenericSpans(t *testing.T) {
+	var lines []string
+	const spanCount = 9
+	for i := 0; i < spanCount; i++ {
+		start := 7.000 + float64(i)*0.020
+		end := start + 0.010
+		lines = append(lines,
+			fmt.Sprintf("     worker-200 (100) [002] .... %.6f: tracing_mark_write: B|200|GenericSpan%d", start, i),
+			fmt.Sprintf("     worker-200 (100) [002] .... %.6f: tracing_mark_write: E|200", end),
+		)
+	}
+	semanticStart := 7.000 + float64(spanCount)*0.020
+	semanticEnd := semanticStart + 0.001
+	lines = append(lines,
+		fmt.Sprintf("     worker-200 (100) [002] .... %.6f: tracing_mark_write: B|200|VerifyClass com.example.Foo", semanticStart),
+		fmt.Sprintf("     worker-200 (100) [002] .... %.6f: tracing_mark_write: E|200", semanticEnd),
+	)
+	idx := buildTraceIndex(t, "trace_marks_semantic_reserved.systrace", strings.Join(lines, "\n")+"\n")
+	stats := ComputeWindowStats(idx, Query{TimeStart: 7.0, TimeEnd: semanticEnd + 0.001})
+	if len(stats.TraceSpans) != 9 {
+		t.Fatalf("expected 8 generic spans (max=8 cap) plus 1 reserved semantic span = 9 total, got %d: %+v", len(stats.TraceSpans), stats.TraceSpans)
+	}
+	found := false
+	for _, span := range stats.TraceSpans {
+		if span.SemanticClass == "class_verification" {
+			found = true
+			if span.DurationMs <= 0 || span.DurationMs >= 5 {
+				t.Fatalf("semantic span duration not preserved: %+v", span)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("short class_verification span must survive computeTraceMarks even though %d longer generic spans exist: %+v", spanCount, stats.TraceSpans)
+	}
+	genericCount := 0
+	for _, span := range stats.TraceSpans {
+		if span.SemanticClass == "" {
+			genericCount++
+		}
+	}
+	if genericCount > 8 {
+		t.Fatalf("generic (non-semantic) spans must still respect the original max=8 cap: %+v", stats.TraceSpans)
+	}
+}
+
+func TestRootCauseRankFlagsRunnableTopPriorityInversion(t *testing.T) {
+	idx := buildTraceIndex(t, "runnable_priority_inversion.systrace", `
+        app-20   (   20) [001] .... 8.000000: cpu_frequency: state=1000000 cpu_id=1
+      rival-30   (   30) [001] .... 8.010000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=20
+      rival-30   (   30) [001] .... 8.090000: sched_switch: prev_comm=rival prev_pid=30 prev_prio=20 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+`)
+	res := Run(idx, Query{View: "root_cause_rank", PID: 20, TimeStart: 8.0, TimeEnd: 8.10, TraceFlavorHint: TraceFlavorHarmonyHitrace, MinDurationMs: 0.05, Limit: 12})
+	if res.RootCauseRank == nil {
+		t.Fatalf("expected root_cause_rank result, got %+v", res)
+	}
+	rank := *res.RootCauseRank
+	var found *RootCauseRankItem
+	for i := range rank.Items {
+		if rank.Items[i].Thread.PID == 20 && rank.Items[i].Type == "priority_inversion_runnable_wait" {
+			found = &rank.Items[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected app(prio=53) waiting behind lower-priority rival(prio=20) to be flagged priority_inversion_runnable_wait: %+v", rank.Items)
+	}
+	if found.Tier != "primary" {
+		t.Fatalf("priority_inversion_runnable_wait is a recognized co-primary type and should be tier=primary: %+v", found)
+	}
+	if !strings.Contains(found.Summary, "same_cpu_competitor=rival") || !strings.Contains(found.Summary, "priority inversion candidate") {
+		t.Fatalf("summary should explain the priority-inversion competitor: %q", found.Summary)
+	}
+}
+
+func TestRootCauseRankDoesNotFlagHigherPriorityCompetitorAsInversion(t *testing.T) {
+	idx := buildTraceIndex(t, "runnable_no_priority_inversion.systrace", schedulerLatencyTrace)
+	res := Run(idx, Query{View: "root_cause_rank", TimeStart: 5.0, TimeEnd: 5.15, TraceFlavorHint: TraceFlavorHarmonyHitrace, MinDurationMs: 0.05, Limit: 12})
+	if res.RootCauseRank == nil {
+		t.Fatalf("expected root_cause_rank result, got %+v", res)
+	}
+	for _, item := range res.RootCauseRank.Items {
+		if item.Thread.PID == 20 && item.Type == "priority_inversion_runnable_wait" {
+			t.Fatalf("app(prio=53) legitimately preempted by higher-priority rival(prio=80) must not be flagged as priority inversion: %+v", item)
+		}
 	}
 }
 

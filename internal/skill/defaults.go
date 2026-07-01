@@ -109,6 +109,10 @@ func RegisterDefaults(r *Registry) {
 				Body:      "PERF SAMPLE PROVENANCE: preserve trace_query perf sample `source` and `symbolization_status` in final markdown/html reports. `raw_perfdata_fallback` / `unsymbolized` rows are useful for time/thread/DSO/IP correlation but lower confidence than official hiperf/simpleperf symbolized output.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
+			{
+				Body:      "TRACE RUNNING/COMPUTE-SUPPLY CODE CROSS-REFERENCE: when a `root_cause_rank` primary cause is `running`, `compute_supply`, or `low_frequency` and carries `perf_context`/`perf_contexts`, the sampled `top_symbols`/`top_dso` name code-execution hotspots from the runtime artifact — they are not yet a current-source fact. Independently verify with `grep`/`read_file` that the named symbol still exists at the cited location in the current checkout before citing it as a current-source fact; if the symbol cannot be found or has moved, report the trace-observed symbol and its runtime-artifact line, and say so explicitly rather than fabricating a current-source citation.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
 		},
 		ToolSuggestions: []string{
 			"repo_map",

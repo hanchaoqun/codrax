@@ -125,7 +125,7 @@ func Run(idx *Index, q Query) Result {
 				chain = getChain()
 			}
 			stats := getStats()
-			rank := buildRootCauseRankFrom(q, chain, stats)
+			rank := buildRootCauseRankFrom(idx, q, chain, stats)
 			rank = enrichRootCauseRankWithScheduler(q, rank, getLatency(), stats, chain)
 			rank = attachPerfContextToRootCauseRank(idx, q, rank, stats)
 			cachedRootCause = rank
@@ -4574,9 +4574,7 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 		}
 		return spans[i].StartLine < spans[j].StartLine
 	})
-	if max > 0 && len(spans) > max {
-		spans = spans[:max]
-	}
+	spans = boundTraceMarkSpans(spans, max)
 	counterList := make([]TraceCounterSummary, 0, len(counters))
 	for _, c := range counters {
 		counterList = append(counterList, c)
@@ -4591,6 +4589,52 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 		counterList = counterList[:max]
 	}
 	return spans, counterList
+}
+
+// traceMarkSemanticSpanCap bounds semantic-class spans (JIT compile, class
+// verification, shader compile, runtime compile) separately from the generic
+// duration-ranked cap in boundTraceMarkSpans, so a short compile/verify span
+// is not silently evicted by longer unrelated spans before
+// traceSpanSemanticWorkClass ever gets to classify it. Matches
+// traceCausalProjectionSemanticSpanLimit so a semantic span that survives
+// here is not re-truncated by a smaller cap further down the handoff chain.
+const traceMarkSemanticSpanCap = 16
+
+// boundTraceMarkSpans truncates spans (already duration-sorted by the
+// caller) to at most max entries, but gives semantic-class spans their own
+// reserved slots instead of letting them compete for the generic max slots
+// purely by raw DurationMs. Without this, a 2ms JIT-compile span sitting
+// behind 8+ longer generic spans (Choreographer, RenderFrame, etc.) would
+// never reach traceSpanSemanticWorkClass, root_cause_rank, or the
+// independent trace_semantic_span typed-observation channel at all.
+func boundTraceMarkSpans(spans []TraceSpanSummary, max int) []TraceSpanSummary {
+	if max <= 0 || len(spans) <= max {
+		return spans
+	}
+	var generic, semantic []TraceSpanSummary
+	for _, span := range spans {
+		if _, ok := traceSpanSemanticWorkClass(span.Name); ok {
+			semantic = append(semantic, span)
+		} else {
+			generic = append(generic, span)
+		}
+	}
+	if len(generic) > max {
+		generic = generic[:max]
+	}
+	if len(semantic) > traceMarkSemanticSpanCap {
+		semantic = semantic[:traceMarkSemanticSpanCap]
+	}
+	out := make([]TraceSpanSummary, 0, len(generic)+len(semantic))
+	out = append(out, generic...)
+	out = append(out, semantic...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].DurationMs != out[j].DurationMs {
+			return out[i].DurationMs > out[j].DurationMs
+		}
+		return out[i].StartLine < out[j].StartLine
+	})
+	return out
 }
 
 func traceSpanFromEvents(start, end Event, kind string) TraceSpanSummary {
@@ -4631,13 +4675,22 @@ func resolveSpanWindowsForQuery(idx *Index, q *Query, explicitStart, explicitEnd
 	if len(spans) == 0 {
 		return nil, append(caveats, fmt.Sprintf("span_name=%q matched no complete trace span in the selected filters; synchronous B/E spans close with unnamed E|<pid> or bare E on the same ftrace thread stack, and async S/F spans close by name+cookie, so do not search for E|<pid>|<span_name> as proof of an end marker", q.SpanName))
 	}
-	if explicitStart && explicitEnd {
-		return spans, caveats
-	}
 	if len(spans) != 1 {
+		if explicitStart && explicitEnd {
+			return spans, caveats
+		}
 		return spans, append(caveats, fmt.Sprintf("span_name=%q matched %d span window(s); refine with pid/thread/line_start/line_end/time filters before deriving a root-cause window; for a specific frame id or marker, first run trace_query(view=\"event_search\", pattern=\"<frame id or exact label>\", event_types=[\"trace_mark\"]) and then rerun with the selected line/time window; do not narrow by searching E|<pid>|<span_name> because B/E end rows are unnamed", q.SpanName, len(spans)))
 	}
 	span := spans[0]
+	if explicitStart && explicitEnd {
+		explicitWindow := TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}
+		unioned := unionTimeWindows(explicitWindow, TimeWindow{StartTs: span.StartTs, EndTs: span.EndTs})
+		if unioned.StartTs != explicitWindow.StartTs || unioned.EndTs != explicitWindow.EndTs {
+			q.TimeStart, q.TimeEnd = unioned.StartTs, unioned.EndTs
+			return spans, append(caveats, fmt.Sprintf("selected_window preserved explicit query window %.6f..%.6f and unioned it with matched span %q window %.6f..%.6f lines=%d-%d instead of shrinking to the explicit bounds", explicitWindow.StartTs, explicitWindow.EndTs, span.Name, span.StartTs, span.EndTs, span.StartLine, span.EndLine))
+		}
+		return spans, caveats
+	}
 	if !explicitStart {
 		q.TimeStart = span.StartTs
 	}
@@ -6135,7 +6188,10 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 	tq.PID = target.PID
 	tq.Thread = target.Comm
 	targetTimeline := cache.timeline(tq, target)
-	branches := interestingIntervals(targetTimeline.Intervals, q.MinDurationMs, q.MaxBranches)
+	branches, qualifyingBranches := interestingIntervals(targetTimeline.Intervals, q.MinDurationMs, q.MaxBranches)
+	if qualifyingBranches > len(branches) {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("target thread had %d candidate state segment(s) in the selected window; only the top %d (by duration and state priority) were expanded into the wakeup chain, %d lower-ranked segment(s) were not recursed into — widen max_branches, narrow the window, or re-run scoped to a specific sub-window if a dropped segment could be the real root cause", qualifyingBranches, len(branches), qualifyingBranches-len(branches)))
+	}
 	if len(branches) == 0 {
 		visited := map[int]bool{}
 		targetBlockedMs := (q.TimeEnd - q.TimeStart) * 1000
@@ -6556,13 +6612,13 @@ func BuildRootCauseRank(idx *Index, q Query) RootCauseRankResult {
 		chain = BuildWakeupChain(idx, q)
 	}
 	stats := ComputeWindowStats(idx, q)
-	rank := buildRootCauseRankFrom(q, chain, stats)
+	rank := buildRootCauseRankFrom(idx, q, chain, stats)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
 	rank = enrichRootCauseRankWithScheduler(q, rank, latency, stats, chain)
 	return attachPerfContextToRootCauseRank(idx, q, rank, stats)
 }
 
-func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootCauseRankResult {
+func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats WindowStats) RootCauseRankResult {
 	res := RootCauseRankResult{
 		Target: chain.Target,
 		Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
@@ -6706,10 +6762,14 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		}
 		items = append(items, rootCauseItem("cpu_frequency_limit", ThreadRef{}, windowImpactMs, 0.58, limit.Line, limit.Line, "window_stats", fmt.Sprintf("cpu=%d had frequency limit min=%dkHz max=%dkHz in the selected window (count=%d)", limit.CPU, limit.MinFrequency, limit.MaxFrequency, limit.Count)))
 	}
+	var semanticNearMisses []string
 	for _, span := range stats.TraceSpans {
 		if item, ok := rootCauseItemFromSemanticTraceSpan(q, chain, span, hasCausalChain); ok {
 			items = append(items, item)
 			continue
+		}
+		if span.SemanticClass == "" && traceSpanNearMissesSemanticWorkClassification(span.Name) && len(semanticNearMisses) < 3 {
+			semanticNearMisses = append(semanticNearMisses, span.Name)
 		}
 		item := rootCauseItem("trace_span", span.Thread, span.DurationMs, 0.74, span.StartLine, span.EndLine, "window_stats", fmt.Sprintf("trace span %q lasted %.3fms", span.Name, span.DurationMs))
 		item.StartTs = span.StartTs
@@ -6721,6 +6781,9 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		item.SemanticClass = span.SemanticClass
 		items = append(items, item)
 	}
+	if len(semanticNearMisses) > 0 {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("span name(s) mention compile/verify/shader-like vocabulary but did not match a known jit_compile/class_verification/shader_compile/runtime_compile pattern (e.g. %s); the app/ArkCompiler/ROM naming convention may have changed — treat as generic trace_span context, not a confirmed semantic root cause", strings.Join(semanticNearMisses, ", ")))
+	}
 	for _, td := range stats.RunnableTop {
 		onChain := threadInSet(chainThreads, td.Thread)
 		item := rootCauseItem("runnable_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.76, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was runnable for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
@@ -6730,6 +6793,7 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		item.EndTs = td.EndTs
 		item.DominantState = string(StateRunnable)
 		item.RunnableMs = td.DurationMs
+		applyRunnableTopPriorityInversion(idx, q, stats, td, &item)
 		items = append(items, item)
 	}
 	fragmentedSleep := fragmentedSleepChurnByThread(stats.StateChurn)
@@ -8581,7 +8645,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	if analysisQ.PID > 0 || analysisQ.Thread != "" || analysisQ.ThreadInput != "" {
 		chain = buildWakeupChainWithCache(idx, analysisQ, cache)
 	}
-	rank := buildRootCauseRankFrom(analysisQ, chain, stats)
+	rank := buildRootCauseRankFrom(idx, analysisQ, chain, stats)
 	latency := buildSchedulerLatencyStatsFromStats(idx, analysisQ, stats)
 	rank = enrichRootCauseRankWithScheduler(analysisQ, rank, latency, stats, chain)
 	rank = attachPerfContextToRootCauseRank(idx, analysisQ, rank, stats)
@@ -8690,7 +8754,7 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 		if ok && prevEnd < selected.Window.EndTs {
 			derived := TimeWindow{StartTs: prevEnd, EndTs: selected.Window.EndTs}
 			if frameTargetQueryHasExplicitSelectorWindow(q) {
-				res.Window = unionFrameTargetWindows(TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}, derived)
+				res.Window = unionTimeWindows(TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}, derived)
 				res.WindowSource = "explicit_query_union_previous_frame_end_to_current_frame_end"
 				res.Caveats = append(res.Caveats, fmt.Sprintf("frame_target_resolution preserved explicit query window %.6f..%.6f and unioned it with frame-derived window %.6f..%.6f", q.TimeStart, q.TimeEnd, derived.StartTs, derived.EndTs))
 			} else {
@@ -8731,7 +8795,11 @@ func frameTargetPreviousFrameSearchQuery(q Query, selected FrameTargetCandidate)
 	return searchQ
 }
 
-func unionFrameTargetWindows(a, b TimeWindow) TimeWindow {
+// unionTimeWindows merges two windows into the widest span that covers both,
+// used whenever a caller supplies an explicit time window alongside a
+// separately-derived window (frame target resolution, span_name lookups)
+// so neither side's coverage is silently dropped.
+func unionTimeWindows(a, b TimeWindow) TimeWindow {
 	out := a
 	if out.StartTs <= 0 || (b.StartTs > 0 && b.StartTs < out.StartTs) {
 		out.StartTs = b.StartTs
@@ -9093,6 +9161,24 @@ func traceSpanSemanticClass(name string) string {
 		return ""
 	}
 	return work.SemanticClass
+}
+
+// traceSpanNearMissesSemanticWorkClassification flags a span name that
+// mentions compile/verify/shader-ish vocabulary but did not match any of the
+// specific traceSpanLooksLike* patterns consumed by traceSpanSemanticWorkClass.
+// This is a low-cost, advisory-only signal (a caveat, never a candidate or a
+// tier) that the underlying app/ArkCompiler/ROM naming convention may have
+// drifted from the hardcoded patterns; it must never gate or promote a
+// candidate on its own.
+func traceSpanNearMissesSemanticWorkClassification(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "" {
+		return false
+	}
+	tokens := traceSpanNameTokenSet(lower)
+	return strings.Contains(lower, "shader") ||
+		tokens["verify"] || tokens["verifier"] || tokens["verification"] ||
+		strings.Contains(lower, "compile") || tokens["compiler"] || tokens["compilation"]
 }
 
 func traceSpanSemanticWorkClass(name string) (traceSpanSemanticWork, bool) {
@@ -10392,14 +10478,20 @@ func priorityRelation(flavor TraceFlavor, wakeePrio, wakerPrio int) string {
 }
 
 func mostInterestingInterval(intervals []Interval, minDurationMs float64) *Interval {
-	candidates := interestingIntervals(intervals, minDurationMs, 1)
+	candidates, _ := interestingIntervals(intervals, minDurationMs, 1)
 	if len(candidates) == 0 {
 		return nil
 	}
 	return &candidates[0]
 }
 
-func interestingIntervals(intervals []Interval, minDurationMs float64, max int) []Interval {
+// interestingIntervals returns up to max intervals worth recursing into
+// (highest duration/state priority first, Running intervals excluded since
+// they are handled by the independent compute-supply candidate stream), and
+// the total qualifying count before truncation so callers that recurse on
+// the result (buildWakeupChainWithCache) can surface a caveat when
+// candidates were silently dropped rather than expanded.
+func interestingIntervals(intervals []Interval, minDurationMs float64, max int) ([]Interval, int) {
 	if max <= 0 {
 		max = 1
 	}
@@ -10440,6 +10532,7 @@ func interestingIntervals(intervals []Interval, minDurationMs float64, max int) 
 		}
 		return out[i].DurationMs > out[j].DurationMs
 	})
+	qualifying := len(out)
 	if len(out) > max {
 		out = out[:max]
 	}
@@ -10455,7 +10548,7 @@ func interestingIntervals(intervals []Interval, minDurationMs float64, max int) 
 			out = append(out, *best)
 		}
 	}
-	return out
+	return out, qualifying
 }
 
 func findWakeupFor(idx *Index, thread ThreadRef, start, end float64) (*Event, bool) {
@@ -11303,6 +11396,37 @@ func durationCPUDetail(td ThreadDuration) string {
 		return ""
 	}
 	return " (" + strings.Join(parts, " ") + ")"
+}
+
+// applyRunnableTopPriorityInversion reclassifies a direct runnable_wait
+// candidate to priority_inversion_runnable_wait when the same-CPU competitor
+// already resolved into stats.RunnableContext (via runnableContextForThread)
+// has strictly lower scheduling priority than the waiting thread, using the
+// same dependencyPriorityRelation primitive and Harmony/Donghu-vs-Android
+// priority semantics the sleep/wakeup chain path already relies on
+// (summarizeWakeupCausalImpact). priority_inversion_runnable_wait is already
+// a recognized co-primary type (rootCauseShouldBeCoPrimary); this only wires
+// a value into it for the direct RunnableTop candidate path.
+func applyRunnableTopPriorityInversion(idx *Index, q Query, stats WindowStats, td ThreadDuration, item *RootCauseRankItem) {
+	if idx == nil {
+		return
+	}
+	ctx, ok := runnableContextForThread(td.Thread, stats.RunnableContext)
+	if !ok || len(ctx.SameCPUTopRunning) == 0 {
+		return
+	}
+	competitor := ctx.SameCPUTopRunning[0]
+	ts := td.StartTs
+	if td.EndTs > td.StartTs {
+		ts = (td.StartTs + td.EndTs) / 2
+	}
+	targetPrio, _ := threadPriorityNear(idx, q.TraceFlavor, td.Thread, ts)
+	competitorPrio, _ := threadPriorityNear(idx, q.TraceFlavor, competitor.Thread, ts)
+	if dependencyPriorityRelation(q.TraceFlavor, targetPrio, competitorPrio, 1) != "lower_priority_dependency" {
+		return
+	}
+	item.Type = "priority_inversion_runnable_wait"
+	item.Summary = fmt.Sprintf("%s; same_cpu_competitor=%s has lower priority (target_prio=%d competitor_prio=%d) — priority inversion candidate", item.Summary, threadLabel(competitor.Thread), targetPrio, competitorPrio)
 }
 
 func evidenceFromChain(chain ChainResult) []EvidenceFact {
