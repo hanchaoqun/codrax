@@ -57,6 +57,14 @@ type RuntimeSettings struct {
 	// reports/. Explicit tool targets under these roots are still honored.
 	SearchExcludeRoots []string `yaml:"search_exclude_roots"`
 
+	// TraceSemanticSpanPatterns append customer-specific trace_mark naming
+	// patterns to the built-in semantic span classifier. They may map only to
+	// the existing semantic classes (jit_compile, class_verification,
+	// shader_compile, runtime_compile); unknown classes are ignored by the
+	// trace layer. The patterns are advisory classification inputs, never hard
+	// gates.
+	TraceSemanticSpanPatterns []TraceSemanticSpanPattern `yaml:"trace_semantic_span_patterns"`
+
 	// MCP server integration. Empty by default, which keeps read/write
 	// pipeline prompts, tool schemas, dispatch, and observation ledger
 	// behavior identical to a build without MCP producer support.
@@ -1422,6 +1430,12 @@ type RuntimeSettings struct {
 	// fail the write kill switch CLOSED when a key looks like a
 	// misspelled write_enabled (see WriteKillSwitchTypoKey).
 	UnknownKeys []string `yaml:"-"`
+}
+
+type TraceSemanticSpanPattern struct {
+	SemanticClass string   `yaml:"semantic_class"`
+	Contains      []string `yaml:"contains"`
+	Tokens        []string `yaml:"tokens"`
 }
 
 // LoadRuntimeSettings reads path as a YAML document into a

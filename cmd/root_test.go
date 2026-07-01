@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/orchestrator"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -132,6 +134,29 @@ func TestRuntimeReasoningGraphIDIsRuntimeScoped(t *testing.T) {
 	got := runtimeReasoningGraphID(filepath.Join(t.TempDir(), ".codrax"))
 	if !strings.HasPrefix(got, "runtime-.codrax-") {
 		t.Fatalf("runtime graph id = %q", got)
+	}
+}
+
+func TestRSTraceSemanticSpanPatternsConvertsRuntimeConfig(t *testing.T) {
+	source := []config.TraceSemanticSpanPattern{
+		{SemanticClass: "class_verification", Contains: []string{"ArkVerifyPhase"}},
+		{SemanticClass: "shader_compile", Tokens: []string{"render", "pipeline"}},
+	}
+	got := rsTraceSemanticSpanPatterns(source)
+	want := []tracequery.SemanticSpanPattern{
+		{SemanticClass: "class_verification", Contains: []string{"ArkVerifyPhase"}},
+		{SemanticClass: "shader_compile", Tokens: []string{"render", "pipeline"}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("trace semantic span pattern conversion mismatch:\n  got:  %#v\n  want: %#v", got, want)
+	}
+	source[0].Contains[0] = "mutated"
+	if got[0].Contains[0] != "ArkVerifyPhase" {
+		t.Fatalf("conversion should copy contains slices, got %+v", got)
+	}
+	source[1].Tokens[0] = "mutated"
+	if got[1].Tokens[0] != "render" {
+		t.Fatalf("conversion should copy token slices, got %+v", got)
 	}
 }
 

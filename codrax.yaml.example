@@ -106,6 +106,31 @@
 #   - bazel-bin
 #   - reports
 
+# trace_semantic_span_patterns — optional deployment-specific trace_mark
+#   naming patterns appended to the built-in semantic span classifier used by
+#   trace_query. This helps private ROMs/apps whose trace marker names drift
+#   from Codrax's built-ins still surface deterministic optimization points
+#   such as class verification, JIT, shader compilation, or runtime compile.
+#   Supported semantic_class values: jit_compile, class_verification,
+#   shader_compile, runtime_compile. Unknown classes and empty patterns are
+#   ignored. Built-in patterns always win. These patterns only classify typed
+#   trace spans; they are not hard gates and do not parse user/model prose.
+#   trace_query 使用的 trace_mark 语义 span 分类器可追加部署侧命名模式。
+#   适用于私有 ROM/应用打点名与内置规则不一致,但仍希望把类校验、JIT、
+#   shader 编译或运行时编译作为"确定性优化点"带到答案的场景。支持的
+#   semantic_class: jit_compile、class_verification、shader_compile、
+#   runtime_compile。未知 class 和空模式会被忽略,内置规则优先。该配置只
+#   分类 typed trace span,不是硬门,也不会解析用户/模型散文。
+# trace_semantic_span_patterns:
+#   - semantic_class: class_verification
+#     contains:
+#       - ArkVerifyPhase
+#   - semantic_class: shader_compile
+#     tokens:
+#       - render
+#       - pipeline
+#       - warmup
+
 # ---------------------------------------------------------------------------
 # Large-repo memory resilience  ·  大仓内存韧性
 # ---------------------------------------------------------------------------

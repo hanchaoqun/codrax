@@ -3623,6 +3623,42 @@ func TestRootCauseRankCaveatsUnclassifiedCompileLikeSpanName(t *testing.T) {
 	}
 }
 
+func TestSemanticSpanPatternsClassifyConfiguredTraceMarkName(t *testing.T) {
+	SetSemanticSpanPatterns([]SemanticSpanPattern{{
+		SemanticClass: "class_verification",
+		Contains:      []string{"ArkVerifyPhase"},
+	}})
+	t.Cleanup(func() { SetSemanticSpanPatterns(nil) })
+
+	idx := buildTraceIndex(t, "custom_semantic_span.systrace", `
+     worker-200   (  100) [002] .... 5.500400: tracing_mark_write: B|200|ArkVerifyPhase com.example.Foo
+     worker-200   (  100) [002] .... 5.506200: tracing_mark_write: E|200
+`)
+	stats := ComputeWindowStats(idx, Query{TimeStart: 5.5, TimeEnd: 5.507})
+	if len(stats.TraceSpans) != 1 {
+		t.Fatalf("expected one trace span, got %+v", stats.TraceSpans)
+	}
+	span := stats.TraceSpans[0]
+	if span.SemanticClass != "class_verification" || span.Category != "runtime_verification" || span.Subcategory != "class_verification" {
+		t.Fatalf("custom trace_mark pattern should reuse class_verification metadata: %+v", span)
+	}
+}
+
+func TestSemanticSpanPatternsIgnoreUnknownClassAndPreserveBuiltinPriority(t *testing.T) {
+	SetSemanticSpanPatterns([]SemanticSpanPattern{
+		{SemanticClass: "unknown_future_class", Contains: []string{"ArkVerifyPhase"}},
+		{SemanticClass: "shader_compile", Contains: []string{"VerifyClass"}},
+	})
+	t.Cleanup(func() { SetSemanticSpanPatterns(nil) })
+
+	if got := traceSpanSemanticClass("ArkVerifyPhase com.example.Foo"); got != "" {
+		t.Fatalf("unknown configured class must be ignored, got %q", got)
+	}
+	if got := traceSpanSemanticClass("VerifyClass com.example.Foo"); got != "class_verification" {
+		t.Fatalf("built-in semantic classifier must win over custom patterns, got %q", got)
+	}
+}
+
 func TestRootCauseRankKeepsOffChainSemanticTraceSpanAsSupporting(t *testing.T) {
 	idx := buildTraceIndex(t, "chain_offchain_semantic_span.systrace", `
         app-100 (100) [001] .... 6.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120

@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync/atomic"
 )
 
 // unparsedLineCaveatRatio is the fraction of scanned lines that must fail to
@@ -9193,6 +9194,24 @@ type traceSpanSemanticWork struct {
 	MinOnChainImpactMs float64
 }
 
+// SemanticSpanPattern extends the built-in trace_mark semantic span
+// classifier with deployment-specific naming conventions. It is an
+// operator-provided classifier input, not a user-intent signal or hard gate.
+type SemanticSpanPattern struct {
+	SemanticClass string
+	Contains      []string
+	Tokens        []string
+}
+
+var customTraceSemanticSpanPatterns atomic.Value // stores []SemanticSpanPattern
+
+// SetSemanticSpanPatterns installs deployment-specific semantic span patterns.
+// Unknown classes and empty patterns are ignored. Built-in patterns always win,
+// so config can add missing ROM/app names without weakening stable defaults.
+func SetSemanticSpanPatterns(patterns []SemanticSpanPattern) {
+	customTraceSemanticSpanPatterns.Store(normalizeSemanticSpanPatterns(patterns))
+}
+
 func traceSpanSemanticClass(name string) string {
 	work, ok := traceSpanSemanticWorkClass(name)
 	if !ok {
@@ -9227,6 +9246,24 @@ func traceSpanSemanticWorkClass(name string) (traceSpanSemanticWork, bool) {
 	tokens := traceSpanNameTokenSet(lower)
 	switch {
 	case traceSpanLooksLikeJITCompile(lower, tokens):
+		return traceSpanSemanticWorkForClass("jit_compile")
+	case traceSpanLooksLikeClassVerification(lower, tokens):
+		return traceSpanSemanticWorkForClass("class_verification")
+	case traceSpanLooksLikeShaderCompile(lower, tokens):
+		return traceSpanSemanticWorkForClass("shader_compile")
+	case traceSpanLooksLikeRuntimeCompile(lower, tokens):
+		return traceSpanSemanticWorkForClass("runtime_compile")
+	default:
+		if class, ok := customTraceSpanSemanticClass(lower, tokens); ok {
+			return traceSpanSemanticWorkForClass(class)
+		}
+		return traceSpanSemanticWork{}, false
+	}
+}
+
+func traceSpanSemanticWorkForClass(class string) (traceSpanSemanticWork, bool) {
+	switch strings.TrimSpace(class) {
+	case "jit_compile":
 		return traceSpanSemanticWork{
 			RootCauseType:      "jit_compile",
 			Category:           "runtime_compile",
@@ -9237,7 +9274,7 @@ func traceSpanSemanticWorkClass(name string) (traceSpanSemanticWork, bool) {
 			ImpactMultiplier:   2.60,
 			MinOnChainImpactMs: 4.0,
 		}, true
-	case traceSpanLooksLikeClassVerification(lower, tokens):
+	case "class_verification":
 		return traceSpanSemanticWork{
 			RootCauseType:      "class_verification",
 			Category:           "runtime_verification",
@@ -9248,7 +9285,7 @@ func traceSpanSemanticWorkClass(name string) (traceSpanSemanticWork, bool) {
 			ImpactMultiplier:   2.40,
 			MinOnChainImpactMs: 4.0,
 		}, true
-	case traceSpanLooksLikeShaderCompile(lower, tokens):
+	case "shader_compile":
 		return traceSpanSemanticWork{
 			RootCauseType:      "shader_compile",
 			Category:           "shader_compile",
@@ -9259,7 +9296,7 @@ func traceSpanSemanticWorkClass(name string) (traceSpanSemanticWork, bool) {
 			ImpactMultiplier:   2.40,
 			MinOnChainImpactMs: 4.0,
 		}, true
-	case traceSpanLooksLikeRuntimeCompile(lower, tokens):
+	case "runtime_compile":
 		return traceSpanSemanticWork{
 			RootCauseType:      "runtime_compile",
 			Category:           "runtime_compile",
@@ -9273,6 +9310,98 @@ func traceSpanSemanticWorkClass(name string) (traceSpanSemanticWork, bool) {
 	default:
 		return traceSpanSemanticWork{}, false
 	}
+}
+
+func normalizeSemanticSpanPatterns(patterns []SemanticSpanPattern) []SemanticSpanPattern {
+	if len(patterns) == 0 {
+		return nil
+	}
+	out := make([]SemanticSpanPattern, 0, len(patterns))
+	for _, p := range patterns {
+		class := normalizeTraceSemanticSpanClass(p.SemanticClass)
+		if _, ok := traceSpanSemanticWorkForClass(class); !ok {
+			continue
+		}
+		contains := normalizeSemanticSpanContains(p.Contains)
+		tokens := normalizeSemanticSpanTokens(p.Tokens)
+		if len(contains) == 0 && len(tokens) == 0 {
+			continue
+		}
+		out = append(out, SemanticSpanPattern{
+			SemanticClass: class,
+			Contains:      contains,
+			Tokens:        tokens,
+		})
+	}
+	return out
+}
+
+func normalizeTraceSemanticSpanClass(class string) string {
+	class = strings.ToLower(strings.TrimSpace(class))
+	class = strings.ReplaceAll(class, "-", "_")
+	class = strings.ReplaceAll(class, " ", "_")
+	return class
+}
+
+func normalizeSemanticSpanContains(items []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, item := range items {
+		item = strings.ToLower(strings.TrimSpace(item))
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	return out
+}
+
+func normalizeSemanticSpanTokens(items []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, item := range items {
+		for token := range traceSpanNameTokenSet(strings.ToLower(strings.TrimSpace(item))) {
+			if token == "" || seen[token] {
+				continue
+			}
+			seen[token] = true
+			out = append(out, token)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func customTraceSpanSemanticClass(lower string, tokens map[string]bool) (string, bool) {
+	raw := customTraceSemanticSpanPatterns.Load()
+	if raw == nil {
+		return "", false
+	}
+	patterns, _ := raw.([]SemanticSpanPattern)
+	for _, p := range patterns {
+		if semanticSpanPatternMatches(p, lower, tokens) {
+			return p.SemanticClass, true
+		}
+	}
+	return "", false
+}
+
+func semanticSpanPatternMatches(p SemanticSpanPattern, lower string, tokens map[string]bool) bool {
+	for _, needle := range p.Contains {
+		if needle != "" && strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	if len(p.Tokens) == 0 {
+		return false
+	}
+	for _, token := range p.Tokens {
+		if !tokens[token] {
+			return false
+		}
+	}
+	return true
 }
 
 func traceSpanNameTokenSet(lower string) map[string]bool {

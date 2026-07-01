@@ -484,10 +484,11 @@ v6 对着 §2.9.1 列出的三处入口重新看了一遍"两者都给"的场景
 **O6(文档性,不涉及代码)—— ✅ v8 已修复 —— 在 `docs/architecture.md` 新增一节补充 trace_query 的分层下钻方法论。**
 **v8 落地**:`docs/architecture.md` 新增 §7.2.1 "trace_query — 深度分层根因下钻引擎",纲要描述设计定位(确定性引擎非纯 LLM 推理)+ 四个核心机制(状态优先 Top-N / on-chain 递归 / 语义 span 独立通道 / 投影汇总)+ 窗口纪律,并指回本审计文档。
 
-**O7(低成本、高价值,v3 新增)—— ✅ v7 已修复(caveat 部分)—— 给语义 span 识别加一条内核态兜底信号,降低对用户态命名习惯的依赖。**
+**O7(低成本、高价值,v3 新增)—— ✅ v10 已补齐 caveat + codrax.yaml 配置化增强 —— 给语义 span 识别加一条命名漂移可观测/可配置兜底,降低对单一用户态命名习惯的依赖。**
 现状(§2.8):`jit_compile`/`class_verification`/`shader_compile`/`runtime_compile` 全部靠对 `trace_mark` 里的 span 名字做文本模式匹配(`traceSpanLooksLikeJITCompile` 等),没有任何内核态结构化事件兜底;如果应用/ArkCompiler/ROM 版本升级后打点字符串命名习惯改变,识别会静默失效且无法被现有测试发现(现有测试固定用标准命名造 fixture,不会检测命名漂移)。
 建议:短期低成本方案是在 `traceSpanSemanticWorkClass` 命中/未命中两侧都打一条可观测的 caveat(比如"检测到形如编译/校验语义但未匹配已知模式的 span,可能是新命名"),给 LLM 和后续维护者一个"模式可能过期了"的信号;中期可以考虑允许通过 `codrax.yaml` 追加自定义模式列表,而不是把所有命名规则硬编码在 Go 源码里。
-**v7 落地短期方案**:新增 `traceSpanNearMissesSemanticWorkClassification` + 有界(≤3 例)caveat,详见 §2.8。中期的 `codrax.yaml` 自定义模式扩展仍是开放项,未在本批处理。
+**v7 落地短期方案**:新增 `traceSpanNearMissesSemanticWorkClassification` + 有界(≤3 例)caveat,详见 §2.8。
+**v10 落地中期方案**:`RuntimeSettings.TraceSemanticSpanPatterns` / `codrax.yaml :: trace_semantic_span_patterns` 接入 `tracequery.SetSemanticSpanPatterns`。支持的 class 仍限定为既有 `jit_compile`、`class_verification`、`shader_compile`、`runtime_compile`;内置规则优先,配置只补充客户私有命名。该机制是 typed trace span 分类输入,不是 hard gate。
 
 **O8(信息性,v3 新增)—— 视需要给 Workqueue/DMA Fence 补充结构化字段提取。**
 现状(§2.8):这两类事件目前只有计数(`WorkqueueEventCount`/`DMAFenceEventCount`),没有像 Binder/Block IO 那样的专属结构化字段,细节要靠 LLM 自己读原始行文本。这两类事件目前不在用户提出的 7 条规则直接覆盖范围内,暂不建议单独立项,仅记录在案供后续如果有具体案例需要(比如 workqueue 延迟成为某次丢帧根因)时参考。
@@ -561,7 +562,9 @@ v6 对着 §2.9.1 列出的三处入口重新看了一遍"两者都给"的场景
 
 **v9 复核说明(同步至 `origin/main@ab5174f70`)**:重新拉取最新代码后复核,O1-O10 已全部落地或明确判定(O2 撤销、O8 记录在案),R1-R9 九条规则全部满足或正确降级。此前残留的文档漂移已修正:测试覆盖区不再写"未覆盖",附录不再保留 R9 的旧状态。当前可排队的唯一 trace 层增强是 O7 的中期配置化方向:把语义 span 模式扩展从 Go 源码内置迁移/补充为 `codrax.yaml` 可配置 pattern,用于适配客户私有 ROM / ArkCompiler / 应用自定义打点命名漂移;这是可观测性与可维护性增强,不是当前阻断性 correctness gap。
 
-**v8 修订说明(第二批实际修复)**:动手前先跑一个 8-agent 设计+完备性 workflow(4 design + 4 adversarial verify),对每个剩余 gap 产出经对抗验证的 diff 级实现规范并让"完备性批判"agent 独立复核 v7 五项修复是否真生效。批判 agent 用真实 `Run()` 红测复现了 v7 O9 亲手引入的 `unionTimeWindows` explicit-0 起点收窄回归(R8 字面正确性 bug),v8 第一件事就修它。随后落地 R3(占比显著性)、O4(投影窗口标注)、O5 端到端渲染测试、O6(架构文档 §7.2.1),每项都有新单测,`go build ./... && go test ./...` 全绿。O5 第三项(全链路真实 eval)也已在本轮补齐并 **PASS**——新增 `eval/cases/trace_query_frame_semantic_span_optimization.case`,经 `eval/run.sh` 跑真实 analyze→explore→extract→finalize + 真实 LLM,确认低影响 `VerifyClass` 语义 span、优先级反转、自动注入 projection block 都稳定出现在最终用户可见答案里(126s PASS)。至此 §4 的 O1-O10 全部落地或明确判定(O2 撤销、O8 记录在案),R1-R9 九条规则全部满足或正确降级;**唯一剩余的是 O7 中期增强项(codrax.yaml 自定义语义 span 模式化,属配置化增强而非缺口)**。
+**v10 更新(补齐 O7 中期配置化增强)**:`codrax.yaml` 新增 `trace_semantic_span_patterns`,由 `cmd/root.go` 转换为 `tracequery.SemanticSpanPattern` 并安装进 tracequery 分类器。分类器仍先走内置 JIT/VerifyClass/shader/runtime-compile 规则,自定义 pattern 只作为补充;未知 `semantic_class`、空 pattern 会被忽略。该配置只消费管理员结构化 YAML + trace_mark span 名,不读取用户意图、模型 rationale 或自然语言 summary,且只影响 semantic span typed classification / handoff,不作为 hard gate。测试覆盖:配置解析、cmd 转换、未知 class 忽略、内置规则优先、自定义 trace_mark 名进入既有 `class_verification` 元数据链路。
+
+**v8 修订说明(第二批实际修复)**:动手前先跑一个 8-agent 设计+完备性 workflow(4 design + 4 adversarial verify),对每个剩余 gap 产出经对抗验证的 diff 级实现规范并让"完备性批判"agent 独立复核 v7 五项修复是否真生效。批判 agent 用真实 `Run()` 红测复现了 v7 O9 亲手引入的 `unionTimeWindows` explicit-0 起点收窄回归(R8 字面正确性 bug),v8 第一件事就修它。随后落地 R3(占比显著性)、O4(投影窗口标注)、O5 端到端渲染测试、O6(架构文档 §7.2.1),每项都有新单测,`go build ./... && go test ./...` 全绿。O5 第三项(全链路真实 eval)也已在本轮补齐并 **PASS**——新增 `eval/cases/trace_query_frame_semantic_span_optimization.case`,经 `eval/run.sh` 跑真实 analyze→explore→extract→finalize + 真实 LLM,确认低影响 `VerifyClass` 语义 span、优先级反转、自动注入 projection block 都稳定出现在最终用户可见答案里(126s PASS)。至此 §4 的 O1-O10 全部落地或明确判定(O2 撤销、O8 记录在案),R1-R9 九条规则全部满足或正确降级;当时唯一剩余的是 O7 中期增强项(codrax.yaml 自定义语义 span 模式化,属配置化增强而非缺口),已在 v10 补齐。
 
 ---
 
@@ -699,6 +702,6 @@ flowchart LR
   - `TestTraceCausalProjectionSleepDrilldownAmbiguousWakerDoesNotInventTarget`
   - `TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad`
 
-**P2: O7 中期配置化增强仍可排队。**
+**P2: O7 中期配置化增强已完成。**
 
-语义 span 识别当前已有内置 near-miss caveat 和 semantic sidecar cap,但客户私有 ROM / ArkCompiler / 应用自定义 trace_mark 命名仍可能漂移。后续可把 semantic span pattern 扩到 `codrax.yaml` 配置,作为可观测性增强;配置只影响候选归类/提示,不能作为硬门。
+语义 span 识别当前已有内置 near-miss caveat、semantic sidecar cap,并支持 `codrax.yaml :: trace_semantic_span_patterns` 追加客户私有 ROM / ArkCompiler / 应用自定义 trace_mark 命名模式。配置只影响 typed 候选归类/提示,不能作为硬门。

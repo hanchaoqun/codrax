@@ -45,6 +45,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
@@ -2263,6 +2264,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 	}
 	tool.SetSearchRuntimeArtifactRoots(nil)
+	tracequery.SetSemanticSpanPatterns(nil)
 	if rs != nil {
 		// L2 fail-safe: if the operator left write_enabled unset but a
 		// stray key looks like a misspelled write_enabled, treat the kill
@@ -2345,6 +2347,9 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 		if len(rs.SearchExcludeRoots) > 0 {
 			tool.SetSearchRuntimeArtifactRoots(rs.SearchExcludeRoots)
+		}
+		if len(rs.TraceSemanticSpanPatterns) > 0 {
+			tracequery.SetSemanticSpanPatterns(rsTraceSemanticSpanPatterns(rs.TraceSemanticSpanPatterns))
 		}
 		if rs.Lang != nil {
 			mergedLang = *rs.Lang
@@ -5312,6 +5317,21 @@ func rsOperationSkills(rs *config.RuntimeSettings) []types.OperationSkillConfig 
 		return nil
 	}
 	return rs.OperationSkills
+}
+
+func rsTraceSemanticSpanPatterns(in []config.TraceSemanticSpanPattern) []tracequery.SemanticSpanPattern {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]tracequery.SemanticSpanPattern, 0, len(in))
+	for _, p := range in {
+		out = append(out, tracequery.SemanticSpanPattern{
+			SemanticClass: p.SemanticClass,
+			Contains:      append([]string(nil), p.Contains...),
+			Tokens:        append([]string(nil), p.Tokens...),
+		})
+	}
+	return out
 }
 
 func operationProvidersFromMCPConfigs(reg *mcp.Registry, cfgs []types.MCPServerConfig) []operation.ProviderInfo {

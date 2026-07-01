@@ -48,6 +48,15 @@ repl_turn_policy_timeout_seconds: 7
 repl_memory_context_timeout_seconds: 3
 providers_config: /etc/codrax/providers.yaml
 perf_triage_llm_max_bytes: 1048576
+trace_semantic_span_patterns:
+  - semantic_class: class_verification
+    contains:
+      - ArkVerifyPhase
+  - semantic_class: shader_compile
+    tokens:
+      - render
+      - pipeline
+      - warmup
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
@@ -88,6 +97,15 @@ perf_triage_llm_max_bytes: 1048576
 	}
 	if s.PerfTriageLLMMaxBytes == nil || *s.PerfTriageLLMMaxBytes != 1048576 {
 		t.Errorf("PerfTriageLLMMaxBytes = %v", s.PerfTriageLLMMaxBytes)
+	}
+	if len(s.TraceSemanticSpanPatterns) != 2 {
+		t.Fatalf("TraceSemanticSpanPatterns len = %d, want 2", len(s.TraceSemanticSpanPatterns))
+	}
+	if got := s.TraceSemanticSpanPatterns[0]; got.SemanticClass != "class_verification" || len(got.Contains) != 1 || got.Contains[0] != "ArkVerifyPhase" {
+		t.Errorf("TraceSemanticSpanPatterns[0] = %+v", got)
+	}
+	if got := s.TraceSemanticSpanPatterns[1]; got.SemanticClass != "shader_compile" || len(got.Tokens) != 3 || got.Tokens[0] != "render" {
+		t.Errorf("TraceSemanticSpanPatterns[1] = %+v", got)
 	}
 	if s.WriteWorkflowEngine == nil || *s.WriteWorkflowEngine != "controller" {
 		t.Errorf("WriteWorkflowEngine = %v", s.WriteWorkflowEngine)
