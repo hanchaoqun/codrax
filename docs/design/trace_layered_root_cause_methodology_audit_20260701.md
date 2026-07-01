@@ -5,6 +5,10 @@
 > **v2 更新**:补充审计 on-chain 三种终止状态(Runnable/Running/D-state·IO-wait)各自"下一跳"应识别的具体根因——Runnable 的优先级反转(含鸿蒙/东湖优先级语义)、Running 的算力供给与 perf_sample/代码对照深挖、IO 的聚类 inode 定位。发现原先 §2.3/§4-O3 把这三个状态一概判定为"终止节点、无下一跳"过于笼统:实际上 `buildRootCauseRankFrom` 用了一种**不同于 `expandChain` 图遍历的并行独立候选流 + on-chain 线程集合过滤**模式,已经让算力供给(compute_supply)和聚类 inode(file_io_hot_inode/block_io_by_inode)在依赖线程本身或已被 sleep 链发现的线程上生效;唯独 Runnable 的优先级比较未被同样接入。详见 §2.3.1-§2.3.3(新增)与修订后的 §4-O3。
 >
 > **v3 更新**:新增 §2.8"数据溯源"——把 §2 每个计算指标逐一回溯到具体的原始 `EventType` 和内核/用户态 tracepoint 名称(状态判定唯一来自 `sched_switch`、唤醒链来自 `sched_wakeup`/`sched_waking`、D-state/IO 原因来自 `sched_blocked_reason`、算力供给来自 `cpu_frequency`/`cpu_idle`、Binder 来自 6 个 `binder_*` 事件、IO 聚类来自 `f2fs_*`/`android_fs_*`/`ext4_*` 等文件系统事件叠加 `block_rq_*` 存储层事件、JIT/VerifyClass/shader 语义 span 来自对通用 `trace_mark` 文本做模式匹配、CPU Profiling 来自转换阶段拼装的合成 `perf_sample` 行,等等)。附带发现两点值得记录的数据侧限制:①语义 span 识别没有独立内核事件兜底,是弱类型文本匹配;②Workqueue/DMA Fence 目前只有计数,没有专属结构化字段提取。
+>
+> **v4/v5 更新**:响应本文档 §2.6.2/O1 提出的容量短板,仓库代码侧实际做了两轮 `trace_query 关键观测核对`/`TraceCausalProjection` 容量扩容(细节见 §2.6.2 与 §6),文档随之同步了最新的 cap 数值。
+>
+> **v6 更新**:新增 R8(用户显式时间窗必须严格遵守,不能因 VSYNC/帧边界误缩窗)、R9(帧信息 + 显式时间窗同时给出时应取并集)两条规则及对应审计 §2.9。结论:**R8 已满足**——排查了三处会重新计算时间窗的入口(`resolveSpanWindowsForQuery`/`ResolveFrameTarget`/`FrameWindowAutoDerived` 置位条件),全部以"用户是否已显式给出 time_start/time_end"为精确 typed 开关,没有发现"因检测到帧边界而悄悄收窄显式窗口"的代码路径;但发现一处相关但不同的风险——`interestingIntervals` 会把窗口内目标线程的时间线按状态打分后只取 Top-8 子区间参与递归展开、且无条件跳过 Running 区间,窗口元数据本身没被收窄,但递归下钻的实际覆盖深度可能不足,且无对应 caveat 提示(裁剪是静默的)。**R9 未实现**——全仓没有对"用户显式窗口"与"帧信息推导窗口"取并集的代码,当前是显式窗口整体胜出、帧信息完全不参与窗口范围计算,是本轮新发现的精确缺口,已列 O9。
 
 ## 背景:用户目标方法论(原始需求逐条整理)
 
@@ -20,6 +24,8 @@
   - **R5c(IO 下一跳)**:要能识别出具体的、经过**聚类的 inode**(如果 trace 里有相关数据)。
 - **R6(时间窗内投影汇总 + 最终总结)**:逐层根因分析全部完成后,要把所有结论在用户最初指定的时间窗内做一次汇总投影,再产出一次汇总提炼后的最终总结。
 - **R7(JIT/VerifyClass/shader 特殊通道)**:在对 on-chain 每一层做分析时,还要关注该层 on-chain 链路上出现的特殊 span——例如(东湖等)trace 场景里常见的 JIT 编译、VerifyClass(类校验)、shader 编译。这些 span 即便占比不高,也必须走一条**独立的特殊通道**处理;在不影响、不干扰其它通用根因分析逻辑的前提下,把它们作为"另一面"信息**强制** handoff 到最终答案里提及——因为这些是确定性的、可直接优化的点,需要提醒用户去解决。
+- **R8(严格遵守用户显式时间窗,禁止误缩窗)**:当用户在 trace 分析请求里已经明确指明了某一帧要分析的起始和结束时间窗时,即便窗口中间出现了 VSYNC 信号或其它帧/状态边界,也**不能**因此把分析窗口错误地缩小——线程 ID 和时间窗是用户最关心、已经显式给定的约束,必须严格遵守。只有当用户**只提供了局部信息**(例如只给了帧标识/pattern,没有给出明确的起止时间)时,才允许模型自己去推导时间窗。
+- **R9(帧信息 + 显式时间窗同时给出时,取并集而非二选一)**:如果用户既指定了某一帧,又同时给出了显式时间窗,不能只用其中一个而丢掉另一个覆盖的范围——应该把"模型从帧信息推导出的时间窗"和"用户显式给出的时间窗"取**并集**(合并成覆盖范围更大的窗口)进行分析,确保两边各自暗示的时间范围都不被遗漏。
 
 ## 0. 结论摘要
 
@@ -33,7 +39,9 @@
 | 4 | 固化线程ID+时间窗触发主链根因下钻(而非浅层 grep)(R1) | **架构性满足(soft-guidance-by-design)** | 没有 typed pin 载体和硬门,只有 prompt 软引导"prefer trace_query before grep";但这本身符合仓库自己的"精确信号才能做硬门"红线,不算缺陷 |
 | 5 | 逐层根因分析后,在用户时间窗内投影汇总 + 最终总结(R6) | **基本满足** | `TraceCausalProjection` 是真实的、跨越整个 Turn A 调用历史的确定性聚合,并且**无条件自动注入**到最终答案文档(不依赖 LLM 主动引用);但不显式裁剪到用户最初声明的时间窗,且注入的是结构化 fact sheet 而非叙述性总结 |
 | 6 | JIT/VerifyClass/shader 特殊通道,占比再低也必须 handoff,且不干扰通用根因分析(R7) | **基本满足,审计期间刚被强化** | 审计过程中,仓库在 `ed109f7f`(09:20)新增了完全独立于 `root_cause_rank` 排名的 `trace_semantic_span` typed observation 通道 + 专属"确定性优化点"渲染区块,并有 golden test 证明"即使不进 root_cause_rank 候选池也照样 handoff"。**唯一仍未解决的口子**:更上游的 `computeTraceMarks(idx, q, 8)` 仍按原始时长硬顶 8 条,不感知语义类别,极端情况下短 JIT span 可能在语义分类之前就被淘汰 |
-| 7 | 测试覆盖 / load-bearing 程度 | **中等,呈碎片化** | 单元测试丰富且断言具体(非仅 JSON 存在性),但没有一条贯穿"低影响 JIT span → 候选产生 → 排序截断 → finalize → 最终渲染文本"的端到端 golden fixture;仓库无 CI,回归全靠人工 `go test` |
+| 7 | 严格遵守用户显式时间窗,不因 VSYNC/帧边界误缩窗(R8) | **满足** | `resolveSpanWindowsForQuery`/`ResolveFrameTarget`/`traceQueryShouldAutoWindowFromPattern` 三处窗口推导入口都以"用户是否已显式给出 time_start/time_end(哪怕只给一个)"为精确开关,一旦显式给出就直接透传、不做任何再计算;`interestingIntervals`(wakeup_chain 内部)不改写窗口边界本身,但会把窗口内的分析切成 Top-`MaxBranches`(默认 8)个"最值得看"的子区间,存在"窗口没变但深度覆盖被裁剪"的相关风险,详见 §2.9 |
+| 8 | 帧信息 + 显式时间窗同时给出时取并集,不能二选一丢数据(R9) | **不满足** | 全仓未找到任何对两个来源的时间窗做并集(min start / max end)的代码;当前行为是"两者都给时只用用户显式窗口,派生窗口的信息被完全丢弃"(`resolveSpanWindowsForQuery`)或"只用显式窗口,`WindowSource=query_window`,派生窗口逻辑整体不触发"(`ResolveFrameTarget`),精确定位见 §2.9,已列入 O9 |
+| 9 | 测试覆盖 / load-bearing 程度 | **中等,呈碎片化** | 单元测试丰富且断言具体(非仅 JSON 存在性),但没有一条贯穿"低影响 JIT span → 候选产生 → 排序截断 → finalize → 最终渲染文本"的端到端 golden fixture;仓库无 CI,回归全靠人工 `go test` |
 
 审计期间(约 2026-07-01 02:44 – 09:38)仓库有 20+ 次相关提交,说明该子系统正处于**主动收敛**状态,而不是静止的历史欠账;#6 的核心口子在审计过程中被实时补上,这提示优化方向本身与仓库现有开发节奏是一致的。
 
@@ -363,6 +371,36 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 3. **perf_sample 是"二等公民"事件**——它不是原始 trace 文件里的行,依赖转换阶段是否成功把 `perf.data` 接进来(`tracebundle_trace_provider`/`tracebundle_trace_coverage` 这些 caveat 字段就是在描述这次转换的完整度)。如果只拿到裸 `.systrace`/`.ftrace` 没有配套 perf.data,§2.3.2 提到的"perf_sample 深挖"这条能力天然不可用,root_cause_rank 仍然可以工作(靠 sched_switch/sched_blocked_reason 等),只是缺少"CPU 时间具体花在哪个符号"这一层解释。
 4. **鸿蒙 `next_info` 扩展字段是 CPU 亲和性/cpuset 分析的关键差异化数据源**——这些字段(`next_info_affinity`/`next_info_allowed_cpus`/`next_info_restricted`)内嵌在 `sched_switch` 行本身,是鸿蒙对标准 ftrace `sched_switch` 格式的扩展,Android/generic ftrace 的 `sched_switch` 行不带这些字段,因此"CPU 亲和性限制导致 Runnable"这类根因在纯 Android trace 上的可判定性天然弱于鸿蒙/东湖 trace。
 
+### 2.9 显式时间窗的严格遵守 与 帧信息+时间窗并集(R8/R9)
+
+用户的原始诉求分两层:R8——用户已经明确给出时间窗时,不能因为窗口中间出现 VSYNC 之类的帧边界信号就自作主张收窄;R9——如果用户**同时**给了帧标识(pattern/span_name)和显式时间窗,应取两者并集,不能只用其中一个而丢掉另一个覆盖的范围。本节把这两条分开审计,因为它们在代码里对应的是不同的机制,满足度也不同。
+
+#### 2.9.1 R8:显式窗口是否被误缩——审计结论是**没有发现误缩,三处入口都有精确开关**
+
+排查了 trace_query 里所有会"重新计算"时间窗的地方,一共三处,全部以**用户是否已经给出 `time_start`/`time_end`(哪怕只给一个)** 作为精确的 typed 开关,行为如下:
+
+1. **`span_name` → 窗口推导**(`resolveSpanWindowsForQuery`,query.go:4598-4620):函数入参显式带 `explicitStart bool, explicitEnd bool`。第一件事就是 `if explicitStart && explicitEnd { return spans, caveats }`(query.go:4606-4608)——**两个边界都显式给出时,函数直接返回,完全不touch `q.TimeStart`/`q.TimeEnd`**,哪怕命中的具名 span 实际跨度比用户给的窗口更宽或更窄。只有当 `explicitStart`/`explicitEnd` 各自为 false 时,才会用匹配到的唯一 span 的边界去补齐**缺失的那一侧**(query.go:4613-4618),连"只给了起点没给终点"这种部分显式的情况都处理对了。
+2. **frame_root_cause_bundle 的目标线程/窗口解析**(`ResolveFrameTarget`,query.go:8601-8665):函数一开始就判断 `if q.PID > 0 || strings.TrimSpace(q.Thread) != "" || strings.TrimSpace(q.ThreadInput) != "" { ... }`(query.go:8603)——**只要用户给了 pid/thread 中任意一个,直接走 `Source: "explicit_query_target"` 分支,`Window` 原样取自 `q.TimeStart`/`q.TimeEnd`,`WindowSource: "query_window"`,不进入任何"从帧列表候选里猜窗口"的逻辑**(query.go:8605-8616)。只有在没有显式 pid/thread 的分支(`frame_timeline_ui_candidate`)才会走到自动推导窗口的代码,而且还要求 `q.FrameWindowAutoDerived == true` 才会真正改写 `Window`(query.go:8656-8663)。
+3. **`FrameWindowAutoDerived` 本身的置位条件**(`Run`,query.go:23-28 和 `traceQueryShouldAutoWindowFromPattern`,tool/trace_query.go:475-483):第一处只有 `q.TimeStart == 0 && q.TimeEnd == 0 && q.Pattern != ""` 才会置 true;第二处的核心判据 `traceQueryHasExplicitIndexWindow(p)`(tool/trace_query.go:1079-1081)是 `p.TimeStart.Set() || p.TimeEnd.Set() || p.LineStart.Int() > 0 || p.LineEnd.Int() > 0`——**只要 `time_start`/`time_end`/`line_start`/`line_end` 里有任何一个被显式设置过,自动窗口推导直接不触发**。
+
+**结论**:三处入口对"用户是否已给窗口"的判断都是**精确的、typed 的**(`.Set()` 布尔态,不是靠数值是否为零去猜),完全符合 CLAUDE.md"精确信号做硬门"的红线,也完全符合 R8 的字面要求——本轮审计**没有找到**"因为检测到 VSYNC/帧边界而把显式给定窗口悄悄收窄"的代码路径。
+
+**但有一处相关但不同的风险,发生在窗口"深度覆盖"层面而不是窗口"边界"层面**:`buildWakeupChainWithCache`(query.go:6097-6127)里,即使 `q.TimeStart`/`q.TimeEnd` 保持用户给定的原值不变(`res.Window` 依然精确等于用户窗口,元数据层面没有任何收窄),内部用来驱动递归下钻的 `branches := interestingIntervals(targetTimeline.Intervals, q.MinDurationMs, q.MaxBranches)`(query.go:6110)会把目标线程在该窗口内的完整时间线拆成多段区间,然后:
+- **`StateRunning` 区间被无条件剔除**(`interestingIntervals`,query.go:10350-10352:`if intervals[i].State == StateRunning { continue }`)——如果目标线程在用户窗口内因为处理 VSYNC 回调而短暂 Running,这一段**不会**作为 wakeup-chain 的递归起点被展开(虽然它仍能通过 `stats.TopRunning`/`compute_supply` 这条独立候选流被看到,见 §2.3.2,只是不在这条链式展开里)。
+- **候选区间按时长+状态打分后只取 Top `MaxBranches`(默认 8)个**(query.go:10355-10367)——如果目标线程在窗口内状态切换很多(超过 8 段满足 `MinDurationMs` 阈值的非-Running 区间),排名靠后的区间会被**静默丢弃**,不会被 `expandChain` 展开,即用户窗口"名义上"没变,但递归下钻的**实际覆盖深度**可能小于用户给定的整个窗口。
+
+这条风险和 R8 的字面场景("因为 VSYNC 就缩小窗口")不完全等价——`res.Window` 报告给上游的元数据是准的,没有被 VSYNC 直接改写;但当窗口内确实存在一次 VSYNC 触发的短暂唤醒把目标线程的睡眠切成两段时,这套机制会把它们当成两条独立分支分别下钻,而不是把整个窗口当成一个统一的分析单元,且 Running 段完全跳过链式展开。是否需要修正取决于产品对"深度覆盖"这个更细粒度问题的容忍度,已经和窗口边界问题(R8 严格意义上已满足)分开记录,不建议混为一谈。
+
+#### 2.9.2 R9:帧信息 + 显式时间窗同时给出时的并集——**未实现,是本轮审计发现的新缺口**
+
+对着 §2.9.1 列出的三处入口重新看一遍"两者都给"的场景:
+
+- `resolveSpanWindowsForQuery`:`explicitStart && explicitEnd` 为真时**直接返回,不读取、也不使用匹配到的 span 自身的时间边界**——span 只在 caveat 文本里被提及("selected_window derived from..." 这句提示语只在至少一侧未显式给出时才会拼出来),不会被并入最终窗口。也就是说如果用户给的窗口比实际帧短(比如漏掉了帧收尾的一小段),这段被漏掉的范围**不会**被 span 匹配结果找回来。
+- `ResolveFrameTarget`/`applyFrameTargetResolution`(query.go:8767-8780):只要 pid/thread 显式给出,直接用 `query_window`,同样不会去看 `frame_timeline` 候选里对应帧的实际起止时间,更不会和它取并集。
+- 全仓搜索(`internal/tracequery/*.go`、`internal/tool/trace_query.go`)没有找到任何对两个时间来源做 `min(startA, startB)` / `max(endA, endB)` 或等价并集操作的代码,`TimeWindow` 结构体本身也没有提供"合并两个窗口"的辅助函数。
+
+**结论**:当前实现在"用户同时给了帧信息和显式时间窗"这个场景下的行为是**"显式窗口整体胜出,帧信息只用来定位/校验目标线程,不参与窗口范围计算"**——这满足了 R8(不会因为帧信息把窗口缩得比用户给的更小),但不满足 R9(帧信息暗示的、可能比用户窗口更大的范围,不会被并入分析)。如果用户给的时间窗因为记忆/换算误差而比实际帧窗口略窄,当前实现会**忠实地只分析用户给的那部分**,不会自动把帧的完整范围补进来——这是本轮审计**新发现、此前未记录**的一个精确缺口,已列入 §4 的 O9。
+
 ---
 
 ## 3. 测试覆盖与 load-bearing 程度(要求 7)
@@ -423,6 +461,14 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 **O8(信息性,v3 新增)—— 视需要给 Workqueue/DMA Fence 补充结构化字段提取。**
 现状(§2.8):这两类事件目前只有计数(`WorkqueueEventCount`/`DMAFenceEventCount`),没有像 Binder/Block IO 那样的专属结构化字段,细节要靠 LLM 自己读原始行文本。这两类事件目前不在用户提出的 7 条规则直接覆盖范围内,暂不建议单独立项,仅记录在案供后续如果有具体案例需要(比如 workqueue 延迟成为某次丢帧根因)时参考。
 
+**O9(第二高优先级,精确定位到代码行,v6 新增)—— 给"帧信息 + 显式时间窗同时给出"的场景补上并集逻辑。**
+现状(§2.9.2):`resolveSpanWindowsForQuery`(query.go:4606-4608)在 `explicitStart && explicitEnd` 为真时直接返回,不读取匹配到的 span 自身边界;`ResolveFrameTarget`(query.go:8603-8616)在显式给了 pid/thread 时直接用 `query_window`,不去看 `frame_timeline` 里对应帧候选的实际起止时间。两处都没有对"用户显式窗口"与"帧信息推导窗口"做并集。
+建议:给 `TimeWindow` 加一个 `UnionTimeWindow(a, b TimeWindow) TimeWindow`(`start=min(a.Start,b.Start)`、`end=max(a.End,b.End)`)辅助函数,在上述两处"两个来源都存在"的分支里调用它,而不是直接 early-return / 直接用 query_window;`WindowSource` 相应地增加一个 `explicit_window_union_frame_window` 之类的取值,方便下游区分"纯显式"和"并集后"两种情况,不破坏 §2.9.1 已经确认满足的 R8 行为(纯显式窗口、没有帧信息时不受影响)。
+
+**O10(低优先级,v6 新增)—— 视情况评估是否需要让 wakeup_chain 的 `branches` 覆盖用户整个显式窗口,而不是只取 Top-`MaxBranches`。**
+现状(§2.9.1):`interestingIntervals`(query.go:10324-10381)把目标线程在用户窗口内的时间线按状态打分后只保留 Top `MaxBranches`(默认 8)个非-Running 区间进入 `expandChain` 递归展开,`res.Window` 元数据本身没有被收窄,但递归下钻的实际覆盖深度可能小于用户给定的整个窗口范围,且 Running 区间被无条件跳过链式展开(仍可通过独立候选流 §2.3.2 看到)。
+建议:这是一个比 O9 更值得先观察真实案例再决定是否要动的问题——如果后续在具体丢帧案例里发现"因为 MaxBranches=8 截断导致真正的根因区间被漏掉"的实例,再考虑提高默认 `MaxBranches`、或者在 `res.Caveats` 里显式提示"目标线程窗口内被裁剪掉 N 个候选区间"(当前没有这类 caveat,裁剪是完全静默的),让 LLM/用户至少能感知到覆盖不完整,而不是贸然改变递归展开的算法本身。
+
 ---
 
 ## 5. 附录:关键文件/函数索引
@@ -445,6 +491,10 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 | 自动注入最终文档 | `internal/tool/answer_document_mutation_runtime.go` | `persistMergedAnswerDocument`(119)、`materializeRuntimeTraceCausalProjectionBlock`(664) |
 | 软引导 prompt | `internal/skill/defaults.go` | "TRACE QUERY:"(100)、"TRACE SEMANTIC SPAN ROOT CAUSES:"(105) |
 | view teaching 表 | `internal/skill/trace_query_views.go` | `TraceQueryViewTeachings` |
+| 显式窗口透传(R8,已满足,v6) | `internal/tracequery/query.go` | `resolveSpanWindowsForQuery`(4598,`explicitStart && explicitEnd` 早退 4606-4608)、`ResolveFrameTarget`(8601,`explicit_query_target` 分支 8603-8616)、`applyFrameTargetResolution`(8767) |
+| 自动窗口推导开关(仅无窗口时触发,v6) | `internal/tracequery/query.go` / `internal/tool/trace_query.go` | `Run` 里 `FrameWindowAutoDerived` 置位(query.go:23-28)、`traceQueryShouldAutoWindowFromPattern`(tool/trace_query.go:475)、`traceQueryHasExplicitIndexWindow`(tool/trace_query.go:1079) |
+| 窗口内深度覆盖裁剪(R8 相关但不同,v6) | `internal/tracequery/query.go` | `interestingIntervals`(10324,Top-`MaxBranches` 截断 10365-10367,Running 跳过 10350-10352)、`buildWakeupChainWithCache`(6097) |
+| 帧信息+显式窗口并集(R9,未实现,v6) | — | 全仓无对应代码,详见 §2.9.2 与 O9 |
 
 ## 6. 审计期间(2026-07-01)实时落地的相关提交
 
@@ -465,3 +515,5 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 **v4 修订说明**:本批继续响应"补充块最多 6 条明显短板"的反馈,在不新增硬门、不解析用户原文/模型散文/工具 summary 的前提下,把 trace causal projection 的最终保留面从 16w 的 primary=6 / semantic=12 / max=36 扩到 primary=10 / semantic=16 / max=48,并把 `trace_query 关键观测核对`从 24 行扩到 40 行。该修订只扩大 hard-grounded typed trace_query observation 的 handoff/审计容量,背景与 adjacent 仍保持 bounded summary,避免为"完整性"引入新的噪音循环。
 
 **v5 修订说明**:继续复核"补充块最多 6 条"后发现另一条 typed handoff 仍停在旧上限:`Typed Exploration Enrichment Facts` 的 `FlowFindings` / `Flow/source-sink rows`。这不是 trace causal projection 本身,但它承载探索阶段已经落地的 typed flow/source-sink 证据,在多窗口、多层唤醒链、跨组件调用链场景中同样可能把第 7 层之后的链路从 finalizer prompt 中挤掉。本批把 trace/root-cause 请求的 flow supplement 扩到 12 条,跨组件/调用链请求保留 8 条 preferred surface,普通请求仍保持 3 条小默认值。该通道仍是 bounded prompt/handoff,不是 completion hard gate;只消费 `FlowFindingDigest` 和 typed request intent/family/predicate enums,不解析用户原文、模型散文、工具 summary、localized UI 或 eval label。
+
+**v6 修订说明**:审计期间发现本文档在此期间被并行地(基线 `4e53584d` → `4d5467a4`,共 7 个提交,其中 `264f0cd7`/`ae8fc57f`/`4d5467a4` 三次直接改了本文档自身,详见上面 v4/v5 段)持续更新,已用 `git reset --hard origin/main` 对齐到最新版本,不覆盖已有内容。v6 新增 R8/R9 两条规则(§背景)与对应审计 §2.9、新优化建议 O9/O10、附录索引新增 4 行。R8/R9 的判定不依赖前面几轮已经改动的 cap 数值(那些改的是 trace causal projection 的候选保留条数,和窗口边界计算是两回事),因此本轮结论与 §2.6.2 记录的最新 cap 数值不冲突。
