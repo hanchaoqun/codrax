@@ -8489,8 +8489,8 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceStateDrilldownSupplemen
 }
 
 func TestAnswerDocumentEvaluator_ParseOutput_TraceQueryObservationSupplementExpandsBeyondOldEightRowCap(t *testing.T) {
-	observations := make([]types.ObservationRecord, 0, 12)
-	for i := 1; i <= 12; i++ {
+	observations := make([]types.ObservationRecord, 0, 32)
+	for i := 1; i <= 32; i++ {
 		observations = append(observations, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:root:%02d", i),
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -8534,8 +8534,8 @@ func TestAnswerDocumentEvaluator_ParseOutput_TraceQueryObservationSupplementExpa
 	for _, want := range []string{
 		"系统补充：trace_query 关键观测核对",
 		"root_cause_primary:thread-01：thread-01 -> runnable",
-		"root_cause_primary:thread-12：thread-12 -> runnable",
-		"attached_trace.txt:112",
+		"root_cause_primary:thread-32：thread-32 -> runnable",
+		"attached_trace.txt:132",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("expanded trace_query supplement missing %q:\n%s", want, out.FinalAnswer)

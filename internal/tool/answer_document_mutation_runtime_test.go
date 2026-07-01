@@ -874,7 +874,7 @@ func TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity(t *
 		ClaimKey:        "wakeup_chain:path",
 		Object:          "dep-1 -> dep-2 -> dep-3 -> dep-4 -> dep-5 -> dep-6 -> dep-7 -> dep-8 -> dep-9 -> dep-10 -> app-100",
 	}}
-	for i := 1; i <= 4; i++ {
+	for i := 1; i <= 10; i++ {
 		records = append(records, traceProjectionObservation(
 			fmt.Sprintf("root-%d", i),
 			fmt.Sprintf("dep-%d", i),
@@ -885,7 +885,7 @@ func TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity(t *
 		))
 	}
 	semanticClasses := []string{"jit_compile", "class_verification", "shader_compile", "runtime_compile"}
-	for i := 1; i <= 12; i++ {
+	for i := 1; i <= 16; i++ {
 		class := semanticClasses[(i-1)%len(semanticClasses)]
 		records = append(records, types.ObservationRecord{
 			ID:              fmt.Sprintf("semantic-%02d", i),
@@ -950,16 +950,19 @@ func TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity(t *
 	}
 	got := bus.Mutable.AnswerDocumentV2()
 	projection := got.Blocks[1]
+	if answerBlockItemByID(projection.Items, "trace_primary_root_cause_10") == nil {
+		t.Fatalf("expanded projection should keep deeper co-primary layers: %+v", projection.Items)
+	}
 	if answerBlockItemByID(projection.Items, "trace_semantic_span_1") == nil ||
-		answerBlockItemByID(projection.Items, "trace_semantic_span_12") == nil {
+		answerBlockItemByID(projection.Items, "trace_semantic_span_16") == nil {
 		t.Fatalf("expanded projection should keep deterministic semantic optimization points: %+v", projection.Items)
 	}
 	hop := answerBlockItemByID(projection.Items, "trace_causal_hop_10")
 	if hop == nil || !strings.Contains(hop.Text, "链路第 10 层") {
 		t.Fatalf("expanded projection should keep default-depth supporting hops, got %+v", projection.Items)
 	}
-	if len(projection.Items) < 28 {
-		t.Fatalf("projection should expand beyond the old 24-item cap when typed trace evidence needs it, got %d items: %+v", len(projection.Items), projection.Items)
+	if len(projection.Items) < 38 {
+		t.Fatalf("projection should expand beyond the old 36-item cap when typed trace evidence needs it, got %d items: %+v", len(projection.Items), projection.Items)
 	}
 }
 

@@ -11920,7 +11920,7 @@ type traceQueryObservationSupplementRow struct {
 	Text  string
 }
 
-const traceQueryObservationSupplementMaxRows = 24
+const traceQueryObservationSupplementMaxRows = 40
 
 func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
 	rows := traceQueryObservationSupplementRows(ctx, doc)
