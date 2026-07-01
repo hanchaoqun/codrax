@@ -3458,7 +3458,11 @@ func principalEnumerationBestSourceInventoryScopedSetForBlock(block types.Answer
 }
 
 func principalEnumerationSourceInventoryScopedLabel(title string) string {
-	label := strings.TrimSpace(stripPrincipalEnumerationParentheticalQualifiers(title))
+	raw := strings.TrimSpace(title)
+	if principalEnumerationHasNonNumericParentheticalQualifier(raw) {
+		return ""
+	}
+	label := strings.TrimSpace(stripPrincipalEnumerationParentheticalQualifiers(raw))
 	if label == "" {
 		return ""
 	}
@@ -3473,6 +3477,62 @@ func principalEnumerationSourceInventoryScopedLabel(title string) string {
 		}
 		label = next
 	}
+}
+
+func principalEnumerationHasNonNumericParentheticalQualifier(label string) bool {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return false
+	}
+	depth := 0
+	var b strings.Builder
+	for _, r := range label {
+		switch r {
+		case '(', '（', '[', '［', '{', '｛':
+			if depth == 0 {
+				b.Reset()
+			} else {
+				b.WriteRune(r)
+			}
+			depth++
+			continue
+		case ')', '）', ']', '］', '}', '｝':
+			if depth == 0 {
+				continue
+			}
+			depth--
+			if depth == 0 {
+				if content := strings.TrimSpace(b.String()); content != "" && !principalEnumerationParentheticalQualifierIsNumeric(content) {
+					return true
+				}
+				b.Reset()
+				continue
+			}
+		}
+		if depth > 0 {
+			b.WriteRune(r)
+		}
+	}
+	return false
+}
+
+func principalEnumerationParentheticalQualifierIsNumeric(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	seenDigit := false
+	for _, r := range raw {
+		if unicode.IsDigit(r) {
+			seenDigit = true
+			continue
+		}
+		if unicode.IsSpace(r) || strings.ContainsRune(".,，、:/\\-+~", r) {
+			continue
+		}
+		return false
+	}
+	return seenDigit
 }
 
 func principalEnumerationSourceInventoryRowMatchesScopedLabel(row types.EnumerationDisplayRow, labelKey string) bool {

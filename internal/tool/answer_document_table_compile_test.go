@@ -849,6 +849,50 @@ func TestNormalizeEnumerationDisplayRequestedFieldSurfaces_AddsPackageToOrderedL
 	}
 }
 
+func TestPrincipalEnumerationSourceInventoryScopedSetForBlockKeepsUnstructuredQualifierSoft(t *testing.T) {
+	set := types.EnumerationDisplaySet{
+		ID:    "source_inventory_principal_rows",
+		Label: "source inventory principal rows",
+		Rows: []types.EnumerationDisplayRow{
+			{
+				SetLabel:     "source inventory principal rows",
+				DisplayLabel: "Bridge",
+				Member:       "Bridge",
+				Location:     "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+				SurfaceTerms: []string{"public class", "public class Bridge"},
+			},
+			{
+				SetLabel:     "source inventory principal rows",
+				DisplayLabel: "ClinicConfig",
+				Member:       "ClinicConfig",
+				Location:     "eval/fixtures/java-layered-service/src/main/java/com/clinic/config/ClinicConfig.java:12",
+				SurfaceTerms: []string{"public class", "public class ClinicConfig"},
+			},
+			{
+				SetLabel:     "source inventory principal rows",
+				DisplayLabel: "String",
+				Member:       "String",
+				Location:     "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+				SurfaceTerms: []string{"extend", "extend String"},
+			},
+		},
+	}
+
+	if scoped, ok := principalEnumerationSourceInventoryScopedSetForBlock(types.AnswerBlock{
+		Kind:  types.BlockSection,
+		Title: "public class",
+	}, set); !ok || len(scoped.Rows) != 2 {
+		t.Fatalf("unqualified source-inventory section should scope to typed surface family, ok=%v scoped=%+v", ok, scoped.Rows)
+	}
+
+	if scoped, ok := principalEnumerationSourceInventoryScopedSetForBlock(types.AnswerBlock{
+		Kind:  types.BlockSection,
+		Title: "public class（Java）",
+	}, set); ok || len(scoped.Rows) != 0 {
+		t.Fatalf("unstructured title qualifier must not be stripped into a load-bearing source-inventory scope, ok=%v scoped=%+v", ok, scoped.Rows)
+	}
+}
+
 func TestCompileEnumerationDisplayTableRows_AddsTypedAttributeColumnsWhenModelUsesDefaultTableShape(t *testing.T) {
 	mut := types.NewMutableState("列出 foreign func 的文件路径和 package")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
