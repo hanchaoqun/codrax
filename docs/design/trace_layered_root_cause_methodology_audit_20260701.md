@@ -798,3 +798,18 @@ flowchart LR
   - 覆盖短证据 ref 不含全路径、完整 ref 在索引中保留。
   - 覆盖 on-chain 链路和影响时长拆解。
   - 覆盖背景层为空/存在两种路径。
+
+**已实现(2026-07-02)。**
+
+- lead block `runtime_trace_causal_projection` 已从全字段大表改为"根因总览"小表:优先级、层级、节点、状态、影响、用户要关注什么、证据。它只承载 principal/on-chain/semantic/top adjacent 的用户决策面,不再穿插审计明细行。
+- 新增 `runtime_trace_causal_projection_on_chain`:只展示直接唤醒/依赖链节点,按 depth / path relation 表达"上游 → 下游"与每层影响。
+- 新增 `runtime_trace_causal_projection_impact`:把强度 bar、累计、投影、有效、实际、窗口、证据拆成独立列,避免四元时长挤在一个 cell。
+- 新增 `runtime_trace_causal_projection_background`:背景支撑单独展示,文案明确它是压力/环境证据,不自动等同于 on-chain 主因。
+- 新增 `runtime_trace_causal_projection_evidence`:主表只显示 `E#`;完整 support ref / artifact line / full node identity / typed audit fields 移入证据索引。
+- 保留 wakeup / sleep diagram 作为关系图辅助,但表格主读法不再依赖 diagram 渲染成功。
+- 看护测试更新:
+  - `TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection`
+  - `TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad`
+  - `TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePresentation`
+  - `TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEnglish`
+  - `TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity`
