@@ -750,3 +750,51 @@ flowchart LR
   - `TestApplyAndPersistMutation_TraceCausalProjectionCoverageBoundaryWhenGuarded`
   - `TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePresentation`
   - 既有 `TraceCausalProjectionSleepDrilldownAndTriad` / ZH / EN projection 测试同步更新。
+
+### 7.12 展示层 gap:单张大表仍然过载,需要多视图投影(2026-07-02)
+
+用户继续反馈:即使 §7.11 压缩首列、缩短 evidence ref 后,`Trace 因果投影` 仍然不够清晰。根因是当前主表同时承担了五种职责:用户结论总览、on-chain 链路关系、影响时长解释、背景统计、审计明细。结果是:
+
+- 表格 cell 仍可能出现大段文字,证据列若直接显示 artifact path / full ref 会撑宽。
+- `累计/投影/有效/实际` 挤在同一列,用户难以理解"影响到底是什么"。
+- 同一节点的主行和斜体明细行交替出现,视觉上松散,不适合作为第一眼根因面。
+- on-chain 的"谁影响谁、影响是什么、为什么用户要关注"没有被拆成清晰链路。
+- 背景支撑和 on-chain 主因混在一张表里,容易把保守背景统计误读成主因。
+
+**设计原则。**
+
+- 主表回答"用户该先看什么",不是无损审计表。
+- on-chain 链路单独回答"谁影响谁、每一层影响是什么"。
+- 时长拆解单独回答"用户窗口影响/有效归因/实际时长"。
+- 背景层保守展示,不和 on-chain 主因抢主线。
+- 审计明细和完整证据路径移到"证据索引/审计明细",主表只放 `E1/E2` 短 ref。
+- 所有块仍只消费 `TraceCausalProjection` typed nodes、`SupportRefs`、typed timing fields;不解析用户原文/模型散文。
+
+**任务分解。**
+
+- **Batch 1: Root Cause Overview 重构。**
+  - 将 `runtime_trace_causal_projection` lead block 从"全字段大表"改成"根因总览"小表。
+  - 列收敛为:优先级、层级、节点、状态、影响、用户要关注什么、证据。
+  - 只展示 principal/on-chain/semantic/top adjacent 的代表节点;背景不进入主表。
+  - 证据列只显示 `E#` 短 ref。
+
+- **Batch 2: On-chain 链路拆解。**
+  - 新增 `runtime_trace_causal_projection_on_chain` 表,按 `WakeupPath` / `ChainDepth` 展示逐层关系。
+  - 列收敛为:深度、上游→下游、状态/现象、影响、结论、证据。
+  - sleep 节点显示"症状,看上游 waker";running/runnable/io_wait/d_state 等显示对应影响解释。
+
+- **Batch 3: 影响时长拆解。**
+  - 新增 `runtime_trace_causal_projection_impact` 表,拆开累计/投影/有效/实际。
+  - 列收敛为:节点、累计、投影、有效、实际、窗口标记、证据。
+  - 保留 unicode bar 但不再把四个数挤进一个 cell。
+
+- **Batch 4: 背景支撑与证据索引。**
+  - 背景支撑单独 block,只列 top background/adjacent,文案保守:支撑/压力,不是主因。
+  - 新增 `runtime_trace_causal_projection_evidence` 证据索引表,把 `E#` 映射到完整 artifact/local line ref 或 support ref。
+  - 审计明细不再穿插在主表中,必要字段进入索引/短 note。
+
+- **Batch 5: 测试与回归。**
+  - ZH/EN projection golden 更新。
+  - 覆盖短证据 ref 不含全路径、完整 ref 在索引中保留。
+  - 覆盖 on-chain 链路和影响时长拆解。
+  - 覆盖背景层为空/存在两种路径。
