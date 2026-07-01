@@ -1,6 +1,8 @@
 # Trace 分层根因下钻方法论 —— 现状审计与优化建议(2026-07-01)
 
 > 本文档是**只读代码审计**的产出,不包含任何代码改动。审计对象是 `internal/tracequery/`(引擎,~11700+1583+2377+634 行)、`internal/tool/trace_query.go`(工具外壳+teaching prompt,~5900 行)、`internal/skill/`(软引导 prompt)、`internal/types/observation_ledger.go` / `trace_causal_projection.go` / `trace_observation_coverage.go`(typed 载体)、`internal/tool/answer_document_mutation_runtime.go`(finalize 期自动注入)、`internal/agent/answer_document_evaluator.go`(finalize 软引导)。审计基线是 `origin/main@abedbc7b`(2026-07-01 09:38,审计过程中仓库仍在演进,§6 记录了审计期间实时落地的修复)。
+>
+> **v2 更新**:补充审计 on-chain 三种终止状态(Runnable/Running/D-state·IO-wait)各自"下一跳"应识别的具体根因——Runnable 的优先级反转(含鸿蒙/东湖优先级语义)、Running 的算力供给与 perf_sample/代码对照深挖、IO 的聚类 inode 定位。发现原先 §2.3/§4-O3 把这三个状态一概判定为"终止节点、无下一跳"过于笼统:实际上 `buildRootCauseRankFrom` 用了一种**不同于 `expandChain` 图遍历的并行独立候选流 + on-chain 线程集合过滤**模式,已经让算力供给(compute_supply)和聚类 inode(file_io_hot_inode/block_io_by_inode)在依赖线程本身或已被 sleep 链发现的线程上生效;唯独 Runnable 的优先级比较未被同样接入。详见 §2.3.1-§2.3.3(新增)与修订后的 §4-O3。
 
 ## 0. 结论摘要
 
@@ -10,7 +12,7 @@
 |---|---|---|---|
 | 1 | 窗口内各状态时长 Top-N 识别 + typed handoff | **基本满足** | `buildStateDrilldownPlan` 是真实的窗口级 Top-N,但没有"占比阈值",只有数量硬顶(12) |
 | 2 | 碎片化状态聚类后 Top-N 不递归但仍 typed handoff | **部分满足** | 只对"碎片化 sleep"做了非递归例外,碎片化 runnable/D-state/IO 的 `Recursive` 标志仍是 true(标签层面),但底层引擎本来就不会为它们递归(见 #3) |
-| 3 | on-chain 关联线程递归下钻直到根因 | **部分满足** | `expandChain` 是真实的服务端递归(MaxDepth=10,带环检测),但**只对 Sleep→Wakeup 边递归**;Runnable/D-state/IO/Running 状态在引擎里是终止节点,不会自动追问"谁占着 CPU""谁在完成 IO" |
+| 3 | on-chain 关联线程递归下钻直到根因 | **部分满足,比初判更完整** | `expandChain` 图遍历只对 Sleep→Wakeup 边递归(MaxDepth=10,带环检测);但 Running(算力供给)和 D-state/IO(聚类 inode)通过另一条"并行独立候选流 + on-chain 线程过滤"机制已经把下一跳根因接了上去,唯独 Runnable 的优先级反转比较**没有**接入同一机制,是本次 v2 审计定位到的唯一精确缺口(§2.3.1) |
 | 4 | 固化线程ID+时间窗触发主链根因下钻(而非浅层 grep) | **架构性满足(soft-guidance-by-design)** | 没有 typed pin 载体和硬门,只有 prompt 软引导"prefer trace_query before grep";但这本身符合仓库自己的"精确信号才能做硬门"红线,不算缺陷 |
 | 5 | 逐层根因分析后,在用户时间窗内投影汇总 + 最终总结 | **基本满足** | `TraceCausalProjection` 是真实的、跨越整个 Turn A 调用历史的确定性聚合,并且**无条件自动注入**到最终答案文档(不依赖 LLM 主动引用);但不显式裁剪到用户最初声明的时间窗,且注入的是结构化 fact sheet 而非叙述性总结 |
 | 6 | JIT/VerifyClass/shader 特殊通道,占比再低也必须 handoff,且不干扰通用根因分析 | **基本满足,审计期间刚被强化** | 审计过程中,仓库在 `ed109f7f`(09:20)新增了完全独立于 `root_cause_rank` 排名的 `trace_semantic_span` typed observation 通道 + 专属"确定性优化点"渲染区块,并有 golden test 证明"即使不进 root_cause_rank 候选池也照样 handoff"。**唯一仍未解决的口子**:更上游的 `computeTraceMarks(idx, q, 8)` 仍按原始时长硬顶 8 条,不感知语义类别,极端情况下短 JIT span 可能在语义分类之前就被淘汰 |
@@ -135,7 +137,75 @@ case StateRunning:
 }
 ```
 
-**这是本次审计里最重要的精确性缺口**:递归只在 `StateSSleep` 分支真正调用自身(`expandChain(...depth+1...)`)。当锚定线程(或链上任意一跳线程)的主导状态是 **Runnable**(被抢占/CPU 竞争)、**D-state/IO-wait**(等 IO)、**Running**(自己在跑)时,引擎把它当作终止根因,**不会**自动去问"是谁占着 CPU 不放""是哪个中断/线程在完成这次 IO"。这些信息理论上可以通过 `critical_blocking_calls` 的 `peer`/`peer_state`、`window_stats.CPUPressure.TopRunning` 等字段由 LLM 手动二次查询拼出来,但引擎本身不会像 sleep→wakeup 那样自动把这一跳也纳入统一的 `ChainDepth`/`WakeupPath` 结构。这与用户"递归下钻分析到根因为止,每一层都采用对应的分析方法"的要求有实质差距——目前只有"sleep 链"这一种状态支持深度递归,其余三种状态的下钻深度恒为 1。
+**递归只在 `StateSSleep` 分支真正调用自身**(`expandChain(...depth+1...)`)。当锚定线程(或链上任意一跳线程)的主导状态是 Runnable/D-state·IO-wait/Running 时,`expandChain` 本身把它当作图遍历的终止节点。但这**不等于**"这三种状态就没有下一跳根因分析"——`buildRootCauseRankFrom` 另外维护了一套**并行独立候选流**(compute_supply、cpu_affinity_or_cpuset、file_io_hot_inode、block_io_by_inode、page_cache_churn 等),每条候选都用 `onChain := threadInSet(chainThreads, thread)` 检查该候选的线程是否等于锚定目标本身或已被 sleep 链发现的线程,命中则以 `on_chain` 优先级进入统一排序。也就是说:对"锚定线程自己"这一层(depth=0,天然在 `chainThreads` 里),Running/D-state/IO 已经有实质性的下一跳数据;真正的空白只在"是否识别出优先级反转"这一件事上(Runnable,§2.3.1)。以下按状态逐一说明现状,对应用户这次追加的三点要求。
+
+#### 2.3.1 Runnable 下一跳:优先级反转(含鸿蒙/东湖优先级语义)——**确认为精确缺口**
+
+基础设施是真实存在的,而且**已经正确区分了鸿蒙/东湖与 Android 的优先级语义**:
+
+```go
+// query.go:10298 —— 用于 sleep 链上"waker 相对于最初 target 的优先级"比较
+func priorityRelation(flavor TraceFlavor, wakeePrio, wakerPrio int) string {
+    switch flavor {
+    case TraceFlavorHarmonyHitrace:
+        if wakerPrio < wakeePrio { return "lower_priority_waker" }   // 鸿蒙:数值越大优先级越高
+        if wakerPrio > wakeePrio { return "higher_priority_waker" }
+        return "same_priority"
+    default:
+        return "raw_priority_uninterpreted"   // Android/generic:显式拒绝比较,避免误用鸿蒙语义
+    }
+}
+
+// query.go:10280 —— 更通用的"当前链节点 vs 最初 target"优先级比较,供 PriorityInversionCandidate 使用
+func dependencyPriorityRelation(flavor TraceFlavor, targetPrio, dependencyPrio, depth int) string { /* 同上语义 */ }
+```
+
+`default` 分支显式返回 `raw_priority_uninterpreted` 而不是硬套鸿蒙的"数值越大优先级越高"规则,说明这处比较**已经考虑了鸿蒙/东湖与 Android/generic ftrace 优先级语义不同**这件事,与 `docs/architecture.md` 里"HarmonyOS 用户态优先级数值越大优先级越高(1-40=CFS,41-139=RT),Android/generic ftrace 保留原始调度优先级"的既有描述一致。
+
+`PriorityInversionCandidate`(`WakeupCausalImpact`,query.go:10090)和聚合后的 `PriorityInversion`(`WakeupCausalAggregate`,query.go:6194-6208)这两个 typed 标志也是真实存在、且正确接线的——**但仅限于 sleep 链内部**:`summarizeWakeupCausalImpact` 在 `expandChain` 每个节点上都会算一次"当前节点线程优先级 vs 最初 target 优先级",如果某个 sleep 链上的中间 waker 节点自己的 dominant state 恰好是 Runnable 且优先级低于最初 target,才会被标记为 `priority_inversion_runnable_wait`(query.go:7843-7844、10229-10230)。
+
+**缺口**:当**最初被锚定的目标线程自己**(depth=0)就是 Runnable(最常见的场景——用户问"这个线程为什么没抢到 CPU"),`buildRootCauseRankFrom` 走的是 `stats.RunnableTop` 直接构造的独立 `runnable_wait` 候选(query.go:6696-6706):
+
+```go
+for _, td := range stats.RunnableTop {
+    onChain := threadInSet(chainThreads, td.Thread)
+    item := rootCauseItem("runnable_wait", td.Thread, ..., fmt.Sprintf("%s was runnable for %.3fms%s",
+        threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))   // durationCPUDetail 只有 cpu=/freq=,没有优先级
+    ...
+}
+```
+
+这条路径**完全没有调用 `priorityRelation`/`dependencyPriorityRelation`**,`durationCPUDetail`(query.go:11216)也只拼 `cpu=X freq=Ykhz`,不含任何优先级字段。同一文件里已经存在的"同 CPU 竞争者识别"能力(`appendRootCauseRunnableCompetitorPerfContexts`,query.go:7015,复用 `stats.CPUPressure.TopRunning`/`SameCPUTopRunning` 找出具体是哪个线程占着 CPU)也只附加了该竞争者的 **perf 采样上下文**(它在跑什么代码),同样没有把竞争者的调度优先级取出来和当前线程比较。
+
+**结论**:优先级反转判定的算法原语(含鸿蒙/东湖语义区分)已经写好且被验证过(在 sleep 链场景下),只是没有被接到"目标线程自己直接 Runnable"这条最常见的路径上。这是本次 v2 审计里最精确、最容易修的一个缺口——不需要新造机制,只需要把已有的 `dependencyPriorityRelation` 喂给 `runnable_wait`/`cpu_affinity_or_cpuset` 候选构造,对象是 `appendRootCauseRunnableCompetitorPerfContexts` 已经找到的同 CPU 竞争者。见 §4-O3a。
+
+#### 2.3.2 Running 下一跳:算力供给 + perf_sample 深挖 + 代码对照——**基本满足,一处架构性权衡**
+
+算力供给(compute supply)根因分类是真实、有实质判据的,而且同时覆盖 Running 和 Runnable 两种状态(`computeSupplySummaries`,query.go:3231-3298),核心是 `computeSupplyVerdict`(query.go:3300-3320):
+
+```go
+lowFreq := frequency > 0 && frequencyIsLowForCPU(frequency, cpu)
+cpuPressure := busyRatio >= 0.80 || pressure.HighPriorityRunningMs >= durationMs*0.50
+switch {
+case cpuPressure && lowFreq: return "mixed_cpu_pressure_and_low_frequency", 0.78
+case cpuPressure:            return "cpu_pressure", 0.76
+case lowFreq:                return "low_frequency_signal", 0.68
+case cpu.IdleMs > cpu.BusyMs: return "idle_available_check_wakeup_or_affinity", 0.62
+default:                      return "insufficient_signal", 0.50
+}
+```
+
+这个 verdict 会被投影成 `compute_supply` / `low_frequency` 两种 `RootCauseRankItem.Type`(query.go:6893-6895),连同 `cpu_affinity_or_cpuset`(CPU 亲和性/cpuset 限制,query.go:6920)一起,同样走 `onChain := threadInSet(chainThreads, ...)` 过滤后并入统一排序——对锚定目标线程自己(depth=0 天然在 `chainThreads` 里)而言,"算力供给"这个下一跳根因**已经是现成能力**,还带 `CoreClass`(大小核分类)、`Frequency`、`CPUBusyMs`/`CPUIdleMs`、`HighPriorityRunningMs` 等具体判据字段,不是一个模糊标签。
+
+perf_sample 的"更深入分析"同样是真实存在的能力:`perf_stats`/`perf_timeline`/`window_stats.perf_samples` 提供 `top_symbols`/`top_dso`/`top_callchains`/`top_threads`,并带 `symbolization_status`/`sample_kind`/`clock_confidence`/`cpu_known` 等质量元数据(§2.6 之外的另一套独立机制,tool 描述里有大段专门教学),`root_cause_rank` 候选还能挂角色化的 `perf_context`/`perf_contexts`(`target_running`/`same_cpu_competitor`/`compute_supply_cpu` 等)。
+
+**"对照代码"这一步是刻意不自动化的架构选择,而非疏漏**:全仓搜索没有"perf 符号自动解析到当前仓库源码位置"的机制;`internal/skill/defaults.go` 里明确写着 trace_query 的结果"是 runtime-artifact evidence with artifact-local line numbers;do NOT turn trace rows into current-source citations unless separate source evidence proves a current checkout fact"。也就是说,把一个 perf 符号/DSO 变成"当前仓库里第几行代码"必须由 LLM 另外发起一次 `grep`/`read_file` 独立验证,系统不会替它把两者直接拼接——这是防止"trace 里的符号名"和"当前签出代码"因为版本漂移而被误当成同一个事实的既有红线(与 §2.6.3 讨论的"trace 证据 vs 当前源码证据"边界是同一条原则)。这一点判定为**符合架构原则的设计取舍**,不列为缺口,但可以考虑 §4-O3b 的软引导加强,让 LLM 更稳定地记得做这一步。
+
+#### 2.3.3 IO 下一跳:聚类 inode 定位——**满足度最高**
+
+`stats.FileIOByInode`(`FileIOSummary`,按 `dev+inode+operation` 聚类,含 `Count`/`CompletionCount`/`Bytes`/`TotalLatencyMs`/`MaxLatencyMs`/`MinOffset`/`MaxOffset`)和 `stats.BlockIOByInode`(`BlockIOByInodeSummary`,把 inode 活动和最近的 block/storage 延迟拼在一起)都是真正的"按 inode 分组聚合"结果,不是原始事件的罗列。两者都在 `buildRootCauseRankFrom` 里各自独立构造 `file_io_hot_inode`(query.go:6594-6613)、`block_io_by_inode`(query.go:6658-6669)候选,同样走 `onChain := threadInSet(chainThreads, ...)` 过滤,附带具体 `inode=`/`dev=`/`op=`/`count=`/`bytes=`/`name=` 字段而非笼统的"该线程在等 IO"。`page_cache_churn`(query.go:6614-6626)和 `io_pressure`(:6627-6641)补充页缓存和聚合压力两个相邻维度。
+
+这一条是本次 v2 追加的三点里满足度最高的:锚定线程(或已被 sleep 链发现的线程)一旦在 D-state/IO-wait,只要该窗口内有对应的 file_io/block_io 记录,`root_cause_rank` 就会把具体 inode 级候选和通用的 `io_wait`/`d_state_or_io_wait` 候选一起呈现,不需要额外改动。唯一值得注意的边界:这些候选的产生依赖 `stats.FileIOByInode`/`BlockIOByInode` 本身有没有数据(即 trace 是否包含对应的 F2FS/EXT4/block 事件),数据缺失时候选自然为空,这是数据源限制而非机制缺陷。
 
 ### 2.4 typed handoff 全链路(要求 1/2/3 共同的基础设施)
 
@@ -273,11 +343,16 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 现状:`stateDrilldownNeedsWakeupChainForSource`(query.go:3943)只对 `state_churn + StateSSleep` 返回 `false`。
 建议:改成 `if source == "state_churn" { return false }`(所有碎片化聚类状态一律标记非递归),与 `expandChain` 实际只对 Sleep 递归的事实(§2.3)对齐,避免 `Recursive: true` 标签对 LLM 产生误导性期望。这是一处纯粹的一致性修复,风险低。
 
-**O3 —— 评估是否需要让 `expandChain` 支持 Runnable/D-state/IO-wait 的下一跳递归。**
-现状:§2.3 描述的单状态递归限制是本审计发现的最大结构性差距。是否值得投入取决于产品优先级:
-- 对 **Runnable**,下一跳大概率是"同 CPU 上更高优先级的线程"——`window_stats.CPUPressure.TopRunning`/`RunnableTop` 已经有数据,理论上可以复用 `ChainDepth+1` 语义把"抢占者是谁"也纳入统一的因果链结构,而不是让 LLM 自己去 window_stats 里现拼。
-- 对 **D-state/IO-wait**,下一跳可能是完成该 IO 的中断/工作队列/存储层,`critical_blocking_calls` 的 `peer`/`peer_state` 和 `storage_latency_by_layer` 已经有片段化的数据,同样可以考虑纳入同一条 `WakeupPath`/`ChainDepth` 体系。
-这是一项真正的功能增量而非缺陷修复,建议作为独立设计任务评估成本收益,不建议在本轮直接改动。
+**O3(第二高优先级,精确定位到代码行,v2 新增)—— 把已有的优先级比较原语接到 Runnable 的直接候选构造上。**
+现状(§2.3.1):`priorityRelation`/`dependencyPriorityRelation`(query.go:10280-10314)已经是正确的、鸿蒙/东湖与 Android 分流的优先级比较原语,`PriorityInversionCandidate` 标志也已验证可用——但只在 `expandChain` 的 sleep 链节点上被调用。`stats.RunnableTop` 直接构造的 `runnable_wait` 候选(query.go:6696-6706)完全没有调用它,`durationCPUDetail`(query.go:11216)只输出 `cpu=`/`freq=`,不含优先级;同 CPU 竞争者虽然已经能被 `appendRootCauseRunnableCompetitorPerfContexts`(query.go:7015)识别出来,但只附加了竞争者的 perf 采样上下文,没有把它的调度优先级取出来比较。
+建议:在构造 `runnable_wait`(及 `cpu_affinity_or_cpuset`)候选时,对 `appendRootCauseRunnableCompetitorPerfContexts` 已经找到的同 CPU 竞争者调用 `cache.priorityNear` 取其优先级,再用 `dependencyPriorityRelation(q.TraceFlavor, td.Priority, competitor.Priority, 0)` 判定是否 `lower_priority_dependency`,命中则和 sleep 链一样标记 `PriorityInversionCandidate=true`、`type=priority_inversion_runnable_wait`。这是纯粹的"接线"工作,不需要新造算法,风险低、收益直接对应用户提出的诉求。
+
+**O3b(低优先级,软引导型,v2 新增)—— 给 Running/compute_supply 主根因加一条"去对照代码"的软引导。**
+现状(§2.3.2):算力供给判定(`computeSupplyVerdict`)和 perf_sample 分析本身已经足够深入,"perf 符号 → 当前仓库源码"的对照是刻意不自动化的架构选择(避免 trace 证据和当前源码证据被误拼)。
+建议:不改变这条架构边界,只在 `internal/skill/defaults.go` 的 "TRACE QUERY" 教学块里补一句:当 `root_cause_rank` 的主根因(tier=primary)是 `running`/`compute_supply`/`low_frequency` 且带 `perf_context`/`perf_contexts` 时,提醒 LLM 用 `grep`/`read_file` 独立验证 `top_symbols`/`top_dso` 对应的当前源码位置,再引用为 current-source citation。属于纯 prompt 层面的加固,不涉及数据结构改动。
+
+**O3c(信息性,v2 新增)—— IO 下一跳的聚类 inode 定位(§2.3.3)判定为已满足,暂不需要改动。**
+`file_io_hot_inode`/`block_io_by_inode` 已经是真正的按 inode 聚类结果并接入统一排序,本轮审计未发现需要改动的地方;如果未来要加强,方向是扩大 `stats.FileIOByInode`/`BlockIOByInode` 的事件源覆盖(依赖具体 trace 是否采集了对应的文件系统/block 层事件),而不是查询引擎本身的逻辑。
 
 **O4 —— 让 `TraceCausalProjection` 显式携带"用户原始请求窗口"并在渲染时标注裁剪状态。**
 现状:§2.5 指出投影不区分"落在用户原始窗口内"与"下钻过程中扩展查询到的相邻窗口"。
@@ -298,8 +373,12 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 |---|---|---|
 | 状态 Top-N 下钻计划 | `internal/tracequery/query.go` | `buildStateDrilldownPlan`(3802)、`stateDrilldownPriority`(3913)、`stateDrilldownRecommendedViews`(3928) |
 | 碎片化状态聚类 | `internal/tracequery/query.go` | `isFragmentedSleepChurn`(3899)、`stateDrilldownNeedsWakeupChainForSource`(3943) |
-| 递归因果链 | `internal/tracequery/query.go` | `expandChain`(9920)、`q.MaxDepth` 默认值(611-612) |
+| 递归因果链(仅 sleep) | `internal/tracequery/query.go` | `expandChain`(9920)、`q.MaxDepth` 默认值(611-612) |
 | 候选合并/排序/tier | `internal/tracequery/query.go` | `buildRootCauseRankFrom`(6537)、`sortRootCauseRankItems`(7373)、`assignRootCauseRanksAndTiers`(8371)、`rootCauseShouldBeCoPrimary`(8382) |
+| 优先级反转(仅 sleep 链接线,v2) | `internal/tracequery/query.go` | `priorityRelation`(10298)、`dependencyPriorityRelation`(10280)、`PriorityInversionCandidate`(10090)、`causalImpactIsPrioritySensitiveRoot`(10146) |
+| Runnable 直接候选(未接优先级,v2) | `internal/tracequery/query.go` | `runnable_wait` 构造(6696)、`durationCPUDetail`(11216)、`appendRootCauseRunnableCompetitorPerfContexts`(7015) |
+| Running/Runnable 算力供给(v2) | `internal/tracequery/query.go` | `computeSupplySummaries`(3231)、`computeSupplyVerdict`(3300) |
+| IO 聚类 inode(v2) | `internal/tracequery/query.go` | `file_io_hot_inode` 构造(6594)、`block_io_by_inode` 构造(6658) |
 | 语义 span 识别 | `internal/tracequery/query.go` | `traceSpanSemanticWorkClass`(9020)、`rootCauseItemFromSemanticTraceSpan`(7597) |
 | 语义 span 上游截断(口子所在) | `internal/tracequery/query.go` | `computeTraceMarks`(4485,调用处 1349:`max=8`) |
 | 语义 span 独立 typed 通道(今日新增) | `internal/tool/trace_query.go` | `traceQueryTypedSemanticTraceSpanObservations` |
@@ -320,3 +399,5 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 - `abedbc7b` fix: expand trace observation supplements(渲染层截断上限从 8 放宽到 24)
 
 本文档基线为拉取上述提交之后的 `origin/main`(`abedbc7b`)。如果后续继续有提交落地,建议以 `git log --oneline -- internal/tracequery internal/tool/trace_query.go internal/tool/answer_document_mutation_runtime.go internal/types/trace_causal_projection.go` 复核本文档是否过期。
+
+**v2 修订说明**:v2 未拉取新的远程提交,基线仍是 `abedbc7b`,是对同一份代码补充审计 §2.3.1-§2.3.3(Runnable 优先级反转 / Running 算力供给+perf_sample+代码对照 / IO 聚类 inode 三个"下一跳"细项)与对应的 O3/O3b/O3c 建议,并修正 v1 里"Runnable/D-state/IO/Running 一概是终止节点"的过度笼统表述——实际只有 Runnable 的优先级比较是真正缺失的,Running 的算力供给和 IO 的聚类 inode 已经通过独立候选流机制覆盖。
