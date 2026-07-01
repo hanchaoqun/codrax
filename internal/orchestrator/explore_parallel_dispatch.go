@@ -549,6 +549,26 @@ func (o *Orchestrator) parallelExploreAllowsEarlyConvergence() bool {
 		return true
 	}
 	if parallelExploreMustWaitForSiblingHandoffs(rm, &o.busCtx.AnalysisIR.AnswerContract) {
+		if o.runtimeSourceAuthorityAllowsParallelEarlyConvergence() {
+			return true
+		}
+		return false
+	}
+	return true
+}
+
+func (o *Orchestrator) runtimeSourceAuthorityAllowsParallelEarlyConvergence() bool {
+	if o == nil || o.busCtx == nil || o.busCtx.AnalysisIR == nil {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, 128))
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(o.busCtx, ledger)
+	if !authority.Active || !authority.HasRuntimeCarrier() {
+		return false
+	}
+	if authority.KeepsCurrentSourceLaneLoadBearing() ||
+		authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise ||
+		authority.CanHardBlockCompletion {
 		return false
 	}
 	return true

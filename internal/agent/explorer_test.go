@@ -2207,6 +2207,70 @@ func TestExplorerObservationOnlyRuntimeSkipsRepoKeywordSearch(t *testing.T) {
 	}
 }
 
+func TestExplorerTraceQueryRuntimeLedgerStaysOnTracePrompt(t *testing.T) {
+	mut := types.NewMutableState("trace runtime ledger")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace", ArtifactKind: "trace"},
+			Subject:         "com.baidu.tieba-59566",
+			Predicate:       "root_cause_primary",
+			Object:          "binder wakeup chain",
+			Summary:         "trace_query already produced answer-grade runtime observations",
+		}},
+	})
+	mut.SetExploreBudget(&types.ExploreBudget{PerToolCap: map[string]int{
+		"grep":      81,
+		"repo_map":  80,
+		"read_file": 68,
+	}})
+	ctx := &types.AgentContext{
+		AgentName:       types.AgentExplorer,
+		Stage:           types.StageExplore,
+		Objective:       "分析这份 trace 的卡顿根因，不分析代码",
+		AttachedHitrace: "sched_switch: prev_comm=main next_comm=RenderThread\n",
+		Mutable:         mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+				Kind:       "frame_jank",
+				Subject:    "main thread",
+				Summary:    "runtime trace identifies a jank window",
+				LineStart:  1,
+				Confidence: 0.9,
+			}}},
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+				SourceQuotes:                        []string{"结合当前实现说明"},
+				Confidence:                          0.7,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		}},
+	}
+
+	eval := &explorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "Explicit Runtime Trace Path Start") {
+		t.Fatalf("trace runtime ledger should stay on trace prompt:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "## Breadth Scan") ||
+		strings.Contains(prompt, "### Tool Budget Plan") ||
+		strings.Contains(prompt, "Typed Repo Map First Hop") {
+		t.Fatalf("trace runtime ledger prompt leaked source-navigation noise:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "A successful answer-grade `trace_query` result already publishes typed runtime-artifact observations") {
+		t.Fatalf("trace prompt should tell the model to complete from typed trace_query observations:\n%s", prompt)
+	}
+}
+
 func TestBuildInitialInstruction_CapabilityQueryStartsFocusedAuthorityDepth(t *testing.T) {
 	repo := t.TempDir()
 	files := map[string]string{

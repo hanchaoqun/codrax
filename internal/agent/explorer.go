@@ -900,6 +900,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
 	}
 
+	if runtimeTraceSourceOptionalPromptShouldStayOnTraceQuery(ctx) {
+		e.phase = 1
+		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+	}
+
 	if ctx != nil && ctx.ExploreToolSurface.IsSourceInventory() {
 		e.phase = 0
 		return joinExplorerInstructionSections(writeExplorationPrefix, renderExplorerSourceInventoryLensSurfaceInstruction(ctx))
@@ -3530,6 +3535,29 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func runtimeTraceSourceOptionalPromptShouldStayOnTraceQuery(ctx *types.AgentContext) bool {
+	if !explorerHasTraceQueryRuntimeTraceCarrier(ctx) {
+		return false
+	}
+	authority := runtimeSourceAnswerAuthorityForExplorer(ctx)
+	if !authority.Active || !authority.HasRuntimeCarrier() {
+		return false
+	}
+	if authority.KeepsCurrentSourceLaneLoadBearing() ||
+		authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise ||
+		authority.CanHardBlockCompletion {
+		return false
+	}
+	if authority.RuntimeObservationCount > 0 ||
+		authority.DeterministicRuntimeQueryCount > 0 ||
+		explorerTraceQueryRuntimeEvidenceAvailable(ctx) {
+		return true
+	}
+	return runtimeArtifactObservationOnlySurfaceForExplorer(ctx) ||
+		runtimeArtifactSourceOptionalMixedSurfaceForExplorer(ctx) ||
+		externalObservationFirstSourceOptionalForExplorer(ctx)
 }
 
 func (e *explorerEvaluator) buildRuntimeObservationOnlyStartInstruction(ctx *types.AgentContext) string {

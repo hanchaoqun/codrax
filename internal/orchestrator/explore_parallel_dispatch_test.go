@@ -654,6 +654,42 @@ func TestAcceptedClosureAutoCompleteBlocksUntilRuntimeCurrentSourceOriginsPresen
 	}
 }
 
+func TestParallelExploreAllowsEarlyConvergence_RuntimeSourceSoftDoesNotWaitForSourceSibling(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+				Kind:       "frame_jank",
+				Subject:    "main thread",
+				Summary:    "runtime trace identifies a jank window",
+				LineStart:  7,
+				Confidence: 0.9,
+			}}},
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+				SourceQuotes:                        []string{"结合当前实现说明"},
+				Confidence:                          0.75,
+			},
+			SubTopics: []types.SubTopic{
+				{Summary: "runtime jank window"},
+				{Summary: "source mechanism follow-up"},
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		}},
+	}}
+	if !parallelExploreMixedOriginNeedsSiblingHandoffs(o.busCtx.AnalysisIR.RequestModel, &o.busCtx.AnalysisIR.AnswerContract) {
+		t.Fatal("test setup should still compile as mixed runtime/current-source handoff shape")
+	}
+	if !o.runtimeSourceAuthorityAllowsParallelEarlyConvergence() {
+		t.Fatal("soft runtime/source authority should allow runtime branch early convergence")
+	}
+	if !o.parallelExploreAllowsEarlyConvergence() {
+		t.Fatal("soft runtime/source mixed shape should not wait for a source sibling after runtime closure")
+	}
+}
+
 func TestAcceptedClosureAutoCompleteObservationOnlyRuntimeDoesNotBlock(t *testing.T) {
 	mut := types.NewMutableState("runtime artifact only")
 	mut.SetInvestigationComplete("runtime artifact answered locally")

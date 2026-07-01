@@ -489,6 +489,25 @@ func TestFormatAttachedTrace_BlobOffload_UsesDistinctBlobName(t *testing.T) {
 	}
 }
 
+func TestFormatAttachedTrace_BlobOffload_TraceQueryPreferredKeepsReadFileFallbackOnly(t *testing.T) {
+	dir := t.TempDir()
+	const N = 8 * 1024
+	payload := strings.Repeat("sched_switch: prev_comm=main next_comm=RenderThread\n", N/52)
+	got := formatAttachedTrace(payload, dir, attachedTriageStructured, "", attachedTraceRenderOptions{PreferTraceQuery: true})
+	if !strings.Contains(got, "Prefer `trace_query`") {
+		t.Fatalf("trace-query-preferred prompt should lead with trace_query:\n%s", got)
+	}
+	if !strings.Contains(got, AttachedTraceBlobName) {
+		t.Fatalf("trace blob path should remain visible for audit/fallback:\n%s", got)
+	}
+	if strings.Contains(got, "use `read_file` with line_offset+limit") {
+		t.Fatalf("trace-query-preferred prompt must not present read_file as the primary blob access path:\n%s", got)
+	}
+	if !strings.Contains(got, "use `read_file` on this blob only after trace_query reports unsupported/incomplete coverage") {
+		t.Fatalf("trace-query-preferred prompt should retain a bounded read_file fallback:\n%s", got)
+	}
+}
+
 func TestFormatAttachedTrace_InlineSmallHasArtifactLineGutters(t *testing.T) {
 	payload := "sched_switch: prev_comm=main next_comm=RenderThread\ntracing_mark_write: B|1|H:GC\n"
 	got := formatAttachedTrace(payload, "", attachedTriageStructured, "")

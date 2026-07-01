@@ -762,7 +762,9 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// timestamps, event ids) that bait the LLM into spurious
 	// caller-provenance claims.
 	if !shouldSuppressAttachedRuntimeTrace(ac) {
-		if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir, attachedTraceTriageState(ac), preStageDegradationSummaryFor(ac, types.StagePerfTriage)); section != "" {
+		if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir, attachedTraceTriageState(ac), preStageDegradationSummaryFor(ac, types.StagePerfTriage), attachedTraceRenderOptions{
+			PreferTraceQuery: attachedTraceQueryPreferredForAgentContext(ac),
+		}); section != "" {
 			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				// Title order matches the user-facing CLI flag order:
@@ -3062,6 +3064,10 @@ const (
 	attachedLogTailCap   = 1 * 1024 // tail preview when blobbed
 )
 
+type attachedTraceRenderOptions struct {
+	PreferTraceQuery bool
+}
+
 type attachedRuntimeTriageState int
 
 const (
@@ -3090,6 +3096,27 @@ func attachedTraceTriageState(ac *types.AgentContext) attachedRuntimeTriageState
 	return attachedTriageUnavailable
 }
 
+func attachedTraceQueryPreferredForAgentContext(ac *types.AgentContext) bool {
+	if ac == nil || ac.AgentName == types.AgentPerfTriager || strings.TrimSpace(ac.AttachedHitrace) == "" {
+		return false
+	}
+	if ac.Stage != types.StageExplore && ac.Stage != types.StageExtract && ac.Stage != types.StageFinalize {
+		return false
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ac, types.ObservationLedger{})
+	if authority.Active && authority.KeepsCurrentSourceLaneLoadBearing() {
+		return false
+	}
+	if ac.AnalysisIR == nil {
+		return true
+	}
+	rm := &ac.AnalysisIR.RequestModel
+	if types.RuntimeSourceRequestCurrentSourceRequirementPrecision(rm, ac.TurnRouteHint) == types.RuntimeSourceRequirementPrecise {
+		return false
+	}
+	return true
+}
+
 func attachedLogPreamble(state attachedRuntimeTriageState) string {
 	lineNote := "Every line in the fenced block carries an artifact-local gutter `N│`; " +
 		"use that N only as the attached-log line number, not as a repository source citation. " +
@@ -3110,12 +3137,19 @@ func attachedLogPreamble(state attachedRuntimeTriageState) string {
 	}
 }
 
-func attachedTracePreamble(state attachedRuntimeTriageState) string {
+func attachedTracePreamble(state attachedRuntimeTriageState, options ...attachedTraceRenderOptions) string {
+	var opts attachedTraceRenderOptions
+	if len(options) > 0 {
+		opts = options[0]
+	}
 	lineNote := "Every line in the fenced block carries an artifact-local gutter `N│`; " +
 		"use that N only as the attached-trace line number / event row, not as a repository source citation. " +
 		"Trace timestamps, span names, and source-frame tokens remain the literal text after the gutter. " +
 		"For perf_sample rows, fields such as `period`, `sample_period`, `event_count`, `sample_weight`, or `period_weight` are event/sample weights, not elapsed time; do not render them as ms/us/ns unless an explicit duration field says so. " +
 		"When a perf_sample row has `cpu=-1`, `cpu_known=false`, or `sample_kind=off_cpu`, its sample CPU/core is unavailable or off-CPU; any ftrace `[NNN]` or nearby sched_switch CPU is the scheduler event row CPU, not the perf sample CPU location.\n\n"
+	if opts.PreferTraceQuery {
+		lineNote += "This stage has a typed runtime-trace carrier. Prefer `trace_query` for scheduler state, wakeup chains, root-cause ranking, resource pressure, and artifact-local line/time anchors; use raw `read_file` on the trace blob only if trace_query reports unsupported/incomplete coverage or the user specifically needs a verbatim raw excerpt.\n\n"
+	}
 	switch state {
 	case attachedTriageProducer:
 		return "The user attached the performance trace below alongside their question. " +
@@ -3410,12 +3444,16 @@ func formatAttachedLog(raw, workDir string, state attachedRuntimeTriageState, de
 // channel. This avoids prompt leakage from the runtime-log wording
 // and prevents blob-path collisions when a run carries both
 // attachments.
-func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState, degradedSummary string) string {
+func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState, degradedSummary string, options ...attachedTraceRenderOptions) string {
 	if strings.TrimSpace(raw) == "" {
 		return ""
 	}
+	var opts attachedTraceRenderOptions
+	if len(options) > 0 {
+		opts = options[0]
+	}
 	raw = normalizeAttachedArtifactText(raw)
-	preamble := attachedTracePreamble(state)
+	preamble := attachedTracePreamble(state, opts)
 	preamble += attachedTraceBundlePromptHint(raw)
 	if state == attachedTriageUnavailable {
 		preamble += degradedTriageNote(degradedSummary)
@@ -3438,6 +3476,14 @@ func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState, 
 	preview := buildAttachedArtifactPreview(raw)
 
 	if blobPath != "" {
+		if opts.PreferTraceQuery {
+			return preamble +
+				fmt.Sprintf("Total trace size: %d bytes. Preview below shows head + tail with artifact-local line gutters; "+
+					"the middle (%d B) is elided. The complete trace is saved to `%s` for `trace_query` and fallback/verbatim raw excerpts. "+
+					"Prefer `trace_query` with bounded time/line/window parameters for evidence; use `read_file` on this blob only after trace_query reports unsupported/incomplete coverage or when a verbatim raw excerpt is required. line_offset is a zero-based line coordinate, not a byte offset.\n\n",
+					len(raw), preview.elidedBytes, blobPath) +
+				renderAttachedArtifactPreviewBlock(preview, blobPath)
+		}
 		return preamble +
 			fmt.Sprintf("Total trace size: %d bytes. Preview below shows head + tail with artifact-local line gutters; "+
 				"the middle (%d B) is elided. The complete trace is saved to `%s` — "+
