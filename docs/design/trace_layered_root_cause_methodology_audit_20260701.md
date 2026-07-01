@@ -813,3 +813,42 @@ flowchart LR
   - `TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePresentation`
   - `TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEnglish`
   - `TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity`
+
+### 7.13 展示层 gap:多视图已落地但主读面仍可被长文本拖宽(2026-07-02)
+
+用户继续反馈:当前 `Trace 因果投影` 已经拆成多视图,但实际阅读仍可能出现三类问题:
+
+1. 根因总览的"用户要关注什么"仍可能是较长解释句,与表格本身争夺宽度;总览行数也可能过多,第一屏不像"先看这里"。
+2. `runtime_trace_causal_projection_evidence` 用表格承载完整 artifact path / support ref / audit fields,在终端和 HTML 里都可能把表撑宽;主读表虽然只显示 `E#`,但审计表仍会成为视觉噪音。
+3. 文件内仍残留旧的单大表/ordered-list helper,当前没有生产调用,但会增加维护噪音和未来误接回旧表法的风险。
+
+**原则。**
+
+- 主读面只回答"先看哪个根因/为什么要处理",必须短、稳定、适合第一屏扫描。
+- 链路关系、影响时长、背景支撑继续保持独立视图;不把审计字段塞回主表。
+- 完整证据定位必须保留,但用审计列表承载,不再用宽表撑开页面。
+- 所有逻辑仍只消费 `TraceCausalProjection` typed nodes、`SupportRefs`、typed timing fields、typed role/relevance/causality;不得解析用户原文、模型散文、rendered summary、localized UI 或 eval label。
+
+**任务分解。**
+
+- **Batch 1: 文档与任务冻结。**
+  - 本节记录 gap、原则、任务列表、测试看护,避免后续又把旧单表逻辑接回。
+
+- **Batch 2: 根因总览瘦身。**
+  - `runtime_trace_causal_projection` 只保留最重要的代表节点,默认总览上限收敛到 8 行左右。
+  - "用户要关注什么"改为短 action label,例如 `等待症状→查上游`、`执行/算力`、`调度/优先级`、`阻塞/IO`、`确定性优化点`。
+  - 完整解释仍在 on-chain/impact/background/evidence 视图中保留,不丢 typed 信息。
+
+- **Batch 3: 证据索引从宽表改成审计列表。**
+  - `runtime_trace_causal_projection_evidence` 从 `BlockTable` 改为 `BlockBulletList`:每条 `E#` 一行,自然换行显示 `节点 / 定位 / 审计字段`。
+  - 主表、on-chain 表、impact 表、background 表只显示 `E#` 短 ref;完整 artifact path 只出现在审计列表文本里。
+
+- **Batch 4: 退役旧展示 helper。**
+  - 删除当前未调用的旧单大表/ordered-list helper(`runtimeTraceCausalProjectionTableModel`、`runtimeTraceCausalProjectionItems` 及仅由它们使用的子函数)。
+  - 保留仍被新多视图路径消费的 compact/node/key/semantic/window helper。
+
+- **Batch 5: 测试看护。**
+  - 覆盖根因总览行数有上限,且 action label 不出现长解释句。
+  - 覆盖 evidence index 是 bullet/list 而不是 table,完整 ref 只在索引 block 出现。
+  - 覆盖旧 helper 不再有生产调用入口,避免回归到单大表/ordered-list。
+  - 保持 ZH/EN projection、sleep drilldown、semantic span、coverage boundary 既有测试通过。
