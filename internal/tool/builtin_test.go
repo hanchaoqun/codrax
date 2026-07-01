@@ -1159,7 +1159,10 @@ func TestExecCommandRefinementSourceInventoryProfilePrefersRepoMap(t *testing.T)
 	if hint.PreferredNextTool != "repo_map" || hint.PreferredParams["view"] != "source_inventory" {
 		t.Fatalf("preferred route = %+v", hint)
 	}
-	if !sameStringSet(hint.RequiredFields, []string{"scope", "roles"}) {
+	if got := hint.PreferredParams["roles"]; got != "type" {
+		t.Fatalf("roles should come from typed source-inventory profile, got %+v", hint.PreferredParams)
+	}
+	if !sameStringSet(hint.RequiredFields, []string{"scope"}) {
 		t.Fatalf("required fields = %+v", hint.RequiredFields)
 	}
 }
@@ -1177,6 +1180,63 @@ func TestExecCommandRefinementBroadContentPrefersGrepScope(t *testing.T) {
 	}
 	if !sameStringSet(hint.RequiredFields, []string{"path", "pattern"}) {
 		t.Fatalf("required fields = %+v", hint.RequiredFields)
+	}
+}
+
+func TestExecCommandRefinementBroadContentPromotesTypedRepoMapNavigation(t *testing.T) {
+	ctx := newBusContext()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioArchitectureExplain,
+			AnalyzerHints: types.AnalyzerHints{
+				Keywords: []string{"AgentName", "SubAgentRuntime"},
+			},
+		},
+	}
+	hint := execCommandRefinement(ctx, `grep -R SubAgentRuntime . | head -200`, "", MaxInlineBytes+1)
+	if hint == nil {
+		t.Fatal("expected broad shell grep refinement")
+	}
+	if hint.PreferredNextTool != "repo_map" {
+		t.Fatalf("preferred tool = %q; refinement=%+v", hint.PreferredNextTool, hint)
+	}
+	if got := hint.PreferredParams["view"]; got != "task_map" {
+		t.Fatalf("repo_map view = %q; refinement=%+v", got, hint)
+	}
+	if got := hint.PreferredParams["query"]; got != "AgentName SubAgentRuntime" {
+		t.Fatalf("repo_map query = %q; refinement=%+v", got, hint)
+	}
+	for _, bad := range []string{"context_lines", "files_only", "pattern"} {
+		if _, ok := hint.PreferredParams[bad]; ok {
+			t.Fatalf("repo_map refinement must not carry shell-grep param %q: %+v", bad, hint.PreferredParams)
+		}
+	}
+}
+
+func TestExecCommandRefinementTraceArtifactPromotesTraceQuery(t *testing.T) {
+	hint := execCommandRefinement(nil, `grep -n "sched_switch" record_trace.systrace | head -200`, "", MaxInlineBytes+1)
+	if hint == nil {
+		t.Fatal("expected trace shell grep refinement")
+	}
+	if hint.PreferredNextTool != "trace_query" {
+		t.Fatalf("preferred tool = %q; refinement=%+v", hint.PreferredNextTool, hint)
+	}
+	if got := hint.PreferredParams["view"]; got != "event_search" {
+		t.Fatalf("trace_query view = %q; refinement=%+v", got, hint)
+	}
+	if got := hint.PreferredParams["path"]; got != "record_trace.systrace" {
+		t.Fatalf("trace_query path = %q; refinement=%+v", got, hint)
+	}
+	if !sameStringSet(hint.RequiredFields, []string{"path", "view"}) {
+		t.Fatalf("required fields = %+v", hint.RequiredFields)
+	}
+
+	logHint := execCommandRefinement(nil, `grep -n "ERROR" app.log | head -200`, "", MaxInlineBytes+1)
+	if logHint == nil {
+		t.Fatal("expected log shell grep refinement")
+	}
+	if logHint.PreferredNextTool != "grep" {
+		t.Fatalf("plain log should keep grep recovery, got %+v", logHint)
 	}
 }
 

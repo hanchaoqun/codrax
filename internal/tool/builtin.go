@@ -700,15 +700,27 @@ func execCommandRefinement(ctx *types.BusContext, command, outcomeReason string,
 			"context_lines": "3",
 			"files_only":    "false",
 		}
-		if execCommandTargetsRuntimeTextArtifact(command) {
+		if execCommandTargetsTraceQueryArtifact(command) {
+			hint.PreferredNextTool = "trace_query"
+			hint.PreferredParams = map[string]string{"view": "event_search"}
+			if path := execCommandUniqueTraceQueryArtifactPath(command); path != "" {
+				hint.PreferredParams["path"] = path
+			}
+			hint.RequiredFields = []string{"path", "view"}
+		} else if execCommandTargetsRuntimeTextArtifact(command) {
 			hint.PreferredParams["context_lines"] = "0"
+			hint.RequiredFields = []string{"path", "pattern"}
+		} else {
+			hint.RequiredFields = []string{"path", "pattern"}
 		}
-		hint.RequiredFields = []string{"path", "pattern"}
 	default:
 		hint.PreferredNextTool = "exec_command"
 		hint.RequiredFields = []string{"command"}
 	}
 	out := types.NormalizeToolRefinementHint(hint)
+	if out.PreferredNextTool != "trace_query" && !execCommandTargetsRuntimeTextArtifact(command) {
+		out = promoteSourceToolRefinementToRepoMap(ctx, out)
+	}
 	if out.Empty() {
 		return nil
 	}
@@ -1095,6 +1107,51 @@ func execCommandTargetsTraceQueryArtifact(command string) bool {
 	lower := strings.ToLower(command)
 	for _, suffix := range []string{".systrace", ".htrace", ".atrace", ".ftrace", ".perfetto", ".perftrace", ".tracebundle.json", ".trace", ".perf.data"} {
 		if strings.Contains(lower, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func execCommandUniqueTraceQueryArtifactPath(command string) string {
+	var out string
+	for _, segment := range shellCommandSegments(command) {
+		for _, token := range shellWordsForOrigin(segment) {
+			for _, candidate := range execCommandRuntimeArtifactPathCandidates(token) {
+				if candidate == "" {
+					continue
+				}
+				if !execCommandPathLooksTraceQueryArtifact(candidate) {
+					continue
+				}
+				cleaned := strings.Trim(candidate, " \t\r\n\"'`,;")
+				if cleaned == "" {
+					continue
+				}
+				if out == "" {
+					out = cleaned
+					continue
+				}
+				if out != cleaned {
+					return ""
+				}
+			}
+		}
+	}
+	return out
+}
+
+func execCommandPathLooksTraceQueryArtifact(rawPath string) bool {
+	pathValue := strings.TrimSpace(strings.Trim(rawPath, " \t\r\n\"'`,;"))
+	if pathValue == "" {
+		return false
+	}
+	if execCommandPathContentLooksRuntimeArtifact(pathValue) {
+		return true
+	}
+	lower := strings.ToLower(pathValue)
+	for _, suffix := range []string{".systrace", ".htrace", ".atrace", ".ftrace", ".perfetto", ".perftrace", ".tracebundle.json", ".trace", ".perf.data"} {
+		if strings.HasSuffix(lower, suffix) {
 			return true
 		}
 	}
