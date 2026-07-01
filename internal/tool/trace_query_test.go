@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"os"
@@ -12,6 +13,48 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// TestTraceQueryBuildIndexRelationScopeIsLazyFallback pins that pid-relation
+// pruning is a FALLBACK, not the default: a pid-scoped wakeup_chain whose window
+// fits under the event cap builds the FULL (unpruned) index — unrelated noise
+// events are retained — so the common large-trace case never pays the pruning
+// risk. Pruning only kicks in when even the raised cap overflows.
+func TestTraceQueryBuildIndexRelationScopeIsLazyFallback(t *testing.T) {
+	oldMin := traceQueryWindowedIndexMinBytes
+	traceQueryWindowedIndexMinBytes = 1 // force the windowed path on a tiny file
+	t.Cleanup(func() { traceQueryWindowedIndexMinBytes = oldMin })
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "relscope_lazy.systrace")
+	body := strings.Join([]string{
+		`        app-20   (   20) [001] .... 1.100000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`      noise-99   (   99) [003] .... 1.110000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=noise next_pid=99 next_prio=120`,
+		`        app-20   (   20) [001] .... 1.200000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := traceQueryParams{
+		View:      "wakeup_chain",
+		PID:       20,
+		TimeStart: traceSecondFromAutoWindow(1.09),
+		TimeEnd:   traceSecondFromAutoWindow(1.24),
+	}
+	idx, err := traceQueryBuildIndex(context.Background(), path, p, 1.09, 1.24)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	sawNoise := false
+	for _, ev := range idx.Events {
+		if ev.PrevPID == 99 || ev.NextPID == 99 {
+			sawNoise = true
+		}
+	}
+	if !sawNoise {
+		t.Fatalf("a fitting pid-scoped wakeup_chain must build the FULL index (noise pid 99 retained), not eagerly prune: %+v", idx.Events)
+	}
+}
 
 // TestTraceQueryWindowedIndexOptionsScopedRaise pins the Gap 3 Step-1
 // byte-budgeted event-cap raise: a single deliberate pid/thread-scoped heavy

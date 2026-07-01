@@ -118,6 +118,14 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
 - **测试**:`TestRelationScopedIndexMatchesFullForCausalChains`(**golden 对拍**:wakeup_chain + thread_timeline 全量 vs 裁剪 `reflect.DeepEqual` 相等,裁剪事件数更少、噪音线程被删、binder 全留、元数据一致)、`TestRelationScopedIndexExpandsProcessTGID`(pid=进程展开兄弟线程)、`TestRelationScopedCacheKeyIsolation`(scope key 隔离、非 scoped key 不变)、`TestTraceQueryRelationScopedOnlyForCausalChainViews`(**反向保护**:window-stats 家族绝不置 RelationScoped)。全量 `go test ./...` 绿。
 - **未覆盖(可后续)**:thread-only 关系裁剪需 thread→pid 解析;若将来要让 `root_cause_rank` 也在超密窗口跑,需的是**流式分片聚合**(方案 2/3)而非裁剪,属独立设计。
 
+### Step 1/2 稳定性收敛(2026-07-01,回归修复)
+
+用户反馈"最新版本模型不用 trace_query、一直用 grep 分析 trace"。诊断:grep 是 skill 里 trace_query **失败后的既定兜底**,故根因是 trace_query 在真实 trace 上**报错/返回空 → 模型放弃**。两个 Gap 3 改动过激,各修一处:
+
+- **Step 2 关系裁剪改为"懒兜底"**:原实现对**每个** ≥64MiB 的 pid-scoped `thread_timeline`/`wakeup_chain` **都**裁剪,即便全量索引本可放下——真实 trace 的边角情况(合成 fixture 未覆盖)可能让裁剪索引返回空/断裂的唤醒链。改为**先建全量(byte-budgeted)索引,仅当它撞 `IndexEventLimitError` 才回退到关系裁剪**(`traceQueryBuildIndex` 用 `errors.As` 判定)。这正是验证设计"先提上限,不够再裁"的本意。测试 `TestTraceQueryBuildIndexRelationScopeIsLazyFallback`(能放下的查询保留噪音=未裁)。
+- **Step 1 字节预算从 1 GiB 降到 512 MiB**:`Event` 结构体 ~1.7KiB,1 GiB→~524K 事件、append 增长期峰值可 >1GiB,在客户受限/大仓机器(有 OOM 前科)会**OOM 崩掉 trace_query → 模型转 grep**。降到 512 MiB(~262K,基本等于已知安全的旧 250K/434MB 上限);真正的密窗头部空间靠 Step 2 懒裁剪兜底,而非无限放大未裁索引。
+- Step 1 的**接线(pid/thread 传入 BuildOptions)**与**`IndexEventLimitError` 提示修复(不要丢固化 pid)**无内存影响,保留。
+
 ## HEAD 复核摘要(2026-07-01, `origin/main@a6d9fabdd`)
 
 本次同步最新 `main` 后重新对照代码复核,最新 10 个提交已经把本文档的大部分高危项从"记录"推进到"承重":
@@ -150,3 +158,10 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
 3. **P2: thread-only relation-scoped pruning 未覆盖**。
    - 现状:Step 2 要求 `ScopePID > 0`;用户只给线程名时仍走 Step 1 全量窗口索引。文档和代码已明确不裁剪,这是安全保守实现,不是回归。
    - 任务拆解:新增轻量 thread→pid resolution prepass,只有解析到唯一线程 pid/tgid 时才开启 relation scope;多候选时返回候选和 caveat,不硬选。
+### Step 1/2 稳定性收敛(2026-07-01,回归修复)
+
+用户反馈"最新版本模型不用 trace_query、一直用 grep 分析 trace"。诊断:grep 是 skill 里 trace_query **失败后的既定兜底**,故根因是 trace_query 在真实 trace 上**报错/返回空 → 模型放弃**。两个 Gap 3 改动过激,各修一处:
+
+- **Step 2 关系裁剪改为"懒兜底"**:原实现对**每个** ≥64MiB 的 pid-scoped `thread_timeline`/`wakeup_chain` **都**裁剪,即便全量索引本可放下——真实 trace 的边角情况(合成 fixture 未覆盖)可能让裁剪索引返回空/断裂的唤醒链。改为**先建全量(byte-budgeted)索引,仅当它撞 `IndexEventLimitError` 才回退到关系裁剪**(`traceQueryBuildIndex` 用 `errors.As` 判定)。这正是验证设计"先提上限,不够再裁"的本意。测试 `TestTraceQueryBuildIndexRelationScopeIsLazyFallback`(能放下的查询保留噪音=未裁)。
+- **Step 1 字节预算从 1 GiB 降到 512 MiB**:`Event` 结构体 ~1.7KiB,1 GiB→~524K 事件、append 增长期峰值可 >1GiB,在客户受限/大仓机器(有 OOM 前科)会**OOM 崩掉 trace_query → 模型转 grep**。降到 512 MiB(~262K,基本等于已知安全的旧 250K/434MB 上限);真正的密窗头部空间靠 Step 2 懒裁剪兜底,而非无限放大未裁索引。
+- Step 1 的**接线(pid/thread 传入 BuildOptions)**与**`IndexEventLimitError` 提示修复(不要丢固化 pid)**无内存影响,保留。

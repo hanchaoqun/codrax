@@ -53,15 +53,17 @@ type traceQueryParams struct {
 }
 
 // traceQueryScopedIndexMaxBytes is the in-memory byte budget for a single,
-// deliberate pid/thread-scoped heavy-view index. A pinned pid+window query
-// (e.g. root_cause_rank on one frame's thread) is issued one view at a time —
-// unlike 16-way-parallel grep — so it can afford more headroom than the shared
-// default event cap without OOM risk. The effective event ceiling is
-// budget / traceIndexEventSizeEstimateBytes (~524K events at 1 GiB), roughly
-// 2x the default 250K, letting a dense GB-trace window's heavy views run
-// instead of failing outright with IndexEventLimitError. Unscoped / non-heavy
-// calls keep the default cap. Tunable in tests.
-var traceQueryScopedIndexMaxBytes int64 = 1 << 30
+// deliberate pid/thread-scoped heavy-view index. The effective event ceiling is
+// budget / traceIndexEventSizeEstimateBytes. Kept DELIBERATELY conservative
+// (512 MiB → ~262K events, barely above the shared 250K default ≈ 434 MB that is
+// known-safe on constrained/large-trace customer machines): the Event struct is
+// ~1.7 KiB, so a bigger budget can momentarily hold >1 GiB during append growth
+// and OOM/crash trace_query — which then makes the model abandon trace_query and
+// fall back to grep. Real headroom for genuinely too-dense windows comes from
+// the (lazy) relation-scope pruning fallback in traceQueryBuildIndex, not from
+// an ever-larger unpruned index. Unscoped / non-heavy calls keep the default
+// cap. Tunable in tests.
+var traceQueryScopedIndexMaxBytes int64 = 512 << 20
 
 // traceIndexEventSizeEstimateBytes conservatively approximates the retained
 // cost of one parsed tracequery.Event (the flat struct is ~1.7 KiB; the extra
@@ -1079,7 +1081,25 @@ func traceQueryBuildIndex(ctx context.Context, path string, p traceQueryParams, 
 	if info.Size() < traceQueryWindowedIndexMinBytes || !traceQueryHasExplicitIndexWindow(p) {
 		return tracequery.BuildIndex(ctx, path)
 	}
-	return tracequery.BuildIndexWithOptions(ctx, path, traceQueryWindowedIndexOptions(p, timeStart, timeEnd))
+	opts := traceQueryWindowedIndexOptions(p, timeStart, timeEnd)
+	// Relation-scope pruning is a FALLBACK, not the default (verified design:
+	// "first raise the cap; only prune if that is not enough"). Always try the
+	// full, unpruned byte-budgeted window first — it is correct for every view
+	// and carries zero pruning risk. Only when even the raised cap overflows
+	// (IndexEventLimitError) on a relation-scopeable causal-chain view do we
+	// retry with pid-relation pruning. This keeps the common large-trace case on
+	// the safe path and reserves pruning for genuinely too-dense windows.
+	wantRelationScoped := opts.RelationScoped
+	opts.RelationScoped = false
+	idx, buildErr := tracequery.BuildIndexWithOptions(ctx, path, opts)
+	if buildErr != nil && wantRelationScoped {
+		var limitErr *tracequery.IndexEventLimitError
+		if errors.As(buildErr, &limitErr) {
+			opts.RelationScoped = true
+			return tracequery.BuildIndexWithOptions(ctx, path, opts)
+		}
+	}
+	return idx, buildErr
 }
 
 // traceQueryWindowedIndexOptions builds the windowed BuildOptions for a
