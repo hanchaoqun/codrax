@@ -263,6 +263,49 @@ func TestTraceQueryIndexLimitResultIsRecoverableScopeHint(t *testing.T) {
 	}
 }
 
+func TestTraceQueryIndexLimitResultCoversFrameRootCauseBundle(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "dense-frame.ftrace")
+	trace := strings.Join([]string{
+		`      app-20  (   20) [001] .... 2.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`      app-20  (   20) [001] .... 2.010000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`    waker-10  (   10) [000] .... 2.095000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`      app-20  (   20) [001] .... 2.100000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	p := traceQueryParams{
+		View:      "frame_root_cause_bundle",
+		PID:       20,
+		TimeStart: traceSecondFromAutoWindow(2.0),
+		TimeEnd:   traceSecondFromAutoWindow(2.2),
+	}
+	res, ok := (&TraceQuery{}).traceQueryIndexLimitResult(ctx, p, tracePath, "path", &tracequery.IndexEventLimitError{
+		Path:           tracePath,
+		MaxEvents:      3,
+		Events:         3,
+		Line:           10,
+		ScannedLines:   10,
+		Windowed:       true,
+		IndexTimeStart: 2.0,
+		IndexTimeEnd:   2.2,
+	})
+	if !ok || !res.Success {
+		t.Fatalf("frame_root_cause_bundle event limit should degrade to recoverable state coverage, ok=%v result=%+v", ok, res)
+	}
+	if !strings.Contains(res.Summary, "original_view=frame_root_cause_bundle") ||
+		!strings.Contains(res.Summary, "mode=stream_state_cluster") ||
+		!strings.Contains(res.Summary, "state_first_hint") {
+		t.Fatalf("frame bundle limit fallback missing state-first recovery summary:\n%s", res.Summary)
+	}
+	if res.Refinement == nil || res.Refinement.PreferredParams["parent_coverage"] != "stream_state_cluster" {
+		t.Fatalf("frame bundle fallback should carry parent coverage refinement, got %+v", res.Refinement)
+	}
+}
+
 func TestTraceQueryLargeEventSearchWithWindowStreams(t *testing.T) {
 	oldMin := traceQueryWindowedIndexMinBytes
 	traceQueryWindowedIndexMinBytes = 1

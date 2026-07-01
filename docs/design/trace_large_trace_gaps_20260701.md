@@ -153,14 +153,18 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
      - `TestBuildAgentContext_RuntimeArtifactPreflightMirrored`
      - `TestBusContextProjection_AllTypedSignalsPropagated_*`
 
-2. **P1: 超密窗口的 `root_cause_rank` / `frame_root_cause_bundle` 仍需要流式分片聚合**。
-   - 现状:relation-scoped pruning 被正确限制在 `thread_timeline`/`wakeup_chain`;`root_cause_rank` / `frame_root_cause_bundle` / `window_stats` 仍依赖全窗口未裁剪索引,这是为了保持全窗口资源/CPU/IO/trace_mark 完整性,方向正确。但 GB 级 trace 的极高密度窗口仍可能超过 1GiB 字节预算。
-   - 原则:不要把 relation pruning 强行推广到全窗口聚合视图,否则会静默丢同 CPU 竞争者、全局 IO/clock/power、全 pid trace_mark。正确方向是 deterministic stream/shard aggregator。
-   - 任务拆解:
-     1. 设计 `TraceShardAggregator` 接口,按时间/行窗口分片运行现有 window_stats/root_cause_rank 子计算。
-     2. 定义可合并字段:state totals、resource summaries、top-N candidates、occurrence windows、semantic spans、perf quality caveats;不可合并字段必须显式 caveat。
-     3. 工具层在 `IndexEventLimitError` + scoped heavy view 时自动给出 typed next action 或直接走 shard mode,避免让模型手动缩到 <50ms 微窗口。
-     4. 补 golden:同一中等 trace 全量结果 vs shard 聚合结果近似/集合等价;超密 synthetic trace 不 OOM 且保留 root_cause_rank primary candidates。
+2. **P1: 超密窗口的 `root_cause_rank` / `frame_root_cause_bundle` 安全降级 —— 已交付;完整 shard 聚合降为增强项**。
+   - 现状:relation-scoped pruning 仍正确限制在 `thread_timeline`/`wakeup_chain`;`root_cause_rank` / `frame_root_cause_bundle` / `window_stats` 继续保持全窗口语义,避免静默丢同 CPU 竞争者、全局 IO/clock/power、全 pid trace_mark。对于 GB 级 trace 的极高密度窗口,工具层已经在 `IndexEventLimitError` 时自动返回可成功消费的 `stream_state_cluster` typed result,而不是失败/让模型盲目缩到 <50ms。
+   - 已落地承重点:
+     1. `traceQueryIndexLimitResult()` 把 OOM guard 命中转成成功 ToolResult,summary 明确 `mode=index_event_limit`、`state_first_hint`、`parent_window_strategy`、`sub_50ms_local_only`。
+     2. 同一路径调用 `tracequery.StreamStateCluster()`,在不 materialize 全量 Event index 的情况下产出 parent-window `WindowStats`、TopRunning/Runnable/Sleep/D/IO、`StateDrilldownPlan` 和 typed observations,并标注 `coverage_mode=state_cluster`。
+     3. 普通 `Execute()` 与 bounded/recipe 分支都消费同一 `traceQueryIndexLimitResult()`,因此 `root_cause_rank`、`frame_root_cause_bundle` 等重型视图都会统一降级,不会让模型把 OOM 当格式不支持或随机微窗口充分证据。
+   - 测试:
+     - `TestTraceQueryIndexLimitResultIsRecoverableScopeHint`
+     - `TestTraceQueryIndexLimitResultCoversFrameRootCauseBundle`
+     - `TestStreamStateClusterPreservesDominantLongSleepWithoutFullIndex`
+     - `TestStreamStateClusterPreservesParentWindowStatePriorities`
+   - 后续增强(非当前阻断):完整 `TraceShardAggregator` 仍可排队,用于把多个 80-150ms shard 的 root_cause_rank/window_stats 近似合并为 parent-window 排名;合并字段、不可合并 caveat、golden 等按原任务拆解保留,但当前事故级 OOM/微窗口循环已有 typed state-first 安全降级兜底。
 
 3. **P2: thread-only relation-scoped pruning —— 已交付(2026-07-01)**。
    - 现状:Step 2 已支持只传 `thread` 的 `thread_timeline`/`wakeup_chain` 进入 lazy relation-scope fallback。工具层只传 typed `thread` 参数;真正的裁剪权威在 `tracequery` parser 内部,只消费 window gate 内结构化 `comm/pid/tgid/prev/next/wakee` 事件,不从 raw objective 或模型散文推断。
