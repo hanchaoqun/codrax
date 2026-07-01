@@ -691,6 +691,12 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 		t.Fatalf("projection must stay in external-observation lane: %+v", projection.ClaimUses)
 	}
 	assertProjectionRowsCitationFree(t, projection)
+	if len(projection.Items) > 8 {
+		t.Fatalf("lead overview should stay compact, got %d rows: %+v", len(projection.Items), projection.Items)
+	}
+	if len(projection.Columns) < 6 || projection.Columns[5] != "关注点" {
+		t.Fatalf("lead overview should use compact focus column: %+v", projection.Columns)
+	}
 
 	text := projectionClusterText(got.Blocks)
 	for _, blockID := range []string{
@@ -706,6 +712,11 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	for _, want := range []string{"threadpool-400 → io_wait", "累计 11.000ms", "On-chain 链路拆解", "影响时长拆解"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("projection should surface multi-view root cause fact %q:\n%s", want, text)
+		}
+	}
+	for _, want := range []string{"阻塞/IO", "执行/算力", "确定性优化点"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("projection should use compact action labels %q:\n%s", want, text)
 		}
 	}
 	// Co-primary layer preserved.
@@ -901,6 +912,10 @@ func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePre
 	text := projectionClusterText(got.Blocks)
 	if !strings.Contains(projection.Text, "没有产出可承重的 off-chain/background 行") {
 		t.Fatalf("projection intro should explain missing background statistics:\n%s", projection.Text)
+	}
+	evidenceIndex := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_evidence")
+	if evidenceIndex == nil || evidenceIndex.Kind != types.BlockBulletList || len(evidenceIndex.Columns) != 0 {
+		t.Fatalf("evidence index should render as a bullet list: %+v", evidenceIndex)
 	}
 	full := longSubject + " -> " + longObject
 	if !strings.Contains(text, full) || !strings.Contains(text, longRef) {
@@ -1339,6 +1354,14 @@ func projectionClusterText(blocks []types.AnswerBlock) string {
 		b.WriteString(blk.Text)
 		b.WriteByte('\n')
 		for _, it := range blk.Items {
+			if it.Label != "" {
+				b.WriteString(it.Label)
+				b.WriteString(": ")
+			}
+			if it.Text != "" {
+				b.WriteString(it.Text)
+				b.WriteByte('\n')
+			}
 			b.WriteString(strings.Join(it.Cells, " | "))
 			b.WriteByte('\n')
 		}

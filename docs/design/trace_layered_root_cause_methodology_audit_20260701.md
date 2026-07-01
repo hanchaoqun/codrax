@@ -852,3 +852,11 @@ flowchart LR
   - 覆盖 evidence index 是 bullet/list 而不是 table,完整 ref 只在索引 block 出现。
   - 覆盖旧 helper 不再有生产调用入口,避免回归到单大表/ordered-list。
   - 保持 ZH/EN projection、sleep drilldown、semantic span、coverage boundary 既有测试通过。
+
+**已实现(2026-07-02)。**
+
+- 根因总览 `runtime_trace_causal_projection` 从"用户要关注什么"长解释列收敛为短 `关注点/Focus` action label;默认最多展示 8 个代表节点。完整链路、影响、背景、证据仍在各自视图中保留,总览只做第一屏决策面。
+- typed action label 只消费 `TraceCausalProjectionNode` 的 `StateKind`、`Role`、`Predicate/Object` 中的结构化根因类型、`DrilldownTarget`、`UndrillableReason`:例如 `等待→查上游`、`执行/算力`、`调度/优先级`、`阻塞/IO`、`确定性优化点`。不消费用户原文、模型散文或 rendered summary。
+- `runtime_trace_causal_projection_evidence` 从宽 `BlockTable` 改为自然换行的 `BlockBulletList`:主读表继续只显示 `E#`,完整 node/ref/audit 字段只在索引列表中保留。
+- 删除旧单大表/ordered-list 展示 helper,避免未来维护时把已经退役的 `层/节点 + 斜体明细行` 路径重新接回。
+- 看护:focused projection tests 覆盖总览 8 行上限、短 action label、证据索引 list 化、长路径不进入主表、ZH/EN projection、sleep drilldown、coverage boundary;`go test ./internal/tool` 通过。
