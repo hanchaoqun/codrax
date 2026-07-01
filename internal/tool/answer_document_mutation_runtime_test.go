@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -726,6 +727,93 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 		!strings.Contains(semantic.Text, "语义类 class_verification") ||
 		!strings.Contains(semantic.Text, "on-chain") {
 		t.Fatalf("projection should preserve semantic runtime optimization points: %+v", projection.Items)
+	}
+}
+
+func TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText(t *testing.T) {
+	// O5 end-to-end: a low-impact (2ms) semantic span must survive from the
+	// trace observation, through the auto-injected projection block, all the
+	// way to the final rendered markdown — not be swallowed by summary/cap
+	// truncation. Also exercises the O4 within-requested-window tag, since a
+	// frame_target_resolution anchor is present.
+	bus := newBusForMutationTest()
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+	}}
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{
+			{
+				ID:              "trace_query:window#frame_target_resolution",
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				Predicate:       "frame_target_resolution",
+				Subject:         "app-100",
+				Object:          "frame_timeline_ui_unique",
+				Span:            types.ObservationSpan{StartTs: 100.0, EndTs: 200.0},
+				RichNotes:       []string{"window_source=query_window", "window=100.000000..200.000000"},
+				Confidence:      0.86,
+			},
+			traceProjectionObservation("root-app", "app-100", "compute_supply", "0.020", "0.020", 1),
+			{
+				ID:              "semantic",
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				Predicate:       "trace_semantic_span",
+				ClaimKey:        "trace_semantic_span:class_verification",
+				Subject:         "app-100",
+				Object:          "class_verification",
+				Value:           "2.000",
+				Unit:            "ms",
+				Span:            types.ObservationSpan{StartTs: 120.0, EndTs: 122.0},
+				RichNotes: []string{
+					"span_name=VerifyClass com.example.Foo",
+					"semantic_class=class_verification",
+					"chain_relevance=on_chain",
+					"causality=on_wakeup_chain",
+					"chain_depth=1",
+					"window=120.000000..122.000000",
+				},
+				Confidence: 0.82,
+			},
+		},
+	}}
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "app-100 direct wait was observed."},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil {
+		t.Fatal("answer document not persisted")
+	}
+	rendered := render.RenderAnswerDocument(got, "zh")
+	if !strings.Contains(rendered, "确定性优化点") {
+		t.Fatalf("semantic span optimization block must survive to rendered text: %q", rendered)
+	}
+	if !strings.Contains(rendered, "VerifyClass com.example.Foo") {
+		t.Fatalf("the concrete low-impact semantic span name must survive to rendered text: %q", rendered)
+	}
+	if !strings.Contains(rendered, "class_verification") {
+		t.Fatalf("the semantic class must survive to rendered text: %q", rendered)
+	}
+	if !strings.Contains(rendered, "落在用户请求窗口内") {
+		t.Fatalf("the in-window O4 tag must render for a node inside the anchor window: %q", rendered)
 	}
 }
 

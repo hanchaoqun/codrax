@@ -370,6 +370,126 @@ func TestTraceCausalProjectionKeepsDefaultDepthSupportingHops(t *testing.T) {
 	}
 }
 
+func traceProjectionFrameTargetAnchor(windowSource string, startTs, endTs float64) ObservationRecord {
+	return ObservationRecord{
+		ID:              "trace_query:window#frame_target_resolution",
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		Predicate:       "frame_target_resolution",
+		Subject:         "app-100",
+		Object:          "frame_timeline_ui_unique",
+		Span:            ObservationSpan{StartTs: startTs, EndTs: endTs},
+		RichNotes: []string{
+			"window_source=" + windowSource,
+			fmt.Sprintf("window=%.6f..%.6f", startTs, endTs),
+		},
+		Confidence: 0.86,
+	}
+}
+
+func traceProjectionSemanticSpanAt(id, subject, semanticClass string, startTs, endTs float64) ObservationRecord {
+	return ObservationRecord{
+		ID:              id,
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		Predicate:       "trace_semantic_span",
+		ClaimKey:        "trace_semantic_span:" + semanticClass,
+		Subject:         subject,
+		Object:          semanticClass,
+		Value:           "2.000",
+		Unit:            "ms",
+		Span:            ObservationSpan{StartTs: startTs, EndTs: endTs},
+		RichNotes: []string{
+			"semantic_class=" + semanticClass,
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+			fmt.Sprintf("window=%.6f..%.6f", startTs, endTs),
+		},
+		Confidence: 0.82,
+	}
+}
+
+func TestTraceCausalProjectionMarksNodesWithinRequestedWindow(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		traceProjectionFrameTargetAnchor("query_window", 100.0, 200.0),
+		traceProjectionSemanticSpanAt("semantic-inside", "app-100", "class_verification", 120.0, 150.0),
+		traceProjectionSemanticSpanAt("semantic-outside", "worker-200", "shader_compile", 250.0, 280.0),
+	}}
+	got := CompileTraceCausalProjection(ledger)
+	if len(got.SemanticSpans) != 2 {
+		t.Fatalf("expected two semantic spans, got %+v", got.SemanticSpans)
+	}
+	inside := traceProjectionFindNodeBySubject(got.SemanticSpans, "app-100")
+	outside := traceProjectionFindNodeBySubject(got.SemanticSpans, "worker-200")
+	if inside == nil || inside.WithinRequestedWindow == nil || !*inside.WithinRequestedWindow {
+		t.Fatalf("node inside the anchor window should be marked within: %+v", inside)
+	}
+	if outside == nil || outside.WithinRequestedWindow == nil || *outside.WithinRequestedWindow {
+		t.Fatalf("node outside the anchor window should be marked not-within: %+v", outside)
+	}
+}
+
+func TestTraceCausalProjectionLeavesWithinNilWhenNoAnchor(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		traceProjectionSemanticSpanAt("semantic-a", "app-100", "class_verification", 120.0, 150.0),
+	}}
+	got := CompileTraceCausalProjection(ledger)
+	for _, node := range got.SemanticSpans {
+		if node.WithinRequestedWindow != nil {
+			t.Fatalf("without a frame_target_resolution anchor, within-window must stay nil (no fabrication): %+v", node)
+		}
+	}
+}
+
+func TestTraceCausalProjectionAnchorIgnoresNonQueryWindowSource(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		// window_source that is a model-derived (not user-explicit) window must
+		// not be treated as the user's requested-window anchor.
+		traceProjectionFrameTargetAnchor("frame_timeline_ui_candidate", 100.0, 200.0),
+		traceProjectionSemanticSpanAt("semantic-a", "app-100", "class_verification", 120.0, 150.0),
+	}}
+	got := CompileTraceCausalProjection(ledger)
+	for _, node := range got.SemanticSpans {
+		if node.WithinRequestedWindow != nil {
+			t.Fatalf("non-query_window anchor must not mark within-window: %+v", node)
+		}
+	}
+}
+
+func TestTraceCausalProjectionUnionWindowSourceIsValidAnchor(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		traceProjectionFrameTargetAnchor("explicit_query_union_previous_frame_end_to_current_frame_end", 100.0, 200.0),
+		traceProjectionSemanticSpanAt("semantic-inside", "app-100", "class_verification", 120.0, 150.0),
+	}}
+	got := CompileTraceCausalProjection(ledger)
+	inside := traceProjectionFindNodeBySubject(got.SemanticSpans, "app-100")
+	if inside == nil || inside.WithinRequestedWindow == nil || !*inside.WithinRequestedWindow {
+		t.Fatalf("the R9 explicit-union window_source should count as a valid anchor: %+v", inside)
+	}
+}
+
+func TestTraceCausalProjectionWindowParseAlignsWithProducerFormat(t *testing.T) {
+	// Mirror trace_query.go traceQueryWindowValue's "%.6f..%.6f" output.
+	notes := []string{fmt.Sprintf("window=%.6f..%.6f", 12.500000, 34.750000)}
+	start, end, ok := traceCausalProjectionWindow(notes)
+	if !ok || start != 12.5 || end != 34.75 {
+		t.Fatalf("window RichNote parse must round-trip the producer format, got start=%v end=%v ok=%v", start, end, ok)
+	}
+}
+
+func traceProjectionFindNodeBySubject(nodes []TraceCausalProjectionNode, subject string) *TraceCausalProjectionNode {
+	for i := range nodes {
+		if nodes[i].Subject == subject {
+			return &nodes[i]
+		}
+	}
+	return nil
+}
+
 func traceProjectionTestRoot(id, subject, object, value string, cumulative, confidence float64, rank int) ObservationRecord {
 	return traceProjectionTestRootWithNotes(id, subject, object, value, cumulative, confidence, rank, []string{
 		"causality=on_wakeup_chain",

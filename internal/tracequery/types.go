@@ -755,20 +755,31 @@ type ThreadStateChurnSummary struct {
 }
 
 type StateDrilldownStep struct {
-	Rank             int       `json:"rank,omitempty"`
-	Thread           ThreadRef `json:"thread"`
-	State            string    `json:"state,omitempty"`
-	ImpactMs         float64   `json:"impact_ms,omitempty"`
-	TotalMs          float64   `json:"total_ms,omitempty"`
-	Source           string    `json:"source,omitempty"`
-	RecommendedViews []string  `json:"recommended_views,omitempty"`
-	ChainRequired    bool      `json:"chain_required,omitempty"`
-	Recursive        bool      `json:"recursive,omitempty"`
-	StartTs          float64   `json:"start_ts,omitempty"`
-	EndTs            float64   `json:"end_ts,omitempty"`
-	LineStart        int       `json:"line_start,omitempty"`
-	LineEnd          int       `json:"line_end,omitempty"`
-	Summary          string    `json:"summary,omitempty"`
+	Rank     int       `json:"rank,omitempty"`
+	Thread   ThreadRef `json:"thread"`
+	State    string    `json:"state,omitempty"`
+	ImpactMs float64   `json:"impact_ms,omitempty"`
+	TotalMs  float64   `json:"total_ms,omitempty"`
+	// WindowProportion is ImpactMs as a fraction (0..1) of the selected
+	// window duration — how much of the window this state consumed. Zero
+	// when the window duration is unknown. Distinct from the perf-sample
+	// Percent field elsewhere in this package.
+	WindowProportion float64 `json:"window_proportion,omitempty"`
+	// Significant marks whether this state occupied a materially large share
+	// of the window (the top state is always significant; lower-ranked states
+	// are significant only when their proportion clears the floor). Advisory
+	// soft-guidance so the drilldown consumer can prioritize which lower-ranked
+	// states are worth root-causing per R3, without dropping any step (R4).
+	Significant      bool     `json:"significant,omitempty"`
+	Source           string   `json:"source,omitempty"`
+	RecommendedViews []string `json:"recommended_views,omitempty"`
+	ChainRequired    bool     `json:"chain_required,omitempty"`
+	Recursive        bool     `json:"recursive,omitempty"`
+	StartTs          float64  `json:"start_ts,omitempty"`
+	EndTs            float64  `json:"end_ts,omitempty"`
+	LineStart        int      `json:"line_start,omitempty"`
+	LineEnd          int      `json:"line_end,omitempty"`
+	Summary          string   `json:"summary,omitempty"`
 }
 
 type IOLatencySummary struct {

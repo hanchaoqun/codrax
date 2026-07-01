@@ -3827,6 +3827,21 @@ func stateChurnNextStep(state string) string {
 	}
 }
 
+// stateDrilldownSignificantFloor is the fraction of the selected window a
+// state must occupy (in addition to always keeping the top state) to be
+// marked Significant for R3 per-layer root-cause prioritization. 0.05 = 5%
+// keeps genuinely material secondary states while flagging long-tail
+// low-share states (the §2.1 gap) as coverage-only. There is no pre-existing
+// proportion constant in this package, so no compatibility baggage; kept as a
+// single constant for later codrax.yaml-ification (cf. O7 direction).
+const stateDrilldownSignificantFloor = 0.05
+
+// stateDrilldownSignificantTopRatio marks a lower-ranked state significant
+// when its impact is at least this fraction of the top state's impact, so a
+// second state that is large relative to the leader (but small vs a huge
+// window) is still surfaced as worth root-causing.
+const stateDrilldownSignificantTopRatio = 0.25
+
 func buildStateDrilldownPlan(stats WindowStats, max int) []StateDrilldownStep {
 	var candidates []StateDrilldownStep
 	fragmentedSleep := fragmentedSleepChurnByThread(stats.StateChurn)
@@ -3895,6 +3910,8 @@ func buildStateDrilldownPlan(stats WindowStats, max int) []StateDrilldownStep {
 		}
 		return candidates[i].LineStart < candidates[j].LineStart
 	})
+	windowMs := (stats.Window.EndTs - stats.Window.StartTs) * 1000
+	var topImpact float64
 	seen := map[string]bool{}
 	out := make([]StateDrilldownStep, 0, len(candidates))
 	for _, step := range candidates {
@@ -3904,6 +3921,21 @@ func buildStateDrilldownPlan(stats WindowStats, max int) []StateDrilldownStep {
 		}
 		seen[key] = true
 		step.Rank = len(out) + 1
+		if step.Rank == 1 {
+			topImpact = step.ImpactMs
+		}
+		if windowMs > 0 && step.ImpactMs > 0 {
+			proportion := step.ImpactMs / windowMs
+			if proportion > 1 {
+				proportion = 1
+			}
+			step.WindowProportion = proportion
+			step.Significant = proportion >= stateDrilldownSignificantFloor ||
+				(topImpact > 0 && step.ImpactMs/topImpact >= stateDrilldownSignificantTopRatio)
+		}
+		if step.Rank == 1 && step.ImpactMs > 0 {
+			step.Significant = true
+		}
 		step.Summary = renderStateDrilldownStep(step)
 		out = append(out, step)
 		if max > 0 && len(out) >= max {
@@ -3989,9 +4021,9 @@ func stateDrilldownNeedsRecursiveChainForSource(state, source string) bool {
 }
 
 func renderStateDrilldownStep(step StateDrilldownStep) string {
-	return fmt.Sprintf("state_drilldown rank=%d thread=%s state=%s impact=%.3fms total=%.3fms source=%s recommended_views=%s chain_required=%t recursive=%t lines=%d-%d",
+	return fmt.Sprintf("state_drilldown rank=%d thread=%s state=%s impact=%.3fms total=%.3fms source=%s recommended_views=%s chain_required=%t recursive=%t window_proportion=%.4f significant=%t lines=%d-%d",
 		step.Rank, threadLabel(step.Thread), step.State, step.ImpactMs, step.TotalMs, step.Source,
-		strings.Join(step.RecommendedViews, ","), step.ChainRequired, step.Recursive, step.LineStart, step.LineEnd)
+		strings.Join(step.RecommendedViews, ","), step.ChainRequired, step.Recursive, step.WindowProportion, step.Significant, step.LineStart, step.LineEnd)
 }
 
 func topThreadDurations(in map[string]ThreadDuration, max int) []ThreadDuration {
@@ -8798,10 +8830,16 @@ func frameTargetPreviousFrameSearchQuery(q Query, selected FrameTargetCandidate)
 // unionTimeWindows merges two windows into the widest span that covers both,
 // used whenever a caller supplies an explicit time window alongside a
 // separately-derived window (frame target resolution, span_name lookups)
-// so neither side's coverage is silently dropped.
+// so neither side's coverage is silently dropped. Both callers must pass
+// determined bounds for `a` (the explicit user window) — this function uses
+// pure geometric min/max and does NOT treat StartTs==0 as "unset", so an
+// explicit user time_start of 0 is preserved rather than being replaced by
+// the derived window's start (that replacement was a real R8 regression).
+// The `b.StartTs > 0` guard only prevents a non-positive derived start from
+// spuriously widening the window below zero; it never narrows `a`.
 func unionTimeWindows(a, b TimeWindow) TimeWindow {
 	out := a
-	if out.StartTs <= 0 || (b.StartTs > 0 && b.StartTs < out.StartTs) {
+	if b.StartTs > 0 && b.StartTs < out.StartTs {
 		out.StartTs = b.StartTs
 	}
 	if b.EndTs > out.EndTs {

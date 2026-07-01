@@ -67,7 +67,20 @@ type TraceCausalProjectionNode struct {
 	SpanCategory       string   `json:"span_category,omitempty"`
 	SpanSubcategory    string   `json:"span_subcategory,omitempty"`
 	SemanticClass      string   `json:"semantic_class,omitempty"`
-	Confidence         float64  `json:"confidence,omitempty"`
+	// StartTs/EndTs is this node's own trace window (seconds), when the source
+	// observation exposed one (semantic_span / state_drilldown rows do; plain
+	// root_cause primary rows carry only line spans and leave these zero).
+	StartTs float64 `json:"start_ts,omitempty"`
+	EndTs   float64 `json:"end_ts,omitempty"`
+	// WithinRequestedWindow is three-state: nil = unknown (no precise anchor
+	// window, or this node has no window of its own), true = this node's
+	// window intersects the user's originally-requested analysis window,
+	// false = it was drilled into a window outside the user's request. Only
+	// populated when a frame_target_resolution anchor with window_source=
+	// query_window (or the explicit-union variant) is present, i.e. the R1
+	// pinned-thread/window trigger path.
+	WithinRequestedWindow *bool   `json:"within_requested_window,omitempty"`
+	Confidence            float64 `json:"confidence,omitempty"`
 }
 
 func CompileTraceCausalProjection(ledger ObservationLedger) TraceCausalProjection {
@@ -139,10 +152,76 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		node := primary[0]
 		out.PrimaryRootCause = &node
 	}
+	if anchorStart, anchorEnd, ok := traceCausalProjectionAnchorWindow(records); ok {
+		traceCausalProjectionMarkWithinWindow(out.PrimaryRootCauses, anchorStart, anchorEnd)
+		traceCausalProjectionMarkWithinWindow(out.OnChainCauses, anchorStart, anchorEnd)
+		traceCausalProjectionMarkWithinWindow(out.AdjacentCauses, anchorStart, anchorEnd)
+		traceCausalProjectionMarkWithinWindow(out.BackgroundCauses, anchorStart, anchorEnd)
+		traceCausalProjectionMarkWithinWindow(out.SemanticSpans, anchorStart, anchorEnd)
+		traceCausalProjectionMarkWithinWindow(out.SupportingHops, anchorStart, anchorEnd)
+		if out.PrimaryRootCause != nil {
+			traceCausalProjectionMarkNodeWithinWindow(out.PrimaryRootCause, anchorStart, anchorEnd)
+		}
+	}
 	if !out.Active() {
 		return TraceCausalProjection{}
 	}
 	return out
+}
+
+// traceCausalProjectionAnchorWindow returns the user's originally-requested
+// analysis window when a precise, non-circular anchor is available. The only
+// such anchor is a frame_target_resolution observation whose window_source is
+// an explicit, user-driven value (query_window = user gave pid/thread +
+// time_start/time_end; the explicit-union variant = R9). This whitelist is an
+// exact typed-string match, never a substring/heuristic. When several exist
+// (multiple frames resolved in one turn) the last one wins as the most recent
+// pinned window. Returns ok=false when no such record exists, so callers leave
+// WithinRequestedWindow nil rather than fabricating a window.
+func traceCausalProjectionAnchorWindow(records []ObservationRecord) (float64, float64, bool) {
+	var start, end float64
+	var ok bool
+	for _, record := range records {
+		if !traceCausalProjectionTraceQueryRecord(record) {
+			continue
+		}
+		if strings.TrimSpace(record.Predicate) != "frame_target_resolution" {
+			continue
+		}
+		switch strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "window_source")) {
+		case "query_window", "explicit_query_union_previous_frame_end_to_current_frame_end":
+		default:
+			continue
+		}
+		s, e := record.Span.StartTs, record.Span.EndTs
+		if s <= 0 || e <= s {
+			if ws, we, wok := traceCausalProjectionWindow(record.RichNotes); wok {
+				s, e = ws, we
+			} else {
+				continue
+			}
+		}
+		start, end, ok = s, e, true
+	}
+	return start, end, ok
+}
+
+func traceCausalProjectionMarkWithinWindow(nodes []TraceCausalProjectionNode, anchorStart, anchorEnd float64) {
+	for i := range nodes {
+		traceCausalProjectionMarkNodeWithinWindow(&nodes[i], anchorStart, anchorEnd)
+	}
+}
+
+func traceCausalProjectionMarkNodeWithinWindow(node *TraceCausalProjectionNode, anchorStart, anchorEnd float64) {
+	if node == nil || node.StartTs <= 0 || node.EndTs <= node.StartTs {
+		return
+	}
+	// "within" = the node's window has any overlap with the requested window;
+	// a node fully outside (zero intersection) was drilled into an adjacent
+	// window during recursion. Intersection (not strict containment) avoids
+	// misclassifying a segment that straddles the window boundary.
+	within := node.StartTs < anchorEnd && node.EndTs > anchorStart
+	node.WithinRequestedWindow = &within
 }
 
 func traceCausalProjectionTraceQueryRecord(record ObservationRecord) bool {
@@ -210,7 +289,35 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	if node.CumulativeImpactMS <= 0 {
 		node.CumulativeImpactMS = node.ImpactMS
 	}
+	node.StartTs = record.Span.StartTs
+	node.EndTs = record.Span.EndTs
+	if node.StartTs <= 0 && node.EndTs <= 0 {
+		if start, end, ok := traceCausalProjectionWindow(record.RichNotes); ok {
+			node.StartTs, node.EndTs = start, end
+		}
+	}
 	return node
+}
+
+// traceCausalProjectionWindow parses a "window" RichNote of the form
+// "%.6f..%.6f" (as emitted by trace_query.go traceQueryWindowValue /
+// traceQueryTypedTimeWindow) into a start/end pair. ok is true only when both
+// ends are positive and end > start.
+func traceCausalProjectionWindow(notes []string) (float64, float64, bool) {
+	raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, "window"))
+	if raw == "" {
+		return 0, 0, false
+	}
+	parts := strings.SplitN(raw, "..", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	start := traceCausalProjectionFloat(parts[0])
+	end := traceCausalProjectionFloat(parts[1])
+	if start <= 0 || end <= start {
+		return 0, 0, false
+	}
+	return start, end, true
 }
 
 func traceCausalProjectionNodeLess(a, b TraceCausalProjectionNode) bool {

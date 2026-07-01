@@ -954,6 +954,9 @@ func runtimeTraceCausalProjectionDetails(node types.TraceCausalProjectionNode, z
 	if semantic := runtimeTraceCausalProjectionSemanticDetail(node, zh); semantic != "" {
 		parts = append(parts, semantic)
 	}
+	if window := runtimeTraceCausalProjectionWindowDetail(node, zh); window != "" {
+		parts = append(parts, window)
+	}
 	if ref := runtimeTraceCausalProjectionEvidenceRef(node); ref != "" {
 		if zh {
 			parts = append(parts, "证据 "+ref)
@@ -962,6 +965,26 @@ func runtimeTraceCausalProjectionDetails(node types.TraceCausalProjectionNode, z
 		}
 	}
 	return parts
+}
+
+// runtimeTraceCausalProjectionWindowDetail surfaces the O4 within/outside
+// requested-window tag. It returns "" when WithinRequestedWindow is nil (no
+// precise anchor available), so nodes without a resolved user window render
+// byte-identically to before.
+func runtimeTraceCausalProjectionWindowDetail(node types.TraceCausalProjectionNode, zh bool) string {
+	if node.WithinRequestedWindow == nil {
+		return ""
+	}
+	if *node.WithinRequestedWindow {
+		if zh {
+			return "落在用户请求窗口内"
+		}
+		return "within requested window"
+	}
+	if zh {
+		return "下钻到请求窗口外的上游依赖"
+	}
+	return "upstream dependency drilled outside the requested window"
 }
 
 func runtimeTraceCausalProjectionSemanticDetail(node types.TraceCausalProjectionNode, zh bool) string {

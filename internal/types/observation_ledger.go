@@ -2229,7 +2229,7 @@ func traceQueryStateDrilldownRecord(index, ordinal int, line string, ref Observa
 	if impact > 0 {
 		value = fmt.Sprintf("%.3f", impact)
 	}
-	notes := traceQuerySelectedRichNotes(fields, []string{"rank", "state", "impact", "total", "source", "recommended_views", "chain_required", "recursive", "window"})
+	notes := traceQuerySelectedRichNotes(fields, []string{"rank", "state", "impact", "total", "source", "recommended_views", "chain_required", "recursive", "window_proportion", "significant", "window"})
 	if total > 0 && !observationRichNoteHasKey(notes, "total") {
 		notes = append(notes, fmt.Sprintf("total=%.3fms", total))
 	}

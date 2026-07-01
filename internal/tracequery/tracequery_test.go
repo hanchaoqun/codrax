@@ -1317,6 +1317,50 @@ app-20 (20) [001] .... 1.010000: print: E|20
 	}
 }
 
+func TestSpanWindowExplicitZeroStartNotShrunkByUnion(t *testing.T) {
+	// R8 regression guard: an explicit user time_start of 0 must NOT be treated
+	// as "unset" and replaced by the matched span's start. The window should be
+	// unioned (start stays 0, end extends to cover the span), not narrowed.
+	idx := buildTraceIndex(t, "span_explicit_zero_start.systrace", `
+app-20 (20) [001] .... 1.000000: print: B|20|MySpan
+app-20 (20) [001] .... 1.050000: print: E|20
+`)
+	res := Run(idx, Query{
+		View:         "span_window",
+		SpanName:     "MySpan",
+		TimeStart:    0,
+		TimeEnd:      1.030,
+		TimeStartSet: true,
+		TimeEndSet:   true,
+		Limit:        4,
+	})
+	if len(res.SpanWindows) != 1 {
+		t.Fatalf("expected one matched span, got %+v", res.SpanWindows)
+	}
+	if !near(res.TimeStart, 0, 0.000001) {
+		t.Fatalf("explicit time_start=0 must be preserved (not shrunk to the span start), got start=%v", res.TimeStart)
+	}
+	if !near(res.TimeEnd, 1.050, 0.000001) {
+		t.Fatalf("window end should extend to cover the full span, got end=%v", res.TimeEnd)
+	}
+}
+
+func TestUnionTimeWindowsPreservesExplicitZeroStart(t *testing.T) {
+	// Direct unit test: a's explicit-0 start must survive when b has a positive start.
+	got := unionTimeWindows(TimeWindow{StartTs: 0, EndTs: 1.030}, TimeWindow{StartTs: 1.0, EndTs: 1.05})
+	if !near(got.StartTs, 0, 1e-9) {
+		t.Fatalf("explicit-0 start must be kept as min, got %v", got.StartTs)
+	}
+	if !near(got.EndTs, 1.05, 1e-9) {
+		t.Fatalf("end must extend to cover b, got %v", got.EndTs)
+	}
+	// b never widens the window below the smaller of the two positive starts.
+	got2 := unionTimeWindows(TimeWindow{StartTs: 1.010, EndTs: 1.030}, TimeWindow{StartTs: 1.0, EndTs: 1.05})
+	if !near(got2.StartTs, 1.0, 1e-9) || !near(got2.EndTs, 1.05, 1e-9) {
+		t.Fatalf("pure min/max union expected {1.0,1.05}, got {%v,%v}", got2.StartTs, got2.EndTs)
+	}
+}
+
 func TestRootCauseRankTiersCandidates(t *testing.T) {
 	idx := buildSampleIndex(t)
 	res := Run(idx, Query{View: "root_cause_rank", PID: 20, TimeStart: 1.10, TimeEnd: 1.22, Limit: 5})
@@ -2532,6 +2576,90 @@ func findStateDrilldownStepForTest(steps []StateDrilldownStep, pid int, source, 
 		}
 	}
 	return nil
+}
+
+func TestStateDrilldownProportionMarksSignificantVsTrivial(t *testing.T) {
+	// windowMs = (1.10 - 1.0) * 1000 = 100ms window. A 90ms sleep (0.90 share,
+	// rank 1) is significant; a 3ms sleep (0.03 share < 0.05 floor, and 3/90 <
+	// 0.25 top-ratio) is kept for coverage but not significant.
+	stats := WindowStats{
+		Window: TimeWindow{StartTs: 1.0, EndTs: 1.10},
+		SleepTop: []ThreadDuration{
+			{Thread: ThreadRef{Comm: "big-sleeper", PID: 301}, DurationMs: 90, LineStart: 10, LineEnd: 20},
+			{Thread: ThreadRef{Comm: "tiny-sleeper", PID: 302}, DurationMs: 3, LineStart: 30, LineEnd: 40},
+		},
+	}
+	plan := buildStateDrilldownPlan(stats, 12)
+	big := findStateDrilldownStepForTest(plan, 301, "top_sleep", string(StateSSleep))
+	tiny := findStateDrilldownStepForTest(plan, 302, "top_sleep", string(StateSSleep))
+	if big == nil || tiny == nil {
+		t.Fatalf("both states must be kept in the plan (R4), got %+v", plan)
+	}
+	if !near(big.WindowProportion, 0.90, 0.0001) || !big.Significant {
+		t.Fatalf("dominant 90ms sleep should be ~0.90 proportion and significant: %+v", big)
+	}
+	if !near(tiny.WindowProportion, 0.03, 0.0001) || tiny.Significant {
+		t.Fatalf("trivial 3ms sleep should be ~0.03 proportion and NOT significant: %+v", tiny)
+	}
+	if !strings.Contains(big.Summary, "window_proportion=") || !strings.Contains(big.Summary, "significant=true") {
+		t.Fatalf("summary should carry the typed proportion/significant fields: %q", big.Summary)
+	}
+}
+
+func TestStateDrilldownSecondStateSignificantByTopRatio(t *testing.T) {
+	// Window 1000ms so the 2nd state (25ms => 0.025 < 0.05 floor) fails the
+	// absolute floor, but 25/80 = 0.3125 >= 0.25 top-ratio => still significant.
+	stats := WindowStats{
+		Window: TimeWindow{StartTs: 2.0, EndTs: 3.0},
+		SleepTop: []ThreadDuration{
+			{Thread: ThreadRef{Comm: "leader", PID: 401}, DurationMs: 80, LineStart: 10, LineEnd: 20},
+		},
+		RunnableTop: []ThreadDuration{
+			{Thread: ThreadRef{Comm: "second", PID: 402}, DurationMs: 25, LineStart: 30, LineEnd: 40},
+		},
+	}
+	plan := buildStateDrilldownPlan(stats, 12)
+	second := findStateDrilldownStepForTest(plan, 402, "top_runnable", string(StateRunnable))
+	if second == nil {
+		t.Fatalf("second state must be present: %+v", plan)
+	}
+	if second.WindowProportion >= stateDrilldownSignificantFloor {
+		t.Fatalf("test precondition: second state proportion should be below the floor, got %v", second.WindowProportion)
+	}
+	if !second.Significant {
+		t.Fatalf("second state should be significant via the top-ratio rule (25/80>=0.25): %+v", second)
+	}
+}
+
+func TestStateDrilldownProportionZeroWindowStaysBackwardCompatible(t *testing.T) {
+	// When the window duration is unknown (Window unset, as the rule-matrix
+	// pinning test does), proportion stays zero for every step. The top state
+	// (rank 1) is still marked significant because it is the longest state
+	// analyzed per R2; lower-ranked states without a proportion are not.
+	// Existing drilldown fields must be unaffected.
+	stats := WindowStats{
+		SleepTop: []ThreadDuration{
+			{Thread: ThreadRef{Comm: "s", PID: 501}, DurationMs: 90, LineStart: 10, LineEnd: 20},
+		},
+		RunnableTop: []ThreadDuration{
+			{Thread: ThreadRef{Comm: "r", PID: 502}, DurationMs: 30, LineStart: 30, LineEnd: 40},
+		},
+	}
+	plan := buildStateDrilldownPlan(stats, 12)
+	top := findStateDrilldownStepForTest(plan, 501, "top_sleep", string(StateSSleep))
+	second := findStateDrilldownStepForTest(plan, 502, "top_runnable", string(StateRunnable))
+	if top == nil || second == nil {
+		t.Fatalf("expected both steps: %+v", plan)
+	}
+	if top.WindowProportion != 0 || !top.Significant {
+		t.Fatalf("no window => zero proportion, but top state stays significant, got %+v", top)
+	}
+	if second.WindowProportion != 0 || second.Significant {
+		t.Fatalf("no window => zero proportion and lower-ranked state not significant, got %+v", second)
+	}
+	if !top.ChainRequired || !top.Recursive {
+		t.Fatalf("existing chain/recursive fields must be unaffected: %+v", top)
+	}
 }
 
 func TestTopSleepKeepsRankedTopNWindowCandidates(t *testing.T) {
