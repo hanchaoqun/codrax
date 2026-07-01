@@ -183,8 +183,10 @@ type BuildOptions struct {
 	// that pruning would silently drop. The pruned index is a strict subset of
 	// the full window (only removes events), so it can never make a view worse
 	// than the Step-1 byte-budget path; it just lets those two views run on a
-	// far larger window. Gated on ScopePID > 0 (thread-only scoping keeps the
-	// full Step-1 index for now).
+	// far larger window. PID scopes seed the closure directly. Thread-only
+	// scopes are allowed only after discoverRelationScope resolves the typed
+	// thread selector to a single pid/tgid inside the selected window; ambiguous
+	// selectors degrade to an unpruned index plus caveat.
 	RelationScoped bool
 	// ScopeMaxDepth bounds the transitive waker-closure BFS in pass-1. It must
 	// be >= the query's wakeup-chain MaxDepth (default 10) plus a buffer so the
@@ -520,12 +522,12 @@ func (opts BuildOptions) windowed() bool {
 	return opts.AllowWindowedParse && (opts.TimeStartSet || opts.TimeEndSet || opts.LineStart > 0 || opts.LineEnd > 0)
 }
 
-// relationScoped reports whether this build should pid-relation-prune the
-// windowed index. It requires an explicit pid scope and a window; thread-only
-// scoping is intentionally excluded for now (it would need thread→pid
-// resolution before the pass-1 closure).
+// relationScoped reports whether this build should relation-prune the windowed
+// index. PID scopes seed the closure directly; thread-only scopes are resolved
+// by the discovery pass from structured trace rows and may degrade to unpruned
+// with a caveat when ambiguous.
 func (opts BuildOptions) relationScoped() bool {
-	return opts.RelationScoped && opts.ScopePID > 0 && opts.windowed()
+	return opts.RelationScoped && opts.windowed() && (opts.ScopePID > 0 || strings.TrimSpace(opts.ScopeThread) != "")
 }
 
 func (opts BuildOptions) scopeMaxDepth() int {
@@ -549,7 +551,11 @@ func (opts BuildOptions) cacheKey() string {
 	// so it must never collide with them. Non-scoped keys are byte-identical to
 	// before (the scope segment is appended only when relation-scoped).
 	if opts.relationScoped() {
-		key += fmt.Sprintf(";scope=rel/pid:%d/depth:%d", opts.ScopePID, opts.scopeMaxDepth())
+		if opts.ScopePID > 0 {
+			key += fmt.Sprintf(";scope=rel/pid:%d/depth:%d", opts.ScopePID, opts.scopeMaxDepth())
+		} else {
+			key += fmt.Sprintf(";scope=rel/thread:%s/depth:%d", normalizedThreadText(opts.ScopeThread), opts.scopeMaxDepth())
+		}
 	}
 	return key
 }
@@ -629,12 +635,14 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	// computed over the FULL window, so only idx.Events is pruned — query results
 	// on the causal-chain views stay identical to the full index.
 	var relScope *relationScope
+	var relScopeCaveats []string
 	if opts.relationScoped() {
-		s, derr := discoverRelationScope(ctx, path, opts)
+		s, caveats, derr := discoverRelationScope(ctx, path, opts)
 		if derr != nil {
 			return nil, derr
 		}
 		relScope = s
+		relScopeCaveats = caveats
 	}
 	r := bufio.NewReaderSize(f, 256*1024)
 	intern := newStringInterner()
@@ -705,6 +713,9 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		}
 	}
 	idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
+	if len(relScopeCaveats) > 0 {
+		idx.Caveats = append(idx.Caveats, relScopeCaveats...)
+	}
 	return idx, nil
 }
 

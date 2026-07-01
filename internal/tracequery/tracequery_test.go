@@ -813,6 +813,92 @@ func TestRelationScopedIndexExpandsProcessTGID(t *testing.T) {
 	}
 }
 
+func TestRelationScopedIndexResolvesUniqueThreadSelector(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "thread-selector.systrace")
+	body := `
+        app-100   (  100) [001] .... 4.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200   (  100) [002] .... 4.010000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+       noise-77   (   77) [003] .... 4.020000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=noise next_pid=77 next_prio=120
+     worker-200   (  100) [002] .... 4.050000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100   (  100) [001] .... 4.060000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+`
+	if err := os.WriteFile(path, []byte(strings.TrimPrefix(body, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := BuildOptions{
+		TimeStart: 4.0, TimeEnd: 4.07, TimeStartSet: true, TimeEndSet: true,
+		AllowWindowedParse: true, ScopeThread: "app",
+	}
+	full, err := BuildIndexWithOptions(context.Background(), path, base)
+	if err != nil {
+		t.Fatalf("full build: %v", err)
+	}
+	scopedOpts := base
+	scopedOpts.RelationScoped = true
+	scoped, err := BuildIndexWithOptions(context.Background(), path, scopedOpts)
+	if err != nil {
+		t.Fatalf("scoped build: %v", err)
+	}
+	if len(scoped.Events) >= len(full.Events) {
+		t.Fatalf("thread-resolved relation scope should prune unrelated events: scoped=%d full=%d", len(scoped.Events), len(full.Events))
+	}
+	for _, ev := range scoped.Events {
+		if ev.PrevPID == 77 || ev.NextPID == 77 || ev.PID == 77 {
+			t.Fatalf("thread-resolved relation scope leaked unrelated noise: %+v", ev)
+		}
+	}
+	q := Query{Thread: "app", ThreadInput: "app", TimeStart: 4.0, TimeEnd: 4.07, MaxDepth: 4, MinDurationMs: 1}
+	if fc, sc := BuildWakeupChain(full, q), BuildWakeupChain(scoped, q); !reflect.DeepEqual(fc, sc) {
+		t.Fatalf("wakeup_chain differs between full and thread-resolved relation scope:\nfull=%+v\nscoped=%+v", fc, sc)
+	}
+	if ft, st := ThreadTimeline(full, q), ThreadTimeline(scoped, q); !reflect.DeepEqual(ft, st) {
+		t.Fatalf("thread_timeline differs between full and thread-resolved relation scope:\nfull=%+v\nscoped=%+v", ft, st)
+	}
+}
+
+func TestRelationScopedIndexAmbiguousThreadSelectorDoesNotPrune(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ambiguous-thread.systrace")
+	body := `
+        app-100   (  100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+        app-300   (  300) [002] .... 5.010000: sched_switch: prev_comm=app prev_pid=300 prev_prio=52 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+       noise-77   (   77) [003] .... 5.020000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=noise next_pid=77 next_prio=120
+`
+	if err := os.WriteFile(path, []byte(strings.TrimPrefix(body, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := BuildOptions{
+		TimeStart: 5.0, TimeEnd: 5.03, TimeStartSet: true, TimeEndSet: true,
+		AllowWindowedParse: true, ScopeThread: "app",
+	}
+	full, err := BuildIndexWithOptions(context.Background(), path, base)
+	if err != nil {
+		t.Fatalf("full build: %v", err)
+	}
+	scopedOpts := base
+	scopedOpts.RelationScoped = true
+	scoped, err := BuildIndexWithOptions(context.Background(), path, scopedOpts)
+	if err != nil {
+		t.Fatalf("scoped build: %v", err)
+	}
+	if len(scoped.Events) != len(full.Events) {
+		t.Fatalf("ambiguous thread selector must not prune: scoped=%d full=%d", len(scoped.Events), len(full.Events))
+	}
+	if !containsStringWithPrefix(scoped.Caveats, "relation_scope_thread_ambiguous") {
+		t.Fatalf("ambiguous thread selector should produce typed caveat, got %#v", scoped.Caveats)
+	}
+}
+
+func containsStringWithPrefix(items []string, prefix string) bool {
+	for _, item := range items {
+		if strings.HasPrefix(item, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestRelationScopedCacheKeyIsolation pins that a relation-scoped index gets a
 // distinct cache key (per pid), so a pruned index can never be served to a
 // different pid or an unscoped query.
@@ -828,12 +914,21 @@ func TestRelationScopedCacheKeyIsolation(t *testing.T) {
 	pid30 := base
 	pid30.ScopePID = 30
 	pid30.RelationScoped = true
+	threadApp := base
+	threadApp.ScopeThread = "app"
+	threadApp.RelationScoped = true
+	threadRender := base
+	threadRender.ScopeThread = "render"
+	threadRender.RelationScoped = true
 
 	if unscoped == pid20.cacheKey() {
 		t.Fatalf("relation-scoped key must differ from unscoped: %q", unscoped)
 	}
 	if pid20.cacheKey() == pid30.cacheKey() {
 		t.Fatalf("different scoped pids must get different cache keys: %q", pid20.cacheKey())
+	}
+	if threadApp.cacheKey() == threadRender.cacheKey() || threadApp.cacheKey() == pid20.cacheKey() {
+		t.Fatalf("thread-scoped relation keys must be isolated: app=%q render=%q pid=%q", threadApp.cacheKey(), threadRender.cacheKey(), pid20.cacheKey())
 	}
 	// A non-relation-scoped windowed key must be byte-identical to before (no
 	// scope segment leaks in when RelationScoped is false).

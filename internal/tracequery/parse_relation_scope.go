@@ -3,8 +3,11 @@ package tracequery
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -68,16 +71,19 @@ func relationScopeAlwaysKeepEvent(t EventType) bool {
 }
 
 // discoverRelationScope streams the window once (a separate, lightweight pass
-// that appends no events) to build the relevant-thread set for a pid-scoped
-// build. It collects tid→tgid (to expand a process id into its threads) and
-// wakee→waker edges (to close the waker chain), then runs a bounded BFS.
-func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) (*relationScope, error) {
+// that appends no events) to build the relevant-thread set for a pid/thread
+// scoped build. It collects tid→tgid (to expand a process id into its threads),
+// typed thread-name candidates (when ScopeThread is supplied), and wakee→waker
+// edges (to close the waker chain), then runs a bounded BFS. Thread-only
+// selectors prune only when they resolve to a single pid/tgid universe; ambiguous
+// selectors degrade to an unpruned index with a caveat instead of hard-choosing.
+func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) (*relationScope, []string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
 
@@ -92,6 +98,8 @@ func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) 
 
 	tidToTgid := map[int]int{}
 	wakeeToWakers := map[int]map[int]struct{}{}
+	threadCandidates := map[int]struct{}{}
+	selector := parseThreadSelector(opts.ScopeThread)
 
 	r := bufio.NewReaderSize(f, 256*1024)
 	intern := newStringInterner()
@@ -99,7 +107,7 @@ func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) 
 	seenTimeWindow := false
 	for lineNo := 1; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		line, rerr := r.ReadString('\n')
 		if len(line) > 0 {
@@ -113,6 +121,7 @@ func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) 
 					if ev.PID > 0 && ev.TGID > 0 {
 						tidToTgid[ev.PID] = ev.TGID
 					}
+					collectRelationScopeThreadCandidates(selector, ev, threadCandidates)
 					switch ev.Type {
 					case EventSchedWakeup, EventSchedWaking:
 						if ev.WakeePID > 0 && ev.PID > 0 {
@@ -131,15 +140,22 @@ func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) 
 			if rerr == io.EOF {
 				break
 			}
-			return nil, rerr
+			return nil, nil, rerr
 		}
 	}
 
+	scopePID, caveat, ok := resolveRelationScopeSeedPID(opts, selector, tidToTgid, threadCandidates)
+	if !ok {
+		var caveats []string
+		if caveat != "" {
+			caveats = append(caveats, caveat)
+		}
+		return nil, caveats, nil
+	}
 	scope := &relationScope{relevantTids: map[int]struct{}{}}
 	// Target set: the scoped pid itself (whether it names a thread or a
 	// process) plus every thread whose tgid equals it (process expansion),
 	// matching streamStateClusterThreadAllowed's pid==PID || tgid==PID.
-	scopePID := opts.ScopePID
 	frontier := []int{scopePID}
 	scope.relevantTids[scopePID] = struct{}{}
 	for tid, tgid := range tidToTgid {
@@ -164,5 +180,88 @@ func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) 
 		}
 		frontier = next
 	}
-	return scope, nil
+	return scope, nil, nil
+}
+
+func collectRelationScopeThreadCandidates(sel threadSelector, ev Event, out map[int]struct{}) {
+	if out == nil || strings.TrimSpace(sel.Raw) == "" {
+		return
+	}
+	add := func(pid int, comm string) {
+		if pid <= 0 || !threadSelectorMatchesName(sel, comm) {
+			return
+		}
+		if sel.HasPID && pid != sel.PID {
+			return
+		}
+		out[pid] = struct{}{}
+	}
+	add(ev.PID, ev.Comm)
+	add(ev.PrevPID, ev.PrevComm)
+	add(ev.NextPID, ev.NextComm)
+	add(ev.WakeePID, ev.WakeeComm)
+	add(ev.SchedStatPID, ev.SchedStatComm)
+	add(ev.ConstraintPID, ev.ConstraintComm)
+	add(ev.PerfPID, ev.PerfComm)
+	add(ev.PerfTID, ev.PerfComm)
+}
+
+func resolveRelationScopeSeedPID(opts BuildOptions, sel threadSelector, tidToTgid map[int]int, candidates map[int]struct{}) (int, string, bool) {
+	if opts.ScopePID > 0 {
+		return opts.ScopePID, "", true
+	}
+	if sel.HasPID {
+		return sel.PID, "", true
+	}
+	if strings.TrimSpace(sel.Raw) == "" {
+		return 0, "", false
+	}
+	if len(candidates) == 0 {
+		return 0, fmt.Sprintf("relation_scope_thread_unresolved selector=%q", strings.TrimSpace(sel.Raw)), false
+	}
+	tgids := map[int]struct{}{}
+	var pids []int
+	for pid := range candidates {
+		pids = append(pids, pid)
+		if tgid := tidToTgid[pid]; tgid > 0 {
+			tgids[tgid] = struct{}{}
+		}
+	}
+	sort.Ints(pids)
+	if len(tgids) == 1 {
+		for tgid := range tgids {
+			return tgid, "", true
+		}
+	}
+	if len(tgids) == 0 && len(pids) == 1 {
+		return pids[0], "", true
+	}
+	return 0, fmt.Sprintf("relation_scope_thread_ambiguous selector=%q candidate_pids=%s candidate_tgids=%s", strings.TrimSpace(sel.Raw), joinIntsForRelationScopeCaveat(pids), joinRelationScopeTgids(tgids)), false
+}
+
+func joinRelationScopeTgids(tgids map[int]struct{}) string {
+	if len(tgids) == 0 {
+		return ""
+	}
+	items := make([]int, 0, len(tgids))
+	for tgid := range tgids {
+		items = append(items, tgid)
+	}
+	sort.Ints(items)
+	return joinIntsForRelationScopeCaveat(items)
+}
+
+func joinIntsForRelationScopeCaveat(items []int) string {
+	if len(items) == 0 {
+		return ""
+	}
+	const maxItems = 8
+	if len(items) > maxItems {
+		items = items[:maxItems]
+	}
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, strconv.Itoa(item))
+	}
+	return strings.Join(parts, ",")
 }

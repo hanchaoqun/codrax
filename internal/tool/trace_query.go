@@ -1141,8 +1141,10 @@ func traceQueryWindowedIndexOptions(p traceQueryParams, timeStart, timeEnd float
 		// wakeup_chain — root_cause_rank / frame_root_cause_bundle / window_stats
 		// consume whole-window × all-thread aggregates that pruning would
 		// silently drop, so they keep the full (Step-1 byte-budgeted) index.
-		// Requires an explicit pid (thread-only scoping is not relation-pruned).
-		if pid > 0 && traceQueryRelationScopedView(p.View) {
+		// Thread-only scopes are accepted here because tracequery's discovery
+		// pass prunes only after resolving the typed thread selector to a single
+		// pid/tgid universe; ambiguous selectors degrade to unpruned + caveat.
+		if traceQueryRelationScopedView(p.View) {
 			opts.RelationScoped = true
 			opts.ScopeMaxDepth = traceQueryRelationScopeMaxDepth(p)
 		}

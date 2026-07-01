@@ -133,10 +133,14 @@ func TestTraceQueryRelationScopedOnlyForCausalChainViews(t *testing.T) {
 			}
 		})
 	}
-	// Thread-only (no pid) must never relation-scope — pass-1 needs a pid to
-	// seed the closure.
-	if opts := traceQueryWindowedIndexOptions(traceQueryParams{View: "wakeup_chain", Thread: "app 20"}, 1.0, 2.0); opts.RelationScoped {
-		t.Fatal("thread-only wakeup_chain must not be relation-scoped (no pid to seed pass-1)")
+	// Thread-only causal-chain views now opt into lazy relation-scope fallback:
+	// tracequery's discovery pass must resolve the typed selector to one
+	// pid/tgid before pruning, and ambiguous selectors degrade to unpruned.
+	if opts := traceQueryWindowedIndexOptions(traceQueryParams{View: "wakeup_chain", Thread: "app"}, 1.0, 2.0); !opts.RelationScoped {
+		t.Fatal("thread-only wakeup_chain should enable lazy relation-scoped fallback")
+	}
+	if opts := traceQueryWindowedIndexOptions(traceQueryParams{View: "root_cause_rank", Thread: "app"}, 1.0, 2.0); opts.RelationScoped {
+		t.Fatal("thread-only root_cause_rank must not relation-scope because it consumes whole-window aggregates")
 	}
 }
 

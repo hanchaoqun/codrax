@@ -162,9 +162,19 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
      3. 工具层在 `IndexEventLimitError` + scoped heavy view 时自动给出 typed next action 或直接走 shard mode,避免让模型手动缩到 <50ms 微窗口。
      4. 补 golden:同一中等 trace 全量结果 vs shard 聚合结果近似/集合等价;超密 synthetic trace 不 OOM 且保留 root_cause_rank primary candidates。
 
-3. **P2: thread-only relation-scoped pruning 未覆盖**。
-   - 现状:Step 2 要求 `ScopePID > 0`;用户只给线程名时仍走 Step 1 全量窗口索引。文档和代码已明确不裁剪,这是安全保守实现,不是回归。
-   - 任务拆解:新增轻量 thread→pid resolution prepass,只有解析到唯一线程 pid/tgid 时才开启 relation scope;多候选时返回候选和 caveat,不硬选。
+3. **P2: thread-only relation-scoped pruning —— 已交付(2026-07-01)**。
+   - 现状:Step 2 已支持只传 `thread` 的 `thread_timeline`/`wakeup_chain` 进入 lazy relation-scope fallback。工具层只传 typed `thread` 参数;真正的裁剪权威在 `tracequery` parser 内部,只消费 window gate 内结构化 `comm/pid/tgid/prev/next/wakee` 事件,不从 raw objective 或模型散文推断。
+   - 已落地承重点:
+     1. `BuildOptions.relationScoped()` 允许 `ScopePID>0 || ScopeThread!=""`;pid 仍直接承重。
+     2. `discoverRelationScope()` 复用 `thread_selector.go` 的 selector 解析/匹配,thread-only 只有解析到单一 pid/tgid universe 才生成 pruning scope;同名多 TGID / 无候选时不裁剪,只写 `relation_scope_thread_ambiguous` / `relation_scope_thread_unresolved` caveat。
+     3. relation-scope cache key 增加 `thread:<normalized-selector>` 维度,不同 thread selector 与 pid scope 不共用 pruned index。
+     4. `traceQueryWindowedIndexOptions` 仅对 `thread_timeline`/`wakeup_chain` 开启 thread-only relation fallback;`root_cause_rank` / `frame_root_cause_bundle` / `window_stats` 等 whole-window 聚合视图继续不裁剪,避免静默丢背景资源/CPU/IO 竞争证据。
+   - 测试:
+     - `TestRelationScopedIndexResolvesUniqueThreadSelector`
+     - `TestRelationScopedIndexAmbiguousThreadSelectorDoesNotPrune`
+     - `TestRelationScopedCacheKeyIsolation`
+     - `TestTraceQueryRelationScopedOnlyForCausalChainViews`
+     - `TestTraceQueryWindowedIndexOptionsScopedRaise`
 ### Step 1/2 稳定性收敛(2026-07-01,回归修复)
 
 用户反馈"最新版本模型不用 trace_query、一直用 grep 分析 trace"。诊断:grep 是 skill 里 trace_query **失败后的既定兜底**,故根因是 trace_query 在真实 trace 上**报错/返回空 → 模型放弃**。两个 Gap 3 改动过激,各修一处:
