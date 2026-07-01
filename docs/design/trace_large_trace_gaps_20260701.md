@@ -196,6 +196,11 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
      - `TestGrepTool/runtime artifact no match teaches literal and line-window recovery` 保留 `.log` 恢复路径。
      - `TestGrepTool/trace artifact no match pulls follow-up to trace_query` 钉住 trace zero-match refinement。
      - `TestGrepTool/broad runtime artifact grep refinement stays artifact-local` 钉住 trace broad refinement 不走 repo_map、不走 read_file/grep_line window,而是 `trace_query`.
+   - **2026-07-02 residual gap(本批已修)**:复核当前 HEAD 发现该已交付项仍有两个漏网出口,会把 trace 分析重新拉回文本行号:
+     1. `compactBroadGrepOutput` / `compactStreamedRuntimeArtifactGrepOutput` 对 trace artifact 虽然渲染 `trace_query_required_soft_advisory`,但随后仍追加通用 `line_window_hint=... next use read_file ...`。
+     2. skipped-large artifact 恢复提示仍统一建议 `single-file grep -> read_file around returned line numbers`,没有把 trace/systrace/htrace/perf 分流到 `trace_query`。
+     已实现:trace artifact 的 broad/streamed/skipped-large follow-up 统一收敛为 `trace_query(view=event_search/span_window/window_stats/root_cause_rank/frame_root_cause_bundle)` 软提示和 typed refinement;普通 log/runtime text 继续保留 grep/read_file 行证据恢复。`grep`/`exec_command` schema 文案也拆成 trace-query-first 与 log-line-evidence 两个心智面,不再把 log/trace 混写成同一条 `grep -n`/`read_file` 路径。硬逻辑只消费工具参数、路径后缀/文件头 deterministic classifier、typed runtime artifact carrier,不读用户意图关键词、模型 prose、工具 summary 或 localized UI。
+     测试:focused `internal/tool` 覆盖 trace broad grep 无 line-window/read_file、streamed trace grep 无 line-window/read_file、skipped-large trace refinement 指向 `trace_query`、skipped-large log 仍保留 `grep` 恢复、prompt hygiene pin trace/log 分流文案。
 
 5. **P0: `RUNTIME TRACE FIRST` prompt guidance 对 request-path 大 trace 不渲染 —— 已交付(2026-07-01)**。
    - 客户补充日志显示 explorer 第一轮仍把 `record_trace_*.ftrace` 当普通文件读/grep,并在 completion 阶段把 runtime artifact 行号当当前源码 citation 债务修。独立审计定位到上游原因:`explore-skill` 的 trace-first 指导已迁到 TierB,由 `AppliesToFilter.RequiresTrace` 控制;而 `buildAppliesToContext().HasTrace` 只读 `PerfTrace`、`AttachedHitrace/AttachedHitraceSource`、`RequestModel.PerfTrace`。对"请求文本点名 1104MiB trace 路径,但没有 `--htrace`,且 perf triage 因 >8MiB 不 materialize"的真实客户形态,这些字段全为空,于是 trace-first workflow 完全不渲染。

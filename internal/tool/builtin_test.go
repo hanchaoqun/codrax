@@ -2490,31 +2490,63 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
-	t.Run("skipped large runtime artifact no match gives explicit single-file recovery", func(t *testing.T) {
+	t.Run("skipped large trace artifact no match pulls recovery to trace_query", func(t *testing.T) {
 		got := grepSkippedLargeFilesNoMatchBody([]string{"record_trace.systrace", "huge.generated"}, 2)
 		for _, want := range []string{
 			"searched_subset_no_matches=true",
 			"skipped_large_candidates=\"record_trace.systrace\",\"huge.generated\"",
 			"directory_scan_safety_skip=",
 			"not absence proof",
-			"single_file_grep_supported=true",
-			`next_call=grep(path="record_trace.systrace"`,
-			"files_only=false",
-			"context_lines=0",
+			"trace_query_supported=true",
+			`next_call=trace_query(path="record_trace.systrace"`,
+			"runtime_trace_recovery=",
 			"do not start read_file at the file head",
+			"do not iterate broad grep",
 		} {
 			if !strings.Contains(got, want) {
-				t.Fatalf("skipped-runtime recovery missing %q:\n%s", want, got)
+				t.Fatalf("skipped-trace recovery missing %q:\n%s", want, got)
 			}
 		}
 		refinement := grepSkippedLargeRefinement([]string{"record_trace.systrace", "huge.generated"}, 2)
 		if refinement == nil {
 			t.Fatal("expected typed refinement")
 		}
-		if refinement.ReasonCode != "skipped_large_candidates" || refinement.PreferredNextTool != "grep" {
+		if refinement.ReasonCode != "skipped_large_trace_artifact" || refinement.PreferredNextTool != "trace_query" {
 			t.Fatalf("unexpected skipped-large refinement: %+v", refinement)
 		}
 		if got := refinement.PreferredParams["path"]; got != "record_trace.systrace" {
+			t.Fatalf("preferred path = %q", got)
+		}
+		if got := refinement.PreferredParams["view"]; got != "event_search" {
+			t.Fatalf("preferred view = %q; refinement=%+v", got, refinement)
+		}
+		if len(refinement.RequiredFields) != 2 || refinement.RequiredFields[0] != "path" || refinement.RequiredFields[1] != "view" {
+			t.Fatalf("required fields = %+v", refinement.RequiredFields)
+		}
+	})
+
+	t.Run("skipped large log artifact keeps explicit single-file recovery", func(t *testing.T) {
+		got := grepSkippedLargeFilesNoMatchBody([]string{"large.log", "huge.generated"}, 2)
+		for _, want := range []string{
+			"single_file_grep_supported=true",
+			`next_call=grep(path="large.log"`,
+			"files_only=false",
+			"context_lines=0",
+			"do not start read_file at the file head",
+			"read_file around returned line numbers",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("skipped-log recovery missing %q:\n%s", want, got)
+			}
+		}
+		refinement := grepSkippedLargeRefinement([]string{"large.log", "huge.generated"}, 2)
+		if refinement == nil {
+			t.Fatal("expected typed refinement")
+		}
+		if refinement.ReasonCode != "skipped_large_candidates" || refinement.PreferredNextTool != "grep" {
+			t.Fatalf("unexpected skipped-log refinement: %+v", refinement)
+		}
+		if got := refinement.PreferredParams["path"]; got != "large.log" {
 			t.Fatalf("preferred path = %q", got)
 		}
 		if _, ok := refinement.PreferredParams["pattern"]; ok {
@@ -3152,12 +3184,14 @@ func TestGrepTool(t *testing.T) {
 			"next_shape=trace artifact grep matched too broadly",
 			"Stop iterating grep/read_file",
 			"trace_query",
-			"line_window_hint=first returned match is record_trace.systrace:1000",
-			"path=\"record_trace.systrace\" line_offset=979 limit=41",
-			"line_start=980 line_end=1020",
 		} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("runtime-artifact broad grep missing %q:\n%s", want, got)
+			}
+		}
+		for _, forbidden := range []string{"line_window_hint=", "next use `read_file`", "line_offset=", "line_start="} {
+			if strings.Contains(got, forbidden) {
+				t.Fatalf("trace broad grep must not steer back to line-window/read_file %q:\n%s", forbidden, got)
 			}
 		}
 		if strings.Contains(got, "relation_navigation_hint=") || strings.Contains(got, `repo_map(view="relation_map"`) {
@@ -3289,24 +3323,24 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
-	t.Run("broad runtime artifact grep emits multiple line windows", func(t *testing.T) {
+	t.Run("broad log runtime artifact grep emits multiple line windows", func(t *testing.T) {
 		ctx := newBusContext()
 		var raw strings.Builder
 		for _, base := range []int{1000, 5000, 9000} {
 			for i := 0; i < 30; i++ {
-				fmt.Fprintf(&raw, "record_trace.systrace:%d: com.tencent.mm-36379 (36379) [004] .... 2942.%06d: sched_wakeup\n", base+i, base+i)
+				fmt.Fprintf(&raw, "large.log:%d: app worker event timestamp=2942.%06d thread=main\n", base+i, base+i)
 			}
 		}
 		got, _, ok := compactBroadGrepOutput(ctx, grepToolParams{
-			Pattern: "com.tencent.mm-36379",
-			Path:    "record_trace.systrace",
-		}, "[grep: 90 matching lines]\n", "[grep params: pattern=com.tencent.mm-36379 path=record_trace.systrace]\n", raw.String(), raw.String())
+			Pattern: "worker event",
+			Path:    "large.log",
+		}, "[grep: 90 matching lines]\n", "[grep params: pattern=worker event path=large.log]\n", raw.String(), raw.String())
 		if !ok {
 			t.Fatalf("expected broad grep to compact")
 		}
 		for _, want := range []string{
-			"line_window_hint=first returned match is record_trace.systrace:1000",
-			"line_windows=record_trace.systrace:980-1049(matches=30); record_trace.systrace:4980-5049(matches=30); record_trace.systrace:8980-9049(matches=30)",
+			"line_window_hint=first returned match is large.log:1000",
+			"line_windows=large.log:980-1049(matches=30); large.log:4980-5049(matches=30); large.log:8980-9049(matches=30)",
 		} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("runtime-artifact broad grep missing %q:\n%s", want, got)
@@ -3373,7 +3407,8 @@ func TestGrepTool(t *testing.T) {
 		for _, want := range []string{
 			"artifact_search_advisory=",
 			"file_type/include filters are redundant",
-			"context_lines expands broad artifact searches",
+			"context_lines expands broad trace grep output",
+			"prefer trace_query with bounded window/pid/thread",
 		} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("runtime-artifact advisory missing %q:\n%s", want, got)
@@ -3412,11 +3447,14 @@ func TestGrepTool(t *testing.T) {
 			"full_raw_saved=",
 			"trace_query_required_soft_advisory",
 			"next_shape=trace artifact grep matched too broadly",
-			"line_window_hint=first returned match is",
-			"line_start=1 line_end=21",
 		} {
 			if !strings.Contains(result.Summary, want) {
 				t.Fatalf("broad runtime summary missing %q:\n%s", want, result.Summary)
+			}
+		}
+		for _, forbidden := range []string{"line_window_hint=", "next use `read_file`", "line_start=", "line_end="} {
+			if strings.Contains(result.Summary, forbidden) {
+				t.Fatalf("streamed trace grep must not steer back to line-window/read_file %q:\n%s", forbidden, result.Summary)
 			}
 		}
 		if strings.Contains(result.Summary, "2942.000119") {

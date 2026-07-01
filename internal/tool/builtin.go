@@ -475,7 +475,7 @@ type execCommandParams struct {
 
 func (t *ExecCommand) Name() string { return "exec_command" }
 func (t *ExecCommand) Description() string {
-	return "Run a read-only shell command with configurable timeout. In read mode it starts in the repository root, so use repo-relative paths and avoid absolute cd/git -C guesses; large output is saved to a blob that can be paged with read_file. For log/trace search/filter pipelines that will support line evidence, preserve original line numbers (for example grep -n or awk printing NR) so read_file can ground the selected range."
+	return "Run a read-only shell command with configurable timeout. In read mode it starts in the repository root, so use repo-relative paths and avoid absolute cd/git -C guesses; large output is saved to a blob that can be paged with read_file. For trace/systrace/htrace/perf artifacts, prefer trace_query for root-cause analysis and use shell filtering only as a diagnostic fallback. For plain log text search/filter pipelines that will support line evidence, preserve original line numbers (for example grep -n or awk printing NR) so read_file can ground the selected range."
 }
 
 func (t *ExecCommand) Parameters() json.RawMessage {
@@ -1644,7 +1644,7 @@ type grepToolParams struct {
 
 func (t *GrepTool) Name() string { return "grep" }
 func (t *GrepTool) Description() string {
-	return "Search file contents by pattern. Use this to find where a symbol, string, config key, log event, or trace row appears. By default `pattern` is a regex. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use fixed_string=true for exact literal text with punctuation (recommended for log/trace event labels, thread names, error strings, config keys, and any text containing []()|#.: that you do not want treated as regex). Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Do not set file_type/include when path is already one concrete log/trace artifact. Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call; avoid context_lines on the first broad search of a large runtime artifact and instead narrow to a timestamp/thread/event. For large log/trace/systrace artifacts, trace/systrace/htrace/perf root-cause analysis must prefer trace_query; grep over trace artifacts is a diagnostic fallback for literal row lookup only, and tool results will strongly steer follow-up back to trace_query. Use line_start/line_end only with a single file when you already know a relevant line vicinity. Directory scans may skip very large runtime artifacts for safety; if the result lists skipped_large_candidates, set path to that candidate and grep the file explicitly rather than reading from the file head. For large log files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. For trace marker spans, a B|pid|name begin is normally closed by unnamed E|pid or bare E on the same ftrace thread stack, so do not grep for E|pid|name; use trace_query(view=\"span_window\", span_name=\"...\") to resolve the end. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
+	return "Search file contents by pattern. Use this to find where a symbol, string, config key, log event, or trace row appears. By default `pattern` is a regex. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use fixed_string=true for exact literal text with punctuation (recommended for log/trace event labels, thread names, error strings, config keys, and any text containing []()|#.: that you do not want treated as regex). Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Do not set file_type/include when path is already one concrete log/trace artifact. Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call; avoid context_lines on the first broad search of a large runtime artifact and instead narrow to a timestamp/thread/event. For trace/systrace/htrace/perf artifacts, root-cause analysis must prefer trace_query; grep over trace artifacts is a diagnostic fallback for literal row lookup only, and tool results will strongly steer follow-up back to trace_query. Use line_start/line_end only with a single file when you already know a relevant line vicinity. Directory scans may skip very large runtime artifacts for safety; if the skipped candidate is trace/systrace/htrace/perf, switch to trace_query instead of paging grep/read_file; for plain log files, set path to the candidate and grep one exact timestamp/thread/event literal before reading a small line range. For large log files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. For trace marker spans, a B|pid|name begin is normally closed by unnamed E|pid or bare E on the same ftrace thread stack, so do not grep for E|pid|name; use trace_query(view=\"span_window\", span_name=\"...\") to resolve the end. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
 }
 
 func grepShouldUseNativeBackend(searchBackend string, hasRepoRoot, searchPathIsFile bool) bool {
@@ -2594,13 +2594,14 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 		b.WriteString("full_raw_saved=unavailable (no workdir configured)\n")
 	}
 	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
+		targetsTrace := grepParamsTargetTraceQueryArtifactFile(ctx, params)
 		if advisory := grepRuntimeArtifactParamAdvisory(params); advisory != "" {
 			b.WriteString(advisory)
 		}
 		if advisory := grepTraceQueryRequiredAdvisory(ctx, params); advisory != "" {
 			b.WriteString(advisory)
 		}
-		if grepParamsTargetTraceQueryArtifactFile(ctx, params) {
+		if targetsTrace {
 			b.WriteString("next_shape=trace artifact grep matched too broadly; do not keep paging grep/read_file as the main analysis path. Use trace_query(view=\"event_search\" for literal lookup, or window_stats/root_cause_rank/frame_root_cause_bundle for scheduler/root-cause analysis) with the same path plus bounded window/pid/thread.\n")
 		} else {
 			b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command that preserves original line numbers (for example `grep -n` before awk/head), then read_file the selected line range before emitting line-scope evidence.\n")
@@ -2608,8 +2609,10 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 		if advisory := grepRuntimeArtifactTraceSpanAdvisory(params, strings.Join(production, "\n")); advisory != "" {
 			b.WriteString(advisory)
 		}
-		if hint := grepLineWindowHint(production, params.FilesOnly); hint != "" {
-			b.WriteString(hint)
+		if !targetsTrace {
+			if hint := grepLineWindowHint(production, params.FilesOnly); hint != "" {
+				b.WriteString(hint)
+			}
 		}
 	} else if params.FilesOnly {
 		b.WriteString("next_shape=read_file a top production path for exact evidence, or re-run grep with a narrower path/file_type.\n")
@@ -2735,6 +2738,19 @@ func grepSkippedLargeRefinement(paths []string, skippedTotal int) *types.ToolRef
 		return nil
 	}
 	candidates := normalizeGrepSkippedLargeCandidates(paths, skippedTotal)
+	if nextPath := firstSkippedLargeTraceQueryArtifactPath(paths); nextPath != "" {
+		return &types.ToolRefinementHint{
+			ReasonCode:             "skipped_large_trace_artifact",
+			ResultTruncated:        true,
+			SkippedLargeCandidates: candidates,
+			PreferredNextTool:      "trace_query",
+			PreferredParams: map[string]string{
+				"path": nextPath,
+				"view": "event_search",
+			},
+			RequiredFields: []string{"path", "view"},
+		}
+	}
 	hint := types.ToolRefinementHint{
 		ReasonCode:             "skipped_large_candidates",
 		SkippedLargeCandidates: candidates,
@@ -2894,7 +2910,8 @@ func compactStreamedRuntimeArtifactGrepOutput(ctx *types.BusContext, params grep
 	if advisory := grepTraceQueryRequiredAdvisory(ctx, params); advisory != "" {
 		b.WriteString(advisory)
 	}
-	if grepParamsTargetTraceQueryArtifactFile(ctx, params) {
+	targetsTrace := grepParamsTargetTraceQueryArtifactFile(ctx, params)
+	if targetsTrace {
 		b.WriteString("next_shape=trace artifact grep matched too broadly; stop iterating grep/read_file for trace root-cause analysis and use trace_query with the same path plus bounded window/pid/thread.\n")
 	} else {
 		b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command that preserves original line numbers (for example `grep -n` before awk/head), then read_file the selected line range before emitting line-scope evidence.\n")
@@ -2906,8 +2923,10 @@ func compactStreamedRuntimeArtifactGrepOutput(ctx *types.BusContext, params grep
 	if len(windows) == 0 {
 		windows = collectGrepLineWindows(capture.PreviewLines, params.FilesOnly, grepLineWindowHintMax)
 	}
-	if hint := renderGrepLineWindowHints(windows); hint != "" {
-		b.WriteString(hint)
+	if !targetsTrace {
+		if hint := renderGrepLineWindowHints(windows); hint != "" {
+			b.WriteString(hint)
+		}
 	}
 	writeCappedGrepSection(&b, "[grep production matches]", capture.PreviewLines, grepGovernorLineProductionCap, "no runtime-artifact matches returned")
 	if omitted := capture.Lines - len(capture.PreviewLines); omitted > 0 {
@@ -3063,12 +3082,17 @@ func grepRuntimeArtifactParamAdvisory(params grepToolParams) string {
 	if strings.TrimSpace(params.FileType) == "" && strings.TrimSpace(params.Include) == "" && (params.ContextLines == nil || *params.ContextLines <= 0) {
 		return ""
 	}
+	targetsTrace := grepPathLooksLikeTraceQueryArtifact(params.Path)
 	var notes []string
 	if strings.TrimSpace(params.FileType) != "" || strings.TrimSpace(params.Include) != "" {
 		notes = append(notes, "path is already one concrete runtime/log/trace file; file_type/include filters are redundant and may distract from narrowing by timestamp/thread/event")
 	}
 	if params.ContextLines != nil && *params.ContextLines > 0 && params.LineStart <= 0 && params.LineEnd <= 0 {
-		notes = append(notes, "context_lines expands broad artifact searches; first narrow to a small vicinity, then use read_file for surrounding context")
+		if targetsTrace {
+			notes = append(notes, "context_lines expands broad trace grep output; prefer trace_query with bounded window/pid/thread instead of paging line context")
+		} else {
+			notes = append(notes, "context_lines expands broad artifact searches; first narrow to a small vicinity, then use read_file for surrounding context")
+		}
 	}
 	if len(notes) == 0 {
 		return ""
@@ -3777,7 +3801,10 @@ func grepSkippedLargeFilesNoMatchBody(paths []string, skippedTotal int) string {
 		b.WriteByte('\n')
 	}
 	b.WriteString("directory_scan_safety_skip=the skipped large file candidates were not searched in this directory scan; this is not absence proof and does not mean grep cannot search those files.\n")
-	if nextPath := firstSkippedLargeRuntimeArtifactPath(paths); nextPath != "" {
+	if nextPath := firstSkippedLargeTraceQueryArtifactPath(paths); nextPath != "" {
+		fmt.Fprintf(&b, "trace_query_supported=true next_call=trace_query(path=%q, view=\"event_search\", pattern=\"<one exact timestamp/thread/event literal>\")\n", nextPath)
+		b.WriteString("runtime_trace_recovery=do not start read_file at the file head and do not iterate broad grep for trace root-cause analysis; use trace_query with a bounded window/pid/thread or event_search/span_window for literal row lookup.\n")
+	} else if nextPath := firstSkippedLargeRuntimeArtifactPath(paths); nextPath != "" {
 		fmt.Fprintf(&b, "single_file_grep_supported=true next_call=grep(path=%q, pattern=\"<one exact timestamp/thread/event literal>\", files_only=false, context_lines=0)\n", nextPath)
 		b.WriteString("runtime_artifact_recovery=do not start read_file at the file head; first run explicit single-file grep on the skipped artifact, then read_file around returned line numbers for evidence.\n")
 	} else if nextPath := firstNonEmptyString(paths); nextPath != "" {
@@ -3814,6 +3841,16 @@ func firstSkippedLargeRuntimeArtifactPath(paths []string) string {
 	for _, p := range paths {
 		p = strings.TrimSpace(p)
 		if p != "" && grepPathLooksLikeRuntimeArtifact(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+func firstSkippedLargeTraceQueryArtifactPath(paths []string) string {
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p != "" && grepPathLooksLikeTraceQueryArtifact(p) {
 			return p
 		}
 	}

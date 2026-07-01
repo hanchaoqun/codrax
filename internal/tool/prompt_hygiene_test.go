@@ -77,7 +77,8 @@ func TestGrepToolPromptDocumentsRuntimeArtifactControls(t *testing.T) {
 	for _, want := range []string{
 		"fixed_string=true",
 		"line_start/line_end",
-		"large log/trace/systrace",
+		"trace/systrace/htrace/perf artifacts",
+		"large log files",
 		"do not grep for E|pid|name",
 		`trace_query(view="span_window"`,
 		"Do NOT use the result to count matches by eye",
