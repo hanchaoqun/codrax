@@ -9,6 +9,16 @@
 > **v4/v5 更新**:响应本文档 §2.6.2/O1 提出的容量短板,仓库代码侧实际做了两轮 `trace_query 关键观测核对`/`TraceCausalProjection` 容量扩容(细节见 §2.6.2 与 §6),文档随之同步了最新的 cap 数值。
 >
 > **v6 更新**:新增 R8(用户显式时间窗必须严格遵守,不能因 VSYNC/帧边界误缩窗)、R9(帧信息 + 显式时间窗同时给出时应取并集)两条规则及对应审计 §2.9。结论:**R8 已满足**——排查了三处会重新计算时间窗的入口(`resolveSpanWindowsForQuery`/`ResolveFrameTarget`/`FrameWindowAutoDerived` 置位条件),全部以"用户是否已显式给出 time_start/time_end"为精确 typed 开关,没有发现"因检测到帧边界而悄悄收窄显式窗口"的代码路径;但发现一处相关但不同的风险——`interestingIntervals` 会把窗口内目标线程的时间线按状态打分后只取 Top-8 子区间参与递归展开、且无条件跳过 Running 区间,窗口元数据本身没被收窄,但递归下钻的实际覆盖深度可能不足,且无对应 caveat 提示(裁剪是静默的)。**R9 未实现**——全仓没有对"用户显式窗口"与"帧信息推导窗口"取并集的代码,当前是显式窗口整体胜出、帧信息完全不参与窗口范围计算,是本轮新发现的精确缺口,已列 O9。
+>
+> **v7 更新(本批实际修复代码,非纯审计)**:先探索既有代码(`priorityRelation`/`dependencyPriorityRelation`/`threadPriorityNear`/`runnableContextForThread`/`unionTimeWindows` 等既有原语)确认可复用后,修复了 O1、O3、O7、O9(剩余的 `resolveSpanWindowsForQuery` 一侧)、O10(caveat-only 部分),每项都补了新单元测试且全仓 `go build ./... && go test ./...` 全绿。**O2 复核后判定不是真缺口并撤销**(详见 §2.2 更新)。逐项:
+> 1. **O1**:`boundTraceMarkSpans` 让 `computeTraceMarks` 的语义 span(jit/verify/shader/runtime compile)单独占 16 个名额,不再和普通 span 抢 8 个名额的时长排名(§2.6.3)。
+> 2. **O3**:新增 `applyRunnableTopPriorityInversion`,对 `stats.RunnableTop` 直接候选调用既有的 `runnableContextForThread`(取 `SameCPUTopRunning`)+ `threadPriorityNear` + `dependencyPriorityRelation`,命中鸿蒙/东湖语义下的"竞争者优先级更低"时重分类为已被下游识别为 co-primary 的 `priority_inversion_runnable_wait`(§2.3.1)。
+> 3. **O7**:新增 `traceSpanNearMissesSemanticWorkClassification`,对形似编译/校验/shader 但未命中任何具体模式的 span 名追加一条有界(≤3 例)命名漂移 caveat,纯 advisory,不影响任何排序/tier(§2.8)。
+> 4. **O9 补完**:把 `ResolveFrameTarget` 已有的 `unionFrameTargetWindows` 提升重命名为通用的 `unionTimeWindows`,同款并集逻辑接到 `resolveSpanWindowsForQuery`(`span_name` + 显式窗口同时给出的场景),不再是"两者都给就直接用显式窗口、丢弃 span 自身边界"(§2.9.2)。
+> 5. **O10**:`interestingIntervals` 新增返回值 `qualifying`(截断前的候选总数),`buildWakeupChainWithCache` 在 `qualifying > len(branches)` 时追加一条明确的"N 个候选区间未被递归展开"caveat,不改变截断算法本身(§2.9.1)。
+> 6. **O2 撤销**:复核发现 `scheduler_latency_stats`/`critical_blocking_calls`(Runnable/D-state/IO-wait 的推荐 view)都是单次有界聚合、不是像 `wakeup_chain` 那样的多跳递归图遍历,只对碎片化 sleep 做非递归例外是正确设计,不是缺口——被现有测试 `TestStateDrilldownRuleMatrixPinsRecentTracePolicies` 验证锁定,未做改动。
+>
+> O4(投影显式携带请求窗口)、O6(架构文档补章节)判断为下一批处理,详见 §4。
 
 ## 背景:用户目标方法论(原始需求逐条整理)
 
@@ -29,18 +39,18 @@
 
 ## 0. 结论摘要
 
-用户提出的目标方法论有 7 个核心要求。现状实现是**一个真实存在、比表面看起来更完整的确定性子系统**,但不是按"LLM 每层手动重新发起状态查询"的方式实现的——而是把大部分逻辑下沉成了 Go 引擎里的确定性计算 + 事后自动注入,LLM 主要负责"调用 trace_query"和"写叙述性总结"两件事。逐条满足度:
+用户提出的目标方法论共 9 条规则(R1-R9,见上方背景)。现状实现是**一个真实存在、比表面看起来更完整的确定性子系统**,但不是按"LLM 每层手动重新发起状态查询"的方式实现的——而是把大部分逻辑下沉成了 Go 引擎里的确定性计算 + 事后自动注入,LLM 主要负责"调用 trace_query"和"写叙述性总结"两件事。**v7 已把 §4 里可精确定位、风险可控的高优先级 gap(O1/O3/O7/O9/O10)修复并补测试,O2 复核后判定不是真缺口撤销,O4/O6 明确推后到下一批**,以下是修复后的最新满足度:
 
 | # | 要求(对应规则) | 满足度 | 一句话 |
 |---|---|---|---|
 | 1 | 窗口内各状态时长 Top-N 识别 + typed handoff(R2/R3) | **基本满足** | `buildStateDrilldownPlan` 是真实的窗口级 Top-N,但没有"占比阈值",只有数量硬顶(12) |
 | 2 | 碎片化状态聚类后 Top-N 不递归但仍 typed handoff(R4) | **部分满足** | 只对"碎片化 sleep"做了非递归例外,碎片化 runnable/D-state/IO 的 `Recursive` 标志仍是 true(标签层面),但底层引擎本来就不会为它们递归(见 #3) |
-| 3 | on-chain 关联线程递归下钻直到根因(R5/R5a/R5b/R5c) | **部分满足,比初判更完整** | `expandChain` 图遍历只对 Sleep→Wakeup 边递归(MaxDepth=10,带环检测);但 Running(算力供给)和 D-state/IO(聚类 inode)通过另一条"并行独立候选流 + on-chain 线程过滤"机制已经把下一跳根因接了上去,唯独 Runnable 的优先级反转比较**没有**接入同一机制,是本次 v2 审计定位到的唯一精确缺口(§2.3.1) |
+| 3 | on-chain 关联线程递归下钻直到根因(R5/R5a/R5b/R5c) | **基本满足(v7 已修复)** | `expandChain` 图遍历只对 Sleep→Wakeup 边递归(MaxDepth=10,带环检测);Running(算力供给)和 D-state/IO(聚类 inode)通过另一条"并行独立候选流 + on-chain 线程过滤"机制接了下一跳根因;Runnable 的优先级反转比较此前缺失,v7 已用 `applyRunnableTopPriorityInversion` 接上(§2.3.1) |
 | 4 | 固化线程ID+时间窗触发主链根因下钻(而非浅层 grep)(R1) | **架构性满足(soft-guidance-by-design)** | 没有 typed pin 载体和硬门,只有 prompt 软引导"prefer trace_query before grep";但这本身符合仓库自己的"精确信号才能做硬门"红线,不算缺陷 |
 | 5 | 逐层根因分析后,在用户时间窗内投影汇总 + 最终总结(R6) | **基本满足** | `TraceCausalProjection` 是真实的、跨越整个 Turn A 调用历史的确定性聚合,并且**无条件自动注入**到最终答案文档(不依赖 LLM 主动引用);但不显式裁剪到用户最初声明的时间窗,且注入的是结构化 fact sheet 而非叙述性总结 |
-| 6 | JIT/VerifyClass/shader 特殊通道,占比再低也必须 handoff,且不干扰通用根因分析(R7) | **基本满足,审计期间刚被强化** | 审计过程中,仓库在 `ed109f7f`(09:20)新增了完全独立于 `root_cause_rank` 排名的 `trace_semantic_span` typed observation 通道 + 专属"确定性优化点"渲染区块,并有 golden test 证明"即使不进 root_cause_rank 候选池也照样 handoff"。**唯一仍未解决的口子**:更上游的 `computeTraceMarks(idx, q, 8)` 仍按原始时长硬顶 8 条,不感知语义类别,极端情况下短 JIT span 可能在语义分类之前就被淘汰 |
+| 6 | JIT/VerifyClass/shader 特殊通道,占比再低也必须 handoff,且不干扰通用根因分析(R7) | **满足(v7 已修复上游口子)** | 仓库此前新增了完全独立于 `root_cause_rank` 排名的 `trace_semantic_span` typed observation 通道 + 专属"确定性优化点"渲染区块,并有 golden test 证明"即使不进 root_cause_rank 候选池也照样 handoff"。此前唯一未解决的口子——`computeTraceMarks(idx, q, 8)` 按原始时长硬顶 8 条、不感知语义类别——v7 已用 `boundTraceMarkSpans` 给语义 span 单独留 16 个名额修复(§2.6.3) |
 | 7 | 严格遵守用户显式时间窗,不因 VSYNC/帧边界误缩窗(R8) | **满足** | `resolveSpanWindowsForQuery`/`ResolveFrameTarget`/`traceQueryShouldAutoWindowFromPattern` 三处窗口推导入口都以"用户是否已显式给出 time_start/time_end(哪怕只给一个)"为精确开关,一旦显式给出就直接透传、不做任何再计算;`interestingIntervals`(wakeup_chain 内部)不改写窗口边界本身,但会把窗口内的分析切成 Top-`MaxBranches`(默认 8)个"最值得看"的子区间,存在"窗口没变但深度覆盖被裁剪"的相关风险,详见 §2.9 |
-| 8 | 帧信息 + 显式时间窗同时给出时取并集,不能二选一丢数据(R9) | **不满足** | 全仓未找到任何对两个来源的时间窗做并集(min start / max end)的代码;当前行为是"两者都给时只用用户显式窗口,派生窗口的信息被完全丢弃"(`resolveSpanWindowsForQuery`)或"只用显式窗口,`WindowSource=query_window`,派生窗口逻辑整体不触发"(`ResolveFrameTarget`),精确定位见 §2.9,已列入 O9 |
+| 8 | 帧信息 + 显式时间窗同时给出时取并集,不能二选一丢数据(R9) | **满足(v7 已修复)** | `ResolveFrameTarget` 一侧此前已并集;`resolveSpanWindowsForQuery`(`span_name` + 显式窗口)一侧 v7 用同一个（已提升为通用的）`unionTimeWindows` 补上,不再是"两者都给就只用显式窗口、丢弃 span 自身边界"(§2.9.2) |
 | 9 | 测试覆盖 / load-bearing 程度 | **中等,呈碎片化** | 单元测试丰富且断言具体(非仅 JSON 存在性),但没有一条贯穿"低影响 JIT span → 候选产生 → 排序截断 → finalize → 最终渲染文本"的端到端 golden fixture;仓库无 CI,回归全靠人工 `go test` |
 
 审计期间(约 2026-07-01 02:44 – 09:38)仓库有 20+ 次相关提交,说明该子系统正处于**主动收敛**状态,而不是静止的历史欠账;#6 的核心口子在审计过程中被实时补上,这提示优化方向本身与仓库现有开发节奏是一致的。
@@ -134,7 +144,7 @@ func stateDrilldownNeedsWakeupChainForSource(state, source string) bool {
 
 碎片化 sleep churn 的 `RecommendedViews` 也换成了非递归的 `thread_timeline`/`interaction_stats`/`window_stats`(query.go:3921-3926),与"避免扩散"完全一致,并有专门测试 `TestStreamStateClusterPreservesParentWindowStatePriorities`(`internal/tracequery/tracequery_test.go`,2026-07-01 当天新增)锁定这个矩阵。
 
-**缺口**:碎片化 runnable / D-state / IO-wait churn 目前仍落到 `stateDrilldownNeedsWakeupChain(state)` 的通用分支,对 Runnable/DSleep/IOWait 返回 `true`,也就是 `Recursive: true`。但见 §2.3,底层 `expandChain` 引擎本来就只对 Sleep 状态真正递归,所以这个 `Recursive: true` 标签对碎片化 runnable/D-state/IO-wait 而言存在"言过其实"的问题:调用方看到 `recursive: true` 可能会尝试进一步下钻,但引擎侧并没有对应的确定性递归路径承接。建议把 `stateDrilldownNeedsWakeupChainForSource` 的 sleep-only 特判**推广到所有 state_churn 来源**,与"碎片化状态一律不递归"的意图对齐,同时保留 typed handoff(这部分已经做到)。
+**v7 复核撤销此前的"缺口"判定**:碎片化 runnable / D-state / IO-wait churn 仍落到 `stateDrilldownNeedsWakeupChain(state)` 的通用分支,对 Runnable/DSleep/IOWait 返回 `true`(`ChainRequired`/`Recursive: true`)。此前(v1-v6)认为这是"言过其实"的标签,建议把 sleep-only 特判推广到所有 state_churn 来源。**动手前先跑了既有测试 `TestStateDrilldownRuleMatrixPinsRecentTracePolicies` 复核**,发现推广会直接破坏该测试对 fragmented-runnable/fragmented-IO 的显式断言(`ChainRequired=true`/`Recursive=true` + `scheduler_latency_stats`/`critical_blocking_calls`)。深入核实后判定**原诊断是误判**:`ChainRequired`/`Recursive=true` 这个标志的真实含义是"该候选的根因解释需要额外的调度/阻塞上下文 view",不是"会触发 `expandChain` 那种多跳图遍历"——Runnable/D-state/IO-wait 对应的 `scheduler_latency_stats`/`critical_blocking_calls` 都是**单次有界聚合 view**,不像 Sleep 对应的 `wakeup_chain` 那样是递归展开,调用多少次都不会"扩散";只有碎片化 **sleep** churn 需要非递归特判,是因为它唯一对应的下一步 view(`wakeup_chain`)才是真正的多跳递归。因此现状(只对碎片化 sleep 特判)是正确设计,**未做代码改动**,已用该测试重新确认锁定。
 
 ### 2.3 on-chain 关联线程递归下钻(要求 3,对应 R5)
 
@@ -164,7 +174,7 @@ case StateRunning:
 
 **递归只在 `StateSSleep` 分支真正调用自身**(`expandChain(...depth+1...)`)。当锚定线程(或链上任意一跳线程)的主导状态是 Runnable/D-state·IO-wait/Running 时,`expandChain` 本身把它当作图遍历的终止节点。但这**不等于**"这三种状态就没有下一跳根因分析"——`buildRootCauseRankFrom` 另外维护了一套**并行独立候选流**(compute_supply、cpu_affinity_or_cpuset、file_io_hot_inode、block_io_by_inode、page_cache_churn 等),每条候选都用 `onChain := threadInSet(chainThreads, thread)` 检查该候选的线程是否等于锚定目标本身或已被 sleep 链发现的线程,命中则以 `on_chain` 优先级进入统一排序。也就是说:对"锚定线程自己"这一层(depth=0,天然在 `chainThreads` 里),Running/D-state/IO 已经有实质性的下一跳数据;真正的空白只在"是否识别出优先级反转"这一件事上(Runnable,§2.3.1)。以下按状态逐一说明现状,对应用户这次追加的三点要求。
 
-#### 2.3.1 Runnable 下一跳:优先级反转(含鸿蒙/东湖优先级语义,对应 R5a)——**确认为精确缺口**
+#### 2.3.1 Runnable 下一跳:优先级反转(含鸿蒙/东湖优先级语义,对应 R5a)——**v7 已修复**
 
 基础设施是真实存在的,而且**已经正确区分了鸿蒙/东湖与 Android 的优先级语义**:
 
@@ -203,6 +213,8 @@ for _, td := range stats.RunnableTop {
 这条路径**完全没有调用 `priorityRelation`/`dependencyPriorityRelation`**,`durationCPUDetail`(query.go:11216)也只拼 `cpu=X freq=Ykhz`,不含任何优先级字段。同一文件里已经存在的"同 CPU 竞争者识别"能力(`appendRootCauseRunnableCompetitorPerfContexts`,query.go:7015,复用 `stats.CPUPressure.TopRunning`/`SameCPUTopRunning` 找出具体是哪个线程占着 CPU)也只附加了该竞争者的 **perf 采样上下文**(它在跑什么代码),同样没有把竞争者的调度优先级取出来和当前线程比较。
 
 **结论**:优先级反转判定的算法原语(含鸿蒙/东湖语义区分)已经写好且被验证过(在 sleep 链场景下),只是没有被接到"目标线程自己直接 Runnable"这条最常见的路径上。这是本次 v2 审计里最精确、最容易修的一个缺口——不需要新造机制,只需要把已有的 `dependencyPriorityRelation` 喂给 `runnable_wait`/`cpu_affinity_or_cpuset` 候选构造,对象是 `appendRootCauseRunnableCompetitorPerfContexts` 已经找到的同 CPU 竞争者。见 §4-O3a。
+
+**v7 修复**:新增 `applyRunnableTopPriorityInversion`(query.go,`durationCPUDetail` 旁),在 `stats.RunnableTop` 循环内对每个 `runnable_wait` 候选调用 `runnableContextForThread(td.Thread, stats.RunnableContext)` 取出已经解析好的 `SameCPUTopRunning[0]`(同 CPU 竞争者,复用既有原语,不重新实现"找竞争者"逻辑),再用 `threadPriorityNear` + `dependencyPriorityRelation(q.TraceFlavor, targetPrio, competitorPrio, 1)` 判定;命中 `lower_priority_dependency` 时把 `item.Type` 重分类为 `priority_inversion_runnable_wait`(该类型已在 `rootCauseShouldBeCoPrimary`/tier 分配逻辑里被消费,只是此前从未被这条路径产出过,纯粹是接线工作)。`TestRootCauseRankFlagsRunnableTopPriorityInversion` 用鸿蒙优先级语义(数值越大优先级越高)构造"高优先级 app 被低优先级 rival 占着 CPU"场景,断言重分类为 `priority_inversion_runnable_wait` 且在 on-chain 时正确升为 `tier=primary`;`TestRootCauseRankDoesNotFlagHigherPriorityCompetitorAsInversion` 复用已有 `schedulerLatencyTrace`(高优先级 rival 合法抢占低优先级 app)断言不会被误判为反转。
 
 #### 2.3.2 Running 下一跳:算力供给 + perf_sample 深挖 + 代码对照(对应 R5b)——**基本满足,一处架构性权衡**
 
@@ -315,7 +327,7 @@ func rootCauseShouldBeCoPrimary(item RootCauseRankItem) bool {
 2. `TraceCausalProjection` 新增独立字段 `SemanticSpans`(当前 cap 16,`traceCausalProjectionIsSemanticSpan` 按 `predicate=="trace_semantic_span"` 分类,不与 `PrimaryRootCauses` 混在一起)。
 3. `runtimeTraceCausalProjectionItems` 里新增专属渲染分支,标签是 **"确定性优化点" / "Deterministic optimization point"**(与用户原话"确定性的优化点"字面一致),并且把原来写死的 "最多 6 条" 上限改成动态 `runtimeTraceCausalProjectionItemLimit`。初始扩容按 `primary+semantic+hops` 需求量在 12~36 之间浮动; 2026-07-01 二次扩容后进一步变为 16~48,同时 primary 展示扩到 10、semantic bucket 扩到 16、`trace_query 关键观测核对`扩到 40 行。这样主链和确定性优化点优先保真,adjacent/background 仍以 bounded summary 呈现,避免语义 span 与其它条目抢位置被挤掉。
 
-#### 2.6.3 仍未解决的口子:`computeTraceMarks(idx, q, 8)` 的上游硬顶
+#### 2.6.3 上游口子:`computeTraceMarks(idx, q, 8)` 的原始硬顶——**v7 已修复**
 
 即使有了上面这条独立通道,所有语义 span 观测都要先从 `WindowStats.TraceSpans` 里取——而这个字段的唯一来源 `computeTraceMarks(idx, q, 8)`(query.go:1349)在语义分类**之前**就按**原始 `DurationMs` 降序**把 span 列表硬切到 8 条(query.go:4544-4549):
 
@@ -328,6 +340,8 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 ```
 
 如果一个窗口里同时存在 8 条以上耗时更长的普通具名 span(比如 `Choreographer#doFrame`、`RSRenderTask` 等常见渲染管线 span)和一条耗时很短的 `JIT compile`/`VerifyClass` span,后者会在语义分类逻辑跑之前就被排除出 `stats.TraceSpans`,从而**永远不会**进入 §2.6.2 描述的独立通道,也不会进入 §2.6.1 的 root_cause_rank 候选池。这是当前审计范围内**唯一残留的、精确定位到具体代码行的口子**,详见 §4 优化建议 O1。
+
+**v7 修复**:新增 `boundTraceMarkSpans`(query.go,`computeTraceMarks` 排序之后调用),在原有"普通 span 硬顶 8 条"截断**之前**先按 `traceSpanSemanticWorkClass(span.Name)` 把语义类 span 单独摘出,generic 与 semantic 两组分别截断(generic 仍旧 8 条,semantic 另设 `traceMarkSemanticSpanCap=16`,与下游 `TraceCausalProjection.SemanticSpans` 当前 cap 对齐,避免"这一层留住了、下一层又被截"),合并后重新按时长排序返回。`TestComputeTraceMarksReservesSlotForShortSemanticSpanBehindLongerGenericSpans` 构造 9 条 10ms 的普通 span + 1 条 1ms 的 `VerifyClass` span,断言普通 span 仍被截到 8 条、但语义 span 独立存活,总计 9 条。
 
 ### 2.7 固化线程ID+时间窗触发深度下钻(要求 4,对应 R1)
 
@@ -391,7 +405,9 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 
 这条风险和 R8 的字面场景("因为 VSYNC 就缩小窗口")不完全等价——`res.Window` 报告给上游的元数据是准的,没有被 VSYNC 直接改写;但当窗口内确实存在一次 VSYNC 触发的短暂唤醒把目标线程的睡眠切成两段时,这套机制会把它们当成两条独立分支分别下钻,而不是把整个窗口当成一个统一的分析单元,且 Running 段完全跳过链式展开。是否需要修正取决于产品对"深度覆盖"这个更细粒度问题的容忍度,已经和窗口边界问题(R8 严格意义上已满足)分开记录,不建议混为一谈。
 
-#### 2.9.2 R9:帧信息 + 显式时间窗同时给出时的并集——**未实现,是本轮审计发现的新缺口**
+**v7 修复(caveat-only,不改变截断算法)**:`interestingIntervals` 新增第二个返回值——截断前的合格候选总数;`buildWakeupChainWithCache` 在合格总数大于实际展开的 `branches` 数量时追加一条 caveat,明确写出"目标线程有 N 个候选状态段,只有 M 个(按时长/状态优先级)被展开进唤醒链,K 个较低排名的候选未被递归"。这只是把此前完全静默的裁剪变得可观测,不改变默认 `MaxBranches=8` 或排序算法本身——是否需要提高上限留给后续基于真实案例判断(见 §4-O10)。`TestWakeupChainCaveatsWhenBranchesExceedMaxBranches` 复用既有 `fragmentedChurnTrace`(9 段 runnable 区间超过默认上限 8)断言 caveat 出现,`TestWakeupChainNoCaveatWhenBranchesFitMaxBranches` 断言候选数不超限时没有噪音。
+
+#### 2.9.2 R9:帧信息 + 显式时间窗同时给出时的并集——**v7 已修复剩余的 `resolveSpanWindowsForQuery` 一侧**
 
 对着 §2.9.1 列出的三处入口重新看一遍"两者都给"的场景:
 
@@ -400,6 +416,8 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 - 全仓搜索(`internal/tracequery/*.go`、`internal/tool/trace_query.go`)没有找到任何对两个时间来源做 `min(startA, startB)` / `max(endA, endB)` 或等价并集操作的代码,`TimeWindow` 结构体本身也没有提供"合并两个窗口"的辅助函数。
 
 **结论**:当前实现在"用户同时给了帧信息和显式时间窗"这个场景下的行为是**"显式窗口整体胜出,帧信息只用来定位/校验目标线程,不参与窗口范围计算"**——这满足了 R8(不会因为帧信息把窗口缩得比用户给的更小),但不满足 R9(帧信息暗示的、可能比用户窗口更大的范围,不会被并入分析)。如果用户给的时间窗因为记忆/换算误差而比实际帧窗口略窄,当前实现会**忠实地只分析用户给的那部分**,不会自动把帧的完整范围补进来——这是本轮审计**新发现、此前未记录**的一个精确缺口,已列入 §4 的 O9。
+
+**v7 修复**:`ResolveFrameTarget` 一侧此前已经由一次并行提交修复(见 §6 的 `acc70dbc`),新增了 `unionFrameTargetWindows` 并接到 `frameTargetQueryHasExplicitSelectorWindow` 分支。v7 把这个函数**提升为通用的 `unionTimeWindows`**(改名,单一调用点改双调用点,行为不变,只补了一行文档注释)并接到 `resolveSpanWindowsForQuery`:当 `explicitStart && explicitEnd` 为真且唯一匹配到一个 span 时,不再直接 `return spans, caveats`,而是用 `unionTimeWindows(explicitWindow, spanWindow)` 计算并集,只有并集确实比显式窗口更宽时才改写 `q.TimeStart`/`q.TimeEnd` 并追加一条"preserved explicit query window ... unioned it with matched span ..." caveat(并集等于原窗口时保持静默,不产生噪音)。`TestSpanWindowExplicitQueryWindowUnionsMatchedSpanWindow` 断言窄显式窗口被并集扩展到完整 span 边界,`TestSpanWindowExplicitQueryWindowAlreadyCoveringSpanIsUnchanged` 断言显式窗口已覆盖 span 时保持不变且无多余 caveat。
 
 ---
 
@@ -424,17 +442,19 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 
 ## 4. 优化建议(按优先级排序)
 
-**O1(最高优先级,精确定位到代码行)——让 `computeTraceMarks` 的 Top-N 截断感知语义类别。**
+**O1(最高优先级,精确定位到代码行)—— ✅ v7 已修复 —— 让 `computeTraceMarks` 的 Top-N 截断感知语义类别。**
 现状:`internal/tracequery/query.go:4544-4549`,纯按 `DurationMs` 降序截 8 条。
 建议:在截断前先跑一遍 `traceSpanSemanticWorkClass` 分类,把命中 4 种语义类的 span 单独摘出、不占用普通 8 条名额,合并后再返回(例如"8 条普通 + 至多 N 条语义类,语义类不参与普通 8 条的时长排序竞争")。这样可以让 §2.6 已经建好的整条独立 handoff 链路(候选产生→typed observation→projection→"确定性优化点"渲染)真正做到"占比再低也不会在最上游被淘汰",而不是"占比不高但至少排进前 8 才行"。
+**v7 落地**:新增 `boundTraceMarkSpans`,语义 span 单独 cap=16,详见 §2.6.3。`TestComputeTraceMarksReservesSlotForShortSemanticSpanBehindLongerGenericSpans` 锁定。
 
-**O2 —— 把碎片化状态的"非递归"例外从 sleep 推广到 runnable/D-state/IO-wait。**
+**O2 —— ❌ v7 复核后撤销(不是真缺口)—— 把碎片化状态的"非递归"例外从 sleep 推广到 runnable/D-state/IO-wait。**
 现状:`stateDrilldownNeedsWakeupChainForSource`(query.go:3943)只对 `state_churn + StateSSleep` 返回 `false`。
-建议:改成 `if source == "state_churn" { return false }`(所有碎片化聚类状态一律标记非递归),与 `expandChain` 实际只对 Sleep 递归的事实(§2.3)对齐,避免 `Recursive: true` 标签对 LLM 产生误导性期望。这是一处纯粹的一致性修复,风险低。
+~~建议:改成 `if source == "state_churn" { return false }`~~ —— **v7 动手前先跑了 `TestStateDrilldownRuleMatrixPinsRecentTracePolicies`,发现这个改动会破坏该测试对 fragmented-runnable/fragmented-IO 的显式断言。深入核实后判定原诊断误判了 `Recursive` 标志的含义(它标的是"需要额外单次有界聚合 view",不是"会触发像 `wakeup_chain` 那样的多跳递归"),现状是正确设计,详见 §2.2 更新。未做代码改动。**
 
-**O3(第二高优先级,精确定位到代码行,v2 新增)—— 把已有的优先级比较原语接到 Runnable 的直接候选构造上。**
+**O3(第二高优先级,精确定位到代码行,v2 新增)—— ✅ v7 已修复 —— 把已有的优先级比较原语接到 Runnable 的直接候选构造上。**
 现状(§2.3.1):`priorityRelation`/`dependencyPriorityRelation`(query.go:10280-10314)已经是正确的、鸿蒙/东湖与 Android 分流的优先级比较原语,`PriorityInversionCandidate` 标志也已验证可用——但只在 `expandChain` 的 sleep 链节点上被调用。`stats.RunnableTop` 直接构造的 `runnable_wait` 候选(query.go:6696-6706)完全没有调用它,`durationCPUDetail`(query.go:11216)只输出 `cpu=`/`freq=`,不含优先级;同 CPU 竞争者虽然已经能被 `appendRootCauseRunnableCompetitorPerfContexts`(query.go:7015)识别出来,但只附加了竞争者的 perf 采样上下文,没有把它的调度优先级取出来比较。
 建议:在构造 `runnable_wait`(及 `cpu_affinity_or_cpuset`)候选时,对 `appendRootCauseRunnableCompetitorPerfContexts` 已经找到的同 CPU 竞争者调用 `cache.priorityNear` 取其优先级,再用 `dependencyPriorityRelation(q.TraceFlavor, td.Priority, competitor.Priority, 0)` 判定是否 `lower_priority_dependency`,命中则和 sleep 链一样标记 `PriorityInversionCandidate=true`、`type=priority_inversion_runnable_wait`。这是纯粹的"接线"工作,不需要新造算法,风险低、收益直接对应用户提出的诉求。
+**v7 落地**:新增 `applyRunnableTopPriorityInversion`,复用 `runnableContextForThread`(而非 `cache.priorityNear`,因为这条路径没有 `chainQueryCache`,改用等价的无缓存版本 `threadPriorityNear`),详见 §2.3.1。
 
 **O3b(低优先级,软引导型,v2 新增)—— 给 Running/compute_supply 主根因加一条"去对照代码"的软引导。**
 现状(§2.3.2):算力供给判定(`computeSupplyVerdict`)和 perf_sample 分析本身已经足够深入,"perf 符号 → 当前仓库源码"的对照是刻意不自动化的架构选择(避免 trace 证据和当前源码证据被误拼)。
@@ -454,24 +474,29 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 **O6(文档性,不涉及代码)—— 在 `docs/architecture.md` §7.2 或新增一节里补充 trace_query 的分层下钻方法论。**
 现状 `docs/architecture.md` 只描述了 perf_triage 前置阶段,`trace_query` 这个约 22000 行、承载了本文档描述的几乎全部机制的核心引擎,在架构文档里没有对应章节。建议后续补一节纲要性描述(不需要本文档这么细),至少让新加入的开发者知道"状态优先 Top-N""on-chain 递归""语义 span 独立通道"这三个设计存在,避免未来重复发明或无意破坏。
 
-**O7(低成本、高价值,v3 新增)—— 给语义 span 识别加一条内核态兜底信号,降低对用户态命名习惯的依赖。**
+**O7(低成本、高价值,v3 新增)—— ✅ v7 已修复(caveat 部分)—— 给语义 span 识别加一条内核态兜底信号,降低对用户态命名习惯的依赖。**
 现状(§2.8):`jit_compile`/`class_verification`/`shader_compile`/`runtime_compile` 全部靠对 `trace_mark` 里的 span 名字做文本模式匹配(`traceSpanLooksLikeJITCompile` 等),没有任何内核态结构化事件兜底;如果应用/ArkCompiler/ROM 版本升级后打点字符串命名习惯改变,识别会静默失效且无法被现有测试发现(现有测试固定用标准命名造 fixture,不会检测命名漂移)。
 建议:短期低成本方案是在 `traceSpanSemanticWorkClass` 命中/未命中两侧都打一条可观测的 caveat(比如"检测到形如编译/校验语义但未匹配已知模式的 span,可能是新命名"),给 LLM 和后续维护者一个"模式可能过期了"的信号;中期可以考虑允许通过 `codrax.yaml` 追加自定义模式列表,而不是把所有命名规则硬编码在 Go 源码里。
+**v7 落地短期方案**:新增 `traceSpanNearMissesSemanticWorkClassification` + 有界(≤3 例)caveat,详见 §2.8。中期的 `codrax.yaml` 自定义模式扩展仍是开放项,未在本批处理。
 
 **O8(信息性,v3 新增)—— 视需要给 Workqueue/DMA Fence 补充结构化字段提取。**
 现状(§2.8):这两类事件目前只有计数(`WorkqueueEventCount`/`DMAFenceEventCount`),没有像 Binder/Block IO 那样的专属结构化字段,细节要靠 LLM 自己读原始行文本。这两类事件目前不在用户提出的 7 条规则直接覆盖范围内,暂不建议单独立项,仅记录在案供后续如果有具体案例需要(比如 workqueue 延迟成为某次丢帧根因)时参考。
 
-**O9(第二高优先级,精确定位到代码行,v6 新增)—— 给"帧信息 + 显式时间窗同时给出"的场景补上并集逻辑。**
+**O9(第二高优先级,精确定位到代码行,v6 新增)—— ✅ v7 已修复 —— 给"帧信息 + 显式时间窗同时给出"的场景补上并集逻辑。**
 现状(§2.9.2):`resolveSpanWindowsForQuery`(query.go:4606-4608)在 `explicitStart && explicitEnd` 为真时直接返回,不读取匹配到的 span 自身边界;`ResolveFrameTarget`(query.go:8603-8616)在显式给了 pid/thread 时直接用 `query_window`,不去看 `frame_timeline` 里对应帧候选的实际起止时间。两处都没有对"用户显式窗口"与"帧信息推导窗口"做并集。
 建议:给 `TimeWindow` 加一个 `UnionTimeWindow(a, b TimeWindow) TimeWindow`(`start=min(a.Start,b.Start)`、`end=max(a.End,b.End)`)辅助函数,在上述两处"两个来源都存在"的分支里调用它,而不是直接 early-return / 直接用 query_window;`WindowSource` 相应地增加一个 `explicit_window_union_frame_window` 之类的取值,方便下游区分"纯显式"和"并集后"两种情况,不破坏 §2.9.1 已经确认满足的 R8 行为(纯显式窗口、没有帧信息时不受影响)。
+**v7 落地**:`ResolveFrameTarget` 一侧此前已由并行提交(`acc70dbc`)修复;v7 把它的 `unionFrameTargetWindows` 提升为通用 `unionTimeWindows` 并接到 `resolveSpanWindowsForQuery`,详见 §2.9.2。
 
-**O10(低优先级,v6 新增)—— 视情况评估是否需要让 wakeup_chain 的 `branches` 覆盖用户整个显式窗口,而不是只取 Top-`MaxBranches`。**
+**O10(低优先级,v6 新增)—— ✅ v7 已修复(caveat-only 部分)—— 视情况评估是否需要让 wakeup_chain 的 `branches` 覆盖用户整个显式窗口,而不是只取 Top-`MaxBranches`。**
 现状(§2.9.1):`interestingIntervals`(query.go:10324-10381)把目标线程在用户窗口内的时间线按状态打分后只保留 Top `MaxBranches`(默认 8)个非-Running 区间进入 `expandChain` 递归展开,`res.Window` 元数据本身没有被收窄,但递归下钻的实际覆盖深度可能小于用户给定的整个窗口范围,且 Running 区间被无条件跳过链式展开(仍可通过独立候选流 §2.3.2 看到)。
 建议:这是一个比 O9 更值得先观察真实案例再决定是否要动的问题——如果后续在具体丢帧案例里发现"因为 MaxBranches=8 截断导致真正的根因区间被漏掉"的实例,再考虑提高默认 `MaxBranches`、或者在 `res.Caveats` 里显式提示"目标线程窗口内被裁剪掉 N 个候选区间"(当前没有这类 caveat,裁剪是完全静默的),让 LLM/用户至少能感知到覆盖不完整,而不是贸然改变递归展开的算法本身。
+**v7 落地建议的 caveat 部分**:`interestingIntervals` 现在返回截断前的合格总数,`buildWakeupChainWithCache` 据此追加可观测 caveat,详见 §2.9.1。是否提高默认 `MaxBranches` 仍留给后续基于真实案例判断,未在本批处理。
 
 ---
 
 ## 5. 附录:关键文件/函数索引
+
+> v7 之后行号已因插入代码而普遍漂移(query.go 净增约 150 行),以下仅保留函数名作稳定锚点,不再逐一核对行号;需要精确定位时以函数名 grep 为准。
 
 | 主题 | 文件 | 关键符号 |
 |---|---|---|
@@ -480,17 +505,21 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 | 递归因果链(仅 sleep) | `internal/tracequery/query.go` | `expandChain`(9920)、`q.MaxDepth` 默认值(611-612) |
 | 候选合并/排序/tier | `internal/tracequery/query.go` | `buildRootCauseRankFrom`(6537)、`sortRootCauseRankItems`(7373)、`assignRootCauseRanksAndTiers`(8371)、`rootCauseShouldBeCoPrimary`(8382) |
 | 优先级反转(仅 sleep 链接线,v2) | `internal/tracequery/query.go` | `priorityRelation`(10298)、`dependencyPriorityRelation`(10280)、`PriorityInversionCandidate`(10090)、`causalImpactIsPrioritySensitiveRoot`(10146) |
-| Runnable 直接候选(未接优先级,v2) | `internal/tracequery/query.go` | `runnable_wait` 构造(6696)、`durationCPUDetail`(11216)、`appendRootCauseRunnableCompetitorPerfContexts`(7015) |
+| Runnable 直接候选优先级反转(v7 已接) | `internal/tracequery/query.go` | `runnable_wait` 构造循环、`applyRunnableTopPriorityInversion`(v7 新增)、`durationCPUDetail`、`appendRootCauseRunnableCompetitorPerfContexts` |
 | Running/Runnable 算力供给(v2) | `internal/tracequery/query.go` | `computeSupplySummaries`(3231)、`computeSupplyVerdict`(3300) |
 | IO 聚类 inode(v2) | `internal/tracequery/query.go` | `file_io_hot_inode` 构造(6594)、`block_io_by_inode` 构造(6658) |
 | 语义 span 识别 | `internal/tracequery/query.go` | `traceSpanSemanticWorkClass`(9020)、`rootCauseItemFromSemanticTraceSpan`(7597) |
-| 语义 span 上游截断(口子所在) | `internal/tracequery/query.go` | `computeTraceMarks`(4485,调用处 1349:`max=8`) |
+| 语义 span 上游截断(v7 已修复) | `internal/tracequery/query.go` | `computeTraceMarks`(调用 `boundTraceMarkSpans`,v7 新增,`traceMarkSemanticSpanCap=16`) |
 | 语义 span 独立 typed 通道(今日新增) | `internal/tool/trace_query.go` | `traceQueryTypedSemanticTraceSpanObservations` |
 | ObservationLedger 解析 | `internal/types/observation_ledger.go` | `traceQueryStateDrilldownRecord`(2214)、`traceQueryRootCauseRankRecord`(1914) |
 | 时间窗投影 | `internal/types/trace_causal_projection.go` | `CompileTraceCausalProjection`(64)、`TraceCausalProjection` struct(22) |
 | 自动注入最终文档 | `internal/tool/answer_document_mutation_runtime.go` | `persistMergedAnswerDocument`(119)、`materializeRuntimeTraceCausalProjectionBlock`(664) |
 | 软引导 prompt | `internal/skill/defaults.go` | "TRACE QUERY:"(100)、"TRACE SEMANTIC SPAN ROOT CAUSES:"(105) |
 | view teaching 表 | `internal/skill/trace_query_views.go` | `TraceQueryViewTeachings` |
+| Running/compute_supply 代码对照软引导(v7 新增,O3b) | `internal/skill/defaults.go` | "TRACE RUNNING/COMPUTE-SUPPLY CODE CROSS-REFERENCE:" |
+| 语义 span 命名漂移 caveat(v7 新增,O7) | `internal/tracequery/query.go` | `traceSpanNearMissesSemanticWorkClassification` |
+| 帧信息+显式窗口并集(v7 已修复,O9) | `internal/tracequery/query.go` | `unionTimeWindows`(原 `unionFrameTargetWindows` 改名),`resolveSpanWindowsForQuery` 新分支 |
+| 递归展开截断 caveat(v7 新增,O10) | `internal/tracequery/query.go` | `interestingIntervals`(新增 `qualifying` 返回值)、`buildWakeupChainWithCache` |
 | 显式窗口透传(R8,已满足,v6) | `internal/tracequery/query.go` | `resolveSpanWindowsForQuery`(4598,`explicitStart && explicitEnd` 早退 4606-4608)、`ResolveFrameTarget`(8601,`explicit_query_target` 分支 8603-8616)、`applyFrameTargetResolution`(8767) |
 | 自动窗口推导开关(仅无窗口时触发,v6) | `internal/tracequery/query.go` / `internal/tool/trace_query.go` | `Run` 里 `FrameWindowAutoDerived` 置位(query.go:23-28)、`traceQueryShouldAutoWindowFromPattern`(tool/trace_query.go:475)、`traceQueryHasExplicitIndexWindow`(tool/trace_query.go:1079) |
 | 窗口内深度覆盖裁剪(R8 相关但不同,v6) | `internal/tracequery/query.go` | `interestingIntervals`(10324,Top-`MaxBranches` 截断 10365-10367,Running 跳过 10350-10352)、`buildWakeupChainWithCache`(6097) |
