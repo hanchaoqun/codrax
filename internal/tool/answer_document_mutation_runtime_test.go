@@ -732,9 +732,10 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 
 // TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad pins the
 // full presentation-gap coverage (§7 c/d/e) end-to-end in the rendered markdown:
-// a sleep-dominant node is marked a symptom and drilled to its non-sleep root
-// (gap d), an undrillable missing_wakeup sleep is explicitly flagged (gap e), and
-// the duration triad (cum/proj/eff/act) renders with magnitude bars (gap c).
+// a sleep-dominant node is marked a symptom and drilled to its direct typed
+// waker (gap d), an undrillable missing_wakeup sleep is explicitly flagged
+// (gap e), and the duration triad (cum/proj/eff/act) renders with magnitude
+// bars (gap c).
 func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
@@ -765,6 +766,11 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 				Object: "worker-200 -> app-100",
 			},
 			{
+				ID: "edge-worker-app", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+				GroundingPolicy: types.ClaimGroundingHard, Predicate: "wakeup_chain_edge", ClaimKey: "wakeup_chain_edge:worker-200->app-100",
+				Subject: "worker-200", Object: "app-100",
+			},
+			{
 				ID: "tool:1#trace_query:root_evidence:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
 				GroundingPolicy: types.ClaimGroundingHard, ClaimKey: "root_evidence:missing_wakeup", Predicate: "missing_wakeup",
 				Subject: "app-100", Value: "2.100", Unit: "ms", Span: types.ObservationSpan{LineStart: 88, LineEnd: 96},
@@ -784,8 +790,9 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 			t.Fatalf("duration triad + bar must render (gap c): missing %q:\n%s", want, rendered)
 		}
 	}
-	// gap d: the sleep symptom is marked non-root and drilled to the running root.
-	for _, want := range []string{"💤", "非根因", "下钻→ worker-200 -> running", "下钻到"} {
+	// gap d: the sleep symptom is marked non-root and drilled to its direct
+	// typed waker from the wakeup chain, not a global root.
+	for _, want := range []string{"💤", "非根因", "下钻→ worker-200", "下钻到"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("sleep drilldown must render (gap d): missing %q:\n%s", want, rendered)
 		}

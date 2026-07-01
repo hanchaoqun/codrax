@@ -320,6 +320,108 @@ func TestTraceCausalProjectionPreservesMultiHopPathWithRunningWaker(t *testing.T
 	}
 }
 
+func TestTraceCausalProjectionSleepDrilldownTargetsImmediateWaker(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		traceProjectionTestRootWithNotes("root-app-sleep", "app-100", "sleep_wait", "12.000", 12.0, 0.90, 1, []string{
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+			"chain_depth=0",
+			"dominant_state=s_sleep",
+		}),
+		traceProjectionTestRootWithNotes("root-worker-sleep", "worker-200", "sleep_wait", "8.000", 8.0, 0.88, 2, []string{
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+			"chain_depth=1",
+			"dominant_state=s_sleep",
+		}),
+		traceProjectionTestRootWithNotes("root-threadpool-running", "threadpool-400", "running", "7.000", 7.0, 0.86, 3, []string{
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+			"chain_depth=2",
+			"dominant_state=running",
+		}),
+		{
+			ID:              "path",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: ClaimGroundingHard,
+			Predicate:       "wakeup_chain",
+			ClaimKey:        "wakeup_chain:path",
+			Object:          "threadpool-400 -> worker-200 -> app-100",
+		},
+		{
+			ID:              "edge-worker-app",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: ClaimGroundingHard,
+			Predicate:       "wakeup_chain_edge",
+			ClaimKey:        "wakeup_chain_edge:worker-200->app-100",
+			Subject:         "worker-200",
+			Object:          "app-100",
+		},
+		{
+			ID:              "edge-threadpool-worker",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: ClaimGroundingHard,
+			Predicate:       "wakeup_chain_edge",
+			ClaimKey:        "wakeup_chain_edge:threadpool-400->worker-200",
+			Subject:         "threadpool-400",
+			Object:          "worker-200",
+		},
+	}}
+
+	got := CompileTraceCausalProjection(ledger)
+	app := traceProjectionFindNodeBySubject(got.PrimaryRootCauses, "app-100")
+	worker := traceProjectionFindNodeBySubject(got.PrimaryRootCauses, "worker-200")
+	if app == nil || worker == nil {
+		t.Fatalf("expected app and worker sleep nodes, got %+v", got.PrimaryRootCauses)
+	}
+	if app.DrilldownTarget != "worker-200" || app.DrilldownEvidenceID != "edge-worker-app" {
+		t.Fatalf("app sleep should drill to its immediate waker, got %+v", app)
+	}
+	if worker.DrilldownTarget != "threadpool-400" || worker.DrilldownEvidenceID != "edge-threadpool-worker" {
+		t.Fatalf("worker sleep should drill to its immediate waker, got %+v", worker)
+	}
+}
+
+func TestTraceCausalProjectionSleepDrilldownAmbiguousWakerDoesNotInventTarget(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		traceProjectionTestRootWithNotes("root-app-sleep", "app-100", "sleep_wait", "12.000", 12.0, 0.90, 1, []string{
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+			"dominant_state=s_sleep",
+		}),
+		{
+			ID:              "edge-worker-app",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: ClaimGroundingHard,
+			Predicate:       "wakeup_chain_edge",
+			Subject:         "worker-200",
+			Object:          "app-100",
+		},
+		{
+			ID:              "edge-threadpool-app",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: ClaimGroundingHard,
+			Predicate:       "wakeup_chain_edge",
+			Subject:         "threadpool-400",
+			Object:          "app-100",
+		},
+	}}
+
+	got := CompileTraceCausalProjection(ledger)
+	app := traceProjectionFindNodeBySubject(got.PrimaryRootCauses, "app-100")
+	if app == nil {
+		t.Fatalf("expected app sleep node, got %+v", got.PrimaryRootCauses)
+	}
+	if app.DrilldownTarget != "" || app.DrilldownEvidenceID != "" {
+		t.Fatalf("ambiguous wakers must not produce a hard drilldown target, got %+v", app)
+	}
+}
+
 func TestTraceCausalProjectionKeepsDefaultDepthSupportingHops(t *testing.T) {
 	records := []ObservationRecord{{
 		ID:              "path",

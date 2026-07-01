@@ -1473,11 +1473,11 @@ func (o *Orchestrator) injectResidualConcernsCaveat(out *agent.StageOutput, viol
 	})
 }
 
-func shouldDeferRunEntryRepoGraphWarmup(mode types.PipelineMode, hint types.TurnRouteHint, attachedLog, attachedTrace string) bool {
+func shouldDeferRunEntryRepoGraphWarmup(mode types.PipelineMode, hint types.TurnRouteHint, profile types.RuntimeArtifactPreflightProfile) bool {
 	if mode.Normalize() != types.ModeRead {
 		return false
 	}
-	if strings.TrimSpace(attachedLog) == "" && strings.TrimSpace(attachedTrace) == "" {
+	if !profile.HasRuntimeArtifact() {
 		return false
 	}
 	if hint.IsZero() {
@@ -1765,6 +1765,12 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		TraceID:               fmt.Sprintf("trace-%d", time.Now().UnixNano()),
 		PresentationDirective: presentationDirective,
 		TurnRouteHint:         turnRouteHint,
+		RuntimeArtifactPreflight: runtimeArtifactPreflightProfileForRun(
+			request,
+			repoRoot,
+			o.attachedLog,
+			o.attachedHitrace,
+		),
 		// Mode normalization turns zero-value ("") into ModeRead so
 		// downstream switch equality is exact. The L1 red line
 		// depends on this — a caller who never invokes SetMode
@@ -1831,8 +1837,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	deferRunEntryRepoWarmup := shouldDeferRunEntryRepoGraphWarmup(
 		o.busCtx.Mode,
 		turnRouteHint,
-		o.attachedLog,
-		o.attachedHitrace,
+		o.busCtx.RuntimeArtifactPreflight,
 	)
 	if mg, _ := o.busCtx.MultiGraph.(*multigraph.MultiGraph); mg != nil {
 		focusSlugs := mg.FocusSlugs()

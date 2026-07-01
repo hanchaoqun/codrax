@@ -91,6 +91,79 @@ func TestRun_AttachedRuntimeArtifactDefersSingleRepoGraphWarmup(t *testing.T) {
 	}
 }
 
+func TestRun_RequestRuntimeArtifactPathDefersSingleRepoGraphWarmup(t *testing.T) {
+	repo := t.TempDir()
+	if err := touchTestFile(repo, "main.go"); err != nil {
+		t.Fatal(err)
+	}
+	tracePath := filepath.Join(repo, "frame.systrace")
+	if err := os.WriteFile(tracePath, []byte("sched_switch: prev_comm=app next_comm=worker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var builds int
+	topo := singleRepoWarmupTopology(repo)
+	mg, err := multigraph.New(multigraph.Config{
+		Topology: topo,
+		Build: func(root, query string) (*rmtypes.Graph, error) {
+			builds++
+			return &rmtypes.Graph{
+				Root:      root,
+				Files:     []*rmtypes.FileInfo{},
+				FileIndex: map[string]*rmtypes.FileInfo{},
+				Metadata:  rmtypes.Metadata{FileCount: 0},
+			}, nil
+		},
+		Cap: 1,
+	})
+	if err != nil {
+		t.Fatalf("multigraph.New: %v", err)
+	}
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			if !ctx.RuntimeArtifactPreflight.SourceNavigationOptionalForAnalyze() {
+				t.Fatalf("request trace path did not reach analyzer preflight: %+v", ctx.RuntimeArtifactPreflight)
+			}
+			ir := dagIR(types.AnswerContract{Language: "en"})
+			return &agent.StageOutput{AnalysisIR: ir}, nil
+		},
+		types.AgentExplorer: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "runtime trace path answer"}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 1}, ar, sr, sar)
+	o.SetMaxSteps(10)
+	o.SetMultiGraphProvider(func() any { return mg })
+	o.SetMultiRepoSnapshotProvider(func() ([]types.SubRepoSnapshot, []string) {
+		return []types.SubRepoSnapshot{{
+			Slug:         "root",
+			RootAbs:      repo,
+			RootRel:      ".",
+			PrimaryLangs: []string{"go"},
+			FileCount:    1,
+		}}, nil
+	})
+
+	busCtx, err := o.Run("analyze frame.systrace", repo, "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if builds != 0 {
+		t.Fatalf("request runtime artifact path should defer run-entry graph warmup, build calls=%d", builds)
+	}
+	if busCtx == nil || busCtx.Mutable == nil || !strings.Contains(busCtx.Mutable.Result(), "runtime trace path") {
+		t.Fatalf("run did not complete through normal read path, result=%q", busCtx.Mutable.Result())
+	}
+}
+
 func TestRun_SourceTurnStillWarmsSingleRepoGraph(t *testing.T) {
 	repo := t.TempDir()
 	if err := touchTestFile(repo, "main.go"); err != nil {

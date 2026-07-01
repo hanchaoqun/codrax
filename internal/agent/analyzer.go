@@ -136,6 +136,9 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if runtimeArtifactAttachmentPendingAnalysisForAnalyzer(ctx) {
 		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerAttachedRuntimeArtifactShortcut()))
 	}
+	if runtimeArtifactPreflightForAnalyzer(ctx).SourceNavigationOptionalForAnalyze() {
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeArtifactPathShortcut()))
+	}
 	if explicitRuntimeArtifactPathInObjective(ctx) {
 		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeArtifactPathShortcut()))
 	}

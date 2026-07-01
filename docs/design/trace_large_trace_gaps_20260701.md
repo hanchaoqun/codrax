@@ -137,14 +137,21 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
 
 ### 当前仍需排队的隐含 gap
 
-1. **P0: PRE-emit repo overview 仍缺 typed runtime-artifact carrier**。
-   - 现状:analyzer 首轮 prompt 里的 `buildAnalyzerRepoOverview` 发生在 `emit_analysis` 之前,此时还没有 `RequestModel.ExternalObservationPolicy`,只能依赖 `observationOnlyRuntimeArtifactForAnalyzer` / `explicitRuntimeArtifactPathInObjective` / `explicitRuntimeTraceArtifactOnlyRequest` 等前置探测器。对于"trace 在仓库外、请求文本只点名路径、用户明确不要分析代码"的场景,如果前置探测器没有从 runtime artifact store/attachment resolver 拿到结构化路径,仍可能在分类前构建 task_map 图。
-   - 原则:不能把 raw token/自然语言关键词当 hard gate。正确方向是把 CLI/REPL attachment、blob/display resolver、显式路径解析结果提前投影成 **AnalyzerPreflightRuntimeArtifactProfile** 一类 typed carrier,让 `buildAnalyzerRepoOverview` 消费 typed carrier 跳过 overview;raw path regex 只能作为 soft discovery 输入,不能直接决定 hard skip。
-   - 任务拆解:
-     1. 定义 pre-analyzer typed carrier:artifact kind/path/source/size/resolution confidence/explicit-current-source-exclusion-compatible flag。
-     2. 从 CLI `--htrace`/`--log`,REPL `/htrace`/`/log`,blob session root,以及 deterministic path resolver 填充 carrier;保留 path-resolver 失败 caveat。
-     3. `buildAnalyzerRepoOverview` 仅在 carrier 明确 `runtime_artifact_only && source_navigation_optional` 时跳过 repo overview;普通源码问题保持 repo_map first-hop。
-     4. 补测试:仓库外 trace path + "不分析代码" 不触发 `GraphFromAgentContextOrLoad`;普通架构/关系问题仍注入 task_map;路径解析不确定只给 soft shortcut 不 hard skip。
+1. **P0: PRE-emit repo overview typed runtime-artifact carrier —— 已交付(2026-07-01)**。
+   - 现状:新增 `types.RuntimeArtifactPreflightProfile`,由 `Run()` 入口统一生成,来源包括 CLI/REPL attached log/trace、请求中显式 trace/log/perf 路径、以及相对 `--repo` 的 runtime artifact 路径。该 profile 通过 `BusContext`/`AgentContext`/tool/subagent projection 承重,不从模型散文或用户意图关键词做硬路由。
+   - 已落地承重点:
+     1. `buildAnalyzerRepoOverview` 先消费 `RuntimeArtifactPreflightProfile.SourceNavigationOptionalForAnalyze()`,runtime artifact turn 直接进入 `emit_analysis` 边界表达,不预发 task_map。
+     2. analyzer tool boundary 复用同一 profile,分类期只允许 `emit_analysis`,不允许为了确认 artifact 路径去 `repo_map`/`grep`/`list_files`。
+     3. Run-entry graph warmup 复用同一 profile,显式 request path 和 attached artifact 都会 defer warmup。
+     4. `RuntimeArtifactContextActiveFromBus/Agent` 纳入该 profile,后续 answer/floor/report 面共享同一 runtime-artifact-active 判断。
+   - 测试:
+     - `TestAnalyzerBuildInitialInstruction_RuntimeArtifactPreflightSkipsRepoOverview`
+     - `TestAnalyzerToolBoundary_RuntimeArtifactPreflightAllowsOnlyEmitAnalysis`
+     - `TestRun_RequestRuntimeArtifactPathDefersSingleRepoGraphWarmup`
+     - `TestRun_AttachedRuntimeArtifactDefersSingleRepoGraphWarmup`
+     - `TestRun_SourceTurnStillWarmsSingleRepoGraph`
+     - `TestBuildAgentContext_RuntimeArtifactPreflightMirrored`
+     - `TestBusContextProjection_AllTypedSignalsPropagated_*`
 
 2. **P1: 超密窗口的 `root_cause_rank` / `frame_root_cause_bundle` 仍需要流式分片聚合**。
    - 现状:relation-scoped pruning 被正确限制在 `thread_timeline`/`wakeup_chain`;`root_cause_rank` / `frame_root_cause_bundle` / `window_stats` 仍依赖全窗口未裁剪索引,这是为了保持全窗口资源/CPU/IO/trace_mark 完整性,方向正确。但 GB 级 trace 的极高密度窗口仍可能超过 1GiB 字节预算。

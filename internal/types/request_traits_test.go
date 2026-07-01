@@ -446,6 +446,20 @@ func TestRuntimeArtifactContextActiveFromBusCoversTraceQueryAndLog(t *testing.T)
 	if !RuntimeArtifactContextActiveFromBus(&BusContext{Mutable: NewMutableState("log"), AttachedLog: "panic: boom"}) {
 		t.Fatal("attached log should activate runtime-artifact context")
 	}
+	if !RuntimeArtifactContextActiveFromBus(&BusContext{
+		Mutable: NewMutableState("path trace"),
+		RuntimeArtifactPreflight: NormalizeRuntimeArtifactPreflightProfile(RuntimeArtifactPreflightProfile{
+			Active:                   true,
+			SourceNavigationOptional: true,
+			Artifacts: []RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "/tmp/frame.systrace",
+				Carrier: "request_path",
+			}},
+		}),
+	}) {
+		t.Fatal("runtime artifact preflight should activate runtime-artifact context")
+	}
 	if RuntimeArtifactContextActiveFromBus(&BusContext{Mutable: NewMutableState("plain")}) {
 		t.Fatal("plain repo turn must not activate runtime-artifact context")
 	}

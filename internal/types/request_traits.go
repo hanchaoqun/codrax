@@ -1509,6 +1509,9 @@ func RuntimeArtifactContextActiveFromBus(ctx *BusContext) bool {
 	if strings.TrimSpace(ctx.AttachedLog) != "" || strings.TrimSpace(ctx.AttachedHitrace) != "" {
 		return true
 	}
+	if ctx.RuntimeArtifactPreflight.HasRuntimeArtifact() {
+		return true
+	}
 	if ctx.Mutable == nil {
 		return false
 	}
@@ -1526,6 +1529,9 @@ func RuntimeArtifactContextActiveFromAgent(ctx *AgentContext) bool {
 		return false
 	}
 	if strings.TrimSpace(ctx.AttachedLog) != "" || strings.TrimSpace(ctx.AttachedHitrace) != "" {
+		return true
+	}
+	if ctx.RuntimeArtifactPreflight.HasRuntimeArtifact() {
 		return true
 	}
 	if ctx.LogTriage != nil || ctx.PerfTrace != nil {

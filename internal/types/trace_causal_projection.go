@@ -105,6 +105,14 @@ type TraceCausalProjectionNode struct {
 	// Zero when the source row did not expose them (gap c three-column magnitude).
 	EffectiveImpactMS float64 `json:"effective_impact_ms,omitempty"`
 	ActualImpactMS    float64 `json:"actual_impact_ms,omitempty"`
+	// DrilldownTarget is the direct upstream node a sleep symptom should drill
+	// into. It is attached only from typed wakeup_chain_edge/path records, and
+	// only when the immediate waker for this node is unique. Empty means the
+	// renderer must avoid inventing a global target and should point to the
+	// wakeup chain instead.
+	DrilldownTarget     string `json:"drilldown_target,omitempty"`
+	DrilldownEvidenceID string `json:"drilldown_evidence_id,omitempty"`
+	DrilldownRelation   string `json:"drilldown_relation,omitempty"`
 }
 
 // IsSleepState reports whether this node's dominant state is an (interruptible)
@@ -140,9 +148,13 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	var semantic []TraceCausalProjectionNode
 	var hops []TraceCausalProjectionNode
 	var wakeupPath []string
+	var wakeupEdges []traceCausalProjectionWakeupEdge
 	for _, record := range records {
 		if !traceCausalProjectionTraceQueryRecord(record) {
 			continue
+		}
+		if edge, ok := traceCausalProjectionWakeupEdgeFromRecord(record); ok {
+			wakeupEdges = append(wakeupEdges, edge)
 		}
 		switch {
 		case traceCausalProjectionIsPrimaryRootCause(record):
@@ -207,10 +219,118 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 			traceCausalProjectionMarkNodeWithinWindow(out.PrimaryRootCause, anchorStart, anchorEnd)
 		}
 	}
+	traceCausalProjectionAttachSleepDrilldownTargets(&out, wakeupEdges, wakeupPath)
 	if !out.Active() {
 		return TraceCausalProjection{}
 	}
 	return out
+}
+
+type traceCausalProjectionWakeupEdge struct {
+	Waker      string
+	Wakee      string
+	EvidenceID string
+	Relation   string
+}
+
+func traceCausalProjectionWakeupEdgeFromRecord(record ObservationRecord) (traceCausalProjectionWakeupEdge, bool) {
+	if strings.TrimSpace(record.Predicate) != "wakeup_chain_edge" {
+		return traceCausalProjectionWakeupEdge{}, false
+	}
+	waker := strings.TrimSpace(record.Subject)
+	wakee := strings.TrimSpace(record.Object)
+	if waker == "" || wakee == "" {
+		return traceCausalProjectionWakeupEdge{}, false
+	}
+	return traceCausalProjectionWakeupEdge{
+		Waker:      waker,
+		Wakee:      wakee,
+		EvidenceID: strings.TrimSpace(record.ID),
+		Relation:   "wakeup_chain_edge",
+	}, true
+}
+
+func traceCausalProjectionAttachSleepDrilldownTargets(projection *TraceCausalProjection, edges []traceCausalProjectionWakeupEdge, path []string) {
+	if projection == nil {
+		return
+	}
+	targets := traceCausalProjectionUniqueDrilldownTargets(edges, path)
+	apply := func(nodes []TraceCausalProjectionNode) {
+		for i := range nodes {
+			traceCausalProjectionAttachSleepDrilldownTarget(&nodes[i], targets)
+		}
+	}
+	apply(projection.PrimaryRootCauses)
+	apply(projection.OnChainCauses)
+	apply(projection.AdjacentCauses)
+	apply(projection.BackgroundCauses)
+	apply(projection.SemanticSpans)
+	apply(projection.SupportingHops)
+	if projection.PrimaryRootCause != nil {
+		traceCausalProjectionAttachSleepDrilldownTarget(projection.PrimaryRootCause, targets)
+	}
+}
+
+type traceCausalProjectionDrilldownTarget struct {
+	Target     string
+	EvidenceID string
+	Relation   string
+	Ambiguous  bool
+}
+
+func traceCausalProjectionUniqueDrilldownTargets(edges []traceCausalProjectionWakeupEdge, path []string) map[string]traceCausalProjectionDrilldownTarget {
+	raw := map[string]map[string]traceCausalProjectionDrilldownTarget{}
+	add := func(wakee, waker, evidenceID, relation string) {
+		wakeeKey := traceCausalProjectionCanonicalNode(wakee)
+		wakerKey := traceCausalProjectionCanonicalNode(waker)
+		if wakeeKey == "" || wakerKey == "" {
+			return
+		}
+		if raw[wakeeKey] == nil {
+			raw[wakeeKey] = map[string]traceCausalProjectionDrilldownTarget{}
+		}
+		raw[wakeeKey][wakerKey] = traceCausalProjectionDrilldownTarget{
+			Target:     strings.TrimSpace(waker),
+			EvidenceID: strings.TrimSpace(evidenceID),
+			Relation:   strings.TrimSpace(relation),
+		}
+	}
+	for _, edge := range edges {
+		add(edge.Wakee, edge.Waker, edge.EvidenceID, edge.Relation)
+	}
+	// The path is deterministic trace_query output, not model prose. Use it only
+	// as a fallback when explicit edge rows were absent for that wakee.
+	for i := 1; i < len(path); i++ {
+		wakeeKey := traceCausalProjectionCanonicalNode(path[i])
+		if wakeeKey == "" || len(raw[wakeeKey]) > 0 {
+			continue
+		}
+		add(path[i], path[i-1], "", "wakeup_chain_path")
+	}
+	out := make(map[string]traceCausalProjectionDrilldownTarget, len(raw))
+	for wakee, byWaker := range raw {
+		if len(byWaker) != 1 {
+			out[wakee] = traceCausalProjectionDrilldownTarget{Ambiguous: true}
+			continue
+		}
+		for _, target := range byWaker {
+			out[wakee] = target
+		}
+	}
+	return out
+}
+
+func traceCausalProjectionAttachSleepDrilldownTarget(node *TraceCausalProjectionNode, targets map[string]traceCausalProjectionDrilldownTarget) {
+	if node == nil || !node.IsSleepState() || node.Undrillable() {
+		return
+	}
+	target, ok := targets[traceCausalProjectionCanonicalNode(node.Subject)]
+	if !ok || target.Ambiguous || strings.TrimSpace(target.Target) == "" {
+		return
+	}
+	node.DrilldownTarget = target.Target
+	node.DrilldownEvidenceID = target.EvidenceID
+	node.DrilldownRelation = target.Relation
 }
 
 // traceCausalProjectionAnchorWindow returns the user's originally-requested

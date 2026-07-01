@@ -56,6 +56,50 @@ func TestAnalyzerRuntimeArtifactSourceNavigationOptional_ExplicitExclusion(t *te
 	})
 }
 
+func TestAnalyzerBuildInitialInstruction_RuntimeArtifactPreflightSkipsRepoOverview(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage: types.StageAnalyze,
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			Active:                   true,
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "/tmp/frame.systrace",
+				Carrier: "request_path",
+			}},
+		}),
+	}
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(got, "Explicit Runtime Artifact Path Classification Shortcut") {
+		t.Fatalf("runtime artifact preflight should render emit-analysis shortcut, got:\n%s", got)
+	}
+	if strings.Contains(got, "Analyzer Repo Overview") || strings.Contains(got, "repo_map") && strings.Contains(got, "task_map") {
+		t.Fatalf("runtime artifact preflight must not render eager repo overview, got:\n%s", got)
+	}
+}
+
+func TestAnalyzerToolBoundary_RuntimeArtifactPreflightAllowsOnlyEmitAnalysis(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage: types.StageAnalyze,
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			Active:                   true,
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "log",
+				Source:  "/tmp/app.log",
+				Carrier: "request_path",
+			}},
+		}),
+	}
+	if got := validateAnalyzerToolBoundary(ctx, llm.ToolCall{Name: "repo_map"}); got == nil || got.Success {
+		t.Fatalf("repo_map should be rejected in runtime artifact preflight emit-only surface, got %+v", got)
+	}
+	if got := validateAnalyzerToolBoundary(ctx, llm.ToolCall{Name: "emit_analysis"}); got != nil {
+		t.Fatalf("emit_analysis should remain available, got %+v", got)
+	}
+}
+
 // TestAnalyzerParseOutputCapturesSummary verifies that the analyzer's
 // ParseOutput packs the LLM's free-form text into Data (under "result")
 // alongside the structured classification fields derived from an

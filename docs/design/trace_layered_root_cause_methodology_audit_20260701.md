@@ -673,13 +673,13 @@ flowchart LR
 
 用户裁定:①采用"**表骨架 + 两图**";②`Summary` 原始机器 token **暂保留不清洗**;③**抽 `EffectiveImpactMS`/`ActualImpactMS`** 两个 typed 字段做完整三列时长。已按此落地。
 
-**编译层**(`internal/types/trace_causal_projection.go`):`TraceCausalProjectionNode` 新增 **4 个 typed 字段** `StateKind` / `UndrillableReason` / `EffectiveImpactMS` / `ActualImpactMS`(比设计少一个 `DrilldownTarget *Node`——见下"偏差")。全部从**既有确定性 rich note** 填充(`dominant_state`、`effective_impact_ms`、`actual_impact_ms`、`root_evidence:missing_wakeup`),**无新 LLM 信号故无需 6-spot sync**(与设计判断不同,核实后确认这些是 trace_query 确定性输出、不是模型声明字段)。`StateKind` 缺省时回退到 node.Object(仅当是识别的调度状态词),`IsSleepState()` 精确窄化到 S-sleep 家族(`s_sleep`/`sleep`/`sleep_wait`;`io_wait`/`d_state` 有各自 inode/资源下钻路径、不归此面)。
+**编译层**(`internal/types/trace_causal_projection.go`):`TraceCausalProjectionNode` 新增 typed 字段 `StateKind` / `UndrillableReason` / `EffectiveImpactMS` / `ActualImpactMS` / `DrilldownTarget` / `DrilldownEvidenceID` / `DrilldownRelation`。状态/时长/无法下钻字段全部从**既有确定性 rich note** 填充(`dominant_state`、`effective_impact_ms`、`actual_impact_ms`、`root_evidence:missing_wakeup`);`DrilldownTarget*` 只从 trace_query typed `wakeup_chain_edge` 或 deterministic `wakeup_chain:path` fallback 填充,且只有 immediate waker 唯一时才承重,多候选/缺边保持空。`StateKind` 缺省时回退到 node.Object(仅当是识别的调度状态词),`IsSleepState()` 精确窄化到 S-sleep 家族(`s_sleep`/`sleep`/`sleep_wait`;`io_wait`/`d_state` 有各自 inode/资源下钻路径、不归此面)。
 
 **渲染层**(`internal/tool/answer_document_mutation_runtime.go`):`materializeRuntimeTraceCausalProjectionBlock` 重写为 **block 簇**:lead `BlockTable`(principal 身份 + Title + intro 含链 glyph)+ `BlockDiagram` 唤醒链 flowchart + `BlockDiagram` sleep 下钻 flowchart。表:8 列(层/节点·状态·Impact·链路/深度·窗口·下钻→·语义·证据)、整行 group-header 分层、unicode 方块条 + `cum·proj·eff·act` 三/四元、每节点斜体明细子行(tier/causality/rank/confidence/predicate + `Summary` 原文逐字);空值用 `""` 让 `renderV2CompactEmptyStructuredColumns` 自动压空列;全 `CitationRef=-1`;`WithinRequestedWindow` 三态 nil 留空。sleep 图:症状 `{{💤}}` `-->|下钻到|` 非sleep根因;undrillable `{{💤}} -.-> [[⚠ missing_wakeup lines]]`(无出边终止节点)。
 
 **终端可渲染性**(用户"能渲则渲,不能则简化/原文,不强求"):GFM 表在终端(glamour)正常;mermaid 走 pgavlin ASCII 渲染成网格(emoji/CJK 优雅降级,`·`→`*`、`⚠`→`?`),失败则 L7 降级 text fence——表始终无损承载全字段。**踩到并修掉两个渲染坑**:①`-.<CJK label>.->` 虚线边被 mermaid-subset 误解析成节点→改用无标签 `-.->`(背景/无法下钻靠节点形状 `(...)`/`[[...]]` 区分);②`classDef`/`class` 样式行被 pgavlin 误渲成一个 "class" 节点→**删除所有样式指令**(颜色是 HTML-only 装饰,on-chain 已由表格「链路」列 + 节点形状 矩形/圆角 无损承载)。
 
-**与设计的偏差**:未加 `DrilldownTarget *Node` 指针(跨记录链接脆弱、审查未验证其机制)。当时改为在渲染层从 `IsSleepState()` + `WakeupPath` + `resolvedRoot`(首个非-sleep 主/on-chain 根)派生 sleep→根因边,优先保证单主链场景不丢证据。HEAD 复核后确认:这对单主链足够,但多 sleep/多分支场景仍需要 per-sleep typed edge,已在 §7.10 排队。
+**与设计的偏差已收口(2026-07-01)**:最初为了避免脆弱跨记录链接,渲染层曾从 `IsSleepState()` + `WakeupPath` + `resolvedRoot`(首个非-sleep 主/on-chain 根)派生 sleep→根因边。HEAD 复核确认这会在多 sleep/多分支场景把不同 sleep 都指向同一个全局 root。最新实现改为编译期 per-sleep typed edge:`wakeup_chain_edge` 的 `waker -> wakee` 是唯一精确承重点;无 edge 时可用 deterministic `wakeup_chain:path` 作 fallback;多个 waker 候选时不硬连,表格显示"下钻见唤醒链"。
 
 **测试**:`internal/types/trace_causal_projection_test.go` 加字段填充单测;`answer_document_mutation_runtime_test.go` **ZH/EN golden 同步重写**(扁平列表→block 簇断言:BlockTable/Columns/group-header/方块条/DiagramFlow body/CitationRef=-1)+ 新增端到端 `TraceCausalProjectionSleepDrilldownAndTriad`(gap c/d/e 在最终 markdown 里全钉:💤·非根因、下钻到根因、⛔ 无法下钻 missing_wakeup、cum/eff/act 三元 + 方块条、`| 层 / 节点 |` 表 + ` ```mermaid `)。既有 O5 `LowImpactSemanticSpanSurvivesToRenderedText`(语义 span + O4 窗口标注)不改自动通过。`go build ./... && go test ./...` 全绿。
 
@@ -687,17 +687,17 @@ flowchart LR
 
 ### 7.10 HEAD 复核补充(2026-07-01, `origin/main@a6d9fabdd`)
 
-最新代码已把"扁平列表"重构为 block 簇,且 focused tests 覆盖了 `TraceCausalProjection` 字段投影、低影响语义 span 保留、sleep drilldown/triad 渲染、ZH/EN golden。重新对照实现后,展示层当前没有阻断性 correctness gap,但有一个应排队的**多分支精度增强**:
+最新代码已把"扁平列表"重构为 block 簇,且 focused tests 覆盖了 `TraceCausalProjection` 字段投影、低影响语义 span 保留、sleep drilldown/triad 渲染、ZH/EN golden。HEAD 复核后发现的多分支精度 gap 已在本批收口:
 
-**P1: sleep 下钻目标仍是展示层全局推导,不是 per-sleep typed edge。**
+**P1: sleep 下钻目标从展示层全局推导升级为 per-sleep typed edge —— 已交付。**
 
-- 现状:`TraceCausalProjectionNode` 没有 `DrilldownTarget` / `DrilldownTargetRef`;渲染层用 `runtimeTraceCausalProjectionResolvedRoot` 选"首个非 sleep、可下钻的 primary/on-chain root",然后所有可下钻 sleep 行都显示 `下钻→ <resolvedRoot>`。这对单一主链 case 足够,但在多 sleep、多分支、多 co-primary 的 trace 里,不同 sleep 症状可能对应不同上游 waker/root。表格本身仍保留每个节点的 evidence/summary/chain depth,不会丢证据;风险仅在"下钻→"列和 sleep 图可能把多个 sleep 都指向同一个全局 root。
-- 原则:不能从 subject 文本、summary prose、模型叙述里猜边。只有 trace_query 已经产出的 typed edge/coverage (`RecursiveDrilldown`、`DrilldownSource`、`wakeup_chain_edge`、`parent_id`/`child_id` 等)能承重;缺少精确边时应显示"沿唤醒链继续确认"或保持空,而不是硬连到全局 root。
-- 任务拆解:
-  1. 在 projection 编译层新增 `DrilldownTargetRef` / `DrilldownTargetEvidenceID` / `DrilldownRelation` 三个 typed 字段,只从 `TraceObservationCoverageRecord` 或 trace_query typed wakeup-chain/recursive-drilldown 记录填充。
-  2. 渲染层优先使用 per-node `DrilldownTargetRef`;没有精确 target 但 node 是 sleep 时,改为 caveat 文案,不要指向全局 root。
-  3. 补测试:两个 sleep 分支分别指向两个不同 non-sleep root;一个 missing_wakeup;一个无精确 target 的 sleep 不渲染误导边。
-  4. 保持 table-first 无损原则:图失败或 block cap 降级时,表格仍展示所有 typed target/ref/caveat。
+- 新增字段:`TraceCausalProjectionNode.DrilldownTarget` / `DrilldownEvidenceID` / `DrilldownRelation`。
+- 承重来源:优先 `wakeup_chain_edge` typed 记录(`Subject=waker,Object=wakee`);无 edge 时只用 deterministic `wakeup_chain:path` 作 fallback;同一 wakee 对应多个 waker 时标为歧义,不填 target。
+- 渲染规则:`下钻→` 列和 sleep 图只使用 node 自己的 `DrilldownTarget`;没有唯一 target 的 sleep 显示"下钻见唤醒链",不再指向全局 `resolvedRoot`。
+- 测试:
+  - `TestTraceCausalProjectionSleepDrilldownTargetsImmediateWaker`
+  - `TestTraceCausalProjectionSleepDrilldownAmbiguousWakerDoesNotInventTarget`
+  - `TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad`
 
 **P2: O7 中期配置化增强仍可排队。**
 

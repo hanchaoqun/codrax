@@ -91,6 +91,19 @@ codrax --repo "/home/xingneng/codrax_test/test_trace" -r "分析东湖Trace: rec
 
 exclude 请求现在完成门自动放宽,模型**根本不需要**手填 `evidence_floor_waiver`,所以"非法 reason `runtime_artifact_only` 被拒 + '文件在 repo 目录里'误导"这条支线对 exclude 请求不再触发。非 exclude 的 runtime-artifact-only 请求仍走既有 waiver 枚举通道(不在本轮改动面)。
 
-### 仍排队(HEAD 复核后收窄为 pre-emit carrier gap)
+### Gap 1 / Gap B 建图部分 —— 已修复(2026-07-01,typed preflight carrier)
 
-- **Gap 1 / Gap B 建图部分**:引用门和 post-emit `analyzerGraphForNormalize` 已消费 `current_source_mode=exclude` 并绕过当前源码底线/repomap eager load;剩余风险只在 analyzer 首轮 `buildAnalyzerRepoOverview` 的 **PRE-emit** 阶段。该阶段发生在 `emit_analysis` 之前,不能读取 `RequestModel.ExternalObservationPolicy`,因此需要 `trace_large_trace_gaps_20260701.md` 记录的 typed pre-analyzer runtime-artifact carrier。修完后"不分析代码"的 trace 请求才真正端到端不碰当前源码机制。
+引用门和 post-emit `analyzerGraphForNormalize` 早已消费 `current_source_mode=exclude`;剩余风险在 analyzer 首轮 `buildAnalyzerRepoOverview` 的 **PRE-emit** 阶段。本批新增 `types.RuntimeArtifactPreflightProfile`,由 `Run()` 入口通过 deterministic runtime artifact detector 生成,覆盖 CLI/REPL attached artifact、请求中显式 trace/log/perf 路径、以及相对 `--repo` 的 runtime artifact 路径。该 profile 通过 `BusContext`→`AgentContext`→tool/subagent projection 承重。
+
+已落地行为:
+- `buildAnalyzerRepoOverview` 前先消费 `RuntimeArtifactPreflightProfile.SourceNavigationOptionalForAnalyze()`,runtime artifact turn 直接进入 `emit_analysis` 边界表达,不预发 repo overview。
+- analyzer tool boundary 把同一 profile 视作 emit-only surface,拒绝 `repo_map`/`grep`/`list_files` 在分类期确认 artifact 路径。
+- Run-entry multi-repo graph warmup 改为消费同一 profile;请求里只写 `frame.systrace` 且文件在 `--repo` 下时也会 defer warmup。
+- `RuntimeArtifactContextActiveFromBus/Agent` 纳入该 profile,后续 answer/floor/report 面共享同一 runtime-artifact-active 判断。
+
+测试:
+- `TestAnalyzerBuildInitialInstruction_RuntimeArtifactPreflightSkipsRepoOverview`
+- `TestAnalyzerToolBoundary_RuntimeArtifactPreflightAllowsOnlyEmitAnalysis`
+- `TestRun_RequestRuntimeArtifactPathDefersSingleRepoGraphWarmup`
+- `TestBuildAgentContext_RuntimeArtifactPreflightMirrored`
+- `TestBusContextProjection_AllTypedSignalsPropagated_*`

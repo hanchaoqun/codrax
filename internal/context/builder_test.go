@@ -147,6 +147,34 @@ func TestBuildAgentContext_TurnRouteHintMirrored(t *testing.T) {
 	}
 }
 
+func TestBuildAgentContext_RuntimeArtifactPreflightMirrored(t *testing.T) {
+	profile := types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+		Active:                   true,
+		SourceNavigationOptional: true,
+		Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+			Kind:    "trace",
+			Source:  "/tmp/frame.systrace",
+			Bytes:   128,
+			Carrier: "request_path",
+		}},
+	})
+	bus := &types.BusContext{
+		PipelineStage:            types.StageAnalyze,
+		RepoRoot:                 "/tmp/repo",
+		Mutable:                  types.NewMutableState("analyze trace"),
+		RuntimeArtifactPreflight: profile,
+		TaskState:                types.TaskState{Stage: types.StageAnalyze},
+	}
+	ac := BuildAgentContext(bus, types.AgentAnalyzer, types.StageAnalyze)
+	if !ac.RuntimeArtifactPreflight.SourceNavigationOptionalForAnalyze() {
+		t.Fatalf("RuntimeArtifactPreflight not mirrored: got %+v, want %+v", ac.RuntimeArtifactPreflight, profile)
+	}
+	if len(ac.RuntimeArtifactPreflight.Artifacts) != 1 ||
+		ac.RuntimeArtifactPreflight.Artifacts[0].Source != "/tmp/frame.systrace" {
+		t.Fatalf("RuntimeArtifactPreflight artifacts changed: %+v", ac.RuntimeArtifactPreflight)
+	}
+}
+
 func TestRelationDossierSourceInventoryMergesTurnAHandoff(t *testing.T) {
 	mut := types.NewMutableState("source inventory")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{

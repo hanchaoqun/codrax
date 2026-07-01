@@ -4125,7 +4125,9 @@ func analyzerTerminalEmitOnly(ctx *types.AgentContext) bool {
 }
 
 func analyzerEmitOnly(ctx *types.AgentContext) bool {
-	return analyzerTerminalEmitOnly(ctx) || explicitRuntimeArtifactPathInObjective(ctx)
+	return analyzerTerminalEmitOnly(ctx) ||
+		explicitRuntimeArtifactPathInObjective(ctx) ||
+		runtimeArtifactPreflightForAnalyzer(ctx).SourceNavigationOptionalForAnalyze()
 }
 
 // buildInitialMessages is the sole entry point for producing the
@@ -5229,7 +5231,8 @@ func explicitRuntimeArtifactPathInObjective(ctx *types.AgentContext) bool {
 }
 
 func analyzerExplicitRuntimeArtifactPathBlocksTool(ctx *types.AgentContext, toolName string) bool {
-	if !explicitRuntimeArtifactPathInObjective(ctx) {
+	if !explicitRuntimeArtifactPathInObjective(ctx) &&
+		!runtimeArtifactPreflightForAnalyzer(ctx).SourceNavigationOptionalForAnalyze() {
 		return false
 	}
 	return isPrescanTool(toolName)
@@ -5495,6 +5498,9 @@ func analyzerHasRuntimeArtifactCarrier(ctx *types.AgentContext) bool {
 	if strings.TrimSpace(ctx.AttachedLog) != "" || strings.TrimSpace(ctx.AttachedHitrace) != "" {
 		return true
 	}
+	if ctx.RuntimeArtifactPreflight.HasRuntimeArtifact() {
+		return true
+	}
 	if ctx.LogTriage != nil || ctx.PerfTrace != nil {
 		return true
 	}
@@ -5503,6 +5509,13 @@ func analyzerHasRuntimeArtifactCarrier(ctx *types.AgentContext) bool {
 		return logBundle != nil || perfBundle != nil
 	}
 	return false
+}
+
+func runtimeArtifactPreflightForAnalyzer(ctx *types.AgentContext) types.RuntimeArtifactPreflightProfile {
+	if ctx == nil || ctx.Stage != types.StageAnalyze {
+		return types.RuntimeArtifactPreflightProfile{}
+	}
+	return types.NormalizeRuntimeArtifactPreflightProfile(ctx.RuntimeArtifactPreflight)
 }
 
 func analyzerRepoMapSourceInventoryView(params json.RawMessage) bool {
@@ -5519,7 +5532,9 @@ func validateAnalyzerToolBoundary(ctx *types.AgentContext, tc llm.ToolCall) *typ
 	if ctx == nil || ctx.Stage != types.StageAnalyze {
 		return nil
 	}
-	if explicitRuntimeArtifactPathInObjective(ctx) && tc.Name != "emit_analysis" {
+	if (explicitRuntimeArtifactPathInObjective(ctx) ||
+		runtimeArtifactPreflightForAnalyzer(ctx).SourceNavigationOptionalForAnalyze()) &&
+		tc.Name != "emit_analysis" {
 		return rejectAnalyzerTool(ctx, tc, "analyzer_tool_rejected", analyzerExplicitRuntimeArtifactPathEmitOnlyCode,
 			fmt.Sprintf("classification is runtime-artifact-path-first for a log/trace path explicitly named in the current request; tool %q is not available now; available tools here: emit_analysis. Call emit_analysis now and preserve unresolved runtime/source targets in structured fields for later evidence gathering.", tc.Name))
 	}

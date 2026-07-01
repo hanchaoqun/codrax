@@ -215,6 +215,8 @@ func setNonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName str
 		}
 	case "SourceInventoryFollowupDebt":
 		ac.SourceInventoryFollowupDebt = sourceInventoryFollowupDebtProjectionSentinel()
+	case "RuntimeArtifactPreflight":
+		ac.RuntimeArtifactPreflight = runtimeArtifactPreflightProjectionSentinel()
 	default:
 		return false
 	}
@@ -267,6 +269,8 @@ func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string)
 		}
 	case "SourceInventoryFollowupDebt":
 		bc.SourceInventoryFollowupDebt = sourceInventoryFollowupDebtProjectionSentinel()
+	case "RuntimeArtifactPreflight":
+		bc.RuntimeArtifactPreflight = runtimeArtifactPreflightProjectionSentinel()
 	default:
 		return false
 	}
@@ -287,6 +291,19 @@ func sourceInventoryFollowupDebtProjectionSentinel() SourceInventoryFollowupDebt
 		},
 		MissingClasses: []SourcePathRole{SourcePathRoleThirdParty},
 		Roles:          []AnswerCandidateRole{AnswerCandidateRoleType},
+	})
+}
+
+func runtimeArtifactPreflightProjectionSentinel() RuntimeArtifactPreflightProfile {
+	return NormalizeRuntimeArtifactPreflightProfile(RuntimeArtifactPreflightProfile{
+		Active:                   true,
+		SourceNavigationOptional: true,
+		Artifacts: []RuntimeArtifactPreflightArtifact{{
+			Kind:    "trace",
+			Source:  "/tmp/codrax-runtime-preflight.systrace",
+			Bytes:   42,
+			Carrier: "request_path",
+		}},
 	})
 }
 

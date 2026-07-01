@@ -778,7 +778,6 @@ func runtimeTraceCausalProjectionTableModel(projection types.TraceCausalProjecti
 	columns := runtimeTraceCausalProjectionColumns(zh)
 	ncols := len(columns)
 	bucketMax := runtimeTraceCausalProjectionBucketMax(projection)
-	resolvedRoot := runtimeTraceCausalProjectionResolvedRoot(projection)
 	seen := map[string]bool{}
 	rows := make([]types.AnswerBlockItem, 0, 32)
 
@@ -801,7 +800,7 @@ func runtimeTraceCausalProjectionTableModel(projection types.TraceCausalProjecti
 		}
 		rows = append(rows, runtimeTraceCausalProjectionGroupHeaderRow(header, ncols))
 		for _, n := range fresh {
-			rows = append(rows, runtimeTraceCausalProjectionNodeRow(n, bucketMax, resolvedRoot, zh))
+			rows = append(rows, runtimeTraceCausalProjectionNodeRow(n, bucketMax, zh))
 			if detail := runtimeTraceCausalProjectionDetailsRow(n, zh); detail != nil {
 				rows = append(rows, *detail)
 			}
@@ -839,14 +838,14 @@ func runtimeTraceCausalProjectionGroupHeaderRow(header string, ncols int) types.
 	return types.AnswerBlockItem{Cells: cells, CitationRef: -1}
 }
 
-func runtimeTraceCausalProjectionNodeRow(node types.TraceCausalProjectionNode, bucketMax float64, resolvedRoot string, zh bool) types.AnswerBlockItem {
+func runtimeTraceCausalProjectionNodeRow(node types.TraceCausalProjectionNode, bucketMax float64, zh bool) types.AnswerBlockItem {
 	cells := []string{
 		runtimeTraceCausalProjectionNodeSubject(node),
 		runtimeTraceCausalProjectionStateCell(node, zh),
 		runtimeTraceCausalProjectionImpactCell(node, bucketMax),
 		runtimeTraceCausalProjectionChainCell(node, zh),
 		runtimeTraceCausalProjectionWindowCell(node, zh),
-		runtimeTraceCausalProjectionDrilldownCell(node, resolvedRoot, zh),
+		runtimeTraceCausalProjectionDrilldownCell(node, zh),
 		runtimeTraceCausalProjectionSemanticCell(node, zh),
 		runtimeTraceCausalProjectionEvidenceCell(node),
 	}
@@ -989,7 +988,7 @@ func runtimeTraceCausalProjectionWindowCell(node types.TraceCausalProjectionNode
 	return runtimeTraceCausalProjectionWindowDetail(node, zh)
 }
 
-func runtimeTraceCausalProjectionDrilldownCell(node types.TraceCausalProjectionNode, resolvedRoot string, zh bool) string {
+func runtimeTraceCausalProjectionDrilldownCell(node types.TraceCausalProjectionNode, zh bool) string {
 	if node.Undrillable() {
 		ref := runtimeTraceCausalProjectionEvidenceRef(node)
 		suffix := ""
@@ -1002,11 +1001,11 @@ func runtimeTraceCausalProjectionDrilldownCell(node types.TraceCausalProjectionN
 		return fmt.Sprintf("⛔ cannot drill (%s%s)", node.UndrillableReason, suffix)
 	}
 	if node.IsSleepState() {
-		if resolvedRoot != "" {
+		if target := strings.TrimSpace(node.DrilldownTarget); target != "" {
 			if zh {
-				return "下钻→ " + resolvedRoot
+				return "下钻→ " + target
 			}
-			return "drill → " + resolvedRoot
+			return "drill → " + target
 		}
 		if zh {
 			return "下钻见唤醒链"
@@ -1047,24 +1046,6 @@ func runtimeTraceCausalProjectionBucketMax(projection types.TraceCausalProjectio
 	consider(projection.SemanticSpans)
 	consider(projection.SupportingHops)
 	return max
-}
-
-// runtimeTraceCausalProjectionResolvedRoot returns the subject of the first
-// non-sleep, drillable root (primary preferred, then on-chain) — the node a
-// sleep symptom drills DOWN to. Empty when no non-sleep root is present.
-func runtimeTraceCausalProjectionResolvedRoot(projection types.TraceCausalProjection) string {
-	pick := func(nodes []types.TraceCausalProjectionNode) string {
-		for _, n := range nodes {
-			if !n.IsSleepState() && !n.Undrillable() {
-				return runtimeTraceCausalProjectionNodeSubject(n)
-			}
-		}
-		return ""
-	}
-	if root := pick(runtimeTraceCausalProjectionPrimaryRoots(projection)); root != "" {
-		return root
-	}
-	return pick(projection.OnChainCauses)
 }
 
 func runtimeTraceCausalProjectionMermaidLabel(raw string) string {
@@ -1147,7 +1128,6 @@ func runtimeTraceCausalProjectionWakeupDiagram(projection types.TraceCausalProje
 }
 
 func runtimeTraceCausalProjectionSleepDiagram(projection types.TraceCausalProjection, zh bool) string {
-	resolvedRoot := runtimeTraceCausalProjectionResolvedRoot(projection)
 	var b strings.Builder
 	b.WriteString("flowchart LR\n")
 	seen := map[string]bool{}
@@ -1181,9 +1161,9 @@ func runtimeTraceCausalProjectionSleepDiagram(projection types.TraceCausalProjec
 			// the ⚠ label carry "chain breaks here / cannot drill further".
 			fmt.Fprintf(&b, "    %s[[\"%s\"]]\n", uid, runtimeTraceCausalProjectionMermaidLabel(label))
 			fmt.Fprintf(&b, "    %s -.-> %s\n", sid, uid)
-		} else if resolvedRoot != "" {
+		} else if target := strings.TrimSpace(node.DrilldownTarget); target != "" {
 			rid := fmt.Sprintf("r%d", emitted)
-			fmt.Fprintf(&b, "    %s[\"%s · %s\"]\n", rid, runtimeTraceCausalProjectionMermaidLabel(resolvedRoot), rootTag)
+			fmt.Fprintf(&b, "    %s[\"%s · %s\"]\n", rid, runtimeTraceCausalProjectionMermaidLabel(target), rootTag)
 			fmt.Fprintf(&b, "    %s -->|%s| %s\n", sid, drillEdge, rid)
 		}
 		emitted++

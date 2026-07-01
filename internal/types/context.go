@@ -5916,6 +5916,13 @@ type BusContext struct {
 	// answer gate.
 	TurnRouteHint TurnRouteHint `json:"turn_route_hint,omitempty"`
 
+	// RuntimeArtifactPreflight is a deterministic pre-analyzer carrier for
+	// attached or explicitly referenced runtime artifacts. Analyzer may use it
+	// to skip expensive source pre-scan until emit_analysis opens a source lane.
+	// It must be populated from typed attachment/path detectors, not model
+	// prose, and it must never become final-answer proof by itself.
+	RuntimeArtifactPreflight RuntimeArtifactPreflightProfile `json:"runtime_artifact_preflight,omitempty"`
+
 	// ExploreDispatchKey is a scheduler-owned key for focused explorer
 	// windows. It lets the explorer agent isolate mutable evaluator state
 	// per DAG evidence node even when the scheduler uses the normal serial
@@ -6283,6 +6290,10 @@ type AgentContext struct {
 	// construction. It is typed current-turn routing metadata, not
 	// repository evidence and not a substitute for emit_analysis.
 	TurnRouteHint TurnRouteHint `json:"turn_route_hint,omitempty"`
+
+	// RuntimeArtifactPreflight mirrors BusContext.RuntimeArtifactPreflight for
+	// analyzer/tool/sub-agent projections.
+	RuntimeArtifactPreflight RuntimeArtifactPreflightProfile `json:"runtime_artifact_preflight,omitempty"`
 
 	// AnalysisIR aliases BusContext.AnalysisIR for agents that have
 	// opted into the v3 pipeline. Still nil for legacy call paths —
