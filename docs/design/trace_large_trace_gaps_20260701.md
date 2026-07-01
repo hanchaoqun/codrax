@@ -153,7 +153,7 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
      - `TestBuildAgentContext_RuntimeArtifactPreflightMirrored`
      - `TestBusContextProjection_AllTypedSignalsPropagated_*`
 
-2. **P1: 超密窗口的 `root_cause_rank` / `frame_root_cause_bundle` 安全降级 —— 已交付;完整 shard 聚合降为增强项**。
+2. **P1: 超密窗口的 `root_cause_rank` / `frame_root_cause_bundle` 安全降级 —— 已交付;shard 聚合 soft handoff 已补齐**。
    - 现状:relation-scoped pruning 仍正确限制在 `thread_timeline`/`wakeup_chain`;`root_cause_rank` / `frame_root_cause_bundle` / `window_stats` 继续保持全窗口语义,避免静默丢同 CPU 竞争者、全局 IO/clock/power、全 pid trace_mark。对于 GB 级 trace 的极高密度窗口,工具层已经在 `IndexEventLimitError` 时自动返回可成功消费的 `stream_state_cluster` typed result,而不是失败/让模型盲目缩到 <50ms。
    - 已落地承重点:
      1. `traceQueryIndexLimitResult()` 把 OOM guard 命中转成成功 ToolResult,summary 明确 `mode=index_event_limit`、`state_first_hint`、`parent_window_strategy`、`sub_50ms_local_only`。
@@ -164,7 +164,7 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
      - `TestTraceQueryIndexLimitResultCoversFrameRootCauseBundle`
      - `TestStreamStateClusterPreservesDominantLongSleepWithoutFullIndex`
      - `TestStreamStateClusterPreservesParentWindowStatePriorities`
-   - 后续增强(非当前阻断):完整 `TraceShardAggregator` 仍可排队,用于把多个 80-150ms shard 的 root_cause_rank/window_stats 近似合并为 parent-window 排名;合并字段、不可合并 caveat、golden 等按原任务拆解保留,但当前事故级 OOM/微窗口循环已有 typed state-first 安全降级兜底。
+   - 历史增强方向已闭环:完整 `TraceShardAggregator` 原计划用于把多个 80-150ms shard 的 root_cause_rank/window_stats 近似合并为 parent-window 排名。当前已由下面两批 soft handoff 承接:第一批聚合 `root_cause_rank` bounded shard 候选,第二批聚合 `state_drilldown` / `state_churn` / thread-timeline / resource-pressure bounded shard rows。该方向不再作为 open 代码 gap 排队;后续代表性 eval 只观察它是否降低 dense trace 的手工拼接成本和最终答案遗漏率。
    - **2026-07-02 本批交付:TraceShardAggregator soft handoff slice**:
      1. 已在既有 `TraceObservationCoverage` 上新增 bounded shard aggregate view,不新建并行 trace ledger。输入仅为 deterministic `trace_query` 的 typed `ObservationRecord` / `TraceObservationCoverageRecord`。
      2. 已聚合同一 root-cause 候选跨多个 bounded shard 的累计影响、最大单 shard 影响、覆盖窗口、代表 shard 窗口、on-chain/adjacent/background 分层,并限制输出 Top-N。
