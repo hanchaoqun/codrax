@@ -987,6 +987,32 @@ func TestRenderAnswerDocTypedExplorationEnrichment_RendersStructuredRowsAndFlow(
 	}
 }
 
+func TestRenderAnswerDocTypedExplorationEnrichment_TraceKeepsExpandedFlowRows(t *testing.T) {
+	flows := make([]types.FlowFindingDigest, 0, 14)
+	for i := 1; i <= 14; i++ {
+		flows = append(flows, types.FlowFindingDigest{
+			ID:   fmt.Sprintf("flow-%02d", i),
+			Path: []string{fmt.Sprintf("thread-%02d", i), "ui-main"},
+		})
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentTrace},
+		},
+		FlowFindings: flows,
+	}
+	got := renderAnswerDocTypedExplorationEnrichment(ctx, false)
+	if count := strings.Count(got, "\n- id=flow-"); count != answerDocMaxFlowEnrichmentFacts {
+		t.Fatalf("trace flow supplement should keep %d typed rows, got %d:\n%s", answerDocMaxFlowEnrichmentFacts, count, got)
+	}
+	if !strings.Contains(got, "id=flow-12") {
+		t.Fatalf("expanded trace flow supplement should preserve the 12th row:\n%s", got)
+	}
+	if strings.Contains(got, "id=flow-13") {
+		t.Fatalf("trace flow supplement must remain bounded, got:\n%s", got)
+	}
+}
+
 func TestRenderAnswerDocTypedExplorationEnrichment_ContextDoesNotBecomePrincipal(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

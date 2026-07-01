@@ -5404,9 +5404,11 @@ func answerDocHasMultiMemberAggregateRef(refs []types.AnswerAggregateFactRef) bo
 }
 
 const (
-	answerDocDefaultEnrichmentFacts = 14
-	answerDocMaxEnrichmentFacts     = 28
-	answerDocMaxFlowEnrichmentFacts = 6
+	answerDocDefaultEnrichmentFacts       = 14
+	answerDocMaxEnrichmentFacts           = 28
+	answerDocDefaultFlowEnrichmentFacts   = 3
+	answerDocPreferredFlowEnrichmentFacts = 8
+	answerDocMaxFlowEnrichmentFacts       = 12
 	// Typed enrichment is prompt guidance, not an answer contract. Keep
 	// its candidate scan bounded so large repositories cannot spend
 	// minutes re-ranking optional context before the finalizer's first
@@ -6190,15 +6192,20 @@ func selectAnswerDocFlowEnrichmentLines(findings []types.FlowFindingDigest, limi
 }
 
 func answerDocFlowEnrichmentLimit(ctx *types.AgentContext) int {
-	limit := 3
+	limit := answerDocDefaultFlowEnrichmentFacts
 	if ctx != nil && ctx.AnalysisIR != nil {
 		rm := ctx.AnalysisIR.RequestModel
-		if rm.Intent == types.IntentTrace || rm.PredicateAxis == types.AxisCall || rm.Predicates.IsCrossComponent {
+		if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace {
 			limit = answerDocMaxFlowEnrichmentFacts
+		} else if rm.PredicateAxis == types.AxisCall || rm.Predicates.IsCrossComponent {
+			limit = answerDocPreferredFlowEnrichmentFacts
 		}
 		if rm.Complexity == types.ComplexityComplex && limit < answerDocMaxFlowEnrichmentFacts {
-			limit++
+			limit += 2
 		}
+	}
+	if limit > answerDocMaxFlowEnrichmentFacts {
+		return answerDocMaxFlowEnrichmentFacts
 	}
 	return limit
 }
