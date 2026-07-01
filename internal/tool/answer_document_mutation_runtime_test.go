@@ -884,27 +884,31 @@ func TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity(t *
 			i,
 		))
 	}
-	records = append(records, types.ObservationRecord{
-		ID:              "semantic",
-		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
-		Producer:        "trace_query",
-		Role:            types.AnswerAggregateRoleSupportingCoverage,
-		GroundingPolicy: types.ClaimGroundingHard,
-		Predicate:       "trace_semantic_span",
-		ClaimKey:        "trace_semantic_span:jit_compile",
-		Subject:         "dep-1",
-		Object:          "jit_compile",
-		Value:           "1.500",
-		Unit:            "ms",
-		RichNotes: []string{
-			"span_name=JitCompileMethod",
-			"semantic_class=jit_compile",
-			"chain_relevance=on_chain",
-			"causality=on_wakeup_chain",
-			"chain_depth=1",
-		},
-		Confidence: 0.82,
-	})
+	semanticClasses := []string{"jit_compile", "class_verification", "shader_compile", "runtime_compile"}
+	for i := 1; i <= 12; i++ {
+		class := semanticClasses[(i-1)%len(semanticClasses)]
+		records = append(records, types.ObservationRecord{
+			ID:              fmt.Sprintf("semantic-%02d", i),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			Predicate:       "trace_semantic_span",
+			ClaimKey:        "trace_semantic_span:" + class,
+			Subject:         fmt.Sprintf("dep-%d", i),
+			Object:          class,
+			Value:           "1.500",
+			Unit:            "ms",
+			RichNotes: []string{
+				fmt.Sprintf("span_name=%s-%02d", class, i),
+				"semantic_class=" + class,
+				"chain_relevance=on_chain",
+				"causality=on_wakeup_chain",
+				fmt.Sprintf("chain_depth=%d", i),
+			},
+			Confidence: 0.82,
+		})
+	}
 	for depth := 1; depth <= 10; depth++ {
 		records = append(records, types.ObservationRecord{
 			ID:              fmt.Sprintf("hop-%02d", depth),
@@ -946,15 +950,16 @@ func TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity(t *
 	}
 	got := bus.Mutable.AnswerDocumentV2()
 	projection := got.Blocks[1]
-	if answerBlockItemByID(projection.Items, "trace_semantic_span_1") == nil {
+	if answerBlockItemByID(projection.Items, "trace_semantic_span_1") == nil ||
+		answerBlockItemByID(projection.Items, "trace_semantic_span_12") == nil {
 		t.Fatalf("expanded projection should keep deterministic semantic optimization points: %+v", projection.Items)
 	}
 	hop := answerBlockItemByID(projection.Items, "trace_causal_hop_10")
 	if hop == nil || !strings.Contains(hop.Text, "链路第 10 层") {
 		t.Fatalf("expanded projection should keep default-depth supporting hops, got %+v", projection.Items)
 	}
-	if len(projection.Items) < 17 {
-		t.Fatalf("projection should expand beyond the old 6-item cap, got %d items: %+v", len(projection.Items), projection.Items)
+	if len(projection.Items) < 28 {
+		t.Fatalf("projection should expand beyond the old 24-item cap when typed trace evidence needs it, got %d items: %+v", len(projection.Items), projection.Items)
 	}
 }
 

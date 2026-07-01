@@ -244,11 +244,11 @@ perf_sample 的"更深入分析"同样是真实存在的能力:`perf_stats`/`per
 ```go
 type TraceCausalProjection struct {
     PrimaryRootCause  *TraceCausalProjectionNode
-    PrimaryRootCauses []TraceCausalProjectionNode  // cap 4
-    OnChainCauses     []TraceCausalProjectionNode  // cap 10
-    AdjacentCauses    []TraceCausalProjectionNode  // cap 4
-    BackgroundCauses  []TraceCausalProjectionNode  // cap 4
-    SemanticSpans     []TraceCausalProjectionNode  // cap 6 (2026-07-01 新增,见 §2.6)
+    PrimaryRootCauses []TraceCausalProjectionNode  // cap 6
+    OnChainCauses     []TraceCausalProjectionNode  // cap 16
+    AdjacentCauses    []TraceCausalProjectionNode  // cap 6
+    BackgroundCauses  []TraceCausalProjectionNode  // cap 6
+    SemanticSpans     []TraceCausalProjectionNode  // cap 12 (2026-07-01 扩容,见 §2.6)
     WakeupPath        []string
     SupportingHops    []TraceCausalProjectionNode  // cap 10
 }
@@ -304,8 +304,8 @@ func rootCauseShouldBeCoPrimary(item RootCauseRankItem) bool {
 这次修复直接解决了"co-primary 只能保住已进入候选池的项"这个局限,思路是**开一条完全独立于 `root_cause_rank` 排序/截断逻辑的旁路**:
 
 1. `traceQueryTypedSemanticTraceSpanObservations`(`internal/tool/trace_query.go`,新增 ~190 行)直接遍历 `WindowStats.TraceSpans`,只要 `SemanticClass != "" && DurationMs > 0` 就产出一条 `predicate="trace_semantic_span"` 的 `ObservationRecord`——**完全不检查是否进入过 `root_cause_rank.Items`,也不要求 `chain_relevance=on_chain`**(off-chain/adjacent 的语义 span 一样会被记录,只是 `Confidence` 更低:on_chain=0.82、adjacent=0.70、background=0.62)。golden test `TestTraceQueryTypedObservationsPublishSemanticSpanOutsideRootCauseRank`(`internal/tool/trace_query_typed_observations_test.go:833`)专门构造了一个 `RootCauseRank.Items` 里**不包含**该 `class_verification` span 的场景,断言它依然作为 typed observation 存活——这正是用户"不影响其它通用根因分析"的字面实现:两条通道并行,互不设卡。
-2. `TraceCausalProjection` 新增独立字段 `SemanticSpans`(cap 6,`traceCausalProjectionIsSemanticSpan` 按 `predicate=="trace_semantic_span"` 分类,不与 `PrimaryRootCauses` 混在一起)。
-3. `runtimeTraceCausalProjectionItems` 里新增专属渲染分支,标签是 **"确定性优化点" / "Deterministic optimization point"**(与用户原话"确定性的优化点"字面一致),并且把原来写死的 "最多 6 条" 上限改成动态 `runtimeTraceCausalProjectionItemLimit`(按 `primary+semantic+hops` 需求量在 12~24 之间浮动),避免语义 span 与其它条目抢位置被挤掉。
+2. `TraceCausalProjection` 新增独立字段 `SemanticSpans`(当前 cap 12,`traceCausalProjectionIsSemanticSpan` 按 `predicate=="trace_semantic_span"` 分类,不与 `PrimaryRootCauses` 混在一起)。
+3. `runtimeTraceCausalProjectionItems` 里新增专属渲染分支,标签是 **"确定性优化点" / "Deterministic optimization point"**(与用户原话"确定性的优化点"字面一致),并且把原来写死的 "最多 6 条" 上限改成动态 `runtimeTraceCausalProjectionItemLimit`(按 `primary+semantic+hops` 需求量在 12~36 之间浮动),避免语义 span 与其它条目抢位置被挤掉。
 
 #### 2.6.3 仍未解决的口子:`computeTraceMarks(idx, q, 8)` 的上游硬顶
 

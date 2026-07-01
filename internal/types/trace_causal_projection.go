@@ -14,10 +14,10 @@ const (
 )
 
 const (
-	traceCausalProjectionPrimaryLimit       = 4
-	traceCausalProjectionOnChainLimit       = 10
-	traceCausalProjectionContextBucketLimit = 4
-	traceCausalProjectionSemanticSpanLimit  = 6
+	traceCausalProjectionPrimaryLimit       = 6
+	traceCausalProjectionOnChainLimit       = 16
+	traceCausalProjectionContextBucketLimit = 6
+	traceCausalProjectionSemanticSpanLimit  = 12
 	traceCausalProjectionSupportingHopLimit = 10
 )
 

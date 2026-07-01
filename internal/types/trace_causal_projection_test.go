@@ -200,6 +200,52 @@ func TestTraceCausalProjectionKeepsSemanticSpanOptimizationPoints(t *testing.T) 
 	}
 }
 
+func TestTraceCausalProjectionExpandsSemanticSpanBucket(t *testing.T) {
+	records := []ObservationRecord{
+		traceProjectionTestRootWithNotes("root-on-chain", "worker-200", "sleep_wait", "28.000", 28.0, 0.90, 1, []string{
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+			"chain_depth=1",
+		}),
+	}
+	semanticClasses := []string{"jit_compile", "class_verification", "shader_compile", "runtime_compile"}
+	for i := 1; i <= 14; i++ {
+		class := semanticClasses[(i-1)%len(semanticClasses)]
+		records = append(records, ObservationRecord{
+			ID:              fmt.Sprintf("semantic-%02d", i),
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: ClaimGroundingHard,
+			Predicate:       "trace_semantic_span",
+			ClaimKey:        "trace_semantic_span:" + class,
+			Subject:         fmt.Sprintf("dep-%02d", i),
+			Object:          class,
+			Value:           fmt.Sprintf("%d.000", 30-i),
+			Unit:            "ms",
+			RichNotes: []string{
+				fmt.Sprintf("span_name=%s-%02d", class, i),
+				"semantic_class=" + class,
+				"chain_relevance=on_chain",
+				"causality=on_wakeup_chain",
+				fmt.Sprintf("chain_depth=%d", i),
+			},
+			Confidence: 0.82,
+		})
+	}
+
+	got := CompileTraceCausalProjection(ObservationLedger{Records: records})
+	if len(got.SemanticSpans) != 12 {
+		t.Fatalf("semantic span bucket should keep the expanded bounded surface, got %d: %+v", len(got.SemanticSpans), got.SemanticSpans)
+	}
+	if got.SemanticSpans[0].Subject != "dep-01" || got.SemanticSpans[11].Subject != "dep-12" {
+		t.Fatalf("semantic span ordering should remain typed and deterministic, got %+v", got.SemanticSpans)
+	}
+	if len(got.OnChainCauses) < 12 {
+		t.Fatalf("expanded on-chain bucket should retain semantic optimization context, got %+v", got.OnChainCauses)
+	}
+}
+
 func TestTraceCausalProjectionKeepsOnChainPrimaryAheadOfLargerBackground(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{
 		traceProjectionTestRootWithNotes("root-background", "logger-900", "io_pressure", "80.000", 80.0, 0.95, 1, []string{
@@ -314,7 +360,7 @@ func TestTraceCausalProjectionKeepsDefaultDepthSupportingHops(t *testing.T) {
 		got.SupportingHops[9].Subject != "dep-10" || got.SupportingHops[9].ChainDepth != 10 {
 		t.Fatalf("supporting hops should preserve ordered depth alias values, got %+v", got.SupportingHops)
 	}
-	if len(got.OnChainCauses) != 10 || got.OnChainCauses[9].Subject != "dep-10" {
+	if len(got.OnChainCauses) < 10 || got.OnChainCauses[9].Subject != "dep-10" {
 		t.Fatalf("on-chain bucket should preserve the default-depth causal surface, got %+v", got.OnChainCauses)
 	}
 	for _, hop := range got.SupportingHops {

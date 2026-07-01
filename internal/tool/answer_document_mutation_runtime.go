@@ -717,7 +717,7 @@ func runtimeTraceCausalProjectionItems(projection types.TraceCausalProjection, l
 			Text:        runtimeTraceCausalProjectionNodeText(node, zh),
 			CitationRef: -1,
 		})
-		if len(items) >= 4 {
+		if len(items) >= runtimeTraceCausalProjectionPrimaryDisplayLimit {
 			break
 		}
 	}
@@ -765,7 +765,7 @@ func runtimeTraceCausalProjectionItems(projection types.TraceCausalProjection, l
 func runtimeTraceCausalProjectionItemLimit(projection types.TraceCausalProjection, primaryCount int) int {
 	const (
 		minItems = 12
-		maxItems = 24
+		maxItems = 36
 	)
 	desired := primaryCount + len(projection.SemanticSpans) + len(projection.SupportingHops)
 	if len(projection.WakeupPath) > 0 {
@@ -783,6 +783,8 @@ func runtimeTraceCausalProjectionItemLimit(projection types.TraceCausalProjectio
 		return desired
 	}
 }
+
+const runtimeTraceCausalProjectionPrimaryDisplayLimit = 6
 
 func runtimeTraceCausalProjectionPrimaryRoots(projection types.TraceCausalProjection) []types.TraceCausalProjectionNode {
 	if len(projection.PrimaryRootCauses) > 0 {
