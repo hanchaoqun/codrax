@@ -8488,6 +8488,61 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceStateDrilldownSupplemen
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_TraceQueryObservationSupplementExpandsBeyondOldEightRowCap(t *testing.T) {
+	observations := make([]types.ObservationRecord, 0, 12)
+	for i := 1; i <= 12; i++ {
+		observations = append(observations, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:root:%02d", i),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace.txt"},
+			Span:            types.ObservationSpan{LineStart: 100 + i, LineEnd: 100 + i},
+			ClaimKey:        fmt.Sprintf("root_cause_primary:thread-%02d", i),
+			Subject:         fmt.Sprintf("thread-%02d", i),
+			Predicate:       "root_cause_primary",
+			Object:          "runnable",
+			Value:           fmt.Sprintf("%d.000", i),
+			Unit:            "ms",
+			RichNotes:       []string{"chain_relevance=on_chain"},
+			SupportRefs:     []string{fmt.Sprintf("attached_trace.txt:%d", 100+i)},
+		})
+	}
+
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName:     "trace_query",
+		Success:      true,
+		Observations: observations,
+	}}})
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "trace_query 已给出多层 on-chain 观测。",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"系统补充：trace_query 关键观测核对",
+		"root_cause_primary:thread-01：thread-01 -> runnable",
+		"root_cause_primary:thread-12：thread-12 -> runnable",
+		"attached_trace.txt:112",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("expanded trace_query supplement missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_PrioritizesTraceQueryOccurrenceWindowsSupplement(t *testing.T) {
 	observations := make([]types.ObservationRecord, 0, 9)
 	for i := 0; i < 8; i++ {

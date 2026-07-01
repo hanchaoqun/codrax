@@ -11920,6 +11920,8 @@ type traceQueryObservationSupplementRow struct {
 	Text  string
 }
 
+const traceQueryObservationSupplementMaxRows = 24
+
 func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
 	rows := traceQueryObservationSupplementRows(ctx, doc)
 	if len(rows) == 0 {
@@ -11931,8 +11933,8 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 		}
 		return rows[i].Key < rows[j].Key
 	})
-	if len(rows) > 8 {
-		rows = rows[:8]
+	if len(rows) > traceQueryObservationSupplementMaxRows {
+		rows = rows[:traceQueryObservationSupplementMaxRows]
 	}
 	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
 	var b strings.Builder
@@ -11960,7 +11962,7 @@ func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.Answe
 		return nil
 	}
 	seen := map[string]bool{}
-	rows := make([]traceQueryObservationSupplementRow, 0, 8)
+	rows := make([]traceQueryObservationSupplementRow, 0, traceQueryObservationSupplementMaxRows)
 	for _, record := range ledger.Records {
 		order := traceQueryObservationSupplementOrder(record)
 		if order == 0 {
