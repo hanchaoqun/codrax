@@ -711,3 +711,42 @@ flowchart LR
 **P2: O7 中期配置化增强已完成。**
 
 语义 span 识别当前已有内置 near-miss caveat、semantic sidecar cap,并支持 `codrax.yaml :: trace_semantic_span_patterns` 追加客户私有 ROM / ArkCompiler / 应用自定义 trace_mark 命名模式。配置只影响 typed 候选归类/提示,不能作为硬门。
+
+### 7.11 补充展示层 gap:降级可见性与表格美化(2026-07-02)
+
+本节记录用户对 §7 已交付展示层的追加反馈:在大 trace / heavy-view guard / 结果截断等场景下,`trace_query` 可能没有产出可承重的背景统计或因果投影行,最终报告会缺少"为什么没有背景层/为什么没有分层因果表"的解释;同时表格中"层 / 节点"列可能被长线程名、长 span 名撑宽,中文报告里的 `Impact` 表头与 `cum/proj/eff/act` 内容没有本地语言跟随。
+
+**P0: typed 降级可见性必须进入报告。**
+
+- 证据:当前 `materializeRuntimeTraceCausalProjectionBlock` 在 `CompileTraceCausalProjection` 不 active 或 table rows 为空时直接 `return false`;但 `trace_query` 已经通过 `ToolRefinementHint.ReasonCode` 精确记录 `trace_query_heavy_view_requires_scope`、`trace_query_index_event_limit`、`trace_query_result_compacted` 等 typed 降级/截断原因。
+- 风险:用户看到报告中没有背景层/因果表,可能误解为"系统证明没有背景影响",而真实含义只是"本轮没有可审计的 typed 背景统计/因果行"。
+- 任务:当 `trace_query` 已运行但没有可承重因果投影时,追加一个小型 `BlockCaveat` 说明覆盖边界;当 projection active 但 `BackgroundCauses` 为空时,在 intro 中明确"未获得可承重 off-chain/background 行,不等于背景无影响"。
+- 红线:只消费 `ToolResult.ToolName`、`ToolRefinementHint.ReasonCode`、`ToolResult.Observations`、`ObservationLedger` 等 typed carrier;不得解析用户原文、模型散文或工具 summary 做硬判断。
+
+**P1: 表格首列需要压缩,但完整节点身份不能丢。**
+
+- 证据:`runtimeTraceCausalProjectionNodeRow` 直接把 `Subject -> Object` 放进首列;长包名/长线程名/长 span 名会撑宽整张表。
+- 任务:首列改为 display label(短箭头 + bounded rune cap);完整 `Subject -> Object` 固定进入斜体明细子行的 `node=`/`节点=` 字段,保证表格更窄且无损。
+
+**P1: 表格语言本地化需要补齐。**
+
+- 证据:中文表头仍为 `Impact`,时长 cell 仍使用 `cum/proj/eff/act`。
+- 任务:中文表头改为 `影响`;中文时长 token 改为 `累计/投影/有效/实际`,英文维持 `Impact` 与 `cum/proj/eff/act`。
+
+**测试任务。**
+
+- 覆盖 heavy-view guard/refinement 无因果 rows 时生成 coverage caveat。
+- 覆盖 active projection 无 background rows 时 intro 出现背景统计边界说明。
+- 覆盖中文表头/时长本地化、英文保持原样。
+- 覆盖长节点首列被压缩且完整节点身份进入明细子行。
+
+**已实现(2026-07-02)。**
+
+- `materializeRuntimeTraceCausalProjectionBlock` 现在先编译 `ObservationLedgerInput`,当 `TraceCausalProjection` 没有 active rows 且本轮 `trace_query` 明确带 typed refinement / repair / failure 降级信号时,注入 `runtime_trace_causal_projection_coverage` caveat。普通 metric snapshot / next-step 观测不会触发该 caveat,避免报告噪音。该 caveat 只消费 `ToolResult.ToolName`、`ToolRefinementHint.ReasonCode`、`ToolRepair.Code`、`ToolResult.Success`,不读 raw request / model prose / tool summary。
+- active projection 若没有 `BackgroundCauses`,intro 追加背景层边界说明:未产出可承重 off-chain/background 行不等价于背景无影响,只是本轮缺可审计背景统计。
+- 中文列头 `Impact` 改为 `影响`;中文时长 token 改为 `累计/投影/有效/实际`;英文仍保持 `Impact` 与 `cum/proj/eff/act`。
+- 首列改为 compact display label(`Subject → Object`,bounded rune cap);完整 `Subject -> Object` 永久进入每个节点的斜体明细子行 `节点=`/`node=`,保证表更窄但无损。
+- 看护测试:
+  - `TestApplyAndPersistMutation_TraceCausalProjectionCoverageBoundaryWhenGuarded`
+  - `TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePresentation`
+  - 既有 `TraceCausalProjectionSleepDrilldownAndTriad` / ZH / EN projection 测试同步更新。

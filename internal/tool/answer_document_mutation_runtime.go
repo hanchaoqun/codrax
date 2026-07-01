@@ -672,11 +672,22 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 	if answerDocumentHasBlockID(doc, "runtime_trace_causal_projection") {
 		return false
 	}
-	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 128))
+	if answerDocumentHasBlockID(doc, "runtime_trace_causal_projection_coverage") {
+		return false
+	}
+	input := types.ObservationLedgerInputFromBusContext(ctx, 128)
+	ledger := types.CompileObservationLedger(input)
 	projection := types.CompileTraceCausalProjection(ledger)
 	lang := requestedAnswerDocumentLanguage(ctx)
 	cluster := runtimeTraceCausalProjectionCluster(projection, lang)
 	if len(cluster) == 0 {
+		if block := runtimeTraceCausalProjectionCoverageBlock(input, lang); block != nil {
+			insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
+			doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
+			copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
+			doc.Blocks[insertAt] = *block
+			return true
+		}
 		return false
 	}
 	// The lead table block is the single lossless surface; the flowchart blocks
@@ -767,7 +778,142 @@ func runtimeTraceCausalProjectionClusterIntro(projection types.TraceCausalProjec
 			intro += fmt.Sprintf("\n\nWakeup chain: `%s` — read upstream waker/dependency to target; a 💤 sleep row is a symptom (see the drilldown column), and `⛔` marks a sleep with no matching sched_wakeup in the window (cannot drill further).", chain)
 		}
 	}
+	if len(projection.BackgroundCauses) == 0 {
+		if zh {
+			intro += "\n\n背景层: 当前结构化 trace_query 结果没有产出可承重的 off-chain/background 行;这不等于背景没有影响,只表示本轮证据没有给出可审计的背景统计。"
+		} else {
+			intro += "\n\nBackground layer: the structured trace_query result did not produce load-bearing off-chain/background rows. This does not prove there was no background influence; it only means this run lacks auditable background statistics."
+		}
+	}
 	return intro
+}
+
+func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInput, lang string) *types.AnswerBlock {
+	zh := runtimeTraceCausalProjectionUseChinese(lang)
+	reasons := runtimeTraceCausalProjectionCoverageReasons(input.ToolResults, zh)
+	if len(reasons) == 0 {
+		return nil
+	}
+	text := runtimeTraceCausalProjectionCoverageText(reasons, zh)
+	title := "Trace 因果投影覆盖边界"
+	if !zh {
+		title = "Trace Causal Projection Coverage Boundary"
+	}
+	return &types.AnswerBlock{
+		ID:        "runtime_trace_causal_projection_coverage",
+		Kind:      types.BlockCaveat,
+		Title:     title,
+		Text:      text,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}},
+		FacetIDs:  []string{"observed_artifact_fact", "uncertainty_boundary"},
+	}
+}
+
+func runtimeTraceCausalProjectionCoverageReasons(results []types.ToolResult, zh bool) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, result := range results {
+		if strings.TrimSpace(result.ToolName) != "trace_query" {
+			continue
+		}
+		if !result.Success {
+			reason := "trace_query_failed"
+			if zh {
+				reason = "trace_query 执行失败"
+			}
+			if !seen[reason] {
+				seen[reason] = true
+				out = append(out, reason)
+			}
+		}
+		if result.Refinement != nil {
+			hint := types.NormalizeToolRefinementHint(*result.Refinement)
+			if reason := runtimeTraceCausalProjectionCoverageReasonLabel(hint.ReasonCode, zh); reason != "" && !seen[reason] {
+				seen[reason] = true
+				out = append(out, reason)
+			}
+		}
+		if result.Repair != nil {
+			code := strings.TrimSpace(result.Repair.Code)
+			if code != "" {
+				reason := "repair_code=" + code
+				if zh {
+					reason = "修复码=" + code
+				}
+				if !seen[reason] {
+					seen[reason] = true
+					out = append(out, reason)
+				}
+			}
+		}
+		if len(out) >= 3 {
+			break
+		}
+	}
+	return out
+}
+
+func runtimeTraceCausalProjectionCoverageReasonLabel(code string, zh bool) string {
+	switch strings.TrimSpace(code) {
+	case "trace_query_heavy_view_requires_scope":
+		if zh {
+			return "大 trace 的 heavy view 需要 bounded 时间/行/span/pattern 范围"
+		}
+		return "heavy trace view requires a bounded time/line/span/pattern scope"
+	case "trace_query_index_event_limit":
+		if zh {
+			return "trace 索引事件预算触顶"
+		}
+		return "trace index event budget was reached"
+	case "trace_query_result_compacted":
+		if zh {
+			return "trace_query 结果已压缩"
+		}
+		return "trace_query result was compacted"
+	case "trace_query_event_search_limit_reached":
+		if zh {
+			return "event_search 结果达到 limit"
+		}
+		return "event_search reached its result limit"
+	case "trace_query_recipe_discovery_needs_scope":
+		if zh {
+			return "recipe discovery 需要更精确范围"
+		}
+		return "recipe discovery needs a narrower scope"
+	case "trace_query_recipe_discovery_marker_window":
+		if zh {
+			return "recipe discovery 建议使用 marker 附近窗口"
+		}
+		return "recipe discovery recommends a marker-local window"
+	case "trace_query_auto_window_candidate":
+		if zh {
+			return "trace_query 已给出候选自动窗口"
+		}
+		return "trace_query produced an auto-window candidate"
+	default:
+		code = strings.TrimSpace(code)
+		if code == "" {
+			return ""
+		}
+		return "reason_code=" + code
+	}
+}
+
+func runtimeTraceCausalProjectionCoverageText(reasons []string, zh bool) string {
+	if zh {
+		text := "本轮已获得 trace_query 的结构化执行记录,但没有产出可承重的 root_cause/wakeup_chain/semantic rows,因此未生成分层因果表。"
+		if len(reasons) > 0 {
+			text += " typed 原因: " + strings.Join(reasons, "；") + "。"
+		}
+		text += " 这不是“没有背景影响”的结论;只表示当前证据没有给出可审计的因果/背景统计,应按 trace_query 的有界参数继续补 root_cause_rank、window_stats 或 interaction_stats。"
+		return text
+	}
+	text := "This run has structured trace_query execution records, but no load-bearing root_cause/wakeup_chain/semantic rows were produced, so the layered causal table was not generated."
+	if len(reasons) > 0 {
+		text += " Typed reason: " + strings.Join(reasons, "; ") + "."
+	}
+	text += " This does not prove there was no background influence; it only means this run lacks auditable causal/background statistics. Continue with bounded trace_query parameters for root_cause_rank, window_stats, or interaction_stats."
+	return text
 }
 
 // runtimeTraceCausalProjectionTableModel builds the lossless layered table: one
@@ -818,7 +964,7 @@ func runtimeTraceCausalProjectionTableModel(projection types.TraceCausalProjecti
 
 func runtimeTraceCausalProjectionColumns(zh bool) []string {
 	if zh {
-		return []string{"层 / 节点", "状态", "Impact", "链路 / 深度", "窗口", "下钻→", "语义", "证据"}
+		return []string{"层 / 节点", "状态", "影响", "链路 / 深度", "窗口", "下钻→", "语义", "证据"}
 	}
 	return []string{"Layer / Node", "State", "Impact", "Chain / depth", "Window", "Drilldown→", "Semantic", "Evidence"}
 }
@@ -840,9 +986,9 @@ func runtimeTraceCausalProjectionGroupHeaderRow(header string, ncols int) types.
 
 func runtimeTraceCausalProjectionNodeRow(node types.TraceCausalProjectionNode, bucketMax float64, zh bool) types.AnswerBlockItem {
 	cells := []string{
-		runtimeTraceCausalProjectionNodeSubject(node),
+		runtimeTraceCausalProjectionNodeSubjectCell(node),
 		runtimeTraceCausalProjectionStateCell(node, zh),
-		runtimeTraceCausalProjectionImpactCell(node, bucketMax),
+		runtimeTraceCausalProjectionImpactCell(node, bucketMax, zh),
 		runtimeTraceCausalProjectionChainCell(node, zh),
 		runtimeTraceCausalProjectionWindowCell(node, zh),
 		runtimeTraceCausalProjectionDrilldownCell(node, zh),
@@ -853,7 +999,11 @@ func runtimeTraceCausalProjectionNodeRow(node types.TraceCausalProjectionNode, b
 }
 
 func runtimeTraceCausalProjectionDetailsRow(node types.TraceCausalProjectionNode, zh bool) *types.AnswerBlockItem {
-	var parts []string
+	label := "node="
+	if zh {
+		label = "节点="
+	}
+	parts := []string{label + runtimeTraceCausalProjectionNodeSubject(node)}
 	if tier := strings.TrimSpace(node.Tier); tier != "" {
 		parts = append(parts, "tier="+tier)
 	}
@@ -906,7 +1056,7 @@ func runtimeTraceCausalProjectionStateCell(node types.TraceCausalProjectionNode,
 	return state
 }
 
-func runtimeTraceCausalProjectionImpactCell(node types.TraceCausalProjectionNode, bucketMax float64) string {
+func runtimeTraceCausalProjectionImpactCell(node types.TraceCausalProjectionNode, bucketMax float64, zh bool) string {
 	magnitude := node.CumulativeImpactMS
 	if magnitude <= 0 {
 		magnitude = node.EffectiveImpactMS
@@ -917,16 +1067,16 @@ func runtimeTraceCausalProjectionImpactCell(node types.TraceCausalProjectionNode
 	bar := runtimeTraceCausalProjectionBar(magnitude, bucketMax)
 	var parts []string
 	if node.CumulativeImpactMS > 0 {
-		parts = append(parts, fmt.Sprintf("cum %.3fms", node.CumulativeImpactMS))
+		parts = append(parts, fmt.Sprintf("%s %.3fms", runtimeTraceCausalProjectionImpactLabel("cumulative", zh), node.CumulativeImpactMS))
 	}
 	if node.ImpactMS > 0 && node.ImpactMS != node.CumulativeImpactMS {
-		parts = append(parts, fmt.Sprintf("proj %.3fms", node.ImpactMS))
+		parts = append(parts, fmt.Sprintf("%s %.3fms", runtimeTraceCausalProjectionImpactLabel("projected", zh), node.ImpactMS))
 	}
 	if node.EffectiveImpactMS > 0 && node.EffectiveImpactMS != node.CumulativeImpactMS {
-		parts = append(parts, fmt.Sprintf("eff %.3fms", node.EffectiveImpactMS))
+		parts = append(parts, fmt.Sprintf("%s %.3fms", runtimeTraceCausalProjectionImpactLabel("effective", zh), node.EffectiveImpactMS))
 	}
 	if node.ActualImpactMS > 0 && node.ActualImpactMS != node.CumulativeImpactMS {
-		parts = append(parts, fmt.Sprintf("act %.3fms", node.ActualImpactMS))
+		parts = append(parts, fmt.Sprintf("%s %.3fms", runtimeTraceCausalProjectionImpactLabel("actual", zh), node.ActualImpactMS))
 	}
 	if len(parts) == 0 {
 		if value := strings.TrimSpace(node.Value); value != "" {
@@ -943,6 +1093,33 @@ func runtimeTraceCausalProjectionImpactCell(node types.TraceCausalProjectionNode
 		return label
 	default:
 		return ""
+	}
+}
+
+func runtimeTraceCausalProjectionImpactLabel(kind string, zh bool) string {
+	if zh {
+		switch kind {
+		case "cumulative":
+			return "累计"
+		case "projected":
+			return "投影"
+		case "effective":
+			return "有效"
+		case "actual":
+			return "实际"
+		}
+	}
+	switch kind {
+	case "cumulative":
+		return "cum"
+	case "projected":
+		return "proj"
+	case "effective":
+		return "eff"
+	case "actual":
+		return "act"
+	default:
+		return kind
 	}
 }
 
@@ -1409,6 +1586,36 @@ func runtimeTraceCausalProjectionNodeSubject(node types.TraceCausalProjectionNod
 	default:
 		return "trace causal node"
 	}
+}
+
+func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectionNode) string {
+	subject := strings.TrimSpace(node.Subject)
+	object := strings.TrimSpace(node.Object)
+	switch {
+	case subject != "" && object != "":
+		return runtimeTraceCausalProjectionCompactCellText(subject, 34) + " → " + runtimeTraceCausalProjectionCompactCellText(object, 26)
+	case subject != "":
+		return runtimeTraceCausalProjectionCompactCellText(subject, 54)
+	case object != "":
+		return runtimeTraceCausalProjectionCompactCellText(object, 54)
+	default:
+		return "trace causal node"
+	}
+}
+
+func runtimeTraceCausalProjectionCompactCellText(raw string, maxRunes int) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || maxRunes <= 0 {
+		return raw
+	}
+	runes := []rune(raw)
+	if len(runes) <= maxRunes {
+		return raw
+	}
+	if maxRunes <= 1 {
+		return "…"
+	}
+	return string(runes[:maxRunes-1]) + "…"
 }
 
 func runtimeTraceCausalProjectionDetails(node types.TraceCausalProjectionNode, zh bool) []string {

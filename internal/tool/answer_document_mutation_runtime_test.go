@@ -700,7 +700,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	}
 	// Primary root cause node + gap c magnitude bar (cumulative shown, no raw
 	// rich-note token leak in the visible cells).
-	for _, want := range []string{"threadpool-400 -> io_wait", "cum 11.000ms", "█", "● on-chain"} {
+	for _, want := range []string{"threadpool-400 -> io_wait", "累计 11.000ms", "█", "● on-chain"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("projection should surface primary root cause + magnitude bar %q:\n%s", want, text)
 		}
@@ -785,7 +785,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 	rendered := render.RenderAnswerDocument(bus.Mutable.AnswerDocumentV2(), "zh")
 
 	// gap c: the duration triad renders with a magnitude bar.
-	for _, want := range []string{"█", "cum 5.000ms", "eff 11.040ms", "act 4.600ms"} {
+	for _, want := range []string{"█", "累计 5.000ms", "有效 11.040ms", "实际 4.600ms"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("duration triad + bar must render (gap c): missing %q:\n%s", want, rendered)
 		}
@@ -805,8 +805,109 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 	}
 	// The section renders as a real GFM table (pipes + header separator) plus a
 	// mermaid flowchart — not a flat ordered list.
-	if !strings.Contains(rendered, "| 层 / 节点 |") || !strings.Contains(rendered, "```mermaid") {
+	if !strings.Contains(rendered, "| 层 / 节点 | 状态 | 影响 |") || !strings.Contains(rendered, "```mermaid") {
 		t.Fatalf("section must render as a table + mermaid cluster:\n%s", rendered)
+	}
+}
+
+func TestApplyAndPersistMutation_TraceCausalProjectionCoverageBoundaryWhenGuarded(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+	}}
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode:      "trace_query_heavy_view_requires_scope",
+			ResultTruncated: true,
+		},
+	}}
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "trace_query was guarded."},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	coverage := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_coverage")
+	if coverage == nil || coverage.Kind != types.BlockCaveat {
+		t.Fatalf("guarded trace_query without causal rows should render coverage caveat: %+v", got.Blocks)
+	}
+	for _, want := range []string{"未生成分层因果表", "heavy view", "不是“没有背景影响”的结论"} {
+		if !strings.Contains(coverage.Text, want) {
+			t.Fatalf("coverage caveat missing %q:\n%s", want, coverage.Text)
+		}
+	}
+}
+
+func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePresentation(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+	}}
+	longSubject := "com.example.deep.package.with.very.long.MainThreadRenderer-42591"
+	longObject := "blocked_on_extremely_long_worker_chain_with_extra_context"
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{
+			traceProjectionObservation("root-long", longSubject, longObject, "13.000", "13.000", 1),
+		},
+	}}
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "long node observed."},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	projection := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection")
+	if projection == nil || projection.Kind != types.BlockTable {
+		t.Fatalf("missing projection table: %+v", got.Blocks)
+	}
+	if len(projection.Columns) < 3 || projection.Columns[2] != "影响" {
+		t.Fatalf("Chinese projection columns should localize Impact: %+v", projection.Columns)
+	}
+	text := projectionClusterText(got.Blocks)
+	if !strings.Contains(projection.Text, "没有产出可承重的 off-chain/background 行") {
+		t.Fatalf("projection intro should explain missing background statistics:\n%s", projection.Text)
+	}
+	full := longSubject + " -> " + longObject
+	if !strings.Contains(text, "节点="+full) {
+		t.Fatalf("details row must preserve full node identity:\n%s", text)
+	}
+	foundCompact := false
+	for _, item := range projection.Items {
+		if len(item.Cells) == 0 {
+			continue
+		}
+		cell := item.Cells[0]
+		if strings.Contains(cell, "…") && !strings.Contains(cell, longSubject) && !strings.Contains(cell, longObject) {
+			foundCompact = true
+			break
+		}
+	}
+	if !foundCompact {
+		t.Fatalf("long node should be compacted in the first column while full identity stays in details: %+v", projection.Items)
 	}
 }
 
