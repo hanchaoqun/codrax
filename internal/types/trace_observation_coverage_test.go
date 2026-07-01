@@ -229,6 +229,54 @@ func TestTraceObservationCoverageSkipsShardAggregateWhenParentRootExists(t *test
 	}
 }
 
+func TestTraceObservationCoverageAggregatesBoundedStateDrilldownShards(t *testing.T) {
+	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
+		traceCoverageRecord("sleep1", "trace_query:1", "state_drilldown", "state_drilldown:main:S", "main-1", "S", "18.000", []string{"source=top_sleep", "recommended_views=wakeup_chain,root_cause_rank", "chain_required=true", "recursive=true", "significant=true"}, ObservationSpan{StartTs: 1.000, EndTs: 1.100}),
+		traceCoverageRecord("sleep2", "trace_query:2", "state_drilldown", "state_drilldown:main:S", "main-1", "S", "14.000", []string{"source=top_sleep", "recommended_views=wakeup_chain,root_cause_rank", "chain_required=true", "recursive=true", "significant=true"}, ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
+		traceCoverageRecord("frag1", "trace_query:3", "state_drilldown", "state_drilldown:main:S:fragmented", "main-1", "S", "6.000", []string{"source=state_churn", "recommended_views=thread_timeline,interaction_stats,window_stats", "chain_required=false", "recursive=false", "significant=false"}, ObservationSpan{StartTs: 1.000, EndTs: 1.100}),
+		traceCoverageRecord("frag2", "trace_query:4", "state_drilldown", "state_drilldown:main:S:fragmented", "main-1", "S", "5.000", []string{"source=state_churn", "recommended_views=thread_timeline,interaction_stats,window_stats", "chain_required=false", "recursive=false", "significant=false"}, ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
+	})
+	if len(got.ShardStateAggregates) < 2 {
+		t.Fatalf("expected long and fragmented state shard aggregates, got %+v", got.ShardStateAggregates)
+	}
+	long := got.ShardStateAggregates[0]
+	if long.Dimension != TraceObservationDimensionStateDrilldown ||
+		long.Subject != "main-1" ||
+		long.Object != "S" ||
+		long.DrilldownSource != "top_sleep" ||
+		long.ShardCount != 2 ||
+		long.SignificantShardCount != 2 ||
+		!long.ChainRequired ||
+		!long.RecursiveDrilldown ||
+		long.TotalImpactMS != 32 ||
+		long.MaxShardImpactMS != 18 ||
+		long.Window != "1.000000..1.200000" ||
+		!slices.Contains(long.RecommendedViews, "wakeup_chain") ||
+		!slices.Contains(long.RecommendedViews, "root_cause_rank") {
+		t.Fatalf("unexpected long state shard aggregate: %+v", long)
+	}
+	fragmented := got.ShardStateAggregates[1]
+	if fragmented.DrilldownSource != "state_churn" ||
+		fragmented.SignificantShardCount != 0 ||
+		fragmented.ChainRequired ||
+		fragmented.RecursiveDrilldown ||
+		!slices.Contains(fragmented.RecommendedViews, "thread_timeline") ||
+		!slices.Contains(fragmented.RecommendedViews, "window_stats") {
+		t.Fatalf("fragmented sleep should stay visible but non-recursive: %+v", fragmented)
+	}
+}
+
+func TestTraceObservationCoverageSkipsStateShardAggregateWhenParentStateExists(t *testing.T) {
+	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
+		traceCoverageRecord("parent", "trace_query:parent", "state_drilldown", "state_drilldown:main:S", "main-1", "S", "40.000", []string{"source=top_sleep", "recommended_views=wakeup_chain,root_cause_rank", "chain_required=true", "recursive=true", "significant=true"}, ObservationSpan{StartTs: 1.000, EndTs: 1.400}),
+		traceCoverageRecord("sleep1", "trace_query:1", "state_drilldown", "state_drilldown:main:S", "main-1", "S", "18.000", []string{"source=top_sleep", "recommended_views=wakeup_chain,root_cause_rank", "chain_required=true", "recursive=true", "significant=true"}, ObservationSpan{StartTs: 1.000, EndTs: 1.100}),
+		traceCoverageRecord("sleep2", "trace_query:2", "state_drilldown", "state_drilldown:main:S", "main-1", "S", "14.000", []string{"source=top_sleep", "recommended_views=wakeup_chain,root_cause_rank", "chain_required=true", "recursive=true", "significant=true"}, ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
+	})
+	if len(got.ShardStateAggregates) != 0 {
+		t.Fatalf("parent-window state row should prevent duplicate state shard aggregate: %+v", got.ShardStateAggregates)
+	}
+}
+
 func traceCoverageRecord(id, toolCall, predicate, claimKey, subject, object, value string, notes []string, span ObservationSpan) ObservationRecord {
 	return ObservationRecord{
 		ID:              id,

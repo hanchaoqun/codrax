@@ -238,6 +238,34 @@ func renderTraceObservationCoverageForStageReport(coverage types.TraceObservatio
 		}
 		b.WriteString(" soft_handoff=true\n")
 	}
+	for i, agg := range coverage.ShardStateAggregates {
+		if i >= 3 {
+			break
+		}
+		fmt.Fprintf(&b, "- trace_query_state_shard_aggregate[%d]: dimension=%s subject=%s object=%s",
+			i+1, agg.Dimension, agg.Subject, agg.Object)
+		if agg.DrilldownSource != "" {
+			fmt.Fprintf(&b, " source=%s", agg.DrilldownSource)
+		}
+		if agg.ChainRelevance != "" {
+			fmt.Fprintf(&b, " chain_relevance=%s", agg.ChainRelevance)
+		}
+		fmt.Fprintf(&b, " shards=%d significant_shards=%d total_impact=%.3fms max_shard=%.3fms",
+			agg.ShardCount, agg.SignificantShardCount, agg.TotalImpactMS, agg.MaxShardImpactMS)
+		if agg.Window != "" {
+			fmt.Fprintf(&b, " window=%s", agg.Window)
+		}
+		if len(agg.RecommendedViews) > 0 {
+			fmt.Fprintf(&b, " recommended_views=`%s`", strings.Join(agg.RecommendedViews, "`, `"))
+		}
+		if agg.ChainRequired || agg.RecursiveDrilldown {
+			fmt.Fprintf(&b, " chain_required=%t recursive=%t", agg.ChainRequired, agg.RecursiveDrilldown)
+		}
+		if len(agg.ExampleWindows) > 0 {
+			fmt.Fprintf(&b, " example_windows=`%s`", strings.Join(agg.ExampleWindows, "`, `"))
+		}
+		b.WriteString(" soft_handoff=true\n")
+	}
 	for i, obs := range coverage.TopObservations {
 		if i >= 4 {
 			break

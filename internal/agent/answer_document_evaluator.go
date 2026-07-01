@@ -3963,6 +3963,35 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 			b.WriteByte('\n')
 		}
 	}
+	if len(coverage.ShardStateAggregates) > 0 {
+		b.WriteString("- state_shard_aggregates: bounded state/window-stats shard summaries below are soft parent-window handoff, not completion blockers.\n")
+		for i, agg := range coverage.ShardStateAggregates {
+			if i >= 4 {
+				break
+			}
+			fmt.Fprintf(&b, "  - state_shard[%d] dimension=`%s`; subject=`%s`; object=`%s`; shards=%d; significant_shards=%d; total_impact=%.3fms; max_shard=%.3fms",
+				i+1, agg.Dimension, agg.Subject, agg.Object, agg.ShardCount, agg.SignificantShardCount, agg.TotalImpactMS, agg.MaxShardImpactMS)
+			if agg.DrilldownSource != "" {
+				fmt.Fprintf(&b, "; source=`%s`", agg.DrilldownSource)
+			}
+			if len(agg.RecommendedViews) > 0 {
+				fmt.Fprintf(&b, "; recommended_views=`%s`", strings.Join(agg.RecommendedViews, "`, `"))
+			}
+			if agg.ChainRequired || agg.RecursiveDrilldown {
+				fmt.Fprintf(&b, "; chain_required=%t; recursive=%t", agg.ChainRequired, agg.RecursiveDrilldown)
+			}
+			if agg.Window != "" {
+				fmt.Fprintf(&b, "; window=%s", agg.Window)
+			}
+			if len(agg.ExampleWindows) > 0 {
+				fmt.Fprintf(&b, "; example_windows=`%s`", strings.Join(agg.ExampleWindows, "`, `"))
+			}
+			if len(agg.SupportRefs) > 0 {
+				fmt.Fprintf(&b, "; support_refs=`%s`", strings.Join(agg.SupportRefs, "`, `"))
+			}
+			b.WriteByte('\n')
+		}
+	}
 	for i, obs := range coverage.TopObservations {
 		if i >= 5 {
 			break

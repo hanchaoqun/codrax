@@ -8688,6 +8688,8 @@ func TestRenderAnswerDocObservationLedger_IncludesTraceShardAggregates(t *testin
 		Observations: []types.ObservationRecord{
 			stageReportTraceObservation("root1", "trace_query[1]", "root_cause_primary", "root_cause_primary", "main-1", "running", "12.000", []string{"chain_relevance=on_chain"}, types.ObservationSpan{StartTs: 1.000, EndTs: 1.100}),
 			stageReportTraceObservation("root2", "trace_query[2]", "root_cause_primary", "root_cause_primary", "main-1", "running", "9.000", []string{"chain_relevance=on_chain"}, types.ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
+			stageReportTraceObservation("state1", "trace_query[1]", "state_drilldown", "state_drilldown:main:S", "main-1", "S", "18.000", []string{"source=top_sleep", "recommended_views=wakeup_chain,root_cause_rank", "chain_required=true", "recursive=true", "significant=true"}, types.ObservationSpan{StartTs: 1.000, EndTs: 1.100}),
+			stageReportTraceObservation("state2", "trace_query[2]", "state_drilldown", "state_drilldown:main:S", "main-1", "S", "14.000", []string{"source=top_sleep", "recommended_views=wakeup_chain,root_cause_rank", "chain_required=true", "recursive=true", "significant=true"}, types.ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
 		},
 	}}})
 	ctx := &types.AgentContext{Mutable: mu}
@@ -8699,6 +8701,11 @@ func TestRenderAnswerDocObservationLedger_IncludesTraceShardAggregates(t *testin
 		"window=1.000000..1.200000",
 		"example_windows=`1.000000..1.100000`, `1.100000..1.200000`",
 		"support_refs=`trace.systrace:10-20`",
+		"state_shard_aggregates: bounded state/window-stats shard summaries below are soft parent-window handoff, not completion blockers.",
+		"state_shard[1] dimension=`state_drilldown`; subject=`main-1`; object=`S`; shards=2; significant_shards=2; total_impact=32.000ms; max_shard=18.000ms",
+		"source=`top_sleep`",
+		"recommended_views=`wakeup_chain`, `root_cause_rank`",
+		"chain_required=true; recursive=true",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("observation ledger missing shard aggregate fragment %q:\n%s", want, got)

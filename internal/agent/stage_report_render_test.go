@@ -182,6 +182,8 @@ func TestRenderExplorerStageReport_RendersTraceShardAggregates(t *testing.T) {
 	observations := []types.ObservationRecord{
 		stageReportTraceObservation("root1", "trace_query[1]", "root_cause_primary", "root_cause_primary", "main-1", "running", "12.000", []string{"chain_relevance=on_chain"}, types.ObservationSpan{StartTs: 1.000, EndTs: 1.100}),
 		stageReportTraceObservation("root2", "trace_query[2]", "root_cause_primary", "root_cause_primary", "main-1", "running", "9.000", []string{"chain_relevance=on_chain"}, types.ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
+		stageReportTraceObservation("state1", "trace_query[1]", "state_drilldown", "state_drilldown:main:S", "main-1", "S", "18.000", []string{"source=top_sleep", "recommended_views=wakeup_chain,root_cause_rank", "chain_required=true", "recursive=true", "significant=true"}, types.ObservationSpan{StartTs: 1.000, EndTs: 1.100}),
+		stageReportTraceObservation("state2", "trace_query[2]", "state_drilldown", "state_drilldown:main:S", "main-1", "S", "14.000", []string{"source=top_sleep", "recommended_views=wakeup_chain,root_cause_rank", "chain_required=true", "recursive=true", "significant=true"}, types.ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
 	}
 
 	got := renderExplorerStageReport("trace", "runtime", nil, nil, nil, nil, nil, nil, false, observations...)
@@ -192,6 +194,10 @@ func TestRenderExplorerStageReport_RendersTraceShardAggregates(t *testing.T) {
 		"window=1.000000..1.200000",
 		"example_windows=`1.000000..1.100000`, `1.100000..1.200000`",
 		"soft_handoff=true",
+		"trace_query_state_shard_aggregate[1]: dimension=state_drilldown subject=main-1 object=S",
+		"source=top_sleep",
+		"shards=2 significant_shards=2 total_impact=32.000ms max_shard=18.000ms",
+		"recommended_views=`wakeup_chain`, `root_cause_rank` chain_required=true recursive=true",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("trace shard aggregate stage report missing %q.\noutput:\n%s", want, got)

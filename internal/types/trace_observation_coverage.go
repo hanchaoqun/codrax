@@ -26,17 +26,18 @@ const (
 )
 
 type TraceObservationCoverage struct {
-	Active                bool                                `json:"active,omitempty"`
-	TotalRecords          int                                 `json:"total_records,omitempty"`
-	QueryCount            int                                 `json:"query_count,omitempty"`
-	Dimensions            []TraceObservationDimensionCoverage `json:"dimensions,omitempty"`
-	TopObservations       []TraceObservationCoverageRecord    `json:"top_observations,omitempty"`
-	Windows               []string                            `json:"windows,omitempty"`
-	Filters               []string                            `json:"filters,omitempty"`
-	SourceRefs            []string                            `json:"source_refs,omitempty"`
-	SoftMissingDimensions []string                            `json:"soft_missing_dimensions,omitempty"`
-	ShardAggregates       []TraceObservationShardAggregate    `json:"shard_aggregates,omitempty"`
-	CausalProjection      TraceCausalProjection               `json:"causal_projection,omitempty"`
+	Active                bool                                  `json:"active,omitempty"`
+	TotalRecords          int                                   `json:"total_records,omitempty"`
+	QueryCount            int                                   `json:"query_count,omitempty"`
+	Dimensions            []TraceObservationDimensionCoverage   `json:"dimensions,omitempty"`
+	TopObservations       []TraceObservationCoverageRecord      `json:"top_observations,omitempty"`
+	Windows               []string                              `json:"windows,omitempty"`
+	Filters               []string                              `json:"filters,omitempty"`
+	SourceRefs            []string                              `json:"source_refs,omitempty"`
+	SoftMissingDimensions []string                              `json:"soft_missing_dimensions,omitempty"`
+	ShardAggregates       []TraceObservationShardAggregate      `json:"shard_aggregates,omitempty"`
+	ShardStateAggregates  []TraceObservationShardStateAggregate `json:"shard_state_aggregates,omitempty"`
+	CausalProjection      TraceCausalProjection                 `json:"causal_projection,omitempty"`
 }
 
 type TraceObservationDimensionCoverage struct {
@@ -68,6 +69,7 @@ type TraceObservationCoverageRecord struct {
 	Source             string   `json:"source,omitempty"`
 	Span               string   `json:"span,omitempty"`
 	SupportRefs        []string `json:"support_refs,omitempty"`
+	Significant        bool     `json:"significant,omitempty"`
 }
 
 func BuildTraceObservationCoverage(ledger ObservationLedger) TraceObservationCoverage {
@@ -122,6 +124,7 @@ func TraceObservationCoverageFromObservationRecords(records []ObservationRecord)
 		SourceRefs:            traceObservationCoverageLimitStrings(sources, 6),
 		SoftMissingDimensions: traceObservationSoftMissingDimensions(byDimension, coverageRecords),
 		ShardAggregates:       traceObservationShardAggregates(coverageRecords),
+		ShardStateAggregates:  traceObservationShardStateAggregates(coverageRecords),
 		CausalProjection:      TraceCausalProjectionFromObservationRecords(records),
 	}
 	return out
@@ -229,6 +232,7 @@ func traceObservationCoverageRecordView(record ObservationRecord, dimension stri
 		Source:             FormatObservationSourceRef(record.SourceRef, 120),
 		Span:               FormatObservationSpan(record.Span, 80),
 		SupportRefs:        traceObservationCoverageLimitStrings(record.SupportRefs, 3),
+		Significant:        traceObservationRichNoteBool(record.RichNotes, "significant"),
 	}
 }
 

@@ -171,14 +171,14 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
      3. Stage report 与 finalizer Observation Ledger 已渲染该 aggregate view,并明确它是 parent-window soft handoff,不是完成硬门,不可因为 aggregate 缺失而重开探索。
      4. 无法安全合并的场景 fail open:没有可解析窗口、只有单 shard、存在 parent-window root row 时不强行合并;继续显示原始 typed observations / caveat。
      5. 测试覆盖:多 80-150ms shard 聚合、0 秒起点窗口、parent-window row 抑制重复聚合、stage report/finalizer handoff 可见、无 completion hard-block 字样。禁止从用户原文、模型 prose、工具 Summary、本地化 UI 或 eval label 推断 shard 归属。
-   - **2026-07-02 后续批次:TraceShardAggregator window-stats/state-first soft handoff 补齐(P1 / handoff completeness / planned)**:
+   - **2026-07-02 本批交付:TraceShardAggregator window-stats/state-first soft handoff 补齐(P1 / handoff completeness / code complete)**:
      1. 新复核发现上面的 soft handoff slice 只聚合 `root_cause_rank` rows,但本节原始目标是"多个 80-150ms shard 的 `root_cause_rank/window_stats` 近似合并为 parent-window 排名"。这不是新的 hard gate,但会让 dense trace 的 state-first 证据仍主要散落在多个 shard 的 `state_drilldown` / `state_churn` rows 中,finalizer 需要从多条 typed observation 里自行拼接"父窗口里反复出现的主状态"。
      2. 泛化修复方向:仍复用 `TraceObservationCoverage`,不新建并行 trace ledger;新增 bounded shard state aggregate view,只消费 deterministic `trace_query` 产生的 typed `state_drilldown` / `state_churn` / thread-timeline/resource-pressure coverage rows,按 `(dimension, subject, object/state, drilldown_source, chain/recommended flags)` 聚合 shard count、union window、total/max impact、significant shard count、推荐 view、support refs。`root_cause_rank` shard aggregate 继续保留并排序在主链维度前。
      3. Safety:该 view 只作为 stage report / finalizer Observation Ledger 的 soft parent-window handoff,不允许成为 `emit_investigation_complete`、证据校验或成文阶段 hard blocker;没有可解析窗口、只有单 shard、已有 parent-window state/root row、或 typed fields 不足时 fail open。禁止从用户原文、模型 prose、工具 Summary、本地化 UI、elapsed time 或 eval label 推断 shard 归属。
-     4. 任务拆解:
-        - Batch A:在 `types.TraceObservationCoverage` 上新增 state shard aggregate typed projection + 单元测试,覆盖 long sleep、fragmented sleep non-recursive、runnable/IO recursive、significant=false 保留但低优先级。
-        - Batch B:Stage report 与 finalizer Observation Ledger 渲染该 projection,文案明确 soft handoff / not completion blocker,并用短行避免增加 prompt 噪音。
-        - Batch C:更新本文档 as-built,跑 focused `internal/types` + `internal/agent` trace coverage tests;全量回归后再进入下一批 eval。
+     4. As-built:
+        - Batch A 已完成:`TraceObservationCoverage` 新增 `ShardStateAggregates []TraceObservationShardStateAggregate`,在既有 coverage store 内聚合 `state_drilldown` / `state_churn` / thread-timeline / resource-pressure bounded shard rows;按 typed dimension、subject、object/state、drilldown_source、chain/recommended flags 分桶,记录 shard count、significant shard count、union window、total/max impact、recommended views、example windows、support refs。
+        - Batch B 已完成:Explorer stage report 新增 `trace_query_state_shard_aggregate[...]`;finalizer Observation Ledger 新增 `state_shard_aggregates`,均明确 `soft_handoff=true` / `not completion blockers`,不给 `emit_investigation_complete`、证据校验或成文阶段增加 hard debt。
+        - Batch C 已完成:单测覆盖 long top_sleep 聚合、fragmented sleep non-recursive 仍可见、parent-window state row 抑制重复聚合、stage report/finalizer handoff 可见。Focused `go test ./internal/types -run 'TraceObservationCoverage' -count=1` 与 `go test ./internal/agent -run 'TraceShardAggregates|TraceObservationCoverage' -count=1` 通过。
 
 3. **P2: thread-only relation-scoped pruning —— 已交付(2026-07-01)**。
    - 现状:Step 2 已支持只传 `thread` 的 `thread_timeline`/`wakeup_chain` 进入 lazy relation-scope fallback。工具层只传 typed `thread` 参数;真正的裁剪权威在 `tracequery` parser 内部,只消费 window gate 内结构化 `comm/pid/tgid/prev/next/wakee` 事件,不从 raw objective 或模型散文推断。
