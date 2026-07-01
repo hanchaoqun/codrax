@@ -1,6 +1,6 @@
 # 大 trace 分析 gap 记录（2026-07-01，客户 berlin.systrace 1104 MiB 场景）
 
-> 本文档只**记录**从一次真实客户 REPL 会话里暴露出的 3 个 gap,**不在本轮修复**(用户指示"记录下来,后面修复 / 排队修复")。已修复的 OOM 崩溃(`cb896bb4`)是同一场景触发的独立问题,见该 commit;本文档记录的是 OOM 之外的架构/行为 gap。每个 gap 都给了 REPL 证据 + 精确代码指针 + 修复方向,供后续单独立项。
+> 本文档最初只记录一次真实客户 REPL 会话暴露出的 3 个 gap。2026-07-01/02 后,事故级路径已分批修复并在下文逐项标注:PRE-emit runtime-artifact carrier、密窗 state-first 安全降级、thread/pid relation scope、trace grep fallback、trace-first guidance 均已落地。文首保留原始事故背景,避免后续排期误把历史证据当作当前未修项。
 
 ## 场景
 
@@ -23,7 +23,7 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
 - 第一段 REPL 直接崩在 `1/4 仓库索引 xiongqing 正在校验缓存差异：准备校验 556 个文件` → `fatal error: out of memory`。
 - 模型自己的 reasoning 都说了:"按照指令,我不应该运行 repo pre-scan(repo_map、grep、list_files)",且把 `external_observation_policy.current_source_mode` 设为 `exclude`。
 
-**根因**(已定位到代码,未修):模型侧确实避开了 LLM-facing 的预扫**工具**,但**系统侧确定性 analyzer IR 构建**仍无条件建图:
+**历史根因**(已定位并已被后续 runtime-artifact preflight carrier 修复):模型侧确实避开了 LLM-facing 的预扫**工具**,但当时**系统侧确定性 analyzer IR 构建**仍可能无条件建图:
 - `buildAnalysisIR` → `analyzerGraphForNormalize`(`internal/agent/analyzer.go:2766`)→ `repomap.GraphFromAgentContextOrLoad`(2785)→ `BuildOrLoadGraphWithin` —— 正是 OOM 堆栈。
 - 这里**有**一个跳过守卫 `analyzerRuntimeArtifactSourceNavigationOptional(ctx, rm)`(analyzer.go:2775),true 时会 `return nil` 跳过建图。但它没触发。
 - 守卫 → `RuntimeArtifactRequestSourceNavigationNotRequired`(request_traits.go:1398)→ `HasRuntimeArtifactObservationOnlySurfaceInArtifactContext`,其 `attachedRuntimeArtifact` 参数来自 `analyzerAttachedTraceContext(ctx)`(analyzer.go:3029),只认 **inline** `ctx.AttachedHitrace != ""` 或已构建的 `PerfTrace != nil`。
@@ -39,7 +39,7 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
 
 **已修(POST-emit,精确信号)**:`analyzerRuntimeArtifactSourceNavigationOptional`(analyzer.go:3025)新增独立短路——当 `rm.ExternalObservationPolicy.ExcludesCurrentSource()` 为真时直接返回 true,跳过 `analyzerGraphForNormalize` 建图,**不再依赖路径是否被保留 / trace 是否 inline 附加**。用的是与 Gap A / `tier1_floor` 同一精确信号。测试 `TestAnalyzerRuntimeArtifactSourceNavigationOptional_ExplicitExclusion`(exclude 跳过 / 普通请求不跳 / default-mode 不跳)。任何缺锚点的 exclude 已在上游 `promoteInvalidExternalObservationExcludeToAllow` 软化成 allow,故只有"用户显式排除代码"才触发。
 
-**残留(PRE-emit,未修,需裁定)**:analyzer 在 emit_analysis **之前**还有一处建图——`buildAnalyzerRepoOverview`(analyzer.go:161)注入 repo task_map 给 analyzer 首轮。它跑在**分类之前**,那时 `RequestModel`/`ExternalObservationPolicy` **还不存在**,故 `ExcludesCurrentSource()` 信号用不上;它只被 raw-signal 探测器(analyzer.go:130-147)跳过,其中 `explicitRuntimeArtifactPathInObjective` 要求 trace 路径能 `os.Stat` 解析(`analyzerRuntimeArtifactCandidatePaths` 只在 WorkDir/RepoRoot/MainRepoRoot/CWD 下找)。客户的 trace 若在**仓库外**(如 `南海\berlin.systrace` 而仓库是 `南海\xiongqing`)则解析不到 → 无探测器触发 → 仍建 overview 图。两处建图都走同一个 `GraphFromAgentContextOrLoad`,OOM 堆栈无法区分是哪一处;POST-emit 已修,PRE-emit 属残留。修法有二、都涉及权衡,**留待用户裁定**:①让 `analyzerRuntimeArtifactCandidatePaths` 也查 runtime-artifact store(display 层 banner 能解析出 1104MiB,说明 store 里有解析后的路径)——较安全但需接线;②用 raw-token 正则(`analyzerRuntimeArtifactPathTokenRE`)对 overview 建图做**软跳过**——但 raw-token 是噪音信号,当硬跳过会踩红线,当软优化(LLM 仍可自行调 repo_map)勉强合规,但会改动 analyzer 预扫核心行为(重测面大),需谨慎。
+**后续收敛(2026-07-01 已交付)**:PRE-emit 路径不再依赖 raw-token 跳过。Run 入口生成 `RuntimeArtifactPreflightProfile`,覆盖 CLI/REPL attached log/trace、请求中显式 trace/log/perf 路径、以及相对 repo 的 runtime artifact 路径,再投影到 `BusContext`/`AgentContext`。`buildAnalyzerRepoOverview`、analyzer tool boundary、Run-entry graph warmup、runtime-artifact-active 判定均消费该 typed carrier。该 carrier 是确定性 path/artifact profile,不是用户关键词或模型散文,因此满足硬门精确信号要求。详见本文 "当前仍需排队的隐含 gap / P0: PRE-emit repo overview typed runtime-artifact carrier —— 已交付(2026-07-01)"。
 
 ---
 
