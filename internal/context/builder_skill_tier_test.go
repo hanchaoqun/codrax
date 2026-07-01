@@ -170,9 +170,35 @@ func TestSkillTierAwareWorkflow_TraceGatedByTypedArtifact(t *testing.T) {
 	for name, ac := range map[string]*types.AgentContext{
 		"context perf bundle": {PerfTrace: &types.PerfBundle{}},
 		"attached hitrace":    {AttachedHitraceSource: "/tmp/run.systrace"},
+		"runtime preflight trace path": {
+			RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+				SourceNavigationOptional: true,
+				Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+					Kind:    "trace",
+					Source:  "/tmp/berlin.systrace",
+					Carrier: "request_path",
+				}},
+			}),
+		},
 		"analysis perf": {
 			AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 				PerfTrace: &types.PerfBundle{},
+			}},
+		},
+		"analysis referenced trace path": {
+			AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					SourceQuotes:         []string{"不分析代码"},
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{{
+						Path:       "berlin.systrace",
+						Confidence: 1,
+					}},
+				},
 			}},
 		},
 		"mutable perf": func() *types.AgentContext {
@@ -188,6 +214,23 @@ func TestSkillTierAwareWorkflow_TraceGatedByTypedArtifact(t *testing.T) {
 		if !buildAppliesToContext(ac).HasTrace {
 			t.Fatalf("%s: buildAppliesToContext should set HasTrace", name)
 		}
+	}
+
+	logOnly := &types.AgentContext{
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "log",
+				Source:  "/tmp/app.log",
+				Carrier: "request_path",
+			}},
+		}),
+	}
+	if buildAppliesToContext(logOnly).HasTrace {
+		t.Fatalf("log-only runtime preflight must not set HasTrace")
+	}
+	if got := skillTierAwareWorkflow(logOnly, sk); len(got) != 1 || got[0] != "source rule" {
+		t.Fatalf("log-only runtime preflight must not admit trace-only rule: %v", got)
 	}
 }
 
@@ -216,6 +259,78 @@ func TestBuildPromptContext_ExploreSkillHidesTraceWorkflowWithoutTypedTrace(t *t
 	}
 	if !strings.Contains(rendered.String(), "PHASE 1") || !strings.Contains(rendered.String(), "repo_map") {
 		t.Fatalf("non-trace explore prompt should retain source navigation guidance:\n%s", rendered.String())
+	}
+}
+
+func TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForRuntimePreflightTrace(t *testing.T) {
+	r := skill.NewRegistry()
+	skill.RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill): %v", err)
+	}
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Objective: "Analyze berlin.systrace for UI jank.",
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "berlin.systrace",
+				Carrier: "request_path",
+			}},
+		}),
+	}
+	pc := BuildPromptContext(ac, sk)
+	var rendered strings.Builder
+	for _, msg := range ToMessages(pc) {
+		rendered.WriteString(msg.Content)
+		rendered.WriteByte('\n')
+	}
+	for _, want := range []string{"RUNTIME TRACE FIRST", "start with `trace_query`", ".systrace"} {
+		if !strings.Contains(rendered.String(), want) {
+			t.Fatalf("typed trace preflight should render trace workflow %q:\n%s", want, rendered.String())
+		}
+	}
+}
+
+func TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForRequestModelTracePath(t *testing.T) {
+	r := skill.NewRegistry()
+	skill.RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill): %v", err)
+	}
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Objective: "Analyze the runtime artifact only.",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				SourceQuotes:         []string{"不要分析代码"},
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				RequiredFileHints: []types.RequiredFileHint{{
+					Path:       "record_trace_20260606064820.sys.ftrace",
+					Confidence: 1,
+				}},
+			},
+		}},
+	}
+	pc := BuildPromptContext(ac, sk)
+	var rendered strings.Builder
+	for _, msg := range ToMessages(pc) {
+		rendered.WriteString(msg.Content)
+		rendered.WriteByte('\n')
+	}
+	for _, want := range []string{"RUNTIME TRACE FIRST", "start with `trace_query`", ".ftrace"} {
+		if !strings.Contains(rendered.String(), want) {
+			t.Fatalf("typed request trace path should render trace workflow %q:\n%s", want, rendered.String())
+		}
 	}
 }
 

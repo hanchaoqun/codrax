@@ -16,6 +16,8 @@
 package context
 
 import (
+	"strings"
+
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -115,6 +117,9 @@ func buildAppliesToContext(ac *types.AgentContext) skill.AppliesToContext {
 	if ac.AnalysisIR != nil && ac.AnalysisIR.RequestModel.PerfTrace != nil {
 		out.HasTrace = true
 	}
+	if agentContextHasTraceCarrier(ac) {
+		out.HasTrace = true
+	}
 
 	// Buckets — projected from RequestModel.Buckets when non-empty.
 	if ac.AnalysisIR != nil && len(ac.AnalysisIR.RequestModel.Buckets) > 0 {
@@ -149,4 +154,22 @@ func buildAppliesToContext(ac *types.AgentContext) skill.AppliesToContext {
 	}
 
 	return out
+}
+
+func agentContextHasTraceCarrier(ac *types.AgentContext) bool {
+	if ac == nil {
+		return false
+	}
+	preflight := types.NormalizeRuntimeArtifactPreflightProfile(ac.RuntimeArtifactPreflight)
+	for _, artifact := range preflight.Artifacts {
+		if strings.EqualFold(strings.TrimSpace(artifact.Kind), "trace") ||
+			types.RuntimeArtifactPathKind(artifact.Source) == "trace" {
+			return true
+		}
+	}
+	if ac.AnalysisIR == nil {
+		return false
+	}
+	rm := ac.AnalysisIR.RequestModel
+	return rm.RuntimeArtifactPathReferenceKind() == "trace"
 }

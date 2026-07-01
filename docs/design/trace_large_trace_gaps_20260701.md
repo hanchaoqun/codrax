@@ -196,6 +196,17 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
      - `TestGrepTool/runtime artifact no match teaches literal and line-window recovery` 保留 `.log` 恢复路径。
      - `TestGrepTool/trace artifact no match pulls follow-up to trace_query` 钉住 trace zero-match refinement。
      - `TestGrepTool/broad runtime artifact grep refinement stays artifact-local` 钉住 trace broad refinement 不走 repo_map、不走 read_file/grep_line window,而是 `trace_query`.
+
+5. **P0: `RUNTIME TRACE FIRST` prompt guidance 对 request-path 大 trace 不渲染 —— 已交付(2026-07-01)**。
+   - 客户补充日志显示 explorer 第一轮仍把 `record_trace_*.ftrace` 当普通文件读/grep,并在 completion 阶段把 runtime artifact 行号当当前源码 citation 债务修。独立审计定位到上游原因:`explore-skill` 的 trace-first 指导已迁到 TierB,由 `AppliesToFilter.RequiresTrace` 控制;而 `buildAppliesToContext().HasTrace` 只读 `PerfTrace`、`AttachedHitrace/AttachedHitraceSource`、`RequestModel.PerfTrace`。对"请求文本点名 1104MiB trace 路径,但没有 `--htrace`,且 perf triage 因 >8MiB 不 materialize"的真实客户形态,这些字段全为空,于是 trace-first workflow 完全不渲染。
+   - 修法:让 `HasTrace` 消费已有 typed carrier,不新造散文判断:
+     1. `RuntimeArtifactPreflightProfile.Artifacts` 中 `kind=trace` 或 `source` 为 trace/systrace/htrace/perf/ftrace 路径;
+     2. analyzer 后的 `RequestModel.RuntimeArtifactPathReferenceKind()=="trace"`,该 helper 只读 analyzer 结构化 hints/quotes 和 path-kind classifier。
+   - 反向保护:普通 `.log` preflight 不设置 `HasTrace`,仍不会渲染 trace-only workflow,避免把日志分析误导到 trace_query。
+   - 测试:
+     - `TestSkillTierAwareWorkflow_TraceGatedByTypedArtifact` 新增 runtime preflight trace path、analysis referenced trace path、log-only negative。
+     - `TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForRuntimePreflightTrace`。
+     - `TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForRequestModelTracePath`。
 ### Step 1/2 稳定性收敛(2026-07-01,回归修复)
 
 用户反馈"最新版本模型不用 trace_query、一直用 grep 分析 trace"。诊断:grep 是 skill 里 trace_query **失败后的既定兜底**,故根因是 trace_query 在真实 trace 上**报错/返回空 → 模型放弃**。两个 Gap 3 改动过激,各修一处:
