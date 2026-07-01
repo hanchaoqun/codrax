@@ -56,6 +56,33 @@ func runtimeAcceptedClosureSoftSourceDebtViolation(violation types.Violation) bo
 		types.ViolSuccessCriterion,
 		types.ViolChainDemoted:
 		return true
+	case types.ViolFacetUncovered:
+		return runtimeAcceptedClosureSoftFacetDebtViolation(violation)
+	default:
+		return false
+	}
+}
+
+func runtimeAcceptedClosureSoftFacetDebtViolation(violation types.Violation) bool {
+	root := residualClusterValue(violation.ClusterKey, "root")
+	facet := types.AnswerFacetKind(residualClusterValue(violation.ClusterKey, "facet"))
+	if facet == "" {
+		return false
+	}
+	switch root {
+	case "answer_richness_facet_coverage":
+		return true
+	case "answer_facet_coverage":
+	default:
+		return false
+	}
+	switch facet {
+	case types.FacetObservedArtifactFact,
+		types.FacetCurrentCodePath,
+		types.FacetUncertaintyBoundary,
+		types.FacetDiagramSpine,
+		types.FacetComponentRelation:
+		return true
 	default:
 		return false
 	}

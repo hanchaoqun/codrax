@@ -79,8 +79,26 @@ func TestRuntimeAcceptedClosureDowngradesSoftSourceFallbackOnly(t *testing.T) {
 	if !o.shouldDowngradeRuntimeAcceptedClosureExploreFallback([]types.Violation{{Kind: types.ViolGhostAnchor}}) {
 		t.Fatal("runtime accepted closure should downgrade soft source anchor debt instead of reopening exploration")
 	}
+	if !o.shouldDowngradeRuntimeAcceptedClosureExploreFallback([]types.Violation{{
+		Kind:       types.ViolFacetUncovered,
+		ClusterKey: types.FacetClusterKey(string(types.FacetCurrentCodePath), "answer_facet_coverage"),
+	}}) {
+		t.Fatal("runtime accepted closure should downgrade soft current-source facet debt instead of reopening exploration")
+	}
+	if !o.shouldDowngradeRuntimeAcceptedClosureExploreFallback([]types.Violation{{
+		Kind:       types.ViolFacetUncovered,
+		ClusterKey: types.FacetClusterKey(string(types.FacetObservedArtifactFact), "answer_facet_coverage"),
+	}}) {
+		t.Fatal("runtime accepted closure should keep runtime artifact facet repair in finalizer lane instead of broad exploration")
+	}
 	if o.shouldDowngradeRuntimeAcceptedClosureExploreFallback([]types.Violation{{Kind: types.ViolCitation, RepairLocusOverride: types.LocusExplore}}) {
 		t.Fatal("typed explore-locus violation must remain load-bearing")
+	}
+	if o.shouldDowngradeRuntimeAcceptedClosureExploreFallback([]types.Violation{{
+		Kind:       types.ViolFacetUncovered,
+		ClusterKey: types.FacetClusterKey(string(types.FacetResolvedLiteralOrSymbol), "answer_facet_coverage"),
+	}}) {
+		t.Fatal("answer-critical resolved-literal facet debt must remain load-bearing")
 	}
 	if o.shouldDowngradeRuntimeAcceptedClosureExploreFallback([]types.Violation{{Kind: types.ViolIntentTraceShallow}}) {
 		t.Fatal("answer-critical trace depth violations must still reopen bounded repair")
