@@ -849,12 +849,27 @@ func contentHash(data []byte) string {
 	return hex.EncodeToString(h[:8])
 }
 
+// hashFile computes the same content hash as contentHash (first 8 bytes of the
+// file's SHA-256, hex-encoded) but STREAMS the file through a fixed-size buffer
+// via io.Copy instead of reading it whole into memory. Reading whole files here
+// caused a fatal OOM on repos containing multi-hundred-MB files: cache-diff
+// runs this concurrently across up to changedFilesWorkers() (16) goroutines, so
+// os.ReadFile on several large files at once could commit gigabytes and blow
+// past the OS commitment limit. Streaming caps peak per-file memory at the
+// io.Copy buffer (~32 KiB) regardless of file size; the output is byte-identical
+// to the previous whole-file implementation, so cache hits are unaffected.
 func hashFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
-	return contentHash(data), nil
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	sum := h.Sum(nil)
+	return hex.EncodeToString(sum[:8]), nil
 }
 
 func saveHashes(dir string, g *types.Graph, progress func(file string, written, total int64)) error {

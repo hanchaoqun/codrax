@@ -20,6 +20,14 @@ const (
 	defaultTreeSitterParseTimeout = 2 * time.Minute
 	parseWorkerMemoryBudget       = 512 << 20
 	parseBufferPerWorker          = 2
+	// maxParseSourceBytes caps how large a file parseOneFile will read whole
+	// into memory for tree-sitter/regex symbol extraction. Files above this are
+	// stream-hashed (so change detection still works) but not deep-parsed:
+	// hand-written source is essentially never this large, and reading a
+	// multi-hundred-MB generated/vendored/binary file whole — across many
+	// parallel workers — is what caused the fatal OOM. 16 MiB is far above any
+	// real source file yet keeps peak memory bounded.
+	maxParseSourceBytes = 16 << 20
 )
 
 var treeSitterParseTimeout = defaultTreeSitterParseTimeout
@@ -258,6 +266,23 @@ func parseJobOrder(entries []FileEntry) []int {
 }
 
 func parseOneFile(entry FileEntry) *types.FileInfo {
+	// Guard against reading a huge file whole into memory for parsing. Doing so
+	// across many parallel parse workers on multi-hundred-MB files caused a
+	// fatal OOM. Such files are never meaningful hand-written source, so we
+	// stream-hash them for change detection and skip symbol extraction.
+	if entry.Size > maxParseSourceBytes {
+		hash, err := hashFile(entry.AbsPath)
+		if err != nil {
+			hash = ""
+		}
+		logging.Warning("repomap: skip parse (file too large) %s size=%d cap=%d", entry.RelPath, entry.Size, int64(maxParseSourceBytes))
+		return &types.FileInfo{
+			RelPath:  entry.RelPath,
+			Language: entry.Language,
+			Size:     entry.Size,
+			Hash:     hash,
+		}
+	}
 	source, err := os.ReadFile(entry.AbsPath)
 	if err != nil {
 		return &types.FileInfo{
