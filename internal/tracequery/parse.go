@@ -162,6 +162,16 @@ type BuildOptions struct {
 	LinePaddingAfter   int
 	AllowWindowedParse bool
 	MaxEvents          int
+	// ScopePID / ScopeThread record that this windowed index was built for an
+	// explicitly pid/thread-scoped heavy-view query. They do NOT prune the
+	// index (Step 1 keeps a full, unpruned window so every view stays
+	// correct); they only (a) let the caller raise MaxEvents from a byte
+	// budget for a single deliberate scoped call, and (b) let
+	// IndexEventLimitError tailor its next-step guidance — a request that
+	// already pinned pid/thread cannot "narrow with pid/thread" further, so
+	// the density message must steer toward splitting the window instead.
+	ScopePID    int
+	ScopeThread string
 }
 
 type IndexEventLimitError struct {
@@ -177,14 +187,25 @@ type IndexEventLimitError struct {
 	IndexLineEnd   int
 	FirstTs        float64
 	LastTs         float64
+	ScopePID       int
+	ScopeThread    string
 }
 
 func (e *IndexEventLimitError) Error() string {
 	if e == nil {
 		return "trace index event limit reached"
 	}
+	// A request that already pinned pid/thread cannot "narrow with pid/thread"
+	// any further — repeating that suggestion sends the model in circles (and,
+	// per Gap 2, tempts it to DROP the pinned pid and scan the whole trace).
+	// When the index was built scoped, steer purely toward splitting the window
+	// / adding line bounds; keep the pid/thread hint only for unscoped calls.
+	nextStep := "split the time window, add line_start/line_end, or narrow with pid/thread/event_types/event_search before running heavy views"
+	if e.ScopePID > 0 || strings.TrimSpace(e.ScopeThread) != "" {
+		nextStep = "the pinned pid/thread scope is already applied and cannot narrow this further; split the time window into sub-windows (e.g. 80-150ms coverage windows) or add line_start/line_end before rerunning heavy views — do NOT drop the pinned pid/thread to widen the scan"
+	}
 	return fmt.Sprintf(
-		"trace index event limit reached: path=%s parsed_events=%d max_events=%d line=%d scanned_lines=%d windowed=%t index_time=%.6f..%.6f index_lines=%d..%d parsed_time=%.6f..%.6f; selected trace scope is too dense for a single in-memory index; split the time window, add line_start/line_end, or narrow with pid/thread/event_types/event_search before running heavy views",
+		"trace index event limit reached: path=%s parsed_events=%d max_events=%d line=%d scanned_lines=%d windowed=%t index_time=%.6f..%.6f index_lines=%d..%d parsed_time=%.6f..%.6f scope_pid=%d scope_thread=%s; selected trace scope is too dense for a single in-memory index; %s",
 		e.Path,
 		e.Events,
 		e.MaxEvents,
@@ -197,15 +218,20 @@ func (e *IndexEventLimitError) Error() string {
 		e.IndexLineEnd,
 		e.FirstTs,
 		e.LastTs,
+		e.ScopePID,
+		strings.TrimSpace(e.ScopeThread),
+		nextStep,
 	)
 }
 
 func newIndexEventLimitError(path string, idx *Index, opts BuildOptions, line, events int) *IndexEventLimitError {
 	err := &IndexEventLimitError{
-		Path:      path,
-		MaxEvents: opts.MaxEvents,
-		Events:    events,
-		Line:      line,
+		Path:        path,
+		MaxEvents:   opts.MaxEvents,
+		Events:      events,
+		Line:        line,
+		ScopePID:    opts.ScopePID,
+		ScopeThread: opts.ScopeThread,
 	}
 	if idx != nil {
 		err.ScannedLines = idx.ScannedLineCount

@@ -73,3 +73,27 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
 1. **Gap 3**(最高,决定 GB 级客户 trace 能否出根因)—— 索引按 pid+关系预裁剪 / 流式重型视图 / 自动分片。
 2. **Gap 1**(高,trace-only 大 trace 的 analyze 稳定性)—— 修 large-path-trace 的附件识别,跳过 repomap 建图。OOM 本身已修,但仍会白建图 + 3× analyze 超时。
 3. **Gap 2**(中,依赖 Gap 3)—— 固化 pid 保留护栏 + peer 走 on-chain 链的教学。
+
+---
+
+## Gap 3 修复进展(2026-07-01)
+
+### 设计裁定(6-agent 设计 workflow + 对抗复核,全 confirmed)
+
+- **关系裁剪索引仅对 `thread_timeline` / `wakeup_chain` 可证完备**;对 `root_cause_rank` / `frame_root_cause_bundle` / `window_stats` **不成立**——它们内建 `ComputeWindowStats`(全窗口 × 全线程聚合:CPUPressure 需同 CPU 无关线程 sched_switch、`stats.TraceSpans` 是全 pid 帧、IO/clock/power 全局),裁剪会系统性漏项,是正确性回归。若强裁必须近乎保留全量,250K 上限救不了。
+- 复核额外查出朴素 pass-2 保留规则的 3 处会误删事件:同-CPU 竞争者的 `sched_wakeup`(WakeePID=竞争者,不在 relevantTids)、binder 对端 `received` 行(按 TransactionID 配对,`eventMentionsPID` 不看 txid)、depth≥2 的 waker 传递闭包(`expandChain` 只在 StateSSleep 递归到 MaxDepth=10)。裁剪判据必须超集保留:目标 CPU 集全部 sched_switch + 全部 trace_mark + 全部 binder + 递归 MaxDepth+1 层 waker。
+- **redlines agent 强烈建议:先做最小正确改法(提上限 + 字节预算 guard),验证是否已够,再上关系裁剪。** 关系裁剪的"关系集"判定是启发式(噪音信号),当硬裁剪门会踩"精确信号才做硬门"红线反面 → 静默不完整、污染 absence 结论。
+- cacheKey 若不加 scope 维度,pid-scoped 裁剪索引会串味(静默正确性回归);且 pruned 索引不得入 indexCache;pruned 结果必须打 absence caveat。**注:这些只对 Step 2(裁剪)是硬需求;Step 1(仅提上限,索引仍是全量未裁)天然无串味风险——`cacheKey()` 已含 `max_events`,全量索引对任何查询都正确。**
+
+### Step 1 —— 已交付(zero-regression,byte-budgeted 提上限 + 接线 + 误导提示修复)
+
+`Event` 结构体实测 **1736 字节**(30+ 事件族的扁平 union),250K × 1736B ≈ 434MB 已是工作基线;朴素提到 1M(≈1.7GB)会 OOM——所以**真正的天花板是字节不是条数**,提上限必须走**字节预算**:
+
+- `internal/tracequery/parse.go`:`BuildOptions` 增 `ScopePID/ScopeThread`;`IndexEventLimitError` 增同名字段并在 `Error()` 里**按 scope 定制 next-step**——已固化 pid/thread 的请求不再被告知"narrow with pid/thread"(那只会让模型原地打转、进而丢 pid 全表扫=Gap 2),改为明确"pinned scope 已应用,拆子窗口/加 line 边界,**不要丢掉固化 pid/thread**"。
+- `internal/tool/trace_query.go`:新增 `traceQueryScopedIndexMaxBytes`(默认 **1 GiB**,可调)+ `traceIndexEventSizeEstimateBytes=2048`;`traceQueryWindowedIndexOptions`(从内联提出的纯函数,便于单测)对 **pid/thread-scoped 的 heavy view** 把 `MaxEvents` 从字节预算提到 ≈524288(≈2.1× 默认 250K),并记 `ScopePID/ScopeThread`。索引仍是**全量未裁**窗口(不做关系裁剪)→ 所有 view(含 root_cause_rank)都正确、更高上限不会串味(cacheKey 已含 max_events)。非-scoped / 非-heavy 调用完全不变(`MaxEvents=0`→默认上限)→ 既有路径字节等价。
+- 效果:客户 300ms 窗口(此前触 250K)现可在单次固化-pid 重型视图里建起来并跑出 root_cause_rank;更密的窗口拿到定制提示后拆子窗口,而非丢 pid。
+- 测试:`TestTraceQueryWindowedIndexOptionsScopedRaise`(4 例:pid-heavy 提上限 / thread-heavy 提上限 / unscoped 保默认 / pid-非heavy 保默认)+ `TestBuildIndexWithOptionsScopedLimitErrorGuidesWindowSplit`(真实 build 把 scope 带进 limit error、提示不含 narrow-with-pid、含 do-NOT-drop-pinned)。既有 `TestBuildIndexWithOptionsStopsAtEventLimit`("split the time window")仍绿。
+
+### Step 2 —— 关系裁剪(按验证设计推迟,仅在 Step 1 不够时上,且仅限 timeline/wakeup)
+
+Step 2(pass-1 发现相关线程闭包 + pass-2 超集保留 + cacheKey scope 隔离 + absence caveat)风险高、面窄,按设计"先验证提上限是否够"的纪律推迟为独立批次。若客户 3.3s 级窗口在 1 GiB 预算下仍触顶,再按 workflow spec(见 session task `w9ffnwv29`)实现,严格只对 `thread_timeline`/`wakeup_chain`,超集保留(目标 CPU 全 sched_switch + 全 trace_mark + 全 binder + MaxDepth+1 waker 闭包),pruned 不入 cache 且带 absence caveat。

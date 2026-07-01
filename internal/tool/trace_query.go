@@ -52,6 +52,23 @@ type traceQueryParams struct {
 	Platform             string          `json:"platform,omitempty"`
 }
 
+// traceQueryScopedIndexMaxBytes is the in-memory byte budget for a single,
+// deliberate pid/thread-scoped heavy-view index. A pinned pid+window query
+// (e.g. root_cause_rank on one frame's thread) is issued one view at a time —
+// unlike 16-way-parallel grep — so it can afford more headroom than the shared
+// default event cap without OOM risk. The effective event ceiling is
+// budget / traceIndexEventSizeEstimateBytes (~524K events at 1 GiB), roughly
+// 2x the default 250K, letting a dense GB-trace window's heavy views run
+// instead of failing outright with IndexEventLimitError. Unscoped / non-heavy
+// calls keep the default cap. Tunable in tests.
+var traceQueryScopedIndexMaxBytes int64 = 1 << 30
+
+// traceIndexEventSizeEstimateBytes conservatively approximates the retained
+// cost of one parsed tracequery.Event (the flat struct is ~1.7 KiB; the extra
+// budget covers string backing arrays). Used only to translate the scoped byte
+// budget into an event count, never as an exact allocator figure.
+const traceIndexEventSizeEstimateBytes = 2048
+
 var (
 	traceQueryLargeRecipeDiscoveryMinBytes      int64 = 128 << 20
 	traceQueryWindowedIndexMinBytes             int64 = 64 << 20
@@ -1062,6 +1079,14 @@ func traceQueryBuildIndex(ctx context.Context, path string, p traceQueryParams, 
 	if info.Size() < traceQueryWindowedIndexMinBytes || !traceQueryHasExplicitIndexWindow(p) {
 		return tracequery.BuildIndex(ctx, path)
 	}
+	return tracequery.BuildIndexWithOptions(ctx, path, traceQueryWindowedIndexOptions(p, timeStart, timeEnd))
+}
+
+// traceQueryWindowedIndexOptions builds the windowed BuildOptions for a
+// large-trace heavy-view query, including the pid/thread-scoped MaxEvents raise.
+// Pure and side-effect free so the scope/cap decision is unit-testable without
+// materializing a multi-hundred-thousand-event fixture.
+func traceQueryWindowedIndexOptions(p traceQueryParams, timeStart, timeEnd float64) tracequery.BuildOptions {
 	opts := tracequery.BuildOptions{
 		TimeStart:          timeStart,
 		TimeEnd:            timeEnd,
@@ -1075,7 +1100,32 @@ func traceQueryBuildIndex(ctx context.Context, path string, p traceQueryParams, 
 		LinePaddingAfter:   200,
 		AllowWindowedParse: true,
 	}
-	return tracequery.BuildIndexWithOptions(ctx, path, opts)
+	// A single, deliberate pid/thread-scoped heavy view (the customer's pinned
+	// pid+window root_cause_rank / wakeup_chain case) gets a larger, still
+	// unpruned index from an explicit byte budget so a dense GB-trace window can
+	// actually run instead of hitting the shared 250K event cap. The index stays
+	// a full window (no relation pruning), so every view remains correct and the
+	// higher cap cannot poison other queries — the cacheKey already encodes
+	// MaxEvents. Unscoped / non-heavy calls are untouched (MaxEvents stays 0 →
+	// the default cap), preserving byte-identical behavior for existing paths.
+	if pid := p.PID.Int(); (pid > 0 || strings.TrimSpace(p.Thread) != "") && traceQueryIsHeavyView(p.View) {
+		if scoped := traceQueryScopedIndexMaxEvents(); scoped > opts.MaxEvents {
+			opts.MaxEvents = scoped
+		}
+		opts.ScopePID = pid
+		opts.ScopeThread = strings.TrimSpace(p.Thread)
+	}
+	return opts
+}
+
+// traceQueryScopedIndexMaxEvents translates the scoped in-memory byte budget
+// into an event ceiling. Returns 0 (meaning "use the default cap") if the
+// budget is not configured above the default.
+func traceQueryScopedIndexMaxEvents() int {
+	if traceQueryScopedIndexMaxBytes <= 0 {
+		return 0
+	}
+	return int(traceQueryScopedIndexMaxBytes / traceIndexEventSizeEstimateBytes)
 }
 
 func traceQueryHasExplicitIndexWindow(p traceQueryParams) bool {

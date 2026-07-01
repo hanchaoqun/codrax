@@ -13,6 +13,59 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// TestTraceQueryWindowedIndexOptionsScopedRaise pins the Gap 3 Step-1
+// byte-budgeted event-cap raise: a single deliberate pid/thread-scoped heavy
+// view gets MaxEvents lifted from the scoped byte budget (so a dense GB-trace
+// window's heavy views can build instead of hitting the shared 250K cap),
+// while unscoped or non-heavy calls keep the default cap (MaxEvents=0) — the
+// byte-identical pre-existing behavior. It also confirms ScopePID/ScopeThread
+// are recorded only when the raise applies, so the density error can drop the
+// useless "narrow with pid/thread" tail.
+func TestTraceQueryWindowedIndexOptionsScopedRaise(t *testing.T) {
+	oldBudget := traceQueryScopedIndexMaxBytes
+	traceQueryScopedIndexMaxBytes = 1 << 30 // 1 GiB
+	t.Cleanup(func() { traceQueryScopedIndexMaxBytes = oldBudget })
+	scoped := traceQueryScopedIndexMaxEvents()
+	if scoped <= defaultTraceIndexEventCapForTest {
+		t.Fatalf("scoped cap %d must exceed the default 250K to be a real raise", scoped)
+	}
+
+	cases := []struct {
+		name       string
+		p          traceQueryParams
+		wantMax    int
+		wantPID    int
+		wantThread string
+	}{
+		{"pid-scoped heavy view", traceQueryParams{View: "root_cause_rank", PID: 42591}, scoped, 42591, ""},
+		{"thread-scoped heavy view", traceQueryParams{View: "wakeup_chain", Thread: "RSUniRenderThre 1548"}, scoped, 0, "RSUniRenderThre 1548"},
+		{"unscoped heavy view keeps default cap", traceQueryParams{View: "root_cause_rank"}, 0, 0, ""},
+		{"pid-scoped non-heavy view keeps default cap", traceQueryParams{View: "event_search", PID: 42591}, 0, 0, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			opts := traceQueryWindowedIndexOptions(c.p, 1.0, 2.0)
+			if !opts.AllowWindowedParse {
+				t.Fatalf("windowed options must allow windowed parse")
+			}
+			if opts.MaxEvents != c.wantMax {
+				t.Fatalf("MaxEvents = %d, want %d", opts.MaxEvents, c.wantMax)
+			}
+			if opts.ScopePID != c.wantPID {
+				t.Fatalf("ScopePID = %d, want %d", opts.ScopePID, c.wantPID)
+			}
+			if opts.ScopeThread != c.wantThread {
+				t.Fatalf("ScopeThread = %q, want %q", opts.ScopeThread, c.wantThread)
+			}
+		})
+	}
+}
+
+// defaultTraceIndexEventCapForTest mirrors tracequery.defaultTraceIndexMaxEvents
+// (unexported there) so the raise test can assert the scoped cap is a real
+// increase without importing an internal constant.
+const defaultTraceIndexEventCapForTest = 250000
+
 func TestTraceQueryExplicitPathProducesRuntimeArtifactSummary(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "sample.systrace")

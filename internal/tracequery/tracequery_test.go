@@ -633,6 +633,57 @@ func TestBuildIndexWithOptionsStopsAtEventLimit(t *testing.T) {
 	}
 }
 
+// TestBuildIndexWithOptionsScopedLimitErrorGuidesWindowSplit pins the Gap 3
+// Step-1 error-message fix: when the dense window's index was built for an
+// already pinned pid/thread scope, the IndexEventLimitError must NOT tell the
+// model to "narrow with pid/thread" (it already did — that only sends it in
+// circles and, per Gap 2, tempts dropping the pinned pid to scan the whole
+// trace). Instead it steers toward splitting the window into sub-windows and
+// explicitly warns against dropping the pinned scope.
+func TestBuildIndexWithOptionsScopedLimitErrorGuidesWindowSplit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dense.systrace")
+	lines := []string{
+		`      app-20  (   20) [001] .... 2.000000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`      app-20  (   20) [001] .... 2.001000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`      app-20  (   20) [001] .... 2.002000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`      app-20  (   20) [001] .... 2.003000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		"",
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := BuildIndexWithOptions(context.Background(), path, BuildOptions{
+		TimeStart:          2.0,
+		TimeEnd:            2.1,
+		TimeStartSet:       true,
+		TimeEndSet:         true,
+		AllowWindowedParse: true,
+		MaxEvents:          3,
+		ScopePID:           20,
+	})
+	var limitErr *IndexEventLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("expected IndexEventLimitError, got %T %v", err, err)
+	}
+	if limitErr.ScopePID != 20 {
+		t.Fatalf("scope pid must propagate into the limit error, got %+v", limitErr)
+	}
+	msg := limitErr.Error()
+	if !strings.Contains(msg, "pinned pid/thread scope is already applied") {
+		t.Fatalf("scoped limit error should acknowledge the pinned scope: %s", msg)
+	}
+	if !strings.Contains(msg, "do NOT drop the pinned pid/thread") {
+		t.Fatalf("scoped limit error must warn against dropping the pinned scope: %s", msg)
+	}
+	if strings.Contains(msg, "narrow with pid/thread") {
+		t.Fatalf("scoped limit error must not tell an already-pinned request to narrow with pid/thread: %s", msg)
+	}
+	if !strings.Contains(msg, "split the time window") {
+		t.Fatalf("scoped limit error should still guide window splitting: %s", msg)
+	}
+}
+
 func TestStreamStateClusterPreservesDominantLongSleepWithoutFullIndex(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state_cluster.systrace")
