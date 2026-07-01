@@ -3,6 +3,8 @@
 > 本文档是**只读代码审计**的产出,不包含任何代码改动。审计对象是 `internal/tracequery/`(引擎,~11700+1583+2377+634 行)、`internal/tool/trace_query.go`(工具外壳+teaching prompt,~5900 行)、`internal/skill/`(软引导 prompt)、`internal/types/observation_ledger.go` / `trace_causal_projection.go` / `trace_observation_coverage.go`(typed 载体)、`internal/tool/answer_document_mutation_runtime.go`(finalize 期自动注入)、`internal/agent/answer_document_evaluator.go`(finalize 软引导)。审计基线是 `origin/main@abedbc7b`(2026-07-01 09:38,审计过程中仓库仍在演进,§6 记录了审计期间实时落地的修复)。
 >
 > **v2 更新**:补充审计 on-chain 三种终止状态(Runnable/Running/D-state·IO-wait)各自"下一跳"应识别的具体根因——Runnable 的优先级反转(含鸿蒙/东湖优先级语义)、Running 的算力供给与 perf_sample/代码对照深挖、IO 的聚类 inode 定位。发现原先 §2.3/§4-O3 把这三个状态一概判定为"终止节点、无下一跳"过于笼统:实际上 `buildRootCauseRankFrom` 用了一种**不同于 `expandChain` 图遍历的并行独立候选流 + on-chain 线程集合过滤**模式,已经让算力供给(compute_supply)和聚类 inode(file_io_hot_inode/block_io_by_inode)在依赖线程本身或已被 sleep 链发现的线程上生效;唯独 Runnable 的优先级比较未被同样接入。详见 §2.3.1-§2.3.3(新增)与修订后的 §4-O3。
+>
+> **v3 更新**:新增 §2.8"数据溯源"——把 §2 每个计算指标逐一回溯到具体的原始 `EventType` 和内核/用户态 tracepoint 名称(状态判定唯一来自 `sched_switch`、唤醒链来自 `sched_wakeup`/`sched_waking`、D-state/IO 原因来自 `sched_blocked_reason`、算力供给来自 `cpu_frequency`/`cpu_idle`、Binder 来自 6 个 `binder_*` 事件、IO 聚类来自 `f2fs_*`/`android_fs_*`/`ext4_*` 等文件系统事件叠加 `block_rq_*` 存储层事件、JIT/VerifyClass/shader 语义 span 来自对通用 `trace_mark` 文本做模式匹配、CPU Profiling 来自转换阶段拼装的合成 `perf_sample` 行,等等)。附带发现两点值得记录的数据侧限制:①语义 span 识别没有独立内核事件兜底,是弱类型文本匹配;②Workqueue/DMA Fence 目前只有计数,没有专属结构化字段提取。
 
 ## 背景:用户目标方法论(原始需求逐条整理)
 
@@ -327,6 +329,40 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 
 **这一条判定为"架构性满足"而非"缺陷"**:CLAUDE.md 明确写着"精确信号才能做硬门,噪声信号只能做软引导"——"这个问题是不是丢帧根因分析"本身是一个 LLM 语义判断(噪声信号),如果用一个硬门强制"检测到这类问题就必须先跑 trace_query 全套下钻流程",反而会在结构上没问题、只是问题类型判断轻微跑偏的场景里制造用户可见的失败,这正是仓库自己在架构原则里警告要避免的反模式。软引导 + 事后确定性投影兜底(§2.5 的自动注入机制,不管 LLM 是否记得引用都会把关键事实塞进最终文档)是更符合这条红线的设计。
 
+### 2.8 数据溯源:每个计算指标依赖哪些原始 trace 事件
+
+前面 §2.1-§2.7 描述的都是"算出来之后"的逻辑。本节往回倒一层,回答"这些数字最初是从 trace 文件里的哪些原始行读出来的"。整条链路的入口是 `internal/tracequery/parse.go` 的 `classifyEventType`(query.go:1734-1819)——它把每一行原始 ftrace/hitrace/systrace 文本,按事件名前缀/关键字分类成一个 `EventType`(`internal/tracequery/types.go:9-45`);`ComputeWindowStats`(query.go:1158)是唯一的中心聚合入口,对窗口内每个 `Event` 按 `ev.Type` 分流进各自的累加器。也就是说,**全部计算指标最终都可以唯一地追溯到某一类 `EventType`**,不存在"凭空计算"的字段。
+
+| 计算指标(对应 §2 小节) | 具体计算函数(`internal/tracequery/query.go`) | 依赖的 `EventType` | 原始 tracepoint / 行模式 | 关键原始字段 |
+|---|---|---|---|---|
+| 线程状态(Running/Runnable/Sleep/D-state,§2.1/§2.3) | `stateFromPrevState`(1061)、`ComputeWindowStats` 里 `byCPU` 分桶(1189) | `EventSchedSwitch` | `sched_switch` | `prev_state`(R/S/D 前缀判定)、`prev_comm/prev_pid/prev_prio`、`next_comm/next_pid/next_prio`——**没有独立的"Running"事件**:`next_comm` 在 sched_switch 触发的瞬间即被视为进入 Running,直到下一条 sched_switch 把它切走 |
+| IO-wait(D-state 的子分类) | `causalImpactBlockingMs`(10155)、D-state/IO-wait 分流(见 expandChain switch) | `EventSchedBlockedReason` | `sched_blocked_reason` | `iowait=`(非零则归为 IO-wait,否则维持通用 D-state)、`caller=`(阻塞点符号) |
+| Sleep→Wakeup 因果链(§2.3) | `expandChain`(9920)、`cache.findWakeup` | `EventSchedWakeup` / `EventSchedWaking` | `sched_wakeup`、`sched_wakeup_new`、`sched_waking` | `comm/pid/prio`(waker)、`target_cpu`、事件自身时间戳作为唤醒时刻 |
+| 调度优先级 / 优先级反转(§2.3.1,R5a) | `cache.priorityNear`、`priorityRelation`(10298)、`dependencyPriorityRelation`(10280) | `EventSchedSwitch` / `EventSchedWakeup` | 同上两行的 `prev_prio`/`next_prio`/`wakee_prio` 字段 | 数值优先级 + `TraceFlavor`(鸿蒙 vs Android)共同决定比较方向,原始数值本身来自 sched_switch/sched_wakeup,不是单独的事件 |
+| 算力供给:CPU 频率(§2.3.2,R5b) | `computeSupplyVerdict`(3300)、`frequencyIsLowForCPU` | `EventCPUFrequency` | `cpu_frequency`;或 `clock_set_rate` 中经 `isCPUFrequencyClock`(2024)判定为 CPU 频率时钟域(`cpu_freq`/`cpufreq`/`scaling_cur_freq` 等)的行 | `state=`(目标频率,单位 kHz)、`cpu_id=` |
+| 算力供给:CPU 忙闲/大小核(§2.3.2) | `computeSupplyVerdict` 的 `cpu.BusyMs/IdleMs`、`CoreClass` | `EventCPUIdle` | `cpu_idle` | `state=`(整数,parse.go:1293 直接 `atoi` 读入,进入/退出 idle 由该值区分)、`cpu_id=`;`CoreClass` 由观测到的频率区间聚类推断(或 `core_topology` 参数显式指定),不是原始事件字段 |
+| CPU 亲和性 / cpuset 约束(§2.3.2 相关) | `computeCPUConstraintSummaries` | `EventSchedSwitch`(`next_info*` 字段) / `EventCPUConstraint` | `sched_switch` 行内嵌的鸿蒙 `next_info` 扩展字段;或独立的 `sched_setaffinity`/`sched_migrate_task`/`cpuset_attach`/`cgroup_attach_task` | `next_info_affinity`、`next_info_allowed_cpus`、`next_info_restricted`、`next_info_cgid` |
+| Binder IPC(`ipc_graph`) | `attachIPCGraphToChain`、binder 累加器 | `EventBinderTransaction` 及 5 个配套事件 | `binder_transaction`、`binder_transaction_received`、`binder_transaction_alloc_buf`(或 `binder_alloc_buf`)、`binder_lock/locked/unlock`、`binder_reply`(或不带 `transaction_` 前缀的旧式命名) | 收发线程 pid、`flags`(oneway 判定)、事务号用于配对 send/receive |
+| Block 层 IO / 存储延迟(`storage_latency_by_layer`) | `computeStorageLatencyByLayer`(5501) | `EventBlockIssue` / `EventBlockRemap` / `EventBlockComplete`,叠加 `EventStorage` | `block_rq_issue`/`block_rq_insert`/`block_getrq`/`block_bio_queue`(发起)、`block_bio_remap`(重映射)、`block_rq_complete`/`block_bio_complete`(完成);存储控制器层 `ufshcd_*`/`mmc_*`/`scsi_*`/`bio_*latency`/`ebpf_bio*`(SmartPerf eBPF 采集) | `dev`、`sector`、`length`,发起↔完成按 `(dev,sector)` 配对算延迟 |
+| 文件系统 IO / 聚类 inode(§2.3.3,R5c,`file_io_hot_inode`) | `accumulateFileIO`(5334)、`isFileIOEvent` | `EventFilesystem` | `ext4_*`、`f2fs_*`(如 `f2fs_file_read_iter`/`f2fs_dataread_start` 等)、`android_fs_*`(如 `android_fs_dataread_start`)、`erofs_*`/`z_erofs_*` | `ino=`(聚类 key 的核心)、`dev`、读写方向、`len`/`bytes`、`entry_name`(部分事件带文件名) |
+| Page Cache churn(`page_cache_by_inode`) | page cache 累加器(`EventMemory` 分支,`classifyMemoryKind` 判为 `page_cache`) | `EventMemory` | `mm_filemap_add_to_page_cache`/`mm_filemap_delete_from_page_cache` 等 `mm_*`/`filemap`/`page_cache` 关键字行 | `ino`/`dev`(若行内携带)、add/delete 计数用于算 churn |
+| IO 压力聚合(`io_pressure_summary`/`io_burst_episodes`) | `computeIOPressureSummary`(5619)、`computeIOBurstEpisodes`(5851) | 上面 Block/Filesystem/`EventSchedBlockedReason` 的组合窗口聚合 | 同上 | 组合 D-state 时长 + block/storage 延迟 + `sched_blocked_reason iowait` 计数 |
+| IRQ / SoftIRQ / IPI(供给侧压力) | `IRQCount`/`SoftIRQCount`/`IPICount` 累加(query.go:1204-1225) | `EventIRQ` / `EventSoftIRQ` / `EventIPI` | `irq_*` 前缀、含 `softirq` 关键字的行、`ipi_entry`/`ipi_exit`/`ipi_raise` | IPI 原因由 `parseIPIReason`(parse.go:1356)从 payload 解析(非固定 kv key),`target_mask=`/`target_cpus=`(parse.go:1357)取其一;entry/exit 配对可算 `active_ms`,单独 `ipi_raise` 只作瞬时信号 |
+| Workqueue 活动 | Workqueue 累加(`WorkqueueEventCount`) | `EventWorkqueue` | 任意 `workqueue_` 前缀行(如 `workqueue_execute_start`/`_end`) | **没有专属结构化字段**(parse.go 的按类型字段提取 switch 里没有 `EventWorkqueue` 分支),只有事件计数 + 每个事件通用的 `comm`/`pid`/原始行文本(`FieldText`),细粒度信息要靠 `event_search`/`window_stats` 里的原始行文本自己读 |
+| DMA Fence | `DMAFenceEventCount` | `EventDMAFence` | 任意 `dma_fence` 前缀行 | 同上,**没有专属结构化字段**,只有计数 + 通用 comm/pid/原始行文本 |
+| sched_stat 内核记账(`sched_stat_accounting`,佐证而非替代 sched_switch) | `SchedStatCount` 累加 | `EventSchedStat` | 任意 `sched_stat_` 前缀行(如 `sched_stat_runtime`/`sched_stat_wait`/`sched_stat_iowait`/`sched_stat_blocked`) | 各类内核自记账耗时,与 sched_switch 区间时间独立采集,只作交叉校验 |
+| Trace span / 帧管线(`frame_window`/`render_pipeline`等) | `computeTraceMarks`(4485) | `EventTraceMark` | `print`/`tracing_mark_write`/`tracing_mark_write_xacct`/`xacct_tracing_mark_write`,且 payload 经 `isTraceMarkPayload`(2034)判定为合法 B/E/S/F/C 格式 | `span_action`(B/E/S/F/C)、`span_pid`、`span_name`、`span_value`,同 PID 栈式配对 B/E,`marker pid+name+cookie` 配对 S/F |
+| **JIT/VerifyClass/shader 语义 span(§2.6,R7)** | `traceSpanSemanticWorkClass`(9020) | 同上 `EventTraceMark` | **没有独立的内核 tracepoint**——语义分类是对 `EventTraceMark` 解析出的 `span.Name` 做纯文本模式匹配(如包含 "jit compile"、"VerifyClass"、"shader" 等 token),即用户态自己打的 trace marker 字符串里的名字凑巧命中这些模式才会被识别,**不是内核态确定性事件**;识别可靠性直接取决于应用/框架打点时用的 span 名字是否规范 | 见上,唯一附加信息是名字文本本身 |
+| CPU Profiling / perf_sample(perf_stats/perf_timeline) | `ComputeWindowStats` 里的 `EventPerfSample` 分支(query.go:1429/2005/2086 等) | `EventPerfSample` | 行文本里事件名字面量就是 `perf_sample`——**这不是原始 ftrace/hitrace 里天然存在的行**,而是转换阶段(`internal/hitraceconv/raw_perfdata.go:1937`)把 hiperf/simpleperf 的 **`perf.data` 二进制 CPU 采样记录**,重新拼装成一行形如 `... perf_sample: cpu=.. pid=.. tid=.. symbol=.. dso=.. callchain=.. source=raw_perfdata_fallback symbolization_status=..` 的伪 ftrace 文本,再喂给同一个通用行解析器;因此 perf 样本的"可信度"字段(`symbolization_status`/`sample_kind`/`clock_confidence`)本质是在描述"这次转换有多可信",不是内核确定性保证 | `symbol=`、`dso=`、`callchain=`、`sample_weight=`、`event=`、`cpu_known=` |
+| 鸿蒙专属资源监控(Ability/XPower/HiSystemEvent) | `AbilityEventCount`/`XPowerEventCount`/`HiSystemEventCount` 累加 | `EventAbilityMonitor` / `EventXPower` / `EventHiSystemEvent` | 行内文本包含 `ability_monitor`/`AbilityManager`(前者)、`xpower`(中者)、`hisysevent`/`hi_sysevent`/`hi_sys_event`(后者)关键字,均为鸿蒙特有子系统事件,靠关键字而非固定前缀匹配 | 视具体子系统事件而定,是 SmartPerf/HarmonyOS 专属遥测面 |
+
+**几个值得记住的推论**:
+
+1. **状态判定的唯一真源是 `sched_switch` 一个事件**——Running/Runnable/Sleep/D-state 四态里,只有 Sleep(`S`)和 D-state(`D`)是从 `prev_state` 字符串直接读出来的,Runnable 同样来自 `prev_state=R`(表示被切出但仍可运行),Running 则是"隐式的"——某线程在被 `next_comm` 选中的那一刻起,到它自己下一次作为 `prev_comm` 出现之前,都算 Running,中间没有任何独立事件。这意味着**如果一段窗口内该线程完全没有被调度(既不是 prev 也不是 next),引擎无法区分"确实一直在跑"和"数据缺失"**,只能报告 `no decisive scheduler interval found`(`expandChain` 里 `interesting == nil` 分支)。
+2. **JIT/VerifyClass/shader 识别本质上是弱类型的文本匹配**,不像 sched_switch/sched_wakeup 那样有内核结构化字段兜底。这是 §2.6.3 提到的 `computeTraceMarks` 截断口子之外,该机制的第二个不确定性来源:如果应用/ArkCompiler/ROM 在不同版本里改了 trace marker 的命名习惯(比如把 "VerifyClass" 改成其它拼写),识别会静默失效,且没有测试覆盖这种命名漂移(呼应 §3 的测试空白)。
+3. **perf_sample 是"二等公民"事件**——它不是原始 trace 文件里的行,依赖转换阶段是否成功把 `perf.data` 接进来(`tracebundle_trace_provider`/`tracebundle_trace_coverage` 这些 caveat 字段就是在描述这次转换的完整度)。如果只拿到裸 `.systrace`/`.ftrace` 没有配套 perf.data,§2.3.2 提到的"perf_sample 深挖"这条能力天然不可用,root_cause_rank 仍然可以工作(靠 sched_switch/sched_blocked_reason 等),只是缺少"CPU 时间具体花在哪个符号"这一层解释。
+4. **鸿蒙 `next_info` 扩展字段是 CPU 亲和性/cpuset 分析的关键差异化数据源**——这些字段(`next_info_affinity`/`next_info_allowed_cpus`/`next_info_restricted`)内嵌在 `sched_switch` 行本身,是鸿蒙对标准 ftrace `sched_switch` 格式的扩展,Android/generic ftrace 的 `sched_switch` 行不带这些字段,因此"CPU 亲和性限制导致 Runnable"这类根因在纯 Android trace 上的可判定性天然弱于鸿蒙/东湖 trace。
+
 ---
 
 ## 3. 测试覆盖与 load-bearing 程度(要求 7)
@@ -380,6 +416,13 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 **O6(文档性,不涉及代码)—— 在 `docs/architecture.md` §7.2 或新增一节里补充 trace_query 的分层下钻方法论。**
 现状 `docs/architecture.md` 只描述了 perf_triage 前置阶段,`trace_query` 这个约 22000 行、承载了本文档描述的几乎全部机制的核心引擎,在架构文档里没有对应章节。建议后续补一节纲要性描述(不需要本文档这么细),至少让新加入的开发者知道"状态优先 Top-N""on-chain 递归""语义 span 独立通道"这三个设计存在,避免未来重复发明或无意破坏。
 
+**O7(低成本、高价值,v3 新增)—— 给语义 span 识别加一条内核态兜底信号,降低对用户态命名习惯的依赖。**
+现状(§2.8):`jit_compile`/`class_verification`/`shader_compile`/`runtime_compile` 全部靠对 `trace_mark` 里的 span 名字做文本模式匹配(`traceSpanLooksLikeJITCompile` 等),没有任何内核态结构化事件兜底;如果应用/ArkCompiler/ROM 版本升级后打点字符串命名习惯改变,识别会静默失效且无法被现有测试发现(现有测试固定用标准命名造 fixture,不会检测命名漂移)。
+建议:短期低成本方案是在 `traceSpanSemanticWorkClass` 命中/未命中两侧都打一条可观测的 caveat(比如"检测到形如编译/校验语义但未匹配已知模式的 span,可能是新命名"),给 LLM 和后续维护者一个"模式可能过期了"的信号;中期可以考虑允许通过 `codrax.yaml` 追加自定义模式列表,而不是把所有命名规则硬编码在 Go 源码里。
+
+**O8(信息性,v3 新增)—— 视需要给 Workqueue/DMA Fence 补充结构化字段提取。**
+现状(§2.8):这两类事件目前只有计数(`WorkqueueEventCount`/`DMAFenceEventCount`),没有像 Binder/Block IO 那样的专属结构化字段,细节要靠 LLM 自己读原始行文本。这两类事件目前不在用户提出的 7 条规则直接覆盖范围内,暂不建议单独立项,仅记录在案供后续如果有具体案例需要(比如 workqueue 延迟成为某次丢帧根因)时参考。
+
 ---
 
 ## 5. 附录:关键文件/函数索引
@@ -416,3 +459,5 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 本文档基线为拉取上述提交之后的 `origin/main`(`abedbc7b`)。如果后续继续有提交落地,建议以 `git log --oneline -- internal/tracequery internal/tool/trace_query.go internal/tool/answer_document_mutation_runtime.go internal/types/trace_causal_projection.go` 复核本文档是否过期。
 
 **v2 修订说明**:v2 未拉取新的远程提交,基线仍是 `abedbc7b`,是对同一份代码补充审计 §2.3.1-§2.3.3(Runnable 优先级反转 / Running 算力供给+perf_sample+代码对照 / IO 聚类 inode 三个"下一跳"细项)与对应的 O3/O3b/O3c 建议,并修正 v1 里"Runnable/D-state/IO/Running 一概是终止节点"的过度笼统表述——实际只有 Runnable 的优先级比较是真正缺失的,Running 的算力供给和 IO 的聚类 inode 已经通过独立候选流机制覆盖。
+
+**v3 修订说明**:审计期间又新落地一个不相关提交(`39a42409` fix: preserve repo-wide source inventory members,属于 source-inventory 子系统,与 trace_query 无关,未改变本文档基线)。v3 新增 §2.8 数据溯源表,把 §2 的每个计算指标逐一回溯到 `internal/tracequery/parse.go` 的 `classifyEventType`(1734-1819)分类出的具体 `EventType` 和原始 tracepoint 名称,补充了原文档没有覆盖的"这些数字最初从 trace 里怎么读出来"这一层。表中每一条 tracepoint/字段引用均已对照 `parse.go` 源码逐条核实(包括修正了草稿阶段两处未经验证的猜测:`cpu_idle` 的 `state=` 具体编码值、IPI `reason` 字段的解析方式),避免把"合理推测"当成"已验证事实"写进审计文档。
