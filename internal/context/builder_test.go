@@ -4052,6 +4052,47 @@ func TestBuildPromptContext_RuntimeArtifactSelectionRendersTraceOnlyExactPolicy(
 	}
 }
 
+func TestBuildPromptContext_RuntimeArtifactSelectionAnalyzerIsEmitOnly(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "/tmp/customer.systrace",
+				Carrier: "request_path",
+			}},
+		}),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			ExternalObservationPolicy: runtimeArtifactSelectionTraceOnlyPolicy(),
+		}},
+	}
+	pc := BuildPromptContext(ac, skill.BuildAnalysisSkill())
+	sec := findSectionTitle(pc, SectionRuntimeArtifactChoice)
+	if sec == nil {
+		t.Fatal("analyzer typed runtime artifact policy should render selection section")
+	}
+	for _, want := range []string{
+		"Policy: trace_only_exact_artifact",
+		"Analyze-stage boundary",
+		"record the active typed trace source in emit_analysis",
+		"do not call trace_query here",
+		"Later exploration owns trace_query runtime evidence",
+	} {
+		if !strings.Contains(sec.Content, want) {
+			t.Fatalf("analyzer runtime artifact selection missing %q:\n%s", want, sec.Content)
+		}
+	}
+	for _, forbidden := range []string{
+		"Use trace_query with the active typed trace source",
+		"Choose one typed trace source in trace_query.path",
+	} {
+		if strings.Contains(sec.Content, forbidden) {
+			t.Fatalf("analyzer runtime artifact selection must not render current-stage trace_query action %q:\n%s", forbidden, sec.Content)
+		}
+	}
+}
+
 func TestBuildPromptContext_RuntimeArtifactSelectionRendersAmbiguityWithoutChoosing(t *testing.T) {
 	ac := &types.AgentContext{
 		AgentName: types.AgentExplorer,

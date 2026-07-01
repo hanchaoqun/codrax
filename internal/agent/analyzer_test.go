@@ -1494,7 +1494,7 @@ func TestAnalyzer_Observe_ExplicitRuntimeArtifactPathHintIsEmitOnly(t *testing.T
 	if !sig.HintRequested {
 		t.Fatalf("expected runtime-artifact emit-only hint, got %+v", sig)
 	}
-	for _, want := range []string{"runtime artifact path", "emit_analysis exactly once", "trace_query"} {
+	for _, want := range []string{"runtime artifact path", "emit_analysis exactly once", "Do not call repo_map, grep, list_files, read_file, trace_query, or any other non-emit tool in the analyze stage"} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("hint missing %q in %q", want, sig.Hint)
 		}

@@ -180,7 +180,7 @@ func renderAnalyzerExplicitRuntimeArtifactPathShortcut() string {
 	return "## Explicit Runtime Artifact Path Classification Shortcut\n\n" +
 		"The current request explicitly names one or more runtime artifact paths. Use the user's requested operation plus typed path/content signals; common suffixes such as .log / .systrace / .htrace / .atrace / .ftrace / .perfetto / .perftrace / .tracebundle.json / .perf.data / .trace are examples, not the decision rule. " +
 		"Do not run repo pre-scan (`repo_map`, `grep`, or `list_files`) just to classify the artifact path, stack-frame literal, thread label, timestamp, wakeup chain, sleep/runnable/D-state, CPU frequency, IRQ, binder, or IO terms. " +
-		"Classify from the user's wording and call `emit_analysis` now; later exploration can read the log artifact or use `trace_query` for deterministic trace evidence. " +
+		"Classify from the user's wording and call `emit_analysis` now; do not call `trace_query` in the analyze stage. Later exploration, after this structured classification lands, can read the log artifact or use `trace_query` for deterministic trace evidence. " +
 		"If the current request also asks to compare with, verify against, or explain current source, keep the mixed runtime-artifact plus current-source lane in the emitted model; do not collapse mixed artifact + current-code requests into artifact-only. " +
 		"If the current request explicitly forbids current checkout/source evidence, encode that prohibition in external_observation_policy.current_source_mode=exclude, copy the exact user phrase into source_quotes, and emit diagnostic_profile.current_risk/current_version_check/historical_regression=false.\n\n"
 }
@@ -1373,7 +1373,7 @@ func analyzerTerminalEmitOnlyHint() string {
 }
 
 func analyzerExplicitRuntimeArtifactPathEmitOnlyHint() string {
-	return "The current request explicitly names a runtime artifact path, so classification is runtime-artifact-path-first. Do not call repo_map, grep, list_files, read_file, or any other tool in the analyze stage. The next response must call emit_analysis exactly once; preserve the artifact path in exact_targets or required_files, set external_observation_policy only from explicit user wording, and let later exploration read the log artifact or use trace_query."
+	return "The current request explicitly names a runtime artifact path, so classification is runtime-artifact-path-first. Do not call repo_map, grep, list_files, read_file, trace_query, or any other non-emit tool in the analyze stage. The next response must call emit_analysis exactly once; preserve the artifact path in exact_targets or required_files, set external_observation_policy only from explicit user wording, and leave log reads / trace_query calls to later exploration."
 }
 
 func analyzerToolResultsContainSuccessfulEmitAnalysis(results []types.ToolResult) bool {

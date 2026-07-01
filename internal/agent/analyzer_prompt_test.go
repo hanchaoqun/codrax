@@ -486,6 +486,7 @@ func TestAnalyzerPrompt_ExplicitTracePathDoesNotSuppressSourceByDefault(t *testi
 	for _, want := range []string{
 		"Explicit Runtime Artifact Path Classification Shortcut",
 		"call `emit_analysis` now",
+		"do not call `trace_query` in the analyze stage",
 		"keep the mixed runtime-artifact plus current-source lane",
 		"do not collapse mixed artifact + current-code requests into artifact-only",
 		"diagnostic_profile.current_risk/current_version_check/historical_regression=false",

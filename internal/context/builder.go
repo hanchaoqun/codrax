@@ -1258,6 +1258,7 @@ func formatRuntimeArtifactSelection(ac *types.AgentContext) string {
 	if !view.ShouldRender() {
 		return ""
 	}
+	analyzeStage := ac != nil && (ac.Stage == types.StageAnalyze || ac.AgentName == types.AgentAnalyzer)
 	lines := []string{
 		"Typed runtime artifact set. Use this view for artifact selection; do not infer a different artifact from raw prose, prior conversation, or tool summaries.",
 	}
@@ -1285,21 +1286,37 @@ func formatRuntimeArtifactSelection(ac *types.AgentContext) string {
 				view.Policy.ActiveArtifactSource,
 				view.Policy.ReasonCode,
 			),
-			"Use trace_query with the active typed trace source for runtime evidence. Keep source/generic tools out unless a later typed current-source lane opens.",
 		)
+		if analyzeStage {
+			lines = append(lines, "Analyze-stage boundary: record the active typed trace source in emit_analysis; do not call trace_query here. Later exploration owns trace_query runtime evidence.")
+		} else {
+			lines = append(lines, "Use trace_query with the active typed trace source for runtime evidence. Keep source/generic tools out unless a later typed current-source lane opens.")
+		}
 	case types.RuntimeArtifactAnalysisPolicyTraceArtifactAmbiguous:
 		lines = append(lines,
 			fmt.Sprintf("Policy: trace_artifact_ambiguous trace_artifacts=%d reason=%s.", view.Policy.AmbiguousTraceArtifacts, view.Policy.ReasonCode),
-			"Choose one typed trace source in trace_query.path before querying. If the artifact choice remains ambiguous, surface that ambiguity instead of silently picking a path.",
 		)
+		if analyzeStage {
+			lines = append(lines, "Analyze-stage boundary: preserve the ambiguity in emit_analysis exact_targets / required_files; do not call trace_query here or silently choose a trace path.")
+		} else {
+			lines = append(lines, "Choose one typed trace source in trace_query.path before querying. If the artifact choice remains ambiguous, surface that ambiguity instead of silently picking a path.")
+		}
 	case types.RuntimeArtifactAnalysisPolicySelectionAdvisory:
 		lines = append(lines,
 			fmt.Sprintf("Policy: runtime_artifact_selection_advisory trace_artifacts=%d log_artifacts=%d reason=%s.", view.TraceCount, view.LogCount, view.Policy.ReasonCode),
-			"Use trace_query only for trace/perf artifacts. Use log-triage evidence for log artifacts; do not pass log paths to trace_query.",
 		)
+		if analyzeStage {
+			lines = append(lines, "Analyze-stage boundary: classify each typed artifact in emit_analysis; do not call trace_query here. Later exploration uses trace_query only for trace/perf artifacts and log-triage evidence for log artifacts.")
+		} else {
+			lines = append(lines, "Use trace_query only for trace/perf artifacts. Use log-triage evidence for log artifacts; do not pass log paths to trace_query.")
+		}
 	default:
 		if item, ok := view.SingleTraceArtifact(); ok {
-			lines = append(lines, fmt.Sprintf("Default trace artifact: id=%s source=%s. Explicit trace_query.path still wins when provided.", item.ID, item.Source))
+			if analyzeStage {
+				lines = append(lines, fmt.Sprintf("Default trace artifact: id=%s source=%s. Record this typed artifact in emit_analysis; later exploration will decide trace_query.path.", item.ID, item.Source))
+			} else {
+				lines = append(lines, fmt.Sprintf("Default trace artifact: id=%s source=%s. Explicit trace_query.path still wins when provided.", item.ID, item.Source))
+			}
 		}
 	}
 	return strings.Join(lines, "\n")

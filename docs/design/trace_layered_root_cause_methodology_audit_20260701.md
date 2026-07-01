@@ -1122,3 +1122,29 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 - **Batch 5: eval 复测。** 重跑 trace-only representative case,要求 perf_triage 不再出现 multi-round trace `read_file` 分页;主要 runtime authority path 由 `trace_query` 承重。
 
 **当前进展。** Batch 1-5 已落地:默认 `perf_triage_llm_max_bytes` 收敛到 512KiB,配置注释和用户/架构文档同步,并新增默认 1MiB trace 直接委托 `trace_query` 的回归测试。`trace_query_donghu_real_frame_multicausal` 复测日志显示 `perf_triage` 对 1.9MiB trace 直接 skipped/delegated to `trace_query`,未调用 `emit_perf_trace`,不再出现 perf_triage 多轮 trace `read_file` 分页。
+
+### 7.21 Gap:analyze 阶段 trace_query 提示与工具面不一致(2026-07-02)
+
+§7.18 复盘时提到的"analyzer 阶段不可调用 `trace_query`"仍需单独收口。当前工具 allowlist 没有把 `trace_query` 暴露给 analyzer,但两个提示面仍可能让模型误解:
+
+- `analyzer` 的 runtime artifact shortcut 写着"later exploration can ... use `trace_query`",语义上是后续阶段,但没有把"本阶段不能调用"放在同一句工具边界里。
+- 通用 `RuntimeArtifactChoice` 上下文段按 typed artifact policy 渲染,在 analyzer 阶段也可能出现 "Use trace_query with the active typed trace source" / "Choose one typed trace source in trace_query.path" 这类当前阶段不可用的动作句。
+
+这不是硬门正确性 gap,但会制造 unavailable-tool 轮次、schema 修复噪音和模型心智偏移。修复应保持工具面透明:analyzer 只记录 typed artifact 选择/边界到 `emit_analysis`;explorer 才使用 `trace_query`。
+
+**原则。**
+
+- stage-aware prompt surface:同一个 typed runtime artifact policy 在 analyzer 阶段只说"写入 `emit_analysis` 的 typed fields",不能说"call/use `trace_query`"。
+- explore/finalize 等可用或消费 `trace_query` 的阶段保留原有 trace-query-first 指导。
+- 只改提示/上下文投影,不改 completion hard gate,不改变 tool availability。
+- 回归必须保护 analyzer hygiene:analyzer prompt/context 不出现可执行 `trace_query` 动词,但可以说明"later explore stage uses trace_query"作为阶段边界。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录 stage-tool prompt mismatch 和任务拆解。
+- **Batch 2: analyzer shortcut 文案收口。** 调整 runtime artifact shortcut / emit-only hint,明确 analyze 阶段唯一动作是 `emit_analysis`,后续 trace evidence 由 explore 阶段的 `trace_query` 处理。
+- **Batch 3: RuntimeArtifactChoice stage-aware。** `formatRuntimeArtifactSelection` 根据 `AgentContext.Stage/AgentName` 渲染 analyzer-only guidance,不在 analyzer 段落里写 "Use trace_query..."。
+- **Batch 4: 测试看护。** 新增 analyzer prompt/context 测试:explicit trace path + runtime artifact choice 下,analyzer 输出必须包含 emit-only/stage-boundary 文案,不得包含当前阶段可执行的 trace_query 动作句;explorer 测试继续要求 trace-query-first 文案存在。
+- **Batch 5: focused 验证。** 跑 analyzer/context prompt tests 和 trace-query-first explorer tests,确认不会破坏 runtime trace 正常探索路径。
+
+**当前进展。** Batch 1-5 已落地:analyzer runtime artifact shortcut 和 terminal emit-only hint 已明确禁止 analyze 阶段调用 `trace_query`;通用 `RuntimeArtifactChoice` 投影改为 stage-aware,analyzer 阶段只要求把 typed artifact 选择写入 `emit_analysis`,explorer 阶段保留 trace-query-first 指导。Focused `internal/agent` analyzer/runtime tests 与 `internal/context` runtime artifact selection / trace workflow tests 已通过。
