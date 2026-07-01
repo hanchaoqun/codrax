@@ -673,6 +673,11 @@ func TestValidateExplorerTraceQueryFirstToolCall_BlocksSuffixlessTracePathBefore
 		Mutable:   types.NewMutableState("suffixless trace"),
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			RawRequest: "只分析 ./capture 这个文件里的调度问题，不分析代码",
+			AnalyzerHints: types.AnalyzerHints{RequiredFileHints: []types.RequiredFileHint{{
+				Path:       "./capture",
+				Confidence: 0.9,
+				Rationale:  "typed runtime artifact path emitted by analyzer",
+			}}},
 			ExternalObservationPolicy: &types.ExternalObservationPolicy{
 				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
 				CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
@@ -704,6 +709,34 @@ func TestValidateExplorerTraceQueryFirstToolCall_BlocksSuffixlessTracePathBefore
 	}
 	if got.Repair == nil || got.Repair.Code != explorerTraceQueryFirstCode {
 		t.Fatalf("repair code = %+v, want %q", got.Repair, explorerTraceQueryFirstCode)
+	}
+}
+
+func TestTraceQueryCarrierDoesNotReparseRawObjectiveAfterAnalyze(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "capture.systrace")
+	body := "# tracer: nop\napp-1 (1) [000] .... 1.000000: sched_switch: prev_comm=app prev_pid=1 prev_state=S ==> next_comm=idle next_pid=0\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.AgentContext{
+		Stage:     types.StageExplore,
+		Objective: "分析 capture.systrace 的调度问题",
+		RepoRoot:  dir,
+		WorkDir:   dir,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: "分析 capture.systrace 的调度问题",
+		}},
+	}
+	if traceQueryToolAvailable(ctx) {
+		t.Fatal("post-analyzer trace_query exposure must not re-parse raw Objective or RawRequest path tokens")
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if explorerHasRuntimeTraceArtifact(ctx, &rm) {
+		t.Fatal("post-analyzer runtime trace carrier must require typed RequestModel artifact fields")
+	}
+	if explorerHasTraceQueryRuntimeTraceCarrier(ctx) {
+		t.Fatal("ir accessor must not treat raw request text as a trace_query runtime carrier")
 	}
 }
 

@@ -39,36 +39,49 @@ func TestTraceQueryToolSchemaLazyRuntimeExposure(t *testing.T) {
 	if err := os.WriteFile(systrace, []byte("app-1 (1) [000] .... 1.0: sched_switch: prev_comm=app prev_pid=1 prev_state=S ==> next_comm=idle next_pid=0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pathCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, WorkDir: dir, Objective: "analyze record_trace.systrace for wakeup chain"}
+	rawPathOnlyCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, WorkDir: dir, Objective: "analyze record_trace.systrace for wakeup chain"}
+	if hasToolSchema(base.buildToolSchemas(sk, rawPathOnlyCtx), "trace_query") {
+		t.Fatal("post-analyzer trace_query exposure must not re-parse raw objective path tokens")
+	}
+
+	pathCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, WorkDir: dir, Objective: "analyze record_trace.systrace for wakeup chain", AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{RequiredFileHints: []types.RequiredFileHint{{Path: "record_trace.systrace", Confidence: 0.9}}},
+	}}}
 	if !hasToolSchema(base.buildToolSchemas(sk, pathCtx), "trace_query") {
-		t.Fatal("trace_query should be exposed when the request names an explicit trace artifact path")
+		t.Fatal("trace_query should be exposed when analyzer emits a typed trace artifact path")
 	}
 
 	perftrace := filepath.Join(dir, "capture.perftrace")
 	if err := os.WriteFile(perftrace, []byte("app-1 (1) [000] .... 1.0: perf_sample: cpu=0 pid=1 tid=1 period=1 symbol=main source=test\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	perfTraceCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, WorkDir: dir, Objective: "analyze capture.perftrace for sampled CPU hotspots"}
+	perfTraceCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, WorkDir: dir, Objective: "analyze capture.perftrace for sampled CPU hotspots", AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{RequiredFileHints: []types.RequiredFileHint{{Path: "capture.perftrace", Confidence: 0.9}}},
+	}}}
 	if !hasToolSchema(base.buildToolSchemas(sk, perfTraceCtx), "trace_query") {
-		t.Fatal("trace_query should be exposed for explicit perftrace paths")
+		t.Fatal("trace_query should be exposed for typed perftrace paths")
 	}
 
 	bundle := filepath.Join(dir, "capture.tracebundle.json")
 	if err := os.WriteFile(bundle, []byte(`{"version":"test","systrace":"record_trace.systrace","artifacts":[{"type":"systrace","path":"record_trace.systrace"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	bundleCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, WorkDir: dir, Objective: "analyze capture.tracebundle.json for trace plus perf context"}
+	bundleCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, WorkDir: dir, Objective: "analyze capture.tracebundle.json for trace plus perf context", AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{RequiredFileHints: []types.RequiredFileHint{{Path: "capture.tracebundle.json", Confidence: 0.9}}},
+	}}}
 	if !hasToolSchema(base.buildToolSchemas(sk, bundleCtx), "trace_query") {
-		t.Fatal("trace_query should be exposed for explicit tracebundle paths")
+		t.Fatal("trace_query should be exposed for typed tracebundle paths")
 	}
 
 	perfData := filepath.Join(dir, "perf.data")
 	if err := os.WriteFile(perfData, []byte("PERFILE2\x00\x00\x00\x00"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	perfDataCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, Objective: "analyze ./perf.data for running hotspots"}
+	perfDataCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, Objective: "analyze ./perf.data for running hotspots", AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{RequiredFileHints: []types.RequiredFileHint{{Path: "./perf.data", Confidence: 0.9}}},
+	}}}
 	if !hasToolSchema(base.buildToolSchemas(sk, perfDataCtx), "trace_query") {
-		t.Fatal("trace_query should be exposed for an explicit existing perf.data path")
+		t.Fatal("trace_query should be exposed for a typed existing perf.data path")
 	}
 
 	perfDataCodeCtx := &types.AgentContext{Stage: types.StageExplore, Objective: "explain the raw perf.data parser implementation"}
@@ -80,9 +93,15 @@ func TestTraceQueryToolSchemaLazyRuntimeExposure(t *testing.T) {
 	if err := os.WriteFile(simpleperfProto, []byte("SIMPLEPERF\x00\x00\x00\x00"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	simpleperfCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, Objective: "analyze simpleperf_proto_without_suffix for sampled CPU hotspots"}
+	simpleperfRawOnlyCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, Objective: "analyze simpleperf_proto_without_suffix for sampled CPU hotspots"}
+	if hasToolSchema(base.buildToolSchemas(sk, simpleperfRawOnlyCtx), "trace_query") {
+		t.Fatal("post-analyzer trace_query exposure must not re-parse raw suffixless objective path tokens")
+	}
+	simpleperfCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, Objective: "analyze simpleperf_proto_without_suffix for sampled CPU hotspots", AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{RequiredFileHints: []types.RequiredFileHint{{Path: "simpleperf_proto_without_suffix", Confidence: 0.9}}},
+	}}}
 	if !hasToolSchema(base.buildToolSchemas(sk, simpleperfCtx), "trace_query") {
-		t.Fatal("trace_query should be exposed for an explicit existing suffixless SIMPLEPERF artifact path")
+		t.Fatal("trace_query should be exposed for a typed existing suffixless SIMPLEPERF artifact path")
 	}
 }
 

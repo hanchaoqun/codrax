@@ -298,7 +298,8 @@ func explorerHasTraceQueryRuntimeTraceCarrier(ctx *types.AgentContext) bool {
 	if ctx.AnalysisIR == nil {
 		return false
 	}
-	return ctx.AnalysisIR.RequestModel.PerfTrace != nil
+	rm := ctx.AnalysisIR.RequestModel
+	return requestModelHasRuntimeTraceArtifactCarrier(ctx, &rm)
 }
 
 func originSpecificObservationWithoutRequiredSourceForExplorer(ctx *types.AgentContext, facts []types.AnswerAggregateFact) bool {

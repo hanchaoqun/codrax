@@ -6010,16 +6010,10 @@ func explorerHasRuntimeTraceArtifact(ctx *types.AgentContext, rm *types.RequestM
 	if ctx.Mutable != nil && ctx.Mutable.PerfTrace() != nil {
 		return true
 	}
-	if requestNamesRuntimeTraceArtifact(ctx, ctx.Objective) {
-		return true
-	}
 	if rm == nil {
 		return false
 	}
-	return rm.PerfTrace != nil ||
-		rm.HasExternalOnlyRuntimeArtifact() ||
-		rm.HasExternalObservationArtifactReference() ||
-		requestNamesRuntimeTraceArtifact(ctx, rm.RawRequest)
+	return requestModelHasRuntimeTraceArtifactCarrier(ctx, rm)
 }
 
 func explorerTraceQueryAlreadyAttempted(ctx *types.AgentContext) bool {
@@ -6210,19 +6204,25 @@ func traceQueryToolAvailable(ctx *types.AgentContext) bool {
 	}
 	if ctx.AnalysisIR != nil {
 		rm := ctx.AnalysisIR.RequestModel
-		if rm.PerfTrace != nil {
-			return true
-		}
-		if requestNamesRuntimeTraceArtifact(ctx, rm.RawRequest) {
+		if requestModelHasRuntimeTraceArtifactCarrier(ctx, &rm) {
 			return true
 		}
 	}
-	return requestNamesRuntimeTraceArtifact(ctx, ctx.Objective)
+	return false
 }
 
-func requestNamesRuntimeTraceArtifact(ctx *types.AgentContext, raw string) bool {
-	for _, path := range analyzerRuntimeArtifactPathsFromObjective(ctx, raw) {
-		if analyzerRuntimeArtifactPathKind(ctx, path) == "trace" {
+func requestModelHasRuntimeTraceArtifactCarrier(ctx *types.AgentContext, rm *types.RequestModel) bool {
+	if rm == nil {
+		return false
+	}
+	if rm.PerfTrace != nil {
+		return true
+	}
+	if rm.RuntimeArtifactPathReferenceKind() == "trace" {
+		return true
+	}
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if analyzerRuntimeArtifactPathKind(ctx, hint.Path) == "trace" {
 			return true
 		}
 	}

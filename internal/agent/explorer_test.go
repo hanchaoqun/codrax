@@ -1421,6 +1421,7 @@ func TestBuildInitialInstructionRuntimeArtifactSuppressesGenericRepoMapFirstHop(
 					Subject:    "runtime stall",
 					Diagnostic: true,
 				}}},
+				PerfTrace: &types.PerfBundle{},
 				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
 					IsCurrentSourceExplanationRequested: true,
 					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationCompareWithCurrent},
@@ -1435,16 +1436,14 @@ func TestBuildInitialInstructionRuntimeArtifactSuppressesGenericRepoMapFirstHop(
 	if strings.Contains(prompt, "Typed Repo Map First Hop") {
 		t.Fatalf("runtime-artifact current-source verification should preserve trace/log-first ordering, got:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "Typed Repo Map Route Hints") {
-		t.Fatalf("runtime-artifact mixed lanes should still keep repo_map route hints for later current-source verification:\n%s", prompt)
-	}
 	for _, want := range []string{
-		"owner-localization plan",
-		"minimal owner files",
-		"adjacent constants/helpers stay supporting context",
+		"Explicit Runtime Trace Path Start",
+		"First run one bounded `trace_query` runtime probe",
+		"Do not start with `repo_map`, `grep`, `list_files`, or `read_file` while this step is pending",
+		"If you later need current-code proof because the question truly asks for it",
 	} {
 		if !strings.Contains(prompt, want) {
-			t.Fatalf("runtime-artifact mixed lane route hint missing %q:\n%s", want, prompt)
+			t.Fatalf("runtime-artifact trace-first guidance missing %q:\n%s", want, prompt)
 		}
 	}
 }
