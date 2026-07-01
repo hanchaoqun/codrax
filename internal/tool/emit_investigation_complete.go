@@ -8899,10 +8899,14 @@ func currentSourceForcedReadGatesApply(ctx *types.BusContext) bool {
 	if runtimeArtifactGroundingBypassAllowed(ctx) {
 		return false
 	}
-	if types.RouteBackedExternalObservationRequiresCurrentSource(&ctx.AnalysisIR.RequestModel, ctx.TurnRouteHint) {
+	rm := types.RuntimeSourceAuthorityRequestModelFromBusContext(ctx)
+	if !types.RuntimeSourceRequestHasExternalObservationCarrier(rm, ctx.TurnRouteHint) {
 		return true
 	}
-	return ctx.AnalysisIR.RequestModel.CurrentSourceLaneDecision().RequiresCurrentSource()
+	return types.RuntimeSourceRequestCurrentSourceRequirementPrecision(
+		rm,
+		ctx.TurnRouteHint,
+	) == types.RuntimeSourceRequirementPrecise
 }
 
 func currentSourceLaneCoverageDowngrade(ctx *types.BusContext, preflight completionPreflightView) string {

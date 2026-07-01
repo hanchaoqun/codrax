@@ -282,6 +282,31 @@ func TestCurrentSourceForcedReadGatesApply_TypedTraceSoftProfileDowngradesToCave
 	}
 }
 
+func TestCurrentSourceForcedReadGatesApply_RouteBackedSoftWithoutLedgerDoesNotHardBlock(t *testing.T) {
+	ctx := &types.BusContext{
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace,
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+				Confidence:           0.9,
+			},
+		}},
+	}
+	if precision := types.RuntimeSourceRequestCurrentSourceRequirementPrecision(&ctx.AnalysisIR.RequestModel, ctx.TurnRouteHint); precision != types.RuntimeSourceRequirementSoft {
+		t.Fatalf("test setup should be soft route-backed runtime/source, got %s", precision)
+	}
+	if currentSourceForcedReadGatesApply(ctx) {
+		t.Fatal("soft route-backed runtime/source request must not trigger current-source forced reads without precise anchors")
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_PendingReadsBlocks
 // is the CGEC E1 regression. When the closure has queued a
 // PendingRead the tool MUST return a downgrade message AND must NOT

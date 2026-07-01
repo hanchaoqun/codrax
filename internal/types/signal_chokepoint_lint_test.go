@@ -220,9 +220,7 @@ func TestRuntimeSourceAuthorityLegacyHelpersStayInFallbackChokepoints(t *testing
 	}
 }
 
-var runtimeSourceLegacyHelperFallbackChokepoints = map[string]bool{
-	"../tool/emit_investigation_complete.go::currentSourceForcedReadGatesApply": true,
-}
+var runtimeSourceLegacyHelperFallbackChokepoints = map[string]bool{}
 
 func findRuntimeSourceLegacyHelperBypasses(f *ast.File, fset *token.FileSet, path string) []string {
 	var out []string

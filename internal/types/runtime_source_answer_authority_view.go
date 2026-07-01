@@ -353,6 +353,15 @@ func RuntimeSourceRequestSuppressesCurrentSourceAnswerContract(rm *RequestModel,
 	return RuntimeSourceRequestCurrentSourceRequirementPrecision(rm, hint) != RuntimeSourceRequirementPrecise
 }
 
+// RuntimeSourceRequestHasExternalObservationCarrier reports whether the
+// request-side state belongs to the runtime/external-observation family before
+// an ObservationLedger-backed authority is available. It is a typed shape
+// helper for fallback chokepoints; ordinary current-source questions must not
+// be downgraded through runtime/source precision rules.
+func RuntimeSourceRequestHasExternalObservationCarrier(rm *RequestModel, hint TurnRouteHint) bool {
+	return runtimeSourceRequestHasExternalObservationCarrier(rm, hint)
+}
+
 func runtimeSourceRequestHasExternalObservationCarrier(rm *RequestModel, hint TurnRouteHint) bool {
 	if rm == nil {
 		return hint.ExternalObservationParticipates()
