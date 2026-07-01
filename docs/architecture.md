@@ -1241,6 +1241,21 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 **支持来源**：HarmonyOS hdc shell hitrace、Android adb shell atrace、Android systrace（旧名）、perfetto 文本 dump。
 **暂不支持**：C/C++ glibc 裸 backtrace（只有返回地址）、tail/stream/远端源（Loki / ES / CloudWatch）。
 
+### 7.2.1 trace_query — 深度分层根因下钻引擎
+
+> perf_triage 是**前置轻量分诊**（§7.2）；`trace_query`（`internal/tracequery/` ~22000 行 + `internal/tool/trace_query.go` 工具外壳）是 explore 阶段 explorer agent 在**调查期**用的确定性查询引擎，承载大体量 ftrace/systrace/hitrace 的分层丢帧根因分析。完整方法论、逐条满足度和历次修复见 `docs/design/trace_layered_root_cause_methodology_audit_20260701.md`；此处只给纲要，避免新人重复发明或无意破坏。
+
+**设计定位**：trace_query 不是"返回原始数据、全靠 LLM 分层推理"的工具——"哪个状态优先看 / 要不要递归 / 用哪个 view"这些决策以确定性 Go 代码算好，通过 typed 结构（`StateDrilldownStep` / `RootCauseRankItem.Tier` / `TraceCausalProjection`）+ 可被 `observation_ledger.go` 回解析的文本行喂给 LLM 和下游 finalizer。这与 §1 "精确信号做硬门、噪声信号做软引导"红线一致：状态排序/tier 是精确计算，推荐 view / significant 标记是软引导。
+
+**四个核心机制**：
+
+- **状态优先 Top-N（`buildStateDrilldownPlan`）**：窗口内各状态（sleep / runnable / running / D-state·IO-wait）按时长排 Top-N，每步带 `WindowProportion`（占窗口比例）+ `Significant`（top 状态恒真；低 rank 需过 5% floor 或 25% top-ratio）软引导 LLM 优先下钻哪些状态。碎片化状态聚类（`state_churn`）是独立第二维度，"单次最长"与"频繁切换聚类累计后最长"都不丢失。
+- **on-chain 递归（`expandChain`，MaxDepth=10 + 环检测）**：只对 Sleep→Wakeup 边做多跳图遍历递归；Runnable/Running/D-state/IO 是终止节点，它们的"下一跳"根因（优先级反转 `applyRunnableTopPriorityInversion`、算力供给 `computeSupplyVerdict`、聚类 inode `file_io_hot_inode`）由 `buildRootCauseRankFrom` 的**并行独立候选流 + on-chain 线程集合过滤**承接，不走图遍历。鸿蒙/东湖 vs Android 优先级语义由 `dependencyPriorityRelation` 分流。
+- **语义 span 独立通道（`traceSpanSemanticWorkClass` → `traceQueryTypedSemanticTraceSpanObservations`）**：JIT/VerifyClass/shader/runtime 编译 span 走一条完全独立于 root_cause 排名的 typed observation 通道，`computeTraceMarks` 用 `boundTraceMarkSpans` 给语义 span 单独留名额（不与普通 span 抢时长排名），最终以"确定性优化点"区块强制 handoff——占比再低也不被淘汰。
+- **投影汇总（`TraceCausalProjection` + `materializeRuntimeTraceCausalProjectionBlock`）**：Turn A 全部 trace_query 观测按 chain_relevance 聚合成 primary/on_chain/adjacent/background/semantic 桶，在**每次** `emit_answer_document(_patch)` 持久化时**无条件**自动注入 `runtime_trace_causal_projection` 区块（不依赖 LLM 主动引用）。当存在 `frame_target_resolution`（`window_source=query_window`）精确 anchor 时，节点按是否落在用户请求窗口内标注 `WithinRequestedWindow`。
+
+**窗口纪律**：用户显式给出 `time_start`/`time_end` 时严格透传不误缩（三处窗口推导入口都以 `.Set()` typed 布尔为精确开关）；帧信息 + 显式窗口同时给出时用 `unionTimeWindows` 取并集（纯几何 min/max，显式 0 起点也保留）。
+
 ### 7.3 analyze — 请求理解
 
 |||

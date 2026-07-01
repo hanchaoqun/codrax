@@ -19,6 +19,13 @@
 > 6. **O2 撤销**:复核发现 `scheduler_latency_stats`/`critical_blocking_calls`(Runnable/D-state/IO-wait 的推荐 view)都是单次有界聚合、不是像 `wakeup_chain` 那样的多跳递归图遍历,只对碎片化 sleep 做非递归例外是正确设计,不是缺口——被现有测试 `TestStateDrilldownRuleMatrixPinsRecentTracePolicies` 验证锁定,未做改动。
 >
 > O4(投影显式携带请求窗口)、O6(架构文档补章节)判断为下一批处理,详见 §4。
+>
+> **v8 更新(第二批实际修复,先跑 8-agent 设计+完备性 workflow 再动手)**:动手前用多智能体 workflow 对每个剩余 gap 产出经对抗验证的 diff 级实现规范 + 完备性批判,再实现。本批:
+> 1. **v7 O9 回归修复(最高优先级,completeness critic 发现)**:`unionTimeWindows` 用 `out.StartTs <= 0` 当"未设置",把用户显式 `time_start=0`(`TimeStartSet=true` 可达)误当未设置被 span 起点顶替 → 违反 R8。改为纯几何 min(带 `b.StartTs > 0` 防呆),补 `TestSpanWindowExplicitZeroStartNotShrunkByUnion` + `TestUnionTimeWindowsPreservesExplicitZeroStart` 红转绿(§2.9.2)。
+> 2. **R3 显著性阈值**:`StateDrilldownStep` 新增 `WindowProportion`(占窗口比例,clamp[0,1])+ `Significant`(top 状态恒真;低 rank 需过 `stateDrilldownSignificantFloor=0.05` 或 `stateDrilldownSignificantTopRatio=0.25`),从 `stats.Window` 推导 windowMs 不改签名;6 处 lockstep 同步(struct/render/banner/typed emitter/ledger 白名单/skill prompt)。R4 不删任何步骤(§2.1)。
+> 3. **O4 投影窗口标注**:`TraceCausalProjectionNode` 新增 `StartTs`/`EndTs`(解析 window RichNote)+ `WithinRequestedWindow *bool`(三态);anchor 唯一精确源 = `frame_target_resolution`(`window_source=query_window` 或 R9 union 白名单),交集语义,无 anchor 保持 nil 不臆造;渲染 tag 仅在非 nil 时追加(§2.5)。
+> 4. **O5 端到端渲染测试**:`TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText` 走 observation→projection→`RenderAnswerDocument` 最终 markdown,断言 2ms 语义 span 的"确定性优化点"+span 名存活(同时覆盖 O4 tag 渲染)。
+> 5. **O6 架构文档**:`docs/architecture.md` 新增 §7.2.1 trace_query 分层下钻纲要。
 
 ## 背景:用户目标方法论(原始需求逐条整理)
 
@@ -43,13 +50,13 @@
 
 | # | 要求(对应规则) | 满足度 | 一句话 |
 |---|---|---|---|
-| 1 | 窗口内各状态时长 Top-N 识别 + typed handoff(R2/R3) | **基本满足** | `buildStateDrilldownPlan` 是真实的窗口级 Top-N,但没有"占比阈值",只有数量硬顶(12) |
+| 1 | 窗口内各状态时长 Top-N 识别 + typed handoff(R2/R3) | **满足(v8 补齐占比阈值)** | `buildStateDrilldownPlan` 是真实的窗口级 Top-N;v8 新增 `WindowProportion`+`Significant`(top 恒真、低 rank 需过 5% floor 或 25% top-ratio)显著性软引导,R4 不删任何步骤(§2.1) |
 | 2 | 碎片化状态聚类后 Top-N 不递归但仍 typed handoff(R4) | **部分满足** | 只对"碎片化 sleep"做了非递归例外,碎片化 runnable/D-state/IO 的 `Recursive` 标志仍是 true(标签层面),但底层引擎本来就不会为它们递归(见 #3) |
 | 3 | on-chain 关联线程递归下钻直到根因(R5/R5a/R5b/R5c) | **基本满足(v7 已修复)** | `expandChain` 图遍历只对 Sleep→Wakeup 边递归(MaxDepth=10,带环检测);Running(算力供给)和 D-state/IO(聚类 inode)通过另一条"并行独立候选流 + on-chain 线程过滤"机制接了下一跳根因;Runnable 的优先级反转比较此前缺失,v7 已用 `applyRunnableTopPriorityInversion` 接上(§2.3.1) |
 | 4 | 固化线程ID+时间窗触发主链根因下钻(而非浅层 grep)(R1) | **架构性满足(soft-guidance-by-design)** | 没有 typed pin 载体和硬门,只有 prompt 软引导"prefer trace_query before grep";但这本身符合仓库自己的"精确信号才能做硬门"红线,不算缺陷 |
-| 5 | 逐层根因分析后,在用户时间窗内投影汇总 + 最终总结(R6) | **基本满足** | `TraceCausalProjection` 是真实的、跨越整个 Turn A 调用历史的确定性聚合,并且**无条件自动注入**到最终答案文档(不依赖 LLM 主动引用);但不显式裁剪到用户最初声明的时间窗,且注入的是结构化 fact sheet 而非叙述性总结 |
+| 5 | 逐层根因分析后,在用户时间窗内投影汇总 + 最终总结(R6) | **基本满足(v8 补齐窗口标注)** | `TraceCausalProjection` 无条件自动注入最终答案文档;v8 新增 `WithinRequestedWindow`(存在 `frame_target_resolution` 精确 anchor 时标注节点是否落在用户请求窗口内),把"投影回用户窗口"从隐式变显式(§2.5)。残留:注入的是结构化 fact sheet 而非叙述性总结,叙述仍靠 LLM(软引导) |
 | 6 | JIT/VerifyClass/shader 特殊通道,占比再低也必须 handoff,且不干扰通用根因分析(R7) | **满足(v7 已修复上游口子)** | 仓库此前新增了完全独立于 `root_cause_rank` 排名的 `trace_semantic_span` typed observation 通道 + 专属"确定性优化点"渲染区块,并有 golden test 证明"即使不进 root_cause_rank 候选池也照样 handoff"。此前唯一未解决的口子——`computeTraceMarks(idx, q, 8)` 按原始时长硬顶 8 条、不感知语义类别——v7 已用 `boundTraceMarkSpans` 给语义 span 单独留 16 个名额修复(§2.6.3) |
-| 7 | 严格遵守用户显式时间窗,不因 VSYNC/帧边界误缩窗(R8) | **满足** | `resolveSpanWindowsForQuery`/`ResolveFrameTarget`/`traceQueryShouldAutoWindowFromPattern` 三处窗口推导入口都以"用户是否已显式给出 time_start/time_end(哪怕只给一个)"为精确开关,一旦显式给出就直接透传、不做任何再计算;`interestingIntervals`(wakeup_chain 内部)不改写窗口边界本身,但会把窗口内的分析切成 Top-`MaxBranches`(默认 8)个"最值得看"的子区间,存在"窗口没变但深度覆盖被裁剪"的相关风险,详见 §2.9 |
+| 7 | 严格遵守用户显式时间窗,不因 VSYNC/帧边界误缩窗(R8) | **满足(v8 修复 v7 引入的 explicit-0 回归)** | 三处窗口推导入口都以 `.Set()` typed 布尔为精确开关直接透传;**v7 的 O9 `unionTimeWindows` 曾用 `<=0` 当未设置,把用户显式 `time_start=0` 误缩到 span 起点——v8 已改纯 min 修复并补红转绿测试**;`interestingIntervals` Top-`MaxBranches` 深度覆盖裁剪已在 v7 加 caveat,详见 §2.9 |
 | 8 | 帧信息 + 显式时间窗同时给出时取并集,不能二选一丢数据(R9) | **满足(v7 已修复)** | `ResolveFrameTarget` 一侧此前已并集;`resolveSpanWindowsForQuery`(`span_name` + 显式窗口)一侧 v7 用同一个（已提升为通用的）`unionTimeWindows` 补上,不再是"两者都给就只用显式窗口、丢弃 span 自身边界"(§2.9.2) |
 | 9 | 测试覆盖 / load-bearing 程度 | **中等,呈碎片化** | 单元测试丰富且断言具体(非仅 JSON 存在性),但没有一条贯穿"低影响 JIT span → 候选产生 → 排序截断 → finalize → 最终渲染文本"的端到端 golden fixture;仓库无 CI,回归全靠人工 `go test` |
 
@@ -113,7 +120,7 @@ addDuration("top_d_state",  StateDSleep,  stats.DStateTop)
 
 排序优先级(`stateDrilldownPriority`,query.go:3913):`score = ImpactMs; if ChainRequired { score *= 1.25 }`,再按 `TotalMs`、`LineStart` 兜底排序。去重后 `Rank` 编号,`max` 硬顶 12(query.go:1367、stream_search.go:373)。
 
-**缺口**:全程没有"占比"或"相对显著性"的概念。全仓 grep `state_proportion` / `StateProportion` / `percent` / `PercentOfWindow` 均为零命中。也就是说次高、第三高状态"是否显著"完全靠"是否进入 Top 12"这个数量硬顶来近似,不是用户要求的"看占比决定要不要分析"。在候选数普遍 <12 的常见场景下二者效果接近,但在候选数很多、长尾都很短的窗口里,数量硬顶可能纳入并不显著的第 8~12 名状态,而占比阈值不会。
+**缺口(v8 已修复)**:修复前全程没有"占比"或"相对显著性"的概念,次高/第三高状态"是否显著"只靠"是否进入 Top 12"数量硬顶近似,不是用户 R3 要求的"看占比决定要不要分析"。**v8 落地**:`StateDrilldownStep` 新增 `WindowProportion`(= `ImpactMs / windowMs`,clamp 到 [0,1];windowMs 从既有的 `stats.Window` 推导,不改 `buildStateDrilldownPlan` 签名)+ `Significant`(rank=1 恒真——它就是"最长状态";低 rank 需 `proportion >= stateDrilldownSignificantFloor=0.05` 或 `impact/topImpact >= stateDrilldownSignificantTopRatio=0.25`)。这是精确标量比较驱动的软引导标记,**不删任何 Top-N 步骤**(R4),只告诉 LLM 优先下钻 `significant=true` 的状态。6 处 lockstep 同步:struct + `renderStateDrilldownStep` + banner `writeTraceStateDrilldownSummary` + typed observation emitter + ledger 白名单 `traceQueryStateDrilldownRecord` + skill prompt 软引导。windowMs≤0(测试无 Window)时 proportion=0、rank=1 仍 significant,pinning 测试保持绿。
 
 每个状态对应的分析方法(`stateDrilldownRecommendedViews`,query.go:3928)是真实、彼此不同的:
 
@@ -285,8 +292,8 @@ if materializeRuntimeTraceCausalProjectionBlock(merged, ctx) {
 也就是说:只要 Turn A 期间调用过 trace_query 并产生了可分类的观测,**无论 LLM 自己的 emit_answer_document payload 里写不写这些根因**,系统都会在持久化时**额外追加一个 `runtime_trace_causal_projection` 区块**(`Kind=ordered_list`,`SurfaceRole=Principal`)。这是一条完全不依赖 LLM 主动配合的确定性 handoff 通道,有专门测试 `TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection`(answer_document_mutation_runtime_test.go:618)锁定。
 
 **两个缺口**:
-1. **不显式裁剪到用户最初声明的时间窗**。`CompileTraceCausalProjection` 只是把 Turn A 期间"查询过的"观测全部聚合,不会反向校验/裁剪到用户最初指定的 `time_start`/`time_end`。如果 LLM 中途查询了超出原始窗口的相邻窗口(这在递归下钻到 on-chain 上游线程时是常见且合理的),这些结果也会被并入投影,没有"最终只保留落在用户原始窗口内"的显式收口步骤。这本身不算错(下钻到窗口外的因果源是必要的),但意味着"汇总投影回用户指定时间窗"这一步目前是隐式的(靠 LLM 查询纪律),不是显式强制的。
-2. **区块是结构化条目列表,不是叙述性总结**。`runtimeTraceCausalProjectionItems` 产出的是 `primary`/`co_primary`/`semantic_span`/`supporting_hop` 打标签的条目(每条一行文本 + 数值),配一句"怎么读"的引导语,本质是一份"事实清单附录",不是用户要求的"一次汇总后的总结提炼"这种叙事性 mechanism 解释。真正的叙述性总结仍然要靠 LLM 在 `summary` block 里自己写,系统只提供软引导(`answer_document_evaluator.go` 里的 handoff hint,要求"preserve ... visibly",非强制校验)。
+1. **不显式裁剪到用户最初声明的时间窗(v8 已修复)**。修复前 `CompileTraceCausalProjection` 把 Turn A 期间查询过的观测全部聚合,不区分是否落在用户原始窗口内,"汇总投影回用户指定时间窗"是隐式的(靠 LLM 查询纪律)。**v8 落地**:`TraceCausalProjectionNode` 新增 `StartTs`/`EndTs` + 三态 `WithinRequestedWindow *bool`;唯一精确非循环 anchor 是既有但此前被丢弃的 `frame_target_resolution` 记录(`window_source=query_window`/R9 union 白名单,即 R1 固化触发场景),用交集语义标注每个有窗口的节点在窗口内/外,渲染时追加对应 tag。无 anchor 或节点无窗口保持 nil 不臆造——诚实降级(primary root_cause 节点只有行号无窗口,天然标不出)。这把"投影回用户窗口"从隐式变显式,收益兑现在 R1 固化触发路径上。
+2. **区块是结构化条目列表,不是叙述性总结(仍为软引导,不投资)**。`runtimeTraceCausalProjectionItems` 产出的是打标签条目 + "怎么读"引导语,是"事实清单附录"而非叙事性 mechanism 解释。真正的叙述性总结仍靠 LLM 在 `summary` block 里写,系统只提供软引导——这符合本仓库"系统不代替 LLM 写用户面板答案"的红线,判定为正确的架构边界,不改。
 
 ### 2.6 JIT / VerifyClass / shader 特殊通道(要求 6,对应 R7,用户最关心)
 
@@ -419,6 +426,8 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 
 **v7 修复**:`ResolveFrameTarget` 一侧此前已经由一次并行提交修复(见 §6 的 `acc70dbc`),新增了 `unionFrameTargetWindows` 并接到 `frameTargetQueryHasExplicitSelectorWindow` 分支。v7 把这个函数**提升为通用的 `unionTimeWindows`**(改名,单一调用点改双调用点,行为不变,只补了一行文档注释)并接到 `resolveSpanWindowsForQuery`:当 `explicitStart && explicitEnd` 为真且唯一匹配到一个 span 时,不再直接 `return spans, caveats`,而是用 `unionTimeWindows(explicitWindow, spanWindow)` 计算并集,只有并集确实比显式窗口更宽时才改写 `q.TimeStart`/`q.TimeEnd` 并追加一条"preserved explicit query window ... unioned it with matched span ..." caveat(并集等于原窗口时保持静默,不产生噪音)。`TestSpanWindowExplicitQueryWindowUnionsMatchedSpanWindow` 断言窄显式窗口被并集扩展到完整 span 边界,`TestSpanWindowExplicitQueryWindowAlreadyCoveringSpanIsUnchanged` 断言显式窗口已覆盖 span 时保持不变且无多余 caveat。
 
+**v8 修复 v7 这里引入的一个 R8 正确性回归(completeness critic 静态发现 + 真实 `Run()` 红测复现)**:v7 的 `unionTimeWindows` 用 `out.StartTs <= 0` 当"起点未设置"判据。但用户显式给出的 `time_start=0`(JSON `"time_start":0` → `TimeStartSet=true`、值为 0,`queryExplicitTimeStart` 在 `TimeStartSet` 时直接返回 true)会被这个判据误当成未设置,于是被匹配到的 span 起点(如 1.0)顶替——窗口起点从 0 被悄悄收窄到 1.0,正是 R8 明令禁止的"因帧/span 边界误缩用户显式窗口"。**v8 改为纯几何 min**:`if b.StartTs > 0 && b.StartTs < out.StartTs { out.StartTs = b.StartTs }`(删 `<=0` 特判;`b.StartTs > 0` 防呆防止未来某个未设置的 derived 起点把窗口误扩到 0 以下,与终点 `if b.EndTs > out.EndTs` 只向上扩天然安全对称)。补 `TestSpanWindowExplicitZeroStartNotShrunkByUnion`(真实 `Run()` 路径)+ `TestUnionTimeWindowsPreservesExplicitZeroStart`(直接单测)红转绿;两条既有 union 测试(非零起点)不受影响。explicit `time_start=0` 在真实 hitrace 里罕见(trace clock 通常是大单调值),但属静态可审的字面正确性回归,不留给实测兜底。
+
 ---
 
 ## 3. 测试覆盖与 load-bearing 程度(要求 7)
@@ -433,8 +442,8 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 
 **未被任何测试覆盖的关键路径**:
 1. `computeTraceMarks(idx, q, 8)` 的"普通 Top-8 + 短语义 span sidecar"场景已由 v7 的 `TestComputeTraceMarksReservesSlotForShortSemanticSpanBehindLongerGenericSpans` 锁住,不再是未覆盖项。
-2. 仍没有一条测试贯穿到 `internal/render/renderer.go` 的最终 Markdown/HTML 渲染文本——所有测试都停在 `AnswerDocumentV2` 结构体层面,"确定性优化点"这个区块最终在用户看到的渲染稿里长什么样、会不会被摘要截断逻辑(如 `citation_quote_max_chars`、`SummaryCapConfig`)波及,没有验证。
-3. 仍没有端到端(analyzer→explore→extract→finalize 全链路)的 trace 丢帧场景 eval/fixture,现有测试主要是 `internal/tracequery`、`internal/tool`、`internal/types` 包内的单元测试和结构投影测试。
+2. (v8 已补)贯穿到最终渲染文本的用例已由 `TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText` 覆盖:低影响语义 span 经 `render.RenderAnswerDocument` 后"确定性优化点"区块 + span 名仍在最终 markdown 里,不被 summary/cap 逻辑吞掉。
+3. 仍没有端到端(analyzer→explore→extract→finalize 全链路)的 trace 丢帧场景 eval/fixture,现有测试主要是 `internal/tracequery`、`internal/tool`、`internal/types` 包内的单元测试和结构投影测试。这是本文档剩余的唯一测试类开放项(见 §4-O5 第 3 项)。
 
 仓库本身"无 linter、无 CI 配置"(CLAUDE.md 原文),意味着这些测试目前只在有人记得手动跑 `go test ./...` 时才生效,不能拦截无意中破坏这些不变量的未来改动。
 
@@ -463,17 +472,17 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 **O3c(信息性,v2 新增)—— IO 下一跳的聚类 inode 定位(§2.3.3)判定为已满足,暂不需要改动。**
 `file_io_hot_inode`/`block_io_by_inode` 已经是真正的按 inode 聚类结果并接入统一排序,本轮审计未发现需要改动的地方;如果未来要加强,方向是扩大 `stats.FileIOByInode`/`BlockIOByInode` 的事件源覆盖(依赖具体 trace 是否采集了对应的文件系统/block 层事件),而不是查询引擎本身的逻辑。
 
-**O4 —— 让 `TraceCausalProjection` 显式携带"用户原始请求窗口"并在渲染时标注裁剪状态。**
-现状:§2.5 指出投影不区分"落在用户原始窗口内"与"下钻过程中扩展查询到的相邻窗口"。
-建议:`TraceCausalProjectionNode` 已经有 `LineStart`/`LineEnd`/隐含的 `StartTs`/`EndTs`(via RichNotes),可以在投影阶段读取 `RequestModel`/`BusContext` 里是否存在用户声明的原始窗口,给每个节点补一个 `within_requested_window: bool` 或类似标记,渲染时把"用户窗口内的直接因果"和"为解释根因而下钻到窗口外的上游依赖"分两段呈现,而不是混在一个列表里。这能让"汇总投影回用户指定时间窗"这一步从隐式变显式。
+**O4 —— ✅ v8 已修复 —— 让 `TraceCausalProjection` 显式携带"用户原始请求窗口"并在渲染时标注状态。**
+现状(修复前):§2.5 指出投影不区分"落在用户原始窗口内"与"下钻过程中扩展查询到的相邻窗口"。
+**v8 落地**:`TraceCausalProjectionNode` 新增 `StartTs`/`EndTs`(先取 `record.Span`,回退解析 window RichNote,复用既有 `traceCausalProjectionFloat`)+ `WithinRequestedWindow *bool`(三态:未知/内/外)。用户窗口的唯一**精确非循环** anchor 是既有但此前被丢弃的 `frame_target_resolution` 观测记录——只认 `window_source ∈ {query_window, explicit_query_union_previous_frame_end_to_current_frame_end}`(精确 typed 串白名单,即 R1 固化触发/R9 并集场景),用交集语义判定 within;无 anchor 或节点无窗口时保持 nil 不臆造。渲染侧 `runtimeTraceCausalProjectionWindowDetail` 仅在非 nil 时追加"落在用户请求窗口内"/"下钻到请求窗口外的上游依赖"tag,保证无 anchor 场景 byte-identical。已知边界:primary root_cause 节点只有行号无 per-node 窗口,故天然标不出——诚实降级,已在测试里锁定(`TestTraceCausalProjection*WithinRequestedWindow` 等 5 条)。
 
-**O5(低成本、高价值)—— 补齐 §3 指出的端到端回归测试空白。**
-1. O1 的 `computeTraceMarks` 截断 + 语义 span 共存单元测试已由 v7 补齐。
-2. 仍需一条从 `WindowStats.TraceSpans` 一路跑到 typed observation / `TraceCausalProjection` / final render 的端到端用例,确认"确定性优化点"区块不会被通用的 summary、projection cap 或 answer supplement 截断/摘要逻辑吞掉。
-3. 仍需一条 analyzer→explore→extract→finalize 全链路 trace 丢帧 eval/fixture,覆盖"短语义 span + 多窗口/多层唤醒链 + 最终答案可见"的用户侧交付面。
+**O5(低成本、高价值)—— 🟡 v8 修复其中两项,第三项(全链路 eval fixture)仍开放 —— 补齐 §3 指出的回归测试空白。**
+1. ✅ `computeTraceMarks` 截断 + 语义 span 共存:v7 已补 `TestComputeTraceMarksReservesSlotForShortSemanticSpanBehindLongerGenericSpans`。
+2. ✅ 端到端渲染:v8 补 `TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText`——2ms 语义 span 走 observation → 自动注入 projection block → `render.RenderAnswerDocument` 最终 markdown,断言"确定性优化点"+`VerifyClass`+`class_verification` 全程存活(render 已是 tool 既有依赖,零 import cycle)。
+3. 🔴 仍需一条 analyzer→explore→extract→finalize 全链路 trace 丢帧 eval/fixture,覆盖"短语义 span + 多窗口/多层唤醒链 + 最终答案可见"的真实 REPL 用户侧交付面(比第 2 项的单点渲染测试更全)。这是本文档剩余的唯一测试类开放项,规模比其它 O 项大,留待后续单独立项。
 
-**O6(文档性,不涉及代码)—— 在 `docs/architecture.md` §7.2 或新增一节里补充 trace_query 的分层下钻方法论。**
-现状 `docs/architecture.md` 只描述了 perf_triage 前置阶段,`trace_query` 这个约 22000 行、承载了本文档描述的几乎全部机制的核心引擎,在架构文档里没有对应章节。建议后续补一节纲要性描述(不需要本文档这么细),至少让新加入的开发者知道"状态优先 Top-N""on-chain 递归""语义 span 独立通道"这三个设计存在,避免未来重复发明或无意破坏。
+**O6(文档性,不涉及代码)—— ✅ v8 已修复 —— 在 `docs/architecture.md` 新增一节补充 trace_query 的分层下钻方法论。**
+**v8 落地**:`docs/architecture.md` 新增 §7.2.1 "trace_query — 深度分层根因下钻引擎",纲要描述设计定位(确定性引擎非纯 LLM 推理)+ 四个核心机制(状态优先 Top-N / on-chain 递归 / 语义 span 独立通道 / 投影汇总)+ 窗口纪律,并指回本审计文档。
 
 **O7(低成本、高价值,v3 新增)—— ✅ v7 已修复(caveat 部分)—— 给语义 span 识别加一条内核态兜底信号,降低对用户态命名习惯的依赖。**
 现状(§2.8):`jit_compile`/`class_verification`/`shader_compile`/`runtime_compile` 全部靠对 `trace_mark` 里的 span 名字做文本模式匹配(`traceSpanLooksLikeJITCompile` 等),没有任何内核态结构化事件兜底;如果应用/ArkCompiler/ROM 版本升级后打点字符串命名习惯改变,识别会静默失效且无法被现有测试发现(现有测试固定用标准命名造 fixture,不会检测命名漂移)。
@@ -548,4 +557,6 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 
 **v6 修订说明**:审计期间发现本文档在此期间被并行地(基线 `4e53584d` → `4d5467a4`,共 7 个提交,其中 `264f0cd7`/`ae8fc57f`/`4d5467a4` 三次直接改了本文档自身,详见上面 v4/v5 段)持续更新,已用 `git reset --hard origin/main` 对齐到最新版本,不覆盖已有内容。v6 新增 R8/R9 两条规则(§背景)与对应审计 §2.9、新优化建议 O9/O10、附录索引新增 4 行。R8/R9 的判定不依赖前面几轮已经改动的 cap 数值(那些改的是 trace causal projection 的候选保留条数,和窗口边界计算是两回事),因此本轮结论与 §2.6.2 记录的最新 cap 数值不冲突。
 
-**v8 复核说明**:按当前代码再次复核 `ae8fc57f6 fix: expand trace causal handoff capacity` 与远端最新 `d0eddd6c7 docs: update trace audit doc with v7 fix status` 后确认,容量扩展机制仍在: `TraceCausalProjection` 的 primary/on-chain/context/semantic/supporting-hops cap 分别为 10/24/8/16/10,最终 `runtime_trace_causal_projection` 动态上限为 48,`trace_query 关键观测核对`上限为 40,链路分层摘要每类展示 4 个代表节点。此前 O1 的上游选择保真也已由 v7 的 `boundTraceMarkSpans` 修复,不再登记为 open gap。当前剩余要扩充的是 O5:端到端渲染/eval 仍需补,确保这些 typed semantic spans 不只在内部结构中存活,也能稳定出现在用户可见答案里。
+**v8 复核说明(容量机制,并行提交 `29332679`)**:按当前代码再次复核 `ae8fc57f6 fix: expand trace causal handoff capacity` 与 `d0eddd6c7 docs: update trace audit doc with v7 fix status` 后确认,容量扩展机制仍在:`TraceCausalProjection` 的 primary/on-chain/context/semantic/supporting-hops cap 分别为 10/24/8/16/10,最终 `runtime_trace_causal_projection` 动态上限为 48,`trace_query 关键观测核对`上限为 40,链路分层摘要每类展示 4 个代表节点。此前 O1 的上游选择保真也已由 v7 的 `boundTraceMarkSpans` 修复,不再登记为 open gap。O5 的端到端渲染项已由下面的 v8 修订说明落地(`TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText`);唯一剩余的是 O5 第三项——analyzer→finalize 全链路 eval fixture。
+
+**v8 修订说明(第二批实际修复)**:动手前先跑一个 8-agent 设计+完备性 workflow(4 design + 4 adversarial verify),对每个剩余 gap 产出经对抗验证的 diff 级实现规范并让"完备性批判"agent 独立复核 v7 五项修复是否真生效。批判 agent 用真实 `Run()` 红测复现了 v7 O9 亲手引入的 `unionTimeWindows` explicit-0 起点收窄回归(R8 字面正确性 bug),v8 第一件事就修它。随后落地 R3(占比显著性)、O4(投影窗口标注)、O5 端到端渲染测试、O6(架构文档 §7.2.1),每项都有新单测,`go build ./... && go test ./...` 全绿。至此 §4 的 O1-O10 全部落地或明确判定(O2 撤销、O8 记录在案;剩余开放项:O5 第三项全链路 eval fixture、O7 中期 codrax.yaml 自定义模式化),R1-R9 九条规则全部满足或正确降级。
