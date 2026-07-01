@@ -370,6 +370,82 @@ func TestTraceCausalProjectionKeepsDefaultDepthSupportingHops(t *testing.T) {
 	}
 }
 
+// TestTraceCausalProjectionSurfacesStateAndDurationTriadAndUndrillable pins the
+// presentation-layer typed enrichment (gaps c/d/e): the compiler now consumes
+// the already-emitted dominant_state / effective_impact_ms / actual_impact_ms
+// rich notes and the missing_wakeup root_evidence into typed node fields, so the
+// renderer can show the full duration triad, mark sleep symptoms, and flag
+// undrillable sleeps — all from precise typed signals, never prose parsing.
+func TestTraceCausalProjectionSurfacesStateAndDurationTriadAndUndrillable(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		// A sleep-dominant primary carrying the full duration triad.
+		traceProjectionTestRootWithNotes("root-sleep", "app-100", "sleep_wait", "5.000", 5.0, 0.90, 1, []string{
+			"causality=on_wakeup_chain",
+			"dominant_state=s_sleep",
+			"effective_impact_ms=11.040",
+			"actual_impact_ms=4.600",
+		}),
+		// A non-sleep on-chain root (the drilled-to root).
+		traceProjectionTestRootWithNotes("root-run", "worker-200", "running", "4.600", 4.6, 0.88, 1, []string{
+			"causality=on_wakeup_chain",
+			"dominant_state=running",
+			"effective_impact_ms=4.600",
+			"actual_impact_ms=4.600",
+		}),
+		// A missing_wakeup root_evidence → undrillable sleep marker.
+		{
+			ID:              "tool:1#trace_query:root_evidence:1",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: ClaimGroundingHard,
+			ClaimKey:        "root_evidence:missing_wakeup",
+			Predicate:       "missing_wakeup",
+			Subject:         "app-100",
+			Value:           "2.100",
+			Unit:            "ms",
+			Span:            ObservationSpan{LineStart: 88, LineEnd: 96},
+			Summary:         "sleep interval has no matching sched_wakeup row in the selected trace window",
+		},
+	}}
+
+	got := CompileTraceCausalProjection(ledger)
+	if got.PrimaryRootCause == nil {
+		t.Fatal("expected a primary root cause")
+	}
+	// Find the sleep primary and the running primary among PrimaryRootCauses.
+	var sleepNode, runNode *TraceCausalProjectionNode
+	for i := range got.PrimaryRootCauses {
+		switch got.PrimaryRootCauses[i].Object {
+		case "sleep_wait":
+			sleepNode = &got.PrimaryRootCauses[i]
+		case "running":
+			runNode = &got.PrimaryRootCauses[i]
+		}
+	}
+	if sleepNode == nil || runNode == nil {
+		t.Fatalf("expected both sleep and running primaries, got %+v", got.PrimaryRootCauses)
+	}
+	if sleepNode.StateKind != "s_sleep" || !sleepNode.IsSleepState() {
+		t.Fatalf("sleep node StateKind not surfaced: %+v", sleepNode)
+	}
+	if runNode.IsSleepState() {
+		t.Fatalf("running node must not be classified as sleep: %+v", runNode)
+	}
+	if sleepNode.EffectiveImpactMS != 11.040 || sleepNode.ActualImpactMS != 4.600 {
+		t.Fatalf("duration triad (effective/actual) not surfaced: eff=%v act=%v", sleepNode.EffectiveImpactMS, sleepNode.ActualImpactMS)
+	}
+	// The missing_wakeup evidence lands as a supporting hop with the typed reason.
+	var undrillable *TraceCausalProjectionNode
+	for i := range got.SupportingHops {
+		if got.SupportingHops[i].Undrillable() {
+			undrillable = &got.SupportingHops[i]
+		}
+	}
+	if undrillable == nil || undrillable.UndrillableReason != "missing_wakeup" {
+		t.Fatalf("missing_wakeup must surface as an undrillable-sleep node, got hops %+v", got.SupportingHops)
+	}
+}
+
 func traceProjectionFrameTargetAnchor(windowSource string, startTs, endTs float64) ObservationRecord {
 	return ObservationRecord{
 		ID:              "trace_query:window#frame_target_resolution",

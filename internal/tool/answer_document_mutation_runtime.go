@@ -675,27 +675,532 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 128))
 	projection := types.CompileTraceCausalProjection(ledger)
 	lang := requestedAnswerDocumentLanguage(ctx)
-	items := runtimeTraceCausalProjectionItems(projection, lang)
-	if len(items) == 0 {
+	cluster := runtimeTraceCausalProjectionCluster(projection, lang)
+	if len(cluster) == 0 {
 		return false
 	}
-	block := types.AnswerBlock{
-		ID:          "runtime_trace_causal_projection",
-		Kind:        types.BlockOrderedList,
-		Title:       runtimeTraceCausalProjectionTitle(lang),
-		Text:        runtimeTraceCausalProjectionIntro(lang),
-		Items:       items,
-		SurfaceRole: types.SurfacePrincipal,
-		ClaimUses: []types.RenderedClaimUse{{
-			ClaimForm: types.ClaimExternalObservation,
-		}},
-		FacetIDs: []string{"observed_artifact_fact"},
+	// The lead table block is the single lossless surface; the flowchart blocks
+	// are decorative-redundant. If the cluster would exceed the block cap, degrade
+	// to the table alone rather than dropping the whole section.
+	if len(doc.Blocks)+len(cluster) > maxBlocksPerDoc {
+		cluster = cluster[:1]
+		if len(doc.Blocks)+len(cluster) > maxBlocksPerDoc {
+			logging.Warning("[answer_document] runtime trace causal projection block skipped: document already at the %d-block cap", maxBlocksPerDoc)
+			return false
+		}
 	}
 	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
-	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
-	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
-	doc.Blocks[insertAt] = block
+	tail := append([]types.AnswerBlock(nil), doc.Blocks[insertAt:]...)
+	doc.Blocks = append(doc.Blocks[:insertAt], cluster...)
+	doc.Blocks = append(doc.Blocks, tail...)
 	return true
+}
+
+// runtimeTraceCausalProjectionCluster builds the presentation block cluster for
+// the Trace Causal Projection section: a lead lossless layered table (principal
+// identity) followed by an optional wakeup-chain flowchart and an optional
+// sleep-drilldown flowchart. The table carries every node field; the diagrams
+// are decorative-redundant so terminal L7 fallback loses nothing.
+func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection, lang string) []types.AnswerBlock {
+	if !projection.Active() {
+		return nil
+	}
+	zh := runtimeTraceCausalProjectionUseChinese(lang)
+	columns, rows := runtimeTraceCausalProjectionTableModel(projection, zh)
+	if len(rows) == 0 {
+		return nil
+	}
+	claimUses := []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}}
+	facets := []string{"observed_artifact_fact"}
+	table := types.AnswerBlock{
+		ID:          "runtime_trace_causal_projection",
+		Kind:        types.BlockTable,
+		Title:       runtimeTraceCausalProjectionTitle(lang),
+		Text:        runtimeTraceCausalProjectionClusterIntro(projection, lang, zh),
+		Columns:     columns,
+		Items:       rows,
+		SurfaceRole: types.SurfacePrincipal,
+		ClaimUses:   claimUses,
+		FacetIDs:    facets,
+	}
+	out := []types.AnswerBlock{table}
+	if body := runtimeTraceCausalProjectionWakeupDiagram(projection, zh); body != "" {
+		caption := "唤醒链拓扑(实线=on-chain 主链,虚线=off-chain 背景):"
+		if !zh {
+			caption = "Wakeup-chain topology (solid = on-chain trunk, dashed = off-chain background):"
+		}
+		out = append(out, types.AnswerBlock{
+			ID:          "runtime_trace_causal_projection_wakeup",
+			Kind:        types.BlockDiagram,
+			Text:        caption,
+			Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: body},
+			SurfaceRole: types.SurfacePrincipal,
+			ClaimUses:   claimUses,
+			FacetIDs:    facets,
+		})
+	}
+	if body := runtimeTraceCausalProjectionSleepDiagram(projection, zh); body != "" {
+		caption := "sleep 下钻树(sleep=症状必须下钻;无匹配 sched_wakeup 时显式标注无法下钻):"
+		if !zh {
+			caption = "Sleep drilldown (sleep = symptom to drill; explicitly marked when no matching sched_wakeup exists):"
+		}
+		out = append(out, types.AnswerBlock{
+			ID:          "runtime_trace_causal_projection_sleep",
+			Kind:        types.BlockDiagram,
+			Text:        caption,
+			Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: body},
+			SurfaceRole: types.SurfacePrincipal,
+			ClaimUses:   claimUses,
+			FacetIDs:    facets,
+		})
+	}
+	return out
+}
+
+func runtimeTraceCausalProjectionClusterIntro(projection types.TraceCausalProjection, lang string, zh bool) string {
+	intro := runtimeTraceCausalProjectionIntro(lang)
+	if len(projection.WakeupPath) >= 2 {
+		chain := strings.Join(projection.WakeupPath, " ▸ ")
+		if zh {
+			intro += fmt.Sprintf("\n\n唤醒链: `%s` — 阅读方向为上游唤醒/依赖者逐级影响目标线程;💤 sleep 行本身不是根因,其下钻根因见「下钻→」列,`⛔` 表示窗口内无匹配 sched_wakeup、无法下钻。", chain)
+		} else {
+			intro += fmt.Sprintf("\n\nWakeup chain: `%s` — read upstream waker/dependency to target; a 💤 sleep row is a symptom (see the drilldown column), and `⛔` marks a sleep with no matching sched_wakeup in the window (cannot drill further).", chain)
+		}
+	}
+	return intro
+}
+
+// runtimeTraceCausalProjectionTableModel builds the lossless layered table: one
+// group-header row per non-empty layer, one row per node (deduped across layers),
+// and one italic details sub-row per node carrying the long-tail typed fields
+// (tier/causality/rank/confidence/predicate) plus the verbatim summary tokens.
+func runtimeTraceCausalProjectionTableModel(projection types.TraceCausalProjection, zh bool) ([]string, []types.AnswerBlockItem) {
+	columns := runtimeTraceCausalProjectionColumns(zh)
+	ncols := len(columns)
+	bucketMax := runtimeTraceCausalProjectionBucketMax(projection)
+	resolvedRoot := runtimeTraceCausalProjectionResolvedRoot(projection)
+	seen := map[string]bool{}
+	rows := make([]types.AnswerBlockItem, 0, 32)
+
+	addGroup := func(headerZh, headerEn string, glyph string, nodes []types.TraceCausalProjectionNode) {
+		fresh := nodes[:0:0]
+		for _, n := range nodes {
+			key := runtimeTraceCausalProjectionNodeKey(n)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			fresh = append(fresh, n)
+		}
+		if len(fresh) == 0 {
+			return
+		}
+		header := glyph + " " + headerZh
+		if !zh {
+			header = glyph + " " + headerEn
+		}
+		rows = append(rows, runtimeTraceCausalProjectionGroupHeaderRow(header, ncols))
+		for _, n := range fresh {
+			rows = append(rows, runtimeTraceCausalProjectionNodeRow(n, bucketMax, resolvedRoot, zh))
+			if detail := runtimeTraceCausalProjectionDetailsRow(n, zh); detail != nil {
+				rows = append(rows, *detail)
+			}
+		}
+	}
+
+	addGroup("主根因层", "Primary root cause", "▛", runtimeTraceCausalProjectionPrimaryRoots(projection))
+	addGroup("确定性优化点", "Deterministic optimization point", "◆", projection.SemanticSpans)
+	addGroup("on-chain 链层", "On-chain", "●", projection.OnChainCauses)
+	addGroup("邻近链层", "Adjacent", "◐", projection.AdjacentCauses)
+	addGroup("背景支撑层", "Off-chain background", "○", projection.BackgroundCauses)
+	addGroup("支撑节点", "Supporting hop", "└", projection.SupportingHops)
+	return columns, rows
+}
+
+func runtimeTraceCausalProjectionColumns(zh bool) []string {
+	if zh {
+		return []string{"层 / 节点", "状态", "Impact", "链路 / 深度", "窗口", "下钻→", "语义", "证据"}
+	}
+	return []string{"Layer / Node", "State", "Impact", "Chain / depth", "Window", "Drilldown→", "Semantic", "Evidence"}
+}
+
+func runtimeTraceCausalProjectionNodeKey(node types.TraceCausalProjectionNode) string {
+	if id := strings.TrimSpace(node.EvidenceID); id != "" {
+		return id
+	}
+	return strings.ToLower(strings.TrimSpace(node.Subject)) + "\x00" +
+		strings.ToLower(strings.TrimSpace(node.Object)) + "\x00" +
+		strings.ToLower(strings.TrimSpace(node.Predicate))
+}
+
+func runtimeTraceCausalProjectionGroupHeaderRow(header string, ncols int) types.AnswerBlockItem {
+	cells := make([]string, ncols)
+	cells[0] = header
+	return types.AnswerBlockItem{Cells: cells, CitationRef: -1}
+}
+
+func runtimeTraceCausalProjectionNodeRow(node types.TraceCausalProjectionNode, bucketMax float64, resolvedRoot string, zh bool) types.AnswerBlockItem {
+	cells := []string{
+		runtimeTraceCausalProjectionNodeSubject(node),
+		runtimeTraceCausalProjectionStateCell(node, zh),
+		runtimeTraceCausalProjectionImpactCell(node, bucketMax),
+		runtimeTraceCausalProjectionChainCell(node, zh),
+		runtimeTraceCausalProjectionWindowCell(node, zh),
+		runtimeTraceCausalProjectionDrilldownCell(node, resolvedRoot, zh),
+		runtimeTraceCausalProjectionSemanticCell(node, zh),
+		runtimeTraceCausalProjectionEvidenceCell(node),
+	}
+	return types.AnswerBlockItem{Cells: cells, CitationRef: -1}
+}
+
+func runtimeTraceCausalProjectionDetailsRow(node types.TraceCausalProjectionNode, zh bool) *types.AnswerBlockItem {
+	var parts []string
+	if tier := strings.TrimSpace(node.Tier); tier != "" {
+		parts = append(parts, "tier="+tier)
+	}
+	if causality := strings.TrimSpace(node.Causality); causality != "" {
+		parts = append(parts, "causality="+causality)
+	}
+	if node.Rank > 0 {
+		parts = append(parts, fmt.Sprintf("rank=%d", node.Rank))
+	}
+	if node.Confidence > 0 {
+		parts = append(parts, fmt.Sprintf("confidence=%.2f", node.Confidence))
+	}
+	if pred := strings.TrimSpace(node.Predicate); pred != "" && !strings.EqualFold(pred, strings.TrimSpace(node.Object)) {
+		parts = append(parts, "predicate="+pred)
+	}
+	if summary := strings.TrimSpace(node.Summary); summary != "" {
+		parts = append(parts, summary)
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	text := "_" + strings.Join(parts, " · ") + "_"
+	return &types.AnswerBlockItem{Cells: []string{text}, CitationRef: -1}
+}
+
+func runtimeTraceCausalProjectionStateCell(node types.TraceCausalProjectionNode, zh bool) string {
+	state := strings.TrimSpace(node.StateKind)
+	if node.IsSleepState() {
+		label := state
+		if label == "" {
+			label = "sleep"
+		}
+		out := "💤 " + label
+		if zh {
+			out += " · 非根因"
+		} else {
+			out += " · non-root"
+		}
+		if node.Undrillable() {
+			out += " · ⛔"
+		}
+		return out
+	}
+	if node.Undrillable() {
+		if zh {
+			return "💤 sleep · ⛔ 无法下钻"
+		}
+		return "💤 sleep · ⛔ undrillable"
+	}
+	return state
+}
+
+func runtimeTraceCausalProjectionImpactCell(node types.TraceCausalProjectionNode, bucketMax float64) string {
+	magnitude := node.CumulativeImpactMS
+	if magnitude <= 0 {
+		magnitude = node.EffectiveImpactMS
+	}
+	if magnitude <= 0 {
+		magnitude = node.ImpactMS
+	}
+	bar := runtimeTraceCausalProjectionBar(magnitude, bucketMax)
+	var parts []string
+	if node.CumulativeImpactMS > 0 {
+		parts = append(parts, fmt.Sprintf("cum %.3fms", node.CumulativeImpactMS))
+	}
+	if node.ImpactMS > 0 && node.ImpactMS != node.CumulativeImpactMS {
+		parts = append(parts, fmt.Sprintf("proj %.3fms", node.ImpactMS))
+	}
+	if node.EffectiveImpactMS > 0 && node.EffectiveImpactMS != node.CumulativeImpactMS {
+		parts = append(parts, fmt.Sprintf("eff %.3fms", node.EffectiveImpactMS))
+	}
+	if node.ActualImpactMS > 0 && node.ActualImpactMS != node.CumulativeImpactMS {
+		parts = append(parts, fmt.Sprintf("act %.3fms", node.ActualImpactMS))
+	}
+	if len(parts) == 0 {
+		if value := strings.TrimSpace(node.Value); value != "" {
+			parts = append(parts, value+strings.TrimSpace(node.Unit))
+		}
+	}
+	label := strings.Join(parts, " · ")
+	switch {
+	case bar != "" && label != "":
+		return "`" + bar + "` " + label
+	case bar != "":
+		return "`" + bar + "`"
+	case label != "":
+		return label
+	default:
+		return ""
+	}
+}
+
+func runtimeTraceCausalProjectionBar(value, max float64) string {
+	if max <= 0 || value <= 0 {
+		return ""
+	}
+	const width = 10
+	filled := int(value/max*float64(width) + 0.5)
+	if filled < 1 {
+		filled = 1
+	}
+	if filled > width {
+		filled = width
+	}
+	return strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+}
+
+func runtimeTraceCausalProjectionChainCell(node types.TraceCausalProjectionNode, zh bool) string {
+	var parts []string
+	switch strings.TrimSpace(node.ChainRelevance) {
+	case "on_chain":
+		parts = append(parts, "● on-chain")
+	case "adjacent":
+		parts = append(parts, "◐ adjacent")
+	case "background":
+		parts = append(parts, "○ off-chain")
+	}
+	if node.ChainDepth > 0 {
+		if zh {
+			parts = append(parts, fmt.Sprintf("深度%d", node.ChainDepth))
+		} else {
+			parts = append(parts, fmt.Sprintf("d%d", node.ChainDepth))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "·")
+}
+
+func runtimeTraceCausalProjectionWindowCell(node types.TraceCausalProjectionNode, zh bool) string {
+	return runtimeTraceCausalProjectionWindowDetail(node, zh)
+}
+
+func runtimeTraceCausalProjectionDrilldownCell(node types.TraceCausalProjectionNode, resolvedRoot string, zh bool) string {
+	if node.Undrillable() {
+		ref := runtimeTraceCausalProjectionEvidenceRef(node)
+		suffix := ""
+		if ref != "" {
+			suffix = ", " + ref
+		}
+		if zh {
+			return fmt.Sprintf("⛔ 无法下钻 (%s%s)", node.UndrillableReason, suffix)
+		}
+		return fmt.Sprintf("⛔ cannot drill (%s%s)", node.UndrillableReason, suffix)
+	}
+	if node.IsSleepState() {
+		if resolvedRoot != "" {
+			if zh {
+				return "下钻→ " + resolvedRoot
+			}
+			return "drill → " + resolvedRoot
+		}
+		if zh {
+			return "下钻见唤醒链"
+		}
+		return "see wakeup chain"
+	}
+	return ""
+}
+
+func runtimeTraceCausalProjectionSemanticCell(node types.TraceCausalProjectionNode, zh bool) string {
+	return runtimeTraceCausalProjectionSemanticDetail(node, zh)
+}
+
+func runtimeTraceCausalProjectionEvidenceCell(node types.TraceCausalProjectionNode) string {
+	return runtimeTraceCausalProjectionEvidenceRef(node)
+}
+
+func runtimeTraceCausalProjectionBucketMax(projection types.TraceCausalProjection) float64 {
+	max := 0.0
+	consider := func(nodes []types.TraceCausalProjectionNode) {
+		for _, n := range nodes {
+			v := n.CumulativeImpactMS
+			if n.EffectiveImpactMS > v {
+				v = n.EffectiveImpactMS
+			}
+			if n.ImpactMS > v {
+				v = n.ImpactMS
+			}
+			if v > max {
+				max = v
+			}
+		}
+	}
+	consider(runtimeTraceCausalProjectionPrimaryRoots(projection))
+	consider(projection.OnChainCauses)
+	consider(projection.AdjacentCauses)
+	consider(projection.BackgroundCauses)
+	consider(projection.SemanticSpans)
+	consider(projection.SupportingHops)
+	return max
+}
+
+// runtimeTraceCausalProjectionResolvedRoot returns the subject of the first
+// non-sleep, drillable root (primary preferred, then on-chain) — the node a
+// sleep symptom drills DOWN to. Empty when no non-sleep root is present.
+func runtimeTraceCausalProjectionResolvedRoot(projection types.TraceCausalProjection) string {
+	pick := func(nodes []types.TraceCausalProjectionNode) string {
+		for _, n := range nodes {
+			if !n.IsSleepState() && !n.Undrillable() {
+				return runtimeTraceCausalProjectionNodeSubject(n)
+			}
+		}
+		return ""
+	}
+	if root := pick(runtimeTraceCausalProjectionPrimaryRoots(projection)); root != "" {
+		return root
+	}
+	return pick(projection.OnChainCauses)
+}
+
+func runtimeTraceCausalProjectionMermaidLabel(raw string) string {
+	s := strings.TrimSpace(raw)
+	replacer := strings.NewReplacer(
+		"\"", "'", "\n", " ", "\r", " ",
+		"[", "(", "]", ")", "{", "(", "}", ")", "|", "/", "`", "'",
+	)
+	s = replacer.Replace(s)
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "node"
+	}
+	runes := []rune(s)
+	if len(runes) > 60 {
+		s = string(runes[:59]) + "…"
+	}
+	return s
+}
+
+func runtimeTraceCausalProjectionNodeShort(node types.TraceCausalProjectionNode) string {
+	label := runtimeTraceCausalProjectionNodeSubject(node)
+	if node.CumulativeImpactMS > 0 {
+		label += fmt.Sprintf(" %.1fms", node.CumulativeImpactMS)
+	} else if node.EffectiveImpactMS > 0 {
+		label += fmt.Sprintf(" %.1fms", node.EffectiveImpactMS)
+	}
+	return label
+}
+
+func runtimeTraceCausalProjectionWakeupDiagram(projection types.TraceCausalProjection, zh bool) string {
+	path := projection.WakeupPath
+	if len(path) < 2 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("flowchart LR\n")
+	ids := make([]string, len(path))
+	for i, node := range path {
+		id := fmt.Sprintf("w%d", i)
+		ids[i] = id
+		label := runtimeTraceCausalProjectionMermaidLabel(node)
+		if i == len(path)-1 {
+			if zh {
+				label += " (目标)"
+			} else {
+				label += " (target)"
+			}
+		}
+		fmt.Fprintf(&b, "    %s[\"%s\"]\n", id, label)
+	}
+	edge := "唤醒/依赖"
+	if !zh {
+		edge = "wakes/depends"
+	}
+	for i := 0; i+1 < len(path); i++ {
+		fmt.Fprintf(&b, "    %s -->|%s| %s\n", ids[i], edge, ids[i+1])
+	}
+	target := ids[len(ids)-1]
+	bgEdge := "背景"
+	if !zh {
+		bgEdge = "background"
+	}
+	for i, bg := range projection.BackgroundCauses {
+		if i >= 6 {
+			break
+		}
+		id := fmt.Sprintf("bg%d", i)
+		// off-chain background: rounded node + a plain dashed edge (no edge
+		// label — the mermaid-subset renderer mishandles a "-.<label>.->" dashed
+		// edge whose label is CJK; the rounded shape already reads as background).
+		fmt.Fprintf(&b, "    %s(\"%s %s\")\n", id, runtimeTraceCausalProjectionMermaidLabel(runtimeTraceCausalProjectionNodeShort(bg)), bgEdge)
+		fmt.Fprintf(&b, "    %s -.-> %s\n", id, target)
+	}
+	// No classDef/class/style directives: color is HTML-only decoration the
+	// terminal mermaid-ascii renderer mis-parses into a spurious "class" node,
+	// and the on-chain vs off-chain distinction is already carried losslessly by
+	// the table's chain column plus the node shape (rectangle vs rounded).
+	return b.String()
+}
+
+func runtimeTraceCausalProjectionSleepDiagram(projection types.TraceCausalProjection, zh bool) string {
+	resolvedRoot := runtimeTraceCausalProjectionResolvedRoot(projection)
+	var b strings.Builder
+	b.WriteString("flowchart LR\n")
+	seen := map[string]bool{}
+	emitted := 0
+	drillEdge := "下钻到"
+	undrillEdge := "无法下钻"
+	rootTag := "非sleep根因"
+	if !zh {
+		drillEdge, undrillEdge, rootTag = "drill down", "cannot drill", "non-sleep root"
+	}
+	add := func(node types.TraceCausalProjectionNode) {
+		if !node.IsSleepState() && !node.Undrillable() {
+			return
+		}
+		key := runtimeTraceCausalProjectionNodeKey(node)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		sid := fmt.Sprintf("s%d", emitted)
+		fmt.Fprintf(&b, "    %s{{\"💤 %s\"}}\n", sid, runtimeTraceCausalProjectionMermaidLabel(runtimeTraceCausalProjectionNodeShort(node)))
+		if node.Undrillable() {
+			uid := fmt.Sprintf("u%d", emitted)
+			ref := runtimeTraceCausalProjectionEvidenceRef(node)
+			label := "⚠ " + node.UndrillableReason + " · " + undrillEdge
+			if ref != "" {
+				label += " " + ref
+			}
+			// terminal (no out-edge) node + plain dashed edge (no CJK edge label,
+			// which the mermaid-subset renderer mishandles). The [[...]] shape and
+			// the ⚠ label carry "chain breaks here / cannot drill further".
+			fmt.Fprintf(&b, "    %s[[\"%s\"]]\n", uid, runtimeTraceCausalProjectionMermaidLabel(label))
+			fmt.Fprintf(&b, "    %s -.-> %s\n", sid, uid)
+		} else if resolvedRoot != "" {
+			rid := fmt.Sprintf("r%d", emitted)
+			fmt.Fprintf(&b, "    %s[\"%s · %s\"]\n", rid, runtimeTraceCausalProjectionMermaidLabel(resolvedRoot), rootTag)
+			fmt.Fprintf(&b, "    %s -->|%s| %s\n", sid, drillEdge, rid)
+		}
+		emitted++
+	}
+	for _, n := range runtimeTraceCausalProjectionPrimaryRoots(projection) {
+		add(n)
+	}
+	for _, n := range projection.OnChainCauses {
+		add(n)
+	}
+	for _, n := range projection.SupportingHops {
+		add(n)
+	}
+	if emitted == 0 {
+		return ""
+	}
+	return b.String()
 }
 
 func runtimeTraceCausalProjectionItems(projection types.TraceCausalProjection, lang string) []types.AnswerBlockItem {

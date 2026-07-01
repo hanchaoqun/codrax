@@ -678,55 +678,128 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	if got == nil || len(got.Blocks) < 2 {
 		t.Fatalf("answer document not persisted with projection: %+v", got)
 	}
-	projection := got.Blocks[1]
-	if projection.ID != "runtime_trace_causal_projection" ||
-		projection.Kind != types.BlockOrderedList ||
-		projection.SurfaceRole != types.SurfacePrincipal {
-		t.Fatalf("missing principal trace causal projection block: %+v", projection)
-	}
-	if projection.Text == "" || !strings.Contains(projection.Text, "怎么读") && !strings.Contains(projection.Text, "直接唤醒链") {
-		t.Fatalf("projection should carry human-readable guidance text: %+v", projection)
+	// Lead block: the lossless layered table carrying the principal identity.
+	projection := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection")
+	if projection == nil ||
+		projection.Kind != types.BlockTable ||
+		projection.SurfaceRole != types.SurfacePrincipal ||
+		len(projection.Columns) == 0 {
+		t.Fatalf("missing principal trace causal projection TABLE block: %+v", projection)
 	}
 	if len(projection.ClaimUses) != 1 || projection.ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
 		t.Fatalf("projection must stay in external-observation lane: %+v", projection.ClaimUses)
 	}
-	if len(projection.Items) < 3 {
-		t.Fatalf("projection items missing: %+v", projection.Items)
+	assertProjectionRowsCitationFree(t, projection)
+
+	text := projectionClusterText(got.Blocks)
+	// gap a: layers are explicit group-header rows, not a flat list.
+	for _, header := range []string{"▛ 主根因层", "◆ 确定性优化点"} {
+		if !strings.Contains(text, header) {
+			t.Fatalf("projection should render explicit layer group-header %q:\n%s", header, text)
+		}
 	}
-	if projection.Items[0].Label != "主根因" ||
-		!strings.Contains(projection.Items[0].Text, "threadpool-400 -> io_wait") ||
-		!strings.Contains(projection.Items[0].Text, "累计影响 11.000ms") ||
-		!strings.Contains(projection.Items[0].Text, "on-chain") ||
-		!strings.Contains(projection.Items[0].Text, "直接唤醒链") ||
-		strings.Contains(projection.Items[0].Text, "cumulative_impact=") ||
-		strings.Contains(projection.Items[0].Text, "causality=") {
-		t.Fatalf("projection should select highest impact root cause first: %+v", projection.Items[0])
+	// Primary root cause node + gap c magnitude bar (cumulative shown, no raw
+	// rich-note token leak in the visible cells).
+	for _, want := range []string{"threadpool-400 -> io_wait", "cum 11.000ms", "█", "● on-chain"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("projection should surface primary root cause + magnitude bar %q:\n%s", want, text)
+		}
 	}
-	if projection.Items[1].Label != "共同主因" ||
-		!strings.Contains(projection.Items[1].Text, "app-100 -> compute_supply") {
-		t.Fatalf("projection should preserve co-primary layers: %+v", projection.Items[1])
+	// Co-primary layer preserved.
+	if !strings.Contains(text, "app-100 -> compute_supply") {
+		t.Fatalf("projection should preserve co-primary layers:\n%s", text)
 	}
-	path := answerBlockItemByID(projection.Items, "trace_wakeup_path")
-	if path == nil ||
-		path.Label != "因果链路" ||
-		!strings.Contains(path.Text, "threadpool-400 -> network-300 -> cookie-200 -> app-100") ||
-		!strings.Contains(path.Text, "逐级关系：threadpool-400 唤醒/依赖影响 network-300；network-300 唤醒/依赖影响 cookie-200；cookie-200 唤醒/依赖影响 app-100") {
-		t.Fatalf("projection should preserve wakeup path: %+v", projection.Items)
+	// Semantic optimization point with its concrete span name + class.
+	for _, want := range []string{"VerifyClass com.example.Foo", "语义类 class_verification"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("projection should preserve semantic runtime optimization point %q:\n%s", want, text)
+		}
 	}
-	split := answerBlockItemByID(projection.Items, "trace_chain_relevance_split")
-	if split == nil ||
-		split.Label != "链路分层" ||
-		!strings.Contains(split.Text, "on-chain") {
-		t.Fatalf("projection should preserve chain relevance split: %+v", projection.Items)
+	// gap b: the wakeup chain is a real DiagramFlow flowchart, not prose.
+	wakeup := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_wakeup")
+	if wakeup == nil || wakeup.Kind != types.BlockDiagram || wakeup.Diagram == nil ||
+		wakeup.Diagram.Kind != types.DiagramFlow ||
+		!strings.HasPrefix(strings.TrimSpace(wakeup.Diagram.Body), "flowchart") ||
+		!strings.Contains(wakeup.Diagram.Body, "threadpool-400") ||
+		!strings.Contains(wakeup.Diagram.Body, "app-100 (目标)") {
+		t.Fatalf("projection should render the wakeup chain as a flowchart: %+v", wakeup)
 	}
-	semantic := answerBlockItemByID(projection.Items, "trace_semantic_span_1")
-	if semantic == nil ||
-		semantic.Label != "确定性优化点" ||
-		!strings.Contains(semantic.Text, "threadpool-400 -> class_verification") ||
-		!strings.Contains(semantic.Text, "VerifyClass com.example.Foo") ||
-		!strings.Contains(semantic.Text, "语义类 class_verification") ||
-		!strings.Contains(semantic.Text, "on-chain") {
-		t.Fatalf("projection should preserve semantic runtime optimization points: %+v", projection.Items)
+	// The intro still carries the at-a-glance plain-text chain glyph.
+	if !strings.Contains(projection.Text, "threadpool-400 ▸") {
+		t.Fatalf("projection intro should carry the plain-text chain glyph: %+v", projection.Text)
+	}
+}
+
+// TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad pins the
+// full presentation-gap coverage (§7 c/d/e) end-to-end in the rendered markdown:
+// a sleep-dominant node is marked a symptom and drilled to its non-sleep root
+// (gap d), an undrillable missing_wakeup sleep is explicitly flagged (gap e), and
+// the duration triad (cum/proj/eff/act) renders with magnitude bars (gap c).
+func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+	}}
+	mkRoot := func(id, subj, obj, cum, state string, rank int, notes ...string) types.ObservationRecord {
+		rn := append([]string{
+			fmt.Sprintf("rank=%d", rank), "tier=primary", "impact_ms=" + cum, "cumulative_impact_ms=" + cum,
+			"causality=on_wakeup_chain", "chain_relevance=on_chain", "chain_depth=1", "dominant_state=" + state,
+		}, notes...)
+		return types.ObservationRecord{
+			ID: id, Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			Role: types.AnswerAggregateRolePrincipalAnswer, GroundingPolicy: types.ClaimGroundingHard,
+			Predicate: "root_cause_primary", ClaimKey: "root_cause_primary",
+			Subject: subj, Object: obj, Value: cum, Unit: "ms",
+			Span: types.ObservationSpan{LineStart: 4, LineEnd: 7}, RichNotes: rn, Confidence: 0.9,
+		}
+	}
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query", Success: true,
+		Observations: []types.ObservationRecord{
+			mkRoot("root-run", "worker-200", "running", "4.600", "running", 1),
+			mkRoot("root-sleep", "app-100", "sleep_wait", "5.000", "s_sleep", 2, "effective_impact_ms=11.040", "actual_impact_ms=4.600"),
+			{
+				ID: "path", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+				GroundingPolicy: types.ClaimGroundingHard, Predicate: "wakeup_chain", ClaimKey: "wakeup_chain:path",
+				Object: "worker-200 -> app-100",
+			},
+			{
+				ID: "tool:1#trace_query:root_evidence:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+				GroundingPolicy: types.ClaimGroundingHard, ClaimKey: "root_evidence:missing_wakeup", Predicate: "missing_wakeup",
+				Subject: "app-100", Value: "2.100", Unit: "ms", Span: types.ObservationSpan{LineStart: 88, LineEnd: 96},
+				Summary: "sleep interval has no matching sched_wakeup row in the selected trace window",
+			},
+		},
+	}}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "observed."}}}
+	if _, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	rendered := render.RenderAnswerDocument(bus.Mutable.AnswerDocumentV2(), "zh")
+
+	// gap c: the duration triad renders with a magnitude bar.
+	for _, want := range []string{"█", "cum 5.000ms", "eff 11.040ms", "act 4.600ms"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("duration triad + bar must render (gap c): missing %q:\n%s", want, rendered)
+		}
+	}
+	// gap d: the sleep symptom is marked non-root and drilled to the running root.
+	for _, want := range []string{"💤", "非根因", "下钻→ worker-200 -> running", "下钻到"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("sleep drilldown must render (gap d): missing %q:\n%s", want, rendered)
+		}
+	}
+	// gap e: the undrillable sleep is explicitly flagged with the typed reason.
+	for _, want := range []string{"⛔", "无法下钻", "missing_wakeup", "lines=88-96"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("undrillable sleep must render (gap e): missing %q:\n%s", want, rendered)
+		}
+	}
+	// The section renders as a real GFM table (pipes + header separator) plus a
+	// mermaid flowchart — not a flat ordered list.
+	if !strings.Contains(rendered, "| 层 / 节点 |") || !strings.Contains(rendered, "```mermaid") {
+		t.Fatalf("section must render as a table + mermaid cluster:\n%s", rendered)
 	}
 }
 
@@ -861,20 +934,29 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 	if got == nil || len(got.Blocks) < 2 {
 		t.Fatalf("answer document not persisted with projection: %+v", got)
 	}
-	projection := got.Blocks[1]
+	projection := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection")
+	if projection == nil || projection.Kind != types.BlockTable {
+		t.Fatalf("missing English projection table block: %+v", projection)
+	}
 	if projection.Title != "Trace Causal Projection" {
 		t.Fatalf("projection title should follow language: %+v", projection)
 	}
 	if !strings.Contains(projection.Text, "automatically distilled") {
 		t.Fatalf("projection intro should be English: %+v", projection)
 	}
-	if len(projection.Items) < 2 ||
-		projection.Items[0].Label != "Primary root cause" ||
-		!strings.Contains(projection.Items[0].Text, "cumulative impact 11.000ms") ||
-		!strings.Contains(projection.Items[0].Text, "direct wakeup chain") ||
-		projection.Items[1].Label != "Causal path" ||
-		!strings.Contains(projection.Items[1].Text, "Per-hop relation: threadpool-400 wakes or dependency-affects network-300; network-300 wakes or dependency-affects app-100") {
-		t.Fatalf("projection items should follow language and remain readable: %+v", projection.Items)
+	assertProjectionRowsCitationFree(t, projection)
+	text := projectionClusterText(got.Blocks)
+	// English layer header + primary node + magnitude bar (ZH/EN lockstep).
+	for _, want := range []string{"▛ Primary root cause", "threadpool-400 -> io_wait", "cum 11.000ms", "█", "● on-chain"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("English projection should surface %q:\n%s", want, text)
+		}
+	}
+	wakeup := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_wakeup")
+	if wakeup == nil || wakeup.Diagram == nil ||
+		!strings.Contains(wakeup.Diagram.Body, "wakes/depends") ||
+		!strings.Contains(wakeup.Diagram.Body, "app-100 (target)") {
+		t.Fatalf("English wakeup diagram should use localized edge labels: %+v", wakeup)
 	}
 }
 
@@ -936,14 +1018,25 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalHopDepth(t *testi
 	if got == nil || len(got.Blocks) < 2 {
 		t.Fatalf("answer document not persisted with projection: %+v", got)
 	}
-	projection := got.Blocks[1]
-	hop := answerBlockItemByID(projection.Items, "trace_causal_hop_1")
-	if hop == nil ||
-		hop.Label != "支撑节点" ||
-		!strings.Contains(hop.Text, "io-500 -> io_wait") ||
-		!strings.Contains(hop.Text, "链路第 4 层") ||
-		!strings.Contains(hop.Text, "直接唤醒链") {
-		t.Fatalf("projection should preserve supporting hop depth from typed trace_query notes: %+v", projection.Items)
+	projection := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection")
+	if projection == nil || projection.Kind != types.BlockTable {
+		t.Fatalf("missing projection table block: %+v", projection)
+	}
+	text := projectionClusterText(got.Blocks)
+	// The on-chain io-500 hop keeps its typed depth-4 chain position (gaps a/b).
+	for _, want := range []string{"io-500 -> io_wait", "深度4"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("projection should preserve on-chain hop depth %q:\n%s", want, text)
+		}
+	}
+	// gap d: the sleep-state primary (worker-200 -> sleep_wait) is marked a
+	// symptom and gets a sleep-drilldown flowchart.
+	if !strings.Contains(text, "💤") {
+		t.Fatalf("sleep-state node should be marked as a symptom:\n%s", text)
+	}
+	sleep := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_sleep")
+	if sleep == nil || sleep.Diagram == nil || !strings.Contains(sleep.Diagram.Body, "💤 worker-200") {
+		t.Fatalf("a sleep-state root should produce a sleep-drilldown diagram: %+v", sleep)
 	}
 }
 
@@ -1037,20 +1130,28 @@ func TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity(t *
 		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
 	}
 	got := bus.Mutable.AnswerDocumentV2()
-	projection := got.Blocks[1]
-	if answerBlockItemByID(projection.Items, "trace_primary_root_cause_10") == nil {
-		t.Fatalf("expanded projection should keep deeper co-primary layers: %+v", projection.Items)
+	projection := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection")
+	if projection == nil || projection.Kind != types.BlockTable {
+		t.Fatalf("missing projection table block: %+v", projection)
 	}
-	if answerBlockItemByID(projection.Items, "trace_semantic_span_1") == nil ||
-		answerBlockItemByID(projection.Items, "trace_semantic_span_16") == nil {
-		t.Fatalf("expanded projection should keep deterministic semantic optimization points: %+v", projection.Items)
+	assertProjectionRowsCitationFree(t, projection)
+	text := projectionClusterText(got.Blocks)
+	// Deep co-primary layers, all 16 semantic spans, and default-depth hops must
+	// all survive as table rows (the table is the lossless surface — rows are
+	// never capped even though diagram nodes may be).
+	for _, want := range []string{"dep-10 -> sleep_wait", "深度10"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expanded projection should keep deep typed evidence %q:\n%s", want, text)
+		}
 	}
-	hop := answerBlockItemByID(projection.Items, "trace_causal_hop_10")
-	if hop == nil || !strings.Contains(hop.Text, "链路第 10 层") {
-		t.Fatalf("expanded projection should keep default-depth supporting hops, got %+v", projection.Items)
+	// Semantic classes across the 16-span bucket survive.
+	for _, class := range []string{"jit_compile", "class_verification", "shader_compile", "runtime_compile"} {
+		if !strings.Contains(text, class) {
+			t.Fatalf("expanded projection should keep semantic class %q:\n%s", class, text)
+		}
 	}
 	if len(projection.Items) < 38 {
-		t.Fatalf("projection should expand beyond the old 36-item cap when typed trace evidence needs it, got %d items: %+v", len(projection.Items), projection.Items)
+		t.Fatalf("projection table should expand beyond the old 36-item cap when typed trace evidence needs it, got %d rows", len(projection.Items))
 	}
 }
 
@@ -1085,6 +1186,53 @@ func answerBlockItemByID(items []types.AnswerBlockItem, id string) *types.Answer
 		}
 	}
 	return nil
+}
+
+// projectionClusterBlock returns the block with the given id from the projection
+// cluster (runtime_trace_causal_projection[/_wakeup/_sleep]).
+func projectionClusterBlock(blocks []types.AnswerBlock, id string) *types.AnswerBlock {
+	for i := range blocks {
+		if blocks[i].ID == id {
+			return &blocks[i]
+		}
+	}
+	return nil
+}
+
+// projectionClusterText flattens every cell of the lead table plus the diagram
+// bodies of the whole projection cluster into one string, so tests can assert on
+// the block-cluster content without depending on exact row/column positions.
+func projectionClusterText(blocks []types.AnswerBlock) string {
+	var b strings.Builder
+	for _, blk := range blocks {
+		if !strings.HasPrefix(blk.ID, "runtime_trace_causal_projection") {
+			continue
+		}
+		b.WriteString(blk.Title)
+		b.WriteByte('\n')
+		b.WriteString(blk.Text)
+		b.WriteByte('\n')
+		for _, it := range blk.Items {
+			b.WriteString(strings.Join(it.Cells, " | "))
+			b.WriteByte('\n')
+		}
+		if blk.Diagram != nil {
+			b.WriteString(blk.Diagram.Body)
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+// assertProjectionRowsCitationFree checks the red-line invariant that every
+// system-injected projection table row carries CitationRef=-1.
+func assertProjectionRowsCitationFree(t *testing.T, blk *types.AnswerBlock) {
+	t.Helper()
+	for _, it := range blk.Items {
+		if it.CitationRef != -1 {
+			t.Fatalf("projection row must keep CitationRef=-1, got %d: %+v", it.CitationRef, it)
+		}
+	}
 }
 
 func mutationTraceQueryRuntimeToolResult() types.ToolResult {

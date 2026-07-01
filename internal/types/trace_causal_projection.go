@@ -81,6 +81,50 @@ type TraceCausalProjectionNode struct {
 	// pinned-thread/window trigger path.
 	WithinRequestedWindow *bool   `json:"within_requested_window,omitempty"`
 	Confidence            float64 `json:"confidence,omitempty"`
+	// StateKind is the node's dominant scheduler state (e.g. s_sleep / running /
+	// runnable / d_state / io_wait), sourced verbatim from the trace_query
+	// "dominant_state" rich note. It is a precise typed signal (not parsed from
+	// prose): a sleep-dominant node is a SYMPTOM that must be drilled down to a
+	// non-sleep root, never itself a root cause — the renderer uses this to mark
+	// sleep rows and drive the sleep-drilldown surface (presentation gaps d/e).
+	// Empty when the source row exposed no dominant_state.
+	StateKind string `json:"state_kind,omitempty"`
+	// UndrillableReason is a typed enum (currently only "missing_wakeup") set when
+	// a sleep interval could NOT be resolved to an upstream waker — sourced from a
+	// root_evidence:missing_wakeup observation ("sleep interval has no matching
+	// sched_wakeup row in the selected trace window"). It promotes that fact from
+	// a trace-level caveat into the projection so the renderer can explicitly show
+	// "cannot drill further" instead of silently dropping the chain (gap e).
+	UndrillableReason string `json:"undrillable_reason,omitempty"`
+	// EffectiveImpactMS / ActualImpactMS are the remaining two members of the
+	// duration triad the trace_query rows already carry (alongside ImpactMS =
+	// projected and CumulativeImpactMS). Effective is a bounded ranking/hidden-cost
+	// signal (defaults to cumulative for non-semantic rows upstream); Actual is the
+	// underlying scheduler-state duration that may extend outside the projected
+	// window. Sourced from the effective_impact_ms / actual_impact_ms rich notes.
+	// Zero when the source row did not expose them (gap c three-column magnitude).
+	EffectiveImpactMS float64 `json:"effective_impact_ms,omitempty"`
+	ActualImpactMS    float64 `json:"actual_impact_ms,omitempty"`
+}
+
+// IsSleepState reports whether this node's dominant state is an (interruptible)
+// sleep state — a symptom that must be drilled down to its non-sleep waker via
+// the wakeup chain, never itself a root cause. Precise typed check on StateKind
+// (never a prose substring match). Deliberately narrow to the S-sleep family:
+// io_wait / d_state have their OWN inode/resource drilldown path, not the
+// wakeup-chain drilldown this surface models.
+func (n TraceCausalProjectionNode) IsSleepState() bool {
+	switch strings.TrimSpace(strings.ToLower(n.StateKind)) {
+	case "s_sleep", "sleep", "sleep_wait":
+		return true
+	}
+	return false
+}
+
+// Undrillable reports whether a sleep symptom could not be resolved to an
+// upstream waker (typed UndrillableReason present).
+func (n TraceCausalProjectionNode) Undrillable() bool {
+	return strings.TrimSpace(n.UndrillableReason) != ""
 }
 
 func CompileTraceCausalProjection(ledger ObservationLedger) TraceCausalProjection {
@@ -296,7 +340,55 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 			node.StartTs, node.EndTs = start, end
 		}
 	}
+	// Presentation gaps c/d/e: surface the already-emitted (but until now
+	// unconsumed) typed rich notes so the renderer can show the duration triad
+	// and mark sleep symptoms / undrillable sleeps precisely — no prose parsing.
+	node.StateKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "dominant_state"))
+	if node.StateKind == "" {
+		// Root-cause / hop rows encode the scheduler state as the Object
+		// (sleep_wait / running / io_wait / …). Fall back to it ONLY when it is a
+		// recognized state word, so the state column stays a real scheduler state
+		// and non-state objects (compute_supply, class_verification) leave it empty.
+		node.StateKind = traceCausalProjectionCanonicalStateWord(record.Object)
+	}
+	node.EffectiveImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, "effective_impact_ms", "effective_impact")
+	node.ActualImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, "actual_impact_ms", "actual_impact")
+	node.UndrillableReason = traceCausalProjectionUndrillableReason(record)
 	return node
+}
+
+// traceCausalProjectionUndrillableReason returns a typed reason when a
+// root_evidence observation marks a sleep interval that cannot be resolved to an
+// upstream waker. Exact typed claim-key / predicate match — never a substring of
+// prose. Currently the only such reason is "missing_wakeup" (query.go:10177,
+// "sleep interval has no matching sched_wakeup row in the selected trace window").
+func traceCausalProjectionUndrillableReason(record ObservationRecord) string {
+	if strings.TrimSpace(record.Predicate) == "missing_wakeup" ||
+		strings.TrimSpace(record.ClaimKey) == "root_evidence:missing_wakeup" {
+		return "missing_wakeup"
+	}
+	return ""
+}
+
+// traceCausalProjectionCanonicalStateWord returns the raw string when it names a
+// recognized scheduler state, else "". Used to derive StateKind from a node's
+// Object without letting non-state cause categories leak into the state column.
+func traceCausalProjectionCanonicalStateWord(raw string) string {
+	switch strings.TrimSpace(strings.ToLower(raw)) {
+	case "running", "runnable", "sleep", "s_sleep", "sleep_wait",
+		"d_sleep", "d_state", "io_wait", "uninterruptible_sleep":
+		return strings.TrimSpace(raw)
+	}
+	return ""
+}
+
+func traceCausalProjectionRichNoteFirstFloat(notes []string, keys ...string) float64 {
+	for _, key := range keys {
+		if v := traceCausalProjectionRichNoteFloat(notes, key); v > 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 // traceCausalProjectionWindow parses a "window" RichNote of the form
