@@ -49,6 +49,7 @@ const (
 	SectionPriorConversation     = "Prior Conversation (reference only)"
 	SectionLogTriageExtraction   = "Log Triage — Validated Extraction"
 	SectionPerfTriageExtraction  = "Perf Triage — Validated Extraction"
+	SectionRuntimeArtifactChoice = "Runtime Artifact Selection"
 	SectionAttachedRuntimeLog    = "Attached Runtime Log"
 	SectionAttachedPerfTrace     = "Attached Performance Trace (HiTrace / atrace / systrace / perfetto)"
 	SectionPriorStageFindings    = "Prior Stage Findings"
@@ -102,6 +103,7 @@ var canonicalUserSectionOrder = []string{
 	SectionPresentationDirective,
 	SectionAnalyzerPrescan, // write-mode (StagePlan) only — structured fields from AnalysisIR
 	SectionPriorConversation,
+	SectionRuntimeArtifactChoice,
 	SectionPriorStageFindings, // carries the canonical Resolution Chains subsection
 	SectionUnverifiedAnalyzer,
 	SectionExactResolution,

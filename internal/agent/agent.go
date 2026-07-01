@@ -5920,6 +5920,9 @@ func validateExplorerTraceQueryFirstToolCall(ctx *types.AgentContext, tc llm.Too
 	if violation := validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx, tc, traceQueryInCurrentSurface); violation != nil {
 		return violation
 	}
+	if violation := validateExplorerTraceOnlyExactArtifactToolCall(ctx, tc, traceQueryInCurrentSurface); violation != nil {
+		return violation
+	}
 	phase := runtimeSourceNavigationPhaseForExplorer(ctx, traceQueryInCurrentSurface)
 	if !phase.RuntimeProbeHardRequired {
 		return nil
@@ -5947,6 +5950,43 @@ func validateExplorerTraceQueryFirstToolCall(ctx *types.AgentContext, tc llm.Too
 				"phase":               string(phase.Phase),
 				"next_tool":           "trace_query",
 				"current_source_lane": string(phase.CurrentSourceLane),
+			},
+		},
+	}
+}
+
+func validateExplorerTraceOnlyExactArtifactToolCall(ctx *types.AgentContext, tc llm.ToolCall, traceQueryInCurrentSurface bool) *types.ToolResult {
+	if ctx == nil || ctx.Stage != types.StageExplore || !traceQueryInCurrentSurface {
+		return nil
+	}
+	view := types.RuntimeArtifactSelectionViewFromAgentContext(ctx)
+	if view.Policy.Kind != types.RuntimeArtifactAnalysisPolicyTraceOnlyExactArtifact {
+		return nil
+	}
+	canonical := types.CanonicalToolName(tc.Name)
+	if !explorerTraceQuerySourceFallbackTool(canonical) {
+		return nil
+	}
+	reason := fmt.Sprintf(
+		"%s rejected: typed runtime-artifact policy=trace_only_exact_artifact active_trace_source=%s. "+
+			"Use trace_query with that typed trace source; source/generic tools are outside this turn unless a later typed current-source lane opens.",
+		tc.Name, view.Policy.ActiveArtifactSource)
+	logging.Warning("[explorer] source fallback tool %q rejected by trace-only artifact policy: %s", tc.Name, reason)
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Success:   false,
+		Summary:   reason,
+		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code: explorerTraceQueryFirstCode,
+			Hint: "This turn has a typed trace_only_exact_artifact policy. Query the active trace with trace_query, or complete from already collected runtime evidence; do not switch to source/generic tools without a typed current-source lane.",
+			Metadata: map[string]string{
+				"tool":                canonical,
+				"policy":              "trace_only_exact_artifact",
+				"next_tool":           "trace_query",
+				"active_trace_id":     view.Policy.ActiveArtifactID,
+				"active_trace_source": view.Policy.ActiveArtifactSource,
+				"current_source_lane": "excluded",
 			},
 		},
 	}

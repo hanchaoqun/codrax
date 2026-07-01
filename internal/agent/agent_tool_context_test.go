@@ -776,6 +776,60 @@ func TestTraceQueryPreflightExposesToolWithoutHardGate(t *testing.T) {
 	}
 }
 
+func TestTraceOnlyExactPreflightPolicyBlocksSourceFallbackWithoutRuntimeProbeHardGate(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage:    types.StageExplore,
+		RepoRoot: t.TempDir(),
+		WorkDir:  t.TempDir(),
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "capture.systrace",
+				Carrier: "request_path",
+			}},
+		}),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				SourceQuotes:         []string{"typed current-source exclusion"},
+				Confidence:           0.9,
+			},
+		}},
+	}
+	if !traceQueryToolVisible(ctx) {
+		t.Fatal("typed preflight trace should expose trace_query")
+	}
+	if traceQueryToolAvailable(ctx) {
+		t.Fatal("typed preflight exact policy must not arm the strong runtime-probe-first carrier")
+	}
+	if explorerTraceQueryFirstRequired(ctx, true) {
+		t.Fatal("typed preflight exact policy must not become the runtime_probe_first hard gate")
+	}
+	got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "grep",
+		Params: json.RawMessage(`{"pattern":"sched_switch","path":"capture.systrace"}`),
+	}, true)
+	if got == nil {
+		t.Fatal("trace_only_exact_artifact policy should pull source/generic fallback back to trace_query")
+	}
+	if got.Repair == nil || got.Repair.Code != explorerTraceQueryFirstCode {
+		t.Fatalf("repair code = %+v, want %q", got.Repair, explorerTraceQueryFirstCode)
+	}
+	if got.Repair.Metadata["policy"] != "trace_only_exact_artifact" ||
+		got.Repair.Metadata["active_trace_source"] != "capture.systrace" {
+		t.Fatalf("repair metadata should carry exact artifact policy, got %+v", got.Repair.Metadata)
+	}
+	if complete := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "emit_investigation_complete",
+		Params: json.RawMessage(`{}`),
+	}, true); complete != nil {
+		t.Fatalf("trace_only_exact_artifact policy must not block completion tools: %+v", complete)
+	}
+}
+
 func TestTraceOnlyTypedPolicyStillBlocksSourceToolsAfterRuntimeObservations(t *testing.T) {
 	mut := types.NewMutableState("trace only")
 	mut.AppendDispatchToolResult(types.ToolResult{

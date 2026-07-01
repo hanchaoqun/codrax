@@ -4018,6 +4018,119 @@ func TestBuildPromptContext_AttachedTraceBundleTeachesQueryManifest(t *testing.T
 	}
 }
 
+func TestBuildPromptContext_RuntimeArtifactSelectionRendersTraceOnlyExactPolicy(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "/tmp/customer.systrace",
+				Carrier: "request_path",
+			}},
+		}),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			ExternalObservationPolicy: runtimeArtifactSelectionTraceOnlyPolicy(),
+		}},
+	}
+	pc := BuildPromptContext(ac, explorerSkill())
+	sec := findSectionTitle(pc, SectionRuntimeArtifactChoice)
+	if sec == nil {
+		t.Fatal("trace-only exact runtime artifact policy should render selection section")
+	}
+	for _, want := range []string{
+		"Typed runtime artifact set",
+		"kind=trace",
+		"source=/tmp/customer.systrace",
+		"Policy: trace_only_exact_artifact",
+		"active_trace_source=/tmp/customer.systrace",
+		"Use trace_query with the active typed trace source",
+	} {
+		if !strings.Contains(sec.Content, want) {
+			t.Fatalf("runtime artifact selection section missing %q:\n%s", want, sec.Content)
+		}
+	}
+}
+
+func TestBuildPromptContext_RuntimeArtifactSelectionRendersAmbiguityWithoutChoosing(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{
+				{Kind: "trace", Source: "/tmp/a.systrace", Carrier: "request_path"},
+				{Kind: "trace", Source: "/tmp/b.systrace", Carrier: "request_path"},
+			},
+		}),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			ExternalObservationPolicy: runtimeArtifactSelectionTraceOnlyPolicy(),
+		}},
+	}
+	pc := BuildPromptContext(ac, explorerSkill())
+	sec := findSectionTitle(pc, SectionRuntimeArtifactChoice)
+	if sec == nil {
+		t.Fatal("ambiguous runtime trace selection should render selection section")
+	}
+	if !strings.Contains(sec.Content, "Policy: trace_artifact_ambiguous") ||
+		!strings.Contains(sec.Content, "Choose one typed trace source in trace_query.path") {
+		t.Fatalf("ambiguous trace policy not rendered:\n%s", sec.Content)
+	}
+	if strings.Contains(sec.Content, "active_trace_source=") {
+		t.Fatalf("ambiguous trace policy must not silently choose active trace:\n%s", sec.Content)
+	}
+}
+
+func TestBuildPromptContext_RuntimeArtifactSelectionSeparatesTraceAndLog(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{
+				{Kind: "trace", Source: "/tmp/a.systrace", Carrier: "request_path"},
+				{Kind: "log", Source: "/tmp/app.log", Carrier: "request_path"},
+			},
+		}),
+	}
+	pc := BuildPromptContext(ac, explorerSkill())
+	sec := findSectionTitle(pc, SectionRuntimeArtifactChoice)
+	if sec == nil {
+		t.Fatal("mixed runtime artifact selection should render selection section")
+	}
+	for _, want := range []string{
+		"Policy: runtime_artifact_selection_advisory",
+		"Use trace_query only for trace/perf artifacts",
+		"Use log-triage evidence for log artifacts",
+	} {
+		if !strings.Contains(sec.Content, want) {
+			t.Fatalf("mixed runtime artifact guidance missing %q:\n%s", want, sec.Content)
+		}
+	}
+}
+
+func TestBuildPromptContext_RuntimeArtifactSelectionIgnoresRawOnlyPath(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: "分析 /tmp/customer.systrace 里的卡顿",
+		}},
+	}
+	pc := BuildPromptContext(ac, explorerSkill())
+	if sec := findSectionTitle(pc, SectionRuntimeArtifactChoice); sec != nil {
+		t.Fatalf("raw-only runtime path must not render typed selection section:\n%s", sec.Content)
+	}
+}
+
+func runtimeArtifactSelectionTraceOnlyPolicy() *types.ExternalObservationPolicy {
+	return &types.ExternalObservationPolicy{
+		ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+		CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+		ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
+		SourceQuotes:         []string{"typed exclude current source"},
+		Confidence:           0.9,
+	}
+}
+
 func TestFormatPerfTriageStructured_ExternalSourceDirective(t *testing.T) {
 	bundle := &types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"jank"}},

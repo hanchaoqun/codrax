@@ -725,6 +725,13 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			})
 		}
 	}
+	if section := formatRuntimeArtifactSelection(ac); section != "" {
+		section = sanitiseSectionForLLM(section, ac)
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   SectionRuntimeArtifactChoice,
+			Content: section,
+		})
+	}
 
 	// Raw attached log body. Kept as a distinct section only when the
 	// structured LogBundle is absent or non-authoritative. Once the
@@ -1244,6 +1251,58 @@ func shouldSuppressPerfTriageResidueInPrompt(ac *types.AgentContext) bool {
 	}
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromAgentContext(ac, 64))
 	return ledger.HasDeterministicRuntimeQueryObservation()
+}
+
+func formatRuntimeArtifactSelection(ac *types.AgentContext) string {
+	view := types.RuntimeArtifactSelectionViewFromAgentContext(ac)
+	if !view.ShouldRender() {
+		return ""
+	}
+	lines := []string{
+		"Typed runtime artifact set. Use this view for artifact selection; do not infer a different artifact from raw prose, prior conversation, or tool summaries.",
+	}
+	const maxItems = 8
+	for i, item := range view.Items {
+		if i >= maxItems {
+			lines = append(lines, fmt.Sprintf("- ... %d more typed artifacts omitted from this compact view", len(view.Items)-maxItems))
+			break
+		}
+		lines = append(lines, fmt.Sprintf(
+			"- id=%s kind=%s source=%s carriers=%s confidence=%.2f status=%s",
+			item.ID,
+			item.Kind,
+			item.Source,
+			strings.Join(item.Carriers, "+"),
+			item.Confidence,
+			item.Status,
+		))
+	}
+	switch view.Policy.Kind {
+	case types.RuntimeArtifactAnalysisPolicyTraceOnlyExactArtifact:
+		lines = append(lines,
+			fmt.Sprintf("Policy: trace_only_exact_artifact active_trace_id=%s active_trace_source=%s reason=%s.",
+				view.Policy.ActiveArtifactID,
+				view.Policy.ActiveArtifactSource,
+				view.Policy.ReasonCode,
+			),
+			"Use trace_query with the active typed trace source for runtime evidence. Keep source/generic tools out unless a later typed current-source lane opens.",
+		)
+	case types.RuntimeArtifactAnalysisPolicyTraceArtifactAmbiguous:
+		lines = append(lines,
+			fmt.Sprintf("Policy: trace_artifact_ambiguous trace_artifacts=%d reason=%s.", view.Policy.AmbiguousTraceArtifacts, view.Policy.ReasonCode),
+			"Choose one typed trace source in trace_query.path before querying. If the artifact choice remains ambiguous, surface that ambiguity instead of silently picking a path.",
+		)
+	case types.RuntimeArtifactAnalysisPolicySelectionAdvisory:
+		lines = append(lines,
+			fmt.Sprintf("Policy: runtime_artifact_selection_advisory trace_artifacts=%d log_artifacts=%d reason=%s.", view.TraceCount, view.LogCount, view.Policy.ReasonCode),
+			"Use trace_query only for trace/perf artifacts. Use log-triage evidence for log artifacts; do not pass log paths to trace_query.",
+		)
+	default:
+		if item, ok := view.SingleTraceArtifact(); ok {
+			lines = append(lines, fmt.Sprintf("Default trace artifact: id=%s source=%s. Explicit trace_query.path still wins when provided.", item.ID, item.Source))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // ToMessages converts a PromptContext into a flat message list for the LLM.
