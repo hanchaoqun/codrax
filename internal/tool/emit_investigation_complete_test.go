@@ -7247,6 +7247,90 @@ func TestEmitInvestigationComplete_AllowsDecoratedRuntimeMemberSetAfterTraceQuer
 	}
 }
 
+func TestEmitInvestigationComplete_RouteBackedTraceQueryMemberSetSupportRefsDebtDoesNotReopen(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:payload#root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				Path:         "donghu_frame.systrace",
+				ArtifactID:   "attached_trace",
+				ArtifactKind: "trace",
+				PayloadRef:   "/tmp/trace-query-root-cause-rank.json",
+			},
+			Span:      types.ObservationSpan{StartTs: 6793222.031397627, EndTs: 6793225.369801793},
+			Subject:   "UI thread",
+			Predicate: "root_cause_primary",
+			Object:    "ThreadPoolForeg.run",
+			Summary:   "trace_query ranked the on-chain wakeup dependency as the primary runtime cause",
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable:         mut,
+		AttachedHitrace: "sched_switch prev=UI-42591 next=ThreadPoolForeg-60555",
+		TurnRouteHint: types.TurnRouteHint{
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+			Confidence:      0.92,
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioRootCause,
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic: true,
+					CurrentRisk:  true,
+					Confidence:   0.9,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{
+					Required:                     true,
+					RequireHistoricalObservation: true,
+					RequireCurrentVerification:   true,
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"trace_query already carries the runtime root-cause chain; current-source status is not load-bearing for this trace-only answer",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"on-chain root cause candidates",
+				"value":"2",
+				"members":[
+					"ThreadPoolForeg.run (D-state IO peer on wakeup chain)",
+					"NetworkService.pollOnce (background IO support)"
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("route-backed trace_query runtime member_set should not fail: %s", res.Summary)
+	}
+	if res.Repair != nil {
+		t.Fatalf("route-backed trace_query completion-form debt should not reopen exploration, repair=%+v summary=%s", res.Repair, res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("route-backed trace_query runtime member_set should close investigation, summary=%s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_CurrentSourceTraceRequestStillRequiresDecoratedSupportRefs(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.AppendDispatchToolResult(types.ToolResult{

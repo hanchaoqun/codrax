@@ -7370,6 +7370,9 @@ func (o *Orchestrator) acceptedClosureMissingRequiredOriginsForAutoComplete() []
 	if o == nil || o.busCtx == nil || o.busCtx.AnalysisIR == nil {
 		return nil
 	}
+	if o.runtimeSourceAuthoritySuppressesAcceptedClosureOriginDebt() {
+		return nil
+	}
 	rm := o.busCtx.AnalysisIR.RequestModel
 	contract := &o.busCtx.AnalysisIR.AnswerContract
 	if !parallelExploreMixedOriginNeedsSiblingHandoffs(rm, contract) {
@@ -7382,6 +7385,27 @@ func (o *Orchestrator) acceptedClosureMissingRequiredOriginsForAutoComplete() []
 	}
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, 128))
 	return missingObservationOrigins(required, ledger)
+}
+
+func (o *Orchestrator) runtimeSourceAuthoritySuppressesAcceptedClosureOriginDebt() bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || o.busCtx.AnalysisIR == nil {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, 128))
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(o.busCtx, ledger)
+	if !authority.Active || !authority.HasRuntimeCarrier() ||
+		authority.CurrentSourceRequired ||
+		authority.CanHardBlockCompletion ||
+		authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise {
+		return false
+	}
+	if authority.CurrentSourceLane == types.CurrentSourceLaneExcluded {
+		return true
+	}
+	if authority.KeepsCurrentSourceLaneLoadBearing() {
+		return false
+	}
+	return authority.AllowsRuntimeEvidenceWithoutCurrentSource()
 }
 
 func requiredMixedOriginAutoCompleteLanes(contract types.AnswerIntentContract) []types.AnswerEvidenceOrigin {

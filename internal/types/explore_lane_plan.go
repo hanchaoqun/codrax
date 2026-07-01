@@ -108,11 +108,17 @@ func (l ExploreLane) OwnershipKey() string {
 func CompileExploreLanePlan(rm RequestModel, answerContract *AnswerContract, presentation AnswerPresentationContract) ExploreLanePlan {
 	intent := CompileAnswerIntentContract(rm, answerContract)
 	origins := cloneAnswerEvidenceOrigins(intent.Origins)
+	if rm.CurrentSourceLaneDecision() == CurrentSourceLaneExcluded {
+		origins = removeExploreLaneOrigin(origins, AnswerEvidenceOriginCurrentSource)
+	}
 	if len(origins) == 0 {
 		return ExploreLanePlan{}
 	}
 	investigation := CompileInvestigationPlan(rm, answerContract)
 	dimByOrigin := dimensionsByExploreLaneOrigin(presentation.RequestedDimensions)
+	if rm.CurrentSourceLaneDecision() == CurrentSourceLaneExcluded {
+		delete(dimByOrigin, AnswerEvidenceOriginCurrentSource)
+	}
 	shouldMaterialize := len(origins) > 1 ||
 		len(investigation.Units) > 1 ||
 		len(dimByOrigin) > 0 ||
@@ -193,6 +199,20 @@ func CompileExploreLanePlan(rm RequestModel, answerContract *AnswerContract, pre
 		}
 	}
 	return ExploreLanePlan{Lanes: dedupeExploreLanes(lanes)}
+}
+
+func removeExploreLaneOrigin(origins []AnswerEvidenceOrigin, remove AnswerEvidenceOrigin) []AnswerEvidenceOrigin {
+	if len(origins) == 0 {
+		return nil
+	}
+	out := origins[:0]
+	for _, origin := range origins {
+		if origin == remove {
+			continue
+		}
+		out = append(out, origin)
+	}
+	return out
 }
 
 func containsExploreLaneOrigin(origins []AnswerEvidenceOrigin, want AnswerEvidenceOrigin) bool {

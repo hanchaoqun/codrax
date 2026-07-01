@@ -1,6 +1,9 @@
 package orchestrator
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -829,6 +832,116 @@ func TestCheckTier1Floor_RuntimeTraceQuerySoftCurrentSourceProfileSuppressesLoca
 	}
 }
 
+func TestCheckTier1Floor_RuntimeTraceQueryAfterTraceBlobReadSkipsLocalizer(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	repoRoot := t.TempDir()
+	tracePath := "attached_trace.systrace"
+	if err := os.WriteFile(filepath.Join(repoRoot, tracePath), []byte("sched_switch prev=app-100 prev_state=S next=worker-200\n"), 0o644); err != nil {
+		t.Fatalf("setup trace artifact: %v", err)
+	}
+	readResult, err := (&tool.ReadFile{}).Execute(&types.BusContext{RepoRoot: repoRoot}, mustJSONRawMessage(t, map[string]string{"path": tracePath}))
+	if err != nil {
+		t.Fatalf("read_file trace artifact: %v", err)
+	}
+	if readResult.ReadCoverage != nil || len(readResult.Observations) != 0 {
+		t.Fatalf("trace artifact read must not publish current-source coverage: coverage=%+v observations=%+v", readResult.ReadCoverage, readResult.Observations)
+	}
+
+	mu := types.NewMutableState("explain trace parser mechanism from runtime artifact")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{readResult},
+	})
+	mu.AppendDispatchToolResult(readResult)
+	mu.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	o := &Orchestrator{busCtx: &types.BusContext{
+		RepoRoot: repoRoot,
+		Mutable:  mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentTrace,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "H:RenderService:DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}}},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+				Confidence:           0.9,
+			},
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes: []types.CurrentSourceExplanationMode{
+					types.CurrentSourceExplanationExplainCurrentMechanism,
+				},
+				SourceQuotes: []string{"current parser mechanism"},
+				Confidence:   0.9,
+			},
+		}},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("trace artifact read plus trace_query proof should not reopen localizer follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
+func TestCheckTier1Floor_SourceExcludedRuntimeIgnoresIncidentalSourceRecord(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("trace-only root cause")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{})
+	mu.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "incidental-source",
+			Source:          "internal/tracequery/parse.go",
+			LineStart:       7,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Parse",
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Summary:         "incidental source record from a prior path must not reopen source lane",
+		}},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+				Kind:    "root_cause_rank",
+				Subject: "app-100",
+				Summary: "runtime trace identifies the root cause",
+			}}},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				SourceQuotes:         []string{"只分析 trace"},
+				Confidence:           0.95,
+			},
+		}},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("source-excluded runtime closure should ignore incidental source records instead of triggering localizer, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
 func TestCheckTier1Floor_AttachedLogObservationOnlySkipsNavigationFollowup(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
@@ -1043,4 +1156,13 @@ func tier1TraceQueryRuntimeToolResult() types.ToolResult {
 			Object:          "runnable",
 		}},
 	}
+}
+
+func mustJSONRawMessage(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal json: %v", err)
+	}
+	return json.RawMessage(data)
 }

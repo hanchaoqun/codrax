@@ -45,6 +45,44 @@ func TestCompileExploreLanePlan_OrdinaryArchitectureUnchanged(t *testing.T) {
 	}
 }
 
+func TestCompileExploreLanePlan_ExternalObservationExcludeSuppressesCurrentSourceDimensions(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		PerfTrace: &PerfBundle{Observations: []PerfObservation{{
+			Kind:    "frame_jank",
+			Subject: "app-100",
+			Summary: "runtime trace identifies a jank window",
+		}}},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+			ExclusionKind:        ExternalObservationSourceExclusionExplicitUserBoundary,
+			SourceQuotes:         []string{"只分析 trace"},
+			Confidence:           0.95,
+		},
+		SubTopics: []SubTopic{
+			{Summary: "target thread state"},
+			{Summary: "wakeup chain"},
+		},
+	}
+	presentation := AnswerPresentationContract{
+		RequestedDimensions: []RequestedAnswerDimension{
+			{Label: "直接阻塞/唤醒关系", Role: RequestedAnswerDimensionCurrentKeyCode, Index: 1},
+			{Label: "调度/资源背景", Role: RequestedAnswerDimensionEvidenceSource, Index: 2},
+		},
+	}
+
+	got := CompileExploreLanePlan(rm, nil, presentation)
+	if current := countExploreLaneOrigin(got, AnswerEvidenceOriginCurrentSource); current != 0 {
+		t.Fatalf("excluded current-source lane must not be recreated from display dimensions, current_source=%d lanes=%+v", current, got.Lanes)
+	}
+	assertExploreLaneOrigin(t, got, AnswerEvidenceOriginRuntimeArtifact, "调度/资源背景")
+}
+
 func TestCompileExploreLanePlan_UserBucketsPartitionLanes(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentExplain,

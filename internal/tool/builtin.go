@@ -4702,6 +4702,9 @@ func readFileTypedSourcePath(ctx *types.BusContext, requestedPath, fsPath string
 	if sourcePath == "" || strings.HasPrefix(sourcePath, "/") || sourcePath == "." || strings.HasPrefix(sourcePath, "../") {
 		return ""
 	}
+	if types.RuntimeArtifactPathKind(sourcePath) != "" {
+		return ""
+	}
 	return sourcePath
 }
 

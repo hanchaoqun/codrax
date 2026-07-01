@@ -127,6 +127,91 @@ func TestRuntimeAcceptedClosureKeepsPreciseCurrentSourceFallback(t *testing.T) {
 	}
 }
 
+func TestAcceptedClosureMissingRequiredOrigins_SourceOptionalRuntimeStatusDoesNotReopenCurrentSource(t *testing.T) {
+	mut := types.NewMutableState("accepted trace closure with source-optional current-status contract")
+	mut.SetInvestigationComplete("trace_query answered the runtime slice")
+	mut.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioPerformanceBottleneck,
+				Predicates: types.SemanticPredicates{
+					IsDiagnosticQuestion: true,
+				},
+				DiagnosticProfile: types.DiagnosticIntentProfile{IsDiagnostic: true},
+				PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+					Kind:       "root_cause_rank",
+					Subject:    "app-100",
+					Summary:    "runtime trace root cause is runnable contention",
+					LineStart:  5,
+					LineEnd:    8,
+					DurationMs: 86.111,
+				}}},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.9,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{Required: true},
+			},
+		},
+	}}
+
+	if missing := o.acceptedClosureMissingRequiredOriginsForAutoComplete(); len(missing) != 0 {
+		t.Fatalf("source-optional runtime authority should not reopen exploration for missing current_source, got %v", missing)
+	}
+}
+
+func TestAcceptedClosureMissingRequiredOrigins_PreciseCurrentSourceStillBlocks(t *testing.T) {
+	mut := types.NewMutableState("accepted trace closure with precise current-source lane")
+	mut.SetInvestigationComplete("trace_query answered the runtime slice")
+	mut.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			DiagnosticProfile: types.DiagnosticIntentProfile{IsDiagnostic: true},
+			PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+				Kind:       "root_cause_rank",
+				Subject:    "app-100",
+				Summary:    "runtime trace root cause is runnable contention",
+				LineStart:  5,
+				LineEnd:    8,
+				DurationMs: 86.111,
+			}}},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+				Confidence:           0.9,
+			},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label:       "current implementation",
+					Role:        types.RequestedAnswerDimensionCurrentKeyCode,
+					SourceQuote: "internal/tracequery/query.go:42",
+					Required:    true,
+					Index:       1,
+				}},
+				Confidence: 0.9,
+			},
+		}},
+	}}
+
+	missing := o.acceptedClosureMissingRequiredOriginsForAutoComplete()
+	if len(missing) != 1 || missing[0] != types.AnswerEvidenceOriginCurrentSource {
+		t.Fatalf("precise current-source authority should still require current_source, got %v", missing)
+	}
+}
+
 func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_StillBlocksStageRetry(t *testing.T) {
 	mut := types.NewMutableState("accepted closure with explicit stage retry")
 	mut.SetInvestigationComplete("accepted closure")

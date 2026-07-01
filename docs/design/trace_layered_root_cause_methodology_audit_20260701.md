@@ -892,3 +892,145 @@ flowchart LR
 - `runtime_trace_causal_projection_impact` 中文列名改为 `链上累计 / 本节点投影 / 有效归因 / 实际状态`,英文列名改为 `Chain total / Node projection / Attribution / Actual state`。
 - 删除未调用的旧 `runtimeTraceCausalProjectionWhyCell` / `runtimeTraceCausalProjectionRelationCell` 展示 helper,避免未来把长解释列或单列链路误接回生产渲染。
 - 看护:focused projection tests 已覆盖短标签、双列链路、业务化时长列名、主表短证据与语义 class 保留。
+
+### 7.14.1 展示层 gap:on-chain 影响拆解仍不够直观(2026-07-02)
+
+用户继续反馈:多视图拆分后,主读表已经短了,但 `runtime_trace_causal_projection_on_chain` 仍需要用户在"影响"列和单独 impact 表之间来回对照,才能理解每一层 on-chain 关系到底给目标线程/用户窗口带来多少影响。这个 gap 不应回退到长解释句,也不应修改 `trace_query` root-cause 算法;它是 typed projection 的**业务读法**问题。
+
+**原则。**
+
+- on-chain 第一优先级满足:链路表必须直接回答"这一层是谁影响谁"和"这层影响有多大"。
+- 继续保持表格短列:不把完整四元解释塞回 on-chain 表,完整 `累计/投影/有效/实际` 仍由 impact 表承载。
+- 只消费 `TraceCausalProjectionNode.CumulativeImpactMS / ImpactMS / EffectiveImpactMS / ActualImpactMS` typed 数值和 `ChainDepth / WakeupPath` typed 关系,不解析用户原文、模型散文、工具 summary 或最终答案文本。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录 on-chain 影响读法 gap,避免后续把展示问题误修到 trace_query 算法或 completion hard gate。
+- **Batch 2: on-chain 表影响拆列。** 将 `runtime_trace_causal_projection_on_chain` 的单个 `影响/Impact` 列拆成 `链上影响/Chain impact` 与 `本层影响/Node impact`。
+- **Batch 3: impact 表保留完整四元。** `runtime_trace_causal_projection_impact` 继续保留 `链上累计/本节点投影/有效归因/实际状态`,作为完整审计面。
+- **Batch 4: 测试看护。** 更新 ZH/EN focused projection tests,断言 on-chain 表出现 `链上影响 / 本层影响`,且不回退到旧 `上游 → 下游` 或长解释列。
+
+**已实现(2026-07-02)。**
+
+- `runtime_trace_causal_projection_on_chain` 已将单个 `影响` 列拆为 `链上影响` 与 `本层影响`;英文为 `Chain impact` 与 `Node impact`。
+- `链上影响` 优先显示 `CumulativeImpactMS`,缺失时降级到 `EffectiveImpactMS/ImpactMS`;`本层影响` 优先显示 `ImpactMS`,缺失时降级到 `ActualImpactMS/EffectiveImpactMS`。这是 deterministic typed numeric projection,不消费散文。
+- `runtime_trace_causal_projection_impact` 仍保留完整四元拆解,不丢审计信息。
+- focused 渲染测试已更新,看护 on-chain 影响拆列。
+
+### 7.15 Eval 暴露 gap:trace-only 答案误保留 current-status verdict lane(2026-07-02)
+
+代表性 eval `trace_query_donghu_real_frame_multicausal` 暴露:最终答案已经给出完整 trace 根因链,但又额外输出了 `current_status_verdict=not_enough_evidence`,把"只分析 trace,不分析代码"的根因报告误包装成"当前代码是否仍存在/已修复"的状态判断。该问题不是 Donghu shape 特例,而是 runtime-only answer surface 的 typed projection 漂移:
+
+- `AnswerSurfacePlan` 已能在 runtime observation 足够、current-source 义务为 soft/caveat-only 时将 `CurrentStatusDiagnosticRequired=false`。
+- `AnswerSemanticView` / dynamic schema / prompt checklist / pre-emit normalizer 仍可能从原始 `AnswerContract.CurrentStatusDiagnostic` 看到 active decision lane,导致 finalizer 被要求输出 `still_present|fixed|not_enough_evidence`。
+- 这会和 Runtime Grounding Disposition 中"不要输出 current_status_verdict"的指令冲突,给模型制造心智噪音,并把 runtime artifact 事实错误投影到 current-code verdict 面。
+
+**原则。**
+
+- trace/log/runtime-only 根因分析只回答"artifact 中观察到什么、根因链是什么、证据边界是什么";只有 typed current-version/current-source verification anchor 精确存在时,才打开 current-status verdict lane。
+- 当 surface plan 已将 `CurrentStatusDiagnosticRequired` 降为 false,semantic view、schema、prompt、pre-emit normalizer 必须同步退役 decision verdict lane,不能让不同消费者各自读旧 contract。
+- 本修复只消费 `AnswerSurfacePlan`、`RuntimeSourceAnswerAuthoritySnapshot`、typed runtime observation ledger、`CurrentStatusDiagnosticContract` 等结构化载体;不得通过用户原文、模型 rationale、最终答案散文或 eval banned token 判断。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录 trace-only verdict lane 漂移、原则和任务,避免把 `not_enough_evidence` 泄漏误修成字符串禁词。
+- **Batch 2: Semantic view cutover。** 在 `BuildAnswerSemanticView` 的统一收口处,当 `plan.CurrentStatusDiagnosticRequired=false` 时清空 `view.CurrentStatusDiagnostic` 并移除 required decision block,确保 family compile 与 plan 最终状态一致。
+- **Batch 3: Schema / prompt / pre-emit 看护。** 增加 focused 测试:runtime-only + active raw current-status contract 的最终 prompt 不含 `current_status_verdict`/`Current Status Diagnostic`;dynamic schema 不暴露 current-status field;runtime-only decision block 被 deterministic normalizer 删除。
+- **Batch 4: Eval 复测。** 重跑 `trace_query_donghu_real_frame_multicausal`,要求保留 ThreadPoolForeg/NetworkService/CookieMonsterCl 多层根因链,且最终用户可见答案不出现 `still_present` / `not_enough_evidence` current-code status token。
+
+**进展(2026-07-02)。**
+
+- Batch 2-3 已落地:`AnswerSemanticView` 现在消费 `AnswerSurfacePlan` 的 lane override;runtime-only/source-optional surface 会移除 current-status decision block 并把 current-code facet 降为 optional。
+- 新增 focused 看护:semantic view、dynamic schema、finalizer prompt 三层均覆盖 trace-only + raw current-status contract 的退役路径。
+- Batch 4 首轮 eval 复测暴露 §7.16 completion-form 表单债务循环,故 §7.15 的 final eval 验收顺延到 §7.16/§7.17 一起复测。
+
+### 7.16 Eval 暴露 gap:completion-form 表单债务误触发 trace 重探索循环(2026-07-02)
+
+同一 eval 在 §7.15 修复后继续暴露第二个 P0 gap:模型已经通过 `trace_query` 获得硬 runtime observation,且 trace-only/source-optional surface 已足够回答,但 `emit_investigation_complete` 的 `aggregate_facts.member_set.support_refs` 表单债务仍会返回 completion repair。后续循环把"结构化落地字段不完整"误理解成"证据不足",重新进入 `trace_query` / `read_file` / 校验阶段,甚至尝试从 trace blob 里找源码式行号。
+
+这不是 Donghu shape 特例,而是**证据闭合**和**结构化落地**没有彻底分层:
+
+- `support_refs` 是 current-source member row 对齐 finalizer 的落地字段;对 runtime trace/log artifact 的成员关系,证据锚点应来自 `ObservationRecord` 的 runtime artifact coordinates / payload ref / time span,不能强制伪造仓库源码 file:line。
+- route-backed mixed turn 中,`RuntimeSourceAnswerAuthoritySnapshot` 已能把 source lane 降为 optional/caveat,但 `decorated member_set` 的 support_refs gate 仍可能读到旧的 current-source/explicit-origin 要求。
+- completion-form repair 是本地结构化落地债务,不应重新开放普通探索工具;只有精确 current-source verification lane 仍承重时,才允许它阻塞完成。
+
+**原则。**
+
+- 证据闭合与表单落地分离:trace/log/runtime-only 或 source-optional answer 在 `trace_query` 已产生 hard runtime observations 后,`member_set` 的 display decorator / support_refs 缺失只能本地规范化、降级 caveat 或投影为 runtime artifact support,不能触发宽探索。
+- 精确源码义务优先:用户明确要求"结合当前源码确认"、typed current-source anchor 已精确存在、或 current-source lane 已有承重 proof 时,decorated code member 仍必须有可解析 support_refs;不能因为 runtime observation 存在而放松源码验证。
+- 本地 landing repair 有边界:只允许消费当前 `ObservationLedger`、`RuntimeSourceAnswerAuthoritySnapshot`、`AnswerSurfacePlan`、`AnswerAggregateFact` typed fields;不得读用户原文、模型 rationale、tool summary prose 或最终答案散文。
+- 重试兜底:同一 completion-form debt 低增量重复后必须 force-complete with caveat,且不应把非关键落地债务转化为 `repo_map/read_file/grep` 的新探索目标。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录 trace-only/source-optional completion-form loop,明确 support_refs 是 current-source row alignment 字段,不是 runtime artifact 证据闭合硬门。
+- **Batch 2: Runtime landing authority 收口。** 在 `emit_investigation_complete` 的 decorated member_set support_refs gate 前新增 typed helper:当 runtime authority 允许 runtime-only/caveat completion,且 current-source lane 不承重,并且 ledger 有 addressable deterministic runtime observations 时,decorated runtime member_set 可依赖 runtime artifact provenance,不要求 repo file:line support_refs。
+- **Batch 3: 精确源码义务保护。** 保留并扩展 current-source trace 请求测试:只要 `CurrentSourceExplanationProfile` / typed source anchor 精确承重,缺 support_refs 仍只能 completion-form downgrade,不能标记 investigation complete。
+- **Batch 4: 局部落地修复回归。** 增加 route-backed mixed trace_query 用例:`TurnRouteHint` 需要 repo access、raw current-status contract active、但 surface plan 降为 source optional 时,decorated runtime `member_set` 无 support_refs 也必须完成调查,不返回 completion repair。
+- **Batch 5: Eval 复测。** 重跑 `trace_query_donghu_real_frame_multicausal`,要求 `trace_query` first-hop、无 `read_file`/`grep` 追 trace blob、completion 只执行一次或 bounded local repair,最终进入成文。
+
+**进展(2026-07-02)。**
+
+- Batch 2-4 已落地:`emit_investigation_complete` 的 decorated member_set/support_refs gate 已接入 runtime/source authority;runtime-only/source-optional trace 不再把 runtime member_set 的 support_refs 表单债务升级成重新探索。
+- 精确源码义务保护测试同步保留:带 path-anchored current-source obligation 的 trace/current-source 请求仍需要可解析 current-source support refs。
+- Batch 5 首轮复测显示 completion-form repair 已消失,但暴露 §7.17 的 pre-finalize localizer 误承重,因此最终 eval 验收顺延到 §7.17 后。
+
+### 7.17 Eval 暴露 gap:runtime trace closure 后 pre-finalize localizer 误承重(2026-07-02)
+
+§7.16 修复后继续重跑 `trace_query_donghu_real_frame_multicausal`,`emit_investigation_complete` 已成功且没有 completion-form repair,但 scheduler 随后输出 `pre-finalize read localizer follow-up: reason=read_localizer_navigation_missing` 并重新调度 explorer。日志同时显示 `read_status_authority ... lane=excluded ... runtime=728 ... source=8 ... query=728`,说明系统一边认为当前问题是 runtime trace closure,一边又把 localizer/repo_map lens 当成 finalize 前硬门。
+
+进一步审计发现两个泛化风险:
+
+- 性能预检 / 其它 trace 辅助阶段如果调用 `read_file` 读取 `.codrax/blob/.../attached_trace.txt` 或原始 `.systrace/.htrace/.atrace`,`ToolReadCoverage`/`ObservationLedger` 可能把该 runtime artifact 片段投成 `current_source`,让 `RuntimeSourceAnswerAuthoritySnapshot.CurrentSourceSatisfied=true`。
+- `acceptedClosureMissingRequiredOriginsForAutoComplete` 只看 `AnswerIntentContract` 的 mixed origin required lanes,没有先消费 runtime/source authority;当 current-source lane 已被 typed authority 降为 optional/excluded 时,它仍会返回 `missing_origin_lanes=current_source`。
+- Batch 5 首轮复测继续暴露一个同类投影漂移:虽然 `CurrentSourceLaneDecision=excluded`,但 `RequestedAnswerDimensionRole=current_key_code` 仍可在 `ExploreLanePlan` 里重新派生 `current_source` lane;同时历史/偶发的 current-source observation record 会让 localizer 误以为还需要补齐 repo_map/source lens。注意:已经接受的 current-source proof 仍应保留给最终答案,不能在通用 authority 层丢弃。
+
+**原则。**
+
+- runtime artifact blob 不是 current checkout source。任何 `read_file` 对 log/trace/perf artifact 的读取,即使有 line gutter,也只能作为 runtime artifact observation/coverage,不能发布 current-source read coverage。
+- localizer/repo_map pre-finalize follow-up 只对 load-bearing current-source lane 生效;当 `RuntimeSourceAnswerAuthoritySnapshot.AllowsRuntimeEvidenceWithoutCurrentSource()` 为真且 `KeepsCurrentSourceLaneLoadBearing()` 为假时,缺 repo_map lens 只能是 caveat/审计信息,不能重开探索。
+- accepted closure auto-complete 必须优先消费 runtime/source authority;不能让旧 mixed-origin contract 在 source-excluded/source-optional trace-only 场景继续制造 `missing_origin_lanes=current_source`。
+- `CurrentSourceLaneDecision=excluded` 是比 display dimension 更高优先级的 typed scheduling authority。答案维度可以说明用户想看的 runtime 维度,但不能在 source-excluded turn 中重新生成 current-source 调度 lane;偶发 current-source records 不能触发额外 localizer/repo_map 补读。若 current-source proof 已经被明确接受,最终答案仍可保留它,但调度不得因此追加 source-lens 硬门。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录 completion 成功后被 localizer gate 重开探索的根因和任务。
+- **Batch 2: Runtime artifact read coverage 切断。** 修改 `readFileTypedSourcePath`/typed coverage 投影:runtime artifact path、attached trace/log blob 不再生成 `ToolReadCoverage` 或 current-source `ObservationRecord`;补 `read_file` 单测。
+- **Batch 3: Accepted-closure origin gate 接 authority。** 在 `acceptedClosureMissingRequiredOriginsForAutoComplete` 前置 runtime/source authority 判断:runtime carrier 已足够且 current-source lane 不承重时返回 nil;补 orchestrator 单测。
+- **Batch 4: Localizer follow-up 回归。** 用 trace_query + prior read_file(attached_trace) 的组合测试 `checkTier1Floor` 不返回 `read_localizer_navigation_missing`,确保不会再显示“正在补齐校验信息”后重新探索。
+- **Batch 5: Source-excluded lane projection 收口。** `CompileExploreLanePlan` 删除 excluded current-source origin 和由 display dimensions 误派生的 source dimension;pre-finalize localizer / accepted-closure origin gate 在 lane excluded 且 runtime carrier 足够时不因 incidental source records 追加 repo_map/source-lens 硬门;补 types/orchestrator 回归。
+- **Batch 6: Eval 复测。** 重跑 Donghu trace case,要求 `emit_investigation_complete` 后直接进入 extract/finalize,不出现 localizer retry hint、repo_map/read_file 追源码、`current_status_verdict`。
+
+**进展(2026-07-02)。**
+
+- Batch 2 已落地:`read_file` 对 `.systrace/.htrace/.atrace/.log` 等 runtime artifact path 不再发布 `ToolReadCoverage` 或 current-source `ObservationRecord`。
+- Batch 3 已落地:`acceptedClosureMissingRequiredOriginsForAutoComplete` 先消费 `RuntimeSourceAnswerAuthoritySnapshot`;runtime carrier 已足够且 current-source lane 不承重时不再返回 `missing_origin_lanes=current_source`。
+- Batch 4 已落地:新增 `trace_query` + prior trace artifact `read_file` 的 `checkTier1Floor` 回归,钉住不会再次触发 `read_localizer_navigation_missing`。
+- Batch 5 已落地:`CompileExploreLanePlan` 现在遵守 `CurrentSourceLaneDecision=excluded`,不会让 `current_key_code` 等展示维度重新生成 `current_source` lane;调度层 localizer/origin gate 在 excluded lane 下不会因为 incidental source record 重开源码探索,同时通用 authority 仍保留已接受 current-source proof 供最终答案使用。
+- Batch 6 已复测:`go test ./...` 与 `make` 通过;`trace_query_donghu_real_frame_multicausal` 复测 PASS。实测 `emit_investigation_complete` 一次成功,pre-finalize localizer 以 `runtime_observation_closure` 被抑制,explorer 阶段无 `repo_map/list_files/source_inventory` 追源码。eval 指标中仍有 pre-stage perf triager 对 attached trace blob 的 `read_file` 分页,这是性能预诊断阶段的 artifact-local 读取,不发布 current-source coverage;若后续要进一步收敛 trace 预诊断工具面,另起 runtime-prestage 任务,不混入本节完成门修复。
+
+### 7.18 Eval 暴露 gap:analysis JSON 冗余字段导致 runtime-only policy 丢失(2026-07-02)
+
+Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正确发出 `external_observation_policy.current_source_mode=exclude`、`exclusion_kind=explicit_user_exclusion` 和用户锚定 quote `只分析这份 trace，不分析代码`,但同一个 JSON 根对象还多带了冗余 `"type":"emit_analysis"`。严格解码把整个 `emit_analysis` 拒绝后,第二轮模型重新填写结构化分类时漏掉了 `external_observation_policy`,同时把 `diagnostic_profile.current_risk=true` 打开。后续 `RuntimeSourceAnswerAuthoritySnapshot` 因此看到 `lane=required`,把已经闭合的 trace 调查重新拉入 current-source localizer。
+
+这个 gap 不是 trace_query 算法问题,也不是 source localizer 单点问题,而是**结构化工具参数安全修复层**没有兜住 provider/模型常见的冗余 tool metadata 字段,导致正确的 typed policy 被丢弃。
+
+**原则。**
+
+- 只做 schema-aware、lossless、metadata-only 修复:根对象的 `"type"` 只有在 schema 没有 `type` 字段、值精确等于当前工具名、且 payload 同时包含至少一个 schema 字段时才可剥离。
+- 不吞普通未知字段:其它 unknown field 仍 fail-loud 并返回 typed repair,避免模型把错误字段当成逻辑事实。
+- 不从模型散文或用户原文补 policy:修复层只保留已经在 JSON tool payload 中出现的 typed `external_observation_policy`;若模型完全没发 policy,后续仍只能按 typed authority 处理。
+- analyzer 阶段不可调用 `trace_query` 的问题单独跟踪:它会造成无效工具调用噪音,但不应混入本批 source-lane 修复。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录冗余 tool metadata 字段导致 runtime-only policy 丢失的根因。
+- **Batch 2: 共享结构化参数修复。** 在 `applyStructuredPayloadCompat` 增加 root-level redundant tool-name `type` repair,精确匹配当前工具名后剥离,并记录 telemetry。
+- **Batch 3: emit_analysis 回归。** 增加 trace-only payload 回归:含 `"type":"emit_analysis"` 且含 `external_observation_policy=exclude` 时必须成功落地 policy,并修正 diagnostic current-source flags。
+- **Batch 4: 不放宽 unknown field。** 保持普通未知字段/错工具名 `type` fail-loud,避免把 JSON 修复层变成静默字段删除器。
+- **Batch 5: Eval 复测。** 重跑 Donghu trace case,要求第一轮 analysis 不因 `type` 字段失败,`CurrentSourceLaneDecision=excluded`,完成调查后直接进入 extract/finalize。
+
+**进展(2026-07-02)。**
+
+- Batch 2-3 已落地:共享结构化参数修复层已支持冗余 root `type=<tool_name>` 剥离;`emit_analysis` trace-only 回归钉住 `external_observation_policy=exclude` 不丢失,并确认 `current_risk/current_version_check/historical_regression` 在 exclude 下被修正为 false。
+- Batch 4-5 已验证:普通 unknown field / 错工具名 `type` 仍保持 fail-loud,冗余 `type=emit_analysis` 只作为 metadata repair 剥离;focused tests、`go test ./...`、`make` 通过。`trace_query_donghu_real_frame_multicausal` 复测第一轮 analysis 不再因冗余 `type` 字段失败,`CurrentSourceLaneDecision=excluded` 生效,完成调查后直接进入 extract/finalize。

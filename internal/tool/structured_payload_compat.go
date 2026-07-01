@@ -24,6 +24,10 @@ func applyStructuredPayloadCompat(toolName string, raw json.RawMessage, schema j
 	if len(bytes.TrimSpace(raw)) == 0 || len(bytes.TrimSpace(schema)) == 0 {
 		return raw
 	}
+	if repaired, ok := repairRedundantToolNameTypeField(toolName, raw, schema); ok {
+		logging.Warning("[structured_payload_compat] tool=%s redundant top-level type field removed before schema normalization", toolName)
+		raw = repaired
+	}
 	repaired, report := toolparam.Normalize(raw, schema, types.DefaultToolParamCompatConfig())
 	if !report.Changed() {
 		return raw
@@ -31,6 +35,53 @@ func applyStructuredPayloadCompat(toolName string, raw json.RawMessage, schema j
 	logging.Warning("[structured_payload_compat] tool=%s bytes=%d→%d arrays=%s repairs=%s",
 		toolName, len(raw), len(repaired), topLevelArrayLengthSummary(repaired), report.Summary(8))
 	return repaired
+}
+
+func repairRedundantToolNameTypeField(toolName string, raw json.RawMessage, schema json.RawMessage) (json.RawMessage, bool) {
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		return raw, false
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil || len(root) == 0 {
+		return raw, false
+	}
+	typeRaw, ok := root["type"]
+	if !ok {
+		return raw, false
+	}
+	var emittedType string
+	if err := json.Unmarshal(typeRaw, &emittedType); err != nil || strings.TrimSpace(emittedType) != toolName {
+		return raw, false
+	}
+	var schemaRoot struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(schema, &schemaRoot); err != nil || len(schemaRoot.Properties) == 0 {
+		return raw, false
+	}
+	if _, schemaOwnsType := schemaRoot.Properties["type"]; schemaOwnsType {
+		return raw, false
+	}
+	hasSchemaPayload := false
+	for key := range root {
+		if key == "type" {
+			continue
+		}
+		if _, ok := schemaRoot.Properties[key]; ok {
+			hasSchemaPayload = true
+			break
+		}
+	}
+	if !hasSchemaPayload {
+		return raw, false
+	}
+	delete(root, "type")
+	repaired, err := json.Marshal(root)
+	if err != nil || !json.Valid(repaired) {
+		return raw, false
+	}
+	return repaired, true
 }
 
 // applyStructuredPayloadCompatWithLegacyStringFieldRepair keeps the remaining

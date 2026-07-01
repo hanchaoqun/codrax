@@ -5189,6 +5189,79 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SourceOptionalTraceSkip
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_TraceQueryLedgerSkipsCurrentStatus(t *testing.T) {
+	mut := types.NewMutableState("trace_query root cause rank")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		RawRef:   "[trace_query params: view=root_cause_rank source=path path=/tmp/donghu.systrace origin=runtime_artifact artifact_kind=trace]",
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				ArtifactID:   "donghu_trace",
+				ArtifactKind: "trace",
+				Path:         "/tmp/donghu.systrace",
+			},
+			Subject:   "ThreadPoolForeg-59566",
+			Predicate: "root_cause_primary",
+			Object:    "sleep_wait",
+			Summary:   "root_cause_rank rank=1 chain_relevance=on_chain impact=63.0ms",
+		}},
+	})
+	ctx := &types.AgentContext{
+		Objective: "只分析这份 trace，不分析代码，说明主线程卡顿根因",
+		Mutable:   mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioPerformanceBottleneck,
+				Intent:   types.IntentRootCause,
+				Predicates: types.SemanticPredicates{
+					IsDiagnosticQuestion: true,
+				},
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic: true,
+					CurrentRisk:  true,
+					Confidence:   0.95,
+				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+					Confidence:           0.95,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{Required: true},
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Runtime Grounding Disposition",
+		"Do not emit `current_status_verdict`",
+		"runtime-observed cause/risk",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"## Current Status Diagnostic",
+		"Verdict: emit a principal `decision` block with `current_status_verdict`",
+		"blocks[kind=decision].current_status_verdict",
+		`**Must declare (emit-time rejection if any are missing from every block's ` + "`facet_ids`" + ` and ` + "`claim_uses[].facet_id`" + `):** "` + string(types.FacetCurrentCodePath) + `"`,
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("trace_query runtime-only prompt should not contain %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeClosureReasonWithoutTurnAArtifacts(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{

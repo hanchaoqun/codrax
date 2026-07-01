@@ -6348,7 +6348,11 @@ func renderAnswerDocRuntimeGroundingDisposition(ctx *types.AgentContext) string 
 		b.WriteString("- This dispatch is runtime-artifact scoped: current checkout/source evidence is not required. Leave current-repo files, helper symbols, and citations out of the answer unless a separate typed current-source anchor is present.\n")
 		b.WriteString("- Do not emit `current_status_verdict`, and do not use visible `still_present` / `fixed` status wording or claim the current checkout lacks a fix. State the trace-observed cause/risk only, then name any current-code check as a possible follow-up if needed.\n\n")
 	} else {
-		b.WriteString("- Current repository citations may still be used for explicitly read current-code context, but do not present them as the source of the runtime observation or as proof that the current checkout produced the captured log / trace.\n\n")
+		b.WriteString("- Current repository citations may still be used for explicitly read current-code context, but do not present them as the source of the runtime observation or as proof that the current checkout produced the captured log / trace.\n")
+		if !plan.CurrentStatusDiagnosticRequired {
+			b.WriteString("- The current-status verdict lane is inactive for this dispatch. Do not emit `current_status_verdict`; answer the runtime-observed cause/risk and disclose any current-source boundary as prose if needed.\n")
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
 }

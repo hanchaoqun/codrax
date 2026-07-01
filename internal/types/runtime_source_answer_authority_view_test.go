@@ -365,6 +365,52 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_CombinedProofSatisfiesCurrentSourc
 	}
 }
 
+func TestRuntimeSourceAnswerAuthoritySnapshot_ExcludedSourceRecordPreservesAcceptedSourceProof(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		runtimeSourceTraceRecord("trace:root", "trace_query"),
+		{
+			ID:     "incidental:trace-blob-read",
+			Origin: AnswerEvidenceOriginCurrentSource,
+			SourceRef: ObservationSourceRef{
+				Kind: ObservationSourceCurrentSource,
+				Path: "internal/tracequery/parse.go",
+			},
+			Span: ObservationSpan{LineStart: 7},
+		},
+	}}
+	rm := &RequestModel{
+		PerfTrace: &PerfBundle{Observations: []PerfObservation{{
+			Kind:    "root_cause_rank",
+			Subject: "app-100",
+			Summary: "runtime trace identifies the root cause",
+		}}},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+			ExclusionKind:        ExternalObservationSourceExclusionExplicitUserBoundary,
+			SourceQuotes:         []string{"只分析 trace"},
+			Confidence:           0.95,
+		},
+	}
+	got := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel: rm,
+		RouteHint:    TurnRouteHint{Source: "artifact"},
+		Ledger:       ledger,
+	})
+	if got.CurrentSourceLane != CurrentSourceLaneExcluded || got.CurrentSourceRequired || got.CanHardBlockCompletion {
+		t.Fatalf("excluded runtime turn should keep source lane non-required: %+v", got)
+	}
+	if !got.CurrentSourceSatisfied {
+		t.Fatalf("test setup should still observe the incidental source record: %+v", got)
+	}
+	if !got.KeepsCurrentSourceLaneLoadBearing() {
+		t.Fatalf("accepted current-source proof should remain available to answer rendering: %+v", got)
+	}
+	if got.AllowsRuntimeEvidenceWithoutCurrentSource() {
+		t.Fatalf("accepted current-source proof should disable observation-only cleanup at the authority layer: %+v", got)
+	}
+}
+
 func TestRuntimeSourceAnswerAuthoritySnapshot_ContextBuildersUseSharedAuthority(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
 	ir := &AnalysisIR{RequestModel: RequestModel{

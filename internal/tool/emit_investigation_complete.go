@@ -3777,7 +3777,7 @@ func runtimeSourceCompletionContractRequiresCurrentSourceProof(ctx *types.BusCon
 		return false
 	}
 	contract := &ctx.AnalysisIR.AnswerContract
-	if answerContractRequiresCurrentSourceProof(contract) {
+	if answerContractRequiresCurrentSourceProofForRuntimeCompletion(ctx, contract) {
 		return true
 	}
 	if !contract.CitationReq.Required {
@@ -3814,7 +3814,7 @@ func runtimeArtifactCurrentSourceHardRequirement(ctx *types.BusContext) bool {
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if answerContractRequiresCurrentSourceProof(&ctx.AnalysisIR.AnswerContract) {
+	if answerContractRequiresCurrentSourceProofForRuntimeCompletion(ctx, &ctx.AnalysisIR.AnswerContract) {
 		return true
 	}
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
@@ -3827,24 +3827,36 @@ func runtimeArtifactCurrentSourceHardRequirement(ctx *types.BusContext) bool {
 	return authority.CanHardBlockCompletion
 }
 
-func answerContractRequiresCurrentSourceProof(contract *types.AnswerContract) bool {
+func answerContractRequiresCurrentSourceProofForRuntimeCompletion(ctx *types.BusContext, contract *types.AnswerContract) bool {
 	if contract == nil {
 		return false
 	}
-	if contract.CurrentStatusDiagnostic != nil && contract.CurrentStatusDiagnostic.Required {
+	if contract.CurrentStatusDiagnostic != nil && contract.CurrentStatusDiagnostic.Required &&
+		!runtimeCompletionSurfacePlanSuppressesCurrentStatus(ctx) {
 		return true
 	}
-	if exact := contract.ExactResolution; exact != nil {
-		for _, target := range append([]string{exact.TargetLabel}, exact.Targets...) {
-			if currentSourceCoveragePath(target) {
-				return true
-			}
-		}
-		if currentSourceCoveragePath(exact.RelatedContextScopeHint) {
+	return answerContractExactResolutionRequiresCurrentSourceProof(contract)
+}
+
+func answerContractExactResolutionRequiresCurrentSourceProof(contract *types.AnswerContract) bool {
+	if contract == nil || contract.ExactResolution == nil {
+		return false
+	}
+	exact := contract.ExactResolution
+	for _, target := range append([]string{exact.TargetLabel}, exact.Targets...) {
+		if currentSourceCoveragePath(target) {
 			return true
 		}
 	}
-	return false
+	return currentSourceCoveragePath(exact.RelatedContextScopeHint)
+}
+
+func runtimeCompletionSurfacePlanSuppressesCurrentStatus(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
+	return plan != nil && !plan.CurrentStatusDiagnosticRequired
 }
 
 func applyEvidenceFloorWaiverPayload(ctx *types.BusContext, toolName string, p emitInvestigationCompleteParams) (string, *types.ToolResult) {
@@ -6201,7 +6213,7 @@ func runtimeSourceCompletionLandingRequiresExplicitRuntimeOrigin(ctx *types.BusC
 		return false
 	}
 	if ctx != nil && types.RouteBackedExternalObservationRequiresCurrentSource(rm, ctx.TurnRouteHint) {
-		return true
+		return !runtimeCompletionAuthorityAllowsImplicitRuntimeOrigin(ctx)
 	}
 	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
 		return true
@@ -6213,6 +6225,19 @@ func runtimeSourceCompletionLandingRequiresExplicitRuntimeOrigin(ctx *types.BusC
 		return true
 	}
 	return false
+}
+
+func runtimeCompletionAuthorityAllowsImplicitRuntimeOrigin(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	if !runtimeSourceAuthorityAppliesToCompletionLanding(authority) ||
+		!runtimeSourceAuthorityAllowsRuntimeCompletionLandingSnapshot(authority) ||
+		authority.KeepsCurrentSourceLaneLoadBearing() {
+		return false
+	}
+	return authority.DeterministicRuntimeQueryCount > 0 || authority.AddressableRuntimeCount > 0
 }
 
 func aggregateSupportRuntimeArtifactContextActive(ctx *types.BusContext) bool {

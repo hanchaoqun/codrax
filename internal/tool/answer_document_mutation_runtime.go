@@ -1081,9 +1081,9 @@ func runtimeTraceCausalProjectionOverviewNodes(projection types.TraceCausalProje
 }
 
 func runtimeTraceCausalProjectionOnChainTable(projection types.TraceCausalProjection, evidence *runtimeTraceCausalProjectionEvidenceIndex, zh bool) ([]string, []types.AnswerBlockItem) {
-	columns := []string{"深度", "上游", "下游/影响点", "状态", "影响", "关注", "证据"}
+	columns := []string{"深度", "上游", "下游/影响点", "状态", "链上影响", "本层影响", "关注", "证据"}
 	if !zh {
-		columns = []string{"Depth", "Upstream", "Downstream / impact", "State", "Impact", "Focus", "Evidence"}
+		columns = []string{"Depth", "Upstream", "Downstream / impact", "State", "Chain impact", "Node impact", "Focus", "Evidence"}
 	}
 	nodes := runtimeTraceCausalProjectionOnChainNodes(projection)
 	if len(nodes) == 0 {
@@ -1098,7 +1098,8 @@ func runtimeTraceCausalProjectionOnChainTable(projection types.TraceCausalProjec
 				runtimeTraceCausalProjectionUpstreamCell(node),
 				runtimeTraceCausalProjectionDownstreamCell(node, projection.WakeupPath),
 				runtimeTraceCausalProjectionStateCell(node, zh),
-				runtimeTraceCausalProjectionImpactSummaryCell(node, zh),
+				runtimeTraceCausalProjectionOnChainImpactCell(node),
+				runtimeTraceCausalProjectionLocalImpactCell(node),
 				runtimeTraceCausalProjectionActionCell(node, zh),
 				evidence.add(node, zh),
 			},
@@ -1360,6 +1361,26 @@ func runtimeTraceCausalProjectionImpactSummaryCell(node types.TraceCausalProject
 		return fmt.Sprintf("act %.3fms", node.ActualImpactMS)
 	}
 	return ""
+}
+
+func runtimeTraceCausalProjectionOnChainImpactCell(node types.TraceCausalProjectionNode) string {
+	if node.CumulativeImpactMS > 0 {
+		return runtimeTraceCausalProjectionMSCell(node.CumulativeImpactMS)
+	}
+	if node.EffectiveImpactMS > 0 {
+		return runtimeTraceCausalProjectionMSCell(node.EffectiveImpactMS)
+	}
+	return runtimeTraceCausalProjectionMSCell(node.ImpactMS)
+}
+
+func runtimeTraceCausalProjectionLocalImpactCell(node types.TraceCausalProjectionNode) string {
+	if node.ImpactMS > 0 {
+		return runtimeTraceCausalProjectionMSCell(node.ImpactMS)
+	}
+	if node.ActualImpactMS > 0 {
+		return runtimeTraceCausalProjectionMSCell(node.ActualImpactMS)
+	}
+	return runtimeTraceCausalProjectionMSCell(node.EffectiveImpactMS)
 }
 
 func runtimeTraceCausalProjectionActionCell(node types.TraceCausalProjectionNode, zh bool) string {

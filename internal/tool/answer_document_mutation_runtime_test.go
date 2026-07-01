@@ -821,7 +821,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 	// The section renders as a real GFM table (pipes + header separator) plus a
 	// mermaid flowchart — not a flat ordered list.
 	if !strings.Contains(rendered, "| 优先级 | 层级 | 节点 |") ||
-		!strings.Contains(rendered, "| 深度 | 上游 | 下游/影响点 | 状态 | 影响 | 关注 | 证据 |") ||
+		!strings.Contains(rendered, "| 深度 | 上游 | 下游/影响点 | 状态 | 链上影响 | 本层影响 | 关注 | 证据 |") ||
 		!strings.Contains(rendered, "| 节点 | 强度 | 链上累计 | 本节点投影 | 有效归因 | 实际状态 |") ||
 		!strings.Contains(rendered, "```mermaid") {
 		t.Fatalf("section must render as a table + mermaid cluster:\n%s", rendered)

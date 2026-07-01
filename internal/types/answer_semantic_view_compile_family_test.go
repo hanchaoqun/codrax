@@ -192,6 +192,86 @@ func TestCompileRootCauseTrace_CurrentStatusDiagnosticRequiresDecisionBlock(t *t
 	t.Fatalf("current-status diagnostic did not require BlockDecision: %+v", view.RequiredBlocks)
 }
 
+func TestSurfacePlanDecisionLaneOverrideDropsCurrentStatusOnly(t *testing.T) {
+	view := &AnswerSemanticView{
+		CurrentStatusDiagnostic: &CurrentStatusDiagnosticContract{Required: true},
+		RequiredBlocks: []BlockRequirement{
+			{
+				Kind:     BlockDecision,
+				MinCount: 1,
+				MaxCount: 1,
+				Required: true,
+				FacetIDs: []string{
+					string(FacetCurrentCodePath),
+					string(FacetUncertaintyBoundary),
+				},
+			},
+			{
+				Kind:            BlockDecision,
+				MinCount:        1,
+				MaxCount:        1,
+				Required:        true,
+				SurfaceRoleHint: SurfacePrincipal,
+				Rationale:       "A canonical decision verdict is required for the failure-scope question.",
+			},
+			requireSummaryBlock("summarize"),
+		},
+	}
+
+	applySurfacePlanDecisionLaneOverrides(view, &AnswerSurfacePlan{CurrentStatusDiagnosticRequired: false})
+	if view.CurrentStatusDiagnostic != nil {
+		t.Fatalf("current-status diagnostic should be cleared: %+v", view.CurrentStatusDiagnostic)
+	}
+	decisionCount := 0
+	for _, req := range view.RequiredBlocks {
+		if req.Kind != BlockDecision {
+			continue
+		}
+		decisionCount++
+		if containsString(req.FacetIDs, string(FacetCurrentCodePath)) ||
+			containsString(req.FacetIDs, string(FacetUncertaintyBoundary)) {
+			t.Fatalf("current-status decision block should be removed, got %+v", req)
+		}
+	}
+	if decisionCount != 1 {
+		t.Fatalf("expected only the non-current-status decision to remain, got %d in %+v", decisionCount, view.RequiredBlocks)
+	}
+}
+
+func TestSurfacePlanDecisionLaneOverrideDemotesCurrentCodeFacetForRuntimeOnly(t *testing.T) {
+	view := &AnswerSemanticView{
+		FacetCoverage: &FacetCoverageContract{
+			Required: []FacetRequirement{{
+				Kind:     FacetCurrentCodePath,
+				Required: FacetHardRequired,
+			}},
+		},
+	}
+	applySurfacePlanDecisionLaneOverrides(view, &AnswerSurfacePlan{
+		RuntimeGroundingDisposition: &RuntimeGroundingDisposition{
+			Source:         RuntimeGroundingSystemDetected,
+			Reason:         EvidenceFloorWaiverExternalTrace,
+			Rationale:      "runtime trace observations were available without a required current-source lane",
+			CitationPolicy: RuntimeGroundingCitationRuntimeObservation,
+		},
+		CurrentSourceEvidenceOrigin: false,
+	})
+	foundOptional := false
+	for _, req := range append(view.FacetCoverage.Required, view.FacetCoverage.Optional...) {
+		if req.Kind != FacetCurrentCodePath {
+			continue
+		}
+		if req.Required != FacetOptional || req.PromotionPolicy != PromotionAdvisoryOnly {
+			t.Fatalf("runtime-only surface must demote current_code_path to advisory optional: %+v", req)
+		}
+		foundOptional = true
+		break
+	}
+	if !foundOptional {
+		t.Fatalf("runtime-only surface should retain current_code_path as optional enrichment: %+v", view.FacetCoverage)
+	}
+}
+
 func containsCurrentStatusVerdict(in []CurrentStatusVerdict, want CurrentStatusVerdict) bool {
 	for _, got := range in {
 		if got == want {

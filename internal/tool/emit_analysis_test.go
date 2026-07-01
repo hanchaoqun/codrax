@@ -4480,6 +4480,83 @@ func TestEmitAnalysis_ExternalObservationPolicyExcludeRequiresAnchoredQuote(t *t
 	}
 }
 
+func TestEmitAnalysis_RedundantToolNameTypeFieldPreservesExternalObservationPolicy(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("只分析这份 trace，不分析代码。请分析 com.baidu.tieba 59566 主线程在 34579.472865s 到 34579.587805s 这一帧窗口内的卡顿原因。")
+	payload := `{
+		"type": "emit_analysis",
+		"intent": "root_cause",
+		"scenario": "root_cause",
+		"complexity": "complex",
+		"keywords": ["trace", "jank", "main_thread"],
+		"entities": ["com.baidu.tieba", "59566"],
+		"question_kind": "mechanism",
+		"language": "zh",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.9,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": true,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": true,
+			"has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": true,
+			"current_risk": true,
+			"historical_regression": true,
+			"current_version_check": true,
+			"confidence": 0.9
+		},
+		"answer_role_profile": {
+			"is_role_binding_requested": false,
+			"confidence": 0.8
+		},
+		"error_granularity_profile": {
+			"is_granularity_question": false,
+			"confidence": 0.8
+		},
+		"external_observation_policy": {
+			"artifact_citation_mode": "external_only",
+			"current_source_mode": "exclude",
+			"exclusion_kind": "explicit_user_exclusion",
+			"source_quotes": ["只分析这份 trace，不分析代码"],
+			"confidence": 0.95
+		}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("redundant top-level type should be repaired without losing policy, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		t.Fatalf("anchored runtime-only policy should survive redundant type repair: %+v", rm)
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneExcluded {
+		t.Fatalf("CurrentSourceLaneDecision=%s, want excluded", got)
+	}
+	if rm.DiagnosticProfile.CurrentRisk || rm.DiagnosticProfile.CurrentVersionCheck || rm.DiagnosticProfile.HistoricalRegression {
+		t.Fatalf("diagnostic current-source flags should be repaired under exclude policy: %+v", rm.DiagnosticProfile)
+	}
+	if !strings.Contains(res.Summary, "external_observation_policy=exclude") {
+		t.Fatalf("summary should expose preserved exclude policy, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_SynthesizesCurrentSourceAllowFromRouteBackedRuntimeArtifact(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

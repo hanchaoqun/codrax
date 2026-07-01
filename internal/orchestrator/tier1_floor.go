@@ -159,10 +159,20 @@ func runtimeObservationClosureSuppressesReadLocalizerFollowup(busCtx *types.BusC
 }
 
 func readLocalizerRuntimeSourceAuthorityKeepsFollowup(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if authority.CurrentSourceLane == types.CurrentSourceLaneExcluded &&
+		!authority.CanHardBlockCompletion &&
+		authority.HasRuntimeCarrier() {
+		return false
+	}
 	return authority.KeepsCurrentSourceLaneLoadBearing()
 }
 
 func readLocalizerRuntimeSourceAuthoritySuppressesFollowup(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if authority.CurrentSourceLane == types.CurrentSourceLaneExcluded &&
+		!authority.CanHardBlockCompletion &&
+		authority.HasRuntimeCarrier() {
+		return true
+	}
 	return authority.AllowsRuntimeEvidenceWithoutCurrentSource()
 }
 

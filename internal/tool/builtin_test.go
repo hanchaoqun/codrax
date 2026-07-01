@@ -4944,6 +4944,35 @@ func TestReadFile_ResolvesAgainstRepoRoot(t *testing.T) {
 	}
 }
 
+func TestReadFile_RuntimeArtifactDoesNotPublishCurrentSourceCoverage(t *testing.T) {
+	repoRoot := t.TempDir()
+	target := "capture.systrace"
+	want := "sched_switch prev=app-1 next=worker\n"
+	if err := os.WriteFile(filepath.Join(repoRoot, target), []byte(want), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	tool := &ReadFile{}
+	params, _ := json.Marshal(readFileParams{Path: target})
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Summary)
+	}
+	if !strings.Contains(result.Summary, want) {
+		t.Fatalf("expected runtime artifact content in summary, got: %s", result.Summary)
+	}
+	if result.ReadCoverage != nil {
+		t.Fatalf("runtime artifact read must not publish current-source read coverage: %+v", result.ReadCoverage)
+	}
+	if len(result.Observations) != 0 {
+		t.Fatalf("runtime artifact read must not publish current-source observations: %+v", result.Observations)
+	}
+}
+
 func TestReadFile_PathMissPublishesTypedRepair(t *testing.T) {
 	repoRoot := t.TempDir()
 	ctx := &types.BusContext{RepoRoot: repoRoot}

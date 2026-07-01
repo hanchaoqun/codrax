@@ -358,6 +358,34 @@ func TestBuildAnswerDocumentParametersFor_RequiredBlockCardinalityAndTypedDecisi
 	}
 }
 
+func TestBuildAnswerDocumentParametersFor_SourceOptionalRuntimeViewDropsCurrentStatusVerdict(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFRootCauseTrace,
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, MinCount: 1, MaxCount: 1, Required: true},
+			{Kind: types.BlockOrderedList, MinCount: 1, Required: true},
+		},
+		OptionalBlocks: []types.BlockRequirement{
+			{Kind: types.BlockDecision, Required: false},
+		},
+	}
+	got := BuildAnswerDocumentParametersFor(view)
+	var root map[string]any
+	if err := json.Unmarshal(got, &root); err != nil {
+		t.Fatalf("projected schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	blocks := props["blocks"].(map[string]any)
+	blockItems := blocks["items"].(map[string]any)
+	blockProps := blockItems["properties"].(map[string]any)
+	if _, ok := blockProps["current_status_verdict"]; ok {
+		t.Fatalf("source-optional runtime view must not expose current_status_verdict property: %+v", blockProps["current_status_verdict"])
+	}
+	if schemaBlockKindRequiresField(blockItems, "decision", "current_status_verdict") {
+		t.Fatalf("source-optional runtime view must not require current_status_verdict; allOf=%+v", blockItems["allOf"])
+	}
+}
+
 func TestBuildAnswerDocumentParametersFor_AlternativeKindsWidenKindEnumAndCardinality(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		Family: types.QFEnumeration,

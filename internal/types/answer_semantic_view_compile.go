@@ -91,9 +91,54 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 	applyExactAbsenceSummaryLead(view, plan)
 	applyRequestedCandidateRoles(view, ir)
 	applyRequiredMechanismAnchors(view, ir, plan)
+	applySurfacePlanDecisionLaneOverrides(view, plan)
 	applyErrorGranularityProfile(view, ir)
 	applyPresentationContract(view, ir, plan)
 	return view
+}
+
+func applySurfacePlanDecisionLaneOverrides(view *AnswerSemanticView, plan *AnswerSurfacePlan) {
+	if view == nil || plan == nil {
+		return
+	}
+	if plan.RuntimeGroundingDisposition != nil &&
+		plan.RuntimeGroundingDisposition.IsActive() &&
+		!plan.CurrentSourceEvidenceOrigin {
+		demoteFacetToOptional(view, FacetCurrentCodePath)
+	}
+	if !plan.CurrentStatusDiagnosticRequired {
+		view.CurrentStatusDiagnostic = nil
+		if len(view.RequiredBlocks) == 0 {
+			return
+		}
+		out := view.RequiredBlocks[:0]
+		for _, req := range view.RequiredBlocks {
+			if blockRequirementIsCurrentStatusDecision(req) {
+				continue
+			}
+			out = append(out, req)
+		}
+		view.RequiredBlocks = out
+	}
+}
+
+func blockRequirementIsCurrentStatusDecision(req BlockRequirement) bool {
+	return req.Kind == BlockDecision &&
+		req.Required &&
+		blockRequirementHasFacetID(req, string(FacetCurrentCodePath)) &&
+		blockRequirementHasFacetID(req, string(FacetUncertaintyBoundary))
+}
+
+func blockRequirementHasFacetID(req BlockRequirement, facetID string) bool {
+	if facetID == "" {
+		return false
+	}
+	for _, got := range req.FacetIDs {
+		if got == facetID {
+			return true
+		}
+	}
+	return false
 }
 
 func applyPresentationContract(view *AnswerSemanticView, ir *AnalysisIR, plan *AnswerSurfacePlan) {
