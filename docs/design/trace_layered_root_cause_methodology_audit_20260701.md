@@ -917,6 +917,47 @@ flowchart LR
 - `runtime_trace_causal_projection_impact` 仍保留完整四元拆解,不丢审计信息。
 - focused 渲染测试已更新,看护 on-chain 影响拆列。
 
+### 7.14.2 展示层 gap:Trace 因果投影仍缺“用户可读责任面”(2026-07-02)
+
+用户继续反馈:多视图拆分、短证据 ID、on-chain 影响拆列之后,最终报告仍有商用可读性短板:
+
+1. `证据索引` 虽然已经从表格改为列表,但条目里仍可能出现完整本地绝对路径或长 artifact ref,在 HTML/终端里继续制造视觉噪音。主表只显示 `E#` 是对的,但索引也需要默认显示短定位,完整定位保留在原始 `trace_query` typed observation / 工具日志中供审计复盘。
+2. on-chain 表仍要求用户把“责任/关注点”和“链上影响/本层影响”两列在脑中拼起来,才能理解这一层到底为何影响用户窗口。客户需要第一眼看到“这一层的责任是什么 + 影响读法是什么”,而不是跨表推断。
+3. 根因总览已经短,但“哪些 on-chain 根因需要先处理”仍主要靠 P0/P1 和层级列暗示;展示层应更明确地区分用户行动面、on-chain 责任面、完整时长审计面。
+
+**原则。**
+
+- 这仍是展示投影问题,不改 `trace_query` 根因排序、on-chain/off-chain 判定、completion hard gate 或 LLM prompt 硬逻辑。
+- 用户首读面优先服务“先处理什么、为什么这层重要”;完整四元时长和审计定位继续由 impact 表 + 证据索引承载。
+- 所有判断只消费 `TraceCausalProjectionNode` 的 typed 字段:role/predicate/object/state/chain depth/impact durations/support refs/drilldown target/undrillable reason。不得从用户原文、模型散文、工具 summary 或最终答案文本解析意图。
+- 证据定位的短显示只做路径格式化和 rune 上限控制;不能把短显示当作新的证据权威。完整 ref 仍以原始 `ObservationRecord.SupportRefs` / trace_query tool result 为权威。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录本轮展示层反馈和任务拆解,避免后续继续把表格美化问题修到算法/硬门里。
+- **Batch 2: 证据索引短定位。**
+  - `runtime_trace_causal_projection_evidence` 默认显示 `E# -> 短节点 + 短定位 + typed audit 摘要`。
+  - 短定位保留文件/trace 名尾部组件和行号/行区间;本地绝对路径、Windows 长路径、`.codrax/blob/...` 前缀不进入默认用户面。
+  - 若定位被缩短,条目明确“完整定位见原始 trace_query 记录”,避免误导为证据丢失。
+- **Batch 3: on-chain 责任/影响合并读法。**
+  - `runtime_trace_causal_projection_on_chain` 将 `关注 + 链上影响 + 本层影响` 重组为更直观的 `责任/影响` + `链上累计` + `本层投影`。
+  - `责任/影响` 使用短 typed label,例如 `等待症状: 下钻上游唤醒者`、`执行/算力: 本层运行占用`、`调度/优先级: runnable 未获 CPU`、`阻塞/IO: 本层等待资源`、`确定性优化点: 语义 span`。
+  - 完整四元时长仍留在 `runtime_trace_causal_projection_impact`,避免 on-chain 表再次变宽。
+- **Batch 4: 用户关注优先级看护。**
+  - 根因总览继续保留 `P0/P1/P2` 和短 `处理方向`,不引入长解释句。
+  - focused tests 断言主表/on-chain 表不出现完整绝对路径;证据索引不再显示完整本地路径;on-chain 表存在 `责任/影响`、`链上累计`、`本层投影`;impact 表仍保留完整四元。
+- **Batch 5: 回归与代表性验证。**
+  - 先跑 `go test ./internal/tool -run TraceCausalProjection -count=1` 和相关 focused tests。
+  - 再跑 `go test ./internal/tool ./internal/types -count=1`;若改动影响渲染公共面,补跑 `go test ./...`。
+
+**已实现(2026-07-02)。**
+
+- `runtime_trace_causal_projection_evidence` 已从“完整路径定位”改为短定位显示:保留 trace/artifact 文件名尾部组件 + line/lines 后缀,去掉本地绝对路径和 `.codrax/blob/...` 长前缀;若发生缩短,条目明确提示“完整定位见原始 trace_query 记录”。
+- `runtime_trace_causal_projection_on_chain` 已将列面收敛为 `深度 / 上游 / 下游或影响点 / 状态 / 责任/影响 / 链上累计 / 本层投影 / 证据`;英文为 `Responsibility / impact / Chain total / Node projection`。
+- `责任/影响` 单元格使用 typed action + typed state/cause 组合,例如 `阻塞/IO: 本层资源/IO 等待`、`执行/算力: 本层运行/算力占用`、`等待→查上游: 下钻上游唤醒者`、`优化点·class_verification: 确定性优化 span`;不读取用户原文或模型散文。
+- 根因总览列名从 `关注点/Focus` 收敛为 `处理方向/Action`,继续只放短标签;完整四元时长仍由 `runtime_trace_causal_projection_impact` 承载。
+- focused tests 已更新:看护 on-chain 责任/影响列、短定位、绝对路径不进入用户可见投影、旧 `链上影响/本层影响/关注` 表头不回归。
+
 ### 7.15 Eval 暴露 gap:trace-only 答案误保留 current-status verdict lane(2026-07-02)
 
 代表性 eval `trace_query_donghu_real_frame_multicausal` 暴露:最终答案已经给出完整 trace 根因链,但又额外输出了 `current_status_verdict=not_enough_evidence`,把"只分析 trace,不分析代码"的根因报告误包装成"当前代码是否仍存在/已修复"的状态判断。该问题不是 Donghu shape 特例,而是 runtime-only answer surface 的 typed projection 漂移:

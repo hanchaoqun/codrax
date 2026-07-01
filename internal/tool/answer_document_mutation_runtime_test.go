@@ -694,8 +694,8 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	if len(projection.Items) > 8 {
 		t.Fatalf("lead overview should stay compact, got %d rows: %+v", len(projection.Items), projection.Items)
 	}
-	if len(projection.Columns) < 6 || projection.Columns[5] != "关注点" {
-		t.Fatalf("lead overview should use compact focus column: %+v", projection.Columns)
+	if len(projection.Columns) < 6 || projection.Columns[5] != "处理方向" {
+		t.Fatalf("lead overview should use compact action column: %+v", projection.Columns)
 	}
 
 	text := projectionClusterText(got.Blocks)
@@ -717,6 +717,15 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	for _, want := range []string{"阻塞/IO", "执行/算力", "确定性优化点"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("projection should use compact action labels %q:\n%s", want, text)
+		}
+	}
+	onChain := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_on_chain")
+	if onChain == nil {
+		t.Fatalf("missing on-chain projection block:\n%s", text)
+	}
+	for _, want := range []string{"责任/影响", "链上累计", "本层投影"} {
+		if !stringSliceContains(onChain.Columns, want) {
+			t.Fatalf("on-chain table should expose responsibility and impact reading %q: %+v", want, onChain.Columns)
 		}
 	}
 	// Co-primary layer preserved.
@@ -821,12 +830,13 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 	// The section renders as a real GFM table (pipes + header separator) plus a
 	// mermaid flowchart — not a flat ordered list.
 	if !strings.Contains(rendered, "| 优先级 | 层级 | 节点 |") ||
-		!strings.Contains(rendered, "| 深度 | 上游 | 下游/影响点 | 状态 | 链上影响 | 本层影响 | 关注 | 证据 |") ||
+		!strings.Contains(rendered, "| 深度 | 上游 | 下游/影响点 | 状态 | 责任/影响 | 链上累计 | 本层投影 | 证据 |") ||
 		!strings.Contains(rendered, "| 节点 | 强度 | 链上累计 | 本节点投影 | 有效归因 | 实际状态 |") ||
 		!strings.Contains(rendered, "```mermaid") {
 		t.Fatalf("section must render as a table + mermaid cluster:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "sleep 是等待症状;优先下钻上游") ||
+		strings.Contains(rendered, "| 深度 | 上游 | 下游/影响点 | 状态 | 链上影响 | 本层影响 | 关注 | 证据 |") ||
 		strings.Contains(rendered, "| 深度 | 上游 → 下游 |") {
 		t.Fatalf("on-chain table should stay split-column and short-label, not legacy wide prose:\n%s", rendered)
 	}
@@ -922,9 +932,13 @@ func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePre
 	if evidenceIndex == nil || evidenceIndex.Kind != types.BlockBulletList || len(evidenceIndex.Columns) != 0 {
 		t.Fatalf("evidence index should render as a bullet list: %+v", evidenceIndex)
 	}
-	full := longSubject + " -> " + longObject
-	if !strings.Contains(text, full) || !strings.Contains(text, longRef) {
-		t.Fatalf("evidence index must preserve full node identity and full locator:\n%s", text)
+	if !strings.Contains(text, "完整定位见原始 trace_query 记录") ||
+		!strings.Contains(text, "hiprofiler_data_20260702_very_long_name.systrace") {
+		t.Fatalf("evidence index should show short locator and point to original trace_query record:\n%s", text)
+	}
+	if strings.Contains(text, "/very/long/customer/path/") ||
+		strings.Contains(text, longRef) {
+		t.Fatalf("user-facing projection should not render full local absolute trace paths:\n%s", text)
 	}
 	foundCompact := false
 	for _, item := range projection.Items {
@@ -1332,6 +1346,15 @@ func answerBlockItemByID(items []types.AnswerBlockItem, id string) *types.Answer
 		}
 	}
 	return nil
+}
+
+func stringSliceContains(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 // projectionClusterBlock returns the block with the given id from the projection
