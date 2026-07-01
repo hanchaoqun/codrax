@@ -4362,6 +4362,164 @@ func TestEmitInvestigationComplete_AllowsExhaustiveRuntimeArtifactMemberSet(t *t
 	}
 }
 
+// TestEmitInvestigationComplete_ExplicitCurrentSourceExclusionBypassesCitationFloor
+// pins the 2026-07-01 trace-only livelock fix (Gap A). When the analyzer has
+// explicitly excluded current source ("不分析代码" → current_source_mode=exclude,
+// exclusion_kind=explicit_user_exclusion, verbatim quote) and the runtime
+// artifact was read via raw read_file/grep rather than trace_query, none of the
+// evidence-driven bypasses (trace_query runtime observations, typed aggregate
+// origins) fire. Before the fix the ≥N current-source citation floor was
+// therefore unsatisfiable — every emit_investigation_complete was rejected and
+// the investigation reopened, a livelock that drove the model back into reading
+// source it was told to leave alone. The typed ExcludesCurrentSource() signal
+// must waive the floor with no model-declared evidence_floor_waiver and no
+// aggregate facts.
+func TestEmitInvestigationComplete_ExplicitCurrentSourceExclusionBypassesCitationFloor(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("分析这一帧因 Sleep 状态耗时长丢帧的根因，不分析代码")
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				SourceQuotes:      []string{"不分析代码"},
+				Confidence:        0.9,
+			},
+		},
+		AnswerContract: types.AnswerContract{
+			CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
+		},
+	}
+	bus := &types.BusContext{
+		Mutable:         mut,
+		AnalysisIR:      ir,
+		AttachedHitrace: "42196.879790: sched_switch: prev_comm=UIThread prev_state=S next_comm=RSUniRenderThre",
+	}
+	tool := &EmitInvestigationComplete{}
+
+	// No aggregate_facts, no evidence_floor_waiver — the model completes a
+	// pure runtime-trace analysis with only runtime observations, exactly as a
+	// "不分析代码" request should.
+	params := json.RawMessage(`{
+		"reason":"the frame dropped because the UI thread slept ~1280ms waiting to be woken by RSUniRenderThre",
+		"confidence":"high",
+		"result_kind":"resolved"
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("explicit current-source exclusion must waive the citation floor, got rejection: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("completion should be stored — the exclude bypass must not reopen the investigation")
+	}
+}
+
+// TestEmitInvestigationComplete_CitationFloorHoldsWithoutExplicitExclusion is
+// the narrow control for the Gap A fix: the SAME evidence-empty completion is
+// still gated when the request has NOT excluded current source (default mode,
+// no explicit user boundary). This proves the bypass keys strictly on the
+// precise typed exclusion signal and does not slacken the floor for ordinary
+// current-source questions.
+func TestEmitInvestigationComplete_CitationFloorHoldsWithoutExplicitExclusion(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("分析这一帧丢帧的根因")
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceDefault,
+				Confidence:        0.9,
+			},
+		},
+		AnswerContract: types.AnswerContract{
+			CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
+		},
+	}
+	bus := &types.BusContext{
+		Mutable:         mut,
+		AnalysisIR:      ir,
+		AttachedHitrace: "42196.879790: sched_switch: prev_comm=UIThread prev_state=S next_comm=RSUniRenderThre",
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"the frame dropped because the UI thread slept",
+		"confidence":"high",
+		"result_kind":"resolved"
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("citation-floor shortfall must be a soft downgrade, not a hard tool error: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("without explicit current-source exclusion the empty-evidence completion must NOT be stored")
+	}
+}
+
+// TestExplicitCurrentSourceExclusionCompletionBypassLabel unit-tests the typed
+// predicate that keys the Gap A bypass, isolating the three-part
+// ExcludesCurrentSource() contract from the rest of the completion path.
+func TestExplicitCurrentSourceExclusionCompletionBypassLabel(t *testing.T) {
+	validExclude := &types.ExternalObservationPolicy{
+		CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+		SourceQuotes:      []string{"不分析代码"},
+	}
+	cases := []struct {
+		name   string
+		ctx    *types.BusContext
+		wantOK bool
+	}{
+		{"nil ctx", nil, false},
+		{"nil IR", &types.BusContext{}, false},
+		{"nil policy", &types.BusContext{AnalysisIR: &types.AnalysisIR{}}, false},
+		{
+			"valid explicit exclusion",
+			&types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{ExternalObservationPolicy: validExclude}}},
+			true,
+		},
+		{
+			"exclude mode but no quote (not anchored)",
+			&types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+			}}}},
+			false,
+		},
+		{
+			"default mode",
+			&types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceDefault,
+			}}}},
+			false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			label, ok := explicitCurrentSourceExclusionCompletionBypassLabel(c.ctx)
+			if ok != c.wantOK {
+				t.Fatalf("ok = %v, want %v (label=%q)", ok, c.wantOK, label)
+			}
+			if ok && label != "explicit_current_source_exclusion" {
+				t.Fatalf("label = %q, want explicit_current_source_exclusion", label)
+			}
+		})
+	}
+}
+
 func TestEmitInvestigationComplete_SameCallTraceWaiverBypassesDecoratedRuntimeSupportRefs(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})

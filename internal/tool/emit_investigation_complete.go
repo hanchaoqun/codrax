@@ -2946,6 +2946,14 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 		// Absence answer waives the floor by contract; bypass.
 		return ""
 	}
+	// The explicit current-source-exclusion bypass depends only on the typed
+	// request model (ExcludesCurrentSource), not on any mutable observation
+	// state, so it must be honored even when Mutable is absent — a user who
+	// said "don't analyze code" can never satisfy a current-source floor.
+	if label, ok := explicitCurrentSourceExclusionCompletionBypassLabel(ctx); ok {
+		logging.Info("[emit_investigation_complete] citation-floor bypassed by %s", label)
+		return ""
+	}
 	if ctx.Mutable != nil {
 		if label, ok := completionGroundingBypassLabel(ctx, aggregateFacts); ok {
 			// External-source logs/traces and model-declared waivers are
@@ -3496,6 +3504,9 @@ func repoGroundingBypassLabel(ctx *types.BusContext) (string, bool) {
 }
 
 func completionGroundingBypassLabel(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) (string, bool) {
+	if label, ok := explicitCurrentSourceExclusionCompletionBypassLabel(ctx); ok {
+		return label, true
+	}
 	if label, ok := repoGroundingBypassLabel(ctx); ok {
 		return label, true
 	}
@@ -3504,6 +3515,39 @@ func completionGroundingBypassLabel(ctx *types.BusContext, aggregateFacts []type
 	}
 	if label, ok := originSpecificCompletionBypassLabel(ctx, aggregateFacts); ok {
 		return label, true
+	}
+	return "", false
+}
+
+// explicitCurrentSourceExclusionCompletionBypassLabel waives the completion
+// citation floor when the analyzer has explicitly excluded current source from
+// the answer. ExcludesCurrentSource() is the strongest precise typed boundary
+// the request model carries: current_source_mode=exclude AND
+// exclusion_kind=explicit_user_boundary AND at least one verbatim SourceQuote
+// (see ExternalObservationPolicy.ExcludesCurrentSource). Any exclude that lacks
+// that anchored provenance — or lacks a runtime-artifact carrier — is already
+// softened to allow upstream by promoteInvalidExternalObservationExcludeToAllow
+// / normalizeExternalObservationPolicyForCurrentSourceExplanation, so reaching
+// this point means the user genuinely instructed "don't analyze code".
+//
+// For such a request there is, by the user's own instruction, no current source
+// to cite. The runtime evidence a trace-only investigation gathers may arrive
+// via trace_query (already bypassed) OR via raw read_file/grep on the attached
+// runtime artifact (NOT counted as trace_query runtime observations and NOT
+// emitted as typed aggregate facts), in which case none of the other bypasses
+// fire and the current-source citation floor becomes unsatisfiable. That forces
+// emit_investigation_complete to be rejected every turn, reopening the
+// investigation and driving the model back into reading source it was told to
+// leave alone — a livelock. Keying the bypass on the precise exclusion signal
+// mirrors readLocalizerTier1CurrentSourceRequired, which already treats
+// ExcludesCurrentSource() as "current source not required".
+func explicitCurrentSourceExclusionCompletionBypassLabel(ctx *types.BusContext) (string, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return "", false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return "explicit_current_source_exclusion", true
 	}
 	return "", false
 }

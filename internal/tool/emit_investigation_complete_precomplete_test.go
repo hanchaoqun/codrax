@@ -4239,6 +4239,12 @@ func writeTestFile(t *testing.T, root, rel, content string) {
 // TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorBlocks:
 // when AnalysisIR requires ≥1 citation but the evidence buffer has
 // no cite-eligible items inside ReadSet, the tool downgrades.
+//
+// The request must NOT explicitly exclude current source: a validated
+// current_source_mode=exclude request legitimately waives this floor (see the
+// 2026-07-01 Gap A fix — explicitCurrentSourceExclusionCompletionBypassLabel),
+// so it would not exercise the floor-block path this test pins. Default mode
+// keeps the request in the ordinary current-source lane where the floor holds.
 func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorBlocks(t *testing.T) {
 	mut := types.NewMutableState("test")
 	closure := mut.EvidenceClosure()
@@ -4253,9 +4259,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorBlocks(t *testi
 				Intent:    types.IntentRootCause,
 				LogTriage: mut.LogTriage(),
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
-					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
-					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
-					SourceQuotes:      []string{"只分析日志"},
+					CurrentSourceMode: types.ExternalObservationCurrentSourceDefault,
 					Confidence:        0.9,
 				},
 			},

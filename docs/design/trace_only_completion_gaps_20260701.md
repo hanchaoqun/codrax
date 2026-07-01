@@ -54,3 +54,43 @@ codrax --repo "/home/xingneng/codrax_test/test_trace" -r "分析东湖Trace: rec
 
 - Gap A / Gap B 与 `trace_large_trace_gaps_20260701.md` 的 **Gap 1**(analyzer 建图)共享同一个 typed 信号(`current_source_mode=exclude` / runtime-artifact-only)。三者应作为一个连贯改动:**该 typed 信号必须同时驱动 (i) 跳过 repomap 建图、(ii) 完成/引用门自动放宽当前源码底线**。
 - 本轮先修 Gap A(livelock,最severe)+ Gap B 的引用门部分;建图跳过(Gap 1)按原排期。
+
+---
+
+## 修复结果(2026-07-01)
+
+### Gap A 引用门部分 + Gap B 引用门部分 —— 已修复(root-cause,精确 typed 信号驱动)
+
+**根因确认**:`internal/tool/emit_investigation_complete.go` 的完成前引用底线预检 `preCompleteContractCheckWithPreflight` 通过 `completionGroundingBypassLabel` 决定是否放宽 `CitationReq.MinCitations` 当前源码底线。原来的三个放宽分支全部**依赖运行时证据的具体形态**:
+- `traceQueryRuntimeObservationCompletionBypassLabel` —— 只在模型用过 `trace_query`(`TraceQueryRuntimeObservationCount()>0` 或结果里有硬 runtime observation)时触发;
+- `originSpecificCompletionBypassLabel` —— 只在有带 typed origin 的 aggregate_facts 时触发;
+- `repoGroundingBypassLabel` —— 仓库侧。
+
+客户的模型用 **裸 `read_file`/`grep`** 读 ftrace(没走 `trace_query`、也没产出 typed aggregate_facts),于是三个分支全不触发,底线仍强要 ≥N 条当前源码引用——而这是一个 `current_source_mode=exclude`(用户明说"不分析代码")的请求,永远拿不到当前源码引用,`emit_investigation_complete` 每轮被拒→调查反复重开→livelock。**关键盲点:完成门此前完全没有把 `ExternalObservationPolicy.ExcludesCurrentSource()` 这个精确 typed 信号当作放宽依据**,尽管读侧 tier-1 底线 `readLocalizerTier1CurrentSourceRequired`(`internal/orchestrator/tier1_floor.go:170`)早就把它当作"当前源码非必需"。
+
+**修法(已落地)**:新增 `explicitCurrentSourceExclusionCompletionBypassLabel(ctx)`,当 `rm.ExternalObservationPolicy.ExcludesCurrentSource()` 为真(=`current_source_mode=exclude` **且** `exclusion_kind=explicit_user_exclusion` **且** 有 verbatim `source_quotes`,三段式)时,直接放宽完成引用底线,返回标签 `explicit_current_source_exclusion`。它:
+- 被 `completionGroundingBypassLabel` **最先**咨询(优先于三个形态依赖分支);
+- 在预检里也**独立于 `ctx.Mutable`** 提前咨询一次(exclude 是纯 typed 请求信号,不依赖任何可变观测状态,即便 Mutable 缺失也必须放宽);
+- 是**精确 typed 信号做硬门**,符合"精确信号才能用作硬约束"红线——任何缺锚点/无 runtime artifact 载体的 exclude 都已在上游 `promoteInvalidExternalObservationExcludeToAllow` / `normalizeExternalObservationPolicyForCurrentSourceExplanation` 被降级成 `allow`,能走到完成门为真的 exclude 必然是"用户显式不看代码"的锚定请求。
+
+这样纯 trace 分析(不管 trace 是 `trace_query` 读的还是 `read_file`/`grep` 读的)在 exclude 请求下**首轮 `emit_investigation_complete` 即成功**,不再需要模型手填 `evidence_floor_waiver`,也不再把模型逼回"读代码/找源码引用"(Gap B 引用门部分随之解决)。
+
+**测试**:
+- `TestEmitInvestigationComplete_ExplicitCurrentSourceExclusionBypassesCitationFloor` —— exclude 请求 + 空证据 + MinCitations=2 + 无 waiver → 完成成功、reason 落库。
+- `TestEmitInvestigationComplete_CitationFloorHoldsWithoutExplicitExclusion` —— 窄控制:同样空证据但 default 模式 → 底线仍生效、不落库(证明放宽严格 key 在 exclude 精确信号上,不松动普通当前源码问题)。
+- `TestExplicitCurrentSourceExclusionCompletionBypassLabel` —— 三段式 `ExcludesCurrentSource()` 谓词单测(exclude 缺 quote / default / nil 均不触发)。
+- 修正既有 `TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorBlocks`:它此前用一个**合法 exclude**("只分析日志")做 setup 却断言底线仍 block——恰好把 Gap A 的 buggy 行为钉成了回归测试。改为 default 模式(其"证据空则 block"的真实意图保留,由 default 模式承载),exclude 放宽由新测试覆盖。
+
+### Gap A "重开硬上限"部分 —— 已存在,无需新增(避免噪音信号硬门)
+
+完成门的下调**已经**经 `preCompleteDowngradeConverges(ctx, DowngradeLaneContractChain)` 走低-delta 收敛硬上限(`downgradeConvergenceHardThreshold` 默认 3):同一 lane 连续 N 次无进展下调后,**force-complete 并附 caveat**,而非无限重开。客户 livelock 之所以绕过它,是因为模型每轮都在**churn**(读不同文件、试不同 waiver reason `runtime_artifact_only`),使"无进展指纹"不断变化、把收敛计数重置。
+
+**不新增"总重开次数"硬上限**:那会是"嘈声信号(重开/churn 计数)做硬门",可能对**真正需要多读几轮**的当前源码调查提前 force-complete 出欠接地答案,违反红线。root-cause 修法(exclude 首轮即成功)已从源头消除本 case 的 livelock;既有同-blocker 收敛上限继续兜底真正的原地打转。
+
+### Gap A fix direction #3(可选的 waiver reason 回显)—— 对 exclude 请求已 moot
+
+exclude 请求现在完成门自动放宽,模型**根本不需要**手填 `evidence_floor_waiver`,所以"非法 reason `runtime_artifact_only` 被拒 + '文件在 repo 目录里'误导"这条支线对 exclude 请求不再触发。非 exclude 的 runtime-artifact-only 请求仍走既有 waiver 枚举通道(不在本轮改动面)。
+
+### 仍排队(未在本轮修)
+
+- **Gap 1 / Gap B 建图部分**:analyzer 对 trace-only 请求仍建 repomap 图(`analyzerAttachedTraceContext` 不认大 path-attached trace),按 `trace_large_trace_gaps_20260701.md` 的 Gap 1 排期修复。修完后"不分析代码"的 trace 请求才真正端到端不碰当前源码机制(建图 + 引用门两侧都绕过)。
