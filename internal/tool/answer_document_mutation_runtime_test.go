@@ -636,6 +636,27 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 				ClaimKey:        "wakeup_chain:path",
 				Object:          "threadpool-400 -> network-300 -> cookie-200 -> app-100",
 			},
+			{
+				ID:              "semantic",
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				Predicate:       "trace_semantic_span",
+				ClaimKey:        "trace_semantic_span:class_verification",
+				Subject:         "threadpool-400",
+				Object:          "class_verification",
+				Value:           "2.000",
+				Unit:            "ms",
+				RichNotes: []string{
+					"span_name=VerifyClass com.example.Foo",
+					"semantic_class=class_verification",
+					"chain_relevance=on_chain",
+					"causality=on_wakeup_chain",
+					"chain_depth=1",
+				},
+				Confidence: 0.82,
+			},
 		},
 	}}
 	doc := &types.AnswerDocumentV2{
@@ -696,6 +717,15 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 		split.Label != "链路分层" ||
 		!strings.Contains(split.Text, "on-chain") {
 		t.Fatalf("projection should preserve chain relevance split: %+v", projection.Items)
+	}
+	semantic := answerBlockItemByID(projection.Items, "trace_semantic_span_1")
+	if semantic == nil ||
+		semantic.Label != "确定性优化点" ||
+		!strings.Contains(semantic.Text, "threadpool-400 -> class_verification") ||
+		!strings.Contains(semantic.Text, "VerifyClass com.example.Foo") ||
+		!strings.Contains(semantic.Text, "语义类 class_verification") ||
+		!strings.Contains(semantic.Text, "on-chain") {
+		t.Fatalf("projection should preserve semantic runtime optimization points: %+v", projection.Items)
 	}
 }
 
@@ -826,6 +856,105 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalHopDepth(t *testi
 		!strings.Contains(hop.Text, "链路第 4 层") ||
 		!strings.Contains(hop.Text, "直接唤醒链") {
 		t.Fatalf("projection should preserve supporting hop depth from typed trace_query notes: %+v", projection.Items)
+	}
+}
+
+func TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+	}}
+	records := []types.ObservationRecord{{
+		ID:              "path",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		GroundingPolicy: types.ClaimGroundingHard,
+		Predicate:       "wakeup_chain",
+		ClaimKey:        "wakeup_chain:path",
+		Object:          "dep-1 -> dep-2 -> dep-3 -> dep-4 -> dep-5 -> dep-6 -> dep-7 -> dep-8 -> dep-9 -> dep-10 -> app-100",
+	}}
+	for i := 1; i <= 4; i++ {
+		records = append(records, traceProjectionObservation(
+			fmt.Sprintf("root-%d", i),
+			fmt.Sprintf("dep-%d", i),
+			"sleep_wait",
+			fmt.Sprintf("%d.000", 30-i),
+			fmt.Sprintf("%d.000", 30-i),
+			i,
+		))
+	}
+	records = append(records, types.ObservationRecord{
+		ID:              "semantic",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		Predicate:       "trace_semantic_span",
+		ClaimKey:        "trace_semantic_span:jit_compile",
+		Subject:         "dep-1",
+		Object:          "jit_compile",
+		Value:           "1.500",
+		Unit:            "ms",
+		RichNotes: []string{
+			"span_name=JitCompileMethod",
+			"semantic_class=jit_compile",
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+			"chain_depth=1",
+		},
+		Confidence: 0.82,
+	})
+	for depth := 1; depth <= 10; depth++ {
+		records = append(records, types.ObservationRecord{
+			ID:              fmt.Sprintf("hop-%02d", depth),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			Predicate:       "wakeup_causal_impact",
+			ClaimKey:        fmt.Sprintf("wakeup_causal_impact:dep-%d", depth),
+			Subject:         fmt.Sprintf("dep-%d", depth),
+			Object:          "sleep_wait",
+			Value:           "1.000",
+			Unit:            "ms",
+			RichNotes: []string{
+				"causality=on_wakeup_chain",
+				fmt.Sprintf("depth=%d", depth),
+				"impact=1.000ms",
+			},
+			Confidence: 0.80,
+		})
+	}
+	bus.ToolResults = []types.ToolResult{{
+		ToolName:     "trace_query",
+		Success:      true,
+		Observations: records,
+	}}
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "app-100 causal path was observed."},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	projection := got.Blocks[1]
+	if answerBlockItemByID(projection.Items, "trace_semantic_span_1") == nil {
+		t.Fatalf("expanded projection should keep deterministic semantic optimization points: %+v", projection.Items)
+	}
+	hop := answerBlockItemByID(projection.Items, "trace_causal_hop_10")
+	if hop == nil || !strings.Contains(hop.Text, "链路第 10 层") {
+		t.Fatalf("expanded projection should keep default-depth supporting hops, got %+v", projection.Items)
+	}
+	if len(projection.Items) < 17 {
+		t.Fatalf("projection should expand beyond the old 6-item cap, got %d items: %+v", len(projection.Items), projection.Items)
 	}
 }
 

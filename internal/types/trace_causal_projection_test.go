@@ -128,6 +128,78 @@ func TestTraceCausalProjectionPreservesMultiLayerChainRelevance(t *testing.T) {
 	}
 }
 
+func TestTraceCausalProjectionKeepsSemanticSpanOptimizationPoints(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		traceProjectionTestRootWithNotes("root-on-chain", "worker-200", "sleep_wait", "28.000", 28.0, 0.90, 1, []string{
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+			"chain_depth=1",
+		}),
+		{
+			ID:              "semantic-on-chain",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: ClaimGroundingHard,
+			Predicate:       "trace_semantic_span",
+			ClaimKey:        "trace_semantic_span:class_verification",
+			Subject:         "worker-200",
+			Object:          "class_verification",
+			Value:           "2.000",
+			Unit:            "ms",
+			RichNotes: []string{
+				"span_name=VerifyClass com.example.Foo",
+				"span_kind=sync",
+				"span_category=runtime_verification",
+				"span_subcategory=class_verification",
+				"semantic_class=class_verification",
+				"chain_relevance=on_chain",
+				"causality=on_wakeup_chain",
+				"chain_depth=1",
+			},
+			Confidence: 0.82,
+		},
+		{
+			ID:              "semantic-background",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: ClaimGroundingHard,
+			Predicate:       "trace_semantic_span",
+			ClaimKey:        "trace_semantic_span:shader_compile",
+			Subject:         "render-900",
+			Object:          "shader_compile",
+			Value:           "12.000",
+			Unit:            "ms",
+			RichNotes: []string{
+				"span_name=ShaderCompile pipeline warmup",
+				"semantic_class=shader_compile",
+				"chain_relevance=background",
+				"causality=background",
+			},
+			Confidence: 0.62,
+		},
+	}}
+
+	got := CompileTraceCausalProjection(ledger)
+	if len(got.SemanticSpans) != 2 {
+		t.Fatalf("semantic span bucket should preserve on-chain and background optimization points, got %+v", got.SemanticSpans)
+	}
+	if got.SemanticSpans[0].Subject != "worker-200" ||
+		got.SemanticSpans[0].SemanticClass != "class_verification" ||
+		got.SemanticSpans[0].SpanName != "VerifyClass com.example.Foo" ||
+		got.SemanticSpans[0].ChainRelevance != "on_chain" ||
+		got.SemanticSpans[0].ChainDepth != 1 {
+		t.Fatalf("on-chain semantic span should be first and fully typed: %+v", got.SemanticSpans)
+	}
+	if len(got.OnChainCauses) < 2 {
+		t.Fatalf("semantic span should also appear in on-chain context bucket: %+v", got.OnChainCauses)
+	}
+	if len(got.BackgroundCauses) != 1 || got.BackgroundCauses[0].SemanticClass != "shader_compile" {
+		t.Fatalf("background semantic span should remain supporting/background: %+v", got.BackgroundCauses)
+	}
+}
+
 func TestTraceCausalProjectionKeepsOnChainPrimaryAheadOfLargerBackground(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{
 		traceProjectionTestRootWithNotes("root-background", "logger-900", "io_pressure", "80.000", 80.0, 0.95, 1, []string{

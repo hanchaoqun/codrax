@@ -102,6 +102,30 @@ func TestTraceObservationCoverageTreatsStateDrilldownAsStateCoverage(t *testing.
 	}
 }
 
+func TestTraceObservationCoverageKeepsSemanticSpanDimension(t *testing.T) {
+	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
+		traceCoverageRecord("root", "trace_query:1", "root_cause_primary", "root_cause_primary", "worker-200", "sleep_wait", "24.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.0, EndTs: 1.1}),
+		traceCoverageRecord("semantic", "trace_query:1", "trace_semantic_span", "trace_semantic_span:class_verification", "worker-200", "class_verification", "2.000", []string{
+			"semantic_class=class_verification",
+			"span_name=VerifyClass com.example.Foo",
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+		}, ObservationSpan{StartTs: 1.015, EndTs: 1.017}),
+	})
+	semantic := traceCoverageDimensionFor(got, TraceObservationDimensionSemanticSpan)
+	if semantic.Count != 1 || semantic.OnChainCount != 1 {
+		t.Fatalf("semantic span dimension should preserve on-chain optimization points: %+v", got.Dimensions)
+	}
+	if len(got.TopObservations) < 2 ||
+		got.TopObservations[0].Dimension != TraceObservationDimensionRootCauseRank ||
+		got.TopObservations[1].Dimension != TraceObservationDimensionSemanticSpan {
+		t.Fatalf("semantic span should stay near root-cause handoff before generic context: %+v", got.TopObservations)
+	}
+	if got.CausalProjection.SemanticSpans == nil || got.CausalProjection.SemanticSpans[0].SemanticClass != "class_verification" {
+		t.Fatalf("semantic span should feed trace causal projection: %+v", got.CausalProjection)
+	}
+}
+
 func TestTraceObservationCoverageSuggestsRepresentativeWindowForRepeatedMicroRootProbes(t *testing.T) {
 	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
 		traceCoverageRecord("root1", "trace_query:1", "root_cause_primary", "root_cause_primary", "target-1", "running", "12.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.000, EndTs: 1.020}),

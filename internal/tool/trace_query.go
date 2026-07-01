@@ -3915,6 +3915,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 
 	if result.WindowStats != nil {
 		out = append(out, traceQueryTypedWindowStatsObservations(*result.WindowStats, ref, scope, at)...)
+		out = append(out, traceQueryTypedSemanticTraceSpanObservations(result, *result.WindowStats, ref, scope, at)...)
 	}
 
 	return out
@@ -4966,6 +4967,191 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	}
 	out = append(out, traceQueryTypedPluginObservations(stats, ref, scope, at)...)
 	return out
+}
+
+func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+	if len(stats.TraceSpans) == 0 {
+		return nil
+	}
+	chain := traceQueryResultWakeupChain(result)
+	out := make([]types.ObservationRecord, 0, minInt(len(stats.TraceSpans), traceQueryTypedFamilyRowCap))
+	ordinal := 0
+	for _, span := range stats.TraceSpans {
+		if ordinal >= traceQueryTypedFamilyRowCap {
+			break
+		}
+		semanticClass := strings.TrimSpace(span.SemanticClass)
+		if semanticClass == "" || span.DurationMs <= 0 {
+			continue
+		}
+		ordinal++
+		ctx := traceQuerySemanticTraceSpanContext(span, chain)
+		notes := traceQueryTypedKVNotes([][2]string{
+			{"span_name", span.Name},
+			{"span_kind", firstNonEmptyTraceString(span.Kind, "sync")},
+			{"span_category", span.Category},
+			{"span_subcategory", span.Subcategory},
+			{"semantic_class", semanticClass},
+			{"chain_relevance", ctx.chainRelevance},
+			{"causality", ctx.causality},
+			{"chain_depth", traceQueryTypedCount(ctx.chainDepth)},
+			{"overlap", traceQueryObservationMSValue(ctx.overlapMs)},
+			{"window", traceQueryWindowValue(span.StartTs, span.EndTs)},
+		})
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#trace_semantic_span:%d", scope, ordinal),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span: types.ObservationSpan{
+				LineStart: span.StartLine,
+				LineEnd:   span.EndLine,
+				StartTs:   span.StartTs,
+				EndTs:     span.EndTs,
+			},
+			ClaimKey:    "trace_semantic_span:" + semanticClass,
+			Subject:     traceThreadLabel(span.Thread),
+			Predicate:   "trace_semantic_span",
+			Object:      semanticClass,
+			Value:       traceQueryObservationMSValue(span.DurationMs),
+			Unit:        "ms",
+			Summary:     traceQuerySemanticTraceSpanSummary(span, ctx),
+			RichNotes:   notes,
+			SupportRefs: traceQueryObservationSupportRefs(ref, span.StartLine, span.EndLine),
+			ObservedAt:  at,
+			Confidence:  traceQuerySemanticTraceSpanConfidence(ctx.chainRelevance),
+		})
+	}
+	return out
+}
+
+type traceQuerySemanticSpanContext struct {
+	chainRelevance string
+	causality      string
+	chainDepth     int
+	overlapMs      float64
+}
+
+func traceQueryResultWakeupChain(result tracequery.Result) *tracequery.ChainResult {
+	if result.WakeupChain != nil {
+		return result.WakeupChain
+	}
+	if result.FrameRootCauseBundle != nil && result.FrameRootCauseBundle.WakeupChain != nil {
+		return result.FrameRootCauseBundle.WakeupChain
+	}
+	return nil
+}
+
+func traceQuerySemanticTraceSpanContext(span tracequery.TraceSpanSummary, chain *tracequery.ChainResult) traceQuerySemanticSpanContext {
+	if chain == nil || (len(chain.Nodes) == 0 && len(chain.CausalImpacts) == 0 && len(chain.Edges) == 0) {
+		return traceQuerySemanticSpanContext{}
+	}
+	var out traceQuerySemanticSpanContext
+	bestOverlap := 0.0
+	setOnChain := func(overlap float64, depth int) {
+		if overlap <= 0 {
+			return
+		}
+		if out.chainRelevance != "on_chain" || overlap > bestOverlap {
+			out.chainRelevance = "on_chain"
+			out.causality = "on_wakeup_chain"
+			out.overlapMs = overlap
+			out.chainDepth = depth
+			bestOverlap = overlap
+		}
+	}
+	if traceQuerySameThreadRef(span.Thread, chain.Target) {
+		setOnChain(traceQueryWindowOverlapMS(span.StartTs, span.EndTs, chain.Window.StartTs, chain.Window.EndTs), 0)
+	}
+	for _, node := range chain.Nodes {
+		if !traceQuerySameThreadRef(span.Thread, node.Thread) {
+			continue
+		}
+		depth := 0
+		if node.Impact != nil {
+			depth = node.Impact.ChainDepth
+		}
+		setOnChain(traceQueryWindowOverlapMS(span.StartTs, span.EndTs, node.Window.StartTs, node.Window.EndTs), depth)
+	}
+	for _, impact := range chain.CausalImpacts {
+		if !traceQuerySameThreadRef(span.Thread, impact.Thread) {
+			continue
+		}
+		setOnChain(traceQueryWindowOverlapMS(span.StartTs, span.EndTs, impact.Window.StartTs, impact.Window.EndTs), impact.ChainDepth)
+	}
+	if out.chainRelevance != "" {
+		return out
+	}
+	if traceQueryWindowOverlapMS(span.StartTs, span.EndTs, chain.Window.StartTs, chain.Window.EndTs) > 0 {
+		return traceQuerySemanticSpanContext{chainRelevance: "adjacent", causality: "adjacent_to_wakeup_chain"}
+	}
+	return traceQuerySemanticSpanContext{chainRelevance: "background", causality: "background"}
+}
+
+func traceQuerySameThreadRef(a, b tracequery.ThreadRef) bool {
+	if a.PID > 0 && b.PID > 0 {
+		return a.PID == b.PID
+	}
+	al, bl := traceThreadLabelOptional(a), traceThreadLabelOptional(b)
+	return al != "" && bl != "" && al == bl
+}
+
+func traceQueryWindowOverlapMS(aStart, aEnd, bStart, bEnd float64) float64 {
+	if aEnd <= aStart || bEnd <= bStart {
+		return 0
+	}
+	start := traceQueryMaxFloat(aStart, bStart)
+	end := traceQueryMinFloat(aEnd, bEnd)
+	if end <= start {
+		return 0
+	}
+	return (end - start) * 1000
+}
+
+func traceQueryMaxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func traceQueryMinFloat(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func traceQuerySemanticTraceSpanSummary(span tracequery.TraceSpanSummary, ctx traceQuerySemanticSpanContext) string {
+	parts := []string{
+		fmt.Sprintf("semantic trace span %q class=%s lasted %.3fms", span.Name, span.SemanticClass, span.DurationMs),
+	}
+	if ctx.chainRelevance != "" {
+		parts = append(parts, "chain_relevance="+ctx.chainRelevance)
+	}
+	if ctx.overlapMs > 0 {
+		parts = append(parts, fmt.Sprintf("overlap=%.3fms", ctx.overlapMs))
+	}
+	if ctx.chainDepth > 0 {
+		parts = append(parts, fmt.Sprintf("chain_depth=%d", ctx.chainDepth))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func traceQuerySemanticTraceSpanConfidence(relevance string) float64 {
+	switch strings.TrimSpace(relevance) {
+	case "on_chain":
+		return 0.82
+	case "adjacent":
+		return 0.70
+	case "background":
+		return 0.62
+	default:
+		return 0.66
+	}
 }
 
 func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration, ref types.ObservationSourceRef, scope, at, family, predicate, state, label string, confidence float64) []types.ObservationRecord {

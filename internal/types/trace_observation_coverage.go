@@ -9,6 +9,7 @@ import (
 const (
 	TraceObservationDimensionFrameTarget      = "frame_target_resolution"
 	TraceObservationDimensionRootCauseRank    = "root_cause_rank"
+	TraceObservationDimensionSemanticSpan     = "trace_semantic_span"
 	TraceObservationDimensionWakeupChain      = "wakeup_chain"
 	TraceObservationDimensionCriticalBlocking = "critical_blocking"
 	TraceObservationDimensionStateChurn       = "state_churn"
@@ -142,6 +143,9 @@ func traceObservationDimension(record ObservationRecord) string {
 		strings.HasPrefix(claimKey, "wakeup_chain") ||
 		strings.HasPrefix(claimKey, "wakeup_causal_"):
 		return TraceObservationDimensionWakeupChain
+	case predicate == "trace_semantic_span" ||
+		strings.HasPrefix(claimKey, "trace_semantic_span:"):
+		return TraceObservationDimensionSemanticSpan
 	case predicate == "critical_blocking" ||
 		strings.HasPrefix(claimKey, "critical_blocking"):
 		return TraceObservationDimensionCriticalBlocking
@@ -367,20 +371,22 @@ func traceObservationDimensionRank(dimension string) int {
 		return 0
 	case TraceObservationDimensionRootCauseRank:
 		return 1
-	case TraceObservationDimensionWakeupChain:
+	case TraceObservationDimensionSemanticSpan:
 		return 2
-	case TraceObservationDimensionCriticalBlocking:
+	case TraceObservationDimensionWakeupChain:
 		return 3
-	case TraceObservationDimensionStateChurn:
+	case TraceObservationDimensionCriticalBlocking:
 		return 4
-	case TraceObservationDimensionStateDrilldown:
+	case TraceObservationDimensionStateChurn:
 		return 5
-	case TraceObservationDimensionThreadTimeline:
+	case TraceObservationDimensionStateDrilldown:
 		return 6
-	case TraceObservationDimensionResourcePressure:
+	case TraceObservationDimensionThreadTimeline:
 		return 7
-	case TraceObservationDimensionEvidencePack:
+	case TraceObservationDimensionResourcePressure:
 		return 8
+	case TraceObservationDimensionEvidencePack:
+		return 9
 	default:
 		return 100
 	}

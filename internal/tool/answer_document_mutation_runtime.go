@@ -704,7 +704,8 @@ func runtimeTraceCausalProjectionItems(projection types.TraceCausalProjection, l
 	}
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	primary := runtimeTraceCausalProjectionPrimaryRoots(projection)
-	items := make([]types.AnswerBlockItem, 0, 6)
+	maxTraceCausalProjectionItems := runtimeTraceCausalProjectionItemLimit(projection, len(primary))
+	items := make([]types.AnswerBlockItem, 0, maxTraceCausalProjectionItems)
 	for i, node := range primary {
 		kind := "primary"
 		if i > 0 {
@@ -736,8 +737,19 @@ func runtimeTraceCausalProjectionItems(projection types.TraceCausalProjection, l
 			CitationRef: -1,
 		})
 	}
+	for i, span := range projection.SemanticSpans {
+		if len(items) >= maxTraceCausalProjectionItems {
+			break
+		}
+		items = append(items, types.AnswerBlockItem{
+			ID:          fmt.Sprintf("trace_semantic_span_%d", i+1),
+			Label:       runtimeTraceCausalProjectionLabel("semantic_span", zh),
+			Text:        runtimeTraceCausalProjectionNodeText(span, zh),
+			CitationRef: -1,
+		})
+	}
 	for i, hop := range projection.SupportingHops {
-		if len(items) >= 6 {
+		if len(items) >= maxTraceCausalProjectionItems {
 			break
 		}
 		items = append(items, types.AnswerBlockItem{
@@ -748,6 +760,28 @@ func runtimeTraceCausalProjectionItems(projection types.TraceCausalProjection, l
 		})
 	}
 	return items
+}
+
+func runtimeTraceCausalProjectionItemLimit(projection types.TraceCausalProjection, primaryCount int) int {
+	const (
+		minItems = 12
+		maxItems = 24
+	)
+	desired := primaryCount + len(projection.SemanticSpans) + len(projection.SupportingHops)
+	if len(projection.WakeupPath) > 0 {
+		desired++
+	}
+	if runtimeTraceCausalProjectionChainSplitText(projection, false) != "" {
+		desired++
+	}
+	switch {
+	case desired < minItems:
+		return minItems
+	case desired > maxItems:
+		return maxItems
+	default:
+		return desired
+	}
 }
 
 func runtimeTraceCausalProjectionPrimaryRoots(projection types.TraceCausalProjection) []types.TraceCausalProjectionNode {
@@ -790,6 +824,8 @@ func runtimeTraceCausalProjectionLabel(kind string, zh bool) string {
 			return "因果链路"
 		case "chain_relevance":
 			return "链路分层"
+		case "semantic_span":
+			return "确定性优化点"
 		default:
 			return "支撑节点"
 		}
@@ -803,6 +839,8 @@ func runtimeTraceCausalProjectionLabel(kind string, zh bool) string {
 		return "Causal path"
 	case "chain_relevance":
 		return "Chain relevance"
+	case "semantic_span":
+		return "Deterministic optimization point"
 	default:
 		return "Supporting hop"
 	}
@@ -911,6 +949,9 @@ func runtimeTraceCausalProjectionDetails(node types.TraceCausalProjectionNode, z
 			parts = append(parts, fmt.Sprintf("rank %d", node.Rank))
 		}
 	}
+	if semantic := runtimeTraceCausalProjectionSemanticDetail(node, zh); semantic != "" {
+		parts = append(parts, semantic)
+	}
 	if ref := runtimeTraceCausalProjectionEvidenceRef(node); ref != "" {
 		if zh {
 			parts = append(parts, "证据 "+ref)
@@ -919,6 +960,26 @@ func runtimeTraceCausalProjectionDetails(node types.TraceCausalProjectionNode, z
 		}
 	}
 	return parts
+}
+
+func runtimeTraceCausalProjectionSemanticDetail(node types.TraceCausalProjectionNode, zh bool) string {
+	semanticClass := strings.TrimSpace(node.SemanticClass)
+	spanName := strings.TrimSpace(node.SpanName)
+	if semanticClass == "" && spanName == "" {
+		return ""
+	}
+	var parts []string
+	if semanticClass != "" {
+		if zh {
+			parts = append(parts, "语义类 "+semanticClass)
+		} else {
+			parts = append(parts, "semantic class "+semanticClass)
+		}
+	}
+	if spanName != "" {
+		parts = append(parts, "span "+spanName)
+	}
+	return strings.Join(parts, "，")
 }
 
 func runtimeTraceCausalProjectionMetric(node types.TraceCausalProjectionNode, zh bool) string {

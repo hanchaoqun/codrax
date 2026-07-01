@@ -830,6 +830,87 @@ func TestTraceQueryTypedObservationsPublishStateDrilldownPolicy(t *testing.T) {
 	}
 }
 
+func TestTraceQueryTypedObservationsPublishSemanticSpanOutsideRootCauseRank(t *testing.T) {
+	result := tracequery.Result{
+		View:       "frame_root_cause_bundle",
+		SourcePath: "/traces/app.systrace",
+		TimeStart:  1.0,
+		TimeEnd:    1.08,
+		WakeupChain: &tracequery.ChainResult{
+			Target: tracequery.ThreadRef{Comm: "app", PID: 100},
+			Window: tracequery.TimeWindow{StartTs: 1.0, EndTs: 1.08},
+			Nodes: []tracequery.ChainNode{{
+				Thread:   tracequery.ThreadRef{Comm: "worker", PID: 200},
+				Window:   tracequery.TimeWindow{StartTs: 1.01, EndTs: 1.04},
+				Dominant: tracequery.StateRunning,
+				Impact: &tracequery.WakeupCausalImpact{
+					Thread:        tracequery.ThreadRef{Comm: "worker", PID: 200},
+					Window:        tracequery.TimeWindow{StartTs: 1.01, EndTs: 1.04},
+					ChainDepth:    1,
+					OnChain:       true,
+					DominantState: string(tracequery.StateRunning),
+				},
+			}},
+		},
+		RootCauseRank: &tracequery.RootCauseRankResult{Items: []tracequery.RootCauseRankItem{{
+			Rank:           1,
+			Tier:           "primary",
+			Type:           "sleep_wait",
+			Thread:         tracequery.ThreadRef{Comm: "worker", PID: 200},
+			ImpactMs:       30,
+			ChainRelevance: "on_chain",
+			Causality:      "on_wakeup_chain",
+			Summary:        "worker blocked app wakeup",
+			LineStart:      10,
+			LineEnd:        20,
+			Confidence:     0.80,
+		}}},
+		WindowStats: &tracequery.WindowStats{
+			TraceSpans: []tracequery.TraceSpanSummary{{
+				Thread:        tracequery.ThreadRef{Comm: "worker", PID: 200},
+				Kind:          "sync",
+				Name:          "VerifyClass com.example.Foo",
+				Category:      "runtime_verification",
+				Subcategory:   "class_verification",
+				SemanticClass: "class_verification",
+				StartTs:       1.015,
+				EndTs:         1.017,
+				DurationMs:    2.0,
+				StartLine:     31,
+				EndLine:       32,
+			}},
+		},
+	}
+	rows := traceQueryTypedObservations(result, "trace", "/blobs/trace.json", "", "", time.Now())
+	var semantic *types.ObservationRecord
+	for i := range rows {
+		if rows[i].Predicate == "trace_semantic_span" {
+			semantic = &rows[i]
+			break
+		}
+	}
+	if semantic == nil {
+		t.Fatalf("semantic span must survive as a typed observation even when absent from root_cause_rank: %+v", rows)
+	}
+	notes := strings.Join(semantic.RichNotes, "\n")
+	for _, want := range []string{
+		"semantic_class=class_verification",
+		"span_name=VerifyClass com.example.Foo",
+		"chain_relevance=on_chain",
+		"causality=on_wakeup_chain",
+		"chain_depth=1",
+	} {
+		if !strings.Contains(notes, want) {
+			t.Fatalf("semantic span notes missing %q: %+v", want, semantic)
+		}
+	}
+	if semantic.Role != types.AnswerAggregateRoleSupportingCoverage ||
+		semantic.GroundingPolicy != types.ClaimGroundingHard ||
+		semantic.ProvenanceLane != types.ObservationProvenanceArtifactSpan {
+		t.Fatalf("semantic span should be hard-grounded supporting runtime evidence: %+v", semantic)
+	}
+}
+
 // TestTraceQueryExecuteAttachesTypedObservations runs the real Execute path on
 // a small fixture and pins that the returned ToolResult carries typed rows of
 // runtime-artifact origin alongside the prose Summary.
