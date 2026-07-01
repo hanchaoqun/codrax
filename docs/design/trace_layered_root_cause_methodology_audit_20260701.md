@@ -679,8 +679,26 @@ flowchart LR
 
 **终端可渲染性**(用户"能渲则渲,不能则简化/原文,不强求"):GFM 表在终端(glamour)正常;mermaid 走 pgavlin ASCII 渲染成网格(emoji/CJK 优雅降级,`·`→`*`、`⚠`→`?`),失败则 L7 降级 text fence——表始终无损承载全字段。**踩到并修掉两个渲染坑**:①`-.<CJK label>.->` 虚线边被 mermaid-subset 误解析成节点→改用无标签 `-.->`(背景/无法下钻靠节点形状 `(...)`/`[[...]]` 区分);②`classDef`/`class` 样式行被 pgavlin 误渲成一个 "class" 节点→**删除所有样式指令**(颜色是 HTML-only 装饰,on-chain 已由表格「链路」列 + 节点形状 矩形/圆角 无损承载)。
 
-**与设计的偏差**:未加 `DrilldownTarget *Node` 指针(跨记录链接脆弱、审查未验证其机制)。改为在渲染层从 `IsSleepState()` + `WakeupPath` + `resolvedRoot`(首个非-sleep 主/on-chain 根)派生 sleep→根因边——同样无损、更 robust。
+**与设计的偏差**:未加 `DrilldownTarget *Node` 指针(跨记录链接脆弱、审查未验证其机制)。当时改为在渲染层从 `IsSleepState()` + `WakeupPath` + `resolvedRoot`(首个非-sleep 主/on-chain 根)派生 sleep→根因边,优先保证单主链场景不丢证据。HEAD 复核后确认:这对单主链足够,但多 sleep/多分支场景仍需要 per-sleep typed edge,已在 §7.10 排队。
 
 **测试**:`internal/types/trace_causal_projection_test.go` 加字段填充单测;`answer_document_mutation_runtime_test.go` **ZH/EN golden 同步重写**(扁平列表→block 簇断言:BlockTable/Columns/group-header/方块条/DiagramFlow body/CitationRef=-1)+ 新增端到端 `TraceCausalProjectionSleepDrilldownAndTriad`(gap c/d/e 在最终 markdown 里全钉:💤·非根因、下钻到根因、⛔ 无法下钻 missing_wakeup、cum/eff/act 三元 + 方块条、`| 层 / 节点 |` 表 + ` ```mermaid `)。既有 O5 `LowImpactSemanticSpanSurvivesToRenderedText`(语义 span + O4 窗口标注)不改自动通过。`go build ./... && go test ./...` 全绿。
 
 **gap a-f 落地对照**:a=group-header 分层;b=唤醒链 flowchart + glyph + ●on-chain 列;c=方块条 + cum/proj/eff/act;d=💤 非根因 + 下钻→列 + sleep 图实线下钻边;e=⛔ 无法下钻 + missing_wakeup 终止节点;f=off-chain 独立分层行 + 圆角虚线节点。
+
+### 7.10 HEAD 复核补充(2026-07-01, `origin/main@a6d9fabdd`)
+
+最新代码已把"扁平列表"重构为 block 簇,且 focused tests 覆盖了 `TraceCausalProjection` 字段投影、低影响语义 span 保留、sleep drilldown/triad 渲染、ZH/EN golden。重新对照实现后,展示层当前没有阻断性 correctness gap,但有一个应排队的**多分支精度增强**:
+
+**P1: sleep 下钻目标仍是展示层全局推导,不是 per-sleep typed edge。**
+
+- 现状:`TraceCausalProjectionNode` 没有 `DrilldownTarget` / `DrilldownTargetRef`;渲染层用 `runtimeTraceCausalProjectionResolvedRoot` 选"首个非 sleep、可下钻的 primary/on-chain root",然后所有可下钻 sleep 行都显示 `下钻→ <resolvedRoot>`。这对单一主链 case 足够,但在多 sleep、多分支、多 co-primary 的 trace 里,不同 sleep 症状可能对应不同上游 waker/root。表格本身仍保留每个节点的 evidence/summary/chain depth,不会丢证据;风险仅在"下钻→"列和 sleep 图可能把多个 sleep 都指向同一个全局 root。
+- 原则:不能从 subject 文本、summary prose、模型叙述里猜边。只有 trace_query 已经产出的 typed edge/coverage (`RecursiveDrilldown`、`DrilldownSource`、`wakeup_chain_edge`、`parent_id`/`child_id` 等)能承重;缺少精确边时应显示"沿唤醒链继续确认"或保持空,而不是硬连到全局 root。
+- 任务拆解:
+  1. 在 projection 编译层新增 `DrilldownTargetRef` / `DrilldownTargetEvidenceID` / `DrilldownRelation` 三个 typed 字段,只从 `TraceObservationCoverageRecord` 或 trace_query typed wakeup-chain/recursive-drilldown 记录填充。
+  2. 渲染层优先使用 per-node `DrilldownTargetRef`;没有精确 target 但 node 是 sleep 时,改为 caveat 文案,不要指向全局 root。
+  3. 补测试:两个 sleep 分支分别指向两个不同 non-sleep root;一个 missing_wakeup;一个无精确 target 的 sleep 不渲染误导边。
+  4. 保持 table-first 无损原则:图失败或 block cap 降级时,表格仍展示所有 typed target/ref/caveat。
+
+**P2: O7 中期配置化增强仍可排队。**
+
+语义 span 识别当前已有内置 near-miss caveat 和 semantic sidecar cap,但客户私有 ROM / ArkCompiler / 应用自定义 trace_mark 命名仍可能漂移。后续可把 semantic span pattern 扩到 `codrax.yaml` 配置,作为可观测性增强;配置只影响候选归类/提示,不能作为硬门。

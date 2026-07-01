@@ -117,3 +117,36 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
 - **严格视图门**:`internal/tool/trace_query.go` 仅对 `thread_timeline`/`wakeup_chain` + 显式 pid 置 `RelationScoped=true`;`root_cause_rank`/`frame_root_cause_bundle`/`window_stats`/`critical_blocking_calls` **绝不裁**(它们消费全窗口×全线程聚合:同 CPU 无关竞争 sched_switch、全 pid trace_mark 帧、全局 IO/clock/power,裁剪=静默正确性回归),继续走 Step 1 全量索引。thread-only(无 pid)也不裁(pass-1 需 pid 播种)。
 - **测试**:`TestRelationScopedIndexMatchesFullForCausalChains`(**golden 对拍**:wakeup_chain + thread_timeline 全量 vs 裁剪 `reflect.DeepEqual` 相等,裁剪事件数更少、噪音线程被删、binder 全留、元数据一致)、`TestRelationScopedIndexExpandsProcessTGID`(pid=进程展开兄弟线程)、`TestRelationScopedCacheKeyIsolation`(scope key 隔离、非 scoped key 不变)、`TestTraceQueryRelationScopedOnlyForCausalChainViews`(**反向保护**:window-stats 家族绝不置 RelationScoped)。全量 `go test ./...` 绿。
 - **未覆盖(可后续)**:thread-only 关系裁剪需 thread→pid 解析;若将来要让 `root_cause_rank` 也在超密窗口跑,需的是**流式分片聚合**(方案 2/3)而非裁剪,属独立设计。
+
+## HEAD 复核摘要(2026-07-01, `origin/main@a6d9fabdd`)
+
+本次同步最新 `main` 后重新对照代码复核,最新 10 个提交已经把本文档的大部分高危项从"记录"推进到"承重":
+
+- **Gap A / trace-only 引用门 livelock**:已由 `explicitCurrentSourceExclusionCompletionBypassLabel` 修复,完成门消费 `ExternalObservationPolicy.ExcludesCurrentSource()` 这个精确 typed 信号,不再要求模型猜 `evidence_floor_waiver` reason。
+- **Gap 1 post-emit 建图**:已由 `analyzerRuntimeArtifactSourceNavigationOptional` 修复,`emit_analysis` 之后的 `analyzerGraphForNormalize` 会直接跳过 repomap eager load。
+- **Gap 3 Step 1 / Step 2**:pid/thread-scoped heavy view 的字节预算上限与 `thread_timeline`/`wakeup_chain` 的 relation-scoped pruning 已落地,且测试已覆盖 cache key 隔离、因果链 full-vs-pruned golden 对拍、反向保护(root_cause/window_stats 不裁剪)。
+- **Gap 2 去掉 pid 全表扫**:主要触发源已随 Gap 3 Step 1 收敛;剩余只能做 soft guidance,不能靠语义判断硬拦。
+
+### 当前仍需排队的隐含 gap
+
+1. **P0: PRE-emit repo overview 仍缺 typed runtime-artifact carrier**。
+   - 现状:analyzer 首轮 prompt 里的 `buildAnalyzerRepoOverview` 发生在 `emit_analysis` 之前,此时还没有 `RequestModel.ExternalObservationPolicy`,只能依赖 `observationOnlyRuntimeArtifactForAnalyzer` / `explicitRuntimeArtifactPathInObjective` / `explicitRuntimeTraceArtifactOnlyRequest` 等前置探测器。对于"trace 在仓库外、请求文本只点名路径、用户明确不要分析代码"的场景,如果前置探测器没有从 runtime artifact store/attachment resolver 拿到结构化路径,仍可能在分类前构建 task_map 图。
+   - 原则:不能把 raw token/自然语言关键词当 hard gate。正确方向是把 CLI/REPL attachment、blob/display resolver、显式路径解析结果提前投影成 **AnalyzerPreflightRuntimeArtifactProfile** 一类 typed carrier,让 `buildAnalyzerRepoOverview` 消费 typed carrier 跳过 overview;raw path regex 只能作为 soft discovery 输入,不能直接决定 hard skip。
+   - 任务拆解:
+     1. 定义 pre-analyzer typed carrier:artifact kind/path/source/size/resolution confidence/explicit-current-source-exclusion-compatible flag。
+     2. 从 CLI `--htrace`/`--log`,REPL `/htrace`/`/log`,blob session root,以及 deterministic path resolver 填充 carrier;保留 path-resolver 失败 caveat。
+     3. `buildAnalyzerRepoOverview` 仅在 carrier 明确 `runtime_artifact_only && source_navigation_optional` 时跳过 repo overview;普通源码问题保持 repo_map first-hop。
+     4. 补测试:仓库外 trace path + "不分析代码" 不触发 `GraphFromAgentContextOrLoad`;普通架构/关系问题仍注入 task_map;路径解析不确定只给 soft shortcut 不 hard skip。
+
+2. **P1: 超密窗口的 `root_cause_rank` / `frame_root_cause_bundle` 仍需要流式分片聚合**。
+   - 现状:relation-scoped pruning 被正确限制在 `thread_timeline`/`wakeup_chain`;`root_cause_rank` / `frame_root_cause_bundle` / `window_stats` 仍依赖全窗口未裁剪索引,这是为了保持全窗口资源/CPU/IO/trace_mark 完整性,方向正确。但 GB 级 trace 的极高密度窗口仍可能超过 1GiB 字节预算。
+   - 原则:不要把 relation pruning 强行推广到全窗口聚合视图,否则会静默丢同 CPU 竞争者、全局 IO/clock/power、全 pid trace_mark。正确方向是 deterministic stream/shard aggregator。
+   - 任务拆解:
+     1. 设计 `TraceShardAggregator` 接口,按时间/行窗口分片运行现有 window_stats/root_cause_rank 子计算。
+     2. 定义可合并字段:state totals、resource summaries、top-N candidates、occurrence windows、semantic spans、perf quality caveats;不可合并字段必须显式 caveat。
+     3. 工具层在 `IndexEventLimitError` + scoped heavy view 时自动给出 typed next action 或直接走 shard mode,避免让模型手动缩到 <50ms 微窗口。
+     4. 补 golden:同一中等 trace 全量结果 vs shard 聚合结果近似/集合等价;超密 synthetic trace 不 OOM 且保留 root_cause_rank primary candidates。
+
+3. **P2: thread-only relation-scoped pruning 未覆盖**。
+   - 现状:Step 2 要求 `ScopePID > 0`;用户只给线程名时仍走 Step 1 全量窗口索引。文档和代码已明确不裁剪,这是安全保守实现,不是回归。
+   - 任务拆解:新增轻量 thread→pid resolution prepass,只有解析到唯一线程 pid/tgid 时才开启 relation scope;多候选时返回候选和 caveat,不硬选。

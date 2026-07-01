@@ -91,6 +91,6 @@ codrax --repo "/home/xingneng/codrax_test/test_trace" -r "分析东湖Trace: rec
 
 exclude 请求现在完成门自动放宽,模型**根本不需要**手填 `evidence_floor_waiver`,所以"非法 reason `runtime_artifact_only` 被拒 + '文件在 repo 目录里'误导"这条支线对 exclude 请求不再触发。非 exclude 的 runtime-artifact-only 请求仍走既有 waiver 枚举通道(不在本轮改动面)。
 
-### 仍排队(未在本轮修)
+### 仍排队(HEAD 复核后收窄为 pre-emit carrier gap)
 
-- **Gap 1 / Gap B 建图部分**:analyzer 对 trace-only 请求仍建 repomap 图(`analyzerAttachedTraceContext` 不认大 path-attached trace),按 `trace_large_trace_gaps_20260701.md` 的 Gap 1 排期修复。修完后"不分析代码"的 trace 请求才真正端到端不碰当前源码机制(建图 + 引用门两侧都绕过)。
+- **Gap 1 / Gap B 建图部分**:引用门和 post-emit `analyzerGraphForNormalize` 已消费 `current_source_mode=exclude` 并绕过当前源码底线/repomap eager load;剩余风险只在 analyzer 首轮 `buildAnalyzerRepoOverview` 的 **PRE-emit** 阶段。该阶段发生在 `emit_analysis` 之前,不能读取 `RequestModel.ExternalObservationPolicy`,因此需要 `trace_large_trace_gaps_20260701.md` 记录的 typed pre-analyzer runtime-artifact carrier。修完后"不分析代码"的 trace 请求才真正端到端不碰当前源码机制。
