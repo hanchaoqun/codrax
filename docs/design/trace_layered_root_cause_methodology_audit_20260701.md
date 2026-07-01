@@ -1175,3 +1175,20 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 - `go test ./internal/types -run 'TraceCausalProjection|SemanticSpan|StateDrilldown' -count=1`
 
 两组 focused tests 均已通过。若后续再发现表格宽、关系不清、证据噪音或影响解释不直观,优先在 §7.11-§7.14.2 的相应展示投影任务类内扩展测试与实现;只有 typed trace 根因数据本身缺失时,才进入 trace_query/root-cause 算法层排查。
+
+### 7.22.1 最新反馈复核:不新增平行展示方案(2026-07-02)
+
+用户再次指出 `Trace 因果投影` 可能存在大段文字、全路径证据、层次关系不明显、on-chain 影响拆解不直观等商用阅读问题。本轮按当前 `main@ef9419939` 复核后确认:这些问题已由 §7.11-§7.14.2 的任务类承接并在代码中承重,不应再新增一套平行的表格/图方案。
+
+**复核任务列表与状态。**
+
+- **T1: 大段文字是否仍进入主读表。** 已闭环:总览表只保留短 `处理方向/Action`;on-chain 表使用短 `责任/影响` 标签,长解释不进入主表。
+- **T2: 全路径证据是否仍撑宽用户面。** 已闭环:主表/on-chain/impact/background 只显示 `E#`;证据索引用短 locator,完整定位以原始 `trace_query` 记录为权威。
+- **T3: 层次/关系是否仍靠用户猜。** 已闭环:on-chain 链路拆成 `深度 / 上游 / 下游或影响点`,并保留 wakeup/sleep flowchart 作为关系图辅助。
+- **T4: on-chain 影响是否可直接读。** 已闭环:on-chain 表直接显示 `责任/影响 / 链上累计 / 本层投影`;完整四元仍由 impact 表承载。
+- **T5: 后续维护风险。** 已闭环:旧单大表 helper 已退役,focused tests 钉住短标签、多视图、短证据和影响拆列。后续若出现新样本,必须优先扩展这些任务类的测试,而不是回到单大表或改 trace_query 算法。
+
+**本轮复核验证。**
+
+- `go test ./internal/tool -run 'TraceCausalProjection|RuntimeTraceCausalProjection' -count=1`
+- `go test ./internal/types -run 'TraceCausalProjection|SemanticSpan|StateDrilldown' -count=1`
