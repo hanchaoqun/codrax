@@ -253,6 +253,8 @@ type Query struct {
 	PID                    int
 	TimeStart              float64
 	TimeEnd                float64
+	TimeStartSet           bool
+	TimeEndSet             bool
 	LineStart              int
 	LineEnd                int
 	EventTypes             []EventType

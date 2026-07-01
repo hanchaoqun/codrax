@@ -1601,6 +1601,9 @@ func TestTraceQueryDescriptionDocumentsWindowStrategyBoundary(t *testing.T) {
 		"long transaction/lifecycle windows",
 		"preserve the full typed time window as parent coverage",
 		"discover phase boundaries",
+		"frame/span selector and explicit time_start/time_end",
+		"unions it with the frame-derived previous-frame-end..current-frame-end window",
+		"instead of shrinking to an interior vsync/frame marker",
 	} {
 		if !strings.Contains(description, want) {
 			t.Fatalf("trace_query description missing window strategy %q:\n%s", want, description)

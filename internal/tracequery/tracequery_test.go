@@ -2007,6 +2007,40 @@ func TestFrameRootCauseBundleResolvesUniqueUIFrameTargetAndPreviousFrameWindow(t
 	}
 }
 
+func TestFrameRootCauseBundleExplicitFrameWindowUnionsFrameDerivedWindow(t *testing.T) {
+	idx := buildTraceIndex(t, "frame_explicit_window_union.systrace", `
+	        app-100   (  100) [000] .... 0.900000: print: B|100|Choreographer#doFrame frame=41
+	        app-100   (  100) [000] .... 0.916000: print: E|100
+	        app-100   (  100) [000] .... 1.000000: print: B|100|Choreographer#doFrame frame=42
+	        app-100   (  100) [000] .... 1.003000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+	     worker-200   (  100) [001] .... 1.014000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=000
+	        app-100   (  100) [000] .... 1.016000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	        app-100   (  100) [000] .... 1.020000: print: E|100
+	`)
+	bundle := BuildFrameRootCauseBundle(idx, Query{
+		Pattern:         "frame=42",
+		TimeStart:       0.950,
+		TimeEnd:         1.050,
+		TimeStartSet:    true,
+		TimeEndSet:      true,
+		MaxDepth:        4,
+		MinDurationMs:   0.05,
+		TraceFlavorHint: TraceFlavorHarmonyHitrace,
+		Limit:           8,
+	})
+	if bundle.Target.PID != 100 {
+		t.Fatalf("expected unique UI frame target pid=100, got target=%+v resolution=%+v", bundle.Target, bundle.TargetResolution)
+	}
+	if bundle.TargetResolution == nil ||
+		bundle.TargetResolution.WindowSource != "explicit_query_union_previous_frame_end_to_current_frame_end" ||
+		!containsSubstring(bundle.TargetResolution.Caveats, "preserved explicit query window") {
+		t.Fatalf("expected explicit/derived union target resolution, got %+v", bundle.TargetResolution)
+	}
+	if !near(bundle.Window.StartTs, 0.916, 0.000001) || !near(bundle.Window.EndTs, 1.050, 0.000001) {
+		t.Fatalf("expected union of explicit window and frame-derived previous-frame window, got %+v", bundle.Window)
+	}
+}
+
 func TestFrameRootCauseBundleExplicitTargetWinsOverFrameTarget(t *testing.T) {
 	idx := buildTraceIndex(t, "frame_explicit_target.systrace", `
 	        app-100   (  100) [000] .... 1.000000: print: B|100|Choreographer#doFrame frame=42

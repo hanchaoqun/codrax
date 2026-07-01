@@ -21,13 +21,13 @@ const preferredCoverageWindowMaxSeconds = 0.150
 const parentWindowStrategySeconds = 1.000
 
 func Run(idx *Index, q Query) Result {
-	explicitTimeStart := q.TimeStart != 0
-	explicitTimeEnd := q.TimeEnd != 0
+	explicitTimeStart := queryExplicitTimeStart(q)
+	explicitTimeEnd := queryExplicitTimeEnd(q)
 	if !explicitTimeStart && !explicitTimeEnd && strings.TrimSpace(q.Pattern) != "" {
 		q.FrameWindowAutoDerived = true
 	}
-	explicitWindowOrSelector := explicitTimeStart ||
-		explicitTimeEnd ||
+	boundedWindowOrSelector := queryBoundedTimeStart(q) ||
+		queryBoundedTimeEnd(q) ||
 		q.LineStart != 0 ||
 		q.LineEnd != 0 ||
 		strings.TrimSpace(q.SpanName) != "" ||
@@ -279,7 +279,7 @@ func Run(idx *Index, q Query) Result {
 		res.EvidencePack = evidenceFromCriticalBlocking(blocking)
 	case "recipe":
 		recipe := BuildRecipe(idx, q)
-		if recipeShouldUseDiscoveryOnly(q, recipe, explicitWindowOrSelector) {
+		if recipeShouldUseDiscoveryOnly(q, recipe, boundedWindowOrSelector) {
 			recipe.IncludedViews = []string{"frame_window", "frame_timeline", "frame_flow"}
 			recipe.Caveats = append(recipe.Caveats, "unbounded jank recipe ran in discovery mode because no time, line, span, pid/thread, or event filters were provided; select a frame/span/window before requesting full root-cause/resource ranking")
 			res.Caveats = append(res.Caveats, "large recipe guard: unbounded jank analysis skips full-trace scheduler/resource/root-cause expansion until the query is narrowed")
@@ -371,6 +371,34 @@ func Run(idx *Index, q Query) Result {
 	res.Caveats = append(res.Caveats, spanCaveats...)
 	res.Caveats = append(res.Caveats, resultCaveats(idx, q, res)...)
 	return res
+}
+
+func queryExplicitTimeStart(q Query) bool {
+	if q.FrameWindowAutoDerived {
+		return false
+	}
+	if q.TimeStartSet {
+		return true
+	}
+	return q.TimeStart != 0 && !q.FrameWindowAutoDerived
+}
+
+func queryExplicitTimeEnd(q Query) bool {
+	if q.FrameWindowAutoDerived {
+		return false
+	}
+	if q.TimeEndSet {
+		return true
+	}
+	return q.TimeEnd != 0 && !q.FrameWindowAutoDerived
+}
+
+func queryBoundedTimeStart(q Query) bool {
+	return q.TimeStartSet || q.TimeStart != 0
+}
+
+func queryBoundedTimeEnd(q Query) bool {
+	return q.TimeEndSet || q.TimeEnd != 0
 }
 
 func resolveTracePlatform(idx *Index, q Query, flavor TraceFlavor, surfaces []FrameworkSurface, flavorSignals []string) (TracePlatform, string, float64, []string, []string) {
@@ -620,10 +648,10 @@ func normalizeQuery(idx *Index, q Query) Query {
 	if q.Limit <= 0 {
 		q.Limit = 40
 	}
-	if q.TimeStart == 0 && q.LineStart == 0 && idx != nil {
+	if q.TimeStart == 0 && !q.TimeStartSet && q.LineStart == 0 && idx != nil {
 		q.TimeStart = idx.FirstTs
 	}
-	if q.TimeEnd == 0 && q.LineEnd == 0 && idx != nil {
+	if q.TimeEnd == 0 && !q.TimeEndSet && q.LineEnd == 0 && idx != nil {
 		q.TimeEnd = idx.LastTs
 	}
 	if q.View == "wakeup_chain" && !q.IncludeWindowStats {
@@ -8653,15 +8681,65 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 	res.Source = "frame_timeline_ui_unique"
 	res.Confidence = 0.86
 	res.SelectedFrame = &selected
-	if q.FrameWindowAutoDerived {
-		if prevEnd, ok := previousFrameEndForTarget(frame, selected); ok && prevEnd < selected.Window.EndTs {
-			res.Window = TimeWindow{StartTs: prevEnd, EndTs: selected.Window.EndTs}
-			res.WindowSource = "previous_frame_end_to_current_frame_end"
+	if frameTargetShouldDeriveFrameWindow(q) {
+		prevEnd, ok := previousFrameEndForTarget(frame, selected)
+		if !ok && frameTargetQueryHasExplicitSelectorWindow(q) {
+			expandedFrame := BuildFrameTimeline(idx, frameTargetPreviousFrameSearchQuery(q, selected))
+			prevEnd, ok = previousFrameEndForTarget(expandedFrame, selected)
+		}
+		if ok && prevEnd < selected.Window.EndTs {
+			derived := TimeWindow{StartTs: prevEnd, EndTs: selected.Window.EndTs}
+			if frameTargetQueryHasExplicitSelectorWindow(q) {
+				res.Window = unionFrameTargetWindows(TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}, derived)
+				res.WindowSource = "explicit_query_union_previous_frame_end_to_current_frame_end"
+				res.Caveats = append(res.Caveats, fmt.Sprintf("frame_target_resolution preserved explicit query window %.6f..%.6f and unioned it with frame-derived window %.6f..%.6f", q.TimeStart, q.TimeEnd, derived.StartTs, derived.EndTs))
+			} else {
+				res.Window = derived
+				res.WindowSource = "previous_frame_end_to_current_frame_end"
+			}
 		} else {
 			res.Caveats = append(res.Caveats, "frame_target_resolution could not find previous frame end; preserving query window")
 		}
 	}
 	return res
+}
+
+func frameTargetShouldDeriveFrameWindow(q Query) bool {
+	if q.FrameWindowAutoDerived {
+		return true
+	}
+	return frameTargetQueryHasExplicitSelectorWindow(q)
+}
+
+func frameTargetQueryHasExplicitSelectorWindow(q Query) bool {
+	return strings.TrimSpace(firstNonEmpty(q.Pattern, q.SpanName)) != "" &&
+		queryExplicitTimeStart(q) &&
+		queryExplicitTimeEnd(q)
+}
+
+func frameTargetPreviousFrameSearchQuery(q Query, selected FrameTargetCandidate) Query {
+	searchQ := q
+	searchQ.TimeStart = selected.Window.StartTs - 0.250
+	if searchQ.TimeStart < 0 {
+		searchQ.TimeStart = 0
+	}
+	searchQ.TimeEnd = selected.Window.EndTs
+	searchQ.TimeStartSet = false
+	searchQ.TimeEndSet = false
+	searchQ.LineStart = 0
+	searchQ.LineEnd = 0
+	return searchQ
+}
+
+func unionFrameTargetWindows(a, b TimeWindow) TimeWindow {
+	out := a
+	if out.StartTs <= 0 || (b.StartTs > 0 && b.StartTs < out.StartTs) {
+		out.StartTs = b.StartTs
+	}
+	if b.EndTs > out.EndTs {
+		out.EndTs = b.EndTs
+	}
+	return out
 }
 
 func frameTargetResolutionCandidates(q Query, frame FrameTimelineResult) []FrameTargetCandidate {
