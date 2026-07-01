@@ -432,9 +432,9 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 - `trace_causal_projection_test.go`——多个用例覆盖 `CompileTraceCausalProjection` 的分桶/去重/排序逻辑。
 
 **未被任何测试覆盖的关键路径**:
-1. 没有一条测试把 `computeTraceMarks(idx, q, 8)` 的截断与语义 span 结合起来——即"窗口里有 8 条以上更长的普通 span,外加 1 条很短的 JIT span"这个场景,现在完全没有回归保护,§2.6.3 的口子随时可能被后续改动加重或减轻而不被发现。
-2. 没有一条测试贯穿到 `internal/render/renderer.go` 的最终 Markdown/HTML 渲染文本——所有测试都停在 `AnswerDocumentV2` 结构体层面,"确定性优化点"这个区块最终在用户看到的渲染稿里长什么样、会不会被摘要截断逻辑(如 `citation_quote_max_chars`、`SummaryCapConfig`)波及,没有验证。
-3. 没有端到端(analyzer→explore→extract→finalize 全链路)的 trace 丢帧场景 eval/fixture,现有测试全部是 `internal/tracequery`、`internal/tool`、`internal/types` 包内的单元测试。
+1. `computeTraceMarks(idx, q, 8)` 的"普通 Top-8 + 短语义 span sidecar"场景已由 v7 的 `TestComputeTraceMarksReservesSlotForShortSemanticSpanBehindLongerGenericSpans` 锁住,不再是未覆盖项。
+2. 仍没有一条测试贯穿到 `internal/render/renderer.go` 的最终 Markdown/HTML 渲染文本——所有测试都停在 `AnswerDocumentV2` 结构体层面,"确定性优化点"这个区块最终在用户看到的渲染稿里长什么样、会不会被摘要截断逻辑(如 `citation_quote_max_chars`、`SummaryCapConfig`)波及,没有验证。
+3. 仍没有端到端(analyzer→explore→extract→finalize 全链路)的 trace 丢帧场景 eval/fixture,现有测试主要是 `internal/tracequery`、`internal/tool`、`internal/types` 包内的单元测试和结构投影测试。
 
 仓库本身"无 linter、无 CI 配置"(CLAUDE.md 原文),意味着这些测试目前只在有人记得手动跑 `go test ./...` 时才生效,不能拦截无意中破坏这些不变量的未来改动。
 
@@ -443,9 +443,9 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 ## 4. 优化建议(按优先级排序)
 
 **O1(最高优先级,精确定位到代码行)—— ✅ v7 已修复 —— 让 `computeTraceMarks` 的 Top-N 截断感知语义类别。**
-现状:`internal/tracequery/query.go:4544-4549`,纯按 `DurationMs` 降序截 8 条。
-建议:在截断前先跑一遍 `traceSpanSemanticWorkClass` 分类,把命中 4 种语义类的 span 单独摘出、不占用普通 8 条名额,合并后再返回(例如"8 条普通 + 至多 N 条语义类,语义类不参与普通 8 条的时长排序竞争")。这样可以让 §2.6 已经建好的整条独立 handoff 链路(候选产生→typed observation→projection→"确定性优化点"渲染)真正做到"占比再低也不会在最上游被淘汰",而不是"占比不高但至少排进前 8 才行"。
-**v7 落地**:新增 `boundTraceMarkSpans`,语义 span 单独 cap=16,详见 §2.6.3。`TestComputeTraceMarksReservesSlotForShortSemanticSpanBehindLongerGenericSpans` 锁定。
+现状:当前 `computeTraceMarks` 仍先按 `DurationMs` 排序,但不再直接 `spans[:max]`;v7 新增 `boundTraceMarkSpans`,把普通 span 与语义 span 分桶截断:普通 span 仍保留 Top-8,命中 `traceSpanSemanticWorkClass` 的 JIT/VerifyClass/shader/runtime-compile span 走独立 `traceMarkSemanticSpanCap=16` sidecar。这样短语义 span 不再和普通长 span 抢 8 个名额,能进入后续 `trace_semantic_span` typed observation、`TraceCausalProjection.SemanticSpans` 与"确定性优化点"渲染链路。
+
+**v7 落地**:新增 `boundTraceMarkSpans`,语义 span 单独 cap=16,详见 §2.6.3。`TestComputeTraceMarksReservesSlotForShortSemanticSpanBehindLongerGenericSpans` 锁定。剩余不是 O1 本身,而是 O5:仍需端到端渲染/eval 看护,证明这些 typed semantic spans 最终在用户可见 Markdown/HTML 和真实 REPL 里不被摘要/渲染层吞掉。
 
 **O2 —— ❌ v7 复核后撤销(不是真缺口)—— 把碎片化状态的"非递归"例外从 sleep 推广到 runnable/D-state/IO-wait。**
 现状:`stateDrilldownNeedsWakeupChainForSource`(query.go:3943)只对 `state_churn + StateSSleep` 返回 `false`。
@@ -467,9 +467,10 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 现状:§2.5 指出投影不区分"落在用户原始窗口内"与"下钻过程中扩展查询到的相邻窗口"。
 建议:`TraceCausalProjectionNode` 已经有 `LineStart`/`LineEnd`/隐含的 `StartTs`/`EndTs`(via RichNotes),可以在投影阶段读取 `RequestModel`/`BusContext` 里是否存在用户声明的原始窗口,给每个节点补一个 `within_requested_window: bool` 或类似标记,渲染时把"用户窗口内的直接因果"和"为解释根因而下钻到窗口外的上游依赖"分两段呈现,而不是混在一个列表里。这能让"汇总投影回用户指定时间窗"这一步从隐式变显式。
 
-**O5(低成本、高价值)—— 补齐 §3 指出的两类回归测试空白。**
-1. 一条专门测试 `computeTraceMarks` 截断 + 语义 span 共存的用例(在 O1 落地前可以先写一条**红色**测试固化当前行为、暴露口子;O1 落地后转绿)。
-2. 一条从 `WindowStats.TraceSpans` 一路跑到 `internal/render/renderer.go` 渲染文本的端到端用例,确认"确定性优化点"区块不会被通用的 summary 截断/摘要逻辑吞掉。
+**O5(低成本、高价值)—— 补齐 §3 指出的端到端回归测试空白。**
+1. O1 的 `computeTraceMarks` 截断 + 语义 span 共存单元测试已由 v7 补齐。
+2. 仍需一条从 `WindowStats.TraceSpans` 一路跑到 typed observation / `TraceCausalProjection` / final render 的端到端用例,确认"确定性优化点"区块不会被通用的 summary、projection cap 或 answer supplement 截断/摘要逻辑吞掉。
+3. 仍需一条 analyzer→explore→extract→finalize 全链路 trace 丢帧 eval/fixture,覆盖"短语义 span + 多窗口/多层唤醒链 + 最终答案可见"的用户侧交付面。
 
 **O6(文档性,不涉及代码)—— 在 `docs/architecture.md` §7.2 或新增一节里补充 trace_query 的分层下钻方法论。**
 现状 `docs/architecture.md` 只描述了 perf_triage 前置阶段,`trace_query` 这个约 22000 行、承载了本文档描述的几乎全部机制的核心引擎,在架构文档里没有对应章节。建议后续补一节纲要性描述(不需要本文档这么细),至少让新加入的开发者知道"状态优先 Top-N""on-chain 递归""语义 span 独立通道"这三个设计存在,避免未来重复发明或无意破坏。
@@ -546,3 +547,5 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 **v5 修订说明**:继续复核"补充块最多 6 条"后发现另一条 typed handoff 仍停在旧上限:`Typed Exploration Enrichment Facts` 的 `FlowFindings` / `Flow/source-sink rows`。这不是 trace causal projection 本身,但它承载探索阶段已经落地的 typed flow/source-sink 证据,在多窗口、多层唤醒链、跨组件调用链场景中同样可能把第 7 层之后的链路从 finalizer prompt 中挤掉。本批把 trace/root-cause 请求的 flow supplement 扩到 12 条,跨组件/调用链请求保留 8 条 preferred surface,普通请求仍保持 3 条小默认值。该通道仍是 bounded prompt/handoff,不是 completion hard gate;只消费 `FlowFindingDigest` 和 typed request intent/family/predicate enums,不解析用户原文、模型散文、工具 summary、localized UI 或 eval label。
 
 **v6 修订说明**:审计期间发现本文档在此期间被并行地(基线 `4e53584d` → `4d5467a4`,共 7 个提交,其中 `264f0cd7`/`ae8fc57f`/`4d5467a4` 三次直接改了本文档自身,详见上面 v4/v5 段)持续更新,已用 `git reset --hard origin/main` 对齐到最新版本,不覆盖已有内容。v6 新增 R8/R9 两条规则(§背景)与对应审计 §2.9、新优化建议 O9/O10、附录索引新增 4 行。R8/R9 的判定不依赖前面几轮已经改动的 cap 数值(那些改的是 trace causal projection 的候选保留条数,和窗口边界计算是两回事),因此本轮结论与 §2.6.2 记录的最新 cap 数值不冲突。
+
+**v8 复核说明**:按当前代码再次复核 `ae8fc57f6 fix: expand trace causal handoff capacity` 与远端最新 `d0eddd6c7 docs: update trace audit doc with v7 fix status` 后确认,容量扩展机制仍在: `TraceCausalProjection` 的 primary/on-chain/context/semantic/supporting-hops cap 分别为 10/24/8/16/10,最终 `runtime_trace_causal_projection` 动态上限为 48,`trace_query 关键观测核对`上限为 40,链路分层摘要每类展示 4 个代表节点。此前 O1 的上游选择保真也已由 v7 的 `boundTraceMarkSpans` 修复,不再登记为 open gap。当前剩余要扩充的是 O5:端到端渲染/eval 仍需补,确保这些 typed semantic spans 不只在内部结构中存活,也能稳定出现在用户可见答案里。
