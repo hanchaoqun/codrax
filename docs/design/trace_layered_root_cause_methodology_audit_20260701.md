@@ -4,18 +4,33 @@
 >
 > **v2 更新**:补充审计 on-chain 三种终止状态(Runnable/Running/D-state·IO-wait)各自"下一跳"应识别的具体根因——Runnable 的优先级反转(含鸿蒙/东湖优先级语义)、Running 的算力供给与 perf_sample/代码对照深挖、IO 的聚类 inode 定位。发现原先 §2.3/§4-O3 把这三个状态一概判定为"终止节点、无下一跳"过于笼统:实际上 `buildRootCauseRankFrom` 用了一种**不同于 `expandChain` 图遍历的并行独立候选流 + on-chain 线程集合过滤**模式,已经让算力供给(compute_supply)和聚类 inode(file_io_hot_inode/block_io_by_inode)在依赖线程本身或已被 sleep 链发现的线程上生效;唯独 Runnable 的优先级比较未被同样接入。详见 §2.3.1-§2.3.3(新增)与修订后的 §4-O3。
 
+## 背景:用户目标方法论(原始需求逐条整理)
+
+本节是对用户在多轮对话中提出的目标方法论的**逐条规则化整理**,是本文档其余部分的审计基准(下文 §2 每个小节标题都标注了对应规则编号)。原始表述是自然语言,以下整理为可逐条对照代码检查的规则,不改变原意。
+
+- **R1(触发条件)**:当用户的丢帧分析请求已经把具体信息固化下来——某一帧、或某一线程的时间窗(即线程 ID + 时间窗已确定)——分析丢帧原因时,必须由主链(on-chain)分析触发真正的根因下钻,而不是停留在浅层分析。
+- **R2(第一层·最长状态必分析)**:第一步,对用户关注的线程做一次快速的线程状态查询,找出整个时间窗里各状态(running / runnable / sleep / IO 等)中时长最长的状态,对其进行根因分析;分析结果必须 typed 化,并 handoff 给下游。
+- **R3(第二/第三…层·显著才分析)**:时长第二长的状态,只有当它的时长**显著**(占比高)时才需要做根因分析并 typed 化 handoff;不显著则不需要。第三长、第四长……以此类推,直到 Top-N 个状态都按"是否显著"判断完毕。每一个够格的状态都作为"这一层"的主要关注点,单独进行根因分析。
+- **R4(碎片化状态聚类·不下钻但要 handoff)**:对每一层(即每个被下钻到的线程),整个窗口内经过**碎片化状态聚类**(频繁切换、单次都不长,但累计起来时长很长)后排在 Top-N 的状态,**不需要**做递归下钻分析(避免下钻范围无限扩散);但这个维度的分析结论仍然要 typed 化 handoff 到最终答案里——"单次持续时长最长的状态"和"频繁切换但聚类累计后最长的状态"是两个不同维度,都不能丢信息。
+- **R5(on-chain 关联线程递归下钻,含三个状态的下一跳细则)**:对每一层已识别的根因,要在 on-chain 关联线程上继续递归下钻,每一层采用与该层状态对应的分析方法,递归直到追到真正的根因为止。三类终止状态各自的下一跳要求:
+  - **R5a(Runnable 下一跳)**:要能识别出**优先级反转**作为根因,并且要考虑**鸿蒙(HarmonyOS)/东湖(Donghu)场景的优先级语义**(与 Android 等平台不同,不能套用同一套比较规则)。
+  - **R5b(Running 下一跳)**:要能识别出**算力供给**等根因,并支持基于 **perf_sample 的更深入分析**,或**与代码进行对照**。
+  - **R5c(IO 下一跳)**:要能识别出具体的、经过**聚类的 inode**(如果 trace 里有相关数据)。
+- **R6(时间窗内投影汇总 + 最终总结)**:逐层根因分析全部完成后,要把所有结论在用户最初指定的时间窗内做一次汇总投影,再产出一次汇总提炼后的最终总结。
+- **R7(JIT/VerifyClass/shader 特殊通道)**:在对 on-chain 每一层做分析时,还要关注该层 on-chain 链路上出现的特殊 span——例如(东湖等)trace 场景里常见的 JIT 编译、VerifyClass(类校验)、shader 编译。这些 span 即便占比不高,也必须走一条**独立的特殊通道**处理;在不影响、不干扰其它通用根因分析逻辑的前提下,把它们作为"另一面"信息**强制** handoff 到最终答案里提及——因为这些是确定性的、可直接优化的点,需要提醒用户去解决。
+
 ## 0. 结论摘要
 
 用户提出的目标方法论有 7 个核心要求。现状实现是**一个真实存在、比表面看起来更完整的确定性子系统**,但不是按"LLM 每层手动重新发起状态查询"的方式实现的——而是把大部分逻辑下沉成了 Go 引擎里的确定性计算 + 事后自动注入,LLM 主要负责"调用 trace_query"和"写叙述性总结"两件事。逐条满足度:
 
-| # | 要求 | 满足度 | 一句话 |
+| # | 要求(对应规则) | 满足度 | 一句话 |
 |---|---|---|---|
-| 1 | 窗口内各状态时长 Top-N 识别 + typed handoff | **基本满足** | `buildStateDrilldownPlan` 是真实的窗口级 Top-N,但没有"占比阈值",只有数量硬顶(12) |
-| 2 | 碎片化状态聚类后 Top-N 不递归但仍 typed handoff | **部分满足** | 只对"碎片化 sleep"做了非递归例外,碎片化 runnable/D-state/IO 的 `Recursive` 标志仍是 true(标签层面),但底层引擎本来就不会为它们递归(见 #3) |
-| 3 | on-chain 关联线程递归下钻直到根因 | **部分满足,比初判更完整** | `expandChain` 图遍历只对 Sleep→Wakeup 边递归(MaxDepth=10,带环检测);但 Running(算力供给)和 D-state/IO(聚类 inode)通过另一条"并行独立候选流 + on-chain 线程过滤"机制已经把下一跳根因接了上去,唯独 Runnable 的优先级反转比较**没有**接入同一机制,是本次 v2 审计定位到的唯一精确缺口(§2.3.1) |
-| 4 | 固化线程ID+时间窗触发主链根因下钻(而非浅层 grep) | **架构性满足(soft-guidance-by-design)** | 没有 typed pin 载体和硬门,只有 prompt 软引导"prefer trace_query before grep";但这本身符合仓库自己的"精确信号才能做硬门"红线,不算缺陷 |
-| 5 | 逐层根因分析后,在用户时间窗内投影汇总 + 最终总结 | **基本满足** | `TraceCausalProjection` 是真实的、跨越整个 Turn A 调用历史的确定性聚合,并且**无条件自动注入**到最终答案文档(不依赖 LLM 主动引用);但不显式裁剪到用户最初声明的时间窗,且注入的是结构化 fact sheet 而非叙述性总结 |
-| 6 | JIT/VerifyClass/shader 特殊通道,占比再低也必须 handoff,且不干扰通用根因分析 | **基本满足,审计期间刚被强化** | 审计过程中,仓库在 `ed109f7f`(09:20)新增了完全独立于 `root_cause_rank` 排名的 `trace_semantic_span` typed observation 通道 + 专属"确定性优化点"渲染区块,并有 golden test 证明"即使不进 root_cause_rank 候选池也照样 handoff"。**唯一仍未解决的口子**:更上游的 `computeTraceMarks(idx, q, 8)` 仍按原始时长硬顶 8 条,不感知语义类别,极端情况下短 JIT span 可能在语义分类之前就被淘汰 |
+| 1 | 窗口内各状态时长 Top-N 识别 + typed handoff(R2/R3) | **基本满足** | `buildStateDrilldownPlan` 是真实的窗口级 Top-N,但没有"占比阈值",只有数量硬顶(12) |
+| 2 | 碎片化状态聚类后 Top-N 不递归但仍 typed handoff(R4) | **部分满足** | 只对"碎片化 sleep"做了非递归例外,碎片化 runnable/D-state/IO 的 `Recursive` 标志仍是 true(标签层面),但底层引擎本来就不会为它们递归(见 #3) |
+| 3 | on-chain 关联线程递归下钻直到根因(R5/R5a/R5b/R5c) | **部分满足,比初判更完整** | `expandChain` 图遍历只对 Sleep→Wakeup 边递归(MaxDepth=10,带环检测);但 Running(算力供给)和 D-state/IO(聚类 inode)通过另一条"并行独立候选流 + on-chain 线程过滤"机制已经把下一跳根因接了上去,唯独 Runnable 的优先级反转比较**没有**接入同一机制,是本次 v2 审计定位到的唯一精确缺口(§2.3.1) |
+| 4 | 固化线程ID+时间窗触发主链根因下钻(而非浅层 grep)(R1) | **架构性满足(soft-guidance-by-design)** | 没有 typed pin 载体和硬门,只有 prompt 软引导"prefer trace_query before grep";但这本身符合仓库自己的"精确信号才能做硬门"红线,不算缺陷 |
+| 5 | 逐层根因分析后,在用户时间窗内投影汇总 + 最终总结(R6) | **基本满足** | `TraceCausalProjection` 是真实的、跨越整个 Turn A 调用历史的确定性聚合,并且**无条件自动注入**到最终答案文档(不依赖 LLM 主动引用);但不显式裁剪到用户最初声明的时间窗,且注入的是结构化 fact sheet 而非叙述性总结 |
+| 6 | JIT/VerifyClass/shader 特殊通道,占比再低也必须 handoff,且不干扰通用根因分析(R7) | **基本满足,审计期间刚被强化** | 审计过程中,仓库在 `ed109f7f`(09:20)新增了完全独立于 `root_cause_rank` 排名的 `trace_semantic_span` typed observation 通道 + 专属"确定性优化点"渲染区块,并有 golden test 证明"即使不进 root_cause_rank 候选池也照样 handoff"。**唯一仍未解决的口子**:更上游的 `computeTraceMarks(idx, q, 8)` 仍按原始时长硬顶 8 条,不感知语义类别,极端情况下短 JIT span 可能在语义分类之前就被淘汰 |
 | 7 | 测试覆盖 / load-bearing 程度 | **中等,呈碎片化** | 单元测试丰富且断言具体(非仅 JSON 存在性),但没有一条贯穿"低影响 JIT span → 候选产生 → 排序截断 → finalize → 最终渲染文本"的端到端 golden fixture;仓库无 CI,回归全靠人工 `go test` |
 
 审计期间(约 2026-07-01 02:44 – 09:38)仓库有 20+ 次相关提交,说明该子系统正处于**主动收敛**状态,而不是静止的历史欠账;#6 的核心口子在审计过程中被实时补上,这提示优化方向本身与仓库现有开发节奏是一致的。
@@ -61,7 +76,7 @@ internal/tool/answer_document_mutation_runtime.go
 
 ## 2. 逐条方法论 vs 现状机制详解
 
-### 2.1 窗口内状态时长 Top-N(要求 1)
+### 2.1 窗口内状态时长 Top-N(要求 1,对应 R2/R3)
 
 核心函数:`buildStateDrilldownPlan`(`internal/tracequery/query.go:3802`)。
 
@@ -91,7 +106,7 @@ addDuration("top_d_state",  StateDSleep,  stats.DStateTop)
 
 这精确对应用户"每一层都采用对应的分析方法"的要求。
 
-### 2.2 碎片化状态聚类、非递归、但仍 typed handoff(要求 2)
+### 2.2 碎片化状态聚类、非递归、但仍 typed handoff(要求 2,对应 R4)
 
 `state_churn` 是独立于上面 5 个 Top 列表的第二个信息维度,代表"单次最长的连续状态"(`top_sleep` 等)之外的"频繁切换但聚类累计后最长"的状态(`ThreadStateChurnSummary`,由碎片检测 `isFragmentedSleepChurn` 等判定,query.go:3899)。`buildStateDrilldownPlan` 同时把两者都纳入候选池,`Source` 字段区分(`top_sleep` vs `state_churn`),**两个维度都会各自产出一条 typed `StateDrilldownStep`,不会互相覆盖**——这正是用户强调的"某状态持续时长最长"和"状态频繁切换但聚类累计后最长"两个维度都不丢失信息的要求。
 
@@ -111,7 +126,7 @@ func stateDrilldownNeedsWakeupChainForSource(state, source string) bool {
 
 **缺口**:碎片化 runnable / D-state / IO-wait churn 目前仍落到 `stateDrilldownNeedsWakeupChain(state)` 的通用分支,对 Runnable/DSleep/IOWait 返回 `true`,也就是 `Recursive: true`。但见 §2.3,底层 `expandChain` 引擎本来就只对 Sleep 状态真正递归,所以这个 `Recursive: true` 标签对碎片化 runnable/D-state/IO-wait 而言存在"言过其实"的问题:调用方看到 `recursive: true` 可能会尝试进一步下钻,但引擎侧并没有对应的确定性递归路径承接。建议把 `stateDrilldownNeedsWakeupChainForSource` 的 sleep-only 特判**推广到所有 state_churn 来源**,与"碎片化状态一律不递归"的意图对齐,同时保留 typed handoff(这部分已经做到)。
 
-### 2.3 on-chain 关联线程递归下钻(要求 3)
+### 2.3 on-chain 关联线程递归下钻(要求 3,对应 R5)
 
 核心函数:`expandChain`(`internal/tracequery/query.go:9920`)。这是一个**真正的服务端确定性递归**,不依赖 LLM 多次调用工具:
 
@@ -139,7 +154,7 @@ case StateRunning:
 
 **递归只在 `StateSSleep` 分支真正调用自身**(`expandChain(...depth+1...)`)。当锚定线程(或链上任意一跳线程)的主导状态是 Runnable/D-state·IO-wait/Running 时,`expandChain` 本身把它当作图遍历的终止节点。但这**不等于**"这三种状态就没有下一跳根因分析"——`buildRootCauseRankFrom` 另外维护了一套**并行独立候选流**(compute_supply、cpu_affinity_or_cpuset、file_io_hot_inode、block_io_by_inode、page_cache_churn 等),每条候选都用 `onChain := threadInSet(chainThreads, thread)` 检查该候选的线程是否等于锚定目标本身或已被 sleep 链发现的线程,命中则以 `on_chain` 优先级进入统一排序。也就是说:对"锚定线程自己"这一层(depth=0,天然在 `chainThreads` 里),Running/D-state/IO 已经有实质性的下一跳数据;真正的空白只在"是否识别出优先级反转"这一件事上(Runnable,§2.3.1)。以下按状态逐一说明现状,对应用户这次追加的三点要求。
 
-#### 2.3.1 Runnable 下一跳:优先级反转(含鸿蒙/东湖优先级语义)——**确认为精确缺口**
+#### 2.3.1 Runnable 下一跳:优先级反转(含鸿蒙/东湖优先级语义,对应 R5a)——**确认为精确缺口**
 
 基础设施是真实存在的,而且**已经正确区分了鸿蒙/东湖与 Android 的优先级语义**:
 
@@ -179,7 +194,7 @@ for _, td := range stats.RunnableTop {
 
 **结论**:优先级反转判定的算法原语(含鸿蒙/东湖语义区分)已经写好且被验证过(在 sleep 链场景下),只是没有被接到"目标线程自己直接 Runnable"这条最常见的路径上。这是本次 v2 审计里最精确、最容易修的一个缺口——不需要新造机制,只需要把已有的 `dependencyPriorityRelation` 喂给 `runnable_wait`/`cpu_affinity_or_cpuset` 候选构造,对象是 `appendRootCauseRunnableCompetitorPerfContexts` 已经找到的同 CPU 竞争者。见 §4-O3a。
 
-#### 2.3.2 Running 下一跳:算力供给 + perf_sample 深挖 + 代码对照——**基本满足,一处架构性权衡**
+#### 2.3.2 Running 下一跳:算力供给 + perf_sample 深挖 + 代码对照(对应 R5b)——**基本满足,一处架构性权衡**
 
 算力供给(compute supply)根因分类是真实、有实质判据的,而且同时覆盖 Running 和 Runnable 两种状态(`computeSupplySummaries`,query.go:3231-3298),核心是 `computeSupplyVerdict`(query.go:3300-3320):
 
@@ -201,13 +216,13 @@ perf_sample 的"更深入分析"同样是真实存在的能力:`perf_stats`/`per
 
 **"对照代码"这一步是刻意不自动化的架构选择,而非疏漏**:全仓搜索没有"perf 符号自动解析到当前仓库源码位置"的机制;`internal/skill/defaults.go` 里明确写着 trace_query 的结果"是 runtime-artifact evidence with artifact-local line numbers;do NOT turn trace rows into current-source citations unless separate source evidence proves a current checkout fact"。也就是说,把一个 perf 符号/DSO 变成"当前仓库里第几行代码"必须由 LLM 另外发起一次 `grep`/`read_file` 独立验证,系统不会替它把两者直接拼接——这是防止"trace 里的符号名"和"当前签出代码"因为版本漂移而被误当成同一个事实的既有红线(与 §2.6.3 讨论的"trace 证据 vs 当前源码证据"边界是同一条原则)。这一点判定为**符合架构原则的设计取舍**,不列为缺口,但可以考虑 §4-O3b 的软引导加强,让 LLM 更稳定地记得做这一步。
 
-#### 2.3.3 IO 下一跳:聚类 inode 定位——**满足度最高**
+#### 2.3.3 IO 下一跳:聚类 inode 定位(对应 R5c)——**满足度最高**
 
 `stats.FileIOByInode`(`FileIOSummary`,按 `dev+inode+operation` 聚类,含 `Count`/`CompletionCount`/`Bytes`/`TotalLatencyMs`/`MaxLatencyMs`/`MinOffset`/`MaxOffset`)和 `stats.BlockIOByInode`(`BlockIOByInodeSummary`,把 inode 活动和最近的 block/storage 延迟拼在一起)都是真正的"按 inode 分组聚合"结果,不是原始事件的罗列。两者都在 `buildRootCauseRankFrom` 里各自独立构造 `file_io_hot_inode`(query.go:6594-6613)、`block_io_by_inode`(query.go:6658-6669)候选,同样走 `onChain := threadInSet(chainThreads, ...)` 过滤,附带具体 `inode=`/`dev=`/`op=`/`count=`/`bytes=`/`name=` 字段而非笼统的"该线程在等 IO"。`page_cache_churn`(query.go:6614-6626)和 `io_pressure`(:6627-6641)补充页缓存和聚合压力两个相邻维度。
 
 这一条是本次 v2 追加的三点里满足度最高的:锚定线程(或已被 sleep 链发现的线程)一旦在 D-state/IO-wait,只要该窗口内有对应的 file_io/block_io 记录,`root_cause_rank` 就会把具体 inode 级候选和通用的 `io_wait`/`d_state_or_io_wait` 候选一起呈现,不需要额外改动。唯一值得注意的边界:这些候选的产生依赖 `stats.FileIOByInode`/`BlockIOByInode` 本身有没有数据(即 trace 是否包含对应的 F2FS/EXT4/block 事件),数据缺失时候选自然为空,这是数据源限制而非机制缺陷。
 
-### 2.4 typed handoff 全链路(要求 1/2/3 共同的基础设施)
+### 2.4 typed handoff 全链路(要求 1/2/3 共同的基础设施,对应 R2/R3/R4/R5)
 
 从"计算出一个状态优先级"到"进入最终答案"要经过 4 层,每层都是 typed,没有裸文本推理环节:
 
@@ -218,7 +233,7 @@ perf_sample 的"更深入分析"同样是真实存在的能力:`perf_stats`/`per
 
 这条链路是本审计中确认"typed 且不丢信息"要求满足度最高的部分——从引擎输出到最终文档区块,信息载体全程是结构化字段,LLM 唯一必须做对的事情是"调用 trace_query"本身,而不需要在自己的自然语言输出里正确复述这些数字。
 
-### 2.5 时间窗投影汇总 + 最终总结(要求 5)
+### 2.5 时间窗投影汇总 + 最终总结(要求 5,对应 R6)
 
 核心机制:`TraceCausalProjection`(`internal/types/trace_causal_projection.go`)+ `materializeRuntimeTraceCausalProjectionBlock`(`internal/tool/answer_document_mutation_runtime.go:664`)。
 
@@ -251,7 +266,7 @@ if materializeRuntimeTraceCausalProjectionBlock(merged, ctx) {
 1. **不显式裁剪到用户最初声明的时间窗**。`CompileTraceCausalProjection` 只是把 Turn A 期间"查询过的"观测全部聚合,不会反向校验/裁剪到用户最初指定的 `time_start`/`time_end`。如果 LLM 中途查询了超出原始窗口的相邻窗口(这在递归下钻到 on-chain 上游线程时是常见且合理的),这些结果也会被并入投影,没有"最终只保留落在用户原始窗口内"的显式收口步骤。这本身不算错(下钻到窗口外的因果源是必要的),但意味着"汇总投影回用户指定时间窗"这一步目前是隐式的(靠 LLM 查询纪律),不是显式强制的。
 2. **区块是结构化条目列表,不是叙述性总结**。`runtimeTraceCausalProjectionItems` 产出的是 `primary`/`co_primary`/`semantic_span`/`supporting_hop` 打标签的条目(每条一行文本 + 数值),配一句"怎么读"的引导语,本质是一份"事实清单附录",不是用户要求的"一次汇总后的总结提炼"这种叙事性 mechanism 解释。真正的叙述性总结仍然要靠 LLM 在 `summary` block 里自己写,系统只提供软引导(`answer_document_evaluator.go` 里的 handoff hint,要求"preserve ... visibly",非强制校验)。
 
-### 2.6 JIT / VerifyClass / shader 特殊通道(要求 6,用户最关心)
+### 2.6 JIT / VerifyClass / shader 特殊通道(要求 6,对应 R7,用户最关心)
 
 这是本次审计中变化最快的部分,分两层说:**候选产生层**(相对稳定)和**最终 handoff 层**(审计当天被重构)。
 
@@ -304,7 +319,7 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 
 如果一个窗口里同时存在 8 条以上耗时更长的普通具名 span(比如 `Choreographer#doFrame`、`RSRenderTask` 等常见渲染管线 span)和一条耗时很短的 `JIT compile`/`VerifyClass` span,后者会在语义分类逻辑跑之前就被排除出 `stats.TraceSpans`,从而**永远不会**进入 §2.6.2 描述的独立通道,也不会进入 §2.6.1 的 root_cause_rank 候选池。这是当前审计范围内**唯一残留的、精确定位到具体代码行的口子**,详见 §4 优化建议 O1。
 
-### 2.7 固化线程ID+时间窗触发深度下钻(要求 4)
+### 2.7 固化线程ID+时间窗触发深度下钻(要求 4,对应 R1)
 
 全仓搜索确认:没有一个跨阶段传递的 typed "PinnedThread"/"PinnedWindow" 载体。`frame_target_resolution`(`trace_observation_coverage.go:10`)、`ResolveFrameTarget`(query.go:8601)都只是**单次 trace_query 调用内部**的锚点解析,不是跨调用持久化的固化事实。用户在自然语言里说"看看这个线程在这个时间窗为什么丢帧",这个"线程ID+时间窗"是否被后续调用复用,完全取决于 LLM 自己在每次调用时手动传入相同的 `pid`/`time_start`/`time_end` 参数——工具描述里有一句提醒("Once a result reports selected_window ... keep that same time_start/time_end ... on every follow-up ... view"),但这是 prompt 软引导,不是运行时校验。
 
