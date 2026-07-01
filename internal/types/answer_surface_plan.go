@@ -1611,7 +1611,7 @@ func effectiveCurrentStatusDiagnosticRequired(ir *AnalysisIR) bool {
 		return false
 	}
 	if ir.RequestModel.HasExternalOnlyRuntimeArtifact() || ir.RequestModel.HasExternalObservationArtifactReference() {
-		return ir.RequestModel.CurrentSourceLaneDecision().RequiresCurrentSource()
+		return RuntimeSourceRequestCurrentSourceRequirementPrecision(&ir.RequestModel, TurnRouteHint{}) == RuntimeSourceRequirementPrecise
 	}
 	return true
 }

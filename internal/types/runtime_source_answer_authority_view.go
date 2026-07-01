@@ -326,6 +326,21 @@ func RuntimeSourceRequestCurrentSourceRequirementPrecision(rm *RequestModel, hin
 	return runtimeSourceAuthorityRequirementPrecision(rm, hint, required)
 }
 
+// RuntimeSourceRequestCurrentSourceRequirementPrecisionForContract extends the
+// request-only precision helper with answer-contract signals that are already
+// typed and precise. It is for fallback chokepoints that must preserve
+// AnswerContract hard obligations before an ObservationLedger-backed authority
+// is active.
+func RuntimeSourceRequestCurrentSourceRequirementPrecisionForContract(rm *RequestModel, hint TurnRouteHint, contract *AnswerContract) RuntimeSourceRequirementPrecision {
+	if rm != nil && rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return RuntimeSourceRequirementNone
+	}
+	if typesContractRequiresCurrentSource(contract) {
+		return RuntimeSourceRequirementPrecise
+	}
+	return RuntimeSourceRequestCurrentSourceRequirementPrecision(rm, hint)
+}
+
 // RuntimeSourceRequestSuppressesCurrentSourceAnswerContract reports whether a
 // runtime/external-observation request should avoid creating current-source
 // exact-resolution or required-anchor answer contracts. Soft current-source

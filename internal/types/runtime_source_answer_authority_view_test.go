@@ -171,6 +171,39 @@ func TestRuntimeSourceRequestSuppressesCurrentSourceAnswerContract_ExternalObser
 	}
 }
 
+func TestRuntimeSourceRequestCurrentSourceRequirementPrecisionForContract(t *testing.T) {
+	rm := &RequestModel{
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+		},
+	}
+	contract := &AnswerContract{
+		CurrentStatusDiagnostic: &CurrentStatusDiagnosticContract{Required: true},
+	}
+	if got := RuntimeSourceRequestCurrentSourceRequirementPrecisionForContract(rm, TurnRouteHint{}, contract); got != RuntimeSourceRequirementPrecise {
+		t.Fatalf("typed current-status contract should remain precise, got %s", got)
+	}
+
+	rm.ExternalObservationPolicy.CurrentSourceMode = ExternalObservationCurrentSourceExclude
+	rm.ExternalObservationPolicy.ExclusionKind = ExternalObservationSourceExclusionExplicitUserBoundary
+	rm.ExternalObservationPolicy.SourceQuotes = []string{"不要分析代码"}
+	if got := RuntimeSourceRequestCurrentSourceRequirementPrecisionForContract(rm, TurnRouteHint{}, contract); got != RuntimeSourceRequirementNone {
+		t.Fatalf("explicit external-observation source exclusion should win, got %s", got)
+	}
+
+	rm.ExternalObservationPolicy.CurrentSourceMode = ExternalObservationCurrentSourceDefault
+	rm.ExternalObservationPolicy.ExclusionKind = ""
+	rm.ExternalObservationPolicy.SourceQuotes = nil
+	rm.CurrentSourceExplanationProfile = &CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		SourceQuotes:                        []string{"current parser mechanism"},
+		Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+	}
+	if got := RuntimeSourceRequestCurrentSourceRequirementPrecisionForContract(rm, TurnRouteHint{}, nil); got != RuntimeSourceRequirementSoft {
+		t.Fatalf("unanchored current-source profile should stay soft without a precise contract, got %s", got)
+	}
+}
+
 func TestRuntimeSourceAnswerAuthoritySnapshot_PathAnchoredCurrentSourceProfileCanHardBlock(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
 	rm := &RequestModel{

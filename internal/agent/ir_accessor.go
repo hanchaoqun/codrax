@@ -334,7 +334,11 @@ func originSpecificCompletionCurrentSourceBlockedForExplorer(ctx *types.AgentCon
 	if authority.Active && authority.CurrentSourceRequirement != types.RuntimeSourceRequirementNone {
 		return authority.KeepsCurrentSourceLaneLoadBearing()
 	}
-	return rm.RequiresCurrentSourceForExternalObservation(&ctx.AnalysisIR.AnswerContract)
+	return types.RuntimeSourceRequestCurrentSourceRequirementPrecisionForContract(
+		&rm,
+		ctx.TurnRouteHint,
+		&ctx.AnalysisIR.AnswerContract,
+	) == types.RuntimeSourceRequirementPrecise
 }
 
 func observationOnlyRuntimeArtifactForAnalyzer(ctx *types.AgentContext) bool {

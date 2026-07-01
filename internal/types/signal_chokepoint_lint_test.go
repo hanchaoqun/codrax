@@ -221,8 +221,7 @@ func TestRuntimeSourceAuthorityLegacyHelpersStayInFallbackChokepoints(t *testing
 }
 
 var runtimeSourceLegacyHelperFallbackChokepoints = map[string]bool{
-	"../agent/ir_accessor.go::originSpecificCompletionCurrentSourceBlockedForExplorer": true,
-	"../tool/emit_investigation_complete.go::currentSourceForcedReadGatesApply":        true,
+	"../tool/emit_investigation_complete.go::currentSourceForcedReadGatesApply": true,
 }
 
 func findRuntimeSourceLegacyHelperBypasses(f *ast.File, fset *token.FileSet, path string) []string {
@@ -258,12 +257,7 @@ func isRuntimeSourceLegacyHelperCall(call *ast.CallExpr) bool {
 	case "RequiresCurrentSourceForExternalObservation":
 		return true
 	case "RequiresCurrentSource":
-		receiver, ok := sel.X.(*ast.CallExpr)
-		if !ok {
-			return false
-		}
-		receiverSel, ok := receiver.Fun.(*ast.SelectorExpr)
-		return ok && receiverSel.Sel != nil && receiverSel.Sel.Name == "CurrentSourceLaneDecision"
+		return true
 	default:
 		return false
 	}
@@ -277,14 +271,17 @@ func bad(r interface{ RequiresCurrentSourceForExternalObservation(any) bool }) b
 func bad2(r interface{ CurrentSourceLaneDecision() interface{ RequiresCurrentSource() bool } }) bool {
 	return r.CurrentSourceLaneDecision().RequiresCurrentSource()
 }
+func bad3(l interface{ RequiresCurrentSource() bool }) bool {
+	return l.RequiresCurrentSource()
+}
 `
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "bad.go", src, 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if got := findRuntimeSourceLegacyHelperBypasses(f, fset, "bad.go"); len(got) != 2 {
-		t.Fatalf("detector must flag both legacy helper calls, got %d: %v", len(got), got)
+	if got := findRuntimeSourceLegacyHelperBypasses(f, fset, "bad.go"); len(got) != 3 {
+		t.Fatalf("detector must flag all legacy helper calls, got %d: %v", len(got), got)
 	}
 
 	allowed := `package p

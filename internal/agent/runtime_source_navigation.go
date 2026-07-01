@@ -42,7 +42,10 @@ func runtimeSourceNavigationPhaseForExplorer(ctx *types.AgentContext, traceQuery
 		if authority.Active {
 			view.SourceOwnerRequired = authority.KeepsCurrentSourceLaneLoadBearing()
 		} else {
-			view.SourceOwnerRequired = view.CurrentSourceLane.RequiresCurrentSource()
+			view.SourceOwnerRequired = types.RuntimeSourceRequestCurrentSourceRequirementPrecision(
+				rm,
+				ctx.TurnRouteHint,
+			) == types.RuntimeSourceRequirementPrecise
 		}
 	}
 	view.TraceQueryAvailable = traceQueryInCurrentSurface && traceQueryToolAvailable(ctx)
