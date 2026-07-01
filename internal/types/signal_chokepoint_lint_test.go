@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -196,7 +197,7 @@ func toolFold(r struct{ ToolName string }) bool { return strings.EqualFold(r.Too
 // soft obligations downgrade to bounded caveats while precise obligations remain
 // load-bearing.
 func TestRuntimeSourceAuthorityLegacyHelpersStayInFallbackChokepoints(t *testing.T) {
-	dirs := []string{"../agent", "../tool", "../orchestrator"}
+	dirs := runtimeSourcePolicyProductionDirs(t)
 	fset := token.NewFileSet()
 	var violations []string
 	for _, dir := range dirs {
@@ -221,6 +222,27 @@ func TestRuntimeSourceAuthorityLegacyHelpersStayInFallbackChokepoints(t *testing
 }
 
 var runtimeSourceLegacyHelperFallbackChokepoints = map[string]bool{}
+
+func runtimeSourcePolicyProductionDirs(t *testing.T) []string {
+	t.Helper()
+	entries, err := os.ReadDir("..")
+	if err != nil {
+		t.Fatalf("read internal dirs: %v", err)
+	}
+	skip := map[string]bool{
+		"thirdparty": true,
+		"types":      true,
+	}
+	var dirs []string
+	for _, entry := range entries {
+		if !entry.IsDir() || skip[entry.Name()] {
+			continue
+		}
+		dirs = append(dirs, filepath.ToSlash(filepath.Join("..", entry.Name())))
+	}
+	sort.Strings(dirs)
+	return dirs
+}
 
 func findRuntimeSourceLegacyHelperBypasses(f *ast.File, fset *token.FileSet, path string) []string {
 	var out []string
@@ -386,7 +408,7 @@ func unrelated(r interface{ HasRuntimeArtifactWithoutRequiredCurrentSource() boo
 // to cap required-file reads. New mixed runtime/source consumers must use the
 // shared authority carrier helpers instead.
 func TestRuntimeSourceStaticMixedShapeStaysInFallbackChokepoints(t *testing.T) {
-	dirs := []string{"../agent", "../tool", "../orchestrator", "../context"}
+	dirs := runtimeSourcePolicyProductionDirs(t)
 	fset := token.NewFileSet()
 	var violations []string
 	for _, dir := range dirs {
