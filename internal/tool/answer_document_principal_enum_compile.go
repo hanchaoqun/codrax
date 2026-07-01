@@ -330,7 +330,7 @@ func normalizePrincipalEnumerationAuthoritativeStructuredCarriers(doc *types.Ans
 		if !emptySectionCarrier && !principalEnumerationCarrierTouchesAnyRow(*block, doc, scoped.Rows) {
 			continue
 		}
-		shape := principalEnumerationTableShapeForRows(scoped.Rows, nil)
+		shape := principalEnumerationTableShapeForSet(scoped, nil)
 		if block.Kind == types.BlockTable {
 			block.Columns = principalEnumerationTableColumns(zh, shape, scoped.Rows)
 			block.Items = principalEnumerationItemsForSet(doc, scoped, block.Kind, nil, shape)
@@ -379,7 +379,7 @@ func principalEnumerationEmptySourceInventorySectionCarrier(doc *types.AnswerDoc
 }
 
 func principalEnumerationStructuredSourceInventoryItemsForSet(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) []types.AnswerBlockItem {
-	shape := principalEnumerationTableShapeForRows(set.Rows, nil)
+	shape := principalEnumerationTableShapeForSet(set, nil)
 	items := make([]types.AnswerBlockItem, 0, len(set.Rows))
 	for _, row := range set.Rows {
 		label := firstNonEmptyAnswerString(row.DisplayLabel, row.Member)
@@ -420,7 +420,12 @@ func principalEnumerationStructuredSourceInventoryItemText(row types.Enumeration
 }
 
 func principalEnumerationPreferredSourceInventorySurface(row types.EnumerationDisplayRow) string {
+	return strings.Join(principalEnumerationPreferredSourceInventorySurfaces(row), ", ")
+}
+
+func principalEnumerationPreferredSourceInventorySurfaces(row types.EnumerationDisplayRow) []string {
 	generic := principalEnumerationGenericRowSurfaceTermKeys(row)
+	var out []string
 	for _, term := range row.SurfaceTerms {
 		term = strings.TrimSpace(term)
 		if term == "" || generic[normalizeEnumerationDisplayTableKey(term)] {
@@ -429,9 +434,18 @@ func principalEnumerationPreferredSourceInventorySurface(row types.EnumerationDi
 		if strings.Contains(term, "/") || aggregateToolLocationPattern.MatchString(term) {
 			continue
 		}
-		return term
+		out = append(out, term)
 	}
-	return ""
+	return dedupPreEmitStringCandidates(out)
+}
+
+func principalEnumerationRowsHavePreferredSourceInventorySurface(rows []types.EnumerationDisplayRow) bool {
+	for _, row := range rows {
+		if len(principalEnumerationPreferredSourceInventorySurfaces(row)) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func principalEnumerationCleanSourceInventoryDisplaySurface(row types.EnumerationDisplayRow, surface string) string {
@@ -2013,7 +2027,7 @@ func stripPrincipalEnumerationParentheticalQualifiers(label string) string {
 func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet, rows []types.EnumerationDisplayRow, zh bool, mode principalEnumerationSupplementMode) types.AnswerBlock {
 	blockSet := set
 	blockSet.Rows = append([]types.EnumerationDisplayRow(nil), rows...)
-	shape := principalEnumerationTableShapeForRows(blockSet.Rows, nil)
+	shape := principalEnumerationTableShapeForSet(blockSet, nil)
 	block := types.AnswerBlock{
 		ID:                  uniqueAnswerBlockID(doc, "principal_enum_"+sanitizeEnumerationBlockID(set.ID)),
 		Kind:                types.BlockTable,
@@ -2528,9 +2542,18 @@ func principalEnumerationRowsBlockTitle(set types.EnumerationDisplaySet, rows []
 }
 
 type principalEnumerationTableShape struct {
+	includeSurface  bool
 	includeLocation bool
 	includePackage  bool
 	includeNote     bool
+}
+
+func principalEnumerationTableShapeForSet(set types.EnumerationDisplaySet, existingNotes map[string]string) principalEnumerationTableShape {
+	shape := principalEnumerationTableShapeForRows(set.Rows, existingNotes)
+	if principalEnumerationSetIsSourceInventoryPrincipalRows(set) && principalEnumerationRowsHavePreferredSourceInventorySurface(set.Rows) {
+		shape.includeSurface = true
+	}
+	return shape
 }
 
 func principalEnumerationTableShapeForRows(rows []types.EnumerationDisplayRow, existingNotes map[string]string) principalEnumerationTableShape {
@@ -2551,6 +2574,13 @@ func principalEnumerationTableShapeForRows(rows []types.EnumerationDisplayRow, e
 
 func principalEnumerationTableColumns(zh bool, shape principalEnumerationTableShape, rows []types.EnumerationDisplayRow) []string {
 	columns := []string{principalEnumerationPrimaryColumnLabel(zh, rows)}
+	if shape.includeSurface {
+		if zh {
+			columns = append(columns, "标记")
+		} else {
+			columns = append(columns, "Surface")
+		}
+	}
 	if shape.includeLocation {
 		if zh {
 			columns = append(columns, "定义位置")
@@ -2719,6 +2749,9 @@ func principalEnumerationItemsForSet(doc *types.AnswerDocumentV2, set types.Enum
 
 func principalEnumerationTableCells(row types.EnumerationDisplayRow, note string, shape principalEnumerationTableShape) []string {
 	cells := make([]string, 0, 2)
+	if shape.includeSurface {
+		cells = append(cells, strings.TrimSpace(principalEnumerationPreferredSourceInventorySurface(row)))
+	}
 	if shape.includeLocation {
 		cells = append(cells, strings.TrimSpace(row.Location))
 	}
@@ -2732,6 +2765,9 @@ func principalEnumerationTableCells(row types.EnumerationDisplayRow, note string
 }
 
 func principalEnumerationRowCompatibleWithTableShape(row types.EnumerationDisplayRow, existingNotes map[string]string, shape principalEnumerationTableShape) bool {
+	if shape.includeSurface && strings.TrimSpace(principalEnumerationPreferredSourceInventorySurface(row)) == "" {
+		return false
+	}
 	if shape.includeLocation && strings.TrimSpace(row.Location) == "" {
 		return false
 	}

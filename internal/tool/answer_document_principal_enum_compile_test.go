@@ -4234,6 +4234,71 @@ func TestPrincipalEnumerationStructuredSourceInventoryItemText_DeduplicatesTyped
 	}
 }
 
+func TestPrincipalEnumerationItemsForSet_SourceInventoryTableCarriesAllTypedSurfaceTerms(t *testing.T) {
+	doc := &types.AnswerDocumentV2{}
+	set := types.EnumerationDisplaySet{
+		ID:    "enum-set-source-inventory-principal-rows",
+		Label: "source inventory principal rows",
+		Rows: []types.EnumerationDisplayRow{{
+			RowID:        "index",
+			SetID:        "enum-set-source-inventory-principal-rows",
+			SetLabel:     "source inventory principal rows",
+			Member:       "Index",
+			DisplayLabel: "Index",
+			Source:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+			LineStart:    5,
+			Location:     "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:5",
+			HasCitation:  true,
+			SurfaceTerms: []string{"@Entry", "@Component"},
+		}},
+	}
+	shape := principalEnumerationTableShapeForSet(set, nil)
+	if !shape.includeSurface {
+		t.Fatalf("source-inventory row-set with typed surfaces should include a surface column: %+v", shape)
+	}
+	columns := principalEnumerationTableColumns(true, shape, set.Rows)
+	if !containsString(columns, "标记") {
+		t.Fatalf("columns should include typed surface column, got %v", columns)
+	}
+	items := principalEnumerationItemsForSet(doc, set, types.BlockTable, nil, shape)
+	if len(items) != 1 || len(items[0].Cells) == 0 {
+		t.Fatalf("items = %+v", items)
+	}
+	surfaceCell := items[0].Cells[0]
+	for _, want := range []string{"@Entry", "@Component"} {
+		if !strings.Contains(surfaceCell, want) {
+			t.Fatalf("surface cell lost %q: %+v", want, items[0])
+		}
+	}
+}
+
+func TestPrincipalEnumerationItemsForSet_NonInventoryTableDoesNotAddSurfaceColumn(t *testing.T) {
+	set := types.EnumerationDisplaySet{
+		ID:    "enum-set-ordinary",
+		Label: "ordinary rows",
+		Rows: []types.EnumerationDisplayRow{{
+			RowID:        "ordinary",
+			SetID:        "enum-set-ordinary",
+			SetLabel:     "ordinary rows",
+			Member:       "Index",
+			DisplayLabel: "Index",
+			Source:       "src/pages/Index.ets",
+			LineStart:    5,
+			Location:     "src/pages/Index.ets:5",
+			HasCitation:  true,
+			SurfaceTerms: []string{"@Entry", "@Component"},
+		}},
+	}
+	shape := principalEnumerationTableShapeForSet(set, nil)
+	if shape.includeSurface {
+		t.Fatalf("ordinary enumeration set must not gain source-inventory surface column: %+v", shape)
+	}
+	columns := principalEnumerationTableColumns(true, shape, set.Rows)
+	if containsString(columns, "标记") {
+		t.Fatalf("ordinary columns should not include typed surface column, got %v", columns)
+	}
+}
+
 func TestPrincipalEnumerationCleanSourceInventoryDisplayNote_UsesTypedValuesNotMetadataKeywords(t *testing.T) {
 	row := types.EnumerationDisplayRow{
 		Member:       "Cart",
