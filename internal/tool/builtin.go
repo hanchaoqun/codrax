@@ -999,8 +999,13 @@ func execCommandSearchShapeAdvisory(command, output string, err error) string {
 	if !looksLikeGrepPipeline && !execCommandLooksLikeRuntimeSearchFilter(command) {
 		return ""
 	}
+	targetsTraceQueryArtifact := execCommandTargetsTraceQueryArtifact(command)
 	if err != nil {
 		if looksLikeGrepPipeline && strings.Contains(err.Error(), "exit status 1") {
+			if targetsTraceQueryArtifact {
+				return execCommandTraceQueryRequiredAdvisory("grep exited 1 / zero matches") +
+					"[exec_command advisory: grep exited 1, which usually means zero matches rather than a broken command. For trace/systrace/htrace/perf artifacts, do not keep iterating grep pattern repairs; switch to trace_query with the same path, bounded window, pid/thread, and pattern/event literal so the result lands as typed runtime observations.]\n"
+			}
 			if execCommandTargetsRuntimeTextArtifact(command) {
 				return "[exec_command advisory: grep exited 1, which usually means zero matches rather than a broken command. Split combined log/trace patterns into one literal/timestamp/thread/event first, preserve the observed field order, and rerun with original line numbers such as `grep -n` before using read_file for evidence.]\n"
 			}
@@ -1012,16 +1017,35 @@ func execCommandSearchShapeAdvisory(command, output string, err error) string {
 		return ""
 	}
 	var advisories []string
+	if targetsTraceQueryArtifact {
+		advisories = append(advisories, execCommandTraceQueryRequiredAdvisory("grep/awk searched a trace artifact"))
+	}
 	if !execCommandOutputHasLineNumbers(output) {
-		advisories = append(advisories, "[exec_command advisory: this log/trace search/filter output has no original line numbers. For line-scope evidence, rerun the search with line numbers (for example `grep -n ...` or `awk '... { printf \"%d:%s\\n\", NR, $0 }' ...`) and then use read_file around the selected range.]")
+		if targetsTraceQueryArtifact {
+			advisories = append(advisories, "[exec_command advisory: this trace search/filter output has no original line numbers. Do not repair trace analysis by adding more grep/awk line-number plumbing; use trace_query(view=\"event_search\" for literal rows, or window_stats/root_cause_rank/frame_root_cause_bundle for scheduler/root-cause analysis) with the bounded path/window/pid/thread.]")
+		} else {
+			advisories = append(advisories, "[exec_command advisory: this log/trace search/filter output has no original line numbers. For line-scope evidence, rerun the search with line numbers (for example `grep -n ...` or `awk '... { printf \"%d:%s\\n\", NR, $0 }' ...`) and then use read_file around the selected range.]")
+		}
 	}
 	if execCommandRuntimeSearchUsesBroadAlternation(command) {
-		advisories = append(advisories, "[exec_command advisory: this runtime/log/trace search uses a broad OR/alternation pattern. For time-window or chain tracing, OR searches can return early unrelated rows; prefer conjunctive filtering or numeric filtering that preserves original line numbers, then read_file the selected line window.]")
+		if targetsTraceQueryArtifact {
+			advisories = append(advisories, "[exec_command advisory: this trace search uses a broad OR/alternation pattern. For time-window or chain tracing, do not keep broadening grep; switch to trace_query with explicit path, window, pid/thread, and a narrow view so filtering is typed rather than regex-order dependent.]")
+		} else {
+			advisories = append(advisories, "[exec_command advisory: this runtime/log/trace search uses a broad OR/alternation pattern. For time-window or chain tracing, OR searches can return early unrelated rows; prefer conjunctive filtering or numeric filtering that preserves original line numbers, then read_file the selected line window.]")
+		}
 	}
 	if len(advisories) == 0 {
 		return ""
 	}
 	return strings.Join(advisories, "\n") + "\n"
+}
+
+func execCommandTraceQueryRequiredAdvisory(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "trace artifact searched outside trace_query"
+	}
+	return "[exec_command advisory: trace_query_required_soft_advisory=" + reason + "; grep/awk over trace/systrace/htrace/perf artifacts is a diagnostic fallback only and must not become the main root-cause path. Stop iterating grep for trace analysis and switch to trace_query with the same artifact path plus bounded window/pid/thread; use event_search/span_window for row lookup, window_stats/state_drilldown for state coverage, and root_cause_rank/frame_root_cause_bundle for causal analysis.]\n"
 }
 
 func execCommandLooksLikeRuntimeSearchFilter(command string) bool {
@@ -1057,6 +1081,19 @@ func execCommandTargetsRuntimeTextArtifact(command string) bool {
 	}
 	lower := strings.ToLower(command)
 	for _, suffix := range []string{".systrace", ".htrace", ".atrace", ".ftrace", ".perfetto", ".perftrace", ".tracebundle.json", ".trace", ".log"} {
+		if strings.Contains(lower, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func execCommandTargetsTraceQueryArtifact(command string) bool {
+	if ok, hadReadableCandidate := execCommandTargetsRuntimeTextArtifactByContent(command); ok || hadReadableCandidate {
+		return ok
+	}
+	lower := strings.ToLower(command)
+	for _, suffix := range []string{".systrace", ".htrace", ".atrace", ".ftrace", ".perfetto", ".perftrace", ".tracebundle.json", ".trace", ".perf.data"} {
 		if strings.Contains(lower, suffix) {
 			return true
 		}
@@ -1607,7 +1644,7 @@ type grepToolParams struct {
 
 func (t *GrepTool) Name() string { return "grep" }
 func (t *GrepTool) Description() string {
-	return "Search file contents by pattern. Use this to find where a symbol, string, config key, log event, or trace row appears. By default `pattern` is a regex. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use fixed_string=true for exact literal text with punctuation (recommended for log/trace event labels, thread names, error strings, config keys, and any text containing []()|#.: that you do not want treated as regex). Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Do not set file_type/include when path is already one concrete log/trace artifact. Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call; avoid context_lines on the first broad search of a large log/trace and instead narrow to a timestamp/thread/event, then read_file around returned line numbers. Use line_start/line_end only with a single file when you already know a relevant line vicinity. Directory scans may skip very large runtime artifacts for safety; if the result lists skipped_large_candidates, set path to that candidate and grep the file explicitly rather than reading from the file head. For large log/trace/systrace files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. For trace marker spans, a B|pid|name begin is normally closed by unnamed E|pid or bare E on the same ftrace thread stack, so do not grep for E|pid|name; use trace_query(view=\"span_window\", span_name=\"...\") to resolve the end. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
+	return "Search file contents by pattern. Use this to find where a symbol, string, config key, log event, or trace row appears. By default `pattern` is a regex. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use fixed_string=true for exact literal text with punctuation (recommended for log/trace event labels, thread names, error strings, config keys, and any text containing []()|#.: that you do not want treated as regex). Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Do not set file_type/include when path is already one concrete log/trace artifact. Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call; avoid context_lines on the first broad search of a large runtime artifact and instead narrow to a timestamp/thread/event. For large log/trace/systrace artifacts, trace/systrace/htrace/perf root-cause analysis must prefer trace_query; grep over trace artifacts is a diagnostic fallback for literal row lookup only, and tool results will strongly steer follow-up back to trace_query. Use line_start/line_end only with a single file when you already know a relevant line vicinity. Directory scans may skip very large runtime artifacts for safety; if the result lists skipped_large_candidates, set path to that candidate and grep the file explicitly rather than reading from the file head. For large log files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. For trace marker spans, a B|pid|name begin is normally closed by unnamed E|pid or bare E on the same ftrace thread stack, so do not grep for E|pid|name; use trace_query(view=\"span_window\", span_name=\"...\") to resolve the end. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
 }
 
 func grepShouldUseNativeBackend(searchBackend string, hasRepoRoot, searchPathIsFile bool) bool {
@@ -1890,7 +1927,13 @@ func grepNoMatchRefinement(ctx *types.BusContext, params grepToolParams, searchP
 
 func grepZeroMatchRefinement(ctx *types.BusContext, params grepToolParams, searchPath string) *types.ToolRefinementHint {
 	reasonCode := ""
+	preferredNextTool := "grep"
+	requiredFields := []string{"pattern"}
 	switch {
+	case grepParamsTargetTraceQueryArtifactFile(ctx, params):
+		reasonCode = "grep_runtime_artifact_zero_match"
+		preferredNextTool = "trace_query"
+		requiredFields = []string{"path", "view"}
 	case grepParamsTargetRuntimeArtifactFile(ctx, params):
 		reasonCode = "grep_runtime_artifact_zero_match"
 	case !params.FixedString && grepPatternHasCommonRegexShorthand(params.Pattern):
@@ -1901,6 +1944,28 @@ func grepZeroMatchRefinement(ctx *types.BusContext, params grepToolParams, searc
 	preferred := map[string]string{}
 	if path := firstNonEmptyString([]string{strings.TrimSpace(params.Path), strings.TrimSpace(searchPath)}); path != "" {
 		preferred["path"] = path
+	}
+	if preferredNextTool == "trace_query" {
+		preferred["view"] = "event_search"
+		if pattern := strings.TrimSpace(params.Pattern); pattern != "" {
+			preferred["pattern"] = pattern
+		}
+		if params.LineStart > 0 {
+			preferred["line_start"] = strconv.Itoa(params.LineStart)
+		}
+		if params.LineEnd > 0 {
+			preferred["line_end"] = strconv.Itoa(params.LineEnd)
+		}
+		hint := types.NormalizeToolRefinementHint(types.ToolRefinementHint{
+			ReasonCode:        reasonCode,
+			PreferredNextTool: preferredNextTool,
+			PreferredParams:   preferred,
+			RequiredFields:    requiredFields,
+		})
+		if hint.Empty() {
+			return nil
+		}
+		return &hint
 	}
 	if strings.TrimSpace(params.FileType) != "" {
 		preferred["file_type"] = strings.TrimSpace(params.FileType)
@@ -1916,9 +1981,9 @@ func grepZeroMatchRefinement(ctx *types.BusContext, params grepToolParams, searc
 	}
 	hint := types.NormalizeToolRefinementHint(types.ToolRefinementHint{
 		ReasonCode:        reasonCode,
-		PreferredNextTool: "grep",
+		PreferredNextTool: preferredNextTool,
 		PreferredParams:   preferred,
-		RequiredFields:    []string{"pattern"},
+		RequiredFields:    requiredFields,
 	})
 	if hint.Empty() {
 		return nil
@@ -2481,6 +2546,10 @@ func finalizeGrepOutput(ctx *types.BusContext, params grepToolParams, countBanne
 	}
 	payload := countBanner + paramsBanner
 	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
+		if advisory := grepTraceQueryRequiredAdvisory(ctx, params); advisory != "" {
+			payload += advisory
+			refinement = mergeToolRefinementHints(refinement, grepTraceQueryRefinement(ctx, params, "grep_trace_artifact_search", false))
+		}
 		payload += grepRuntimeArtifactTraceSpanAdvisory(params, rawOutput)
 	}
 	payload += annotated
@@ -2528,7 +2597,14 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 		if advisory := grepRuntimeArtifactParamAdvisory(params); advisory != "" {
 			b.WriteString(advisory)
 		}
-		b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command that preserves original line numbers (for example `grep -n` before awk/head), then read_file the selected line range before emitting line-scope evidence.\n")
+		if advisory := grepTraceQueryRequiredAdvisory(ctx, params); advisory != "" {
+			b.WriteString(advisory)
+		}
+		if grepParamsTargetTraceQueryArtifactFile(ctx, params) {
+			b.WriteString("next_shape=trace artifact grep matched too broadly; do not keep paging grep/read_file as the main analysis path. Use trace_query(view=\"event_search\" for literal lookup, or window_stats/root_cause_rank/frame_root_cause_bundle for scheduler/root-cause analysis) with the same path plus bounded window/pid/thread.\n")
+		} else {
+			b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command that preserves original line numbers (for example `grep -n` before awk/head), then read_file the selected line range before emitting line-scope evidence.\n")
+		}
 		if advisory := grepRuntimeArtifactTraceSpanAdvisory(params, strings.Join(production, "\n")); advisory != "" {
 			b.WriteString(advisory)
 		}
@@ -2588,6 +2664,9 @@ func grepBroadResultRefinement(ctx *types.BusContext, params grepToolParams, raw
 		hint.PreferredParams["path"] = strings.TrimSpace(params.Path)
 	}
 	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
+		if grepParamsTargetTraceQueryArtifactFile(ctx, params) {
+			return grepTraceQueryRefinement(ctx, params, "grep_result_truncated", true)
+		}
 		hint.PreferredParams["context_lines"] = "0"
 		for key, value := range grepLineWindowPreferredParams(collectGrepLineWindows(production, params.FilesOnly, grepLineWindowHintMax)) {
 			hint.PreferredParams[key] = value
@@ -2812,7 +2891,14 @@ func compactStreamedRuntimeArtifactGrepOutput(ctx *types.BusContext, params grep
 	if advisory := grepRuntimeArtifactParamAdvisory(params); advisory != "" {
 		b.WriteString(advisory)
 	}
-	b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command that preserves original line numbers (for example `grep -n` before awk/head), then read_file the selected line range before emitting line-scope evidence.\n")
+	if advisory := grepTraceQueryRequiredAdvisory(ctx, params); advisory != "" {
+		b.WriteString(advisory)
+	}
+	if grepParamsTargetTraceQueryArtifactFile(ctx, params) {
+		b.WriteString("next_shape=trace artifact grep matched too broadly; stop iterating grep/read_file for trace root-cause analysis and use trace_query with the same path plus bounded window/pid/thread.\n")
+	} else {
+		b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command that preserves original line numbers (for example `grep -n` before awk/head), then read_file the selected line range before emitting line-scope evidence.\n")
+	}
 	if advisory := grepRuntimeArtifactTraceSpanAdvisory(params, strings.Join(capture.PreviewLines, "\n")); advisory != "" {
 		b.WriteString(advisory)
 	}
@@ -2849,7 +2935,14 @@ func grepNoMatchBody(ctx *types.BusContext, params grepToolParams) string {
 		if advisory := grepFixedStringRegexAdvisory(params); advisory != "" {
 			b.WriteString(advisory)
 		}
-		b.WriteString("no_match_advisory=single runtime/log/trace artifact searched; this only means the exact pattern matched zero lines. Regex is line-order-sensitive: split combined patterns into one exact literal/timestamp/thread id/event name first, inspect one returned line to preserve the observed field order, then recombine only if needed. Use fixed_string=true for punctuation-heavy text. If you know the vicinity, use line_start/line_end on this file. For numeric time ranges, a deterministic command can filter the interval, but preserve original line numbers (for example `grep -n`) so read_file can ground the selected lines.\n")
+		if grepParamsTargetTraceQueryArtifactFile(ctx, params) {
+			if advisory := grepTraceQueryRequiredAdvisory(ctx, params); advisory != "" {
+				b.WriteString(advisory)
+			}
+			b.WriteString("no_match_advisory=single trace/systrace/htrace/perf artifact searched; this only means the exact grep pattern matched zero lines, not that the trace fact is absent. Do not repair trace analysis by looping on grep/read_file. Switch to trace_query(view=\"event_search\" for literal rows, span_window for trace markers, or window_stats/root_cause_rank/frame_root_cause_bundle for scheduler/root-cause analysis) with the same path plus bounded window/pid/thread.\n")
+		} else {
+			b.WriteString("no_match_advisory=single runtime/log/trace artifact searched; this only means the exact pattern matched zero lines. Regex is line-order-sensitive: split combined patterns into one exact literal/timestamp/thread id/event name first, inspect one returned line to preserve the observed field order, then recombine only if needed. Use fixed_string=true for punctuation-heavy text. If you know the vicinity, use line_start/line_end on this file. For numeric time ranges, a deterministic command can filter the interval, but preserve original line numbers (for example `grep -n`) so read_file can ground the selected lines.\n")
+		}
 		if !params.FixedString && grepPatternHasCommonRegexShorthand(params.Pattern) {
 			b.WriteString("regex_compatibility_note=pattern contains \\d/\\s/\\w-style shorthand; codrax normalizes common single-file cases, but a simpler literal or fixed_string=true is safer for artifact discovery.\n")
 		}
@@ -3120,6 +3213,47 @@ func grepTraceQueryPathHint(params grepToolParams, observed string) string {
 	return strings.TrimSpace(observed)
 }
 
+func grepTraceQueryRequiredAdvisory(ctx *types.BusContext, params grepToolParams) string {
+	if !grepParamsTargetTraceQueryArtifactFile(ctx, params) {
+		return ""
+	}
+	pathHint := ""
+	if path := grepTraceQueryPathHint(params, ""); path != "" {
+		pathHint = fmt.Sprintf(" path=%q", path)
+	}
+	return "trace_query_required_soft_advisory=grep over this trace/systrace/htrace/perf artifact is a diagnostic fallback only and must not become the main root-cause path. Stop iterating grep/read_file for trace analysis; next use trace_query with the same" + pathHint + " plus bounded window/pid/thread. Use event_search/span_window for literal row lookup, window_stats/state_drilldown for state coverage, and root_cause_rank/frame_root_cause_bundle for causal analysis.\n"
+}
+
+func grepTraceQueryRefinement(ctx *types.BusContext, params grepToolParams, reasonCode string, truncated bool) *types.ToolRefinementHint {
+	if !grepParamsTargetTraceQueryArtifactFile(ctx, params) {
+		return nil
+	}
+	preferred := map[string]string{"view": "event_search"}
+	if path := strings.TrimSpace(params.Path); path != "" {
+		preferred["path"] = path
+	}
+	if pattern := strings.TrimSpace(params.Pattern); pattern != "" {
+		preferred["pattern"] = pattern
+	}
+	if params.LineStart > 0 {
+		preferred["line_start"] = strconv.Itoa(params.LineStart)
+	}
+	if params.LineEnd > 0 {
+		preferred["line_end"] = strconv.Itoa(params.LineEnd)
+	}
+	hint := types.NormalizeToolRefinementHint(types.ToolRefinementHint{
+		ReasonCode:        reasonCode,
+		ResultTruncated:   truncated,
+		PreferredNextTool: "trace_query",
+		PreferredParams:   preferred,
+		RequiredFields:    []string{"path", "view"},
+	})
+	if hint.Empty() {
+		return nil
+	}
+	return &hint
+}
+
 func cleanGrepTraceSpanHintLabel(raw string) string {
 	label := strings.TrimSpace(raw)
 	label = strings.Trim(label, `"'`)
@@ -3169,6 +3303,14 @@ func grepParamsTargetRuntimeArtifactFile(ctx *types.BusContext, params grepToolP
 	return grepPathLooksLikeRuntimeArtifact(explicit.path)
 }
 
+func grepParamsTargetTraceQueryArtifactFile(ctx *types.BusContext, params grepToolParams) bool {
+	explicit, ok := explicitGrepPath(ctx, params.Path)
+	if !ok || !explicit.isFile {
+		return false
+	}
+	return grepPathLooksLikeTraceQueryArtifact(explicit.path)
+}
+
 func grepPathLooksLikeRuntimeArtifact(p string) bool {
 	if types.LooksLikeRuntimeArtifactPath(p) {
 		return true
@@ -3179,6 +3321,24 @@ func grepPathLooksLikeRuntimeArtifact(p string) bool {
 		return strings.Contains(base, "log") || strings.Contains(base, "trace") || strings.Contains(base, "perf")
 	}
 	return strings.Contains(base, "systrace") || strings.Contains(base, "perfetto") || strings.Contains(base, "perftrace")
+}
+
+func grepPathLooksLikeTraceQueryArtifact(p string) bool {
+	if types.RuntimeArtifactPathKind(p) == "trace" {
+		return true
+	}
+	normalized := strings.ToLower(filepath.ToSlash(strings.TrimSpace(p)))
+	base := path.Base(normalized)
+	if strings.Contains(base, "systrace") ||
+		strings.Contains(base, "htrace") ||
+		strings.Contains(base, "atrace") ||
+		strings.Contains(base, "ftrace") ||
+		strings.Contains(base, "perfetto") ||
+		strings.Contains(base, "perftrace") ||
+		strings.Contains(base, "tracebundle") {
+		return true
+	}
+	return execCommandPathContentLooksRuntimeArtifact(p)
 }
 
 func LooksLikeRuntimeArtifactPath(p string) bool {

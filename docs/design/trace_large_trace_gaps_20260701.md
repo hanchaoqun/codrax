@@ -179,6 +179,23 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
      - `TestRelationScopedCacheKeyIsolation`
      - `TestTraceQueryRelationScopedOnlyForCausalChainViews`
      - `TestTraceQueryWindowedIndexOptionsScopedRaise`
+
+4. **P0: trace artifact grep/exec fallback 仍把模型拉回文本搜索 —— 已交付(2026-07-01)**。
+   - 最新客户 `berlin.systrace` REPL 再次暴露同类事故:模型一开始没有调用 `trace_query`,而是连续使用 `grep berlin.systrace` 和 `exec_command grep|awk` 分析 1.1GiB trace;后续这些裸文本观察又无法稳定落成 typed runtime observation,模型开始为了 citation/support_refs 去读 trace 行号、重试 `emit_evidence`/`emit_investigation_complete`,最终形成"想结束调查但被 completion 债务推回探索"的循环。
+   - 最新代码复核:完成门一侧已由 `explicitCurrentSourceExclusionCompletionBypassLabel` 消费 `ExternalObservationPolicy.ExcludesCurrentSource()` 兜住"不分析代码"请求,不再强要当前源码 citation。但工具层仍有反向牵引:
+     1. `grepZeroMatchRefinement` 对 runtime artifact zero-match 仍 `preferred_next_tool=grep`;
+     2. `execCommandSearchShapeAdvisory` 对 trace grep/awk 仍建议 `grep -n`/awk 补行号;
+     3. broad runtime grep summary 仍提示继续 narrow grep/read_file。
+   - 修法:不硬禁 grep(保持透明、可审计 fallback),但对 trace/systrace/htrace/perf 形态的 grep/awk 结果统一发强软提示 `trace_query_required_soft_advisory`,并把 typed `ToolRefinementHint.PreferredNextTool` 改为 `trace_query`(`view=event_search`,携带 path/pattern/line window)。普通 `.log` 不触发,避免误伤日志分析。该策略只消费路径后缀、可读文件头部 tracepoint 签名、工具 schema 参数和 typed refinement,不解析用户意图关键词或模型散文。
+   - 承重点:
+     1. `exec_command` 的 trace grep/awk 成功、zero-match、宽 OR/alternation 均提示"不要继续用 grep 修 trace 分析,切回 `trace_query`";
+     2. `grep` 的 trace zero-match、普通成功、broad/streamed compaction 均渲染强提示并偏好 `trace_query`;
+     3. 对普通 log runtime artifact 保留原有 grep/read_file 恢复路径。
+   - 测试:
+     - `TestExecCommand_SearchShapeAdvisory` 中 runtime trace grep/ftrace/zero-match/broad-OR/awk/suffixless trace content 均断言 `trace_query_required_soft_advisory`,且不再出现 `grep -n`/`read_file around` 这类把 trace 分析拉回文本行号的建议。
+     - `TestGrepTool/runtime artifact no match teaches literal and line-window recovery` 保留 `.log` 恢复路径。
+     - `TestGrepTool/trace artifact no match pulls follow-up to trace_query` 钉住 trace zero-match refinement。
+     - `TestGrepTool/broad runtime artifact grep refinement stays artifact-local` 钉住 trace broad refinement 不走 repo_map、不走 read_file/grep_line window,而是 `trace_query`.
 ### Step 1/2 稳定性收敛(2026-07-01,回归修复)
 
 用户反馈"最新版本模型不用 trace_query、一直用 grep 分析 trace"。诊断:grep 是 skill 里 trace_query **失败后的既定兜底**,故根因是 trace_query 在真实 trace 上**报错/返回空 → 模型放弃**。两个 Gap 3 改动过激,各修一处:

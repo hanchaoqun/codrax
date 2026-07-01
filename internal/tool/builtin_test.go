@@ -1519,12 +1519,18 @@ func TestExecCommand(t *testing.T) {
 		}
 		for _, want := range []string{
 			"exec_command advisory",
-			"has no original line numbers",
-			"grep -n",
-			"read_file around the selected range",
+			"trace_query_required_soft_advisory",
+			"grep/awk over trace/systrace/htrace/perf artifacts is a diagnostic fallback only",
+			"Do not repair trace analysis by adding more grep/awk line-number plumbing",
+			"trace_query(view=\"event_search\"",
 		} {
 			if !strings.Contains(result.Summary, want) {
 				t.Fatalf("missing exec advisory %q:\n%s", want, result.Summary)
+			}
+		}
+		for _, forbidden := range []string{"grep -n", "read_file around the selected range"} {
+			if strings.Contains(result.Summary, forbidden) {
+				t.Fatalf("trace grep advisory must not steer back to %q:\n%s", forbidden, result.Summary)
 			}
 		}
 	})
@@ -1545,9 +1551,10 @@ func TestExecCommand(t *testing.T) {
 		}
 		for _, want := range []string{
 			"exec_command advisory",
-			"has no original line numbers",
-			"grep -n",
-			"read_file around the selected range",
+			"trace_query_required_soft_advisory",
+			"grep/awk over trace/systrace/htrace/perf artifacts is a diagnostic fallback only",
+			"Do not repair trace analysis by adding more grep/awk line-number plumbing",
+			"trace_query(view=\"event_search\"",
 		} {
 			if !strings.Contains(result.Summary, want) {
 				t.Fatalf("missing ftrace exec advisory %q:\n%s", want, result.Summary)
@@ -1570,10 +1577,11 @@ func TestExecCommand(t *testing.T) {
 			t.Fatalf("grep no-match shell exit should remain unsuccessful, got: %s", result.Summary)
 		}
 		for _, want := range []string{
+			"trace_query_required_soft_advisory",
 			"grep exited 1",
 			"zero matches",
-			"Split combined log/trace patterns",
-			"grep -n",
+			"do not keep iterating grep pattern repairs",
+			"switch to trace_query",
 		} {
 			if !strings.Contains(result.Summary, want) {
 				t.Fatalf("missing no-match advisory %q:\n%s", want, result.Summary)
@@ -1586,9 +1594,10 @@ func TestExecCommand(t *testing.T) {
 		output := "130149:\tcom.tencent.mm-36379 (36379) [007] .... 2939.734658: sched_switch\n"
 		got := execCommandSearchShapeAdvisory(command, output, nil)
 		for _, want := range []string{
+			"trace_query_required_soft_advisory",
 			"broad OR/alternation pattern",
-			"conjunctive filtering or numeric filtering",
-			"preserves original line numbers",
+			"do not keep broadening grep",
+			"switch to trace_query",
 		} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("missing broad-OR advisory %q:\n%s", want, got)
@@ -1609,9 +1618,9 @@ func TestExecCommand(t *testing.T) {
 		output := "  [GT]ColdPool#5-36624 (36379) [001] .... 2942.256055: sched_switch\n"
 		got := execCommandSearchShapeAdvisory(command, output, nil)
 		for _, want := range []string{
-			"search/filter output has no original line numbers",
-			"awk '... { printf",
-			"read_file around the selected range",
+			"trace_query_required_soft_advisory",
+			"Do not repair trace analysis by adding more grep/awk line-number plumbing",
+			"trace_query(view=\"event_search\"",
 			"broad OR/alternation pattern",
 		} {
 			if !strings.Contains(got, want) {
@@ -1628,7 +1637,8 @@ func TestExecCommand(t *testing.T) {
 		command := `awk '/sched_switch/ { print $0 }' ` + strconv.Quote(tmpFile)
 		output := "2942.124416: sched_switch: prev_comm=app prev_pid=10 prev_state=R ==> next_comm=worker next_pid=20\n"
 		got := execCommandSearchShapeAdvisory(command, output, nil)
-		if !strings.Contains(got, "search/filter output has no original line numbers") {
+		if !strings.Contains(got, "trace_query_required_soft_advisory") ||
+			!strings.Contains(got, "Do not repair trace analysis by adding more grep/awk line-number plumbing") {
 			t.Fatalf("suffixless trace content should get runtime advisory:\n%s", got)
 		}
 	})
@@ -1653,7 +1663,8 @@ func TestExecCommand(t *testing.T) {
 		}
 		for _, command := range commands {
 			got := execCommandSearchShapeAdvisory(command, output, nil)
-			if !strings.Contains(got, "search/filter output has no original line numbers") {
+			if !strings.Contains(got, "trace_query_required_soft_advisory") ||
+				!strings.Contains(got, "Do not repair trace analysis by adding more grep/awk line-number plumbing") {
 				t.Fatalf("missing no-line-number advisory for %q:\n%s", command, got)
 			}
 		}
@@ -2296,8 +2307,8 @@ func TestGrepTool(t *testing.T) {
 
 	t.Run("runtime artifact no match teaches literal and line-window recovery", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		tmpFile := filepath.Join(tmpDir, "record_trace.systrace")
-		if err := os.WriteFile(tmpFile, []byte("2942.124002: sched_switch\n"), 0o644); err != nil {
+		tmpFile := filepath.Join(tmpDir, "app.log")
+		if err := os.WriteFile(tmpFile, []byte("2942.124002: application log row\n"), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
 
@@ -2345,6 +2356,61 @@ func TestGrepTool(t *testing.T) {
 		}
 		if len(refinement.RequiredFields) != 1 || refinement.RequiredFields[0] != "pattern" {
 			t.Fatalf("runtime no-match required fields = %+v; refinement=%+v", refinement.RequiredFields, refinement)
+		}
+	})
+
+	t.Run("trace artifact no match pulls follow-up to trace_query", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "record_trace.systrace")
+		if err := os.WriteFile(tmpFile, []byte("2942.124002: sched_switch\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		ctx := newBusContext()
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{
+			Pattern: `2942\.\d{3} MissingEvent`,
+			Path:    tmpFile,
+		})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		for _, want := range []string{
+			"trace_query_required_soft_advisory",
+			"no_match_advisory=single trace/systrace/htrace/perf artifact searched",
+			"Do not repair trace analysis by looping on grep/read_file",
+			"trace_query(view=\"event_search\"",
+		} {
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("trace no-match hint missing %q:\n%s", want, result.Summary)
+			}
+		}
+		for _, forbidden := range []string{"grep -n", "read_file can ground"} {
+			if strings.Contains(result.Summary, forbidden) {
+				t.Fatalf("trace no-match must not steer back to %q:\n%s", forbidden, result.Summary)
+			}
+		}
+		refinement := types.NormalizeToolRefinementHint(*result.Refinement)
+		if refinement.ReasonCode != "grep_runtime_artifact_zero_match" {
+			t.Fatalf("runtime no-match reason = %q; refinement=%+v", refinement.ReasonCode, refinement)
+		}
+		if refinement.PreferredNextTool != "trace_query" {
+			t.Fatalf("trace no-match preferred tool = %q; refinement=%+v", refinement.PreferredNextTool, refinement)
+		}
+		if got := refinement.PreferredParams["view"]; got != "event_search" {
+			t.Fatalf("trace no-match preferred view = %q; refinement=%+v", got, refinement)
+		}
+		if got := refinement.PreferredParams["path"]; got != tmpFile {
+			t.Fatalf("trace no-match preferred path = %q, want %q; refinement=%+v", got, tmpFile, refinement)
+		}
+		if len(refinement.RequiredFields) != 2 ||
+			refinement.RequiredFields[0] != "path" ||
+			refinement.RequiredFields[1] != "view" {
+			t.Fatalf("trace no-match required fields = %+v; refinement=%+v", refinement.RequiredFields, refinement)
 		}
 	})
 
@@ -3082,10 +3148,10 @@ func TestGrepTool(t *testing.T) {
 			t.Fatalf("expected broad grep to compact")
 		}
 		for _, want := range []string{
-			"next_shape=single large runtime artifact matched too broadly",
-			"narrow with one exact timestamp/literal/thread id",
-			"read_file around the returned line numbers",
-			"preserves original line numbers",
+			"trace_query_required_soft_advisory",
+			"next_shape=trace artifact grep matched too broadly",
+			"Stop iterating grep/read_file",
+			"trace_query",
 			"line_window_hint=first returned match is record_trace.systrace:1000",
 			"path=\"record_trace.systrace\" line_offset=979 limit=41",
 			"line_start=980 line_end=1020",
@@ -3207,25 +3273,19 @@ func TestGrepTool(t *testing.T) {
 		if refinement.PreferredNextTool == "repo_map" {
 			t.Fatalf("runtime artifact grep must not prefer repo_map: %+v", refinement)
 		}
-		if refinement.PreferredNextTool != "grep" {
+		if refinement.PreferredNextTool != "trace_query" {
 			t.Fatalf("runtime artifact preferred tool = %q; refinement=%+v", refinement.PreferredNextTool, refinement)
 		}
-		if got := refinement.PreferredParams["context_lines"]; got != "0" {
-			t.Fatalf("runtime artifact should keep context_lines=0, got %q; refinement=%+v", got, refinement)
+		if got := refinement.PreferredParams["view"]; got != "event_search" {
+			t.Fatalf("runtime artifact preferred view = %q; refinement=%+v", got, refinement)
 		}
-		for key, want := range map[string]string{
-			"read_file_path":        "record_trace.systrace",
-			"read_file_line_offset": "979",
-			"read_file_limit":       "41",
-			"grep_line_start":       "980",
-			"grep_line_end":         "1020",
-		} {
-			if got := refinement.PreferredParams[key]; got != want {
-				t.Fatalf("runtime artifact line-window param %s=%q, want %q; refinement=%+v", key, got, want, refinement)
+		if got := refinement.PreferredParams["path"]; got != "record_trace.systrace" {
+			t.Fatalf("runtime artifact preferred path = %q; refinement=%+v", got, refinement)
+		}
+		for _, forbidden := range []string{"read_file_path", "grep_line_start", "context_lines"} {
+			if _, ok := refinement.PreferredParams[forbidden]; ok {
+				t.Fatalf("trace artifact refinement must not steer back to %s: %+v", forbidden, refinement)
 			}
-		}
-		if got := refinement.PreferredParams["line_window"]; !strings.Contains(got, "record_trace.systrace:980-1119(matches=100)") {
-			t.Fatalf("runtime artifact line_window = %q; refinement=%+v", got, refinement)
 		}
 	})
 
@@ -3350,7 +3410,8 @@ func TestGrepTool(t *testing.T) {
 			"[grep retrieval governor]",
 			"decision=broad_result_compacted mode=line_output",
 			"full_raw_saved=",
-			"next_shape=single large runtime artifact matched too broadly",
+			"trace_query_required_soft_advisory",
+			"next_shape=trace artifact grep matched too broadly",
 			"line_window_hint=first returned match is",
 			"line_start=1 line_end=21",
 		} {
