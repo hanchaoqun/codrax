@@ -562,3 +562,125 @@ v6 对着 §2.9.1 列出的三处入口重新看了一遍"两者都给"的场景
 **v9 复核说明(同步至 `origin/main@ab5174f70`)**:重新拉取最新代码后复核,O1-O10 已全部落地或明确判定(O2 撤销、O8 记录在案),R1-R9 九条规则全部满足或正确降级。此前残留的文档漂移已修正:测试覆盖区不再写"未覆盖",附录不再保留 R9 的旧状态。当前可排队的唯一 trace 层增强是 O7 的中期配置化方向:把语义 span 模式扩展从 Go 源码内置迁移/补充为 `codrax.yaml` 可配置 pattern,用于适配客户私有 ROM / ArkCompiler / 应用自定义打点命名漂移;这是可观测性与可维护性增强,不是当前阻断性 correctness gap。
 
 **v8 修订说明(第二批实际修复)**:动手前先跑一个 8-agent 设计+完备性 workflow(4 design + 4 adversarial verify),对每个剩余 gap 产出经对抗验证的 diff 级实现规范并让"完备性批判"agent 独立复核 v7 五项修复是否真生效。批判 agent 用真实 `Run()` 红测复现了 v7 O9 亲手引入的 `unionTimeWindows` explicit-0 起点收窄回归(R8 字面正确性 bug),v8 第一件事就修它。随后落地 R3(占比显著性)、O4(投影窗口标注)、O5 端到端渲染测试、O6(架构文档 §7.2.1),每项都有新单测,`go build ./... && go test ./...` 全绿。O5 第三项(全链路真实 eval)也已在本轮补齐并 **PASS**——新增 `eval/cases/trace_query_frame_semantic_span_optimization.case`,经 `eval/run.sh` 跑真实 analyze→explore→extract→finalize + 真实 LLM,确认低影响 `VerifyClass` 语义 span、优先级反转、自动注入 projection block 都稳定出现在最终用户可见答案里(126s PASS)。至此 §4 的 O1-O10 全部落地或明确判定(O2 撤销、O8 记录在案),R1-R9 九条规则全部满足或正确降级;**唯一剩余的是 O7 中期增强项(codrax.yaml 自定义语义 span 模式化,属配置化增强而非缺口)**。
+
+---
+
+## 7. 展示层 gap:『Trace 因果投影』章节渲染优化(2026-07-01,仅设计不改代码)
+
+> 本节由用户反馈提炼:最终 markdown/HTML 报告里"Trace 因果投影"章节的**排版表现不够直观、用户不友好**,属于**展示层 gap**(不是 correctness gap——底层 typed 证据大多已在,是渲染方式的问题)。先记录需求 + 经 9-agent 设计 workflow(4 理解 → 3 独立设计 → 综合 + 对抗审查)提炼的方案,**暂不改代码**。设计已逐条对照代码核实,并做了独立的无损性字段核算。
+
+### 7.1 当前渲染现状(gap 的证据)
+
+`materializeRuntimeTraceCausalProjectionBlock`([answer_document_mutation_runtime.go:664](../../internal/tool/answer_document_mutation_runtime.go))只发**一个** `AnswerBlock`,`Kind = BlockOrderedList`,`ID = runtime_trace_causal_projection`;其 `Items[]` 由 `runtimeTraceCausalProjectionItems`(:701)把**六个分层切片全部拍平**进一条扁平 `[]AnswerBlockItem`:①各 primary/co-primary 根因(每个一条)②唤醒链(`WakeupPath` join 成一句"a -> b -> c"+逐 hop 散文)③链路分层(on/adjacent/off-chain 塌成**一句**最多点名 4 个 subject 的散文,超出丢名)④语义 span ⑤supporting hop。每条 item 的 `Text` 是一句自然语言(`Subject→Object，主要表现为 <summary>（括号里塞一串 metric/relevance/causality/depth/rank/窗口/证据 明细子句）`)。markdown 输出即 `1. **主根因** — …` 的**扁平有序列表**,无表格、无 mermaid、无分组标题。
+
+### 7.2 六条 gap 与根因
+
+| gap | 用户反馈 | 代码层根因 |
+|---|---|---|
+| **a 分层不明显** | 各分层散落在平铺 items 里 | 六个 typed 切片(`PrimaryRootCauses`/`OnChainCauses`/`AdjacentCauses`/`BackgroundCauses`/`SemanticSpans`/`SupportingHops`,[trace_causal_projection.go:26](../../internal/types/trace_causal_projection.go))在渲染时被 flatten,`Role` 字段没驱动可见分组 |
+| **b 唤醒链不清晰** | on-chain 关系不清 | `WakeupPath` 渲染成散文一句 + 逐 hop 重复句,不是图/拓扑;on-chain 只在括号里出现"on-chain 主链"字样 |
+| **c 投影时长不直观** | 各 item 时长没量感 | `metric()`(:1010)只输出**一个** metric(cumulative 或 projected 二选一)纯文本,无数字列、无量级条 |
+| **d sleep 不算根因需下钻** | sleep→非sleep根因/支撑 投影不清 | **数据层缺**:`TraceCausalProjectionNode` **没有** state / drilldown-target 字段;`sleep_wait` 当普通 `root_cause_primary` 渲染成"主根因",与真根因无区别 |
+| **e sleep 无法下钻未展示** | 无匹配 sched_wakeup 时没明确标注 | **数据层缺**:projection 完全不消费 `missing_wakeup`(`RootEvidence.Type="missing_wakeup"`,[tracequery/query.go:10177](../../internal/tracequery/query.go))——它现在只停在 projection 上一层的 `res.Caveats` |
+| **f off-chain 背景不直观** | 背景支撑表现形式差 | on/adjacent/off-chain 塌成一句散文、超 4 个名字直接丢(`等 N 个节点`) |
+
+**关键判定**:a/b/c/f 是**纯展示层**(typed 信号已在,只是渲染方式);**d/e 是小的数据层增强**——需要给 node 加 typed 字段,但**数据源已存在只是没被消费**(见 §7.4),不是凭空造。
+
+### 7.3 推荐方案:**分层表为无损骨架 + 两张 flowchart 做直观增强**
+
+一个共享 principal 身份的 **block 簇**(替换现在的单一扁平 `BlockOrderedList`):
+
+1. **intro `Text`**:一句话导读 + 纯文本唤醒链 glyph 行 `worker-200 ▸ app-100 (target)`(散文,终端/HTML 一致,不依赖任何图)。
+2. **`BlockDiagram` DiagramFlow(`flowchart LR`)—— 唤醒链拓扑**:一节点一 `WakeupPath` 项,边带 `-->|唤醒 4.6ms|` 标签;on-chain 用矩形 `id[name]`、off-chain 用圆角 `id(name)`(形状区分**在终端也存活**,颜色 classDef 是 HTML-only 装饰、绝不做唯一载体)。
+3. **`BlockDiagram` DiagramFlow —— sleep 下钻树**:`SLEEP{{💤 症状/非根因}} -->|下钻到| ROOT[非sleep根因]`;无法下钻时画成**无出边的终止节点** `SLEEP{{💤 …}} -.无法下钻.-> UNRES[[⚠ missing_wakeup · 窗口内无匹配 sched_wakeup · lines]]`。
+4. **`BlockTable`(结构化 `Columns`+`Items[].Cells`)—— 唯一无损骨架**:一节点一行,**按层用整行 group-header 分组**(首格 `▛ 主根因层 / Primary root cause`、其余空)。列:`层/节点(Subject→Object) | 状态 | Impact(方块条·ms) | 链路/深度 | 窗口 | 下钻→ | 语义 | 证据`。
+
+**核心原则(无损靠冗余)**:**表是唯一权威无损面,两张 flowchart 是"装饰性冗余"**——图上每个信息在表里都有对应格。因此终端 L7 降级(mermaid 解析失败→```text fence + `# ·` 前导 + 剥 classDef/subgraph)**一个字段都不丢**,表不受影响。
+
+**为什么表做骨架而非图**:projection 每节点是**多维定量**(cum/proj ms、depth、rank、chain-relevance、窗口、下钻目标、证据)= 表的活;只有两处**真关系型**(唤醒链 b、sleep 下钻 d/e)才用图。避免把 7 个量塞进一个 flowchart 节点标签。
+
+**为什么只用 flowchart**:`DiagramFlow` 序列化成 `flowchart`,是终端仅支持的三个关键字(`flowchart`/`graph`/`sequenceDiagram`)之一;`gantt`(真比例条,本来最适合 c)**终端不支持且没有 typed DiagramKind**(`DiagramKind` 只有 flow/sequence/call_dag/architecture),故 c 的量级改用**表格单元里的纯 unicode 方块条**(`████████░░`,面无关,终端/HTML/```text 三面一致)。
+
+### 7.4 d/e 的唯一非渲染改动:给 node 加 3 个 typed 字段(数据源已存在)
+
+渲染层不能凭空造字段(违反"精确信号才做硬门" / "系统不代替 LLM 写答案")。d/e 要无损且精确,必须先在编译层给 `TraceCausalProjectionNode` 加:
+
+- `StateKind string`(如 `s_sleep`/`running`/`runnable`)
+- `DrilldownTarget *TraceCausalProjectionNode`(解析出的非 sleep 根因/支撑)
+- `UndrillableReason string`(typed enum,如 `missing_wakeup`)
+
+**数据源(已核实存在、projection 现在没消费)**:`TraceObservationCoverageRecord.DrilldownSource`/`RecursiveDrilldown`/`ChainRelevance`([trace_observation_coverage.go:60-64](../../internal/types/trace_observation_coverage.go),已从 rich notes 填充)+ `missing_wakeup` RootEvidence(query.go:10177,Summary 带 Thread/DurationMs/LineStart/LineEnd)+ completeness caveat。属**真 correctness 增强**,须走强制的 **6-spot typed-signal sync**(struct + schema desc + skill prompt + retry hint + decoder remap + cooccurrence/render,见 `feedback_typed_signal_six_spot_sync`)。
+
+### 7.5 无损性字段核算(对抗审查判"not lossless",本节把它做实)
+
+综合方案的表 + 图 + 明细子行需覆盖 `TraceCausalProjectionNode` **全部 ~21 字段**。核算后**需显式安置**的长尾字段(否则会丢):**`Predicate` / `Tier` / `Causality` / `Rank` / `Confidence`** —— 这些当前列没有专格,应落到每节点后的**斜体明细子行**(与语义 span 子字段 `SpanKind`/`SpanCategory`/`SpanSubcategory`/`SemanticClass` 及 `Summary` 原文机器 token 一起)。其余字段→列:Role→group-header、Subject/Object→节点列、StateKind→状态、Impact*→方块条、ChainRelevance/ChainDepth→链路/深度、StartTs/EndTs/WithinRequestedWindow→窗口(三态,nil 留空不回填)、Drilldown*→下钻、Evidence*→证据。加上明细子行后**全字段无损**。
+
+### 7.6 可行性(全部落在现有能力内,不加新 block 种类)
+
+- **block 模型**:`BlockTable`(`renderV2StructuredTable`,answerdoc.go:639-698,发真 GFM `| … |` 网格;:757 `renderV2CompactEmptyStructuredColumns` 会压掉全空列但**保留首格非空的行**——正是 group-header 行成立的机制,已核实)+ `BlockDiagram`(`renderV2BlockDiagram`,发 ` ```<lang> ` fence)。都是系统注入的 principal block(非 LLM/finalizer emit),不触 `plan.Diagram.Required` 契约门。
+- **mermaid 终端/HTML 非对称是设计绕过而非对抗**:只用 `flowchart`;边标签+节点形状终端 ASCII 会 parse(形状存活),classDef/style 终端剥离(颜色 HTML-only,故 on-chain 同时是表格列+节点形状,绝不颜色唯一);subgraph 终端 `flattenMermaidSubgraphs` **无损展平**(节点/边全留)。
+- **红线**:①block 保持 `ClaimUses=[ClaimExternalObservation]`、每 item `CitationRef=-1`(golden 已钉)②`WithinRequestedWindow` 保持三态、nil 时**字节一致**(空窗口格,不回填"未知")③L7/L8 降级由现有 shim 兜底、系统 authored 无 prompt-leak 顾虑④方块条/表/glyph 是 typed 数字/enum 的机械投影,不是编辑性叙述(叙述性总结仍 LLM authored)。
+- **golden lockstep**:扁平列表→block 簇会重写 `answer_document_mutation_runtime_test.go` 几乎所有断言(现钉 `主根因`/`共同主因`/`因果链路`/`累计影响 11.000ms`/`on-chain`/`Per-hop relation:` 等精确子串),**ZH+EN 两套 golden 必须同步更新**(不放宽 eval bar)。item cap(16..48 / on-chain 24 / adjacent-background 8 / hop 10 / semantic 16)仍守:**图节点数按可读性截断,但表行全留**(表是无损面)。
+
+### 7.7 示例渲染(含 on-chain 唤醒链 + 可下钻 sleep + 无法下钻 sleep)
+
+```mermaid
+flowchart LR
+    worker200["worker-200 · class_verification 4.6ms"]
+    app100["app-100 (target)"]
+    worker200 -->|唤醒/依赖 4.6ms| app100
+    bg1("unknown-thread · supply_pressure")
+    bg1 -.背景.-> app100
+    classDef onchain fill:#cfe8ff,stroke:#1c6dd0;
+    class worker200,app100 onchain;
+```
+
+```mermaid
+flowchart LR
+    s1{{"💤 app-100 s_sleep 5.0ms · 症状/非根因"}}
+    r1["worker-200 running 4.6ms · 非sleep根因"]
+    s1 -->|下钻到| r1
+    s2{{"💤 app-100 sleep_wait 2.1ms"}}
+    mw[["⚠ missing_wakeup · 窗口内无匹配 sched_wakeup · lines=88-96"]]
+    s2 -.无法下钻.-> mw
+```
+
+| 层 / 节点 (Subject→Object) | 状态 | Impact (bar · ms) | 链路 / 深度 | 窗口 | 下钻→ | 语义 | 证据 |
+|---|---|---|---|---|---|---|---|
+| **▛ 主根因层 / Primary root cause** |  |  |  |  |  |  |  |
+| worker-200 → class_verification | running | `██████████` cum 4.600 · proj 4.600 | ● on-chain·深度1 | 窗口内 | — | class_verification / VerifyClass Foo | trace:4-7 |
+| **▟ 邻近链层 / Adjacent** |  |  |  |  |  |  |  |
+| app-100 → sleep_wait | 💤 sleep · ⛔ 无法下钻 | `████░░░░░░` 2.100 | ◐ adjacent·深度3 | 窗口内 | ⛔ 无法下钻 (missing_wakeup, lines=88-96) | — | trace:88-96 |
+| **▟ 背景支撑层 / Off-chain background** |  |  |  |  |  |  |  |
+| unknown-thread → supply_pressure | running | `██░░░░░░░░` 2.000 | ○ off-chain | — | — | — | trace:30-33 |
+| **▟ 支撑节点 / Supporting hop** |  |  |  |  |  |  |  |
+| app-100 → s_sleep | 💤 sleep (非根因) | `██████████` cum 5.000 | ● on-chain·深度0 | 窗口内 | worker-200 running (下钻根因) | — | trace:3-9 |
+| └─ 下钻根因: worker-200 → running | running | `█████████░` proj 4.600 | ● on-chain·深度2 | 窗口内 | (drilled) | — | trace:4-7 |
+| _明细: tier=primary · causality=直接唤醒链 · rank=1 · confidence=0.92 · effective_impact=11.040ms actual_impact=4.600ms_ |  |  |  |  |  |  |  |
+
+> 无 sleep 时"下钻→"列由 `renderV2CompactEmptyStructuredColumns` 自动压掉、sleep 下钻图不发,章节降为 intro + 唤醒链图 + 表。
+
+### 7.8 备选与待定(需用户裁定)
+
+- **备选:纯 markdown 表、完全不用 mermaid**(最稳、零 L7/L8 暴露、改动面最小=渲染层+d/e 同样的编译字段)。代价是丢"一眼看懂"的链拓扑(b)与可见的症状→根因边(d),降级成 glyph 行 + 表格列。推荐的混合方案把表做骨架,正是为了"砍掉两张图=无损减法",若终端/CJK 对齐实测不佳可随时退到此备选。
+- **待定 1(无损 vs 噪音边界)**:`Summary` 里的原始机器 token(`effective_impact=`/`actual_impact=`/`priority=`/`relation=`/`next_step=`)本方案**逐字保留**在明细子行(严格无损)但不清洗。要不要把 token 清洗纳入本次(风险:静默丢用户依赖的字段内容),还是另开 typed 提取 pass?
+- **待定 2(effective/actual 三元组)**:struct 只有 `ImpactMS`+`CumulativeImpactMS`,真正的 effective/actual 只在 `Summary` 文本里。推荐**只展示这两个 typed 字段**+ actual 留明细子行(不造字段);若要 gap c 文案里的完整三列数字,需再抽 `EffectiveImpactMS`/`ActualImpactMS` 两个 typed 字段(额外 6-spot sync)。
+- **待定 3**:8 列在窄终端可能换行——要不要把次要列(语义/证据)折进明细子行以收窄主网格?
+
+**结论**:方案已完备、可行、可无损落地;**核心工作量 = 渲染层重写(block 簇 + 表 + 两图)+ d/e 三个 typed 字段的编译层增强(6-spot sync)+ ZH/EN golden 同步重写**。待用户就 §7.8 的备选/三个待定裁定后再进入实现。
+
+### 7.9 已实现(2026-07-01,用户裁定后落地)
+
+用户裁定:①采用"**表骨架 + 两图**";②`Summary` 原始机器 token **暂保留不清洗**;③**抽 `EffectiveImpactMS`/`ActualImpactMS`** 两个 typed 字段做完整三列时长。已按此落地。
+
+**编译层**(`internal/types/trace_causal_projection.go`):`TraceCausalProjectionNode` 新增 **4 个 typed 字段** `StateKind` / `UndrillableReason` / `EffectiveImpactMS` / `ActualImpactMS`(比设计少一个 `DrilldownTarget *Node`——见下"偏差")。全部从**既有确定性 rich note** 填充(`dominant_state`、`effective_impact_ms`、`actual_impact_ms`、`root_evidence:missing_wakeup`),**无新 LLM 信号故无需 6-spot sync**(与设计判断不同,核实后确认这些是 trace_query 确定性输出、不是模型声明字段)。`StateKind` 缺省时回退到 node.Object(仅当是识别的调度状态词),`IsSleepState()` 精确窄化到 S-sleep 家族(`s_sleep`/`sleep`/`sleep_wait`;`io_wait`/`d_state` 有各自 inode/资源下钻路径、不归此面)。
+
+**渲染层**(`internal/tool/answer_document_mutation_runtime.go`):`materializeRuntimeTraceCausalProjectionBlock` 重写为 **block 簇**:lead `BlockTable`(principal 身份 + Title + intro 含链 glyph)+ `BlockDiagram` 唤醒链 flowchart + `BlockDiagram` sleep 下钻 flowchart。表:8 列(层/节点·状态·Impact·链路/深度·窗口·下钻→·语义·证据)、整行 group-header 分层、unicode 方块条 + `cum·proj·eff·act` 三/四元、每节点斜体明细子行(tier/causality/rank/confidence/predicate + `Summary` 原文逐字);空值用 `""` 让 `renderV2CompactEmptyStructuredColumns` 自动压空列;全 `CitationRef=-1`;`WithinRequestedWindow` 三态 nil 留空。sleep 图:症状 `{{💤}}` `-->|下钻到|` 非sleep根因;undrillable `{{💤}} -.-> [[⚠ missing_wakeup lines]]`(无出边终止节点)。
+
+**终端可渲染性**(用户"能渲则渲,不能则简化/原文,不强求"):GFM 表在终端(glamour)正常;mermaid 走 pgavlin ASCII 渲染成网格(emoji/CJK 优雅降级,`·`→`*`、`⚠`→`?`),失败则 L7 降级 text fence——表始终无损承载全字段。**踩到并修掉两个渲染坑**:①`-.<CJK label>.->` 虚线边被 mermaid-subset 误解析成节点→改用无标签 `-.->`(背景/无法下钻靠节点形状 `(...)`/`[[...]]` 区分);②`classDef`/`class` 样式行被 pgavlin 误渲成一个 "class" 节点→**删除所有样式指令**(颜色是 HTML-only 装饰,on-chain 已由表格「链路」列 + 节点形状 矩形/圆角 无损承载)。
+
+**与设计的偏差**:未加 `DrilldownTarget *Node` 指针(跨记录链接脆弱、审查未验证其机制)。改为在渲染层从 `IsSleepState()` + `WakeupPath` + `resolvedRoot`(首个非-sleep 主/on-chain 根)派生 sleep→根因边——同样无损、更 robust。
+
+**测试**:`internal/types/trace_causal_projection_test.go` 加字段填充单测;`answer_document_mutation_runtime_test.go` **ZH/EN golden 同步重写**(扁平列表→block 簇断言:BlockTable/Columns/group-header/方块条/DiagramFlow body/CitationRef=-1)+ 新增端到端 `TraceCausalProjectionSleepDrilldownAndTriad`(gap c/d/e 在最终 markdown 里全钉:💤·非根因、下钻到根因、⛔ 无法下钻 missing_wakeup、cum/eff/act 三元 + 方块条、`| 层 / 节点 |` 表 + ` ```mermaid `)。既有 O5 `LowImpactSemanticSpanSurvivesToRenderedText`(语义 span + O4 窗口标注)不改自动通过。`go build ./... && go test ./...` 全绿。
+
+**gap a-f 落地对照**:a=group-header 分层;b=唤醒链 flowchart + glyph + ●on-chain 列;c=方块条 + cum/proj/eff/act;d=💤 非根因 + 下钻→列 + sleep 图实线下钻边;e=⛔ 无法下钻 + missing_wakeup 终止节点;f=off-chain 独立分层行 + 圆角虚线节点。
