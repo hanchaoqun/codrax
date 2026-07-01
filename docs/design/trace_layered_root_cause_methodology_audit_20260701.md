@@ -8,7 +8,7 @@
 >
 > **v4/v5 更新**:响应本文档 §2.6.2/O1 提出的容量短板,仓库代码侧实际做了两轮 `trace_query 关键观测核对`/`TraceCausalProjection` 容量扩容(细节见 §2.6.2 与 §6),文档随之同步了最新的 cap 数值。
 >
-> **v6 更新**:新增 R8(用户显式时间窗必须严格遵守,不能因 VSYNC/帧边界误缩窗)、R9(帧信息 + 显式时间窗同时给出时应取并集)两条规则及对应审计 §2.9。结论:**R8 已满足**——排查了三处会重新计算时间窗的入口(`resolveSpanWindowsForQuery`/`ResolveFrameTarget`/`FrameWindowAutoDerived` 置位条件),全部以"用户是否已显式给出 time_start/time_end"为精确 typed 开关,没有发现"因检测到帧边界而悄悄收窄显式窗口"的代码路径;但发现一处相关但不同的风险——`interestingIntervals` 会把窗口内目标线程的时间线按状态打分后只取 Top-8 子区间参与递归展开、且无条件跳过 Running 区间,窗口元数据本身没被收窄,但递归下钻的实际覆盖深度可能不足,且无对应 caveat 提示(裁剪是静默的)。**R9 未实现**——全仓没有对"用户显式窗口"与"帧信息推导窗口"取并集的代码,当前是显式窗口整体胜出、帧信息完全不参与窗口范围计算,是本轮新发现的精确缺口,已列 O9。
+> **v6 更新**:新增 R8(用户显式时间窗必须严格遵守,不能因 VSYNC/帧边界误缩窗)、R9(帧信息 + 显式时间窗同时给出时应取并集)两条规则及对应审计 §2.9。结论:**R8 已满足**——排查了三处会重新计算时间窗的入口(`resolveSpanWindowsForQuery`/`ResolveFrameTarget`/`FrameWindowAutoDerived` 置位条件),全部以"用户是否已显式给出 time_start/time_end"为精确 typed 开关,没有发现"因检测到帧边界而悄悄收窄显式窗口"的代码路径;但发现一处相关但不同的风险——`interestingIntervals` 会把窗口内目标线程的时间线按状态打分后只取 Top-8 子区间参与递归展开、且无条件跳过 Running 区间,窗口元数据本身没被收窄,但递归下钻的实际覆盖深度可能不足,且无对应 caveat 提示(裁剪是静默的)。R9 在 v6 审计时未实现,后续 v7/v8 已补齐并集逻辑与 explicit-0 回归测试。
 >
 > **v7 更新(本批实际修复代码,非纯审计)**:先探索既有代码(`priorityRelation`/`dependencyPriorityRelation`/`threadPriorityNear`/`runnableContextForThread`/`unionTimeWindows` 等既有原语)确认可复用后,修复了 O1、O3、O7、O9(剩余的 `resolveSpanWindowsForQuery` 一侧)、O10(caveat-only 部分),每项都补了新单元测试且全仓 `go build ./... && go test ./...` 全绿。**O2 复核后判定不是真缺口并撤销**(详见 §2.2 更新)。逐项:
 > 1. **O1**:`boundTraceMarkSpans` 让 `computeTraceMarks` 的语义 span(jit/verify/shader/runtime compile)单独占 16 个名额,不再和普通 span 抢 8 个名额的时长排名(§2.6.3)。
@@ -416,13 +416,13 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 
 #### 2.9.2 R9:帧信息 + 显式时间窗同时给出时的并集——**v7 已修复剩余的 `resolveSpanWindowsForQuery` 一侧**
 
-对着 §2.9.1 列出的三处入口重新看一遍"两者都给"的场景:
+v6 对着 §2.9.1 列出的三处入口重新看了一遍"两者都给"的场景,当时发现:
 
 - `resolveSpanWindowsForQuery`:`explicitStart && explicitEnd` 为真时**直接返回,不读取、也不使用匹配到的 span 自身的时间边界**——span 只在 caveat 文本里被提及("selected_window derived from..." 这句提示语只在至少一侧未显式给出时才会拼出来),不会被并入最终窗口。也就是说如果用户给的窗口比实际帧短(比如漏掉了帧收尾的一小段),这段被漏掉的范围**不会**被 span 匹配结果找回来。
 - `ResolveFrameTarget`/`applyFrameTargetResolution`(query.go:8767-8780):只要 pid/thread 显式给出,直接用 `query_window`,同样不会去看 `frame_timeline` 候选里对应帧的实际起止时间,更不会和它取并集。
 - 全仓搜索(`internal/tracequery/*.go`、`internal/tool/trace_query.go`)没有找到任何对两个时间来源做 `min(startA, startB)` / `max(endA, endB)` 或等价并集操作的代码,`TimeWindow` 结构体本身也没有提供"合并两个窗口"的辅助函数。
 
-**结论**:当前实现在"用户同时给了帧信息和显式时间窗"这个场景下的行为是**"显式窗口整体胜出,帧信息只用来定位/校验目标线程,不参与窗口范围计算"**——这满足了 R8(不会因为帧信息把窗口缩得比用户给的更小),但不满足 R9(帧信息暗示的、可能比用户窗口更大的范围,不会被并入分析)。如果用户给的时间窗因为记忆/换算误差而比实际帧窗口略窄,当前实现会**忠实地只分析用户给的那部分**,不会自动把帧的完整范围补进来——这是本轮审计**新发现、此前未记录**的一个精确缺口,已列入 §4 的 O9。
+**v6 结论**:当时实现在"用户同时给了帧信息和显式时间窗"这个场景下的行为是**"显式窗口整体胜出,帧信息只用来定位/校验目标线程,不参与窗口范围计算"**——这满足了 R8(不会因为帧信息把窗口缩得比用户给的更小),但不满足 R9(帧信息暗示的、可能比用户窗口更大的范围,不会被并入分析)。如果用户给的时间窗因为记忆/换算误差而比实际帧窗口略窄,旧实现会忠实地只分析用户给的那部分,不会自动把帧的完整范围补进来。该缺口已在 v7/v8 修复,当前不再作为 open gap 排队。
 
 **v7 修复**:`ResolveFrameTarget` 一侧此前已经由一次并行提交修复(见 §6 的 `acc70dbc`),新增了 `unionFrameTargetWindows` 并接到 `frameTargetQueryHasExplicitSelectorWindow` 分支。v7 把这个函数**提升为通用的 `unionTimeWindows`**(改名,单一调用点改双调用点,行为不变,只补了一行文档注释)并接到 `resolveSpanWindowsForQuery`:当 `explicitStart && explicitEnd` 为真且唯一匹配到一个 span 时,不再直接 `return spans, caveats`,而是用 `unionTimeWindows(explicitWindow, spanWindow)` 计算并集,只有并集确实比显式窗口更宽时才改写 `q.TimeStart`/`q.TimeEnd` 并追加一条"preserved explicit query window ... unioned it with matched span ..." caveat(并集等于原窗口时保持静默,不产生噪音)。`TestSpanWindowExplicitQueryWindowUnionsMatchedSpanWindow` 断言窄显式窗口被并集扩展到完整 span 边界,`TestSpanWindowExplicitQueryWindowAlreadyCoveringSpanIsUnchanged` 断言显式窗口已覆盖 span 时保持不变且无多余 caveat。
 
@@ -440,7 +440,7 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 - `TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection`(answer_document_mutation_runtime_test.go:618)——验证 `persistMergedAnswerDocument` 会自动追加投影区块,并断言区块的 `ID`/`Kind`/`SurfaceRole`/条目内容。
 - `trace_causal_projection_test.go`——多个用例覆盖 `CompileTraceCausalProjection` 的分桶/去重/排序逻辑。
 
-**未被任何测试覆盖的关键路径**:
+**测试覆盖复核**:
 1. `computeTraceMarks(idx, q, 8)` 的"普通 Top-8 + 短语义 span sidecar"场景已由 v7 的 `TestComputeTraceMarksReservesSlotForShortSemanticSpanBehindLongerGenericSpans` 锁住,不再是未覆盖项。
 2. (v8 已补)贯穿到最终渲染文本的用例已由 `TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText` 覆盖:低影响语义 span 经 `render.RenderAnswerDocument` 后"确定性优化点"区块 + span 名仍在最终 markdown 里,不被 summary/cap 逻辑吞掉。
 3. (v8 已补)端到端(analyzer→explore→extract→finalize 全链路)的 trace 丢帧场景 eval fixture 已由 `eval/cases/trace_query_frame_semantic_span_optimization.case` 落地,经 `eval/run.sh` 跑真实全链路 + 真实 LLM **PASS**——低影响 `VerifyClass` 语义 span 稳定出现在最终用户可见答案里(详见 §4-O5 第 3 项)。至此 §3 三项测试空白全部补齐。
@@ -454,7 +454,7 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 **O1(最高优先级,精确定位到代码行)—— ✅ v7 已修复 —— 让 `computeTraceMarks` 的 Top-N 截断感知语义类别。**
 现状:当前 `computeTraceMarks` 仍先按 `DurationMs` 排序,但不再直接 `spans[:max]`;v7 新增 `boundTraceMarkSpans`,把普通 span 与语义 span 分桶截断:普通 span 仍保留 Top-8,命中 `traceSpanSemanticWorkClass` 的 JIT/VerifyClass/shader/runtime-compile span 走独立 `traceMarkSemanticSpanCap=16` sidecar。这样短语义 span 不再和普通长 span 抢 8 个名额,能进入后续 `trace_semantic_span` typed observation、`TraceCausalProjection.SemanticSpans` 与"确定性优化点"渲染链路。
 
-**v7 落地**:新增 `boundTraceMarkSpans`,语义 span 单独 cap=16,详见 §2.6.3。`TestComputeTraceMarksReservesSlotForShortSemanticSpanBehindLongerGenericSpans` 锁定。剩余不是 O1 本身,而是 O5:仍需端到端渲染/eval 看护,证明这些 typed semantic spans 最终在用户可见 Markdown/HTML 和真实 REPL 里不被摘要/渲染层吞掉。
+**v7 落地**:新增 `boundTraceMarkSpans`,语义 span 单独 cap=16,详见 §2.6.3。`TestComputeTraceMarksReservesSlotForShortSemanticSpanBehindLongerGenericSpans` 锁定。O1 本身已关闭;O5 的用户可见渲染与真实全链路 eval 看护已在 v8 补齐。
 
 **O2 —— ❌ v7 复核后撤销(不是真缺口)—— 把碎片化状态的"非递归"例外从 sleep 推广到 runnable/D-state/IO-wait。**
 现状:`stateDrilldownNeedsWakeupChainForSource`(query.go:3943)只对 `state_churn + StateSSleep` 返回 `false`。
@@ -533,7 +533,7 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 | 显式窗口透传(R8,已满足,v6) | `internal/tracequery/query.go` | `resolveSpanWindowsForQuery`(4598,`explicitStart && explicitEnd` 早退 4606-4608)、`ResolveFrameTarget`(8601,`explicit_query_target` 分支 8603-8616)、`applyFrameTargetResolution`(8767) |
 | 自动窗口推导开关(仅无窗口时触发,v6) | `internal/tracequery/query.go` / `internal/tool/trace_query.go` | `Run` 里 `FrameWindowAutoDerived` 置位(query.go:23-28)、`traceQueryShouldAutoWindowFromPattern`(tool/trace_query.go:475)、`traceQueryHasExplicitIndexWindow`(tool/trace_query.go:1079) |
 | 窗口内深度覆盖裁剪(R8 相关但不同,v6) | `internal/tracequery/query.go` | `interestingIntervals`(10324,Top-`MaxBranches` 截断 10365-10367,Running 跳过 10350-10352)、`buildWakeupChainWithCache`(6097) |
-| 帧信息+显式窗口并集(R9,未实现,v6) | — | 全仓无对应代码,详见 §2.9.2 与 O9 |
+| 帧信息+显式窗口并集(R9,v7/v8 已修复) | `internal/tracequery/query.go` | `unionTimeWindows`,`resolveSpanWindowsForQuery`,`ResolveFrameTarget`;v8 修复 explicit `time_start=0` 回归 |
 
 ## 6. 审计期间(2026-07-01)实时落地的相关提交
 
@@ -557,6 +557,8 @@ if max > 0 && len(spans) > max { spans = spans[:max] }   // max=8,不感知语�
 
 **v6 修订说明**:审计期间发现本文档在此期间被并行地(基线 `4e53584d` → `4d5467a4`,共 7 个提交,其中 `264f0cd7`/`ae8fc57f`/`4d5467a4` 三次直接改了本文档自身,详见上面 v4/v5 段)持续更新,已用 `git reset --hard origin/main` 对齐到最新版本,不覆盖已有内容。v6 新增 R8/R9 两条规则(§背景)与对应审计 §2.9、新优化建议 O9/O10、附录索引新增 4 行。R8/R9 的判定不依赖前面几轮已经改动的 cap 数值(那些改的是 trace causal projection 的候选保留条数,和窗口边界计算是两回事),因此本轮结论与 §2.6.2 记录的最新 cap 数值不冲突。
 
-**v8 复核说明(容量机制,并行提交 `29332679`)**:按当前代码再次复核 `ae8fc57f6 fix: expand trace causal handoff capacity` 与 `d0eddd6c7 docs: update trace audit doc with v7 fix status` 后确认,容量扩展机制仍在:`TraceCausalProjection` 的 primary/on-chain/context/semantic/supporting-hops cap 分别为 10/24/8/16/10,最终 `runtime_trace_causal_projection` 动态上限为 48,`trace_query 关键观测核对`上限为 40,链路分层摘要每类展示 4 个代表节点。此前 O1 的上游选择保真也已由 v7 的 `boundTraceMarkSpans` 修复,不再登记为 open gap。O5 的端到端渲染项已由下面的 v8 修订说明落地(`TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText`);唯一剩余的是 O5 第三项——analyzer→finalize 全链路 eval fixture。
+**v8 复核说明(容量机制,并行提交 `29332679`)**:按当前代码再次复核 `ae8fc57f6 fix: expand trace causal handoff capacity` 与 `d0eddd6c7 docs: update trace audit doc with v7 fix status` 后确认,容量扩展机制仍在:`TraceCausalProjection` 的 primary/on-chain/context/semantic/supporting-hops cap 分别为 10/24/8/16/10,最终 `runtime_trace_causal_projection` 动态上限为 48,`trace_query 关键观测核对`上限为 40,链路分层摘要每类展示 4 个代表节点。此前 O1 的上游选择保真也已由 v7 的 `boundTraceMarkSpans` 修复,不再登记为 open gap。O5 的端到端渲染项已由下面的 v8 修订说明落地(`TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText`),全链路 eval fixture 也已由 `ab5174f70` 补齐并 PASS。
+
+**v9 复核说明(同步至 `origin/main@ab5174f70`)**:重新拉取最新代码后复核,O1-O10 已全部落地或明确判定(O2 撤销、O8 记录在案),R1-R9 九条规则全部满足或正确降级。此前残留的文档漂移已修正:测试覆盖区不再写"未覆盖",附录不再保留 R9 的旧状态。当前可排队的唯一 trace 层增强是 O7 的中期配置化方向:把语义 span 模式扩展从 Go 源码内置迁移/补充为 `codrax.yaml` 可配置 pattern,用于适配客户私有 ROM / ArkCompiler / 应用自定义打点命名漂移;这是可观测性与可维护性增强,不是当前阻断性 correctness gap。
 
 **v8 修订说明(第二批实际修复)**:动手前先跑一个 8-agent 设计+完备性 workflow(4 design + 4 adversarial verify),对每个剩余 gap 产出经对抗验证的 diff 级实现规范并让"完备性批判"agent 独立复核 v7 五项修复是否真生效。批判 agent 用真实 `Run()` 红测复现了 v7 O9 亲手引入的 `unionTimeWindows` explicit-0 起点收窄回归(R8 字面正确性 bug),v8 第一件事就修它。随后落地 R3(占比显著性)、O4(投影窗口标注)、O5 端到端渲染测试、O6(架构文档 §7.2.1),每项都有新单测,`go build ./... && go test ./...` 全绿。O5 第三项(全链路真实 eval)也已在本轮补齐并 **PASS**——新增 `eval/cases/trace_query_frame_semantic_span_optimization.case`,经 `eval/run.sh` 跑真实 analyze→explore→extract→finalize + 真实 LLM,确认低影响 `VerifyClass` 语义 span、优先级反转、自动注入 projection block 都稳定出现在最终用户可见答案里(126s PASS)。至此 §4 的 O1-O10 全部落地或明确判定(O2 撤销、O8 记录在案),R1-R9 九条规则全部满足或正确降级;**唯一剩余的是 O7 中期增强项(codrax.yaml 自定义语义 span 模式化,属配置化增强而非缺口)**。
