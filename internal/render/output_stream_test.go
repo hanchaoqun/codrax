@@ -898,7 +898,7 @@ func TestFormatEvidenceToolResultSummaryExternalObservationSkipZh(t *testing.T) 
 		"  - items[0]: pid=4242 @ mcp://fixture/trace/sleep-wakeup:7 is an external observation URI, not a current-source read_file anchor\n\n" +
 		"MCP resources and other external observations are first-class evidence in the external observation lane.\n"
 	got := stripAnsiEscapes(formatEvidenceToolResultSummary("emit_evidence", summary, "zh", 0))
-	for _, want := range []string{"外部观测 2 条（未作为源码证据记录）", "未将其当作当前源码引用", "aggregate_facts"} {
+	for _, want := range []string{"外部观测 2 条（未作为源码证据记录）", "未将其当作当前源码引用", "不要重试 emit_evidence", "aggregate_facts"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("external observation skip summary missing %q; got %q", want, got)
 		}

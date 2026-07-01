@@ -137,6 +137,7 @@ func TestEmitEvidence_MCPURIStaysExternalObservationNotUngroundedSourceEvidence(
 	for _, want := range []string{
 		"skipped 1 external observation item",
 		"mcp://fixture/trace/sleep-wakeup:7",
+		"do not retry emit_evidence",
 		"emit_investigation_complete.reason",
 		"aggregate_facts",
 	} {
@@ -221,6 +222,7 @@ func TestEmitEvidence_AttachedTraceBlobStaysExternalObservation(t *testing.T) {
 	for _, want := range []string{
 		"runtime_artifact external observation",
 		".codrax/blob/20260630-091213-000-29296/attached_trace.txt:188556",
+		"do not retry emit_evidence",
 		"emit_investigation_complete.reason",
 		"aggregate_facts",
 	} {

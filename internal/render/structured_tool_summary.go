@@ -730,10 +730,10 @@ func formatEvidenceExternalObservationSkipSummary(summary, lang string) string {
 	var lines []string
 	if zh {
 		lines = append(lines, "  "+statusMeta.Sprint("•")+" "+statusMeta.Sprint(fmt.Sprintf("外部观测 %s 条（未作为源码证据记录）", count)))
-		lines = append(lines, statusReasoningBody.Sprint("    来自 MCP/外部 URI；系统未将其当作当前源码引用，需通过调查结论和 aggregate_facts 承接。"))
+		lines = append(lines, statusReasoningBody.Sprint("    来自运行时日志/Trace、MCP 或外部 URI；系统未将其当作当前源码引用，不要重试 emit_evidence，需通过调查结论和 aggregate_facts 承接。"))
 	} else {
 		lines = append(lines, "  "+statusMeta.Sprint("•")+" "+statusMeta.Sprint(fmt.Sprintf("%s external observation item(s) were not added to the source-evidence pool", count)))
-		lines = append(lines, statusReasoningBody.Sprint("    These rows came from MCP/external URIs; the system did not treat them as current-source citations, so carry them through investigation findings and aggregate_facts."))
+		lines = append(lines, statusReasoningBody.Sprint("    These rows came from runtime logs/traces, MCP, or external URIs; do not retry emit_evidence for them, carry them through investigation findings and aggregate_facts."))
 	}
 	return strings.Join(lines, "\n") + "\n"
 }

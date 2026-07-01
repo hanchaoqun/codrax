@@ -5934,7 +5934,12 @@ func renderRuntimeArtifactHeaderReadHint(win runtimeArtifactReadWindow) string {
 	}
 	b.WriteString(", which looks like a broad/header page of a runtime/log/trace artifact rather than target evidence. ")
 	b.WriteString("Do not emit evidence from unrelated header or first-page rows, and do not keep paging from the file head. ")
-	fmt.Fprintf(&b, "Narrow first with `grep(path=%q, pattern=\"<one exact timestamp/thread/event literal>\", files_only=false, context_lines=0)` or a deterministic `grep -n`/awk filter that preserves original line numbers; then `read_file` around the selected line window. ", win.path)
+	if runtimeArtifactReadPrefersTraceQuery(win) {
+		b.WriteString("Stay on the typed trace lane: use `trace_query` with the already-selected runtime artifact plus explicit `window` / `pid` / `thread` / `view` parameters instead of grepping or paging the blob. ")
+		b.WriteString("Useful narrow views include `root_cause_rank`, `frame_root_cause_bundle`, `wakeup_chain`, `window_stats`, `event_search`, `span_window`, and `interaction_stats`. ")
+	} else {
+		fmt.Fprintf(&b, "For plain runtime text that has no typed query view, narrow first with `grep(path=%q, pattern=\"<one exact timestamp/thread/event literal>\", files_only=false, context_lines=0)` or a deterministic `grep -n`/awk filter that preserves original line numbers; then `read_file` around the selected line window. ", win.path)
+	}
 	b.WriteString("Preserve runtime findings through `emit_investigation_complete.reason` plus `aggregate_facts`, or use `emit_evidence` only after the target line gutters are visible and load-bearing.")
 	return b.String()
 }
@@ -5946,7 +5951,11 @@ func renderCompactRuntimeArtifactReadHint(win runtimeArtifactReadWindow) string 
 		fmt.Fprintf(&b, " of %d", win.total)
 	}
 	b.WriteString(". This repeats the same read-without-emit hint family; do not re-read from the artifact head or convert artifact rows into current-source citations. ")
-	b.WriteString("Use `trace_query` or one targeted `grep` / `read_file` window if the runtime slice is incomplete; otherwise close with `emit_investigation_complete(reason, confidence, result_kind)` and preserve artifact facts in `reason` / `aggregate_facts`.")
+	if runtimeArtifactReadPrefersTraceQuery(win) {
+		b.WriteString("Use `trace_query` with explicit window/target/view parameters if the runtime slice is incomplete; otherwise close with `emit_investigation_complete(reason, confidence, result_kind)` and preserve artifact facts in `reason` / `aggregate_facts`.")
+	} else {
+		b.WriteString("Use one targeted `grep` / `read_file` window only if the runtime text slice is incomplete; otherwise close with `emit_investigation_complete(reason, confidence, result_kind)` and preserve artifact facts in `reason` / `aggregate_facts`.")
+	}
 	return b.String()
 }
 
@@ -5958,9 +5967,17 @@ func renderRuntimeArtifactReadOnlyHint(win runtimeArtifactReadWindow) string {
 	}
 	b.WriteString(". This is an artifact-only read backlog, not current-source code evidence. ")
 	b.WriteString("Do not convert trace/log rows into current-source `emit_evidence` citations. ")
-	b.WriteString("If these rows answer the runtime question, preserve the findings through `emit_investigation_complete.reason` plus `aggregate_facts` with artifact line numbers; if the window is still incomplete, continue with `trace_query` (views: " + skill.RenderTraceQueryViewNameList() + ") or a targeted `grep`/`read_file` line window on the same artifact. ")
+	if runtimeArtifactReadPrefersTraceQuery(win) {
+		b.WriteString("If these rows answer the runtime question, preserve the findings through `emit_investigation_complete.reason` plus `aggregate_facts` with artifact line numbers; if the window is still incomplete, continue with `trace_query` using explicit window/target/view parameters. ")
+	} else {
+		b.WriteString("If these rows answer the runtime question, preserve the findings through `emit_investigation_complete.reason` plus `aggregate_facts` with artifact line numbers; if the window is still incomplete, use one targeted `grep`/`read_file` line window on the same artifact. ")
+	}
 	b.WriteString("If a later step also needs current-code proof, read that source separately and emit source evidence only for those current-code lines.")
 	return b.String()
+}
+
+func runtimeArtifactReadPrefersTraceQuery(win runtimeArtifactReadWindow) bool {
+	return types.RuntimeArtifactPathKind(win.path) == "trace"
 }
 
 func (e *explorerEvaluator) originSpecificObservationLaneActive() bool {

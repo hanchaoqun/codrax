@@ -892,7 +892,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			for _, r := range externalObservationSkippedItems {
 				fmt.Fprintf(&b, "  - %s\n", r)
 			}
-			b.WriteString("MCP resources, connector rows, web pages, and other non-current-source observations must remain in their external observation lane. Carry them through emit_investigation_complete.reason and aggregate_facts instead of inventing read_file grounding.\n")
+			b.WriteString("Runtime logs/traces, MCP resources, connector rows, web pages, and other non-current-source observations must remain in their external observation lane. Do not retry emit_evidence for these rows; carry them through emit_investigation_complete.reason and aggregate_facts instead of inventing read_file grounding.\n")
 		}
 		if len(rejectedItems) > 0 {
 			fmt.Fprintf(&b, "\n%d item(s) were SKIPPED due to validation errors and are NOT in the accepted buffer:\n",
@@ -1338,7 +1338,7 @@ func renderEmitEvidenceExternalObservationSoftSkipSummary(skipped []string) stri
 	for _, s := range skipped {
 		fmt.Fprintf(&b, "  - %s\n", s)
 	}
-	b.WriteString("\nMCP resources and other external observations are first-class evidence in the external observation lane, not current-source read_file evidence. Preserve them through emit_investigation_complete.reason plus aggregate_facts; do not retry emit_evidence for these URI rows.\n")
+	b.WriteString("\nRuntime logs/traces, MCP resources, connector rows, web pages, and other external observations are first-class evidence in the external observation lane, not current-source read_file evidence. Preserve them through emit_investigation_complete.reason plus aggregate_facts; do not retry emit_evidence for these rows.\n")
 	return b.String()
 }
 

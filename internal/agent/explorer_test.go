@@ -7450,7 +7450,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		}
 	})
 
-	t.Run("runtime artifact header read steers back to targeted search", func(t *testing.T) {
+	t.Run("trace artifact header read steers back to typed trace query", func(t *testing.T) {
 		eval := &explorerEvaluator{
 			phase:        1,
 			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
@@ -7474,9 +7474,10 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			"broad/header page of a runtime/log/trace artifact",
 			"Do not emit evidence from unrelated header",
 			"do not keep paging from the file head",
-			`grep(path="record_trace.systrace"`,
-			"`grep -n`/awk filter",
-			"`read_file` around the selected line window",
+			"Stay on the typed trace lane",
+			"`trace_query`",
+			"`root_cause_rank`",
+			"`wakeup_chain`",
 			"`emit_investigation_complete.reason` plus `aggregate_facts`",
 		} {
 			if !strings.Contains(sig.Hint, want) {
@@ -7487,10 +7488,49 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			"Facts left only in your prose notes are NOT recorded",
 			"Current-checkout source claims left only in prose notes",
 			"largest unrecorded read window",
+			`grep(path="record_trace.systrace"`,
+			"`grep -n`/awk filter",
+			"`read_file` around the selected line window",
 		} {
 			if strings.Contains(sig.Hint, forbidden) {
 				t.Fatalf("runtime header read hint should not use source-evidence pressure %q:\n%s", forbidden, sig.Hint)
 			}
+		}
+	})
+
+	t.Run("log artifact header read keeps targeted text fallback", func(t *testing.T) {
+		eval := &explorerEvaluator{
+			phase:        1,
+			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		}
+		results := []types.ToolResult{{
+			ToolName:     "read_file",
+			Success:      true,
+			Summary:      "[app.log: showing lines 1-200 of 1525954 total]\n# log header\n",
+			ReadCoverage: &types.ToolReadCoverage{Path: "app.log", LineStart: 1, LineEnd: 200, TotalLines: 1525954}}}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      1,
+			LastToolResult: &results[0],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.read-without-emit" {
+			t.Fatalf("expected log read search-shape nudge, got %+v", sig)
+		}
+		for _, want := range []string{
+			"plain runtime text",
+			`grep(path="app.log"`,
+			"`grep -n`/awk filter",
+			"`read_file` around the selected line window",
+			"`emit_investigation_complete.reason` plus `aggregate_facts`",
+		} {
+			if !strings.Contains(sig.Hint, want) {
+				t.Fatalf("log runtime read hint missing %q:\n%s", want, sig.Hint)
+			}
+		}
+		if strings.Contains(sig.Hint, "Stay on the typed trace lane") {
+			t.Fatalf("plain log hint should not force trace_query:\n%s", sig.Hint)
 		}
 	})
 
@@ -7561,6 +7601,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			"Do not convert trace/log rows into current-source `emit_evidence` citations",
 			"`emit_investigation_complete.reason` plus `aggregate_facts`",
 			"`trace_query`",
+			"explicit window/target/view parameters",
 			"If a later step also needs current-code proof",
 		} {
 			if !strings.Contains(sig.Hint, want) {
@@ -7571,6 +7612,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			"Facts left only in your prose notes are NOT recorded",
 			"Current-checkout source claims left only in prose notes",
 			"largest unrecorded read window",
+			"targeted `grep`/`read_file`",
 		} {
 			if strings.Contains(sig.Hint, forbidden) {
 				t.Fatalf("runtime-only read hint should not use source-evidence pressure %q:\n%s", forbidden, sig.Hint)
