@@ -4901,6 +4901,95 @@ func TestEmitAnalysis_ExternalObservationPolicyExcludeRequiresTypedExclusionKind
 	}
 }
 
+func TestEmitAnalysis_RouteBackedRuntimeOnlyRepairsMissingExclusionKind(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("只分析这份 trace，不分析代码。请分析 app 主线程卡顿原因。")
+	mu.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "capture.systrace", Signals: []string{"sched_switch"}},
+	})
+	payload := `{
+			"intent": "root_cause",
+			"scenario": "root_cause",
+			"complexity": "complex",
+			"intent_confidence": 0.9,
+			"complexity_confidence": 0.8,
+			"kind_confidence": 0.9,
+			"keywords": ["trace", "sched_switch", "卡顿"],
+			"entities": ["app", "main thread"],
+			"question_kind": "mechanism",
+			"predicates": {
+				"is_scalar_answer": false,
+				"is_role_locate_lookup": false,
+				"is_count_question": false,
+				"is_cross_component": false,
+				"is_relational_lookup": false,
+				"is_category_enumeration": false,
+				"is_history_lookup": false,
+				"is_diagnostic_question": true,
+				"has_per_member_table": false
+			},
+			"diagnostic_profile": {
+				"is_diagnostic": true,
+				"current_risk": true,
+				"historical_regression": true,
+				"current_version_check": true,
+				"confidence": 0.9
+			},
+			"answer_role_profile": {
+				"is_role_binding_requested": false,
+				"confidence": 0.8
+			},
+			"error_granularity_profile": {
+				"is_granularity_question": false,
+				"confidence": 0.8
+			},
+			"external_observation_policy": {
+				"current_source_mode": "exclude",
+				"artifact_citation_mode": "external_only",
+				"source_quotes": ["只分析这份 trace，不分析代码"],
+				"confidence": 0.95
+			}
+		}`
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "artifact",
+			Operation:       "investigate",
+			NeedsRepoAccess: false,
+			Confidence:      0.95,
+		},
+	}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("route-backed trace-only missing exclusion_kind should be repaired, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		t.Fatalf("route-backed missing exclusion_kind should become source-excluded: %+v", rm)
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneExcluded {
+		t.Fatalf("CurrentSourceLaneDecision=%s, want excluded", got)
+	}
+	if rm.DiagnosticProfile.CurrentRisk || rm.DiagnosticProfile.CurrentVersionCheck || rm.DiagnosticProfile.HistoricalRegression {
+		t.Fatalf("exclude policy should clear current-source diagnostic flags: %+v", rm.DiagnosticProfile)
+	}
+	if !strings.Contains(res.Summary, "missing exclusion_kind repaired from typed route metadata") {
+		t.Fatalf("summary should expose typed route-backed enum repair, got %q", res.Summary)
+	}
+	if strings.Contains(res.Summary, "invalid current_source_mode=exclude auto-softened to allow") {
+		t.Fatalf("route-backed repair must happen before invalid-exclude allow promotion, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_RuntimeArtifactInvalidExcludePromotesAllow(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

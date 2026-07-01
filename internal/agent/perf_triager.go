@@ -64,7 +64,7 @@ type PerfTriageSettings struct {
 	// investigation, because read_file-pagination over multi-MiB blobs is
 	// slow, noisy, and duplicates the deterministic trace indexer. <=0
 	// disables this cap for operators who explicitly want legacy behavior.
-	// Default: 8 MiB.
+	// Default: 512 KiB.
 	LLMMaxBytes int
 }
 
@@ -78,7 +78,7 @@ func DefaultPerfTriageSettings() PerfTriageSettings {
 		TwoStepBytes:    64 * 1024,
 		TwoStepCoverage: 0.3,
 		MaxLLMCalls:     12,
-		LLMMaxBytes:     8 * 1024 * 1024,
+		LLMMaxBytes:     512 * 1024,
 	}
 }
 

@@ -1163,6 +1163,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if repaired, warning := repairMissingExternalObservationExclusionKindFromRouteHint(ctx, p.ExternalObservationPolicy, externalObservationPolicy); warning != "" {
+		externalObservationPolicy = repaired
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if promoted, warning := promoteInvalidExternalObservationExcludeToAllow(ctx, p.ExternalObservationPolicy, externalObservationPolicy); warning != "" {
 		externalObservationPolicy = promoted
 		logging.Warning("[emit_analysis] %s", warning)
@@ -2494,6 +2499,41 @@ func normalizeExternalObservationPolicyForCurrentSourceExplanation(
 	normalized.CurrentSourceMode = types.ExternalObservationCurrentSourceAllow
 	normalized.ExclusionKind = types.ExternalObservationSourceExclusionNone
 	return &normalized, "external_observation_policy current_source_mode=exclude auto-softened to allow because current_source_explanation_profile is active; citation-only artifact boundaries must use artifact_citation_mode, not source exclusion"
+}
+
+func repairMissingExternalObservationExclusionKindFromRouteHint(
+	ctx *types.BusContext,
+	raw *emitExternalObservationPolicyParam,
+	policy *types.ExternalObservationPolicy,
+) (*types.ExternalObservationPolicy, string) {
+	if raw == nil || policy == nil {
+		return policy, ""
+	}
+	if types.NormalizeExternalObservationCurrentSourceMode(raw.CurrentSourceMode) != types.ExternalObservationCurrentSourceExclude {
+		return policy, ""
+	}
+	if types.NormalizeExternalObservationCurrentSourceExclusionKind(raw.ExclusionKind) != types.ExternalObservationSourceExclusionNone {
+		return policy, ""
+	}
+	if policy.ExcludesCurrentSource() || len(policy.SourceQuotes) == 0 {
+		return policy, ""
+	}
+	if ctx == nil || !ctx.TurnRouteHint.ExternalObservationParticipates() || ctx.TurnRouteHint.NeedsRepoAccess {
+		return policy, ""
+	}
+	if !emitAnalysisHasRuntimeArtifactCarrier(ctx) {
+		return policy, ""
+	}
+	normalized := *policy
+	normalized.CurrentSourceMode = types.ExternalObservationCurrentSourceExclude
+	normalized.ExclusionKind = types.ExternalObservationSourceExclusionExplicitUserBoundary
+	if normalized.Confidence <= 0 {
+		normalized.Confidence = 0.75
+	}
+	if strings.TrimSpace(normalized.Rationale) == "" {
+		normalized.Rationale = "typed route metadata marked this external-observation turn as not needing repository access"
+	}
+	return &normalized, "external_observation_policy missing exclusion_kind repaired from typed route metadata (external observation without repository access)"
 }
 
 func promoteInvalidExternalObservationExcludeToAllow(

@@ -2394,7 +2394,7 @@ GOMEMLIMIT=6GiB codrax --repo /path/to/big-repo --request "..."
 | `log_triage_max_llm_calls` | 12 | 单次 Run log_triage LLM 调用上限 |
 | `log_triage_source_prefix` | `""` | 等价 `--log-source-prefix`(yaml 持久版) |
 | `perf_triage_enabled` | `true` | perf_triage 预阶段(同上结构) |
-| `perf_triage_llm_max_bytes` | `8388608`(8 MiB) | 旧 LLM 性能预分诊的输入上限;更大的 trace 直接交给 `trace_query` 做索引和窗口根因分析 |
+| `perf_triage_llm_max_bytes` | `524288`(512 KiB) | 旧 LLM 性能预分诊的输入上限;更大的 trace 直接交给 `trace_query` 做索引和窗口根因分析 |
 
 ### MCP 外部工具配置参考
 

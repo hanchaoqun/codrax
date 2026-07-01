@@ -2940,6 +2940,11 @@ mcp_servers:
 <td><code>true</code></td>
 <td>perf_triage 预阶段(同上结构)</td>
 </tr>
+<tr>
+<td><code>perf_triage_llm_max_bytes</code></td>
+<td><code>524288</code>(512 KiB)</td>
+<td>旧 LLM 性能预分诊的输入上限;更大的 trace 直接交给 <code>trace_query</code> 做索引和窗口根因分析</td>
+</tr>
 </tbody>
 </table></div>
 <h3 id="mcp-外部工具配置参考">MCP 外部工具配置参考</h3>

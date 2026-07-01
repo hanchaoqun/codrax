@@ -1296,7 +1296,7 @@ type RuntimeSettings struct {
 	//   PerfTriageTwoStepCoverage — single-shot coverage floor before escalating (default 0.3)
 	//   PerfTriageMaxLLMCalls     — hard cap on total LLM calls per stage run (default 12)
 	//   PerfTriageLLMMaxBytes     — skip legacy LLM pre-triage above this size and
-	//                                let trace_query own detailed analysis (default 8 MiB)
+	//                                let trace_query own detailed analysis (default 512 KiB)
 	PerfTriageEnabled         *bool    `yaml:"perf_triage_enabled"`
 	PerfTriageMinBytes        *int     `yaml:"perf_triage_min_bytes"`
 	PerfTriageMaxRetries      *int     `yaml:"perf_triage_max_retries"`

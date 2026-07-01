@@ -1075,3 +1075,50 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 
 - Batch 2-3 已落地:共享结构化参数修复层已支持冗余 root `type=<tool_name>` 剥离;`emit_analysis` trace-only 回归钉住 `external_observation_policy=exclude` 不丢失,并确认 `current_risk/current_version_check/historical_regression` 在 exclude 下被修正为 false。
 - Batch 4-5 已验证:普通 unknown field / 错工具名 `type` 仍保持 fail-loud,冗余 `type=emit_analysis` 只作为 metadata repair 剥离;focused tests、`go test ./...`、`make` 通过。`trace_query_donghu_real_frame_multicausal` 复测第一轮 analysis 不再因冗余 `type` 字段失败,`CurrentSourceLaneDecision=excluded` 生效,完成调查后直接进入 extract/finalize。
+
+### 7.19 Eval 暴露 gap:trace-only typed policy 因缺 enum 被降级(2026-07-02)
+
+2026-07-02 代表性 6-case eval 再次暴露 trace-only lane 漂移的新入口:模型第一轮 `emit_analysis` 已经发出 `external_observation_policy.current_source_mode=exclude`、`artifact_citation_mode=external_only` 和当前请求锚定 quote `只分析这份 trace，不分析代码`,但漏填 `exclusion_kind=explicit_user_exclusion`。现有 normalize 逻辑把该 exclude 判为 invalid 并在 runtime artifact 场景 fail-open 为 `allow`,导致 `CurrentSourceLaneDecision` 从 expected `excluded` 变成 `required/soft`,后续 mixed-origin autocomplete / localizer 又把完成的 trace-only 调查拉回 repo_map/read_file。
+
+这不是 Donghu shape 特例,而是**typed policy 局部字段缺失时的安全修复粒度不足**:
+
+- 不能简单把所有缺 `exclusion_kind` 的 exclude 都当真,否则会破坏"结合当前源码解释"一类 mixed source 请求的 fail-open 红线。
+- 但当 TurnPolicy 已经给出 typed `source=artifact/external_tool/mixed` 且 `needs_repo_access=false`,`emit_analysis` 又发出了 `current_source_mode=exclude` 和当前请求锚定 `source_quotes`,系统可以安全补齐 missing enum:它消费的是两个结构化 typed artifacts + 精确 quote provenance,不是 raw 用户关键词或模型散文。
+- `current_source_explanation_profile` 仍是更高优先级的 mixed-source 信号;若它 active,后续 normalize 继续把 exclude softens to allow,避免把真实源码解释请求关掉。
+
+**原则。**
+
+- typed enum 缺失修复必须是 schema-aware、bounded、可审计:只补 `exclusion_kind` 这一枚举,不从自然语言重新判断用户意图。
+- 缺 enum 的补齐条件必须同时满足:raw tool payload 明确 `current_source_mode=exclude`;normalized policy 至少有一个通过 current-request provenance 校验的 `source_quote`;TurnRouteHint 是 external observation turn 且 `needs_repo_access=false`;当前 turn 有 runtime artifact carrier。
+- 没有 TurnRouteHint、route hint 要 repo access、source quote 未锚定、或 mixed current-source profile active 时,继续 fail-open 到 source lane。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录缺 enum 导致 runtime-only policy 丢失的根因和安全修复边界。
+- **Batch 2: typed route-backed enum repair。** 在 `emit_analysis` normalize 链路中,在 invalid exclude promote-to-allow 前,用 TurnRouteHint + anchored source_quotes + runtime carrier 补齐 missing `exclusion_kind=explicit_user_exclusion`。
+- **Batch 3: 回归看护。** 新增测试:trace-only/artifact route + missing `exclusion_kind` 应落成 `CurrentSourceLaneExcluded`;既有"结合当前源码解释但缺 kind"测试保持 fail-open;current_source_explanation_profile active 仍 softens to allow。
+- **Batch 4: eval 复测。** 重跑 `trace_query_donghu_real_frame_multicausal`,要求 analysis 第一轮生效 `CurrentSourceLaneDecision=excluded`,完成调查后不再触发 repo_map/read_file 源码补齐。
+
+**当前进展。** Batch 1-4 已落地:`emit_analysis` 只在 typed route 明确 external-observation 且 `needs_repo_access=false`、存在 runtime artifact carrier、raw policy 已显式 `current_source_mode=exclude` 且带 anchored source quote 时补齐 missing `exclusion_kind`;没有这些 typed 条件时仍 fail-open。`trace_query_donghu_real_frame_multicausal` 复测 PASS,repo_map/list_files/source_lens 均为 0;仍出现的 `read_file=2` 是 `.codrax/blob/attached_trace.txt` artifact-local 行锚读取,不是源码 lane 回流。
+
+### 7.20 Eval 暴露 gap:perf_triage 旧 LLM 预分诊仍分页读取 multi-MiB trace(2026-07-02)
+
+同一 eval 显示 trace-only run 在真正进入 explore 前,`perf_triage` 预阶段连续 `read_file` 了 1.8MiB systrace blob 多轮。虽然这些读取是 artifact-local,不再发布 current-source coverage,但仍带来三个商用风险:①用户界面上看起来像系统在用 `read_file` 分析 trace,削弱 "trace_query-first" 心智;②multi-MiB trace 会推高 wall time/context/token 压力;③当模型在 perf_triage 阶段分页失败时,容易把 raw trace 行号债务带到后续阶段。
+
+该问题已有 `perf_triage_llm_max_bytes` 可配置承接,但默认 8MiB 过宽;代表性 trace 1.8MiB 已经足够触发多轮分页和 context prune。修复方向不新增并行机制,只让既有配置默认值更保守。
+
+**原则。**
+
+- 小型内联 trace 仍可走 perf_triage 轻量摘要;multi-MiB 及以上 trace 默认交给 `trace_query` 的确定性索引/窗口根因引擎。
+- 这是性能与 UX 默认值收敛,不是 completion hard gate;用户仍可通过 `codrax.yaml::perf_triage_llm_max_bytes` 显式调大恢复旧 LLM 预分诊。
+- 跳过 perf_triage 时 StageReport 必须明确 "delegated to trace_query",不静默丢 runtime artifact。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录 perf_triage 旧 LLM 预分诊默认过宽的证据和任务。
+- **Batch 2: 默认 cap 收敛。** 将 `DefaultPerfTriageSettings().LLMMaxBytes` 从 8MiB 收敛到 512KiB;保持 `<=0` 显式禁用 cap 的兼容语义。
+- **Batch 3: 配置/文档同步。** 更新 `internal/config/runtime.go` 注释、`codrax.yaml.example`、`docs/user_guide.md/html`、`docs/architecture.md` 中的默认值说明。
+- **Batch 4: 回归看护。** 新增/更新 `perf_triager` tests:默认设置下 1MiB trace 直接跳过旧 LLM 预分诊并提示 `trace_query`;小于 cap 的行为不在本批强改。
+- **Batch 5: eval 复测。** 重跑 trace-only representative case,要求 perf_triage 不再出现 multi-round trace `read_file` 分页;主要 runtime authority path 由 `trace_query` 承重。
+
+**当前进展。** Batch 1-5 已落地:默认 `perf_triage_llm_max_bytes` 收敛到 512KiB,配置注释和用户/架构文档同步,并新增默认 1MiB trace 直接委托 `trace_query` 的回归测试。`trace_query_donghu_real_frame_multicausal` 复测日志显示 `perf_triage` 对 1.9MiB trace 直接 skipped/delegated to `trace_query`,未调用 `emit_perf_trace`,不再出现 perf_triage 多轮 trace `read_file` 分页。
