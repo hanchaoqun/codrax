@@ -1,6 +1,8 @@
 package tool
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -4863,6 +4865,133 @@ func TestNormalizePrincipalEnumerationRowBlocks_RebuildsScopedSourceInventoryMar
 		if !strings.Contains(visible, want) {
 			t.Fatalf("missing scoped source-inventory authority surface %q:\n%s", want, visible)
 		}
+	}
+}
+
+func TestNormalizePrincipalEnumerationSourceInventorySectionUsesAdjacentCarrierCardinality(t *testing.T) {
+	rows := []types.EnumerationDisplayRow{
+		sourceInventoryDisplayRowForCountDrift("Bridge", "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 15, "public class", "public class Bridge"),
+		sourceInventoryDisplayRowForCountDrift("Cart", "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 14, "public class", "public class Cart"),
+		sourceInventoryDisplayRowForCountDrift("App", "eval/fixtures/testdata/cangjie_minimal/main.cj", 11, "public class", "public class App"),
+		sourceInventoryDisplayRowForCountDrift("Greeter", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", 6, "public class", "public class Greeter"),
+		sourceInventoryDisplayRowForCountDrift("Version", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj", 18, "public class", "public class Version"),
+		sourceInventoryDisplayRowForCountDrift("Animal", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", 6, "public class", "public class Animal"),
+		sourceInventoryDisplayRowForCountDrift("Dog", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", 22, "public class", "public class Dog"),
+		sourceInventoryDisplayRowForCountDrift("Service", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", 32, "public class", "public class Service"),
+		sourceInventoryDisplayRowForCountDrift("Comparable", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj", 6, "public class", "public class Comparable"),
+		sourceInventoryDisplayRowForCountDrift("extend Cart", "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 30, "extend", "extend Cart"),
+	}
+	set := types.EnumerationDisplaySet{
+		ID:        "source_inventory_principal_rows",
+		Label:     "source inventory principal rows",
+		Value:     "10",
+		Role:      types.AnswerAggregateRolePrincipalAnswer,
+		Rows:      rows,
+		FactIndex: 0,
+		EvidenceOrigins: []types.AnswerEvidenceOrigin{
+			types.AnswerEvidenceOriginCurrentSource,
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 15},
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 14},
+			{File: "eval/fixtures/testdata/cangjie_minimal/main.cj", Line: 11},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", Line: 6},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj", Line: 18},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", Line: 6},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", Line: 22},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", Line: 32},
+			{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 30},
+		},
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "本答案按已验证 source_inventory 行集列出：extend 1 项、public class 9 项。"},
+			{ID: "sec-extend", Kind: types.BlockSection, Title: "extend", Text: "extend共 1 项；完整成员、定义位置和说明见对应表格。"},
+			{
+				ID:          "tbl-extend",
+				Kind:        types.BlockTable,
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{string(types.FacetEnumerationItem)},
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimDefinitionFact,
+					FacetID:   string(types.FacetEnumerationItem),
+				}},
+				Columns: []string{"符号名", "文件路径", "行号", "package 声明"},
+				Items: []types.AnswerBlockItem{
+					{ID: "e1", Label: "extend Cart", Cells: []string{"extend Cart", "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", "30", "package demo.cart"}, CitationRef: 8},
+				},
+			},
+			{ID: "sec-class", Kind: types.BlockSection, Title: "public class", Text: "public class共 9 项；完整成员、定义位置和说明见对应表格。"},
+			{
+				ID:          "tbl-class",
+				Kind:        types.BlockTable,
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{string(types.FacetEnumerationItem)},
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimDefinitionFact,
+					FacetID:   string(types.FacetEnumerationItem),
+				}},
+				Columns: []string{"符号名", "文件路径", "行号", "package 声明"},
+				Items: []types.AnswerBlockItem{
+					{ID: "r1", Label: "public class Bridge", Cells: []string{"public class Bridge", "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", "15", "package demo.bridge"}, CitationRef: 0},
+					{ID: "r2", Label: "public class Cart", Cells: []string{"public class Cart", "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", "14", "package demo.cart"}, CitationRef: 1},
+					{ID: "r3", Label: "public class App", Cells: []string{"public class App", "eval/fixtures/testdata/cangjie_minimal/main.cj", "11", "package demo.app"}, CitationRef: 2},
+					{ID: "r4", Label: "public class Greeter", Cells: []string{"public class Greeter", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", "6", "package demo.greeter"}, CitationRef: 3},
+					{ID: "r5", Label: "public class Version", Cells: []string{"public class Version", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj", "18", "package demo.generics"}, CitationRef: 4},
+					{ID: "r6", Label: "public class Animal", Cells: []string{"public class Animal", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", "6", "package demo.modifiers"}, CitationRef: 5},
+					{ID: "r7", Label: "public class Dog", Cells: []string{"public class Dog", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", "22", "package demo.modifiers"}, CitationRef: 6},
+					{ID: "r8", Label: "public class Service", Cells: []string{"public class Service", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", "32", "package demo.modifiers"}, CitationRef: 7},
+				},
+			},
+		},
+	}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Language: "zh"}}}
+
+	if changed := normalizePrincipalEnumerationAuthoritativeStructuredCarriers(doc, ctx, []types.EnumerationDisplaySet{set}); changed == 0 {
+		t.Fatalf("expected structured carrier to be normalized from exact visible typed rows")
+	}
+	if changed := normalizePrincipalEnumerationSourceInventorySummary(doc, []types.EnumerationDisplaySet{set}, true); changed == 0 {
+		t.Fatalf("expected summary count to be normalized")
+	}
+	if changed := normalizePrincipalEnumerationSourceInventorySectionBlocks(doc, set); changed == 0 {
+		t.Fatalf("expected section count/header to be normalized")
+	}
+	entries := principalEnumerationSourceInventoryScopedSummaryEntries(doc, set)
+	classCount := -1
+	for _, entry := range entries {
+		if entry.label == "public class" {
+			classCount = entry.count
+		}
+	}
+	if classCount != 8 {
+		t.Fatalf("summary entries=%+v, want public class count 8", entries)
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, want := range []string{"public class（8）", "public class共 8 项"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("missing normalized count surface %q:\n%s", want, visible)
+		}
+	}
+	for _, notWant := range []string{"public class（9）", "public class 9 项", "public class共 9 项", "Comparable"} {
+		if strings.Contains(visible, notWant) {
+			t.Fatalf("visible carrier count drift or non-carried row leaked %q:\n%s", notWant, visible)
+		}
+	}
+}
+
+func sourceInventoryDisplayRowForCountDrift(name, file string, line int, terms ...string) types.EnumerationDisplayRow {
+	return types.EnumerationDisplayRow{
+		RowID:        strings.Join([]string{name, file, strconv.Itoa(line)}, "\x00"),
+		SetID:        "source_inventory_principal_rows",
+		SetLabel:     "source inventory principal rows",
+		Member:       name,
+		DisplayLabel: name,
+		Source:       file,
+		LineStart:    line,
+		Location:     fmt.Sprintf("%s:%d", file, line),
+		CitationKey:  fmt.Sprintf("%s:%d", file, line),
+		HasCitation:  true,
+		SurfaceTerms: append([]string(nil), terms...),
 	}
 }
 

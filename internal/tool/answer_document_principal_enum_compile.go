@@ -330,6 +330,12 @@ func normalizePrincipalEnumerationAuthoritativeStructuredCarriers(doc *types.Ans
 		if !emptySectionCarrier && !principalEnumerationCarrierTouchesAnyRow(*block, doc, scoped.Rows) {
 			continue
 		}
+		if !emptySectionCarrier {
+			if carrierRows, ok := principalEnumerationSourceInventoryRowsCoveredByCarrier(*block, doc, scoped.Rows); ok && len(carrierRows) > 0 {
+				scoped.Rows = carrierRows
+				scoped.Value = strconv.Itoa(len(carrierRows))
+			}
+		}
 		shape := principalEnumerationTableShapeForSet(scoped, nil)
 		if block.Kind == types.BlockTable {
 			block.Columns = principalEnumerationTableColumns(zh, shape, scoped.Rows)
@@ -783,7 +789,7 @@ type principalEnumerationSourceInventorySummaryEntry struct {
 func principalEnumerationSourceInventoryScopedSummaryEntries(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) []principalEnumerationSourceInventorySummaryEntry {
 	seen := map[string]bool{}
 	var out []principalEnumerationSourceInventorySummaryEntry
-	for _, block := range doc.Blocks {
+	for i, block := range doc.Blocks {
 		scoped, ok := principalEnumerationSourceInventoryScopedSetForBlock(block, set)
 		if !ok || len(scoped.Rows) == 0 {
 			continue
@@ -793,8 +799,12 @@ func principalEnumerationSourceInventoryScopedSummaryEntries(doc *types.AnswerDo
 		if key == "" || seen[key] {
 			continue
 		}
+		rows := scoped.Rows
+		if carrierRows, ok := principalEnumerationAdjacentSourceInventoryCarrierRows(doc, i, scoped); ok && len(carrierRows) > 0 {
+			rows = carrierRows
+		}
 		seen[key] = true
-		out = append(out, principalEnumerationSourceInventorySummaryEntry{label: label, count: len(scoped.Rows)})
+		out = append(out, principalEnumerationSourceInventorySummaryEntry{label: label, count: len(rows)})
 	}
 	return out
 }
@@ -3313,7 +3323,12 @@ func normalizePrincipalEnumerationSourceInventorySectionBlocks(doc *types.Answer
 		if !ok || len(scoped.Rows) == 0 || !principalEnumerationSectionHasAdjacentCarrier(doc, i, scoped) {
 			continue
 		}
-		title, text := principalEnumerationAdjacentSectionTitleText(*block, scoped)
+		sectionSet := scoped
+		if carrierRows, ok := principalEnumerationAdjacentSourceInventoryCarrierRows(doc, i, scoped); ok && len(carrierRows) > 0 {
+			sectionSet.Rows = carrierRows
+			sectionSet.Value = strconv.Itoa(len(carrierRows))
+		}
+		title, text := principalEnumerationAdjacentSectionTitleText(*block, sectionSet)
 		if block.Title != title {
 			block.Title = title
 			changed++
@@ -3327,6 +3342,75 @@ func normalizePrincipalEnumerationSourceInventorySectionBlocks(doc *types.Answer
 		block.ClaimUses = appendRenderedClaimUseIfMissing(block.ClaimUses, types.ClaimDefinitionFact, string(types.FacetEnumerationItem))
 	}
 	return changed
+}
+
+func principalEnumerationAdjacentSourceInventoryCarrierRows(doc *types.AnswerDocumentV2, sectionIdx int, set types.EnumerationDisplaySet) ([]types.EnumerationDisplayRow, bool) {
+	if doc == nil || sectionIdx < 0 || sectionIdx >= len(doc.Blocks) || len(set.Rows) == 0 {
+		return nil, false
+	}
+	section := doc.Blocks[sectionIdx]
+	for i := sectionIdx + 1; i < len(doc.Blocks); i++ {
+		block := doc.Blocks[i]
+		if !principalEnumerationBlockCanCarryRows(block) {
+			if strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) == "" {
+				continue
+			}
+			return nil, false
+		}
+		if !principalEnumerationSectionTitleMatchesSetOrCarrier(section.Title, set, block) {
+			return nil, false
+		}
+		return principalEnumerationSourceInventoryRowsCoveredByCarrier(block, doc, set.Rows)
+	}
+	return nil, false
+}
+
+func principalEnumerationSourceInventoryRowsCoveredByCarrier(block types.AnswerBlock, doc *types.AnswerDocumentV2, rows []types.EnumerationDisplayRow) ([]types.EnumerationDisplayRow, bool) {
+	if len(block.Items) == 0 || len(rows) == 0 {
+		return nil, false
+	}
+	index := principalEnumerationExactLabelRowIndex([]types.EnumerationDisplaySet{{
+		ID:    "source-inventory-carrier",
+		Label: strings.TrimSpace(block.Title),
+		Rows:  rows,
+	}})
+	out := make([]types.EnumerationDisplayRow, 0, len(block.Items))
+	seen := map[string]bool{}
+	for _, item := range block.Items {
+		row, ok := principalEnumerationUniqueItemRow(item, rows, index)
+		if !ok {
+			row, ok = principalEnumerationUniqueStructuredItemRow(item, doc, rows)
+		}
+		if !ok {
+			return nil, false
+		}
+		key := principalEnumerationRowIdentityKey(row)
+		if key == "" || seen[key] {
+			return nil, false
+		}
+		seen[key] = true
+		out = append(out, row)
+	}
+	return out, true
+}
+
+func principalEnumerationUniqueStructuredItemRow(item types.AnswerBlockItem, doc *types.AnswerDocumentV2, rows []types.EnumerationDisplayRow) (types.EnumerationDisplayRow, bool) {
+	var out types.EnumerationDisplayRow
+	matches := 0
+	seen := map[string]bool{}
+	for _, row := range rows {
+		if !principalEnumerationStructuredItemCoversRow(item, doc, row) {
+			continue
+		}
+		key := principalEnumerationRowIdentityKey(row)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = row
+		matches++
+	}
+	return out, matches == 1
 }
 
 func principalEnumerationSourceInventoryScopedSetForBlock(block types.AnswerBlock, set types.EnumerationDisplaySet) (types.EnumerationDisplaySet, bool) {
