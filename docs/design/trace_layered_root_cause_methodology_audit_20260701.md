@@ -1148,3 +1148,30 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 - **Batch 5: focused 验证。** 跑 analyzer/context prompt tests 和 trace-query-first explorer tests,确认不会破坏 runtime trace 正常探索路径。
 
 **当前进展。** Batch 1-5 已落地:analyzer runtime artifact shortcut 和 terminal emit-only hint 已明确禁止 analyze 阶段调用 `trace_query`;通用 `RuntimeArtifactChoice` 投影改为 stage-aware,analyzer 阶段只要求把 typed artifact 选择写入 `emit_analysis`,explorer 阶段保留 trace-query-first 指导。Focused `internal/agent` analyzer/runtime tests 与 `internal/context` runtime artifact selection / trace workflow tests 已通过。
+
+### 7.22 本轮复核:Trace 因果投影展示层任务闭环(2026-07-02)
+
+用户再次反馈:`Trace 因果投影` 的表格仍可能因为大段文字、全路径证据、层次/关系不明显、on-chain 影响拆解不直观而影响商用阅读。本轮按当前 `origin/main` 重新对照文档、代码和 focused tests 复核,结论是:该问题已经被拆到 §7.11、§7.12、§7.13、§7.14、§7.14.1、§7.14.2 六批实现,当前不再新增平行方案;后续若出现新反馈,必须先判断是否落在下面某个任务类,避免把展示层问题误修到 trace_query 算法、completion hard gate 或 prompt 关键词逻辑里。
+
+**任务列表与承重状态。**
+
+- **Batch A: 降级可见性与基础压缩(§7.11,已交付)。** 无可承重因果投影时输出 coverage caveat;active projection 无 background rows 时明确"未获得可承重背景行不等于背景无影响";首列使用 bounded display label,完整节点身份进证据/审计面;中文 `Impact/cum/proj/eff/act` 本地化。
+- **Batch B: 单大表拆成多视图(§7.12,已交付)。** 根因总览、on-chain 链路、影响时长、背景支撑、证据索引拆成独立 blocks;主表只放第一屏决策信息和 `E#` 短证据。
+- **Batch C: 主读面瘦身(§7.13,已交付)。** 总览行数默认上限约 8;`用户要关注什么` 退役为短 action label;证据索引从宽表改成 bullet/list;旧单大表 helper 已退役。
+- **Batch D: on-chain 可读性二次收敛(§7.14,已交付)。** `上游→下游` 拆成双列;on-chain 表不再渲染长解释句;影响表使用业务化列名 `链上累计/本节点投影/有效归因/实际状态`。
+- **Batch E: on-chain 影响拆解(§7.14.1,已交付)。** on-chain 表直接拆出 `链上影响/本层影响`,完整四元仍由 impact 表承载;只消费 typed duration fields。
+- **Batch F: 用户可读责任面(§7.14.2,已交付)。** 证据索引默认短定位,去掉本地绝对路径和 `.codrax/blob/...` 长前缀;on-chain 表收敛为 `责任/影响 + 链上累计 + 本层投影`;总览列名收敛为 `处理方向/Action`。
+- **Batch G: 测试看护(已交付)。** Focused tests 覆盖 ZH/EN projection、coverage boundary、长路径不进入主表、证据索引 list 化、on-chain 责任/影响列、短 action label、sleep drilldown、semantic span 和 impact 四元拆解。
+
+**当前实现入口。**
+
+- 渲染簇入口:`runtimeTraceCausalProjectionCluster` / `runtimeTraceCausalProjectionOverviewTable` / `runtimeTraceCausalProjectionOnChainTable` / `runtimeTraceCausalProjectionImpactTable` / `runtimeTraceCausalProjectionEvidenceItems` in `internal/tool/answer_document_mutation_runtime.go`。
+- 类型权威:`TraceCausalProjection` / `TraceCausalProjectionNode` in `internal/types/trace_causal_projection.go`。
+- 证据权威仍是原始 `ObservationRecord.SupportRefs` / trace_query tool result;短定位只是用户面展示投影,不能作为新的证据源。
+
+**本轮复核验证。**
+
+- `go test ./internal/tool -run 'TraceCausalProjection|RuntimeTraceCausalProjection' -count=1`
+- `go test ./internal/types -run 'TraceCausalProjection|SemanticSpan|StateDrilldown' -count=1`
+
+两组 focused tests 均已通过。若后续再发现表格宽、关系不清、证据噪音或影响解释不直观,优先在 §7.11-§7.14.2 的相应展示投影任务类内扩展测试与实现;只有 typed trace 根因数据本身缺失时,才进入 trace_query/root-cause 算法层排查。
