@@ -35,6 +35,7 @@ type TraceObservationCoverage struct {
 	Filters               []string                            `json:"filters,omitempty"`
 	SourceRefs            []string                            `json:"source_refs,omitempty"`
 	SoftMissingDimensions []string                            `json:"soft_missing_dimensions,omitempty"`
+	ShardAggregates       []TraceObservationShardAggregate    `json:"shard_aggregates,omitempty"`
 	CausalProjection      TraceCausalProjection               `json:"causal_projection,omitempty"`
 }
 
@@ -120,6 +121,7 @@ func TraceObservationCoverageFromObservationRecords(records []ObservationRecord)
 		Filters:               traceObservationCoverageLimitStrings(filters, 8),
 		SourceRefs:            traceObservationCoverageLimitStrings(sources, 6),
 		SoftMissingDimensions: traceObservationSoftMissingDimensions(byDimension, coverageRecords),
+		ShardAggregates:       traceObservationShardAggregates(coverageRecords),
 		CausalProjection:      TraceCausalProjectionFromObservationRecords(records),
 	}
 	return out
@@ -423,9 +425,9 @@ func traceObservationChainRelevance(record ObservationRecord) string {
 
 func traceObservationWindow(record ObservationRecord) string {
 	switch {
-	case record.Span.StartTs > 0 && record.Span.EndTs > record.Span.StartTs:
+	case record.Span.StartTs >= 0 && record.Span.EndTs > record.Span.StartTs:
 		return fmt.Sprintf("%.6f..%.6f", record.Span.StartTs, record.Span.EndTs)
-	case record.Span.StartTsMs > 0 && record.Span.EndTsMs > record.Span.StartTsMs:
+	case record.Span.StartTsMs >= 0 && record.Span.EndTsMs > record.Span.StartTsMs:
 		return fmt.Sprintf("%.3fms..%.3fms", record.Span.StartTsMs, record.Span.EndTsMs)
 	}
 	for _, key := range []string{"actual_window", "nearest_chain_window", "occurrence_windows"} {

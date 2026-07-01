@@ -165,6 +165,12 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
      - `TestStreamStateClusterPreservesDominantLongSleepWithoutFullIndex`
      - `TestStreamStateClusterPreservesParentWindowStatePriorities`
    - 后续增强(非当前阻断):完整 `TraceShardAggregator` 仍可排队,用于把多个 80-150ms shard 的 root_cause_rank/window_stats 近似合并为 parent-window 排名;合并字段、不可合并 caveat、golden 等按原任务拆解保留,但当前事故级 OOM/微窗口循环已有 typed state-first 安全降级兜底。
+   - **2026-07-02 本批交付:TraceShardAggregator soft handoff slice**:
+     1. 已在既有 `TraceObservationCoverage` 上新增 bounded shard aggregate view,不新建并行 trace ledger。输入仅为 deterministic `trace_query` 的 typed `ObservationRecord` / `TraceObservationCoverageRecord`。
+     2. 已聚合同一 root-cause 候选跨多个 bounded shard 的累计影响、最大单 shard 影响、覆盖窗口、代表 shard 窗口、on-chain/adjacent/background 分层,并限制输出 Top-N。
+     3. Stage report 与 finalizer Observation Ledger 已渲染该 aggregate view,并明确它是 parent-window soft handoff,不是完成硬门,不可因为 aggregate 缺失而重开探索。
+     4. 无法安全合并的场景 fail open:没有可解析窗口、只有单 shard、存在 parent-window root row 时不强行合并;继续显示原始 typed observations / caveat。
+     5. 测试覆盖:多 80-150ms shard 聚合、0 秒起点窗口、parent-window row 抑制重复聚合、stage report/finalizer handoff 可见、无 completion hard-block 字样。禁止从用户原文、模型 prose、工具 Summary、本地化 UI 或 eval label 推断 shard 归属。
 
 3. **P2: thread-only relation-scoped pruning —— 已交付(2026-07-01)**。
    - 现状:Step 2 已支持只传 `thread` 的 `thread_timeline`/`wakeup_chain` 进入 lazy relation-scope fallback。工具层只传 typed `thread` 参数;真正的裁剪权威在 `tracequery` parser 内部,只消费 window gate 内结构化 `comm/pid/tgid/prev/next/wakee` 事件,不从 raw objective 或模型散文推断。

@@ -178,6 +178,30 @@ func TestRenderExplorerStageReport_RendersTraceObservationCoverage(t *testing.T)
 	}
 }
 
+func TestRenderExplorerStageReport_RendersTraceShardAggregates(t *testing.T) {
+	observations := []types.ObservationRecord{
+		stageReportTraceObservation("root1", "trace_query[1]", "root_cause_primary", "root_cause_primary", "main-1", "running", "12.000", []string{"chain_relevance=on_chain"}, types.ObservationSpan{StartTs: 1.000, EndTs: 1.100}),
+		stageReportTraceObservation("root2", "trace_query[2]", "root_cause_primary", "root_cause_primary", "main-1", "running", "9.000", []string{"chain_relevance=on_chain"}, types.ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
+	}
+
+	got := renderExplorerStageReport("trace", "runtime", nil, nil, nil, nil, nil, nil, false, observations...)
+	for _, want := range []string{
+		"trace_query_shard_aggregate[1]: subject=main-1 object=running",
+		"chain_relevance=on_chain",
+		"shards=2 total_impact=21.000ms max_shard=12.000ms",
+		"window=1.000000..1.200000",
+		"example_windows=`1.000000..1.100000`, `1.100000..1.200000`",
+		"soft_handoff=true",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("trace shard aggregate stage report missing %q.\noutput:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "completion_blocker") || strings.Contains(got, "hard_block") {
+		t.Fatalf("trace shard aggregates must remain soft handoff:\n%s", got)
+	}
+}
+
 // TestRenderExplorerStageReport_NoSiblingProseLeak is the structural
 // replacement for the deleted F9 (`scrubSiblingEvidenceBlocks`) tests.
 //

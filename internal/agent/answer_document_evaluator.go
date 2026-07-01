@@ -3943,6 +3943,26 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 	if len(coverage.SoftMissingDimensions) > 0 {
 		fmt.Fprintf(&b, "- soft_followup_candidates: `%s` (do not reopen exploration solely for these if the answer is otherwise sufficient; disclose as caveat or use bounded trace_query follow-up when budget allows)\n", strings.Join(coverage.SoftMissingDimensions, "`, `"))
 	}
+	if len(coverage.ShardAggregates) > 0 {
+		b.WriteString("- shard_aggregates: bounded shard summaries below are soft parent-window handoff, not completion blockers.\n")
+		for i, agg := range coverage.ShardAggregates {
+			if i >= 4 {
+				break
+			}
+			fmt.Fprintf(&b, "  - shard[%d] subject=`%s`; object=`%s`; chain_relevance=`%s`; shards=%d; total_impact=%.3fms; max_shard=%.3fms",
+				i+1, agg.Subject, agg.Object, agg.ChainRelevance, agg.ShardCount, agg.TotalImpactMS, agg.MaxShardImpactMS)
+			if agg.Window != "" {
+				fmt.Fprintf(&b, "; window=%s", agg.Window)
+			}
+			if len(agg.ExampleWindows) > 0 {
+				fmt.Fprintf(&b, "; example_windows=`%s`", strings.Join(agg.ExampleWindows, "`, `"))
+			}
+			if len(agg.SupportRefs) > 0 {
+				fmt.Fprintf(&b, "; support_refs=`%s`", strings.Join(agg.SupportRefs, "`, `"))
+			}
+			b.WriteByte('\n')
+		}
+	}
 	for i, obs := range coverage.TopObservations {
 		if i >= 5 {
 			break

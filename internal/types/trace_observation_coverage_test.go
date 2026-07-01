@@ -181,6 +181,54 @@ func TestTraceObservationCoverageDoesNotSuggestRepresentativeWindowWhenAdequateW
 	}
 }
 
+func TestTraceObservationCoverageAggregatesBoundedRootCauseShards(t *testing.T) {
+	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
+		traceCoverageRecord("root1", "trace_query:1", "root_cause_primary", "root_cause_primary", "target-1", "running", "12.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.000, EndTs: 1.100}),
+		traceCoverageRecord("root2", "trace_query:2", "root_cause_primary", "root_cause_primary", "target-1", "running", "9.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
+		traceCoverageRecord("bg", "trace_query:3", "root_cause_primary", "root_cause_primary", "logger-9", "io_pressure", "80.000", []string{"chain_relevance=background"}, ObservationSpan{StartTs: 1.000, EndTs: 1.100}),
+		traceCoverageRecord("bg2", "trace_query:4", "root_cause_primary", "root_cause_primary", "logger-9", "io_pressure", "70.000", []string{"chain_relevance=background"}, ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
+	})
+	if len(got.ShardAggregates) < 2 {
+		t.Fatalf("expected on-chain and background shard aggregates, got %+v", got.ShardAggregates)
+	}
+	agg := got.ShardAggregates[0]
+	if agg.Subject != "target-1" ||
+		agg.Object != "running" ||
+		agg.ChainRelevance != "on_chain" ||
+		agg.ShardCount != 2 ||
+		agg.Window != "1.000000..1.200000" ||
+		agg.TotalImpactMS != 21 ||
+		agg.MaxShardImpactMS != 12 ||
+		!slices.Contains(agg.ExampleWindows, "1.000000..1.100000") ||
+		!slices.Contains(agg.ExampleWindows, "1.100000..1.200000") {
+		t.Fatalf("unexpected shard aggregate: %+v", agg)
+	}
+	if got.ShardAggregates[1].ChainRelevance != "background" {
+		t.Fatalf("on-chain aggregate should sort before larger background aggregate: %+v", got.ShardAggregates)
+	}
+}
+
+func TestTraceObservationCoverageShardAggregateKeepsZeroStartWindow(t *testing.T) {
+	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
+		traceCoverageRecord("root1", "trace_query:1", "root_cause_primary", "root_cause_primary", "target-1", "running", "12.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 0.000, EndTs: 0.100}),
+		traceCoverageRecord("root2", "trace_query:2", "root_cause_primary", "root_cause_primary", "target-1", "running", "9.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 0.100, EndTs: 0.200}),
+	})
+	if len(got.ShardAggregates) != 1 || got.ShardAggregates[0].Window != "0.000000..0.200000" {
+		t.Fatalf("zero-start shard aggregate window lost: %+v", got.ShardAggregates)
+	}
+}
+
+func TestTraceObservationCoverageSkipsShardAggregateWhenParentRootExists(t *testing.T) {
+	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
+		traceCoverageRecord("parent", "trace_query:parent", "root_cause_primary", "root_cause_primary", "target-1", "running", "25.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.000, EndTs: 1.400}),
+		traceCoverageRecord("root1", "trace_query:1", "root_cause_primary", "root_cause_primary", "target-1", "running", "12.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.000, EndTs: 1.100}),
+		traceCoverageRecord("root2", "trace_query:2", "root_cause_primary", "root_cause_primary", "target-1", "running", "9.000", []string{"chain_relevance=on_chain"}, ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
+	})
+	if len(got.ShardAggregates) != 0 {
+		t.Fatalf("parent-window root row should prevent duplicate shard aggregate: %+v", got.ShardAggregates)
+	}
+}
+
 func traceCoverageRecord(id, toolCall, predicate, claimKey, subject, object, value string, notes []string, span ObservationSpan) ObservationRecord {
 	return ObservationRecord{
 		ID:              id,

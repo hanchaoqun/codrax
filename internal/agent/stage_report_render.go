@@ -221,6 +221,23 @@ func renderTraceObservationCoverageForStageReport(coverage types.TraceObservatio
 		}
 		fmt.Fprintf(&b, "- trace_query_dimensions: %s\n", strings.Join(parts, ", "))
 	}
+	for i, agg := range coverage.ShardAggregates {
+		if i >= 3 {
+			break
+		}
+		fmt.Fprintf(&b, "- trace_query_shard_aggregate[%d]: subject=%s object=%s", i+1, agg.Subject, agg.Object)
+		if agg.ChainRelevance != "" {
+			fmt.Fprintf(&b, " chain_relevance=%s", agg.ChainRelevance)
+		}
+		fmt.Fprintf(&b, " shards=%d total_impact=%.3fms max_shard=%.3fms", agg.ShardCount, agg.TotalImpactMS, agg.MaxShardImpactMS)
+		if agg.Window != "" {
+			fmt.Fprintf(&b, " window=%s", agg.Window)
+		}
+		if len(agg.ExampleWindows) > 0 {
+			fmt.Fprintf(&b, " example_windows=`%s`", strings.Join(agg.ExampleWindows, "`, `"))
+		}
+		b.WriteString(" soft_handoff=true\n")
+	}
 	for i, obs := range coverage.TopObservations {
 		if i >= 4 {
 			break

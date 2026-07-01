@@ -8680,6 +8680,35 @@ func TestRenderAnswerDocObservationLedger_IncludesTraceObservationCoverage(t *te
 	}
 }
 
+func TestRenderAnswerDocObservationLedger_IncludesTraceShardAggregates(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{
+			stageReportTraceObservation("root1", "trace_query[1]", "root_cause_primary", "root_cause_primary", "main-1", "running", "12.000", []string{"chain_relevance=on_chain"}, types.ObservationSpan{StartTs: 1.000, EndTs: 1.100}),
+			stageReportTraceObservation("root2", "trace_query[2]", "root_cause_primary", "root_cause_primary", "main-1", "running", "9.000", []string{"chain_relevance=on_chain"}, types.ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
+		},
+	}}})
+	ctx := &types.AgentContext{Mutable: mu}
+
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"shard_aggregates: bounded shard summaries below are soft parent-window handoff, not completion blockers.",
+		"shard[1] subject=`main-1`; object=`running`; chain_relevance=`on_chain`; shards=2; total_impact=21.000ms; max_shard=12.000ms",
+		"window=1.000000..1.200000",
+		"example_windows=`1.000000..1.100000`, `1.100000..1.200000`",
+		"support_refs=`trace.systrace:10-20`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("observation ledger missing shard aggregate fragment %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "hard_block=true") || strings.Contains(got, "completion_blocker=true") {
+		t.Fatalf("trace shard aggregates should remain soft handoff:\n%s", got)
+	}
+}
+
 func writeStageBindingFixture(t *testing.T, repo string) {
 	t.Helper()
 	dir := filepath.Join(repo, "internal", "types")
