@@ -482,6 +482,132 @@ func TestEmitInvestigationComplete_SynthesizesAbsenceJustificationFromNegativeSe
 	}
 }
 
+func TestEmitInvestigationComplete_SourceInventoryNonEmptyAggregatesNormalizeAbsenceToResolved(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		Provenance: []string{
+			types.SourceInventoryProvenanceRepoLensToolQuery,
+			types.SourceInventoryProvenanceStageExplore,
+		},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    2,
+			Complete: true,
+		}},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{
+					Name:          "entry_one",
+					Role:          types.AnswerCandidateRoleFunction,
+					File:          "internal/thirdparty/parser/corpus/source_a.ext",
+					Line:          4,
+					CoverageState: types.SourceInventoryCoverageObserved,
+				},
+				{
+					Name:          "entry_two",
+					Role:          types.AnswerCandidateRoleFunction,
+					File:          "internal/thirdparty/parser/corpus/source_b.ext",
+					Line:          9,
+					CoverageState: types.SourceInventoryCoverageObserved,
+				},
+			},
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "list all rows"},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+					RequestedFields: []types.SourceInventoryRequestedField{
+						types.SourceInventoryFieldName,
+						types.SourceInventoryFieldLocation,
+					},
+					SourceQuotes: []string{"decorated entry", "reusable fragment"},
+					Confidence:   0.95,
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"Only the production subset is empty; repo-owned auxiliary rows exist.",
+		"confidence":"high",
+		"result_kind":"absence",
+		"absence_justification":"The production subset is empty.",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"empty production subset",
+				"value":"0",
+				"role":"principal_answer",
+				"provenance":"explorer",
+				"members":[]
+			},
+			{
+				"kind":"grouped_count",
+				"label":"repo-owned auxiliary rows",
+				"value":"2",
+				"role":"supporting_coverage",
+				"provenance":"explorer",
+				"dimensions":[{"name":"source_class","value":"thirdparty/corpus"}],
+				"members":[
+					"entry_one @ internal/thirdparty/parser/corpus/source_a.ext:4",
+					"entry_two @ internal/thirdparty/parser/corpus/source_b.ext:9"
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("source-inventory aggregate normalization should complete: %s", res.Summary)
+	}
+	if got := mut.StableInvestigationResultKind(); got == "absence" {
+		t.Fatalf("StableInvestigationResultKind = %q, want non-absence", got)
+	}
+	if got := mut.StableAbsenceJustification(); got != "" {
+		t.Fatalf("StableAbsenceJustification = %q, want empty", got)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) < 2 {
+		t.Fatalf("stable aggregate facts = %+v", facts)
+	}
+	emptyDemoted := false
+	nonEmptyPrincipal := false
+	for _, fact := range facts {
+		role := types.NormalizeAnswerAggregateRole(fact.Role)
+		if types.AnswerAggregateFactIsExactEmptyMemberSet(fact) && role == types.AnswerAggregateRoleSupportingCoverage {
+			emptyDemoted = true
+		}
+		if types.AnswerAggregateFactCarriesCompleteMemberSet(fact) && len(fact.Members) > 0 && role == types.AnswerAggregateRolePrincipalAnswer {
+			nonEmptyPrincipal = true
+		}
+	}
+	if !emptyDemoted {
+		t.Fatalf("empty subset was not demoted: %+v", facts)
+	}
+	if !nonEmptyPrincipal {
+		t.Fatalf("non-empty repo-wide aggregate did not remain principal: %+v", facts)
+	}
+}
+
 func TestEmitInvestigationComplete_SynthesizesAbsenceForConfigTraceSubjectDriftWithContextEvidence(t *testing.T) {
 	const missingKey = "explore_xyz_phantom_unique_budget"
 	mut := types.NewMutableState("q")

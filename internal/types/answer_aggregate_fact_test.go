@@ -3109,6 +3109,120 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesRuntimeDiagnosticMemberSet
 	}
 }
 
+func TestNormalizeAggregateFactRolesForRequest_RepoWideSourceInventoryPromotesNonEmptyCoverageOverEmptySubset(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "list all rows"},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+			SourceQuotes:      []string{"decorated entry", "reusable fragment"},
+			Confidence:        0.95,
+		},
+	}
+	facts := []AnswerAggregateFact{
+		{
+			Kind:       AnswerAggregateMemberSet,
+			Label:      "empty production subset",
+			Value:      "0",
+			Role:       AnswerAggregateRolePrincipalAnswer,
+			Provenance: "explorer",
+		},
+		{
+			Kind:       AnswerAggregateGroupedCount,
+			Label:      "repo-owned auxiliary rows",
+			Value:      "2",
+			Role:       AnswerAggregateRoleSupportingCoverage,
+			Provenance: "explorer",
+			Dimensions: []AnswerAggregateDimension{{Name: "source_class", Value: "thirdparty/corpus"}},
+			Members: []string{
+				"entry_one @ internal/thirdparty/parser/corpus/source_a.ext:4",
+				"entry_two @ internal/thirdparty/parser/corpus/source_b.ext:9",
+			},
+		},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if role := NormalizeAnswerAggregateRole(got[0].Role); role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("unsupported empty subset role = %q, want supporting: %+v", role, got[0])
+	}
+	if !strings.Contains(got[0].Provenance, "demoted:empty_source_inventory_subset_shadowed_by_repo_wide_members") {
+		t.Fatalf("empty subset demotion provenance missing: %+v", got[0])
+	}
+	if role := NormalizeAnswerAggregateRole(got[1].Role); role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("non-empty repo-wide coverage role = %q, want principal: %+v", role, got[1])
+	}
+	if !strings.Contains(got[1].Provenance, "promoted:repo_wide_source_inventory_member_set") {
+		t.Fatalf("coverage promotion provenance missing: %+v", got[1])
+	}
+	refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &rm)
+	if len(refs) != 1 || refs[0].Index != 1 {
+		t.Fatalf("principal refs = %+v, want only non-empty coverage fact; facts=%+v", refs, got)
+	}
+	if AggregateFactConflictsWithPrincipalMemberSetCounts(facts, &rm, 1) {
+		t.Fatal("exact-empty principal subset must not make non-empty source-inventory coverage look count-conflicting")
+	}
+}
+
+func TestNormalizeAggregateFactRolesForRequest_ProductionInventoryKeepsExplicitEmptyPrincipal(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "list production rows"},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+			Confidence:        0.95,
+		},
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeProduction},
+		AnswerExclusionPolicy: &AnswerExclusionPolicy{
+			IsExclusionRequested:   true,
+			ExcludedCandidateRoles: []AnswerCandidateRole{AnswerCandidateRoleFixture},
+			SourceQuotes:           []string{"fixtures"},
+			Confidence:             0.95,
+		},
+	}
+	facts := []AnswerAggregateFact{
+		{
+			Kind:       AnswerAggregateMemberSet,
+			Label:      "empty production subset",
+			Value:      "0",
+			Role:       AnswerAggregateRolePrincipalAnswer,
+			Provenance: "explorer",
+		},
+		{
+			Kind:       AnswerAggregateGroupedCount,
+			Label:      "fixture rows",
+			Value:      "2",
+			Role:       AnswerAggregateRoleSupportingCoverage,
+			Provenance: "explorer",
+			Dimensions: []AnswerAggregateDimension{{Name: "source_class", Value: "fixture"}},
+			Members: []string{
+				"fixture_one @ testdata/source_a.ext:4",
+				"fixture_two @ testdata/source_b.ext:9",
+			},
+		},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if role := NormalizeAnswerAggregateRole(got[0].Role); role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("explicit production empty set role = %q, want principal: %+v", role, got[0])
+	}
+	if strings.Contains(got[0].Provenance, "empty_source_inventory_subset_shadowed") {
+		t.Fatalf("explicit production empty set should not be demoted: %+v", got[0])
+	}
+	if role := NormalizeAnswerAggregateRole(got[1].Role); role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("explicitly excluded fixture coverage role = %q, want supporting: %+v", role, got[1])
+	}
+}
+
 func TestPrincipalAggregateMemberSetFactRefsForRequest_HistoryMechanismTreatsExplicitSetsAsSupport(t *testing.T) {
 	facts := []AnswerAggregateFact{{
 		Kind:       AnswerAggregateMemberSet,

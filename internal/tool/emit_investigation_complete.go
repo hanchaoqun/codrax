@@ -1668,6 +1668,12 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		effectiveAggregateFacts, notes = normalizeDecoratedMemberSetFormDebt(ctx, resultKind, effectiveAggregateFacts)
 		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
 	}
+	if nextKind, nextJustification, note := normalizeSourceInventoryAbsenceWithPrincipalAggregates(ctx, resultKind, justification, effectiveAggregateFacts); note != "" {
+		resultKind = nextKind
+		justification = nextJustification
+		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, note)
+		preflight = buildCompletionPreflightViewFromEffective(ctx, resultKind, justification, evidenceSnapshot, effectiveAggregateFacts, structuredRelationAuthorityFacts)
+	}
 	preflight = preflight.WithAggregateFacts(effectiveAggregateFacts, structuredRelationAuthorityFacts)
 	publishSourceInventoryAdvisory(ctx, effectiveAggregateFacts, evidenceSnapshot)
 	recordToolRuntimeTiming(&runtimeTimings, "aggregate_normalization", aggregateStart, len(effectiveAggregateFacts))
@@ -3179,6 +3185,26 @@ func effectiveCompletionAggregateFactsForValidation(ctx *types.BusContext, curre
 	effective = sourceInventoryPrincipalRowSetLandingFacts(ctx, effective)
 	effective = normalizeAggregateFactsForTypedExclusion(ctx, effective)
 	return effective
+}
+
+func normalizeSourceInventoryAbsenceWithPrincipalAggregates(ctx *types.BusContext, resultKind, justification string, facts []types.AnswerAggregateFact) (string, string, string) {
+	if !strings.EqualFold(strings.TrimSpace(resultKind), "absence") ||
+		strings.TrimSpace(justification) == "" ||
+		ctx == nil ||
+		ctx.AnalysisIR == nil ||
+		ctx.AnalysisIR.RequestModel.SourceInventoryProfile == nil ||
+		!ctx.AnalysisIR.RequestModel.SourceInventoryProfile.Active() ||
+		!types.SourceInventoryRequiresRepoWideLens(ctx.AnalysisIR.RequestModel) {
+		return resultKind, justification, ""
+	}
+	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(facts, &ctx.AnalysisIR.RequestModel)
+	for _, ref := range refs {
+		if len(ref.Fact.Members) == 0 {
+			continue
+		}
+		return "resolved", "", "result_kind normalized: source-inventory absence converted to resolved because typed principal aggregate_facts contain non-empty repo-wide members"
+	}
+	return resultKind, justification, ""
 }
 
 func sourceInventoryPrincipalRowSetLandingFacts(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFact {

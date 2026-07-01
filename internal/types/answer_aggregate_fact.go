@@ -1528,6 +1528,9 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 	}
 	out := cloneAnswerAggregateFacts(facts)
 	changed := false
+	if normalizeRepoWideSourceInventoryEmptySubsetFacts(out, rm) {
+		changed = true
+	}
 	hasRicherPrincipalMemberSet := aggregateFactsContainPrincipalMemberSetCarrier(out, rm)
 	hasSupportedNonPathPrincipalMemberSet := aggregateFactsContainSupportedNonPathPrincipalMemberSetCarrier(out)
 	for i := range out {
@@ -1651,6 +1654,84 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 		return cloneAnswerAggregateFacts(facts)
 	}
 	return out
+}
+
+func normalizeRepoWideSourceInventoryEmptySubsetFacts(facts []AnswerAggregateFact, rm *RequestModel) bool {
+	if len(facts) == 0 || rm == nil ||
+		rm.SourceInventoryProfile == nil ||
+		!rm.SourceInventoryProfile.Active() ||
+		!SourceInventoryRequiresRepoWideLens(*rm) ||
+		rm.AnswerExclusionPolicy.ExcludesAuxiliarySourceClasses() {
+		return false
+	}
+	var emptyPrincipalIndexes []int
+	var nonEmptyCoverageIndexes []int
+	for i, fact := range facts {
+		if sourceInventoryUnsupportedExactEmptyPrincipalSet(fact, rm) {
+			emptyPrincipalIndexes = append(emptyPrincipalIndexes, i)
+			continue
+		}
+		if sourceInventoryRepoWideNonEmptyCoverageSet(fact, rm) {
+			nonEmptyCoverageIndexes = append(nonEmptyCoverageIndexes, i)
+		}
+	}
+	if len(emptyPrincipalIndexes) == 0 || len(nonEmptyCoverageIndexes) == 0 {
+		return false
+	}
+	for _, idx := range emptyPrincipalIndexes {
+		facts[idx].Role = AnswerAggregateRoleSupportingCoverage
+		facts[idx].Provenance = appendAggregateFactProvenance(
+			facts[idx].Provenance,
+			"demoted:empty_source_inventory_subset_shadowed_by_repo_wide_members",
+		)
+	}
+	for _, idx := range nonEmptyCoverageIndexes {
+		facts[idx].Role = AnswerAggregateRolePrincipalAnswer
+		facts[idx].Provenance = appendAggregateFactProvenance(
+			facts[idx].Provenance,
+			"promoted:repo_wide_source_inventory_member_set",
+		)
+	}
+	return true
+}
+
+func sourceInventoryUnsupportedExactEmptyPrincipalSet(fact AnswerAggregateFact, rm *RequestModel) bool {
+	if !AnswerAggregateFactIsExactEmptyMemberSet(fact) {
+		return false
+	}
+	if AnswerAggregateFactRoleForRequest(fact, rm) != AnswerAggregateRolePrincipalAnswer {
+		return false
+	}
+	return aggregateMemberSetSupportCoverage(fact) == 0
+}
+
+func sourceInventoryRepoWideNonEmptyCoverageSet(fact AnswerAggregateFact, rm *RequestModel) bool {
+	if strings.TrimSpace(fact.Provenance) == SourceInventoryPrincipalRowSetAggregateProvenance {
+		return false
+	}
+	if !answerAggregateFactCarriesCompleteMemberSet(fact) || len(fact.Members) == 0 {
+		return false
+	}
+	if AggregateCountFactMembersAreSupportOnlyForRequest(rm, fact) ||
+		AggregateMemberSetIsScalarCountSupport(rm, fact) ||
+		AggregateMemberSetIsScalarRoleLookupSupport(rm, fact) ||
+		AggregateMemberSetIsNoHitWindowSupport(rm, []AnswerAggregateFact{fact}, 0) ||
+		AggregateMemberSetIsMechanismNarrativeSupport(rm, fact) ||
+		AggregateFactIsNarrativeHistorySupport(rm, fact) ||
+		AggregateFactIsRuntimeObservationAdvisory(rm, fact) {
+		return false
+	}
+	return aggregateFactHasSourceInventoryClassDimension(fact)
+}
+
+func aggregateFactHasSourceInventoryClassDimension(fact AnswerAggregateFact) bool {
+	for _, dim := range fact.Dimensions {
+		name := strings.TrimSpace(strings.ToLower(dim.Name))
+		if name == "source_class" || name == "source_classes" {
+			return true
+		}
+	}
+	return false
 }
 
 // AggregateMemberSetIsNoHitWindowSupport reports whether a complete member set
@@ -2102,6 +2183,16 @@ func AggregateFactConflictsWithPrincipalMemberSetCounts(facts []AnswerAggregateF
 	}
 	refs := PrincipalAggregateMemberSetFactRefsForRequest(facts, rm)
 	if len(refs) == 0 {
+		return false
+	}
+	hasNonEmptyPrincipalSet := false
+	for _, ref := range refs {
+		if len(ref.Fact.Members) > 0 {
+			hasNonEmptyPrincipalSet = true
+			break
+		}
+	}
+	if !hasNonEmptyPrincipalSet {
 		return false
 	}
 	for _, ref := range refs {
