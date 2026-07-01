@@ -8,7 +8,7 @@
 >
 > **v4/v5 更新**:响应本文档 §2.6.2/O1 提出的容量短板,仓库代码侧实际做了两轮 `trace_query 关键观测核对`/`TraceCausalProjection` 容量扩容(细节见 §2.6.2 与 §6),文档随之同步了最新的 cap 数值。
 >
-> **v6 更新**:新增 R8(用户显式时间窗必须严格遵守,不能因 VSYNC/帧边界误缩窗)、R9(帧信息 + 显式时间窗同时给出时应取并集)两条规则及对应审计 §2.9。结论:**R8 已满足**——排查了三处会重新计算时间窗的入口(`resolveSpanWindowsForQuery`/`ResolveFrameTarget`/`FrameWindowAutoDerived` 置位条件),全部以"用户是否已显式给出 time_start/time_end"为精确 typed 开关,没有发现"因检测到帧边界而悄悄收窄显式窗口"的代码路径;但发现一处相关但不同的风险——`interestingIntervals` 会把窗口内目标线程的时间线按状态打分后只取 Top-8 子区间参与递归展开、且无条件跳过 Running 区间,窗口元数据本身没被收窄,但递归下钻的实际覆盖深度可能不足,且无对应 caveat 提示(裁剪是静默的)。R9 在 v6 审计时未实现,后续 v7/v8 已补齐并集逻辑与 explicit-0 回归测试。
+> **v6 更新**:新增 R8(用户显式时间窗必须严格遵守,不能因 VSYNC/帧边界误缩窗)、R9(帧信息 + 显式时间窗同时给出时应取并集)两条规则及对应审计 §2.9。结论:**R8 已满足**——排查了三处会重新计算时间窗的入口(`resolveSpanWindowsForQuery`/`ResolveFrameTarget`/`FrameWindowAutoDerived` 置位条件),全部以"用户是否已显式给出 time_start/time_end"为精确 typed 开关,没有发现"因检测到帧边界而悄悄收窄显式窗口"的代码路径;同时发现一处相关但不同的深度覆盖风险——`interestingIntervals` 会把窗口内目标线程的时间线按状态打分后只取 Top-N 子区间参与递归展开,窗口元数据本身没被收窄,但递归下钻的实际覆盖深度可能小于完整用户窗口。该风险后续已由 v7 的 caveat-only 可观测化修复,不再是静默裁剪。R9 在 v6 审计时未实现,后续 v7/v8 已补齐并集逻辑与 explicit-0 回归测试。
 >
 > **v7 更新(本批实际修复代码,非纯审计)**:先探索既有代码(`priorityRelation`/`dependencyPriorityRelation`/`threadPriorityNear`/`runnableContextForThread`/`unionTimeWindows` 等既有原语)确认可复用后,修复了 O1、O3、O7、O9(剩余的 `resolveSpanWindowsForQuery` 一侧)、O10(caveat-only 部分),每项都补了新单元测试且全仓 `go build ./... && go test ./...` 全绿。**O2 复核后判定不是真缺口并撤销**(详见 §2.2 更新)。逐项:
 > 1. **O1**:`boundTraceMarkSpans` 让 `computeTraceMarks` 的语义 span(jit/verify/shader/runtime compile)单独占 16 个名额,不再和普通 span 抢 8 个名额的时长排名(§2.6.3)。

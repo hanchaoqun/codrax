@@ -56,7 +56,7 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
 
 **处置(2026-07-01,用户裁定"视为已由 Gap 3 Step 1 解决")**:Gap 2 的**主要触发因素是 Gap 3**(重型视图在密集窗口反复 `IndexEventLimitError` → 模型逃生去 pid 全表扫)。Gap 3 Step 1 已两面消除该触发:①pid-scoped 重型视图现在按字节预算把上限提到 ≈524K,固化 pid 的窗口能真正跑出 root_cause_rank 而非反复失败;②`IndexEventLimitError` 对已 scoped 的请求改成明确 **"pinned pid/thread scope is already applied ... do NOT drop the pinned pid/thread"**(见 Gap 3 Step 1),直接把"去掉 pid"这条逃生路堵上,并引导拆子窗口。剩余的"更硬护栏"属于**语义判断**(用户是否**故意** inspect 某个 named peer 是意图判断,非精确信号),按红线"精确信号才做硬门 / 噪音信号只作软引导"只能保持软引导,不再加硬门。故 Gap 2 **随 Gap 3 Step 1 收口**,不单独再改代码。
 
-**修复方向**(排队):①把"保留固化 pid/thread"从软引导升级为更强的 typed 提示/护栏(例如当请求带唯一 `runtime_targets` 时,heavy 视图去掉 pid 需要显式理由,或工具侧对"固化 pid 被丢弃 + 全 trace 扫"给一条 caveat/降级);②教学上明确:找跨进程 peer 用 `wakeup_chain`/`critical_blocking_calls`/`ipc_graph` 从固化线程出发,而不是去 pid 做全表 `event_search`。注意别踩红线(精确信号才做硬门)——pid 是否被显式设置是精确 typed 信号,可以做较硬的引导;但"是否该 inspect peer"是语义判断,只能软引导。
+**2026-07-02 复核状态**:该排队方向已由后续 typed-target 与大 trace 降级批次承接,不再作为单独 open 代码 gap。`RequestModel.RuntimeTargets` / `emit_analysis.runtime_targets` 已提供 typed-only 目标载体;`trace_query` 在 tool call 省略 `pid/thread` 且只有一个精确 runtime target 时会继承并标记 `trace_query_target_inherited=true`,显式 tool 参数永远优先,多目标或 `AnalyzerHints` 字符串池只给软 caveat。Gap 3 的 scoped heavy-view / index-limit 降级也已把"丢 pid 全表扫"的主要逃生动机降下来。剩余只作为代表性 eval/manual audit 观察项:若未来仍出现去掉固化目标的全 trace 宽搜,应先检查 typed target 是否缺失或多义,而不是从用户原文/模型散文恢复目标。
 
 ---
 
