@@ -3023,6 +3023,22 @@ func analyzerRequiredFilesExistingOnly(ctx *types.AgentContext, files []string) 
 }
 
 func analyzerRuntimeArtifactSourceNavigationOptional(ctx *types.AgentContext, rm types.RequestModel) bool {
+	// An explicit user exclusion of current source (current_source_mode=exclude
+	// + explicit_user_exclusion + verbatim quote, e.g. "不要分析代码") means the
+	// answer cites no current-checkout symbols, so eagerly building the repomap
+	// symbol graph just to normalize the emitted analysis is wasted work — and,
+	// on a huge repo referenced alongside a trace-only request, an OOM/timeout
+	// risk (the documented Gap 1 stack: analyzerGraphForNormalize →
+	// GraphFromAgentContextOrLoad). This is the same precise typed signal the
+	// read-side tier-1 floor and completion citation floor already treat as
+	// "current source not required". Honor it independently of whether the trace
+	// path happened to be preserved in structured fields or attached inline: a
+	// trace merely referenced by path in the request populates neither
+	// AttachedHitrace nor a RequiredFileHint reliably, so the pre-existing
+	// path/attachment disjuncts can miss it even though the user was explicit.
+	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return true
+	}
 	return types.RuntimeArtifactRequestSourceNavigationNotRequired(rm, analyzerAttachedTraceContext(ctx))
 }
 

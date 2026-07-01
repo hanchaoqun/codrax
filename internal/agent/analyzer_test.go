@@ -13,6 +13,49 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// TestAnalyzerRuntimeArtifactSourceNavigationOptional_ExplicitExclusion pins the
+// Gap 1 fix: a request that explicitly excludes current source ("不要分析代码" →
+// current_source_mode=exclude + explicit_user_exclusion + verbatim quote) must
+// make eager repomap symbol-graph construction optional — the documented
+// OOM/timeout path (analyzerGraphForNormalize) skips the build — EVEN WHEN the
+// trace was only referenced by path in the request, so neither AttachedHitrace
+// nor a preserved RequiredFileHint/exact_target is present. Before the fix this
+// combination fell through to the path/attachment disjuncts and returned false,
+// so a huge repo referenced alongside a trace-only request still built the graph.
+func TestAnalyzerRuntimeArtifactSourceNavigationOptional_ExplicitExclusion(t *testing.T) {
+	excludePolicy := &types.ExternalObservationPolicy{
+		CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+		SourceQuotes:      []string{"不要分析代码"},
+	}
+	// No AttachedHitrace, no PerfTrace, no preserved trace path — exactly the
+	// "trace referenced by path in the request" shape the customer hit.
+	ctx := &types.AgentContext{Stage: types.StageAnalyze}
+
+	t.Run("explicit exclusion skips eager graph even without preserved path", func(t *testing.T) {
+		rm := types.RequestModel{ExternalObservationPolicy: excludePolicy}
+		if !analyzerRuntimeArtifactSourceNavigationOptional(ctx, rm) {
+			t.Fatal("explicit current-source exclusion must make source graph construction optional")
+		}
+	})
+
+	t.Run("plain request still requires source navigation", func(t *testing.T) {
+		rm := types.RequestModel{Intent: types.IntentExplain}
+		if analyzerRuntimeArtifactSourceNavigationOptional(ctx, rm) {
+			t.Fatal("a plain code-analysis request must not skip source graph construction")
+		}
+	})
+
+	t.Run("default-mode external policy still requires source navigation", func(t *testing.T) {
+		rm := types.RequestModel{ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceDefault,
+		}}
+		if analyzerRuntimeArtifactSourceNavigationOptional(ctx, rm) {
+			t.Fatal("a non-exclude external-observation policy must not skip source graph construction")
+		}
+	})
+}
+
 // TestAnalyzerParseOutputCapturesSummary verifies that the analyzer's
 // ParseOutput packs the LLM's free-form text into Data (under "result")
 // alongside the structured classification fields derived from an

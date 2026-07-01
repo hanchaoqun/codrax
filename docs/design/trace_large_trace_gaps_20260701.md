@@ -29,7 +29,17 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
 - 守卫 → `RuntimeArtifactRequestSourceNavigationNotRequired`(request_traits.go:1398)→ `HasRuntimeArtifactObservationOnlySurfaceInArtifactContext`,其 `attachedRuntimeArtifact` 参数来自 `analyzerAttachedTraceContext(ctx)`(analyzer.go:3029),只认 **inline** `ctx.AttachedHitrace != ""` 或已构建的 `PerfTrace != nil`。
 - 但:①`AttachedHitrace` 存的是 trace **文本**(见 `context.go:5990` 注释),1104 MiB trace 按**路径/blob** 附加时 inline 文本为空;②perf_triage 对 >8 MiB 的 trace **跳过**(`PerfTriageLLMMaxBytes` 默认 8 MiB,`runtime.go:1290`),所以 `PerfTrace` 为 nil。→ `analyzerAttachedTraceContext` **返回 false** → 守卫返回 false → 建图照跑 → OOM(现已修) + 3× analyze `context deadline exceeded`。
 
-**修复方向**(排队):`analyzerAttachedTraceContext` / 守卫应把**按路径附加的大 trace**也识别为"已附运行时 artifact"(例如认 `AttachedHitraceSource` 非空、或引入/消费一个 `AttachedHitracePath` 字段、或从 BusContext 的 trace 附件标志判断),使 trace-only + `current_source_mode=exclude` 的请求**无论 trace 大小**都跳过 `analyzerGraphForNormalize` 建图。这样对 trace-only 请求既省内存、又省掉 analyze 的建图耗时(消除 3× 超时)。修复前需真机核实 large-path-trace 下 `ctx.AttachedHitrace`/`AttachedHitraceSource` 的实际取值。
+**修复进展(2026-07-01)**:
+
+深挖后**修正了上面的根因描述**——经实测(probe)与逐符号复核确认真实盲点:
+
+- 客户用 `codrax -r "...berlin.systrace...不要分析代码"`(**CLI `-r`,无 `--htrace`**),trace 只是**在请求文本里被提及路径**。而 `AttachedHitrace`/`AttachedHitraceSource` 的**唯二写入点**是 CLI `--htrace/--log`(`cmd/root.go:797`)和 REPL `/htrace`(`repl.go:7138`),二者**总是文本+source 一起写**。所以"请求内引用路径"的 trace **两个字段都为空**——故上一版说的"认 `AttachedHitraceSource` 非空"**对这个场景无效**(它从不单独被设)。
+- 实测(probe)确认 POST-emit 守卫 `analyzerGraphForNormalize`(analyzer.go:2766)只在 (a) analyzer 把 trace 路径**保留**进 `ExactTargets`/entities/`RequiredFileHints`(→`HasRuntimeArtifactPathReference`=true),或 (b) `attached=true` 时才跳过。客户是 `exclude` + **未保留路径** + `attached=false` → 守卫返回 **false** → 建图 → OOM(OOM 本身已由 `cb896bb4` 修)。
+- 但请求**明说"不要分析代码"** → `ExcludesCurrentSource()`=true。这个**精确 typed 信号**本身就足以判定"不需要当前源码符号图",却没被守卫独立消费。
+
+**已修(POST-emit,精确信号)**:`analyzerRuntimeArtifactSourceNavigationOptional`(analyzer.go:3025)新增独立短路——当 `rm.ExternalObservationPolicy.ExcludesCurrentSource()` 为真时直接返回 true,跳过 `analyzerGraphForNormalize` 建图,**不再依赖路径是否被保留 / trace 是否 inline 附加**。用的是与 Gap A / `tier1_floor` 同一精确信号。测试 `TestAnalyzerRuntimeArtifactSourceNavigationOptional_ExplicitExclusion`(exclude 跳过 / 普通请求不跳 / default-mode 不跳)。任何缺锚点的 exclude 已在上游 `promoteInvalidExternalObservationExcludeToAllow` 软化成 allow,故只有"用户显式排除代码"才触发。
+
+**残留(PRE-emit,未修,需裁定)**:analyzer 在 emit_analysis **之前**还有一处建图——`buildAnalyzerRepoOverview`(analyzer.go:161)注入 repo task_map 给 analyzer 首轮。它跑在**分类之前**,那时 `RequestModel`/`ExternalObservationPolicy` **还不存在**,故 `ExcludesCurrentSource()` 信号用不上;它只被 raw-signal 探测器(analyzer.go:130-147)跳过,其中 `explicitRuntimeArtifactPathInObjective` 要求 trace 路径能 `os.Stat` 解析(`analyzerRuntimeArtifactCandidatePaths` 只在 WorkDir/RepoRoot/MainRepoRoot/CWD 下找)。客户的 trace 若在**仓库外**(如 `南海\berlin.systrace` 而仓库是 `南海\xiongqing`)则解析不到 → 无探测器触发 → 仍建 overview 图。两处建图都走同一个 `GraphFromAgentContextOrLoad`,OOM 堆栈无法区分是哪一处;POST-emit 已修,PRE-emit 属残留。修法有二、都涉及权衡,**留待用户裁定**:①让 `analyzerRuntimeArtifactCandidatePaths` 也查 runtime-artifact store(display 层 banner 能解析出 1104MiB,说明 store 里有解析后的路径)——较安全但需接线;②用 raw-token 正则(`analyzerRuntimeArtifactPathTokenRE`)对 overview 建图做**软跳过**——但 raw-token 是噪音信号,当硬跳过会踩红线,当软优化(LLM 仍可自行调 repo_map)勉强合规,但会改动 analyzer 预扫核心行为(重测面大),需谨慎。
 
 ---
 
