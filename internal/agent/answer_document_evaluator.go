@@ -4235,6 +4235,9 @@ func renderAnswerDocSourceInventoryAuthorityView(b *strings.Builder, view types.
 		}
 		fmt.Fprintf(b, "- source_classes: %s\n", strings.Join(parts, ", "))
 	}
+	if view.RequestedUniverse.Active {
+		renderAnswerDocSourceInventoryRequestedUniverse(b, view.RequestedUniverse)
+	}
 	fmt.Fprintf(b, "- row_lanes: principal=%d", view.PrincipalTotal)
 	if view.PrincipalHiddenCount > 0 {
 		fmt.Fprintf(b, " (+%d hidden)", view.PrincipalHiddenCount)
@@ -4272,6 +4275,36 @@ func renderAnswerDocSourceInventoryAuthorityView(b *strings.Builder, view types.
 			fmt.Fprintf(b, "- ... %d additional audit row(s) omitted from this bounded prompt view.\n", view.AuditHiddenCount)
 		}
 		b.WriteString("\n")
+	}
+}
+
+func renderAnswerDocSourceInventoryRequestedUniverse(b *strings.Builder, universe types.SourceInventoryRequestedUniverseView) {
+	if b == nil || !universe.Active {
+		return
+	}
+	var parts []string
+	if len(universe.Languages) > 0 {
+		parts = append(parts, "languages=`"+strings.Join(universe.Languages, "`, `")+"`")
+	}
+	if len(universe.SourceClasses) > 0 {
+		classes := make([]string, 0, len(universe.SourceClasses))
+		for _, class := range universe.SourceClasses {
+			classes = append(classes, string(class))
+		}
+		parts = append(parts, "source_classes=`"+strings.Join(classes, "`, `")+"`")
+	}
+	if len(universe.SurfaceFamilies) > 0 {
+		parts = append(parts, "surface_families=`"+strings.Join(universe.SurfaceFamilies, "`, `")+"`")
+	}
+	if len(parts) > 0 {
+		fmt.Fprintf(b, "- requested_universe: %s\n", strings.Join(parts, "; "))
+	}
+	if universe.InventoryOutOfUniverseRowsSuppressed > 0 {
+		fmt.Fprintf(b, "- inventory_out_of_universe_rows_suppressed: %d", universe.InventoryOutOfUniverseRowsSuppressed)
+		if len(universe.ReasonCodes) > 0 {
+			fmt.Fprintf(b, " (`%s`)", strings.Join(universe.ReasonCodes, "`, `"))
+		}
+		b.WriteByte('\n')
 	}
 }
 

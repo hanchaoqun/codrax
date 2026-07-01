@@ -6,34 +6,33 @@ import (
 )
 
 // SourceInventoryAuthoritySnapshot is the single read-side authority view for
-// source-inventory convergence. It folds the durable observation, typed request
-// profile, principal row-set, completion authority, and landing/citation
-// readiness into one structured artifact so downstream gates do not each
-// rediscover a partial "answer-critical universe".
+// source-inventory convergence. It folds observation, request profile,
+// row-set, completion, and landing/citation readiness into one artifact.
 type SourceInventoryAuthoritySnapshot struct {
-	Active                       bool                               `json:"active,omitempty"`
-	PrincipalAuthority           bool                               `json:"principal_authority,omitempty"`
-	SupportOnly                  bool                               `json:"support_only,omitempty"`
-	MechanicalRowsOnly           bool                               `json:"mechanical_rows_only,omitempty"`
-	LensExecuted                 bool                               `json:"lens_executed,omitempty"`
-	RepoWideRequired             bool                               `json:"repo_wide_required,omitempty"`
-	ObservationComplete          bool                               `json:"observation_complete,omitempty"`
-	RequiredFileCount            int                                `json:"required_file_count,omitempty"`
-	RequiredFilesCovered         bool                               `json:"required_files_covered,omitempty"`
-	PrincipalAggregateFactCount  int                                `json:"principal_aggregate_fact_count,omitempty"`
-	CanUseMechanicalRowsForCite  bool                               `json:"can_use_mechanical_rows_for_citation,omitempty"`
-	CanEnterMechanicalLanding    bool                               `json:"can_enter_mechanical_landing,omitempty"`
-	NeedsFollowup                bool                               `json:"needs_followup,omitempty"`
-	ReasonCodes                  []string                           `json:"reason_codes,omitempty"`
-	RequestedFields              []SourceInventoryRequestedField    `json:"requested_fields,omitempty"`
-	PrincipalRoles               []AnswerCandidateRole              `json:"principal_roles,omitempty"`
-	PrincipalScope               SourceScope                        `json:"principal_scope,omitempty"`
-	CompletionAuthority          SourceInventoryCompletionAuthority `json:"completion_authority,omitempty"`
-	FollowupDebt                 SourceInventoryFollowupDebt        `json:"followup_debt,omitempty"`
-	PrincipalRowSet              SourceInventoryPrincipalRowSet     `json:"principal_row_set,omitempty"`
-	ProjectedPrincipalAggregates []AnswerAggregateFact              `json:"projected_principal_aggregates,omitempty"`
-	SourceClasses                []SourceInventorySourceClassCount  `json:"source_classes,omitempty"`
-	RepoLanguages                []SourceInventoryLanguageCount     `json:"repo_languages,omitempty"`
+	Active                       bool                                 `json:"active,omitempty"`
+	PrincipalAuthority           bool                                 `json:"principal_authority,omitempty"`
+	SupportOnly                  bool                                 `json:"support_only,omitempty"`
+	MechanicalRowsOnly           bool                                 `json:"mechanical_rows_only,omitempty"`
+	LensExecuted                 bool                                 `json:"lens_executed,omitempty"`
+	RepoWideRequired             bool                                 `json:"repo_wide_required,omitempty"`
+	ObservationComplete          bool                                 `json:"observation_complete,omitempty"`
+	RequiredFileCount            int                                  `json:"required_file_count,omitempty"`
+	RequiredFilesCovered         bool                                 `json:"required_files_covered,omitempty"`
+	PrincipalAggregateFactCount  int                                  `json:"principal_aggregate_fact_count,omitempty"`
+	CanUseMechanicalRowsForCite  bool                                 `json:"can_use_mechanical_rows_for_citation,omitempty"`
+	CanEnterMechanicalLanding    bool                                 `json:"can_enter_mechanical_landing,omitempty"`
+	NeedsFollowup                bool                                 `json:"needs_followup,omitempty"`
+	ReasonCodes                  []string                             `json:"reason_codes,omitempty"`
+	RequestedFields              []SourceInventoryRequestedField      `json:"requested_fields,omitempty"`
+	PrincipalRoles               []AnswerCandidateRole                `json:"principal_roles,omitempty"`
+	PrincipalScope               SourceScope                          `json:"principal_scope,omitempty"`
+	CompletionAuthority          SourceInventoryCompletionAuthority   `json:"completion_authority,omitempty"`
+	FollowupDebt                 SourceInventoryFollowupDebt          `json:"followup_debt,omitempty"`
+	PrincipalRowSet              SourceInventoryPrincipalRowSet       `json:"principal_row_set,omitempty"`
+	RequestedUniverse            SourceInventoryRequestedUniverseView `json:"requested_universe,omitempty"`
+	ProjectedPrincipalAggregates []AnswerAggregateFact                `json:"projected_principal_aggregates,omitempty"`
+	SourceClasses                []SourceInventorySourceClassCount    `json:"source_classes,omitempty"`
+	RepoLanguages                []SourceInventoryLanguageCount       `json:"repo_languages,omitempty"`
 }
 
 type SourceInventoryAuthoritySnapshotInput struct {
@@ -57,13 +56,16 @@ func BuildSourceInventoryAuthoritySnapshot(input SourceInventoryAuthoritySnapsho
 		AcceptedRequestedUniverse: input.AcceptedRequestedUniverse,
 	})
 	rowSet := BuildSourceInventoryPrincipalRowSet(SourceInventoryPrincipalRowSetInput{
-		Observation:      observation,
-		RequestModel:     rm,
-		MaxPrincipalRows: sourceInventorySnapshotLimit(input.MaxPrincipalRows),
-		MaxSupportRows:   sourceInventorySnapshotLimit(input.MaxSupportRows),
-		MaxAuditRows:     sourceInventorySnapshotLimit(input.MaxAuditRows),
+		Observation:  observation,
+		RequestModel: rm,
 	})
 	projected := ProjectSourceInventoryPrincipalRowSetAggregateFacts(input.ExistingAggregateFacts, observation, rm)
+	rowSet, requestedUniverse := sourceInventoryApplyRequestedUniverse(rowSet, rm, projected)
+	rowSet = sourceInventoryLimitPrincipalRowSet(rowSet,
+		sourceInventorySnapshotLimit(input.MaxPrincipalRows),
+		sourceInventorySnapshotLimit(input.MaxSupportRows),
+		sourceInventorySnapshotLimit(input.MaxAuditRows),
+	)
 	principalRefs := PrincipalAggregateMemberSetFactRefsForRequest(projected, &rm)
 	var followup SourceInventoryFollowupDebt
 	if completion.IsBlocking() {
@@ -91,6 +93,7 @@ func BuildSourceInventoryAuthoritySnapshot(input SourceInventoryAuthoritySnapsho
 		CompletionAuthority:          completion,
 		FollowupDebt:                 followup,
 		PrincipalRowSet:              rowSet,
+		RequestedUniverse:            requestedUniverse,
 		ProjectedPrincipalAggregates: append([]AnswerAggregateFact(nil), projected...),
 		SourceClasses:                cloneSourceInventorySourceClassCounts(observation.SourceClasses),
 		RepoLanguages:                cloneSourceInventoryLanguageCounts(observation.RepoLanguages),

@@ -277,6 +277,130 @@ func TestSourceInventoryAuthoritySnapshot_RequiredFileGapBlocksLanding(t *testin
 	}
 }
 
+func TestSourceInventoryAuthoritySnapshot_RequestedUniverseSuppressesOutOfUniverseRows(t *testing.T) {
+	scope := SourceScopeAll
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		SourceClasses: []SourceInventorySourceClassCount{
+			{Role: SourcePathRoleFixture, Count: 2, Complete: true},
+			{Role: SourcePathRoleThirdParty, Count: 1, Complete: true},
+		},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleType,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{
+				{Name: "Bridge", Role: AnswerCandidateRoleType, File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 15, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Bridge"}, CoverageState: SourceInventoryCoverageObserved},
+				{Name: "Greeter", Role: AnswerCandidateRoleType, File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Greeter"}, CoverageState: SourceInventoryCoverageObserved},
+				{Name: "JavaWidget", Role: AnswerCandidateRoleType, File: "eval/fixtures/java/JavaWidget.java", Line: 12, Language: "java", SurfaceTerms: []string{"public class", "public class JavaWidget"}, CoverageState: SourceInventoryCoverageObserved},
+			},
+		}},
+	}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all public classes"},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+			SourceQuotes:      []string{"public class"},
+			Confidence:        0.9,
+		},
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: scope},
+	}
+	existing := AnswerAggregateFact{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "public class declarations",
+		Value:      "1",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "explorer",
+		Members:    []string{"Bridge"},
+		SupportRefs: []string{
+			"Bridge @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+		},
+	}
+
+	snap := BuildSourceInventoryAuthoritySnapshot(SourceInventoryAuthoritySnapshotInput{
+		Observation:            obs,
+		RequestModel:           rm,
+		ExistingAggregateFacts: []AnswerAggregateFact{existing},
+		MaxPrincipalRows:       10,
+		MaxAuditRows:           10,
+	})
+	if snap.PrincipalRowSet.PrincipalTotal != 2 {
+		t.Fatalf("requested universe should keep two Cangjie public-class rows, got %+v", snap.PrincipalRowSet)
+	}
+	for _, row := range snap.PrincipalRowSet.PrincipalRows {
+		if row.Language != "cangjie" {
+			t.Fatalf("out-of-universe language leaked into principal rows: %+v", snap.PrincipalRowSet.PrincipalRows)
+		}
+	}
+	if got := snap.RequestedUniverse.InventoryOutOfUniverseRowsSuppressed; got != 1 {
+		t.Fatalf("suppressed rows = %d, want 1; universe=%+v", got, snap.RequestedUniverse)
+	}
+	if !sourceInventoryAuthorityTestContainsString(snap.RequestedUniverse.Languages, "cangjie") ||
+		sourceInventoryAuthorityTestContainsString(snap.RequestedUniverse.Languages, "java") {
+		t.Fatalf("requested universe languages = %+v, want cangjie only", snap.RequestedUniverse.Languages)
+	}
+	if len(snap.PrincipalRowSet.AuditRows) == 0 || snap.PrincipalRowSet.AuditRows[0].ReasonCode != SourceInventoryRowReasonOutOfRequestedUniverse {
+		t.Fatalf("suppressed row should be retained as audit metadata, got %+v", snap.PrincipalRowSet.AuditRows)
+	}
+	view := BuildSourceInventoryAnswerAuthorityView(snap)
+	if view.InventoryOutOfUniverseRowsSuppressed != 1 {
+		t.Fatalf("answer authority view lost suppression telemetry: %+v", view)
+	}
+}
+
+func TestSourceInventoryAuthoritySnapshot_RepoWideAllLanguageUniverseKeepsCrossLanguageRows(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleType,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{
+				{Name: "Bridge", Role: AnswerCandidateRoleType, File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 15, Language: "cangjie", CoverageState: SourceInventoryCoverageObserved},
+				{Name: "JavaWidget", Role: AnswerCandidateRoleType, File: "eval/fixtures/java/JavaWidget.java", Line: 12, Language: "java", CoverageState: SourceInventoryCoverageObserved},
+			},
+		}},
+	}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all types"},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+			Confidence:        0.9,
+		},
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeAll},
+	}
+
+	snap := BuildSourceInventoryAuthoritySnapshot(SourceInventoryAuthoritySnapshotInput{
+		Observation:      obs,
+		RequestModel:     rm,
+		MaxPrincipalRows: 10,
+	})
+	if snap.PrincipalRowSet.PrincipalTotal != 2 {
+		t.Fatalf("repo-wide all-language inventory should keep both rows, got %+v", snap.PrincipalRowSet)
+	}
+	if got := snap.RequestedUniverse.InventoryOutOfUniverseRowsSuppressed; got != 0 {
+		t.Fatalf("unexpected suppression for explicit all-language inventory: %+v", snap.RequestedUniverse)
+	}
+	if !sourceInventoryAuthorityTestContainsString(snap.RequestedUniverse.Languages, "cangjie") ||
+		!sourceInventoryAuthorityTestContainsString(snap.RequestedUniverse.Languages, "java") {
+		t.Fatalf("requested universe should expose both typed languages, got %+v", snap.RequestedUniverse.Languages)
+	}
+}
+
 func TestSourceInventoryAnswerAuthorityView_NavigationDebtCanOnlyCaveat(t *testing.T) {
 	obs := SourceInventoryObservation{
 		Active:   true,
@@ -375,6 +499,15 @@ func TestSourceInventoryAnswerAuthorityView_ExecutableMissingClassCanBlock(t *te
 func containsSourceInventorySnapshotReason(reasons []string, want string) bool {
 	for _, reason := range reasons {
 		if reason == want {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryAuthorityTestContainsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
 			return true
 		}
 	}
