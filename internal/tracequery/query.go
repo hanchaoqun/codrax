@@ -6378,7 +6378,7 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 	if len(branches) == 0 {
 		visited := map[int]bool{}
 		targetBlockedMs := (q.TimeEnd - q.TimeStart) * 1000
-		expandChain(idx, q, cache, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "")
+		expandChain(idx, q, cache, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "", nil)
 		res.AggregatedImpacts = aggregateWakeupCausalImpacts(res)
 		attachIPCGraphToChain(idx, q, &res)
 		return res
@@ -6386,7 +6386,7 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 	for _, branch := range branches {
 		visited := map[int]bool{}
 		targetBlockedMs := (branch.EndTs - branch.StartTs) * 1000
-		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "")
+		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "", nil)
 	}
 	res.AggregatedImpacts = aggregateWakeupCausalImpacts(res)
 	attachIPCGraphToChain(idx, q, &res)
@@ -7023,11 +7023,17 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	for _, churn := range stats.StateChurn {
 		onChain := threadInSet(chainThreads, churn.Thread)
 		// Physical dominant-state duration as the published impact; the
-		// fragmentation ranking boost goes through EffectiveImpactMs, which
-		// is documented as the bounded ranking channel and feeds Score
-		// without masquerading as a scheduler-state duration (§7.30 S1).
+		// fragmentation ranking boost lives in the ranking-only channels
+		// (EffectiveImpactMs AND Score) without masquerading as a
+		// scheduler-state duration (§7.30 S1). Score must be recomputed from
+		// the composite here: rootCauseItem derives it from the physical
+		// impact param, and outside the chain-aware on_chain sort tier the
+		// Score channel is the only ordering key — leaving it physical would
+		// silently drop the fragmentation boost for no-chain windows and
+		// make root_cause_rank disagree with the drilldown plan.
 		item := rootCauseItem(stateChurnRootCauseType(churn.DominantState), churn.Thread, backgroundImpactMs(q, churn.DominantImpactMs, hasCausalChain, onChain), churn.Confidence, churn.LineStart, churn.LineEnd, "window_stats.state_churn", churn.Summary)
 		item.EffectiveImpactMs = backgroundImpactMs(q, stateChurnRankImpactMs(churn), hasCausalChain, onChain)
+		item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseTypeWeight(item.Type)
 		item.CumulativeImpactMs = churn.TotalMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.DominantState = churn.DominantState
@@ -10285,6 +10291,16 @@ type chainQueryCache struct {
 	// as zero supply (R5d weak-core gate stays conservative).
 	freqByCPU     map[int][]freqSample
 	freqIndexOnce bool
+	// switchInByPID is the lazily-built per-thread switch-in (ts, cpu)
+	// timeline so threadCPUNear stays O(log n) per lookup — a linear rescan
+	// per RUNNING interval was O(intervals × pid-events) and hung on
+	// GB-scale traces.
+	switchInByPID map[int][]cpuSample
+}
+
+type cpuSample struct {
+	ts  float64
+	cpu int
 }
 
 type freqSample struct {
@@ -10334,24 +10350,37 @@ func (c *chainQueryCache) frequencyAt(cpu int, ts float64) int {
 }
 
 // threadCPUNear returns the CPU the thread most recently switched IN on at or
-// before ts, using the per-PID event index. ok=false when no switch-in for
-// the thread precedes ts in the trace.
+// before ts. The per-thread switch-in timeline is built once per thread and
+// binary-searched afterwards. ok=false when no switch-in precedes ts.
 func (c *chainQueryCache) threadCPUNear(thread ThreadRef, ts float64) (int, bool) {
 	if c.idx == nil || thread.PID <= 0 {
 		return 0, false
 	}
-	ids := c.eventsByPID[thread.PID]
+	if c.switchInByPID == nil {
+		c.switchInByPID = map[int][]cpuSample{}
+	}
+	samples, built := c.switchInByPID[thread.PID]
+	if !built {
+		for _, id := range c.eventsByPID[thread.PID] {
+			if id < 0 || id >= len(c.idx.Events) {
+				continue
+			}
+			ev := c.idx.Events[id]
+			if ev.Type == EventSchedSwitch && ev.NextPID == thread.PID {
+				samples = append(samples, cpuSample{ts: ev.Ts, cpu: ev.CPU})
+			}
+		}
+		c.switchInByPID[thread.PID] = samples
+	}
+	lo, hi := 0, len(samples)-1
 	cpu, ok := 0, false
-	for _, id := range ids {
-		if id < 0 || id >= len(c.idx.Events) {
-			continue
-		}
-		ev := c.idx.Events[id]
-		if ev.Ts > ts {
-			break
-		}
-		if ev.Type == EventSchedSwitch && ev.NextPID == thread.PID {
-			cpu, ok = ev.CPU, true
+	for lo <= hi {
+		mid := (lo + hi) / 2
+		if samples[mid].ts <= ts {
+			cpu, ok = samples[mid].cpu, true
+			lo = mid + 1
+		} else {
+			hi = mid - 1
 		}
 	}
 	return cpu, ok
@@ -10546,7 +10575,7 @@ func (c *chainQueryCache) priorityNear(flavor TraceFlavor, thread ThreadRef, ts 
 	return bestPrio, classifyTracePriority(flavor, bestPrio)
 }
 
-func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, start, end float64, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, parentID string) string {
+func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, start, end float64, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, parentID string, consumers []ThreadRef) string {
 	if depth >= q.MaxDepth {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("max_depth=%d reached at pid=%d", q.MaxDepth, thread.PID))
 		return ""
@@ -10565,7 +10594,7 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 	tq.TimeStart = start
 	tq.TimeEnd = end
 	tl := cache.timeline(tq, thread)
-	impact := summarizeWakeupCausalImpact(idx, q, cache, thread, tl.Intervals, start, end, depth, targetBlockedMs, res.Target)
+	impact := summarizeWakeupCausalImpact(idx, q, cache, thread, tl.Intervals, start, end, depth, targetBlockedMs, res.Target, consumers)
 	interesting := mostInterestingInterval(tl.Intervals, q.MinDurationMs)
 	nodeID := fmt.Sprintf("n%d", len(res.Nodes)+1)
 	node := ChainNode{ID: nodeID, Thread: thread, Window: TimeWindow{StartTs: start, EndTs: end}}
@@ -10615,7 +10644,8 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 			res.Caveats = append(res.Caveats, fmt.Sprintf("matched sched_wakeup for %s %.6f outside strict sleep end %.6f by %.3fus boundary tolerance", threadLabel(thread), wakeup.Ts, interesting.EndTs, (wakeup.Ts-interesting.EndTs)*1000000))
 		}
 		waker := ThreadRef{Comm: wakeup.Comm, PID: wakeup.PID, TGID: wakeup.TGID}
-		childID := expandChain(idx, q, cache, waker, interesting.StartTs, wakeup.Ts, depth+1, targetBlockedMs, visited, res, nodeID)
+		childConsumers := append(append([]ThreadRef{}, consumers...), thread)
+		childID := expandChain(idx, q, cache, waker, interesting.StartTs, wakeup.Ts, depth+1, targetBlockedMs, visited, res, nodeID, childConsumers)
 		if childID != "" {
 			wakerPrio, wakerClass := cache.priorityNear(q.TraceFlavor, waker, wakeup.Ts)
 			wakeePrio := wakeup.WakeePrio
@@ -10661,7 +10691,7 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 	return nodeID
 }
 
-func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, intervals []Interval, start, end float64, depth int, targetBlockedMs float64, target ThreadRef) WakeupCausalImpact {
+func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, intervals []Interval, start, end float64, depth int, targetBlockedMs float64, target ThreadRef, consumers []ThreadRef) WakeupCausalImpact {
 	item := WakeupCausalImpact{
 		Thread:          thread,
 		Window:          TimeWindow{StartTs: start, EndTs: end},
@@ -10716,7 +10746,11 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 	item.Priority, item.PriorityClass = cache.priorityNear(q.TraceFlavor, thread, (start+end)/2)
 	item.TargetPriority, item.TargetPriorityClass = cache.priorityNear(q.TraceFlavor, target, start)
 	item.PriorityRelation = dependencyPriorityRelation(q.TraceFlavor, item.TargetPriority, item.Priority, depth)
-	item.PriorityInversionGatedMs = priorityInversionGatedMs(cache, target, intervals)
+	gateConsumers := consumers
+	if len(gateConsumers) == 0 && thread.PID != target.PID {
+		gateConsumers = []ThreadRef{target}
+	}
+	item.PriorityInversionGatedMs = priorityInversionGatedMs(cache, gateConsumers, intervals)
 	// R5d (§7.30.1): the inversion flag and its published impact key on the
 	// GATED duration only — runnable time plus weak-core running time of the
 	// dependency. Its own sleep/D/IO time never qualifies: that is the
@@ -10787,13 +10821,15 @@ func dominantCausalImpactState(item WakeupCausalImpact) (string, float64) {
 // priorityInversionGatedMs computes the R5d-gated inversion impact from the
 // dependency thread's state intervals: RUNNABLE intervals count in full;
 // RUNNING intervals count only when the dependency ran on a CPU whose
-// frequency at that moment was below the frequency of its downstream chain
-// consumer's CPU (each hop gates against its own consumer, so the chain back
-// to the focus thread is covered link by link). Missing data — unknown
-// interval CPU, no frequency samples, unlocatable consumer CPU — contributes
-// zero: the gate is conservative, never guessed.
-func priorityInversionGatedMs(cache *chainQueryCache, target ThreadRef, intervals []Interval) float64 {
-	if cache == nil {
+// frequency at that moment was below the frequency of ANY downstream chain
+// consumer's CPU — the immediate wakee and every hop back to the focus
+// thread (§7.30.1 rule 2: "被唤醒线程或者逐级回溯到用户关注线程任意一个").
+// Frequency is sampled at the interval midpoint, so a DVFS ramp inside one
+// interval attributes the whole interval to the midpoint state. Missing data
+// — unknown interval CPU, no frequency samples, no locatable consumer CPU —
+// contributes zero: the gate is conservative, never guessed.
+func priorityInversionGatedMs(cache *chainQueryCache, consumers []ThreadRef, intervals []Interval) float64 {
+	if cache == nil || len(consumers) == 0 {
 		return 0
 	}
 	gated := 0.0
@@ -10813,12 +10849,19 @@ func priorityInversionGatedMs(cache *chainQueryCache, target ThreadRef, interval
 			if wakerFreq <= 0 {
 				continue
 			}
-			targetCPU, ok := cache.threadCPUNear(target, mid)
-			if !ok {
-				continue
+			// Lower than ANY consumer's supply counts, i.e. lower than the
+			// maximum known consumer frequency at that moment.
+			maxConsumerFreq := 0
+			for _, consumer := range consumers {
+				cpu, ok := cache.threadCPUNear(consumer, mid)
+				if !ok {
+					continue
+				}
+				if f := cache.frequencyAt(cpu, mid); f > maxConsumerFreq {
+					maxConsumerFreq = f
+				}
 			}
-			targetFreq := cache.frequencyAt(targetCPU, mid)
-			if targetFreq > 0 && wakerFreq < targetFreq {
+			if maxConsumerFreq > 0 && wakerFreq < maxConsumerFreq {
 				gated += it.DurationMs
 			}
 		}

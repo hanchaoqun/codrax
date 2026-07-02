@@ -68,6 +68,21 @@ func TestEmitInvestigationComplete_WakeupChainDrilldownOneShot(t *testing.T) {
 		t.Fatalf("second attempt must pass (one-shot gate), got: %s", second.Summary)
 	}
 
+	// Interleave regression: even when OTHER completion-gate denials (e.g.
+	// the citation floor's streak fingerprints) fire between attempts, the
+	// wakeup gate must never re-arm — the sticky per-run marker is immune to
+	// the single-slot streak resets that made the first implementation
+	// mutually destructive with the citation-denial breaker.
+	mut.RecordCompletionDenialStreak("citation_floor min=2 eligible=0 reads=1")
+	mut.RecordCompletionDenialStreak("citation_floor min=2 eligible=0 reads=2")
+	third, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(third.Summary, "wakeup_chain view was run") {
+		t.Fatalf("one-shot gate must stay disarmed across interleaved denials, got: %s", third.Summary)
+	}
+
 	// Control: a run that DID produce a wakeup-chain observation is never
 	// gated.
 	mut2 := types.NewMutableState("同上")

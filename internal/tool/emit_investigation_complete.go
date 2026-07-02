@@ -3631,7 +3631,7 @@ func wakeupChainDrilldownPendingDowngrade(ctx *types.BusContext) string {
 		}
 		for _, obs := range result.Observations {
 			switch strings.TrimSpace(obs.Predicate) {
-			case "wakeup_chain", "wakeup_edge", "wakeup_causal_impact", "wakeup_causal_aggregate":
+			case "wakeup_chain", "wakeup_chain_edge", "wakeup_causal_impact", "wakeup_causal_aggregate":
 				haveWakeupFamily = true
 			case "state_drilldown":
 				if strings.TrimSpace(obs.Object) != "s_sleep" {
