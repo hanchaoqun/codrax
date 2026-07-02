@@ -678,24 +678,26 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	if got == nil || len(got.Blocks) < 2 {
 		t.Fatalf("answer document not persisted with projection: %+v", got)
 	}
-	// Lead block: a compact root-cause overview, not the old overloaded audit
+	// Lead block: a compact root-cause card list, not the old overloaded audit
 	// table.
 	projection := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection")
 	if projection == nil ||
-		projection.Kind != types.BlockTable ||
+		projection.Kind != types.BlockBulletList ||
 		projection.SurfaceRole != types.SurfacePrincipal ||
-		len(projection.Columns) == 0 {
-		t.Fatalf("missing principal trace causal projection TABLE block: %+v", projection)
+		len(projection.Columns) != 0 {
+		t.Fatalf("missing principal trace causal projection card block: %+v", projection)
 	}
 	if len(projection.ClaimUses) != 1 || projection.ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
 		t.Fatalf("projection must stay in external-observation lane: %+v", projection.ClaimUses)
 	}
 	assertProjectionRowsCitationFree(t, projection)
 	if len(projection.Items) > 8 {
-		t.Fatalf("lead overview should stay compact, got %d rows: %+v", len(projection.Items), projection.Items)
+		t.Fatalf("lead overview should stay compact, got %d cards: %+v", len(projection.Items), projection.Items)
 	}
-	if len(projection.Columns) != 5 || projection.Columns[3] != "处理方向" {
-		t.Fatalf("lead overview should use compact action column: %+v", projection.Columns)
+	if len(projection.Items) == 0 ||
+		!strings.Contains(projection.Items[0].Label, "P0") ||
+		!strings.Contains(projection.Items[0].Text, "处理") {
+		t.Fatalf("lead overview should render compact root-cause cards: %+v", projection.Items)
 	}
 
 	text := projectionClusterText(got.Blocks)
@@ -723,7 +725,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	if onChain == nil {
 		t.Fatalf("missing on-chain projection block:\n%s", text)
 	}
-	for _, want := range []string{"本层含义", "影响"} {
+	for _, want := range []string{"上游", "下游或影响点", "责任/影响", "链上累计", "本层投影"} {
 		if !stringSliceContains(onChain.Columns, want) {
 			t.Fatalf("on-chain table should expose responsibility and impact reading %q: %+v", want, onChain.Columns)
 		}
@@ -886,17 +888,17 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 			t.Fatalf("undrillable sleep must render (gap e): missing %q:\n%s", want, rendered)
 		}
 	}
-	// The section renders as a real GFM table (pipes + header separator) plus a
-	// mermaid flowchart — not a flat ordered list.
-	if !strings.Contains(rendered, "| 关注 | 根因/节点 | 影响 | 处理方向 | 证据 |") ||
-		!strings.Contains(rendered, "| 层 | 链路 | 本层含义 | 影响 | 证据 |") ||
+	// The section renders compact root-cause cards, split-column on-chain table,
+	// and a mermaid flowchart — not the legacy wide audit table.
+	if !strings.Contains(rendered, "- **P0 · 主根因") ||
+		!strings.Contains(rendered, "| 深度 | 上游 | 下游或影响点 | 责任/影响 | 链上累计 | 本层投影 | 证据 |") ||
 		!strings.Contains(rendered, "| 节点 | 强度 | 链上累计 | 本节点投影 | 有效归因 | 实际状态 |") ||
 		!strings.Contains(rendered, "```mermaid") {
-		t.Fatalf("section must render as a table + mermaid cluster:\n%s", rendered)
+		t.Fatalf("section must render as compact cards + split tables + mermaid cluster:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "sleep 是等待症状;优先下钻上游") ||
-		strings.Contains(rendered, "| 深度 | 上游 | 下游/影响点 | 状态 | 链上影响 | 本层影响 | 关注 | 证据 |") ||
-		strings.Contains(rendered, "| 深度 | 上游 → 下游 |") {
+		strings.Contains(rendered, "| 关注 | 根因/节点 | 影响 | 处理方向 | 证据 |") ||
+		strings.Contains(rendered, "| 层 | 链路 | 本层含义 | 影响 | 证据 |") {
 		t.Fatalf("on-chain table should stay split-column and short-label, not legacy wide prose:\n%s", rendered)
 	}
 }
@@ -977,11 +979,11 @@ func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePre
 	}
 	got := bus.Mutable.AnswerDocumentV2()
 	projection := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection")
-	if projection == nil || projection.Kind != types.BlockTable {
-		t.Fatalf("missing projection table: %+v", got.Blocks)
+	if projection == nil || projection.Kind != types.BlockBulletList {
+		t.Fatalf("missing projection card list: %+v", got.Blocks)
 	}
-	if len(projection.Columns) < 3 || projection.Columns[2] != "影响" {
-		t.Fatalf("Chinese projection columns should localize impact: %+v", projection.Columns)
+	if len(projection.Items) == 0 || !strings.Contains(projection.Items[0].Text, "影响") {
+		t.Fatalf("Chinese projection cards should localize impact: %+v", projection.Items)
 	}
 	text := projectionClusterText(got.Blocks)
 	if !strings.Contains(projection.Text, "没有产出可承重的 off-chain/background 行") {
@@ -1001,11 +1003,10 @@ func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePre
 	}
 	foundCompact := false
 	for _, item := range projection.Items {
-		for _, cell := range item.Cells {
-			if strings.Contains(cell, "…") && !strings.Contains(cell, longSubject) && !strings.Contains(cell, longObject) {
-				foundCompact = true
-				break
-			}
+		surface := strings.TrimSpace(item.Label + " " + item.Text)
+		if strings.Contains(surface, "…") && !strings.Contains(surface, longSubject) && !strings.Contains(surface, longObject) {
+			foundCompact = true
+			break
 		}
 		if foundCompact {
 			break
@@ -1015,8 +1016,9 @@ func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePre
 		t.Fatalf("long node should be compacted in the first column while full identity stays in details: %+v", projection.Items)
 	}
 	for _, item := range projection.Items {
-		if strings.Contains(strings.Join(item.Cells, " "), longRef) {
-			t.Fatalf("lead overview must not contain full evidence path; it should use short evidence IDs: %+v", item.Cells)
+		surface := strings.TrimSpace(item.Label + " " + item.Text)
+		if strings.Contains(surface, longRef) {
+			t.Fatalf("lead overview must not contain full evidence path; it should use short evidence IDs: %+v", item)
 		}
 	}
 }
@@ -1153,8 +1155,8 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 		t.Fatalf("answer document not persisted with projection: %+v", got)
 	}
 	projection := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection")
-	if projection == nil || projection.Kind != types.BlockTable {
-		t.Fatalf("missing English projection table block: %+v", projection)
+	if projection == nil || projection.Kind != types.BlockBulletList {
+		t.Fatalf("missing English projection card block: %+v", projection)
 	}
 	if projection.Title != "Trace Causal Projection" {
 		t.Fatalf("projection title should follow language: %+v", projection)
@@ -1169,6 +1171,10 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 		if !strings.Contains(text, want) {
 			t.Fatalf("English projection should surface %q:\n%s", want, text)
 		}
+	}
+	onChain := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_on_chain")
+	if onChain == nil || !stringSliceContains(onChain.Columns, "Chain total") || !stringSliceContains(onChain.Columns, "Node projection") {
+		t.Fatalf("English on-chain table should split chain and node impact: %+v", onChain)
 	}
 	wakeup := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_wakeup")
 	if wakeup == nil || wakeup.Diagram == nil ||
@@ -1237,8 +1243,8 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalHopDepth(t *testi
 		t.Fatalf("answer document not persisted with projection: %+v", got)
 	}
 	projection := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection")
-	if projection == nil || projection.Kind != types.BlockTable {
-		t.Fatalf("missing projection table block: %+v", projection)
+	if projection == nil || projection.Kind != types.BlockBulletList {
+		t.Fatalf("missing projection card block: %+v", projection)
 	}
 	text := projectionClusterText(got.Blocks)
 	// The on-chain io-500 hop keeps its typed depth-4 chain position (gaps a/b).
@@ -1349,8 +1355,8 @@ func TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity(t *
 	}
 	got := bus.Mutable.AnswerDocumentV2()
 	projection := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection")
-	if projection == nil || projection.Kind != types.BlockTable {
-		t.Fatalf("missing projection table block: %+v", projection)
+	if projection == nil || projection.Kind != types.BlockBulletList {
+		t.Fatalf("missing projection card block: %+v", projection)
 	}
 	assertProjectionRowsCitationFree(t, projection)
 	text := projectionClusterText(got.Blocks)

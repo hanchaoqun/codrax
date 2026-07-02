@@ -1288,3 +1288,38 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 - **Batch 6: focused 验证与推送。** 跑 trace causal projection focused tests,更新 eval manual audit,提交推送 main。
 
 **当前进展。** Batch 1-6 已落地:新增 bounded path view 与长重复链路测试,并已接入 intro/diagram;focused `TraceCausalProjection|RuntimeTraceCausalProjection` tests、types focused tests、`go test ./internal/tool ./internal/types -count=1` 均通过。
+
+### 7.26 最新反馈 gap:Trace 因果投影仍缺第一屏责任卡片(2026-07-02)
+
+用户继续反馈:`Trace 因果投影` 虽然已经拆成多视图,但用户第一眼仍可能被表格形态干扰:
+
+1. 根因总览仍是 5 列 table,窄屏下 `根因/节点`、`处理方向`、`影响` 容易换行,读感像审计表而不是结论卡片。
+2. `runtime_trace_causal_projection_on_chain` 仍把 `上游→下游` 放进 `链路` 单列,再把 `链上累计/本层投影` 放进一个 `影响` 单元,用户需要再次拆读才能理解"谁影响谁、这一层到底贡献多少"。
+3. 证据索引虽然已改成短 locator,但单条 audit 默认 72 字符,对商用阅读仍偏审计化;主读流只需要 `E#`,完整定位和长审计仍以原始 `trace_query` typed record 为权威。
+
+这仍是 **AnswerDocumentV2 展示投影层** gap,不是 trace_query 根因算法 gap,也不是 completion hard gate gap。修复必须只消费 `TraceCausalProjectionNode` 的 typed 字段和 `TraceCausalProjection.WakeupPath`,不得解析用户原文、模型散文、工具 summary 或最终答案文本。
+
+**目标架构。**
+
+- 根因总览从 table 改成 bullet/card:每条只表达 `优先级/层级 + 节点 + 影响 + 处理方向 + E#`,让第一屏像"要处理的责任卡片",不是审计矩阵。
+- on-chain 链路表改成短列:拆出 `上游`、`下游/影响点`、`链上累计`、`本层投影`,避免让用户从一个长 `链路` 或 `影响` 单元里二次解析。
+- 证据索引继续降噪:短 locator 上限更短,audit 只保留 typed 元数据摘要;完整路径、完整 raw payload、完整链路仍在原始 `trace_query` 结构化记录里。
+- 影响审计表继续保留完整四元:第一屏和 on-chain 表负责读法,`runtime_trace_causal_projection_impact` 负责完整审计,二者不互相挤占。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录 residual gap、目标架构、边界和任务拆解,避免后续把展示问题误修到 trace_query 算法或 prompt 逻辑。
+- **Batch 2: 根因总览卡片化。** 将 `runtime_trace_causal_projection` 从 `BlockTable` 改为 `BlockBulletList`,每项用短 label + text 承载 typed priority/layer/node/impact/action/evidence。
+- **Batch 3: on-chain 短列化。** 将 `runtime_trace_causal_projection_on_chain` 从 `层/链路/本层含义/影响/证据` 改为 `深度/上游/下游或影响点/责任或影响/链上累计/本层投影/证据`。
+- **Batch 4: 证据索引进一步压缩。** 将短 locator 与 audit 摘要长度继续收紧;保留"完整定位见原始 trace_query 记录"提示。
+- **Batch 5: golden 看护。** 更新 ZH/EN projection tests,钉住总览 bullet/card、on-chain 短列、证据不含绝对路径、语义优化点/长 sleep/背景行仍不丢。
+- **Batch 6: focused 验证与推送。** 跑 `go test ./internal/tool -run 'TraceCausalProjection|RuntimeTraceCausalProjection' -count=1`、`go test ./internal/types -run 'TraceCausalProjection|SemanticSpan|StateDrilldown' -count=1`、必要时 `go test ./internal/tool ./internal/types -count=1`,通过后提交推送 main。
+
+**当前进展。**
+
+- Batch 1 已落地:本节记录 residual gap 和任务拆解。
+- Batch 2 已落地:`runtime_trace_causal_projection` 从宽表改为 `BlockBulletList` 根因卡片,每项只显示 priority/layer/node/impact/action/E#。
+- Batch 3 已落地:`runtime_trace_causal_projection_on_chain` 改为 `深度 / 上游 / 下游或影响点 / 责任/影响 / 链上累计 / 本层投影 / 证据`,不再把链路和影响塞进单个长单元。
+- Batch 4 已落地:证据索引 audit 摘要进一步压缩;locator 只显示文件名尾部和行号,完整路径继续以原始 `trace_query` record 为权威。
+- Batch 5 已落地:更新 ZH/EN projection tests,钉住 card overview、split-column on-chain table、短证据、不含本地绝对路径、sleep drilldown/semantic span/background caveat 不丢。
+- Batch 6 已验证:`go test ./internal/tool -run 'TraceCausalProjection|RuntimeTraceCausalProjection' -count=1`、`go test ./internal/types -run 'TraceCausalProjection|SemanticSpan|StateDrilldown' -count=1`、`go test ./internal/tool ./internal/types -count=1` 均通过。
