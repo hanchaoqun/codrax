@@ -3754,6 +3754,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			notes = append(notes, traceQueryTypedPriorityRichNotes(rank, tier, item.Type, item.Source, item.Causality, item.ChainDepth, item.Score, item.ImpactMs, item.CumulativeImpactMs, traceQueryRootCauseEffectiveImpact(item), item.TargetImpactMs, item.ProjectedImpactMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualStartTs, item.ActualEndTs)...)
 			notes = append(notes, traceQueryTypedRootCauseStateRichNotes(item)...)
 			notes = append(notes, traceQueryTypedKVNotes([][2]string{
+				{"subject_kind", item.SubjectKind},
 				{"chain_relevance", item.ChainRelevance},
 				{"overlap", traceQueryObservationMSValue(item.OverlapMs)},
 				{"edge_count", traceQueryTypedCount(item.EdgeCount)},
@@ -4132,6 +4133,7 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{"chain_required", traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
 		{"recursive", traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
 		{"next_step", impact.NextStep},
+		{"next_step_kind", impact.NextStepKind},
 	})
 }
 
@@ -4552,6 +4554,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 		appendNote("top_competitor", churn.TopCompetitor)
 		appendNote("top_competitor_running", traceQueryObservationMSValue(churn.TopCompetitorRunningMs))
 		appendNote("next_step", churn.NextStep)
+		appendNote("next_step_kind", churn.NextStepKind)
 		if churn.TotalMs > 0 {
 			notes = append(notes, fmt.Sprintf("total=%.3fms", churn.TotalMs))
 		}
@@ -4605,6 +4608,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"rank", traceQueryTypedCount(step.Rank)},
 				{"state", step.State},
 				{"impact", traceQueryObservationMSValue(step.ImpactMs)},
+				{"rank_impact", traceQueryObservationMSValue(step.RankImpactMs)},
 				{"total", traceQueryObservationMSValue(step.TotalMs)},
 				{"source", step.Source},
 				{"recommended_views", strings.Join(step.RecommendedViews, ",")},

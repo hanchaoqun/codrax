@@ -3696,6 +3696,7 @@ func buildStateChurnSummary(acc *stateChurnAcc, minDurationMs float64) (ThreadSt
 		LineEnd:          acc.lineEnd,
 		Confidence:       confidence,
 		NextStep:         stateChurnNextStep(dominantState),
+		NextStepKind:     stateChurnNextStepKind(dominantState),
 	}
 	item.Summary = renderStateChurnSummary(item)
 	return item, true
@@ -3729,6 +3730,9 @@ func enrichStateChurnWithCPUPressure(items []ThreadStateChurnSummary, pressures 
 		} else {
 			items[i].NextStep = fmt.Sprintf("inspect same-CPU pressure on cpu=%d, top running competitors, priority, CPU frequency, and sched_wakeup wake_latency", cpu)
 		}
+		// Both dynamic variants are runnable-state same-CPU competition
+		// guidance; the loop above only reaches runnable-dominant rows.
+		items[i].NextStepKind = NextStepKindRunnable
 		items[i].Summary = renderStateChurnSummary(items[i])
 	}
 	return items
@@ -3829,6 +3833,25 @@ func stateChurnNextStep(state string) string {
 	}
 }
 
+// stateChurnNextStepKind is the typed counterpart of stateChurnNextStep (and
+// of the dynamic same-CPU competitor variants, which are runnable-state
+// guidance). Must stay in lockstep with the switch above so renderers can
+// localize the guidance without parsing English prose.
+func stateChurnNextStepKind(state string) string {
+	switch state {
+	case string(StateRunnable):
+		return NextStepKindRunnable
+	case string(StateSSleep):
+		return NextStepKindSSleep
+	case string(StateDSleep), string(StateIOWait):
+		return NextStepKindDSleepIO
+	case string(StateRunning):
+		return NextStepKindRunning
+	default:
+		return NextStepKindGeneric
+	}
+}
+
 // stateDrilldownSignificantFloor is the fraction of the selected window a
 // state must occupy (in addition to always keeping the top state) to be
 // marked Significant for R3 per-layer root-cause prioritization. 0.05 = 5%
@@ -3882,15 +3905,21 @@ func buildStateDrilldownPlan(stats WindowStats, max int) []StateDrilldownStep {
 		if churn.Thread.PID <= 0 || strings.TrimSpace(churn.DominantState) == "" {
 			continue
 		}
-		impact := stateChurnRankImpactMs(churn)
-		if impact <= 0 {
+		rankImpact := stateChurnRankImpactMs(churn)
+		if rankImpact <= 0 {
 			continue
 		}
+		// ImpactMs must stay the PHYSICAL dominant-state duration: the step
+		// is published as a hard ms observation and must reconcile with the
+		// churn totals (§7.30 S1 — the composite leaked into a customer
+		// report as a 119%-of-window running time). The fragmentation boost
+		// lives only in the ranking-only RankImpactMs channel.
 		candidates = append(candidates, StateDrilldownStep{
 			Thread:           churn.Thread,
 			State:            churn.DominantState,
-			ImpactMs:         impact,
+			ImpactMs:         churn.DominantImpactMs,
 			TotalMs:          churn.TotalMs,
+			RankImpactMs:     rankImpact,
 			Source:           "state_churn",
 			RecommendedViews: stateDrilldownRecommendedViewsForSource(churn.DominantState, "state_churn"),
 			ChainRequired:    stateDrilldownNeedsWakeupChainForSource(churn.DominantState, "state_churn"),
@@ -3904,8 +3933,9 @@ func buildStateDrilldownPlan(stats WindowStats, max int) []StateDrilldownStep {
 		if ci != cj {
 			return ci > cj
 		}
-		if candidates[i].ImpactMs != candidates[j].ImpactMs {
-			return candidates[i].ImpactMs > candidates[j].ImpactMs
+		wi, wj := stateDrilldownRankWeight(candidates[i]), stateDrilldownRankWeight(candidates[j])
+		if wi != wj {
+			return wi > wj
 		}
 		if candidates[i].TotalMs != candidates[j].TotalMs {
 			return candidates[i].TotalMs > candidates[j].TotalMs
@@ -3973,7 +4003,10 @@ func stateDrilldownThreadKey(thread ThreadRef) string {
 }
 
 func stateDrilldownPriority(step StateDrilldownStep) float64 {
-	score := step.ImpactMs
+	// Rank weight, not published ImpactMs: fragmented churn rows keep their
+	// ranking composite here while the published impact stays physical
+	// (§7.30 S1).
+	score := stateDrilldownRankWeight(step)
 	if step.ChainRequired {
 		score *= 1.25
 	}
@@ -6983,7 +7016,12 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	}
 	for _, churn := range stats.StateChurn {
 		onChain := threadInSet(chainThreads, churn.Thread)
-		item := rootCauseItem(stateChurnRootCauseType(churn.DominantState), churn.Thread, backgroundImpactMs(q, stateChurnRankImpactMs(churn), hasCausalChain, onChain), churn.Confidence, churn.LineStart, churn.LineEnd, "window_stats.state_churn", churn.Summary)
+		// Physical dominant-state duration as the published impact; the
+		// fragmentation ranking boost goes through EffectiveImpactMs, which
+		// is documented as the bounded ranking channel and feeds Score
+		// without masquerading as a scheduler-state duration (§7.30 S1).
+		item := rootCauseItem(stateChurnRootCauseType(churn.DominantState), churn.Thread, backgroundImpactMs(q, churn.DominantImpactMs, hasCausalChain, onChain), churn.Confidence, churn.LineStart, churn.LineEnd, "window_stats.state_churn", churn.Summary)
+		item.EffectiveImpactMs = backgroundImpactMs(q, stateChurnRankImpactMs(churn), hasCausalChain, onChain)
 		item.CumulativeImpactMs = churn.TotalMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.DominantState = churn.DominantState
@@ -7070,6 +7108,7 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	items = enrichRootCauseItemsWithChainContext(chain, items)
 	attributeOnChainResourceItemsToWakeupDependency(chain, items)
 	normalizeRootCauseChainRelevance(items, hasCausalChain)
+	normalizeRootCauseSubjectKind(items)
 	normalizeRootCauseCumulativeImpact(items)
 	normalizeRootCauseEffectiveImpact(items)
 	sortRootCauseRankItems(items, hasCausalChain)
@@ -7175,6 +7214,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		rank.Items = append(rank.Items, candidate)
 	}
 	normalizeRootCauseChainRelevance(rank.Items, hasCausalChain)
+	normalizeRootCauseSubjectKind(rank.Items)
 	attributeOnChainResourceItemsToWakeupDependency(chain, rank.Items)
 	normalizeRootCauseCumulativeImpact(rank.Items)
 	normalizeRootCauseEffectiveImpact(rank.Items)
@@ -7580,6 +7620,36 @@ func addThreadRef(out map[int]ThreadRef, thread ThreadRef) {
 		return
 	}
 	out[thread.PID] = thread
+}
+
+// rootCauseAggregateMetricTypes lists the root-cause row types whose subject
+// is a window/CPU-scoped aggregate metric rather than a resolvable thread.
+// Kept in lockstep with the construction sites that pass ThreadRef{} (or a
+// merely representative thread) for these types.
+var rootCauseAggregateMetricTypes = map[string]bool{
+	"cpu_pressure":        true,
+	"io_pressure":         true,
+	"cpu_frequency_limit": true,
+	"irq_burst":           true,
+	"irq_activity":        true,
+	"ipi_activity":        true,
+	"supply_pressure":     true,
+}
+
+// normalizeRootCauseSubjectKind marks aggregate-metric rows whose ThreadRef is
+// structurally empty so renderers stop presenting them as an "unknown thread":
+// there is no thread to resolve — the subject IS the metric (§7.30 complaint
+// 1/6/8). Rows that borrowed a representative thread keep the thread shape.
+func normalizeRootCauseSubjectKind(items []RootCauseRankItem) {
+	for i := range items {
+		if items[i].SubjectKind != "" || !rootCauseAggregateMetricTypes[items[i].Type] {
+			continue
+		}
+		if items[i].Thread.PID > 0 || strings.TrimSpace(items[i].Thread.Comm) != "" {
+			continue
+		}
+		items[i].SubjectKind = RootCauseSubjectKindAggregateMetric
+	}
 }
 
 func normalizeRootCauseChainRelevance(items []RootCauseRankItem, hasCausalChain bool) {
@@ -8571,6 +8641,16 @@ func stateChurnRankImpactMs(churn ThreadStateChurnSummary) float64 {
 		return churn.DominantImpactMs
 	}
 	return churn.DominantImpactMs + (churn.TotalMs-churn.DominantImpactMs)*0.5
+}
+
+// stateDrilldownRankWeight orders drilldown candidates: fragmented churn rows
+// compete with their ranking-only composite, everything else with its physical
+// duration. Never published as a duration value.
+func stateDrilldownRankWeight(step StateDrilldownStep) float64 {
+	if step.RankImpactMs > 0 {
+		return step.RankImpactMs
+	}
+	return step.ImpactMs
 }
 
 func stateChurnRootCauseType(state string) string {
@@ -10548,6 +10628,7 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 	item.PriorityRelation = dependencyPriorityRelation(q.TraceFlavor, item.TargetPriority, item.Priority, depth)
 	item.PriorityInversionCandidate = item.PriorityRelation == "lower_priority_dependency" && causalImpactIsPrioritySensitiveRoot(item)
 	item.NextStep = causalImpactNextStep(item)
+	item.NextStepKind = causalImpactNextStepKind(item)
 	item.Summary = renderWakeupCausalImpactSummary(item)
 	return item
 }
@@ -10644,6 +10725,15 @@ func causalImpactNextStep(item WakeupCausalImpact) string {
 		return "inspect lower-priority dependency scheduling delay and same-window CPU pressure; then " + base
 	}
 	return base
+}
+
+// causalImpactNextStepKind is the typed counterpart of causalImpactNextStep.
+// Must stay in lockstep with the branch above.
+func causalImpactNextStepKind(item WakeupCausalImpact) string {
+	if item.PriorityInversionCandidate {
+		return NextStepKindPriorityInversion
+	}
+	return stateChurnNextStepKind(item.DominantState)
 }
 
 func renderWakeupCausalImpactSummary(item WakeupCausalImpact) string {

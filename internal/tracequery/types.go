@@ -749,7 +749,11 @@ type ThreadStateChurnSummary struct {
 	TopCompetitor          string    `json:"top_competitor,omitempty"`
 	TopCompetitorRunningMs float64   `json:"top_competitor_running_ms,omitempty"`
 	NextStep               string    `json:"next_step,omitempty"`
-	LineStart              int       `json:"line_start,omitempty"`
+	// NextStepKind is the deterministic typed enumeration behind the English
+	// NextStep guidance prose (NextStepKind* constants), so renderers can
+	// localize without parsing prose.
+	NextStepKind string `json:"next_step_kind,omitempty"`
+	LineStart    int    `json:"line_start,omitempty"`
 	LineEnd                int       `json:"line_end,omitempty"`
 	Confidence             float64   `json:"confidence,omitempty"`
 	Summary                string    `json:"summary,omitempty"`
@@ -761,6 +765,14 @@ type StateDrilldownStep struct {
 	State    string    `json:"state,omitempty"`
 	ImpactMs float64   `json:"impact_ms,omitempty"`
 	TotalMs  float64   `json:"total_ms,omitempty"`
+	// RankImpactMs is the ranking-only composite weight for fragmented
+	// state-churn rows (dominant impact plus half the remaining churn). It
+	// exists so fragmentation can outrank a plain duration of the same size
+	// and MUST NOT be read as a physical duration: summed with the sibling
+	// state durations it exceeds the window (a real customer report published
+	// it as the running time and contradicted the churn totals, methodology
+	// audit §7.30 S1). Zero for non-churn sources; ImpactMs stays physical.
+	RankImpactMs float64 `json:"rank_impact_ms,omitempty"`
 	// WindowProportion is ImpactMs as a fraction (0..1) of the selected
 	// window duration — how much of the window this state consumed. Zero
 	// when the window duration is unknown. Distinct from the perf-sample
@@ -1168,10 +1180,23 @@ type RootCauseRankResult struct {
 	Caveats []string            `json:"caveats,omitempty"`
 }
 
+// RootCauseSubjectKindAggregateMetric is the typed SubjectKind for root-cause
+// rows whose subject is a window/CPU-scoped aggregate metric (cpu_pressure,
+// io_pressure without a representative file-IO thread, cpu_frequency_limit,
+// irq_burst, irq_activity, ipi_activity, supply_pressure) rather than a
+// resolvable thread. Renderers must not present such rows as an
+// "unknown thread": the empty ThreadRef is structural, not a resolution gap.
+const RootCauseSubjectKindAggregateMetric = "aggregate_metric"
+
 type RootCauseRankItem struct {
-	Rank               int                        `json:"rank"`
-	Tier               string                     `json:"tier,omitempty"`
-	Type               string                     `json:"type,omitempty"`
+	Rank int    `json:"rank"`
+	Tier string `json:"tier,omitempty"`
+	Type string `json:"type,omitempty"`
+	// SubjectKind is empty when the row's subject is a (possibly unresolved)
+	// thread, and RootCauseSubjectKindAggregateMetric when the row is a
+	// window/CPU-scoped aggregate metric with no single subject thread.
+	// Deterministic typed signal set at construction time.
+	SubjectKind        string                     `json:"subject_kind,omitempty"`
 	Thread             ThreadRef                  `json:"thread,omitempty"`
 	PerfContext        *PerfContext               `json:"perf_context,omitempty"`
 	PerfContexts       []RootCausePerfRoleContext `json:"perf_contexts,omitempty"`
@@ -1522,7 +1547,23 @@ type WakeupCausalImpact struct {
 	PriorityInversionCandidate bool       `json:"priority_inversion_candidate,omitempty"`
 	Summary                    string     `json:"summary,omitempty"`
 	NextStep                   string     `json:"next_step,omitempty"`
+	// NextStepKind is the deterministic typed enumeration behind the English
+	// NextStep guidance prose (NextStepKind* constants), so renderers can
+	// localize without parsing prose.
+	NextStepKind string `json:"next_step_kind,omitempty"`
 }
+
+// NextStepKind* enumerate the deterministic kinds behind every system-fixed
+// next_step guidance string. The English prose stays the model-facing surface;
+// the kind is the render-facing typed signal (e.g. for localization).
+const (
+	NextStepKindRunnable          = "runnable"
+	NextStepKindSSleep            = "s_sleep"
+	NextStepKindDSleepIO          = "d_sleep_io"
+	NextStepKindRunning           = "running"
+	NextStepKindGeneric           = "generic"
+	NextStepKindPriorityInversion = "priority_inversion"
+)
 
 type WakeupCausalOccurrence struct {
 	Window            TimeWindow `json:"window,omitempty"`
