@@ -130,6 +130,99 @@ func TestEmitInvestigationComplete_WaiverStoredOnAcceptance(t *testing.T) {
 	}
 }
 
+// TestEmitInvestigationComplete_WaiverAcceptedOnZeroCurrentSourceRepo pins the
+// §1.6 regression from the customer trace_repl.log (2026-07-02): the model
+// declared evidence_floor_waiver=external_only_trace correctly, but the
+// admissibility gate silently dropped it because a current-status contract
+// requirement kept the current-source lane "required" — in a checkout that
+// contained no current source at all. With the deterministic census the typed
+// escape lane must work again: the waiver stores and completion lands.
+func TestEmitInvestigationComplete_WaiverAcceptedOnZeroCurrentSourceRepo(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("分析东湖Trace:record_trace_20260605224432@3279-299954687.sys.ftrace里面这一帧，不分析代码")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentRootCause},
+			AnswerContract: types.AnswerContract{
+				CitationReq:             types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
+				CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{Required: true},
+			},
+		},
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "record_trace_20260605224432@3279-299954687.sys.ftrace",
+				Carrier: "request_path",
+			}},
+			RepoSourceCensus: types.RuntimeArtifactRepoSourceCensus{Completed: true, ArtifactFiles: 1},
+		}),
+	}
+	tool := &EmitInvestigationComplete{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"reason":"UI thread blocked on lock contention inside the doFrame window; trace is the only answer source",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{"reason":"external_only_trace","rationale":"repository contains only the ftrace artifact, no source code"}
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if w := mut.EvidenceFloorWaiver(); !w.IsActive() || w.Reason != types.EvidenceFloorWaiverExternalTrace {
+		t.Fatalf("waiver must be stored on a zero-current-source repo, got %+v (Summary=%q)", w, res.Summary)
+	}
+	if !res.Success || strings.Contains(res.Summary, "ignored evidence_floor_waiver") {
+		t.Fatalf("waiver must not be silently dropped on a zero-current-source repo: %s", res.Summary)
+	}
+}
+
+// TestEmitInvestigationComplete_WaiverRejectionNamesBlockingRequirement pins
+// the actionability half of the same fix: when the waiver IS legitimately
+// inadmissible (source files exist and the request demands change impact
+// against the current checkout), the ignored-note must name the blocking
+// requirement instead of a bare generic line the model can only retry blind.
+func TestEmitInvestigationComplete_WaiverRejectionNamesBlockingRequirement(t *testing.T) {
+	mut := types.NewMutableState("mixed trace + source question")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:              types.IntentRootCause,
+				ChangeImpactProfile: &types.ChangeImpactProfile{IsChangeImpact: true, Target: "FrameScheduler"},
+			},
+		},
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "record_trace_20260605224432@3279-299954687.sys.ftrace",
+				Carrier: "request_path",
+			}},
+			RepoSourceCensus: types.RuntimeArtifactRepoSourceCensus{Completed: true, SourceFiles: 5, ArtifactFiles: 1},
+		}),
+	}
+	tool := &EmitInvestigationComplete{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"reason":"trace analysis finished",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{"reason":"external_only_trace","rationale":"trace rows are external"}
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if w := mut.EvidenceFloorWaiver(); w.IsActive() {
+		t.Fatalf("waiver must stay rejected when a real current-source requirement holds, got %+v", w)
+	}
+	if !strings.Contains(res.Summary, "change impact against the current checkout") {
+		t.Fatalf("rejection must name the blocking requirement, got: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_AcceptedCompletionClearsBypassedPendingReads(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.EvidenceClosure().AddPendingRead(types.PendingRead{

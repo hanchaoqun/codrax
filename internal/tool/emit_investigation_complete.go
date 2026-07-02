@@ -3850,21 +3850,35 @@ func runtimeSourceAuthorityAllowsRuntimeCompletionLandingSnapshot(authority type
 }
 
 func runtimeArtifactCurrentSourceHardRequirement(ctx *types.BusContext) bool {
+	required, _ := runtimeArtifactCurrentSourceHardRequirementLabeled(ctx)
+	return required
+}
+
+// runtimeArtifactCurrentSourceHardRequirementLabeled reports whether a typed
+// current-source requirement keeps runtime-artifact grounding bypasses closed,
+// plus which requirement holds. The label feeds waiver-rejection feedback so
+// the model learns WHAT still demands current-source evidence instead of
+// looping blind (trace_repl.log 2026-07-02: the bare rejection line was
+// retried 37 times with no way to discover the blocking contract).
+func runtimeArtifactCurrentSourceHardRequirementLabeled(ctx *types.BusContext) (bool, string) {
 	if ctx == nil || ctx.AnalysisIR == nil {
-		return false
+		return false, ""
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	if answerContractRequiresCurrentSourceProofForRuntimeCompletion(ctx, &ctx.AnalysisIR.AnswerContract) {
-		return true
+		return true, "the answer contract requires a current-status/current-source diagnostic"
 	}
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
-		return true
+		return true, "the request asks for change impact against the current checkout"
 	}
 	if currentSourceLaneHasSpecificSourceSeed(ctx) {
-		return true
+		return true, "the request names specific current-source files that must be inspected"
 	}
 	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
-	return authority.CanHardBlockCompletion
+	if authority.CanHardBlockCompletion {
+		return true, "typed runtime/source authority still requires current-source verification"
+	}
+	return false, ""
 }
 
 func answerContractRequiresCurrentSourceProofForRuntimeCompletion(ctx *types.BusContext, contract *types.AnswerContract) bool {
@@ -3958,7 +3972,14 @@ func applyEvidenceFloorWaiverPayload(ctx *types.BusContext, toolName string, p e
 	}
 	if !runtimeArtifactGroundingBypassAllowed(ctx) {
 		ctx.Mutable.SetEvidenceFloorWaiver(nil)
-		ignored := fmt.Sprintf("ignored evidence_floor_waiver=%s because the typed current-source lane is required; preserve runtime observations, then collect current-source evidence before closing", typedReason)
+		// Name the exact blocker so a rejected waiver is actionable instead
+		// of a bare loop: the model must know WHICH typed requirement still
+		// demands current-source evidence (or that no runtime artifact
+		// context is active at all) to make progress on the next attempt.
+		ignored := fmt.Sprintf("ignored evidence_floor_waiver=%s because no typed runtime artifact context is active this turn; the waiver applies to runs grounded in an attached or referenced log/trace", typedReason)
+		if required, label := runtimeArtifactCurrentSourceHardRequirementLabeled(ctx); required {
+			ignored = fmt.Sprintf("ignored evidence_floor_waiver=%s: %s. Keep runtime observations in reason/aggregate_facts and add current-source evidence for that requirement before closing", typedReason, label)
+		}
 		logging.Warning("[emit_investigation_complete] %s rationale=%q",
 			ignored, truncateForLog(waiverRationale, 200))
 		return ignored, nil
