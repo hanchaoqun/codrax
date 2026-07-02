@@ -1491,3 +1491,22 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 
 **当前进展。**
 - B1 已落地:本节。
+
+#### §7.30.1 R5d 优先级反转影响时长的门控计算规则(2026-07-02,用户裁定)
+
+**规则(R5d)。** on-chain 优先级反转候选的根因影响时长,**不得**单纯统计被唤醒线程的全部等待时长,也不得用唤醒源(依赖线程)的全窗口全状态总时长。只有以下两类时段计入反转根因影响:
+
+1. **唤醒源处于 runnable** 的时段(它在等 CPU——真正被优先级/调度压制的时间);
+2. **唤醒源处于 running,但其运行 CPU 的算力供给(频点)低于**被唤醒线程、或逐级回溯到用户关注线程的链上任一线程所在 CPU 的时段(跑在弱核上,同样是供给性反转)。
+
+唤醒源自身处于 sleep/D-state/IO-wait 的时段是它**自己的上游问题**,归它自身的根因行(io/d_state/上溯下钻),不计入优先级反转影响。若整段等待都计入,反转根因被系统性放大,高概率被误排为首因。
+
+**现状偏差(S6,已定位)。**
+- `causalImpactIsPrioritySensitiveRoot`(query.go)把依赖线程 dominant=D/IO 的阻塞也算进反转候选敏感态——过度归因(优先级解决不了 IO);
+- 反转候选行发布的 impact=`causalImpactBlockingMs`(dominant 全时长),排序走 `EffectiveImpactMs`(默认=CumulativeImpactMs=依赖线程全窗口 TotalMs,含其自身 sleep)——正是"整段等待计入"的放大机制;
+- 规则 2(running-弱核)完全缺失:running-dominant 依赖不进反转候选,弱核供给性反转被漏判;
+- `Interval` 不携带 CPU,规则 2 需在区间构造时从 sched_switch 事件带出 CPU,并用 `cpu_frequency` 事件时间线查询运行时频点;频点数据缺失的 trace 上规则 2 保守计 0(精确回退,不猜)。
+
+**修复(B10)。** `summarizeWakeupCausalImpact` 内基于依赖线程状态区间计算门控时长 `PriorityInversionGatedMs`(runnable 区间全计 + running 区间按弱核判定计入);反转候选标志改为 `lower_priority_dependency && gated>0`(D/IO 不再触发反转标志,保留其原生根因行);反转候选行发布 impact 与 EffectiveImpactMs 均用门控值(排序即门控值),TotalMs/占位上下文保留。回归:合成事件三例(waker runnable 计入/waker running 同频不计入且不成候选/waker D-state 不成反转候选)+ 弱核例(有频点数据时计入)。
+
+**当前进展。** B2 数据半已落地(commit 6688e981:S1 排序合成分数与物理时长分离、aggregate_metric 主体标记、next_step_kind 本地化载体);B10 本节规则落档,实现进行中。
