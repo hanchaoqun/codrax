@@ -43,7 +43,7 @@ func TestStateDrilldownChurnImpactStaysPhysical(t *testing.T) {
 	// Ordering: fragmentation must still outrank a plain duration between the
 	// physical impact and the composite (that is the composite's whole job).
 	plain := WindowStats{
-		Window: stats.Window,
+		Window:     stats.Window,
 		StateChurn: []ThreadStateChurnSummary{churn},
 		TopRunning: []ThreadDuration{{
 			Thread: ThreadRef{Comm: "plain-runner", PID: 777}, DurationMs: 2300,

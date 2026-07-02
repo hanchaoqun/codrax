@@ -48,10 +48,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	flavor := newFlavorVote(path)
 	reader := bufio.NewReaderSize(f, 256*1024)
 	seenTimeWindow := false
-	limit := q.Limit
-	if limit <= 0 {
-		limit = 40
-	}
+	limit := ViewCapacityFor(q.View).ClampLimit(q.Limit)
 	matchedTotal := 0
 	lastParsedTs := 0.0
 	var events []EventView
@@ -211,6 +208,15 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		res.Caveats = append(res.Caveats, fmt.Sprintf("%d of %d scanned lines did not match any known trace format; coverage may be incomplete", idx.UnparsedLines, idx.ScannedLineCount))
 	}
 	if matchedTotal > len(events) {
+		last := events[len(events)-1]
+		res.Compactions = append(res.Compactions, ViewCompaction{
+			View:            "event_search",
+			Dimension:       CompactionDimensionEvents,
+			Total:           matchedTotal,
+			Emitted:         len(events),
+			LastEmittedTs:   last.Ts,
+			LastEmittedLine: last.Line,
+		})
 		res.Caveats = append(res.Caveats,
 			fmt.Sprintf("event_search_stream_compacted=true; matched %d row(s) but returned the first %d chronological match(es) only; omitted rows may contain later frame/span ids, so do not infer absence without rerunning an exact literal token", matchedTotal, len(events)))
 	}
@@ -243,7 +249,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	}
 	defer f.Close()
 	if max <= 0 {
-		max = 8
+		max = StreamStateClusterDefaultMax
 	}
 	q.View = "window_stats"
 	q = normalizeQuery(nil, q)

@@ -325,6 +325,11 @@ type Result struct {
 	Recipe                      *RecipeResult           `json:"recipe,omitempty"`
 	EvidencePack                []EvidenceFact          `json:"evidence_pack,omitempty"`
 	Caveats                     []string                `json:"caveats,omitempty"`
+	// Compactions are the typed truncation records for this result (E4).
+	// They ride ALONGSIDE the prose compaction caveats (which stay verbatim);
+	// the tool refinement layer reads these first and keeps caveat-substring
+	// matching only as a fallback for paths not yet publishing typed records.
+	Compactions []ViewCompaction `json:"compactions,omitempty"`
 }
 
 type FrameworkSurface struct {
@@ -357,25 +362,25 @@ const (
 )
 
 type Interval struct {
-	Thread           ThreadRef   `json:"thread"`
-	State            ThreadState `json:"state"`
-	StartTs          float64     `json:"start_ts"`
-	EndTs            float64     `json:"end_ts"`
-	DurationMs       float64     `json:"duration_ms"`
+	Thread     ThreadRef   `json:"thread"`
+	State      ThreadState `json:"state"`
+	StartTs    float64     `json:"start_ts"`
+	EndTs      float64     `json:"end_ts"`
+	DurationMs float64     `json:"duration_ms"`
 	// CPU/CPUKnown record which CPU a RUNNING interval executed on (from the
 	// sched_switch-in event). Only set by builders that see the switch event;
 	// consumers must treat CPUKnown=false as "unknown", never as CPU 0. Feeds
 	// the R5d weak-core gate for priority-inversion impact (§7.30.1).
-	CPU      int  `json:"cpu,omitempty"`
-	CPUKnown bool `json:"cpu_known,omitempty"`
-	ActualStartTs    float64     `json:"actual_start_ts,omitempty"`
-	ActualEndTs      float64     `json:"actual_end_ts,omitempty"`
-	ActualDurationMs float64     `json:"actual_duration_ms,omitempty"`
-	StartLine        int         `json:"start_line,omitempty"`
-	EndLine          int         `json:"end_line,omitempty"`
-	WakeupLine       int         `json:"wakeup_line,omitempty"`
-	PrevStateRaw     string      `json:"prev_state_raw,omitempty"`
-	Summary          string      `json:"summary,omitempty"`
+	CPU              int     `json:"cpu,omitempty"`
+	CPUKnown         bool    `json:"cpu_known,omitempty"`
+	ActualStartTs    float64 `json:"actual_start_ts,omitempty"`
+	ActualEndTs      float64 `json:"actual_end_ts,omitempty"`
+	ActualDurationMs float64 `json:"actual_duration_ms,omitempty"`
+	StartLine        int     `json:"start_line,omitempty"`
+	EndLine          int     `json:"end_line,omitempty"`
+	WakeupLine       int     `json:"wakeup_line,omitempty"`
+	PrevStateRaw     string  `json:"prev_state_raw,omitempty"`
+	Summary          string  `json:"summary,omitempty"`
 }
 
 type TimelineResult struct {
@@ -548,25 +553,26 @@ type PerfTimelineBucket struct {
 }
 
 type SchedulerLatencyResult struct {
-	Target  ThreadRef              `json:"target,omitempty"`
-	Window  TimeWindow             `json:"window"`
-	Count   int                    `json:"count,omitempty"`
-	MeanMs  float64                `json:"mean_ms,omitempty"`
-	P50Ms   float64                `json:"p50_ms,omitempty"`
-	P95Ms   float64                `json:"p95_ms,omitempty"`
-	P99Ms   float64                `json:"p99_ms,omitempty"`
-	MaxMs   float64                `json:"max_ms,omitempty"`
-	Items   []SchedulerLatencyItem `json:"items,omitempty"`
-	Caveats []string               `json:"caveats,omitempty"`
+	Target      ThreadRef              `json:"target,omitempty"`
+	Window      TimeWindow             `json:"window"`
+	Count       int                    `json:"count,omitempty"`
+	MeanMs      float64                `json:"mean_ms,omitempty"`
+	P50Ms       float64                `json:"p50_ms,omitempty"`
+	P95Ms       float64                `json:"p95_ms,omitempty"`
+	P99Ms       float64                `json:"p99_ms,omitempty"`
+	MaxMs       float64                `json:"max_ms,omitempty"`
+	Items       []SchedulerLatencyItem `json:"items,omitempty"`
+	Caveats     []string               `json:"caveats,omitempty"`
+	Compactions []ViewCompaction       `json:"compactions,omitempty"`
 }
 
 type SchedulerLatencyItem struct {
-	Thread        ThreadRef `json:"thread"`
-	StartTs       float64   `json:"start_ts,omitempty"`
-	EndTs         float64   `json:"end_ts,omitempty"`
-	DurationMs    float64   `json:"duration_ms,omitempty"`
-	CPU           int       `json:"cpu"`
-	CoreClass     string    `json:"core_class,omitempty"`
+	Thread     ThreadRef `json:"thread"`
+	StartTs    float64   `json:"start_ts,omitempty"`
+	EndTs      float64   `json:"end_ts,omitempty"`
+	DurationMs float64   `json:"duration_ms,omitempty"`
+	CPU        int       `json:"cpu"`
+	CoreClass  string    `json:"core_class,omitempty"`
 	// Frequency is the legacy single cpu_frequency sample at the wait start,
 	// kept for context only. Low-frequency judgements use WeightedFrequency /
 	// ObservedMaxFrequency (methodology audit §7.30.2 R5e).
@@ -722,16 +728,16 @@ type ProcessCPULoadSummary struct {
 }
 
 type RunnableContextSummary struct {
-	Thread                ThreadRef              `json:"thread"`
-	RunnableWaitMs        float64                `json:"runnable_wait_ms,omitempty"`
-	CPU                   int                    `json:"cpu"`
-	CoreClass             string                 `json:"core_class,omitempty"`
-	Frequency             int                    `json:"frequency,omitempty"`
-	Priority              int                    `json:"priority,omitempty"`
-	PriorityClass         string                 `json:"priority_class,omitempty"`
-	SameCPUBusyMs  float64 `json:"same_cpu_busy_ms,omitempty"`
-	SameCPUIdleMs  float64 `json:"same_cpu_idle_ms,omitempty"`
-	OtherCPUIdleMs float64 `json:"other_cpu_idle_ms,omitempty"`
+	Thread         ThreadRef `json:"thread"`
+	RunnableWaitMs float64   `json:"runnable_wait_ms,omitempty"`
+	CPU            int       `json:"cpu"`
+	CoreClass      string    `json:"core_class,omitempty"`
+	Frequency      int       `json:"frequency,omitempty"`
+	Priority       int       `json:"priority,omitempty"`
+	PriorityClass  string    `json:"priority_class,omitempty"`
+	SameCPUBusyMs  float64   `json:"same_cpu_busy_ms,omitempty"`
+	SameCPUIdleMs  float64   `json:"same_cpu_idle_ms,omitempty"`
+	OtherCPUIdleMs float64   `json:"other_cpu_idle_ms,omitempty"`
 	// HighPriorityRunningMs is the full-window background figure (§7.30.2
 	// R5g); the cpu_pressure verdict reads HighPriorityRunningOverlapMs.
 	HighPriorityRunningMs float64 `json:"high_priority_running_ms,omitempty"`
@@ -744,14 +750,14 @@ type RunnableContextSummary struct {
 	// R5g).
 	SameCPUTopRunning    []ThreadDuration       `json:"same_cpu_top_running,omitempty"`
 	TopBackgroundThreads []ThreadCPULoadSummary `json:"top_background_threads,omitempty"`
-	SameProcessLoad       *ProcessCPULoadSummary `json:"same_process_load,omitempty"`
-	TopBackgroundProcess  *ProcessCPULoadSummary `json:"top_background_process,omitempty"`
-	CPUConstraint         *CPUConstraintSummary  `json:"cpu_constraint,omitempty"`
-	Verdict               string                 `json:"verdict,omitempty"`
-	Confidence            float64                `json:"confidence,omitempty"`
-	LineStart             int                    `json:"line_start,omitempty"`
-	LineEnd               int                    `json:"line_end,omitempty"`
-	Summary               string                 `json:"summary,omitempty"`
+	SameProcessLoad      *ProcessCPULoadSummary `json:"same_process_load,omitempty"`
+	TopBackgroundProcess *ProcessCPULoadSummary `json:"top_background_process,omitempty"`
+	CPUConstraint        *CPUConstraintSummary  `json:"cpu_constraint,omitempty"`
+	Verdict              string                 `json:"verdict,omitempty"`
+	Confidence           float64                `json:"confidence,omitempty"`
+	LineStart            int                    `json:"line_start,omitempty"`
+	LineEnd              int                    `json:"line_end,omitempty"`
+	Summary              string                 `json:"summary,omitempty"`
 }
 
 type CPUPressureStats struct {
@@ -842,22 +848,22 @@ func (td ThreadDuration) weightedFrequencyKHz() int {
 }
 
 type ThreadStateChurnSummary struct {
-	Thread                 ThreadRef `json:"thread"`
-	DominantState          string    `json:"dominant_state,omitempty"`
-	TotalMs                float64   `json:"total_ms,omitempty"`
-	DominantImpactMs       float64   `json:"dominant_impact_ms,omitempty"`
-	RunningMs              float64   `json:"running_ms,omitempty"`
-	RunnableMs             float64   `json:"runnable_ms,omitempty"`
-	SleepMs                float64   `json:"sleep_ms,omitempty"`
-	DStateMs               float64   `json:"d_state_ms,omitempty"`
-	IOWaitMs               float64   `json:"io_wait_ms,omitempty"`
-	FragmentCount          int       `json:"fragment_count,omitempty"`
-	StateSwitches          int       `json:"state_switches,omitempty"`
-	MaxSegmentMs           float64   `json:"max_segment_ms,omitempty"`
-	P95SegmentMs           float64   `json:"p95_segment_ms,omitempty"`
-	RunnableCPU       int    `json:"runnable_cpu,omitempty"`
-	RunnableCoreClass string `json:"runnable_core_class,omitempty"`
-	RunnableCPUKnown  bool   `json:"-"`
+	Thread            ThreadRef `json:"thread"`
+	DominantState     string    `json:"dominant_state,omitempty"`
+	TotalMs           float64   `json:"total_ms,omitempty"`
+	DominantImpactMs  float64   `json:"dominant_impact_ms,omitempty"`
+	RunningMs         float64   `json:"running_ms,omitempty"`
+	RunnableMs        float64   `json:"runnable_ms,omitempty"`
+	SleepMs           float64   `json:"sleep_ms,omitempty"`
+	DStateMs          float64   `json:"d_state_ms,omitempty"`
+	IOWaitMs          float64   `json:"io_wait_ms,omitempty"`
+	FragmentCount     int       `json:"fragment_count,omitempty"`
+	StateSwitches     int       `json:"state_switches,omitempty"`
+	MaxSegmentMs      float64   `json:"max_segment_ms,omitempty"`
+	P95SegmentMs      float64   `json:"p95_segment_ms,omitempty"`
+	RunnableCPU       int       `json:"runnable_cpu,omitempty"`
+	RunnableCoreClass string    `json:"runnable_core_class,omitempty"`
+	RunnableCPUKnown  bool      `json:"-"`
 	// TopCompetitor is only set when that thread's running time actually
 	// overlapped this thread's runnable waits on the same CPU (§7.30.2 R5g);
 	// zero-overlap co-residents (serial hand-offs) never qualify.
@@ -872,11 +878,11 @@ type ThreadStateChurnSummary struct {
 	// NextStepKind is the deterministic typed enumeration behind the English
 	// NextStep guidance prose (NextStepKind* constants), so renderers can
 	// localize without parsing prose.
-	NextStepKind string `json:"next_step_kind,omitempty"`
-	LineStart    int    `json:"line_start,omitempty"`
-	LineEnd                int       `json:"line_end,omitempty"`
-	Confidence             float64   `json:"confidence,omitempty"`
-	Summary                string    `json:"summary,omitempty"`
+	NextStepKind string  `json:"next_step_kind,omitempty"`
+	LineStart    int     `json:"line_start,omitempty"`
+	LineEnd      int     `json:"line_end,omitempty"`
+	Confidence   float64 `json:"confidence,omitempty"`
+	Summary      string  `json:"summary,omitempty"`
 }
 
 type StateDrilldownStep struct {
@@ -1294,10 +1300,11 @@ type ThreadDriftSummary struct {
 }
 
 type RootCauseRankResult struct {
-	Target  ThreadRef           `json:"target,omitempty"`
-	Window  TimeWindow          `json:"window"`
-	Items   []RootCauseRankItem `json:"items,omitempty"`
-	Caveats []string            `json:"caveats,omitempty"`
+	Target      ThreadRef           `json:"target,omitempty"`
+	Window      TimeWindow          `json:"window"`
+	Items       []RootCauseRankItem `json:"items,omitempty"`
+	Caveats     []string            `json:"caveats,omitempty"`
+	Compactions []ViewCompaction    `json:"compactions,omitempty"`
 }
 
 // RootCauseSubjectKindAggregateMetric is the typed SubjectKind for root-cause
@@ -1337,30 +1344,30 @@ type RootCauseRankItem struct {
 	// GatedRunnableMs / GatedRunningDeficitMs mirror the R5d gated-impact
 	// composition for priority_inversion_candidate rows (§7.30.3 D3); zero on
 	// every other row type.
-	GatedRunnableMs       float64 `json:"gated_runnable_ms,omitempty"`
-	GatedRunningDeficitMs float64 `json:"gated_running_deficit_ms,omitempty"`
-	TargetImpactMs     float64                    `json:"target_impact_ms,omitempty"`
-	ActualImpactMs     float64                    `json:"actual_impact_ms,omitempty"`
-	ActualTotalMs      float64                    `json:"actual_total_ms,omitempty"`
-	Score              float64                    `json:"score,omitempty"`
-	Confidence         float64                    `json:"confidence,omitempty"`
-	LineStart          int                        `json:"line_start,omitempty"`
-	LineEnd            int                        `json:"line_end,omitempty"`
-	Source             string                     `json:"source,omitempty"`
-	Causality          string                     `json:"causality,omitempty"`
-	ChainRelevance     string                     `json:"chain_relevance,omitempty"`
-	ChainDepth         int                        `json:"chain_depth,omitempty"`
-	OverlapMs          float64                    `json:"overlap_ms,omitempty"`
-	EdgeCount          int                        `json:"edge_count,omitempty"`
-	NearestChainThread ThreadRef                  `json:"nearest_chain_thread,omitempty"`
-	NearestChainWindow TimeWindow                 `json:"nearest_chain_window,omitempty"`
-	OccurrenceWindows  []WakeupCausalOccurrence   `json:"occurrence_windows,omitempty"`
-	SpanName           string                     `json:"span_name,omitempty"`
-	SpanKind           string                     `json:"span_kind,omitempty"`
-	SpanCategory       string                     `json:"span_category,omitempty"`
-	SpanSubcategory    string                     `json:"span_subcategory,omitempty"`
-	SemanticClass      string                     `json:"semantic_class,omitempty"`
-	Summary            string                     `json:"summary,omitempty"`
+	GatedRunnableMs       float64                  `json:"gated_runnable_ms,omitempty"`
+	GatedRunningDeficitMs float64                  `json:"gated_running_deficit_ms,omitempty"`
+	TargetImpactMs        float64                  `json:"target_impact_ms,omitempty"`
+	ActualImpactMs        float64                  `json:"actual_impact_ms,omitempty"`
+	ActualTotalMs         float64                  `json:"actual_total_ms,omitempty"`
+	Score                 float64                  `json:"score,omitempty"`
+	Confidence            float64                  `json:"confidence,omitempty"`
+	LineStart             int                      `json:"line_start,omitempty"`
+	LineEnd               int                      `json:"line_end,omitempty"`
+	Source                string                   `json:"source,omitempty"`
+	Causality             string                   `json:"causality,omitempty"`
+	ChainRelevance        string                   `json:"chain_relevance,omitempty"`
+	ChainDepth            int                      `json:"chain_depth,omitempty"`
+	OverlapMs             float64                  `json:"overlap_ms,omitempty"`
+	EdgeCount             int                      `json:"edge_count,omitempty"`
+	NearestChainThread    ThreadRef                `json:"nearest_chain_thread,omitempty"`
+	NearestChainWindow    TimeWindow               `json:"nearest_chain_window,omitempty"`
+	OccurrenceWindows     []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
+	SpanName              string                   `json:"span_name,omitempty"`
+	SpanKind              string                   `json:"span_kind,omitempty"`
+	SpanCategory          string                   `json:"span_category,omitempty"`
+	SpanSubcategory       string                   `json:"span_subcategory,omitempty"`
+	SemanticClass         string                   `json:"semantic_class,omitempty"`
+	Summary               string                   `json:"summary,omitempty"`
 }
 
 type RootCausePerfRoleContext struct {
@@ -1424,11 +1431,12 @@ type FrameTargetCandidate struct {
 }
 
 type InteractionStatsResult struct {
-	Target    ThreadRef            `json:"target,omitempty"`
-	Window    TimeWindow           `json:"window"`
-	Direction string               `json:"direction,omitempty"`
-	Items     []InteractionSummary `json:"items,omitempty"`
-	Caveats   []string             `json:"caveats,omitempty"`
+	Target      ThreadRef            `json:"target,omitempty"`
+	Window      TimeWindow           `json:"window"`
+	Direction   string               `json:"direction,omitempty"`
+	Items       []InteractionSummary `json:"items,omitempty"`
+	Caveats     []string             `json:"caveats,omitempty"`
+	Compactions []ViewCompaction     `json:"compactions,omitempty"`
 }
 
 type InteractionSummary struct {
@@ -1446,16 +1454,18 @@ type InteractionSummary struct {
 }
 
 type FramePipelineResult struct {
-	Window  TimeWindow          `json:"window"`
-	Items   []FramePhaseSummary `json:"items,omitempty"`
-	Caveats []string            `json:"caveats,omitempty"`
+	Window      TimeWindow          `json:"window"`
+	Items       []FramePhaseSummary `json:"items,omitempty"`
+	Caveats     []string            `json:"caveats,omitempty"`
+	Compactions []ViewCompaction    `json:"compactions,omitempty"`
 }
 
 type FrameTimelineResult struct {
-	Window  TimeWindow          `json:"window"`
-	Items   []FrameTimelineItem `json:"items,omitempty"`
-	Flows   []FrameFlowEdge     `json:"flows,omitempty"`
-	Caveats []string            `json:"caveats,omitempty"`
+	Window      TimeWindow          `json:"window"`
+	Items       []FrameTimelineItem `json:"items,omitempty"`
+	Flows       []FrameFlowEdge     `json:"flows,omitempty"`
+	Caveats     []string            `json:"caveats,omitempty"`
+	Compactions []ViewCompaction    `json:"compactions,omitempty"`
 }
 
 type FrameTimelineItem struct {
@@ -1499,9 +1509,10 @@ type FramePhaseSummary struct {
 }
 
 type CriticalBlockingResult struct {
-	Window  TimeWindow                  `json:"window"`
-	Items   []CriticalBlockingCandidate `json:"items,omitempty"`
-	Caveats []string                    `json:"caveats,omitempty"`
+	Window      TimeWindow                  `json:"window"`
+	Items       []CriticalBlockingCandidate `json:"items,omitempty"`
+	Caveats     []string                    `json:"caveats,omitempty"`
+	Compactions []ViewCompaction            `json:"compactions,omitempty"`
 }
 
 type CriticalBlockingCandidate struct {
@@ -1581,6 +1592,7 @@ type IPCGraphResult struct {
 	Edges        []IPCEdge            `json:"edges,omitempty"`
 	BinderEvents []BinderEventSummary `json:"binder_events,omitempty"`
 	Caveats      []string             `json:"caveats,omitempty"`
+	Compactions  []ViewCompaction     `json:"compactions,omitempty"`
 }
 
 type IPCEdge struct {
@@ -1697,8 +1709,8 @@ type WakeupCausalImpact struct {
 	// of claiming a single scheduler state for the composite.
 	GatedRunnableMs       float64 `json:"gated_runnable_ms,omitempty"`
 	GatedRunningDeficitMs float64 `json:"gated_running_deficit_ms,omitempty"`
-	Summary                    string     `json:"summary,omitempty"`
-	NextStep                   string     `json:"next_step,omitempty"`
+	Summary               string  `json:"summary,omitempty"`
+	NextStep              string  `json:"next_step,omitempty"`
 	// NextStepKind is the deterministic typed enumeration behind the English
 	// NextStep guidance prose (NextStepKind* constants), so renderers can
 	// localize without parsing prose.

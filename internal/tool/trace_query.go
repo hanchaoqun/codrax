@@ -228,7 +228,7 @@ func (t *TraceQuery) traceQueryIndexLimitResult(ctx *types.BusContext, p traceQu
 	}
 	summary := traceQueryIndexLimitSummary(path, sourceLabel, p, limitErr)
 	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, p.TimeStart.Seconds(), p.TimeEnd.Seconds())
-	if cluster, clusterErr := tracequery.StreamStateCluster(contextFromBus(ctx), path, q, 8); clusterErr == nil && cluster.WindowStats != nil {
+	if cluster, clusterErr := tracequery.StreamStateCluster(contextFromBus(ctx), path, q, tracequery.StreamStateClusterDefaultMax); clusterErr == nil && cluster.WindowStats != nil {
 		cluster.Caveats = append([]string{
 			fmt.Sprintf("index_event_limit_fallback=true; original_view=%s parsed_events=%d max_events=%d%s",
 				sanitizeForBanner(firstNonEmptyTraceString(p.View, "window_stats")), limitErr.Events, limitErr.MaxEvents,
@@ -295,8 +295,10 @@ func traceQueryIndexLimitSummary(path, sourceLabel string, p traceQueryParams, l
 	// C3 (§7.30.2): concrete, copy-pastable recovery parameters — the streaming
 	// event_search escape hatch plus the exact window segment this index already
 	// covered before hitting the budget, so the model can rerun immediately
-	// instead of guessing a narrower scope.
-	b.WriteString("recovery_params=view=event_search runs as a streaming scan and is NOT subject to this index event budget; use it (with pattern/event_types filters) to locate exact tokens and line windows first.")
+	// instead of guessing a narrower scope. The escape-hatch view name is
+	// interpolated from the capacity table's shared token (rendered text stays
+	// byte-identical) so this surface cannot drift from the engine's.
+	fmt.Fprintf(&b, "recovery_params=view=%s runs as a streaming scan and is NOT subject to this index event budget; use it (with pattern/event_types filters) to locate exact tokens and line windows first.", tracequery.FallbackViewEventSearch)
 	if limitErr.LastTs > limitErr.FirstTs && limitErr.FirstTs > 0 {
 		fmt.Fprintf(&b, " Or rerun view=%q with time_start=%.6f time_end=%.6f — the first window segment this index already covered before hitting the budget.",
 			sanitizeForBanner(view), limitErr.FirstTs, limitErr.LastTs)
@@ -342,13 +344,7 @@ func traceQueryIndexLimitRefinement(ctx *types.BusContext, p traceQueryParams, s
 	next := p
 	required := []string{"time_start", "time_end", "state_cluster_first"}
 	if next.LineStart.Int() <= 0 && next.LineEnd.Int() <= 0 {
-		next.View = "event_search"
-		if len(next.EventTypes.Strings()) == 0 {
-			next.EventTypes = TraceEventTypes{"trace_mark"}
-		}
-		if next.Limit.Int() <= 0 {
-			next.Limit = FlexInt(40)
-		}
+		traceQueryApplyEventSearchFallback(&next, false)
 		required = append(required, "line_start", "line_end")
 	}
 	hint := traceQueryParamsRefinement(ctx, "trace_query_index_event_limit", next, sourceLabel, path, true, required)
@@ -356,7 +352,7 @@ func traceQueryIndexLimitRefinement(ctx *types.BusContext, p traceQueryParams, s
 		if hint.PreferredParams == nil {
 			hint.PreferredParams = map[string]string{}
 		}
-		hint.PreferredParams["parent_coverage"] = "stream_state_cluster"
+		hint.PreferredParams["parent_coverage"] = tracequery.FallbackParentCoverageStateCluster
 		hint.PreferredParams["micro_window_policy"] = "sub_50ms_local_only"
 		normalized := types.NormalizeToolRefinementHint(*hint)
 		hint = &normalized
@@ -881,12 +877,27 @@ const tTraceQueryName = "trace_query"
 
 func traceQueryHeavyViewGuardRefinement(ctx *types.BusContext, p traceQueryParams, sourceLabel, path string) *types.ToolRefinementHint {
 	next := p
-	next.View = "event_search"
-	next.EventTypes = TraceEventTypes{"trace_mark"}
-	if next.Limit.Int() <= 0 {
-		next.Limit = FlexInt(40)
-	}
+	traceQueryApplyEventSearchFallback(&next, true)
 	return traceQueryParamsRefinement(ctx, "trace_query_heavy_view_requires_scope", next, sourceLabel, path, true, []string{"pattern"})
+}
+
+// traceQueryApplyEventSearchFallback rewrites next to the C3 event_search
+// escape-hatch call shape. View name, discovery event types, and the default
+// limit are all sourced from the tracequery capacity table's shared tokens
+// (E4 literal-source consolidation) so the guard/index-limit/recipe recovery
+// surfaces cannot drift from the engine. forceEventTypes preserves each call
+// site's historical behavior: the heavy-view guard and recipe discovery
+// always pin trace_mark discovery filters, while the index-limit path keeps
+// caller-provided event_types.
+func traceQueryApplyEventSearchFallback(next *traceQueryParams, forceEventTypes bool) {
+	fallback := tracequery.ViewCapacityFor(tracequery.FallbackViewEventSearch)
+	next.View = fallback.View
+	if forceEventTypes || len(next.EventTypes.Strings()) == 0 {
+		next.EventTypes = TraceEventTypes{string(tracequery.EventTraceMark)}
+	}
+	if next.Limit.Int() <= 0 {
+		next.Limit = FlexInt(fallback.DefaultLimit)
+	}
 }
 
 func traceQueryRecipeDiscoveryRefinement(ctx *types.BusContext, p traceQueryParams, sourceLabel, path string, markers []traceQueryRecipeDiscoveryMarker, truncated bool) *types.ToolRefinementHint {
@@ -903,11 +914,7 @@ func traceQueryRecipeDiscoveryRefinement(ctx *types.BusContext, p traceQueryPara
 		next.LineEnd = FlexInt(first.Line + 200)
 		return traceQueryParamsRefinement(ctx, "trace_query_recipe_discovery_marker_window", next, sourceLabel, path, truncated, nil)
 	}
-	next.View = "event_search"
-	next.EventTypes = TraceEventTypes{"trace_mark"}
-	if next.Limit.Int() <= 0 {
-		next.Limit = FlexInt(40)
-	}
+	traceQueryApplyEventSearchFallback(&next, true)
 	return traceQueryParamsRefinement(ctx, "trace_query_recipe_discovery_needs_scope", next, sourceLabel, path, truncated, []string{"pattern"})
 }
 
@@ -964,9 +971,19 @@ func traceQueryEventSearchZeroMatch(result tracequery.Result, q tracequery.Query
 }
 
 func traceQueryResultCompacted(result tracequery.Result) bool {
+	// Typed-first (E4): engine truncation sites publish Result.Compactions.
+	// The verbatim caveat-substring checks below remain only as a fallback
+	// for paths not yet publishing typed records; "_compacted total=" is the
+	// tracebundle list-compaction marker (parse.go), which the older two
+	// substrings never matched.
+	if len(result.Compactions) > 0 {
+		return true
+	}
 	for _, caveat := range result.Caveats {
 		lower := strings.ToLower(strings.TrimSpace(caveat))
-		if strings.Contains(lower, " compacted from ") || strings.Contains(lower, " compacted after ") {
+		if strings.Contains(lower, " compacted from ") ||
+			strings.Contains(lower, " compacted after ") ||
+			strings.Contains(lower, "_compacted total=") {
 			return true
 		}
 	}
@@ -1048,7 +1065,99 @@ func traceQueryRefinementPreferredParams(result tracequery.Result, q tracequery.
 	if platform := strings.TrimSpace(p.Platform); platform != "" {
 		params["platform"] = platform
 	}
+	traceQueryApplyOverCapSuggestions(params, result, q)
 	return params
+}
+
+// traceQueryApplyOverCapSuggestions upgrades the echoed over-capacity params
+// to concrete recovery values (E4): a suggested limit bounded by the view's
+// MaxLimit while raising the limit can still widen the result, otherwise a
+// concrete first-segment window split derived from the last emitted row —
+// the same copy-pastable style C3 established for index budget hits. All of
+// this stays soft guidance; suggestions are strictly different from the
+// failing call's params so repeated over-cap results present changing
+// fingerprints to the same-cause no-progress breaker instead of feeding a
+// suggestion→same-call→same-suggestion loop.
+func traceQueryApplyOverCapSuggestions(params map[string]string, result tracequery.Result, q tracequery.Query) {
+	compaction, ok := traceQueryPrimaryCompaction(result, q)
+	if !ok {
+		return
+	}
+	capacity := tracequery.ViewCapacityFor(traceQueryCanonicalView(result, q))
+	// Heavy views advertise their behaviorally-established fallback view.
+	// event_search never gets one: it IS the C3 streaming escape hatch
+	// (133520c1) and must not be told to leave itself.
+	if capacity.HeavyView && capacity.FallbackView != "" {
+		params["fallback_view"] = capacity.FallbackView
+	}
+	// The widen-vs-split decision reads the TRUNCATING view's row, not the
+	// result's: composite views (recipe, frame_root_cause_bundle, ...) have
+	// MaxLimit=0 while their mirrored sub-view compactions carry hard clamps
+	// a bigger limit can never satisfy — judging by the composite row would
+	// suggest limit=Total forever, the exact identical-echo loop the
+	// anti-echo rule forbids (adversarial-review finding on the first E4
+	// cut). A clamped sub-view falls through to the window split instead.
+	limitRow := capacity
+	if compaction.View != "" && compaction.View != capacity.View {
+		limitRow = tracequery.ViewCapacityFor(compaction.View)
+	}
+	effective := limitRow.ClampLimit(q.Limit)
+	if compaction.Total > compaction.Emitted && (limitRow.MaxLimit == 0 || effective < limitRow.MaxLimit) {
+		// The requested limit is below the truncating view's ceiling (or it
+		// has none) and the true total is known: suggest the limit that
+		// widens the result, never the echoed capped value.
+		suggested := compaction.Total
+		if limitRow.MaxLimit > 0 && suggested > limitRow.MaxLimit {
+			suggested = limitRow.MaxLimit
+		}
+		params["limit"] = strconv.Itoa(suggested)
+		return
+	}
+	traceQueryApplyWindowSplitSuggestion(params, result, q, compaction)
+}
+
+// traceQueryApplyWindowSplitSuggestion emits the concrete sub-window split
+// for views already at their hard cap: the first segment ends at the last
+// emitted row's timestamp, and next_segment names the remainder so the model
+// can walk the window without guessing. Skipped unless the cut point falls
+// strictly inside the current window (an out-of-window cut would echo the
+// failing call or produce an empty segment).
+func traceQueryApplyWindowSplitSuggestion(params map[string]string, result tracequery.Result, q tracequery.Query, compaction tracequery.ViewCompaction) {
+	start := q.TimeStart
+	if start == 0 {
+		start = result.TimeStart
+	}
+	end := q.TimeEnd
+	if end == 0 {
+		end = result.TimeEnd
+	}
+	cut := compaction.LastEmittedTs
+	if cut <= start || (end > 0 && cut >= end) {
+		return
+	}
+	params["time_start"] = traceQueryFloatParamString(start)
+	params["time_end"] = traceQueryFloatParamString(cut)
+	if end > 0 {
+		params["next_segment"] = fmt.Sprintf("time_start=%s time_end=%s", traceQueryFloatParamString(cut), traceQueryFloatParamString(end))
+	} else {
+		params["next_segment"] = "time_start=" + traceQueryFloatParamString(cut)
+	}
+}
+
+// traceQueryPrimaryCompaction picks the typed truncation record that matches
+// the result's canonical view, falling back to the first record when a
+// composite view only carries sub-view compactions.
+func traceQueryPrimaryCompaction(result tracequery.Result, q tracequery.Query) (tracequery.ViewCompaction, bool) {
+	if len(result.Compactions) == 0 {
+		return tracequery.ViewCompaction{}, false
+	}
+	view := traceQueryCanonicalView(result, q)
+	for _, compaction := range result.Compactions {
+		if compaction.View == view {
+			return compaction, true
+		}
+	}
+	return result.Compactions[0], true
 }
 
 func traceQueryRefinementRequiredFields(result tracequery.Result, q tracequery.Query) []string {
@@ -1183,13 +1292,10 @@ func traceQueryWindowedIndexOptions(p traceQueryParams, timeStart, timeEnd float
 // traceQueryRelationScopedView reports whether a view's event consumption is a
 // provable subset of the target pid's threads, their transitive scheduler
 // wakers, and binder rows — the only views for which relation-scope index
-// pruning is complete (verified design w9ffnwv29).
+// pruning is complete (verified design w9ffnwv29). Table-driven (E4): the
+// flag lives on the tracequery view capacity table.
 func traceQueryRelationScopedView(view string) bool {
-	switch strings.TrimSpace(view) {
-	case "thread_timeline", "wakeup_chain":
-		return true
-	}
-	return false
+	return tracequery.RelationScopedView(view)
 }
 
 // traceQueryRelationScopeMaxDepth returns the waker-closure depth for pass-1
@@ -1247,15 +1353,11 @@ func (t *TraceQuery) maybeLargeTraceHeavyViewGuard(ctx *types.BusContext, p trac
 	}, true
 }
 
+// traceQueryIsHeavyView is table-driven (E4): every view except the streaming
+// event_search escape hatch is heavy, and the flag lives on the tracequery
+// view capacity table so the tool and engine cannot drift.
 func traceQueryIsHeavyView(view string) bool {
-	switch strings.TrimSpace(view) {
-	case "scheduler_latency_stats", "root_cause_rank", "window_stats", "critical_blocking_calls", "evidence_pack", "recipe",
-		"span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle",
-		"thread_timeline", "ipc_graph", "wakeup_chain", "interaction_stats", "perf_stats", "perf_timeline", "trace_perf_bundle":
-		return true
-	default:
-		return false
-	}
+	return tracequery.IsHeavyView(view)
 }
 
 // traceQueryHasPatternOrSpanScope reports whether the call carries a

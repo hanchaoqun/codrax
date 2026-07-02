@@ -2142,7 +2142,9 @@ func TestTraceQueryEventSearchBroadPatternWithObjectiveFrameIDGivesExactHint(t *
 		"path":    "frame_broad.systrace",
 		"view":    "event_search",
 		"pattern": "Choreographer#doFrame",
-		"limit":   "1",
+		// E4: the over-cap refinement suggests the limit that widens the
+		// result (the known matched total), never the echoed capped value.
+		"limit": "2",
 	} {
 		if got := refinement.PreferredParams[key]; got != want {
 			t.Fatalf("refinement preferred param %s=%q, want %q in %+v", key, got, want, refinement.PreferredParams)
@@ -3081,6 +3083,85 @@ func TestTraceQueryCompactedResultSurfacesRefinement(t *testing.T) {
 		if value := got.PreferredParams[key]; value != want {
 			t.Fatalf("preferred param %s=%q, want %q in %+v", key, value, want, got.PreferredParams)
 		}
+	}
+}
+
+// TestTraceQueryResultCompactedTypedFirstWithSubstringFallback pins the E4
+// detection order: typed Result.Compactions are read first; the verbatim
+// caveat substrings stay as fallback for paths not yet publishing typed
+// records, now including the tracebundle "_compacted total=" list family that
+// the two older substrings never matched.
+func TestTraceQueryResultCompactedTypedFirstWithSubstringFallback(t *testing.T) {
+	if !traceQueryResultCompacted(tracequery.Result{
+		Compactions: []tracequery.ViewCompaction{{View: "root_cause_rank", Total: 30, Emitted: 12}},
+	}) {
+		t.Fatalf("typed compaction record must fire without any caveat text")
+	}
+	if !traceQueryResultCompacted(tracequery.Result{
+		Caveats: []string{"root_cause_rank compacted from 20 to 5 candidate(s)"},
+	}) {
+		t.Fatalf("verbatim caveat fallback must keep firing")
+	}
+	if !traceQueryResultCompacted(tracequery.Result{
+		Caveats: []string{"root_cause_rank compacted after scheduler/compute enrichment from 20 to 12 candidate(s)"},
+	}) {
+		t.Fatalf("compacted-after caveat fallback must keep firing")
+	}
+	if !traceQueryResultCompacted(tracequery.Result{
+		Caveats: []string{"tracebundle_trace_db_coverage_compacted total=27 emitted=24"},
+	}) {
+		t.Fatalf("tracebundle list compaction must be visible to refinement")
+	}
+	if traceQueryResultCompacted(tracequery.Result{
+		Caveats: []string{"windowed_index_parse=true; parsed a bounded trace slice"},
+	}) {
+		t.Fatalf("unrelated caveats must not read as compaction")
+	}
+}
+
+// TestTraceQueryOverCapWindowSplitSkipsOutOfWindowCut pins the split guard:
+// a last-emitted timestamp outside the selected window would echo the failing
+// call or produce an empty segment, so no split params are suggested and the
+// echoed window stays untouched.
+func TestTraceQueryOverCapWindowSplitSkipsOutOfWindowCut(t *testing.T) {
+	refinement := traceQueryRefinement(tracequery.Result{
+		View:       "root_cause_rank",
+		SourcePath: "trace.systrace",
+		TimeStart:  1.0,
+		TimeEnd:    2.0,
+		Compactions: []tracequery.ViewCompaction{{
+			View:          "root_cause_rank",
+			Dimension:     tracequery.CompactionDimensionCandidates,
+			Total:         30,
+			Emitted:       12,
+			LastEmittedTs: 2.5, // outside the selected window
+		}},
+	}, tracequery.Query{
+		View:      "root_cause_rank",
+		PID:       123,
+		TimeStart: 1.0,
+		TimeEnd:   2.0,
+	}, traceQueryParams{
+		Source: "path",
+		Path:   "trace.systrace",
+		View:   "root_cause_rank",
+	}, "path")
+	if refinement == nil {
+		t.Fatalf("compacted result should still attach a refinement")
+	}
+	got := types.NormalizeToolRefinementHint(*refinement)
+	if got.ReasonCode != "trace_query_result_compacted" {
+		t.Fatalf("unexpected refinement: %+v", got)
+	}
+	if got.PreferredParams["time_end"] != "2.000000" {
+		t.Fatalf("out-of-window cut must keep the echoed window: %+v", got.PreferredParams)
+	}
+	if _, ok := got.PreferredParams["next_segment"]; ok {
+		t.Fatalf("out-of-window cut must not suggest a next segment: %+v", got.PreferredParams)
+	}
+	// The soft fallback-view hint still rides along for heavy views.
+	if got.PreferredParams["fallback_view"] != "event_search" {
+		t.Fatalf("heavy view should advertise its fallback view: %+v", got.PreferredParams)
 	}
 }
 

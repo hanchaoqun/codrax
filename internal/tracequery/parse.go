@@ -257,7 +257,10 @@ func (e *IndexEventLimitError) RecoveryParams() string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("; recovery_params: use view=event_search (streaming scan, NOT subject to this index event budget) to locate exact tokens/lines first")
+	// The escape-hatch view name is interpolated from the capacity table's
+	// shared token so this pinned sentence and the tool-side recovery
+	// surfaces can never drift apart (rendered text stays byte-identical).
+	fmt.Fprintf(&b, "; recovery_params: use view=%s (streaming scan, NOT subject to this index event budget) to locate exact tokens/lines first", FallbackViewEventSearch)
 	if e.LastTs > e.FirstTs && e.FirstTs > 0 {
 		fmt.Fprintf(&b, ", or rerun with time_start=%.6f time_end=%.6f (the first window segment this index already covered before hitting the budget)", e.FirstTs, e.LastTs)
 	}

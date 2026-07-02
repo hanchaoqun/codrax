@@ -50,7 +50,7 @@ func Run(idx *Index, q Query) Result {
 		}
 	}
 	q.TracePlatform = platform
-	spanWindows, spanCaveats := resolveSpanWindowsForQuery(idx, &q, explicitTimeStart, explicitTimeEnd)
+	spanWindows, spanCaveats, spanCompaction := resolveSpanWindowsForQuery(idx, &q, explicitTimeStart, explicitTimeEnd)
 	res := Result{
 		View:                        q.View,
 		SourcePath:                  idx.Path,
@@ -169,7 +169,7 @@ func Run(idx *Index, q Query) Result {
 	switch q.View {
 	case "span_window":
 		if len(spanWindows) == 0 {
-			spanWindows, spanCaveats = FindSpanWindows(idx, q, q.Limit)
+			spanWindows, spanCaveats, spanCompaction = findSpanWindowsCompacted(idx, q, q.Limit)
 			res.SpanWindows = spanWindows
 		}
 		res.EvidencePack = evidenceFromSpans(spanWindows)
@@ -372,7 +372,72 @@ func Run(idx *Index, q Query) Result {
 	}
 	res.Caveats = append(res.Caveats, spanCaveats...)
 	res.Caveats = append(res.Caveats, resultCaveats(idx, q, res)...)
+	if spanCompaction != nil {
+		res.Compactions = append(res.Compactions, *spanCompaction)
+	}
+	collectResultCompactions(&res, q)
 	return res
+}
+
+// collectResultCompactions mirrors sub-result truncation records onto the
+// top-level Result so the tool refinement layer reads one typed surface:
+// every " compacted " prose caveat that propagates upward keeps a typed twin.
+// Records are deduplicated because composite views (recipe, bundles) can hold
+// the same sub-result twice (e.g. frame pipeline + frame timeline).
+func collectResultCompactions(res *Result, q Query) {
+	if res == nil {
+		return
+	}
+	if res.SchedulerLatency != nil {
+		res.Compactions = append(res.Compactions, res.SchedulerLatency.Compactions...)
+	}
+	if res.RootCauseRank != nil {
+		res.Compactions = append(res.Compactions, res.RootCauseRank.Compactions...)
+	}
+	if res.InteractionStats != nil {
+		res.Compactions = append(res.Compactions, res.InteractionStats.Compactions...)
+	}
+	if res.FramePipeline != nil {
+		res.Compactions = append(res.Compactions, res.FramePipeline.Compactions...)
+	}
+	if res.FrameTimeline != nil {
+		res.Compactions = append(res.Compactions, res.FrameTimeline.Compactions...)
+	}
+	if res.CriticalBlocking != nil {
+		res.Compactions = append(res.Compactions, res.CriticalBlocking.Compactions...)
+	}
+	if res.IPCGraph != nil {
+		res.Compactions = append(res.Compactions, res.IPCGraph.Compactions...)
+	}
+	// Indexed event_search stops scanning at the cap, so the true total is
+	// unknown (Total=0); LastEmittedTs/Line still enable a window split.
+	if res.View == "event_search" && q.Limit > 0 && len(res.Events) >= q.Limit {
+		last := res.Events[len(res.Events)-1]
+		res.Compactions = append(res.Compactions, ViewCompaction{
+			View:            "event_search",
+			Dimension:       CompactionDimensionEvents,
+			Emitted:         len(res.Events),
+			LastEmittedTs:   last.Ts,
+			LastEmittedLine: last.Line,
+		})
+	}
+	res.Compactions = dedupeViewCompactions(res.Compactions)
+}
+
+func dedupeViewCompactions(in []ViewCompaction) []ViewCompaction {
+	if len(in) < 2 {
+		return in
+	}
+	seen := make(map[ViewCompaction]bool, len(in))
+	out := in[:0]
+	for _, comp := range in {
+		if seen[comp] {
+			continue
+		}
+		seen[comp] = true
+		out = append(out, comp)
+	}
+	return out
 }
 
 func queryExplicitTimeStart(q Query) bool {
@@ -619,10 +684,7 @@ func resolveTraceFlavor(idx *Index, q Query) (TraceFlavor, float64, []string, []
 }
 
 func normalizeQuery(idx *Index, q Query) Query {
-	q.View = strings.TrimSpace(q.View)
-	if q.View == "" {
-		q.View = "event_search"
-	}
+	q.View = CanonicalViewName(q.View)
 	q.RecipeName = strings.TrimSpace(q.RecipeName)
 	if strings.TrimSpace(q.ThreadInput) == "" {
 		q.ThreadInput = q.Thread
@@ -639,16 +701,16 @@ func normalizeQuery(idx *Index, q Query) Query {
 		}
 	}
 	if q.MaxDepth <= 0 {
-		q.MaxDepth = 10
+		q.MaxDepth = wakeupChainDefaultMaxDepth
 	}
 	if q.MaxBranches <= 0 {
-		q.MaxBranches = 8
+		q.MaxBranches = wakeupChainDefaultMaxBranches
 	}
 	if q.MinDurationMs <= 0 {
 		q.MinDurationMs = 1
 	}
 	if q.Limit <= 0 {
-		q.Limit = 40
+		q.Limit = sharedDefaultResultLimit
 	}
 	if q.TimeStart == 0 && !q.TimeStartSet && q.LineStart == 0 && idx != nil {
 		q.TimeStart = idx.FirstTs
@@ -658,10 +720,6 @@ func normalizeQuery(idx *Index, q Query) Query {
 	}
 	if q.View == "wakeup_chain" && !q.IncludeWindowStats {
 		q.IncludeWindowStats = true
-	}
-	switch q.View {
-	case "frame_bundle", "frame_rootcause_bundle", "frame_root_cause":
-		q.View = "frame_root_cause_bundle"
 	}
 	if q.TraceFlavor == "" {
 		q.TraceFlavor = TraceFlavorGenericFtrace
@@ -2819,11 +2877,17 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 	if len(durations) > 0 {
 		res.MaxMs = durations[0]
 	}
-	limit := q.Limit
-	if limit <= 0 || limit > 20 {
-		limit = 20
-	}
+	limit := ViewCapacityFor("scheduler_latency_stats").ClampLimit(q.Limit)
 	if len(res.Items) > limit {
+		last := res.Items[limit-1]
+		res.Compactions = append(res.Compactions, ViewCompaction{
+			View:            "scheduler_latency_stats",
+			Dimension:       CompactionDimensionIntervals,
+			Total:           len(res.Items),
+			Emitted:         limit,
+			LastEmittedTs:   last.EndTs,
+			LastEmittedLine: last.EndLine,
+		})
 		res.Caveats = append(res.Caveats, fmt.Sprintf("scheduler_latency_stats compacted from %d to %d runnable wait interval(s)", len(res.Items), limit))
 		res.Items = res.Items[:limit]
 	}
@@ -5185,19 +5249,19 @@ func traceAsyncSpanKey(ev Event) string {
 	return fmt.Sprintf("%d/%s/%s", spanPID, ev.SpanName, ev.SpanValue)
 }
 
-func resolveSpanWindowsForQuery(idx *Index, q *Query, explicitStart, explicitEnd bool) ([]TraceSpanSummary, []string) {
+func resolveSpanWindowsForQuery(idx *Index, q *Query, explicitStart, explicitEnd bool) ([]TraceSpanSummary, []string, *ViewCompaction) {
 	if idx == nil || q == nil || strings.TrimSpace(q.SpanName) == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
-	spans, caveats := FindSpanWindows(idx, *q, q.Limit)
+	spans, caveats, compaction := findSpanWindowsCompacted(idx, *q, q.Limit)
 	if len(spans) == 0 {
-		return nil, append(caveats, fmt.Sprintf("span_name=%q matched no complete trace span in the selected filters; synchronous B/E spans close with unnamed E|<pid> or bare E on the same ftrace thread stack, and async S/F spans close by name+cookie, so do not search for E|<pid>|<span_name> as proof of an end marker", q.SpanName))
+		return nil, append(caveats, fmt.Sprintf("span_name=%q matched no complete trace span in the selected filters; synchronous B/E spans close with unnamed E|<pid> or bare E on the same ftrace thread stack, and async S/F spans close by name+cookie, so do not search for E|<pid>|<span_name> as proof of an end marker", q.SpanName)), compaction
 	}
 	if len(spans) != 1 {
 		if explicitStart && explicitEnd {
-			return spans, caveats
+			return spans, caveats, compaction
 		}
-		return spans, append(caveats, fmt.Sprintf("span_name=%q matched %d span window(s); refine with pid/thread/line_start/line_end/time filters before deriving a root-cause window; for a specific frame id or marker, first run trace_query(view=\"event_search\", pattern=\"<frame id or exact label>\", event_types=[\"trace_mark\"]) and then rerun with the selected line/time window; do not narrow by searching E|<pid>|<span_name> because B/E end rows are unnamed", q.SpanName, len(spans)))
+		return spans, append(caveats, fmt.Sprintf("span_name=%q matched %d span window(s); refine with pid/thread/line_start/line_end/time filters before deriving a root-cause window; for a specific frame id or marker, first run trace_query(view=\"event_search\", pattern=\"<frame id or exact label>\", event_types=[\"trace_mark\"]) and then rerun with the selected line/time window; do not narrow by searching E|<pid>|<span_name> because B/E end rows are unnamed", q.SpanName, len(spans))), compaction
 	}
 	span := spans[0]
 	if explicitStart && explicitEnd {
@@ -5205,9 +5269,9 @@ func resolveSpanWindowsForQuery(idx *Index, q *Query, explicitStart, explicitEnd
 		unioned := unionTimeWindows(explicitWindow, TimeWindow{StartTs: span.StartTs, EndTs: span.EndTs})
 		if unioned.StartTs != explicitWindow.StartTs || unioned.EndTs != explicitWindow.EndTs {
 			q.TimeStart, q.TimeEnd = unioned.StartTs, unioned.EndTs
-			return spans, append(caveats, fmt.Sprintf("selected_window preserved explicit query window %.6f..%.6f and unioned it with matched span %q window %.6f..%.6f lines=%d-%d instead of shrinking to the explicit bounds", explicitWindow.StartTs, explicitWindow.EndTs, span.Name, span.StartTs, span.EndTs, span.StartLine, span.EndLine))
+			return spans, append(caveats, fmt.Sprintf("selected_window preserved explicit query window %.6f..%.6f and unioned it with matched span %q window %.6f..%.6f lines=%d-%d instead of shrinking to the explicit bounds", explicitWindow.StartTs, explicitWindow.EndTs, span.Name, span.StartTs, span.EndTs, span.StartLine, span.EndLine)), compaction
 		}
-		return spans, caveats
+		return spans, caveats, compaction
 	}
 	if !explicitStart {
 		q.TimeStart = span.StartTs
@@ -5215,15 +5279,23 @@ func resolveSpanWindowsForQuery(idx *Index, q *Query, explicitStart, explicitEnd
 	if !explicitEnd {
 		q.TimeEnd = span.EndTs
 	}
-	return spans, append(caveats, fmt.Sprintf("selected_window derived from unique trace span %q lines=%d-%d", span.Name, span.StartLine, span.EndLine))
+	return spans, append(caveats, fmt.Sprintf("selected_window derived from unique trace span %q lines=%d-%d", span.Name, span.StartLine, span.EndLine)), compaction
 }
 
 func FindSpanWindows(idx *Index, q Query, max int) ([]TraceSpanSummary, []string) {
+	spans, caveats, _ := findSpanWindowsCompacted(idx, q, max)
+	return spans, caveats
+}
+
+// findSpanWindowsCompacted is FindSpanWindows plus the typed truncation
+// record for the span cap, so Run/BuildFramePipeline can publish the
+// compaction on their results instead of relying on caveat prose.
+func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary, []string, *ViewCompaction) {
 	if idx == nil {
-		return nil, []string{"trace index is empty"}
+		return nil, []string{"trace index is empty"}, nil
 	}
 	if max <= 0 {
-		max = 8
+		max = ViewCapacityFor("span_window").FloorLimit
 	}
 	var target ThreadRef
 	if q.PID > 0 || strings.TrimSpace(q.Thread) != "" || strings.TrimSpace(q.ThreadInput) != "" {
@@ -5288,14 +5360,24 @@ func FindSpanWindows(idx *Index, q Query, max int) ([]TraceSpanSummary, []string
 		return spans[i].StartLine < spans[j].StartLine
 	})
 	var caveats []string
+	var compaction *ViewCompaction
 	if len(spans) > max {
+		last := spans[max-1]
+		compaction = &ViewCompaction{
+			View:            "span_window",
+			Dimension:       CompactionDimensionSpans,
+			Total:           len(spans),
+			Emitted:         max,
+			LastEmittedTs:   last.StartTs,
+			LastEmittedLine: last.StartLine,
+		}
 		caveats = append(caveats, fmt.Sprintf("span_window compacted from %d to %d span(s)", len(spans), max))
 		spans = spans[:max]
 	}
 	if len(spans) == 0 {
 		caveats = append(caveats, "no complete trace spans matched the selected filters; B/E ends are unnamed E|<pid> or bare E on the same ftrace thread stack, and async S/F spans pair by name+cookie")
 	}
-	return spans, caveats
+	return spans, caveats, compaction
 }
 
 func traceSpanMatchesQuery(span TraceSpanSummary, target ThreadRef, q Query) bool {
@@ -7573,11 +7655,17 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	normalizeRootCauseCumulativeImpact(items)
 	normalizeRootCauseEffectiveImpact(items)
 	sortRootCauseRankItems(items, hasCausalChain)
-	limit := q.Limit
-	if limit <= 0 || limit > 12 {
-		limit = 12
-	}
+	limit := ViewCapacityFor("root_cause_rank").ClampLimit(q.Limit)
 	if len(items) > limit {
+		last := items[limit-1]
+		res.Compactions = append(res.Compactions, ViewCompaction{
+			View:            "root_cause_rank",
+			Dimension:       CompactionDimensionCandidates,
+			Total:           len(items),
+			Emitted:         limit,
+			LastEmittedTs:   last.EndTs,
+			LastEmittedLine: last.LineEnd,
+		})
 		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d candidate(s)", len(items), limit))
 		items = items[:limit]
 	}
@@ -7690,11 +7778,17 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	normalizeRootCauseCumulativeImpact(rank.Items)
 	normalizeRootCauseEffectiveImpact(rank.Items)
 	sortRootCauseRankItems(rank.Items, hasCausalChain)
-	limit := q.Limit
-	if limit <= 0 || limit > 12 {
-		limit = 12
-	}
+	limit := ViewCapacityFor("root_cause_rank").ClampLimit(q.Limit)
 	if len(rank.Items) > limit {
+		last := rank.Items[limit-1]
+		rank.Compactions = append(rank.Compactions, ViewCompaction{
+			View:            "root_cause_rank",
+			Dimension:       CompactionDimensionCandidates,
+			Total:           len(rank.Items),
+			Emitted:         limit,
+			LastEmittedTs:   last.EndTs,
+			LastEmittedLine: last.LineEnd,
+		})
 		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d candidate(s)", len(rank.Items), limit))
 		rank.Items = rank.Items[:limit]
 	}
@@ -9348,11 +9442,17 @@ func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 		}
 		return res.Items[i].FirstLine < res.Items[j].FirstLine
 	})
-	limit := q.Limit
-	if limit <= 0 || limit > 20 {
-		limit = 20
-	}
+	limit := ViewCapacityFor("interaction_stats").ClampLimit(q.Limit)
 	if len(res.Items) > limit {
+		last := res.Items[limit-1]
+		res.Compactions = append(res.Compactions, ViewCompaction{
+			View:            "interaction_stats",
+			Dimension:       CompactionDimensionPeers,
+			Total:           len(res.Items),
+			Emitted:         limit,
+			LastEmittedTs:   last.LastTs,
+			LastEmittedLine: last.LastLine,
+		})
 		res.Caveats = append(res.Caveats, fmt.Sprintf("interaction_stats compacted from %d to %d peer(s)", len(res.Items), limit))
 		res.Items = res.Items[:limit]
 	}
@@ -9360,6 +9460,7 @@ func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 		res.Caveats = append(res.Caveats, "no wakeup or binder interactions with the target were found in the selected window")
 	}
 	res.Caveats = append(res.Caveats, ipc.Caveats...)
+	res.Compactions = append(res.Compactions, ipc.Compactions...)
 	return res
 }
 
@@ -9737,7 +9838,10 @@ func BuildFramePipeline(idx *Index, q Query) FramePipelineResult {
 		res.Caveats = append(res.Caveats, "trace index is empty")
 		return res
 	}
-	spans, caveats := FindSpanWindows(idx, q, q.Limit)
+	spans, caveats, spanCompaction := findSpanWindowsCompacted(idx, q, q.Limit)
+	if spanCompaction != nil {
+		res.Compactions = append(res.Compactions, *spanCompaction)
+	}
 	for _, span := range spans {
 		if !isFrameLikeSpan(span.Name) && strings.TrimSpace(q.SpanName) == "" {
 			continue
@@ -9761,11 +9865,17 @@ func BuildFramePipeline(idx *Index, q Query) FramePipelineResult {
 		}
 		return res.Items[i].StartLine < res.Items[j].StartLine
 	})
-	limit := q.Limit
-	if limit <= 0 || limit > 20 {
-		limit = 20
-	}
+	limit := ViewCapacityFor("frame_window").ClampLimit(q.Limit)
 	if len(res.Items) > limit {
+		last := res.Items[limit-1]
+		res.Compactions = append(res.Compactions, ViewCompaction{
+			View:            "frame_window",
+			Dimension:       CompactionDimensionPhaseSpans,
+			Total:           len(res.Items),
+			Emitted:         limit,
+			LastEmittedTs:   last.StartTs,
+			LastEmittedLine: last.StartLine,
+		})
 		res.Caveats = append(res.Caveats, fmt.Sprintf("frame pipeline compacted from %d to %d phase span(s)", len(res.Items), limit))
 		res.Items = res.Items[:limit]
 	}
@@ -9826,6 +9936,7 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 		})
 	}
 	res.Caveats = append(res.Caveats, frame.Caveats...)
+	res.Compactions = append(res.Compactions, frame.Compactions...)
 	if len(res.Items) == 0 {
 		res.Caveats = append(res.Caveats, "no frame timeline items were built; need complete B/E frame-like trace spans")
 	}
@@ -10507,11 +10618,17 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		}
 		return res.Items[i].LineStart < res.Items[j].LineStart
 	})
-	limit := q.Limit
-	if limit <= 0 || limit > 20 {
-		limit = 20
-	}
+	limit := ViewCapacityFor("critical_blocking_calls").ClampLimit(q.Limit)
 	if len(res.Items) > limit {
+		last := res.Items[limit-1]
+		res.Compactions = append(res.Compactions, ViewCompaction{
+			View:            "critical_blocking_calls",
+			Dimension:       CompactionDimensionCandidates,
+			Total:           len(res.Items),
+			Emitted:         limit,
+			LastEmittedTs:   last.EndTs,
+			LastEmittedLine: last.LineEnd,
+		})
 		res.Caveats = append(res.Caveats, fmt.Sprintf("critical_blocking_calls compacted from %d to %d candidate(s)", len(res.Items), limit))
 		res.Items = res.Items[:limit]
 	}

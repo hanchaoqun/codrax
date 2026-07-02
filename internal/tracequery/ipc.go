@@ -109,10 +109,28 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		return auxEvents[i].Line < auxEvents[j].Line
 	})
 	if q.Limit > 0 && len(res.Edges) > q.Limit {
+		last := res.Edges[q.Limit-1]
+		res.Compactions = append(res.Compactions, ViewCompaction{
+			View:            "ipc_graph",
+			Dimension:       CompactionDimensionEdges,
+			Total:           len(res.Edges),
+			Emitted:         q.Limit,
+			LastEmittedTs:   last.SendTs,
+			LastEmittedLine: last.SendLine,
+		})
 		res.Caveats = append(res.Caveats, fmt.Sprintf("ipc graph compacted from %d to %d edge(s)", len(res.Edges), q.Limit))
 		res.Edges = res.Edges[:q.Limit]
 	}
 	if q.Limit > 0 && len(auxEvents) > q.Limit {
+		last := auxEvents[q.Limit-1]
+		res.Compactions = append(res.Compactions, ViewCompaction{
+			View:            "ipc_graph",
+			Dimension:       CompactionDimensionEvents,
+			Total:           len(auxEvents),
+			Emitted:         q.Limit,
+			LastEmittedTs:   last.Ts,
+			LastEmittedLine: last.Line,
+		})
 		res.Caveats = append(res.Caveats, fmt.Sprintf("binder auxiliary events compacted from %d to %d row(s)", len(auxEvents), q.Limit))
 		auxEvents = auxEvents[:q.Limit]
 	}
