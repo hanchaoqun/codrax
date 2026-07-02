@@ -21,6 +21,11 @@ func TestToolRefinementPromptFieldsRenderSharedSoftNarrowSurface(t *testing.T) {
 		SkippedLargeCandidates: []string{"trace.systrace", "big.log"},
 		ExcludedRoots:          []string{".codrax", "node_modules"},
 		TopSourceClasses:       []SourcePathRole{SourcePathRoleProduction, SourcePathRoleTest},
+		ParamNarrowingSuggestions: []ToolParamNarrowingSuggestion{
+			{Param: "scope", Priority: 1, Suggested: "internal/tool", ReasonCode: ToolParamNarrowReasonCandidateBudgetTruncated},
+			{Param: "roles", Priority: 2, Suggested: "function,method", ReasonCode: ToolParamNarrowReasonCandidateBudgetTruncated},
+			{Param: "top_n", Priority: 3, Suggested: "50", ReasonCode: ToolParamNarrowReasonCandidateBudgetTruncated},
+		},
 	}
 
 	got := strings.Join(ToolRefinementPromptFields(refinement, ToolRefinementPromptFieldOptions{
@@ -38,10 +43,39 @@ func TestToolRefinementPromptFieldsRenderSharedSoftNarrowSurface(t *testing.T) {
 		"skipped_large=trace.systrace,big.log",
 		"excluded_roots=.codrax,node_modules",
 		"top_source_classes=production,test",
+		"narrow_params=scope(1: internal/tool)>roles(2: function,method)>top_n(3: 50)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("rendered fields missing %q:\n%s", want, got)
 		}
+	}
+}
+
+// TestToolRefinementPromptFieldsBoundsParamNarrowingSuggestions pins the
+// presentation-only item cap on the rendered narrowing rows (prompt-bloat
+// guard: the hint keeps its full normalized set, the render shows a bounded
+// prefix).
+func TestToolRefinementPromptFieldsBoundsParamNarrowingSuggestions(t *testing.T) {
+	refinement := &ToolRefinementHint{
+		ParamNarrowingSuggestions: []ToolParamNarrowingSuggestion{
+			{Param: "a", Priority: 1, Suggested: "1", ReasonCode: "entries_over_threshold"},
+			{Param: "b", Priority: 2, Suggested: "2", ReasonCode: "entries_over_threshold"},
+			{Param: "c", Priority: 3, ReasonCode: "entries_over_threshold"},
+		},
+	}
+	got := strings.Join(ToolRefinementPromptFields(refinement, ToolRefinementPromptFieldOptions{
+		ParamSuggestionLimit: 2,
+	}), " ")
+	if !strings.Contains(got, "narrow_params=a(1: 1)>b(2: 2)") {
+		t.Fatalf("bounded narrow_params missing:\n%s", got)
+	}
+	if strings.Contains(got, "c(3") {
+		t.Fatalf("item cap must bound rendered suggestions:\n%s", got)
+	}
+	// Empty Suggested renders as param(priority) without a dangling colon.
+	all := strings.Join(ToolRefinementPromptFields(refinement, ToolRefinementPromptFieldOptions{}), " ")
+	if !strings.Contains(all, ">c(3)") {
+		t.Fatalf("empty Suggested should render bare param(priority):\n%s", all)
 	}
 }
 

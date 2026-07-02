@@ -2,6 +2,7 @@ package types
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -9,6 +10,7 @@ const (
 	defaultToolRefinementRequiredFieldLimit    = 8
 	defaultToolRefinementCandidateValueLimit   = 4
 	defaultToolRefinementSourceClassValueLimit = 6
+	defaultToolRefinementParamSuggestionLimit  = 4
 )
 
 // ToolRefinementPromptFieldOptions controls the presentation-only projection of
@@ -22,6 +24,10 @@ type ToolRefinementPromptFieldOptions struct {
 	RequiredFieldLimit       int
 	CandidateValueLimit      int
 	SourceClassValueLimit    int
+	// ParamSuggestionLimit bounds the rendered ParamNarrowingSuggestions items
+	// (presentation-only cap against prompt bloat; the hint keeps its full
+	// normalized set).
+	ParamSuggestionLimit int
 }
 
 func (o ToolRefinementPromptFieldOptions) flagField() string {
@@ -57,6 +63,13 @@ func (o ToolRefinementPromptFieldOptions) sourceClassValueLimit() int {
 		return o.SourceClassValueLimit
 	}
 	return defaultToolRefinementSourceClassValueLimit
+}
+
+func (o ToolRefinementPromptFieldOptions) paramSuggestionLimit() int {
+	if o.ParamSuggestionLimit > 0 {
+		return o.ParamSuggestionLimit
+	}
+	return defaultToolRefinementParamSuggestionLimit
 }
 
 // ToolRefinementPromptFields returns a compact, stable list of key=value fields
@@ -117,6 +130,25 @@ func ToolRefinementPromptFields(refinement *ToolRefinementHint, opts ToolRefinem
 			field = "prior_stage_required_fields"
 		}
 		parts = append(parts, toolRefinementPromptKV(field, strings.Join(boundedToolRefinementPromptStrings(hint.RequiredFields, opts.requiredFieldLimit()), ","), opts.QuoteValues))
+	}
+	if len(hint.ParamNarrowingSuggestions) > 0 {
+		suggestions := hint.ParamNarrowingSuggestions
+		if limit := opts.paramSuggestionLimit(); limit > 0 && len(suggestions) > limit {
+			suggestions = suggestions[:limit]
+		}
+		rendered := make([]string, 0, len(suggestions))
+		for _, s := range suggestions {
+			if s.Suggested != "" {
+				rendered = append(rendered, s.Param+"("+strconv.Itoa(s.Priority)+": "+s.Suggested+")")
+			} else {
+				rendered = append(rendered, s.Param+"("+strconv.Itoa(s.Priority)+")")
+			}
+		}
+		field := "narrow_params"
+		if opts.HistoricalProducerLabels {
+			field = "prior_stage_narrow_params"
+		}
+		parts = append(parts, toolRefinementPromptKV(field, strings.Join(rendered, ">"), opts.QuoteValues))
 	}
 	if hint.NextCursor != "" {
 		field := "next_cursor"

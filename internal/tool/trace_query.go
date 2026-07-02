@@ -354,6 +354,8 @@ func traceQueryIndexLimitRefinement(ctx *types.BusContext, p traceQueryParams, s
 		}
 		hint.PreferredParams["parent_coverage"] = tracequery.FallbackParentCoverageStateCluster
 		hint.PreferredParams["micro_window_policy"] = "sub_50ms_local_only"
+		q := traceQueryBuildQuery(ctx, next, sourceLabel, path, next.TimeStart.Seconds(), next.TimeEnd.Seconds())
+		hint.ParamNarrowingSuggestions = traceQueryNarrowingSuggestions(q, types.ToolParamNarrowReasonIndexEventLimit)
 		normalized := types.NormalizeToolRefinementHint(*hint)
 		hint = &normalized
 	}
@@ -390,6 +392,16 @@ func traceQueryBuildQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel
 	if p.IncludeWindowStats == nil && strings.TrimSpace(p.View) == "wakeup_chain" {
 		q.IncludeWindowStats = true
 	}
+	// tool_width_trace_query_event_search_limit: the operator override for the
+	// event_search default limit is applied here on the outgoing query when the
+	// caller passed no explicit limit, so the engine capacity table (E4 single
+	// source) stays untouched. Unset override leaves Limit<=0 and the engine
+	// default applies — byte-identical default behavior.
+	if q.Limit <= 0 && tracequery.CanonicalViewName(q.View) == tracequery.FallbackViewEventSearch {
+		if override := traceQueryWidthEventSearchLimitOverride(); override > 0 {
+			q.Limit = override
+		}
+	}
 	return q
 }
 
@@ -403,8 +415,8 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 	searchP.View = "event_search"
 	searchP.Pattern = pattern
 	searchQ := traceQueryBuildQuery(ctx, searchP, sourceLabel, path, 0, 0)
-	if searchQ.Limit < 20 {
-		searchQ.Limit = 20
+	if minLimit := traceQueryWidthStreamSearchMinLimit(); searchQ.Limit < minLimit {
+		searchQ.Limit = minLimit
 	}
 	streamStart := time.Now()
 	logging.Debug("[trace_query] phase=auto_window_search view=%s source=%s path=%s start pattern=%s",
@@ -867,10 +879,57 @@ func traceQueryRefinement(result tracequery.Result, q tracequery.Query, p traceQ
 		PreferredParams:   traceQueryRefinementPreferredParams(result, q, p, sourceLabel),
 		RequiredFields:    traceQueryRefinementRequiredFields(result, q),
 	})
+	if resultTruncated {
+		hint.ParamNarrowingSuggestions = traceQueryNarrowingSuggestions(q, types.ToolParamNarrowReasonEntriesOverThreshold)
+		hint = types.NormalizeToolRefinementHint(hint)
+	}
 	if hint.Empty() {
 		return nil
 	}
 	return &hint
+}
+
+// traceQueryNarrowingSuggestions builds the typed per-parameter narrowing
+// rows for an over-wide trace_query result, from the typed query only. The
+// time-window row carries the C3 coverage-window amplitude (80-150ms) rather
+// than a concrete window: concrete recovery windows stay on PreferredParams
+// (the E4 over-cap suggestions), which are anti-echo guarded.
+func traceQueryNarrowingSuggestions(q tracequery.Query, reasonCode string) []types.ToolParamNarrowingSuggestion {
+	out := []types.ToolParamNarrowingSuggestion{{
+		Param:    "time_start,time_end",
+		Priority: 1,
+		Suggested: fmt.Sprintf("%.0f-%.0fms coverage window",
+			traceQueryPreferredCoverageWindowMinSeconds*1000,
+			traceQueryPreferredCoverageWindowMaxSeconds*1000),
+		ReasonCode: reasonCode,
+	}}
+	lineWindow := ""
+	if q.LineStart > 0 && q.LineEnd >= q.LineStart {
+		lineWindow = fmt.Sprintf("%d-%d", q.LineStart, q.LineEnd)
+	}
+	out = append(out, types.ToolParamNarrowingSuggestion{
+		Param:      "line_start,line_end",
+		Priority:   2,
+		Suggested:  lineWindow,
+		ReasonCode: reasonCode,
+	})
+	eventTypes := traceQueryEventTypesParamString(q.EventTypes)
+	if eventTypes == "" {
+		eventTypes = string(tracequery.EventTraceMark)
+	}
+	out = append(out, types.ToolParamNarrowingSuggestion{
+		Param:      "event_types",
+		Priority:   3,
+		Suggested:  eventTypes,
+		ReasonCode: reasonCode,
+	})
+	out = append(out, types.ToolParamNarrowingSuggestion{
+		Param:      "limit",
+		Priority:   4,
+		Suggested:  strconv.Itoa(traceQueryWidthEventSearchDefaultLimit()),
+		ReasonCode: reasonCode,
+	})
+	return out
 }
 
 const tTraceQueryName = "trace_query"
@@ -896,7 +955,9 @@ func traceQueryApplyEventSearchFallback(next *traceQueryParams, forceEventTypes 
 		next.EventTypes = TraceEventTypes{string(tracequery.EventTraceMark)}
 	}
 	if next.Limit.Int() <= 0 {
-		next.Limit = FlexInt(fallback.DefaultLimit)
+		// Width-governor effective default: the tracequery table value unless
+		// the tool_width_trace_query_event_search_limit override is set.
+		next.Limit = FlexInt(traceQueryWidthEventSearchDefaultLimit())
 	}
 }
 
@@ -3221,7 +3282,7 @@ func writeTraceCPUConstraint(b *strings.Builder, item tracequery.CPUConstraintSu
 }
 
 func writeTraceStateDrilldownSummary(b *strings.Builder, steps []tracequery.StateDrilldownStep) {
-	const summaryCap = 5
+	summaryCap := traceQueryWidthStateDrilldownSummaryCap()
 	for i, step := range steps {
 		if i >= summaryCap {
 			fmt.Fprintf(b, "- state_drilldown_omitted count=%d see payload_ref\n", len(steps)-summaryCap)
@@ -3609,14 +3670,12 @@ func traceThreadLabelOptional(t tracequery.ThreadRef) string {
 // ledger's ID-level dedup keeps typed rows authoritative across duplicate
 // copies of the same result.
 
-const (
-	// traceQueryTypedEvidenceFactCap bounds published evidence-pack rows.
-	// Deliberately 4x the prose preview's 16-fact cap; the full payload
-	// remains addressable via the stored payload reference.
-	traceQueryTypedEvidenceFactCap = 64
-	// traceQueryTypedFamilyRowCap bounds every other per-family row list.
-	traceQueryTypedFamilyRowCap = 32
-)
+// traceQueryWidthTypedEvidenceFactCap (width governor) bounds published
+// evidence-pack rows — deliberately 4x the prose preview's 16-fact cap; the
+// full payload remains addressable via the stored payload reference.
+// traceQueryWidthTypedFamilyRowCap bounds every other per-family row list.
+// Both live accessors are defined in width_governor.go over the
+// internal/tool/width single-source table.
 
 // traceQueryObservationScope derives the precise per-result ID namespace for
 // typed rows. The stored payload reference is content-hashed and therefore
@@ -3897,7 +3956,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	if result.RootCauseRank != nil {
 		hasForegroundRootCause := traceQueryRootCauseRankHasForeground(result.RootCauseRank.Items)
 		for i, item := range result.RootCauseRank.Items {
-			if i >= traceQueryTypedFamilyRowCap {
+			if i >= traceQueryWidthTypedFamilyRowCap() {
 				break
 			}
 			rank := item.Rank
@@ -3966,7 +4025,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	}
 
 	for i, fact := range result.EvidencePack {
-		if i >= traceQueryTypedEvidenceFactCap {
+		if i >= traceQueryWidthTypedEvidenceFactCap() {
 			break
 		}
 		if strings.TrimSpace(fact.Subject) == "" && strings.TrimSpace(fact.Summary) == "" {
@@ -4027,7 +4086,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			})
 		}
 		for i, edge := range traceQuerySortedWakeupEdges(*result.WakeupChain) {
-			if i >= traceQueryTypedFamilyRowCap {
+			if i >= traceQueryWidthTypedFamilyRowCap() {
 				break
 			}
 			if strings.TrimSpace(traceThreadLabel(edge.Waker)) == "" && strings.TrimSpace(traceThreadLabel(edge.Wakee)) == "" {
@@ -4061,7 +4120,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			})
 		}
 		for i, impact := range result.WakeupChain.CausalImpacts {
-			if i >= traceQueryTypedFamilyRowCap {
+			if i >= traceQueryWidthTypedFamilyRowCap() {
 				break
 			}
 			if strings.TrimSpace(impact.DominantState) == "" && strings.TrimSpace(impact.Summary) == "" {
@@ -4095,7 +4154,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			})
 		}
 		for i, aggregate := range result.WakeupChain.AggregatedImpacts {
-			if i >= traceQueryTypedFamilyRowCap {
+			if i >= traceQueryWidthTypedFamilyRowCap() {
 				break
 			}
 			if strings.TrimSpace(aggregate.DominantState) == "" && strings.TrimSpace(aggregate.Summary) == "" {
@@ -4129,7 +4188,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			})
 		}
 		for i, root := range result.WakeupChain.RootEvidence {
-			if i >= traceQueryTypedFamilyRowCap {
+			if i >= traceQueryWidthTypedFamilyRowCap() {
 				break
 			}
 			if strings.TrimSpace(root.Type) == "" && strings.TrimSpace(root.Summary) == "" {
@@ -4159,7 +4218,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 
 	if result.CriticalBlocking != nil {
 		for i, item := range result.CriticalBlocking.Items {
-			if i >= traceQueryTypedFamilyRowCap {
+			if i >= traceQueryWidthTypedFamilyRowCap() {
 				break
 			}
 			if strings.TrimSpace(item.Type) == "" && strings.TrimSpace(item.Summary) == "" {
@@ -4538,7 +4597,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	out = append(out, traceQueryTypedThreadDurationObservations(stats.IOWaitTop, ref, scope, at, "top_io_wait", "io_wait", "io_wait", "selected-window IO wait", 0.82)...)
 
 	for i, load := range stats.ThreadCPULoad {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(traceThreadLabel(load.Thread)) == "" {
@@ -4578,7 +4637,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	}
 
 	for i, constraint := range stats.CPUConstraints {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(constraint.Summary) == "" && len(constraint.AllowedCPUs) == 0 && strings.TrimSpace(constraint.CPUSet) == "" {
@@ -4620,7 +4679,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	}
 
 	for i, ctx := range stats.RunnableContext {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(ctx.Summary) == "" {
@@ -4650,7 +4709,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	}
 
 	for i, proc := range stats.ProcessCPULoad {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(proc.Summary) == "" {
@@ -4691,7 +4750,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	}
 
 	for i, churn := range stats.StateChurn {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(churn.DominantState) == "" && strings.TrimSpace(churn.Summary) == "" {
@@ -4755,7 +4814,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	}
 
 	for i, step := range stats.StateDrilldownPlan {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if step.Thread.PID <= 0 || strings.TrimSpace(step.State) == "" {
@@ -4798,7 +4857,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	}
 
 	for i, file := range stats.FileIOByInode {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(file.Inode) == "" && strings.TrimSpace(file.Summary) == "" {
@@ -4846,7 +4905,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	}
 
 	for i, cache := range stats.PageCacheByInode {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(cache.Inode) == "" && strings.TrimSpace(cache.Summary) == "" {
@@ -4885,7 +4944,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	}
 
 	for i, storage := range stats.StorageLatencyByLayer {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(storage.Layer) == "" && strings.TrimSpace(storage.Summary) == "" {
@@ -4971,7 +5030,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	}
 
 	for i, episode := range stats.IOBurstEpisodes {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(episode.Summary) == "" {
@@ -5015,7 +5074,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	}
 
 	for i, inode := range stats.BlockIOByInode {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(inode.Inode) == "" && strings.TrimSpace(inode.Summary) == "" {
@@ -5060,7 +5119,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	out = append(out, traceQueryTypedInterruptObservations("softirq_activity", stats.SoftIRQActivity, ref, scope, at)...)
 	out = append(out, traceQueryTypedInterruptObservations("ipi_activity", stats.IPIActivity, ref, scope, at)...)
 	for i, accounting := range stats.SchedStatAccounting {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(accounting.Summary) == "" {
@@ -5097,7 +5156,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 		})
 	}
 	for i, work := range stats.WorkqueueActivity {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(work.Summary) == "" {
@@ -5132,7 +5191,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 		})
 	}
 	for i, fence := range stats.DMAFenceActivity {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(fence.Summary) == "" {
@@ -5200,7 +5259,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 		})
 	}
 	for i, category := range stats.TraceMarkCategories {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		out = append(out, types.ObservationRecord{
@@ -5225,7 +5284,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 		})
 	}
 	for i, work := range stats.AsyncFileWork {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		out = append(out, types.ObservationRecord{
@@ -5255,7 +5314,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	out = append(out, traceQueryTypedResourceObservations("page_fault", stats.PageFaultResources, ref, scope, at)...)
 	if stats.PerfSamples != nil {
 		for i, hot := range stats.PerfSamples.TopSymbols {
-			if i >= traceQueryTypedFamilyRowCap {
+			if i >= traceQueryWidthTypedFamilyRowCap() {
 				break
 			}
 			out = append(out, types.ObservationRecord{
@@ -5303,10 +5362,10 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 		return nil
 	}
 	chain := traceQueryResultWakeupChain(result)
-	out := make([]types.ObservationRecord, 0, minInt(len(stats.TraceSpans), traceQueryTypedFamilyRowCap))
+	out := make([]types.ObservationRecord, 0, minInt(len(stats.TraceSpans), traceQueryWidthTypedFamilyRowCap()))
 	ordinal := 0
 	for _, span := range stats.TraceSpans {
-		if ordinal >= traceQueryTypedFamilyRowCap {
+		if ordinal >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		semanticClass := strings.TrimSpace(span.SemanticClass)
@@ -5486,7 +5545,7 @@ func traceQuerySemanticTraceSpanConfidence(relevance string) float64 {
 func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration, ref types.ObservationSourceRef, scope, at, family, predicate, state, label string, confidence float64) []types.ObservationRecord {
 	var out []types.ObservationRecord
 	for i, td := range items {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		thread := traceThreadLabel(td.Thread)
@@ -5530,7 +5589,7 @@ func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration
 func traceQueryTypedResourceObservations(label string, items []tracequery.RuntimeResourceSummary, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
 	var out []types.ObservationRecord
 	for i, item := range items {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(item.Path) == "" && strings.TrimSpace(item.Operation) == "" {
@@ -5577,7 +5636,7 @@ func traceQueryTypedResourceObservations(label string, items []tracequery.Runtim
 func traceQueryTypedInterruptObservations(label string, items []tracequery.InterruptActivity, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
 	var out []types.ObservationRecord
 	for i, item := range items {
-		if i >= traceQueryTypedFamilyRowCap {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if strings.TrimSpace(item.Summary) == "" {
@@ -5874,7 +5933,7 @@ func traceQueryTypedPluginObservations(stats tracequery.WindowStats, ref types.O
 	ordinal := 0
 	for _, group := range [][]tracequery.TracePluginSummary{stats.AbilityEvents, stats.XPowerEvents, stats.HiSystemEvents} {
 		for _, item := range group {
-			if ordinal >= traceQueryTypedFamilyRowCap {
+			if ordinal >= traceQueryWidthTypedFamilyRowCap() {
 				return out
 			}
 			if strings.TrimSpace(item.Kind) == "" && strings.TrimSpace(item.EventName) == "" {

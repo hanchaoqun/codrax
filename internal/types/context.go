@@ -5608,22 +5608,54 @@ const (
 	ToolRepairStatusActionRecommended        = "action_recommended"
 )
 
+// ToolParamNarrowingSuggestion is one typed, per-parameter narrowing
+// suggestion attached to a ToolRefinementHint when a tool result hit a width
+// governor cap: which parameter to narrow first (Priority, 1 = first), the
+// concrete tool-computed value to narrow it to (Suggested, may be empty when
+// only the parameter itself is known), and the typed trigger dimension
+// (ReasonCode, one of the ToolParamNarrowReason* codes — a stable machine
+// code, never localized prose, so the rendered surface stays ZH/EN symmetric
+// and gives downstream logic nothing to keyword-match).
+//
+// SOFT GUIDANCE ONLY (precise-signals red line): no hard gate, contract
+// check, or completion logic may read ParamNarrowingSuggestions; the only
+// gate-eligible precise flags remain ResultTruncated /
+// CandidateBudgetTruncated on the parent hint. Producers populate suggestions
+// exclusively from tool-computed typed facts — never from re-parsed prose.
+type ToolParamNarrowingSuggestion struct {
+	Param      string `json:"param,omitempty"`
+	Priority   int    `json:"priority,omitempty"`
+	Suggested  string `json:"suggested,omitempty"`
+	ReasonCode string `json:"reason_code,omitempty"`
+}
+
+// Typed trigger codes for ToolParamNarrowingSuggestion.ReasonCode.
+const (
+	ToolParamNarrowReasonEntriesOverThreshold     = "entries_over_threshold"
+	ToolParamNarrowReasonByteBudgetExceeded       = "byte_budget_exceeded"
+	ToolParamNarrowReasonIndexEventLimit          = "index_event_limit"
+	ToolParamNarrowReasonCandidateBudgetTruncated = "candidate_budget_truncated"
+	ToolParamNarrowReasonBroadEnumeration         = "broad_enumeration"
+	ToolParamNarrowReasonPageIncomplete           = "page_incomplete"
+)
+
 // ToolRefinementHint is the typed, cross-stage advisory surface a tool may
 // attach when its result is too broad, truncated, paginated, or intentionally
 // skipped by a safety cap. Consumers may render or prioritize this hint, but
 // hard gates must still consume the underlying typed tool result fields.
 type ToolRefinementHint struct {
-	ReasonCode               string            `json:"reason_code,omitempty"`
-	ResultTruncated          bool              `json:"result_truncated,omitempty"`
-	CandidateBudgetTruncated bool              `json:"candidate_budget_truncated,omitempty"`
-	SkippedLargeCandidates   []string          `json:"skipped_large_candidates,omitempty"`
-	UniverseExcludedReason   string            `json:"universe_excluded_reason,omitempty"`
-	ExcludedRoots            []string          `json:"excluded_roots,omitempty"`
-	NextCursor               string            `json:"next_cursor,omitempty"`
-	TopSourceClasses         []SourcePathRole  `json:"top_source_classes,omitempty"`
-	PreferredNextTool        string            `json:"preferred_next_tool,omitempty"`
-	PreferredParams          map[string]string `json:"preferred_params,omitempty"`
-	RequiredFields           []string          `json:"required_fields,omitempty"`
+	ReasonCode                string                         `json:"reason_code,omitempty"`
+	ResultTruncated           bool                           `json:"result_truncated,omitempty"`
+	CandidateBudgetTruncated  bool                           `json:"candidate_budget_truncated,omitempty"`
+	SkippedLargeCandidates    []string                       `json:"skipped_large_candidates,omitempty"`
+	UniverseExcludedReason    string                         `json:"universe_excluded_reason,omitempty"`
+	ExcludedRoots             []string                       `json:"excluded_roots,omitempty"`
+	NextCursor                string                         `json:"next_cursor,omitempty"`
+	TopSourceClasses          []SourcePathRole               `json:"top_source_classes,omitempty"`
+	PreferredNextTool         string                         `json:"preferred_next_tool,omitempty"`
+	PreferredParams           map[string]string              `json:"preferred_params,omitempty"`
+	RequiredFields            []string                       `json:"required_fields,omitempty"`
+	ParamNarrowingSuggestions []ToolParamNarrowingSuggestion `json:"param_narrowing_suggestions,omitempty"`
 }
 
 type ToolRuntimeTiming struct {

@@ -10,12 +10,12 @@ import (
 )
 
 func TestBroadToolRefinementCoverageMatrix(t *testing.T) {
-	longGrepOutput := make([]string, 0, grepGovernorLineEntryThreshold+1)
-	for i := 0; i <= grepGovernorLineEntryThreshold; i++ {
+	longGrepOutput := make([]string, 0, grepWidthLineEntryThreshold()+1)
+	for i := 0; i <= grepWidthLineEntryThreshold(); i++ {
 		longGrepOutput = append(longGrepOutput, fmt.Sprintf("internal/pkg/file%d.go:%d: match", i, i+1))
 	}
-	longFileList := make([]string, 0, grepGovernorFileEntryThreshold+1)
-	for i := 0; i <= grepGovernorFileEntryThreshold; i++ {
+	longFileList := make([]string, 0, listFilesWidthEntryThreshold()+1)
+	for i := 0; i <= listFilesWidthEntryThreshold(); i++ {
 		longFileList = append(longFileList, fmt.Sprintf("src/pkg%d/file.go", i))
 	}
 
@@ -32,12 +32,16 @@ func TestBroadToolRefinementCoverageMatrix(t *testing.T) {
 		wantParams   map[string]string
 		wantParamNot map[string]string
 		forbidParams []string
+		// wantNarrowing pins F4-T4: a truncated producer must emit at least
+		// one typed ParamNarrowingSuggestion with non-empty Param+ReasonCode.
+		wantNarrowing bool
 	}{
 		{
 			name:          "exec broad discovery",
 			hint:          execCommandRefinement(nil, `find . -name "*.go" | head -200`, "exec_command_timeout", MaxInlineBytes+1),
 			wantReason:    "exec_command_timeout",
 			wantPreferred: "list_files",
+			wantNarrowing: true,
 		},
 		{
 			name: "grep broad result",
@@ -47,6 +51,7 @@ func TestBroadToolRefinementCoverageMatrix(t *testing.T) {
 			}, strings.Join(longGrepOutput, "\n")),
 			wantReason:    "grep_result_truncated",
 			wantPreferred: "grep",
+			wantNarrowing: true,
 		},
 		{
 			name: "read_file truncated prefix",
@@ -62,6 +67,7 @@ func TestBroadToolRefinementCoverageMatrix(t *testing.T) {
 			),
 			wantReason:    "read_file_result_truncated",
 			wantPreferred: "grep",
+			wantNarrowing: true,
 		},
 		{
 			name: "read_file trace artifact truncation",
@@ -86,6 +92,7 @@ func TestBroadToolRefinementCoverageMatrix(t *testing.T) {
 			}, longFileList, MaxInlineBytes+1),
 			wantReason:    "list_files_result_truncated",
 			wantPreferred: "list_files",
+			wantNarrowing: true,
 		},
 		{
 			name: "trace_query event limit",
@@ -108,6 +115,7 @@ func TestBroadToolRefinementCoverageMatrix(t *testing.T) {
 			}, "path"),
 			wantReason:    "trace_query_event_search_limit_reached",
 			wantPreferred: "trace_query",
+			wantNarrowing: true,
 		},
 		{
 			// E4: a view already at its hard cap (root_cause_rank 12) gets a
@@ -146,7 +154,8 @@ func TestBroadToolRefinementCoverageMatrix(t *testing.T) {
 				"next_segment":  "time_start=1.400000 time_end=2.000000",
 				"fallback_view": "event_search",
 			},
-			wantParamNot: map[string]string{"time_end": "2.000000"},
+			wantParamNot:  map[string]string{"time_end": "2.000000"},
+			wantNarrowing: true,
 		},
 		{
 			// E4: below the hard cap the refinement suggests the limit that
@@ -301,6 +310,9 @@ func TestBroadToolRefinementCoverageMatrix(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			assertActionableToolRefinement(t, tc.hint, tc.wantReason, tc.wantPreferred)
+			if tc.wantNarrowing {
+				assertTypedParamNarrowingSuggestions(t, tc.hint)
+			}
 			if len(tc.wantParams) == 0 && len(tc.wantParamNot) == 0 && len(tc.forbidParams) == 0 {
 				return
 			}
@@ -321,6 +333,71 @@ func TestBroadToolRefinementCoverageMatrix(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func assertTypedParamNarrowingSuggestions(t *testing.T, hint *types.ToolRefinementHint) {
+	t.Helper()
+	if hint == nil {
+		t.Fatalf("missing ToolRefinementHint")
+	}
+	normalized := types.NormalizeToolRefinementHint(*hint)
+	if len(normalized.ParamNarrowingSuggestions) == 0 {
+		t.Fatalf("truncated producer emitted no ParamNarrowingSuggestions: %+v", normalized)
+	}
+	for _, s := range normalized.ParamNarrowingSuggestions {
+		if strings.TrimSpace(s.Param) == "" || strings.TrimSpace(s.ReasonCode) == "" {
+			t.Fatalf("narrowing suggestion missing Param/ReasonCode: %+v (all=%+v)", s, normalized.ParamNarrowingSuggestions)
+		}
+	}
+}
+
+// TestPromoteSourceToolRefinementTranslatesNarrowingSuggestions pins the F4-T3
+// promotion rule: when a grep/list_files refinement is promoted to repo_map,
+// per-parameter narrowing suggestions must be translated (pattern→query,
+// path→scope) or dropped — an untranslated suggestion would name a parameter
+// of the wrong tool and actively mislead the model.
+func TestPromoteSourceToolRefinementTranslatesNarrowingSuggestions(t *testing.T) {
+	ctx := newBusContext()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			Confidence:        0.9,
+		},
+	}}
+	hint := types.ToolRefinementHint{
+		ReasonCode:        "grep_result_truncated",
+		ResultTruncated:   true,
+		PreferredNextTool: "grep",
+		ParamNarrowingSuggestions: []types.ToolParamNarrowingSuggestion{
+			{Param: "path", Priority: 1, Suggested: "internal/tool", ReasonCode: types.ToolParamNarrowReasonEntriesOverThreshold},
+			{Param: "include", Priority: 2, Suggested: "*.go", ReasonCode: types.ToolParamNarrowReasonEntriesOverThreshold},
+			{Param: "pattern", Priority: 3, Suggested: "needle", ReasonCode: types.ToolParamNarrowReasonEntriesOverThreshold},
+			{Param: "roles", Priority: 5, Suggested: "type", ReasonCode: types.ToolParamNarrowReasonEntriesOverThreshold},
+		},
+	}
+	out := promoteSourceToolRefinementToRepoMap(ctx, hint)
+	if out.PreferredNextTool != "repo_map" {
+		t.Fatalf("expected repo_map promotion, got %+v", out)
+	}
+	got := map[string]types.ToolParamNarrowingSuggestion{}
+	for _, s := range out.ParamNarrowingSuggestions {
+		got[s.Param] = s
+	}
+	if s, ok := got["scope"]; !ok || s.Suggested != "internal/tool" || s.Priority != 1 {
+		t.Fatalf("path suggestion must translate to scope: %+v", out.ParamNarrowingSuggestions)
+	}
+	if s, ok := got["query"]; !ok || s.Suggested != "needle" {
+		t.Fatalf("pattern suggestion must translate to query: %+v", out.ParamNarrowingSuggestions)
+	}
+	if s, ok := got["roles"]; !ok || s.Suggested != "type" {
+		t.Fatalf("repo_map-native roles suggestion must pass through: %+v", out.ParamNarrowingSuggestions)
+	}
+	for _, stale := range []string{"include", "pattern", "path", "file_type", "recursive", "context_lines"} {
+		if _, ok := got[stale]; ok {
+			t.Fatalf("cross-tool param %q must be dropped or translated on promotion: %+v", stale, out.ParamNarrowingSuggestions)
+		}
 	}
 }
 

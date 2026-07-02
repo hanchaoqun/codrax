@@ -40,6 +40,9 @@ func TestRenderTypedToolHandoffCarriersRendersTypedFieldsOnly(t *testing.T) {
 			SkippedLargeCandidates: []string{"logs/big.trace"},
 			ExcludedRoots:          []string{".codrax", "node_modules"},
 			TopSourceClasses:       []types.SourcePathRole{types.SourcePathRoleProduction},
+			ParamNarrowingSuggestions: []types.ToolParamNarrowingSuggestion{
+				{Param: "scope", Priority: 1, Suggested: "internal/agent", ReasonCode: types.ToolParamNarrowReasonEntriesOverThreshold},
+			},
 		},
 		AcceptedEvidence: []types.AcceptedEvidenceRef{{
 			ID:             "ev-1",
@@ -63,6 +66,7 @@ func TestRenderTypedToolHandoffCarriersRendersTypedFieldsOnly(t *testing.T) {
 		"skipped_large=`logs/big.trace`",
 		"excluded_roots=`.codrax,node_modules`",
 		"top_source_classes=`production`",
+		"narrow_params=`scope(1: internal/agent)`",
 		"evidence=`ev-1` @ `internal/app/main.py:12`",
 		"owner=`main`",
 	} {

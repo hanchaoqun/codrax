@@ -47,12 +47,12 @@ type NativeGrepResult struct {
 	SkippedLargeFilePaths []string
 }
 
-// nativeGrepMaxFileBytes caps broad directory scans when the caller does not
-// specify a limit. Explicit single-file searches are streamed without this
-// cap, because large user-provided logs / systrace / perfetto artifacts are
-// often exactly the target being searched. 4 MiB keeps broad scans away from
-// pathological generated files, vendored minified JS, and SVG blobs.
-const nativeGrepMaxFileBytes = 4 << 20
+// Broad directory scans are capped per file when the caller does not specify
+// a limit (grepWidthDirScanMaxFileBytes, single-sourced in the width
+// governor). Explicit single-file searches are streamed without this cap,
+// because large user-provided logs / systrace / perfetto artifacts are often
+// exactly the target being searched. The 4 MiB default keeps broad scans away
+// from pathological generated files, vendored minified JS, and SVG blobs.
 
 // NativeGrep runs a pure-Go regex scan and returns output formatted
 // to mimic grep -rnH / grep -rl. Honors ctx cancellation at the
@@ -98,7 +98,7 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 			// to the broad-directory safety cap.
 			maxBytes = -1
 		} else {
-			maxBytes = nativeGrepMaxFileBytes
+			maxBytes = int(grepWidthDirScanMaxFileBytes())
 		}
 	}
 

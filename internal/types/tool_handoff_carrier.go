@@ -301,6 +301,7 @@ func NormalizeToolRefinementHint(in ToolRefinementHint) ToolRefinementHint {
 	in.ExcludedRoots = normalizeToolHandoffStrings(in.ExcludedRoots, toolHandoffMaxRefinementItems, 180)
 	in.TopSourceClasses = normalizeToolRefinementSourceClasses(in.TopSourceClasses)
 	in.RequiredFields = normalizeToolHandoffStrings(in.RequiredFields, toolHandoffMaxFields, 160)
+	in.ParamNarrowingSuggestions = normalizeToolParamNarrowingSuggestions(in.ParamNarrowingSuggestions)
 	for k, v := range in.PreferredParams {
 		key := trimToolHandoffText(k)
 		val := trimToolHandoffLongText(v, 240)
@@ -347,7 +348,59 @@ func (h ToolRefinementHint) Empty() bool {
 		len(h.TopSourceClasses) == 0 &&
 		h.PreferredNextTool == "" &&
 		len(h.PreferredParams) == 0 &&
-		len(h.RequiredFields) == 0
+		len(h.RequiredFields) == 0 &&
+		len(h.ParamNarrowingSuggestions) == 0
+}
+
+// toolHandoffMaxParamNarrowingSuggestions bounds the typed narrowing rows a
+// single hint carries (presentation caps bound the rendered subset further).
+const toolHandoffMaxParamNarrowingSuggestions = 6
+
+// normalizeToolParamNarrowingSuggestions trims fields, drops rows without a
+// Param, dedupes by Param keeping the row with the LOWER Priority (first row
+// wins ties — merge callers put the receiving hint's rows first), sorts by
+// Priority then Param, and bounds the count. It always returns a fresh slice
+// so cloneToolRefinementHintPtr stays a deep copy.
+func normalizeToolParamNarrowingSuggestions(in []ToolParamNarrowingSuggestion) []ToolParamNarrowingSuggestion {
+	if len(in) == 0 {
+		return nil
+	}
+	byParam := map[string]ToolParamNarrowingSuggestion{}
+	order := make([]string, 0, len(in))
+	for _, s := range in {
+		s.Param = trimToolHandoffText(s.Param)
+		s.Suggested = trimToolHandoffLongText(s.Suggested, 240)
+		s.ReasonCode = trimToolHandoffText(s.ReasonCode)
+		if s.Param == "" {
+			continue
+		}
+		prev, seen := byParam[s.Param]
+		if !seen {
+			byParam[s.Param] = s
+			order = append(order, s.Param)
+			continue
+		}
+		if s.Priority < prev.Priority {
+			byParam[s.Param] = s
+		}
+	}
+	if len(order) == 0 {
+		return nil
+	}
+	out := make([]ToolParamNarrowingSuggestion, 0, len(order))
+	for _, param := range order {
+		out = append(out, byParam[param])
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Priority != out[j].Priority {
+			return out[i].Priority < out[j].Priority
+		}
+		return out[i].Param < out[j].Param
+	})
+	if len(out) > toolHandoffMaxParamNarrowingSuggestions {
+		out = out[:toolHandoffMaxParamNarrowingSuggestions]
+	}
+	return out
 }
 
 func NormalizeToolJSONSurfaceDescriptor(in ToolJSONSurfaceDescriptor) ToolJSONSurfaceDescriptor {
@@ -577,6 +630,9 @@ func mergeToolRefinementHint(a, b ToolRefinementHint) ToolRefinementHint {
 	a.ExcludedRoots = normalizeToolHandoffStrings(append(a.ExcludedRoots, b.ExcludedRoots...), toolHandoffMaxRefinementItems, 180)
 	a.TopSourceClasses = normalizeToolRefinementSourceClasses(append(a.TopSourceClasses, b.TopSourceClasses...))
 	a.RequiredFields = normalizeToolHandoffStrings(append(a.RequiredFields, b.RequiredFields...), toolHandoffMaxFields, 160)
+	// Append (a's rows first) then let normalization dedupe by Param keeping
+	// the lower Priority — a's row wins Priority ties.
+	a.ParamNarrowingSuggestions = normalizeToolParamNarrowingSuggestions(append(a.ParamNarrowingSuggestions, b.ParamNarrowingSuggestions...))
 	if len(b.PreferredParams) > 0 {
 		if a.PreferredParams == nil {
 			a.PreferredParams = map[string]string{}
@@ -596,6 +652,9 @@ func toolRefinementKey(h ToolRefinementHint) string {
 	parts = append(parts, h.SkippedLargeCandidates...)
 	parts = append(parts, h.ExcludedRoots...)
 	parts = append(parts, stringMapKey(h.PreferredParams))
+	for _, s := range h.ParamNarrowingSuggestions {
+		parts = append(parts, s.Param+"@"+strconv.Itoa(s.Priority)+":"+s.Suggested+":"+s.ReasonCode)
+	}
 	return strings.Join(parts, "|")
 }
 

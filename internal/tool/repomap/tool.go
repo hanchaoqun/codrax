@@ -16,6 +16,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/render"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 	ctypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -25,7 +26,9 @@ import (
 // turns gain nothing and should not pay the FreeOSMemory latency.
 const forceReclaimMinParseableFiles = 2000
 
-const repoMapPathDiscoveryCandidateFileLimit = 256
+// The path-discovery candidate limit is single-sourced in the central width
+// governor (internal/tool/width); the historical repomap-side duplicate
+// constant is deleted.
 
 // RepoMapV2 is the tree-sitter-powered repo map tool.
 type RepoMapV2 struct {
@@ -387,7 +390,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			Success:         true,
 			Summary:         summary,
 			RawRef:          ref,
-			Refinement:      repoMapSourceInventoryRefinement(observation, lensQuery),
+			Refinement:      repoMapSourceInventoryRefinementWithNarrowing(ctx, observation, lensQuery),
 			SourceInventory: &observationCarrier,
 			Observations:    repoMapNavigationTypedObservation(p.View, ref, output, now),
 			Timestamp:       now,
@@ -466,7 +469,7 @@ func repoMapViewPathDiscovery(graph *Graph, p repoMapParams, data *ViewData) *ct
 	if view == "source_inventory" {
 		return nil
 	}
-	files, total, truncated := repoMapViewDataCandidateFiles(graph, data, repoMapPathDiscoveryCandidateFileLimit)
+	files, total, truncated := repoMapViewDataCandidateFiles(graph, data, width.Current().PathDiscoveryCandidateFileLimit)
 	if total == 0 {
 		return nil
 	}
@@ -960,10 +963,12 @@ func firstNonEmptyRepoMapPath(values ...string) string {
 
 const (
 	sourceInventoryBroadRootBudgetFileThreshold = 500
-	sourceInventoryBroadRootDefaultTopN         = 50
-	sourceInventoryBroadRootMaxTopN             = 100
-	sourceInventoryAuxProjectionMaxFiles        = 256
-	sourceInventoryAuxProjectionMaxFileBytes    = 2 << 20
+	// Broad-root top-N caps are single-sourced in the width governor
+	// (internal/tool/width); the names stay as compile-time aliases.
+	sourceInventoryBroadRootDefaultTopN      = width.DefaultRepoMapBroadRootDefaultTopN
+	sourceInventoryBroadRootMaxTopN          = width.DefaultRepoMapBroadRootMaxTopN
+	sourceInventoryAuxProjectionMaxFiles     = 256
+	sourceInventoryAuxProjectionMaxFileBytes = 2 << 20
 )
 
 func sourceInventoryGraphWithAuxiliaryProjection(ctx *ctypes.BusContext, repoRoot string, graph *Graph, p repoMapParams, scopes []string) (*Graph, *Graph, bool) {
@@ -1047,9 +1052,15 @@ func sourceInventoryScopesContainAuxiliarySourceClass(scopes []string) bool {
 
 const (
 	repoMapSourceInventoryBroadNavigationFileThreshold = 500
-	repoMapSourceInventoryBroadNavigationScanLimit     = 4096
-	repoMapSourceInventoryBroadNavigationMaxRows       = 96
+	// Broad-navigation scan/row caps are single-sourced in the width governor.
+	// The scan limit is code-only; the max-rows constant stays as the
+	// default-pinned alias for test fixtures while production reads the live
+	// repoMapBroadNavigationMaxRows accessor (tool_width_repo_map_navigation_max_rows).
+	repoMapSourceInventoryBroadNavigationScanLimit = width.DefaultRepoMapBroadNavigationScanLimit
+	repoMapSourceInventoryBroadNavigationMaxRows   = width.DefaultRepoMapBroadNavigationMaxRows
 )
+
+func repoMapBroadNavigationMaxRows() int { return width.Current().RepoMap.BroadNavigationMaxRows }
 
 func repoMapSourceInventoryMaybeBoundBroadNavigationLens(ctx *ctypes.BusContext, graph *Graph, query ctypes.SourceInventoryLensQuery) (ctypes.SourceInventoryObservation, ctypes.SourceInventoryLensQuery, []string, bool) {
 	if ctx == nil || ctx.Mutable == nil || graph == nil || len(graph.FileIndex) < repoMapSourceInventoryBroadNavigationFileThreshold {
@@ -1069,8 +1080,8 @@ func repoMapSourceInventoryMaybeBoundBroadNavigationLens(ctx *ctypes.BusContext,
 	if topN <= 0 {
 		topN = 60
 	}
-	if topN > repoMapSourceInventoryBroadNavigationMaxRows {
-		topN = repoMapSourceInventoryBroadNavigationMaxRows
+	if maxRows := repoMapBroadNavigationMaxRows(); topN > maxRows {
+		topN = maxRows
 	}
 	guardedQuery := query
 	guardedQuery.Roles = roles

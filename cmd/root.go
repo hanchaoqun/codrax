@@ -45,6 +45,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
@@ -2960,6 +2961,30 @@ func initApp(cmd *cobra.Command, args []string) error {
 
 		if rs.ReadFileSmallLimitThreshold != nil {
 			tool.SetReadFileSmallLimitThreshold(*rs.ReadFileSmallLimitThreshold)
+		}
+
+		// Central width governor (tool_width_* prefix group). One-shot
+		// injection mirroring SetBlobLimits above: absent/non-positive
+		// fields keep the code defaults in internal/tool/width;
+		// cross-field sanity clamps log WARN inside SetWidthGovernor.
+		{
+			intOr0 := func(p *int) int {
+				if p == nil {
+					return 0
+				}
+				return *p
+			}
+			tool.SetWidthGovernor(width.Overrides{
+				GrepLineEntryThreshold:      intOr0(rs.ToolWidthGrepLineEntryThreshold),
+				GrepFileEntryThreshold:      intOr0(rs.ToolWidthGrepFileEntryThreshold),
+				GrepByteThreshold:           intOr0(rs.ToolWidthGrepByteThreshold),
+				GrepProductionCap:           intOr0(rs.ToolWidthGrepProductionCap),
+				GrepDirScanMaxFileBytes:     int64(intOr0(rs.ToolWidthGrepDirscanMaxFileBytes)),
+				PathDiscoveryCandidateLimit: intOr0(rs.ToolWidthPathDiscoveryCandidateLimit),
+				ReadFilePageWindowMax:       intOr0(rs.ToolWidthReadFilePageWindowMax),
+				TraceQueryEventSearchLimit:  intOr0(rs.ToolWidthTraceQueryEventSearchLimit),
+				RepoMapNavigationMaxRows:    intOr0(rs.ToolWidthRepoMapNavigationMaxRows),
+			})
 		}
 
 		// Per-shape Summary caps. Start from code defaults and

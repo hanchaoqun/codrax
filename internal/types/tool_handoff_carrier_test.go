@@ -160,6 +160,93 @@ func TestToolHandoffCarrierFromToolResultUsesTypedRefinement(t *testing.T) {
 	}
 }
 
+// TestToolRefinementParamNarrowingSuggestionsSixSpotSync pins the R2'
+// six-spot sync for the ParamNarrowingSuggestions typed field: normalize
+// (trim/drop/dedupe/sort/bound/deep-copy), Empty(), merge dedupe-by-Param
+// keeping the lower Priority, and toolRefinementKey coverage.
+func TestToolRefinementParamNarrowingSuggestionsSixSpotSync(t *testing.T) {
+	raw := []ToolParamNarrowingSuggestion{
+		{Param: "  pattern ", Priority: 3, Suggested: " needle ", ReasonCode: " entries_over_threshold "},
+		{Param: "", Priority: 1, Suggested: "dropped", ReasonCode: "entries_over_threshold"},
+		{Param: "path", Priority: 1, Suggested: "internal/tool", ReasonCode: "entries_over_threshold"},
+		{Param: "path", Priority: 4, Suggested: "stale-dup", ReasonCode: "entries_over_threshold"},
+	}
+	rawCopy := append([]ToolParamNarrowingSuggestion(nil), raw...)
+	hint := NormalizeToolRefinementHint(ToolRefinementHint{ParamNarrowingSuggestions: raw})
+	if len(hint.ParamNarrowingSuggestions) != 2 {
+		t.Fatalf("normalize should trim/drop/dedupe to 2 rows: %+v", hint.ParamNarrowingSuggestions)
+	}
+	if hint.ParamNarrowingSuggestions[0].Param != "path" || hint.ParamNarrowingSuggestions[0].Suggested != "internal/tool" {
+		t.Fatalf("dedupe must keep the lower-priority row and sort it first: %+v", hint.ParamNarrowingSuggestions)
+	}
+	if hint.ParamNarrowingSuggestions[1].Param != "pattern" || hint.ParamNarrowingSuggestions[1].Suggested != "needle" ||
+		hint.ParamNarrowingSuggestions[1].ReasonCode != "entries_over_threshold" {
+		t.Fatalf("normalize must trim fields: %+v", hint.ParamNarrowingSuggestions[1])
+	}
+	// Defensive slice copy: mutating the normalized output must not write
+	// through to the caller's slice (deep-clone contract of
+	// cloneToolRefinementHintPtr).
+	hint.ParamNarrowingSuggestions[0].Suggested = "mutated"
+	for i := range raw {
+		if raw[i] != rawCopy[i] {
+			t.Fatalf("normalize must not alias the caller slice: %+v", raw)
+		}
+	}
+
+	// Empty(): a hint carrying only suggestions is not empty.
+	onlySuggestions := ToolRefinementHint{ParamNarrowingSuggestions: []ToolParamNarrowingSuggestion{{Param: "scope", Priority: 1}}}
+	if onlySuggestions.Empty() {
+		t.Fatal("hint with only ParamNarrowingSuggestions must not be Empty")
+	}
+
+	// Merge: dedupe by Param keeping the lower Priority; receiving hint's
+	// row wins ties.
+	merged := mergeToolRefinementHint(
+		ToolRefinementHint{
+			ReasonCode: "grep_result_truncated",
+			ParamNarrowingSuggestions: []ToolParamNarrowingSuggestion{
+				{Param: "scope", Priority: 2, Suggested: "internal/tool", ReasonCode: "entries_over_threshold"},
+				{Param: "roles", Priority: 3, Suggested: "function", ReasonCode: "entries_over_threshold"},
+			},
+		},
+		ToolRefinementHint{
+			ReasonCode: "source_inventory_candidate_budget_truncated",
+			ParamNarrowingSuggestions: []ToolParamNarrowingSuggestion{
+				{Param: "scope", Priority: 1, Suggested: "internal/types", ReasonCode: "candidate_budget_truncated"},
+				{Param: "roles", Priority: 3, Suggested: "method", ReasonCode: "candidate_budget_truncated"},
+			},
+		},
+	)
+	if len(merged.ParamNarrowingSuggestions) != 2 {
+		t.Fatalf("merge must dedupe by Param: %+v", merged.ParamNarrowingSuggestions)
+	}
+	if merged.ParamNarrowingSuggestions[0].Param != "scope" || merged.ParamNarrowingSuggestions[0].Suggested != "internal/types" {
+		t.Fatalf("merge must keep the lower-priority scope row: %+v", merged.ParamNarrowingSuggestions)
+	}
+	if merged.ParamNarrowingSuggestions[1].Param != "roles" || merged.ParamNarrowingSuggestions[1].Suggested != "function" {
+		t.Fatalf("merge priority tie must keep the receiving hint's row: %+v", merged.ParamNarrowingSuggestions)
+	}
+
+	// Bound: more than the cap collapses to the cap after dedupe.
+	var many []ToolParamNarrowingSuggestion
+	for i := 0; i < toolHandoffMaxParamNarrowingSuggestions+3; i++ {
+		many = append(many, ToolParamNarrowingSuggestion{Param: "p" + strconv.Itoa(i), Priority: i + 1})
+	}
+	bounded := NormalizeToolRefinementHint(ToolRefinementHint{ParamNarrowingSuggestions: many})
+	if len(bounded.ParamNarrowingSuggestions) != toolHandoffMaxParamNarrowingSuggestions {
+		t.Fatalf("suggestion count must be bounded to %d: %d", toolHandoffMaxParamNarrowingSuggestions, len(bounded.ParamNarrowingSuggestions))
+	}
+
+	// toolRefinementKey: hints differing only in suggestions must not
+	// dedup-collide in the carrier key.
+	base := ToolRefinementHint{ReasonCode: "grep_result_truncated", ResultTruncated: true}
+	withSuggestion := base
+	withSuggestion.ParamNarrowingSuggestions = []ToolParamNarrowingSuggestion{{Param: "path", Priority: 1, Suggested: "internal/tool", ReasonCode: "entries_over_threshold"}}
+	if toolRefinementKey(base) == toolRefinementKey(withSuggestion) {
+		t.Fatal("toolRefinementKey must cover ParamNarrowingSuggestions")
+	}
+}
+
 func TestNormalizeToolHandoffCarriersPreservesActionableRefinementUnderBudget(t *testing.T) {
 	carriers := []ToolHandoffCarrier{{
 		Version:    ToolHandoffCarrierVersion,

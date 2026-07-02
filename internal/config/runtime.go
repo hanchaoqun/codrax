@@ -193,6 +193,45 @@ type RuntimeSettings struct {
 	//     100 in internal/tool/builtin.go.
 	ReadFileSmallLimitThreshold *int `yaml:"readfile_small_limit_threshold"`
 
+	// Central width governor overrides. `tool_width_*` prefix; applied
+	// one-shot at startup via tool.SetWidthGovernor (the SetBlobLimits
+	// pattern: non-positive/absent = keep the code default in
+	// internal/tool/width). Only the nine primary width dimensions are
+	// exposed; every other producer cap stays code-only in the width table.
+	// Cross-field sanity (production caps <= entry thresholds, read_file
+	// window default <= max) is validated inside SetWidthGovernor with WARN
+	// logs on clamp.
+	//
+	//   - tool_width_grep_line_entry_threshold (80): grep line-output entries
+	//     before compaction + refinement.
+	//   - tool_width_grep_file_entry_threshold (120): grep files_only entries
+	//     before compaction; also the explicit list_files alias.
+	//   - tool_width_grep_byte_threshold (16384): grep/list_files inline byte
+	//     budget before compaction.
+	//   - tool_width_grep_production_cap (48 line / 80 file): inline
+	//     production rows kept after compaction (one knob sets both modes,
+	//     each clamped to its own entry threshold).
+	//   - tool_width_grep_dirscan_max_file_bytes (4 MiB): per-file byte cap
+	//     on broad directory scans.
+	//   - tool_width_path_discovery_candidate_limit (256): typed
+	//     path-discovery candidate list bound (grep/list_files/repo_map).
+	//   - tool_width_read_file_page_window_max (200): upper bound of the
+	//     read_file paging-window suggestion.
+	//   - tool_width_trace_query_event_search_limit (engine default 40):
+	//     event_search default result limit override; applied tool-side so
+	//     the tracequery capacity table stays untouched.
+	//   - tool_width_repo_map_navigation_max_rows (96): broad
+	//     source-inventory navigation lens row cap.
+	ToolWidthGrepLineEntryThreshold      *int `yaml:"tool_width_grep_line_entry_threshold"`
+	ToolWidthGrepFileEntryThreshold      *int `yaml:"tool_width_grep_file_entry_threshold"`
+	ToolWidthGrepByteThreshold           *int `yaml:"tool_width_grep_byte_threshold"`
+	ToolWidthGrepProductionCap           *int `yaml:"tool_width_grep_production_cap"`
+	ToolWidthGrepDirscanMaxFileBytes     *int `yaml:"tool_width_grep_dirscan_max_file_bytes"`
+	ToolWidthPathDiscoveryCandidateLimit *int `yaml:"tool_width_path_discovery_candidate_limit"`
+	ToolWidthReadFilePageWindowMax       *int `yaml:"tool_width_read_file_page_window_max"`
+	ToolWidthTraceQueryEventSearchLimit  *int `yaml:"tool_width_trace_query_event_search_limit"`
+	ToolWidthRepoMapNavigationMaxRows    *int `yaml:"tool_width_repo_map_navigation_max_rows"`
+
 	// emit_analysis runtime validation knobs. Flat-prefixed
 	// `analysis_*` so the namespace stays visible alongside the
 	// `blob_*` and `pipeline_*` groups. All three are optional:

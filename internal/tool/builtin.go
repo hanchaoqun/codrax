@@ -717,6 +717,22 @@ func execCommandRefinement(ctx *types.BusContext, command, outcomeReason string,
 		hint.PreferredNextTool = "exec_command"
 		hint.RequiredFields = []string{"command"}
 	}
+	// Typed narrowing rows mirror the RequiredFields the switch above already
+	// computed for the suggested tool, with any concrete value the hint's own
+	// PreferredParams carries for that field. Trigger dimension: byte budget
+	// when the payload overflowed, broad enumeration otherwise.
+	narrowReason := types.ToolParamNarrowReasonBroadEnumeration
+	if largeOutput || execCommandOutcomeTruncated(outcomeReason) {
+		narrowReason = types.ToolParamNarrowReasonByteBudgetExceeded
+	}
+	for i, field := range hint.RequiredFields {
+		hint.ParamNarrowingSuggestions = append(hint.ParamNarrowingSuggestions, types.ToolParamNarrowingSuggestion{
+			Param:      field,
+			Priority:   i + 1,
+			Suggested:  hint.PreferredParams[field],
+			ReasonCode: narrowReason,
+		})
+	}
 	out := types.NormalizeToolRefinementHint(hint)
 	if out.PreferredNextTool != "trace_query" && !execCommandTargetsRuntimeTextArtifact(command) {
 		out = promoteSourceToolRefinementToRepoMap(ctx, out)
@@ -1831,11 +1847,53 @@ func mergeToolRefinementHints(a, b *types.ToolRefinementHint) *types.ToolRefinem
 		}
 	}
 	left.RequiredFields = append(left.RequiredFields, right.RequiredFields...)
+	// Left rows first: NormalizeToolRefinementHint dedupes by Param keeping
+	// the lower Priority, ties keep the left hint's row.
+	left.ParamNarrowingSuggestions = append(left.ParamNarrowingSuggestions, right.ParamNarrowingSuggestions...)
 	out := types.NormalizeToolRefinementHint(left)
 	if out.Empty() {
 		return nil
 	}
 	return &out
+}
+
+// repoMapNativeNarrowingParams is the repo_map parameter surface a promoted
+// narrowing suggestion may keep verbatim.
+var repoMapNativeNarrowingParams = map[string]bool{
+	"query":  true,
+	"scope":  true,
+	"scopes": true,
+	"roles":  true,
+	"top_n":  true,
+	"view":   true,
+	"cursor": true,
+}
+
+// translateParamNarrowingSuggestionsForRepoMap rewrites per-parameter
+// narrowing suggestions when a refinement hint is promoted to repo_map:
+// grep/list_files params translate to their repo_map counterparts
+// (pattern→query, path→scope), repo_map-native params pass through, and
+// everything else is dropped — an untranslated suggestion would name a
+// parameter of the wrong tool and actively mislead the model.
+func translateParamNarrowingSuggestionsForRepoMap(in []types.ToolParamNarrowingSuggestion) []types.ToolParamNarrowingSuggestion {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.ToolParamNarrowingSuggestion, 0, len(in))
+	for _, s := range in {
+		switch s.Param {
+		case "pattern":
+			s.Param = "query"
+		case "path":
+			s.Param = "scope"
+		default:
+			if !repoMapNativeNarrowingParams[s.Param] {
+				continue
+			}
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func promoteSourceToolRefinementToRepoMap(ctx *types.BusContext, hint types.ToolRefinementHint) types.ToolRefinementHint {
@@ -1873,6 +1931,7 @@ func promoteSourceToolRefinementToRepoMap(ctx *types.BusContext, hint types.Tool
 	hint.PreferredNextTool = "repo_map"
 	hint.PreferredParams = params
 	hint.RequiredFields = repoMapRequiredFieldsFromNavigationStep(step, params)
+	hint.ParamNarrowingSuggestions = translateParamNarrowingSuggestionsForRepoMap(hint.ParamNarrowingSuggestions)
 	return types.NormalizeToolRefinementHint(hint)
 }
 
@@ -2493,7 +2552,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}, nil
 		}
 		countBanner := grepCountBanner(capture.Lines, false, contextLines)
-		if capture.FullInMemory && capture.Lines <= grepGovernorLineEntryThreshold && capture.Bytes <= grepGovernorByteThreshold {
+		if capture.FullInMemory && capture.Lines <= grepWidthLineEntryThreshold() && capture.Bytes <= grepWidthByteThreshold() {
 			summary, ref, refinement := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, capture.InlineOutput)
 			return types.ToolResult{
 				ToolName:      t.Name(),
@@ -2581,18 +2640,11 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}, nil
 }
 
-const (
-	grepGovernorLineEntryThreshold      = 80
-	grepGovernorFileEntryThreshold      = 120
-	grepGovernorByteThreshold           = 16 * 1024
-	grepGovernorLineProductionCap       = 48
-	grepGovernorFileProductionCap       = 80
-	grepGovernorAuxiliaryCap            = 24
-	grepGovernorOtherCap                = 16
-	grepLineWindowHintMax               = 4
-	grepLineWindowHalfSpan              = 20
-	toolPathDiscoveryCandidateFileLimit = 256
-)
+// The grep governor caps and the shared path-discovery candidate limit are
+// single-sourced in the central width governor (internal/tool/width; façade
+// accessors in width_governor.go). Consumers read the live grepWidth* /
+// toolWidthPathDiscoveryCandidateFileLimit accessors so tool_width_* startup
+// overrides take effect.
 
 type grepLineWindow struct {
 	Path  string
@@ -2625,15 +2677,15 @@ func finalizeGrepOutput(ctx *types.BusContext, params grepToolParams, countBanne
 func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countBanner, paramsBanner, rawOutput, annotatedOutput string) (summary, rawRef string, ok bool) {
 	production, auxiliary, other, relevanceStats := partitionGrepOutputByRelevance(ctx, params, rawOutput)
 	entryCount := len(production) + len(auxiliary) + len(other)
-	threshold := grepGovernorLineEntryThreshold
-	prodCap := grepGovernorLineProductionCap
+	threshold := grepWidthLineEntryThreshold()
+	prodCap := grepWidthLineProductionCap()
 	mode := "line_output"
 	if params.FilesOnly {
-		threshold = grepGovernorFileEntryThreshold
-		prodCap = grepGovernorFileProductionCap
+		threshold = grepWidthFileEntryThreshold()
+		prodCap = grepWidthFileProductionCap()
 		mode = "files_only"
 	}
-	if entryCount <= threshold && len(annotatedOutput) <= grepGovernorByteThreshold {
+	if entryCount <= threshold && len(annotatedOutput) <= grepWidthByteThreshold() {
 		return "", "", false
 	}
 
@@ -2649,7 +2701,7 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 	b.WriteString("[grep retrieval governor]\n")
 	fmt.Fprintf(&b, "decision=broad_result_compacted mode=%s entries=%d production=%d auxiliary=%d other=%d\n",
 		mode, entryCount, len(production), len(auxiliary), len(other))
-	fmt.Fprintf(&b, "inline_caps production=%d auxiliary=%d other=%d\n", prodCap, grepGovernorAuxiliaryCap, grepGovernorOtherCap)
+	fmt.Fprintf(&b, "inline_caps production=%d auxiliary=%d other=%d\n", prodCap, grepWidthAuxiliaryCap(), grepWidthOtherCap())
 	if relevanceStats != "" {
 		fmt.Fprintf(&b, "relevance=%s\n", relevanceStats)
 	}
@@ -2697,8 +2749,8 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 	}
 
 	writeCappedGrepSection(&b, productionHeader, production, prodCap, "no non-auxiliary matches found")
-	writeCappedGrepSection(&b, auxiliaryHeader, auxiliary, grepGovernorAuxiliaryCap, "")
-	writeCappedGrepSection(&b, otherHeader, other, grepGovernorOtherCap, "")
+	writeCappedGrepSection(&b, auxiliaryHeader, auxiliary, grepWidthAuxiliaryCap(), "")
+	writeCappedGrepSection(&b, otherHeader, other, grepWidthOtherCap(), "")
 	return b.String(), rawRef, true
 }
 
@@ -2772,11 +2824,11 @@ func formatPreferredToolCallParam(key, value string) string {
 func grepBroadResultRefinement(ctx *types.BusContext, params grepToolParams, rawOutput string) *types.ToolRefinementHint {
 	production, auxiliary, other, _ := partitionGrepOutputByRelevance(ctx, params, rawOutput)
 	entryCount := len(production) + len(auxiliary) + len(other)
-	threshold := grepGovernorLineEntryThreshold
+	threshold := grepWidthLineEntryThreshold()
 	if params.FilesOnly {
-		threshold = grepGovernorFileEntryThreshold
+		threshold = grepWidthFileEntryThreshold()
 	}
-	if entryCount <= threshold && len(rawOutput) <= grepGovernorByteThreshold {
+	if entryCount <= threshold && len(rawOutput) <= grepWidthByteThreshold() {
 		return nil
 	}
 	ordered := make([]string, 0, len(production)+len(auxiliary)+len(other))
@@ -2784,15 +2836,32 @@ func grepBroadResultRefinement(ctx *types.BusContext, params grepToolParams, raw
 	ordered = append(ordered, auxiliary...)
 	ordered = append(ordered, other...)
 	topPath := firstGrepOutputPath(ordered, params.FilesOnly)
+	// Typed trigger dimension: entry count over the governor threshold wins
+	// over the byte budget when both fired (tool-computed facts only).
+	narrowReason := types.ToolParamNarrowReasonEntriesOverThreshold
+	if entryCount <= threshold {
+		narrowReason = types.ToolParamNarrowReasonByteBudgetExceeded
+	}
 	hint := types.ToolRefinementHint{
-		ReasonCode:      "grep_result_truncated",
-		ResultTruncated: true,
+		ReasonCode:                "grep_result_truncated",
+		ResultTruncated:           true,
+		ParamNarrowingSuggestions: grepNarrowingSuggestions(params, topPath, narrowReason),
 	}
 	if params.FilesOnly {
 		hint.PreferredNextTool = "read_file"
 		if topPath != "" {
 			hint.PreferredParams = map[string]string{"path": topPath}
 		}
+		// read_file lane: keep only the path row — grep-only param rows
+		// (pattern/include/file_type) would name parameters of the wrong
+		// tool. A repo_map promotion below re-translates path→scope.
+		kept := hint.ParamNarrowingSuggestions[:0]
+		for _, s := range hint.ParamNarrowingSuggestions {
+			if s.Param == "path" {
+				kept = append(kept, s)
+			}
+		}
+		hint.ParamNarrowingSuggestions = kept
 		out := promoteSourceToolRefinementToRepoMap(ctx, hint)
 		return &out
 	}
@@ -2811,11 +2880,21 @@ func grepBroadResultRefinement(ctx *types.BusContext, params grepToolParams, raw
 			return grepTraceQueryRefinement(ctx, params, "grep_result_truncated", true)
 		}
 		hint.PreferredParams["context_lines"] = "0"
-		for key, value := range grepLineWindowPreferredParams(collectGrepLineWindows(production, params.FilesOnly, grepLineWindowHintMax)) {
+		windows := collectGrepLineWindows(production, params.FilesOnly, grepWidthLineWindowHintMax())
+		for key, value := range grepLineWindowPreferredParams(windows) {
 			hint.PreferredParams[key] = value
 		}
+		if len(windows) > 0 && windows[0].First > 0 {
+			hint.ParamNarrowingSuggestions = append(hint.ParamNarrowingSuggestions, types.ToolParamNarrowingSuggestion{
+				Param:      "line_start,line_end",
+				Priority:   4,
+				Suggested:  fmt.Sprintf("%d-%d", windows[0].First, windows[0].Last),
+				ReasonCode: narrowReason,
+			})
+		}
 		hint.RequiredFields = []string{"pattern"}
-		return &hint
+		normalized := types.NormalizeToolRefinementHint(hint)
+		return &normalized
 	}
 	if strings.TrimSpace(params.Pattern) != "" {
 		hint.PreferredParams["pattern"] = strings.TrimSpace(params.Pattern)
@@ -2828,6 +2907,34 @@ func grepBroadResultRefinement(ctx *types.BusContext, params grepToolParams, raw
 	}
 	out := promoteSourceToolRefinementToRepoMap(ctx, hint)
 	return &out
+}
+
+// grepNarrowingSuggestions builds the typed per-parameter narrowing rows for
+// a broad grep result from tool-computed facts only: the top partitioned
+// output path, then the caller's own typed filter params. Priority order is
+// path(1) → file_type/include(2) → pattern(3); the runtime-artifact branch
+// appends the line-window row (4) from collectGrepLineWindows.
+func grepNarrowingSuggestions(params grepToolParams, topPath, reasonCode string) []types.ToolParamNarrowingSuggestion {
+	var out []types.ToolParamNarrowingSuggestion
+	pathValue := topPath
+	if pathValue == "" {
+		if p := strings.TrimSpace(params.Path); p != "" && p != "." {
+			pathValue = p
+		}
+	}
+	if pathValue != "" {
+		out = append(out, types.ToolParamNarrowingSuggestion{Param: "path", Priority: 1, Suggested: pathValue, ReasonCode: reasonCode})
+	}
+	if fileType := strings.TrimSpace(params.FileType); fileType != "" {
+		out = append(out, types.ToolParamNarrowingSuggestion{Param: "file_type", Priority: 2, Suggested: fileType, ReasonCode: reasonCode})
+	}
+	if include := strings.TrimSpace(params.Include); include != "" {
+		out = append(out, types.ToolParamNarrowingSuggestion{Param: "include", Priority: 2, Suggested: include, ReasonCode: reasonCode})
+	}
+	if pattern := strings.TrimSpace(params.Pattern); pattern != "" {
+		out = append(out, types.ToolParamNarrowingSuggestion{Param: "pattern", Priority: 3, Suggested: pattern, ReasonCode: reasonCode})
+	}
+	return out
 }
 
 func firstGrepOutputPath(lines []string, filesOnly bool) string {
@@ -2848,11 +2955,11 @@ func grepLineWindowPreferredParams(windows []grepLineWindow) map[string]string {
 	if lineNo <= 0 {
 		lineNo = first.First
 	}
-	start := lineNo - grepLineWindowHalfSpan
+	start := lineNo - grepWidthLineWindowHalfSpan()
 	if start < 1 {
 		start = 1
 	}
-	end := lineNo + grepLineWindowHalfSpan
+	end := lineNo + grepWidthLineWindowHalfSpan()
 	limit := end - start + 1
 	out := map[string]string{
 		"read_file_path":        first.Path,
@@ -2988,17 +3095,17 @@ func runRuntimeArtifactGrepStream(ctx *types.BusContext, cmd *exec.Cmd, filesOnl
 				_, _ = temp.WriteString(line)
 			}
 			if capture.FullInMemory {
-				if inline.Len()+len(line) <= grepGovernorByteThreshold {
+				if inline.Len()+len(line) <= grepWidthByteThreshold() {
 					inline.WriteString(line)
 				} else {
 					capture.FullInMemory = false
 				}
 			}
-			if len(capture.PreviewLines) < grepGovernorLineProductionCap {
+			if len(capture.PreviewLines) < grepWidthLineProductionCap() {
 				capture.PreviewLines = append(capture.PreviewLines, strings.TrimRight(line, "\r\n"))
 			}
 			if !filesOnly {
-				capture.LineWindows = appendGrepLineWindow(capture.LineWindows, strings.TrimRight(line, "\r\n"), true, grepLineWindowHintMax)
+				capture.LineWindows = appendGrepLineWindow(capture.LineWindows, strings.TrimRight(line, "\r\n"), true, grepWidthLineWindowHintMax())
 			}
 		}
 		if readErr != nil {
@@ -3037,7 +3144,7 @@ func compactStreamedRuntimeArtifactGrepOutput(ctx *types.BusContext, params grep
 	b.WriteString(paramsBanner)
 	b.WriteString("[grep retrieval governor]\n")
 	fmt.Fprintf(&b, "decision=broad_result_compacted mode=line_output entries=%d production=%d auxiliary=0 other=0\n", capture.Lines, capture.Lines)
-	fmt.Fprintf(&b, "inline_caps production=%d auxiliary=0 other=0\n", grepGovernorLineProductionCap)
+	fmt.Fprintf(&b, "inline_caps production=%d auxiliary=0 other=0\n", grepWidthLineProductionCap())
 	fmt.Fprintf(&b, "relevance=explicit_file=%d\n", capture.Lines)
 	if rawRef != "" {
 		fmt.Fprintf(&b, "full_raw_saved=%s\n", rawRef)
@@ -3061,14 +3168,14 @@ func compactStreamedRuntimeArtifactGrepOutput(ctx *types.BusContext, params grep
 	}
 	windows := capture.LineWindows
 	if len(windows) == 0 {
-		windows = collectGrepLineWindows(capture.PreviewLines, params.FilesOnly, grepLineWindowHintMax)
+		windows = collectGrepLineWindows(capture.PreviewLines, params.FilesOnly, grepWidthLineWindowHintMax())
 	}
 	if !targetsTrace {
 		if hint := renderGrepLineWindowHints(windows); hint != "" {
 			b.WriteString(hint)
 		}
 	}
-	writeCappedGrepSection(&b, "[grep production matches]", capture.PreviewLines, grepGovernorLineProductionCap, "no runtime-artifact matches returned")
+	writeCappedGrepSection(&b, "[grep production matches]", capture.PreviewLines, grepWidthLineProductionCap(), "no runtime-artifact matches returned")
 	if omitted := capture.Lines - len(capture.PreviewLines); omitted > 0 {
 		fmt.Fprintf(&b, "... omitted %d output line(s) from inline preview; page the full_raw_saved artifact or narrow the grep.\n", omitted)
 	}
@@ -3135,7 +3242,7 @@ func grepPathDiscoveryAdvisory(params grepToolParams) string {
 }
 
 func grepPathDiscovery(params grepToolParams, noMatches bool, resultCount int, candidateFiles []string) *types.ToolPathDiscovery {
-	files, truncated := boundedPathDiscoveryCandidateFiles(candidateFiles, toolPathDiscoveryCandidateFileLimit)
+	files, truncated := boundedPathDiscoveryCandidateFiles(candidateFiles, toolWidthPathDiscoveryCandidateFileLimit())
 	return &types.ToolPathDiscovery{
 		Kind:                    types.ToolPathDiscoveryKindGrep,
 		Pattern:                 strings.TrimSpace(params.Pattern),
@@ -3167,7 +3274,7 @@ func grepPathDiscoveryCandidates(output string, filesOnly bool) []string {
 		}
 		seen[path] = true
 		out = append(out, path)
-		if len(out) > toolPathDiscoveryCandidateFileLimit {
+		if len(out) > toolWidthPathDiscoveryCandidateFileLimit() {
 			break
 		}
 	}
@@ -4013,7 +4120,7 @@ func firstNonEmptyString(values []string) string {
 }
 
 func grepLineWindowHint(lines []string, filesOnly bool) string {
-	return renderGrepLineWindowHints(collectGrepLineWindows(lines, filesOnly, grepLineWindowHintMax))
+	return renderGrepLineWindowHints(collectGrepLineWindows(lines, filesOnly, grepWidthLineWindowHintMax()))
 }
 
 func collectGrepLineWindows(lines []string, filesOnly bool, maxWindows int) []grepLineWindow {
@@ -4021,7 +4128,7 @@ func collectGrepLineWindows(lines []string, filesOnly bool, maxWindows int) []gr
 		return nil
 	}
 	if maxWindows <= 0 {
-		maxWindows = grepLineWindowHintMax
+		maxWindows = grepWidthLineWindowHintMax()
 	}
 	var windows []grepLineWindow
 	for _, line := range lines {
@@ -4044,13 +4151,13 @@ func appendGrepLineWindow(windows []grepLineWindow, line string, requireMatch bo
 	if requireMatch && !match {
 		return windows
 	}
-	start := lineNo - grepLineWindowHalfSpan
+	start := lineNo - grepWidthLineWindowHalfSpan()
 	if start < 1 {
 		start = 1
 	}
-	end := lineNo + grepLineWindowHalfSpan
+	end := lineNo + grepWidthLineWindowHalfSpan()
 	for i := range windows {
-		if windows[i].Path != path || start > windows[i].Last+grepLineWindowHalfSpan {
+		if windows[i].Path != path || start > windows[i].Last+grepWidthLineWindowHalfSpan() {
 			continue
 		}
 		if start < windows[i].First {
@@ -4077,11 +4184,11 @@ func renderGrepLineWindowHints(windows []grepLineWindow) string {
 	if lineNo <= 0 {
 		lineNo = first.First
 	}
-	start := lineNo - grepLineWindowHalfSpan
+	start := lineNo - grepWidthLineWindowHalfSpan()
 	if start < 1 {
 		start = 1
 	}
-	end := lineNo + grepLineWindowHalfSpan
+	end := lineNo + grepWidthLineWindowHalfSpan()
 	limit := end - start + 1
 	offset := start - 1
 	var b strings.Builder
@@ -4775,18 +4882,29 @@ func readFileResultRefinement(ctx *types.BusContext, requestedPath, fsPath strin
 	if lineOffset == 0 && limit == 0 {
 		hint.PreferredNextTool = "grep"
 		hint.RequiredFields = []string{"pattern"}
+		hint.ParamNarrowingSuggestions = []types.ToolParamNarrowingSuggestion{{
+			Param:      "pattern",
+			Priority:   1,
+			ReasonCode: types.ToolParamNarrowReasonByteBudgetExceeded,
+		}}
 	} else {
 		hint.PreferredNextTool = "read_file"
 		hint.NextCursor = strconv.Itoa(lineEnd)
 		hint.PreferredParams["line_offset"] = strconv.Itoa(lineEnd)
 		window := lineEnd - lineStart + 1
 		if window <= 0 {
-			window = 100
+			window = readFileWidthPageWindowDefault()
 		}
-		if window > 200 {
-			window = 200
+		if max := readFileWidthPageWindowMax(); window > max {
+			window = max
 		}
 		hint.PreferredParams["limit"] = strconv.Itoa(window)
+		hint.ParamNarrowingSuggestions = []types.ToolParamNarrowingSuggestion{{
+			Param:      "line_offset,limit",
+			Priority:   1,
+			Suggested:  fmt.Sprintf("%d,%d", lineEnd, window),
+			ReasonCode: types.ToolParamNarrowReasonByteBudgetExceeded,
+		}}
 	}
 	out := types.NormalizeToolRefinementHint(hint)
 	if out.Empty() {
@@ -5045,7 +5163,7 @@ func listFilesBanner(p listFilesParams) string {
 }
 
 func listFilesPathDiscovery(p listFilesParams, resultCount int, candidateFiles []string) *types.ToolPathDiscovery {
-	files, truncated := boundedPathDiscoveryCandidateFiles(candidateFiles, toolPathDiscoveryCandidateFileLimit)
+	files, truncated := boundedPathDiscoveryCandidateFiles(candidateFiles, toolWidthPathDiscoveryCandidateFileLimit())
 	return &types.ToolPathDiscovery{
 		Kind:                    types.ToolPathDiscoveryKindListFiles,
 		Path:                    strings.TrimSpace(p.Path),
@@ -5156,8 +5274,12 @@ func listFilesCollect(ctx *types.BusContext, fsPath, displayPath string, p listF
 }
 
 func listFilesBroadResultRefinement(ctx *types.BusContext, p listFilesParams, files []string, payloadBytes int) *types.ToolRefinementHint {
-	if len(files) <= grepGovernorFileEntryThreshold && payloadBytes <= grepGovernorByteThreshold {
+	if len(files) <= listFilesWidthEntryThreshold() && payloadBytes <= listFilesWidthByteThreshold() {
 		return nil
+	}
+	narrowReason := types.ToolParamNarrowReasonEntriesOverThreshold
+	if len(files) <= listFilesWidthEntryThreshold() {
+		narrowReason = types.ToolParamNarrowReasonByteBudgetExceeded
 	}
 	hint := types.ToolRefinementHint{
 		ReasonCode:        "list_files_result_truncated",
@@ -5187,6 +5309,23 @@ func listFilesBroadResultRefinement(ctx *types.BusContext, p listFilesParams, fi
 		if _, ok := hint.PreferredParams["recursive"]; !ok {
 			hint.PreferredParams["recursive"] = "true"
 		}
+	}
+	// Typed narrowing rows: path(1) from the tool-computed narrow path,
+	// include/file_type(2) from the caller's own typed filters, recursive(3)
+	// only when a recursive walk can actually be narrowed.
+	if pathValue := strings.TrimSpace(hint.PreferredParams["path"]); pathValue != "" && pathValue != "." {
+		hint.ParamNarrowingSuggestions = append(hint.ParamNarrowingSuggestions, types.ToolParamNarrowingSuggestion{Param: "path", Priority: 1, Suggested: pathValue, ReasonCode: narrowReason})
+	}
+	if include := strings.TrimSpace(p.Include); include != "" {
+		hint.ParamNarrowingSuggestions = append(hint.ParamNarrowingSuggestions, types.ToolParamNarrowingSuggestion{Param: "include", Priority: 2, Suggested: include, ReasonCode: narrowReason})
+	} else {
+		hint.ParamNarrowingSuggestions = append(hint.ParamNarrowingSuggestions, types.ToolParamNarrowingSuggestion{Param: "include", Priority: 2, ReasonCode: narrowReason})
+	}
+	if fileType := strings.TrimSpace(p.FileType); fileType != "" {
+		hint.ParamNarrowingSuggestions = append(hint.ParamNarrowingSuggestions, types.ToolParamNarrowingSuggestion{Param: "file_type", Priority: 2, Suggested: fileType, ReasonCode: narrowReason})
+	}
+	if p.Recursive {
+		hint.ParamNarrowingSuggestions = append(hint.ParamNarrowingSuggestions, types.ToolParamNarrowingSuggestion{Param: "recursive", Priority: 3, Suggested: "false", ReasonCode: narrowReason})
 	}
 	out := promoteSourceToolRefinementToRepoMap(ctx, hint)
 	if out.Empty() {
