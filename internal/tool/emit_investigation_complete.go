@@ -2734,6 +2734,16 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 	if investigationCompletePolicy == "override" {
 		return ""
 	}
+	// R5 wakeup-chain drilldown enforcement (§7.30 裁定3): a trace turn whose
+	// own drilldown plan says the dominant sleep REQUIRES a wakeup-chain
+	// drilldown must not close without one attempt at it — the berlin report
+	// shipped a sleep=38.5% jank analysis with no wakeup chain at all, so the
+	// projection had no path to anchor and every on-chain surface degraded.
+	// Fires at most once per run (streak-fingerprinted) and consumes only
+	// typed observation facts, so it can never loop.
+	if msg := wakeupChainDrilldownPendingDowngrade(ctx); msg != "" {
+		return msg
+	}
 	closure := ctx.Mutable.EvidenceClosure()
 	refreshClosureReadSnapshot(ctx, closure)
 	// Drain PendingReads the LLM has already satisfied via its own
@@ -3600,6 +3610,53 @@ func explicitCurrentSourceExclusionCompletionBypassLabel(ctx *types.BusContext) 
 		return "explicit_current_source_exclusion", true
 	}
 	return "", false
+}
+
+// wakeupChainDrilldownPendingDowngrade returns a one-shot retry message when
+// the run's own trace_query drilldown plan marked the dominant sleep state as
+// chain_required=true but no wakeup-chain-family observation was ever
+// produced (R5 / §7.30 裁定3). Both inputs are deterministic typed facts from
+// trace_query observations; the streak fingerprint guarantees the downgrade
+// fires at most once per run, so it cannot livelock — if the model attempts
+// wakeup_chain and it fails, the second completion passes this gate.
+func wakeupChainDrilldownPendingDowngrade(ctx *types.BusContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	chainRequiredSubject := ""
+	haveWakeupFamily := false
+	for _, result := range append(ctx.Mutable.DispatchToolResults(), ctx.ToolResults...) {
+		if types.CanonicalToolName(result.ToolName) != "trace_query" {
+			continue
+		}
+		for _, obs := range result.Observations {
+			switch strings.TrimSpace(obs.Predicate) {
+			case "wakeup_chain", "wakeup_edge", "wakeup_causal_impact", "wakeup_causal_aggregate":
+				haveWakeupFamily = true
+			case "state_drilldown":
+				if strings.TrimSpace(obs.Object) != "s_sleep" {
+					continue
+				}
+				for _, note := range obs.RichNotes {
+					if strings.TrimSpace(note) == "chain_required=true" {
+						chainRequiredSubject = strings.TrimSpace(obs.Subject)
+					}
+				}
+			}
+		}
+	}
+	if chainRequiredSubject == "" || haveWakeupFamily {
+		return ""
+	}
+	if streak := ctx.Mutable.RecordCompletionDenialStreak("wakeup_chain_drilldown_pending"); streak > 1 {
+		return ""
+	}
+	logging.Info("[emit_investigation_complete] one-shot wakeup-chain drilldown downgrade: subject=%s", chainRequiredSubject)
+	return EmitInvestigationCompleteDowngradePrefix + " — the drilldown plan marks the dominant sleep state of " + chainRequiredSubject +
+		" as requiring a wakeup-chain drilldown (chain_required=true), but no wakeup_chain view was run this turn. " +
+		"Run trace_query(view=\"wakeup_chain\") for that thread and window once (bounded), then re-call emit_investigation_complete — " +
+		"with the chain the answer can name the upstream waker instead of stopping at the sleep symptom. " +
+		"If the view returns no structured chain, complete directly on the next attempt; this check does not repeat."
 }
 
 // zeroCurrentSourceRepoCompletionBypassLabel waives the completion citation
