@@ -30,6 +30,23 @@ type TraceCausalProjection struct {
 	SemanticSpans     []TraceCausalProjectionNode `json:"semantic_spans,omitempty"`
 	WakeupPath        []string                    `json:"wakeup_path,omitempty"`
 	SupportingHops    []TraceCausalProjectionNode `json:"supporting_hops,omitempty"`
+	// WindowStartTs/WindowEndTs is the user's originally-requested analysis
+	// window (seconds), sourced from the same precise frame_target_resolution
+	// anchor that feeds WithinRequestedWindow (window_source=query_window or the
+	// explicit-union variant). Zero when no such anchor exists — the renderer
+	// must then fall back to a relative bar scale and MUST NOT fabricate a
+	// window or percentages (presentation v3 §5 fallback rule).
+	WindowStartTs float64 `json:"window_start_ts,omitempty"`
+	WindowEndTs   float64 `json:"window_end_ts,omitempty"`
+}
+
+// WindowDurationMS returns the requested-window length in milliseconds, or 0
+// when the window anchor was absent (renderer falls back per v3 §5).
+func (p TraceCausalProjection) WindowDurationMS() float64 {
+	if p.WindowStartTs <= 0 || p.WindowEndTs <= p.WindowStartTs {
+		return 0
+	}
+	return (p.WindowEndTs - p.WindowStartTs) * 1000
 }
 
 func (p TraceCausalProjection) Active() bool {
@@ -113,6 +130,25 @@ type TraceCausalProjectionNode struct {
 	DrilldownTarget     string `json:"drilldown_target,omitempty"`
 	DrilldownEvidenceID string `json:"drilldown_evidence_id,omitempty"`
 	DrilldownRelation   string `json:"drilldown_relation,omitempty"`
+	// Pre-render deterministic aggregation results (presentation v3 §6; strict
+	// tolerance only — pure comparisons, never model prose, never ±ε):
+	//
+	// MergedEvidenceIDs lists the observation ids of rows merged into this node
+	// by R1 (same subject + same projected ms at 3 decimals + same evidence line
+	// range across predicates — e.g. an io_latency row and its same-interval
+	// critical_blocking twin) or R2 (same subject+object repeated ≥3 times).
+	// EvidenceID stays the lead id; renderers union both for the E# roster.
+	MergedEvidenceIDs []string `json:"merged_evidence_ids,omitempty"`
+	// MergedCount > 1 marks an R2 ×N aggregate row: ImpactMS/CumulativeImpactMS
+	// then carry the SUM over the merged instances and MergedMinMS/MergedMaxMS
+	// the per-instance display range (lossless: every instance id is kept).
+	MergedCount int     `json:"merged_count,omitempty"`
+	MergedMinMS float64 `json:"merged_min_ms,omitempty"`
+	MergedMaxMS float64 `json:"merged_max_ms,omitempty"`
+	// SecondaryObjects carries the other typed views' Objects after an R1 merge
+	// when they differ from this node's Object (e.g. the udk-irq peer thread a
+	// same-interval critical_blocking row named) — rendered as an 影响点 note.
+	SecondaryObjects []string `json:"secondary_objects,omitempty"`
 }
 
 // IsSleepState reports whether this node's dominant state is an (interruptible)
@@ -204,11 +240,18 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		WakeupPath:        wakeupPath,
 		SupportingHops:    hops,
 	}
-	if len(primary) > 0 {
-		node := primary[0]
+	// Presentation v3 §6: deterministic pre-render aggregation (strict tolerance).
+	// Runs on the bucketed projection before window marking / drilldown attach so
+	// those passes see the final node set. Bucket-overlap semantics (a primary
+	// on-chain node also appearing in OnChainCauses as the same-EvidenceID copy)
+	// are preserved — renderers keep deduping by node key.
+	traceCausalProjectionAggregateForPresentation(&out)
+	if len(out.PrimaryRootCauses) > 0 {
+		node := out.PrimaryRootCauses[0]
 		out.PrimaryRootCause = &node
 	}
 	if anchorStart, anchorEnd, ok := traceCausalProjectionAnchorWindow(records); ok {
+		out.WindowStartTs, out.WindowEndTs = anchorStart, anchorEnd
 		traceCausalProjectionMarkWithinWindow(out.PrimaryRootCauses, anchorStart, anchorEnd)
 		traceCausalProjectionMarkWithinWindow(out.OnChainCauses, anchorStart, anchorEnd)
 		traceCausalProjectionMarkWithinWindow(out.AdjacentCauses, anchorStart, anchorEnd)
