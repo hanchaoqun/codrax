@@ -1,6 +1,8 @@
 # Trace 因果投影展示层 v3:目标锚定单主树(2026-07-02)
 
-> 状态:**已裁定,分批实施中**。用户裁定三项:①全删 mermaid(0 图);②聚合容差用严格档(同 ms 3 位小数 + 同证据行区间);③按 数据聚合层 → 窗口字段 → 树渲染 → golden 重写 分批实施。
+> 状态:**已实施(B0–B4 全部落地)**。用户裁定三项:①全删 mermaid(0 图);②聚合容差用严格档(同 ms 3 位小数 + 同证据行区间);③按 数据聚合层 → 窗口字段 → 树渲染 → golden 重写 分批实施。
+>
+> As-built 备注:数据层 `internal/types/trace_causal_projection_aggregate.go`(R1/R2/R3;R4 由 R1 同键天然涵盖——primary/hop 双视角的行区间与 ms 相同即合并,cum 取 max);投影级 WindowStartTs/EndTs + WindowDurationMS。渲染层 `internal/tool/answer_document_mutation_runtime_tree.go` + 重写的 `runtimeTraceCausalProjectionCluster`(3 块:lead Section(结论+窗口/回退声明+读法+```text 主树)/无损明细表/按文件分组证据索引),旧 7 块 multi-view(overview 卡片、树状列表、on-chain 表、影响时长表、背景表、两张 mermaid 图)整体删除(-1000 行)。树对齐用 go-runewidth 显示宽度补齐;flat 回退(无唤醒路径)不带悬空边词;实施中修正两处设计细节:⚠跨窗基线取 max(本层投影, 链上累计)避免双口径行过标;语义 span 从 on-chain 宇宙排除(其分类副本只走 ✦ 语义 lane)。Golden:`answer_document_projection_v3_golden_test.go`(berlin 窗口模式 + aweme 真实客户聚合形回退模式)+ 8 个既有投影测试重写。
 >
 > 前史:`trace_layered_root_cause_methodology_audit_20260701.md` §7(v1 表+两图,§7.9)→ §7.12-7.14.2(v2 multi-view 7 块)。本文档是 v3 全量重设计,替代 v2 的展示结构;v2 的 typed 数据层(StateKind/UndrillableReason/Effective+ActualImpactMS/DrilldownTarget 等)全部保留并继续承重。
 
