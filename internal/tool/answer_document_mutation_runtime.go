@@ -930,7 +930,7 @@ func runtimeTraceCausalProjectionCoverageText(reasons []string, zh bool) string 
 	if zh {
 		text := "本轮已获得 trace_query 的结构化执行记录,但没有产出可承重的 root_cause/wakeup_chain/semantic rows,因此未生成分层因果表。"
 		if len(reasons) > 0 {
-			text += " typed 原因: " + strings.Join(reasons, "；") + "。"
+			text += " 结构化原因: " + strings.Join(reasons, "；") + "。"
 		}
 		text += " 这不是“没有背景影响”的结论;只表示当前证据没有给出可审计的因果/背景统计,应按 trace_query 的有界参数继续补 root_cause_rank、window_stats 或 interaction_stats。"
 		return text
@@ -949,8 +949,13 @@ type runtimeTraceCausalProjectionEvidenceIndex struct {
 }
 
 type runtimeTraceCausalProjectionEvidenceEntry struct {
-	ID      string
-	Ref     string
+	ID  string
+	Ref string
+	// Window is the node's own trace window rendered as "[start–end s]" when the
+	// source observation exposed one — the preferred display locator (§7.30
+	// 裁定6): a time window locates evidence for the reader where an 800k-line
+	// range does not. The full path:line locator stays in the raw record.
+	Window  string
 	Details string
 }
 
@@ -972,9 +977,14 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 	}
 	id := fmt.Sprintf("E%d", len(idx.order)+1)
 	idx.seen[key] = id
+	window := ""
+	if node.StartTs > 0 && node.EndTs > node.StartTs {
+		window = fmt.Sprintf("[%.3f–%.3fs]", node.StartTs, node.EndTs)
+	}
 	idx.order = append(idx.order, runtimeTraceCausalProjectionEvidenceEntry{
 		ID:      id,
 		Ref:     strings.TrimSpace(ref),
+		Window:  window,
 		Details: runtimeTraceCausalProjectionAuditDetail(node, zh),
 	})
 	return id
@@ -982,7 +992,7 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 
 func runtimeTraceCausalProjectionEvidenceText(zh bool) string {
 	if zh {
-		return "主表只引用短证据 ID;这里显示短定位和 typed 审计摘要,完整定位以原始 trace_query 结构化记录为准。"
+		return "主表只引用短证据 ID;这里显示短定位和结构化审计摘要,完整定位以原始 trace_query 结构化记录为准。"
 	}
 	return "Main tables use short evidence IDs; this index shows short locators and typed audit summaries. The original trace_query record remains the full locator authority."
 }
@@ -1060,18 +1070,18 @@ func runtimeTraceCausalProjectionActionCell(node types.TraceCausalProjectionNode
 	if node.IsSleepState() {
 		if node.Undrillable() {
 			if zh {
-				return "sleep症状·缺唤醒边"
+				return "睡眠症状·缺唤醒边"
 			}
 			return "sleep symptom·no wake edge"
 		}
 		if strings.TrimSpace(node.DrilldownTarget) != "" {
 			if zh {
-				return "sleep症状→查上游"
+				return "睡眠症状→查上游"
 			}
 			return "sleep symptom→upstream"
 		}
 		if zh {
-			return "sleep症状"
+			return "睡眠症状"
 		}
 		return "sleep symptom"
 	}
@@ -1467,6 +1477,29 @@ func runtimeTraceCausalProjectionEvidenceDisplayRef(ref string) string {
 	return runtimeTraceCausalProjectionCompactCellText(tail, 64)
 }
 
+// runtimeTraceCausalProjectionEvidenceDisplayRefWithWindow prefers the
+// "basename [start–end s]" locator when the node exposed its own trace window
+// (§7.30 裁定6 — a time window locates evidence for the reader where an
+// 800k-line range does not); without a window it falls back to the
+// basename:line-range display. The full raw locator stays in the original
+// trace_query record either way.
+func runtimeTraceCausalProjectionEvidenceDisplayRefWithWindow(ref, window string) string {
+	window = strings.TrimSpace(window)
+	if window == "" {
+		return runtimeTraceCausalProjectionEvidenceDisplayRef(ref)
+	}
+	ref = strings.TrimSpace(ref)
+	if strings.HasPrefix(ref, "line=") || strings.HasPrefix(ref, "lines=") {
+		return runtimeTraceCausalProjectionMarkdownSafe(window)
+	}
+	pathPart, _ := runtimeTraceCausalProjectionSplitLineSuffix(ref)
+	tail := strings.TrimPrefix(runtimeTraceCausalProjectionPathTail(pathPart, 1), "…/")
+	if tail == "" {
+		return runtimeTraceCausalProjectionMarkdownSafe(window)
+	}
+	return runtimeTraceCausalProjectionCompactCellText(tail, 48) + " " + runtimeTraceCausalProjectionMarkdownSafe(window)
+}
+
 func runtimeTraceCausalProjectionEvidenceRefShortened(raw, display string) bool {
 	raw = strings.TrimSpace(raw)
 	display = strings.TrimSpace(display)
@@ -1542,10 +1575,14 @@ func materializeRuntimeTraceMetricSnapshotBlock(doc *types.AnswerDocumentV2, ctx
 	if len(items) == 0 {
 		return false
 	}
+	title := "Trace 指标快照"
+	if !runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx)) {
+		title = "Trace Metric Snapshot"
+	}
 	block := types.AnswerBlock{
 		ID:    "runtime_trace_metric_snapshot",
 		Kind:  types.BlockBulletList,
-		Title: "Trace 指标快照",
+		Title: title,
 		Items: items,
 		ClaimUses: []types.RenderedClaimUse{{
 			ClaimForm: types.ClaimExternalObservation,
@@ -1584,20 +1621,29 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 		return nil
 	}
 	visible := answerDocumentVisibleSurfaceForRuntimeTrace(doc)
+	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
 	seen := make(map[string]bool)
 	var out []types.AnswerBlockItem
 	for _, record := range ledger.Records {
-		text := runtimeTraceMetricSnapshotFromObservationRecord(record)
+		// The raw key=value form stays the coverage/dedupe key (typed pairs), the
+		// user-facing text is the localized humanized form (§7.30 裁定5/S2). The
+		// raw string itself is not shown; it stays derivable from the observation
+		// record, which keeps full audit fidelity.
+		raw := runtimeTraceMetricSnapshotFromObservationRecord(record)
+		if raw == "" {
+			continue
+		}
+		if runtimeTraceMetricSnapshotCoveredByAnswer(visible, record, raw) {
+			continue
+		}
+		if seen[raw] {
+			continue
+		}
+		seen[raw] = true
+		text := runtimeTraceMetricSnapshotDisplayText(record, zh)
 		if text == "" {
-			continue
+			text = raw
 		}
-		if runtimeTraceMetricSnapshotCoveredByAnswer(visible, record, text) {
-			continue
-		}
-		if seen[text] {
-			continue
-		}
-		seen[text] = true
 		label := strings.TrimSpace(record.Subject)
 		if label == "" {
 			label = "state_churn"
@@ -1714,29 +1760,23 @@ func runtimeTraceMetricValueVariants(value string) []string {
 	return out
 }
 
-func runtimeTraceMetricSnapshotFromObservationRecord(record types.ObservationRecord) string {
+// runtimeTraceMetricSnapshotValues collects the complete typed state-churn
+// metric set for one record (rich notes first, summary tokens as fallback).
+// nil when the record is not a positive-impact deterministic state_churn row or
+// any required metric is missing.
+func runtimeTraceMetricSnapshotValues(record types.ObservationRecord) map[string]string {
 	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact {
-		return ""
+		return nil
 	}
 	if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
-		return ""
+		return nil
 	}
 	if !runtimeTraceStateChurnHasPositiveImpact(record) {
-		return ""
+		return nil
 	}
-	required := []string{
-		"running",
-		"runnable",
-		"sleep",
-		"d_state",
-		"io_wait",
-		"fragments",
-		"switches",
-		"max_segment",
-		"p95_segment",
-	}
-	values := make(map[string]string, len(required)+1)
-	keys := append([]string{"dominant_state"}, required...)
+	required := runtimeTraceMetricSnapshotRequiredKeys
+	values := make(map[string]string, len(required)+2)
+	keys := append([]string{"dominant_state", "total"}, required...)
 	for _, key := range keys {
 		if value := runtimeTraceObservationRichNoteValue(record.RichNotes, key); value != "" {
 			values[key] = value
@@ -1745,10 +1785,35 @@ func runtimeTraceMetricSnapshotFromObservationRecord(record types.ObservationRec
 	runtimeTraceMergeSummaryMetricTokens(values, record.Summary, keys)
 	for _, key := range required {
 		if values[key] == "" {
-			return ""
+			return nil
 		}
 	}
-	parts := make([]string, 0, len(required)+1)
+	return values
+}
+
+var runtimeTraceMetricSnapshotRequiredKeys = []string{
+	"running",
+	"runnable",
+	"sleep",
+	"d_state",
+	"io_wait",
+	"fragments",
+	"switches",
+	"max_segment",
+	"p95_segment",
+}
+
+// runtimeTraceMetricSnapshotFromObservationRecord renders the RAW typed
+// key=value snapshot line. It is no longer user-facing: it stays the precise
+// coverage/dedupe key (runtimeTraceMetricSnapshotCoveredByAnswer parses these
+// exact pairs) while runtimeTraceMetricSnapshotDisplayText carries the
+// localized presentation (§7.30 S2).
+func runtimeTraceMetricSnapshotFromObservationRecord(record types.ObservationRecord) string {
+	values := runtimeTraceMetricSnapshotValues(record)
+	if values == nil {
+		return ""
+	}
+	parts := make([]string, 0, len(runtimeTraceMetricSnapshotRequiredKeys)+1)
 	if values["dominant_state"] != "" {
 		parts = append(parts, "dominant_state="+values["dominant_state"])
 	}
@@ -1762,6 +1827,116 @@ func runtimeTraceMetricSnapshotFromObservationRecord(record types.ObservationRec
 		parts = append(parts, key+"="+runtimeTraceMetricWithMS(values[key]))
 	}
 	return strings.Join(parts, "; ")
+}
+
+// runtimeTraceMetricSnapshotDisplayText is the humanized, localized snapshot
+// line (§7.30 裁定5/S2): plain-language metric labels, per-state share of the
+// state total when it is known, and an explicit selected-window basis note when
+// the record also carries actual_* (aligned-window) values. Terms like
+// runnable/s_sleep stay as trace terms next to their translation.
+func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bool) string {
+	values := runtimeTraceMetricSnapshotValues(record)
+	if values == nil {
+		return ""
+	}
+	ms := func(key string) string { return runtimeTraceMetricWithMS(values[key]) }
+	total := runtimeTraceMetricFloat(values["total"])
+	share := func(key string) string {
+		v := runtimeTraceMetricFloat(values[key])
+		if total <= 0 || v <= 0 {
+			return ""
+		}
+		return fmt.Sprintf("%.0f%%", v/total*100)
+	}
+	stateEntry := func(label, key string) string {
+		entry := label + " " + ms(key)
+		if pct := share(key); pct != "" {
+			if zh {
+				entry += "(占" + pct + ")"
+			} else {
+				entry += " (" + pct + ")"
+			}
+		}
+		return entry
+	}
+	var parts []string
+	if dominant := strings.TrimSpace(values["dominant_state"]); dominant != "" {
+		label := runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: dominant}, zh)
+		entry := dominant
+		if label != "" {
+			entry = dominant + "(" + label + ")"
+			if !zh {
+				entry = dominant + " (" + label + ")"
+			}
+		}
+		if zh {
+			parts = append(parts, "主导状态 "+entry)
+		} else {
+			parts = append(parts, "dominant state "+entry)
+		}
+	}
+	if zh {
+		parts = append(parts,
+			stateEntry("运行", "running"),
+			stateEntry("可运行", "runnable"),
+			stateEntry("睡眠", "sleep"),
+			stateEntry("D状态", "d_state"),
+			stateEntry("IO等待", "io_wait"),
+			"状态段数 "+values["fragments"],
+			"切换次数 "+values["switches"],
+			"最长单段 "+ms("max_segment"),
+			"P95段长 "+ms("p95_segment"),
+		)
+	} else {
+		parts = append(parts,
+			stateEntry("running", "running"),
+			stateEntry("runnable", "runnable"),
+			stateEntry("sleep", "sleep"),
+			stateEntry("D-state", "d_state"),
+			stateEntry("IO wait", "io_wait"),
+			"state segments "+values["fragments"],
+			"switches "+values["switches"],
+			"longest segment "+ms("max_segment"),
+			"p95 segment "+ms("p95_segment"),
+		)
+	}
+	sep := "; "
+	if zh {
+		sep = ";"
+	}
+	text := strings.Join(parts, sep)
+	if runtimeTraceRecordHasActualWindowValues(record) {
+		if zh {
+			text += ";窗口基准: 选定窗(实际对齐窗数值见原始 trace_query 记录)"
+		} else {
+			text += "; window basis: selected window (aligned actual-window values remain in the raw trace_query record)"
+		}
+	}
+	return text
+}
+
+// runtimeTraceRecordHasActualWindowValues reports whether the record publishes
+// any actual_* (aligned/underlying-window) rich note alongside its
+// selected-window values — the §7.30 S1 dual-basis shape that must be labeled.
+func runtimeTraceRecordHasActualWindowValues(record types.ObservationRecord) bool {
+	for _, note := range record.RichNotes {
+		if strings.HasPrefix(strings.TrimSpace(note), "actual_") {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeTraceMetricFloat(value string) float64 {
+	value = strings.TrimSpace(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), "ms"))
+	if value == "" {
+		return 0
+	}
+	f, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0
+	}
+	return f
 }
 
 func runtimeTraceStateChurnHasPositiveImpact(record types.ObservationRecord) bool {
@@ -1865,10 +2040,15 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 	if len(ledger.Records) == 0 {
 		return nil
 	}
+	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
+	label := "下一步"
+	if !zh {
+		label = "Next step"
+	}
 	seen := make(map[string]bool)
 	var out []types.AnswerBlockItem
 	for _, record := range ledger.Records {
-		step := runtimeTraceNextStepFromObservationRecord(record)
+		step := runtimeTraceNextStepFromObservationRecord(record, zh)
 		if step == "" {
 			continue
 		}
@@ -1878,7 +2058,7 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 		seen[step] = true
 		out = append(out, types.AnswerBlockItem{
 			ID:          fmt.Sprintf("runtime_trace_next_step_%d", len(out)+1),
-			Label:       "下一步",
+			Label:       label,
 			Text:        step,
 			CitationRef: -1,
 		})
@@ -1889,14 +2069,45 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 	return out
 }
 
-func runtimeTraceNextStepFromObservationRecord(record types.ObservationRecord) string {
+// runtimeTraceNextStepFromObservationRecord returns the localized next-step
+// guidance for one typed trace_query record. English answers keep the original
+// system-fixed prose verbatim; Chinese answers render the typed next_step_kind
+// enum through a fixed ZH mapping (§7.30 裁定5) — the English prose is never
+// passed through to a Chinese panel, and legacy records without a kind fall
+// back to the generic ZH guidance instead of English.
+func runtimeTraceNextStepFromObservationRecord(record types.ObservationRecord, zh bool) string {
 	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact {
 		return ""
 	}
 	if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 		return ""
 	}
-	return trimRuntimeTraceNextStepText(runtimeTraceObservationRichNoteValue(record.RichNotes, "next_step"))
+	step := trimRuntimeTraceNextStepText(runtimeTraceObservationRichNoteValue(record.RichNotes, "next_step"))
+	if step == "" || !zh {
+		return step
+	}
+	return runtimeTraceNextStepChineseText(runtimeTraceObservationRichNoteValue(record.RichNotes, "next_step_kind"))
+}
+
+// runtimeTraceNextStepChineseText maps the deterministic next_step_kind enum
+// (published by trace_query alongside every system-fixed English next_step
+// string) to its ZH guidance. Must stay in lockstep with the tracequery
+// NextStepKind* constants; unknown/missing kinds take the generic guidance.
+func runtimeTraceNextStepChineseText(kind string) string {
+	switch strings.TrimSpace(strings.ToLower(kind)) {
+	case "runnable":
+		return "排查同CPU竞争:top运行线程、优先级与CPU频率"
+	case "s_sleep":
+		return "排查反复唤醒它的对端线程、binder等待、锁与条件变量等待"
+	case "d_sleep_io":
+		return "排查 sched_blocked_reason、块设备IO、文件系统、缺页与内存回收证据"
+	case "running":
+		return "排查该线程自身的trace span/帧阶段的CPU工作与被抢占边界"
+	case "priority_inversion":
+		return "排查低优先级依赖的调度延迟与同窗口CPU压力"
+	default:
+		return "排查相邻的调度与资源事件"
+	}
 }
 
 func runtimeTraceObservationRichNoteValue(notes []string, key string) string {

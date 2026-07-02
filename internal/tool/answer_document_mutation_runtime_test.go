@@ -1279,7 +1279,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalHopDepth(t *testi
 	if !strings.Contains(projection.Text, "💤 worker-200") {
 		t.Fatalf("sleep-state node should be marked as a symptom in the tree:\n%s", projection.Text)
 	}
-	if !strings.Contains(text, "sleep症状") {
+	if !strings.Contains(text, "睡眠症状") {
 		t.Fatalf("sleep symptom action label should render:\n%s", text)
 	}
 	if projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_sleep") != nil {

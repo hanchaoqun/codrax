@@ -8492,6 +8492,69 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryObservationSupplem
 	}
 }
 
+func TestAnswerDocumentEvaluator_TraceQuerySupplementNormalizesLocatorAndWindowBasis(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "trace_query",
+			Success:  true,
+			Observations: []types.ObservationRecord{{
+				ID:              "trace_query:root:1",
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRolePrincipalAnswer,
+				GroundingPolicy: types.ClaimGroundingHard,
+				SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "berlin.systrace"},
+				Span: types.ObservationSpan{
+					LineStart: 824646, LineEnd: 1624260,
+					StartTs: 6793222.031, EndTs: 6793225.370,
+				},
+				ClaimKey:    "root_cause_primary",
+				Subject:     "worker-2",
+				Predicate:   "root_cause_primary",
+				Object:      "running",
+				Value:       "2029.609",
+				Unit:        "ms",
+				RichNotes:   []string{"impact=2029.609ms", "dominant_state=running", "actual_impact_ms=2677.636"},
+				SupportRefs: []string{`D:\temp\南海\xiongqing\berlin.systrace:824646-1624260`},
+			}},
+		}},
+	})
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "主导状态为 running,需要保留结构化核对。",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	// §7.30 裁定6: display locator = basename + the record's own time window; the
+	// raw customer path and the 800k-line range stay in the raw record. Values
+	// coexisting with actual_* carry the selected-window basis label.
+	for _, want := range []string{
+		"系统补充：trace_query 关键观测核对",
+		"berlin.systrace [6793222.031–6793225.370s]",
+		"impact=2029.609ms",
+		"窗口基准=选定窗",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("supplement missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+	for _, banned := range []string{`D:\temp`, "xiongqing", ":824646-1624260"} {
+		if strings.Contains(out.FinalAnswer, banned) {
+			t.Fatalf("raw customer locator %q must not render:\n%s", banned, out.FinalAnswer)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceStateDrilldownSupplement(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

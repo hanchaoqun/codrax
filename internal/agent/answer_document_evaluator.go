@@ -12016,7 +12016,8 @@ type traceQueryObservationSupplementRow struct {
 const traceQueryObservationSupplementMaxRows = 40
 
 func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
-	rows := traceQueryObservationSupplementRows(ctx, doc)
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	rows := traceQueryObservationSupplementRows(ctx, doc, zh)
 	if len(rows) == 0 {
 		return ""
 	}
@@ -12029,7 +12030,6 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 	if len(rows) > traceQueryObservationSupplementMaxRows {
 		rows = rows[:traceQueryObservationSupplementMaxRows]
 	}
-	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
 	var b strings.Builder
 	if zh {
 		b.WriteString("---\n\n")
@@ -12049,7 +12049,7 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.AnswerDocumentV2) []traceQueryObservationSupplementRow {
+func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.AnswerDocumentV2, zh bool) []traceQueryObservationSupplementRow {
 	ledger := answerDocObservationLedger(ctx)
 	if len(ledger.Records) == 0 {
 		return nil
@@ -12069,7 +12069,7 @@ func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.Answe
 			continue
 		}
 		seen[key] = true
-		text := traceQueryObservationSupplementText(record)
+		text := traceQueryObservationSupplementText(record, zh)
 		if text == "" {
 			continue
 		}
@@ -12131,7 +12131,7 @@ func traceQueryObservationSupplementKey(record types.ObservationRecord) string {
 	return strings.Join(parts, "\x00")
 }
 
-func traceQueryObservationSupplementText(record types.ObservationRecord) string {
+func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool) string {
 	parts := []string{}
 	label := strings.TrimSpace(record.ClaimKey)
 	if label == "" {
@@ -12158,7 +12158,7 @@ func traceQueryObservationSupplementText(record types.ObservationRecord) string 
 	if loc := traceQueryObservationLocation(record); loc != "" {
 		parts = append(parts, loc)
 	}
-	if notes := traceQueryObservationSupplementNotes(record); notes != "" {
+	if notes := traceQueryObservationSupplementNotes(record, zh); notes != "" {
 		parts = append(parts, notes)
 	}
 	return strings.Join(parts, "；")
@@ -12176,23 +12176,86 @@ func traceQueryObservationValue(record types.ObservationRecord) string {
 	return "value=" + value
 }
 
+// traceQueryObservationLocation renders the DISPLAY locator for one trace_query
+// observation (§7.30 裁定6): "basename [start–end s]" when the record's span
+// carries its own trace window, otherwise "basename:line-range". A raw customer
+// path like D:\temp\…\berlin.systrace:824646-1624260 never reaches the panel;
+// the full locator authority stays in the raw observation record.
 func traceQueryObservationLocation(record types.ObservationRecord) string {
 	for _, ref := range record.SupportRefs {
 		if s := strings.TrimSpace(ref); s != "" {
-			return s
+			return traceQueryObservationDisplayLocator(s, record.Span)
 		}
 	}
 	if record.Span.LineStart > 0 {
 		path := firstNonEmptyString(record.SourceRef.Path, record.SourceRef.ArtifactID, "runtime_artifact")
+		ref := fmt.Sprintf("%s:%d", path, record.Span.LineStart)
 		if record.Span.LineEnd > record.Span.LineStart {
-			return fmt.Sprintf("%s:%d-%d", path, record.Span.LineStart, record.Span.LineEnd)
+			ref = fmt.Sprintf("%s:%d-%d", path, record.Span.LineStart, record.Span.LineEnd)
 		}
-		return fmt.Sprintf("%s:%d", path, record.Span.LineStart)
+		return traceQueryObservationDisplayLocator(ref, record.Span)
 	}
 	return strings.TrimSpace(record.SourceRef.ToolCallID)
 }
 
-func traceQueryObservationSupplementNotes(record types.ObservationRecord) string {
+func traceQueryObservationDisplayLocator(ref string, span types.ObservationSpan) string {
+	pathPart, suffix := traceQueryObservationSplitLineSuffix(ref)
+	base := traceQueryObservationPathBase(pathPart)
+	if base == "" {
+		base = ref
+		suffix = ""
+	}
+	if span.StartTs > 0 && span.EndTs > span.StartTs {
+		return fmt.Sprintf("%s [%.3f–%.3fs]", base, span.StartTs, span.EndTs)
+	}
+	return base + suffix
+}
+
+// traceQueryObservationSplitLineSuffix splits a trailing ":<line>" /
+// ":<start>-<end>" locator suffix off a path ref. Scanning from the end keeps
+// Windows drive colons (D:\…) intact because their remainder is not numeric.
+func traceQueryObservationSplitLineSuffix(ref string) (string, string) {
+	for i := len(ref) - 1; i >= 0; i-- {
+		if ref[i] != ':' {
+			continue
+		}
+		if traceQueryObservationLineSuffix(ref[i+1:]) {
+			return strings.TrimSpace(ref[:i]), ref[i:]
+		}
+	}
+	return strings.TrimSpace(ref), ""
+}
+
+func traceQueryObservationLineSuffix(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	seenDigit := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch >= '0' && ch <= '9' {
+			seenDigit = true
+			continue
+		}
+		if ch == '-' && seenDigit {
+			continue
+		}
+		return false
+	}
+	return seenDigit
+}
+
+func traceQueryObservationPathBase(path string) string {
+	path = strings.Trim(strings.ReplaceAll(strings.TrimSpace(path), "\\", "/"), "/")
+	if path == "" {
+		return ""
+	}
+	parts := strings.Split(path, "/")
+	return parts[len(parts)-1]
+}
+
+func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh bool) string {
 	allowed := []string{
 		"type=", "peer=", "chain_relevance=", "nearest_chain_thread=", "edge_count=",
 		"causality=", "chain_depth=", "priority_relation=", "priority_inversion_candidate=",
@@ -12226,7 +12289,27 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord) string
 	if len(notes) == 0 {
 		return ""
 	}
+	// §7.30 裁定6: the displayed values are all selected-window/projected-family
+	// figures. When the record ALSO carries actual_* (aligned-window) values, the
+	// basis must be labeled so the two windows cannot be read as one (the S1
+	// customer report published a 119%-of-window sum without any basis label).
+	if traceQueryObservationHasActualWindowNote(record) {
+		if zh {
+			notes = append(notes, "窗口基准=选定窗")
+		} else {
+			notes = append(notes, "window_basis=selected_window")
+		}
+	}
 	return "notes=" + strings.Join(notes, ", ")
+}
+
+func traceQueryObservationHasActualWindowNote(record types.ObservationRecord) bool {
+	for _, note := range record.RichNotes {
+		if strings.HasPrefix(strings.TrimSpace(note), "actual_") {
+			return true
+		}
+	}
+	return false
 }
 
 type runtimeAggregateMetricCompactRow struct {

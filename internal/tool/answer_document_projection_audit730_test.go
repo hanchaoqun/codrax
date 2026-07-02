@@ -237,6 +237,44 @@ func TestTraceProjection730BarStateAttributionZH(t *testing.T) {
 	}
 }
 
+func TestTraceProjection730EvidenceLocatorPrefersTimeWindow(t *testing.T) {
+	bus := audit730Bus("")
+	obs := []types.ObservationRecord{
+		{
+			ID: "root-io", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			Role: types.AnswerAggregateRolePrincipalAnswer, GroundingPolicy: types.ClaimGroundingHard,
+			Predicate: "root_cause_primary", ClaimKey: "root_cause_primary:io",
+			Subject: "worker-2", Object: "io_wait", Value: "11.000", Unit: "ms", Confidence: 0.9,
+			SupportRefs: []string{`D:\temp\南海\xiongqing\berlin.systrace:824646-1624260`},
+			Span: types.ObservationSpan{
+				LineStart: 824646, LineEnd: 1624260,
+				StartTs: 6793222.031, EndTs: 6793225.370,
+			},
+			RichNotes: []string{"rank=1", "tier=primary", "impact_ms=11.000", "cumulative_impact_ms=11.000",
+				"chain_relevance=on_chain", "causality=on_wakeup_chain", "chain_depth=1"},
+		},
+		{
+			ID: "path", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard, Predicate: "wakeup_chain", ClaimKey: "wakeup_chain:path",
+			Object: "worker-2 -> app-1",
+		},
+	}
+	md := audit730Render(t, bus, obs, "")
+	// 裁定6: basename + the node's own time window; the 800k-line range and the
+	// raw customer path stay in the raw trace_query record only.
+	if !strings.Contains(md, "berlin.systrace [6793222.031–6793225.370s]") {
+		t.Fatalf("evidence locator must prefer basename + time window:\n%s", md)
+	}
+	for _, banned := range []string{`D:\temp`, ":824646-1624260", "xiongqing"} {
+		if strings.Contains(md, banned) {
+			t.Fatalf("raw customer locator %q must not render:\n%s", banned, md)
+		}
+	}
+	if !strings.Contains(md, "完整定位见原始 trace_query 记录") {
+		t.Fatalf("shortened locator must point back to the raw record:\n%s", md)
+	}
+}
+
 func TestTraceProjection730BarStateAttributionEN(t *testing.T) {
 	bus := audit730Bus("en")
 	obs := []types.ObservationRecord{

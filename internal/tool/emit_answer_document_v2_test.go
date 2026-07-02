@@ -383,6 +383,7 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceNextStepFromTypedObservati
 			RichNotes: []string{
 				"running=3.500",
 				"next_step=inspect rival-30 on same CPU cpu=1 for CPU pressure/time-slice competition",
+				"next_step_kind=runnable",
 			},
 		}},
 	}}
@@ -410,16 +411,97 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceNextStepFromTypedObservati
 	if next.ID != "next_steps" || next.Kind != types.BlockOrderedList {
 		t.Fatalf("missing next_steps block: %+v", doc.Blocks)
 	}
+	// §7.30 裁定5: a Chinese answer renders the typed next_step_kind through the
+	// ZH mapping — the system-fixed English prose never leaks into the panel.
 	if len(next.Items) != 1 || next.Items[0].Label != "下一步" ||
-		!strings.Contains(next.Items[0].Text, "rival-30") ||
-		!strings.Contains(next.Items[0].Text, "CPU pressure") {
-		t.Fatalf("next step item did not preserve typed note: %+v", next.Items)
+		next.Items[0].Text != "排查同CPU竞争:top运行线程、优先级与CPU频率" {
+		t.Fatalf("next step item did not localize typed kind: %+v", next.Items)
+	}
+	if strings.Contains(next.Items[0].Text, "inspect") {
+		t.Fatalf("English next_step prose must not leak into a Chinese panel: %+v", next.Items)
 	}
 	if len(next.ClaimUses) != 1 || next.ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
 		t.Fatalf("next_steps block must stay in external-observation lane: %+v", next.ClaimUses)
 	}
 	if len(doc.Citations) != 0 || next.Items[0].CitationRef != -1 {
 		t.Fatalf("runtime next step must not create repo citations: citations=%+v item=%+v", doc.Citations, next.Items[0])
+	}
+}
+
+func TestEmitAnswerDocumentV2_RuntimeTraceNextStepLegacyRecordRendersGenericChinese(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:       "trace_query:state_churn:1",
+			Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query",
+			RichNotes: []string{
+				"running=3.500",
+				"next_step=inspect rival-30 on same CPU cpu=1 for CPU pressure/time-slice competition",
+			},
+		}},
+	}}
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "app-20 dominant_state=runnable。"},
+			{"id": "scope", "kind": "caveat", "text": "仅限该 trace 窗口。"}
+		]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("unexpected exec result: %v %+v", err, res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	next := doc.Blocks[1]
+	if next.ID != "next_steps" || len(next.Items) != 1 {
+		t.Fatalf("missing next_steps block: %+v", doc.Blocks)
+	}
+	// Legacy record without next_step_kind: a Chinese answer gets the generic ZH
+	// guidance instead of pass-through English (§7.30 裁定5).
+	if next.Items[0].Text != "排查相邻的调度与资源事件" || strings.Contains(next.Items[0].Text, "inspect") {
+		t.Fatalf("legacy record must render generic Chinese guidance: %+v", next.Items)
+	}
+}
+
+func TestEmitAnswerDocumentV2_RuntimeTraceNextStepEnglishKeepsSystemProse(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Language = "en"
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:       "trace_query:state_churn:1",
+			Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query",
+			RichNotes: []string{
+				"running=3.500",
+				"next_step=inspect rival-30 on same CPU cpu=1 for CPU pressure/time-slice competition",
+				"next_step_kind=runnable",
+			},
+		}},
+	}}
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "app-20 dominant_state=runnable."},
+			{"id": "scope", "kind": "caveat", "text": "This trace window only."}
+		]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("unexpected exec result: %v %+v", err, res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	next := doc.Blocks[1]
+	if next.ID != "next_steps" || len(next.Items) != 1 {
+		t.Fatalf("missing next_steps block: %+v", doc.Blocks)
+	}
+	// English answers keep the original system prose verbatim (§7.30 裁定5).
+	if next.Items[0].Label != "Next step" ||
+		!strings.Contains(next.Items[0].Text, "rival-30") ||
+		!strings.Contains(next.Items[0].Text, "CPU pressure") {
+		t.Fatalf("English next step must keep the system prose: %+v", next.Items)
 	}
 }
 
@@ -472,21 +554,27 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromTypedObs
 	if len(snapshot.Items) != 1 || snapshot.Items[0].Label != "app-20 state_churn" {
 		t.Fatalf("unexpected metric snapshot items: %+v", snapshot.Items)
 	}
+	// §7.30 S2: the snapshot line is humanized + localized (no raw key=value
+	// dump); the raw typed pairs remain in the observation record.
 	line := snapshot.Items[0].Text
 	for _, want := range []string{
-		"running=3.500ms",
-		"runnable=5.000ms",
-		"sleep=0.000ms",
-		"d_state=0.000ms",
-		"io_wait=0.000ms",
-		"fragments=21",
-		"switches=20",
-		"max_segment=0.500ms",
-		"p95_segment=0.500ms",
+		"主导状态 runnable(可运行等待)",
+		"运行 3.500ms",
+		"可运行 5.000ms",
+		"睡眠 0.000ms",
+		"D状态 0.000ms",
+		"IO等待 0.000ms",
+		"状态段数 21",
+		"切换次数 20",
+		"最长单段 0.500ms",
+		"P95段长 0.500ms",
 	} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("metric snapshot missing %q:\n%s", want, line)
 		}
+	}
+	if strings.Contains(line, "running=") || strings.Contains(line, "dominant_state=") {
+		t.Fatalf("metric snapshot must not dump raw key=value pairs:\n%s", line)
 	}
 	if len(snapshot.ClaimUses) != 1 || snapshot.ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
 		t.Fatalf("snapshot block must stay in external-observation lane: %+v", snapshot.ClaimUses)
@@ -599,24 +687,130 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromSummaryT
 		t.Fatalf("missing metric snapshot block: %+v", doc.Blocks)
 	}
 	line := snapshot.Items[0].Text
+	// §7.30 S2: summary-token records humanize the same way; the summary's
+	// total=8.500ms yields per-state shares of the state total.
 	for _, want := range []string{
-		"dominant_state=runnable",
-		"running=3.500ms",
-		"runnable=5.000ms",
-		"sleep=0.000ms",
-		"d_state=0.000ms",
-		"io_wait=0.000ms",
-		"fragments=21",
-		"switches=20",
-		"max_segment=0.500ms",
-		"p95_segment=0.500ms",
+		"主导状态 runnable(可运行等待)",
+		"运行 3.500ms(占41%)",
+		"可运行 5.000ms(占59%)",
+		"睡眠 0.000ms",
+		"D状态 0.000ms",
+		"IO等待 0.000ms",
+		"状态段数 21",
+		"切换次数 20",
+		"最长单段 0.500ms",
+		"P95段长 0.500ms",
 	} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("summary-token metric snapshot missing %q:\n%s", want, line)
 		}
 	}
-	if !strings.Contains(line, "max_segment=0.500ms; p95_segment=0.500ms") {
+	if !strings.Contains(line, "最长单段 0.500ms;P95段长 0.500ms") {
 		t.Fatalf("max/p95 metrics should stay on one snapshot line:\n%s", line)
+	}
+}
+
+func TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisZH(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:       "trace_query:state_churn:1",
+			Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query",
+			Subject:  "app-20",
+			Value:    "5.000",
+			RichNotes: []string{
+				"dominant_state=runnable",
+				"running=3.500", "runnable=5.000", "sleep=0.000", "d_state=0.000", "io_wait=0.000",
+				"fragments=21", "switches=20", "max_segment=0.500", "p95_segment=0.500",
+				"total=8.500",
+				"actual_impact=6.000ms",
+			},
+		}},
+	}}
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "app-20 dominant_state=runnable。"},
+			{"id": "scope", "kind": "caveat", "text": "仅限该 trace 窗口。"}
+		]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("unexpected exec result: %v %+v", err, res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	snapshot := doc.Blocks[1]
+	if snapshot.ID != "runtime_trace_metric_snapshot" || len(snapshot.Items) != 1 {
+		t.Fatalf("missing metric snapshot block: %+v", doc.Blocks)
+	}
+	line := snapshot.Items[0].Text
+	// §7.30 裁定6 numeric face: selected-window values coexisting with actual_*
+	// values must state their window basis.
+	for _, want := range []string{"运行 3.500ms(占41%)", "窗口基准: 选定窗(实际对齐窗数值见原始 trace_query 记录)"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("snapshot missing window basis %q:\n%s", want, line)
+		}
+	}
+}
+
+func TestEmitAnswerDocumentV2_MetricSnapshotEnglishHumanized(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Language = "en"
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:       "trace_query:state_churn:1",
+			Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query",
+			Subject:  "app-20",
+			Value:    "5.000",
+			RichNotes: []string{
+				"dominant_state=runnable",
+				"running=3.500", "runnable=5.000", "sleep=0.000", "d_state=0.000", "io_wait=0.000",
+				"fragments=21", "switches=20", "max_segment=0.500", "p95_segment=0.500",
+				"total=8.500",
+				"actual_impact=6.000ms",
+			},
+		}},
+	}}
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "app-20 dominant_state=runnable."},
+			{"id": "scope", "kind": "caveat", "text": "This trace window only."}
+		]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("unexpected exec result: %v %+v", err, res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	snapshot := doc.Blocks[1]
+	if snapshot.ID != "runtime_trace_metric_snapshot" || len(snapshot.Items) != 1 {
+		t.Fatalf("missing metric snapshot block: %+v", doc.Blocks)
+	}
+	if snapshot.Title != "Trace Metric Snapshot" {
+		t.Fatalf("EN snapshot title must localize: %+v", snapshot.Title)
+	}
+	line := snapshot.Items[0].Text
+	for _, want := range []string{
+		"dominant state runnable (runnable wait)",
+		"running 3.500ms (41%)",
+		"runnable 5.000ms (59%)",
+		"state segments 21",
+		"switches 20",
+		"longest segment 0.500ms",
+		"p95 segment 0.500ms",
+		"window basis: selected window (aligned actual-window values remain in the raw trace_query record)",
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("EN snapshot missing %q:\n%s", want, line)
+		}
+	}
+	if strings.Contains(line, "running=") {
+		t.Fatalf("EN snapshot must not dump raw key=value pairs:\n%s", line)
 	}
 }
 

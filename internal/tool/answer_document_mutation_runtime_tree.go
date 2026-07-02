@@ -1363,9 +1363,13 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 	}
 	items := make([]types.AnswerBlockItem, 0, len(evidence.order))
 	for _, entry := range evidence.order {
-		locator := runtimeTraceCausalProjectionEvidenceDisplayRef(entry.Ref)
+		locator := runtimeTraceCausalProjectionEvidenceDisplayRefWithWindow(entry.Ref, entry.Window)
 		if uniform && sharedFile != "" && len(evidence.order) > 1 {
-			if _, suffix := runtimeTraceCausalProjectionSplitLineSuffix(entry.Ref); suffix != "" {
+			// Grouped mode: the shared file name is stated once in the intro; each
+			// entry keeps only its own window (preferred, 裁定6) or line range.
+			if entry.Window != "" {
+				locator = runtimeTraceCausalProjectionMarkdownSafe(entry.Window)
+			} else if _, suffix := runtimeTraceCausalProjectionSplitLineSuffix(entry.Ref); suffix != "" {
 				locator = runtimeTraceCausalProjectionMarkdownSafe(suffix)
 			}
 		}
