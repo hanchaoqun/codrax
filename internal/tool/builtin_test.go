@@ -3167,9 +3167,15 @@ func TestGrepTool(t *testing.T) {
 		if got := result.Refinement.PreferredParams["path"]; got != "./src/main/java/app/Controller.java" {
 			t.Fatalf("preferred path = %q; refinement=%+v", got, result.Refinement)
 		}
+		if !strings.Contains(result.Summary, "next_shape=for exact line evidence, re-run grep") {
+			t.Fatalf("ordinary broad grep should keep exact-line grep recovery:\n%s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "repo_map(") {
+			t.Fatalf("ordinary broad grep without typed navigation policy should not steer to repo_map:\n%s", result.Summary)
+		}
 	})
 
-	t.Run("broad relation-shaped grep suggests relation map without making it mandatory", func(t *testing.T) {
+	t.Run("broad relation-shaped grep uses repo_map next_shape without making it mandatory", func(t *testing.T) {
 		ctx := newBusContext()
 		ctx.AnalysisIR = &types.AnalysisIR{
 			RequestModel: types.RequestModel{
@@ -3191,15 +3197,25 @@ func TestGrepTool(t *testing.T) {
 			t.Fatalf("expected broad grep to compact")
 		}
 		for _, want := range []string{
-			"relation_navigation_hint=",
-			`repo_map(view="relation_map"`,
-			`sources=["src/dispatch/file000.go", "src/dispatch/file001.go", "src/dispatch/file002.go"]`,
-			`relation_kinds=["called-by"]`,
-			"This is only a navigation hint",
+			"next_shape=broad source search already produced too many candidates",
+			`repo_map(view="task_map", query="update_elem")`,
+			"owner/scope navigation first",
+			"selected evidence anchors",
+			"This is soft guidance",
 			"not absence proof",
+			"not a completion gate",
 		} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("broad relation grep missing %q:\n%s", want, got)
+			}
+		}
+		for _, forbidden := range []string{
+			"next_shape=for exact line evidence, re-run grep",
+			"relation_navigation_hint=",
+			`repo_map(view="relation_map"`,
+		} {
+			if strings.Contains(got, forbidden) {
+				t.Fatalf("broad relation grep should not emit conflicting %q:\n%s", forbidden, got)
 			}
 		}
 	})
@@ -3238,6 +3254,19 @@ func TestGrepTool(t *testing.T) {
 		}
 		if strings.Contains(got, "relation_navigation_hint=") || strings.Contains(got, `repo_map(view="relation_map"`) {
 			t.Fatalf("principal source-inventory grep must not nudge relation_map:\n%s", got)
+		}
+		for _, want := range []string{
+			"next_shape=broad source search already produced too many candidates",
+			`repo_map(view="source_inventory"`,
+			`roles="type,function"`,
+			`include_attributes="false"`,
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("principal source-inventory grep missing %q:\n%s", want, got)
+			}
+		}
+		if strings.Contains(got, "next_shape=for exact line evidence, re-run grep") {
+			t.Fatalf("principal source-inventory grep should not steer back to broad grep:\n%s", got)
 		}
 
 		refinement := grepBroadResultRefinement(ctx, grepToolParams{Pattern: "public class"}, raw.String())
@@ -3377,6 +3406,23 @@ func TestGrepTool(t *testing.T) {
 		}
 		if _, bad := refinement.PreferredParams["include_attributes"]; bad {
 			t.Fatalf("mixed runtime/current-source refinement must not fall back to source_inventory params: %+v", refinement.PreferredParams)
+		}
+
+		got, _, ok := compactBroadGrepOutput(ctx, grepToolParams{Pattern: "DoFrame"}, "", "", raw.String(), raw.String())
+		if !ok {
+			t.Fatalf("expected broad mixed runtime/current-source grep to compact")
+		}
+		for _, want := range []string{
+			"next_shape=broad source search already produced too many candidates",
+			`repo_map(view="task_map", query="trace_query DoFrame", top_n="12")`,
+			"owner/scope navigation first",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("mixed runtime/current-source grep missing %q:\n%s", want, got)
+			}
+		}
+		if strings.Contains(got, "next_shape=for exact line evidence, re-run grep") {
+			t.Fatalf("mixed runtime/current-source grep should not steer back to broad grep:\n%s", got)
 		}
 	})
 

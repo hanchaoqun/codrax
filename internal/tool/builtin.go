@@ -2650,6 +2650,10 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 	} else {
 		b.WriteString("full_raw_saved=unavailable (no workdir configured)\n")
 	}
+	sourceNavigationNextShape := ""
+	if !grepParamsTargetRuntimeArtifactFile(ctx, params) {
+		sourceNavigationNextShape = grepBroadResultRepoMapNextShape(ctx, params, rawOutput)
+	}
 	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
 		targetsTrace := grepParamsTargetTraceQueryArtifactFile(ctx, params)
 		if advisory := grepRuntimeArtifactParamAdvisory(params); advisory != "" {
@@ -2671,19 +2675,90 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 				b.WriteString(hint)
 			}
 		}
+	} else if sourceNavigationNextShape != "" {
+		b.WriteString(sourceNavigationNextShape)
 	} else if params.FilesOnly {
 		b.WriteString("next_shape=read_file a top production path for exact evidence, or re-run grep with a narrower path/file_type.\n")
 	} else {
 		b.WriteString("next_shape=for exact line evidence, re-run grep with path set to one top production file and context_lines<=3; for discovery use files_only=true.\n")
 	}
-	if hint := grepBroadResultRelationNavigationHint(ctx, params, production); hint != "" {
-		b.WriteString(hint)
+	if sourceNavigationNextShape == "" {
+		if hint := grepBroadResultRelationNavigationHint(ctx, params, production); hint != "" {
+			b.WriteString(hint)
+		}
 	}
 
 	writeCappedGrepSection(&b, productionHeader, production, prodCap, "no non-auxiliary matches found")
 	writeCappedGrepSection(&b, auxiliaryHeader, auxiliary, grepGovernorAuxiliaryCap, "")
 	writeCappedGrepSection(&b, otherHeader, other, grepGovernorOtherCap, "")
 	return b.String(), rawRef, true
+}
+
+func grepBroadResultRepoMapNextShape(ctx *types.BusContext, params grepToolParams, rawOutput string) string {
+	refinement := grepBroadResultRefinement(ctx, params, rawOutput)
+	if refinement == nil {
+		return ""
+	}
+	hint := types.NormalizeToolRefinementHint(*refinement)
+	if hint.PreferredNextTool != "repo_map" {
+		return ""
+	}
+	call := formatPreferredToolCallForNextShape("repo_map", hint.PreferredParams)
+	if call == "" {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "next_shape=broad source search already produced too many candidates; use %s for owner/scope navigation first, then read_file only the selected evidence anchors. This is soft guidance, not absence proof and not a completion gate.\n", call)
+	if len(hint.RequiredFields) > 0 {
+		b.WriteString("next_required_fields=")
+		b.WriteString(strings.Join(hint.RequiredFields, ","))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func formatPreferredToolCallForNextShape(toolName string, params map[string]string) string {
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		return ""
+	}
+	if len(params) == 0 {
+		return toolName
+	}
+	preferred := []string{"view", "scope", "sources", "query", "roles", "relation_kinds", "top_n", "include_attributes"}
+	seen := map[string]bool{}
+	parts := make([]string, 0, len(params))
+	for _, key := range preferred {
+		if value := strings.TrimSpace(params[key]); value != "" {
+			seen[key] = true
+			parts = append(parts, formatPreferredToolCallParam(key, value))
+		}
+	}
+	keys := make([]string, 0, len(params))
+	for key, value := range params {
+		key = strings.TrimSpace(key)
+		if key == "" || seen[key] || strings.TrimSpace(value) == "" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		parts = append(parts, formatPreferredToolCallParam(key, params[key]))
+	}
+	if len(parts) == 0 {
+		return toolName
+	}
+	return toolName + "(" + strings.Join(parts, ", ") + ")"
+}
+
+func formatPreferredToolCallParam(key, value string) string {
+	key = strings.TrimSpace(key)
+	value = sanitizeForBanner(strings.TrimSpace(value))
+	if len(value) > 96 {
+		value = value[:93] + "..."
+	}
+	return key + "=" + fmt.Sprintf("%q", value)
 }
 
 func grepBroadResultRefinement(ctx *types.BusContext, params grepToolParams, rawOutput string) *types.ToolRefinementHint {

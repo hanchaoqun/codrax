@@ -1364,3 +1364,32 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 - Batch 3 已落地:budget prompt 改为"dispatch safety rail, not a work quota",并明确 route priority 来自 typed navigation/runtime policy;source-code lanes 的展示顺序优先 `repo_map`,避免 `grep/read_file` 大 cap 覆盖 owner-localization 路线。
 - Batch 4 已落地:`explorer_tool_budget_plan_test` 钉住 raw allowance/`largest allowance` 文案不回归,并覆盖 `grep` cap 大于 `repo_map` 时仍不提示 grep 优先。
 - Batch 5 已验证:`go test ./internal/agent -run 'ExplorerToolBudgetPlan|RuntimeTrace|RepoMapFirst|BuildInitialInstruction_SourceOptionalTrace|ExplicitTracePathUsesTraceQueryFirst' -count=1` 与 `go test ./internal/agent -run 'BuildInitialInstruction_CurrentSourceExplanation|CurrentSourceExplanationProfile|RepoMapRoute|CapabilityQueryStartsFocusedAuthorityDepth' -count=1` 通过。后续 representative eval 继续观察 `read_combo_log_current_source_explanation` 的 explorer_iters/read_file/tool_history_prunes。
+
+### 7.28 最新复核 gap:Broad grep summary 与 typed repo_map refinement 互相打架(2026-07-02)
+
+继续复核 `read_combo_log_current_source_explanation` PASS 日志后,发现 7.27 只解决了 explorer prompt 中的预算数字噪音,但工具结果自身仍有一个独立冲突:当 `grep` 结果过宽时,`ToolRefinementHint` 已经通过 typed repo-map navigation policy 输出 `preferred_next_tool=repo_map`,但 compacted summary 的 `next_shape` 仍先写"re-run grep with path set to one top production file / read_file exact evidence",`repo_map` 只作为后置 `relation_navigation_hint=consider ...` 出现。模型会优先跟随第一条 next_shape,导致 broad grep -> grep/read_file -> broad grep 的长链,即使 typed refinement 已经指向 repo_map。
+
+这不是 grep 本身不能用;问题是**过宽结果之后的收敛建议应该由同一个 typed refinement authority 承重**。当已有 typed `RepoMapNavigationPolicy` 或 source-inventory principal navigation 时,summary 和 JSON refinement 必须一致地先引导 owner/scope navigation,再读 selected anchors。没有 typed policy 的普通 grep 仍保留现有 line-window / exact-file 收敛建议。
+
+**原则。**
+
+- 只消费 `ToolRefinementHint` / `RepoMapNavigationPolicy` / `SourceInventoryProfile` / `ExploreLanePlan` 这些 typed artifacts;不解析用户原文、模型散文、工具 summary、localized UI、elapsed time 或 eval label。
+- 这是 soft guidance,不是 hard gate;如果模型已经有精确文件/行号,仍可直接 `read_file`。
+- runtime trace/log artifact 继续走 `trace_query` 或 artifact-local line-window recovery,不得被 repo_map policy 抢走。
+- summary 和 refinement 必须使用同一份 preferred tool/params,避免给模型相互矛盾的下一步。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录 broad grep summary/refinement 冲突,标明 typed-only 与 soft-guidance 边界。
+- **Batch 2: 统一 next_shape。** `compactBroadGrepOutput` 在非 runtime artifact broad result 下,若 `grepBroadResultRefinement` 的 normalized preferred tool 是 `repo_map`,则首条 `next_shape` 渲染 repo_map owner/scope navigation,不再先渲染 re-run grep/read_file。
+- **Batch 3: 保留普通 grep 收敛。** 没有 typed repo-map navigation policy 的普通 grep、plain log artifact、trace artifact broad grep 均保持现有收敛路线。
+- **Batch 4: 测试看护。** 更新 broad grep tests:relation/current-source/source-inventory broad grep 的 summary 首条 next_shape 应是 repo_map;普通 broad grep 仍是 grep/read_file;trace artifact broad grep 仍是 trace_query 且不出现 repo_map。
+- **Batch 5: focused 验证。** 跑 `go test ./internal/tool -run 'BroadResult|ListFilesBroadResult|ToolRefinement' -count=1` 和 `go test ./internal/tool -count=1`;后续 eval 观察 `read_combo_log_current_source_explanation` 的 `grep/read_file/explorer_iters/tool_history_prunes` 是否下降。
+
+**当前进展。**
+
+- Batch 1 已落地:本节记录 gap、边界和任务拆解。
+- Batch 2 已落地:`compactBroadGrepOutput` 在 typed refinement 已偏向 `repo_map` 时,首条 `next_shape` 使用同一份 preferred tool/params,先做 owner/scope navigation,再读 selected anchors。
+- Batch 3 已落地:普通 broad grep 仍保留 exact-line grep/read_file recovery;plain log artifact 仍保留 artifact-local line-window recovery;trace artifact broad grep 仍保留 `trace_query` recovery,不会被 repo_map 抢走。
+- Batch 4 已落地:`TestGrepTool` 覆盖 ordinary broad grep、relation-shaped broad grep、source-inventory broad grep、mixed runtime/current-source broad grep、trace artifact broad grep 的 summary/refinement 一致性。
+- Batch 5 已验证:`go test ./internal/tool -run 'GrepTool|BroadResult|ListFilesBroadResult|ToolRefinement|ExecCommandRefinement' -count=1`、`go test ./internal/types -run 'ToolRefinement|RepoMapNavigation|RuntimeSourceAnswerAuthority' -count=1`、`go test ./internal/tool -count=1` 均通过。
