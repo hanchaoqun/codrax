@@ -47,8 +47,9 @@ func runtimeArtifactPreflightProfileForRun(request, repoRoot, attachedLog, attac
 const repoSourceCensusMaxEntries = 4096
 
 var (
-	errRepoSourceCensusSourceFound = errors.New("repo source census: source file found")
-	errRepoSourceCensusTooLarge    = errors.New("repo source census: entry cap exceeded")
+	errRepoSourceCensusSourceFound  = errors.New("repo source census: source file found")
+	errRepoSourceCensusTooLarge     = errors.New("repo source census: entry cap exceeded")
+	errRepoSourceCensusUnverifiable = errors.New("repo source census: symlink makes reachable source unverifiable")
 )
 
 // repoSourceCensusForRun deterministically classifies every regular file under
@@ -79,6 +80,15 @@ func repoSourceCensusForRun(repoRoot string) types.RuntimeArtifactRepoSourceCens
 				return filepath.SkipDir
 			}
 			return nil
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			// WalkDir does not follow symlinks, so anything behind this
+			// entry is invisible to the walk — yet read_file/grep can
+			// reach it (bazel/buck outputs, monorepo overlay layouts
+			// symlink whole source trees). Claiming "zero current source"
+			// on partial visibility would waive floors that are actually
+			// satisfiable; make the census inert instead.
+			return errRepoSourceCensusUnverifiable
 		}
 		if d.IsDir() {
 			return nil

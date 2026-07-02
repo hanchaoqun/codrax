@@ -265,6 +265,27 @@ func TestRepoSourceCensusForRun(t *testing.T) {
 			t.Fatalf("walk error must leave the census inert: %+v", census)
 		}
 	})
+	t.Run("symlink_makes_census_inert", func(t *testing.T) {
+		// WalkDir does not follow symlinks, so a symlinked source tree
+		// (bazel/buck outputs, monorepo overlays) is invisible to the walk
+		// while remaining fully reachable by read_file/grep. Partial
+		// visibility must never census as "zero current source".
+		outside := t.TempDir()
+		if err := os.WriteFile(filepath.Join(outside, "main.go"), []byte("package main"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		repo := t.TempDir()
+		if err := os.WriteFile(filepath.Join(repo, "a.sys.ftrace"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(repo, "src")); err != nil {
+			t.Skipf("symlink unsupported: %v", err)
+		}
+		census := repoSourceCensusForRun(repo)
+		if census.Completed || census.ZeroCurrentSourceRepo() {
+			t.Fatalf("symlinked repo must leave the census inert: %+v", census)
+		}
+	})
 }
 
 func TestRun_SourceTurnStillWarmsSingleRepoGraph(t *testing.T) {

@@ -106,9 +106,21 @@ func (l ExploreLane) OwnershipKey() string {
 // shared-context architecture explanations return an empty plan so existing
 // scheduling remains unchanged.
 func CompileExploreLanePlan(rm RequestModel, answerContract *AnswerContract, presentation AnswerPresentationContract) ExploreLanePlan {
+	return CompileExploreLanePlanWithEnvironment(rm, answerContract, presentation, false)
+}
+
+// CompileExploreLanePlanWithEnvironment is CompileExploreLanePlan plus the
+// deterministic run-entry environment: zeroCurrentSourceRepo (see
+// RuntimeArtifactPreflightProfile.ZeroCurrentSourceRepo) removes the
+// current-source lane exactly like an explicit typed exclusion would — a
+// checkout with no current source cannot own a current_source lane, and
+// handing one off as "own" only produces source-navigation directives that
+// can never be satisfied (trace_repl.log 2026-07-02).
+func CompileExploreLanePlanWithEnvironment(rm RequestModel, answerContract *AnswerContract, presentation AnswerPresentationContract, zeroCurrentSourceRepo bool) ExploreLanePlan {
+	currentSourceExcluded := zeroCurrentSourceRepo || rm.CurrentSourceLaneDecision() == CurrentSourceLaneExcluded
 	intent := CompileAnswerIntentContract(rm, answerContract)
 	origins := cloneAnswerEvidenceOrigins(intent.Origins)
-	if rm.CurrentSourceLaneDecision() == CurrentSourceLaneExcluded {
+	if currentSourceExcluded {
 		origins = removeExploreLaneOrigin(origins, AnswerEvidenceOriginCurrentSource)
 	}
 	if len(origins) == 0 {
@@ -116,7 +128,7 @@ func CompileExploreLanePlan(rm RequestModel, answerContract *AnswerContract, pre
 	}
 	investigation := CompileInvestigationPlan(rm, answerContract)
 	dimByOrigin := dimensionsByExploreLaneOrigin(presentation.RequestedDimensions)
-	if rm.CurrentSourceLaneDecision() == CurrentSourceLaneExcluded {
+	if currentSourceExcluded {
 		delete(dimByOrigin, AnswerEvidenceOriginCurrentSource)
 	}
 	shouldMaterialize := len(origins) > 1 ||

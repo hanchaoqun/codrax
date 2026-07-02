@@ -7671,7 +7671,7 @@ func (o *Orchestrator) emitAnalysisReady() {
 	nodes := o.busCtx.AnalysisIR.TaskGraph.Nodes
 	investigationPlan := types.CompileInvestigationPlan(o.busCtx.AnalysisIR.RequestModel, &o.busCtx.AnalysisIR.AnswerContract)
 	presentationContract := types.CompileAnswerPresentationContract(o.busCtx.AnalysisIR, nil)
-	o.busCtx.ExploreLanePlan = types.CompileExploreLanePlan(o.busCtx.AnalysisIR.RequestModel, &o.busCtx.AnalysisIR.AnswerContract, presentationContract)
+	o.busCtx.ExploreLanePlan = types.CompileExploreLanePlanWithEnvironment(o.busCtx.AnalysisIR.RequestModel, &o.busCtx.AnalysisIR.AnswerContract, presentationContract, o.busCtx.RuntimeArtifactPreflight.ZeroCurrentSourceRepo())
 	evidenceNodeCount := renderVisibleEvidenceNodeCount(nodes)
 	evidenceNodeOrdinal := 0
 	out := make([]render.TaskNodeInfo, 0, len(nodes))

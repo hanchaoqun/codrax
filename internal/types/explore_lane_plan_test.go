@@ -81,6 +81,33 @@ func TestCompileExploreLanePlan_ExternalObservationExcludeSuppressesCurrentSourc
 		t.Fatalf("excluded current-source lane must not be recreated from display dimensions, current_source=%d lanes=%+v", current, got.Lanes)
 	}
 	assertExploreLaneOrigin(t, got, AnswerEvidenceOriginRuntimeArtifact, "调度/资源背景")
+
+}
+
+func TestCompileExploreLanePlan_ZeroCurrentSourceCensusRemovesCurrentSourceLane(t *testing.T) {
+	// The deterministic zero-current-source census must remove the
+	// current-source lane WITHOUT any analyzer-emitted policy (customer
+	// trace_repl.log 2026-07-02: no policy emitted, yet the checkout had no
+	// source to own — the compiled "own" handoff produced source-navigation
+	// directives that could never be satisfied).
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		Buckets: []QuestionBucket{
+			{Label: "codrax", Index: 1},
+			{Label: "opencode", Index: 2},
+		},
+	}
+	control := CompileExploreLanePlan(rm, nil, AnswerPresentationContract{})
+	if current := countExploreLaneOrigin(control, AnswerEvidenceOriginCurrentSource); current == 0 {
+		t.Fatalf("control: without census the current-source lanes should exist, lanes=%+v", control.Lanes)
+	}
+	censusOnly := CompileExploreLanePlanWithEnvironment(rm, nil, AnswerPresentationContract{}, true)
+	if current := countExploreLaneOrigin(censusOnly, AnswerEvidenceOriginCurrentSource); current != 0 {
+		t.Fatalf("zero-current-source census must remove the current-source lane without a policy, current_source=%d lanes=%+v", current, censusOnly.Lanes)
+	}
 }
 
 func TestCompileExploreLanePlan_UserBucketsPartitionLanes(t *testing.T) {

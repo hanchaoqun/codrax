@@ -105,6 +105,17 @@ func readLocalizerFollowupForTier1(busCtx *types.BusContext, ir *types.AnalysisI
 	if types.RuntimeArtifactReadSourceNavigationNotRequiredForBusContext(busCtx) {
 		return nil
 	}
+	// A runtime-artifact-only checkout has no source to localize: the
+	// "Source localization is not yet narrow enough / Missing repo_map
+	// lenses" follow-up is definitionally unsatisfiable there and only
+	// steers the model back into repo_map/grep loops. This must run BEFORE
+	// the runtime-source-authority keep/suppress heuristics below — those
+	// consume the (census-blind) lane decision and would keep the follow-up
+	// alive on the very repos it can never help.
+	if busCtx.RuntimeArtifactPreflight.ZeroCurrentSourceRepo() {
+		logging.Info("[orchestrator] pre-finalize read localizer follow-up suppressed: reason=zero_current_source_repo")
+		return nil
+	}
 	if runtimeObservationClosureSuppressesReadLocalizerFollowup(busCtx, ir) {
 		logging.Info("[orchestrator] pre-finalize read localizer follow-up suppressed: reason=runtime_observation_closure")
 		return nil
