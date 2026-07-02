@@ -4421,6 +4421,63 @@ func TestEmitInvestigationComplete_ExplicitCurrentSourceExclusionBypassesCitatio
 	}
 }
 
+func TestEmitInvestigationComplete_CompositeFtracePreflightExcludeBypassesCitationFloor(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("分析 record_trace_20260605224432@3279-299954687.sys.ftrace 这一帧，不分析代码")
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				SourceQuotes:         []string{"不分析代码"},
+				Confidence:           0.9,
+			},
+		},
+		AnswerContract: types.AnswerContract{
+			CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
+		},
+	}
+	bus := &types.BusContext{
+		Mutable:    mut,
+		AnalysisIR: ir,
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "record_trace_20260605224432@3279-299954687.sys.ftrace",
+				Carrier: "request_path",
+			}},
+		}),
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"the frame dropped because the UI thread waited in the trace window and the runtime artifact is the answer source",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"scalar_value",
+			"label":"runtime trace source",
+			"value":"record_trace_20260605224432@3279-299954687.sys.ftrace",
+			"provenance":"runtime_artifact"
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success || strings.Contains(res.Summary, "citation preflight") || strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("trace-only preflight exclude must not be blocked by current-source citations, got: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("completion should be stored for composite ftrace trace-only request")
+	}
+}
+
 // TestEmitInvestigationComplete_CitationFloorHoldsWithoutExplicitExclusion is
 // the narrow control for the Gap A fix: the SAME evidence-empty completion is
 // still gated when the request has NOT excluded current source (default mode,

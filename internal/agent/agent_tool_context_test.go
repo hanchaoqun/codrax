@@ -830,6 +830,56 @@ func TestTraceOnlyExactPreflightPolicyBlocksSourceFallbackWithoutRuntimeProbeHar
 	}
 }
 
+func TestTraceOnlyExactPreflightPolicyBlocksCompositeFtraceGrepFallback(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage:    types.StageExplore,
+		RepoRoot: t.TempDir(),
+		WorkDir:  t.TempDir(),
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "record_trace_20260605224432@3279-299954687.sys.ftrace",
+				Carrier: "request_path",
+			}},
+		}),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				SourceQuotes:         []string{"不分析代码"},
+				Confidence:           0.9,
+			},
+		}},
+	}
+	if !traceQueryToolVisible(ctx) {
+		t.Fatal("composite .sys.ftrace typed preflight should expose trace_query")
+	}
+	if traceQueryToolAvailable(ctx) || explorerTraceQueryFirstRequired(ctx, true) {
+		t.Fatal("preflight-only .sys.ftrace must expose trace_query without arming the runtime-probe hard gate")
+	}
+	got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "grep",
+		Params: json.RawMessage(`{"pattern":"sched_switch","path":"record_trace_20260605224432@3279-299954687.sys.ftrace"}`),
+	}, true)
+	if got == nil {
+		t.Fatal("trace-only composite ftrace policy should pull grep fallback back to trace_query")
+	}
+	if got.Repair == nil ||
+		got.Repair.Code != explorerTraceQueryFirstCode ||
+		got.Repair.Metadata["policy"] != "trace_only_exact_artifact" ||
+		got.Repair.Metadata["next_tool"] != "trace_query" {
+		t.Fatalf("repair should carry trace_query pullback metadata, got %+v", got.Repair)
+	}
+	if complete := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "emit_investigation_complete",
+		Params: json.RawMessage(`{"reason":"runtime facts are sufficient","confidence":"high","result_kind":"resolved"}`),
+	}, true); complete != nil {
+		t.Fatalf("trace-only policy must not block completion tools: %+v", complete)
+	}
+}
+
 func TestTraceOnlyTypedPolicyStillBlocksSourceToolsAfterRuntimeObservations(t *testing.T) {
 	mut := types.NewMutableState("trace only")
 	mut.AppendDispatchToolResult(types.ToolResult{

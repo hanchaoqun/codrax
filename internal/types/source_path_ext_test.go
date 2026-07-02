@@ -50,6 +50,13 @@ func TestRuntimeArtifactPathInToken(t *testing.T) {
 		"抓取/tmp/app.log": "/tmp/app.log",
 		// Both sides glued.
 		"看/var/log/x.ftrace再看": "/var/log/x.ftrace",
+		// Composite trace suffixes must still be recognized when prose is glued.
+		"分析record_trace_20260605224432@3279-299954687.sys.ftrace里面": "record_trace_20260605224432@3279-299954687.sys.ftrace",
+		// Labels before a path are presentation, not part of the artifact path.
+		"Trace:record_trace_20260605224432@3279-299954687.sys.ftrace里面": "record_trace_20260605224432@3279-299954687.sys.ftrace",
+		"东湖Trace：/tmp/frame.systrace里面":                                 "/tmp/frame.systrace",
+		// Windows drive prefixes are path syntax, not labels.
+		`D:\temp\frame.systrace`: `D:\temp\frame.systrace`,
 		// Already-clean paths pass through unchanged.
 		"/tmp/frame.systrace": "/tmp/frame.systrace",
 		"capture.atrace":      "capture.atrace",
@@ -125,6 +132,7 @@ func TestLooksLikeRuntimeArtifactPath(t *testing.T) {
 		"trace.HTRACE",
 		"capture.atrace",
 		"capture.ftrace",
+		"record_trace_20260605224432@3279-299954687.sys.ftrace",
 		"sample.perfetto",
 		"sample.perftrace",
 		"sample.tracebundle.json",

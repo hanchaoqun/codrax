@@ -227,6 +227,7 @@ codrax -r "分析这个鸿蒙trace berlin.systrace 其中 42591 进程在
      - `TestSkillTierAwareWorkflow_TraceGatedByTypedArtifact` 新增 runtime preflight trace path、analysis referenced trace path、log-only negative。
      - `TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForRuntimePreflightTrace`。
      - `TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForRequestModelTracePath`。
+   - **2026-07-02 residual carrier fix(已交付)**:客户 `trace_repl.log` 的真实写法是 `Trace:record_trace_...sys.ftrace里面`,旧 path-token 裁剪把 `Trace:` 当成 source 前缀,导致 request-only artifact 弱记录(`bytes=0`)先进入 merge 并压住 repo-root resolved 强记录。修复后 `RuntimeArtifactPathInToken` 结构化裁剪 `label:path` / `label：path`,保护 Windows drive,且 Run-entry preflight merge 以 repo-root resolved artifact 优先。新增 `.sys.ftrace` 组合形态回归覆盖 outputdump、Run preflight、explorer grep→trace_query pullback、completion citation-floor bypass。
 ### Step 1/2 稳定性收敛(2026-07-01,回归修复)
 
 用户反馈"最新版本模型不用 trace_query、一直用 grep 分析 trace"。诊断:grep 是 skill 里 trace_query **失败后的既定兜底**,故根因是 trace_query 在真实 trace 上**报错/返回空 → 模型放弃**。两个 Gap 3 改动过激,各修一处:

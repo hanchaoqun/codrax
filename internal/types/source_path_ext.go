@@ -182,6 +182,9 @@ func RuntimeArtifactPathInToken(token string) string {
 	if token == "" {
 		return ""
 	}
+	if labeled := dropLeadingArtifactLabel(token); labeled != "" {
+		return labeled
+	}
 	if RuntimeArtifactPathKind(token) != "" {
 		if lead := dropLeadingArtifactProse(token); lead != token && RuntimeArtifactPathKind(lead) != "" {
 			return lead
@@ -196,6 +199,44 @@ func RuntimeArtifactPathInToken(token string) string {
 		return lead
 	}
 	return trimmed
+}
+
+func dropLeadingArtifactLabel(s string) string {
+	s = strings.TrimSpace(s)
+	for i, r := range s {
+		if r != ':' && r != '：' {
+			continue
+		}
+		prefix := strings.TrimSpace(s[:i])
+		suffix := strings.TrimSpace(s[i+utf8.RuneLen(r):])
+		if prefix == "" || suffix == "" {
+			continue
+		}
+		if isWindowsDriveArtifactPath(prefix, suffix) {
+			continue
+		}
+		if strings.ContainsAny(prefix, `/\`) {
+			continue
+		}
+		if RuntimeArtifactPathKind(suffix) != "" {
+			return suffix
+		}
+		if carved := RuntimeArtifactPathInToken(suffix); carved != "" {
+			return carved
+		}
+	}
+	return ""
+}
+
+func isWindowsDriveArtifactPath(prefix, suffix string) bool {
+	if len(prefix) != 1 || suffix == "" {
+		return false
+	}
+	r := rune(prefix[0])
+	if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
+		return false
+	}
+	return strings.HasPrefix(suffix, `\`) || strings.HasPrefix(suffix, `/`)
 }
 
 func dropLeadingArtifactProse(s string) string {

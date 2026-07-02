@@ -164,6 +164,35 @@ func TestRun_RequestRuntimeArtifactPathDefersSingleRepoGraphWarmup(t *testing.T)
 	}
 }
 
+func TestRuntimeArtifactPreflightProfileForRun_CompositeFtraceNamedInChineseRequest(t *testing.T) {
+	repo := t.TempDir()
+	traceRel := "record_trace_20260605224432@3279-299954687.sys.ftrace"
+	tracePath := filepath.Join(repo, traceRel)
+	if err := os.WriteFile(tracePath, []byte("sched_switch: prev_comm=UI prev_pid=19592 prev_state=S ==> next_comm=waker next_pid=3942\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	profile := runtimeArtifactPreflightProfileForRun(
+		"分析东湖Trace:"+traceRel+"里面这一帧 Choreographer#doFrame 94410，不分析代码",
+		repo,
+		"",
+		"",
+	)
+	if !profile.SourceNavigationOptionalForAnalyze() || !profile.HasTraceArtifact() {
+		t.Fatalf("composite .sys.ftrace path should become typed trace preflight, got %+v", profile)
+	}
+	if len(profile.Artifacts) != 1 {
+		t.Fatalf("preflight artifact count=%d, want 1: %+v", len(profile.Artifacts), profile.Artifacts)
+	}
+	got := profile.Artifacts[0]
+	if got.Kind != "trace" || got.Source != traceRel || got.Carrier != "request_path" {
+		t.Fatalf("preflight artifact drifted: %+v", got)
+	}
+	if got.Bytes <= 0 {
+		t.Fatalf("preflight should preserve artifact size, got %+v", got)
+	}
+}
+
 func TestRun_SourceTurnStillWarmsSingleRepoGraph(t *testing.T) {
 	repo := t.TempDir()
 	if err := touchTestFile(repo, "main.go"); err != nil {

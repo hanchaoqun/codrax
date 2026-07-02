@@ -283,6 +283,33 @@ func TestRuntimeArtifactsFromRequestCJKGluedPath(t *testing.T) {
 	}
 }
 
+func TestRuntimeArtifactsFromRequestCompositeFtraceCJKGluedPath(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "record_trace_20260605224432@3279-299954687.sys.ftrace")
+	if err := os.WriteFile(tracePath, []byte("sched_switch: prev_comm=UI prev_pid=19592 prev_state=S ==> next_comm=waker next_pid=3942\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	artifacts := RuntimeArtifactsFromRequest("分析东湖Trace:" + tracePath + "里面这一帧，不分析代码")
+	if len(artifacts) != 1 {
+		t.Fatalf("composite .sys.ftrace request path should report one artifact, got %+v", artifacts)
+	}
+	if artifacts[0].Kind != "trace" || artifacts[0].Source != tracePath {
+		t.Fatalf("composite ftrace artifact identity drifted: %+v", artifacts[0])
+	}
+	body := BuildBody(Args{
+		Request:          "why",
+		Answer:           "answer",
+		RuntimeArtifacts: artifacts,
+	})
+	if !strings.Contains(body, "| trace | "+tracePath+" |") {
+		t.Fatalf("composite ftrace artifact table missing trace source:\n%s", body)
+	}
+	if strings.Contains(body, "里面这一帧") {
+		t.Fatalf("runtime artifact source leaked glued Chinese prose:\n%s", body)
+	}
+}
+
 func TestRuntimeArtifactsFromRequestExpandsTraceBundlePath(t *testing.T) {
 	dir := t.TempDir()
 	bundlePath := filepath.Join(dir, "capture.tracebundle.json")

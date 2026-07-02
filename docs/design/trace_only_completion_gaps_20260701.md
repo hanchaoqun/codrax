@@ -107,3 +107,20 @@ exclude 请求现在完成门自动放宽,模型**根本不需要**手填 `evide
 - `TestRun_RequestRuntimeArtifactPathDefersSingleRepoGraphWarmup`
 - `TestBuildAgentContext_RuntimeArtifactPreflightMirrored`
 - `TestBusContextProjection_AllTypedSignalsPropagated_*`
+
+### 2026-07-02 复核补丁: `Trace:<path>.sys.ftrace里面` 组合形态 —— 已修复
+
+客户最新 `trace_repl.log` 复现了同一类事故的更窄触发面:请求写成 `分析东湖Trace:record_trace_...sys.ftrace里面...不分析代码`。旧的 request-path carrier 能识别 `.ftrace` 后缀,但把展示标签 `Trace:` 当成路径一部分,使 artifact source 变成 `Trace:record_trace_...sys.ftrace`;随后 repo-root resolve 失败、bytes=0,preflight 变弱,explorer 更容易回到 `grep/read_file`,completion 又把 runtime artifact 行号当 current-source citation debt 修。
+
+修法保持 typed artifact carrier 承重,不新增用户意图关键字:
+- `RuntimeArtifactPathInToken` 增加结构化 `label:path` / `label：path` 裁剪,只在冒号后的 suffix 本身是 runtime artifact path 时生效;显式保护 Windows drive `D:\...` 不被误裁。
+- `runtimeArtifactPreflightProfileForRun` 合并 artifact 时让 repo-root resolved artifact 优先于 request-only artifact,保留真实 bytes/detail,避免弱 metadata 覆盖强 metadata。
+- explorer trace-only exact policy 已有 `grep/read_file/repo_map -> trace_query` 回拉;新增 `.sys.ftrace` 组合形态测试钉住该策略。
+- completion 新增 `.sys.ftrace + RuntimeArtifactPreflight + ExcludesCurrentSource + CitationReq.MinCitations=2` 回归,确认 trace-only 请求可直接完成,不再被源码 citation floor 打回。
+
+测试:
+- `TestRuntimeArtifactPathInToken` 新增 `Trace:record_trace_...sys.ftrace里面`、中文冒号和 Windows 盘符边界。
+- `TestRuntimeArtifactsFromRequestCompositeFtraceCJKGluedPath`
+- `TestRuntimeArtifactPreflightProfileForRun_CompositeFtraceNamedInChineseRequest`
+- `TestTraceOnlyExactPreflightPolicyBlocksCompositeFtraceGrepFallback`
+- `TestEmitInvestigationComplete_CompositeFtracePreflightExcludeBypassesCitationFloor`

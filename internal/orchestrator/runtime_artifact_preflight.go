@@ -11,8 +11,8 @@ import (
 
 func runtimeArtifactPreflightProfileForRun(request, repoRoot, attachedLog, attachedTrace string) types.RuntimeArtifactPreflightProfile {
 	artifacts := outputdump.MergeRuntimeArtifacts(
-		outputdump.RuntimeArtifactsFromRequest(request),
 		runtimeArtifactsFromRequestRepoRoot(request, repoRoot),
+		outputdump.RuntimeArtifactsFromRequest(request),
 		outputdump.RuntimeArtifactsFromAttachment("log", attachedLog),
 		outputdump.RuntimeArtifactsFromAttachment("trace", attachedTrace),
 	)
