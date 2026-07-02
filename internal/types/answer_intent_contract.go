@@ -141,6 +141,17 @@ func (p ClaimGroundingPolicy) IsValid() bool {
 type AnswerIntentContract struct {
 	Origins          []AnswerEvidenceOrigin
 	RequestedOutputs []AnswerRequestedOutput
+
+	// SourceInventoryAttributeDemand reports that the request demands
+	// per-member attribute columns, so source-inventory attribute records are
+	// principal answer content rather than advisory context. Compiled from
+	// typed-only inputs: Predicates.HasPerMemberTable or an active
+	// SourceInventoryProfile requesting a non-identity field. Plain member
+	// enumerations (IsCategoryEnumeration / IntentEnumerate) demand members,
+	// not columns, and deliberately do not activate it. No RawRequest keyword
+	// table, repo-map rank, grep count, evidence label, or model prose can
+	// activate this field.
+	SourceInventoryAttributeDemand bool
 }
 
 func (c AnswerIntentContract) HasOrigin(origin AnswerEvidenceOrigin) bool {
@@ -272,7 +283,47 @@ func CompileAnswerIntentContract(rm RequestModel, contract *AnswerContract) Answ
 	sort.SliceStable(outputs, func(i, j int) bool {
 		return answerRequestedOutputRank(outputs[i]) < answerRequestedOutputRank(outputs[j])
 	})
-	return AnswerIntentContract{Origins: origins, RequestedOutputs: outputs}
+	return AnswerIntentContract{
+		Origins:                        origins,
+		RequestedOutputs:               outputs,
+		SourceInventoryAttributeDemand: requestDemandsSourceInventoryAttributes(rm),
+	}
+}
+
+// requestDemandsSourceInventoryAttributes is the typed predicate behind
+// AnswerIntentContract.SourceInventoryAttributeDemand: a per-member table makes
+// attribute columns part of the answer, as does an inventory profile that asks
+// for fields beyond the name/location identity already carried by member rows.
+func requestDemandsSourceInventoryAttributes(rm RequestModel) bool {
+	if rm.Predicates.HasPerMemberTable {
+		return true
+	}
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	for _, field := range rm.SourceInventoryProfile.RequestedFields {
+		if sourceInventoryRequestedFieldIsAttributeColumn(field) {
+			return true
+		}
+	}
+	return false
+}
+
+// sourceInventoryRequestedFieldIsAttributeColumn splits the typed requested
+// fields into identity fields (name/location — always carried by member
+// records) and per-member attribute columns that need attribute records.
+func sourceInventoryRequestedFieldIsAttributeColumn(field SourceInventoryRequestedField) bool {
+	switch field {
+	case SourceInventoryFieldSummary,
+		SourceInventoryFieldValues,
+		SourceInventoryFieldCount,
+		SourceInventoryFieldPackage,
+		SourceInventoryFieldModule,
+		SourceInventoryFieldNamespace:
+		return true
+	default:
+		return false
+	}
 }
 
 func requestModelShouldRequestScalarOutput(rm RequestModel) bool {

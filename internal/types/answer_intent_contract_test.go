@@ -592,6 +592,62 @@ func TestCompileAnswerIntentContract_ExactResolutionAllowsAbsenceOutput(t *testi
 	}
 }
 
+func TestCompileAnswerIntentContract_SourceInventoryAttributeDemand(t *testing.T) {
+	perMemberTable := RequestModel{
+		Intent:     IntentExplain,
+		Predicates: SemanticPredicates{HasPerMemberTable: true},
+	}
+	if !CompileAnswerIntentContract(perMemberTable, nil).SourceInventoryAttributeDemand {
+		t.Fatalf("per-member table request must demand source-inventory attribute columns")
+	}
+
+	summaryColumns := RequestModel{
+		Intent: IntentEnumerate,
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldSummary},
+		},
+	}
+	if !CompileAnswerIntentContract(summaryColumns, nil).SourceInventoryAttributeDemand {
+		t.Fatalf("inventory profile requesting summary columns must demand attribute records")
+	}
+
+	identityOnly := RequestModel{
+		Intent: IntentEnumerate,
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+		},
+	}
+	if CompileAnswerIntentContract(identityOnly, nil).SourceInventoryAttributeDemand {
+		t.Fatalf("name/location identity fields ride on member records and must not demand attribute columns")
+	}
+
+	// Plain member enumerations demand members, not columns: the demand lane
+	// must not widen to IsCategoryEnumeration / IntentEnumerate (that would
+	// re-create the crowding 3fab4c14 fixed).
+	plainEnumeration := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	if CompileAnswerIntentContract(plainEnumeration, nil).SourceInventoryAttributeDemand {
+		t.Fatalf("plain member enumeration must not demand attribute columns")
+	}
+
+	inactiveProfile := RequestModel{
+		Intent: IntentEnumerate,
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldSummary},
+		},
+	}
+	if CompileAnswerIntentContract(inactiveProfile, nil).SourceInventoryAttributeDemand {
+		t.Fatalf("inactive inventory profile (no target roles) must not demand attribute columns")
+	}
+}
+
 func assertAnswerIntentContract(t *testing.T, got AnswerIntentContract, origins []AnswerEvidenceOrigin, outputs []AnswerRequestedOutput) {
 	t.Helper()
 	if !reflect.DeepEqual(got.Origins, origins) {

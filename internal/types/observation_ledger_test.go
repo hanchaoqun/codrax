@@ -1930,6 +1930,180 @@ func TestPrioritizeObservationRecords_PrincipalAggregateSurvivesSourceEvidenceBu
 	}
 }
 
+// sourceInventoryAttributeDemandRecords builds a compile-order ledger slice —
+// set record, then member rows each immediately followed by their attribute
+// row, then unrelated evidence records — with identical anchor shapes so rank
+// differences come only from the set/attr classifier branches.
+func sourceInventoryAttributeDemandRecords(memberCount, evidenceCount int) []ObservationRecord {
+	records := []ObservationRecord{{
+		ID:     "source_inventory:set:0",
+		Origin: AnswerEvidenceOriginCurrentSource,
+		Role:   AnswerAggregateRoleSupportingCoverage,
+		SourceRef: ObservationSourceRef{
+			Kind: ObservationSourceCurrentSource,
+			Path: "internal",
+		},
+		Summary: fmt.Sprintf("source-inventory function count=%d complete=true", memberCount),
+	}}
+	for i := 0; i < memberCount; i++ {
+		records = append(records, ObservationRecord{
+			ID:     fmt.Sprintf("source_inventory:0:%d", i),
+			Origin: AnswerEvidenceOriginCurrentSource,
+			Role:   AnswerAggregateRoleSupportingCoverage,
+			SourceRef: ObservationSourceRef{
+				Kind: ObservationSourceCurrentSource,
+				Path: fmt.Sprintf("internal/pkg%d/file.go", i),
+			},
+			Span:            ObservationSpan{LineStart: 10 + i},
+			AnchorKind:      AnchorDefinition,
+			EvidenceScope:   ScopeLine,
+			GroundingStatus: GroundingRecovered,
+			Summary:         fmt.Sprintf("member row %d", i),
+		}, ObservationRecord{
+			ID:     fmt.Sprintf("source_inventory:0:%d:attr:0", i),
+			Origin: AnswerEvidenceOriginCurrentSource,
+			Role:   AnswerAggregateRoleSupportingCoverage,
+			SourceRef: ObservationSourceRef{
+				Kind: ObservationSourceCurrentSource,
+				Path: fmt.Sprintf("internal/pkg%d/file.go", i),
+			},
+			Span:            ObservationSpan{LineStart: 20 + i},
+			AnchorKind:      AnchorDefinition,
+			EvidenceScope:   ScopeLine,
+			GroundingStatus: GroundingRecovered,
+			Summary:         fmt.Sprintf("attribute column for member %d", i),
+		})
+	}
+	for i := 0; i < evidenceCount; i++ {
+		records = append(records, ObservationRecord{
+			ID:     fmt.Sprintf("evidence:unrelated:%d", i),
+			Origin: AnswerEvidenceOriginCurrentSource,
+			Role:   AnswerAggregateRoleSupportingCoverage,
+			SourceRef: ObservationSourceRef{
+				Kind: ObservationSourceCurrentSource,
+				Path: fmt.Sprintf("internal/other_%d.go", i),
+			},
+			Span:            ObservationSpan{LineStart: 40 + i},
+			AnchorKind:      AnchorDefinition,
+			EvidenceScope:   ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			Summary:         fmt.Sprintf("unrelated evidence %d", i),
+		})
+	}
+	return records
+}
+
+func assertObservationRecordOrder(t *testing.T, got []ObservationRecord, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("got %d records, want %d: %+v", len(got), len(want), got)
+	}
+	for i, record := range got {
+		if record.ID != want[i] {
+			t.Fatalf("record order mismatch at %d: got %s, want %s (full: %+v)", i, record.ID, want[i], got)
+		}
+	}
+}
+
+// Pins the attribute-demand rank lane: a per-member-table request neutralizes
+// the +30 attr deprioritization so equal rank preserves the compile-order
+// member→attr interleave, while the advisory class (HasPerMemberTable=false)
+// keeps ranking attrs last exactly as 3fab4c14 shipped it.
+func TestPrioritizeObservationRecords_AttributeDemandNeutralizesAttrRank(t *testing.T) {
+	records := sourceInventoryAttributeDemandRecords(2, 2)
+
+	perMemberTable := RequestModel{
+		Intent:     IntentExplain,
+		Predicates: SemanticPredicates{HasPerMemberTable: true},
+	}
+	got := PrioritizeObservationRecords(records, &perMemberTable, nil, len(records))
+	assertObservationRecordOrder(t, got, []string{
+		"source_inventory:set:0",
+		"source_inventory:0:0",
+		"source_inventory:0:0:attr:0",
+		"source_inventory:0:1",
+		"source_inventory:0:1:attr:0",
+		"evidence:unrelated:0",
+		"evidence:unrelated:1",
+	})
+
+	// Under a tight budget the demand lane must keep attrs next to their
+	// member rows instead of dropping them below the limit.
+	got = PrioritizeObservationRecords(records, &perMemberTable, nil, 5)
+	assertObservationRecordOrder(t, got, []string{
+		"source_inventory:set:0",
+		"source_inventory:0:0",
+		"source_inventory:0:0:attr:0",
+		"source_inventory:0:1",
+		"source_inventory:0:1:attr:0",
+	})
+
+	advisory := RequestModel{Intent: IntentExplain}
+	got = PrioritizeObservationRecords(records, &advisory, nil, len(records))
+	assertObservationRecordOrder(t, got, []string{
+		"source_inventory:set:0",
+		"source_inventory:0:0",
+		"source_inventory:0:1",
+		"evidence:unrelated:0",
+		"evidence:unrelated:1",
+		"source_inventory:0:0:attr:0",
+		"source_inventory:0:1:attr:0",
+	})
+}
+
+// Pins the attribute-demand budget bypass: the ≤6 mixed-origin crowding cap
+// stays byte-identical for the advisory class but no longer collapses
+// member+attr rows when the compiled contract demands per-member columns.
+// budgetObservationRecordsByOrigin remains the overall limiter.
+func TestPrioritizeObservationRecords_AttributeDemandBypassesSourceInventoryCrowdingCap(t *testing.T) {
+	records := sourceInventoryAttributeDemandRecords(6, 3)
+	limit := 15
+
+	perMemberTable := RequestModel{
+		Intent:     IntentExplain,
+		Predicates: SemanticPredicates{HasPerMemberTable: true},
+	}
+	got := PrioritizeObservationRecords(records, &perMemberTable, nil, limit)
+	if len(got) != limit {
+		t.Fatalf("overall limit must still apply, got %d records want %d: %+v", len(got), limit, got)
+	}
+	members, attrs := 0, 0
+	for _, record := range got {
+		if strings.HasPrefix(record.ID, "source_inventory:0:") {
+			if strings.Contains(record.ID, ":attr:") {
+				attrs++
+			} else {
+				members++
+			}
+		}
+	}
+	if members != 6 || attrs != 6 {
+		t.Fatalf("per-member-table run must keep member+attr rows past the crowding cap, got members=%d attrs=%d in %+v", members, attrs, got)
+	}
+
+	advisory := RequestModel{Intent: IntentExplain}
+	got = PrioritizeObservationRecords(records, &advisory, nil, limit)
+	sourceInventorySeen := 0
+	renderedIDs := map[string]bool{}
+	for _, record := range got {
+		renderedIDs[record.ID] = true
+		if strings.HasPrefix(record.ID, "source_inventory:") {
+			sourceInventorySeen++
+		}
+		if strings.Contains(record.ID, ":attr:") {
+			t.Fatalf("advisory class must keep ranking attrs behind the crowding cap: %+v", got)
+		}
+	}
+	if sourceInventorySeen > sourceInventoryObservationPromptBudget(limit) {
+		t.Fatalf("advisory crowding cap regressed: got %d source-inventory records in %+v", sourceInventorySeen, got)
+	}
+	// E2 truncation disclosure: rows dropped by the advisory cap must stay
+	// visible to the "(showing N of M; dropped: ...)" notice path.
+	if dropped := SummarizeDroppedObservationRecords(records, renderedIDs); !strings.Contains(dropped, "current_source×7") {
+		t.Fatalf("dropped source-inventory rows must surface in the truncation disclosure, got %q", dropped)
+	}
+}
+
 func TestObservationLedgerInputFromContexts_PrefersAcceptedTurnAToolResults(t *testing.T) {
 	mut := NewMutableState("history")
 	mut.SetTurnAArtifacts(TurnAArtifacts{

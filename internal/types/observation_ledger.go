@@ -185,15 +185,23 @@ func PrioritizeObservationRecords(records []ObservationRecord, rm *RequestModel,
 	sort.SliceStable(out, func(i, j int) bool {
 		return observationRecordRank(out[i], intent) < observationRecordRank(out[j], intent)
 	})
-	out = budgetSourceInventoryObservationRecords(out, limit)
+	out = budgetSourceInventoryObservationRecords(out, intent, limit)
 	if len(out) > limit {
 		out = budgetObservationRecordsByOrigin(out, intent, limit)
 	}
 	return out
 }
 
-func budgetSourceInventoryObservationRecords(sorted []ObservationRecord, limit int) []ObservationRecord {
+func budgetSourceInventoryObservationRecords(sorted []ObservationRecord, intent *AnswerIntentContract, limit int) []ObservationRecord {
 	if limit <= 0 || len(sorted) <= limit {
+		return sorted
+	}
+	// When the request demands per-member attribute columns, inventory rows are
+	// principal answer content: the advisory crowding cap below would collapse
+	// N members × k attrs to a handful of rows regardless of rank.
+	// budgetObservationRecordsByOrigin stays the overall limiter with its
+	// per-requested-origin survival floor.
+	if intent != nil && intent.SourceInventoryAttributeDemand {
 		return sorted
 	}
 	sourceInventoryTotal := 0
@@ -728,7 +736,14 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 	}
 	if observationRecordIsSourceInventorySet(record) {
 		rank -= 180
-	} else if observationRecordIsSourceInventoryAttribute(record) {
+	} else if observationRecordIsSourceInventoryAttribute(record) &&
+		(intent == nil || !intent.SourceInventoryAttributeDemand) {
+		// Attribute rows are advisory context unless the compiled contract says
+		// the request demands per-member attribute columns. The demand lane is
+		// neutral, not a boost: equal rank preserves the compile-order
+		// member→attr interleave under sort.SliceStable, while any negative
+		// adjustment would rank attrs above their own member rows and, under
+		// budget pressure, keep orphan columns whose row anchors were dropped.
 		rank += 30
 	}
 	return rank
@@ -760,7 +775,7 @@ func observationRecordIsSourceInventorySet(record ObservationRecord) bool {
 
 func observationRecordIsSourceInventoryAttribute(record ObservationRecord) bool {
 	id := strings.TrimSpace(record.ID)
-	return strings.Contains(id, ":attr:")
+	return strings.HasPrefix(id, "source_inventory:") && strings.Contains(id, ":attr:")
 }
 
 func compileEvidenceItemObservations(items []EvidenceItem, add func(ObservationRecord)) {
