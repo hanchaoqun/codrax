@@ -1182,6 +1182,36 @@ func (rm RequestModel) HasRuntimeArtifactPathReference() bool {
 	return false
 }
 
+// HasTypedRuntimeArtifactPathIdentity reports whether any typed analyzer field
+// (exact targets, entities, required files, source quotes, requested
+// dimensions) carries a path-shaped log/trace artifact token, regardless of
+// whether an external-observation policy was emitted. This is an artifact
+// IDENTITY hint only — "a runtime artifact is in play this turn".
+//
+// It exists for relaxation surfaces (admitting a model-declared
+// evidence-floor waiver) where requiring the LLM-emitted citation policy as a
+// precondition stranded real trace-only turns: in trace_repl.log (2026-07-02)
+// the analyzer cleanly extracted the .sys.ftrace entity but emitted no
+// policy, so every policy-gated carrier read as false and the declared waiver
+// was silently dropped. Citation-mode semantics
+// (ArtifactCitationsExternalOnly / ExcludesCurrentSource) and hard gates that
+// BLOCK tools or arm trace-query-first requirements must keep using the
+// policy-gated HasRuntimeArtifactPathReference — an entity scan alone is not
+// precise enough to justify blocking anything.
+func (rm RequestModel) HasTypedRuntimeArtifactPathIdentity() bool {
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if RuntimeArtifactPathKind(hint.Path) != "" {
+			return true
+		}
+	}
+	for _, raw := range rm.runtimeArtifactPathReferenceCandidates() {
+		if RuntimeArtifactPathKindInText(raw) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // RuntimeArtifactPathReferenceKind returns the first explicit runtime artifact
 // path family preserved in structured analyzer fields. Empty means no typed
 // runtime path reference is active. Callers use this for origin-specific

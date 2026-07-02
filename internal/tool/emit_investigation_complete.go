@@ -4001,7 +4001,13 @@ func runtimeArtifactContextActiveForCompletion(ctx *types.BusContext, rm *types.
 	if rm == nil {
 		return false
 	}
-	return rm.LogTriage != nil || rm.PerfTrace != nil || rm.HasRuntimeArtifactPathReference()
+	// HasTypedRuntimeArtifactPathIdentity supersedes the policy-gated
+	// HasRuntimeArtifactPathReference here on purpose: this predicate only
+	// widens a RELAXATION surface (whether a model-declared waiver is
+	// admissible), so the identity of an analyzer-extracted artifact path is
+	// enough — demanding the LLM-emitted citation policy as well stranded
+	// trace-only turns whenever the analyzer skipped the policy field.
+	return rm.LogTriage != nil || rm.PerfTrace != nil || rm.HasTypedRuntimeArtifactPathIdentity()
 }
 
 func requestModelForWaiver(ctx *types.BusContext) *types.RequestModel {

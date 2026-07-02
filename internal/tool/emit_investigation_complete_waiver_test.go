@@ -180,6 +180,51 @@ func TestEmitInvestigationComplete_WaiverAcceptedOnZeroCurrentSourceRepo(t *test
 	}
 }
 
+// TestEmitInvestigationComplete_WaiverAdmittedViaTypedArtifactIdentity pins
+// the carrier half of the same customer failure: the analyzer cleanly
+// extracted the .sys.ftrace filename into typed entities but emitted no
+// external-observation policy, and every policy-gated carrier read false — so
+// the declared waiver was dropped even though a runtime artifact was plainly
+// in play. The typed artifact-path identity (policy-independent) must be
+// enough to admit the waiver on this relaxation surface.
+func TestEmitInvestigationComplete_WaiverAdmittedViaTypedArtifactIdentity(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("分析 trace 丢帧,不分析代码")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentRootCause,
+				AnalyzerHints: types.AnalyzerHints{
+					Entities: []string{"record_trace_20260605224432@3279-299954687.sys.ftrace", "Choreographer#doFrame 94410"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"reason":"trace-only diagnosis complete from runtime observations",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{"reason":"external_only_trace","rationale":"only evidence source is the referenced ftrace artifact"}
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if w := mut.EvidenceFloorWaiver(); !w.IsActive() {
+		t.Fatalf("typed artifact identity must admit the waiver without an analyzer policy, got %+v (Summary=%q)", w, res.Summary)
+	}
+	if strings.Contains(res.Summary, "ignored evidence_floor_waiver") {
+		t.Fatalf("waiver must not be dropped when a typed artifact identity is present: %s", res.Summary)
+	}
+}
+
 // TestEmitInvestigationComplete_WaiverRejectionNamesBlockingRequirement pins
 // the actionability half of the same fix: when the waiver IS legitimately
 // inadmissible (source files exist and the request demands change impact
