@@ -1393,3 +1393,49 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 - Batch 3 已落地:普通 broad grep 仍保留 exact-line grep/read_file recovery;plain log artifact 仍保留 artifact-local line-window recovery;trace artifact broad grep 仍保留 `trace_query` recovery,不会被 repo_map 抢走。
 - Batch 4 已落地:`TestGrepTool` 覆盖 ordinary broad grep、relation-shaped broad grep、source-inventory broad grep、mixed runtime/current-source broad grep、trace artifact broad grep 的 summary/refinement 一致性。
 - Batch 5 已验证:`go test ./internal/tool -run 'GrepTool|BroadResult|ListFilesBroadResult|ToolRefinement|ExecCommandRefinement' -count=1`、`go test ./internal/types -run 'ToolRefinement|RepoMapNavigation|RuntimeSourceAnswerAuthority' -count=1`、`go test ./internal/tool -count=1` 均通过。
+
+### 7.29 最新反馈 gap:Trace 因果投影关系语义与 HTML 渲染仍不够清晰(2026-07-02)
+
+客户反馈的核心不是 trace_query 根因算法,而是 `Trace 因果投影` 的最终展示语义仍混在一起:
+
+1. HTML/文档中偶发删除号样式,Markdown 原文正常。初步原因是 trace 名称、线程名或模型/工具文本中出现 `~`/`~~` 范围表达,HTML Markdown renderer 按 strikethrough 解析。系统生成的 trace projection 文本必须做 Markdown-safe 转义,不能要求用户改 trace 名称或时间范围表达。
+2. 根因卡片里的 `P0/P1/P2` 没有解释,用户无法判断它是优先级还是层级。处理优先级、证据层级、链路深度必须拆开表达。
+3. `深度` 与 `层级` 混用:深度是从用户关注线程沿 on-chain 唤醒/依赖链向上游追溯的 hop;层级是证据角色(主根因/on-chain/背景/语义优化点),二者不是同一维度。
+4. `on-chain 链路拆解` 仍偏表格审计面,没有树状结构;用户看不到直接的父子/上游/下游关系。
+5. `→` 裸箭头语义不明确,无法判断是唤醒关系、依赖关系、下钻关系还是 subject/object 普通连接。
+6. `影响时长拆解` 把 on-chain、语义 span、背景支撑混在同一排序表,缺少层次汇总,用户无法一眼看清用户关注时间窗内各层主因的投影影响。
+7. trace 证据定位被统一长度截断,导致 `file:line-start-line-end` 的行号范围被切坏。
+8. sleep 下钻图里的 `非sleep根因` 表达容易被误读成"非根因",应改成"上游根因(非 sleep 状态)"这类明确表述。
+9. `unknown-thread` 是 trace_query 在线程 `comm/pid` 均未落到当前投影时使用的 typed sentinel,不是一个可优化的真实线程名。用户面应显示为"未解析线程",并保留其 caveat 语义。
+
+**原则。**
+
+- 仅消费 typed `TraceCausalProjection` / `TraceCausalProjectionNode` / `SupportRefs` / `WakeupPath`,不解析用户原文、模型散文、最终答案文本或工具 summary。
+- 本批只改 AnswerDocumentV2 展示投影层;不改变 trace_query 取证、completion hard gate、探索调度或根因排序算法。
+- 用户面可压缩,但行号范围与证据 ID 不可被截断到不可用;完整 payload 仍以原始 `trace_query` typed record 为权威。
+- 关系必须显式命名:唤醒链、依赖链、sleep 下钻、语义 span、背景支撑;不再让裸 `→` 承担语义。
+- 影响时长按层分桶展示,再保留审计表;第一屏负责可读,审计面负责无损。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录展示语义、Markdown/HTML、证据定位和任务拆解。
+- **Batch 2: 标签语义拆分。** 去掉用户面的裸 `P0/P1/P2`,改为 `立即处理/重点关注/背景参考` 等明确处理优先级;层级继续单独显示 `主根因/on-chain/背景/语义优化点`,深度单独显示 `深度N`。
+- **Batch 3: on-chain 树状视图。** 新增 `runtime_trace_causal_projection_on_chain_tree` bullet/tree block,用 typed depth 和 relation label 表达上游→目标的层次;裸箭头旁必须带关系词,或改为 `关系: 唤醒链/依赖链`。
+- **Batch 4: 影响时长分层。** 新增或重构影响表为 `层级/关注点/窗口投影/链上累计/有效归因/实际状态/证据`,on-chain 主链优先,背景与语义 span 不再和主链原因混成一个无层次排序。
+- **Batch 5: Markdown-safe trace 文本。** 对系统生成的 trace projection 可见文本做 Markdown-safe escape,至少覆盖 `~`/`~~` 导致的 HTML 删除号问题,并确保表格单元和 bullet text 不被误渲染。
+- **Batch 6: 证据定位不截断行号。** `runtimeTraceCausalProjectionEvidenceDisplayRef` 必须保留完整 `:line` 或 `:line-start-line-end`;路径可压缩成尾部文件名,但行号范围不可被 ellipsis 切断。
+- **Batch 7: 回归看护。** 更新 ZH/EN trace projection tests,钉住:无裸 `P0`,关系词清晰,tree block 存在,影响分层存在,`~~` 不出现在系统生成 surface,长 trace locator 行号范围完整。
+- **Batch 8: focused 验证与推送。** 跑 trace causal projection focused tests、`go test ./internal/tool ./internal/types -count=1`,再提交推送 main。
+
+**当前进展。**
+
+- Batch 1 已落地:本节记录 gap、原则和任务拆解。
+- Batch 2 已落地:用户面的 `P0/P1/P2` 改为明确处理优先级(`立即处理/重点关注/确定优化/支撑参考`),证据层级和链路深度分列/分文案解释。
+- Batch 3 已落地:新增 `runtime_trace_causal_projection_on_chain_tree` 有界树状视图,每行显式展示关系类型(`唤醒链/依赖链/sleep下钻/背景支撑`),完整 typed rows 仍保留在 on-chain 明细表和原始 `trace_query` 记录中。
+- Batch 4 已落地:影响时长表改为 `层级/关注点/关系/窗口投影/链上累计/有效归因/实际状态/窗口边界/证据`,按层级排序,不再把背景和 on-chain 主链无层次混排。
+- Batch 5 已落地:系统生成的 trace projection 可见文本对 `~`/`~~` 做 Markdown-safe 转义,避免 HTML renderer 把 trace 名称或范围表达误渲染成删除号。
+- Batch 6 已落地:证据 locator 压缩只作用于路径部分,完整 `:line` 或 `:line-start-line-end` 后缀不再被 ellipsis 截断。
+- Batch 7 已落地:更新 trace projection ZH/EN focused tests,钉住无裸 `P0`,关系词清晰,tree block 存在且有界,影响分层存在,`非sleep根因` 不回归,`unknown-thread` 用户面翻译为未解析线程,`~~` 不出现在系统生成 surface,长 trace locator 行号范围完整。
+- Batch 8 已验证:`go test ./internal/tool -run 'TraceCausalProjection|RuntimeTraceCausalProjection' -count=1` 与 `go test ./internal/tool ./internal/types -count=1` 通过。
+
+**后续 UX 候选。** 客户样例仍显示大量同类 `io_latency` / `unknown-thread` 行。当前批先保证关系语义和证据定位准确;后续可做 typed cause-grouping projection:按 `subject + relation + object/predicate + layer` 聚合重复低影响行,第一屏展示 grouped count/total impact/top evidence,完整明细继续保留在审计表和原始 `trace_query` record。

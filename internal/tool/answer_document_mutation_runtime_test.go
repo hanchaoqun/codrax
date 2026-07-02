@@ -658,6 +658,25 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 				},
 				Confidence: 0.82,
 			},
+			{
+				ID:              "bg-unresolved",
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				Predicate:       "root_cause_context",
+				ClaimKey:        "root_cause_context:background",
+				Subject:         "CodecLooper-17604",
+				Object:          "unknown-thread",
+				Value:           "6.886",
+				Unit:            "ms",
+				RichNotes: []string{
+					"chain_relevance=background",
+					"causality=background",
+					"cumulative_impact_ms=6.886",
+				},
+				Confidence: 0.80,
+			},
 		},
 	}}
 	doc := &types.AnswerDocumentV2{
@@ -695,13 +714,15 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 		t.Fatalf("lead overview should stay compact, got %d cards: %+v", len(projection.Items), projection.Items)
 	}
 	if len(projection.Items) == 0 ||
-		!strings.Contains(projection.Items[0].Label, "P0") ||
+		!strings.Contains(projection.Items[0].Label, "立即处理") ||
+		strings.Contains(projection.Items[0].Label, "P0") ||
 		!strings.Contains(projection.Items[0].Text, "处理") {
 		t.Fatalf("lead overview should render compact root-cause cards: %+v", projection.Items)
 	}
 
 	text := projectionClusterText(got.Blocks)
 	for _, blockID := range []string{
+		"runtime_trace_causal_projection_on_chain_tree",
 		"runtime_trace_causal_projection_on_chain",
 		"runtime_trace_causal_projection_impact",
 	} {
@@ -711,10 +732,16 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	}
 	// Root cause overview + impact breakdown preserve the main facts without
 	// stuffing the full audit payload into one table cell.
-	for _, want := range []string{"threadpool-400 → io_wait", "累计 11.000ms", "On-chain 链路拆解", "影响时长拆解"} {
+	for _, want := range []string{"threadpool-400 / io_wait", "累计 11.000ms", "On-chain 树状链路", "On-chain 链路拆解", "影响时长拆解"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("projection should surface multi-view root cause fact %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "P0") {
+		t.Fatalf("projection should not expose ambiguous P0/P1/P2 labels:\n%s", text)
+	}
+	if !strings.Contains(text, "CodecLooper-17604 / 未解析线程") || strings.Contains(text, "unknown-thread") {
+		t.Fatalf("projection should translate unknown-thread sentinel for users without losing the unresolved-thread caveat:\n%s", text)
 	}
 	for _, want := range []string{"阻塞/IO", "执行/算力", "确定性优化点"} {
 		if !strings.Contains(text, want) {
@@ -725,13 +752,13 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	if onChain == nil {
 		t.Fatalf("missing on-chain projection block:\n%s", text)
 	}
-	for _, want := range []string{"上游", "下游或影响点", "责任/影响", "链上累计", "本层投影"} {
+	for _, want := range []string{"链路深度", "关系", "上游原因", "下游/影响点", "证据层级", "窗口投影", "链上累计"} {
 		if !stringSliceContains(onChain.Columns, want) {
 			t.Fatalf("on-chain table should expose responsibility and impact reading %q: %+v", want, onChain.Columns)
 		}
 	}
 	// Co-primary layer preserved.
-	if !strings.Contains(text, "app-100 → compute_supply") {
+	if !strings.Contains(text, "app-100 / compute_supply") {
 		t.Fatalf("projection should preserve co-primary layers:\n%s", text)
 	}
 	// Semantic optimization point with its concrete span name + class.
@@ -870,7 +897,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 
 	// gap c: the duration triad renders in a dedicated impact table with a
 	// magnitude bar instead of being squeezed into the lead table.
-	for _, want := range []string{"█", "| 节点 | 强度 | 链上累计 | 本节点投影 | 有效归因 | 实际状态 |", "11.040ms", "4.600ms"} {
+	for _, want := range []string{"█", "| 层级 | 关注点 | 关系 | 窗口投影 | 链上累计 | 有效归因 | 实际状态 |", "11.040ms", "4.600ms"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("duration triad + bar must render (gap c): missing %q:\n%s", want, rendered)
 		}
@@ -882,6 +909,9 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 			t.Fatalf("sleep drilldown must render (gap d): missing %q:\n%s", want, rendered)
 		}
 	}
+	if !strings.Contains(rendered, "上游根因") || strings.Contains(rendered, "非sleep根因") {
+		t.Fatalf("sleep drilldown wording should avoid ambiguous 非sleep根因 phrasing:\n%s", rendered)
+	}
 	// gap e: the undrillable sleep is explicitly flagged with the typed reason.
 	for _, want := range []string{"⛔", "无法下钻", "missing_wakeup", "lines=88-96"} {
 		if !strings.Contains(rendered, want) {
@@ -890,11 +920,15 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 	}
 	// The section renders compact root-cause cards, split-column on-chain table,
 	// and a mermaid flowchart — not the legacy wide audit table.
-	if !strings.Contains(rendered, "- **P0 · 主根因") ||
-		!strings.Contains(rendered, "| 深度 | 上游 | 下游或影响点 | 责任/影响 | 链上累计 | 本层投影 | 证据 |") ||
-		!strings.Contains(rendered, "| 节点 | 强度 | 链上累计 | 本节点投影 | 有效归因 | 实际状态 |") ||
+	if !strings.Contains(rendered, "- **立即处理 · 主根因") ||
+		!strings.Contains(rendered, "**On-chain 树状链路**") ||
+		!strings.Contains(rendered, "| 链路深度 | 关系 | 上游原因 | 下游/影响点 | 证据层级 | 窗口投影 | 链上累计 | 证据 |") ||
+		!strings.Contains(rendered, "| 层级 | 关注点 | 关系 | 窗口投影 | 链上累计 | 有效归因 | 实际状态 |") ||
 		!strings.Contains(rendered, "```mermaid") {
 		t.Fatalf("section must render as compact cards + split tables + mermaid cluster:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "P0") {
+		t.Fatalf("section must not render ambiguous P0/P1/P2 labels:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "sleep 是等待症状;优先下钻上游") ||
 		strings.Contains(rendered, "| 关注 | 根因/节点 | 影响 | 处理方向 | 证据 |") ||
@@ -949,7 +983,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePre
 		Intent:   types.IntentTrace,
 		Scenario: types.ScenarioPerformanceBottleneck,
 	}}
-	longSubject := "com.example.deep.package.with.very.long.MainThreadRenderer-42591"
+	longSubject := "com.example.deep.package.with.very.long.MainThreadRenderer~~UI~~-42591"
 	longObject := "blocked_on_extremely_long_worker_chain_with_extra_context"
 	longRef := "/very/long/customer/path/hiprofiler_data_20260702_very_long_name.systrace:123-130"
 	bus.ToolResults = []types.ToolResult{{
@@ -994,8 +1028,12 @@ func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePre
 		t.Fatalf("evidence index should render as a bullet list: %+v", evidenceIndex)
 	}
 	if !strings.Contains(text, "完整定位见原始 trace_query 记录") ||
-		!strings.Contains(text, "hiprofiler_data_20260702_very_long_name.systrace") {
+		!strings.Contains(text, "hiprofiler_data_20260702_very_long_name.systrace") ||
+		!strings.Contains(text, ":123-130") {
 		t.Fatalf("evidence index should show short locator and point to original trace_query record:\n%s", text)
+	}
+	if strings.Contains(text, "~~UI~~") {
+		t.Fatalf("trace projection must escape markdown strikethrough markers in system-generated surfaces:\n%s", text)
 	}
 	if strings.Contains(text, "/very/long/customer/path/") ||
 		strings.Contains(text, longRef) {
@@ -1167,13 +1205,13 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 	assertProjectionRowsCitationFree(t, projection)
 	text := projectionClusterText(got.Blocks)
 	// English multi-view projection keeps the overview and impact breakdown.
-	for _, want := range []string{"primary", "threadpool-400 → io_wait", "cum 11.000ms", "On-chain Chain Breakdown", "Impact Duration Breakdown"} {
+	for _, want := range []string{"primary", "threadpool-400 / io_wait", "cum 11.000ms", "On-chain Chain Tree", "On-chain Chain Breakdown", "Impact Duration Breakdown"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("English projection should surface %q:\n%s", want, text)
 		}
 	}
 	onChain := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_on_chain")
-	if onChain == nil || !stringSliceContains(onChain.Columns, "Chain total") || !stringSliceContains(onChain.Columns, "Node projection") {
+	if onChain == nil || !stringSliceContains(onChain.Columns, "Relation") || !stringSliceContains(onChain.Columns, "Chain total") || !stringSliceContains(onChain.Columns, "Window projection") {
 		t.Fatalf("English on-chain table should split chain and node impact: %+v", onChain)
 	}
 	wakeup := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_wakeup")
@@ -1248,7 +1286,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalHopDepth(t *testi
 	}
 	text := projectionClusterText(got.Blocks)
 	// The on-chain io-500 hop keeps its typed depth-4 chain position (gaps a/b).
-	for _, want := range []string{"io-500 → io_wait", "深度4"} {
+	for _, want := range []string{"io-500 / io_wait", "深度4"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("projection should preserve on-chain hop depth %q:\n%s", want, text)
 		}
@@ -1363,10 +1401,14 @@ func TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity(t *
 	// Deep co-primary layers, all 16 semantic spans, and default-depth hops must
 	// all survive as table rows (the table is the lossless surface — rows are
 	// never capped even though diagram nodes may be).
-	for _, want := range []string{"dep-10 → sleep_wait", "深度10"} {
+	for _, want := range []string{"dep-10 / sleep_wait", "深度10"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expanded projection should keep deep typed evidence %q:\n%s", want, text)
 		}
+	}
+	tree := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_on_chain_tree")
+	if tree == nil || len(tree.Items) > 19 || !strings.Contains(projectionClusterText([]types.AnswerBlock{*tree}), "已压缩") {
+		t.Fatalf("tree view should remain bounded while full rows stay in detail tables: %+v", tree)
 	}
 	// Semantic classes across the 16-span bucket survive.
 	for _, class := range []string{"jit_compile", "class_verification", "shader_compile", "runtime_compile"} {

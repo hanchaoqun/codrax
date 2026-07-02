@@ -4378,7 +4378,17 @@ Remaining follow-up:
        - D1-F10g.325c: orchestrator tests now pin both sides: repo-wide source-inventory queues zero pre-dispatch `PendingRead` entries from prescan support paths; bounded inventory still queues up to `SourceInventoryRequiredFileHintCoverageMax`.
        - D1-F10g.325d: completion-time `currentSourceForcedReadGatesApply` still opens the source-inventory phase1 gate, but `raisePhase1UnreadPendingReads` only queues files after the existing strict-scope checks. This preserves precise owner补读 while preventing broad prescan ranker noise from becoming a blocker.
        - D1-F10g.325e: type/tool/orchestrator tests pin the distinction between inventory shape, soft prescan projection, root-lens policy, and hard required-file coverage.
-       - Validation passed: `go test ./internal/tool -run 'ProjectAnalyzerPrescanRequiredFileHints|EmitAnalysis_ProjectsPrescanFilesForSourceInventoryCoverage|RaisePhase1UnreadPendingReads_SourceInventory' -count=1`, `go test ./internal/types -run 'RequiredFileHint|SourceInventoryRequiresRepoWideLens' -count=1`, `go test ./internal/orchestrator -run 'SeedRequiredFileHintForcedReadsBeforeExplore|RunForcedReads' -count=1`, and `go test ./internal/types ./internal/orchestrator ./internal/tool ./internal/agent -run 'RequiredFileHint|SourceInventory|RepoMapNavigation|RuntimeSourceAnswerAuthority|SeedRequiredFileHint|ForcedRead' -count=1`.
+      - Validation passed: `go test ./internal/tool -run 'ProjectAnalyzerPrescanRequiredFileHints|EmitAnalysis_ProjectsPrescanFilesForSourceInventoryCoverage|RaisePhase1UnreadPendingReads_SourceInventory' -count=1`, `go test ./internal/types -run 'RequiredFileHint|SourceInventoryRequiresRepoWideLens' -count=1`, `go test ./internal/orchestrator -run 'SeedRequiredFileHintForcedReadsBeforeExplore|RunForcedReads' -count=1`, and `go test ./internal/types ./internal/orchestrator ./internal/tool ./internal/agent -run 'RequiredFileHint|SourceInventory|RepoMapNavigation|RuntimeSourceAnswerAuthority|SeedRequiredFileHint|ForcedRead' -count=1`.
+
+  - **Open D1-G213: selected eval summary can omit a launched case row（P1 / eval observability / pending）**:
+    1. Evidence: `eval/parallel_selected_summary_20260702-post_broad_grep.md` declares six selected cases but renders five verdict rows: four PASS rows plus one Donghu FAIL row. The sixth selected case does not appear in the summary or manual-audit scaffold, so pass/fail totals are no longer a complete accounting surface.
+    2. Class-level root cause: eval runner/reporting must distinguish "not launched", "launched but no verdict", "timeout/killed before verdict write", and "summary collection missed result dir". A missing row is an observability failure even when production code changes are unrelated.
+    3. Required fix:
+       - D1-F10g.326a: inspect selected-run launcher/result collection and identify whether the missing row came from slot scheduling, timeout cleanup, result-dir discovery, or summary rendering.
+       - D1-F10g.326b: make selected summary row-complete: every requested case must render exactly one row with verdict `PASS/FAIL/TIMEOUT/LAUNCH_FAIL/MISSING_VERDICT/SKIPPED`.
+       - D1-F10g.326c: update manual audit scaffold to mirror the same complete row set and surface missing verdicts as audit blockers.
+       - D1-F10g.326d: add shell/unit regression or fixture summary test for a selected list where one result dir is absent.
+    4. Safety boundary: this is eval/reporting infrastructure only. It must not affect read/write runtime scheduling, completion gates, trace_query, repo_map, or production answer rendering.
 
 验证：
 - 每个行为 cutover 先补 read E2E/golden 或 focused scheduler test，再改行为。
