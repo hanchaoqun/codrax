@@ -3,6 +3,7 @@ package tracequery
 import (
 	"bufio"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strings"
@@ -1288,6 +1289,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		accumulatePageCache(pageCache, ev)
 		accumulateTracePluginEvent(abilityEvents, xpowerEvents, hiSystemEvents, ev)
 	}
+	sortFrequencyTimeline(freqByCPU)
 	running := map[string]ThreadDuration{}
 	pressure := map[int]*cpuPressureAcc{}
 	for cpu, events := range byCPU {
@@ -1334,13 +1336,30 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 					td.LineStart = ev.Line
 				}
 				td.LineEnd = ev.Line
+				if fs := segmentFrequencyStats(freqByCPU[cpu], start, end); fs.known {
+					td.freqWeightKHzMs += fs.weightedKHz * dur
+					td.freqKnownMs += dur
+					td.freqObservedMaxKHz = max(td.freqObservedMaxKHz, fs.observedMaxKHz)
+					td.freqInSegmentSamples += fs.inSegmentSamples
+				}
 				running[key] = td
 				acc := cpuPressure(pressure, cpu)
 				acc.runningMs += dur
 				acc.runningEvents++
-				if isHighPriorityForPressure(q.TraceFlavor, ev.NextPrio, td.PriorityClass) {
+				highPriority := isHighPriorityForPressure(q.TraceFlavor, ev.NextPrio, td.PriorityClass)
+				if highPriority {
 					acc.highPriorityRunningMs += dur
 				}
+				acc.runningSegs = append(acc.runningSegs, pressureSegment{
+					thread:        td.Thread,
+					cpu:           cpu,
+					startTs:       start,
+					endTs:         end,
+					line:          ev.Line,
+					priority:      ev.NextPrio,
+					priorityClass: td.PriorityClass,
+					highPriority:  highPriority,
+				})
 				accumulateThreadDuration(acc.running, td.Thread, dur, cpu, freq, start, end, ev.Line, ev.NextPrio, td.PriorityClass)
 			}
 		}
@@ -2165,6 +2184,231 @@ type cpuPressureAcc struct {
 	highPriorityRunningMs float64
 	runnable              map[string]ThreadDuration
 	running               map[string]ThreadDuration
+	runningSegs           []pressureSegment
+	runnableSegs          []pressureSegment
+}
+
+// pressureSegment is one contiguous scheduling interval (running or runnable)
+// of a single thread on a single CPU. Kept raw so competition claims can be
+// backed by time-displacement evidence — the target waiting runnable WHILE the
+// competitor runs — instead of window-total co-residency (methodology audit
+// §7.30.2 R5g).
+type pressureSegment struct {
+	thread        ThreadRef
+	cpu           int
+	startTs       float64
+	endTs         float64
+	line          int
+	priority      int
+	priorityClass string
+	highPriority  bool
+}
+
+// timeInterval is a [start, end) window in trace seconds.
+type timeInterval struct {
+	start float64
+	end   float64
+}
+
+// overlapCompetitorsForIntervals keeps only the running time that overlapped
+// the target's runnable interval(s) on one CPU (§7.30.2 R5g displacement
+// evidence). It returns the high-priority-only overlapped total plus the
+// per-competitor overlapped durations (any priority; DurationMs is the
+// overlapped portion, not the window running total) sorted by overlap
+// descending. Serial hand-offs where a peer only runs outside the target's
+// waits contribute nothing. runningSegs must be sorted by start and disjoint
+// (single-CPU running segments are).
+func overlapCompetitorsForIntervals(runningSegs []pressureSegment, target ThreadRef, intervals []timeInterval, maxCompetitors int) (float64, []ThreadDuration) {
+	if len(runningSegs) == 0 || len(intervals) == 0 {
+		return 0, nil
+	}
+	highPriorityMs := 0.0
+	competitors := map[string]ThreadDuration{}
+	for _, interval := range intervals {
+		if interval.end <= interval.start {
+			continue
+		}
+		first := sort.Search(len(runningSegs), func(i int) bool { return runningSegs[i].endTs > interval.start })
+		for i := first; i < len(runningSegs) && runningSegs[i].startTs < interval.end; i++ {
+			seg := runningSegs[i]
+			if sameThreadRef(seg.thread, target) {
+				continue
+			}
+			start, end, ok := overlapTimeWindow(seg.startTs, seg.endTs, interval.start, interval.end)
+			if !ok {
+				continue
+			}
+			overlapMs := (end - start) * 1000
+			if seg.highPriority {
+				highPriorityMs += overlapMs
+			}
+			key := threadKey(seg.thread)
+			td := competitors[key]
+			td.Thread = seg.thread
+			td.DurationMs += overlapMs
+			td.CPU = seg.cpu
+			td.Priority = seg.priority
+			td.PriorityClass = seg.priorityClass
+			if td.StartTs == 0 || start < td.StartTs {
+				td.StartTs = start
+			}
+			if end > td.EndTs {
+				td.EndTs = end
+			}
+			if td.LineStart == 0 || (seg.line > 0 && seg.line < td.LineStart) {
+				td.LineStart = seg.line
+			}
+			if seg.line > td.LineEnd {
+				td.LineEnd = seg.line
+			}
+			competitors[key] = td
+		}
+	}
+	out := make([]ThreadDuration, 0, len(competitors))
+	for _, td := range competitors {
+		out = append(out, td)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].DurationMs != out[j].DurationMs {
+			return out[i].DurationMs > out[j].DurationMs
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	if maxCompetitors > 0 && len(out) > maxCompetitors {
+		out = out[:maxCompetitors]
+	}
+	return highPriorityMs, out
+}
+
+// sortPressureSegments orders segments by start time (line as tiebreak) so
+// overlap consumers can binary-search them.
+func sortPressureSegments(segs []pressureSegment) {
+	sort.SliceStable(segs, func(i, j int) bool {
+		if segs[i].startTs != segs[j].startTs {
+			return segs[i].startTs < segs[j].startTs
+		}
+		return segs[i].line < segs[j].line
+	})
+}
+
+// runnableIntervalsForThread extracts the target's runnable wait intervals on
+// this CPU from the raw pressure segments.
+func runnableIntervalsForThread(pressure CPUPressureStats, target ThreadRef) []timeInterval {
+	var out []timeInterval
+	for _, seg := range pressure.runnableSegments {
+		if sameThreadRef(seg.thread, target) {
+			out = append(out, timeInterval{start: seg.startTs, end: seg.endTs})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].start < out[j].start })
+	return out
+}
+
+// runnableDisplacementOverlap reports how much running time from OTHER threads
+// overlapped the target's runnable waits on this CPU: the high-priority
+// overlapped total plus the per-competitor overlapped list (§7.30.2 R5g).
+// Zero when the target never waited runnable on this CPU — co-residency
+// without displacement is not competition.
+func runnableDisplacementOverlap(pressure CPUPressureStats, target ThreadRef, maxCompetitors int) (float64, []ThreadDuration) {
+	return overlapCompetitorsForIntervals(pressure.runningSegments, target, runnableIntervalsForThread(pressure, target), maxCompetitors)
+}
+
+// cpuDisplacementAggregate computes the per-CPU displacement aggregate: how
+// much high-priority running time overlapped at least one OTHER thread's
+// runnable wait on this CPU, plus the per-competitor overlapped durations
+// (any priority). Running segments on one CPU are disjoint, so each instant
+// contributes at most once (§7.30.2 R5g). Both inputs must be sorted by start.
+func cpuDisplacementAggregate(runningSegs, runnableSegs []pressureSegment, maxCompetitors int) (float64, []ThreadDuration) {
+	if len(runningSegs) == 0 || len(runnableSegs) == 0 {
+		return 0, nil
+	}
+	type boundary struct {
+		ts    float64
+		delta int
+		key   string
+	}
+	bounds := make([]boundary, 0, len(runnableSegs)*2)
+	for _, seg := range runnableSegs {
+		if seg.endTs <= seg.startTs {
+			continue
+		}
+		key := threadKey(seg.thread)
+		bounds = append(bounds, boundary{ts: seg.startTs, delta: 1, key: key})
+		bounds = append(bounds, boundary{ts: seg.endTs, delta: -1, key: key})
+	}
+	sort.SliceStable(bounds, func(i, j int) bool { return bounds[i].ts < bounds[j].ts })
+	counts := map[string]int{}
+	total := 0
+	b := 0
+	apply := func(ts float64) {
+		for b < len(bounds) && bounds[b].ts <= ts {
+			counts[bounds[b].key] += bounds[b].delta
+			total += bounds[b].delta
+			b++
+		}
+	}
+	highPriorityMs := 0.0
+	competitors := map[string]ThreadDuration{}
+	for _, seg := range runningSegs {
+		if seg.endTs <= seg.startTs {
+			continue
+		}
+		apply(seg.startTs)
+		segKey := threadKey(seg.thread)
+		cursor := seg.startTs
+		flush := func(to float64) {
+			if to <= cursor {
+				return
+			}
+			if total-counts[segKey] > 0 {
+				overlapMs := (to - cursor) * 1000
+				if seg.highPriority {
+					highPriorityMs += overlapMs
+				}
+				td := competitors[segKey]
+				td.Thread = seg.thread
+				td.DurationMs += overlapMs
+				td.CPU = seg.cpu
+				td.Priority = seg.priority
+				td.PriorityClass = seg.priorityClass
+				if td.StartTs == 0 || cursor < td.StartTs {
+					td.StartTs = cursor
+				}
+				if to > td.EndTs {
+					td.EndTs = to
+				}
+				if td.LineStart == 0 || (seg.line > 0 && seg.line < td.LineStart) {
+					td.LineStart = seg.line
+				}
+				if seg.line > td.LineEnd {
+					td.LineEnd = seg.line
+				}
+				competitors[segKey] = td
+			}
+			cursor = to
+		}
+		for b < len(bounds) && bounds[b].ts < seg.endTs {
+			flush(bounds[b].ts)
+			counts[bounds[b].key] += bounds[b].delta
+			total += bounds[b].delta
+			b++
+		}
+		flush(seg.endTs)
+	}
+	out := make([]ThreadDuration, 0, len(competitors))
+	for _, td := range competitors {
+		out = append(out, td)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].DurationMs != out[j].DurationMs {
+			return out[i].DurationMs > out[j].DurationMs
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	if maxCompetitors > 0 && len(out) > maxCompetitors {
+		out = out[:maxCompetitors]
+	}
+	return highPriorityMs, out
 }
 
 func cpuPressure(in map[int]*cpuPressureAcc, cpu int) *cpuPressureAcc {
@@ -2259,11 +2503,27 @@ func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure
 			td.LineStart = start.line
 		}
 		td.LineEnd = firstPositive(endLine, start.line)
+		if fs := segmentFrequencyStats(freqByCPU[start.cpu], startTs, endTs); fs.known {
+			td.freqWeightKHzMs += fs.weightedKHz * dur
+			td.freqKnownMs += dur
+			td.freqObservedMaxKHz = max(td.freqObservedMaxKHz, fs.observedMaxKHz)
+			td.freqInSegmentSamples += fs.inSegmentSamples
+		}
 		bucket[key] = td
 		if start.state == StateRunnable {
 			acc := cpuPressure(pressure, start.cpu)
 			acc.runnableWaitMs += dur
 			acc.runnableEvents++
+			acc.runnableSegs = append(acc.runnableSegs, pressureSegment{
+				thread:        start.thread,
+				cpu:           start.cpu,
+				startTs:       startTs,
+				endTs:         endTs,
+				line:          firstPositive(endLine, start.line),
+				priority:      start.priority,
+				priorityClass: start.priorityClass,
+				highPriority:  isHighPriorityForPressure(q.TraceFlavor, start.priority, start.priorityClass),
+			})
 			accumulateThreadDuration(acc.runnable, start.thread, dur, start.cpu, freq, startTs, endTs, firstPositive(endLine, start.line), start.priority, start.priorityClass)
 		}
 	}
@@ -2399,6 +2659,7 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 			}
 		}
 	}
+	sortFrequencyTimeline(freqByCPU)
 	type startInfo struct {
 		thread        ThreadRef
 		ts            float64
@@ -2442,23 +2703,31 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 			}
 		}
 		freq := frequencyAt(freqByCPU[start.cpu], startTs)
+		freqStats := segmentFrequencyStats(freqByCPU[start.cpu], startTs, endTs)
+		hpOverlapMs, overlapCompetitors := overlapCompetitorsForIntervals(p.runningSegments, start.thread, []timeInterval{{start: startTs, end: endTs}}, 8)
 		item := SchedulerLatencyItem{
-			Thread:                start.thread,
-			StartTs:               startTs,
-			EndTs:                 endTs,
-			DurationMs:            duration,
-			CPU:                   start.cpu,
-			CoreClass:             cpu.CoreClass,
-			Frequency:             freq,
-			Priority:              start.priority,
-			PriorityClass:         start.priorityClass,
-			StartLine:             start.line,
-			EndLine:               firstPositive(endLine, start.line),
-			SameCPUBusyMs:         cpu.BusyMs,
-			SameCPUIdleMs:         cpu.IdleMs,
-			OtherCPUIdleMs:        otherIdle,
-			HighPriorityRunningMs: p.HighPriorityRunningMs,
-			SameCPUTopRunning:     p.TopRunning,
+			Thread:                       start.thread,
+			StartTs:                      startTs,
+			EndTs:                        endTs,
+			DurationMs:                   duration,
+			CPU:                          start.cpu,
+			CoreClass:                    cpu.CoreClass,
+			Frequency:                    freq,
+			WeightedFrequency:            int(math.Round(freqStats.weightedKHz)),
+			ObservedMaxFrequency:         freqStats.observedMaxKHz,
+			Priority:                     start.priority,
+			PriorityClass:                start.priorityClass,
+			StartLine:                    start.line,
+			EndLine:                      firstPositive(endLine, start.line),
+			SameCPUBusyMs:                cpu.BusyMs,
+			SameCPUIdleMs:                cpu.IdleMs,
+			OtherCPUIdleMs:               otherIdle,
+			HighPriorityRunningMs:        p.HighPriorityRunningMs,
+			HighPriorityRunningOverlapMs: hpOverlapMs,
+			SameCPUTopRunning:            overlapCompetitors,
+		}
+		if freqStats.known && freqStats.inSegmentSamples == 0 {
+			item.FrequencySample = FrequencySampleNearestFallback
 		}
 		item.Summary = fmt.Sprintf("%s waited runnable for %.3fms on cpu=%d", threadLabel(item.Thread), item.DurationMs, item.CPU)
 		if item.CoreClass != "" {
@@ -2467,8 +2736,14 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		if item.Frequency > 0 {
 			item.Summary = fmt.Sprintf("%s freq=%dkHz", item.Summary, item.Frequency)
 		}
-		if item.HighPriorityRunningMs > 0 {
-			item.Summary = fmt.Sprintf("%s high_prio_running=%.3fms", item.Summary, item.HighPriorityRunningMs)
+		if item.WeightedFrequency > 0 {
+			item.Summary = fmt.Sprintf("%s weighted_freq=%dkHz observed_max_freq=%dkHz", item.Summary, item.WeightedFrequency, item.ObservedMaxFrequency)
+		}
+		if item.FrequencySample != "" {
+			item.Summary = fmt.Sprintf("%s frequency_sample=%s", item.Summary, item.FrequencySample)
+		}
+		if item.HighPriorityRunningOverlapMs > 0 {
+			item.Summary = fmt.Sprintf("%s high_prio_overlap=%.3fms", item.Summary, item.HighPriorityRunningOverlapMs)
 		}
 		if item.OtherCPUIdleMs > 0 {
 			item.Summary = fmt.Sprintf("%s other_cpu_idle=%.3fms", item.Summary, item.OtherCPUIdleMs)
@@ -2598,14 +2873,21 @@ func buildCPUPressureStats(in map[int]*cpuPressureAcc, max int) []CPUPressureSta
 		if acc == nil {
 			continue
 		}
+		sortPressureSegments(acc.runningSegs)
+		sortPressureSegments(acc.runnableSegs)
+		highPriorityOverlapMs, overlapCompetitors := cpuDisplacementAggregate(acc.runningSegs, acc.runnableSegs, max)
 		out = append(out, CPUPressureStats{
-			CPU:                   cpu,
-			RunnableWaitMs:        acc.runnableWaitMs,
-			RunnableEvents:        acc.runnableEvents,
-			RunningMs:             acc.runningMs,
-			HighPriorityRunningMs: acc.highPriorityRunningMs,
-			TopRunnable:           topThreadDurations(acc.runnable, max),
-			TopRunning:            topThreadDurations(acc.running, max),
+			CPU:                          cpu,
+			RunnableWaitMs:               acc.runnableWaitMs,
+			RunnableEvents:               acc.runnableEvents,
+			RunningMs:                    acc.runningMs,
+			HighPriorityRunningMs:        acc.highPriorityRunningMs,
+			HighPriorityRunningOverlapMs: highPriorityOverlapMs,
+			OverlapCompetitors:           overlapCompetitors,
+			TopRunnable:                  topThreadDurations(acc.runnable, max),
+			TopRunning:                   topThreadDurations(acc.running, max),
+			runningSegments:              acc.runningSegs,
+			runnableSegments:             acc.runnableSegs,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -3087,20 +3369,21 @@ func computeRunnableContextSummaries(items []SchedulerLatencyItem, threadLoads [
 	var out []RunnableContextSummary
 	for _, item := range items {
 		ctx := RunnableContextSummary{
-			Thread:                item.Thread,
-			RunnableWaitMs:        item.DurationMs,
-			CPU:                   item.CPU,
-			CoreClass:             item.CoreClass,
-			Frequency:             item.Frequency,
-			Priority:              item.Priority,
-			PriorityClass:         item.PriorityClass,
-			SameCPUBusyMs:         item.SameCPUBusyMs,
-			SameCPUIdleMs:         item.SameCPUIdleMs,
-			OtherCPUIdleMs:        item.OtherCPUIdleMs,
-			HighPriorityRunningMs: item.HighPriorityRunningMs,
-			SameCPUTopRunning:     item.SameCPUTopRunning,
-			LineStart:             item.StartLine,
-			LineEnd:               item.EndLine,
+			Thread:                       item.Thread,
+			RunnableWaitMs:               item.DurationMs,
+			CPU:                          item.CPU,
+			CoreClass:                    item.CoreClass,
+			Frequency:                    item.Frequency,
+			Priority:                     item.Priority,
+			PriorityClass:                item.PriorityClass,
+			SameCPUBusyMs:                item.SameCPUBusyMs,
+			SameCPUIdleMs:                item.SameCPUIdleMs,
+			OtherCPUIdleMs:               item.OtherCPUIdleMs,
+			HighPriorityRunningMs:        item.HighPriorityRunningMs,
+			HighPriorityRunningOverlapMs: item.HighPriorityRunningOverlapMs,
+			SameCPUTopRunning:            item.SameCPUTopRunning,
+			LineStart:                    item.StartLine,
+			LineEnd:                      item.EndLine,
 		}
 		if proc, ok := processLoadForThread(item.Thread, processes); ok {
 			copy := proc
@@ -3197,7 +3480,10 @@ func runnableContextVerdict(ctx RunnableContextSummary) (string, float64) {
 			return "cpu_affinity_or_cpuset_context", 0.78
 		}
 	}
-	if ctx.HighPriorityRunningMs > 0 || ctx.SameCPUBusyMs > ctx.SameCPUIdleMs {
+	// R5g (§7.30.2): the high-priority pressure term reads only the running
+	// time that overlapped this thread's wait — window-total high-priority
+	// running is background and must not create a competition verdict.
+	if ctx.HighPriorityRunningOverlapMs > 0 || ctx.SameCPUBusyMs > ctx.SameCPUIdleMs {
 		return "cpu_pressure", 0.76
 	}
 	if ctx.OtherCPUIdleMs > 0 {
@@ -3214,10 +3500,10 @@ func renderRunnableContextSummary(ctx RunnableContextSummary) string {
 	if ctx.Frequency > 0 {
 		parts = append(parts, fmt.Sprintf("freq=%dkHz", ctx.Frequency))
 	}
-	parts = append(parts, fmt.Sprintf("same_cpu_busy=%.3fms same_cpu_idle=%.3fms other_cpu_idle=%.3fms high_prio_running=%.3fms",
-		ctx.SameCPUBusyMs, ctx.SameCPUIdleMs, ctx.OtherCPUIdleMs, ctx.HighPriorityRunningMs))
+	parts = append(parts, fmt.Sprintf("same_cpu_busy=%.3fms same_cpu_idle=%.3fms other_cpu_idle=%.3fms high_prio_overlap=%.3fms high_prio_running_window=%.3fms",
+		ctx.SameCPUBusyMs, ctx.SameCPUIdleMs, ctx.OtherCPUIdleMs, ctx.HighPriorityRunningOverlapMs, ctx.HighPriorityRunningMs))
 	if len(ctx.SameCPUTopRunning) > 0 {
-		parts = append(parts, "same_cpu_top_running="+threadLabel(ctx.SameCPUTopRunning[0].Thread))
+		parts = append(parts, fmt.Sprintf("same_cpu_top_running=%s overlap=%.3fms", threadLabel(ctx.SameCPUTopRunning[0].Thread), ctx.SameCPUTopRunning[0].DurationMs))
 	}
 	if len(ctx.TopBackgroundThreads) > 0 {
 		top := ctx.TopBackgroundThreads[0]
@@ -3274,49 +3560,67 @@ func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
 		pressure[item.CPU] = item
 	}
 	var out []ComputeSupplySummary
-	add := func(thread ThreadRef, state string, duration float64, cpuID int, frequency int, lineStart, lineEnd int) {
-		if duration <= 0 {
+	add := func(td ThreadDuration, state string) {
+		if td.DurationMs <= 0 {
 			return
 		}
-		cpu := cpus[cpuID]
-		p := pressure[cpuID]
-		verdict, conf := computeSupplyVerdict(duration, frequency, cpu, p)
-		summary := fmt.Sprintf("%s %s for %.3fms on cpu=%d", threadLabel(thread), state, duration, cpuID)
+		cpu := cpus[td.CPU]
+		p := pressure[td.CPU]
+		weighted := td.weightedFrequencyKHz()
+		// R5g (§7.30.2): the pressure term only counts high-priority running
+		// that overlapped THIS thread's runnable waits on this CPU.
+		hpOverlapMs, _ := runnableDisplacementOverlap(p, td.Thread, 1)
+		verdict, conf := computeSupplyVerdict(td.DurationMs, weighted, td.freqObservedMaxKHz, hpOverlapMs, cpu)
+		frequencySample := ""
+		if weighted > 0 && td.freqInSegmentSamples == 0 {
+			frequencySample = FrequencySampleNearestFallback
+		}
+		summary := fmt.Sprintf("%s %s for %.3fms on cpu=%d", threadLabel(td.Thread), state, td.DurationMs, td.CPU)
 		if cpu.CoreClass != "" {
 			summary = fmt.Sprintf("%s core_class=%s", summary, cpu.CoreClass)
 		}
-		if frequency > 0 {
-			summary = fmt.Sprintf("%s freq=%dkHz", summary, frequency)
+		if td.Frequency > 0 {
+			summary = fmt.Sprintf("%s freq=%dkHz", summary, td.Frequency)
+		}
+		if weighted > 0 {
+			summary = fmt.Sprintf("%s weighted_freq=%dkHz observed_max_freq=%dkHz", summary, weighted, td.freqObservedMaxKHz)
+		}
+		if frequencySample != "" {
+			summary = fmt.Sprintf("%s frequency_sample=%s", summary, frequencySample)
 		}
 		if cpu.BusyMs > 0 || cpu.IdleMs > 0 {
 			summary = fmt.Sprintf("%s busy=%.3fms idle=%.3fms", summary, cpu.BusyMs, cpu.IdleMs)
 		}
-		if p.HighPriorityRunningMs > 0 {
-			summary = fmt.Sprintf("%s high_prio_running=%.3fms", summary, p.HighPriorityRunningMs)
+		if hpOverlapMs > 0 {
+			summary = fmt.Sprintf("%s high_prio_overlap=%.3fms", summary, hpOverlapMs)
 		}
 		out = append(out, ComputeSupplySummary{
-			Thread:                thread,
-			State:                 state,
-			CPU:                   cpuID,
-			CoreClass:             cpu.CoreClass,
-			DurationMs:            duration,
-			Frequency:             frequency,
-			CPUBusyMs:             cpu.BusyMs,
-			CPUIdleMs:             cpu.IdleMs,
-			RunnableWaitMs:        p.RunnableWaitMs,
-			HighPriorityRunningMs: p.HighPriorityRunningMs,
-			Verdict:               verdict,
-			Confidence:            conf,
-			LineStart:             lineStart,
-			LineEnd:               lineEnd,
-			Summary:               summary + " verdict=" + verdict,
+			Thread:                       td.Thread,
+			State:                        state,
+			CPU:                          td.CPU,
+			CoreClass:                    cpu.CoreClass,
+			DurationMs:                   td.DurationMs,
+			Frequency:                    td.Frequency,
+			WeightedFrequency:            weighted,
+			ObservedMaxFrequency:         td.freqObservedMaxKHz,
+			FrequencySample:              frequencySample,
+			CPUBusyMs:                    cpu.BusyMs,
+			CPUIdleMs:                    cpu.IdleMs,
+			RunnableWaitMs:               p.RunnableWaitMs,
+			HighPriorityRunningMs:        p.HighPriorityRunningMs,
+			HighPriorityRunningOverlapMs: hpOverlapMs,
+			Verdict:                      verdict,
+			Confidence:                   conf,
+			LineStart:                    td.LineStart,
+			LineEnd:                      td.LineEnd,
+			Summary:                      summary + " verdict=" + verdict,
 		})
 	}
 	for _, td := range stats.RunnableTop {
-		add(td.Thread, "runnable", td.DurationMs, td.CPU, td.Frequency, td.LineStart, td.LineEnd)
+		add(td, "runnable")
 	}
 	for _, td := range stats.TopRunning {
-		add(td.Thread, "running", td.DurationMs, td.CPU, td.Frequency, td.LineStart, td.LineEnd)
+		add(td, "running")
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Confidence != out[j].Confidence {
@@ -3333,14 +3637,22 @@ func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
 	return out
 }
 
-func computeSupplyVerdict(durationMs float64, frequency int, cpu CPUStats, pressure CPUPressureStats) (string, float64) {
+// computeSupplyVerdict classifies compute supply for one judged thread
+// duration from PRECISE per-target signals (methodology audit §7.30.2
+// R5e/R5g): weightedFreqKHz is the duration-weighted frequency across the
+// judged segments (never a single point sample), observedMaxKHz the max
+// frequency observed inside/nearest those segments (never the window residency
+// max), and highPrioOverlapMs only the high-priority running that overlapped
+// this thread's runnable waits on the same CPU (never the window-total
+// high-priority running).
+func computeSupplyVerdict(durationMs float64, weightedFreqKHz, observedMaxKHz int, highPrioOverlapMs float64, cpu CPUStats) (string, float64) {
 	total := cpu.BusyMs + cpu.IdleMs
 	busyRatio := 0.0
 	if total > 0 {
 		busyRatio = cpu.BusyMs / total
 	}
-	lowFreq := frequency > 0 && frequencyIsLowForCPU(frequency, cpu)
-	cpuPressure := busyRatio >= 0.80 || pressure.HighPriorityRunningMs >= durationMs*0.50
+	lowFreq := weightedFrequencyIsLow(weightedFreqKHz, observedMaxKHz)
+	cpuPressure := busyRatio >= 0.80 || (durationMs > 0 && highPrioOverlapMs >= durationMs*0.50)
 	switch {
 	case cpuPressure && lowFreq:
 		return "mixed_cpu_pressure_and_low_frequency", 0.78
@@ -3725,14 +4037,15 @@ func enrichStateChurnWithCPUPressure(items []ThreadStateChurnSummary, pressures 
 			continue
 		}
 		pressure := byCPU[cpu]
-		competitor, competitorMs := stateChurnTopCompetitor(items[i].Thread, pressure)
+		competitor, overlapMs, windowRunningMs := stateChurnTopCompetitor(items[i].Thread, pressure)
 		items[i].RunnableCPU = cpu
 		items[i].RunnableCPUKnown = true
 		items[i].RunnableCoreClass = pressure.CoreClass
 		if competitor != "" {
 			items[i].TopCompetitor = competitor
-			items[i].TopCompetitorRunningMs = competitorMs
-			items[i].NextStep = fmt.Sprintf("inspect %s on same CPU cpu=%d for CPU pressure/time-slice competition, then validate wake_latency with sched_wakeup", competitor, cpu)
+			items[i].TopCompetitorOverlapMs = overlapMs
+			items[i].TopCompetitorRunningMs = windowRunningMs
+			items[i].NextStep = fmt.Sprintf("inspect %s on same CPU cpu=%d for CPU pressure/time-slice competition (its running overlaps this thread's runnable wait by %.3fms), then validate wake_latency with sched_wakeup", competitor, cpu, overlapMs)
 		} else {
 			items[i].NextStep = fmt.Sprintf("inspect same-CPU pressure on cpu=%d, top running competitors, priority, CPU frequency, and sched_wakeup wake_latency", cpu)
 		}
@@ -3763,18 +4076,29 @@ func stateChurnRunnableCPU(item ThreadStateChurnSummary, pressures []CPUPressure
 	return bestCPU, found
 }
 
-func stateChurnTopCompetitor(target ThreadRef, pressure CPUPressureStats) (string, float64) {
-	for _, running := range pressure.TopRunning {
-		if sameThreadRef(running.Thread, target) {
-			continue
-		}
+// stateChurnTopCompetitor names a competitor only when its running time
+// actually overlapped the target's runnable waits on this CPU (§7.30.2 R5g).
+// Threads that merely ran on the same CPU outside those waits are serial
+// hand-offs, not competitors, and yield no competitor. It returns the label,
+// the overlapped ms (displacement evidence), and the competitor's window
+// running total on this CPU (background context).
+func stateChurnTopCompetitor(target ThreadRef, pressure CPUPressureStats) (string, float64, float64) {
+	_, competitors := runnableDisplacementOverlap(pressure, target, 8)
+	for _, running := range competitors {
 		label := threadLabel(running.Thread)
 		if label == "" {
 			continue
 		}
-		return label, running.DurationMs
+		windowRunningMs := 0.0
+		for _, td := range pressure.TopRunning {
+			if sameThreadRef(td.Thread, running.Thread) {
+				windowRunningMs = td.DurationMs
+				break
+			}
+		}
+		return label, running.DurationMs, windowRunningMs
 	}
-	return "", 0
+	return "", 0, 0
 }
 
 func sameThreadRef(a, b ThreadRef) bool {
@@ -3798,7 +4122,10 @@ func renderStateChurnSummary(item ThreadStateChurnSummary) string {
 		}
 	}
 	if item.TopCompetitor != "" {
-		summary = fmt.Sprintf("%s; top_competitor=%s running=%.3fms", summary, item.TopCompetitor, item.TopCompetitorRunningMs)
+		summary = fmt.Sprintf("%s; top_competitor=%s overlap=%.3fms", summary, item.TopCompetitor, item.TopCompetitorOverlapMs)
+		if item.TopCompetitorRunningMs > 0 {
+			summary = fmt.Sprintf("%s running_window=%.3fms", summary, item.TopCompetitorRunningMs)
+		}
 	}
 	return summary
 }
@@ -4305,6 +4632,7 @@ func applyCPUPressureCoreClasses(items []CPUPressureStats, byCPU map[int]string)
 		items[i].CoreClass = byCPU[items[i].CPU]
 		applyThreadCoreClasses(items[i].TopRunnable, byCPU)
 		applyThreadCoreClasses(items[i].TopRunning, byCPU)
+		applyThreadCoreClasses(items[i].OverlapCompetitors, byCPU)
 	}
 }
 
@@ -4455,6 +4783,95 @@ func frequencyAt(events []Event, ts float64) int {
 		}
 	}
 	return freq
+}
+
+// sortFrequencyTimeline sorts each CPU's cpu_frequency samples by timestamp so
+// segmentFrequencyStats can binary-search change points.
+func sortFrequencyTimeline(freqByCPU map[int][]Event) {
+	for _, events := range freqByCPU {
+		sort.SliceStable(events, func(i, j int) bool {
+			if events[i].Ts != events[j].Ts {
+				return events[i].Ts < events[j].Ts
+			}
+			return events[i].Line < events[j].Line
+		})
+	}
+}
+
+// frequencySegmentStats summarizes the cpu_frequency timeline over one judged
+// scheduling segment (methodology audit §7.30.2 R5e): weightedKHz integrates
+// the frequency across cpu_frequency change points inside [startTs, endTs);
+// observedMaxKHz is the max sample observed inside the segment or at its
+// nearest bracketing samples (the low-frequency benchmark, never the
+// window-wide residency max); inSegmentSamples counts change points strictly
+// inside the segment — zero means the value rests entirely on nearest samples.
+type frequencySegmentStats struct {
+	weightedKHz      float64
+	observedMaxKHz   int
+	inSegmentSamples int
+	known            bool
+}
+
+// segmentFrequencyStats integrates the sorted cpu_frequency timeline over
+// [startTs, endTs). A single point sample never represents the whole segment:
+// the segment is split at every in-segment change point and duration-weighted.
+// When no sample falls inside the segment, the nearest sample rules it —
+// preceding first, following as last resort — instead of defaulting to
+// zero/low/high (§7.30.2 R5e). samples must be sorted by Ts (see
+// sortFrequencyTimeline); only a fully empty timeline yields known=false.
+func segmentFrequencyStats(samples []Event, startTs, endTs float64) frequencySegmentStats {
+	var out frequencySegmentStats
+	if len(samples) == 0 || endTs <= startTs {
+		return out
+	}
+	first := sort.Search(len(samples), func(i int) bool { return samples[i].Ts > startTs })
+	current := 0
+	if first > 0 {
+		current = samples[first-1].Frequency
+		out.observedMaxKHz = max(out.observedMaxKHz, current)
+	}
+	cursor := startTs
+	weighted := 0.0
+	for i := first; i < len(samples) && samples[i].Ts < endTs; i++ {
+		if current > 0 {
+			weighted += float64(current) * (samples[i].Ts - cursor)
+		} else {
+			// Head portion before the first known sample: the first in-segment
+			// sample is the nearest available observation for it.
+			weighted += float64(samples[i].Frequency) * (samples[i].Ts - cursor)
+		}
+		current = samples[i].Frequency
+		cursor = samples[i].Ts
+		out.inSegmentSamples++
+		out.observedMaxKHz = max(out.observedMaxKHz, current)
+	}
+	following := sort.Search(len(samples), func(i int) bool { return samples[i].Ts >= endTs })
+	if current == 0 {
+		// No preceding and no in-segment sample: fall back to the nearest
+		// following sample (last resort, never a default).
+		if following >= len(samples) {
+			return frequencySegmentStats{}
+		}
+		current = samples[following].Frequency
+	}
+	weighted += float64(current) * (endTs - cursor)
+	// The nearest following sample participates in the observed-max benchmark
+	// ("inside or nearby"), even when unused for coverage.
+	if following < len(samples) {
+		out.observedMaxKHz = max(out.observedMaxKHz, samples[following].Frequency)
+	}
+	out.weightedKHz = weighted / (endTs - startTs)
+	out.known = out.weightedKHz > 0
+	return out
+}
+
+// weightedFrequencyIsLow is the R5e low-frequency test: the duration-weighted
+// frequency across the judged segments sits at or below 65% of the max
+// frequency observed inside or nearest those segments. The window-wide
+// residency max is NOT the benchmark (§7.30.2 R5e).
+func weightedFrequencyIsLow(weightedKHz, observedMaxKHz int) bool {
+	return weightedKHz > 0 && observedMaxKHz > 0 && weightedKHz < observedMaxKHz &&
+		float64(weightedKHz) <= float64(observedMaxKHz)*0.65
 }
 
 func appendFrequencyResidency(in []CPUFrequencyResidency, ev Event, start, end float64, endLine int) []CPUFrequencyResidency {
@@ -6834,13 +7251,17 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		if pressure.RunnableWaitMs <= 0 {
 			continue
 		}
+		// R5g (§7.30.2): confidence and the competition wording key off the
+		// overlap-evidenced share, not the window-total high-priority running.
 		conf := 0.72
-		if pressure.HighPriorityRunningMs > 0 {
+		if pressure.HighPriorityRunningOverlapMs > 0 {
 			conf = 0.80
 		}
 		summary := fmt.Sprintf("cpu=%d had %.3fms runnable wait and %.3fms running time in the selected window", pressure.CPU, pressure.RunnableWaitMs, pressure.RunningMs)
-		if pressure.HighPriorityRunningMs > 0 {
-			summary = fmt.Sprintf("%s; high-priority running time %.3fms", summary, pressure.HighPriorityRunningMs)
+		if pressure.HighPriorityRunningOverlapMs > 0 {
+			summary = fmt.Sprintf("%s; high-priority running overlapping other threads' runnable waits %.3fms (window total %.3fms)", summary, pressure.HighPriorityRunningOverlapMs, pressure.HighPriorityRunningMs)
+		} else if pressure.HighPriorityRunningMs > 0 {
+			summary = fmt.Sprintf("%s; high-priority running time %.3fms in window without runnable-wait overlap (background, not displacement)", summary, pressure.HighPriorityRunningMs)
 		}
 		item := rootCauseItem("cpu_pressure", ThreadRef{}, backgroundImpactMs(q, pressure.RunnableWaitMs, hasCausalChain, false), conf, firstThreadLine(pressure.TopRunnable), lastThreadLine(pressure.TopRunning), "window_stats", summary)
 		item.CumulativeImpactMs = pressure.RunnableWaitMs
@@ -7155,7 +7576,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	}
 	for _, item := range latency.Items {
 		conf := 0.78
-		if item.HighPriorityRunningMs > 0 {
+		// R5g (§7.30.2): only displacement-evidenced high-priority overlap
+		// raises confidence; window-total high-priority running is background.
+		if item.HighPriorityRunningOverlapMs > 0 {
 			conf = 0.84
 		}
 		summary := item.Summary
@@ -7175,8 +7598,16 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		candidate.DominantState = string(StateRunnable)
 		candidate.RunnableMs = item.DurationMs
 		rank.Items = append(rank.Items, candidate)
-		if frequencyIsLowForCPU(item.Frequency, cpus[item.CPU]) {
-			low := rootCauseItem("low_frequency", item.Thread, backgroundImpactMs(q, item.DurationMs, hasCausalChain, onChain), 0.70, item.StartLine, item.EndLine, "scheduler_latency_stats", fmt.Sprintf("%s runnable wait began at %dkHz on cpu=%d, below the CPU's observed max frequency in the selected window", threadLabel(item.Thread), item.Frequency, item.CPU))
+		// R5e (§7.30.2): the low-frequency judgement integrates the frequency
+		// over the whole wait interval and benchmarks against the max observed
+		// inside/nearest that interval — a stale point sample at the wait
+		// start compared against the window residency max is forbidden.
+		if weightedFrequencyIsLow(item.WeightedFrequency, item.ObservedMaxFrequency) {
+			lowSummary := fmt.Sprintf("%s runnable wait ran with weighted_freq=%dkHz on cpu=%d, at or below 65%% of the nearby observed max %dkHz", threadLabel(item.Thread), item.WeightedFrequency, item.CPU, item.ObservedMaxFrequency)
+			if item.FrequencySample != "" {
+				lowSummary = fmt.Sprintf("%s frequency_sample=%s", lowSummary, item.FrequencySample)
+			}
+			low := rootCauseItem("low_frequency", item.Thread, backgroundImpactMs(q, item.DurationMs, hasCausalChain, onChain), 0.70, item.StartLine, item.EndLine, "scheduler_latency_stats", lowSummary)
 			low.CumulativeImpactMs = item.DurationMs
 			low.Causality = causalityLabel(hasCausalChain, onChain)
 			low.ChainRelevance = chainRelevanceFromCausality(low.Causality)
@@ -7610,7 +8041,10 @@ func sameCPUCompetitorThreadRefs(stats WindowStats) map[int]ThreadRef {
 		if pressure.RunnableWaitMs <= 0 {
 			continue
 		}
-		for _, td := range pressure.TopRunning {
+		// R5g (§7.30.2): only threads whose running overlapped another
+		// thread's runnable wait qualify as same-CPU competitors; window
+		// top-running co-residents without overlap are serial hand-offs.
+		for _, td := range pressure.OverlapCompetitors {
 			addThreadRef(out, td.Thread)
 		}
 	}

@@ -4550,3 +4550,286 @@ func buildTraceIndex(t *testing.T, name, content string) *Index {
 	}
 	return idx
 }
+
+// R5e (§7.30.2): a stale low cpu_frequency sample at the segment start must
+// not represent a running span that mostly executed after the ramp-up; the
+// verdict integrates the frequency across change points.
+const staleLowSampleTrace = `
+        app-20   (   20) [001] .... 1.000000: cpu_frequency: state=500000 cpu_id=1
+        app-20   (   20) [001] .... 1.100000: cpu_frequency: state=2000000 cpu_id=1
+        app-20   (   20) [001] .... 1.090000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 1.250000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+`
+
+func TestComputeSupplyWeightedFrequencyIgnoresStaleLowSampleBeforeRampUp(t *testing.T) {
+	idx := buildTraceIndex(t, "stale_low_freq.systrace", staleLowSampleTrace)
+	stats := ComputeWindowStats(idx, Query{PID: 20, TimeStart: 1.0, TimeEnd: 1.4})
+	var supply *ComputeSupplySummary
+	for i := range stats.ComputeSupply {
+		if stats.ComputeSupply[i].Thread.PID == 20 && stats.ComputeSupply[i].State == "running" {
+			supply = &stats.ComputeSupply[i]
+			break
+		}
+	}
+	if supply == nil {
+		t.Fatalf("expected running compute-supply row for app: %+v", stats.ComputeSupply)
+	}
+	if strings.Contains(supply.Verdict, "low_frequency") {
+		t.Fatalf("running span weighted into the high-frequency region must not be judged low-frequency: %+v", supply)
+	}
+	if !near(float64(supply.WeightedFrequency), 1906250, 2) {
+		t.Fatalf("weighted frequency should integrate over the in-segment ramp-up: %+v", supply)
+	}
+	if supply.ObservedMaxFrequency != 2000000 {
+		t.Fatalf("observed max should come from segment-local samples: %+v", supply)
+	}
+	if !strings.Contains(supply.Summary, "weighted_freq=") || !strings.Contains(supply.Summary, "observed_max_freq=2000000kHz") {
+		t.Fatalf("supply summary should expose the weighted frequency and its benchmark: %s", supply.Summary)
+	}
+	if supply.FrequencySample != "" {
+		t.Fatalf("in-segment sample coverage must not be marked nearest_fallback: %+v", supply)
+	}
+}
+
+// R5e (§7.30.2): a span that genuinely ran at low frequency right after the
+// drop must still be judged low against the nearby observed max.
+const sustainedLowFrequencyTrace = `
+        app-20   (   20) [001] .... 1.000000: cpu_frequency: state=2000000 cpu_id=1
+        app-20   (   20) [001] .... 1.010000: cpu_frequency: state=500000 cpu_id=1
+        app-20   (   20) [001] .... 1.005000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 1.105000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+`
+
+func TestComputeSupplyWeightedFrequencyStillFlagsSustainedLowFrequency(t *testing.T) {
+	idx := buildTraceIndex(t, "sustained_low_freq.systrace", sustainedLowFrequencyTrace)
+	stats := ComputeWindowStats(idx, Query{PID: 20, TimeStart: 1.0, TimeEnd: 1.4})
+	var supply *ComputeSupplySummary
+	for i := range stats.ComputeSupply {
+		if stats.ComputeSupply[i].Thread.PID == 20 && stats.ComputeSupply[i].State == "running" {
+			supply = &stats.ComputeSupply[i]
+			break
+		}
+	}
+	if supply == nil {
+		t.Fatalf("expected running compute-supply row for app: %+v", stats.ComputeSupply)
+	}
+	if supply.Verdict != "low_frequency_signal" {
+		t.Fatalf("sustained low-frequency running should keep the low_frequency_signal verdict: %+v", supply)
+	}
+	if !near(float64(supply.WeightedFrequency), 575000, 2) || supply.ObservedMaxFrequency != 2000000 {
+		t.Fatalf("weighted frequency and nearby observed max should be auditable: %+v", supply)
+	}
+}
+
+// R5e (§7.30.2): when no sample falls inside (or before) the judged segment,
+// the nearest following sample rules it, with a typed provenance marker —
+// never a default of zero/low/high.
+const noSampleFallbackTrace = `
+        app-20   (   20) [001] .... 1.050000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 1.150000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+        app-20   (   20) [001] .... 1.300000: cpu_frequency: state=800000 cpu_id=1
+`
+
+func TestComputeSupplyFrequencyNearestFallbackMarker(t *testing.T) {
+	idx := buildTraceIndex(t, "no_sample_fallback.systrace", noSampleFallbackTrace)
+	stats := ComputeWindowStats(idx, Query{PID: 20, TimeStart: 1.0, TimeEnd: 1.4})
+	var supply *ComputeSupplySummary
+	for i := range stats.ComputeSupply {
+		if stats.ComputeSupply[i].Thread.PID == 20 && stats.ComputeSupply[i].State == "running" {
+			supply = &stats.ComputeSupply[i]
+			break
+		}
+	}
+	if supply == nil {
+		t.Fatalf("expected running compute-supply row for app: %+v", stats.ComputeSupply)
+	}
+	if supply.WeightedFrequency != 800000 {
+		t.Fatalf("segment without samples must fall back to the nearest sample, not zero: %+v", supply)
+	}
+	if supply.FrequencySample != FrequencySampleNearestFallback {
+		t.Fatalf("nearest-sample coverage must carry the typed fallback marker: %+v", supply)
+	}
+	if !strings.Contains(supply.Summary, "frequency_sample=nearest_fallback") {
+		t.Fatalf("supply summary should expose the fallback marker: %s", supply.Summary)
+	}
+	if strings.Contains(supply.Verdict, "low_frequency") {
+		t.Fatalf("flat nearest-sample coverage offers no low-frequency contrast: %+v", supply)
+	}
+}
+
+// R5e (§7.30.2): the scheduler-latency low_frequency root cause must judge the
+// whole wait interval, not the stale point sample at the wait start.
+const weightedWaitFrequencyTrace = `
+        app-20   (   20) [001] .... 5.000000: cpu_frequency: state=500000 cpu_id=1
+        net-300  (  300) [002] .... 5.040000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001
+        app-20   (   20) [001] .... 5.050000: cpu_frequency: state=2200000 cpu_id=1
+        app-20   (   20) [001] .... 5.100000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+`
+
+func TestSchedulerLatencyLowFrequencyRootCauseUsesWeightedWaitFrequency(t *testing.T) {
+	idx := buildTraceIndex(t, "weighted_wait_freq.systrace", weightedWaitFrequencyTrace)
+	latency := BuildSchedulerLatencyStats(idx, Query{PID: 20, TimeStart: 5.0, TimeEnd: 5.15})
+	if latency.Count != 1 {
+		t.Fatalf("expected one runnable wait, got %+v", latency)
+	}
+	item := latency.Items[0]
+	if item.Frequency != 500000 {
+		t.Fatalf("legacy point sample should stay as context: %+v", item)
+	}
+	if !near(float64(item.WeightedFrequency), 1916667, 2) || item.ObservedMaxFrequency != 2200000 {
+		t.Fatalf("wait interval should carry the weighted frequency and nearby max: %+v", item)
+	}
+	rank := BuildRootCauseRank(idx, Query{PID: 20, TimeStart: 5.0, TimeEnd: 5.15})
+	for _, candidate := range rank.Items {
+		if candidate.Type == "low_frequency" {
+			t.Fatalf("wait weighted into the ramped-up region must not produce a low_frequency root cause: %+v", candidate)
+		}
+	}
+}
+
+// R5g (§7.30.2): a serial UI/RT pipeline — running windows on the same CPU
+// that never overlap the target's runnable wait — is cooperation, not
+// competition. The customer report judged exactly this shape as the top
+// "same-core contention" cause.
+const serialPipelineTrace = `
+        ui-100   (  100) [001] .... 1.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ui next_pid=100 next_prio=60
+        ui-100   (  100) [001] .... 1.010000: sched_switch: prev_comm=ui prev_pid=100 prev_prio=60 prev_state=S ==> next_comm=rt next_pid=200 next_prio=60
+        rt-200   (  200) [001] .... 1.020000: sched_switch: prev_comm=rt prev_pid=200 prev_prio=60 prev_state=S ==> next_comm=ui next_pid=100 next_prio=60
+        ui-100   (  100) [001] .... 1.030000: sched_switch: prev_comm=ui prev_pid=100 prev_prio=60 prev_state=R+ ==> next_comm=idle/1 next_pid=0 next_prio=120
+        ui-100   (  100) [001] .... 1.040000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ui next_pid=100 next_prio=60
+        ui-100   (  100) [001] .... 1.045000: sched_switch: prev_comm=ui prev_pid=100 prev_prio=60 prev_state=S ==> next_comm=rt next_pid=200 next_prio=60
+        rt-200   (  200) [001] .... 1.055000: sched_switch: prev_comm=rt prev_pid=200 prev_prio=60 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+`
+
+func TestSerialPipelineIsNotJudgedAsSameCPUCompetition(t *testing.T) {
+	idx := buildTraceIndex(t, "serial_pipeline.systrace", serialPipelineTrace)
+	q := Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.06, TraceFlavorHint: TraceFlavorHarmonyHitrace}
+	stats := ComputeWindowStats(idx, q)
+	var pressure *CPUPressureStats
+	for i := range stats.CPUPressure {
+		if stats.CPUPressure[i].CPU == 1 {
+			pressure = &stats.CPUPressure[i]
+			break
+		}
+	}
+	if pressure == nil {
+		t.Fatalf("expected cpu=1 pressure stats: %+v", stats.CPUPressure)
+	}
+	if pressure.HighPriorityRunningMs <= 0 {
+		t.Fatalf("window-total high-priority running should remain as background: %+v", pressure)
+	}
+	if pressure.HighPriorityRunningOverlapMs != 0 || len(pressure.OverlapCompetitors) != 0 {
+		t.Fatalf("serial hand-offs must yield zero displacement overlap: %+v", pressure)
+	}
+	latency := BuildSchedulerLatencyStats(idx, q)
+	if latency.Count != 1 {
+		t.Fatalf("expected the single idle-covered wait, got %+v", latency)
+	}
+	item := latency.Items[0]
+	if item.HighPriorityRunningOverlapMs != 0 || len(item.SameCPUTopRunning) != 0 {
+		t.Fatalf("no thread ran during the wait, so no competitor may be named: %+v", item)
+	}
+	for _, supply := range stats.ComputeSupply {
+		if supply.Thread.PID != 100 {
+			continue
+		}
+		if strings.Contains(supply.Verdict, "cpu_pressure") {
+			t.Fatalf("serial pipeline must not be judged as CPU-pressure competition: %+v", supply)
+		}
+		if strings.Contains(supply.Summary, "high_prio_overlap=") {
+			t.Fatalf("zero overlap must not surface an overlap figure: %s", supply.Summary)
+		}
+	}
+}
+
+// R5g (§7.30.2): real displacement — the target waits runnable while a
+// high-priority peer runs on the same CPU — is competition, quantified by the
+// overlapped portion only.
+const trueCompetitionTrace = `
+        rt-200   (  200) [001] .... 2.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=rt next_pid=200 next_prio=60
+        net-300  (  300) [002] .... 2.002000: sched_wakeup: comm=ui pid=100 prio=60 target_cpu=001
+        rt-200   (  200) [001] .... 2.030000: sched_switch: prev_comm=rt prev_pid=200 prev_prio=60 prev_state=R+ ==> next_comm=ui next_pid=100 next_prio=60
+        ui-100   (  100) [001] .... 2.040000: sched_switch: prev_comm=ui prev_pid=100 prev_prio=60 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+`
+
+func TestRunnableOverlapCompetitionIsJudgedWithOverlapDuration(t *testing.T) {
+	idx := buildTraceIndex(t, "true_competition.systrace", trueCompetitionTrace)
+	q := Query{PID: 100, TimeStart: 2.0, TimeEnd: 2.05, TraceFlavorHint: TraceFlavorHarmonyHitrace}
+	latency := BuildSchedulerLatencyStats(idx, q)
+	if latency.Count != 1 {
+		t.Fatalf("expected one runnable wait, got %+v", latency)
+	}
+	item := latency.Items[0]
+	if !near(item.DurationMs, 28, 0.001) || !near(item.HighPriorityRunningOverlapMs, 28, 0.001) {
+		t.Fatalf("displacement overlap should cover the whole wait: %+v", item)
+	}
+	if len(item.SameCPUTopRunning) == 0 || item.SameCPUTopRunning[0].Thread.PID != 200 || !near(item.SameCPUTopRunning[0].DurationMs, 28, 0.001) {
+		t.Fatalf("competitor must carry the overlapped portion (28ms), not its window running total: %+v", item.SameCPUTopRunning)
+	}
+	stats := ComputeWindowStats(idx, q)
+	var pressure *CPUPressureStats
+	for i := range stats.CPUPressure {
+		if stats.CPUPressure[i].CPU == 1 {
+			pressure = &stats.CPUPressure[i]
+			break
+		}
+	}
+	if pressure == nil {
+		t.Fatalf("expected cpu=1 pressure stats: %+v", stats.CPUPressure)
+	}
+	if !near(pressure.HighPriorityRunningOverlapMs, 38, 0.001) {
+		t.Fatalf("per-CPU aggregate should sum both displacement directions: %+v", pressure)
+	}
+	if len(pressure.OverlapCompetitors) == 0 || pressure.OverlapCompetitors[0].Thread.PID != 200 || !near(pressure.OverlapCompetitors[0].DurationMs, 28, 0.001) {
+		t.Fatalf("overlap competitors should rank by overlapped ms: %+v", pressure.OverlapCompetitors)
+	}
+	foundPressureVerdict := false
+	for _, supply := range stats.ComputeSupply {
+		if supply.Thread.PID == 100 && supply.State == "runnable" {
+			if !strings.Contains(supply.Verdict, "cpu_pressure") || !strings.Contains(supply.Summary, "high_prio_overlap=28.000ms") {
+				t.Fatalf("real displacement should be judged as pressure with the overlapped ms: %+v", supply)
+			}
+			foundPressureVerdict = true
+		}
+	}
+	if !foundPressureVerdict {
+		t.Fatalf("expected runnable compute-supply row for ui: %+v", stats.ComputeSupply)
+	}
+}
+
+// R5g (§7.30.2): state-churn top_competitor must not name a thread that only
+// ran outside the target's runnable waits on the same CPU.
+const churnSerialCompetitorTrace = `
+        rival-200 (  200) [001] .... 3.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=rival next_pid=200 next_prio=60
+        rival-200 (  200) [001] .... 3.010000: sched_switch: prev_comm=rival prev_pid=200 prev_prio=60 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+        ui-100    (  100) [001] .... 3.012000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ui next_pid=100 next_prio=60
+        ui-100    (  100) [001] .... 3.015000: sched_switch: prev_comm=ui prev_pid=100 prev_prio=60 prev_state=R+ ==> next_comm=idle/1 next_pid=0 next_prio=120
+        ui-100    (  100) [001] .... 3.023000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ui next_pid=100 next_prio=60
+        ui-100    (  100) [001] .... 3.026000: sched_switch: prev_comm=ui prev_pid=100 prev_prio=60 prev_state=R+ ==> next_comm=idle/1 next_pid=0 next_prio=120
+        ui-100    (  100) [001] .... 3.034000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ui next_pid=100 next_prio=60
+        ui-100    (  100) [001] .... 3.037000: sched_switch: prev_comm=ui prev_pid=100 prev_prio=60 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+`
+
+func TestStateChurnTopCompetitorRequiresRunnableOverlap(t *testing.T) {
+	idx := buildTraceIndex(t, "churn_serial_competitor.systrace", churnSerialCompetitorTrace)
+	stats := ComputeWindowStats(idx, Query{PID: 100, TimeStart: 3.0, TimeEnd: 3.05, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	var churn *ThreadStateChurnSummary
+	for i := range stats.StateChurn {
+		if stats.StateChurn[i].Thread.PID == 100 {
+			churn = &stats.StateChurn[i]
+			break
+		}
+	}
+	if churn == nil {
+		t.Fatalf("expected state churn summary for ui: %+v", stats.StateChurn)
+	}
+	if churn.DominantState != string(StateRunnable) {
+		t.Fatalf("expected runnable-dominant churn: %+v", churn)
+	}
+	if churn.TopCompetitor != "" || churn.TopCompetitorOverlapMs != 0 {
+		t.Fatalf("rival never overlapped ui's runnable waits and must not be named competitor: %+v", churn)
+	}
+	if !strings.Contains(churn.NextStep, "inspect same-CPU pressure on cpu=1") {
+		t.Fatalf("next step should fall back to generic same-CPU guidance: %+v", churn)
+	}
+}

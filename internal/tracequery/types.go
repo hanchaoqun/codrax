@@ -1,6 +1,9 @@
 package tracequery
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 const ParserVersion = "tracequery-v12"
 
@@ -558,41 +561,94 @@ type SchedulerLatencyResult struct {
 }
 
 type SchedulerLatencyItem struct {
-	Thread                ThreadRef        `json:"thread"`
-	StartTs               float64          `json:"start_ts,omitempty"`
-	EndTs                 float64          `json:"end_ts,omitempty"`
-	DurationMs            float64          `json:"duration_ms,omitempty"`
-	CPU                   int              `json:"cpu"`
-	CoreClass             string           `json:"core_class,omitempty"`
-	Frequency             int              `json:"frequency,omitempty"`
-	Priority              int              `json:"priority,omitempty"`
-	PriorityClass         string           `json:"priority_class,omitempty"`
-	StartLine             int              `json:"start_line,omitempty"`
-	EndLine               int              `json:"end_line,omitempty"`
-	SameCPUBusyMs         float64          `json:"same_cpu_busy_ms,omitempty"`
-	SameCPUIdleMs         float64          `json:"same_cpu_idle_ms,omitempty"`
-	OtherCPUIdleMs        float64          `json:"other_cpu_idle_ms,omitempty"`
-	HighPriorityRunningMs float64          `json:"high_priority_running_ms,omitempty"`
-	SameCPUTopRunning     []ThreadDuration `json:"same_cpu_top_running,omitempty"`
-	Summary               string           `json:"summary,omitempty"`
+	Thread        ThreadRef `json:"thread"`
+	StartTs       float64   `json:"start_ts,omitempty"`
+	EndTs         float64   `json:"end_ts,omitempty"`
+	DurationMs    float64   `json:"duration_ms,omitempty"`
+	CPU           int       `json:"cpu"`
+	CoreClass     string    `json:"core_class,omitempty"`
+	// Frequency is the legacy single cpu_frequency sample at the wait start,
+	// kept for context only. Low-frequency judgements use WeightedFrequency /
+	// ObservedMaxFrequency (methodology audit §7.30.2 R5e).
+	Frequency     int    `json:"frequency,omitempty"`
+	Priority      int    `json:"priority,omitempty"`
+	PriorityClass string `json:"priority_class,omitempty"`
+	StartLine     int    `json:"start_line,omitempty"`
+	EndLine       int    `json:"end_line,omitempty"`
+	// WeightedFrequency is the duration-weighted CPU frequency (kHz) across
+	// this wait interval, integrated over cpu_frequency change points
+	// (§7.30.2 R5e). Zero when the CPU has no frequency samples at all.
+	WeightedFrequency int `json:"weighted_frequency,omitempty"`
+	// ObservedMaxFrequency is the max cpu_frequency sample observed inside or
+	// nearest to this interval — the low-frequency benchmark (§7.30.2 R5e:
+	// never the window-wide residency max).
+	ObservedMaxFrequency int `json:"observed_max_frequency,omitempty"`
+	// FrequencySample is FrequencySampleNearestFallback when no cpu_frequency
+	// sample fell inside the interval, i.e. WeightedFrequency rests on the
+	// nearest sample(s) (preceding preferred, following as last resort).
+	FrequencySample string  `json:"frequency_sample,omitempty"`
+	SameCPUBusyMs   float64 `json:"same_cpu_busy_ms,omitempty"`
+	SameCPUIdleMs   float64 `json:"same_cpu_idle_ms,omitempty"`
+	OtherCPUIdleMs  float64 `json:"other_cpu_idle_ms,omitempty"`
+	// HighPriorityRunningMs is the full-window high-priority running total on
+	// this CPU — background pressure with no overlap check (§7.30.2 R5g).
+	// Competition claims must use HighPriorityRunningOverlapMs.
+	HighPriorityRunningMs float64 `json:"high_priority_running_ms,omitempty"`
+	// HighPriorityRunningOverlapMs counts only high-priority running time from
+	// other threads that overlapped THIS runnable wait interval — the
+	// displacement-evidenced share (§7.30.2 R5g).
+	HighPriorityRunningOverlapMs float64 `json:"high_priority_running_overlap_ms,omitempty"`
+	// SameCPUTopRunning lists only threads whose running time overlapped this
+	// wait interval; DurationMs is the overlapped portion, not the window
+	// running total. Serial hand-offs (zero overlap) are excluded (§7.30.2
+	// R5g).
+	SameCPUTopRunning []ThreadDuration `json:"same_cpu_top_running,omitempty"`
+	Summary           string           `json:"summary,omitempty"`
 }
 
+// FrequencySampleNearestFallback marks a frequency judgement whose weighted
+// value comes entirely from the nearest cpu_frequency sample(s) outside the
+// judged segment(s) — preceding preferred, following as last resort — because
+// no sample fell inside them (methodology audit §7.30.2 R5e).
+const FrequencySampleNearestFallback = "nearest_fallback"
+
 type ComputeSupplySummary struct {
-	Thread                ThreadRef `json:"thread,omitempty"`
-	State                 string    `json:"state,omitempty"`
-	CPU                   int       `json:"cpu"`
-	CoreClass             string    `json:"core_class,omitempty"`
-	DurationMs            float64   `json:"duration_ms,omitempty"`
-	Frequency             int       `json:"frequency,omitempty"`
-	CPUBusyMs             float64   `json:"cpu_busy_ms,omitempty"`
-	CPUIdleMs             float64   `json:"cpu_idle_ms,omitempty"`
-	RunnableWaitMs        float64   `json:"runnable_wait_ms,omitempty"`
-	HighPriorityRunningMs float64   `json:"high_priority_running_ms,omitempty"`
-	Verdict               string    `json:"verdict,omitempty"`
-	Confidence            float64   `json:"confidence,omitempty"`
-	LineStart             int       `json:"line_start,omitempty"`
-	LineEnd               int       `json:"line_end,omitempty"`
-	Summary               string    `json:"summary,omitempty"`
+	Thread     ThreadRef `json:"thread,omitempty"`
+	State      string    `json:"state,omitempty"`
+	CPU        int       `json:"cpu"`
+	CoreClass  string    `json:"core_class,omitempty"`
+	DurationMs float64   `json:"duration_ms,omitempty"`
+	// Frequency is the legacy single sample taken at the last judged segment
+	// start, kept for context only. The verdict uses WeightedFrequency /
+	// ObservedMaxFrequency (methodology audit §7.30.2 R5e).
+	Frequency int `json:"frequency,omitempty"`
+	// WeightedFrequency is the duration-weighted CPU frequency (kHz) across
+	// the judged running/runnable segments, integrated over cpu_frequency
+	// change points (§7.30.2 R5e).
+	WeightedFrequency int `json:"weighted_frequency,omitempty"`
+	// ObservedMaxFrequency is the max cpu_frequency sample observed inside or
+	// nearest to the judged segments — the 0.65× low-frequency benchmark
+	// (§7.30.2 R5e: never the window-wide residency max).
+	ObservedMaxFrequency int `json:"observed_max_frequency,omitempty"`
+	// FrequencySample is FrequencySampleNearestFallback when no cpu_frequency
+	// sample fell inside any judged segment.
+	FrequencySample string  `json:"frequency_sample,omitempty"`
+	CPUBusyMs       float64 `json:"cpu_busy_ms,omitempty"`
+	CPUIdleMs       float64 `json:"cpu_idle_ms,omitempty"`
+	RunnableWaitMs  float64 `json:"runnable_wait_ms,omitempty"`
+	// HighPriorityRunningMs is the full-window background figure for this CPU
+	// (§7.30.2 R5g); the verdict pressure term uses
+	// HighPriorityRunningOverlapMs instead.
+	HighPriorityRunningMs float64 `json:"high_priority_running_ms,omitempty"`
+	// HighPriorityRunningOverlapMs counts only high-priority running time from
+	// other threads that overlapped THIS thread's runnable waits on the same
+	// CPU (displacement evidence, §7.30.2 R5g).
+	HighPriorityRunningOverlapMs float64 `json:"high_priority_running_overlap_ms,omitempty"`
+	Verdict                      string  `json:"verdict,omitempty"`
+	Confidence                   float64 `json:"confidence,omitempty"`
+	LineStart                    int     `json:"line_start,omitempty"`
+	LineEnd                      int     `json:"line_end,omitempty"`
+	Summary                      string  `json:"summary,omitempty"`
 }
 
 type BlockedReasonSummary struct {
@@ -673,12 +729,21 @@ type RunnableContextSummary struct {
 	Frequency             int                    `json:"frequency,omitempty"`
 	Priority              int                    `json:"priority,omitempty"`
 	PriorityClass         string                 `json:"priority_class,omitempty"`
-	SameCPUBusyMs         float64                `json:"same_cpu_busy_ms,omitempty"`
-	SameCPUIdleMs         float64                `json:"same_cpu_idle_ms,omitempty"`
-	OtherCPUIdleMs        float64                `json:"other_cpu_idle_ms,omitempty"`
-	HighPriorityRunningMs float64                `json:"high_priority_running_ms,omitempty"`
-	SameCPUTopRunning     []ThreadDuration       `json:"same_cpu_top_running,omitempty"`
-	TopBackgroundThreads  []ThreadCPULoadSummary `json:"top_background_threads,omitempty"`
+	SameCPUBusyMs  float64 `json:"same_cpu_busy_ms,omitempty"`
+	SameCPUIdleMs  float64 `json:"same_cpu_idle_ms,omitempty"`
+	OtherCPUIdleMs float64 `json:"other_cpu_idle_ms,omitempty"`
+	// HighPriorityRunningMs is the full-window background figure (§7.30.2
+	// R5g); the cpu_pressure verdict reads HighPriorityRunningOverlapMs.
+	HighPriorityRunningMs float64 `json:"high_priority_running_ms,omitempty"`
+	// HighPriorityRunningOverlapMs counts only high-priority running time from
+	// other threads that overlapped this thread's runnable wait interval
+	// (displacement evidence, §7.30.2 R5g).
+	HighPriorityRunningOverlapMs float64 `json:"high_priority_running_overlap_ms,omitempty"`
+	// SameCPUTopRunning lists only threads whose running overlapped this
+	// thread's runnable wait; DurationMs is the overlapped portion (§7.30.2
+	// R5g).
+	SameCPUTopRunning    []ThreadDuration       `json:"same_cpu_top_running,omitempty"`
+	TopBackgroundThreads []ThreadCPULoadSummary `json:"top_background_threads,omitempty"`
 	SameProcessLoad       *ProcessCPULoadSummary `json:"same_process_load,omitempty"`
 	TopBackgroundProcess  *ProcessCPULoadSummary `json:"top_background_process,omitempty"`
 	CPUConstraint         *CPUConstraintSummary  `json:"cpu_constraint,omitempty"`
@@ -690,14 +755,32 @@ type RunnableContextSummary struct {
 }
 
 type CPUPressureStats struct {
-	CPU                   int              `json:"cpu"`
-	CoreClass             string           `json:"core_class,omitempty"`
-	RunnableWaitMs        float64          `json:"runnable_wait_ms,omitempty"`
-	RunnableEvents        int              `json:"runnable_events,omitempty"`
-	RunningMs             float64          `json:"running_ms,omitempty"`
-	HighPriorityRunningMs float64          `json:"high_priority_running_ms,omitempty"`
-	TopRunnable           []ThreadDuration `json:"top_runnable,omitempty"`
-	TopRunning            []ThreadDuration `json:"top_running,omitempty"`
+	CPU            int     `json:"cpu"`
+	CoreClass      string  `json:"core_class,omitempty"`
+	RunnableWaitMs float64 `json:"runnable_wait_ms,omitempty"`
+	RunnableEvents int     `json:"runnable_events,omitempty"`
+	RunningMs      float64 `json:"running_ms,omitempty"`
+	// HighPriorityRunningMs sums ALL high-priority running time on this CPU in
+	// the window with no overlap check against any waiting thread — background
+	// pressure only (methodology audit §7.30.2 R5g). Competition/displacement
+	// verdicts must use HighPriorityRunningOverlapMs / OverlapCompetitors.
+	HighPriorityRunningMs float64 `json:"high_priority_running_ms,omitempty"`
+	// HighPriorityRunningOverlapMs sums only the high-priority running time
+	// that overlapped some OTHER thread's runnable wait on this CPU — the
+	// displacement-evidenced share of HighPriorityRunningMs (§7.30.2 R5g).
+	HighPriorityRunningOverlapMs float64 `json:"high_priority_running_overlap_ms,omitempty"`
+	// OverlapCompetitors lists threads whose running time overlapped another
+	// thread's runnable wait on this CPU (any priority); DurationMs carries
+	// the overlapped portion only, not the window running total.
+	OverlapCompetitors []ThreadDuration `json:"overlap_competitors,omitempty"`
+	TopRunnable        []ThreadDuration `json:"top_runnable,omitempty"`
+	TopRunning         []ThreadDuration `json:"top_running,omitempty"`
+	// runningSegments / runnableSegments keep the raw per-thread scheduling
+	// intervals on this CPU (sorted by start, running segments disjoint) so
+	// consumers can compute per-target displacement overlap (§7.30.2 R5g).
+	// Unexported: verdict input only, never serialized.
+	runningSegments  []pressureSegment
+	runnableSegments []pressureSegment
 }
 
 type CPUFrequencyResidency struct {
@@ -722,17 +805,40 @@ type CoreClassStats struct {
 }
 
 type ThreadDuration struct {
-	Thread        ThreadRef `json:"thread"`
-	DurationMs    float64   `json:"duration_ms"`
-	CPU           int       `json:"cpu"`
-	CoreClass     string    `json:"core_class,omitempty"`
-	Frequency     int       `json:"frequency,omitempty"`
-	StartTs       float64   `json:"start_ts,omitempty"`
-	EndTs         float64   `json:"end_ts,omitempty"`
-	LineStart     int       `json:"line_start,omitempty"`
-	LineEnd       int       `json:"line_end,omitempty"`
-	Priority      int       `json:"priority,omitempty"`
-	PriorityClass string    `json:"priority_class,omitempty"`
+	Thread     ThreadRef `json:"thread"`
+	DurationMs float64   `json:"duration_ms"`
+	CPU        int       `json:"cpu"`
+	CoreClass  string    `json:"core_class,omitempty"`
+	// Frequency is the legacy single cpu_frequency sample at the last judged
+	// segment start (context only); weighted judgements use the unexported
+	// accumulators below (methodology audit §7.30.2 R5e).
+	Frequency     int     `json:"frequency,omitempty"`
+	StartTs       float64 `json:"start_ts,omitempty"`
+	EndTs         float64 `json:"end_ts,omitempty"`
+	LineStart     int     `json:"line_start,omitempty"`
+	LineEnd       int     `json:"line_end,omitempty"`
+	Priority      int     `json:"priority,omitempty"`
+	PriorityClass string  `json:"priority_class,omitempty"`
+	// R5e duration-weighted frequency accumulation over the judged segments
+	// (§7.30.2). Unexported: in-package verdict input, never serialized.
+	// freqWeightKHzMs is Σ(segment_ms × segment weighted kHz); freqKnownMs is
+	// Σ segment_ms that had any frequency coverage; freqObservedMaxKHz is the
+	// max sample observed inside/nearest the segments; freqInSegmentSamples
+	// counts cpu_frequency change points strictly inside the segments.
+	freqWeightKHzMs      float64
+	freqKnownMs          float64
+	freqObservedMaxKHz   int
+	freqInSegmentSamples int
+}
+
+// weightedFrequencyKHz returns the duration-weighted CPU frequency across the
+// accumulated judged segments, zero when no cpu_frequency data covered them
+// (§7.30.2 R5e: missing data yields no claim, never a default).
+func (td ThreadDuration) weightedFrequencyKHz() int {
+	if td.freqKnownMs <= 0 {
+		return 0
+	}
+	return int(math.Round(td.freqWeightKHzMs / td.freqKnownMs))
 }
 
 type ThreadStateChurnSummary struct {
@@ -749,12 +855,20 @@ type ThreadStateChurnSummary struct {
 	StateSwitches          int       `json:"state_switches,omitempty"`
 	MaxSegmentMs           float64   `json:"max_segment_ms,omitempty"`
 	P95SegmentMs           float64   `json:"p95_segment_ms,omitempty"`
-	RunnableCPU            int       `json:"runnable_cpu,omitempty"`
-	RunnableCoreClass      string    `json:"runnable_core_class,omitempty"`
-	RunnableCPUKnown       bool      `json:"-"`
-	TopCompetitor          string    `json:"top_competitor,omitempty"`
-	TopCompetitorRunningMs float64   `json:"top_competitor_running_ms,omitempty"`
-	NextStep               string    `json:"next_step,omitempty"`
+	RunnableCPU       int    `json:"runnable_cpu,omitempty"`
+	RunnableCoreClass string `json:"runnable_core_class,omitempty"`
+	RunnableCPUKnown  bool   `json:"-"`
+	// TopCompetitor is only set when that thread's running time actually
+	// overlapped this thread's runnable waits on the same CPU (§7.30.2 R5g);
+	// zero-overlap co-residents (serial hand-offs) never qualify.
+	TopCompetitor string `json:"top_competitor,omitempty"`
+	// TopCompetitorOverlapMs is the running time of TopCompetitor that
+	// overlapped this thread's runnable waits — the displacement evidence.
+	TopCompetitorOverlapMs float64 `json:"top_competitor_overlap_ms,omitempty"`
+	// TopCompetitorRunningMs is the competitor's window running total on that
+	// CPU — background context only (§7.30.2 R5g).
+	TopCompetitorRunningMs float64 `json:"top_competitor_running_ms,omitempty"`
+	NextStep               string  `json:"next_step,omitempty"`
 	// NextStepKind is the deterministic typed enumeration behind the English
 	// NextStep guidance prose (NextStepKind* constants), so renderers can
 	// localize without parsing prose.
