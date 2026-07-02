@@ -1510,3 +1510,17 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 **修复(B10)。** `summarizeWakeupCausalImpact` 内基于依赖线程状态区间计算门控时长 `PriorityInversionGatedMs`(runnable 区间全计 + running 区间按弱核判定计入);反转候选标志改为 `lower_priority_dependency && gated>0`(D/IO 不再触发反转标志,保留其原生根因行);反转候选行发布 impact 与 EffectiveImpactMs 均用门控值(排序即门控值),TotalMs/占位上下文保留。回归:合成事件三例(waker runnable 计入/waker running 同频不计入且不成候选/waker D-state 不成反转候选)+ 弱核例(有频点数据时计入)。
 
 **当前进展。** 全部落地:B2 数据半(6688e981:S1 排序合成分数与物理时长分离、aggregate_metric 主体标记、next_step_kind 本地化载体);B4/B5/B3渲染半(d576eac4:on-chain 收紧+聚合/未定位降级背景、bar 状态归因、平铺两因文案+WakeupChainRecommendedNotRun);B6/B7(d16566de:下一步中文六映射、指标快照人话化+窗口基准、locator basename+时间窗);B10 R5d 门控(9b578633:runnable 全计+弱核 running 计入+D/IO 退出反转、频点时间线、无数据保守 0,回归四例);B3 完成门半(wakeup-chain 一次性 directive,typed 双输入,不可循环)。
+
+#### §7.30.2 第三轮客户反馈五项(2026-07-02,用户裁定,quest_list.txt)
+
+**R5d-2 running 弱核影响按算力比例折算。** 弱核 running 时段不得整段计入反转影响:同样的工作量在消费者算力下本可更快完成,反转影响=超出部分。折算:`impact = Σ running_seg × max(0, 1 − f_waker/f_consumer_max)`(f 为该段的频点;比值≥1 时该段贡献 0)。整段计入同样是系统性放大。
+
+**R5e 频点必须逐段评估 + 邻近回退。** 窗口内 CPU 频点会变化,不得以单点样本代表整窗;running 影响折算必须按频点分段积分(至少按 cpu_frequency 变化点切分 running 区间)。且窗口内查不到样本时必须回退用**时间上最邻近**的样本(前向优先,前向缺失用后向),不得默认高频/低频/零。**待查客户案例**:running 实际在高频点,模型却答"算力供给不足"——排查 compute_supply/low_frequency 根因路径的频点取样逻辑(单点?窗口外样本?缺样本时的默认值?)。
+
+**C3 trace_query 索引预算触顶致零产出(性能/可用性)。** 客户报告投影缺失,typed 原因 `trace_query_event_search_zero_match` + "trace 索引事件预算触顶":事件预算截断后 event_search 在截断索引上零命中,run 零结构化产出→投影无从生成。要求:稳定安全的方案(候选:event_search 走流式全量扫描不依赖预算内索引/预算触顶时按查询窗口自动重建窗口内索引/触顶必须在结果里带典型 typed 建议参数),不得静默零命中。
+
+**C4 报告完备性与排版。** (a) on-chain 的 class_verify/jit_compile/shader_compile 等确定性语义优化点,**必须无条件进入答案正文的根因/优化点描述**(现只出现在因果投影,正文靠模型自觉);(b) 因果投影等宽树/明细表排版审计:对齐、换行、宽单元格造成的 UX 混乱。
+
+**R5g 同核竞争必须以时间位移为据。** 判"同核争抢"必须有**时间上的位移证据**:A 在该 CPU runnable 等待的同时 B 在该 CPU running(即 B 挤占了 A)。仅凭窗口内两线程都在同一 CPU 上有 running 时间(如 UI 与 RenderThread 的流水线串行配合,running 窗口不重叠)不得判竞争。客户案例:报告把 UI(58.574ms)与 RenderThread(29.073ms)在 CPU12 的串行运行判为"RT 同核争抢,首要因素占 50.2%"——错误首因。排查 same_cpu_competitor/cpu_pressure/high_prio_running 证据链的产生逻辑,加入重叠位移判定。
+
+**批次任务(C 轮)。** C1=R5d-2 折算;C2=R5e 逐段频点+邻近回退+客户案例排查;C3=索引预算触顶方案;C4a=语义优化点无条件入正文;C4b=排版审计;C5=R5g 位移判定。
