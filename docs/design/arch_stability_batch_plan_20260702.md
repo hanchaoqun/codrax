@@ -28,9 +28,9 @@
 - **F7 成文空 blocks 保底**。empty-blocks 硬拒不软化,但加草稿保全(上次有效 blocks 快照可恢复)+ 断路器覆盖。
 - **F8 枚举 label oracle 假阳性防护**。enumeration label grounding 硬门(oracle 混合信号)按精确信号红线改造:oracle miss 不硬拒,降 typed 警告+系统补充;保留 member_set 结构必需场景的精确子集。
 
-## Batch G — 文档挖掘补录(占位)
+## Batch G — 文档挖掘补录(v2,挖掘完成)
 
-挖掘重启后补:IR 计划未完成项(loopkernel 承重/单一执行 IR/read resumability 等)与 trace 三文档 deferred(Gap3 Step2 relation-pruning、Gap1 pre-emit 残留、O 系列残留),逐项标注五类关注相关性与历史状态后并入排期。
+**结论:代码欠账基本清零,欠的是 eval 验证。** trace 三文档:大 trace gaps 与 trace-only completion 全部已交付/裁定,方法论文档仅剩 2 条 UX 级(§7.25 长唤醒链十几跳 join 撑宽首屏→G1;§7.30 相邻展示债务→G2,均低优)。IR 计划 24 条核心条目:7 条硬门精度 + 4 条 handoff + 5 条工具过宽 + 2 条 prompt + 1 条保底,**绝大多数 code complete/focused tests ✓,状态=eval pending**(D2 商用代表批:add-proof next-action/AnalyzeRefine true path/source-inventory completion authority/interrupt-resume read-run);真 partial 仅三处:StageRunner seam(orchestrator dispatch 拆分,eval pending)、read 状态去重(partial)、loopkernel read action(advisory→soft gate 待验)。**处置:eval-pending 项并入本计划最终 eval 阶段的代表性 case 选择(覆盖上述四类场景);G1/G2 低优排 Batch F 后;三处 partial 待 eval 结果定级。**
 
 ## 执行规程
 
@@ -38,4 +38,5 @@
 
 ## 进展
 
-- v1 落盘(本 commit)。Batch E 开工。
+- v1 落盘;Batch E 开工(E1-E3 实现中)。
+- v2:Batch G 挖掘完成补录(trace 文档零 open 正确性项;IR 24 条多为 eval-pending,并入最终 eval 阶段场景选择)。
