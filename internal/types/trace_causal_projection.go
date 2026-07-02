@@ -167,6 +167,17 @@ type TraceCausalProjectionNode struct {
 	// metric semantics instead of an "unresolved thread" and must not seat the
 	// row on the on-chain tree (§7.30 裁定1/2).
 	SubjectKind string `json:"subject_kind,omitempty"`
+	// BlockingKind / BlockingPeer / BlockingHolderSite / BlockingWaiters carry
+	// the deterministic lock-contention payload parse (§7.30.3 D1) from the
+	// critical_blocking rich notes (blocking_kind / peer / holder_site /
+	// waiters). BlockingKind is a typed enum ("monitor_contention" /
+	// "lock_contention"); BlockingPeer is the LOCK OWNER's thread label and is
+	// empty when the payload named no resolvable owner — renderers then keep
+	// the contention semantics but omit the holder, never a bare duration.
+	BlockingKind       string `json:"blocking_kind,omitempty"`
+	BlockingPeer       string `json:"blocking_peer,omitempty"`
+	BlockingHolderSite string `json:"blocking_holder_site,omitempty"`
+	BlockingWaiters    int    `json:"blocking_waiters,omitempty"`
 }
 
 // TraceCausalSubjectKindAggregateMetric mirrors the trace_query typed
@@ -564,6 +575,17 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// §7.30 裁定1/2: aggregate-metric rows carry a typed subject_kind so the
 	// renderer can show metric semantics instead of an "unresolved thread".
 	node.SubjectKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "subject_kind"))
+	// §7.30.3 D1: typed lock-contention semantics from the structured payload
+	// parse. The peer sentinel ("unknown-thread") means the payload named no
+	// resolvable owner — keep BlockingPeer empty rather than a sentinel label.
+	node.BlockingKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "blocking_kind"))
+	if node.BlockingKind != "" {
+		if peer := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "peer")); traceCausalProjectionKnownSubject(peer) {
+			node.BlockingPeer = peer
+		}
+		node.BlockingHolderSite = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "holder_site"))
+		node.BlockingWaiters = traceCausalProjectionRichNoteInt(record.RichNotes, "waiters")
+	}
 	return node
 }
 

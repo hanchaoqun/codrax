@@ -791,6 +791,14 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 		// the semantic name (裁定2 rendering half).
 		return strings.TrimSpace(runtimeTraceCausalProjectionAggregateMetricName(node, zh))
 	}
+	// §7.30.3 D1: lock-contention rows render their typed semantics (with the
+	// parsed holder) instead of "未定位线程 <ms>" — a duration is never bare.
+	if blocking := runtimeTraceCausalProjectionBlockingName(node, zh); blocking != "" {
+		if runtimeTraceCausalProjectionKnownSubject(node.Subject) {
+			return strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh)) + " · " + blocking
+		}
+		return blocking
+	}
 	subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
 	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.Object, zh))
 	if row.Kind == runtimeTraceProjTreeRowCause {
@@ -1024,12 +1032,23 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	var tags []runtimeTraceProjTag
 	// 裁定4: every bar row states WHAT the duration was (typed StateKind label;
 	// impact-shape value when no state was exposed — never fabricated).
+	// §7.30.3 D1: typed lock-contention rows always carry their blocked-wait
+	// semantics — the shape cell wins over any single-state claim.
 	stateTag := runtimeTraceProjStateKindLabel(node, zh)
-	if stateTag == "" {
+	if stateTag == "" || strings.TrimSpace(node.BlockingKind) != "" {
 		stateTag = runtimeTraceCausalProjectionImpactShapeCell(node, zh)
 	}
 	if stateTag != "" {
 		tags = append(tags, runtimeTraceProjTag{Text: stateTag, DropOrder: runtimeTraceProjTagKeep})
+	}
+	// §7.30.3 D1: the parsed holder site is auditable detail — droppable on
+	// width pressure; the raw record keeps it lossless.
+	if site := strings.TrimSpace(node.BlockingHolderSite); site != "" {
+		text := "持有点 " + runtimeTraceCausalProjectionCompactCellText(site, 40)
+		if !zh {
+			text = "held at " + runtimeTraceCausalProjectionCompactCellText(site, 40)
+		}
+		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagExtra})
 	}
 	layer := runtimeTraceCausalProjectionLayerCell(node, zh)
 	priority := runtimeTraceCausalProjectionPriorityCell(node, zh)

@@ -1500,9 +1500,21 @@ type CriticalBlockingResult struct {
 }
 
 type CriticalBlockingCandidate struct {
-	Type               string                `json:"type,omitempty"`
-	Thread             ThreadRef             `json:"thread,omitempty"`
-	Peer               ThreadRef             `json:"peer,omitempty"`
+	Type   string    `json:"type,omitempty"`
+	Thread ThreadRef `json:"thread,omitempty"`
+	// Peer is the counterpart thread: the binder receiver / IO completer, or —
+	// for lock-contention blocking spans (§7.30.3 D1) — the LOCK OWNER parsed
+	// deterministically from the structured contention print payload.
+	Peer ThreadRef `json:"peer,omitempty"`
+	// BlockingKind is the typed contention semantics parsed from a structured
+	// blocking print payload ("monitor_contention" / "lock_contention"); empty
+	// for rows whose payload carried no such structured format.
+	BlockingKind string `json:"blocking_kind,omitempty"`
+	// HolderSite is the lock holder's code location from the payload's
+	// "at <sig>(<file:line>)" segment, verbatim.
+	HolderSite string `json:"holder_site,omitempty"`
+	// Waiters is the payload's "waiters=<n>" count (0 = not reported).
+	Waiters            int                   `json:"waiters,omitempty"`
 	PeerState          *ThreadStateBreakdown `json:"peer_state,omitempty"`
 	Flags              string                `json:"flags,omitempty"`
 	Oneway             *bool                 `json:"oneway,omitempty"`

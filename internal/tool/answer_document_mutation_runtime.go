@@ -1131,6 +1131,15 @@ func runtimeTraceCausalProjectionActionCell(node types.TraceCausalProjectionNode
 }
 
 func runtimeTraceCausalProjectionImpactShapeCell(node types.TraceCausalProjectionNode, zh bool) string {
+	// §7.30.3 D1: lock-contention rows carry a typed BlockingKind — the
+	// duration is a blocked wait on a lock, so it always renders with that
+	// semantic label instead of a bare number or a generic candidate word.
+	if strings.TrimSpace(node.BlockingKind) != "" {
+		if zh {
+			return "锁竞争·阻塞"
+		}
+		return "lock contention · blocked"
+	}
 	state := strings.TrimSpace(strings.ToLower(node.StateKind))
 	switch state {
 	case "running":
@@ -1344,6 +1353,17 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 	if node.IsAggregateMetric() {
 		return runtimeTraceCausalProjectionCompactCellText(runtimeTraceCausalProjectionAggregateMetricName(node, zh), 44)
 	}
+	// §7.30.3 D1: contention rows lead with the typed lock semantics (holder
+	// included when the payload named one) instead of a peer/type word. The
+	// holder label is the load-bearing information — the lossless table keeps
+	// it whole (a 96-rune ceiling only guards against degenerate payloads).
+	if blocking := runtimeTraceCausalProjectionBlockingName(node, zh); blocking != "" {
+		if runtimeTraceCausalProjectionKnownSubject(node.Subject) {
+			subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
+			return runtimeTraceCausalProjectionCompactCellText(subject, 28) + " / " + runtimeTraceCausalProjectionCompactCellText(blocking, 96)
+		}
+		return runtimeTraceCausalProjectionCompactCellText(blocking, 96)
+	}
 	subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
 	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.Object, zh))
 	if (node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span") && strings.TrimSpace(node.SpanName) != "" {
@@ -1376,6 +1396,39 @@ func runtimeTraceCausalProjectionDisplayNodeName(raw string, zh bool) string {
 	default:
 		return raw
 	}
+}
+
+// runtimeTraceCausalProjectionKnownSubject reports whether a subject names a
+// real (possibly partial, pid-only) thread — not empty and not the
+// unknown-thread sentinel. Precise typed check, never a prose heuristic.
+func runtimeTraceCausalProjectionKnownSubject(raw string) bool {
+	switch runtimeTraceCausalProjectionCanonicalNode(raw) {
+	case "", "unknown-thread", "unknown":
+		return false
+	}
+	return true
+}
+
+// runtimeTraceCausalProjectionBlockingName renders the typed lock-contention
+// semantics (§7.30.3 D1): the row is a wait ON A LOCK, and when the structured
+// payload named the owner, the holder is displayed with its thread label
+// (name-tid). Empty when the node carries no typed BlockingKind.
+func runtimeTraceCausalProjectionBlockingName(node types.TraceCausalProjectionNode, zh bool) string {
+	if strings.TrimSpace(node.BlockingKind) == "" {
+		return ""
+	}
+	name := "锁竞争等待"
+	if !zh {
+		name = "lock contention wait"
+	}
+	if peer := strings.TrimSpace(node.BlockingPeer); peer != "" {
+		if zh {
+			name += "(持有者 " + peer + ")"
+		} else {
+			name += " (owner " + peer + ")"
+		}
+	}
+	return name
 }
 
 // runtimeTraceCausalProjectionDisplaySubjectName is the node-aware subject

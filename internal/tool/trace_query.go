@@ -4263,6 +4263,11 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 	notes := traceQueryTypedKVNotes([][2]string{
 		{"type", item.Type},
 		{"peer", traceThreadLabel(item.Peer)},
+		// §7.30.3 D1: typed contention semantics parsed from the structured
+		// blocking print payload; renderers key on these, never on prose.
+		{"blocking_kind", item.BlockingKind},
+		{"holder_site", item.HolderSite},
+		{"waiters", traceQueryTypedCount(item.Waiters)},
 		{"flags", item.Flags},
 		{"oneway", traceQueryTypedBoolPtr(item.Oneway)},
 		{"sync_like", traceQueryTypedBoolPtr(item.SyncLike)},

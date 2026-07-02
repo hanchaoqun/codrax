@@ -10452,7 +10452,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		if !isBlockingLikeText(span.Name) {
 			continue
 		}
-		add(CriticalBlockingCandidate{
+		cand := CriticalBlockingCandidate{
 			Type:       "blocking_span",
 			Thread:     span.Thread,
 			DurationMs: span.DurationMs,
@@ -10462,7 +10462,18 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 			LineEnd:    span.EndLine,
 			Confidence: 0.72,
 			Summary:    fmt.Sprintf("blocking-like trace span %q lasted %.3fms", span.Name, span.DurationMs),
-		})
+		}
+		// §7.30.3 D1: structured ART/OHOS contention payloads carry the lock
+		// owner — parse deterministically and publish it as the peer so the
+		// projection renders the holder instead of an unattributed duration.
+		if info, ok := parseLockContentionPayload(span.Name); ok {
+			cand.BlockingKind = info.Kind
+			cand.Peer = info.Owner
+			cand.Waiters = info.Waiters
+			cand.HolderSite = info.HolderSite
+			cand.Summary += lockContentionSummarySuffix(info)
+		}
+		add(cand)
 	}
 	for _, mem := range stats.MemoryKinds {
 		if mem.Kind != "reclaim" && mem.Kind != "page_fault" && mem.Kind != "gc" {
