@@ -104,6 +104,14 @@ type TaskState struct {
 // stays correct.
 type MutableState struct {
 	mu sync.RWMutex
+	// completionDenialFingerprint/-Streak track consecutive identical
+	// completion-gate denials for the no-progress breaker; see
+	// RecordCompletionDenialStreak.
+	completionDenialFingerprint string
+	completionDenialStreak      int
+	// completionGateNote is a pending one-line audit note surfaced on the
+	// next accepted completion summary; see SetCompletionGateNote.
+	completionGateNote string
 	// objective is the raw user question / task description seeded
 	// at orchestrator Run time. Replaces the old one-task TaskList
 	// wrapper — every stage reads this field as the load-bearing
@@ -5090,6 +5098,53 @@ func (m *MutableState) StableEvidenceFloorWaiver() *EvidenceFloorWaiver {
 	}
 	clone := *m.retainedEvidenceFloorWaiver
 	return &clone
+}
+
+// RecordCompletionDenialStreak counts CONSECUTIVE identical completion-gate
+// denials. The fingerprint must encode the denial kind plus its progress
+// inputs (e.g. cite-eligible count, read-set size) so any real progress
+// between attempts changes the fingerprint and resets the streak. Returns the
+// streak length including this call. Completion gates use the streak as a
+// no-progress breaker: a denial that repeats unchanged has stopped extracting
+// new work from the model and only burns the run (trace_repl.log 2026-07-02:
+// 37 identical denials over 46 minutes with zero state change).
+func (m *MutableState) RecordCompletionDenialStreak(fingerprint string) int {
+	if m == nil || strings.TrimSpace(fingerprint) == "" {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.completionDenialFingerprint == fingerprint {
+		m.completionDenialStreak++
+	} else {
+		m.completionDenialFingerprint = fingerprint
+		m.completionDenialStreak = 1
+	}
+	return m.completionDenialStreak
+}
+
+// SetCompletionGateNote stores a one-line audit note a completion gate wants
+// surfaced on the next ACCEPTED completion summary (e.g. the no-progress
+// denial breaker tripping). Overwrites any previous note.
+func (m *MutableState) SetCompletionGateNote(note string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.completionGateNote = strings.TrimSpace(note)
+}
+
+// TakeCompletionGateNote returns and clears the pending completion-gate note.
+func (m *MutableState) TakeCompletionGateNote() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	note := m.completionGateNote
+	m.completionGateNote = ""
+	return note
 }
 
 // SetPrincipalSpanWaiver records a model-declared escape for the

@@ -2262,6 +2262,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	if ignoredPrincipalSpanWaiver != "" {
 		summary += " | " + ignoredPrincipalSpanWaiver
 	}
+	if gateNote := ctx.Mutable.TakeCompletionGateNote(); gateNote != "" {
+		summary += " | " + gateNote
+	}
 	recordToolRuntimeTiming(&runtimeTimings, "completion_state_write", stateWriteStart, len(effectiveAggregateFacts))
 
 	return types.ToolResult{
@@ -3130,6 +3133,27 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 			}
 		}
 	}
+	// No-progress denial breaker: if this exact denial — same floor, same
+	// cite-eligible count, same read-set size — has already been returned
+	// completionDenialBreakerMaxStreak times consecutively, denying again
+	// cannot extract new work from the model; it only reopens the
+	// investigation into the same wall (trace_repl.log 2026-07-02: 37
+	// identical denials, 46 minutes, no answer). Accept with an explicit
+	// degraded-citation caveat instead. The fingerprint is built from
+	// deterministic counters only, so any real progress between attempts
+	// (a new file read, a new eligible citation, a changed floor) resets
+	// the streak and the gate stays hard.
+	if ctx.Mutable != nil {
+		fingerprint := fmt.Sprintf("citation_floor min=%d eligible=%d reads=%d", min, eligible, len(readSet))
+		if streak := ctx.Mutable.RecordCompletionDenialStreak(fingerprint); streak > completionDenialBreakerMaxStreak {
+			logging.Warning("[emit_investigation_complete] citation-floor denial breaker tripped after %d identical no-progress denials (%s); accepting completion with degraded-citation caveat",
+				streak-1, fingerprint)
+			ctx.Mutable.SetCompletionGateNote(fmt.Sprintf(
+				"citation floor (≥%d) accepted in degraded form after %d identical no-progress attempts; the answer must present its evidence as runtime/derived observations, not current-source citations",
+				min, streak-1))
+			return ""
+		}
+	}
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — pre-complete citation preflight failed.\n\n")
 	fmt.Fprintf(&b, "The answer contract requires ≥%d citation(s) but the current evidence buffer has only %d cite-eligible item(s) (Source non-empty AND in the read-files list).\n",
@@ -3137,6 +3161,13 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 	b.WriteString("Continue the investigation: emit more file:line evidence anchored in files you actually read, or read additional files first.")
 	return b.String()
 }
+
+// completionDenialBreakerMaxStreak is how many CONSECUTIVE identical
+// no-progress citation-floor denials are allowed before the gate accepts a
+// degraded completion. Three attempts give the retry directives a fair chance
+// to produce progress; anything the model was going to fix, it fixes well
+// within three attempts once state actually changes between them.
+const completionDenialBreakerMaxStreak = 3
 
 func effectiveCompletionAggregateFacts(ctx *types.BusContext, current []types.AnswerAggregateFact) []types.AnswerAggregateFact {
 	current = cloneCompletionAggregateFacts(current)

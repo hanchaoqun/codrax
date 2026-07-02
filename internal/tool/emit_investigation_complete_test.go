@@ -4588,6 +4588,114 @@ func TestEmitInvestigationComplete_CitationFloorHoldsWithoutExplicitExclusion(t 
 	}
 }
 
+// TestEmitInvestigationComplete_CitationFloorDenialBreaker pins the
+// no-progress breaker for the trace_repl.log (2026-07-02) livelock: the same
+// citation-floor denial repeated 37 times with zero state change between
+// attempts. Three identical no-progress denials are the ceiling; the next
+// identical attempt is accepted with an explicit degraded-citation caveat.
+// Any real progress between attempts (here: a new file entering the read set)
+// resets the streak and keeps the floor hard.
+func TestEmitInvestigationComplete_CitationFloorDenialBreaker(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	newDeniedBus := func(objective string) *types.BusContext {
+		return &types.BusContext{
+			Mutable: types.NewMutableState(objective),
+			AnalysisIR: &types.AnalysisIR{
+				RequestModel: types.RequestModel{
+					Intent: types.IntentRootCause,
+					ExternalObservationPolicy: &types.ExternalObservationPolicy{
+						CurrentSourceMode: types.ExternalObservationCurrentSourceDefault,
+						Confidence:        0.9,
+					},
+				},
+				AnswerContract: types.AnswerContract{
+					CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
+				},
+			},
+			AttachedHitrace: "42196.879790: sched_switch: prev_comm=UIThread prev_state=S next_comm=RSUniRenderThre",
+		}
+	}
+	params := json.RawMessage(`{
+		"reason":"the frame dropped because the UI thread slept",
+		"confidence":"high",
+		"result_kind":"resolved"
+	}`)
+	tool := &EmitInvestigationComplete{}
+
+	// churn defeats the pre-existing low-delta downgrade converger the same
+	// way the customer run did: closure repair/pending state changed between
+	// attempts, so ComputeDowngradeBlockerKey never repeated and the
+	// converger reset forever while the citation denial itself stayed
+	// byte-identical. The breaker keys only on (min, eligible, read-set
+	// size) and is immune to that churn.
+	churn := func(bus *types.BusContext, i int) {
+		bus.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+			Kind:     types.RepairExpandSearch,
+			Subject:  fmt.Sprintf("churn-%d", i),
+			Keywords: []string{fmt.Sprintf("stem%d", i)},
+			Origin:   "test_churn",
+		})
+	}
+
+	t.Run("trips_after_three_identical_denials_despite_blocker_churn", func(t *testing.T) {
+		bus := newDeniedBus("分析这一帧丢帧的根因")
+		for i := 1; i <= 3; i++ {
+			churn(bus, i)
+			res, err := tool.Execute(bus, params)
+			if err != nil {
+				t.Fatalf("attempt %d unexpected error: %v", i, err)
+			}
+			if !strings.Contains(res.Summary, "citation preflight") {
+				t.Fatalf("attempt %d should be denied by the citation floor, got: %s", i, res.Summary)
+			}
+			if strings.TrimSpace(bus.Mutable.InvestigationCompleteReason()) != "" {
+				t.Fatalf("attempt %d must not store completion", i)
+			}
+		}
+		churn(bus, 4)
+		res, err := tool.Execute(bus, params)
+		if err != nil {
+			t.Fatalf("breaker attempt unexpected error: %v", err)
+		}
+		if !res.Success || strings.Contains(res.Summary, "citation preflight") {
+			t.Fatalf("4th identical no-progress attempt must be accepted by the breaker, got: %s", res.Summary)
+		}
+		if strings.TrimSpace(bus.Mutable.InvestigationCompleteReason()) == "" {
+			t.Fatalf("breaker acceptance must store the completion")
+		}
+		if !strings.Contains(res.Summary, "degraded form after 3 identical no-progress attempts") {
+			t.Fatalf("breaker acceptance must carry the degraded-citation caveat, got: %s", res.Summary)
+		}
+	})
+
+	t.Run("progress_resets_streak", func(t *testing.T) {
+		bus := newDeniedBus("分析这一帧丢帧的根因")
+		for i := 1; i <= 2; i++ {
+			churn(bus, i)
+			if res, _ := tool.Execute(bus, params); !strings.Contains(res.Summary, "citation preflight") {
+				t.Fatalf("attempt %d should be denied, got: %s", i, res.Summary)
+			}
+		}
+		// Progress: a new file enters the read set → fingerprint changes and
+		// the breaker streak restarts, so the floor stays hard for the next
+		// three attempts.
+		bus.Mutable.EvidenceClosure().AddReadSet(map[string]bool{"internal/render/frame.go": true})
+		for i := 3; i <= 5; i++ {
+			churn(bus, i)
+			res, err := tool.Execute(bus, params)
+			if err != nil {
+				t.Fatalf("attempt %d unexpected error: %v", i, err)
+			}
+			if !strings.Contains(res.Summary, "citation preflight") {
+				t.Fatalf("attempt %d after progress must still be denied (streak reset), got: %s", i, res.Summary)
+			}
+		}
+	})
+}
+
 // TestExplicitCurrentSourceExclusionCompletionBypassLabel unit-tests the typed
 // predicate that keys the Gap A bypass, isolating the three-part
 // ExcludesCurrentSource() contract from the rest of the completion path.
