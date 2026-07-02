@@ -1526,3 +1526,13 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 **批次任务(C 轮)。** C1=R5d-2 折算;C2=R5e 逐段频点+邻近回退+客户案例排查;C3=索引预算触顶方案;C4a=语义优化点无条件入正文;C4b=排版审计;C5=R5g 位移判定。
 
 **当前进展(全部落地)。** C1(a21fde42:weakCoreDeficitMs 逐段折算+频点邻近回退);C2/C5(4f92f7f1:segmentFrequencyStats 时间加权+nearest_fallback typed 标记+低频对标段内 max;8 个竞争面全改位移重叠口径,串行流水不判竞争,UI/RT 反例 pin);C3(133520c1:event_search 无条件流式+触顶恢复参数进 Summary/typed caveat 双面);C4(2b9f2798:确定性优化点系统块无条件入正文;树名字独立截断预算+行宽 120 DropOrder);复核修正(流式零命中回退索引路径保 typed 字段匹配/段起点样本边界/cpu_pressure perf 上下文重叠优先/supply_pressure 低频改 residency 加权/空转守卫)。客户案例机制确认:高频误判=单点过时样本 vs 全窗口 residency max;95.3% 同核争抢=全窗口无重叠累计。
+
+#### §7.30.3 第四轮客户反馈:因果投影三项(2026-07-02,用户裁定,高优先级)
+
+**D1 "未定位线程"必须携带客户可用信息。** 客户报告 aweme 案:目标线程下两行"未定位线程 112.223ms [E1(+1)]"——裸时长无任何语义。**根因已定位**:E1/E2 的源 trace 行(45696/45697)是 ART monitor contention `print` 事件,payload 里明确携带锁持有者:`monitor contention with owner #NetworkKit_GRS_GrsClient-Init_0 -->#NetworkKit_AssetsUtil_Operate_0 (42067)` 与 `Lock contention on a monitor lock (owner tid: 42067)`,critical_blocking 观测未解析该结构化 payload → peer ThreadRef 空 → 渲染哨兵。修:tracequery 对 monitor/lock contention print 事件做**确定性 payload 解析**(owner 线程名/tid、等待者数、持有点符号——ftrace print 结构化格式解析,非散文关键字匹配,合规),critical_blocking 行携带 peer=owner;渲染"锁竞争等待(持有者 #Name tid=NNNN)+阻塞 112.223ms";时长必须带语义标签(阻塞/等待/竞争),不得裸数字。
+
+**D2 树内成因标签中文化,明细表保留原始英文 type。** 树/成因行的 `priority_inversion_candidate`/`io_latency`/`block_io_by_inode` 等 type token 改**简明中文标签**(typed type→zh 映射表:优先级反转/IO延迟/块设备IO(inode) 等,排版对齐更好);**无损明细表新增"类型"列保留原始英文 type token**(审计保真)。设计裁定:树=中文简明,表=原始 token,两全。EN 版树保留英文 token(本就对齐)。
+
+**D3 反转行影响构成必须拆分展示。** priority_inversion_candidate 行显示"运行占用"具有误导性:R5d/R5d-2 后其影响=门控合成量(runnable 全额 + running 弱核折算)。修:数据侧把门控构成拆为 typed 字段(gated_runnable_ms / gated_running_deficit_ms / gated_total_ms),渲染"影响构成: 可运行等待 X ms + 运行折算 Y ms = Z ms";状态标签不得对合成量声称单一状态(改"反转影响"专属标签)。
+
+**批次任务(D 轮,高优先级并入 trace-first 批)。** D1=contention payload 解析+peer 携带+时长语义标签;D2=type 中文映射+明细表类型列;D3=门控构成拆分字段+渲染。
