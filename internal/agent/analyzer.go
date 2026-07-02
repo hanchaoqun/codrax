@@ -2470,6 +2470,8 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	if out.AnswerContract.Language == "" {
 		out.AnswerContract.Language = rm.Language
 	}
+	runtimeArtifactSourceOptional := types.RuntimeArtifactRequestSourceNavigationNotRequired(
+		rm, types.RuntimeArtifactContextActiveFromAgent(ctx))
 
 	// Risk matrix and hypothesis planning.
 	rm.RiskMatrix = risk.Evaluate(rm, rm.RiskMatrix)
@@ -2509,6 +2511,10 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 				return nil, fmt.Errorf("binder (counterfactual): %w", err)
 			}
 		}
+	}
+	if runtimeArtifactSourceOptional {
+		applyRuntimeArtifactSourceOptionalIR(&out, analyzerRuntimeTraceContext(ctx, rm))
+		compiler.RecomputeBudget(&out, rm, sig)
 	}
 
 	// Citation-free carve-outs. A count question ("how many X",
@@ -2551,7 +2557,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// AnswerSurfacePlan.RuntimeGroundingDisposition.
 	// No answer-body synthesis happens here: this only removes
 	// structurally impossible citation floors.
-	if isMeasurementScalar || isHistoryLookup || rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+	if isMeasurementScalar || isHistoryLookup || runtimeArtifactSourceOptional {
 		out.AnswerContract.CitationReq.Required = false
 		out.AnswerContract.CitationReq.MinCitations = 0
 		out.AnswerContract.AcceptanceTests = dropCitationCountGE(out.AnswerContract.AcceptanceTests)
@@ -2659,6 +2665,64 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// structural trigger outside the analyzer-authored contract.
 
 	return ir, nil
+}
+
+func applyRuntimeArtifactSourceOptionalIR(out *compiler.Output, traceRuntime bool) {
+	if out == nil {
+		return
+	}
+	for i := range out.TaskGraph.Nodes {
+		node := &out.TaskGraph.Nodes[i]
+		switch node.Type {
+		case types.NodeProbe:
+			node.Objective = "Identify artifact-local runtime targets, windows, threads, and coverage boundaries relevant to the user's question."
+			node.Inputs = []string{"user_question", "runtime_artifact_context"}
+			node.Outputs = []string{"runtime_targets", "artifact_coverage_plan"}
+		case types.NodeEvidence:
+			if traceRuntime {
+				node.Objective = "Collect deterministic trace evidence through trace_query and preserve windows, thread IDs, causal links, and unsupported-coverage caveats."
+			} else {
+				node.Objective = "Collect typed runtime-artifact observations and preserve artifact-local evidence, coverage boundaries, and unsupported-coverage caveats."
+			}
+			node.Inputs = []string{"runtime_targets", "artifact_coverage_plan"}
+			node.Outputs = []string{"runtime_observations", "artifact_evidence_items", "coverage_caveats"}
+		case types.NodeValidate:
+			node.Objective = "Validate the artifact-local observations against the requested runtime question; source-owner proof is not required unless a typed current-source lane opens."
+			node.Inputs = []string{"runtime_observations", "artifact_evidence_items", "coverage_caveats"}
+			node.Outputs = []string{"runtime_verdicts", "coverage_caveats"}
+		case types.NodeReconcile:
+			node.Objective = "Reconcile runtime-artifact candidates into the strongest artifact-local conclusion and keep missing-coverage caveats explicit."
+			node.Inputs = []string{"runtime_verdicts", "coverage_caveats"}
+			node.Outputs = []string{"runtime_conclusion", "coverage_caveats"}
+		case types.NodeExtract:
+			node.Objective = "Extract runtime-artifact findings and caveats for final answer rendering."
+			node.Inputs = []string{"runtime_conclusion", "artifact_evidence_items", "coverage_caveats"}
+			node.Outputs = []string{"answer_extraction"}
+		case types.NodeFinalize:
+			node.Objective = "Render the runtime-artifact answer with artifact-local evidence, explicit coverage caveats, and no current-checkout citation floor."
+			node.Inputs = []string{"runtime_conclusion", "artifact_evidence_items", "coverage_caveats"}
+			node.Outputs = []string{"answer_document"}
+		}
+		node.SearchHints = types.SearchHints{}
+	}
+	if traceRuntime {
+		out.EvidencePlan.SourceMix = map[string]int{"trace_query": 100}
+	}
+}
+
+func analyzerRuntimeTraceContext(ctx *types.AgentContext, rm types.RequestModel) bool {
+	if ctx != nil {
+		if strings.TrimSpace(ctx.AttachedHitrace) != "" ||
+			strings.TrimSpace(ctx.AttachedHitraceSource) != "" ||
+			ctx.PerfTrace != nil ||
+			ctx.RuntimeArtifactPreflight.HasTraceArtifact() {
+			return true
+		}
+		if ctx.Mutable != nil && ctx.Mutable.PerfTrace() != nil {
+			return true
+		}
+	}
+	return requestModelHasRuntimeTraceArtifactCarrier(ctx, &rm)
 }
 
 func analyzerParseOutputSection(section string) func() {
@@ -3042,20 +3106,8 @@ func analyzerRuntimeArtifactSourceNavigationOptional(ctx *types.AgentContext, rm
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return true
 	}
-	return types.RuntimeArtifactRequestSourceNavigationNotRequired(rm, analyzerAttachedTraceContext(ctx))
-}
-
-func analyzerAttachedTraceContext(ctx *types.AgentContext) bool {
-	if ctx == nil {
-		return false
-	}
-	if strings.TrimSpace(ctx.AttachedHitrace) != "" || ctx.PerfTrace != nil {
-		return true
-	}
-	if ctx.Mutable != nil && ctx.Mutable.PerfTrace() != nil {
-		return true
-	}
-	return false
+	return types.RuntimeArtifactRequestSourceNavigationNotRequired(
+		rm, types.RuntimeArtifactContextActiveFromAgent(ctx))
 }
 
 // mergeRequiredFilePathLists unions head + tail, de-dupes by string

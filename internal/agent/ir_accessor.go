@@ -253,7 +253,8 @@ func runtimeArtifactWithoutRequiredSourceForExplorer(ctx *types.AgentContext) bo
 	if runtimeSourceHardCurrentSourceObligationForExplorer(ctx) {
 		return false
 	}
-	return rm.HasRuntimeArtifactWithoutRequiredCurrentSource()
+	return rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(
+		types.RuntimeArtifactContextActiveFromAgent(ctx))
 }
 
 func runtimeArtifactObservationOnlySurfaceForExplorer(ctx *types.AgentContext) bool {
@@ -267,7 +268,8 @@ func runtimeArtifactObservationOnlySurfaceForExplorer(ctx *types.AgentContext) b
 	if runtimeSourceSoftCurrentSourceObligationForExplorer(ctx) {
 		return false
 	}
-	return rm.HasRuntimeArtifactObservationOnlySurface()
+	return rm.HasRuntimeArtifactObservationOnlySurfaceInArtifactContext(
+		types.RuntimeArtifactContextActiveFromAgent(ctx))
 }
 
 func runtimeArtifactSourceOptionalMixedSurfaceForExplorer(ctx *types.AgentContext) bool {

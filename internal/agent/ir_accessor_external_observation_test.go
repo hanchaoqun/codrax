@@ -47,3 +47,39 @@ func TestOriginSpecificObservationWithoutRequiredSourceForExplorer(t *testing.T)
 		t.Fatal("precise current-source profile must keep source completion required")
 	}
 }
+
+func TestRuntimeArtifactWithoutRequiredSourceForExplorer_UsesPreflightContext(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage: types.StageExplore,
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "capture.systrace",
+				Carrier: "request_path",
+			}},
+		}),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioRootCause,
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+		}},
+	}
+	if !runtimeArtifactWithoutRequiredSourceForExplorer(ctx) {
+		t.Fatal("typed runtime preflight should make current-source proof optional for explorer")
+	}
+
+	ctx.AnalysisIR.RequestModel.CurrentSourceExplanationProfile = &types.CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		Modes: []types.CurrentSourceExplanationMode{
+			types.CurrentSourceExplanationExplainCurrentMechanism,
+		},
+		SourceQuotes: []string{"internal/tracequery/query.go:42"},
+		Confidence:   0.9,
+	}
+	if runtimeArtifactWithoutRequiredSourceForExplorer(ctx) {
+		t.Fatal("precise current-source anchor must keep explorer source proof load-bearing")
+	}
+}

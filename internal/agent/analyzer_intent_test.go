@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
@@ -727,6 +728,133 @@ func TestBuildAnalysisIR_ExternalOnlyRuntimeArtifactStripsAllThreeGates(t *testi
 				t.Errorf("TaskNode %q SuccessCriteria still carries CritCitationCountGE: %+v", n.ID, c)
 			}
 		}
+	}
+}
+
+func TestBuildAnalysisIR_PreflightTraceSourceOptionalUsesRuntimeDAG(t *testing.T) {
+	mut := types.NewMutableState("分析 capture.systrace 里 100..180ms 的卡顿根因")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "分析 capture.systrace 里 100..180ms 的卡顿根因",
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexityComplex,
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"capture.systrace", "100..180ms", "app-100"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+			IsCrossComponent:     true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+			Confidence:   0.9,
+		},
+	})
+	ctx := &types.AgentContext{
+		Stage:   types.StageAnalyze,
+		Mutable: mut,
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "capture.systrace",
+				Carrier: "request_path",
+			}},
+		}),
+	}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.AnswerContract.CitationReq.Required {
+		t.Fatal("source-optional trace artifact must not keep current-checkout citation floor")
+	}
+	for _, a := range ir.AnswerContract.AcceptanceTests {
+		if a.Kind == types.CritCitationCountGE {
+			t.Fatalf("AcceptanceTests still carries CritCitationCountGE: %+v", a)
+		}
+	}
+	if got := ir.EvidencePlan.SourceMix["trace_query"]; got != 100 || len(ir.EvidencePlan.SourceMix) != 1 {
+		t.Fatalf("source-optional trace should compile to trace_query-only source mix, got %+v", ir.EvidencePlan.SourceMix)
+	}
+	if got := ir.EvidencePlan.NodeBudgetHints.PerToolCap["trace_query"]; got <= 0 {
+		t.Fatalf("trace_query budget cap missing: %+v", ir.EvidencePlan.NodeBudgetHints)
+	}
+	for _, n := range ir.TaskGraph.Nodes {
+		if strings.Contains(n.Objective, "codebase") || strings.Contains(n.Objective, "call sites") {
+			t.Fatalf("runtime-only trace DAG should not retain source-code objective on node %s: %q", n.ID, n.Objective)
+		}
+		if len(n.SearchHints.EntityIDs) > 0 || len(n.SearchHints.KeywordIDs) > 0 {
+			t.Fatalf("runtime-only trace node %s should not keep source search hints: %+v", n.ID, n.SearchHints)
+		}
+		for _, c := range n.SuccessCriteria {
+			if c.Kind == types.CritCitationCountGE {
+				t.Fatalf("TaskNode %q SuccessCriteria still carries CritCitationCountGE: %+v", n.ID, c)
+			}
+		}
+	}
+}
+
+func TestBuildAnalysisIR_PreflightTracePreciseCurrentSourceKeepsSourceDAG(t *testing.T) {
+	mut := types.NewMutableState("结合当前源码解释 capture.systrace 里的 trace_query 解析机制")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "结合当前源码解释 capture.systrace 里的 trace_query 解析机制",
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexityModerate,
+		CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes: []types.CurrentSourceExplanationMode{
+				types.CurrentSourceExplanationExplainCurrentMechanism,
+			},
+			SourceQuotes: []string{"internal/tracequery/query.go:42"},
+			Confidence:   0.9,
+		},
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+			IsCrossComponent:     true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+			Confidence:   0.9,
+		},
+	})
+	ctx := &types.AgentContext{
+		Stage:   types.StageAnalyze,
+		Mutable: mut,
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "capture.systrace",
+				Carrier: "request_path",
+			}},
+		}),
+	}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if !ir.AnswerContract.CitationReq.Required {
+		t.Fatal("precise current-source trace question must keep citation floor")
+	}
+	if got := ir.RequestModel.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
+		t.Fatalf("CurrentSourceLaneDecision=%s, want required", got)
+	}
+	if got := ir.EvidencePlan.SourceMix["trace_query"]; got == 100 && len(ir.EvidencePlan.SourceMix) == 1 {
+		t.Fatalf("precise current-source trace question must not collapse to runtime-only source mix: %+v", ir.EvidencePlan.SourceMix)
+	}
+	foundSourceObjective := false
+	for _, n := range ir.TaskGraph.Nodes {
+		if strings.Contains(n.Objective, "codebase") || strings.Contains(n.Objective, "call sites") {
+			foundSourceObjective = true
+			break
+		}
+	}
+	if !foundSourceObjective {
+		t.Fatalf("precise current-source trace question should retain source-oriented DAG objectives: %+v", ir.TaskGraph.Nodes)
 	}
 }
 

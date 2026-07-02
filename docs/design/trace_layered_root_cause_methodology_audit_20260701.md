@@ -1223,3 +1223,43 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 - Batch 4 已落地:证据索引只显示短 locator 与 typed audit 元数据,不再默认带节点长身份或 observation summary;路径展示只取最后一级并 bounded,完整定位继续以原始 `trace_query` 结构化记录为权威。
 - Batch 5 已落地:更新 projection golden tests,钉住 5 列总览、5 列 on-chain、短 action label、短证据、长路径不进入主表。
 - Batch 6 已验证:`go test ./internal/tool -run 'TraceCausalProjection|RuntimeTraceCausalProjection' -count=1`、`go test ./internal/types -run 'TraceCausalProjection|SemanticSpan|StateDrilldown' -count=1`、`go test ./internal/tool ./internal/types -count=1` 通过。
+
+### 7.24 Eval 暴露 gap:runtime-only trace 被 IR 编译和 localizer 拉回源码(2026-07-02)
+
+2026-07-02 代表性 6-case eval(`eval/parallel_selected_summary_20260702-074818.md`)显示 `trace_query_donghu_real_frame_multicausal` 最终 PASS,但 wall time=866s,`trace_query=66`,`repo_map=4`,`read_file=27`,`investigation_complete=12/1`,`tool_history_prunes=2`。人工读日志确认:用户请求明确是 runtime artifact lane (`只分析这份 trace，不分析代码`),且 perf_triage 因大 trace 正确 delegated to `trace_query`;但 analyzer 第一轮没有把 `external_observation_policy.current_source_mode=exclude` 落成完整 policy,`RequestModel` 也没有因为 perf_triage skip 而携带 `PerfTrace` bundle。于是 `compiler.templateRootCause` 仍生成了 codebase root-cause DAG(`Locate failing component and reproduce the observed symptom in the codebase.`),后续 `tier1_floor` 又注入 `Source localization is not yet narrow enough... Missing repo_map lenses...`,把已经足够的 trace 调查拖回 repo_map/read_file。
+
+这是**runtime artifact source-lane decision 没有在 IR 编译/调度层承重**,不是 trace causal projection 表格问题,也不是单个 Donghu case:
+
+- 现有 `RuntimeArtifactReadSourceNavigationNotRequired(..., attachedRuntimeArtifact=true)` 与 `HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext` 已能表达"attached runtime artifact + current source optional"。
+- 但 `buildAnalysisIR` 剥 citation floor 时只调用了不带 context 的 `rm.HasRuntimeArtifactWithoutRequiredCurrentSource()`,没有把 `AgentContext.AttachedHitrace/AttachedLog/RuntimeArtifactPreflight` 的 typed carrier 传进去。
+- DAG compiler 同样只看 `RequestModel`,当大 trace 预分诊跳过且没有 `PerfTrace` bundle 时,它不知道当前是 runtime artifact source-optional turn,继续使用源码 root-cause template。
+- localizer follow-up 原本应该在 runtime artifact source-optional + answer-grade trace_query observation 后降级为 caveat,但被 code DAG/source objective 放大为重试指令。
+
+同批 eval 还暴露一个相邻但独立的 P1 gap:`read_combo_log_current_source_explanation` FAIL。该 case 明确要求"结合当前源码",但探索侧把 runtime/log 结论闭合后没有读到 load-bearing current-source owner,最终答案只引用了 `internal/repl/repl.go` 的邻近 helper,未覆盖 oracle 期待的 `internal/(orchestrator|agent|llm|render|tool)/...go:<line>`。这属于 mixed log+current-source owner selection 弱,不能用 runtime-only carve-out 掩盖;需要后续单独修。
+
+**原则。**
+
+- runtime artifact source-optional 只能让源码 lane 变 optional,不能把 runtime 事实伪装成 current-source 证据。
+- hard gate 和 DAG 承重必须消费 typed runtime carrier + `CurrentSourceLaneDecision`,不能从用户原文关键词或模型 rationale 判断"不分析代码"。
+- 若 current-source lane 是 typed required(`current_source_explanation_profile`, required current key-code dimension, resolved runtime frames, source scope, explicit allow 等),仍必须保留源码 DAG/localizer。
+- source-optional runtime turn 允许模型自愿查源码作为旁支,但系统不得用 citation floor、DAG objective、localizer retry 或 tool budget 把它强制拉回源码。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录 6-case eval 新 gap、边界、任务拆解和相邻 mixed-source gap。
+- **Batch 2: buildAnalysisIR context-aware carve-out。** 把 `RuntimeArtifactContextActiveFromAgent(ctx)` 接入 `buildAnalysisIR` 的 runtime source-optional 判定;attached/runtime-preflight 场景即使没有 `PerfTrace` bundle,也应剥掉 current-source citation floor。
+- **Batch 3: runtime artifact DAG 后处理。** 当 typed runtime artifact source lane 是 optional 且无 current-source required signal 时,把 TaskGraph node objectives/inputs/outputs/SourceMix/NodeBudgetHints 改为 runtime-artifact lane:以 `trace_query/log_triage/perf_triage` 为主,不再写 codebase/source 定位,不再给 `grep/read_file/repo_map` 大额预算。
+- **Batch 4: localizer follow-up 看护。** 新增/扩展 tests:attached trace + trace_query observation + source optional 时,`checkTier1Floor` 不得注入 missing repo_map lenses;current-source required runtime case 仍保留 localizer follow-up。
+- **Batch 5: 编译/提示回归。** 新增 analyzer/compiler tests:root_cause/performance runtime artifact source-optional 不生成 codebase probe 文案、不保留 citation floor、不产生源码预算提示;真实 mixed current-source case 不受影响。
+- **Batch 6: eval 复测。** 重跑 `trace_query_donghu_real_frame_multicausal` 和一个 mixed trace/source case;要求 Donghu 不再出现 repo_map/current-source read_file,investigation_complete 不再多轮回弹,混合源码 case 仍能读 current source。
+- **Batch 7: mixed log+current-source owner gap。** 单独分析 `read_combo_log_current_source_explanation` 的 owner selection 弱问题,设计 owner/localizer 对 current-source explanation profile 的强承重修复,避免 runtime-only carve-out 误吞源码义务。
+
+**当前进展。**
+
+- Batch 1 已落地:本节记录 6-case eval 暴露的 runtime-only trace 被 IR/source localizer 拉回源码的 P0 gap,并把 mixed log+current-source owner 弱问题列为独立 P1。
+- Batch 2 已落地:`buildAnalysisIR` 现在使用 `RuntimeArtifactContextActiveFromAgent(ctx)` 计算 runtime source-optional 判定;attached/preflight/trace_query runtime carrier 即使没有 `PerfTrace` bundle,也能剥离 current-checkout citation floor。
+- Batch 3 已落地:source-optional runtime artifact turn 会经过 deterministic IR 后处理,将 probe/evidence/validate/reconcile/finalize 节点改为 artifact-local 目标/输入/输出;trace 场景的 `SourceMix` 收敛为 `trace_query=100`,不再保留 codebase/call-site 导向目标或源码 search hints。
+- Batch 4 已落地:explorer runtime-source helper 改为消费 `RuntimeArtifactContextActiveFromAgent(ctx)`,让 typed preflight/attachment/runtime observation 能阻断 source proof 变成硬门;精确 current-source anchor 仍保持 source lane load-bearing。
+- Batch 5 已落地:新增 analyzer/IR 回归钉住 preflight trace source-optional 不生成 codebase DAG、不保留 citation floor、不保留 source hints;新增负例确保精确 current-source trace 问题仍保留 citation/source DAG;相关 agent/orchestrator/types/tool focused tests 通过。
+- Batch 6 待复测:重跑 `trace_query_donghu_real_frame_multicausal` 和一个 mixed trace/source case,确认 Donghu 不再出现 repo_map/current-source read_file 和 completion 回弹,同时 mixed source case 不退化。
+- Batch 7 排队:P1 `read_combo_log_current_source_explanation` 的 current-source owner selection 弱问题需要单独设计,不能被 runtime-only carve-out 吞掉。
