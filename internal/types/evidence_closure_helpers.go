@@ -308,22 +308,25 @@ func mergeUnverifiedFindings(existing, incoming []UnverifiedFinding) []Unverifie
 		return append([]UnverifiedFinding(nil), incoming...)
 	}
 	out := append([]UnverifiedFinding(nil), existing...)
-	seen := make(map[string]bool, len(out)+len(incoming))
-	for _, u := range out {
+	index := make(map[string]int, len(out)+len(incoming))
+	for i, u := range out {
 		if u.Token == "" {
 			continue
 		}
-		seen[u.Token+"\x00"+u.Kind] = true
+		index[u.Token+"\x00"+u.Kind] = i
 	}
 	for _, u := range incoming {
 		if u.Token == "" {
 			continue
 		}
 		key := u.Token + "\x00" + u.Kind
-		if seen[key] {
+		if i, ok := index[key]; ok {
+			// Advisory ORs (monotonic — a fork's demotion survives the
+			// merge).
+			out[i].Advisory = out[i].Advisory || u.Advisory
 			continue
 		}
-		seen[key] = true
+		index[key] = len(out)
 		out = append(out, u)
 	}
 	return out

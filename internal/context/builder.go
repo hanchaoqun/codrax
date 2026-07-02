@@ -4929,8 +4929,11 @@ const unverifiedFindingsRenderCap = 12
 //	not cite them, do not assume their contents, grep the repo to
 //	confirm or disprove.
 //	  - `path` internal/agent/foo.go — file does not exist in repo
-//	  - `symbol` BarHandler — symbol not found in graph
+//	  - `symbol` BarHandler — symbol not found in graph (advisory: no longer blocking; verify if cited)
 //	  ... and 3 more.
+//
+// Advisory entries (demoted by the completion-denial breaker) keep
+// rendering with a softened suffix — soft guidance only.
 func formatUnverifiedFindings(finds []types.UnverifiedFinding) string {
 	if len(finds) == 0 {
 		return ""
@@ -4957,7 +4960,11 @@ func formatUnverifiedFindings(finds []types.UnverifiedFinding) string {
 		if label == "" {
 			label = "token"
 		}
-		fmt.Fprintf(&b, "  - `%s` %s — %s\n", label, f.Token, f.Reason)
+		suffix := ""
+		if f.Advisory {
+			suffix = " (advisory: no longer blocking; verify if cited)"
+		}
+		fmt.Fprintf(&b, "  - `%s` %s — %s%s\n", label, f.Token, f.Reason, suffix)
 	}
 	if len(uniq) > max {
 		fmt.Fprintf(&b, "  ... and %d more.\n", len(uniq)-max)

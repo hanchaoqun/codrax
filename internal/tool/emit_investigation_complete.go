@@ -1963,6 +1963,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				closure := ctx.Mutable.EvidenceClosure()
 				refreshClosureReadSnapshot(ctx, closure)
 				closure.DrainSatisfiedPendingReads()
+				closure.DrainVerifiedUnverifiedFindings()
 			}
 			evidence := evidenceSnapshot
 			scenario := types.ScenarioGeneric
@@ -2755,6 +2756,11 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 	if drained := closure.DrainSatisfiedPendingReads(); drained > 0 {
 		logging.Debug("[CGEC] drained %d satisfied PendingRead(s) after ReadSet refresh", drained)
 	}
+	// Belt-and-suspenders next to the pending-read drain: the four read-
+	// coverage mutators already self-clear, but this keeps the C2 gate and
+	// the downgrade blocker key below evaluating post-drain state within
+	// this same dispatch.
+	closure.DrainVerifiedUnverifiedFindings()
 	if cleared := clearUnavailablePendingReadsAfterFailedRead(ctx, closure); cleared > 0 {
 		logging.Info("[CGEC] cleared %d unavailable PendingRead(s) after failed read_file proof", cleared)
 	}
@@ -2806,16 +2812,29 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 	// grounding than "LLM didn't read file X").
 	if unverified := closure.UnverifiedFindings(); len(unverified) > 0 {
 		unverifiedPaths := make(map[string]string)
+		nonAdvisoryUnverified := 0
 		for _, u := range unverified {
+			if u.Advisory {
+				// Aged out of blocking (advisory demotion) — renders as
+				// soft prompt guidance only.
+				continue
+			}
+			nonAdvisoryUnverified++
 			if u.Kind == "path" {
 				unverifiedPaths[u.Token] = u.Reason
 			}
 		}
 		if len(unverifiedPaths) > 0 {
 			var hits []string
+			var matchedTokens []string
+			seenTokens := make(map[string]bool)
 			for _, ev := range evidence {
 				if reason, bad := unverifiedPaths[ev.Source]; bad {
 					hits = append(hits, fmt.Sprintf("%s (%s)", ev.Source, reason))
+					if !seenTokens[ev.Source] {
+						seenTokens[ev.Source] = true
+						matchedTokens = append(matchedTokens, ev.Source)
+					}
 				}
 			}
 			if len(hits) > 0 {
@@ -2834,6 +2853,31 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 					Origin:    "pre_complete.evidence_on_unverified_path",
 				})
 				logging.Info("[CGEC] C2 downgrade: evidence cites unverified path(s) count=%d", len(hits))
+				// No-progress denial breaker (mirror of the citation-floor
+				// breaker below). The fingerprint is built ONLY from
+				// deterministic counters this handler does not mutate —
+				// hits shrinks only when the model re-anchors evidence, the
+				// unverified count shrinks only via verified-read clears /
+				// advisory demotion, and the read set grows only on real
+				// reads. The handler's own AddRepair above is deduped, so
+				// it cannot churn the converger or this fingerprint.
+				if ctx.Mutable != nil {
+					fingerprint := fmt.Sprintf("unverified_path_evidence hits=%d uf=%d reads=%d", len(hits), nonAdvisoryUnverified, len(closure.ReadSet()))
+					if streak := ctx.Mutable.RecordCompletionDenialStreak(fingerprint); streak > completionDenialBreakerMaxStreak {
+						// Typed escape lane: demote the matched path
+						// findings to Advisory so subsequent attempts and
+						// the exact-resolution consumers stop blocking on
+						// them, then let completion continue in degraded
+						// form.
+						demoted := closure.DemoteUnverifiedFindingsToAdvisory("path", matchedTokens...)
+						logging.Warning("[emit_investigation_complete] C2 unverified-path denial breaker tripped after %d identical no-progress denials (%s); demoted %d finding(s) to advisory and accepting completion in degraded form",
+							streak-1, fingerprint, demoted)
+						ctx.Mutable.SetCompletionGateNote(fmt.Sprintf(
+							"the evidence cites %d path(s) the findings check could not verify; completion proceeded in degraded form after %d identical no-progress attempts — present those anchors as unconfirmed, not as verified current-source citations",
+							len(hits), streak-1))
+						return ""
+					}
+				}
 				var b strings.Builder
 				b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — evidence cites files the prior findings check flagged as unverified.\n\n")
 				b.WriteString("The following evidence sources were unable to be verified against the repo graph:\n")

@@ -954,3 +954,173 @@ func TestDrainSatisfiedPendingReads_NilAndEmpty(t *testing.T) {
 		t.Errorf("empty PendingReads: got=%d, want 0", got)
 	}
 }
+
+// TestUnverifiedFindings_ClearOnReadVerification pins the E6 deterministic
+// self-clear: a path-kind finding whose token lands in the read set (a
+// read_file provably touched the file) is removed at read-coverage
+// ingestion; symbol-kind findings are untouched by read ingestion (a file
+// read proves path existence, not symbol presence).
+func TestUnverifiedFindings_ClearOnReadVerification(t *testing.T) {
+	t.Run("add_read_set_clears_path_keeps_symbol", func(t *testing.T) {
+		c := NewEvidenceClosure("")
+		c.AppendUnverifiedFinding(UnverifiedFinding{Token: "internal/a/b.go", Kind: "path", Reason: "file does not exist in repo"})
+		c.AppendUnverifiedFinding(UnverifiedFinding{Token: "GhostSym", Kind: "symbol", Reason: "symbol not found in repo graph"})
+		c.AddReadSet(map[string]bool{"internal/a/b.go": true})
+		finds := c.UnverifiedFindings()
+		if len(finds) != 1 {
+			t.Fatalf("findings after read verification=%d, want 1 (symbol only): %+v", len(finds), finds)
+		}
+		if finds[0].Kind != "symbol" || finds[0].Token != "GhostSym" {
+			t.Errorf("surviving finding=%+v, want the symbol-kind entry", finds[0])
+		}
+	})
+	t.Run("set_read_set_snapshot_clears_path", func(t *testing.T) {
+		c := NewEvidenceClosure("")
+		c.AppendUnverifiedFinding(UnverifiedFinding{Token: "internal/a/b.go", Kind: "path", Reason: "file does not exist in repo"})
+		c.SetReadSet(map[string]bool{"internal/a/b.go": true})
+		if finds := c.UnverifiedFindings(); len(finds) != 0 {
+			t.Errorf("findings after SetReadSet=%d, want 0: %+v", len(finds), finds)
+		}
+	})
+	t.Run("add_read_ranges_triggers_clear_pass", func(t *testing.T) {
+		c := NewEvidenceClosure("")
+		c.AddReadSet(map[string]bool{"pkg/x.go": true})
+		// Finding recorded AFTER the read: it survives until the next
+		// coverage mutation (or gate-site drain) runs the drop pass.
+		c.AppendUnverifiedFinding(UnverifiedFinding{Token: "pkg/x.go", Kind: "path", Reason: "file does not exist in repo"})
+		if finds := c.UnverifiedFindings(); len(finds) != 1 {
+			t.Fatalf("finding must persist until the next coverage mutation, got %d", len(finds))
+		}
+		c.AddReadRanges(map[string][]LineRange{"pkg/x.go": {{Start: 1, End: 10}}})
+		if finds := c.UnverifiedFindings(); len(finds) != 0 {
+			t.Errorf("findings after AddReadRanges pass=%d, want 0: %+v", len(finds), finds)
+		}
+	})
+	t.Run("sub_repo_alias_suffix_match_clears", func(t *testing.T) {
+		c := NewEvidenceClosure("")
+		c.AppendUnverifiedFinding(UnverifiedFinding{Token: "repo-stub-rust/src/lib.rs", Kind: "path", Reason: "file does not exist in repo"})
+		c.AddReadSet(map[string]bool{"src/lib.rs": true})
+		if finds := c.UnverifiedFindings(); len(finds) != 0 {
+			t.Errorf("alias-form read must clear the finding, got %+v", finds)
+		}
+	})
+	t.Run("drain_verified_gate_site_entrypoint", func(t *testing.T) {
+		var nilC *EvidenceClosure
+		if got := nilC.DrainVerifiedUnverifiedFindings(); got != 0 {
+			t.Errorf("nil closure: got=%d, want 0", got)
+		}
+		c := NewEvidenceClosure("")
+		c.AddReadSet(map[string]bool{"pkg/x.go": true})
+		c.AppendUnverifiedFinding(UnverifiedFinding{Token: "pkg/x.go", Kind: "path", Reason: "file does not exist in repo"})
+		if got := c.DrainVerifiedUnverifiedFindings(); got != 1 {
+			t.Errorf("drained=%d, want 1", got)
+		}
+		if got := c.DrainVerifiedUnverifiedFindings(); got != 0 {
+			t.Errorf("second drain=%d, want 0 (idempotent)", got)
+		}
+	})
+}
+
+// TestUnverifiedFindings_ClearIsOneWay pins the ping-pong guard: removal is
+// strictly one-way. A later SetReadSet snapshot WITHOUT the file must not
+// resurrect the finding, and a MergeFrom of a fork still carrying it must
+// re-clear deterministically (the merged readSet is a superset).
+func TestUnverifiedFindings_ClearIsOneWay(t *testing.T) {
+	t.Run("read_set_replace_does_not_resurrect", func(t *testing.T) {
+		c := NewEvidenceClosure("")
+		c.AppendUnverifiedFinding(UnverifiedFinding{Token: "internal/a/b.go", Kind: "path", Reason: "file does not exist in repo"})
+		c.AddReadSet(map[string]bool{"internal/a/b.go": true})
+		if finds := c.UnverifiedFindings(); len(finds) != 0 {
+			t.Fatalf("precondition: finding must be cleared, got %+v", finds)
+		}
+		c.SetReadSet(map[string]bool{"other.go": true})
+		if finds := c.UnverifiedFindings(); len(finds) != 0 {
+			t.Errorf("replace-snapshot without the file resurrected the finding: %+v", finds)
+		}
+	})
+	t.Run("fork_merge_does_not_resurrect", func(t *testing.T) {
+		parent := NewEvidenceClosure("")
+		parent.AppendUnverifiedFinding(UnverifiedFinding{Token: "internal/a/b.go", Kind: "path", Reason: "file does not exist in repo"})
+		fork := parent.CloneForExploreDispatch()
+		parent.AddReadSet(map[string]bool{"internal/a/b.go": true})
+		if finds := parent.UnverifiedFindings(); len(finds) != 0 {
+			t.Fatalf("precondition: parent must be cleared, got %+v", finds)
+		}
+		parent.MergeFrom(fork)
+		if finds := parent.UnverifiedFindings(); len(finds) != 0 {
+			t.Errorf("fork merge resurrected a parent-cleared finding: %+v", finds)
+		}
+	})
+}
+
+// TestDemoteUnverifiedFindingsToAdvisory pins the breaker's typed escape
+// lane: Advisory flips only for verbatim (kind, token) matches, never
+// un-flips, and the merge helper ORs the flag so a fork's demotion
+// survives. There is deliberately NO round-based age demotion — both
+// producers mark findings at analyze time, so an age clock would expire
+// the anti-hallucination gate unconditionally a few explore rounds into
+// every run (adversarial-review finding on the first E6 cut); the C2
+// denial breaker owns degradation.
+func TestDemoteUnverifiedFindingsToAdvisory(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AppendUnverifiedFinding(UnverifiedFinding{Token: "internal/a/b.go", Kind: "path", Reason: "file does not exist in repo"})
+	c.AppendUnverifiedFinding(UnverifiedFinding{Token: "GhostSym", Kind: "symbol", Reason: "symbol not found in repo graph"})
+	if got := c.DemoteUnverifiedFindingsToAdvisory("path", "internal/other.go"); got != 0 {
+		t.Errorf("non-matching token: demoted=%d, want 0", got)
+	}
+	if got := c.DemoteUnverifiedFindingsToAdvisory("path", "internal/a/b.go"); got != 1 {
+		t.Errorf("matching token: demoted=%d, want 1", got)
+	}
+	finds := c.UnverifiedFindings()
+	for _, f := range finds {
+		if f.Kind == "path" && !f.Advisory {
+			t.Errorf("path finding must be advisory after demotion")
+		}
+		if f.Kind == "symbol" && f.Advisory {
+			t.Errorf("symbol finding must be untouched by a path demotion")
+		}
+	}
+	// Re-running never un-flips and never double-counts.
+	if got := c.DemoteUnverifiedFindingsToAdvisory("path", "internal/a/b.go"); got != 0 {
+		t.Errorf("already-advisory entries must not re-count, got %d", got)
+	}
+
+	// Merge collision: Advisory ORs, so a fork's demotion survives and an
+	// incoming non-advisory copy cannot un-flip it.
+	merged := mergeUnverifiedFindings(
+		[]UnverifiedFinding{{Token: "x", Kind: "symbol"}},
+		[]UnverifiedFinding{{Token: "x", Kind: "symbol", Advisory: true}},
+	)
+	if len(merged) != 1 || !merged[0].Advisory {
+		t.Errorf("merge collision must OR Advisory, got %+v", merged)
+	}
+	merged = mergeUnverifiedFindings(
+		[]UnverifiedFinding{{Token: "x", Kind: "symbol", Advisory: true}},
+		[]UnverifiedFinding{{Token: "x", Kind: "symbol"}},
+	)
+	if len(merged) != 1 || !merged[0].Advisory {
+		t.Errorf("incoming non-advisory must not un-flip an advisory entry, got %+v", merged)
+	}
+}
+
+// TestUnverifiedFindings_GroundedSymbolClear pins the same-shape symbol
+// clear: a grounded accepted-evidence ref whose AnchorSymbol verbatim-equals
+// a symbol-kind token disproves "symbol not found in graph" with a typed
+// signal; non-grounded refs and different symbols do not clear.
+func TestUnverifiedFindings_GroundedSymbolClear(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AppendUnverifiedFinding(UnverifiedFinding{Token: "GhostSym", Kind: "symbol", Reason: "symbol not found in repo graph"})
+	c.AppendAcceptedEvidenceRefs([]AcceptedEvidenceRef{
+		{ID: "ev-1", Source: "a.go", LineStart: 3, AnchorSymbol: "OtherSym", GroundingStatus: GroundingGrounded},
+		{ID: "ev-2", Source: "a.go", LineStart: 5, AnchorSymbol: "GhostSym", GroundingStatus: GroundingRecovered},
+	})
+	if finds := c.UnverifiedFindings(); len(finds) != 1 {
+		t.Fatalf("non-grounded / different-symbol refs must not clear, got %+v", finds)
+	}
+	c.AppendAcceptedEvidenceRefs([]AcceptedEvidenceRef{
+		{ID: "ev-3", Source: "a.go", LineStart: 9, AnchorSymbol: "GhostSym", GroundingStatus: GroundingGrounded},
+	})
+	if finds := c.UnverifiedFindings(); len(finds) != 0 {
+		t.Errorf("grounded anchor-symbol ref must clear the symbol finding, got %+v", finds)
+	}
+}

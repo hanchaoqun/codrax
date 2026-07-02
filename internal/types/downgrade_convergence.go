@@ -3,6 +3,7 @@ package types
 import (
 	"hash/fnv"
 	"sort"
+	"strconv"
 )
 
 // DowngradeLane is the typed identity of a pre-complete downgrade gate. It is
@@ -97,7 +98,10 @@ func ComputeDowngradeBlockerKey(pending []PendingRead, unverified []UnverifiedFi
 		parts = append(parts, "pr:"+p.Origin+"|"+p.File)
 	}
 	for _, u := range unverified {
-		parts = append(parts, "uf:"+u.Kind+"|"+u.Token)
+		// The advisory bit joins the hashed identity: the flip is
+		// monotonic, so it changes the key exactly once — a deliberate
+		// state change, not churn.
+		parts = append(parts, "uf:"+u.Kind+"|"+u.Token+"|adv="+strconv.FormatBool(u.Advisory))
 	}
 	for _, r := range repairs {
 		parts = append(parts, "rp:"+string(r.Kind)+"|"+r.Subject+"|lane="+string(r.DowngradeLane))

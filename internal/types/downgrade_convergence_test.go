@@ -142,3 +142,51 @@ func TestAppendCompletionCaveat_DedupByLane(t *testing.T) {
 		t.Fatalf("typed reason code lost: %+v", got[0])
 	}
 }
+
+// TestComputeDowngradeBlockerKey_UnverifiedLifecycleChangesKeyOnce pins the
+// E6 identity contract: a finding that clears or demotes to Advisory is a
+// sanctioned blocker shrink — the key changes and convergence resets exactly
+// once per lifecycle transition, never per round.
+func TestComputeDowngradeBlockerKey_UnverifiedLifecycleChangesKeyOnce(t *testing.T) {
+	base := ComputeDowngradeBlockerKey(nil, []UnverifiedFinding{{Token: "a/b.go", Kind: "path"}}, nil)
+	advisory := ComputeDowngradeBlockerKey(nil, []UnverifiedFinding{{Token: "a/b.go", Kind: "path", Advisory: true}}, nil)
+	cleared := ComputeDowngradeBlockerKey(nil, nil, nil)
+	if base == advisory {
+		t.Fatal("advisory demotion must change the blocker key (one deliberate state change)")
+	}
+	if base == cleared {
+		t.Fatal("a cleared finding must change the blocker key")
+	}
+	// The advisory flip is monotonic: re-hashing the advisory state is stable.
+	if advisory != ComputeDowngradeBlockerKey(nil, []UnverifiedFinding{{Token: "a/b.go", Kind: "path", Advisory: true}}, nil) {
+		t.Fatal("advisory key must be byte-stable after the single flip")
+	}
+}
+
+// TestComputeDowngradeBlockerKey_StableAcrossC2HandlerRepairReAdd is the
+// af0a7cc5 regression pin: the C2 unverified-path handler re-adds its
+// RepairExpandSearch on every denial with prose-only deltas (Rationale
+// mentions the current hits). AddRepair's dedupe plus the prose-free key
+// parts mean two consecutive denials whose only delta is that re-add hash
+// to the SAME blocker key — the handler cannot self-churn the converger.
+func TestComputeDowngradeBlockerKey_StableAcrossC2HandlerRepairReAdd(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AppendUnverifiedFinding(UnverifiedFinding{Token: "x/y.go", Kind: "path", Reason: "file does not exist in repo"})
+	c.AddRepair(RepairDirective{
+		Kind:      RepairExpandSearch,
+		Keywords:  []string{"k"},
+		Rationale: "evidence cites 1 file(s) the prior findings check flagged as unverified: x/y.go",
+		Origin:    "pre_complete.evidence_on_unverified_path",
+	})
+	key1 := ComputeDowngradeBlockerKey(c.PendingReads(), c.UnverifiedFindings(), c.ActiveRepairs())
+	c.AddRepair(RepairDirective{
+		Kind:      RepairExpandSearch,
+		Keywords:  []string{"k"},
+		Rationale: "evidence cites 2 file(s) the prior findings check flagged as unverified: x/y.go; x/y.go — different prose",
+		Origin:    "pre_complete.evidence_on_unverified_path",
+	})
+	key2 := ComputeDowngradeBlockerKey(c.PendingReads(), c.UnverifiedFindings(), c.ActiveRepairs())
+	if key1 != key2 {
+		t.Fatal("the C2 handler's own deduped RepairExpandSearch re-add must not change the blocker key")
+	}
+}

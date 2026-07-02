@@ -388,6 +388,12 @@ func ExactResolutionPendingTargets(c *ExactResolutionContract, finds []Unverifie
 	kind := exactResolutionFindingKind(c)
 	seen := make(map[string]bool)
 	for _, f := range finds {
+		// Advisory findings aged out of hard blocking; pending-target
+		// consumers fall through to their defining-proof checks instead
+		// of neutralizing evidence on a stale mark.
+		if f.Advisory {
+			continue
+		}
 		if !exactResolutionFindingKindMatches(kind, f.Kind) {
 			continue
 		}

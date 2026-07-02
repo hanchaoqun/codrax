@@ -381,18 +381,6 @@ type PendingRead struct {
 	Stage string
 }
 
-// UnverifiedFinding is one entry in EvidenceClosure.unverifiedFinds.
-// Token is the literal text from the analyzer's report (a path or
-// `backtick-quoted` symbol); Kind is "path" or "symbol"; Reason is
-// the validator's diagnosis ("file does not exist in repo", "symbol
-// not found in graph"). The findings_validator emits these and the
-// renderer in context/builder.go decorates them at prompt-build time.
-type UnverifiedFinding struct {
-	Token  string
-	Kind   string // "path" | "symbol"
-	Reason string
-}
-
 // ClosureFingerprint is the snapshot used by the convergence detector
 // (I4 enforcer). Two adjacent fingerprints with all four fields
 // equal means an explore round did not change ReadSet, did not
@@ -615,6 +603,12 @@ func (c *EvidenceClosure) MergeFrom(other *EvidenceClosure) {
 		c.violations = append(c.violations, cloneViolations(snap.violations)...)
 	}
 	c.phase1UnreadFired = c.phase1UnreadFired || snap.phase1UnreadFired
+	// Fork-merge resurrection guard: the unverifiedFinds union above may
+	// re-add a finding the parent already cleared. The merged readSet /
+	// acceptedEvidence are supersets, so re-running the drop passes
+	// deterministically re-clears it.
+	c.dropVerifiedUnverifiedFindsLocked()
+	c.dropGroundedSymbolUnverifiedFindsLocked()
 }
 
 // SetRepoRoot updates the closure's cached repo root. Called by
@@ -665,6 +659,7 @@ func (c *EvidenceClosure) SetReadSet(files map[string]bool) {
 			c.readSet[canon] = true
 		}
 	}
+	c.dropVerifiedUnverifiedFindsLocked()
 }
 
 // AddReadSet merges files into the current ReadSet snapshot.
@@ -685,6 +680,7 @@ func (c *EvidenceClosure) AddReadSet(files map[string]bool) {
 			c.readSet[canon] = true
 		}
 	}
+	c.dropVerifiedUnverifiedFindsLocked()
 }
 
 // ReadSet returns a defensive copy of the current ReadSet so callers
@@ -766,6 +762,7 @@ func (c *EvidenceClosure) AddReadRanges(ranges map[string][]LineRange) {
 		combined = append(combined, rngs...)
 		c.readRanges[file] = mergeLineRanges(combined)
 	}
+	c.dropVerifiedUnverifiedFindsLocked()
 }
 
 // SetReadRanges atomically replaces the entire range map. Used by
@@ -786,6 +783,7 @@ func (c *EvidenceClosure) SetReadRanges(ranges map[string][]LineRange) {
 		}
 		c.readRanges[file] = mergeLineRanges(append([]LineRange{}, rngs...))
 	}
+	c.dropVerifiedUnverifiedFindsLocked()
 }
 
 // RecordFileTotalLines stores the total line count for a file as
@@ -1684,37 +1682,6 @@ func (c *EvidenceClosure) everyRangeCoveredLocked(canon string, ranges []LineRan
 	return true
 }
 
-// AppendUnverifiedFinding records one analyzer hallucination probe
-// failure. Idempotent: same Token+Kind tuple is recorded once.
-func (c *EvidenceClosure) AppendUnverifiedFinding(u UnverifiedFinding) {
-	if c == nil || u.Token == "" {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for _, existing := range c.unverifiedFinds {
-		if existing.Token == u.Token && existing.Kind == u.Kind {
-			return
-		}
-	}
-	c.unverifiedFinds = append(c.unverifiedFinds, u)
-}
-
-// UnverifiedFindings returns a defensive copy.
-func (c *EvidenceClosure) UnverifiedFindings() []UnverifiedFinding {
-	if c == nil {
-		return nil
-	}
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if len(c.unverifiedFinds) == 0 {
-		return nil
-	}
-	out := make([]UnverifiedFinding, len(c.unverifiedFinds))
-	copy(out, c.unverifiedFinds)
-	return out
-}
-
 // RecordCitation records a (file, line) pair that an emit_*-accepted
 // citation pool referenced. Used by the convergence detector and by
 // the pre-complete simulator's "do we have any cite-eligible
@@ -1773,6 +1740,7 @@ func (c *EvidenceClosure) AppendAcceptedEvidenceRefs(refs []AcceptedEvidenceRef)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.acceptedEvidence = mergeAcceptedEvidenceRefs(c.acceptedEvidence, refs)
+	c.dropGroundedSymbolUnverifiedFindsLocked()
 }
 
 // AcceptedEvidenceRefs returns the current bounded evidence identity carrier.

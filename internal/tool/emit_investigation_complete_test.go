@@ -8379,3 +8379,204 @@ func TestCompletionAggregateSupportRepair_EmbeddedSourceLocationsFromReadFile(t 
 		t.Fatalf("repaired aggregate should carry runtime and current-source origins, got %+v", origins)
 	}
 }
+
+// TestEmitInvestigationComplete_UnverifiedPathDenialBreaker pins the E6
+// same-cause breaker on the C2 unverified-path gate, mirroring the
+// citation-floor breaker (af0a7cc5). The breaker fingerprint is built ONLY
+// from counters the C2 handler does not mutate (hits count, non-advisory
+// unverified-set size, read-set size), so blocker churn that resets the
+// contract_chain low-delta converger — the customer livelock mechanism —
+// cannot reset the streak. Three identical no-progress denials are the
+// ceiling; the fourth attempt accepts with the matched findings demoted to
+// Advisory and an explicit degraded-form gate note. Real progress on any
+// fingerprint counter resets the streak and keeps the gate hard.
+func TestEmitInvestigationComplete_UnverifiedPathDenialBreaker(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	const ghost = "internal/ghost/missing.go"
+	newDeniedBus := func() *types.BusContext {
+		mut := types.NewMutableState("q")
+		mut.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
+			Token: ghost, Kind: "path", Reason: "file does not exist in repo",
+		})
+		mut.AppendEvidence([]types.EvidenceItem{{
+			Kind: types.EvidenceDirect, Source: ghost, LineStart: 10,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "Ghost",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		}})
+		return &types.BusContext{Mutable: mut, RepoRoot: t.TempDir()}
+	}
+	params := json.RawMessage(`{"reason":"done","confidence":"high","result_kind":"resolved"}`)
+	tool := &EmitInvestigationComplete{}
+	// Blocker churn defeats the contract_chain low-delta converger exactly
+	// the way the customer run did (ComputeDowngradeBlockerKey never
+	// repeats), leaving the streak breaker as the only bound.
+	churn := func(bus *types.BusContext, i int) {
+		bus.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+			Kind:     types.RepairExpandSearch,
+			Subject:  fmt.Sprintf("churn-%d", i),
+			Keywords: []string{fmt.Sprintf("stem%d", i)},
+			Origin:   "test_churn",
+		})
+	}
+
+	t.Run("trips_after_three_identical_denials_despite_blocker_churn", func(t *testing.T) {
+		bus := newDeniedBus()
+		for i := 1; i <= 3; i++ {
+			churn(bus, i)
+			res, err := tool.Execute(bus, params)
+			if err != nil {
+				t.Fatalf("attempt %d unexpected error: %v", i, err)
+			}
+			if !strings.Contains(res.Summary, "flagged as unverified") {
+				t.Fatalf("attempt %d should be denied by the C2 unverified-path gate, got: %s", i, res.Summary)
+			}
+			if strings.TrimSpace(bus.Mutable.InvestigationCompleteReason()) != "" {
+				t.Fatalf("attempt %d must not store completion", i)
+			}
+		}
+		churn(bus, 4)
+		res, err := tool.Execute(bus, params)
+		if err != nil {
+			t.Fatalf("breaker attempt unexpected error: %v", err)
+		}
+		if !res.Success || strings.Contains(res.Summary, "flagged as unverified") {
+			t.Fatalf("4th identical no-progress attempt must be accepted by the breaker, got: %s", res.Summary)
+		}
+		if strings.TrimSpace(bus.Mutable.InvestigationCompleteReason()) == "" {
+			t.Fatalf("breaker acceptance must store the completion")
+		}
+		if !strings.Contains(res.Summary, "degraded form after 3 identical no-progress attempts") {
+			t.Fatalf("breaker acceptance must carry the degraded-form gate note, got: %s", res.Summary)
+		}
+		finds := bus.Mutable.EvidenceClosure().UnverifiedFindings()
+		if len(finds) != 1 || !finds[0].Advisory {
+			t.Fatalf("breaker must demote the matched path finding to Advisory (typed escape lane), got %+v", finds)
+		}
+	})
+
+	t.Run("read_progress_resets_streak", func(t *testing.T) {
+		bus := newDeniedBus()
+		for i := 1; i <= 2; i++ {
+			churn(bus, i)
+			if res, _ := tool.Execute(bus, params); !strings.Contains(res.Summary, "flagged as unverified") {
+				t.Fatalf("attempt %d should be denied, got: %s", i, res.Summary)
+			}
+		}
+		// Progress: a new (unrelated) file enters the read set → the reads
+		// counter changes, the fingerprint changes, and the streak restarts
+		// — the gate stays hard for the next three attempts.
+		bus.Mutable.EvidenceClosure().AddReadSet(map[string]bool{"internal/render/frame.go": true})
+		for i := 3; i <= 5; i++ {
+			churn(bus, i)
+			res, err := tool.Execute(bus, params)
+			if err != nil {
+				t.Fatalf("attempt %d unexpected error: %v", i, err)
+			}
+			if !strings.Contains(res.Summary, "flagged as unverified") {
+				t.Fatalf("attempt %d after read progress must still be denied (streak reset), got: %s", i, res.Summary)
+			}
+		}
+	})
+
+	t.Run("unverified_set_shrink_resets_streak", func(t *testing.T) {
+		bus := newDeniedBus()
+		// A second finding that never matches evidence still counts in the
+		// non-advisory unverified-set size.
+		bus.Mutable.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
+			Token: "internal/ghost/other.go", Kind: "path", Reason: "file does not exist in repo",
+		})
+		for i := 1; i <= 2; i++ {
+			churn(bus, i)
+			if res, _ := tool.Execute(bus, params); !strings.Contains(res.Summary, "flagged as unverified") {
+				t.Fatalf("attempt %d should be denied, got: %s", i, res.Summary)
+			}
+		}
+		// Progress: the unrelated finding clears via read verification → the
+		// uf counter shrinks → fingerprint changes → streak restarts.
+		bus.Mutable.EvidenceClosure().AddReadSet(map[string]bool{"internal/ghost/other.go": true})
+		for i := 3; i <= 5; i++ {
+			churn(bus, i)
+			res, err := tool.Execute(bus, params)
+			if err != nil {
+				t.Fatalf("attempt %d unexpected error: %v", i, err)
+			}
+			if !strings.Contains(res.Summary, "flagged as unverified") {
+				t.Fatalf("attempt %d after unverified-set progress must still be denied (streak reset), got: %s", i, res.Summary)
+			}
+		}
+	})
+
+	t.Run("hits_delta_resets_streak", func(t *testing.T) {
+		bus := newDeniedBus()
+		for i := 1; i <= 2; i++ {
+			churn(bus, i)
+			if res, _ := tool.Execute(bus, params); !strings.Contains(res.Summary, "flagged as unverified") {
+				t.Fatalf("attempt %d should be denied, got: %s", i, res.Summary)
+			}
+		}
+		// Delta: a second evidence item cites the flagged path → the hits
+		// counter changes → fingerprint changes → streak restarts.
+		bus.Mutable.AppendEvidence([]types.EvidenceItem{{
+			Kind: types.EvidenceDirect, Source: ghost, LineStart: 42,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "GhostCall",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		}})
+		for i := 3; i <= 5; i++ {
+			churn(bus, i)
+			res, err := tool.Execute(bus, params)
+			if err != nil {
+				t.Fatalf("attempt %d unexpected error: %v", i, err)
+			}
+			if !strings.Contains(res.Summary, "flagged as unverified") {
+				t.Fatalf("attempt %d after hits delta must still be denied (streak reset), got: %s", i, res.Summary)
+			}
+		}
+	})
+
+	t.Run("cleared_finding_unblocks_without_breaker", func(t *testing.T) {
+		bus := newDeniedBus()
+		churn(bus, 1)
+		if res, _ := tool.Execute(bus, params); !strings.Contains(res.Summary, "flagged as unverified") {
+			t.Fatalf("first attempt should be denied, got: %s", res.Summary)
+		}
+		// The model reads the flagged file: the T2 clear removes the finding
+		// and the very next attempt completes with no breaker involvement
+		// and no degraded-form note.
+		bus.Mutable.EvidenceClosure().AddReadSet(map[string]bool{ghost: true})
+		res, err := tool.Execute(bus, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !res.Success || strings.Contains(res.Summary, "flagged as unverified") {
+			t.Fatalf("clear-on-read must unblock completion, got: %s", res.Summary)
+		}
+		if strings.Contains(res.Summary, "degraded form") {
+			t.Fatalf("clear-on-read acceptance must not carry the breaker note, got: %s", res.Summary)
+		}
+	})
+}
+
+// TestDedupeUnverifiedFindings_PreservesLifecycleFields pins that the
+// completion-side dedupe keeps the Advisory lifecycle field intact (it may
+// normalize Token/Kind whitespace, nothing else) — the exact-resolution
+// consumers downstream route on the Advisory bit.
+func TestDedupeUnverifiedFindings_PreservesLifecycleFields(t *testing.T) {
+	in := []types.UnverifiedFinding{
+		{Token: " a/b.go ", Kind: "path", Reason: "file does not exist in repo", Advisory: true},
+		{Token: "a/b.go", Kind: "path", Reason: "file does not exist in repo"},
+		{Token: "Sym", Kind: "", Reason: "symbol not found in repo graph"},
+	}
+	out := dedupeUnverifiedFindings(in)
+	if len(out) != 2 {
+		t.Fatalf("deduped=%d, want 2: %+v", len(out), out)
+	}
+	if out[0].Token != "a/b.go" || !out[0].Advisory {
+		t.Errorf("path entry lost lifecycle fields: %+v", out[0])
+	}
+	if out[1].Kind != "symbol" || out[1].Advisory {
+		t.Errorf("symbol entry lost lifecycle fields: %+v", out[1])
+	}
+}
