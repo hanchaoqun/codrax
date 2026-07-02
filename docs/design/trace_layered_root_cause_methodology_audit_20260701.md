@@ -1440,3 +1440,7 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 - Batch 8 已验证:`go test ./internal/tool -run 'TraceCausalProjection|RuntimeTraceCausalProjection' -count=1` 与 `go test ./internal/tool ./internal/types -count=1` 通过。
 
 **后续 UX 候选。** 客户样例仍显示大量同类 `io_latency` / `unknown-thread` 行。当前批先保证关系语义和证据定位准确;后续可做 typed cause-grouping projection:按 `subject + relation + object/predicate + layer` 聚合重复低影响行,第一屏展示 grouped count/total impact/top evidence,完整明细继续保留在审计表和原始 `trace_query` record。
+
+### 7.20 展示层 v3 全量重设计:目标锚定单主树(2026-07-02,已裁定)
+
+§7.9–§7.14.2 的 v1(表+两图)/ v2(multi-view 7 块)迭代后,基于真实端到端渲染审计(10 条)+ 老版本真实客户输出增量审计(8 条:微小事实刷屏首屏 / 跨 predicate 同事实双行重复 / `→` 语义崩坏 / 数字矛盾无解释 / unknown-thread 泛滥等),经 3 方案 + 新形式侦察 + 双评审 workflow 裁定,展示层整体重设计为 **4 块 0 mermaid:导语(纯事实结论行+窗口锚点+覆盖率减法)→ 等宽 ```text 主树(🎯 目标线程为根,└─下钻─/└─唤醒─/├─语义─/├─成因─ 四种边,bar 满格=关注窗口,⚠跨窗/⛔链止内联)→ 无损明细表 → 按文件分组证据索引**,配渲染前严格档确定性聚合(R1 跨 predicate 同 ms 同行区间合并 / R2 微小同类 ×N / R3 unknown-thread 聚合 / R4 primary-hop 双视角合一)。用户裁定:0 mermaid、严格聚合容差、按批实施。完整规格与两份 mockup:`trace_projection_presentation_v3_20260702.md`。
