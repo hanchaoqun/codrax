@@ -192,14 +192,14 @@ func traceObservationRecordIsResourcePressure(predicate, claimKey string) bool {
 	switch predicate {
 	case "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer",
 		"io_burst_episode", "block_io_by_inode", "irq_activity", "softirq_activity",
-		"ipi_activity", "workqueue_activity", "trace_mark_category", "async_file_work":
+		"ipi_activity", "workqueue_activity", "dma_fence_activity", "trace_mark_category", "async_file_work":
 		return true
 	}
 	for _, prefix := range []string{
 		"io_pressure:", "supply_pressure:", "file_io:", "page_cache:", "storage_latency:",
 		"io_burst_episode:", "block_io_by_inode:", "bio_resource:", "filesystem_resource:",
 		"page_fault_resource:", "irq_activity:", "softirq_activity:", "ipi_activity:",
-		"workqueue_activity:", "trace_mark_category:", "async_file_work:",
+		"workqueue_activity:", "dma_fence_activity:", "trace_mark_category:", "async_file_work:",
 	} {
 		if strings.HasPrefix(claimKey, prefix) {
 			return true

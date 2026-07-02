@@ -438,6 +438,7 @@ type WindowStats struct {
 	SoftIRQActivity       []InterruptActivity       `json:"softirq_activity,omitempty"`
 	IPIActivity           []InterruptActivity       `json:"ipi_activity,omitempty"`
 	WorkqueueActivity     []WorkqueueActivity       `json:"workqueue_activity,omitempty"`
+	DMAFenceActivity      []DMAFenceActivity        `json:"dma_fence_activity,omitempty"`
 	SchedStatAccounting   []SchedStatSummary        `json:"sched_stat_accounting,omitempty"`
 	SupplyPressureSummary *SupplyPressureSummary    `json:"supply_pressure_summary,omitempty"`
 	TraceMarkCategories   []TraceMarkCategory       `json:"trace_mark_categories,omitempty"`
@@ -975,6 +976,23 @@ type WorkqueueActivity struct {
 	Summary      string    `json:"summary,omitempty"`
 }
 
+type DMAFenceActivity struct {
+	Thread      ThreadRef `json:"thread,omitempty"`
+	Driver      string    `json:"driver,omitempty"`
+	Timeline    string    `json:"timeline,omitempty"`
+	Context     string    `json:"context,omitempty"`
+	Seqno       string    `json:"seqno,omitempty"`
+	Count       int       `json:"count,omitempty"`
+	PairedCount int       `json:"paired_count,omitempty"`
+	WaitMs      float64   `json:"wait_ms,omitempty"`
+	MaxWaitMs   float64   `json:"max_wait_ms,omitempty"`
+	StartTs     float64   `json:"start_ts,omitempty"`
+	EndTs       float64   `json:"end_ts,omitempty"`
+	LineStart   int       `json:"line_start,omitempty"`
+	LineEnd     int       `json:"line_end,omitempty"`
+	Summary     string    `json:"summary,omitempty"`
+}
+
 type SupplyPressureSummary struct {
 	Signal                 string                  `json:"signal,omitempty"`
 	CPUPressureMs          float64                 `json:"cpu_pressure_ms,omitempty"`
@@ -1222,6 +1240,7 @@ type FrameRootCauseBundle struct {
 	IRQActivity           []InterruptActivity     `json:"irq_activity,omitempty"`
 	SoftIRQActivity       []InterruptActivity     `json:"softirq_activity,omitempty"`
 	WorkqueueActivity     []WorkqueueActivity     `json:"workqueue_activity,omitempty"`
+	DMAFenceActivity      []DMAFenceActivity      `json:"dma_fence_activity,omitempty"`
 	SupplyPressureSummary *SupplyPressureSummary  `json:"supply_pressure_summary,omitempty"`
 	TraceMarkCategories   []TraceMarkCategory     `json:"trace_mark_categories,omitempty"`
 	AsyncFileWork         []AsyncFileWorkSummary  `json:"async_file_work,omitempty"`

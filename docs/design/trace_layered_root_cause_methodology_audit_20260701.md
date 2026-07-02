@@ -495,6 +495,18 @@ v6 对着 §2.9.1 列出的三处入口重新看了一遍"两者都给"的场景
 **O8(信息性,v3 新增)—— 视需要给 Workqueue/DMA Fence 补充结构化字段提取。**
 现状(§2.8):这两类事件目前只有计数(`WorkqueueEventCount`/`DMAFenceEventCount`),没有像 Binder/Block IO 那样的专属结构化字段,细节要靠 LLM 自己读原始行文本。这两类事件目前不在用户提出的 7 条规则直接覆盖范围内,暂不建议单独立项,仅记录在案供后续如果有具体案例需要(比如 workqueue 延迟成为某次丢帧根因)时参考。
 
+**v12 复核与排队(2026-07-02)**:重新对照当前 `main` 后发现文档状态已部分过期。`workqueue_activity` 已经进入 `WindowStats`、`RootCauseRank`、`FrameRootCauseBundle`、`EvidenceFact` 和 `trace_query` typed `ObservationRecord`,不再是"只有计数"。真正残留的是 `dma_fence` 仍停留在 `DMAFenceEventCount` + event_search 事件层,缺少 activity 聚合、rank 候选和 handoff observation。该残留会让显示/渲染栅栏等待类问题在最终答案中容易退回原始行文本或被 counts 隐没。
+
+**v12 任务列表与交付状态。**
+
+- **Batch 1: 文档校准。** ✅ 已完成。将 O8 从"Workqueue/DMA 均缺结构化字段"校准为"`workqueue_activity` 已交付,`dma_fence_activity` 缺失"。
+- **Batch 2: DMA Fence typed activity。** ✅ 已完成。在既有 `WindowStats` 内新增 `DMAFenceActivity`,按 deterministic `dma_fence_*` 事件字段(driver/timeline/context/seqno)聚合 count、paired wait、duration、line/time window、summary。
+- **Batch 3: root-cause / bundle / evidence handoff。** ✅ 已完成。`dma_fence_activity` 已接入 `root_cause_rank` supporting/on-chain candidate、`FrameRootCauseBundle`、`EvidenceFact` 和 `trace_query` typed `ObservationRecord`。它只作为 soft runtime handoff,不成为 `emit_investigation_complete`、证据校验或成文硬门。
+- **Batch 4: tests。** ✅ 已完成。增加 tracequery + tool + coverage focused tests,覆盖 paired fence wait 聚合、root_cause_rank 可见、frame bundle携带、typed observation 落地。反向保护:没有配对或字段不足时 fail-open,不阻塞完成。
+- **Batch 5: 验证与提交。** ✅ 已完成。验证命令:`go test ./internal/tracequery ./internal/tool ./internal/types -run 'DMAFence|FrameRootCauseBundle|WindowStatsComputesP1ResourceSummaries|TraceObservationCoveragePreserves|TraceQuerySchemaDocumentsViews' -count=1` 与 `go test ./internal/tracequery ./internal/tool ./internal/types -count=1` 均通过。
+
+**v12 安全边界。** 只消费 parsed trace event type、event name、key/value fields、line/time window 和既有 typed tracequery result;不解析用户原文、模型散文、工具 summary、localized UI、elapsed time 或 eval label。该能力只提高 handoff/可观测性,不得新增 completion hard gate。
+
 **O9(第二高优先级,精确定位到代码行,v6 新增)—— ✅ v7 已修复 —— 给"帧信息 + 显式时间窗同时给出"的场景补上并集逻辑。**
 现状(§2.9.2):`resolveSpanWindowsForQuery`(query.go:4606-4608)在 `explicitStart && explicitEnd` 为真时直接返回,不读取匹配到的 span 自身边界;`ResolveFrameTarget`(query.go:8603-8616)在显式给了 pid/thread 时直接用 `query_window`,不去看 `frame_timeline` 里对应帧候选的实际起止时间。两处都没有对"用户显式窗口"与"帧信息推导窗口"做并集。
 建议:给 `TimeWindow` 加一个 `UnionTimeWindow(a, b TimeWindow) TimeWindow`(`start=min(a.Start,b.Start)`、`end=max(a.End,b.End)`)辅助函数,在上述两处"两个来源都存在"的分支里调用它,而不是直接 early-return / 直接用 query_window;`WindowSource` 相应地增加一个 `explicit_window_union_frame_window` 之类的取值,方便下游区分"纯显式"和"并集后"两种情况,不破坏 §2.9.1 已经确认满足的 R8 行为(纯显式窗口、没有帧信息时不受影响)。

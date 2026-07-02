@@ -93,6 +93,7 @@ const p1ResourceTrace = `
        main-20   (   20) [001] .... 4.018000: thermal_power_allocator: actor=cpu power=300
        main-20   (   20) [001] .... 4.018500: workqueue_execute_start: work struct=0000000000000000 function=do_work
        main-20   (   20) [001] .... 4.019000: dma_fence_wait_start: driver=display timeline=present seqno=7
+       main-20   (   20) [001] .... 4.019500: dma_fence_wait_end: driver=display timeline=present seqno=7
        main-20   (   20) [001] .... 4.020000: print: E|20
       other-20   (   21) [002] .... 4.025000: sched_wakeup: comm=main pid=20 prio=53 target_cpu=001
 `
@@ -4066,6 +4067,8 @@ func TestFrameRootCauseBundleCarriesRichTraceEvidenceAndChainRelevance(t *testin
         irq-7 (7) [004] .... 10.003700: irq_handler_exit: irq=17 name=ufs
         wq-8 (8) [004] .... 10.004000: workqueue_execute_start: work=0xff function=flush_cookie
         wq-8 (8) [004] .... 10.006000: workqueue_execute_end: work=0xff function=flush_cookie
+	threadpool-400 (100) [004] .... 10.001500: dma_fence_wait_start: driver=display timeline=present seqno=9
+	threadpool-400 (100) [004] .... 10.013500: dma_fence_wait_end: driver=display timeline=present seqno=9
         clk-1 (1) [004] .... 10.004500: clock_set_rate: ddr_clk state=933000 cpu_id=4
     network-300 (100) [003] .... 10.009000: sched_switch: prev_comm=network prev_pid=300 prev_prio=20 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120
      cookie-200 (100) [002] .... 10.010000: sched_switch: prev_comm=cookie prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
@@ -4115,6 +4118,19 @@ func TestFrameRootCauseBundleCarriesRichTraceEvidenceAndChainRelevance(t *testin
 	}
 	if len(bundle.WorkqueueActivity) == 0 || bundle.WorkqueueActivity[0].DurationMs <= 0 {
 		t.Fatalf("expected workqueue pairing: %+v", bundle.WorkqueueActivity)
+	}
+	if len(bundle.DMAFenceActivity) == 0 || bundle.DMAFenceActivity[0].WaitMs <= 0 || bundle.DMAFenceActivity[0].Timeline != "present" {
+		t.Fatalf("expected dma fence pairing: %+v", bundle.DMAFenceActivity)
+	}
+	hasDMAFenceRootCause := false
+	for _, item := range bundle.RootCauseRank.Items {
+		if item.Type == "dma_fence_activity" {
+			hasDMAFenceRootCause = true
+			break
+		}
+	}
+	if !hasDMAFenceRootCause {
+		t.Fatalf("expected dma fence to enter root cause candidates: %+v", bundle.RootCauseRank.Items)
 	}
 	if bundle.SupplyPressureSummary == nil || bundle.SupplyPressureSummary.DDREventCount == 0 {
 		t.Fatalf("expected supply pressure DDR signal: %+v", bundle.SupplyPressureSummary)
@@ -4433,8 +4449,11 @@ func TestWindowStatsComputesP1ResourceSummaries(t *testing.T) {
 	if len(stats.CPUFrequencyLimits) == 0 || stats.CPUFrequencyLimits[0].MaxFrequency != 1500000 {
 		t.Fatalf("expected cpu frequency limit summary: %+v", stats.CPUFrequencyLimits)
 	}
-	if stats.SoftIRQCount != 1 || stats.StorageEventCount != 1 || stats.FilesystemEventCount != 1 || stats.PowerEventCount != 1 || stats.WorkqueueEventCount != 1 || stats.DMAFenceEventCount != 1 {
+	if stats.SoftIRQCount != 1 || stats.StorageEventCount != 1 || stats.FilesystemEventCount != 1 || stats.PowerEventCount != 1 || stats.WorkqueueEventCount != 1 || stats.DMAFenceEventCount != 2 {
 		t.Fatalf("expected subsystem counters, got %+v", stats)
+	}
+	if len(stats.DMAFenceActivity) == 0 || stats.DMAFenceActivity[0].WaitMs <= 0 || stats.DMAFenceActivity[0].Timeline != "present" {
+		t.Fatalf("expected dma fence activity summary: %+v", stats.DMAFenceActivity)
 	}
 	subsystems := map[string]bool{}
 	for _, item := range stats.SubsystemEvents {

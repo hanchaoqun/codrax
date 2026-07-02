@@ -12,13 +12,14 @@ func TestTraceObservationCoveragePreservesDimensionsWindowsAndChainRelevance(t *
 		traceCoverageRecord("path", "trace_query:1", "wakeup_chain", "wakeup_chain:path", "target-1", "worker-2 -> target-1", "", []string{"path=worker-2 -> target-1"}, ObservationSpan{StartTs: 10.0, EndTs: 10.5}),
 		traceCoverageRecord("blocking", "trace_query:2", "critical_blocking", "critical_blocking:binder_wait", "target-1", "binder_wait", "4.000", []string{"chain_relevance=adjacent", "peer=Binder:1"}, ObservationSpan{StartTs: 10.2, EndTs: 10.4}),
 		traceCoverageRecord("io", "trace_query:2", "io_pressure", "io_pressure:block_latency", "io_pressure", "inode=7", "8.000", []string{"chain_relevance=background", "actual_window=9.900..10.600"}, ObservationSpan{}),
+		traceCoverageRecord("fence", "trace_query:2", "dma_fence_activity", "dma_fence_activity:present", "gpu-9", "present", "2.000", []string{"chain_relevance=background"}, ObservationSpan{StartTs: 10.25, EndTs: 10.252}),
 	}
 
 	got := TraceObservationCoverageFromObservationRecords(records)
 	if !got.Active {
 		t.Fatal("coverage should be active")
 	}
-	if got.TotalRecords != 4 || got.QueryCount != 2 {
+	if got.TotalRecords != 5 || got.QueryCount != 2 {
 		t.Fatalf("coverage counts = records:%d queries:%d", got.TotalRecords, got.QueryCount)
 	}
 	if !slices.Contains(got.Windows, "10.000000..10.500000") ||
@@ -34,7 +35,7 @@ func TestTraceObservationCoveragePreservesDimensionsWindowsAndChainRelevance(t *
 		t.Fatalf("blocking dimension should preserve adjacent count: %+v", blocking)
 	}
 	resource := traceCoverageDimensionFor(got, TraceObservationDimensionResourcePressure)
-	if resource.Count != 1 || resource.BackgroundCount != 1 {
+	if resource.Count != 2 || resource.BackgroundCount != 2 {
 		t.Fatalf("resource dimension should preserve background count: %+v", resource)
 	}
 	if slices.Contains(got.SoftMissingDimensions, "wakeup_chain") ||

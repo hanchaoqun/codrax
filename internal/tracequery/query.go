@@ -1383,6 +1383,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.SoftIRQActivity = computeInterruptActivity(idx, q, EventSoftIRQ, coreByCPU, 8)
 	stats.IPIActivity = computeInterruptActivity(idx, q, EventIPI, coreByCPU, 8)
 	stats.WorkqueueActivity = computeWorkqueueActivity(idx, q, 8)
+	stats.DMAFenceActivity = computeDMAFenceActivity(idx, q, 8)
 	stats.SchedStatAccounting = computeSchedStatAccounting(idx, q, 8)
 	stats.MemoryKinds = computeMemoryKinds(idx, q, 8)
 	stats.ThreadDrifts = detectThreadDrifts(idx, q, 8)
@@ -5204,6 +5205,116 @@ func workqueueBaseAndPhase(name string) (base, phase string) {
 	return base, ""
 }
 
+type dmaFenceOpen struct {
+	ev Event
+}
+
+func computeDMAFenceActivity(idx *Index, q Query, max int) []DMAFenceActivity {
+	if idx == nil {
+		return nil
+	}
+	accs := map[string]*DMAFenceActivity{}
+	open := map[string][]dmaFenceOpen{}
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventDMAFence {
+			continue
+		}
+		driver, timeline, context, seqno := dmaFenceFields(ev)
+		base, phase := dmaFenceBaseAndPhase(ev.Name)
+		key := fmt.Sprintf("%d/%s/%s/%s/%s/%s", ev.PID, firstNonEmpty(driver, "-"), firstNonEmpty(timeline, "-"), firstNonEmpty(context, "-"), firstNonEmpty(seqno, "-"), base)
+		item := accs[key]
+		if item == nil {
+			item = &DMAFenceActivity{
+				Thread:    threadRefFromEvent(ev),
+				Driver:    driver,
+				Timeline:  timeline,
+				Context:   context,
+				Seqno:     seqno,
+				LineStart: ev.Line,
+				LineEnd:   ev.Line,
+				StartTs:   ev.Ts,
+				EndTs:     ev.Ts,
+			}
+			accs[key] = item
+		}
+		item.Count++
+		applyLineRange(&item.LineStart, &item.LineEnd, ev.Line)
+		if item.StartTs == 0 || ev.Ts < item.StartTs {
+			item.StartTs = ev.Ts
+		}
+		if ev.Ts > item.EndTs {
+			item.EndTs = ev.Ts
+		}
+		switch phase {
+		case "start":
+			open[key] = append(open[key], dmaFenceOpen{ev: ev})
+		case "done":
+			queue := open[key]
+			if len(queue) == 0 {
+				continue
+			}
+			start := queue[0].ev
+			open[key] = queue[1:]
+			if ev.Ts < start.Ts {
+				continue
+			}
+			dur := (ev.Ts - start.Ts) * 1000
+			item.PairedCount++
+			item.WaitMs += dur
+			if dur > item.MaxWaitMs {
+				item.MaxWaitMs = dur
+			}
+		}
+	}
+	out := make([]DMAFenceActivity, 0, len(accs))
+	for _, item := range accs {
+		if item.WaitMs == 0 && item.EndTs > item.StartTs {
+			item.WaitMs = (item.EndTs - item.StartTs) * 1000
+		}
+		item.Summary = fmt.Sprintf("dma_fence thread=%s driver=%s timeline=%s context=%s seqno=%s count=%d paired=%d wait=%.3fms max=%.3fms",
+			threadLabel(item.Thread), item.Driver, item.Timeline, item.Context, item.Seqno, item.Count, item.PairedCount, item.WaitMs, item.MaxWaitMs)
+		out = append(out, *item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].WaitMs != out[j].WaitMs {
+			return out[i].WaitMs > out[j].WaitMs
+		}
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func dmaFenceFields(ev Event) (driver, timeline, context, seqno string) {
+	kv := parseKV(ev.FieldText)
+	driver = firstNonEmpty(kv["driver"], kv["drv"], kv["name"])
+	timeline = firstNonEmpty(kv["timeline"], kv["tl"], kv["fence_timeline"])
+	context = firstNonEmpty(kv["context"], kv["ctx"], kv["fence_context"])
+	seqno = firstNonEmpty(kv["seqno"], kv["sequence"], kv["fence_seqno"], kv["id"])
+	return cleanTraceValue(driver), cleanTraceValue(timeline), cleanTraceValue(context), cleanTraceValue(seqno)
+}
+
+func dmaFenceBaseAndPhase(name string) (base, phase string) {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	base = lower
+	for _, suffix := range []string{"_wait_start", "_start", "_enter", "_begin"} {
+		if strings.HasSuffix(lower, suffix) {
+			return strings.TrimSuffix(lower, suffix), "start"
+		}
+	}
+	for _, suffix := range []string{"_wait_end", "_signaled", "_signal", "_end", "_exit", "_done", "_complete"} {
+		if strings.HasSuffix(lower, suffix) {
+			return strings.TrimSuffix(lower, suffix), "done"
+		}
+	}
+	return base, ""
+}
+
 func valueAfterLabel(text, label string) string {
 	lower := strings.ToLower(text)
 	idx := strings.Index(lower, strings.ToLower(label))
@@ -6932,6 +7043,19 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.EndTs = work.EndTs
 		items = append(items, item)
 	}
+	for _, fence := range stats.DMAFenceActivity {
+		impact := firstPositiveFloat(fence.WaitMs, fence.MaxWaitMs)
+		if impact <= 0 {
+			continue
+		}
+		onChain := threadInSet(chainThreads, fence.Thread)
+		item := rootCauseItem("dma_fence_activity", fence.Thread, backgroundImpactMs(q, impact, hasCausalChain, onChain), 0.63, fence.LineStart, fence.LineEnd, "window_stats.dma_fence_activity", fence.Summary)
+		item.CumulativeImpactMs = impact
+		item.Causality = causalityLabel(hasCausalChain, onChain)
+		item.StartTs = fence.StartTs
+		item.EndTs = fence.EndTs
+		items = append(items, item)
+	}
 	if supply := stats.SupplyPressureSummary; supply != nil {
 		impact := firstPositiveFloat(supply.CPUPressureMs, supply.IPIActiveMs, (supply.SchedStatWaitMs+supply.SchedStatIOWaitMs+supply.SchedStatBlockedMs)*0.35)
 		if impact <= 0 {
@@ -8163,7 +8287,7 @@ func rootCauseEffectiveWakeupImpactMs(impact WakeupCausalImpact) float64 {
 
 func rootCauseTypeIsResourceAttribution(typ string) bool {
 	switch strings.TrimSpace(typ) {
-	case "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "page_cache_churn", "workqueue_activity":
+	case "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "page_cache_churn", "workqueue_activity", "dma_fence_activity":
 		return true
 	default:
 		return false
@@ -8214,6 +8338,7 @@ func rootCauseTypeCanBeDirectOnChain(typ string) bool {
 		"compute_supply", "low_frequency", "cpu_affinity_or_cpuset",
 		"jit_compile", "class_verification", "shader_compile", "runtime_compile",
 		"io_wait", "d_state_or_io_wait", "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "fragmented_d_state_or_io_wait",
+		"workqueue_activity", "dma_fence_activity",
 		"priority_inversion_candidate", "binder_wait":
 		return true
 	default:
@@ -8421,6 +8546,8 @@ func rootCauseTypeWeight(typ string) float64 {
 		return 0.70
 	case "workqueue_activity":
 		return 0.80
+	case "dma_fence_activity":
+		return 0.82
 	case "supply_pressure":
 		return 0.72
 	default:
@@ -8707,6 +8834,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 		IRQActivity:           stats.IRQActivity,
 		SoftIRQActivity:       stats.SoftIRQActivity,
 		WorkqueueActivity:     stats.WorkqueueActivity,
+		DMAFenceActivity:      stats.DMAFenceActivity,
 		SupplyPressureSummary: stats.SupplyPressureSummary,
 		TraceMarkCategories:   stats.TraceMarkCategories,
 		AsyncFileWork:         stats.AsyncFileWork,
@@ -11100,6 +11228,22 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			Confidence: 0.64,
 		})
 		if len(out) >= 45 {
+			break
+		}
+	}
+	for _, fence := range stats.DMAFenceActivity {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(fence.Thread),
+			Predicate:  "dma_fence_activity",
+			Object:     firstNonEmpty(fence.Timeline, fence.Driver, fence.Seqno),
+			Summary:    fence.Summary,
+			LineStart:  fence.LineStart,
+			LineEnd:    fence.LineEnd,
+			StartTs:    fence.StartTs,
+			EndTs:      fence.EndTs,
+			Confidence: 0.64,
+		})
+		if len(out) >= 47 {
 			break
 		}
 	}
