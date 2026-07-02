@@ -2954,6 +2954,12 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 		logging.Info("[emit_investigation_complete] citation-floor bypassed by %s", label)
 		return ""
 	}
+	// The zero-current-source-repo bypass likewise depends only on the
+	// deterministic run-entry census, not on mutable observation state.
+	if label, ok := zeroCurrentSourceRepoCompletionBypassLabel(ctx); ok {
+		logging.Info("[emit_investigation_complete] citation-floor bypassed by %s", label)
+		return ""
+	}
 	if ctx.Mutable != nil {
 		if label, ok := completionGroundingBypassLabel(ctx, aggregateFacts); ok {
 			// External-source logs/traces and model-declared waivers are
@@ -3507,6 +3513,9 @@ func completionGroundingBypassLabel(ctx *types.BusContext, aggregateFacts []type
 	if label, ok := explicitCurrentSourceExclusionCompletionBypassLabel(ctx); ok {
 		return label, true
 	}
+	if label, ok := zeroCurrentSourceRepoCompletionBypassLabel(ctx); ok {
+		return label, true
+	}
 	if label, ok := repoGroundingBypassLabel(ctx); ok {
 		return label, true
 	}
@@ -3548,6 +3557,29 @@ func explicitCurrentSourceExclusionCompletionBypassLabel(ctx *types.BusContext) 
 	rm := ctx.AnalysisIR.RequestModel
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return "explicit_current_source_exclusion", true
+	}
+	return "", false
+}
+
+// zeroCurrentSourceRepoCompletionBypassLabel waives the completion citation
+// floor when the deterministic run-entry census proved the repository contains
+// no current-source files at all: every regular file is itself a runtime
+// artifact (e.g. a directory holding one .sys.ftrace and nothing else). In
+// that repository shape a current-source citation floor is structurally
+// unsatisfiable — no sequence of tool calls can ever produce a cite-eligible
+// current-source line — so keeping the floor hard cannot improve grounding; it
+// can only force the reject→reopen→re-read livelock observed in the customer
+// trace_repl.log (2026-07-02, 37 consecutive completion denials). Unlike
+// explicitCurrentSourceExclusionCompletionBypassLabel this does not depend on
+// the analyzer emitting any policy: the signal is pure environment state
+// (path-shape census over the checkout), which keeps this hard gate on a
+// precise deterministic input.
+func zeroCurrentSourceRepoCompletionBypassLabel(ctx *types.BusContext) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
+	if ctx.RuntimeArtifactPreflight.ZeroCurrentSourceRepo() {
+		return "zero_current_source_repo", true
 	}
 	return "", false
 }
@@ -3697,6 +3729,14 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 	}
 	rm := types.RuntimeSourceAuthorityRequestModelFromBusContext(ctx)
 	if rm == nil {
+		return true
+	}
+	// A runtime-artifact-only repository (deterministic census: zero
+	// current-source files) can never satisfy a current-source requirement,
+	// so any hard requirement below is structurally unsatisfiable there —
+	// honoring it would only strand model-declared waivers and reopen the
+	// investigation forever.
+	if ctx.RuntimeArtifactPreflight.ZeroCurrentSourceRepo() {
 		return true
 	}
 	attachedRuntimeArtifact := runtimeArtifactContextActiveForCompletion(ctx, rm)

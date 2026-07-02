@@ -208,6 +208,63 @@ func TestRuntimeArtifactPreflightProfileForRun_CompositeFtraceNamedInChineseRequ
 	if len(noSpace.Artifacts) != 1 || noSpace.Artifacts[0].Source != traceRel || noSpace.Artifacts[0].Bytes <= 0 {
 		t.Fatalf("no-space preflight artifact drifted: %+v", noSpace.Artifacts)
 	}
+	// The customer checkout holds nothing but the trace: the deterministic
+	// census must recognize the runtime-artifact-only repository shape so
+	// current-source floors know they are structurally unsatisfiable.
+	if !noSpace.ZeroCurrentSourceRepo() {
+		t.Fatalf("artifact-only repo should census as zero-current-source, got %+v", noSpace.RepoSourceCensus)
+	}
+}
+
+func TestRepoSourceCensusForRun(t *testing.T) {
+	t.Run("artifact_only", func(t *testing.T) {
+		repo := t.TempDir()
+		if err := os.WriteFile(filepath.Join(repo, "a.sys.ftrace"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, "b.log"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// Hidden VCS/tool state must not count as current source.
+		if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, ".git", "config"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		census := repoSourceCensusForRun(repo)
+		if !census.ZeroCurrentSourceRepo() || census.ArtifactFiles != 2 || census.SourceFiles != 0 {
+			t.Fatalf("artifact-only census drifted: %+v", census)
+		}
+	})
+	t.Run("source_present", func(t *testing.T) {
+		repo := t.TempDir()
+		if err := os.WriteFile(filepath.Join(repo, "a.sys.ftrace"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(repo, "src"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, "src", "main.go"), []byte("package main"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		census := repoSourceCensusForRun(repo)
+		if census.ZeroCurrentSourceRepo() || census.SourceFiles == 0 {
+			t.Fatalf("source repo must not census as zero-current-source: %+v", census)
+		}
+	})
+	t.Run("empty_repo_inert", func(t *testing.T) {
+		census := repoSourceCensusForRun(t.TempDir())
+		if census.ZeroCurrentSourceRepo() {
+			t.Fatalf("empty repo has no artifact either; census must stay inert: %+v", census)
+		}
+	})
+	t.Run("missing_root_inert", func(t *testing.T) {
+		census := repoSourceCensusForRun(filepath.Join(t.TempDir(), "does-not-exist"))
+		if census.Completed || census.ZeroCurrentSourceRepo() {
+			t.Fatalf("walk error must leave the census inert: %+v", census)
+		}
+	})
 }
 
 func TestRun_SourceTurnStillWarmsSingleRepoGraph(t *testing.T) {

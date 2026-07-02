@@ -1,6 +1,8 @@
 package orchestrator
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +40,67 @@ func runtimeArtifactPreflightProfileForRun(request, repoRoot, attachedLog, attac
 		SourceNavigationOptional: true,
 		ReasonCode:               types.RuntimeArtifactPreflightReasonDetected,
 		Artifacts:                items,
+		RepoSourceCensus:         repoSourceCensusForRun(repoRoot),
 	})
+}
+
+const repoSourceCensusMaxEntries = 4096
+
+var (
+	errRepoSourceCensusSourceFound = errors.New("repo source census: source file found")
+	errRepoSourceCensusTooLarge    = errors.New("repo source census: entry cap exceeded")
+)
+
+// repoSourceCensusForRun deterministically classifies every regular file under
+// repoRoot as runtime-artifact or current-source, by path shape only. It
+// early-exits as soon as one current-source file is found — for ordinary
+// source repositories this terminates almost immediately, and one source file
+// already settles ZeroCurrentSourceRepo=false — and abandons the census
+// (Completed=false, inert) past repoSourceCensusMaxEntries so huge artifact
+// dumps cannot stall run entry. Hidden entries (dotfiles, .git, .codrax) are
+// VCS/tool state, not citable investigation source, and are skipped. Only
+// called when the preflight already detected a runtime artifact.
+func repoSourceCensusForRun(repoRoot string) types.RuntimeArtifactRepoSourceCensus {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return types.RuntimeArtifactRepoSourceCensus{}
+	}
+	census := types.RuntimeArtifactRepoSourceCensus{Completed: true}
+	entries := 0
+	err := filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == repoRoot {
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		entries++
+		if entries > repoSourceCensusMaxEntries {
+			return errRepoSourceCensusTooLarge
+		}
+		if types.RuntimeArtifactPathKind(d.Name()) != "" {
+			census.ArtifactFiles++
+			return nil
+		}
+		census.SourceFiles++
+		return errRepoSourceCensusSourceFound
+	})
+	if err != nil && !errors.Is(err, errRepoSourceCensusSourceFound) {
+		return types.RuntimeArtifactRepoSourceCensus{}
+	}
+	return census
 }
 
 func runtimeArtifactsFromRequestRepoRoot(request, repoRoot string) []outputdump.RuntimeArtifact {

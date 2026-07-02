@@ -4478,6 +4478,68 @@ func TestEmitInvestigationComplete_CompositeFtracePreflightExcludeBypassesCitati
 	}
 }
 
+// TestEmitInvestigationComplete_ZeroCurrentSourceRepoBypassesCitationFloor pins
+// the customer trace_repl.log (2026-07-02) failure mode: the analyzer did NOT
+// emit any external-observation policy, the checkout contains nothing but the
+// .sys.ftrace artifact, and every emit_evidence row is correctly classified as
+// runtime_artifact — so the ≥2 current-source citation floor was structurally
+// unsatisfiable and completion was denied 37 times in a row. The deterministic
+// zero-current-source census must waive the floor WITHOUT any analyzer policy.
+func TestEmitInvestigationComplete_ZeroCurrentSourceRepoBypassesCitationFloor(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("分析东湖Trace:record_trace_20260605224432@3279-299954687.sys.ftrace里面这一帧Choreographer#doFrame 94410，不分析代码")
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{Intent: types.IntentRootCause},
+		AnswerContract: types.AnswerContract{
+			CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
+		},
+	}
+	profile := types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+		SourceNavigationOptional: true,
+		Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+			Kind:    "trace",
+			Source:  "record_trace_20260605224432@3279-299954687.sys.ftrace",
+			Carrier: "request_path",
+		}},
+		RepoSourceCensus: types.RuntimeArtifactRepoSourceCensus{Completed: true, ArtifactFiles: 1},
+	})
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir, RuntimeArtifactPreflight: profile}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"UI thread 19592 blocked on InternTable lock contention and do_umem_read inside the doFrame 94410 window; the runtime trace is the only answer source",
+		"confidence":"high",
+		"result_kind":"resolved"
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success || strings.Contains(res.Summary, "citation preflight") || strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("zero-current-source repo must not be blocked by current-source citations, got: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("completion should be stored for zero-current-source trace repo")
+	}
+
+	// Control: the same census with one current-source file found must keep
+	// the floor hard — the bypass is strictly for the artifact-only shape.
+	mixedMut := types.NewMutableState("同上")
+	mixedProfile := profile
+	mixedProfile.RepoSourceCensus = types.RuntimeArtifactRepoSourceCensus{Completed: true, SourceFiles: 1, ArtifactFiles: 1}
+	mixedBus := &types.BusContext{Mutable: mixedMut, AnalysisIR: ir, RuntimeArtifactPreflight: mixedProfile}
+	mixedRes, err := tool.Execute(mixedBus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mixedRes.Success && strings.TrimSpace(mixedMut.InvestigationCompleteReason()) != "" &&
+		!strings.Contains(mixedRes.Summary, "DOWNGRADED") {
+		t.Fatalf("census with source files present must not waive the citation floor, got: %s", mixedRes.Summary)
+	}
+}
+
 // TestEmitInvestigationComplete_CitationFloorHoldsWithoutExplicitExclusion is
 // the narrow control for the Gap A fix: the SAME evidence-empty completion is
 // still gated when the request has NOT excluded current source (default mode,

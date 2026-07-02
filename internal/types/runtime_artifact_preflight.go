@@ -17,6 +17,36 @@ type RuntimeArtifactPreflightProfile struct {
 	SourceNavigationOptional bool                               `json:"source_navigation_optional,omitempty"`
 	ReasonCode               string                             `json:"reason_code,omitempty"`
 	Artifacts                []RuntimeArtifactPreflightArtifact `json:"artifacts,omitempty"`
+	RepoSourceCensus         RuntimeArtifactRepoSourceCensus    `json:"repo_source_census,omitempty"`
+}
+
+// RuntimeArtifactRepoSourceCensus is a deterministic run-entry census of the
+// repository root used to detect the "runtime artifact only" repository shape:
+// every regular file is itself a log/trace artifact by path shape, so a
+// current-source citation floor is structurally unsatisfiable — no sequence of
+// tool calls can ever produce a cite-eligible current-source line. Gates that
+// would otherwise demand current-source proof consume ZeroCurrentSourceRepo as
+// a precise environment-state signal (never model prose or user wording).
+//
+// Completed=false (walk aborted at the entry cap or on I/O error) makes the
+// census inert: ZeroCurrentSourceRepo never fires on partial knowledge.
+type RuntimeArtifactRepoSourceCensus struct {
+	Completed     bool `json:"completed,omitempty"`
+	SourceFiles   int  `json:"source_files,omitempty"`
+	ArtifactFiles int  `json:"artifact_files,omitempty"`
+}
+
+func (c RuntimeArtifactRepoSourceCensus) ZeroCurrentSourceRepo() bool {
+	return c.Completed && c.SourceFiles == 0 && c.ArtifactFiles > 0
+}
+
+// ZeroCurrentSourceRepo reports the runtime-artifact-only repository shape:
+// the census completed, found at least one runtime artifact, and found zero
+// current-source files, while the preflight itself carries an active runtime
+// artifact. This is the single chokepoint gates use to recognize a repository
+// where current-source citations cannot exist.
+func (profile RuntimeArtifactPreflightProfile) ZeroCurrentSourceRepo() bool {
+	return profile.RepoSourceCensus.ZeroCurrentSourceRepo() && profile.HasRuntimeArtifact()
 }
 
 type RuntimeArtifactPreflightArtifact struct {
@@ -32,7 +62,8 @@ const RuntimeArtifactPreflightReasonDetected = "runtime_artifact_preflight_detec
 func NormalizeRuntimeArtifactPreflightProfile(profile RuntimeArtifactPreflightProfile) RuntimeArtifactPreflightProfile {
 	seen := map[string]bool{}
 	out := RuntimeArtifactPreflightProfile{
-		ReasonCode: strings.TrimSpace(profile.ReasonCode),
+		ReasonCode:       strings.TrimSpace(profile.ReasonCode),
+		RepoSourceCensus: profile.RepoSourceCensus,
 	}
 	for _, artifact := range profile.Artifacts {
 		artifact = NormalizeRuntimeArtifactPreflightArtifact(artifact)

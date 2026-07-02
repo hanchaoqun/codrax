@@ -880,6 +880,64 @@ func TestTraceOnlyExactPreflightPolicyBlocksCompositeFtraceGrepFallback(t *testi
 	}
 }
 
+// TestTraceOnlyCensusPolicyPullsGrepBackWithoutAnalyzerPolicy pins the
+// customer trace_repl.log (2026-07-02) steering gap: the analyzer emitted NO
+// external-observation policy, so the trace-only pullback never armed and the
+// explorer ground through ~40 raw greps over a 178k-line ftrace. The
+// deterministic zero-current-source census must arm the same
+// trace_only_exact_artifact policy without any analyzer emission — in a
+// checkout that holds nothing but the trace there is no source lane the
+// exclusion could wrongly suppress.
+func TestTraceOnlyCensusPolicyPullsGrepBackWithoutAnalyzerPolicy(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage:    types.StageExplore,
+		RepoRoot: t.TempDir(),
+		WorkDir:  t.TempDir(),
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "record_trace_20260605224432@3279-299954687.sys.ftrace",
+				Carrier: "request_path",
+			}},
+			RepoSourceCensus: types.RuntimeArtifactRepoSourceCensus{Completed: true, ArtifactFiles: 1},
+		}),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentRootCause}},
+	}
+	if !traceQueryToolVisible(ctx) {
+		t.Fatal("census-only .sys.ftrace preflight should expose trace_query")
+	}
+	got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "grep",
+		Params: json.RawMessage(`{"pattern":"sched_switch","path":"record_trace_20260605224432@3279-299954687.sys.ftrace"}`),
+	}, true)
+	if got == nil {
+		t.Fatal("zero-current-source census should pull grep fallback back to trace_query without analyzer policy")
+	}
+	if got.Repair == nil ||
+		got.Repair.Code != explorerTraceQueryFirstCode ||
+		got.Repair.Metadata["policy"] != "trace_only_exact_artifact" ||
+		got.Repair.Metadata["next_tool"] != "trace_query" {
+		t.Fatalf("repair should carry trace_query pullback metadata, got %+v", got.Repair)
+	}
+	if complete := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "emit_investigation_complete",
+		Params: json.RawMessage(`{"reason":"runtime facts are sufficient","confidence":"high","result_kind":"resolved"}`),
+	}, true); complete != nil {
+		t.Fatalf("census trace-only policy must not block completion tools: %+v", complete)
+	}
+
+	// Control: with source files present the census must not arm the policy.
+	mixed := *ctx
+	mixed.RuntimeArtifactPreflight.RepoSourceCensus = types.RuntimeArtifactRepoSourceCensus{Completed: true, SourceFiles: 3, ArtifactFiles: 1}
+	if got := validateExplorerTraceQueryFirstToolCall(&mixed, llm.ToolCall{
+		Name:   "grep",
+		Params: json.RawMessage(`{"pattern":"sched_switch","path":"record_trace_20260605224432@3279-299954687.sys.ftrace"}`),
+	}, true); got != nil && got.Repair != nil && got.Repair.Metadata["policy"] == "trace_only_exact_artifact" {
+		t.Fatalf("census with source files must not arm trace_only_exact_artifact: %+v", got.Repair)
+	}
+}
+
 func TestTraceOnlyTypedPolicyStillBlocksSourceToolsAfterRuntimeObservations(t *testing.T) {
 	mut := types.NewMutableState("trace only")
 	mut.AppendDispatchToolResult(types.ToolResult{

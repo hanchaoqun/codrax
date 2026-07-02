@@ -145,7 +145,12 @@ func runtimeObservationClosureSuppressesReadLocalizerFollowup(busCtx *types.BusC
 	if readLocalizerRuntimeSourceAuthoritySuppressesFollowup(authority) {
 		return true
 	}
-	if readLocalizerTier1CurrentSourceRequired(ir.RequestModel) {
+	// A runtime-artifact-only checkout (deterministic census: zero
+	// current-source files) has no current source to localize, so a tier-1
+	// current-source requirement is structurally unsatisfiable there and must
+	// not keep the followup loop alive.
+	if !busCtx.RuntimeArtifactPreflight.ZeroCurrentSourceRepo() &&
+		readLocalizerTier1CurrentSourceRequired(ir.RequestModel) {
 		return false
 	}
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(busCtx, 128))

@@ -80,7 +80,7 @@ func RuntimeArtifactSelectionViewFromAgentContext(ctx *AgentContext) RuntimeArti
 	if ctx.AnalysisIR != nil {
 		rm = &ctx.AnalysisIR.RequestModel
 	}
-	view.Policy = deriveRuntimeArtifactAnalysisPolicy(view, rm)
+	view.Policy = deriveRuntimeArtifactAnalysisPolicy(view, rm, ctx.RuntimeArtifactPreflight.ZeroCurrentSourceRepo())
 	return view
 }
 
@@ -107,8 +107,16 @@ func (view RuntimeArtifactSelectionView) SingleTraceArtifact() (RuntimeArtifactS
 	return out, out.ID != ""
 }
 
-func deriveRuntimeArtifactAnalysisPolicy(view RuntimeArtifactSelectionView, rm *RequestModel) RuntimeArtifactAnalysisPolicy {
-	currentSourceExcluded := rm != nil && rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource()
+func deriveRuntimeArtifactAnalysisPolicy(view RuntimeArtifactSelectionView, rm *RequestModel, zeroCurrentSourceRepo bool) RuntimeArtifactAnalysisPolicy {
+	// Two precise signals open the current-source-excluded policy family: the
+	// analyzer-emitted explicit user boundary (ExcludesCurrentSource), and the
+	// deterministic run-entry census proving the checkout holds no current
+	// source at all. The census keeps trace-only steering (grep/read_file →
+	// trace_query pullback) alive when the analyzer fails to emit the policy —
+	// in a zero-source checkout there is no source lane the exclusion could
+	// wrongly suppress.
+	currentSourceExcluded := zeroCurrentSourceRepo ||
+		(rm != nil && rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource())
 	if !view.Active {
 		return RuntimeArtifactAnalysisPolicy{ReasonCode: runtimeArtifactSelectionReasonNoArtifact, CurrentSourceExcluded: currentSourceExcluded}
 	}
