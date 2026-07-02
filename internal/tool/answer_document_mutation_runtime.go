@@ -146,6 +146,9 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTraceCausalProjectionBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace causal projection from structured trace observations", toolName)
 	}
+	if materializeRuntimeTraceSemanticOptimizationBlock(merged, ctx) {
+		logging.Info("[%s] materialized runtime trace deterministic optimization points from typed semantic spans", toolName)
+	}
 	if materializeRuntimeTraceMetricSnapshotBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace metric snapshot from structured observation notes", toolName)
 	}
@@ -1175,10 +1178,18 @@ func runtimeTraceCausalProjectionImpactShapeCell(node types.TraceCausalProjectio
 		return "IO-blocking candidate"
 	}
 	if node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span" {
-		if zh {
-			return "语义优化span"
+		label := "语义优化span"
+		if !zh {
+			label = "semantic optimization span"
 		}
-		return "semantic optimization span"
+		// §7.30.2 C4: the typed semantic class (class_verification / jit_compile
+		// / shader_compile / …) rides the shape cell so the deterministic class
+		// survives on the lossless table AND as the tree row's leading tag even
+		// when the B4 width cap elides the secondary action/host tags.
+		if class := strings.TrimSpace(node.SemanticClass); class != "" {
+			label += "·" + runtimeTraceCausalProjectionCompactCellText(class, 22)
+		}
+		return label
 	}
 	if zh {
 		return "候选影响"
@@ -1558,6 +1569,123 @@ func runtimeTraceCausalProjectionPathTail(path string, components int) string {
 		return "…/" + strings.Join(parts, "/")
 	}
 	return strings.Join(parts, "/")
+}
+
+// materializeRuntimeTraceSemanticOptimizationBlock renders the deterministic
+// semantic optimization points (class_verify / jit_compile / shader_compile /
+// runtime_compile spans that the projection already carries as typed
+// SemanticSpans with a semantic_class lane) as an UNCONDITIONAL system typed
+// block in the answer body (§7.30.2 C4a). Before this block, those spans only
+// surfaced inside the causal-projection cluster and the body relied on the
+// model choosing to repeat them. Typed data only — name / host thread /
+// effective cost / E# evidence — the system never ghost-writes prose
+// recommendations (v3 system-block pattern, same family as the metric
+// snapshot / next-steps blocks). No spans → no block.
+func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if len(doc.Blocks) >= maxBlocksPerDoc {
+		logging.Warning("[answer_document] runtime trace semantic optimization block skipped: document already at the %d-block cap", maxBlocksPerDoc)
+		return false
+	}
+	if answerDocumentHasBlockID(doc, "runtime_trace_semantic_optimizations") {
+		return false
+	}
+	input := types.ObservationLedgerInputFromBusContext(ctx, 128)
+	ledger := types.CompileObservationLedger(input)
+	projection := types.CompileTraceCausalProjection(ledger)
+	if len(projection.SemanticSpans) == 0 {
+		return false
+	}
+	lang := requestedAnswerDocumentLanguage(ctx)
+	zh := runtimeTraceCausalProjectionUseChinese(lang)
+	// Rebuild the projection cluster's deterministic evidence numbering so the
+	// E# tags in this block match the cluster's evidence index (same ledger,
+	// same compile, same model walk — pure and deterministic).
+	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
+	buildRuntimeTraceProjTreeModel(projection, evidence, zh)
+	columns, rows := runtimeTraceSemanticOptimizationParts(projection, evidence, zh)
+	if len(rows) == 0 {
+		return false
+	}
+	title := "确定性优化点"
+	text := "trace 中的确定性语义优化 span(类校验/JIT/着色器编译等,来自 typed semantic_class 通道):每行都是可直接落地的优化点;时长与 E# 证据均可定位到原始 trace_query 结构化记录。"
+	if !zh {
+		title = "Deterministic Optimization Points"
+		text = "Deterministic semantic optimization spans found in the trace (class verification / JIT / shader compilation etc., from the typed semantic_class lane): each row is a directly actionable optimization point; durations and E# tags locate the original structured trace_query records."
+	}
+	block := types.AnswerBlock{
+		ID:      "runtime_trace_semantic_optimizations",
+		Kind:    types.BlockTable,
+		Title:   title,
+		Text:    text,
+		Columns: columns,
+		Items:   rows,
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimExternalObservation,
+		}},
+		FacetIDs: []string{"observed_artifact_fact"},
+	}
+	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
+	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
+	doc.Blocks[insertAt] = block
+	return true
+}
+
+// runtimeTraceSemanticOptimizationParts builds the ZH/EN-symmetric table rows
+// for the deterministic optimization block: span name, typed semantic class,
+// host thread, effective cost (EffectiveImpactMS with the display-impact
+// fallback), and the shared E# evidence tag. CitationRef=-1 on every
+// system-injected row (red-line invariant).
+func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjection, evidence *runtimeTraceCausalProjectionEvidenceIndex, zh bool) ([]string, []types.AnswerBlockItem) {
+	columns := []string{"优化点", "类别", "宿主线程", "有效成本", "证据"}
+	if !zh {
+		columns = []string{"Optimization point", "Class", "Host thread", "Effective cost", "Evidence"}
+	}
+	dash := "—"
+	var rows []types.AnswerBlockItem
+	for _, span := range projection.SemanticSpans {
+		name := strings.TrimSpace(span.SpanName)
+		if name == "" {
+			name = strings.TrimSpace(span.Object)
+		}
+		if name == "" {
+			continue
+		}
+		class := strings.TrimSpace(span.SemanticClass)
+		if class == "" {
+			class = dash
+		}
+		host := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(span.Subject, zh))
+		if host == "" {
+			host = dash
+		}
+		cost := span.EffectiveImpactMS
+		if cost <= 0 {
+			cost = runtimeTraceProjNodeDisplayImpact(span)
+		}
+		costCell := dash
+		if cost > 0 {
+			costCell = fmt.Sprintf("%.3fms", cost)
+		}
+		tag := runtimeTraceProjEvidenceTag(span, evidence, zh)
+		if tag == "" {
+			tag = dash
+		}
+		rows = append(rows, types.AnswerBlockItem{
+			Cells: []string{
+				runtimeTraceCausalProjectionMarkdownSafe(name),
+				class,
+				runtimeTraceCausalProjectionMarkdownSafe(host),
+				costCell,
+				tag,
+			},
+			CitationRef: -1,
+		})
+	}
+	return columns, rows
 }
 
 func materializeRuntimeTraceMetricSnapshotBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {

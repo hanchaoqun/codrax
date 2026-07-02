@@ -118,6 +118,9 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		}
 	}
 	// Target-anchored tree: root, four edge kinds, real branches, inline markers.
+	// §7.30.2 C4b B4: rows keep the leading state tag, typed ⚠/⛔ markers and
+	// the [E#] reference; overflowing secondary tags elide to "…" — the detail
+	// table below stays the lossless surface (链上累计 / span host live there).
 	for _, want := range []string{
 		"🎯 oney.hmn.berlin-42591 ‹用户关注线程›",
 		"满格=窗口64.000ms",
@@ -126,11 +129,9 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		"└─唤醒─ ⏳ DispatchQueue-771 · runnable_delay",
 		"└─唤醒─ 💤 IOWorker-8842 · sleep_wait",
 		"└─语义─ ✦ VerifyClass com.example.render.Pipeline",
-		"(span 位于 RenderService-3021 内)",
-		"⚠跨窗(实际52.700ms)",
-		"⛔无匹配唤醒·链止",
-		"链上累计27.900ms",
-		"睡眠等待",
+		"睡眠等待 · … · ⚠跨窗(实际52.700ms) · [E1]",
+		"睡眠等待 · … · ⛔无匹配唤醒·链止 · [E4(+1)]",
+		"语义优化span·class_verification · … · [E5]",
 		"运行占用",
 		"可运行等待",
 		"◇ 邻近链",
@@ -148,10 +149,14 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		t.Fatalf("merged undrillable twin should surface as an evidence (+n) tag:\n%s", md)
 	}
 	// Lossless detail: full quad with ⚠, per-row relation, confidence tiers.
+	// The chain total (27.900ms) and the semantic host thread elided from the
+	// tree rows stay recoverable here.
 	for _, want := range []string{
 		"| 深度1 | 主根因 · 主要关注 | binder:42591_4-42712 / sleep_wait | 下钻 ▸ oney.hmn.berlin-42591 | sleep / 等待唤醒 | 38.400ms | 38.400ms | 36.100ms | 52.700ms ⚠ |",
 		"| 深度2 | 主根因 · 主要关注 | RenderService-3021 / compute_supply | 唤醒 ▸ binder:42591_4-42712 | running / CPU执行 | 21.300ms | 27.900ms | 27.900ms | 27.900ms |",
+		"RenderService-3021 / VerifyClass com.example.render.Pipe",
 		"语义span ▸ binder:42591_4-42712",
+		"语义优化span·class_verification",
 		"IOWorker-8842 / sleep_wait ⛔",
 	} {
 		if !strings.Contains(md, want) {
@@ -241,16 +246,19 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 		}
 	}
 	// R1 dual-view: ONE running row with per-layer 58.919 + chain total 112.103.
+	// C4b: the tree row elides the chain-total tag under the width cap; the
+	// lossless detail row (窗口投影 58.919ms | 链上累计 112.103ms) carries it.
 	if strings.Count(md, "· running") > 2 { // tree row + detail row only
 		t.Fatalf("dual-view running fact must render once per surface:\n%s", md)
 	}
-	for _, want := range []string{"⚙ #RxComputationT-16816 · running", "链上累计112.103ms"} {
+	for _, want := range []string{"⚙ #RxComputationT-16816 · running", "| 58.919ms | 112.103ms |"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("aweme golden missing merged dual-view %q:\n%s", want, md)
 		}
 	}
-	// R1+R2: io_latency renders as ONE ×3 aggregate with the udk-irq peers kept.
-	for _, want := range []string{"×3合并", "单次0.499–0.568ms", "udk-irq-10-90"} {
+	// R1+R2: io_latency renders as ONE ×3 aggregate with the udk-irq peers kept
+	// (merged range + impact points live on the lossless detail row after C4b).
+	for _, want := range []string{"×3(0.499–0.568ms)", "udk-irq-10-90"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("aweme golden missing io_latency aggregation %q:\n%s", want, md)
 		}

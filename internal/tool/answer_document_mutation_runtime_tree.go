@@ -41,6 +41,17 @@ const (
 	// runtimeTraceProjTreeLabelWidth is the display-cell budget of the tree
 	// label column (prefix + edge + icon + name); bars/ms/tags align after it.
 	runtimeTraceProjTreeLabelWidth = 56
+	// runtimeTraceProjTreeNameMinWidth is the readability floor for the NAME
+	// portion of a tree row label (§7.30.2 C4b B1): a deep prefix/edge/icon may
+	// never squeeze the name below this many display cells — the name budget is
+	// LabelWidth minus the actual fixed-part width, floored here; deep rows
+	// widen the shared label column instead of eating the name.
+	runtimeTraceProjTreeNameMinWidth = 20
+	// runtimeTraceProjTreeRowMaxWidth caps a rendered tree/stanza row's total
+	// display width including the tag segment (§7.30.2 C4b B4). Overflowing
+	// secondary tags elide to a "…" marker; the leading state/impact tag and
+	// the trailing [E#] evidence reference always survive.
+	runtimeTraceProjTreeRowMaxWidth = 120
 	// runtimeTraceProjTreeTrunkMaxNodes bounds a long trunk display: deeper
 	// middles compress into one omitted marker row (counts + cycle note kept).
 	runtimeTraceProjTreeTrunkMaxNodes = 8
@@ -48,16 +59,16 @@ const (
 )
 
 type runtimeTraceProjTreeRow struct {
-	Node      types.TraceCausalProjectionNode
-	Kind      string
-	Edge      string
-	Depth     int
-	Indent    int
-	Last      bool
-	Ancestors []bool // per ancestor level: more siblings follow (renders │)
-	Parent    string // display name of the parent node (typed 影响点)
-	HasData   bool   // false = bare path transit node without its own row
-	Omitted   int
+	Node        types.TraceCausalProjectionNode
+	Kind        string
+	Edge        string
+	Depth       int
+	Indent      int
+	Last        bool
+	Ancestors   []bool // per ancestor level: more siblings follow (renders │)
+	Parent      string // display name of the parent node (typed 影响点)
+	HasData     bool   // false = bare path transit node without its own row
+	Omitted     int
 	CyclePeriod int
 	CycleCount  int
 	EvidenceTag string
@@ -505,6 +516,7 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 	if !windowMode {
 		denom = model.BarMaxMS
 	}
+	width := runtimeTraceProjTreeLabelColumn(model, zh)
 	// Header: target anchor + explicit bar-scale declaration.
 	if strings.TrimSpace(model.Target) != "" {
 		header := "🎯 " + model.Target
@@ -513,7 +525,7 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 		} else {
 			header += " <user-focused thread>"
 		}
-		b.WriteString(runtimeTraceProjPadDisplay(header, runtimeTraceProjTreeLabelWidth))
+		b.WriteString(runtimeTraceProjPadDisplay(header, width))
 		b.WriteString(" ")
 		b.WriteString(runtimeTraceProjScaleNote(model, zh))
 		b.WriteString("\n")
@@ -527,7 +539,7 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 		b.WriteString("│\n")
 	}
 	for _, row := range model.TreeRows {
-		b.WriteString(runtimeTraceProjTreeRowLine(row, denom, windowMode, zh))
+		b.WriteString(runtimeTraceProjTreeRowLine(row, width, denom, windowMode, zh))
 		b.WriteString("\n")
 	}
 	if len(model.Adjacent) > 0 {
@@ -538,7 +550,7 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			b.WriteString("◇ Adjacent — time-adjacent to the chain, not on the wakeup path\n")
 		}
 		for _, row := range model.Adjacent {
-			b.WriteString(runtimeTraceProjStanzaRowLine(row, denom, windowMode, zh))
+			b.WriteString(runtimeTraceProjStanzaRowLine(row, width, denom, windowMode, zh))
 			b.WriteString("\n")
 		}
 	}
@@ -550,12 +562,76 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			b.WriteString("▒ Background pressure — environmental evidence, not chain attribution; read with on-chain evidence\n")
 		}
 		for _, row := range model.Background {
-			b.WriteString(runtimeTraceProjStanzaRowLine(row, denom, windowMode, zh))
+			b.WriteString(runtimeTraceProjStanzaRowLine(row, width, denom, windowMode, zh))
 			b.WriteString("\n")
 		}
 	}
 	b.WriteString("```")
 	return b.String()
+}
+
+// runtimeTraceProjTreeLabelColumn returns the shared label-column width for a
+// fence render (§7.30.2 C4b B1): the fixed 56-cell budget, widened only when a
+// deep bar row's fixed prefix/edge/icon width plus its floored name budget
+// cannot fit. All bar rows pad to ONE column, so bars keep a single aligned
+// start column at every level; shallow trees render byte-identically to the
+// fixed budget. Rows without metrics (omitted markers, bare transit nodes)
+// never widen the column — they carry no bar to align.
+func runtimeTraceProjTreeLabelColumn(model runtimeTraceProjTreeModel, zh bool) int {
+	width := runtimeTraceProjTreeLabelWidth
+	for _, row := range model.TreeRows {
+		if row.Kind == runtimeTraceProjTreeRowOmitted || !row.HasData {
+			continue
+		}
+		fixed, name := runtimeTraceProjTreeLabelParts(row, zh)
+		fixedW := runewidth.StringWidth(fixed)
+		budget := runtimeTraceProjTreeLabelWidth - fixedW
+		if budget < runtimeTraceProjTreeNameMinWidth {
+			budget = runtimeTraceProjTreeNameMinWidth
+		}
+		nameW := runewidth.StringWidth(name)
+		if nameW > budget {
+			nameW = budget
+		}
+		if need := fixedW + nameW; need > width {
+			width = need
+		}
+	}
+	return width
+}
+
+// runtimeTraceProjTreeLabelParts splits a tree row label into its fixed part
+// (prefix + edge + icon + separators) and the name, so truncation can target
+// the name alone instead of the composed label (B1).
+func runtimeTraceProjTreeLabelParts(row runtimeTraceProjTreeRow, zh bool) (string, string) {
+	edge := runtimeTraceProjEdgeLabel(row.Edge, zh)
+	if row.Kind == runtimeTraceProjTreeRowDepthless && strings.TrimSpace(row.Parent) == "" {
+		// Flat fallback (no resolved target): a hanging "wakes" edge word would
+		// claim a wake relation with no wakee — render a bare branch instead.
+		edge = ""
+	}
+	fixed := runtimeTraceProjTreePrefix(row) + edge + " " +
+		runtimeTraceProjStateIcon(row.Node, row.Kind) + " "
+	return fixed, runtimeTraceProjRowName(row, zh)
+}
+
+// runtimeTraceProjTreeLabel composes a row label with name-scoped truncation
+// (B1): the name budget is the base label width minus the actual fixed-part
+// display width, floored at the readability minimum, then the whole label pads
+// (never truncates) to the shared column width.
+func runtimeTraceProjTreeLabel(fixed, name string, width int) string {
+	budget := runtimeTraceProjTreeLabelWidth - runewidth.StringWidth(fixed)
+	if budget < runtimeTraceProjTreeNameMinWidth {
+		budget = runtimeTraceProjTreeNameMinWidth
+	}
+	if runewidth.StringWidth(name) > budget {
+		name = runtimeTraceProjPadDisplay(name, budget)
+	}
+	label := fixed + name
+	if pad := width - runewidth.StringWidth(label); pad > 0 {
+		label += strings.Repeat(" ", pad)
+	}
+	return label
 }
 
 // runtimeTraceProjFlatFallbackHeader names WHY the tree renders flat (§7.30
@@ -780,7 +856,7 @@ func runtimeTraceProjPadDisplay(s string, width int) string {
 	return out
 }
 
-func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, denom float64, windowMode, zh bool) string {
+func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, width int, denom float64, windowMode, zh bool) string {
 	if row.Kind == runtimeTraceProjTreeRowOmitted {
 		prefix := runtimeTraceProjTreePrefix(row)
 		note := ""
@@ -799,29 +875,103 @@ func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, denom float64, win
 		}
 		return prefix + " " + note
 	}
-	node := row.Node
-	edge := runtimeTraceProjEdgeLabel(row.Edge, zh)
-	if row.Kind == runtimeTraceProjTreeRowDepthless && strings.TrimSpace(row.Parent) == "" {
-		// Flat fallback (no resolved target): a hanging "wakes" edge word would
-		// claim a wake relation with no wakee — render a bare branch instead.
-		edge = ""
-	}
-	label := runtimeTraceProjTreePrefix(row) + edge + " " +
-		runtimeTraceProjStateIcon(node, row.Kind) + " " + runtimeTraceProjRowName(row, zh)
-	left := runtimeTraceProjPadDisplay(label, runtimeTraceProjTreeLabelWidth)
+	fixed, name := runtimeTraceProjTreeLabelParts(row, zh)
+	left := runtimeTraceProjTreeLabel(fixed, name, width)
 	if !row.HasData {
 		if zh {
 			return left + " (链路中转,本轮无独立影响行)"
 		}
 		return left + " (chain transit, no standalone impact row this run)"
 	}
-	return left + " " + runtimeTraceProjRowMetrics(row, denom, windowMode, zh)
+	return runtimeTraceProjRowLineWithMetrics(left, row, denom, windowMode, zh)
 }
 
-func runtimeTraceProjStanzaRowLine(row runtimeTraceProjTreeRow, denom float64, windowMode, zh bool) string {
-	label := "    " + runtimeTraceProjRowName(row, zh)
-	left := runtimeTraceProjPadDisplay(label, runtimeTraceProjTreeLabelWidth)
-	return left + " " + runtimeTraceProjRowMetrics(row, denom, windowMode, zh)
+func runtimeTraceProjStanzaRowLine(row runtimeTraceProjTreeRow, width int, denom float64, windowMode, zh bool) string {
+	left := runtimeTraceProjTreeLabel("    ", runtimeTraceProjRowName(row, zh), width)
+	return runtimeTraceProjRowLineWithMetrics(left, row, denom, windowMode, zh)
+}
+
+// runtimeTraceProjRowLineWithMetrics assembles label + bar/ms cells + tags
+// under the total row-width cap (§7.30.2 C4b B4): the tag segment gets the
+// remaining budget and elides secondary tags when it would overflow.
+func runtimeTraceProjRowLineWithMetrics(left string, row runtimeTraceProjTreeRow, denom float64, windowMode, zh bool) string {
+	base, tags := runtimeTraceProjRowMetricParts(row, denom, windowMode, zh)
+	if len(tags) == 0 {
+		return left + " " + base
+	}
+	budget := runtimeTraceProjTreeRowMaxWidth -
+		runewidth.StringWidth(left) - 1 - runewidth.StringWidth(base) - 2
+	return left + " " + base + "  " + runtimeTraceProjFitTags(tags, budget)
+}
+
+// runtimeTraceProjTag is one tag cell of a tree/stanza row with its typed
+// elision class (§7.30.2 C4b B4). DropOrder is assigned at the tag's build
+// site — a precise typed signal, never re-derived from the rendered text.
+type runtimeTraceProjTag struct {
+	Text string
+	// DropOrder: 0 = load-bearing, never dropped (the leading state/impact
+	// attribution, ⚠ cross-window and ⛔ missing_wakeup markers, the [E#]
+	// evidence reference); 1 = typed action lane (drops last among the
+	// droppable); 2 = detail extras the lossless table mirrors (chain cum,
+	// merged range, impact points, attribution note, span host); 3 =
+	// layer/priority chip (first to go — the detail table's 因果位置·优先级
+	// column is the authoritative surface for it).
+	DropOrder int
+}
+
+const (
+	runtimeTraceProjTagKeep      = 0
+	runtimeTraceProjTagAction    = 1
+	runtimeTraceProjTagExtra     = 2
+	runtimeTraceProjTagLayerChip = 3
+)
+
+// runtimeTraceProjFitTags joins the tag segment within the row-width budget
+// (B4): when the full join overflows, droppable tags elide to a "…" marker in
+// typed DropOrder (layer chip first, then table-mirrored extras end-first,
+// then the action lane). Load-bearing tags — the leading state attribution
+// (裁定4), ⚠/⛔ markers (gaps c/e) and the [E#] evidence reference — always
+// survive, even when that leaves the row slightly over the soft cap. The
+// detail table stays the lossless surface for everything elided.
+func runtimeTraceProjFitTags(tags []runtimeTraceProjTag, budget int) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	assemble := func(dropped map[int]bool) string {
+		var parts []string
+		elided := false
+		for i, tag := range tags {
+			if dropped[i] {
+				if !elided {
+					parts = append(parts, "…")
+					elided = true
+				}
+				continue
+			}
+			parts = append(parts, tag.Text)
+		}
+		return strings.Join(parts, " · ")
+	}
+	candidate := assemble(nil)
+	if runewidth.StringWidth(candidate) <= budget {
+		return candidate
+	}
+	dropped := map[int]bool{}
+	for order := runtimeTraceProjTagLayerChip; order >= runtimeTraceProjTagAction; order-- {
+		for i := len(tags) - 1; i >= 0; i-- {
+			if tags[i].DropOrder != order {
+				continue
+			}
+			dropped[i] = true
+			candidate = assemble(dropped)
+			if runewidth.StringWidth(candidate) <= budget {
+				return candidate
+			}
+		}
+	}
+	// Readability floor: only load-bearing tags remain — keep them even over
+	// budget; the state/⚠/⛔/E# references must never be dropped.
+	return candidate
 }
 
 // runtimeTraceProjStateKindLabel is the bar-row state attribution (§7.30
@@ -859,7 +1009,10 @@ func runtimeTraceProjStateKindLabel(node types.TraceCausalProjectionNode, zh boo
 	return ""
 }
 
-func runtimeTraceProjRowMetrics(row runtimeTraceProjTreeRow, denom float64, windowMode, zh bool) string {
+// runtimeTraceProjRowMetricParts renders the fixed metric cells (bar + ms +
+// window %) and returns the tag list separately so the caller can fit the tag
+// segment into the remaining row-width budget (B4).
+func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, windowMode, zh bool) (string, []runtimeTraceProjTag) {
 	node := row.Node
 	impact := runtimeTraceProjNodeDisplayImpact(node)
 	var b strings.Builder
@@ -868,7 +1021,7 @@ func runtimeTraceProjRowMetrics(row runtimeTraceProjTreeRow, denom float64, wind
 	if windowMode && denom > 0 && impact > 0 {
 		b.WriteString(fmt.Sprintf(" %3.0f%%", impact/denom*100))
 	}
-	var tags []string
+	var tags []runtimeTraceProjTag
 	// 裁定4: every bar row states WHAT the duration was (typed StateKind label;
 	// impact-shape value when no state was exposed — never fabricated).
 	stateTag := runtimeTraceProjStateKindLabel(node, zh)
@@ -876,79 +1029,75 @@ func runtimeTraceProjRowMetrics(row runtimeTraceProjTreeRow, denom float64, wind
 		stateTag = runtimeTraceCausalProjectionImpactShapeCell(node, zh)
 	}
 	if stateTag != "" {
-		tags = append(tags, stateTag)
+		tags = append(tags, runtimeTraceProjTag{Text: stateTag, DropOrder: runtimeTraceProjTagKeep})
 	}
 	layer := runtimeTraceCausalProjectionLayerCell(node, zh)
 	priority := runtimeTraceCausalProjectionPriorityCell(node, zh)
 	if row.Kind != runtimeTraceProjTreeRowBackground {
 		// background stanza header already states the layer; keep those rows lean
-		tags = append(tags, "‹"+layer+"›"+priority)
+		tags = append(tags, runtimeTraceProjTag{Text: "‹" + layer + "›" + priority, DropOrder: runtimeTraceProjTagLayerChip})
 	}
 	if action := runtimeTraceCausalProjectionActionCell(node, zh); action != "" &&
 		row.Kind != runtimeTraceProjTreeRowBackground {
-		tags = append(tags, action)
+		tags = append(tags, runtimeTraceProjTag{Text: action, DropOrder: runtimeTraceProjTagAction})
 	}
 	if node.CumulativeImpactMS > 0 && impact > 0 && node.CumulativeImpactMS != impact {
-		if zh {
-			tags = append(tags, fmt.Sprintf("链上累计%.3fms", node.CumulativeImpactMS))
-		} else {
-			tags = append(tags, fmt.Sprintf("chain cum %.3fms", node.CumulativeImpactMS))
+		text := fmt.Sprintf("链上累计%.3fms", node.CumulativeImpactMS)
+		if !zh {
+			text = fmt.Sprintf("chain cum %.3fms", node.CumulativeImpactMS)
 		}
+		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagExtra})
 	}
 	if node.MergedCount > 1 {
-		if zh {
-			tags = append(tags, fmt.Sprintf("×%d合并·单次%.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS))
-		} else {
-			tags = append(tags, fmt.Sprintf("×%d merged · each %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS))
+		text := fmt.Sprintf("×%d合并·单次%.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+		if !zh {
+			text = fmt.Sprintf("×%d merged · each %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 		}
+		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagExtra})
 	}
 	if len(node.SecondaryObjects) > 0 {
 		joined := strings.Join(node.SecondaryObjects, "/")
-		if zh {
-			tags = append(tags, "影响点 "+joined)
-		} else {
-			tags = append(tags, "impact point "+joined)
+		text := "影响点 " + joined
+		if !zh {
+			text = "impact point " + joined
 		}
+		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagExtra})
 	}
 	if runtimeTraceProjEffectiveInherited(node) {
-		if zh {
-			tags = append(tags, fmt.Sprintf("有效归因%.3fms(承自等待区间,非本行实测)", node.EffectiveImpactMS))
-		} else {
-			tags = append(tags, fmt.Sprintf("attribution %.3fms (inherited from the wait interval, not this row)", node.EffectiveImpactMS))
+		text := fmt.Sprintf("有效归因%.3fms(承自等待区间,非本行实测)", node.EffectiveImpactMS)
+		if !zh {
+			text = fmt.Sprintf("attribution %.3fms (inherited from the wait interval, not this row)", node.EffectiveImpactMS)
 		}
+		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagExtra})
 	}
 	if runtimeTraceProjCrossWindow(node) {
-		if zh {
-			tags = append(tags, fmt.Sprintf("⚠跨窗(实际%.3fms)", node.ActualImpactMS))
-		} else {
-			tags = append(tags, fmt.Sprintf("⚠crosses window (actual %.3fms)", node.ActualImpactMS))
+		text := fmt.Sprintf("⚠跨窗(实际%.3fms)", node.ActualImpactMS)
+		if !zh {
+			text = fmt.Sprintf("⚠crosses window (actual %.3fms)", node.ActualImpactMS)
 		}
+		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep})
 	}
 	if row.Kind == runtimeTraceProjTreeRowSemantic {
 		parent := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(row.Node.Subject, zh))
 		if parent != "" {
-			if zh {
-				tags = append(tags, "(span 位于 "+parent+" 内)")
-			} else {
-				tags = append(tags, "(span inside "+parent+")")
+			text := "(span 位于 " + parent + " 内)"
+			if !zh {
+				text = "(span inside " + parent + ")"
 			}
+			tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagExtra})
 		}
 	}
 	if node.Undrillable() {
-		if zh {
-			tags = append(tags, "⛔无匹配唤醒·链止")
-		} else {
-			tags = append(tags, "⛔no matching wakeup · chain ends")
+		text := "⛔无匹配唤醒·链止"
+		if !zh {
+			text = "⛔no matching wakeup · chain ends"
 		}
+		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep})
 	}
 	if row.EvidenceTag != "" {
-		tags = append(tags, "["+row.EvidenceTag+"]")
+		tags = append(tags, runtimeTraceProjTag{Text: "[" + row.EvidenceTag + "]", DropOrder: runtimeTraceProjTagKeep})
 	}
-	if len(tags) > 0 {
-		b.WriteString("  ")
-		b.WriteString(strings.Join(tags, " · "))
-	}
-	return b.String()
+	return b.String(), tags
 }
 
 // runtimeTraceProjEffectiveInherited flags the contradictory-number shape a
@@ -1172,6 +1321,16 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 			name += " ⛔"
 		}
 		relation := runtimeTraceProjDetailRelationCell(row, zh, flat)
+		// §7.30.2 C4b: the typed R1-merge impact points (SecondaryObjects) must
+		// stay lossless on the table — the tree's 影响点 tag is width-elidable.
+		if len(node.SecondaryObjects) > 0 {
+			joined := strings.Join(node.SecondaryObjects, "/")
+			if zh {
+				relation += " ▸ 影响点 " + joined
+			} else {
+				relation += " ▸ impact point " + joined
+			}
+		}
 		shape := runtimeTraceCausalProjectionImpactShapeCell(node, zh)
 		if shape == "" {
 			shape = dash
