@@ -161,7 +161,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	if guard, ok := t.maybeLargeTraceHeavyViewGuard(ctx, p, path, sourceLabel); ok {
 		return guard, nil
 	}
-	if streamed, ok := t.maybeLargeEventSearchStream(ctx, p, path, sourceLabel, timeStart, timeEnd, timeCaveat); ok {
+	if streamed, ok := t.maybeStreamEventSearch(ctx, p, path, sourceLabel, timeStart, timeEnd, timeCaveat); ok {
 		return streamed, nil
 	}
 	buildStart := time.Now()
@@ -230,7 +230,9 @@ func (t *TraceQuery) traceQueryIndexLimitResult(ctx *types.BusContext, p traceQu
 	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, p.TimeStart.Seconds(), p.TimeEnd.Seconds())
 	if cluster, clusterErr := tracequery.StreamStateCluster(contextFromBus(ctx), path, q, 8); clusterErr == nil && cluster.WindowStats != nil {
 		cluster.Caveats = append([]string{
-			fmt.Sprintf("index_event_limit_fallback=true; original_view=%s parsed_events=%d max_events=%d", sanitizeForBanner(firstNonEmptyTraceString(p.View, "window_stats")), limitErr.Events, limitErr.MaxEvents),
+			fmt.Sprintf("index_event_limit_fallback=true; original_view=%s parsed_events=%d max_events=%d%s",
+				sanitizeForBanner(firstNonEmptyTraceString(p.View, "window_stats")), limitErr.Events, limitErr.MaxEvents,
+				sanitizeForBanner(limitErr.RecoveryParams())),
 		}, cluster.Caveats...)
 		payload, _ := json.MarshalIndent(cluster, "", "  ")
 		payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-state-cluster.json", string(payload))
@@ -290,6 +292,19 @@ func traceQueryIndexLimitSummary(path, sourceLabel string, p traceQueryParams, l
 		traceQueryPreferredCoverageWindowMinSeconds*1000,
 		traceQueryPreferredCoverageWindowMaxSeconds*1000,
 		traceQueryMicroWindowProbeSeconds*1000)
+	// C3 (§7.30.2): concrete, copy-pastable recovery parameters — the streaming
+	// event_search escape hatch plus the exact window segment this index already
+	// covered before hitting the budget, so the model can rerun immediately
+	// instead of guessing a narrower scope.
+	b.WriteString("recovery_params=view=event_search runs as a streaming scan and is NOT subject to this index event budget; use it (with pattern/event_types filters) to locate exact tokens and line windows first.")
+	if limitErr.LastTs > limitErr.FirstTs && limitErr.FirstTs > 0 {
+		fmt.Fprintf(&b, " Or rerun view=%q with time_start=%.6f time_end=%.6f — the first window segment this index already covered before hitting the budget.",
+			sanitizeForBanner(view), limitErr.FirstTs, limitErr.LastTs)
+	}
+	if p.PID.Int() <= 0 && strings.TrimSpace(p.Thread) == "" {
+		b.WriteString(" Or add pid=<target pid> to scope the index.")
+	}
+	b.WriteString("\n")
 	if hint := traceQueryParentWindowStrategyHint(p); hint != "" {
 		b.WriteString(hint)
 	}
@@ -775,9 +790,17 @@ func traceSecondFromAutoWindow(seconds float64) TraceSecond {
 	}
 }
 
-func (t *TraceQuery) maybeLargeEventSearchStream(ctx *types.BusContext, p traceQueryParams, path, sourceLabel string, timeStart, timeEnd float64, timeCaveat string) (types.ToolResult, bool) {
-	info, err := os.Stat(path)
-	if err != nil || info.Size() < traceQueryWindowedIndexMinBytes || !traceQueryShouldStreamEventSearch(p) {
+func (t *TraceQuery) maybeStreamEventSearch(ctx *types.BusContext, p traceQueryParams, path, sourceLabel string, timeStart, timeEnd float64, timeCaveat string) (types.ToolResult, bool) {
+	// C3 (§7.30.2): view=event_search ALWAYS prefers the streaming scan,
+	// regardless of trace size. The streaming path never materializes the
+	// in-memory Event index, so it cannot hit the index event budget — the
+	// budget-capped indexed path silently searched a truncated event set and
+	// produced zero matches (trace_query_event_search_zero_match) on dense
+	// traces. Any stat/stream failure falls back to the indexed path below.
+	if !traceQueryShouldStreamEventSearch(p) {
+		return types.ToolResult{}, false
+	}
+	if _, err := os.Stat(path); err != nil {
 		return types.ToolResult{}, false
 	}
 	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, timeStart, timeEnd)
@@ -786,13 +809,8 @@ func (t *TraceQuery) maybeLargeEventSearchStream(ctx *types.BusContext, p traceQ
 		q.View, sourceLabel, path, p.Pattern, len(q.EventTypes))
 	result, err := tracequery.StreamEventSearch(contextFromBus(ctx), path, q)
 	if err != nil {
-		logging.Debug("[trace_query] phase=stream_event_search view=%s path=%s failed elapsed=%s err=%v", q.View, path, time.Since(streamStart), err)
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("trace_query failed to stream-search %s: %v", path, err),
-			Timestamp: time.Now(),
-		}, true
+		logging.Debug("[trace_query] phase=stream_event_search view=%s path=%s failed elapsed=%s err=%v; falling back to the indexed event_search path", q.View, path, time.Since(streamStart), err)
+		return types.ToolResult{}, false
 	}
 	heapAlloc, heapSys, gcCount := traceQueryMemoryForLog()
 	logging.Debug("[trace_query] phase=stream_event_search view=%s path=%s done elapsed=%s matched=%d caveats=%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",

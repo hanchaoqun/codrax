@@ -227,7 +227,7 @@ func (e *IndexEventLimitError) Error() string {
 		nextStep = "the pinned pid/thread scope is already applied and cannot narrow this further; split the time window into sub-windows (e.g. 80-150ms coverage windows) or add line_start/line_end before rerunning heavy views — do NOT drop the pinned pid/thread to widen the scan"
 	}
 	return fmt.Sprintf(
-		"trace index event limit reached: path=%s parsed_events=%d max_events=%d line=%d scanned_lines=%d windowed=%t index_time=%.6f..%.6f index_lines=%d..%d parsed_time=%.6f..%.6f scope_pid=%d scope_thread=%s; selected trace scope is too dense for a single in-memory index; %s",
+		"trace index event limit reached: path=%s parsed_events=%d max_events=%d line=%d scanned_lines=%d windowed=%t index_time=%.6f..%.6f index_lines=%d..%d parsed_time=%.6f..%.6f scope_pid=%d scope_thread=%s; selected trace scope is too dense for a single in-memory index; %s%s",
 		e.Path,
 		e.Events,
 		e.MaxEvents,
@@ -243,7 +243,28 @@ func (e *IndexEventLimitError) Error() string {
 		e.ScopePID,
 		strings.TrimSpace(e.ScopeThread),
 		nextStep,
+		e.RecoveryParams(),
 	)
+}
+
+// RecoveryParams renders concrete, copy-pastable retry parameters (§7.30.2 C3):
+// the budget-capped index already covered a first segment (FirstTs..LastTs), so
+// the message names that exact narrower window, plus the streaming event_search
+// escape hatch that does not depend on the in-memory index budget at all. A
+// budget hit must never strand the model without an executable next call.
+func (e *IndexEventLimitError) RecoveryParams() string {
+	if e == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("; recovery_params: use view=event_search (streaming scan, NOT subject to this index event budget) to locate exact tokens/lines first")
+	if e.LastTs > e.FirstTs && e.FirstTs > 0 {
+		fmt.Fprintf(&b, ", or rerun with time_start=%.6f time_end=%.6f (the first window segment this index already covered before hitting the budget)", e.FirstTs, e.LastTs)
+	}
+	if e.ScopePID <= 0 && strings.TrimSpace(e.ScopeThread) == "" {
+		b.WriteString(", or add pid=<target pid> to scope the index")
+	}
+	return b.String()
 }
 
 func newIndexEventLimitError(path string, idx *Index, opts BuildOptions, line, events int) *IndexEventLimitError {

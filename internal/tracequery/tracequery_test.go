@@ -4551,6 +4551,72 @@ func buildTraceIndex(t *testing.T, name, content string) *Index {
 	return idx
 }
 
+// TestIndexEventLimitErrorCarriesRecoveryParams pins the C3 (§7.30.2) recovery
+// surface: a budget hit must name copy-pastable retry parameters — the
+// streaming event_search escape hatch (not subject to the index budget) and the
+// exact first window segment the truncated index already covered — instead of
+// stranding the model with only abstract "narrow the scope" advice.
+func TestIndexEventLimitErrorCarriesRecoveryParams(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dense_recovery.systrace")
+	lines := []string{
+		`      app-20  (   20) [001] .... 2.000000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`      app-20  (   20) [001] .... 2.001000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`      app-20  (   20) [001] .... 2.002000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`      app-20  (   20) [001] .... 2.003000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		"",
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := BuildIndexWithOptions(context.Background(), path, BuildOptions{
+		TimeStart:          2.0,
+		TimeEnd:            2.1,
+		TimeStartSet:       true,
+		TimeEndSet:         true,
+		AllowWindowedParse: true,
+		MaxEvents:          3,
+	})
+	var limitErr *IndexEventLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("expected IndexEventLimitError, got %T %v", err, err)
+	}
+	msg := limitErr.Error()
+	for _, want := range []string{
+		"recovery_params",
+		"view=event_search (streaming scan",
+		"time_start=2.000000 time_end=2.003000",
+		"the first window segment this index already covered",
+		"add pid=",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("limit error missing recovery hint %q:\n%s", want, msg)
+		}
+	}
+
+	// A pid-scoped budget hit keeps the window suggestion but must not tell the
+	// model to add a pid it already pinned (Gap-2 regression guard).
+	_, err = BuildIndexWithOptions(context.Background(), path, BuildOptions{
+		TimeStart:          2.0,
+		TimeEnd:            2.1,
+		TimeStartSet:       true,
+		TimeEndSet:         true,
+		AllowWindowedParse: true,
+		MaxEvents:          3,
+		ScopePID:           20,
+	})
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("expected scoped IndexEventLimitError, got %T %v", err, err)
+	}
+	scoped := limitErr.Error()
+	if !strings.Contains(scoped, "time_start=2.000000 time_end=2.003000") {
+		t.Fatalf("scoped limit error should keep the covered-window suggestion:\n%s", scoped)
+	}
+	if strings.Contains(scoped, "add pid=") {
+		t.Fatalf("scoped limit error must not suggest adding a pid again:\n%s", scoped)
+	}
+}
+
 // R5e (§7.30.2): a stale low cpu_frequency sample at the segment start must
 // not represent a running span that mostly executed after the ramp-up; the
 // verdict integrates the frequency across change points.

@@ -374,11 +374,14 @@ func TestTraceQueryFtracePathParsesCompoundTimestampWindow(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("trace_query should accept .ftrace with compound timestamps: %s", res.Summary)
 	}
+	// C3: event_search always streams now, so parsed_events counts the parsed
+	// pattern-candidate lines (2 android.haitong rows), not every parseable
+	// line in the file; the compound-timestamp window pin stays intact.
 	for _, want := range []string{
 		"OHTrace_20260626_16.32.34.ftrace",
 		"time_start=1.501566",
 		"time_end=3.116000",
-		"parsed_events=3",
+		"parsed_events=2",
 		"matched_events=2",
 		"android.haitong-56023",
 	} {
@@ -3129,6 +3132,103 @@ func TestFlexTraceQueryDurationParsesUnitsToMilliseconds(t *testing.T) {
 		}
 		if math.Abs(got.Float64()-want) > 0.000000001 {
 			t.Fatalf("%s: got %.9f want %.9f", raw, got.Float64(), want)
+		}
+	}
+}
+
+// TestTraceQueryEventSearchStreamsOnSmallTraces pins the C3 (§7.30.2) routing
+// fix: view=event_search prefers the streaming scan on SMALL traces too (no
+// size precondition), so a budget-truncated index can never again produce
+// silent zero matches — and the streamed scan still finds the hit.
+func TestTraceQueryEventSearchStreamsOnSmallTraces(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "small_stream.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [001] .... 1.000000: print: B|20|Choreographer#doFrame`,
+		`app-20 (20) [001] .... 1.010000: print: E|20`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(tracePath); err != nil || info.Size() >= 2<<20 {
+		t.Fatalf("fixture must stay well under 2MiB: err=%v size=%d", err, info.Size())
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":  "path",
+		"path":    "small_stream.systrace",
+		"view":    "event_search",
+		"pattern": "Choreographer#doFrame",
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("small-trace event_search failed: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"streamed_event_search=true", // the streaming engine ran, not the budget-capped index
+		"Choreographer#doFrame",      // and it produced the hit
+		"matched_events=1",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("small-trace stream summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
+// TestTraceQueryIndexLimitSummaryCarriesRecoveryParams pins the C3 (§7.30.2)
+// recovery surface at the tool layer: the budget-hit summary AND the typed
+// index_event_limit_fallback caveat must carry copy-pastable parameters — the
+// streaming event_search escape hatch plus the exact time_start/time_end of
+// the first window segment the truncated index already covered.
+func TestTraceQueryIndexLimitSummaryCarriesRecoveryParams(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "dense_recovery.ftrace")
+	trace := strings.Join([]string{
+		`      app-20  (   20) [001] .... 1.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`      app-20  (   20) [001] .... 1.010000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`    waker-10  (   10) [000] .... 1.095000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`      app-20  (   20) [001] .... 1.100000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	p := traceQueryParams{
+		View:      "wakeup_chain",
+		Thread:    "app",
+		TimeStart: traceSecondFromAutoWindow(1.0),
+		TimeEnd:   traceSecondFromAutoWindow(2.0),
+	}
+	res, ok := (&TraceQuery{}).traceQueryIndexLimitResult(ctx, p, tracePath, "path", &tracequery.IndexEventLimitError{
+		Path:           tracePath,
+		MaxEvents:      524288,
+		Events:         524288,
+		Line:           99,
+		ScannedLines:   100,
+		Windowed:       true,
+		IndexTimeStart: 1.0,
+		IndexTimeEnd:   2.0,
+		FirstTs:        1.000000,
+		LastTs:         1.100000,
+	})
+	if !ok || !res.Success {
+		t.Fatalf("expected recoverable index limit result, ok=%v res=%+v", ok, res)
+	}
+	for _, want := range []string{
+		"recovery_params",
+		"view=event_search",
+		"streaming scan",
+		"time_start=1.000000 time_end=1.100000",
+		"already covered",
+		"index_event_limit_fallback=true",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("index-limit summary missing recovery hint %q:\n%s", want, res.Summary)
 		}
 	}
 }

@@ -53,6 +53,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		limit = 40
 	}
 	matchedTotal := 0
+	lastParsedTs := 0.0
 	var events []EventView
 	for lineNo := 1; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
@@ -96,9 +97,25 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			if !streamEventSearchRawCandidate(trimmed, lineNo, q) {
 				goto nextLine
 			}
-			ev, ok := ParseLine(lineNo, trimmed, intern)
+			// Parse-quality counters mirror the indexed path (safeParseLine +
+			// UnparsedLines + ClockRegressions): since event_search now ALWAYS
+			// streams, the coverage/quality caveats the indexed engine surfaced
+			// must not silently disappear. With a pattern set the counters cover
+			// the candidate lines only (the prefilter skip is load-bearing for
+			// GB traces) — a conservative undercount, never an overclaim.
+			panicsBefore := idx.ParseLinePanics
+			ev, ok := safeParseLine(lineNo, trimmed, intern, idx)
 			if !ok {
+				if trimmed != "" && idx.ParseLinePanics == panicsBefore {
+					idx.UnparsedLines++
+				}
 				goto nextLine
+			}
+			if prev := lastParsedTs; prev > 0 && ev.Ts > 0 && ev.Ts < prev {
+				idx.ClockRegressions++
+			}
+			if ev.Ts > 0 {
+				lastParsedTs = ev.Ts
 			}
 			if idx.FirstTs == 0 || ev.Ts < idx.FirstTs {
 				idx.FirstTs = ev.Ts
@@ -171,6 +188,9 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		PrioritySemantics:           PrioritySemanticsForFlavor(flavorValue),
 		LineCount:                   idx.LineCount,
 		ScannedLineCount:            idx.ScannedLineCount,
+		UnparsedLineCount:           idx.UnparsedLines,
+		ParseLinePanics:             idx.ParseLinePanics,
+		ClockRegressions:            idx.ClockRegressions,
 		EventCount:                  idx.ParsedKnown,
 		TimeStart:                   start,
 		TimeEnd:                     end,
@@ -179,6 +199,17 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	}
 	res.Caveats = append(res.Caveats,
 		fmt.Sprintf("streamed_event_search=true; scanned %d line(s) without building or caching a full trace index", idx.ScannedLineCount))
+	// Same parse-quality caveat wording as the indexed Run() path: event_search
+	// now always streams, so these coverage/quality signals must keep surfacing.
+	if idx.ParseLinePanics > 0 {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("%d trace line(s) could not be parsed and were skipped; results may undercount events near those lines", idx.ParseLinePanics))
+	}
+	if idx.ClockRegressions > 0 {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("%d timestamp regression(s) detected in the trace (clock moved backwards); duration and ordering metrics around those points are unreliable", idx.ClockRegressions))
+	}
+	if idx.UnparsedLines > 0 && idx.ScannedLineCount > 0 && float64(idx.UnparsedLines) > unparsedLineCaveatRatio*float64(idx.ScannedLineCount) {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("%d of %d scanned lines did not match any known trace format; coverage may be incomplete", idx.UnparsedLines, idx.ScannedLineCount))
+	}
 	if matchedTotal > len(events) {
 		res.Caveats = append(res.Caveats,
 			fmt.Sprintf("event_search_stream_compacted=true; matched %d row(s) but returned the first %d chronological match(es) only; omitted rows may contain later frame/span ids, so do not infer absence without rerunning an exact literal token", matchedTotal, len(events)))
