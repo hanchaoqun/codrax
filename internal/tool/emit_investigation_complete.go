@@ -3648,7 +3648,7 @@ func wakeupChainDrilldownPendingDowngrade(ctx *types.BusContext) string {
 	if chainRequiredSubject == "" || haveWakeupFamily {
 		return ""
 	}
-	if streak := ctx.Mutable.RecordCompletionDenialStreak("wakeup_chain_drilldown_pending"); streak > 1 {
+	if !ctx.Mutable.MarkCompletionGateOneShot("wakeup_chain_drilldown_pending") {
 		return ""
 	}
 	logging.Info("[emit_investigation_complete] one-shot wakeup-chain drilldown downgrade: subject=%s", chainRequiredSubject)

@@ -112,6 +112,9 @@ type MutableState struct {
 	// completionGateNote is a pending one-line audit note surfaced on the
 	// next accepted completion summary; see SetCompletionGateNote.
 	completionGateNote string
+	// completionGateOneShots tracks sticky per-run one-shot completion gates;
+	// see MarkCompletionGateOneShot.
+	completionGateOneShots map[string]bool
 	// objective is the raw user question / task description seeded
 	// at orchestrator Run time. Replaces the old one-task TaskList
 	// wrapper — every stage reads this field as the load-bearing
@@ -5121,6 +5124,28 @@ func (m *MutableState) RecordCompletionDenialStreak(fingerprint string) int {
 		m.completionDenialStreak = 1
 	}
 	return m.completionDenialStreak
+}
+
+// MarkCompletionGateOneShot records that the named one-shot completion gate
+// has fired and reports whether this call was the FIRST firing. Unlike
+// RecordCompletionDenialStreak — which tracks only the single most recent
+// fingerprint and therefore resets whenever two gates' denials interleave —
+// this marker is sticky per key for the whole run, which is what "fires at
+// most once" actually requires.
+func (m *MutableState) MarkCompletionGateOneShot(key string) bool {
+	if m == nil || strings.TrimSpace(key) == "" {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.completionGateOneShots == nil {
+		m.completionGateOneShots = map[string]bool{}
+	}
+	if m.completionGateOneShots[key] {
+		return false
+	}
+	m.completionGateOneShots[key] = true
+	return true
 }
 
 // SetCompletionGateNote stores a one-line audit note a completion gate wants
