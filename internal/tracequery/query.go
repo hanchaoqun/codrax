@@ -10331,11 +10331,19 @@ func (c *chainQueryCache) buildFreqIndex() {
 	}
 }
 
-// frequencyAt returns the cpu_frequency sample in effect on cpu at ts, or 0
-// when the trace exposes no sample at or before ts for that CPU.
+// frequencyAt returns the cpu_frequency sample in effect on cpu at ts: the
+// last sample at or before ts, falling back to the NEAREST later sample when
+// no earlier one exists (R5e: a window that starts before the first frequency
+// event must not be treated as unknown/zero/low supply — traces commonly emit
+// the first cpu_frequency event only on the first change after tracing
+// starts). Returns 0 only when the trace carries no samples for that CPU at
+// all.
 func (c *chainQueryCache) frequencyAt(cpu int, ts float64) int {
 	c.buildFreqIndex()
 	samples := c.freqByCPU[cpu]
+	if len(samples) == 0 {
+		return 0
+	}
 	lo, hi, best := 0, len(samples)-1, 0
 	for lo <= hi {
 		mid := (lo + hi) / 2
@@ -10345,6 +10353,9 @@ func (c *chainQueryCache) frequencyAt(cpu int, ts float64) int {
 		} else {
 			hi = mid - 1
 		}
+	}
+	if best == 0 {
+		best = samples[0].khz
 	}
 	return best
 }
@@ -10844,29 +10855,60 @@ func priorityInversionGatedMs(cache *chainQueryCache, consumers []ThreadRef, int
 			if !it.CPUKnown {
 				continue
 			}
-			mid := (it.StartTs + it.EndTs) / 2
-			wakerFreq := cache.frequencyAt(it.CPU, mid)
-			if wakerFreq <= 0 {
-				continue
-			}
-			// Lower than ANY consumer's supply counts, i.e. lower than the
-			// maximum known consumer frequency at that moment.
-			maxConsumerFreq := 0
-			for _, consumer := range consumers {
-				cpu, ok := cache.threadCPUNear(consumer, mid)
-				if !ok {
-					continue
-				}
-				if f := cache.frequencyAt(cpu, mid); f > maxConsumerFreq {
-					maxConsumerFreq = f
-				}
-			}
-			if maxConsumerFreq > 0 && wakerFreq < maxConsumerFreq {
-				gated += it.DurationMs
-			}
+			gated += cache.weakCoreDeficitMs(consumers, it)
 		}
 	}
 	return gated
+}
+
+// weakCoreDeficitMs integrates the R5d-2 capacity-proportional inversion
+// impact of one RUNNING interval. The interval is sliced at every
+// cpu_frequency change point of its own CPU (R5e: in-window frequency changes
+// must be honored segment by segment, never one sample for the whole
+// interval), and each slice contributes
+//
+//	sliceMs × max(0, 1 − f_waker/f_consumerMax)
+//
+// — the EXTRA time the same work would not have needed on the strongest known
+// downstream consumer core. Counting the whole running slice would inflate
+// the inversion exactly like counting whole sleeps did (§7.30.2 R5d-2).
+// Slices with unknown waker or consumer supply contribute zero.
+func (c *chainQueryCache) weakCoreDeficitMs(consumers []ThreadRef, it Interval) float64 {
+	c.buildFreqIndex()
+	boundaries := []float64{it.StartTs}
+	for _, sample := range c.freqByCPU[it.CPU] {
+		if sample.ts > it.StartTs && sample.ts < it.EndTs {
+			boundaries = append(boundaries, sample.ts)
+		}
+	}
+	boundaries = append(boundaries, it.EndTs)
+	deficit := 0.0
+	for i := 0; i+1 < len(boundaries); i++ {
+		s0, s1 := boundaries[i], boundaries[i+1]
+		if s1 <= s0 {
+			continue
+		}
+		mid := (s0 + s1) / 2
+		wakerFreq := c.frequencyAt(it.CPU, mid)
+		if wakerFreq <= 0 {
+			continue
+		}
+		maxConsumerFreq := 0
+		for _, consumer := range consumers {
+			cpu, ok := c.threadCPUNear(consumer, mid)
+			if !ok {
+				continue
+			}
+			if f := c.frequencyAt(cpu, mid); f > maxConsumerFreq {
+				maxConsumerFreq = f
+			}
+		}
+		if maxConsumerFreq <= 0 || wakerFreq >= maxConsumerFreq {
+			continue
+		}
+		deficit += (s1 - s0) * 1000 * (1 - float64(wakerFreq)/float64(maxConsumerFreq))
+	}
+	return deficit
 }
 
 func causalImpactBlockingMs(item WakeupCausalImpact) float64 {
