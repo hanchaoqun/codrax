@@ -812,6 +812,16 @@ func (t *TraceQuery) maybeStreamEventSearch(ctx *types.BusContext, p traceQueryP
 		logging.Debug("[trace_query] phase=stream_event_search view=%s path=%s failed elapsed=%s err=%v; falling back to the indexed event_search path", q.View, path, time.Since(streamStart), err)
 		return types.ToolResult{}, false
 	}
+	if len(result.Events) == 0 {
+		// The streaming prefilter matches the RAW line text; the indexed
+		// path additionally matches typed/normalized fields (e.g. the
+		// canonical event type name). A zero-match stream therefore falls
+		// back to the indexed search so type-only patterns keep working —
+		// on budget-capped traces that path still returns the typed
+		// recovery caveat instead of a silently truncated zero match.
+		logging.Debug("[trace_query] phase=stream_event_search view=%s path=%s zero raw-text matches elapsed=%s; falling back to the indexed event_search path for typed-field matching", q.View, path, time.Since(streamStart))
+		return types.ToolResult{}, false
+	}
 	heapAlloc, heapSys, gcCount := traceQueryMemoryForLog()
 	logging.Debug("[trace_query] phase=stream_event_search view=%s path=%s done elapsed=%s matched=%d caveats=%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
 		q.View, path, time.Since(streamStart), len(result.Events), len(result.Caveats), heapAlloc, heapSys, gcCount)

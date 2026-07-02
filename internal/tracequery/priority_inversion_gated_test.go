@@ -105,14 +105,19 @@ func TestWeakCoreGatePerSegmentAndNearestFallback(t *testing.T) {
         app-100 (100) [001] .... 5.020000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
 	`)
 	chain := BuildWakeupChain(midChange, Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.020, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	foundMid := false
 	for i := range chain.CausalImpacts {
 		if chain.CausalImpacts[i].Thread.PID != 200 {
 			continue
 		}
+		foundMid = true
 		got := chain.CausalImpacts[i].PriorityInversionGatedMs
 		if got < 5.4 || got > 6.6 {
 			t.Fatalf("mid-interval frequency jump must be honored per segment (~6ms low-freq deficit), got %.3f", got)
 		}
+	}
+	if !foundMid {
+		t.Fatalf("dependency causal impact missing (vacuous pass guard): %+v", chain.CausalImpacts)
 	}
 
 	// Nearest fallback: the only samples appear AFTER the running interval;
@@ -128,13 +133,18 @@ func TestWeakCoreGatePerSegmentAndNearestFallback(t *testing.T) {
       <idle>-0 (-----) [001] .... 5.030000: cpu_frequency: state=2000000 cpu_id=1
 	`)
 	chain2 := BuildWakeupChain(lateSamples, Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.020, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	foundLate := false
 	for i := range chain2.CausalImpacts {
 		if chain2.CausalImpacts[i].Thread.PID != 200 {
 			continue
 		}
+		foundLate = true
 		got := chain2.CausalImpacts[i].PriorityInversionGatedMs
 		if got < 11 || got > 12.4 {
 			t.Fatalf("nearest-later samples must back the gate (~11.7ms), got %.3f", got)
 		}
+	}
+	if !foundLate {
+		t.Fatalf("dependency causal impact missing (vacuous pass guard): %+v", chain2.CausalImpacts)
 	}
 }

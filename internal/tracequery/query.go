@@ -3695,7 +3695,12 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 		applyLineRange(&summary.LineStart, &summary.LineEnd, ipi.LineEnd)
 	}
 	for _, cpu := range stats.CPU {
-		if cpu.Frequency > 0 && frequencyIsLowForCPU(cpu.Frequency, cpu) {
+		// R5e: judge low frequency from the RESIDENCY-WEIGHTED average over
+		// the window, never from the single latest sample (CPUStats.Frequency)
+		// — a CPU that ramped up mid-window used to read as "low" from a
+		// stale early sample, producing the customer's false
+		// supply-insufficient verdicts.
+		if weighted := residencyWeightedFrequency(cpu); weighted > 0 && frequencyIsLowForCPU(weighted, cpu) {
 			summary.LowFrequencyCPUs = append(summary.LowFrequencyCPUs, cpu.CPU)
 		}
 	}
@@ -3761,6 +3766,25 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 	summary.Summary = fmt.Sprintf("supply_pressure signal=%s cpu_pressure=%.3fms runnable=%.3fms high_prio=%.3fms sched_stat_wait=%.3fms sched_stat_iowait=%.3fms sched_stat_blocked=%.3fms ipi_events=%d ipi_active=%.3fms low_freq_cpus=%v clock_set_rate=%d thermal=%d ddr=%d l3=%d throughput=%d",
 		summary.Signal, summary.CPUPressureMs, summary.RunnableWaitMs, summary.HighPriorityRunningMs, summary.SchedStatWaitMs, summary.SchedStatIOWaitMs, summary.SchedStatBlockedMs, summary.IPIEventCount, summary.IPIActiveMs, summary.LowFrequencyCPUs, summary.ClockSetRateCount, summary.ThermalEventCount, summary.DDREventCount, summary.L3EventCount, summary.ThroughputEventCount)
 	return &summary
+}
+
+// residencyWeightedFrequency is the duration-weighted average frequency of a
+// CPU over the window, derived from its cpu_frequency residency segments —
+// the per-segment truth R5e demands, with zero extra plumbing. Returns 0 when
+// the window exposes no residency.
+func residencyWeightedFrequency(cpu CPUStats) int {
+	totalMs, weighted := 0.0, 0.0
+	for _, res := range cpu.FrequencyResidency {
+		if res.Frequency <= 0 || res.DurationMs <= 0 {
+			continue
+		}
+		totalMs += res.DurationMs
+		weighted += float64(res.Frequency) * res.DurationMs
+	}
+	if totalMs <= 0 {
+		return 0
+	}
+	return int(weighted / totalMs)
 }
 
 func frequencyIsLowForCPU(frequency int, cpu CPUStats) bool {
@@ -4824,7 +4848,11 @@ func segmentFrequencyStats(samples []Event, startTs, endTs float64) frequencySeg
 	if len(samples) == 0 || endTs <= startTs {
 		return out
 	}
-	first := sort.Search(len(samples), func(i int) bool { return samples[i].Ts > startTs })
+	// A sample sitting exactly AT the segment start is an in-segment
+	// observation (half-open [startTs, endTs)), not a preceding one —
+	// classifying it as preceding falsely raised the nearest_fallback
+	// provenance marker on perfectly-sampled segments.
+	first := sort.Search(len(samples), func(i int) bool { return samples[i].Ts >= startTs })
 	current := 0
 	if first > 0 {
 		current = samples[first-1].Frequency
@@ -7741,7 +7769,13 @@ func appendRootCauseStatsPerfContexts(idx *Index, q Query, stats WindowStats, it
 func appendRootCauseCPUPressurePerfContexts(idx *Index, q Query, pressure CPUPressureStats, window TimeWindow, contexts []RootCausePerfRoleContext) []RootCausePerfRoleContext {
 	start, end := window.StartTs, window.EndTs
 	contexts = appendRootCausePerfRoleContext(contexts, "cpu_pressure_cpu", ThreadRef{}, pressure.CPU, window, "CPU pressure scope", perfContextForCPU(idx, q, pressure.CPU, start, end, 4))
-	return appendRootCauseRunnableCompetitorPerfContexts(idx, q, pressure.TopRunning, ThreadRef{}, window, "cpu_pressure_top_running", "top running thread on pressure CPU", contexts)
+	// R5g: competitor perf contexts prefer the displacement-overlap set —
+	// full-window TopRunning includes serially-pipelined threads that never
+	// displaced anyone; those stay background pressure, not competitors.
+	if len(pressure.OverlapCompetitors) > 0 {
+		return appendRootCauseRunnableCompetitorPerfContexts(idx, q, pressure.OverlapCompetitors, ThreadRef{}, window, "cpu_pressure_top_running", "displacement-overlap running thread on pressure CPU", contexts)
+	}
+	return appendRootCauseRunnableCompetitorPerfContexts(idx, q, pressure.TopRunning, ThreadRef{}, window, "cpu_pressure_top_running", "top running thread on pressure CPU (window background, no displacement overlap)", contexts)
 }
 
 func appendRootCauseRunnableCompetitorPerfContexts(idx *Index, q Query, threads []ThreadDuration, candidate ThreadRef, window TimeWindow, role, reason string, contexts []RootCausePerfRoleContext) []RootCausePerfRoleContext {
