@@ -1034,14 +1034,26 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	var tags []runtimeTraceProjTag
 	// 裁定4: every bar row states WHAT the duration was (typed StateKind label;
 	// impact-shape value when no state was exposed — never fabricated).
-	// §7.30.3 D1: typed lock-contention rows always carry their blocked-wait
-	// semantics — the shape cell wins over any single-state claim.
+	// §7.30.3 D1/D3: typed lock-contention rows and gated-composite inversion
+	// rows always carry their semantic label — the shape cell wins over any
+	// single-state claim (an inversion composite is NOT "running").
 	stateTag := runtimeTraceProjStateKindLabel(node, zh)
-	if stateTag == "" || strings.TrimSpace(node.BlockingKind) != "" {
+	if stateTag == "" || strings.TrimSpace(node.BlockingKind) != "" ||
+		runtimeTraceCausalProjectionInversionRow(node) {
 		stateTag = runtimeTraceCausalProjectionImpactShapeCell(node, zh)
 	}
 	if stateTag != "" {
 		tags = append(tags, runtimeTraceProjTag{Text: stateTag, DropOrder: runtimeTraceProjTagKeep})
+	}
+	// §7.30.3 D3: the inversion composite shows its gated composition — the
+	// split is load-bearing and never elides.
+	if runtimeTraceCausalProjectionInversionRow(node) &&
+		(node.GatedRunnableMS > 0 || node.GatedRunningDeficitMS > 0) {
+		text := fmt.Sprintf("影响构成: 可运行等待 %.3fms + 运行折算 %.3fms", node.GatedRunnableMS, node.GatedRunningDeficitMS)
+		if !zh {
+			text = fmt.Sprintf("composition: runnable %.3fms + discounted running %.3fms", node.GatedRunnableMS, node.GatedRunningDeficitMS)
+		}
+		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep})
 	}
 	// §7.30.3 D1: the parsed holder site is auditable detail — droppable on
 	// width pressure; the raw record keeps it lossless.

@@ -8335,6 +8335,10 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 	item := rootCauseItem(typ, impact.Thread, impactMs, conf, impact.LineStart, impact.LineEnd, "wakeup_chain.causal_impacts", impact.Summary)
 	if impact.PriorityInversionCandidate {
 		item.EffectiveImpactMs = impact.PriorityInversionGatedMs
+		// §7.30.3 D3: the composite's composition travels with the row so the
+		// renderer can split it instead of claiming a single state.
+		item.GatedRunnableMs = impact.GatedRunnableMs
+		item.GatedRunningDeficitMs = impact.GatedRunningDeficitMs
 	}
 	item.Causality = "on_wakeup_chain"
 	item.ChainRelevance = "on_chain"
@@ -11240,7 +11244,8 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 	if len(gateConsumers) == 0 && thread.PID != target.PID {
 		gateConsumers = []ThreadRef{target}
 	}
-	item.PriorityInversionGatedMs = priorityInversionGatedMs(cache, gateConsumers, intervals)
+	item.GatedRunnableMs, item.GatedRunningDeficitMs = priorityInversionGatedMs(cache, gateConsumers, intervals)
+	item.PriorityInversionGatedMs = item.GatedRunnableMs + item.GatedRunningDeficitMs
 	// R5d (§7.30.1): the inversion flag and its published impact key on the
 	// GATED duration only — runnable time plus weak-core running time of the
 	// dependency. Its own sleep/D/IO time never qualifies: that is the
@@ -11318,26 +11323,29 @@ func dominantCausalImpactState(item WakeupCausalImpact) (string, float64) {
 // interval attributes the whole interval to the midpoint state. Missing data
 // — unknown interval CPU, no frequency samples, no locatable consumer CPU —
 // contributes zero: the gate is conservative, never guessed.
-func priorityInversionGatedMs(cache *chainQueryCache, consumers []ThreadRef, intervals []Interval) float64 {
+//
+// §7.30.3 D3: the two components return SEPARATELY (runnable full amount vs
+// capacity-discounted weak-core running deficit) so the published composite
+// can show its composition; the gated total is their sum.
+func priorityInversionGatedMs(cache *chainQueryCache, consumers []ThreadRef, intervals []Interval) (runnableMs, runningDeficitMs float64) {
 	if cache == nil || len(consumers) == 0 {
-		return 0
+		return 0, 0
 	}
-	gated := 0.0
 	for _, it := range intervals {
 		if it.DurationMs <= 0 {
 			continue
 		}
 		switch it.State {
 		case StateRunnable:
-			gated += it.DurationMs
+			runnableMs += it.DurationMs
 		case StateRunning:
 			if !it.CPUKnown {
 				continue
 			}
-			gated += cache.weakCoreDeficitMs(consumers, it)
+			runningDeficitMs += cache.weakCoreDeficitMs(consumers, it)
 		}
 	}
-	return gated
+	return runnableMs, runningDeficitMs
 }
 
 // weakCoreDeficitMs integrates the R5d-2 capacity-proportional inversion

@@ -114,6 +114,58 @@ func TestTraceProjectionD2TypeLabelsKeepRawTokensEN(t *testing.T) {
 	}
 }
 
+// dRoundInversionObs: a gated-composite inversion row whose dominant state is
+// running — exactly the misleading customer shape D3 fixes.
+func dRoundInversionObs() []types.ObservationRecord {
+	inversion := projV3Obs("root-inv", "root_cause_primary", "root_cause_primary:inv",
+		"dep-200", "priority_inversion_candidate", "16.000", 16.0, 100, 200,
+		"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain",
+		"chain_depth=1", "dominant_state=running",
+		"gated_runnable=10.000", "gated_running_deficit=6.000")
+	path := types.ObservationRecord{
+		ID: "path", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+		GroundingPolicy: types.ClaimGroundingHard, Predicate: "wakeup_chain", ClaimKey: "wakeup_chain:path",
+		Object: "dep-200 -> app-1",
+	}
+	return []types.ObservationRecord{inversion, path}
+}
+
+func TestTraceProjectionD3InversionCompositionSplitZH(t *testing.T) {
+	md := audit730Render(t, audit730Bus(""), dRoundInversionObs(), "")
+	for _, want := range []string{
+		"反转影响",
+		"影响构成: 可运行等待 10.000ms + 运行折算 6.000ms",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("D3 inversion composition missing %q:\n%s", want, md)
+		}
+	}
+	// The composite row must not claim the single-state 运行占用 tag (the
+	// legend sentence naming the tag family is not a row).
+	for _, line := range strings.Split(md, "\n") {
+		if strings.Contains(line, "优先级反转候选") && strings.Contains(line, "运行占用") {
+			t.Fatalf("inversion row must not claim a single running state:\n%s", line)
+		}
+	}
+}
+
+func TestTraceProjectionD3InversionCompositionSplitEN(t *testing.T) {
+	md := audit730Render(t, audit730Bus("en"), dRoundInversionObs(), "en")
+	for _, want := range []string{
+		"inversion impact",
+		"composition: runnable 10.000ms + discounted running 6.000ms",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("EN D3 inversion composition missing %q:\n%s", want, md)
+		}
+	}
+	for _, line := range strings.Split(md, "\n") {
+		if strings.Contains(line, "priority_inversion_candidate") && strings.Contains(line, "| running") {
+			t.Fatalf("EN inversion row must not claim a single running state:\n%s", line)
+		}
+	}
+}
+
 func TestTraceProjectionD1ContentionRowsCarryOwnerAndSemanticsEN(t *testing.T) {
 	md := audit730Render(t, audit730Bus("en"), dRoundContentionObs(), "en")
 	for _, want := range []string{

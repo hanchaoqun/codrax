@@ -279,7 +279,9 @@ func TestRuntimeTraceProjTreeRowWidthCapKeepsPrimaryTagAndEvidence(t *testing.T)
 	if !strings.Contains(line, "[E5(+2)]") {
 		t.Fatalf("E# evidence reference must survive tag elision:\n%s", line)
 	}
-	if !strings.Contains(line, "可运行等待") {
+	// §7.30.3 D3: the gated-composite inversion row leads with the dedicated
+	// inversion-impact tag instead of a single-state claim.
+	if !strings.Contains(line, "反转影响") {
 		t.Fatalf("primary state tag must survive tag elision:\n%s", line)
 	}
 	if !strings.Contains(line, " · … · ") {

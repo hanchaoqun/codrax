@@ -1334,6 +1334,11 @@ type RootCauseRankItem struct {
 	ProjectedImpactMs  float64                    `json:"projected_impact_ms,omitempty"`
 	CumulativeImpactMs float64                    `json:"cumulative_impact_ms,omitempty"`
 	EffectiveImpactMs  float64                    `json:"effective_impact_ms,omitempty"`
+	// GatedRunnableMs / GatedRunningDeficitMs mirror the R5d gated-impact
+	// composition for priority_inversion_candidate rows (§7.30.3 D3); zero on
+	// every other row type.
+	GatedRunnableMs       float64 `json:"gated_runnable_ms,omitempty"`
+	GatedRunningDeficitMs float64 `json:"gated_running_deficit_ms,omitempty"`
 	TargetImpactMs     float64                    `json:"target_impact_ms,omitempty"`
 	ActualImpactMs     float64                    `json:"actual_impact_ms,omitempty"`
 	ActualTotalMs      float64                    `json:"actual_total_ms,omitempty"`
@@ -1685,6 +1690,13 @@ type WakeupCausalImpact struct {
 	// not the whole blocked/dominant duration — is what an inversion
 	// candidate publishes and ranks with.
 	PriorityInversionGatedMs float64 `json:"priority_inversion_gated_ms,omitempty"`
+	// GatedRunnableMs / GatedRunningDeficitMs split the gated impact into its
+	// two R5d components (§7.30.3 D3): runnable time counted in full, and the
+	// capacity-proportional weak-core running deficit. Their sum IS
+	// PriorityInversionGatedMs, so renderers can show the composition instead
+	// of claiming a single scheduler state for the composite.
+	GatedRunnableMs       float64 `json:"gated_runnable_ms,omitempty"`
+	GatedRunningDeficitMs float64 `json:"gated_running_deficit_ms,omitempty"`
 	Summary                    string     `json:"summary,omitempty"`
 	NextStep                   string     `json:"next_step,omitempty"`
 	// NextStepKind is the deterministic typed enumeration behind the English

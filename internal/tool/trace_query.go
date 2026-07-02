@@ -3811,6 +3811,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			notes = append(notes, traceQueryTypedRootCauseStateRichNotes(item)...)
 			notes = append(notes, traceQueryTypedKVNotes([][2]string{
 				{"subject_kind", item.SubjectKind},
+				// §7.30.3 D3: inversion rows publish the gated composition so
+				// the projection can split the composite impact.
+				{"gated_runnable", traceQueryObservationMSValue(item.GatedRunnableMs)},
+				{"gated_running_deficit", traceQueryObservationMSValue(item.GatedRunningDeficitMs)},
 				{"chain_relevance", item.ChainRelevance},
 				{"overlap", traceQueryObservationMSValue(item.OverlapMs)},
 				{"edge_count", traceQueryTypedCount(item.EdgeCount)},
@@ -4186,6 +4190,10 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{"priority_relation", impact.PriorityRelation},
 		{"priority_inversion_candidate", traceQueryTypedBool(impact.PriorityInversionCandidate)},
 		{"priority_inversion_gated", traceQueryObservationMSValue(impact.PriorityInversionGatedMs)},
+		// §7.30.3 D3: the gated composite's typed composition (runnable full
+		// amount + capacity-discounted weak-core running deficit).
+		{"gated_runnable", traceQueryObservationMSValue(impact.GatedRunnableMs)},
+		{"gated_running_deficit", traceQueryObservationMSValue(impact.GatedRunningDeficitMs)},
 		{"recommended_views", strings.Join(views, ",")},
 		{"chain_required", traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
 		{"recursive", traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},

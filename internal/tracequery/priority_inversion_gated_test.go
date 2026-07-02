@@ -148,3 +148,44 @@ func TestWeakCoreGatePerSegmentAndNearestFallback(t *testing.T) {
 		t.Fatalf("dependency causal impact missing (vacuous pass guard): %+v", chain2.CausalImpacts)
 	}
 }
+
+// §7.30.3 D3: the gated impact publishes its composition — runnable time in
+// full plus the capacity-discounted weak-core running deficit — as separate
+// typed fields whose sum IS the gated total. Mixed shape: dep is runnable for
+// ~10ms, then runs ~9.5ms on a weak core (800MHz vs the consumer's 2GHz).
+func TestPriorityInversionGatedComponentsSplit(t *testing.T) {
+	idx := buildTraceIndex(t, "d3_mixed.systrace", `
+      <idle>-0 (-----) [007] .... 4.900000: cpu_frequency: state=800000 cpu_id=7
+      <idle>-0 (-----) [001] .... 4.900000: cpu_frequency: state=2000000 cpu_id=1
+        app-100 (100) [001] .... 4.990000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+        dep-200 (100) [002] .... 5.000000: sched_switch: prev_comm=dep prev_pid=200 prev_prio=20 prev_state=R ==> next_comm=idle/2 next_pid=0 next_prio=120
+        dep-200 (100) [007] .... 5.010000: sched_switch: prev_comm=idle/7 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=dep next_pid=200 next_prio=20
+        dep-200 (100) [007] .... 5.019000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        dep-200 (100) [007] .... 5.019500: sched_switch: prev_comm=dep prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/7 next_pid=0 next_prio=120
+        app-100 (100) [001] .... 5.020000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+	`)
+	chain := BuildWakeupChain(idx, Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.020, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	var dep *WakeupCausalImpact
+	for i := range chain.CausalImpacts {
+		if chain.CausalImpacts[i].Thread.PID == 200 {
+			dep = &chain.CausalImpacts[i]
+		}
+	}
+	if dep == nil {
+		t.Fatalf("dependency causal impact missing: %+v", chain.CausalImpacts)
+	}
+	if dep.GatedRunnableMs < 9.5 || dep.GatedRunnableMs > 10.5 {
+		t.Fatalf("gated runnable component should be the ~10ms wait, got %.3f", dep.GatedRunnableMs)
+	}
+	// 9.5ms running × (1 − 800/2000) = ~5.7ms discounted deficit.
+	if dep.GatedRunningDeficitMs < 5.4 || dep.GatedRunningDeficitMs > 6.0 {
+		t.Fatalf("gated running deficit should be the ~5.7ms discount, got %.3f", dep.GatedRunningDeficitMs)
+	}
+	if got, want := dep.PriorityInversionGatedMs, dep.GatedRunnableMs+dep.GatedRunningDeficitMs; got != want {
+		t.Fatalf("gated total must equal the component sum: %.6f != %.6f", got, want)
+	}
+	if !dep.PriorityInversionCandidate {
+		t.Fatalf("mixed runnable+weak-core dependency must stay an inversion candidate: %+v", dep)
+	}
+}

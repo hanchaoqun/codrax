@@ -178,6 +178,14 @@ type TraceCausalProjectionNode struct {
 	BlockingPeer       string `json:"blocking_peer,omitempty"`
 	BlockingHolderSite string `json:"blocking_holder_site,omitempty"`
 	BlockingWaiters    int    `json:"blocking_waiters,omitempty"`
+	// GatedRunnableMS / GatedRunningDeficitMS carry the R5d gated-impact
+	// composition of a priority-inversion row (§7.30.3 D3), sourced from the
+	// typed gated_runnable / gated_running_deficit rich notes: runnable time
+	// counted in full plus the capacity-discounted weak-core running deficit.
+	// The renderer shows "影响构成: 可运行等待 X + 运行折算 Y" instead of
+	// claiming one scheduler state for the composite amount.
+	GatedRunnableMS       float64 `json:"gated_runnable_ms,omitempty"`
+	GatedRunningDeficitMS float64 `json:"gated_running_deficit_ms,omitempty"`
 }
 
 // TraceCausalSubjectKindAggregateMetric mirrors the trace_query typed
@@ -586,6 +594,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		node.BlockingHolderSite = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "holder_site"))
 		node.BlockingWaiters = traceCausalProjectionRichNoteInt(record.RichNotes, "waiters")
 	}
+	// §7.30.3 D3: gated-impact composition for priority-inversion rows.
+	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "gated_runnable")
+	node.GatedRunningDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "gated_running_deficit")
 	return node
 }
 

@@ -1140,6 +1140,15 @@ func runtimeTraceCausalProjectionImpactShapeCell(node types.TraceCausalProjectio
 		}
 		return "lock contention · blocked"
 	}
+	// §7.30.3 D3: an inversion row's impact is the R5d gated COMPOSITE
+	// (runnable full + discounted weak-core running) — no single scheduler
+	// state may claim it.
+	if runtimeTraceCausalProjectionInversionRow(node) {
+		if zh {
+			return "反转影响"
+		}
+		return "inversion impact"
+	}
 	state := strings.TrimSpace(strings.ToLower(node.StateKind))
 	switch state {
 	case "running":
@@ -1409,6 +1418,14 @@ func runtimeTraceCausalProjectionKnownSubject(raw string) bool {
 		return false
 	}
 	return true
+}
+
+// runtimeTraceCausalProjectionInversionRow reports whether this node publishes
+// the R5d GATED COMPOSITE impact (§7.30.3 D3) — exact typed token match on the
+// row's cause type. Only these rows replace the single-state tag with the
+// dedicated inversion-impact label and the gated composition split.
+func runtimeTraceCausalProjectionInversionRow(node types.TraceCausalProjectionNode) bool {
+	return runtimeTraceCausalProjectionCanonicalNode(node.Object) == "priority_inversion_candidate"
 }
 
 // runtimeTraceCausalProjectionBlockingName renders the typed lock-contention
