@@ -4129,6 +4129,7 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{"target_priority", traceQueryPriorityPair(impact.TargetPriority, impact.TargetPriorityClass)},
 		{"priority_relation", impact.PriorityRelation},
 		{"priority_inversion_candidate", traceQueryTypedBool(impact.PriorityInversionCandidate)},
+		{"priority_inversion_gated", traceQueryObservationMSValue(impact.PriorityInversionGatedMs)},
 		{"recommended_views", strings.Join(views, ",")},
 		{"chain_required", traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
 		{"recursive", traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},

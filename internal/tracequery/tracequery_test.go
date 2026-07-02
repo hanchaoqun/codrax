@@ -3381,8 +3381,18 @@ func TestRootCauseRankKeepsOffChainPressureAsBackground(t *testing.T) {
 			break
 		}
 	}
-	if pool == nil || pool.DominantState != string(StateIOWait) || pool.IOWaitMs < 10 || !pool.PriorityInversionCandidate {
+	if pool == nil || pool.DominantState != string(StateIOWait) || pool.IOWaitMs < 10 {
 		t.Fatalf("threadpool D/IO impact should be on chain: %+v", chain.CausalImpacts)
+	}
+	// R5d (§7.30.1): an IO-dominant dependency is NOT a priority-inversion
+	// candidate — its blocked time is its own upstream problem and must not
+	// inflate an inversion row. Only the gated runnable share (~1ms here) is
+	// inversion-eligible and is preserved as a typed fact.
+	if pool.PriorityInversionCandidate {
+		t.Fatalf("IO-dominant dependency must not be an inversion candidate under R5d: %+v", pool)
+	}
+	if pool.PriorityInversionGatedMs <= 0 || pool.PriorityInversionGatedMs > 2 {
+		t.Fatalf("gated inversion share should be the ~1ms runnable time, got %.3f", pool.PriorityInversionGatedMs)
 	}
 	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 2.0, TimeEnd: 2.020, MaxDepth: 6, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 10})
 	if len(rank.Items) == 0 || rank.Items[0].Causality != "on_wakeup_chain" || rank.Items[0].Thread.PID != 400 {

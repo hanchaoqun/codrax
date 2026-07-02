@@ -958,6 +958,7 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 	}
 	var runningStart float64
 	var runningLine int
+	var runningCPU int
 	var offStart float64
 	var offLine int
 	var offState string
@@ -985,10 +986,13 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 				offStart, offLine, offState, wake = 0, 0, "", nil
 				runningStart = ev.Ts
 				runningLine = ev.Line
+				runningCPU = ev.CPU
 			}
 			if threadMatches(target, ev.PrevPID, ev.PrevComm) {
 				if runningStart > 0 {
-					res.Intervals = append(res.Intervals, makeInterval(target, StateRunning, runningStart, ev.Ts, runningLine, ev.Line, ""))
+					iv := makeInterval(target, StateRunning, runningStart, ev.Ts, runningLine, ev.Line, "")
+					iv.CPU, iv.CPUKnown = runningCPU, true
+					res.Intervals = append(res.Intervals, iv)
 				}
 				runningStart = 0
 				offStart = ev.Ts
@@ -1011,7 +1015,9 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 		}
 	}
 	if runningStart > 0 {
-		res.Intervals = append(res.Intervals, makeInterval(target, StateRunning, runningStart, q.TimeEnd, runningLine, 0, ""))
+		iv := makeInterval(target, StateRunning, runningStart, q.TimeEnd, runningLine, 0, "")
+		iv.CPU, iv.CPUKnown = runningCPU, true
+		res.Intervals = append(res.Intervals, iv)
 	}
 	if offStart > 0 {
 		res.Intervals = append(res.Intervals, offCPUIntervals(target, offStart, q.TimeEnd, offLine, 0, offState, wake)...)
@@ -7847,7 +7853,15 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 		conf = 0.91
 	}
 	impactMs := causalImpactBlockingMs(impact)
+	if impact.PriorityInversionCandidate {
+		// R5d: an inversion row publishes and ranks with its gated impact,
+		// not the dependency's whole dominant/blocked duration.
+		impactMs = impact.PriorityInversionGatedMs
+	}
 	item := rootCauseItem(typ, impact.Thread, impactMs, conf, impact.LineStart, impact.LineEnd, "wakeup_chain.causal_impacts", impact.Summary)
+	if impact.PriorityInversionCandidate {
+		item.EffectiveImpactMs = impact.PriorityInversionGatedMs
+	}
 	item.Causality = "on_wakeup_chain"
 	item.ChainRelevance = "on_chain"
 	item.ChainDepth = impact.ChainDepth
@@ -10265,6 +10279,82 @@ type chainQueryCache struct {
 	priorityByPID   map[int][]prioritySample
 	timelineByKey   map[string]TimelineResult
 	resolvedByQuery map[string]ThreadRef
+	// freqByCPU is the lazily-built per-CPU cpu_frequency sample timeline
+	// (ts-ordered, kHz). Empty slice per CPU when the trace carries no
+	// frequency events — consumers must treat "no sample" as unknown, not
+	// as zero supply (R5d weak-core gate stays conservative).
+	freqByCPU     map[int][]freqSample
+	freqIndexOnce bool
+}
+
+type freqSample struct {
+	ts  float64
+	khz int
+}
+
+// buildFreqIndexLocked scans the index once for cpu_frequency events. The
+// cache is used single-goroutine per query, mirroring the other lazy maps.
+func (c *chainQueryCache) buildFreqIndex() {
+	if c.freqIndexOnce {
+		return
+	}
+	c.freqIndexOnce = true
+	c.freqByCPU = map[int][]freqSample{}
+	if c.idx == nil {
+		return
+	}
+	for _, ev := range c.idx.Events {
+		if ev.Type != EventCPUFrequency || ev.Frequency <= 0 {
+			continue
+		}
+		cpu := ev.CPU
+		if ev.CPUForFieldValid {
+			cpu = ev.CPUForField
+		}
+		c.freqByCPU[cpu] = append(c.freqByCPU[cpu], freqSample{ts: ev.Ts, khz: ev.Frequency})
+	}
+}
+
+// frequencyAt returns the cpu_frequency sample in effect on cpu at ts, or 0
+// when the trace exposes no sample at or before ts for that CPU.
+func (c *chainQueryCache) frequencyAt(cpu int, ts float64) int {
+	c.buildFreqIndex()
+	samples := c.freqByCPU[cpu]
+	lo, hi, best := 0, len(samples)-1, 0
+	for lo <= hi {
+		mid := (lo + hi) / 2
+		if samples[mid].ts <= ts {
+			best = samples[mid].khz
+			lo = mid + 1
+		} else {
+			hi = mid - 1
+		}
+	}
+	return best
+}
+
+// threadCPUNear returns the CPU the thread most recently switched IN on at or
+// before ts, using the per-PID event index. ok=false when no switch-in for
+// the thread precedes ts in the trace.
+func (c *chainQueryCache) threadCPUNear(thread ThreadRef, ts float64) (int, bool) {
+	if c.idx == nil || thread.PID <= 0 {
+		return 0, false
+	}
+	ids := c.eventsByPID[thread.PID]
+	cpu, ok := 0, false
+	for _, id := range ids {
+		if id < 0 || id >= len(c.idx.Events) {
+			continue
+		}
+		ev := c.idx.Events[id]
+		if ev.Ts > ts {
+			break
+		}
+		if ev.Type == EventSchedSwitch && ev.NextPID == thread.PID {
+			cpu, ok = ev.CPU, true
+		}
+	}
+	return cpu, ok
 }
 
 type prioritySample struct {
@@ -10626,7 +10716,18 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 	item.Priority, item.PriorityClass = cache.priorityNear(q.TraceFlavor, thread, (start+end)/2)
 	item.TargetPriority, item.TargetPriorityClass = cache.priorityNear(q.TraceFlavor, target, start)
 	item.PriorityRelation = dependencyPriorityRelation(q.TraceFlavor, item.TargetPriority, item.Priority, depth)
-	item.PriorityInversionCandidate = item.PriorityRelation == "lower_priority_dependency" && causalImpactIsPrioritySensitiveRoot(item)
+	item.PriorityInversionGatedMs = priorityInversionGatedMs(cache, target, intervals)
+	// R5d (§7.30.1): the inversion flag and its published impact key on the
+	// GATED duration only — runnable time plus weak-core running time of the
+	// dependency. Its own sleep/D/IO time never qualifies: that is the
+	// dependency's own upstream problem and previously inflated inversion
+	// rows into the top rank. A D/IO- or sleep-dominant dependency therefore
+	// keeps its own root identity (io_wait / d_state / drilldown) at full
+	// blocking magnitude; only rows whose story IS scheduling supply
+	// (runnable- or running-dominant) surface as inversion candidates.
+	item.PriorityInversionCandidate = item.PriorityRelation == "lower_priority_dependency" &&
+		item.PriorityInversionGatedMs > 0 &&
+		(item.DominantState == string(StateRunnable) || item.DominantState == string(StateRunning))
 	item.NextStep = causalImpactNextStep(item)
 	item.NextStepKind = causalImpactNextStepKind(item)
 	item.Summary = renderWakeupCausalImpactSummary(item)
@@ -10683,13 +10784,46 @@ func dominantCausalImpactState(item WakeupCausalImpact) (string, float64) {
 	return best.state, best.ms
 }
 
-func causalImpactIsPrioritySensitiveRoot(item WakeupCausalImpact) bool {
-	switch item.DominantState {
-	case string(StateRunnable), string(StateDSleep), string(StateIOWait):
-		return causalImpactBlockingMs(item) > 0
-	default:
-		return false
+// priorityInversionGatedMs computes the R5d-gated inversion impact from the
+// dependency thread's state intervals: RUNNABLE intervals count in full;
+// RUNNING intervals count only when the dependency ran on a CPU whose
+// frequency at that moment was below the frequency of its downstream chain
+// consumer's CPU (each hop gates against its own consumer, so the chain back
+// to the focus thread is covered link by link). Missing data — unknown
+// interval CPU, no frequency samples, unlocatable consumer CPU — contributes
+// zero: the gate is conservative, never guessed.
+func priorityInversionGatedMs(cache *chainQueryCache, target ThreadRef, intervals []Interval) float64 {
+	if cache == nil {
+		return 0
 	}
+	gated := 0.0
+	for _, it := range intervals {
+		if it.DurationMs <= 0 {
+			continue
+		}
+		switch it.State {
+		case StateRunnable:
+			gated += it.DurationMs
+		case StateRunning:
+			if !it.CPUKnown {
+				continue
+			}
+			mid := (it.StartTs + it.EndTs) / 2
+			wakerFreq := cache.frequencyAt(it.CPU, mid)
+			if wakerFreq <= 0 {
+				continue
+			}
+			targetCPU, ok := cache.threadCPUNear(target, mid)
+			if !ok {
+				continue
+			}
+			targetFreq := cache.frequencyAt(targetCPU, mid)
+			if targetFreq > 0 && wakerFreq < targetFreq {
+				gated += it.DurationMs
+			}
+		}
+	}
+	return gated
 }
 
 func causalImpactBlockingMs(item WakeupCausalImpact) float64 {

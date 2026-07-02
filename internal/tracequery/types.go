@@ -359,6 +359,12 @@ type Interval struct {
 	StartTs          float64     `json:"start_ts"`
 	EndTs            float64     `json:"end_ts"`
 	DurationMs       float64     `json:"duration_ms"`
+	// CPU/CPUKnown record which CPU a RUNNING interval executed on (from the
+	// sched_switch-in event). Only set by builders that see the switch event;
+	// consumers must treat CPUKnown=false as "unknown", never as CPU 0. Feeds
+	// the R5d weak-core gate for priority-inversion impact (§7.30.1).
+	CPU      int  `json:"cpu,omitempty"`
+	CPUKnown bool `json:"cpu_known,omitempty"`
 	ActualStartTs    float64     `json:"actual_start_ts,omitempty"`
 	ActualEndTs      float64     `json:"actual_end_ts,omitempty"`
 	ActualDurationMs float64     `json:"actual_duration_ms,omitempty"`
@@ -1545,6 +1551,14 @@ type WakeupCausalImpact struct {
 	TargetPriorityClass        string     `json:"target_priority_class,omitempty"`
 	PriorityRelation           string     `json:"priority_relation,omitempty"`
 	PriorityInversionCandidate bool       `json:"priority_inversion_candidate,omitempty"`
+	// PriorityInversionGatedMs is the R5d-gated inversion impact (§7.30.1):
+	// only the dependency's RUNNABLE time, plus RUNNING time on a CPU whose
+	// frequency is below its downstream chain consumer's CPU frequency at
+	// that moment, counts. The dependency's own sleep/D/IO time is its own
+	// upstream problem and never inflates the inversion row. This value —
+	// not the whole blocked/dominant duration — is what an inversion
+	// candidate publishes and ranks with.
+	PriorityInversionGatedMs float64 `json:"priority_inversion_gated_ms,omitempty"`
 	Summary                    string     `json:"summary,omitempty"`
 	NextStep                   string     `json:"next_step,omitempty"`
 	// NextStepKind is the deterministic typed enumeration behind the English
