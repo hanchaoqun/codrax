@@ -1537,4 +1537,6 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 
 **批次任务(D 轮,高优先级并入 trace-first 批)。** D1=contention payload 解析+peer 携带+时长语义标签;D2=type 中文映射+明细表类型列;D3=门控构成拆分字段+渲染。
 
+**当前进展(D1-D4 全部落地)。** D1(739710a1:lock_contention.go 两种 ART 形态确定性解析,-->链末位持有者/owner tid/waiters/持有点,critical_blocking peer=owner+blocking_kind/holder_site notes,渲染"锁竞争等待(持有者 Name-tid)",无 owner 回退带标签);D2+D4(7c30f94f:三级保真——lead **主根因:**加粗+中文（token）组合、树行纯中文(rootCauseTypeWeight 全宇宙映射+防漏翻扫描测试)、明细表"类型"列原始 token);D3(997b6303:GatedRunnableMs/GatedRunningDeficitMs 拆分字段流入投影,反转行标签"反转影响"+必显"影响构成: 可运行等待X+运行折算Y")。全仓测试零失败。
+
 **D4(追加,2026-07-02)"主根因:"加粗 + 中文跟随保留英文 type。** 投影导语的"主根因:"用 Markdown 加粗(`**主根因:**`);其后的原因描述用中文跟随、括号保留英文 type token,如 `优先级反转候选（priority_inversion_candidate）`。该组合格式适用于导语/lead 行等叙述面;树内行按 D2(中文简明,token 在明细表"类型"列)——即:叙述面=中文(token),树行=中文,表=原始 token 三级保真。
