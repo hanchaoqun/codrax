@@ -42,6 +42,25 @@ func TestRuntimeArtifactPathTokensInText_CJKGlued(t *testing.T) {
 	}
 }
 
+func TestRuntimeArtifactPathTokensInText_CustomerCompositeMixedTail(t *testing.T) {
+	// Regression pin for the EXACT customer request shape (trace_repl.log,
+	// 2026-07-02): a label prefix ("Trace:"), a composite ".sys.ftrace"
+	// suffix, and a glued tail that mixes CJK prose with an ASCII term —
+	// "…sys.ftrace里面这一帧Choreographer#doFrame" has NO whitespace before
+	// the ASCII run. Extraction failing here left the runtime-artifact
+	// preflight blind: trace_query never surfaced and completion citation
+	// floors dragged a runtime-only answer back into source grep loops.
+	request := "你是Android手机性能问题分析专家, 完成以下丢帧原因分析, 分析东湖Trace:record_trace_20260605224432@3279-299954687.sys.ftrace里面这一帧Choreographer#doFrame 94410(帧号：Choreographer#doFrame 94410, UI线程id:19592, 渲染线程id:19829, 时间范围3322.500833s至3322.784155s)因应用UI线程被阻塞导致丢帧的深层原因，综合各类因素分析，明确回答核心原因, 注意是Activity Resume后的首帧, 不分析代码"
+	want := "record_trace_20260605224432@3279-299954687.sys.ftrace"
+	got := RuntimeArtifactPathTokensInText(request)
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("RuntimeArtifactPathTokensInText(customer request) = %v, want [%q]", got, want)
+	}
+	if kind := RuntimeArtifactPathKindInText(request); kind != "trace" {
+		t.Fatalf("RuntimeArtifactPathKindInText(customer request) = %q, want \"trace\"", kind)
+	}
+}
+
 func TestRuntimeArtifactPathInToken(t *testing.T) {
 	cases := map[string]string{
 		// Trailing CJK prose glued after the extension.
@@ -55,6 +74,20 @@ func TestRuntimeArtifactPathInToken(t *testing.T) {
 		// Labels before a path are presentation, not part of the artifact path.
 		"Trace:record_trace_20260605224432@3279-299954687.sys.ftrace里面": "record_trace_20260605224432@3279-299954687.sys.ftrace",
 		"东湖Trace：/tmp/frame.systrace里面":                                 "/tmp/frame.systrace",
+		// Mixed glued tail: CJK prose immediately after the extension, then an
+		// ASCII term with no separator (real customer shape, trace_repl.log
+		// 2026-07-02). The pure-CJK trailing walk stops at the ASCII run and
+		// never reaches the extension; the carve cuts at the extension→CJK
+		// boundary instead.
+		"分析东湖Trace:record_trace_20260605224432@3279-299954687.sys.ftrace里面这一帧Choreographer#doFrame": "record_trace_20260605224432@3279-299954687.sys.ftrace",
+		"分析record_trace_20260605224432@3279-299954687.sys.ftrace里面这一帧Choreographer#doFrame":         "record_trace_20260605224432@3279-299954687.sys.ftrace",
+		"看/tmp/frame.systrace的卡顿traceview":                                                          "/tmp/frame.systrace",
+		"抓/var/log/app.log里的NullPointerException":                                                    "/var/log/app.log",
+		// CJK path components between two artifact suffixes stay intact: the
+		// rightmost extension→CJK boundary wins.
+		"x.log里y.log看": "x.log里y.log",
+		// Mixed tail without a recognized artifact suffix still carves to nothing.
+		"分析main.go里面这一帧Choreographer#doFrame": "",
 		// Windows drive prefixes are path syntax, not labels.
 		`D:\temp\frame.systrace`: `D:\temp\frame.systrace`,
 		// Already-clean paths pass through unchanged.

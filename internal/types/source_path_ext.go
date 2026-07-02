@@ -175,8 +175,12 @@ func LooksLikeRuntimeArtifactPath(s string) bool {
 // Legitimate paths that themselves contain CJK directory/file names are
 // preserved: trimming only removes a LEADING or TRAILING run of CJK prose and
 // only when the trimmed result is still a recognized artifact path, so a middle
-// component like /tmp/中文/x.systrace is never split. Still path-shape only; it
-// must not be used to infer user intent from prose.
+// component like /tmp/中文/x.systrace is never split. When the glued tail is
+// MIXED prose (CJK immediately after the extension, then more ASCII prose with
+// no separator, e.g. "x.sys.ftrace里面这一帧Choreographer#doFrame"), the cut is
+// anchored on the extension→CJK adjacency instead — see
+// carveArtifactPathBeforeGluedProse. Still path-shape only; it must not be
+// used to infer user intent from prose.
 func RuntimeArtifactPathInToken(token string) string {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -193,12 +197,73 @@ func RuntimeArtifactPathInToken(token string) string {
 	}
 	trimmed := dropTrailingArtifactProse(token)
 	if trimmed == token || RuntimeArtifactPathKind(trimmed) == "" {
-		return ""
+		// The trailing walk strips a PURE CJK prose run only; it stops at the
+		// first ASCII rune. A real question can glue MIXED prose after the
+		// path — CJK first, then an ASCII term with no separator, e.g.
+		// "record_trace.sys.ftrace里面这一帧Choreographer#doFrame" — and the
+		// walk never reaches the extension. Fall back to cutting at the
+		// precise extension→CJK-prose boundary inside the token.
+		trimmed = carveArtifactPathBeforeGluedProse(token)
+		if trimmed == "" {
+			return ""
+		}
 	}
 	if lead := dropLeadingArtifactProse(trimmed); lead != trimmed && RuntimeArtifactPathKind(lead) != "" {
 		return lead
 	}
 	return trimmed
+}
+
+// carveArtifactPathBeforeGluedProse cuts a token right after a recognized
+// runtime-artifact extension when the rune immediately following the extension
+// is a CJK prose rune. This is the mixed-tail complement to
+// dropTrailingArtifactProse: the boundary is anchored on the precise
+// "<artifact extension><CJK rune>" adjacency, never on prose content, so it
+// cannot fire on tokens without a recognized artifact suffix. The rightmost
+// qualifying boundary wins, keeping CJK path components that sit between two
+// artifact suffixes intact (mirroring the leading/trailing trim guarantees).
+// Returns "" when no such boundary exists or the carved prefix is not itself a
+// recognized artifact path.
+func carveArtifactPathBeforeGluedProse(s string) string {
+	lower := strings.ToLower(s)
+	best := -1
+	for _, ext := range runtimeArtifactCarveSuffixes() {
+		from := 0
+		for {
+			idx := strings.Index(lower[from:], ext)
+			if idx < 0 {
+				break
+			}
+			end := from + idx + len(ext)
+			if end < len(s) && end > best {
+				if r, _ := utf8.DecodeRuneInString(s[end:]); isArtifactPathProseRune(r) {
+					best = end
+				}
+			}
+			from += idx + 1
+		}
+	}
+	if best <= 0 {
+		return ""
+	}
+	candidate := s[:best]
+	if RuntimeArtifactPathKind(candidate) == "" {
+		return ""
+	}
+	return candidate
+}
+
+// runtimeArtifactCarveSuffixes lists the extension literals used to locate a
+// glued prose boundary inside a token. It mirrors the suffix set accepted by
+// RuntimeArtifactPathKind; every carve candidate is re-verified through
+// RuntimeArtifactPathKind, so drift here can only cause a missed carve, never
+// a false positive.
+func runtimeArtifactCarveSuffixes() []string {
+	out := []string{".log", ".perf.data", ".tracebundle.json"}
+	for ext := range runtimeArtifactPathExtensions {
+		out = append(out, ext)
+	}
+	return out
 }
 
 func dropLeadingArtifactLabel(s string) string {

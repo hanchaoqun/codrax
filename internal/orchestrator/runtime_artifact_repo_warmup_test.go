@@ -191,6 +191,23 @@ func TestRuntimeArtifactPreflightProfileForRun_CompositeFtraceNamedInChineseRequ
 	if got.Bytes <= 0 {
 		t.Fatalf("preflight should preserve artifact size, got %+v", got)
 	}
+
+	// EXACT customer shape (trace_repl.log 2026-07-02): NO whitespace between
+	// the glued CJK tail and the following ASCII term. The pure-CJK trailing
+	// carve never reaches the extension here; preflight must still resolve
+	// the artifact via the extension→CJK boundary carve.
+	noSpace := runtimeArtifactPreflightProfileForRun(
+		"分析东湖Trace:"+traceRel+"里面这一帧Choreographer#doFrame 94410，不分析代码",
+		repo,
+		"",
+		"",
+	)
+	if !noSpace.SourceNavigationOptionalForAnalyze() || !noSpace.HasTraceArtifact() {
+		t.Fatalf("no-space composite .sys.ftrace path should become typed trace preflight, got %+v", noSpace)
+	}
+	if len(noSpace.Artifacts) != 1 || noSpace.Artifacts[0].Source != traceRel || noSpace.Artifacts[0].Bytes <= 0 {
+		t.Fatalf("no-space preflight artifact drifted: %+v", noSpace.Artifacts)
+	}
 }
 
 func TestRun_SourceTurnStillWarmsSingleRepoGraph(t *testing.T) {
