@@ -382,7 +382,20 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceNextStepFromTypedObservati
 			Producer: "trace_query",
 			RichNotes: []string{
 				"running=3.500",
+				"runnable_cpu=1",
+				"top_competitor=rival-30",
 				"next_step=inspect rival-30 on same CPU cpu=1 for CPU pressure/time-slice competition",
+				"next_step_kind=runnable",
+			},
+		}, {
+			ID:       "trace_query:state_churn:2",
+			Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query",
+			RichNotes: []string{
+				"running=2.100",
+				"runnable_cpu=6",
+				"top_competitor=rival-40",
+				"next_step=inspect rival-40 on same CPU cpu=6 for CPU pressure/time-slice competition",
 				"next_step_kind=runnable",
 			},
 		}},
@@ -411,11 +424,15 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceNextStepFromTypedObservati
 	if next.ID != "next_steps" || next.Kind != types.BlockOrderedList {
 		t.Fatalf("missing next_steps block: %+v", doc.Blocks)
 	}
-	// §7.30 裁定5: a Chinese answer renders the typed next_step_kind through the
-	// ZH mapping — the system-fixed English prose never leaks into the panel.
-	if len(next.Items) != 1 || next.Items[0].Label != "下一步" ||
-		next.Items[0].Text != "排查同CPU竞争:top运行线程、优先级与CPU频率" {
-		t.Fatalf("next step item did not localize typed kind: %+v", next.Items)
+	// §7.30 裁定5 review follow-up: a Chinese answer composes the runnable-kind
+	// guidance from the typed runnable_cpu / top_competitor notes — the dynamic
+	// competitor data survives, and the system-fixed English prose never leaks.
+	// Rows with different CPU / competitor data stay separate (record-payload
+	// dedupe key, not rendered text).
+	if len(next.Items) != 2 || next.Items[0].Label != "下一步" ||
+		next.Items[0].Text != "排查同CPU(cpu=1)竞争:top运行线程 rival-30、优先级与CPU频率" ||
+		next.Items[1].Text != "排查同CPU(cpu=6)竞争:top运行线程 rival-40、优先级与CPU频率" {
+		t.Fatalf("next step items did not compose typed competitor data: %+v", next.Items)
 	}
 	if strings.Contains(next.Items[0].Text, "inspect") {
 		t.Fatalf("English next_step prose must not leak into a Chinese panel: %+v", next.Items)

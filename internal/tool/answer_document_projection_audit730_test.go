@@ -275,6 +275,70 @@ func TestTraceProjection730EvidenceLocatorPrefersTimeWindow(t *testing.T) {
 	}
 }
 
+// Flat mode (no wakeup-path trunk): every named row is depthless by
+// construction, so the per-row "depth unresolved" / "impact point unresolved"
+// placeholders must not spam the detail table — the flat-cause header and the
+// causal-position column already carry that information. A typed depth still
+// renders, just without the "(detached)" qualifier.
+func TestTraceProjection730FlatModeSuppressesDepthlessPlaceholders(t *testing.T) {
+	obs := func() []types.ObservationRecord {
+		return []types.ObservationRecord{
+			projV3Obs("root-sleep", "root_cause_primary", "root_cause_primary:app",
+				"app-1", "sleep_wait", "9.000", 9.0, 10, 20,
+				"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain", "dominant_state=s_sleep"),
+			projV3Obs("hop-worker", "wakeup_causal_impact", "wakeup_causal_impact:worker",
+				"worker-2", "runnable_delay", "4.000", 4.0, 30, 40,
+				"chain_relevance=on_chain", "causality=on_wakeup_chain", "chain_depth=2", "dominant_state=runnable"),
+		}
+	}
+	zhMD := audit730Render(t, audit730Bus(""), obs(), "")
+	for _, banned := range []string{"链上·深度未解析", "on-chain·影响点未解析", "深度2(未接入链)"} {
+		if strings.Contains(zhMD, banned) {
+			t.Fatalf("flat mode must not render per-row placeholder %q:\n%s", banned, zhMD)
+		}
+	}
+	if !strings.Contains(zhMD, "| 深度2 |") {
+		t.Fatalf("flat mode must keep the plain typed depth cell:\n%s", zhMD)
+	}
+	enMD := audit730Render(t, audit730Bus("en"), obs(), "en")
+	for _, banned := range []string{"on-chain · depth unresolved", "on-chain · impact point unresolved", "depth 2 (detached)"} {
+		if strings.Contains(enMD, banned) {
+			t.Fatalf("EN flat mode must not render per-row placeholder %q:\n%s", banned, enMD)
+		}
+	}
+	if !strings.Contains(enMD, "| depth 2 |") {
+		t.Fatalf("EN flat mode must keep the plain typed depth cell:\n%s", enMD)
+	}
+}
+
+// 裁定1 follow-up: a row demoted to the background stanza must never be named
+// as the lead "primary root cause" — when EVERY primary candidate is demoted,
+// the lead says so explicitly and points at the background-pressure stanza.
+func TestTraceProjection730AllPrimariesDemotedLeadPointsAtBackground(t *testing.T) {
+	obs := func() []types.ObservationRecord {
+		return []types.ObservationRecord{
+			projV3Obs("agg-io", "root_cause_primary", "root_cause_primary:io_pressure",
+				"unknown-thread", "io_pressure", "20.000", 20.0, 300, 400,
+				"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain",
+				"subject_kind=aggregate_metric"),
+			projV3Obs("hop-unknown", "wakeup_causal_impact", "wakeup_causal_impact:unknown",
+				"unknown-thread", "cpu_pressure", "8.000", 8.0, 500, 600,
+				"chain_relevance=on_chain", "causality=on_wakeup_chain"),
+		}
+	}
+	zhMD := audit730Render(t, audit730Bus(""), obs(), "")
+	if !strings.Contains(zhMD, "主根因: 窗口内未定位到链上主根因,见背景压力段。") {
+		t.Fatalf("all-demoted lead must point at the background stanza:\n%s", zhMD)
+	}
+	if strings.Contains(zhMD, "主根因: 窗口IO压力(聚合)") {
+		t.Fatalf("lead must not name a background-demoted row as primary root cause:\n%s", zhMD)
+	}
+	enMD := audit730Render(t, audit730Bus("en"), obs(), "en")
+	if !strings.Contains(enMD, "no on-chain primary root cause was located in the window — see the background-pressure stanza") {
+		t.Fatalf("EN all-demoted lead must point at the background stanza:\n%s", enMD)
+	}
+}
+
 func TestTraceProjection730BarStateAttributionEN(t *testing.T) {
 	bus := audit730Bus("en")
 	obs := []types.ObservationRecord{

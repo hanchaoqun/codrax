@@ -8627,14 +8627,15 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceStateDrilldownSupplemen
 	}
 	for _, want := range []string{
 		"系统补充：trace_query 关键观测核对",
+		"以下条目来自 trace_query 发布的结构化运行时观测",
 		"state_drilldown:main-1:S：main-1 -> S",
-		"value=21.000ms",
+		"值=21.000ms",
 		"source=top_sleep",
 		"recommended_views=wakeup_chain,root_cause_rank",
 		"chain_required=true",
 		"recursive=true",
 		"state_drilldown:main-1:S:fragmented：main-1 -> S",
-		"value=18.000ms",
+		"值=18.000ms",
 		"source=state_churn",
 		"recommended_views=thread_timeline,interaction_stats,window_stats",
 		"chain_required=false",
@@ -8642,6 +8643,14 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceStateDrilldownSupplemen
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("final answer missing trace state-drilldown supplement fragment %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+	// §7.30 裁定5 review follow-up: renderer-invented labels and the guide
+	// sentence are all-Chinese on the ZH face; only the raw key=value note
+	// pairs (the 裁定6 audit carrier) stay verbatim.
+	for _, banned := range []string{"value=21.000ms", "notes=", "结构化 runtime observation", "artifact-local"} {
+		if strings.Contains(out.FinalAnswer, banned) {
+			t.Fatalf("ZH supplement must not carry mixed-language renderer label %q:\n%s", banned, out.FinalAnswer)
 		}
 	}
 	if strings.Contains(out.FinalAnswer, "not_enough_evidence") ||

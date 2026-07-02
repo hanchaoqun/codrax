@@ -71,6 +71,10 @@ type runtimeTraceProjTreeModel struct {
 	Background []runtimeTraceProjTreeRow
 	WindowMS   float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
 	BarMaxMS   float64
+	// TrunkLen is the resolved wakeup-path trunk length (0 = flat mode); it is
+	// the same value the 裁定1 demotion gate ran against, so lead selection can
+	// re-apply exactly that gate instead of a diverging copy.
+	TrunkLen int
 	// WakeupChainRecommendedNotRun mirrors the typed projection flag (§7.30
 	// 裁定3): a chain_required=true state_drilldown recommendation existed but no
 	// wakeup_chain-family observation ran, so the flat-fallback header can name
@@ -129,6 +133,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	if len(path) >= 2 {
 		trunkLen = len(path) - 1
 	}
+	model.TrunkLen = trunkLen
 	chainNodes := make([]types.TraceCausalProjectionNode, 0, len(chainUniverse))
 	var demoted []types.TraceCausalProjectionNode
 	for _, node := range chainUniverse {
@@ -999,9 +1004,18 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 // the typed drilldown target. It never emits advice/should-sentences — the
 // system must not ghost-write the user-facing recommendation surface.
 func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
-	primary := projection.PrimaryRootCause
+	primary := runtimeTraceProjLeadPrimary(projection, model.TrunkLen)
 	if primary == nil {
-		return ""
+		if len(runtimeTraceCausalProjectionPrimaryRoots(projection)) == 0 {
+			return ""
+		}
+		// Every primary candidate was demoted to the background stanza (§7.30
+		// 裁定1) — the lead must say so instead of naming a demoted row as the
+		// primary root cause and contradicting the tree below it.
+		if zh {
+			return "主根因: 窗口内未定位到链上主根因,见背景压力段。"
+		}
+		return "Primary root cause: no on-chain primary root cause was located in the window — see the background-pressure stanza."
 	}
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(*primary, zh))
 	cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(primary.Object, zh))
@@ -1051,6 +1065,21 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		return strings.TrimSuffix(b.String(), "。") + "."
 	}
 	return b.String()
+}
+
+// runtimeTraceProjLeadPrimary picks the lead-line primary from the primary
+// roots that SURVIVED the 裁定1 background demotion gate — a row rendered in
+// the background stanza must never be named as the primary root cause. Nil when
+// no primary exists or all of them were demoted.
+func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, trunkLen int) *types.TraceCausalProjectionNode {
+	roots := runtimeTraceCausalProjectionPrimaryRoots(projection)
+	for i := range roots {
+		if runtimeTraceProjNodeDemotedToBackground(roots[i], trunkLen) {
+			continue
+		}
+		return &roots[i]
+	}
+	return nil
 }
 
 func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
@@ -1120,13 +1149,19 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		}
 		return fmt.Sprintf("%.3fms", v)
 	}
+	// Flat mode (no wakeup-path trunk): EVERY row is depthless, so per-row
+	// "depth unresolved" / "impact point unresolved" placeholders carry zero
+	// information and spam the table — the header already names the flat cause
+	// (§7.30 裁定3) and the causal-position column already says on-chain. The
+	// placeholders render only when a trunk exists and a named row cannot attach.
+	flat := strings.TrimSpace(model.Target) == ""
 	var rows []types.AnswerBlockItem
 	addRow := func(row runtimeTraceProjTreeRow) {
 		if row.Kind == runtimeTraceProjTreeRowOmitted || !row.HasData {
 			return
 		}
 		node := row.Node
-		layer := runtimeTraceProjDetailLayerCell(row, zh)
+		layer := runtimeTraceProjDetailLayerCell(row, zh, flat)
 		position := runtimeTraceCausalProjectionLayerCell(node, zh) + " · " + runtimeTraceCausalProjectionPriorityCell(node, zh)
 		name := runtimeTraceCausalProjectionNodeSubjectCell(node, zh)
 		if node.MergedCount > 1 {
@@ -1136,7 +1171,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		if node.Undrillable() {
 			name += " ⛔"
 		}
-		relation := runtimeTraceProjDetailRelationCell(row, zh)
+		relation := runtimeTraceProjDetailRelationCell(row, zh, flat)
 		shape := runtimeTraceCausalProjectionImpactShapeCell(node, zh)
 		if shape == "" {
 			shape = dash
@@ -1188,7 +1223,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 	return columns, rows
 }
 
-func runtimeTraceProjDetailLayerCell(row runtimeTraceProjTreeRow, zh bool) string {
+func runtimeTraceProjDetailLayerCell(row runtimeTraceProjTreeRow, zh, flat bool) string {
 	switch row.Kind {
 	case runtimeTraceProjTreeRowSelf:
 		if zh {
@@ -1206,6 +1241,17 @@ func runtimeTraceProjDetailLayerCell(row runtimeTraceProjTreeRow, zh bool) strin
 		}
 		return "▒ background"
 	case runtimeTraceProjTreeRowDepthless:
+		if flat {
+			// No trunk exists, so "detached/unresolved" would describe every
+			// single row — render the plain typed depth (or a dash) instead.
+			if row.Depth > 0 {
+				if zh {
+					return fmt.Sprintf("深度%d", row.Depth)
+				}
+				return fmt.Sprintf("depth %d", row.Depth)
+			}
+			return "—"
+		}
 		if row.Depth > 0 {
 			if zh {
 				return fmt.Sprintf("深度%d(未接入链)", row.Depth)
@@ -1246,7 +1292,7 @@ func runtimeTraceProjDetailLayerCell(row runtimeTraceProjTreeRow, zh bool) strin
 	}
 }
 
-func runtimeTraceProjDetailRelationCell(row runtimeTraceProjTreeRow, zh bool) string {
+func runtimeTraceProjDetailRelationCell(row runtimeTraceProjTreeRow, zh, flat bool) string {
 	parent := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(row.Parent, zh))
 	switch row.Kind {
 	case runtimeTraceProjTreeRowSelf:
@@ -1266,6 +1312,11 @@ func runtimeTraceProjDetailRelationCell(row runtimeTraceProjTreeRow, zh bool) st
 		return "background support"
 	}
 	if row.Kind == runtimeTraceProjTreeRowDepthless && parent == "" {
+		if flat {
+			// Flat mode: every row lacks an attach point by construction; the
+			// per-row placeholder is pure spam next to the flat-cause header.
+			return "—"
+		}
 		if zh {
 			return "on-chain·影响点未解析"
 		}

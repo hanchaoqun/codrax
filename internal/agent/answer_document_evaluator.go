@@ -12034,7 +12034,7 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 	if zh {
 		b.WriteString("---\n\n")
 		b.WriteString("> **系统补充：trace_query 关键观测核对**\n>\n")
-		b.WriteString("> 以下条目来自 trace_query 发布的结构化 runtime observation，用于保留可审计的 trace 事实；它们是 artifact-local 观测，不是当前仓库源码引用。\n>\n")
+		b.WriteString("> 以下条目来自 trace_query 发布的结构化运行时观测，用于保留可审计的 trace 事实；它们是 trace 工件内的本地观测，不是当前仓库源码引用。\n>\n")
 		for _, row := range rows {
 			fmt.Fprintf(&b, "> - %s\n", row.Text)
 		}
@@ -12142,17 +12142,24 @@ func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool
 	}
 	subject := strings.TrimSpace(record.Subject)
 	object := strings.TrimSpace(record.Object)
+	// Renderer-invented labels and separators follow the answer language
+	// (§7.30 裁定5); the raw key=value note pairs below stay verbatim — they are
+	// the 裁定6 audit carrier, never localized.
+	labelSep, partSep := ": ", "; "
+	if zh {
+		labelSep, partSep = "：", "；"
+	}
 	switch {
 	case subject != "" && object != "":
-		parts = append(parts, fmt.Sprintf("%s：%s -> %s", label, subject, object))
+		parts = append(parts, fmt.Sprintf("%s%s%s -> %s", label, labelSep, subject, object))
 	case subject != "":
-		parts = append(parts, fmt.Sprintf("%s：%s", label, subject))
+		parts = append(parts, label+labelSep+subject)
 	case object != "":
-		parts = append(parts, fmt.Sprintf("%s：%s", label, object))
+		parts = append(parts, label+labelSep+object)
 	default:
 		parts = append(parts, label)
 	}
-	if value := traceQueryObservationValue(record); value != "" {
+	if value := traceQueryObservationValue(record, zh); value != "" {
 		parts = append(parts, value)
 	}
 	if loc := traceQueryObservationLocation(record); loc != "" {
@@ -12161,10 +12168,10 @@ func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool
 	if notes := traceQueryObservationSupplementNotes(record, zh); notes != "" {
 		parts = append(parts, notes)
 	}
-	return strings.Join(parts, "；")
+	return strings.Join(parts, partSep)
 }
 
-func traceQueryObservationValue(record types.ObservationRecord) string {
+func traceQueryObservationValue(record types.ObservationRecord, zh bool) string {
 	value := strings.TrimSpace(record.Value)
 	if value == "" {
 		return ""
@@ -12172,6 +12179,9 @@ func traceQueryObservationValue(record types.ObservationRecord) string {
 	unit := strings.TrimSpace(record.Unit)
 	if unit != "" && !strings.HasSuffix(strings.ToLower(value), strings.ToLower(unit)) {
 		value += unit
+	}
+	if zh {
+		return "值=" + value
 	}
 	return "value=" + value
 }
@@ -12299,6 +12309,11 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 		} else {
 			notes = append(notes, "window_basis=selected_window")
 		}
+	}
+	// The list label is renderer-invented and follows the answer language; the
+	// note pairs themselves are the raw typed audit carrier and stay verbatim.
+	if zh {
+		return "备注=" + strings.Join(notes, ", ")
 	}
 	return "notes=" + strings.Join(notes, ", ")
 }

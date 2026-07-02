@@ -2052,10 +2052,15 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 		if step == "" {
 			continue
 		}
-		if seen[step] {
+		// Dedupe on the typed record payload, never on the localized rendered
+		// text: a rendered-text key merges rows that carry different CPU /
+		// competitor data whenever their localization collides (§7.30 裁定5
+		// adversarial-review follow-up).
+		key := runtimeTraceNextStepDedupeKey(record)
+		if seen[key] {
 			continue
 		}
-		seen[step] = true
+		seen[key] = true
 		out = append(out, types.AnswerBlockItem{
 			ID:          fmt.Sprintf("runtime_trace_next_step_%d", len(out)+1),
 			Label:       label,
@@ -2086,7 +2091,49 @@ func runtimeTraceNextStepFromObservationRecord(record types.ObservationRecord, z
 	if step == "" || !zh {
 		return step
 	}
-	return runtimeTraceNextStepChineseText(runtimeTraceObservationRichNoteValue(record.RichNotes, "next_step_kind"))
+	kind := runtimeTraceObservationRichNoteValue(record.RichNotes, "next_step_kind")
+	if strings.EqualFold(strings.TrimSpace(kind), "runnable") {
+		if dynamic := runtimeTraceNextStepRunnableChineseText(record.RichNotes); dynamic != "" {
+			return dynamic
+		}
+	}
+	return runtimeTraceNextStepChineseText(kind)
+}
+
+// runtimeTraceNextStepDedupeKey identifies one next-step guidance payload by
+// its typed record carrier (kind + system prose + dynamic competitor notes) —
+// never by the rendered text, which is language-dependent and can collide
+// across rows that carry different CPU / competitor data.
+func runtimeTraceNextStepDedupeKey(record types.ObservationRecord) string {
+	return strings.Join([]string{
+		runtimeTraceObservationRichNoteValue(record.RichNotes, "next_step_kind"),
+		trimRuntimeTraceNextStepText(runtimeTraceObservationRichNoteValue(record.RichNotes, "next_step")),
+		runtimeTraceObservationRichNoteValue(record.RichNotes, "runnable_cpu"),
+		runtimeTraceObservationRichNoteValue(record.RichNotes, "top_competitor"),
+	}, "\x00")
+}
+
+// runtimeTraceNextStepRunnableChineseText composes the runnable-kind ZH
+// guidance from the typed state_churn rich notes (runnable_cpu /
+// top_competitor), so the dynamic same-CPU competitor data carried by the
+// English prose variants survives into a Chinese panel. Empty when neither
+// typed note exists — the caller then falls back to the generic runnable
+// guidance instead of fabricating data.
+func runtimeTraceNextStepRunnableChineseText(notes []string) string {
+	cpu := runtimeTraceObservationRichNoteValue(notes, "runnable_cpu")
+	competitor := runtimeTraceObservationRichNoteValue(notes, "top_competitor")
+	if cpu == "" && competitor == "" {
+		return ""
+	}
+	scope := "同CPU"
+	if cpu != "" {
+		scope = fmt.Sprintf("同CPU(cpu=%s)", cpu)
+	}
+	top := "top运行线程"
+	if competitor != "" {
+		top += " " + competitor
+	}
+	return fmt.Sprintf("排查%s竞争:%s、优先级与CPU频率", scope, top)
 }
 
 // runtimeTraceNextStepChineseText maps the deterministic next_step_kind enum
