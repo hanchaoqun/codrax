@@ -714,9 +714,9 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 		t.Fatalf("lead overview should stay compact, got %d cards: %+v", len(projection.Items), projection.Items)
 	}
 	if len(projection.Items) == 0 ||
-		!strings.Contains(projection.Items[0].Label, "立即处理") ||
+		!strings.Contains(projection.Items[0].Label, "主要关注") ||
 		strings.Contains(projection.Items[0].Label, "P0") ||
-		!strings.Contains(projection.Items[0].Text, "处理") {
+		!strings.Contains(projection.Items[0].Text, "关注") {
 		t.Fatalf("lead overview should render compact root-cause cards: %+v", projection.Items)
 	}
 
@@ -752,7 +752,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	if onChain == nil {
 		t.Fatalf("missing on-chain projection block:\n%s", text)
 	}
-	for _, want := range []string{"链路深度", "关系", "上游原因", "下游/影响点", "证据层级", "窗口投影", "链上累计"} {
+	for _, want := range []string{"链路深度", "关系", "上游原因", "下游/影响点", "因果位置", "窗口投影", "链上累计"} {
 		if !stringSliceContains(onChain.Columns, want) {
 			t.Fatalf("on-chain table should expose responsibility and impact reading %q: %+v", want, onChain.Columns)
 		}
@@ -897,7 +897,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 
 	// gap c: the duration triad renders in a dedicated impact table with a
 	// magnitude bar instead of being squeezed into the lead table.
-	for _, want := range []string{"█", "| 层级 | 关注点 | 关系 | 窗口投影 | 链上累计 | 有效归因 | 实际状态 |", "11.040ms", "4.600ms"} {
+	for _, want := range []string{"█", "| 因果位置 | 关注点 | 关系 | 影响形态 | 窗口投影 | 链上累计 | 有效归因 | 实际状态 |", "sleep / 等待唤醒", "running / CPU执行", "11.040ms", "4.600ms"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("duration triad + bar must render (gap c): missing %q:\n%s", want, rendered)
 		}
@@ -920,10 +920,10 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 	}
 	// The section renders compact root-cause cards, split-column on-chain table,
 	// and a mermaid flowchart — not the legacy wide audit table.
-	if !strings.Contains(rendered, "- **立即处理 · 主根因") ||
+	if !strings.Contains(rendered, "- **主要关注 · 主根因") ||
 		!strings.Contains(rendered, "**On-chain 树状链路**") ||
-		!strings.Contains(rendered, "| 链路深度 | 关系 | 上游原因 | 下游/影响点 | 证据层级 | 窗口投影 | 链上累计 | 证据 |") ||
-		!strings.Contains(rendered, "| 层级 | 关注点 | 关系 | 窗口投影 | 链上累计 | 有效归因 | 实际状态 |") ||
+		!strings.Contains(rendered, "| 链路深度 | 关系 | 上游原因 | 下游/影响点 | 因果位置 | 窗口投影 | 链上累计 | 证据 |") ||
+		!strings.Contains(rendered, "| 因果位置 | 关注点 | 关系 | 影响形态 | 窗口投影 | 链上累计 | 有效归因 | 实际状态 |") ||
 		!strings.Contains(rendered, "```mermaid") {
 		t.Fatalf("section must render as compact cards + split tables + mermaid cluster:\n%s", rendered)
 	}
@@ -1211,7 +1211,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 		}
 	}
 	onChain := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_on_chain")
-	if onChain == nil || !stringSliceContains(onChain.Columns, "Relation") || !stringSliceContains(onChain.Columns, "Chain total") || !stringSliceContains(onChain.Columns, "Window projection") {
+	if onChain == nil || !stringSliceContains(onChain.Columns, "Relation") || !stringSliceContains(onChain.Columns, "Causal position") || !stringSliceContains(onChain.Columns, "Chain total") || !stringSliceContains(onChain.Columns, "Window projection") {
 		t.Fatalf("English on-chain table should split chain and node impact: %+v", onChain)
 	}
 	wakeup := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_wakeup")
