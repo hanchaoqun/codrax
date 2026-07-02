@@ -1335,3 +1335,32 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 - Batch 4 已落地:证据索引 audit 摘要进一步压缩;locator 只显示文件名尾部和行号,完整路径继续以原始 `trace_query` record 为权威。
 - Batch 5 已落地:更新 ZH/EN projection tests,钉住 card overview、split-column on-chain table、短证据、不含本地绝对路径、sleep drilldown/semantic span/background caveat 不丢。
 - Batch 6 已验证:`go test ./internal/tool -run 'TraceCausalProjection|RuntimeTraceCausalProjection' -count=1`、`go test ./internal/types -run 'TraceCausalProjection|SemanticSpan|StateDrilldown' -count=1`、`go test ./internal/tool ./internal/types -count=1` 均通过。
+
+### 7.27 最新复核 gap:Explorer 暴露巨大 per-tool budget 数字误导模型过度探索(2026-07-02)
+
+`read_combo_log_current_source_explanation` 最新 PASS 样本恢复了当前源码 owner 证据,但代价仍高:`read_file=12`、`explorer_iters=29`、`tool_history_prunes=4`。日志复核发现 explorer prompt 同时渲染了 typed repo_map owner-localization 路线和一段原始 Tool Budget Plan:`grep ×66, read_file ×57, repo_map ×41`,并写明"largest allowance marks the tool expected to carry discovery"。这会把内部 hard cap 当成模型的工作配额和优先级信号,与 repo_map-first / owner-localization 软路线互相打架,诱导模型花更多 grep/read_file 轮次。
+
+这不是 sourcemix 调度硬 cap 错误;hard cap 仍需要保留在 `sourcemix.BudgetForTool` 和 dispatch 拒绝层。gap 在于**把内部限额数字原样暴露给模型**。模型应该知道"有预算护栏,不要把一个工具刷爆",但不应看到大数字或被告知最大 cap 就是发现主工具。
+
+**原则。**
+
+- 内部 hard cap 继续承重;prompt 只渲染低噪音 soft guidance。
+- 不展示具体 cap 数字,不把最大 cap 解释为首选工具;首选工具由 typed navigation route、runtime artifact policy、source-inventory authority、trace_query policy 等更精确的调度视图决定。
+- 预算提示只消费 `ExploreBudget.PerToolCap` 的 typed 工具名集合和内置工具类别优先级,不解析用户原文、模型散文、工具 summary、localized UI、elapsed time 或 eval label。
+- 该提示不得成为 completion hard gate;它只减少噪音和心智负担。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录 tool-budget prompt 噪音和边界,避免后续把 explorer_long 误修成更大硬门。
+- **Batch 2: budget prompt 降噪。** `renderExplorerToolBudgetPlan` 不再渲染 `×N` 数字和 "largest allowance" 排序语义,改为展示 bounded tool lanes 和"cap 是护栏不是工作清单"。
+- **Batch 3: route 优先级保护。** 当 budget 包含 source-code 工具时,提示明确"typed navigation/runtime policy 优先;repo_map 用于未 pin owner 的结构发现,read_file 只读已选 evidence anchor";不要让 grep/read_file cap 覆盖 repo_map-first route。
+- **Batch 4: 测试看护。** 更新 `explorer_tool_budget_plan_test`,断言不出现 raw allowance 数字、不出现 largest-allowance 文案,且当 `grep` cap 大于 `repo_map` 时不会提示 grep 因 cap 最大而优先。
+- **Batch 5: focused 验证。** 跑 `go test ./internal/agent -run 'ExplorerToolBudgetPlan|RuntimeTrace|RepoMapFirst' -count=1`;后续 representative eval 观察 `read_combo_log_current_source_explanation` 的 explorer_iters/read_file/tool_history_prunes 是否下降。
+
+**当前进展。**
+
+- Batch 1 已落地:本节记录 tool-budget prompt 噪音和边界。
+- Batch 2 已落地:`renderExplorerToolBudgetPlan` 不再渲染 `×N` raw allowance 数字,也不再把最大 cap 解释为 discovery 主工具。
+- Batch 3 已落地:budget prompt 改为"dispatch safety rail, not a work quota",并明确 route priority 来自 typed navigation/runtime policy;source-code lanes 的展示顺序优先 `repo_map`,避免 `grep/read_file` 大 cap 覆盖 owner-localization 路线。
+- Batch 4 已落地:`explorer_tool_budget_plan_test` 钉住 raw allowance/`largest allowance` 文案不回归,并覆盖 `grep` cap 大于 `repo_map` 时仍不提示 grep 优先。
+- Batch 5 已验证:`go test ./internal/agent -run 'ExplorerToolBudgetPlan|RuntimeTrace|RepoMapFirst|BuildInitialInstruction_SourceOptionalTrace|ExplicitTracePathUsesTraceQueryFirst' -count=1` 与 `go test ./internal/agent -run 'BuildInitialInstruction_CurrentSourceExplanation|CurrentSourceExplanationProfile|RepoMapRoute|CapabilityQueryStartsFocusedAuthorityDepth' -count=1` 通过。后续 representative eval 继续观察 `read_combo_log_current_source_explanation` 的 explorer_iters/read_file/tool_history_prunes。

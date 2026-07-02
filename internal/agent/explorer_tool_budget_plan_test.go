@@ -8,11 +8,11 @@ import (
 )
 
 // The analyzer-compiled per-tool plan must reach the explorer prompt
-// as soft guidance, with the heaviest tool leading.
+// as low-noise soft guidance without leaking raw allowance numbers.
 func TestExplorerToolBudgetPlanRendered(t *testing.T) {
 	mu := types.NewMutableState("q")
 	mu.SetExploreBudget(&types.ExploreBudget{
-		PerToolCap: map[string]int{"repo_map": 8, "grep": 6, "read_file": 6},
+		PerToolCap: map[string]int{"repo_map": 8, "grep": 66, "read_file": 57},
 		OverallCap: 20,
 	})
 	ctx := &types.AgentContext{Objective: "q", Mutable: mu}
@@ -20,11 +20,18 @@ func TestExplorerToolBudgetPlanRendered(t *testing.T) {
 	if !strings.Contains(got, "Tool Budget Plan") {
 		t.Fatalf("plan section missing: %q", got)
 	}
-	if !strings.Contains(got, "`repo_map` ×8") {
-		t.Fatalf("plan must show per-tool allowances: %q", got)
+	for _, want := range []string{"`repo_map`", "`grep`", "`read_file`", "not a work quota", "typed navigation/runtime policy"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("plan missing %q: %q", want, got)
+		}
+	}
+	for _, notWant := range []string{"×66", "×57", "×8", "largest allowance", "expected to carry discovery"} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("plan leaked raw budget/ranking phrase %q: %q", notWant, got)
+		}
 	}
 	if idx := strings.Index(got, "repo_map"); idx < 0 || idx > strings.Index(got, "grep") {
-		t.Fatalf("heaviest tool must lead the plan: %q", got)
+		t.Fatalf("repo_map should remain first in source-navigation display order despite lower cap: %q", got)
 	}
 }
 

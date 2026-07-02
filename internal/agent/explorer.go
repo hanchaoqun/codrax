@@ -331,14 +331,11 @@ func (e *explorerEvaluator) ensureHeuristics() {
 }
 
 // renderExplorerToolBudgetPlan surfaces the analyzer-compiled
-// per-tool budget plan as soft guidance. The caps already act as a
-// hard ceiling at dispatch time (sourcemix.BudgetForTool); what was
-// missing is the PLAN side — the model never saw which tools the
-// question shape expects to carry the investigation, so grep-first
-// habits burned 25+ calls on shapes whose plan weighted repo_map
-// highest (2026-06-12 sweep: zero-repo_map runs took ~3x the LLM
-// rounds of the repo_map-first counter-example). Guidance only: the
-// wording stays advisory and never forbids a tool.
+// per-tool budget as low-noise soft guidance. The numeric caps remain
+// load-bearing only in sourcemix.BudgetForTool at dispatch time; the
+// prompt deliberately avoids showing raw allowance numbers or treating
+// the largest cap as a route priority. Route priority belongs to the
+// typed navigation/runtime policy rendered elsewhere.
 func renderExplorerToolBudgetPlan(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
@@ -347,34 +344,57 @@ func renderExplorerToolBudgetPlan(ctx *types.AgentContext) string {
 	if budget == nil || len(budget.PerToolCap) == 0 {
 		return ""
 	}
-	type toolCap struct {
-		name string
-		cap  int
-	}
-	caps := make([]toolCap, 0, len(budget.PerToolCap))
+	tools := make([]string, 0, len(budget.PerToolCap))
+	seen := make(map[string]struct{}, len(budget.PerToolCap))
 	for name, c := range budget.PerToolCap {
 		if c > 0 {
-			caps = append(caps, toolCap{name: name, cap: c})
+			canonical := types.CanonicalToolName(name)
+			if _, ok := seen[canonical]; ok {
+				continue
+			}
+			seen[canonical] = struct{}{}
+			tools = append(tools, canonical)
 		}
 	}
-	if len(caps) == 0 {
+	if len(tools) == 0 {
 		return ""
 	}
-	sort.Slice(caps, func(i, j int) bool {
-		if caps[i].cap != caps[j].cap {
-			return caps[i].cap > caps[j].cap
+	sort.SliceStable(tools, func(i, j int) bool {
+		oi := explorerBudgetToolDisplayOrder(tools[i])
+		oj := explorerBudgetToolDisplayOrder(tools[j])
+		if oi != oj {
+			return oi < oj
 		}
-		return caps[i].name < caps[j].name
+		return tools[i] < tools[j]
 	})
-	parts := make([]string, 0, len(caps))
-	for _, tc := range caps {
-		parts = append(parts, fmt.Sprintf("`%s` ×%d", tc.name, tc.cap))
+	parts := make([]string, 0, len(tools))
+	for _, name := range tools {
+		parts = append(parts, fmt.Sprintf("`%s`", name))
 	}
 	var b strings.Builder
 	b.WriteString("### Tool Budget Plan\n\n")
-	fmt.Fprintf(&b, "This question shape carries a per-tool call plan: %s.", strings.Join(parts, ", "))
-	b.WriteString(" The largest allowance marks the tool expected to carry discovery for this shape — lead with it before spending the smaller allowances; the caps are enforced at dispatch time, so a plan-aligned order avoids burning the budget on the wrong lane.\n\n")
+	fmt.Fprintf(&b, "A deterministic per-tool budget is installed for these lanes: %s.", strings.Join(parts, ", "))
+	b.WriteString(" Treat it as a dispatch safety rail, not a work quota. Follow the typed navigation/runtime policy above for route priority; use `repo_map` for structure/owner discovery when no exact owner file is pinned, use `grep`/`list_files` only for bounded exact fallback discovery, and use `read_file` only after choosing concrete evidence anchors. Do not spend calls merely because a lane still has budget.\n\n")
 	return b.String()
+}
+
+func explorerBudgetToolDisplayOrder(name string) int {
+	switch types.CanonicalToolName(name) {
+	case "trace_query":
+		return 0
+	case "repo_map":
+		return 10
+	case "grep":
+		return 20
+	case "list_files":
+		return 30
+	case "read_file":
+		return 40
+	case "exec_command":
+		return 50
+	default:
+		return 100
+	}
 }
 
 func renderExplorerSourceInventoryLensSurfaceInstruction(ctx *types.AgentContext) string {
