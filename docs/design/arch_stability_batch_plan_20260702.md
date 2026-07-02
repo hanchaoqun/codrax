@@ -32,6 +32,40 @@
 
 **结论:代码欠账基本清零,欠的是 eval 验证。** trace 三文档:大 trace gaps 与 trace-only completion 全部已交付/裁定,方法论文档仅剩 2 条 UX 级(§7.25 长唤醒链十几跳 join 撑宽首屏→G1;§7.30 相邻展示债务→G2,均低优)。IR 计划 24 条核心条目:7 条硬门精度 + 4 条 handoff + 5 条工具过宽 + 2 条 prompt + 1 条保底,**绝大多数 code complete/focused tests ✓,状态=eval pending**(D2 商用代表批:add-proof next-action/AnalyzeRefine true path/source-inventory completion authority/interrupt-resume read-run);真 partial 仅三处:StageRunner seam(orchestrator dispatch 拆分,eval pending)、read 状态去重(partial)、loopkernel read action(advisory→soft gate 待验)。**处置:eval-pending 项并入本计划最终 eval 阶段的代表性 case 选择(覆盖上述四类场景);G1/G2 低优排 Batch F 后;三处 partial 待 eval 结果定级。**
 
+## E4/E5/E6 详细任务清单(探索完成,2026-07-02)
+
+### E4(trace_query 容量表)— 6 子任务
+
+关键历史约束:C3(133520c1)已把 event_search 定为全预算失败的流式逃生舱,**over-cap 不得建议 event_search 换 view**(只给更窄窗口/limit);3bde10fa 教训 = cap 数值变化会把模型赶回 grep,**数值必须字节等价**(T5 value pin);O10 裁定 wakeup MaxBranches=8 只 caveat 不提升;v7 O1 trace-mark 双桶 cap(8/16)不得合并;refinement ReasonCode 字符串被 §7.11 投影覆盖面(answer_document_mutation_runtime.go:886-930)消费,只增不改。
+
+- T1 `internal/tracequery/view_capacity.go`:ViewCapacity{View,DefaultLimit,MaxLimit,Dimension,HeavyView,RelationScoped,FallbackView,FallbackEventTypes} 表 + IsHeavyView/RelationScopedView(替换 trace_query.go:1250-1259/1187-1193 switch);替换 query.go:651/2822/5225/7577/7694/9352/9765/10511、ipc.go:111-118、stream_search.go:52-54 字面量;index 预算(250K/512MiB)不入表(C3/Gap3 阶梯所有)。
+- T2 `Result.Compactions []ViewCompaction{View,Dimension,Total,Emitted,LastEmittedTs,LastEmittedLine}`:8 个截断点旁路发布 typed 记录(prose caveat 原样保留);traceQueryResultCompacted 先读 typed 再 fallback 子串——修复现状两族漏检(streamed event_search"event_search_stream_compacted=true"、tracebundle"%s_compacted total=")。
+- T3 refinement 消费表:limit<MaxLimit→建议 limit=min(Total,effectiveMax)(非回显);已到 MaxLimit→给 time_start/time_end 子窗口拆分(取 LastEmittedTs,C3 copy-pastable 风格);heavy view→fallback_view 参数;建议必须严格收窄(anti-echo,防断路器指纹不变喂环)。
+- T4 C3 面(traceQueryIndexLimitSummary/Refinement、heavy-guard、recipe-discovery)的 view 名/limit 40/StreamStateCluster 8 字面量改由表供给;pinned 句子不动。
+- T5 测试:表值 pin(TestViewCapacityTablePinsCurrentBehavior)、coverage matrix 补三类(root_cause_rank 拆窗/scheduler_latency 建议 limit/streamed 触发 typed)、anti-echo 断言、既有 4 pin 全绿。
+- T6 文档刷新。
+
+### E5(attr 排序对齐)— 通用 typed-predicate→rank lane
+
+历史:+30 降权来自 3fab4c14(2026-05-24,advisory-only 时代);HasPerMemberTable 2026-06-12 才落地,从未接入 rank。修复双点缺一不可:rank 中性化 + budgetSourceInventoryObservationRecords ≤6 挤占 cap 旁路,都 strictly keyed on 编译 typed 谓词(3fab4c14 场景字节不变,无 ping-pong)。
+
+- AnswerIntentContract 加 `SourceInventoryAttributeDemand bool`(CompileAnswerIntentContract 从 HasPerMemberTable OR SourceInventoryProfile 非身份 RequestedFields 编译;不 key IntentEnumerate——纯成员枚举不要列)。非 R2' 信号(编译投影非新 schema 信号)。
+- observation_ledger.go:729-733 attr 分支:demand→中性(非负 boost——等 rank 保持 member→attr 交错;负 boost 会造成孤儿列)。
+- budgetSourceInventoryObservationRecords 传 intent,demand→跳过 ≤6 advisory cap(budgetObservationRecordsByOrigin 仍是总限);E2 截断披露路径保持。
+- 顺手加固:observationRecordIsSourceInventoryAttribute 收紧为 `source_inventory:` 前缀+`:attr:`。
+- 测试:demand=true 交错存活 pin / demand=false +30 保持 pin / budget 双向 pin / Compile pin;canary=TestProjectObservationPromptRecords_SourceInventoryDoesNotCrowdMixedOrigins 必须原样绿。
+
+### E6(unverified findings 自清)— 5 子任务
+
+历史:findings_validator 生命周期确认从未修过;9445f104 converger 把 unverified identity 纳入 blockerKey 且文档明说"真收缩=合法 key 变化";af0a7cc5 教训=拒绝处理器自搅动指纹。设计:清除=readSet 命中(精确布尔),降级=单调 Advisory flag(绝不移除,防 converger 弱化 ping-pong),断路器指纹只用 C2 处理器不自我变更的计数器。
+
+- T1 UnverifiedFinding+{MarkedRound,Advisory};AppendUnverifiedFinding 盖 round 戳;dropVerifiedUnverifiedFindsLocked(path kind & readAliasLocked 命中→单向移除);DemoteOverageUnverifiedFinds(单整数比较,单调);mergeUnverifiedFindings OR Advisory/min Round;MergeFrom 尾部重扫防 fork 复活。
+- T2 四个 read-coverage 写权威(SetReadSet/AddReadSet/AddReadRanges/SetReadRanges)尾部自清;emit_investigation_complete.go:1965/2755 DrainSatisfiedPendingReads 旁边补 Drain;清除不弱化 exact_resolved_defining_proof(独立门,注释+测试编码依赖)。
+- T3 detectStallAndAct 内按 fingerprint 历史长度降龄(阈值 3,不得低于 converger 阈值);消费端过滤 Advisory:C2 unverifiedPaths / ExactResolutionPendingTargets / builder.go formatUnverifiedFindings 加"(advisory: aged out of blocking)"软标;ComputeDowngradeBlockerKey 哈希追加 adv 位(单调翻转=一次深思 key 变化,非 churn);**MarkedRound 不得渲染进 prompt**(内部信息红线)。
+- T4 C2 门断路器(保底):fingerprint=`unverified_path_evidence hits=%d uf=%d reads=%d`(全部 C2 处理器不变更的计数器);streak>completionDenialBreakerMaxStreak→typed 降级该批 findings 至 Advisory + SetCompletionGateNote + 放行。
+- T5 测试:clear-on-read(含 sub-repo alias)/单向不复活(SetReadSet 快照替换、fork MergeFrom)/降龄精确阈值+不回翻/blockerKey 对 C2 自身 RepairExpandSearch 重加字节稳定(af0a7cc5 回归 pin)/断路器 3 连击第 4 次放行+任一计数器变化重置。
+- 已知边界(接受):Advisory 降级 = N 轮后 C2 反幻觉门软化成 prompt 警告+gate note(裁定:typed caveat 优于 livelock);RecordCompletionDenialStreak 单指纹跨门共享,交替拒绝最坏 (maxStreak×门数) 仍有界,不现在升级 per-lane。
+
 ## 执行规程
 
 每批:实现(先查历史)→ 测试看护 → go test ./... 全绿 → 对抗复核 workflow → commit/push → 本文档进展刷新。难度升级时拆细任务记录回本文档重排,不降标准。全部批次完成后:红线扫描(非测试代码零散文关键字匹配)→ 代表性 eval(分类优先级,2 并行×6/批)→ 人工读输出做架构级分析。
