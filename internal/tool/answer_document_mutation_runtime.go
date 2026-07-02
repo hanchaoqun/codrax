@@ -1365,7 +1365,9 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 		return runtimeTraceCausalProjectionCompactCellText(blocking, 96)
 	}
 	subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
-	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.Object, zh))
+	// D2: the zh table's Node/cause column shows the concise label; the raw
+	// token stays lossless in the dedicated 类型 column.
+	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseName(node.Object, zh))
 	if (node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span") && strings.TrimSpace(node.SpanName) != "" {
 		object = strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.SpanName, zh))
 	}

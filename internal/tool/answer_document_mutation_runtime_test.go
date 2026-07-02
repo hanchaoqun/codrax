@@ -711,7 +711,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	}
 	// Target-anchored tree: 🎯 root = user-focused thread, real branches, four
 	// edge kinds, and the co-primary target row surfaces as a self-state line.
-	for _, want := range []string{"主根因", "```text", "🎯 app-100", "└─下钻─", "─唤醒─", "compute_supply"} {
+	for _, want := range []string{"**主根因:**", "```text", "🎯 app-100", "└─下钻─", "─唤醒─", "算力供给"} {
 		if !strings.Contains(projection.Text, want) {
 			t.Fatalf("v3 lead tree missing %q:\n%s", want, projection.Text)
 		}
@@ -738,7 +738,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 			t.Fatalf("detail table missing column %q: %+v", want, detail.Columns)
 		}
 	}
-	for _, want := range []string{"threadpool-400 / io_wait", "11.000ms", "阻塞/IO", "确定性优化点", "VerifyClass com.example.Foo", "class_verification"} {
+	for _, want := range []string{"threadpool-400 / IO等待", "| io_wait |", "11.000ms", "阻塞/IO", "确定性优化点", "VerifyClass com.example.Foo", "class_verification"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("projection should surface fact %q:\n%s", want, text)
 		}
@@ -881,7 +881,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 
 	// gap c: the duration triad renders losslessly in the v3 detail table and
 	// the tree carries magnitude bars.
-	for _, want := range []string{"█", "| 层级 | 因果位置·优先级 | 节点/原因 | 关系 ▸ 影响点 | 影响形态 | 窗口投影 | 链上累计 | 有效归因 | 实际状态 | 证据·置信 |", "sleep / 等待唤醒", "running / CPU执行", "11.040ms", "4.600ms"} {
+	for _, want := range []string{"█", "| 层级 | 因果位置·优先级 | 节点/原因 | 类型 | 关系 ▸ 影响点 | 影响形态 | 窗口投影 | 链上累计 | 有效归因 | 实际状态 | 证据·置信 |", "sleep / 等待唤醒", "running / CPU执行", "11.040ms", "4.600ms"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("duration triad + bar must render (gap c): missing %q:\n%s", want, rendered)
 		}
@@ -1176,7 +1176,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 	}
 	// English lead: fact-only conclusion, tree-reading note, target-anchored tree
 	// with localized edge labels — zero mermaid.
-	for _, want := range []string{"Primary root cause: threadpool-400 io_wait 11.000ms", "Tree reading", "```text", "🎯 app-100", "<user-focused thread>", "─wakes─"} {
+	for _, want := range []string{"**Primary root cause:** threadpool-400 io_wait 11.000ms", "Tree reading", "```text", "🎯 app-100", "<user-focused thread>", "─wakes─"} {
 		if !strings.Contains(projection.Text, want) {
 			t.Fatalf("English v3 lead missing %q:\n%s", want, projection.Text)
 		}
@@ -1268,7 +1268,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalHopDepth(t *testi
 	text := projectionClusterText(got.Blocks)
 	// The on-chain io-500 hop keeps its typed depth-4 chain position (gaps a/b):
 	// it sits at trunk depth 4 in both the tree and the detail table.
-	for _, want := range []string{"io-500 / io_wait", "深度4"} {
+	for _, want := range []string{"io-500 / IO等待", "深度4"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("projection should preserve on-chain hop depth %q:\n%s", want, text)
 		}
@@ -1384,7 +1384,7 @@ func TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity(t *
 	text := projectionClusterText(got.Blocks)
 	// Deep co-primary layers survive: dep-1 sits at trunk depth 10 in the detail
 	// table (the lossless surface — rows are never capped).
-	for _, want := range []string{"dep-1 / sleep_wait", "深度10"} {
+	for _, want := range []string{"dep-1 / 睡眠等待", "深度10"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expanded projection should keep deep typed evidence %q:\n%s", want, text)
 		}

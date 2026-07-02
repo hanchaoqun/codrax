@@ -57,6 +57,63 @@ func TestTraceProjectionD1ContentionRowsCarryOwnerAndSemanticsZH(t *testing.T) {
 	}
 }
 
+// dRoundTypeObs: a primary inversion row plus an on-chain hop, with a wakeup
+// path so the tree anchors — exercises the three-tier D2/D4 fidelity.
+func dRoundTypeObs() []types.ObservationRecord {
+	inversion := projV3Obs("root-inv", "root_cause_primary", "root_cause_primary:inv",
+		"dep-200", "priority_inversion_candidate", "16.000", 16.0, 100, 200,
+		"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain",
+		"chain_depth=1", "dominant_state=running")
+	hop := projV3Obs("hop-io", "wakeup_causal_impact", "wakeup_causal_impact:io",
+		"io-500", "io_latency", "4.000", 4.0, 300, 400,
+		"chain_relevance=on_chain", "causality=on_wakeup_chain", "chain_depth=2", "dominant_state=io_wait")
+	path := types.ObservationRecord{
+		ID: "path", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+		GroundingPolicy: types.ClaimGroundingHard, Predicate: "wakeup_chain", ClaimKey: "wakeup_chain:path",
+		Object: "io-500 -> dep-200 -> app-1",
+	}
+	return []types.ObservationRecord{inversion, hop, path}
+}
+
+func TestTraceProjectionD2TypeLabelsThreeTierFidelityZH(t *testing.T) {
+	md := audit730Render(t, audit730Bus(""), dRoundTypeObs(), "")
+	// D4: bold lead label + 中文（token） combined narrative format.
+	if !strings.Contains(md, "**主根因:** dep-200 优先级反转候选（priority_inversion_candidate）") {
+		t.Fatalf("D4 lead must use bold label + combined zh(token) cause:\n%s", md)
+	}
+	// D2: tree rows show the concise zh label only.
+	if !strings.Contains(md, "dep-200 · 优先级反转候选") {
+		t.Fatalf("D2 tree row must show the concise zh label:\n%s", md)
+	}
+	// D2: the detail table keeps the raw tokens in the 类型 column.
+	if !strings.Contains(md, "| 类型 |") {
+		t.Fatalf("detail table must carry the 类型 column:\n%s", md)
+	}
+	for _, want := range []string{"| priority_inversion_candidate |", "| io_latency |", "io-500 / IO延迟"} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("D2 detail table missing raw token cell %q:\n%s", want, md)
+		}
+	}
+}
+
+func TestTraceProjectionD2TypeLabelsKeepRawTokensEN(t *testing.T) {
+	md := audit730Render(t, audit730Bus("en"), dRoundTypeObs(), "en")
+	// EN tree keeps raw tokens; the Type column mirrors them for audit parity.
+	for _, want := range []string{
+		"**Primary root cause:** dep-200 priority_inversion_candidate",
+		"dep-200 · priority_inversion_candidate",
+		"| Type |",
+		"| priority_inversion_candidate |",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("EN D2 rendering missing %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "优先级反转候选") {
+		t.Fatalf("EN surface must not carry zh labels:\n%s", md)
+	}
+}
+
 func TestTraceProjectionD1ContentionRowsCarryOwnerAndSemanticsEN(t *testing.T) {
 	md := audit730Render(t, audit730Bus("en"), dRoundContentionObs(), "en")
 	for _, want := range []string{

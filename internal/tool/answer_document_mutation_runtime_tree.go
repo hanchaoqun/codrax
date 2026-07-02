@@ -676,7 +676,7 @@ func runtimeTraceProjScaleNote(model runtimeTraceProjTreeModel, zh bool) string 
 func runtimeTraceProjSelfRowText(row runtimeTraceProjTreeRow, zh bool) string {
 	node := row.Node
 	var parts []string
-	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.Object, zh))
+	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseName(node.Object, zh))
 	if node.IsSleepState() {
 		state := strings.TrimSpace(node.StateKind)
 		if state == "" {
@@ -800,7 +800,9 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 		return blocking
 	}
 	subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
-	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.Object, zh))
+	// D2: tree and cause rows show the concise zh label for recognized type
+	// tokens (the raw token stays on the detail table's 类型 column).
+	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseName(node.Object, zh))
 	if row.Kind == runtimeTraceProjTreeRowCause {
 		// Same-subject cause decomposition: the subject is already the parent
 		// trunk row; show only the cause word.
@@ -1181,12 +1183,14 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		// 裁定1) — the lead must say so instead of naming a demoted row as the
 		// primary root cause and contradicting the tree below it.
 		if zh {
-			return "主根因: 窗口内未定位到链上主根因,见背景压力段。"
+			return "**主根因:** 窗口内未定位到链上主根因,见背景压力段。"
 		}
-		return "Primary root cause: no on-chain primary root cause was located in the window — see the background-pressure stanza."
+		return "**Primary root cause:** no on-chain primary root cause was located in the window — see the background-pressure stanza."
 	}
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(*primary, zh))
-	cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(primary.Object, zh))
+	// D4: the narrative lane uses the 中文（english_token） combined format on
+	// the zh surface (tree rows stay concise zh; the table keeps raw tokens).
+	cause := strings.TrimSpace(runtimeTraceCausalProjectionNarrativeCauseName(primary.Object, zh))
 	if primary.IsAggregateMetric() {
 		// The metric semantic name already carries the Object type word.
 		cause = ""
@@ -1197,9 +1201,9 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	}
 	var b strings.Builder
 	if zh {
-		b.WriteString("主根因: ")
+		b.WriteString("**主根因:** ")
 	} else {
-		b.WriteString("Primary root cause: ")
+		b.WriteString("**Primary root cause:** ")
 	}
 	b.WriteString(name)
 	if cause != "" {
@@ -1306,9 +1310,11 @@ func runtimeTraceProjDepth1Cumulative(model runtimeTraceProjTreeModel) float64 {
 // --- lossless detail table ------------------------------------------------------
 
 func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]string, []types.AnswerBlockItem) {
-	columns := []string{"层级", "因果位置·优先级", "节点/原因", "关系 ▸ 影响点", "影响形态", "窗口投影", "链上累计", "有效归因", "实际状态", "证据·置信"}
+	// D2 audit fidelity: the 类型 column keeps the raw English type token that
+	// the zh tree label replaced (both language surfaces carry the column).
+	columns := []string{"层级", "因果位置·优先级", "节点/原因", "类型", "关系 ▸ 影响点", "影响形态", "窗口投影", "链上累计", "有效归因", "实际状态", "证据·置信"}
 	if !zh {
-		columns = []string{"Layer", "Causal position · priority", "Node / cause", "Relation ▸ impact point", "Impact shape", "Window projection", "Chain total", "Attribution", "Actual state", "Evidence · confidence"}
+		columns = []string{"Layer", "Causal position · priority", "Node / cause", "Type", "Relation ▸ impact point", "Impact shape", "Window projection", "Chain total", "Attribution", "Actual state", "Evidence · confidence"}
 	}
 	dash := "—"
 	msCell := func(v float64) string {
@@ -1373,10 +1379,15 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		if tier := runtimeTraceProjConfidenceTier(node.Confidence, zh); tier != "" {
 			evidence += " · " + tier
 		}
+		typeToken := runtimeTraceCausalProjectionRawTypeToken(node)
+		if typeToken == "" {
+			typeToken = dash
+		}
 		rows = append(rows, types.AnswerBlockItem{
 			Cells: []string{
 				layer, position,
 				runtimeTraceCausalProjectionMarkdownSafe(name),
+				runtimeTraceCausalProjectionMarkdownSafe(typeToken),
 				runtimeTraceCausalProjectionMarkdownSafe(relation),
 				shape,
 				msCell(node.ImpactMS), msCell(node.CumulativeImpactMS),

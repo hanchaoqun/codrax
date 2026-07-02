@@ -327,10 +327,10 @@ func TestTraceProjection730AllPrimariesDemotedLeadPointsAtBackground(t *testing.
 		}
 	}
 	zhMD := audit730Render(t, audit730Bus(""), obs(), "")
-	if !strings.Contains(zhMD, "主根因: 窗口内未定位到链上主根因,见背景压力段。") {
+	if !strings.Contains(zhMD, "**主根因:** 窗口内未定位到链上主根因,见背景压力段。") {
 		t.Fatalf("all-demoted lead must point at the background stanza:\n%s", zhMD)
 	}
-	if strings.Contains(zhMD, "主根因: 窗口IO压力(聚合)") {
+	if strings.Contains(zhMD, "**主根因:** 窗口IO压力(聚合)") {
 		t.Fatalf("lead must not name a background-demoted row as primary root cause:\n%s", zhMD)
 	}
 	enMD := audit730Render(t, audit730Bus("en"), obs(), "en")
