@@ -10,9 +10,13 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// Aggregate-fact prompt caps reference the unified observation-view budget
+// source (Batch E2) so this render layer cannot drift from the observation
+// render caps. Principal answer-payload facts are never hidden by these caps
+// (see structuredAggregatePromptFactLimit).
 const (
-	structuredAggregateDefaultPromptFacts = 16
-	structuredAggregateMaxPromptFacts     = 48
+	structuredAggregateDefaultPromptFacts = types.AggregateFactsPromptDefaultLimit
+	structuredAggregateMaxPromptFacts     = types.AggregateFactsPromptMaxLimit
 )
 
 func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []types.AnswerAggregateFact) string {
@@ -179,9 +183,46 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		b.WriteString("\n")
 	}
 	if len(facts) > maxFacts {
-		fmt.Fprintf(&b, "- ... %d more aggregate fact(s) omitted from prompt\n", len(facts)-maxFacts)
+		dropped := map[string]int{}
+		for displayIdx := maxFacts; displayIdx < len(order); displayIdx++ {
+			fact := facts[order[displayIdx]]
+			key := string(fact.Kind)
+			if key == "" {
+				key = "unknown"
+			}
+			if role := types.NormalizeAnswerAggregateRole(fact.Role); role != "" {
+				key += "/" + string(role)
+			}
+			dropped[key]++
+		}
+		fmt.Fprintf(&b, "- ... (showing %d of %d aggregate facts; dropped: %s)\n",
+			maxFacts, len(facts), formatAggregateDroppedCategories(dropped))
 	}
 	return b.String()
+}
+
+// formatAggregateDroppedCategories renders dropped aggregate-fact categories
+// as "kind[/role]×count" sorted by count (descending) then name, mirroring
+// types.SummarizeDroppedObservationRecords for the aggregate-fact layer.
+func formatAggregateDroppedCategories(counts map[string]int) string {
+	if len(counts) == 0 {
+		return "none"
+	}
+	names := make([]string, 0, len(counts))
+	for name := range counts {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		if counts[names[i]] != counts[names[j]] {
+			return counts[names[i]] > counts[names[j]]
+		}
+		return names[i] < names[j]
+	})
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, fmt.Sprintf("%s×%d", name, counts[name]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func aggregateFactPromptMemberLimit(fact types.AnswerAggregateFact) int {

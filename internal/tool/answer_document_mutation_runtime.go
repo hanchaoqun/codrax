@@ -678,7 +678,7 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 	if answerDocumentHasBlockID(doc, "runtime_trace_causal_projection_coverage") {
 		return false
 	}
-	input := types.ObservationLedgerInputFromBusContext(ctx, 128)
+	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
 	ledger := types.CompileObservationLedger(input)
 	projection := types.CompileTraceCausalProjection(ledger)
 	lang := requestedAnswerDocumentLanguage(ctx)
@@ -1664,7 +1664,7 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	if answerDocumentHasBlockID(doc, "runtime_trace_semantic_optimizations") {
 		return false
 	}
-	input := types.ObservationLedgerInputFromBusContext(ctx, 128)
+	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
 	ledger := types.CompileObservationLedger(input)
 	projection := types.CompileTraceCausalProjection(ledger)
 	if len(projection.SemanticSpans) == 0 {

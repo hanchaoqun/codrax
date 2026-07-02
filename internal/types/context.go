@@ -909,11 +909,20 @@ type TurnAArtifacts struct {
 	// outputs so Turn B can re-scan them without burning iterations.
 	// Bounded at snapshot time: the capture site and the cross-window
 	// merge both apply a per-window and merged count + byte cap
-	// (oldest dropped first, chronological order kept, at least one
-	// successful investigation-class result always retained) so retry
-	// windows cannot grow the slice without limit. pruneToolHistory
-	// does NOT bound this slice — it only stubs LLM message history.
+	// (value-ordered retention via BoundTurnAToolResultsWithTruncation —
+	// deterministic runtime observations kept first, noise dropped first,
+	// chronological order kept, at least one successful
+	// investigation-class result always retained) so retry windows
+	// cannot grow the slice without limit. pruneToolHistory does NOT
+	// bound this slice — it only stubs LLM message history.
 	ToolResults []ToolResult
+
+	// ToolResultTruncation is the cumulative record of ToolResults entries
+	// dropped by the capture/merge budgets above. Checkpoint and
+	// continuation prompts render it as "truncated N tool results
+	// (tool×count)" so budget-driven history loss is disclosed instead of
+	// silent. System-derived; never model-emitted, never a gate input.
+	ToolResultTruncation *ToolResultTruncationSummary
 
 	// HandoffCarriers is the bounded typed projection of tool repair,
 	// supported JSON retry surfaces, accepted evidence identities, and typed
@@ -4001,6 +4010,7 @@ func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
 	out.ReadFiles = append([]string(nil), in.ReadFiles...)
 	out.SourceLocalization = CloneSourceLocalizationReviewPtr(in.SourceLocalization)
 	out.ToolResults = append([]ToolResult(nil), in.ToolResults...)
+	out.ToolResultTruncation = CloneToolResultTruncationSummary(in.ToolResultTruncation)
 	out.HandoffCarriers = append([]ToolHandoffCarrier(nil), in.HandoffCarriers...)
 	out.MCPResponses = append([]MCPResponse(nil), in.MCPResponses...)
 	out.EvidenceItems = append([]EvidenceItem(nil), in.EvidenceItems...)
@@ -4056,12 +4066,15 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 		append([]ToolResult(nil), prior.ToolResults...),
 		current.ToolResults[clampMergeSliceBase(base.ToolLen, len(current.ToolResults)):]...,
 	)
-	merged.ToolResults = BoundTurnAToolResults(
+	var mergeTruncation *ToolResultTruncationSummary
+	merged.ToolResults, mergeTruncation = BoundTurnAToolResultsWithTruncation(
 		merged.ToolResults,
 		turnAArtifactsMutableToolResultsCountCap,
 		turnAArtifactsMutableToolResultsByteCap,
 		PreserveSuccessfulToolResultWithPayload,
 	)
+	merged.ToolResultTruncation = MergeToolResultTruncationSummaries(
+		prior.ToolResultTruncation, current.ToolResultTruncation, mergeTruncation)
 	merged.HandoffCarriers = NormalizeToolHandoffCarriers(append(
 		append([]ToolHandoffCarrier(nil), prior.HandoffCarriers...),
 		current.HandoffCarriers[clampMergeSliceBase(base.HandoffLen, len(current.HandoffCarriers)):]...,

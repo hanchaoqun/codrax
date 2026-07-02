@@ -222,7 +222,7 @@ func runtimeSourceAnswerAuthorityForExplorer(ctx *types.AgentContext) types.Runt
 		}
 		requestModel = &clone
 	}
-	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromAgentContext(ctx, 128))
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromAgentContext(ctx, types.ObservationExtractLedgerEvidenceLimit))
 	return types.BuildRuntimeSourceAnswerAuthoritySnapshot(types.RuntimeSourceAnswerAuthorityInput{
 		RequestModel:      requestModel,
 		RouteHint:         ctx.TurnRouteHint,

@@ -13,8 +13,6 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const transientRetryObservationLedgerInputLimit = 24
-
 const exploreFactRetryCheckpointPrefix = "Explorer continuation checkpoint:"
 
 // retryReadStageDispatchError converts transient read-mode stage
@@ -143,6 +141,10 @@ type exploreTransientRetryCheckpoint struct {
 	hasClosure     bool
 	typedOrigins   string
 	proofGuidance  string
+	// toolTruncation discloses cumulative window-budget tool-result drops
+	// ("N dropped (tool×count)", Batch E1). Advisory display only; it does
+	// not count as checkpoint progress.
+	toolTruncation string
 }
 
 func (c exploreTransientRetryCheckpoint) hasProgress() bool {
@@ -192,6 +194,9 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 			c.toolResults += countSuccessfulToolResults(artifacts.ToolResults)
 			c.hasClosure = strings.TrimSpace(artifacts.AcceptedClosureReason) != "" ||
 				strings.TrimSpace(artifacts.AcceptedResultKind) != ""
+			if artifacts.ToolResultTruncation.Active() {
+				c.toolTruncation = artifacts.ToolResultTruncation.Label()
+			}
 		}
 		c.proofGuidance = readProofGuidanceSummaryFromMutable(o.busCtx.Mutable)
 		if action := readLoopAddProofActionSummaryFromMutable(o.busCtx.Mutable); action != "" {
@@ -234,6 +239,9 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 	if c.typedOrigins != "" {
 		facts = append(facts, "typed observation origins="+c.typedOrigins)
 	}
+	if c.toolTruncation != "" {
+		facts = append(facts, "tool results truncated by window budget: "+c.toolTruncation)
+	}
 	if c.proofGuidance != "" {
 		facts = append(facts, c.proofGuidance)
 	}
@@ -253,7 +261,11 @@ func transientRetryTypedObservationSummary(bus *types.BusContext) string {
 	if bus == nil {
 		return ""
 	}
-	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, transientRetryObservationLedgerInputLimit))
+	// Origin statistics deliberately compile the FULL ledger (evidenceLimit=0,
+	// Batch E2): a bounded checkpoint view (previously 24 evidence rows)
+	// undercounted per-origin totals whenever the run accumulated more
+	// origin-specific evidence than the view held.
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, 0))
 	if len(ledger.Records) == 0 {
 		return ""
 	}
@@ -310,6 +322,9 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 			c.toolResults += countSuccessfulToolResults(artifacts.ToolResults)
 			c.hasClosure = strings.TrimSpace(artifacts.AcceptedClosureReason) != "" ||
 				strings.TrimSpace(artifacts.AcceptedResultKind) != ""
+			if artifacts.ToolResultTruncation.Active() {
+				c.toolTruncation = artifacts.ToolResultTruncation.Label()
+			}
 			aggregateFacts = append(aggregateFacts, artifacts.AcceptedAggregateFacts...)
 			toolResults = append(toolResults, artifacts.ToolResults...)
 		}
@@ -360,6 +375,9 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 	}
 	if c.typedOrigins != "" {
 		facts = append(facts, "typed observation origins="+c.typedOrigins)
+	}
+	if c.toolTruncation != "" {
+		facts = append(facts, "tool results truncated by window budget: "+c.toolTruncation)
 	}
 	if c.proofGuidance != "" {
 		facts = append(facts, c.proofGuidance)

@@ -7383,7 +7383,7 @@ func (o *Orchestrator) acceptedClosureMissingRequiredOriginsForAutoComplete() []
 	if len(required) == 0 {
 		return nil
 	}
-	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, 128))
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, types.ObservationExtractLedgerEvidenceLimit))
 	return missingObservationOrigins(required, ledger)
 }
 
@@ -7391,7 +7391,7 @@ func (o *Orchestrator) runtimeSourceAuthoritySuppressesAcceptedClosureOriginDebt
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || o.busCtx.AnalysisIR == nil {
 		return false
 	}
-	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, 128))
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, types.ObservationExtractLedgerEvidenceLimit))
 	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(o.busCtx, ledger)
 	if !authority.Active || !authority.HasRuntimeCarrier() ||
 		authority.CurrentSourceRequired ||

@@ -13,7 +13,9 @@ import "github.com/hanchaoqun/codrax/internal/types"
 //
 // The caps are deliberately generous: a typical window stays far below them,
 // so default behavior is unchanged; only pathological accumulation is cut.
-// Both bounds drop OLDEST results first and keep chronological order.
+// Both bounds use value-ordered retention (deterministic runtime observations
+// kept first, noise dropped first — see BoundTurnAToolResultsWithTruncation)
+// and keep chronological order.
 const (
 	// turnAToolResultsWindowCountCap / turnAToolResultsWindowByteCap bound
 	// one window's contribution at capture time.
@@ -27,6 +29,10 @@ const (
 
 func boundTurnAToolResults(results []types.ToolResult, countCap, byteCap int) []types.ToolResult {
 	return types.BoundTurnAToolResults(results, countCap, byteCap, preserveSuccessfulInvestigationToolResult)
+}
+
+func boundTurnAToolResultsWithTruncation(results []types.ToolResult, countCap, byteCap int) ([]types.ToolResult, *types.ToolResultTruncationSummary) {
+	return types.BoundTurnAToolResultsWithTruncation(results, countCap, byteCap, preserveSuccessfulInvestigationToolResult)
 }
 
 func preserveSuccessfulInvestigationToolResult(r types.ToolResult) bool {
@@ -60,13 +66,16 @@ func preserveSuccessfulInvestigationToolResult(r types.ToolResult) bool {
 //     field is already appended to each window, so it is the authoritative
 //     cumulative value.
 //   - ReadFiles: mergeStrings(prior, current). Dedupe + union.
-//   - ToolResults: concat, then boundTurnAToolResults with the merged
-//     count/byte caps. Tool calls are a time-ordered event stream; a
-//     legitimate investigation may grep the same pattern twice across
-//     windows, so nothing is deduplicated — but the concatenation must
-//     not grow without limit across retry windows, so the oldest entries
-//     are dropped once the merged caps are exceeded (keeping at least one
-//     successful investigation-class result for the structural-empty gate).
+//   - ToolResults: concat, then boundTurnAToolResultsWithTruncation with
+//     the merged count/byte caps. Tool calls are a time-ordered event
+//     stream; a legitimate investigation may grep the same pattern twice
+//     across windows, so nothing is deduplicated — but the concatenation
+//     must not grow without limit across retry windows, so the
+//     lowest-value entries are dropped once the merged caps are exceeded
+//     (deterministic runtime observations kept first, at least one
+//     successful investigation-class result kept for the structural-empty
+//     gate), and the drop is recorded on ToolResultTruncation so
+//     checkpoint prompts can disclose it.
 //   - MCPResponses: concat. MCP calls are also an external observation event
 //     stream; preserving them in the frozen handoff keeps typed MCP rows
 //     available across retry windows without reclassifying them as source
@@ -100,11 +109,14 @@ func mergeTurnAArtifactsWithPrior(prior *types.TurnAArtifacts, current types.Tur
 	merged.InvestigationNotes = types.PreserveSupersededClosureReasonNote(merged.InvestigationNotes, prior.AcceptedClosureReason, current.AcceptedClosureReason)
 	merged.ReadFiles = mergeStrings(prior.ReadFiles, current.ReadFiles)
 	merged.SourceLocalization = types.MergeSourceLocalizationReviews(prior.SourceLocalization, current.SourceLocalization)
-	merged.ToolResults = boundTurnAToolResults(
+	var mergeTruncation *types.ToolResultTruncationSummary
+	merged.ToolResults, mergeTruncation = boundTurnAToolResultsWithTruncation(
 		append(append([]types.ToolResult(nil), prior.ToolResults...), current.ToolResults...),
 		turnAToolResultsMergedCountCap,
 		turnAToolResultsMergedByteCap,
 	)
+	merged.ToolResultTruncation = types.MergeToolResultTruncationSummaries(
+		prior.ToolResultTruncation, current.ToolResultTruncation, mergeTruncation)
 	merged.MCPResponses = append(append([]types.MCPResponse(nil), prior.MCPResponses...), current.MCPResponses...)
 	if merged.AcceptedClosureReason == "" {
 		merged.AcceptedClosureReason = prior.AcceptedClosureReason

@@ -2449,7 +2449,7 @@ func runtimeArtifactObservationSupportKeys(bus *types.BusContext) []string {
 	if bus == nil {
 		return nil
 	}
-	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, 128))
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit))
 	if len(ledger.Records) == 0 {
 		return nil
 	}

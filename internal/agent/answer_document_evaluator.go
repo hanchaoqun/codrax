@@ -3837,7 +3837,10 @@ func answerDocClaimBindingLedgerRecordIDs(binding types.AnswerClaimBinding, ledg
 	return out
 }
 
-const answerDocObservationLedgerPromptLimit = 18
+// answerDocObservationLedgerPromptLimit references the unified
+// observation-view budget source (Batch E2) so the answer-writing prompt
+// render cannot drift from the checkpoint/extract observation views.
+const answerDocObservationLedgerPromptLimit = types.ObservationPromptRecordLimit
 const answerDocMixedRuntimeSourceObservationLedgerPromptLimit = 10
 
 func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
@@ -3863,7 +3866,15 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		b.WriteString(coverage)
 	}
 	if len(ledger.Records) > len(records) {
-		fmt.Fprintf(&b, "*(showing %d prioritized record(s) of %d total)*\n\n", len(records), len(ledger.Records))
+		renderedIDs := make(map[string]bool, len(records))
+		for _, record := range records {
+			renderedIDs[strings.TrimSpace(record.ID)] = true
+		}
+		fmt.Fprintf(&b, "*(showing %d prioritized record(s) of %d total", len(records), len(ledger.Records))
+		if dropped := types.SummarizeDroppedObservationRecords(ledger.Records, renderedIDs); dropped != "" {
+			fmt.Fprintf(&b, "; dropped: %s", dropped)
+		}
+		b.WriteString(")*\n\n")
 	}
 	for _, record := range records {
 		fmt.Fprintf(&b,
@@ -3992,10 +4003,12 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 			b.WriteByte('\n')
 		}
 	}
+	shownTopObservations := 0
 	for i, obs := range coverage.TopObservations {
-		if i >= 5 {
+		if i >= types.TraceCoverageTopObservationPromptLimit {
 			break
 		}
+		shownTopObservations++
 		fmt.Fprintf(&b, "- top[%d] dimension=`%s`; id=`%s`", i+1, obs.Dimension, obs.ID)
 		if obs.ChainRelevance != "" {
 			fmt.Fprintf(&b, "; chain_relevance=`%s`", obs.ChainRelevance)
@@ -4035,6 +4048,10 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 			fmt.Fprintf(&b, "; support_refs=`%s`", strings.Join(obs.SupportRefs, "`, `"))
 		}
 		b.WriteByte('\n')
+	}
+	if coverage.TotalRecords > shownTopObservations {
+		fmt.Fprintf(&b, "- (top view truncated: %d more trace observation(s) beyond the %d shown are not rendered here; the full set remains available in the raw trace_query records and the observation ledger)\n",
+			coverage.TotalRecords-shownTopObservations, shownTopObservations)
 	}
 	b.WriteByte('\n')
 	return b.String()

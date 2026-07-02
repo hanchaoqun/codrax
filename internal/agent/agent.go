@@ -1430,10 +1430,13 @@ const (
 	toolHistoryPruneCheckpointMaxEvidence = 40
 	toolHistoryPruneCheckpointMaxBytes    = 12 * 1024
 
-	toolHistoryPruneCheckpointAggregateFactLimit     = 8
-	toolHistoryObservationCheckpointRecordLimit      = 8
-	toolHistoryRepairDebtCheckpointRecordLimit       = 8
-	toolHistoryObservationCheckpointLedgerInputLimit = 24
+	toolHistoryPruneCheckpointAggregateFactLimit = 8
+	toolHistoryObservationCheckpointRecordLimit  = 8
+	toolHistoryRepairDebtCheckpointRecordLimit   = 8
+	// toolHistoryObservationCheckpointLedgerInputLimit references the unified
+	// observation-view budget source (Batch E2) instead of a local literal so
+	// the checkpoint layer cannot drift from the other observation views.
+	toolHistoryObservationCheckpointLedgerInputLimit = types.ObservationCheckpointLedgerEvidenceLimit
 	toolHistoryObservationCheckpointSummaryMaxLen    = 140
 	toolHistoryObservationCheckpointValueMaxLen      = 120
 	toolHistoryObservationCheckpointNoteMaxLen       = 120
@@ -1824,11 +1827,13 @@ func renderToolHistoryObservationCheckpoint(ctx *types.AgentContext, limit int) 
 	}
 	var b strings.Builder
 	written := 0
+	renderedIDs := make(map[string]bool, len(records))
 	for _, record := range records {
 		if !toolHistoryCheckpointShouldRenderObservation(record) {
 			continue
 		}
 		written++
+		renderedIDs[strings.TrimSpace(record.ID)] = true
 		fmt.Fprintf(&b, "%d. origin=`%s`", written, record.Origin)
 		if record.Source != "" {
 			fmt.Fprintf(&b, " source=%s", record.Source)
@@ -1861,6 +1866,13 @@ func renderToolHistoryObservationCheckpoint(ctx *types.AgentContext, limit int) 
 	}
 	if written == 0 {
 		return ""
+	}
+	if written < len(ledger.Records) {
+		fmt.Fprintf(&b, "(showing %d of %d observation record(s)", written, len(ledger.Records))
+		if dropped := types.SummarizeDroppedObservationRecords(ledger.Records, renderedIDs); dropped != "" {
+			fmt.Fprintf(&b, "; dropped: %s", dropped)
+		}
+		b.WriteString(")\n")
 	}
 	return b.String()
 }

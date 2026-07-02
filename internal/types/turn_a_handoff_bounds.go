@@ -1,9 +1,13 @@
 package types
 
-import "strings"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // ToolResultPreserveFunc identifies a high-value tool result that may be kept
-// even when the oldest prefix would otherwise be dropped by a Turn-A handoff
+// even when lower-value entries would otherwise be dropped by a Turn-A handoff
 // bound. Callers choose the precise preservation rule for their merge point.
 type ToolResultPreserveFunc func(ToolResult) bool
 
@@ -33,56 +37,235 @@ func TurnAToolResultBytes(r ToolResult) int {
 	return n
 }
 
-// BoundTurnAToolResults applies count + byte caps to a chronological tool
-// result slice, dropping oldest entries first and keeping chronological order.
-// Slices already inside both caps are returned unchanged.
-func BoundTurnAToolResults(results []ToolResult, countCap, byteCap int, preserve ToolResultPreserveFunc) []ToolResult {
-	if len(results) == 0 || countCap <= 0 || byteCap <= 0 {
-		return results
-	}
-	total := 0
-	for _, r := range results {
-		total += TurnAToolResultBytes(r)
-	}
-	if len(results) <= countCap && total <= byteCap {
-		return results
-	}
-	start := len(results)
-	kept := 0
-	keptBytes := 0
-	for i := len(results) - 1; i >= 0; i-- {
-		size := TurnAToolResultBytes(results[i])
-		if kept+1 > countCap || keptBytes+size > byteCap {
-			break
-		}
-		kept++
-		keptBytes += size
-		start = i
-	}
-	if start == 0 {
-		return results
-	}
-	out := results[start:]
-	if preserve != nil && !hasPreservedToolResult(out, preserve) {
-		for i := start - 1; i >= 0; i-- {
-			if preserve(results[i]) {
-				preserved := make([]ToolResult, 0, len(out)+1)
-				preserved = append(preserved, results[i])
-				preserved = append(preserved, out...)
-				return preserved
-			}
-		}
-	}
-	return append([]ToolResult(nil), out...)
+// ToolResultTruncationSummary is the typed record of tool results dropped by
+// Turn-A window-capture/merge budgets. It exists so checkpoint and
+// continuation prompts can disclose "truncated N tool results (tool×count)"
+// instead of silently shrinking history (Batch E1, 2026-07-02). Counts are
+// cumulative across retry-window merges. System-derived only; never
+// model-emitted, never a gate input.
+type ToolResultTruncationSummary struct {
+	Dropped int            `json:"dropped,omitempty"`
+	ByTool  map[string]int `json:"by_tool,omitempty"`
 }
 
-func hasPreservedToolResult(results []ToolResult, preserve ToolResultPreserveFunc) bool {
-	for _, r := range results {
-		if preserve(r) {
+// Active reports whether any tool result has been dropped.
+func (s *ToolResultTruncationSummary) Active() bool {
+	return s != nil && s.Dropped > 0
+}
+
+// Label renders the summary as "N dropped (tool×count, ...)" for advisory
+// checkpoint/continuation prompt lines.
+func (s *ToolResultTruncationSummary) Label() string {
+	if !s.Active() {
+		return ""
+	}
+	categories := formatCategoryCounts(s.ByTool)
+	if categories == "" {
+		return fmt.Sprintf("%d dropped", s.Dropped)
+	}
+	return fmt.Sprintf("%d dropped (%s)", s.Dropped, categories)
+}
+
+// CloneToolResultTruncationSummary deep-copies a truncation summary.
+func CloneToolResultTruncationSummary(in *ToolResultTruncationSummary) *ToolResultTruncationSummary {
+	if in == nil {
+		return nil
+	}
+	out := &ToolResultTruncationSummary{Dropped: in.Dropped}
+	if len(in.ByTool) > 0 {
+		out.ByTool = make(map[string]int, len(in.ByTool))
+		for tool, count := range in.ByTool {
+			out.ByTool[tool] = count
+		}
+	}
+	return out
+}
+
+// MergeToolResultTruncationSummaries sums truncation summaries across
+// capture/merge sites. Dropped entries never survive into the next merge
+// input, so summation cannot double-count.
+func MergeToolResultTruncationSummaries(parts ...*ToolResultTruncationSummary) *ToolResultTruncationSummary {
+	var out *ToolResultTruncationSummary
+	for _, part := range parts {
+		if !part.Active() {
+			continue
+		}
+		if out == nil {
+			out = &ToolResultTruncationSummary{ByTool: map[string]int{}}
+		}
+		out.Dropped += part.Dropped
+		for tool, count := range part.ByTool {
+			out.ByTool[tool] += count
+		}
+	}
+	return out
+}
+
+// toolResultCarriesDeterministicRuntimeObservation reports whether a tool
+// result carries at least one deterministic runtime-artifact observation row
+// (trace_query-class producer). This is the precise typed floor signal for
+// window-budget retention: such rows summarize a runtime artifact that may be
+// gigabytes large and cannot be re-derived by re-running a repo search, while
+// grep/read_file output can.
+func toolResultCarriesDeterministicRuntimeObservation(r ToolResult) bool {
+	for _, obs := range r.Observations {
+		if obs.Origin == AnswerEvidenceOriginRuntimeArtifact &&
+			runtimeObservationProducerIsDeterministicQuery(obs.Producer) {
 			return true
 		}
 	}
 	return false
+}
+
+// turnAToolResultRetentionRank orders tool results by retention value for the
+// Turn-A window budgets (lower = more valuable, mirroring
+// observationRecordRank's convention and its origin/producer weighting at the
+// tool-result granularity). Only precise typed signals participate:
+// deterministic runtime observation rows rank highest, then typed handoff
+// carriers and caller-preserved investigation results, then successful results
+// with typed payloads; bare failures (retriable noise) drop first. Within the
+// same value class newer results are kept before older ones, preserving the
+// previous recency semantics.
+func turnAToolResultRetentionRank(r ToolResult, preserve ToolResultPreserveFunc) int {
+	rank := 1000
+	if toolResultCarriesDeterministicRuntimeObservation(r) {
+		rank -= 600
+	}
+	if r.Handoff != nil {
+		rank -= 240
+	}
+	if preserve != nil && preserve(r) {
+		rank -= 160
+	}
+	if len(r.Observations) > 0 {
+		rank -= 80
+	}
+	if r.SourceInventory != nil || r.CommandMeasurement != nil || r.VCSHistory != nil {
+		rank -= 60
+	}
+	if r.Success {
+		rank -= 40
+	}
+	if r.Repair != nil || r.Refinement != nil {
+		rank -= 20
+	}
+	if strings.TrimSpace(r.Summary) != "" || strings.TrimSpace(r.RawRef) != "" {
+		rank -= 10
+	}
+	return rank
+}
+
+// BoundTurnAToolResults applies count + byte caps to a chronological tool
+// result slice. See BoundTurnAToolResultsWithTruncation for the retention
+// policy; this wrapper discards the truncation summary for callers that only
+// need the bounded slice.
+func BoundTurnAToolResults(results []ToolResult, countCap, byteCap int, preserve ToolResultPreserveFunc) []ToolResult {
+	out, _ := BoundTurnAToolResultsWithTruncation(results, countCap, byteCap, preserve)
+	return out
+}
+
+// BoundTurnAToolResultsWithTruncation applies count + byte caps to a
+// chronological tool result slice and reports what was dropped.
+//
+// Retention is VALUE-ordered, not oldest-first (Batch E1, 2026-07-02): before
+// the previous policy dropped the oldest prefix by timestamp, a retry window
+// full of fresh grep noise could evict earlier deterministic trace_query
+// observations — the highest-value, non-re-derivable results. Entries are
+// ranked by turnAToolResultRetentionRank (newer first within equal value) and
+// kept greedily while both caps allow; the output preserves chronological
+// order. Two floors survive even a pathological byte budget: at least the
+// newest result carrying deterministic runtime observation rows, and at least
+// one caller-preserved result (the pre-existing guarantee for the
+// structural-empty gate). Slices already inside both caps are returned
+// unchanged with a nil summary.
+func BoundTurnAToolResultsWithTruncation(results []ToolResult, countCap, byteCap int, preserve ToolResultPreserveFunc) ([]ToolResult, *ToolResultTruncationSummary) {
+	if len(results) == 0 || countCap <= 0 || byteCap <= 0 {
+		return results, nil
+	}
+	total := 0
+	sizes := make([]int, len(results))
+	for i, r := range results {
+		sizes[i] = TurnAToolResultBytes(r)
+		total += sizes[i]
+	}
+	if len(results) <= countCap && total <= byteCap {
+		return results, nil
+	}
+	ranks := make([]int, len(results))
+	for i, r := range results {
+		ranks[i] = turnAToolResultRetentionRank(r, preserve)
+	}
+	order := make([]int, len(results))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		if ranks[order[a]] != ranks[order[b]] {
+			return ranks[order[a]] < ranks[order[b]]
+		}
+		return order[a] > order[b]
+	})
+	keep := make([]bool, len(results))
+	kept := 0
+	keptBytes := 0
+	for _, idx := range order {
+		if kept >= countCap {
+			break
+		}
+		if keptBytes+sizes[idx] > byteCap {
+			continue
+		}
+		keep[idx] = true
+		kept++
+		keptBytes += sizes[idx]
+	}
+	forceKeepNewest(results, keep, toolResultCarriesDeterministicRuntimeObservation)
+	if preserve != nil {
+		forceKeepNewest(results, keep, preserve)
+	}
+	out := make([]ToolResult, 0, kept)
+	var truncation *ToolResultTruncationSummary
+	for i, r := range results {
+		if keep[i] {
+			out = append(out, r)
+			continue
+		}
+		if truncation == nil {
+			truncation = &ToolResultTruncationSummary{ByTool: map[string]int{}}
+		}
+		truncation.Dropped++
+		name := strings.TrimSpace(r.ToolName)
+		if name == "" {
+			name = "unknown"
+		}
+		truncation.ByTool[name]++
+	}
+	if truncation == nil {
+		return results, nil
+	}
+	return out, truncation
+}
+
+// forceKeepNewest marks the newest matching result as kept when no matching
+// result survived the greedy pass. It may exceed the caps by one entry — the
+// same overflow allowance the previous oldest-first policy granted its single
+// preserved result.
+func forceKeepNewest(results []ToolResult, keep []bool, match func(ToolResult) bool) {
+	newestUnkept := -1
+	for i := len(results) - 1; i >= 0; i-- {
+		if !match(results[i]) {
+			continue
+		}
+		if keep[i] {
+			return
+		}
+		if newestUnkept < 0 {
+			newestUnkept = i
+		}
+	}
+	if newestUnkept >= 0 {
+		keep[newestUnkept] = true
+	}
 }
 
 // TurnAMCPResponseBytes is the MCP companion to TurnAToolResultBytes.

@@ -323,8 +323,8 @@ func TestBoundTurnAToolResultsPreservesCarrierPayload(t *testing.T) {
 	}
 
 	out := BoundTurnAToolResults(in, 1, 512, PreserveSuccessfulToolResultWithPayload)
-	if len(out) != 2 {
-		t.Fatalf("expected newest plus preserved carrier result, got %d: %+v", len(out), out)
+	if len(out) != 1 {
+		t.Fatalf("expected the preserved carrier result to win the count cap, got %d: %+v", len(out), out)
 	}
 	if out[0].Handoff == nil || len(out[0].Handoff.AcceptedEvidence) != 1 {
 		t.Fatalf("carrier result not preserved: %+v", out)

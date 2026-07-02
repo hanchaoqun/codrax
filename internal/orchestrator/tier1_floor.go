@@ -164,7 +164,7 @@ func runtimeObservationClosureSuppressesReadLocalizerFollowup(busCtx *types.BusC
 		readLocalizerTier1CurrentSourceRequired(ir.RequestModel) {
 		return false
 	}
-	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(busCtx, 128))
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(busCtx, types.ObservationExtractLedgerEvidenceLimit))
 	if suff := types.AssessExternalObservationSufficiency(ledger.Records, &ir.RequestModel, busCtx.TurnRouteHint); suff.Status.Sufficient() {
 		return true
 	}

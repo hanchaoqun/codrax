@@ -13211,15 +13211,20 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()) != "" &&
 			strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()) != ""
 		sourceLocalization := types.SourceLocalizationReviewFromTurnA(readFilesList, handoffEvidence)
+		// Per-window snapshot bound (count + byte cap, value-ordered
+		// retention with deterministic runtime observations kept first,
+		// chronological order kept). The merge below applies the larger
+		// cross-window caps on the concatenated history; both record what
+		// they dropped so checkpoint prompts can disclose the truncation.
+		windowToolResults, windowToolTruncation := boundTurnAToolResultsWithTruncation(
+			toolResults, turnAToolResultsWindowCountCap, turnAToolResultsWindowByteCap)
 		snapshot := types.TurnAArtifacts{
-			UserQuestion:       e.userQuestion,
-			InvestigationNotes: e.investigationNotes,
-			ReadFiles:          readFilesList,
-			SourceLocalization: types.CloneSourceLocalizationReviewPtr(&sourceLocalization),
-			// Per-window snapshot bound (count + byte cap, oldest dropped
-			// first, chronological order kept). The merge below applies the
-			// larger cross-window caps on the concatenated history.
-			ToolResults:                      boundTurnAToolResults(toolResults, turnAToolResultsWindowCountCap, turnAToolResultsWindowByteCap),
+			UserQuestion:                     e.userQuestion,
+			InvestigationNotes:               e.investigationNotes,
+			ReadFiles:                        readFilesList,
+			SourceLocalization:               types.CloneSourceLocalizationReviewPtr(&sourceLocalization),
+			ToolResults:                      windowToolResults,
+			ToolResultTruncation:             windowToolTruncation,
 			MCPResponses:                     mcpResponses,
 			AcceptedClosureReason:            strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()),
 			AcceptedResultKind:               strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()),

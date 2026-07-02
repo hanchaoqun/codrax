@@ -66,7 +66,7 @@ func BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx *AgentContext,
 		return RuntimeSourceAnswerAuthoritySnapshot{}
 	}
 	if ledger.Empty() {
-		ledger = CompileObservationLedger(ObservationLedgerInputFromAgentContext(ctx, 128))
+		ledger = CompileObservationLedger(ObservationLedgerInputFromAgentContext(ctx, ObservationExtractLedgerEvidenceLimit))
 	}
 	return BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
 		RequestModel:      RuntimeSourceAuthorityRequestModelFromAgentContext(ctx),
@@ -85,7 +85,7 @@ func BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx *BusContext, led
 		return RuntimeSourceAnswerAuthoritySnapshot{}
 	}
 	if ledger.Empty() {
-		ledger = CompileObservationLedger(ObservationLedgerInputFromBusContext(ctx, 128))
+		ledger = CompileObservationLedger(ObservationLedgerInputFromBusContext(ctx, ObservationExtractLedgerEvidenceLimit))
 	}
 	return BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
 		RequestModel:      RuntimeSourceAuthorityRequestModelFromBusContext(ctx),

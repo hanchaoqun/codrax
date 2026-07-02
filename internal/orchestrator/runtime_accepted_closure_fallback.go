@@ -24,7 +24,7 @@ func (o *Orchestrator) shouldDowngradeRuntimeAcceptedClosureExploreFallback(viol
 	if !mut.IsInvestigationComplete() && strings.TrimSpace(mut.StableInvestigationCompleteReason()) == "" {
 		return false
 	}
-	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, 128))
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, types.ObservationExtractLedgerEvidenceLimit))
 	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(o.busCtx, ledger)
 	if !authority.Active || authority.CanHardBlockCompletion ||
 		authority.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise {

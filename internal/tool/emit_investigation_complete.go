@@ -3863,7 +3863,7 @@ func runtimeSourceAnswerAuthorityForCompletionWithAggregateFacts(ctx *types.BusC
 	if len(aggregateFacts) == 0 {
 		return runtimeSourceAnswerAuthorityForCompletion(ctx)
 	}
-	input := types.ObservationLedgerInputFromBusContext(ctx, 128)
+	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
 	rm := types.RuntimeSourceAuthorityRequestModelFromBusContext(ctx)
 	merged := append([]types.AnswerAggregateFact{}, input.AggregateFacts...)
 	merged = append(merged, originSpecificCompletionAuthorityAggregateFacts(aggregateFacts, rm)...)
