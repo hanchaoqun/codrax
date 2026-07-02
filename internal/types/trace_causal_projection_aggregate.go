@@ -160,6 +160,9 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	if survivor.StateKind == "" {
 		survivor.StateKind = loser.StateKind
 	}
+	if survivor.SubjectKind == "" {
+		survivor.SubjectKind = loser.SubjectKind
+	}
 	if survivor.EffectiveImpactMS <= 0 {
 		survivor.EffectiveImpactMS = loser.EffectiveImpactMS
 	}

@@ -16,6 +16,7 @@ package tool
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -70,6 +71,25 @@ type runtimeTraceProjTreeModel struct {
 	Background []runtimeTraceProjTreeRow
 	WindowMS   float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
 	BarMaxMS   float64
+	// WakeupChainRecommendedNotRun mirrors the typed projection flag (§7.30
+	// 裁定3): a chain_required=true state_drilldown recommendation existed but no
+	// wakeup_chain-family observation ran, so the flat-fallback header can name
+	// the actual coverage cause instead of the opaque "path unresolved".
+	WakeupChainRecommendedNotRun bool
+}
+
+// missingWakeup reports whether any rendered row carries the typed
+// missing_wakeup undrillable reason — the OTHER flat-fallback cause (§7.30
+// 裁定3): the sleep interval had no sched_wakeup record in the selected window.
+func (m runtimeTraceProjTreeModel) missingWakeup() bool {
+	for _, rows := range [][]runtimeTraceProjTreeRow{m.TreeRows, m.SelfRows, m.Adjacent, m.Background} {
+		for _, row := range rows {
+			if strings.TrimSpace(row.Node.UndrillableReason) == "missing_wakeup" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type runtimeTraceProjTreeNode struct {
@@ -80,7 +100,10 @@ type runtimeTraceProjTreeNode struct {
 // --- model construction ------------------------------------------------------
 
 func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evidence *runtimeTraceCausalProjectionEvidenceIndex, zh bool) runtimeTraceProjTreeModel {
-	model := runtimeTraceProjTreeModel{WindowMS: projection.WindowDurationMS()}
+	model := runtimeTraceProjTreeModel{
+		WindowMS:                     projection.WindowDurationMS(),
+		WakeupChainRecommendedNotRun: projection.WakeupChainRecommendedNotRun,
+	}
 	path := runtimeTraceCausalProjectionCleanPath(projection.WakeupPath)
 	if len(path) >= 2 {
 		model.Target = path[len(path)-1]
@@ -92,12 +115,29 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// Semantic spans are excluded here — their classified copies also live in
 	// OnChainCauses, but they render exclusively through the ✦ 语义 lane (a span
 	// consumed as a same-subject "cause" row would appear twice).
-	chainNodes := runtimeTraceProjDedupNodes(
+	chainUniverse := runtimeTraceProjDedupNodes(
 		runtimeTraceProjExcludeSemanticSpans(
 			append(append(append([]types.TraceCausalProjectionNode{},
 				runtimeTraceCausalProjectionPrimaryRoots(projection)...),
 				projection.OnChainCauses...),
 				projection.SupportingHops...)))
+	// §7.30 裁定1: only relation-resolved rows may enter the on-chain tree.
+	// Aggregate-metric rows and unknown-thread rows whose depth cannot attach
+	// demote to the background-pressure stanza (merged with the existing
+	// background rows) instead of rendering as on-chain placeholders.
+	trunkLen := 0
+	if len(path) >= 2 {
+		trunkLen = len(path) - 1
+	}
+	chainNodes := make([]types.TraceCausalProjectionNode, 0, len(chainUniverse))
+	var demoted []types.TraceCausalProjectionNode
+	for _, node := range chainUniverse {
+		if runtimeTraceProjNodeDemotedToBackground(node, trunkLen) {
+			demoted = append(demoted, node)
+			continue
+		}
+		chainNodes = append(chainNodes, node)
+	}
 	bySubject := map[string][]types.TraceCausalProjectionNode{}
 	for _, node := range chainNodes {
 		key := runtimeTraceCausalProjectionCanonicalNode(node.Subject)
@@ -320,15 +360,65 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
 		})
 	}
+	backgroundSeen := map[string]bool{}
 	for _, node := range projection.BackgroundCauses {
+		backgroundSeen[runtimeTraceCausalProjectionNodeKey(node)] = true
 		model.Background = append(model.Background, runtimeTraceProjTreeRow{
 			Node: node, Kind: runtimeTraceProjTreeRowBackground, HasData: true,
 			EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
 		})
 	}
+	// 裁定1 demoted rows merge into the same background stanza. The evidence
+	// roster entry is taken from the ORIGINAL node (audit keeps the raw typed
+	// provenance); the display copy is then normalized to background semantics —
+	// its former on-chain/primary labeling was the pollution being removed. The
+	// raw observation record itself is untouched.
+	for _, node := range demoted {
+		key := runtimeTraceCausalProjectionNodeKey(node)
+		if backgroundSeen[key] {
+			continue
+		}
+		backgroundSeen[key] = true
+		tag := runtimeTraceProjEvidenceTag(node, evidence, zh)
+		node.ChainRelevance = "background"
+		if node.Role == types.TraceCausalRolePrimaryRootCause || node.Role == types.TraceCausalRoleCausalHop {
+			node.Role = types.TraceCausalRoleRootCauseContext
+		}
+		if strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_primary") {
+			node.Predicate = "root_cause_context"
+		}
+		model.Background = append(model.Background, runtimeTraceProjTreeRow{
+			Node: node, Kind: runtimeTraceProjTreeRowBackground, HasData: true,
+			EvidenceTag: tag,
+		})
+	}
+	if len(demoted) > 0 {
+		sort.SliceStable(model.Background, func(i, j int) bool {
+			return runtimeTraceProjNodeDisplayImpact(model.Background[i].Node) >
+				runtimeTraceProjNodeDisplayImpact(model.Background[j].Node)
+		})
+	}
 
 	model.BarMaxMS = runtimeTraceProjModelMaxImpact(model)
 	return model
+}
+
+// runtimeTraceProjNodeDemotedToBackground implements §7.30 裁定1: a row may sit
+// on the on-chain tree only when its relation is resolved. Typed
+// aggregate-metric rows (window-scoped cpu/io/irq/ipi/frequency/supply pressure
+// with no thread subject) and unknown-thread sentinel rows whose typed chain
+// depth cannot attach inside the wakeup trunk demote to the background-pressure
+// stanza. Precise typed signals only — never a prose heuristic.
+func runtimeTraceProjNodeDemotedToBackground(node types.TraceCausalProjectionNode, trunkLen int) bool {
+	if node.IsAggregateMetric() {
+		return true
+	}
+	switch runtimeTraceCausalProjectionCanonicalNode(node.Subject) {
+	case "unknown-thread", "unknown":
+	default:
+		return false
+	}
+	return node.ChainDepth <= 0 || node.ChainDepth > trunkLen
 }
 
 func runtimeTraceProjExcludeSemanticSpans(nodes []types.TraceCausalProjectionNode) []types.TraceCausalProjectionNode {
@@ -423,11 +513,7 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 		b.WriteString(runtimeTraceProjScaleNote(model, zh))
 		b.WriteString("\n")
 	} else {
-		if zh {
-			b.WriteString("(唤醒链路径未解析——按层级平铺展示)" + "  " + runtimeTraceProjScaleNote(model, zh) + "\n")
-		} else {
-			b.WriteString("(wakeup path unresolved — layers rendered flat)  " + runtimeTraceProjScaleNote(model, zh) + "\n")
-		}
+		b.WriteString(runtimeTraceProjFlatFallbackHeader(model, zh) + "  " + runtimeTraceProjScaleNote(model, zh) + "\n")
 	}
 	for _, row := range model.SelfRows {
 		b.WriteString("│     " + runtimeTraceProjSelfRowText(row, zh) + "\n")
@@ -467,15 +553,41 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 	return b.String()
 }
 
+// runtimeTraceProjFlatFallbackHeader names WHY the tree renders flat (§7.30
+// 裁定3, two typed causes): a missing_wakeup row means the sleep interval had no
+// sched_wakeup record in the selected window; the recommended-not-run flag means
+// the wakeup-chain drilldown was never executed this round. Both are precise
+// typed signals; the opaque "path unresolved" wording stays only as the last
+// fallback.
+func runtimeTraceProjFlatFallbackHeader(model runtimeTraceProjTreeModel, zh bool) string {
+	switch {
+	case model.missingWakeup():
+		if zh {
+			return "(睡眠区间在所选窗口内无 sched_wakeup 记录,唤醒链无法上溯——按层级平铺展示)"
+		}
+		return "(the sleep interval has no sched_wakeup record in the selected window — the wakeup chain cannot be traced upstream; layers rendered flat)"
+	case model.WakeupChainRecommendedNotRun:
+		if zh {
+			return "(本轮未执行唤醒链下钻,建议 trace_query view=wakeup_chain——按层级平铺展示)"
+		}
+		return "(wakeup-chain drilldown was not run this round — recommend trace_query view=wakeup_chain; layers rendered flat)"
+	default:
+		if zh {
+			return "(唤醒链路径未解析——按层级平铺展示)"
+		}
+		return "(wakeup path unresolved — layers rendered flat)"
+	}
+}
+
 func runtimeTraceProjScaleNote(model runtimeTraceProjTreeModel, zh bool) string {
 	if model.WindowMS > 0 {
 		if zh {
-			return fmt.Sprintf("bar满格=窗口%.3fms", model.WindowMS)
+			return fmt.Sprintf("满格=窗口%.3fms", model.WindowMS)
 		}
 		return fmt.Sprintf("bar full = window %.3fms", model.WindowMS)
 	}
 	if zh {
-		return fmt.Sprintf("窗口起止未采集·bar满格=本批最大%.3fms(回退尺度,不显示占窗%%)", model.BarMaxMS)
+		return fmt.Sprintf("窗口起止未采集·满格=本批最大%.3fms(回退尺度,不显示占窗%%)", model.BarMaxMS)
 	}
 	return fmt.Sprintf("window bounds not captured; bar full = batch max %.3fms (fallback scale, no window %%)", model.BarMaxMS)
 }
@@ -593,7 +705,12 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 		}
 		return name
 	}
-	subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.Subject, zh))
+	if node.IsAggregateMetric() {
+		// The metric IS the subject; the Object type word is already folded into
+		// the semantic name (裁定2 rendering half).
+		return strings.TrimSpace(runtimeTraceCausalProjectionAggregateMetricName(node, zh))
+	}
+	subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
 	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.Object, zh))
 	if row.Kind == runtimeTraceProjTreeRowCause {
 		// Same-subject cause decomposition: the subject is already the parent
@@ -702,6 +819,41 @@ func runtimeTraceProjStanzaRowLine(row runtimeTraceProjTreeRow, denom float64, w
 	return left + " " + runtimeTraceProjRowMetrics(row, denom, windowMode, zh)
 }
 
+// runtimeTraceProjStateKindLabel is the bar-row state attribution (§7.30
+// 裁定4): a localized label for the node's typed dominant scheduler state.
+// Empty when the node exposes no StateKind — callers then fall back to the
+// impact-shape cell value instead of fabricating a state.
+func runtimeTraceProjStateKindLabel(node types.TraceCausalProjectionNode, zh bool) string {
+	switch strings.TrimSpace(strings.ToLower(node.StateKind)) {
+	case "s_sleep", "sleep", "sleep_wait":
+		if zh {
+			return "睡眠等待"
+		}
+		return "sleep wait"
+	case "runnable":
+		if zh {
+			return "可运行等待"
+		}
+		return "runnable wait"
+	case "running":
+		if zh {
+			return "运行占用"
+		}
+		return "running"
+	case "io_wait":
+		if zh {
+			return "IO阻塞"
+		}
+		return "IO wait"
+	case "d_state", "d_sleep", "uninterruptible_sleep":
+		if zh {
+			return "D状态"
+		}
+		return "D-state"
+	}
+	return ""
+}
+
 func runtimeTraceProjRowMetrics(row runtimeTraceProjTreeRow, denom float64, windowMode, zh bool) string {
 	node := row.Node
 	impact := runtimeTraceProjNodeDisplayImpact(node)
@@ -712,19 +864,19 @@ func runtimeTraceProjRowMetrics(row runtimeTraceProjTreeRow, denom float64, wind
 		b.WriteString(fmt.Sprintf(" %3.0f%%", impact/denom*100))
 	}
 	var tags []string
+	// 裁定4: every bar row states WHAT the duration was (typed StateKind label;
+	// impact-shape value when no state was exposed — never fabricated).
+	stateTag := runtimeTraceProjStateKindLabel(node, zh)
+	if stateTag == "" {
+		stateTag = runtimeTraceCausalProjectionImpactShapeCell(node, zh)
+	}
+	if stateTag != "" {
+		tags = append(tags, stateTag)
+	}
 	layer := runtimeTraceCausalProjectionLayerCell(node, zh)
 	priority := runtimeTraceCausalProjectionPriorityCell(node, zh)
-	switch row.Kind {
-	case runtimeTraceProjTreeRowAdjacent, runtimeTraceProjTreeRowBackground:
-		// stanza header already states the layer; keep the row lean
-		if row.Kind == runtimeTraceProjTreeRowBackground {
-			if shape := runtimeTraceCausalProjectionImpactShapeCell(node, zh); shape != "" {
-				tags = append(tags, shape)
-			}
-		} else {
-			tags = append(tags, "‹"+layer+"›"+priority)
-		}
-	default:
+	if row.Kind != runtimeTraceProjTreeRowBackground {
+		// background stanza header already states the layer; keep those rows lean
 		tags = append(tags, "‹"+layer+"›"+priority)
 	}
 	if action := runtimeTraceCausalProjectionActionCell(node, zh); action != "" &&
@@ -829,9 +981,9 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 	}
 	sections = append(sections, runtimeTraceProjWindowLine(projection, model, zh))
 	if zh {
-		sections = append(sections, "树读法: 自上而下=从关注线程向上游追溯;`└─唤醒─`=该行唤醒/依赖其父行;💤 是症状非根因,其唤醒子行即下钻结果;`├─成因─`=同一线程的成因分解;`⛔`=窗口内无匹配 sched_wakeup,链止于此。时长、排序与 E# 均可定位到原始 trace_query 结构化证据,不是额外推测。")
+		sections = append(sections, "树读法: 自上而下=从关注线程向上游追溯;`└─唤醒─`=该行唤醒/依赖其父行;💤 是症状非根因,其唤醒子行即下钻结果;`├─成因─`=同一线程的成因分解;`⛔`=窗口内无匹配 sched_wakeup,链止于此。时长条后的状态标签(睡眠等待/可运行等待/运行占用/IO阻塞/D状态)来自该行主导调度状态,无主导状态的行沿用影响形态。时长、排序与 E# 均可定位到原始 trace_query 结构化证据,不是额外推测。")
 	} else {
-		sections = append(sections, "Tree reading: top-down = tracing upstream from the focused thread; `└─wakes─` = this row wakes/feeds its parent; 💤 is a symptom (its wake child IS the drilldown result); `├─cause─` = same-thread cause decomposition; `⛔` = no matching sched_wakeup in the window, the chain ends there. Durations, ranks and E# tags locate structured trace_query evidence — never extra speculation.")
+		sections = append(sections, "Tree reading: top-down = tracing upstream from the focused thread; `└─wakes─` = this row wakes/feeds its parent; 💤 is a symptom (its wake child IS the drilldown result); `├─cause─` = same-thread cause decomposition; `⛔` = no matching sched_wakeup in the window, the chain ends there. The state tag after each bar (sleep wait / runnable wait / running / IO wait / D-state) is the row's dominant scheduler state; rows without one keep their impact-shape value. Durations, ranks and E# tags locate structured trace_query evidence — never extra speculation.")
 	}
 	if len(model.Background) == 0 {
 		if zh {
@@ -851,8 +1003,12 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	if primary == nil {
 		return ""
 	}
-	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(primary.Subject, zh))
+	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(*primary, zh))
 	cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(primary.Object, zh))
+	if primary.IsAggregateMetric() {
+		// The metric semantic name already carries the Object type word.
+		cause = ""
+	}
 	ms := primary.CumulativeImpactMS
 	if ms <= 0 {
 		ms = runtimeTraceProjNodeDisplayImpact(*primary)
@@ -900,7 +1056,7 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
 	if model.WindowMS <= 0 {
 		if zh {
-			return "关注窗口起止未采集: 不显示占窗百分比,树内 bar 满格=本批最大投影(回退尺度,系统不估算窗口)。"
+			return "关注窗口起止未采集: 不显示占窗百分比,树内时长条满格=本批最大投影(回退尺度,系统不估算窗口)。"
 		}
 		return "Window bounds not captured: no window percentages; tree bars scale to the batch max projection (fallback scale — the system never estimates a window)."
 	}

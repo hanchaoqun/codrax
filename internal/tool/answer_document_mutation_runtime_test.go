@@ -746,7 +746,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	if strings.Contains(text, "P0") {
 		t.Fatalf("projection should not expose ambiguous P0/P1/P2 labels:\n%s", text)
 	}
-	if !strings.Contains(text, "CodecLooper-17604") || !strings.Contains(text, "未解析线程") || strings.Contains(text, "unknown-thread") {
+	if !strings.Contains(text, "CodecLooper-17604") || !strings.Contains(text, "未定位线程") || strings.Contains(text, "unknown-thread") {
 		t.Fatalf("projection should translate unknown-thread sentinel for users without losing the unresolved-thread caveat:\n%s", text)
 	}
 	// 0 mermaid: no diagram blocks, no mermaid fences — the tree carries the

@@ -30,6 +30,16 @@ type TraceCausalProjection struct {
 	SemanticSpans     []TraceCausalProjectionNode `json:"semantic_spans,omitempty"`
 	WakeupPath        []string                    `json:"wakeup_path,omitempty"`
 	SupportingHops    []TraceCausalProjectionNode `json:"supporting_hops,omitempty"`
+	// WakeupChainRecommendedNotRun is true when this run's ledger contains a
+	// state_drilldown observation whose typed chain_required=true rich note
+	// recommended a wakeup-chain drilldown, but NO wakeup_chain-family
+	// observation (wakeup_chain / wakeup_chain_edge / wakeup_causal_impact /
+	// wakeup_causal_aggregate) was produced — i.e. the recommended drilldown was
+	// never executed (§7.30 裁定3). Precise typed signals only: the flag never
+	// derives from prose. Renderers use it to distinguish "the drilldown was not
+	// run this round" from "the sleep interval had no sched_wakeup record"
+	// (missing_wakeup) when the wakeup path is empty.
+	WakeupChainRecommendedNotRun bool `json:"wakeup_chain_recommended_not_run,omitempty"`
 	// WindowStartTs/WindowEndTs is the user's originally-requested analysis
 	// window (seconds), sourced from the same precise frame_target_resolution
 	// anchor that feeds WithinRequestedWindow (window_source=query_window or the
@@ -149,6 +159,25 @@ type TraceCausalProjectionNode struct {
 	// when they differ from this node's Object (e.g. the udk-irq peer thread a
 	// same-interval critical_blocking row named) — rendered as an 影响点 note.
 	SecondaryObjects []string `json:"secondary_objects,omitempty"`
+	// SubjectKind is sourced verbatim from the typed subject_kind rich note.
+	// Empty = the subject is a (possibly unresolved) thread. The only non-empty
+	// value today is TraceCausalSubjectKindAggregateMetric: the row is a
+	// window/CPU-scoped aggregate metric (cpu/io/irq/ipi/frequency/supply
+	// pressure) with no thread subject at all — renderers must present the
+	// metric semantics instead of an "unresolved thread" and must not seat the
+	// row on the on-chain tree (§7.30 裁定1/2).
+	SubjectKind string `json:"subject_kind,omitempty"`
+}
+
+// TraceCausalSubjectKindAggregateMetric mirrors the trace_query typed
+// subject_kind for aggregate-metric rows (window-scoped pressure rows whose
+// empty thread subject is structural, not a resolution gap).
+const TraceCausalSubjectKindAggregateMetric = "aggregate_metric"
+
+// IsAggregateMetric reports whether this node is a window/CPU-scoped aggregate
+// metric row (typed subject_kind check — never a prose or sentinel heuristic).
+func (n TraceCausalProjectionNode) IsAggregateMetric() bool {
+	return strings.TrimSpace(strings.ToLower(n.SubjectKind)) == TraceCausalSubjectKindAggregateMetric
 }
 
 // IsSleepState reports whether this node's dominant state is an (interruptible)
@@ -185,9 +214,23 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	var hops []TraceCausalProjectionNode
 	var wakeupPath []string
 	var wakeupEdges []traceCausalProjectionWakeupEdge
+	chainRequiredRecommended := false
+	wakeupChainObserved := false
 	for _, record := range records {
 		if !traceCausalProjectionTraceQueryRecord(record) {
 			continue
+		}
+		// 裁定3 typed inputs: a state_drilldown row recommending the wakeup-chain
+		// drilldown (chain_required=true) vs. any wakeup_chain-family observation
+		// proving the drilldown actually ran. Exact typed predicate / rich-note
+		// matches only.
+		switch strings.TrimSpace(record.Predicate) {
+		case "wakeup_chain", "wakeup_chain_edge", "wakeup_causal_impact", "wakeup_causal_aggregate":
+			wakeupChainObserved = true
+		case "state_drilldown":
+			if strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "chain_required")) == "true" {
+				chainRequiredRecommended = true
+			}
 		}
 		if edge, ok := traceCausalProjectionWakeupEdgeFromRecord(record); ok {
 			wakeupEdges = append(wakeupEdges, edge)
@@ -232,13 +275,14 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	})
 	semantic = traceCausalProjectionDedupeNodes(semantic)
 	out := TraceCausalProjection{
-		PrimaryRootCauses: traceCausalProjectionLimitNodes(primary, traceCausalProjectionPrimaryLimit),
-		OnChainCauses:     traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "on_chain"), traceCausalProjectionOnChainLimit),
-		AdjacentCauses:    traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "adjacent"), traceCausalProjectionContextBucketLimit),
-		BackgroundCauses:  traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "background"), traceCausalProjectionContextBucketLimit),
-		SemanticSpans:     traceCausalProjectionLimitNodes(semantic, traceCausalProjectionSemanticSpanLimit),
-		WakeupPath:        wakeupPath,
-		SupportingHops:    hops,
+		PrimaryRootCauses:            traceCausalProjectionLimitNodes(primary, traceCausalProjectionPrimaryLimit),
+		OnChainCauses:                traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "on_chain"), traceCausalProjectionOnChainLimit),
+		AdjacentCauses:               traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "adjacent"), traceCausalProjectionContextBucketLimit),
+		BackgroundCauses:             traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "background"), traceCausalProjectionContextBucketLimit),
+		SemanticSpans:                traceCausalProjectionLimitNodes(semantic, traceCausalProjectionSemanticSpanLimit),
+		WakeupPath:                   wakeupPath,
+		SupportingHops:               hops,
+		WakeupChainRecommendedNotRun: chainRequiredRecommended && !wakeupChainObserved,
 	}
 	// Presentation v3 §6: deterministic pre-render aggregation (strict tolerance).
 	// Runs on the bucketed projection before window marking / drilldown attach so
@@ -517,6 +561,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.EffectiveImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, "effective_impact_ms", "effective_impact")
 	node.ActualImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, "actual_impact_ms", "actual_impact")
 	node.UndrillableReason = traceCausalProjectionUndrillableReason(record)
+	// §7.30 裁定1/2: aggregate-metric rows carry a typed subject_kind so the
+	// renderer can show metric semantics instead of an "unresolved thread".
+	node.SubjectKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "subject_kind"))
 	return node
 }
 

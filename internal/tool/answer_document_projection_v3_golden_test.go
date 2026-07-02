@@ -120,7 +120,7 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 	// Target-anchored tree: root, four edge kinds, real branches, inline markers.
 	for _, want := range []string{
 		"🎯 oney.hmn.berlin-42591 ‹用户关注线程›",
-		"bar满格=窗口64.000ms",
+		"满格=窗口64.000ms",
 		"└─下钻─ 💤 binder:42591_4-42712 · sleep_wait",
 		"├─唤醒─ ⚙ RenderService-3021 · compute_supply",
 		"└─唤醒─ ⏳ DispatchQueue-771 · runnable_delay",
@@ -130,6 +130,9 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		"⚠跨窗(实际52.700ms)",
 		"⛔无匹配唤醒·链止",
 		"链上累计27.900ms",
+		"睡眠等待",
+		"运行占用",
+		"可运行等待",
 		"◇ 邻近链",
 		"▒ 背景压力",
 		"▒▒▒░░░░░░░",
@@ -227,7 +230,7 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 
 	// Fallback scale (no window anchor): declared, never fabricated — no
 	// conclusion-line window share and no bar-column percentages.
-	if !strings.Contains(md, "窗口起止未采集") || !strings.Contains(md, "bar满格=本批最大117.928ms") ||
+	if !strings.Contains(md, "窗口起止未采集") || !strings.Contains(md, "满格=本批最大117.928ms") ||
 		strings.Contains(md, "(占窗") {
 		t.Fatalf("aweme golden must run in fallback scale without window percentages:\n%s", md)
 	}

@@ -1320,7 +1320,10 @@ func runtimeTraceCausalProjectionIntro(lang string) string {
 }
 
 func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectionNode, zh bool) string {
-	subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.Subject, zh))
+	if node.IsAggregateMetric() {
+		return runtimeTraceCausalProjectionCompactCellText(runtimeTraceCausalProjectionAggregateMetricName(node, zh), 44)
+	}
+	subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
 	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.Object, zh))
 	if (node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span") && strings.TrimSpace(node.SpanName) != "" {
 		object = strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.SpanName, zh))
@@ -1346,12 +1349,51 @@ func runtimeTraceCausalProjectionDisplayNodeName(raw string, zh bool) string {
 	switch runtimeTraceCausalProjectionCanonicalNode(raw) {
 	case "unknown-thread", "unknown":
 		if zh {
-			return "未解析线程"
+			return "未定位线程"
 		}
-		return "unresolved thread"
+		return "unattributed thread"
 	default:
 		return raw
 	}
+}
+
+// runtimeTraceCausalProjectionDisplaySubjectName is the node-aware subject
+// display (§7.30 裁定2): typed aggregate-metric rows show the metric semantics
+// (there is no thread to resolve), sentinel subjects show 未定位线程, and every
+// other subject — including the data layer's pid=1234 partial identities —
+// renders verbatim.
+func runtimeTraceCausalProjectionDisplaySubjectName(node types.TraceCausalProjectionNode, zh bool) string {
+	if node.IsAggregateMetric() {
+		return runtimeTraceCausalProjectionAggregateMetricName(node, zh)
+	}
+	return runtimeTraceCausalProjectionDisplayNodeName(node.Subject, zh)
+}
+
+// runtimeTraceCausalProjectionAggregateMetricName maps a typed aggregate-metric
+// row to its metric semantic name, keyed on the row's typed Object (the
+// root-cause type word). Unlisted metric types keep the generic aggregate label
+// with the type word preserved.
+func runtimeTraceCausalProjectionAggregateMetricName(node types.TraceCausalProjectionNode, zh bool) string {
+	metric := strings.TrimSpace(strings.ToLower(firstNonEmptyAnswerString(node.Object, node.Predicate)))
+	switch metric {
+	case "io_pressure":
+		if zh {
+			return "窗口IO压力(聚合)"
+		}
+		return "window IO pressure (aggregate)"
+	case "cpu_pressure":
+		if zh {
+			return "CPU竞争压力(聚合)"
+		}
+		return "CPU contention pressure (aggregate)"
+	}
+	if metric == "" {
+		metric = types.TraceCausalSubjectKindAggregateMetric
+	}
+	if zh {
+		return "窗口聚合指标(" + metric + ")"
+	}
+	return "window aggregate metric (" + metric + ")"
 }
 
 func runtimeTraceCausalProjectionCompactCellText(raw string, maxRunes int) string {
