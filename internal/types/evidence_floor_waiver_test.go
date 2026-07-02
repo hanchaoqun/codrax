@@ -151,7 +151,7 @@ func TestMutableState_EvidenceFloorWaiverNilClears(t *testing.T) {
 		Reason:    EvidenceFloorWaiverExternalLog,
 		Rationale: "rationale",
 	})
-	m.RetainEvidenceFloorWaiver()
+	m.RetainEvidenceFloorWaiver(true)
 	m.SetEvidenceFloorWaiver(nil)
 	if got := m.EvidenceFloorWaiver(); got != nil {
 		t.Errorf("nil Set must clear waiver, got %+v", got)
@@ -167,7 +167,7 @@ func TestMutableState_EvidenceFloorWaiverNilSafe(t *testing.T) {
 	if got := m.EvidenceFloorWaiver(); got != nil {
 		t.Errorf("nil MutableState must report nil waiver, got %+v", got)
 	}
-	m.RetainEvidenceFloorWaiver()
+	m.RetainEvidenceFloorWaiver(true)
 	m.ClearEvidenceFloorWaiver()
 	if got := m.StableEvidenceFloorWaiver(); got != nil {
 		t.Errorf("nil MutableState must report nil stable waiver, got %+v", got)
@@ -183,7 +183,7 @@ func TestMutableState_EvidenceFloorWaiverRetainedOnlyAfterPromotion(t *testing.T
 	if got := m.StableEvidenceFloorWaiver(); got != nil {
 		t.Fatalf("waiver must not be stable before promotion, got %+v", got)
 	}
-	m.RetainEvidenceFloorWaiver()
+	m.RetainEvidenceFloorWaiver(true)
 	got := m.StableEvidenceFloorWaiver()
 	if !got.IsActive() || got.Reason != EvidenceFloorWaiverNoRepoIntersection {
 		t.Fatalf("stable waiver lost after promotion: %+v", got)

@@ -625,6 +625,28 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 
 func runtimeArtifactCitationFloorWaived(mut *types.MutableState, o *Orchestrator) bool {
 	if mut != nil {
+		// F1-T1 (2026-07-03): typed post-acceptance waiver arm. A
+		// model-declared EvidenceFloorWaiver is retained into the
+		// stable slot only after emit_investigation_complete passed
+		// every completion gate (typed enum reason + non-empty
+		// rationale + artifact-context / hard-requirement acceptance
+		// gates), so it is a precise signal for relaxing the finalize
+		// citation FLOOR. This arm deliberately does NOT go through
+		// the RuntimeGroundingDisposition projection below — that
+		// projection's artifact gate (commit 20c0f3fc) governs the
+		// observation-only citation POLICY (prompt / provenance) and
+		// is intentionally narrower; the waiver may relax the floor
+		// even when no bundle is attached (referenced-artifact runs).
+		// Do not mirror this arm into
+		// runtimeArtifactCitationFloorWaivedForBus: that helper also
+		// drives runtime-observation-key inflation into the citation
+		// support count, the pre-emit repo-contamination hint, and
+		// the finalizer-locus capacity override — surfaces the waiver
+		// alone does not justify (no runtime observation keys are
+		// guaranteed to exist).
+		if w := mut.StableEvidenceFloorWaiver(); w.IsActive() {
+			return true
+		}
 		if bundle := mut.LogTriage(); bundle != nil && bundle.IsExternalSource() {
 			return true
 		}
@@ -636,6 +658,30 @@ func runtimeArtifactCitationFloorWaived(mut *types.MutableState, o *Orchestrator
 		return true
 	}
 	return false
+}
+
+// finalizeCitationFloorSuccessCriterionWaived reports whether a failed
+// finalize SuccessCriteria entry of the given kind is covered by the
+// same citation-floor waiver that relaxes CitationReq in
+// runContractCheck. F1-T2 (2026-07-03): the SC merge loop reuses the
+// runtimeArtifactCitationFloorWaived chokepoint so the checker relax
+// and the SC waive can never diverge again — all three
+// citation-threshold paths (checker CitationReq, checker
+// citation_count_ge acceptance, finalize SuccessCriteria merge) agree,
+// mirroring the absence carve-out that already spans all three.
+//
+// contract_satisfied is included because with a non-empty draft its
+// only failure mode is the citation floor (criterion/eval.go
+// evalContractSatisfied: empty draft → not satisfied; otherwise the
+// sole check is DraftCitations < CitationReq.MinCitations). If a
+// future evaluator change adds non-citation failure modes for a
+// present draft, this waive would over-cover — revisit the kind set
+// then.
+func finalizeCitationFloorSuccessCriterionWaived(kind string, mut *types.MutableState, o *Orchestrator) bool {
+	if kind != types.CritCitationCountGE && kind != types.CritContractSatisfied {
+		return false
+	}
+	return runtimeArtifactCitationFloorWaived(mut, o)
 }
 
 func runtimeArtifactCitationFloorWaivedForBus(bus *types.BusContext, alreadyChecked *types.MutableState) bool {

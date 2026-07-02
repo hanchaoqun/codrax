@@ -5082,15 +5082,21 @@ func (m *MutableState) ClearEvidenceFloorWaiver() {
 
 // RetainEvidenceFloorWaiver promotes the current waiver into the stable
 // answer-surface slot after emit_investigation_complete has passed every
-// completion gate. If no current active waiver exists, the stable slot is
-// cleared so a later normal completion can retract a prior waiver.
-func (m *MutableState) RetainEvidenceFloorWaiver() {
+// completion gate — but only when the accepting attempt itself declared
+// the waiver in its payload (declaredThisAttempt). The pending slot is
+// declared-until-retracted across DENIED attempts, so without this guard
+// a stale declaration from an earlier denied attempt would be promoted
+// by a later waiver-less completion and silently arm the finalize-side
+// citation-floor relax for a repo-grounded answer. A waiver-less accepted
+// completion therefore clears the stable slot: the stable state mirrors
+// the LAST accepted completion's own declaration.
+func (m *MutableState) RetainEvidenceFloorWaiver(declaredThisAttempt bool) {
 	if m == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !m.evidenceFloorWaiver.IsActive() {
+	if !declaredThisAttempt || !m.evidenceFloorWaiver.IsActive() {
 		m.retainedEvidenceFloorWaiver = nil
 		m.bumpAnswerSurfaceRevisionLocked()
 		return

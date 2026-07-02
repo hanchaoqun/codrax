@@ -2239,7 +2239,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	ctx.Mutable.SetInvestigationComplete(reason)
 	ctx.Mutable.SetInvestigationResultKind(resultKind)
 	ctx.Mutable.RetainInvestigationAggregateFacts()
-	ctx.Mutable.RetainEvidenceFloorWaiver()
+	// Promote the waiver only when THIS accepted attempt declared it and
+	// the declaration was not ignored — a stale pending waiver from an
+	// earlier denied attempt must not arm the finalize citation-floor
+	// relax for a completion that stood on repo evidence.
+	ctx.Mutable.RetainEvidenceFloorWaiver(p.EvidenceFloorWaiver != nil && ignoredEvidenceWaiver == "")
 	if drained := ctx.Mutable.EvidenceClosure().ClearPendingReads(); drained > 0 {
 		logging.Info("[emit_investigation_complete] cleared %d stale pending forced-read directive(s) after accepted completion", drained)
 	}

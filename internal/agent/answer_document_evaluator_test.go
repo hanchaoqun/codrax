@@ -5017,7 +5017,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 		Reason:    types.EvidenceFloorWaiverNoRepoIntersection,
 		Rationale: "synthetic frames represent a different deployed build",
 	})
-	mut.RetainEvidenceFloorWaiver()
+	mut.RetainEvidenceFloorWaiver(true)
 	mut.SetInvestigationComplete("IndexPage supplied the undefined user object, but the artifact directly shows only the RuntimeError frame")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{
 		AcceptedClosureReason: "IndexPage supplied the undefined user object, but the artifact directly shows only the RuntimeError frame",
@@ -5273,7 +5273,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeClosureRe
 		Reason:    types.EvidenceFloorWaiverNoRepoIntersection,
 		Rationale: "synthetic frames represent a different deployed build",
 	})
-	mut.RetainEvidenceFloorWaiver()
+	mut.RetainEvidenceFloorWaiver(true)
 	mut.SetInvestigationComplete("artifact line 12 shows RuntimeError; current checkout was not part of this observation-only answer")
 	ctx := &types.AgentContext{
 		Mutable: mut,
@@ -5325,7 +5325,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SkipsRuntimeClosureNarr
 		Reason:    types.EvidenceFloorWaiverNoRepoIntersection,
 		Rationale: "attached trace is an external runtime artifact",
 	})
-	mut.RetainEvidenceFloorWaiver()
+	mut.RetainEvidenceFloorWaiver(true)
 	mut.SetInvestigationComplete("trace_query finished; earlier runtime closure says prio=53 CFS")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{
 		AcceptedClosureReason: "trace_query finished; earlier runtime closure says prio=53 CFS",
@@ -5391,7 +5391,7 @@ func TestAnswerDocumentFallbackEvidenceRows_RuntimeObservationOnlySkipsCurrentRe
 		Reason:    types.EvidenceFloorWaiverNoRepoIntersection,
 		Rationale: "artifact frames are from a different deployed build",
 	})
-	mut.RetainEvidenceFloorWaiver()
+	mut.RetainEvidenceFloorWaiver(true)
 	ctx := &types.AgentContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{
@@ -5692,7 +5692,7 @@ func TestAnswerDocumentEvaluator_LogSourceDriftHonorsRuntimeDisposition(t *testi
 		Reason:    plan.RuntimeGroundingDisposition.Reason,
 		Rationale: plan.RuntimeGroundingDisposition.Rationale,
 	})
-	ctx.Mutable.RetainEvidenceFloorWaiver()
+	ctx.Mutable.RetainEvidenceFloorWaiver(true)
 	ctx.EvidenceItems = []types.EvidenceItem{{
 		Source:          "a.go",
 		LineStart:       40,

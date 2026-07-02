@@ -5901,6 +5901,19 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					logging.Info("[orchestrator] finalize success criteria failed: %s %s – %s (waived: drift-bounded root-cause surface carries the minimum grounded citation set for the current checkout)", f.Kind, f.Expr, f.Detail)
 					continue
 				}
+				// F1-T2 (2026-07-03): citation-floor criteria are waived
+				// when the floor itself is waived (retained typed
+				// evidence-floor waiver or external-source runtime
+				// artifact). Reuses the exact chokepoint that relaxed
+				// CitationReq inside runContractCheck above, so the
+				// checker relax and this SC waive cannot diverge —
+				// without this arm a waived observation-only answer
+				// (0 repo citations by instruction) re-raised
+				// ViolSuccessCriterion every finalize pass.
+				if finalizeCitationFloorSuccessCriterionWaived(string(f.Kind), o.busCtx.Mutable, o) {
+					logging.Info("[orchestrator] finalize success criteria failed: %s %s — %s (waived: evidence floor waiver)", f.Kind, f.Expr, f.Detail)
+					continue
+				}
 				logging.Info("[orchestrator] finalize success criteria failed: %s %s — %s", f.Kind, f.Expr, f.Detail)
 				v := contract.Violation{
 					Kind:   contract.ViolSuccessCriterion,
