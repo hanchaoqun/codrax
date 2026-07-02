@@ -836,11 +836,13 @@ func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection,
 func runtimeTraceCausalProjectionClusterIntro(projection types.TraceCausalProjection, lang string, zh bool) string {
 	intro := runtimeTraceCausalProjectionIntro(lang)
 	if len(projection.WakeupPath) >= 2 {
-		chain := strings.Join(projection.WakeupPath, " ▸ ")
+		pathView := runtimeTraceCausalProjectionBoundedPathView(projection.WakeupPath, 8)
+		chain := runtimeTraceCausalProjectionFormatPathView(pathView, zh)
+		note := runtimeTraceCausalProjectionPathViewNote(pathView, zh)
 		if zh {
-			intro += fmt.Sprintf("\n\n唤醒链: `%s` — 阅读方向为上游唤醒/依赖者逐级影响目标线程;💤 sleep 行本身不是根因,其下钻根因见「下钻→」列,`⛔` 表示窗口内无匹配 sched_wakeup、无法下钻。", chain)
+			intro += fmt.Sprintf("\n\n唤醒链: `%s`%s — 阅读方向为上游唤醒/依赖者逐级影响目标线程;💤 sleep 行本身不是根因,其下钻根因见「下钻→」列,`⛔` 表示窗口内无匹配 sched_wakeup、无法下钻。", chain, note)
 		} else {
-			intro += fmt.Sprintf("\n\nWakeup chain: `%s` — read upstream waker/dependency to target; a 💤 sleep row is a symptom (see the drilldown column), and `⛔` marks a sleep with no matching sched_wakeup in the window (cannot drill further).", chain)
+			intro += fmt.Sprintf("\n\nWakeup chain: `%s`%s — read upstream waker/dependency to target; a 💤 sleep row is a symptom (see the drilldown column), and `⛔` marks a sleep with no matching sched_wakeup in the window (cannot drill further).", chain, note)
 		}
 	}
 	if len(projection.BackgroundCauses) == 0 {
@@ -851,6 +853,117 @@ func runtimeTraceCausalProjectionClusterIntro(projection types.TraceCausalProjec
 		}
 	}
 	return intro
+}
+
+type runtimeTraceCausalProjectionPathView struct {
+	Prefix        []string
+	Suffix        []string
+	OriginalCount int
+	OmittedCount  int
+	RepeatPeriod  int
+	RepeatCount   int
+}
+
+func runtimeTraceCausalProjectionBoundedPathView(path []string, maxDisplayNodes int) runtimeTraceCausalProjectionPathView {
+	clean := runtimeTraceCausalProjectionCleanPath(path)
+	view := runtimeTraceCausalProjectionPathView{OriginalCount: len(clean)}
+	view.RepeatPeriod, view.RepeatCount = runtimeTraceCausalProjectionRepeatingPath(clean)
+	if len(clean) == 0 {
+		return view
+	}
+	if maxDisplayNodes < 4 {
+		maxDisplayNodes = 4
+	}
+	if len(clean) <= maxDisplayNodes {
+		view.Prefix = clean
+		return view
+	}
+	head := maxDisplayNodes / 2
+	tail := maxDisplayNodes - head - 1
+	if tail < 1 {
+		tail = 1
+	}
+	if head < 1 {
+		head = 1
+	}
+	if head+tail >= len(clean) {
+		view.Prefix = clean
+		return view
+	}
+	view.Prefix = append([]string{}, clean[:head]...)
+	view.Suffix = append([]string{}, clean[len(clean)-tail:]...)
+	view.OmittedCount = len(clean) - head - tail
+	return view
+}
+
+func runtimeTraceCausalProjectionCleanPath(path []string) []string {
+	out := make([]string, 0, len(path))
+	for _, item := range path {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func runtimeTraceCausalProjectionRepeatingPath(path []string) (int, int) {
+	if len(path) < 6 {
+		return 0, 0
+	}
+	maxPeriod := len(path) / 2
+	if maxPeriod > 6 {
+		maxPeriod = 6
+	}
+	for period := 1; period <= maxPeriod; period++ {
+		if len(path)/period < 3 {
+			continue
+		}
+		matches := true
+		for i := range path {
+			if runtimeTraceCausalProjectionCanonicalNode(path[i]) != runtimeTraceCausalProjectionCanonicalNode(path[i%period]) {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return period, len(path) / period
+		}
+	}
+	return 0, 0
+}
+
+func runtimeTraceCausalProjectionFormatPathView(view runtimeTraceCausalProjectionPathView, zh bool) string {
+	var parts []string
+	parts = append(parts, view.Prefix...)
+	if view.OmittedCount > 0 {
+		if zh {
+			parts = append(parts, fmt.Sprintf("…省略%d节点…", view.OmittedCount))
+		} else {
+			parts = append(parts, fmt.Sprintf("…%d omitted…", view.OmittedCount))
+		}
+	}
+	parts = append(parts, view.Suffix...)
+	return strings.Join(parts, " ▸ ")
+}
+
+func runtimeTraceCausalProjectionPathViewNote(view runtimeTraceCausalProjectionPathView, zh bool) string {
+	if view.OmittedCount <= 0 {
+		return ""
+	}
+	if zh {
+		note := fmt.Sprintf("（原始链路共%d节点/%d跳,中间已压缩%d节点", view.OriginalCount, max(0, view.OriginalCount-1), view.OmittedCount)
+		if view.RepeatPeriod > 0 && view.RepeatCount > 0 {
+			note += fmt.Sprintf(",检测到%d节点循环约%d轮", view.RepeatPeriod, view.RepeatCount)
+		}
+		return note + ";完整链路见原始 trace_query 记录）"
+	}
+	note := fmt.Sprintf(" (original chain has %d nodes/%d hops; %d middle nodes compressed", view.OriginalCount, max(0, view.OriginalCount-1), view.OmittedCount)
+	if view.RepeatPeriod > 0 && view.RepeatCount > 0 {
+		note += fmt.Sprintf("; detected an approximately %d-node cycle repeated %d times", view.RepeatPeriod, view.RepeatCount)
+	}
+	return note + "; full chain remains in the original trace_query record)"
 }
 
 func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInput, lang string) *types.AnswerBlock {
@@ -1813,7 +1926,11 @@ func runtimeTraceCausalProjectionNodeShort(node types.TraceCausalProjectionNode)
 }
 
 func runtimeTraceCausalProjectionWakeupDiagram(projection types.TraceCausalProjection, zh bool) string {
-	path := projection.WakeupPath
+	pathView := runtimeTraceCausalProjectionBoundedPathView(projection.WakeupPath, 10)
+	if pathView.OriginalCount < 2 {
+		return ""
+	}
+	path := runtimeTraceCausalProjectionDiagramPathNodes(pathView, zh)
 	if len(path) < 2 {
 		return ""
 	}
@@ -1824,7 +1941,7 @@ func runtimeTraceCausalProjectionWakeupDiagram(projection types.TraceCausalProje
 		id := fmt.Sprintf("w%d", i)
 		ids[i] = id
 		label := runtimeTraceCausalProjectionMermaidLabel(node)
-		if i == len(path)-1 {
+		if i == len(path)-1 && pathView.SuffixPathCarriesTarget() {
 			if zh {
 				label += " (目标)"
 			} else {
@@ -1861,6 +1978,23 @@ func runtimeTraceCausalProjectionWakeupDiagram(projection types.TraceCausalProje
 	// and the on-chain vs off-chain distinction is already carried losslessly by
 	// the table's chain column plus the node shape (rectangle vs rounded).
 	return b.String()
+}
+
+func runtimeTraceCausalProjectionDiagramPathNodes(view runtimeTraceCausalProjectionPathView, zh bool) []string {
+	nodes := append([]string{}, view.Prefix...)
+	if view.OmittedCount > 0 {
+		if zh {
+			nodes = append(nodes, fmt.Sprintf("省略%d节点", view.OmittedCount))
+		} else {
+			nodes = append(nodes, fmt.Sprintf("%d omitted", view.OmittedCount))
+		}
+	}
+	nodes = append(nodes, view.Suffix...)
+	return nodes
+}
+
+func (view runtimeTraceCausalProjectionPathView) SuffixPathCarriesTarget() bool {
+	return view.OriginalCount > 0 && (view.OmittedCount == 0 || len(view.Suffix) > 0)
 }
 
 func runtimeTraceCausalProjectionSleepDiagram(projection types.TraceCausalProjection, zh bool) string {

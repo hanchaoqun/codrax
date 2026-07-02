@@ -1261,5 +1261,30 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 - Batch 3 已落地:source-optional runtime artifact turn 会经过 deterministic IR 后处理,将 probe/evidence/validate/reconcile/finalize 节点改为 artifact-local 目标/输入/输出;trace 场景的 `SourceMix` 收敛为 `trace_query=100`,不再保留 codebase/call-site 导向目标或源码 search hints。
 - Batch 4 已落地:explorer runtime-source helper 改为消费 `RuntimeArtifactContextActiveFromAgent(ctx)`,让 typed preflight/attachment/runtime observation 能阻断 source proof 变成硬门;精确 current-source anchor 仍保持 source lane load-bearing。
 - Batch 5 已落地:新增 analyzer/IR 回归钉住 preflight trace source-optional 不生成 codebase DAG、不保留 citation floor、不保留 source hints;新增负例确保精确 current-source trace 问题仍保留 citation/source DAG;相关 agent/orchestrator/types/tool focused tests 通过。
-- Batch 6 待复测:重跑 `trace_query_donghu_real_frame_multicausal` 和一个 mixed trace/source case,确认 Donghu 不再出现 repo_map/current-source read_file 和 completion 回弹,同时 mixed source case 不退化。
+- Batch 6 已复测:重跑 `trace_query_donghu_real_frame_multicausal` 与 `read_combo_trace_current_source_explanation` (`eval/parallel_selected_summary_20260702-082949.md`),两例均 PASS。Donghu 从 866s 降到 178s,`repo_map=0/list_files=0/source_lens=0/trace_query=7`,仅剩 `read_file=2` 且均为 `.codrax/blob/.../trace-query-result-*.json` artifact-local 行锚读取,不是源码 lane 回流;mixed trace+source case 保持 `repo_map=2/read_file=1/trace_query=2`,符合用户明确要求结合当前源码的语义。
 - Batch 7 排队:P1 `read_combo_log_current_source_explanation` 的 current-source owner selection 弱问题需要单独设计,不能被 runtime-only carve-out 吞掉。
+- Batch 8 新增残留:P1 completion form debt 仍存在一次局部重试(`investigation_complete=3/1`),但没有重开源码探索;继续归入 Local Landing Repair Loop 后续任务,不能再把表单债务误判为证据不足。
+
+### 7.25 Eval 暴露 gap:长唤醒链 intro/diagram 仍过宽(2026-07-02)
+
+§7.23 已经把 `Trace 因果投影` 主表、on-chain 表、影响表和证据索引瘦身,但复测 `trace_query_donghu_real_frame_multicausal` 的最终答案仍暴露一个展示层残留:投影 intro 的 `唤醒链:` 直接把 `projection.WakeupPath` 全量 `strings.Join` 到用户面,当 trace_query 产出几十跳或重复循环链路时,第一屏仍会出现很长的 `ThreadPoolForeg ▸ NetworkService ▸ ...` 链条;mermaid wakeup diagram 同样会把所有节点画出,导致关系图和主读面再次被撑宽。
+
+这不是 trace_query 根因算法 gap,也不是 completion hard gate gap。完整链路必须继续保存在原始 `trace_query` 结构化记录里;用户面只需要 bounded projection:展示前后关键节点、省略计数、重复/循环审计提示,并明确"完整链路见原始 trace_query 记录"。
+
+**原则。**
+
+- 只消费 typed `TraceCausalProjection.WakeupPath`,不从模型散文或用户关键词判断是否压缩。
+- 用户面 bounded,证据面无损:AnswerDocument intro/diagram 可以压缩,原始 trace_query observation 仍是完整链路权威。
+- 压缩必须泛化:基于节点数量、重复周期、前后保留窗口等结构信号,不针对 ThreadPool/NetworkService/Donghu 等单个 shape。
+- on-chain 表仍逐层展示可承重节点;压缩只处理"链路概览/拓扑图太宽",不丢弃影响表和证据索引里的 typed rows。
+
+**任务列表。**
+
+- **Batch 1: 文档落账本。** 本节记录长唤醒链展示残留、边界和任务拆解。
+- **Batch 2: bounded path view helper。** 新增 deterministic path projection:清洗空节点,当链路超过上限时保留前后节点并插入省略计数;识别小周期重复链路并输出 typed audit note。
+- **Batch 3: intro 接入。** `runtimeTraceCausalProjectionClusterIntro` 使用 bounded path view,长链显示 `…省略N节点…` 与"完整链路见原始 trace_query 记录"。
+- **Batch 4: diagram 接入。** `runtimeTraceCausalProjectionWakeupDiagram` 使用同一 bounded view,用一个省略节点代替中间长链,避免 mermaid/终端图爆宽。
+- **Batch 5: 回归看护。** 新增长重复唤醒链测试:16 节点循环链路不得在 intro 中全量展开,必须显示省略计数/循环审计提示;diagram 边数必须有界。
+- **Batch 6: focused 验证与推送。** 跑 trace causal projection focused tests,更新 eval manual audit,提交推送 main。
+
+**当前进展。** Batch 1-6 已落地:新增 bounded path view 与长重复链路测试,并已接入 intro/diagram;focused `TraceCausalProjection|RuntimeTraceCausalProjection` tests、types focused tests、`go test ./internal/tool ./internal/types -count=1` 均通过。

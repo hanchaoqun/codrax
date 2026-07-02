@@ -753,6 +753,65 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	}
 }
 
+func TestApplyAndPersistMutation_TraceCausalProjectionBoundsLongWakeupChainDisplay(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+	}}
+	var path []string
+	for i := 0; i < 8; i++ {
+		path = append(path, "ThreadPoolForeg-60555", "NetworkService-60595")
+	}
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{
+			traceProjectionObservation("root-threadpool", "ThreadPoolForeg-60555", "io_wait", "11.000", "11.000", 1),
+			{
+				ID:              "path",
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				GroundingPolicy: types.ClaimGroundingHard,
+				Predicate:       "wakeup_chain",
+				ClaimKey:        "wakeup_chain:path",
+				Object:          strings.Join(path, " -> "),
+			},
+		},
+	}}
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "runtime chain observed."},
+		},
+	}
+
+	if _, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	projection := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection")
+	if projection == nil {
+		t.Fatalf("missing projection block: %+v", got.Blocks)
+	}
+	fullChain := strings.Join(path, " ▸ ")
+	for _, want := range []string{"省略", "原始链路共16节点/15跳", "检测到2节点循环约8轮", "完整链路见原始 trace_query 记录"} {
+		if !strings.Contains(projection.Text, want) {
+			t.Fatalf("long wakeup chain intro should carry bounded audit note %q:\n%s", want, projection.Text)
+		}
+	}
+	if strings.Contains(projection.Text, fullChain) || strings.Count(projection.Text, " ▸ ") > 8 {
+		t.Fatalf("long wakeup chain intro should be bounded, not full-width:\n%s", projection.Text)
+	}
+	wakeup := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_wakeup")
+	if wakeup == nil || wakeup.Diagram == nil {
+		t.Fatalf("missing wakeup diagram: %+v", got.Blocks)
+	}
+	if !strings.Contains(wakeup.Diagram.Body, "省略") || strings.Count(wakeup.Diagram.Body, "-->|") > 10 {
+		t.Fatalf("long wakeup diagram should be bounded:\n%s", wakeup.Diagram.Body)
+	}
+}
+
 // TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad pins the
 // full presentation-gap coverage (§7 c/d/e) end-to-end in the rendered markdown:
 // a sleep-dominant node is marked a symptom and drilled to its direct typed
