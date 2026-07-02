@@ -4272,7 +4272,14 @@ func TestNormalizeInvisibleOutOfRangeCitationRefs_DetachesPresentationOnlyCarrie
 	}
 }
 
-func TestRunPreEmitChecks_CitationPoolShortCircuitsSemanticMemberHints(t *testing.T) {
+// F5-T2 (2026-07-03): the citation-carrier checks no longer
+// short-circuit the later subgates. Post-D1-G95 the carrier kinds are
+// advisory, so the old early return let a carrier advisory silently
+// skip the same-emit hard lanes (required diagram block / complete
+// member set). New contract: carrier repair still LEADS the fix-list
+// ordering, its hint stays free of member-set diagnostics, and the
+// downstream semantic hints coexist in the same result.
+func TestRunPreEmitChecks_CitationCarrierLeadsWithoutShortCircuit(t *testing.T) {
 	mut := types.NewMutableState("citation carrier failure")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:    types.AnswerAggregateMemberSet,
@@ -4296,14 +4303,24 @@ func TestRunPreEmitChecks_CitationPoolShortCircuitsSemanticMemberHints(t *testin
 	}
 
 	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx)
-	if len(hints) != 1 {
-		t.Fatalf("citation-carrier failure should short-circuit downstream semantic hints, got %+v", hints)
+	if len(hints) < 2 {
+		t.Fatalf("carrier advisory must not skip downstream semantic hints, got %+v", hints)
 	}
 	if !strings.Contains(hints[0].Field, "citations") {
-		t.Fatalf("first and only hint should repair citation carrier, got %+v", hints[0])
+		t.Fatalf("carrier repair must lead the fix-list ordering, got %+v", hints[0])
 	}
 	if strings.Contains(hints[0].ExpectedShape+hints[0].Reason, "PreEmitCheck") {
-		t.Fatalf("carrier short-circuit should not mix member_set diagnostics into citation repair, got %+v", hints[0])
+		t.Fatalf("carrier hint must not mix member_set diagnostics into citation repair, got %+v", hints[0])
+	}
+	foundMemberSet := false
+	for _, hint := range hints[1:] {
+		if hint.Kind == types.ViolExhaustiveMemberSetCoverageDrift &&
+			strings.Contains(hint.ExpectedShape, "PreEmitCheck") {
+			foundMemberSet = true
+		}
+	}
+	if !foundMemberSet {
+		t.Fatalf("member-set coverage hint must run in the same emit as the carrier advisory, got %+v", hints)
 	}
 }
 

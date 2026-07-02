@@ -38,7 +38,40 @@ const (
 	// Downstream answer-caveat materialization must therefore consume the
 	// current violation result, not this run-level stamp, to avoid stale
 	// caveats after deterministic finalizer repair.
+	//
+	// 2026-07-03 F8 ruling: the three answer-surface validator stamp
+	// sites (enumeration item label / diagram edge endpoint / inline
+	// identifier) no longer produce this class — oracle ABSENCE is a
+	// noisy signal (index coverage / tier / flat-form heuristics) and
+	// must not drive the L1 symbol tool gates. They stamp
+	// TypedDenialAnswerSurfaceSymbolAdvisory on the advisory lane
+	// instead (partial reversal of commit 2e3da86c). The class stays
+	// registered for wire compatibility with previously serialized
+	// sets; it currently has no producer.
 	TypedDenialAnswerSurfaceSymbolUnverified TypedDenialClass = "answer_surface_symbol_unverified"
+
+	// TypedDenialAnswerSurfaceSymbolAdvisory is the advisory-lane
+	// replacement for the answer-surface oracle-miss stamps (F8,
+	// 2026-07-03). A record of this class is telemetry plus
+	// user-disclosure input ONLY:
+	//
+	//   - it is stored on the TypedDenialSet's separate advisory
+	//     lane, never the denial lane, so no denial-lane consumer
+	//     (L1 tool refusal via IsSymbolDenied / IsPathDenied, L2
+	//     prompt Sanitise, L3 denied-token answer check) can ever
+	//     observe it;
+	//   - it is deliberately NOT symbol-shaped and NOT path-shaped
+	//     (classIsSymbolShaped / classIsPathShaped exclude it);
+	//   - its only consumers are advisory surfaces: the
+	//     enumeration-label verification system supplement and
+	//     operator telemetry via AdvisorySnapshot.
+	//
+	// Precise-signals red line: oracle absence is a noisy signal, so
+	// it may drive soft guidance / disclosure only. The precise
+	// evidence-side lane (stampUngroundedEvidenceDenials: final
+	// GroundingStatus=Ungrounded AND dual oracle miss) keeps stamping
+	// the hard TypedDenialEvidenceSubjectUnverified class.
+	TypedDenialAnswerSurfaceSymbolAdvisory TypedDenialClass = "answer_surface_symbol_advisory"
 
 	// TypedDenialDriftFrameRelocated fires when authority's drift
 	// detector returns FileMoved / Unmappable for a frame: the symbol
@@ -65,12 +98,22 @@ func IsValidTypedDenialClass(c TypedDenialClass) bool {
 		TypedDenialExternalPerfStallUnresolved,
 		TypedDenialOracleSymbolUnverified,
 		TypedDenialAnswerSurfaceSymbolUnverified,
+		TypedDenialAnswerSurfaceSymbolAdvisory,
 		TypedDenialDriftFrameRelocated,
 		TypedDenialEvidenceSubjectUnverified,
 		TypedDenialAttachedExtractedUnscoped:
 		return true
 	}
 	return false
+}
+
+// classIsAdvisoryOnly reports whether the class lives on the advisory
+// lane: telemetry + user-disclosure input only, with zero effect on
+// the L1 tool gates, the L2 prompt sanitiser, and the L3 denied-token
+// answer check. Add routes these records to the advisory slice so a
+// denial-lane consumer can never observe them by construction.
+func (d TypedDenial) classIsAdvisoryOnly() bool {
+	return d.Class == TypedDenialAnswerSurfaceSymbolAdvisory
 }
 
 // TypedDenial is the architectural negative-knowledge unit: a verbatim
@@ -135,6 +178,16 @@ type TypedDenial struct {
 type TypedDenialSet struct {
 	mu      sync.RWMutex
 	denials []TypedDenial
+
+	// advisories is the separate advisory lane (F8, 2026-07-03).
+	// Records whose class is advisory-only (classIsAdvisoryOnly) are
+	// stored here so the denial-lane consumers — IsPathDenied /
+	// IsSymbolDenied refusal gates, Sanitise, Snapshot-driven answer
+	// checks — never see them. In-memory only: MarshalJSON does not
+	// serialize this lane (a disclosure input is current-run state;
+	// persisting it would resurrect stale advisory notes across
+	// sessions).
+	advisories []TypedDenial
 }
 
 // NewTypedDenialSet returns an empty, ready-to-share set. The
@@ -147,6 +200,11 @@ func NewTypedDenialSet() *TypedDenialSet {
 // Add stamps a new denial. Duplicate (Class, Token) pairs are
 // silently dropped — the same token failing multiple gates of the
 // same class is one logical denial. Append-only during a Run.
+//
+// Advisory-only classes are routed to the separate advisory lane so
+// a caller cannot accidentally promote an advisory record into a
+// denial-lane consumer (safe by construction, not by call-site
+// discipline).
 func (s *TypedDenialSet) Add(d TypedDenial) {
 	if s == nil {
 		return
@@ -157,12 +215,71 @@ func (s *TypedDenialSet) Add(d TypedDenial) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if d.classIsAdvisoryOnly() {
+		for _, existing := range s.advisories {
+			if existing.Class == d.Class && existing.Token == d.Token {
+				return
+			}
+		}
+		s.advisories = append(s.advisories, d)
+		return
+	}
 	for _, existing := range s.denials {
 		if existing.Class == d.Class && existing.Token == d.Token {
 			return
 		}
 	}
 	s.denials = append(s.denials, d)
+}
+
+// AddAnswerSurfaceAdvisory records an answer-surface oracle-miss
+// token on the advisory lane. Convenience wrapper used by the
+// answer-surface hallucination validators (F8, 2026-07-03) after
+// their hard denial stamps were retired.
+func (s *TypedDenialSet) AddAnswerSurfaceAdvisory(token, reason string) {
+	s.Add(TypedDenial{
+		Class:  TypedDenialAnswerSurfaceSymbolAdvisory,
+		Token:  token,
+		Reason: reason,
+	})
+}
+
+// AdvisorySnapshot returns a copy of the advisory-lane records.
+// Consumers: the enumeration-label verification supplement renderer
+// and operator telemetry. Never consulted by tool refusal gates or
+// the prompt sanitiser.
+func (s *TypedDenialSet) AdvisorySnapshot() []TypedDenial {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.advisories) == 0 {
+		return nil
+	}
+	out := make([]TypedDenial, len(s.advisories))
+	copy(out, s.advisories)
+	return out
+}
+
+// AdvisoryAnswerSurfaceSymbolTokens returns the deduplicated
+// advisory-lane tokens of the answer-surface class, in stamp order.
+func (s *TypedDenialSet) AdvisoryAnswerSurfaceSymbolTokens() []string {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	seen := make(map[string]bool, len(s.advisories))
+	var out []string
+	for _, d := range s.advisories {
+		if d.Class != TypedDenialAnswerSurfaceSymbolAdvisory || seen[d.Token] {
+			continue
+		}
+		seen[d.Token] = true
+		out = append(out, d.Token)
+	}
+	return out
 }
 
 // Len reports the number of stamped denials.
@@ -446,6 +563,12 @@ func (d TypedDenial) classIsPathShaped() bool {
 
 // classIsSymbolShaped reports whether the denial token is a symbol
 // name (consumed by IsSymbolDenied / SymbolTokens).
+//
+// TypedDenialAnswerSurfaceSymbolAdvisory is deliberately NOT listed:
+// the F8 ruling (2026-07-03) is that an answer-surface oracle miss is
+// a noisy signal and must never gate the L1 symbol tools. Do not add
+// it here — the ratchet test in the orchestrator stamp-sites suite
+// pins the advisory lane's zero-gate contract.
 func (d TypedDenial) classIsSymbolShaped() bool {
 	switch d.Class {
 	case TypedDenialOracleSymbolUnverified,
@@ -478,6 +601,10 @@ func sanitiseClassSuffix(c TypedDenialClass) string {
 	case TypedDenialOracleSymbolUnverified:
 		return "unknown-symbol"
 	case TypedDenialAnswerSurfaceSymbolUnverified:
+		return "unknown-symbol"
+	case TypedDenialAnswerSurfaceSymbolAdvisory:
+		// Defensive only: advisory records live on the advisory lane
+		// and never reach Sanitise (which walks the denial lane).
 		return "unknown-symbol"
 	case TypedDenialDriftFrameRelocated:
 		return "moved-or-removed"
@@ -517,6 +644,11 @@ func (d TypedDenial) HumanRefusalReason(scope string) string {
 		return "This symbol name does not exist in any source file indexed for the current repository (or workspace, for multi-repo). Searching the repository for it will return nothing useful. If the user's question is about this name, it likely refers to something outside the codebase — answer from the surrounding context (the attached input, the user's prose) without trying to ground a definition site."
 	case TypedDenialAnswerSurfaceSymbolUnverified:
 		return "This symbol name appeared in a previous answer draft, but it was not verified against the repository index. Do not promote it into a definition, item label, or diagram endpoint unless a current source anchor supports it."
+	case TypedDenialAnswerSurfaceSymbolAdvisory:
+		// Defensive only: advisory records never trigger tool
+		// refusals, so this text is unreachable through the refusal
+		// gates; kept so the switch stays total over the enum.
+		return "This symbol name appeared in an answer draft but could not be verified against the repository index. Treat it as unconfirmed and prefer identifiers backed by a current source anchor."
 	case TypedDenialDriftFrameRelocated:
 		return "The position originally referenced (file/line) no longer holds the symbol the input attributes to it — the code has been moved, renamed, or removed since the input was captured. Do not retry the original location; answer from the input's own description and acknowledge that the current code position is not stable for this symbol."
 	case TypedDenialEvidenceSubjectUnverified:

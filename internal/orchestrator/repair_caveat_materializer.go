@@ -223,6 +223,23 @@ func AppendSoftContractCaveatsToAnswer(answer string, violations []types.Violati
 }
 
 func AppendSoftContractCaveatsToAnswerForBus(answer string, violations []types.Violation, lang string, ctx *types.BusContext) string {
+	// F8-T2 (2026-07-03): when the current contract-check round
+	// flagged enumeration labels AND the advisory oracle-miss lane
+	// names identifiers still visible in the accepted document, ship
+	// ONE precise system supplement listing those identifiers and
+	// suppress the redundant generic enumeration-depth bullet for the
+	// two enum-label kinds (noise is eliminated at the source: one
+	// specific note instead of a vague caveat plus a note).
+	supplement := enumerationLabelVerificationSupplement(violations, ctx, lang)
+	if supplement != "" {
+		violations = suppressEnumerationLabelVerificationCaveats(violations)
+		answer = appendSoftContractCaveatsToAnswerForBusFiltered(answer, violations, lang, ctx)
+		return strings.TrimRight(answer, "\n") + "\n\n" + supplement + "\n"
+	}
+	return appendSoftContractCaveatsToAnswerForBusFiltered(answer, violations, lang, ctx)
+}
+
+func appendSoftContractCaveatsToAnswerForBusFiltered(answer string, violations []types.Violation, lang string, ctx *types.BusContext) string {
 	soft := softContractCaveatViolations(violations)
 	if len(soft) == 0 {
 		return answer
@@ -1073,6 +1090,138 @@ func appendSystemCaveatBullets(answer string, caveats []string, lang string) str
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// ── F8-T2 (2026-07-03): enumeration-label verification supplement ──
+//
+// When the answer-surface hallucination validator finds enumeration
+// item labels whose leading identifier the symbol oracle cannot
+// verify, the violation stays soft (oracle absence is a noisy signal)
+// and the identifiers are recorded on the TypedDenialSet's ADVISORY
+// lane. At the accept chokepoint this supplement lists those
+// identifiers precisely — patterned on the read-localization system
+// supplement — instead of the vague generic enumeration-depth bullet.
+//
+// Render condition is deliberately double-gated on precise signals:
+//
+//  1. the CURRENT round's violations contain an enum-label kind
+//     (typed kind comparison — never the run-level stamp alone, so a
+//     deterministically repaired draft cannot resurface a stale note;
+//     this honours the TypedDenialAnswerSurfaceSymbolUnverified doc
+//     contract "consume the current violation result"), AND
+//  2. an advisory token still appears verbatim as the leading
+//     identifier of an enumeration-surface item label in the accepted
+//     document (verbatim string match — a precise signal).
+//
+// The note is a disclosure in the sanctioned system-supplement lane:
+// it never rewrites or backfills the model-authored blocks.
+
+const enumerationLabelSupplementMaxIdents = 8
+
+func enumerationLabelVerificationSupplement(violations []types.Violation, ctx *types.BusContext, lang string) string {
+	if !violationsContainEnumerationLabelKind(violations) {
+		return ""
+	}
+	idents := unverifiedEnumerationLabelIdentsInCurrentDoc(ctx)
+	if len(idents) == 0 {
+		return ""
+	}
+	overflow := 0
+	if len(idents) > enumerationLabelSupplementMaxIdents {
+		overflow = len(idents) - enumerationLabelSupplementMaxIdents
+		idents = idents[:enumerationLabelSupplementMaxIdents]
+	}
+	quoted := make([]string, 0, len(idents))
+	for _, ident := range idents {
+		quoted = append(quoted, "`"+ident+"`")
+	}
+	var b strings.Builder
+	b.WriteString("---\n\n")
+	if isChineseLang(lang) {
+		b.WriteString("> **系统补充：枚举标签核对**\n>\n")
+		b.WriteString("> 下列条目名称未能在仓库索引中核对到对应声明（可能是拼写偏差、外部符号或索引未覆盖）。本说明不替代上方模型答案，请结合引用位置核对：")
+		b.WriteString(strings.Join(quoted, "、"))
+		if overflow > 0 {
+			fmt.Fprintf(&b, "（另有 %d 个未列出）", overflow)
+		}
+	} else {
+		b.WriteString("> **System supplement: enumeration label verification**\n>\n")
+		b.WriteString("> The following item names could not be matched to a declaration in the repository index (possible spelling drift, external symbols, or index coverage gaps). This note does not replace the model-authored answer above; verify them against the cited locations: ")
+		b.WriteString(strings.Join(quoted, ", "))
+		if overflow > 0 {
+			fmt.Fprintf(&b, " (+%d more)", overflow)
+		}
+	}
+	return b.String()
+}
+
+func violationsContainEnumerationLabelKind(violations []types.Violation) bool {
+	for _, v := range violations {
+		if v.Kind == types.ViolEnumerationLabelHallucinated ||
+			v.Kind == types.ViolEnumerationLabelUngrounded {
+			return true
+		}
+	}
+	return false
+}
+
+// suppressEnumerationLabelVerificationCaveats drops the two
+// enum-label kinds from the caveat-materialization input. Called ONLY
+// when the specific verification supplement is about to render for
+// the same answer, so the user sees one precise note instead of the
+// generic CaveatFamilyEnumerationDepth bullet plus the note. Sibling
+// kinds of the same caveat family (extractor drift, inline
+// identifier) keep their generic bullet — they are outside the F8
+// oracle-miss ruling.
+func suppressEnumerationLabelVerificationCaveats(violations []types.Violation) []types.Violation {
+	out := make([]types.Violation, 0, len(violations))
+	for _, v := range violations {
+		if v.Kind == types.ViolEnumerationLabelHallucinated ||
+			v.Kind == types.ViolEnumerationLabelUngrounded {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// unverifiedEnumerationLabelIdentsInCurrentDoc intersects the
+// advisory oracle-miss tokens with the leading identifiers of the
+// CURRENT document's enumeration-surface item labels, in document
+// order. Tokens that the model repaired away between rounds drop out
+// here, keeping the supplement stale-proof.
+func unverifiedEnumerationLabelIdentsInCurrentDoc(ctx *types.BusContext) []string {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	tokens := ctx.TypedDenials.AdvisoryAnswerSurfaceSymbolTokens()
+	if len(tokens) == 0 {
+		return nil
+	}
+	doc := ctx.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		return nil
+	}
+	tokenSet := make(map[string]bool, len(tokens))
+	for _, token := range tokens {
+		tokenSet[token] = true
+	}
+	seen := make(map[string]bool, len(tokens))
+	var out []string
+	for _, b := range doc.Blocks {
+		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList && b.Kind != types.BlockTable {
+			continue
+		}
+		for _, it := range b.Items {
+			ident := labelLeadingSymbolIdentifier(strings.TrimSpace(it.Label))
+			if ident == "" || !tokenSet[ident] || seen[ident] {
+				continue
+			}
+			seen[ident] = true
+			out = append(out, ident)
+		}
+	}
+	return out
 }
 
 // isChineseLang accepts the same set of variants the renderer

@@ -3218,10 +3218,14 @@ func citationLineMatchesEvidence(line int, ev types.EvidenceItem) bool {
 // Below 80% the violation fires with the list of drifted labels
 // + the verbatim names the LLM should have used.
 //
-// Default classification: STRICT — verbatim identifier
-// preservation is the contract between extractor (selects) and
-// finalizer (renders). Operators can soften via
-// pipeline_contract_strict_kinds yaml.
+// Default classification: SOFT-by-default (registry
+// ViolEnumerationItemLabelExtractorDrift, SoftByDefault=true since
+// the 2026-05-18 commercial-gate demote) — the answer ships with the
+// enumeration-depth caveat family instead of forcing a finalizer
+// rewrite. Verbatim identifier preservation remains the contract
+// between extractor (selects) and finalizer (renders); operators who
+// want enforcement promote via pipeline_contract_strict_kinds yaml
+// (Promotable=true is the typed escape lane).
 func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState, oracle types.SymbolOracle) []types.Violation {
 	if doc == nil || view == nil || mut == nil {
 		return nil
@@ -3675,21 +3679,30 @@ func stampUngroundedEvidenceDenials(denials *types.TypedDenialSet, mut *types.Mu
 	}
 }
 
-// stampOracleSymbolDenial records a confirmed-fabricated identifier
-// on the Run's typed denial channel. Called ONLY at the
-// post-escape-lane hallucination-confirmed sites — a raw oracle miss
-// on a support probe must never stamp (false denials would gate
-// legitimate searches). nil-safe: a nil set (tests, legacy callers)
-// is a no-op.
-func stampOracleSymbolDenial(denials *types.TypedDenialSet, ident, surface string) {
+// stampOracleSymbolAdvisory records an oracle-unverified identifier
+// on the Run's ADVISORY lane. Called at the post-escape-lane
+// answer-surface sites (enumeration item label / diagram edge
+// endpoint / inline identifier). nil-safe: a nil set (tests, legacy
+// callers) is a no-op.
+//
+// F8 ruling (2026-07-03, partial reversal of 2e3da86c): these three
+// sites previously stamped TypedDenialAnswerSurfaceSymbolUnverified,
+// a symbol-shaped class that hard-refused later grep patterns and
+// redacted the token from prompts. Oracle ABSENCE is a noisy signal
+// (repomap coverage / tier / flat-index heuristics), so per the
+// precise-signals red line it may drive soft guidance and disclosure
+// only: the typed violation still fires, and the advisory record
+// feeds the enumeration-label verification supplement plus operator
+// telemetry — with zero effect on the L1 tool gates and the L2
+// prompt sanitiser. The PRECISE denial lane remains
+// stampUngroundedEvidenceDenials (final GroundingStatus=Ungrounded
+// AND dual oracle miss — two precise signals ANDed).
+func stampOracleSymbolAdvisory(denials *types.TypedDenialSet, ident, surface string) {
 	if denials == nil {
 		return
 	}
-	denials.Add(types.TypedDenial{
-		Class:  types.TypedDenialAnswerSurfaceSymbolUnverified,
-		Token:  ident,
-		Reason: fmt.Sprintf("identifier %q failed symbol-oracle verification on the %s surface after every escape lane", ident, surface),
-	})
+	denials.AddAnswerSurfaceAdvisory(ident,
+		fmt.Sprintf("identifier %q failed symbol-oracle verification on the %s surface after every escape lane", ident, surface))
 }
 
 func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, denials *types.TypedDenialSet, mutOpt ...*types.MutableState) []types.Violation {
@@ -3757,7 +3770,7 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 			if found && tier < 3 {
 				continue
 			}
-			stampOracleSymbolDenial(denials, ident, "enumeration item label")
+			stampOracleSymbolAdvisory(denials, ident, "enumeration item label")
 			blockHits = append(blockHits, hallucinated{
 				itemID: it.ID,
 				label:  label,
@@ -3954,7 +3967,7 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 				return
 			}
 			seen[ident] = struct{}{}
-			stampOracleSymbolDenial(denials, ident, "diagram edge endpoint")
+			stampOracleSymbolAdvisory(denials, ident, "diagram edge endpoint")
 			blockHits = append(blockHits, hallucinated{
 				endpoint: surface,
 				ident:    ident,
@@ -4103,7 +4116,7 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 				continue
 			}
 			seen[ident] = struct{}{}
-			stampOracleSymbolDenial(denials, ident, "inline identifier")
+			stampOracleSymbolAdvisory(denials, ident, "inline identifier")
 			*hits = append(*hits, hallucinated{ident: ident, surface: surface})
 		}
 	}

@@ -274,6 +274,82 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 	}
 }
 
+// preEmitSubgateRouteRow declares one pre-emit checker call site:
+// its stable subgate name, the ViolationKind its hints are tagged
+// with, and the ONLY typed hard lane (if any) that may reject the
+// emit same-turn. HardLane == "" means the subgate is advisory-only
+// under the default registry policy (every registered kind here is
+// SoftByDefault=true; the deliberate post-D1-G95 state).
+//
+// F5 (2026-07-03): this table is the declarative mirror of
+// runPreEmitChecksWithContext. The registry-alignment scan test
+// (pre_emit_subgate_registry_alignment_test.go) asserts:
+//
+//  1. every Kind is registered in types.ViolKindSpec (closing the
+//     unregistered→Medium→hard-by-accident fallback lane),
+//  2. the routing matches the REAL preEmitHintHardByDefault split,
+//  3. the kind set equals the set actually passed to
+//     appendPreEmitHints/tagPreEmitHints in the checker body
+//     (go/parser scan — self-updating, no manual sync),
+//  4. hard lanes exist ONLY where preEmitSameTurnHardPolicyRows has
+//     a row (exactly two).
+//
+// The table pins the CURRENT advisory routing. ViolCitation carriers
+// went hard→advisory through D1-F7w→D1-G95 (documented ping-pong);
+// re-hardening any advisory row here would be round three.
+// Field is named ViolationKind (not Kind) on purpose: the CGEC
+// producer-coverage scan treats `Kind: Viol*` composite literals as
+// real producer evidence, and this table is a declarative routing
+// mirror, not a violation producer.
+type preEmitSubgateRouteRow struct {
+	Subgate       string
+	ViolationKind types.ViolationKind
+	HardLane      preEmitSameTurnHardSignal // "" = advisory-only
+}
+
+func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
+	return []preEmitSubgateRouteRow{
+		// 0. Citation-pool carrier integrity (append-and-continue;
+		// carrier repair leads the fix list but no longer skips the
+		// later subgates — F5-T2).
+		{Subgate: "citation_pool_integrity", ViolationKind: types.ViolCitation},
+		{Subgate: "negative_citation_bounds", ViolationKind: types.ViolAbsenceScopeExceeded},
+		{Subgate: "runtime_observation_repo_contamination", ViolationKind: types.ViolExternalArtifactUnderdecoded},
+		{Subgate: "artifact_observed_frame_citations", ViolationKind: types.ViolCitation},
+		// 1. Required block kind + count compliance.
+		{Subgate: "required_blocks", ViolationKind: types.ViolBlockCoverageMissing, HardLane: preEmitHardSignalTypedRequiredBlockKind},
+		{Subgate: "summary_lead_block", ViolationKind: types.ViolFamilyMismatch},
+		// 2. Principal-block claim/verdict presence.
+		{Subgate: "principal_claim_use", ViolationKind: types.ViolPrincipalClaimUseMissing},
+		{Subgate: "required_candidate_roles", ViolationKind: types.ViolMissingRequestedRoleUndisclosed},
+		{Subgate: "required_mechanism_anchors", ViolationKind: types.ViolPrincipalSupportMemberOmitted},
+		{Subgate: "inactive_typed_decision_verdicts", ViolationKind: types.ViolAcceptance},
+		{Subgate: "error_granularity_verdict", ViolationKind: types.ViolAcceptance},
+		{Subgate: "current_status_verdict", ViolationKind: types.ViolCurrentStatusVerdictMissing},
+		// 3. Uncertainty block presence.
+		{Subgate: "uncertainty_block", ViolationKind: types.ViolUncertaintyBlockMissing},
+		// 4. Required facet coverage.
+		{Subgate: "facet_coverage", ViolationKind: types.ViolFacetUncovered},
+		// 5. Item/citation alignment + typed handoff preservation.
+		{Subgate: "item_citation_alignment", ViolationKind: types.ViolCitation},
+		{Subgate: "call_chain_item_citation_role_alignment", ViolationKind: types.ViolCitation},
+		{Subgate: "principal_support_member_coverage", ViolationKind: types.ViolPrincipalSupportMemberOmitted},
+		{Subgate: "inactive_scope_disclosure", ViolationKind: types.ViolInactiveScopeDisclosureMissing},
+		{Subgate: "aggregate_scalar_value_coverage", ViolationKind: types.ViolAcceptance},
+		{Subgate: "aggregate_member_set_coverage", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift, HardLane: preEmitHardSignalCompletePrincipalMemberSet},
+		{Subgate: "source_inventory_candidate_universe_coverage", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift},
+		{Subgate: "aggregate_cardinality_consistency", ViolationKind: types.ViolCardinalityShort},
+		{Subgate: "relation_member_set_answer_shape", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift},
+		{Subgate: "absence_scope_bound", ViolationKind: types.ViolAbsenceScopeExceeded},
+		// 6. Enumeration item label grounding — advisory-only in
+		// every branch since 78f1eb6c; F8 (2026-07-03) removed the
+		// vestigial hard-gate predicate. Oracle absence is a noisy
+		// signal: warning + system supplement, never a same-turn
+		// reject.
+		{Subgate: "enumeration_label_grounding", ViolationKind: types.ViolEnumerationLabelHallucinated},
+	}
+}
+
 func tagPreEmitHints(kind types.ViolationKind, hints []emitFixHint) []emitFixHint {
 	for i := range hints {
 		if hints[i].Kind == "" {
@@ -303,7 +379,13 @@ func splitPreEmitHintsByGate(hints []emitFixHint) (hard []emitFixHint, advisory 
 
 func preEmitHintHardByDefault(hint emitFixHint) bool {
 	if hint.ForceHard {
-		return preEmitLocalHardSignalAllowed(hint, preEmitHardSignalCompletePrincipalMemberSet)
+		// F5-T4 (2026-07-03): derive the hard signal from the hint's
+		// typed shape and consult preEmitSameTurnHardPolicyRows
+		// uniformly, so the rows table is the single runtime source.
+		// Previously this branch hardcoded the member-set signal,
+		// which silently demoted any other ForceHard kind even when a
+		// policy row existed for it.
+		return preEmitLocalHardSignalAllowed(hint, preEmitSameTurnHardSignalForHint(hint))
 	}
 	if hint.Kind == "" {
 		// Untagged hints have no closed violation kind, fallback locus, or
@@ -312,19 +394,42 @@ func preEmitHintHardByDefault(hint emitFixHint) bool {
 		// checker output before this split.
 		return false
 	}
-	if hint.Kind == types.ViolBlockCoverageMissing && preEmitMissingBlockRequiresSameTurnRetry(hint) {
+	if preEmitMissingBlockRequiresSameTurnRetry(hint) &&
+		preEmitLocalHardSignalAllowed(hint, preEmitHardSignalTypedRequiredBlockKind) {
 		// The central registry keeps this violation soft for post-emit V2
 		// migration telemetry, where retry planning may choose caveat/materialize
 		// fallbacks. Pre-emit is different: the model is still inside the same
 		// tool call and the Required Answer Blocks contract can carry explicit
 		// visual obligations. Letting a missing diagram block ship loses a
 		// user-requested surface even though the correction is local.
+		// (preEmitLocalHardSignalAllowed keeps the Kind ==
+		// ViolBlockCoverageMissing constraint via the policy row.)
 		return true
 	}
 	if spec, ok := types.ViolKindSpecFor(hint.Kind); ok {
 		return !spec.SoftByDefault
 	}
-	return types.ViolationProfileFor(hint.Kind, false).RetryEligible
+	// F5-T4 (2026-07-03): an accidentally UNREGISTERED kind must
+	// degrade to advisory, never to hard. The previous fallback
+	// (ViolationProfileFor → legacy default Medium → RetryEligible)
+	// turned every future unregistered kind into a hard-by-accident
+	// same-turn reject — a hard gate keyed on registry ABSENCE, which
+	// is a noisy signal. The registry-alignment scan test makes this
+	// branch structurally unreachable for production checker kinds.
+	logging.Warning("[emit_answer_document] pre-emit hint kind %q is not registered in the violation registry; routing advisory (unregistered kinds never harden)", hint.Kind)
+	return false
+}
+
+// preEmitSameTurnHardSignalForHint derives the typed hard-lane signal
+// from the hint's own typed shape: a hint that names required block
+// kinds asserts the typed-required-block lane; every other ForceHard
+// hint asserts the complete-principal-member-set lane (the only other
+// registered lane, produced solely by preCheckAggregateMemberSetCoverage).
+func preEmitSameTurnHardSignalForHint(hint emitFixHint) preEmitSameTurnHardSignal {
+	if len(hint.ExpectedBlockKinds) > 0 {
+		return preEmitHardSignalTypedRequiredBlockKind
+	}
+	return preEmitHardSignalCompletePrincipalMemberSet
 }
 
 func preEmitLocalHardSignalAllowed(hint emitFixHint, signal preEmitSameTurnHardSignal) bool {
@@ -394,21 +499,29 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	var hints []emitFixHint
 	ctxOpt := pctx.ctxArgs()
 
-	// 0. Citation-pool carrier integrity. Run this before semantic
-	// member checks so a retry that dropped citations[] or references
-	// an out-of-range index gets a direct schema repair instead of a
-	// misleading "all principal members are missing" diagnosis.
+	// 0. Citation-pool carrier integrity. Run these FIRST and append
+	// their hints at the head of the list so a retry that dropped
+	// citations[] or references an out-of-range index sees the direct
+	// schema repair before any semantic member diagnosis.
+	//
+	// F5-T2 (2026-07-03): append-and-continue, not early-return. The
+	// carrier kinds are advisory since D1-G95, so an early return here
+	// silently skipped subgates 1-6 — including the only two same-turn
+	// hard lanes (required diagram block, complete member set) — for
+	// any emit that carried a citation-pool advisory. Carrier repair
+	// still leads the fix-list ordering because these hints are
+	// appended first.
 	if h := preCheckCitationPoolIntegrity(doc); len(h) > 0 {
-		return tagPreEmitHints(types.ViolCitation, h)
+		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
 	if h := preCheckNegativeCitationBounds(doc); len(h) > 0 {
-		return tagPreEmitHints(types.ViolAbsenceScopeExceeded, h)
+		hints = appendPreEmitHints(hints, types.ViolAbsenceScopeExceeded, h)
 	}
 	if h := preCheckRuntimeObservationRepoContamination(doc, ctxOpt...); len(h) > 0 {
-		return tagPreEmitHints(types.ViolExternalArtifactUnderdecoded, h)
+		hints = appendPreEmitHints(hints, types.ViolExternalArtifactUnderdecoded, h)
 	}
 	if h := preCheckArtifactObservedFrameCitations(doc, ctxOpt...); len(h) > 0 {
-		return tagPreEmitHints(types.ViolCitation, h)
+		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
 	// Carrier visibility is governed by LLM-facing schema/prompt wording and
 	// typed row roles, not by post-hoc keyword matching over RawRequest or the
@@ -522,18 +635,25 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// exact_resolution state. This pre-emit chokepoint must not inspect the
 	// model's rendered prose for path-name keywords to decide control flow.
 
-	// 6. Enumeration item label grounding (P1 2026-05-10).
-	// Catches the hallucinated identifier-shape labels that drove
-	// 70% of post-emit repair-loop violations in the 2026-05-10
-	// sweep digest. Mirrors validateEnumerationItemLabelHallucination
-	// at the chokepoint so the LLM gets the fix hint inside the
-	// SAME dispatch instead of paying a full retry round.
+	// 6. Enumeration item label grounding (P1 2026-05-10; F8
+	// 2026-07-03). Catches the hallucinated identifier-shape labels
+	// that drove 70% of post-emit repair-loop violations in the
+	// 2026-05-10 sweep digest. Mirrors
+	// validateEnumerationItemLabelHallucination at the chokepoint so
+	// the LLM sees the label list inside the SAME dispatch.
+	//
+	// Always routed through the standard advisory split: since
+	// 78f1eb6c the appended hints demoted to advisory in BOTH
+	// branches of the old preEmitEnumerationLabelGroundingHardGate
+	// predicate (kind SoftByDefault=true, no ForceHard, no policy
+	// row), so the "hard gate" was dead and only fragmented the
+	// advisory logging. Oracle absence is a noisy signal (index
+	// coverage / tier / flat-form heuristics): warning + system
+	// supplement, never a same-turn reject. The ratchet tests in
+	// pre_emit_enum_label_test.go pin that the three enum-label kinds
+	// can never split hard again.
 	if h := preCheckEnumerationLabelGroundingWithContext(doc, oracle, pctx); len(h) > 0 {
-		if preEmitEnumerationLabelGroundingHardGate(pctx) {
-			hints = appendPreEmitHints(hints, types.ViolEnumerationLabelHallucinated, h)
-		} else {
-			logSoftPreEmitAdvisory("emit_answer_document", "enumeration label grounding", h)
-		}
+		hints = appendPreEmitHints(hints, types.ViolEnumerationLabelHallucinated, h)
 	}
 
 	return hints
@@ -4669,6 +4789,22 @@ func preEmitAggregateMemberSetIsScalarCountSupport(ctx *types.BusContext, fact t
 	return types.AggregateMemberSetIsScalarCountSupport(&rm, fact)
 }
 
+// F8-T4 audit (2026-07-03): the member-set hard lane keeps its
+// same-turn reject (precise signal — model-authored typed
+// fact.Members verbatim presence under typed request predicates).
+// Repeat-reject bounding audit result: within one finalize dispatch,
+// repeated identical member-set rejects are bounded by the dispatch's
+// tool-iteration budget (each reject consumes a loop iteration) and,
+// across dispatches, by the finalize retry round caps; the model also
+// has typed escape lanes (scalar-count support facts, indexed
+// support-ref / source-inventory surfaces, category rendering, and
+// excluded members). The completion side additionally has
+// DowngradeLanePrincipalMemberSetHandoff. A same-cause
+// blockID+missing-member-hash N-strike breaker was deliberately NOT
+// added in this batch because a bound exists; if eval shows budget
+// burn on identical rejects, mirror the F7 empty-blocks breaker
+// (fingerprint must exclude values the reject handler itself mutates
+// per round — 2026-07-02 blockerKey self-churn lesson).
 func preEmitAggregateMemberSetCoverageHardGate(ctxOpt ...*types.BusContext) bool {
 	if len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].AnalysisIR == nil {
 		return true
@@ -8480,17 +8616,14 @@ func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types
 	return preCheckEnumerationLabelGroundingWithContext(doc, oracle, newPreEmitCheckContext(ctxOpt...))
 }
 
-func preEmitEnumerationLabelGroundingHardGate(pctx *preEmitCheckContext) bool {
-	if pctx == nil || pctx.ctx == nil || pctx.ctx.AnalysisIR == nil {
-		return false
-	}
-	rm := pctx.ctx.AnalysisIR.RequestModel
-	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
-		types.RequiresRelationMemberSetHandoff(rm) {
-		return true
-	}
-	return types.HasPrincipalCategoryEnumerationMemberLane(rm)
-}
+// preEmitEnumerationLabelGroundingHardGate was deleted in F8
+// (2026-07-03): since 78f1eb6c closed the ForceHard allowlist, both
+// branches of the predicate routed advisory, so it only fragmented
+// the advisory logging. The truly-hard precise subset (complete typed
+// member sets) is covered by the ForceHard member-set lane; the
+// oracle-miss lane stays advisory (noisy signal). Do not reintroduce
+// a typed-lane predicate here — the enum-label ratchet tests pin the
+// advisory-only routing.
 
 func preCheckEnumerationLabelGroundingWithContext(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, pctx *preEmitCheckContext) []emitFixHint {
 	if doc == nil || oracle == nil {
@@ -8563,7 +8696,7 @@ func preCheckEnumerationLabelGroundingWithContext(doc *types.AnswerDocumentV2, o
 				"replace these item label leading identifiers with names that exist in the codebase OR drop the items: %s",
 				strings.Join(hallucinatedIdents, ", "),
 			),
-			Reason: "enumeration item labels should lead with codebase-grounded identifiers; otherwise the post-emit shape contract records a citation-grounding caveat unless this kind is strict-promoted.",
+			Reason: "enumeration item labels should lead with identifiers that can be verified against the codebase; names that cannot be verified ship with a user-visible verification note, so prefer copying identifiers verbatim from grounded evidence.",
 		})
 	}
 	return hints

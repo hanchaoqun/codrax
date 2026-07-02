@@ -931,7 +931,7 @@ func init() {
 		Kind: ViolEnumerationLabelUngrounded, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
-		SchemaDescriptionFragment: "For enumeration ordered_list / bullet_list blocks, every items[i].label MUST be the verbatim identifier copied from one of the evidence pool's anchor_symbol / subject / object values — fabricated labels are rejected.",
+		SchemaDescriptionFragment: "For enumeration ordered_list / bullet_list blocks, every items[i].label MUST be the verbatim identifier copied from one of the evidence pool's anchor_symbol / subject / object values — labels that cannot be traced back to the evidence pool are disclosed to the user as unverified.",
 		// Fix path: extractor re-emit_answer_symbol with grounded
 		// labels, OR explorer re-investigation. Finalizer is a
 		// pure synthesizer with no file tools — cannot ground
@@ -955,7 +955,7 @@ func init() {
 		Kind: ViolEnumerationLabelHallucinated, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
-		SchemaDescriptionFragment: "For enumeration ordered_list / bullet_list / table blocks, every items[i].label whose leading identifier is ≥10 chars MUST be a real function / type / constant declared in the codebase. Fabricated names that no source file declares are silent answer-quality regressions and are rejected.",
+		SchemaDescriptionFragment: "For enumeration ordered_list / bullet_list / table blocks, every items[i].label whose leading identifier is ≥10 chars MUST be a real function / type / constant declared in the codebase. Fabricated names mislead the reader; names that cannot be verified are flagged and disclosed to the user in a follow-up verification note, so copy identifiers verbatim from grounded evidence anchors.",
 		// Fix path: finalizer single-agent — the extractor's slate is
 		// fine; only the rendered name is wrong. Re-emitting from the
 		// existing slate substitutes a real identifier without

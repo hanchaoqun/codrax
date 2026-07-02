@@ -72,6 +72,88 @@ func TestPreEmitHintGate_CitationCarriersRemainAdvisory(t *testing.T) {
 	}
 }
 
+// === F8-T3 ratchet (2026-07-03) ===
+//
+// The pre-emit enum-label lane is advisory-only. Since 78f1eb6c both
+// branches of the old preEmitEnumerationLabelGroundingHardGate routed
+// advisory (kind SoftByDefault=true, no ForceHard, no policy row), so
+// F8 deleted the dead predicate. These ratchets keep the same-batch
+// F5 registry-alignment sweep (and any future audit) from
+// resurrecting the oracle lane as a hard reject: oracle absence is a
+// noisy signal and must never drive a same-turn hard gate.
+
+// (a) The same-turn hard policy stays EXACTLY the two typed rows —
+// enumeration-label kinds can never gain a row without failing here.
+func TestRatchetSameTurnHardPolicyRowsExactlyTwo(t *testing.T) {
+	rows := preEmitSameTurnHardPolicyRows()
+	if len(rows) != 2 {
+		t.Fatalf("same-turn hard policy must stay exactly two rows, got %+v", rows)
+	}
+	want := map[preEmitSameTurnHardPolicyRow]bool{
+		{Kind: types.ViolExhaustiveMemberSetCoverageDrift, Signal: preEmitHardSignalCompletePrincipalMemberSet}: true,
+		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalTypedRequiredBlockKind}:                 true,
+	}
+	for _, row := range rows {
+		if !want[row] {
+			t.Fatalf("unexpected same-turn hard policy row: %+v", row)
+		}
+	}
+}
+
+// (b) Hints tagged with any of the three enum-label kinds can never
+// split hard — not via registry default, not via ForceHard, not via
+// a typed block-kind shape.
+func TestRatchetEnumerationLabelKindsCanNeverSplitHard(t *testing.T) {
+	kinds := []types.ViolationKind{
+		types.ViolEnumerationLabelUngrounded,
+		types.ViolEnumerationLabelHallucinated,
+		types.ViolEnumerationItemLabelExtractorDrift,
+	}
+	for _, kind := range kinds {
+		plain := emitFixHint{
+			Kind:          kind,
+			Field:         "blocks[].items[].label",
+			ExpectedShape: "synthetic ratchet probe",
+			Reason:        "oracle/pool mismatch is a noisy signal",
+		}
+		if preEmitHintHardByDefault(plain) {
+			t.Fatalf("kind %q must route advisory by default", kind)
+		}
+		forced := plain
+		forced.ForceHard = true
+		if preEmitHintHardByDefault(forced) {
+			t.Fatalf("kind %q must not harden via ForceHard (no policy row)", kind)
+		}
+		shaped := forced
+		shaped.ExpectedBlockKinds = []types.AnswerBlockKind{types.BlockDiagram}
+		if preEmitHintHardByDefault(shaped) {
+			t.Fatalf("kind %q must not harden via typed block-kind shape (no policy row)", kind)
+		}
+		hard, advisory := splitPreEmitHintsByGate([]emitFixHint{plain, forced, shaped})
+		if len(hard) != 0 || len(advisory) != 3 {
+			t.Fatalf("kind %q leaked into the hard split: hard=%+v", kind, hard)
+		}
+	}
+}
+
+// The registry side of the ratchet: all three kinds stay
+// SoftByDefault with the Promotable operator escape.
+func TestRatchetEnumerationLabelKindsRegistrySoft(t *testing.T) {
+	for _, kind := range []types.ViolationKind{
+		types.ViolEnumerationLabelUngrounded,
+		types.ViolEnumerationLabelHallucinated,
+		types.ViolEnumerationItemLabelExtractorDrift,
+	} {
+		spec, ok := types.ViolKindSpecFor(kind)
+		if !ok {
+			t.Fatalf("kind %q must be registered", kind)
+		}
+		if !spec.SoftByDefault || !spec.Promotable {
+			t.Fatalf("kind %q must stay SoftByDefault=true Promotable=true, got %+v", kind, spec)
+		}
+	}
+}
+
 // === preEmitLabelLeadingIdentifier ===
 
 func TestPreEmitLabelLeadingIdentifier_Empty(t *testing.T) {
@@ -2795,8 +2877,15 @@ func TestRunPreEmitChecks_EnumLabelHallucination_AdvisoryForNarrativeComparison(
 	if direct := preCheckEnumerationLabelGrounding(doc, oracle, ctx); len(direct) == 0 {
 		t.Fatal("test setup should still detect an ungrounded identifier-shaped label")
 	}
-	if hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, oracle, ctx); len(hints) != 0 {
-		t.Fatalf("narrative comparison labels should be advisory at emit-time, got %+v", hints)
+	// F8 (2026-07-03): the hint is returned (single advisory surface)
+	// but must split advisory — never a same-turn reject.
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, oracle, ctx)
+	if len(hints) == 0 {
+		t.Fatal("narrative comparison label miss should surface an advisory hint")
+	}
+	hard, advisory := splitPreEmitHintsByGate(hints)
+	if len(hard) != 0 || len(advisory) != len(hints) {
+		t.Fatalf("narrative comparison labels must stay advisory at emit-time, hard=%+v", hard)
 	}
 }
 
@@ -2812,12 +2901,28 @@ func TestRunPreEmitChecks_EnumLabelHallucination_AdvisoryWithoutTypedContext(t *
 	if direct := preCheckEnumerationLabelGrounding(doc, oracle); len(direct) == 0 {
 		t.Fatal("test setup should still detect an ungrounded identifier-shaped label")
 	}
-	if hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, oracle); len(hints) != 0 {
-		t.Fatalf("without typed request context, enum-label hallucination should stay advisory, got %+v", hints)
+	// F8 (2026-07-03): hints surface on the standard advisory lane
+	// instead of a fragmented debug-only log; routing stays advisory.
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, oracle)
+	if len(hints) != 1 || hints[0].Kind != types.ViolEnumerationLabelHallucinated {
+		t.Fatalf("enum-label miss should surface exactly one tagged advisory hint, got %+v", hints)
+	}
+	hard, advisory := splitPreEmitHintsByGate(hints)
+	if len(hard) != 0 || len(advisory) != 1 {
+		t.Fatalf("without typed request context, enum-label hallucination must stay advisory, hard=%+v", hard)
 	}
 }
 
-func TestRunPreEmitChecks_EnumLabelHallucination_HardForTypedPrincipalEnumeration(t *testing.T) {
+// Pre-F8 this case was named "HardForTypedPrincipalEnumeration", but
+// the hard lane it referred to has been dead since 78f1eb6c closed
+// the ForceHard allowlist: the appended hints always split advisory.
+// F8 deleted the dead predicate; the pin now asserts the settled
+// contract — the hint is surfaced (same-dispatch soft guidance names
+// the fabricated label) AND stays advisory even for typed principal
+// enumeration requests. Oracle absence is a noisy signal; the hard
+// protection for typed enumerations is the member-set ForceHard lane,
+// not the oracle.
+func TestRunPreEmitChecks_EnumLabelHallucination_AdvisoryForTypedPrincipalEnumeration(t *testing.T) {
 	oracle := &stubOracle{known: map[string]int{}}
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
@@ -2838,9 +2943,13 @@ func TestRunPreEmitChecks_EnumLabelHallucination_HardForTypedPrincipalEnumeratio
 	}}}
 	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, oracle, ctx)
 	if len(hints) == 0 {
-		t.Fatal("typed principal enumeration labels should remain hard-gated")
+		t.Fatal("typed principal enumeration label miss should still surface the hint")
 	}
 	if !strings.Contains(hints[0].ExpectedShape, "fabricatedFunctionName") {
 		t.Fatalf("hint should name the ungrounded label, got %+v", hints)
+	}
+	hard, _ := splitPreEmitHintsByGate(hints)
+	if len(hard) != 0 {
+		t.Fatalf("oracle-miss hints must stay advisory even for typed principal enumerations, hard=%+v", hard)
 	}
 }
