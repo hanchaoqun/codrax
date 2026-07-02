@@ -4043,12 +4043,12 @@ func normalizeNegativeSearchAggregateFact(fact AnswerAggregateFact) (AnswerAggre
 		fact.Unit = "matches"
 	}
 	if dims["repo"] == "" {
-		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension repo=<active repository or sub-repo>",
-			fact.Kind, fact.Label)
+		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension repo=<active repository or sub-repo>%s",
+			fact.Kind, fact.Label, answerAggregateNegativeSearchExample)
 	}
 	if dims["query"] == "" && dims["pattern"] == "" {
-		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension query=<search query> or pattern=<search regex>",
-			fact.Kind, fact.Label)
+		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension query=<search query> or pattern=<search regex>%s",
+			fact.Kind, fact.Label, answerAggregateNegativeSearchExample)
 	}
 	if dims["scope"] == "" {
 		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
@@ -4114,12 +4114,12 @@ func normalizeNegativeObservationAggregateFact(fact AnswerAggregateFact) (Answer
 	}
 	origins := negativeObservationNonRepoOrigins(fact)
 	if len(origins) == 0 {
-		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires a non-repo origin dimension such as origin=vcs_metadata, origin=vcs_diff, origin=runtime_artifact, origin=command_measurement, origin=cross_repo_index, origin=web_page, origin=mcp_resource, origin=external_document, or origin=connector_resource",
-			fact.Kind, fact.Label)
+		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires a non-repo origin dimension such as origin=vcs_metadata, origin=vcs_diff, origin=runtime_artifact, origin=command_measurement, origin=cross_repo_index, origin=web_page, origin=mcp_resource, origin=external_document, or origin=connector_resource%s",
+			fact.Kind, fact.Label, answerAggregateNegativeObservationExample)
 	}
 	if dims["target"] == "" && dims["query"] == "" && dims["pattern"] == "" && dims["predicate"] == "" {
-		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension target, query, pattern, or predicate for the absent thing",
-			fact.Kind, fact.Label)
+		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension target, query, pattern, or predicate for the absent thing%s",
+			fact.Kind, fact.Label, answerAggregateNegativeObservationExample)
 	}
 	if dims["scope"] == "" {
 		scope := firstNonEmptyAggregateDim(dims, "artifact_id", "trace_window", "commit_range", "tool_result", "source_ref")
@@ -4143,6 +4143,14 @@ func normalizeNegativeObservationAggregateFact(fact AnswerAggregateFact) (Answer
 	}
 	return fact, nil
 }
+
+// Complete minimal examples appended to hard-required dimension errors so a
+// model can repair every missing dimension in ONE retry instead of
+// discovering them one error at a time (trace_repl.log 2026-07-02: several
+// completion attempts died round-tripping single-dimension errors).
+const answerAggregateNegativeSearchExample = `; minimal valid example: {"kind":"negative_search","label":"no Activity Resume marker","value":"0","dimensions":[{"name":"repo","value":"<repo or sub-repo>"},{"name":"pattern","value":"<regex or literal>"},{"name":"scope","value":"<searched path>"}]}`
+
+const answerAggregateNegativeObservationExample = `; minimal valid example: {"kind":"negative_observation","label":"no wakeup in window","value":"0","dimensions":[{"name":"origin","value":"runtime_artifact"},{"name":"target","value":"<the absent thing>"},{"name":"scope","value":"<bounded observed surface>"}]}`
 
 func negativeObservationNonRepoOrigins(fact AnswerAggregateFact) []AnswerEvidenceOrigin {
 	var out []AnswerEvidenceOrigin

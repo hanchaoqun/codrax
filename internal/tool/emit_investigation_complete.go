@@ -3742,9 +3742,17 @@ func originSpecificCompletionBypassLabel(ctx *types.BusContext, aggregateFacts [
 		}
 		for _, origin := range origins {
 			if origin == types.AnswerEvidenceOriginRuntimeArtifact {
-				// Runtime artifacts retain their stricter request-model bypass;
-				// do not let a generic aggregate dimension override current
-				// verification anchors.
+				// DELIBERATE: runtime_artifact origins never satisfy this
+				// bypass, and that is not a gap to "fix". A model-declared
+				// aggregate dimension is a noisy self-reported signal; letting
+				// it waive the citation floor would let any trace-flavored
+				// claim close the investigation. Trace-only turns have two
+				// PRECISE channels instead: deterministic trace_query hard
+				// observations (traceQueryRuntimeObservationCompletionBypassLabel)
+				// and the environment-state census
+				// (zeroCurrentSourceRepoCompletionBypassLabel), plus the typed
+				// ExcludesCurrentSource request boundary. See the
+				// precise-signals-for-hard-gates rule in CLAUDE.md.
 				continue
 			}
 			if origin == types.AnswerEvidenceOriginUnknown {
