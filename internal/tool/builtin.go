@@ -624,7 +624,7 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	}
 
 	if err != nil {
-		payload := output + execCommandSearchShapeAdvisory(command, output, err) + execCommandFileDiscoveryAdvisory(command)
+		payload := output + execCommandSearchShapeAdvisory(ctx, command, output, err) + execCommandFileDiscoveryAdvisory(command)
 		preview, ref := StoreBlob(ctx, t.Name()+"-fail", payload)
 		return types.ToolResult{
 			ToolName:   t.Name(),
@@ -638,7 +638,7 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 
 	measurement := execCommandMeasurement(command, output)
 	payload := execCommandPayloadWithTypedOrigins(banner, command, output, measurement)
-	if advisory := execCommandSearchShapeAdvisory(command, output, nil); advisory != "" {
+	if advisory := execCommandSearchShapeAdvisory(ctx, command, output, nil); advisory != "" {
 		payload += advisory
 	}
 	if advisory := execCommandFileDiscoveryAdvisory(command); advisory != "" {
@@ -1006,12 +1006,15 @@ func execCommandPayloadWithTypedOrigins(banner, command, output string, measurem
 	return banner + originLine + output
 }
 
-func execCommandSearchShapeAdvisory(command, output string, err error) string {
+func execCommandSearchShapeAdvisory(ctx *types.BusContext, command, output string, err error) string {
 	looksLikeGrepPipeline := execCommandLooksLikeGrepPipeline(command)
 	if !looksLikeGrepPipeline && !execCommandLooksLikeRuntimeSearchFilter(command) {
 		return ""
 	}
-	targetsTraceQueryArtifact := execCommandTargetsTraceQueryArtifact(command)
+	// Steer to trace_query only when the typed context says the tool is on
+	// the current surface (schema-strict tool list); otherwise fall through
+	// to the honest bounded grep/read_file guidance below.
+	targetsTraceQueryArtifact := execCommandTargetsTraceQueryArtifact(command) && types.TraceQueryContextActiveFromBus(ctx)
 	if err != nil {
 		if looksLikeGrepPipeline && strings.Contains(err.Error(), "exit status 1") {
 			if targetsTraceQueryArtifact {
@@ -1987,11 +1990,16 @@ func grepZeroMatchRefinement(ctx *types.BusContext, params grepToolParams, searc
 	preferredNextTool := "grep"
 	requiredFields := []string{"pattern"}
 	switch {
-	case grepParamsTargetTraceQueryArtifactFile(ctx, params):
+	// Steer to trace_query only when the typed context says the tool is on
+	// the current surface — the tool list is schema-strict, so a refinement
+	// pointing at an unlisted tool is impossible to follow and only loops
+	// the model (trace_repl.log 2026-07-02). Without the context the trace
+	// file still gets the runtime-artifact grep refinement below.
+	case grepParamsTargetTraceQueryArtifactFile(ctx, params) && types.TraceQueryContextActiveFromBus(ctx):
 		reasonCode = "grep_runtime_artifact_zero_match"
 		preferredNextTool = "trace_query"
 		requiredFields = []string{"path", "view"}
-	case grepParamsTargetRuntimeArtifactFile(ctx, params):
+	case grepParamsTargetRuntimeArtifactFile(ctx, params) || grepParamsTargetTraceQueryArtifactFile(ctx, params):
 		reasonCode = "grep_runtime_artifact_zero_match"
 	case !params.FixedString && grepPatternHasCommonRegexShorthand(params.Pattern):
 		reasonCode = "grep_regex_shorthand_zero_match"
@@ -3086,7 +3094,12 @@ func grepNoMatchBody(ctx *types.BusContext, params grepToolParams) string {
 		if advisory := grepFixedStringRegexAdvisory(params); advisory != "" {
 			b.WriteString(advisory)
 		}
-		if grepParamsTargetTraceQueryArtifactFile(ctx, params) {
+		// Only recommend switching to trace_query when the typed context says
+		// the tool is actually on the current surface; otherwise the hint
+		// sends the model after a tool it cannot call (trace_repl.log
+		// 2026-07-02) and the generic bounded-read guidance below is the
+		// honest fallback.
+		if grepParamsTargetTraceQueryArtifactFile(ctx, params) && types.TraceQueryContextActiveFromBus(ctx) {
 			if advisory := grepTraceQueryRequiredAdvisory(ctx, params); advisory != "" {
 				b.WriteString(advisory)
 			}

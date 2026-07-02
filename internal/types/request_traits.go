@@ -1532,6 +1532,34 @@ func (rm RequestModel) withAttachedRuntimeArtifact() RequestModel {
 // precise runtime-artifact carrier outside ordinary repo source evidence. This
 // intentionally consumes only typed context fields and deterministic runtime
 // tool observations; it never scans request prose.
+// TraceQueryContextActiveFromBus mirrors the explorer-side trace_query
+// visibility conditions (attached trace, perf-trace bundle, typed trace path
+// carrier, or runtime preflight trace artifact) for tool-result advisory
+// generators: an advisory must never recommend switching to a tool that is not
+// on the current surface — trace_repl.log (2026-07-02) showed a "switch to
+// trace_query" hint looping against a run where the tool never surfaced.
+func TraceQueryContextActiveFromBus(ctx *BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if strings.TrimSpace(ctx.AttachedHitrace) != "" {
+		return true
+	}
+	if ctx.RuntimeArtifactPreflight.HasTraceArtifact() {
+		return true
+	}
+	if ctx.Mutable != nil && ctx.Mutable.PerfTrace() != nil {
+		return true
+	}
+	if ctx.AnalysisIR != nil {
+		rm := ctx.AnalysisIR.RequestModel
+		if rm.PerfTrace != nil || rm.RuntimeArtifactPathReferenceKind() == "trace" {
+			return true
+		}
+	}
+	return false
+}
+
 func RuntimeArtifactContextActiveFromBus(ctx *BusContext) bool {
 	if ctx == nil {
 		return false

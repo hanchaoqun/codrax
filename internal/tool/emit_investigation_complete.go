@@ -2883,6 +2883,16 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 					fmt.Fprintf(&b, "  ... and %d more\n", len(scanned)-max)
 					break
 				}
+				// A runtime log/trace in the pending list is read to VERIFY
+				// the referenced rows, not to mine citations: emit_evidence
+				// will (correctly) classify its rows as external
+				// observations, so telling the model to read it "for
+				// evidence" recreates the read→emit→skip loop. Say which
+				// lane the verified rows land in instead.
+				if types.RuntimeArtifactPathKind(p.File) != "" {
+					fmt.Fprintf(&b, "  - %s — %s (runtime log/trace: read to verify the referenced rows; verified rows are preserved through emit_investigation_complete reason/aggregate_facts, not emit_evidence)\n", p.File, p.Rationale)
+					continue
+				}
 				fmt.Fprintf(&b, "  - %s — %s\n", p.File, p.Rationale)
 			}
 			b.WriteString("\n")

@@ -670,7 +670,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   true,
-			Summary:   renderEmitEvidenceExternalObservationSoftSkipSummary(externalObservationSkippedItems),
+			Summary:   renderEmitEvidenceExternalObservationSoftSkipSummary(ctx, externalObservationSkippedItems),
 			Repair:    attachToolJSONSurfaceMetadata(t.Name(), emitEvidenceExternalObservationRepair()),
 			Timestamp: now,
 		}, nil
@@ -1332,14 +1332,41 @@ func emitEvidenceExternalObservationSourceKind(source string) string {
 	}
 }
 
-func renderEmitEvidenceExternalObservationSoftSkipSummary(skipped []string) string {
+func renderEmitEvidenceExternalObservationSoftSkipSummary(ctx *types.BusContext, skipped []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "emit_evidence accepted 0 source evidence item(s); skipped %d external observation item(s).\n\n", len(skipped))
 	for _, s := range skipped {
 		fmt.Fprintf(&b, "  - %s\n", s)
 	}
 	b.WriteString("\nRuntime logs/traces, MCP resources, connector rows, web pages, and other external observations are first-class evidence in the external observation lane, not current-source read_file evidence. Preserve them through emit_investigation_complete.reason plus aggregate_facts; do not retry emit_evidence for these rows.\n")
+	// When the completion citation floor is already waived for this turn
+	// (explicit exclusion, artifact-only checkout, accepted waiver, external
+	// log/trace, or typed runtime observations), say so: without this line
+	// the model reads "don't retry emit_evidence" here and "needs ≥N
+	// citations" from the completion gate as a contradiction and loops
+	// between the two surfaces (trace_repl.log 2026-07-02).
+	if emitEvidenceCompletionCitationFloorWaived(ctx) {
+		b.WriteString("This turn's completion does not require current-source citations: once the runtime observations answer the question, call emit_investigation_complete directly with the conclusion in reason plus aggregate_facts.\n")
+	}
 	return b.String()
+}
+
+func emitEvidenceCompletionCitationFloorWaived(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if _, ok := explicitCurrentSourceExclusionCompletionBypassLabel(ctx); ok {
+		return true
+	}
+	if _, ok := zeroCurrentSourceRepoCompletionBypassLabel(ctx); ok {
+		return true
+	}
+	if ctx.Mutable != nil {
+		if _, ok := completionGroundingBypassLabel(ctx, nil); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func emitEvidenceExternalObservationRepair() *types.ToolRepair {

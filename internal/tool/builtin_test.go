@@ -1612,7 +1612,7 @@ func TestExecCommand(t *testing.T) {
 		}
 		tool := &ExecCommand{}
 		params, _ := json.Marshal(execCommandParams{Command: "grep 'com.tencent.mm-36379' " + strconv.Quote(tmpFile)})
-		result, err := tool.Execute(newBusContext(), params)
+		result, err := tool.Execute(traceAdvisoryBusContext(), params)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1644,7 +1644,7 @@ func TestExecCommand(t *testing.T) {
 		}
 		tool := &ExecCommand{}
 		params, _ := json.Marshal(execCommandParams{Command: "grep 'android.haitong' " + strconv.Quote(tmpFile)})
-		result, err := tool.Execute(newBusContext(), params)
+		result, err := tool.Execute(traceAdvisoryBusContext(), params)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1671,7 +1671,7 @@ func TestExecCommand(t *testing.T) {
 		}
 		tool := &ExecCommand{}
 		params, _ := json.Marshal(execCommandParams{Command: "grep 'missing-event' " + strconv.Quote(tmpFile)})
-		result, err := tool.Execute(newBusContext(), params)
+		result, err := tool.Execute(traceAdvisoryBusContext(), params)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1694,7 +1694,7 @@ func TestExecCommand(t *testing.T) {
 	t.Run("runtime grep pipeline broad alternation gets search-shape advisory", func(t *testing.T) {
 		command := `grep -n "com.tencent.mm-36379\|2942\." "record_trace.systrace" | head -100`
 		output := "130149:\tcom.tencent.mm-36379 (36379) [007] .... 2939.734658: sched_switch\n"
-		got := execCommandSearchShapeAdvisory(command, output, nil)
+		got := execCommandSearchShapeAdvisory(traceAdvisoryBusContext(), command, output, nil)
 		for _, want := range []string{
 			"trace_query_required_soft_advisory",
 			"broad OR/alternation pattern",
@@ -1710,7 +1710,7 @@ func TestExecCommand(t *testing.T) {
 		}
 
 		codeCommand := `grep -n "Foo\|Bar" "internal/agent/explorer.go"`
-		if codeGot := execCommandSearchShapeAdvisory(codeCommand, "12: Foo\n", nil); codeGot != "" {
+		if codeGot := execCommandSearchShapeAdvisory(traceAdvisoryBusContext(), codeCommand, "12: Foo\n", nil); codeGot != "" {
 			t.Fatalf("code grep should not get runtime broad-OR advisory:\n%s", codeGot)
 		}
 	})
@@ -1718,7 +1718,7 @@ func TestExecCommand(t *testing.T) {
 	t.Run("runtime awk filter without line numbers gets advisory", func(t *testing.T) {
 		command := `awk '/2942\.1244[1-9]|2942\.260[0-1][0-9]/ && /\[GT\]ColdPool#5-36624/' record_trace.systrace`
 		output := "  [GT]ColdPool#5-36624 (36379) [001] .... 2942.256055: sched_switch\n"
-		got := execCommandSearchShapeAdvisory(command, output, nil)
+		got := execCommandSearchShapeAdvisory(traceAdvisoryBusContext(), command, output, nil)
 		for _, want := range []string{
 			"trace_query_required_soft_advisory",
 			"Do not repair trace analysis by adding more grep/awk line-number plumbing",
@@ -1738,7 +1738,7 @@ func TestExecCommand(t *testing.T) {
 		}
 		command := `awk '/sched_switch/ { print $0 }' ` + strconv.Quote(tmpFile)
 		output := "2942.124416: sched_switch: prev_comm=app prev_pid=10 prev_state=R ==> next_comm=worker next_pid=20\n"
-		got := execCommandSearchShapeAdvisory(command, output, nil)
+		got := execCommandSearchShapeAdvisory(traceAdvisoryBusContext(), command, output, nil)
 		if !strings.Contains(got, "trace_query_required_soft_advisory") ||
 			!strings.Contains(got, "Do not repair trace analysis by adding more grep/awk line-number plumbing") {
 			t.Fatalf("suffixless trace content should get runtime advisory:\n%s", got)
@@ -1752,7 +1752,7 @@ func TestExecCommand(t *testing.T) {
 		}
 		command := `awk '/Execute/ { print $0 }' ` + strconv.Quote(tmpFile)
 		output := "func Execute() {}\n"
-		if got := execCommandSearchShapeAdvisory(command, output, nil); got != "" {
+		if got := execCommandSearchShapeAdvisory(nil, command, output, nil); got != "" {
 			t.Fatalf("readable nonruntime file should not get runtime advisory:\n%s", got)
 		}
 	})
@@ -1764,7 +1764,7 @@ func TestExecCommand(t *testing.T) {
 			`awk '/2942\.256/ && /prev_comm=\[GT\]ColdPool#5 prev_pid=36624/' record_trace.systrace | tail -20`,
 		}
 		for _, command := range commands {
-			got := execCommandSearchShapeAdvisory(command, output, nil)
+			got := execCommandSearchShapeAdvisory(traceAdvisoryBusContext(), command, output, nil)
 			if !strings.Contains(got, "trace_query_required_soft_advisory") ||
 				!strings.Contains(got, "Do not repair trace analysis by adding more grep/awk line-number plumbing") {
 				t.Fatalf("missing no-line-number advisory for %q:\n%s", command, got)
@@ -1775,7 +1775,7 @@ func TestExecCommand(t *testing.T) {
 	t.Run("runtime awk filter with NR line numbers needs no line advisory", func(t *testing.T) {
 		command := `awk '/2942\.256/ { printf "%d:%s\n", NR, $0 }' record_trace.systrace | head -100`
 		output := "1102704:  [GT]ColdPool#5-36624 (36379) [001] .... 2942.256055: sched_switch\n"
-		got := execCommandSearchShapeAdvisory(command, output, nil)
+		got := execCommandSearchShapeAdvisory(traceAdvisoryBusContext(), command, output, nil)
 		if strings.Contains(got, "no original line numbers") {
 			t.Fatalf("line-numbered awk output should not get no-line-number advisory:\n%s", got)
 		}
@@ -1783,19 +1783,34 @@ func TestExecCommand(t *testing.T) {
 
 	t.Run("runtime scalar awk output and code awk commands do not get search advisory", func(t *testing.T) {
 		scalarCommand := `awk 'END { print NR }' record_trace.systrace`
-		if got := execCommandSearchShapeAdvisory(scalarCommand, "1525954\n", nil); got != "" {
+		if got := execCommandSearchShapeAdvisory(traceAdvisoryBusContext(), scalarCommand, "1525954\n", nil); got != "" {
 			t.Fatalf("scalar runtime awk output should not get advisory:\n%s", got)
 		}
 
 		codeCommand := `awk '/func Execute/' internal/tool/builtin.go | head -20`
 		codeOutput := "func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {\n"
-		if got := execCommandSearchShapeAdvisory(codeCommand, codeOutput, nil); got != "" {
+		if got := execCommandSearchShapeAdvisory(traceAdvisoryBusContext(), codeCommand, codeOutput, nil); got != "" {
 			t.Fatalf("code awk command should not get runtime advisory:\n%s", got)
 		}
 	})
 }
 
+// traceAdvisoryBusContext returns a BusContext whose runtime preflight carries
+// a trace artifact, i.e. a turn where trace_query is on the tool surface —
+// the precondition for trace_query steering advisories.
+func traceAdvisoryBusContext() *types.BusContext {
+	ctx := newBusContext()
+	ctx.RuntimeArtifactPreflight = types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+		SourceNavigationOptional: true,
+		Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+			Kind: "trace", Source: "record_trace.systrace", Carrier: "request_path",
+		}},
+	})
+	return ctx
+}
+
 func TestExecCommandTypedOrigins(t *testing.T) {
+
 	tests := []struct {
 		name        string
 		command     string
@@ -2468,7 +2483,16 @@ func TestGrepTool(t *testing.T) {
 			t.Fatalf("setup: %v", err)
 		}
 
+		// The trace_query pullback is only honest when the tool is on the
+		// current surface (schema-strict tool list); model runs that grep a
+		// trace carry the artifact in the runtime preflight.
 		ctx := newBusContext()
+		ctx.RuntimeArtifactPreflight = types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind: "trace", Source: tmpFile, Carrier: "request_path",
+			}},
+		})
 		tool := &GrepTool{}
 		params, _ := json.Marshal(grepToolParams{
 			Pattern: `2942\.\d{3} MissingEvent`,
@@ -2513,6 +2537,44 @@ func TestGrepTool(t *testing.T) {
 			refinement.RequiredFields[0] != "path" ||
 			refinement.RequiredFields[1] != "view" {
 			t.Fatalf("trace no-match required fields = %+v; refinement=%+v", refinement.RequiredFields, refinement)
+		}
+	})
+
+	t.Run("trace artifact no match without trace_query surface stays on bounded grep guidance", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "record_trace.systrace")
+		if err := os.WriteFile(tmpFile, []byte("2942.124002: sched_switch\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		// No attachment, no preflight artifact, no typed carrier: trace_query
+		// is not on the tool surface, so the advisory and the typed
+		// refinement must NOT send the model after it (trace_repl.log
+		// 2026-07-02: an unfollowable "switch to trace_query" hint looped).
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{
+			Pattern: `2942\.\d{3} MissingEvent`,
+			Path:    tmpFile,
+		})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "Switch to trace_query") {
+			t.Fatalf("advisory must not recommend an off-surface tool:\n%s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "no_match_advisory=single runtime/log/trace artifact searched") {
+			t.Fatalf("bounded grep/read guidance missing:\n%s", result.Summary)
+		}
+		refinement := types.NormalizeToolRefinementHint(*result.Refinement)
+		if refinement.PreferredNextTool == "trace_query" {
+			t.Fatalf("typed refinement must not point at an off-surface tool: %+v", refinement)
+		}
+		if refinement.ReasonCode != "grep_runtime_artifact_zero_match" {
+			t.Fatalf("runtime-artifact zero-match reason should survive: %+v", refinement)
 		}
 	})
 
