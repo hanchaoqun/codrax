@@ -1524,3 +1524,5 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 **R5g 同核竞争必须以时间位移为据。** 判"同核争抢"必须有**时间上的位移证据**:A 在该 CPU runnable 等待的同时 B 在该 CPU running(即 B 挤占了 A)。仅凭窗口内两线程都在同一 CPU 上有 running 时间(如 UI 与 RenderThread 的流水线串行配合,running 窗口不重叠)不得判竞争。客户案例:报告把 UI(58.574ms)与 RenderThread(29.073ms)在 CPU12 的串行运行判为"RT 同核争抢,首要因素占 50.2%"——错误首因。排查 same_cpu_competitor/cpu_pressure/high_prio_running 证据链的产生逻辑,加入重叠位移判定。
 
 **批次任务(C 轮)。** C1=R5d-2 折算;C2=R5e 逐段频点+邻近回退+客户案例排查;C3=索引预算触顶方案;C4a=语义优化点无条件入正文;C4b=排版审计;C5=R5g 位移判定。
+
+**当前进展(全部落地)。** C1(a21fde42:weakCoreDeficitMs 逐段折算+频点邻近回退);C2/C5(4f92f7f1:segmentFrequencyStats 时间加权+nearest_fallback typed 标记+低频对标段内 max;8 个竞争面全改位移重叠口径,串行流水不判竞争,UI/RT 反例 pin);C3(133520c1:event_search 无条件流式+触顶恢复参数进 Summary/typed caveat 双面);C4(2b9f2798:确定性优化点系统块无条件入正文;树名字独立截断预算+行宽 120 DropOrder);复核修正(流式零命中回退索引路径保 typed 字段匹配/段起点样本边界/cpu_pressure perf 上下文重叠优先/supply_pressure 低频改 residency 加权/空转守卫)。客户案例机制确认:高频误判=单点过时样本 vs 全窗口 residency max;95.3% 同核争抢=全窗口无重叠累计。
