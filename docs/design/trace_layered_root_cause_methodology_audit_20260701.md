@@ -1509,4 +1509,4 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 
 **修复(B10)。** `summarizeWakeupCausalImpact` 内基于依赖线程状态区间计算门控时长 `PriorityInversionGatedMs`(runnable 区间全计 + running 区间按弱核判定计入);反转候选标志改为 `lower_priority_dependency && gated>0`(D/IO 不再触发反转标志,保留其原生根因行);反转候选行发布 impact 与 EffectiveImpactMs 均用门控值(排序即门控值),TotalMs/占位上下文保留。回归:合成事件三例(waker runnable 计入/waker running 同频不计入且不成候选/waker D-state 不成反转候选)+ 弱核例(有频点数据时计入)。
 
-**当前进展。** B2 数据半已落地(commit 6688e981:S1 排序合成分数与物理时长分离、aggregate_metric 主体标记、next_step_kind 本地化载体);B10 本节规则落档,实现进行中。
+**当前进展。** 全部落地:B2 数据半(6688e981:S1 排序合成分数与物理时长分离、aggregate_metric 主体标记、next_step_kind 本地化载体);B4/B5/B3渲染半(d576eac4:on-chain 收紧+聚合/未定位降级背景、bar 状态归因、平铺两因文案+WakeupChainRecommendedNotRun);B6/B7(d16566de:下一步中文六映射、指标快照人话化+窗口基准、locator basename+时间窗);B10 R5d 门控(9b578633:runnable 全计+弱核 running 计入+D/IO 退出反转、频点时间线、无数据保守 0,回归四例);B3 完成门半(wakeup-chain 一次性 directive,typed 双输入,不可循环)。
