@@ -5963,6 +5963,16 @@ func validateExplorerTraceOnlyExactArtifactToolCall(ctx *types.AgentContext, tc 
 	if view.Policy.Kind != types.RuntimeArtifactAnalysisPolicyTraceOnlyExactArtifact {
 		return nil
 	}
+	if explorerTraceQueryAlreadyAttempted(ctx) && !explorerTraceQueryRuntimeEvidenceAvailable(ctx) {
+		// trace_query has been tried and produced no typed runtime
+		// observations (unsupported format, parse failure, empty index).
+		// The explore skill promises grep/read_file as the fallback after a
+		// failed trace_query; keeping this gate hard here would strand the
+		// turn between a tool that cannot parse the artifact and a gate
+		// that blocks every alternative. Both stand-down signals are
+		// deterministic tool-ledger facts.
+		return nil
+	}
 	canonical := types.CanonicalToolName(tc.Name)
 	if !explorerTraceQuerySourceFallbackTool(canonical) {
 		return nil

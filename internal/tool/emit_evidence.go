@@ -1361,10 +1361,13 @@ func emitEvidenceCompletionCitationFloorWaived(ctx *types.BusContext) bool {
 	if _, ok := zeroCurrentSourceRepoCompletionBypassLabel(ctx); ok {
 		return true
 	}
-	if ctx.Mutable != nil {
-		if _, ok := completionGroundingBypassLabel(ctx, nil); ok {
-			return true
-		}
+	// Only the aggregate-facts-INDEPENDENT bypasses may back this promise:
+	// the trace_query / origin-specific branches are re-evaluated at
+	// completion time against the actual aggregate_facts payload, so
+	// promising "no citations needed" from a nil-facts evaluation here
+	// could be contradicted by the gate one call later.
+	if _, ok := repoGroundingBypassLabel(ctx); ok {
+		return true
 	}
 	return false
 }

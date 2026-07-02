@@ -1,6 +1,7 @@
 package types
 
 import (
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -219,14 +220,22 @@ func RuntimeArtifactPathInToken(token string) string {
 // is a CJK prose rune. This is the mixed-tail complement to
 // dropTrailingArtifactProse: the boundary is anchored on the precise
 // "<artifact extension><CJK rune>" adjacency, never on prose content, so it
-// cannot fire on tokens without a recognized artifact suffix. The rightmost
-// qualifying boundary wins, keeping CJK path components that sit between two
-// artifact suffixes intact (mirroring the leading/trailing trim guarantees).
-// Returns "" when no such boundary exists or the carved prefix is not itself a
-// recognized artifact path.
+// cannot fire on tokens without a recognized artifact suffix. Boundaries are
+// tried rightmost-first (keeping CJK path components that sit between two
+// artifact suffixes intact, mirroring the leading/trailing trim guarantees),
+// falling back leftward when a candidate fails re-verification. A boundary is
+// rejected when the remainder after it still looks like a path continuation
+// (contains a path separator, or ends in a dot-extension) — carving
+// "handler.trace" out of "handler.trace包/foo.go" would mint a phantom
+// artifact from a source path. Returns "" when no boundary verifies.
 func carveArtifactPathBeforeGluedProse(s string) string {
-	lower := strings.ToLower(s)
-	best := -1
+	// ASCII-only lowering keeps byte offsets aligned with s: full
+	// strings.ToLower changes the byte length of runes like U+0130 İ or
+	// U+212A K, which would skew every index after them. All recognized
+	// artifact suffixes are pure ASCII, so ASCII folding is sufficient.
+	lower := asciiLowerPreservingLength(s)
+	var boundaries []int
+	seen := map[int]bool{}
 	for _, ext := range runtimeArtifactCarveSuffixes() {
 		from := 0
 		for {
@@ -235,31 +244,93 @@ func carveArtifactPathBeforeGluedProse(s string) string {
 				break
 			}
 			end := from + idx + len(ext)
-			if end < len(s) && end > best {
+			if end < len(s) && !seen[end] {
 				if r, _ := utf8.DecodeRuneInString(s[end:]); isArtifactPathProseRune(r) {
-					best = end
+					seen[end] = true
+					boundaries = append(boundaries, end)
 				}
 			}
 			from += idx + 1
 		}
 	}
-	if best <= 0 {
-		return ""
+	sort.Sort(sort.Reverse(sort.IntSlice(boundaries)))
+	for _, end := range boundaries {
+		if end <= 0 {
+			continue
+		}
+		if carvedRemainderLooksLikePathContinuation(s[end:]) {
+			continue
+		}
+		candidate := s[:end]
+		if RuntimeArtifactPathKind(candidate) != "" {
+			return candidate
+		}
+		// Basename special cases (perf.data, attached_log.txt, …) only
+		// verify once leading prose is stripped: "抓到perf.data" fails the
+		// exact-basename check while "perf.data" passes it.
+		if lead := dropLeadingArtifactProse(candidate); lead != candidate && RuntimeArtifactPathKind(lead) != "" {
+			return lead
+		}
 	}
-	candidate := s[:best]
-	if RuntimeArtifactPathKind(candidate) == "" {
-		return ""
+	return ""
+}
+
+// carvedRemainderLooksLikePathContinuation reports whether the text after a
+// candidate carve boundary still reads as part of a path rather than glued
+// prose: a path separator anywhere, or a trailing dot-extension (1-6 ASCII
+// alphanumerics), means the artifact suffix sat on a directory or infix
+// component of a longer non-artifact path ("handler.trace包/foo.go",
+// "崩溃日志.log分析报告.md"). Prose glued after a real artifact path — CJK runs
+// optionally mixed with ASCII terms like "里面这一帧Choreographer#doFrame" —
+// contains neither.
+func carvedRemainderLooksLikePathContinuation(remainder string) bool {
+	if strings.ContainsAny(remainder, `/\`) {
+		return true
 	}
-	return candidate
+	idx := strings.LastIndex(remainder, ".")
+	if idx < 0 || idx == len(remainder)-1 {
+		return false
+	}
+	tail := remainder[idx+1:]
+	if len(tail) > 6 {
+		return false
+	}
+	for i := 0; i < len(tail); i++ {
+		c := tail[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func asciiLowerPreservingLength(s string) string {
+	var b []byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			if b == nil {
+				b = []byte(s)
+			}
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	if b == nil {
+		return s
+	}
+	return string(b)
 }
 
 // runtimeArtifactCarveSuffixes lists the extension literals used to locate a
 // glued prose boundary inside a token. It mirrors the suffix set accepted by
-// RuntimeArtifactPathKind; every carve candidate is re-verified through
-// RuntimeArtifactPathKind, so drift here can only cause a missed carve, never
-// a false positive.
+// RuntimeArtifactPathKind (including its basename special cases); every carve
+// candidate is re-verified through RuntimeArtifactPathKind, so drift here can
+// only cause a missed carve, never a false positive.
 func runtimeArtifactCarveSuffixes() []string {
-	out := []string{".log", ".perf.data", ".tracebundle.json"}
+	out := []string{
+		".log", ".perf.data", ".tracebundle.json",
+		"perf.data", "attached_log.txt", "attached_trace.txt", "attached_hitrace.txt", "attached_atrace.txt",
+	}
 	for ext := range runtimeArtifactPathExtensions {
 		out = append(out, ext)
 	}

@@ -82,12 +82,31 @@ func TestRuntimeArtifactPathInToken(t *testing.T) {
 		"分析东湖Trace:record_trace_20260605224432@3279-299954687.sys.ftrace里面这一帧Choreographer#doFrame": "record_trace_20260605224432@3279-299954687.sys.ftrace",
 		"分析record_trace_20260605224432@3279-299954687.sys.ftrace里面这一帧Choreographer#doFrame":         "record_trace_20260605224432@3279-299954687.sys.ftrace",
 		"看/tmp/frame.systrace的卡顿traceview":                                                          "/tmp/frame.systrace",
-		"抓/var/log/app.log里的NullPointerException":                                                    "/var/log/app.log",
+		"抓/var/log/app.log里的NullPointerException":                                                   "/var/log/app.log",
 		// CJK path components between two artifact suffixes stay intact: the
 		// rightmost extension→CJK boundary wins.
 		"x.log里y.log看": "x.log里y.log",
 		// Mixed tail without a recognized artifact suffix still carves to nothing.
 		"分析main.go里面这一帧Choreographer#doFrame": "",
+		// Artifact-suffixed DIRECTORY/infix components of longer non-artifact
+		// paths must NOT mint phantom artifacts (adversarial review
+		// 2026-07-02): the remainder after the boundary still reads as a
+		// path (separator or trailing dot-extension).
+		"/tmp/a.log子dir/notes.txt": "",
+		"handler.trace包/foo.go":    "",
+		"崩溃日志.log分析报告.md":          "",
+		// Non-ASCII case folding must not skew carve offsets (U+0130 İ grows
+		// when lowered; U+212A KELVIN K shrinks) — these contain a valid
+		// extension→CJK boundary and must still carve.
+		"İnfo.log里面Choreographer": "İnfo.log",
+		"a.logKb.log里x":           "a.logKb.log",
+		// The remainder after the "a.log" boundary contains a path
+		// separator, so ".log" sat on an infix component of a longer
+		// path-shaped token: carving "a.log" out of it would be exactly the
+		// phantom class above. Nothing verifies → no carve.
+		"a.log里/.log里x": "",
+		// Basename special cases carve too.
+		"抓到perf.data里面这一帧Frame": "perf.data",
 		// Windows drive prefixes are path syntax, not labels.
 		`D:\temp\frame.systrace`: `D:\temp\frame.systrace`,
 		// Already-clean paths pass through unchanged.

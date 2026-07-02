@@ -928,9 +928,22 @@ func TestTraceOnlyCensusPolicyPullsGrepBackWithoutAnalyzerPolicy(t *testing.T) {
 	}
 
 	// Control: with source files present the census must not arm the policy.
-	mixed := *ctx
-	mixed.RuntimeArtifactPreflight.RepoSourceCensus = types.RuntimeArtifactRepoSourceCensus{Completed: true, SourceFiles: 3, ArtifactFiles: 1}
-	if got := validateExplorerTraceQueryFirstToolCall(&mixed, llm.ToolCall{
+	mixed := &types.AgentContext{
+		Stage:    types.StageExplore,
+		RepoRoot: ctx.RepoRoot,
+		WorkDir:  ctx.WorkDir,
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "record_trace_20260605224432@3279-299954687.sys.ftrace",
+				Carrier: "request_path",
+			}},
+			RepoSourceCensus: types.RuntimeArtifactRepoSourceCensus{Completed: true, SourceFiles: 3, ArtifactFiles: 1},
+		}),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentRootCause}},
+	}
+	if got := validateExplorerTraceQueryFirstToolCall(mixed, llm.ToolCall{
 		Name:   "grep",
 		Params: json.RawMessage(`{"pattern":"sched_switch","path":"record_trace_20260605224432@3279-299954687.sys.ftrace"}`),
 	}, true); got != nil && got.Repair != nil && got.Repair.Metadata["policy"] == "trace_only_exact_artifact" {

@@ -1199,17 +1199,24 @@ func (rm RequestModel) HasRuntimeArtifactPathReference() bool {
 // policy-gated HasRuntimeArtifactPathReference — an entity scan alone is not
 // precise enough to justify blocking anything.
 func (rm RequestModel) HasTypedRuntimeArtifactPathIdentity() bool {
+	return rm.TypedRuntimeArtifactPathIdentityKind() != ""
+}
+
+// TypedRuntimeArtifactPathIdentityKind returns the artifact family (log/trace)
+// of the first typed artifact-path identity, with the same policy-independent
+// semantics as HasTypedRuntimeArtifactPathIdentity.
+func (rm RequestModel) TypedRuntimeArtifactPathIdentityKind() string {
 	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
-		if RuntimeArtifactPathKind(hint.Path) != "" {
-			return true
+		if kind := RuntimeArtifactPathKind(hint.Path); kind != "" {
+			return kind
 		}
 	}
 	for _, raw := range rm.runtimeArtifactPathReferenceCandidates() {
-		if RuntimeArtifactPathKindInText(raw) != "" {
-			return true
+		if kind := RuntimeArtifactPathKindInText(raw); kind != "" {
+			return kind
 		}
 	}
-	return false
+	return ""
 }
 
 // RuntimeArtifactPathReferenceKind returns the first explicit runtime artifact
@@ -1553,7 +1560,12 @@ func TraceQueryContextActiveFromBus(ctx *BusContext) bool {
 	}
 	if ctx.AnalysisIR != nil {
 		rm := ctx.AnalysisIR.RequestModel
-		if rm.PerfTrace != nil || rm.RuntimeArtifactPathReferenceKind() == "trace" {
+		// The policy-independent identity scan mirrors the agent-side
+		// carrier (which reads RequiredFileHints without a policy gate):
+		// an advisory suppressed on a turn whose only trace carrier is a
+		// required-file hint would wrongly hide the tool the model can
+		// actually call.
+		if rm.PerfTrace != nil || rm.TypedRuntimeArtifactPathIdentityKind() == "trace" {
 			return true
 		}
 	}
