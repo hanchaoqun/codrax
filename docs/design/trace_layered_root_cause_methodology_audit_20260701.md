@@ -1536,3 +1536,5 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 **D3 反转行影响构成必须拆分展示。** priority_inversion_candidate 行显示"运行占用"具有误导性:R5d/R5d-2 后其影响=门控合成量(runnable 全额 + running 弱核折算)。修:数据侧把门控构成拆为 typed 字段(gated_runnable_ms / gated_running_deficit_ms / gated_total_ms),渲染"影响构成: 可运行等待 X ms + 运行折算 Y ms = Z ms";状态标签不得对合成量声称单一状态(改"反转影响"专属标签)。
 
 **批次任务(D 轮,高优先级并入 trace-first 批)。** D1=contention payload 解析+peer 携带+时长语义标签;D2=type 中文映射+明细表类型列;D3=门控构成拆分字段+渲染。
+
+**D4(追加,2026-07-02)"主根因:"加粗 + 中文跟随保留英文 type。** 投影导语的"主根因:"用 Markdown 加粗(`**主根因:**`);其后的原因描述用中文跟随、括号保留英文 type token,如 `优先级反转候选（priority_inversion_candidate）`。该组合格式适用于导语/lead 行等叙述面;树内行按 D2(中文简明,token 在明细表"类型"列)——即:叙述面=中文(token),树行=中文,表=原始 token 三级保真。
