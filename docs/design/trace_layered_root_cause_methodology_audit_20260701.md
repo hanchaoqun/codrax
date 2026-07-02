@@ -1444,3 +1444,50 @@ Donghu trace eval 的新日志显示:模型第一轮 `emit_analysis` 已经正�
 ### 7.20 展示层 v3 全量重设计:目标锚定单主树(2026-07-02,已裁定)
 
 §7.9–§7.14.2 的 v1(表+两图)/ v2(multi-view 7 块)迭代后,基于真实端到端渲染审计(10 条)+ 老版本真实客户输出增量审计(8 条:微小事实刷屏首屏 / 跨 predicate 同事实双行重复 / `→` 语义崩坏 / 数字矛盾无解释 / unknown-thread 泛滥等),经 3 方案 + 新形式侦察 + 双评审 workflow 裁定,展示层整体重设计为 **4 块 0 mermaid:导语(纯事实结论行+窗口锚点+覆盖率减法)→ 等宽 ```text 主树(🎯 目标线程为根,└─下钻─/└─唤醒─/├─语义─/├─成因─ 四种边,bar 满格=关注窗口,⚠跨窗/⛔链止内联)→ 无损明细表 → 按文件分组证据索引**,配渲染前严格档确定性聚合(R1 跨 predicate 同 ms 同行区间合并 / R2 微小同类 ×N / R3 unknown-thread 聚合 / R4 primary-hop 双视角合一)。用户裁定:0 mermaid、严格聚合容差、按批实施。完整规格与两份 mockup:`trace_projection_presentation_v3_20260702.md`。
+
+### 7.30 客户报告审计 v2:berlin 滑动卡顿报告 8 项投诉 + 系统深挖(2026-07-02)
+
+**输入。** 真实客户 markdown 报告(berlin.systrace 1104MiB,进程 42591,窗口 6793222.031~6793225.370s,"不要分析代码"),客户 8 项投诉 + 系统独立深挖 5 项。本节把全部 gap 按 数据侧/渲染侧/报告侧 归因落档,并给出重设计裁定与批次任务。
+
+**客户投诉 → 精确机制映射。**
+
+1. **"未解析线程"太内部化,至少给 TID/PID**(投诉1/6)——`runtimeTraceCausalProjectionDisplayNodeName`(runtime.go:1349)在 Subject/Object 为 typed 哨兵 `unknown-thread`/`unknown` 时渲染。根因在**数据侧**:trace_query 观测端(io_pressure/root_cause_rank 等谓词)在无法解析 comm 时填哨兵,但**丢弃了已知的 pid/tid**;渲染端无 id 可显。"节点/原因"列与"关系▸影响点"(tree.go:1114 "on-chain·影响点未解析")继承同一哨兵源。
+2. **"唤醒链路径未解析"是什么意思;on-chain 不是都有唤醒/依赖关系吗**(投诉2)——tree.go:427 fallback:`projection.WakeupPath` 为空(整轮**没有 wakeup_chain 观测**)时目标锚定树退化为平铺。berlin 形态:s_sleep=1280.602ms(38.5%)且 `stateDrilldownNeedsWakeupChainForSource` 已给出 ChainRequired 推荐,但**模型没有执行 wakeup_chain 视图**——违反 R5 on-chain 递归下钻方法论。两种截然不同的原因(本轮没跑下钻 vs 睡眠区间无 sched_wakeup 记录 missing_wakeup)在文案上不可区分。
+3. **"bar满格"中英混用**(投诉3)——tree.go:473/478;同面还有 legend 的"口径:"行、`链上累计` vs `chain cum`、`跨窗(实际)` 等混用清单(详见审计)。
+4. **"链上·深度未解析"之前有,现在为什么没了**(投诉4)——tree.go:1060,`depthless` 行 = ChainRelevance=on_chain 但 ChainDepth 无法 attach 到 WakeupPath 主干。**深度值本身没丢**(v3 保留在明细表"层级"列);无法 attach 的根因同投诉2:主干路径为空,一切 on-chain 行都挂不上。
+5. **"下一步"全英文**(投诉5)——`stateChurnNextStep`(tracequery/query.go:3817-3830)等 **8 条系统固定英文串**经 `runtimeTraceNextStepItems`(runtime.go:1839,Label 硬编码"下一步")原样注入客户面板;`bus.Language` 与渲染层 zh 判定均未贯穿到该面。
+6. **影响点未解析**(投诉6)——同 1,哨兵源头。
+7. **bar 无状态归因**(投诉7)——每行 bar 只有长度无状态语义;typed `StateKind` 字段(v2 已加,dominant_state 精确来源)已存在但未投影到 bar 行。
+8. **"未解析线程 io_pressure" 在 on-chain 上吗**(投诉8)——在(ChainRelevance=on_chain),但既无法解析线程也无法 attach 深度。**裁定:这是 on-chain 语义污染**——关系未解析的行不应进 on-chain 树。
+
+**系统独立深挖(5 项)。**
+
+- **S1 双窗口数值矛盾**:正文 running=2029.609ms(state_churn totals,四态和=3325.663≈窗口)vs 系统补充 running=2677.636ms(state_drilldown,同 source=state_churn)。后者使四态和=3973ms=**窗口的 119%**,单线程状态不可能重叠 → drilldown running impact 的口径(selected_window vs actual/aligned)存在数据层 bug 或未标注口径;两个面都没写窗口基准。
+- **S2 指标快照裸 dump**:`runtimeTraceMetricSnapshotFromObservationRecord`(runtime.go:1675-1722)把内部 `key=value;` 串直接拼进"Trace 指标快照",无人话化无本地化。
+- **S3 证据 locator**:"D:\temp\南海\xiongqing\berlin.systrace:824646-1624260" —— 客户 Windows 原始路径 + 80 万行行号范围,对读者无定位价值;应 basename + 附时间窗(file:line 保留在原始 record 供审计)。
+- **S4 投影章节整体缺失形态**:markdown 报告无投影章节(cluster 空→仅 coverage caveat 或彻底不渲染),而终端/另一渲染面出现占位符满屏——同一数据缺口的两种退化面,都指向 S5。
+- **S5 方法论执行缺口(根)**:R5 递归下钻在该 run 未被执行(wakeup_chain 未跑),ChainRequired 是 typed 精确信号但只作软推荐,无 enforcement。
+
+**重设计裁定(核心 6 条)。**
+
+- **裁定1 on-chain 语义收紧**:进 on-chain 树的行必须"关系已解析"(唤醒/依赖/成因/下钻边之一 attach 成功)。unknown-thread 且 depth 无法 attach 的行(io_pressure 类)**降级到背景压力段并聚类合并**;"链上·深度未解析"与"on-chain·影响点未解析"占位符从 on-chain 面消失。
+- **裁定2 未解析线程必带 id**:数据侧在哨兵行携带已知 pid/tid(`tid=12345`);渲染 "线程 tid=12345(名称未解析)";彻底无 id → "未定位线程",且按裁定1 不进 on-chain。
+- **裁定3 唤醒链 enforcement + 两因区分**:s_sleep dominant 且 ChainRequired 未满足 → completion 前 typed retry directive 指定 `trace_query(view=wakeup_chain)`(精确信号硬引导,有 trace-only pullback 先例);渲染侧把"唤醒链路径未解析"改为带原因 coverage:"本轮未执行唤醒链下钻" vs "睡眠区间无 sched_wakeup(missing_wakeup)"。
+- **裁定4 bar 状态归因**:每行 bar 附 typed StateKind 中文标签(睡眠等待/可运行等待/运行占用/IO阻塞/D状态),图例补状态说明;无 StateKind 的行沿用"影响形态"列值。
+- **裁定5 系统注入面全量本地化**:next_step 8 串 typed 中英映射;指标快照人话化(中文标签+占比);投影面中英混用清理(bar满格→"满格=窗口xxxms";legend 全中文;en 版对称)。语言判定统一走渲染层既有 zh chokepoint。
+- **裁定6 证据 locator 规范化**:显示 basename+时间窗,完整路径与行号保留在原始 trace_query record;正文/系统补充双面同规。数值必须标注窗口基准(选定窗/实际对齐窗)。
+
+**批次任务。**
+
+- **B1 本节落盘。** ✅
+- **B2 数据侧 id/口径**:哨兵行携带 pid/tid;S1 超窗口径查证与修复(或双面窗口基准标注);io_pressure 类行的 chain attach 依据补齐或显式 off-chain。
+- **B3 唤醒链 enforcement**:ChainRequired typed directive + 渲染两因区分。
+- **B4 渲染 on-chain 收紧**:裁定1 降级聚合 + 占位符改造(裁定2 渲染半)。
+- **B5 bar 状态归因**:裁定4。
+- **B6 语言一致性**:裁定5(next_step 映射、快照人话化、混用清理)。
+- **B7 locator 规范化**:裁定6。
+- **B8 回归+eval**:ZH/EN golden 更新;本地 eval 复跑投影场景验证。
+- **B9 对抗复核+推送**。
+
+**当前进展。**
+- B1 已落地:本节。
