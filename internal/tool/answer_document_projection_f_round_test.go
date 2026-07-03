@@ -202,7 +202,7 @@ func TestRuntimeTraceProjAuditDetailCarriesDuplicatePublications(t *testing.T) {
 		Predicate: "root_cause_context", DuplicatePublications: 3,
 		MergedEvidenceIDs: []string{"E13b", "E13c"},
 	}
-	detail := runtimeTraceCausalProjectionAuditDetail(node, true)
+	detail := runtimeTraceCausalProjectionAuditDetail(node, true, false)
 	if !strings.Contains(detail, "duplicate_publications=3") {
 		t.Fatalf("audit detail must expose the dedup fold count: %q", detail)
 	}
@@ -211,7 +211,7 @@ func TestRuntimeTraceProjAuditDetailCarriesDuplicatePublications(t *testing.T) {
 	}
 	// The R2 SUM aggregate keeps merged_count= and never claims the dedup field.
 	sum := types.TraceCausalProjectionNode{Predicate: "root_cause_context", MergedCount: 3}
-	sumDetail := runtimeTraceCausalProjectionAuditDetail(sum, true)
+	sumDetail := runtimeTraceCausalProjectionAuditDetail(sum, true, false)
 	if !strings.Contains(sumDetail, "merged_count=3") || strings.Contains(sumDetail, "duplicate_publications") {
 		t.Fatalf("sum aggregate audit detail must not claim the dedup field: %q", sumDetail)
 	}

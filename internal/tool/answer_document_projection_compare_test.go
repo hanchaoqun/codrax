@@ -542,3 +542,19 @@ func TestRuntimeTraceProjCrossThreadAggregateRowRendering(t *testing.T) {
 		t.Fatalf("windowless aggregate must omit the density:\n%s", bareLine)
 	}
 }
+
+// F1 pin (review 2026-07-04, evidence-index face): the synthetic-line display
+// locator rejects lane placeholder tokens as artifact names — the caller then
+// keeps the legacy line display instead of rendering a bare lane token.
+func TestRuntimeTraceCausalProjectionSyntheticLocatorRejectsPlaceholderTokens(t *testing.T) {
+	for _, ref := range []string{"attached_trace:44", "trace_query:44", "runtime_artifact:44"} {
+		got := runtimeTraceCausalProjectionSyntheticEvidenceLocator(runtimeTraceCausalProjectionEvidenceEntry{Ref: ref})
+		if got != "" {
+			t.Fatalf("placeholder ref %q must not produce a stripped locator, got %q", ref, got)
+		}
+	}
+	got := runtimeTraceCausalProjectionSyntheticEvidenceLocator(runtimeTraceCausalProjectionEvidenceEntry{Ref: "seven.systrace:44"})
+	if got == "" || strings.Contains(got, ":44") {
+		t.Fatalf("real artifact ref must strip the synthetic line suffix, got %q", got)
+	}
+}

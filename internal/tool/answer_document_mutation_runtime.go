@@ -843,6 +843,12 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 	}
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
+	// CMP-7a: the flat-fallback shape (no ≥2-node wakeup path — the same
+	// condition that leaves model.Target empty) must not label audit summaries
+	// or 因果位置 cells "on-chain" under a header that says the chain could not
+	// be traced. Computed here so evidence entries added during the model build
+	// already carry it.
+	evidence.flatChain = len(runtimeTraceCausalProjectionCleanPath(projection.WakeupPath)) < 2
 	model := buildRuntimeTraceProjTreeModel(projection, evidence, zh)
 	runtimeTraceProjApplyUserFocus(&model, focus)
 	fence := runtimeTraceProjTreeFence(model, zh)
@@ -1398,6 +1404,11 @@ func runtimeTraceCausalProjectionCoverageText(reasons []string, zh bool) string 
 type runtimeTraceCausalProjectionEvidenceIndex struct {
 	order []runtimeTraceCausalProjectionEvidenceEntry
 	seen  map[string]string
+	// flatChain mirrors the section's flat-fallback shape (no ≥2-node wakeup
+	// path, so the tree renders "按层级平铺"): the audit summary must not claim
+	// on-chain causality next to a header that says the chain could not be
+	// traced (CMP-7a). Set by the cluster builder before the model build.
+	flatChain bool
 }
 
 type runtimeTraceCausalProjectionEvidenceEntry struct {
@@ -1409,6 +1420,13 @@ type runtimeTraceCausalProjectionEvidenceEntry struct {
 	// range does not. The full path:line locator stays in the raw record.
 	Window  string
 	Details string
+	// SyntheticLine marks an ABSENCE observation (typed missing_wakeup lane):
+	// its line span is the sleep interval's bookkeeping, not a trace row that
+	// contains the observation — there is no sched_wakeup row to point at. The
+	// display locator keeps only the artifact name (CMP-7b, customer compare
+	// audit 2026-07-03 §7: "…systrace:44" read as a real row); the raw record
+	// keeps the interval lines untouched.
+	SyntheticLine bool
 }
 
 func newRuntimeTraceCausalProjectionEvidenceIndex() *runtimeTraceCausalProjectionEvidenceIndex {
@@ -1434,10 +1452,11 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 		window = fmt.Sprintf("[%.3f–%.3fs]", node.StartTs, node.EndTs)
 	}
 	idx.order = append(idx.order, runtimeTraceCausalProjectionEvidenceEntry{
-		ID:      id,
-		Ref:     strings.TrimSpace(ref),
-		Window:  window,
-		Details: runtimeTraceCausalProjectionAuditDetail(node, zh),
+		ID:            id,
+		Ref:           strings.TrimSpace(ref),
+		Window:        window,
+		Details:       runtimeTraceCausalProjectionAuditDetail(node, zh, idx.flatChain),
+		SyntheticLine: node.Undrillable(),
 	})
 	return id
 }
@@ -1742,13 +1761,22 @@ func runtimeTraceCausalProjectionImpactMeaningCell(node types.TraceCausalProject
 	return runtimeTraceCausalProjectionCompactCellText(action+": "+meaning, 42)
 }
 
-func runtimeTraceCausalProjectionAuditDetail(node types.TraceCausalProjectionNode, zh bool) string {
+func runtimeTraceCausalProjectionAuditDetail(node types.TraceCausalProjectionNode, zh bool, flatChain bool) string {
 	var parts []string
 	if tier := strings.TrimSpace(node.Tier); tier != "" {
 		parts = append(parts, "tier="+tier)
 	}
 	if causality := strings.TrimSpace(node.Causality); causality != "" {
-		parts = append(parts, "causality="+causality)
+		// CMP-7a: in the flat-fallback shape the tree header states the chain
+		// could not be traced upstream — an audit summary claiming on-chain
+		// causality right below it is self-contradictory. Display face only
+		// (typed token, both languages); the raw observation keeps its verbatim
+		// causality note.
+		if flatChain && (causality == "on_wakeup_chain" || causality == "on_dependency_chain") {
+			parts = append(parts, "chain_shape=flat_untraceable")
+		} else {
+			parts = append(parts, "causality="+causality)
+		}
 	}
 	if node.Rank > 0 {
 		parts = append(parts, fmt.Sprintf("rank=%d", node.Rank))
@@ -2413,8 +2441,16 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 	}
 	visible := answerDocumentVisibleSurfaceForRuntimeTrace(doc)
 	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
+	snapCtx := newRuntimeTraceMetricSnapshotContext(ledger, runtimeTraceProjUserFocusFromBusContext(ctx), zh)
 	seen := make(map[string]bool)
-	var out []types.AnswerBlockItem
+	type snapshotCandidate struct {
+		record  types.ObservationRecord
+		raw     string
+		tier    int
+		projIdx int
+	}
+	var candidates []snapshotCandidate
+	hasChainCandidate := false
 	for _, record := range ledger.Records {
 		// The raw key=value form stays the coverage/dedupe key (typed pairs), the
 		// user-facing text is the localized humanized form (§7.30 裁定5/S2). The
@@ -2431,15 +2467,40 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 			continue
 		}
 		seen[raw] = true
-		text := runtimeTraceMetricSnapshotDisplayText(record, zh)
-		if text == "" {
-			text = raw
+		tier, projIdx := snapCtx.candidateTier(record)
+		if tier == runtimeTraceMetricSnapshotTierChain {
+			hasChainCandidate = true
 		}
-		label := strings.TrimSpace(record.Subject)
+		candidates = append(candidates, snapshotCandidate{record: record, raw: raw, tier: tier, projIdx: projIdx})
+	}
+	// CMP-4a candidate priority: threads on the compiled projection chain
+	// (WakeupPath/TreeRows canonical subjects, exact match) first, then analyzer
+	// entity hits (verbatim name/pid lanes), then the rest — and when ANY
+	// on-chain candidate exists, unrelated threads never enter the snapshot at
+	// all (the customer render burned both slots on usbDelayTimer/OS_DfxWatchdog
+	// while bindApplication's chain threads carried full metric sets). Stable
+	// sort keeps ledger order inside each tier.
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].tier < candidates[j].tier
+	})
+	var out []types.AnswerBlockItem
+	for _, candidate := range candidates {
+		if hasChainCandidate && candidate.tier == runtimeTraceMetricSnapshotTierRest {
+			continue
+		}
+		text := runtimeTraceMetricSnapshotDisplayText(candidate.record, zh)
+		if text == "" {
+			text = candidate.raw
+		}
+		text += snapCtx.spanMismatchNote(candidate.record, candidate.projIdx, zh)
+		label := strings.TrimSpace(candidate.record.Subject)
 		if label == "" {
 			label = "state_churn"
 		} else {
 			label += " state_churn"
+		}
+		if prefix := snapCtx.artifactPrefix(candidate.projIdx); prefix != "" {
+			label = prefix + " · " + label
 		}
 		out = append(out, types.AnswerBlockItem{
 			ID:          fmt.Sprintf("runtime_trace_metric_snapshot_%d", len(out)+1),
@@ -2452,6 +2513,143 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 		}
 	}
 	return out
+}
+
+// Snapshot candidate tiers (CMP-4a, customer compare audit 2026-07-03 §7):
+// precise typed lanes only — chain membership is canonical-subject equality
+// against the compiled projection's WakeupPath/TreeRows; the entity tier reuses
+// the R2/RF1 verbatim name/pid comparison. Tier values are the sort key.
+const (
+	runtimeTraceMetricSnapshotTierChain  = 0
+	runtimeTraceMetricSnapshotTierEntity = 1
+	runtimeTraceMetricSnapshotTierRest   = 2
+)
+
+// runtimeTraceMetricSnapshotContext carries the per-artifact projection context
+// the CMP-4 snapshot selector reads: one chain-thread set per compiled
+// projection (canonical WakeupPath/TreeRows subjects), the per-artifact
+// projection window for the span-mismatch annotation, and the artifact label
+// for the multi-artifact row prefix. Display-side selection/annotation only —
+// it never feeds a hard gate.
+type runtimeTraceMetricSnapshotContext struct {
+	projections []types.TraceCausalProjection
+	chainSets   []map[string]bool
+	focus       runtimeTraceProjUserFocus
+	multi       bool
+}
+
+func newRuntimeTraceMetricSnapshotContext(ledger types.ObservationLedger, focus runtimeTraceProjUserFocus, zh bool) runtimeTraceMetricSnapshotContext {
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	out := runtimeTraceMetricSnapshotContext{
+		projections: set.Projections,
+		chainSets:   make([]map[string]bool, len(set.Projections)),
+		focus:       focus,
+		multi:       len(set.Projections) > 1,
+	}
+	for i, projection := range set.Projections {
+		chain := map[string]bool{}
+		for _, subject := range runtimeTraceCausalProjectionCleanPath(projection.WakeupPath) {
+			if runtimeTraceCausalProjectionKnownSubject(subject) {
+				chain[runtimeTraceCausalProjectionCanonicalNode(subject)] = true
+			}
+		}
+		model := buildRuntimeTraceProjTreeModel(projection, nil, zh)
+		for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows} {
+			for _, row := range rows {
+				subject := strings.TrimSpace(row.Node.Subject)
+				if subject == "" || !runtimeTraceCausalProjectionKnownSubject(subject) {
+					continue
+				}
+				chain[runtimeTraceCausalProjectionCanonicalNode(subject)] = true
+			}
+		}
+		out.chainSets[i] = chain
+	}
+	return out
+}
+
+// projectionIndexFor attributes one record to a compiled projection via the
+// typed artifact-identity lanes (-1 = no attribution). Identity-less records
+// belong to the sole projection of a single-projection compile — exactly the
+// records that compiled into it.
+func (c runtimeTraceMetricSnapshotContext) projectionIndexFor(record types.ObservationRecord) int {
+	for i := range c.projections {
+		if types.TraceCausalProjectionRecordMatchesArtifact(record, c.projections[i]) {
+			return i
+		}
+	}
+	if len(c.projections) == 1 && types.TraceCausalProjectionRecordArtifactIdentity(record) == "" {
+		return 0
+	}
+	return -1
+}
+
+func (c runtimeTraceMetricSnapshotContext) candidateTier(record types.ObservationRecord) (int, int) {
+	projIdx := c.projectionIndexFor(record)
+	subject := strings.TrimSpace(record.Subject)
+	if projIdx >= 0 && subject != "" && c.chainSets[projIdx][runtimeTraceCausalProjectionCanonicalNode(subject)] {
+		return runtimeTraceMetricSnapshotTierChain, projIdx
+	}
+	if subject != "" && runtimeTraceProjTargetMatchesUserEntities(subject, c.focus.Entities) {
+		return runtimeTraceMetricSnapshotTierEntity, projIdx
+	}
+	return runtimeTraceMetricSnapshotTierRest, projIdx
+}
+
+// spanMismatchNote implements CMP-4b: when the snapshot thread's own observed
+// state span exceeds TWICE the attributed projection window (both values
+// present; exact float comparison, no tolerance band), the row says so —
+// a 24.4s-sleep watchdog next to a 1.2s analysis window read as if it
+// described the problem window. No projection window → no annotation.
+func (c runtimeTraceMetricSnapshotContext) spanMismatchNote(record types.ObservationRecord, projIdx int, zh bool) string {
+	if projIdx < 0 || projIdx >= len(c.projections) {
+		return ""
+	}
+	windowMS := c.projections[projIdx].WindowDurationMS()
+	if windowMS <= 0 {
+		return ""
+	}
+	totalMS := runtimeTraceMetricSnapshotObservedSpanMS(record)
+	if totalMS <= 0 || totalMS <= windowMS*2 {
+		return ""
+	}
+	if zh {
+		return fmt.Sprintf("(观测跨度 %.1fs,远超投影窗,仅供背景参考)", totalMS/1000)
+	}
+	return fmt.Sprintf(" (observed span %.1fs, far beyond the projection window — background reference only)", totalMS/1000)
+}
+
+// runtimeTraceMetricSnapshotObservedSpanMS returns the thread's own observed
+// state span for the CMP-4b comparison: the typed "total" metric when present,
+// else the sum of the five per-state totals the snapshot already requires.
+func runtimeTraceMetricSnapshotObservedSpanMS(record types.ObservationRecord) float64 {
+	values := runtimeTraceMetricSnapshotValues(record)
+	if values == nil {
+		return 0
+	}
+	if total := runtimeTraceMetricFloat(values["total"]); total > 0 {
+		return total
+	}
+	sum := 0.0
+	for _, key := range []string{"running", "runnable", "sleep", "d_state", "io_wait"} {
+		sum += runtimeTraceMetricFloat(values[key])
+	}
+	return sum
+}
+
+// artifactPrefix returns the per-artifact label prefix for multi-artifact
+// ledgers (CMP-4c): snapshot rows carry the same artifact basename the
+// projection sections are titled with. Single-artifact renders stay unprefixed
+// (byte-identity with the legacy label).
+func (c runtimeTraceMetricSnapshotContext) artifactPrefix(projIdx int) string {
+	if !c.multi || projIdx < 0 || projIdx >= len(c.projections) {
+		return ""
+	}
+	label := strings.TrimSpace(c.projections[projIdx].ArtifactLabel)
+	if label == "" {
+		label = strings.TrimSpace(c.projections[projIdx].ArtifactPath)
+	}
+	return label
 }
 
 func runtimeTraceMetricSnapshotCoveredByAnswer(visible string, record types.ObservationRecord, snapshot string) bool {

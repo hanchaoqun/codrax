@@ -62,6 +62,20 @@ var traceCausalProjectionNonArtifactIDTokens = map[string]bool{
 	"trace_query":    true,
 }
 
+// TraceCausalProjectionPlaceholderArtifactToken reports whether token is a
+// production lane placeholder that flows through SourceRef/SupportRef path
+// slots WITHOUT being an artifact name ("attached_trace"/"trace_query"
+// ArtifactID constants plus the "runtime_artifact" support-ref placeholder).
+// Display faces that strip line suffixes in favor of an artifact name (CMP-7b)
+// must reject these: rendering a bare lane token as the whole locator would
+// leave nothing auditable, which is exactly the case the bare-ref guard
+// exists for (adversarial review 2026-07-04 F1).
+func TraceCausalProjectionPlaceholderArtifactToken(token string) bool {
+	token = strings.TrimSpace(token)
+	return traceCausalProjectionNonArtifactIDTokens[token] ||
+		token == traceCausalProjectionSupportRefPlaceholderPath
+}
+
 // TraceCausalProjectionSet is the partitioned compile result: one projection
 // per trace artifact plus the typed leftovers the renderer must caveat.
 type TraceCausalProjectionSet struct {
@@ -287,6 +301,41 @@ func traceCausalProjectionDisambiguateLabels(kept []*traceCausalProjectionPartit
 			p.label = segments[len(segments)-2] + "/" + segments[len(segments)-1]
 		}
 	}
+}
+
+// TraceCausalProjectionRecordArtifactIdentity returns one observation record's
+// typed artifact-identity partition key ("" = the record carries no artifact
+// identity). Exported for display-side consumers (CMP-4/CMP-5 snapshot and
+// supplement annotators) that must know whether a record can be attributed to
+// a compiled per-artifact projection at all — same typed lanes as the
+// partitioner, never prose.
+func TraceCausalProjectionRecordArtifactIdentity(record ObservationRecord) string {
+	key, _, _ := traceCausalProjectionArtifactIdentity(record)
+	return key
+}
+
+// TraceCausalProjectionRecordMatchesArtifact reports whether one observation
+// record's typed artifact identity denotes the SAME trace artifact a compiled
+// projection was partitioned for (CMP-4/CMP-5 record→projection attribution).
+// Path-lane identities match on canonical-path equality or the F5a ≥2-segment
+// verbatim suffix-alias relation (relative vs absolute spellings of one file);
+// id-lane identities match on verbatim ArtifactLabel equality. A record with
+// no identity, or a projection without artifact provenance (legacy
+// single-artifact compile), never matches — callers decide their own
+// single-projection fallback explicitly.
+func TraceCausalProjectionRecordMatchesArtifact(record ObservationRecord, projection TraceCausalProjection) bool {
+	key, label, path := traceCausalProjectionArtifactIdentity(record)
+	if key == "" {
+		return false
+	}
+	if projectionPath := strings.TrimSpace(projection.ArtifactPath); projectionPath != "" {
+		if path == "" {
+			return false
+		}
+		return path == projectionPath || traceCausalProjectionSuffixAliasPaths(path, projectionPath)
+	}
+	projectionLabel := strings.TrimSpace(projection.ArtifactLabel)
+	return projectionLabel != "" && path == "" && label == projectionLabel
 }
 
 // traceCausalProjectionArtifactIdentity extracts a record's typed artifact

@@ -84,6 +84,12 @@ type runtimeTraceProjTreeRow struct {
 	// aggregation layer's pre-R2 dedup pass and this layer's H6 fold. The ×N
 	// label forks on that typed count, never on guessing from the numbers.
 	RecursOnChain bool
+	// FlatChain marks rows of a flat-fallback render (no ≥2-node wakeup path —
+	// model.Target empty): the tree header states the chain could not be traced
+	// upstream, so the layer chip / 因果位置 cell must not claim "on-chain" for
+	// these rows (CMP-7a). Display-only; the node's typed causality is
+	// untouched.
+	FlatChain bool
 }
 
 type runtimeTraceProjTreeModel struct {
@@ -458,8 +464,35 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		})
 	}
 
+	// CMP-7a: flat-fallback renders (no resolved target) stamp every row so the
+	// layer chip and the detail table's 因果位置 cell agree with the flat header
+	// instead of claiming "on-chain" (customer compare audit 2026-07-03 §7).
+	if strings.TrimSpace(model.Target) == "" {
+		for _, rows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background} {
+			for i := range rows {
+				rows[i].FlatChain = true
+			}
+		}
+	}
 	model.BarMaxMS = runtimeTraceProjModelMaxImpact(model)
 	return model
+}
+
+// runtimeTraceProjCausalPositionLayerCell is the CMP-7a display wrapper over
+// the causal-position layer cell: a flat-fallback row whose chain relevance
+// would read "on-chain" renders the flat form instead — the header just said
+// the wakeup chain could not be traced upstream, and both surfaces (tree layer
+// chip, lossless-table 因果位置 column) must agree with it. Every other layer
+// value passes through verbatim.
+func runtimeTraceProjCausalPositionLayerCell(node types.TraceCausalProjectionNode, zh, flatChain bool) string {
+	layer := runtimeTraceCausalProjectionLayerCell(node, zh)
+	if flatChain && layer == "on-chain" {
+		if zh {
+			return "平铺(链不可上溯)"
+		}
+		return "flat (chain not traceable)"
+	}
+	return layer
 }
 
 // runtimeTraceProjNodeDemotedToBackground implements §7.30 裁定1: a row may sit
@@ -1666,7 +1699,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagExtra})
 	}
-	layer := runtimeTraceCausalProjectionLayerCell(node, zh)
+	layer := runtimeTraceProjCausalPositionLayerCell(node, zh, row.FlatChain)
 	priority := runtimeTraceCausalProjectionPriorityCell(node, zh)
 	if row.Kind != runtimeTraceProjTreeRowBackground {
 		// background stanza header already states the layer; keep those rows lean
@@ -2171,8 +2204,9 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 	// Flat mode (no wakeup-path trunk): EVERY row is depthless, so per-row
 	// "depth unresolved" / "impact point unresolved" placeholders carry zero
 	// information and spam the table — the header already names the flat cause
-	// (§7.30 裁定3) and the causal-position column already says on-chain. The
-	// placeholders render only when a trunk exists and a named row cannot attach.
+	// (§7.30 裁定3) and the causal-position column renders the flat marker
+	// (平铺/链不可上溯, CMP-7a) instead of on-chain. The placeholders render
+	// only when a trunk exists and a named row cannot attach.
 	flat := strings.TrimSpace(model.Target) == ""
 	var rows []types.AnswerBlockItem
 	addRow := func(row runtimeTraceProjTreeRow) {
@@ -2181,7 +2215,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		}
 		node := row.Node
 		layer := runtimeTraceProjDetailLayerCell(row, zh, flat)
-		position := runtimeTraceCausalProjectionLayerCell(node, zh) + " · " + runtimeTraceCausalProjectionPriorityCell(node, zh)
+		position := runtimeTraceProjCausalPositionLayerCell(node, zh, row.FlatChain) + " · " + runtimeTraceCausalProjectionPriorityCell(node, zh)
 		name := runtimeTraceCausalProjectionNodeSubjectCell(node, zh)
 		// RF2b/V4: the duplicate-publication fold (single measurement) and the
 		// R2 sum aggregate are independent typed signals with distinct labels.
@@ -2294,6 +2328,30 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		addRow(row)
 	}
 	return columns, rows
+}
+
+// runtimeTraceCausalProjectionSyntheticEvidenceLocator renders the display
+// locator of a synthetic-line entry (CMP-7b): the artifact basename (plus the
+// entry's own time window when it has one) — never a line suffix. Returns ""
+// when the ref carries NO artifact name (bare line=N form): the caller then
+// keeps the legacy display, because stripping a bare ref would leave nothing
+// auditable on the panel.
+func runtimeTraceCausalProjectionSyntheticEvidenceLocator(entry runtimeTraceCausalProjectionEvidenceEntry) string {
+	pathPart, _ := runtimeTraceCausalProjectionSplitLineSuffix(entry.Ref)
+	if _, bare := runtimeTraceCausalProjectionBareLineRef(entry.Ref); bare {
+		return ""
+	}
+	tail := strings.TrimPrefix(runtimeTraceCausalProjectionPathTail(pathPart, 1), "…/")
+	if tail == "" || types.TraceCausalProjectionPlaceholderArtifactToken(tail) {
+		// Lane placeholders ("attached_trace"/"trace_query"/"runtime_artifact")
+		// are not artifact names — stripping the line suffix would leave a
+		// zero-information token as the whole locator (F1, review 2026-07-04).
+		return ""
+	}
+	if entry.Window != "" {
+		return runtimeTraceCausalProjectionCompactCellText(tail, 48) + " " + runtimeTraceCausalProjectionMarkdownSafe(entry.Window)
+	}
+	return runtimeTraceCausalProjectionCompactCellText(tail, 64)
 }
 
 // runtimeTraceProjDetailCrossThreadCell mirrors the CMP-3 unit annotation on
@@ -2523,6 +2581,17 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 				locator = runtimeTraceCausalProjectionMarkdownSafe(entry.Window)
 			} else if _, suffix := runtimeTraceCausalProjectionSplitLineSuffix(entry.Ref); suffix != "" {
 				locator = runtimeTraceCausalProjectionMarkdownSafe(suffix)
+			}
+		}
+		if entry.SyntheticLine {
+			// CMP-7b: an absence observation (missing_wakeup) has no trace row of
+			// its own — its line span is interval bookkeeping, so a "file:44"
+			// locator reads as a real row. Display keeps only the artifact name;
+			// the raw record retains the interval lines for audit. A bare line
+			// ref with no artifact name keeps its legacy display — stripping it
+			// would leave nothing auditable on the panel.
+			if synthetic := runtimeTraceCausalProjectionSyntheticEvidenceLocator(entry); synthetic != "" {
+				locator = synthetic
 			}
 		}
 		if locator == "" {

@@ -12030,8 +12030,20 @@ func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.Answe
 	if len(ledger.Records) == 0 {
 		return nil
 	}
+	// CMP-5b window context: the per-artifact projection windows (which already
+	// fall back to the producer's typed selected_window note — CMP-2) let each
+	// row say when its own observation window sits entirely OUTSIDE the
+	// projection window. Display annotation only.
+	projectionSet := types.CompileTraceCausalProjectionSet(ledger)
+	type supplementEntry struct {
+		order       int
+		key         string
+		record      types.ObservationRecord
+		zeroBlocked bool
+	}
 	seen := map[string]bool{}
-	rows := make([]traceQueryObservationSupplementRow, 0, traceQueryObservationSupplementMaxRows)
+	entries := make([]supplementEntry, 0, len(ledger.Records))
+	zeroBlockedCount := 0
 	for _, record := range ledger.Records {
 		order := traceQueryObservationSupplementOrder(record)
 		if order == 0 {
@@ -12045,13 +12057,137 @@ func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.Answe
 			continue
 		}
 		seen[key] = true
-		text := traceQueryObservationSupplementText(record, zh)
+		zeroBlocked := traceQueryObservationZeroValueBlockedReason(record)
+		if zeroBlocked {
+			zeroBlockedCount++
+		}
+		entries = append(entries, supplementEntry{order: order, key: key, record: record, zeroBlocked: zeroBlocked})
+	}
+	// CMP-5a: ≥2 zero-value blocked_reason rows (no duration, no explanation —
+	// the 18-row customer wall) fold into ONE counted line; the raw observations
+	// stay untouched in the ledger, so nothing leaves the audit plane. A single
+	// such row keeps the legacy per-row rendering.
+	foldZeroBlocked := zeroBlockedCount >= 2
+	rows := make([]traceQueryObservationSupplementRow, 0, traceQueryObservationSupplementMaxRows)
+	var foldSubjects []string
+	foldSubjectSeen := map[string]bool{}
+	for _, entry := range entries {
+		if foldZeroBlocked && entry.zeroBlocked {
+			subject := strings.TrimSpace(entry.record.Subject)
+			if subject != "" && !foldSubjectSeen[subject] {
+				foldSubjectSeen[subject] = true
+				foldSubjects = append(foldSubjects, subject)
+			}
+			continue
+		}
+		text := traceQueryObservationSupplementText(entry.record, zh)
 		if text == "" {
 			continue
 		}
-		rows = append(rows, traceQueryObservationSupplementRow{Order: order, Key: key, Text: text})
+		text += traceQueryObservationOutsideWindowNote(entry.record, projectionSet, zh)
+		rows = append(rows, traceQueryObservationSupplementRow{Order: entry.order, Key: entry.key, Text: text})
+	}
+	if foldZeroBlocked {
+		rows = append(rows, traceQueryObservationSupplementRow{
+			Order: 15,
+			Key:   "critical_blocking:blocked_reason\x00__zero_value_fold__",
+			Text:  traceQueryObservationZeroBlockedFoldText(zeroBlockedCount, foldSubjects, zh),
+		})
 	}
 	return rows
+}
+
+// traceQueryObservationZeroValueBlockedReason identifies the CMP-5a fold shape
+// with precise typed signals only: a critical_blocking observation whose typed
+// "type=" rich note is exactly blocked_reason AND whose Value is empty (no
+// duration was measured). Valued observations never fold.
+func traceQueryObservationZeroValueBlockedReason(record types.ObservationRecord) bool {
+	if strings.TrimSpace(record.Value) != "" {
+		return false
+	}
+	if !strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "critical_blocking") {
+		return false
+	}
+	for _, note := range record.RichNotes {
+		note = strings.TrimSpace(note)
+		if strings.HasPrefix(note, "type=") {
+			return strings.TrimSpace(strings.TrimPrefix(note, "type=")) == "blocked_reason"
+		}
+	}
+	return false
+}
+
+// traceQueryObservationZeroBlockedFoldText renders the single CMP-5a fold line:
+// count + up to the first 3 distinct thread names; the full row set remains in
+// the raw trace_query records.
+func traceQueryObservationZeroBlockedFoldText(count int, subjects []string, zh bool) string {
+	sample := subjects
+	if len(sample) > 3 {
+		sample = sample[:3]
+	}
+	ellipsis := ""
+	if count > len(sample) {
+		ellipsis = "…"
+	}
+	if zh {
+		joined := strings.Join(sample, "、")
+		if joined == "" {
+			joined = "未解析线程"
+		}
+		return fmt.Sprintf("critical_blocking:blocked_reason：共 %d 条零时长观测(无时长值,已折叠;线程: %s%s;完整清单见原始 trace_query 记录)", count, joined, ellipsis)
+	}
+	joined := strings.Join(sample, ", ")
+	if joined == "" {
+		joined = "unresolved threads"
+	}
+	return fmt.Sprintf("critical_blocking:blocked_reason: %d zero-duration observation(s) (no duration value, folded; threads: %s%s; the full list remains in the raw trace_query records)", count, joined, ellipsis)
+}
+
+// traceQueryObservationOutsideWindowNote implements CMP-5b: when BOTH the
+// record's own observation window and its artifact's projection window exist
+// and the two intervals have zero intersection (exact comparison — the same
+// intersection predicate the projection's within-window marker uses), the row
+// ends with a 窗外观测 note. Missing either window → no annotation.
+func traceQueryObservationOutsideWindowNote(record types.ObservationRecord, set types.TraceCausalProjectionSet, zh bool) string {
+	start, end := record.Span.StartTs, record.Span.EndTs
+	if start <= 0 || end <= start {
+		return ""
+	}
+	winStart, winEnd, ok := traceQueryObservationProjectionWindow(record, set)
+	if !ok {
+		return ""
+	}
+	if start < winEnd && end > winStart {
+		return "" // intersects — inside or straddling the projection window
+	}
+	if zh {
+		return "(窗外观测)"
+	}
+	return " (outside the projection window)"
+}
+
+// traceQueryObservationProjectionWindow resolves the projection window of the
+// record's OWN artifact (typed identity lanes; never a cross-artifact guess).
+// Identity-less records inherit the sole projection's window only on a
+// single-projection compile — exactly the records that compiled into it.
+func traceQueryObservationProjectionWindow(record types.ObservationRecord, set types.TraceCausalProjectionSet) (float64, float64, bool) {
+	validWindow := func(p types.TraceCausalProjection) bool {
+		return p.WindowStartTs > 0 && p.WindowEndTs > p.WindowStartTs
+	}
+	for _, projection := range set.Projections {
+		if !types.TraceCausalProjectionRecordMatchesArtifact(record, projection) {
+			continue
+		}
+		if !validWindow(projection) {
+			return 0, 0, false
+		}
+		return projection.WindowStartTs, projection.WindowEndTs, true
+	}
+	if len(set.Projections) == 1 && types.TraceCausalProjectionRecordArtifactIdentity(record) == "" &&
+		validWindow(set.Projections[0]) {
+		return set.Projections[0].WindowStartTs, set.Projections[0].WindowEndTs, true
+	}
+	return 0, 0, false
 }
 
 func traceQueryObservationSupplementOrder(record types.ObservationRecord) int {
@@ -12167,7 +12303,32 @@ func traceQueryObservationValue(record types.ObservationRecord, zh bool) string 
 // carries its own trace window, otherwise "basename:line-range". A raw customer
 // path like D:\temp\…\berlin.systrace:824646-1624260 never reaches the panel;
 // the full locator authority stays in the raw observation record.
+//
+// CMP-7b: an ABSENCE observation (typed missing_wakeup lane) has no trace row
+// of its own — its line span is sleep-interval bookkeeping, so a ":44"-style
+// suffix reads as a real row. The display keeps only the artifact name (or the
+// record's own time window); the raw record keeps the interval lines.
 func traceQueryObservationLocation(record types.ObservationRecord) string {
+	if traceQueryObservationSyntheticLineLocator(record) {
+		// Only strip when a REAL artifact name exists — a locator with no
+		// artifact, or one whose path slot holds a lane placeholder
+		// ("attached_trace"/"trace_query"/"runtime_artifact"), keeps its
+		// legacy line display rather than vanishing from the panel (F1,
+		// review 2026-07-04: a bare lane token as the whole locator would
+		// leave nothing auditable).
+		for _, ref := range record.SupportRefs {
+			if s := strings.TrimSpace(ref); s != "" {
+				pathPart, _ := traceQueryObservationSplitLineSuffix(s)
+				if base := traceQueryObservationPathBase(pathPart); base != "" && !types.TraceCausalProjectionPlaceholderArtifactToken(base) {
+					return traceQueryObservationDisplayLocator(base, record.Span)
+				}
+				break
+			}
+		}
+		if base := traceQueryObservationPathBase(firstNonEmptyString(record.SourceRef.Path, record.SourceRef.ArtifactID)); base != "" && !types.TraceCausalProjectionPlaceholderArtifactToken(base) {
+			return traceQueryObservationDisplayLocator(base, record.Span)
+		}
+	}
 	for _, ref := range record.SupportRefs {
 		if s := strings.TrimSpace(ref); s != "" {
 			return traceQueryObservationDisplayLocator(s, record.Span)
@@ -12182,6 +12343,15 @@ func traceQueryObservationLocation(record types.ObservationRecord) string {
 		return traceQueryObservationDisplayLocator(ref, record.Span)
 	}
 	return strings.TrimSpace(record.SourceRef.ToolCallID)
+}
+
+// traceQueryObservationSyntheticLineLocator matches the typed missing_wakeup
+// absence lane (same exact predicate/claim-key match as the projection's
+// UndrillableReason derivation) — the only shape whose line locator is
+// interval bookkeeping rather than a locatable trace row.
+func traceQueryObservationSyntheticLineLocator(record types.ObservationRecord) bool {
+	return strings.TrimSpace(record.Predicate) == "missing_wakeup" ||
+		strings.TrimSpace(record.ClaimKey) == "root_evidence:missing_wakeup"
 }
 
 func traceQueryObservationDisplayLocator(ref string, span types.ObservationSpan) string {
