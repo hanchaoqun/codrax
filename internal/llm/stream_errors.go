@@ -157,3 +157,45 @@ func (e *StreamNoVisibleOutputTimeoutError) Unwrap() error {
 func (e *StreamNoVisibleOutputTimeoutError) Is(target error) bool {
 	return target == ErrStreamNoVisibleOutputTimeout
 }
+
+// ErrStreamTotalTimeout is raised when a streaming request exceeds the total
+// wall-clock cap (2× the operator's request timeout). Streaming intentionally
+// carries no http.Client.Timeout so legitimate long answers are not killed
+// while visible bytes flow — but that left the worst case unbounded: a
+// degenerate stream that keeps emitting visible deltas resets every idle
+// watchdog and can run arbitrarily long (customer dead-session 2026-07-03:
+// 14m35s against timeout=10m). The total cap preserves the flowing-bytes
+// headroom while bounding the whole request.
+var ErrStreamTotalTimeout = errors.New("llm: upstream stream exceeded total wall-clock cap")
+
+// StreamTotalTimeoutError wraps the read-side cancellation when the total
+// wall-clock watchdog fires. Intentionally NOT in the in-adapter retry
+// allowlist: content callbacks have usually fired by then, and replaying a
+// request that already consumed 2× the per-call budget multiplies wall-clock
+// damage instead of recovering.
+type StreamTotalTimeoutError struct {
+	Elapsed time.Duration
+	Cap     time.Duration
+	Cause   error
+}
+
+func (e *StreamTotalTimeoutError) Error() string {
+	if e == nil {
+		return ErrStreamTotalTimeout.Error()
+	}
+	if e.Cause != nil {
+		return fmt.Sprintf("upstream LLM stream ran %s, exceeding the total wall-clock cap %s (2×request timeout): %v", e.Elapsed, e.Cap, e.Cause)
+	}
+	return fmt.Sprintf("upstream LLM stream ran %s, exceeding the total wall-clock cap %s (2×request timeout)", e.Elapsed, e.Cap)
+}
+
+func (e *StreamTotalTimeoutError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func (e *StreamTotalTimeoutError) Is(target error) bool {
+	return target == ErrStreamTotalTimeout
+}

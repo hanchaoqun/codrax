@@ -446,8 +446,21 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 			// investigation — any future client-side or model-side
 			// output truncation is now visible in one log line.
 			if resp.StopReason == "max_tokens" {
-				logging.Warning("[llm] response: model=%s finish_reason=length output_tokens=%d cap=%d (request hit output cap — set max_output_tokens=0 in providers.yaml to remove client-side cap)",
-					o.model, resp.Usage.OutputTokens, o.maxOutputTokens)
+				// cap>0 and cap==0 are different incidents: the first is
+				// the operator's client-side max_output_tokens knob, the
+				// second is the provider/model's own output ceiling.
+				// The old single message claimed "hit output cap" with
+				// cap=0 in the same line — self-contradictory.
+				if o.maxOutputTokens > 0 {
+					logging.Warning("[llm] response: model=%s finish_reason=length output_tokens=%d cap=%d (hit the client-side max_output_tokens cap from providers.yaml; raise it, or set 0 to defer to the provider ceiling)",
+						o.model, resp.Usage.OutputTokens, o.maxOutputTokens)
+				} else {
+					logging.Warning("[llm] response: model=%s finish_reason=length output_tokens=%d cap=0 (no client-side cap configured; the provider/model output ceiling truncated the response)",
+						o.model, resp.Usage.OutputTokens)
+				}
+			} else if resp.StopReason == finishReasonDegenerateRepetition {
+				logging.Warning("[llm] response: model=%s finish_reason=%s output_tokens=%d (client-side degeneration breaker truncated a verbatim repetition loop and stopped the stream early)",
+					o.model, resp.StopReason, resp.Usage.OutputTokens)
 			} else {
 				logging.Debug("[llm] response: model=%s finish_reason=%s output_tokens=%d cap=%d",
 					o.model, resp.StopReason, resp.Usage.OutputTokens, o.maxOutputTokens)
@@ -582,12 +595,17 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 	// the upstream stops sending useful stream progress for too
 	// long. The streaming HTTP client intentionally has no global
 	// http.Client.Timeout so legitimate long answers are not killed
-	// while bytes are flowing; instead the watchdog enforces three
+	// while bytes are flowing; instead the watchdog enforces four
 	// product-level caps:
 	//   - no first usable SSE chunk within streamFirstByteTimeout;
 	//   - no SSE progress after the stream starts within streamStallTimeout;
 	//   - no visible assistant/tool output within requestTimeout even
-	//     if hidden reasoning chunks keep the TCP/SSE stream active.
+	//     if hidden reasoning chunks keep the TCP/SSE stream active;
+	//   - total wall-clock above 2×requestTimeout regardless of flow —
+	//     a stream that keeps emitting visible deltas resets every idle
+	//     watchdog above, so without this cap a degenerate model can run
+	//     arbitrarily long (customer dead-session 2026-07-03: 14m35s
+	//     against timeout=10m before the server length ceiling fired).
 	//
 	// Bug provenance: eval Batch I+J sgf-parsing — planner LLM
 	// streamed initial reasoning, then upstream went silent for
@@ -690,8 +708,12 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 	var watchdogFired atomic.Bool
 	var firstByteFired atomic.Bool
 	var noVisibleFired atomic.Bool
+	var totalCapFired atomic.Bool
 	var watchdogIdle atomic.Int64  // ns
 	var noVisibleIdle atomic.Int64 // ns
+	var totalCapElapsed atomic.Int64
+	streamStart := time.Now()
+	totalCap := streamTotalWallClockCap(o.requestTimeout)
 	watchDone := make(chan struct{})
 	stallTimeout := o.streamStallTimeout
 	if stallTimeout <= 0 {
@@ -752,6 +774,16 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 						return
 					}
 				}
+				if totalCap > 0 {
+					if elapsed := time.Since(streamStart); elapsed > totalCap {
+						logging.Warning("[llm/stream] stream exceeded total wall-clock cap (%v > %v = %d×request timeout %v) while deltas were still flowing; aborting",
+							elapsed.Round(time.Second), totalCap, streamTotalWallClockCapMultiplier, o.requestTimeout)
+						totalCapElapsed.Store(int64(elapsed))
+						totalCapFired.Store(true)
+						cancel()
+						return
+					}
+				}
 			}
 		}
 	}()
@@ -781,6 +813,12 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 		} else if noVisibleFired.Load() {
 			err = &StreamNoVisibleOutputTimeoutError{
 				IdleFor: time.Duration(noVisibleIdle.Load()),
+				Cause:   err,
+			}
+		} else if totalCapFired.Load() {
+			err = &StreamTotalTimeoutError{
+				Elapsed: time.Duration(totalCapElapsed.Load()),
+				Cap:     totalCap,
 				Cause:   err,
 			}
 		} else if watchdogFired.Load() {
@@ -892,7 +930,27 @@ const (
 	// scanner work). Not operator-tunable: the 100 ms bound is a
 	// kernel-scheduling sanity floor, not a knob worth exposing.
 	streamWatchdogMinTickInterval = 100 * time.Millisecond
+	// streamTotalWallClockCapMultiplier scales requestTimeout into the
+	// absolute wall-clock ceiling for one streaming attempt. 2× keeps
+	// the historical decision that flowing visible bytes may run past
+	// the request timeout (long legitimate answers), while bounding the
+	// degenerate case where deltas flow forever and reset every idle
+	// watchdog. Not operator-tunable: operators already own the base
+	// requestTimeout knob; a second multiplier knob would just be a
+	// harder-to-reason-about alias for it.
+	streamTotalWallClockCapMultiplier = 2
 )
+
+// streamTotalWallClockCap derives the absolute per-attempt wall-clock
+// ceiling for a streaming request. Zero (unset requestTimeout) keeps
+// the cap disabled, matching the non-streaming path where the HTTP
+// client timeout is likewise absent.
+func streamTotalWallClockCap(requestTimeout time.Duration) time.Duration {
+	if requestTimeout <= 0 {
+		return 0
+	}
+	return requestTimeout * streamTotalWallClockCapMultiplier
+}
 
 // parseSSEStream reads SSE frames from r and folds them into a single
 // Response. Factored out so the parser is unit-testable without a
@@ -932,7 +990,9 @@ func parseSSEStreamTracked(r io.Reader, onDelta func(string), onReasoningDelta f
 	finishReason := ""
 	usage := openaiUsage{}
 	gotAnyChunk := false
+	lastDegenerateCheck := 0
 
+scan:
 	for br.Scan() {
 		line := br.Text()
 		// SSE lines before the data payload are event names / comments
@@ -1021,6 +1081,24 @@ func parseSSEStreamTracked(r io.Reader, onDelta func(string), onReasoningDelta f
 				contentBuf.WriteString(ch.Delta.Content)
 				if onDelta != nil {
 					onDelta(ch.Delta.Content)
+				}
+				// Degeneration breaker (see stream_degenerate.go): a
+				// verbatim-periodic tail means the model is looping;
+				// truncate in place and stop reading instead of burning
+				// wall-clock until a server-side length ceiling fires.
+				if contentBuf.Len() >= degenerateMinContentBytes && contentBuf.Len()-lastDegenerateCheck >= degenerateCheckStride {
+					lastDegenerateCheck = contentBuf.Len()
+					full := contentBuf.String()
+					tail := full[len(full)-degenerateTailWindowBytes:]
+					if p := degenerateTailPeriod(tail, degenerateMaxPeriodBytes); p > 0 {
+						trimmed := truncateDegenerateTail(full, p)
+						contentBuf.Reset()
+						contentBuf.WriteString(trimmed)
+						finishReason = finishReasonDegenerateRepetition
+						logging.Warning("[llm/stream] degeneration breaker: assistant content tail is verbatim-periodic (period=%dB over a %dB window); truncated %d→%d bytes and stopped the stream",
+							p, degenerateTailWindowBytes, len(full), len(trimmed))
+						break scan
+					}
 				}
 			}
 			for i, tc := range ch.Delta.ToolCalls {
