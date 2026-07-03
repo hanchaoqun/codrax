@@ -53,5 +53,6 @@
 - **T1 交付(2026-07-03,f022aa67)**:D-tree1 self 行接入 state-else-shape 回退(pin:anchored 树中 subject=目标线程的 contention 行必带 锁竞争·阻塞);E-path 3 case 修正 `../../customlogs`;O-8 收编 8 处 write/scan 侧 os.ReadFile → ReadFileBounded(go.mod/package.json 等定名 manifest 保持普通读)。
 - **O-7 复跑关闭(2026-07-03)**:donghu_real 双案 **2/2 PASS**(真机 1.9MB trace);输出实证 self 行标签生效(`Binder:43397_19-23088 11.103ms 候选影响`)+ R5d 门控构成如实呈现(`反转影响 · 影响构成: 可运行等待 8.307ms + 运行折算 0.000ms`)。
 - **T2 P2/P3/P4 交付(2026-07-03,1a9d5bb9)**:Index.RetainedStringBytes 真实字节核算入 LRU 成本;interner 512K 条目上限(超限直通);BenchmarkBuildIndexWindowed 基准落盘(20K 行合成 ~95ms/窗口构建)。
-- **P1(稀疏锚点索引)拆细待做**,正确性约束已定:锚点须记 running-max ts(时钟回退防御)+ lineNo + byteOffset;flavor 投票依赖文件头 200 行(锚点 cache 须同存 flavor 结果);LineCount/ScannedLineCount 消费端语义核查先行。P4 Event 瘦身维持"单独裁定,不在本计划"。
-- T3(counter_stats + transact join)待做。
+- **T2 P1 交付(2026-07-03,3d3e8c4c)**:per-file 稀疏锚点索引(64K 行间隔,{lineNo,byteOffset,runningMaxTs}),窗口构建 seek 到严格小于 padded start 的最后锚点;discovery 预扫同享;flavor 随锚点缓存(seek 构建复用 from-0 扫描结果,flavor 变为稳定 per-file 属性);双 pin(seek 与冷构建事件集 deep-equal;时钟回退尖峰禁止越过)。**A/B 实证 3.65×**(36.4ms vs 132.9ms,262K 行晚窗口;前缀越长收益越大)。附带修正:原窗口基准/测试未设 AllowWindowedParse,实际测的是全量构建——已修,identity pin 现在真实覆盖 seek 路径。发现并修复实现期正确性洞:line+time 双窗口构建的 line-skip 分支不产 ts,recorder 无条件补 parseLineTimestamp,否则 runningMax 低报可致未来窗口越过窗内行。P4 Event 瘦身维持"单独裁定,不在本计划"(基准已就位)。
+- **T3 交付(2026-07-03,d2b55c08)**:C1=CounterDeltas 加法式数值聚合(per thread+name 的 first/last/min/max/delta,|delta| Top-8;TraceCounters 原样保留零漂移);C2=IPCEdge.Interface verbatim 同线程 span-name join+边行 interface= 渲染(展示位裁定记录于此)。双双 pin 于客户 trace 形态(Heap size 三采样 delta=-1028;transact[android.net.IConnectivityManager:9] 上边)。
+- **本计划全部条目交付完毕**;剩余全局开放项(F5-T2 eval 验证/anchor obligation lane/primary-model 复跑)归 arch_stability 批计划跟踪。
