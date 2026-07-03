@@ -71,10 +71,45 @@ func TestIndexRetainedStringBytesAccounted(t *testing.T) {
 // and allocations before/after future Event-slimming or anchor-index work.
 func BenchmarkBuildIndexWindowed(b *testing.B) {
 	path := writeSyntheticTrace(b, 20000)
-	opts := BuildOptions{TimeStart: 101.0, TimeEnd: 101.5, TimeStartSet: true, TimeEndSet: true}
+	opts := BuildOptions{AllowWindowedParse: true, TimeStart: 101.0, TimeEnd: 101.5, TimeStartSet: true, TimeEndSet: true}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		indexCache = newTraceIndexCache(traceIndexCacheBudgetBytes)
+		if _, err := BuildIndexWithOptions(b.Context(), path, opts); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkBuildIndexWindowedAnchored measures the P1 anchor-seek win: a
+// late window over a file large enough to carry anchors (>64K lines). The
+// first build is cold (records anchors); every subsequent iteration seeks.
+func BenchmarkBuildIndexWindowedAnchored(b *testing.B) {
+	path := writeSyntheticTrace(b, 4*traceAnchorLineInterval)
+	late := 100.0 + float64(4*traceAnchorLineInterval-2000)*0.0001
+	opts := BuildOptions{AllowWindowedParse: true, TimeStart: late, TimeStartSet: true, TimeEnd: late + 0.1, TimeEndSet: true}
+	if _, err := BuildIndexWithOptions(b.Context(), path, opts); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		indexCache = newTraceIndexCache(traceIndexCacheBudgetBytes)
+		if _, err := BuildIndexWithOptions(b.Context(), path, opts); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkBuildIndexWindowedColdPrefix is the A/B twin of the anchored
+// benchmark: identical file and window, but the anchor cache is dropped
+// every iteration so each build re-streams the whole prefix.
+func BenchmarkBuildIndexWindowedColdPrefix(b *testing.B) {
+	path := writeSyntheticTrace(b, 4*traceAnchorLineInterval)
+	late := 100.0 + float64(4*traceAnchorLineInterval-2000)*0.0001
+	opts := BuildOptions{AllowWindowedParse: true, TimeStart: late, TimeStartSet: true, TimeEnd: late + 0.1, TimeEndSet: true}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		resetAnchorCaches()
 		if _, err := BuildIndexWithOptions(b.Context(), path, opts); err != nil {
 			b.Fatal(err)
 		}

@@ -101,18 +101,31 @@ func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) 
 	threadCandidates := map[int]struct{}{}
 	selector := parseThreadSelector(opts.ScopeThread)
 
+	// P1: the discovery pre-pass consumes the anchor index too (it never
+	// records — the main pass owns extension).
+	startLine := 1
+	if info, ierr := f.Stat(); ierr == nil {
+		key := traceAnchorKey{path: path, size: info.Size(), modUnix: info.ModTime().UnixNano(), version: ParserVersion}
+		if set := anchorCache.load(key); set != nil && set.FlavorSet {
+			if a, ok := set.seekAnchorFor(opts.TimeStartSet, paddedTimeStart(opts), paddedLineStart(opts)); ok {
+				if _, serr := f.Seek(a.ByteOffset, io.SeekStart); serr == nil {
+					startLine = a.LineNo + 1
+				}
+			}
+		}
+	}
 	r := bufio.NewReaderSize(f, 256*1024)
 	intern := newStringInterner()
 	scratch := &Index{} // throwaway sink for safeParseLine's panic bookkeeping
 	seenTimeWindow := false
-	for lineNo := 1; ; lineNo++ {
+	for lineNo := startLine; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
 		line, rerr := r.ReadString('\n')
 		if len(line) > 0 {
 			trimmed := strings.TrimRight(line, "\r\n")
-			skip, stop := gate.decide(lineNo, trimmed, &seenTimeWindow)
+			skip, stop, _, _ := gate.decide(lineNo, trimmed, &seenTimeWindow)
 			if stop {
 				break
 			}

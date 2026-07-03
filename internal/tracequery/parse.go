@@ -599,28 +599,28 @@ type windowGate struct {
 	timeStartSet, timeEndSet bool
 }
 
-func (w windowGate) decide(lineNo int, trimmed string, seenTimeWindow *bool) (skip, stop bool) {
+func (w windowGate) decide(lineNo int, trimmed string, seenTimeWindow *bool) (skip, stop bool, ts float64, hasTS bool) {
 	if w.lineEnd > 0 && lineNo > w.lineEnd {
-		return false, true
+		return false, true, 0, false
 	}
 	if w.lineStart > 0 && lineNo < w.lineStart {
-		return true, false
+		return true, false, 0, false
 	}
 	if w.timeStartSet || w.timeEndSet {
-		ts, hasTS := parseLineTimestamp(trimmed)
+		ts, hasTS = parseLineTimestamp(trimmed)
 		if hasTS {
 			if w.timeStartSet && ts < w.timeStart {
-				return true, false
+				return true, false, ts, true
 			}
 			if w.timeEndSet && ts > w.timeEnd {
-				return false, true
+				return false, true, ts, true
 			}
 			*seenTimeWindow = true
 		} else if w.timeStartSet && !*seenTimeWindow {
-			return true, false
+			return true, false, 0, false
 		}
 	}
-	return false, false
+	return false, false, ts, hasTS
 }
 
 func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
@@ -672,12 +672,35 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		relScope = s
 		relScopeCaveats = caveats
 	}
+	// P1 anchor seek: a windowed build over an already-anchored file jumps
+	// to the last anchor guaranteed to precede every in-window line instead
+	// of re-streaming the whole prefix. Gate logic after the seek point is
+	// byte-identical, so the parsed event set cannot change.
+	anchorKey := traceAnchorKey{path: path, size: size, modUnix: modUnix, version: ParserVersion}
+	anchorSet := anchorCache.load(anchorKey)
+	seekAnchor, seeked := anchorSet.seekAnchorFor(opts.TimeStartSet, idx.IndexTimeStart, idx.IndexLineStart)
+	startLine := 1
+	if seeked && anchorSet != nil && anchorSet.FlavorSet {
+		if _, serr := f.Seek(seekAnchor.ByteOffset, io.SeekStart); serr != nil {
+			seeked = false
+		} else {
+			startLine = seekAnchor.LineNo + 1
+		}
+	} else {
+		seeked = false
+	}
+	if anchorSet == nil {
+		anchorSet = &traceAnchorSet{}
+	}
+	recorder := newAnchorRecorder(anchorSet, seekAnchor, seeked)
+	recording := recorder.canExtend(startLine)
+
 	r := bufio.NewReaderSize(f, 256*1024)
 	intern := newStringInterner()
 	flavor := newFlavorVote(path)
 	seenTimeWindow := false
 	lastParsedTs := float64(0)
-	for lineNo := 1; ; lineNo++ {
+	for lineNo := startLine; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -686,17 +709,32 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
+			lineTs, lineHasTS := float64(0), false
 			if idx.Windowed {
-				skip, stop := gate.decide(lineNo, trimmed, &seenTimeWindow)
+				skip, stop, gts, ghas := gate.decide(lineNo, trimmed, &seenTimeWindow)
+				lineTs, lineHasTS = gts, ghas
+				if recording {
+					// The gate skips ts extraction on line-window skips;
+					// the recorder's running max must still see EVERY
+					// line's ts or a future time-window seek could jump
+					// past an in-window line.
+					if !lineHasTS {
+						lineTs, lineHasTS = parseLineTimestamp(trimmed)
+					}
+					recorder.observe(lineNo, len(line), lineTs, lineHasTS)
+				}
 				if stop {
 					break
 				}
 				if skip {
-					if lineNo <= 200 {
+					if !seeked && lineNo <= 200 {
 						flavor.observeRawLine(trimmed)
 					}
 					goto nextLine
 				}
+			} else if recording {
+				lineTs, lineHasTS = parseLineTimestamp(trimmed)
+				recorder.observe(lineNo, len(line), lineTs, lineHasTS)
 			}
 			flavor.observeRawLine(trimmed)
 			panicsBefore := idx.ParseLinePanics
@@ -740,7 +778,23 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 			return nil, err
 		}
 	}
-	idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
+	if seeked && anchorSet.FlavorSet {
+		// Seek-builds never see the file head, so the flavor vote would be
+		// starved — reuse the from-0 scan's cached result (also making
+		// flavor a stable per-file property across windows).
+		idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = anchorSet.Flavor, anchorSet.FlavorConf, append([]string(nil), anchorSet.FlavorSignals...)
+	} else {
+		idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
+	}
+	if recording {
+		if !seeked && !recorder.set.FlavorSet {
+			recorder.set.FlavorSet = true
+			recorder.set.Flavor = idx.TraceFlavor
+			recorder.set.FlavorConf = idx.FlavorConfidence
+			recorder.set.FlavorSignals = append([]string(nil), idx.FlavorSignals...)
+		}
+		anchorCache.store(anchorKey, recorder.set)
+	}
 	idx.RetainedStringBytes = intern.retainedBytes
 	if len(relScopeCaveats) > 0 {
 		idx.Caveats = append(idx.Caveats, relScopeCaveats...)
