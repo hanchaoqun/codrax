@@ -152,3 +152,10 @@
     - **WF3** 心跳行无归属+并行单元同秒同模型被 lastCommittedLine 吞 → 事件补 ParallelUnit 字段,行带 activity 标签。
   - 复核确认干净的关键面:退化断路器对表格/代码/列表零误伤(整窗逐字节周期联合条件);heavy view 对 padding 事件的窗口过滤无污染(degrade 只少不多);StreamTotalTimeoutError 不进任何重试 allowlist;Emit 并发安全有既有契约。
   - H15 核实关闭(≥1200B no-tool 文本 protocol-only 压缩已存在,agent.go:688);H16 确认真 gap(attached_trace 不认"请求引用"主工件,归 Q3 实施)。
+- 2026-07-03 Batch 2 实现+对抗复核(R2/R4/R5a/Q3/R5b):
+  - **R2**: 根标签实体比对(AnalyzerHints Entities∪ExactTargets,verbatim/pid 整数;实体空 fail-open 旧标签)+‹分析锚点线程›说明行;双窗关系行(恰两枚时间戳形实体、投影窗<用户窗 50% 才加);H10 残差行回退最浅 HasData 链层。
+  - **R4**: Adjacent node-key 去重+同值折叠;peer alias(pid=N↔name-N,span 重叠)在聚合 R1/R2 之间合并防双计;>100% 加"跨CPU/多段累计"标注;irq/page_cache 聚合形态类型化;下一步渲染文本 verbatim 终级去重。
+  - **R5a/R5b**: 链上 canonical 重现 ↺ 标注(根首现不标);快照分母措辞"占该线程观测时长";裸 lines= locator 唯一工件补前缀;llm_request 三条 diag 日志加 round=(iter+1,与 CLI 对齐,iter 保持 0-based);非 TTY EventStageEnd 错误行与 TTY 共用 classifyEventError(default→↻ 非终局,终局 ✗ 由 run-end 面兜底——H21 根因是两面对同一事件给相反严重度)。
+  - **Q3**: attached_trace 三级解析(blob→内存体→请求引用工件恰一门;权威载体=RuntimeArtifactPreflight.Artifacts);payload_ref 收口单一 helper+审计工件软引导。**H17 实测修正**:read 模式 read_file 能读 payload blob(仅受 bounded 字节墙),提示措辞按实况不写"不可读"。
+  - 复核 4 finding 全收:RF1(P1) pid=N 手柄形双向匹配缺失→双向整数匹配+roster 接纳;RF2(P1) Adjacent 等值折叠无重叠守卫(量化碰撞少报)→行号/时间 span 重叠布尔守卫+DedupFold typed 布尔分叉标签("×N同值合并"vs 求和"×N合并");QF1'(P2) 显式 path stat 失败被静默替换→path 非空精确门+拒绝列候选;QF2'(P2) 物理同文件假多候选→os.SameFile 二层去重。
+  - W3(window_sweep)设计已评审就绪(§4.7),Batch 3 实施。
