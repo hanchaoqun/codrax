@@ -626,6 +626,98 @@ func runtimeTraceProjAbsorbAdjacentDuplicate(survivor *types.TraceCausalProjecti
 	}
 }
 
+// runtimeTraceProjCrossThreadAggregateType reports whether a node is a
+// CROSS-THREAD cumulative aggregate row (CMP-3, customer compare audit
+// 2026-07-03 §7.2): a window/CPU-scoped aggregate metric whose ms value sums
+// thread·ms (cpu·ms) across threads/CPUs and therefore is NOT wall clock —
+// supply_pressure 101084.884ms inside a 2.1s window is the customer shape.
+// Two precise typed signals must BOTH hold:
+//   - the typed subject_kind=aggregate_metric marker (IsAggregateMetric —
+//     structurally no thread subject; rows with a real thread subject, e.g.
+//     the H8 irq/151-dpu burst, keep their existing bar + >100% annotation);
+//   - the producer's typed kind token (TypeToken first, the Object cause lane
+//     second — same precedence as the H20 shape lane) is in the cross-thread
+//     cumulative set below, kept in lockstep with the engine's
+//     rootCauseAggregateMetricTypes (internal/tracequery/query.go).
+//
+// Consumers: bar-scale anchoring excludes these rows (the scale anchors
+// wall-clock values only), and their rendered value carries the
+// "(跨线程累计,非墙钟)" unit annotation plus the CMP-9 normalized density.
+func runtimeTraceProjCrossThreadAggregateType(node types.TraceCausalProjectionNode) bool {
+	if !node.IsAggregateMetric() {
+		return false
+	}
+	token := runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)
+	if token == "" {
+		token = runtimeTraceCausalProjectionCanonicalNode(node.Object)
+	}
+	switch token {
+	case "supply_pressure", "cpu_pressure", "io_pressure",
+		"irq_burst", "irq_activity", "ipi_activity", "cpu_frequency_limit":
+		return true
+	}
+	return false
+}
+
+// runtimeTraceProjCrossThreadAggregateSuffix renders the CMP-3 unit annotation
+// for a cross-thread aggregate value: the "(跨线程累计,非墙钟)" label plus,
+// when a precise window is known, the CMP-9 normalized density (value/window
+// length — for supply/CPU pressure that ratio IS the average run-queue depth,
+// the only cross-window-comparable reading of the aggregate). The window is
+// the node's own span when valid, else the projection window in window mode.
+// Display-only; exact division, no estimation.
+func runtimeTraceProjCrossThreadAggregateSuffix(node types.TraceCausalProjectionNode, denom float64, windowMode, zh bool) string {
+	suffix := "(跨线程累计,非墙钟)"
+	if !zh {
+		suffix = " (cross-thread cumulative, not wall clock)"
+	}
+	windowMS := runtimeTraceProjCrossThreadDensityWindowMS(node, denom, windowMode)
+	impact := runtimeTraceProjNodeDisplayImpact(node)
+	if windowMS <= 0 || impact <= 0 {
+		return suffix
+	}
+	density := impact / windowMS
+	queueDepth := runtimeTraceProjCrossThreadQueueDepthToken(node)
+	switch {
+	case queueDepth && zh:
+		suffix += fmt.Sprintf("·≈平均排队深度 %.1f", density)
+	case queueDepth:
+		suffix += fmt.Sprintf(" ≈avg queue depth %.1f", density)
+	case zh:
+		suffix += fmt.Sprintf("·≈均值 %.1f", density)
+	default:
+		suffix += fmt.Sprintf(" ≈mean %.1f", density)
+	}
+	return suffix
+}
+
+// runtimeTraceProjCrossThreadDensityWindowMS is the shared CMP-9 normalization
+// denominator: the node's own precise span when valid, else the projection
+// window in window mode, else 0 (no density — never an estimate). Shared by
+// the stanza suffix above and the F3 compare-overview cell so both surfaces
+// normalize over the SAME window.
+func runtimeTraceProjCrossThreadDensityWindowMS(node types.TraceCausalProjectionNode, denom float64, windowMode bool) float64 {
+	if node.StartTs > 0 && node.EndTs > node.StartTs {
+		return (node.EndTs - node.StartTs) * 1000
+	}
+	if windowMode && denom > 0 {
+		return denom
+	}
+	return 0
+}
+
+// runtimeTraceProjCrossThreadQueueDepthToken reports whether the node's typed
+// kind token (TypeToken first, Object cause lane second — same precedence as
+// the classifier) is a run-queue-depth pressure metric, forking the density
+// wording between ≈平均排队深度 and the neutral ≈均值.
+func runtimeTraceProjCrossThreadQueueDepthToken(node types.TraceCausalProjectionNode) bool {
+	switch runtimeTraceCausalProjectionCanonicalNode(firstNonEmptyAnswerString(node.TypeToken, node.Object)) {
+	case "supply_pressure", "cpu_pressure":
+		return true
+	}
+	return false
+}
+
 func runtimeTraceProjNodeDisplayImpact(node types.TraceCausalProjectionNode) float64 {
 	if node.ImpactMS > 0 {
 		return node.ImpactMS
@@ -640,10 +732,21 @@ func runtimeTraceProjNodeDisplayImpact(node types.TraceCausalProjectionNode) flo
 }
 
 func runtimeTraceProjModelMaxImpact(model runtimeTraceProjTreeModel) float64 {
+	// CMP-3: the bar full-scale anchors WALL-CLOCK values only — a cross-thread
+	// cumulative aggregate (supply_pressure 101084.884ms in a 2.1s window) once
+	// became the fallback scale and crushed every real 807ms row to one cell.
 	max := 0.0
+	fallback := 0.0
 	consider := func(rows []runtimeTraceProjTreeRow) {
 		for _, row := range rows {
-			if v := runtimeTraceProjNodeDisplayImpact(row.Node); v > max {
+			v := runtimeTraceProjNodeDisplayImpact(row.Node)
+			if v > fallback {
+				fallback = v
+			}
+			if runtimeTraceProjCrossThreadAggregateType(row.Node) {
+				continue
+			}
+			if v > max {
 				max = v
 			}
 		}
@@ -652,6 +755,12 @@ func runtimeTraceProjModelMaxImpact(model runtimeTraceProjTreeModel) float64 {
 	consider(model.SelfRows)
 	consider(model.Adjacent)
 	consider(model.Background)
+	if max <= 0 {
+		// Fail-open: a batch made ONLY of cross-thread aggregates has no
+		// wall-clock anchor at all; keep the batch max so the scale note never
+		// claims a 0.000ms full bar (the aggregate rows draw no bars either way).
+		return fallback
+	}
 	return max
 }
 
@@ -1478,9 +1587,22 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	node := row.Node
 	impact := runtimeTraceProjNodeDisplayImpact(node)
 	var b strings.Builder
-	b.WriteString(runtimeTraceProjBar(impact, denom, row.Kind == runtimeTraceProjTreeRowBackground))
+	crossThread := runtimeTraceProjCrossThreadAggregateType(node)
+	if crossThread {
+		// CMP-3: a cross-thread cumulative aggregate draws NO bar — its cpu·ms
+		// value is not on the wall-clock scale the bar column encodes, so any
+		// bar (full, capped or proportional) would misread as a wall-clock
+		// share. Blank cells keep the column alignment; the number carries the
+		// unit annotation + normalized density instead.
+		b.WriteString(strings.Repeat(" ", runtimeTraceProjTreeBarWidth))
+	} else {
+		b.WriteString(runtimeTraceProjBar(impact, denom, row.Kind == runtimeTraceProjTreeRowBackground))
+	}
 	b.WriteString(fmt.Sprintf(" %9.3fms", impact))
-	if windowMode && denom > 0 && impact > 0 {
+	if crossThread {
+		b.WriteString(runtimeTraceProjCrossThreadAggregateSuffix(node, denom, windowMode, zh))
+	}
+	if windowMode && denom > 0 && impact > 0 && !crossThread {
 		b.WriteString(fmt.Sprintf(" %3.0f%%", impact/denom*100))
 		// H8: an over-window share (cross-CPU / multi-span cumulative values can
 		// legitimately exceed the wall-clock window) must not run naked — the bar
@@ -2114,7 +2236,15 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 				shape += "·" + idle
 			}
 		}
-		effective := msCell(node.EffectiveImpactMS)
+		// CMP-3 mirror on the lossless surface, ALL duration columns (F6,
+		// adversarial review 2026-07-04): a cross-thread aggregate row's
+		// 链上累计/有效归因/实际状态 mirrors previously sat naked next to an
+		// annotated 窗口投影 — same typed classifier, same helper, four cells.
+		crossThread := runtimeTraceProjCrossThreadAggregateType(node)
+		annotated := func(v float64) string {
+			return runtimeTraceProjDetailCrossThreadCell(msCell(v), v, crossThread, zh)
+		}
+		effective := annotated(node.EffectiveImpactMS)
 		if runtimeTraceProjEffectiveInherited(node) {
 			if zh {
 				effective += "(承自等待区间)"
@@ -2122,7 +2252,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 				effective += " (inherited)"
 			}
 		}
-		actual := msCell(node.ActualImpactMS)
+		actual := annotated(node.ActualImpactMS)
 		if runtimeTraceProjCrossWindow(node) && node.ActualImpactMS > 0 {
 			actual += " ⚠"
 		}
@@ -2144,7 +2274,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 				runtimeTraceCausalProjectionMarkdownSafe(typeToken),
 				runtimeTraceCausalProjectionMarkdownSafe(relation),
 				shape,
-				msCell(node.ImpactMS), msCell(node.CumulativeImpactMS),
+				annotated(node.ImpactMS), annotated(node.CumulativeImpactMS),
 				effective, actual,
 				evidence,
 			},
@@ -2164,6 +2294,20 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		addRow(row)
 	}
 	return columns, rows
+}
+
+// runtimeTraceProjDetailCrossThreadCell mirrors the CMP-3 unit annotation on
+// one lossless-table ms cell (F6): every positive duration cell of a
+// cross-thread aggregate row carries the annotation; dashes and wall-clock
+// rows pass through untouched.
+func runtimeTraceProjDetailCrossThreadCell(cell string, value float64, crossThread, zh bool) string {
+	if !crossThread || value <= 0 {
+		return cell
+	}
+	if zh {
+		return cell + "(跨线程累计,非墙钟)"
+	}
+	return cell + " (cross-thread cumulative)"
 }
 
 func runtimeTraceProjDetailLayerCell(row runtimeTraceProjTreeRow, zh, flat bool) string {

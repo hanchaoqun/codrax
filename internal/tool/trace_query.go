@@ -4227,6 +4227,20 @@ func traceQueryWindowValue(start, end float64) string {
 	return fmt.Sprintf("%.6f..%.6f", start, end)
 }
 
+// traceQuerySelectedWindowNoteValue renders the typed selected-window basis
+// note value (F1, adversarial review 2026-07-04): the engine's OWN query
+// window (q.TimeStart/TimeEnd as carried on the view result), emitted only
+// when it is a real two-sided window. The projection compiler anchors its
+// 关注窗口 fallback exclusively on this note — never on a record's Span,
+// because e.g. a wakeup_causal_aggregate Span is the member-impact envelope
+// (FirstTs/LastTs), not the selected window.
+func traceQuerySelectedWindowNoteValue(window tracequery.TimeWindow) string {
+	if window.StartTs <= 0 || window.EndTs <= window.StartTs {
+		return ""
+	}
+	return traceQueryWindowValue(window.StartTs, window.EndTs)
+}
+
 func traceQueryProjectedActualFields(projectedImpact, projectedTotal, actualImpact, actualTotal, actualStart, actualEnd float64) string {
 	var fields []string
 	if projectedImpact > 0 {
@@ -4422,6 +4436,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			notes = append(notes, traceQueryTypedPriorityRichNotes(rank, tier, item.Type, item.Source, item.Causality, item.ChainDepth, item.Score, item.ImpactMs, item.CumulativeImpactMs, traceQueryRootCauseEffectiveImpact(item), item.TargetImpactMs, item.ProjectedImpactMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualStartTs, item.ActualEndTs)...)
 			notes = append(notes, traceQueryTypedRootCauseStateRichNotes(item)...)
 			notes = append(notes, traceQueryTypedKVNotes([][2]string{
+				// F1: root_cause rows have no Span ts at all — the selected
+				// query window (RootCauseRankResult.Window = q.TimeStart/TimeEnd)
+				// travels via the same typed note as wakeup_causal_aggregate.
+				{"selected_window", traceQuerySelectedWindowNoteValue(result.RootCauseRank.Window)},
 				{"subject_kind", item.SubjectKind},
 				// §7.30.3 D3: inversion rows publish the gated composition so
 				// the projection can split the composite impact.
@@ -4625,14 +4643,20 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 					StartTs:   aggregate.FirstTs,
 					EndTs:     aggregate.LastTs,
 				},
-				ClaimKey:    "wakeup_causal_aggregate:" + firstNonEmptyTraceString(traceThreadLabel(aggregate.Thread), aggregate.DominantState),
-				Subject:     traceThreadLabel(aggregate.Thread),
-				Predicate:   "wakeup_causal_aggregate",
-				Object:      aggregate.DominantState,
-				Value:       traceQueryObservationMSValue(aggregate.DominantImpactMs),
-				Unit:        "ms",
-				Summary:     aggregate.Summary,
-				RichNotes:   traceQueryTypedCausalAggregateRichNotes(aggregate),
+				ClaimKey:  "wakeup_causal_aggregate:" + firstNonEmptyTraceString(traceThreadLabel(aggregate.Thread), aggregate.DominantState),
+				Subject:   traceThreadLabel(aggregate.Thread),
+				Predicate: "wakeup_causal_aggregate",
+				Object:    aggregate.DominantState,
+				Value:     traceQueryObservationMSValue(aggregate.DominantImpactMs),
+				Unit:      "ms",
+				Summary:   aggregate.Summary,
+				// F1: the record's Span above is the member-impact ENVELOPE
+				// (FirstTs/LastTs) — the selected query window travels only via
+				// this typed note, which is the projection's sole fallback anchor.
+				RichNotes: append(traceQueryTypedCausalAggregateRichNotes(aggregate),
+					traceQueryTypedKVNotes([][2]string{
+						{"selected_window", traceQuerySelectedWindowNoteValue(result.WakeupChain.Window)},
+					})...),
 				SupportRefs: traceQueryObservationSupportRefs(ref, aggregate.LineStart, aggregate.LineEnd),
 				ObservedAt:  at,
 				Confidence:  0.80,

@@ -674,6 +674,81 @@ func normalizeMergedDiagramPayloadKinds(doc *types.AnswerDocumentV2) int {
 	return fixed
 }
 
+// Runtime trace causal projection block-id family. Every system-emitted block
+// of the section derives from the base id; the idempotence guard and the cap
+// degrade below key on these exact spellings (F2, adversarial review
+// 2026-07-04) — keep construction and guard in lockstep via the constants.
+const (
+	runtimeTraceCausalProjectionBlockIDBase          = "runtime_trace_causal_projection"
+	runtimeTraceCausalProjectionCompareBlockID       = runtimeTraceCausalProjectionBlockIDBase + "_compare"
+	runtimeTraceCausalProjectionCoverageBlockID      = runtimeTraceCausalProjectionBlockIDBase + "_coverage"
+	runtimeTraceCausalProjectionPartitionBlockID     = runtimeTraceCausalProjectionBlockIDBase + "_partition"
+	runtimeTraceCausalProjectionArtifactBlockIDInfix = "_a"
+)
+
+// answerDocumentHasRuntimeTraceCausalProjectionBlock reports whether ANY block
+// of the projection family is already present (F2b idempotence). The former
+// guard checked only the base / _a1 / _coverage ids, so a document holding
+// e.g. only the _compare table (cap-degrade leftovers) or an _a2 section
+// escaped the guard and the section was emitted twice.
+func answerDocumentHasRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2) bool {
+	for _, block := range doc.Blocks {
+		if runtimeTraceCausalProjectionFamilyBlockID(strings.TrimSpace(block.ID)) {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeTraceCausalProjectionFamilyBlockID is the precise prefix+suffix
+// pattern of the system-emitted projection block-id family: the base id with
+// an exact known suffix, or the per-artifact form base+"_a<digits>" with an
+// exact known sub-suffix. Arbitrary "runtime_trace_causal_projection*" ids
+// (e.g. model-authored lookalikes with a non-numeric artifact tag) do NOT
+// match — the guard reads the exact spellings this file constructs, nothing
+// looser.
+func runtimeTraceCausalProjectionFamilyBlockID(id string) bool {
+	rest, ok := strings.CutPrefix(id, runtimeTraceCausalProjectionBlockIDBase)
+	if !ok {
+		return false
+	}
+	switch rest {
+	case "", "_detail", "_evidence", "_compare", "_coverage", "_partition":
+		return true
+	}
+	digits, ok := strings.CutPrefix(rest, runtimeTraceCausalProjectionArtifactBlockIDInfix)
+	if !ok {
+		return false
+	}
+	i := 0
+	for i < len(digits) && digits[i] >= '0' && digits[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return false
+	}
+	switch digits[i:] {
+	case "", "_detail", "_evidence":
+		return true
+	}
+	return false
+}
+
+// runtimeTraceCausalProjectionDegradeLeadBlock picks the cap-degrade survivor
+// (F2a): the FIRST block that is not the comparison overview. The compare
+// table's cells summarize the per-artifact sections ("详情见各工件分段"), so
+// degrading TO it would publish a table whose referenced sections were just
+// dropped — the first projection section lead is the safest minimum surface.
+func runtimeTraceCausalProjectionDegradeLeadBlock(cluster []types.AnswerBlock) *types.AnswerBlock {
+	for i := range cluster {
+		if cluster[i].ID == runtimeTraceCausalProjectionCompareBlockID {
+			continue
+		}
+		return &cluster[i]
+	}
+	return nil
+}
+
 func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
 		return false
@@ -682,17 +757,37 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 		logging.Warning("[answer_document] runtime trace causal projection block skipped: document already at the %d-block cap", maxBlocksPerDoc)
 		return false
 	}
-	if answerDocumentHasBlockID(doc, "runtime_trace_causal_projection") {
-		return false
-	}
-	if answerDocumentHasBlockID(doc, "runtime_trace_causal_projection_coverage") {
+	if answerDocumentHasRuntimeTraceCausalProjectionBlock(doc) {
 		return false
 	}
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
 	ledger := types.CompileObservationLedger(input)
-	projection := types.CompileTraceCausalProjection(ledger)
+	set := types.CompileTraceCausalProjectionSet(ledger)
 	lang := requestedAnswerDocumentLanguage(ctx)
-	cluster := runtimeTraceCausalProjectionCluster(projection, lang, runtimeTraceProjUserFocusFromBusContext(ctx))
+	focus := runtimeTraceProjUserFocusFromBusContext(ctx)
+	var cluster []types.AnswerBlock
+	if len(set.Projections) > 1 {
+		// CMP-1: multi-artifact ledger — one projection section per trace
+		// artifact (per-artifact tree/table/evidence/scale) plus, for typed
+		// comparison shapes, a compact cross-artifact overview table.
+		cluster = runtimeTraceCausalProjectionMultiCluster(set, ctx, lang, focus)
+	} else {
+		var projection types.TraceCausalProjection
+		if len(set.Projections) == 1 {
+			projection = set.Projections[0]
+		}
+		cluster = runtimeTraceCausalProjectionCluster(projection, lang, focus)
+		// F2c: a multi-identity ledger can still land here when only ONE
+		// partition compiled Active — the unattributed/omitted caveat must
+		// render exactly as on the multi lane instead of silently dropping.
+		// Pure single-artifact ledgers carry zero counters → nil block →
+		// byte-identity preserved.
+		if len(cluster) > 0 {
+			if block := runtimeTraceProjPartitionCaveatBlock(set, runtimeTraceCausalProjectionUseChinese(lang)); block != nil {
+				cluster = append(cluster, *block)
+			}
+		}
+	}
 	if len(cluster) == 0 {
 		if block := runtimeTraceCausalProjectionCoverageBlock(input, lang); block != nil {
 			insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
@@ -703,15 +798,17 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 		}
 		return false
 	}
-	// The lead overview is the safest minimum user-facing surface. The secondary
+	// The lead section is the safest minimum user-facing surface. The secondary
 	// blocks carry drilldown/evidence detail, so if the document is already near
-	// the block cap, degrade to the overview instead of dropping the whole section.
+	// the block cap, degrade to the first projection section lead (never the
+	// compare overview — F2a) instead of dropping the whole section.
 	if len(doc.Blocks)+len(cluster) > maxBlocksPerDoc {
-		cluster = cluster[:1]
-		if len(doc.Blocks)+len(cluster) > maxBlocksPerDoc {
+		lead := runtimeTraceCausalProjectionDegradeLeadBlock(cluster)
+		if lead == nil || len(doc.Blocks)+1 > maxBlocksPerDoc {
 			logging.Warning("[answer_document] runtime trace causal projection block skipped: document already at the %d-block cap", maxBlocksPerDoc)
 			return false
 		}
+		cluster = []types.AnswerBlock{*lead}
 	}
 	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
 	tail := append([]types.AnswerBlock(nil), doc.Blocks[insertAt:]...)
@@ -729,6 +826,18 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 // across HTML / markdown / terminal. Every projection node appears exactly
 // twice (one tree row + one table row).
 func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection, lang string, focus runtimeTraceProjUserFocus) []types.AnswerBlock {
+	return runtimeTraceCausalProjectionClusterFor(projection, lang, focus,
+		runtimeTraceCausalProjectionBlockIDBase, "")
+}
+
+// runtimeTraceCausalProjectionClusterFor is the id/label-parametrized section
+// builder behind runtimeTraceCausalProjectionCluster (CMP-1 multi-artifact
+// rendering). The single-projection caller passes the legacy id prefix and an
+// empty artifactLabel, so its output stays byte-identical; the multi-artifact
+// path emits one section per trace artifact ("Trace 因果投影 — <basename>")
+// with per-artifact block ids, tree, detail table, evidence index (fresh E#
+// numbering) and bar scale.
+func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjection, lang string, focus runtimeTraceProjUserFocus, idPrefix, artifactLabel string) []types.AnswerBlock {
 	if !projection.Active() {
 		return nil
 	}
@@ -740,13 +849,17 @@ func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection,
 	if fence == "" {
 		return nil
 	}
+	titleSuffix := ""
+	if label := strings.TrimSpace(artifactLabel); label != "" {
+		titleSuffix = " — " + label
+	}
 	claimUses := []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}}
 	facets := []string{"observed_artifact_fact"}
 	leadText := runtimeTraceProjLeadText(projection, model, lang, zh) + "\n\n" + fence
 	out := []types.AnswerBlock{{
-		ID:          "runtime_trace_causal_projection",
+		ID:          idPrefix,
 		Kind:        types.BlockSection,
-		Title:       runtimeTraceCausalProjectionTitle(lang),
+		Title:       runtimeTraceCausalProjectionTitle(lang) + titleSuffix,
 		Text:        leadText,
 		SurfaceRole: types.SurfacePrincipal,
 		ClaimUses:   claimUses,
@@ -784,9 +897,9 @@ func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection,
 			}, "\n")
 		}
 		out = append(out, types.AnswerBlock{
-			ID:          "runtime_trace_causal_projection_detail",
+			ID:          idPrefix + "_detail",
 			Kind:        types.BlockTable,
-			Title:       title,
+			Title:       title + titleSuffix,
 			Text:        text,
 			Columns:     columns,
 			Items:       rows,
@@ -801,9 +914,9 @@ func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection,
 			title = "Evidence Index"
 		}
 		out = append(out, types.AnswerBlock{
-			ID:        "runtime_trace_causal_projection_evidence",
+			ID:        idPrefix + "_evidence",
 			Kind:      types.BlockBulletList,
-			Title:     title,
+			Title:     title + titleSuffix,
 			Text:      intro,
 			Items:     items,
 			ClaimUses: claimUses,
@@ -811,6 +924,286 @@ func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection,
 		})
 	}
 	return out
+}
+
+// runtimeTraceCausalProjectionMultiCluster renders the CMP-1 multi-artifact
+// layout: [compare overview (typed comparison shapes only)] + one section
+// cluster per artifact projection + [partition caveat]. Every per-artifact
+// section reuses the SINGLE-artifact section builder verbatim (no parallel
+// subsystem) with per-artifact ids, titles, E# numbering and bar scale.
+func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet, ctx *types.BusContext, lang string, focus runtimeTraceProjUserFocus) []types.AnswerBlock {
+	zh := runtimeTraceCausalProjectionUseChinese(lang)
+	var out []types.AnswerBlock
+	if runtimeTraceProjComparisonShape(ctx, len(set.Projections)) {
+		if block := runtimeTraceProjCompareOverviewBlock(set.Projections, lang, zh); block != nil {
+			out = append(out, *block)
+		}
+	}
+	for i, projection := range set.Projections {
+		label := strings.TrimSpace(projection.ArtifactLabel)
+		if label == "" {
+			label = strings.TrimSpace(projection.ArtifactPath)
+		}
+		section := runtimeTraceCausalProjectionClusterFor(projection, lang, focus,
+			fmt.Sprintf("%s%s%d", runtimeTraceCausalProjectionBlockIDBase,
+				runtimeTraceCausalProjectionArtifactBlockIDInfix, i+1), label)
+		out = append(out, section...)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	if block := runtimeTraceProjPartitionCaveatBlock(set, zh); block != nil {
+		out = append(out, *block)
+	}
+	return out
+}
+
+// runtimeTraceProjComparisonShape is the typed comparison-form predicate
+// (CMP-1 对比总览门): ≥2 per-artifact projections AND the analyzer's typed
+// historical_regression or is_cross_component boolean. Precise booleans only —
+// never keywords, never prose (架构红线: hard-ish display forks read typed
+// signals). Nil context/IR fails closed to the plain per-artifact sections.
+func runtimeTraceProjComparisonShape(ctx *types.BusContext, projectionCount int) bool {
+	if projectionCount < 2 || ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	return rm.DiagnosticProfile.HistoricalRegression || rm.Predicates.IsCrossComponent
+}
+
+// runtimeTraceProjCompareOverviewBlock assembles the compact cross-artifact
+// comparison table from typed fields only (CMP-1 §7.2 对比总览层): per artifact
+// the V1-lane primary root cause, the target symptom duration, the on-chain
+// attributed amount, the dominant cross-thread background pressure (F3/§7.3
+// 裁定2: normalized density leads the cell, the raw cross-thread sum sits in
+// the parenthetical note — never a naked cpu·ms figure) and the projection
+// window; unequal normalization windows (>10%) force a closing note row. No
+// prose reasoning; every cell is assembled from typed node fields.
+func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProjection, lang string, zh bool) *types.AnswerBlock {
+	if len(projections) < 2 {
+		return nil
+	}
+	columns := []string{"工件", "主根因(rank=1)", "目标症状时长", "on-chain 已归因", "背景压力", "投影窗"}
+	if !zh {
+		columns = []string{"Artifact", "Primary root cause (rank=1)", "Target symptom", "On-chain attributed", "Background pressure", "Projection window"}
+	}
+	dash := "—"
+	msCell := func(v float64) string {
+		if v <= 0 {
+			return dash
+		}
+		return fmt.Sprintf("%.3fms", v)
+	}
+	rows := make([]types.AnswerBlockItem, 0, len(projections)+1)
+	var densityWindows []float64
+	for _, projection := range projections {
+		model := buildRuntimeTraceProjTreeModel(projection, nil, zh)
+		label := strings.TrimSpace(projection.ArtifactLabel)
+		if label == "" {
+			label = dash
+		}
+		window := dash
+		if projection.WindowStartTs > 0 && projection.WindowEndTs > projection.WindowStartTs {
+			window = fmt.Sprintf("%.3fs → %.3fs", projection.WindowStartTs, projection.WindowEndTs)
+		} else if zh {
+			window = "未采集"
+		} else {
+			window = "not captured"
+		}
+		pressureCell, densityWindow := runtimeTraceProjCompareBackgroundPressureCell(model, zh)
+		if densityWindow > 0 {
+			densityWindows = append(densityWindows, densityWindow)
+		}
+		rows = append(rows, types.AnswerBlockItem{
+			Cells: []string{
+				runtimeTraceCausalProjectionMarkdownSafe(label),
+				runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjComparePrimaryCell(projection, model, zh)),
+				msCell(runtimeTraceProjTargetSymptomMS(model)),
+				msCell(runtimeTraceProjDepth1Cumulative(model)),
+				runtimeTraceCausalProjectionMarkdownSafe(pressureCell),
+				window,
+			},
+			CitationRef: -1,
+		})
+	}
+	// F3 forced note (§7.3 裁定2): when the per-artifact normalization windows
+	// differ by more than 10%, say so directly under the table — a reader
+	// comparing the density figures must know they were normalized over
+	// unequal windows. Rendered as the table's last row so it sits after the
+	// data on every surface.
+	if runtimeTraceProjCompareWindowsUnequal(densityWindows) {
+		note := "⚠ 两侧投影窗长不等,背景压力已按各自窗长归一化"
+		if !zh {
+			note = "⚠ Projection window lengths differ; background pressure is normalized per window"
+		}
+		noteCells := make([]string, len(columns))
+		noteCells[0] = note
+		rows = append(rows, types.AnswerBlockItem{Cells: noteCells, CitationRef: -1})
+	}
+	title := "Trace 因果投影对比总览"
+	text := "对比形态(typed 判定)下的逐工件总览;数值全部来自各工件独立投影的 typed 字段,跨线程累计值带单位标注,详情见各工件分段。"
+	if !zh {
+		title = "Trace Causal Projection Comparison Overview"
+		text = "Per-artifact overview for the typed comparison shape; every value comes from each artifact's independent projection (typed fields), cross-thread cumulative values carry their unit annotation. Details live in the per-artifact sections."
+	}
+	return &types.AnswerBlock{
+		ID:          runtimeTraceCausalProjectionCompareBlockID,
+		Kind:        types.BlockTable,
+		Title:       title,
+		Text:        text,
+		Columns:     columns,
+		Items:       rows,
+		SurfaceRole: types.SurfacePrincipal,
+		ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}},
+		FacetIDs:    []string{"observed_artifact_fact"},
+	}
+}
+
+// runtimeTraceProjComparePrimaryCell mirrors the conclusion line's V1 selection
+// (engine typed rank first, single-instance attribution fallback, merged SUM
+// never participates) into one compact table cell.
+func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
+	primary := runtimeTraceProjLeadPrimary(projection, model.TrunkLen)
+	if primary == nil {
+		if zh {
+			return "未定位到链上主根因(见背景压力段)"
+		}
+		return "no on-chain primary (see background stanza)"
+	}
+	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(*primary, zh))
+	cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(*primary, zh))
+	if primary.IsAggregateMetric() {
+		cause = ""
+	}
+	cell := name
+	if cause != "" {
+		if cell != "" {
+			cell += " · "
+		}
+		cell += cause
+	}
+	if primary.MergedCount > 1 && primary.MergedMaxMS > 0 {
+		// V1: the ×N SUM never publishes as the headline hard fact.
+		if zh {
+			cell += fmt.Sprintf(" 单次最大 %.3fms ×%d", primary.MergedMaxMS, primary.MergedCount)
+		} else {
+			cell += fmt.Sprintf(" single max %.3fms ×%d", primary.MergedMaxMS, primary.MergedCount)
+		}
+		return cell
+	}
+	ms := primary.CumulativeImpactMS
+	if ms <= 0 {
+		ms = runtimeTraceProjNodeDisplayImpact(*primary)
+	}
+	if ms > 0 {
+		cell += fmt.Sprintf(" %.3fms", ms)
+	}
+	return cell
+}
+
+// runtimeTraceProjCompareBackgroundPressureCell picks the LARGEST cross-thread
+// cumulative aggregate row of the artifact's background stanza and renders it
+// per §7.3 裁定2 (F3, adversarial review 2026-07-04): the CMP-9 normalized
+// density is the PRIMARY cell content — the only cross-window-comparable
+// reading — and the raw cross-thread sum moves into the parenthetical note
+// with its CMP-3 unit annotation. Without a precise window the raw value +
+// annotation stay (never an estimated density). The second return is the
+// normalization window actually used (0 = no density), feeding the F3
+// unequal-window note. "—" when the artifact published no such aggregate.
+func runtimeTraceProjCompareBackgroundPressureCell(model runtimeTraceProjTreeModel, zh bool) (string, float64) {
+	var best *types.TraceCausalProjectionNode
+	bestValue := 0.0
+	for i := range model.Background {
+		node := &model.Background[i].Node
+		if !runtimeTraceProjCrossThreadAggregateType(*node) {
+			continue
+		}
+		if v := runtimeTraceProjNodeDisplayImpact(*node); best == nil || v > bestValue {
+			best, bestValue = node, v
+		}
+	}
+	if best == nil || bestValue <= 0 {
+		return "—", 0
+	}
+	windowMS := runtimeTraceProjCrossThreadDensityWindowMS(*best, model.WindowMS, model.WindowMS > 0)
+	if windowMS <= 0 {
+		return fmt.Sprintf("%.3fms", bestValue) +
+			runtimeTraceProjCrossThreadAggregateSuffix(*best, model.WindowMS, model.WindowMS > 0, zh), 0
+	}
+	density := bestValue / windowMS
+	queueDepth := runtimeTraceProjCrossThreadQueueDepthToken(*best)
+	var cell string
+	switch {
+	case queueDepth && zh:
+		cell = fmt.Sprintf("≈平均排队深度 %.1f(累计 %.3fms,跨线程累计,非墙钟)", density, bestValue)
+	case queueDepth:
+		cell = fmt.Sprintf("≈avg queue depth %.1f (cumulative %.3fms, cross-thread, not wall clock)", density, bestValue)
+	case zh:
+		cell = fmt.Sprintf("≈均值 %.1f(累计 %.3fms,跨线程累计,非墙钟)", density, bestValue)
+	default:
+		cell = fmt.Sprintf("≈mean %.1f (cumulative %.3fms, cross-thread, not wall clock)", density, bestValue)
+	}
+	return cell, windowMS
+}
+
+// runtimeTraceProjCompareWindowsUnequal is the F3 precise inequality check
+// over the per-artifact normalization windows actually used by the background
+// cells: ≥2 densities rendered AND (max-min)/max > 0.1 — the exact
+// |w1-w2|/max > 10% comparison on the two-artifact shape, never a fuzzy
+// tolerance.
+func runtimeTraceProjCompareWindowsUnequal(windows []float64) bool {
+	if len(windows) < 2 {
+		return false
+	}
+	min, max := windows[0], windows[0]
+	for _, w := range windows[1:] {
+		if w < min {
+			min = w
+		}
+		if w > max {
+			max = w
+		}
+	}
+	return max > 0 && (max-min)/max > 0.1
+}
+
+// runtimeTraceProjPartitionCaveatBlock renders the CMP-1 partition caveat: the
+// unattributed-observation count ("N 条观测无工件归属,未纳入投影") and the
+// artifacts omitted by the partition cap. Nil when there is nothing to say —
+// single-artifact ledgers always take that path (byte-identity).
+func runtimeTraceProjPartitionCaveatBlock(set types.TraceCausalProjectionSet, zh bool) *types.AnswerBlock {
+	var parts []string
+	if set.UnattributedObservationCount > 0 {
+		if zh {
+			parts = append(parts, fmt.Sprintf("%d 条观测无工件归属,未纳入投影。", set.UnattributedObservationCount))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d observation(s) carried no artifact identity and were left out of every projection.", set.UnattributedObservationCount))
+		}
+	}
+	if len(set.OmittedArtifactLabels) > 0 {
+		if zh {
+			parts = append(parts, fmt.Sprintf("工件分区数超过上限,仅保留观测最多的 %d 个;未展示: %s。",
+				len(set.Projections), strings.Join(set.OmittedArtifactLabels, "、")))
+		} else {
+			parts = append(parts, fmt.Sprintf("Artifact partitions exceeded the cap; the %d with the most observations are shown. Omitted: %s.",
+				len(set.Projections), strings.Join(set.OmittedArtifactLabels, ", ")))
+		}
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	title := "Trace 因果投影分区边界"
+	if !zh {
+		title = "Trace Causal Projection Partition Boundary"
+	}
+	return &types.AnswerBlock{
+		ID:        runtimeTraceCausalProjectionPartitionBlockID,
+		Kind:      types.BlockCaveat,
+		Title:     title,
+		Text:      strings.Join(parts, " "),
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}},
+		FacetIDs:  []string{"observed_artifact_fact", "uncertainty_boundary"},
+	}
 }
 
 // runtimeTraceProjUserFocusFromBusContext extracts the typed analyzer entity
@@ -886,7 +1279,7 @@ func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInpu
 		title = "Trace Causal Projection Coverage Boundary"
 	}
 	return &types.AnswerBlock{
-		ID:        "runtime_trace_causal_projection_coverage",
+		ID:        runtimeTraceCausalProjectionCoverageBlockID,
 		Kind:      types.BlockCaveat,
 		Title:     title,
 		Text:      text,
@@ -1834,18 +2227,48 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	}
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
 	ledger := types.CompileObservationLedger(input)
-	projection := types.CompileTraceCausalProjection(ledger)
-	if len(projection.SemanticSpans) == 0 {
-		return false
-	}
+	set := types.CompileTraceCausalProjectionSet(ledger)
 	lang := requestedAnswerDocumentLanguage(ctx)
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
-	// Rebuild the projection cluster's deterministic evidence numbering so the
-	// E# tags in this block match the cluster's evidence index (same ledger,
-	// same compile, same model walk — pure and deterministic).
-	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
-	buildRuntimeTraceProjTreeModel(projection, evidence, zh)
-	columns, rows := runtimeTraceSemanticOptimizationParts(projection, evidence, zh)
+	var columns []string
+	var rows []types.AnswerBlockItem
+	if len(set.Projections) > 1 {
+		// CMP-1: the projection cluster renders per-artifact sections with
+		// per-artifact E# numbering, so this block rebuilds each artifact's
+		// numbering the same way and qualifies the tag with the artifact label
+		// ("<basename> E3") — an unqualified E# would be ambiguous across
+		// sections.
+		for _, projection := range set.Projections {
+			if len(projection.SemanticSpans) == 0 {
+				continue
+			}
+			evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
+			buildRuntimeTraceProjTreeModel(projection, evidence, zh)
+			cols, sectionRows := runtimeTraceSemanticOptimizationParts(projection, evidence, zh)
+			columns = cols
+			label := strings.TrimSpace(projection.ArtifactLabel)
+			for _, row := range sectionRows {
+				if label != "" && len(row.Cells) == 5 && row.Cells[4] != "—" {
+					row.Cells[4] = runtimeTraceCausalProjectionMarkdownSafe(label) + " " + row.Cells[4]
+				}
+				rows = append(rows, row)
+			}
+		}
+	} else {
+		var projection types.TraceCausalProjection
+		if len(set.Projections) == 1 {
+			projection = set.Projections[0]
+		}
+		if len(projection.SemanticSpans) == 0 {
+			return false
+		}
+		// Rebuild the projection cluster's deterministic evidence numbering so the
+		// E# tags in this block match the cluster's evidence index (same ledger,
+		// same compile, same model walk — pure and deterministic).
+		evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
+		buildRuntimeTraceProjTreeModel(projection, evidence, zh)
+		columns, rows = runtimeTraceSemanticOptimizationParts(projection, evidence, zh)
+	}
 	if len(rows) == 0 {
 		return false
 	}

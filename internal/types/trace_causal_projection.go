@@ -48,6 +48,15 @@ type TraceCausalProjection struct {
 	// window or percentages (presentation v3 §5 fallback rule).
 	WindowStartTs float64 `json:"window_start_ts,omitempty"`
 	WindowEndTs   float64 `json:"window_end_ts,omitempty"`
+	// ArtifactPath/ArtifactLabel is the typed artifact identity of the trace
+	// this projection was compiled from (CMP-1, customer compare audit
+	// 2026-07-03 §7.2): the canonicalised SourceRef.Path (shared canonicaliser,
+	// never a string heuristic) and its display basename. Populated by the
+	// partitioned compile entry (CompileTraceCausalProjections); the legacy
+	// single-artifact entry leaves both empty, and single-projection renderers
+	// ignore them so single-artifact output stays byte-identical.
+	ArtifactPath  string `json:"artifact_path,omitempty"`
+	ArtifactLabel string `json:"artifact_label,omitempty"`
 }
 
 // WindowDurationMS returns the requested-window length in milliseconds, or 0
@@ -463,14 +472,30 @@ func traceCausalProjectionAttachSleepDrilldownTarget(node *TraceCausalProjection
 }
 
 // traceCausalProjectionAnchorWindow returns the user's originally-requested
-// analysis window when a precise, non-circular anchor is available. The only
-// such anchor is a frame_target_resolution observation whose window_source is
-// an explicit, user-driven value (query_window = user gave pid/thread +
+// analysis window when a precise, non-circular anchor is available. The
+// PRIMARY anchor is a frame_target_resolution observation whose window_source
+// is an explicit, user-driven value (query_window = user gave pid/thread +
 // time_start/time_end; the explicit-union variant = R9). This whitelist is an
 // exact typed-string match, never a substring/heuristic. When several exist
 // (multiple frames resolved in one turn) the last one wins as the most recent
-// pinned window. Returns ok=false when no such record exists, so callers leave
-// WithinRequestedWindow nil rather than fabricating a window.
+// pinned window.
+//
+// CMP-2 (customer compare audit 2026-07-03, §7.2) as corrected by F1
+// (adversarial review 2026-07-04): non-frame flows (e.g. bindApplication
+// comparisons) never produce a frame_target_resolution row, so the anchor fell
+// back to "关注窗口起止未采集" even though trace_query knew the precise
+// selected query window. When NO frame anchor exists, the anchor falls back to
+// the LAST trace_query record carrying the producer's typed
+// "selected_window=<start>..<end>" rich note — the engine's own query
+// TimeStart/TimeEnd, published verbatim at observation build time. That note
+// is the ONLY fallback lane: the former Span/`window`-note lane is deleted,
+// because a wakeup_causal_aggregate record's Span is the MEMBER-IMPACT
+// ENVELOPE (engine FirstTs/LastTs), not the selected window — anchoring on it
+// fabricated a "关注窗口" (300ms pseudo window → 269% shares + bogus ⚠ tags).
+// The frame anchor keeps absolute priority, so every existing frame-anchored
+// render is byte-identical. Returns ok=false when no anchor of either lane
+// exists, so callers leave WithinRequestedWindow nil and the renderer falls
+// back to the relative bar scale rather than fabricating a window.
 func traceCausalProjectionAnchorWindow(records []ObservationRecord) (float64, float64, bool) {
 	var start, end float64
 	var ok bool
@@ -496,7 +521,43 @@ func traceCausalProjectionAnchorWindow(records []ObservationRecord) (float64, fl
 		}
 		start, end, ok = s, e, true
 	}
+	if ok {
+		return start, end, true
+	}
+	for _, record := range records {
+		if !traceCausalProjectionTraceQueryRecord(record) {
+			continue
+		}
+		// F1: the fallback whitelist IS the typed selected_window note — a
+		// record's Span envelope or `window` note never anchors here.
+		if s, e, sok := traceCausalProjectionSelectedWindowNote(record.RichNotes); sok {
+			start, end, ok = s, e, true
+		}
+	}
 	return start, end, ok
+}
+
+// traceCausalProjectionSelectedWindowNote parses the producer's typed
+// "selected_window=<start>..<end>" rich note (F1): exact key-prefix match,
+// both ends strict floats (strconv.ParseFloat — no unit-suffix tolerance),
+// end > start > 0. This is the only CMP-2 fallback-anchor carrier; a
+// malformed or absent note yields ok=false and the legacy "起止未采集"
+// behavior.
+func traceCausalProjectionSelectedWindowNote(notes []string) (float64, float64, bool) {
+	raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, "selected_window"))
+	if raw == "" {
+		return 0, 0, false
+	}
+	parts := strings.SplitN(raw, "..", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	start, errStart := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	end, errEnd := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if errStart != nil || errEnd != nil || start <= 0 || end <= start {
+		return 0, 0, false
+	}
+	return start, end, true
 }
 
 func traceCausalProjectionMarkWithinWindow(nodes []TraceCausalProjectionNode, anchorStart, anchorEnd float64) {
