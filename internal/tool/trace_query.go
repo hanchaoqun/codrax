@@ -1483,11 +1483,27 @@ func resolveTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string,
 		if path, ok := resolveAttachedTraceQueryPath(ctx); ok {
 			return path, "attached_trace", nil
 		}
-		return "", source, &types.ToolResult{
-			ToolName:  "trace_query",
-			Success:   false,
-			Summary:   "trace_query requires an attached trace blob, but none is available. Use source=\"path\" with an explicit trace file, or attach one via --htrace/--atrace.",
-			Timestamp: time.Now(),
+		// Mechanical repair (customer friction 2026-07-03): when no
+		// attached blob exists but the call already names a real trace
+		// FILE, the model meant the referenced-by-path artifact — fall
+		// back to source=path with the model's own params instead of
+		// burning a retry round teaching it to flip one enum. Purely
+		// deterministic: nothing is guessed, the path is model-supplied
+		// and stat-verified.
+		if candidate := strings.TrimSpace(p.Path); candidate != "" {
+			resolved := resolveToolPath(ctx, candidate)
+			if info, err := os.Stat(resolved); err == nil && !info.IsDir() {
+				logging.Warning("[trace_query] source=attached_trace has no attached blob; auto-resolved to source=path for %q", candidate)
+				source = "path"
+			}
+		}
+		if source == "attached_trace" {
+			return "", source, &types.ToolResult{
+				ToolName:  "trace_query",
+				Success:   false,
+				Summary:   "trace_query requires an attached trace blob, but none is available. Use source=\"path\" with an explicit trace file, or attach one via --htrace/--atrace.",
+				Timestamp: time.Now(),
+			}
 		}
 	}
 	if strings.TrimSpace(p.Path) == "" {

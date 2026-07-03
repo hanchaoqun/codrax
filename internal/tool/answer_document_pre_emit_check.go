@@ -8349,6 +8349,12 @@ func currentSourceMetadataSurfaceTermEvidence(ctx *types.BusContext, doc *types.
 	if ctx == nil || doc == nil || len(doc.Citations) == 0 {
 		return nil
 	}
+	// Same gates as the citation-quote normalizer: observation-only runs
+	// never read current source, and runtime-artifact citations are
+	// provenance rather than source files (customer OOM 2026-07-03).
+	if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return nil
+	}
 	repoRoot := strings.TrimSpace(ctx.RepoRoot)
 	if repoRoot == "" && ctx.Mutable != nil {
 		repoRoot = strings.TrimSpace(ctx.Mutable.RepoRoot())
@@ -8356,22 +8362,22 @@ func currentSourceMetadataSurfaceTermEvidence(ctx *types.BusContext, doc *types.
 	if repoRoot == "" {
 		return nil
 	}
-	linesByFile := map[string][]string{}
+	artifactPaths := runtimeArtifactCitationPathSet(ctx)
+	// Shares the bounded, cached reader with the citation-quote
+	// normalizer: a citation file naming a multi-GiB runtime artifact
+	// must not be slurped here either (customer OOM 2026-07-03).
+	lineCache := map[string][]string{}
 	var out []types.EvidenceItem
 	for idx, cite := range doc.Citations {
 		if strings.TrimSpace(cite.File) == "" || cite.Line <= 0 || strings.TrimSpace(cite.NegativePattern) != "" {
 			continue
 		}
-		fileKey := strings.TrimSpace(strings.ReplaceAll(cite.File, `\`, `/`))
-		lines := linesByFile[fileKey]
-		if lines == nil {
-			var ok bool
-			lines, ok = currentSourceCitationLines(repoRoot, cite.File)
-			if !ok {
-				linesByFile[fileKey] = []string{}
-				continue
-			}
-			linesByFile[fileKey] = lines
+		if citationFileIsRuntimeArtifact(artifactPaths, cite.File) {
+			continue
+		}
+		lines, ok := currentSourceCitationLines(repoRoot, cite.File, lineCache)
+		if !ok {
+			continue
 		}
 		terms, start, end := citationAttachedMetadataSurfaceTerms(lines, cite.Line)
 		if len(terms) == 0 {
