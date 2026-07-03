@@ -2433,8 +2433,12 @@ func TestEmitAnalysis_Summary_ReportsNormalizedDelta(t *testing.T) {
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
 
-	// "root-cause" and "register" both coerce to canonical values
-	// and should appear in the "normalized:" clause of the Summary.
+	// F3-1 (2026-07-03): "root-cause" is a case/style enum alias and is
+	// now repaired at the toolparam chokepoint BEFORE the tool's own
+	// semantic normalizer (audited via the structured_payload_compat
+	// repair record), so it no longer appears as a tool-level delta.
+	// "register" -> "registration" is a SEMANTIC coercion the tool owns,
+	// and stays in the "normalized:" clause.
 	payload := withV4Required(`{
 		"intent": "root-cause",
 		"scenario": "root_cause",
@@ -2455,13 +2459,11 @@ func TestEmitAnalysis_Summary_ReportsNormalizedDelta(t *testing.T) {
 	if !strings.Contains(res.Summary, "normalized:") {
 		t.Errorf("Summary missing normalized clause, got %q", res.Summary)
 	}
-	for _, want := range []string{
-		`intent "root-cause"→"root_cause"`,
-		`question_kind "register"→"registration"`,
-	} {
-		if !strings.Contains(res.Summary, want) {
-			t.Errorf("Summary missing delta %q, got %q", want, res.Summary)
-		}
+	if want := `question_kind "register"→"registration"`; !strings.Contains(res.Summary, want) {
+		t.Errorf("Summary missing semantic delta %q, got %q", want, res.Summary)
+	}
+	if strings.Contains(res.Summary, `intent "root-cause"`) {
+		t.Errorf("case-style alias must be repaired at the toolparam chokepoint, not reported as a tool-level delta: %q", res.Summary)
 	}
 }
 

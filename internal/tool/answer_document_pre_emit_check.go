@@ -90,6 +90,37 @@ type preEmitCheckContext struct {
 	groundCtx                *ground.Context
 	evidence                 *preEmitEvidenceIndex
 	sourceInventoryAuthority *SourceInventoryAnswerPreEmitAuthority
+	// repairCounts collects per-pass mechanical-repair counts from the
+	// pre-emit normalize chain (F3-4): one structured summary line per
+	// emit replaces scattered warnings as the telemetry surface, so
+	// repaired-at-chokepoint counts can be compared against retried
+	// counts. Observability only — never a gate input.
+	repairCounts map[string]int
+}
+
+// recordPreEmitRepair notes one normalize pass's repair count.
+func (pctx *preEmitCheckContext) recordPreEmitRepair(pass string, count int) {
+	if pctx == nil || count <= 0 {
+		return
+	}
+	if pctx.repairCounts == nil {
+		pctx.repairCounts = map[string]int{}
+	}
+	pctx.repairCounts[pass] += count
+}
+
+// logPreEmitRepairSummary emits the single structured repaired-vs-retried
+// telemetry line for this emit's normalize chain.
+func (pctx *preEmitCheckContext) logPreEmitRepairSummary(toolName string) {
+	if pctx == nil || len(pctx.repairCounts) == 0 {
+		return
+	}
+	parts := make([]string, 0, len(pctx.repairCounts))
+	for pass, count := range pctx.repairCounts {
+		parts = append(parts, fmt.Sprintf("%s×%d", pass, count))
+	}
+	sort.Strings(parts)
+	logging.Info("[%s] pre-emit mechanical repairs: %s", toolName, strings.Join(parts, ", "))
 }
 
 type preEmitEvidenceIndex struct {

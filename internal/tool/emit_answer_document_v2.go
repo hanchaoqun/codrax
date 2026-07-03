@@ -597,37 +597,52 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if pctx == nil {
 		pctx = newPreEmitCheckContext(ctx)
 	}
+	if fixed := normalizeInvertedCitationLineRanges(doc); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeInvertedCitationLineRanges", fixed)
+		logging.Warning("[%s] swapped %d inverted citation line range(s) (line/line_end transposition)", toolName, fixed)
+	}
 	if fixed := normalizeInvisibleOutOfRangeCitationRefs(doc); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeInvisibleOutOfRangeCitationRefs", fixed)
 		logging.Warning("[%s] detached %d invisible out-of-range citation_ref carrier(s)", toolName, fixed)
 	}
 	if fixed := normalizeDiagramDefinitionLabelsByEvidence(doc, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeDiagramDefinitionLabelsByEvidence", fixed)
 		logging.Warning("[%s] repaired %d diagram definition label(s) by evidence-defined source", toolName, fixed)
 	}
 	if fixed := normalizeDiagramEdgeAnchorMetadata(doc); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeDiagramEdgeAnchorMetadata", fixed)
 		logging.Warning("[%s] normalized %d diagram edge anchor metadata value(s)", toolName, fixed)
 	}
 	if fixed := normalizeRequiredMechanismAnchorCarriersWithContext(doc, view, ctx, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeRequiredMechanismAnchorCarriersWithContext", fixed)
 		logging.Warning("[%s] repaired %d required mechanism anchor carrier(s)", toolName, fixed)
 	}
 	if fixed := normalizeVisibleSourceLocationCarriers(doc, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeVisibleSourceLocationCarriers", fixed)
 		logging.Warning("[%s] repaired %d visible source-location carrier(s) by grounded evidence", toolName, fixed)
 	}
 	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniqueBacktickCitationQuote", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by explicit code-surface citation quotes", toolName, fixed)
 	}
 	if fixed := normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc, view); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeQualifiedItemLabelsByUniqueEnclosingFunction", fixed)
 		logging.Warning("[%s] repaired %d qualified item label(s) by graph-derived enclosing function", toolName, fixed)
 	}
 	if fixed := normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc, view, ctx, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeItemCitationRefsByTypedCandidateRoleWithContext", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed candidate-role source rows", toolName, fixed)
 	}
 	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniqueLabelCitationWithContext", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed label/citation corroboration", toolName, fixed)
 	}
 	if fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, view, ctx, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniquePreEmitCandidateWithContext", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed pre-emit citation candidates", toolName, fixed)
 	}
 	if fixed := detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc, view, ctx, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("detachInvalidItemCitationRefsWithoutSafeCandidateWithContext", fixed)
 		logging.Warning("[%s] detached %d invalid item citation_ref value(s) with no safe replacement candidate", toolName, fixed)
 		// G6 (2026-06-12 sweep): a detached reference is a visible
 		// degradation, not a silent repair — the item keeps its text
@@ -640,21 +655,26 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		}
 	}
 	if fixed := normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext(doc, view, ctx, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext", fixed)
 		logging.Warning("[%s] repaired %d out-of-range item citation_ref value(s) by evidence-surface corroboration", toolName, fixed)
 	}
 	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed > 0 {
 		logging.Warning("[%s] compiled %d deterministic enumeration table row(s) from accepted principal evidence handoff", toolName, fixed)
 	}
 	if fixed := normalizeEnumerationDisplayRequestedFieldSurfaces(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeEnumerationDisplayRequestedFieldSurfaces", fixed)
 		logging.Warning("[%s] materialized %d requested source-inventory field surface(s) from typed principal rows", toolName, fixed)
 	}
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizePrincipalEnumerationRowBlocks", fixed)
 		logging.Warning("[%s] normalized %d principal enumeration block(s) from accepted evidence-rich row contract", toolName, fixed)
 	}
 	if fixed := normalizeCurrentSourceCitationSupplement(doc, ctx, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeCurrentSourceCitationSupplement", fixed)
 		logging.Warning("[%s] materialized %d current-source citation support row(s) from accepted evidence", toolName, fixed)
 	}
 	if fixed := normalizeAggregateNegativeProofSupplement(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeAggregateNegativeProofSupplement", fixed)
 		logging.Warning("[%s] materialized %d typed negative-proof supplement row(s) from accepted aggregate evidence", toolName, fixed)
 	}
 	if fixed := compileCitationBackedTableRows(doc); fixed > 0 {
@@ -662,42 +682,55 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	}
 	if ctx != nil {
 		if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed > 0 {
+			pctx.recordPreEmitRepair("normalizeAggregateMemberSetCarriers", fixed)
 			logging.Warning("[%s] materialized %d principal aggregate member row(s) from accepted exhaustive enumeration handoff", toolName, fixed)
 		}
 		if fixed := normalizePrincipalSupportMemberCarriers(doc, types.BuildAnswerSupportPlanForBusContext(ctx)); fixed > 0 {
+			pctx.recordPreEmitRepair("normalizePrincipalSupportMemberCarriers", fixed)
 			logging.Warning("[%s] repaired %d principal support member citation carrier(s) from visible answer surface", toolName, fixed)
 		}
 		if fixed := normalizePrincipalSupportSurfaceTermSupplement(doc, types.BuildAnswerSupportPlanForBusContext(ctx), ctx); fixed > 0 {
+			pctx.recordPreEmitRepair("normalizePrincipalSupportSurfaceTermSupplement", fixed)
 			logging.Warning("[%s] materialized %d principal support surface-term row(s) from accepted evidence handoff", toolName, fixed)
 		}
 	}
 	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeViewCompatibleAnswerDocument", fixed)
 		logging.Warning("[%s] repaired %d view-compatible typed lane field(s)", toolName, fixed)
 	}
 	if fixed := normalizeRuntimeObservationOnlyDecisionBlocks(doc, view, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeRuntimeObservationOnlyDecisionBlocks", fixed)
 		logging.Warning("[%s] removed %d runtime-observation-only decision block(s)", toolName, fixed)
 	}
 	if fixed := normalizeObservedArtifactClaimUseCarriers(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeObservedArtifactClaimUseCarriers", fixed)
 		logging.Warning("[%s] repaired %d observed-artifact claim_use carrier(s)", toolName, fixed)
 	}
 	if fixed := normalizeCitationBackedPrincipalClaimUses(doc, view, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeCitationBackedPrincipalClaimUses", fixed)
 		logging.Warning("[%s] repaired %d citation-backed principal claim_use carrier(s)", toolName, fixed)
 	}
 	if fixed := normalizeClaimUseEvidenceIDsByProjection(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeClaimUseEvidenceIDsByProjection", fixed)
 		logging.Warning("[%s] detached %d incompatible claim_use evidence_id value(s) from citation-backed blocks", toolName, fixed)
 	}
 	if fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeRuntimeArtifactCitationRefs", fixed)
 		logging.Warning("[%s] normalized %d runtime-artifact citation carrier(s) to observation provenance", toolName, fixed)
 	}
 	if fixed := normalizeExternalObservationPseudoCitations(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeExternalObservationPseudoCitations", fixed)
 		logging.Warning("[%s] normalized %d non-line external observation citation carrier(s) to observation provenance", toolName, fixed)
 	}
 	if fixed := normalizeRuntimeArtifactVisibleCitationSentinels(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeRuntimeArtifactVisibleCitationSentinels", fixed)
 		logging.Warning("[%s] sanitized %d runtime-artifact visible citation sentinel(s)", toolName, fixed)
 	}
 	if fixed := normalizeExternalObservationVisibleCitationSentinels(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeExternalObservationVisibleCitationSentinels", fixed)
 		logging.Warning("[%s] sanitized %d external-observation visible citation sentinel(s)", toolName, fixed)
 	}
+	pctx.logPreEmitRepairSummary(toolName)
 }
 
 func normalizeInvisibleOutOfRangeCitationRefs(doc *types.AnswerDocumentV2) int {
@@ -4644,4 +4677,25 @@ func answerDocPriorDraftSnapshot(ctx *types.BusContext) (int, string) {
 		return len(doc.Blocks), "last_rejected_draft"
 	}
 	return 0, ""
+}
+
+// normalizeInvertedCitationLineRanges swaps citations whose line_end
+// sits above line (F3-3): the swapped range covers the identical line
+// set — a pure transposition with no semantic change — where the
+// inverted form previously rendered as a silent single-line anchor.
+// Pool membership is never touched (the non-softenable citation floor
+// counts the pool, not the ranges).
+func normalizeInvertedCitationLineRanges(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return 0
+	}
+	fixed := 0
+	for i := range doc.Citations {
+		c := &doc.Citations[i]
+		if c.LineEnd > 0 && c.Line > 0 && c.LineEnd < c.Line {
+			c.Line, c.LineEnd = c.LineEnd, c.Line
+			fixed++
+		}
+	}
+	return fixed
 }

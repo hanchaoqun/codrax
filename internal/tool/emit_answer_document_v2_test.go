@@ -3839,3 +3839,67 @@ func TestValidateMergedV2Doc_RejectsEmptyMerge(t *testing.T) {
 		t.Fatalf("single-block doc must pass: %v", err)
 	}
 }
+
+// TestNormalizeInvertedCitationLineRanges pins the F3-3 transposition
+// rule: line_end above line swaps (identical line set, no semantic
+// change); well-formed ranges and single-line citations are untouched;
+// pool membership (count + files) is never altered — the non-softenable
+// citation floor counts the pool, and repairs may only fix ranges or
+// rebind/detach item refs.
+func TestNormalizeInvertedCitationLineRanges(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "a.go", Line: 40, LineEnd: 10},
+			{File: "b.go", Line: 5, LineEnd: 9},
+			{File: "c.go", Line: 7},
+		},
+	}
+	if fixed := normalizeInvertedCitationLineRanges(doc); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1", fixed)
+	}
+	if doc.Citations[0].Line != 10 || doc.Citations[0].LineEnd != 40 {
+		t.Fatalf("inverted range must swap: %+v", doc.Citations[0])
+	}
+	if doc.Citations[1].Line != 5 || doc.Citations[1].LineEnd != 9 || doc.Citations[2].Line != 7 || doc.Citations[2].LineEnd != 0 {
+		t.Fatalf("well-formed citations must be untouched: %+v", doc.Citations)
+	}
+	if len(doc.Citations) != 3 {
+		t.Fatalf("pool membership must never change: %d", len(doc.Citations))
+	}
+	// Idempotent: a second run is a no-op.
+	if fixed := normalizeInvertedCitationLineRanges(doc); fixed != 0 {
+		t.Fatalf("second run must be a no-op, fixed=%d", fixed)
+	}
+}
+
+// TestNormalizeAnswerDocumentForPreEmit_NoOpOnWellFormedDoc pins the
+// F3-4 semantics assertion for the whole normalize chain: a well-formed
+// in-range document passes through byte-identical (repairs never change
+// answer semantics — on a clean doc they change nothing at all).
+func TestNormalizeAnswerDocumentForPreEmit_NoOpOnWellFormedDoc(t *testing.T) {
+	bus := newV2TestBusContext()
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "well-formed summary",
+		}},
+		Citations: []types.Citation{{File: "a.go", Line: 3, LineEnd: 9}},
+	}
+	want, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := types.BuildAnswerSemanticViewForBusContext(bus)
+	if view == nil {
+		view = &types.AnswerSemanticView{}
+	}
+	normalizeAnswerDocumentForPreEmit("emit_answer_document", doc, view, bus, nil)
+	got, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("normalize chain must be a no-op on a well-formed doc:\nbefore %s\nafter  %s", want, got)
+	}
+}

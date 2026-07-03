@@ -55,8 +55,19 @@ type schemaNode struct {
 	Items                  json.RawMessage            `json:"items"`
 	Enum                   []json.RawMessage          `json:"enum"`
 	CodraxSplitStringArray bool                       `json:"x-codrax-split-string-array"`
-	CodraxEnumStyleAlias   bool                       `json:"x-codrax-enum-style-alias"`
-	CodraxEnumAliases      map[string]string          `json:"x-codrax-enum-aliases"`
+	// CodraxEnumStyleAlias is retained for schema back-compat only:
+	// case/style aliasing is default-on for all string enums (F3-1),
+	// so the flag no longer gates anything.
+	CodraxEnumStyleAlias bool              `json:"x-codrax-enum-style-alias"`
+	CodraxEnumAliases    map[string]string `json:"x-codrax-enum-aliases"`
+	Minimum              *float64          `json:"minimum"`
+	Maximum              *float64          `json:"maximum"`
+	// CodraxClampRange opts a NUMERIC property into range clamping
+	// (F3-2). Deliberately opt-in: clamping a semantic field (a
+	// user-declared count, a line anchor, a citation index) would
+	// fabricate facts — annotate ONLY mechanical control knobs such
+	// as pagination limits, window sizes, and max-results caps.
+	CodraxClampRange bool `json:"x-codrax-clamp-range"`
 }
 
 var envelopeCarrierKeyOrder = []string{
@@ -203,13 +214,36 @@ func normalizeValue(value any, schema json.RawMessage, path string, cfg types.To
 		if v, rule, ok := decodeJSONStringEnumString(s, node); ok {
 			return v, []Repair{repair(path, rule, valueKind(value), "string_enum")}
 		}
-		if node.CodraxEnumStyleAlias {
-			if v, rule, ok := normalizeStringEnumAlias(s, node); ok {
-				return v, []Repair{repair(path, rule, valueKind(value), "string_enum")}
-			}
+		// Case/style aliasing is default-on for every string enum (F3-1):
+		// the repair applies only when the canonicalized value is an EXACT
+		// member of the schema enum, so it is schema-proven mechanical
+		// normalization — 'Definition' vs 'definition' must not burn a
+		// retry round. Custom alias maps stay opt-in per property.
+		if v, rule, ok := normalizeStringEnumAlias(s, node); ok {
+			return v, []Repair{repair(path, rule, valueKind(value), "string_enum")}
 		}
 		if v, rule, ok := normalizeStringEnumCustomAlias(s, node); ok {
 			return v, []Repair{repair(path, rule, valueKind(value), "string_enum")}
+		}
+	}
+
+	if node.CodraxClampRange {
+		// The decoder uses json.Number; accept float64 defensively for
+		// values produced by earlier repair stages.
+		var n float64
+		var isNumber bool
+		switch v := value.(type) {
+		case json.Number:
+			if parsed, err := v.Float64(); err == nil {
+				n, isNumber = parsed, true
+			}
+		case float64:
+			n, isNumber = v, true
+		}
+		if isNumber {
+			if clamped, ok := clampNumberToSchemaRange(n, node); ok {
+				return clamped, []Repair{repair(path, "number_range_clamp", formatFloatParam(n), formatFloatParam(clamped))}
+			}
 		}
 	}
 
@@ -825,6 +859,25 @@ func normalizeStringEnumAlias(s string, node schemaNode) (string, string, bool) 
 		}
 	}
 	return "", "", false
+}
+
+// clampNumberToSchemaRange clamps an out-of-range numeric value to the
+// nearest schema bound. Fires only for properties opted in via
+// x-codrax-clamp-range (mechanical control knobs); the Repair record
+// names both the original and the clamped value so the rewrite is
+// auditable.
+func clampNumberToSchemaRange(n float64, node schemaNode) (float64, bool) {
+	if node.Minimum != nil && n < *node.Minimum {
+		return *node.Minimum, true
+	}
+	if node.Maximum != nil && n > *node.Maximum {
+		return *node.Maximum, true
+	}
+	return 0, false
+}
+
+func formatFloatParam(f float64) string {
+	return strconv.FormatFloat(f, 'g', -1, 64)
 }
 
 func normalizeStringEnumCustomAlias(s string, node schemaNode) (string, string, bool) {

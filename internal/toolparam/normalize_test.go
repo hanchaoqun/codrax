@@ -239,7 +239,12 @@ func TestNormalize_RepairsStringEnumCaseStyleAliases(t *testing.T) {
 	}
 }
 
-func TestNormalize_StringEnumCaseStyleAliasRequiresSchemaOptIn(t *testing.T) {
+// F3-1 (2026-07-03): case/style enum aliasing is now DEFAULT-ON for
+// every string enum — the former per-property x-codrax-enum-style-alias
+// opt-in gate is gone. This test previously pinned the opt-in
+// requirement; it now pins the default-on contract with the
+// exact-member proof as the safety boundary.
+func TestNormalize_StringEnumCaseStyleAliasDefaultOnWithoutOptIn(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",
 	  "properties":{
@@ -249,11 +254,14 @@ func TestNormalize_StringEnumCaseStyleAliasRequiresSchemaOptIn(t *testing.T) {
 	raw := json.RawMessage(`{"view":"rootCauseRank"}`)
 
 	got, report := Normalize(raw, schema, repairPolicy)
-	if report.Changed() {
-		t.Fatalf("enum alias without schema opt-in must not be repaired, got %+v", report)
+	if !report.Changed() {
+		t.Fatalf("enum case/style alias must repair without a schema opt-in, got %+v", report)
 	}
-	if string(got) != string(raw) {
-		t.Fatalf("enum payload changed without opt-in: got %s want %s", got, raw)
+	var decoded struct {
+		View string `json:"view"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil || decoded.View != "root_cause_rank" {
+		t.Fatalf("view = %q err=%v", decoded.View, err)
 	}
 }
 
@@ -1222,4 +1230,95 @@ func envelopeCompatTestSchema() json.RawMessage {
 	    "limit":{"type":"integer"}
 	  }
 	}`)
+}
+
+// TestNormalize_EnumCaseStyleAliasDefaultOn pins F3-1: case/style enum
+// aliasing runs for EVERY string enum without the per-property
+// x-codrax-enum-style-alias opt-in — the repair is schema-proven (the
+// canonicalized value must be an exact enum member) so 'Definition' vs
+// 'definition' never burns a retry round.
+func TestNormalize_EnumCaseStyleAliasDefaultOn(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "anchor_kind":{"type":"string","enum":["definition","call","assignment"]}
+	  }
+	}`)
+	got, report := Normalize(json.RawMessage(`{"anchor_kind":"Definition"}`), schema, repairPolicy)
+	if !report.Changed() {
+		t.Fatal("expected enum case repair without the opt-in flag")
+	}
+	var decoded struct {
+		AnchorKind string `json:"anchor_kind"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil || decoded.AnchorKind != "definition" {
+		t.Fatalf("anchor_kind = %q err=%v", decoded.AnchorKind, err)
+	}
+	// A value that canonicalizes to a NON-member stays untouched — the
+	// exact-member proof is the safety boundary.
+	got, report = Normalize(json.RawMessage(`{"anchor_kind":"Definitions"}`), schema, repairPolicy)
+	var raw map[string]any
+	_ = json.Unmarshal(got, &raw)
+	if raw["anchor_kind"] != "Definitions" {
+		t.Fatalf("non-member must not be rewritten: %v (repairs=%+v)", raw["anchor_kind"], report.Repairs)
+	}
+}
+
+// TestNormalize_NumberRangeClampOptInOnly pins F3-2: numeric range
+// clamping fires ONLY for properties annotated x-codrax-clamp-range
+// (mechanical control knobs) — clamping a semantic field would
+// fabricate facts, so an un-annotated minimum is never enforced by
+// rewrite. The Repair record carries the original and clamped values.
+func TestNormalize_NumberRangeClampOptInOnly(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "max_results":{"type":"integer","minimum":1,"maximum":50,"x-codrax-clamp-range":true},
+	    "declared_count":{"type":"integer","minimum":1}
+	  }
+	}`)
+	got, report := Normalize(json.RawMessage(`{"max_results":500,"declared_count":0}`), schema, repairPolicy)
+	var decoded struct {
+		MaxResults    int `json:"max_results"`
+		DeclaredCount int `json:"declared_count"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if decoded.MaxResults != 50 {
+		t.Fatalf("opted-in knob must clamp to the schema maximum, got %d", decoded.MaxResults)
+	}
+	if decoded.DeclaredCount != 0 {
+		t.Fatalf("un-annotated semantic field must NOT clamp, got %d", decoded.DeclaredCount)
+	}
+	found := false
+	for _, r := range report.Repairs {
+		if r.Rule == "number_range_clamp" && r.From == "500" && r.To == "50" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("clamp repair record missing from/to values: %+v", report.Repairs)
+	}
+}
+
+// TestNormalize_AuditModeLeavesRawUnchanged pins that audit mode reports
+// the would-be repairs (incl. the new default-on aliasing and clamp)
+// without rewriting the payload.
+func TestNormalize_AuditModeLeavesRawUnchanged(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "anchor_kind":{"type":"string","enum":["definition"]},
+	    "max_results":{"type":"integer","maximum":50,"x-codrax-clamp-range":true}
+	  }
+	}`)
+	raw := json.RawMessage(`{"anchor_kind":"Definition","max_results":500}`)
+	got, report := Normalize(raw, schema, types.ToolParamCompatConfig{Mode: types.ToolParamCompatAudit})
+	if string(got) != string(raw) {
+		t.Fatalf("audit mode must return raw unchanged:\n%s", got)
+	}
+	if !report.Changed() {
+		t.Fatal("audit mode must still report would-be repairs")
+	}
 }
