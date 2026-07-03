@@ -25,6 +25,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/safety"
 	"github.com/hanchaoqun/codrax/internal/textfmt"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -4662,8 +4663,25 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if reject != nil {
 		return *reject, nil
 	}
-	data, err := os.ReadFile(fsPath)
+	// Whole-read wall (customer OOM 2026-07-03): read_file pages AFTER
+	// slurping, so a GiB-scale artifact must be refused before allocation.
+	data, err := width.ReadFileBounded(fsPath, width.Current().ReadFile.MaxWholeReadBytes)
 	if err != nil {
+		var oversized *width.ErrSourceReadOversized
+		if errors.As(err, &oversized) {
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Success:  false,
+				Summary: fmt.Sprintf("read refused: %s is %.1f MiB — too large to load whole. Use grep (pattern + path) to locate the lines you need, or trace_query for runtime trace artifacts.",
+					p.Path, float64(oversized.Size)/(1<<20)),
+				Repair: &types.ToolRepair{
+					Code:   "read_file_too_large",
+					Fields: []string{"path"},
+					Hint:   "This file exceeds the whole-file read bound. Locate the needed lines with grep (it streams and returns file:line anchors), then cite those lines directly; for runtime trace artifacts use trace_query views instead of raw reads.",
+				},
+				Timestamp: time.Now(),
+			}, nil
+		}
 		pathMissAdvice := sourceInventoryReadFilePathMissAdvice{}
 		if errors.Is(err, fs.ErrNotExist) {
 			pathMissAdvice = sourceInventoryReadFilePathMissAdviceFor(ctx, p.Path)

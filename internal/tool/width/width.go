@@ -32,6 +32,7 @@ package width
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
@@ -95,10 +96,14 @@ type GrepCaps struct {
 }
 
 // ReadFileCaps bounds the read_file paging-window suggestion emitted when an
-// inline read is clamped by the transport budget.
+// inline read is clamped by the transport budget, plus the whole-read byte
+// wall: read_file slurps the file before paging, so a multi-GiB artifact
+// must be refused up front (customer OOM 2026-07-03) — targeted line
+// windows belong to grep, trace artifacts to trace_query.
 type ReadFileCaps struct {
 	PageWindowDefault int
 	PageWindowMax     int
+	MaxWholeReadBytes int64
 }
 
 // TraceQueryCaps bounds tool-side trace_query surfaces. The per-view result
@@ -177,6 +182,7 @@ func Defaults() Caps {
 		ReadFile: ReadFileCaps{
 			PageWindowDefault: DefaultReadFilePageWindowDefault,
 			PageWindowMax:     DefaultReadFilePageWindowMax,
+			MaxWholeReadBytes: DefaultReadFileMaxWholeReadBytes,
 		},
 		TraceQuery: TraceQueryCaps{
 			StreamSearchMinLimit:     DefaultTraceQueryStreamSearchMinLimit,
@@ -268,3 +274,51 @@ func Set(o Overrides) []string {
 // Reset restores the code defaults (test helper; production calls Set once at
 // startup and never resets).
 func Reset() { current = Defaults() }
+
+// SourceReadMaxBytes bounds any whole-file read whose PATH the model
+// supplied (citation quote normalization, evidence grounding, the
+// read_file tool's initial slurp). It exists because a citation/evidence
+// file field can name a multi-GiB runtime artifact — a customer run
+// OOM-crashed on Windows when the finalize citation-quote normalizer
+// slurped a 1104 MiB trace (VirtualAlloc errno=1455) and the whole
+// 8-minute analysis was lost at the last step. 8 MiB is two orders of
+// magnitude above any real source file and three below the incident
+// artifact; oversized files skip the optional enrichment or reject with
+// a typed hint instead of being read.
+const SourceReadMaxBytes = 8 << 20
+
+// DefaultReadFileMaxWholeReadBytes is the read_file tool's whole-read wall
+// (the tool pages AFTER slurping, so the slurp itself needs a bound). 64 MiB
+// keeps large-but-sane logs readable while refusing GiB-scale artifacts.
+const DefaultReadFileMaxWholeReadBytes = 64 << 20
+
+// ErrSourceReadOversized is returned by ReadFileBounded when the file's
+// stat size exceeds the cap. Callers branch on it with errors.Is; Size
+// carries the offending stat size for hint/telemetry text.
+type ErrSourceReadOversized struct {
+	Path string
+	Size int64
+	Cap  int64
+}
+
+func (e *ErrSourceReadOversized) Error() string {
+	return fmt.Sprintf("file %s is %d bytes, exceeds the %d-byte source read bound", e.Path, e.Size, e.Cap)
+}
+
+// ReadFileBounded stats first and reads the file only when its size is
+// within maxBytes (non-positive maxBytes falls back to
+// SourceReadMaxBytes). The stat-first order is the whole point: the
+// oversized case must not allocate.
+func ReadFileBounded(path string, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		maxBytes = SourceReadMaxBytes
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > maxBytes {
+		return nil, &ErrSourceReadOversized{Path: path, Size: info.Size(), Cap: maxBytes}
+	}
+	return os.ReadFile(path)
+}

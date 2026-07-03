@@ -1,16 +1,25 @@
 package tool
 
 import (
-	"os"
+	"errors"
 	"path/filepath"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func normalizeCurrentSourceCitationQuotes(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
 	if doc == nil || ctx == nil || len(doc.Citations) == 0 {
+		return 0
+	}
+	// Observation-only runs (the user explicitly excluded current-source
+	// analysis — typed ExcludesCurrentSource carrier) have no
+	// current-source citations to repair by definition: the pass is
+	// inert instead of reading files the user asked the run not to
+	// touch (customer OOM 2026-07-03 was such a run).
+	if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return 0
 	}
 	repoRoot := strings.TrimSpace(ctx.RepoRoot)
@@ -20,13 +29,26 @@ func normalizeCurrentSourceCitationQuotes(doc *types.AnswerDocumentV2, ctx *type
 	if repoRoot == "" {
 		return 0
 	}
+	artifactPaths := runtimeArtifactCitationPathSet(ctx)
+	// Per-document line cache: the same file cited N times is read once.
+	// Quote normalization is optional enrichment, so an unreadable or
+	// oversized file simply keeps the model's own quote — a nil cache
+	// entry remembers the miss and never re-reads.
+	lineCache := map[string][]string{}
 	fixed := 0
 	for i := range doc.Citations {
 		cit := &doc.Citations[i]
 		if cit.Line <= 0 || cit.LineEnd > cit.Line || strings.TrimSpace(cit.NegativePattern) != "" {
 			continue
 		}
-		line, ok := currentSourceCitationLine(repoRoot, cit.File, cit.Line)
+		// A citation naming the attached/referenced runtime artifact is
+		// runtime provenance, not current source — never read it as a
+		// source file (typed artifact spelling match, defense in depth
+		// on top of the size bound).
+		if citationFileIsRuntimeArtifact(artifactPaths, cit.File) {
+			continue
+		}
+		line, ok := currentSourceCitationLine(repoRoot, cit.File, cit.Line, lineCache)
 		if !ok {
 			continue
 		}
@@ -40,27 +62,48 @@ func normalizeCurrentSourceCitationQuotes(doc *types.AnswerDocumentV2, ctx *type
 	return fixed
 }
 
-func currentSourceCitationLine(repoRoot, file string, lineNo int) (string, bool) {
+func currentSourceCitationLine(repoRoot, file string, lineNo int, lineCache map[string][]string) (string, bool) {
 	if lineNo <= 0 {
 		return "", false
 	}
-	lines, ok := currentSourceCitationLines(repoRoot, file)
+	lines, ok := currentSourceCitationLines(repoRoot, file, lineCache)
 	if !ok || lineNo > len(lines) {
 		return "", false
 	}
 	return lines[lineNo-1], true
 }
 
-func currentSourceCitationLines(repoRoot, file string) ([]string, bool) {
+func currentSourceCitationLines(repoRoot, file string, lineCache map[string][]string) ([]string, bool) {
 	path, ok := currentSourceCitationPath(repoRoot, file)
 	if !ok {
 		return nil, false
 	}
-	data, err := os.ReadFile(path)
+	if lineCache != nil {
+		if cached, seen := lineCache[path]; seen {
+			return cached, cached != nil
+		}
+	}
+	// Bounded read (customer OOM 2026-07-03): a citation file field can
+	// name a multi-GiB runtime artifact inside the repo directory —
+	// stat first and skip this optional quote repair instead of slurping
+	// the file (the incident slurped a 1104 MiB trace at finalize and
+	// lost the whole run to a Windows commit-limit OOM).
+	data, err := width.ReadFileBounded(path, 0)
 	if err != nil {
+		var oversized *width.ErrSourceReadOversized
+		if errors.As(err, &oversized) {
+			logging.Warning("[emit_answer_document] citation quote normalize skipped %s: %v", file, err)
+		}
+		if lineCache != nil {
+			lineCache[path] = nil
+		}
 		return nil, false
 	}
-	return strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n"), true
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	if lineCache != nil {
+		lineCache[path] = lines
+	}
+	return lines, true
 }
 
 func currentSourceCitationPath(repoRoot, file string) (string, bool) {
@@ -95,4 +138,47 @@ func logCurrentSourceCitationQuoteRepairs(toolName string, fixed int) {
 		return
 	}
 	logging.Warning("[%s] repaired %d citation quote(s) from current source file:line", toolName, fixed)
+}
+
+// runtimeArtifactCitationPathSet collects the typed attachment spellings of
+// the run's runtime artifacts (trace / log), normalized to slash-form plus
+// basename, so citation files naming them are recognized verbatim — never
+// by content sniffing or prose matching.
+func runtimeArtifactCitationPathSet(ctx *types.BusContext) map[string]bool {
+	if ctx == nil {
+		return nil
+	}
+	out := map[string]bool{}
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || raw == "-" {
+			return
+		}
+		clean := filepath.ToSlash(filepath.Clean(raw))
+		out[clean] = true
+		if base := filepath.Base(clean); base != "" && base != "." {
+			out[base] = true
+		}
+	}
+	// AttachedHitraceSource is the trace attachment's user spelling —
+	// the GiB-scale artifact class this guard exists for. AttachedLog
+	// carries pasted excerpt CONTENT, not a path, so it has no spelling
+	// to match; log-path citations are already covered by the size
+	// bound.
+	add(ctx.AttachedHitraceSource)
+	return out
+}
+
+// citationFileIsRuntimeArtifact reports whether a citation file field names
+// one of the run's runtime artifacts (exact cleaned-path or basename match).
+func citationFileIsRuntimeArtifact(artifactPaths map[string]bool, file string) bool {
+	if len(artifactPaths) == 0 {
+		return false
+	}
+	file = strings.TrimSpace(file)
+	if file == "" {
+		return false
+	}
+	clean := filepath.ToSlash(filepath.Clean(file))
+	return artifactPaths[clean] || artifactPaths[filepath.Base(clean)]
 }

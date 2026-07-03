@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -468,6 +469,11 @@ func repoRootOrEmpty(gc *Context) string {
 // implementation reads from disk directly; stage 5 swaps to a per-Run
 // content cache keyed by (repoRoot, file) so the same file isn't
 // read twice across multiple emit_evidence items.
+//
+// Bounded (customer OOM 2026-07-03): the file field is model-supplied
+// and can name a multi-GiB runtime artifact — an oversized file fails
+// the read, which the grounders already surface as an Ungrounded item
+// note instead of allocating the whole body.
 func readRepoFile(gc *Context, repoRel string) ([]byte, error) {
 	if repoRel == "" {
 		return nil, fmt.Errorf("empty file path")
@@ -477,7 +483,7 @@ func readRepoFile(gc *Context, repoRel string) ([]byte, error) {
 	if root != "" {
 		full = filepath.Join(root, repoRel)
 	}
-	body, err := os.ReadFile(full)
+	body, err := width.ReadFileBounded(full, 0)
 	if err != nil {
 		return nil, err
 	}
