@@ -161,6 +161,7 @@
   - W3(window_sweep)设计已评审就绪(§4.7),Batch 3 实施。
 - 2026-07-03 Batch 3(W3)交付:`trace_query view=window_sweep` 按 §4.7 全量落地——流式通道(不受 index budget,复用/回写稀疏锚点索引)、bucket 纯计数聚合(bucket_ms clamp 50..500)、top-K 热点软建议(pid 参与密度优先,name-only thread 显式 caveat)、>40 bucket 等距折叠、denial(请求窗>1.0s,未 pad typed 字段判定)prose+typed Refinement 双通道首推 window_sweep。复核 5 finding 全收:不设 Windowed 防 windowed_index_parse 矛盾 caveat;typed PreferredParams 长窗分支切 window_sweep(旧分支字节不变);bucket 边界 ulp 校正(与公布窗口同算式,真实触发形态 4.3/0.05 经枚举验证);budget denial 前 store 前缀 anchors + sweep 自身录 anchors(旗舰恢复流程 GB trace 不再三次全前缀扫描)。全仓测试绿。
 - **专项收口**:客户 7 问全对应落地;隐藏 gap H1-H21 全清账(H15 核实非 gap;其余全修或收编);三批共 17 条对抗复核 finding(3×P1)全收零遗留。跟踪余项:window_sweep 实战效果待下次代表性 eval/真实客户 trace 回访验证。
+- 2026-07-04 CMP-A(=CMP-1/2/3,§7.2 方案 A)交付:`CompileTraceCausalProjections`/`CompileTraceCausalProjectionSet` 按 typed 工件身份(SourceRef.Path 经 canonpath 归一 → ArtifactID → 证据 locator 路径,字符类切分)分区,每分区复用单工件编译器;≤1 身份走全量记录 legacy 编译(DeepEqual pin 字节等价);无身份记录在多工件账本只进"未归档" caveat;分区上限 4(按观测数保留,caveat 列被略工件)。CMP-2:anchor 窗白名单在 frame_target_resolution 缺席时回退到携带 actual_*(=窗口基准=选定窗,§7.30 裁定6 同判据)且有精确窗(Span ts 或 window note)的 wakeup_causal_aggregate/root_cause_primary 最后一条,frame 锚优先级不变(全部既有 golden 字节保住,全仓测试绿)。渲染:多投影每工件一段("Trace 因果投影 — <basename>",id `_a<N>`,树/明细/证据/尺度 per-工件,结论行 per-段),对比形态(typed:historical_regression ∨ is_cross_component,≥2 投影)前置对比总览表(工件/rank=1 主根因/症状/on-chain/背景压力带单位/投影窗,全 typed 组装);确定性优化点块多工件下按工件重建 E# 并带 basename 前缀。CMP-3:`runtimeTraceProjCrossThreadAggregateType`(subject_kind=aggregate_metric ∧ token∈{supply/cpu/io_pressure,irq_burst/activity,ipi_activity,cpu_frequency_limit},镜像 rootCauseAggregateMetricTypes)——bar 尺度只锚墙钟值(全聚合批 fail-open 批最大防 0 满格),聚合行不画 bar(留空保对齐)、值带"(跨线程累计,非墙钟)"+CMP-9 归一化密度(supply/cpu=≈平均排队深度,其余=≈均值;无窗不估算),明细表窗口投影列同镜像;有线程主体的 H8 irq 突发行(无 subject_kind)保留原 bar+超百标注不受影响。新 pin:分区一致性(同投影全行同工件 locator)/单工件字节等价/上限 4/CMP-2 六分支/双工件端到端两段+对比表+独立窗与尺度+未归档 caveat/CMP-3 成员集+尺度排除+行渲染三面。
 
 ## 6. 客户真实 trace 回访验证(2026-07-03,custom_1g.txt,同 berlin 1104MiB 同问题重跑)
 
@@ -215,7 +216,8 @@
 - `CompileTraceCausalProjections(ledger) []TraceCausalProjection`:按观测的**工件身份 typed 信号**(SourceRef.Path/artifact id,精确)分区,每个分区独立走既有单工件编译器;无工件身份的观测(合成行号类)进"未归档"桶,只作 caveat 不混树。
 - 渲染:每工件一个投影段("Trace 因果投影 — <工件名>"),树/明细/证据/bar 尺度 per-工件;anchor 窗 per-工件解析(CMP-2 的来源扩展同时落此处)。
 - **对比总览层**:≥2 投影且对比形态(typed:双 trace 工件 + historical_regression/is_cross_component)时,在各段之前加一张紧凑对比表:per-工件 主根因(rank=1)/目标症状时长/on-chain 归因/背景压力(带 cpu·ms 标注)/窗口;主根因结论行变 per-工件行。表内容全部从 typed 字段组装。
-- **结构不变量(加 pin 测试)**:同一棵树/同一尺度内的行必须同工件(硬结构规则,精确信号);尺度锚定只认墙钟类值(CMP-3 并入);单工件输入 → 输出与现行为字节一致(既有 golden 全保)。
+- **结构不变量(加 pin 测试)**:同一棵树/同一尺度内的行必须同工件(硬结构规则,精确信号);尺度锚定只认墙钟类值(CMP-3 并入)。
+- **兼容性口径(复核 F7 修正表述)**:"字节不变"仅在**编译层**成立(≤1 工件身份 → legacy 编译 DeepEqual 等价);渲染层对单工件有两处**有意**行为变化并如实披露——(a) CMP-3:带跨线程聚合行(subject_kind=aggregate_metric ∧ token 集合)的单工件案,聚合行不再画 bar/占窗%,改跨线程累计标注+密度;(b) CMP-2:非 frame 单工件案在有 selected_window 观测时锚窗从"起止未采集"变为真实查询窗。既有 golden 通过是因判定条件正确排除(如 custom1g E13-E15 subject 为真实线程)或断言未 pin 到变化面,非全渲染面字节不变。
 - 红线合规:不建并行子系统(复用单工件编译器);分区键是 typed 工件身份非启发;对比判定用 analyzer typed 谓词非关键字。
 
 **实施顺序**:V 批合入 → CMP-A(=CMP-1/2/3 按本架构落)→ CMP-B(=CMP-4/5/7 噪音与一致性)→ CMP-C(=CMP-6+CMP-8 引导与占用侧)。
