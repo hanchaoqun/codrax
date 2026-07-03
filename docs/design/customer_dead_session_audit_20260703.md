@@ -159,3 +159,5 @@
   - **Q3**: attached_trace 三级解析(blob→内存体→请求引用工件恰一门;权威载体=RuntimeArtifactPreflight.Artifacts);payload_ref 收口单一 helper+审计工件软引导。**H17 实测修正**:read 模式 read_file 能读 payload blob(仅受 bounded 字节墙),提示措辞按实况不写"不可读"。
   - 复核 4 finding 全收:RF1(P1) pid=N 手柄形双向匹配缺失→双向整数匹配+roster 接纳;RF2(P1) Adjacent 等值折叠无重叠守卫(量化碰撞少报)→行号/时间 span 重叠布尔守卫+DedupFold typed 布尔分叉标签("×N同值合并"vs 求和"×N合并");QF1'(P2) 显式 path stat 失败被静默替换→path 非空精确门+拒绝列候选;QF2'(P2) 物理同文件假多候选→os.SameFile 二层去重。
   - W3(window_sweep)设计已评审就绪(§4.7),Batch 3 实施。
+- 2026-07-03 Batch 3(W3)交付:`trace_query view=window_sweep` 按 §4.7 全量落地——流式通道(不受 index budget,复用/回写稀疏锚点索引)、bucket 纯计数聚合(bucket_ms clamp 50..500)、top-K 热点软建议(pid 参与密度优先,name-only thread 显式 caveat)、>40 bucket 等距折叠、denial(请求窗>1.0s,未 pad typed 字段判定)prose+typed Refinement 双通道首推 window_sweep。复核 5 finding 全收:不设 Windowed 防 windowed_index_parse 矛盾 caveat;typed PreferredParams 长窗分支切 window_sweep(旧分支字节不变);bucket 边界 ulp 校正(与公布窗口同算式,真实触发形态 4.3/0.05 经枚举验证);budget denial 前 store 前缀 anchors + sweep 自身录 anchors(旗舰恢复流程 GB trace 不再三次全前缀扫描)。全仓测试绿。
+- **专项收口**:客户 7 问全对应落地;隐藏 gap H1-H21 全清账(H15 核实非 gap;其余全修或收编);三批共 17 条对抗复核 finding(3×P1)全收零遗留。跟踪余项:window_sweep 实战效果待下次代表性 eval/真实客户 trace 回访验证。
