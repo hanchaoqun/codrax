@@ -1685,3 +1685,37 @@ func TestRenderToolHistoryAnchorCheckpoint(t *testing.T) {
 		t.Fatalf("non-explore stages must not render the reminder: %q", out)
 	}
 }
+
+type fakeSymbolOracle struct{ symbols map[string]bool }
+
+func (f *fakeSymbolOracle) SymbolExists(name string) (bool, int) { return f.SymbolExistsFlat(name) }
+
+func (f *fakeSymbolOracle) SymbolExistsFlat(name string) (bool, int) {
+	if f.symbols[name] {
+		return true, 1
+	}
+	return false, 0
+}
+
+// TestEntityTrailingSegmentCorrection pins the A1c token-fidelity repair:
+// exactly one short trailing camel segment trims to an oracle-verified
+// symbol (the twice-observed ReadModePipelineStage+"Bin" slip); longer
+// suffixes, short remainders, and non-identifier tails never correct.
+func TestEntityTrailingSegmentCorrection(t *testing.T) {
+	oracle := &fakeSymbolOracle{symbols: map[string]bool{"ReadModePipelineStage": true}}
+	if got := entityTrailingSegmentCorrection(oracle, "ReadModePipelineStageBin"); got != "ReadModePipelineStage" {
+		t.Fatalf("mangled entity must correct to the verified symbol, got %q", got)
+	}
+	if got := entityTrailingSegmentCorrection(oracle, "ReadModePipelineStage"); got != "" {
+		t.Fatalf("already-verified surfaces are handled upstream, got %q", got)
+	}
+	if got := entityTrailingSegmentCorrection(oracle, "ReadModePipelineStageBinding"); got != "" {
+		t.Fatalf("suffix longer than 4 runes must not correct, got %q", got)
+	}
+	if got := entityTrailingSegmentCorrection(oracle, "ShortBin"); got != "" {
+		t.Fatalf("short remainders must not correct, got %q", got)
+	}
+	if got := entityTrailingSegmentCorrection(nil, "ReadModePipelineStageBin"); got != "" {
+		t.Fatalf("nil oracle must not correct, got %q", got)
+	}
+}

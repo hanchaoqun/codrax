@@ -7,10 +7,10 @@
 // it. The cache-hydrate site at explorer.go:710-770 now
 // validates each declared path against:
 //
-//   1. graph.FileIndex membership — hallucinated paths dropped
-//   2. citedSources from prior emit_evidence — defer to evidence
-//      (the explorer's own grounded citation is stronger evidence
-//      than the analyzer's pre-investigation guess)
+//  1. graph.FileIndex membership — hallucinated paths dropped
+//  2. citedSources from prior emit_evidence — defer to evidence
+//     (the explorer's own grounded citation is stronger evidence
+//     than the analyzer's pre-investigation guess)
 //
 // These tests pin the validation behaviour at the cache-hydrate
 // site directly via the explorerEvaluator's irrelevantFilesSet

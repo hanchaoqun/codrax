@@ -16,10 +16,10 @@ const (
 // scanQuestionTokens yields raw candidate identifier tokens from the
 // user's question text. Two sources:
 //
-//   1. Backtick-quoted segments (e.g. `MyClass.doThing`) — the most
-//      explicit identifier form, yielded verbatim minus the backticks.
-//   2. Contiguous runs of [A-Za-z0-9_.] characters — ident-like spans
-//      that span CamelCase, snake_case, dotted, and lowercase tokens.
+//  1. Backtick-quoted segments (e.g. `MyClass.doThing`) — the most
+//     explicit identifier form, yielded verbatim minus the backticks.
+//  2. Contiguous runs of [A-Za-z0-9_.] characters — ident-like spans
+//     that span CamelCase, snake_case, dotted, and lowercase tokens.
 //
 // The tokeniser is pure: no dedup, no trimming, no case folding, no
 // length / shape gating. Callers apply their own policy in the visit
@@ -44,7 +44,7 @@ func scanQuestionTokens(question string, visit func(raw string, src tokenSource)
 		if end < 0 {
 			break
 		}
-		visit(rest[start+1 : start+1+end], tokenBacktick)
+		visit(rest[start+1:start+1+end], tokenBacktick)
 		rest = rest[start+1+end+1:]
 	}
 

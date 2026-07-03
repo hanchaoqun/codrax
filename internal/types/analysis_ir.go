@@ -963,6 +963,15 @@ type EntityProvenance struct {
 	NoiseScore   float64          `json:"noise_score,omitempty"`
 	UseForSearch bool             `json:"use_for_search,omitempty"`
 	UseForShape  bool             `json:"use_for_shape,omitempty"`
+	// ResolvedAs carries the oracle-verified symbol when the emitted
+	// surface itself failed resolution but a single trailing camel-case
+	// segment trim produced an exact oracle hit (A1c, 2026-07-03 — the
+	// analyzer twice emitted the mangled ReadModePipelineStageBin for
+	// the real ReadModePipelineStage). Deterministic single-step
+	// correction, never fuzzy matching; consumers that need a REAL
+	// symbol (anchor obligations) use ResolvedAs, display surfaces keep
+	// Surface verbatim.
+	ResolvedAs string `json:"resolved_as,omitempty"`
 }
 
 type Intent string

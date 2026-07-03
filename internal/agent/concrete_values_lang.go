@@ -467,10 +467,11 @@ func scanEmbedsPatterns(lines []string, lang string) []concreteValueEntry {
 // isGoEmbeddedField detects Go embedded fields: a line inside a
 // struct body that is just a type name (possibly with * prefix or
 // package qualifier), e.g.:
-//   ReadOnly
-//   *Foo
-//   pkg.Bar
-//   *pkg.Bar
+//
+//	ReadOnly
+//	*Foo
+//	pkg.Bar
+//	*pkg.Bar
 func isGoEmbeddedField(trimmed string) bool {
 	if trimmed == "" || trimmed == "{" || trimmed == "}" {
 		return false

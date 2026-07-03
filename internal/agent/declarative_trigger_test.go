@@ -8,13 +8,13 @@
 // `declarative.Classifier`.
 //
 // Test invariants:
-//   1. Function-body enumerations (s1a regression) → no trigger.
-//   2. Real registry enumerations → still trigger.
-//   3. registration / config_mapping kinds → unchanged (still
-//      trigger unconditionally).
-//   4. AxisRegister bypass preserved.
-//   5. Empty PrimaryEntities → fail-open.
-//   6. Nil graph → fail-open.
+//  1. Function-body enumerations (s1a regression) → no trigger.
+//  2. Real registry enumerations → still trigger.
+//  3. registration / config_mapping kinds → unchanged (still
+//     trigger unconditionally).
+//  4. AxisRegister bypass preserved.
+//  5. Empty PrimaryEntities → fail-open.
+//  6. Nil graph → fail-open.
 package agent
 
 import (

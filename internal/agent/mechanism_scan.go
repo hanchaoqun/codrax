@@ -166,14 +166,14 @@ func scanMechanismEvidence(reqs []EvidenceRequirement, graph *repomap.Graph, rep
 			source := fmt.Sprintf("mechanism_scan:%s", sym.File)
 			for _, b := range blocks {
 				out = append(out, types.EvidenceItem{
-					Kind:      types.EvidenceMechanism,
-					Predicate: "step",
-					Subject:   subject,
-					Object:    b.label,
-					Summary:   fmt.Sprintf("`%s` step at line %d: %s", subject, b.startLine, b.label),
-					Source:    source,
-					LineStart: b.startLine,
-					LineEnd:   b.endLine,
+					Kind:       types.EvidenceMechanism,
+					Predicate:  "step",
+					Subject:    subject,
+					Object:     b.label,
+					Summary:    fmt.Sprintf("`%s` step at line %d: %s", subject, b.startLine, b.label),
+					Source:     source,
+					LineStart:  b.startLine,
+					LineEnd:    b.endLine,
 					Confidence: 0.85,
 					// Deterministic mechanism scan emits line-shaped
 					// evidence (step blocks at known line ranges).

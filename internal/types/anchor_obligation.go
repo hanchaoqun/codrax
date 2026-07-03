@@ -97,13 +97,17 @@ func CompileAnchorObligations(ir *AnalysisIR) []AnchorObligation {
 		if !prov.Resolved {
 			continue
 		}
+		surface := prov.Surface
+		if corrected := strings.TrimSpace(prov.ResolvedAs); corrected != "" {
+			surface = corrected
+		}
 		switch prov.Resolution {
 		case EntityResolutionFile:
-			add(prov.Surface, AnchorObligationFile, AnchorOriginEntity)
+			add(surface, AnchorObligationFile, AnchorOriginEntity)
 		case EntityResolutionScope:
-			add(prov.Surface, AnchorObligationScope, AnchorOriginEntity)
+			add(surface, AnchorObligationScope, AnchorOriginEntity)
 		case EntityResolutionSymbol:
-			add(prov.Surface, AnchorObligationSymbol, AnchorOriginEntity)
+			add(surface, AnchorObligationSymbol, AnchorOriginEntity)
 		}
 	}
 	for _, file := range ir.EvidencePlan.RequiredFiles {

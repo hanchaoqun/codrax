@@ -39,11 +39,11 @@ func TestEnsureStructuredEvidence_MergesEmittedAndParsed(t *testing.T) {
 	}
 
 	overlapID := types.StableEvidenceID(types.EvidenceItem{
-		Kind:    types.EvidenceDirect,
-		Subject: "Shared",
+		Kind:      types.EvidenceDirect,
+		Subject:   "Shared",
 		Predicate: "direct",
-		Source:  "internal/agent/foo.go",
-		Scope:   types.ScopeLine,
+		Source:    "internal/agent/foo.go",
+		Scope:     types.ScopeLine,
 	})
 
 	toolOnly := types.EvidenceItem{
@@ -154,7 +154,6 @@ func TestEnsureStructuredEvidence_ToolOnlyIsCharted(t *testing.T) {
 		t.Errorf("subject = %q", e.structuredEvidence[0].Subject)
 	}
 }
-
 
 func summarizeIDs(items []types.EvidenceItem) []string {
 	out := make([]string, 0, len(items))

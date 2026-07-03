@@ -126,18 +126,18 @@ func TestExtractConcreteValues_CommentFilter(t *testing.T) {
 // entry/exit, preserving real code).
 func TestStripCommentLines_BlankingBehaviour(t *testing.T) {
 	in := []string{
-		`x := 1`,                          // 0: code — keep
-		`// comment`,                      // 1: strip
-		`/* one-line block */`,            // 2: strip, no state
-		`/* open`,                         // 3: strip, enter block
-		` * continuation`,                 // 4: strip (in block)
-		` */ y := 2`,                      // 5: strip, exit block (best-effort)
-		`# shell`,                         // 6: strip
-		`z := 3`,                          // 7: code — keep
-		`"""`,                             // 8: strip, enter triple
-		`inside docstring NewFoo(deps)`,   // 9: strip
-		`"""`,                             // 10: strip, exit triple
-		`w := 4`,                          // 11: code — keep
+		`x := 1`,                        // 0: code — keep
+		`// comment`,                    // 1: strip
+		`/* one-line block */`,          // 2: strip, no state
+		`/* open`,                       // 3: strip, enter block
+		` * continuation`,               // 4: strip (in block)
+		` */ y := 2`,                    // 5: strip, exit block (best-effort)
+		`# shell`,                       // 6: strip
+		`z := 3`,                        // 7: code — keep
+		`"""`,                           // 8: strip, enter triple
+		`inside docstring NewFoo(deps)`, // 9: strip
+		`"""`,                           // 10: strip, exit triple
+		`w := 4`,                        // 11: code — keep
 	}
 	out := stripCommentLines(in)
 	if len(out) != len(in) {

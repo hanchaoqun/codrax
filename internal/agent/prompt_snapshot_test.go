@@ -359,17 +359,17 @@ func buildPromptSnapshotAgentContext() *types.AgentContext {
 	ir.AnswerContract.Language = "en"
 
 	ac := &types.AgentContext{
-		AgentName:    types.AgentFinalizer,
-		Stage:        types.StageFinalize,
-		Objective:    "Why does Foo() return nil when Bar is configured?",
-		AnalysisIR:   ir,
-		Mutable:      mu,
-		LogTriage:    mu.LogTriage(),
-		PerfTrace:    mu.PerfTrace(),
-		AttachedLog:  "panic: runtime error: invalid memory address\n\tinternal/agent/foo.go:42 +0x88\n",
-		Language:     "en",
-		RepoRoot:     "/tmp/repo",
-		Branch:       "main",
+		AgentName:   types.AgentFinalizer,
+		Stage:       types.StageFinalize,
+		Objective:   "Why does Foo() return nil when Bar is configured?",
+		AnalysisIR:  ir,
+		Mutable:     mu,
+		LogTriage:   mu.LogTriage(),
+		PerfTrace:   mu.PerfTrace(),
+		AttachedLog: "panic: runtime error: invalid memory address\n\tinternal/agent/foo.go:42 +0x88\n",
+		Language:    "en",
+		RepoRoot:    "/tmp/repo",
+		Branch:      "main",
 		EvidenceItems: []types.EvidenceItem{
 			{
 				Kind:            types.EvidenceDirect,

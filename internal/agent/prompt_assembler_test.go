@@ -43,11 +43,11 @@ import (
 type recordingAssembler struct {
 	// inputs seen by the two methods — populated on each call so a
 	// test can assert call order and argument identity.
-	assembleCtx    *types.AgentContext
-	assembleSkill  *skill.Config
-	renderContext  *types.PromptContext
-	assembleCalls  int
-	renderCalls    int
+	assembleCtx   *types.AgentContext
+	assembleSkill *skill.Config
+	renderContext *types.PromptContext
+	assembleCalls int
+	renderCalls   int
 
 	// outputs to return. nilPromptContext and nilMessages let a test
 	// exercise the "empty pipeline" branches without threading a

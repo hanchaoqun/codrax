@@ -68,12 +68,12 @@ func TestScanQuestionTokens_Runs(t *testing.T) {
 }
 
 // TestScanQuestionTokens_Order pins two ordering contracts:
-//   1. ALL backtick tokens are yielded BEFORE any run tokens.
-//   2. The run scan does NOT treat backticks as structural — the
-//      ident characters INSIDE backticks are re-yielded as run
-//      tokens on the second pass. Callers rely on their own dedup
-//      (case-folded seen map) to absorb the overlap. This test
-//      makes that non-obvious contract load-bearing.
+//  1. ALL backtick tokens are yielded BEFORE any run tokens.
+//  2. The run scan does NOT treat backticks as structural — the
+//     ident characters INSIDE backticks are re-yielded as run
+//     tokens on the second pass. Callers rely on their own dedup
+//     (case-folded seen map) to absorb the overlap. This test
+//     makes that non-obvious contract load-bearing.
 func TestScanQuestionTokens_Order(t *testing.T) {
 	in := "what about `Foo` and SubAgent and `Bar`?"
 	var srcSeq []tokenSource

@@ -371,8 +371,8 @@ func TestForEachMatchingDef_QualifierDisambiguates(t *testing.T) {
 	// package other. "gate.Run" should ONLY match the gate.go one.
 	graph := &repomap.Graph{
 		FileIndex: map[string]*repotypes.FileInfo{
-			"internal/analysis/gate/gate.go":   {RelPath: "internal/analysis/gate/gate.go", Package: "gate"},
-			"internal/orchestrator/runner.go":  {RelPath: "internal/orchestrator/runner.go", Package: "orchestrator"},
+			"internal/analysis/gate/gate.go":  {RelPath: "internal/analysis/gate/gate.go", Package: "gate"},
+			"internal/orchestrator/runner.go": {RelPath: "internal/orchestrator/runner.go", Package: "orchestrator"},
 		},
 		SymbolDefs: map[string][]*repomap.Symbol{
 			"Run": {

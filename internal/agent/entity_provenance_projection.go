@@ -113,6 +113,17 @@ func classifyEntityProvenance(
 		prov.Resolution = types.EntityResolutionPrescanAnchor
 		prov.NoiseScore = 0.2
 		prov.UseForSearch = true
+	case entityTrailingSegmentCorrection(oracle, surface) != "":
+		// A1c: the emitted token is a mangled spelling of a real symbol
+		// (one trailing camel segment too many). Resolve to the verified
+		// symbol; Surface stays verbatim for display, ResolvedAs carries
+		// the corrected anchor.
+		prov.Resolution = types.EntityResolutionSymbol
+		prov.Resolved = true
+		prov.NoiseScore = 0.1
+		prov.UseForSearch = true
+		prov.UseForShape = true
+		prov.ResolvedAs = entityTrailingSegmentCorrection(oracle, surface)
 	default:
 		prov.UseForSearch = false
 		prov.UseForShape = false
@@ -221,4 +232,43 @@ func logEntityProvenanceSummary(provenance []types.EntityProvenance) {
 		shape,
 		totalNoise/float64(len(provenance)),
 	)
+}
+
+// entityTrailingSegmentCorrection returns the oracle-verified symbol
+// obtained by trimming EXACTLY ONE trailing camel-case segment (max 4
+// runes) from an unresolved emitted entity, when the remainder is still a
+// substantial identifier (>= 8 runes). Single deterministic step — this
+// repairs LLM token-fidelity slips like ReadModePipelineStage+"Bin",
+// never performs fuzzy or multi-step search. Empty when no correction
+// verifies.
+func entityTrailingSegmentCorrection(oracle types.SymbolOracle, surface string) string {
+	if oracle == nil {
+		return ""
+	}
+	surface = strings.TrimSpace(surface)
+	runes := []rune(surface)
+	if len(runes) < 12 {
+		return ""
+	}
+	cut := -1
+	for i := len(runes) - 1; i > 0; i-- {
+		if runes[i] >= 'A' && runes[i] <= 'Z' {
+			cut = i
+			break
+		}
+		if !(runes[i] >= 'a' && runes[i] <= 'z') && !(runes[i] >= '0' && runes[i] <= '9') {
+			return ""
+		}
+	}
+	if cut < 8 || len(runes)-cut > 4 {
+		return ""
+	}
+	candidate := string(runes[:cut])
+	if candidate == surface {
+		return ""
+	}
+	if ok, _ := oracle.SymbolExistsFlat(candidate); ok {
+		return candidate
+	}
+	return ""
 }
