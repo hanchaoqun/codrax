@@ -692,7 +692,7 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 	ledger := types.CompileObservationLedger(input)
 	projection := types.CompileTraceCausalProjection(ledger)
 	lang := requestedAnswerDocumentLanguage(ctx)
-	cluster := runtimeTraceCausalProjectionCluster(projection, lang)
+	cluster := runtimeTraceCausalProjectionCluster(projection, lang, runtimeTraceProjUserFocusFromBusContext(ctx))
 	if len(cluster) == 0 {
 		if block := runtimeTraceCausalProjectionCoverageBlock(input, lang); block != nil {
 			insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
@@ -728,13 +728,14 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 // file-grouped evidence index. Zero mermaid — the fence is byte-identical
 // across HTML / markdown / terminal. Every projection node appears exactly
 // twice (one tree row + one table row).
-func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection, lang string) []types.AnswerBlock {
+func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection, lang string, focus runtimeTraceProjUserFocus) []types.AnswerBlock {
 	if !projection.Active() {
 		return nil
 	}
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
 	model := buildRuntimeTraceProjTreeModel(projection, evidence, zh)
+	runtimeTraceProjApplyUserFocus(&model, focus)
 	fence := runtimeTraceProjTreeFence(model, zh)
 	if fence == "" {
 		return nil
@@ -810,6 +811,29 @@ func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection,
 		})
 	}
 	return out
+}
+
+// runtimeTraceProjUserFocusFromBusContext extracts the typed analyzer entity
+// context for the R2 root-label comparison: AnalyzerHints.Entities ∪
+// ExactTargets verbatim (never RawRequest — the typed lanes are the only
+// permitted carriers). Nil context / IR → empty focus → every consumer fails
+// open to legacy behavior.
+func runtimeTraceProjUserFocusFromBusContext(ctx *types.BusContext) runtimeTraceProjUserFocus {
+	var focus runtimeTraceProjUserFocus
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return focus
+	}
+	hints := ctx.AnalysisIR.RequestModel.AnalyzerHints
+	seen := map[string]bool{}
+	for _, entity := range append(append([]string(nil), hints.Entities...), hints.ExactTargets...) {
+		entity = strings.TrimSpace(entity)
+		if entity == "" || seen[entity] {
+			continue
+		}
+		seen[entity] = true
+		focus.Entities = append(focus.Entities, entity)
+	}
+	return focus
 }
 
 func runtimeTraceCausalProjectionCleanPath(path []string) []string {
@@ -1241,6 +1265,17 @@ func runtimeTraceCausalProjectionImpactShapeCell(node types.TraceCausalProjectio
 		}
 		return label
 	}
+	// H20: rows that would fall back to the generic candidate word but carry a
+	// typed aggregate-activity kind (irq_burst / irq_activity / page_cache_churn)
+	// render their typed shape instead. TypeToken (the verbatim producer enum)
+	// first; the same token riding the Object cause lane second. Labels live in
+	// the typelabels helper file — never scattered strings.
+	if label := runtimeTraceAggregateTypeShapeLabel(node.TypeToken, zh); label != "" {
+		return label
+	}
+	if label := runtimeTraceAggregateTypeShapeLabel(causeKind, zh); label != "" {
+		return label
+	}
 	if zh {
 		return "候选影响"
 	}
@@ -1670,6 +1705,49 @@ func runtimeTraceCausalProjectionEvidenceRefShortened(raw, display string) bool 
 	raw = strings.TrimSpace(raw)
 	display = strings.TrimSpace(display)
 	return raw != "" && display != "" && raw != display
+}
+
+// runtimeTraceCausalProjectionBareLineRef reports whether ref is the naked
+// line=N / lines=N-M form emitted when a node carried no SupportRefs path
+// (literal prefix + digit/dash character-class check) and returns the numeric
+// range part.
+func runtimeTraceCausalProjectionBareLineRef(ref string) (string, bool) {
+	ref = strings.TrimSpace(ref)
+	for _, prefix := range []string{"lines=", "line="} {
+		if !strings.HasPrefix(ref, prefix) {
+			continue
+		}
+		lineRange := strings.TrimPrefix(ref, prefix)
+		if runtimeTraceCausalProjectionLineSuffix(lineRange) {
+			return lineRange, true
+		}
+	}
+	return "", false
+}
+
+// runtimeTraceCausalProjectionSoleArtifactPath returns the single distinct
+// artifact path shared by every path-carrying locator in the roster, or ""
+// when none exists or more than one artifact appears (H19 display fallback
+// applies only when the artifact is unambiguous).
+func runtimeTraceCausalProjectionSoleArtifactPath(entries []runtimeTraceCausalProjectionEvidenceEntry) string {
+	shared := ""
+	for _, entry := range entries {
+		if _, bare := runtimeTraceCausalProjectionBareLineRef(entry.Ref); bare {
+			continue
+		}
+		pathPart, suffix := runtimeTraceCausalProjectionSplitLineSuffix(entry.Ref)
+		if suffix == "" || strings.TrimSpace(pathPart) == "" {
+			continue
+		}
+		if shared == "" {
+			shared = pathPart
+			continue
+		}
+		if pathPart != shared {
+			return ""
+		}
+	}
+	return shared
 }
 
 func runtimeTraceCausalProjectionSplitLineSuffix(ref string) (string, string) {
@@ -2134,10 +2212,13 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 	stateEntry := func(label, key string) string {
 		entry := label + " " + ms(key)
 		if pct := share(key); pct != "" {
+			// H13: the share denominator is the thread's OWN observed state
+			// total, not the analysis window — say so, or "运行 2.891ms(占100%)"
+			// reads as "the thread filled the window" (berlin customer misread).
 			if zh {
-				entry += "(占" + pct + ")"
+				entry += "(占该线程观测时长" + pct + ")"
 			} else {
-				entry += " (" + pct + ")"
+				entry += " (" + pct + " of this thread's observed span)"
 			}
 		}
 		return entry
@@ -2329,6 +2410,7 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 		label = "Next step"
 	}
 	seen := make(map[string]bool)
+	seenText := make(map[string]bool)
 	var out []types.AnswerBlockItem
 	for _, record := range ledger.Records {
 		step := runtimeTraceNextStepFromObservationRecord(record, zh)
@@ -2344,6 +2426,16 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 			continue
 		}
 		seen[key] = true
+		// H9 final display-layer dedupe, LAYERED ON TOP of the typed key: the
+		// typed key keeps rows with different payloads apart (裁定5), but when
+		// two distinct payloads still render byte-identical text the reader sees
+		// pure duplicates. A verbatim match on the rendered line is a precise
+		// display-only signal; the later duplicate is dropped from the LIST only
+		// — both typed records stay in the ledger.
+		if seenText[step] {
+			continue
+		}
+		seenText[step] = true
 		out = append(out, types.AnswerBlockItem{
 			ID:          fmt.Sprintf("runtime_trace_next_step_%d", len(out)+1),
 			Label:       label,

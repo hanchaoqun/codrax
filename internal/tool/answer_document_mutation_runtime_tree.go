@@ -17,6 +17,7 @@ package tool
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -72,6 +73,19 @@ type runtimeTraceProjTreeRow struct {
 	CyclePeriod int
 	CycleCount  int
 	EvidenceTag string
+	// RecursOnChain marks a trunk row whose canonical subject already appeared
+	// earlier on the rendered chain (target root first, then depth 1..K) — the
+	// small-cycle shape (A→B→A) the ≥6-node cycle detector cannot see (H11,
+	// customer audit 2026-07-03). Display-only annotation; the chain itself is
+	// never truncated because of it.
+	RecursOnChain bool
+	// DedupFold marks a row whose MergedCount was produced by THIS layer's H6
+	// duplicate-measurement fold (adversarial review RF2b, 2026-07-03): the ms
+	// value is ONE measurement republished N times, never a sum. Upstream R2
+	// aggregates (MergedCount set before the projection reached the renderer)
+	// carry SUM semantics and leave this false — the ×N label forks on this
+	// typed boolean, never on guessing from the numbers.
+	DedupFold bool
 }
 
 type runtimeTraceProjTreeModel struct {
@@ -91,6 +105,21 @@ type runtimeTraceProjTreeModel struct {
 	// wakeup_chain-family observation ran, so the flat-fallback header can name
 	// the actual coverage cause instead of the opaque "path unresolved".
 	WakeupChainRecommendedNotRun bool
+	// RootFocusAnchorOnly selects the fence root label lane (R2, customer audit
+	// 2026-07-03 C4a): the typed analyzer entity comparison RAN and the 🎯 root
+	// matched none of the user's entities, so the label must say ‹分析锚点线程›
+	// instead of falsely claiming ‹用户关注线程›. False is the fail-open default:
+	// when no typed entity context reached the renderer the legacy label stays.
+	RootFocusAnchorOnly bool
+	// RootFocusUserEntities lists the user's thread/pid-shaped entities for the
+	// anchor-only explanation line (display-only roster; empty = no note line).
+	RootFocusUserEntities []string
+	// UserWindowStart/UserWindowEnd is the user's originally-requested window in
+	// seconds, derived DISPLAY-ONLY from a timestamp-shaped analyzer entity pair
+	// (R2 双窗关系行). Zero when absent/ambiguous — the relation line then never
+	// renders; nothing else consumes these values.
+	UserWindowStart float64
+	UserWindowEnd   float64
 }
 
 // missingWakeup reports whether any rendered row carries the typed
@@ -189,6 +218,22 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		omitStart, omitEnd = head, len(trunk)-tail
 		cyclePeriod, cycleCount = runtimeTraceCausalProjectionRepeatingPath(path)
 	}
+	// H11: mark trunk rows whose canonical subject already appeared earlier on
+	// the rendered chain (root target first, then depth 1..K). This catches the
+	// small-cycle shape (VSyncGenerator→tppmgr→VSyncGenerator) that the ≥6-node
+	// cycle detector above never sees. Canonical verbatim equality only.
+	recurs := make([]bool, len(trunk))
+	seenOnChain := map[string]bool{}
+	if targetKey != "" {
+		seenOnChain[targetKey] = true
+	}
+	for i, subject := range trunk {
+		key := runtimeTraceCausalProjectionCanonicalNode(subject)
+		if seenOnChain[key] {
+			recurs[i] = true
+		}
+		seenOnChain[key] = true
+	}
 
 	semantics := append([]types.TraceCausalProjectionNode(nil), projection.SemanticSpans...)
 	semanticBySubject := map[string][]types.TraceCausalProjectionNode{}
@@ -267,7 +312,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		}
 		trunkNode := &runtimeTraceProjTreeNode{row: runtimeTraceProjTreeRow{
 			Node: main, Kind: runtimeTraceProjTreeRowChain, Edge: edge, Depth: depth,
-			Parent: parentName, HasData: hasData,
+			Parent: parentName, HasData: hasData, RecursOnChain: recurs[idx],
 			EvidenceTag: runtimeTraceProjEvidenceTag(main, evidence, zh),
 		}}
 		for _, node := range extra {
@@ -370,10 +415,11 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	}
 	flatten(roots, 0, nil)
 
-	for _, node := range projection.AdjacentCauses {
+	for _, display := range runtimeTraceProjAdjacentNodesForDisplay(projection.AdjacentCauses) {
 		model.Adjacent = append(model.Adjacent, runtimeTraceProjTreeRow{
-			Node: node, Kind: runtimeTraceProjTreeRowAdjacent, HasData: true,
-			EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
+			Node: display.Node, Kind: runtimeTraceProjTreeRowAdjacent, HasData: true,
+			DedupFold:   display.DedupFold,
+			EvidenceTag: runtimeTraceProjEvidenceTag(display.Node, evidence, zh),
 		})
 	}
 	backgroundSeen := map[string]bool{}
@@ -462,6 +508,142 @@ func runtimeTraceProjDedupNodes(nodes []types.TraceCausalProjectionNode) []types
 	return out
 }
 
+// runtimeTraceProjAdjacentDisplayNode pairs a prepared adjacent-stanza node
+// with its typed fold provenance: DedupFold=true means MergedCount was created
+// by THIS layer's duplicate-measurement fold (value = one measurement), false
+// means any MergedCount arrived from upstream R2 aggregation (value = sum).
+type runtimeTraceProjAdjacentDisplayNode struct {
+	Node      types.TraceCausalProjectionNode
+	DedupFold bool
+}
+
+// runtimeTraceProjAdjacentNodesForDisplay prepares the adjacent stanza (H6,
+// customer audit 2026-07-03): first the same typed node-key dedupe the
+// background stanza already runs, then one strictly-equal duplicate-measurement
+// fold — same canonical subject + same canonical object + same canonical
+// TypeToken + EXACTLY equal projected ms (pure float equality, never ±ε) AND a
+// precise line/time overlap (RF2a, adversarial review 2026-07-03) merge into
+// the first row as MergedCount/MergedEvidenceIDs/MergedSubjects. The real
+// customer shape was two irq_activity rows with identical 35.350ms over
+// overlapping line ranges (793201-830007 vs 793204-830012) rendering as two
+// stanza rows.
+func runtimeTraceProjAdjacentNodesForDisplay(nodes []types.TraceCausalProjectionNode) []runtimeTraceProjAdjacentDisplayNode {
+	seen := map[string]bool{}
+	var out []runtimeTraceProjAdjacentDisplayNode
+	for _, node := range nodes {
+		key := runtimeTraceCausalProjectionNodeKey(node)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		merged := false
+		for i := range out {
+			// Upstream ×N aggregates carry SUM semantics; only fold single
+			// measurements into single measurements (or into a fold this layer
+			// itself created — its min/max/count semantics are ours).
+			if node.MergedCount > 1 || (out[i].Node.MergedCount > 1 && !out[i].DedupFold) {
+				continue
+			}
+			if !runtimeTraceProjSameAdjacentMeasurement(out[i].Node, node) {
+				continue
+			}
+			runtimeTraceProjAbsorbAdjacentDuplicate(&out[i].Node, node)
+			out[i].DedupFold = true
+			merged = true
+			break
+		}
+		if merged {
+			continue
+		}
+		out = append(out, runtimeTraceProjAdjacentDisplayNode{Node: node})
+	}
+	return out
+}
+
+// runtimeTraceProjSameAdjacentMeasurement is the strict duplicate-measurement
+// identity: canonical subject + canonical object + canonical TypeToken equal,
+// the positive projected ms exactly equal, AND the two rows precisely overlap
+// in the artifact — line-range intersection or time-span intersection (RF2a,
+// adversarial review 2026-07-03: two REAL irq bursts at different moments can
+// quantize to the same %.3f ms; folding them halves the reported contribution).
+// When neither location lane is determinate for the pair the fold fails open
+// to two rows — value equality alone never merges.
+func runtimeTraceProjSameAdjacentMeasurement(a, b types.TraceCausalProjectionNode) bool {
+	return runtimeTraceCausalProjectionCanonicalNode(a.Subject) == runtimeTraceCausalProjectionCanonicalNode(b.Subject) &&
+		runtimeTraceCausalProjectionCanonicalNode(a.Object) == runtimeTraceCausalProjectionCanonicalNode(b.Object) &&
+		runtimeTraceCausalProjectionCanonicalNode(a.TypeToken) == runtimeTraceCausalProjectionCanonicalNode(b.TypeToken) &&
+		a.ImpactMS > 0 && a.ImpactMS == b.ImpactMS &&
+		(runtimeTraceProjLineSpansOverlap(a, b) || runtimeTraceProjTimeSpansOverlap(a, b))
+}
+
+// runtimeTraceProjLineSpansOverlap is the boolean line-range intersection; both
+// nodes must expose a valid range of their own (same guard style as the typed
+// peer-alias fold's traceCausalProjectionSpansOverlap in internal/types).
+func runtimeTraceProjLineSpansOverlap(a, b types.TraceCausalProjectionNode) bool {
+	if a.LineStart <= 0 || a.LineEnd < a.LineStart || b.LineStart <= 0 || b.LineEnd < b.LineStart {
+		return false
+	}
+	return a.LineStart <= b.LineEnd && b.LineStart <= a.LineEnd
+}
+
+// runtimeTraceProjTimeSpansOverlap is the boolean time-span intersection; both
+// nodes must expose a valid span of their own. Local isomorph of the unexported
+// types-layer traceCausalProjectionSpansOverlap
+// (internal/types/trace_causal_projection_aggregate.go) — keep the two aligned.
+func runtimeTraceProjTimeSpansOverlap(a, b types.TraceCausalProjectionNode) bool {
+	if a.StartTs <= 0 || a.EndTs <= a.StartTs || b.StartTs <= 0 || b.EndTs <= b.StartTs {
+		return false
+	}
+	return a.StartTs < b.EndTs && b.StartTs < a.EndTs
+}
+
+// runtimeTraceProjAbsorbAdjacentDuplicate folds one duplicate measurement into
+// the surviving first-occurrence row: count/evidence/subject roster only — the
+// projected value stays the survivor's (the rows measured the same amount; a
+// sum would double-count the wall clock).
+func runtimeTraceProjAbsorbAdjacentDuplicate(survivor *types.TraceCausalProjectionNode, dup types.TraceCausalProjectionNode) {
+	if survivor.MergedCount < 1 {
+		survivor.MergedCount = 1
+	}
+	survivor.MergedCount++
+	if survivor.MergedMinMS <= 0 || (dup.ImpactMS > 0 && dup.ImpactMS < survivor.MergedMinMS) {
+		survivor.MergedMinMS = dup.ImpactMS
+	}
+	if dup.ImpactMS > survivor.MergedMaxMS {
+		survivor.MergedMaxMS = dup.ImpactMS
+	}
+	absorbed := map[string]bool{runtimeTraceCausalProjectionCanonicalNode(survivor.EvidenceID): true}
+	for _, id := range survivor.MergedEvidenceIDs {
+		absorbed[runtimeTraceCausalProjectionCanonicalNode(id)] = true
+	}
+	appendID := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || absorbed[runtimeTraceCausalProjectionCanonicalNode(raw)] {
+			return
+		}
+		absorbed[runtimeTraceCausalProjectionCanonicalNode(raw)] = true
+		survivor.MergedEvidenceIDs = append(survivor.MergedEvidenceIDs, raw)
+	}
+	appendID(dup.EvidenceID)
+	for _, id := range dup.MergedEvidenceIDs {
+		appendID(id)
+	}
+	subject := strings.TrimSpace(dup.Subject)
+	if subject != "" && len(survivor.MergedSubjects) < 4 {
+		key := runtimeTraceCausalProjectionCanonicalNode(subject)
+		distinct := key != runtimeTraceCausalProjectionCanonicalNode(survivor.Subject)
+		for _, existing := range survivor.MergedSubjects {
+			if runtimeTraceCausalProjectionCanonicalNode(existing) == key {
+				distinct = false
+				break
+			}
+		}
+		if distinct {
+			survivor.MergedSubjects = append(survivor.MergedSubjects, subject)
+		}
+	}
+}
+
 func runtimeTraceProjNodeDisplayImpact(node types.TraceCausalProjectionNode) float64 {
 	if node.ImpactMS > 0 {
 		return node.ImpactMS
@@ -502,6 +684,196 @@ func runtimeTraceProjEvidenceTag(node types.TraceCausalProjectionNode, evidence 
 	return id
 }
 
+// --- user-focus comparison (R2) -------------------------------------------------
+
+// runtimeTraceProjUserFocus carries the typed analyzer entity context the
+// projection renderer may compare the 🎯 root against (R2, customer audit
+// 2026-07-03 C4a). Entities is AnalyzerHints.Entities ∪ ExactTargets verbatim —
+// never RawRequest, never model prose. An empty list means the comparison
+// cannot run and every consumer fails open to legacy behavior.
+type runtimeTraceProjUserFocus struct {
+	Entities []string
+}
+
+// runtimeTraceProjApplyUserFocus runs the precise root-vs-entity comparison and
+// the display-only user-window derivation on a built model. No typed entity
+// context → the model keeps its zero values (legacy label, no relation line).
+func runtimeTraceProjApplyUserFocus(model *runtimeTraceProjTreeModel, focus runtimeTraceProjUserFocus) {
+	if model == nil || len(focus.Entities) == 0 {
+		return
+	}
+	if start, end, ok := runtimeTraceProjUserWindowFromEntities(focus.Entities); ok {
+		model.UserWindowStart, model.UserWindowEnd = start, end
+	}
+	target := strings.TrimSpace(model.Target)
+	if target == "" {
+		return
+	}
+	if runtimeTraceProjTargetMatchesUserEntities(target, focus.Entities) {
+		return // 🎯 root really is a user-named thread — keep ‹用户关注线程›
+	}
+	model.RootFocusAnchorOnly = true
+	model.RootFocusUserEntities = runtimeTraceProjThreadOrPidEntities(focus.Entities)
+}
+
+// runtimeTraceProjTargetMatchesUserEntities decides whether the 🎯 root names a
+// user entity via PRECISE signals only (架构红线: hard-ish display switches read
+// integer equality / verbatim equality, never fuzzy containment):
+//   - whole target verbatim equal to an entity;
+//   - the target's name part (before the trailing -pid) verbatim equal;
+//   - the target's pid integer (trailing -pid tail, or the bare "pid=N" handle
+//     traceThreadLabel emits when the Comm was never resolved — every
+//     wakeup-path label passes through it; RF1b, adversarial review
+//     2026-07-03) equal to a pure-digit or "pid=N"-shaped entity's integer
+//     (RF1a).
+func runtimeTraceProjTargetMatchesUserEntities(target string, entities []string) bool {
+	name, pid, hasPid := runtimeTraceProjSplitNamePid(target)
+	if !hasPid {
+		// RF1b target side: a bare pid handle has no name part to compare.
+		pid, hasPid = runtimeTraceProjPidHandleForm(target)
+	}
+	for _, entity := range entities {
+		entity = strings.TrimSpace(entity)
+		if entity == "" {
+			continue
+		}
+		if entity == target {
+			return true
+		}
+		if hasPid && name != "" && entity == name {
+			return true
+		}
+		if hasPid {
+			if n, ok := runtimeTraceProjPureInt(entity); ok && n == pid {
+				return true
+			}
+			// RF1a entity side: the analyzer may hand the focus as "pid=N".
+			if n, ok := runtimeTraceProjPidHandleForm(entity); ok && n == pid {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// runtimeTraceProjPidHandleForm matches the literal "pid=N" thread handle
+// (character-class check: the fixed prefix plus pure digits — "pidx=42591"
+// and "pid=42591abc" both fail). Local isomorph of the unexported types-layer
+// traceCausalProjectionPidPeerForm
+// (internal/types/trace_causal_projection_aggregate.go) — keep the two
+// character-class checks aligned.
+func runtimeTraceProjPidHandleForm(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "pid=") {
+		return 0, false
+	}
+	return runtimeTraceProjPureInt(strings.TrimPrefix(s, "pid="))
+}
+
+// runtimeTraceProjSplitNamePid splits the canonical thread label form name-pid
+// (character-class validation: non-empty name, pure-digit tail after the last
+// '-'). ok=false when the label does not carry a pid tail.
+func runtimeTraceProjSplitNamePid(label string) (string, int, bool) {
+	idx := strings.LastIndex(label, "-")
+	if idx <= 0 || idx == len(label)-1 {
+		return "", 0, false
+	}
+	pid, ok := runtimeTraceProjPureInt(label[idx+1:])
+	if !ok {
+		return "", 0, false
+	}
+	return label[:idx], pid, true
+}
+
+// runtimeTraceProjPureInt parses a pure-digit string (character-class check —
+// display/comparison lane only, exempted from the no-keyword-matching rule).
+func runtimeTraceProjPureInt(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// runtimeTraceProjThreadOrPidEntities selects the user entities that LOOK like
+// a thread/pid handle (pure-digit pid, the "pid=N" handle form — RF1,
+// adversarial review 2026-07-03 — or the name-pid label form) for the
+// anchor-only note's "用户关注: …" roster. Display-only; capped at 2.
+func runtimeTraceProjThreadOrPidEntities(entities []string) []string {
+	var out []string
+	for _, entity := range entities {
+		entity = strings.TrimSpace(entity)
+		if entity == "" {
+			continue
+		}
+		if _, ok := runtimeTraceProjPureInt(entity); ok {
+			out = append(out, entity)
+		} else if _, ok := runtimeTraceProjPidHandleForm(entity); ok {
+			out = append(out, entity)
+		} else if _, _, ok := runtimeTraceProjSplitNamePid(entity); ok {
+			out = append(out, entity)
+		}
+		if len(out) == 2 {
+			break
+		}
+	}
+	return out
+}
+
+// runtimeTraceProjUserWindowFromEntities derives the user-requested window from
+// the typed entity set: EXACTLY two timestamp-shaped entities (character-class:
+// digits '.' digits, optional trailing "s") with start < end. Anything else —
+// zero, one, three or more stamps, or a non-increasing pair — is ambiguous and
+// yields nothing. Display-only lane (R2 双窗关系行).
+func runtimeTraceProjUserWindowFromEntities(entities []string) (float64, float64, bool) {
+	var stamps []float64
+	for _, entity := range entities {
+		v, ok := runtimeTraceProjTimestampShaped(strings.TrimSpace(entity))
+		if !ok {
+			continue
+		}
+		stamps = append(stamps, v)
+		if len(stamps) > 2 {
+			return 0, 0, false
+		}
+	}
+	if len(stamps) != 2 || stamps[0] <= 0 || stamps[1] <= stamps[0] {
+		return 0, 0, false
+	}
+	return stamps[0], stamps[1], true
+}
+
+// runtimeTraceProjTimestampShaped validates the timestamp character class:
+// digits '.' digits with an optional trailing seconds unit "s".
+func runtimeTraceProjTimestampShaped(s string) (float64, bool) {
+	s = strings.TrimSuffix(s, "s")
+	dot := strings.IndexByte(s, '.')
+	if dot <= 0 || dot == len(s)-1 {
+		return 0, false
+	}
+	for i := 0; i < len(s); i++ {
+		if i == dot {
+			continue
+		}
+		if s[i] < '0' || s[i] > '9' {
+			return 0, false
+		}
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, false
+	}
+	return f, true
+}
+
 // --- tree fence rendering -----------------------------------------------------
 
 func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string {
@@ -517,18 +889,34 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 		denom = model.BarMaxMS
 	}
 	width := runtimeTraceProjTreeLabelColumn(model, zh)
-	// Header: target anchor + explicit bar-scale declaration.
+	// Header: target anchor + explicit bar-scale declaration. The root label is
+	// honest about provenance (R2, customer audit 2026-07-03 C4a): ‹用户关注线程›
+	// only when the typed analyzer entity comparison matched (or never ran —
+	// fail-open keeps the legacy label); a mismatch renders ‹分析锚点线程› plus a
+	// quiet one-line note naming the user's actual focus entities.
 	if strings.TrimSpace(model.Target) != "" {
 		header := "🎯 " + model.Target
-		if zh {
+		switch {
+		case model.RootFocusAnchorOnly && zh:
+			header += " ‹分析锚点线程›"
+		case model.RootFocusAnchorOnly:
+			header += " <analysis anchor thread>"
+		case zh:
 			header += " ‹用户关注线程›"
-		} else {
+		default:
 			header += " <user-focused thread>"
 		}
 		b.WriteString(runtimeTraceProjPadDisplay(header, width))
 		b.WriteString(" ")
 		b.WriteString(runtimeTraceProjScaleNote(model, zh))
 		b.WriteString("\n")
+		if model.RootFocusAnchorOnly && len(model.RootFocusUserEntities) > 0 {
+			if zh {
+				b.WriteString("- 根为唤醒链锚点线程,非用户指定关注对象(用户关注: " + strings.Join(model.RootFocusUserEntities, "、") + ")\n")
+			} else {
+				b.WriteString("- root is the wakeup-chain anchor thread, not the user-specified focus (user focus: " + strings.Join(model.RootFocusUserEntities, ", ") + ")\n")
+			}
+		}
 	} else {
 		b.WriteString(runtimeTraceProjFlatFallbackHeader(model, zh) + "  " + runtimeTraceProjScaleNote(model, zh) + "\n")
 	}
@@ -690,7 +1078,10 @@ func runtimeTraceProjSelfRowText(row runtimeTraceProjTreeRow, zh bool) string {
 		parts = append(parts, fmt.Sprintf("%.3fms", v))
 	}
 	if node.MergedCount > 1 {
-		if zh {
+		if row.DedupFold {
+			// RF2b: H6 dedupe fold — single measurement, never the sum form.
+			parts = append(parts, runtimeTraceProjDedupFoldTagText(node.MergedCount, zh))
+		} else if zh {
 			parts = append(parts, fmt.Sprintf("×%d合并(单次%.3f–%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS))
 		} else {
 			parts = append(parts, fmt.Sprintf("×%d merged (each %.3f–%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS))
@@ -846,6 +1237,18 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 	}
 }
 
+// runtimeTraceProjDedupFoldTagText is the H6 dedupe-exclusive ×N label (RF2b,
+// adversarial review 2026-07-03): a DedupFold row's ms is ONE measurement that
+// was published N times, so it must never share the upstream R2 sum-aggregate
+// rendering form "×N合并(单次…)" — a reader could not tell a single
+// measurement from a total. Callers fork on the typed row.DedupFold boolean.
+func runtimeTraceProjDedupFoldTagText(count int, zh bool) string {
+	if zh {
+		return fmt.Sprintf("×%d同值合并(重复发布)", count)
+	}
+	return fmt.Sprintf("×%d same-value merge (duplicate publication)", count)
+}
+
 // runtimeTraceProjMergedSubjectsSuffix names the folded members' thread
 // subjects on a merged row: "(A、B 等)" — the trailing 等/… appears only when
 // MergedCount exceeds the preserved roster (the typed cap lives at the
@@ -928,13 +1331,27 @@ func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, width int, denom f
 	}
 	fixed, name := runtimeTraceProjTreeLabelParts(row, zh)
 	left := runtimeTraceProjTreeLabel(fixed, name, width)
+	var line string
 	if !row.HasData {
 		if zh {
-			return left + " (链路中转,本轮无独立影响行)"
+			line = left + " (链路中转,本轮无独立影响行)"
+		} else {
+			line = left + " (chain transit, no standalone impact row this run)"
 		}
-		return left + " (chain transit, no standalone impact row this run)"
+	} else {
+		line = runtimeTraceProjRowLineWithMetrics(left, row, denom, windowMode, zh)
 	}
-	return runtimeTraceProjRowLineWithMetrics(left, row, denom, windowMode, zh)
+	// H11 small-cycle annotation: the canonical subject already appeared earlier
+	// on the rendered chain — say so at end of row instead of letting the repeat
+	// read as a distinct thread. Display-only; never truncates the chain.
+	if row.RecursOnChain {
+		if zh {
+			line += " ↺(线程在链上重复出现)"
+		} else {
+			line += " ↺ (recurs on chain)"
+		}
+	}
+	return line
 }
 
 func runtimeTraceProjStanzaRowLine(row runtimeTraceProjTreeRow, width int, denom float64, windowMode, zh bool) string {
@@ -1071,6 +1488,16 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	b.WriteString(fmt.Sprintf(" %9.3fms", impact))
 	if windowMode && denom > 0 && impact > 0 {
 		b.WriteString(fmt.Sprintf(" %3.0f%%", impact/denom*100))
+		// H8: an over-window share (cross-CPU / multi-span cumulative values can
+		// legitimately exceed the wall-clock window) must not run naked — the bar
+		// is already capped, so the number carries the explanation inline.
+		if impact > denom {
+			if zh {
+				b.WriteString("(跨CPU/多段累计)")
+			} else {
+				b.WriteString(" (multi-CPU/multi-span cumulative)")
+			}
+		}
 	}
 	var tags []runtimeTraceProjTag
 	// 裁定4: every bar row states WHAT the duration was (typed StateKind label;
@@ -1123,9 +1550,15 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagExtra})
 	}
 	if node.MergedCount > 1 {
-		text := fmt.Sprintf("×%d合并·单次%.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
-		if !zh {
-			text = fmt.Sprintf("×%d merged · each %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+		var text string
+		if row.DedupFold {
+			// RF2b: H6 dedupe fold — single measurement, never the sum form.
+			text = runtimeTraceProjDedupFoldTagText(node.MergedCount, zh)
+		} else {
+			text = fmt.Sprintf("×%d合并·单次%.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+			if !zh {
+				text = fmt.Sprintf("×%d merged · each %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+			}
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagExtra})
 	}
@@ -1361,13 +1794,58 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			}
 		}
 	}
+	// R2 双窗关系行: when a user-requested window was derivable from the typed
+	// entity pair and the projection window is a small sub-window of it (strict
+	// numeric comparison: projection < 50% of the user window), say explicitly
+	// how the two windows relate — the berlin customer saw a 101ms projection
+	// with no mention of the 3.3s window they actually asked about.
+	if model.UserWindowEnd > model.UserWindowStart && model.UserWindowStart > 0 {
+		userMS := (model.UserWindowEnd - model.UserWindowStart) * 1000
+		if model.WindowMS < userMS*0.5 {
+			if zh {
+				fmt.Fprintf(&b, "\n- 用户请求窗 %.3fs → %.3fs(共 %.1fs);本投影取其中代表性子窗,全窗指标见 Trace 指标快照",
+					model.UserWindowStart, model.UserWindowEnd, userMS/1000)
+			} else {
+				fmt.Fprintf(&b, "\n- User-requested window %.3fs → %.3fs (%.1fs total); this projection covers a representative sub-window — full-window metrics live in the Trace Metric Snapshot",
+					model.UserWindowStart, model.UserWindowEnd, userMS/1000)
+			}
+		}
+	}
 	return b.String()
 }
 
 func runtimeTraceProjDepth1Cumulative(model runtimeTraceProjTreeModel) float64 {
+	if v := runtimeTraceProjChainDepthCumulative(model, 1); v > 0 {
+		return v
+	}
+	// H10 fallback (berlin shape): every depth-1 trunk node was a bare transit
+	// hop with no data row of its own, which silently dropped the whole
+	// attributed/residual coverage line. Fall back to the SHALLOWEST depth that
+	// carries a data-bearing chain row: its cumulative already contains every
+	// deeper on-chain layer by wall-clock containment, so it is the tightest
+	// available lower bound of on-chain attributed time. Max within ONE depth
+	// only — values are never summed across layers (墙钟不可加和).
+	minDepth := 0
+	for _, row := range model.TreeRows {
+		if row.Kind != runtimeTraceProjTreeRowChain || !row.HasData || row.Depth <= 1 {
+			continue
+		}
+		if minDepth == 0 || row.Depth < minDepth {
+			minDepth = row.Depth
+		}
+	}
+	if minDepth == 0 {
+		return 0
+	}
+	return runtimeTraceProjChainDepthCumulative(model, minDepth)
+}
+
+// runtimeTraceProjChainDepthCumulative returns the largest cumulative impact
+// among data-bearing chain rows at exactly the given depth.
+func runtimeTraceProjChainDepthCumulative(model runtimeTraceProjTreeModel, depth int) float64 {
 	max := 0.0
 	for _, row := range model.TreeRows {
-		if row.Kind != runtimeTraceProjTreeRowChain || row.Depth != 1 || !row.HasData {
+		if row.Kind != runtimeTraceProjTreeRowChain || row.Depth != depth || !row.HasData {
 			continue
 		}
 		v := row.Node.CumulativeImpactMS
@@ -1413,8 +1891,12 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		position := runtimeTraceCausalProjectionLayerCell(node, zh) + " · " + runtimeTraceCausalProjectionPriorityCell(node, zh)
 		name := runtimeTraceCausalProjectionNodeSubjectCell(node, zh)
 		if node.MergedCount > 1 {
-			suffix := fmt.Sprintf(" ×%d(%.3f–%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
-			name += suffix
+			if row.DedupFold {
+				// RF2b: H6 dedupe fold — single measurement, never the sum form.
+				name += " " + runtimeTraceProjDedupFoldTagText(node.MergedCount, zh)
+			} else {
+				name += fmt.Sprintf(" ×%d(%.3f–%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+			}
 		}
 		if node.Undrillable() {
 			name += " ⛔"
@@ -1650,9 +2132,23 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 	if evidence == nil || len(evidence.order) == 0 {
 		return "", nil
 	}
+	// H19: an entry whose ref is the naked line=N / lines=N-M form (its source
+	// node carried no SupportRefs path) breaks locator uniformity ("lines=…"
+	// next to "berlin.systrace:…"). When every path-carrying entry of THIS
+	// roster agrees on exactly one artifact, adopt that artifact for the bare
+	// entries (display copy only). Ambiguous multi-artifact rosters keep the
+	// bare form rather than guessing an artifact.
+	entries := append([]runtimeTraceCausalProjectionEvidenceEntry(nil), evidence.order...)
+	if shared := runtimeTraceCausalProjectionSoleArtifactPath(entries); shared != "" {
+		for i := range entries {
+			if lineRange, ok := runtimeTraceCausalProjectionBareLineRef(entries[i].Ref); ok {
+				entries[i].Ref = shared + ":" + lineRange
+			}
+		}
+	}
 	sharedFile := ""
 	uniform := true
-	for _, entry := range evidence.order {
+	for _, entry := range entries {
 		pathPart, suffix := runtimeTraceCausalProjectionSplitLineSuffix(entry.Ref)
 		if suffix == "" || strings.TrimSpace(pathPart) == "" {
 			uniform = false
@@ -1668,17 +2164,17 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 		}
 	}
 	intro := runtimeTraceCausalProjectionEvidenceText(zh)
-	if uniform && sharedFile != "" && len(evidence.order) > 1 {
+	if uniform && sharedFile != "" && len(entries) > 1 {
 		if zh {
 			intro += " 全部证据位于 `" + runtimeTraceCausalProjectionMarkdownSafe(sharedFile) + "`,各条只列行号区间。"
 		} else {
 			intro += " All locators live in `" + runtimeTraceCausalProjectionMarkdownSafe(sharedFile) + "`; entries list only line ranges."
 		}
 	}
-	items := make([]types.AnswerBlockItem, 0, len(evidence.order))
-	for _, entry := range evidence.order {
+	items := make([]types.AnswerBlockItem, 0, len(entries))
+	for _, entry := range entries {
 		locator := runtimeTraceCausalProjectionEvidenceDisplayRefWithWindow(entry.Ref, entry.Window)
-		if uniform && sharedFile != "" && len(evidence.order) > 1 {
+		if uniform && sharedFile != "" && len(entries) > 1 {
 			// Grouped mode: the shared file name is stated once in the intro; each
 			// entry keeps only its own window (preferred, 裁定6) or line range.
 			if entry.Window != "" {

@@ -23,6 +23,7 @@ package types
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -52,6 +53,14 @@ func traceCausalProjectionAggregateForPresentation(out *TraceCausalProjection) {
 		return
 	}
 	traceCausalProjectionMergeSameFacts(out)
+	// R4 peer-alias fold runs between R1 (same-fact) and R2 (×N): the two alias
+	// rows carry slightly different ms, so R1's strict identity never catches
+	// them, and letting them reach R2 would risk a double-counting ×2 sum.
+	out.PrimaryRootCauses = traceCausalProjectionMergePeerAliases(out.PrimaryRootCauses)
+	out.OnChainCauses = traceCausalProjectionMergePeerAliases(out.OnChainCauses)
+	out.AdjacentCauses = traceCausalProjectionMergePeerAliases(out.AdjacentCauses)
+	out.BackgroundCauses = traceCausalProjectionMergePeerAliases(out.BackgroundCauses)
+	out.SupportingHops = traceCausalProjectionMergePeerAliases(out.SupportingHops)
 	out.PrimaryRootCauses = traceCausalProjectionAggregateSameKind(out.PrimaryRootCauses)
 	out.OnChainCauses = traceCausalProjectionAggregateSameKind(out.OnChainCauses)
 	out.AdjacentCauses = traceCausalProjectionAggregateSameKind(out.AdjacentCauses)
@@ -230,6 +239,158 @@ func traceCausalProjectionAppendSecondaryObject(survivor *TraceCausalProjectionN
 		}
 	}
 	survivor.SecondaryObjects = append(survivor.SecondaryObjects, object)
+}
+
+// --- R4: peer-alias merge (customer audit 2026-07-03, H18) --------------------
+
+// traceCausalProjectionMergePeerAliases folds the readfile_de E1/E2 shape: the
+// SAME contention observed twice with the lock owner written two ways — once as
+// a resolved thread label ("NetworkKit_AssetsUtil_Operate_0-42067") and once as
+// the raw "pid=42067" handle. Two rows in one bucket merge when ALL of:
+//   - canonical subject equal (same blocked thread),
+//   - canonical TypeToken equal (same producer kind token),
+//   - one row's BlockingPeer is the literal pid=N form (character-class check)
+//     and the other's peer name carries the SAME integer N as its -pid tail
+//     (integer equality, never substring),
+//   - the two rows' own time spans overlap (boolean intersection; both spans
+//     must be valid).
+//
+// The NAMED variant survives; the projected impact keeps the LARGER of the two
+// measurements (both describe one wait — max never invents a number); evidence
+// ids union losslessly.
+func traceCausalProjectionMergePeerAliases(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
+	if len(nodes) < 2 {
+		return nodes
+	}
+	dropped := map[int]bool{}
+	for i := 0; i < len(nodes); i++ {
+		if dropped[i] {
+			continue
+		}
+		for j := i + 1; j < len(nodes); j++ {
+			if dropped[j] {
+				continue
+			}
+			named, pidVariant, ok := traceCausalProjectionPeerAliasPair(&nodes[i], &nodes[j])
+			if !ok {
+				continue
+			}
+			traceCausalProjectionAbsorbPeerAlias(named, *pidVariant)
+			if pidVariant == &nodes[i] {
+				dropped[i] = true
+			} else {
+				dropped[j] = true
+			}
+			if dropped[i] {
+				break
+			}
+		}
+	}
+	if len(dropped) == 0 {
+		return nodes
+	}
+	out := make([]TraceCausalProjectionNode, 0, len(nodes)-len(dropped))
+	for i, node := range nodes {
+		if dropped[i] {
+			continue
+		}
+		out = append(out, node)
+	}
+	return out
+}
+
+func traceCausalProjectionPeerAliasPair(a, b *TraceCausalProjectionNode) (named, pidVariant *TraceCausalProjectionNode, ok bool) {
+	if traceCausalProjectionCanonicalNode(a.Subject) != traceCausalProjectionCanonicalNode(b.Subject) {
+		return nil, nil, false
+	}
+	if traceCausalProjectionCanonicalNode(a.TypeToken) != traceCausalProjectionCanonicalNode(b.TypeToken) {
+		return nil, nil, false
+	}
+	if !traceCausalProjectionSpansOverlap(*a, *b) {
+		return nil, nil, false
+	}
+	if pid, isPid := traceCausalProjectionPidPeerForm(b.BlockingPeer); isPid {
+		if n, hasTail := traceCausalProjectionNamePidTail(a.BlockingPeer); hasTail && n == pid {
+			return a, b, true
+		}
+	}
+	if pid, isPid := traceCausalProjectionPidPeerForm(a.BlockingPeer); isPid {
+		if n, hasTail := traceCausalProjectionNamePidTail(b.BlockingPeer); hasTail && n == pid {
+			return b, a, true
+		}
+	}
+	return nil, nil, false
+}
+
+// traceCausalProjectionSpansOverlap is the boolean time-span intersection; both
+// nodes must expose a valid span of their own.
+func traceCausalProjectionSpansOverlap(a, b TraceCausalProjectionNode) bool {
+	if a.StartTs <= 0 || a.EndTs <= a.StartTs || b.StartTs <= 0 || b.EndTs <= b.StartTs {
+		return false
+	}
+	return a.StartTs < b.EndTs && b.StartTs < a.EndTs
+}
+
+// traceCausalProjectionPidPeerForm matches the literal "pid=N" peer handle
+// (character-class check: the fixed prefix plus pure digits).
+func traceCausalProjectionPidPeerForm(peer string) (int, bool) {
+	peer = strings.TrimSpace(peer)
+	if !strings.HasPrefix(peer, "pid=") {
+		return 0, false
+	}
+	return traceCausalProjectionPureInt(strings.TrimPrefix(peer, "pid="))
+}
+
+// traceCausalProjectionNamePidTail extracts the integer -pid tail of a named
+// thread label (non-empty name part, pure-digit tail after the last '-').
+func traceCausalProjectionNamePidTail(peer string) (int, bool) {
+	peer = strings.TrimSpace(peer)
+	idx := strings.LastIndex(peer, "-")
+	if idx <= 0 || idx == len(peer)-1 {
+		return 0, false
+	}
+	return traceCausalProjectionPureInt(peer[idx+1:])
+}
+
+func traceCausalProjectionPureInt(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+func traceCausalProjectionAbsorbPeerAlias(named *TraceCausalProjectionNode, pidVariant TraceCausalProjectionNode) {
+	if pidVariant.ImpactMS > named.ImpactMS {
+		named.ImpactMS = pidVariant.ImpactMS
+	}
+	if pidVariant.CumulativeImpactMS > named.CumulativeImpactMS {
+		named.CumulativeImpactMS = pidVariant.CumulativeImpactMS
+	}
+	absorbed := map[string]bool{traceCausalProjectionCanonicalNode(named.EvidenceID): true}
+	for _, id := range named.MergedEvidenceIDs {
+		absorbed[traceCausalProjectionCanonicalNode(id)] = true
+	}
+	appendID := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || absorbed[traceCausalProjectionCanonicalNode(raw)] {
+			return
+		}
+		absorbed[traceCausalProjectionCanonicalNode(raw)] = true
+		named.MergedEvidenceIDs = append(named.MergedEvidenceIDs, raw)
+	}
+	appendID(pidVariant.EvidenceID)
+	for _, id := range pidVariant.MergedEvidenceIDs {
+		appendID(id)
+	}
 }
 
 // --- R2: same-kind ×N aggregation -------------------------------------------

@@ -706,10 +706,13 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromSummaryT
 	line := snapshot.Items[0].Text
 	// §7.30 S2: summary-token records humanize the same way; the summary's
 	// total=8.500ms yields per-state shares of the state total.
+	// Pin updated 2026-07-03 (H13): the share denominator is the thread's own
+	// observed total, and the wording must say so — "(占41%)" read as a
+	// window share in the berlin customer session.
 	for _, want := range []string{
 		"主导状态 runnable(可运行等待)",
-		"运行 3.500ms(占41%)",
-		"可运行 5.000ms(占59%)",
+		"运行 3.500ms(占该线程观测时长41%)",
+		"可运行 5.000ms(占该线程观测时长59%)",
 		"睡眠 0.000ms",
 		"D状态 0.000ms",
 		"IO等待 0.000ms",
@@ -764,8 +767,9 @@ func TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisZH(t *testing.T) {
 	}
 	line := snapshot.Items[0].Text
 	// §7.30 裁定6 numeric face: selected-window values coexisting with actual_*
-	// values must state their window basis.
-	for _, want := range []string{"运行 3.500ms(占41%)", "窗口基准: 选定窗(实际对齐窗数值见原始 trace_query 记录)"} {
+	// values must state their window basis. (Share wording pin updated
+	// 2026-07-03, H13 — denominator named explicitly.)
+	for _, want := range []string{"运行 3.500ms(占该线程观测时长41%)", "窗口基准: 选定窗(实际对齐窗数值见原始 trace_query 记录)"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("snapshot missing window basis %q:\n%s", want, line)
 		}
@@ -812,10 +816,12 @@ func TestEmitAnswerDocumentV2_MetricSnapshotEnglishHumanized(t *testing.T) {
 		t.Fatalf("EN snapshot title must localize: %+v", snapshot.Title)
 	}
 	line := snapshot.Items[0].Text
+	// Share wording pin updated 2026-07-03 (H13): the denominator is the
+	// thread's own observed span and the EN surface names it too.
 	for _, want := range []string{
 		"dominant state runnable (runnable wait)",
-		"running 3.500ms (41%)",
-		"runnable 5.000ms (59%)",
+		"running 3.500ms (41% of this thread's observed span)",
+		"runnable 5.000ms (59% of this thread's observed span)",
 		"state segments 21",
 		"switches 20",
 		"longest segment 0.500ms",

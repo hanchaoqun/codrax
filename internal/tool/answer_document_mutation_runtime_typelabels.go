@@ -99,6 +99,33 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 	}
 }
 
+// runtimeTraceAggregateTypeShapeLabel is the H20 impact-shape lane (customer
+// audit 2026-07-03): when a row's impact shape would otherwise fall back to
+// the generic 候选影响 / candidate word, these aggregate-activity tokens carry
+// their own typed shape wording. Typed enum membership only — unmapped tokens
+// return "" and the caller keeps the generic fallback.
+func runtimeTraceAggregateTypeShapeLabel(token string, zh bool) string {
+	switch strings.ToLower(strings.TrimSpace(token)) {
+	case "irq_burst":
+		if zh {
+			return "IRQ突发"
+		}
+		return "IRQ burst"
+	case "irq_activity":
+		if zh {
+			return "IRQ活动"
+		}
+		return "IRQ activity"
+	case "page_cache_churn":
+		if zh {
+			return "页缓存抖动"
+		}
+		return "page-cache churn"
+	default:
+		return ""
+	}
+}
+
 // runtimeTraceCausalProjectionDisplayCauseName is the tree/cause-row lane
 // (D2): the zh surface shows the concise Chinese label for a recognized type
 // token; the EN surface and unmapped tokens render verbatim (via the display
