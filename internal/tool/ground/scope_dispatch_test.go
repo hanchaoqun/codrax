@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -252,4 +253,40 @@ func TestGroundScopeNegative_AbsenceCheckIsReal(t *testing.T) {
 			t.Errorf("status=%s, want ungrounded; note=%s", rep.Status, rep.Note)
 		}
 	})
+}
+
+// TestGroundScopeNegative_OversizedFileFailsSoft pins the customer-OOM fix
+// (2026-07-03): a model-supplied negative/crossfile file naming a GiB-scale
+// artifact must not be slurped by the grounder — the stat-first bound makes
+// the read fail and the item degrades to Ungrounded with the read error in
+// the note, never an allocation.
+func TestGroundScopeNegative_OversizedFileFailsSoft(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "berlin.systrace")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(width.SourceReadMaxBytes + 1); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+	gc := &Context{RepoRoot: tmp}
+	it := &types.EvidenceItem{
+		Scope: types.ScopeNegative,
+		Kind:  types.EvidenceAbsent,
+		NegativeQuery: &types.NegativeQuery{
+			File:    "berlin.systrace",
+			Pattern: "anything",
+		},
+		NegativeScope: types.NegativeScopeFile,
+	}
+	rep := GroundItemScoped(it, gc)
+	if rep.Status != types.GroundingUngrounded {
+		t.Fatalf("oversized file must fail soft as ungrounded, got %s (note=%s)", rep.Status, rep.Note)
+	}
+	if !strings.Contains(rep.Note, "exceeds") {
+		t.Fatalf("note should carry the bound diagnosis: %q", rep.Note)
+	}
 }

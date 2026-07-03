@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/aymanbagabas/go-udiff"
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -103,7 +104,7 @@ func compileStructuredEditsToContent(repoRoot string, change *types.FileChange) 
 	if rel, err := filepath.Rel(absRoot, absPath); err != nil || strings.HasPrefix(rel, "..") {
 		return "", "", fmt.Errorf("structured edit builder: path %q escapes repo root", path)
 	}
-	data, err := os.ReadFile(absPath)
+	data, err := width.ReadFileBounded(absPath, 0)
 	if err != nil {
 		return "", "", fmt.Errorf("structured edit builder: read %s: %w", path, err)
 	}
@@ -626,7 +627,7 @@ func readStructuredEditCandidateLines(repoRoot, path string) ([]string, bool) {
 	if err != nil || info.IsDir() {
 		return nil, false
 	}
-	data, err := os.ReadFile(absPath)
+	data, err := width.ReadFileBounded(absPath, 0)
 	if err != nil {
 		return nil, false
 	}

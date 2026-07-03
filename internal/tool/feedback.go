@@ -3,11 +3,12 @@ package tool
 import (
 	"bufio"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 )
 
 // composePatchRejection builds the rejection-summary string the LLM
@@ -262,7 +263,7 @@ func conflictContextSnippet(repoRoot, gitErr string) string {
 		return ""
 	}
 	abs := filepath.Join(repoRoot, file)
-	data, err := os.ReadFile(abs)
+	data, err := width.ReadFileBounded(abs, 0)
 	if err != nil {
 		return ""
 	}

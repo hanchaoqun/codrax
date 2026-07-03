@@ -183,3 +183,44 @@ func TestTraceProjectionD1ContentionRowsCarryOwnerAndSemanticsEN(t *testing.T) {
 		t.Fatalf("EN ownerless contention row must keep the semantic label:\n%s", md)
 	}
 }
+
+// TestTraceProjectionSelfRowsCarryImpactShapeInTree pins the lock_001
+// customer fix (2026-07-03): the TARGET's own status rows inside the tree
+// fence must carry their impact-shape label (锁竞争·阻塞 for typed
+// lock-contention rows) — not just the detail table's 影响形态 column.
+// The tree legend promises "rows without a dominant state keep their
+// impact-shape value" and every other row family already renders it.
+func TestTraceProjectionSelfRowsCarryImpactShapeInTree(t *testing.T) {
+	// The lock_001 shape: a contention span whose SUBJECT is the focus
+	// thread itself renders as the target's own status row under 🎯 —
+	// plus an anchored wakeup path so the tree does not fall flat.
+	selfContention := projV3Obs("cb-self", "critical_blocking", "critical_blocking:blocking_span",
+		"app-1", "NetworkKit_AssetsUtil_Operate_0-42067", "91.500", 91.5, 45696, 45696,
+		"type=blocking_span", "peer=NetworkKit_AssetsUtil_Operate_0-42067",
+		"blocking_kind=monitor_contention",
+		"chain_relevance=on_chain", "causality=on_wakeup_chain")
+	obs := append([]types.ObservationRecord{selfContention}, dRoundTypeObs()...)
+	md := audit730Render(t, audit730Bus(""), obs, "")
+	fence := ""
+	if start := strings.Index(md, "```text"); start >= 0 {
+		if end := strings.Index(md[start+7:], "```"); end >= 0 {
+			fence = md[start : start+7+end]
+		}
+	}
+	if fence == "" {
+		t.Fatalf("projection tree fence missing:\n%s", md)
+	}
+	var contentionLine string
+	for _, line := range strings.Split(fence, "\n") {
+		if strings.Contains(line, "│") && strings.Contains(line, "91.500ms") {
+			contentionLine = line
+			break
+		}
+	}
+	if contentionLine == "" {
+		t.Fatalf("contention self row missing from tree fence:\n%s", fence)
+	}
+	if !strings.Contains(contentionLine, "锁竞争·阻塞") {
+		t.Fatalf("contention self row must carry the impact-shape label at a glance:\n%s", contentionLine)
+	}
+}

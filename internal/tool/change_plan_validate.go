@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
@@ -491,7 +492,7 @@ func validateFullModifyCompletenessWithRepair(ctx *types.BusContext, toolName st
 		if absCanonical != repoRootAbs && !strings.HasPrefix(absCanonical, repoRootAbs+string(filepath.Separator)) {
 			continue
 		}
-		oldBytes, err := os.ReadFile(absCanonical)
+		oldBytes, err := width.ReadFileBounded(absCanonical, 0)
 		if err != nil || len(oldBytes) == 0 {
 			continue
 		}
@@ -932,7 +933,7 @@ func applyUnifiedDiffToTempAndRead(repoRoot string, change types.FileChange) (st
 	if err := applyUnifiedDiff(tmp, change.Patch); err != nil {
 		return "", fmt.Errorf("change %q patch could not be materialized for validation: %v", path, err)
 	}
-	data, err := os.ReadFile(target)
+	data, err := width.ReadFileBounded(target, 0)
 	if err != nil {
 		return "", fmt.Errorf("read temp patch result: %w", err)
 	}
@@ -1028,7 +1029,7 @@ func readOriginalPythonContent(repoRoot string, change types.FileChange) (string
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return "", false
 	}
-	data, err := os.ReadFile(absPath)
+	data, err := width.ReadFileBounded(absPath, 0)
 	if err != nil {
 		return "", false
 	}
@@ -1430,7 +1431,7 @@ func javaProductionClassCandidates(repoRoot string, changes []types.FileChange) 
 		}
 		content := strings.TrimSpace(change.NewContent)
 		if content == "" && strings.TrimSpace(repoRoot) != "" {
-			if data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel))); err == nil {
+			if data, err := width.ReadFileBounded(filepath.Join(repoRoot, filepath.FromSlash(rel)), 0); err == nil {
 				content = string(data)
 			}
 		}

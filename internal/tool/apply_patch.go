@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -566,7 +567,7 @@ func normalizeUnifiedDiffContextMarkers(repoRoot, patchText string) (string, boo
 		if got, ok := cache[path]; ok {
 			return got
 		}
-		data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(path)))
+		data, err := width.ReadFileBounded(filepath.Join(repoRoot, filepath.FromSlash(path)), 0)
 		if err != nil {
 			cache[path] = nil
 			return nil

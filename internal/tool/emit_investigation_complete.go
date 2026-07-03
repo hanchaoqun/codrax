@@ -19,6 +19,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/multipath"
 	rmrelation "github.com/hanchaoqun/codrax/internal/tool/repomap/relation"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 	"github.com/hanchaoqun/codrax/internal/toolparam"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -8916,7 +8917,7 @@ func scanRepoForFieldValueCountCandidates(repoRoot string, target fieldValueCoun
 		if !relOK || !fieldValueProductionSourcePath(rel) {
 			return nil
 		}
-		content, readErr := os.ReadFile(path)
+		content, readErr := width.ReadFileBounded(path, 0)
 		if readErr != nil {
 			return nil
 		}

@@ -696,6 +696,23 @@ func runtimeTraceProjSelfRowText(row runtimeTraceProjTreeRow, zh bool) string {
 			parts = append(parts, fmt.Sprintf("×%d merged (each %.3f–%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS))
 		}
 	}
+	// 裁定4 applies to the target's own status rows too: the tree legend
+	// promises "rows without a dominant state keep their impact-shape
+	// value", and every other row family (chain / cause / adjacent /
+	// background / merged) already renders it — a lock-contention self
+	// row must say 锁竞争·阻塞 at a glance instead of a bare duration
+	// (lock_001 customer report, 2026-07-03). Sleep rows keep their
+	// dedicated wording below.
+	if !node.IsSleepState() {
+		stateTag := runtimeTraceProjStateKindLabel(node, zh)
+		if stateTag == "" || strings.TrimSpace(node.BlockingKind) != "" ||
+			runtimeTraceCausalProjectionInversionRow(node) {
+			stateTag = runtimeTraceCausalProjectionImpactShapeCell(node, zh)
+		}
+		if stateTag != "" {
+			parts = append(parts, stateTag)
+		}
+	}
 	if node.IsSleepState() {
 		if zh {
 			parts = append(parts, "窗口内主要处于等待唤醒")

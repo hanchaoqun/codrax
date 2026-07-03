@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
@@ -1428,7 +1429,7 @@ func validatePythonDiscardBindingUsage(repoRoot, finalRoot string, changes []typ
 		if assignmentCount <= 0 {
 			assignmentCount = 1
 		}
-		data, err := os.ReadFile(filepath.Join(finalRoot, filepath.FromSlash(k.path)))
+		data, err := width.ReadFileBounded(filepath.Join(finalRoot, filepath.FromSlash(k.path)), 0)
 		if err != nil {
 			continue
 		}
@@ -1728,7 +1729,7 @@ func dryBuildNodeJS(ctx *types.BusContext, changes []types.FileChange) string {
 		fileESM := projectESM
 		if !fileESM && strings.HasSuffix(p, ".js") {
 			absSrc := filepath.Join(scratch, p)
-			if data, err := os.ReadFile(absSrc); err == nil {
+			if data, err := width.ReadFileBounded(absSrc, 0); err == nil {
 				fileESM = containsESMSyntax(data)
 			}
 		}

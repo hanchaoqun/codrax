@@ -6,7 +6,7 @@
 ID="trace_query_donghu_real_short_runnable"
 NAME="trace query — real Donghu short runnable dependency"
 QUESTION="只分析这份 trace，不分析代码。请分析 com.baidu.tieba 59566 主线程在 34579.472865s 到 34579.475857s 的短窗口卡顿原因。请判断主要等待来自哪条依赖/唤醒关系、链上线程状态和调度资源背景。"
-HTRACE_FILE="../customlogs/xxx_all.systrace"
+HTRACE_FILE="../../customlogs/xxx_all.systrace"
 EXPECT_CONTAINS="CookieMonsterCl com.baidu.tieba"
 EXPECT_MATCHES_REGEX="(runnable|可运行|调度|scheduler|CPU|runqueue).*(CookieMonsterCl|优先级反转|priority inversion)|(CookieMonsterCl|优先级反转|priority inversion).*(runnable|可运行|调度|scheduler|CPU|runqueue)
 (低优先级|优先级反转|priority inversion|lower priority|prio)
