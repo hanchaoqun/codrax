@@ -161,3 +161,82 @@
   - W3(window_sweep)设计已评审就绪(§4.7),Batch 3 实施。
 - 2026-07-03 Batch 3(W3)交付:`trace_query view=window_sweep` 按 §4.7 全量落地——流式通道(不受 index budget,复用/回写稀疏锚点索引)、bucket 纯计数聚合(bucket_ms clamp 50..500)、top-K 热点软建议(pid 参与密度优先,name-only thread 显式 caveat)、>40 bucket 等距折叠、denial(请求窗>1.0s,未 pad typed 字段判定)prose+typed Refinement 双通道首推 window_sweep。复核 5 finding 全收:不设 Windowed 防 windowed_index_parse 矛盾 caveat;typed PreferredParams 长窗分支切 window_sweep(旧分支字节不变);bucket 边界 ulp 校正(与公布窗口同算式,真实触发形态 4.3/0.05 经枚举验证);budget denial 前 store 前缀 anchors + sweep 自身录 anchors(旗舰恢复流程 GB trace 不再三次全前缀扫描)。全仓测试绿。
 - **专项收口**:客户 7 问全对应落地;隐藏 gap H1-H21 全清账(H15 核实非 gap;其余全修或收编);三批共 17 条对抗复核 finding(3×P1)全收零遗留。跟踪余项:window_sweep 实战效果待下次代表性 eval/真实客户 trace 回访验证。
+
+## 6. 客户真实 trace 回访验证(2026-07-03,custom_1g.txt,同 berlin 1104MiB 同问题重跑)
+
+**死等类结论:已解决。** window_sweep 第 1 轮即被模型采用,一步产出两个热点子窗(6793224.9-6793225.0 / 6793222.7-6793222.8,46/45 切换),后续直接对 100ms 热点跑 frame_root_cause_bundle;explore 全程 **5 轮**、零 index_event_limit 撞墙、零长等(对照旧会话 12+ 轮 denial 循环 + 14m35s 退化挂死)。心跳/截断/根标签+说明行/双窗行/残差行/逐条图例/↺/超百标注/类型化形态与措辞/合并保名/快照分母/locator 前缀/下一步去重 — 全部按预期出现。
+
+**回访新增 gap(V 系列,同族=合并求和与排序口径)**:
+
+| # | Gap | 证据(custom_1g) | 严重度 |
+|---|---|---|---|
+| V1 | 主根因结论行按"窗口投影 ms(含 ×N 合并和)"选择,无视引擎 typed rank:rank=1 是 RSUniRenderThre running(E4),结论行给了 rank=2 的 hmfs_discard ×7 求和 13.324ms;与正文叙事(VSync/GPU/binder)自相矛盾 | L84 vs E3/E4 审计行 | P0(呈现) |
+| V2 | 残差覆盖行分母=整窗 101ms,但 🎯 目标整窗仅睡 ~11.7ms → "残差 97%"误导;分母应为目标症状(自身状态行)时长,无自身状态时才回退整窗 | L86 | P1 |
+| V3 | 背景合并行对 6 个整窗(各 101ms)线程**求和**为 606.000ms 600%,踩"墙钟不可加和"裁定;整窗背景行即 Q2 idle 同类,critical_blocking producer 面漏覆盖 | L128-130, E16-E18 | P1 |
+| V4 | 同值(35.350×3)且 span 重叠的 irq_activity 三条走了 ≥3 SUM 聚合成 106.05ms:H6 同值重叠去重只在展示层且 N=2,N≥3 被上游求和抢先 → 重复发布 3 倍计 | L123/E13 | P1 |
+| V5 | 明细表合并行节点格丢 roster("对端线程未解析 ×6"),树面已有名单表面没有 | L162 | P2 |
+
+裁定:V1 修复=结论行优先消费引擎 typed rank(rank=1),其次有效归因,禁止 ×N 合并和参与选择(与既往"排序合成分数以 ms 硬事实发布→S1 修根"同类裁定);V3/V4 修复=同值重叠去重前移到聚合层(N 不限)+背景合并行展示 max×N(各≈值)不求和。
+
+## 7. 双 trace 对比场景审计(2026-07-03,custom_compare.txt,bindApplication 7.0 vs 6.0)
+
+客户问题:两个 systrace(389.6MiB/476.6MiB)对比 bindApplication 耗时(1.793s vs 0.884s)差异原因。**探索链路本身健康**(denial→recovery 窗口→window_sweep→root_cause_bundle,7 轮,心跳正常,answer 正文的 CPU 压力 2.18× 结论合理),但**因果投影层在多工件对比场景下基本失效**,暴露一簇结构性 gap:
+
+| # | Gap | 证据(custom_compare) | 严重度 |
+|---|---|---|---|
+| CMP-1 | **投影不支持多工件**:两个 trace 的观测混进同一棵树/同一 bar 尺度/同一背景段(E1=7.0 与 E2/E3=6.0 平铺为兄弟行;背景两条 supply_pressure 各来自一个 trace);对比问题下单树呈现在语义上就是错的 | L86-95 | P0 |
+| CMP-2 | **anchor 窗口缺失回退**:"关注窗口起止未采集",但喂投影的 wakeup_causal_aggregate 观测明确携带精确 query 窗(窗口基准=选定窗);anchor window 来源仅认 frame_target_resolution,非帧类流程全部回退 | L75/L87 vs L209-211 备注 | P1 |
+| CMP-3 | **跨线程聚合值裸呈现且当尺度**:supply_pressure 101084.884ms(2.1s 窗内的 cpu·ms 跨线程累计)以 ms 直出、无单位语义标注,且被用作树 bar 满格尺度(807ms 真实行缩成 1 格);per-CPU runnable 等待(19670ms/1.3s 窗)同样裸露流进 prose | L87/L93-94/L114-115 | P1 |
+| CMP-4 | **指标快照选题无关**:快照选了 usbDelayTimer/OS_DfxWatchdog(睡眠 24.4s,观测跨度≫问题窗且与 bindApplication 无关);候选未按链上线程/analyzer 实体优先,观测跨度与请求窗不匹配无标注 | L128-130 | P2 |
+| CMP-5 | **系统补充噪音**:18 条 blocked_reason 零值行(无 ms 无解释)刷屏;state_drilldown 观测窗完全在问题窗之外(Network d_sleep 20.7s @3683-3703 vs 问题窗 3679-3681.5)无"窗外观测"标注 | L148-163/L184-185 | P2 |
+| CMP-6 | **对比类引导缺失**:比较问题(historical_regression=true+双 trace 工件)无 per-trace 同名 span 锚定引导、无对比表呈现形态;"下一步"仍是单 trace 通用建议;bindApplication 所属线程/pid 全程未解析(分析锚在无关 OS_FFRT 线程) | L88-90/L132-136 | P1(引导面) |
+| CMP-7 | 杂项:E1 标 on-chain(causality=on_wakeup_chain)但树宣称"无 sched_wakeup 记录"自相矛盾;E3 locator "…systrace:44"(合成观测行号);E4/E5 各为两 trace 的 rank=1 但结论行说"未定位到主根因" | L88/L113/L123-125 | P2 |
+
+裁定方向(待 V 批合入后实施,同文件组):
+- CMP-1/2/3 为一组:投影编译按**工件分组**(每 trace 独立投影段,尺度 per-trace;或最小可行=行带工件标签+树按工件分段),anchor 窗口来源扩展到携带"窗口基准=选定窗"的观测(typed note,per-artifact),跨线程聚合类型(supply_pressure/per-CPU runnable)加"跨线程累计(cpu·ms,非墙钟)"标注并**排除出 bar 尺度锚定**(尺度只认墙钟类值)。
+- CMP-4/5:快照候选优先链上/实体线程+跨度失配标注;blocked_reason 零值行折叠计数;观测窗与请求窗不相交 → "窗外观测"标注(精确区间比较)。
+- CMP-6:软引导面——对比形态(两个 trace 工件 + historical_regression)时 explore skill 提示 per-trace 解析目标 span 所属 tid/pid 并同窗对比;下一步建议模板加对比导向条目。
+- CMP-7:on-chain 标签与空链矛盾归 CMP-1 分组时一并核;locator 合成行号收口。
+
+### 7.1 CMP-8:CPU 压力成因下探能力(gap 记录 + 设计)
+
+现状:supply_pressure/cpu_pressure 是**死端聚合**——观测只给 Σrunnable 等待与 per-CPU 分布,回答不了"谁占了 CPU"。custom_compare 案:answer 停在"7.0 CPU 压力 2.18×",占用侧(哪些线程/进程吃掉了核、优先级/频点构成、两版本差异)全程无 typed 下探路径;recommended_views 不指占用侧,state_first_hint 的 runnable 分支只指 scheduler_latency/root_cause_rank(等待侧)。
+
+设计(实施排 CMP 批次):
+1) **占用侧分解视图**:扩展 window_stats(或新 view=cpu_contention,倾向扩展避免第二入口):窗口内 top-N running 线程(cpu-time 排序,墙钟内裁剪)、按进程(tgid)聚合、per-CPU top 占用者、优先级段分布(RT/CFS 高/低)、可选频点上下文。全部计数/时长带类型标注(cpu·ms vs 墙钟)。
+2) **typed 引导接线**:supply_pressure/cpu_pressure 观测的 recommended_views 指向占用侧;index denial 的 state_first_hint runnable 分支加"先看占用侧 top 占用者";skill prompt 在 runnable/cpu_pressure 主导时软引导占用分解,对比场景引导双 trace 同口径 delta。
+3) **对比 delta**:同口径占用表在两 trace 各取一份后,答案面(投影对比总览,见 §7.2)给 per-进程 running 时间 delta 前 N 行——纯 typed 数值组装,不做散文推理。
+
+### 7.2 CMP-ARCH:投影编译器多工件架构方案(设计定稿)
+
+**根因**:`CompileTraceCausalProjection(ledger)` 及整条渲染链是单工件假设——单 anchor 窗、单 🎯、单尺度、观测不按来源分区 → 多 trace 观测混树。
+
+**方案(A,选定):编译入口分区,单工件编译器原样复用。**
+- `CompileTraceCausalProjections(ledger) []TraceCausalProjection`:按观测的**工件身份 typed 信号**(SourceRef.Path/artifact id,精确)分区,每个分区独立走既有单工件编译器;无工件身份的观测(合成行号类)进"未归档"桶,只作 caveat 不混树。
+- 渲染:每工件一个投影段("Trace 因果投影 — <工件名>"),树/明细/证据/bar 尺度 per-工件;anchor 窗 per-工件解析(CMP-2 的来源扩展同时落此处)。
+- **对比总览层**:≥2 投影且对比形态(typed:双 trace 工件 + historical_regression/is_cross_component)时,在各段之前加一张紧凑对比表:per-工件 主根因(rank=1)/目标症状时长/on-chain 归因/背景压力(带 cpu·ms 标注)/窗口;主根因结论行变 per-工件行。表内容全部从 typed 字段组装。
+- **结构不变量(加 pin 测试)**:同一棵树/同一尺度内的行必须同工件(硬结构规则,精确信号);尺度锚定只认墙钟类值(CMP-3 并入);单工件输入 → 输出与现行为字节一致(既有 golden 全保)。
+- 红线合规:不建并行子系统(复用单工件编译器);分区键是 typed 工件身份非启发;对比判定用 analyzer typed 谓词非关键字。
+
+**实施顺序**:V 批合入 → CMP-A(=CMP-1/2/3 按本架构落)→ CMP-B(=CMP-4/5/7 噪音与一致性)→ CMP-C(=CMP-6+CMP-8 引导与占用侧)。
+
+### 7.3 CMP-9:跨 trace 聚合对比必须归一化(用户追问暴露,P0 级口径缺陷)
+
+用户追问"55 秒 cpu·ms 怎么算的"复核发现:custom_compare 案的头条结论 **"CPU 压力 2.18×" 大部分是窗长差假象**——两个 supply_pressure 聚合来自不等长分析窗(7.0: 1.3s vs 6.0: 0.7s,窗长差 1.86×),按窗长归一化(=平均运行队列深度)后 77.8 vs 66.2,仅 **1.18×**;方向成立、量级失真。IO 结论归一化后反而更强(密度 4.7× vs 原文 2.5×)。且两窗均未对齐 bindApplication span 本身(覆盖 73%/79%)。
+
+语义澄清(入文档为准):supply_pressure 单位=跨线程求和的线程·毫秒(瞬时贡献=当时排队线程数×墙钟),窗内值/窗长=平均运行队列深度——这是该聚合唯一可跨窗比较的口径。
+
+裁定(并入 CMP-A/CMP-8 实施):
+1) supply_pressure/per-CPU runnable 等聚合的工具输出与观测行,一律附**归一化密度**(值/窗长,标注"≈平均排队深度")与窗长;
+2) 对比总览/delta 表(§7.2/§7.1)**只用归一化口径**呈现跨 trace 比值,原始和值仅作明细注记;两侧窗长差 >10%(精确比较)时强制标注"窗长不等,已归一化";
+3) 软引导:对比形态下 skill/next-step 提示模型对齐目标 span 边界后再取聚合(span 两端 typed 时间戳可得)。
+
+### 7.4 CMP-10:supply_pressure 语义错位 — 需求/供给口径分离(用户裁定,设计定稿)
+
+**问题**:现 `supply_pressure` = Σrunnable 等待 + 高优先级竞争 = **需求侧积压**(调度压力,PSI stall 同族),命名"供给"误导;排队深度大区分不了"要得多"还是"给不够"。
+
+**设计(并入 CMP-C 批实施)**:
+1) **改名/双标(先呈现层)**:观测与答案面把现指标呈现为"调度压力(需求积压,≈平均排队深度 N)";wire token(type=supply_pressure)迁移是 R2' 六处同步事项,首批只做 display 重标注+文档,token 迁移单独裁定(带别名过渡)。
+2) **新增真供给口径 compute_supply**:per-CPU `running×freq/max_freq` 加权交付算力(频点链路已存在:frequencyAt/freqByCPU/CounterDeltas,纯确定性);供给率=交付/名义(窗长×核数);**供给缺口三分解**:低频折损(running 低频段折损量)/闲置错配(CPU idle ∧ runnable 队列非空的时长=调度亲和问题非算力问题)/核数受限。全部带类型标注与归一化(CMP-9 口径)。
+3) **对比呈现**:delta 表按"需求积压 delta"与"供给能力 delta"两行分开(再接 CMP-8 占用侧"需求被谁吃"),直接回答"要得多 vs 给不够"。custom_compare 案实证价值:归一化后排队深度仅差 18%,900ms 差异的真正归属需供给口径裁定。
+4) 引导:state_first_hint 的 running 分支已有 compute-supply 字样,统一到新口径命名;skill 提示对比场景两口径都取。
