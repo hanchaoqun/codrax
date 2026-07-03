@@ -1,6 +1,7 @@
 package tracequery
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -115,6 +116,52 @@ func TestAnchorSeekRespectsClockRegression(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("clock-regression spike line must not be skipped by anchor seek (events=%d)", len(idx.Events))
+	}
+}
+
+// TestIndexEventLimitDenialStillStoresAnchors pins the F5 salvage rule: a
+// build denied by the MaxEvents budget has still scanned a valid contiguous
+// prefix, and the anchors + from-0 flavor recorded during that scan must be
+// persisted for the follow-up window_sweep / narrower-window retries the
+// denial itself recommends — not discarded with the error.
+func TestIndexEventLimitDenialStillStoresAnchors(t *testing.T) {
+	n := traceAnchorLineInterval + 2048
+	path := anchorTestTrace(t, n, 0)
+	resetAnchorCaches()
+	_, err := BuildIndexWithOptions(t.Context(), path, BuildOptions{MaxEvents: traceAnchorLineInterval + 512})
+	var limitErr *IndexEventLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("expected IndexEventLimitError, got %T %v", err, err)
+	}
+	canonical := canonicalTraceIndexPath(path)
+	info, serr := os.Stat(canonical)
+	if serr != nil {
+		t.Fatal(serr)
+	}
+	key := traceAnchorKey{path: canonical, size: info.Size(), modUnix: info.ModTime().UnixNano(), version: ParserVersion}
+	set := anchorCache.load(key)
+	if set == nil || len(set.Anchors) == 0 || !set.FlavorSet {
+		t.Fatalf("budget-denied build must persist prefix anchors + flavor, got %+v", set)
+	}
+	if set.Anchors[0].LineNo != traceAnchorLineInterval {
+		t.Fatalf("first anchor must sit at the %d-line stride, got %+v", traceAnchorLineInterval, set.Anchors[0])
+	}
+	// The salvaged anchors must actually serve a later windowed build: the
+	// same-file retry seeks past the prefix and parses an identical window to
+	// a cold build.
+	lateStart := 100.0 + float64(traceAnchorLineInterval+1024)*0.0001
+	opts := BuildOptions{AllowWindowedParse: true, TimeStart: lateStart, TimeStartSet: true, TimeEnd: lateStart + 0.05, TimeEndSet: true}
+	warm, err := BuildIndexWithOptions(t.Context(), path, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resetAnchorCaches()
+	cold, err := BuildIndexWithOptions(t.Context(), path, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cold.Events, warm.Events) {
+		t.Fatalf("post-denial anchor seek changed the parsed window: cold=%d warm=%d events", len(cold.Events), len(warm.Events))
 	}
 }
 

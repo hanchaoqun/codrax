@@ -19,6 +19,7 @@ func TestViewCapacityTablePinsCurrentBehavior(t *testing.T) {
 		maxLimit     int
 	}{
 		{"event_search", 40, 0},
+		{"window_sweep", 8, 0},
 		{"span_window", 40, 0},
 		{"scheduler_latency_stats", 20, 20},
 		{"root_cause_rank", 12, 12},
@@ -67,6 +68,13 @@ func TestViewCapacityTablePinsCurrentBehavior(t *testing.T) {
 	if search.FallbackView != "" || len(search.FallbackEventTypes) != 0 || search.HeavyView {
 		t.Fatalf("event_search must stay the non-heavy escape hatch without a fallback: %+v", search)
 	}
+	// window_sweep is the §4.7 streaming coverage channel: like event_search
+	// it must stay non-heavy (never blocked by the heavy-view scope guard)
+	// and never advertise a fallback view of its own.
+	sweepCapacity := ViewCapacityFor(ViewWindowSweep)
+	if sweepCapacity.FallbackView != "" || len(sweepCapacity.FallbackEventTypes) != 0 || sweepCapacity.HeavyView {
+		t.Fatalf("window_sweep must stay the non-heavy streaming coverage channel without a fallback: %+v", sweepCapacity)
+	}
 	for _, view := range []string{"span_window", "root_cause_rank", "window_stats", "recipe"} {
 		capacity := ViewCapacityFor(view)
 		if capacity.FallbackView != FallbackViewEventSearch {
@@ -93,7 +101,7 @@ func TestViewCapacityHeavyAndRelationScopedFlags(t *testing.T) {
 			t.Fatalf("view %q must stay heavy", view)
 		}
 	}
-	for _, view := range []string{"event_search", "", "unknown_view"} {
+	for _, view := range []string{"event_search", "window_sweep", "", "unknown_view"} {
 		if IsHeavyView(view) {
 			t.Fatalf("view %q must not be heavy", view)
 		}

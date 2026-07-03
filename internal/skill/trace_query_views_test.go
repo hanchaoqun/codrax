@@ -10,8 +10,8 @@ import (
 // and the three previously-untaught views are present.
 func TestTraceQueryViewTeachings_TableShape(t *testing.T) {
 	rows := TraceQueryViewTeachings()
-	if len(rows) != 20 {
-		t.Fatalf("expected 20 trace_query view rows, got %d", len(rows))
+	if len(rows) != 21 {
+		t.Fatalf("expected 21 trace_query view rows, got %d", len(rows))
 	}
 	seen := map[string]bool{}
 	for _, row := range rows {

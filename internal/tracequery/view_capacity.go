@@ -61,6 +61,7 @@ const (
 	CompactionDimensionEvents     = "events"
 	CompactionDimensionPeers      = "peers"
 	CompactionDimensionPhaseSpans = "phase_spans"
+	CompactionDimensionBuckets    = "buckets"
 )
 
 // ViewCapacity is one row of the per-view capacity table.
@@ -131,6 +132,18 @@ var viewCapacityTable = map[string]ViewCapacity{
 		View:         "event_search",
 		DefaultLimit: sharedDefaultResultLimit,
 		Dimension:    CompactionDimensionEvents,
+	},
+	// window_sweep is a streaming coverage scan (§4.7 W3): like event_search
+	// it never materializes the in-memory event index, so it stays non-heavy
+	// and never needs a fallback view. DefaultLimit is the hotspot top-K; the
+	// coverage-table fold is annotated via caveats, deliberately NOT via
+	// Compactions (a typed compaction would trigger the result_compacted
+	// refinement and steer the model back into window splitting — the exact
+	// loop this view exists to break).
+	ViewWindowSweep: {
+		View:         ViewWindowSweep,
+		DefaultLimit: WindowSweepDefaultTopK,
+		Dimension:    CompactionDimensionBuckets,
 	},
 	"span_window": {
 		View:               "span_window",
@@ -319,7 +332,9 @@ func ViewCapacityFor(view string) ViewCapacity {
 
 // IsHeavyView reports whether a view expands scheduler/resource aggregates
 // and therefore needs a bounded scope on large traces (the former tool-side
-// switch list, now table-driven).
+// switch list, now table-driven). The two streaming channels — event_search
+// and window_sweep — are deliberately NOT heavy: they never materialize the
+// in-memory event index.
 func IsHeavyView(view string) bool {
 	return ViewCapacityFor(view).HeavyView
 }

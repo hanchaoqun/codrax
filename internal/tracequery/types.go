@@ -296,13 +296,17 @@ type Query struct {
 	MinDurationMs          float64
 	IncludeWindowStats     bool
 	Limit                  int
-	CoreTopology           string
-	TraceFlavor            TraceFlavor
-	TraceFlavorHint        TraceFlavor
-	TraceFlavorHintSource  string
-	TracePlatform          TracePlatform
-	TracePlatformHint      TracePlatform
-	TracePlatformSource    string
+	// BucketMs is the view=window_sweep coverage bucket width in
+	// milliseconds; StreamWindowSweep clamps it via ClampWindowSweepBucketMs
+	// (default 100, allowed 50..500). Ignored by every other view.
+	BucketMs              float64
+	CoreTopology          string
+	TraceFlavor           TraceFlavor
+	TraceFlavorHint       TraceFlavor
+	TraceFlavorHintSource string
+	TracePlatform         TracePlatform
+	TracePlatformHint     TracePlatform
+	TracePlatformSource   string
 }
 
 type Result struct {
@@ -347,6 +351,7 @@ type Result struct {
 	InteractionStats            *InteractionStatsResult `json:"interaction_stats,omitempty"`
 	PerfStats                   *PerfContext            `json:"perf_stats,omitempty"`
 	PerfTimeline                *PerfTimelineResult     `json:"perf_timeline,omitempty"`
+	WindowSweep                 *WindowSweepResult      `json:"window_sweep,omitempty"`
 	Recipe                      *RecipeResult           `json:"recipe,omitempty"`
 	EvidencePack                []EvidenceFact          `json:"evidence_pack,omitempty"`
 	Caveats                     []string                `json:"caveats,omitempty"`

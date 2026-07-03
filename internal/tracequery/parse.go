@@ -225,6 +225,16 @@ type IndexEventLimitError struct {
 	LastTs         float64
 	ScopePID       int
 	ScopeThread    string
+	// RequestTimeStart/RequestTimeEnd carry the caller's UN-padded request
+	// window (BuildOptions.TimeStart/TimeEnd); RequestWindowSet is true only
+	// when BOTH bounds were explicitly set. Precise signals for the
+	// window_sweep-first recovery steer (§4.7): only an explicit request
+	// window strictly longer than WindowSweepRecoveryMinWindowSeconds gets
+	// it — the padded IndexTimeStart/End must NOT be used here, padding
+	// alone (±0.5s) would push sub-second requests over the 1s threshold.
+	RequestTimeStart float64
+	RequestTimeEnd   float64
+	RequestWindowSet bool
 }
 
 func (e *IndexEventLimitError) Error() string {
@@ -271,10 +281,19 @@ func (e *IndexEventLimitError) RecoveryParams() string {
 		return ""
 	}
 	var b strings.Builder
-	// The escape-hatch view name is interpolated from the capacity table's
-	// shared token so this pinned sentence and the tool-side recovery
+	// The escape-hatch view names are interpolated from the capacity table's
+	// shared tokens so this pinned sentence and the tool-side recovery
 	// surfaces can never drift apart (rendered text stays byte-identical).
-	fmt.Fprintf(&b, "; recovery_params: use view=%s (streaming scan, NOT subject to this index event budget) to locate exact tokens/lines first", FallbackViewEventSearch)
+	// §4.7 W3: an explicit request window strictly longer than
+	// WindowSweepRecoveryMinWindowSeconds steers to window_sweep FIRST — one
+	// streaming coverage pass over the SAME window replaces blind window
+	// bisection. Shorter/unset windows keep the historical text unchanged.
+	if e.RequestWindowSet && e.RequestTimeEnd-e.RequestTimeStart > WindowSweepRecoveryMinWindowSeconds {
+		fmt.Fprintf(&b, "; recovery_params: the requested window spans %.3fs; run view=%s FIRST with the SAME time_start/time_end (streaming per-bucket coverage scan, NOT subject to this index event budget) to rank dense sub-windows before narrowing, then use view=%s (streaming scan, NOT subject to this index event budget) to locate exact tokens/lines",
+			e.RequestTimeEnd-e.RequestTimeStart, ViewWindowSweep, FallbackViewEventSearch)
+	} else {
+		fmt.Fprintf(&b, "; recovery_params: use view=%s (streaming scan, NOT subject to this index event budget) to locate exact tokens/lines first", FallbackViewEventSearch)
+	}
 	if e.LastTs > e.FirstTs && e.FirstTs > 0 {
 		fmt.Fprintf(&b, ", or rerun with time_start=%.6f time_end=%.6f (the first window segment this index already covered before hitting the budget)", e.FirstTs, e.LastTs)
 	}
@@ -286,12 +305,15 @@ func (e *IndexEventLimitError) RecoveryParams() string {
 
 func newIndexEventLimitError(path string, idx *Index, opts BuildOptions, line, events int) *IndexEventLimitError {
 	err := &IndexEventLimitError{
-		Path:        path,
-		MaxEvents:   opts.MaxEvents,
-		Events:      events,
-		Line:        line,
-		ScopePID:    opts.ScopePID,
-		ScopeThread: opts.ScopeThread,
+		Path:             path,
+		MaxEvents:        opts.MaxEvents,
+		Events:           events,
+		Line:             line,
+		ScopePID:         opts.ScopePID,
+		ScopeThread:      opts.ScopeThread,
+		RequestTimeStart: opts.TimeStart,
+		RequestTimeEnd:   opts.TimeEnd,
+		RequestWindowSet: opts.TimeStartSet && opts.TimeEndSet,
 	}
 	if idx != nil {
 		err.ScannedLines = idx.ScannedLineCount
@@ -832,6 +854,23 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 						idx.PaddingTruncatedLastTs = idx.LastTs
 						idx.PaddingTruncatedNote = fmt.Sprintf(indexPaddingTruncatedNoteFmt, idx.LastTs)
 						break
+					}
+					// A budget-denied build still scanned a valid contiguous
+					// prefix: the anchors recorded so far are position facts
+					// independent of the denial and remain valid for the
+					// follow-up window_sweep / narrower-window retries the
+					// denial itself recommends, so persist them instead of
+					// discarding the scan work with the error. Flavor follows
+					// the same rule as the success path: only a from-0 scan
+					// publishes it (a seek-build's cache entry already has it),
+					// and store() keeps the widest coverage / writes flavor
+					// once, so this cannot regress an existing richer entry.
+					if recording {
+						if !seeked && !recorder.set.FlavorSet {
+							recorder.set.Flavor, recorder.set.FlavorConf, recorder.set.FlavorSignals = flavor.result()
+							recorder.set.FlavorSet = true
+						}
+						anchorCache.store(anchorKey, recorder.set)
 					}
 					return nil, newIndexEventLimitError(path, idx, opts, lineNo, len(idx.Events))
 				}

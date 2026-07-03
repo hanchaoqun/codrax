@@ -47,6 +47,7 @@ type traceQueryParams struct {
 	MinDurationMs        FlexFloat       `json:"min_duration_ms,omitempty"`
 	IncludeWindowStats   *FlexBool       `json:"include_window_stats,omitempty"`
 	Limit                FlexInt         `json:"limit,omitempty"`
+	BucketMs             FlexFloat       `json:"bucket_ms,omitempty"`
 	CoreTopology         string          `json:"core_topology,omitempty"`
 	TraceFlavor          string          `json:"trace_flavor,omitempty"`
 	Platform             string          `json:"platform,omitempty"`
@@ -110,7 +111,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	    "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path. Accepts ftrace-compatible text such as .ftrace/.trace/.systrace/.htrace/.atrace, text .perftrace, and .tracebundle.json. A converted .systrace or raw .ftrace text is sufficient for core event queries and may already contain SQL-primary perf_sample rows; .tracebundle.json adds provider/coverage/clock/caveat provenance. When a sibling .tracebundle.json exists, or a sibling .systrace/.perftrace pair exists, trace_query automatically builds a joint trace+perf index."},
 	    "trace_flavor": {"type":"string","enum":["auto","harmony_hitrace","android_atrace","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional producer/platform flavor. Defaults to auto detection. Use harmony_hitrace for HarmonyOS HiTrace priority semantics, android_atrace for Android/Linux atrace raw scheduler priorities, and generic_ftrace when uncertain."},
 	    "platform": {"type":"string","enum":["auto","donghu","harmony","harmony_hitrace","android","android_atrace","generic","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional typed platform hint. Use donghu when the typed task/tool call selects Donghu: scheduler/time/priority semantics follow Harmony/OpenHarmony, while Android-framework and Harmony-framework processes may coexist at process boundaries. harmony/harmony_hitrace selects Harmony semantics; android/android_atrace selects Android raw scheduler priority semantics."},
-		    "view": {"type":"string","enum":["event_search","span_window","frame_window","render_pipeline","frame_timeline","frame_flow","thread_timeline","window_stats","perf_stats","perf_timeline","trace_perf_bundle","scheduler_latency_stats","ipc_graph","wakeup_chain","root_cause_rank","frame_root_cause_bundle","critical_blocking_calls","interaction_stats","recipe","evidence_pack"],"x-codrax-enum-style-alias":true,"x-codrax-enum-aliases":{"state_churn":"window_stats","cpu_samples":"perf_stats","cpu_sample_stats":"perf_stats","sample_timeline":"perf_timeline","perf_sample_timeline":"perf_timeline","perf_bundle":"trace_perf_bundle","trace_perf":"trace_perf_bundle","trace_plus_perf":"trace_perf_bundle","causal_impact":"wakeup_chain","frame_bundle":"frame_root_cause_bundle","frame_rootcause_bundle":"frame_root_cause_bundle","frame_root_cause":"frame_root_cause_bundle"},"description":"The deterministic trace view to compute. Use span_window to turn a unique trace span into a time window: synchronous B/E spans close with unnamed E|<pid> or bare E on the same ftrace thread stack, and async S/F spans close by marker pid + name + cookie. Do not search for E|<pid>|<span_name> as an end marker. Use frame_window/render_pipeline for Choreographer/RenderFrame/VSYNC/draw/present spans; frame_timeline/frame_flow for Expected/Actual/Jank/GPU/RS/UI phase summaries and cross-thread frame flows; perf_stats for same-window CPU sample top_symbols/top_dso/top_callchains/top_threads, perf_timeline for bucketed sample weight over time, and trace_perf_bundle for a handoff-safe bundle that combines window/root-cause/wakeup evidence with perf sample context; scheduler_latency_stats for runnable wait p95/p99/max and CPU competition; wakeup_chain for wakeup edges and causal_impacts per chain node plus aggregated_impacts with bounded occurrence_windows when repeated fragmented branches share a common dependency path; critical_blocking_calls for futex/lock/sync/binder/IO/D-state candidates, with peer_state breakdown when the peer thread timeline is visible; root_cause_rank for primary/secondary/tertiary cause candidates, including projected_impact_ms/projected_total_ms for selected-window projection, actual_impact_ms/actual_total_ms/actual_window for full scheduler-state duration, cumulative_impact_ms, effective_impact_ms, dominant_state/running/runnable/sleep/d_state/io_wait totals, occurrence_windows for aggregate common dependency paths, candidate-level perf_context plus role-aware perf_contexts such as candidate_thread, target_running, on_chain_dependency, same_cpu_competitor, cpu_pressure_top_running, and compute_supply_cpu, fragmented state_churn candidates when frequent short state switches cumulatively dominate, wakeup_chain causal_impacts and aggregated_impacts when repeated fragmented branches share a common dependency path, semantic span-work candidates for on-chain JIT/class verification/shader/runtime compilation hidden cost, and co-primary on-chain runnable/running/compute-supply/D-state/IO dependencies when they are part of the same causal chain; same-chain primary root_cause_rank rows are ordered by effective_impact_ms before score, and non-semantic rows default effective_impact_ms to cumulative_impact_ms; frame_root_cause_bundle returns wakeup_chain + frame_timeline + root_cause_rank + critical_blocking_calls plus IO/IRQ/workqueue/supply/trace-mark bundle fields and role-specific perf contexts target_running_perf/on_chain_perf/binder_peer_perf/same_cpu_competitor_perf for frame/jank handoff; state_churn and causal_impacts are output sections, not standalone views; view=state_churn is accepted and treated as view=window_stats, view=causal_impact is accepted as wakeup_chain, view=perf_bundle/trace_perf/trace_plus_perf is accepted as trace_perf_bundle, and view=frame_bundle/frame_rootcause_bundle is accepted as frame_root_cause_bundle; interaction_stats for target-thread wakeup/binder interaction Top-N; recipe for standard evidence packs; and ipc_graph for binder transaction send/receive causality with explicit oneway/sync_like/blocking_candidate fields."},
+		    "view": {"type":"string","enum":["event_search","window_sweep","span_window","frame_window","render_pipeline","frame_timeline","frame_flow","thread_timeline","window_stats","perf_stats","perf_timeline","trace_perf_bundle","scheduler_latency_stats","ipc_graph","wakeup_chain","root_cause_rank","frame_root_cause_bundle","critical_blocking_calls","interaction_stats","recipe","evidence_pack"],"x-codrax-enum-style-alias":true,"x-codrax-enum-aliases":{"state_churn":"window_stats","cpu_samples":"perf_stats","cpu_sample_stats":"perf_stats","sample_timeline":"perf_timeline","perf_sample_timeline":"perf_timeline","perf_bundle":"trace_perf_bundle","trace_perf":"trace_perf_bundle","trace_plus_perf":"trace_perf_bundle","causal_impact":"wakeup_chain","frame_bundle":"frame_root_cause_bundle","frame_rootcause_bundle":"frame_root_cause_bundle","frame_root_cause":"frame_root_cause_bundle"},"description":"The deterministic trace view to compute. Use window_sweep for a second-scale or longer dense window before heavy views: it is a streaming per-bucket coverage scan (default bucket_ms=100, clamped 50..500) that is NOT subject to the index event budget, counts sched_switch/sched_wakeup/D-state-entry/irq-entry/trace_mark rows per bucket plus target-pid sched_switch participation when pid is set, and returns advisory top-K dense sub-windows with suggested follow-up views plus a compact coverage table (folded to at most 40 rows), so drill-down windows are picked from measured density instead of blind bisection. Use span_window to turn a unique trace span into a time window: synchronous B/E spans close with unnamed E|<pid> or bare E on the same ftrace thread stack, and async S/F spans close by marker pid + name + cookie. Do not search for E|<pid>|<span_name> as an end marker. Use frame_window/render_pipeline for Choreographer/RenderFrame/VSYNC/draw/present spans; frame_timeline/frame_flow for Expected/Actual/Jank/GPU/RS/UI phase summaries and cross-thread frame flows; perf_stats for same-window CPU sample top_symbols/top_dso/top_callchains/top_threads, perf_timeline for bucketed sample weight over time, and trace_perf_bundle for a handoff-safe bundle that combines window/root-cause/wakeup evidence with perf sample context; scheduler_latency_stats for runnable wait p95/p99/max and CPU competition; wakeup_chain for wakeup edges and causal_impacts per chain node plus aggregated_impacts with bounded occurrence_windows when repeated fragmented branches share a common dependency path; critical_blocking_calls for futex/lock/sync/binder/IO/D-state candidates, with peer_state breakdown when the peer thread timeline is visible; root_cause_rank for primary/secondary/tertiary cause candidates, including projected_impact_ms/projected_total_ms for selected-window projection, actual_impact_ms/actual_total_ms/actual_window for full scheduler-state duration, cumulative_impact_ms, effective_impact_ms, dominant_state/running/runnable/sleep/d_state/io_wait totals, occurrence_windows for aggregate common dependency paths, candidate-level perf_context plus role-aware perf_contexts such as candidate_thread, target_running, on_chain_dependency, same_cpu_competitor, cpu_pressure_top_running, and compute_supply_cpu, fragmented state_churn candidates when frequent short state switches cumulatively dominate, wakeup_chain causal_impacts and aggregated_impacts when repeated fragmented branches share a common dependency path, semantic span-work candidates for on-chain JIT/class verification/shader/runtime compilation hidden cost, and co-primary on-chain runnable/running/compute-supply/D-state/IO dependencies when they are part of the same causal chain; same-chain primary root_cause_rank rows are ordered by effective_impact_ms before score, and non-semantic rows default effective_impact_ms to cumulative_impact_ms; frame_root_cause_bundle returns wakeup_chain + frame_timeline + root_cause_rank + critical_blocking_calls plus IO/IRQ/workqueue/supply/trace-mark bundle fields and role-specific perf contexts target_running_perf/on_chain_perf/binder_peer_perf/same_cpu_competitor_perf for frame/jank handoff; state_churn and causal_impacts are output sections, not standalone views; view=state_churn is accepted and treated as view=window_stats, view=causal_impact is accepted as wakeup_chain, view=perf_bundle/trace_perf/trace_plus_perf is accepted as trace_perf_bundle, and view=frame_bundle/frame_rootcause_bundle is accepted as frame_root_cause_bundle; interaction_stats for target-thread wakeup/binder interaction Top-N; recipe for standard evidence packs; and ipc_graph for binder transaction send/receive causality with explicit oneway/sync_like/blocking_candidate fields."},
 	    "thread": {"type":"string","description":"Thread name, substring, or ftrace/hitrace task label to resolve when pid is unknown. Accepts forms like \"com.tencent.mm-36379\", \"com.tencent.mm 36379\", \"com.tencent.mm [36379]\", \"[GT]ColdPool#5-36624\", \"binder:486_1-10803\", or \"pid=36379\"; pid is preferred when known."},
     "pid": {"type":"integer","description":"Thread pid to analyze when known."},
     "time_start": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window start in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\", \"928.081774 秒\", or compound forms like \"1s 501ms 565μs 915ns\" and normalizes them to seconds; six fractional digits are microsecond precision."},
@@ -127,7 +128,8 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "min_duration_ms": {"type":"number","description":"Ignore intervals shorter than this; default 1ms."},
     "include_window_stats": {"type":"boolean","description":"For wakeup_chain, include same-window CPU/IO/binder/irq stats; default true."},
     "core_topology": {"type":"string","description":"Optional CPU core class map for compute-supply evaluation, e.g. \"small=0-3,middle=4-7,big=8-11\" or \"little=0-3,big=4-7\". If omitted, classes are inferred from observed CPU frequency tiers when possible."},
-    "limit": {"type":"integer","description":"event_search inline row cap; default 40."}
+    "limit": {"type":"integer","description":"event_search inline row cap; default 40. For view=window_sweep this is the hotspot top-K; default 8."},
+    "bucket_ms": {"type":"number","description":"For view=window_sweep only: coverage bucket width in milliseconds. Default 100; values are clamped to 50..500. Accepts integers, floats, or duration strings such as \"100ms\"."}
   }
 }`)
 }
@@ -163,6 +165,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	}
 	if streamed, ok := t.maybeStreamEventSearch(ctx, p, path, sourceLabel, timeStart, timeEnd, timeCaveat); ok {
 		return streamed, nil
+	}
+	if sweep, ok := t.maybeStreamWindowSweep(ctx, p, path, sourceLabel, timeStart, timeEnd, timeCaveat); ok {
+		return sweep, nil
 	}
 	buildStart := time.Now()
 	logging.Debug("[trace_query] phase=build_index view=%s source=%s path=%s start time_start=%.6f time_end=%.6f line_start=%d line_end=%d",
@@ -292,6 +297,17 @@ func traceQueryIndexLimitSummary(path, sourceLabel string, p traceQueryParams, l
 		traceQueryPreferredCoverageWindowMinSeconds*1000,
 		traceQueryPreferredCoverageWindowMaxSeconds*1000,
 		traceQueryMicroWindowProbeSeconds*1000)
+	// §4.7 W3: when the caller's explicit request window spans strictly more
+	// than WindowSweepRecoveryMinWindowSeconds, the FIRST recovery
+	// recommendation is window_sweep — one streaming coverage pass over the
+	// same window replaces blind bisection into repeated denials. Precise
+	// trigger signal: the typed request window duration only (never the
+	// padded index window). The view name is the shared capacity-table token
+	// so this surface cannot drift from the engine's recovery sentence.
+	if duration := traceQueryParamWindowDurationSeconds(p); duration > tracequery.WindowSweepRecoveryMinWindowSeconds {
+		fmt.Fprintf(&b, "window_sweep_first=requested window spans %.3fs; run trace_query(view=%q) FIRST with the SAME time_start/time_end (a streaming per-bucket coverage scan NOT subject to this index event budget) to rank dense sub-windows, then drill into its suggested sub-windows with heavy views.\n",
+			duration, tracequery.ViewWindowSweep)
+	}
 	// C3 (§7.30.2): concrete, copy-pastable recovery parameters — the streaming
 	// event_search escape hatch plus the exact window segment this index already
 	// covered before hitting the budget, so the model can rerun immediately
@@ -341,6 +357,34 @@ func traceQueryParamWindowDurationSeconds(p traceQueryParams) float64 {
 }
 
 func traceQueryIndexLimitRefinement(ctx *types.BusContext, p traceQueryParams, sourceLabel, path string) *types.ToolRefinementHint {
+	// §4.7 W3: the typed refinement channel must give the same first move as
+	// the prose denial banner. Identical precise signal as the banner's
+	// window_sweep_first sentence — an explicit request window STRICTLY longer
+	// than WindowSweepRecoveryMinWindowSeconds — steers PreferredParams to
+	// view=window_sweep over the SAME window. window_sweep consumes neither
+	// pattern/event_types/span_name filters nor the state-cluster
+	// parent-coverage step, and its whole point is "sweep first, do not narrow
+	// yet", so the event_search fallback rewrite, the
+	// state_cluster_first/parent_coverage extras, and the narrowing
+	// suggestions are not attached on this branch. Shorter or unset windows
+	// keep the historical event_search-shaped hint unchanged.
+	if traceQueryParamWindowDurationSeconds(p) > tracequery.WindowSweepRecoveryMinWindowSeconds {
+		sweep := p
+		sweep.View = tracequery.ViewWindowSweep
+		hint := traceQueryParamsRefinement(ctx, "trace_query_index_event_limit", sweep, sourceLabel, path, true, []string{"time_start", "time_end"})
+		if hint != nil {
+			if hint.PreferredParams == nil {
+				hint.PreferredParams = map[string]string{}
+			}
+			for _, param := range []string{"pattern", "event_types", "span_name"} {
+				delete(hint.PreferredParams, param)
+			}
+			hint.PreferredParams["micro_window_policy"] = "sub_50ms_local_only"
+			normalized := types.NormalizeToolRefinementHint(*hint)
+			hint = &normalized
+		}
+		return hint
+	}
 	next := p
 	required := []string{"time_start", "time_end", "state_cluster_first"}
 	if next.LineStart.Int() <= 0 && next.LineEnd.Int() <= 0 {
@@ -384,6 +428,7 @@ func traceQueryBuildQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel
 		MaxBranches:          p.MaxBranches.Int(),
 		MinDurationMs:        p.MinDurationMs.Float64(),
 		Limit:                p.Limit.Int(),
+		BucketMs:             p.BucketMs.Float64(),
 		CoreTopology:         p.CoreTopology,
 		IncludeWindowStats:   p.IncludeWindowStats != nil && p.IncludeWindowStats.Bool(),
 	}
@@ -854,6 +899,66 @@ func (t *TraceQuery) maybeStreamEventSearch(ctx *types.BusContext, p traceQueryP
 		Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
 		Timestamp:    now,
 	}, true
+}
+
+// maybeStreamWindowSweep dispatches view=window_sweep (§4.7 W3) onto the
+// streaming coverage engine. Unlike maybeStreamEventSearch there is no
+// indexed fallback — window_sweep IS the streaming channel, so any failure is
+// reported directly instead of silently falling through to an index build the
+// view was designed to avoid.
+func (t *TraceQuery) maybeStreamWindowSweep(ctx *types.BusContext, p traceQueryParams, path, sourceLabel string, timeStart, timeEnd float64, timeCaveat string) (types.ToolResult, bool) {
+	if tracequery.CanonicalViewName(p.View) != tracequery.ViewWindowSweep {
+		return types.ToolResult{}, false
+	}
+	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, timeStart, timeEnd)
+	sweepStart := time.Now()
+	logging.Debug("[trace_query] phase=stream_window_sweep source=%s path=%s start time_start=%.6f time_end=%.6f bucket_ms=%.1f pid=%d",
+		sourceLabel, path, timeStart, timeEnd, q.BucketMs, q.PID)
+	result, err := tracequery.StreamWindowSweep(contextFromBus(ctx), path, q)
+	if err != nil {
+		logging.Debug("[trace_query] phase=stream_window_sweep path=%s failed elapsed=%s err=%v", path, time.Since(sweepStart), err)
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   fmt.Sprintf("trace_query failed to sweep %s: %v", path, err),
+			Timestamp: time.Now(),
+		}, true
+	}
+	heapAlloc, heapSys, gcCount := traceQueryMemoryForLog()
+	logging.Debug("[trace_query] phase=stream_window_sweep path=%s done elapsed=%s buckets=%d hotspots=%d caveats=%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
+		path, time.Since(sweepStart), traceQueryWindowSweepBucketCount(result), traceQueryWindowSweepHotspotCount(result), len(result.Caveats), heapAlloc, heapSys, gcCount)
+	traceQueryAppendCallCaveats(&result, timeCaveat)
+	payload, _ := json.MarshalIndent(result, "", "  ")
+	payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-result.json", string(payload))
+	summary := traceQuerySummary(result, p, sourceLabel, payloadRef)
+	preview, rawRef := StoreBlob(ctx, t.Name(), summary)
+	if rawRef == "" {
+		rawRef = payloadRef
+	}
+	now := time.Now()
+	return types.ToolResult{
+		ToolName:     t.Name(),
+		Success:      true,
+		Summary:      preview,
+		RawRef:       rawRef,
+		Refinement:   traceQueryRefinement(result, q, p, sourceLabel),
+		Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+		Timestamp:    now,
+	}, true
+}
+
+func traceQueryWindowSweepBucketCount(result tracequery.Result) int {
+	if result.WindowSweep == nil {
+		return 0
+	}
+	return result.WindowSweep.BucketCount
+}
+
+func traceQueryWindowSweepHotspotCount(result tracequery.Result) int {
+	if result.WindowSweep == nil {
+		return 0
+	}
+	return len(result.WindowSweep.Hotspots)
 }
 
 func traceQueryRefinement(result tracequery.Result, q tracequery.Query, p traceQueryParams, sourceLabel string) *types.ToolRefinementHint {
@@ -1518,9 +1623,10 @@ func (t *TraceQuery) maybeLargeTraceHeavyViewGuard(ctx *types.BusContext, p trac
 	}, true
 }
 
-// traceQueryIsHeavyView is table-driven (E4): every view except the streaming
-// event_search escape hatch is heavy, and the flag lives on the tracequery
-// view capacity table so the tool and engine cannot drift.
+// traceQueryIsHeavyView is table-driven (E4): every view except the two
+// streaming channels (event_search, window_sweep) is heavy, and the flag
+// lives on the tracequery view capacity table so the tool and engine cannot
+// drift.
 func traceQueryIsHeavyView(view string) bool {
 	return tracequery.IsHeavyView(view)
 }
@@ -2541,6 +2647,36 @@ func traceSecondNeedsNormalizationNote(v TraceSecond) bool {
 	return false
 }
 
+// writeTraceWindowSweepSummary renders the window_sweep advisory sections:
+// ranked hotspot sub-windows first, then the compact coverage table. All
+// rows are drill-down guidance only (§4.7 red line: nothing here is a hard
+// classification).
+func writeTraceWindowSweepSummary(b *strings.Builder, sweep *tracequery.WindowSweepResult) {
+	b.WriteString("## Window sweep\n")
+	fmt.Fprintf(b, "window=%.6f..%.6f bucket_ms=%g bucket_count=%d rank_basis=%s hotspots=%d coverage_rows=%d",
+		sweep.Window.StartTs, sweep.Window.EndTs, sweep.BucketMs, sweep.BucketCount, sanitizeForBanner(sweep.RankBasis), len(sweep.Hotspots), len(sweep.Coverage))
+	if sweep.TargetPID > 0 {
+		fmt.Fprintf(b, " target_pid=%d", sweep.TargetPID)
+	}
+	if sweep.CoverageFolded {
+		fmt.Fprintf(b, " coverage_folded=true fold_span=%d", sweep.CoverageFoldSpan)
+	}
+	b.WriteString("\n")
+	for _, hotspot := range sweep.Hotspots {
+		fmt.Fprintf(b, "- hotspot rank=%d window=%.6f..%.6f sched_switches=%d wakeups=%d d_state_entries=%d irq_entries=%d trace_marks=%d target_pid_switches=%d suggested_views=%s\n",
+			hotspot.Rank, hotspot.StartTs, hotspot.EndTs, hotspot.SchedSwitches, hotspot.SchedWakeups, hotspot.DStateEntries, hotspot.IRQEntries, hotspot.TraceMarks, hotspot.TargetPIDSwitches,
+			sanitizeForBanner(strings.Join(hotspot.SuggestedViews, ",")))
+	}
+	for _, row := range sweep.Coverage {
+		fmt.Fprintf(b, "- coverage window=%.6f..%.6f buckets=%d sched_switches=%d wakeups=%d d_state_entries=%d irq_entries=%d trace_marks=%d target_pid_switches=%d\n",
+			row.StartTs, row.EndTs, row.Buckets, row.SchedSwitches, row.SchedWakeups, row.DStateEntries, row.IRQEntries, row.TraceMarks, row.TargetPIDSwitches)
+	}
+	for _, caveat := range sweep.Caveats {
+		fmt.Fprintf(b, "- window_sweep_caveat=%s\n", sanitizeForBanner(caveat))
+	}
+	b.WriteString("\n")
+}
+
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s pattern=%s span_name=%s interaction_direction=%s recipe_name=%s platform=%s platform_candidate=%s trace_flavor=%s trace_flavor_confidence=%.2f priority_rule=%s payload_ref=%s]\n",
@@ -2611,6 +2747,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				traceThreadLabel(span.Thread), span.Name, span.StartTs, span.EndTs, firstNonEmptyTraceString(span.Kind, "sync"), span.DurationMs, span.StartLine, span.EndLine)
 		}
 		b.WriteString("\n")
+	}
+	if result.WindowSweep != nil {
+		writeTraceWindowSweepSummary(&b, result.WindowSweep)
 	}
 	if result.FrameRootCauseBundle != nil {
 		writeTraceFrameRootCauseBundleSummary(&b, result.FrameRootCauseBundle)

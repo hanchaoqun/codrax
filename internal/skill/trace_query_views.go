@@ -29,6 +29,11 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 			When:   "structured row lookup of exact frame/jank ids, span or marker labels, B/E/C/S/F trace_mark rows, inode tokens, entry_name values, perf sample symbols/DSOs/callchains, timestamps, or event labels",
 		},
 		{
+			View:   "window_sweep",
+			Params: "the same `time_start`/`time_end` as the dense request window, optional `bucket_ms` (default 100ms, clamped 50..500) and `pid`",
+			When:   "a streaming per-bucket coverage scan of a second-scale or longer dense window (not subject to the index event budget) that ranks advisory top-K dense sub-windows by sched_switch density or target-pid participation and returns a compact coverage table, so heavy-view drill-down windows are picked from measured density instead of blind window bisection",
+		},
+		{
 			View:   "span_window",
 			Params: "`span_name`",
 			When:   "turning a named trace span into a selected time window when the user names a span instead of exact timestamps; B/E ends are unnamed E|pid or E on the same ftrace thread stack, and S/F async spans pair by marker pid+name+cookie",
