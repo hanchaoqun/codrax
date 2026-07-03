@@ -5596,6 +5596,12 @@ type ToolRepair struct {
 }
 
 const (
+	// ToolRepairCodeAnswerDocBlocksRequired is the verbatim repair code the
+	// finalize emit rejects an empty blocks[] payload with. The evaluator's
+	// empty-blocks breaker and snapshot-recovery hint key on this exact
+	// code (precise signal — never matched from hint prose).
+	ToolRepairCodeAnswerDocBlocksRequired = "answer_doc_blocks_required"
+
 	ToolRepairCodeReadFilePathMissing                  = "read_file_path_missing"
 	ToolRepairCodeReadFilePathIsDirectory              = "read_file_path_is_directory"
 	ToolRepairCodeEvidenceLineTextRepair               = "evidence_line_text_repair"

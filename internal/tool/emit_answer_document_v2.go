@@ -168,11 +168,22 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// re-introduce validation here.
 	if len(p.Blocks) == 0 {
 		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
-		return failEmitWithRepair(toolName, now, &types.ToolRepair{
-			Code:   "answer_doc_blocks_required",
+		repair := &types.ToolRepair{
+			Code:   types.ToolRepairCodeAnswerDocBlocksRequired,
 			Fields: []string{"blocks"},
 			Hint:   "Re-emit a complete `emit_answer_document` payload with a non-empty `blocks[]` array. Preserve the same answer facts and citations; do not send only `citations[]`, metadata, or free-form prose outside the tool call.",
-		},
+		}
+		// Advertise the retained prior draft so the model knows its
+		// previous blocks are recoverable via emit_answer_document_patch
+		// unchanged_block_ids instead of re-typing the whole document.
+		if count, source := answerDocPriorDraftSnapshot(ctx); count > 0 {
+			repair.Metadata = map[string]string{
+				"prior_draft_block_count": strconv.Itoa(count),
+				"prior_draft_source":      source,
+			}
+			repair.Hint += fmt.Sprintf(" A prior structured draft with %d block(s) is retained: recover it with emit_answer_document_patch (unchanged_block_ids preserves those blocks byte-identical).", count)
+		}
+		return failEmitWithRepair(toolName, now, repair,
 			"blocks[] is required and must be non-empty")
 	}
 
@@ -4610,4 +4621,27 @@ func lookupEnclosingFunction(symbols []repotypes.Symbol, line int) string {
 		}
 	}
 	return best
+}
+
+// answerDocPriorDraftSnapshot reports the block count and source slot of
+// the most recent recoverable structured draft, mirroring the evaluator's
+// patch-base probe order (accepted document, previous emit JSON, last
+// rejected draft). Advisory metadata only — never a gate input.
+func answerDocPriorDraftSnapshot(ctx *types.BusContext) (int, string) {
+	if ctx == nil || ctx.Mutable == nil {
+		return 0, ""
+	}
+	if doc := ctx.Mutable.AnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
+		return len(doc.Blocks), "accepted_document"
+	}
+	if rs := ctx.Mutable.RetryState(); rs != nil && len(rs.PrevEmitJSON) > 0 {
+		var doc types.AnswerDocumentV2
+		if err := json.Unmarshal(rs.PrevEmitJSON, &doc); err == nil && len(doc.Blocks) > 0 {
+			return len(doc.Blocks), "previous_emit"
+		}
+	}
+	if doc := ctx.Mutable.LastRejectedAnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
+		return len(doc.Blocks), "last_rejected_draft"
+	}
+	return 0, ""
 }

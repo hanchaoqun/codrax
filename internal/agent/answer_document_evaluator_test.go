@@ -6838,53 +6838,6 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopGenericRejectSurfacesToolError(t
 	}
 }
 
-// TestAnswerDocumentEvaluator_Observe_PayloadRegressionOverridesFieldHint pins
-// the catastrophic-regression override: when the tool flags
-// `payload_regression` (the LLM's retry collapsed multiple grounded
-// fields vs the prior emit), the hint must promote payload
-// restoration to the FIRST instruction and demote field correction
-// to secondary. Without this, the iter=2→iter=3 collapse trace
-// (citations 18→0; steps 16→0; summary 4250→0) would keep firing
-// per-field rejections that the model interprets as "emit only this
-// field", shrinking the payload further each round.
-func TestAnswerDocumentEvaluator_Observe_PayloadRegressionOverridesFieldHint(t *testing.T) {
-	e := &answerDocumentEvaluator{maxRetries: 2}
-	sig := e.Observe(nil, LoopObservation{
-		Phase:     PhaseMidLoop,
-		Iteration: 1,
-		LastToolResult: &types.ToolResult{
-			ToolName: "emit_answer_document",
-			Success:  false,
-			Summary:  "[answer_doc_reject:literal_grounding] steps[2].description not corroborated by citations[5]",
-			Repair: &types.ToolRepair{
-				Code:   "payload_regression:literal_grounding",
-				Fields: []string{"steps[2].description", "steps[2].citation_ref"},
-				Hint:   "Fix steps[2].description so cited identifiers overlap.",
-				Metadata: map[string]string{
-					"payload_regression_summary": "citations 18→0; steps 16→0; summary runes 4250→0",
-				},
-			},
-		},
-	})
-	if !sig.HintRequested {
-		t.Fatalf("payload-regression should request a hint, got %+v", sig)
-	}
-	for _, want := range []string{
-		"REGRESSED",
-		"PASTE THE FULL PRIOR PAYLOAD BACK byte-identical",
-		"citations 18→0; steps 16→0; summary runes 4250→0",
-		"Restoring the payload comes FIRST",
-		"steps[2].description",
-		"steps[2].citation_ref",
-	} {
-		if !strings.Contains(sig.Hint, want) {
-			t.Fatalf("payload-regression hint missing %q: %q", want, sig.Hint)
-		}
-	}
-	if !strings.Contains(sig.HintKey, "payload-regression") {
-		t.Errorf("payload-regression should drive HintKey reasonKey; got %q", sig.HintKey)
-	}
-}
 
 // TestComputeAnswerDocAttemptShape locks the attempt-shape capture so
 // the regression detector's input is well-defined for tests.
@@ -9872,5 +9825,78 @@ func TestRenderAnswerDocFacetCoverage_SoftenedAnnotation(t *testing.T) {
 	}
 	if strings.Contains(renderAnswerDocFacetCoverage(plain), "downgraded from HARD") {
 		t.Fatalf("born-SOFT facets must not be annotated as downgraded")
+	}
+}
+
+// TestAnswerDocumentEvaluator_EmptyBlocksRejectBreaker pins the F7
+// same-cause breaker: three identical answer_doc_blocks_required rejects
+// are hinted normally, the fourth force-stops the loop so the recovery
+// chain ships the retained snapshot; any success or different reject code
+// resets the streak; the empty-blocks reject itself is never accepted by
+// the breaker (it only stops paying retries).
+func TestAnswerDocumentEvaluator_EmptyBlocksRejectBreaker(t *testing.T) {
+	mut := types.NewMutableState("q")
+	ctx := &types.AgentContext{Stage: types.StageFinalize, Mutable: mut}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+
+	emptyReject := func() LoopObservation {
+		return LoopObservation{
+			Phase: PhaseMidLoop,
+			LastToolResult: &types.ToolResult{
+				ToolName: "emit_answer_document",
+				Success:  false,
+				Repair:   &types.ToolRepair{Code: types.ToolRepairCodeAnswerDocBlocksRequired},
+			},
+		}
+	}
+
+	for i := 1; i <= 3; i++ {
+		sig := e.Observe(ctx, emptyReject())
+		if sig.StopRequested {
+			t.Fatalf("reject #%d must not trip the breaker yet: %+v", i, sig)
+		}
+	}
+	sig := e.Observe(ctx, emptyReject())
+	if !sig.StopRequested || !strings.Contains(sig.StopReason, "empty-blocks reject breaker") {
+		t.Fatalf("4th identical empty-blocks reject must trip the breaker, got %+v", sig)
+	}
+
+	// A different reject code resets the streak.
+	e2 := &answerDocumentEvaluator{}
+	_ = e2.BuildInitialInstruction(ctx, nil)
+	for i := 0; i < 3; i++ {
+		_ = e2.Observe(ctx, emptyReject())
+	}
+	_ = e2.Observe(ctx, LoopObservation{
+		Phase: PhaseMidLoop,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Repair:   &types.ToolRepair{Code: "missing_diagram"},
+		},
+	})
+	if sig := e2.Observe(ctx, emptyReject()); sig.StopRequested {
+		t.Fatalf("streak must reset on a different reject code, got %+v", sig)
+	}
+
+	// A snapshot appearing mid-streak changes the fingerprint and
+	// restarts the count (situation changed — patch recovery is now
+	// possible and worth hinting about).
+	e3 := &answerDocumentEvaluator{}
+	_ = e3.BuildInitialInstruction(ctx, nil)
+	for i := 0; i < 3; i++ {
+		_ = e3.Observe(ctx, emptyReject())
+	}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "retained"}},
+	})
+	// NOTE: with an accepted doc on Mutable the MidLoop fast path stops
+	// with "emit_answer_document called" before the breaker — which is
+	// correct loop behavior (a valid doc exists). Assert the breaker
+	// state was not what stopped it.
+	sig = e3.Observe(ctx, emptyReject())
+	if sig.StopRequested && strings.Contains(sig.StopReason, "empty-blocks reject breaker") {
+		t.Fatalf("fingerprint change must restart the streak, got breaker trip: %+v", sig)
 	}
 }

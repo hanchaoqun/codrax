@@ -89,6 +89,21 @@ type answerDocumentEvaluator struct {
 	// switch and we don't need to keep nagging).
 	emitFullDocFailStreak int
 
+	// emptyBlocksRejectStreak / emptyBlocksRejectFingerprint drive the
+	// F7 same-cause breaker for repeated empty-blocks rejects. The
+	// fingerprint is ONLY the verbatim repair code plus a
+	// snapshot-present bit — never hint counters or escalating text the
+	// reject handler itself mutates per round (the blockerKey self-churn
+	// lesson): identical rejects must accumulate, and any successful
+	// emit or different reject code resets the streak. On streak >
+	// emptyBlocksRejectBreakerMaxStreak the evaluator stops hinting and
+	// force-stops the loop so the EXISTING recovery chain ships the last
+	// valid snapshot (or the degraded missing-document lane). The
+	// empty-blocks reject itself stays unconditional — the breaker never
+	// accepts an empty payload, it stops paying retries for one.
+	emptyBlocksRejectStreak      int
+	emptyBlocksRejectFingerprint string
+
 	// emitPatchNudgeFired latches once the LLM is observed calling
 	// emit_answer_document_patch (success or failure) — i.e. the LLM
 	// has SEEN and acted on the switch-to-patch nudge. Until that
@@ -316,6 +331,8 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	e.proseFallbackRequested = false
 	e.rejectHintsUsed = 0
 	e.emitFullDocFailStreak = 0
+	e.emptyBlocksRejectStreak = 0
+	e.emptyBlocksRejectFingerprint = ""
 	e.emitPatchNudgeFired = false
 	e.forceFullEmitNext = false
 	e.preferPatchNext = false
@@ -8339,6 +8356,9 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 		// strategic guidance reaches the LLM at the highest
 		// salience slot. The reject signal still fires on the
 		// next iter via emitAnswerDocumentRejectSignal.
+		if sig := e.emptyBlocksRejectBreakerSignal(ctx, obs); sig.StopRequested {
+			return sig
+		}
 		if sig := e.emitSwitchToPatchSignal(ctx, obs); sig.HintRequested {
 			return sig
 		}
@@ -9117,6 +9137,51 @@ func isolatedFinalizerProseFallbackPrompt(ctx *types.AgentContext, lang string) 
 	return b.String()
 }
 
+// emptyBlocksRejectBreakerMaxStreak mirrors the completion-side
+// same-cause denial breaker threshold: three identical no-progress
+// rejects are an unrecoverable pattern, the fourth attempt is not paid.
+const emptyBlocksRejectBreakerMaxStreak = 3
+
+// emptyBlocksRejectBreakerSignal is the F7 same-cause breaker: it counts
+// consecutive emit rejects whose verbatim repair code is
+// answer_doc_blocks_required (either emit path) and force-stops the loop
+// once the streak exceeds the threshold, so the existing recovery chain
+// ships the retained model-authored snapshot — or the degraded
+// missing-document lane when no snapshot exists — instead of burning the
+// whole reject-hint budget on identical empty emits. Any successful emit
+// or a failure with a different repair code resets the streak; a
+// snapshot appearing mid-streak changes the fingerprint and restarts it.
+func (e *answerDocumentEvaluator) emptyBlocksRejectBreakerSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
+	tr := obs.LastToolResult
+	if tr == nil || (tr.ToolName != "emit_answer_document" && tr.ToolName != "emit_answer_document_patch") {
+		return LoopSignal{}
+	}
+	if tr.Success || tr.Repair == nil || strings.TrimSpace(tr.Repair.Code) != types.ToolRepairCodeAnswerDocBlocksRequired {
+		// Any other outcome on these tools — success, a different
+		// reject code, or a repair-less failure — is a different
+		// cause: the streak is strictly consecutive-identical.
+		e.emptyBlocksRejectStreak = 0
+		e.emptyBlocksRejectFingerprint = ""
+		return LoopSignal{}
+	}
+	fingerprint := fmt.Sprintf("%s snapshot=%t", types.ToolRepairCodeAnswerDocBlocksRequired, answerDocumentPatchBaseAvailable(ctx, e.mu))
+	if fingerprint == e.emptyBlocksRejectFingerprint {
+		e.emptyBlocksRejectStreak++
+	} else {
+		e.emptyBlocksRejectFingerprint = fingerprint
+		e.emptyBlocksRejectStreak = 1
+	}
+	if e.emptyBlocksRejectStreak <= emptyBlocksRejectBreakerMaxStreak {
+		return LoopSignal{}
+	}
+	logging.Warning("[finalizer/answer_document] empty-blocks reject breaker tripped after %d identical rejects (%s); stopping the loop for snapshot recovery",
+		e.emptyBlocksRejectStreak-1, fingerprint)
+	return LoopSignal{
+		StopRequested: true,
+		StopReason:    "empty-blocks reject breaker: recovering retained draft",
+	}
+}
+
 func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservation) LoopSignal {
 	if obs.Phase != PhaseMidLoop || len(obs.Response.ToolCalls) == 0 {
 		return LoopSignal{}
@@ -9625,18 +9690,6 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// reject hint targets one field, model interprets it as "emit
 	// only that field", payload shrinks further, next reject fires
 	// on a now-different missing field, retry budget exhausts.
-	if repair != nil && answerDocRepairIsRegression(repair) {
-		fields := repair.Fields
-		if len(fields) == 0 {
-			fields = []string{"the field(s) named in the tool error"}
-		}
-		regressionSummary := ""
-		if repair.Metadata != nil {
-			regressionSummary = repair.Metadata["payload_regression_summary"]
-		}
-		hint = answerDocPayloadRegressionHint(regressionSummary, fields)
-		reasonKey = "payload-regression"
-	}
 	if answerDocShouldPreferPatchForFullReject(ctx, e, repair) {
 		e.preferPatchNext = true
 		hint = answerDocFullRejectPatchHint(repair, hint)
@@ -9674,9 +9727,6 @@ func answerDocShouldPreferPatchForFullReject(ctx *types.AgentContext, e *answerD
 	if e == nil || e.forceFullEmitNext {
 		return false
 	}
-	if answerDocRepairIsRegression(repair) {
-		return false
-	}
 	return answerDocumentPatchBaseAvailable(ctx, e.mu)
 }
 
@@ -9693,7 +9743,14 @@ func answerDocFullRejectPatchHint(repair *types.ToolRepair, existingHint string)
 		fields = " Target field(s): `" + strings.Join(repair.Fields, "`, `") + "`."
 	}
 	var b strings.Builder
-	b.WriteString("Your last `emit_answer_document` call produced a usable structured draft but was rejected by validation. Use `emit_answer_document_patch` now instead of re-emitting the full document: put every unchanged prior block id in `unchanged_block_ids`, use `replace_blocks` for existing blocks that need edits, and use `add_blocks` only for genuinely missing new blocks. Apply only this repair")
+	if repair != nil && strings.TrimSpace(repair.Code) == types.ToolRepairCodeAnswerDocBlocksRequired {
+		// Empty-blocks reject: the usable draft is a PRIOR emit, not the
+		// rejected call — the generic opening would falsely tell the
+		// model its empty payload "produced a usable structured draft".
+		b.WriteString("Your last `emit_answer_document` call carried NO blocks and was rejected; your previous structured draft is still retained. Use `emit_answer_document_patch` now instead of re-typing the document: put every prior block id you want to keep in `unchanged_block_ids` (they are cloned byte-identical), use `replace_blocks` for blocks that need edits, and use `add_blocks` only for genuinely new blocks. Apply only this repair")
+	} else {
+		b.WriteString("Your last `emit_answer_document` call produced a usable structured draft but was rejected by validation. Use `emit_answer_document_patch` now instead of re-emitting the full document: put every unchanged prior block id in `unchanged_block_ids`, use `replace_blocks` for existing blocks that need edits, and use `add_blocks` only for genuinely missing new blocks. Apply only this repair")
+	}
 	if detail != "" {
 		b.WriteString(": ")
 		b.WriteString(detail)
@@ -9724,20 +9781,6 @@ func answerDocAttachEscalation(hint string, attempt int) string {
 		return "RETRY (this is your 2nd attempt on the SAME issue — your previous fix did not address it; re-read the named field and constraint below before re-emitting): " + hint
 	}
 	return "FINAL RETRY (this is attempt #" + fmt.Sprint(attempt) + " on the SAME issue — fix the named field NOW or the answer ships with the violation surfaced as a caveat): " + hint
-}
-
-// answerDocRepairIsRegression reports whether the repair's Code
-// indicates the catastrophic-regression detector fired in the tool.
-// The tool stamps Code as either "payload_regression" (no underlying
-// reject) or "payload_regression:<original>" (regression layered on
-// top of an existing reject — the prefix preserves the original
-// reject reason for log forensics).
-func answerDocRepairIsRegression(repair *types.ToolRepair) bool {
-	if repair == nil {
-		return false
-	}
-	code := strings.TrimSpace(repair.Code)
-	return code == "payload_regression" || strings.HasPrefix(code, "payload_regression:")
 }
 
 func repairHintMentionsFields(hint string, fields []string) bool {
@@ -9826,23 +9869,6 @@ func answerDocFixOnlyDirective(fields []string, hasPreviousDraft bool) string {
 		return "Re-emit a complete `emit_answer_document` payload and ensure these field(s) are populated correctly: `" + strings.Join(fields, "`, `") + "`. Build the rest of the document from the already-provided evidence and required answer blocks; do not emit only the named fields."
 	}
 	return "Re-emit `emit_answer_document` with the FULL previous payload byte-identical, then change ONLY these field(s): `" + strings.Join(fields, "`, `") + "`. Every other field — `blocks[]` (each block id, kind, payload, item ids, item text, item claim_use), `citations[]`, doc-level `claim_use` annotations, `exact_resolution` — must reproduce the prior emit byte-identical. Do not drop, blank, or shrink any other field."
-}
-
-// answerDocPayloadRegressionHint surfaces the "you dropped fields"
-// override that takes precedence over a normal field-specific
-// rejection hint when the latest emit is catastrophically smaller
-// than the previous emit. The orchestrator-level catastrophic-
-// regression detector (registered as Repair on the tool result)
-// flags this; the evaluator surfaces a hint that focuses on
-// payload restoration FIRST, then field correction.
-func answerDocPayloadRegressionHint(droppedSummary string, fieldsToFix []string) string {
-	var b strings.Builder
-	b.WriteString("Your last `emit_answer_document` call REGRESSED — multiple grounded fields were dropped or blanked compared to the previous emit (")
-	b.WriteString(droppedSummary)
-	b.WriteString("). Re-emit `emit_answer_document` now: PASTE THE FULL PRIOR PAYLOAD BACK byte-identical (`blocks[]` with every block id and item, `citations[]`, doc-level `claim_use` annotations, `exact_resolution` — every field that was present last round), then change ONLY: `")
-	b.WriteString(strings.Join(fieldsToFix, "`, `"))
-	b.WriteString("`. Restoring the payload comes FIRST; field correction is secondary. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call.")
-	return b.String()
 }
 
 const (

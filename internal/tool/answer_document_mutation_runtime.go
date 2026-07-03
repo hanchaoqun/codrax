@@ -619,6 +619,16 @@ func validateMergedV2Doc(doc *types.AnswerDocumentV2) error {
 	if doc == nil {
 		return fmt.Errorf("merged doc is nil")
 	}
+	if len(doc.Blocks) == 0 {
+		// The full-emit path rejects empty blocks up front; this is the
+		// shared backstop for the patch path, where remove_block_ids
+		// covering every block would otherwise persist an EMPTY document
+		// past the non-softenable empty-blocks gate. No system-side
+		// mutation empties a doc (materialize*/normalize* writers only
+		// append or rewrite in place), so an empty merge is always a
+		// model-authored patch error.
+		return fmt.Errorf("merged doc has no blocks; a patch may not remove every block — keep or replace at least one block (unchanged_block_ids preserves prior blocks byte-identical)")
+	}
 	if len(doc.Blocks) > maxBlocksPerDoc {
 		return fmt.Errorf("merged doc has %d blocks; maximum is %d",
 			len(doc.Blocks), maxBlocksPerDoc)

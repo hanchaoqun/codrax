@@ -3787,3 +3787,55 @@ func TestNormalizeControlCharsInJSONStrings_Atomic(t *testing.T) {
 		})
 	}
 }
+
+// TestEmitAnswerDocumentV2_EmptyBlocksRejectAdvertisesRetainedSnapshot
+// pins the F7 snapshot advertisement: when a prior structured draft is
+// recoverable, the unconditional empty-blocks reject carries
+// prior_draft_block_count/prior_draft_source metadata and names the patch
+// recovery lane in the hint; the reject itself never accepts an empty
+// payload (non-softenable gate pin).
+func TestEmitAnswerDocumentV2_EmptyBlocksRejectAdvertisesRetainedSnapshot(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "prior draft block one"},
+			{ID: "s2", Kind: types.BlockSummary, Text: "prior draft block two"},
+		},
+	})
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{"blocks":[],"citations":[{"file":"x.go","line":1}]}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("empty blocks[] must reject even when a snapshot exists (non-softenable)")
+	}
+	if res.Repair == nil || res.Repair.Code != types.ToolRepairCodeAnswerDocBlocksRequired {
+		t.Fatalf("unexpected repair: %+v", res.Repair)
+	}
+	if res.Repair.Metadata["prior_draft_block_count"] != "2" || res.Repair.Metadata["prior_draft_source"] != "accepted_document" {
+		t.Fatalf("snapshot metadata missing: %+v", res.Repair.Metadata)
+	}
+	if !strings.Contains(res.Repair.Hint, "emit_answer_document_patch") || !strings.Contains(res.Repair.Hint, "2 block(s)") {
+		t.Fatalf("hint must advertise the patch recovery lane: %q", res.Repair.Hint)
+	}
+	if doc := bus.Mutable.AnswerDocumentV2(); doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("prior accepted doc must be untouched by the reject: %+v", doc)
+	}
+}
+
+// TestValidateMergedV2Doc_RejectsEmptyMerge pins the F7 patch-path
+// backstop: a merged document with zero blocks (remove_block_ids covering
+// every block) is rejected at the shared chokepoint.
+func TestValidateMergedV2Doc_RejectsEmptyMerge(t *testing.T) {
+	if err := validateMergedV2Doc(&types.AnswerDocumentV2{}); err == nil {
+		t.Fatal("empty merged doc must be rejected")
+	} else if !strings.Contains(err.Error(), "may not remove every block") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := validateMergedV2Doc(&types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "x"}},
+	}); err != nil {
+		t.Fatalf("single-block doc must pass: %v", err)
+	}
+}
