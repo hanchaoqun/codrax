@@ -186,24 +186,6 @@ func TestDiagramEdgeEndpointHallucinated_CaveatOnly(t *testing.T) {
 	}
 }
 
-// TestLegacyDeriveSeverityMatchesRegistry — every kind in
-// AllViolationKinds must have legacyDeriveSeverity agree with the
-// registry-declared DefaultSeverity. Migration window invariant.
-func TestLegacyDeriveSeverityMatchesRegistry(t *testing.T) {
-	for _, kind := range AllViolationKinds() {
-		spec, ok := ViolKindSpecFor(kind)
-		if !ok {
-			t.Errorf("kind=%q has no registry spec", kind)
-			continue
-		}
-		legacy := legacyDeriveSeverity(kind, false)
-		if legacy != spec.DefaultSeverity {
-			t.Errorf("kind=%q: severity drift — registry=%q legacyDeriveSeverity=%q",
-				kind, spec.DefaultSeverity, legacy)
-		}
-	}
-}
-
 // TestNotPromotable_IgnoresStrictAtProfileLayer asserts the
 // ViolationProfileFor rule: permanently-non-promotable kinds keep
 // their default RetryEligible regardless of isStrict.

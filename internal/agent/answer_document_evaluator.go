@@ -2178,80 +2178,15 @@ func retryRepairPhaseOrder(hasTopicMismatch bool) []retryRepairPhase {
 }
 
 func retryRepairPhaseForViolation(sv types.ScoredViolation) retryRepairPhase {
-	switch sv.Kind {
-	case types.ViolBlockCoverageMissing,
-		types.ViolPrincipalClaimUseMissing,
-		types.ViolUncertaintyBlockMissing,
-		types.ViolCurrentStatusVerdictMissing,
-		types.ViolLaneBlockKindMismatch,
-		types.ViolMissingRequestedRoleUndisclosed,
-		types.ViolFamilyMismatch,
-		types.ViolViewSwap,
-		types.ViolViewIntentMismatch,
-		types.ViolSubTopicCountMismatch,
-		types.ViolDeclaredCountDrift,
-		types.ViolStructuralEnumerationDivergence,
-		types.ViolScalarCountUnsourced,
-		types.ViolCardinalityShort,
-		types.ViolPathDepthInsufficient,
-		types.ViolEntityParityImbalanced:
-		return retryRepairPhaseStructure
-	case types.ViolAnswerTopicMismatch,
-		types.ViolAnswerSemanticUnderfilled,
-		types.ViolFacetUncovered,
-		types.ViolSubjectAnchorMissing,
-		types.ViolPredicateAxisMissing,
-		types.ViolIntentTraceShallow,
-		types.ViolIntentEnumerateNotList,
-		types.ViolIntentRootCauseNoCause,
-		types.ViolIntentConfigNoTrail:
-		return retryRepairPhaseCoverage
-	case types.ViolRichnessRegression,
-		types.ViolRichnessGlaringGap,
-		types.ViolPrincipalProseUnderfilled,
-		types.ViolEnumerationEvidenceUnderspecified,
-		types.ViolDiagramRelationLabelOnly:
-		return retryRepairPhaseRichness
-	case types.ViolCitation,
-		types.ViolMustInclude,
-		types.ViolMustExclude,
-		types.ViolAcceptance,
-		types.ViolSuccessCriterion,
-		types.ViolGhostAnchor,
-		types.ViolSelfRefLiteral,
-		types.ViolPreCompleteDowngrade,
-		types.ViolLiteralFormFailed,
-		types.ViolDiagramIdentifier,
-		types.ViolDiagramEdgeUnsupported,
-		types.ViolDiagramEdgeLabelMismatch,
-		types.ViolClaimFormUnsupported,
-		types.ViolAbsenceScopeExceeded,
-		types.ViolStepIdentifierUnverified,
-		types.ViolValueSecondaryCitationOffFocus,
-		types.ViolSelfContradiction,
-		types.ViolExternalArtifactUnderdecoded,
-		types.ViolAuthorityOverreach,
-		types.ViolCrossCitationConflict,
-		types.ViolSymbolAnchorMismatch,
-		types.ViolEnumerationLabelUngrounded,
-		types.ViolEnumerationItemLabelExtractorDrift,
-		types.ViolEnumerationLabelHallucinated,
-		types.ViolInlineIdentifierHallucinated,
-		types.ViolDiagramEdgeEndpointHallucinated:
-		return retryRepairPhaseConsistency
-	}
+	// Registry is the single source (F2 migration completion): the
+	// historical hand-written per-kind switch moved into
+	// ViolKindSpec.RepairPhase / EffectiveRepairPhase, pinned by the
+	// registry golden snapshot test.
 	if spec, ok := types.ViolKindSpecFor(sv.Kind); ok {
-		switch spec.Layer {
-		case "semantic_quality":
-			return retryRepairPhaseCoverage
-		case "v2_oracle":
-			return retryRepairPhaseStructure
-		case "evidence_pool":
-			return retryRepairPhaseRichness
-		case "contract_check", "self_consistency", "external_artifact", "authority":
-			return retryRepairPhaseConsistency
-		}
+		return retryRepairPhase(spec.EffectiveRepairPhase())
 	}
+	// Unregistered kinds: derive from the producer-stage label the
+	// violation itself carries (same derivation the registry uses).
 	switch sv.Layer {
 	case "semantic_quality":
 		return retryRepairPhaseCoverage
@@ -2259,8 +2194,6 @@ func retryRepairPhaseForViolation(sv types.ScoredViolation) retryRepairPhase {
 		return retryRepairPhaseStructure
 	case "evidence_pool":
 		return retryRepairPhaseRichness
-	case "contract_check", "self_consistency", "external_artifact", "authority":
-		return retryRepairPhaseConsistency
 	}
 	return retryRepairPhaseConsistency
 }

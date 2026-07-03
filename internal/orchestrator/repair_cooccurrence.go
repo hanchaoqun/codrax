@@ -68,14 +68,14 @@ type CooccurrenceRule struct {
 // names the invariant + a code/doc reference where it lives.
 //
 // Rule audit checklist (apply when adding a new rule):
-//   1. Can you point to ONE concrete pipeline invariant that makes
-//      Derived's success contingent on Primary's success? If no →
-//      rule does not belong here (this would be heuristic).
-//   2. Is the dependency one-way? If Primary can fire without
-//      causing Derived OR Derived can fire without Primary, it's
-//      not a true precondition — at most a soft signal.
-//   3. Does the Reason text name the invariant in a way a future
-//      reader can grep?
+//  1. Can you point to ONE concrete pipeline invariant that makes
+//     Derived's success contingent on Primary's success? If no →
+//     rule does not belong here (this would be heuristic).
+//  2. Is the dependency one-way? If Primary can fire without
+//     causing Derived OR Derived can fire without Primary, it's
+//     not a true precondition — at most a soft signal.
+//  3. Does the Reason text name the invariant in a way a future
+//     reader can grep?
 //
 // Order is significant: rules are evaluated top-to-bottom in
 // matchRule, and the first match wins. Place stronger
@@ -229,8 +229,13 @@ var defaultCooccurrenceRules = []CooccurrenceRule{
 	// extractor emitted N declared symbols but the renderer surfaced
 	// M ≠ N items; the surplus items have no extractor-side anchor
 	// and necessarily fail label grounding.
-	// Source: contract_check.go validateDeclaredCountDrift +
-	// validateEnumerationLabelGrounded (extractor-side anchor pool).
+	// Source (historical): the V1 finalize-stage view oracle
+	// validateDeclaredCountDrift, retired at B8-T4 — the kind is
+	// dormant (no live producer), so this rule is inert until a V2
+	// producer exists. Kept for the derived-closure shape only.
+	// Label grounding: contract_check_block.go
+	// validateEnumerationItemLabelGrounding (extractor-side anchor
+	// pool).
 	{
 		Primary: types.ViolDeclaredCountDrift,
 		Derived: []types.ViolationKind{

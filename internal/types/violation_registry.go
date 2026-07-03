@@ -130,6 +130,34 @@ type ViolKindSpec struct {
 	// source #4).
 	FixableByAgents []AgentName
 
+	// StrictSeverity is the Severity assigned when the operator
+	// strict-promotes this kind (pipeline_contract_strict_kinds).
+	// Empty means "derive": Critical/High stay themselves, Medium
+	// bumps to High, Soft bumps to Medium when Promotable (else
+	// stays Soft). Set explicitly ONLY where the derivation is wrong
+	// (the 2026-05-17 T3 soft-demote kinds strict-promote to High,
+	// not Medium; a few registered kinds never had a strict bump and
+	// stay Medium). EffectiveStrictSeverity resolves the final value.
+	StrictSeverity Severity
+
+	// RepairPhase groups this kind into the finalize retry-prompt
+	// phase ordering (structure → consistency → coverage → richness).
+	// Empty means "derive from Layer": semantic_quality → coverage,
+	// v2_oracle → structure, evidence_pool → richness, everything
+	// else → consistency. Set explicitly where the historical
+	// hand-written table diverged from the Layer derivation.
+	// EffectiveRepairPhase resolves the final value.
+	RepairPhase RepairPhase
+
+	// AutoRepair names the mechanical-repair chokepoint that can fix
+	// this kind without a model retry: toolparam (schema-mechanical
+	// normalization), pre_emit (answer-document normalize chain), or
+	// render (system caveat/hedging materialization). DESCRIPTIVE
+	// telemetry metadata only — it documents retry-elimination
+	// candidates and lets reports compare repaired-at-chokepoint vs
+	// retried counts. MUST NOT gate anything.
+	AutoRepair AutoRepairLane
+
 	// SchemaDescriptionFragment is a sentence-level structural rule
 	// the LLM should know AT EMIT TIME (rather than learn
 	// post-rejection from a retry hint). When non-empty, the
@@ -215,6 +243,70 @@ func (l RepairLocus) IsValid() bool {
 		return true
 	}
 	return false
+}
+
+// RepairPhase groups violations into the finalize retry-prompt phase
+// ordering. Mirrors the RepairLocus typed-alias pattern so the agent
+// layer consumes registry values without a parallel table.
+type RepairPhase string
+
+const (
+	RepairPhaseStructure   RepairPhase = "structure"
+	RepairPhaseConsistency RepairPhase = "consistency"
+	RepairPhaseCoverage    RepairPhase = "coverage"
+	RepairPhaseRichness    RepairPhase = "richness"
+)
+
+// AutoRepairLane names the mechanical-repair chokepoint able to fix a
+// violation kind without a model retry. Descriptive telemetry only.
+type AutoRepairLane string
+
+const (
+	AutoRepairNone      AutoRepairLane = ""
+	AutoRepairToolParam AutoRepairLane = "toolparam"
+	AutoRepairPreEmit   AutoRepairLane = "pre_emit"
+	AutoRepairRender    AutoRepairLane = "render"
+)
+
+// EffectiveStrictSeverity resolves the strict-promotion severity:
+// the explicit StrictSeverity when set, otherwise the standard
+// derivation (Critical/High unchanged, Medium → High, Soft → Medium
+// when Promotable else Soft).
+func (s ViolKindSpec) EffectiveStrictSeverity() Severity {
+	if s.StrictSeverity != "" {
+		return s.StrictSeverity
+	}
+	switch s.DefaultSeverity {
+	case SeverityCritical:
+		return SeverityCritical
+	case SeverityHigh:
+		return SeverityHigh
+	case SeverityMedium:
+		return SeverityHigh
+	case SeveritySoft:
+		if s.Promotable {
+			return SeverityMedium
+		}
+		return SeveritySoft
+	}
+	return SeverityMedium
+}
+
+// EffectiveRepairPhase resolves the finalize retry-prompt phase: the
+// explicit RepairPhase when set, otherwise derived from Layer.
+func (s ViolKindSpec) EffectiveRepairPhase() RepairPhase {
+	if s.RepairPhase != "" {
+		return s.RepairPhase
+	}
+	switch s.Layer {
+	case "semantic_quality":
+		return RepairPhaseCoverage
+	case "v2_oracle":
+		return RepairPhaseStructure
+	case "evidence_pool":
+		return RepairPhaseRichness
+	}
+	return RepairPhaseConsistency
 }
 
 var (
@@ -465,12 +557,12 @@ func init() {
 	// caveat instead of forcing broad finalizer rewrites for incomplete
 	// or noisy contract signals.
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolFamilyMismatch, DefaultSeverity: SeverityMedium,
+		Kind: ViolFamilyMismatch, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseStructure,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolCitation, DefaultSeverity: SeverityMedium,
+		Kind: ViolCitation, DefaultSeverity: SeverityMedium, AutoRepair: AutoRepairPreEmit,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
@@ -522,24 +614,24 @@ func init() {
 		Layer: "cgec", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolViewSwap, DefaultSeverity: SeverityMedium,
+		Kind: ViolViewSwap, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseStructure,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "cgec", CaveatFamilyID: CaveatFamilyShapeFit,
 	})
 
 	// ── Commit 53 P2 read-mode shape oracle ──
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolViewIntentMismatch, DefaultSeverity: SeverityMedium,
+		Kind: ViolViewIntentMismatch, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseStructure,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyShapeFit,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolSubTopicCountMismatch, DefaultSeverity: SeverityMedium,
+		Kind: ViolSubTopicCountMismatch, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseStructure,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolDiagramIdentifier, DefaultSeverity: SeverityMedium,
+		Kind: ViolDiagramIdentifier, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseConsistency,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
 	})
@@ -547,6 +639,7 @@ func init() {
 		Kind: ViolDeclaredCountDrift, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyEnumerationDepth,
+		Description:               "DORMANT — the V1 finalize-stage view oracle producer was retired at B8-T4; no live producer emits this kind. The compliant replacement for count drift is ViolCardinalityShort's disclosure caveat (F3-6 ruling); an auto-rescale of model prose would violate the no-system-backfill red line.",
 		SchemaDescriptionFragment: "When emit_answer_symbol declared a count of N, the rendered enumeration block MUST contain exactly N items — drift below or above the claim is rejected.",
 	})
 	RegisterViolKind(ViolKindSpec{
@@ -560,7 +653,7 @@ func init() {
 		Layer: "external_artifact", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolAuthorityOverreach, DefaultSeverity: SeverityCritical,
+		Kind: ViolAuthorityOverreach, DefaultSeverity: SeverityCritical, AutoRepair: AutoRepairRender,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "authority", CaveatFamilyID: CaveatFamilyAuthorityHedging,
 	})
@@ -569,56 +662,56 @@ func init() {
 	// Reviewer kinds are operator-only telemetry — no user-visible
 	// caveat (CaveatFamilyID intentionally empty).
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolPlanCritic, DefaultSeverity: SeveritySoft,
+		Kind: ViolPlanCritic, DefaultSeverity: SeveritySoft, StrictSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusTerminal,
 		Layer: "reviewer",
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolReflectorObservation, DefaultSeverity: SeveritySoft,
+		Kind: ViolReflectorObservation, DefaultSeverity: SeveritySoft, StrictSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusTerminal,
 		Layer: "reviewer",
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolAnswerReviewerDistilled, DefaultSeverity: SeveritySoft,
+		Kind: ViolAnswerReviewerDistilled, DefaultSeverity: SeveritySoft, StrictSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusTerminal,
 		Layer: "reviewer",
 	})
 
 	// ── Block 2 Intent / Subject / PredicateAxis oracle ──
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolIntentTraceShallow, DefaultSeverity: SeverityMedium,
+		Kind: ViolIntentTraceShallow, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseCoverage,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolIntentEnumerateNotList, DefaultSeverity: SeverityMedium,
+		Kind: ViolIntentEnumerateNotList, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseCoverage,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyShapeFit,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolIntentRootCauseNoCause, DefaultSeverity: SeverityMedium,
+		Kind: ViolIntentRootCauseNoCause, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseCoverage,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolIntentConfigNoTrail, DefaultSeverity: SeverityMedium,
+		Kind: ViolIntentConfigNoTrail, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseCoverage,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolSubjectAnchorMissing, DefaultSeverity: SeverityMedium,
+		Kind: ViolSubjectAnchorMissing, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseCoverage,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolPredicateAxisMissing, DefaultSeverity: SeverityMedium,
+		Kind: ViolPredicateAxisMissing, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseCoverage,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 
 	// ── Phase 4 Semantic Surface Contract ──
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolFacetUncovered, DefaultSeverity: SeverityMedium,
+		Kind: ViolFacetUncovered, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseCoverage,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 		SchemaDescriptionFragment: "Every required facet listed in the user section MUST be claimed by at least one block — set block.facet_ids=[<facet>] OR block.claim_uses[j].facet_id=<facet>.",
@@ -631,12 +724,12 @@ func init() {
 		Implies: []ViolationKind{ViolRichnessRegression},
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolClaimFormUnsupported, DefaultSeverity: SeverityMedium,
+		Kind: ViolClaimFormUnsupported, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseConsistency,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolAbsenceScopeExceeded, DefaultSeverity: SeverityMedium,
+		Kind: ViolAbsenceScopeExceeded, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseConsistency,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
@@ -651,7 +744,7 @@ func init() {
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolMissingRequestedRoleUndisclosed, DefaultSeverity: SeverityMedium,
+		Kind: ViolMissingRequestedRoleUndisclosed, DefaultSeverity: SeverityMedium, StrictSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 		SchemaDescriptionFragment: "When the semantic view names missing_requested_roles[] for a config-precedence exact-absence answer, copy every listed role into the document-level missing_requested_roles[] field. Do not omit a requested missing layer and do not replace it with vague placeholders like N/A.",
@@ -664,7 +757,7 @@ func init() {
 	})
 	// Phase 5 — telemetry-only, permanently SOFT.
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolRichnessRegression, DefaultSeverity: SeveritySoft,
+		Kind: ViolRichnessRegression, DefaultSeverity: SeveritySoft, RepairPhase: RepairPhaseRichness,
 		SoftByDefault: true, Promotable: false, FallbackLocus: LocusTerminal,
 		Layer: "v2_oracle",
 		// Pure telemetry: this kind is recorded for CGEC trend analysis
@@ -710,7 +803,7 @@ func init() {
 		SchemaDescriptionFragment: "Every principal block (surface_role=principal) whose user-section contract lists allowed `claim_form` values MUST emit at least one matching entry in the block's claim_uses[] array.",
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolDiagramEdgeUnsupported, DefaultSeverity: SeverityMedium,
+		Kind: ViolDiagramEdgeUnsupported, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseConsistency,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
 		SchemaDescriptionFragment: "Every diagram edge that carries a labelled relation MUST have a matching entry in the diagram block's edge_anchors[] with a typed relation_kind (call/guard/import/precedence/contain/observe) and from_node/to_node names that appear verbatim in the diagram body.",
@@ -726,7 +819,7 @@ func init() {
 		},
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolDiagramEdgeLabelMismatch, DefaultSeverity: SeveritySoft,
+		Kind: ViolDiagramEdgeLabelMismatch, DefaultSeverity: SeveritySoft, RepairPhase: RepairPhaseConsistency,
 		SoftByDefault: true, Promotable: false, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
 	})
@@ -741,7 +834,7 @@ func init() {
 		// failure mode (missing disclosure) is style, not correctness.
 		// Promotable stays true so operators who want strict
 		// transparency via pipeline_contract_strict_kinds can promote.
-		Kind: ViolUncertaintyBlockMissing, DefaultSeverity: SeveritySoft,
+		Kind: ViolUncertaintyBlockMissing, DefaultSeverity: SeveritySoft, StrictSeverity: SeverityHigh,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
@@ -770,14 +863,14 @@ func init() {
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolExhaustiveMemberSetCoverageDrift, DefaultSeverity: SeverityMedium,
+		Kind: ViolExhaustiveMemberSetCoverageDrift, DefaultSeverity: SeverityMedium, StrictSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
 		FixableByAgents:           []AgentName{AgentFinalizer},
 		SchemaDescriptionFragment: "For exhaustive principal member sets above the large-set threshold, the rendered list/table items MUST match the model-authored member_set: every member appears as exactly one item label, no extra items, citation_ref values are unique and in range.",
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolInactiveScopeDisclosureMissing, DefaultSeverity: SeveritySoft,
+		Kind: ViolInactiveScopeDisclosureMissing, DefaultSeverity: SeveritySoft, StrictSeverity: SeveritySoft, AutoRepair: AutoRepairRender,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusTerminal,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 		SchemaDescriptionFragment: "When a multi-repo workspace has inactive sub-repos AND the answer is bounded (absent exact target, empty role-locate slate, or scope-limited enumeration), the system appends a supplemental scope note if the answer does not already declare scope_disclosure or name an inactive RootRel.",
@@ -794,7 +887,7 @@ func init() {
 	// Missing edge_anchors / relation labels are telemetry, not a
 	// reason to rewrite or surface a user caveat.
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolDiagramRelationLabelOnly, DefaultSeverity: SeveritySoft,
+		Kind: ViolDiagramRelationLabelOnly, DefaultSeverity: SeveritySoft, RepairPhase: RepairPhaseRichness,
 		SoftByDefault: true, Promotable: false, FallbackLocus: LocusTerminal,
 		Layer: "v2_oracle",
 	})
@@ -810,7 +903,7 @@ func init() {
 		// not a correctness gate — the answer ships with reduced
 		// richness; promoting to retry rewrites the same body for a
 		// stylistic enrichment delta, burning a finalize round.
-		Kind: ViolRichnessGlaringGap, DefaultSeverity: SeveritySoft,
+		Kind: ViolRichnessGlaringGap, DefaultSeverity: SeveritySoft, StrictSeverity: SeverityHigh, RepairPhase: RepairPhaseRichness,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 		// A "glaring" gap on a facet is the more severe form of
@@ -827,7 +920,7 @@ func init() {
 		// hallucination gates already hard-strict, prose density is
 		// secondary. Promoting causes whole-doc rewrites for the same
 		// underlying evidence pool.
-		Kind: ViolPrincipalProseUnderfilled, DefaultSeverity: SeveritySoft,
+		Kind: ViolPrincipalProseUnderfilled, DefaultSeverity: SeveritySoft, StrictSeverity: SeverityHigh, RepairPhase: RepairPhaseRichness,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
@@ -884,13 +977,13 @@ func init() {
 		// in the PRE-EMIT CONSTRAINTS section auto-rendered from
 		// AllViolKindSpecs(). Pre-flight visibility lets the model
 		// satisfy the contract before the post-emit oracle fires.
-		Kind: ViolStructuralEnumerationDivergence, DefaultSeverity: SeveritySoft,
+		Kind: ViolStructuralEnumerationDivergence, DefaultSeverity: SeveritySoft, StrictSeverity: SeverityHigh,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyEnumerationDepth,
 		SchemaDescriptionFragment: "When the request enumerates implementers / members of a typed relation (e.g. \"list every implementer of <Interface>\", \"what are the members of <set>\"), the answer's principal list MUST cover every member the typed code-graph relation reports. Two valid forms: (a) include each member as a principal item with its grounded citation; (b) include only the subset you want to highlight, AND name every omitted member verbatim in summary prose as an exception case (\"X and Y also satisfy the relation but are excluded because Z\"). Silently dropping members the typed graph proves exist is a transparency failure — the user receives a partial set without knowing items were filtered.",
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolCrossCitationConflict, DefaultSeverity: SeverityMedium,
+		Kind: ViolCrossCitationConflict, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseConsistency,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
@@ -923,7 +1016,7 @@ func init() {
 		// coverage, not a hard rendering blocker. Operators promote to
 		// BackToExplore via pipeline_contract_strict_kinds when they
 		// want re-investigation on miss.
-		Kind: ViolSymbolAnchorMismatch, DefaultSeverity: SeveritySoft,
+		Kind: ViolSymbolAnchorMismatch, DefaultSeverity: SeveritySoft, StrictSeverity: SeverityHigh, RepairPhase: RepairPhaseConsistency,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
@@ -985,14 +1078,14 @@ func init() {
 		FixableByAgents: []AgentName{AgentFinalizer},
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolLaneBlockKindMismatch, DefaultSeverity: SeverityMedium,
+		Kind: ViolLaneBlockKindMismatch, DefaultSeverity: SeverityMedium, StrictSeverity: SeverityMedium, RepairPhase: RepairPhaseStructure,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer:                     "contract_check",
 		SchemaDescriptionFragment: "Each support lane (Observed artifact / Principal evidence / Current grounded code path / Nearest grounded mechanism / Boundary disclosures / Current-status verdict) declares an Allowed block kinds list. A principal block whose citations come from a lane MUST be one of that lane's allowed kinds — for example, an Observed artifact lane that allows only summary/caveat cannot be rendered as a principal ordered_list or diagram.",
 		FixableByAgents:           []AgentName{AgentFinalizer},
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolPrincipalSupportMemberOmitted, DefaultSeverity: SeverityMedium,
+		Kind: ViolPrincipalSupportMemberOmitted, DefaultSeverity: SeverityMedium, StrictSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
 		SchemaDescriptionFragment: "For enumeration answers, every entry in the Principal evidence support lane MUST be represented by a cited principal structured item unless the answer explicitly caveats why that member is out of scope.",
@@ -1024,7 +1117,7 @@ func init() {
 	// audit.
 
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolScalarCountUnsourced, DefaultSeverity: SeverityMedium,
+		Kind: ViolScalarCountUnsourced, DefaultSeverity: SeverityMedium, StrictSeverity: SeverityMedium, RepairPhase: RepairPhaseStructure,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "tier2_completeness", CaveatFamilyID: CaveatFamilyTier2ScalarCount,
 		SchemaDescriptionFragment: "Count / measurement-scalar answers MUST surface a number derived from a deterministic counting tool (the answer cites at least one tool result whose summary contains the integer). Visual counting from read_file output is rejected as unreliable.",
@@ -1036,7 +1129,7 @@ func init() {
 		FixableByAgents: []AgentName{AgentExplorer},
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolPathDepthInsufficient, DefaultSeverity: SeverityMedium,
+		Kind: ViolPathDepthInsufficient, DefaultSeverity: SeverityMedium, StrictSeverity: SeverityMedium, RepairPhase: RepairPhaseStructure,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "tier2_completeness", CaveatFamilyID: CaveatFamilyTier2PathDepth,
 		SchemaDescriptionFragment: "Call-chain answers MUST cover entry + at least 3 intermediate steps + exit when the user named ≥2 chain endpoints. Stopping at the first 2-3 functions found produces a partial chain that misleads the reader.",
@@ -1044,7 +1137,7 @@ func init() {
 		FixableByAgents: []AgentName{AgentExplorer},
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolCardinalityShort, DefaultSeverity: SeverityMedium,
+		Kind: ViolCardinalityShort, DefaultSeverity: SeverityMedium, StrictSeverity: SeverityMedium, RepairPhase: RepairPhaseStructure,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "tier2_completeness", CaveatFamilyID: CaveatFamilyTier2Cardinality,
 		SchemaDescriptionFragment: "When the question carries an explicit declared count (EnumerationBoundary.DeclaredCount > 0), the answer's enumerated items MUST satisfy that count. Producing fewer items than declared without explicitly disclosing the gap is rejected.",
@@ -1054,7 +1147,7 @@ func init() {
 		FixableByAgents: []AgentName{AgentExtractor, AgentExplorer},
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolEntityParityImbalanced, DefaultSeverity: SeverityMedium,
+		Kind: ViolEntityParityImbalanced, DefaultSeverity: SeverityMedium, StrictSeverity: SeverityMedium, RepairPhase: RepairPhaseStructure,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "tier2_completeness", CaveatFamilyID: CaveatFamilyTier2EntityParity,
 		SchemaDescriptionFragment: "Comparison answers (≥2 named buckets) MUST sample evidence comparably across all buckets. Heavily skewed sampling — smallest bucket has fewer than half the evidence of the largest — produces a comparison whose weaker side reads as speculative.",

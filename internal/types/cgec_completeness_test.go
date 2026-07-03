@@ -204,8 +204,11 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolViewIntentMismatch:    true, // orchestrator/contract_check.go finalize-stage view oracle
 		ViolSubTopicCountMismatch: true, // orchestrator/contract_check.go finalize-stage view oracle
 		ViolDiagramIdentifier:     true, // tool/emit_answer_document.go diagram bare-identifier check (commit 53 P4)
-		// Commit 55 Batch A.3 — declared-count drift.
-		ViolDeclaredCountDrift: true, // orchestrator/contract_check.go finalize-stage view oracle
+		// Commit 55 Batch A.3 — declared-count drift. DORMANT: the V1
+		// finalize-stage view oracle producer was retired at B8-T4;
+		// no live producer emits this kind (F3-6 ruling: the compliant
+		// replacement is ViolCardinalityShort's disclosure caveat).
+		ViolDeclaredCountDrift: true,
 		// Commit 62 — answer-prose self-contradiction.
 		ViolSelfContradiction: true, // orchestrator/contract_check.go runSelfConsistencyReview
 		// 2026-05-02 / G63 — observed-artifact typed carrier shortfall.

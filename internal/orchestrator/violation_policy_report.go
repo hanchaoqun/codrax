@@ -16,6 +16,9 @@ type violationPolicyCoverageRow struct {
 	CaveatFamilyID       string
 	FixableByAgents      []types.AgentName
 	SchemaPreview        bool
+	StrictSeverity       types.Severity
+	RepairPhase          types.RepairPhase
+	AutoRepair           types.AutoRepairLane
 }
 
 func buildViolationPolicyCoverageReport() []violationPolicyCoverageRow {
@@ -53,6 +56,9 @@ func buildViolationPolicyCoverageReport() []violationPolicyCoverageRow {
 			CaveatFamilyID:       spec.CaveatFamilyID,
 			FixableByAgents:      agents,
 			SchemaPreview:        spec.SchemaDescriptionFragment != "",
+			StrictSeverity:       spec.EffectiveStrictSeverity(),
+			RepairPhase:          spec.EffectiveRepairPhase(),
+			AutoRepair:           spec.AutoRepair,
 		})
 	}
 	return rows

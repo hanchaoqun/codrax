@@ -6,67 +6,142 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// violation_registry_legacy_test.go — B0 v3 runtime consolidation
-// (2026-05-04). Asserts byte-identical agreement between the new
-// ViolKindRegistry-derived tables and the pre-v3 hardcoded literals
-// for every kind in types.AllViolationKinds(). This guards against
-// drift during the migration window: any spec change MUST keep the
-// legacy literal aligned (or vice versa) until the legacy literal
-// is deleted in a follow-up PR.
+// violation_registry_legacy_test.go — F2 migration completion
+// (2026-07-03). The pre-v3 legacy literals (severity switch, soft-kind
+// map, fallback-policy map, layer switch, evaluator repair-phase
+// switch) are DELETED; the registry is the sole source. The golden
+// snapshot below replaces the legacy-vs-registry comparison: every
+// registry edit is a visible one-line diff here, never a silent
+// routing/severity change. Regenerate a row ONLY as a deliberate,
+// reviewed behavior change.
 
-// TestRegistryDerivesAllLegacyTables sweeps every kind and compares:
-//
-//   - Registry severity        vs legacyDeriveSeverity
-//   - Registry SoftByDefault    vs legacyDefaultSoftKinds
-//   - Registry FallbackLocus → target   vs legacyDefaultFallbackPolicy
-//   - Registry Layer            vs legacyInferViolationLayer
-//
-// A divergence on any axis fails the test naming the kind + axis.
-func TestRegistryDerivesAllLegacyTables(t *testing.T) {
-	legacySoft := legacyDefaultSoftKinds()
-	legacyPolicy := legacyDefaultFallbackPolicy()
+// violGoldenRow is one pinned routing tuple:
+// {DefaultSeverity, StrictSeverity(effective), SoftByDefault,
+// Promotable, FallbackLocus, Layer, RepairPhase(effective)}.
+type violGoldenRow struct {
+	Default    types.Severity
+	Strict     types.Severity
+	Soft       bool
+	Promotable bool
+	Locus      types.RepairLocus
+	Layer      string
+	Phase      types.RepairPhase
+}
 
+var violRegistryGolden = map[types.ViolationKind]violGoldenRow{
+	"shape":                                  {"medium", "high", true, true, "finalizer", "contract_check", "structure"},
+	"citation":                               {"medium", "high", true, true, "explore", "contract_check", "consistency"},
+	"must_include":                           {"medium", "high", true, true, "finalizer", "contract_check", "consistency"},
+	"must_exclude":                           {"medium", "high", true, true, "finalizer", "contract_check", "consistency"},
+	"acceptance":                             {"medium", "high", true, true, "explore", "contract_check", "consistency"},
+	"success_criterion":                      {"medium", "high", true, true, "explore", "contract_check", "consistency"},
+	"ghost_anchor":                           {"medium", "high", true, true, "explore", "cgec", "consistency"},
+	"chain_demoted":                          {"medium", "high", true, true, "explore", "cgec", "consistency"},
+	"self_ref_literal":                       {"medium", "high", true, true, "finalizer", "cgec", "consistency"},
+	"pre_complete_downgrade":                 {"medium", "high", true, true, "finalizer", "cgec", "consistency"},
+	"literal_form_failed":                    {"medium", "high", true, true, "finalizer", "cgec", "consistency"},
+	"shape_swap":                             {"medium", "high", true, true, "finalizer", "cgec", "structure"},
+	"view_intent_mismatch":                   {"medium", "high", true, true, "finalizer", "answer_oracle", "structure"},
+	"sub_topic_count_mismatch":               {"medium", "high", true, true, "finalizer", "answer_oracle", "structure"},
+	"diagram_identifier_unverified":          {"medium", "high", true, true, "finalizer", "v2_oracle", "consistency"},
+	"declared_count_drift":                   {"medium", "high", true, true, "extract", "v2_oracle", "structure"},
+	"self_contradiction":                     {"medium", "high", true, true, "finalizer", "self_consistency", "consistency"},
+	"external_artifact_underdecoded":         {"medium", "high", true, true, "finalizer", "external_artifact", "consistency"},
+	"authority_overreach":                    {"critical", "critical", true, true, "finalizer", "authority", "consistency"},
+	"plan_critic_risk":                       {"soft", "soft", true, true, "terminal", "reviewer", "consistency"},
+	"reflector_observation":                  {"soft", "soft", true, true, "terminal", "reviewer", "consistency"},
+	"answer_reviewer_distilled":              {"soft", "soft", true, true, "terminal", "reviewer", "consistency"},
+	"intent_trace_shallow":                   {"medium", "high", true, true, "explore", "answer_oracle", "coverage"},
+	"intent_enumerate_not_list":              {"medium", "high", true, true, "finalizer", "answer_oracle", "coverage"},
+	"intent_root_cause_no_cause":             {"medium", "high", true, true, "explore", "answer_oracle", "coverage"},
+	"intent_config_no_trail":                 {"medium", "high", true, true, "explore", "answer_oracle", "coverage"},
+	"subject_anchor_missing":                 {"medium", "high", true, true, "extract", "answer_oracle", "coverage"},
+	"predicate_axis_missing":                 {"medium", "high", true, true, "explore", "answer_oracle", "coverage"},
+	"facet_uncovered":                        {"medium", "high", true, true, "explore", "v2_oracle", "coverage"},
+	"claim_form_unsupported":                 {"medium", "high", true, true, "finalizer", "v2_oracle", "consistency"},
+	"absence_scope_exceeded":                 {"medium", "high", true, true, "extract", "v2_oracle", "consistency"},
+	"missing_requested_role_undisclosed":     {"medium", "medium", true, true, "finalizer", "v2_oracle", "structure"},
+	"exact_resolution_ungrounded":            {"medium", "high", true, true, "finalizer", "v2_oracle", "structure"},
+	"scalar_value_ungrounded":                {"medium", "high", true, true, "finalizer", "v2_oracle", "structure"},
+	"step_identifier_unverified":             {"medium", "high", true, true, "explore", "answer_oracle", "consistency"},
+	"richness_regression":                    {"soft", "soft", true, false, "terminal", "v2_oracle", "richness"},
+	"value_secondary_citation_off_focus":     {"medium", "high", true, true, "extract", "answer_oracle", "consistency"},
+	"symbol_anchor_mismatch":                 {"soft", "high", true, true, "explore", "v2_oracle", "consistency"},
+	"enumeration_label_ungrounded":           {"medium", "high", true, true, "extract", "contract_check", "consistency"},
+	"enumeration_label_hallucinated":         {"medium", "high", true, true, "finalizer", "contract_check", "consistency"},
+	"inline_identifier_hallucinated":         {"medium", "high", true, true, "finalizer", "contract_check", "consistency"},
+	"diagram_edge_endpoint_hallucinated":     {"soft", "soft", true, false, "terminal", "contract_check", "consistency"},
+	"enumeration_item_label_extractor_drift": {"medium", "high", true, true, "finalizer", "contract_check", "consistency"},
+	"lane_block_kind_mismatch":               {"medium", "medium", true, true, "finalizer", "contract_check", "structure"},
+	"principal_support_member_omitted":       {"medium", "medium", true, true, "finalizer", "contract_check", "consistency"},
+	"structural_enumeration_divergence":      {"soft", "high", true, true, "extract", "v2_oracle", "structure"},
+	"cross_citation_conflict":                {"medium", "high", true, true, "extract", "v2_oracle", "consistency"},
+	"demotion_storm":                         {"soft", "soft", false, false, "terminal", "contract_check", "consistency"},
+	"forced_read_storm":                      {"soft", "soft", false, false, "terminal", "contract_check", "consistency"},
+	"block_coverage_missing":                 {"critical", "critical", true, true, "extract", "v2_oracle", "structure"},
+	"principal_claim_use_missing":            {"critical", "critical", true, true, "finalizer", "v2_oracle", "structure"},
+	"diagram_edge_unsupported":               {"medium", "high", true, true, "finalizer", "v2_oracle", "consistency"},
+	"diagram_edge_label_mismatch":            {"soft", "soft", true, false, "finalizer", "v2_oracle", "consistency"},
+	"uncertainty_block_missing":              {"soft", "high", true, true, "finalizer", "v2_oracle", "structure"},
+	"answer_semantic_underfilled":            {"soft", "medium", true, true, "finalizer", "semantic_quality", "coverage"},
+	"answer_topic_mismatch":                  {"high", "high", true, true, "finalizer", "semantic_quality", "coverage"},
+	"current_status_verdict_missing":         {"medium", "high", true, true, "finalizer", "v2_oracle", "structure"},
+	"exhaustive_member_set_coverage_drift":   {"medium", "medium", true, true, "finalizer", "contract_check", "consistency"},
+	"inactive_scope_disclosure_missing":      {"soft", "soft", true, true, "terminal", "contract_check", "consistency"},
+	"enumeration_evidence_underspecified":    {"soft", "medium", true, true, "explore", "evidence_pool", "richness"},
+	"diagram_relation_label_only":            {"soft", "soft", true, false, "terminal", "v2_oracle", "richness"},
+	"richness_glaring_gap":                   {"soft", "high", true, true, "finalizer", "v2_oracle", "richness"},
+	"principal_prose_underfilled":            {"soft", "high", true, true, "finalizer", "v2_oracle", "richness"},
+	"write_cross_sub_repo_forbidden":         {"soft", "soft", true, false, "terminal", "write_contract", "consistency"},
+	"denied_token_undeclared":                {"soft", "medium", true, true, "finalizer", "answer_validator", "consistency"},
+	"scalar_count_unsourced":                 {"medium", "medium", true, true, "explore", "tier2_completeness", "structure"},
+	"path_depth_insufficient":                {"medium", "medium", true, true, "explore", "tier2_completeness", "structure"},
+	"cardinality_short":                      {"medium", "medium", true, true, "extract", "tier2_completeness", "structure"},
+	"entity_parity_imbalanced":               {"medium", "medium", true, true, "explore", "tier2_completeness", "structure"},
+}
+
+// TestRegistryGoldenSnapshot pins the full derived routing surface for
+// every registered kind. It is the replacement for the deleted
+// legacy-table comparison (F2-4): a registry edit must show up as an
+// explicit diff of this table.
+func TestRegistryGoldenSnapshot(t *testing.T) {
+	if len(violRegistryGolden) != len(types.AllViolationKinds()) {
+		t.Fatalf("golden has %d rows, AllViolationKinds has %d — regenerate the table when adding kinds",
+			len(violRegistryGolden), len(types.AllViolationKinds()))
+	}
 	for _, kind := range types.AllViolationKinds() {
+		want, ok := violRegistryGolden[kind]
+		if !ok {
+			t.Errorf("kind=%q missing from golden table", kind)
+			continue
+		}
 		spec, ok := types.ViolKindSpecFor(kind)
 		if !ok {
 			t.Errorf("kind=%q: missing registry spec", kind)
 			continue
 		}
-
-		// Severity (default + isStrict=false path) — DeriveSeverity
-		// short-circuits to the registry, so we exercise the public
-		// API and trust the registry vs. legacy comparison happens
-		// inside the types package's own legacy fallback test.
-		profile := types.ViolationProfileFor(kind, false)
-		if profile.Severity != spec.DefaultSeverity {
-			t.Errorf("kind=%q: severity drift — registry=%q ViolationProfileFor=%q",
-				kind, spec.DefaultSeverity, profile.Severity)
+		got := violGoldenRow{
+			Default:    spec.DefaultSeverity,
+			Strict:     spec.EffectiveStrictSeverity(),
+			Soft:       spec.SoftByDefault,
+			Promotable: spec.Promotable,
+			Locus:      spec.FallbackLocus,
+			Layer:      spec.Layer,
+			Phase:      spec.EffectiveRepairPhase(),
 		}
-
-		// SoftByDefault.
-		legacyIsSoft := legacySoft[kind]
-		if legacyIsSoft != spec.SoftByDefault {
-			t.Errorf("kind=%q: SoftByDefault drift — registry=%t legacy=%t",
-				kind, spec.SoftByDefault, legacyIsSoft)
+		if got != want {
+			t.Errorf("kind=%q routing drift:\n  got  %+v\n  want %+v", kind, got, want)
 		}
-
-		// FallbackLocus → target.
-		regTarget := targetForLocus(spec.FallbackLocus)
-		legacyTarget, present := legacyPolicy[kind]
-		if !present {
-			// Legacy didn't list it — accept registry value as canonical.
-			continue
+		// The public derivation APIs must agree with the spec they
+		// wrap (DeriveSeverity strict + default paths).
+		if s := types.DeriveSeverity(kind, false); s != want.Default {
+			t.Errorf("kind=%q: DeriveSeverity(false)=%q, golden=%q", kind, s, want.Default)
 		}
-		if regTarget != legacyTarget {
-			t.Errorf("kind=%q: fallback target drift — registry=%q (locus=%q) legacy=%q",
-				kind, regTarget, spec.FallbackLocus, legacyTarget)
+		if s := types.DeriveSeverity(kind, true); s != want.Strict {
+			t.Errorf("kind=%q: DeriveSeverity(true)=%q, golden=%q", kind, s, want.Strict)
 		}
-
-		// Layer.
-		legacyLayer := legacyInferViolationLayer(kind)
-		if spec.Layer != legacyLayer {
-			t.Errorf("kind=%q: layer drift — registry=%q legacy=%q",
-				kind, spec.Layer, legacyLayer)
+		if target := targetForLocus(spec.FallbackLocus); target != targetForLocus(want.Locus) {
+			t.Errorf("kind=%q: fallback target drift", kind)
 		}
 	}
 }
