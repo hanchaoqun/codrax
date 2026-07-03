@@ -1371,6 +1371,13 @@ func runtimeTraceCausalProjectionAuditDetail(node types.TraceCausalProjectionNod
 	if node.MergedCount > 1 {
 		parts = append(parts, fmt.Sprintf("merged_count=%d", node.MergedCount))
 	}
+	// F5: the duplicate-publication fold (ONE measurement republished N times)
+	// is typed provenance distinct from both the R1 same-fact merge and the R2
+	// ×N SUM — without this field the evidence index (third surface) could not
+	// tell the fold kinds apart.
+	if node.DuplicatePublications > 1 {
+		parts = append(parts, fmt.Sprintf("duplicate_publications=%d", node.DuplicatePublications))
+	}
 	if len(node.MergedEvidenceIDs) > 0 {
 		parts = append(parts, "merged_ids="+strings.Join(node.MergedEvidenceIDs, ","))
 	}

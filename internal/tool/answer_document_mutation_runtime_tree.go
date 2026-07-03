@@ -78,14 +78,12 @@ type runtimeTraceProjTreeRow struct {
 	// small-cycle shape (A→B→A) the ≥6-node cycle detector cannot see (H11,
 	// customer audit 2026-07-03). Display-only annotation; the chain itself is
 	// never truncated because of it.
+	//
+	// V4 (customer revisit 2026-07-03): the former DedupFold row flag moved to
+	// the typed Node.DuplicatePublications field — one home shared by the
+	// aggregation layer's pre-R2 dedup pass and this layer's H6 fold. The ×N
+	// label forks on that typed count, never on guessing from the numbers.
 	RecursOnChain bool
-	// DedupFold marks a row whose MergedCount was produced by THIS layer's H6
-	// duplicate-measurement fold (adversarial review RF2b, 2026-07-03): the ms
-	// value is ONE measurement republished N times, never a sum. Upstream R2
-	// aggregates (MergedCount set before the projection reached the renderer)
-	// carry SUM semantics and leave this false — the ×N label forks on this
-	// typed boolean, never on guessing from the numbers.
-	DedupFold bool
 }
 
 type runtimeTraceProjTreeModel struct {
@@ -415,11 +413,10 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	}
 	flatten(roots, 0, nil)
 
-	for _, display := range runtimeTraceProjAdjacentNodesForDisplay(projection.AdjacentCauses) {
+	for _, node := range runtimeTraceProjAdjacentNodesForDisplay(projection.AdjacentCauses) {
 		model.Adjacent = append(model.Adjacent, runtimeTraceProjTreeRow{
-			Node: display.Node, Kind: runtimeTraceProjTreeRowAdjacent, HasData: true,
-			DedupFold:   display.DedupFold,
-			EvidenceTag: runtimeTraceProjEvidenceTag(display.Node, evidence, zh),
+			Node: node, Kind: runtimeTraceProjTreeRowAdjacent, HasData: true,
+			EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
 		})
 	}
 	backgroundSeen := map[string]bool{}
@@ -508,28 +505,26 @@ func runtimeTraceProjDedupNodes(nodes []types.TraceCausalProjectionNode) []types
 	return out
 }
 
-// runtimeTraceProjAdjacentDisplayNode pairs a prepared adjacent-stanza node
-// with its typed fold provenance: DedupFold=true means MergedCount was created
-// by THIS layer's duplicate-measurement fold (value = one measurement), false
-// means any MergedCount arrived from upstream R2 aggregation (value = sum).
-type runtimeTraceProjAdjacentDisplayNode struct {
-	Node      types.TraceCausalProjectionNode
-	DedupFold bool
-}
-
 // runtimeTraceProjAdjacentNodesForDisplay prepares the adjacent stanza (H6,
 // customer audit 2026-07-03): first the same typed node-key dedupe the
 // background stanza already runs, then one strictly-equal duplicate-measurement
 // fold — same canonical subject + same canonical object + same canonical
 // TypeToken + EXACTLY equal projected ms (pure float equality, never ±ε) AND a
 // precise line/time overlap (RF2a, adversarial review 2026-07-03) merge into
-// the first row as MergedCount/MergedEvidenceIDs/MergedSubjects. The real
-// customer shape was two irq_activity rows with identical 35.350ms over
-// overlapping line ranges (793201-830007 vs 793204-830012) rendering as two
-// stanza rows.
-func runtimeTraceProjAdjacentNodesForDisplay(nodes []types.TraceCausalProjectionNode) []runtimeTraceProjAdjacentDisplayNode {
+// the first row's DuplicatePublications/MergedEvidenceIDs. The real customer
+// shape was two irq_activity rows with identical 35.350ms over overlapping
+// line ranges (793201-830007 vs 793204-830012) rendering as two stanza rows.
+//
+// V4 (customer revisit 2026-07-03): the load-bearing fold now lives in the
+// aggregation layer (traceCausalProjectionDedupDuplicatePublications, pre-R2,
+// all buckets) so ≥3 duplicates can no longer be SUM-grabbed by R2 first. This
+// display pass is retained as the safety net for projections that did not go
+// through the record compile, and it writes the SAME typed field
+// (Node.DuplicatePublications) instead of its former private MergedCount +
+// row-flag semantics — one home, one label fork.
+func runtimeTraceProjAdjacentNodesForDisplay(nodes []types.TraceCausalProjectionNode) []types.TraceCausalProjectionNode {
 	seen := map[string]bool{}
-	var out []runtimeTraceProjAdjacentDisplayNode
+	var out []types.TraceCausalProjectionNode
 	for _, node := range nodes {
 		key := runtimeTraceCausalProjectionNodeKey(node)
 		if seen[key] {
@@ -539,23 +534,22 @@ func runtimeTraceProjAdjacentNodesForDisplay(nodes []types.TraceCausalProjection
 		merged := false
 		for i := range out {
 			// Upstream ×N aggregates carry SUM semantics; only fold single
-			// measurements into single measurements (or into a fold this layer
-			// itself created — its min/max/count semantics are ours).
-			if node.MergedCount > 1 || (out[i].Node.MergedCount > 1 && !out[i].DedupFold) {
+			// measurements into single measurements (or into a duplicate fold —
+			// its publication count accumulates).
+			if node.MergedCount > 1 || out[i].MergedCount > 1 {
 				continue
 			}
-			if !runtimeTraceProjSameAdjacentMeasurement(out[i].Node, node) {
+			if !runtimeTraceProjSameAdjacentMeasurement(out[i], node) {
 				continue
 			}
-			runtimeTraceProjAbsorbAdjacentDuplicate(&out[i].Node, node)
-			out[i].DedupFold = true
+			runtimeTraceProjAbsorbAdjacentDuplicate(&out[i], node)
 			merged = true
 			break
 		}
 		if merged {
 			continue
 		}
-		out = append(out, runtimeTraceProjAdjacentDisplayNode{Node: node})
+		out = append(out, node)
 	}
 	return out
 }
@@ -598,20 +592,22 @@ func runtimeTraceProjTimeSpansOverlap(a, b types.TraceCausalProjectionNode) bool
 }
 
 // runtimeTraceProjAbsorbAdjacentDuplicate folds one duplicate measurement into
-// the surviving first-occurrence row: count/evidence/subject roster only — the
-// projected value stays the survivor's (the rows measured the same amount; a
-// sum would double-count the wall clock).
+// the surviving first-occurrence row: publication count + evidence union only —
+// the projected value stays the survivor's (the rows measured the same amount;
+// a sum would double-count the wall clock). V4: writes the typed
+// DuplicatePublications field shared with the aggregation-layer pass; the
+// former MergedCount/MergedMin/Max writes are gone (those carry SUM-aggregate
+// semantics), and the former subject-roster append was dead code — the fold
+// identity requires equal canonical subjects.
 func runtimeTraceProjAbsorbAdjacentDuplicate(survivor *types.TraceCausalProjectionNode, dup types.TraceCausalProjectionNode) {
-	if survivor.MergedCount < 1 {
-		survivor.MergedCount = 1
+	if survivor.DuplicatePublications < 1 {
+		survivor.DuplicatePublications = 1
 	}
-	survivor.MergedCount++
-	if survivor.MergedMinMS <= 0 || (dup.ImpactMS > 0 && dup.ImpactMS < survivor.MergedMinMS) {
-		survivor.MergedMinMS = dup.ImpactMS
+	add := dup.DuplicatePublications
+	if add < 1 {
+		add = 1
 	}
-	if dup.ImpactMS > survivor.MergedMaxMS {
-		survivor.MergedMaxMS = dup.ImpactMS
-	}
+	survivor.DuplicatePublications += add
 	absorbed := map[string]bool{runtimeTraceCausalProjectionCanonicalNode(survivor.EvidenceID): true}
 	for _, id := range survivor.MergedEvidenceIDs {
 		absorbed[runtimeTraceCausalProjectionCanonicalNode(id)] = true
@@ -627,20 +623,6 @@ func runtimeTraceProjAbsorbAdjacentDuplicate(survivor *types.TraceCausalProjecti
 	appendID(dup.EvidenceID)
 	for _, id := range dup.MergedEvidenceIDs {
 		appendID(id)
-	}
-	subject := strings.TrimSpace(dup.Subject)
-	if subject != "" && len(survivor.MergedSubjects) < 4 {
-		key := runtimeTraceCausalProjectionCanonicalNode(subject)
-		distinct := key != runtimeTraceCausalProjectionCanonicalNode(survivor.Subject)
-		for _, existing := range survivor.MergedSubjects {
-			if runtimeTraceCausalProjectionCanonicalNode(existing) == key {
-				distinct = false
-				break
-			}
-		}
-		if distinct {
-			survivor.MergedSubjects = append(survivor.MergedSubjects, subject)
-		}
 	}
 }
 
@@ -1077,11 +1059,13 @@ func runtimeTraceProjSelfRowText(row runtimeTraceProjTreeRow, zh bool) string {
 	if v := runtimeTraceProjNodeDisplayImpact(node); v > 0 {
 		parts = append(parts, fmt.Sprintf("%.3fms", v))
 	}
+	// RF2b/V4: the duplicate-publication fold (single measurement) and the R2
+	// sum aggregate are independent typed signals with distinct labels.
+	if node.DuplicatePublications > 1 {
+		parts = append(parts, runtimeTraceProjDedupFoldTagText(node.DuplicatePublications, zh))
+	}
 	if node.MergedCount > 1 {
-		if row.DedupFold {
-			// RF2b: H6 dedupe fold — single measurement, never the sum form.
-			parts = append(parts, runtimeTraceProjDedupFoldTagText(node.MergedCount, zh))
-		} else if zh {
+		if zh {
 			parts = append(parts, fmt.Sprintf("×%d合并(单次%.3f–%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS))
 		} else {
 			parts = append(parts, fmt.Sprintf("×%d merged (each %.3f–%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS))
@@ -1237,16 +1221,26 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 	}
 }
 
-// runtimeTraceProjDedupFoldTagText is the H6 dedupe-exclusive ×N label (RF2b,
-// adversarial review 2026-07-03): a DedupFold row's ms is ONE measurement that
-// was published N times, so it must never share the upstream R2 sum-aggregate
-// rendering form "×N合并(单次…)" — a reader could not tell a single
-// measurement from a total. Callers fork on the typed row.DedupFold boolean.
+// runtimeTraceProjDedupFoldTagText is the dedupe-exclusive ×N label (RF2b,
+// adversarial review 2026-07-03): a duplicate-publication row's ms is ONE
+// measurement that was published N times, so it must never share the upstream
+// R2 sum-aggregate rendering form "×N合并(单次…)" — a reader could not tell a
+// single measurement from a total. Callers fork on the typed
+// Node.DuplicatePublications count (V4: one home for both fold producers).
 func runtimeTraceProjDedupFoldTagText(count int, zh bool) string {
 	if zh {
 		return fmt.Sprintf("×%d同值合并(重复发布)", count)
 	}
 	return fmt.Sprintf("×%d same-value merge (duplicate publication)", count)
+}
+
+// runtimeTraceProjSubjectlessFoldRow identifies the R3 background fold row
+// (typed identity: a merged row with no thread subject of its own — exactly the
+// key the "其余 N 项合并" name lane already forks on). It is the only merged
+// row family whose published value is the member MAX (V3, customer revisit
+// 2026-07-03): the members are different threads, whose wall clocks never sum.
+func runtimeTraceProjSubjectlessFoldRow(node types.TraceCausalProjectionNode) bool {
+	return node.MergedCount > 1 && strings.TrimSpace(node.Subject) == ""
 }
 
 // runtimeTraceProjMergedSubjectsSuffix names the folded members' thread
@@ -1490,8 +1484,12 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		b.WriteString(fmt.Sprintf(" %3.0f%%", impact/denom*100))
 		// H8: an over-window share (cross-CPU / multi-span cumulative values can
 		// legitimately exceed the wall-clock window) must not run naked — the bar
-		// is already capped, so the number carries the explanation inline.
-		if impact > denom {
+		// is already capped, so the number carries the explanation inline. The
+		// *1.001 tolerance mirrors runtimeTraceProjCrossWindow: WindowMS comes
+		// from an anchor float subtraction, so an EXACT whole-window projection
+		// (101.000ms vs 100.9999…ms) must not read as "over the window" (V3,
+		// customer revisit 2026-07-03).
+		if impact > denom*1.001 {
 			if zh {
 				b.WriteString("(跨CPU/多段累计)")
 			} else {
@@ -1512,6 +1510,20 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	}
 	if stateTag != "" {
 		tags = append(tags, runtimeTraceProjTag{Text: stateTag, DropOrder: runtimeTraceProjTagKeep})
+	}
+	// V3 (customer revisit 2026-07-03): a background row whose projection covers
+	// ≥99% of the window — without exceeding it — waited out the whole window:
+	// the renderer face of the producer-side Q2 idle whole-window-sleeper fold
+	// signal. Over-window values (H8 tolerance: > denom*1.001) are the
+	// multi-CPU cumulative shape — an ACTIVE burst, never tagged idle. F3: the
+	// full judgment (incl. the typed wait-family StateKind guard) lives in the
+	// shared helper; the detail table mirrors the same call.
+	if windowMode && runtimeTraceProjWholeWindowIdleRow(row, denom) {
+		text := "整窗等待(疑似空闲)"
+		if !zh {
+			text = "whole-window wait (likely idle)"
+		}
+		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep})
 	}
 	// §7.30.3 D3: the inversion composite shows its gated composition — the
 	// split is load-bearing and never elides.
@@ -1549,11 +1561,20 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagExtra})
 	}
+	// RF2b/V4: the duplicate-publication fold (single measurement) and the R2
+	// sum aggregate are independent typed signals with distinct labels.
+	if node.DuplicatePublications > 1 {
+		tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjDedupFoldTagText(node.DuplicatePublications, zh), DropOrder: runtimeTraceProjTagExtra})
+	}
 	if node.MergedCount > 1 {
 		var text string
-		if row.DedupFold {
-			// RF2b: H6 dedupe fold — single measurement, never the sum form.
-			text = runtimeTraceProjDedupFoldTagText(node.MergedCount, zh)
+		if runtimeTraceProjSubjectlessFoldRow(node) {
+			// V3: the R3 cross-thread fold publishes the member MAX — say so
+			// instead of letting the ×N read as the sum form.
+			text = fmt.Sprintf("×%d合并·各%.3f–%.3fms(取最大值,不求和)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+			if !zh {
+				text = fmt.Sprintf("×%d merged · each %.3f–%.3fms (max shown, not summed)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+			}
 		} else {
 			text = fmt.Sprintf("×%d合并·单次%.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 			if !zh {
@@ -1716,7 +1737,22 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	if cause != "" {
 		b.WriteString(" " + cause)
 	}
-	if ms > 0 {
+	if primary.MergedCount > 1 && primary.MergedMaxMS > 0 {
+		// V1 (customer revisit 2026-07-03): a ×N aggregate's SUM never publishes
+		// as the headline hard fact — show the per-instance max with the count;
+		// the window share follows the same single-instance value.
+		if zh {
+			b.WriteString(fmt.Sprintf(" 单次最大 %.3fms ×%d", primary.MergedMaxMS, primary.MergedCount))
+			if model.WindowMS > 0 {
+				b.WriteString(fmt.Sprintf("(占窗%.0f%%)", primary.MergedMaxMS/model.WindowMS*100))
+			}
+		} else {
+			b.WriteString(fmt.Sprintf(" single max %.3fms ×%d", primary.MergedMaxMS, primary.MergedCount))
+			if model.WindowMS > 0 {
+				b.WriteString(fmt.Sprintf(" (%.0f%% of window)", primary.MergedMaxMS/model.WindowMS*100))
+			}
+		}
+	} else if ms > 0 {
 		b.WriteString(fmt.Sprintf(" %.3fms", ms))
 		if model.WindowMS > 0 {
 			if zh {
@@ -1750,15 +1786,69 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 // roots that SURVIVED the 裁定1 background demotion gate — a row rendered in
 // the background stanza must never be named as the primary root cause. Nil when
 // no primary exists or all of them were demoted.
+//
+// Selection order (V1, customer revisit 2026-07-03):
+//  1. the engine's typed rank — the lowest positive Rank wins (the audit lane
+//     already published rank=1; the conclusion must consume it instead of
+//     re-ranking by displayed ms);
+//  2. no ranked candidate: the largest single-instance effective attribution
+//     (runtimeTraceProjLeadSelectionValue).
+//
+// A ×N aggregate's SUM (window projection total) never participates in the
+// selection — same ruling family as S1 (排序合成分数不得以 ms 硬事实发布):
+// the real customer conclusion named a ×7 hmfs_discard sum of 13.324ms over
+// the engine's rank=1 running row of 4.115ms and contradicted its own body.
 func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, trunkLen int) *types.TraceCausalProjectionNode {
 	roots := runtimeTraceCausalProjectionPrimaryRoots(projection)
+	var ranked *types.TraceCausalProjectionNode
 	for i := range roots {
 		if runtimeTraceProjNodeDemotedToBackground(roots[i], trunkLen) {
 			continue
 		}
-		return &roots[i]
+		if roots[i].Rank <= 0 {
+			continue
+		}
+		// F4: rank TIES break on the single-instance selection value (per-instance
+		// max for ×N aggregates), never on bucket order — the primary bucket sorts
+		// by cumulative (= the R2 SUM), so "first row wins" re-admitted the merged
+		// SUM through the very lane built to keep it out (a ×7 SUM of 13.324 beat
+		// a single instance of 4.115 on a rank tie). Still-equal values keep the
+		// earlier row (deterministic bucket order).
+		if ranked == nil || roots[i].Rank < ranked.Rank ||
+			(roots[i].Rank == ranked.Rank &&
+				runtimeTraceProjLeadSelectionValue(roots[i]) > runtimeTraceProjLeadSelectionValue(*ranked)) {
+			ranked = &roots[i]
+		}
 	}
-	return nil
+	if ranked != nil {
+		return ranked
+	}
+	var best *types.TraceCausalProjectionNode
+	bestValue := 0.0
+	for i := range roots {
+		if runtimeTraceProjNodeDemotedToBackground(roots[i], trunkLen) {
+			continue
+		}
+		if v := runtimeTraceProjLeadSelectionValue(roots[i]); best == nil || v > bestValue {
+			best, bestValue = &roots[i], v
+		}
+	}
+	return best
+}
+
+// runtimeTraceProjLeadSelectionValue is the rank-fallback ordering key for the
+// conclusion line: the single-instance effective attribution. A ×N aggregate
+// contributes its per-instance max — the merged SUM is a window-projection
+// total across instances and must never compete against single-instance hard
+// facts (V1, customer revisit 2026-07-03).
+func runtimeTraceProjLeadSelectionValue(node types.TraceCausalProjectionNode) float64 {
+	if node.MergedCount > 1 {
+		return node.MergedMaxMS
+	}
+	if node.EffectiveImpactMS > 0 {
+		return node.EffectiveImpactMS
+	}
+	return runtimeTraceProjNodeDisplayImpact(node)
 }
 
 func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
@@ -1777,7 +1867,22 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 	// Coverage = depth-1 cumulative vs window, by SUBTRACTION only — chain
 	// values overlap on the wall clock and must never be summed across layers.
 	if attributed := runtimeTraceProjDepth1Cumulative(model); attributed > 0 {
-		if attributed <= model.WindowMS {
+		// V2 (customer revisit 2026-07-03): when the 🎯 target published its own
+		// state rows, the coverage denominator is the TARGET SYMPTOM duration,
+		// not the whole window — a target that slept 11.7ms of a 101ms window
+		// once rendered as "残差 97%". Falls back to the whole window (wording
+		// unchanged) when no self-state row exists or the attribution exceeds
+		// the symptom duration.
+		if symptom := runtimeTraceProjTargetSymptomMS(model); symptom > 0 && attributed <= symptom {
+			residual := symptom - attributed
+			if zh {
+				fmt.Fprintf(&b, " 目标睡眠/阻塞 %.3fms 中 on-chain 已归因 %.3fms(%.0f%%),未归因 %.3fms(%.0f%%)。",
+					symptom, attributed, attributed/symptom*100, residual, residual/symptom*100)
+			} else {
+				fmt.Fprintf(&b, " Of the target's %.3fms sleep/blocked time, on-chain attributed %.3fms (%.0f%%), unattributed %.3fms (%.0f%%).",
+					symptom, attributed, attributed/symptom*100, residual, residual/symptom*100)
+			}
+		} else if attributed <= model.WindowMS {
 			residual := model.WindowMS - attributed
 			if zh {
 				fmt.Fprintf(&b, " on-chain 已归因 %.3fms/%.0f%%,未归因残差 %.3fms/%.0f%%。",
@@ -1812,6 +1917,72 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 		}
 	}
 	return b.String()
+}
+
+// runtimeTraceProjTargetSymptomMS is the 🎯 target's own symptom duration: the
+// sum of the target's self STATE-view rows' window projections (V2, customer
+// revisit 2026-07-03). Summation is legal HERE only — these are one thread's
+// own scheduler-state segments inside the window; cross-thread and cross-layer
+// values still never add. 0 when the target exposed no qualifying self-state
+// row (callers fall back to the whole window).
+//
+// F1 (adversarial review 2026-07-03): SelfRows deliberately mixes TWO typed
+// views of the focused thread — its scheduler-STATE rows and hop-view rows
+// (Role=causal_hop: critical_blocking / wakeup_causal_* / root_evidence:*)
+// that re-describe wall clock already inside a state segment. Only state-view
+// rows whose typed StateKind is in the sleep/D/blocked wait family enter the
+// denominator: a 10ms sleep with an 8ms binder wait nested inside it is a
+// 10ms symptom (never 18ms), and a running/runnable self row is not
+// sleep/blocked time at all. Precise typed signals only (Role enum +
+// StateKind enum), never prose.
+func runtimeTraceProjTargetSymptomMS(model runtimeTraceProjTreeModel) float64 {
+	total := 0.0
+	for _, row := range model.SelfRows {
+		if row.Node.Role == types.TraceCausalRoleCausalHop {
+			continue // blocked-wait/attribution hop view: wall clock already counted by its enclosing state segment
+		}
+		if !runtimeTraceProjWaitFamilyStateKind(row.Node) {
+			continue // running/runnable/stateless rows are not sleep/blocked symptom time
+		}
+		if row.Node.ImpactMS > 0 {
+			total += row.Node.ImpactMS
+		}
+	}
+	return total
+}
+
+// runtimeTraceProjWaitFamilyStateKind reports whether the node's typed dominant
+// scheduler state belongs to the sleep/D/blocked wait family. Precise typed
+// enum check (never a prose substring): running/runnable and rows WITHOUT a
+// StateKind (e.g. metric aggregates that never exposed a dominant state) are
+// NOT waits. Shared by the target-symptom denominator (F1) and the
+// whole-window idle annotation (F3) so the two gates cannot drift.
+func runtimeTraceProjWaitFamilyStateKind(node types.TraceCausalProjectionNode) bool {
+	switch strings.TrimSpace(strings.ToLower(node.StateKind)) {
+	case "s_sleep", "sleep", "sleep_wait",
+		"d_state", "d_sleep", "uninterruptible_sleep", "io_wait":
+		return true
+	}
+	return false
+}
+
+// runtimeTraceProjWholeWindowIdleRow is the SINGLE definition of the V3
+// "整窗等待(疑似空闲)" annotation — the tree stanza tag and the detail-table
+// mirror both call it (F3: two hand-synced copies were the drift risk). True
+// only for a background row whose typed dominant state is in the sleep/D/
+// blocked wait family AND whose projection covers ≥99% of the window without
+// exceeding it (H8 tolerance: over-window cumulative rows are the multi-CPU
+// ACTIVE shape, never idle). A whole-window running CPU hog or a stateless
+// cpu·ms aggregate row that happens to ≈ the window never takes the tag.
+func runtimeTraceProjWholeWindowIdleRow(row runtimeTraceProjTreeRow, windowMS float64) bool {
+	if row.Kind != runtimeTraceProjTreeRowBackground || windowMS <= 0 {
+		return false
+	}
+	if !runtimeTraceProjWaitFamilyStateKind(row.Node) {
+		return false
+	}
+	impact := runtimeTraceProjNodeDisplayImpact(row.Node)
+	return impact >= windowMS*0.99 && impact <= windowMS*1.001
 }
 
 func runtimeTraceProjDepth1Cumulative(model runtimeTraceProjTreeModel) float64 {
@@ -1890,10 +2061,22 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		layer := runtimeTraceProjDetailLayerCell(row, zh, flat)
 		position := runtimeTraceCausalProjectionLayerCell(node, zh) + " · " + runtimeTraceCausalProjectionPriorityCell(node, zh)
 		name := runtimeTraceCausalProjectionNodeSubjectCell(node, zh)
+		// RF2b/V4: the duplicate-publication fold (single measurement) and the
+		// R2 sum aggregate are independent typed signals with distinct labels.
+		if node.DuplicatePublications > 1 {
+			name += " " + runtimeTraceProjDedupFoldTagText(node.DuplicatePublications, zh)
+		}
 		if node.MergedCount > 1 {
-			if row.DedupFold {
-				// RF2b: H6 dedupe fold — single measurement, never the sum form.
-				name += " " + runtimeTraceProjDedupFoldTagText(node.MergedCount, zh)
+			if runtimeTraceProjSubjectlessFoldRow(node) {
+				// V3: the cross-thread fold publishes the member MAX, and (V5)
+				// the table cell keeps the same member roster the tree fold line
+				// already shows — "对端线程未解析 ×6" lost every thread identity.
+				if zh {
+					name += fmt.Sprintf(" ×%d(各%.3f–%.3fms,取最大值)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+				} else {
+					name += fmt.Sprintf(" ×%d (each %.3f–%.3fms, max shown)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+				}
+				name += runtimeTraceProjMergedSubjectsSuffix(node, zh)
 			} else {
 				name += fmt.Sprintf(" ×%d(%.3f–%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 			}
@@ -1915,6 +2098,21 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		shape := runtimeTraceCausalProjectionImpactShapeCell(node, zh)
 		if shape == "" {
 			shape = dash
+		}
+		// V3: mirror the whole-window-wait annotation on the lossless surface —
+		// F3: the SAME shared judgment as the stanza tag (typed wait-family
+		// StateKind guard included; over-window cumulative rows are the H8
+		// shape and never take it).
+		if runtimeTraceProjWholeWindowIdleRow(row, model.WindowMS) {
+			idle := "整窗等待(疑似空闲)"
+			if !zh {
+				idle = "whole-window wait (likely idle)"
+			}
+			if shape == dash {
+				shape = idle
+			} else {
+				shape += "·" + idle
+			}
 		}
 		effective := msCell(node.EffectiveImpactMS)
 		if runtimeTraceProjEffectiveInherited(node) {

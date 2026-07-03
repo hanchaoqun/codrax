@@ -259,8 +259,15 @@ func TestRuntimeTraceProjAdjacentStanzaDedupesAndFoldsDuplicates(t *testing.T) {
 		t.Fatalf("adjacent stanza must dedupe+fold to 2 rows, got %d: %+v", len(model.Adjacent), model.Adjacent)
 	}
 	folded := model.Adjacent[0].Node
-	if folded.EvidenceID != "E11" || folded.MergedCount != 2 {
-		t.Fatalf("first occurrence must survive with MergedCount=2: %+v", folded)
+	// Pin updated 2026-07-03 (V4): the fold provenance moved from the row-local
+	// DedupFold flag + MergedCount to the typed Node.DuplicatePublications field
+	// (one home shared with the aggregation layer's pre-R2 dedup pass);
+	// MergedCount stays reserved for SUM aggregates and must remain untouched.
+	if folded.EvidenceID != "E11" || folded.DuplicatePublications != 2 {
+		t.Fatalf("first occurrence must survive with DuplicatePublications=2: %+v", folded)
+	}
+	if folded.MergedCount != 0 {
+		t.Fatalf("duplicate fold must not claim SUM-aggregate MergedCount semantics: %+v", folded)
 	}
 	if len(folded.MergedEvidenceIDs) != 1 || folded.MergedEvidenceIDs[0] != "E12" {
 		t.Fatalf("duplicate's evidence id must fold in: %+v", folded.MergedEvidenceIDs)
@@ -268,14 +275,11 @@ func TestRuntimeTraceProjAdjacentStanzaDedupesAndFoldsDuplicates(t *testing.T) {
 	if folded.ImpactMS != 35.350 {
 		t.Fatalf("duplicate fold must never sum the wall clock: %v", folded.ImpactMS)
 	}
-	if !model.Adjacent[0].DedupFold {
-		t.Fatalf("H6 fold must set the typed DedupFold provenance on the row")
-	}
 	if model.Adjacent[1].Node.EvidenceID != "E13" {
 		t.Fatalf("distinct measurement must stay a separate row: %+v", model.Adjacent[1].Node)
 	}
-	if model.Adjacent[1].DedupFold {
-		t.Fatalf("unfolded row must not carry DedupFold")
+	if model.Adjacent[1].Node.DuplicatePublications > 1 {
+		t.Fatalf("unfolded row must not carry DuplicatePublications")
 	}
 }
 
@@ -317,19 +321,20 @@ func TestRuntimeTraceProjAdjacentSameValueWithoutOverlapStaysSeparate(t *testing
 				tc.name, len(model.Adjacent), model.Adjacent)
 		}
 		for _, row := range model.Adjacent {
-			if row.Node.MergedCount > 1 || row.DedupFold {
+			if row.Node.MergedCount > 1 || row.Node.DuplicatePublications > 1 {
 				t.Fatalf("%s: no row may claim a fold: %+v", tc.name, row)
 			}
 		}
 	}
 	// The time-span lane folds on its own when line info is absent.
+	// (Pin updated 2026-07-03, V4: fold count reads Node.DuplicatePublications.)
 	a, b := base("E11"), base("E12")
 	a.StartTs, a.EndTs = 3.100, 3.135
 	b.StartTs, b.EndTs = 3.120, 3.155
 	model := buildRuntimeTraceProjTreeModel(types.TraceCausalProjection{
 		AdjacentCauses: []types.TraceCausalProjectionNode{a, b},
 	}, nil, true)
-	if len(model.Adjacent) != 1 || model.Adjacent[0].Node.MergedCount != 2 || !model.Adjacent[0].DedupFold {
+	if len(model.Adjacent) != 1 || model.Adjacent[0].Node.DuplicatePublications != 2 {
 		t.Fatalf("overlapping time spans must fold: %+v", model.Adjacent)
 	}
 }

@@ -854,11 +854,16 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 			Span: types.ObservationSpan{LineStart: 4, LineEnd: 7}, RichNotes: rn, Confidence: 0.9,
 		}
 	}
+	// Fixture ranks updated 2026-07-03 (V1): the conclusion line now consumes the
+	// engine's typed rank, and this test pins the SLEEP-LEAD drilldown lane
+	// (gap d: a sleep-dominant lead names its typed drilldown target), so the
+	// sleep row must be the engine's rank=1 candidate. Before V1 the ranks were
+	// decorative — the lead was picked impact-major and landed on the same row.
 	bus.ToolResults = []types.ToolResult{{
 		ToolName: "trace_query", Success: true,
 		Observations: []types.ObservationRecord{
-			mkRoot("root-run", "worker-200", "running", "4.600", "running", 1),
-			mkRoot("root-sleep", "app-100", "sleep_wait", "5.000", "s_sleep", 2, "effective_impact_ms=11.040", "actual_impact_ms=4.600"),
+			mkRoot("root-run", "worker-200", "running", "4.600", "running", 2),
+			mkRoot("root-sleep", "app-100", "sleep_wait", "5.000", "s_sleep", 1, "effective_impact_ms=11.040", "actual_impact_ms=4.600"),
 			{
 				ID: "path", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
 				GroundingPolicy: types.ClaimGroundingHard, Predicate: "wakeup_chain", ClaimKey: "wakeup_chain:path",

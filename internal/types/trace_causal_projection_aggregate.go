@@ -61,6 +61,16 @@ func traceCausalProjectionAggregateForPresentation(out *TraceCausalProjection) {
 	out.AdjacentCauses = traceCausalProjectionMergePeerAliases(out.AdjacentCauses)
 	out.BackgroundCauses = traceCausalProjectionMergePeerAliases(out.BackgroundCauses)
 	out.SupportingHops = traceCausalProjectionMergePeerAliases(out.SupportingHops)
+	// V4 duplicate-publication dedup MUST run before R2: three same-value
+	// overlapping publications would otherwise reach the ≥3 threshold and SUM
+	// into a 3× phantom total (customer revisit 2026-07-03: three 35.350ms
+	// irq_activity rows over overlapping spans published as 106.05ms). After the
+	// fold the survivor count is what R2 legitimately sees.
+	out.PrimaryRootCauses = traceCausalProjectionDedupDuplicatePublications(out.PrimaryRootCauses)
+	out.OnChainCauses = traceCausalProjectionDedupDuplicatePublications(out.OnChainCauses)
+	out.AdjacentCauses = traceCausalProjectionDedupDuplicatePublications(out.AdjacentCauses)
+	out.BackgroundCauses = traceCausalProjectionDedupDuplicatePublications(out.BackgroundCauses)
+	out.SupportingHops = traceCausalProjectionDedupDuplicatePublications(out.SupportingHops)
 	out.PrimaryRootCauses = traceCausalProjectionAggregateSameKind(out.PrimaryRootCauses)
 	out.OnChainCauses = traceCausalProjectionAggregateSameKind(out.OnChainCauses)
 	out.AdjacentCauses = traceCausalProjectionAggregateSameKind(out.AdjacentCauses)
@@ -393,6 +403,109 @@ func traceCausalProjectionAbsorbPeerAlias(named *TraceCausalProjectionNode, pidV
 	}
 }
 
+// --- V4: duplicate-publication dedup (pre-R2) ---------------------------------
+
+// traceCausalProjectionDedupDuplicatePublications folds duplicate publications
+// of ONE measurement inside a bucket (V4, customer revisit 2026-07-03): rows
+// with the same canonical subject + object + TypeToken, EXACTLY equal positive
+// projected ms (pure float equality, never ±ε) AND a precise line-range or
+// time-span overlap describe one wall-clock fact republished N times. The
+// first occurrence survives with the value UNCHANGED; DuplicatePublications
+// counts the publications and evidence ids union losslessly. MergedCount is
+// never touched — its ×N carries SUM semantics for genuinely distinct
+// instances (three same-value NON-overlapping bursts stay separate and may
+// legitimately R2-SUM). Value equality alone never folds; upstream ×N sum
+// aggregates and same-EvidenceID copies are never folded.
+func traceCausalProjectionDedupDuplicatePublications(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
+	if len(nodes) < 2 {
+		return nodes
+	}
+	dropped := map[int]bool{}
+	folded := false
+	for i := 0; i < len(nodes); i++ {
+		if dropped[i] || nodes[i].MergedCount > 1 {
+			continue
+		}
+		for j := i + 1; j < len(nodes); j++ {
+			if dropped[j] || nodes[j].MergedCount > 1 {
+				continue
+			}
+			if !traceCausalProjectionSameDuplicatePublication(nodes[i], nodes[j]) {
+				continue
+			}
+			traceCausalProjectionAbsorbDuplicatePublication(&nodes[i], nodes[j])
+			dropped[j] = true
+			folded = true
+		}
+	}
+	if !folded {
+		return nodes
+	}
+	out := make([]TraceCausalProjectionNode, 0, len(nodes)-len(dropped))
+	for i, node := range nodes {
+		if dropped[i] {
+			continue
+		}
+		out = append(out, node)
+	}
+	return out
+}
+
+// traceCausalProjectionSameDuplicatePublication is the strict identity of one
+// republished measurement — the types-layer home of the identity the renderer's
+// H6 display fold pioneered (kept aligned with the tool-layer isomorph
+// runtimeTraceProjSameAdjacentMeasurement).
+func traceCausalProjectionSameDuplicatePublication(a, b TraceCausalProjectionNode) bool {
+	if traceCausalProjectionCanonicalNode(a.EvidenceID) != "" &&
+		traceCausalProjectionCanonicalNode(a.EvidenceID) == traceCausalProjectionCanonicalNode(b.EvidenceID) {
+		// The same observation's own copy — renderers dedupe by node key; a fold
+		// here would fabricate a publication count.
+		return false
+	}
+	return traceCausalProjectionCanonicalNode(a.Subject) == traceCausalProjectionCanonicalNode(b.Subject) &&
+		traceCausalProjectionCanonicalNode(a.Object) == traceCausalProjectionCanonicalNode(b.Object) &&
+		traceCausalProjectionCanonicalNode(a.TypeToken) == traceCausalProjectionCanonicalNode(b.TypeToken) &&
+		a.ImpactMS > 0 && a.ImpactMS == b.ImpactMS &&
+		(traceCausalProjectionLineSpansOverlap(a, b) || traceCausalProjectionSpansOverlap(a, b))
+}
+
+// traceCausalProjectionLineSpansOverlap is the boolean line-range intersection;
+// both nodes must expose a valid range of their own (same guard style as the
+// time-span twin traceCausalProjectionSpansOverlap).
+func traceCausalProjectionLineSpansOverlap(a, b TraceCausalProjectionNode) bool {
+	if a.LineStart <= 0 || a.LineEnd < a.LineStart || b.LineStart <= 0 || b.LineEnd < b.LineStart {
+		return false
+	}
+	return a.LineStart <= b.LineEnd && b.LineStart <= a.LineEnd
+}
+
+func traceCausalProjectionAbsorbDuplicatePublication(survivor *TraceCausalProjectionNode, dup TraceCausalProjectionNode) {
+	if survivor.DuplicatePublications < 1 {
+		survivor.DuplicatePublications = 1
+	}
+	add := dup.DuplicatePublications
+	if add < 1 {
+		add = 1
+	}
+	survivor.DuplicatePublications += add
+	absorbed := map[string]bool{traceCausalProjectionCanonicalNode(survivor.EvidenceID): true}
+	for _, id := range survivor.MergedEvidenceIDs {
+		absorbed[traceCausalProjectionCanonicalNode(id)] = true
+	}
+	appendID := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || absorbed[traceCausalProjectionCanonicalNode(raw)] {
+			return
+		}
+		absorbed[traceCausalProjectionCanonicalNode(raw)] = true
+		survivor.MergedEvidenceIDs = append(survivor.MergedEvidenceIDs, raw)
+	}
+	appendID(dup.EvidenceID)
+	for _, id := range dup.MergedEvidenceIDs {
+		appendID(id)
+	}
+}
+
 // --- R2: same-kind ×N aggregation -------------------------------------------
 
 // traceCausalProjectionAggregateSameKind collapses ≥3 rows with exactly the
@@ -490,6 +603,14 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 		aggregate.MergedMaxMS = maxMS
 		aggregate.ImpactMS = sum
 		aggregate.CumulativeImpactMS = sum
+		// F2 (adversarial review 2026-07-03): the ×N row carries a SUM, so the
+		// DuplicatePublications contract ("dup>0 ⇒ the value is ONE republished
+		// measurement") can never hold on it — a dup count inherited from the
+		// group-first survivor (or silently lost from a non-first member) once
+		// rendered the mutually-exclusive ×2同值合并 and ×3合并 labels on one row.
+		// Cleared unconditionally: member provenance stays lossless through
+		// MergedEvidenceIDs; no second counter is introduced.
+		aggregate.DuplicatePublications = 0
 		replaced[g.first] = aggregate
 	}
 	if len(replaced) == 0 && len(dropped) == 0 {
@@ -515,6 +636,12 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 // whose impact point is the unknown-thread sentinel and folds the rest into a
 // single subjectless aggregate row (rendered as “其余 N 项合并”). Background
 // rows with a REAL object (a cause word or resolved peer) are never folded.
+//
+// V3 (customer revisit 2026-07-03): the fold members are DIFFERENT threads, so
+// their wall-clock projections must never be summed — six whole-window 101ms
+// background threads once published as a 606ms/600% fold row. The fold's
+// ImpactMS/CumulativeImpactMS carry the member MAX; MergedMinMS/MergedMaxMS
+// keep the lossless per-member range and MergedCount the member count.
 func traceCausalProjectionFoldUnknownBackground(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
 	var unknown []int
 	for i, node := range nodes {
@@ -541,7 +668,22 @@ func traceCausalProjectionFoldUnknownBackground(nodes []TraceCausalProjectionNod
 		ChainRelevance: "background",
 		Causality:      nodes[fold[0]].Causality,
 	}
-	var sum, minMS, maxMS float64
+	// F3 support: the fold row keeps the members' typed dominant state ONLY when
+	// every member carries the same canonical StateKind (strict unanimity — any
+	// divergence or an empty member leaves the fold stateless). The renderer's
+	// whole-window idle annotation is gated on the wait-family StateKind, so a
+	// fold of uniform whole-window sleepers legitimately keeps the tag while a
+	// mixed or stateless fold never fabricates one.
+	foldState := nodes[fold[0]].StateKind
+	for _, idx := range fold {
+		if traceCausalProjectionCanonicalNode(nodes[idx].StateKind) !=
+			traceCausalProjectionCanonicalNode(foldState) {
+			foldState = ""
+			break
+		}
+	}
+	aggregate.StateKind = strings.TrimSpace(foldState)
+	var minMS, maxMS float64
 	absorbed := map[string]bool{}
 	for _, idx := range fold {
 		member := nodes[idx]
@@ -552,7 +694,6 @@ func traceCausalProjectionFoldUnknownBackground(nodes []TraceCausalProjectionNod
 		if display <= 0 {
 			display = member.CumulativeImpactMS
 		}
-		sum += display
 		if minMS == 0 || (display > 0 && display < minMS) {
 			minMS = display
 		}
@@ -588,8 +729,9 @@ func traceCausalProjectionFoldUnknownBackground(nodes []TraceCausalProjectionNod
 	aggregate.MergedCount = len(fold)
 	aggregate.MergedMinMS = minMS
 	aggregate.MergedMaxMS = maxMS
-	aggregate.ImpactMS = sum
-	aggregate.CumulativeImpactMS = sum
+	// V3: member MAX, never a cross-thread wall-clock sum (see the fold doc).
+	aggregate.ImpactMS = maxMS
+	aggregate.CumulativeImpactMS = maxMS
 	out := make([]TraceCausalProjectionNode, 0, len(nodes)-len(fold)+1)
 	for i, node := range nodes {
 		if foldSet[i] {
@@ -605,7 +747,7 @@ func traceCausalProjectionFoldUnknownBackground(nodes []TraceCausalProjectionNod
 // traceCausalProjectionResortAfterAggregation restores impact-major order
 // inside each bucket after R2 sums may have changed magnitudes. It reuses the
 // build-time comparators; the R3 fold row is subjectless and deliberately sorts
-// by its summed magnitude like any other row.
+// by its published magnitude (the member max since V3) like any other row.
 func traceCausalProjectionResortAfterAggregation(out *TraceCausalProjection) {
 	pathIndex := traceCausalProjectionPathIndex(out.WakeupPath)
 	sort.SliceStable(out.PrimaryRootCauses, func(i, j int) bool {

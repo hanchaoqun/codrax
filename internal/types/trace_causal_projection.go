@@ -152,9 +152,20 @@ type TraceCausalProjectionNode struct {
 	// MergedCount > 1 marks an R2 ×N aggregate row: ImpactMS/CumulativeImpactMS
 	// then carry the SUM over the merged instances and MergedMinMS/MergedMaxMS
 	// the per-instance display range (lossless: every instance id is kept).
+	// Exception: the R3 subjectless background fold spans DIFFERENT threads, so
+	// its ImpactMS/CumulativeImpactMS carry the member MAX, never a sum (V3,
+	// customer revisit 2026-07-03 — wall clock does not add across threads).
 	MergedCount int     `json:"merged_count,omitempty"`
 	MergedMinMS float64 `json:"merged_min_ms,omitempty"`
 	MergedMaxMS float64 `json:"merged_max_ms,omitempty"`
+	// DuplicatePublications ≥ 2 marks a duplicate-publication fold (V4, customer
+	// revisit 2026-07-03): the SAME measurement was published N times as separate
+	// observations — exactly equal projected ms on the same (subject, object,
+	// type token) over overlapping line/time spans. The row's value is that ONE
+	// measurement, never a sum, and MergedCount stays untouched (its ×N carries
+	// SUM semantics). Set by the aggregation layer's pre-R2 dedup pass; the
+	// renderer's former H6 display-layer fold writes the same field.
+	DuplicatePublications int `json:"duplicate_publications,omitempty"`
 	// MergedSubjects preserves the DISTINCT member thread subjects of a merged
 	// (MergedCount>1) aggregate row, capped at 4 entries (overflow is expressed
 	// by MergedCount, never by truncated names). Its load-bearing consumer is

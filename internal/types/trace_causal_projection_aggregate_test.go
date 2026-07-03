@@ -168,8 +168,16 @@ func TestTraceCausalProjectionAggregateRealCustomerShape(t *testing.T) {
 	if fold == nil || fold.Subject != "" || fold.MergedCount != 3 {
 		t.Fatalf("unknown-thread background fold row missing/incorrect: %+v", got.BackgroundCauses)
 	}
-	if diff := fold.ImpactMS - 23.930; diff < -0.0005 || diff > 0.0005 {
-		t.Fatalf("background fold should sum folded rows (12.689+6.886+4.355): %+v", fold)
+	// Pin updated 2026-07-03 (V3, customer revisit): the fold members are
+	// DIFFERENT threads, so their wall clocks never sum — the old 23.930ms
+	// (12.689+6.886+4.355) pin published a cross-thread sum (real customer: six
+	// whole-window 101ms threads rendered 606ms/600%). The fold now publishes
+	// the member MAX; the per-member range stays lossless in MergedMin/MaxMS.
+	if fold.ImpactMS != 12.689 || fold.CumulativeImpactMS != 12.689 {
+		t.Fatalf("background fold must publish the member max, never a cross-thread sum: %+v", fold)
+	}
+	if fold.MergedMinMS != 4.355 || fold.MergedMaxMS != 12.689 {
+		t.Fatalf("background fold min-max range lost: %+v", fold)
 	}
 	keptSubjects := map[string]bool{}
 	for _, node := range got.BackgroundCauses {
