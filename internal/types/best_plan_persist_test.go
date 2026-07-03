@@ -16,13 +16,13 @@ func TestWriteBestPlanReportPair_RoundTrip(t *testing.T) {
 		t.Fatalf("seed plan file: %v", err)
 	}
 	plan := &ChangePlan{
-		ID:      "plan-abc",
-		Summary: "synthetic plan",
+		ID:          "plan-abc",
+		Summary:     "synthetic plan",
 		TargetPaths: []string{"foo.go", "bar.go"},
 	}
 	report := &ChangeReport{
-		PlanID: "plan-abc",
-		Passed: true,
+		PlanID:      "plan-abc",
+		Passed:      true,
 		TestResults: []TestResult{{AssertionID: "TestFoo", Passed: true}},
 	}
 	if err := WriteBestPlanReportPair(plan, report, planFile); err != nil {

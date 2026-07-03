@@ -112,10 +112,10 @@ func TestLoadPlanGroupFromFile_RefusesUnknownDecision(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "group-future.json")
 	payload := map[string]interface{}{
-		"id":         "group-future",
-		"decision":   "parallel", // unknown shape
-		"status":     string(PlanGroupInFlight),
-		"phases":     []interface{}{},
+		"id":       "group-future",
+		"decision": "parallel", // unknown shape
+		"status":   string(PlanGroupInFlight),
+		"phases":   []interface{}{},
 	}
 	data, _ := json.Marshal(payload)
 	if err := os.WriteFile(path, data, 0o644); err != nil {

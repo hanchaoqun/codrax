@@ -2240,6 +2240,20 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	ctx.Mutable.SetInvestigationComplete(reason)
 	ctx.Mutable.SetInvestigationResultKind(resultKind)
 	ctx.Mutable.RetainInvestigationAggregateFacts()
+	// A1 anchor advisory (soft): verified-but-unconsumed anchors ride a
+	// gate note into answer writing so the finalizer can disclose the
+	// boundary — never a denial (anchor relevance is a judgment call).
+	if ctx.AnalysisIR != nil {
+		if unconsumed := types.UnconsumedAnchorObligations(
+			types.CompileAnchorObligations(ctx.AnalysisIR),
+			ctx.Mutable.EvidenceClosure(),
+			ctx.Mutable.EmittedEvidence(),
+		); len(unconsumed) > 0 {
+			ctx.Mutable.AppendCompletionGateNote(fmt.Sprintf(
+				"analysis-verified anchors without read/evidence proof in this investigation: %s — if the answer relies on one of them, present it as unverified context",
+				types.SummarizeAnchorObligations(unconsumed)))
+		}
+	}
 	// Promote the waiver only when THIS accepted attempt declared it and
 	// the declaration was not ignored — a stale pending waiver from an
 	// earlier denied attempt must not arm the finalize citation-floor

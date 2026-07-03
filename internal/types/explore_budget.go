@@ -9,9 +9,10 @@ import "strings"
 // was only caught when the budget lookup silently missed an alias.
 //
 // Accepted aliases:
-//   read    → read_file
-//   repomap → repo_map
-//   ls      → list_files
+//
+//	read    → read_file
+//	repomap → repo_map
+//	ls      → list_files
 //
 // Anything else passes through lowercased-and-trimmed.
 func CanonicalToolName(name string) string {

@@ -4,7 +4,6 @@ import (
 	"testing"
 )
 
-
 func TestCollectDriftBoundedSurfaceItems_PrefersInnerCompanionDetail(t *testing.T) {
 	observed := []LogSourceDriftAnchor{
 		{File: "internal/agent/analyzer.go", Func: "buildAnalysisIR"},

@@ -10,27 +10,27 @@ package types
 //
 // Mapping intent (B2 编译规则的目标 — 这里 only 定义闭枚举):
 //
-//   BlockSummary     — opening / lead-in prose paragraph(s); every
-//                      family carries at least one
-//   BlockSection     — sub-headed body section for explanation /
-//                      architecture answers; indexed by Title
-//   BlockOrderedList — sequence of items with positional meaning
-//                      (root cause hops, precedence layers, call-
-//                      chain links, principal step list)
-//   BlockBulletList  — unordered enumeration (categories, options,
-//                      enumerated members where order is irrelevant)
-//   BlockScalar      — single-literal answer (config value, count,
-//                      identifier, return value)
-//   BlockDecision    — boolean / yes-no answer with rationale
-//   BlockTable       — multi-column structured grid (precedence
-//                      layer-by-key, comparison, enumeration with
-//                      multiple attributes)
-//   BlockDiagram     — mermaid / text diagram explicitly carried as
-//                      its own block so node-edge claim_uses can be
-//                      validated independently of surrounding prose
-//   BlockCaveat      — trailing scope-warning or out-of-band note
-//                      (drift markers, exception cases, log-source
-//                      provenance disclosure)
+//	BlockSummary     — opening / lead-in prose paragraph(s); every
+//	                   family carries at least one
+//	BlockSection     — sub-headed body section for explanation /
+//	                   architecture answers; indexed by Title
+//	BlockOrderedList — sequence of items with positional meaning
+//	                   (root cause hops, precedence layers, call-
+//	                   chain links, principal step list)
+//	BlockBulletList  — unordered enumeration (categories, options,
+//	                   enumerated members where order is irrelevant)
+//	BlockScalar      — single-literal answer (config value, count,
+//	                   identifier, return value)
+//	BlockDecision    — boolean / yes-no answer with rationale
+//	BlockTable       — multi-column structured grid (precedence
+//	                   layer-by-key, comparison, enumeration with
+//	                   multiple attributes)
+//	BlockDiagram     — mermaid / text diagram explicitly carried as
+//	                   its own block so node-edge claim_uses can be
+//	                   validated independently of surrounding prose
+//	BlockCaveat      — trailing scope-warning or out-of-band note
+//	                   (drift markers, exception cases, log-source
+//	                   provenance disclosure)
 //
 // Adding a new value requires updating AllAnswerBlockKinds() and any
 // V2 validator that switches on Kind. The structural test

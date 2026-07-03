@@ -37,11 +37,11 @@ func TestTypedDenialSet_IsPathDenied(t *testing.T) {
 		path string
 		want bool
 	}{
-		{"internal/agent/analyzer.go", true},                         // exact
-		{"/abs/repo/internal/agent/analyzer.go", true},                // abs suffix-matches relative
-		{"internal/agent/analyzer.go ", true},                         // trim
-		{"internal/agent/analyzer_test.go", false},                    // similar but different
-		{"internal/agent/explorer.go", false},                         // unrelated
+		{"internal/agent/analyzer.go", true},           // exact
+		{"/abs/repo/internal/agent/analyzer.go", true}, // abs suffix-matches relative
+		{"internal/agent/analyzer.go ", true},          // trim
+		{"internal/agent/analyzer_test.go", false},     // similar but different
+		{"internal/agent/explorer.go", false},          // unrelated
 		{"", false},
 	}
 	for _, c := range cases {

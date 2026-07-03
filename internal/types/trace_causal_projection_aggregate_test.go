@@ -42,7 +42,7 @@ func TestTraceCausalProjectionAggregateRealCustomerShape(t *testing.T) {
 			GroundingPolicy: ClaimGroundingHard, Predicate: "root_cause_primary", ClaimKey: "root_cause_primary:running",
 			Subject: "#RxComputationT-16816", Object: "running", Value: "112.103", Unit: "ms", Confidence: 0.9,
 			SupportRefs: []string{"obs:E1"},
-			Span: ObservationSpan{LineStart: 45689, LineEnd: 79000},
+			Span:        ObservationSpan{LineStart: 45689, LineEnd: 79000},
 			RichNotes: []string{
 				"rank=2", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain", "chain_depth=1",
 				"impact_ms=58.919", "cumulative_impact_ms=112.103", "actual_impact_ms=59.050", "dominant_state=running",
@@ -53,7 +53,7 @@ func TestTraceCausalProjectionAggregateRealCustomerShape(t *testing.T) {
 			GroundingPolicy: ClaimGroundingHard, Predicate: "wakeup_causal_impact", ClaimKey: "wakeup_causal_impact:running",
 			Subject: "#RxComputationT-16816", Object: "running", Value: "58.919", Unit: "ms", Confidence: 0.78,
 			SupportRefs: []string{"obs:E12"},
-			Span: ObservationSpan{LineStart: 45689, LineEnd: 79000},
+			Span:        ObservationSpan{LineStart: 45689, LineEnd: 79000},
 			RichNotes: []string{
 				"chain_relevance=on_chain", "causality=on_wakeup_chain", "chain_depth=1",
 				"impact_ms=58.919", "cumulative_impact_ms=58.919", "actual_impact_ms=59.050", "dominant_state=running",

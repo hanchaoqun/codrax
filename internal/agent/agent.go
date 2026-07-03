@@ -1509,8 +1509,10 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 	observationCheckpoint := renderToolHistoryObservationCheckpoint(ctx, toolHistoryObservationCheckpointRecordLimit)
 	repairDebtCheckpoint := renderToolHistoryRepairDebtCheckpoint(ctx, toolHistoryRepairDebtCheckpointRecordLimit)
 	navigationCheckpoint := renderToolHistoryNavigationCheckpoint(ctx)
+	anchorCheckpoint := renderToolHistoryAnchorCheckpoint(ctx)
 	if len(citable) == 0 && len(aggregateFacts) == 0 && reason == "" && resultKind == "" &&
-		observationCheckpoint == "" && repairDebtCheckpoint == "" && navigationCheckpoint == "" {
+		observationCheckpoint == "" && repairDebtCheckpoint == "" && navigationCheckpoint == "" &&
+		anchorCheckpoint == "" {
 		return ""
 	}
 	var b strings.Builder
@@ -1566,6 +1568,13 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 		b.WriteString("\nActive repair debt snapshot:\n")
 		b.WriteString(repairDebtCheckpoint)
 		if !strings.HasSuffix(repairDebtCheckpoint, "\n") {
+			b.WriteByte('\n')
+		}
+	}
+	if anchorCheckpoint != "" {
+		b.WriteString("\n")
+		b.WriteString(anchorCheckpoint)
+		if !strings.HasSuffix(anchorCheckpoint, "\n") {
 			b.WriteByte('\n')
 		}
 	}
@@ -1890,6 +1899,32 @@ func renderToolHistoryObservationCheckpoint(ctx *types.AgentContext, limit int) 
 // Scope: investigation windows only (precise typed stage check) — they are the
 // only windows that run navigation tools, and rendering route hints to a
 // window without tools would be pure noise.
+// renderToolHistoryAnchorCheckpoint reminds the explorer of the anchors
+// the analyzer ALREADY verified (resolved entities, required files, user
+// exact targets) that have no consumption proof yet — the qf_architecture
+// failure class walked past its own pre-scan anchor onto a same-named
+// decoy family and never came back. SOFT guidance by design: anchor
+// relevance is a judgment call, so the reminder says "if relevant",
+// never "you must".
+func renderToolHistoryAnchorCheckpoint(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Stage != types.StageExplore || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	obligations := types.CompileAnchorObligations(ctx.AnalysisIR)
+	if len(obligations) == 0 {
+		return ""
+	}
+	unconsumed := types.UnconsumedAnchorObligations(obligations, ctx.Mutable.EvidenceClosure(), ctx.Mutable.EmittedEvidence())
+	if len(unconsumed) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Verified anchors from the question analysis with no read/evidence proof yet (advisory): ")
+	b.WriteString(types.SummarizeAnchorObligations(unconsumed))
+	b.WriteString(". If one of these names the asked mechanism, read or search it before settling on a same-named alternative; if it is unrelated to the question, ignore this note.")
+	return b.String()
+}
+
 func renderToolHistoryNavigationCheckpoint(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.Stage != types.StageExplore {
 		return ""

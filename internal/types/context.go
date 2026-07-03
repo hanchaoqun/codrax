@@ -5179,6 +5179,24 @@ func (m *MutableState) SetCompletionGateNote(note string) {
 	m.completionGateNote = strings.TrimSpace(note)
 }
 
+// AppendCompletionGateNote joins a note onto the pending completion-gate
+// note instead of overwriting it — advisory producers (anchor lane) must
+// not clobber a breaker's note that set the slot earlier in the same
+// dispatch.
+func (m *MutableState) AppendCompletionGateNote(note string) {
+	note = strings.TrimSpace(note)
+	if m == nil || note == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.completionGateNote == "" {
+		m.completionGateNote = note
+		return
+	}
+	m.completionGateNote += "; " + note
+}
+
 // TakeCompletionGateNote returns and clears the pending completion-gate note.
 func (m *MutableState) TakeCompletionGateNote() string {
 	if m == nil {

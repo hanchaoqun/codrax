@@ -14,11 +14,11 @@ import "time"
 // map. The probe layer never errors fatally; partial facts are
 // always better than no facts.
 type EnvFacts struct {
-	OS              string                    `json:"os"`         // linux / darwin / windows
-	Arch            string                    `json:"arch"`       // amd64 / arm64
-	OSFamily        string                    `json:"os_family"`  // debian / rhel / arch / alpine / darwin / windows / freebsd / unknown
-	OSVersion       string                    `json:"os_version"` // "ubuntu 22.04" / "macos 14.3"
-	Shell           string                    `json:"shell"`      // bash / zsh / fish / pwsh / cmd / unknown
+	OS              string                    `json:"os"`                      // linux / darwin / windows
+	Arch            string                    `json:"arch"`                    // amd64 / arm64
+	OSFamily        string                    `json:"os_family"`               // debian / rhel / arch / alpine / darwin / windows / freebsd / unknown
+	OSVersion       string                    `json:"os_version"`              // "ubuntu 22.04" / "macos 14.3"
+	Shell           string                    `json:"shell"`                   // bash / zsh / fish / pwsh / cmd / unknown
 	PathTools       map[string]string         `json:"path_tools,omitempty"`    // bin name → resolved path
 	PkgManagers     map[string]PkgManagerInfo `json:"pkg_managers,omitempty"`  // apt / dnf / brew / pip / etc
 	ProjectFiles    map[string]string         `json:"project_files,omitempty"` // pyproject.toml / package.json → abs path

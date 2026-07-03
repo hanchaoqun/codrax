@@ -1,6 +1,8 @@
 package types
 
 import (
+	"strings"
+
 	"github.com/hanchaoqun/codrax/internal/logging"
 )
 
@@ -188,4 +190,42 @@ func (c *EvidenceClosure) UnverifiedFindings() []UnverifiedFinding {
 	out := make([]UnverifiedFinding, len(c.unverifiedFinds))
 	copy(out, c.unverifiedFinds)
 	return out
+}
+
+// HasReadPath reports whether the canonicalized path resolves into the
+// read set (alias-aware) — the same precise boolean the unverified-finding
+// clear uses. Nil-safe.
+func (c *EvidenceClosure) HasReadPath(path string) bool {
+	if c == nil {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	canon := c.canonicalize(path)
+	if canon == "" {
+		return false
+	}
+	_, ok := c.readAliasLocked(canon)
+	return ok
+}
+
+// HasReadPathUnder reports whether ANY read path sits at or under the
+// given scope prefix (slash-form). Nil-safe; scope "" is never satisfied.
+func (c *EvidenceClosure) HasReadPathUnder(scope string) bool {
+	if c == nil {
+		return false
+	}
+	scope = strings.Trim(strings.TrimSpace(strings.ReplaceAll(scope, "\\", "/")), "/")
+	if scope == "" {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	prefix := scope + "/"
+	for path := range c.readSet {
+		if path == scope || strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }

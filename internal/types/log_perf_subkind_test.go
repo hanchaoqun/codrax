@@ -240,7 +240,7 @@ func TestLogPerfSubKindOf_CauseChainTraversed(t *testing.T) {
 	bundle := &LogBundle{
 		Meta: LogMeta{Signals: []LogSignal{SignalPanic}},
 		Errors: []LogError{{
-			Type: "TopLevelPanic",
+			Type:   "TopLevelPanic",
 			Frames: []LogFrame{{File: "top.go", Line: 1}},
 			Cause: &LogError{
 				Type:   "DeeperCause",

@@ -269,8 +269,8 @@ type LogFrame struct {
 	// trace (PerfStall keeps its timing; a plain log frame leaves
 	// these zero). Downstream consumers can re-anchor a trace-derived
 	// frame back to its moment without re-reading the trace.
-	ArtifactStartTsMs   float64 `json:"artifact_start_ts_ms,omitempty"`
-	ArtifactDurationMs  float64 `json:"artifact_duration_ms,omitempty"`
+	ArtifactStartTsMs  float64 `json:"artifact_start_ts_ms,omitempty"`
+	ArtifactDurationMs float64 `json:"artifact_duration_ms,omitempty"`
 
 	// File is the source file path. The LLM emits the raw form as it
 	// appears in the log (may be absolute build path or basename or

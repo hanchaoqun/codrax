@@ -1651,3 +1651,37 @@ func TestBuildToolSchemas_AnalyzeStageGrepSchemaCarriesFilesOnlyRule(t *testing.
 		t.Fatalf("explore-stage grep schema must NOT carry the classification-step rule:\n%s", explore)
 	}
 }
+
+// TestRenderToolHistoryAnchorCheckpoint pins the A1 explore-checkpoint
+// reminder: analyzer-verified anchors with no consumption proof render as
+// one advisory line ("if relevant … if unrelated, ignore"), and disappear
+// as soon as the read set / evidence anchors consume them.
+func TestRenderToolHistoryAnchorCheckpoint(t *testing.T) {
+	mut := types.NewMutableState("q")
+	ctx := &types.AgentContext{
+		Stage:   types.StageExplore,
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{
+				EntityProvenance: []types.EntityProvenance{
+					{Surface: "internal/types/stage_binding.go", Resolution: types.EntityResolutionFile, Resolved: true},
+				},
+			}},
+		},
+	}
+	out := renderToolHistoryAnchorCheckpoint(ctx)
+	for _, want := range []string{"stage_binding.go", "advisory", "ignore this note"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("anchor checkpoint missing %q:\n%s", want, out)
+		}
+	}
+
+	mut.EvidenceClosure().AddReadSet(map[string]bool{"internal/types/stage_binding.go": true})
+	if out := renderToolHistoryAnchorCheckpoint(ctx); out != "" {
+		t.Fatalf("consumed anchor must silence the reminder: %q", out)
+	}
+
+	if out := renderToolHistoryAnchorCheckpoint(&types.AgentContext{Stage: types.StageFinalize, Mutable: mut, AnalysisIR: ctx.AnalysisIR}); out != "" {
+		t.Fatalf("non-explore stages must not render the reminder: %q", out)
+	}
+}

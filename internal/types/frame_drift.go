@@ -6,20 +6,20 @@ package types
 // from the renderer's perspective:
 //
 //   - DriftStatusNone:        log and current code agree at the same
-//                             (file, line). Authority cap = factual.
+//     (file, line). Authority cap = factual.
 //   - DriftStatusLineDrift:   log claim resolves to the same file +
-//                             same function, line numbers shifted.
-//                             Authority cap = conditional.
+//     same function, line numbers shifted.
+//     Authority cap = conditional.
 //   - DriftStatusTailRename:  log claim resolves to the same file but
-//                             the function name has changed.
-//                             Authority cap = conditional.
+//     the function name has changed.
+//     Authority cap = conditional.
 //   - DriftStatusFileMoved:   log claim resolves only via a different
-//                             file (the function moved across files).
-//                             Authority cap = historical.
+//     file (the function moved across files).
+//     Authority cap = historical.
 //   - DriftStatusUnmappable:  log claim cannot be located in current
-//                             code at all. The function/file may have
-//                             been removed entirely. Authority cap =
-//                             historical.
+//     code at all. The function/file may have
+//     been removed entirely. Authority cap =
+//     historical.
 //
 // The empty string is the zero value, meaning "drift detection has
 // not been run". Distinct from DriftStatusNone (which is a positive
@@ -32,11 +32,11 @@ const (
 	// = factual when paired with a current-repo origin).
 	DriftStatusUnknown FrameDriftStatus = ""
 
-	DriftStatusNone        FrameDriftStatus = "none"
-	DriftStatusLineDrift   FrameDriftStatus = "line_drift"
-	DriftStatusTailRename  FrameDriftStatus = "tail_rename"
-	DriftStatusFileMoved   FrameDriftStatus = "file_moved"
-	DriftStatusUnmappable  FrameDriftStatus = "unmappable"
+	DriftStatusNone       FrameDriftStatus = "none"
+	DriftStatusLineDrift  FrameDriftStatus = "line_drift"
+	DriftStatusTailRename FrameDriftStatus = "tail_rename"
+	DriftStatusFileMoved  FrameDriftStatus = "file_moved"
+	DriftStatusUnmappable FrameDriftStatus = "unmappable"
 )
 
 var allFrameDriftStatuses = []FrameDriftStatus{
@@ -80,13 +80,13 @@ func (s FrameDriftStatus) IsValid() bool {
 // AuthorityCeiling for evidence items whose anchor matches a log
 // frame.
 type FrameDrift struct {
-	Status        FrameDriftStatus
-	AnchoredFile  string
-	AnchoredLine  int
-	AnchoredFunc  string
-	OriginalFile  string
-	OriginalLine  int
-	OriginalFunc  string
+	Status       FrameDriftStatus
+	AnchoredFile string
+	AnchoredLine int
+	AnchoredFunc string
+	OriginalFile string
+	OriginalLine int
+	OriginalFunc string
 }
 
 // AuthorityCeiling reports the AuthorityCeiling cap implied by a

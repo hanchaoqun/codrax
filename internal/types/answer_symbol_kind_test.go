@@ -27,10 +27,10 @@ func TestNormalizeAnswerSymbolKind_Aliases(t *testing.T) {
 	}{
 		{"func", KindFunction},
 		{"fn", KindFunction},
-		{"FUNC", KindFunction},         // case-insensitive
-		{"  method  ", KindMethod},     // whitespace tolerant
-		{"Function", KindFunction},     // mixed case canonical
-		{"struct_field", KindField},    // alias to field
+		{"FUNC", KindFunction},      // case-insensitive
+		{"  method  ", KindMethod},  // whitespace tolerant
+		{"Function", KindFunction},  // mixed case canonical
+		{"struct_field", KindField}, // alias to field
 	}
 	for _, c := range cases {
 		got, ok := NormalizeAnswerSymbolKind(c.in)

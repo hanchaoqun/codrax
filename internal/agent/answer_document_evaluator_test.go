@@ -6838,7 +6838,6 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopGenericRejectSurfacesToolError(t
 	}
 }
 
-
 // TestComputeAnswerDocAttemptShape locks the attempt-shape capture so
 // the regression detector's input is well-defined for tests.
 func TestComputeAnswerDocAttemptShape(t *testing.T) {

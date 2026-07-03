@@ -55,9 +55,9 @@ const (
 	KindProperty AnswerSymbolKind = "property" // JS/TS getter/setter, Swift property, Python @property
 
 	// Module-level scope.
-	KindModule  AnswerSymbolKind = "module"  // Python, Node, Rust, Ruby
-	KindPackage AnswerSymbolKind = "package" // Go, Java, npm
-	KindCrate   AnswerSymbolKind = "crate"   // Rust root compilation unit
+	KindModule    AnswerSymbolKind = "module"    // Python, Node, Rust, Ruby
+	KindPackage   AnswerSymbolKind = "package"   // Go, Java, npm
+	KindCrate     AnswerSymbolKind = "crate"     // Rust root compilation unit
 	KindNamespace AnswerSymbolKind = "namespace" // C#, C++, TS
 
 	// Metaprogramming / reflection-surface constructs.
