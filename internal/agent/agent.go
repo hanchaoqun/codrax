@@ -2434,6 +2434,12 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			// Surface the LLM's reasoning text so the user can follow
 			// the investigation in real time. The renderer decides how
 			// to present it (dimmed text above the spinner, etc.).
+			// Providers that mirror the same text on both the
+			// reasoning and content channels would double-echo here;
+			// the renderer dedupes that display-side (same-round
+			// verbatim comparison after collapse — see
+			// Renderer.lastReasoningEchoKey) so the raw content still
+			// enters history untouched.
 			b.deps.Emit(render.Event{
 				Kind:            render.EventAgentReasoning,
 				Timestamp:       time.Now(),
@@ -4292,17 +4298,20 @@ func (b *BaseAgent) startLLMRequestWatchdog(ctx *types.AgentContext, iter int, t
 	go func() {
 		timer := time.NewTimer(agentLLMRequestSlowAfter)
 		defer timer.Stop()
+		tick := 0
 		for {
 			select {
 			case <-done:
 				return
 			case <-timer.C:
+				tick++
 				elapsed := time.Since(start)
 				logging.Warning("[diag %s] iter=%d phase=llm_request stage=%s still running elapsed=%s model=%s context_tokens_est=%d context_window=%d messages=%d tools=%d",
 					agentName, iter, stage, elapsed.Round(time.Second),
 					telemetry.ModelID, telemetry.ContextTokensEstimate, telemetry.ContextWindowTokens,
 					telemetry.MessageCount, telemetry.ToolCount)
 				b.observeLLMRequestWaiting(ctx, iter, telemetry, elapsed)
+				b.emitLLMWaitHeartbeat(ctx, iter, tick, telemetry, elapsed)
 				timer.Reset(agentLLMRequestSlowEvery)
 			}
 		}
@@ -4314,6 +4323,52 @@ func (b *BaseAgent) startLLMRequestWatchdog(ctx *types.AgentContext, iter int, t
 				agentName, iter, stage, time.Since(start).Round(time.Millisecond), telemetry.ModelID)
 		})
 	}
+}
+
+// emitLLMWaitHeartbeat surfaces one slow-LLM-request watchdog tick as
+// a typed render event. Pre-this-emitter the watchdog only wrote
+// logging.Warning lines, which never reach the terminal: a degenerate
+// 14m35s provider response (2026-07-03 berlin.systrace customer
+// session) left the CLI completely silent with the last visible line
+// frozen on the preceding trace_query call, so the operator concluded
+// the TOOL was stuck when it was the MODEL that was slow. Presentation
+// policy stays renderer-side — the emitter fires on EVERY tick and
+// carries the 1-based tick counter so the renderer's power-of-two
+// durable-line gate (llmWaitHeartbeatDurable) works off a precise
+// integer signal rather than re-deriving cadence from elapsed time.
+//
+// ParallelGroupID / ParallelUnitID / DispatchKind follow the same
+// fill pattern as the other per-request emits in this file (the
+// EventAgentThinking / EventAdapterRetry sites): without them a
+// heartbeat from a bounded fan-out worker rendered with no unit
+// attribution, and two units waiting on the same model at the same
+// elapsed second produced byte-identical lines that the renderer's
+// consecutive-duplicate suppression swallowed (2026-07-03 review WF3).
+func (b *BaseAgent) emitLLMWaitHeartbeat(ctx *types.AgentContext, iter, tick int, telemetry llm.RequestTelemetry, elapsed time.Duration) {
+	if b == nil || b.deps == nil || b.deps.Emit == nil {
+		return
+	}
+	var stage types.PipelineStage
+	var parallelGroupID, parallelUnitID, dispatchKind string
+	if ctx != nil {
+		stage = ctx.Stage
+		parallelGroupID = ctx.ParallelGroupID
+		parallelUnitID = ctx.ExploreDispatchKey
+		dispatchKind = string(ctx.ExploreDispatchKind)
+	}
+	b.deps.Emit(render.Event{
+		Kind:            render.EventAgentLLMWaiting,
+		Timestamp:       time.Now(),
+		Agent:           b.name,
+		Stage:           stage,
+		Iteration:       iter,
+		ModelID:         telemetry.ModelID,
+		WaitTick:        tick,
+		WaitElapsed:     elapsed,
+		ParallelGroupID: parallelGroupID,
+		ParallelUnitID:  parallelUnitID,
+		DispatchKind:    dispatchKind,
+	})
 }
 
 func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, currentToolSurface ...map[string]bool) (*types.ToolResult, *types.MCPResponse) {

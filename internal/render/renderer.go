@@ -216,6 +216,31 @@ type Renderer struct {
 	// commitLineLocked, so no external invariant depends on the value.
 	lastCommittedLine string
 
+	// lastReasoningEchoKey / lastReasoningEchoText dedupe the same-round
+	// reasoning double echo. BaseAgent emits resp.ReasoningContent AND
+	// resp.Content as two consecutive EventAgentReasoning events; some
+	// providers return the identical text on both channels, so the same
+	// prose printed twice per round (and twice per round × thousands of
+	// repeated sentences in the 2026-07-03 berlin.systrace degenerate-
+	// response session). The comparison lives renderer-side rather than
+	// at the agent emit site because (a) collapseRepeatedSegments is a
+	// display-layer transform that MUST NOT touch payloads also headed
+	// into session history, and (b) one comparison here covers the TTY
+	// and non-TTY paths of every emitter. The skip fires only on
+	// verbatim equality of the collapsed+trimmed payload within the
+	// same (agent, stage, iteration, parallel-unit) key — display-layer
+	// verbatim folding, not intent matching. lastCommittedLine already
+	// suppressed the single-line duplicate shape; this catches the
+	// multi-line shape which per-line commits never see as one unit.
+	// Lifecycle: cleared on every EventAgentThinking /
+	// EventLLMRequestStart so the dedupe scope is exactly ONE
+	// response's reasoning→content pair — the key alone cannot bound
+	// the scope because paths with a constant iteration (chit-chat is
+	// always Iteration 0) would otherwise swallow identical reasoning
+	// from later turns/runs forever (2026-07-03 review WF2).
+	lastReasoningEchoKey  string
+	lastReasoningEchoText string
+
 	// analysisReady flips to true on EventAnalysisReady. Once flipped,
 	// stage-dispatch events (EventStageStart / EventStageEnd) for
 	// explore / extract / finalize are ignored — the task graph's
@@ -1404,6 +1429,165 @@ func pluralS(n int) string {
 // reasoningMaxChars caps the legacy opt-in reasoning summary shown to the user.
 const reasoningMaxChars = 200
 
+// displayTextCapRunes bounds how many runes of a single LLM
+// reasoning / content payload reach the line formatter. 2026-07-03
+// berlin.systrace customer session: a degenerate 14m35s provider
+// response carried 124KB of the same sentence repeated thousands of
+// times, and the renderer committed it verbatim to scrollback AND to
+// the [render] INFO mirror. The cap (like collapseRepeatedSegments)
+// is display-only — the untruncated payload still enters conversation
+// history / debug logs / blob artifacts; only the user-facing
+// projection is bounded. 2048 runes ≈ one comfortable screenful of
+// thinking prose while still surviving multi-line diagrams.
+const displayTextCapRunes = 2048
+
+// minCollapseRun is the smallest consecutive-identical run that
+// collapseRepeatedSegments folds. Pairs (×2) are common in legitimate
+// code and prose — two identical closing-brace lines at the same
+// depth inside one fenced block, a repeated emphasis line — while the
+// degenerate same-sentence-×-thousands payloads the fold targets
+// always clear 3. Precise integer threshold, not a heuristic.
+const minCollapseRun = 3
+
+// collapseRepeatedSegments folds runs of CONSECUTIVE byte-identical
+// segments (split on '\n', compared verbatim — NO trimming) into a
+// single copy plus a "(repeated ×N, collapsed)" note. Two precise
+// criteria gate the fold, per the precise-signals red line:
+//
+//  1. verbatim byte equality — indentation-variant lines such as
+//     "\t}" vs "}" are DIFFERENT segments. The previous TrimSpace
+//     compare treated them as duplicates and folded the distinct
+//     close-brace ladder of fenced code blocks into one line,
+//     destroying the block shape (2026-07-03 adversarial review
+//     finding WF1);
+//  2. run length ≥ minCollapseRun — shorter runs pass through
+//     untouched.
+//
+// Blank lines inside a run do not break it — degenerate model output
+// often separates its repeated sentence with empty lines — but any
+// differing non-blank segment ends the run, so alternating content
+// ("a b a b") is never folded. Display-only: callers must never feed
+// the collapsed text back into session history.
+func collapseRepeatedSegments(text, lang string) string {
+	if !strings.Contains(text, "\n") {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	changed := false
+	i := 0
+	for i < len(lines) {
+		line := lines[i]
+		if strings.TrimSpace(line) == "" {
+			out = append(out, line)
+			i++
+			continue
+		}
+		count := 1
+		next := i + 1 // index just past the last line consumed by this run
+		for j := i + 1; j < len(lines); j++ {
+			probe := lines[j]
+			if strings.TrimSpace(probe) == "" {
+				continue // blank separator inside a potential run
+			}
+			if probe != line {
+				break
+			}
+			count++
+			next = j + 1
+		}
+		if count >= minCollapseRun {
+			out = append(out, line+" "+repeatCollapseNote(count, lang))
+			i = next
+			changed = true
+			continue
+		}
+		out = append(out, line)
+		i++
+	}
+	if !changed {
+		return text
+	}
+	return strings.Join(out, "\n")
+}
+
+func repeatCollapseNote(count int, lang string) string {
+	if isZh(lang) {
+		return fmt.Sprintf("（重复 ×%d 已折叠）", count)
+	}
+	return fmt.Sprintf("(repeated ×%d, collapsed)", count)
+}
+
+// capDisplayText truncates text to displayTextCapRunes runes and
+// appends an explicit truncation note carrying the original rune
+// count, so the user knows the model produced more than what is
+// shown. Rune-based slicing keeps the cut UTF-8-safe (a CJK char is
+// never split mid-encoding). Display-only, like the collapse above.
+func capDisplayText(text, lang string) string {
+	if len(text) <= displayTextCapRunes {
+		// Byte length ≥ rune length, so a short byte string can never
+		// exceed the rune cap — skip the rune decode entirely.
+		return text
+	}
+	runes := []rune(text)
+	if len(runes) <= displayTextCapRunes {
+		return text
+	}
+	kept := string(runes[:displayTextCapRunes])
+	if isZh(lang) {
+		return kept + fmt.Sprintf("…（已截断，原文 %d 字符）", len(runes))
+	}
+	return kept + fmt.Sprintf("… (truncated, %d chars total)", len(runes))
+}
+
+// llmWaitHeartbeatDurable reports whether the WaitTick-th slow-LLM-
+// request heartbeat earns a durable scrollback line. Ticks arrive at
+// the watchdog's fixed 30s cadence, so gating on power-of-two tick
+// numbers yields the 30s / 1m / 2m / 4m / 8m / 16m … escalation
+// sequence: a very long request costs O(log n) scrollback lines
+// instead of one per 30s. Precise integer signal (single power-of-two
+// test on a typed counter) per the hard-gate red line — no
+// elapsed-duration heuristics.
+func llmWaitHeartbeatDurable(tick int) bool {
+	return tick >= 1 && tick&(tick-1) == 0
+}
+
+// formatLLMWaitHeartbeatLine renders the low-key "still waiting for
+// the model" status line committed on durable heartbeat ticks.
+// Deliberately quiet: statusMeta gray with the progress "›" lead-in,
+// NOT the ↻ retry glyph (nothing failed) and NOT the ⋯ thinking glyph
+// (the model has produced nothing to think aloud about). The model id
+// is appended when known so the operator can tell WHICH request is
+// slow in fallback / multi-provider runs.
+//
+// The line leads with the same stage/round trace label the reasoning
+// and tool-call formatters use (activityTraceLabelWithParallel):
+// "  › 探索 · 探查 · 第 13 轮 · 等待模型响应 已 2m30s · MiniMax-M2.7".
+// Attribution matters twice (2026-07-03 adversarial review WF3):
+// (a) in interleaved/parallel runs an unlabelled "waiting" line is
+// unattributable, and (b) two parallel units waiting on the SAME
+// model with the SAME elapsed second used to render byte-identical
+// lines, so commitLineLocked's lastCommittedLine dedupe silently
+// swallowed the second unit's heartbeat — the unit label makes the
+// lines byte-distinct.
+func formatLLMWaitHeartbeatLine(agent string, stage types.PipelineStage, iteration int, elapsed time.Duration, modelID, lang, parallelUnitLabel string) string {
+	rounded := elapsed.Round(time.Second)
+	if rounded < 0 {
+		rounded = 0
+	}
+	var body string
+	if isZh(lang) {
+		body = fmt.Sprintf("等待模型响应 已 %s", rounded)
+	} else {
+		body = fmt.Sprintf("still waiting for the model · %s elapsed", rounded)
+	}
+	if trimmed := strings.TrimSpace(modelID); trimmed != "" {
+		body += " · " + trimmed
+	}
+	trace := activityTraceLabelWithParallel(agent, stage, iteration, lang, parallelUnitLabel)
+	return "  " + statusMeta.Sprint("› "+trace+" · "+body)
+}
+
 type scrollbackLine struct {
 	text   string
 	visual bool
@@ -1528,6 +1712,17 @@ func formatReasoningLines(agent string, stage types.PipelineStage, iteration int
 }
 
 func formatReasoningLinesWithParallel(agent string, stage types.PipelineStage, iteration int, text string, truncate bool, lang string, parallelUnitLabel string) []scrollbackLine {
+	// Display-only bounding: fold consecutive duplicate segments FIRST
+	// (a degenerate same-sentence-×-thousands payload shrinks to one
+	// line + fold note), then cap the remainder at displayTextCapRunes.
+	// Every reasoning/content consumer funnels through this formatter —
+	// TTY scrollback (commitScrollbackLinesLocked), non-TTY stdout
+	// (emitNonTTYLines) AND the [render] INFO log mirror
+	// (mirrorDockLineToLog / mirrorDockBlockToLog consume the same
+	// formatted lines) — so this single choke point bounds all three
+	// surfaces at once. The raw payload entering session history /
+	// debug logs / blob artifacts stays untouched.
+	text = capDisplayText(collapseRepeatedSegments(text, lang), lang)
 	trace := activityTraceLabelWithParallel(agent, stage, iteration, lang, parallelUnitLabel)
 	prefix := "  " + statusReasoningGlyph.Sprint(string(glyphReasoning)) + " " + statusMeta.Sprint(trace) + " "
 	if truncate {

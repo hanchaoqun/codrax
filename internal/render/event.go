@@ -216,6 +216,25 @@ const (
 	// embeds its own ↻/·/–/›/⊘ glyph; the renderer adds no further
 	// prefix).
 	EventOrchestratorNotice
+
+	// LLM-request wait heartbeat. Emitted by BaseAgent's LLM-request
+	// watchdog on every slow-request tick (fixed 30s cadence) while a
+	// single model request is still in flight. Pre-this-event the
+	// watchdog only wrote logging.Warning lines — a degenerate
+	// 14m35s provider response (2026-07-03 berlin.systrace customer
+	// session) left the CLI completely silent with the last visible
+	// line frozen on the preceding trace_query call, so the operator
+	// concluded the TOOL was stuck when it was the model that was
+	// slow. The renderer turns these ticks into low-key "waiting for
+	// model · elapsed · model-id" status lines.
+	//
+	// WaitTick is the 1-based tick counter; the renderer rate-limits
+	// durable scrollback lines to power-of-two ticks (30s, 1m, 2m,
+	// 4m, 8m, …) via llmWaitHeartbeatDurable so a very long request
+	// costs O(log n) scrollback lines, not one per 30s. Appended at
+	// the end of the enum so pre-existing EventKind values keep
+	// their positions.
+	EventAgentLLMWaiting
 )
 
 // PhaseInfo is the renderable per-phase projection carried on
@@ -504,6 +523,20 @@ type Event struct {
 	//                 the localized text (with its own embedded
 	//                 ↻/·/–/›/⊘ glyph chosen by user_messages.go).
 	NoticeKind OrchestratorNoticeKind
+
+	// EventAgentLLMWaiting payload.
+	//   WaitTick    — 1-based watchdog tick counter at the fixed
+	//                 slow-request cadence (30s). A precise integer
+	//                 signal: the renderer commits a durable
+	//                 scrollback line only on power-of-two ticks
+	//                 (llmWaitHeartbeatDurable) so heartbeats never
+	//                 flood scrollback.
+	//   WaitElapsed — wall time since the LLM request was dispatched;
+	//                 display-only (rendered rounded to seconds).
+	// Agent / Stage / Iteration / ModelID reuse the shared fields
+	// above to identify the in-flight request.
+	WaitTick    int
+	WaitElapsed time.Duration
 }
 
 // EventEmitter is the callback signature for pipeline event delivery.

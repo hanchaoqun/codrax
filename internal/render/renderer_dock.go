@@ -84,6 +84,19 @@ func (r *Renderer) handleEvent(ev Event) {
 		if ev.Reasoning == "" {
 			return
 		}
+		// Same-round duplicate echo skip (see lastReasoningEchoKey on
+		// the Renderer struct): when the content channel repeats the
+		// reasoning channel verbatim (after display-layer collapse +
+		// trim) within one round, the second echo adds zero
+		// information — drop it before any formatting. Both branches
+		// below (TTY commit and handleEventNonTTY replay) are covered
+		// because each recomputes from ev.Reasoning.
+		echoKey := fmt.Sprintf("%s|%s|%d|%s", ev.Agent, ev.Stage, ev.Iteration, ev.ParallelUnitID)
+		echoText := strings.TrimSpace(collapseRepeatedSegments(ev.Reasoning, r.lang))
+		if echoKey == r.lastReasoningEchoKey && echoText == r.lastReasoningEchoText {
+			return
+		}
+		r.lastReasoningEchoKey, r.lastReasoningEchoText = echoKey, echoText
 		lines := formatReasoningLinesWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang, r.activityTraceUnitLabelLocked(ev))
 		if len(lines) == 0 {
 			return
@@ -118,6 +131,28 @@ func (r *Renderer) handleEvent(ev Event) {
 			return
 		}
 		r.commitLineLocked(line)
+		return
+	case EventAgentLLMWaiting:
+		// Slow-LLM-request heartbeat (2026-07-03 berlin.systrace dead-
+		// silence session: one 14m35s model response with the last
+		// visible line frozen on the preceding trace_query call). The
+		// live dock needs no state mutation here — its animation ticker
+		// already repaints row 1 ("请求模型中" + elapsed) while the
+		// request is in flight; what was missing is the DURABLE record
+		// in scrollback and on non-TTY / --log-stdout runs. Durable
+		// lines are rate-limited to power-of-two WaitTicks (precise
+		// integer gate — hard requirement) so a very long request costs
+		// O(log n) lines; this is the single gate site for both the
+		// TTY and non-TTY branches.
+		if !llmWaitHeartbeatDurable(ev.WaitTick) {
+			return
+		}
+		if !r.dockEnabled && r.dock == nil {
+			r.handleEventNonTTY(ev)
+			return
+		}
+		r.commitLineLocked(formatLLMWaitHeartbeatLine(string(ev.Agent), ev.Stage, ev.Iteration,
+			ev.WaitElapsed, ev.ModelID, r.lang, r.activityTraceUnitLabelLocked(ev)))
 		return
 	case EventOrchestratorNotice:
 		// Distinct from EventAgentReasoning: no thinking glyph,
@@ -503,6 +538,17 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.streamTail = ""
 
 	case EventAgentThinking:
+		// A new LLM request is starting: reset the reasoning→content
+		// echo-dedupe state so its scope is precisely "the two
+		// emissions of ONE response". Without this reset the state
+		// lived forever, and any later response with the same (agent,
+		// stage, iteration, unit) key and same text — e.g. the
+		// chit-chat path, where Iteration is always 0 across turns —
+		// had its REAL reasoning silently swallowed (2026-07-03
+		// adversarial review WF2). EventAgentThinking is emitted by
+		// BaseAgent before every LLM call, so it is the per-request
+		// boundary event.
+		r.lastReasoningEchoKey, r.lastReasoningEchoText = "", ""
 		r.bindLiveEventStageLocked(string(ev.Stage))
 		r.recordLLMRequestTelemetry(ev)
 		if r.parallel != nil {
@@ -529,6 +575,10 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 
 	case EventLLMRequestStart:
+		// Same per-request echo-dedupe reset as EventAgentThinking:
+		// direct dispatches that signal request start through this
+		// event get the same "one response" dedupe scope.
+		r.lastReasoningEchoKey, r.lastReasoningEchoText = "", ""
 		r.bindLiveEventStageLocked(string(ev.Stage))
 		r.recordLLMRequestTelemetry(ev)
 		if r.parallel != nil {
@@ -2550,6 +2600,16 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		if line := r.formatOrchestratorNoticeLocked(ev.NoticeKind, ev.Reasoning, string(ev.Stage)); line != "" {
 			r.emitNonTTYLine(line)
 		}
+	case EventAgentLLMWaiting:
+		// Non-TTY runs have no live dock at all, so these durable
+		// heartbeat lines are the ONLY in-flight signal that a slow
+		// model request is still alive — exactly the surface that was
+		// fully silent in the 2026-07-03 customer session. The
+		// power-of-two WaitTick rate limit already fired in
+		// handleEvent (single gate site) before this branch is
+		// reached.
+		r.emitNonTTYLine(stripAnsiEscapes(formatLLMWaitHeartbeatLine(string(ev.Agent), ev.Stage, ev.Iteration,
+			ev.WaitElapsed, ev.ModelID, r.lang, r.activityTraceUnitLabelLocked(ev))))
 	case EventAdapterRetry:
 		// Non-TTY mode (CI / piped stdout) — same user-facing
 		// language as the dock activity row + permanent commit so
