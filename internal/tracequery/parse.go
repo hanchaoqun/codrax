@@ -200,6 +200,16 @@ type BuildOptions struct {
 	ScopeMaxDepth int
 }
 
+// indexPaddingTruncatedNoteFmt renders the display note for a windowed build
+// whose event budget tripped only inside the safety padding tail — the
+// requested window itself is fully parsed and the result stays consumable.
+// The single %.6f verb carries the real parse boundary (idx.LastTs at the
+// trigger point) so the note states HOW FAR parsing actually got instead of a
+// fixed claim (QF5); Index.PaddingTruncatedNote stores the formatted string
+// and display surfaces fold it verbatim. The same boundary is published as
+// the typed Index.PaddingTruncatedLastTs for query-layer caveats.
+const indexPaddingTruncatedNoteFmt = "index budget hit after request window fully parsed (parsed through ts=%.6f); padding tail truncated"
+
 type IndexEventLimitError struct {
 	Path           string
 	MaxEvents      int
@@ -763,6 +773,66 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					goto nextLine
 				}
 				if opts.MaxEvents > 0 && len(idx.Events) >= opts.MaxEvents {
+					// Padding-tail graceful degrade (berlin.systrace, 2026-07-03):
+					// the index window is the caller's request window plus safety
+					// padding. When the budget trips only inside the padding
+					// tail, a denial would throw away a fully usable core window
+					// over an unparsed padding remainder — the customer's 101ms
+					// request was completely parsed, yet the ±0.5s padding tail
+					// tripped the cap and the model permanently lost the view.
+					//
+					// Degrade criterion (QF1/QF3 rework, 2026-07-03) — precise
+					// signals only, all evaluated inside this loop:
+					//   1. opts.TimeStartSet && opts.TimeEndSet — a half-open
+					//      window has no TimeEnd to prove tail coverage against.
+					//   2. idx.ClockRegressions == 0 — zero clock regressions
+					//      observed in THIS parse. The counter is a run-time
+					//      signal incremented earlier in this same iteration
+					//      (before this guard) for every parsed event whose ts
+					//      moved backwards vs the previous parsed event; zero
+					//      prev-event regressions ⟺ the parsed ts sequence is
+					//      non-decreasing ⟺ zero running-max regressions, so no
+					//      shadow running-max bool is needed. Out-of-order
+					//      traces (ClockRegressions > 0) keep the hard denial:
+					//      there monotonicity cannot vouch for the unparsed
+					//      remainder.
+					//   3. ev.Ts > opts.TimeEnd — STRICTLY greater: the trigger
+					//      event itself lies outside the requested window, and
+					//      with (2) every later line has ts >= ev.Ts > TimeEnd,
+					//      so zero in-window events are lost. ev.Ts == TimeEnd
+					//      must NOT degrade — timeInWindow includes both
+					//      endpoints, so that trigger is a real in-window match
+					//      whose loss would silently drop an endpoint event
+					//      (QF1); it stays on the hard-denial path.
+					//
+					// The old idx.FirstTs <= opts.TimeStart conjunct was removed
+					// as structurally redundant for head coverage: the window
+					// gate skips every line below the padded start and the
+					// anchor seek only jumps to anchors guaranteed to precede
+					// the padded window, so parsing always begins at or before
+					// the window head and the budget cannot eat head events.
+					// Worse, the conjunct was ALWAYS false when no event exists
+					// at or before TimeStart (trace starting mid-window, or
+					// time_start=0), demoting a perfectly degradable shape to a
+					// hard denial (QF3). The old idx.LastTs >= opts.TimeEnd
+					// conjunct was unsound: LastTs already includes the trigger
+					// event, so a trigger at exactly TimeEnd (or an early
+					// out-of-order tail event pushing LastTs past TimeEnd)
+					// claimed full coverage while in-window events were being
+					// dropped (QF1).
+					//
+					// The relation-scope discovery pass shares windowGate but
+					// never reaches this branch — the degrade lives solely on
+					// this main-loop budget guard and gate semantics are
+					// untouched. Requests failing any conjunct keep the
+					// existing hard IndexEventLimitError.
+					if opts.TimeStartSet && opts.TimeEndSet &&
+						idx.ClockRegressions == 0 && ev.Ts > opts.TimeEnd {
+						idx.PaddingTruncated = true
+						idx.PaddingTruncatedLastTs = idx.LastTs
+						idx.PaddingTruncatedNote = fmt.Sprintf(indexPaddingTruncatedNoteFmt, idx.LastTs)
+						break
+					}
 					return nil, newIndexEventLimitError(path, idx, opts, lineNo, len(idx.Events))
 				}
 				idx.Events = append(idx.Events, ev)
@@ -1352,6 +1422,16 @@ func parseTraceArtifactPathList(ctx context.Context, path string, size int64, mo
 		}
 		if opts.MaxEvents > 0 && len(child.Events) > 0 && len(idx.Events)+len(child.Events) > opts.MaxEvents {
 			return nil, newIndexEventLimitError(path, idx, opts, child.Events[0].Line, len(idx.Events)+len(child.Events))
+		}
+		// A padding-tail-degraded child must keep its typed marker on the
+		// merged index, or the multi-artifact path would silently present a
+		// truncated build as complete.
+		if child.PaddingTruncated {
+			idx.PaddingTruncated = true
+			idx.PaddingTruncatedNote = child.PaddingTruncatedNote
+			// Keep note and typed boundary paired from the same child so the
+			// rendered text and PaddingTruncatedLastTs can never disagree.
+			idx.PaddingTruncatedLastTs = child.PaddingTruncatedLastTs
 		}
 		idx.Events = append(idx.Events, child.Events...)
 	}

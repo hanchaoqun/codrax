@@ -407,7 +407,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 			"state_cluster is parent-window coverage for prioritizing drilldown; root_cause_rank/frame_root_cause_bundle may still be needed on bounded phase windows",
 		},
 	}
-	stats.StateDrilldownPlan = buildStateDrilldownPlan(stats, max)
+	stats.StateDrilldownPlan, stats.IdleWholeWindowSleepers = buildStateDrilldownPlanForTarget(stats, max, q.PID, q.Thread)
 	if q.PID > 0 || strings.TrimSpace(q.ThreadInput) != "" || strings.TrimSpace(q.Thread) != "" {
 		stats.Caveats = append(stats.Caveats, "state_cluster filter="+streamStateClusterFilterLabel(q))
 	}

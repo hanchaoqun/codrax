@@ -2771,7 +2771,9 @@ func TestStateFirstDrilldownKeepsLongSleepAndNestedWakeupChain(t *testing.T) {
 }
 
 func TestStateDrilldownRuleMatrixPinsRecentTracePolicies(t *testing.T) {
-	plan := buildStateDrilldownPlan(WindowStats{
+	// (idle-fold return added for the whole-window sleeper fold; no Window is
+	// set here, so the fold is structurally inert for this pin.)
+	plan, _ := buildStateDrilldownPlan(WindowStats{
 		SleepTop: []ThreadDuration{{
 			Thread:     ThreadRef{Comm: "long-sleep", PID: 101},
 			DurationMs: 90,
@@ -2894,7 +2896,7 @@ func TestStateDrilldownProportionMarksSignificantVsTrivial(t *testing.T) {
 			{Thread: ThreadRef{Comm: "tiny-sleeper", PID: 302}, DurationMs: 3, LineStart: 30, LineEnd: 40},
 		},
 	}
-	plan := buildStateDrilldownPlan(stats, 12)
+	plan, _ := buildStateDrilldownPlan(stats, 12)
 	big := findStateDrilldownStepForTest(plan, 301, "top_sleep", string(StateSSleep))
 	tiny := findStateDrilldownStepForTest(plan, 302, "top_sleep", string(StateSSleep))
 	if big == nil || tiny == nil {
@@ -2923,7 +2925,7 @@ func TestStateDrilldownSecondStateSignificantByTopRatio(t *testing.T) {
 			{Thread: ThreadRef{Comm: "second", PID: 402}, DurationMs: 25, LineStart: 30, LineEnd: 40},
 		},
 	}
-	plan := buildStateDrilldownPlan(stats, 12)
+	plan, _ := buildStateDrilldownPlan(stats, 12)
 	second := findStateDrilldownStepForTest(plan, 402, "top_runnable", string(StateRunnable))
 	if second == nil {
 		t.Fatalf("second state must be present: %+v", plan)
@@ -2950,7 +2952,7 @@ func TestStateDrilldownProportionZeroWindowStaysBackwardCompatible(t *testing.T)
 			{Thread: ThreadRef{Comm: "r", PID: 502}, DurationMs: 30, LineStart: 30, LineEnd: 40},
 		},
 	}
-	plan := buildStateDrilldownPlan(stats, 12)
+	plan, _ := buildStateDrilldownPlan(stats, 12)
 	top := findStateDrilldownStepForTest(plan, 501, "top_sleep", string(StateSSleep))
 	second := findStateDrilldownStepForTest(plan, 502, "top_runnable", string(StateRunnable))
 	if top == nil || second == nil {

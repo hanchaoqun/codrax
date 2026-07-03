@@ -253,6 +253,24 @@ type Index struct {
 	FlavorConfidence float64
 	FlavorSignals    []string
 	Caveats          []string
+	// PaddingTruncated marks a windowed build whose MaxEvents budget was hit
+	// only inside the safety padding tail: the parse observed zero clock
+	// regressions and the budget-tripping event's ts lies STRICTLY beyond the
+	// requested TimeEnd, so monotonicity proves the core [TimeStart,TimeEnd]
+	// window lost zero events. Typed input for the query layer's
+	// compaction/caveat note — never a hard gate, and the build succeeds
+	// instead of returning IndexEventLimitError.
+	PaddingTruncated bool
+	// PaddingTruncatedNote is the verbatim display note for PaddingTruncated
+	// (indexPaddingTruncatedNoteFmt rendered with the real parse boundary);
+	// display surfaces fold it as-is.
+	PaddingTruncatedNote string
+	// PaddingTruncatedLastTs is the parse boundary at the degrade point —
+	// idx.LastTs when the budget tripped, i.e. the timestamp parsing actually
+	// reached before the padding tail was cut. Typed input for query-layer
+	// caveats (> TimeEnd by construction); zero when PaddingTruncated is
+	// false.
+	PaddingTruncatedLastTs float64
 }
 
 type Query struct {
@@ -472,8 +490,24 @@ type WindowStats struct {
 	ComputeSupply         []ComputeSupplySummary     `json:"compute_supply,omitempty"`
 	StateChurn            []ThreadStateChurnSummary  `json:"state_churn,omitempty"`
 	StateDrilldownPlan    []StateDrilldownStep       `json:"state_drilldown_plan,omitempty"`
-	PerfSamples           *PerfContext               `json:"perf_samples,omitempty"`
-	Caveats               []string                   `json:"caveats,omitempty"`
+	// IdleWholeWindowSleepers summarizes the top_sleep drilldown candidates
+	// folded out of StateDrilldownPlan because their cumulative sleep covered
+	// (>=99% of) the entire selected window — idle service threads, not
+	// root-cause evidence. Typed input for the display-side one-line fold;
+	// never a gate. Nil when nothing was folded.
+	IdleWholeWindowSleepers *IdleWholeWindowSleeperFold `json:"idle_whole_window_sleepers,omitempty"`
+	PerfSamples             *PerfContext                `json:"perf_samples,omitempty"`
+	Caveats                 []string                    `json:"caveats,omitempty"`
+}
+
+// IdleWholeWindowSleeperFold is the typed aggregate of whole-window sleeper
+// threads dropped from the state-drilldown plan (berlin.systrace 2026-07-03:
+// 15+ AudioOut/DNS/FFRT rows at impact=101.000ms in a 101ms window drowned
+// the real candidates). Count is exact; Threads carries at most the first 8
+// thread labels in SleepTop order so the fold line stays one line.
+type IdleWholeWindowSleeperFold struct {
+	Count   int      `json:"count"`
+	Threads []string `json:"threads,omitempty"`
 }
 
 type PerfContext struct {

@@ -371,6 +371,19 @@ func Run(idx *Index, q Query) Result {
 	if idx.UnparsedLines > 0 && idx.ScannedLineCount > 0 && float64(idx.UnparsedLines) > unparsedLineCaveatRatio*float64(idx.ScannedLineCount) {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("%d of %d scanned lines did not match any known trace format; coverage may be incomplete", idx.UnparsedLines, idx.ScannedLineCount))
 	}
+	if idx.PaddingTruncated && strings.TrimSpace(idx.PaddingTruncatedNote) != "" {
+		// Padding-tail degrade marker (berlin.systrace 2026-07-03): the
+		// windowed index hit its event budget only inside the safety padding,
+		// AFTER the requested [TimeStart,TimeEnd] was fully parsed. Surface
+		// the typed marker as a verbatim note line so the model consumes the
+		// complete core-window result with the caveat attached. Deliberately
+		// NOT mirrored onto Result.Compactions: that typed channel marks
+		// truncated RESULT rows and drives the result-compacted refinement
+		// (narrow/split-the-window suggestions) — steering the model to
+		// re-split an already fully-parsed window would recreate the retry
+		// loop this degrade exists to break.
+		res.Caveats = append(res.Caveats, idx.PaddingTruncatedNote)
+	}
 	res.Caveats = append(res.Caveats, spanCaveats...)
 	res.Caveats = append(res.Caveats, resultCaveats(idx, q, res)...)
 	if spanCompaction != nil {
@@ -1479,7 +1492,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	}
 	stats.ComputeSupply = computeSupplySummaries(stats, 8)
 	stats.StateChurn = enrichStateChurnWithCPUPressure(computeStateChurnSummaries(idx, q, 8), stats.CPUPressure)
-	stats.StateDrilldownPlan = buildStateDrilldownPlan(stats, 12)
+	stats.StateDrilldownPlan, stats.IdleWholeWindowSleepers = buildStateDrilldownPlanForTarget(stats, 12, q.PID, q.Thread)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
 	stats.RunnableContext = computeRunnableContextSummaries(latency.Items, stats.ThreadCPULoad, stats.ProcessCPULoad, stats.CPUConstraints, 8)
 	stats.IOPressureSummary = computeIOPressureSummary(stats)
@@ -4290,15 +4303,84 @@ const stateDrilldownSignificantFloor = 0.05
 // window) is still surfaced as worth root-causing.
 const stateDrilldownSignificantTopRatio = 0.25
 
-func buildStateDrilldownPlan(stats WindowStats, max int) []StateDrilldownStep {
+// stateDrilldownIdleWholeWindowRatio is the whole-window threshold for the
+// top_sleep idle fold: a candidate whose cumulative sleep covers at least
+// this fraction of the selected window slept through effectively the entire
+// window. Such threads (audio output sinks, DNS watchers, FFRT workers
+// parked between jobs) are idle by construction — impact == window carries
+// zero root-cause information — yet a customer's 101ms state_drilldown
+// surface (berlin.systrace 2026-07-03) was flooded with 15+ impact=101.000
+// whole-window sleeper rows that drowned the real candidates. Precise signal
+// (one float comparison on the published physical ms) driving a display-side
+// fold only; the fold summary stays visible so absence is auditable.
+const stateDrilldownIdleWholeWindowRatio = 0.99
+
+// stateDrilldownIdleSleeperThreadListCap bounds the folded thread-label list
+// carried on the fold summary (the count stays exact beyond the cap).
+const stateDrilldownIdleSleeperThreadListCap = 8
+
+// stateDrilldownPinnedTarget reports whether a drilldown candidate is the
+// query's explicitly pinned target thread: exact pid equality or verbatim
+// comm equality against the typed query selector — precise signals only,
+// per the hard-gate signal discipline (the fold suppresses a row, which is
+// hard behavior). A pinned target that slept through the whole window is the
+// investigation subject (e.g. a UI thread lock-blocked across a 101ms jank
+// window, QF2 2026-07-03), not an idle service thread: folding it would tell
+// the model its own target did nothing and misdirect the root-cause hunt.
+func stateDrilldownPinnedTarget(thread ThreadRef, pinnedPID int, pinnedComm string) bool {
+	if pinnedPID > 0 && thread.PID == pinnedPID {
+		return true
+	}
+	if pinnedComm != "" && thread.Comm == pinnedComm {
+		return true
+	}
+	return false
+}
+
+// buildStateDrilldownPlan is the unpinned-compatibility entry (no explicit
+// query target); production call sites route through
+// buildStateDrilldownPlanForTarget so the idle fold can exempt the pinned
+// target thread.
+func buildStateDrilldownPlan(stats WindowStats, max int) ([]StateDrilldownStep, *IdleWholeWindowSleeperFold) {
+	return buildStateDrilldownPlanForTarget(stats, max, 0, "")
+}
+
+func buildStateDrilldownPlanForTarget(stats WindowStats, max int, pinnedPID int, pinnedThread string) ([]StateDrilldownStep, *IdleWholeWindowSleeperFold) {
 	var candidates []StateDrilldownStep
 	fragmentedSleep := fragmentedSleepChurnByThread(stats.StateChurn)
+	pinnedComm := strings.TrimSpace(pinnedThread)
+	// windowMs feeds both the idle whole-window fold below and the
+	// Significant proportion computation on the emitted steps.
+	windowMs := (stats.Window.EndTs - stats.Window.StartTs) * 1000
+	var idleFold *IdleWholeWindowSleeperFold
 	addDuration := func(source, state string, items []ThreadDuration) {
 		for _, td := range items {
 			if td.Thread.PID <= 0 || td.DurationMs <= 0 {
 				continue
 			}
 			if source == "top_sleep" && state == string(StateSSleep) {
+				// Whole-window sleepers are folded, not ranked: a Top-N sleep
+				// row that spans (>=99% of) the window and is NOT the query's
+				// pinned target is an idle service thread, and publishing it
+				// as a drilldown candidate invites per-thread root-cause work
+				// on threads that did nothing. The pinned target is exempt
+				// (QF2): a victim thread blocked for the whole window shows
+				// the same whole-window-sleep signal and must keep its ranked
+				// drilldown row. Runs before the fragmented-sleep filter
+				// (which stays untouched): a whole-window sleeper is counted
+				// here even in the rare case its churn shape also looks
+				// fragmented.
+				if windowMs > 0 && td.DurationMs >= windowMs*stateDrilldownIdleWholeWindowRatio &&
+					!stateDrilldownPinnedTarget(td.Thread, pinnedPID, pinnedComm) {
+					if idleFold == nil {
+						idleFold = &IdleWholeWindowSleeperFold{}
+					}
+					idleFold.Count++
+					if len(idleFold.Threads) < stateDrilldownIdleSleeperThreadListCap {
+						idleFold.Threads = append(idleFold.Threads, threadLabel(td.Thread))
+					}
+					continue
+				}
 				if _, ok := fragmentedSleep[stateDrilldownThreadKey(td.Thread)]; ok {
 					continue
 				}
@@ -4365,7 +4447,6 @@ func buildStateDrilldownPlan(stats WindowStats, max int) []StateDrilldownStep {
 		}
 		return candidates[i].LineStart < candidates[j].LineStart
 	})
-	windowMs := (stats.Window.EndTs - stats.Window.StartTs) * 1000
 	var topImpact float64
 	seen := map[string]bool{}
 	out := make([]StateDrilldownStep, 0, len(candidates))
@@ -4397,7 +4478,7 @@ func buildStateDrilldownPlan(stats WindowStats, max int) []StateDrilldownStep {
 			break
 		}
 	}
-	return out
+	return out, idleFold
 }
 
 func fragmentedSleepChurnByThread(churns []ThreadStateChurnSummary) map[string]ThreadStateChurnSummary {
@@ -12845,7 +12926,18 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 		out = append(out, idx.Caveats...)
 	}
 	if idx != nil && idx.Windowed {
-		out = append(out, fmt.Sprintf("windowed_index_parse=true; parsed a bounded trace slice before running the view (time %.6f..%.6f seconds, lines %d..%d). If the answer needs state far before this window, rerun with a wider time/line window or omit the window to build the full index.", idx.IndexTimeStart, idx.IndexTimeEnd, idx.IndexLineStart, idx.IndexLineEnd))
+		// QF5: a padding-tail-truncated build (PaddingTruncated) stopped
+		// parsing at PaddingTruncatedLastTs, strictly inside the padded
+		// bound — this caveat must report the REAL parse boundary, or it
+		// contradicts the PaddingTruncatedNote caveat emitted alongside and
+		// claims unparsed padding as parsed coverage.
+		parsedEnd := idx.IndexTimeEnd
+		truncated := ""
+		if idx.PaddingTruncated && idx.PaddingTruncatedLastTs > 0 && idx.PaddingTruncatedLastTs < parsedEnd {
+			parsedEnd = idx.PaddingTruncatedLastTs
+			truncated = "; padding tail truncated at the event budget — nothing after that boundary was parsed"
+		}
+		out = append(out, fmt.Sprintf("windowed_index_parse=true; parsed a bounded trace slice before running the view (time %.6f..%.6f seconds, lines %d..%d)%s. If the answer needs state far before this window, rerun with a wider time/line window or omit the window to build the full index.", idx.IndexTimeStart, parsedEnd, idx.IndexLineStart, idx.IndexLineEnd, truncated))
 	}
 	if selector := threadSelectorSummary(firstNonEmpty(q.ThreadInput, q.Thread)); selector != "" {
 		if q.ThreadPIDInferred {

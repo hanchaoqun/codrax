@@ -25,7 +25,9 @@ func TestStateDrilldownChurnImpactStaysPhysical(t *testing.T) {
 		Window:     TimeWindow{StartTs: 6793222.031397627, EndTs: 6793225.369801793},
 		StateChurn: []ThreadStateChurnSummary{churn},
 	}
-	plan := buildStateDrilldownPlan(stats, 12)
+	// (idle-fold return added for the whole-window sleeper fold; irrelevant to
+	// the physical-impact pin under test.)
+	plan, _ := buildStateDrilldownPlan(stats, 12)
 	step := findStateDrilldownStepForTest(plan, 42591, "state_churn", string(StateRunning))
 	if step == nil {
 		t.Fatalf("churn-derived drilldown step missing: %+v", plan)
@@ -49,7 +51,7 @@ func TestStateDrilldownChurnImpactStaysPhysical(t *testing.T) {
 			Thread: ThreadRef{Comm: "plain-runner", PID: 777}, DurationMs: 2300,
 		}},
 	}
-	ordered := buildStateDrilldownPlan(plain, 12)
+	ordered, _ := buildStateDrilldownPlan(plain, 12)
 	churnStep := findStateDrilldownStepForTest(ordered, 42591, "state_churn", string(StateRunning))
 	plainStep := findStateDrilldownStepForTest(ordered, 777, "top_running", string(StateRunning))
 	if churnStep == nil || plainStep == nil {

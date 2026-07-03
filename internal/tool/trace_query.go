@@ -1294,7 +1294,24 @@ func traceQueryBuildIndex(ctx context.Context, path string, p traceQueryParams, 
 		var limitErr *tracequery.IndexEventLimitError
 		if errors.As(buildErr, &limitErr) {
 			opts.RelationScoped = true
-			return tracequery.BuildIndexWithOptions(ctx, path, opts)
+			idx, buildErr = tracequery.BuildIndexWithOptions(ctx, path, opts)
+		}
+	}
+	// QF4 level 2: when the budget was exhausted BEFORE the request window
+	// was covered (a denial the parse-side padding-tail degrade cannot save),
+	// retry exactly once with window-proportional padding — the first build
+	// keeps the historical fixed padding so healthy builds lose zero context.
+	// The retry inherits whatever configuration just failed (including a
+	// failed relation-scope retry above). If the retry fails too, the
+	// pre-existing denial surfaces on the original error, as if no retry ran.
+	if buildErr != nil {
+		if retryOpts, ok := traceQueryReducedPaddingRetryOptions(p, opts, buildErr, timeStart, timeEnd); ok {
+			logging.Warning("[trace_query] windowed index build exhausted its event budget before covering the request window (view=%s path=%s); retrying once with window-proportional padding ±%.6fs (was ±%.6fs)",
+				firstNonEmptyTraceString(p.View, "window_stats"), path, retryOpts.TimePaddingBefore, opts.TimePaddingBefore)
+			if retryIdx, retryErr := tracequery.BuildIndexWithOptions(ctx, path, retryOpts); retryErr == nil {
+				retryIdx.Caveats = append(retryIdx.Caveats, traceQueryReducedPaddingCaveat(retryOpts.TimePaddingBefore))
+				return retryIdx, nil
+			}
 		}
 	}
 	return idx, buildErr
@@ -1305,13 +1322,14 @@ func traceQueryBuildIndex(ctx context.Context, path string, p traceQueryParams, 
 // Pure and side-effect free so the scope/cap decision is unit-testable without
 // materializing a multi-hundred-thousand-event fixture.
 func traceQueryWindowedIndexOptions(p traceQueryParams, timeStart, timeEnd float64) tracequery.BuildOptions {
+	timePadding := traceQueryWindowedIndexTimePadding(p.View)
 	opts := tracequery.BuildOptions{
 		TimeStart:          timeStart,
 		TimeEnd:            timeEnd,
 		TimeStartSet:       p.TimeStart.Set(),
 		TimeEndSet:         p.TimeEnd.Set(),
-		TimePaddingBefore:  traceQueryWindowedIndexTimePadding(p),
-		TimePaddingAfter:   traceQueryWindowedIndexTimePadding(p),
+		TimePaddingBefore:  timePadding,
+		TimePaddingAfter:   timePadding,
 		LineStart:          p.LineStart.Int(),
 		LineEnd:            p.LineEnd.Int(),
 		LinePaddingBefore:  200,
@@ -1384,9 +1402,29 @@ func traceQueryHasExplicitIndexWindow(p traceQueryParams) bool {
 	return p.TimeStart.Set() || p.TimeEnd.Set() || p.LineStart.Int() > 0 || p.LineEnd.Int() > 0
 }
 
-func traceQueryWindowedIndexTimePadding(p traceQueryParams) float64 {
-	view := strings.TrimSpace(p.View)
-	switch view {
+// traceQueryIndexTimePaddingFloorSeconds is the minimum context padding on
+// each side of a windowed index build — enough to catch the wakeup edge /
+// span-open marker immediately preceding a tight window without re-scanning
+// a disproportionate tail.
+const traceQueryIndexTimePaddingFloorSeconds = 0.050
+
+// traceQueryIndexTimePaddingWindowRatio scales the padding with the request
+// window so context stays proportionate: half the window on each side doubles
+// the scanned range at most, regardless of how small the window is.
+const traceQueryIndexTimePaddingWindowRatio = 0.5
+
+// traceQueryWindowedIndexTimePadding returns the per-side index time padding
+// for the FIRST windowed build attempt: the historical fixed per-view values,
+// byte-identical to pre-2026-07-03 behavior. QF4 two-level policy: applying
+// the window-proportional padding unconditionally silently shrank the
+// pre-window visibility (open scheduler states, wakeup edges, span-open
+// markers) for every healthy build that never came close to the event
+// budget. The proportional value now lives EXCLUSIVELY on the single
+// budget-exhaustion retry (traceQueryReducedIndexTimePadding), gated on a
+// precise failure signal (IndexEventLimitError whose LastTs never reached
+// the requested TimeEnd).
+func traceQueryWindowedIndexTimePadding(view string) float64 {
+	switch strings.TrimSpace(view) {
 	case "event_search":
 		return 0.050
 	case "thread_timeline", "scheduler_latency_stats":
@@ -1394,6 +1432,72 @@ func traceQueryWindowedIndexTimePadding(p traceQueryParams) float64 {
 	default:
 		return 0.500
 	}
+}
+
+// traceQueryReducedIndexTimePadding returns the window-proportional per-side
+// padding for the single reduced-padding retry after a windowed build
+// exhausted its event budget before covering the request window:
+// min(viewCap, max(0.050, window*0.5)) — half the window per side, floored
+// at the 50ms wakeup-context minimum, never above the per-view first-build
+// value. ok=false when the call carries no complete [time_start,time_end]
+// window (nothing to scale against), the window is degenerate, or the
+// proportional value is not STRICTLY smaller than the current padding — a
+// retry at unchanged padding would deterministically fail again.
+func traceQueryReducedIndexTimePadding(p traceQueryParams, timeStart, timeEnd, current float64) (float64, bool) {
+	if !p.TimeStart.Set() || !p.TimeEnd.Set() {
+		return 0, false
+	}
+	window := timeEnd - timeStart
+	if window <= 0 {
+		return 0, false
+	}
+	padding := window * traceQueryIndexTimePaddingWindowRatio
+	if padding < traceQueryIndexTimePaddingFloorSeconds {
+		padding = traceQueryIndexTimePaddingFloorSeconds
+	}
+	if viewCap := traceQueryWindowedIndexTimePadding(p.View); padding > viewCap {
+		padding = viewCap
+	}
+	if padding >= current {
+		return 0, false
+	}
+	return padding, true
+}
+
+// traceQueryReducedPaddingRetryOptions decides whether a failed windowed
+// build qualifies for the single reduced-padding retry (QF4) and returns the
+// retry options. Precise trigger signals only: (1) the failure is a typed
+// IndexEventLimitError; (2) the request window has a bounded TimeEnd the
+// parse never reached (limitErr.LastTs < timeEnd — when the window WAS
+// covered, the parse-side PaddingTruncated degrade already yields a usable
+// index and shrinking padding adds nothing); (3) the proportional padding is
+// strictly smaller than the padding that just failed. Everything except the
+// paddings is preserved from the failed attempt (MaxEvents, scope, relation
+// pruning), so this stays exactly one extra lever.
+func traceQueryReducedPaddingRetryOptions(p traceQueryParams, opts tracequery.BuildOptions, buildErr error, timeStart, timeEnd float64) (tracequery.BuildOptions, bool) {
+	var limitErr *tracequery.IndexEventLimitError
+	if !errors.As(buildErr, &limitErr) {
+		return tracequery.BuildOptions{}, false
+	}
+	if !p.TimeEnd.Set() || limitErr.LastTs >= timeEnd {
+		return tracequery.BuildOptions{}, false
+	}
+	padding, ok := traceQueryReducedIndexTimePadding(p, timeStart, timeEnd, opts.TimePaddingBefore)
+	if !ok {
+		return tracequery.BuildOptions{}, false
+	}
+	retry := opts
+	retry.TimePaddingBefore = padding
+	retry.TimePaddingAfter = padding
+	return retry, true
+}
+
+// traceQueryReducedPaddingCaveat is the Result-caveat note attached (via
+// Index.Caveats) to an index that was rebuilt on the reduced-padding retry,
+// so the model knows the context margin around the request window is thinner
+// than the per-view default.
+func traceQueryReducedPaddingCaveat(padding float64) string {
+	return fmt.Sprintf("index rebuilt with reduced padding ±%.4fs (window-proportional) after budget exhaustion", padding)
 }
 
 func (t *TraceQuery) maybeLargeTraceHeavyViewGuard(ctx *types.BusContext, p traceQueryParams, path, sourceLabel string) (types.ToolResult, bool) {
@@ -2525,7 +2629,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- async_file_work %s category=%s span=%s duration=%.3fms lines=%d-%d — %s\n",
 				traceThreadLabel(work.Thread), sanitizeForBanner(work.Category), sanitizeForBanner(work.Name), work.DurationMs, work.LineStart, work.LineEnd, sanitizeForBanner(work.Summary))
 		}
-		writeTraceStateDrilldownSummary(&b, result.WindowStats.StateDrilldownPlan)
+		writeTraceStateDrilldownSummary(&b, result.WindowStats.StateDrilldownPlan, result.WindowStats.IdleWholeWindowSleepers)
 		for _, counter := range result.WindowStats.TraceCounters {
 			fmt.Fprintf(&b, "- trace_counter %s %q value=%s count=%d line=%d\n",
 				traceThreadLabel(counter.Thread), counter.Name, counter.Value, counter.Count, counter.Line)
@@ -3306,17 +3410,36 @@ func writeTraceCPUConstraint(b *strings.Builder, item tracequery.CPUConstraintSu
 	)
 }
 
-func writeTraceStateDrilldownSummary(b *strings.Builder, steps []tracequery.StateDrilldownStep) {
+func writeTraceStateDrilldownSummary(b *strings.Builder, steps []tracequery.StateDrilldownStep, idleFold *tracequery.IdleWholeWindowSleeperFold) {
 	summaryCap := traceQueryWidthStateDrilldownSummaryCap()
 	for i, step := range steps {
 		if i >= summaryCap {
 			fmt.Fprintf(b, "- state_drilldown_omitted count=%d see payload_ref\n", len(steps)-summaryCap)
-			return
+			break
 		}
 		fmt.Fprintf(b, "- state_drilldown rank=%d thread=%s state=%s impact=%.3fms total=%.3fms source=%s chain_required=%t recursive=%t window_proportion=%.4f significant=%t recommended_views=%s lines=%d-%d — %s\n",
 			step.Rank, traceThreadLabel(step.Thread), sanitizeForBanner(step.State), step.ImpactMs, step.TotalMs, sanitizeForBanner(step.Source),
 			step.ChainRequired, step.Recursive, step.WindowProportion, step.Significant, sanitizeForBanner(strings.Join(step.RecommendedViews, ",")), step.LineStart, step.LineEnd, sanitizeForBanner(step.Summary))
 	}
+	writeTraceIdleWholeWindowSleeperFold(b, idleFold)
+}
+
+// writeTraceIdleWholeWindowSleeperFold renders the one-line fold for top_sleep
+// candidates the drilldown plan dropped because they slept through the whole
+// selected window (typically idle service threads — audio sinks, DNS
+// watchers, FFRT workers — 15+ impact=window rows drowned a customer's 101ms
+// state_drilldown surface, berlin.systrace 2026-07-03). One folded line keeps
+// the absence auditable. The wording is a NEUTRAL fact statement (QF2): the
+// signal (sleep spanning the window) cannot distinguish a parked service
+// thread from a victim blocked whole-window, so the line must not assert
+// "not root-cause evidence" — the query-pinned target thread is exempted
+// from the fold upstream, but unpinned victims can still land here.
+func writeTraceIdleWholeWindowSleeperFold(b *strings.Builder, fold *tracequery.IdleWholeWindowSleeperFold) {
+	if fold == nil || fold.Count <= 0 {
+		return
+	}
+	fmt.Fprintf(b, "- state_drilldown_idle_folded count=%d threads=%s — whole-window sleepers (no in-window scheduling activity)\n",
+		fold.Count, sanitizeForBanner(strings.Join(fold.Threads, ",")))
 }
 
 func traceKnownCPU(known bool, cpu int) string {
