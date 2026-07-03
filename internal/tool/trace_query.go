@@ -1602,10 +1602,62 @@ func resolveTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string,
 			}
 		}
 		if source == "attached_trace" {
+			// Adversarial-review QF1' (2026-07-03): the auto-resolve lane
+			// below exists ONLY for calls that named no path at all. When the
+			// model DID pass an explicit path and it failed the stat check in
+			// the lane above, silently substituting a different file would
+			// answer about the wrong trace (e.g. the user names a fresh
+			// capture that does not exist yet and quietly gets results from
+			// an old one). Reject instead; known referenced artifacts are
+			// surfaced as a hint only, never auto-adopted. The gate is a
+			// precise signal: a single empty-string check on the param.
+			if explicit := strings.TrimSpace(p.Path); explicit != "" {
+				summary := fmt.Sprintf(
+					"trace_query source=attached_trace has no attached trace blob, and the explicitly provided path %q does not resolve to an existing trace file. An explicit path is never silently replaced with a different artifact.",
+					explicit,
+				)
+				if hints := attachedTraceQueryReferencedArtifactCandidates(ctx); len(hints) > 0 {
+					names := make([]string, 0, len(hints))
+					for _, hint := range hints {
+						names = append(names, fmt.Sprintf("%q", hint.display))
+					}
+					summary += " Known referenced trace artifacts (hint only): " + strings.Join(names, ", ") + "."
+				}
+				summary += " Re-issue trace_query with source=\"path\" and an existing trace file, or attach one via --htrace/--atrace."
+				return "", source, &types.ToolResult{
+					ToolName:  "trace_query",
+					Success:   false,
+					Summary:   summary,
+					Timestamp: time.Now(),
+				}
+			}
+			// Mechanical repair, second lane (customer friction 2026-07-03,
+			// donghu session): the model called source=attached_trace WITHOUT
+			// a path because the CLI's main-attachment banner presented a
+			// request-referenced trace file as "attached" — but that artifact
+			// is a plain file on disk, not an --htrace/--atrace blob, so the
+			// branch above found nothing and the call burned a retry round.
+			// Recover from typed carriers only (RuntimeArtifactPreflight and
+			// AnalysisIR structured fields; RawRequest is never read) and
+			// accept ONLY when exactly one stat-verified trace file remains —
+			// a precise integer-count gate, nothing fuzzy decides the path.
+			candidates := attachedTraceQueryReferencedArtifactCandidates(ctx)
+			if len(candidates) == 1 {
+				logging.Warning("[trace_query] source=attached_trace has no attached blob; auto-resolved to the single request-referenced trace artifact %q from typed analysis carriers", candidates[0].display)
+				return candidates[0].resolved, "path", nil
+			}
+			summary := "trace_query requires an attached trace blob, but none is available. Use source=\"path\" with an explicit trace file, or attach one via --htrace/--atrace."
+			if len(candidates) > 1 {
+				names := make([]string, 0, len(candidates))
+				for _, candidate := range candidates {
+					names = append(names, fmt.Sprintf("%q", candidate.display))
+				}
+				summary += " Multiple referenced trace artifacts were detected: " + strings.Join(names, ", ") + ". Re-issue trace_query with source=\"path\" and path set to exactly one of them."
+			}
 			return "", source, &types.ToolResult{
 				ToolName:  "trace_query",
 				Success:   false,
-				Summary:   "trace_query requires an attached trace blob, but none is available. Use source=\"path\" with an explicit trace file, or attach one via --htrace/--atrace.",
+				Summary:   summary,
 				Timestamp: time.Now(),
 			}
 		}
@@ -1647,6 +1699,100 @@ func resolveAttachedTraceQueryPath(ctx *types.BusContext) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// attachedTraceReferencedCandidate pairs the typed-carrier spelling of a
+// request-referenced trace artifact (kept for the error/hint surface so the
+// model can copy it into `path` verbatim) with its stat-verified resolved
+// filesystem path.
+type attachedTraceReferencedCandidate struct {
+	display  string
+	resolved string
+}
+
+// attachedTraceQueryReferencedArtifactCandidates collects trace artifacts the
+// current turn REFERENCES by path rather than attaches as an --htrace/--atrace
+// blob. Inputs are typed carriers only:
+//
+//   - BusContext.RuntimeArtifactPreflight (deterministic run-entry detector;
+//     Carrier=="attachment" entries are skipped because the attached-blob lane
+//     in resolveAttachedTraceQueryPath already owns them), and
+//   - AnalysisIR structured fields (RequiredFileHints, ExactTargets, the
+//     entity lanes, EvidencePlan.RequiredFiles).
+//
+// RawRequest prose is never consulted. Every candidate must be path-shaped
+// with artifact family "trace" per types.RuntimeArtifactPathKind AND resolve
+// (via resolveToolPath) to an existing regular file; results are deduplicated
+// first by cleaned resolved-path string (fast layer) and then by os.SameFile
+// physical identity (adversarial-review QF2', 2026-07-03: symlinked or
+// case-variant spellings of ONE physical file must not read as two candidates
+// and falsely fail the caller's exact-one gate). The caller applies the
+// exact-one count gate — this function only gathers, it never picks.
+func attachedTraceQueryReferencedArtifactCandidates(ctx *types.BusContext) []attachedTraceReferencedCandidate {
+	if ctx == nil {
+		return nil
+	}
+	var raw []string
+	profile := types.NormalizeRuntimeArtifactPreflightProfile(ctx.RuntimeArtifactPreflight)
+	for _, artifact := range profile.Artifacts {
+		if artifact.Carrier == "attachment" {
+			continue
+		}
+		if artifact.RuntimeArtifactKind() == "trace" {
+			raw = append(raw, artifact.Source)
+		}
+	}
+	if ir := ctx.AnalysisIR; ir != nil {
+		hints := ir.RequestModel.AnalyzerHints
+		for _, hint := range hints.RequiredFileHints {
+			raw = append(raw, hint.Path)
+		}
+		raw = append(raw, hints.ExactTargets...)
+		raw = append(raw, hints.MentionedEntities...)
+		raw = append(raw, hints.PrimaryEntities...)
+		raw = append(raw, hints.Entities...)
+		raw = append(raw, ir.EvidencePlan.RequiredFiles...)
+	}
+	seen := map[string]bool{}
+	var out []attachedTraceReferencedCandidate
+	var outInfos []os.FileInfo
+	for _, value := range raw {
+		for _, token := range types.RuntimeArtifactPathTokensInText(value) {
+			if types.RuntimeArtifactPathKind(token) != "trace" {
+				continue
+			}
+			resolved := resolveToolPath(ctx, token)
+			info, err := os.Stat(resolved)
+			if err != nil || info.IsDir() {
+				continue
+			}
+			key := filepath.Clean(resolved)
+			if abs, absErr := filepath.Abs(key); absErr == nil {
+				key = filepath.Clean(abs)
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			// Second dedupe layer: os.SameFile on the stat we already hold.
+			// Distinct spellings (symlink, case-insensitive filesystem) of one
+			// physical file carry distinct string keys but identical identity.
+			// Candidate counts are single digits, so the pairwise scan is free.
+			samePhysicalFile := false
+			for _, prior := range outInfos {
+				if os.SameFile(prior, info) {
+					samePhysicalFile = true
+					break
+				}
+			}
+			if samePhysicalFile {
+				continue
+			}
+			outInfos = append(outInfos, info)
+			out = append(out, attachedTraceReferencedCandidate{display: token, resolved: resolved})
+		}
+	}
+	return out
 }
 
 func traceQueryPathDefaultsToAttachedTrace(ctx *types.BusContext, rawPath string) bool {
@@ -2196,6 +2342,30 @@ func traceQueryTimestampFromLine(line string) float64 {
 	return ts
 }
 
+// traceQueryPayloadRefAdvisory is display-only soft guidance (H17, customer
+// audit 2026-07-03) appended to every body-level payload_ref line so the model
+// treats the ref as an audit/verification artifact instead of a next hop.
+// Verified 2026-07-03: in read mode read_file CAN open the payload blob (it is
+// an absolute path under WorkDir; resolveReadFilePath applies no repo-scope or
+// .codrax exclusion outside the triage stages, only the bounded whole-read
+// byte wall) — so the hint deliberately says "prefer views" rather than
+// falsely claiming the file is unreadable.
+const traceQueryPayloadRefAdvisory = "(audit artifact for verification; drill down with further trace_query views instead of reading this payload directly)"
+
+// writeTraceQueryPayloadRefLine is the single formatting chokepoint for the
+// body-level payload_ref line of trace_query summaries. Keeping one emitter
+// means the H17 advisory cannot drift across the recipe-discovery, auto-window
+// and main summary surfaces.
+func writeTraceQueryPayloadRefLine(b *strings.Builder, payloadRef string, trailingBlankLine bool) {
+	if strings.TrimSpace(payloadRef) == "" {
+		return
+	}
+	fmt.Fprintf(b, "payload_ref=%s %s\n", sanitizeForBanner(payloadRef), traceQueryPayloadRefAdvisory)
+	if trailingBlankLine {
+		b.WriteString("\n")
+	}
+}
+
 func traceQueryRecipeDiscoverySummary(path, sourceLabel string, p traceQueryParams, size int64, scannedLines int, markers []traceQueryRecipeDiscoveryMarker, truncated bool, payloadRef string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[trace_query params: view=recipe source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace recipe_name=%s mode=large_trace_recipe_discovery platform=%s trace_flavor=%s payload_ref=%s]\n",
@@ -2209,9 +2379,7 @@ func traceQueryRecipeDiscoverySummary(path, sourceLabel string, p traceQueryPara
 	)
 	b.WriteString("# Trace Query: recipe discovery\n\n")
 	fmt.Fprintf(&b, "source=%s size_bytes=%d scanned_lines=%d matched_markers=%d\n", sanitizeForBanner(path), size, scannedLines, len(markers))
-	if payloadRef != "" {
-		fmt.Fprintf(&b, "payload_ref=%s\n", sanitizeForBanner(payloadRef))
-	}
+	writeTraceQueryPayloadRefLine(&b, payloadRef, false)
 	b.WriteString("large_trace_recipe_guard=unbounded jank recipe on a large trace was not expanded into full-trace window_stats/root_cause_rank/scheduler scans. Select a marker below, then rerun trace_query with line_start/line_end or time_start/time_end.\n")
 	if truncated {
 		b.WriteString("discovery_compacted=true; more markers exist in the trace, see payload_ref or refine with span_name/time/line filters.\n")
@@ -2265,9 +2433,7 @@ func traceQueryAutoWindowSummary(path, sourceLabel string, p traceQueryParams, m
 	)
 	b.WriteString("# Trace Query: auto window candidates\n\n")
 	fmt.Fprintf(&b, "source=%s requested_view=%s candidate_windows=%d mode=%s\n", sanitizeForBanner(path), sanitizeForBanner(view), len(children), sanitizeForBanner(mode))
-	if payloadRef != "" {
-		fmt.Fprintf(&b, "payload_ref=%s\n", sanitizeForBanner(payloadRef))
-	}
+	writeTraceQueryPayloadRefLine(&b, payloadRef, false)
 	b.WriteString("auto_window_policy=lightweight discovery selected timestamped marker/span/frame matches, then each candidate was analyzed with a bounded time window and a windowed index.\n")
 	if len(children) > 0 {
 		b.WriteString("\n## Candidate windows\n")
@@ -2437,9 +2603,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		fmt.Fprintf(&b, "priority_semantics=%s\n", result.PrioritySemantics)
 	}
 	b.WriteString("\n")
-	if payloadRef != "" {
-		fmt.Fprintf(&b, "payload_ref=%s\n\n", payloadRef)
-	}
+	writeTraceQueryPayloadRefLine(&b, payloadRef, true)
 	if len(result.SpanWindows) > 0 {
 		b.WriteString("## Span windows\n")
 		for _, span := range result.SpanWindows {
