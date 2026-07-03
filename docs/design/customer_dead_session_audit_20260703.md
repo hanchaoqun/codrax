@@ -222,6 +222,10 @@
 
 **实施顺序**:V 批合入 → CMP-A(=CMP-1/2/3 按本架构落)→ CMP-B(=CMP-4/5/7 噪音与一致性)→ CMP-C(=CMP-6+CMP-8 引导与占用侧)。
 
+### 7.5 CMP 专项收口(2026-07-04)
+
+四批全部交付并推送:V 批(d3a6bae6,回访 5 gap+复核 5)、CMP-A(8903ff36,多工件架构+复核 7,含 P1 锚窗语义:生产端 selected_window= note+消费端删包络通道)、CMP-B(89f9469c,快照分层/噪音折叠/平铺一致性+复核 2)、CMP-C(74533e20,占用侧四面分解/归一化密度三面/调度压力重标注+compute_supply 三分解/对比引导+单边未采样提示+复核 8:fmax 窗界治理、幽灵 CPU 排除、窗头 runnable 播种+下界披露、idle 判据收敛、compute_supply_balance 观测契约+对比表供给列、census 逻辑 capture 身份归并、TierB lint 盲区、锁步裁定落地)。CMP-1..10 全清账;四轮对抗复核 22 条 finding 全收零遗留。跟踪余项:supply_pressure wire token 迁移(R2' 单独裁定,display 已重标注);对比场景实战效果待客户回访/代表性 eval。
+
 ### 7.3 CMP-9:跨 trace 聚合对比必须归一化(用户追问暴露,P0 级口径缺陷)
 
 用户追问"55 秒 cpu·ms 怎么算的"复核发现:custom_compare 案的头条结论 **"CPU 压力 2.18×" 大部分是窗长差假象**——两个 supply_pressure 聚合来自不等长分析窗(7.0: 1.3s vs 6.0: 0.7s,窗长差 1.86×),按窗长归一化(=平均运行队列深度)后 77.8 vs 66.2,仅 **1.18×**;方向成立、量级失真。IO 结论归一化后反而更强(密度 4.7× vs 原文 2.5×)。且两窗均未对齐 bindApplication span 本身(覆盖 73%/79%)。
