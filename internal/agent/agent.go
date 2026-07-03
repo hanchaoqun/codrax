@@ -2238,8 +2238,15 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 		// Reason — call LLM
 		telemetry := llm.BuildRequestTelemetry(b.deps.LLM, requestMessages, effectiveTools)
-		logging.Debug("[diag %s] iter=%d phase=llm_request model=%s context_tokens_est=%d context_window=%d messages=%d tools=%d",
-			b.name, i, telemetry.ModelID, telemetry.ContextTokensEstimate, telemetry.ContextWindowTokens, telemetry.MessageCount, telemetry.ToolCount)
+		// round= is the 1-based counter the CLI shows as "第 N 轮"
+		// (renderer derives round := iteration + 1). Logged alongside
+		// the 0-based iter= so an operator cross-referencing the CLI
+		// transcript with this log does not read the two counters as
+		// pointing at different dispatches (berlin.systrace audit H14:
+		// CLI said "第 13 轮" while the log said iter=12). iter= keeps
+		// its existing 0-based meaning for log-analysis compatibility.
+		logging.Debug("[diag %s] iter=%d round=%d phase=llm_request model=%s context_tokens_est=%d context_window=%d messages=%d tools=%d",
+			b.name, i, i+1, telemetry.ModelID, telemetry.ContextTokensEstimate, telemetry.ContextWindowTokens, telemetry.MessageCount, telemetry.ToolCount)
 		b.deps.Emit(render.Event{
 			Kind:                  render.EventAgentThinking,
 			Timestamp:             time.Now(),
@@ -4306,8 +4313,11 @@ func (b *BaseAgent) startLLMRequestWatchdog(ctx *types.AgentContext, iter int, t
 			case <-timer.C:
 				tick++
 				elapsed := time.Since(start)
-				logging.Warning("[diag %s] iter=%d phase=llm_request stage=%s still running elapsed=%s model=%s context_tokens_est=%d context_window=%d messages=%d tools=%d",
-					agentName, iter, stage, elapsed.Round(time.Second),
+				// round= mirrors the CLI's 1-based "第 N 轮" counter
+				// (= iter+1); see the llm_request start line for the
+				// H14 rationale. iter= stays 0-based.
+				logging.Warning("[diag %s] iter=%d round=%d phase=llm_request stage=%s still running elapsed=%s model=%s context_tokens_est=%d context_window=%d messages=%d tools=%d",
+					agentName, iter, iter+1, stage, elapsed.Round(time.Second),
 					telemetry.ModelID, telemetry.ContextTokensEstimate, telemetry.ContextWindowTokens,
 					telemetry.MessageCount, telemetry.ToolCount)
 				b.observeLLMRequestWaiting(ctx, iter, telemetry, elapsed)
@@ -4319,8 +4329,8 @@ func (b *BaseAgent) startLLMRequestWatchdog(ctx *types.AgentContext, iter int, t
 	return func() {
 		once.Do(func() {
 			close(done)
-			logging.Debug("[diag %s] iter=%d phase=llm_request stage=%s done elapsed=%s model=%s",
-				agentName, iter, stage, time.Since(start).Round(time.Millisecond), telemetry.ModelID)
+			logging.Debug("[diag %s] iter=%d round=%d phase=llm_request stage=%s done elapsed=%s model=%s",
+				agentName, iter, iter+1, stage, time.Since(start).Round(time.Millisecond), telemetry.ModelID)
 		})
 	}
 }

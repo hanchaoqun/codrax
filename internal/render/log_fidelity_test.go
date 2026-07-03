@@ -215,6 +215,94 @@ func TestLogFidelity_NonTTYRetryDoesNotDoubleMirror(t *testing.T) {
 	}
 }
 
+// TestLogFidelity_NonTTYStageEndErrorSeverity pins the H21 fix
+// (berlin.systrace audit, 2026-07-03): the non-TTY EventStageEnd /
+// EventTaskNodeEnd error lines must route through the SAME severity
+// classifier the TTY dock already uses (classifyEventError), instead
+// of hardcoding "✗ <failed phrase>" for every error. Customer shape:
+// a transient analyze timeout printed "✗ 未能理解问题 · context
+// deadline exceeded" immediately followed by the orchestrator's
+// "↻ … 正在重试模型请求" notice — the ✗ read as terminal failure for
+// an attempt the orchestrator was about to retry. Recoverable-class
+// errors (no fatal/cancelled marker) now render ↻ + the retry phrase
+// column; fatal markers keep ✗; user cancellation gets ⊘ (TTY glyph
+// parity). The truly-terminal ✗ still arrives via the run-end
+// failure surface (MarkRunFatal / CLI error print).
+func TestLogFidelity_NonTTYStageEndErrorSeverity(t *testing.T) {
+	stageCases := []struct {
+		name   string
+		errMsg string
+		want   string
+		banned string
+	}{
+		{
+			// The customer's exact error class: no fatal / cancelled /
+			// recoverable marker → classifyEventError default branch.
+			name:   "transient_default_renders_retry_shape",
+			errMsg: "agent analyzer execution: context deadline exceeded",
+			want:   "↻ 模型响应出错,正在重新理解问题 · agent analyzer execution: context deadline exceeded",
+			banned: "✗ 未能理解问题",
+		},
+		{
+			// fatalMarkers entry → terminal ✗ retained.
+			name:   "fatal_marker_keeps_terminal_cross",
+			errMsg: "model response timed out",
+			want:   "✗ 未能理解问题 · model response timed out",
+			banned: "↻",
+		},
+		{
+			// cancelledMarkers entry → user-stop ⊘, not system-failure ✗.
+			name:   "cancelled_marker_uses_user_stop_glyph",
+			errMsg: "interrupted by user",
+			want:   "⊘ 未能理解问题 · interrupted by user",
+			banned: "✗",
+		},
+	}
+	for _, tc := range stageCases {
+		t.Run(tc.name, func(t *testing.T) {
+			getLogs := withTempLogger(t)
+			r := newTestRenderer("zh")
+			r.dockSuppressed = true
+			emit := r.Emitter()
+			t0 := time.Now()
+			emit(Event{Kind: EventStageStart, Timestamp: t0, Stage: "analyze"})
+			emit(Event{Kind: EventStageEnd, Timestamp: t0.Add(time.Millisecond), Stage: "analyze", Error: tc.errMsg})
+			logs := getLogs()
+			if !strings.Contains(logs, tc.want) {
+				t.Errorf("non-TTY stage-end error line missing %q; log:\n%s", tc.want, logs)
+			}
+			if strings.Contains(logs, tc.banned) {
+				t.Errorf("non-TTY stage-end error line must not contain %q; log:\n%s", tc.banned, logs)
+			}
+		})
+	}
+
+	// Same contract on the task-node surface, via an explicit
+	// recoverableMarkers entry ("stream stalled") rather than the
+	// default branch.
+	t.Run("task_node_recoverable_renders_retry_shape", func(t *testing.T) {
+		getLogs := withTempLogger(t)
+		r := newTestRenderer("zh")
+		r.dockSuppressed = true
+		emit := r.Emitter()
+		emit(Event{
+			Kind:      EventTaskNodeEnd,
+			Timestamp: time.Now(),
+			NodeID:    "n_evidence_t0",
+			NodeKind:  "evidence",
+			Error:     "stream stalled (no bytes for 45s)",
+		})
+		logs := getLogs()
+		want := "↻ 模型响应出错,正在重新收集证据 · stream stalled (no bytes for 45s)"
+		if !strings.Contains(logs, want) {
+			t.Errorf("non-TTY task-node error line missing %q; log:\n%s", want, logs)
+		}
+		if strings.Contains(logs, "✗ 未收集到足够证据") {
+			t.Errorf("recoverable task-node error must not render the terminal ✗ shape; log:\n%s", logs)
+		}
+	})
+}
+
 func TestLogFidelity_NonTTYFallbackDoesNotDoubleMirror(t *testing.T) {
 	getLogs := withTempLogger(t)
 

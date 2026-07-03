@@ -2555,7 +2555,8 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 			break
 		}
 		if ev.Error != "" {
-			r.emitNonTTYLine(fmt.Sprintf("✗ %s · %s", r.nonTTYStageLabel(string(ev.Stage), stagePhraseFailed), ev.Error))
+			glyph, state := nonTTYEndErrorShape(ev.Error)
+			r.emitNonTTYLine(fmt.Sprintf("%s %s · %s", glyph, r.nonTTYStageLabel(string(ev.Stage), state), ev.Error))
 		} else {
 			r.emitNonTTYLine(fmt.Sprintf("✓ %s", r.nonTTYStageLabel(string(ev.Stage), stagePhraseDone)))
 		}
@@ -2563,7 +2564,8 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		r.emitNonTTYLine(fmt.Sprintf("→ %s", r.nonTTYTaskNodeLabel(ev, stagePhraseRunning)))
 	case EventTaskNodeEnd:
 		if ev.Error != "" {
-			r.emitNonTTYLine(fmt.Sprintf("✗ %s · %s", r.nonTTYTaskNodeLabel(ev, stagePhraseFailed), ev.Error))
+			glyph, state := nonTTYEndErrorShape(ev.Error)
+			r.emitNonTTYLine(fmt.Sprintf("%s %s · %s", glyph, r.nonTTYTaskNodeLabel(ev, state), ev.Error))
 		} else {
 			r.emitNonTTYLine(fmt.Sprintf("✓ %s", r.nonTTYTaskNodeLabel(ev, stagePhraseDone)))
 		}
@@ -2665,6 +2667,41 @@ func shouldRenderStructuredToolSummary(ev Event) bool {
 
 func (r *Renderer) nonTTYStageLabel(stage string, state stagePhraseState) string {
 	return stagePhrase(canonicalStageKey(stage), r.lang, state)
+}
+
+// nonTTYEndErrorShape picks the glyph + phrase column for an
+// EventStageEnd / EventTaskNodeEnd that carries an Error on the
+// non-TTY surface. Severity comes from classifyEventError — the SAME
+// classifier the TTY dock uses for the same two events (EventStageEnd
+// / EventTaskNodeEnd handlers in handleEvent + classifyStatusError on
+// the commit line) — so the two surfaces can never disagree on
+// whether an error reads as terminal.
+//
+// Pre-fix this path hardcoded "✗ <failed phrase>" for EVERY error:
+// a transient analyze timeout printed "✗ 未能理解问题 · context
+// deadline exceeded" immediately followed by the orchestrator's
+// "↻ … 连接/流式响应异常，正在重试模型请求" notice — the ✗ read as a
+// terminal failure even though the very next line said the system was
+// retrying (berlin.systrace customer session, audit H21). Per the
+// contract documented on classifyStatusError, dispatch-level errors
+// whose message carries no fatal/cancelled marker default to the
+// recoverable shape (↻ + stagePhraseRetry) because the orchestrator's
+// retry decision is structural, not string-keyed; the terminal ✗ for
+// a run that truly cannot continue still arrives via the run-end
+// failure surface (MarkRunFatal / CLI error print), which is the only
+// authoritative "no retry budget left" signal.
+func nonTTYEndErrorShape(errMsg string) (glyph string, state stagePhraseState) {
+	switch classifyEventError(errMsg) {
+	case statusErrorFatal:
+		return string(glyphFatal), stagePhraseFailed
+	case statusErrorCancelled:
+		// User-initiated stop is NOT a system failure — same ⊘ the
+		// TTY dock uses (statusIcon / commitRowCancelled). Label keeps
+		// the failed column: "未能 X" + ⊘ agree on "did not finish".
+		return string(glyphCancelled), stagePhraseFailed
+	default:
+		return string(glyphRecoverable), stagePhraseRetry
+	}
 }
 
 func (r *Renderer) nonTTYStageOwnedByTaskNode(ev Event) bool {
