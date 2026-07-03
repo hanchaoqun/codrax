@@ -235,8 +235,15 @@ type Index struct {
 	// query). ClockRegressions counts events whose timestamp moved
 	// backwards relative to the previous parsed event — typed input
 	// for the query layer's caveat, never a hard gate.
-	ParseLinePanics  int
-	ClockRegressions int
+	ParseLinePanics int
+	// RetainedStringBytes accumulates the ACTUAL bytes of strings
+	// retained by this index (interner contents plus per-event unique
+	// strings). eventSizeBytes (unsafe.Sizeof) counts only string
+	// headers, so cache accounting without this underestimates real
+	// memory by up to 2x on payload-heavy traces. Telemetry + cache
+	// cost input only — never a gate signal.
+	RetainedStringBytes int64
+	ClockRegressions    int
 	// UnparsedLines counts non-empty scanned lines that matched no known
 	// trace line format (ParseLine returned no event, without panicking)
 	// — typed input for the query layer's coverage caveat, never a hard

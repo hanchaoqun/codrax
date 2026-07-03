@@ -101,7 +101,11 @@ func traceIndexCacheCost(idx *Index) int64 {
 	if idx == nil {
 		return 0
 	}
-	return int64(len(idx.Events)) * eventSizeBytes
+	// Struct cost + the ACTUAL retained string bytes (P2, 2026-07-03):
+	// unsafe.Sizeof counts only string headers, so payload-heavy traces
+	// used to under-charge the LRU by up to 2x and hold more real
+	// memory than the 512 MiB budget promised.
+	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes
 }
 
 func (c *traceIndexCache) Load(key parseCacheKey) (*Index, bool) {
@@ -737,6 +741,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		}
 	}
 	idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
+	idx.RetainedStringBytes = intern.retainedBytes
 	if len(relScopeCaveats) > 0 {
 		idx.Caveats = append(idx.Caveats, relScopeCaveats...)
 	}
@@ -2494,7 +2499,18 @@ func fileOperationFromEventName(name string) string {
 
 type stringInterner struct {
 	values map[string]string
+	// retainedBytes accumulates the byte length of every DISTINCT string
+	// this interner (and thus the index) retains — the real memory cost
+	// the cache accounting charges (unsafe.Sizeof sees only headers).
+	retainedBytes int64
 }
+
+// maxInternerEntries bounds the interner map (P3, 2026-07-03): interning is
+// a memory optimization, not a semantic requirement, and a pathological
+// trace with millions of distinct clamped payloads must not grow the map
+// without bound. Past the cap, strings pass through un-interned but their
+// bytes still count toward retainedBytes.
+const maxInternerEntries = 512 << 10
 
 func newStringInterner() *stringInterner {
 	return &stringInterner{values: make(map[string]string)}
@@ -2507,7 +2523,10 @@ func (i *stringInterner) intern(s string) string {
 	if existing, ok := i.values[s]; ok {
 		return existing
 	}
-	i.values[s] = s
+	i.retainedBytes += int64(len(s))
+	if len(i.values) < maxInternerEntries {
+		i.values[s] = s
+	}
 	return s
 }
 
