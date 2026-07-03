@@ -195,3 +195,49 @@ func containsString(items []string, want string) bool {
 	}
 	return false
 }
+
+// TestSourceInventoryRoleEnumSingleSourced pins that every surface listing
+// the source_inventory lens roles quotes types.SourceInventoryLensRoleNames
+// — the roles/attribute_roles schema enums (membership AND order, because
+// the toolparam style-alias layer canonicalizes against these exact bytes)
+// and the roles=["file"] refusal prose (every semantic role, i.e. all but
+// "file", must be named so the model is steered with the real accepted set).
+func TestSourceInventoryRoleEnumSingleSourced(t *testing.T) {
+	want := types.SourceInventoryLensRoleNames()
+	var schema struct {
+		Properties map[string]struct {
+			Items struct {
+				Enum []string `json:"enum"`
+			} `json:"items"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal((&RepoMapV2{}).Parameters(), &schema); err != nil {
+		t.Fatalf("Parameters() is not valid JSON: %v", err)
+	}
+	for _, param := range []string{"roles", "attribute_roles"} {
+		got := schema.Properties[param].Items.Enum
+		if len(got) != len(want) {
+			t.Fatalf("%s enum has %d entries, want %d: %v", param, len(got), len(want), got)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("%s enum[%d] = %q, want %q (order is load-bearing)", param, i, got[i], want[i])
+			}
+		}
+	}
+	refusal, ok := repoMapSourceInventoryParamPreflight(repoMapParams{
+		View:  "source_inventory",
+		Roles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFile},
+	})
+	if ok || refusal == "" {
+		t.Fatalf("roles=[file] must refuse; got ok=%v refusal=%q", ok, refusal)
+	}
+	for _, role := range want {
+		if role == string(types.AnswerCandidateRoleFile) {
+			continue
+		}
+		if !strings.Contains(refusal, role) {
+			t.Fatalf("refusal prose missing semantic role %q:\n%s", role, refusal)
+		}
+	}
+}

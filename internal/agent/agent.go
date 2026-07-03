@@ -3614,6 +3614,15 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 			if ewd, ok := t.(*tool.EmitWriteWorkflowDecision); ok {
 				params = ewd.ParametersFor(ctx)
 			}
+			// The classification step hard-rejects line-level grep
+			// (evidence-lite boundary); surface the requirement on the
+			// schema itself so the model does not learn it from a
+			// burned rejection round. Same sentence as the runtime
+			// rejection (single source). The explore-stage grep schema
+			// is untouched — line-level grep is correct there.
+			if _, ok := t.(*tool.GrepTool); ok && ctx != nil && ctx.Stage == types.StageAnalyze {
+				desc += " NOTE: " + analyzerGrepFilesOnlyRule
+			}
 			if _, ok := t.(*tool.RunTests); ok && writePlannerDryRunOnly(ctx) {
 				params = writePlannerRunTestsParameters(params)
 				desc += " While preparing a write plan this tool is available only with dry_run=true and a typed verification_probe object."
@@ -5209,8 +5218,15 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 		return nil
 	}
 	return rejectAnalyzerPrescanTool(ctx, tc, analyzerGrepFilesOnlyRequiredCode,
-		"grep in this classification step must use files_only=true; line-level matches are evidence-gathering input, not classification input. Retry with files_only=true or call emit_analysis with the fields you have.")
+		analyzerGrepFilesOnlyRule+" Retry with files_only=true or call emit_analysis with the fields you have.")
 }
+
+// analyzerGrepFilesOnlyRule is the single-source sentence for the
+// classification-step grep boundary: the runtime rejection and the
+// analyze-stage grep schema projection must speak with one voice so the
+// model sees the requirement before its first call instead of learning
+// it from a burned rejection round.
+const analyzerGrepFilesOnlyRule = "grep in this classification step must use files_only=true; line-level matches are evidence-gathering input, not classification input."
 
 const (
 	analyzerToolNotAllowedCode                      = "analyzer_tool_not_allowed"

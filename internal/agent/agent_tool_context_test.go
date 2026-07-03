@@ -1616,3 +1616,38 @@ func TestExecuteTool_StandaloneParameterClosingTagStringIsNotRejected(t *testing
 		t.Fatal("tool did not execute for standalone closing-tag string params")
 	}
 }
+
+// TestBuildToolSchemas_AnalyzeStageGrepSchemaCarriesFilesOnlyRule pins the
+// classification-step grep schema projection: the analyze-stage schema
+// description carries the same files_only sentence the runtime gate rejects
+// with (single source), and the explore-stage grep schema stays untouched
+// because line-level grep is the correct tool there.
+func TestBuildToolSchemas_AnalyzeStageGrepSchemaCarriesFilesOnlyRule(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	toolpkg.RegisterDefaults(reg)
+	sk := &skill.Config{
+		Name:            "analysis-contract",
+		ToolSuggestions: []string{"grep", "read_file"},
+	}
+	base := NewBaseAgent(types.AgentAnalyzer, &Dependencies{Tools: reg}, nil)
+
+	grepDesc := func(schemas []llm.ToolSchema) string {
+		for _, s := range schemas {
+			if s.Name == "grep" {
+				return s.Description
+			}
+		}
+		t.Fatalf("grep schema missing: %+v", schemaNames(schemas))
+		return ""
+	}
+
+	analyze := grepDesc(base.buildToolSchemas(sk, &types.AgentContext{Stage: types.StageAnalyze}))
+	if !strings.Contains(analyze, analyzerGrepFilesOnlyRule) {
+		t.Fatalf("analyze-stage grep schema must carry the files_only rule verbatim:\n%s", analyze)
+	}
+
+	explore := grepDesc(base.buildToolSchemas(sk, &types.AgentContext{Stage: types.StageExplore}))
+	if strings.Contains(explore, analyzerGrepFilesOnlyRule) {
+		t.Fatalf("explore-stage grep schema must NOT carry the classification-step rule:\n%s", explore)
+	}
+}

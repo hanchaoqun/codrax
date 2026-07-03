@@ -329,7 +329,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						},
 						"line_start": map[string]any{
 							"type":        "integer",
-							"description": "Exact gutter line number from read_file — NEVER estimated. The grounder uses this to verify the claim; wrong numbers are flagged as ungrounded or auto-recovered.",
+							"description": "Exact gutter line number from read_file — NEVER estimated. The grounder uses this to verify the claim; wrong numbers are flagged as ungrounded or auto-recovered. scope='file' requires line_start omitted or 0 (enforced — a file-identity anchor has no specific line).",
 						},
 						"line_end": map[string]any{
 							"type":        "integer",
@@ -391,7 +391,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						},
 						"crossfile_query": map[string]any{
 							"type":        "object",
-							"description": "REQUIRED when scope='crossfile'. Structured query the LLM is asserting about. Files is hard-capped at 5; pattern is a Go regex.",
+							"description": "REQUIRED when scope='crossfile'. Structured query the LLM is asserting about. files accepts 1-5 entries — a longer list REJECTS the whole item rather than trimming it, so pick the ≤5 strongest files or split into multiple items; pattern is a Go regex.",
 							"properties": map[string]any{
 								"files":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 5},
 								"pattern": map[string]any{"type": "string"},
@@ -408,7 +408,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						},
 						"negative_query": map[string]any{
 							"type":        "object",
-							"description": "REQUIRED when scope='negative'. The query whose ABSENCE of matches is the claim. Pair with negative_scope to control where the query searches.",
+							"description": "REQUIRED when scope='negative'. The query whose ABSENCE of matches is the claim. Pair with negative_scope to control where the query searches. pattern is a Go regex that the system RE-RUNS; the item is accepted only when it has zero matches in the declared scope. Escape regex metacharacters when you mean a literal string — an unescaped literal can silently match more (or fail to compile) and the absence claim is then rejected.",
 							"properties": map[string]any{
 								"file":    map[string]any{"type": "string"},
 								"pattern": map[string]any{"type": "string"},
@@ -418,7 +418,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						"negative_scope": map[string]any{
 							"type":        "string",
 							"enum":        emitEvidenceNegativeScopeNames(),
-							"description": "REQUIRED when scope='negative'. Qualifies WHERE the absence holds: file = whole file; range = within a line range; section = within a named schema section; struct_fields = against a struct's field set.",
+							"description": "REQUIRED when scope='negative'. Qualifies WHERE the absence holds: file = whole file; range = within a line range (verified precisely against those lines); section = within a named schema section; struct_fields = against a struct's field set. NOTE: section and struct_fields absence is currently verified against the ENTIRE file's text — if the pattern legitimately appears elsewhere in the same file, use negative_scope='range' with line bounds, or restate the query so zero matches holds file-wide.",
 						},
 					},
 					"required": []string{"scope", "evidence_kind"},

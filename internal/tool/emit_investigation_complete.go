@@ -163,7 +163,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			},
 			"evidence_floor_waiver": {
 				"type": "object",
-				"description": "OPTIONAL. The typed escape lane for declaring that ordinary repo-grounding requirements do NOT apply to this investigation. Set this when YOU have confidently determined that pretending to ground against repo code would be misleading — for example: the attached log is from a different system whose paths have no intersection with this repo (a customer-pasted panic from another service); a synthetic-looking log whose frame paths superficially match this repo but represent a different build / version / deployment; the input is informational with no failure component to ground against. A waiver is honored only when both reason and rationale are valid; incomplete or invalid waiver payloads are ignored and normal grounding gates still apply. Audit-only: every accepted or ignored fire is logged so a reviewer can spot misuse. Do NOT set this to escape ordinary investigation work — only when the model's reading of the input materially conflicts with the system's default to-look-in-repo posture.",
+				"description": "OPTIONAL. The typed escape lane for declaring that ordinary repo-grounding requirements do NOT apply to this investigation. Set this when YOU have confidently determined that pretending to ground against repo code would be misleading — for example: the attached log is from a different system whose paths have no intersection with this repo (a customer-pasted panic from another service); a synthetic-looking log whose frame paths superficially match this repo but represent a different build / version / deployment; the input is informational with no failure component to ground against. A waiver is honored only when both reason and rationale are valid; incomplete or invalid waiver payloads are ignored and normal grounding gates still apply. Every accepted or ignored fire is logged so a reviewer can spot misuse. Do NOT set this to escape ordinary investigation work — only when the model's reading of the input materially conflicts with the system's default to-look-in-repo posture.",
 				"properties": {
 					"reason": {
 						"type": "string",
@@ -172,7 +172,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 					},
 					"rationale": {
 						"type": "string",
-						"description": "One sentence explaining why repo grounding does not apply. Audit trail — recorded but not parsed for hard logic."
+						"description": "One sentence explaining why repo grounding does not apply. Required for the waiver to take effect — a waiver with a blank rationale is ignored and normal grounding gates still apply. The text is carried forward and shown to the answer-writing step verbatim as the stated justification, so make it self-contained and concrete (name the observed mismatch). The reason enum, not this text, selects which requirement is relaxed; every fire is also logged for review."
 					}
 				}
 			},
@@ -182,7 +182,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			},
 			"principal_span_waiver": {
 				"type": "object",
-				"description": "OPTIONAL. The typed escape lane for the principal source→sink span gate. Set this when YOU have read the source and confirmed there is NO separately-citable user code between the source endpoint and the sink endpoint — for example: source and sink are on the same dispatch / trampoline statement; the lines between contain only plumbing (nil guards, accessor pass-through, logger setup); the intermediate crosses an FFI / JNI / cgo / native-language bridge; the compiler inlined the intermediate call; the dispatch is virtual / interface / closure / reflection so no static call edge exists; the chain continues through an external library / SDK whose intermediates are not in this repo. A waiver is honored only when both reason and rationale are valid; incomplete or invalid waiver payloads are ignored and normal span gates still apply. Audit-only: every accepted or ignored fire is logged so a reviewer can spot misuse. Do NOT set this to escape ordinary investigation work — only when reading the source has shown there genuinely is no intermediate fact to cite.",
+				"description": "OPTIONAL. The typed escape lane for the principal source→sink span gate. Set this when YOU have read the source and confirmed there is NO separately-citable user code between the source endpoint and the sink endpoint — for example: source and sink are on the same dispatch / trampoline statement; the lines between contain only plumbing (nil guards, accessor pass-through, logger setup); the intermediate crosses an FFI / JNI / cgo / native-language bridge; the compiler inlined the intermediate call; the dispatch is virtual / interface / closure / reflection so no static call edge exists; the chain continues through an external library / SDK whose intermediates are not in this repo. A waiver is honored only when both reason and rationale are valid; incomplete or invalid waiver payloads are ignored and normal span gates still apply. Every accepted or ignored fire is logged so a reviewer can spot misuse. Do NOT set this to escape ordinary investigation work — only when reading the source has shown there genuinely is no intermediate fact to cite.",
 				"properties": {
 					"reason": {
 						"type": "string",
@@ -191,7 +191,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 					},
 					"rationale": {
 						"type": "string",
-						"description": "One sentence explaining which scenario applies in concrete terms (e.g. \"dispatch and handler are on the same statement at foo.go:42\" / \"intermediate is the cgo trampoline at frame N\"). Audit trail — recorded but not parsed for hard logic."
+						"description": "One sentence explaining which scenario applies in concrete terms (e.g. \"dispatch and handler are on the same statement at foo.go:42\" / \"intermediate is the cgo trampoline at frame N\"). Required for the waiver to take effect — a waiver with a blank rationale is ignored and normal span gates still apply. The reason enum, not this text, selects which requirement is relaxed; every fire is logged for review."
 					}
 				}
 			},

@@ -75,7 +75,45 @@ func (t *RepoMapV2) Description() string {
 		"When the context or a tool refusal lists multiple active sub-repos, pass one active sub-repo path as path, then use scopes/sources relative to that selected sub-repo; compare repos by querying each active sub-repo explicitly."
 }
 
+// sourceInventoryLensRoleEnumJSON renders the single-source lens role
+// list (types.SourceInventoryLensRoleNames) as a JSON string array for
+// the `roles` / `attribute_roles` schema enums. Generated instead of
+// hand-written so the schema can never drift from the refusal prose
+// and the skill prompts that quote the same function.
+func sourceInventoryLensRoleEnumJSON() string {
+	b, err := json.Marshal(ctypes.SourceInventoryLensRoleNames())
+	if err != nil {
+		// Marshalling a []string cannot fail; keep the schema valid
+		// regardless so Parameters() never emits broken JSON.
+		return "[]"
+	}
+	return string(b)
+}
+
+// sourceInventoryLensSemanticRoleProse renders the lens roles minus
+// "file" (the one non-semantic member) as `a, b, ..., or z` prose for
+// the roles=["file"] refusal text. Same single source as the schema
+// enums.
+func sourceInventoryLensSemanticRoleProse() string {
+	names := ctypes.SourceInventoryLensRoleNames()
+	semantic := make([]string, 0, len(names))
+	for _, n := range names {
+		if n == string(ctypes.AnswerCandidateRoleFile) {
+			continue
+		}
+		semantic = append(semantic, n)
+	}
+	switch len(semantic) {
+	case 0:
+		return ""
+	case 1:
+		return semantic[0]
+	}
+	return strings.Join(semantic[:len(semantic)-1], ", ") + ", or " + semantic[len(semantic)-1]
+}
+
 func (t *RepoMapV2) Parameters() json.RawMessage {
+	roleEnum := sourceInventoryLensRoleEnumJSON()
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
@@ -132,7 +170,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "config_file", "config_key", "route", "import_path", "literal_value"],
+        "enum": ` + roleEnum + `,
         "x-codrax-enum-style-alias": true
       },
       "x-codrax-split-string-array": true,
@@ -142,7 +180,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "config_file", "config_key", "route", "import_path", "literal_value"],
+        "enum": ` + roleEnum + `,
         "x-codrax-enum-style-alias": true
       },
       "x-codrax-split-string-array": true,
@@ -910,7 +948,7 @@ func repoMapSourceInventoryParamPreflight(p repoMapParams) (string, bool) {
 	if len(p.AttributeRoles) > 0 && !repoMapSourceInventoryBroadRootScope(p) {
 		return "", true
 	}
-	return "repo_map refused: source_inventory with roles=[\"file\"] as the only primary role is a path-discovery request, not a semantic source-inventory lens. Use `list_files` with recursive=true plus include/file_type filters for file-path or file-family discovery; use source_inventory with semantic roles such as function, method, type, constant, variable, field, package, config_file, config_key, route, import_path, or literal_value when you need a member/count checklist.", false
+	return "repo_map refused: source_inventory with roles=[\"file\"] as the only primary role is a path-discovery request, not a semantic source-inventory lens. Use `list_files` with recursive=true plus include/file_type filters for file-path or file-family discovery; use source_inventory with semantic roles such as " + sourceInventoryLensSemanticRoleProse() + " when you need a member/count checklist.", false
 }
 
 func repoMapSourceInventoryFileRoleRepair(p repoMapParams) *ctypes.ToolRepair {

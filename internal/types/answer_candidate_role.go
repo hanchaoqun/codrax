@@ -71,6 +71,40 @@ func AllAnswerCandidateRoles() []AnswerCandidateRole {
 	}
 }
 
+// SourceInventoryLensRoleNames returns the exact role strings the
+// repo_map source_inventory lens accepts for its `roles` /
+// `attribute_roles` parameters, in schema-enum order. This function is
+// the single source for every surface that lists the lens subset — the
+// repo_map parameter schema enums, the roles=["file"] refusal prose,
+// and the skill prompts that teach the lens — so those surfaces cannot
+// drift apart. The values are the verbatim AnswerCandidateRole strings;
+// the tool-parameter compat layer canonicalizes model output against
+// these exact bytes, so never re-case, rename, or reorder entries
+// without updating every consumer (the repomap schema test pins both
+// membership and order).
+//
+// This is deliberately a SUBSET of AllAnswerCandidateRoles: the
+// emit_analysis target_roles surface stays on the full enum because it
+// carries the requested answer shape, while this list names the
+// structural carriers the inventory lens can actually enumerate.
+func SourceInventoryLensRoleNames() []string {
+	return []string{
+		string(AnswerCandidateRoleFunction),
+		string(AnswerCandidateRoleMethod),
+		string(AnswerCandidateRoleType),
+		string(AnswerCandidateRoleConstant),
+		string(AnswerCandidateRoleVariable),
+		string(AnswerCandidateRoleField),
+		string(AnswerCandidateRolePackage),
+		string(AnswerCandidateRoleFile),
+		string(AnswerCandidateRoleConfigFile),
+		string(AnswerCandidateRoleConfigKey),
+		string(AnswerCandidateRoleRoute),
+		string(AnswerCandidateRoleImportPath),
+		string(AnswerCandidateRoleLiteralValue),
+	}
+}
+
 func (r AnswerCandidateRole) IsValid() bool {
 	if r == AnswerCandidateRoleUnknown {
 		return true

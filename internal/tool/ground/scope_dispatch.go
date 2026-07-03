@@ -420,7 +420,10 @@ func groundScopeNegative(it *types.EvidenceItem, gc *Context) Report {
 	}
 	// Section and struct_fields still conservatively scan the whole file until
 	// their typed parsers are wired here. Range is precise because line bounds
-	// are already part of the EvidenceItem contract.
+	// are already part of the EvidenceItem contract. The emit_evidence
+	// negative_scope schema description documents this whole-file reality to
+	// the model — whoever wires the typed section parser here MUST update
+	// that schema text in the same change.
 	matches := patternRE.FindAllIndex(scanBody, -1)
 	if len(matches) == 0 {
 		it.GroundingStatus = types.GroundingGrounded
