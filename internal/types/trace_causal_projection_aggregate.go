@@ -40,6 +40,11 @@ const (
 	// survivor accumulates; further merged views keep their evidence ids but do
 	// not grow the display note.
 	traceCausalProjectionSecondaryObjectCap = 3
+	// traceCausalProjectionMergedSubjectCap bounds MergedSubjects on a merged
+	// row: up to 4 distinct member thread names are preserved for display;
+	// anything beyond is expressed through MergedCount (the evidence ids stay
+	// lossless in MergedEvidenceIDs).
+	traceCausalProjectionMergedSubjectCap = 4
 )
 
 func traceCausalProjectionAggregateForPresentation(out *TraceCausalProjection) {
@@ -184,6 +189,30 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	if survivor.Confidence <= 0 {
 		survivor.Confidence = loser.Confidence
 	}
+	if survivor.TypeToken == "" {
+		survivor.TypeToken = loser.TypeToken
+	}
+}
+
+// traceCausalProjectionAppendMergedSubject records one merged member's thread
+// subject on the aggregate row (display roster for the fold/×N line): distinct
+// by canonical key, real thread names only (the unknown sentinel and empty
+// subjects carry no display value), capped at traceCausalProjectionMergedSubjectCap.
+func traceCausalProjectionAppendMergedSubject(aggregate *TraceCausalProjectionNode, subject string) {
+	subject = strings.TrimSpace(subject)
+	if subject == "" || !traceCausalProjectionKnownSubject(subject) {
+		return
+	}
+	if len(aggregate.MergedSubjects) >= traceCausalProjectionMergedSubjectCap {
+		return
+	}
+	key := traceCausalProjectionCanonicalNode(subject)
+	for _, existing := range aggregate.MergedSubjects {
+		if traceCausalProjectionCanonicalNode(existing) == key {
+			return
+		}
+	}
+	aggregate.MergedSubjects = append(aggregate.MergedSubjects, subject)
 }
 
 func traceCausalProjectionAppendSecondaryObject(survivor *TraceCausalProjectionNode, object string) {
@@ -247,6 +276,7 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 		absorbed := map[string]bool{traceCausalProjectionCanonicalNode(aggregate.EvidenceID): true}
 		for _, idx := range g.members {
 			member := nodes[idx]
+			traceCausalProjectionAppendMergedSubject(&aggregate, member.Subject)
 			display := member.ImpactMS
 			if display <= 0 {
 				display = member.CumulativeImpactMS
@@ -354,6 +384,9 @@ func traceCausalProjectionFoldUnknownBackground(nodes []TraceCausalProjectionNod
 	absorbed := map[string]bool{}
 	for _, idx := range fold {
 		member := nodes[idx]
+		// Keep the folded rows' thread names visible on the subjectless fold
+		// row — the renderer's "其余 N 项合并" line names them from here.
+		traceCausalProjectionAppendMergedSubject(&aggregate, member.Subject)
 		display := member.ImpactMS
 		if display <= 0 {
 			display = member.CumulativeImpactMS

@@ -48,8 +48,13 @@ func TestTraceProjectionD1ContentionRowsCarryOwnerAndSemanticsZH(t *testing.T) {
 			t.Fatalf("D1 contention rendering missing %q:\n%s", want, md)
 		}
 	}
-	if strings.Contains(md, "未定位线程") {
-		t.Fatalf("contention rows must not render as 未定位线程:\n%s", md)
+	// 2026-07-03: the sentinel wording moved from "未定位线程" to the typed
+	// unresolved-peer family — a typed BlockingKind row must render its lock
+	// semantics, never ANY bare unresolved-subject label (old or new).
+	for _, banned := range []string{"未定位线程", "对端线程未解析"} {
+		if strings.Contains(md, banned) {
+			t.Fatalf("contention rows must not render as %q:\n%s", banned, md)
+		}
 	}
 	// The ownerless row keeps the labeled fallback form (no holder suffix).
 	if strings.Count(md, "锁竞争等待") < 2 {
@@ -176,8 +181,11 @@ func TestTraceProjectionD1ContentionRowsCarryOwnerAndSemanticsEN(t *testing.T) {
 			t.Fatalf("EN D1 contention rendering missing %q:\n%s", want, md)
 		}
 	}
-	if strings.Contains(md, "unattributed thread") {
-		t.Fatalf("EN contention rows must not render as unattributed thread:\n%s", md)
+	// 2026-07-03: sentinel wording renamed (see ZH twin) — ban both eras.
+	for _, banned := range []string{"unattributed thread", "unresolved wait peer"} {
+		if strings.Contains(md, banned) {
+			t.Fatalf("EN contention rows must not render as %q:\n%s", banned, md)
+		}
 	}
 	if strings.Count(md, "lock contention wait") < 2 {
 		t.Fatalf("EN ownerless contention row must keep the semantic label:\n%s", md)

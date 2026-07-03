@@ -676,7 +676,7 @@ func runtimeTraceProjScaleNote(model runtimeTraceProjTreeModel, zh bool) string 
 func runtimeTraceProjSelfRowText(row runtimeTraceProjTreeRow, zh bool) string {
 	node := row.Node
 	var parts []string
-	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseName(node.Object, zh))
+	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
 	if node.IsSleepState() {
 		state := strings.TrimSpace(node.StateKind)
 		if state == "" {
@@ -809,7 +809,7 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 		return strings.TrimSpace(runtimeTraceCausalProjectionAggregateMetricName(node, zh))
 	}
 	// §7.30.3 D1: lock-contention rows render their typed semantics (with the
-	// parsed holder) instead of "未定位线程 <ms>" — a duration is never bare.
+	// parsed holder) instead of an unresolved-peer label + bare duration.
 	if blocking := runtimeTraceCausalProjectionBlockingName(node, zh); blocking != "" {
 		if runtimeTraceCausalProjectionKnownSubject(node.Subject) {
 			return strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh)) + " · " + blocking
@@ -819,7 +819,7 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 	subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
 	// D2: tree and cause rows show the concise zh label for recognized type
 	// tokens (the raw token stays on the detail table's 类型 column).
-	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseName(node.Object, zh))
+	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
 	if row.Kind == runtimeTraceProjTreeRowCause {
 		// Same-subject cause decomposition: the subject is already the parent
 		// trunk row; show only the cause word.
@@ -829,10 +829,12 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 		return subject
 	}
 	if node.MergedCount > 1 && node.Subject == "" {
+		// The fold line keeps the folded rows' thread names (customer
+		// 2026-07-03: a bare "其余 N 项合并" lost every thread identity).
 		if zh {
-			return fmt.Sprintf("其余 %d 项合并", node.MergedCount)
+			return fmt.Sprintf("其余 %d 项合并%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
 		}
-		return fmt.Sprintf("%d more folded", node.MergedCount)
+		return fmt.Sprintf("%d more folded%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
 	}
 	switch {
 	case subject != "" && object != "":
@@ -842,6 +844,28 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 	default:
 		return object
 	}
+}
+
+// runtimeTraceProjMergedSubjectsSuffix names the folded members' thread
+// subjects on a merged row: "(A、B 等)" — the trailing 等/… appears only when
+// MergedCount exceeds the preserved roster (the typed cap lives at the
+// aggregation site). Empty when the row carries no MergedSubjects.
+func runtimeTraceProjMergedSubjectsSuffix(node types.TraceCausalProjectionNode, zh bool) string {
+	if len(node.MergedSubjects) == 0 {
+		return ""
+	}
+	if zh {
+		suffix := strings.Join(node.MergedSubjects, "、")
+		if node.MergedCount > len(node.MergedSubjects) {
+			suffix += " 等"
+		}
+		return "(" + suffix + ")"
+	}
+	suffix := strings.Join(node.MergedSubjects, ", ")
+	if node.MergedCount > len(node.MergedSubjects) {
+		suffix += ", …"
+	}
+	return " (" + suffix + ")"
 }
 
 func runtimeTraceProjBar(value, denom float64, background bool) string {
@@ -1184,10 +1208,31 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 		sections = append(sections, line)
 	}
 	sections = append(sections, runtimeTraceProjWindowLine(projection, model, zh))
+	// Customer 2026-07-03: the reading note was one run-on paragraph and
+	// unreadable — itemized, one short clause per line, deliberately plain
+	// (no bold, no emoji beyond the glyphs it explains).
 	if zh {
-		sections = append(sections, "树读法: 自上而下=从关注线程向上游追溯;`└─唤醒─`=该行唤醒/依赖其父行;💤 是症状非根因,其唤醒子行即下钻结果;`├─成因─`=同一线程的成因分解;`⛔`=窗口内无匹配 sched_wakeup,链止于此。时长条后的状态标签(睡眠等待/可运行等待/运行占用/IO阻塞/D状态)来自该行主导调度状态,无主导状态的行沿用影响形态。时长、排序与 E# 均可定位到原始 trace_query 结构化证据,不是额外推测。")
+		sections = append(sections, strings.Join([]string{
+			"树读法:",
+			"- 自上而下 = 从关注线程向上游追溯。",
+			"- `└─唤醒─` = 该行唤醒/依赖其父行。",
+			"- 💤 = 症状非根因,其唤醒子行即下钻结果。",
+			"- `├─成因─` = 同一线程的成因分解。",
+			"- `⛔` = 窗口内无匹配 sched_wakeup,链止于此。",
+			"- 时长条后的状态标签(睡眠等待/可运行等待/运行占用/IO阻塞/D状态)来自该行主导调度状态;无主导状态的行沿用影响形态。",
+			"- 时长、排序与 E# 均可定位到原始 trace_query 结构化证据,不是额外推测。",
+		}, "\n"))
 	} else {
-		sections = append(sections, "Tree reading: top-down = tracing upstream from the focused thread; `└─wakes─` = this row wakes/feeds its parent; 💤 is a symptom (its wake child IS the drilldown result); `├─cause─` = same-thread cause decomposition; `⛔` = no matching sched_wakeup in the window, the chain ends there. The state tag after each bar (sleep wait / runnable wait / running / IO wait / D-state) is the row's dominant scheduler state; rows without one keep their impact-shape value. Durations, ranks and E# tags locate structured trace_query evidence — never extra speculation.")
+		sections = append(sections, strings.Join([]string{
+			"Tree reading:",
+			"- Top-down = tracing upstream from the focused thread.",
+			"- `└─wakes─` = this row wakes/feeds its parent.",
+			"- 💤 = a symptom, not a root cause; its wake child IS the drilldown result.",
+			"- `├─cause─` = same-thread cause decomposition.",
+			"- `⛔` = no matching sched_wakeup in the window; the chain ends there.",
+			"- The state tag after each bar (sleep wait / runnable wait / running / IO wait / D-state) is the row's dominant scheduler state; rows without one keep their impact-shape value.",
+			"- Durations, ranks and E# tags locate structured trace_query evidence — never extra speculation.",
+		}, "\n"))
 	}
 	if len(model.Background) == 0 {
 		if zh {

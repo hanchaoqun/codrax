@@ -155,6 +155,12 @@ type TraceCausalProjectionNode struct {
 	MergedCount int     `json:"merged_count,omitempty"`
 	MergedMinMS float64 `json:"merged_min_ms,omitempty"`
 	MergedMaxMS float64 `json:"merged_max_ms,omitempty"`
+	// MergedSubjects preserves the DISTINCT member thread subjects of a merged
+	// (MergedCount>1) aggregate row, capped at 4 entries (overflow is expressed
+	// by MergedCount, never by truncated names). Its load-bearing consumer is
+	// the R3 subjectless fold row: without it the renderer's "其余 N 项合并"
+	// line loses every folded thread name (customer complaint 2026-07-03).
+	MergedSubjects []string `json:"merged_subjects,omitempty"`
 	// SecondaryObjects carries the other typed views' Objects after an R1 merge
 	// when they differ from this node's Object (e.g. the udk-irq peer thread a
 	// same-interval critical_blocking row named) — rendered as an 影响点 note.
@@ -178,6 +184,12 @@ type TraceCausalProjectionNode struct {
 	BlockingPeer       string `json:"blocking_peer,omitempty"`
 	BlockingHolderSite string `json:"blocking_holder_site,omitempty"`
 	BlockingWaiters    int    `json:"blocking_waiters,omitempty"`
+	// TypeToken mirrors the producer's typed "type=" rich note verbatim (the
+	// candidate/root-cause kind token, e.g. blocking_span / d_state_or_io_wait /
+	// binder_wait on critical_blocking rows). Precise typed enum from the data
+	// layer — renderers use it only to specialize DISPLAY wording (e.g. the
+	// unresolved-peer sentinel), never as a behavior gate.
+	TypeToken string `json:"type_token,omitempty"`
 	// GatedRunnableMS / GatedRunningDeficitMS carry the R5d gated-impact
 	// composition of a priority-inversion row (§7.30.3 D3), sourced from the
 	// typed gated_runnable / gated_running_deficit rich notes: runnable time
@@ -597,6 +609,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// §7.30.3 D3: gated-impact composition for priority-inversion rows.
 	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "gated_runnable")
 	node.GatedRunningDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "gated_running_deficit")
+	// Verbatim typed kind token (see TypeToken doc): lets renderers specialize
+	// the unresolved-peer wording for blocking_span / d_state_or_io_wait rows.
+	node.TypeToken = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "type"))
 	return node
 }
 

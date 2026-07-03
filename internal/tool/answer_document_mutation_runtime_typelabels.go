@@ -112,6 +112,18 @@ func runtimeTraceCausalProjectionDisplayCauseName(raw string, zh bool) string {
 	return runtimeTraceCausalProjectionDisplayNodeName(raw, zh)
 }
 
+// runtimeTraceCausalProjectionDisplayCauseNameNode is the node-aware cause
+// lane: when the row's Object is the unknown-thread sentinel, the wording is
+// specialized by the row's typed kind token (blocking_span →
+// 阻塞等待(对端未解析), d_state_or_io_wait → D状态/IO等待(对端未解析));
+// everything else stays on the raw-string cause lane.
+func runtimeTraceCausalProjectionDisplayCauseNameNode(node types.TraceCausalProjectionNode, zh bool) string {
+	if runtimeTraceCausalProjectionUnknownSentinel(node.Object) {
+		return runtimeTraceCausalProjectionUnresolvedPeerText(runtimeTraceCausalProjectionUnresolvedPeerKind(node), zh)
+	}
+	return runtimeTraceCausalProjectionDisplayCauseName(node.Object, zh)
+}
+
 // runtimeTraceCausalProjectionNarrativeCauseName is the narrative lane (D4):
 // on the zh surface a recognized type token renders as 中文（english_token）,
 // e.g. 优先级反转候选（priority_inversion_candidate）; EN and unmapped tokens

@@ -4,7 +4,8 @@ package tool
 // trace_layered_root_cause_methodology_audit_20260701.md §7.30):
 //   裁定1/2 — aggregate-metric rows and unattachable unknown-thread rows demote
 //     from the on-chain tree to the background-pressure stanza, rendered under
-//     their metric semantic name / 未定位线程 instead of on-chain placeholders;
+//     their metric semantic name / the typed unresolved-peer wording instead of
+//     on-chain placeholders;
 //   裁定3 (rendering half) — the flat-fallback header names the typed cause
 //     (missing_wakeup vs. recommended-but-not-run wakeup-chain drilldown);
 //   裁定4 — every bar row carries a localized dominant-state attribution tag.
@@ -87,12 +88,15 @@ func TestTraceProjection730AggregateAndUnknownDemoteToBackgroundZH(t *testing.T)
 		}
 	}
 	// 裁定2: the aggregate row renders under its metric semantic name, the truly
-	// unattributed row as 未定位线程 — both inside the background stanza.
+	// unattributed row under the typed unresolved-peer wording — both inside the
+	// background stanza. (Pin updated 2026-07-03: customer complaint — the old
+	// "未定位线程" label was unreadable; wording now lives in
+	// runtimeTraceCausalProjectionUnresolvedPeerText.)
 	bgIdx := strings.Index(md, "▒ 背景压力")
 	if bgIdx < 0 {
 		t.Fatalf("demoted rows must produce the background stanza:\n%s", md)
 	}
-	for _, want := range []string{"窗口IO压力(聚合)", "未定位线程"} {
+	for _, want := range []string{"窗口IO压力(聚合)", "对端线程未解析"} {
 		idx := strings.Index(md, want)
 		if idx < 0 {
 			t.Fatalf("background stanza missing demoted row %q:\n%s", want, md)
@@ -126,7 +130,9 @@ func TestTraceProjection730AggregateAndUnknownDemoteToBackgroundEN(t *testing.T)
 	if bgIdx < 0 {
 		t.Fatalf("demoted rows must produce the background stanza:\n%s", md)
 	}
-	for _, want := range []string{"window IO pressure (aggregate)", "unattributed thread"} {
+	// Pin updated 2026-07-03 alongside the ZH twin: "unattributed thread" →
+	// typed unresolved-peer wording.
+	for _, want := range []string{"window IO pressure (aggregate)", "unresolved wait peer"} {
 		idx := strings.Index(md, want)
 		if idx < 0 {
 			t.Fatalf("background stanza missing demoted row %q:\n%s", want, md)

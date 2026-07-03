@@ -756,9 +756,31 @@ func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection,
 		if !zh {
 			title = "Causal Projection Detail (lossless)"
 		}
-		text := "口径:窗口投影=节点在用户窗口内的投影影响;链上累计=该链路向目标累计投影;有效归因=排序/归因使用的有效影响;实际状态=底层状态实际持续时长;「—」=该口径对此节点无值。⛔=窗口内无匹配 sched_wakeup(missing_wakeup),下钻链止;⚠=实际状态跨出投影窗口。背景行仅作压力/环境证据,不自动等同 on-chain 主因。"
+		// Customer 2026-07-03: the legend was one run-on paragraph and
+		// unreadable — itemized, one short definition per line, kept plain.
+		text := strings.Join([]string{
+			"口径:",
+			"- 窗口投影 = 节点在用户窗口内的投影影响。",
+			"- 链上累计 = 该链路向目标累计投影。",
+			"- 有效归因 = 排序/归因使用的有效影响。",
+			"- 实际状态 = 底层状态实际持续时长。",
+			"- 「—」 = 该口径对此节点无值。",
+			"- ⛔ = 窗口内无匹配 sched_wakeup(missing_wakeup),下钻链止。",
+			"- ⚠ = 实际状态跨出投影窗口。",
+			"- 背景行仅作压力/环境证据,不自动等同 on-chain 主因。",
+		}, "\n")
 		if !zh {
-			text = "Legend: window projection = the node's projected impact inside the user window; chain total = cumulative projection toward the target; attribution = the effective impact used for ranking/attribution; actual state = the underlying state duration; “—” = no value for this node. ⛔ = no matching sched_wakeup in the window (missing_wakeup, chain ends); ⚠ = the actual state crosses the projected window. Background rows are pressure/context evidence only."
+			text = strings.Join([]string{
+				"Legend:",
+				"- window projection = the node's projected impact inside the user window.",
+				"- chain total = cumulative projection toward the target.",
+				"- attribution = the effective impact used for ranking/attribution.",
+				"- actual state = the underlying state duration.",
+				"- “—” = no value for this node.",
+				"- ⛔ = no matching sched_wakeup in the window (missing_wakeup); the chain ends.",
+				"- ⚠ = the actual state crosses the projected window.",
+				"- Background rows are pressure/context evidence only.",
+			}, "\n")
 		}
 		out = append(out, types.AnswerBlock{
 			ID:          "runtime_trace_causal_projection_detail",
@@ -1386,7 +1408,7 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 	subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
 	// D2: the zh table's Node/cause column shows the concise label; the raw
 	// token stays lossless in the dedicated 类型 column.
-	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseName(node.Object, zh))
+	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
 	if (node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span") && strings.TrimSpace(node.SpanName) != "" {
 		object = strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.SpanName, zh))
 	}
@@ -1408,26 +1430,73 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 
 func runtimeTraceCausalProjectionDisplayNodeName(raw string, zh bool) string {
 	raw = strings.TrimSpace(raw)
+	if runtimeTraceCausalProjectionUnknownSentinel(raw) {
+		// Raw-string lane: no node context, so the wording stays generic.
+		return runtimeTraceCausalProjectionUnresolvedPeerText("", zh)
+	}
+	return raw
+}
+
+// runtimeTraceCausalProjectionUnknownSentinel reports the exact data-layer
+// unknown-thread sentinel (typed token match, never a prose heuristic).
+func runtimeTraceCausalProjectionUnknownSentinel(raw string) bool {
 	switch runtimeTraceCausalProjectionCanonicalNode(raw) {
 	case "unknown-thread", "unknown":
-		if zh {
-			return "未定位线程"
-		}
-		return "unattributed thread"
-	default:
-		return raw
+		return true
 	}
+	return false
+}
+
+// runtimeTraceCausalProjectionUnresolvedPeerText is THE single home for the
+// unknown-thread sentinel wording (customer 2026-07-03: "未定位线程" was
+// unreadable). kind is the row's typed kind token from
+// runtimeTraceCausalProjectionUnresolvedPeerKind ("" = no typed kind, generic
+// wording). Display-lane only — never used as a match key or behavior gate.
+func runtimeTraceCausalProjectionUnresolvedPeerText(kind string, zh bool) string {
+	switch kind {
+	case "blocking_span":
+		if zh {
+			return "阻塞等待(对端未解析)"
+		}
+		return "blocking wait (peer unresolved)"
+	case "d_state_or_io_wait":
+		if zh {
+			return "D状态/IO等待(对端未解析)"
+		}
+		return "D-state/IO wait (peer unresolved)"
+	default:
+		if zh {
+			return "对端线程未解析"
+		}
+		return "unresolved wait peer"
+	}
+}
+
+// runtimeTraceCausalProjectionUnresolvedPeerKind derives the typed kind that
+// specializes the unresolved-peer wording: an EXACT typed-token match on the
+// node's verbatim TypeToken ("type=" rich note), Predicate, or Object — all
+// producer-side typed enums, never model prose. "" when none matches (callers
+// fall back to the generic wording).
+func runtimeTraceCausalProjectionUnresolvedPeerKind(node types.TraceCausalProjectionNode) string {
+	for _, token := range []string{node.TypeToken, node.Predicate, node.Object} {
+		switch runtimeTraceCausalProjectionCanonicalNode(token) {
+		case "blocking_span":
+			return "blocking_span"
+		case "d_state_or_io_wait":
+			return "d_state_or_io_wait"
+		}
+	}
+	return ""
 }
 
 // runtimeTraceCausalProjectionKnownSubject reports whether a subject names a
 // real (possibly partial, pid-only) thread — not empty and not the
 // unknown-thread sentinel. Precise typed check, never a prose heuristic.
 func runtimeTraceCausalProjectionKnownSubject(raw string) bool {
-	switch runtimeTraceCausalProjectionCanonicalNode(raw) {
-	case "", "unknown-thread", "unknown":
+	if strings.TrimSpace(raw) == "" {
 		return false
 	}
-	return true
+	return !runtimeTraceCausalProjectionUnknownSentinel(raw)
 }
 
 // runtimeTraceCausalProjectionInversionRow reports whether this node publishes
@@ -1462,12 +1531,16 @@ func runtimeTraceCausalProjectionBlockingName(node types.TraceCausalProjectionNo
 
 // runtimeTraceCausalProjectionDisplaySubjectName is the node-aware subject
 // display (§7.30 裁定2): typed aggregate-metric rows show the metric semantics
-// (there is no thread to resolve), sentinel subjects show 未定位线程, and every
-// other subject — including the data layer's pid=1234 partial identities —
-// renders verbatim.
+// (there is no thread to resolve), sentinel subjects render the typed
+// unresolved-peer wording (specialized by the row's kind token when one is
+// present), and every other subject — including the data layer's pid=1234
+// partial identities — renders verbatim.
 func runtimeTraceCausalProjectionDisplaySubjectName(node types.TraceCausalProjectionNode, zh bool) string {
 	if node.IsAggregateMetric() {
 		return runtimeTraceCausalProjectionAggregateMetricName(node, zh)
+	}
+	if runtimeTraceCausalProjectionUnknownSentinel(node.Subject) {
+		return runtimeTraceCausalProjectionUnresolvedPeerText(runtimeTraceCausalProjectionUnresolvedPeerKind(node), zh)
 	}
 	return runtimeTraceCausalProjectionDisplayNodeName(node.Subject, zh)
 }
