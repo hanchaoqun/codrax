@@ -50,3 +50,8 @@
 ## 进展
 
 - 审计落盘(本节)。
+- **T1 交付(2026-07-03,f022aa67)**:D-tree1 self 行接入 state-else-shape 回退(pin:anchored 树中 subject=目标线程的 contention 行必带 锁竞争·阻塞);E-path 3 case 修正 `../../customlogs`;O-8 收编 8 处 write/scan 侧 os.ReadFile → ReadFileBounded(go.mod/package.json 等定名 manifest 保持普通读)。
+- **O-7 复跑关闭(2026-07-03)**:donghu_real 双案 **2/2 PASS**(真机 1.9MB trace);输出实证 self 行标签生效(`Binder:43397_19-23088 11.103ms 候选影响`)+ R5d 门控构成如实呈现(`反转影响 · 影响构成: 可运行等待 8.307ms + 运行折算 0.000ms`)。
+- **T2 P2/P3/P4 交付(2026-07-03,1a9d5bb9)**:Index.RetainedStringBytes 真实字节核算入 LRU 成本;interner 512K 条目上限(超限直通);BenchmarkBuildIndexWindowed 基准落盘(20K 行合成 ~95ms/窗口构建)。
+- **P1(稀疏锚点索引)拆细待做**,正确性约束已定:锚点须记 running-max ts(时钟回退防御)+ lineNo + byteOffset;flavor 投票依赖文件头 200 行(锚点 cache 须同存 flavor 结果);LineCount/ScannedLineCount 消费端语义核查先行。P4 Event 瘦身维持"单独裁定,不在本计划"。
+- T3(counter_stats + transact join)待做。
