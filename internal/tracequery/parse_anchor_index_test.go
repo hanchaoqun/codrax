@@ -117,3 +117,53 @@ func TestAnchorSeekRespectsClockRegression(t *testing.T) {
 		t.Fatalf("clock-regression spike line must not be skipped by anchor seek (events=%d)", len(idx.Events))
 	}
 }
+
+// TestCounterDeltasAndTransactInterfaceJoin pins the T3 coverage additions
+// against the customer trace shapes: C| counters aggregate numerically per
+// (thread, name) with first/last/min/max/delta ranked by |delta|, and an
+// ipc edge whose send sits inside a `transact[Interface:code]` span on the
+// same thread carries the interface verbatim.
+func TestCounterDeltasAndTransactInterfaceJoin(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cov.systrace")
+	trace := strings.Join([]string{
+		"# tracer: nop",
+		"  app-42 (42) [000] .... 100.000100: print: C|42|Heap size (KB)|157028",
+		"  app-42 (42) [000] .... 100.000200: print: B|42|transact[android.net.IConnectivityManager:9]",
+		"  app-42 (42) [000] .... 100.000300: binder_transaction: transaction=4407138 dest_node=311264 dest_proc=10756 dest_thread=0 reply=0 flags=0x12 code=0x1",
+		"  app-42 (42) [000] .... 100.000350: print: E|42",
+		"  binder:486_1-10803 (10756) [001] .... 100.000400: binder_transaction_received: transaction=4407138",
+		"  app-42 (42) [000] .... 100.000500: print: C|42|Heap size (KB)|158100",
+		"  app-42 (42) [000] .... 100.000600: print: C|42|JNI Weak Global Refs|198",
+		"  app-42 (42) [000] .... 100.000700: print: C|42|Heap size (KB)|156000",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resetAnchorCaches()
+	idx, err := BuildIndex(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stats := ComputeWindowStats(idx, Query{})
+	if len(stats.CounterDeltas) == 0 {
+		t.Fatal("counter deltas missing")
+	}
+	top := stats.CounterDeltas[0]
+	if top.Name != "Heap size (KB)" || top.Samples != 3 {
+		t.Fatalf("top delta must be the heap counter with 3 samples: %+v", top)
+	}
+	if top.First != 157028 || top.Last != 156000 || top.Min != 156000 || top.Max != 158100 || top.Delta != -1028 {
+		t.Fatalf("heap delta aggregation wrong: %+v", top)
+	}
+
+	graph := BuildIPCGraph(idx, Query{})
+	if len(graph.Edges) == 0 {
+		t.Fatal("ipc edge missing")
+	}
+	if graph.Edges[0].Interface != "android.net.IConnectivityManager:9" {
+		t.Fatalf("transact interface join missing: %+v", graph.Edges[0])
+	}
+}

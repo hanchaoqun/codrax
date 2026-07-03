@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 )
@@ -1459,6 +1460,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.Caveats = append(stats.Caveats, ioPairingCaveats(idx, q)...)
 	stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
 	stats.TraceSpans, stats.TraceCounters = computeTraceMarks(idx, q, 8)
+	stats.CounterDeltas = computeCounterDeltas(idx, q, 8)
 	stats.TraceMarkCategories = computeTraceMarkCategories(stats.TraceSpans, 8)
 	stats.AsyncFileWork = computeAsyncFileWorkSummaries(stats.TraceSpans, 8)
 	stats.IRQBursts = computeIRQBursts(idx, q, 8)
@@ -5090,6 +5092,69 @@ func blockKey(ev Event) string {
 		return ""
 	}
 	return fmt.Sprintf("%s/%s/%d/%d", ev.BlockDev, ev.BlockOp, ev.BlockSector, ev.BlockLen)
+}
+
+// computeCounterDeltas aggregates C| counter marks numerically per
+// (thread, counter name): first/last/min/max/delta across the window,
+// top-N by |delta| (C1, 2026-07-03). Counters whose values never parse as
+// numbers are skipped — they stay visible through TraceCounters.
+func computeCounterDeltas(idx *Index, q Query, max int) []TraceCounterDeltaSummary {
+	if idx == nil {
+		return nil
+	}
+	type key struct {
+		pid  int
+		name string
+	}
+	acc := map[key]*TraceCounterDeltaSummary{}
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventTraceMark || ev.SpanAction != "C" {
+			continue
+		}
+		value, err := strconv.ParseFloat(strings.TrimSpace(ev.SpanValue), 64)
+		if err != nil {
+			continue
+		}
+		k := key{pid: ev.PID, name: ev.SpanName}
+		row := acc[k]
+		if row == nil {
+			row = &TraceCounterDeltaSummary{
+				Thread: threadRefFromEvent(ev),
+				Name:   ev.SpanName,
+				First:  value, Last: value, Min: value, Max: value,
+				FirstLine: ev.Line, LastLine: ev.Line,
+			}
+			acc[k] = row
+		}
+		row.Samples++
+		row.Last = value
+		row.LastLine = ev.Line
+		if value < row.Min {
+			row.Min = value
+		}
+		if value > row.Max {
+			row.Max = value
+		}
+	}
+	out := make([]TraceCounterDeltaSummary, 0, len(acc))
+	for _, row := range acc {
+		row.Delta = row.Last - row.First
+		out = append(out, *row)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		di, dj := math.Abs(out[i].Delta), math.Abs(out[j].Delta)
+		if di != dj {
+			return di > dj
+		}
+		if out[i].Samples != out[j].Samples {
+			return out[i].Samples > out[j].Samples
+		}
+		return out[i].FirstLine < out[j].FirstLine
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
 }
 
 func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []TraceCounterSummary) {

@@ -18,6 +18,40 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 	receives := map[int][]Event{}
 	auxByTx := map[int][]BinderEventSummary{}
 	var auxEvents []BinderEventSummary
+	// C2 (2026-07-03): deterministic transact-interface join. Userspace
+	// wraps binder sends in a `transact[Interface:code]` trace-mark span on
+	// the SAME thread, so a single ordered pass tracking each thread's open
+	// transact span names lets the edge carry the interface — a verbatim
+	// span-name join, no prose inference. idx.Events is in file order.
+	openTransact := map[int][]string{}
+	ifaceBySendLine := map[int]string{}
+	for _, ev := range idx.Events {
+		if ev.Type == EventTraceMark {
+			switch ev.SpanAction {
+			case "B":
+				if name, ok := transactSpanInterface(ev.SpanName); ok {
+					openTransact[ev.PID] = append(openTransact[ev.PID], name)
+				} else {
+					openTransact[ev.PID] = append(openTransact[ev.PID], "")
+				}
+			case "E":
+				if stack := openTransact[ev.PID]; len(stack) > 0 {
+					openTransact[ev.PID] = stack[:len(stack)-1]
+				}
+			}
+			continue
+		}
+		if ev.Type == EventBinderTransaction {
+			if stack := openTransact[ev.PID]; len(stack) > 0 {
+				for i := len(stack) - 1; i >= 0; i-- {
+					if stack[i] != "" {
+						ifaceBySendLine[ev.Line] = stack[i]
+						break
+					}
+				}
+			}
+		}
+	}
 	for _, ev := range idx.Events {
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
@@ -54,6 +88,9 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 			continue
 		}
 		edge := ipcEdgeFromSend(send)
+		if iface := ifaceBySendLine[send.Line]; iface != "" {
+			edge.Interface = iface
+		}
 		if send.BinderTransactionID > 0 {
 			if recv, ok := chooseBinderReceive(send, receives[send.BinderTransactionID]); ok {
 				edge.Receiver = threadRefFromEvent(recv)
@@ -300,4 +337,20 @@ func binderFlagsOneway(raw string) bool {
 		return false
 	}
 	return n&0x1 != 0
+}
+
+// transactSpanInterface extracts the interface token from a userspace
+// binder wrapper span name of the exact form `transact[<Interface:code>]`.
+// Verbatim structural parse — anything else reports ok=false.
+func transactSpanInterface(spanName string) (string, bool) {
+	spanName = strings.TrimSpace(spanName)
+	const prefix = "transact["
+	if !strings.HasPrefix(spanName, prefix) || !strings.HasSuffix(spanName, "]") {
+		return "", false
+	}
+	inner := strings.TrimSpace(spanName[len(prefix) : len(spanName)-1])
+	if inner == "" {
+		return "", false
+	}
+	return inner, true
 }

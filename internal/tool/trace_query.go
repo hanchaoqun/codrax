@@ -2530,6 +2530,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- trace_counter %s %q value=%s count=%d line=%d\n",
 				traceThreadLabel(counter.Thread), counter.Name, counter.Value, counter.Count, counter.Line)
 		}
+		for _, delta := range result.WindowStats.CounterDeltas {
+			fmt.Fprintf(&b, "- counter_delta %s %q first=%g last=%g min=%g max=%g delta=%+g samples=%d lines=%d-%d\n",
+				traceThreadLabel(delta.Thread), delta.Name, delta.First, delta.Last, delta.Min, delta.Max, delta.Delta, delta.Samples, delta.FirstLine, delta.LastLine)
+		}
 		for _, burst := range result.WindowStats.IRQBursts {
 			fmt.Fprintf(&b, "- irq_burst cpu=%d irq=%d name=%s count=%d duration=%.3fms lines=%d-%d\n",
 				burst.CPU, burst.IRQ, burst.Name, burst.Count, burst.DurationMs, burst.LineStart, burst.LineEnd)
@@ -2882,7 +2886,11 @@ func writeTraceIPCEdges(b *strings.Builder, edges []tracequery.IPCEdge) {
 			fmt.Fprintf(b, "... omitted %d IPC edge(s); see payload_ref\n", len(edges)-i)
 			break
 		}
-		fmt.Fprintf(b, "- ipc transaction=%d %s -> %s send_line=%d receive_line=%d latency=%.3fms reply=%d flags=%s code=%s oneway=%t sync_like=%t blocking_candidate=%t confidence=%.2f\n",
+		iface := ""
+		if strings.TrimSpace(edge.Interface) != "" {
+			iface = " interface=" + sanitizeForBanner(edge.Interface)
+		}
+		fmt.Fprintf(b, "- ipc transaction=%d %s -> %s send_line=%d receive_line=%d latency=%.3fms reply=%d flags=%s code=%s oneway=%t sync_like=%t blocking_candidate=%t confidence=%.2f%s\n",
 			edge.TransactionID,
 			traceThreadLabel(edge.Sender),
 			traceThreadLabel(edge.Receiver),
@@ -2896,6 +2904,7 @@ func writeTraceIPCEdges(b *strings.Builder, edges []tracequery.IPCEdge) {
 			edge.SyncLike,
 			edge.BlockingCandidate,
 			edge.Confidence,
+			iface,
 		)
 		for _, caveat := range edge.Caveats {
 			fmt.Fprintf(b, "  caveat=%s\n", caveat)
