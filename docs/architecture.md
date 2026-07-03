@@ -1247,6 +1247,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 
 **设计定位**：trace_query 不是"返回原始数据、全靠 LLM 分层推理"的工具——"哪个状态优先看 / 要不要递归 / 用哪个 view"这些决策以确定性 Go 代码算好，通过 typed 结构（`StateDrilldownStep` / `RootCauseRankItem.Tier` / `TraceCausalProjection`）+ 可被 `observation_ledger.go` 回解析的文本行喂给 LLM 和下游 finalizer。这与 §1 "精确信号做硬门、噪声信号做软引导"红线一致：状态排序/tier 是精确计算，推荐 view / significant 标记是软引导。
 
+**per-view 截断阈值单源**：`internal/tracequery/view_capacity.go` 是全部 20 个 view 的容量表（DefaultLimit/MaxLimit/heavy/relation-scoped/FallbackView；数值由 TestViewCapacityTablePinsCurrentBehavior 字节 pin），engine 截断点同时发布 typed `Result.Compactions` 记录；tool 侧 refinement 据此给出具体收窄建议（limit=min(Total,MaxLimit) 或按 LastEmittedTs 的首段拆窗+next_segment），composite bundle 的 widen-vs-split 判定读截断子 view 行。index 预算（250K/512MiB 阶梯）不入该表，归 C3/Gap3 阶梯所有。改任何 view 阈值先读该文件,不要再挖 query.go。
+
 **四个核心机制**：
 
 - **状态优先 Top-N（`buildStateDrilldownPlan`）**：窗口内各状态（sleep / runnable / running / D-state·IO-wait）按时长排 Top-N，每步带 `WindowProportion`（占窗口比例）+ `Significant`（top 状态恒真；低 rank 需过 5% floor 或 25% top-ratio）软引导 LLM 优先下钻哪些状态。碎片化状态聚类（`state_churn`）是独立第二维度，"单次最长"与"频繁切换聚类累计后最长"都不丢失。
