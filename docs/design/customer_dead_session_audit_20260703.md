@@ -124,6 +124,31 @@
 - H14 确认 1-based 有意;修复面改为日志 iter 打印对齐(diag 行改 1-based 或双标)。
 - H3 padding 并非单一常量而是按 view 三档;成比例化保留各 view 上限、加窗口比例下限。
 
+## 4.7 W3 设计:超长稠密窗的流式 coverage 扫描视图(view=window_sweep)
+
+目标:用户给秒级以上窗口 + 稠密 trace(索引 budget 无法一次覆盖)时,模型一步拿到"哪些子窗值得深入"的确定性建议,替代盲目二分/试错(客户案例:3.3s 窗反复撞 index_event_limit 5+ 轮)。
+
+方案(评审后实施):
+- 新增 `trace_query view=window_sweep`,走 event_search 同款**流式扫描通道**(不受 index event budget 限制,复用稀疏锚点索引 seek)。
+- 单遍扫请求窗,按 bucket(默认 100ms,`bucket_ms` 参数 clamp 50..500)聚合纯计数信号:sched_switch 次数、目标 pid running/sleep 段计数(pid 提供时)、sched_wakeup 次数、D-state 进入次数、irq entry 计数、trace_mark 计数。内存 O(bucket 数)。
+- 输出:top-K(默认 8)热点子窗(目标 pid 状态切换密度优先,无 pid 时全局密度),每个带 [start..end]+密度指标+建议后续 view(状态密度→window_stats/frame_window;wakeup 密度→wakeup_chain);外加紧凑 coverage 表(>40 bucket 折叠)。
+- 引导接入:index_event_limit denial 的 recovery_params 在请求窗 >1s 时首推 window_sweep。
+- 红线合规:输出全部是**软建议**;bucket 计数是精确整数但只用于排序展示,不进任何硬门。
+- 成本预估:1.1GiB trace 单遍 ~2.5s(与 event_search 同量级)。
+
 ## 5. 进展
 
 - 2026-07-03: 审计完成,文档落盘;5 路代码探索定稿锚点(§4.5),任务 #21-#31 建立。代码锚点与逐项裁定见各批实现提交。
+- 2026-07-03 Batch 1 实现+对抗复核:
+  - W1/W2/Q1/Q2/R1/R3 全部落码,全仓测试绿。实现期两个重要自主裁定:(a) degrade 注记走 `Result.Caveats` 而非 Compactions(Compactions 会触发 result_compacted refinement 引导模型再切窗,与修复目的相反;复核独立确认该偏离正确);(b) 心跳限频(WaitTick 2 的幂)放渲染端单点,发射端每 tick 都发。
+  - 对抗复核(W 面 3 finding、Q 面 5 finding,全部预验证)裁定与修复:
+    - **QF1(P1)** degrade 判据丢"触发预算的事件自身"且乱序 trace 可丢多条窗口内事件 → 重构为 `零时钟回退 ∧ 触发事件 ts>TimeEnd`(单调性+越窗 ⇒ 窗口完整);ts==TimeEnd 不 degrade(防端点丢失)。
+    - **QF3** FirstTs<=TimeStart 条件结构冗余(gate+anchor seek 保证 head 覆盖)且挡住空 head 场景 → 删除。
+    - **QF4** 比例 padding 对健康构建也缩水窗前 open 状态重建 → 改两级:首次保持原 viewCap padding(零回归),仅窗口未覆盖的预算失败才降比例 padding 重试一次(严格优于旧行为)。
+    - **QF2** 整窗被阻塞的受害者线程与 idle 线程同信号被折叠+断言"非根因" → pinned pid/thread 豁免 + 措辞去断言化(中性"整窗睡眠,窗口内无调度活动")。
+    - **QF5** degrade 后两条 caveat 矛盾(仍宣称完整 padded 范围已解析,截断无边界 ts) → note 携带 parsed-through ts,windowed_index_parse caveat 按 PaddingTruncatedLastTs 报真实边界。
+    - **WF1** 折叠 TrimSpace 比较误伤缩进不同的闭括号行(破坏代码块显示) → verbatim 逐字节比较 + ≥3 连续才折叠。
+    - **WF2** 回显去重状态永不清理跨 turn 吞真实 reasoning → 新 LLM 请求事件时重置,范围界定为单响应内。
+    - **WF3** 心跳行无归属+并行单元同秒同模型被 lastCommittedLine 吞 → 事件补 ParallelUnit 字段,行带 activity 标签。
+  - 复核确认干净的关键面:退化断路器对表格/代码/列表零误伤(整窗逐字节周期联合条件);heavy view 对 padding 事件的窗口过滤无污染(degrade 只少不多);StreamTotalTimeoutError 不进任何重试 allowlist;Emit 并发安全有既有契约。
+  - H15 核实关闭(≥1200B no-tool 文本 protocol-only 压缩已存在,agent.go:688);H16 确认真 gap(attached_trace 不认"请求引用"主工件,归 Q3 实施)。
