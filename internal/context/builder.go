@@ -674,6 +674,20 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 				})
 			}
 		}
+		// A1b (2026-07-03): the explore stage gets ONLY the compact
+		// verified-anchors subsection — the reminder must reach round 1
+		// (the prune-checkpoint variant never fires on short runs, and
+		// the qf_architecture failure class anchored on a same-named
+		// decoy family in its very first broad scan). Soft guidance by
+		// design; the explorer's own hint machinery carries the rest.
+		if ac.Stage == types.StageExplore {
+			if section := strings.TrimSpace(formatVerifiedAnchorsSection(ac.AnalysisIR)); section != "" {
+				pc.UserSections = append(pc.UserSections, types.PromptSection{
+					Title:   SectionAnalyzerPrescan,
+					Content: section,
+				})
+			}
+		}
 		if priorConv != "" && !ac.PriorConvHidden {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title: SectionPriorConversation,
@@ -5005,6 +5019,24 @@ func mergeUnverifiedFindings(groups ...[]types.UnverifiedFinding) []types.Unveri
 //
 // Returns "" when the IR is nil or every field is empty so the
 // caller can skip the section unconditionally.
+// formatVerifiedAnchorsSection renders the analyzer-verified anchor list
+// (A1b): oracle/file-index proven entities, required files, and user exact
+// targets, with the prefer-over-same-named-alternatives framing. Empty when
+// no obligation compiles.
+func formatVerifiedAnchorsSection(ir *types.AnalysisIR) string {
+	anchors := types.CompileAnchorObligations(ir)
+	if len(anchors) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n### Verified anchors (pre-scan proved these exist in the repo)\n")
+	b.WriteString("When one of these names the asked mechanism, read/search it before settling on a same-named alternative elsewhere; ignore any that are unrelated to the question.\n")
+	for _, anchor := range anchors {
+		fmt.Fprintf(&b, "- %s (%s)\n", anchor.Token, anchor.Kind)
+	}
+	return b.String()
+}
+
 func formatAnalyzerPrescanForPlan(ir *types.AnalysisIR) string {
 	if ir == nil {
 		return ""
@@ -5055,6 +5087,10 @@ func formatAnalyzerPrescanForPlan(ir *types.AnalysisIR) string {
 				fmt.Fprintf(&b, "- %s\n", e)
 			}
 		}
+	}
+
+	if anchorSection := formatVerifiedAnchorsSection(ir); anchorSection != "" {
+		b.WriteString(anchorSection)
 	}
 
 	if len(requiredFiles) > 0 {

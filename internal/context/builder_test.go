@@ -3100,7 +3100,25 @@ func TestBuildPromptContext_NonPlanStages_SuppressAnalyzerPrescan(t *testing.T) 
 		t.Run(string(c.stage), func(t *testing.T) {
 			ac := BuildAgentContext(mkBus(), c.agent, c.stage)
 			pc := BuildPromptContext(ac, &skill.Config{Name: "test-skill"})
-			if sec := findSectionTitle(pc, SectionAnalyzerPrescan); sec != nil {
+			sec := findSectionTitle(pc, SectionAnalyzerPrescan)
+			// A1b (2026-07-03): the explore stage now receives the COMPACT
+			// verified-anchors variant only — never the full StagePlan
+			// prescan dump (sub-topics / entity lists / pre-scored files).
+			if c.stage == types.StageExplore {
+				if sec == nil {
+					t.Fatal("explore must render the compact verified-anchors section")
+				}
+				if !strings.Contains(sec.Content, "Verified anchors") {
+					t.Errorf("explore section missing anchors body: %q", sec.Content)
+				}
+				for _, forbidden := range []string{"Sub-topics", "Code entities (analyzer-extracted)", "Pre-scored relevant files"} {
+					if strings.Contains(sec.Content, forbidden) {
+						t.Errorf("explore must not get the full prescan dump (%q leaked): %q", forbidden, sec.Content)
+					}
+				}
+				return
+			}
+			if sec != nil {
 				t.Errorf("stage %s rendered StagePlan-only section (body=%q)", c.stage, sec.Content)
 			}
 		})
@@ -4490,5 +4508,50 @@ func TestFormatMultiRepoActiveSetAdvisory_SkipsRepoScopedWrite(t *testing.T) {
 	}
 	if got := formatMultiRepoActiveSetAdvisory(ac); got != "" {
 		t.Fatalf("repo-scoped write should not render parent multi-repo path guidance: %q", got)
+	}
+}
+
+// TestBuildPromptContext_ExploreRendersVerifiedAnchors pins A1b: resolved
+// analyzer anchors surface in the FIRST explore prompt as a dedicated
+// section with the prefer-over-same-named-alternatives framing — the
+// prune-checkpoint reminder alone never reaches short runs.
+func TestBuildPromptContext_ExploreRendersVerifiedAnchors(t *testing.T) {
+	bus := &types.BusContext{
+		RepoRoot: "/tmp/repo",
+		Mutable:  types.NewMutableState("read-mode pipeline 由哪几个 stage 组成"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Entities: []string{"ReadModePipelineStage"},
+					EntityProvenance: []types.EntityProvenance{
+						{Surface: "ReadModePipelineStage", Resolution: types.EntityResolutionSymbol, Resolved: true},
+						{Surface: "vague concept", Resolution: types.EntityResolutionInferredConcept},
+					},
+				},
+			},
+			EvidencePlan: types.EvidencePlan{RequiredFiles: []string{"internal/types/stage_binding.go"}},
+		},
+	}
+	bus.Mutable.SetObjective("read-mode pipeline stages")
+
+	ac := BuildAgentContext(bus, types.AgentExplorer, types.StageExplore)
+	pc := BuildPromptContext(ac, &skill.Config{Name: "explore-skill"})
+
+	sec := findSectionTitle(pc, SectionAnalyzerPrescan)
+	if sec == nil {
+		t.Fatal("expected analyzer pre-scan section")
+	}
+	for _, want := range []string{
+		"Verified anchors",
+		"ReadModePipelineStage (symbol)",
+		"internal/types/stage_binding.go (file)",
+		"same-named alternative",
+	} {
+		if !strings.Contains(sec.Content, want) {
+			t.Errorf("verified anchors section missing %q\n%s", want, sec.Content)
+		}
+	}
+	if strings.Contains(sec.Content, "vague concept (") {
+		t.Errorf("unresolved entities must not render as verified anchors:\n%s", sec.Content)
 	}
 }
