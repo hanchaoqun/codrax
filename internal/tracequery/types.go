@@ -493,6 +493,21 @@ type WindowStats struct {
 	HiSystemEvents        []TracePluginSummary       `json:"hi_sysevent_events,omitempty"`
 	ThreadDrifts          []ThreadDriftSummary       `json:"thread_drifts,omitempty"`
 	ComputeSupply         []ComputeSupplySummary     `json:"compute_supply,omitempty"`
+	// CPUOccupancy is the CMP-8 (§7.1) occupancy-side decomposition of the
+	// selected window: who actually consumed the CPUs (top running threads,
+	// per-process running rollup, per-CPU top occupiers, priority-band
+	// running split). Built from the SAME sched_switch running segments that
+	// feed TopRunning/CPUPressure — never a second timing pass. Nil when the
+	// window exposes no running segments.
+	CPUOccupancy *CPUOccupancyStats `json:"cpu_occupancy,omitempty"`
+	// ComputeSupplyBalance is the CMP-10 (§7.4) true supply-side metric:
+	// frequency-weighted delivered compute Σ(running×f/fmax) against the
+	// nominal capacity (window×cpus), with the supply-gap three-way
+	// decomposition (low-frequency loss / idle-vs-runnable mismatch /
+	// core-limited remainder). Nil when the query window is unbounded — the
+	// nominal denominator would be an estimate (CMP-3: no window, no
+	// estimate).
+	ComputeSupplyBalance *ComputeSupplyBalance `json:"compute_supply_balance,omitempty"`
 	StateChurn            []ThreadStateChurnSummary  `json:"state_churn,omitempty"`
 	StateDrilldownPlan    []StateDrilldownStep       `json:"state_drilldown_plan,omitempty"`
 	// IdleWholeWindowSleepers summarizes the top_sleep drilldown candidates
@@ -704,6 +719,123 @@ type ComputeSupplySummary struct {
 	Summary                      string  `json:"summary,omitempty"`
 }
 
+// CPUOccupancyStats is the CMP-8 (§7.1) occupancy-side answer to "who ate the
+// CPU" for one selected window. All RunningMs figures are cpu-time (cpu·ms)
+// clipped to the wall-clock window; cross-CPU sums may exceed WindowMs and
+// must never be narrated as wall-clock elapsed time. Reuses the window's
+// existing sched_switch running segmentation — no second timing pass.
+type CPUOccupancyStats struct {
+	// WindowMs is the wall-clock length of the selected window (0 when the
+	// query window is unbounded; per-row cpu·ms stay valid, ratios do not).
+	WindowMs float64 `json:"window_ms,omitempty"`
+	// TopThreads ranks threads by running cpu·ms aggregated across CPUs.
+	TopThreads []CPUOccupancyThread `json:"top_threads,omitempty"`
+	// TopProcesses ranks tgid-level processes by running cpu·ms
+	// (ProcessCPULoadSummary reused; RunnableWaitMs stays 0 on this surface —
+	// occupancy is strictly the running side).
+	TopProcesses []ProcessCPULoadSummary `json:"top_processes,omitempty"`
+	// PerCPUTop lists, per CPU, the top occupier threads (at most 2).
+	PerCPUTop []CPUOccupancyPerCPU `json:"per_cpu_top,omitempty"`
+	// PriorityBands splits running cpu·ms by the platform priority_rule
+	// classes (classifyTracePriority) plus the isHighPriorityForPressure
+	// verdict — typed platform semantics only, never a heuristic threshold.
+	PriorityBands []CPUOccupancyPriorityBand `json:"priority_bands,omitempty"`
+	Caveats       []string                   `json:"caveats,omitempty"`
+}
+
+type CPUOccupancyThread struct {
+	Thread ThreadRef `json:"thread"`
+	// RunningMs is cpu-time (cpu·ms) summed across this thread's CPUs.
+	RunningMs     float64  `json:"running_ms"`
+	CPUs          []int    `json:"cpus,omitempty"`
+	CoreClasses   []string `json:"core_classes,omitempty"`
+	Priority      int      `json:"priority,omitempty"`
+	PriorityClass string   `json:"priority_class,omitempty"`
+	LineStart     int      `json:"line_start,omitempty"`
+	LineEnd       int      `json:"line_end,omitempty"`
+}
+
+type CPUOccupancyPerCPU struct {
+	CPU       int    `json:"cpu"`
+	CoreClass string `json:"core_class,omitempty"`
+	BusyMs    float64 `json:"busy_ms,omitempty"`
+	IdleMs    float64 `json:"idle_ms,omitempty"`
+	// Top holds this CPU's top running occupiers (at most 2, cpu·ms).
+	Top []ThreadDuration `json:"top,omitempty"`
+}
+
+type CPUOccupancyPriorityBand struct {
+	// Band is the typed priority class from classifyTracePriority
+	// ("ohos_rt", "ohos_cfs", "system_or_kernel",
+	// "android_raw_scheduler_prio", "raw_scheduler_prio") or "unclassified"
+	// when the segment carried no positive priority.
+	Band string `json:"band"`
+	// HighPriority mirrors isHighPriorityForPressure for this band's class —
+	// the platform priority_rule verdict, not a numeric threshold invented
+	// here. Always false on flavors whose raw priority semantics are unknown.
+	HighPriority bool    `json:"high_priority"`
+	RunningMs    float64 `json:"running_ms"`
+	ThreadCount  int     `json:"thread_count,omitempty"`
+}
+
+// ComputeSupplyBalance is the CMP-10 (§7.4) window-level supply-side ledger.
+// Units are heterogeneous BY DESIGN and every consumer must keep the type
+// annotation: NominalCapacityMs / DeliveredComputeMs / LowFrequencyLossMs /
+// CoreLimitedMs are cpu·ms (cpu-time, cross-CPU additive), IdleMismatchMs is
+// wall-clock ms (a duration during which ∃CPU idle ∧ the global runnable
+// queue was non-empty). CoreLimitedMs is an explicit remainder approximation.
+type ComputeSupplyBalance struct {
+	WindowMs float64 `json:"window_ms,omitempty"`
+	// CPUCount counts CPUs observed via sched_switch in the window — the
+	// nominal-capacity denominator (unobserved cores cannot be counted).
+	CPUCount int `json:"cpu_count,omitempty"`
+	// NominalCapacityMs = WindowMs × CPUCount (cpu·ms).
+	NominalCapacityMs float64 `json:"nominal_capacity_ms,omitempty"`
+	// DeliveredComputeMs = Σ over running segments of dur×f/fmax (cpu·ms),
+	// fmax = the max over the frequency samples that GOVERN this window —
+	// the head-governing sample (nearest preceding the window start) plus
+	// in-window samples, i.e. the window residency timeline — never raw
+	// pre-window history. CPUs without any governing sample weigh 1.0 and
+	// are flagged via PerCPU[].FrequencyKnown=false + a caveat.
+	DeliveredComputeMs float64 `json:"delivered_compute_ms,omitempty"`
+	// SupplyRatio = DeliveredComputeMs / NominalCapacityMs.
+	SupplyRatio float64 `json:"supply_ratio,omitempty"`
+	// LowFrequencyLossMs = Σ running×(1−f/fmax) (cpu·ms).
+	LowFrequencyLossMs float64 `json:"low_frequency_loss_ms,omitempty"`
+	// IdleMismatchMs is WALL-CLOCK ms with ∃CPU idle ∧ runnable backlog>0 —
+	// scheduling/affinity mismatch, not missing capacity. Single O(events)
+	// pass over sched_switch/sched_wakeup maintaining per-CPU idle state and
+	// a global runnable set.
+	IdleMismatchMs float64 `json:"idle_mismatch_ms,omitempty"`
+	// CoreLimitedMs ≈ NominalCapacityMs − DeliveredComputeMs −
+	// LowFrequencyLossMs − IdleMismatchMs, clamped at 0 — the residual
+	// core-count-limited share. Approximation by design (§7.4:
+	// 其余=核数受限近似).
+	CoreLimitedMs float64                   `json:"core_limited_ms,omitempty"`
+	PerCPU        []ComputeSupplyCPUBalance `json:"per_cpu,omitempty"`
+	Caveats       []string                  `json:"caveats,omitempty"`
+	Summary       string                    `json:"summary,omitempty"`
+}
+
+type ComputeSupplyCPUBalance struct {
+	CPU       int    `json:"cpu"`
+	CoreClass string `json:"core_class,omitempty"`
+	// RunningMs is this CPU's busy cpu·ms in the window.
+	RunningMs          float64 `json:"running_ms,omitempty"`
+	DeliveredComputeMs float64 `json:"delivered_compute_ms,omitempty"`
+	LowFrequencyLossMs float64 `json:"low_frequency_loss_ms,omitempty"`
+	// MaxFrequencyKHz is the fmax benchmark: the max over the cpu_frequency
+	// samples that govern this window (the nearest preceding sample that
+	// governs the window head + in-window samples — the same set as the
+	// window frequency-residency timeline). Pre-window history samples that
+	// govern nothing inside the window never participate. 0 when no
+	// governing sample exists.
+	MaxFrequencyKHz int `json:"max_frequency_khz,omitempty"`
+	// FrequencyKnown is false when the CPU had no frequency sample at all —
+	// its running time was weighted 1.0 (无频点数据).
+	FrequencyKnown bool `json:"frequency_known"`
+}
+
 type BlockedReasonSummary struct {
 	Thread ThreadRef `json:"thread"`
 	IOWait int       `json:"io_wait,omitempty"`
@@ -811,8 +943,13 @@ type CPUPressureStats struct {
 	CPU            int     `json:"cpu"`
 	CoreClass      string  `json:"core_class,omitempty"`
 	RunnableWaitMs float64 `json:"runnable_wait_ms,omitempty"`
-	RunnableEvents int     `json:"runnable_events,omitempty"`
-	RunningMs      float64 `json:"running_ms,omitempty"`
+	// RunnableWaitDensity = RunnableWaitMs / window wall-clock ms (CMP-9
+	// §7.3): this CPU's average runnable backlog depth — the only
+	// cross-window-comparable reading of the cross-thread wait sum. 0 when
+	// the query window is unbounded (never an estimate).
+	RunnableWaitDensity float64 `json:"runnable_wait_density,omitempty"`
+	RunnableEvents      int     `json:"runnable_events,omitempty"`
+	RunningMs           float64 `json:"running_ms,omitempty"`
 	// HighPriorityRunningMs sums ALL high-priority running time on this CPU in
 	// the window with no overlap check against any waiting thread — background
 	// pressure only (methodology audit §7.30.2 R5g). Competition/displacement
@@ -1196,9 +1333,17 @@ type SupplyPressureSummary struct {
 	ThroughputEventCount   int                     `json:"throughput_event_count,omitempty"`
 	TopBackgroundThreads   []ThreadCPULoadSummary  `json:"top_background_threads,omitempty"`
 	TopBackgroundProcesses []ProcessCPULoadSummary `json:"top_background_processes,omitempty"`
-	LineStart              int                     `json:"line_start,omitempty"`
-	LineEnd                int                     `json:"line_end,omitempty"`
-	Summary                string                  `json:"summary,omitempty"`
+	// WindowMs is the wall-clock length of the selected window backing this
+	// aggregate (CMP-9 §7.3). 0 when the query window is unbounded — then no
+	// density is published (never an estimate).
+	WindowMs float64 `json:"window_ms,omitempty"`
+	// PressureDensity = CPUPressureMs / WindowMs — the ONLY
+	// cross-window-comparable reading of this cross-thread aggregate
+	// (≈ average runnable queue depth, CMP-9 §7.3). 0 when WindowMs is 0.
+	PressureDensity float64 `json:"pressure_density,omitempty"`
+	LineStart       int     `json:"line_start,omitempty"`
+	LineEnd         int     `json:"line_end,omitempty"`
+	Summary         string  `json:"summary,omitempty"`
 }
 
 type TraceMarkCategory struct {

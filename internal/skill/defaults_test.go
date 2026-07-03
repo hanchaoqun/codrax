@@ -252,6 +252,59 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 	}
 }
 
+// TestExploreSkill_TraceComparisonGuidanceIsComparisonGated — CMP-6 pin:
+// the cross-trace comparison directive (per-trace span anchoring + aligned
+// windows + window-length normalization) exists exactly once, is gated by the
+// typed comparison form (RequiresTraceComparison), and never leaks into the
+// always-rendered workflow or the plain RequiresTrace tier.
+func TestExploreSkill_TraceComparisonGuidanceIsComparisonGated(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill) returned error: %v", err)
+	}
+	if strings.Contains(strings.Join(sk.Workflow, "\n"), "TRACE COMPARISON") {
+		t.Fatalf("comparison guidance must not live in the always-rendered workflow:\n%v", sk.Workflow)
+	}
+	var comparison []TierBItem
+	for _, item := range sk.WorkflowTierB {
+		if item.AppliesTo.RequiresTraceComparison {
+			comparison = append(comparison, item)
+		}
+	}
+	if len(comparison) != 1 {
+		t.Fatalf("explore-skill must carry exactly one comparison-gated workflow item, got %d", len(comparison))
+	}
+	item := comparison[0]
+	if item.AppliesTo.RequiresTrace {
+		t.Fatalf("the comparison item is gated by the comparison form alone (which already implies traces): %+v", item.AppliesTo)
+	}
+	for _, want := range []string{
+		"TRACE COMPARISON",
+		"PER TRACE",
+		"event_search",
+		"span_window",
+		"tid/pid",
+		"start/end timestamps",
+		"span-aligned window",
+		"dividing each side's value by its own window length",
+		"normalized densities",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("comparison directive missing %q:\n%s", want, item.Body)
+		}
+	}
+	// The directive must not render on a plain single-trace dispatch and must
+	// render on the comparison form (ShouldRender wiring pin).
+	if item.ShouldRender(AppliesToContext{HasTrace: true}) {
+		t.Fatalf("single-trace dispatch must not admit the comparison directive")
+	}
+	if !item.ShouldRender(AppliesToContext{HasTrace: true, HasTraceComparison: true}) {
+		t.Fatalf("comparison form must admit the comparison directive")
+	}
+}
+
 func TestExploreSkill_SourceOperationSiteSetHandoff(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

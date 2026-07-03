@@ -119,6 +119,22 @@ func buildAppliesToContext(ac *types.AgentContext) skill.AppliesToContext {
 		out.HasTrace = true
 	}
 
+	// Cross-trace comparison form (CMP-6): the analyzer's typed
+	// historical-regression / cross-component comparison boolean AND
+	// ≥2 distinct runtime trace artifacts in the deterministic
+	// preflight census. Same predicate pair as the answer-side
+	// comparison-overview gate; precise typed signals only — never
+	// keywords from user prose. Missing analysis or a single-trace
+	// preflight fails closed (flag stays false, the comparison
+	// directive stays hidden).
+	if ac.AnalysisIR != nil {
+		rm := ac.AnalysisIR.RequestModel
+		if (rm.DiagnosticProfile.HistoricalRegression || rm.Predicates.IsCrossComponent) &&
+			runtimePreflightDistinctTraceArtifactCount(ac.RuntimeArtifactPreflight) >= 2 {
+			out.HasTraceComparison = true
+		}
+	}
+
 	// Buckets — projected from RequestModel.Buckets when non-empty.
 	if ac.AnalysisIR != nil && len(ac.AnalysisIR.RequestModel.Buckets) > 0 {
 		out.HasBuckets = true
@@ -152,6 +168,20 @@ func buildAppliesToContext(ac *types.AgentContext) skill.AppliesToContext {
 	}
 
 	return out
+}
+
+// runtimePreflightDistinctTraceArtifactCount counts the DISTINCT logical
+// trace captures in the typed runtime-artifact preflight profile — the "≥2
+// runtime trace artifacts" leg of the CMP-6 comparison-form gate. Identity
+// merging is delegated to the answer-side capture-identity census (F1,
+// adversarial review 2026-07-04): the SAME canonpath + suffix-alias semantics
+// as the projection partitioner plus the single-capture family fold, so a
+// tracebundle expanded into sub-artifacts, a .systrace/.perftrace same-stem
+// sibling pair, or relative-vs-absolute spellings of one file count as ONE
+// capture, while two different-stem trace files count as two. A deterministic
+// artifact census, never a prose heuristic.
+func runtimePreflightDistinctTraceArtifactCount(profile types.RuntimeArtifactPreflightProfile) int {
+	return len(types.RuntimeTracePreflightCaptureIdentityPaths(profile))
 }
 
 func agentContextHasTraceCarrier(ac *types.AgentContext) bool {

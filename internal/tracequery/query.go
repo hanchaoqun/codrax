@@ -1364,6 +1364,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	sortFrequencyTimeline(freqByCPU)
 	running := map[string]ThreadDuration{}
 	pressure := map[int]*cpuPressureAcc{}
+	// CMP-10 (§7.4): per-CPU frequency-weighted running accumulation for the
+	// compute-supply ledger, fed by the SAME busy segments judged below.
+	supplyByCPU := map[int]*cpuSupplyAcc{}
 	for cpu, events := range byCPU {
 		sort.SliceStable(events, func(i, j int) bool { return events[i].Ts < events[j].Ts })
 		var busy, idle float64
@@ -1383,7 +1386,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				continue
 			}
 			dur := (end - start) * 1000
-			if ev.NextPID == 0 || strings.Contains(strings.ToLower(ev.NextComm), "idle") {
+			// Adversarial review 2026-07-04 F4: THE shared idle predicate —
+			// the CMP-10 idle-mismatch pass calls the same schedNextIsIdle,
+			// so the busy/idle split and the mismatch integration cannot
+			// drift (structural pin: TestSchedNextIsIdlePredicateSharedPin
+			// fails if either side re-inlines a diverging copy).
+			if schedNextIsIdle(ev) {
 				idle += dur
 			} else {
 				busy += dur
@@ -1408,13 +1416,24 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 					td.LineStart = ev.Line
 				}
 				td.LineEnd = ev.Line
-				if fs := segmentFrequencyStats(freqByCPU[cpu], start, end); fs.known {
+				fs := segmentFrequencyStats(freqByCPU[cpu], start, end)
+				if fs.known {
 					td.freqWeightKHzMs += fs.weightedKHz * dur
 					td.freqKnownMs += dur
 					td.freqObservedMaxKHz = max(td.freqObservedMaxKHz, fs.observedMaxKHz)
 					td.freqInSegmentSamples += fs.inSegmentSamples
 				}
 				running[key] = td
+				sacc := supplyByCPU[cpu]
+				if sacc == nil {
+					sacc = &cpuSupplyAcc{}
+					supplyByCPU[cpu] = sacc
+				}
+				sacc.runningMs += dur
+				if fs.known {
+					sacc.freqWeightKHzMs += fs.weightedKHz * dur
+					sacc.freqKnownMs += dur
+				}
 				acc := cpuPressure(pressure, cpu)
 				acc.runningMs += dur
 				acc.runningEvents++
@@ -1448,6 +1467,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	coreByCPU, topologySource := resolveCoreTopology(stats.CPU, q.CoreTopology)
 	applyCPUCoreClasses(stats.CPU, coreByCPU)
 	stats.RunnableTop, stats.DStateTop, stats.SleepTop, stats.IOWaitTop, stats.CPUPressure = computeOffCPUStats(idx, q, freqByCPU, pressure)
+	// CMP-9 (§7.3): per-CPU runnable-wait density = value / wall window.
+	stats.CPUPressure = applyCPUPressureDensity(stats.CPUPressure, queryWindowWallMs(q))
 	applyThreadCoreClasses(stats.TopRunning, coreByCPU)
 	applyThreadCoreClasses(stats.RunnableTop, coreByCPU)
 	applyThreadCoreClasses(stats.SleepTop, coreByCPU)
@@ -1457,7 +1478,38 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.CoreTopology = buildCoreClassStats(stats.CPU, stats.CPUPressure, coreByCPU, topologySource)
 	stats.CPUConstraints = computeCPUConstraintSummaries(idx, q, coreByCPU, stats.RunnableTop, stats.CPU, 8)
 	stats.ThreadCPULoad = computeThreadCPULoad(q, stats.TopRunning, stats.RunnableTop, 12)
-	stats.ProcessCPULoad = computeProcessCPULoad(idx, q, stats.ThreadCPULoad, coreByCPU, 8)
+	windowCatalog := buildThreadCatalog(idx, q)
+	stats.ProcessCPULoad = computeProcessCPULoad(windowCatalog, stats.ThreadCPULoad, coreByCPU, 8)
+	// CMP-8 (§7.1): occupancy-side decomposition from the full running
+	// buckets (pre-truncation) — who consumed the CPUs in this window.
+	stats.CPUOccupancy = computeCPUOccupancyStats(q, queryWindowWallMs(q), running, pressure, coreByCPU, windowCatalog, stats.CPU, 8)
+	// CMP-10 (§7.4): frequency-weighted delivered compute vs nominal
+	// capacity, with the supply-gap decomposition. Nil on unbounded windows.
+	// schedCPUs is the precise sched-observation signal (≥1 in-window
+	// sched_switch = a byCPU bucket exists): CPUs surfaced only by
+	// cpu_frequency samples must not inflate nominal capacity (F2).
+	schedCPUs := make(map[int]bool, len(byCPU))
+	for cpu := range byCPU {
+		schedCPUs[cpu] = true
+	}
+	// headRunnablePIDs (F3): threads already runnable AT the window head,
+	// read from the off-CPU pass's runnable segments (computed above) whose
+	// clipped start sits exactly on the window head — pre-window
+	// prev_state=R evidence the idle-mismatch event scan cannot see.
+	headRunnablePIDs := map[int]bool{}
+	if q.TimeStart > 0 {
+		for _, acc := range pressure {
+			if acc == nil {
+				continue
+			}
+			for _, seg := range acc.runnableSegs {
+				if seg.thread.PID > 0 && seg.startTs <= q.TimeStart && seg.endTs > q.TimeStart {
+					headRunnablePIDs[seg.thread.PID] = true
+				}
+			}
+		}
+	}
+	stats.ComputeSupplyBalance = computeComputeSupplyBalance(idx, q, queryWindowWallMs(q), supplyByCPU, schedCPUs, headRunnablePIDs, stats.CPU, coreByCPU)
 	stats.IOLatencies = computeIOLatencies(idx, q, 8)
 	stats.CPUFrequencyLimits = sortedCPUFrequencyLimits(freqLimits, 8)
 	stats.SubsystemEvents = sortedSubsystemEvents(subsystems, 12)
@@ -3337,8 +3389,10 @@ type processLoadAcc struct {
 	coreSet   map[string]bool
 }
 
-func computeProcessCPULoad(idx *Index, q Query, loads []ThreadCPULoadSummary, coreByCPU map[int]string, max int) []ProcessCPULoadSummary {
-	catalog := buildThreadCatalog(idx, q)
+// computeProcessCPULoad rolls thread loads up to tgid-level processes.
+// catalog is the pid→process catalog built once per window (buildThreadCatalog)
+// and shared with the CMP-8 occupancy rollup.
+func computeProcessCPULoad(catalog map[int]ThreadRef, loads []ThreadCPULoadSummary, coreByCPU map[int]string, max int) []ProcessCPULoadSummary {
 	accs := map[string]*processLoadAcc{}
 	ensure := func(thread ThreadRef) *processLoadAcc {
 		proc := processRefForThread(thread, catalog)
@@ -3842,8 +3896,20 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 	default:
 		summary.Signal = "supply_activity"
 	}
+	// CMP-9 (§7.3): the cross-thread sum is only cross-window comparable as a
+	// density (value / wall window ≈ average runnable queue depth). Window
+	// unbounded → no density, never an estimate.
+	if windowMs := queryWindowWallMs(q); windowMs > 0 {
+		summary.WindowMs = windowMs
+		if summary.CPUPressureMs > 0 {
+			summary.PressureDensity = summary.CPUPressureMs / windowMs
+		}
+	}
 	summary.Summary = fmt.Sprintf("supply_pressure signal=%s cpu_pressure=%.3fms runnable=%.3fms high_prio=%.3fms sched_stat_wait=%.3fms sched_stat_iowait=%.3fms sched_stat_blocked=%.3fms ipi_events=%d ipi_active=%.3fms low_freq_cpus=%v clock_set_rate=%d thermal=%d ddr=%d l3=%d throughput=%d",
 		summary.Signal, summary.CPUPressureMs, summary.RunnableWaitMs, summary.HighPriorityRunningMs, summary.SchedStatWaitMs, summary.SchedStatIOWaitMs, summary.SchedStatBlockedMs, summary.IPIEventCount, summary.IPIActiveMs, summary.LowFrequencyCPUs, summary.ClockSetRateCount, summary.ThermalEventCount, summary.DDREventCount, summary.L3EventCount, summary.ThroughputEventCount)
+	if summary.WindowMs > 0 {
+		summary.Summary += fmt.Sprintf(" window_ms=%.3f pressure_density=%.2f (≈avg queue depth; cpu_pressure is a cross-thread cpu·ms sum, not wall clock)", summary.WindowMs, summary.PressureDensity)
+	}
 	return &summary
 }
 

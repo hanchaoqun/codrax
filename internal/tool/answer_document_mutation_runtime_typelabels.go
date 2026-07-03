@@ -93,10 +93,34 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 	case "dma_fence_activity":
 		return "DMA fence活动"
 	case "supply_pressure":
-		return "供给压力"
+		return runtimeTraceSupplyPressureDisplayLabel(true)
 	default:
 		return ""
 	}
+}
+
+// runtimeTraceSupplyPressureDisplayLabel is THE display-side label for the
+// supply_pressure wire token (CMP-10 §7.4, user adjudication): the metric is
+// Σ runnable backlog — DEMAND-side scheduling pressure, PSI-stall family —
+// so every display surface names it 调度压力(需求积压) / "scheduling pressure
+// (demand backlog)" instead of the misleading "supply". The wire token
+// type=supply_pressure itself is deliberately untouched: migrating the token
+// is a separate R2' six-spot-sync adjudication (with an alias transition),
+// not this display relabel. All display points MUST route through this
+// helper; the detail-table 类型 column keeps the raw token for audit
+// fidelity.
+func runtimeTraceSupplyPressureDisplayLabel(zh bool) string {
+	if zh {
+		return "调度压力(需求积压)"
+	}
+	return "scheduling pressure (demand backlog)"
+}
+
+// runtimeTraceSupplyPressureToken reports whether raw is exactly the
+// supply_pressure wire token (typed token match on the canonical form —
+// never a substring heuristic).
+func runtimeTraceSupplyPressureToken(raw string) bool {
+	return runtimeTraceCausalProjectionCanonicalNode(raw) == "supply_pressure"
 }
 
 // runtimeTraceAggregateTypeShapeLabel is the H20 impact-shape lane (customer
@@ -131,6 +155,12 @@ func runtimeTraceAggregateTypeShapeLabel(token string, zh bool) string {
 // token; the EN surface and unmapped tokens render verbatim (via the display
 // sentinel mapping).
 func runtimeTraceCausalProjectionDisplayCauseName(raw string, zh bool) string {
+	// CMP-10 (§7.4): supply_pressure is display-relabeled on BOTH surfaces
+	// (the EN raw-token rule is intentionally overridden for this one token —
+	// the raw name asserts the wrong side of the demand/supply split).
+	if runtimeTraceSupplyPressureToken(raw) {
+		return runtimeTraceSupplyPressureDisplayLabel(zh)
+	}
 	if zh {
 		if label := runtimeTraceRootCauseTypeZHLabel(raw); label != "" {
 			return label
@@ -161,6 +191,11 @@ func runtimeTraceCausalProjectionNarrativeCauseName(raw string, zh bool) string 
 		if label := runtimeTraceRootCauseTypeZHLabel(raw); label != "" {
 			return label + "（" + raw + "）"
 		}
+	}
+	// CMP-10 (§7.4): the EN narrative also carries the demand-backlog
+	// relabel while keeping the raw wire token for audit fidelity.
+	if runtimeTraceSupplyPressureToken(raw) {
+		return runtimeTraceSupplyPressureDisplayLabel(false) + " (" + raw + ")"
 	}
 	return runtimeTraceCausalProjectionDisplayNodeName(raw, zh)
 }

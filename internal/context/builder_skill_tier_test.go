@@ -234,6 +234,196 @@ func TestSkillTierAwareWorkflow_TraceGatedByTypedArtifact(t *testing.T) {
 	}
 }
 
+// TestBuildAppliesToContext_TraceComparisonForm — CMP-6 gate pin: the
+// HasTraceComparison flag fires ONLY on the typed comparison predicate
+// (historical-regression / cross-component boolean) AND ≥2 distinct LOGICAL
+// trace captures in the deterministic preflight census. Every single-leg
+// combination stays false, and (F1, adversarial review 2026-07-04) the census
+// merges capture identities with the answer-side partition semantics: a
+// tracebundle expanded into same-capture sub-artifacts, a
+// .systrace/.perftrace same-stem sibling pair, and relative-vs-absolute
+// spellings of one file each count as ONE capture; two different-stem trace
+// files count as two.
+func TestBuildAppliesToContext_TraceComparisonForm(t *testing.T) {
+	preflight := func(sources ...string) types.RuntimeArtifactPreflightProfile {
+		artifacts := make([]types.RuntimeArtifactPreflightArtifact, 0, len(sources))
+		for _, source := range sources {
+			artifacts = append(artifacts, types.RuntimeArtifactPreflightArtifact{
+				Kind: "trace", Source: source, Carrier: "request_path",
+			})
+		}
+		return types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts:                artifacts,
+		})
+	}
+	regressionIR := func() *types.AnalysisIR {
+		return &types.AnalysisIR{RequestModel: types.RequestModel{
+			DiagnosticProfile: types.DiagnosticIntentProfile{HistoricalRegression: true},
+		}}
+	}
+	crossComponentIR := func() *types.AnalysisIR {
+		return &types.AnalysisIR{RequestModel: types.RequestModel{
+			Predicates: types.SemanticPredicates{IsCrossComponent: true},
+		}}
+	}
+
+	cases := []struct {
+		name string
+		ac   *types.AgentContext
+		want bool
+	}{
+		{"regression + two traces", &types.AgentContext{
+			AnalysisIR:               regressionIR(),
+			RuntimeArtifactPreflight: preflight("a.systrace", "b.systrace"),
+		}, true},
+		{"cross-component + two traces", &types.AgentContext{
+			AnalysisIR:               crossComponentIR(),
+			RuntimeArtifactPreflight: preflight("a.systrace", "b.systrace"),
+		}, true},
+		{"regression + one trace", &types.AgentContext{
+			AnalysisIR:               regressionIR(),
+			RuntimeArtifactPreflight: preflight("a.systrace"),
+		}, false},
+		{"two traces without comparison predicate", &types.AgentContext{
+			AnalysisIR:               &types.AnalysisIR{},
+			RuntimeArtifactPreflight: preflight("a.systrace", "b.systrace"),
+		}, false},
+		// Same kind+source(case-folded)+carrier collapses at PROFILE
+		// normalization (NormalizeRuntimeArtifactPreflightProfile's artifact
+		// dedupe), so only one artifact ever reaches the census. The census
+		// itself no longer lowercase-folds (F1: it mirrors the case-preserving
+		// canonpath identity semantics of the answer-side partitioner — see
+		// the distinct-carrier case below).
+		{"regression + duplicate source spellings count once", &types.AgentContext{
+			AnalysisIR:               regressionIR(),
+			RuntimeArtifactPreflight: preflight("a.systrace", "A.SYSTRACE"),
+		}, false},
+		// F1(a) counterexample — tracebundle expanded into same-capture
+		// sub-artifacts (the expansion site leaves no typed parent-source
+		// field, so the same-directory same-stem family fold covers them):
+		// ONE logical capture, the comparison form must not open.
+		{"regression + tracebundle expansion counts once", &types.AgentContext{
+			AnalysisIR: regressionIR(),
+			RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+				SourceNavigationOptional: true,
+				Artifacts: []types.RuntimeArtifactPreflightArtifact{
+					{Kind: "tracebundle", Source: "/tmp/berlin.tracebundle.json", Carrier: "request_path"},
+					{Kind: "systrace", Source: "/tmp/berlin.systrace", Carrier: "request_path"},
+					{Kind: "perftrace", Source: "/tmp/berlin.perftrace", Carrier: "request_path"},
+				},
+			}),
+		}, false},
+		// F1(a) counterexample — the .systrace/.perftrace same-stem sibling
+		// pair of one capture counts once.
+		{"regression + systrace/perftrace sibling pair counts once", &types.AgentContext{
+			AnalysisIR:               regressionIR(),
+			RuntimeArtifactPreflight: preflight("cap/run.systrace", "cap/run.perftrace"),
+		}, false},
+		// F1(b) counterexample — relative and absolute spellings of ONE file
+		// (the partitioner's F5a ≥2-segment suffix-alias relation) count once.
+		{"regression + relative/absolute spellings count once", &types.AgentContext{
+			AnalysisIR:               regressionIR(),
+			RuntimeArtifactPreflight: preflight("logs/berlin.systrace", "/repo/logs/berlin.systrace"),
+		}, false},
+		// F1(c) — the census is case-PRESERVING like the answer-side
+		// canonpath identity (the old lowercase fold was the opposite
+		// semantics): case-distinct stems that survive profile normalization
+		// (distinct carriers) are two identities, exactly as the partitioner
+		// would compile them into two projections.
+		{"regression + case-distinct spellings on distinct carriers count twice", &types.AgentContext{
+			AnalysisIR: regressionIR(),
+			RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+				SourceNavigationOptional: true,
+				Artifacts: []types.RuntimeArtifactPreflightArtifact{
+					{Kind: "trace", Source: "a.systrace", Carrier: "request_path"},
+					{Kind: "trace", Source: "A.SYSTRACE", Carrier: "attachment"},
+				},
+			}),
+		}, true},
+		{"regression + trace and log mix", &types.AgentContext{
+			AnalysisIR: regressionIR(),
+			RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+				SourceNavigationOptional: true,
+				Artifacts: []types.RuntimeArtifactPreflightArtifact{
+					{Kind: "trace", Source: "a.systrace", Carrier: "request_path"},
+					{Kind: "log", Source: "app.log", Carrier: "request_path"},
+				},
+			}),
+		}, false},
+		{"no analysis fails closed", &types.AgentContext{
+			RuntimeArtifactPreflight: preflight("a.systrace", "b.systrace"),
+		}, false},
+	}
+	for _, c := range cases {
+		if got := buildAppliesToContext(c.ac).HasTraceComparison; got != c.want {
+			t.Errorf("%s: HasTraceComparison = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// TestBuildPromptContext_ExploreSkillTraceComparisonDirective — end-to-end
+// prompt pin: the TRACE COMPARISON directive renders only on the typed
+// comparison form and stays hidden on a single-trace regression dispatch.
+func TestBuildPromptContext_ExploreSkillTraceComparisonDirective(t *testing.T) {
+	r := skill.NewRegistry()
+	skill.RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill): %v", err)
+	}
+	render := func(ac *types.AgentContext) string {
+		pc := BuildPromptContext(ac, sk)
+		var rendered strings.Builder
+		for _, msg := range ToMessages(pc) {
+			rendered.WriteString(msg.Content)
+			rendered.WriteByte('\n')
+		}
+		return rendered.String()
+	}
+	twoTraces := types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+		SourceNavigationOptional: true,
+		Artifacts: []types.RuntimeArtifactPreflightArtifact{
+			{Kind: "trace", Source: "a.systrace", Carrier: "request_path"},
+			{Kind: "trace", Source: "b.systrace", Carrier: "request_path"},
+		},
+	})
+	comparison := render(&types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Objective: "Compare the two captures.",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			DiagnosticProfile: types.DiagnosticIntentProfile{HistoricalRegression: true},
+		}},
+		RuntimeArtifactPreflight: twoTraces,
+	})
+	for _, want := range []string{"TRACE COMPARISON", "span-aligned window", "RUNTIME TRACE FIRST"} {
+		if !strings.Contains(comparison, want) {
+			t.Fatalf("comparison-form explore prompt missing %q:\n%s", want, comparison)
+		}
+	}
+	singleTrace := render(&types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Objective: "Analyze the capture.",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			DiagnosticProfile: types.DiagnosticIntentProfile{HistoricalRegression: true},
+		}},
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{
+				{Kind: "trace", Source: "a.systrace", Carrier: "request_path"},
+			},
+		}),
+	})
+	if strings.Contains(singleTrace, "TRACE COMPARISON") {
+		t.Fatalf("single-trace dispatch must not render the comparison directive:\n%s", singleTrace)
+	}
+	if !strings.Contains(singleTrace, "RUNTIME TRACE FIRST") {
+		t.Fatalf("single-trace dispatch must keep the plain trace guidance:\n%s", singleTrace)
+	}
+}
+
 func TestBuildPromptContext_ExploreSkillHidesTraceWorkflowWithoutTypedTrace(t *testing.T) {
 	r := skill.NewRegistry()
 	skill.RegisterDefaults(r)

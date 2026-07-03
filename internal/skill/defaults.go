@@ -138,6 +138,10 @@ func RegisterDefaults(r *Registry) {
 				Body:      "TRACE RUNNING/COMPUTE-SUPPLY CODE CROSS-REFERENCE: when a `root_cause_rank` primary cause is `running`, `compute_supply`, or `low_frequency` and carries `perf_context`/`perf_contexts`, the sampled `top_symbols`/`top_dso` name code-execution hotspots from the runtime artifact — they are not yet a current-source fact. Independently verify with `grep`/`read_file` that the named symbol still exists at the cited location in the current checkout before citing it as a current-source fact; if the symbol cannot be found or has moved, report the trace-observed symbol and its runtime-artifact line, and say so explicitly rather than fabricating a current-source citation.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
+			{
+				Body:      "TRACE COMPARISON: when the typed dispatch carries TWO or more runtime trace artifacts for a comparison-shaped question (the same operation captured twice — e.g. two versions, two devices, or two scenarios), resolve the comparison target PER TRACE before comparing any numbers. In EACH trace, first locate the user-named target span itself with `trace_query(view=\"event_search\", pattern=\"<exact span label>\")` or `view=\"span_window\"` with `span_name`, and record which thread/process owns it (tid/pid) plus its precise start/end timestamps — do NOT anchor the analysis on an unrelated thread that merely looks busy in the same window. Then run the SAME view with the SAME parameters over each trace's own span-aligned window (that trace's `time_start`/`time_end` from its own span boundaries) so both sides measure the same thing over the same caliber of window. Cross-trace ratios of window aggregates (CPU/supply pressure totals, per-CPU runnable wait sums, IO pressure) are only comparable after dividing each side's value by its own window length: report the normalized densities together with both window lengths next to any cross-trace ratio — unequal windows otherwise inflate or mask the real difference.",
+				AppliesTo: AppliesToFilter{RequiresTraceComparison: true},
+			},
 		},
 		ToolSuggestions: []string{
 			"repo_map",

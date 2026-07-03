@@ -69,8 +69,16 @@ type AppliesToFilter struct {
 	RequiresDiagram bool                    `json:"requires_diagram,omitempty" yaml:"requires_diagram,omitempty"`
 	RequiresLog     bool                    `json:"requires_log,omitempty" yaml:"requires_log,omitempty"`
 	RequiresTrace   bool                    `json:"requires_trace,omitempty" yaml:"requires_trace,omitempty"`
-	RequiresBuckets bool                    `json:"requires_buckets,omitempty" yaml:"requires_buckets,omitempty"`
-	AbsenceContract bool                    `json:"absence_contract,omitempty" yaml:"absence_contract,omitempty"`
+	// RequiresTraceComparison gates items to the typed cross-trace
+	// comparison form (CMP-6): the structured analysis marked the
+	// question as a historical-regression or cross-entity comparison
+	// AND at least two distinct runtime trace artifacts are in play.
+	// Populated from precise typed signals only (analyzer booleans +
+	// the deterministic artifact preflight census) — never from
+	// keywords in user prose or model text.
+	RequiresTraceComparison bool `json:"requires_trace_comparison,omitempty" yaml:"requires_trace_comparison,omitempty"`
+	RequiresBuckets         bool `json:"requires_buckets,omitempty" yaml:"requires_buckets,omitempty"`
+	AbsenceContract         bool `json:"absence_contract,omitempty" yaml:"absence_contract,omitempty"`
 }
 
 // AppliesToContext is the runtime projection the renderer reads to
@@ -80,14 +88,19 @@ type AppliesToFilter struct {
 // Populated from BusContext / AgentContext / view at the renderer
 // entry point; nil-safe.
 type AppliesToContext struct {
-	PrincipalKind   types.AnswerBlockKind
-	Intent          types.Intent
-	HasDiagram      bool
-	HasLog          bool
-	HasTrace        bool
-	HasBuckets      bool
-	IsAbsence       bool
-	RetryViolations []types.ViolationKind
+	PrincipalKind types.AnswerBlockKind
+	Intent        types.Intent
+	HasDiagram    bool
+	HasLog        bool
+	HasTrace      bool
+	// HasTraceComparison mirrors AppliesToFilter.RequiresTraceComparison:
+	// true only when the typed analysis comparison predicate is set AND
+	// the deterministic runtime-artifact preflight counted ≥2 distinct
+	// trace artifacts (CMP-6 comparison form).
+	HasTraceComparison bool
+	HasBuckets         bool
+	IsAbsence          bool
+	RetryViolations    []types.ViolationKind
 }
 
 // MatchesAppliesTo returns true when the filter's gating conditions
@@ -124,6 +137,9 @@ func (f AppliesToFilter) MatchesAppliesTo(ctx AppliesToContext) bool {
 	if f.RequiresTrace && !ctx.HasTrace {
 		return false
 	}
+	if f.RequiresTraceComparison && !ctx.HasTraceComparison {
+		return false
+	}
 	if f.RequiresBuckets && !ctx.HasBuckets {
 		return false
 	}
@@ -135,7 +151,7 @@ func (f AppliesToFilter) MatchesAppliesTo(ctx AppliesToContext) bool {
 	if len(f.PrincipalKinds) == 0 && len(f.Intents) == 0 {
 		// All bool gates passed (or were unset and no slice
 		// gates declared) → admit.
-		return f.RequiresDiagram || f.RequiresLog || f.RequiresTrace || f.RequiresBuckets || f.AbsenceContract
+		return f.RequiresDiagram || f.RequiresLog || f.RequiresTrace || f.RequiresTraceComparison || f.RequiresBuckets || f.AbsenceContract
 	}
 	for _, k := range f.PrincipalKinds {
 		if k == ctx.PrincipalKind {

@@ -292,7 +292,10 @@ func traceQueryIndexLimitSummary(path, sourceLabel string, p traceQueryParams, l
 	fmt.Fprintf(&b, "index_window=time %.6f..%.6f seconds lines %d..%d parsed_time=%.6f..%.6f\n",
 		limitErr.IndexTimeStart, limitErr.IndexTimeEnd, limitErr.IndexLineStart, limitErr.IndexLineEnd, limitErr.FirstTs, limitErr.LastTs)
 	b.WriteString("meaning=trace_query stopped before growing the in-memory Event index further; this is an OOM guard, not evidence that the trace/ftrace format is unsupported.\n")
-	b.WriteString("state_first_hint=before shrinking into arbitrary micro-windows, use the stream_state_cluster/window_stats rows below to identify the target thread's dominant and secondary states, then drill down by state family: sleep->wakeup_chain, runnable->scheduler_latency/root_cause_rank with same CPU competitors, running->perf/compute-supply/semantic span work, D-state/IO->critical_blocking/window_stats IO resources.\n")
+	// CMP-8/CMP-10 (§7.1/§7.4): the runnable branch leads with the occupancy
+	// side — top occupiers + compute-supply balance answer "who ate the CPU /
+	// was capacity actually short" before the wait-side views.
+	b.WriteString("state_first_hint=before shrinking into arbitrary micro-windows, use the stream_state_cluster/window_stats rows below to identify the target thread's dominant and secondary states, then drill down by state family: sleep->wakeup_chain, runnable->window_stats occupancy first (cpu_occupancy top occupiers + compute_supply_balance), then scheduler_latency/root_cause_rank with same CPU competitors, running->perf/compute-supply/semantic span work, D-state/IO->critical_blocking/window_stats IO resources.\n")
 	fmt.Fprintf(&b, "next_call_hint=do not retry the same heavy view with the same dense scope. Split toward %.0f-%.0fms coverage windows for jank/stall root-cause views, add line_start/line_end from a prior event_search/span_window result, or first run event_search with exact timestamp/span/event_types filters to locate a tighter line window. Shrink below %.0fms only as a local micro-probe and do not extrapolate it to the broader requested period.\n",
 		traceQueryPreferredCoverageWindowMinSeconds*1000,
 		traceQueryPreferredCoverageWindowMaxSeconds*1000,
@@ -2901,8 +2904,14 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				limit.CPU, limit.MinFrequency, limit.MaxFrequency, limit.Count, limit.Line)
 		}
 		for _, pressure := range result.WindowStats.CPUPressure {
-			fmt.Fprintf(&b, "- cpu_pressure cpu=%d runnable_wait=%.3fms running=%.3fms high_prio_running=%.3fms high_prio_overlap=%.3fms runnable_events=%d%s\n",
-				pressure.CPU, pressure.RunnableWaitMs, pressure.RunningMs, pressure.HighPriorityRunningMs, pressure.HighPriorityRunningOverlapMs, pressure.RunnableEvents, traceOverlapCompetitorsDetail(pressure.OverlapCompetitors))
+			// CMP-9: the per-CPU runnable-wait sum is cross-thread cpu·ms; the
+			// density (value/wall window) is the cross-window-comparable form.
+			density := ""
+			if pressure.RunnableWaitDensity > 0 {
+				density = fmt.Sprintf(" runnable_density=%.2f", pressure.RunnableWaitDensity)
+			}
+			fmt.Fprintf(&b, "- cpu_pressure cpu=%d runnable_wait=%.3fms%s running=%.3fms high_prio_running=%.3fms high_prio_overlap=%.3fms runnable_events=%d%s\n",
+				pressure.CPU, pressure.RunnableWaitMs, density, pressure.RunningMs, pressure.HighPriorityRunningMs, pressure.HighPriorityRunningOverlapMs, pressure.RunnableEvents, traceOverlapCompetitorsDetail(pressure.OverlapCompetitors))
 		}
 		for _, load := range result.WindowStats.ThreadCPULoad {
 			writeTraceThreadCPULoad(&b, load)
@@ -3007,8 +3016,14 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		}
 		if result.WindowStats.SupplyPressureSummary != nil {
 			supply := result.WindowStats.SupplyPressureSummary
-			fmt.Fprintf(&b, "- supply_pressure signal=%s cpu_pressure=%.3fms runnable=%.3fms high_prio=%.3fms sched_stat_wait=%.3fms sched_stat_iowait=%.3fms sched_stat_blocked=%.3fms ipi_events=%d ipi_active=%.3fms low_freq_cpus=%v clock_set_rate=%d thermal=%d ddr=%d l3=%d throughput=%d lines=%d-%d — %s\n",
-				sanitizeForBanner(supply.Signal), supply.CPUPressureMs, supply.RunnableWaitMs, supply.HighPriorityRunningMs, supply.SchedStatWaitMs, supply.SchedStatIOWaitMs, supply.SchedStatBlockedMs, supply.IPIEventCount, supply.IPIActiveMs, supply.LowFrequencyCPUs, supply.ClockSetRateCount, supply.ThermalEventCount, supply.DDREventCount, supply.L3EventCount, supply.ThroughputEventCount, supply.LineStart, supply.LineEnd, sanitizeForBanner(supply.Summary))
+			// CMP-9: always carry the wall window + normalized density next to
+			// the cross-thread sum (density = value/window ≈ avg queue depth).
+			density := ""
+			if supply.WindowMs > 0 {
+				density = fmt.Sprintf(" window_ms=%.3f pressure_density=%.2f", supply.WindowMs, supply.PressureDensity)
+			}
+			fmt.Fprintf(&b, "- supply_pressure signal=%s cpu_pressure=%.3fms%s runnable=%.3fms high_prio=%.3fms sched_stat_wait=%.3fms sched_stat_iowait=%.3fms sched_stat_blocked=%.3fms ipi_events=%d ipi_active=%.3fms low_freq_cpus=%v clock_set_rate=%d thermal=%d ddr=%d l3=%d throughput=%d lines=%d-%d — %s\n",
+				sanitizeForBanner(supply.Signal), supply.CPUPressureMs, density, supply.RunnableWaitMs, supply.HighPriorityRunningMs, supply.SchedStatWaitMs, supply.SchedStatIOWaitMs, supply.SchedStatBlockedMs, supply.IPIEventCount, supply.IPIActiveMs, supply.LowFrequencyCPUs, supply.ClockSetRateCount, supply.ThermalEventCount, supply.DDREventCount, supply.L3EventCount, supply.ThroughputEventCount, supply.LineStart, supply.LineEnd, sanitizeForBanner(supply.Summary))
 		}
 		for _, event := range result.WindowStats.AbilityEvents {
 			writeTracePluginSummary(&b, event)
@@ -3030,6 +3045,19 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, supply := range result.WindowStats.ComputeSupply {
 			fmt.Fprintf(&b, "- compute_supply %s state=%s cpu=%d core_class=%s duration=%.3fms freq=%dkHz weighted_freq=%dkHz observed_max_freq=%dkHz%s busy=%.3fms idle=%.3fms runnable_wait=%.3fms high_prio_running=%.3fms high_prio_overlap=%.3fms verdict=%s confidence=%.2f lines=%d-%d — %s\n",
 				traceThreadLabel(supply.Thread), supply.State, supply.CPU, sanitizeForBanner(supply.CoreClass), supply.DurationMs, supply.Frequency, supply.WeightedFrequency, supply.ObservedMaxFrequency, traceFrequencySampleDetail(supply.FrequencySample), supply.CPUBusyMs, supply.CPUIdleMs, supply.RunnableWaitMs, supply.HighPriorityRunningMs, supply.HighPriorityRunningOverlapMs, supply.Verdict, supply.Confidence, supply.LineStart, supply.LineEnd, supply.Summary)
+		}
+		// CMP-8/CMP-10 advisory sections render on the canonical window_stats
+		// view ONLY, and LAST in the stanza: composite views
+		// (root_cause_rank / frame_root_cause_bundle / trace_perf_bundle)
+		// already sit at the blob-preview width cliff, and fattening them
+		// pushed the pinned state-first handoff sections (state_drilldown /
+		// trace_mark_category) into the truncated middle. The typed fields
+		// still ride Result.WindowStats in the JSON payload for every view;
+		// the guidance surfaces (state_first_hint, recommended_sections)
+		// steer follow-ups to view=window_stats where these sections render.
+		if strings.EqualFold(strings.TrimSpace(result.View), "window_stats") {
+			writeTraceCPUOccupancy(&b, result.WindowStats.CPUOccupancy)
+			writeTraceComputeSupplyBalance(&b, result.WindowStats.ComputeSupplyBalance)
 		}
 		fmt.Fprintf(&b, "- counts block_issue=%d block_remap=%d block_complete=%d binder=%d binder_received=%d binder_aux=%d irq=%d softirq=%d memory=%d storage=%d filesystem=%d power=%d ability=%d xpower=%d hi_sysevent=%d workqueue=%d dma_fence=%d blocked_reason=%d iowait_blocked=%d\n\n",
 			result.WindowStats.BlockIssueCount, result.WindowStats.BlockRemapCount, result.WindowStats.BlockCompleteCount, result.WindowStats.BinderCount, result.WindowStats.BinderReceivedCount, result.WindowStats.BinderAuxCount, result.WindowStats.IRQCount, result.WindowStats.SoftIRQCount, result.WindowStats.MemoryEventCount, result.WindowStats.StorageEventCount, result.WindowStats.FilesystemEventCount, result.WindowStats.PowerEventCount, result.WindowStats.AbilityEventCount, result.WindowStats.XPowerEventCount, result.WindowStats.HiSystemEventCount, result.WindowStats.WorkqueueEventCount, result.WindowStats.DMAFenceEventCount, result.WindowStats.BlockedReasonCount, result.WindowStats.IOWaitBlockedCount)
@@ -3821,6 +3849,59 @@ func writeTraceRunnableContext(b *strings.Builder, item tracequery.RunnableConte
 	)
 }
 
+// writeTraceCPUOccupancy renders the CMP-8 (§7.1) occupancy-side
+// decomposition: who consumed the CPUs in the selected window. Every duration
+// on this surface is cpu-time (cpu·ms) clipped to the wall window — the
+// header line carries the unit contract so cross-CPU sums are never read as
+// wall-clock elapsed time.
+func writeTraceCPUOccupancy(b *strings.Builder, occ *tracequery.CPUOccupancyStats) {
+	if occ == nil {
+		return
+	}
+	fmt.Fprintf(b, "- cpu_occupancy window_ms=%.3f unit=cpu·ms (running cpu-time clipped to the wall window; cross-CPU sums may exceed window_ms)\n", occ.WindowMs)
+	for _, item := range occ.TopThreads {
+		fmt.Fprintf(b, "- cpu_occupancy_thread %s running=%.3fcpu·ms cpus=%s core_classes=%s prio=%d/%s lines=%d-%d\n",
+			traceThreadLabel(item.Thread), item.RunningMs, traceIntList(item.CPUs), sanitizeForBanner(strings.Join(item.CoreClasses, ",")), item.Priority, sanitizeForBanner(item.PriorityClass), item.LineStart, item.LineEnd)
+	}
+	for _, item := range occ.TopProcesses {
+		fmt.Fprintf(b, "- cpu_occupancy_process %s threads=%d running=%.3fcpu·ms top_thread=%s %.3fcpu·ms cpus=%s core_classes=%s lines=%d-%d\n",
+			traceThreadLabel(item.Process), item.ThreadCount, item.RunningMs, traceThreadLabel(item.TopThread), item.TopThreadMs, traceIntList(item.CPUs), sanitizeForBanner(strings.Join(item.CoreClasses, ",")), item.LineStart, item.LineEnd)
+	}
+	for _, item := range occ.PerCPUTop {
+		var tops []string
+		for _, td := range item.Top {
+			tops = append(tops, fmt.Sprintf("%s %.3fcpu·ms", traceThreadLabel(td.Thread), td.DurationMs))
+		}
+		fmt.Fprintf(b, "- cpu_occupancy_cpu cpu=%d core_class=%s busy=%.3fms idle=%.3fms top=[%s]\n",
+			item.CPU, sanitizeForBanner(item.CoreClass), item.BusyMs, item.IdleMs, sanitizeForBanner(strings.Join(tops, "; ")))
+	}
+	for _, band := range occ.PriorityBands {
+		fmt.Fprintf(b, "- cpu_occupancy_priority_band band=%s high_priority=%t running=%.3fcpu·ms threads=%d\n",
+			sanitizeForBanner(band.Band), band.HighPriority, band.RunningMs, band.ThreadCount)
+	}
+	for _, caveat := range occ.Caveats {
+		fmt.Fprintf(b, "- cpu_occupancy_caveat=%s\n", sanitizeForBanner(caveat))
+	}
+}
+
+// writeTraceComputeSupplyBalance renders the CMP-10 (§7.4) supply-side
+// ledger as its own 算力供给 (compute supply) stanza: frequency-weighted
+// delivered compute vs nominal capacity plus the typed gap decomposition.
+func writeTraceComputeSupplyBalance(b *strings.Builder, bal *tracequery.ComputeSupplyBalance) {
+	if bal == nil {
+		return
+	}
+	fmt.Fprintf(b, "- compute_supply_balance(算力供给) window_ms=%.3f cpus=%d nominal=%.3fcpu·ms delivered=%.3fcpu·ms supply_ratio=%.3f low_freq_loss=%.3fcpu·ms idle_mismatch=%.3fms(wall) core_limited≈%.3fcpu·ms — %s\n",
+		bal.WindowMs, bal.CPUCount, bal.NominalCapacityMs, bal.DeliveredComputeMs, bal.SupplyRatio, bal.LowFrequencyLossMs, bal.IdleMismatchMs, bal.CoreLimitedMs, sanitizeForBanner(bal.Summary))
+	for _, per := range bal.PerCPU {
+		fmt.Fprintf(b, "- compute_supply_balance_cpu cpu=%d core_class=%s running=%.3fcpu·ms delivered=%.3fcpu·ms low_freq_loss=%.3fcpu·ms max_freq=%dkHz freq_known=%t\n",
+			per.CPU, sanitizeForBanner(per.CoreClass), per.RunningMs, per.DeliveredComputeMs, per.LowFrequencyLossMs, per.MaxFrequencyKHz, per.FrequencyKnown)
+	}
+	for _, caveat := range bal.Caveats {
+		fmt.Fprintf(b, "- compute_supply_balance_caveat=%s\n", sanitizeForBanner(caveat))
+	}
+}
+
 func writeTraceProcessCPULoad(b *strings.Builder, item tracequery.ProcessCPULoadSummary) {
 	fmt.Fprintf(b, "- process_cpu_load process=%s threads=%d running=%.3fms runnable=%.3fms high_prio_running=%.3fms top_thread=%s top_thread_ms=%.3fms cpus=%s core_classes=%s lines=%d-%d — %s\n",
 		traceThreadLabel(item.Process),
@@ -4211,6 +4292,21 @@ func traceQueryObservationMSValue(ms float64) string {
 		return ""
 	}
 	return fmt.Sprintf("%.3f", ms)
+}
+
+// traceQueryObservationWindowMsValue renders the CMP-9 typed window_ms rich
+// note ("" when the backing window was unbounded — never an estimate).
+func traceQueryObservationWindowMsValue(ms float64) string {
+	return traceQueryObservationMSValue(ms)
+}
+
+// traceQueryObservationDensityValue renders the CMP-9 typed pressure_density
+// rich note (value / wall window ≈ average runnable queue depth).
+func traceQueryObservationDensityValue(density float64) string {
+	if density <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.2f", density)
 }
 
 func traceQueryTimestampValue(ts float64) string {
@@ -5727,10 +5823,55 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"ddr", traceQueryTypedCount(supply.DDREventCount)},
 				{"l3", traceQueryTypedCount(supply.L3EventCount)},
 				{"throughput", traceQueryTypedCount(supply.ThroughputEventCount)},
+				// CMP-9 (§7.3): typed window + normalized density for
+				// downstream cross-trace comparison ("" when the window is
+				// unbounded — the KV helper drops empty values, no estimate).
+				{"window_ms", traceQueryObservationWindowMsValue(supply.WindowMs)},
+				{"pressure_density", traceQueryObservationDensityValue(supply.PressureDensity)},
+				// CMP-10 (§7.4) guidance: the demand-backlog aggregate is a
+				// dead end on its own — point at the occupancy side.
+				{"recommended_views", "window_stats"},
+				{"recommended_sections", "cpu_occupancy,compute_supply_balance,process_cpu_load"},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(ref, supply.LineStart, supply.LineEnd),
 			ObservedAt:  at,
 			Confidence:  0.62,
+		})
+	}
+	// CMP-10 / adversarial review 2026-07-04 F5: the compute-supply ledger is
+	// published as exactly ONE typed observation per window_stats result (the
+	// scope-keyed ID rides the existing dedup channel), so the downstream
+	// comparison lane can consume the supply ratio and its decomposition
+	// without re-parsing the rendered stanza. Rich notes always carry the
+	// full contract set (%.3f floats + %d cpu_count, never the ""-dropping
+	// ms helper — a 0.000 low_freq_loss is a fact, not an absence). No
+	// balance (unbounded window / no sched-observed CPU) publishes nothing.
+	if bal := stats.ComputeSupplyBalance; bal != nil {
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#compute_supply_balance:1", scope),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingSoft,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span:            types.ObservationSpan{StartTs: stats.Window.StartTs, EndTs: stats.Window.EndTs},
+			ClaimKey:        "compute_supply_balance",
+			Subject:         "compute_supply_balance",
+			Predicate:       "compute_supply_balance",
+			Value:           fmt.Sprintf("%.3f", bal.SupplyRatio),
+			Summary:         bal.Summary,
+			RichNotes: traceQueryTypedKVNotes([][2]string{
+				{"supply_ratio", fmt.Sprintf("%.3f", bal.SupplyRatio)},
+				{"delivered_cpu_ms", fmt.Sprintf("%.3f", bal.DeliveredComputeMs)},
+				{"low_freq_loss_cpu_ms", fmt.Sprintf("%.3f", bal.LowFrequencyLossMs)},
+				{"idle_mismatch_ms", fmt.Sprintf("%.3f", bal.IdleMismatchMs)},
+				{"core_limited_cpu_ms", fmt.Sprintf("%.3f", bal.CoreLimitedMs)},
+				{"window_ms", fmt.Sprintf("%.3f", bal.WindowMs)},
+				{"cpu_count", fmt.Sprintf("%d", bal.CPUCount)},
+			}),
+			ObservedAt: at,
+			Confidence: 0.62,
 		})
 	}
 	for i, category := range stats.TraceMarkCategories {

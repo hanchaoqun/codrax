@@ -770,7 +770,7 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 		// CMP-1: multi-artifact ledger — one projection section per trace
 		// artifact (per-artifact tree/table/evidence/scale) plus, for typed
 		// comparison shapes, a compact cross-artifact overview table.
-		cluster = runtimeTraceCausalProjectionMultiCluster(set, ctx, lang, focus)
+		cluster = runtimeTraceCausalProjectionMultiCluster(set, ledger, ctx, lang, focus)
 	} else {
 		var projection types.TraceCausalProjection
 		if len(set.Projections) == 1 {
@@ -937,11 +937,11 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 // cluster per artifact projection + [partition caveat]. Every per-artifact
 // section reuses the SINGLE-artifact section builder verbatim (no parallel
 // subsystem) with per-artifact ids, titles, E# numbering and bar scale.
-func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet, ctx *types.BusContext, lang string, focus runtimeTraceProjUserFocus) []types.AnswerBlock {
+func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet, ledger types.ObservationLedger, ctx *types.BusContext, lang string, focus runtimeTraceProjUserFocus) []types.AnswerBlock {
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	var out []types.AnswerBlock
 	if runtimeTraceProjComparisonShape(ctx, len(set.Projections)) {
-		if block := runtimeTraceProjCompareOverviewBlock(set.Projections, lang, zh); block != nil {
+		if block := runtimeTraceProjCompareOverviewBlock(set.Projections, ledger, lang, zh); block != nil {
 			out = append(out, *block)
 		}
 	}
@@ -982,16 +982,31 @@ func runtimeTraceProjComparisonShape(ctx *types.BusContext, projectionCount int)
 // the V1-lane primary root cause, the target symptom duration, the on-chain
 // attributed amount, the dominant cross-thread background pressure (F3/§7.3
 // 裁定2: normalized density leads the cell, the raw cross-thread sum sits in
-// the parenthetical note — never a naked cpu·ms figure) and the projection
-// window; unequal normalization windows (>10%) force a closing note row. No
-// prose reasoning; every cell is assembled from typed node fields.
-func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProjection, lang string, zh bool) *types.AnswerBlock {
+// the parenthetical note — never a naked cpu·ms figure), the optional
+// compute-supply column (F5 downstream: only when EVERY artifact published
+// the typed compute_supply_balance observation) and the projection window;
+// unequal normalization windows (>10%) force a closing note row. No prose
+// reasoning; every cell is assembled from typed fields.
+func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProjection, ledger types.ObservationLedger, lang string, zh bool) *types.AnswerBlock {
 	if len(projections) < 2 {
 		return nil
 	}
-	columns := []string{"工件", "主根因(rank=1)", "目标症状时长", "on-chain 已归因", "背景压力", "投影窗"}
+	supplyCells := runtimeTraceProjCompareSupplyCells(projections, ledger, zh)
+	columns := []string{"工件", "主根因(rank=1)", "目标症状时长", "on-chain 已归因", "背景压力"}
 	if !zh {
-		columns = []string{"Artifact", "Primary root cause (rank=1)", "Target symptom", "On-chain attributed", "Background pressure", "Projection window"}
+		columns = []string{"Artifact", "Primary root cause (rank=1)", "Target symptom", "On-chain attributed", "Background pressure"}
+	}
+	if supplyCells != nil {
+		if zh {
+			columns = append(columns, "算力供给(归一化)")
+		} else {
+			columns = append(columns, "Compute supply (normalized)")
+		}
+	}
+	if zh {
+		columns = append(columns, "投影窗")
+	} else {
+		columns = append(columns, "Projection window")
 	}
 	dash := "—"
 	msCell := func(v float64) string {
@@ -1002,7 +1017,7 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	}
 	rows := make([]types.AnswerBlockItem, 0, len(projections)+1)
 	var densityWindows []float64
-	for _, projection := range projections {
+	for i, projection := range projections {
 		model := buildRuntimeTraceProjTreeModel(projection, nil, zh)
 		label := strings.TrimSpace(projection.ArtifactLabel)
 		if label == "" {
@@ -1020,15 +1035,19 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		if densityWindow > 0 {
 			densityWindows = append(densityWindows, densityWindow)
 		}
+		cells := []string{
+			runtimeTraceCausalProjectionMarkdownSafe(label),
+			runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjComparePrimaryCell(projection, model, zh)),
+			msCell(runtimeTraceProjTargetSymptomMS(model)),
+			msCell(runtimeTraceProjDepth1Cumulative(model)),
+			runtimeTraceCausalProjectionMarkdownSafe(pressureCell),
+		}
+		if supplyCells != nil {
+			cells = append(cells, runtimeTraceCausalProjectionMarkdownSafe(supplyCells[i]))
+		}
+		cells = append(cells, window)
 		rows = append(rows, types.AnswerBlockItem{
-			Cells: []string{
-				runtimeTraceCausalProjectionMarkdownSafe(label),
-				runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjComparePrimaryCell(projection, model, zh)),
-				msCell(runtimeTraceProjTargetSymptomMS(model)),
-				msCell(runtimeTraceProjDepth1Cumulative(model)),
-				runtimeTraceCausalProjectionMarkdownSafe(pressureCell),
-				window,
-			},
+			Cells:       cells,
 			CitationRef: -1,
 		})
 	}
@@ -1171,6 +1190,79 @@ func runtimeTraceProjCompareWindowsUnequal(windows []float64) bool {
 		}
 	}
 	return max > 0 && (max-min)/max > 0.1
+}
+
+// runtimeTraceProjCompareSupplyCells builds the per-artifact 算力供给 cells of
+// the comparison overview (CMP-C F5 downstream, adversarial review
+// 2026-07-04). Source: the typed compute_supply_balance ledger observation per
+// artifact — ClaimKey "compute_supply_balance", deterministic trace_query
+// producer, rich notes supply_ratio= / idle_mismatch_ms= / window_ms= (the
+// CMP-8/CMP-10 cross-lane contract). The supply ratio is already normalized
+// (delivered/nominal cpu·ms) and renders as a percentage; the idle mismatch
+// renders in wall-clock ms plus its share of that artifact's OWN supply
+// window — the normalized caliber that stays comparable across unequal
+// windows. Returns nil (whole column absent) when ANY projection lacks the
+// observation or a parseable required value: a half-filled or estimated
+// supply column would fabricate exactly the comparison data this table exists
+// to ground.
+func runtimeTraceProjCompareSupplyCells(projections []types.TraceCausalProjection, ledger types.ObservationLedger, zh bool) []string {
+	cells := make([]string, 0, len(projections))
+	for _, projection := range projections {
+		record, ok := runtimeTraceProjSupplyBalanceRecordForArtifact(ledger, projection)
+		if !ok {
+			return nil
+		}
+		ratio, okRatio := runtimeTraceProjSupplyNoteFloat(record, "supply_ratio")
+		idle, okIdle := runtimeTraceProjSupplyNoteFloat(record, "idle_mismatch_ms")
+		window, okWindow := runtimeTraceProjSupplyNoteFloat(record, "window_ms")
+		if !okRatio || !okIdle || !okWindow || window <= 0 || ratio < 0 || idle < 0 {
+			return nil
+		}
+		share := idle / window * 100
+		if zh {
+			cells = append(cells, fmt.Sprintf("供给率 %.1f%% · 闲置错配 %.3fms(占窗 %.1f%%)", ratio*100, idle, share))
+		} else {
+			cells = append(cells, fmt.Sprintf("supply ratio %.1f%% · idle mismatch %.3fms (%.1f%% of window)", ratio*100, idle, share))
+		}
+	}
+	return cells
+}
+
+// runtimeTraceProjSupplyBalanceRecordForArtifact finds THIS artifact's typed
+// compute_supply_balance observation: exact ClaimKey, deterministic-query
+// producer (chokepoint classifier — run-suffixed trace_query ids included),
+// and the partitioner's own record→projection artifact attribution (canonical
+// path / suffix-alias / id-label matching — never a substring heuristic).
+// First ledger match wins (deterministic ledger order).
+func runtimeTraceProjSupplyBalanceRecordForArtifact(ledger types.ObservationLedger, projection types.TraceCausalProjection) (types.ObservationRecord, bool) {
+	for _, record := range ledger.Records {
+		if record.ClaimKey != "compute_supply_balance" {
+			continue
+		}
+		if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
+			continue
+		}
+		if !types.TraceCausalProjectionRecordMatchesArtifact(record, projection) {
+			continue
+		}
+		return record, true
+	}
+	return types.ObservationRecord{}, false
+}
+
+// runtimeTraceProjSupplyNoteFloat parses one typed key=value rich note off a
+// compute_supply_balance record. Missing or unparseable → not-ok; the caller
+// drops the whole supply column instead of estimating.
+func runtimeTraceProjSupplyNoteFloat(record types.ObservationRecord, key string) (float64, bool) {
+	raw := runtimeTraceObservationRichNoteValue(record.RichNotes, key)
+	if raw == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
 }
 
 // runtimeTraceProjPartitionCaveatBlock renders the CMP-1 partition caveat: the
@@ -3024,6 +3116,10 @@ func answerDocumentBlockIDIsNextSteps(id string) bool {
 	}
 }
 
+// runtimeTraceNextStepMaxItems caps the rendered next-step list (both the
+// per-record rows and the CMP-6 comparison rows flow through this one cap).
+const runtimeTraceNextStepMaxItems = 4
+
 func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContext) []types.AnswerBlockItem {
 	if doc == nil || ctx == nil {
 		return nil
@@ -3040,7 +3136,53 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 	seen := make(map[string]bool)
 	seenText := make(map[string]bool)
 	var out []types.AnswerBlockItem
+	// CMP-6 comparison lane: on a typed cross-trace comparison (same gate as
+	// the projection comparison-overview table) the fixed comparison-oriented
+	// guidance rows LEAD the list — they are the headline next steps for this
+	// question shape, and trailing placement would let generic single-trace
+	// rows crowd them out of the shared cap. They pass through the same
+	// verbatim display dedupe and the same item cap as the per-record rows.
+	// Non-comparison dispatches take this branch never and stay byte-identical.
+	if runtimeTraceNextStepComparisonShape(ctx, ledger) {
+		for _, step := range runtimeTraceNextStepComparisonSteps(zh) {
+			if step == "" || seenText[step] {
+				continue
+			}
+			seenText[step] = true
+			out = append(out, types.AnswerBlockItem{
+				ID:          fmt.Sprintf("runtime_trace_next_step_%d", len(out)+1),
+				Label:       label,
+				Text:        step,
+				CitationRef: -1,
+			})
+			if len(out) >= runtimeTraceNextStepMaxItems {
+				break
+			}
+		}
+	}
+	// CMP-C F3 (adversarial review 2026-07-04, 单边未采样引导): the comparison
+	// predicate is set and the deterministic preflight census says ≥2 logical
+	// trace captures are in play, but the ledger compiled to exactly ONE
+	// projection — the other capture was never sampled. The directive gate and
+	// the overview gate stay lockstepped by design (both key on the compiled
+	// partition count); this row bridges the gap window with guidance only: it
+	// names the unsampled capture when exactly one remains and never fabricates
+	// comparison data or the overview table. Mutually exclusive with the
+	// comparison rows above (partition count 1 vs ≥2).
+	if hint := runtimeTraceNextStepUnsampledComparisonHint(ctx, ledger, zh); hint != "" &&
+		len(out) < runtimeTraceNextStepMaxItems && !seenText[hint] {
+		seenText[hint] = true
+		out = append(out, types.AnswerBlockItem{
+			ID:          fmt.Sprintf("runtime_trace_next_step_%d", len(out)+1),
+			Label:       label,
+			Text:        hint,
+			CitationRef: -1,
+		})
+	}
 	for _, record := range ledger.Records {
+		if len(out) >= runtimeTraceNextStepMaxItems {
+			break
+		}
 		step := runtimeTraceNextStepFromObservationRecord(record, zh)
 		if step == "" {
 			continue
@@ -3070,11 +3212,111 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 			Text:        step,
 			CitationRef: -1,
 		})
-		if len(out) >= 4 {
+		if len(out) >= runtimeTraceNextStepMaxItems {
 			break
 		}
 	}
 	return out
+}
+
+// runtimeTraceNextStepComparisonShape gates the CMP-6 comparison-oriented
+// next-step rows: the SAME typed comparison-form predicate as the projection
+// comparison overview (runtimeTraceProjComparisonShape — the analyzer's
+// historical_regression / is_cross_component boolean), evaluated against the
+// number of per-artifact projections this ledger compiles to. Reusing the
+// projection partition (typed artifact identity, spelling-alias merge, active
+// check) keeps "when do comparison next-steps appear" in lockstep with "when
+// does the comparison overview table appear" — one gate, two display
+// surfaces. Nil context / missing analysis / a single-artifact ledger fails
+// closed: no comparison rows, list byte-identical to the pre-CMP-6 output.
+func runtimeTraceNextStepComparisonShape(ctx *types.BusContext, ledger types.ObservationLedger) bool {
+	return runtimeTraceProjComparisonShape(ctx, len(types.CompileTraceCausalProjectionSet(ledger).Projections))
+}
+
+// runtimeTraceNextStepComparisonSteps returns the fixed comparison-oriented
+// next-step guidance rows for a typed cross-trace comparison (CMP-6): anchor
+// the target span per trace before comparing, and normalize window aggregates
+// by each trace's own window length before forming any cross-trace ratio
+// (§7.3 CMP-9 口径). System-fixed guidance strings in the same lane as the
+// per-record next-step rows; they carry no scalar claims about either trace.
+func runtimeTraceNextStepComparisonSteps(zh bool) []string {
+	if zh {
+		return []string{
+			"对比两 trace 同窗 top 运行线程与进程级 running 时间差异",
+			"对齐目标 span 边界后重取两侧聚合指标(按各自窗长归一化后再对比)",
+		}
+	}
+	return []string{
+		"Compare the top running threads and per-process running time of both traces over same-caliber windows",
+		"Re-anchor each trace to the target span boundaries, then re-collect the window aggregates normalized by each window's own length before comparing",
+	}
+}
+
+// runtimeTraceNextStepUnsampledComparisonHint returns the CMP-C F3 single-sided
+// sampling row, or "" when the shape does not apply. Gate — precise typed
+// signals only: (1) the analyzer's comparison-form boolean
+// (historical_regression / is_cross_component, the same predicate as the
+// comparison overview), (2) the ledger compiled to EXACTLY one per-artifact
+// projection, (3) the runtime-artifact preflight census counts ≥2 logical
+// trace captures via types.RuntimeTracePreflightCaptureIdentityPaths — the
+// SAME F1 capture-identity helper the skill-tier directive gate consumes, so
+// the two gates can never disagree on what "two traces" means. The unsampled
+// capture is the census identity set minus the projected artifact (same-capture
+// check = merging the pair through the same helper); it is NAMED only when
+// exactly one identity remains, and a multi-remainder or unattributable
+// projection falls back to the generic phrase — never a guessed name.
+func runtimeTraceNextStepUnsampledComparisonHint(ctx *types.BusContext, ledger types.ObservationLedger, zh bool) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !rm.DiagnosticProfile.HistoricalRegression && !rm.Predicates.IsCrossComponent {
+		return ""
+	}
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	if len(set.Projections) != 1 {
+		return ""
+	}
+	identities := types.RuntimeTracePreflightCaptureIdentityPaths(ctx.RuntimeArtifactPreflight)
+	if len(identities) < 2 {
+		return ""
+	}
+	projected := strings.TrimSpace(set.Projections[0].ArtifactPath)
+	var remaining []string
+	for _, identity := range identities {
+		if projected != "" && len(types.TraceArtifactCaptureIdentityPaths([]string{identity, projected})) == 1 {
+			// Same logical capture as the one already projected.
+			continue
+		}
+		remaining = append(remaining, identity)
+	}
+	if len(remaining) == 0 {
+		// Census and projection disagree on identity coverage; fail closed.
+		return ""
+	}
+	if len(remaining) == 1 {
+		name := runtimeTraceCaptureIdentityBasename(remaining[0])
+		if name != "" {
+			if zh {
+				return fmt.Sprintf("另一份 trace 尚未采样:对 %s 重复同口径采样(同窗/同视图)后再对比", name)
+			}
+			return fmt.Sprintf("The other trace is not sampled yet: repeat the same-caliber sampling (same window/same views) on %s, then compare", name)
+		}
+	}
+	if zh {
+		return "另一份 trace 尚未采样:对其余未采样的 trace 工件重复同口径采样(同窗/同视图)后再对比"
+	}
+	return "The other trace is not sampled yet: repeat the same-caliber sampling (same window/same views) on the remaining trace artifacts, then compare"
+}
+
+// runtimeTraceCaptureIdentityBasename is the display basename of a canonical
+// (slash-normalised) capture identity path.
+func runtimeTraceCaptureIdentityBasename(canon string) string {
+	canon = strings.Trim(strings.TrimSpace(canon), "/")
+	if i := strings.LastIndex(canon, "/"); i >= 0 {
+		return canon[i+1:]
+	}
+	return canon
 }
 
 // runtimeTraceNextStepFromObservationRecord returns the localized next-step

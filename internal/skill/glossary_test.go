@@ -86,6 +86,24 @@ func scanConfig(sk *Config) []string {
 			out = append(out, h...)
 		}
 	}
+	// Tier B bodies are LLM-facing exactly like their Tier A
+	// counterparts — the renderer splices them into the same Workflow /
+	// Prohibitions surface when the applicability filter matches
+	// (CMP-C F2, adversarial review 2026-07-04: WorkflowTierB was a
+	// lint blind spot, so conditionally-rendered jargon could ship
+	// unscanned). Mechanical guard across ALL skills.
+	for i, item := range sk.WorkflowTierB {
+		label := prefix + "WorkflowTierB[" + itoa(i) + "]"
+		if h := scanString(label, item.Body); len(h) > 0 {
+			out = append(out, h...)
+		}
+	}
+	for i, item := range sk.ProhibitionsTierB {
+		label := prefix + "ProhibitionsTierB[" + itoa(i) + "]"
+		if h := scanString(label, item.Body); len(h) > 0 {
+			out = append(out, h...)
+		}
+	}
 	// ToolSuggestions are tool names and unlikely to contain jargon,
 	// but scan for completeness so a future addition can't hide here.
 	for i, ts := range sk.ToolSuggestions {

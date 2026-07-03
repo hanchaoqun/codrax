@@ -303,6 +303,162 @@ func traceCausalProjectionDisambiguateLabels(kept []*traceCausalProjectionPartit
 	}
 }
 
+// --- Preflight capture-identity census (CMP-6 F1, adversarial review 2026-07-04) ---
+//
+// The skill-tier comparison-directive gate and the answer-side single-sided
+// sampling hint both need "how many DISTINCT trace captures are in play" from
+// the runtime-artifact preflight. That census MUST speak the SAME identity
+// language as this partitioner — shared canonpath canonicalisation plus the
+// F5a ≥2-segment verbatim suffix-alias merge, exported here so no caller ever
+// grows a second implementation. Counting raw source spellings instead
+// over-opened the comparison form on THREE single-capture shapes: (a) a
+// tracebundle expanded into same-capture sub-artifacts, (b) the
+// .systrace/.perftrace same-stem sibling pair, and (c) relative-vs-absolute
+// spellings of one file; and its lowercase folding was the OPPOSITE of the
+// case-preserving canonpath semantics the partitioner uses.
+//
+// On top of the partitioner identity semantics the census layers ONE
+// census-only fold: a single capture often surfaces as several same-stem
+// files in one directory (the sibling pair; tracebundle-expanded
+// sub-artifacts, which carry NO typed parent-source field at the expansion
+// site — outputdump's bundle expansion only mints Kind/Source/Bytes/Detail —
+// so the same-stem rule covers them). Members whose directory matches and
+// whose basename minus the known trace suffix chain matches collapse into one
+// logical capture. Case is preserved end-to-end: the census never
+// lowercase-folds spellings the partitioner keeps apart.
+
+// TraceArtifactCaptureIdentityPaths merges trace-artifact path spellings into
+// logical capture identities: canonpath canonicalisation → exact-spelling
+// dedupe → the partitioner's F5a suffix-alias merge (relative vs absolute
+// spellings of one file; the longer spelling survives) → the single-capture
+// family fold (same directory + same suffix-chain-stripped stem). Returns the
+// surviving canonical spellings in first-appearance order. Two spellings
+// denote the SAME logical capture exactly when merging them yields one path.
+func TraceArtifactCaptureIdentityPaths(spellings []string) []string {
+	var order []*traceCausalProjectionPartition
+	byKey := map[string]*traceCausalProjectionPartition{}
+	for _, spelling := range spellings {
+		spelling = strings.TrimSpace(spelling)
+		if spelling == "" {
+			continue
+		}
+		canon := canonpath.CanonicalRepoRelative(spelling, "")
+		if canon == "" {
+			continue
+		}
+		key := "path\x00" + canon
+		if _, ok := byKey[key]; ok {
+			continue
+		}
+		p := &traceCausalProjectionPartition{
+			key:   key,
+			label: traceCausalProjectionArtifactBasename(canon),
+			path:  canon,
+		}
+		byKey[key] = p
+		order = append(order, p)
+	}
+	order = traceCausalProjectionMergeSuffixAliasPartitions(order, byKey)
+	order = traceArtifactCaptureFamilyFoldPartitions(order)
+	out := make([]string, 0, len(order))
+	for _, p := range order {
+		out = append(out, p.path)
+	}
+	return out
+}
+
+// RuntimeTracePreflightCaptureIdentityPaths runs the capture-identity merge
+// over the trace-kind artifacts of the runtime-artifact preflight profile.
+// This is THE census both comparison-form gates consume (the skill-tier
+// directive gate and the answer-side single-sided sampling hint), so the two
+// surfaces can never drift onto different identity semantics.
+func RuntimeTracePreflightCaptureIdentityPaths(profile RuntimeArtifactPreflightProfile) []string {
+	normalized := NormalizeRuntimeArtifactPreflightProfile(profile)
+	var spellings []string
+	for _, artifact := range normalized.Artifacts {
+		if artifact.RuntimeArtifactKind() != "trace" {
+			continue
+		}
+		if source := strings.TrimSpace(artifact.Source); source != "" {
+			spellings = append(spellings, source)
+		}
+	}
+	return TraceArtifactCaptureIdentityPaths(spellings)
+}
+
+// traceArtifactCaptureFamilyFoldPartitions collapses same-directory same-stem
+// partitions into the first-appearance member (the census-only single-capture
+// family fold). Distinct paths that survive exact dedupe and share a family
+// key necessarily differ in their trace suffix chain (or suffix spelling) —
+// exactly the multi-file single-capture shape. Same-basename files in
+// DIFFERENT directories keep distinct keys and never fold (that is the true
+// two-capture shape, mirroring the partitioner's refusal to alias 1-segment
+// bare basenames).
+func traceArtifactCaptureFamilyFoldPartitions(order []*traceCausalProjectionPartition) []*traceCausalProjectionPartition {
+	seen := map[string]bool{}
+	out := order[:0]
+	for _, p := range order {
+		key := traceArtifactCaptureFamilyKey(p.path)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, p)
+	}
+	return out
+}
+
+// traceArtifactCaptureFamilyKey is "«directory segments»\x00«stem»" for a
+// canonical path — the stem is the basename minus the known trace suffix
+// chain, case-preserved.
+func traceArtifactCaptureFamilyKey(canon string) string {
+	segments := traceCausalProjectionPathSegments(canon)
+	if len(segments) == 0 {
+		return "\x00" + canon
+	}
+	stem := traceArtifactCaptureFamilyStem(segments[len(segments)-1])
+	return strings.Join(segments[:len(segments)-1], "/") + "\x00" + stem
+}
+
+// traceArtifactCaptureFamilyStem strips the known trace suffix chain off a
+// basename: repeated longest-match removal of the recognized runtime-artifact
+// suffixes (".tracebundle.json" / ".perf.data" compounds first, then the
+// single-extension set), so "berlin.tracebundle.json", "berlin.systrace" and
+// "berlin.perftrace" all reduce to "berlin". Suffix matching is
+// case-insensitive (shape detection, like RuntimeArtifactPathKind) while the
+// remaining stem keeps its original case (identity, like canonpath). A strip
+// that would leave an empty stem stops instead (a bare ".systrace" dotfile
+// stays itself).
+func traceArtifactCaptureFamilyStem(base string) string {
+	stem := base
+	for {
+		next, stripped := traceArtifactCaptureStripOneTraceSuffix(stem)
+		if !stripped || next == "" {
+			return stem
+		}
+		stem = next
+	}
+}
+
+func traceArtifactCaptureStripOneTraceSuffix(name string) (string, bool) {
+	lower := asciiLowerPreservingLength(name)
+	for _, suffix := range []string{".tracebundle.json", ".perf.data"} {
+		if strings.HasSuffix(lower, suffix) {
+			return name[:len(name)-len(suffix)], true
+		}
+	}
+	best := 0
+	for ext := range runtimeArtifactPathExtensions {
+		if strings.HasSuffix(lower, ext) && len(ext) > best {
+			best = len(ext)
+		}
+	}
+	if best == 0 {
+		return name, false
+	}
+	return name[:len(name)-best], true
+}
+
 // TraceCausalProjectionRecordArtifactIdentity returns one observation record's
 // typed artifact-identity partition key ("" = the record carries no artifact
 // identity). Exported for display-side consumers (CMP-4/CMP-5 snapshot and
