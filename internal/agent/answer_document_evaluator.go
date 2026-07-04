@@ -12108,10 +12108,11 @@ func traceQueryObservationZeroValueBlockedReason(record types.ObservationRecord)
 	if !strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "critical_blocking") {
 		return false
 	}
+	typePrefix := types.TraceNoteKeyType + "="
 	for _, note := range record.RichNotes {
 		note = strings.TrimSpace(note)
-		if strings.HasPrefix(note, "type=") {
-			return strings.TrimSpace(strings.TrimPrefix(note, "type=")) == "blocked_reason"
+		if strings.HasPrefix(note, typePrefix) {
+			return strings.TrimSpace(strings.TrimPrefix(note, typePrefix)) == "blocked_reason"
 		}
 	}
 	return false
@@ -12198,7 +12199,7 @@ func traceQueryObservationSupplementOrder(record types.ObservationRecord) int {
 	}
 	claimKey := strings.TrimSpace(record.ClaimKey)
 	switch {
-	case traceQueryObservationHasRichNotePrefix(record, "occurrence_windows="):
+	case traceQueryObservationHasRichNotePrefix(record, types.TraceNoteKeyOccurrenceWindows+"="):
 		return 8
 	case strings.HasPrefix(claimKey, "root_cause_primary"):
 		return 10
@@ -12411,18 +12412,30 @@ func traceQueryObservationPathBase(path string) string {
 	return parts[len(parts)-1]
 }
 
+// traceQueryObservationSupplementAllowedNotePrefixes is the supplement lane's
+// note pass-through SELECTION table — and pass-through selection IS
+// consumption: an entry that silently drifts off the wire key does not fail
+// anything by itself, the supplement row just loses that note (the
+// soft-consumer failure mode). Two guards therefore apply:
+//   - contract-tier entries are built from the types.TraceNoteKey* constants
+//     (rename via the registry protocol propagates automatically);
+//   - the WHOLE table is pinned ⊆ registry by
+//     TestTraceQueryObservationSupplementAllowedPrefixesRegistered — a
+//     display-tier literal entry ("prio=", "peer_state_*=") that drifts off
+//     its registry row fails the pin instead of vanishing silently.
+var traceQueryObservationSupplementAllowedNotePrefixes = []string{
+	types.TraceNoteKeyType + "=", types.TraceNoteKeyPeer + "=", types.TraceNoteKeyChainRelevance + "=", "nearest_chain_thread=", "edge_count=",
+	types.TraceNoteKeyCausality + "=", types.TraceNoteKeyChainDepth + "=", "priority_relation=", "priority_inversion_candidate=",
+	types.TraceNoteKeyOccurrenceWindows + "=",
+	"prio=", "target_prio=", types.TraceNoteKeyDominantState + "=", types.TraceNoteKeyImpact + "=", types.TraceNoteKeyImpactMS + "=", types.TraceNoteKeyCumulativeImpactMS + "=", "target_impact=",
+	types.TraceNoteKeyPath + "=", "occurrences=", types.TraceNoteKeyTotal + "=", types.TraceNoteKeyFragments + "=", types.TraceNoteKeySwitches + "=",
+	types.TraceNoteKeySource + "=", types.TraceNoteKeyRecommendedViews + "=", types.TraceNoteKeyChainRequired + "=", types.TraceNoteKeyRecursive + "=", types.TraceNoteKeyWindow + "=",
+	types.TraceNoteKeyRunning + "=", types.TraceNoteKeyRunnable + "=", types.TraceNoteKeySleep + "=", types.TraceNoteKeyDState + "=", types.TraceNoteKeyIOWait + "=",
+	"peer_state_dominant=", "peer_state_total=", "peer_state_running=", "peer_state_runnable=",
+	"peer_state_sleep=", "peer_state_d_state=", "peer_state_io_wait=", "peer_state_fragments=",
+}
+
 func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh bool) string {
-	allowed := []string{
-		"type=", "peer=", "chain_relevance=", "nearest_chain_thread=", "edge_count=",
-		"causality=", "chain_depth=", "priority_relation=", "priority_inversion_candidate=",
-		"occurrence_windows=",
-		"prio=", "target_prio=", "dominant_state=", "impact=", "impact_ms=", "cumulative_impact_ms=", "target_impact=",
-		"path=", "occurrences=", "total=", "fragments=", "switches=",
-		"source=", "recommended_views=", "chain_required=", "recursive=", "window=",
-		"running=", "runnable=", "sleep=", "d_state=", "io_wait=",
-		"peer_state_dominant=", "peer_state_total=", "peer_state_running=", "peer_state_runnable=",
-		"peer_state_sleep=", "peer_state_d_state=", "peer_state_io_wait=", "peer_state_fragments=",
-	}
 	seen := map[string]bool{}
 	notes := make([]string, 0, 4)
 	for _, note := range record.RichNotes {
@@ -12430,7 +12443,7 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 		if note == "" || seen[note] {
 			continue
 		}
-		for _, prefix := range allowed {
+		for _, prefix := range traceQueryObservationSupplementAllowedNotePrefixes {
 			if !strings.HasPrefix(note, prefix) {
 				continue
 			}
@@ -12475,7 +12488,7 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 
 func traceQueryObservationHasActualWindowNote(record types.ObservationRecord) bool {
 	for _, note := range record.RichNotes {
-		if strings.HasPrefix(strings.TrimSpace(note), "actual_") {
+		if strings.HasPrefix(strings.TrimSpace(note), types.TraceNoteKeyActualPrefix) {
 			return true
 		}
 	}
@@ -12589,11 +12602,11 @@ func runtimeTracePerfQualityMetricRows(ctx *types.AgentContext, requested map[st
 				Key:   key,
 				Value: value,
 			})
-			if seen["perf_quality"] && seen["perf_quality_caveats"] {
+			if seen[types.TraceNoteKeyPerfQuality] && seen[types.TraceNoteKeyPerfQualityCaveats] {
 				break
 			}
 		}
-		if seen["perf_quality"] && seen["perf_quality_caveats"] {
+		if seen[types.TraceNoteKeyPerfQuality] && seen[types.TraceNoteKeyPerfQualityCaveats] {
 			break
 		}
 	}
@@ -12634,7 +12647,7 @@ func runtimeTracePerfQualityRecord(record types.ObservationRecord) bool {
 
 func runtimeTracePerfQualityNote(note string) (string, string, bool) {
 	note = strings.TrimSpace(note)
-	for _, key := range []string{"perf_quality", "perf_quality_caveats"} {
+	for _, key := range []string{types.TraceNoteKeyPerfQuality, types.TraceNoteKeyPerfQualityCaveats} {
 		prefix := key + "="
 		if !strings.HasPrefix(note, prefix) {
 			continue

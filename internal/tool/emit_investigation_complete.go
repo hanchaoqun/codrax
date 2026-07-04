@@ -3806,12 +3806,12 @@ func traceChainObservationTargetPID(obs types.ObservationRecord) (int, bool) {
 	case "wakeup_chain":
 		return traceThreadLabelTrailingPID(obs.Subject)
 	case "wakeup_causal_impact":
-		if traceObservationNoteValue(obs.RichNotes, "depth") == "" {
+		if traceObservationNoteValue(obs.RichNotes, types.TraceNoteKeyDepth) == "" {
 			return traceThreadLabelTrailingPID(obs.Subject)
 		}
-		return traceChainPathTailPID(traceObservationNoteValue(obs.RichNotes, "path"))
+		return traceChainPathTailPID(traceObservationNoteValue(obs.RichNotes, types.TraceNoteKeyPath))
 	case "wakeup_causal_aggregate", "wakeup_chain_edge":
-		return traceChainPathTailPID(traceObservationNoteValue(obs.RichNotes, "path"))
+		return traceChainPathTailPID(traceObservationNoteValue(obs.RichNotes, types.TraceNoteKeyPath))
 	}
 	return 0, false
 }
@@ -3828,8 +3828,8 @@ func traceRunnableAnchorObservationPID(obs types.ObservationRecord) (int, bool) 
 			return traceThreadLabelTrailingPID(obs.Subject)
 		}
 	case "wakeup_causal_impact":
-		if traceObservationNoteValue(obs.RichNotes, "depth") == "" &&
-			traceObservationNoteValue(obs.RichNotes, "dominant_state") == string(tracequery.StateRunnable) {
+		if traceObservationNoteValue(obs.RichNotes, types.TraceNoteKeyDepth) == "" &&
+			traceObservationNoteValue(obs.RichNotes, types.TraceNoteKeyDominantState) == string(tracequery.StateRunnable) {
 			return traceThreadLabelTrailingPID(obs.Subject)
 		}
 	}

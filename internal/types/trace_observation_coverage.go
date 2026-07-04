@@ -223,16 +223,16 @@ func traceObservationCoverageRecordView(record ObservationRecord, dimension stri
 		Unit:               strings.TrimSpace(record.Unit),
 		Summary:            strings.TrimSpace(record.Summary),
 		ChainRelevance:     traceObservationChainRelevance(record),
-		DrilldownSource:    traceObservationRichNoteValue(record.RichNotes, "source"),
+		DrilldownSource:    traceObservationRichNoteValue(record.RichNotes, TraceNoteKeySource),
 		RecommendedViews:   traceObservationRecommendedViews(record.RichNotes),
-		ChainRequired:      traceObservationRichNoteBool(record.RichNotes, "chain_required"),
-		RecursiveDrilldown: traceObservationRichNoteBool(record.RichNotes, "recursive"),
+		ChainRequired:      traceObservationRichNoteBool(record.RichNotes, TraceNoteKeyChainRequired),
+		RecursiveDrilldown: traceObservationRichNoteBool(record.RichNotes, TraceNoteKeyRecursive),
 		Window:             traceObservationWindow(record),
 		Filter:             traceObservationFilter(record),
 		Source:             FormatObservationSourceRef(record.SourceRef, 120),
 		Span:               FormatObservationSpan(record.Span, 80),
 		SupportRefs:        traceObservationCoverageLimitStrings(record.SupportRefs, 3),
-		Significant:        traceObservationRichNoteBool(record.RichNotes, "significant"),
+		Significant:        traceObservationRichNoteBool(record.RichNotes, TraceNoteKeySignificant),
 	}
 }
 
@@ -412,11 +412,11 @@ func traceObservationChainRelevanceRank(relevance string) int {
 }
 
 func traceObservationChainRelevance(record ObservationRecord) string {
-	switch value := traceObservationRichNoteValue(record.RichNotes, "chain_relevance"); value {
+	switch value := traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyChainRelevance); value {
 	case "on_chain", "adjacent", "background":
 		return value
 	}
-	switch value := traceObservationRichNoteValue(record.RichNotes, "causality"); value {
+	switch value := traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyCausality); value {
 	case "on_wakeup_chain", "on_dependency_chain":
 		return "on_chain"
 	case "adjacent_to_wakeup_chain", "adjacent_to_dependency_chain":
@@ -434,7 +434,7 @@ func traceObservationWindow(record ObservationRecord) string {
 	case record.Span.StartTsMs >= 0 && record.Span.EndTsMs > record.Span.StartTsMs:
 		return fmt.Sprintf("%.3fms..%.3fms", record.Span.StartTsMs, record.Span.EndTsMs)
 	}
-	for _, key := range []string{"actual_window", "nearest_chain_window", "occurrence_windows"} {
+	for _, key := range []string{TraceNoteKeyActualWindow, TraceNoteKeyNearestChainWindow, TraceNoteKeyOccurrenceWindows} {
 		if value := traceObservationRichNoteValue(record.RichNotes, key); value != "" {
 			if before, _, ok := strings.Cut(value, ";"); ok {
 				value = before
@@ -497,7 +497,7 @@ func traceObservationRichNoteBool(notes []string, key string) bool {
 }
 
 func traceObservationRecommendedViews(notes []string) []string {
-	raw := traceObservationRichNoteValue(notes, "recommended_views")
+	raw := traceObservationRichNoteValue(notes, TraceNoteKeyRecommendedViews)
 	if raw == "" {
 		return nil
 	}

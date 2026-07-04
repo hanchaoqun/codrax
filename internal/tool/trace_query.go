@@ -4581,9 +4581,9 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			}
 		}
 		notes := traceQueryTypedKVNotes([][2]string{
-			{"source", resolution.Source},
-			{"window_source", resolution.WindowSource},
-			{"window", traceQueryTypedTimeWindow(resolution.Window)},
+			{types.TraceNoteKeySource, resolution.Source},
+			{types.TraceNoteKeyWindowSource, resolution.WindowSource},
+			{types.TraceNoteKeyWindow, traceQueryTypedTimeWindow(resolution.Window)},
 			{"candidate_count", traceQueryTypedCount(len(resolution.Candidates))},
 		})
 		if resolution.SelectedFrame != nil {
@@ -4651,22 +4651,22 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// F1: root_cause rows have no Span ts at all — the selected
 				// query window (RootCauseRankResult.Window = q.TimeStart/TimeEnd)
 				// travels via the same typed note as wakeup_causal_aggregate.
-				{"selected_window", traceQuerySelectedWindowNoteValue(result.RootCauseRank.Window)},
-				{"subject_kind", item.SubjectKind},
+				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(result.RootCauseRank.Window)},
+				{types.TraceNoteKeySubjectKind, item.SubjectKind},
 				// §7.30.3 D3: inversion rows publish the gated composition so
 				// the projection can split the composite impact.
-				{"gated_runnable", traceQueryObservationMSValue(item.GatedRunnableMs)},
-				{"gated_running_deficit", traceQueryObservationMSValue(item.GatedRunningDeficitMs)},
-				{"chain_relevance", item.ChainRelevance},
+				{types.TraceNoteKeyGatedRunnable, traceQueryObservationMSValue(item.GatedRunnableMs)},
+				{types.TraceNoteKeyGatedRunningDeficit, traceQueryObservationMSValue(item.GatedRunningDeficitMs)},
+				{types.TraceNoteKeyChainRelevance, item.ChainRelevance},
 				{"overlap", traceQueryObservationMSValue(item.OverlapMs)},
 				{"edge_count", traceQueryTypedCount(item.EdgeCount)},
 				{"nearest_chain_thread", traceThreadLabelOptional(item.NearestChainThread)},
-				{"nearest_chain_window", traceQueryTypedTimeWindow(item.NearestChainWindow)},
-				{"span_name", item.SpanName},
-				{"span_kind", item.SpanKind},
-				{"span_category", item.SpanCategory},
-				{"span_subcategory", item.SpanSubcategory},
-				{"semantic_class", item.SemanticClass},
+				{types.TraceNoteKeyNearestChainWindow, traceQueryTypedTimeWindow(item.NearestChainWindow)},
+				{types.TraceNoteKeySpanName, item.SpanName},
+				{types.TraceNoteKeySpanKind, item.SpanKind},
+				{types.TraceNoteKeySpanCategory, item.SpanCategory},
+				{types.TraceNoteKeySpanSubcategory, item.SpanSubcategory},
+				{types.TraceNoteKeySemanticClass, item.SemanticClass},
 				{"perf_context", traceQueryPerfContextCompact(item.PerfContext)},
 				{"perf_contexts", traceQueryPerfRoleContextsCompact(item.PerfContexts, 4)},
 			})...)
@@ -4835,7 +4835,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// pointing at the raw trace_query record.
 				RichNotes: append(traceQueryTypedCausalImpactRichNotes(impact),
 					traceQueryTypedKVNotes([][2]string{
-						{"selected_window", traceQuerySelectedWindowNoteValue(result.WakeupChain.Window)},
+						{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(result.WakeupChain.Window)},
 					})...),
 				SupportRefs: traceQueryObservationSupportRefs(ref, impact.LineStart, impact.LineEnd),
 				ObservedAt:  at,
@@ -4875,7 +4875,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// this typed note, which is the projection's sole fallback anchor.
 				RichNotes: append(traceQueryTypedCausalAggregateRichNotes(aggregate),
 					traceQueryTypedKVNotes([][2]string{
-						{"selected_window", traceQuerySelectedWindowNoteValue(result.WakeupChain.Window)},
+						{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(result.WakeupChain.Window)},
 					})...),
 				SupportRefs: traceQueryObservationSupportRefs(ref, aggregate.LineStart, aggregate.LineEnd),
 				ObservedAt:  at,
@@ -4941,7 +4941,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// endpoints.
 				RichNotes: append(traceQueryTypedCriticalBlockingRichNotes(item),
 					traceQueryTypedKVNotes([][2]string{
-						{"selected_window", traceQuerySelectedWindowNoteValue(result.CriticalBlocking.Window)},
+						{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(result.CriticalBlocking.Window)},
 					})...),
 				SupportRefs: traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
 				ObservedAt:  at,
@@ -4963,7 +4963,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	// evidence-index header discloses it; nothing gates on it.
 	if traceQueryResultCapacityTruncated(result) {
 		for i := range out {
-			out[i].RichNotes = append(out[i].RichNotes, "capacity_truncated=true")
+			out[i].RichNotes = append(out[i].RichNotes, types.TraceNoteKeyCapacityTruncated+"=true")
 		}
 	}
 
@@ -4982,62 +4982,62 @@ func traceQueryResultCapacityTruncated(result tracequery.Result) bool {
 func traceQueryTypedPriorityRichNotes(rank int, tier, typ, source, causality string, chainDepth int, score, impact, cumulativeImpact, effectiveImpact, targetImpact, projectedImpact, actualImpact, actualTotal, actualStart, actualEnd float64) []string {
 	var notes []string
 	if rank > 0 {
-		notes = append(notes, fmt.Sprintf("rank=%d", rank))
+		notes = append(notes, fmt.Sprintf("%s=%d", types.TraceNoteKeyRank, rank))
 	}
 	if tier != "" {
-		notes = append(notes, "tier="+tier)
+		notes = append(notes, types.TraceNoteKeyTier+"="+tier)
 	}
 	if typ != "" {
-		notes = append(notes, "type="+typ)
+		notes = append(notes, types.TraceNoteKeyType+"="+typ)
 	}
 	if impact > 0 {
-		notes = append(notes, fmt.Sprintf("impact_ms=%.3f", impact))
+		notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyImpactMS, impact))
 	}
 	if projectedImpact > 0 {
 		notes = append(notes, fmt.Sprintf("projected_impact_ms=%.3f", projectedImpact))
 	}
 	if cumulativeImpact > 0 {
-		notes = append(notes, fmt.Sprintf("cumulative_impact_ms=%.3f", cumulativeImpact))
+		notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyCumulativeImpactMS, cumulativeImpact))
 		notes = append(notes, fmt.Sprintf("projected_total_ms=%.3f", cumulativeImpact))
 	}
 	if effectiveImpact > 0 {
-		notes = append(notes, fmt.Sprintf("effective_impact_ms=%.3f", effectiveImpact))
+		notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyEffectiveImpactMS, effectiveImpact))
 	}
 	if targetImpact > 0 {
 		notes = append(notes, fmt.Sprintf("target_impact_ms=%.3f", targetImpact))
 	}
 	if actualImpact > 0 {
-		notes = append(notes, fmt.Sprintf("actual_impact_ms=%.3f", actualImpact))
+		notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyActualImpactMS, actualImpact))
 	}
 	if actualTotal > 0 {
-		notes = append(notes, fmt.Sprintf("actual_total_ms=%.3f", actualTotal))
+		notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyActualTotalMS, actualTotal))
 	}
 	if actualWindow := traceQueryWindowValue(actualStart, actualEnd); actualWindow != "" {
-		notes = append(notes, "actual_window="+actualWindow)
+		notes = append(notes, types.TraceNoteKeyActualWindow+"="+actualWindow)
 	}
 	if score > 0 {
 		notes = append(notes, fmt.Sprintf("score=%.3f", score))
 	}
 	if source != "" {
-		notes = append(notes, "source="+source)
+		notes = append(notes, types.TraceNoteKeySource+"="+source)
 	}
 	if causality != "" {
-		notes = append(notes, "causality="+causality)
+		notes = append(notes, types.TraceNoteKeyCausality+"="+causality)
 	}
 	if chainDepth > 0 {
-		notes = append(notes, fmt.Sprintf("chain_depth=%d", chainDepth))
+		notes = append(notes, fmt.Sprintf("%s=%d", types.TraceNoteKeyChainDepth, chainDepth))
 	}
 	return notes
 }
 
 func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) []string {
 	return traceQueryTypedKVNotes([][2]string{
-		{"dominant_state", item.DominantState},
-		{"running", traceQueryObservationMSValue(item.RunningMs)},
-		{"runnable", traceQueryObservationMSValue(item.RunnableMs)},
-		{"sleep", traceQueryObservationMSValue(item.SleepMs)},
-		{"d_state", traceQueryObservationMSValue(item.DStateMs)},
-		{"io_wait", traceQueryObservationMSValue(item.IOWaitMs)},
+		{types.TraceNoteKeyDominantState, item.DominantState},
+		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(item.RunningMs)},
+		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableMs)},
+		{types.TraceNoteKeySleep, traceQueryObservationMSValue(item.SleepMs)},
+		{types.TraceNoteKeyDState, traceQueryObservationMSValue(item.DStateMs)},
+		{types.TraceNoteKeyIOWait, traceQueryObservationMSValue(item.IOWaitMs)},
 	})
 }
 
@@ -5049,31 +5049,31 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		// emit_investigation_complete.go (traceChainObservationTargetPID /
 		// traceRunnableAnchorObservationPID) key depth 0 on that ABSENCE —
 		// do not switch this note to always-print without updating them.
-		{"depth", traceQueryTypedCount(impact.ChainDepth)},
-		{"causality", traceQueryCausalityLabel(impact.OnChain)},
-		{"dominant_state", impact.DominantState},
-		{"impact", traceQueryObservationMSValue(impact.DominantImpactMs)},
+		{types.TraceNoteKeyDepth, traceQueryTypedCount(impact.ChainDepth)},
+		{types.TraceNoteKeyCausality, traceQueryCausalityLabel(impact.OnChain)},
+		{types.TraceNoteKeyDominantState, impact.DominantState},
+		{types.TraceNoteKeyImpact, traceQueryObservationMSValue(impact.DominantImpactMs)},
 		{"projected_impact", traceQueryObservationMSValue(impact.ProjectedImpactMs)},
-		{"total", traceQueryObservationMSValue(impact.TotalMs)},
+		{types.TraceNoteKeyTotal, traceQueryObservationMSValue(impact.TotalMs)},
 		{"projected_total", traceQueryObservationMSValue(impact.ProjectedTotalMs)},
-		{"actual_impact", traceQueryObservationMSValue(impact.ActualImpactMs)},
-		{"actual_total", traceQueryObservationMSValue(impact.ActualTotalMs)},
-		{"actual_window", traceQueryWindowValue(impact.ActualWindow.StartTs, impact.ActualWindow.EndTs)},
+		{types.TraceNoteKeyActualImpact, traceQueryObservationMSValue(impact.ActualImpactMs)},
+		{types.TraceNoteKeyActualTotal, traceQueryObservationMSValue(impact.ActualTotalMs)},
+		{types.TraceNoteKeyActualWindow, traceQueryWindowValue(impact.ActualWindow.StartTs, impact.ActualWindow.EndTs)},
 		{"target_impact", traceQueryObservationMSValue(impact.TargetBlockedMs)},
-		{"fragments", traceQueryTypedCount(impact.FragmentCount)},
-		{"switches", traceQueryTypedCount(impact.StateSwitches)},
-		{"max_segment", traceQueryObservationMSValue(impact.MaxSegmentMs)},
-		{"p95_segment", traceQueryObservationMSValue(impact.P95SegmentMs)},
-		{"running", traceQueryObservationMSValue(impact.RunningMs)},
-		{"runnable", traceQueryObservationMSValue(impact.RunnableMs)},
-		{"sleep", traceQueryObservationMSValue(impact.SleepMs)},
-		{"d_state", traceQueryObservationMSValue(impact.DStateMs)},
-		{"io_wait", traceQueryObservationMSValue(impact.IOWaitMs)},
-		{"actual_running", traceQueryObservationMSValue(impact.ActualRunningMs)},
-		{"actual_runnable", traceQueryObservationMSValue(impact.ActualRunnableMs)},
-		{"actual_sleep", traceQueryObservationMSValue(impact.ActualSleepMs)},
-		{"actual_d_state", traceQueryObservationMSValue(impact.ActualDStateMs)},
-		{"actual_io_wait", traceQueryObservationMSValue(impact.ActualIOWaitMs)},
+		{types.TraceNoteKeyFragments, traceQueryTypedCount(impact.FragmentCount)},
+		{types.TraceNoteKeySwitches, traceQueryTypedCount(impact.StateSwitches)},
+		{types.TraceNoteKeyMaxSegment, traceQueryObservationMSValue(impact.MaxSegmentMs)},
+		{types.TraceNoteKeyP95Segment, traceQueryObservationMSValue(impact.P95SegmentMs)},
+		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(impact.RunningMs)},
+		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(impact.RunnableMs)},
+		{types.TraceNoteKeySleep, traceQueryObservationMSValue(impact.SleepMs)},
+		{types.TraceNoteKeyDState, traceQueryObservationMSValue(impact.DStateMs)},
+		{types.TraceNoteKeyIOWait, traceQueryObservationMSValue(impact.IOWaitMs)},
+		{types.TraceNoteKeyActualRunning, traceQueryObservationMSValue(impact.ActualRunningMs)},
+		{types.TraceNoteKeyActualRunnable, traceQueryObservationMSValue(impact.ActualRunnableMs)},
+		{types.TraceNoteKeyActualSleep, traceQueryObservationMSValue(impact.ActualSleepMs)},
+		{types.TraceNoteKeyActualDState, traceQueryObservationMSValue(impact.ActualDStateMs)},
+		{types.TraceNoteKeyActualIOWait, traceQueryObservationMSValue(impact.ActualIOWaitMs)},
 		{"priority", traceQueryPriorityPair(impact.Priority, impact.PriorityClass)},
 		{"target_priority", traceQueryPriorityPair(impact.TargetPriority, impact.TargetPriorityClass)},
 		{"priority_relation", impact.PriorityRelation},
@@ -5081,13 +5081,13 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{"priority_inversion_gated", traceQueryObservationMSValue(impact.PriorityInversionGatedMs)},
 		// §7.30.3 D3: the gated composite's typed composition (runnable full
 		// amount + capacity-discounted weak-core running deficit).
-		{"gated_runnable", traceQueryObservationMSValue(impact.GatedRunnableMs)},
-		{"gated_running_deficit", traceQueryObservationMSValue(impact.GatedRunningDeficitMs)},
-		{"recommended_views", strings.Join(views, ",")},
-		{"chain_required", traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
-		{"recursive", traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
-		{"next_step", impact.NextStep},
-		{"next_step_kind", impact.NextStepKind},
+		{types.TraceNoteKeyGatedRunnable, traceQueryObservationMSValue(impact.GatedRunnableMs)},
+		{types.TraceNoteKeyGatedRunningDeficit, traceQueryObservationMSValue(impact.GatedRunningDeficitMs)},
+		{types.TraceNoteKeyRecommendedViews, strings.Join(views, ",")},
+		{types.TraceNoteKeyChainRequired, traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
+		{types.TraceNoteKeyRecursive, traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
+		{types.TraceNoteKeyNextStep, impact.NextStep},
+		{types.TraceNoteKeyNextStepKind, impact.NextStepKind},
 	})
 	notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(impact.PeriodicSource, impact.DetectedPeriodMs, impact.LatenessMs, impact.EffectivePeriodicImpactMs, true)...)
 	// VS-2 (§7.10): supply-fold accounting of a running-dominant on-chain node.
@@ -5108,12 +5108,12 @@ func traceQueryTypedPeriodicSourceRichNotes(periodic bool, periodMs, latenessMs,
 		return nil
 	}
 	notes := []string{
-		"periodic_source=true",
-		fmt.Sprintf("detected_period_ms=%.3f", periodMs),
-		fmt.Sprintf("lateness_ms=%.3f", latenessMs),
+		types.TraceNoteKeyPeriodicSource + "=true",
+		fmt.Sprintf("%s=%.3f", types.TraceNoteKeyDetectedPeriodMS, periodMs),
+		fmt.Sprintf("%s=%.3f", types.TraceNoteKeyLatenessMS, latenessMs),
 	}
 	if includeEffective || effectiveMs <= 0 {
-		notes = append(notes, fmt.Sprintf("effective_impact_ms=%.3f", effectiveMs))
+		notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyEffectiveImpactMS, effectiveMs))
 	}
 	return notes
 }
@@ -5131,21 +5131,22 @@ func traceQueryTypedSupplyFoldRichNotes(basis *tracequery.SupplyFoldBasis, defic
 		return nil
 	}
 	notes := []string{
-		fmt.Sprintf("supply_fold_deficit_ms=%.3f", deficitMs),
-		fmt.Sprintf("supply_fold_ideal_ms=%.3f", idealMs),
-		fmt.Sprintf("fold_basis=known=%.3fms,unknown=%.3fms", basis.KnownMs, basis.UnknownMs),
+		fmt.Sprintf("%s=%.3f", types.TraceNoteKeySupplyFoldDeficitMS, deficitMs),
+		fmt.Sprintf("%s=%.3f", types.TraceNoteKeySupplyFoldIdealMS, idealMs),
+		fmt.Sprintf("%s=known=%.3fms,unknown=%.3fms", types.TraceNoteKeyFoldBasis, basis.KnownMs, basis.UnknownMs),
 	}
 	// VS-2b (§7.10): fmax ladder provenance — limits (policy authority) vs
 	// observed governance fallback. Zero on aggregates (mixed member windows
 	// have no single fmax) and on all-unknown folds.
 	if basis.FmaxKHz > 0 && basis.FmaxSource != "" {
-		notes = append(notes, fmt.Sprintf("fold_fmax=%.3fGHz,source=%s", float64(basis.FmaxKHz)/1e6, basis.FmaxSource))
+		notes = append(notes, fmt.Sprintf("%s=%.3fGHz,source=%s", types.TraceNoteKeyFoldFmax, float64(basis.FmaxKHz)/1e6, basis.FmaxSource))
 	}
 	// VS-2b companion finding (typed engine comparison, soft display
 	// wording): the governing policy ceiling sat below frequencies the same
 	// cluster demonstrably reached elsewhere in the trace.
 	if basis.LimitThrottled && basis.FmaxKHz > 0 {
-		notes = append(notes, fmt.Sprintf("fold_fmax_finding=大核受策略/温控限频至 %.2f GHz,缺口部分源于压频(全程观测最高 %.2f GHz)",
+		notes = append(notes, fmt.Sprintf("%s=大核受策略/温控限频至 %.2f GHz,缺口部分源于压频(全程观测最高 %.2f GHz)",
+			types.TraceNoteKeyFoldFmaxFinding,
 			float64(basis.FmaxKHz)/1e6, float64(basis.TraceObservedMaxKHz)/1e6))
 	}
 	// VS-2c(a): cluster-lane corroboration caveat, rendered ONLY on the
@@ -5156,7 +5157,8 @@ func traceQueryTypedSupplyFoldRichNotes(basis *tracequery.SupplyFoldBasis, defic
 	// instead of asserting a false direction. Corroboration only, never the
 	// fold basis.
 	if basis.ClusterLaneDivergent && basis.ClusterLaneMaxKHz > 0 {
-		notes = append(notes, fmt.Sprintf("fold_cluster_lane_caveat=簇泳道 %s 最高原始值 %d(单位不明)在原值/千分/百万分单位假设下均与折算 fmax %.2f GHz 相差 >10%%,泳道名与单位均为厂商自由词汇仅旁证",
+		notes = append(notes, fmt.Sprintf("%s=簇泳道 %s 最高原始值 %d(单位不明)在原值/千分/百万分单位假设下均与折算 fmax %.2f GHz 相差 >10%%,泳道名与单位均为厂商自由词汇仅旁证",
+			types.TraceNoteKeyFoldClusterLaneCaveat,
 			basis.ClusterLaneName, basis.ClusterLaneMaxKHz, float64(basis.FmaxKHz)/1e6))
 	}
 	return notes
@@ -5189,31 +5191,31 @@ func traceQueryCausalImpactNeedsChain(state string) bool {
 func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAggregate) []string {
 	notes := traceQueryTypedOccurrenceWindowRichNotes(aggregate.OccurrenceWindows)
 	notes = append(notes, traceQueryTypedKVNotes([][2]string{
-		{"depth", traceQueryTypedCount(aggregate.ChainDepth)},
-		{"path", aggregate.Path},
+		{types.TraceNoteKeyDepth, traceQueryTypedCount(aggregate.ChainDepth)},
+		{types.TraceNoteKeyPath, aggregate.Path},
 		{"occurrences", traceQueryTypedCount(aggregate.OccurrenceCount)},
-		{"dominant_state", aggregate.DominantState},
-		{"impact", traceQueryObservationMSValue(aggregate.DominantImpactMs)},
+		{types.TraceNoteKeyDominantState, aggregate.DominantState},
+		{types.TraceNoteKeyImpact, traceQueryObservationMSValue(aggregate.DominantImpactMs)},
 		{"projected_impact", traceQueryObservationMSValue(aggregate.ProjectedImpactMs)},
-		{"total", traceQueryObservationMSValue(aggregate.TotalMs)},
+		{types.TraceNoteKeyTotal, traceQueryObservationMSValue(aggregate.TotalMs)},
 		{"projected_total", traceQueryObservationMSValue(aggregate.ProjectedTotalMs)},
-		{"actual_impact", traceQueryObservationMSValue(aggregate.ActualImpactMs)},
-		{"actual_total", traceQueryObservationMSValue(aggregate.ActualTotalMs)},
-		{"actual_window", traceQueryWindowValue(aggregate.ActualFirstTs, aggregate.ActualLastTs)},
+		{types.TraceNoteKeyActualImpact, traceQueryObservationMSValue(aggregate.ActualImpactMs)},
+		{types.TraceNoteKeyActualTotal, traceQueryObservationMSValue(aggregate.ActualTotalMs)},
+		{types.TraceNoteKeyActualWindow, traceQueryWindowValue(aggregate.ActualFirstTs, aggregate.ActualLastTs)},
 		{"target_impact", traceQueryObservationMSValue(aggregate.TargetBlockedMs)},
-		{"fragments", traceQueryTypedCount(aggregate.FragmentCount)},
-		{"switches", traceQueryTypedCount(aggregate.StateSwitches)},
-		{"max_segment", traceQueryObservationMSValue(aggregate.MaxSegmentMs)},
-		{"running", traceQueryObservationMSValue(aggregate.RunningMs)},
-		{"runnable", traceQueryObservationMSValue(aggregate.RunnableMs)},
-		{"sleep", traceQueryObservationMSValue(aggregate.SleepMs)},
-		{"d_state", traceQueryObservationMSValue(aggregate.DStateMs)},
-		{"io_wait", traceQueryObservationMSValue(aggregate.IOWaitMs)},
-		{"actual_running", traceQueryObservationMSValue(aggregate.ActualRunningMs)},
-		{"actual_runnable", traceQueryObservationMSValue(aggregate.ActualRunnableMs)},
-		{"actual_sleep", traceQueryObservationMSValue(aggregate.ActualSleepMs)},
-		{"actual_d_state", traceQueryObservationMSValue(aggregate.ActualDStateMs)},
-		{"actual_io_wait", traceQueryObservationMSValue(aggregate.ActualIOWaitMs)},
+		{types.TraceNoteKeyFragments, traceQueryTypedCount(aggregate.FragmentCount)},
+		{types.TraceNoteKeySwitches, traceQueryTypedCount(aggregate.StateSwitches)},
+		{types.TraceNoteKeyMaxSegment, traceQueryObservationMSValue(aggregate.MaxSegmentMs)},
+		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(aggregate.RunningMs)},
+		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(aggregate.RunnableMs)},
+		{types.TraceNoteKeySleep, traceQueryObservationMSValue(aggregate.SleepMs)},
+		{types.TraceNoteKeyDState, traceQueryObservationMSValue(aggregate.DStateMs)},
+		{types.TraceNoteKeyIOWait, traceQueryObservationMSValue(aggregate.IOWaitMs)},
+		{types.TraceNoteKeyActualRunning, traceQueryObservationMSValue(aggregate.ActualRunningMs)},
+		{types.TraceNoteKeyActualRunnable, traceQueryObservationMSValue(aggregate.ActualRunnableMs)},
+		{types.TraceNoteKeyActualSleep, traceQueryObservationMSValue(aggregate.ActualSleepMs)},
+		{types.TraceNoteKeyActualDState, traceQueryObservationMSValue(aggregate.ActualDStateMs)},
+		{types.TraceNoteKeyActualIOWait, traceQueryObservationMSValue(aggregate.ActualIOWaitMs)},
 		{"priority_relation", aggregate.PriorityRelation},
 		{"priority_inversion_candidate", traceQueryTypedBool(aggregate.PriorityInversion)},
 	})...)
@@ -5226,25 +5228,25 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 
 func traceQueryTypedOccurrenceWindowRichNotes(items []tracequery.WakeupCausalOccurrence) []string {
 	if value := traceQueryOccurrenceWindowsCompact(items, 4); value != "" {
-		return []string{"occurrence_windows=" + value}
+		return []string{types.TraceNoteKeyOccurrenceWindows + "=" + value}
 	}
 	return nil
 }
 
 func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCandidate) []string {
 	notes := traceQueryTypedKVNotes([][2]string{
-		{"type", item.Type},
-		{"peer", traceThreadLabel(item.Peer)},
+		{types.TraceNoteKeyType, item.Type},
+		{types.TraceNoteKeyPeer, traceThreadLabel(item.Peer)},
 		// §7.30.3 D1: typed contention semantics parsed from the structured
 		// blocking print payload; renderers key on these, never on prose.
-		{"blocking_kind", item.BlockingKind},
-		{"holder_site", item.HolderSite},
-		{"waiters", traceQueryTypedCount(item.Waiters)},
+		{types.TraceNoteKeyBlockingKind, item.BlockingKind},
+		{types.TraceNoteKeyHolderSite, item.HolderSite},
+		{types.TraceNoteKeyWaiters, traceQueryTypedCount(item.Waiters)},
 		{"flags", item.Flags},
 		{"oneway", traceQueryTypedBoolPtr(item.Oneway)},
 		{"sync_like", traceQueryTypedBoolPtr(item.SyncLike)},
 		{"blocking_candidate", traceQueryTypedBoolPtr(item.BlockingCandidate)},
-		{"chain_relevance", item.ChainRelevance},
+		{types.TraceNoteKeyChainRelevance, item.ChainRelevance},
 		{"overlap", traceQueryObservationMSValue(item.OverlapMs)},
 		{"edge_count", traceQueryTypedCount(item.EdgeCount)},
 		{"nearest_chain_thread", traceThreadLabel(item.NearestChainThread)},
@@ -5345,18 +5347,18 @@ func traceQueryTypedWakeupPathRichNotes(chain tracequery.ChainResult, path strin
 		}
 	}
 	return traceQueryTypedKVNotes([][2]string{
-		{"path", path},
+		{types.TraceNoteKeyPath, path},
 		{"target", traceThreadLabel(chain.Target)},
 		{"edges", traceQueryTypedCount(len(chain.Edges))},
 		{"nodes", traceQueryTypedCount(len(chain.Nodes))},
 		{"priority_inversion_edges", traceQueryTypedCount(priorityInversions)},
-		{"window", traceQueryWindowValue(chain.Window.StartTs, chain.Window.EndTs)},
+		{types.TraceNoteKeyWindow, traceQueryWindowValue(chain.Window.StartTs, chain.Window.EndTs)},
 	})
 }
 
 func traceQueryTypedWakeupEdgeRichNotes(edge tracequery.WakeupEdge, path string) []string {
 	return traceQueryTypedKVNotes([][2]string{
-		{"path", path},
+		{types.TraceNoteKeyPath, path},
 		{"wakeup_ts", traceQueryTimestampValue(edge.WakeupTs)},
 		{"latency", traceQueryObservationMSValue(edge.LatencyMs)},
 		{"waker_priority", traceQueryPriorityPair(edge.WakerPriority, edge.WakerPriorityClass)},
@@ -5469,7 +5471,7 @@ func traceQueryTypedRunnableOccupancyObservations(stats tracequery.WindowStats, 
 	}
 	subject := traceThreadLabel(starved.Thread)
 	notes := [][2]string{
-		{"starved_runnable_ms", fmt.Sprintf("%.3f", starved.DurationMs)},
+		{types.TraceNoteKeyStarvedRunnableMS, fmt.Sprintf("%.3f", starved.DurationMs)},
 	}
 	var occupierParts []string
 	occupiers := 0
@@ -5485,7 +5487,7 @@ func traceQueryTypedRunnableOccupancyObservations(stats tracequery.WindowStats, 
 		}
 		occupiers++
 		value := fmt.Sprintf("%s:%.3fms", traceThreadLabel(top.Thread), top.RunningMs)
-		notes = append(notes, [2]string{fmt.Sprintf("occupier_%d", occupiers), value})
+		notes = append(notes, [2]string{fmt.Sprintf("%s%d", types.TraceNoteKeyOccupierPrefix, occupiers), value})
 		occupierParts = append(occupierParts, value)
 		if occupiers >= 3 {
 			break
@@ -5496,11 +5498,11 @@ func traceQueryTypedRunnableOccupancyObservations(stats tracequery.WindowStats, 
 		// claim would be empty — occupancy-side silence, not a zero-value row.
 		return nil
 	}
-	notes = append(notes, [2]string{"window_ms", fmt.Sprintf("%.3f", occ.WindowMs)})
+	notes = append(notes, [2]string{types.TraceNoteKeyWindowMS, fmt.Sprintf("%.3f", occ.WindowMs)})
 	if significant > 1 {
-		notes = append(notes, [2]string{"also_starved", strconv.Itoa(significant - 1)})
+		notes = append(notes, [2]string{types.TraceNoteKeyAlsoStarved, strconv.Itoa(significant - 1)})
 	}
-	notes = append(notes, [2]string{"selected_window", traceQuerySelectedWindowNoteValue(stats.Window)})
+	notes = append(notes, [2]string{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)})
 	return []types.ObservationRecord{{
 		ID:              fmt.Sprintf("trace_query:%s#runnable_occupancy:1", scope),
 		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -5565,8 +5567,8 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Summary:         traceQueryTypedThreadCPULoadSummary(load),
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				{"thread", traceThreadLabel(load.Thread)},
-				{"running", traceQueryObservationMSValue(load.RunningMs)},
-				{"runnable", traceQueryObservationMSValue(load.RunnableWaitMs)},
+				{types.TraceNoteKeyRunning, traceQueryObservationMSValue(load.RunningMs)},
+				{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(load.RunnableWaitMs)},
 				{"high_prio_running", traceQueryObservationMSValue(load.HighPriorityRunningMs)},
 				{"cpu", strconv.Itoa(load.CPU)},
 				{"core_class", load.CoreClass},
@@ -5612,7 +5614,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"observed_cpu", traceKnownCPU(constraint.ObservedCPUKnown, constraint.ObservedCPU)},
 				{"observed_core_class", constraint.ObservedCoreClass},
 				{"migrations", traceQueryTypedCount(constraint.MigrationCount)},
-				{"runnable", traceQueryObservationMSValue(constraint.RunnableWaitMs)},
+				{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(constraint.RunnableWaitMs)},
 				{"other_cpu_idle", traceQueryObservationMSValue(constraint.OtherCPUIdleMs)},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(ref, constraint.LineStart, constraint.LineEnd),
@@ -5678,8 +5680,8 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				{"process", traceThreadLabel(proc.Process)},
 				{"threads", traceQueryTypedCount(proc.ThreadCount)},
-				{"running", traceQueryObservationMSValue(proc.RunningMs)},
-				{"runnable", traceQueryObservationMSValue(proc.RunnableWaitMs)},
+				{types.TraceNoteKeyRunning, traceQueryObservationMSValue(proc.RunningMs)},
+				{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(proc.RunnableWaitMs)},
 				{"high_prio_running", traceQueryObservationMSValue(proc.HighPriorityRunningMs)},
 				{"top_thread", traceThreadLabel(proc.TopThread)},
 				{"top_thread_ms", traceQueryObservationMSValue(proc.TopThreadMs)},
@@ -5705,40 +5707,40 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				notes = append(notes, key+"="+value)
 			}
 		}
-		appendNote("dominant_state", churn.DominantState)
+		appendNote(types.TraceNoteKeyDominantState, churn.DominantState)
 		if strings.HasPrefix(strings.TrimSpace(churn.Summary), "state_cluster ") {
 			appendNote("coverage_mode", "state_cluster")
 		}
 		if churn.FragmentCount > 0 {
-			appendNote("fragments", strconv.Itoa(churn.FragmentCount))
+			appendNote(types.TraceNoteKeyFragments, strconv.Itoa(churn.FragmentCount))
 		}
 		if churn.StateSwitches > 0 {
-			appendNote("switches", strconv.Itoa(churn.StateSwitches))
+			appendNote(types.TraceNoteKeySwitches, strconv.Itoa(churn.StateSwitches))
 		}
-		appendNote("max_segment", traceQueryObservationMSValue(churn.MaxSegmentMs))
-		appendNote("p95_segment", traceQueryObservationMSValue(churn.P95SegmentMs))
-		appendNote("running", traceQueryObservationMSValue(churn.RunningMs))
-		appendNote("runnable", traceQueryObservationMSValue(churn.RunnableMs))
-		appendNote("sleep", traceQueryObservationMSValue(churn.SleepMs))
-		appendNote("d_state", traceQueryObservationMSValue(churn.DStateMs))
-		appendNote("io_wait", traceQueryObservationMSValue(churn.IOWaitMs))
+		appendNote(types.TraceNoteKeyMaxSegment, traceQueryObservationMSValue(churn.MaxSegmentMs))
+		appendNote(types.TraceNoteKeyP95Segment, traceQueryObservationMSValue(churn.P95SegmentMs))
+		appendNote(types.TraceNoteKeyRunning, traceQueryObservationMSValue(churn.RunningMs))
+		appendNote(types.TraceNoteKeyRunnable, traceQueryObservationMSValue(churn.RunnableMs))
+		appendNote(types.TraceNoteKeySleep, traceQueryObservationMSValue(churn.SleepMs))
+		appendNote(types.TraceNoteKeyDState, traceQueryObservationMSValue(churn.DStateMs))
+		appendNote(types.TraceNoteKeyIOWait, traceQueryObservationMSValue(churn.IOWaitMs))
 		if churn.RunnableCPUKnown {
-			appendNote("runnable_cpu", strconv.Itoa(churn.RunnableCPU))
+			appendNote(types.TraceNoteKeyRunnableCPU, strconv.Itoa(churn.RunnableCPU))
 		}
-		appendNote("top_competitor", churn.TopCompetitor)
+		appendNote(types.TraceNoteKeyTopCompetitor, churn.TopCompetitor)
 		appendNote("top_competitor_overlap", traceQueryObservationMSValue(churn.TopCompetitorOverlapMs))
 		appendNote("top_competitor_running", traceQueryObservationMSValue(churn.TopCompetitorRunningMs))
-		appendNote("next_step", churn.NextStep)
-		appendNote("next_step_kind", churn.NextStepKind)
+		appendNote(types.TraceNoteKeyNextStep, churn.NextStep)
+		appendNote(types.TraceNoteKeyNextStepKind, churn.NextStepKind)
 		if churn.TotalMs > 0 {
-			notes = append(notes, fmt.Sprintf("total=%.3fms", churn.TotalMs))
+			notes = append(notes, fmt.Sprintf("%s=%.3fms", types.TraceNoteKeyTotal, churn.TotalMs))
 		}
 		// NEW-8 (账本 §7.6): state_churn rows are the metric-snapshot source —
 		// publish the typed selected-window note (stats.Window = the resolved
 		// q.TimeStart/TimeEnd) so the snapshot's window-basis line can render
 		// the endpoints. Emitted only for a real two-sided window, same
 		// semantics as every other family.
-		appendNote("selected_window", traceQuerySelectedWindowNoteValue(stats.Window))
+		appendNote(types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window))
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#state_churn:%d", scope, i+1),
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -5786,22 +5788,22 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Unit:            "ms",
 			Summary:         step.Summary,
 			RichNotes: traceQueryTypedKVNotes([][2]string{
-				{"rank", traceQueryTypedCount(step.Rank)},
+				{types.TraceNoteKeyRank, traceQueryTypedCount(step.Rank)},
 				{"state", step.State},
-				{"impact", traceQueryObservationMSValue(step.ImpactMs)},
+				{types.TraceNoteKeyImpact, traceQueryObservationMSValue(step.ImpactMs)},
 				{"rank_impact", traceQueryObservationMSValue(step.RankImpactMs)},
-				{"total", traceQueryObservationMSValue(step.TotalMs)},
-				{"source", step.Source},
-				{"recommended_views", strings.Join(step.RecommendedViews, ",")},
-				{"chain_required", strconv.FormatBool(step.ChainRequired)},
-				{"recursive", strconv.FormatBool(step.Recursive)},
+				{types.TraceNoteKeyTotal, traceQueryObservationMSValue(step.TotalMs)},
+				{types.TraceNoteKeySource, step.Source},
+				{types.TraceNoteKeyRecommendedViews, strings.Join(step.RecommendedViews, ",")},
+				{types.TraceNoteKeyChainRequired, strconv.FormatBool(step.ChainRequired)},
+				{types.TraceNoteKeyRecursive, strconv.FormatBool(step.Recursive)},
 				{"window_proportion", strconv.FormatFloat(step.WindowProportion, 'f', 4, 64)},
-				{"significant", strconv.FormatBool(step.Significant)},
-				{"window", traceQueryWindowValue(step.StartTs, step.EndTs)},
+				{types.TraceNoteKeySignificant, strconv.FormatBool(step.Significant)},
+				{types.TraceNoteKeyWindow, traceQueryWindowValue(step.StartTs, step.EndTs)},
 				// NEW-8 (账本 §7.6): the step's own `window` above is the state
 				// segment; the selected QUERY window travels via the same typed
 				// note as every other selected-window family.
-				{"selected_window", traceQuerySelectedWindowNoteValue(stats.Window)},
+				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(ref, step.LineStart, step.LineEnd),
 			ObservedAt:  at,
@@ -5971,7 +5973,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"file_events", traceQueryTypedCount(pressure.FileIOEvents)},
 				{"page_cache_churn", traceQueryTypedCount(pressure.PageCacheChurn)},
 				{"iowait_blocked", traceQueryTypedCount(pressure.IOWaitBlockedCount)},
-				{"d_state", traceQueryObservationMSValue(pressure.DStateMs)},
+				{types.TraceNoteKeyDState, traceQueryObservationMSValue(pressure.DStateMs)},
 				{"top_inode", pressure.TopInode},
 				{"top_dev", pressure.TopDev},
 				{"top_name", pressure.TopEntryName},
@@ -6006,10 +6008,10 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Unit:            "ms",
 			Summary:         episode.Summary,
 			RichNotes: traceQueryTypedKVNotes([][2]string{
-				{"chain_relevance", episode.ChainRelevance},
+				{types.TraceNoteKeyChainRelevance, episode.ChainRelevance},
 				{"signal", episode.DominantSignal},
-				{"d_state", traceQueryObservationMSValue(episode.DStateMs)},
-				{"io_wait", traceQueryObservationMSValue(episode.IOWaitMs)},
+				{types.TraceNoteKeyDState, traceQueryObservationMSValue(episode.DStateMs)},
+				{types.TraceNoteKeyIOWait, traceQueryObservationMSValue(episode.IOWaitMs)},
 				{"block_max", traceQueryObservationMSValue(episode.BlockMaxLatencyMs)},
 				{"storage_max", traceQueryObservationMSValue(episode.StorageMaxLatencyMs)},
 				{"inode", episode.TopInode},
@@ -6197,7 +6199,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Unit:            "ms",
 			Summary:         supply.Summary,
 			RichNotes: traceQueryTypedKVNotes([][2]string{
-				{"runnable", traceQueryObservationMSValue(supply.RunnableWaitMs)},
+				{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(supply.RunnableWaitMs)},
 				{"high_prio", traceQueryObservationMSValue(supply.HighPriorityRunningMs)},
 				{"low_freq_cpus", traceIntList(supply.LowFrequencyCPUs)},
 				{"clock_set_rate", traceQueryTypedCount(supply.ClockSetRateCount)},
@@ -6208,11 +6210,11 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				// CMP-9 (§7.3): typed window + normalized density for
 				// downstream cross-trace comparison ("" when the window is
 				// unbounded — the KV helper drops empty values, no estimate).
-				{"window_ms", traceQueryObservationWindowMsValue(supply.WindowMs)},
-				{"pressure_density", traceQueryObservationDensityValue(supply.PressureDensity)},
+				{types.TraceNoteKeyWindowMS, traceQueryObservationWindowMsValue(supply.WindowMs)},
+				{types.TraceNoteKeyPressureDensity, traceQueryObservationDensityValue(supply.PressureDensity)},
 				// CMP-10 (§7.4) guidance: the demand-backlog aggregate is a
 				// dead end on its own — point at the occupancy side.
-				{"recommended_views", "window_stats"},
+				{types.TraceNoteKeyRecommendedViews, "window_stats"},
 				{"recommended_sections", "cpu_occupancy,compute_supply_balance,process_cpu_load"},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(ref, supply.LineStart, supply.LineEnd),
@@ -6244,12 +6246,12 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Value:           fmt.Sprintf("%.3f", bal.SupplyRatio),
 			Summary:         bal.Summary,
 			RichNotes: traceQueryTypedKVNotes([][2]string{
-				{"supply_ratio", fmt.Sprintf("%.3f", bal.SupplyRatio)},
+				{types.TraceNoteKeySupplyRatio, fmt.Sprintf("%.3f", bal.SupplyRatio)},
 				{"delivered_cpu_ms", fmt.Sprintf("%.3f", bal.DeliveredComputeMs)},
 				{"low_freq_loss_cpu_ms", fmt.Sprintf("%.3f", bal.LowFrequencyLossMs)},
-				{"idle_mismatch_ms", fmt.Sprintf("%.3f", bal.IdleMismatchMs)},
+				{types.TraceNoteKeyIdleMismatchMS, fmt.Sprintf("%.3f", bal.IdleMismatchMs)},
 				{"core_limited_cpu_ms", fmt.Sprintf("%.3f", bal.CoreLimitedMs)},
-				{"window_ms", fmt.Sprintf("%.3f", bal.WindowMs)},
+				{types.TraceNoteKeyWindowMS, fmt.Sprintf("%.3f", bal.WindowMs)},
 				{"cpu_count", fmt.Sprintf("%d", bal.CPUCount)},
 			}),
 			ObservedAt: at,
@@ -6333,13 +6335,13 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				Summary:         fmt.Sprintf("perf samples symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s quality=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmptyTraceString(hot.Symbol, "unknown"), firstNonEmptyTraceString(hot.DSO, "unknown"), firstNonEmptyTraceString(hot.Event, "unknown"), firstNonEmptyTraceString(hot.WeightUnit, "unknown"), firstNonEmptyTraceString(hot.Source, "unknown"), firstNonEmptyTraceString(hot.SymbolizationStatus, "unknown"), traceQueryPerfQualityCompact(stats.PerfSamples.Quality), hot.Period, hot.SampleCount, hot.Percent),
 				RichNotes: traceQueryTypedKVNotes([][2]string{
 					{"symbol", hot.Symbol},
-					{"dso", hot.DSO},
+					{types.TraceNoteKeyDSO, hot.DSO},
 					{"event", hot.Event},
 					{"weight_unit", hot.WeightUnit},
-					{"source", hot.Source},
+					{types.TraceNoteKeySource, hot.Source},
 					{"symbolization_status", hot.SymbolizationStatus},
-					{"perf_quality", traceQueryPerfQualityCompact(stats.PerfSamples.Quality)},
-					{"perf_quality_caveats", strings.Join(perfQualityCaveatsForTraceQuery(stats.PerfSamples.Quality), "; ")},
+					{types.TraceNoteKeyPerfQuality, traceQueryPerfQualityCompact(stats.PerfSamples.Quality)},
+					{types.TraceNoteKeyPerfQualityCaveats, strings.Join(perfQualityCaveatsForTraceQuery(stats.PerfSamples.Quality), "; ")},
 					{"sample_weight", strconv.FormatInt(hot.Period, 10)},
 					{"samples", traceQueryTypedCount(hot.SampleCount)},
 					{"percent", fmt.Sprintf("%.2f", hot.Percent)},
@@ -6373,16 +6375,16 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 		ordinal++
 		ctx := traceQuerySemanticTraceSpanContext(span, chain)
 		notes := traceQueryTypedKVNotes([][2]string{
-			{"span_name", span.Name},
-			{"span_kind", firstNonEmptyTraceString(span.Kind, "sync")},
-			{"span_category", span.Category},
-			{"span_subcategory", span.Subcategory},
-			{"semantic_class", semanticClass},
-			{"chain_relevance", ctx.chainRelevance},
-			{"causality", ctx.causality},
-			{"chain_depth", traceQueryTypedCount(ctx.chainDepth)},
+			{types.TraceNoteKeySpanName, span.Name},
+			{types.TraceNoteKeySpanKind, firstNonEmptyTraceString(span.Kind, "sync")},
+			{types.TraceNoteKeySpanCategory, span.Category},
+			{types.TraceNoteKeySpanSubcategory, span.Subcategory},
+			{types.TraceNoteKeySemanticClass, semanticClass},
+			{types.TraceNoteKeyChainRelevance, ctx.chainRelevance},
+			{types.TraceNoteKeyCausality, ctx.causality},
+			{types.TraceNoteKeyChainDepth, traceQueryTypedCount(ctx.chainDepth)},
 			{"overlap", traceQueryObservationMSValue(ctx.overlapMs)},
-			{"window", traceQueryWindowValue(span.StartTs, span.EndTs)},
+			{types.TraceNoteKeyWindow, traceQueryWindowValue(span.StartTs, span.EndTs)},
 		})
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#trace_semantic_span:%d", scope, ordinal),
@@ -6553,7 +6555,7 @@ func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration
 		notes := traceQueryTypedKVNotes([][2]string{
 			{"state", state},
 			{"duration", traceQueryObservationMSValue(td.DurationMs)},
-			{"window", traceQueryWindowValue(td.StartTs, td.EndTs)},
+			{types.TraceNoteKeyWindow, traceQueryWindowValue(td.StartTs, td.EndTs)},
 			{"cpu", traceKnownCPU(td.CPU >= 0, td.CPU)},
 			{"core_class", td.CoreClass},
 			{"freq", traceQueryTypedCount(td.Frequency)},
@@ -6564,7 +6566,7 @@ func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration
 			// family. RN-12 collection refuses totals without it (禁猜), and
 			// these predicates stay outside the CMP-2 anchor whitelist —
 			// display/cross-reference carrier only, never an anchor.
-			{"selected_window", traceQuerySelectedWindowNoteValue(window)},
+			{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(window)},
 		})
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#%s:%d", scope, family, i+1),
@@ -6602,7 +6604,7 @@ func traceQueryTypedResourceObservations(label string, items []tracequery.Runtim
 		}
 		notes := traceQueryTypedKVNotes([][2]string{
 			{"op", item.Operation},
-			{"path", item.Path},
+			{types.TraceNoteKeyPath, item.Path},
 			{"thread", traceThreadLabel(item.Thread)},
 			{"count", traceQueryTypedCount(item.Count)},
 			{"total_latency", traceQueryObservationMSValue(item.TotalLatencyMs)},
@@ -6748,7 +6750,7 @@ func traceQueryTypedIOPressureSummary(item tracequery.IOPressureSummary) string 
 		{"storage_max", traceQueryObservationMSValue(item.StorageMaxLatencyMs)},
 		{"block_max", traceQueryObservationMSValue(item.BlockMaxLatencyMs)},
 		{"iowait_blocked", traceQueryTypedCount(item.IOWaitBlockedCount)},
-		{"d_state", traceQueryObservationMSValue(item.DStateMs)},
+		{types.TraceNoteKeyDState, traceQueryObservationMSValue(item.DStateMs)},
 	} {
 		if strings.TrimSpace(kv[1]) != "" {
 			parts = append(parts, kv[0]+"="+sanitizeForBanner(kv[1]))
@@ -6764,8 +6766,8 @@ func traceQueryTypedThreadCPULoadSummary(item tracequery.ThreadCPULoadSummary) s
 	parts := []string{"thread_cpu_load"}
 	for _, kv := range [][2]string{
 		{"thread", traceThreadLabel(item.Thread)},
-		{"running", traceQueryObservationMSValue(item.RunningMs)},
-		{"runnable", traceQueryObservationMSValue(item.RunnableWaitMs)},
+		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(item.RunningMs)},
+		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableWaitMs)},
 		{"high_prio_running", traceQueryObservationMSValue(item.HighPriorityRunningMs)},
 		{"cpu", strconv.Itoa(item.CPU)},
 		{"core_class", item.CoreClass},
@@ -6791,7 +6793,7 @@ func traceQueryTypedCPUConstraintSummary(item tracequery.CPUConstraintSummary) s
 		{"observed_cpu", traceKnownCPU(item.ObservedCPUKnown, item.ObservedCPU)},
 		{"observed_core_class", item.ObservedCoreClass},
 		{"migrations", traceQueryTypedCount(item.MigrationCount)},
-		{"runnable", traceQueryObservationMSValue(item.RunnableWaitMs)},
+		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableWaitMs)},
 		{"other_cpu_idle", traceQueryObservationMSValue(item.OtherCPUIdleMs)},
 	} {
 		if strings.TrimSpace(kv[1]) != "" {
@@ -6808,7 +6810,7 @@ func traceQueryTypedRunnableContextSummary(item tracequery.RunnableContextSummar
 	parts := []string{"runnable_context"}
 	for _, kv := range [][2]string{
 		{"thread", traceThreadLabel(item.Thread)},
-		{"runnable", traceQueryObservationMSValue(item.RunnableWaitMs)},
+		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableWaitMs)},
 		{"cpu", strconv.Itoa(item.CPU)},
 		{"core_class", item.CoreClass},
 		{"freq", traceQueryTypedCount(item.Frequency)},
@@ -6835,7 +6837,7 @@ func traceQueryTypedRunnableContextSummary(item tracequery.RunnableContextSummar
 func traceQueryTypedRunnableContextNotes(item tracequery.RunnableContextSummary) []string {
 	return traceQueryTypedKVNotes([][2]string{
 		{"thread", traceThreadLabel(item.Thread)},
-		{"runnable", traceQueryObservationMSValue(item.RunnableWaitMs)},
+		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableWaitMs)},
 		{"cpu", strconv.Itoa(item.CPU)},
 		{"core_class", item.CoreClass},
 		{"freq", traceQueryTypedCount(item.Frequency)},
@@ -6857,8 +6859,8 @@ func traceQueryTypedProcessCPULoadSummary(item tracequery.ProcessCPULoadSummary)
 	for _, kv := range [][2]string{
 		{"process", traceThreadLabel(item.Process)},
 		{"threads", traceQueryTypedCount(item.ThreadCount)},
-		{"running", traceQueryObservationMSValue(item.RunningMs)},
-		{"runnable", traceQueryObservationMSValue(item.RunnableWaitMs)},
+		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(item.RunningMs)},
+		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableWaitMs)},
 		{"high_prio_running", traceQueryObservationMSValue(item.HighPriorityRunningMs)},
 		{"top_thread", traceThreadLabel(item.TopThread)},
 		{"top_thread_ms", traceQueryObservationMSValue(item.TopThreadMs)},
@@ -6920,7 +6922,7 @@ func traceQueryTypedResourceSummary(label string, item tracequery.RuntimeResourc
 	parts := []string{label + "_resource"}
 	for _, kv := range [][2]string{
 		{"op", item.Operation},
-		{"path", item.Path},
+		{types.TraceNoteKeyPath, item.Path},
 		{"total_latency", traceQueryObservationMSValue(item.TotalLatencyMs)},
 		{"max_latency", traceQueryObservationMSValue(item.MaxLatencyMs)},
 		{"bytes", traceQueryTypedInt64(item.Bytes)},

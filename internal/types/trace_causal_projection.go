@@ -380,7 +380,7 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		}
 		// NEW-9: exact typed note match — the producer publishes it on every
 		// record of a capacity-truncated result (single helper, precise bool).
-		if strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "capacity_truncated")) == "true" {
+		if strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCapacityTruncated)) == "true" {
 			capacityTruncated = true
 		}
 		// RN-1 (§7.9): a runnable_occupancy observation is a subject-keyed
@@ -418,7 +418,7 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		case "wakeup_chain", "wakeup_chain_edge", "wakeup_causal_impact", "wakeup_causal_aggregate":
 			wakeupChainObserved = true
 		case "state_drilldown":
-			if strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "chain_required")) == "true" {
+			if strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainRequired)) == "true" {
 				chainRequiredRecommended = true
 			}
 		}
@@ -545,7 +545,7 @@ func traceCausalProjectionWakeupEdgeFromRecord(record ObservationRecord) (traceC
 // observation carried no occupier note (nothing to attach).
 func traceCausalProjectionOccupierRoster(notes []string) string {
 	var parts []string
-	for _, key := range []string{"occupier_1", "occupier_2", "occupier_3"} {
+	for _, key := range []string{TraceNoteKeyOccupier1, TraceNoteKeyOccupier2, TraceNoteKeyOccupier3} {
 		if v := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, key)); v != "" {
 			parts = append(parts, v)
 		}
@@ -848,7 +848,7 @@ func traceCausalProjectionAnchorWindow(records []ObservationRecord) (float64, fl
 		if strings.TrimSpace(record.Predicate) != "frame_target_resolution" {
 			continue
 		}
-		switch strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "window_source")) {
+		switch strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyWindowSource)) {
 		case "query_window", "explicit_query_union_previous_frame_end_to_current_frame_end":
 		default:
 			continue
@@ -909,6 +909,12 @@ func traceCausalProjectionAnchorWindow(records []ObservationRecord) (float64, fl
 // wore a bogus ⚠跨窗. The three WINDOW-STATS micro-probe families
 // (critical_blocking / state_churn / state_drilldown) stay pure display
 // carriers and never anchor — sub-window probes were the actual F1 failure.
+//
+// Cross-ref (F3, 双"恰三"白名单): this predicate-family whitelist is one of
+// TWO anchor gates — the other is the KEY-dimension anchor_window whitelist
+// in trace_note_keys.go (exactly selected_window / window / window_source,
+// pinned by TestTraceNoteKeyRegistryStructure). A record anchors only when
+// BOTH gates pass; a new family emitting selected_window does not auto-anchor.
 func traceCausalProjectionSelectedWindowAnchorFamily(record ObservationRecord) bool {
 	switch strings.TrimSpace(record.Predicate) {
 	case "wakeup_causal_aggregate", "wakeup_causal_impact":
@@ -924,7 +930,7 @@ func traceCausalProjectionSelectedWindowAnchorFamily(record ObservationRecord) b
 // malformed or absent note yields ok=false and the legacy "起止未采集"
 // behavior.
 func traceCausalProjectionSelectedWindowNote(notes []string) (float64, float64, bool) {
-	raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, "selected_window"))
+	raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, TraceNoteKeySelectedWindow))
 	return traceCausalProjectionParseSelectedWindow(raw)
 }
 
@@ -1020,20 +1026,20 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		SupportRefs:     cloneStringSlice(record.SupportRefs),
 		LineStart:       record.Span.LineStart,
 		LineEnd:         record.Span.LineEnd,
-		Rank:            traceCausalProjectionRichNoteInt(record.RichNotes, "rank"),
-		Tier:            traceCausalProjectionRichNoteValue(record.RichNotes, "tier"),
-		Causality:       traceCausalProjectionRichNoteValue(record.RichNotes, "causality"),
+		Rank:            traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyRank),
+		Tier:            traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTier),
+		Causality:       traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCausality),
 		ChainRelevance:  traceCausalProjectionChainRelevance(record.RichNotes),
-		ChainDepth:      traceCausalProjectionRichNoteFirstInt(record.RichNotes, "chain_depth", "depth"),
+		ChainDepth:      traceCausalProjectionRichNoteFirstInt(record.RichNotes, TraceNoteKeyChainDepth, TraceNoteKeyDepth),
 		ImpactMS:        traceCausalProjectionImpact(record),
-		SpanName:        traceCausalProjectionRichNoteValue(record.RichNotes, "span_name"),
-		SpanKind:        traceCausalProjectionRichNoteValue(record.RichNotes, "span_kind"),
-		SpanCategory:    traceCausalProjectionRichNoteValue(record.RichNotes, "span_category"),
-		SpanSubcategory: traceCausalProjectionRichNoteValue(record.RichNotes, "span_subcategory"),
-		SemanticClass:   traceCausalProjectionRichNoteValue(record.RichNotes, "semantic_class"),
+		SpanName:        traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanName),
+		SpanKind:        traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanKind),
+		SpanCategory:    traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanCategory),
+		SpanSubcategory: traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanSubcategory),
+		SemanticClass:   traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySemanticClass),
 		Confidence:      record.Confidence,
 	}
-	node.CumulativeImpactMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "cumulative_impact_ms")
+	node.CumulativeImpactMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyCumulativeImpactMS)
 	if node.CumulativeImpactMS <= 0 {
 		node.CumulativeImpactMS = node.ImpactMS
 	}
@@ -1047,7 +1053,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// Presentation gaps c/d/e: surface the already-emitted (but until now
 	// unconsumed) typed rich notes so the renderer can show the duration triad
 	// and mark sleep symptoms / undrillable sleeps precisely — no prose parsing.
-	node.StateKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "dominant_state"))
+	node.StateKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyDominantState))
 	if node.StateKind == "" {
 		// Root-cause / hop rows encode the scheduler state as the Object
 		// (sleep_wait / running / io_wait / …). Fall back to it ONLY when it is a
@@ -1055,46 +1061,46 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		// and non-state objects (compute_supply, class_verification) leave it empty.
 		node.StateKind = traceCausalProjectionCanonicalStateWord(record.Object)
 	}
-	node.EffectiveImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, "effective_impact_ms", "effective_impact")
-	node.ActualImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, "actual_impact_ms", "actual_impact")
+	node.EffectiveImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyEffectiveImpactMS, TraceNoteKeyEffectiveImpact)
+	node.ActualImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyActualImpactMS, TraceNoteKeyActualImpact)
 	node.UndrillableReason = traceCausalProjectionUndrillableReason(record)
 	// §7.30 裁定1/2: aggregate-metric rows carry a typed subject_kind so the
 	// renderer can show metric semantics instead of an "unresolved thread".
-	node.SubjectKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "subject_kind"))
+	node.SubjectKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySubjectKind))
 	// §7.30.3 D1: typed lock-contention semantics from the structured payload
 	// parse. The peer sentinel ("unknown-thread") means the payload named no
 	// resolvable owner — keep BlockingPeer empty rather than a sentinel label.
-	node.BlockingKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "blocking_kind"))
+	node.BlockingKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockingKind))
 	if node.BlockingKind != "" {
-		if peer := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "peer")); traceCausalProjectionKnownSubject(peer) {
+		if peer := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyPeer)); traceCausalProjectionKnownSubject(peer) {
 			node.BlockingPeer = peer
 		}
-		node.BlockingHolderSite = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "holder_site"))
-		node.BlockingWaiters = traceCausalProjectionRichNoteInt(record.RichNotes, "waiters")
+		node.BlockingHolderSite = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHolderSite))
+		node.BlockingWaiters = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyWaiters)
 	}
 	// §7.30.3 D3: gated-impact composition for priority-inversion rows.
-	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "gated_runnable")
-	node.GatedRunningDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "gated_running_deficit")
+	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunnable)
+	node.GatedRunningDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunningDeficit)
 	// VS-1 (§7.8): periodic-signal-source semantics — exact typed note match.
-	node.PeriodicSource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "periodic_source")) == "true"
+	node.PeriodicSource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyPeriodicSource)) == "true"
 	if node.PeriodicSource {
-		node.DetectedPeriodMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "detected_period_ms")
-		node.PeriodicLatenessMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "lateness_ms")
+		node.DetectedPeriodMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyDetectedPeriodMS)
+		node.PeriodicLatenessMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyLatenessMS)
 	}
 	// VS-2 (§7.10): supply-fold accounting — the fold_basis note is the typed
 	// presence signal; deficit/ideal zeros are load-bearing (affirmative
 	// fourth branch), so presence is keyed on the note, never on a positive
 	// value.
-	if basisRaw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "fold_basis")); basisRaw != "" {
+	if basisRaw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldBasis)); basisRaw != "" {
 		node.SupplyFoldComputed = true
 		node.SupplyFoldKnownMS, node.SupplyFoldUnknownMS = traceCausalProjectionParseFoldBasis(basisRaw)
-		node.SupplyFoldDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "supply_fold_deficit_ms")
-		node.SupplyFoldIdealMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "supply_fold_ideal_ms")
+		node.SupplyFoldDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeySupplyFoldDeficitMS)
+		node.SupplyFoldIdealMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeySupplyFoldIdealMS)
 	}
-	node.RunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "runnable")
+	node.RunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunnable)
 	// Verbatim typed kind token (see TypeToken doc): lets renderers specialize
 	// the unresolved-peer wording for blocking_span / d_state_or_io_wait rows.
-	node.TypeToken = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "type"))
+	node.TypeToken = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyType))
 	return node
 }
 
@@ -1159,7 +1165,7 @@ func traceCausalProjectionRichNoteFirstFloat(notes []string, keys ...string) flo
 // traceQueryTypedTimeWindow) into a start/end pair. ok is true only when both
 // ends are positive and end > start.
 func traceCausalProjectionWindow(notes []string) (float64, float64, bool) {
-	raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, "window"))
+	raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, TraceNoteKeyWindow))
 	if raw == "" {
 		return 0, 0, false
 	}
@@ -1368,10 +1374,10 @@ func traceCausalProjectionPath(raw string) []string {
 }
 
 func traceCausalProjectionImpact(record ObservationRecord) float64 {
-	if value := traceCausalProjectionRichNoteFloat(record.RichNotes, "impact_ms"); value > 0 {
+	if value := traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyImpactMS); value > 0 {
 		return value
 	}
-	if value := traceCausalProjectionRichNoteFloat(record.RichNotes, "impact"); value > 0 {
+	if value := traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyImpact); value > 0 {
 		return value
 	}
 	if strings.TrimSpace(record.Unit) == "ms" {
@@ -1395,12 +1401,12 @@ func traceCausalProjectionRichNoteValue(notes []string, key string) string {
 }
 
 func traceCausalProjectionChainRelevance(notes []string) string {
-	relevance := traceCausalProjectionRichNoteValue(notes, "chain_relevance")
+	relevance := traceCausalProjectionRichNoteValue(notes, TraceNoteKeyChainRelevance)
 	switch strings.TrimSpace(relevance) {
 	case "on_chain", "adjacent", "background":
 		return strings.TrimSpace(relevance)
 	}
-	switch strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, "causality")) {
+	switch strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, TraceNoteKeyCausality)) {
 	case "on_wakeup_chain", "on_dependency_chain":
 		return "on_chain"
 	case "adjacent_to_wakeup_chain", "adjacent_to_dependency_chain":

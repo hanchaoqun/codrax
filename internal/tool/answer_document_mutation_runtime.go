@@ -1273,9 +1273,9 @@ func runtimeTraceProjCompareSupplyCells(projections []types.TraceCausalProjectio
 		if !ok {
 			return nil
 		}
-		ratio, okRatio := runtimeTraceProjSupplyNoteFloat(record, "supply_ratio")
-		idle, okIdle := runtimeTraceProjSupplyNoteFloat(record, "idle_mismatch_ms")
-		window, okWindow := runtimeTraceProjSupplyNoteFloat(record, "window_ms")
+		ratio, okRatio := runtimeTraceProjSupplyNoteFloat(record, types.TraceNoteKeySupplyRatio)
+		idle, okIdle := runtimeTraceProjSupplyNoteFloat(record, types.TraceNoteKeyIdleMismatchMS)
+		window, okWindow := runtimeTraceProjSupplyNoteFloat(record, types.TraceNoteKeyWindowMS)
 		if !okRatio || !okIdle || !okWindow || window <= 0 || ratio < 0 || idle < 0 {
 			return nil
 		}
@@ -2818,11 +2818,11 @@ func runtimeTraceMetricSnapshotObservedSpanMS(record types.ObservationRecord) fl
 	if values == nil {
 		return 0
 	}
-	if total := runtimeTraceMetricFloat(values["total"]); total > 0 {
+	if total := runtimeTraceMetricFloat(values[types.TraceNoteKeyTotal]); total > 0 {
 		return total
 	}
 	sum := 0.0
-	for _, key := range []string{"running", "runnable", "sleep", "d_state", "io_wait"} {
+	for _, key := range []string{types.TraceNoteKeyRunning, types.TraceNoteKeyRunnable, types.TraceNoteKeySleep, types.TraceNoteKeyDState, types.TraceNoteKeyIOWait} {
 		sum += runtimeTraceMetricFloat(values[key])
 	}
 	return sum
@@ -2956,7 +2956,7 @@ func runtimeTraceMetricSnapshotValues(record types.ObservationRecord) map[string
 	}
 	required := runtimeTraceMetricSnapshotRequiredKeys
 	values := make(map[string]string, len(required)+2)
-	keys := append([]string{"dominant_state", "total"}, required...)
+	keys := append([]string{types.TraceNoteKeyDominantState, types.TraceNoteKeyTotal}, required...)
 	for _, key := range keys {
 		if value := runtimeTraceObservationRichNoteValue(record.RichNotes, key); value != "" {
 			values[key] = value
@@ -2972,15 +2972,15 @@ func runtimeTraceMetricSnapshotValues(record types.ObservationRecord) map[string
 }
 
 var runtimeTraceMetricSnapshotRequiredKeys = []string{
-	"running",
-	"runnable",
-	"sleep",
-	"d_state",
-	"io_wait",
-	"fragments",
-	"switches",
-	"max_segment",
-	"p95_segment",
+	types.TraceNoteKeyRunning,
+	types.TraceNoteKeyRunnable,
+	types.TraceNoteKeySleep,
+	types.TraceNoteKeyDState,
+	types.TraceNoteKeyIOWait,
+	types.TraceNoteKeyFragments,
+	types.TraceNoteKeySwitches,
+	types.TraceNoteKeyMaxSegment,
+	types.TraceNoteKeyP95Segment,
 }
 
 // runtimeTraceMetricSnapshotFromObservationRecord renders the RAW typed
@@ -2994,16 +2994,16 @@ func runtimeTraceMetricSnapshotFromObservationRecord(record types.ObservationRec
 		return ""
 	}
 	parts := make([]string, 0, len(runtimeTraceMetricSnapshotRequiredKeys)+1)
-	if values["dominant_state"] != "" {
-		parts = append(parts, "dominant_state="+values["dominant_state"])
+	if values[types.TraceNoteKeyDominantState] != "" {
+		parts = append(parts, types.TraceNoteKeyDominantState+"="+values[types.TraceNoteKeyDominantState])
 	}
-	for _, key := range []string{"running", "runnable", "sleep", "d_state", "io_wait"} {
+	for _, key := range []string{types.TraceNoteKeyRunning, types.TraceNoteKeyRunnable, types.TraceNoteKeySleep, types.TraceNoteKeyDState, types.TraceNoteKeyIOWait} {
 		parts = append(parts, key+"="+runtimeTraceMetricWithMS(values[key]))
 	}
-	for _, key := range []string{"fragments", "switches"} {
+	for _, key := range []string{types.TraceNoteKeyFragments, types.TraceNoteKeySwitches} {
 		parts = append(parts, key+"="+values[key])
 	}
-	for _, key := range []string{"max_segment", "p95_segment"} {
+	for _, key := range []string{types.TraceNoteKeyMaxSegment, types.TraceNoteKeyP95Segment} {
 		parts = append(parts, key+"="+runtimeTraceMetricWithMS(values[key]))
 	}
 	return strings.Join(parts, "; ")
@@ -3020,7 +3020,7 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 		return ""
 	}
 	ms := func(key string) string { return runtimeTraceMetricWithMS(values[key]) }
-	total := runtimeTraceMetricFloat(values["total"])
+	total := runtimeTraceMetricFloat(values[types.TraceNoteKeyTotal])
 	share := func(key string) string {
 		v := runtimeTraceMetricFloat(values[key])
 		if total <= 0 || v <= 0 {
@@ -3043,7 +3043,7 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 		return entry
 	}
 	var parts []string
-	if dominant := strings.TrimSpace(values["dominant_state"]); dominant != "" {
+	if dominant := strings.TrimSpace(values[types.TraceNoteKeyDominantState]); dominant != "" {
 		label := runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: dominant}, zh)
 		entry := dominant
 		if label != "" {
@@ -3060,27 +3060,27 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 	}
 	if zh {
 		parts = append(parts,
-			stateEntry("运行", "running"),
-			stateEntry("可运行", "runnable"),
-			stateEntry("睡眠", "sleep"),
-			stateEntry("D状态", "d_state"),
-			stateEntry("IO等待", "io_wait"),
-			"状态段数 "+values["fragments"],
-			"切换次数 "+values["switches"],
-			"最长单段 "+ms("max_segment"),
-			"P95段长 "+ms("p95_segment"),
+			stateEntry("运行", types.TraceNoteKeyRunning),
+			stateEntry("可运行", types.TraceNoteKeyRunnable),
+			stateEntry("睡眠", types.TraceNoteKeySleep),
+			stateEntry("D状态", types.TraceNoteKeyDState),
+			stateEntry("IO等待", types.TraceNoteKeyIOWait),
+			"状态段数 "+values[types.TraceNoteKeyFragments],
+			"切换次数 "+values[types.TraceNoteKeySwitches],
+			"最长单段 "+ms(types.TraceNoteKeyMaxSegment),
+			"P95段长 "+ms(types.TraceNoteKeyP95Segment),
 		)
 	} else {
 		parts = append(parts,
-			stateEntry("running", "running"),
-			stateEntry("runnable", "runnable"),
-			stateEntry("sleep", "sleep"),
-			stateEntry("D-state", "d_state"),
-			stateEntry("IO wait", "io_wait"),
-			"state segments "+values["fragments"],
-			"switches "+values["switches"],
-			"longest segment "+ms("max_segment"),
-			"p95 segment "+ms("p95_segment"),
+			stateEntry("running", types.TraceNoteKeyRunning),
+			stateEntry("runnable", types.TraceNoteKeyRunnable),
+			stateEntry("sleep", types.TraceNoteKeySleep),
+			stateEntry("D-state", types.TraceNoteKeyDState),
+			stateEntry("IO wait", types.TraceNoteKeyIOWait),
+			"state segments "+values[types.TraceNoteKeyFragments],
+			"switches "+values[types.TraceNoteKeySwitches],
+			"longest segment "+ms(types.TraceNoteKeyMaxSegment),
+			"p95 segment "+ms(types.TraceNoteKeyP95Segment),
 		)
 	}
 	sep := "; "
@@ -3118,7 +3118,7 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 // selected-window values — the §7.30 S1 dual-basis shape that must be labeled.
 func runtimeTraceRecordHasActualWindowValues(record types.ObservationRecord) bool {
 	for _, note := range record.RichNotes {
-		if strings.HasPrefix(strings.TrimSpace(note), "actual_") {
+		if strings.HasPrefix(strings.TrimSpace(note), types.TraceNoteKeyActualPrefix) {
 			return true
 		}
 	}
@@ -3141,12 +3141,12 @@ func runtimeTraceStateChurnHasPositiveImpact(record types.ObservationRecord) boo
 	if runtimeTracePositiveMetric(record.Value) {
 		return true
 	}
-	if runtimeTracePositiveMetric(runtimeTraceObservationRichNoteValue(record.RichNotes, "impact")) {
+	if runtimeTracePositiveMetric(runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyImpact)) {
 		return true
 	}
 	values := map[string]string{}
 	runtimeTraceMergeSummaryMetricTokens(values, record.Summary, []string{"impact"})
-	return runtimeTracePositiveMetric(values["impact"])
+	return runtimeTracePositiveMetric(values[types.TraceNoteKeyImpact])
 }
 
 func runtimeTracePositiveMetric(value string) bool {
@@ -3511,11 +3511,11 @@ func runtimeTraceNextStepFromObservationRecord(record types.ObservationRecord, z
 	if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 		return ""
 	}
-	step := trimRuntimeTraceNextStepText(runtimeTraceObservationRichNoteValue(record.RichNotes, "next_step"))
+	step := trimRuntimeTraceNextStepText(runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyNextStep))
 	if step == "" || !zh {
 		return step
 	}
-	kind := runtimeTraceObservationRichNoteValue(record.RichNotes, "next_step_kind")
+	kind := runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyNextStepKind)
 	if strings.EqualFold(strings.TrimSpace(kind), "runnable") {
 		if dynamic := runtimeTraceNextStepRunnableChineseText(record.RichNotes); dynamic != "" {
 			return dynamic
@@ -3530,10 +3530,10 @@ func runtimeTraceNextStepFromObservationRecord(record types.ObservationRecord, z
 // across rows that carry different CPU / competitor data.
 func runtimeTraceNextStepDedupeKey(record types.ObservationRecord) string {
 	return strings.Join([]string{
-		runtimeTraceObservationRichNoteValue(record.RichNotes, "next_step_kind"),
-		trimRuntimeTraceNextStepText(runtimeTraceObservationRichNoteValue(record.RichNotes, "next_step")),
-		runtimeTraceObservationRichNoteValue(record.RichNotes, "runnable_cpu"),
-		runtimeTraceObservationRichNoteValue(record.RichNotes, "top_competitor"),
+		runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyNextStepKind),
+		trimRuntimeTraceNextStepText(runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyNextStep)),
+		runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyRunnableCPU),
+		runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyTopCompetitor),
 	}, "\x00")
 }
 
@@ -3544,8 +3544,8 @@ func runtimeTraceNextStepDedupeKey(record types.ObservationRecord) string {
 // typed note exists — the caller then falls back to the generic runnable
 // guidance instead of fabricating data.
 func runtimeTraceNextStepRunnableChineseText(notes []string) string {
-	cpu := runtimeTraceObservationRichNoteValue(notes, "runnable_cpu")
-	competitor := runtimeTraceObservationRichNoteValue(notes, "top_competitor")
+	cpu := runtimeTraceObservationRichNoteValue(notes, types.TraceNoteKeyRunnableCPU)
+	competitor := runtimeTraceObservationRichNoteValue(notes, types.TraceNoteKeyTopCompetitor)
 	if cpu == "" && competitor == "" {
 		return ""
 	}
@@ -3715,13 +3715,13 @@ func runtimeTracePerfQualityText(record types.ObservationRecord) string {
 		strings.TrimSpace(record.Predicate) != "perf_sample_top_symbol" {
 		return ""
 	}
-	quality := runtimeTraceObservationRichNoteValue(record.RichNotes, "perf_quality")
+	quality := runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyPerfQuality)
 	if quality == "" {
 		return ""
 	}
 	values := map[string]string{}
 	runtimeTraceMergeSummaryMetricTokens(values, quality, []string{"source", "sample_kind", "weight_unit", "symbolization", "symbolization_status", "cpu_known", "cpu_unknown", "sample_cpu_scope", "clock", "clock_confidence", "callchain_status"})
-	dso := runtimeTraceObservationRichNoteValue(record.RichNotes, "dso")
+	dso := runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyDSO)
 	parts := make([]string, 0, 6)
 	if values["source"] != "" {
 		parts = append(parts, "source="+values["source"])

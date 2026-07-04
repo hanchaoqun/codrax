@@ -369,7 +369,7 @@ func reconcileRuntimeObservationProducerPrecedence(records []ObservationRecord) 
 		}
 		record.GroundingPolicy = ClaimGroundingSoft
 		record.ProvenanceLane = ObservationProvenanceInferredUpstreamPossibility
-		record.RichNotes = appendUniqueObservationString(record.RichNotes, "advisory_pretriage; deterministic_runtime_query_present=true")
+		record.RichNotes = appendUniqueObservationString(record.RichNotes, TraceNoteMarkerAdvisoryPretriage)
 		out[i] = record
 	}
 	return out
@@ -715,7 +715,7 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 	}
 	if record.Origin == AnswerEvidenceOriginRuntimeArtifact && runtimeObservationProducerIsPreTriage(record.Producer) {
 		rank += 60
-		if observationRecordHasRichNote(record, "advisory_pretriage; deterministic_runtime_query_present=true") {
+		if observationRecordHasRichNote(record, TraceNoteMarkerAdvisoryPretriage) {
 			rank += 140
 		}
 	}
@@ -1777,7 +1777,7 @@ func legacySummaryToolObservationRecord(record ObservationRecord) ObservationRec
 	if record.Confidence <= 0 || record.Confidence > 0.2 {
 		record.Confidence = 0.2
 	}
-	record.RichNotes = appendUniqueObservationString(record.RichNotes, "legacy_summary_fallback=true; not_answer_grade=true")
+	record.RichNotes = appendUniqueObservationString(record.RichNotes, TraceNoteMarkerLegacySummaryFallback)
 	return record
 }
 
@@ -1955,7 +1955,7 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 	if impact > 0 {
 		value = fmt.Sprintf("%.3f", impact)
 	}
-	notes := traceQuerySelectedRichNotes(fields, []string{"occurrence_windows"})
+	notes := traceQuerySelectedRichNotes(fields, []string{TraceNoteKeyOccurrenceWindows})
 	notes = append(notes, traceQueryPriorityRichNotes(rank, tier, typ, fields["source"], fields["causality"], traceQueryFieldInt(fields, "chain_depth"), score, impact, cumulativeImpact, effectiveImpact, targetImpact)...)
 	if projectedImpact > 0 {
 		notes = append(notes, fmt.Sprintf("projected_impact_ms=%.3f", projectedImpact))
@@ -1969,7 +1969,7 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 	if actualTotal > 0 {
 		notes = append(notes, fmt.Sprintf("actual_total_ms=%.3f", actualTotal))
 	}
-	notes = append(notes, traceQuerySelectedRichNotes(fields, []string{"actual_window", "chain_relevance", "dominant_state", "running", "runnable", "sleep", "d_state", "io_wait"})...)
+	notes = append(notes, traceQuerySelectedRichNotes(fields, []string{TraceNoteKeyActualWindow, TraceNoteKeyChainRelevance, TraceNoteKeyDominantState, TraceNoteKeyRunning, TraceNoteKeyRunnable, TraceNoteKeySleep, TraceNoteKeyDState, TraceNoteKeyIOWait})...)
 	role := AnswerAggregateRolePrincipalAnswer
 	provenance := ObservationProvenanceObservedDirectCause
 	claimKey := firstNonEmptyString("root_cause_"+tier, typ)
@@ -2037,7 +2037,7 @@ func traceQueryCausalImpactRecord(index, ordinal int, line string, ref Observati
 		Value:           value,
 		Unit:            "ms",
 		Summary:         summary,
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"depth", "causality", "dominant_state", "impact", "projected_impact", "total", "projected_total", "actual_impact", "actual_total", "actual_window", "target_impact", "fragments", "switches", "max_segment", "p95_segment", "running", "runnable", "sleep", "d_state", "io_wait", "actual_running", "actual_runnable", "actual_sleep", "actual_d_state", "actual_io_wait", "prio", "target_prio", "priority_relation", "priority_inversion_candidate"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{TraceNoteKeyDepth, TraceNoteKeyCausality, TraceNoteKeyDominantState, TraceNoteKeyImpact, "projected_impact", TraceNoteKeyTotal, "projected_total", TraceNoteKeyActualImpact, TraceNoteKeyActualTotal, TraceNoteKeyActualWindow, "target_impact", TraceNoteKeyFragments, TraceNoteKeySwitches, TraceNoteKeyMaxSegment, TraceNoteKeyP95Segment, TraceNoteKeyRunning, TraceNoteKeyRunnable, TraceNoteKeySleep, TraceNoteKeyDState, TraceNoteKeyIOWait, TraceNoteKeyActualRunning, TraceNoteKeyActualRunnable, TraceNoteKeyActualSleep, TraceNoteKeyActualDState, TraceNoteKeyActualIOWait, "prio", "target_prio", "priority_relation", "priority_inversion_candidate"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.78,
@@ -2076,7 +2076,7 @@ func traceQueryCausalAggregateRecord(index, ordinal int, line string, ref Observ
 		Value:           value,
 		Unit:            "ms",
 		Summary:         summary,
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"depth", "path", "occurrences", "occurrence_windows", "dominant_state", "impact", "projected_impact", "total", "projected_total", "actual_impact", "actual_total", "actual_window", "target_impact", "fragments", "switches", "max_segment", "running", "runnable", "sleep", "d_state", "io_wait", "actual_running", "actual_runnable", "actual_sleep", "actual_d_state", "actual_io_wait", "priority_relation", "priority_inversion_candidate"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{TraceNoteKeyDepth, TraceNoteKeyPath, "occurrences", TraceNoteKeyOccurrenceWindows, TraceNoteKeyDominantState, TraceNoteKeyImpact, "projected_impact", TraceNoteKeyTotal, "projected_total", TraceNoteKeyActualImpact, TraceNoteKeyActualTotal, TraceNoteKeyActualWindow, "target_impact", TraceNoteKeyFragments, TraceNoteKeySwitches, TraceNoteKeyMaxSegment, TraceNoteKeyRunning, TraceNoteKeyRunnable, TraceNoteKeySleep, TraceNoteKeyDState, TraceNoteKeyIOWait, TraceNoteKeyActualRunning, TraceNoteKeyActualRunnable, TraceNoteKeyActualSleep, TraceNoteKeyActualDState, TraceNoteKeyActualIOWait, "priority_relation", "priority_inversion_candidate"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.80,
@@ -2215,13 +2215,13 @@ func traceQueryStateChurnLineFields(line string) (string, map[string]string, str
 
 func traceQueryStateChurnRichNotes(fields map[string]string, total float64) []string {
 	var notes []string
-	for _, key := range []string{"dominant_state", "fragments", "switches", "max_segment", "p95_segment", "running", "runnable", "sleep", "d_state", "io_wait"} {
+	for _, key := range []string{TraceNoteKeyDominantState, TraceNoteKeyFragments, TraceNoteKeySwitches, TraceNoteKeyMaxSegment, TraceNoteKeyP95Segment, TraceNoteKeyRunning, TraceNoteKeyRunnable, TraceNoteKeySleep, TraceNoteKeyDState, TraceNoteKeyIOWait} {
 		if value := strings.TrimSpace(fields[key]); value != "" {
 			notes = append(notes, key+"="+value)
 		}
 	}
 	if total > 0 {
-		notes = append(notes, fmt.Sprintf("total=%.3fms", total))
+		notes = append(notes, fmt.Sprintf("%s=%.3fms", TraceNoteKeyTotal, total))
 	}
 	return notes
 }
@@ -2244,9 +2244,9 @@ func traceQueryStateDrilldownRecord(index, ordinal int, line string, ref Observa
 	if impact > 0 {
 		value = fmt.Sprintf("%.3f", impact)
 	}
-	notes := traceQuerySelectedRichNotes(fields, []string{"rank", "state", "impact", "total", "source", "recommended_views", "chain_required", "recursive", "window_proportion", "significant", "window"})
-	if total > 0 && !observationRichNoteHasKey(notes, "total") {
-		notes = append(notes, fmt.Sprintf("total=%.3fms", total))
+	notes := traceQuerySelectedRichNotes(fields, []string{TraceNoteKeyRank, "state", TraceNoteKeyImpact, TraceNoteKeyTotal, TraceNoteKeySource, TraceNoteKeyRecommendedViews, TraceNoteKeyChainRequired, TraceNoteKeyRecursive, "window_proportion", TraceNoteKeySignificant, TraceNoteKeyWindow})
+	if total > 0 && !observationRichNoteHasKey(notes, TraceNoteKeyTotal) {
+		notes = append(notes, fmt.Sprintf("%s=%.3fms", TraceNoteKeyTotal, total))
 	}
 	return ObservationRecord{
 		ID:              fmt.Sprintf("tool:%d#trace_query:state_drilldown:%d", index, rank),
@@ -2311,7 +2311,7 @@ func traceQueryThreadCPULoadRecord(index, ordinal int, line string, ref Observat
 		Value:           value,
 		Unit:            "ms",
 		Summary:         traceQueryLoadSummaryFromFields("thread_cpu_load", fields, summary),
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", "running", "runnable", "high_prio_running", "cpu", "core_class", "freq", "prio"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", TraceNoteKeyRunning, TraceNoteKeyRunnable, "high_prio_running", "cpu", "core_class", "freq", "prio"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.72,
@@ -2346,7 +2346,7 @@ func traceQueryCPUConstraintRecord(index, ordinal int, line string, ref Observat
 		Value:           value,
 		Unit:            "ms",
 		Summary:         traceQueryLoadSummaryFromFields("cpu_constraint", fields, summary),
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", "kind", "allowed_cpus", "allowed_core_classes", "cpuset", "policy", "observed_cpu", "observed_core_class", "migrations", "runnable", "other_cpu_idle"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", "kind", "allowed_cpus", "allowed_core_classes", "cpuset", "policy", "observed_cpu", "observed_core_class", "migrations", TraceNoteKeyRunnable, "other_cpu_idle"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.72,
@@ -2383,7 +2383,7 @@ func traceQueryRunnableContextRecord(index, ordinal int, line string, ref Observ
 		Value:           value,
 		Unit:            "ms",
 		Summary:         traceQueryLoadSummaryFromFields("runnable_context", fields, summary),
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", "runnable", "cpu", "core_class", "freq", "same_cpu_busy", "same_cpu_idle", "other_cpu_idle", "high_prio_running", "top_background_threads", "top_background_process", "constraint", "verdict"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", TraceNoteKeyRunnable, "cpu", "core_class", "freq", "same_cpu_busy", "same_cpu_idle", "other_cpu_idle", "high_prio_running", "top_background_threads", "top_background_process", "constraint", "verdict"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      conf,
@@ -2420,7 +2420,7 @@ func traceQueryProcessCPULoadRecord(index, ordinal int, line string, ref Observa
 		Value:           value,
 		Unit:            "ms",
 		Summary:         traceQueryLoadSummaryFromFields("process_cpu_load", fields, summary),
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"process", "threads", "running", "runnable", "high_prio_running", "top_thread", "top_thread_ms", "cpus", "core_classes"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"process", "threads", TraceNoteKeyRunning, TraceNoteKeyRunnable, "high_prio_running", "top_thread", "top_thread_ms", "cpus", "core_classes"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.66,
@@ -2596,7 +2596,7 @@ func traceQueryIOPressureRecord(index, ordinal int, line string, ref Observation
 		Value:           value,
 		Unit:            "score",
 		Summary:         traceQueryIOPressureSummaryFromFields(fields, summary),
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"signal", "score", "block_max", "storage_max", "file_bytes", "file_events", "page_cache_churn", "iowait_blocked", "d_state", "top_inode", "top_dev", "top_name"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"signal", "score", "block_max", "storage_max", "file_bytes", "file_events", "page_cache_churn", "iowait_blocked", TraceNoteKeyDState, "top_inode", "top_dev", "top_name"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.70,
@@ -2653,7 +2653,7 @@ func traceQueryRuntimeResourceRecord(index, ordinal int, label, line, continuati
 	if totalLatency > 0 {
 		value = fmt.Sprintf("%.3f", totalLatency)
 	}
-	notes := traceQuerySelectedRichNotes(fields, []string{"op", "path", "thread", "count", "total_latency", "max_latency", "bytes", "line", "example"})
+	notes := traceQuerySelectedRichNotes(fields, []string{"op", TraceNoteKeyPath, "thread", "count", "total_latency", "max_latency", "bytes", "line", "example"})
 	if continuation != "" {
 		notes = append(notes, continuation)
 	}
