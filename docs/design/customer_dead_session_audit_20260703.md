@@ -266,6 +266,58 @@
 
 排队:回访批推送后作为下一批(VS 批)实施。
 
+### 7.9 RN 系列:runnable 主导场景审计(2026-07-04,cust_runnable.txt + cust_large_3s.txt)
+
+客户点名:对比场景"优先级反转因果链丢了,背景调度压力成主因(本身也对)但 on-chain 主因未提及"。诊断:本轮模型把 7.0 锚在 FFRT 线程(runnable 主导,sleep=0,无唤醒边)→ 平铺单行;占用者数据(CMP-8)未发布为观测 → 报告无机制解释;反转链上轮存在是因为那轮跑了 main 的 wakeup_chain(模型探索方差)。大窗案(cust_large_3s)VS-1/主根因/反转行全部正常。
+
+| # | Gap | 级 |
+|---|---|---|
+| RN-1 | cpu_occupancy 不发布 ledger 观测,runnable 行无"同窗占用者"归因;平铺 runnable 42% 行无机制解释 | P1 |
+| RN-3 | 结论行"未定位链上主根因"与背景行"主根因·主要关注"标签矛盾(tier 直投标签);平铺 on-chain 行不参与 lead | P1 |
+| RN-5 | 锚白名单过窄:wakeup_causal_impact 族(同查询窗语义)应准入;state_churn 等微探族维持排除 | P1 |
+| RN-2b | 无锚窗时 ⚠跨窗 照发,自相矛盾 | P1 |
+| RN-6 | 症状分母不含 runnable → runnable 主导目标症状"—";应纳入(措辞改"目标等待(睡眠/阻塞/就绪)") | P1 |
+| RN-11 | 完成门对 runnable 主导行强制 wakeup_chain 下钻(应为 occupancy/scheduler_latency 面) | P2 |
+| RN-8 | 背景整窗 D/IO 行无疑似空闲标注(StateKind 空但 type token 可用)→ 模型误读"IO 突发" | P2 |
+| RN-4 | systrace comm 截断占位 `<...>-N` 直出 → 类型化"线程名未记录(tid N)" | P2 |
+| RN-10 | 同主体多类型行分散(running/反转/runnable 4 行)— 记录,暂不合并(类型不同信息各自承重) | P3(记录) |
+
+| RN-12 | 平铺/链上 runnable 行覆盖自解释缺失(客户追问"树看起来截断"):树行 635.981ms(链视图 top 片段,受 occurrence/分支上限)与同账本 state_drilldown 全量 runnable 2528.721ms 无交叉引用,读者观感=树被截断。修复:同账本存在该线程全量 runnable 观测时行尾注"窗内 runnable 合计 X,链上仅覆盖 top 片段 Y(Z%)"(typed 交叉引用零新查询) | P1 |
+| RN-13 | 平铺模式 header 缺锚点说明:锚=模型选定线程(runnable 退化锚,无唤醒边→平铺)且非用户实体时,header 无任何说明(R2 机制只覆盖 🎯 模式);next-step 无"对用户关注线程补跑 wakeup_chain 恢复因果树"引导 | P2 |
+
+| RN-14 | **关注线程链恢复三层**(用户提问定稿):(a) wakeup_chain 加 via_thread 参数——在 focus 线程链树中优先展开经候选 X 的路径+逐跳延迟;X 不在链上时明确输出"X 与 T 无唤醒边连接,影响仅为**调度竞争(就绪排队)**"(链上根因 vs 调度竞争的裁定性区分,唤醒边图已有零新解析;措辞遵 §7.4:runnable=调度压力,"算力"只留 compute_supply 交付口径——用户 2026-07-04 再次裁定) | P1 |
+| RN-15 | **runnable 等待双重发布且错挂 compute_supply token(实证 bug,违反 §7.4 需求/供给分离裁定)**:cust_large_3s 系统补充同一 runnable 等待(2.661/2.908ms)发布两次——`type=compute_supply, source=window_stats.compute_supply` 与 `type=runnable_wait, source=window_stats`;投影 E8/E9 行"影响点 compute_supply"。修复:审计 CMP-C 占用/供给接线,per-thread runnable 等待只走 runnable_wait/调度压力族;compute_supply 观测族只装交付侧(供给率/低频折损/闲置错配/核数受限,聚合级非 per-thread);消除双发;显示面"影响点"随 token 修正;全 display 串扫一遍"算力"误用于 runnable 语义处 | P1 |
+
+| RN-16 | **语义约束机械看护**(用户提问定稿,防后人误违反):(1) causal token 语义车道注册表(单一事实源:token→{Lane 需求/交付/链/IO/IRQ、Additivity 墙钟/跨线程cpu·ms/计数、Subject AggregateOnly?、显示 label}),观测/rank 构造收 typed 常量非裸串,golden snapshot 仿 B0 69-kind;(2) 裁定回归 pin 族 semantic_ruling_pins_test.go:RN-15 形态(compute_supply 禁 per-thread runnable)、加和车道表驱动扫描(CrossThreadCPUms 禁入 Σ/bar 面)、周期权威 0 等既有 pin 收编同族;(3) 措辞 lint 仿 glossary:"算力"只许出现在 LaneComputeDelivery label 白名单位置,"调度压力"同理;(4) 文档锚在决策点:注册表头注引 §7.4/§7.5,architecture.md 红线段+CLAUDE.md 指针 | P1 |
+
+**RN-16 落地(2026-07-04,RN-E 批)**:四层全部交付。(1) `internal/tracequery/causal_token_registry.go`——49 token 全集注册(grep 审计:rootCauseItem 全 call site+causalImpactRootType/aggregateRootCauseType/stateChurnRootCauseType/traceSpanSemanticWorkClass+chain RootEvidence+critical_blocking 构造+lock_contention kind+runnable_occupancy/compute_supply_balance 观测谓词),9 车道×3 加和类×3 subject 类+RowToken(行 token vs 观测/kind-only)+LabelZhRef(label 不迁移只引注归属 helper);构造收编取**最小侵入面**=两个既有 funnel(`rootCauseItem`+critical_blocking `add`)各插一行 `assertCausalTokenRow`(零签名改动,RN-A..D 未提交面未扰动),未注册 token/RowToken=false 上行面/aggregate-only 带 pid>0 或 comm → `testing.Testing()` 下 panic、生产 `logging.Warning`;golden=`causal_token_registry_golden_test.go`(49 行 `token|lane|additivity|subject|row|zhref` 全字段快照,仿 69-kind)。(2) pin 族双侧:tracequery 侧 `semantic_ruling_pins_test.go`——RN-15 形态 3 个 testdata fixture 全管线扫描(rank+evidence 面,泛化到全部 aggregate-only token)、engine `rootCauseAggregateMetricTypes`==注册表 CrossThreadCPUms 行集合相等互锁、§7.4/§7.5 车道裁定 verbatim pin(supply_pressure=需求车道+label 归 `runtimeTraceSupplyPressureDisplayLabel`;compute_supply/balance=交付车道 AggregateOnly)、跨轴不变量(AggregateOnly⇒非墙钟、per-thread 行⇒非跨线程加和)、guard 机制自 pin(panic/不 panic 双向);文件头=既有裁定 pin 族清单索引(RN-15/VS-1 周期节拍 lateness=0/墙钟不可加和/CMP-3 各留原文件,只列指针不迁移)。tool 侧 `semantic_ruling_pins_test.go`——`runtimeTraceProjCrossThreadAggregateType` 与注册表逐 token 相等 pin(TypeToken+Object 双 lane;无 aggregate_metric 标记恒 false 也 pin),LabelZhRef 列与 `runtimeTraceRootCauseTypeZHLabel`/`runtimeTraceSupplyPressureDisplayLabel` 双向锁(注册表说有 label 而 helper 返空、或 helper 有 label 而注册表标 verbatim,均炸)。互锁例外单点=`compute_supply`(注册 CrossThreadCPUms 但两消费集合今日不含——RN-15 杀 per-thread 面、producer 无 threadless 行,生产零聚合行;例外表 `causalRegistryCrossThreadRowExceptions` 自诚实 pin:条目进任一消费集合即要求删除例外)。(3) 措辞 lint=`internal/tool/semantic_wording_lint_test.go`(go/ast 扫 internal/tool+internal/tracequery 非测试文件字符串字面量;"算力"白名单 5 处 file::func(typelabels 供给 label/对比总览供给列/action·meaning 消费侧两 cell/compute_supply_balance stanza),"调度压力"/"需求积压"单源 `runtimeTraceSupplyPressureDisplayLabel`;violation 输出 file:line,白名单条目失配报 stale 防 rot)。(4) 文档锚:注册表头注(§7.4 裁定原文+§7.5 token 保留终局+改前必读/golden 同步四步协议)、architecture.md §7.2.1 新增"因果 token 语义车道红线"段、CLAUDE.md Repomap 红线下追加单行指针。`go test ./internal/tracequery/ ./internal/tool/` 全绿(guard 全程启用);VS-2 新 token(§7.10 (5))按注册表准入协议走 golden 增行。
+
+### 7.10 VS-2:on-chain running 节点供给折算缺口与共同根因(用户提案 2026-07-04,审视后定稿)
+
+**规则**:on-chain 节点 running>runnable 时,对其 running slice 按"大核最高频点"折算理想时长(逐 slice:该 slice 所在 CPU 治理频点 vs 大核簇 fmax;core_class/频点时间线已有,零新解析),**供给折算缺口 = running 墙钟 − 折算理想时长**(措辞钉死"按频点折算,不含微架构差异,缺口为下界")。决策表:缺口占比高(≥节点 running 20% ∧ ≥1ms 地板)∧ runnable 显著(**复用 RN-1 ≥窗10% 门**,同源防分叉)→ 供给缺口+调度压力共同根因;再有反转 → 三机制并列;runnable 不显著 → 供给缺口为主因,其余按 rank 常规排;**无缺口(满频满核)→ 肯定性标注"running 属真实工作量"**(第四分支,排除性裁定同 via_thread NOT 案价值)。
+
+**显著门修正(用户 2026-07-04 二审:纯相对阈值被宽窗稀释——3.3s 窗下 10%=330ms,200ms 绝对巨量积压(24 个 120fps 帧预算)漏判)**:RN-1/VS-2 共用显著门改为 **runnable_total ≥ min(窗长×10%, 100ms)**(相对∨绝对双基准单公式;窄窗相对基准生效,宽窗 100ms 绝对地板接管;窗越宽门单调更松,消灭稀释反直觉;两常量 typed+pin;仍软面专用宁松勿紧)。RN-B 已落的 0.10 单基准实现与 299.999/300.000 pin 随本裁定修正。
+
+**红线约束(审视结论)**:(1) 阈值为噪音信号,只驱动软面(标签/叙事),不进硬门;(2) 共同根因禁止合成总分——三机制口径不同不可加和(S1+墙钟裁定),呈现=主根因行接机制构成从句各带单位,**排序仍走 rank/有效归因不变**;(3) 命名"供给折算缺口",与反转"运行折算"分车道(RN-16 措辞 lint 各锁各);(4) 折算复用 VS-1 治理频点时间线口径(窗前历史不参与);(5) 新 typed 字段(SupplyFoldDeficitMS/IdealFoldedMS/FoldBasis)+ token 入 RN-16 注册表(Lane=ComputeDelivery,SubjectKind=PerThread——注意:这是**交付侧 per-thread 合法形态**(折算自该线程自身 running,非聚合),注册表 SubjectKind 约束按 token 分置,compute_supply 聚合 token 的 AggregateOnly 不变)。
+
+**VS-2b fmax 取数阶梯(用户追问定稿)**:各核最高频点三级来源——(1) sysfs 专用接口(cpuinfo_max_freq 硬件额定/scaling_max_freq 策略上限)离线 trace 不可得;(2) **trace 内 cpu_frequency_limits 事件(cpufreq 策略上限,引擎已解析 WindowStats.CPUFrequencyLimits per-CPU Min/Max)为离线最权威,存在时优先作 fmax**;(3) 观测治理时间线最高样点为回退(下界)。caveat 如实:limits 只在变更时发射(窗口治理语义取最近前置,缺席即回退观测级);limits 是策略上限含温控压频,非硬件额定("下界"措辞保留)。**附带 finding(零新解析)**:大核簇 limits.Max < 该簇全程观测更高频点 → 独立"策略/温控压频"结论(缺口部分源于压频而非调度)。FoldBasis 记录每 slice 的 limit/observed/unknown 来源构成。
+
+**VS-2c 簇频快速接口(用户追问定稿)**:泳道数据现状——C| 簇频 counter 泳道 max 已有 O(1)(T3 CounterDeltas 按名 keyed);clock_set_rate 簇时钟已解析含名**但仅计数,rate 值未保留**;无统一 per-簇 fmax 接口。设计:`WindowStats.ClusterFrequencyCeilings []{CoreClass,CPUs,FmaxKHz,Source(limit|observed)}` 窗口构建期一次计算、消费者 O(1)(VS-2 fold/compute_supply/显示共用);阶梯=per-CPU limits > 观测 max,按 core_class 聚簇,**全 cpu_id 键控精确信号**;**簇泳道角色裁定(红线)**:counter/clock 泳道名(cpu-cluster.0/厂商名)是 SoC 相关名字形态,簇归属禁名字猜测——泳道 max 只作旁证 caveat("簇泳道最高 X 与 fmax 一致/不一致"),不作 fold 基准;clock_set_rate 升级保留 rate 值作旁证源。
+
+**VS-2c 终局裁定(hmtrace+hiview 参考库研究,2026-07-04,证据在案)**:cpu-cluster.<N> **不是**机器封闭 token——两库 0 命中该字样;clock 名=厂商 DTS 自由词汇(trace_streamer 原样透传,db2systrace.py:495 注释自证异构);参考实现对 clock_set_rate 不做任何簇/CPU 绑定(hmtrace counters.rs:61 重发 cpu 硬编码 0);簇→CPU 权威映射在 sysfs policy 目录(hiview cpu_core_info_catcher.cpp:30-43 且为 12 核平台硬编码),trace 工件内无。**故簇泳道维持旁证 caveat 角色,fmax 阶梯维持 limits>观测(cpu_id 键控)**。附:harmony flavor 可 pin 封闭 token 清单=cpu_frequency/cpu_idle/cpu_frequency_limits{,_min,_max}(均带 cpu_id 键,counters.rs:15-31 佐证);clock_set_rate 仅事件外形可 pin,载荷名禁入封闭集;codrax 既有 isCPUFrequencyClock 名字启发(parse.go:2355)只准喂软引导,禁作 fmax 基准(复核轮加 pin)。克隆物留 scratchpad/refstudy 供复查。
+
+排 VS-2 批,依赖 RN-E(注册表先立,新 token 走注册表准入)。VS-2b/VS-2c 并入 VS-2 批实施(在途 lane 未含者由复核修正轮补齐)。
+
+裁定:RN-A 批=投影/显示面(RN-3 lead 平铺回退+标签一致、RN-2b、RN-5、RN-6、RN-8、RN-4);RN-B 批=engine/观测/门(RN-1 占用者观测发布+行尾注、RN-11);RN-C 批=RN-12/13(依赖 A/B 落地后同文件组);RN-D 批=RN-14 三层+RN-15(依赖 B 落地);RN-E 批=RN-16 看护(依赖 D 落地——注册表收编 D 修正后的 token 全集);VS-2 批=§7.10(依赖 E)。"锚点退化"定性:runnable 主导锚无唤醒边是数据事实,平铺本身正确;系统欠的是覆盖披露(RN-12)、锚点说明(RN-13)、占用者机制(RN-1)三件让平铺模式自解释的事。RN-3 标签规则=行"主根因"标签只跟随结论行实际消费(未被消费的 primary-tier 背景行降"背景·支撑参考+rank 注记");RN-1 观测=显著 runnable(≥窗 10%,精确比较)时发布 top-3 同窗占用者(typed,per-CPU 数据已在)。
+
+### 7.11 PP:泳道+事件解析平行审计(hmtrace/hiview 对照,2026-07-04,全量裁定见审计报告)
+
+**A 类需修正(2)**:A-1 数值字段不容忍浮点串——hmtrace REAL 列输出 "N.0" 形态,Atoi 静默清零,cpu_idle/cpu_frequency/limits/clock_set_rate 全部受害 → hmtrace 风味整窗频点时间线 fail-quiet 消失(修法=Atoi 失败回退 ParseFloat 截断,双容忍,不可改纯 float——export_format.rs 声明 INT 两态并存);A-2 kv 未引号值空格截断损坏 sched comm("Signal Catcher"→"Signal";PID 键控聚合不受影响,修法=sched comm 键边界回溯,不动全局 kvRE)。
+**B 类细化(6)**:B-1 prev_state 首字符覆盖集扩 I/T/t/X/Z(I 入睡眠族;HasPrefix 方向被参考消费端佐证);B-2 clock_set_rate 无键位置格式 rate 提取(**VS-2c 补充新证据**:不加位置回退旁证源在 hmtrace 风味为空);B-3 SpanPID 软推导进程分组(hitrace 专项批;task_rename 独立解析明说不做——newcomm≡oldcomm 零信息);B-4 print 非 mark 载荷类型化(低);B-5 合成泳道名词表只准进软引导(低);B-6 hiview transaction_proc **不做**(非 trace 面)。
+**C 类已更优防倒退(10,禁"对齐"回退)**:limits min/max 保真 vs hmtrace 有损折叠、waking/wakeup 并集、无名 E| 等价、H: 原样保留佐证、行首超集、softirq 尾括、簇判定无硬编码(vs hiview 12 核 policy 硬编码)、binder ftrace 族独有超集(两库 0 命中,防"参考没有所以删")、counter ParseFloat 已容忍、async 三元组精确。无动作观察 3 条(hmtrace 生成端固有:slice 末端 ts/wakeup CPU 缺省/dma_fence 单栈)入档防重查。
+**批次**:批 P=A-1+A-2+B-1(先行,含 hmtrace 风味回归 fixture);B-2 并入 VS-2b/2c 修正轮;B-3 hitrace 专项;B-4/5 低优先软词表。
+**批 P+VS-2b/c 落地注记(2026-07-04)**:全项交付;VS-2c(b) 实施中发现并封堵真实泄漏——parse.go:2090 名字启发把 cpu-freq 名泳道重分类 EventCPUFrequency,泳道样本(hmtrace CPU 硬编码 0)可混入链面频点索引,buildFreqIndex 已按 Name==clock_set_rate 精确排除+三探针守护 pin;B-1 裁定=T/t/X/Z 入新 StateStopped/StateDead typed 类而非塞既有五态 lane(压力面语义诚实);**遗留(排 ClusterFrequencyCeilings 接口批)**:重分类泳道事件仍进 window-stats freqByCPU(既有 keyed 行为,fold 面已隔离,window 面待接口批统一收口)。
+
 ### 7.7 Portal 呈现指引(NEW-10 配套,2026-07-04)
 
 投影树 fence 内容三端一致(HTML / markdown / 终端字节相同,v3 红线,无 per-surface 第二套渲染);网页端能否对齐取决于 portal 的 CSS。接入方建议:

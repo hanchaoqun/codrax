@@ -1258,6 +1258,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 
 **窗口纪律**：用户显式给出 `time_start`/`time_end` 时严格透传不误缩（三处窗口推导入口都以 `.Set()` typed 布尔为精确开关）；帧信息 + 显式窗口同时给出时用 `unionTimeWindows` 取并集（纯几何 min/max，显式 0 起点也保留）。
 
+**因果 token 语义车道红线（RN-16，§7.4/§7.5 用户裁定的机械看护）**：`internal/tracequery/causal_token_registry.go` 是全部因果 type token（root_cause_rank / critical_blocking 行、blocking-kind、runnable_occupancy / compute_supply_balance 观测谓词）语义车道的**单一事实源**——每 token 定 {Lane 需求/交付/链/IO/IRQ/…、Additivity 墙钟 per-thread / 跨线程 cpu·ms / 计数、SubjectKind per-thread / aggregate-only、zh label 归属 helper}。三条硬约束：(1) **需求/供给分离**——runnable 等待族只走 scheduling_demand 车道（措辞 调度压力/需求积压，单源 `runtimeTraceSupplyPressureDisplayLabel`），compute_supply 族只装聚合交付侧且永不带 per-thread subject（RN-15 形态）；"算力"措辞只许出现在 compute-delivery 车道 label 白名单位置（`TestSemanticWordingLaneLint`）。(2) **加和类别**——cross_thread_cpu_ms token 不入投影 bar 尺度锚定与任何跨行 Σ 面；注册表集合与 engine `rootCauseAggregateMetricTypes`、显示端 `runtimeTraceProjCrossThreadAggregateType` 三方相等 pin 互锁（`semantic_ruling_pins_test.go` 双侧）。(3) **构造收编**——rank/blocking 构造 funnel 运行期校验（`assertCausalTokenRow`）：未注册 token 或 aggregate-only 带 pid>0 在测试构建 panic、生产 WARN。全表由 golden snapshot 钉死（仿 69-kind）；改车道先读账本 §7.4/§7.5（`docs/design/customer_dead_session_audit_20260703.md`）。
+
 ### 7.3 analyze — 请求理解
 
 |||

@@ -56,6 +56,8 @@ For everything else — stage table, agent contracts, retry layering, write-mode
 
 Repomap red lines: `extToLang[".ts"] → LangArkTS` only when `IsArkTSProject` finds `oh-package.json5` in any ancestor; `.cjo` denied at scanner; Cangjie `FileInfo.Package` MUST come from `package_clause` (path inference forbidden); all parse fallbacks log `repomap: <lang> <file> tier N→M: <reason>` at WARN (format pinned by TestFallbackWarnLogFormatPinned).
 
+Trace causal-token red line: `internal/tracequery/causal_token_registry.go` is the single source of truth for causal token semantic lanes (demand/supply split, additivity, subject kind); before moving any token or wording lane read `docs/architecture.md` §7.2.1 and ledger §7.4/§7.5 (`docs/design/customer_dead_session_audit_20260703.md`).
+
 Evidence-lite runtime gate: `BaseAgent.executeTool` → `validateAnalyzerPrescanToolCall` rejects `grep` in `StageAnalyze` when `files_only` is not true.
 
 ## Architectural principle (red line)
