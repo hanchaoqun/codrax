@@ -3912,11 +3912,16 @@ func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
 			Summary:                      summary + " verdict=" + verdict,
 		})
 	}
+	// TSH review F4: the ComputeSupplySummary.State words minted here are
+	// dominant-lane wire tokens — computeSupplyDominantState passes them
+	// through verbatim into RootCauseRankItem.DominantState (root_cause_rank
+	// compute-supply lane), so they are typed constants, never raw literals.
+	// The mint set is pinned by the production-witness test.
 	for _, td := range stats.RunnableTop {
-		add(td, "runnable")
+		add(td, string(StateRunnable))
 	}
 	for _, td := range stats.TopRunning {
-		add(td, "running")
+		add(td, string(StateRunning))
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Confidence != out[j].Confidence {
@@ -4173,8 +4178,10 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 		// REAL churn row (two-window overlay counterexample: churn row present
 		// with the window cut before the Z exit, gone once the dead tail
 		// entered). Precise typed-state gate: stopped/dead are rejected exactly
-		// like Unknown and never open a churn segment.
-		if thread.PID <= 0 || state == StateUnknown || state == StateStopped || state == StateDead {
+		// like Unknown and never open a churn segment (shared authority:
+		// stateChurnOpenIneligible, thread_state_universe.go — same gate as the
+		// streaming face).
+		if stateChurnOpenIneligible(thread, state) {
 			return
 		}
 		open[thread.PID] = stateChurnOpen{thread: thread, state: state, ts: ts, line: line}
@@ -4189,7 +4196,9 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 				continue
 			}
 			start, ok := open[ev.WakeePID]
-			if !ok || start.state == StateRunning || start.state == StateRunnable || ev.Ts < start.ts {
+			// Shared wakeup-reopen guard (thread_state_universe.go) — same
+			// gate as the streaming face.
+			if !ok || stateChurnWakeupReopenIneligible(start.state) || ev.Ts < start.ts {
 				continue
 			}
 			closeState(ev.WakeePID, ev.Ts, ev.Line)
@@ -4486,24 +4495,9 @@ func renderStateChurnSummary(item ThreadStateChurnSummary) string {
 }
 
 func dominantChurnState(acc *stateChurnAcc) (string, float64) {
-	type candidate struct {
-		state string
-		ms    float64
-	}
-	candidates := []candidate{
-		{state: string(StateIOWait), ms: acc.ioWaitMs},
-		{state: string(StateDSleep), ms: acc.dStateMs},
-		{state: string(StateRunnable), ms: acc.runnableMs},
-		{state: string(StateSSleep), ms: acc.sleepMs},
-		{state: string(StateRunning), ms: acc.runningMs},
-	}
-	best := candidates[0]
-	for _, item := range candidates[1:] {
-		if item.ms > best.ms {
-			best = item
-		}
-	}
-	return best.state, best.ms
+	// Shared 5-lane pick (thread_state_universe.go) — same priority order the
+	// inline candidates array always used.
+	return dominantStateFromLanes(acc.runningMs, acc.runnableMs, acc.sleepMs, acc.dStateMs, acc.ioWaitMs)
 }
 
 func stateChurnNextStep(state string) string {
@@ -7948,24 +7942,10 @@ func wakeupCausalOccurrenceSelectionScore(item WakeupCausalOccurrence) float64 {
 }
 
 func dominantAggregateState(item WakeupCausalAggregate) (string, float64) {
-	type candidate struct {
-		state string
-		ms    float64
-	}
-	candidates := []candidate{
-		{state: string(StateIOWait), ms: item.IOWaitMs},
-		{state: string(StateDSleep), ms: item.DStateMs},
-		{state: string(StateRunnable), ms: item.RunnableMs},
-		{state: string(StateSSleep), ms: item.SleepMs},
-		{state: string(StateRunning), ms: item.RunningMs},
-	}
-	best := candidates[0]
-	for _, cand := range candidates[1:] {
-		if cand.ms > best.ms {
-			best = cand
-		}
-	}
-	return best.state, best.ms
+	// Shared 5-lane pick (thread_state_universe.go) — same priority order the
+	// inline candidates array always used (fourth copy, truth-table compared
+	// against the shared pick before the swap, TSH review F1).
+	return dominantStateFromLanes(item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs)
 }
 
 func mostFrequentString(in map[string]int) string {
@@ -9644,14 +9624,14 @@ func applySemanticTraceSpanState(item *RootCauseRankItem, state string, impactMs
 }
 
 func aggregateBlockingMs(item WakeupCausalAggregate) float64 {
-	if item.DominantState == string(StateDSleep) || item.DominantState == string(StateIOWait) {
+	if dominantStateIsDStateOrIOWait(item.DominantState) {
 		return item.DStateMs + item.IOWaitMs
 	}
 	return item.DominantImpactMs
 }
 
 func actualAggregateBlockingMs(item WakeupCausalAggregate) float64 {
-	if item.DominantState == string(StateDSleep) || item.DominantState == string(StateIOWait) {
+	if dominantStateIsDStateOrIOWait(item.DominantState) {
 		return item.ActualDStateMs + item.ActualIOWaitMs
 	}
 	switch item.DominantState {
@@ -9680,26 +9660,9 @@ func aggregateRootCauseIsPrioritySensitive(item WakeupCausalAggregate) bool {
 }
 
 func aggregateRootCauseType(item WakeupCausalAggregate) string {
-	switch item.DominantState {
-	case string(StateRunnable):
-		if item.PriorityInversion {
-			return "priority_inversion_runnable_wait"
-		}
-		return "runnable_wait"
-	case string(StateDSleep):
-		if item.IOWaitMs > 0 {
-			return "io_wait"
-		}
-		return "d_state_or_io_wait"
-	case string(StateIOWait):
-		return "io_wait"
-	case string(StateSSleep):
-		return "sleep_wait"
-	case string(StateRunning):
-		return "running"
-	default:
-		return "unknown_state"
-	}
+	// Shared root-type authority (thread_state_universe.go) — byte-identical
+	// twin of the causal-impact mapping.
+	return rootTypeForDominantState(item.DominantState, item.PriorityInversion, item.IOWaitMs)
 }
 
 func wakeupChainThreadSet(chain ChainResult) map[int]bool {
@@ -11732,24 +11695,10 @@ func summarizeThreadStateBreakdown(tl TimelineResult) *ThreadStateBreakdown {
 }
 
 func dominantThreadStateBreakdown(item ThreadStateBreakdown) string {
-	type candidate struct {
-		state string
-		ms    float64
-	}
-	candidates := []candidate{
-		{state: string(StateIOWait), ms: item.IOWaitMs},
-		{state: string(StateDSleep), ms: item.DStateMs},
-		{state: string(StateRunnable), ms: item.RunnableMs},
-		{state: string(StateSSleep), ms: item.SleepMs},
-		{state: string(StateRunning), ms: item.RunningMs},
-	}
-	best := candidates[0]
-	for _, cand := range candidates[1:] {
-		if cand.ms > best.ms {
-			best = cand
-		}
-	}
-	return best.state
+	// Shared 5-lane pick (thread_state_universe.go) — same priority order the
+	// inline candidates array always used.
+	dominant, _ := dominantStateFromLanes(item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs)
+	return dominant
 }
 
 func enrichCriticalBlockingWithChainContext(chain ChainResult, items []CriticalBlockingCandidate) []CriticalBlockingCandidate {
@@ -12465,24 +12414,9 @@ func extendActualWindow(window *TimeWindow, it Interval) {
 }
 
 func dominantCausalImpactState(item WakeupCausalImpact) (string, float64) {
-	type candidate struct {
-		state string
-		ms    float64
-	}
-	candidates := []candidate{
-		{state: string(StateIOWait), ms: item.IOWaitMs},
-		{state: string(StateDSleep), ms: item.DStateMs},
-		{state: string(StateRunnable), ms: item.RunnableMs},
-		{state: string(StateSSleep), ms: item.SleepMs},
-		{state: string(StateRunning), ms: item.RunningMs},
-	}
-	best := candidates[0]
-	for _, cand := range candidates[1:] {
-		if cand.ms > best.ms {
-			best = cand
-		}
-	}
-	return best.state, best.ms
+	// Shared 5-lane pick (thread_state_universe.go) — same priority order the
+	// inline candidates array always used.
+	return dominantStateFromLanes(item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs)
 }
 
 // priorityInversionGatedMs computes the R5d-gated inversion impact from the
@@ -12571,14 +12505,14 @@ func (c *chainQueryCache) weakCoreDeficitMs(consumers []ThreadRef, it Interval) 
 }
 
 func causalImpactBlockingMs(item WakeupCausalImpact) float64 {
-	if item.DominantState == string(StateDSleep) || item.DominantState == string(StateIOWait) {
+	if dominantStateIsDStateOrIOWait(item.DominantState) {
 		return item.DStateMs + item.IOWaitMs
 	}
 	return item.DominantImpactMs
 }
 
 func actualCausalImpactBlockingMs(item WakeupCausalImpact) float64 {
-	if item.DominantState == string(StateDSleep) || item.DominantState == string(StateIOWait) {
+	if dominantStateIsDStateOrIOWait(item.DominantState) {
 		return item.ActualDStateMs + item.ActualIOWaitMs
 	}
 	switch item.DominantState {
@@ -12662,26 +12596,9 @@ func rootEvidenceFromCausalImpact(item WakeupCausalImpact, fallback string, conf
 }
 
 func causalImpactRootType(item WakeupCausalImpact) string {
-	switch item.DominantState {
-	case string(StateRunnable):
-		if item.PriorityInversionCandidate {
-			return "priority_inversion_runnable_wait"
-		}
-		return "runnable_wait"
-	case string(StateDSleep):
-		if item.IOWaitMs > 0 {
-			return "io_wait"
-		}
-		return "d_state_or_io_wait"
-	case string(StateIOWait):
-		return "io_wait"
-	case string(StateSSleep):
-		return "sleep_wait"
-	case string(StateRunning):
-		return "running"
-	default:
-		return "unknown_state"
-	}
+	// Shared root-type authority (thread_state_universe.go) — byte-identical
+	// twin of the aggregate mapping.
+	return rootTypeForDominantState(item.DominantState, item.PriorityInversionCandidate, item.IOWaitMs)
 }
 
 func threadPriorityNear(idx *Index, flavor TraceFlavor, thread ThreadRef, ts float64) (int, string) {

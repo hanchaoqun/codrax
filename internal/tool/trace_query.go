@@ -5085,7 +5085,7 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{types.TraceNoteKeyGatedRunningDeficit, traceQueryObservationMSValue(impact.GatedRunningDeficitMs)},
 		{types.TraceNoteKeyRecommendedViews, strings.Join(views, ",")},
 		{types.TraceNoteKeyChainRequired, traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
-		{types.TraceNoteKeyRecursive, traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
+		{types.TraceNoteKeyRecursive, traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactRecursive(impact.DominantState))},
 		{types.TraceNoteKeyNextStep, impact.NextStep},
 		{types.TraceNoteKeyNextStepKind, impact.NextStepKind},
 	})
@@ -5164,12 +5164,25 @@ func traceQueryTypedSupplyFoldRichNotes(basis *tracequery.SupplyFoldBasis, defic
 	return notes
 }
 
+// traceQueryCausalImpactRecommendedViews / traceQueryCausalImpactNeedsChain /
+// traceQueryCausalImpactRecursive are the causal-impact twins of the
+// tracequery state_drilldown drilldown-plan trio (stateDrilldownRecommendedViews /
+// stateDrilldownNeedsWakeupChain / stateDrilldownNeedsRecursiveChainForSource)
+// — born byte-identical in 9d4e6958, then left behind when RN-11 (§7.9,
+// 7c5c236d) repointed the runnable branch at the CPU-competition surfaces.
+// TSH review F2 re-synced them and put both switches (and the recursive
+// comparison) under the dominant-state consumer pin
+// (trace_query_dominant_state_pin_test.go) so the next member change cannot
+// silently skip this copy again.
 func traceQueryCausalImpactRecommendedViews(impact tracequery.WakeupCausalImpact) []string {
 	switch impact.DominantState {
 	case string(tracequery.StateSSleep):
 		return []string{"wakeup_chain", "root_cause_rank"}
 	case string(tracequery.StateRunnable):
-		return []string{"scheduler_latency_stats", "root_cause_rank"}
+		// RN-11 (§7.9): runnable drilldown surfaces are CPU competition ones —
+		// scheduler latency, ranked competitors, and window_stats
+		// (cpu_occupancy top occupiers + compute_supply_balance).
+		return []string{"scheduler_latency_stats", "root_cause_rank", "window_stats"}
 	case string(tracequery.StateRunning):
 		return []string{"trace_perf_bundle", "perf_stats", "root_cause_rank"}
 	case string(tracequery.StateDSleep), string(tracequery.StateIOWait):
@@ -5181,11 +5194,29 @@ func traceQueryCausalImpactRecommendedViews(impact tracequery.WakeupCausalImpact
 
 func traceQueryCausalImpactNeedsChain(state string) bool {
 	switch state {
-	case string(tracequery.StateSSleep), string(tracequery.StateRunnable), string(tracequery.StateDSleep), string(tracequery.StateIOWait):
+	// RN-11 (§7.9): StateRunnable is deliberately absent — a runnable-dominant
+	// node is CPU competition, not a wakeup dependency, so chain_required must
+	// not push the model into a wakeup_chain drilldown of it. This is the
+	// causal-impact twin of stateDrilldownNeedsWakeupChain (tracequery); the
+	// engine copy shipped with RN-11 while this one was missed (TSH review F2).
+	// StateRunning never required a chain (occupancy: perf/compute-supply
+	// surfaces own it). Both absences are ledgered in the pin test.
+	case string(tracequery.StateSSleep), string(tracequery.StateDSleep), string(tracequery.StateIOWait):
 		return true
 	default:
 		return false
 	}
+}
+
+// traceQueryCausalImpactRecursive mirrors stateDrilldownNeedsRecursiveChainForSource:
+// RN-11 drops the wakeup-chain REQUIREMENT for runnable-dominant nodes but
+// keeps them recursive root-cause candidates (occupancy / scheduler-latency
+// drilldown), so the recursive note must not collapse into needs-chain.
+func traceQueryCausalImpactRecursive(state string) bool {
+	if state == string(tracequery.StateRunnable) {
+		return true
+	}
+	return traceQueryCausalImpactNeedsChain(state)
 }
 
 func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAggregate) []string {

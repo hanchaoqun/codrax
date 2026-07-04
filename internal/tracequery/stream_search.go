@@ -291,8 +291,9 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		// (computeStateChurnSummaries) — stopped/dead segments never open. The
 		// five-state lanes skip them, so they would inflate ONLY fragments/
 		// switches/maxSegment and let a dead exit tail suppress a real churn
-		// row via the maxSegment>=70% gate downstream.
-		if thread.PID <= 0 || state == StateUnknown || state == StateStopped || state == StateDead {
+		// row via the maxSegment>=70% gate downstream. Shared authority:
+		// stateChurnOpenIneligible (thread_state_universe.go).
+		if stateChurnOpenIneligible(thread, state) {
 			return
 		}
 		open[thread.PID] = stateChurnOpen{thread: thread, state: state, ts: ts, line: line}
@@ -362,7 +363,9 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 					continue
 				}
 				start, ok := open[ev.WakeePID]
-				if !ok || start.state == StateRunning || start.state == StateRunnable || ev.Ts < start.ts {
+				// Shared wakeup-reopen guard (thread_state_universe.go) —
+				// same gate as the indexed face.
+				if !ok || stateChurnWakeupReopenIneligible(start.state) || ev.Ts < start.ts {
 					continue
 				}
 				closeState(ev.WakeePID, ev.Ts, ev.Line)

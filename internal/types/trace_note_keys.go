@@ -153,6 +153,18 @@ const (
 const TraceNoteKeyActualPrefix = "actual_"
 
 // 状态族 (state family).
+//
+// NKR×TSK intersection, deliberate (TSH review F7 ruling: feature retention,
+// lanes orthogonal): five KEY NAMES below (running / runnable / sleep /
+// d_state / io_wait) are spelled with the same words as the scheduler-state
+// word registry (trace_state_kinds.go, TSK). They are NOT the same lane:
+// here the word is a rich-note KEY whose VALUE is a per-state ms duration
+// ("runnable=12.400"); in TSK the word is itself the VALUE domain of
+// StateKind / dominant_state notes. Both registries guard their own lane and
+// the goldens never merge. Rename protocol: changing any of these five words
+// on EITHER side is a wire-format change that must visit BOTH registries (and
+// both golden/pin sets) in the same change — trace_state_kinds.go's header
+// carries the mirror pointer.
 const (
 	TraceNoteKeyDominantState  = "dominant_state"
 	TraceNoteKeyRunning        = "running"

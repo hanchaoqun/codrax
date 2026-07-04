@@ -278,6 +278,123 @@ func TestPerCPULimitSampleAdmissionCrossFaceIdentity(t *testing.T) {
 	}
 }
 
+// TestPerCPUFrequencySampleAdmissionCrossFaceIdentity is the TSH P1-2 witness
+// (memory reaudit; NEW-7/CFC dual-collection-loop model, twin of the limits
+// witness above): the THREE cpu_frequency collection loops — window face
+// ComputeWindowStats freqByCPU, window face #2 buildSchedulerLatencyStatsFrom
+// Stats freqByCPU (previously coupled to #1 only by the "must stay
+// member-identical" comment), and fold face chainQueryCache.buildFreqIndex —
+// must all admit exactly the event set the ONE shared predicate
+// isPerCPUFrequencySample admits, with the ONE shared CPU attribution rule
+// (cpu_id key when present, else emitting CPU). One synthetic event set feeds
+// all faces; tampering any loop's admission (dropping the predicate call,
+// widening it to a bare Type check, or losing the cpu_id attribution) flips
+// an assertion below.
+//
+// Current-state pin, post-CFC (a859d9c0 "window-face lane cleanup"): the 批P
+// leftover — reclassified clock lanes entering window-stats freqByCPU — was
+// CLOSED by CFC P0; this witness pins the closed state (lane rows excluded on
+// every face), not the pre-CFC behavior.
+func TestPerCPUFrequencySampleAdmissionCrossFaceIdentity(t *testing.T) {
+	// Discriminating rows: a genuine pre-window head-governing sample
+	// (admitted, 1.0GHz), a reclassified clock lane at 5.0GHz (excluded — if
+	// admitted it becomes the head-governing frequency), a zero-frequency
+	// sample (excluded), a limits row (non-frequency type, excluded), and an
+	// in-window genuine sample emitted on cpu0 but keyed cpu_id=3 (admitted —
+	// exercises the shared attribution rule), plus a runnable wait for app on
+	// cpu3 (wakeup 5.000 → switch-in 5.002) so BOTH window faces mint a
+	// frequency-bearing observable for the same segment.
+	idx := buildTraceIndex(t, "tsh_freq_admission.systrace", `
+      <idle>-0 (-----) [003] .... 4.900000: cpu_frequency: state=1000000 cpu_id=3
+          clk-90 (  90) [003] .... 4.950000: clock_set_rate: cpu_freq 5000000
+      <idle>-0 (-----) [000] .... 4.960000: cpu_frequency_limits: min=500000 max=2400000 cpu_id=3
+      <idle>-0 (-----) [003] .... 4.970000: cpu_frequency: state=0 cpu_id=3
+       hi-101 (  101) [003] .... 5.000000: sched_wakeup: comm=app pid=100 prio=120 target_cpu=003
+      <idle>-0 (-----) [000] .... 5.001000: cpu_frequency: state=1200000 cpu_id=3
+       hi-101 (  101) [003] .... 5.002000: sched_switch: prev_comm=hi prev_pid=101 prev_prio=120 prev_state=S ==> next_comm=app next_pid=100 next_prio=120
+        app-100 (  100) [003] .... 5.004000: sched_switch: prev_comm=app prev_pid=100 prev_prio=120 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120
+	`)
+
+	// Fixture drift guards: every excluded/attribution probe must exist in
+	// its discriminating shape, or the witness silently stops witnessing.
+	var sawLane, sawZero, sawKeyed bool
+	for _, ev := range idx.Events {
+		if ev.Type == EventCPUFrequency && ev.Name == "clock_set_rate" && ev.Frequency == 5000000 {
+			sawLane = true
+		}
+		if ev.Type == EventCPUFrequency && ev.Name != "clock_set_rate" && ev.Frequency == 0 {
+			sawZero = true
+		}
+		if ev.Type == EventCPUFrequency && ev.Frequency == 1200000 && ev.CPU == 0 && ev.CPUForFieldValid && ev.CPUForField == 3 {
+			sawKeyed = true
+		}
+	}
+	if !sawLane || !sawZero || !sawKeyed {
+		t.Fatalf("fixture drift: lane=%t zero=%t keyed=%t — all three probes must parse in their discriminating shape", sawLane, sawZero, sawKeyed)
+	}
+
+	// The single-definition admission set (shared predicate + shared CPU
+	// attribution over the full trace).
+	expected := map[int][]freqSample{}
+	for _, ev := range idx.Events {
+		if isPerCPUFrequencySample(ev) {
+			expected[eventCPUForStats(ev)] = append(expected[eventCPUForStats(ev)], freqSample{ts: ev.Ts, khz: ev.Frequency})
+		}
+	}
+	if len(expected) != 1 || len(expected[3]) != 2 ||
+		expected[3][0].khz != 1000000 || expected[3][1].khz != 1200000 {
+		t.Fatalf("admission set wrong: lane/zero/limits rows must be excluded and both genuine samples must attribute to cpu3: %+v", expected)
+	}
+
+	// Fold face: member-identical to the single definition (full trace, no
+	// window convention).
+	c := newChainQueryCache(idx)
+	c.buildFreqIndex()
+	if !reflect.DeepEqual(c.freqByCPU, expected) {
+		t.Fatalf("fold-face frequency admission diverged from isPerCPUFrequencySample:\n got %+v\nwant %+v", c.freqByCPU, expected)
+	}
+
+	q := Query{TimeStart: 5.0, TimeEnd: 5.010, MinDurationMs: 1}
+
+	// Window face #1 (ComputeWindowStats freqByCPU → computeOffCPUStats): the
+	// app runnable wait's frequency reads the head-governing ADMITTED sample
+	// (1.0GHz at 4.900). An admitted 5.0GHz lane row (4.950) would become the
+	// head-governing value; an attribution break would strand the samples on
+	// the emitting CPU and yield 0.
+	stats := ComputeWindowStats(idx, q)
+	var runnableApp *ThreadDuration
+	for i := range stats.RunnableTop {
+		if stats.RunnableTop[i].Thread.PID == 100 {
+			runnableApp = &stats.RunnableTop[i]
+		}
+	}
+	if runnableApp == nil {
+		t.Fatalf("fixture drift: app(100) must appear in RunnableTop: %+v", stats.RunnableTop)
+	}
+	if runnableApp.CPU != 3 || runnableApp.Frequency != 1000000 {
+		t.Fatalf("window-face #1 frequency admission diverged from isPerCPUFrequencySample: cpu=%d freq=%d (want cpu3 @ head-governing 1000000)", runnableApp.CPU, runnableApp.Frequency)
+	}
+
+	// Window face #2 (buildSchedulerLatencyStatsFromStats freqByCPU): the
+	// same wait's latency item reads the same admitted timeline — start
+	// frequency 1.0GHz, in-segment max 1.2GHz, duration-weighted 1.1GHz.
+	lat := BuildSchedulerLatencyStats(idx, q)
+	var latApp *SchedulerLatencyItem
+	for i := range lat.Items {
+		if lat.Items[i].Thread.PID == 100 {
+			latApp = &lat.Items[i]
+		}
+	}
+	if latApp == nil {
+		t.Fatalf("fixture drift: app(100) must yield a scheduler-latency item: %+v", lat.Items)
+	}
+	if latApp.CPU != 3 || latApp.Frequency != 1000000 ||
+		latApp.ObservedMaxFrequency != 1200000 || latApp.WeightedFrequency != 1100000 {
+		t.Fatalf("window-face #2 frequency admission diverged from isPerCPUFrequencySample: cpu=%d freq=%d observed_max=%d weighted=%d (want 3 / 1000000 / 1200000 / 1100000)",
+			latApp.CPU, latApp.Frequency, latApp.ObservedMaxFrequency, latApp.WeightedFrequency)
+	}
+}
+
 // TestClusterCeilingsHeaderContractPinned is the F2(b) (2026-07-05 review)
 // header-honesty pin, following the repo's source-reading pin precedent
 // (TestRootCauseTypeZHLabelCoversWeightUniverse): the cluster_ceilings.go

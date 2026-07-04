@@ -1142,10 +1142,12 @@ func traceCausalProjectionUndrillableReason(record ObservationRecord) string {
 // traceCausalProjectionCanonicalStateWord returns the raw string when it names a
 // recognized scheduler state, else "". Used to derive StateKind from a node's
 // Object without letting non-state cause categories leak into the state column.
+// The recognized set IS the registered state-kind universe
+// (trace_state_kinds.go) — this production gate reads the single authority, so
+// a universe member is producible by construction and a non-member can never
+// enter StateKind through the Object lane.
 func traceCausalProjectionCanonicalStateWord(raw string) string {
-	switch strings.TrimSpace(strings.ToLower(raw)) {
-	case "running", "runnable", "sleep", "s_sleep", "sleep_wait",
-		"d_sleep", "d_state", "io_wait", "uninterruptible_sleep":
+	if TraceStateKindRegistered(strings.TrimSpace(strings.ToLower(raw))) {
 		return strings.TrimSpace(raw)
 	}
 	return ""
