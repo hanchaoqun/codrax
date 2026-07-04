@@ -4396,3 +4396,7 @@ Remaining follow-up:
 - Focused packages: `go test ./internal/types ./internal/analysis/compiler ./internal/analysis/criterion ./internal/orchestrator ./internal/agent -run 'Dependency|Artifact|ReadLoopNextAction|DispatchPolicy|ExecutionPolicy|StageRunner|EvidenceReducer|ReadRunSnapshot'`
 - Full regression: `go test ./...` and `make` after each load-bearing batch.
 - Representative eval: 继续按 2 并行、6 case 一批，人工审计日志中的噪音、repo_map/tracequery 使用、轮次、wall time、handoff 保真与最终答案正确性。
+
+## D2 商用代表批复跑记录(2026-07-05,联合 eval 战役阶段2)
+
+按 §"下一步最高杠杆顺序"执行 D2 6-case 商用代表批(默认商用模型 MiniMax-M2.7-highspeed,PARALLEL=2,HEAD=6e6c31ae):**6/6 PASS,计数器全零(0 repair/0 reject/0 sem)**——qf_relation_subagent_registry 114s、arkts_repomap 129s、cangjie_repomap 227s(20260628 FAIL→PASS,F10g.240 系修复确认)、trace_query_openharmony_bytrace_thread 285s(perf_triage+trace_query runtime lane)、read_combo_log_current_source_explanation 125s、read_combo_trace_current_source_explanation 317s(20260628 FAIL→PASS,exclude fail-open 修复确认)。summary=eval/parallel_selected_summary.md@20260705-030201。**Stage 1 routine auto-resume / Stage 2 AnalyzeRefine / Stage 3 add-proof 的"代表性 eval 仍 open"标记按本批证据关闭商用验证债**;event replay cutover 与更强 proof/localization 策略按原计划"基于 D2 新证据再裁"——本批 6/6 零修复零拒绝的证据面下,无新增 P0 护栏需求,cutover 裁定留待下一个功能需求驱动(不为切而切)。同批 primary-model(M3)A1 验收 2/2 已另行记账(arch_stability 账本)。
