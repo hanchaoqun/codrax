@@ -224,7 +224,9 @@
 
 ### 7.5 CMP 专项收口(2026-07-04)
 
-四批全部交付并推送:V 批(d3a6bae6,回访 5 gap+复核 5)、CMP-A(8903ff36,多工件架构+复核 7,含 P1 锚窗语义:生产端 selected_window= note+消费端删包络通道)、CMP-B(89f9469c,快照分层/噪音折叠/平铺一致性+复核 2)、CMP-C(74533e20,占用侧四面分解/归一化密度三面/调度压力重标注+compute_supply 三分解/对比引导+单边未采样提示+复核 8:fmax 窗界治理、幽灵 CPU 排除、窗头 runnable 播种+下界披露、idle 判据收敛、compute_supply_balance 观测契约+对比表供给列、census 逻辑 capture 身份归并、TierB lint 盲区、锁步裁定落地)。CMP-1..10 全清账;四轮对抗复核 22 条 finding 全收零遗留。跟踪余项:supply_pressure wire token 迁移(R2' 单独裁定,display 已重标注);对比场景实战效果待客户回访/代表性 eval。
+四批全部交付并推送:V 批(d3a6bae6,回访 5 gap+复核 5)、CMP-A(8903ff36,多工件架构+复核 7,含 P1 锚窗语义:生产端 selected_window= note+消费端删包络通道)、CMP-B(89f9469c,快照分层/噪音折叠/平铺一致性+复核 2)、CMP-C(74533e20,占用侧四面分解/归一化密度三面/调度压力重标注+compute_supply 三分解/对比引导+单边未采样提示+复核 8:fmax 窗界治理、幽灵 CPU 排除、窗头 runnable 播种+下界披露、idle 判据收敛、compute_supply_balance 观测契约+对比表供给列、census 逻辑 capture 身份归并、TierB lint 盲区、锁步裁定落地)。CMP-1..10 全清账;四轮对抗复核 22 条 finding 全收零遗留。跟踪余项:对比场景实战效果待客户回访/代表性 eval。
+
+**supply_pressure token 终局裁定(2026-07-04,用户裁定,项关闭)**:**token 保留 + 显示层分离**。wire token `supply_pressure` 永久保留不迁移;需求积压语义由显示层承担(全部显示面经唯一 helper `runtimeTraceSupplyPressureDisplayLabel` 渲染"调度压力(需求积压)"/"scheduling pressure (demand backlog)",明细表"类型"列与叙事括注保留 verbatim token 作审计对账)。理由:(1) LLM 与客户只消费显示文本,token 纯内部命名;(2) 迁移成本(约 12 个生产点+全量 goldens+旧 session 工件别名过渡)只换内部命名一致性,风险收益比不成立;(3) verbatim token 保住与历史 session/外部日志的可对账性。R2' 适用性判定:已交付的 CMP 改动均为系统内部确定性信号(非 LLM-emit 契约面),六处同步无触发点;本裁定后 token 迁移不再是开放项。后续任何人重提改名,先读本段。
 
 ### 7.3 CMP-9:跨 trace 聚合对比必须归一化(用户追问暴露,P0 级口径缺陷)
 
