@@ -252,6 +252,8 @@
 
 **supply_pressure token 终局裁定(2026-07-04,用户裁定,项关闭)**:**token 保留 + 显示层分离**。wire token `supply_pressure` 永久保留不迁移;需求积压语义由显示层承担(全部显示面经唯一 helper `runtimeTraceSupplyPressureDisplayLabel` 渲染"调度压力(需求积压)"/"scheduling pressure (demand backlog)",明细表"类型"列与叙事括注保留 verbatim token 作审计对账)。理由:(1) LLM 与客户只消费显示文本,token 纯内部命名;(2) 迁移成本(约 12 个生产点+全量 goldens+旧 session 工件别名过渡)只换内部命名一致性,风险收益比不成立;(3) verbatim token 保住与历史 session/外部日志的可对账性。R2' 适用性判定:已交付的 CMP 改动均为系统内部确定性信号(非 LLM-emit 契约面),六处同步无触发点;本裁定后 token 迁移不再是开放项。后续任何人重提改名,先读本段。
 
+**[账本卫生标注 2026-07-05] NEW-1..10 已交付** — commit `7f76ed77`(2026-07-04,comparison-revisit hardening,含两轮对抗复核修正);NEW-10 的 portal 呈现指引即 §7.7(其 F-2/F-3 收紧记录亦在 §7.7)。supply_pressure token 终局裁定(上段)为**关闭项**,重提先读该段与账本 §7.4/§7.5。
+
 ### 7.8 VS-1:周期性信号源的因果计数口径(客户裁定,设计定稿)
 
 **问题(vsync_cust.txt,旧版输出+代码核对确认)**:VSync 是固定周期的帧信号发生器,期内睡眠是正常节拍;但 `causalImpactBlockingMs`(query.go:11730)对 sleep 主导 occurrence 全额计 impact,零周期性感知 → VSyncGenerator 每 8.33ms 周期内 5-6ms 正常空闲、主线程逐帧等待的 5.8-6.4ms 正常睡眠(E10 合计 36.256ms)全被计为根因影响;旧答案据此把"5.2-6.2ms sleep 波动"叙述成抖动根因——数据自证信号没迟到(actual_window 跨度 8.287-8.360ms,方差 ±0.04ms)。
@@ -265,6 +267,8 @@
 4) **红线合规**:15% 容差是噪音阈值 → 只驱动软面(计数/标签/排序),不进任何硬门;runnable 与迟到量是精确算术。berlin 案预期效果:E1/E10 折减至 ≈抖动和(≈0.2ms),真实 impact 行(RSUniRender running 4.115/binder 4.577/runnable 片段)自然上浮。
 
 排队:回访批推送后作为下一批(VS 批)实施。
+
+**[账本卫生标注 2026-07-05] 已交付** — VS-1 于 2026-07-04 落地(commit `ea74a11c`,对抗复核 6 finding 全收;F1 高危=检测输入是分支选择后的等待段、宽窗可伪造迟到,已按阻塞口径修根)。交付形态较本节设计稿收紧:周期检测=同 (waker→target) **≥5** 次 sleep 主导 occurrence(设计稿 ≥3)+ lower-median 周期 + k·p 缺口剔除(分支 top-N 免疫)+ 早发 >15% veto/晚发不 veto(晚发超出量就是 finding)+ ≥2/3 带内门(设计稿全带内);Effective=runnable+迟到量且**权威 0**(typed PeriodicSource 短路一切可能复活 raw sleep 的 fallback);raw 无损,rank/Score/V1 结论选择器/对比总览主 cell/覆盖行全消费折减值,覆盖行第三项"期内正常节拍"(不计归因也不属残差),周期行带图例条目。**berlin 实证:36.256ms→0.105ms**(仅 runnable;0.071ms 带内抖动正确不计迟到),真实 impact(RSUniRender running 4.115ms/binder 4.577ms)上浮为主导。"周期节拍 lateness=0" 裁定回归 pin 已收编入 `semantic_ruling_pins_test.go` pin 族索引(见 §7.9 RN-16 落地注记)。
 
 ### 7.9 RN 系列:runnable 主导场景审计(2026-07-04,cust_runnable.txt + cust_large_3s.txt)
 
@@ -292,6 +296,8 @@
 
 **RN-16 落地(2026-07-04,RN-E 批)**:四层全部交付。(1) `internal/tracequery/causal_token_registry.go`——49 token 全集注册(grep 审计:rootCauseItem 全 call site+causalImpactRootType/aggregateRootCauseType/stateChurnRootCauseType/traceSpanSemanticWorkClass+chain RootEvidence+critical_blocking 构造+lock_contention kind+runnable_occupancy/compute_supply_balance 观测谓词),9 车道×3 加和类×3 subject 类+RowToken(行 token vs 观测/kind-only)+LabelZhRef(label 不迁移只引注归属 helper);构造收编取**最小侵入面**=两个既有 funnel(`rootCauseItem`+critical_blocking `add`)各插一行 `assertCausalTokenRow`(零签名改动,RN-A..D 未提交面未扰动),未注册 token/RowToken=false 上行面/aggregate-only 带 pid>0 或 comm → `testing.Testing()` 下 panic、生产 `logging.Warning`;golden=`causal_token_registry_golden_test.go`(49 行 `token|lane|additivity|subject|row|zhref` 全字段快照,仿 69-kind)。(2) pin 族双侧:tracequery 侧 `semantic_ruling_pins_test.go`——RN-15 形态 3 个 testdata fixture 全管线扫描(rank+evidence 面,泛化到全部 aggregate-only token)、engine `rootCauseAggregateMetricTypes`==注册表 CrossThreadCPUms 行集合相等互锁、§7.4/§7.5 车道裁定 verbatim pin(supply_pressure=需求车道+label 归 `runtimeTraceSupplyPressureDisplayLabel`;compute_supply/balance=交付车道 AggregateOnly)、跨轴不变量(AggregateOnly⇒非墙钟、per-thread 行⇒非跨线程加和)、guard 机制自 pin(panic/不 panic 双向);文件头=既有裁定 pin 族清单索引(RN-15/VS-1 周期节拍 lateness=0/墙钟不可加和/CMP-3 各留原文件,只列指针不迁移)。tool 侧 `semantic_ruling_pins_test.go`——`runtimeTraceProjCrossThreadAggregateType` 与注册表逐 token 相等 pin(TypeToken+Object 双 lane;无 aggregate_metric 标记恒 false 也 pin),LabelZhRef 列与 `runtimeTraceRootCauseTypeZHLabel`/`runtimeTraceSupplyPressureDisplayLabel` 双向锁(注册表说有 label 而 helper 返空、或 helper 有 label 而注册表标 verbatim,均炸)。互锁例外单点=`compute_supply`(注册 CrossThreadCPUms 但两消费集合今日不含——RN-15 杀 per-thread 面、producer 无 threadless 行,生产零聚合行;例外表 `causalRegistryCrossThreadRowExceptions` 自诚实 pin:条目进任一消费集合即要求删除例外)。(3) 措辞 lint=`internal/tool/semantic_wording_lint_test.go`(go/ast 扫 internal/tool+internal/tracequery 非测试文件字符串字面量;"算力"白名单 5 处 file::func(typelabels 供给 label/对比总览供给列/action·meaning 消费侧两 cell/compute_supply_balance stanza),"调度压力"/"需求积压"单源 `runtimeTraceSupplyPressureDisplayLabel`;violation 输出 file:line,白名单条目失配报 stale 防 rot)。(4) 文档锚:注册表头注(§7.4 裁定原文+§7.5 token 保留终局+改前必读/golden 同步四步协议)、architecture.md §7.2.1 新增"因果 token 语义车道红线"段、CLAUDE.md Repomap 红线下追加单行指针。`go test ./internal/tracequery/ ./internal/tool/` 全绿(guard 全程启用);VS-2 新 token(§7.10 (5))按注册表准入协议走 golden 增行。
 
+**[账本卫生标注 2026-07-05] RN 系列全量交付(RN-16 见上段落地注记;其余各批证据如下)** — engine 半场 commit `7c5c236d`:RN-11(完成门对 runnable 主导行改荐 scheduler_latency/occupancy 面)、RN-14(wakeup_chain via_thread,NOT-on-chain 判语="仅调度竞争(就绪排队)")、RN-15(per-thread runnable 只走需求车道,compute_supply 聚合 only 构造守卫封双发)。report 半场 commit `5dc90edc`:RN-1(同窗占用者 roster)、RN-2b(⚠跨窗 门控,代码锚 `answer_document_mutation_runtime_tree.go:2767`)、RN-3(结论行回退最大 on-chain 平铺行+"主根因"标签随实际消费)、RN-4(`<...>-N`→"线程名未记录(tid N)")、RN-5(锚窗回退准入 wakeup_causal_impact 族)、RN-6("目标等待(睡眠/阻塞/就绪)"分母纳入 runnable)、RN-8(整窗等待(疑似空闲)标注)、RN-12/13(平铺自解释:全量 runnable 交叉引用+header 锚点说明+next-step wakeup_chain 引导)、显著门 min(窗10%,100ms)。文档收口 commit `7332a5f0`。**RN-10 非交付项**:维持"记录、暂不合并"裁定,按设计不动。
+
 ### 7.10 VS-2:on-chain running 节点供给折算缺口与共同根因(用户提案 2026-07-04,审视后定稿)
 
 **规则**:on-chain 节点 running>runnable 时,对其 running slice 按"大核最高频点"折算理想时长(逐 slice:该 slice 所在 CPU 治理频点 vs 大核簇 fmax;core_class/频点时间线已有,零新解析),**供给折算缺口 = running 墙钟 − 折算理想时长**(措辞钉死"按频点折算,不含微架构差异,缺口为下界")。决策表:缺口占比高(≥节点 running 20% ∧ ≥1ms 地板)∧ runnable 显著(**复用 RN-1 ≥窗10% 门**,同源防分叉)→ 供给缺口+调度压力共同根因;再有反转 → 三机制并列;runnable 不显著 → 供给缺口为主因,其余按 rank 常规排;**无缺口(满频满核)→ 肯定性标注"running 属真实工作量"**(第四分支,排除性裁定同 via_thread NOT 案价值)。
@@ -309,6 +315,8 @@
 排 VS-2 批,依赖 RN-E(注册表先立,新 token 走注册表准入)。VS-2b/VS-2c 并入 VS-2 批实施(在途 lane 未含者由复核修正轮补齐)。
 
 裁定:RN-A 批=投影/显示面(RN-3 lead 平铺回退+标签一致、RN-2b、RN-5、RN-6、RN-8、RN-4);RN-B 批=engine/观测/门(RN-1 占用者观测发布+行尾注、RN-11);RN-C 批=RN-12/13(依赖 A/B 落地后同文件组);RN-D 批=RN-14 三层+RN-15(依赖 B 落地);RN-E 批=RN-16 看护(依赖 D 落地——注册表收编 D 修正后的 token 全集);VS-2 批=§7.10(依赖 E)。"锚点退化"定性:runnable 主导锚无唤醒边是数据事实,平铺本身正确;系统欠的是覆盖披露(RN-12)、锚点说明(RN-13)、占用者机制(RN-1)三件让平铺模式自解释的事。RN-3 标签规则=行"主根因"标签只跟随结论行实际消费(未被消费的 primary-tier 背景行降"背景·支撑参考+rank 注记");RN-1 观测=显著 runnable(≥窗 10%,精确比较)时发布 top-3 同窗占用者(typed,per-CPU 数据已在)。
+
+**[账本卫生标注 2026-07-05] VS-2 批已交付(含 VS-2b/2c)** — engine commit `7c5c236d`:per-slice 频点折算(fmax 阶梯=policy cpu_frequency_limits 优先、观测治理时间线回退、厂商簇泳道仅旁证不作基准)、identity-pin ideal+deficit==running、压频如实披露、unknown slice 不伪造缺口;report commit `5dc90edc`:共同根因机制构成从句(各带单位不加和、排序不动)、"满频大核运行=真实工作量"肯定性分支、"频点数据不完整"诚实分支;显著门修正 min(窗10%,100ms) 同批落地。VS-2b/2c 落地注记见 §7.11 末行(批 P 条目)。
 
 ### 7.11 PP:泳道+事件解析平行审计(hmtrace/hiview 对照,2026-07-04,全量裁定见审计报告)
 

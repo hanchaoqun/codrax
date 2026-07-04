@@ -189,6 +189,33 @@ file when that prose refers to per-shape source-inventory guard work.
 | RNE-C15 | open under contract-severity owner | Blocking user-answer defects, repaired schema drift, and audit-only annotation gaps still need a typed severity split. |
 | RNE-C65 | mostly delivered; residual observation-carrier follow-up | Prescan required-file projection is delivered. Add a typed observation carrier only if future logs show useful prescan candidates hidden behind blob-only refs. |
 
+2026-07-05 ledger-hygiene closure annotations (verified against git; annotations
+only, no historical rows rewritten):
+
+- RNE-C23: **closed**. Code: class-universe absence gating delivered across
+  Batch U9b/U9c/U9d/U9e/U9j (rows above) plus the repo-wide auxiliary
+  source-class census `d2ca2724` and loop-gate universe consumption `71528b1b`
+  (both 2026-06-21). Eval: `arkts_repomap` PASS in the D2 six-case commercial
+  representative rerun 6/6 (`e15c1d19`, 2026-07-05, 129s, zero
+  repair/reject/sem counters) — this satisfies the rerun-required closure
+  demanded by ir_execution_engine_stage_direction_plan_20260621.md ("不能沿用
+  旧失败口径,必须重跑 eval 确认,以 RNE tracker 为单一真源").
+- RNE-C32: **closed**. Executable authority delivered: Batch U9c pre-complete
+  lens-execution gate, Batch U7b typed file-family absence-proof gate, and
+  `d9cd7673` source-inventory completion authority. The same D2 rerun records
+  `repo_map=2` / `source_lens=2` on the passing `arkts_repomap` run, directly
+  refuting the original `repo_map=0` / prompt-advisory failure mode.
+- RNE-C61: **closed** by `fa08860d` (2026-06-21, "close RNE-C61 — repo-truth
+  absence universe + evidence-repair lane tool exposure"), following the U9k
+  restricted-surface overlay slice; the closure was recorded in
+  ir_execution_engine_stage_direction_plan_20260621.md:235 but not in this
+  tracker until now.
+- Batch U1: **still partial as of 2026-07-05** (audited; deliberately NOT
+  closed). The pre-complete executable lens gate is delivered, but the
+  remaining half — scheduler/localizer auto-execution before model close
+  attempts, and the inventory-lane telemetry split (Batch U2 / Batch U7, both
+  still planned) — has no delivery evidence in git.
+
 Eval telemetry now parses Markdown summary rows for `explorer_iters` and
 `explorer_dispatches`. The high-water thresholds are typed constants:
 `explorer_iters >= 30` and `explorer_dispatches >= 3`. JSON/Markdown reports

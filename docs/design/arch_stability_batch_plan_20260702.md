@@ -14,8 +14,12 @@
 - **E2 三层观测 cap 对称化 + 优先级截断可见**。现状:checkpoint 24 / extract 128 / 成文 prompt 18,aggregate facts 无界;截断静默。方案:统一常量层(单一来源,建议 32/128/32 或按 token 预算),截断必显"(showing N of M, dropped: 类别×计数)";checkpoint 摘要基于全量 ledger 统计而非 24 条视图。验收:三处 cap 单源 + 截断指示 pin。
 - **E3 trace 覆盖 Top-5 隐蔽截断加指示**。现状:100+ trace 观测只渲染 5 条无提示。方案:补"(另有 N 条维度未展示,完整见原始 trace_query 记录)";Top-N 常量入统一层。 
 - **E4 trace_query view 容量表 + FallbackView**。现状:各 view 截断阈值隐含、refinement 分散。方案:`view_width_cap` 显式表(view→MaxEvents/MaxBytes/FallbackView),traceQueryRefinement 统一消费,超容建议带具体参数(limit 建议值/窗口拆分)。与 C3 已交付的触顶恢复参数衔接。
+  - *[账本卫生标注 2026-07-05] DELIVERED — commit `724dfbe8`(2026-07-03,view_capacity 单源表+typed Compactions+具体收窄建议;复核修正:composite bundle 判定改读截断子 view 行防 echo 环),详见下方"进展"段 E4/E5/E6 条目。*
 - **E5 SourceInventoryAttr 排序与 HasPerMemberTable 谓词对齐**。现状:per-member 表问题需要 attr 记录却被 +30 降权。方案:rank 消费典型 typed 谓词(HasPerMemberTable→attr 提权),精确信号驱动。 
+  - *[账本卫生标注 2026-07-05] DELIVERED — commit `d203da02`(2026-07-03,`SourceInventoryAttributeDemand` 编译谓词+demand 时 rank 中性化+≤6 挤占 cap 旁路;3fab4c14 advisory 场景字节不变),详见"进展"段。*
 - **E6 unverified findings 门自清路径**。现状:标记后无自动清除,永久阻塞该证据直至 grep 异位重发现。方案:验证成功(read_file 命中该 anchor)自动清除 + 超龄降级为 advisory;保底:同因 denial 断路器覆盖该门(fingerprint 含 unverified 集合尺寸)。历史核对:findings_validator 生命周期未修过。
+
+  - *[账本卫生标注 2026-07-05] DELIVERED — commit `29e170a6`(2026-07-03,clear-on-read 自清+C2 门同因断路器;复核裁定:删除轮次降龄 lane——两 producer 均 analyze 期打标,降级由断路器独占,MarkedRound 字段移除),详见"进展"段。*
 
 ## Batch F — 架构稳定(硬门/重试/修复层/引导)
 
@@ -33,6 +37,8 @@
 **结论:代码欠账基本清零,欠的是 eval 验证。** trace 三文档:大 trace gaps 与 trace-only completion 全部已交付/裁定,方法论文档仅剩 2 条 UX 级(§7.25 长唤醒链十几跳 join 撑宽首屏→G1;§7.30 相邻展示债务→G2,均低优)。IR 计划 24 条核心条目:7 条硬门精度 + 4 条 handoff + 5 条工具过宽 + 2 条 prompt + 1 条保底,**绝大多数 code complete/focused tests ✓,状态=eval pending**(D2 商用代表批:add-proof next-action/AnalyzeRefine true path/source-inventory completion authority/interrupt-resume read-run);真 partial 仅三处:StageRunner seam(orchestrator dispatch 拆分,eval pending)、read 状态去重(partial)、loopkernel read action(advisory→soft gate 待验)。**处置:eval-pending 项并入本计划最终 eval 阶段的代表性 case 选择(覆盖上述四类场景);G1/G2 低优排 Batch F 后;三处 partial 待 eval 结果定级。**
 
 ## E4/E5/E6 详细任务清单(探索完成,2026-07-02)
+
+*[账本卫生标注 2026-07-05] 本节三批已全部交付:E4=`724dfbe8` / E5=`d203da02` / E6=`29e170a6`(2026-07-03,对抗复核 4 lens 后修正随批落地);交付细节与实施期偏离裁定见"进展"段对应条目。*
 
 ### E4(trace_query 容量表)— 6 子任务
 
@@ -157,4 +163,4 @@ waiver 只经 RuntimeGroundingDisposition 投影间接到达 contract_check,投�
 - v1 落盘;Batch E 开工(E1-E3 实现中)。
 - **E4/E5/E6 交付(2026-07-03,724dfbe8/d203da02/29e170a6,对抗复核 4 lens 后修正)**。E4:`internal/tracequery/view_capacity.go` 单源容量表(20 view,数值字节等价 pin)+ `Result.Compactions` typed 截断记录(11 个截断点,prose caveat 原样)+ refinement 具体建议(limit=min(Total,MaxLimit) 或 LastEmittedTs 首段拆窗+next_segment;heavy view 给 fallback_view,event_search 永不给);**复核修正**:composite bundle 的 widen-vs-split 判定改读截断子 view 行(composite 行 MaxLimit=0 曾导致 limit=Total 永久 echo 环)。E5:`AnswerIntentContract.SourceInventoryAttributeDemand` 编译谓词(HasPerMemberTable OR 非身份 RequestedFields);demand→attr rank 中性化 + ≤6 挤占 cap 旁路;3fab4c14 advisory 场景字节不变(canary 未改通过)。E6:read-coverage 四写权威+门位 drain 的 path 自清(单向,fork merge 重扫)、grounded anchor symbol 自清、C2 门同因断路器(指纹=hits/uf/reads,处理器不自变更;trip→typed Advisory 降级+gate note);**复核裁定:删除轮次降龄 lane**——两个 producer 都在 analyze 期打标(MarkedRound 恒 0),轮次时钟=第 3 探索轮无条件过期反幻觉门;降级由断路器独占,MarkedRound 字段一并移除。
 - v2:Batch G 挖掘完成补录(trace 文档零 open 正确性项;IR 24 条多为 eval-pending,并入最终 eval 阶段场景选择)。
-- E1/E2/E3 交付(2026-07-02)。E1:`BoundTurnAToolResultsWithTruncation`(internal/types/turn_a_handoff_bounds.go)把窗口捕获/合并丢弃从 oldest-first 改为价值序(带确定性 runtime observation 的结果保底,grep 噪音先丢;双向合成序列 pin),截断记入 `TurnAArtifacts.ToolResultTruncation` 并在 transient/fact-retry checkpoint 提示显示 "tool results truncated by window budget: N dropped (tool×count)"。E2:统一常量源 `internal/types/observation_view_budgets.go`(checkpoint ledger 24→32 / extract 128 全站点单源 / 成文 render 18→32 / aggregate 16·48 同源 / trace top-5),checkpoint origins 摘要改全量 ledger 统计,观测/aggregate/checkpoint 截断一律 "(showing N of M; dropped: 类别×计数)"。E3:成文 trace coverage top-5 截断加 "(top view truncated: N more ...)" 指示。E4-E6 待做。
+- E1/E2/E3 交付(2026-07-02)。E1:`BoundTurnAToolResultsWithTruncation`(internal/types/turn_a_handoff_bounds.go)把窗口捕获/合并丢弃从 oldest-first 改为价值序(带确定性 runtime observation 的结果保底,grep 噪音先丢;双向合成序列 pin),截断记入 `TurnAArtifacts.ToolResultTruncation` 并在 transient/fact-retry checkpoint 提示显示 "tool results truncated by window budget: N dropped (tool×count)"。E2:统一常量源 `internal/types/observation_view_budgets.go`(checkpoint ledger 24→32 / extract 128 全站点单源 / 成文 render 18→32 / aggregate 16·48 同源 / trace top-5),checkpoint origins 摘要改全量 ledger 统计,观测/aggregate/checkpoint 截断一律 "(showing N of M; dropped: 类别×计数)"。E3:成文 trace coverage top-5 截断加 "(top view truncated: N more ...)" 指示。E4-E6 待做。**[账本卫生标注 2026-07-05:本句为 2026-07-02 当日快照;E4/E5/E6 已于次日交付(`724dfbe8`/`d203da02`/`29e170a6`),见上方"E4/E5/E6 交付"条目]**
