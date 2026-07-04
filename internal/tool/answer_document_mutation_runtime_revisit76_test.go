@@ -413,7 +413,9 @@ func TestTraceProjectionCoverageLineExplainsOwnCaliberResidualOverlap(t *testing
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	line := runtimeTraceProjWindowLine(projection, model, true)
 	// The revisit 6.0 coverage shape: symptom denominator + 90% residual.
-	if !strings.Contains(line, "目标睡眠/阻塞 260.000ms 中 on-chain 已归因 26.000ms(10%),未归因 234.000ms(90%)。") {
+	// (Wording pin updated for RN-6 §7.9: 目标等待(睡眠/阻塞/就绪) — the
+	// denominator family now includes runnable.)
+	if !strings.Contains(line, "目标等待(睡眠/阻塞/就绪) 260.000ms 中 on-chain 已归因 26.000ms(10%),未归因 234.000ms(90%)。") {
 		t.Fatalf("coverage line must keep the symptom-denominator form:\n%s", line)
 	}
 	// NEW-6: the appended clause carries the NEW-3 grouped primary value

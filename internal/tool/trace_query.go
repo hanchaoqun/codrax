@@ -44,6 +44,7 @@ type traceQueryParams struct {
 	RecipeName           string          `json:"recipe_name,omitempty"`
 	MaxDepth             FlexInt         `json:"max_depth,omitempty"`
 	MaxBranches          FlexInt         `json:"max_branches,omitempty"`
+	ViaThread            string          `json:"via_thread,omitempty"`
 	MinDurationMs        FlexFloat       `json:"min_duration_ms,omitempty"`
 	IncludeWindowStats   *FlexBool       `json:"include_window_stats,omitempty"`
 	Limit                FlexInt         `json:"limit,omitempty"`
@@ -125,6 +126,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "recipe_name": {"type":"string","enum":["auto","sleep_root_cause","jank","runnable_delay","binder_wait","io_wait","cpu_supply"],"x-codrax-enum-style-alias":true,"description":"For view=recipe: choose a standard deterministic evidence pack. auto picks from span_name/event_types/question-shape hints; recipes remain advisory and line-backed."},
     "max_depth": {"type":"integer","description":"wakeup_chain recursion limit; default 10."},
     "max_branches": {"type":"integer","description":"Maximum branches to report; default 8."},
+    "via_thread": {"type":"string","description":"For view=wakeup_chain: optional thread selector (same forms as thread: pid, \"comm-pid\", or a full thread name; matched exactly, never by substring). Target-thread segments whose wakeup subtree contains this thread are expanded even when max_branches would drop them, and the result reports a via_thread verdict: ON a wakeup path to the target with depth and per-hop wakeup latency, or NOT connected by any wakeup edge in this window, meaning its influence is scheduling contention (runnable queuing) rather than a wakeup dependency. Use it to test whether a runnable anchor thread sits on the user-focus thread's wakeup chain."},
     "min_duration_ms": {"type":"number","description":"Ignore intervals shorter than this; default 1ms."},
     "include_window_stats": {"type":"boolean","description":"For wakeup_chain, include same-window CPU/IO/binder/irq stats; default true."},
     "core_topology": {"type":"string","description":"Optional CPU core class map for compute-supply evaluation, e.g. \"small=0-3,middle=4-7,big=8-11\" or \"little=0-3,big=4-7\". If omitted, classes are inferred from observed CPU frequency tiers when possible."},
@@ -196,6 +198,12 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	logging.Debug("[trace_query] phase=run_view view=%s path=%s done elapsed=%s evidence=%d caveats=%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d", q.View, path, time.Since(runStart), len(result.EvidencePack), len(result.Caveats), heapAlloc, heapSys, gcCount)
 	traceQueryAppendCallCaveats(&result, timeCaveat)
 	result.Caveats = append(result.Caveats, traceQueryObjectiveExactTokenCaveats(ctx, p, result)...)
+	// RN-14b (§7.9): runnable-dominant anchor result + pinned user-focus
+	// thread → soft next-step hint that reconnects the anchor to the focus
+	// thread's wakeup chain (via_thread, RN-14a).
+	if hint := traceQueryRunnableAnchorRecoveryHint(ctx, result); hint != "" {
+		result.Caveats = append(result.Caveats, hint)
+	}
 	storeStart := time.Now()
 	payload, _ := json.MarshalIndent(result, "", "  ")
 	payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-result.json", string(payload))
@@ -215,6 +223,62 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
 		Timestamp:    now,
 	}, nil
+}
+
+// traceQueryChainTargetRunnableDominant reports whether the chain target's
+// own (depth-0) causal-impact state totals are runnable-dominant — the typed
+// dominant_state==runnable condition of RN-14b (§7.9). Sums are the same
+// per-state totals dominantCausalImpactState reads; runnable must strictly
+// exceed every other state.
+func traceQueryChainTargetRunnableDominant(chain *tracequery.ChainResult) bool {
+	if chain == nil || chain.Target.PID <= 0 {
+		return false
+	}
+	var running, runnable, sleep, dState, ioWait float64
+	found := false
+	for _, impact := range chain.CausalImpacts {
+		if impact.ChainDepth != 0 || impact.Thread.PID != chain.Target.PID {
+			continue
+		}
+		found = true
+		running += impact.RunningMs
+		runnable += impact.RunnableMs
+		sleep += impact.SleepMs
+		dState += impact.DStateMs
+		ioWait += impact.IOWaitMs
+	}
+	if !found || runnable <= 0 {
+		return false
+	}
+	return runnable > running && runnable > sleep && runnable > dState && runnable > ioWait
+}
+
+// traceQueryRunnableAnchorRecoveryHint is the RN-14b (§7.9) chain-recovery
+// hint: when a wakeup_chain / root_cause_rank result's target is
+// runnable-dominant (typed depth-0 state totals), an analyzer-pinned
+// user-focus thread exists (typed RuntimeTargets lane, H4 channel), and the
+// focus differs from the queried target (pid integer comparison), the result
+// tail suggests connecting the runnable anchor to the user-focus thread's
+// wakeup chain via the RN-14a via_thread parameter. Soft guidance only —
+// nothing is gated on it, and any missing/ambiguous input keeps it silent.
+func traceQueryRunnableAnchorRecoveryHint(ctx *types.BusContext, result tracequery.Result) string {
+	switch tracequery.CanonicalViewName(result.View) {
+	case "wakeup_chain", "root_cause_rank":
+	default:
+		return ""
+	}
+	if result.WakeupChain == nil || !traceQueryChainTargetRunnableDominant(result.WakeupChain) {
+		return ""
+	}
+	focusPID, ok := analyzerPinnedFocusThreadPID(ctx)
+	if !ok {
+		return ""
+	}
+	targetPID := result.WakeupChain.Target.PID
+	if targetPID <= 0 || focusPID == targetPID {
+		return ""
+	}
+	return fmt.Sprintf("next: view=wakeup_chain pid=%d via_thread=%d — connect the runnable anchor to the user-focus thread's wakeup chain", focusPID, targetPID)
 }
 
 func traceQueryAppendCallCaveats(result *tracequery.Result, timeCaveat string) {
@@ -429,6 +493,7 @@ func traceQueryBuildQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel
 		RecipeName:           p.RecipeName,
 		MaxDepth:             p.MaxDepth.Int(),
 		MaxBranches:          p.MaxBranches.Int(),
+		ViaThread:            p.ViaThread,
 		MinDurationMs:        p.MinDurationMs.Float64(),
 		Limit:                p.Limit.Int(),
 		BucketMs:             p.BucketMs.Float64(),
@@ -2762,6 +2827,12 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		if path := traceQueryWakeupChainPath(*result.WakeupChain); path != "" {
 			fmt.Fprintf(&b, "- wakeup_chain path=%s\n", sanitizeForBanner(path))
 		}
+		// RN-14a (§7.9): the via_thread verdict is a dedicated stanza so the
+		// on-chain-root-cause vs scheduling-contention ruling survives
+		// paraphrase.
+		if via := result.WakeupChain.ViaThread; via != nil {
+			fmt.Fprintf(&b, "- %s\n", sanitizeForBanner(via.Summary))
+		}
 		for _, edge := range result.WakeupChain.Edges {
 			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (latency %.3fms) waker_prio=%d/%s wakee_prio=%d/%s relation=%s priority_inversion_candidate=%t\n",
 				traceThreadLabel(edge.Waker), traceThreadLabel(edge.Wakee), edge.WakeupTs, edge.WakeupLine, edge.LatencyMs,
@@ -4542,6 +4613,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			// wakeup_causal_aggregate, so the projection labels the row and the
 			// discounted attribution never shows up unexplained.
 			notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(item.PeriodicSource, item.DetectedPeriodMs, item.LatenessMs, item.EffectiveImpactMs, false)...)
+			// VS-2 (§7.10): the rank row that fronts a running-dominant
+			// on-chain node carries the same typed supply-fold notes as its
+			// backing causal impact/aggregate, so the projection's decision
+			// table works on the lead row too.
+			notes = append(notes, traceQueryTypedSupplyFoldRichNotes(item.SupplyFoldBasis, item.SupplyFoldDeficitMs, item.SupplyFoldIdealMs)...)
 			notes = append(notes, traceQueryTypedKVNotes([][2]string{
 				// F1: root_cause rows have no Span ts at all — the selected
 				// query window (RootCauseRankResult.Window = q.TimeStart/TimeEnd)
@@ -4939,6 +5015,11 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) []string {
 	views := traceQueryCausalImpactRecommendedViews(impact)
 	notes := traceQueryTypedKVNotes([][2]string{
+		// F-1 mutual pin: traceQueryTypedCount zero-drops, so ChainDepth==0
+		// publishes NO depth= note. RN-14c consumers in
+		// emit_investigation_complete.go (traceChainObservationTargetPID /
+		// traceRunnableAnchorObservationPID) key depth 0 on that ABSENCE —
+		// do not switch this note to always-print without updating them.
 		{"depth", traceQueryTypedCount(impact.ChainDepth)},
 		{"causality", traceQueryCausalityLabel(impact.OnChain)},
 		{"dominant_state", impact.DominantState},
@@ -4979,7 +5060,9 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{"next_step", impact.NextStep},
 		{"next_step_kind", impact.NextStepKind},
 	})
-	return append(notes, traceQueryTypedPeriodicSourceRichNotes(impact.PeriodicSource, impact.DetectedPeriodMs, impact.LatenessMs, impact.EffectivePeriodicImpactMs, true)...)
+	notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(impact.PeriodicSource, impact.DetectedPeriodMs, impact.LatenessMs, impact.EffectivePeriodicImpactMs, true)...)
+	// VS-2 (§7.10): supply-fold accounting of a running-dominant on-chain node.
+	return append(notes, traceQueryTypedSupplyFoldRichNotes(impact.SupplyFoldBasis, impact.SupplyFoldDeficitMs, impact.SupplyFoldIdealMs)...)
 }
 
 // traceQueryTypedPeriodicSourceRichNotes publishes the VS-1 (§7.8) periodic-
@@ -5002,6 +5085,50 @@ func traceQueryTypedPeriodicSourceRichNotes(periodic bool, periodMs, latenessMs,
 	}
 	if includeEffective || effectiveMs <= 0 {
 		notes = append(notes, fmt.Sprintf("effective_impact_ms=%.3f", effectiveMs))
+	}
+	return notes
+}
+
+// traceQueryTypedSupplyFoldRichNotes publishes the VS-2 (§7.10) supply-fold
+// accounting as typed notes, emitted ONLY when the fold ran (basis non-nil —
+// the producer computes it exclusively for on-chain running-dominant nodes).
+// deficit/ideal print explicitly with zeros included: "deficit 0.000 on a
+// fully-known basis" IS the affirmative ran-at-full-frequency fact the §7.10
+// fourth decision branch consumes, so the zero must survive to the display
+// surfaces. fold_basis carries the known/unknown wall split (token
+// supply_fold_deficit in the causal-token registry, ComputeDelivery lane).
+func traceQueryTypedSupplyFoldRichNotes(basis *tracequery.SupplyFoldBasis, deficitMs, idealMs float64) []string {
+	if basis == nil {
+		return nil
+	}
+	notes := []string{
+		fmt.Sprintf("supply_fold_deficit_ms=%.3f", deficitMs),
+		fmt.Sprintf("supply_fold_ideal_ms=%.3f", idealMs),
+		fmt.Sprintf("fold_basis=known=%.3fms,unknown=%.3fms", basis.KnownMs, basis.UnknownMs),
+	}
+	// VS-2b (§7.10): fmax ladder provenance — limits (policy authority) vs
+	// observed governance fallback. Zero on aggregates (mixed member windows
+	// have no single fmax) and on all-unknown folds.
+	if basis.FmaxKHz > 0 && basis.FmaxSource != "" {
+		notes = append(notes, fmt.Sprintf("fold_fmax=%.3fGHz,source=%s", float64(basis.FmaxKHz)/1e6, basis.FmaxSource))
+	}
+	// VS-2b companion finding (typed engine comparison, soft display
+	// wording): the governing policy ceiling sat below frequencies the same
+	// cluster demonstrably reached elsewhere in the trace.
+	if basis.LimitThrottled && basis.FmaxKHz > 0 {
+		notes = append(notes, fmt.Sprintf("fold_fmax_finding=大核受策略/温控限频至 %.2f GHz,缺口部分源于压频(全程观测最高 %.2f GHz)",
+			float64(basis.FmaxKHz)/1e6, float64(basis.TraceObservedMaxKHz)/1e6))
+	}
+	// VS-2c(a): cluster-lane corroboration caveat, rendered ONLY on the
+	// precise divergence flag (一致时不加注). Lane names AND units are
+	// vendor free vocabulary — the flag means the raw sample matched the
+	// fmax under NO unit hypothesis (2026-07-04 review), so the caveat
+	// reports the RAW value without a unit and says the unit is unresolved
+	// instead of asserting a false direction. Corroboration only, never the
+	// fold basis.
+	if basis.ClusterLaneDivergent && basis.ClusterLaneMaxKHz > 0 {
+		notes = append(notes, fmt.Sprintf("fold_cluster_lane_caveat=簇泳道 %s 最高原始值 %d(单位不明)在原值/千分/百万分单位假设下均与折算 fmax %.2f GHz 相差 >10%%,泳道名与单位均为厂商自由词汇仅旁证",
+			basis.ClusterLaneName, basis.ClusterLaneMaxKHz, float64(basis.FmaxKHz)/1e6))
 	}
 	return notes
 }
@@ -5063,6 +5190,8 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 	})...)
 	// VS-1 (§7.8): periodic-source cadence + discounted attribution, typed.
 	notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(aggregate.PeriodicSource, aggregate.DetectedPeriodMs, aggregate.LatenessMs, aggregate.EffectivePeriodicImpactMs, true)...)
+	// VS-2 (§7.10): folded-member supply-fold sums.
+	notes = append(notes, traceQueryTypedSupplyFoldRichNotes(aggregate.SupplyFoldBasis, aggregate.SupplyFoldDeficitMs, aggregate.SupplyFoldIdealMs)...)
 	return notes
 }
 
@@ -5232,14 +5361,154 @@ func traceQueryWakeupEdgeSummary(edge tracequery.WakeupEdge) string {
 	return strings.Join(parts, " ")
 }
 
+// traceQueryRunnableOccupancyWindowShare is the relative arm of the RN-1
+// (§7.9) significance gate: a thread's in-window runnable total is significant
+// when it reaches 10% of the wall window. Precise arithmetic comparison
+// against the engine's own WindowMs — never a heuristic score.
+const traceQueryRunnableOccupancyWindowShare = 0.10
+
+// traceQueryRunnableOccupancyAbsoluteFloorMs is the absolute arm of the same
+// gate (§7.10 显著门二审裁定, user 2026-07-04): a pure relative threshold is
+// DILUTED by wide windows — 10% of a 3.3s window is 330ms, so a 200ms
+// absolute backlog (24 whole 120fps frame budgets) read as "not significant".
+// Same defect family as CMP-9 cross-window dilution. The combined formula
+// min(window×10%, 100ms) keeps ONE gate that only ever gets LOOSER as the
+// window widens: narrow windows are governed by the relative arm, wide
+// windows by the 100ms floor. The threshold drives SOFT surfaces only
+// (observation publishing, wording) — never a hard structural gate.
+const traceQueryRunnableOccupancyAbsoluteFloorMs = 100.0
+
+// traceQueryRunnableSignificanceThresholdMs is THE shared RN-1/VS-2
+// significance threshold (§7.10: the supply-fold decision table must stay
+// 同源 with the RN-1 occupier-observation gate — one formula, no fork):
+//
+//	runnable_total ≥ min(windowMs × 10%, 100ms)
+//
+// windowMs ≤ 0 (unbounded window) returns 0 and the companion predicate
+// refuses — no denominator, no significance verdict.
+func traceQueryRunnableSignificanceThresholdMs(windowMs float64) float64 {
+	if windowMs <= 0 {
+		return 0
+	}
+	relative := windowMs * traceQueryRunnableOccupancyWindowShare
+	if relative > traceQueryRunnableOccupancyAbsoluteFloorMs {
+		return traceQueryRunnableOccupancyAbsoluteFloorMs
+	}
+	return relative
+}
+
+// traceQueryRunnableSignificant is the shared predicate over the threshold
+// above, consumed by BOTH the RN-1 publisher and the VS-2 (§7.10) supply-fold
+// decision table. Soft-face significance only.
+func traceQueryRunnableSignificant(runnableMs, windowMs float64) bool {
+	return windowMs > 0 && runnableMs > 0 &&
+		runnableMs >= traceQueryRunnableSignificanceThresholdMs(windowMs)
+}
+
+// traceQueryRunnableOccupancyObservations publishes AT MOST ONE typed
+// "runnable_occupancy" observation per result (RN-1, §7.9 cust_runnable
+// 2026-07-04): when the query carried a complete two-sided time window
+// (CPUOccupancy.WindowMs > 0 — queryWindowWallMs refuses to estimate) and some
+// thread waited runnable for ≥ min(window×10%, 100ms) (§7.10 dual-basis
+// significance gate), the CMP-8 occupancy decomposition
+// already knows WHO occupied the CPUs — publish the starved thread (largest
+// runnable) with its top-3 same-window occupiers (full-window cpu·ms order,
+// the starved subject itself excluded) so the projection can attach the
+// mechanism to the runnable row instead of a bare percentage. Multiple
+// significant starved threads fold into a typed also_starved count.
+func traceQueryTypedRunnableOccupancyObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+	occ := stats.CPUOccupancy
+	if occ == nil || occ.WindowMs <= 0 {
+		return nil
+	}
+	var starved *tracequery.ThreadDuration
+	significant := 0
+	for i := range stats.RunnableTop {
+		td := &stats.RunnableTop[i]
+		if strings.TrimSpace(traceThreadLabel(td.Thread)) == "" || td.DurationMs <= 0 {
+			continue
+		}
+		if traceQueryRunnableSignificant(td.DurationMs, occ.WindowMs) {
+			significant++
+			if starved == nil || td.DurationMs > starved.DurationMs {
+				starved = td
+			}
+		}
+	}
+	if starved == nil {
+		return nil
+	}
+	subject := traceThreadLabel(starved.Thread)
+	notes := [][2]string{
+		{"starved_runnable_ms", fmt.Sprintf("%.3f", starved.DurationMs)},
+	}
+	var occupierParts []string
+	occupiers := 0
+	for _, top := range occ.TopThreads {
+		if top.RunningMs <= 0 {
+			continue
+		}
+		// The starved subject may also appear in the occupancy ranking; its
+		// own running time is not "who kept it off the CPU" — exclude by
+		// exact PID+Comm identity.
+		if top.Thread.PID == starved.Thread.PID && top.Thread.Comm == starved.Thread.Comm {
+			continue
+		}
+		occupiers++
+		value := fmt.Sprintf("%s:%.3fms", traceThreadLabel(top.Thread), top.RunningMs)
+		notes = append(notes, [2]string{fmt.Sprintf("occupier_%d", occupiers), value})
+		occupierParts = append(occupierParts, value)
+		if occupiers >= 3 {
+			break
+		}
+	}
+	if occupiers == 0 {
+		// No same-window occupier besides the subject itself: the attribution
+		// claim would be empty — occupancy-side silence, not a zero-value row.
+		return nil
+	}
+	notes = append(notes, [2]string{"window_ms", fmt.Sprintf("%.3f", occ.WindowMs)})
+	if significant > 1 {
+		notes = append(notes, [2]string{"also_starved", strconv.Itoa(significant - 1)})
+	}
+	notes = append(notes, [2]string{"selected_window", traceQuerySelectedWindowNoteValue(stats.Window)})
+	return []types.ObservationRecord{{
+		ID:              fmt.Sprintf("trace_query:%s#runnable_occupancy:1", scope),
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+		SourceRef:       ref,
+		Span:            types.ObservationSpan{LineStart: starved.LineStart, LineEnd: starved.LineEnd, StartTs: starved.StartTs, EndTs: starved.EndTs},
+		ClaimKey:        "runnable_occupancy",
+		Subject:         subject,
+		Predicate:       "runnable_occupancy",
+		Object:          "runnable",
+		Value:           traceQueryObservationMSValue(starved.DurationMs),
+		Unit:            "ms",
+		Summary: fmt.Sprintf("runnable_occupancy %s runnable=%.3fms window=%.3fms top_occupiers=%s (cpu·ms)",
+			subject, starved.DurationMs, occ.WindowMs, strings.Join(occupierParts, ", ")),
+		RichNotes:   traceQueryTypedKVNotes(notes),
+		SupportRefs: traceQueryObservationSupportRefs(ref, starved.LineStart, starved.LineEnd),
+		ObservedAt:  at,
+		Confidence:  0.75,
+	}}
+}
+
 func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
 	var out []types.ObservationRecord
 
-	out = append(out, traceQueryTypedThreadDurationObservations(stats.TopRunning, ref, scope, at, "top_running", "running_time", "running", "selected-window running time", 0.70)...)
-	out = append(out, traceQueryTypedThreadDurationObservations(stats.RunnableTop, ref, scope, at, "top_runnable", "runnable_wait", "runnable", "selected-window runnable wait", 0.75)...)
-	out = append(out, traceQueryTypedThreadDurationObservations(stats.SleepTop, ref, scope, at, "top_sleep", "sleep_wait", "sleep", "selected-window sleep before wakeup", 0.76)...)
-	out = append(out, traceQueryTypedThreadDurationObservations(stats.DStateTop, ref, scope, at, "top_d_state", "d_state_or_io_wait", "d_state", "selected-window D-state or IO-like wait", 0.80)...)
-	out = append(out, traceQueryTypedThreadDurationObservations(stats.IOWaitTop, ref, scope, at, "top_io_wait", "io_wait", "io_wait", "selected-window IO wait", 0.82)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.TopRunning, stats.Window, ref, scope, at, "top_running", "running_time", "running", "selected-window running time", 0.70)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.RunnableTop, stats.Window, ref, scope, at, "top_runnable", "runnable_wait", "runnable", "selected-window runnable wait", 0.75)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.SleepTop, stats.Window, ref, scope, at, "top_sleep", "sleep_wait", "sleep", "selected-window sleep before wakeup", 0.76)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.DStateTop, stats.Window, ref, scope, at, "top_d_state", "d_state_or_io_wait", "d_state", "selected-window D-state or IO-like wait", 0.80)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.IOWaitTop, stats.Window, ref, scope, at, "top_io_wait", "io_wait", "io_wait", "selected-window IO wait", 0.82)...)
+	// RN-1 (§7.9): significant runnable starvation gets its same-window
+	// occupier attribution published as a ledger observation — without it the
+	// customer's runnable-dominant report (FFRT runnable 2528ms of a 3000ms
+	// window) had no mechanism explanation at all.
+	out = append(out, traceQueryTypedRunnableOccupancyObservations(stats, ref, scope, at)...)
 
 	for i, load := range stats.ThreadCPULoad {
 		if i >= traceQueryWidthTypedFamilyRowCap() {
@@ -6242,7 +6511,7 @@ func traceQuerySemanticTraceSpanConfidence(relevance string) float64 {
 	}
 }
 
-func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration, ref types.ObservationSourceRef, scope, at, family, predicate, state, label string, confidence float64) []types.ObservationRecord {
+func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration, window tracequery.TimeWindow, ref types.ObservationSourceRef, scope, at, family, predicate, state, label string, confidence float64) []types.ObservationRecord {
 	var out []types.ObservationRecord
 	for i, td := range items {
 		if i >= traceQueryWidthTypedFamilyRowCap() {
@@ -6260,6 +6529,13 @@ func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration
 			{"core_class", td.CoreClass},
 			{"freq", traceQueryTypedCount(td.Frequency)},
 			{"priority", traceQueryPriorityPair(td.Priority, td.PriorityClass)},
+			// F-2 (统一复核 2026-07-04, NEW-8 pattern): the row's own `window`
+			// above is the thread-state segment; the selected QUERY window
+			// travels via the same typed note as every other selected-window
+			// family. RN-12 collection refuses totals without it (禁猜), and
+			// these predicates stay outside the CMP-2 anchor whitelist —
+			// display/cross-reference carrier only, never an anchor.
+			{"selected_window", traceQuerySelectedWindowNoteValue(window)},
 		})
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#%s:%d", scope, family, i+1),
@@ -6824,7 +7100,7 @@ func traceQueryRecordExplicitRuntimeTarget(ctx *types.BusContext, p traceQueryPa
 		Kind:       types.RuntimeTargetKindProcess,
 		PID:        pid,
 		Thread:     thread,
-		Source:     "trace_query_explicit_tool_call",
+		Source:     traceQueryExplicitToolCallTargetSource,
 		Confidence: 1,
 	}
 	if thread != "" {
@@ -6845,6 +7121,65 @@ func traceQueryRecordExplicitRuntimeTarget(ctx *types.BusContext, p traceQueryPa
 			}
 		}
 	}
+}
+
+// traceQueryExplicitToolCallTargetSource marks RuntimeTargets recorded from
+// explicit trace_query tool-call pid/thread parameters — the model's own
+// exploration cursor, as opposed to analyzer-pinned user-focus targets.
+const traceQueryExplicitToolCallTargetSource = "trace_query_explicit_tool_call"
+
+// analyzerPinnedFocusThreadPID returns the analyzer-pinned user-focus thread
+// pid from the typed RuntimeTargets lane (the H4 BusContext channel; RN-14b
+// §7.9). Explicit trace_query tool-call targets are excluded — they track
+// where the model is currently looking, not what the user asked about. The
+// focus must be unambiguous: exactly one distinct pinned pid, or, when
+// several pinned targets exist, exactly one with the typed source
+// "user_explicit". Anything else returns false — this feeds soft recovery
+// hints only, and a guessed focus would be worse than none.
+func analyzerPinnedFocusThreadPID(ctx *types.BusContext) (int, bool) {
+	if ctx == nil {
+		return 0, false
+	}
+	var pinned []types.RuntimeTarget
+	collect := func(rm *types.RequestModel) {
+		if rm == nil {
+			return
+		}
+		for _, target := range rm.RuntimeTargets {
+			if target.PID <= 0 || target.PID > traceQueryMaxInheritedPID {
+				continue
+			}
+			if strings.TrimSpace(target.Source) == traceQueryExplicitToolCallTargetSource {
+				continue
+			}
+			pinned = append(pinned, target)
+		}
+	}
+	if ctx.AnalysisIR != nil {
+		collect(&ctx.AnalysisIR.RequestModel)
+	}
+	if ctx.Mutable != nil {
+		collect(ctx.Mutable.RequestModel())
+	}
+	distinct := map[int]bool{}
+	userExplicit := map[int]bool{}
+	for _, target := range pinned {
+		distinct[target.PID] = true
+		if strings.TrimSpace(target.Source) == "user_explicit" {
+			userExplicit[target.PID] = true
+		}
+	}
+	if len(distinct) == 1 {
+		for pid := range distinct {
+			return pid, true
+		}
+	}
+	if len(userExplicit) == 1 {
+		for pid := range userExplicit {
+			return pid, true
+		}
+	}
+	return 0, false
 }
 
 func traceQueryAppendRuntimeTarget(existing []types.RuntimeTarget, target types.RuntimeTarget) []types.RuntimeTarget {

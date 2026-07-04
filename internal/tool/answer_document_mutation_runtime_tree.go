@@ -186,13 +186,36 @@ type runtimeTraceProjTreeModel struct {
 	RootFocusAnchorOnly bool
 	// RootFocusUserEntities lists the user's thread/pid-shaped entities for the
 	// anchor-only explanation line (display-only roster; empty = no note line).
+	// Shared by the 🎯 anchor-only note (R2) and the flat-fallback anchor note
+	// (RN-13(a)) — the two lanes are mutually exclusive on model.Target.
 	RootFocusUserEntities []string
+	// FlatAnchorThread / FlatAnchorMismatch (RN-13(a), §7.9 runnable 主导场景审计
+	// 2026-07-04): the flat-fallback isomorph of RootFocusAnchorOnly. In flat
+	// mode there is no 🎯 root, so the analysis anchor is the RN-3 lead row's
+	// subject (model.LeadKey — the same typed selection the conclusion line
+	// consumes). Mismatch=true only when the typed entity comparison RAN
+	// (thread/pid-shaped user entities exist) and the anchor matched none of
+	// them; the header then explains the anchor and the next-step lane offers
+	// the wakeup_chain recovery hint. False is the fail-open default: matched
+	// anchor or no typed entities keeps the flat header byte-identical.
+	FlatAnchorThread   string
+	FlatAnchorMismatch bool
 	// UserWindowStart/UserWindowEnd is the user's originally-requested window in
 	// seconds, derived DISPLAY-ONLY from a timestamp-shaped analyzer entity pair
 	// (R2 双窗关系行). Zero when absent/ambiguous — the relation line then never
 	// renders; nothing else consumes these values.
 	UserWindowStart float64
 	UserWindowEnd   float64
+	// LeadKey is the node key of the row the conclusion line actually consumes
+	// (RN-3(b), §7.9 runnable 主导场景审计 2026-07-04) — computed once at model
+	// build via runtimeTraceProjLeadSelect, "" when no lead exists. The detail
+	// table's 因果位置·优先级 column reads it so the "主根因 · 主要关注" label
+	// can only sit on the consumed node: an unconsumed primary-tier BACKGROUND
+	// row (engine tier=primary/rank=1 直投 into the background bucket) demotes
+	// to 背景 · 支撑参考(rank=N) instead of contradicting a conclusion that
+	// says no on-chain primary was located. Display-only; typed causality on
+	// the nodes is untouched.
+	LeadKey string
 	// Marks collects the tree marks actually emitted by THIS model's fence
 	// render (NEW-7, §7.6 对比场景客户回访 2026-07-04): a typed set recorded at
 	// each emission site — never re-derived by scanning rendered text. The
@@ -741,6 +764,13 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		}
 	}
 	model.BarMaxMS = runtimeTraceProjModelMaxImpact(model)
+	// RN-3(b): pin the conclusion-consumed node's key on the model so the
+	// detail table's 因果位置·优先级 column follows the SAME selection
+	// (runtimeTraceProjLeadSelect is deterministic on (projection, model), so
+	// the conclusion line re-running it later cannot disagree).
+	if lead, _ := runtimeTraceProjLeadSelect(projection, model); lead != nil {
+		model.LeadKey = runtimeTraceCausalProjectionNodeKey(*lead)
+	}
 	return model
 }
 
@@ -759,6 +789,53 @@ func runtimeTraceProjCausalPositionLayerCell(node types.TraceCausalProjectionNod
 		return "flat (chain not traceable)"
 	}
 	return layer
+}
+
+// runtimeTraceProjDetailPositionCell renders the detail table's
+// 因果位置·优先级 cell. RN-3(b) (§7.9 runnable 主导场景审计 2026-07-04): the
+// "主根因 · 主要关注" label follows the node the conclusion line ACTUALLY
+// consumed (typed node-key equality with model.LeadKey) — an UNCONSUMED
+// primary-tier row sitting in the background stanza (engine tier=primary/
+// rank=1 直投: the record carried chain_relevance=background, so the RAW
+// primary-role copy entered BackgroundCauses and bypassed the 裁定1 demotion
+// normalization) demotes on DISPLAY to 背景 · 支撑参考(rank=N) instead of
+// contradicting a conclusion that says no on-chain primary was located. The
+// rank annotation stays for audit. On-chain primary-tier rows keep their
+// labels unchanged (engine-tier facts on the chain contradict nothing — the
+// single-artifact rank-lead goldens are pinned label-stable), and a consumed
+// background row keeps 主根因 (除非确被结论消费 cuts exactly the other way).
+func runtimeTraceProjDetailPositionCell(row runtimeTraceProjTreeRow, leadKey string, zh bool) string {
+	node := row.Node
+	if row.Kind == runtimeTraceProjTreeRowBackground && runtimeTraceProjPrimaryTierNode(node) &&
+		(leadKey == "" || runtimeTraceCausalProjectionNodeKey(node) != leadKey) {
+		display := node
+		display.Role = types.TraceCausalRoleRootCauseContext
+		if strings.HasPrefix(strings.TrimSpace(display.Predicate), "root_cause_primary") {
+			display.Predicate = "root_cause_context"
+		}
+		display.ChainRelevance = "background"
+		cell := runtimeTraceProjCausalPositionLayerCell(display, zh, row.FlatChain) + " · " +
+			runtimeTraceCausalProjectionPriorityCell(display, zh)
+		if node.Rank > 0 {
+			if zh {
+				cell += fmt.Sprintf("(rank=%d)", node.Rank)
+			} else {
+				cell += fmt.Sprintf(" (rank=%d)", node.Rank)
+			}
+		}
+		return cell
+	}
+	return runtimeTraceProjCausalPositionLayerCell(node, zh, row.FlatChain) + " · " +
+		runtimeTraceCausalProjectionPriorityCell(node, zh)
+}
+
+// runtimeTraceProjPrimaryTierNode reports the engine's primary-tier typing on
+// a node — the SAME two precise signals the layer/priority cells key on (Role
+// enum + root_cause_primary predicate prefix), extracted so the RN-3(b)
+// display gate and those cells cannot drift.
+func runtimeTraceProjPrimaryTierNode(node types.TraceCausalProjectionNode) bool {
+	return node.Role == types.TraceCausalRolePrimaryRootCause ||
+		strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_primary")
 }
 
 // runtimeTraceProjNodeDemotedToBackground implements §7.30 裁定1: a row may sit
@@ -1300,6 +1377,25 @@ func runtimeTraceProjApplyUserFocus(model *runtimeTraceProjTreeModel, focus runt
 	}
 	target := strings.TrimSpace(model.Target)
 	if target == "" {
+		// RN-13(a) (§7.9): flat-fallback lane — no 🎯 root, so the comparison
+		// runs against the RN-3 lead row's subject (the model's own typed
+		// analysis anchor). Every guard fails open to the byte-identical
+		// legacy flat header: no lead, an unknown-thread sentinel anchor, a
+		// matching anchor, or no thread/pid-shaped user entity.
+		anchor := strings.TrimSpace(runtimeTraceProjFlatAnchorSubject(*model))
+		if anchor == "" || runtimeTraceCausalProjectionUnknownSentinel(anchor) {
+			return
+		}
+		if runtimeTraceProjTargetMatchesUserEntities(anchor, focus.Entities) {
+			return
+		}
+		entities := runtimeTraceProjThreadOrPidEntities(focus.Entities)
+		if len(entities) == 0 {
+			return
+		}
+		model.FlatAnchorMismatch = true
+		model.FlatAnchorThread = anchor
+		model.RootFocusUserEntities = entities
 		return
 	}
 	if runtimeTraceProjTargetMatchesUserEntities(target, focus.Entities) {
@@ -1307,6 +1403,24 @@ func runtimeTraceProjApplyUserFocus(model *runtimeTraceProjTreeModel, focus runt
 	}
 	model.RootFocusAnchorOnly = true
 	model.RootFocusUserEntities = runtimeTraceProjThreadOrPidEntities(focus.Entities)
+}
+
+// runtimeTraceProjFlatAnchorSubject resolves the flat render's analysis-anchor
+// thread: the subject of the row the conclusion line consumes (model.LeadKey,
+// pinned at model build via the single runtimeTraceProjLeadSelect surface).
+// "" when no lead exists or its row is not on the rendered tree — callers
+// fail open.
+func runtimeTraceProjFlatAnchorSubject(model runtimeTraceProjTreeModel) string {
+	key := strings.TrimSpace(model.LeadKey)
+	if key == "" {
+		return ""
+	}
+	for _, row := range model.TreeRows {
+		if runtimeTraceCausalProjectionNodeKey(row.Node) == key {
+			return strings.TrimSpace(row.Node.Subject)
+		}
+	}
+	return ""
 }
 
 // runtimeTraceProjTargetMatchesUserEntities decides whether the 🎯 root names a
@@ -1525,6 +1639,21 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			b.WriteString(runtimeTraceProjScaleNote(model, zh) + "\n")
 		} else {
 			b.WriteString(flatLine + "\n")
+		}
+		// RN-13(a) (§7.9): the flat header explains the analysis anchor when it
+		// is NOT the user's focused thread — the customer's flat runnable render
+		// anchored on an FFRT worker while the user asked about pid 6565, with
+		// no disclosure anywhere. Typed lane only (FlatAnchorMismatch set by
+		// runtimeTraceProjApplyUserFocus); matched anchor / no typed entities
+		// keep the header byte-identical. The anchor name flows through the
+		// RN-4-aware display helper (comm-truncation placeholders never leak).
+		if model.FlatAnchorMismatch && strings.TrimSpace(model.FlatAnchorThread) != "" && len(model.RootFocusUserEntities) > 0 {
+			anchor := runtimeTraceCausalProjectionDisplayNodeName(model.FlatAnchorThread, zh)
+			if zh {
+				b.WriteString("- 分析锚=" + anchor + "(非用户关注对象;用户关注 " + strings.Join(model.RootFocusUserEntities, "、") + " 的唤醒链未在本轮查询)\n")
+			} else {
+				b.WriteString("- analysis anchor = " + anchor + " (not the user-specified focus; the wakeup chain for " + strings.Join(model.RootFocusUserEntities, ", ") + " was not queried this round)\n")
+			}
 		}
 	}
 	for _, row := range model.SelfRows {
@@ -2497,15 +2626,29 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep,
 			MinKeep: runewidth.StringWidth(marker) + 1})
 	}
+	// foldWindowMS feeds the VS-2 fold verdict/tag below AND the F-4
+	// composition-suppression check: window mode's denom IS model.WindowMS.
+	foldWindowMS := 0.0
+	if windowMode {
+		foldWindowMS = denom
+	}
 	// §7.30.3 D3: the inversion composite shows its gated composition — the
 	// split is load-bearing and never elides. NEW-10: also NoTruncate — the
 	// two gated numbers have no other display carrier (same sanctioned
 	// row-cap overflow class as the NEW-3 caliber note).
+	// F-4 (统一复核 2026-07-04): suppressed when this row's VS-2 fold clause
+	// is the Triple branch — that clause already embeds the SAME
+	// single-source composition text ("优先级反转(构成: …)"), and rendering
+	// both put the split on two ↳ continuation lines of one row (H5-class
+	// inflation). Typed check on the same verdict the fold tag renders from.
 	if runtimeTraceCausalProjectionInversionRow(node) &&
-		(node.GatedRunnableMS > 0 || node.GatedRunningDeficitMS > 0) {
-		text := fmt.Sprintf("影响构成: 可运行等待 %.3fms + 运行折算 %.3fms", node.GatedRunnableMS, node.GatedRunningDeficitMS)
+		(node.GatedRunnableMS > 0 || node.GatedRunningDeficitMS > 0) &&
+		!runtimeTraceProjSupplyFoldEmbedsInversionComposition(node, foldWindowMS) {
+		// Composition wording single-sourced (RN-16 运行折算 lint lane) —
+		// see runtimeTraceProjInversionCompositionText.
+		text := "影响构成: " + runtimeTraceProjInversionCompositionText(node, true)
 		if !zh {
-			text = fmt.Sprintf("composition: runnable %.3fms + discounted running %.3fms", node.GatedRunnableMS, node.GatedRunningDeficitMS)
+			text = "composition: " + runtimeTraceProjInversionCompositionText(node, false)
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep,
 			NoTruncate: true, ContinuationLane: true})
@@ -2529,6 +2672,34 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep,
 			NoTruncate: true, ContinuationLane: true})
+	}
+	// VS-2 (§7.10): a folded running-dominant row states its mechanism
+	// composition inline (Keep + ContinuationLane; single-source clause —
+	// see answer_document_mutation_runtime_supplyfold.go). The affirmative
+	// no-deficit branch and the honest "频点数据不全" branch render too:
+	// exclusion is information. (foldWindowMS hoisted above the D3
+	// composition tag for the F-4 suppression check.)
+	if tag, ok := runtimeTraceProjSupplyFoldTag(node, foldWindowMS, zh); ok {
+		tags = append(tags, tag)
+	}
+	// RN-1 (§7.9, RN-B lane): a runnable row with a compiled same-window
+	// occupier roster says WHO held the CPU inline (helper appended at file
+	// end; Keep + ContinuationLane — the occupier names/values have no other
+	// fence carrier).
+	if tag, ok := runtimeTraceProjOccupierTag(node, zh); ok {
+		tags = append(tags, tag)
+	}
+	// RN-12 (§7.9, RN-C lane): a chain/flat row whose subject has a same-ledger
+	// full-window total for the same state class states how much of that total
+	// the chain actually covers — without it the customer read the 635.981ms
+	// top fragment as "the tree is truncated" while the full-window runnable
+	// total (2528.721ms) sat uncross-referenced in the same ledger. Chain-lane
+	// rows only (the compile side attaches to the chain universe; the stanza
+	// kinds are excluded here as the pinned display gate).
+	if row.Kind != runtimeTraceProjTreeRowAdjacent && row.Kind != runtimeTraceProjTreeRowBackground {
+		if tag, ok := runtimeTraceProjFullWindowCoverageTag(node, zh); ok {
+			tags = append(tags, tag)
+		}
 	}
 	// §7.30.3 D1: the parsed holder site is auditable detail — droppable on
 	// width pressure; the raw record keeps it lossless.
@@ -2593,7 +2764,14 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagExtra})
 	}
-	if runtimeTraceProjCrossWindow(node) {
+	// RN-2b (§7.9 runnable 主导场景审计 2026-07-04): the ⚠跨窗 marker's
+	// semantics DEPEND on a resolved projection window — without an anchor
+	// (windowMode false, WindowStartTs/EndTs unset) there is no window to
+	// cross, and a 6.0-shape render stamped ⚠ on every row right under a
+	// header that said 起止未采集. No window → no ⚠ (tree tag, detail-table
+	// 实际状态 mirror, and — via the NEW-7 typed mark — the legend entry all
+	// fall silent together).
+	if windowMode && runtimeTraceProjCrossWindow(node) {
 		row.marks.mark(runtimeTraceProjMarkCrossWindow)
 		text := fmt.Sprintf("⚠跨窗(实际%.3fms)", node.ActualImpactMS)
 		marker := "⚠跨窗"
@@ -2726,13 +2904,14 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 // the typed drilldown target. It never emits advice/should-sentences — the
 // system must not ghost-write the user-facing recommendation surface.
 func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
-	primary := runtimeTraceProjLeadPrimary(projection, model.TrunkLen)
+	primary, onChainFallback := runtimeTraceProjLeadSelect(projection, model)
 	if primary == nil {
 		if len(runtimeTraceCausalProjectionPrimaryRoots(projection)) == 0 {
 			return ""
 		}
 		// Every primary candidate was demoted to the background stanza (§7.30
-		// 裁定1) — the lead must say so instead of naming a demoted row as the
+		// 裁定1) and no data-bearing on-chain row could lead either (RN-3(a))
+		// — the lead must say so instead of naming a demoted row as the
 		// primary root cause and contradicting the tree below it.
 		if zh {
 			return "**主根因:** 窗口内未定位到链上主根因,见背景压力段。"
@@ -2786,6 +2965,24 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 				b.WriteString(fmt.Sprintf(" (%.0f%% of window)", ms/model.WindowMS*100))
 			}
 		}
+	}
+	if onChainFallback {
+		// RN-3(a): the lead is the largest on-chain wait, not an engine-ranked
+		// primary — the short note keeps the conclusion honest about that.
+		b.WriteString(runtimeTraceProjLeadFallbackNote(model, zh))
+	}
+	// VS-2 (§7.10): a folded running-dominant lead carries the mechanism
+	// composition clause on the conclusion line itself (each magnitude with
+	// its own unit, mechanisms joined never summed). The lead selection above
+	// stayed rank/attribution-driven — the fold verdict only WORDS the row it
+	// already leads with.
+	if clause, _, ok := runtimeTraceProjSupplyFoldClause(*primary, model.WindowMS, zh); ok {
+		if zh {
+			b.WriteString(",")
+		} else {
+			b.WriteString(", ")
+		}
+		b.WriteString(clause)
 	}
 	if target := strings.TrimSpace(primary.DrilldownTarget); target != "" && primary.IsSleepState() {
 		if zh {
@@ -2861,6 +3058,84 @@ func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, trunkLe
 	return best
 }
 
+// runtimeTraceProjLeadSelect is the SINGLE lead-selection surface consumed by
+// the conclusion line, the comparison-overview primary cell and the model
+// build (LeadKey) — one implementation, deterministic on (projection, model),
+// so the three consumers can never disagree. Order:
+//  1. the V1 primary-bucket lanes (runtimeTraceProjLeadPrimary, unchanged);
+//  2. RN-3(a) (§7.9 runnable 主导场景审计 2026-07-04): the primary bucket has
+//     rows but NONE survived the 裁定1 demotion gate (the former 未定位
+//     branch) → fall back to the largest data-bearing ON-CHAIN row of the
+//     rendered tree (chain/flat rows, discounted single-instance value) — the
+//     customer's flat runnable 635.981ms/42% row was on the table while the
+//     conclusion said nothing on-chain was located;
+//  3. still nothing → nil, and the caller keeps the 未定位/背景压力段 text.
+//
+// An EMPTY primary bucket keeps the legacy no-conclusion behavior (the
+// fallback only replaces the contradiction case, not the no-rank-data case).
+// The second return reports that the on-chain fallback lane produced the lead
+// (callers append the RN-3(a) short note).
+func runtimeTraceProjLeadSelect(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel) (*types.TraceCausalProjectionNode, bool) {
+	if primary := runtimeTraceProjLeadPrimary(projection, model.TrunkLen); primary != nil {
+		return primary, false
+	}
+	if len(runtimeTraceCausalProjectionPrimaryRoots(projection)) == 0 {
+		return nil, false
+	}
+	if fallback := runtimeTraceProjLeadOnChainFallback(model); fallback != nil {
+		return fallback, true
+	}
+	return nil, false
+}
+
+// runtimeTraceProjLeadOnChainFallback picks the RN-3(a) fallback lead: among
+// the rendered tree's data-bearing on-chain rows (Kind chain = trunk/attached
+// wake rows; Kind depthless = flat-fallback and depth-unresolved on-chain
+// rows), the one with the largest discounted single-instance value
+// (runtimeTraceProjLeadSelectionValue — the SAME caliber as the rankless V1
+// lane: ×N SUMs and raw periodic cadence never compete). Cause/semantic/self/
+// adjacent/background rows never lead here; a 0-value best (e.g. a periodic
+// row discounted to exactly 0) returns nil rather than publishing a 0ms
+// "largest wait". Ties keep the earlier render-order row (deterministic).
+func runtimeTraceProjLeadOnChainFallback(model runtimeTraceProjTreeModel) *types.TraceCausalProjectionNode {
+	var best *types.TraceCausalProjectionNode
+	bestValue := 0.0
+	for i := range model.TreeRows {
+		row := &model.TreeRows[i]
+		if !row.HasData {
+			continue
+		}
+		switch row.Kind {
+		case runtimeTraceProjTreeRowChain, runtimeTraceProjTreeRowDepthless:
+		default:
+			continue
+		}
+		if v := runtimeTraceProjLeadSelectionValue(row.Node); v > bestValue {
+			best, bestValue = &row.Node, v
+		}
+	}
+	return best
+}
+
+// runtimeTraceProjLeadFallbackNote is the RN-3(a) short note appended to the
+// conclusion line / comparison primary cell when the lead came from the
+// on-chain fallback lane. The wording forks on the typed flat signal (empty
+// model.Target = no ≥2-node wakeup path — the same condition every flat
+// surface reads): a flat render says the chain could not be traced upstream;
+// a trunked render says the ranked candidates all demoted to background.
+func runtimeTraceProjLeadFallbackNote(model runtimeTraceProjTreeModel, zh bool) string {
+	if strings.TrimSpace(model.Target) == "" {
+		if zh {
+			return "(链不可上溯,按窗口内最大 on-chain 等待)"
+		}
+		return " (chain not traceable upstream; largest on-chain wait in the window)"
+	}
+	if zh {
+		return "(rank 候选均降背景,按窗口内最大 on-chain 等待)"
+	}
+	return " (all ranked candidates demoted to background; largest on-chain wait in the window)"
+}
+
 // runtimeTraceProjLeadSelectionValue is the rank-fallback ordering key for the
 // conclusion line: the single-instance effective attribution. A ×N aggregate
 // contributes its per-instance max — the merged SUM is a window-projection
@@ -2924,13 +3199,16 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 		// once rendered as "残差 97%". Falls back to the whole window (wording
 		// unchanged) when no self-state row exists or the attribution exceeds
 		// the symptom duration.
+		// RN-6 (§7.9): the denominator family includes runnable, so the wording
+		// says 等待(睡眠/阻塞/就绪) instead of claiming everything was
+		// sleep/blocked.
 		if symptom := runtimeTraceProjTargetSymptomMS(model); symptom > 0 && attributed <= symptom {
 			residual := symptom - attributed
 			if zh {
-				fmt.Fprintf(&b, " 目标睡眠/阻塞 %.3fms 中 on-chain 已归因 %.3fms(%.0f%%),未归因 %.3fms(%.0f%%)。",
+				fmt.Fprintf(&b, " 目标等待(睡眠/阻塞/就绪) %.3fms 中 on-chain 已归因 %.3fms(%.0f%%),未归因 %.3fms(%.0f%%)。",
 					symptom, attributed, attributed/symptom*100, residual, residual/symptom*100)
 			} else {
-				fmt.Fprintf(&b, " Of the target's %.3fms sleep/blocked time, on-chain attributed %.3fms (%.0f%%), unattributed %.3fms (%.0f%%).",
+				fmt.Fprintf(&b, " Of the target's %.3fms wait time (sleep/blocked/runnable), on-chain attributed %.3fms (%.0f%%), unattributed %.3fms (%.0f%%).",
 					symptom, attributed, attributed/symptom*100, residual, residual/symptom*100)
 			}
 			b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
@@ -2985,19 +3263,21 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 // views of the focused thread — its scheduler-STATE rows and hop-view rows
 // (Role=causal_hop: critical_blocking / wakeup_causal_* / root_evidence:*)
 // that re-describe wall clock already inside a state segment. Only state-view
-// rows whose typed StateKind is in the sleep/D/blocked wait family enter the
-// denominator: a 10ms sleep with an 8ms binder wait nested inside it is a
-// 10ms symptom (never 18ms), and a running/runnable self row is not
-// sleep/blocked time at all. Precise typed signals only (Role enum +
-// StateKind enum), never prose.
+// rows whose typed StateKind is in the symptom family enter the denominator:
+// a 10ms sleep with an 8ms binder wait nested inside it is a 10ms symptom
+// (never 18ms), and a running self row is not wait time at all. RN-6 (§7.9):
+// the family is sleep/D/blocked PLUS runnable — a runnable-dominant target's
+// ready-queue wait is its symptom (the customer 7.0 comparison rendered 目标
+// 症状 "—" against a 42% runnable row). Precise typed signals only (Role enum
+// + StateKind enum), never prose.
 func runtimeTraceProjTargetSymptomMS(model runtimeTraceProjTreeModel) float64 {
 	total := 0.0
 	for _, row := range model.SelfRows {
 		if row.Node.Role == types.TraceCausalRoleCausalHop {
 			continue // blocked-wait/attribution hop view: wall clock already counted by its enclosing state segment
 		}
-		if !runtimeTraceProjWaitFamilyStateKind(row.Node) {
-			continue // running/runnable/stateless rows are not sleep/blocked symptom time
+		if !runtimeTraceProjSymptomFamilyStateKind(row.Node) {
+			continue // running/stateless rows are not wait symptom time
 		}
 		if row.Node.ImpactMS > 0 {
 			total += row.Node.ImpactMS
@@ -3053,9 +3333,11 @@ func runtimeTraceProjResidualOwnCaliberNote(model runtimeTraceProjTreeModel, res
 //     depth) already sits inside the depth-cumulative attribution lane, so
 //     citing it as a residual overlap would contradict "未计入链归因";
 //   - self lane: the 🎯 target's own rows with a typed IO caliber token that
-//     stayed OUT of the symptom denominator (causal_hop views / non-wait-family
-//     states — the same two typed exclusions runtimeTraceProjTargetSymptomMS
-//     applies): same-wall-clock re-descriptions, not extra time.
+//     stayed OUT of the symptom denominator (causal_hop views /
+//     non-symptom-family states — the same two typed exclusions
+//     runtimeTraceProjTargetSymptomMS applies; RN-6 widened both to the
+//     symptom family together so the lanes stay complementary):
+//     same-wall-clock re-descriptions, not extra time.
 func runtimeTraceProjOwnCaliberIOPrimaryRow(model runtimeTraceProjTreeModel) (float64, string, bool) {
 	best, tag, found := 0.0, "", false
 	consider := func(row runtimeTraceProjTreeRow) {
@@ -3073,7 +3355,7 @@ func runtimeTraceProjOwnCaliberIOPrimaryRow(model runtimeTraceProjTreeModel) (fl
 		if !runtimeTraceProjSameSegmentIOToken(row.Node) {
 			continue
 		}
-		if row.Node.Role == types.TraceCausalRoleCausalHop || !runtimeTraceProjWaitFamilyStateKind(row.Node) {
+		if row.Node.Role == types.TraceCausalRoleCausalHop || !runtimeTraceProjSymptomFamilyStateKind(row.Node) {
 			consider(row)
 		}
 	}
@@ -3084,8 +3366,10 @@ func runtimeTraceProjOwnCaliberIOPrimaryRow(model runtimeTraceProjTreeModel) (fl
 // scheduler state belongs to the sleep/D/blocked wait family. Precise typed
 // enum check (never a prose substring): running/runnable and rows WITHOUT a
 // StateKind (e.g. metric aggregates that never exposed a dominant state) are
-// NOT waits. Shared by the target-symptom denominator (F1) and the
-// whole-window idle annotation (F3) so the two gates cannot drift.
+// NOT waits. This is the whole-window idle annotation's family (F3) and the
+// base of the symptom family below — RN-6 (§7.9) split the two gates on
+// purpose: a runnable thread is WAITING for the symptom accounting but is
+// never "疑似空闲".
 func runtimeTraceProjWaitFamilyStateKind(node types.TraceCausalProjectionNode) bool {
 	switch strings.TrimSpace(strings.ToLower(node.StateKind)) {
 	case "s_sleep", "sleep", "sleep_wait",
@@ -3095,23 +3379,72 @@ func runtimeTraceProjWaitFamilyStateKind(node types.TraceCausalProjectionNode) b
 	return false
 }
 
+// runtimeTraceProjSymptomFamilyStateKind is the target-symptom state family
+// (F1 as extended by RN-6, §7.9 runnable 主导场景审计 2026-07-04): the sleep/D/
+// blocked wait family PLUS the runnable family (typed enum runnable /
+// runnable_wait). A runnable-dominant target (customer 7.0 shape: sleep=0,
+// runnable 635.981ms = 42% of the window) IS waiting — on the ready queue —
+// yet its symptom denominator and the comparison table's 目标症状 cell
+// rendered "—" next to a tree that showed the 42% runnable row. running and
+// stateless rows stay excluded (running is occupancy, not wait time; the V
+// 批 F1 hop-view exclusion and double-count defenses are untouched).
+func runtimeTraceProjSymptomFamilyStateKind(node types.TraceCausalProjectionNode) bool {
+	if runtimeTraceProjWaitFamilyStateKind(node) {
+		return true
+	}
+	switch strings.TrimSpace(strings.ToLower(node.StateKind)) {
+	case "runnable", "runnable_wait":
+		return true
+	}
+	return false
+}
+
 // runtimeTraceProjWholeWindowIdleRow is the SINGLE definition of the V3
 // "整窗等待(疑似空闲)" annotation — the tree stanza tag and the detail-table
 // mirror both call it (F3: two hand-synced copies were the drift risk). True
-// only for a background row whose typed dominant state is in the sleep/D/
-// blocked wait family AND whose projection covers ≥99% of the window without
-// exceeding it (H8 tolerance: over-window cumulative rows are the multi-CPU
-// ACTIVE shape, never idle). A whole-window running CPU hog or a stateless
-// cpu·ms aggregate row that happens to ≈ the window never takes the tag.
+// only for a background row in the wait family AND whose projection covers
+// ≥99% of the window without exceeding it (H8 tolerance: over-window
+// cumulative rows are the multi-CPU ACTIVE shape, never idle). A whole-window
+// running CPU hog or a stateless cpu·ms aggregate row that happens to ≈ the
+// window never takes the tag.
+//
+// RN-8 (§7.9 runnable 主导场景审计 2026-07-04): the wait-family guard accepts
+// EITHER the typed dominant StateKind (F3 lane, unchanged) OR — when the row
+// exposed NO StateKind at all — an exact typed wait token
+// (runtimeTraceProjWaitFamilyTypeTokenOnly): the customer's 8×101ms
+// d_state_or_io_wait background rows carried the type token but no dominant
+// state, rendered bare, and the model read them as an "IO 突发". running/
+// runnable rows stay excluded on both lanes (a present StateKind always wins
+// — the token lane never overrides a non-wait state).
 func runtimeTraceProjWholeWindowIdleRow(row runtimeTraceProjTreeRow, windowMS float64) bool {
 	if row.Kind != runtimeTraceProjTreeRowBackground || windowMS <= 0 {
 		return false
 	}
-	if !runtimeTraceProjWaitFamilyStateKind(row.Node) {
+	if !runtimeTraceProjWaitFamilyStateKind(row.Node) &&
+		!runtimeTraceProjWaitFamilyTypeTokenOnly(row.Node) {
 		return false
 	}
 	impact := runtimeTraceProjNodeDisplayImpact(row.Node)
 	return impact >= windowMS*0.99 && impact <= windowMS*1.001
+}
+
+// runtimeTraceProjWaitFamilyTypeTokenOnly is the RN-8 stateless lane of the
+// idle guard: the row exposed NO dominant StateKind and its typed token
+// (verbatim TypeToken or Predicate, exact canonical match — never Object
+// prose) is one of the wait-only tokens d_state_or_io_wait / blocking_span.
+// Both tokens describe blocked wall clock by construction; any row that DID
+// expose a StateKind is judged by the state lane alone.
+func runtimeTraceProjWaitFamilyTypeTokenOnly(node types.TraceCausalProjectionNode) bool {
+	if strings.TrimSpace(node.StateKind) != "" {
+		return false
+	}
+	for _, token := range []string{node.TypeToken, node.Predicate} {
+		switch runtimeTraceCausalProjectionCanonicalNode(token) {
+		case "d_state_or_io_wait", "blocking_span":
+			return true
+		}
+	}
+	return false
 }
 
 // runtimeTraceProjChainHasPeriodicData reports whether any data-bearing CHAIN
@@ -3262,7 +3595,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		}
 		node := row.Node
 		layer := runtimeTraceProjDetailLayerCell(row, zh, flat)
-		position := runtimeTraceProjCausalPositionLayerCell(node, zh, row.FlatChain) + " · " + runtimeTraceCausalProjectionPriorityCell(node, zh)
+		position := runtimeTraceProjDetailPositionCell(row, model.LeadKey, zh)
 		name := runtimeTraceCausalProjectionNodeSubjectCell(node, zh)
 		// RF2b/V4: the duplicate-publication fold (single measurement) and the
 		// R2 sum aggregate are independent typed signals with distinct labels.
@@ -3346,6 +3679,16 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 				shape += "·" + periodicNote
 			}
 		}
+		// VS-2 (§7.10) mirror on the lossless surface: the SAME single-source
+		// clause the fence tag and the conclusion line consume (the table has
+		// no width pressure, so it carries the clause verbatim).
+		if clause, _, ok := runtimeTraceProjSupplyFoldClause(node, model.WindowMS, zh); ok {
+			if shape == dash {
+				shape = clause
+			} else {
+				shape += "·" + clause
+			}
+		}
 		// CMP-3 mirror on the lossless surface, ALL duration columns (F6,
 		// adversarial review 2026-07-04): a cross-thread aggregate row's
 		// 链上累计/有效归因/实际状态 mirrors previously sat naked next to an
@@ -3373,7 +3716,9 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 			}
 		}
 		actual := annotated(node.ActualImpactMS)
-		if runtimeTraceProjCrossWindow(node) && node.ActualImpactMS > 0 {
+		// RN-2b: no anchor window → no ⚠ (the marker's semantics depend on a
+		// resolved projection window; same gate as the tree tag).
+		if model.WindowMS > 0 && runtimeTraceProjCrossWindow(node) && node.ActualImpactMS > 0 {
 			actual += " ⚠"
 		}
 		evidence := row.EvidenceTag
@@ -3712,4 +4057,119 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 		})
 	}
 	return intro, items
+}
+
+// runtimeTraceProjOccupierTag renders the RN-1 (§7.9) same-window occupier
+// attribution of a runnable row as its tail tag: the compiled typed
+// OccupierSummary roster (thread:cpu·ms each, subject-matched at compile
+// time) behind a localized label. Keep-class + NoTruncate + ContinuationLane
+// — the occupier names and their cpu·ms values have no other fence carrier;
+// on width pressure the note moves intact onto its own ↳ continuation
+// line(s). Appended by the RN-B lane: new helper + one call site only.
+func runtimeTraceProjOccupierTag(node types.TraceCausalProjectionNode, zh bool) (runtimeTraceProjTag, bool) {
+	roster := strings.TrimSpace(node.OccupierSummary)
+	if roster == "" {
+		return runtimeTraceProjTag{}, false
+	}
+	// F-3 (统一复核 2026-07-04): roster member names pass the RN-4
+	// comm-truncation rewrite — "<...>-49706" is a SYSTEM placeholder, not a
+	// thread name, and rendered verbatim it read as line noise. Display-only:
+	// the producer's occupier_N notes/Summary keep the verbatim token for
+	// audit; grouping/match keys never touch this surface.
+	roster = runtimeTraceProjOccupierRosterDisplay(roster, zh)
+	text := "同窗占用者: " + roster + "(cpu·ms)"
+	marker := "同窗占用者"
+	if !zh {
+		text = "same-window occupiers: " + roster + " (cpu·ms)"
+		marker = "same-window occupiers"
+	}
+	return runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep,
+		NoTruncate: true, ContinuationLane: true,
+		MinKeep: runewidth.StringWidth(marker) + 1}, true
+}
+
+// runtimeTraceProjOccupierRosterDisplay rewrites RN-4 comm-truncation
+// placeholder names inside the RN-1 occupier roster ("name:12.345ms" members
+// joined by "、", the compile-side traceCausalProjectionOccupierRoster shape).
+// Member values split at the LAST ':' so real thread names containing colons
+// (e.g. binder:486_1-10803) stay intact; only names passing the exact
+// runtimeTraceCausalProjectionCommTruncatedTid match ("<...>-" + pure digits)
+// rewrite through the single R1 wording helper. Everything else is verbatim.
+func runtimeTraceProjOccupierRosterDisplay(roster string, zh bool) string {
+	members := strings.Split(roster, "、")
+	for i, member := range members {
+		idx := strings.LastIndex(member, ":")
+		if idx <= 0 {
+			continue
+		}
+		if tid, ok := runtimeTraceCausalProjectionCommTruncatedTid(member[:idx]); ok {
+			members[i] = runtimeTraceCausalProjectionUnrecordedThreadText(tid, zh) + member[idx:]
+		}
+	}
+	return strings.Join(members, "、")
+}
+
+// runtimeTraceProjFullWindowCoverageTag renders the RN-12 (§7.9) coverage
+// cross-reference of a chain/flat row as its tail note: the same-ledger
+// full-window per-state total (typed FullWindowStateMS/Source, compile-gated
+// at the exact ×1.2 threshold) against the fragment the chain actually shows
+// (the row's display projection, ×N merged SUM included), with the coverage
+// percentage from precise division. Keep + NoTruncate + ContinuationLane —
+// the total, its source family and the percentage have no other fence
+// carrier; on width pressure the note moves intact onto its own ↳
+// continuation line(s). The state word comes from the SAME exported class
+// table the compile side used (types.TraceCausalProjectionStateClass).
+//
+// F-2 (统一复核 2026-07-04): the "窗内" wording is reserved for the typed
+// same-window verdict (compile-side ±1ms comparison of the carrier's
+// selected_window against the projection anchor). A total measured in a
+// DIFFERENT query window labels that window explicitly — the recovery
+// dual-window shape otherwise rendered "窗内 runnable 合计 2528.721ms" inside
+// a 300ms 关注窗 (an arithmetically impossible claim). Totals without window
+// endpoints never reach this tag (compile-side 禁猜 drop); the endpoint guard
+// here is defensive only.
+func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode, zh bool) (runtimeTraceProjTag, bool) {
+	full := node.FullWindowStateMS
+	source := strings.TrimSpace(node.FullWindowStateSource)
+	if full <= 0 || source == "" {
+		return runtimeTraceProjTag{}, false
+	}
+	class := types.TraceCausalProjectionStateClass(node.StateKind)
+	if class == "" {
+		return runtimeTraceProjTag{}, false
+	}
+	covered := runtimeTraceProjNodeDisplayImpact(node)
+	if covered <= 0 {
+		return runtimeTraceProjTag{}, false
+	}
+	var text, marker string
+	switch {
+	case node.FullWindowStateSameWindow:
+		text = fmt.Sprintf("窗内 %s 合计 %.3fms(%s),链上仅覆盖 top 片段 %.3fms(%.0f%%)",
+			class, full, source, covered, covered/full*100)
+		marker = "窗内 " + class + " 合计"
+		if !zh {
+			text = fmt.Sprintf("full-window %s total %.3fms (%s); the chain covers only the top fragment %.3fms (%.0f%%)",
+				class, full, source, covered, covered/full*100)
+			marker = "full-window " + class + " total"
+		}
+	case node.FullWindowStateWindowStart > 0 && node.FullWindowStateWindowEnd > node.FullWindowStateWindowStart:
+		text = fmt.Sprintf("另一查询窗(%.3fs–%.3fs)内 %s 合计 %.3fms(%s),链上仅覆盖 top 片段 %.3fms(%.0f%%)",
+			node.FullWindowStateWindowStart, node.FullWindowStateWindowEnd,
+			class, full, source, covered, covered/full*100)
+		marker = "另一查询窗"
+		if !zh {
+			text = fmt.Sprintf("%s total %.3fms in another query window (%.3fs–%.3fs) (%s); the chain covers only the top fragment %.3fms (%.0f%%)",
+				class, full, node.FullWindowStateWindowStart, node.FullWindowStateWindowEnd,
+				source, covered, covered/full*100)
+			marker = "another query window"
+		}
+	default:
+		// Defensive: neither a same-window verdict nor labelable endpoints —
+		// a window claim would be a guess, so no note at all.
+		return runtimeTraceProjTag{}, false
+	}
+	return runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep,
+		NoTruncate: true, ContinuationLane: true,
+		MinKeep: runewidth.StringWidth(marker) + 1}, true
 }

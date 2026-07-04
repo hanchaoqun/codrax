@@ -21,6 +21,7 @@ import (
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/tool/width"
 	"github.com/hanchaoqun/codrax/internal/toolparam"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -2254,6 +2255,15 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				types.SummarizeAnchorObligations(unconsumed)))
 		}
 	}
+	// RN-14c (§7.9, A1 soft-advisory paradigm): a scheduler-shaped trace turn
+	// completing with a pinned user-focus thread but no wakeup-chain-family
+	// observation targeting that thread rides a gate note into the accepted
+	// completion — never a denial: chain absence can be a data fact, but the
+	// answer should disclose it, and RN-14a's via_thread gives the model a
+	// one-call way to connect the runnable anchor to the focus thread.
+	if note := userFocusWakeupChainGapNote(ctx); note != "" {
+		ctx.Mutable.AppendCompletionGateNote(note)
+	}
 	// Promote the waiver only when THIS accepted attempt declared it and
 	// the declaration was not ignored — a stale pending waiver from an
 	// earlier denied attempt must not arm the finalize citation-floor
@@ -3720,6 +3730,159 @@ func wakeupChainDrilldownPendingDowngrade(ctx *types.BusContext) string {
 		"Run trace_query(view=\"wakeup_chain\") for that thread and window once (bounded), then re-call emit_investigation_complete — " +
 		"with the chain the answer can name the upstream waker instead of stopping at the sleep symptom. " +
 		"If the view returns no structured chain, complete directly on the next attempt; this check does not repeat."
+}
+
+// userFocusWakeupChainGapNote implements RN-14c (§7.9): when the analyzer
+// pinned a user-focus thread (typed RuntimeTargets lane, same H4 channel the
+// RN-14b hint reuses), the turn produced scheduler-shaped trace observations
+// (state_drilldown or wakeup-chain family), and NO wakeup-chain-family
+// observation has the focus thread as its chain TARGET, the accepted
+// completion carries a soft advisory suggesting view=wakeup_chain
+// pid=<focus> — with via_thread=<runnable anchor> when a runnable-dominant
+// anchor thread is visible in the typed observations. All inputs are typed
+// observation fields (Predicate / Object / depth / dominant_state / path
+// notes); raw prose is never consulted, and the note never blocks completion.
+func userFocusWakeupChainGapNote(ctx *types.BusContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	focusPID, ok := analyzerPinnedFocusThreadPID(ctx)
+	if !ok {
+		return ""
+	}
+	sawSchedulerShape := false
+	haveFocusChain := false
+	anchorPID := 0
+	for _, result := range append(ctx.Mutable.DispatchToolResults(), ctx.ToolResults...) {
+		if types.CanonicalToolName(result.ToolName) != "trace_query" {
+			continue
+		}
+		for _, obs := range result.Observations {
+			switch strings.TrimSpace(obs.Predicate) {
+			case "state_drilldown", "wakeup_chain", "wakeup_chain_edge", "wakeup_causal_impact", "wakeup_causal_aggregate":
+				sawSchedulerShape = true
+			}
+			if pid, ok := traceChainObservationTargetPID(obs); ok && pid == focusPID {
+				haveFocusChain = true
+			}
+			if anchorPID == 0 {
+				if pid, ok := traceRunnableAnchorObservationPID(obs); ok && pid != focusPID {
+					anchorPID = pid
+				}
+			}
+		}
+	}
+	if !sawSchedulerShape || haveFocusChain {
+		return ""
+	}
+	note := fmt.Sprintf("user-focus thread %d has no wakeup-chain evidence yet; consider view=wakeup_chain pid=%d", focusPID, focusPID)
+	if anchorPID > 0 {
+		note += fmt.Sprintf(" via_thread=%d — connect the runnable anchor to the user-focus thread's wakeup chain", anchorPID)
+	}
+	return note
+}
+
+// traceChainObservationTargetPID extracts the chain TARGET pid carried by a
+// wakeup-chain-family observation (RN-14c §7.9). Carrier fields probed from
+// the producers in trace_query.go: the wakeup_chain path observation's
+// Subject is the chain target label; wakeup_causal_impact rows carry the
+// target as their own Subject only at depth 0 (the target's self impact);
+// aggregate rows carry it as the trailing element of their typed path note
+// ("dependency -> ... -> target"). Everything else has no target carrier.
+//
+// F-1 (统一复核 2026-07-04): the impact producer's depth note rides the
+// zero-drop traceQueryTypedCount (traceQueryTypedCausalImpactRichNotes in
+// trace_query.go) — ChainDepth==0 publishes NO depth= note at all, so a
+// literal depth="0" can never appear on the wire. ABSENCE of the note IS the
+// precise depth-0 signal (absence ⟺ ChainDepth==0, presence ⟺ depth ≥ 1;
+// zero-drop semantics pinned by a mutual comment at the producer). Without
+// this lane a zero-edge (flat) chain run — which emits neither a path
+// observation (traceQueryWakeupChainPath returns "" on zero edges) nor
+// aggregate/edge rows — left ALL four recognition lanes dead and re-injected
+// the "no wakeup-chain evidence" advisory on turns that already ran the
+// focus chain.
+func traceChainObservationTargetPID(obs types.ObservationRecord) (int, bool) {
+	switch strings.TrimSpace(obs.Predicate) {
+	case "wakeup_chain":
+		return traceThreadLabelTrailingPID(obs.Subject)
+	case "wakeup_causal_impact":
+		if traceObservationNoteValue(obs.RichNotes, "depth") == "" {
+			return traceThreadLabelTrailingPID(obs.Subject)
+		}
+		return traceChainPathTailPID(traceObservationNoteValue(obs.RichNotes, "path"))
+	case "wakeup_causal_aggregate", "wakeup_chain_edge":
+		return traceChainPathTailPID(traceObservationNoteValue(obs.RichNotes, "path"))
+	}
+	return 0, false
+}
+
+// traceRunnableAnchorObservationPID identifies a runnable-dominant anchor
+// thread from typed observation rows: a state_drilldown row whose Object is
+// the typed runnable state, or a depth-0 wakeup_causal_impact whose typed
+// dominant_state note is runnable. F-1: depth 0 is keyed on the ABSENCE of
+// the depth= note (producer zero-drop, see traceChainObservationTargetPID).
+func traceRunnableAnchorObservationPID(obs types.ObservationRecord) (int, bool) {
+	switch strings.TrimSpace(obs.Predicate) {
+	case "state_drilldown":
+		if strings.TrimSpace(obs.Object) == string(tracequery.StateRunnable) {
+			return traceThreadLabelTrailingPID(obs.Subject)
+		}
+	case "wakeup_causal_impact":
+		if traceObservationNoteValue(obs.RichNotes, "depth") == "" &&
+			traceObservationNoteValue(obs.RichNotes, "dominant_state") == string(tracequery.StateRunnable) {
+			return traceThreadLabelTrailingPID(obs.Subject)
+		}
+	}
+	return 0, false
+}
+
+// traceObservationNoteValue returns the value of one "key=value" typed rich
+// note, or "" when absent.
+func traceObservationNoteValue(notes []string, key string) string {
+	prefix := key + "="
+	for _, note := range notes {
+		note = strings.TrimSpace(note)
+		if strings.HasPrefix(note, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(note, prefix))
+		}
+	}
+	return ""
+}
+
+// traceThreadLabelTrailingPID parses the pid out of a canonical thread label
+// ("comm-pid", "pid=N", or a bare pid) by exact integer parse of the trailing
+// segment — never a substring scan of prose.
+func traceThreadLabelTrailingPID(label string) (int, bool) {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return 0, false
+	}
+	if rest, ok := strings.CutPrefix(label, "pid="); ok {
+		if pid, err := strconv.Atoi(strings.TrimSpace(rest)); err == nil && pid > 0 {
+			return pid, true
+		}
+		return 0, false
+	}
+	if pid, err := strconv.Atoi(label); err == nil && pid > 0 {
+		return pid, true
+	}
+	if idx := strings.LastIndex(label, "-"); idx >= 0 && idx < len(label)-1 {
+		if pid, err := strconv.Atoi(label[idx+1:]); err == nil && pid > 0 {
+			return pid, true
+		}
+	}
+	return 0, false
+}
+
+// traceChainPathTailPID returns the pid of the final (target) element of a
+// typed chain path note "a-1 -> b-2 -> c-3".
+func traceChainPathTailPID(path string) (int, bool) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return 0, false
+	}
+	parts := strings.Split(path, "->")
+	return traceThreadLabelTrailingPID(parts[len(parts)-1])
 }
 
 // zeroCurrentSourceRepoCompletionBypassLabel waives the completion citation

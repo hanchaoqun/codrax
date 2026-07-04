@@ -1,6 +1,7 @@
 package types
 
 import (
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -239,6 +240,88 @@ type TraceCausalProjectionNode struct {
 	PeriodicSource     bool    `json:"periodic_source,omitempty"`
 	DetectedPeriodMS   float64 `json:"detected_period_ms,omitempty"`
 	PeriodicLatenessMS float64 `json:"periodic_lateness_ms,omitempty"`
+	// OccupierSummary carries the RN-1 (§7.9) same-window occupier attribution
+	// for a runnable-dominant row: the joined top-occupier roster (thread
+	// label + full-window cpu·ms each, e.g. "A-1:120.500ms、B-2:88.100ms")
+	// compiled from a "runnable_occupancy" observation whose Subject exactly
+	// matches this node's Subject. It answers the mechanism question a bare
+	// runnable percentage leaves open — WHO occupied the CPU while this thread
+	// sat ready. Display-only (rendered as the runnable row's tail tag and
+	// never a gate); empty when no occupancy observation was published for
+	// this subject.
+	OccupierSummary string `json:"occupier_summary,omitempty"`
+	// SupplyFold* carry the VS-2 (§7.10) supply-fold accounting of an
+	// on-chain running-dominant row, sourced from the typed
+	// supply_fold_deficit_ms / supply_fold_ideal_ms / fold_basis rich notes.
+	// SupplyFoldComputed is the presence signal (the fold_basis note was
+	// published) — a deficit of exactly 0 with a fully-known basis IS the
+	// affirmative "ran at full frequency, running is true workload" fact, so
+	// zeros are load-bearing and never collapse into "absent".
+	// Deficit = running-SLOW share of the node's OWN running wall clock
+	// folded at the big-cluster governed fmax (lower bound, frequency ratio
+	// only); Ideal + Deficit reconstructs the folded running total; Known/
+	// Unknown split the same total by frequency coverage. Display decision
+	// table only (§7.10 four branches) — ranking and gates never read these.
+	SupplyFoldComputed  bool    `json:"supply_fold_computed,omitempty"`
+	SupplyFoldDeficitMS float64 `json:"supply_fold_deficit_ms,omitempty"`
+	SupplyFoldIdealMS   float64 `json:"supply_fold_ideal_ms,omitempty"`
+	SupplyFoldKnownMS   float64 `json:"supply_fold_known_ms,omitempty"`
+	SupplyFoldUnknownMS float64 `json:"supply_fold_unknown_ms,omitempty"`
+	// RunnableMS mirrors the node's typed "runnable=" rich note (the row's
+	// own in-window runnable wall clock) — consumed by the §7.10 decision
+	// table's shared RN-1 significance check and the mechanism clause's
+	// "调度压力 runnable Y ms" magnitude. 0 when the source row did not
+	// expose the per-state split.
+	RunnableMS float64 `json:"runnable_ms,omitempty"`
+	// FullWindowStateMS / FullWindowStateSource carry the RN-12 (§7.9,
+	// cust_runnable 2026-07-04) full-window coverage cross-reference: the SAME
+	// ledger published a full-window per-state total for this node's exact
+	// canonical Subject and state CLASS (state_drilldown / top_runnable /
+	// top_sleep families — typed Value, Unit=ms) that exceeds this row's own
+	// window projection (×N merged SUM included) by more than the exact ×1.2
+	// threshold. The customer read the chain's 635.981ms top fragment as "the
+	// tree is truncated" while a state_drilldown row of the same thread held
+	// the full-window runnable total 2528.721ms with no cross-reference. The
+	// threshold is a precise float comparison (never ±ε) so a row whose value
+	// IS the full total (or close to it) never grows a noise annotation.
+	// Source is the producer family token of the total's carrier
+	// ("state_drilldown" / "top_runnable" / "top_sleep"). Display-only: the
+	// renderer emits the coverage tail note; no gate reads these fields.
+	FullWindowStateMS     float64 `json:"full_window_state_ms,omitempty"`
+	FullWindowStateSource string  `json:"full_window_state_source,omitempty"`
+	// F-2 (统一复核 2026-07-04, RN-12 cross-window guard): the carrier
+	// observation's own typed selected_window endpoints (seconds) and the
+	// precise same-window verdict against the projection anchor window
+	// (±1ms per endpoint, float tolerance). SameWindow=false means the total
+	// was measured in a DIFFERENT query window than the projection anchor —
+	// the display layer must label that window explicitly
+	// ("另一查询窗(X–Y)内合计") instead of claiming "窗内": in the recovery
+	// dual-window shape the old unconditional "窗内" wording rendered a
+	// 2528.721ms runnable total inside a 300ms 关注窗 (an arithmetically
+	// impossible claim, total = 8.4× the window length). Totals whose
+	// carrier published NO selected_window note are never collected at all
+	// (禁猜 — see traceCausalProjectionFullWindowStateTotal).
+	FullWindowStateWindowStart float64 `json:"full_window_state_window_start,omitempty"`
+	FullWindowStateWindowEnd   float64 `json:"full_window_state_window_end,omitempty"`
+	FullWindowStateSameWindow  bool    `json:"full_window_state_same_window,omitempty"`
+}
+
+// TraceCausalProjectionStateClass maps a typed scheduler-state token to its
+// RN-12 coverage class — the per-class lane the full-window cross-reference
+// mechanism operates on ("runnable" and the S-sleep family "sleep"; no
+// runnable special case). Exact typed-token switch, never a prose substring:
+// io_wait / d_state stay out because they have their own inode/resource
+// drilldown lanes (same narrowness rationale as IsSleepState). Exported so
+// the display layer resolves the class word from the SAME table the compile
+// side used — one source, no drift.
+func TraceCausalProjectionStateClass(raw string) string {
+	switch strings.TrimSpace(strings.ToLower(raw)) {
+	case "runnable":
+		return "runnable"
+	case "s_sleep", "sleep", "sleep_wait":
+		return "sleep"
+	}
+	return ""
 }
 
 // TraceCausalSubjectKindAggregateMetric mirrors the trace_query typed
@@ -289,6 +372,8 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	chainRequiredRecommended := false
 	wakeupChainObserved := false
 	capacityTruncated := false
+	occupiersBySubject := map[string]string{}
+	fullWindowStates := map[string]traceCausalProjectionFullWindowState{}
 	for _, record := range records {
 		if !traceCausalProjectionTraceQueryRecord(record) {
 			continue
@@ -297,6 +382,33 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		// record of a capacity-truncated result (single helper, precise bool).
 		if strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "capacity_truncated")) == "true" {
 			capacityTruncated = true
+		}
+		// RN-1 (§7.9): a runnable_occupancy observation is a subject-keyed
+		// attribution side-channel, never a node of its own — collect the
+		// typed occupier roster for the attach pass below and keep it out of
+		// the node classification.
+		if strings.TrimSpace(record.Predicate) == "runnable_occupancy" {
+			if subject := strings.TrimSpace(record.Subject); subject != "" {
+				if summary := traceCausalProjectionOccupierRoster(record.RichNotes); summary != "" {
+					occupiersBySubject[subject] = summary
+				}
+			}
+			continue
+		}
+		// RN-12 (§7.9): collect full-window per-state totals as a subject+class
+		// keyed side channel (largest total wins — deterministic on record order
+		// independence). The carrier families (state_drilldown and the
+		// window-stats top_runnable/top_sleep rows) never classify into nodes,
+		// so collection never needs a `continue`; the state_drilldown record
+		// still falls through to the 裁定3 chain_required check below.
+		// F-2: only carriers with a parseable typed selected_window note
+		// collect — a total that cannot state its own source window may not
+		// make any window claim (禁猜).
+		if class, total, ok := traceCausalProjectionFullWindowStateTotal(record); ok {
+			key := traceCausalProjectionCanonicalNode(record.Subject) + "\x00" + class
+			if prev, exists := fullWindowStates[key]; !exists || total.MS > prev.MS {
+				fullWindowStates[key] = total
+			}
 		}
 		// 裁定3 typed inputs: a state_drilldown row recommending the wakeup-chain
 		// drilldown (chain_required=true) vs. any wakeup_chain-family observation
@@ -369,6 +481,10 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	// on-chain node also appearing in OnChainCauses as the same-EvidenceID copy)
 	// are preserved — renderers keep deduping by node key.
 	traceCausalProjectionAggregateForPresentation(&out)
+	// RN-1 (§7.9): attach the same-window occupier roster to runnable nodes
+	// (exact Subject match + typed runnable StateKind) after aggregation so
+	// merged nodes carry it too, and before the PrimaryRootCause pointer copy.
+	traceCausalProjectionAttachRunnableOccupiers(&out, occupiersBySubject)
 	if len(out.PrimaryRootCauses) > 0 {
 		node := out.PrimaryRootCauses[0]
 		out.PrimaryRootCause = &node
@@ -385,6 +501,13 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 			traceCausalProjectionMarkNodeWithinWindow(out.PrimaryRootCause, anchorStart, anchorEnd)
 		}
 	}
+	// RN-12 (§7.9): attach the full-window coverage cross-reference AFTER
+	// aggregation (the ×1.2 comparison must run against the ×N merged SUM)
+	// and — F-2 — AFTER the anchor window resolution above, because the
+	// same-window verdict compares each carrier's selected_window against
+	// the resolved anchor. Runs after the PrimaryRootCause pointer copy and
+	// therefore attaches to the pointer explicitly.
+	traceCausalProjectionAttachFullWindowStateTotals(&out, fullWindowStates)
 	traceCausalProjectionAttachSleepDrilldownTargets(&out, wakeupEdges, wakeupPath)
 	if !out.Active() {
 		return TraceCausalProjection{}
@@ -414,6 +537,195 @@ func traceCausalProjectionWakeupEdgeFromRecord(record ObservationRecord) (traceC
 		EvidenceID: strings.TrimSpace(record.ID),
 		Relation:   "wakeup_chain_edge",
 	}, true
+}
+
+// traceCausalProjectionOccupierRoster joins the typed occupier_1..occupier_3
+// rich notes of a runnable_occupancy observation into the display roster
+// ("A-1:120.500ms、B-2:88.100ms"). Exact typed note reads only; empty when the
+// observation carried no occupier note (nothing to attach).
+func traceCausalProjectionOccupierRoster(notes []string) string {
+	var parts []string
+	for _, key := range []string{"occupier_1", "occupier_2", "occupier_3"} {
+		if v := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, key)); v != "" {
+			parts = append(parts, v)
+		}
+	}
+	return strings.Join(parts, "、")
+}
+
+// traceCausalProjectionAttachRunnableOccupiers copies the RN-1 occupier
+// roster onto every node whose Subject exactly matches the observation's
+// starved subject AND whose typed StateKind is runnable — the attribution is
+// about time spent ready-but-off-CPU, so sleep/running/D rows of the same
+// thread never inherit it. Pure typed-field plumbing; no gate reads it.
+func traceCausalProjectionAttachRunnableOccupiers(projection *TraceCausalProjection, occupiers map[string]string) {
+	if projection == nil || len(occupiers) == 0 {
+		return
+	}
+	attach := func(nodes []TraceCausalProjectionNode) {
+		for i := range nodes {
+			if strings.TrimSpace(strings.ToLower(nodes[i].StateKind)) != "runnable" {
+				continue
+			}
+			if summary := occupiers[strings.TrimSpace(nodes[i].Subject)]; summary != "" {
+				nodes[i].OccupierSummary = summary
+			}
+		}
+	}
+	attach(projection.PrimaryRootCauses)
+	attach(projection.OnChainCauses)
+	attach(projection.AdjacentCauses)
+	attach(projection.BackgroundCauses)
+	attach(projection.SupportingHops)
+}
+
+// traceCausalProjectionFullWindowState is one collected RN-12 full-window
+// per-state total: the typed ms value, the producer family token of its
+// carrier observation, and — F-2 — the carrier's own typed selected_window
+// endpoints (seconds), mandatory at collection time.
+type traceCausalProjectionFullWindowState struct {
+	MS          float64
+	Source      string
+	WindowStart float64
+	WindowEnd   float64
+}
+
+// traceCausalProjectionFullWindowStateTotal recognizes an RN-12 full-window
+// per-state total carrier and returns its (state class, collected total).
+// Precise typed matches only:
+//   - Predicate "state_drilldown": the per-thread dominant-state cumulative
+//     (typed Value, the customer's 2528.721ms row), state = Object;
+//   - Predicate "runnable_wait"/"sleep_wait": the window-stats top_runnable /
+//     top_sleep family rows (these predicates belong EXCLUSIVELY to
+//     traceQueryTypedThreadDurationObservations — root_cause/hop rows carry
+//     those words only as Objects, never as Predicates).
+//
+// ok=false for any other record, an unclassifiable state token, a missing
+// subject, a non-ms/non-positive value, or — F-2 (禁猜) — a missing or
+// malformed typed selected_window note: a full-window total whose source
+// window is unknown must never be attached, because the display layer could
+// only guess which window the "合计" belongs to.
+func traceCausalProjectionFullWindowStateTotal(record ObservationRecord) (string, traceCausalProjectionFullWindowState, bool) {
+	if strings.TrimSpace(record.Subject) == "" {
+		return "", traceCausalProjectionFullWindowState{}, false
+	}
+	var source string
+	switch strings.TrimSpace(record.Predicate) {
+	case "state_drilldown":
+		source = "state_drilldown"
+	case "runnable_wait":
+		source = "top_runnable"
+	case "sleep_wait":
+		source = "top_sleep"
+	default:
+		return "", traceCausalProjectionFullWindowState{}, false
+	}
+	class := TraceCausalProjectionStateClass(record.Object)
+	if class == "" {
+		return "", traceCausalProjectionFullWindowState{}, false
+	}
+	if strings.TrimSpace(record.Unit) != "ms" {
+		return "", traceCausalProjectionFullWindowState{}, false
+	}
+	ms := traceCausalProjectionFloat(record.Value)
+	if ms <= 0 {
+		return "", traceCausalProjectionFullWindowState{}, false
+	}
+	windowStart, windowEnd, ok := traceCausalProjectionSelectedWindowNote(record.RichNotes)
+	if !ok {
+		return "", traceCausalProjectionFullWindowState{}, false
+	}
+	return class, traceCausalProjectionFullWindowState{
+		MS:          ms,
+		Source:      source,
+		WindowStart: windowStart,
+		WindowEnd:   windowEnd,
+	}, true
+}
+
+// traceCausalProjectionNodeWindowProjectionMS is the node's window-projection
+// display value the RN-12 ×1.2 comparison runs against (after aggregation,
+// ImpactMS carries the ×N merged SUM). Fallback chain mirrors the renderer's
+// runtimeTraceProjNodeDisplayImpact (internal/tool) — keep the two aligned so
+// the compile-side gate and the rendered "仅覆盖 top 片段" value can never
+// disagree.
+func traceCausalProjectionNodeWindowProjectionMS(node TraceCausalProjectionNode) float64 {
+	if node.ImpactMS > 0 {
+		return node.ImpactMS
+	}
+	if node.CumulativeImpactMS > 0 {
+		return node.CumulativeImpactMS
+	}
+	if node.EffectiveImpactMS > 0 {
+		return node.EffectiveImpactMS
+	}
+	return node.ActualImpactMS
+}
+
+// traceCausalProjectionFullWindowSameWindowToleranceS is the F-2 same-window
+// tolerance (±1ms per endpoint, seconds domain): selected_window endpoints
+// are float re-renders of the same engine values, so exact equality is not
+// guaranteed, but anything beyond 1ms is a genuinely different query window.
+const traceCausalProjectionFullWindowSameWindowToleranceS = 0.001
+
+// traceCausalProjectionAttachFullWindowStateTotals copies the RN-12 typed
+// cross-reference onto CHAIN-UNIVERSE nodes only (primary / on-chain /
+// supporting-hop buckets — the rows the tree renders as chain or flat rows;
+// adjacent/background stanza rows are window statistics themselves and never
+// carry the note). Attach conditions, all precise: same canonical subject,
+// same state class (typed StateKind through the shared class table), and
+// full-window total STRICTLY greater than the node's window projection ×1.2 —
+// a near-equal total is not a coverage gap and must not grow annotation
+// noise. No gate reads the result.
+//
+// F-2 same-window verdict: the carrier's selected_window endpoints compare
+// against the projection anchor window with the ±1ms tolerance — BOTH
+// endpoints must match for SameWindow=true ("窗内" wording). A different
+// window (recovery dual-window shape) or a projection without an anchor
+// window (nothing to verify "窗内" against — 禁猜) sets SameWindow=false and
+// the display layer labels the carrier window explicitly. Runs after the
+// PrimaryRootCause pointer copy, so it attaches to the pointer explicitly.
+func traceCausalProjectionAttachFullWindowStateTotals(projection *TraceCausalProjection, totals map[string]traceCausalProjectionFullWindowState) {
+	if projection == nil || len(totals) == 0 {
+		return
+	}
+	sameWindow := func(total traceCausalProjectionFullWindowState) bool {
+		if projection.WindowStartTs <= 0 || projection.WindowEndTs <= projection.WindowStartTs {
+			return false
+		}
+		return math.Abs(total.WindowStart-projection.WindowStartTs) <= traceCausalProjectionFullWindowSameWindowToleranceS &&
+			math.Abs(total.WindowEnd-projection.WindowEndTs) <= traceCausalProjectionFullWindowSameWindowToleranceS
+	}
+	attachNode := func(node *TraceCausalProjectionNode) {
+		class := TraceCausalProjectionStateClass(node.StateKind)
+		if class == "" {
+			return
+		}
+		total, ok := totals[traceCausalProjectionCanonicalNode(node.Subject)+"\x00"+class]
+		if !ok {
+			return
+		}
+		projected := traceCausalProjectionNodeWindowProjectionMS(*node)
+		if projected <= 0 || total.MS <= projected*1.2 {
+			return
+		}
+		node.FullWindowStateMS = total.MS
+		node.FullWindowStateSource = total.Source
+		node.FullWindowStateWindowStart = total.WindowStart
+		node.FullWindowStateWindowEnd = total.WindowEnd
+		node.FullWindowStateSameWindow = sameWindow(total)
+	}
+	attach := func(nodes []TraceCausalProjectionNode) {
+		for i := range nodes {
+			attachNode(&nodes[i])
+		}
+	}
+	attach(projection.PrimaryRootCauses)
+	attach(projection.OnChainCauses)
+	attach(projection.SupportingHops)
+	if projection.PrimaryRootCause != nil {
+		attachNode(projection.PrimaryRootCause)
+	}
 }
 
 func traceCausalProjectionAttachSleepDrilldownTargets(projection *TraceCausalProjection, edges []traceCausalProjectionWakeupEdge, path []string) {
@@ -571,27 +883,35 @@ func traceCausalProjectionAnchorWindow(records []ObservationRecord) (float64, fl
 }
 
 // traceCausalProjectionSelectedWindowAnchorFamily reports whether a record
-// belongs to one of the two producer families whose typed selected_window
-// note may act as the CMP-2 fallback ANCHOR: wakeup_causal_aggregate rows
-// (exact predicate match) and the root_cause_rank family (ClaimKey prefix
+// belongs to one of the producer families whose typed selected_window note
+// may act as the CMP-2 fallback ANCHOR: wakeup_causal_aggregate and
+// wakeup_causal_impact rows (exact predicate matches — both belong to the
+// wakeup CHAIN family, whose selected_window note carries the engine's own
+// query window) and the root_cause_rank family (ClaimKey prefix
 // "root_cause_" — root_cause_primary/<tier>/root_cause_background all share
-// it; root_evidence:* does not). Both checks are precise typed matches.
+// it; root_evidence:* does not). All checks are precise typed matches.
 //
 // 裁定沿革 (anti-ping-pong): the original CMP-2/F1 ruling deliberately kept NO
 // consumer-side family whitelist — "the note itself IS the whitelist" — which
-// was sound while only these two families emitted it. NEW-8 (账本 §7.6) then
+// was sound while only two families emitted it. NEW-8 (账本 §7.6) then
 // extended the same note to four DISPLAY-ONLY families (wakeup_causal_impact /
 // critical_blocking / state_churn / state_drilldown) so window-basis display
 // lines can name endpoints inline; that silently turned the last-wins anchor
 // loop into "whichever family published last wins", and a mixed-window session
 // (main root_cause_rank window + a later window_stats micro-probe) re-anchored
 // the 关注窗口 onto the micro-probe window — wrong 占窗%, bogus ⚠跨窗 tags,
-// wrong coverage denominator (F1, adversarial re-review 2026-07-04). The
-// consumer therefore enforces the original two-family whitelist as a typed
-// predicate: the four NEW-8 families keep their notes as pure display
-// carriers (NEW-8 surfaces are unaffected) and never anchor.
+// wrong coverage denominator (F1, adversarial re-review 2026-07-04). F1 then
+// pinned a two-family whitelist. RN-5 (§7.9 runnable 主导场景审计 2026-07-04)
+// re-admits exactly ONE of the four: wakeup_causal_impact — it is the wakeup
+// CHAIN family (same producer pass, same query TimeStart/TimeEnd semantics as
+// wakeup_causal_aggregate), and a 6.0-shape session whose ONLY selected_window
+// carriers were impact rows fell back to "起止未采集" while every tree row
+// wore a bogus ⚠跨窗. The three WINDOW-STATS micro-probe families
+// (critical_blocking / state_churn / state_drilldown) stay pure display
+// carriers and never anchor — sub-window probes were the actual F1 failure.
 func traceCausalProjectionSelectedWindowAnchorFamily(record ObservationRecord) bool {
-	if strings.TrimSpace(record.Predicate) == "wakeup_causal_aggregate" {
+	switch strings.TrimSpace(record.Predicate) {
+	case "wakeup_causal_aggregate", "wakeup_causal_impact":
 		return true
 	}
 	return strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "root_cause_")
@@ -761,10 +1081,43 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		node.DetectedPeriodMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "detected_period_ms")
 		node.PeriodicLatenessMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "lateness_ms")
 	}
+	// VS-2 (§7.10): supply-fold accounting — the fold_basis note is the typed
+	// presence signal; deficit/ideal zeros are load-bearing (affirmative
+	// fourth branch), so presence is keyed on the note, never on a positive
+	// value.
+	if basisRaw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "fold_basis")); basisRaw != "" {
+		node.SupplyFoldComputed = true
+		node.SupplyFoldKnownMS, node.SupplyFoldUnknownMS = traceCausalProjectionParseFoldBasis(basisRaw)
+		node.SupplyFoldDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "supply_fold_deficit_ms")
+		node.SupplyFoldIdealMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "supply_fold_ideal_ms")
+	}
+	node.RunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "runnable")
 	// Verbatim typed kind token (see TypeToken doc): lets renderers specialize
 	// the unresolved-peer wording for blocking_span / d_state_or_io_wait rows.
 	node.TypeToken = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "type"))
 	return node
+}
+
+// traceCausalProjectionParseFoldBasis parses the typed fold_basis note value
+// ("known=15.000ms,unknown=0.000ms" — single producer format, see
+// traceQueryTypedSupplyFoldRichNotes in internal/tool). Unparseable parts
+// yield 0 — the consumer then sees unknown coverage and refuses the
+// affirmative claim, never fabricates one.
+func traceCausalProjectionParseFoldBasis(raw string) (knownMs, unknownMs float64) {
+	for _, part := range strings.Split(raw, ",") {
+		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok {
+			continue
+		}
+		ms := traceCausalProjectionFloat(strings.TrimSuffix(strings.TrimSpace(value), "ms"))
+		switch strings.TrimSpace(key) {
+		case "known":
+			knownMs = ms
+		case "unknown":
+			unknownMs = ms
+		}
+	}
+	return knownMs, unknownMs
 }
 
 // traceCausalProjectionUndrillableReason returns a typed reason when a

@@ -115,8 +115,8 @@ func custom1gWindowModel(withSelfRows bool) runtimeTraceProjTreeModel {
 	if withSelfRows {
 		// Customer shape: the 🎯 target slept/blocked 11.716ms of the 101ms
 		// window (5.925 sleep + 5.791 D-state own-state segments — both in the
-		// F1 wait family; runnable/running self rows are pinned as EXCLUDED in
-		// the F-round tests).
+		// symptom family; the running-excluded / runnable-included split is
+		// pinned in the F-round tests, RN-6 §7.9).
 		model.SelfRows = []runtimeTraceProjTreeRow{
 			{Kind: runtimeTraceProjTreeRowSelf, HasData: true,
 				Node: types.TraceCausalProjectionNode{Subject: "render_service-1963", ImpactMS: 5.925, StateKind: "s_sleep"}},
@@ -130,7 +130,9 @@ func custom1gWindowModel(withSelfRows bool) runtimeTraceProjTreeModel {
 func TestRuntimeTraceProjWindowLineTargetSymptomDenominator(t *testing.T) {
 	projection := types.TraceCausalProjection{WindowStartTs: 6793222.700, WindowEndTs: 6793222.801}
 	line := runtimeTraceProjWindowLine(projection, custom1gWindowModel(true), true)
-	if !strings.Contains(line, "目标睡眠/阻塞 11.716ms 中 on-chain 已归因 3.391ms(29%),未归因 8.325ms(71%)") {
+	// (Wording pin updated for RN-6 §7.9: the denominator family now includes
+	// runnable, so the label reads 目标等待(睡眠/阻塞/就绪).)
+	if !strings.Contains(line, "目标等待(睡眠/阻塞/就绪) 11.716ms 中 on-chain 已归因 3.391ms(29%),未归因 8.325ms(71%)") {
 		t.Fatalf("coverage must use the target symptom duration as denominator:\n%s", line)
 	}
 	// The misleading whole-window residual ("残差 97%") must be gone.
@@ -140,7 +142,7 @@ func TestRuntimeTraceProjWindowLineTargetSymptomDenominator(t *testing.T) {
 		}
 	}
 	en := runtimeTraceProjWindowLine(projection, custom1gWindowModel(true), false)
-	if !strings.Contains(en, "Of the target's 11.716ms sleep/blocked time, on-chain attributed 3.391ms (29%), unattributed 8.325ms (71%)") {
+	if !strings.Contains(en, "Of the target's 11.716ms wait time (sleep/blocked/runnable), on-chain attributed 3.391ms (29%), unattributed 8.325ms (71%)") {
 		t.Fatalf("EN coverage must use the symptom denominator:\n%s", en)
 	}
 }
@@ -158,7 +160,7 @@ func TestRuntimeTraceProjWindowLineFallsBackToWholeWindowWithoutSelfRows(t *test
 	model.SelfRows[0].Node.ImpactMS = 1.0
 	model.SelfRows[1].Node.ImpactMS = 2.0
 	line = runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "未归因残差") || strings.Contains(line, "目标睡眠/阻塞") {
+	if !strings.Contains(line, "未归因残差") || strings.Contains(line, "目标等待") {
 		t.Fatalf("attribution above the symptom duration must fall back to the window denominator:\n%s", line)
 	}
 }

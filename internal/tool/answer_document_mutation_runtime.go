@@ -1114,11 +1114,17 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	}
 }
 
-// runtimeTraceProjComparePrimaryCell mirrors the conclusion line's V1 selection
+// runtimeTraceProjComparePrimaryCell mirrors the conclusion line's selection
 // (engine typed rank first, single-instance attribution fallback, merged SUM
-// never participates) into one compact table cell.
+// never participates, RN-3(a) on-chain fallback with its short note) into one
+// compact table cell — the same runtimeTraceProjLeadSelect surface, so the
+// cell can never name a different node than the artifact's conclusion line.
 func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
-	primary := runtimeTraceProjLeadPrimary(projection, model.TrunkLen)
+	primary, onChainFallback := runtimeTraceProjLeadSelect(projection, model)
+	fallbackNote := ""
+	if onChainFallback {
+		fallbackNote = runtimeTraceProjLeadFallbackNote(model, zh)
+	}
 	if primary == nil {
 		if zh {
 			return "未定位到链上主根因(见背景压力段)"
@@ -1143,14 +1149,14 @@ func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, 
 		// the SAME helper as the conclusion line on BOTH value branches — a
 		// periodic fold's single-max is still cadence-dominated raw sleep.
 		if ms := runtimeTraceProjPeriodicHeadlineMS(*primary, primary.MergedMaxMS); primary.PeriodicSource {
-			return cell + runtimeTraceProjPeriodicCompareCellSuffix(ms, zh)
+			return cell + runtimeTraceProjPeriodicCompareCellSuffix(ms, zh) + fallbackNote
 		}
 		if zh {
 			cell += fmt.Sprintf(" 单次最大 %.3fms ×%d", primary.MergedMaxMS, primary.MergedCount)
 		} else {
 			cell += fmt.Sprintf(" single max %.3fms ×%d", primary.MergedMaxMS, primary.MergedCount)
 		}
-		return cell
+		return cell + fallbackNote
 	}
 	ms := primary.CumulativeImpactMS
 	if ms <= 0 {
@@ -1161,12 +1167,12 @@ func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, 
 	// (0.000 included) with the caliber note.
 	ms = runtimeTraceProjPeriodicHeadlineMS(*primary, ms)
 	if primary.PeriodicSource {
-		return cell + runtimeTraceProjPeriodicCompareCellSuffix(ms, zh)
+		return cell + runtimeTraceProjPeriodicCompareCellSuffix(ms, zh) + fallbackNote
 	}
 	if ms > 0 {
 		cell += fmt.Sprintf(" %.3fms", ms)
 	}
-	return cell
+	return cell + fallbackNote
 }
 
 // runtimeTraceProjPeriodicCompareCellSuffix renders a periodic primary's
@@ -2044,7 +2050,45 @@ func runtimeTraceCausalProjectionDisplayNodeName(raw string, zh bool) string {
 		// Raw-string lane: no node context, so the wording stays generic.
 		return runtimeTraceCausalProjectionUnresolvedPeerText("", zh)
 	}
+	// RN-4 (§7.9 runnable 主导场景审计 2026-07-04): the systrace comm-truncation
+	// placeholder "<...>-N" is a SYSTEM-generated token (the kernel never
+	// recorded the comm), not a thread name — rendering it verbatim read as
+	// line noise. Display-only rewrite through the single R1 wording helper;
+	// canonical/grouping keys keep the raw subject untouched.
+	if tid, ok := runtimeTraceCausalProjectionCommTruncatedTid(raw); ok {
+		return runtimeTraceCausalProjectionUnrecordedThreadText(tid, zh)
+	}
 	return raw
+}
+
+// runtimeTraceCausalProjectionCommTruncatedTid matches the exact systrace
+// comm-truncation subject shape "<...>-N": the name part VERBATIM equal to
+// the "<...>" truncation token plus the tokenizer's "-tid" suffix (pure
+// digits). A character-class check on a system-generated marker — never a
+// prose heuristic; any real thread name (even one containing dots or angle
+// brackets elsewhere) fails the exact-prefix or pure-digit test.
+func runtimeTraceCausalProjectionCommTruncatedTid(raw string) (string, bool) {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(raw), "<...>-")
+	if !ok || rest == "" {
+		return "", false
+	}
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			return "", false
+		}
+	}
+	return rest, true
+}
+
+// runtimeTraceCausalProjectionUnrecordedThreadText is THE single wording home
+// (R1 措辞族, beside runtimeTraceCausalProjectionUnresolvedPeerText) for the
+// RN-4 comm-truncation display: the trace recorded the tid but not the name.
+// Display-lane only — never a match key or behavior gate.
+func runtimeTraceCausalProjectionUnrecordedThreadText(tid string, zh bool) string {
+	if zh {
+		return "线程名未记录(tid " + tid + ")"
+	}
+	return "unnamed thread (tid " + tid + ")"
 }
 
 // runtimeTraceCausalProjectionUnknownSentinel reports the exact data-layer
@@ -3251,6 +3295,27 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 			CitationRef: -1,
 		})
 	}
+	// RN-13(b) (§7.9 runnable 主导场景审计 2026-07-04): flat-fallback shape whose
+	// analysis anchor is NOT the user's focused thread — the projection header
+	// disclosed the mismatch (RN-13(a), same typed lane); this row is the
+	// recovery guidance: re-run wakeup_chain for the user's thread to restore
+	// the causal tree. Shares the verbatim display dedupe and the one item cap
+	// with every other lane (coexists with the CMP-6 comparison rows).
+	for _, hint := range runtimeTraceNextStepFlatAnchorRecoveryHints(ctx, ledger, zh) {
+		if len(out) >= runtimeTraceNextStepMaxItems {
+			break
+		}
+		if hint == "" || seenText[hint] {
+			continue
+		}
+		seenText[hint] = true
+		out = append(out, types.AnswerBlockItem{
+			ID:          fmt.Sprintf("runtime_trace_next_step_%d", len(out)+1),
+			Label:       label,
+			Text:        hint,
+			CitationRef: -1,
+		})
+	}
 	for _, record := range ledger.Records {
 		if len(out) >= runtimeTraceNextStepMaxItems {
 			break
@@ -3380,6 +3445,47 @@ func runtimeTraceNextStepUnsampledComparisonHint(ctx *types.BusContext, ledger t
 		return "另一份 trace 尚未采样:对其余未采样的 trace 工件重复同口径采样(同窗/同视图)后再对比"
 	}
 	return "The other trace is not sampled yet: repeat the same-caliber sampling (same window/same views) on the remaining trace artifacts, then compare"
+}
+
+// runtimeTraceNextStepFlatAnchorRecoveryHints returns the RN-13(b) recovery
+// rows: one per compiled projection whose render is the flat-fallback shape
+// AND whose typed anchor-vs-entity comparison mismatched. The gate is exactly
+// the RN-13(a) header lane — the hints re-run buildRuntimeTraceProjTreeModel +
+// runtimeTraceProjApplyUserFocus (the single implementation of the flat-anchor
+// determination), so the header note and the next-step row can never disagree
+// on when the shape applies. Empty when no typed entity context exists or no
+// projection is flat-mismatched; identical rosters dedupe to one row.
+func runtimeTraceNextStepFlatAnchorRecoveryHints(ctx *types.BusContext, ledger types.ObservationLedger, zh bool) []string {
+	focus := runtimeTraceProjUserFocusFromBusContext(ctx)
+	if len(focus.Entities) == 0 {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, projection := range types.CompileTraceCausalProjectionSet(ledger).Projections {
+		if !projection.Active() {
+			continue
+		}
+		model := buildRuntimeTraceProjTreeModel(projection, nil, zh)
+		runtimeTraceProjApplyUserFocus(&model, focus)
+		if !model.FlatAnchorMismatch || len(model.RootFocusUserEntities) == 0 {
+			continue
+		}
+		var text string
+		if zh {
+			text = fmt.Sprintf("对用户关注线程(%s)补跑 wakeup_chain 以恢复因果树",
+				strings.Join(model.RootFocusUserEntities, "、"))
+		} else {
+			text = fmt.Sprintf("Re-run wakeup_chain for the user-focused thread (%s) to restore the causal tree",
+				strings.Join(model.RootFocusUserEntities, ", "))
+		}
+		if seen[text] {
+			continue
+		}
+		seen[text] = true
+		out = append(out, text)
+	}
+	return out
 }
 
 // runtimeTraceCaptureIdentityBasename is the display basename of a canonical

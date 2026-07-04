@@ -392,12 +392,16 @@ func TestTraceCausalProjectionAnchorSelectedWindowFallback(t *testing.T) {
 // --- F1 (adversarial re-review 2026-07-04): anchor-family whitelist -------------
 
 // TestTraceCausalProjectionAnchorIgnoresDisplayOnlySelectedWindowNotes pins the
-// F1 correction of the NEW-8 interaction: NEW-8 extended the typed
-// selected_window note to four DISPLAY-ONLY families, and the last-wins anchor
-// loop silently became "whichever family published last wins" — a mixed-window
-// session re-anchored the 关注窗口 onto a later 100ms micro-probe window. Only
-// wakeup_causal_aggregate (predicate) and the root_cause_rank family (ClaimKey
-// prefix root_cause_) may anchor.
+// F1 correction of the NEW-8 interaction as re-adjudicated by RN-5 (§7.9
+// runnable 主导场景审计 2026-07-04): NEW-8 extended the typed selected_window
+// note to four DISPLAY-ONLY families, and the last-wins anchor loop silently
+// became "whichever family published last wins" — a mixed-window session
+// re-anchored the 关注窗口 onto a later 100ms micro-probe window. The anchor
+// families are wakeup_causal_aggregate + wakeup_causal_impact (exact
+// predicates, both the wakeup CHAIN family whose selected_window is the query
+// window) and the root_cause_rank family (ClaimKey prefix root_cause_); the
+// three WINDOW-STATS micro-probe families (critical_blocking / state_churn /
+// state_drilldown) never anchor.
 func TestTraceCausalProjectionAnchorIgnoresDisplayOnlySelectedWindowNotes(t *testing.T) {
 	const mainWindow = "selected_window=3679.899000..3681.129000"
 	const microProbe = "selected_window=100.000000..100.100000"
@@ -418,17 +422,16 @@ func TestTraceCausalProjectionAnchorIgnoresDisplayOnlySelectedWindowNotes(t *tes
 	if got.WindowStartTs != 3679.899 || got.WindowEndTs != 3681.129 {
 		t.Fatalf("a later display-only note must not re-anchor the window: %v..%v", got.WindowStartTs, got.WindowEndTs)
 	}
-	// (b) the four display-only families ALONE (no anchor-family record): no
-	// anchor at all — the renderer falls back to 起止未采集 / relative bars
-	// rather than adopting a display carrier.
+	// (b) the three window-stats micro-probe families ALONE (no anchor-family
+	// record): no anchor at all — the renderer falls back to 起止未采集 /
+	// relative bars rather than adopting a display carrier. (Pin updated for
+	// RN-5: wakeup_causal_impact left this roster — it is an anchor family now;
+	// its own pin is (c) below. state_churn 单独仍不产锚 stays pinned here.)
 	got = TraceCausalProjectionFromObservationRecords([]ObservationRecord{
 		churn("churn"),
 		partitionTestRecord("drill", "", "state_drilldown", "state_drilldown:worker-2:s_sleep",
 			"worker-2", "s_sleep", "6.000", 6.0, 61, 70, ObservationSpan{LineStart: 61, LineEnd: 70},
 			microProbe),
-		partitionTestRecord("impact", "", "wakeup_causal_impact", "wakeup_causal_impact:worker-3",
-			"worker-3", "runnable", "4.000", 4.0, 71, 80, ObservationSpan{LineStart: 71, LineEnd: 80},
-			"causality=on_wakeup_chain", microProbe),
 		partitionTestRecord("block", "", "critical_blocking", "critical_blocking:futex",
 			"worker-2", "worker-3", "3.000", 3.0, 81, 90, ObservationSpan{LineStart: 81, LineEnd: 90},
 			"type=futex", microProbe),
@@ -437,7 +440,31 @@ func TestTraceCausalProjectionAnchorIgnoresDisplayOnlySelectedWindowNotes(t *tes
 		t.Fatalf("fixture must stay active (hop rows) so the anchor lane is really exercised")
 	}
 	if got.WindowStartTs != 0 || got.WindowEndTs != 0 {
-		t.Fatalf("display-only families alone must never anchor: %v..%v", got.WindowStartTs, got.WindowEndTs)
+		t.Fatalf("window-stats micro-probe families alone must never anchor: %v..%v", got.WindowStartTs, got.WindowEndTs)
+	}
+	// (c) RN-5 positive pin (real 6.0 shape): the ONLY selected_window carriers
+	// are wakeup_causal_impact chain rows → the anchor window resolves instead
+	// of "起止未采集" + a fully ⚠-tagged tree.
+	got = TraceCausalProjectionFromObservationRecords([]ObservationRecord{
+		partitionTestRecord("impact", "", "wakeup_causal_impact", "wakeup_causal_impact:worker-3",
+			"worker-3", "runnable", "4.000", 4.0, 71, 80, ObservationSpan{LineStart: 71, LineEnd: 80},
+			"causality=on_wakeup_chain", mainWindow),
+	})
+	if got.WindowStartTs != 3679.899 || got.WindowEndTs != 3681.129 {
+		t.Fatalf("RN-5: impact-family selected_window notes must anchor: %v..%v", got.WindowStartTs, got.WindowEndTs)
+	}
+	// (c') a later impact-family note participates in the existing last-wins
+	// semantics alongside the other anchor families (same query-window lane).
+	got = TraceCausalProjectionFromObservationRecords([]ObservationRecord{
+		partitionTestRecord("rank", "", "root_cause_primary", "root_cause_primary:r",
+			"worker-2", "running", "7.000", 7.0, 30, 40, ObservationSpan{LineStart: 30, LineEnd: 40},
+			"rank=1", "tier=primary", mainWindow),
+		partitionTestRecord("impact", "", "wakeup_causal_impact", "wakeup_causal_impact:worker-3",
+			"worker-3", "runnable", "4.000", 4.0, 71, 80, ObservationSpan{LineStart: 71, LineEnd: 80},
+			"causality=on_wakeup_chain", "selected_window=8143.800000..8144.501000"),
+	})
+	if got.WindowStartTs != 8143.800 || got.WindowEndTs != 8144.501 {
+		t.Fatalf("RN-5: impact-family notes join the last-wins anchor lane: %v..%v", got.WindowStartTs, got.WindowEndTs)
 	}
 }
 
