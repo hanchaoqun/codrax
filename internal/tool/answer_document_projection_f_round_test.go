@@ -127,8 +127,10 @@ func TestRuntimeTraceProjIdleAnnotationRequiresWaitFamilyStateKind(t *testing.T)
 	if stateless := runtimeTraceProjStanzaRowLine(mkRow(""), runtimeTraceProjTreeLabelWidth, 101.0, true, true); strings.Contains(stateless, "疑似空闲") {
 		t.Fatalf("a stateless whole-window row must not be annotated idle:\n%s", stateless)
 	}
-	// Sleep whole-window rows keep the V3 annotation.
-	if sleep := runtimeTraceProjStanzaRowLine(mkRow("s_sleep"), runtimeTraceProjTreeLabelWidth, 101.0, true, true); !strings.Contains(sleep, "整窗等待(疑似空闲)") {
+	// Sleep whole-window rows keep the V3 annotation (NEW-10: at least the
+	// protected 整窗等待 marker under the 100-cell row cap — the detail table
+	// below keeps the full text).
+	if sleep := runtimeTraceProjStanzaRowLine(mkRow("s_sleep"), runtimeTraceProjTreeLabelWidth, 101.0, true, true); !strings.Contains(sleep, "整窗等待") {
 		t.Fatalf("a whole-window sleep row must keep the idle annotation:\n%s", sleep)
 	}
 	// The detail table consumes the SAME shared judgment — both surfaces fork

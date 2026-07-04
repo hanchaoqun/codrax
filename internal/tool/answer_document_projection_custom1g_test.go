@@ -180,12 +180,15 @@ func TestRuntimeTraceProjBackgroundWholeWindowIdleAnnotation(t *testing.T) {
 		}
 	}
 	// A background thread waiting out the whole 101ms window reads as idle.
+	// NEW-10 (§7.6): under the 100-cell row cap the annotation may display-
+	// truncate to its protected marker phrase on the fence row; the full text
+	// stays pinned on the detail-table mirror below.
 	line := runtimeTraceProjStanzaRowLine(mkRow(101.0), runtimeTraceProjTreeLabelWidth, 101.0, true, true)
-	if !strings.Contains(line, "整窗等待(疑似空闲)") {
+	if !strings.Contains(line, "整窗等待") {
 		t.Fatalf("whole-window background row must carry the idle annotation:\n%s", line)
 	}
 	en := runtimeTraceProjStanzaRowLine(mkRow(101.0), runtimeTraceProjTreeLabelWidth, 101.0, true, false)
-	if !strings.Contains(en, "whole-window wait (likely idle)") {
+	if !strings.Contains(en, "whole-window wait") {
 		t.Fatalf("EN idle annotation missing:\n%s", en)
 	}
 	// Over-window cumulative rows are the H8 multi-CPU shape — an ACTIVE burst,
@@ -345,7 +348,9 @@ func TestRuntimeTraceProjCustom1gEndToEndFoldAndDedup(t *testing.T) {
 	}
 	// V3: the background fold (keep-2 + fold-4) publishes the member max with
 	// the idle annotation — six 101ms threads never render as 404/606ms.
-	if !strings.Contains(fence, "其余 4 项合并") || !strings.Contains(fence, "整窗等待(疑似空闲)") {
+	// NEW-10: the fence row keeps at least the protected 整窗等待 marker; the
+	// detail table stays the lossless surface for the full annotation.
+	if !strings.Contains(fence, "其余 4 项合并") || !strings.Contains(fence, "整窗等待") {
 		t.Fatalf("background fold must render with roster + idle annotation:\n%s", fence)
 	}
 	for _, banned := range []string{"404.000", "606.000"} {

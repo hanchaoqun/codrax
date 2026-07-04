@@ -919,6 +919,17 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		if !zh {
 			title = "Evidence Index"
 		}
+		// NEW-9 (adversarial re-review 2026-07-04): typed truncation disclosure.
+		// When any trace_query record of THIS artifact carried the producer's
+		// capacity_truncated note (per-view row budget cut the result tail), the
+		// index header says so instead of presenting the roster as exhaustive.
+		if projection.CapacityTruncated {
+			if zh {
+				intro += " 部分来源结果按容量截断(rank 头部完整保留);完整明细见原始 trace_query 记录。"
+			} else {
+				intro += " Some source results were capacity-truncated (rank heads fully kept); the full detail remains in the original trace_query records."
+			}
+		}
 		out = append(out, types.AnswerBlock{
 			ID:        idPrefix + "_evidence",
 			Kind:      types.BlockBulletList,
@@ -933,14 +944,15 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 }
 
 // runtimeTraceCausalProjectionMultiCluster renders the CMP-1 multi-artifact
-// layout: [compare overview (typed comparison shapes only)] + one section
-// cluster per artifact projection + [partition caveat]. Every per-artifact
-// section reuses the SINGLE-artifact section builder verbatim (no parallel
-// subsystem) with per-artifact ids, titles, E# numbering and bar scale.
+// layout: [compare overview (deterministic ≥2-active-projection gate, NEW-2)]
+// + one section cluster per artifact projection + [partition caveat]. Every
+// per-artifact section reuses the SINGLE-artifact section builder verbatim
+// (no parallel subsystem) with per-artifact ids, titles, E# numbering and bar
+// scale.
 func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet, ledger types.ObservationLedger, ctx *types.BusContext, lang string, focus runtimeTraceProjUserFocus) []types.AnswerBlock {
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	var out []types.AnswerBlock
-	if runtimeTraceProjComparisonShape(ctx, len(set.Projections)) {
+	if runtimeTraceProjComparisonShape(len(set.Projections)) {
 		if block := runtimeTraceProjCompareOverviewBlock(set.Projections, ledger, lang, zh); block != nil {
 			out = append(out, *block)
 		}
@@ -964,17 +976,25 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 	return out
 }
 
-// runtimeTraceProjComparisonShape is the typed comparison-form predicate
-// (CMP-1 对比总览门): ≥2 per-artifact projections AND the analyzer's typed
-// historical_regression or is_cross_component boolean. Precise booleans only —
-// never keywords, never prose (架构红线: hard-ish display forks read typed
-// signals). Nil context/IR fails closed to the plain per-artifact sections.
-func runtimeTraceProjComparisonShape(ctx *types.BusContext, projectionCount int) bool {
-	if projectionCount < 2 || ctx == nil || ctx.AnalysisIR == nil {
-		return false
-	}
-	rm := ctx.AnalysisIR.RequestModel
-	return rm.DiagnosticProfile.HistoricalRegression || rm.Predicates.IsCrossComponent
+// runtimeTraceProjComparisonShape is the comparison-form gate for the
+// cross-artifact overview table and the comparison next-step rows (CMP-1
+// 对比总览门, as re-adjudicated by NEW-2 — §7.6 对比场景客户回访 2026-07-04):
+// ≥2 compiled ACTIVE per-artifact projections, nothing else. The former
+// second conjunct (the analyzer's historical_regression / is_cross_component
+// boolean) was an LLM-emitted classification with run-to-run variance — the
+// SAME two-trace question rendered the overview on one run and silently
+// dropped the whole table + supply column + comparison next-steps on the
+// rerun (§7.6: complex/5-entity vs moderate/3-entity classification of one
+// question). 精确信号红线: this hard-ish display fork now reads ONLY the
+// deterministic partition count. ≥2 compiled projections is the system's own
+// fact that two artifacts were really analysed; the overview is a pure
+// per-artifact fact roll-up, harmless even when the question was not phrased
+// as a comparison. The analyzer predicate survives ONLY where no comparison
+// data exists and user intent is the missing half of the gate — the
+// single-sided sampling hint (runtimeTraceNextStepUnsampledComparisonHint,
+// predicate ∧ preflight census ≥2) and the prompt-tier skill directive.
+func runtimeTraceProjComparisonShape(projectionCount int) bool {
+	return projectionCount >= 2
 }
 
 // runtimeTraceProjCompareOverviewBlock assembles the compact cross-artifact
@@ -2990,9 +3010,24 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 	}
 	text := strings.Join(parts, sep)
 	if runtimeTraceRecordHasActualWindowValues(record) {
-		if zh {
+		// NEW-8 (账本 §7.6): when the source observation carries the producer's
+		// typed selected_window note (strict shared parser — both endpoints must
+		// be legal floats), the basis line names the window endpoints inline:
+		// the user panel cannot open the raw blob, so "见原始 trace_query 记录"
+		// alone was a dead end. A missing/malformed note keeps the legacy
+		// wording byte-identical.
+		endpoints := ""
+		if start, end, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes); ok {
+			endpoints = fmt.Sprintf("%.3fs–%.3fs", start, end)
+		}
+		switch {
+		case zh && endpoints != "":
+			text += ";窗口基准: 选定窗 " + endpoints + "(实际对齐窗数值见原始 trace_query 记录)"
+		case zh:
 			text += ";窗口基准: 选定窗(实际对齐窗数值见原始 trace_query 记录)"
-		} else {
+		case endpoints != "":
+			text += "; window basis: selected window " + endpoints + " (aligned actual-window values remain in the raw trace_query record)"
+		default:
 			text += "; window basis: selected window (aligned actual-window values remain in the raw trace_query record)"
 		}
 	}
@@ -3136,14 +3171,16 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 	seen := make(map[string]bool)
 	seenText := make(map[string]bool)
 	var out []types.AnswerBlockItem
-	// CMP-6 comparison lane: on a typed cross-trace comparison (same gate as
-	// the projection comparison-overview table) the fixed comparison-oriented
+	// CMP-6 comparison lane: on a cross-trace comparison ledger (same
+	// deterministic ≥2-active-projection gate as the projection
+	// comparison-overview table, NEW-2) the fixed comparison-oriented
 	// guidance rows LEAD the list — they are the headline next steps for this
 	// question shape, and trailing placement would let generic single-trace
 	// rows crowd them out of the shared cap. They pass through the same
 	// verbatim display dedupe and the same item cap as the per-record rows.
-	// Non-comparison dispatches take this branch never and stay byte-identical.
-	if runtimeTraceNextStepComparisonShape(ctx, ledger) {
+	// Single-projection dispatches take this branch never and stay
+	// byte-identical.
+	if runtimeTraceNextStepComparisonShape(ledger) {
 		for _, step := range runtimeTraceNextStepComparisonSteps(zh) {
 			if step == "" || seenText[step] {
 				continue
@@ -3220,17 +3257,18 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 }
 
 // runtimeTraceNextStepComparisonShape gates the CMP-6 comparison-oriented
-// next-step rows: the SAME typed comparison-form predicate as the projection
-// comparison overview (runtimeTraceProjComparisonShape — the analyzer's
-// historical_regression / is_cross_component boolean), evaluated against the
-// number of per-artifact projections this ledger compiles to. Reusing the
-// projection partition (typed artifact identity, spelling-alias merge, active
-// check) keeps "when do comparison next-steps appear" in lockstep with "when
-// does the comparison overview table appear" — one gate, two display
-// surfaces. Nil context / missing analysis / a single-artifact ledger fails
-// closed: no comparison rows, list byte-identical to the pre-CMP-6 output.
-func runtimeTraceNextStepComparisonShape(ctx *types.BusContext, ledger types.ObservationLedger) bool {
-	return runtimeTraceProjComparisonShape(ctx, len(types.CompileTraceCausalProjectionSet(ledger).Projections))
+// next-step rows: the SAME deterministic gate as the projection comparison
+// overview (runtimeTraceProjComparisonShape — ≥2 compiled ACTIVE per-artifact
+// projections; NEW-2 §7.6 回访裁定 dropped the LLM analyzer predicate from
+// both surfaces IN LOCKSTEP), evaluated against the number of per-artifact
+// projections this ledger compiles to. Reusing the projection partition
+// (typed artifact identity, spelling-alias merge, active check) keeps "when
+// do comparison next-steps appear" identical to "when does the comparison
+// overview table appear" — one gate, two display surfaces. A single-artifact
+// ledger fails closed: no comparison rows, list byte-identical to the
+// pre-CMP-6 output.
+func runtimeTraceNextStepComparisonShape(ledger types.ObservationLedger) bool {
+	return runtimeTraceProjComparisonShape(len(types.CompileTraceCausalProjectionSet(ledger).Projections))
 }
 
 // runtimeTraceNextStepComparisonSteps returns the fixed comparison-oriented

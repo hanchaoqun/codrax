@@ -2669,11 +2669,53 @@ func principalEnumerationPrimaryColumnLabel(zh bool, rows []types.EnumerationDis
 		}
 		return "Resource"
 	default:
+		// NEW-5 (§7.6 对比场景客户回访 2026-07-04): the completion-gate
+		// missing-member supplement can carry wakeup-chain descriptions
+		// ("A -> B -> C") instead of symbol names, and a "符号名称" header over
+		// chain rows misdescribes every cell. There is no typed member-category
+		// field distinguishing chain descriptions today
+		// (EnumerationDisplayRow.Category is a set-scope dimension), so this is
+		// a verbatim display-only fork on the literal " -> " arrow — header
+		// wording only; row identity, citations and validators are untouched.
+		// F4: the fork fires only for a UNIFORM chain table (ALL non-empty
+		// rows carry " -> "); mixed tables keep 符号名称.
+		if principalEnumerationRowsCarryChainSurface(rows) {
+			if zh {
+				return "链路/条目"
+			}
+			return "Chain / entry"
+		}
 		if zh {
 			return "符号名称"
 		}
 		return "Name"
 	}
+}
+
+// principalEnumerationRowsCarryChainSurface reports whether the table is a
+// UNIFORM chain-description table: every row with a non-empty primary surface
+// contains the literal spaced arrow " -> " (the wakeup-chain description
+// form), and at least one such row exists. Verbatim substring on the display
+// surface, display-only (see the NEW-5 header fork) — bare "->" without
+// spaces (e.g. C++ member access in a symbol name) deliberately does not
+// match. F4 (adversarial re-review 2026-07-04): the original any-row form
+// flipped the WHOLE header to 链路/条目 when a single chain row sat inside a
+// mixed symbol table, misdescribing every symbol cell — a mixed table keeps
+// 符号名称 (same all-non-empty-rows shape as
+// principalEnumerationRowsUseFilePrimarySurface).
+func principalEnumerationRowsCarryChainSurface(rows []types.EnumerationDisplayRow) bool {
+	matched := 0
+	for _, row := range rows {
+		surface := strings.TrimSpace(firstNonEmptyAnswerString(row.DisplayLabel, row.Member))
+		if surface == "" {
+			continue
+		}
+		if !strings.Contains(surface, " -> ") {
+			return false
+		}
+		matched++
+	}
+	return matched > 0
 }
 
 func principalEnumerationRowsUseFilePrimarySurface(rows []types.EnumerationDisplayRow) bool {

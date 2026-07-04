@@ -224,6 +224,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 			}},
 		},
 		CriticalBlocking: &tracequery.CriticalBlockingResult{
+			Window: tracequery.TimeWindow{StartTs: 1.0, EndTs: 2.0},
 			Items: []tracequery.CriticalBlockingCandidate{
 				{
 					Type:   "futex",
@@ -262,6 +263,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 			},
 		},
 		WindowStats: &tracequery.WindowStats{
+			Window: tracequery.TimeWindow{StartTs: 1.0, EndTs: 2.0},
 			ThreadCPULoad: []tracequery.ThreadCPULoadSummary{{
 				Thread:                tracequery.ThreadRef{Comm: "rival", PID: 30},
 				RunningMs:             6.0,
@@ -472,7 +474,9 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		t.Fatalf("critical-blocking peer/value fields drifted: %+v", criticalBlocking)
 	}
 	blockingNotes := strings.Join(criticalBlocking.RichNotes, "\n")
-	for _, want := range []string{"type=futex", "peer=worker-21", "peer_state_dominant=runnable", "peer_state_runnable=8.000"} {
+	// NEW-8: critical_blocking rows carry the typed selected_window note with
+	// the view window (%.6f both ends — value aligned with q.TimeStart/TimeEnd).
+	for _, want := range []string{"type=futex", "peer=worker-21", "peer_state_dominant=runnable", "peer_state_runnable=8.000", "selected_window=1.000000..2.000000"} {
 		if !strings.Contains(blockingNotes, want) {
 			t.Fatalf("critical-blocking notes missing %q: %+v", want, criticalBlocking.RichNotes)
 		}
@@ -570,6 +574,9 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		"priority=20/ohos_cfs",
 		"target_priority=52/ohos_rt",
 		"priority_inversion_candidate=true",
+		// NEW-8: per-node causal-impact rows publish the selected QUERY window
+		// (WakeupChain.Window) as a typed note, distinct from actual_window.
+		"selected_window=1.000000..2.000000",
 	} {
 		if !strings.Contains(causalNotes, want) {
 			t.Fatalf("causal impact notes missing %q: %+v", want, causalImpact.RichNotes)
@@ -591,6 +598,9 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		"top_competitor=rival-30",
 		"top_competitor_running=4.000",
 		"next_step=inspect rival-30 on same CPU cpu=1",
+		// NEW-8: state_churn (metric-snapshot source) carries the selected
+		// query window (WindowStats.Window) as a typed note.
+		"selected_window=1.000000..2.000000",
 	} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("state churn notes missing %q: %+v", want, churnRow.RichNotes)
@@ -736,6 +746,7 @@ func TestTraceQueryTypedObservationsPublishStateDrilldownPolicy(t *testing.T) {
 		TimeStart:  1.0,
 		TimeEnd:    1.12,
 		WindowStats: &tracequery.WindowStats{
+			Window: tracequery.TimeWindow{StartTs: 1.0, EndTs: 1.12},
 			StateDrilldownPlan: []tracequery.StateDrilldownStep{
 				{
 					Rank:             1,
@@ -793,6 +804,14 @@ func TestTraceQueryTypedObservationsPublishStateDrilldownPolicy(t *testing.T) {
 		!strings.Contains(strings.Join(longSleep.RichNotes, "\n"), "recursive=true") {
 		t.Fatalf("long top_sleep state_drilldown policy did not reach typed observations: %+v", longSleep)
 	}
+	// NEW-8: state_drilldown rows carry the selected QUERY window
+	// (WindowStats.Window) as the typed selected_window note, distinct from the
+	// step's own segment `window=` note.
+	longSleepNotes := strings.Join(longSleep.RichNotes, "\n")
+	if !strings.Contains(longSleepNotes, "selected_window=1.000000..1.120000") ||
+		!strings.Contains(longSleepNotes, "window=1.000000..1.090000") {
+		t.Fatalf("state_drilldown must carry both the step window and the selected query window: %+v", longSleep.RichNotes)
+	}
 	if fragmentedSleep == nil ||
 		!strings.Contains(strings.Join(fragmentedSleep.RichNotes, "\n"), "recommended_views=thread_timeline,interaction_stats,window_stats") ||
 		!strings.Contains(strings.Join(fragmentedSleep.RichNotes, "\n"), "chain_required=false") ||
@@ -827,6 +846,134 @@ func TestTraceQueryTypedObservationsPublishStateDrilldownPolicy(t *testing.T) {
 	}
 	if !sawRecursive || !sawFragmented {
 		t.Fatalf("coverage should preserve recursive and non-recursive state policies: %+v", stateCoverage.Examples)
+	}
+}
+
+// TestTraceQueryTypedObservationsSelectedWindowNoteRequiresTwoSidedWindow pins
+// the NEW-8 negative lane: the typed selected_window note is emitted ONLY for a
+// real two-sided window (start > 0 && end > start, same semantics as
+// traceQuerySelectedWindowNoteValue) — degenerate/absent view windows must not
+// fabricate a window-basis endpoint on any family.
+func TestTraceQueryTypedObservationsSelectedWindowNoteRequiresTwoSidedWindow(t *testing.T) {
+	result := tracequery.Result{
+		View:       "window_stats",
+		SourcePath: "/traces/app.systrace",
+		WakeupChain: &tracequery.ChainResult{
+			Target: tracequery.ThreadRef{Comm: "app", PID: 20},
+			// zero-value window: no selected_window note on causal impacts
+			CausalImpacts: []tracequery.WakeupCausalImpact{{
+				Thread:           tracequery.ThreadRef{Comm: "worker", PID: 21},
+				DominantState:    "runnable",
+				DominantImpactMs: 8.25,
+				ActualImpactMs:   10.0,
+				LineStart:        21, LineEnd: 29,
+				Summary: "worker runnable dependency",
+			}},
+		},
+		CriticalBlocking: &tracequery.CriticalBlockingResult{
+			// end == start: not a real window either
+			Window: tracequery.TimeWindow{StartTs: 5.0, EndTs: 5.0},
+			Items: []tracequery.CriticalBlockingCandidate{{
+				Type:       "futex",
+				Thread:     tracequery.ThreadRef{Comm: "app", PID: 20},
+				Peer:       tracequery.ThreadRef{Comm: "worker", PID: 21},
+				DurationMs: 7.5, LineStart: 40, LineEnd: 41,
+				Confidence: 0.7, Summary: "futex hold",
+			}},
+		},
+		WindowStats: &tracequery.WindowStats{
+			StateChurn: []tracequery.ThreadStateChurnSummary{{
+				Thread:           tracequery.ThreadRef{Comm: "app", PID: 20},
+				DominantState:    "runnable",
+				DominantImpactMs: 5.5, TotalMs: 9.0,
+				FragmentCount: 12, StateSwitches: 24,
+				LineStart: 50, LineEnd: 60, Confidence: 0.66,
+				Summary: "fragmented runnable churn",
+			}},
+			StateDrilldownPlan: []tracequery.StateDrilldownStep{{
+				Rank:     1,
+				Thread:   tracequery.ThreadRef{Comm: "app", PID: 20},
+				State:    string(tracequery.StateSSleep),
+				ImpactMs: 88.0, TotalMs: 90.0,
+				Source:    "top_sleep",
+				LineStart: 10, LineEnd: 20,
+				Summary: "long UI sleep",
+			}},
+		},
+	}
+	rows := traceQueryTypedObservations(result, "trace", "/blobs/zero-window.json", "", "", time.Now())
+	if len(rows) == 0 {
+		t.Fatalf("fixture should still publish typed rows")
+	}
+	for _, row := range rows {
+		for _, note := range row.RichNotes {
+			if strings.HasPrefix(strings.TrimSpace(note), "selected_window=") {
+				t.Fatalf("row %s must not carry selected_window without a two-sided view window: %+v", row.ID, row.RichNotes)
+			}
+		}
+	}
+}
+
+// TestTraceQueryTypedObservationsCapacityTruncationNote pins NEW-9
+// (adversarial re-review 2026-07-04) on both shapes: a result whose typed
+// per-view compaction channel is non-empty (len(Result.Compactions) > 0 — the
+// single traceQueryResultCapacityTruncated helper, never caveat prose) stamps
+// EVERY published typed observation with the precise capacity_truncated note;
+// an untruncated result publishes no such note anywhere.
+func TestTraceQueryTypedObservationsCapacityTruncationNote(t *testing.T) {
+	result := tracequery.Result{
+		View:       "root_cause_rank",
+		SourcePath: "/traces/app.systrace",
+		RootCauseRank: &tracequery.RootCauseRankResult{
+			Window: tracequery.TimeWindow{StartTs: 1.0, EndTs: 2.0},
+			Items: []tracequery.RootCauseRankItem{{
+				Rank: 1, Tier: "primary", Type: "runnable_wait",
+				Thread:    tracequery.ThreadRef{Comm: "app", PID: 20},
+				ImpactMs:  12.5,
+				LineStart: 10, LineEnd: 20,
+				Confidence: 0.8,
+				Summary:    "runnable pressure",
+			}},
+		},
+		WakeupChain: &tracequery.ChainResult{
+			Target: tracequery.ThreadRef{Comm: "app", PID: 20},
+			CausalImpacts: []tracequery.WakeupCausalImpact{{
+				Thread:           tracequery.ThreadRef{Comm: "worker", PID: 21},
+				DominantState:    "runnable",
+				DominantImpactMs: 8.25,
+				LineStart:        21, LineEnd: 29,
+				Summary: "worker runnable dependency",
+			}},
+		},
+	}
+	// (a) no typed compaction → no note on any row.
+	for _, row := range traceQueryTypedObservations(result, "trace", "/blobs/full.json", "", "", time.Now()) {
+		for _, note := range row.RichNotes {
+			if strings.TrimSpace(note) == "capacity_truncated=true" {
+				t.Fatalf("untruncated result must not carry the note on %s: %+v", row.ID, row.RichNotes)
+			}
+		}
+	}
+	// (b) typed compaction present → the note lands on EVERY published row
+	// (row budgets cut the result TAIL; every surviving head row shares the
+	// disclosure so no family silently claims completeness).
+	result.Compactions = []tracequery.ViewCompaction{{
+		View: "root_cause_rank", Dimension: "candidates", Total: 40, Emitted: 12,
+	}}
+	rows := traceQueryTypedObservations(result, "trace", "/blobs/truncated.json", "", "", time.Now())
+	if len(rows) < 2 {
+		t.Fatalf("fixture must publish rows from two families, got %d", len(rows))
+	}
+	for _, row := range rows {
+		found := false
+		for _, note := range row.RichNotes {
+			if strings.TrimSpace(note) == "capacity_truncated=true" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("row %s missing the capacity_truncated note: %+v", row.ID, row.RichNotes)
+		}
 	}
 }
 

@@ -8507,6 +8507,89 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementNormalizesLocatorAndWindowB
 	}
 }
 
+// TestAnswerDocumentEvaluator_TraceQuerySupplementWindowBasisEndpoints pins
+// NEW-8 (账本 §7.6): when the record's own typed selected_window note parses,
+// the renderer-invented window-basis token names the endpoints inline
+// ("窗口基准=选定窗 X.XXXs–Y.YYYs"); the observation data itself stays
+// untouched and the note-less legacy token is pinned by the test above.
+func TestAnswerDocumentEvaluator_TraceQuerySupplementWindowBasisEndpoints(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "trace_query",
+			Success:  true,
+			Observations: []types.ObservationRecord{{
+				ID:              "trace_query:root:1",
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRolePrincipalAnswer,
+				GroundingPolicy: types.ClaimGroundingHard,
+				SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "berlin.systrace"},
+				Span: types.ObservationSpan{
+					LineStart: 824646, LineEnd: 1624260,
+					StartTs: 6793222.031, EndTs: 6793225.370,
+				},
+				ClaimKey:  "root_cause_primary",
+				Subject:   "worker-2",
+				Predicate: "root_cause_primary",
+				Object:    "running",
+				Value:     "2029.609",
+				Unit:      "ms",
+				RichNotes: []string{
+					"impact=2029.609ms", "dominant_state=running", "actual_impact_ms=2677.636",
+					"selected_window=6793222.031000..6793225.370000",
+				},
+				SupportRefs: []string{"berlin.systrace:824646-1624260"},
+			}},
+		}},
+	})
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "主导状态为 running,需要保留结构化核对。",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if !strings.Contains(out.FinalAnswer, "窗口基准=选定窗 6793222.031s–6793225.370s") {
+		t.Fatalf("supplement window-basis token must render the selected-window endpoints:\n%s", out.FinalAnswer)
+	}
+}
+
+// TestTraceQueryObservationSupplementNotes_SelectedWindowEndpoints pins the
+// NEW-8 token shape on both language surfaces plus the malformed-note fallback
+// (shared strict parser; legacy token stays byte-identical).
+func TestTraceQueryObservationSupplementNotes_SelectedWindowEndpoints(t *testing.T) {
+	record := types.ObservationRecord{
+		RichNotes: []string{
+			"impact=2029.609ms", "dominant_state=running", "actual_impact_ms=2677.636",
+			"selected_window=6793222.031000..6793225.370000",
+		},
+	}
+	if zh := traceQueryObservationSupplementNotes(record, true); !strings.Contains(zh, "窗口基准=选定窗 6793222.031s–6793225.370s") {
+		t.Fatalf("ZH supplement token must carry endpoints: %s", zh)
+	}
+	if en := traceQueryObservationSupplementNotes(record, false); !strings.Contains(en, "window_basis=selected_window 6793222.031s–6793225.370s") {
+		t.Fatalf("EN supplement token must carry endpoints: %s", en)
+	}
+	record.RichNotes[3] = "selected_window=..6793225.370000"
+	zh := traceQueryObservationSupplementNotes(record, true)
+	if !strings.Contains(zh, "窗口基准=选定窗") || strings.Contains(zh, "窗口基准=选定窗 ") {
+		t.Fatalf("malformed note must fall back to the bare ZH token: %s", zh)
+	}
+	en := traceQueryObservationSupplementNotes(record, false)
+	if !strings.Contains(en, "window_basis=selected_window") || strings.Contains(en, "window_basis=selected_window ") {
+		t.Fatalf("malformed note must fall back to the bare EN token: %s", en)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceStateDrilldownSupplement(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

@@ -4,9 +4,9 @@ package tool
 // §7.2, customer artifact custom_compare.txt — 7.0 vs 6.0 bindApplication):
 //   CMP-1 — a multi-artifact ledger renders ONE projection section per trace
 //           artifact (per-artifact title, tree, detail table, evidence index,
-//           bar scale); the typed comparison shape adds a compact per-artifact
-//           overview table BEFORE the sections; identity-less observations
-//           surface only in the partition caveat;
+//           bar scale); ≥2 active projections (deterministic gate, NEW-2 §7.6)
+//           add a compact per-artifact overview table BEFORE the sections;
+//           identity-less observations surface only in the partition caveat;
 //   CMP-2 — each section's window line comes from that artifact's own
 //           selected-window anchor (no more "关注窗口起止未采集" when the
 //           precise query window was published);
@@ -311,14 +311,26 @@ func TestTraceProjectionComparisonOverviewSkipsWindowNoteWhenWindowsMatch(t *tes
 	}
 }
 
-func TestTraceProjectionMultiArtifactWithoutComparisonShapeSkipsOverview(t *testing.T) {
+// NEW-2 pin (§7.6 对比场景客户回访 2026-07-04) — REWRITTEN from the former
+// "WithoutComparisonShapeSkipsOverview" pin, by adjudication: the analyzer
+// predicate (historical_regression / is_cross_component) is an LLM-emitted
+// classification with run-to-run variance, and gating the overview on it made
+// the whole table + supply column vanish on a rerun of the SAME two-trace
+// question. The overview gate is now the deterministic ≥2-active-projection
+// count alone, so a two-projection ledger WITHOUT any analyzer predicate must
+// render the overview table (the revisit shape).
+func TestTraceProjectionMultiArtifactOverviewRendersWithoutAnalyzerPredicate(t *testing.T) {
 	got := compareProjApply(t, compareProjBus(false))
-	if projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_compare") != nil {
-		t.Fatalf("non-comparison multi-artifact ledgers must not render the overview table")
+	compare := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_compare")
+	if compare == nil || compare.Kind != types.BlockTable {
+		t.Fatalf("two active projections must render the overview table without the LLM predicate: %+v", got.Blocks)
+	}
+	if len(compare.Items) < 2 {
+		t.Fatalf("overview must carry one row per artifact: %+v", compare.Items)
 	}
 	if projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_a1") == nil ||
 		projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_a2") == nil {
-		t.Fatalf("per-artifact sections must still render without the comparison shape")
+		t.Fatalf("per-artifact sections must still render alongside the overview")
 	}
 }
 

@@ -1,13 +1,15 @@
 package tool
 
 // CMP-6 next-step pins (docs/design/customer_dead_session_audit_20260703.md
-// §7 CMP-6, customer artifact custom_compare.txt): on a typed cross-trace
-// comparison (analyzer historical_regression / is_cross_component boolean +
-// ≥2 compiled per-artifact projections — the SAME gate as the comparison
-// overview table) the next-step list leads with the fixed comparison-oriented
-// guidance rows (per-trace span anchoring, window-length-normalized aggregate
-// comparison). Non-comparison dispatches stay byte-identical to the pre-CMP-6
-// output (existing berlin / emit-tool next-step pins keep guarding that lane).
+// §7 CMP-6, customer artifact custom_compare.txt), gate re-adjudicated by
+// NEW-2 (§7.6 回访 2026-07-04): on a cross-trace comparison ledger (≥2
+// compiled ACTIVE per-artifact projections — the SAME deterministic gate as
+// the comparison overview table; the LLM analyzer predicate was dropped from
+// both surfaces in lockstep) the next-step list leads with the fixed
+// comparison-oriented guidance rows (per-trace span anchoring,
+// window-length-normalized aggregate comparison). Single-projection
+// dispatches stay byte-identical to the pre-CMP-6 output (existing berlin /
+// emit-tool next-step pins keep guarding that lane).
 
 import (
 	"strings"
@@ -81,11 +83,18 @@ func TestRuntimeTraceNextStepComparisonRowsLeadBeforeRecordRowsAndShareCap(t *te
 	}
 }
 
-func TestRuntimeTraceNextStepComparisonRowsAbsentWithoutComparisonPredicate(t *testing.T) {
-	// Two artifacts but no typed comparison predicate → no comparison rows,
-	// and (no per-record payloads) no items at all — the block stays absent.
-	if items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, compareProjBus(false)); len(items) != 0 {
-		t.Fatalf("non-comparison dispatch must not grow comparison rows: %+v", items)
+// NEW-2 pin (§7.6 回访) — REWRITTEN from the former "AbsentWithoutComparison
+// Predicate" pin, by adjudication: the comparison next-step rows stay in
+// LOCKSTEP with the overview table, and both gates dropped the LLM analyzer
+// predicate (run-to-run classification variance made both surfaces vanish on
+// a rerun). Two active projections WITHOUT the predicate now lead with the
+// comparison rows.
+func TestRuntimeTraceNextStepComparisonRowsLeadWithoutAnalyzerPredicate(t *testing.T) {
+	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, compareProjBus(false))
+	if len(items) != 2 ||
+		!strings.Contains(items[0].Text, "对比两 trace") ||
+		!strings.Contains(items[1].Text, "对齐目标 span 边界") {
+		t.Fatalf("two active projections must emit the comparison rows without the LLM predicate: %+v", items)
 	}
 }
 

@@ -129,16 +129,35 @@ func TestTraceProjectionMergedFoldRowKeepsThreadNames(t *testing.T) {
 
 // Legend itemization: both explainer stanzas render as an intro line followed
 // by plain "- " items (one clause per line, no run-on paragraph).
+//
+// Updated for NEW-7 (§7.6 对比场景客户回访 2026-07-04, dynamic legend): the
+// 树读法 entries now render ONLY for marks the fence actually emitted. This
+// fixture's tree is 🎯 + one 💤 drilldown row with NO ⛔ and NO wake edge, so
+// the pin flips: the previously always-on ⛔ / `└─唤醒─` entries must now be
+// ABSENT here, and ⛔ presence is pinned on a missing_wakeup fixture below.
+// The 口径 stanza (detail-table calibers) stays static and unchanged.
 func TestTraceProjectionLegendsRenderAsItemLists(t *testing.T) {
 	zhMD := audit730Render(t, audit730Bus(""), audit730ChainObs(), "")
 	for _, want := range []string{
 		"树读法:\n- 自上而下 = 从关注线程向上游追溯。",
-		"- `⛔` = 窗口内无匹配 sched_wakeup,链止于此。",
+		"- 时长、排序与 E# 均可定位到原始 trace_query 结构化证据,不是额外推测。",
+		"- `🎯` = 树根:本次分析锚定的关注线程。",
+		"- `💤` = 睡眠等待;症状非根因,其唤醒子行即下钻结果。",
 		"口径:\n- 窗口投影 = 节点在用户窗口内的投影影响。",
 		"- 背景行仅作压力/环境证据,不自动等同 on-chain 主因。",
 	} {
 		if !strings.Contains(zhMD, want) {
 			t.Fatalf("zh legend must itemize (%q missing):\n%s", want, zhMD)
+		}
+	}
+	// Dynamic legend: marks this tree never emitted stay OUT of 树读法 (the 口径
+	// stanza's own static ⛔ caliber line is a different surface and remains).
+	for _, banned := range []string{
+		"- `⛔` = 窗口内无匹配 sched_wakeup,链止于此。",
+		"- `└─唤醒─` =",
+	} {
+		if strings.Contains(zhMD, banned) {
+			t.Fatalf("zh legend must not explain marks the tree never emitted (%q):\n%s", banned, zhMD)
 		}
 	}
 	// The old run-on separators must be gone from the two stanzas.
@@ -155,5 +174,31 @@ func TestTraceProjectionLegendsRenderAsItemLists(t *testing.T) {
 		if !strings.Contains(enMD, want) {
 			t.Fatalf("en legend must itemize (%q missing):\n%s", want, enMD)
 		}
+	}
+}
+
+// NEW-7 companion: a tree that DOES emit ⛔ (missing_wakeup, flat fallback)
+// renders the ⛔ legend entry — the ⛔ pin moved here from the fixture above
+// when the legend went dynamic.
+func TestTraceProjectionLegendExplainsEmittedUndrillableMark(t *testing.T) {
+	obs := []types.ObservationRecord{
+		projV3Obs("root-sleep", "root_cause_primary", "root_cause_primary:app",
+			"app-1", "sleep_wait", "9.000", 9.0, 10, 20,
+			"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain", "dominant_state=s_sleep"),
+		{
+			ID: "undrill", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard, Predicate: "missing_wakeup", ClaimKey: "root_evidence:missing_wakeup",
+			Subject: "app-1", Object: "sleep_wait", Value: "9.000", Unit: "ms", Confidence: 0.8,
+			Span:      types.ObservationSpan{LineStart: 10, LineEnd: 20},
+			RichNotes: []string{"impact_ms=9.000", "chain_relevance=on_chain", "causality=on_wakeup_chain", "dominant_state=s_sleep"},
+		},
+	}
+	zhMD := audit730Render(t, audit730Bus(""), obs, "")
+	if !strings.Contains(zhMD, "- `⛔` = 窗口内无匹配 sched_wakeup,链止于此。") {
+		t.Fatalf("emitted ⛔ must carry its legend entry:\n%s", zhMD)
+	}
+	// Flat fallback has no 🎯 root — its entry must not render.
+	if strings.Contains(zhMD, "- `🎯` =") {
+		t.Fatalf("flat render must not explain the 🎯 root it never drew:\n%s", zhMD)
 	}
 }

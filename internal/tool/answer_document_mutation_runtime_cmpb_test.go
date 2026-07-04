@@ -261,3 +261,46 @@ func TestRuntimeTraceProjResolvedChain_KeepsOnChainLabels(t *testing.T) {
 		t.Fatalf("resolved-chain render must not carry the flat rewrite:\n%s", rendered)
 	}
 }
+
+// NEW-8 pins (账本 §7.6): the snapshot window-basis line renders the
+// selected-window endpoints on BOTH language surfaces when the record's own
+// typed selected_window note parses via the shared strict parser, and falls
+// back to the byte-identical legacy wording when the note is malformed or
+// absent — the endpoint values track the note (= q window) at %.3f rounding.
+func TestRuntimeTraceMetricSnapshotDisplayText_SelectedWindowEndpoints(t *testing.T) {
+	record := types.ObservationRecord{
+		Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query",
+		Subject:  "app-20",
+		Value:    "5.000",
+		RichNotes: []string{
+			"dominant_state=runnable",
+			"running=3.500", "runnable=5.000", "sleep=0.000", "d_state=0.000", "io_wait=0.000",
+			"fragments=21", "switches=20", "max_segment=0.500", "p95_segment=0.500",
+			"total=8.500",
+			"actual_impact=6.000ms",
+			"selected_window=3679.899436..3681.129875",
+		},
+	}
+	if zhText := runtimeTraceMetricSnapshotDisplayText(record, true); !strings.Contains(zhText, "窗口基准: 选定窗 3679.899s–3681.130s(实际对齐窗数值见原始 trace_query 记录)") {
+		t.Fatalf("ZH snapshot basis must carry the selected-window endpoints:\n%s", zhText)
+	}
+	if enText := runtimeTraceMetricSnapshotDisplayText(record, false); !strings.Contains(enText, "window basis: selected window 3679.899s–3681.130s (aligned actual-window values remain in the raw trace_query record)") {
+		t.Fatalf("EN snapshot basis must carry the selected-window endpoints:\n%s", enText)
+	}
+
+	// Malformed note (end < start): strict parser rejects → legacy wording
+	// byte-identical, no fabricated endpoints.
+	record.RichNotes[len(record.RichNotes)-1] = "selected_window=3681.129875..3679.899436"
+	zhText := runtimeTraceMetricSnapshotDisplayText(record, true)
+	if !strings.Contains(zhText, "窗口基准: 选定窗(实际对齐窗数值见原始 trace_query 记录)") {
+		t.Fatalf("malformed note must fall back to the legacy ZH basis wording:\n%s", zhText)
+	}
+	if strings.Contains(zhText, "选定窗 3") {
+		t.Fatalf("malformed note must not render endpoints:\n%s", zhText)
+	}
+	enText := runtimeTraceMetricSnapshotDisplayText(record, false)
+	if !strings.Contains(enText, "window basis: selected window (aligned actual-window values remain in the raw trace_query record)") {
+		t.Fatalf("malformed note must fall back to the legacy EN basis wording:\n%s", enText)
+	}
+}

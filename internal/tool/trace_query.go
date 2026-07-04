@@ -4705,14 +4705,22 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 					StartTs:   impact.Window.StartTs,
 					EndTs:     impact.Window.EndTs,
 				},
-				ClaimKey:    "wakeup_causal_impact:" + firstNonEmptyTraceString(traceThreadLabel(impact.Thread), impact.DominantState),
-				Subject:     traceThreadLabel(impact.Thread),
-				Predicate:   "wakeup_causal_impact",
-				Object:      impact.DominantState,
-				Value:       traceQueryObservationMSValue(impact.DominantImpactMs),
-				Unit:        "ms",
-				Summary:     impact.Summary,
-				RichNotes:   traceQueryTypedCausalImpactRichNotes(impact),
+				ClaimKey:  "wakeup_causal_impact:" + firstNonEmptyTraceString(traceThreadLabel(impact.Thread), impact.DominantState),
+				Subject:   traceThreadLabel(impact.Thread),
+				Predicate: "wakeup_causal_impact",
+				Object:    impact.DominantState,
+				Value:     traceQueryObservationMSValue(impact.DominantImpactMs),
+				Unit:      "ms",
+				Summary:   impact.Summary,
+				// NEW-8 (账本 §7.6): per-node causal-impact rows publish
+				// selected-window figures next to actual_* — the same typed
+				// selected_window note as the aggregate rows below lets display
+				// surfaces render the window endpoints inline instead of
+				// pointing at the raw trace_query record.
+				RichNotes: append(traceQueryTypedCausalImpactRichNotes(impact),
+					traceQueryTypedKVNotes([][2]string{
+						{"selected_window", traceQuerySelectedWindowNoteValue(result.WakeupChain.Window)},
+					})...),
 				SupportRefs: traceQueryObservationSupportRefs(ref, impact.LineStart, impact.LineEnd),
 				ObservedAt:  at,
 				Confidence:  0.78,
@@ -4811,10 +4819,17 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Value:           traceQueryObservationMSValue(item.DurationMs),
 				Unit:            "ms",
 				Summary:         item.Summary,
-				RichNotes:       traceQueryTypedCriticalBlockingRichNotes(item),
-				SupportRefs:     traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
-				ObservedAt:      at,
-				Confidence:      item.Confidence,
+				// NEW-8 (账本 §7.6): blocking rows are selected-window surfaces
+				// too — carry the typed selected_window note (view window =
+				// q.TimeStart/TimeEnd) so window-basis displays can name the
+				// endpoints.
+				RichNotes: append(traceQueryTypedCriticalBlockingRichNotes(item),
+					traceQueryTypedKVNotes([][2]string{
+						{"selected_window", traceQuerySelectedWindowNoteValue(result.CriticalBlocking.Window)},
+					})...),
+				SupportRefs: traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
+				ObservedAt:  at,
+				Confidence:  item.Confidence,
 			})
 		}
 	}
@@ -4824,7 +4839,28 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		out = append(out, traceQueryTypedSemanticTraceSpanObservations(result, *result.WindowStats, ref, scope, at)...)
 	}
 
+	// NEW-9 (adversarial re-review 2026-07-04): a capacity-truncated result
+	// (typed per-view compaction channel non-empty — row budgets cut the TAIL;
+	// rank heads are fully kept) stamps every typed observation it publishes
+	// with the precise capacity_truncated note, in ONE place. The projection
+	// compile lifts it into TraceCausalProjection.CapacityTruncated and the
+	// evidence-index header discloses it; nothing gates on it.
+	if traceQueryResultCapacityTruncated(result) {
+		for i := range out {
+			out[i].RichNotes = append(out[i].RichNotes, "capacity_truncated=true")
+		}
+	}
+
 	return out
+}
+
+// traceQueryResultCapacityTruncated is the single NEW-9 truncation predicate:
+// true iff the engine published at least one typed ViewCompaction record for
+// this result (tracequery Result.Compactions — the typed channel that marks
+// truncated result rows). Precise boolean on the typed channel only; caveat
+// prose never participates.
+func traceQueryResultCapacityTruncated(result tracequery.Result) bool {
+	return len(result.Compactions) > 0
 }
 
 func traceQueryTypedPriorityRichNotes(rank int, tier, typ, source, causality string, chainDepth int, score, impact, cumulativeImpact, effectiveImpact, targetImpact, projectedImpact, actualImpact, actualTotal, actualStart, actualEnd float64) []string {
@@ -5361,6 +5397,12 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 		if churn.TotalMs > 0 {
 			notes = append(notes, fmt.Sprintf("total=%.3fms", churn.TotalMs))
 		}
+		// NEW-8 (账本 §7.6): state_churn rows are the metric-snapshot source —
+		// publish the typed selected-window note (stats.Window = the resolved
+		// q.TimeStart/TimeEnd) so the snapshot's window-basis line can render
+		// the endpoints. Emitted only for a real two-sided window, same
+		// semantics as every other family.
+		appendNote("selected_window", traceQuerySelectedWindowNoteValue(stats.Window))
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#state_churn:%d", scope, i+1),
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -5420,6 +5462,10 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"window_proportion", strconv.FormatFloat(step.WindowProportion, 'f', 4, 64)},
 				{"significant", strconv.FormatBool(step.Significant)},
 				{"window", traceQueryWindowValue(step.StartTs, step.EndTs)},
+				// NEW-8 (账本 §7.6): the step's own `window` above is the state
+				// segment; the selected QUERY window travels via the same typed
+				// note as every other selected-window family.
+				{"selected_window", traceQuerySelectedWindowNoteValue(stats.Window)},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(ref, step.LineStart, step.LineEnd),
 			ObservedAt:  at,

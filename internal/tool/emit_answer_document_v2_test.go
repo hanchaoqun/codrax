@@ -776,6 +776,54 @@ func TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisZH(t *testing.T) {
 	}
 }
 
+// TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisEndpointsZH pins NEW-8
+// (账本 §7.6): when the source observation carries the producer's typed
+// selected_window note, the snapshot's window-basis line renders the window
+// endpoints inline at %.3f seconds (the user panel cannot open the raw blob).
+// The .899436→.899 / .129875→.130 endpoints also pin the %.3f rounding
+// alignment with the note (= q window) values.
+func TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisEndpointsZH(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:       "trace_query:state_churn:1",
+			Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query",
+			Subject:  "app-20",
+			Value:    "5.000",
+			RichNotes: []string{
+				"dominant_state=runnable",
+				"running=3.500", "runnable=5.000", "sleep=0.000", "d_state=0.000", "io_wait=0.000",
+				"fragments=21", "switches=20", "max_segment=0.500", "p95_segment=0.500",
+				"total=8.500",
+				"actual_impact=6.000ms",
+				"selected_window=3679.899436..3681.129875",
+			},
+		}},
+	}}
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "app-20 dominant_state=runnable。"},
+			{"id": "scope", "kind": "caveat", "text": "仅限该 trace 窗口。"}
+		]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("unexpected exec result: %v %+v", err, res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	snapshot := doc.Blocks[1]
+	if snapshot.ID != "runtime_trace_metric_snapshot" || len(snapshot.Items) != 1 {
+		t.Fatalf("missing metric snapshot block: %+v", doc.Blocks)
+	}
+	line := snapshot.Items[0].Text
+	if !strings.Contains(line, "窗口基准: 选定窗 3679.899s–3681.130s(实际对齐窗数值见原始 trace_query 记录)") {
+		t.Fatalf("snapshot window basis must render the selected-window endpoints:\n%s", line)
+	}
+}
+
 func TestEmitAnswerDocumentV2_MetricSnapshotEnglishHumanized(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.Language = "en"

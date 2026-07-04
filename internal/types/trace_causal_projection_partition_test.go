@@ -12,7 +12,13 @@ package types
 //           frame_target_resolution anchor exists; the frame anchor keeps
 //           absolute priority, and (F1, adversarial review 2026-07-04) a
 //           record's Span NEVER anchors — the wakeup_causal_aggregate Span is
-//           the member-impact envelope, not the selected window;
+//           the member-impact envelope, not the selected window; (F1,
+//           adversarial re-review 2026-07-04) only the two anchor families —
+//           wakeup_causal_aggregate predicate / root_cause_ ClaimKey prefix —
+//           may supply the note: the four NEW-8 display-only families
+//           (wakeup_causal_impact / critical_blocking / state_churn /
+//           state_drilldown) carry the same note purely for window-basis
+//           display and never anchor;
 //   F4    — the ArtifactID lane rejects the known production constants
 //           ("attached_trace"/"trace_query") and the locator line-suffix
 //           requires non-empty pure-digit 1-based bounds on both sides;
@@ -380,6 +386,83 @@ func TestTraceCausalProjectionAnchorSelectedWindowFallback(t *testing.T) {
 	})
 	if got.WindowStartTs != 8143.800 || got.WindowEndTs != 8144.501 {
 		t.Fatalf("the last qualifying record must win: %v..%v", got.WindowStartTs, got.WindowEndTs)
+	}
+}
+
+// --- F1 (adversarial re-review 2026-07-04): anchor-family whitelist -------------
+
+// TestTraceCausalProjectionAnchorIgnoresDisplayOnlySelectedWindowNotes pins the
+// F1 correction of the NEW-8 interaction: NEW-8 extended the typed
+// selected_window note to four DISPLAY-ONLY families, and the last-wins anchor
+// loop silently became "whichever family published last wins" — a mixed-window
+// session re-anchored the 关注窗口 onto a later 100ms micro-probe window. Only
+// wakeup_causal_aggregate (predicate) and the root_cause_rank family (ClaimKey
+// prefix root_cause_) may anchor.
+func TestTraceCausalProjectionAnchorIgnoresDisplayOnlySelectedWindowNotes(t *testing.T) {
+	const mainWindow = "selected_window=3679.899000..3681.129000"
+	const microProbe = "selected_window=100.000000..100.100000"
+	churn := func(id string) ObservationRecord {
+		return partitionTestRecord(id, "", "state_churn", "state_churn:runnable",
+			"worker-2", "runnable", "5.000", 5.0, 50, 60, ObservationSpan{LineStart: 50, LineEnd: 60},
+			"dominant_state=runnable", microProbe)
+	}
+	// (a) review probe shape: main root_cause_rank window + a LATER micro-probe
+	// window_stats record (state_churn) — the anchor keeps the main window
+	// instead of last-wins flipping onto the 100ms micro-probe.
+	got := TraceCausalProjectionFromObservationRecords([]ObservationRecord{
+		partitionTestRecord("rank", "", "root_cause_primary", "root_cause_primary:r",
+			"worker-2", "running", "7.000", 7.0, 30, 40, ObservationSpan{LineStart: 30, LineEnd: 40},
+			"rank=1", "tier=primary", mainWindow),
+		churn("churn"),
+	})
+	if got.WindowStartTs != 3679.899 || got.WindowEndTs != 3681.129 {
+		t.Fatalf("a later display-only note must not re-anchor the window: %v..%v", got.WindowStartTs, got.WindowEndTs)
+	}
+	// (b) the four display-only families ALONE (no anchor-family record): no
+	// anchor at all — the renderer falls back to 起止未采集 / relative bars
+	// rather than adopting a display carrier.
+	got = TraceCausalProjectionFromObservationRecords([]ObservationRecord{
+		churn("churn"),
+		partitionTestRecord("drill", "", "state_drilldown", "state_drilldown:worker-2:s_sleep",
+			"worker-2", "s_sleep", "6.000", 6.0, 61, 70, ObservationSpan{LineStart: 61, LineEnd: 70},
+			microProbe),
+		partitionTestRecord("impact", "", "wakeup_causal_impact", "wakeup_causal_impact:worker-3",
+			"worker-3", "runnable", "4.000", 4.0, 71, 80, ObservationSpan{LineStart: 71, LineEnd: 80},
+			"causality=on_wakeup_chain", microProbe),
+		partitionTestRecord("block", "", "critical_blocking", "critical_blocking:futex",
+			"worker-2", "worker-3", "3.000", 3.0, 81, 90, ObservationSpan{LineStart: 81, LineEnd: 90},
+			"type=futex", microProbe),
+	})
+	if !got.Active() {
+		t.Fatalf("fixture must stay active (hop rows) so the anchor lane is really exercised")
+	}
+	if got.WindowStartTs != 0 || got.WindowEndTs != 0 {
+		t.Fatalf("display-only families alone must never anchor: %v..%v", got.WindowStartTs, got.WindowEndTs)
+	}
+}
+
+// --- NEW-9: capacity-truncation note lift ---------------------------------------
+
+// TestTraceCausalProjectionLiftsCapacityTruncatedNote pins the NEW-9 compile
+// lift on both shapes: the producer's exact typed capacity_truncated=true rich
+// note (stamped by trace_query when Result.Compactions is non-empty) sets
+// TraceCausalProjection.CapacityTruncated; without the note the flag stays
+// false. Display-only downstream — the evidence-index header discloses it.
+func TestTraceCausalProjectionLiftsCapacityTruncatedNote(t *testing.T) {
+	records := func(notes ...string) []ObservationRecord {
+		return []ObservationRecord{partitionTestRecord("rank", "", "root_cause_primary", "root_cause_primary:r",
+			"worker-2", "running", "7.000", 7.0, 30, 40, ObservationSpan{LineStart: 30, LineEnd: 40},
+			append([]string{"rank=1", "tier=primary"}, notes...)...)}
+	}
+	if got := TraceCausalProjectionFromObservationRecords(records()); got.CapacityTruncated {
+		t.Fatalf("no producer note must leave CapacityTruncated false")
+	}
+	if got := TraceCausalProjectionFromObservationRecords(records("capacity_truncated=true")); !got.CapacityTruncated {
+		t.Fatalf("the typed producer note must lift into CapacityTruncated")
+	}
+	// Exact typed match only — a non-true value never lifts.
+	if got := TraceCausalProjectionFromObservationRecords(records("capacity_truncated=false")); got.CapacityTruncated {
+		t.Fatalf("capacity_truncated=false must not lift")
 	}
 }
 

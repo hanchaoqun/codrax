@@ -226,7 +226,53 @@
 
 四批全部交付并推送:V 批(d3a6bae6,回访 5 gap+复核 5)、CMP-A(8903ff36,多工件架构+复核 7,含 P1 锚窗语义:生产端 selected_window= note+消费端删包络通道)、CMP-B(89f9469c,快照分层/噪音折叠/平铺一致性+复核 2)、CMP-C(74533e20,占用侧四面分解/归一化密度三面/调度压力重标注+compute_supply 三分解/对比引导+单边未采样提示+复核 8:fmax 窗界治理、幽灵 CPU 排除、窗头 runnable 播种+下界披露、idle 判据收敛、compute_supply_balance 观测契约+对比表供给列、census 逻辑 capture 身份归并、TierB lint 盲区、锁步裁定落地)。CMP-1..10 全清账;四轮对抗复核 22 条 finding 全收零遗留。跟踪余项:对比场景实战效果待客户回访/代表性 eval。
 
+### 7.6 对比场景客户回访(2026-07-04,trace_cmp_cust.txt,同 bindApplication 案重跑)
+
+**架构生效**:per-工件双投影段零混树、per-工件锚窗(selected_window 生效)、rank 主根因+合并 lead 单次最大 ×N、残差行、零值折叠、背景 max+roster、快照链上线程+工件前缀 — 全部按预期;分析质量大幅提升(per-trace 定位 span/pid,565ms s_sleep vs 318ms D-state 真差异,答案正文具体到链路)。
+
+**回访新 gap**:
+| # | Gap | 严重度 |
+|---|---|---|
+| NEW-1 | 图例"`└─唤醒─` = 该行唤醒/依赖其父行"方向歧义(客户点名"谁唤醒谁"):唤醒=子→父(对),"依赖其父行"=反向(实际父依赖子)。两个反向动词并置 | P1(客户点名) |
+| NEW-2 | **对比总览表/供给列/对比下一步全部缺席**:门=analyzer LLM 谓词(HistoricalRegression∨IsCrossComponent),本次分类未打上(上次 complex/5 实体,本次 moderate/3 实体,LLM 方差)。精确信号教训:≥2 已编译投影是确定性信号,应作总览表主门 | P1 |
+| NEW-3 | 同主体多源 IO 行冗余:6.0 树 4 条 IO 行(io_burst 232/226+io_wait 112/107,区间重叠值相近不等,V4 精确等值去重不触发)=同段 IO 两口径×两窗发布;目标自身进程行挂"唤醒 ▸ main"关系语义怪 | P2 |
+| NEW-4 | span 锚定问题(用户给时长非时间戳)双窗关系行不出:用户窗来源可扩展到已定位 span 窗(typed span 观测) | P3 |
+| NEW-5 | "系统按已验证证据补充缺失成员"表列头"符号名称"装唤醒链描述,列头错位 | P3 |
+
+裁定:NEW-1 图例改"该行唤醒其父行(父行依赖该行)";NEW-2 总览表门改为 ≥2 Active 投影(确定性),analyzer 谓词降为 next-step 对比条目与 skill directive 的门(prompt 期无 ledger 只能用谓词+census,保持);NEW-3 归为同主体 IO 多源聚合(burst⊇wait 的口径分组显示);NEW-4/5 小修。
+
+| NEW-6 | 覆盖行与自身口径行的关系未自解释(客户追问"残差包含 on-chain 吗"暴露):6.0 案"残差 90%"与树内"主根因"IO 行(232ms 等)表面矛盾——IO 行与目标 D 态是同段墙钟另口径,防双计故不入"已归因",但读者需自行脑补。修复:存在目标自身/同进程 IO·阻塞口径行时,覆盖行追加"残差中最大 X ms 与自身 IO 口径行(E# 组)重叠解释,未计入链归因以防双计"(取 NEW-3 分组主行值,verbatim 证据 ID) | P2 |
+
+**残差语义定稿(入图例/文档口径)**:残差=目标症状时长−唤醒链量化归因,是 on-chain 归因的补集(不含之);自身口径行(window_stats/critical_blocking 面)解释残差但不入归因分子。
+
+| NEW-7 | 树读法图例静态,与树实际内容脱节(客户点名):真实出现的 🎯/⏳/⚙/⛓/◦/├─下钻─/⚠(树行)/↺ 无图例条目;⛔/成因 等未出现时仍被解释。修复:图例**动态生成**——渲染期记录实际发出的符号/边/标记 typed 集合,图例只渲染出现过的条目;建立渲染器全量符号目录 + 双向结构 pin(出现必有解释/解释必有出现),新增符号漏配目录直接炸测试 | P1(客户点名) |
+| NEW-8 | "窗口基准: 选定窗"不渲染窗口起止,尾注"见原始 trace_query 记录"指向用户面板不可查的 blob(客户点名)。端点数据已在(CMP-A selected_window= typed note),缺:(a) producer 覆盖面——state_churn/快照、critical_blocking、state_drilldown 等窗口化观测族统一带 selected_window= note(单一 helper);(b) 显示面——快照行与系统补充行在 note 存在时渲染"选定窗 X.XXXs–Y.YYYs",缺失回退现措辞;"见原始记录"降为补充语 | P1(客户点名) |
+| NEW-9 | 来源结果容量截断未在最终报告披露(客户注意到模型自述"6.0 root_cause_rank 似乎被截断"):截断本身是 E4 容量治理设计内行为(按 rank 保头部,模型 1 轮 window_stats 恢复,结论建立在未截断头部+补全数据上,无实质影响),但 typed Compactions 信号只在工具结果上,投影段/证据索引不渲染——读者只能从过程日志推断。修复=显示接线:喂给某工件投影的结果带容量截断时,该段证据索引头加"部分来源结果按容量截断(rank 头部完整保留)" | P3 |
+| NEW-10 | 投影树 fence 在 markdown/HTML 查看器中对齐漂移与强制换行(客户点名):根因=网页等宽字体 CJK≈1.6-1.8×/emoji 宽度不定(终端按 2 列 pad)+部分查看器 pre-wrap 折行。裁定:**不做 per-surface 第二套内容渲染**(v3 三端一致防内容漂移红线);改进=(1) 答案面树行显示宽度硬上限收紧 ≤100 列(单行完整性优先,行内锚定序保证跨行漂移不损单行可读);(2) 记号区规整:每行状态记号恒 1 glyph(缺省补 ◦)、全 fence 禁 tab;(3) docs 增 portal 呈现指引(pre 样式+CJK 等宽字体栈);(4) 结构 pin:行宽≤预算/记号恒1/无 tab。明细表(markdown 原生)本就是无损兜底 | P2(客户点名) |
+
 **supply_pressure token 终局裁定(2026-07-04,用户裁定,项关闭)**:**token 保留 + 显示层分离**。wire token `supply_pressure` 永久保留不迁移;需求积压语义由显示层承担(全部显示面经唯一 helper `runtimeTraceSupplyPressureDisplayLabel` 渲染"调度压力(需求积压)"/"scheduling pressure (demand backlog)",明细表"类型"列与叙事括注保留 verbatim token 作审计对账)。理由:(1) LLM 与客户只消费显示文本,token 纯内部命名;(2) 迁移成本(约 12 个生产点+全量 goldens+旧 session 工件别名过渡)只换内部命名一致性,风险收益比不成立;(3) verbatim token 保住与历史 session/外部日志的可对账性。R2' 适用性判定:已交付的 CMP 改动均为系统内部确定性信号(非 LLM-emit 契约面),六处同步无触发点;本裁定后 token 迁移不再是开放项。后续任何人重提改名,先读本段。
+
+### 7.8 VS-1:周期性信号源的因果计数口径(客户裁定,设计定稿)
+
+**问题(vsync_cust.txt,旧版输出+代码核对确认)**:VSync 是固定周期的帧信号发生器,期内睡眠是正常节拍;但 `causalImpactBlockingMs`(query.go:11730)对 sleep 主导 occurrence 全额计 impact,零周期性感知 → VSyncGenerator 每 8.33ms 周期内 5-6ms 正常空闲、主线程逐帧等待的 5.8-6.4ms 正常睡眠(E10 合计 36.256ms)全被计为根因影响;旧答案据此把"5.2-6.2ms sleep 波动"叙述成抖动根因——数据自证信号没迟到(actual_window 跨度 8.287-8.360ms,方差 ±0.04ms)。
+
+**客户口径(裁定)**:周期性信号对上,只有 (a) runnable 等待(要 CPU 没拿到)与 (b) 信号比预期周期**迟到的超出量**才计入 on-chain 根因;期内正常 sleep 不计。
+
+**设计**:
+1) **周期检测(确定性,禁线程名关键字)**:同一 (waker→target) 唤醒聚合 occurrences≥3 时,取相邻 actual_window 起点间隔序列,中位数 p;全部间隔 ∈ [p×0.85, p×1.15](tol 常量注明)→ 判定周期性唤醒对,p=检测周期。数据已全在 aggregate 的 occurrence_windows,零新解析。
+2) **计数修正(engine,软面数值)**:周期对的 sleep 主导 occurrence,有效 impact = runnable 全额 + max(0, 实际间隔−p)(迟到量);期内 sleep 不计。raw 值无损保留;新 typed 字段 PeriodicSource/DetectedPeriodMs/LatenessMs。
+3) **呈现**:此类行标"周期性信号源(期内睡眠为正常节拍,周期≈p ms)";有效归因列用折减值,窗口投影保留 raw;主根因选择消费折减值(与 V1 口径一致);图例/口径补条目。
+4) **红线合规**:15% 容差是噪音阈值 → 只驱动软面(计数/标签/排序),不进任何硬门;runnable 与迟到量是精确算术。berlin 案预期效果:E1/E10 折减至 ≈抖动和(≈0.2ms),真实 impact 行(RSUniRender running 4.115/binder 4.577/runnable 片段)自然上浮。
+
+排队:回访批推送后作为下一批(VS 批)实施。
+
+### 7.7 Portal 呈现指引(NEW-10 配套,2026-07-04)
+
+投影树 fence 内容三端一致(HTML / markdown / 终端字节相同,v3 红线,无 per-surface 第二套渲染);网页端能否对齐取决于 portal 的 CSS。接入方建议:
+
+- **pre 样式**:代码块容器用 `white-space: pre; overflow-x: auto;` —— 禁止 pre-wrap 折行,超宽横向滚动。答案面树行显示宽度硬上限 100 列(回访聚焦复核 F-2,2026-07-04:NEW-3 口径注/D3 影响构成等超宽 typed 承重注记不再豁免溢出,自动换行为前缀对齐的 ↳ 续行,内容不截断;F-3:共享 label 列另有 50 列封顶——由行预算减最小 bar/ms/存根区精确推导——深链/长名行按 B1 语义加剧名称截断,🎯 头永不截断,明细表保持无损全名),容器给到 ~100ch 即基本无滚动。
+- **CJK 等宽字体栈**:对齐要求 CJK 恰为 ASCII 两倍宽,推荐 `font-family: "Sarasa Term SC", "Sarasa Mono SC", "Noto Sans Mono CJK SC", ui-monospace, monospace;`。缺 CJK 等宽字体时 CJK≈1.6-1.8× 会产生列漂移——NEW-10 已将每行状态记号规整为恒 1 glyph、全 fence 无 tab,漂移收敛为同深度行的常量偏移,单行内锚定序(记号→名称→bar→ms→%→tag→E#)不受影响。
+- **无损兜底**:fence 只承担美观与单行完整性;全部数值、关系、⚠ 实际值、被截断的 tag/名称均在明细表(markdown 原生表格,不受字体影响)与证据索引中无损可查。
 
 ### 7.3 CMP-9:跨 trace 聚合对比必须归一化(用户追问暴露,P0 级口径缺陷)
 

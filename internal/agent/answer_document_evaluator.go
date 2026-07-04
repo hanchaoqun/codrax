@@ -12450,11 +12450,20 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 	// basis must be labeled so the two windows cannot be read as one (the S1
 	// customer report published a 119%-of-window sum without any basis label).
 	if traceQueryObservationHasActualWindowNote(record) {
+		basis := "window_basis=selected_window"
 		if zh {
-			notes = append(notes, "窗口基准=选定窗")
-		} else {
-			notes = append(notes, "window_basis=selected_window")
+			basis = "窗口基准=选定窗"
 		}
+		// NEW-8 (账本 §7.6): this basis token is renderer-invented (the note
+		// pairs above stay verbatim) — when the record's OWN typed
+		// selected_window note parses via the shared strict parser, the token
+		// names the window endpoints inline; the observation data itself is
+		// never rewritten, and a missing/malformed note keeps the legacy token
+		// byte-identical.
+		if start, end, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes); ok {
+			basis += fmt.Sprintf(" %.3fs–%.3fs", start, end)
+		}
+		notes = append(notes, basis)
 	}
 	// The list label is renderer-invented and follows the answer language; the
 	// note pairs themselves are the raw typed audit carrier and stay verbatim.

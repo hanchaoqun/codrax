@@ -57,6 +57,15 @@ type TraceCausalProjection struct {
 	// ignore them so single-artifact output stays byte-identical.
 	ArtifactPath  string `json:"artifact_path,omitempty"`
 	ArtifactLabel string `json:"artifact_label,omitempty"`
+	// CapacityTruncated is true when ANY trace_query record compiled into this
+	// projection carries the producer's typed "capacity_truncated=true" rich
+	// note (NEW-9, adversarial re-review 2026-07-04): the source result hit a
+	// per-view row budget (tracequery Result.Compactions non-empty), so the
+	// published rows are the rank HEAD of a longer list. Precise boolean from
+	// the single producer helper (traceQueryResultCapacityTruncated) — never
+	// caveat prose. Display-only: the evidence-index header discloses the
+	// truncation; no gate reads it.
+	CapacityTruncated bool `json:"capacity_truncated,omitempty"`
 }
 
 // WindowDurationMS returns the requested-window length in milliseconds, or 0
@@ -267,9 +276,15 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	var wakeupEdges []traceCausalProjectionWakeupEdge
 	chainRequiredRecommended := false
 	wakeupChainObserved := false
+	capacityTruncated := false
 	for _, record := range records {
 		if !traceCausalProjectionTraceQueryRecord(record) {
 			continue
+		}
+		// NEW-9: exact typed note match — the producer publishes it on every
+		// record of a capacity-truncated result (single helper, precise bool).
+		if strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "capacity_truncated")) == "true" {
+			capacityTruncated = true
 		}
 		// 裁定3 typed inputs: a state_drilldown row recommending the wakeup-chain
 		// drilldown (chain_required=true) vs. any wakeup_chain-family observation
@@ -334,6 +349,7 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		WakeupPath:                   wakeupPath,
 		SupportingHops:               hops,
 		WakeupChainRecommendedNotRun: chainRequiredRecommended && !wakeupChainObserved,
+		CapacityTruncated:            capacityTruncated,
 	}
 	// Presentation v3 §6: deterministic pre-render aggregation (strict tolerance).
 	// Runs on the bucketed projection before window marking / drilldown attach so
@@ -485,13 +501,15 @@ func traceCausalProjectionAttachSleepDrilldownTarget(node *TraceCausalProjection
 // comparisons) never produce a frame_target_resolution row, so the anchor fell
 // back to "关注窗口起止未采集" even though trace_query knew the precise
 // selected query window. When NO frame anchor exists, the anchor falls back to
-// the LAST trace_query record carrying the producer's typed
+// the LAST anchor-family trace_query record carrying the producer's typed
 // "selected_window=<start>..<end>" rich note — the engine's own query
-// TimeStart/TimeEnd, published verbatim at observation build time. That note
-// is the ONLY fallback lane: the former Span/`window`-note lane is deleted,
+// TimeStart/TimeEnd, published verbatim at observation build time. The note is
+// the ONLY fallback carrier (the former Span/`window`-note lane is deleted,
 // because a wakeup_causal_aggregate record's Span is the MEMBER-IMPACT
 // ENVELOPE (engine FirstTs/LastTs), not the selected window — anchoring on it
-// fabricated a "关注窗口" (300ms pseudo window → 269% shares + bogus ⚠ tags).
+// fabricated a "关注窗口": 300ms pseudo window → 269% shares + bogus ⚠ tags),
+// and — F1, adversarial re-review 2026-07-04 — only the two anchor families
+// gated by traceCausalProjectionSelectedWindowAnchorFamily may supply it.
 // The frame anchor keeps absolute priority, so every existing frame-anchored
 // render is byte-identical. Returns ok=false when no anchor of either lane
 // exists, so callers leave WithinRequestedWindow nil and the renderer falls
@@ -528,13 +546,43 @@ func traceCausalProjectionAnchorWindow(records []ObservationRecord) (float64, fl
 		if !traceCausalProjectionTraceQueryRecord(record) {
 			continue
 		}
-		// F1: the fallback whitelist IS the typed selected_window note — a
-		// record's Span envelope or `window` note never anchors here.
+		// F1 (re-review): only the two ANCHOR families may anchor; a record's
+		// Span envelope or `window` note never anchors here either.
+		if !traceCausalProjectionSelectedWindowAnchorFamily(record) {
+			continue
+		}
 		if s, e, sok := traceCausalProjectionSelectedWindowNote(record.RichNotes); sok {
 			start, end, ok = s, e, true
 		}
 	}
 	return start, end, ok
+}
+
+// traceCausalProjectionSelectedWindowAnchorFamily reports whether a record
+// belongs to one of the two producer families whose typed selected_window
+// note may act as the CMP-2 fallback ANCHOR: wakeup_causal_aggregate rows
+// (exact predicate match) and the root_cause_rank family (ClaimKey prefix
+// "root_cause_" — root_cause_primary/<tier>/root_cause_background all share
+// it; root_evidence:* does not). Both checks are precise typed matches.
+//
+// 裁定沿革 (anti-ping-pong): the original CMP-2/F1 ruling deliberately kept NO
+// consumer-side family whitelist — "the note itself IS the whitelist" — which
+// was sound while only these two families emitted it. NEW-8 (账本 §7.6) then
+// extended the same note to four DISPLAY-ONLY families (wakeup_causal_impact /
+// critical_blocking / state_churn / state_drilldown) so window-basis display
+// lines can name endpoints inline; that silently turned the last-wins anchor
+// loop into "whichever family published last wins", and a mixed-window session
+// (main root_cause_rank window + a later window_stats micro-probe) re-anchored
+// the 关注窗口 onto the micro-probe window — wrong 占窗%, bogus ⚠跨窗 tags,
+// wrong coverage denominator (F1, adversarial re-review 2026-07-04). The
+// consumer therefore enforces the original two-family whitelist as a typed
+// predicate: the four NEW-8 families keep their notes as pure display
+// carriers (NEW-8 surfaces are unaffected) and never anchor.
+func traceCausalProjectionSelectedWindowAnchorFamily(record ObservationRecord) bool {
+	if strings.TrimSpace(record.Predicate) == "wakeup_causal_aggregate" {
+		return true
+	}
+	return strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "root_cause_")
 }
 
 // traceCausalProjectionSelectedWindowNote parses the producer's typed
@@ -545,6 +593,20 @@ func traceCausalProjectionAnchorWindow(records []ObservationRecord) (float64, fl
 // behavior.
 func traceCausalProjectionSelectedWindowNote(notes []string) (float64, float64, bool) {
 	raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, "selected_window"))
+	return traceCausalProjectionParseSelectedWindow(raw)
+}
+
+// TraceCausalProjectionSelectedWindowNote is the exported parse surface for
+// the same typed note (NEW-8, 账本 §7.6): display renderers (metric snapshot
+// basis line, trace_query supplement basis token) reuse this ONE strict parser
+// so producer format and every consumer stay pinned to a single
+// "selected_window=<start>..<end>" shape — no second format, no second parser.
+func TraceCausalProjectionSelectedWindowNote(notes []string) (float64, float64, bool) {
+	return traceCausalProjectionSelectedWindowNote(notes)
+}
+
+func traceCausalProjectionParseSelectedWindow(raw string) (float64, float64, bool) {
+	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return 0, 0, false
 	}

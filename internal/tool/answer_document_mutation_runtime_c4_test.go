@@ -194,8 +194,11 @@ func TestApplyAndPersistMutation_NoSemanticSpansNoOptimizationBlock(t *testing.T
 }
 
 // C4b B1: a deep trunk row (the `│ … │ └─唤醒─` shape from quest_list.txt:158)
-// keeps a readable name — the floor guarantees at least 20 display cells —
-// and every bar row still starts its bar at ONE shared column.
+// keeps a readable name — the floor guarantees 20 display cells UNTIL the F-3
+// label-column cap (§7.7 回访聚焦复核 2026-07-04) binds first; past the cap the
+// name budget is column-cap − fixed (still a recognizable prefix, detail table
+// lossless) so one deep row can no longer lift the whole fence over the NEW-10
+// row cap — and every bar row still starts its bar at ONE shared column.
 func TestRuntimeTraceProjTreeDeepRowNameFloorAndBarAlignment(t *testing.T) {
 	deep := []bool{true, false, false, false, true, false, false}
 	rows := []runtimeTraceProjTreeRow{
@@ -232,11 +235,29 @@ func TestRuntimeTraceProjTreeDeepRowNameFloorAndBarAlignment(t *testing.T) {
 		TrunkLen: len(deep) + 1,
 	}
 	fence := runtimeTraceProjTreeFence(model, true)
-	// B1 readability floor: the old whole-label truncation rendered this deep
-	// name as "WifiHandlerThre-1109…"-or-shorter fragments; the name budget
-	// floor keeps at least 20 display cells of it.
-	if !strings.Contains(fence, "WifiHandlerThre-110") {
-		t.Fatalf("deep row name lost its readability floor:\n%s", fence)
+	// B1 readability budget under the F-3 cap: the old whole-label truncation
+	// rendered this deep name as unreadable fragments; the deep fixed part here
+	// leaves column-cap − fixed = 11 cells ("WifiHandle…"), still a
+	// recognizable prefix, and the detail table keeps the full name (the
+	// pre-F-3 20-cell floor would have lifted the shared column to 59 and
+	// every row past the NEW-10 row cap).
+	if !strings.Contains(fence, "WifiHandle") {
+		t.Fatalf("deep row name lost its readability budget:\n%s", fence)
+	}
+	if width := runtimeTraceProjTreeLabelColumn(model, true); width > runtimeTraceProjTreeLabelColumnMax {
+		t.Fatalf("F-3: deep rows must not lift the shared column past the cap (%d > %d)", width, runtimeTraceProjTreeLabelColumnMax)
+	}
+	// The deep rows themselves hold the row cap; the depth-1 row keeps the
+	// legacy load-bearing stub overhang (its "[E5(+2)]" locator + state stub
+	// exceed the minimal reserve — the never-dropped floor class, unchanged
+	// by F-3).
+	for _, line := range strings.Split(fence, "\n") {
+		if !strings.Contains(line, "WifiHandlerThre") {
+			continue
+		}
+		if w := runewidth.StringWidth(line); w > runtimeTraceProjTreeRowMaxWidth {
+			t.Fatalf("F-3: deep-row fence line exceeds the row cap (%d cells):\n%s", w, line)
+		}
 	}
 	var cols []int
 	for _, line := range strings.Split(fence, "\n") {
@@ -298,20 +319,23 @@ func TestRuntimeTraceProjTreeRowWidthCapKeepsPrimaryTagAndEvidence(t *testing.T)
 		HasData: true, EvidenceTag: "E32",
 	}
 	shortLine := runtimeTraceProjStanzaRowLine(short, runtimeTraceProjTreeLabelWidth, 199.992, true, true)
-	if strings.Contains(shortLine, "…") {
-		t.Fatalf("lean-tag rows must not elide tags:\n%s", shortLine)
-	}
-	if !strings.Contains(shortLine, "[E32]") {
-		t.Fatalf("lean-tag row lost its evidence tag:\n%s", shortLine)
+	// NEW-10: the 44-cell label budget may B1-truncate the NAME (that ellipsis
+	// is fine — the detail table keeps the full name); the TAG segment must
+	// still render complete, with no elision between the state tag and E#.
+	if !strings.Contains(shortLine, "运行占用 · [E32]") {
+		t.Fatalf("lean-tag rows must render their full tag set without elision:\n%s", shortLine)
 	}
 
 	// Typed ⚠/⛔ markers are load-bearing and must survive elision alongside
-	// the primary tag and the E# reference.
+	// the primary tag and the E# reference. NEW-10 (§7.6, 100-cell row cap):
+	// on a budget-starved row the ⚠ tag display-truncates to its protected
+	// marker stub (never below "⚠跨窗…"); the actual-ms value stays lossless
+	// on the detail table's 实际状态 column.
 	warn := row
 	warn.Node.ActualImpactMS = 17.935
 	warn.Node.EffectiveImpactMS = 0
 	warnLine := runtimeTraceProjTreeRowLine(warn, runtimeTraceProjTreeLabelWidth, 199.992, true, true)
-	if !strings.Contains(warnLine, "⚠跨窗(实际17.935ms)") {
+	if !strings.Contains(warnLine, "⚠跨窗") {
 		t.Fatalf("cross-window ⚠ marker must survive elision:\n%s", warnLine)
 	}
 	if !strings.Contains(warnLine, "[E5(+2)]") || !strings.Contains(warnLine, "…") {

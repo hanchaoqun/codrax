@@ -38,10 +38,24 @@ const (
 	runtimeTraceProjTreeEdgeWake     = "wake"
 	runtimeTraceProjTreeEdgeSemantic = "semantic"
 	runtimeTraceProjTreeEdgeCause    = "cause"
+	// runtimeTraceProjTreeEdgeOwn (F2, adversarial re-review 2026-07-04) marks
+	// the depthless own-process IO caliber lane: 目标自身/同进程的口径行 — the
+	// row re-describes the target's own wall clock through an IO caliber, so
+	// drawing the depthless default ├─唤醒─ asserted a wake relation the data
+	// never carried (three-surface contradiction with the relation column and
+	// the NEW-1 legend). Stamped ONCE at model build via
+	// runtimeTraceProjOwnProcessIONode; fence edge, relation cell and legend
+	// all read this typed edge.
+	runtimeTraceProjTreeEdgeOwn = "own"
 
 	// runtimeTraceProjTreeLabelWidth is the display-cell budget of the tree
 	// label column (prefix + edge + icon + name); bars/ms/tags align after it.
-	runtimeTraceProjTreeLabelWidth = 56
+	// NEW-10 (§7.6): tightened 56 → 44 as part of the 100-cell row budget —
+	// with the bar+ms+% cells (~27) a 56-cell label left the tag lane no room
+	// for even the floored Keep stubs. Names beyond the budget display-truncate
+	// exactly as before (B1 name-scoped truncation, 20-cell floor unchanged);
+	// the detail table keeps full names.
+	runtimeTraceProjTreeLabelWidth = 44
 	// runtimeTraceProjTreeNameMinWidth is the readability floor for the NAME
 	// portion of a tree row label (§7.30.2 C4b B1): a deep prefix/edge/icon may
 	// never squeeze the name below this many display cells — the name budget is
@@ -52,11 +66,44 @@ const (
 	// display width including the tag segment (§7.30.2 C4b B4). Overflowing
 	// secondary tags elide to a "…" marker; the leading state/impact tag and
 	// the trailing [E#] evidence reference always survive.
-	runtimeTraceProjTreeRowMaxWidth = 120
+	//
+	// NEW-10 (§7.6 对比场景客户回访 2026-07-04, 客户点名): tightened 120 → 100.
+	// Markdown/HTML viewers wrap long lines (pre-wrap) and web monospace fonts
+	// render CJK≈1.6-1.8× / emoji at unstable widths — the 100-cell hard cap
+	// buys single-line integrity on those surfaces (单行完整性优先). When the
+	// drop lane is exhausted, truncatable Keep tags display-truncate to their
+	// typed floors (see runtimeTraceProjFitTags); the lossless surfaces stay
+	// the detail table + evidence index. F-2 (§7.7 回访聚焦复核 2026-07-04):
+	// over-wide NoTruncate carriers (the NEW-3 caliber note, the D3
+	// composition split) no longer overflow the row — they wrap intact onto
+	// prefix-aligned ↳ continuation lines, so every fence line holds the cap.
+	runtimeTraceProjTreeRowMaxWidth = 100
+	// runtimeTraceProjTreeKeepTagMinWidth is the NEW-10 display floor for a
+	// Keep-class tag in the keep-truncation lane: 9 cells keep a 4-CJK-glyph
+	// attribution prefix plus the "…" (e.g. 反转影响…, 候选影响…), so the
+	// at-a-glance marker survives even on budget-starved rows.
+	runtimeTraceProjTreeKeepTagMinWidth = 9
 	// runtimeTraceProjTreeTrunkMaxNodes bounds a long trunk display: deeper
 	// middles compress into one omitted marker row (counts + cycle note kept).
 	runtimeTraceProjTreeTrunkMaxNodes = 8
 	runtimeTraceProjTreeBarWidth      = 10
+	// runtimeTraceProjTreeLabelColumnMax caps the SHARED label column (F-3,
+	// §7.7 回访聚焦复核 2026-07-04): pre-cap, one deep row (fixed prefix grows 4
+	// cells per level + the 20-cell name floor) or one over-wide 🎯 header
+	// lifted the column for EVERY row and pushed the whole fence past the
+	// NEW-10 row cap. The cap reserves the minimal metric+stub area a fully
+	// shaved data row still needs inside the 100-cell budget — derived from
+	// the pinned constants and the renderer's own cell formats, never a
+	// free-standing number:
+	//   " "(1) + bar(10) + " %9.3fms"(12) + " NN%"(5, " %3.0f%%") + "  "(2)
+	//   + Keep-tag floor(9) + " · "(3) + elision "…"(1) + " · "(3)
+	//   + minimal "[E#]"(4)  = 50
+	// Rows whose fixed part + name floor exceed the cap truncate the NAME
+	// further (B1 semantics — the detail table keeps full names); the 🎯 header
+	// itself never truncates (it renders unpadded past the column and the
+	// NEW-10 header wrap moves the scale note to its own line).
+	runtimeTraceProjTreeLabelColumnMax = runtimeTraceProjTreeRowMaxWidth -
+		(1 + runtimeTraceProjTreeBarWidth + 12 + 5 + 2 + runtimeTraceProjTreeKeepTagMinWidth + 3 + 1 + 3 + 4)
 )
 
 type runtimeTraceProjTreeRow struct {
@@ -90,6 +137,28 @@ type runtimeTraceProjTreeRow struct {
 	// these rows (CMP-7a). Display-only; the node's typed causality is
 	// untouched.
 	FlatChain bool
+	// IOFoldPeers carries the same-subject same-segment IO caliber rows folded
+	// into this primary row (NEW-3, §7.6 对比场景客户回访 2026-07-04): one
+	// underlying IO burst published as several near-equal calibers
+	// (io_burst_episode + io_wait over overlapping line spans) rendered as four
+	// sibling rows. The peers render as one load-bearing caliber note on this
+	// row — values + evidence ids all kept; the underlying observations and
+	// projection buckets are untouched (display grouping only).
+	IOFoldPeers []runtimeTraceProjIOFoldPeer
+	// marks is the NEW-7 emission collector for this render pass. The fence
+	// renderer stamps model.Marks onto its per-row COPIES right before calling
+	// the row-render helpers, so every mark is recorded AT the emission site
+	// (nil-safe: width-pass rows and test-constructed rows carry nil and record
+	// nothing). Never set by the model builder.
+	marks *runtimeTraceProjMarkSet
+}
+
+// runtimeTraceProjIOFoldPeer is one folded same-segment IO caliber: the raw
+// typed token, its display impact and its registered evidence tag.
+type runtimeTraceProjIOFoldPeer struct {
+	Token       string
+	ImpactMS    float64
+	EvidenceTag string
 }
 
 type runtimeTraceProjTreeModel struct {
@@ -124,6 +193,149 @@ type runtimeTraceProjTreeModel struct {
 	// renders; nothing else consumes these values.
 	UserWindowStart float64
 	UserWindowEnd   float64
+	// Marks collects the tree marks actually emitted by THIS model's fence
+	// render (NEW-7, §7.6 对比场景客户回访 2026-07-04): a typed set recorded at
+	// each emission site — never re-derived by scanning rendered text. The
+	// 树读法 legend renders exactly the catalog entries whose mark is present.
+	// Callers must render the fence before the lead text (the cluster function
+	// already does); a nil set (hand-built test models) renders no dynamic
+	// legend entries.
+	Marks *runtimeTraceProjMarkSet
+}
+
+// --- NEW-7 dynamic tree legend (§7.6 对比场景客户回访 2026-07-04) --------------
+//
+// The 树读法 legend was a STATIC list that drifted from the actual tree: marks
+// the customer's render really contained (🎯 ⏳ ⚙ ⛓ ◦ ├─下钻─ ⚠跨窗 ↺) had no
+// legend entry, while ⛔ and ├─成因─ were explained without appearing. The
+// renderer now keeps a typed mark enum, records every emitted mark kind at the
+// emission site, and the legend = two fixed head clauses + exactly the catalog
+// entries whose mark was emitted (stable catalog order). The catalog below is
+// the EXHAUSTIVE directory of every mark this renderer can emit; the
+// runtimeTraceProjMarkCount sentinel pins catalog completeness structurally
+// (TestTraceProjectionLegendCatalogCoversEveryMark): adding a mark constant
+// without a catalog entry explodes the build's tests.
+
+type runtimeTraceProjMark int
+
+const (
+	runtimeTraceProjMarkRootTarget       runtimeTraceProjMark = iota // 🎯 root header
+	runtimeTraceProjMarkEdgeDrill                                    // ├─下钻─ edge
+	runtimeTraceProjMarkEdgeWake                                     // ├─唤醒─ / └─唤醒─ edge
+	runtimeTraceProjMarkEdgeCause                                    // ├─成因─ edge
+	runtimeTraceProjMarkEdgeOwn                                      // ├─自身─ own-process caliber edge (F2)
+	runtimeTraceProjMarkSemanticSpan                                 // ├─语义─ edge + ✦ icon (always paired)
+	runtimeTraceProjMarkIconSleep                                    // 💤 state icon
+	runtimeTraceProjMarkIconRunnable                                 // ⏳ state icon
+	runtimeTraceProjMarkIconRunning                                  // ⚙ state icon
+	runtimeTraceProjMarkIconDState                                   // ⛓ state icon
+	runtimeTraceProjMarkIconTransit                                  // ◦ transit / stateless icon
+	runtimeTraceProjMarkStateLabel                                   // post-bar dominant-state / impact-shape tag
+	runtimeTraceProjMarkUndrillable                                  // ⛔ missing-wakeup marker
+	runtimeTraceProjMarkCrossWindow                                  // ⚠跨窗 marker
+	runtimeTraceProjMarkRecursOnChain                                // ↺ small-cycle marker
+	runtimeTraceProjMarkOmitted                                      // …省略… long-trunk fold row
+	runtimeTraceProjMarkIOCaliberNote                                // NEW-3 同段IO另有…口径 note
+	runtimeTraceProjMarkAdjacentStanza                               // ◇ 邻近 stanza
+	runtimeTraceProjMarkBackgroundStanza                             // ▒ 背景压力 stanza
+
+	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
+	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
+	runtimeTraceProjMarkCount
+)
+
+// runtimeTraceProjMarkSet is the nil-safe typed emission set: mark() on a nil
+// receiver is a no-op so width-pass label computations and hand-built test
+// rows never record.
+type runtimeTraceProjMarkSet struct {
+	seen [runtimeTraceProjMarkCount]bool
+}
+
+func (s *runtimeTraceProjMarkSet) mark(m runtimeTraceProjMark) {
+	if s == nil || m < 0 || m >= runtimeTraceProjMarkCount {
+		return
+	}
+	s.seen[m] = true
+}
+
+func (s *runtimeTraceProjMarkSet) has(m runtimeTraceProjMark) bool {
+	return s != nil && m >= 0 && m < runtimeTraceProjMarkCount && s.seen[m]
+}
+
+// runtimeTraceProjLegendEntry is one catalog row: the typed mark plus its zh/en
+// legend clause (both full "- …" lines, ready to join).
+type runtimeTraceProjLegendEntry struct {
+	Mark runtimeTraceProjMark
+	ZH   string
+	EN   string
+}
+
+// runtimeTraceProjLegendCatalog is the full, ordered mark directory of the tree
+// renderer. Wording notes:
+//   - the └─唤醒─ entry keeps the NEW-1 direction wording VERBATIM (客户点名
+//     "谁唤醒谁" — one direction, stated twice consistently);
+//   - the 💤 / ├─成因─ / ⛔ / state-label entries keep the pre-NEW-7 legend
+//     wording verbatim (established, already customer-reviewed lines).
+func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
+	return []runtimeTraceProjLegendEntry{
+		{runtimeTraceProjMarkRootTarget,
+			"- `🎯` = 树根:本次分析锚定的关注线程。",
+			"- `🎯` = tree root: the focused thread this analysis anchors on."},
+		{runtimeTraceProjMarkEdgeDrill,
+			"- `├─下钻─` = 根症状的下钻结果:该行是根等待的直接上游。",
+			"- `├─drill─` = drilldown from the root symptom: this row is the root wait's direct upstream."},
+		{runtimeTraceProjMarkEdgeWake,
+			"- `└─唤醒─` = 该行唤醒其父行(父行的等待由该行结束;父行依赖该行)。",
+			"- `└─wakes─` = this row WAKES its parent row (the parent's wait ends on this row; the parent depends on it)."},
+		{runtimeTraceProjMarkEdgeCause,
+			"- `├─成因─` = 同一线程的成因分解。",
+			"- `├─cause─` = same-thread cause decomposition."},
+		{runtimeTraceProjMarkEdgeOwn,
+			"- `├─自身─` = 目标自身/同进程的口径行(同段墙钟的另一口径),非唤醒边。",
+			"- `├─own─` = an own-/same-process caliber row of the target (another caliber of the same wall clock), not a wake edge."},
+		{runtimeTraceProjMarkSemanticSpan,
+			"- `├─语义─`/`✦` = 该位置的语义 span(业务阶段),非调度状态行。",
+			"- `├─span─`/`✦` = a semantic span (business phase) at this position, not a scheduler-state row."},
+		{runtimeTraceProjMarkIconSleep,
+			"- `💤` = 睡眠等待;症状非根因,其唤醒子行即下钻结果。",
+			"- `💤` = sleep wait; a symptom, not a root cause — its wake child IS the drilldown result."},
+		{runtimeTraceProjMarkIconRunnable,
+			"- `⏳` = 可运行等待(已就绪,等待 CPU)。",
+			"- `⏳` = runnable wait (ready, waiting for a CPU)."},
+		{runtimeTraceProjMarkIconRunning,
+			"- `⚙` = 运行占用(正在 CPU 上执行)。",
+			"- `⚙` = running (executing on a CPU)."},
+		{runtimeTraceProjMarkIconDState,
+			"- `⛓` = D状态/IO阻塞(不可中断等待)。",
+			"- `⛓` = D-state / IO block (uninterruptible wait)."},
+		{runtimeTraceProjMarkIconTransit,
+			"- `◦` = 链路中转或无主导调度状态的行。",
+			"- `◦` = chain transit or no dominant scheduler state."},
+		{runtimeTraceProjMarkStateLabel,
+			"- 时长条后的状态标签(睡眠等待/可运行等待/运行占用/IO阻塞/D状态)来自该行主导调度状态;无主导状态的行沿用影响形态。",
+			"- The state tag after each bar (sleep wait / runnable wait / running / IO wait / D-state) is the row's dominant scheduler state; rows without one keep their impact-shape value."},
+		{runtimeTraceProjMarkUndrillable,
+			"- `⛔` = 窗口内无匹配 sched_wakeup,链止于此。",
+			"- `⛔` = no matching sched_wakeup in the window; the chain ends there."},
+		{runtimeTraceProjMarkCrossWindow,
+			"- `⚠跨窗` = 实际状态跨出分析窗口,时长条只画窗口内投影。",
+			"- `⚠crosses window` = the underlying state extends beyond the analysis window; the bar draws only the in-window projection."},
+		{runtimeTraceProjMarkRecursOnChain,
+			"- `↺` = 该线程在链上重复出现(小循环形态)。",
+			"- `↺` = this thread recurs on the chain (small-cycle shape)."},
+		{runtimeTraceProjMarkOmitted,
+			"- `…省略…` = 长链中段折叠,完整链路见原始 trace_query 记录。",
+			"- `…omitted…` = the middle of a long chain is folded; the full chain remains in the trace_query record."},
+		{runtimeTraceProjMarkIOCaliberNote,
+			"- `同段IO另有…口径` = 同一线程同段 IO 的多口径合并显示;数值与证据保留,不重复计入归因。",
+			"- `same-segment IO also measured …` = several calibers of one IO segment folded for display; values and evidence kept, never double counted."},
+		{runtimeTraceProjMarkAdjacentStanza,
+			"- `◇` = 邻近区段:与主链时间相邻,不在唤醒路径上。",
+			"- `◇` = adjacent stanza: time-adjacent to the chain, not on the wakeup path."},
+		{runtimeTraceProjMarkBackgroundStanza,
+			"- `▒` = 背景压力区段:环境证据,不计入链上归因。",
+			"- `▒` = background-pressure stanza: environmental evidence, not chain attribution."},
+	}
 }
 
 // missingWakeup reports whether any rendered row carries the typed
@@ -151,6 +363,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	model := runtimeTraceProjTreeModel{
 		WindowMS:                     projection.WindowDurationMS(),
 		WakeupChainRecommendedNotRun: projection.WakeupChainRecommendedNotRun,
+		Marks:                        &runtimeTraceProjMarkSet{},
 	}
 	path := runtimeTraceCausalProjectionCleanPath(projection.WakeupPath)
 	if len(path) >= 2 {
@@ -187,6 +400,12 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		}
 		chainNodes = append(chainNodes, node)
 	}
+	// NEW-3 (§7.6 回访): fold same-subject same-segment IO calibers into their
+	// max-impact row BEFORE the subject buckets are built, so the peers never
+	// mint sibling tree rows or same-subject cause rows. The fold map is
+	// re-attached to the surviving primary's row after flatten (its row Kind —
+	// self or tree — is only known then).
+	chainNodes, ioFoldPeers := runtimeTraceProjFoldSameSubjectIONodes(chainNodes)
 	bySubject := map[string][]types.TraceCausalProjectionNode{}
 	for _, node := range chainNodes {
 		key := runtimeTraceCausalProjectionCanonicalNode(node.Subject)
@@ -386,8 +605,17 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			continue
 		}
 		consume(node)
+		edge := runtimeTraceProjTreeEdgeWake
+		// F2: a process-level IO caliber row of the 🎯 target's OWN process is
+		// not an upstream waker — hard-coding the wake edge here made the fence
+		// claim 唤醒 while the relation column said 自身进程IO. The typed node
+		// predicate decides ONCE at build time; every display surface (fence
+		// edge, relation cell, legend entry) reads the resulting row.Edge.
+		if runtimeTraceProjOwnProcessIONode(node, model.Target) {
+			edge = runtimeTraceProjTreeEdgeOwn
+		}
 		roots = append(roots, &runtimeTraceProjTreeNode{row: runtimeTraceProjTreeRow{
-			Node: node, Kind: runtimeTraceProjTreeRowDepthless, Edge: runtimeTraceProjTreeEdgeWake,
+			Node: node, Kind: runtimeTraceProjTreeRowDepthless, Edge: edge,
 			Depth: node.ChainDepth, Parent: model.Target, HasData: true,
 			EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
 		}})
@@ -418,6 +646,26 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		}
 	}
 	flatten(roots, 0, nil)
+
+	// NEW-3: attach the folded IO calibers to the primary's row (target self
+	// row or tree row) and register every folded node on the evidence index —
+	// the caliber note is the peers' display carrier, the index keeps their
+	// full locators.
+	if len(ioFoldPeers) > 0 {
+		attach := func(rows []runtimeTraceProjTreeRow) {
+			for i := range rows {
+				for _, peer := range ioFoldPeers[runtimeTraceCausalProjectionNodeKey(rows[i].Node)] {
+					rows[i].IOFoldPeers = append(rows[i].IOFoldPeers, runtimeTraceProjIOFoldPeer{
+						Token:       strings.TrimSpace(peer.TypeToken),
+						ImpactMS:    runtimeTraceProjNodeDisplayImpact(peer),
+						EvidenceTag: runtimeTraceProjEvidenceTag(peer, evidence, zh),
+					})
+				}
+			}
+		}
+		attach(model.SelfRows)
+		attach(model.TreeRows)
+	}
 
 	for _, node := range runtimeTraceProjAdjacentNodesForDisplay(projection.AdjacentCauses) {
 		model.Adjacent = append(model.Adjacent, runtimeTraceProjTreeRow{
@@ -511,6 +759,209 @@ func runtimeTraceProjNodeDemotedToBackground(node types.TraceCausalProjectionNod
 		return false
 	}
 	return node.ChainDepth <= 0 || node.ChainDepth > trunkLen
+}
+
+// --- NEW-3 same-subject same-segment IO caliber fold (§7.6 回访 2026-07-04) ---
+
+// runtimeTraceProjSameSegmentIOToken reports whether the node carries one of
+// the typed IO caliber tokens of the NEW-3 fold set. Exact match on the
+// producer's verbatim TypeToken ("type=" rich note) only — never StateKind,
+// never Object prose. io_burst_episode ⊇ io_wait describe the same segment
+// through two calibers; other tokens never enter the fold.
+func runtimeTraceProjSameSegmentIOToken(node types.TraceCausalProjectionNode) bool {
+	switch strings.TrimSpace(strings.ToLower(node.TypeToken)) {
+	case "io_burst_episode", "io_wait":
+		return true
+	}
+	return false
+}
+
+// runtimeTraceProjFoldSameSubjectIONodes implements the NEW-3 display grouping
+// (对比场景客户回访 2026-07-04, §7.6): the SAME thread subject
+// (com.xs.fm.lite-21538) published one IO segment through several calibers —
+// io_burst_episode 232.428/226.153ms + io_wait 112.011/107.672ms, heavily
+// overlapping line spans, near-equal but NOT equal values (so the V4
+// exact-value dedup correctly does not fire) — and the tree showed four
+// sibling IO rows for one burst. Rows with the same canonical subject, a typed
+// IO caliber token and PAIRWISE-overlapping line intervals fold into the
+// max-impact row; the folded calibers surface as a load-bearing note on that
+// primary row with every evidence id kept (the caller registers each folded
+// node on the evidence index). Precise signals only: verbatim canonical
+// subject + typed token set + interval-overlap booleans. A group member
+// without a valid line interval, or any non-overlapping pair, keeps the whole
+// group unfolded (fail closed). Display grouping only — the underlying
+// observations and the projection buckets are untouched.
+//
+// F-1 (§7.6 回访聚焦复核 2026-07-04): the group key carries the CHAIN LANE, not
+// just the canonical subject. A chain-ATTACHED caliber row (resolved
+// ChainDepth ≥ 1) and a depthless row (ChainDepth ≤ 0) of the same subject sit
+// in different attribution lanes: the attached row's cumulative drives the
+// on-chain attribution numerator (F2) while the depthless row is the NEW-6
+// residual-overlap lane. Folding across lanes deleted the only depth-N data
+// row — attributed dropped to 0, the fence lost a data-real wakeup row, and
+// the NEW-6 clause inverted. Same lane only: both depthless, or the same
+// resolved depth (one integer comparison on the typed ChainDepth — precise
+// signal, display grouping contract preserved).
+func runtimeTraceProjFoldSameSubjectIONodes(nodes []types.TraceCausalProjectionNode) ([]types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode) {
+	groups := map[string][]int{}
+	var groupOrder []string
+	for i, node := range nodes {
+		if node.IsAggregateMetric() || !runtimeTraceProjSameSegmentIOToken(node) {
+			continue
+		}
+		key := runtimeTraceCausalProjectionCanonicalNode(node.Subject)
+		if key == "" {
+			continue
+		}
+		key += "\x00lane=" + strconv.Itoa(runtimeTraceProjChainLane(node))
+		if _, ok := groups[key]; !ok {
+			groupOrder = append(groupOrder, key)
+		}
+		groups[key] = append(groups[key], i)
+	}
+	folded := map[int]bool{}
+	foldPeers := map[string][]types.TraceCausalProjectionNode{}
+	for _, key := range groupOrder {
+		members := groups[key]
+		if len(members) < 2 || !runtimeTraceProjIOMembersPairwiseOverlap(nodes, members) {
+			continue
+		}
+		primary := members[0]
+		for _, idx := range members[1:] {
+			if runtimeTraceProjNodeDisplayImpact(nodes[idx]) > runtimeTraceProjNodeDisplayImpact(nodes[primary]) {
+				primary = idx
+			}
+		}
+		primaryKey := runtimeTraceCausalProjectionNodeKey(nodes[primary])
+		for _, idx := range members {
+			if idx == primary {
+				continue
+			}
+			folded[idx] = true
+			foldPeers[primaryKey] = append(foldPeers[primaryKey], nodes[idx])
+		}
+	}
+	if len(folded) == 0 {
+		return nodes, nil
+	}
+	out := make([]types.TraceCausalProjectionNode, 0, len(nodes)-len(folded))
+	for i, node := range nodes {
+		if folded[i] {
+			continue
+		}
+		out = append(out, node)
+	}
+	return out, foldPeers
+}
+
+// runtimeTraceProjChainLane normalizes a node's typed ChainDepth into its
+// display/attribution lane (F-1): every unattached depth (≤ 0) is the ONE
+// depthless lane; each resolved depth ≥ 1 is its own chain lane.
+func runtimeTraceProjChainLane(node types.TraceCausalProjectionNode) int {
+	if node.ChainDepth <= 0 {
+		return 0
+	}
+	return node.ChainDepth
+}
+
+// runtimeTraceProjIOMembersPairwiseOverlap is the NEW-3 interval gate: every
+// member must expose a valid 1-based line interval and every PAIR must
+// intersect (the same boolean the strict duplicate fold uses). One
+// non-overlapping pair — two genuinely distinct IO bursts — vetoes the fold.
+func runtimeTraceProjIOMembersPairwiseOverlap(nodes []types.TraceCausalProjectionNode, members []int) bool {
+	for _, idx := range members {
+		if nodes[idx].LineStart <= 0 || nodes[idx].LineEnd < nodes[idx].LineStart {
+			return false
+		}
+	}
+	for i := 0; i < len(members); i++ {
+		for j := i + 1; j < len(members); j++ {
+			if !runtimeTraceProjLineSpansOverlap(nodes[members[i]], nodes[members[j]]) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// runtimeTraceProjIOFoldNoteText renders the NEW-3 caliber note carried by the
+// fold's primary row: folded values grouped per raw token in first-appearance
+// order, plus every folded evidence tag ("同段IO另有 io_wait
+// 112.011/107.672ms、io_burst_episode 226.153ms 口径;证据 E3、E4、E5"). The
+// note is the folded rows' only remaining display carrier, so callers must
+// treat it as load-bearing (never elided).
+func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool) string {
+	type tokenGroup struct {
+		token  string
+		values []string
+	}
+	var groups []tokenGroup
+	index := map[string]int{}
+	var tags []string
+	for _, peer := range peers {
+		token := strings.TrimSpace(peer.Token)
+		i, ok := index[token]
+		if !ok {
+			i = len(groups)
+			index[token] = i
+			groups = append(groups, tokenGroup{token: token})
+		}
+		groups[i].values = append(groups[i].values, fmt.Sprintf("%.3f", peer.ImpactMS))
+		if tag := strings.TrimSpace(peer.EvidenceTag); tag != "" {
+			tags = append(tags, tag)
+		}
+	}
+	parts := make([]string, 0, len(groups))
+	for _, g := range groups {
+		parts = append(parts, strings.TrimSpace(g.token+" "+strings.Join(g.values, "/")+"ms"))
+	}
+	if zh {
+		text := "同段IO另有 " + strings.Join(parts, "、") + " 口径"
+		if len(tags) > 0 {
+			text += ";证据 " + strings.Join(tags, "、")
+		}
+		return text
+	}
+	text := "same-segment IO also measured " + strings.Join(parts, ", ")
+	if len(tags) > 0 {
+		text += "; evidence " + strings.Join(tags, ", ")
+	}
+	return text
+}
+
+// runtimeTraceProjOwnProcessIONode is the NEW-3/F2 typed predicate for an
+// own-process IO caliber node: an IO caliber token, and the subject's trailing
+// -pid integer equal to the target's trailing -pid integer while the labels
+// differ (the equal-label case is the self-row lane, which already renders
+// 自身状态). Evaluated ONCE at model build to stamp the depthless row's own
+// edge (runtimeTraceProjTreeEdgeOwn) — downstream surfaces read the edge.
+func runtimeTraceProjOwnProcessIONode(node types.TraceCausalProjectionNode, target string) bool {
+	if !runtimeTraceProjSameSegmentIOToken(node) {
+		return false
+	}
+	target = strings.TrimSpace(target)
+	_, targetPid, ok := runtimeTraceProjSplitNamePid(target)
+	if !ok {
+		return false
+	}
+	subject := strings.TrimSpace(node.Subject)
+	_, subjectPid, ok := runtimeTraceProjSplitNamePid(subject)
+	if !ok || subjectPid != targetPid {
+		return false
+	}
+	return runtimeTraceCausalProjectionCanonicalNode(subject) != runtimeTraceCausalProjectionCanonicalNode(target)
+}
+
+// runtimeTraceProjOwnProcessIORow reports whether a rendered row is the
+// depthless own-process IO caliber lane (NEW-3 as corrected by F2, adversarial
+// re-review 2026-07-04): Kind depthless + the own edge stamped at build time.
+// The chain-ATTACHED variant (resolved ChainDepth ≥ 1, Kind chain) is excluded
+// on purpose — its wake edge comes from typed chain data and its cumulative
+// drives the on-chain attribution numerator, so the pre-F2 relation rewrite to
+// 自身进程IO contradicted a data-real 唤醒 edge; chain rows keep 唤醒 on every
+// surface.
+func runtimeTraceProjOwnProcessIORow(row runtimeTraceProjTreeRow) bool {
+	return row.Kind == runtimeTraceProjTreeRowDepthless && row.Edge == runtimeTraceProjTreeEdgeOwn
 }
 
 func runtimeTraceProjExcludeSemanticSpans(nodes []types.TraceCausalProjectionNode) []types.TraceCausalProjectionNode {
@@ -1019,21 +1470,27 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 	// fail-open keeps the legacy label); a mismatch renders ‹分析锚点线程› plus a
 	// quiet one-line note naming the user's actual focus entities.
 	if strings.TrimSpace(model.Target) != "" {
-		header := "🎯 " + model.Target
-		switch {
-		case model.RootFocusAnchorOnly && zh:
-			header += " ‹分析锚点线程›"
-		case model.RootFocusAnchorOnly:
-			header += " <analysis anchor thread>"
-		case zh:
-			header += " ‹用户关注线程›"
-		default:
-			header += " <user-focused thread>"
+		model.Marks.mark(runtimeTraceProjMarkRootTarget)
+		header := runtimeTraceProjTreeHeaderLabel(model, zh)
+		// F-3: the 🎯 anchor NEVER truncates — a header wider than the capped
+		// column renders unpadded (pad-only, the pre-cap PadDisplay could
+		// truncate it); the NEW-10 wrap below still moves the scale note off
+		// an over-long header line.
+		headerCell := header
+		if pad := width - runewidth.StringWidth(header); pad > 0 {
+			headerCell += strings.Repeat(" ", pad)
 		}
-		b.WriteString(runtimeTraceProjPadDisplay(header, width))
-		b.WriteString(" ")
-		b.WriteString(runtimeTraceProjScaleNote(model, zh))
-		b.WriteString("\n")
+		headerLine := headerCell + " " + runtimeTraceProjScaleNote(model, zh)
+		if runewidth.StringWidth(headerLine) > runtimeTraceProjTreeRowMaxWidth {
+			// NEW-10 (§7.6): a long scale note (fallback-scale wording) would
+			// push the header past the row cap — wrap it to its own line with
+			// both facts intact instead of truncating either.
+			b.WriteString(header + "\n")
+			b.WriteString(runtimeTraceProjScaleNote(model, zh) + "\n")
+		} else {
+			b.WriteString(headerLine)
+			b.WriteString("\n")
+		}
 		if model.RootFocusAnchorOnly && len(model.RootFocusUserEntities) > 0 {
 			if zh {
 				b.WriteString("- 根为唤醒链锚点线程,非用户指定关注对象(用户关注: " + strings.Join(model.RootFocusUserEntities, "、") + ")\n")
@@ -1042,19 +1499,32 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			}
 		}
 	} else {
-		b.WriteString(runtimeTraceProjFlatFallbackHeader(model, zh) + "  " + runtimeTraceProjScaleNote(model, zh) + "\n")
+		flatLine := runtimeTraceProjFlatFallbackHeader(model, zh) + "  " + runtimeTraceProjScaleNote(model, zh)
+		if runewidth.StringWidth(flatLine) > runtimeTraceProjTreeRowMaxWidth {
+			// NEW-10: same wrap as the 🎯 branch — the scale note takes its own
+			// line rather than pushing the flat-fallback reason past the cap.
+			b.WriteString(runtimeTraceProjFlatFallbackHeader(model, zh) + "\n")
+			b.WriteString(runtimeTraceProjScaleNote(model, zh) + "\n")
+		} else {
+			b.WriteString(flatLine + "\n")
+		}
 	}
 	for _, row := range model.SelfRows {
-		b.WriteString("│     " + runtimeTraceProjSelfRowText(row, zh) + "\n")
+		row.marks = model.Marks // NEW-7: record at the emission site of this pass
+		for _, line := range runtimeTraceProjSelfRowLines(row, zh) {
+			b.WriteString(line + "\n")
+		}
 	}
 	if len(model.TreeRows) > 0 && strings.TrimSpace(model.Target) != "" {
 		b.WriteString("│\n")
 	}
 	for _, row := range model.TreeRows {
+		row.marks = model.Marks
 		b.WriteString(runtimeTraceProjTreeRowLine(row, width, denom, windowMode, zh))
 		b.WriteString("\n")
 	}
 	if len(model.Adjacent) > 0 {
+		model.Marks.mark(runtimeTraceProjMarkAdjacentStanza)
 		b.WriteString("\n")
 		if zh {
 			b.WriteString("◇ 邻近链 — 与主链时间相邻,不在唤醒路径上\n")
@@ -1062,11 +1532,13 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			b.WriteString("◇ Adjacent — time-adjacent to the chain, not on the wakeup path\n")
 		}
 		for _, row := range model.Adjacent {
+			row.marks = model.Marks
 			b.WriteString(runtimeTraceProjStanzaRowLine(row, width, denom, windowMode, zh))
 			b.WriteString("\n")
 		}
 	}
 	if len(model.Background) > 0 {
+		model.Marks.mark(runtimeTraceProjMarkBackgroundStanza)
 		b.WriteString("\n")
 		if zh {
 			b.WriteString("▒ 背景压力 — 环境证据,不计入链上归因,需结合 on-chain 证据解读\n")
@@ -1074,6 +1546,7 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			b.WriteString("▒ Background pressure — environmental evidence, not chain attribution; read with on-chain evidence\n")
 		}
 		for _, row := range model.Background {
+			row.marks = model.Marks
 			b.WriteString(runtimeTraceProjStanzaRowLine(row, width, denom, windowMode, zh))
 			b.WriteString("\n")
 		}
@@ -1083,24 +1556,28 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 }
 
 // runtimeTraceProjTreeLabelColumn returns the shared label-column width for a
-// fence render (§7.30.2 C4b B1): the fixed 56-cell budget, widened only when a
-// deep bar row's fixed prefix/edge/icon width plus its floored name budget
-// cannot fit. All bar rows pad to ONE column, so bars keep a single aligned
-// start column at every level; shallow trees render byte-identically to the
-// fixed budget. Rows without metrics (omitted markers, bare transit nodes)
-// never widen the column — they carry no bar to align.
+// fence render (§7.30.2 C4b B1 + NEW-10 §7.6): the MAX actual label need of
+// this fence — the 🎯 header, every bar row and every stanza row — no longer
+// floored at the 56-cell base. NEW-10 rationale: the flat 56-cell pad taxed
+// every narrow fence ~15-25 blank cells per row and pushed the tag lane past
+// the 100-cell row cap; shrink-to-fit returns that budget to the Keep tags.
+// All bar rows still pad to this ONE column, so bars keep a single aligned
+// start column at every level, and the 56-cell base survives unchanged as the
+// per-row NAME budget (B1 name-scoped truncation + 20-cell floor). Rows
+// without metrics (omitted markers, bare transit nodes — NEW-10 renders those
+// compact/unpadded) never widen the column — they carry no bar to align.
 func runtimeTraceProjTreeLabelColumn(model runtimeTraceProjTreeModel, zh bool) int {
-	width := runtimeTraceProjTreeLabelWidth
-	for _, row := range model.TreeRows {
-		if row.Kind == runtimeTraceProjTreeRowOmitted || !row.HasData {
-			continue
-		}
-		fixed, name := runtimeTraceProjTreeLabelParts(row, zh)
+	width := 0
+	if strings.TrimSpace(model.Target) != "" {
+		// The header pads to the column — include its own width so a fitting
+		// 🎯 anchor lines the bars up under the scale note. F-3: the header no
+		// longer sets a column ABOVE the cap; past it the header renders
+		// unpadded (never truncated) and rows keep the capped column.
+		width = runewidth.StringWidth(runtimeTraceProjTreeHeaderLabel(model, zh))
+	}
+	consider := func(fixed, name string) {
 		fixedW := runewidth.StringWidth(fixed)
-		budget := runtimeTraceProjTreeLabelWidth - fixedW
-		if budget < runtimeTraceProjTreeNameMinWidth {
-			budget = runtimeTraceProjTreeNameMinWidth
-		}
+		budget := runtimeTraceProjTreeNameBudget(fixedW)
 		nameW := runewidth.StringWidth(name)
 		if nameW > budget {
 			nameW = budget
@@ -1109,7 +1586,67 @@ func runtimeTraceProjTreeLabelColumn(model runtimeTraceProjTreeModel, zh bool) i
 			width = need
 		}
 	}
+	for _, row := range model.TreeRows {
+		if row.Kind == runtimeTraceProjTreeRowOmitted || !row.HasData {
+			continue
+		}
+		fixed, name := runtimeTraceProjTreeLabelParts(row, zh)
+		consider(fixed, name)
+	}
+	// Stanza rows pad to the same column (their bars share the start column);
+	// their fixed part mirrors runtimeTraceProjStanzaRowLine exactly (nil marks:
+	// the width pass records nothing).
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.Adjacent, model.Background} {
+		for _, row := range rows {
+			consider("    "+runtimeTraceProjStateIcon(row.Node, row.Kind, nil)+" ", runtimeTraceProjRowName(row, zh))
+		}
+	}
+	// F-3: the shared column never exceeds the cap — an over-wide 🎯 header
+	// (already measured into width above) renders unpadded instead of lifting
+	// every row past the row budget.
+	if width > runtimeTraceProjTreeLabelColumnMax {
+		width = runtimeTraceProjTreeLabelColumnMax
+	}
 	return width
+}
+
+// runtimeTraceProjTreeNameBudget is the SINGLE definition of a row's NAME
+// display budget given its fixed-part width (F-3: the width pass and the label
+// composer both call it — two hand-synced copies were the drift risk): the
+// 44-cell base minus the fixed part, floored at the 20-cell readability
+// minimum (B1), then capped so fixed + name can never exceed the shared-column
+// cap — past the cap the name truncates further (B1 semantics, detail table
+// lossless) instead of the floor lifting the whole fence over the row budget.
+func runtimeTraceProjTreeNameBudget(fixedW int) int {
+	budget := runtimeTraceProjTreeLabelWidth - fixedW
+	if budget < runtimeTraceProjTreeNameMinWidth {
+		budget = runtimeTraceProjTreeNameMinWidth
+	}
+	if maxName := runtimeTraceProjTreeLabelColumnMax - fixedW; budget > maxName {
+		budget = maxName
+	}
+	if budget < 1 {
+		budget = 1 // unreachable via the trunk cap; keeps the truncation sane
+	}
+	return budget
+}
+
+// runtimeTraceProjTreeHeaderLabel composes the 🎯 root header label (target +
+// provenance chip, §7.30 C4a R2). Shared by the fence render and the width
+// pass so the column measurement can never drift from the emitted header.
+func runtimeTraceProjTreeHeaderLabel(model runtimeTraceProjTreeModel, zh bool) string {
+	header := "🎯 " + model.Target
+	switch {
+	case model.RootFocusAnchorOnly && zh:
+		header += " ‹分析锚点线程›"
+	case model.RootFocusAnchorOnly:
+		header += " <analysis anchor thread>"
+	case zh:
+		header += " ‹用户关注线程›"
+	default:
+		header += " <user-focused thread>"
+	}
+	return header
 }
 
 // runtimeTraceProjTreeLabelParts splits a tree row label into its fixed part
@@ -1122,8 +1659,26 @@ func runtimeTraceProjTreeLabelParts(row runtimeTraceProjTreeRow, zh bool) (strin
 		// claim a wake relation with no wakee — render a bare branch instead.
 		edge = ""
 	}
+	if edge != "" {
+		// NEW-7 edge mark, recorded AFTER the flat-fallback suppression so a
+		// suppressed edge never claims a legend entry. The typed switch mirrors
+		// runtimeTraceProjEdgeLabel exactly (default = wake, same as its default
+		// arm) — keep the two in lockstep.
+		switch row.Edge {
+		case runtimeTraceProjTreeEdgeDrill:
+			row.marks.mark(runtimeTraceProjMarkEdgeDrill)
+		case runtimeTraceProjTreeEdgeSemantic:
+			row.marks.mark(runtimeTraceProjMarkSemanticSpan)
+		case runtimeTraceProjTreeEdgeCause:
+			row.marks.mark(runtimeTraceProjMarkEdgeCause)
+		case runtimeTraceProjTreeEdgeOwn:
+			row.marks.mark(runtimeTraceProjMarkEdgeOwn)
+		default:
+			row.marks.mark(runtimeTraceProjMarkEdgeWake)
+		}
+	}
 	fixed := runtimeTraceProjTreePrefix(row) + edge + " " +
-		runtimeTraceProjStateIcon(row.Node, row.Kind) + " "
+		runtimeTraceProjStateIcon(row.Node, row.Kind, row.marks) + " "
 	return fixed, runtimeTraceProjRowName(row, zh)
 }
 
@@ -1132,10 +1687,7 @@ func runtimeTraceProjTreeLabelParts(row runtimeTraceProjTreeRow, zh bool) (strin
 // display width, floored at the readability minimum, then the whole label pads
 // (never truncates) to the shared column width.
 func runtimeTraceProjTreeLabel(fixed, name string, width int) string {
-	budget := runtimeTraceProjTreeLabelWidth - runewidth.StringWidth(fixed)
-	if budget < runtimeTraceProjTreeNameMinWidth {
-		budget = runtimeTraceProjTreeNameMinWidth
-	}
+	budget := runtimeTraceProjTreeNameBudget(runewidth.StringWidth(fixed))
 	if runewidth.StringWidth(name) > budget {
 		name = runtimeTraceProjPadDisplay(name, budget)
 	}
@@ -1185,6 +1737,27 @@ func runtimeTraceProjScaleNote(model runtimeTraceProjTreeModel, zh bool) string 
 	return fmt.Sprintf("window bounds not captured; bar full = batch max %.3fms (fallback scale, no window %%)", model.BarMaxMS)
 }
 
+// runtimeTraceProjSelfRowLines renders one self row for the fence (F-2 §7.7
+// 回访聚焦复核 2026-07-04): the legacy single line whenever it holds the NEW-10
+// row cap; over the cap, the NEW-3 caliber note — the only self-row part with
+// no per-row width bound and the lane's only NoTruncate carrier — moves intact
+// onto its own ↳ continuation line(s), and the main line keeps everything else
+// (state, value, [E#]).
+func runtimeTraceProjSelfRowLines(row runtimeTraceProjTreeRow, zh bool) []string {
+	const lead = "│     "
+	full := lead + runtimeTraceProjSelfRowText(row, zh)
+	if len(row.IOFoldPeers) == 0 || runewidth.StringWidth(full) <= runtimeTraceProjTreeRowMaxWidth {
+		return []string{full}
+	}
+	trimmed := row
+	trimmed.IOFoldPeers = nil
+	// The measuring call above already recorded the caliber-note mark (NEW-7:
+	// the note still renders — on the continuation lane).
+	lines := []string{lead + runtimeTraceProjSelfRowText(trimmed, zh)}
+	return append(lines, runtimeTraceProjNoteContinuationLines("│     ",
+		runtimeTraceProjIOFoldNoteText(row.IOFoldPeers, zh))...)
+}
+
 func runtimeTraceProjSelfRowText(row runtimeTraceProjTreeRow, zh bool) string {
 	node := row.Node
 	var parts []string
@@ -1194,9 +1767,16 @@ func runtimeTraceProjSelfRowText(row runtimeTraceProjTreeRow, zh bool) string {
 		if state == "" {
 			state = "sleep"
 		}
+		row.marks.mark(runtimeTraceProjMarkIconSleep)
 		parts = append(parts, "💤 "+state)
 	} else if name != "" {
-		parts = append(parts, name)
+		// NEW-10 (§7.6 记号区规整): every self row leads with exactly one state
+		// glyph (sleep rows already carry 💤) — glyph-less rows made same-depth
+		// emoji counts vary, so proportional web fonts drifted rows by variable
+		// offsets; a constant one-glyph slot collapses the drift to a constant.
+		parts = append(parts, runtimeTraceProjStateIcon(node, row.Kind, row.marks)+" "+name)
+	} else {
+		parts = append(parts, runtimeTraceProjStateIcon(node, row.Kind, row.marks))
 	}
 	if v := runtimeTraceProjNodeDisplayImpact(node); v > 0 {
 		parts = append(parts, fmt.Sprintf("%.3fms", v))
@@ -1227,6 +1807,7 @@ func runtimeTraceProjSelfRowText(row runtimeTraceProjTreeRow, zh bool) string {
 			stateTag = runtimeTraceCausalProjectionImpactShapeCell(node, zh)
 		}
 		if stateTag != "" {
+			row.marks.mark(runtimeTraceProjMarkStateLabel)
 			parts = append(parts, stateTag)
 		}
 	}
@@ -1238,11 +1819,18 @@ func runtimeTraceProjSelfRowText(row runtimeTraceProjTreeRow, zh bool) string {
 		}
 	}
 	if node.Undrillable() {
+		row.marks.mark(runtimeTraceProjMarkUndrillable)
 		if zh {
 			parts = append(parts, "⛔窗口内无匹配 sched_wakeup("+node.UndrillableReason+"),无法下钻")
 		} else {
 			parts = append(parts, "⛔no matching sched_wakeup in the window ("+node.UndrillableReason+") — cannot drill")
 		}
+	}
+	// NEW-3: a fold whose primary landed on the target's own state lane still
+	// carries the caliber note (the peers' only display carrier).
+	if len(row.IOFoldPeers) > 0 {
+		row.marks.mark(runtimeTraceProjMarkIOCaliberNote)
+		parts = append(parts, runtimeTraceProjIOFoldNoteText(row.IOFoldPeers, zh))
 	}
 	if row.EvidenceTag != "" {
 		parts = append(parts, "["+row.EvidenceTag+"]")
@@ -1284,6 +1872,12 @@ func runtimeTraceProjEdgeLabel(edge string, zh bool) string {
 			return "成因─"
 		}
 		return "cause─"
+	case runtimeTraceProjTreeEdgeOwn:
+		// F2: own-process caliber lane — never the wake edge word.
+		if zh {
+			return "自身─"
+		}
+		return "own─"
 	default:
 		if zh {
 			return "唤醒─"
@@ -1292,21 +1886,30 @@ func runtimeTraceProjEdgeLabel(edge string, zh bool) string {
 	}
 }
 
-func runtimeTraceProjStateIcon(node types.TraceCausalProjectionNode, kind string) string {
+// runtimeTraceProjStateIcon picks the row's state icon and records the NEW-7
+// mark for the icon it actually emits (marks nil-safe; the width pass and the
+// detail-cell callers pass nil and record nothing).
+func runtimeTraceProjStateIcon(node types.TraceCausalProjectionNode, kind string, marks *runtimeTraceProjMarkSet) string {
 	if kind == runtimeTraceProjTreeRowSemantic {
+		marks.mark(runtimeTraceProjMarkSemanticSpan)
 		return "✦"
 	}
 	if node.IsSleepState() {
+		marks.mark(runtimeTraceProjMarkIconSleep)
 		return "💤"
 	}
 	switch strings.TrimSpace(strings.ToLower(node.StateKind)) {
 	case "running":
+		marks.mark(runtimeTraceProjMarkIconRunning)
 		return "⚙"
 	case "runnable":
+		marks.mark(runtimeTraceProjMarkIconRunnable)
 		return "⏳"
 	case "d_state", "io_wait", "d_sleep", "uninterruptible_sleep":
+		marks.mark(runtimeTraceProjMarkIconDState)
 		return "⛓"
 	default:
+		marks.mark(runtimeTraceProjMarkIconTransit)
 		return "◦"
 	}
 }
@@ -1448,6 +2051,7 @@ func runtimeTraceProjPadDisplay(s string, width int) string {
 
 func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, width int, denom float64, windowMode, zh bool) string {
 	if row.Kind == runtimeTraceProjTreeRowOmitted {
+		row.marks.mark(runtimeTraceProjMarkOmitted)
 		prefix := runtimeTraceProjTreePrefix(row)
 		note := ""
 		if zh {
@@ -1469,6 +2073,10 @@ func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, width int, denom f
 	left := runtimeTraceProjTreeLabel(fixed, name, width)
 	var line string
 	if !row.HasData {
+		// NEW-10 (§7.6): transit rows carry no bar to align — the old pad to
+		// the shared column only pushed the note toward/past the row cap.
+		// Render them compact; bar rows keep the aligned column.
+		left = strings.TrimRight(left, " ")
 		if zh {
 			line = left + " (链路中转,本轮无独立影响行)"
 		} else {
@@ -1479,25 +2087,51 @@ func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, width int, denom f
 	}
 	// H11 small-cycle annotation: the canonical subject already appeared earlier
 	// on the rendered chain — say so at end of row instead of letting the repeat
-	// read as a distinct thread. Display-only; never truncates the chain.
+	// read as a distinct thread. Display-only; never truncates the chain. F-2:
+	// on a multi-line render (↳ continuation lane) the suffix belongs to the
+	// MAIN row, never to a continuation chunk.
 	if row.RecursOnChain {
-		if zh {
-			line += " ↺(线程在链上重复出现)"
+		row.marks.mark(runtimeTraceProjMarkRecursOnChain)
+		if i := strings.IndexByte(line, '\n'); i >= 0 {
+			line = line[:i] + runtimeTraceProjRecursSuffix(zh) + line[i:]
 		} else {
-			line += " ↺ (recurs on chain)"
+			line += runtimeTraceProjRecursSuffix(zh)
 		}
 	}
 	return line
 }
 
+// runtimeTraceProjRecursSuffix is the H11 small-cycle end-of-row annotation.
+// Shared by the append site above and the NEW-10 width reserve in
+// runtimeTraceProjRowLineWithMetrics so the two can never drift.
+func runtimeTraceProjRecursSuffix(zh bool) string {
+	if zh {
+		return " ↺(线程在链上重复出现)"
+	}
+	return " ↺ (recurs on chain)"
+}
+
 func runtimeTraceProjStanzaRowLine(row runtimeTraceProjTreeRow, width int, denom float64, windowMode, zh bool) string {
-	left := runtimeTraceProjTreeLabel("    ", runtimeTraceProjRowName(row, zh), width)
+	// NEW-10 (§7.6 记号区规整): stanza rows carry the same single state glyph
+	// slot as tree rows (typed StateKind switch, ◦ default) — previously they
+	// rendered glyph-less, so same-depth rows had varying emoji counts and web
+	// font drift shifted them by varying offsets. The fixed part mirrors the
+	// width pass in runtimeTraceProjTreeLabelColumn exactly.
+	left := runtimeTraceProjTreeLabel("    "+runtimeTraceProjStateIcon(row.Node, row.Kind, row.marks)+" ",
+		runtimeTraceProjRowName(row, zh), width)
 	return runtimeTraceProjRowLineWithMetrics(left, row, denom, windowMode, zh)
 }
 
 // runtimeTraceProjRowLineWithMetrics assembles label + bar/ms cells + tags
 // under the total row-width cap (§7.30.2 C4b B4): the tag segment gets the
-// remaining budget and elides secondary tags when it would overflow.
+// remaining budget and elides secondary tags when it would overflow. F-2
+// (§7.7 回访聚焦复核 2026-07-04): a fit still over budget means only NoTruncate
+// carriers / floored stubs remain — ContinuationLane carriers (the NEW-3
+// caliber note, the D3 composition split) then move onto their own
+// prefix-aligned ↳ continuation line(s), end-first, re-fitting after each move
+// so droppable tags regain any freed room; the main row returns under the cap
+// and the carrier content survives byte-identical (wrap, never truncation).
+// The return value is multi-line in that case (main row + continuations).
 func runtimeTraceProjRowLineWithMetrics(left string, row runtimeTraceProjTreeRow, denom float64, windowMode, zh bool) string {
 	base, tags := runtimeTraceProjRowMetricParts(row, denom, windowMode, zh)
 	if len(tags) == 0 {
@@ -1505,7 +2139,101 @@ func runtimeTraceProjRowLineWithMetrics(left string, row runtimeTraceProjTreeRow
 	}
 	budget := runtimeTraceProjTreeRowMaxWidth -
 		runewidth.StringWidth(left) - 1 - runewidth.StringWidth(base) - 2
-	return left + " " + base + "  " + runtimeTraceProjFitTags(tags, budget)
+	if row.RecursOnChain {
+		// NEW-10: the H11 ↺ suffix appends after fitting — reserve its display
+		// width so the finished row still holds the cap.
+		budget -= runewidth.StringWidth(runtimeTraceProjRecursSuffix(zh))
+	}
+	fitted := runtimeTraceProjFitTags(tags, budget)
+	if runewidth.StringWidth(fitted) <= budget {
+		return left + " " + base + "  " + fitted
+	}
+	remaining := append([]runtimeTraceProjTag(nil), tags...)
+	var moved []runtimeTraceProjTag
+	for runewidth.StringWidth(fitted) > budget {
+		idx := -1
+		for i := len(remaining) - 1; i >= 0; i-- {
+			if remaining[i].ContinuationLane {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			break // only non-continuation stubs left: legacy over-cap floor
+		}
+		moved = append([]runtimeTraceProjTag{remaining[idx]}, moved...)
+		remaining = append(remaining[:idx], remaining[idx+1:]...)
+		fitted = runtimeTraceProjFitTags(remaining, budget)
+	}
+	line := left + " " + base + "  " + fitted
+	if len(moved) == 0 {
+		return line
+	}
+	indent := runtimeTraceProjRowContinuationIndent(row)
+	for _, tag := range moved {
+		for _, cont := range runtimeTraceProjNoteContinuationLines(indent, tag.Text) {
+			line += "\n" + cont
+		}
+	}
+	return line
+}
+
+// runtimeTraceProjRowContinuationIndent derives the rail indent a continuation
+// line renders under (F-2): the row's ancestor rails verbatim, then the row's
+// own rail (│ while siblings follow, blank after a └─ row) so the tree drawing
+// stays intact under the wrapped note. Stanza rows (◇/▒ families, no rails)
+// indent by their fixed 4-cell lead + icon slot.
+func runtimeTraceProjRowContinuationIndent(row runtimeTraceProjTreeRow) string {
+	switch row.Kind {
+	case runtimeTraceProjTreeRowAdjacent, runtimeTraceProjTreeRowBackground:
+		return "      "
+	}
+	var b strings.Builder
+	for _, more := range row.Ancestors {
+		if more {
+			b.WriteString("│   ")
+		} else {
+			b.WriteString("    ")
+		}
+	}
+	if row.Last {
+		b.WriteString("  ")
+	} else {
+		b.WriteString("│ ")
+	}
+	return b.String()
+}
+
+// runtimeTraceProjNoteContinuationLines wraps a ContinuationLane carrier onto
+// continuation line(s) under the NEW-10 row cap (F-2, same lane the NEW-10
+// header wrap already uses for the scale note): "↳ " marks the first line,
+// later lines align under it; every line holds the cap and the chunk
+// concatenation is byte-identical to the original text (wrap only — a
+// truncated carrier would delete values with no other fence home).
+func runtimeTraceProjNoteContinuationLines(indent, text string) []string {
+	lead := indent + "↳ "
+	width := runtimeTraceProjTreeRowMaxWidth - runewidth.StringWidth(lead)
+	if width < runtimeTraceProjTreeNameMinWidth {
+		width = runtimeTraceProjTreeNameMinWidth
+	}
+	var out []string
+	prefix := lead
+	runes := []rune(text)
+	for len(runes) > 0 {
+		w, i := 0, 0
+		for i < len(runes) {
+			rw := runewidth.RuneWidth(runes[i])
+			if i > 0 && w+rw > width {
+				break
+			}
+			w += rw
+			i++
+		}
+		out = append(out, prefix+string(runes[:i]))
+		prefix = indent + "  "
+		runes = runes[i:]
+	}
+	return out
 }
 
 // runtimeTraceProjTag is one tag cell of a tree/stanza row with its typed
@@ -1521,6 +2249,25 @@ type runtimeTraceProjTag struct {
 	// layer/priority chip (first to go — the detail table's 因果位置·优先级
 	// column is the authoritative surface for it).
 	DropOrder int
+	// NoTruncate (NEW-10 §7.6): this Keep tag's full text is a carrier with no
+	// display-cell substitute — the [E#] evidence reference (locator) and the
+	// NEW-3 caliber note (the folded values' + evidence ids' only fence
+	// carrier). The keep-truncation lane never shortens it. Set at the build
+	// site only.
+	NoTruncate bool
+	// ContinuationLane (F-2 §7.7 回访聚焦复核 2026-07-04): this NoTruncate
+	// carrier may move onto its own prefix-aligned continuation line(s) when
+	// the fitted row would exceed the row cap — the NEW-3 caliber note and the
+	// D3 composition split (both grow without a per-row bound: peers /
+	// wording). The [E#] locator stays on its main row (it is small and IS the
+	// row's identity). Wrap only, never truncation: the continuation chunks
+	// concatenate byte-identically to the tag text. Set at the build site only.
+	ContinuationLane bool
+	// MinKeep (NEW-10): display floor for the keep-truncation lane; 0 uses
+	// runtimeTraceProjTreeKeepTagMinWidth. Build sites raise it when the tag's
+	// leading marker phrase (the token the dynamic legend explains, NEW-7) is
+	// wider than the default floor — truncation must never eat the marker.
+	MinKeep int
 }
 
 const (
@@ -1535,28 +2282,36 @@ const (
 // typed DropOrder (layer chip first, then table-mirrored extras end-first,
 // then the action lane). Load-bearing tags — the leading state attribution
 // (裁定4), ⚠/⛔ markers (gaps c/e) and the [E#] evidence reference — always
-// survive, even when that leaves the row slightly over the soft cap. The
-// detail table stays the lossless surface for everything elided.
+// survive being DROPPED. NEW-10 (§7.6, 单行完整性优先): when the drop lane is
+// exhausted and the Keep-only join still overflows, truncatable Keep tags
+// display-truncate end-first (runewise "…", same display-cell mechanism as
+// the label lane) down to their typed floors; typed NoTruncate carriers (the
+// [E#] ref, the NEW-3 caliber note) are never shortened. The detail table +
+// evidence index stay the lossless surface for everything elided or shaved.
 func runtimeTraceProjFitTags(tags []runtimeTraceProjTag, budget int) string {
 	if len(tags) == 0 {
 		return ""
 	}
-	assemble := func(dropped map[int]bool) string {
+	texts := make([]string, len(tags))
+	for i := range tags {
+		texts[i] = tags[i].Text
+	}
+	assemble := func(dropped map[int]bool, elisionMark bool) string {
 		var parts []string
 		elided := false
-		for i, tag := range tags {
+		for i := range tags {
 			if dropped[i] {
-				if !elided {
+				if !elided && elisionMark {
 					parts = append(parts, "…")
 					elided = true
 				}
 				continue
 			}
-			parts = append(parts, tag.Text)
+			parts = append(parts, texts[i])
 		}
 		return strings.Join(parts, " · ")
 	}
-	candidate := assemble(nil)
+	candidate := assemble(nil, true)
 	if runewidth.StringWidth(candidate) <= budget {
 		return candidate
 	}
@@ -1567,14 +2322,50 @@ func runtimeTraceProjFitTags(tags []runtimeTraceProjTag, budget int) string {
 				continue
 			}
 			dropped[i] = true
-			candidate = assemble(dropped)
+			candidate = assemble(dropped, true)
 			if runewidth.StringWidth(candidate) <= budget {
 				return candidate
 			}
 		}
 	}
-	// Readability floor: only load-bearing tags remain — keep them even over
-	// budget; the state/⚠/⛔/E# references must never be dropped.
+	// NEW-10 keep-truncation lane: shave truncatable Keep tags end-first, each
+	// only as far as needed and never below its floor (default keeps a 4-glyph
+	// attribution prefix; build sites raise it to protect a wider marker
+	// phrase). NoTruncate carriers are skipped entirely.
+	truncatedAny := false
+	for i := len(tags) - 1; i >= 0; i-- {
+		if dropped[i] || tags[i].NoTruncate {
+			continue
+		}
+		floor := tags[i].MinKeep
+		if floor <= 0 {
+			floor = runtimeTraceProjTreeKeepTagMinWidth
+		}
+		w := runewidth.StringWidth(texts[i])
+		if w <= floor {
+			continue
+		}
+		target := w - (runewidth.StringWidth(candidate) - budget)
+		if target < floor {
+			target = floor
+		}
+		texts[i] = strings.TrimRight(runtimeTraceProjPadDisplay(tags[i].Text, target), " ")
+		truncatedAny = true
+		candidate = assemble(dropped, true)
+		if runewidth.StringWidth(candidate) <= budget {
+			return candidate
+		}
+	}
+	// Every floor applied and still over: a display-truncated tag already ends
+	// in "…", so the standalone elision marker is redundant disclosure — drop
+	// it when that alone brings the row under the cap.
+	if truncatedAny && len(dropped) > 0 {
+		if slim := assemble(dropped, false); runewidth.StringWidth(slim) <= budget {
+			return slim
+		}
+	}
+	// Readability floor: only load-bearing stubs and NoTruncate carriers remain
+	// — keep them even over budget; state/⚠/⛔/E# must never be dropped.
 	return candidate
 }
 
@@ -1664,6 +2455,9 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		stateTag = runtimeTraceCausalProjectionImpactShapeCell(node, zh)
 	}
 	if stateTag != "" {
+		// NEW-7: the state/impact-shape tag is Keep-class (never elided), so
+		// marking at append time cannot record a tag the width fit later drops.
+		row.marks.mark(runtimeTraceProjMarkStateLabel)
 		tags = append(tags, runtimeTraceProjTag{Text: stateTag, DropOrder: runtimeTraceProjTagKeep})
 	}
 	// V3 (customer revisit 2026-07-03): a background row whose projection covers
@@ -1675,20 +2469,28 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// shared helper; the detail table mirrors the same call.
 	if windowMode && runtimeTraceProjWholeWindowIdleRow(row, denom) {
 		text := "整窗等待(疑似空闲)"
+		marker := "整窗等待"
 		if !zh {
 			text = "whole-window wait (likely idle)"
+			marker = "whole-window wait"
 		}
-		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep})
+		// NEW-10: the keep-truncation floor protects the marker phrase; the
+		// full annotation stays lossless on the detail table's shape cell.
+		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep,
+			MinKeep: runewidth.StringWidth(marker) + 1})
 	}
 	// §7.30.3 D3: the inversion composite shows its gated composition — the
-	// split is load-bearing and never elides.
+	// split is load-bearing and never elides. NEW-10: also NoTruncate — the
+	// two gated numbers have no other display carrier (same sanctioned
+	// row-cap overflow class as the NEW-3 caliber note).
 	if runtimeTraceCausalProjectionInversionRow(node) &&
 		(node.GatedRunnableMS > 0 || node.GatedRunningDeficitMS > 0) {
 		text := fmt.Sprintf("影响构成: 可运行等待 %.3fms + 运行折算 %.3fms", node.GatedRunnableMS, node.GatedRunningDeficitMS)
 		if !zh {
 			text = fmt.Sprintf("composition: runnable %.3fms + discounted running %.3fms", node.GatedRunnableMS, node.GatedRunningDeficitMS)
 		}
-		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep})
+		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep,
+			NoTruncate: true, ContinuationLane: true})
 	}
 	// §7.30.3 D1: the parsed holder site is auditable detail — droppable on
 	// width pressure; the raw record keeps it lossless.
@@ -1754,11 +2556,28 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagExtra})
 	}
 	if runtimeTraceProjCrossWindow(node) {
+		row.marks.mark(runtimeTraceProjMarkCrossWindow)
 		text := fmt.Sprintf("⚠跨窗(实际%.3fms)", node.ActualImpactMS)
+		marker := "⚠跨窗"
 		if !zh {
 			text = fmt.Sprintf("⚠crosses window (actual %.3fms)", node.ActualImpactMS)
+			marker = "⚠crosses window"
 		}
-		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep})
+		// NEW-10: the keep-truncation floor protects the ⚠ marker phrase (the
+		// token the dynamic legend explains); the actual-ms detail stays
+		// lossless on the detail table's 实际状态 column.
+		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep,
+			MinKeep: runewidth.StringWidth(marker) + 1})
+	}
+	// NEW-3: the folded same-segment IO calibers' values and evidence tags live
+	// ONLY on this note (plus the evidence index) — load-bearing, never elided
+	// or shaved (NoTruncate). F-2: when the row cannot hold it, the note moves
+	// intact onto its own ↳ continuation line(s) instead of overflowing the
+	// NEW-10 row cap.
+	if len(row.IOFoldPeers) > 0 {
+		row.marks.mark(runtimeTraceProjMarkIOCaliberNote)
+		tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjIOFoldNoteText(row.IOFoldPeers, zh),
+			DropOrder: runtimeTraceProjTagKeep, NoTruncate: true, ContinuationLane: true})
 	}
 	if row.Kind == runtimeTraceProjTreeRowSemantic {
 		parent := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(row.Node.Subject, zh))
@@ -1771,6 +2590,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		}
 	}
 	if node.Undrillable() {
+		row.marks.mark(runtimeTraceProjMarkUndrillable)
 		text := "⛔无匹配唤醒·链止"
 		if !zh {
 			text = "⛔no matching wakeup · chain ends"
@@ -1778,7 +2598,10 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep})
 	}
 	if row.EvidenceTag != "" {
-		tags = append(tags, runtimeTraceProjTag{Text: "[" + row.EvidenceTag + "]", DropOrder: runtimeTraceProjTagKeep})
+		// NEW-10: the E# locator is NoTruncate — a shaved reference locates
+		// nothing.
+		tags = append(tags, runtimeTraceProjTag{Text: "[" + row.EvidenceTag + "]",
+			DropOrder: runtimeTraceProjTagKeep, NoTruncate: true})
 	}
 	return b.String(), tags
 }
@@ -1820,28 +2643,36 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 	// Customer 2026-07-03: the reading note was one run-on paragraph and
 	// unreadable — itemized, one short clause per line, deliberately plain
 	// (no bold, no emoji beyond the glyphs it explains).
+	//
+	// NEW-7 (§7.6 对比场景客户回访 2026-07-04, 客户点名): the legend is DYNAMIC —
+	// two fixed head clauses (top-down semantics, E# locatability) plus exactly
+	// the catalog entries whose typed mark the fence render actually emitted,
+	// in stable catalog order. The NEW-1 wake-direction wording lives verbatim
+	// in the catalog's wake entry.
 	if zh {
-		sections = append(sections, strings.Join([]string{
+		lines := []string{
 			"树读法:",
 			"- 自上而下 = 从关注线程向上游追溯。",
-			"- `└─唤醒─` = 该行唤醒/依赖其父行。",
-			"- 💤 = 症状非根因,其唤醒子行即下钻结果。",
-			"- `├─成因─` = 同一线程的成因分解。",
-			"- `⛔` = 窗口内无匹配 sched_wakeup,链止于此。",
-			"- 时长条后的状态标签(睡眠等待/可运行等待/运行占用/IO阻塞/D状态)来自该行主导调度状态;无主导状态的行沿用影响形态。",
 			"- 时长、排序与 E# 均可定位到原始 trace_query 结构化证据,不是额外推测。",
-		}, "\n"))
+		}
+		for _, entry := range runtimeTraceProjLegendCatalog() {
+			if model.Marks.has(entry.Mark) {
+				lines = append(lines, entry.ZH)
+			}
+		}
+		sections = append(sections, strings.Join(lines, "\n"))
 	} else {
-		sections = append(sections, strings.Join([]string{
+		lines := []string{
 			"Tree reading:",
 			"- Top-down = tracing upstream from the focused thread.",
-			"- `└─wakes─` = this row wakes/feeds its parent.",
-			"- 💤 = a symptom, not a root cause; its wake child IS the drilldown result.",
-			"- `├─cause─` = same-thread cause decomposition.",
-			"- `⛔` = no matching sched_wakeup in the window; the chain ends there.",
-			"- The state tag after each bar (sleep wait / runnable wait / running / IO wait / D-state) is the row's dominant scheduler state; rows without one keep their impact-shape value.",
 			"- Durations, ranks and E# tags locate structured trace_query evidence — never extra speculation.",
-		}, "\n"))
+		}
+		for _, entry := range runtimeTraceProjLegendCatalog() {
+			if model.Marks.has(entry.Mark) {
+				lines = append(lines, entry.EN)
+			}
+		}
+		sections = append(sections, strings.Join(lines, "\n"))
 	}
 	if len(model.Background) == 0 {
 		if zh {
@@ -2037,6 +2868,7 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 				fmt.Fprintf(&b, " Of the target's %.3fms sleep/blocked time, on-chain attributed %.3fms (%.0f%%), unattributed %.3fms (%.0f%%).",
 					symptom, attributed, attributed/symptom*100, residual, residual/symptom*100)
 			}
+			b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
 		} else if attributed <= model.WindowMS {
 			residual := model.WindowMS - attributed
 			if zh {
@@ -2046,6 +2878,7 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 				fmt.Fprintf(&b, " On-chain attributed %.3fms/%.0f%%, unattributed residual %.3fms/%.0f%%.",
 					attributed, attributed/model.WindowMS*100, residual, residual/model.WindowMS*100)
 			}
+			b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
 		} else {
 			if zh {
 				fmt.Fprintf(&b, " on-chain 已归因 %.3fms(其实际状态跨出窗口,见 ⚠ 标记)。", attributed)
@@ -2104,6 +2937,80 @@ func runtimeTraceProjTargetSymptomMS(model runtimeTraceProjTreeModel) float64 {
 		}
 	}
 	return total
+}
+
+// runtimeTraceProjResidualOwnCaliberNote implements NEW-6 (§7.6 对比场景客户回访
+// 2026-07-04, 客户追问"残差包含 on-chain 吗"): the coverage line's "残差 90%"
+// visually contradicted the tree's own-process IO row (232ms) — that row is the
+// SAME wall-clock segment as the target's D-state read through another caliber,
+// deliberately excluded from the attribution numerator to avoid double
+// counting, and the reader had to infer that. When such a row exists, the
+// coverage sentence now says so itself. Precise signals only
+// (runtimeTraceProjOwnCaliberIOPrimaryRow); no qualifying row → empty string
+// (the coverage line stays byte-identical).
+//
+// The published amount is min(caliber value, residual): a caliber row may
+// legitimately exceed the residual (it overlaps attributed wall clock too), and
+// "残差中最大 X" must never claim more than the residual itself.
+func runtimeTraceProjResidualOwnCaliberNote(model runtimeTraceProjTreeModel, residual float64, zh bool) string {
+	if residual <= 0 {
+		return ""
+	}
+	value, tag, ok := runtimeTraceProjOwnCaliberIOPrimaryRow(model)
+	if !ok || value <= 0 {
+		return ""
+	}
+	if value > residual {
+		value = residual
+	}
+	if zh {
+		ref := ""
+		if tag != "" {
+			ref = "(" + tag + ")"
+		}
+		return fmt.Sprintf(" 残差中最大 %.3fms 与自身 IO 口径行%s重叠解释,未计入链归因以防双计。", value, ref)
+	}
+	ref := ""
+	if tag != "" {
+		ref = " (" + tag + ")"
+	}
+	return fmt.Sprintf(" Up to %.3fms of the residual is co-explained by the own-process IO caliber row%s; it is excluded from the chain attribution to avoid double counting.", value, ref)
+}
+
+// runtimeTraceProjOwnCaliberIOPrimaryRow finds the largest target-own /
+// same-process IO caliber row that is NOT inside the attribution numerator —
+// the NEW-3 grouped primary (fold survivors carry the group max), with its
+// evidence tag verbatim. Two precise typed lanes:
+//   - tree lane: rows passing the NEW-3/F2 runtimeTraceProjOwnProcessIORow
+//     gate (depthless own-edge rows only) — a chain-attached IO row (resolved
+//     depth) already sits inside the depth-cumulative attribution lane, so
+//     citing it as a residual overlap would contradict "未计入链归因";
+//   - self lane: the 🎯 target's own rows with a typed IO caliber token that
+//     stayed OUT of the symptom denominator (causal_hop views / non-wait-family
+//     states — the same two typed exclusions runtimeTraceProjTargetSymptomMS
+//     applies): same-wall-clock re-descriptions, not extra time.
+func runtimeTraceProjOwnCaliberIOPrimaryRow(model runtimeTraceProjTreeModel) (float64, string, bool) {
+	best, tag, found := 0.0, "", false
+	consider := func(row runtimeTraceProjTreeRow) {
+		v := runtimeTraceProjNodeDisplayImpact(row.Node)
+		if !found || v > best {
+			best, tag, found = v, strings.TrimSpace(row.EvidenceTag), true
+		}
+	}
+	for _, row := range model.TreeRows {
+		if runtimeTraceProjOwnProcessIORow(row) {
+			consider(row)
+		}
+	}
+	for _, row := range model.SelfRows {
+		if !runtimeTraceProjSameSegmentIOToken(row.Node) {
+			continue
+		}
+		if row.Node.Role == types.TraceCausalRoleCausalHop || !runtimeTraceProjWaitFamilyStateKind(row.Node) {
+			consider(row)
+		}
+	}
+	return best, tag, found
 }
 
 // runtimeTraceProjWaitFamilyStateKind reports whether the node's typed dominant
@@ -2240,6 +3147,15 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		if node.Undrillable() {
 			name += " ⛔"
 		}
+		// NEW-3 mirror on the lossless surface: the folded calibers no longer
+		// render as separate table rows, so the primary row's cell carries
+		// their values + evidence ids (the evidence index keeps the locators).
+		if len(row.IOFoldPeers) > 0 {
+			name += "(" + runtimeTraceProjIOFoldNoteText(row.IOFoldPeers, zh) + ")"
+		}
+		// NEW-3/F2: the depthless own-process IO row carries the typed own edge
+		// stamped at build time — the relation cell's edge switch renders it as
+		// 自身进程IO, consistent with the fence's ├─自身─ edge and the legend.
 		relation := runtimeTraceProjDetailRelationCell(row, zh, flat)
 		// §7.30.2 C4b: the typed R1-merge impact points (SecondaryObjects) must
 		// stay lossless on the table — the tree's 影响点 tag is width-elidable.
@@ -2469,6 +3385,14 @@ func runtimeTraceProjDetailRelationCell(row runtimeTraceProjTreeRow, zh, flat bo
 	}
 	label := ""
 	switch row.Edge {
+	case runtimeTraceProjTreeEdgeOwn:
+		// F2: the own-edge row re-describes the target's own process wall
+		// clock — never a wake claim, and no "▸ parent" suffix (there is no
+		// upstream relation to point at). Mirrors the fence's ├─自身─ edge.
+		if zh {
+			return "自身进程IO"
+		}
+		return "own-process IO"
 	case runtimeTraceProjTreeEdgeDrill:
 		if zh {
 			label = "下钻"

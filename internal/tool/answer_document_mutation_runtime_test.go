@@ -821,7 +821,16 @@ func TestApplyAndPersistMutation_TraceCausalProjectionBoundsLongWakeupChainDispl
 		}
 	}
 	// The tree stays bounded: trunk display ≤ 8 chain rows + 1 omitted marker.
-	if n := strings.Count(projection.Text, "─唤醒─") + strings.Count(projection.Text, "─下钻─"); n > 9 {
+	// NEW-7 (§7.6 回访 2026-07-04): the count scopes to the ```text fence — the
+	// legend above it is now dynamic and legitimately carries `├─下钻─` /
+	// `└─唤醒─` catalog entries for the edges this very tree emits; counting
+	// those legend mentions as chain rows would fail a correctly bounded tree.
+	fenceStart := strings.Index(projection.Text, "```text")
+	if fenceStart < 0 {
+		t.Fatalf("missing tree fence:\n%s", projection.Text)
+	}
+	fence := projection.Text[fenceStart:]
+	if n := strings.Count(fence, "─唤醒─") + strings.Count(fence, "─下钻─"); n > 9 {
 		t.Fatalf("long trunk must stay bounded, got %d chain rows:\n%s", n, projection.Text)
 	}
 	if projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_wakeup") != nil {

@@ -118,20 +118,22 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		}
 	}
 	// Target-anchored tree: root, four edge kinds, real branches, inline markers.
-	// §7.30.2 C4b B4: rows keep the leading state tag, typed ⚠/⛔ markers and
-	// the [E#] reference; overflowing secondary tags elide to "…" — the detail
-	// table below stays the lossless surface (链上累计 / span host live there).
+	// §7.30.2 C4b B4 + NEW-10 (§7.6, 100-cell row cap): rows keep the leading
+	// state tag, typed ⚠/⛔ markers and the [E#] reference; overflowing
+	// secondary tags elide to "…" and budget-starved Keep tags display-truncate
+	// to their protected marker phrase — the detail table below stays the
+	// lossless surface (链上累计 / span host / ⚠ actual value live there).
 	for _, want := range []string{
 		"🎯 oney.hmn.berlin-42591 ‹用户关注线程›",
 		"满格=窗口64.000ms",
 		"└─下钻─ 💤 binder:42591_4-42712 · 睡眠等待",
 		"├─唤醒─ ⚙ RenderService-3021 · 算力供给",
-		"└─唤醒─ ⏳ DispatchQueue-771 · runnable_delay",
-		"└─唤醒─ 💤 IOWorker-8842 · 睡眠等待",
-		"└─语义─ ✦ VerifyClass com.example.render.Pipeline",
-		"睡眠等待 · … · ⚠跨窗(实际52.700ms) · [E1]",
-		"睡眠等待 · … · ⛔无匹配唤醒·链止 · [E4(+1)]",
-		"语义优化span·class_verification · … · [E5]",
+		"└─唤醒─ ⏳ DispatchQueue-771 · runn…",
+		"└─唤醒─ 💤 IOWorker-8842 · 睡眠…",
+		"└─语义─ ✦ VerifyClass com.example.rende…",
+		"睡眠等待 · ⚠跨窗… · [E1]",
+		"睡眠等待 · … · ⛔无匹配… · [E4(+1)]",
+		"语义优化span·c… · … · [E5]",
 		"运行占用",
 		"可运行等待",
 		"◇ 邻近链",
