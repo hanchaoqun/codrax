@@ -287,7 +287,12 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		addStreamStateClusterInterval(accs, running, runnable, sleep, dstate, iowait, start, endTs, endLine, q, blockedReasons)
 	}
 	openState := func(thread ThreadRef, state ThreadState, ts float64, line int) {
-		if thread.PID <= 0 || state == StateUnknown {
+		// §7.11 B-1 sequel (2026-07-04 review): same gate as the indexed twin
+		// (computeStateChurnSummaries) — stopped/dead segments never open. The
+		// five-state lanes skip them, so they would inflate ONLY fragments/
+		// switches/maxSegment and let a dead exit tail suppress a real churn
+		// row via the maxSegment>=70% gate downstream.
+		if thread.PID <= 0 || state == StateUnknown || state == StateStopped || state == StateDead {
 			return
 		}
 		open[thread.PID] = stateChurnOpen{thread: thread, state: state, ts: ts, line: line}

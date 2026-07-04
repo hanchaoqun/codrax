@@ -294,8 +294,17 @@ type Query struct {
 	MaxDepth               int
 	MaxBranches            int
 	MinDurationMs          float64
-	IncludeWindowStats     bool
-	Limit                  int
+	// ViaThread is the RN-14a (§7.9) wakeup_chain via selector: same forms as
+	// the thread selector (bare pid, pid=N, "comm-pid", or a full thread
+	// name). Matching is canonical-exact only (parsed pid integer equality,
+	// otherwise verbatim comm equality) — never substring/fuzzy. Branches of
+	// the target's chain tree whose wakeup subtree contains the via thread
+	// are immune to the MaxBranches top-N cap, and ChainResult.ViaThread
+	// reports whether the via thread is ON a wakeup path to the target
+	// (per-hop latency) or only a scheduling-contention neighbor.
+	ViaThread          string
+	IncludeWindowStats bool
+	Limit              int
 	// BucketMs is the view=window_sweep coverage bucket width in
 	// milliseconds; StreamWindowSweep clamps it via ClampWindowSweepBucketMs
 	// (default 100, allowed 50..500). Ignored by every other view.
@@ -388,7 +397,17 @@ const (
 	StateSSleep   ThreadState = "s_sleep"
 	StateDSleep   ThreadState = "d_sleep"
 	StateIOWait   ThreadState = "io_wait"
-	StateUnknown  ThreadState = "unknown"
+	// StateStopped / StateDead (§7.11 B-1, customer_dead_session_audit_
+	// 20260703.md): T/t (SIGSTOP / ptrace-stopped) and X/Z (exit-dead /
+	// zombie) prev_state codes. Typed non-Unknown classes so the segments
+	// enter interval-level faces honestly; the per-state lane accumulators
+	// (running/runnable/sleep/d_state/io_wait) intentionally skip them —
+	// stopped/dead time is neither scheduling demand nor compute delivery
+	// pressure, and booking it into any existing lane would be a semantic
+	// lie. Raw codes stay drillable via Interval.PrevStateRaw.
+	StateStopped ThreadState = "stopped"
+	StateDead    ThreadState = "dead"
+	StateUnknown ThreadState = "unknown"
 )
 
 type Interval struct {
@@ -507,9 +526,9 @@ type WindowStats struct {
 	// core-limited remainder). Nil when the query window is unbounded — the
 	// nominal denominator would be an estimate (CMP-3: no window, no
 	// estimate).
-	ComputeSupplyBalance *ComputeSupplyBalance `json:"compute_supply_balance,omitempty"`
-	StateChurn            []ThreadStateChurnSummary  `json:"state_churn,omitempty"`
-	StateDrilldownPlan    []StateDrilldownStep       `json:"state_drilldown_plan,omitempty"`
+	ComputeSupplyBalance *ComputeSupplyBalance     `json:"compute_supply_balance,omitempty"`
+	StateChurn           []ThreadStateChurnSummary `json:"state_churn,omitempty"`
+	StateDrilldownPlan   []StateDrilldownStep      `json:"state_drilldown_plan,omitempty"`
 	// IdleWholeWindowSleepers summarizes the top_sleep drilldown candidates
 	// folded out of StateDrilldownPlan because their cumulative sleep covered
 	// (>=99% of) the entire selected window — idle service threads, not
@@ -756,8 +775,8 @@ type CPUOccupancyThread struct {
 }
 
 type CPUOccupancyPerCPU struct {
-	CPU       int    `json:"cpu"`
-	CoreClass string `json:"core_class,omitempty"`
+	CPU       int     `json:"cpu"`
+	CoreClass string  `json:"core_class,omitempty"`
 	BusyMs    float64 `json:"busy_ms,omitempty"`
 	IdleMs    float64 `json:"idle_ms,omitempty"`
 	// Top holds this CPU's top running occupiers (at most 2, cpu·ms).
@@ -1554,8 +1573,8 @@ type RootCauseRankItem struct {
 	// GatedRunnableMs / GatedRunningDeficitMs mirror the R5d gated-impact
 	// composition for priority_inversion_candidate rows (§7.30.3 D3); zero on
 	// every other row type.
-	GatedRunnableMs       float64                  `json:"gated_runnable_ms,omitempty"`
-	GatedRunningDeficitMs float64                  `json:"gated_running_deficit_ms,omitempty"`
+	GatedRunnableMs       float64 `json:"gated_runnable_ms,omitempty"`
+	GatedRunningDeficitMs float64 `json:"gated_running_deficit_ms,omitempty"`
 	// PeriodicSource / DetectedPeriodMs / LatenessMs mirror the VS-1 (§7.8)
 	// periodic-signal-source accounting of the backing causal impact/aggregate.
 	// On a periodic row EffectiveImpactMs carries the discounted attribution
@@ -1567,28 +1586,36 @@ type RootCauseRankItem struct {
 	PeriodicSource   bool    `json:"periodic_source,omitempty"`
 	DetectedPeriodMs float64 `json:"detected_period_ms,omitempty"`
 	LatenessMs       float64 `json:"lateness_ms,omitempty"`
-	TargetImpactMs   float64 `json:"target_impact_ms,omitempty"`
-	ActualImpactMs        float64                  `json:"actual_impact_ms,omitempty"`
-	ActualTotalMs         float64                  `json:"actual_total_ms,omitempty"`
-	Score                 float64                  `json:"score,omitempty"`
-	Confidence            float64                  `json:"confidence,omitempty"`
-	LineStart             int                      `json:"line_start,omitempty"`
-	LineEnd               int                      `json:"line_end,omitempty"`
-	Source                string                   `json:"source,omitempty"`
-	Causality             string                   `json:"causality,omitempty"`
-	ChainRelevance        string                   `json:"chain_relevance,omitempty"`
-	ChainDepth            int                      `json:"chain_depth,omitempty"`
-	OverlapMs             float64                  `json:"overlap_ms,omitempty"`
-	EdgeCount             int                      `json:"edge_count,omitempty"`
-	NearestChainThread    ThreadRef                `json:"nearest_chain_thread,omitempty"`
-	NearestChainWindow    TimeWindow               `json:"nearest_chain_window,omitempty"`
-	OccurrenceWindows     []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
-	SpanName              string                   `json:"span_name,omitempty"`
-	SpanKind              string                   `json:"span_kind,omitempty"`
-	SpanCategory          string                   `json:"span_category,omitempty"`
-	SpanSubcategory       string                   `json:"span_subcategory,omitempty"`
-	SemanticClass         string                   `json:"semantic_class,omitempty"`
-	Summary               string                   `json:"summary,omitempty"`
+	// SupplyFoldDeficitMs / SupplyFoldIdealMs / SupplyFoldBasis mirror the
+	// VS-2 (§7.10) supply-fold accounting of the backing causal impact /
+	// aggregate (running-dominant on-chain rows only; nil basis = fold not
+	// computed). Display/wording inputs only — the rank/score lanes never
+	// read them (§7.10 red line: deficit 不参赛).
+	SupplyFoldDeficitMs float64                  `json:"supply_fold_deficit_ms,omitempty"`
+	SupplyFoldIdealMs   float64                  `json:"supply_fold_ideal_ms,omitempty"`
+	SupplyFoldBasis     *SupplyFoldBasis         `json:"supply_fold_basis,omitempty"`
+	TargetImpactMs      float64                  `json:"target_impact_ms,omitempty"`
+	ActualImpactMs      float64                  `json:"actual_impact_ms,omitempty"`
+	ActualTotalMs       float64                  `json:"actual_total_ms,omitempty"`
+	Score               float64                  `json:"score,omitempty"`
+	Confidence          float64                  `json:"confidence,omitempty"`
+	LineStart           int                      `json:"line_start,omitempty"`
+	LineEnd             int                      `json:"line_end,omitempty"`
+	Source              string                   `json:"source,omitempty"`
+	Causality           string                   `json:"causality,omitempty"`
+	ChainRelevance      string                   `json:"chain_relevance,omitempty"`
+	ChainDepth          int                      `json:"chain_depth,omitempty"`
+	OverlapMs           float64                  `json:"overlap_ms,omitempty"`
+	EdgeCount           int                      `json:"edge_count,omitempty"`
+	NearestChainThread  ThreadRef                `json:"nearest_chain_thread,omitempty"`
+	NearestChainWindow  TimeWindow               `json:"nearest_chain_window,omitempty"`
+	OccurrenceWindows   []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
+	SpanName            string                   `json:"span_name,omitempty"`
+	SpanKind            string                   `json:"span_kind,omitempty"`
+	SpanCategory        string                   `json:"span_category,omitempty"`
+	SpanSubcategory     string                   `json:"span_subcategory,omitempty"`
+	SemanticClass       string                   `json:"semantic_class,omitempty"`
+	Summary             string                   `json:"summary,omitempty"`
 }
 
 type RootCausePerfRoleContext struct {
@@ -1805,7 +1832,39 @@ type ChainResult struct {
 	IPCEdges          []IPCEdge               `json:"ipc_edges,omitempty"`
 	BinderWaits       []BinderWaitSummary     `json:"binder_waits,omitempty"`
 	RootEvidence      []RootEvidence          `json:"root_evidence,omitempty"`
-	Caveats           []string                `json:"caveats,omitempty"`
+	// ViaThread is the RN-14a (§7.9) via verdict, present only when
+	// Query.ViaThread was set: either the via thread is ON a wakeup path to
+	// the target (depth + per-hop latency from existing wakeup edges, zero
+	// new parsing) or it is NOT connected by any wakeup edge, in which case
+	// its influence is scheduling contention (runnable queuing), not a
+	// wakeup dependency — the decisive on-chain-root-cause vs
+	// scheduling-contention distinction the customer session lacked.
+	ViaThread *ChainViaThreadReport `json:"via_thread,omitempty"`
+	Caveats   []string              `json:"caveats,omitempty"`
+}
+
+// ChainViaThreadReport is the typed RN-14a via verdict for one wakeup chain.
+type ChainViaThreadReport struct {
+	// Requested is the raw via_thread selector from the tool call.
+	Requested string `json:"requested"`
+	// Thread is the resolved on-chain thread; zero when OnChain is false.
+	Thread  ThreadRef `json:"thread,omitempty"`
+	OnChain bool      `json:"on_chain"`
+	// Depth is the via thread's minimum chain depth (hops from the target).
+	Depth int `json:"depth,omitempty"`
+	// Hops walks the wakeup edges from the via thread down to the target,
+	// one entry per hop, each with its wakeup latency.
+	Hops    []ChainViaHop `json:"hops,omitempty"`
+	Summary string        `json:"summary,omitempty"`
+}
+
+// ChainViaHop is one waker→wakee hop on the via thread's path to the target.
+type ChainViaHop struct {
+	Waker      ThreadRef `json:"waker"`
+	Wakee      ThreadRef `json:"wakee"`
+	LatencyMs  float64   `json:"latency_ms,omitempty"`
+	WakeupTs   float64   `json:"wakeup_ts,omitempty"`
+	WakeupLine int       `json:"wakeup_line,omitempty"`
 }
 
 type IPCGraphResult struct {
@@ -1956,8 +2015,21 @@ type WakeupCausalImpact struct {
 	DetectedPeriodMs          float64 `json:"detected_period_ms,omitempty"`
 	LatenessMs                float64 `json:"lateness_ms,omitempty"`
 	EffectivePeriodicImpactMs float64 `json:"effective_periodic_impact_ms,omitempty"`
-	Summary                   string  `json:"summary,omitempty"`
-	NextStep                  string  `json:"next_step,omitempty"`
+	// VS-2 (§7.10): supply-fold accounting of an on-chain RUNNING-dominant
+	// node (typed gate: OnChain ∧ dominant_state==running ∧ RunningMs>
+	// RunnableMs). SupplyFoldIdealMs is the node's running wall clock folded
+	// per slice to the big-cluster governed fmax (see supply_fold.go);
+	// SupplyFoldDeficitMs = RunningMs − ideal (clamped ≥0) — the running-SLOW
+	// share, a LOWER BOUND (frequency ratio only, no microarchitecture
+	// claim). SupplyFoldBasis (nil = fold not computed — the typed presence
+	// signal) keeps the known/unknown frequency-coverage wall split; unknown
+	// slices fold at ratio 1 and never fabricate deficit. Display/wording
+	// inputs only: ranking and every raw impact field stay untouched.
+	SupplyFoldDeficitMs float64          `json:"supply_fold_deficit_ms,omitempty"`
+	SupplyFoldIdealMs   float64          `json:"supply_fold_ideal_ms,omitempty"`
+	SupplyFoldBasis     *SupplyFoldBasis `json:"supply_fold_basis,omitempty"`
+	Summary             string           `json:"summary,omitempty"`
+	NextStep            string           `json:"next_step,omitempty"`
 	// NextStepKind is the deterministic typed enumeration behind the English
 	// NextStep guidance prose (NextStepKind* constants), so renderers can
 	// localize without parsing prose.
@@ -2052,7 +2124,15 @@ type WakeupCausalAggregate struct {
 	DetectedPeriodMs          float64 `json:"detected_period_ms,omitempty"`
 	LatenessMs                float64 `json:"lateness_ms,omitempty"`
 	EffectivePeriodicImpactMs float64 `json:"effective_periodic_impact_ms,omitempty"`
-	Summary                   string  `json:"summary,omitempty"`
+	// VS-2 (§7.10): the SUM of the member occurrences' supply-fold fields
+	// (only members whose fold ran contribute — see WakeupCausalImpact). The
+	// per-member identity ideal+deficit==RunningMs therefore holds for the
+	// folded SUBSET, not necessarily the aggregate RunningMs. nil basis =
+	// no member folded.
+	SupplyFoldDeficitMs float64          `json:"supply_fold_deficit_ms,omitempty"`
+	SupplyFoldIdealMs   float64          `json:"supply_fold_ideal_ms,omitempty"`
+	SupplyFoldBasis     *SupplyFoldBasis `json:"supply_fold_basis,omitempty"`
+	Summary             string           `json:"summary,omitempty"`
 }
 
 type RootEvidence struct {

@@ -46,6 +46,7 @@ const wakeupCausalAggregateOccurrenceCap = 8
 //     intervals still never veto by themselves (their overage reaches
 //     LatenessMs through the blocked caliber) — they just must not dominate
 //     the sample.
+//
 // The 15% tolerance is a NOISE threshold and therefore drives ONLY soft
 // surfaces (effective-impact accounting, labels, rank ordering) — never a
 // hard structural gate (precise-signals red line). The runnable and lateness
@@ -1219,6 +1220,19 @@ func stateFromPrevState(prev string) ThreadState {
 		return StateSSleep
 	case strings.HasPrefix(prev, "R"):
 		return StateRunnable
+	// §7.11 B-1 (customer_dead_session_audit_20260703.md): precise
+	// single-char extensions I/T/t/X/Z. Modifier suffixes ("I|K") keep the
+	// existing HasPrefix drop semantics; unlisted codes stay Unknown.
+	case strings.HasPrefix(prev, "I"):
+		// TASK_IDLE — a kworker parked idle. Books to the interruptible-
+		// sleep family (reference consumers classify I alongside sleep,
+		// perfetto.rs:2865); NOT D-sleep, so I never inflates the
+		// uninterruptible/IO pressure lanes.
+		return StateSSleep
+	case strings.HasPrefix(prev, "T"), strings.HasPrefix(prev, "t"):
+		return StateStopped
+	case strings.HasPrefix(prev, "X"), strings.HasPrefix(prev, "Z"):
+		return StateDead
 	default:
 		return StateUnknown
 	}
@@ -3814,6 +3828,18 @@ func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
 	return out
 }
 
+// computeSupplyCauseSubjectAllowed is the RN-15 (§7.4 demand/supply
+// separation ruling, §7.9) hard guard for the compute_supply causal token:
+// the delivery-side ledger (supply ratio, low-frequency loss, idle mismatch,
+// core-limited) is aggregate-level by definition, so a compute_supply rank
+// candidate or observation must never carry a concrete per-thread subject —
+// a per-thread runnable/running wait is demand-side evidence and belongs to
+// the runnable_wait / scheduling-pressure token family instead. Precise
+// signal (pid + comm emptiness), never a prose/keyword check.
+func computeSupplyCauseSubjectAllowed(thread ThreadRef) bool {
+	return thread.PID <= 0 && strings.TrimSpace(thread.Comm) == ""
+}
+
 // computeSupplyVerdict classifies compute supply for one judged thread
 // duration from PRECISE per-target signals (methodology audit §7.30.2
 // R5e/R5g): weightedFreqKHz is the duration-weighted frequency across the
@@ -4032,7 +4058,18 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 		addStateChurnInterval(accs, start, endTs, endLine, q, blockedReasons)
 	}
 	openState := func(thread ThreadRef, state ThreadState, ts float64, line int) {
-		if thread.PID <= 0 || state == StateUnknown {
+		// §7.11 B-1 sequel (2026-07-04 review): churn tracks ACTIVE scheduling
+		// states only. B-1 typed T/t→stopped and X/Z→dead as non-Unknown so
+		// interval-level faces book them honestly, but the churn accumulator's
+		// five per-state lanes (and thus total) intentionally skip them — an
+		// open stopped/dead segment therefore contributed ONLY fragments/
+		// switches/maxSegment. A thread's exit tail (dead until window end)
+		// then trips the maxSegment>=70%-of-total suppression gate and kills a
+		// REAL churn row (two-window overlay counterexample: churn row present
+		// with the window cut before the Z exit, gone once the dead tail
+		// entered). Precise typed-state gate: stopped/dead are rejected exactly
+		// like Unknown and never open a churn segment.
+		if thread.PID <= 0 || state == StateUnknown || state == StateStopped || state == StateDead {
 			return
 		}
 		open[thread.PID] = stateChurnOpen{thread: thread, state: state, ts: ts, line: line}
@@ -4639,7 +4676,11 @@ func stateDrilldownRecommendedViews(state string) []string {
 	case string(StateSSleep):
 		return []string{"wakeup_chain", "root_cause_rank"}
 	case string(StateRunnable):
-		return []string{"scheduler_latency_stats", "root_cause_rank"}
+		// RN-11 (§7.9): a runnable-dominant row has no sleep edge to chase — its
+		// drilldown surfaces are CPU competition ones: scheduler latency,
+		// ranked competitors, and window_stats (cpu_occupancy top occupiers +
+		// compute_supply_balance). wakeup_chain is NOT required for it.
+		return []string{"scheduler_latency_stats", "root_cause_rank", "window_stats"}
 	case string(StateRunning):
 		return []string{"trace_perf_bundle", "perf_stats", "root_cause_rank"}
 	case string(StateDSleep), string(StateIOWait):
@@ -4658,7 +4699,13 @@ func stateDrilldownNeedsWakeupChainForSource(state, source string) bool {
 
 func stateDrilldownNeedsWakeupChain(state string) bool {
 	switch state {
-	case string(StateSSleep), string(StateRunnable), string(StateDSleep), string(StateIOWait):
+	// RN-11 (§7.9): StateRunnable is deliberately absent — a runnable-dominant
+	// row is CPU competition, not a wakeup dependency; forcing chain_required
+	// on it drove the customer session (cust_runnable round 10) into a
+	// wakeup_chain drilldown the model correctly pushed back on, and set the
+	// projection's "recommended wakeup chain not run" warning on windows with
+	// no wakeup edge at all. Sleep/D/IO behavior is unchanged.
+	case string(StateSSleep), string(StateDSleep), string(StateIOWait):
 		return true
 	default:
 		return false
@@ -4666,6 +4713,13 @@ func stateDrilldownNeedsWakeupChain(state string) bool {
 }
 
 func stateDrilldownNeedsRecursiveChainForSource(state, source string) bool {
+	// RN-11: runnable rows drop the wakeup-chain requirement above but REMAIN
+	// recursive root-cause candidates (occupancy/scheduler-latency drilldown)
+	// — the tool-description contract "fragmented runnable or D/IO waits
+	// remain recursive root-cause candidates" is unchanged.
+	if state == string(StateRunnable) {
+		return true
+	}
 	return stateDrilldownNeedsWakeupChainForSource(state, source)
 }
 
@@ -7155,7 +7209,8 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 	tq.Thread = target.Comm
 	targetTimeline := cache.timeline(tq, target)
 	branches, qualifyingBranches := interestingIntervals(targetTimeline.Intervals, q.MinDurationMs, q.MaxBranches)
-	if qualifyingBranches > len(branches) {
+	viaRaw := strings.TrimSpace(q.ViaThread)
+	if qualifyingBranches > len(branches) && viaRaw == "" {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("target thread had %d candidate state segment(s) in the selected window; only the top %d (by duration and state priority) were expanded into the wakeup chain, %d lower-ranked segment(s) were not recursed into — widen max_branches, narrow the window, or re-run scoped to a specific sub-window if a dropped segment could be the real root cause", qualifyingBranches, len(branches), qualifyingBranches-len(branches)))
 	}
 	if len(branches) == 0 {
@@ -7164,6 +7219,7 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 		expandChain(idx, q, cache, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "", nil)
 		res.AggregatedImpacts = aggregateWakeupCausalImpacts(&res)
 		attachIPCGraphToChain(idx, q, &res)
+		attachChainViaThreadReport(viaRaw, &res)
 		return res
 	}
 	for _, branch := range branches {
@@ -7171,9 +7227,230 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 		targetBlockedMs := (branch.EndTs - branch.StartTs) * 1000
 		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "", nil)
 	}
+	expandViaImmuneBranches(idx, q, cache, target, targetTimeline.Intervals, branches, qualifyingBranches, viaRaw, &res)
 	res.AggregatedImpacts = aggregateWakeupCausalImpacts(&res)
 	attachIPCGraphToChain(idx, q, &res)
+	attachChainViaThreadReport(viaRaw, &res)
 	return res
+}
+
+// expandViaImmuneBranches implements the RN-14a (§7.9) via_thread branch-cap
+// immunity: target segments dropped by the MaxBranches top-N cap are expanded
+// anyway, and each expansion is KEPT only when its wakeup subtree contains the
+// via thread (canonical-exact match) — otherwise the expansion is rolled back
+// wholesale so non-via results stay byte-identical to the capped chain. The
+// dropped-segment caveat is re-issued here with the post-immunity count so it
+// never claims a via-expanded segment "was not recursed into".
+func expandViaImmuneBranches(idx *Index, q Query, cache *chainQueryCache, target ThreadRef, intervals []Interval, branches []Interval, qualifyingBranches int, viaRaw string, res *ChainResult) {
+	if viaRaw == "" || qualifyingBranches <= len(branches) {
+		return
+	}
+	sel := parseThreadSelector(viaRaw)
+	all, _ := interestingIntervals(intervals, q.MinDurationMs, qualifyingBranches)
+	overflow := all[len(branches):]
+	viaKept := 0
+	for _, branch := range overflow {
+		nodesMark, edgesMark := len(res.Nodes), len(res.Edges)
+		impactsMark, rootsMark, caveatsMark := len(res.CausalImpacts), len(res.RootEvidence), len(res.Caveats)
+		visited := map[int]bool{}
+		targetBlockedMs := (branch.EndTs - branch.StartTs) * 1000
+		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, res, "", nil)
+		contains := false
+		for _, node := range res.Nodes[nodesMark:] {
+			if chainThreadMatchesViaSelector(sel, node.Thread) {
+				contains = true
+				break
+			}
+		}
+		if !contains {
+			res.Nodes = res.Nodes[:nodesMark]
+			res.Edges = res.Edges[:edgesMark]
+			res.CausalImpacts = res.CausalImpacts[:impactsMark]
+			res.RootEvidence = res.RootEvidence[:rootsMark]
+			res.Caveats = res.Caveats[:caveatsMark]
+			continue
+		}
+		viaKept++
+	}
+	if remaining := qualifyingBranches - len(branches) - viaKept; remaining > 0 {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("target thread had %d candidate state segment(s) in the selected window; only the top %d (by duration and state priority) were expanded into the wakeup chain, %d lower-ranked segment(s) were not recursed into — widen max_branches, narrow the window, or re-run scoped to a specific sub-window if a dropped segment could be the real root cause", qualifyingBranches, len(branches)+viaKept, remaining))
+	}
+	if viaKept > 0 {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("via_thread=%s branch-cap immunity: expanded %d additional segment(s) beyond max_branches because their wakeup subtree contains the via thread", viaRaw, viaKept))
+	}
+}
+
+// chainThreadMatchesViaSelector is the RN-14a canonical-exact via matcher:
+// a parsed pid (bare integer, pid=N token, bracket form, or trailing -N label
+// segment) must equal the thread pid exactly; otherwise the cleaned selector
+// name must equal the thread comm verbatim. No substring or fuzzy matching.
+func chainThreadMatchesViaSelector(sel threadSelector, thread ThreadRef) bool {
+	if sel.HasPID {
+		return thread.PID > 0 && thread.PID == sel.PID
+	}
+	name := strings.TrimSpace(sel.Name)
+	return name != "" && thread.Comm == name
+}
+
+// attachChainViaThreadReport publishes the RN-14a via verdict onto the chain.
+// Both outcomes are affirmative statements (§7.4 wording discipline): ON path
+// reports depth and per-hop wakeup latency from the existing edges; NOT on
+// path states that the via thread's influence in this window is scheduling
+// contention (runnable queuing), not a wakeup dependency.
+func attachChainViaThreadReport(viaRaw string, res *ChainResult) {
+	if viaRaw == "" || res == nil {
+		return
+	}
+	sel := parseThreadSelector(viaRaw)
+	report := &ChainViaThreadReport{Requested: viaRaw}
+	var viaThread ThreadRef
+	found := false
+	for _, node := range res.Nodes {
+		if chainThreadMatchesViaSelector(sel, node.Thread) {
+			viaThread = node.Thread
+			found = true
+			break
+		}
+	}
+	if !found {
+		report.OnChain = false
+		report.Summary = fmt.Sprintf("via_thread %s NOT on any wakeup path to %s in this window; its influence is scheduling contention only (runnable queuing), not a wakeup dependency", viaRaw, threadLabel(res.Target))
+		res.ViaThread = report
+		return
+	}
+	report.OnChain = true
+	report.Thread = viaThread
+	depth := -1
+	for _, impact := range res.CausalImpacts {
+		if impact.Thread.PID == viaThread.PID && (depth < 0 || impact.ChainDepth < depth) {
+			depth = impact.ChainDepth
+		}
+	}
+	hops, complete := viaMonotonicHops(res, viaThread)
+	report.Hops = hops
+	if depth < 0 {
+		depth = len(report.Hops)
+	}
+	report.Depth = depth
+	hopParts := make([]string, 0, len(report.Hops))
+	for _, hop := range report.Hops {
+		hopParts = append(hopParts, fmt.Sprintf("%s->%s=%.3fms", threadLabel(hop.Waker), threadLabel(hop.Wakee), hop.LatencyMs))
+	}
+	perHop := "n/a"
+	if len(hopParts) > 0 {
+		perHop = strings.Join(hopParts, ", ")
+	}
+	report.Summary = fmt.Sprintf("via_thread %s ON wakeup path: depth=%d, per-hop latency %s", threadLabel(viaThread), depth, perHop)
+	if !complete {
+		report.Summary += ";跨分支,逐跳序不可得 — no time-consistent (non-decreasing wakeup_ts) edge sequence reaches the target, hop list shows the reachable prefix only"
+	}
+	res.ViaThread = report
+}
+
+// viaMonotonicHops walks res.Edges from the via thread down to the target
+// under the 2026-07-04 review rules:
+//
+//   - F4 (time order): every hop's WakeupTs must be >= the previous hop's
+//     (exact float comparison, no tolerance). On a REAL single branch wakeup
+//     causality flows toward the target in non-decreasing time (a waker's own
+//     wakeup precedes the wakeup it delivers), so a walk that steps backwards
+//     in time is a cross-branch stitch — an IMPOSSIBLE sequence the old
+//     "first matching edge per hop" greedy walk happily fabricated
+//     (counterexample: hop at t=7.9 followed by a hop at t=1.0 from another
+//     branch expansion).
+//   - F5 (depth consistency): among the time-consistent paths the SHORTEST
+//     one is returned (BFS by hop count), so the walk descends the same
+//     branch that produced report.Depth = min ChainDepth — the old walk took
+//     the expansion-order first edge and could pair depth=1 with a 2-hop
+//     walk from a lower branch.
+//
+// When no time-consistent complete path exists, the fallback is a greedy
+// monotonic walk (each hop: the EARLIEST candidate edge not before the
+// previous hop) truncated at the first dead end, and complete=false — the
+// caller annotates the truncation instead of stitching an impossible order.
+func viaMonotonicHops(res *ChainResult, via ThreadRef) ([]ChainViaHop, bool) {
+	if via.PID <= 0 || res.Target.PID <= 0 || via.PID == res.Target.PID {
+		return nil, true
+	}
+	// Adjacency: waker pid → edge indices, each list sorted by (WakeupTs,
+	// original index) so both walks pick candidates deterministically.
+	adj := map[int][]int{}
+	for i := range res.Edges {
+		if pid := res.Edges[i].Waker.PID; pid > 0 && res.Edges[i].Wakee.PID > 0 {
+			adj[pid] = append(adj[pid], i)
+		}
+	}
+	for pid := range adj {
+		idxs := adj[pid]
+		sort.SliceStable(idxs, func(a, b int) bool { return res.Edges[idxs[a]].WakeupTs < res.Edges[idxs[b]].WakeupTs })
+	}
+	hopFromEdge := func(e *WakeupEdge) ChainViaHop {
+		return ChainViaHop{
+			Waker:      e.Waker,
+			Wakee:      e.Wakee,
+			LatencyMs:  e.LatencyMs,
+			WakeupTs:   e.WakeupTs,
+			WakeupLine: e.WakeupLine,
+		}
+	}
+	// BFS over (pid, lastTs) states. Dominance: reaching a pid again is only
+	// useful with a strictly SMALLER lastTs (a smaller lastTs admits a
+	// superset of monotonic continuations; BFS order already guarantees the
+	// hop count is not better), which also bounds the search — bestTs per pid
+	// only ever decreases through the finite set of edge timestamps.
+	type viaPathState struct {
+		pid    int
+		lastTs float64
+		hops   []int
+	}
+	queue := []viaPathState{{pid: via.PID, lastTs: math.Inf(-1)}}
+	bestTs := map[int]float64{via.PID: math.Inf(-1)}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if cur.pid == res.Target.PID {
+			hops := make([]ChainViaHop, 0, len(cur.hops))
+			for _, ei := range cur.hops {
+				hops = append(hops, hopFromEdge(&res.Edges[ei]))
+			}
+			return hops, true
+		}
+		for _, ei := range adj[cur.pid] {
+			e := &res.Edges[ei]
+			if e.WakeupTs < cur.lastTs {
+				continue
+			}
+			if prev, ok := bestTs[e.Wakee.PID]; ok && prev <= e.WakeupTs {
+				continue
+			}
+			bestTs[e.Wakee.PID] = e.WakeupTs
+			next := viaPathState{pid: e.Wakee.PID, lastTs: e.WakeupTs, hops: append(append([]int(nil), cur.hops...), ei)}
+			queue = append(queue, next)
+		}
+	}
+	// No monotonic path reaches the target: truncated greedy monotonic walk.
+	var hops []ChainViaHop
+	current := via.PID
+	lastTs := math.Inf(-1)
+	seen := map[int]bool{}
+	for current > 0 && current != res.Target.PID && !seen[current] {
+		seen[current] = true
+		next := -1
+		for _, ei := range adj[current] {
+			if res.Edges[ei].WakeupTs >= lastTs {
+				next = ei
+				break
+			}
+		}
+		if next < 0 {
+			break
+		}
+		e := &res.Edges[next]
+		hops = append(hops, hopFromEdge(e))
+		lastTs = e.WakeupTs
+		current = e.Wakee.PID
+	}
+	return hops, false
 }
 
 func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
@@ -7248,6 +7525,22 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 		}
 		if impact.PriorityInversionCandidate {
 			a.invCount++
+		}
+		// VS-2 (§7.10): fold fields SUM over the folded members only (the
+		// nil-basis members never computed a fold — their running stays
+		// outside the basis split by design). The VS-2b/VS-2c fmax and
+		// cluster-lane fields intentionally stay ZERO on the aggregate:
+		// member folds ran against per-occurrence governance windows, so a
+		// merged aggregate has no single honest fmax — the per-occurrence
+		// rows keep theirs.
+		if impact.SupplyFoldBasis != nil {
+			if a.item.SupplyFoldBasis == nil {
+				a.item.SupplyFoldBasis = &SupplyFoldBasis{}
+			}
+			a.item.SupplyFoldBasis.KnownMs += impact.SupplyFoldBasis.KnownMs
+			a.item.SupplyFoldBasis.UnknownMs += impact.SupplyFoldBasis.UnknownMs
+			a.item.SupplyFoldDeficitMs += impact.SupplyFoldDeficitMs
+			a.item.SupplyFoldIdealMs += impact.SupplyFoldIdealMs
 		}
 		a.item.OccurrenceWindows = append(a.item.OccurrenceWindows, wakeupCausalOccurrenceFromImpact(impact))
 	}
@@ -7629,6 +7922,12 @@ func renderWakeupCausalAggregateSummary(item WakeupCausalAggregate) string {
 		// VS-1 (§7.8): a periodic signal source's in-period sleep is normal
 		// cadence; only runnable time and signal lateness count as attribution.
 		summary += fmt.Sprintf(" periodic_source=true detected_period=%.3fms lateness=%.3fms effective_impact=%.3fms", item.DetectedPeriodMs, item.LatenessMs, item.EffectivePeriodicImpactMs)
+	}
+	if item.SupplyFoldBasis != nil {
+		// VS-2 (§7.10): folded-member sum, zeros load-bearing (see the
+		// per-occurrence renderer).
+		summary += fmt.Sprintf(" supply_fold_deficit=%.3fms supply_fold_ideal=%.3fms fold_basis_known=%.3fms fold_basis_unknown=%.3fms",
+			item.SupplyFoldDeficitMs, item.SupplyFoldIdealMs, item.SupplyFoldBasis.KnownMs, item.SupplyFoldBasis.UnknownMs)
 	}
 	return summary
 }
@@ -8201,6 +8500,24 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 			typ := "compute_supply"
 			if strings.Contains(supply.Verdict, "low_frequency") {
 				typ = "low_frequency"
+			}
+			// RN-15 (§7.4 demand/supply separation, §7.9): a per-thread
+			// runnable/running wait judged verdict=cpu_pressure is DEMAND-side
+			// scheduling-pressure evidence and already rides the
+			// runnable_wait / scheduler_latency / cpu_pressure token family —
+			// publishing it again as compute_supply double-counted the same
+			// wait (customer cust_large_3s: the identical 2.661/2.908ms
+			// runnable waits appeared once as type=runnable_wait,
+			// source=window_stats and once as type=compute_supply,
+			// source=window_stats.compute_supply, and the projection grew a
+			// phantom "影响点 compute_supply" row). The compute_supply token is
+			// reserved for the aggregate delivery-side ledger (supply ratio /
+			// low-frequency loss / idle mismatch / core-limited,
+			// compute_supply_balance) and must never carry a concrete thread
+			// subject; per-thread low-frequency verdicts keep their own
+			// low_frequency token unchanged.
+			if typ == "compute_supply" && !computeSupplyCauseSubjectAllowed(supply.Thread) {
+				continue
 			}
 			onChain := threadInSet(chainThreads, supply.Thread)
 			candidate := rootCauseItem(typ, supply.Thread, backgroundImpactMs(q, supply.DurationMs, hasCausalChain, onChain), supply.Confidence, supply.LineStart, supply.LineEnd, "window_stats.compute_supply", supply.Summary)
@@ -8838,6 +9155,10 @@ func rankCausalThreadSet(rank RootCauseRankResult) map[int]bool {
 }
 
 func rootCauseItem(typ string, thread ThreadRef, impactMs float64, confidence float64, lineStart, lineEnd int, source, summary string) RootCauseRankItem {
+	// RN-16 (§7.9): every rank row passes the causal-token registry guard —
+	// unregistered tokens and aggregate-only tokens carrying a concrete
+	// thread subject panic under test / WARN in prod.
+	assertCausalTokenRow(typ, thread, "root_cause_rank")
 	if confidence <= 0 {
 		confidence = 0.5
 	}
@@ -8938,6 +9259,15 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 		item.EffectiveImpactMs = impact.EffectivePeriodicImpactMs
 		item.Score = impact.EffectivePeriodicImpactMs * conf * 2.0
 	}
+	// VS-2 (§7.10): the fold accounting travels with the rank row for the
+	// display decision table; Score/rank above deliberately ignore it
+	// (deficit 不参赛).
+	if impact.SupplyFoldBasis != nil {
+		basis := *impact.SupplyFoldBasis
+		item.SupplyFoldDeficitMs = impact.SupplyFoldDeficitMs
+		item.SupplyFoldIdealMs = impact.SupplyFoldIdealMs
+		item.SupplyFoldBasis = &basis
+	}
 	return item
 }
 
@@ -8980,6 +9310,14 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 		item.LatenessMs = aggregate.LatenessMs
 		item.EffectiveImpactMs = aggregate.EffectivePeriodicImpactMs
 		item.Score = aggregate.EffectivePeriodicImpactMs * conf * 2.05
+	}
+	// VS-2 (§7.10): same mirror as rootCauseItemFromCausalImpact — display
+	// decision-table input only, never a rank/score participant.
+	if aggregate.SupplyFoldBasis != nil {
+		basis := *aggregate.SupplyFoldBasis
+		item.SupplyFoldDeficitMs = aggregate.SupplyFoldDeficitMs
+		item.SupplyFoldIdealMs = aggregate.SupplyFoldIdealMs
+		item.SupplyFoldBasis = &basis
 	}
 	return item
 }
@@ -10985,6 +11323,9 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		if item.DurationMs <= 0 && item.LineStart == 0 {
 			return
 		}
+		// RN-16 (§7.9): critical-blocking rows ride the same causal-token
+		// registry guard as root-cause rank rows.
+		assertCausalTokenRow(item.Type, item.Thread, "critical_blocking")
 		if item.Confidence <= 0 {
 			item.Confidence = 0.6
 		}
@@ -11385,6 +11726,16 @@ type chainQueryCache struct {
 	// as zero supply (R5d weak-core gate stays conservative).
 	freqByCPU     map[int][]freqSample
 	freqIndexOnce bool
+	// freqLimitByCPU is the lazily-built per-CPU cpu_frequency_limits Max
+	// timeline (ts-ordered, kHz) — the VS-2b fmax ladder's step-2 source
+	// (policy ceiling; see supply_fold.go).
+	freqLimitByCPU map[int][]freqSample
+	freqLimitOnce  bool
+	// clockLaneSamples is the lazily-built cpu-freq-NAMED clock_set_rate
+	// lane sample list (VS-2c corroboration caveat ONLY — never a fold
+	// basis; see supply_fold.go).
+	clockLaneSamples []clockLaneSample
+	clockLaneOnce    bool
 	// switchInByPID is the lazily-built per-thread switch-in (ts, cpu)
 	// timeline so threadCPUNear stays O(log n) per lookup — a linear rescan
 	// per RUNNING interval was O(intervals × pid-events) and hung on
@@ -11415,6 +11766,17 @@ func (c *chainQueryCache) buildFreqIndex() {
 	}
 	for _, ev := range c.idx.Events {
 		if ev.Type != EventCPUFrequency || ev.Frequency <= 0 {
+			continue
+		}
+		// VS-2c 终局裁定 (§7.10): clock_set_rate lanes reclassified as
+		// cpu_frequency by the isCPUFrequencyClock NAME HEURISTIC carry
+		// vendor-free-vocabulary names and emitting-CPU attribution (hmtrace
+		// hardcodes cpu 0) — they MUST NOT enter the chain/fold per-CPU
+		// frequency basis (neither fmax nor slice governance). Their max
+		// surfaces only as the SupplyFoldBasis cluster-lane corroboration
+		// caveat. Precise signal: verbatim event-name match. Pinned in
+		// semantic_ruling_pins_test.go.
+		if ev.Name == "clock_set_rate" {
 			continue
 		}
 		cpu := ev.CPU
@@ -11868,6 +12230,21 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 	item.PriorityInversionCandidate = item.PriorityRelation == "lower_priority_dependency" &&
 		item.PriorityInversionGatedMs > 0 &&
 		(item.DominantState == string(StateRunnable) || item.DominantState == string(StateRunning))
+	// VS-2 (§7.10): an on-chain RUNNING-dominant node (typed triple gate —
+	// never a heuristic) gets its running wall clock folded to the
+	// big-cluster governed fmax so the report can separate running-SLOW
+	// (supply-fold deficit, lower bound) from running-MUCH (true workload).
+	// Non-nil SupplyFoldBasis is the presence signal; a deficit of exactly 0
+	// with a fully-known basis IS the affirmative "ran at full frequency"
+	// fact and must survive.
+	if item.OnChain && item.DominantState == string(StateRunning) && item.RunningMs > item.RunnableMs {
+		ideal, basis := cache.supplyFoldRunningIntervals(q, start, end, intervals)
+		item.SupplyFoldIdealMs = ideal
+		if deficit := item.RunningMs - ideal; deficit > 0 {
+			item.SupplyFoldDeficitMs = deficit
+		}
+		item.SupplyFoldBasis = &basis
+	}
 	item.NextStep = causalImpactNextStep(item)
 	item.NextStepKind = causalImpactNextStepKind(item)
 	item.Summary = renderWakeupCausalImpactSummary(item)
@@ -12066,6 +12443,12 @@ func renderWakeupCausalImpactSummary(item WakeupCausalImpact) string {
 		// VS-1 (§7.8): periodic-source occurrences publish their cadence and
 		// discounted attribution inline; in-period sleep is normal cadence.
 		summary += fmt.Sprintf(" periodic_source=true detected_period=%.3fms lateness=%.3fms effective_impact=%.3fms", item.DetectedPeriodMs, item.LatenessMs, item.EffectivePeriodicImpactMs)
+	}
+	if item.SupplyFoldBasis != nil {
+		// VS-2 (§7.10): the fold accounting prints explicitly, zeros included
+		// — deficit 0 with a fully-known basis IS the affirmative fact.
+		summary += fmt.Sprintf(" supply_fold_deficit=%.3fms supply_fold_ideal=%.3fms fold_basis_known=%.3fms fold_basis_unknown=%.3fms",
+			item.SupplyFoldDeficitMs, item.SupplyFoldIdealMs, item.SupplyFoldBasis.KnownMs, item.SupplyFoldBasis.UnknownMs)
 	}
 	if item.NextStep != "" {
 		summary += "; next_step=" + item.NextStep
@@ -12762,20 +13145,12 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			}
 		}
 	}
-	for _, supply := range stats.ComputeSupply {
-		out = append(out, EvidenceFact{
-			Subject:    threadLabel(supply.Thread),
-			Predicate:  "compute_supply",
-			Object:     supply.Verdict,
-			Summary:    supply.Summary,
-			LineStart:  supply.LineStart,
-			LineEnd:    supply.LineEnd,
-			Confidence: supply.Confidence,
-		})
-		if len(out) >= 40 {
-			break
-		}
-	}
+	// RN-15 (§7.4/§7.9): per-thread stats.ComputeSupply verdict rows are NOT
+	// republished as Predicate=compute_supply evidence facts — the same
+	// runnable/running durations already ride the runnable_wait/running_time
+	// facts above, and the compute_supply observation family is reserved for
+	// the aggregate delivery-side ledger (compute_supply_balance). The
+	// per-thread verdict surface stays visible in the window_stats section.
 	for _, churn := range stats.StateChurn {
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(churn.Thread),

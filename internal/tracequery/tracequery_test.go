@@ -1020,7 +1020,10 @@ func TestStreamStateClusterPreservesParentWindowStatePriorities(t *testing.T) {
 		t.Fatalf("parent state_cluster must preserve running supply/cpu work as a state priority: %+v", res.WindowStats.TopRunning)
 	}
 	assertStateDrilldownStep(t, res.WindowStats.StateDrilldownPlan, 20, string(StateSSleep), true, true, "wakeup_chain", "root_cause_rank")
-	assertStateDrilldownStep(t, res.WindowStats.StateDrilldownPlan, 40, string(StateRunnable), true, true, "scheduler_latency_stats", "root_cause_rank")
+	// Pin updated for RN-11 (§7.9, 2026-07-04 cust_runnable): runnable rows
+	// drop the wakeup-chain requirement (chain_required=false) but stay
+	// recursive occupancy/scheduler candidates.
+	assertStateDrilldownStep(t, res.WindowStats.StateDrilldownPlan, 40, string(StateRunnable), false, true, "scheduler_latency_stats", "root_cause_rank")
 	assertStateDrilldownStep(t, res.WindowStats.StateDrilldownPlan, 50, string(StateIOWait), true, true, "critical_blocking_calls", "root_cause_rank")
 	assertStateDrilldownStep(t, res.WindowStats.StateDrilldownPlan, 30, string(StateRunning), false, false, "trace_perf_bundle", "root_cause_rank")
 	if !containsSubstring(res.Caveats, "state_cluster is parent-window coverage for prioritizing drilldown") {
@@ -1825,8 +1828,11 @@ func TestRootCauseRankPromotesFragmentedStateChurn(t *testing.T) {
 	if drilldown == nil {
 		t.Fatalf("fragmented runnable churn should remain in state drilldown handoff: %+v", res.WindowStats.StateDrilldownPlan)
 	}
-	if !drilldown.ChainRequired || !drilldown.Recursive {
-		t.Fatalf("fragmented runnable churn should keep recursive root-cause drilldown: %+v", drilldown)
+	// Pin updated for RN-11 (§7.9, 2026-07-04 cust_runnable): runnable rows no
+	// longer carry the wakeup-chain requirement (CPU competition, not a wakeup
+	// dependency) — but the recursive drilldown handoff stays.
+	if drilldown.ChainRequired || !drilldown.Recursive {
+		t.Fatalf("fragmented runnable churn should keep recursive drilldown without a wakeup-chain requirement (RN-11): %+v", drilldown)
 	}
 	if !containsString(drilldown.RecommendedViews, "scheduler_latency_stats") || !containsString(drilldown.RecommendedViews, "root_cause_rank") {
 		t.Fatalf("fragmented runnable churn should recommend scheduler/root-cause follow-up: %+v", drilldown.RecommendedViews)
@@ -2856,11 +2862,17 @@ func TestStateDrilldownRuleMatrixPinsRecentTracePolicies(t *testing.T) {
 		containsString(fragmentedSleep.RecommendedViews, "wakeup_chain") {
 		t.Fatalf("fragmented sleep must be visible but non-recursive: %+v all=%+v", fragmentedSleep, plan)
 	}
+	// Pin updated for RN-11 (§7.9, 2026-07-04 cust_runnable): a runnable row —
+	// fragmented or not — no longer requires a wakeup-chain drilldown
+	// (ChainRequired=false; runnable starvation is CPU competition, not a
+	// wakeup dependency) but REMAINS a recursive scheduler/occupancy
+	// root-cause candidate, now including window_stats (cpu_occupancy).
 	fragmentedRunnable := findStateDrilldownStepForTest(plan, 202, "state_churn", string(StateRunnable))
-	if fragmentedRunnable == nil || !fragmentedRunnable.ChainRequired || !fragmentedRunnable.Recursive ||
+	if fragmentedRunnable == nil || fragmentedRunnable.ChainRequired || !fragmentedRunnable.Recursive ||
 		!containsString(fragmentedRunnable.RecommendedViews, "scheduler_latency_stats") ||
-		!containsString(fragmentedRunnable.RecommendedViews, "root_cause_rank") {
-		t.Fatalf("fragmented runnable must remain a recursive scheduler/root-cause candidate: %+v all=%+v", fragmentedRunnable, plan)
+		!containsString(fragmentedRunnable.RecommendedViews, "root_cause_rank") ||
+		!containsString(fragmentedRunnable.RecommendedViews, "window_stats") {
+		t.Fatalf("fragmented runnable must remain a recursive scheduler/occupancy candidate without a wakeup-chain requirement (RN-11): %+v all=%+v", fragmentedRunnable, plan)
 	}
 	fragmentedIO := findStateDrilldownStepForTest(plan, 203, "state_churn", string(StateIOWait))
 	if fragmentedIO == nil || !fragmentedIO.ChainRequired || !fragmentedIO.Recursive ||

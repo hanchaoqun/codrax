@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1595,18 +1596,20 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 	kv := parseKV(fields)
 	switch ev.Type {
 	case EventSchedSwitch:
-		ev.PrevComm = intern.intern(kv["prev_comm"])
+		// §7.11 A-2: comm values may contain spaces ("Signal Catcher") —
+		// extract by known-key boundary, generic kv result as fallback.
+		ev.PrevComm = intern.intern(schedCommValue(fields, "prev_comm", kv["prev_comm"]))
 		ev.PrevPID = atoi(kv["prev_pid"])
 		ev.PrevPrio = atoi(kv["prev_prio"])
 		ev.PrevState = intern.intern(kv["prev_state"])
-		ev.NextComm = intern.intern(kv["next_comm"])
+		ev.NextComm = intern.intern(schedCommValue(fields, "next_comm", kv["next_comm"]))
 		ev.NextPID = atoi(kv["next_pid"])
 		ev.NextPrio = atoi(kv["next_prio"])
 		ev.NextInfo = intern.intern(kv["next_info"])
 		populateHarmonyNextInfoFields(&ev)
 		ev.CGroup = intern.intern(firstNonEmpty(kv["cg"], kv["cgroup"]))
 	case EventSchedWakeup, EventSchedWaking:
-		ev.WakeeComm = intern.intern(kv["comm"])
+		ev.WakeeComm = intern.intern(schedCommValue(fields, "comm", kv["comm"]))
 		ev.WakeePID = atoi(kv["pid"])
 		ev.WakeePrio = atoi(kv["prio"])
 		ev.TargetCPU = atoi(kv["target_cpu"])
@@ -1622,21 +1625,36 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.SchedStatRunNs = atoi64(kv["runtime"])
 		ev.SchedStatVRunNs = atoi64(kv["vruntime"])
 	case EventCPUIdle:
-		ev.State = atoi(kv["state"])
+		// §7.11 A-1: INT-declared fields tolerate the hmtrace float-string
+		// shape ("state=2200000.0") — Atoi fast path, ParseFloat truncation
+		// fallback. Applies to cpu_idle/cpu_frequency/limits/clock_set_rate.
+		ev.State = atoiFloatTolerant(kv["state"])
 		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
 	case EventCPUFrequency:
-		ev.Frequency = atoi(firstNonEmpty(kv["state"], kv["frequency"], kv["freq"]))
+		freqRaw := firstNonEmpty(kv["state"], kv["frequency"], kv["freq"])
+		if freqRaw == "" && rawType == "clock_set_rate" {
+			// §7.11 B-2: a cpu-freq-named clock lane reclassified here keeps
+			// the keyless positional payload shape.
+			freqRaw = clockSetRatePositionalValue(fields)
+		}
+		ev.Frequency = atoiFloatTolerant(freqRaw)
 		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
 		ev.ClockName = intern.intern(clockNameForEvent(rawType, fields))
 	case EventCPUFrequencyLimit:
-		ev.FrequencyMin = atoi(firstNonEmpty(kv["min"], kv["min_freq"]))
-		ev.FrequencyMax = atoi(firstNonEmpty(kv["max"], kv["max_freq"]))
+		ev.FrequencyMin = atoiFloatTolerant(firstNonEmpty(kv["min"], kv["min_freq"]))
+		ev.FrequencyMax = atoiFloatTolerant(firstNonEmpty(kv["max"], kv["max_freq"]))
 		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
 		ev.ClockName = intern.intern(rawType)
 	case EventCPUConstraint:
 		populateCPUConstraintFields(&ev, rawType, kv, intern)
 	case EventClockSetRate:
-		ev.Frequency = atoi(firstNonEmpty(kv["state"], kv["frequency"], kv["freq"]))
+		rateRaw := firstNonEmpty(kv["state"], kv["frequency"], kv["freq"])
+		if rateRaw == "" {
+			// §7.11 B-2: keyless positional shape "clock_set_rate: <name>
+			// <rate>" — precise key-absence gate, keyed shapes unchanged.
+			rateRaw = clockSetRatePositionalValue(fields)
+		}
+		ev.Frequency = atoiFloatTolerant(rateRaw)
 		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
 		ev.ClockName = intern.intern(clockNameForEvent(rawType, fields))
 	case EventTraceMark:
@@ -2336,6 +2354,55 @@ func parseSpaceKV(fields string, out map[string]string) {
 	}
 }
 
+// schedCommBoundaryKeys is the CLOSED key set that can follow a comm value
+// inside sched_switch / sched_wakeup / sched_waking field text. Comm values
+// are the only unquoted kernel strings that may contain spaces
+// ("Signal Catcher", "Jit thread pool"), so the generic kvRE value pattern
+// ([^ ]+) truncates them at the first space (§7.11 A-2). The comm extractor
+// below extends the value up to the next KNOWN " key=" boundary instead —
+// a precise key set, not any token containing '=', so a weird comm that
+// itself contains '=' never swallows the following key. Everything outside
+// the sched comm fields keeps the generic kvRE: zero blast radius on other
+// event families.
+var schedCommBoundaryKeys = []string{
+	"prev_comm", "prev_pid", "prev_prio", "prev_state",
+	"next_comm", "next_pid", "next_prio", "next_info",
+	"cg", "cgroup",
+	"comm", "pid", "prio", "target_cpu", "dest_cpu", "success",
+}
+
+// schedCommValue extracts the comm value for key from sched event field text
+// by known-key boundary backtracking (§7.11 A-2). fallback is the generic kv
+// extraction: it is returned verbatim when the key is absent, keeping
+// space-free comms byte-identical to the pre-A-2 behavior.
+func schedCommValue(fields, key, fallback string) string {
+	marker := key + "="
+	start := -1
+	if strings.HasPrefix(fields, marker) {
+		start = len(marker)
+	} else if i := strings.Index(fields, " "+marker); i >= 0 {
+		start = i + 1 + len(marker)
+	}
+	if start < 0 || start >= len(fields) {
+		return fallback
+	}
+	rest := fields[start:]
+	end := len(rest)
+	for _, boundary := range schedCommBoundaryKeys {
+		if boundary == key {
+			continue
+		}
+		if i := strings.Index(rest, " "+boundary+"="); i >= 0 && i < end {
+			end = i
+		}
+	}
+	value := cleanTraceValue(rest[:end])
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
 func clockNameForEvent(raw, fields string) string {
 	raw = strings.TrimSpace(raw)
 	if raw != "clock_set_rate" {
@@ -2353,13 +2420,46 @@ func clockNameForEvent(raw, fields string) string {
 }
 
 func isCPUFrequencyClock(fields string) bool {
-	name := strings.ToLower(clockNameForEvent("clock_set_rate", fields))
+	return isCPUFrequencyClockName(clockNameForEvent("clock_set_rate", fields))
+}
+
+// isCPUFrequencyClockName is a NAME HEURISTIC over clock_set_rate lane names.
+// VS-2c 终局裁定 (§7.10, customer_dead_session_audit_20260703.md): clock lane
+// names are vendor DTS free vocabulary (trace_streamer passes them through
+// verbatim; no reference implementation binds them to a cluster or CPU), so
+// this heuristic is a NOISY signal — soft guidance and corroboration caveats
+// only. It MUST NOT feed the supply-fold fmax basis (structural pin in
+// semantic_ruling_pins_test.go).
+func isCPUFrequencyClockName(name string) bool {
+	name = strings.ToLower(name)
 	switch name {
 	case "pid_freq", "cpu_freq", "cpu_frequency", "cpufreq", "scaling_cur_freq":
 		return true
 	default:
 		return strings.Contains(name, "cpu") && strings.Contains(name, "freq") && !strings.Contains(name, "ddr")
 	}
+}
+
+// clockSetRatePositionalValue extracts the rate from the keyless
+// clock_set_rate payload shape "<name> <rate> ..." (§7.11 B-2; hmtrace flavor
+// emits e.g. "clock_set_rate: cpu-cluster.0 2200000.0" and
+// "clock_set_rate: ddr_freq 1866000000"). The value is the token immediately
+// after the first non-k=v token (the clock name, same anchor as
+// clockNameForEvent); a k=v or absent successor yields "" so the keyed
+// path's zero semantics hold. Callers gate on KEY ABSENCE (no state/
+// frequency/freq key), a precise condition — keyed shapes never reach here.
+func clockSetRatePositionalValue(fields string) string {
+	tokens := strings.Fields(fields)
+	for i, token := range tokens {
+		if strings.Contains(token, "=") {
+			continue
+		}
+		if i+1 >= len(tokens) || strings.Contains(tokens[i+1], "=") {
+			return ""
+		}
+		return tokens[i+1]
+	}
+	return ""
 }
 
 func isTraceMarkPayload(fields string) bool {
@@ -2529,6 +2629,50 @@ func atoi64Auto(raw string) int64 {
 	}
 	n, _ := strconv.ParseInt(raw, 10, 64)
 	return n
+}
+
+// atoiFloatTolerantMax bounds the float-fallback path of atoiFloatTolerant
+// (§7.11 A-1 sequel, 2026-07-04 review). Every consumption point is a
+// frequency/idle-state magnitude: real CPU frequency points top out well
+// under 1e10 whether the vendor lane emits kHz or Hz, and the u32 cpu_idle
+// exit sentinel (4294967295) sits below it too. Values ABOVE it are sentinel
+// semantics, not magnitudes — u64 max ("18446744073709551615.0"), 1e19,
+// 1e300 — and must not truncate into a fake positive frequency.
+const atoiFloatTolerantMax = 1e10
+
+// atoiFloatTolerant parses an INT-declared numeric trace field that some
+// flavors emit as a float string (§7.11 A-1, customer_dead_session_audit_
+// 20260703.md): hmtrace REAL columns render "2200000.0" while
+// export_format.rs declares the field INT — both shapes coexist in the wild,
+// and a plain Atoi silently zeroed the float shape, fail-quietly emptying the
+// whole frequency timeline (fmax/residency). Integer strings keep the Atoi
+// fast path byte-for-byte; float strings truncate; non-numeric input stays 0
+// (same fail-quiet contract as atoi). This helper is for the INT-declared
+// consumption points ONLY (cpu_idle state, cpu_frequency, limits min/max,
+// clock_set_rate) — genuinely-float fields keep parseFloat untouched.
+//
+// A-1 sequel (2026-07-04 review): the float fallback range-checks BEFORE the
+// int conversion. int(f) on a beyond-int64 float saturates to a POSITIVE
+// math.MaxInt64 on arm64/amd64, which sails through every <=0 consumer
+// filter and pollutes fmax / fabricates supply gaps (u64 sentinel and 1e19
+// shapes observed in review). Non-finite, negative, or >atoiFloatTolerantMax
+// floats collapse to 0 — the same fail-quiet contract as non-numeric input.
+func atoiFloatTolerant(raw string) int {
+	raw = strings.Trim(strings.TrimSpace(raw), ":,")
+	if raw == "" {
+		return 0
+	}
+	if n, err := strconv.Atoi(raw); err == nil {
+		return n
+	}
+	f, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0
+	}
+	if math.IsNaN(f) || f < 0 || f > atoiFloatTolerantMax {
+		return 0
+	}
+	return int(f)
 }
 
 func parseLatencyMs(kv map[string]string) float64 {
