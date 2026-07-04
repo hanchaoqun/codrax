@@ -445,73 +445,83 @@ type TimeWindow struct {
 }
 
 type WindowStats struct {
-	Window                TimeWindow                 `json:"window"`
-	EventCounts           map[EventType]int          `json:"event_counts,omitempty"`
-	CPU                   []CPUStats                 `json:"cpu,omitempty"`
-	CoreTopology          []CoreClassStats           `json:"core_topology,omitempty"`
-	TopRunning            []ThreadDuration           `json:"top_running,omitempty"`
-	RunnableTop           []ThreadDuration           `json:"runnable_top,omitempty"`
-	SleepTop              []ThreadDuration           `json:"sleep_top,omitempty"`
-	DStateTop             []ThreadDuration           `json:"d_state_top,omitempty"`
-	IOWaitTop             []ThreadDuration           `json:"io_wait_top,omitempty"`
-	CPUPressure           []CPUPressureStats         `json:"cpu_pressure,omitempty"`
-	CPUConstraints        []CPUConstraintSummary     `json:"cpu_constraints,omitempty"`
-	ThreadCPULoad         []ThreadCPULoadSummary     `json:"thread_cpu_load,omitempty"`
-	ProcessCPULoad        []ProcessCPULoadSummary    `json:"process_cpu_load,omitempty"`
-	RunnableContext       []RunnableContextSummary   `json:"runnable_context,omitempty"`
-	IOLatencies           []IOLatencySummary         `json:"io_latencies,omitempty"`
-	CPUFrequencyLimits    []CPUFrequencyLimit        `json:"cpu_frequency_limits,omitempty"`
-	SubsystemEvents       []SubsystemEventSummary    `json:"subsystem_events,omitempty"`
-	BlockIssueCount       int                        `json:"block_issue_count,omitempty"`
-	BlockRemapCount       int                        `json:"block_remap_count,omitempty"`
-	BlockCompleteCount    int                        `json:"block_complete_count,omitempty"`
-	BinderCount           int                        `json:"binder_count,omitempty"`
-	BinderReceivedCount   int                        `json:"binder_received_count,omitempty"`
-	BinderAuxCount        int                        `json:"binder_aux_count,omitempty"`
-	IRQCount              int                        `json:"irq_count,omitempty"`
-	SoftIRQCount          int                        `json:"softirq_count,omitempty"`
-	MemoryEventCount      int                        `json:"memory_event_count,omitempty"`
-	StorageEventCount     int                        `json:"storage_event_count,omitempty"`
-	FilesystemEventCount  int                        `json:"filesystem_event_count,omitempty"`
-	PowerEventCount       int                        `json:"power_event_count,omitempty"`
-	AbilityEventCount     int                        `json:"ability_event_count,omitempty"`
-	XPowerEventCount      int                        `json:"xpower_event_count,omitempty"`
-	HiSystemEventCount    int                        `json:"hi_sysevent_event_count,omitempty"`
-	WorkqueueEventCount   int                        `json:"workqueue_event_count,omitempty"`
-	DMAFenceEventCount    int                        `json:"dma_fence_event_count,omitempty"`
-	BlockedReasonCount    int                        `json:"blocked_reason_count,omitempty"`
-	SchedStatCount        int                        `json:"sched_stat_count,omitempty"`
-	IPICount              int                        `json:"ipi_count,omitempty"`
-	IOWaitBlockedCount    int                        `json:"io_wait_blocked_count,omitempty"`
-	BlockedReasons        []BlockedReasonSummary     `json:"blocked_reasons,omitempty"`
-	TraceSpans            []TraceSpanSummary         `json:"trace_spans,omitempty"`
-	TraceCounters         []TraceCounterSummary      `json:"trace_counters,omitempty"`
-	CounterDeltas         []TraceCounterDeltaSummary `json:"counter_deltas,omitempty"`
-	IRQBursts             []IRQBurstSummary          `json:"irq_bursts,omitempty"`
-	MemoryKinds           []MemoryKindSummary        `json:"memory_kinds,omitempty"`
-	BIOResources          []RuntimeResourceSummary   `json:"bio_resources,omitempty"`
-	FilesystemResources   []RuntimeResourceSummary   `json:"filesystem_resources,omitempty"`
-	PageFaultResources    []RuntimeResourceSummary   `json:"page_fault_resources,omitempty"`
-	FileIOByInode         []FileIOSummary            `json:"file_io_by_inode,omitempty"`
-	PageCacheByInode      []PageCacheSummary         `json:"page_cache_by_inode,omitempty"`
-	StorageLatencyByLayer []StorageLatencySummary    `json:"storage_latency_by_layer,omitempty"`
-	IOPressureSummary     *IOPressureSummary         `json:"io_pressure_summary,omitempty"`
-	IOBurstEpisodes       []IOBurstEpisodeSummary    `json:"io_burst_episodes,omitempty"`
-	BlockIOByInode        []BlockIOByInodeSummary    `json:"block_io_by_inode,omitempty"`
-	IRQActivity           []InterruptActivity        `json:"irq_activity,omitempty"`
-	SoftIRQActivity       []InterruptActivity        `json:"softirq_activity,omitempty"`
-	IPIActivity           []InterruptActivity        `json:"ipi_activity,omitempty"`
-	WorkqueueActivity     []WorkqueueActivity        `json:"workqueue_activity,omitempty"`
-	DMAFenceActivity      []DMAFenceActivity         `json:"dma_fence_activity,omitempty"`
-	SchedStatAccounting   []SchedStatSummary         `json:"sched_stat_accounting,omitempty"`
-	SupplyPressureSummary *SupplyPressureSummary     `json:"supply_pressure_summary,omitempty"`
-	TraceMarkCategories   []TraceMarkCategory        `json:"trace_mark_categories,omitempty"`
-	AsyncFileWork         []AsyncFileWorkSummary     `json:"async_file_work,omitempty"`
-	AbilityEvents         []TracePluginSummary       `json:"ability_events,omitempty"`
-	XPowerEvents          []TracePluginSummary       `json:"xpower_events,omitempty"`
-	HiSystemEvents        []TracePluginSummary       `json:"hi_sysevent_events,omitempty"`
-	ThreadDrifts          []ThreadDriftSummary       `json:"thread_drifts,omitempty"`
-	ComputeSupply         []ComputeSupplySummary     `json:"compute_supply,omitempty"`
+	Window       TimeWindow        `json:"window"`
+	EventCounts  map[EventType]int `json:"event_counts,omitempty"`
+	CPU          []CPUStats        `json:"cpu,omitempty"`
+	CoreTopology []CoreClassStats  `json:"core_topology,omitempty"`
+	// ClusterFrequencyCeilings is the CFC (§7.10 VS-2c 设计) single-point
+	// per-cluster fmax snapshot for this window (VS-2b ladder per cluster:
+	// window-governing limits Max > highest governed observed sample),
+	// computed once so the scattered fmax consumers share one source.
+	// INTERNAL computation structure, not an observation face: json:"-"
+	// keeps it off every JSON surface and out of the causal token registry
+	// (CFC ruling: no new token). Sole display consumer: the soft
+	// window_stats stanza line (writeTraceClusterFrequencyCeilings,
+	// internal/tool/trace_query.go).
+	ClusterFrequencyCeilings []ClusterFrequencyCeiling  `json:"-"`
+	TopRunning               []ThreadDuration           `json:"top_running,omitempty"`
+	RunnableTop              []ThreadDuration           `json:"runnable_top,omitempty"`
+	SleepTop                 []ThreadDuration           `json:"sleep_top,omitempty"`
+	DStateTop                []ThreadDuration           `json:"d_state_top,omitempty"`
+	IOWaitTop                []ThreadDuration           `json:"io_wait_top,omitempty"`
+	CPUPressure              []CPUPressureStats         `json:"cpu_pressure,omitempty"`
+	CPUConstraints           []CPUConstraintSummary     `json:"cpu_constraints,omitempty"`
+	ThreadCPULoad            []ThreadCPULoadSummary     `json:"thread_cpu_load,omitempty"`
+	ProcessCPULoad           []ProcessCPULoadSummary    `json:"process_cpu_load,omitempty"`
+	RunnableContext          []RunnableContextSummary   `json:"runnable_context,omitempty"`
+	IOLatencies              []IOLatencySummary         `json:"io_latencies,omitempty"`
+	CPUFrequencyLimits       []CPUFrequencyLimit        `json:"cpu_frequency_limits,omitempty"`
+	SubsystemEvents          []SubsystemEventSummary    `json:"subsystem_events,omitempty"`
+	BlockIssueCount          int                        `json:"block_issue_count,omitempty"`
+	BlockRemapCount          int                        `json:"block_remap_count,omitempty"`
+	BlockCompleteCount       int                        `json:"block_complete_count,omitempty"`
+	BinderCount              int                        `json:"binder_count,omitempty"`
+	BinderReceivedCount      int                        `json:"binder_received_count,omitempty"`
+	BinderAuxCount           int                        `json:"binder_aux_count,omitempty"`
+	IRQCount                 int                        `json:"irq_count,omitempty"`
+	SoftIRQCount             int                        `json:"softirq_count,omitempty"`
+	MemoryEventCount         int                        `json:"memory_event_count,omitempty"`
+	StorageEventCount        int                        `json:"storage_event_count,omitempty"`
+	FilesystemEventCount     int                        `json:"filesystem_event_count,omitempty"`
+	PowerEventCount          int                        `json:"power_event_count,omitempty"`
+	AbilityEventCount        int                        `json:"ability_event_count,omitempty"`
+	XPowerEventCount         int                        `json:"xpower_event_count,omitempty"`
+	HiSystemEventCount       int                        `json:"hi_sysevent_event_count,omitempty"`
+	WorkqueueEventCount      int                        `json:"workqueue_event_count,omitempty"`
+	DMAFenceEventCount       int                        `json:"dma_fence_event_count,omitempty"`
+	BlockedReasonCount       int                        `json:"blocked_reason_count,omitempty"`
+	SchedStatCount           int                        `json:"sched_stat_count,omitempty"`
+	IPICount                 int                        `json:"ipi_count,omitempty"`
+	IOWaitBlockedCount       int                        `json:"io_wait_blocked_count,omitempty"`
+	BlockedReasons           []BlockedReasonSummary     `json:"blocked_reasons,omitempty"`
+	TraceSpans               []TraceSpanSummary         `json:"trace_spans,omitempty"`
+	TraceCounters            []TraceCounterSummary      `json:"trace_counters,omitempty"`
+	CounterDeltas            []TraceCounterDeltaSummary `json:"counter_deltas,omitempty"`
+	IRQBursts                []IRQBurstSummary          `json:"irq_bursts,omitempty"`
+	MemoryKinds              []MemoryKindSummary        `json:"memory_kinds,omitempty"`
+	BIOResources             []RuntimeResourceSummary   `json:"bio_resources,omitempty"`
+	FilesystemResources      []RuntimeResourceSummary   `json:"filesystem_resources,omitempty"`
+	PageFaultResources       []RuntimeResourceSummary   `json:"page_fault_resources,omitempty"`
+	FileIOByInode            []FileIOSummary            `json:"file_io_by_inode,omitempty"`
+	PageCacheByInode         []PageCacheSummary         `json:"page_cache_by_inode,omitempty"`
+	StorageLatencyByLayer    []StorageLatencySummary    `json:"storage_latency_by_layer,omitempty"`
+	IOPressureSummary        *IOPressureSummary         `json:"io_pressure_summary,omitempty"`
+	IOBurstEpisodes          []IOBurstEpisodeSummary    `json:"io_burst_episodes,omitempty"`
+	BlockIOByInode           []BlockIOByInodeSummary    `json:"block_io_by_inode,omitempty"`
+	IRQActivity              []InterruptActivity        `json:"irq_activity,omitempty"`
+	SoftIRQActivity          []InterruptActivity        `json:"softirq_activity,omitempty"`
+	IPIActivity              []InterruptActivity        `json:"ipi_activity,omitempty"`
+	WorkqueueActivity        []WorkqueueActivity        `json:"workqueue_activity,omitempty"`
+	DMAFenceActivity         []DMAFenceActivity         `json:"dma_fence_activity,omitempty"`
+	SchedStatAccounting      []SchedStatSummary         `json:"sched_stat_accounting,omitempty"`
+	SupplyPressureSummary    *SupplyPressureSummary     `json:"supply_pressure_summary,omitempty"`
+	TraceMarkCategories      []TraceMarkCategory        `json:"trace_mark_categories,omitempty"`
+	AsyncFileWork            []AsyncFileWorkSummary     `json:"async_file_work,omitempty"`
+	AbilityEvents            []TracePluginSummary       `json:"ability_events,omitempty"`
+	XPowerEvents             []TracePluginSummary       `json:"xpower_events,omitempty"`
+	HiSystemEvents           []TracePluginSummary       `json:"hi_sysevent_events,omitempty"`
+	ThreadDrifts             []ThreadDriftSummary       `json:"thread_drifts,omitempty"`
+	ComputeSupply            []ComputeSupplySummary     `json:"compute_supply,omitempty"`
 	// CPUOccupancy is the CMP-8 (§7.1) occupancy-side decomposition of the
 	// selected window: who actually consumed the CPUs (top running threads,
 	// per-process running rollup, per-CPU top occupiers, priority-band

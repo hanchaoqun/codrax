@@ -159,13 +159,59 @@ func TestTraceQueryComputeSupplyBalanceObservationContract(t *testing.T) {
 	}
 }
 
+// TestTraceQueryWindowStatsRendersClusterFrequencyCeilings pins the CFC F2(a)
+// (2026-07-05 review) display consumer: the window ceilings snapshot renders
+// as ONE soft line beside the compute-supply stanza on view=window_stats —
+// per-cluster GHz (%.1f) with the VS-2b ladder provenance — and the line is
+// omitted entirely when the window minted no ceiling.
+func TestTraceQueryWindowStatsRendersClusterFrequencyCeilings(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "cfc.systrace"), []byte(cmp8SyntheticTrace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	// Explicit topology: cpu0 (the only CPU with cpu_frequency samples,
+	// residency fmax 2.0GHz) is the big cluster; cpu1 has no observed sample
+	// and must not mint a ceiling.
+	params := json.RawMessage(`{"source":"path","path":"cfc.systrace","view":"window_stats","time_start":1.0,"time_end":1.1,"trace_flavor":"harmony_hitrace","core_topology":"big=0,small=1"}`)
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query window_stats failed: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "- cluster_frequency_ceilings big=2.0GHz(observed)") {
+		t.Fatalf("window_stats summary missing the cluster ceilings display line:\n%s", res.Summary)
+	}
+
+	// No cpu_frequency samples anywhere → no ceilings → no line.
+	schedOnly := `          <idle>-0 (-----) [000] .... 1.000000: sched_switch: prev_comm=swapper/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=hi next_pid=101 next_prio=90
+           hi-101 (  101) [000] .... 1.060000: sched_switch: prev_comm=hi prev_pid=101 prev_prio=90 prev_state=S ==> next_comm=swapper/0 next_pid=0 next_prio=120
+`
+	if err := os.WriteFile(filepath.Join(dir, "nofreq.systrace"), []byte(schedOnly), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	params = json.RawMessage(`{"source":"path","path":"nofreq.systrace","view":"window_stats","time_start":1.0,"time_end":1.1,"trace_flavor":"harmony_hitrace"}`)
+	res, err = (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query window_stats (no-freq) failed: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "- cluster_frequency_ceilings") {
+		t.Fatalf("no-ceiling window must not render the cluster ceilings line:\n%s", res.Summary)
+	}
+}
+
 // TestTraceQueryOccupancySectionsGatedToWindowStatsView pins the width
 // decision: composite views already sit at the blob-preview cliff, so the
 // CMP-8/CMP-10 stanzas render on view=window_stats ONLY (typed fields still
 // ride the JSON payload; guidance steers follow-ups to window_stats).
 func TestTraceQueryOccupancySectionsGatedToWindowStatsView(t *testing.T) {
 	res := cmp8ExecuteView(t, "root_cause_rank")
-	for _, forbidden := range []string{"- cpu_occupancy", "- compute_supply_balance"} {
+	for _, forbidden := range []string{"- cpu_occupancy", "- compute_supply_balance", "- cluster_frequency_ceilings"} {
 		if strings.Contains(res.Summary, forbidden) {
 			t.Fatalf("composite view must not render %q (width cliff):\n%s", forbidden, res.Summary)
 		}

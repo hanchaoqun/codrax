@@ -3129,6 +3129,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		if strings.EqualFold(strings.TrimSpace(result.View), "window_stats") {
 			writeTraceCPUOccupancy(&b, result.WindowStats.CPUOccupancy)
 			writeTraceComputeSupplyBalance(&b, result.WindowStats.ComputeSupplyBalance)
+			writeTraceClusterFrequencyCeilings(&b, result.WindowStats.ClusterFrequencyCeilings)
 		}
 		fmt.Fprintf(&b, "- counts block_issue=%d block_remap=%d block_complete=%d binder=%d binder_received=%d binder_aux=%d irq=%d softirq=%d memory=%d storage=%d filesystem=%d power=%d ability=%d xpower=%d hi_sysevent=%d workqueue=%d dma_fence=%d blocked_reason=%d iowait_blocked=%d\n\n",
 			result.WindowStats.BlockIssueCount, result.WindowStats.BlockRemapCount, result.WindowStats.BlockCompleteCount, result.WindowStats.BinderCount, result.WindowStats.BinderReceivedCount, result.WindowStats.BinderAuxCount, result.WindowStats.IRQCount, result.WindowStats.SoftIRQCount, result.WindowStats.MemoryEventCount, result.WindowStats.StorageEventCount, result.WindowStats.FilesystemEventCount, result.WindowStats.PowerEventCount, result.WindowStats.AbilityEventCount, result.WindowStats.XPowerEventCount, result.WindowStats.HiSystemEventCount, result.WindowStats.WorkqueueEventCount, result.WindowStats.DMAFenceEventCount, result.WindowStats.BlockedReasonCount, result.WindowStats.IOWaitBlockedCount)
@@ -3977,6 +3978,34 @@ func writeTraceComputeSupplyBalance(b *strings.Builder, bal *tracequery.ComputeS
 	for _, caveat := range bal.Caveats {
 		fmt.Fprintf(b, "- compute_supply_balance_caveat=%s\n", sanitizeForBanner(caveat))
 	}
+}
+
+// writeTraceClusterFrequencyCeilings renders the CFC (§7.10 VS-2c) window
+// ceilings snapshot as ONE soft display line beside the compute-supply
+// stanza (F2(a) — the snapshot's only display consumer): the deduped
+// per-cluster "fastest this cluster could go in this window" with its VS-2b
+// ladder provenance (limit = cpufreq policy ceiling, observed = highest
+// governing cpu_frequency sample). Soft display only — no gate reads it —
+// and the line is omitted entirely when the window minted no ceiling. Gated
+// to view=window_stats with the other CMP-8/CMP-10 stanzas (width cliff).
+func writeTraceClusterFrequencyCeilings(b *strings.Builder, ceilings []tracequery.ClusterFrequencyCeiling) {
+	if len(ceilings) == 0 {
+		return
+	}
+	// Engine order is small → middle → big → unclassified; the display leads
+	// with the reference (big) cluster and keeps the unclassified pool last.
+	parts := make([]string, 0, len(ceilings))
+	var unclassified []string
+	for i := len(ceilings) - 1; i >= 0; i-- {
+		c := ceilings[i]
+		if c.CoreClass == "" {
+			unclassified = append(unclassified, fmt.Sprintf("unclassified=%.1fGHz(%s)", float64(c.FmaxKHz)/1e6, c.Source))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%.1fGHz(%s)", c.CoreClass, float64(c.FmaxKHz)/1e6, c.Source))
+	}
+	parts = append(parts, unclassified...)
+	fmt.Fprintf(b, "- cluster_frequency_ceilings %s\n", sanitizeForBanner(strings.Join(parts, " ")))
 }
 
 func writeTraceProcessCPULoad(b *strings.Builder, item tracequery.ProcessCPULoadSummary) {

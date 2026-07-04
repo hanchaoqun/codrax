@@ -46,6 +46,13 @@ import (
 //   - VS-2c 簇泳道角色裁定 (§7.10 终局裁定): isCPUFrequencyClock 名字启发
 //     只准喂软引导/旁证 caveat,禁作 supply-fold fmax 基准 —
 //     TestSemanticRulingPin_ClockLaneNeverFeedsSupplyFoldFmax below.
+//   - CFC (§7.10 VS-2c 设计): the SAME clock-lane exclusion governs the
+//     WINDOW-face per-CPU frequency basis (residency / topology inference /
+//     low_frequency verdicts) via the shared predicate isPerCPUFrequencySample
+//     (cluster_ceilings.go); the deduped per-cluster fmax lives in
+//     WindowStats.ClusterFrequencyCeilings (internal, no registry token) —
+//     TestSemanticRulingPin_CFCWindowFaceClockLaneExclusion below +
+//     cluster_ceilings_test.go.
 
 // semanticPinFixtures are the in-repo trace fixtures; the RN-15 full-scan pin
 // runs the real rank/evidence pipeline over each of them.
@@ -280,6 +287,88 @@ func TestSemanticRulingPin_ClockLaneNeverFeedsSupplyFoldFmax(t *testing.T) {
 			t.Fatalf("lane agreeing with fmax must not raise the divergence caveat (一致时不加注): %+v", basis)
 		}
 	})
+}
+
+// TestSemanticRulingPin_CFCWindowFaceClockLaneExclusion pins the CFC batch's
+// P0 ruling extension (§7.10 VS-2c 设计): the clock-lane exclusion the fold
+// face already pins governs the WINDOW face too, through the one shared
+// predicate. Three probes on a lane-bearing trace (cpu-freq-NAMED
+// clock_set_rate at 3.0e9 landing on the emitting cpu0, real per-CPU samples
+// 1.0/1.2/2.0 GHz on cpus 0/2/7):
+//
+//	(1) residency purity — cpu0's CPUStats.Frequency/FrequencyResidency read
+//	    only the genuine 1.0GHz sample, never the lane value;
+//	(2) topology stability — the frequency-tier inference keeps cpu0=small /
+//	    cpu2=middle / cpu7=big (a leaked 3.0e9 lane max would flip cpu0 to
+//	    big and displace every other class);
+//	(3) no fabricated low_frequency — the 6.9ms runnable wait on cpu0 spans
+//	    the lane sample; a leaked lane would make weighted_freq≈1.7e9 vs
+//	    observed_max=3.0e9 (≤65%) and mint a low_frequency root-cause row.
+func TestSemanticRulingPin_CFCWindowFaceClockLaneExclusion(t *testing.T) {
+	idx := buildTraceIndex(t, "cfc_window_lane.systrace", `
+      <idle>-0 (-----) [000] .... 4.900000: cpu_frequency: state=1000000 cpu_id=0
+      <idle>-0 (-----) [002] .... 4.900000: cpu_frequency: state=1200000 cpu_id=2
+      <idle>-0 (-----) [007] .... 4.900000: cpu_frequency: state=2000000 cpu_id=7
+        app-100 (100) [000] .... 5.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=120
+        app-100 (100) [000] .... 5.002000: sched_switch: prev_comm=app prev_pid=100 prev_prio=120 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+        wkr-300 (300) [002] .... 5.002100: sched_wakeup: comm=lat pid=400 prio=120 target_cpu=000
+          clk-90 (  90) [000] .... 5.005000: clock_set_rate: cpu_freq 3000000000
+        lat-400 (400) [000] .... 5.009000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=lat next_pid=400 next_prio=120
+        lat-400 (400) [000] .... 5.010000: sched_switch: prev_comm=lat prev_pid=400 prev_prio=120 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+	`)
+	q := Query{TimeStart: 5.0, TimeEnd: 5.010, MinDurationMs: 1, TraceFlavorHint: TraceFlavorHarmonyHitrace}
+	stats := ComputeWindowStats(idx, q)
+
+	// Probe 1: residency purity on the lane's landing CPU.
+	var cpu0 *CPUStats
+	for i := range stats.CPU {
+		if stats.CPU[i].CPU == 0 {
+			cpu0 = &stats.CPU[i]
+		}
+	}
+	if cpu0 == nil {
+		t.Fatalf("cpu0 missing from window stats: %+v", stats.CPU)
+	}
+	if cpu0.Frequency != 1000000 {
+		t.Fatalf("probe 1: cpu0 latest frequency must stay the genuine 1.0GHz sample, got %+v", cpu0)
+	}
+	for _, res := range cpu0.FrequencyResidency {
+		if res.Frequency != 1000000 {
+			t.Fatalf("probe 1: lane sample leaked into cpu0 residency: %+v", cpu0.FrequencyResidency)
+		}
+	}
+
+	// Probe 2: frequency-tier topology unmoved by the lane.
+	wantClass := map[int]string{0: "small", 2: "middle", 7: "big"}
+	for _, cpu := range stats.CPU {
+		if want, ok := wantClass[cpu.CPU]; ok && cpu.CoreClass != want {
+			t.Fatalf("probe 2: lane flipped the inferred topology: cpu=%d got %q want %q (%+v)", cpu.CPU, cpu.CoreClass, want, stats.CPU)
+		}
+	}
+
+	// Probe 3: no fabricated low_frequency root-cause row; the runnable-wait
+	// row itself must exist so the probe is live.
+	rank := BuildRootCauseRank(idx, q)
+	sawLatency := false
+	for _, item := range rank.Items {
+		if item.Type == "low_frequency" {
+			t.Fatalf("probe 3: lane fabricated a low_frequency root-cause row: %+v", item)
+		}
+		if item.Type == "scheduler_latency" && item.Thread.PID == 400 {
+			sawLatency = true
+		}
+	}
+	if !sawLatency {
+		t.Fatalf("probe 3 liveness: the 6.9ms runnable wait must surface as scheduler_latency: %+v", rank.Items)
+	}
+
+	// CFC snapshot side-witness: the window ceilings read only genuine
+	// samples (big cluster = 2.0GHz observed, never the 3.0e9 lane).
+	for _, ceiling := range stats.ClusterFrequencyCeilings {
+		if ceiling.FmaxKHz >= 3000000000 {
+			t.Fatalf("lane leaked into ClusterFrequencyCeilings: %+v", stats.ClusterFrequencyCeilings)
+		}
+	}
 }
 
 // TestSemanticRulingPin_C8BinderFamilyStillParsed is the §7.11 C-8 existence

@@ -1330,6 +1330,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	}
 	byCPU := map[int][]Event{}
 	freqByCPU := map[int][]Event{}
+	// CFC (§7.10 VS-2c 设计): governed limits timeline for the cluster-ceiling
+	// snapshot — head-governing caliber needs pre-window rows, so this is
+	// collected beside freqByCPU (upper bound only), NOT inside the strict
+	// in-window switch that feeds stats.CPUFrequencyLimits (deliberate caliber
+	// fork, pinned by TestComputeWindowStats_ClusterFrequencyCeilingsSnapshot).
+	limitTimelineByCPU := map[int][]freqSample{}
 	blockedReasons := map[string]BlockedReasonSummary{}
 	freqLimits := map[int]CPUFrequencyLimit{}
 	subsystems := map[string]SubsystemEventSummary{}
@@ -1342,10 +1348,25 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	xpowerEvents := map[string]*TracePluginSummary{}
 	hiSystemEvents := map[string]*TracePluginSummary{}
 	for _, ev := range idx.Events {
-		if eventLineInWindow(ev, q) && ev.Type == EventCPUFrequency && ev.Frequency > 0 {
+		// CFC P0 (§7.10 VS-2c): the per-CPU frequency basis admits only genuine
+		// per-CPU samples — reclassified clock_set_rate lanes are excluded by
+		// the SAME shared predicate the fold face uses (isPerCPUFrequencySample,
+		// cluster_ceilings.go), closing the window-face pollution lane
+		// (fabricated cpu0 residency / flipped topology / false low_frequency).
+		if eventLineInWindow(ev, q) && isPerCPUFrequencySample(ev) {
 			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
 				cpu := eventCPUForStats(ev)
 				freqByCPU[cpu] = append(freqByCPU[cpu], ev)
+			}
+		}
+		// CFC F1: admission + CPU attribution via the shared limits predicate
+		// (isPerCPULimitSample, cluster_ceilings.go). The line-window +
+		// upper-bound-only filter is THIS face's window convention
+		// (head-governing caliber needs pre-window rows — see the
+		// limitTimelineByCPU declaration above).
+		if cpu, ok := isPerCPULimitSample(ev); ok && eventLineInWindow(ev, q) {
+			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
+				limitTimelineByCPU[cpu] = append(limitTimelineByCPU[cpu], freqSample{ts: ev.Ts, khz: ev.FrequencyMax})
 			}
 		}
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
@@ -1420,6 +1441,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		accumulateTracePluginEvent(abilityEvents, xpowerEvents, hiSystemEvents, ev)
 	}
 	sortFrequencyTimeline(freqByCPU)
+	for _, samples := range limitTimelineByCPU {
+		sort.SliceStable(samples, func(i, j int) bool { return samples[i].ts < samples[j].ts })
+	}
 	running := map[string]ThreadDuration{}
 	pressure := map[int]*cpuPressureAcc{}
 	// CMP-10 (§7.4): per-CPU frequency-weighted running accumulation for the
@@ -1524,6 +1548,14 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.CPU = applyCPUFrequencyResidency(stats.CPU, freqByCPU, q)
 	coreByCPU, topologySource := resolveCoreTopology(stats.CPU, q.CoreTopology)
 	applyCPUCoreClasses(stats.CPU, coreByCPU)
+	// CFC P1 (§7.10 VS-2c 设计): single-point cluster frequency ceilings for
+	// this window. Per-CPU observed fmax = the F1-governed residency timeline
+	// built just above (computed ONCE here; computeComputeSupplyBalance reads
+	// the same map instead of re-scanning residency); the limits rung uses the
+	// head-governing + in-window caliber — a deliberate fork from
+	// stats.CPUFrequencyLimits' strict in-window display caliber.
+	observedFmaxByCPU := windowObservedFmaxByCPU(stats.CPU)
+	stats.ClusterFrequencyCeilings = computeWindowClusterFrequencyCeilings(observedFmaxByCPU, coreByCPU, limitTimelineByCPU, q)
 	stats.RunnableTop, stats.DStateTop, stats.SleepTop, stats.IOWaitTop, stats.CPUPressure = computeOffCPUStats(idx, q, freqByCPU, pressure)
 	// CMP-9 (§7.3): per-CPU runnable-wait density = value / wall window.
 	stats.CPUPressure = applyCPUPressureDensity(stats.CPUPressure, queryWindowWallMs(q))
@@ -1567,7 +1599,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			}
 		}
 	}
-	stats.ComputeSupplyBalance = computeComputeSupplyBalance(idx, q, queryWindowWallMs(q), supplyByCPU, schedCPUs, headRunnablePIDs, stats.CPU, coreByCPU)
+	stats.ComputeSupplyBalance = computeComputeSupplyBalance(idx, q, queryWindowWallMs(q), supplyByCPU, schedCPUs, headRunnablePIDs, stats.CPU, coreByCPU, observedFmaxByCPU)
 	stats.IOLatencies = computeIOLatencies(idx, q, 8)
 	stats.CPUFrequencyLimits = sortedCPUFrequencyLimits(freqLimits, 8)
 	stats.SubsystemEvents = sortedSubsystemEvents(subsystems, 12)
@@ -2836,7 +2868,9 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 	catalog := buildThreadCatalog(idx, q)
 	freqByCPU := map[int][]Event{}
 	for _, ev := range idx.Events {
-		if eventLineInWindow(ev, q) && ev.Type == EventCPUFrequency && ev.Frequency > 0 {
+		// CFC P0: same shared admission predicate as ComputeWindowStats — the
+		// two window-face collections must stay member-identical.
+		if eventLineInWindow(ev, q) && isPerCPUFrequencySample(ev) {
 			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
 				freqByCPU[eventCPUForStats(ev)] = append(freqByCPU[eventCPUForStats(ev)], ev)
 			}
@@ -11765,18 +11799,16 @@ func (c *chainQueryCache) buildFreqIndex() {
 		return
 	}
 	for _, ev := range c.idx.Events {
-		if ev.Type != EventCPUFrequency || ev.Frequency <= 0 {
-			continue
-		}
 		// VS-2c 终局裁定 (§7.10): clock_set_rate lanes reclassified as
 		// cpu_frequency by the isCPUFrequencyClock NAME HEURISTIC carry
 		// vendor-free-vocabulary names and emitting-CPU attribution (hmtrace
 		// hardcodes cpu 0) — they MUST NOT enter the chain/fold per-CPU
 		// frequency basis (neither fmax nor slice governance). Their max
 		// surfaces only as the SupplyFoldBasis cluster-lane corroboration
-		// caveat. Precise signal: verbatim event-name match. Pinned in
-		// semantic_ruling_pins_test.go.
-		if ev.Name == "clock_set_rate" {
+		// caveat. Precise signal: verbatim event-name match, via the CFC
+		// shared predicate (cluster_ceilings.go) so the window face cannot
+		// drift from this exclusion. Pinned in semantic_ruling_pins_test.go.
+		if !isPerCPUFrequencySample(ev) {
 			continue
 		}
 		cpu := ev.CPU
@@ -13811,7 +13843,9 @@ func cpusMentionedInResult(res Result) []int {
 
 func hasFrequencyAtOrBefore(idx *Index, q Query, cpu int, ts float64) bool {
 	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) || ev.Type != EventCPUFrequency || ev.Frequency <= 0 || eventCPUForStats(ev) != cpu {
+		// CFC P0: a reclassified clock lane sample must not silence the
+		// "no initial frequency" completeness caveat.
+		if !eventLineInWindow(ev, q) || !isPerCPUFrequencySample(ev) || eventCPUForStats(ev) != cpu {
 			continue
 		}
 		if ev.Ts <= ts {
@@ -13826,7 +13860,7 @@ func hasFrequencyAtOrBefore(idx *Index, q Query, cpu int, ts float64) bool {
 
 func hasFrequencyAfter(idx *Index, q Query, cpu int, ts float64) bool {
 	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) || ev.Type != EventCPUFrequency || ev.Frequency <= 0 || eventCPUForStats(ev) != cpu {
+		if !eventLineInWindow(ev, q) || !isPerCPUFrequencySample(ev) || eventCPUForStats(ev) != cpu {
 			continue
 		}
 		if ev.Ts > ts && (q.TimeEnd == 0 || ev.Ts <= q.TimeEnd) {

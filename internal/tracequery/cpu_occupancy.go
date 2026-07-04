@@ -267,7 +267,7 @@ type cpuSupplyAcc struct {
 // sched-observation signal (≥1 in-window sched_switch judged by the busy
 // loop); headRunnable seeds the idle-mismatch pass with threads already
 // runnable at the window head (adversarial review 2026-07-04 F3).
-func computeComputeSupplyBalance(idx *Index, q Query, windowMs float64, supply map[int]*cpuSupplyAcc, schedCPUs map[int]bool, headRunnable map[int]bool, cpus []CPUStats, coreByCPU map[int]string) *ComputeSupplyBalance {
+func computeComputeSupplyBalance(idx *Index, q Query, windowMs float64, supply map[int]*cpuSupplyAcc, schedCPUs map[int]bool, headRunnable map[int]bool, cpus []CPUStats, coreByCPU map[int]string, observedFmaxByCPU map[int]int) *ComputeSupplyBalance {
 	if windowMs <= 0 || len(cpus) == 0 {
 		return nil
 	}
@@ -312,12 +312,10 @@ func computeComputeSupplyBalance(idx *Index, q Query, windowMs float64, supply m
 		// NOT participate: a 3.0GHz burst sample long before a window
 		// governed entirely at 1.8GHz would otherwise fabricate low-frequency
 		// loss for a window that never had 3.0GHz available.
-		fmax := 0
-		for _, res := range cpu.FrequencyResidency {
-			if res.Frequency > fmax {
-				fmax = res.Frequency
-			}
-		}
+		// CFC (§7.10 VS-2c 设计): the residency re-scan moved to the shared
+		// window observed source (windowObservedFmaxByCPU) — same caliber,
+		// computed once beside the ClusterFrequencyCeilings snapshot.
+		fmax := observedFmaxByCPU[cpu.CPU]
 		per := ComputeSupplyCPUBalance{
 			CPU:             cpu.CPU,
 			CoreClass:       coreByCPU[cpu.CPU],

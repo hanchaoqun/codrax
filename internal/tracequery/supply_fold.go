@@ -151,12 +151,13 @@ func (c *chainQueryCache) buildFreqLimitIndex() {
 		return
 	}
 	for _, ev := range c.idx.Events {
-		if ev.Type != EventCPUFrequencyLimit || ev.FrequencyMax <= 0 {
+		// CFC F1: admission + CPU attribution via the shared limits predicate
+		// (isPerCPULimitSample, cluster_ceilings.go). No window filter here —
+		// THIS face's convention is a full-trace timeline with window
+		// governance applied at query time (governedLimitMaxKHz).
+		cpu, ok := isPerCPULimitSample(ev)
+		if !ok {
 			continue
-		}
-		cpu := ev.CPU
-		if ev.CPUForFieldValid {
-			cpu = ev.CPUForField
 		}
 		c.freqLimitByCPU[cpu] = append(c.freqLimitByCPU[cpu], freqSample{ts: ev.Ts, khz: ev.FrequencyMax})
 	}
@@ -167,13 +168,7 @@ func (c *chainQueryCache) buildFreqLimitIndex() {
 // caliber as governedFreqSamples). 0 = no governing limits row for this CPU.
 func (c *chainQueryCache) governedLimitMaxKHz(cpu int, gStart, gEnd float64) int {
 	c.buildFreqLimitIndex()
-	max := 0
-	for _, sample := range governedWindowSamples(c.freqLimitByCPU[cpu], gStart, gEnd) {
-		if sample.khz > max {
-			max = sample.khz
-		}
-	}
-	return max
+	return governedMaxKHz(c.freqLimitByCPU[cpu], gStart, gEnd)
 }
 
 // clockLaneSample is one cpu-freq-NAMED clock_set_rate lane sample (VS-2c
@@ -316,17 +311,17 @@ type supplyFoldFmax struct {
 // throttling finding compares the limits fmax against the same cluster's
 // highest cpu_frequency sample over the FULL loaded trace (zero new
 // parsing): observed > limit ⇒ part of the gap is policy/thermal capping.
+//
+// CFC (§7.10 VS-2c 设计): the ladder + clustering now route through the
+// shared computeClusterFrequencyCeilings core (cluster_ceilings.go); this
+// adapter supplies the fold face's governance-resolved inputs and picks the
+// big cluster. Behavior-equivalent to the pre-CFC inline implementation
+// (pinned by the VS-2 golden fold tests + the clock-lane ruling pins).
 func (c *chainQueryCache) supplyFoldBigClusterFmax(q Query, gStart, gEnd float64) supplyFoldFmax {
 	c.buildFreqIndex()
 	governedFmax := map[int]int{}
-	for cpu := range c.freqByCPU {
-		fmax := 0
-		for _, sample := range c.governedFreqSamples(cpu, gStart, gEnd) {
-			if sample.khz > fmax {
-				fmax = sample.khz
-			}
-		}
-		if fmax > 0 {
+	for cpu, samples := range c.freqByCPU {
+		if fmax := governedMaxKHz(samples, gStart, gEnd); fmax > 0 {
 			governedFmax[cpu] = fmax
 		}
 	}
@@ -339,43 +334,26 @@ func (c *chainQueryCache) supplyFoldBigClusterFmax(q Query, gStart, gEnd float64
 	}
 	sort.SliceStable(cpus, func(i, j int) bool { return cpus[i].CPU < cpus[j].CPU })
 	coreByCPU, _ := resolveCoreTopology(cpus, q.CoreTopology)
-	bestRank := -1
-	for cpu := range governedFmax {
-		if class := coreByCPU[cpu]; class != "" {
-			if rank := coreClassRank(class); rank < 3 && rank > bestRank {
-				bestRank = rank
-			}
-		}
+	ceilings := computeClusterFrequencyCeilings(governedFmax, coreByCPU, func(cpu int) int {
+		return c.governedLimitMaxKHz(cpu, gStart, gEnd)
+	})
+	top := pickBigClusterCeiling(ceilings)
+	if top == nil {
+		return supplyFoldFmax{}
 	}
-	observedFmax, limitFmax, traceMax := 0, 0, 0
-	for cpu, governed := range governedFmax {
-		if bestRank >= 0 && coreClassRank(coreByCPU[cpu]) != bestRank {
-			continue
-		}
-		if governed > observedFmax {
-			observedFmax = governed
-		}
-		if limit := c.governedLimitMaxKHz(cpu, gStart, gEnd); limit > limitFmax {
-			limitFmax = limit
-		}
+	traceMax := 0
+	for _, cpu := range top.CPUs {
 		for _, sample := range c.freqByCPU[cpu] {
 			if sample.khz > traceMax {
 				traceMax = sample.khz
 			}
 		}
 	}
-	out := supplyFoldFmax{traceObservedMaxKHz: traceMax}
-	if limitFmax > 0 {
-		out.khz = limitFmax
-		out.source = SupplyFoldFmaxSourceLimit
+	out := supplyFoldFmax{khz: top.FmaxKHz, source: top.Source, traceObservedMaxKHz: traceMax}
+	if top.Source == SupplyFoldFmaxSourceLimit {
 		// Typed throttling comparison (int vs int, precise); the clause it
 		// feeds is display-side soft wording only.
-		out.throttled = traceMax > limitFmax
-		return out
-	}
-	out.khz = observedFmax
-	if observedFmax > 0 {
-		out.source = SupplyFoldFmaxSourceObserved
+		out.throttled = traceMax > top.FmaxKHz
 	}
 	return out
 }

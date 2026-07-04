@@ -4354,14 +4354,17 @@ func TestWindowStatsCountsRuntimeResourcesAndOffCPU(t *testing.T) {
 	if len(stats.CPUPressure) == 0 {
 		t.Fatalf("expected CPU pressure stats: %+v", stats.CPUPressure)
 	}
-	foundFreq := false
+	// CFC P0 (§7.10 VS-2c): the fixture's only frequency-shaped row is a
+	// reclassified clock_set_rate lane (pid_freq). Pre-CFC it fed
+	// CPUStats.Frequency on cpu0; the window face now excludes clock lanes
+	// from the per-CPU basis via the same predicate the fold face pins
+	// (isPerCPUFrequencySample) — intentional behavior change. Genuine
+	// cpu_frequency summarization is covered by
+	// TestWindowStatsComputesCPUFrequencyResidency.
 	for _, cpu := range stats.CPU {
-		if cpu.CPU == 0 && cpu.Frequency == 1800000 {
-			foundFreq = true
+		if cpu.CPU == 0 && (cpu.Frequency != 0 || len(cpu.FrequencyResidency) != 0) {
+			t.Fatalf("reclassified clock lane must not summarize as cpu frequency: %+v", cpu)
 		}
-	}
-	if !foundFreq {
-		t.Fatalf("expected cpu frequency to be summarized: %+v", stats.CPU)
 	}
 }
 
