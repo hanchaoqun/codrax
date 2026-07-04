@@ -537,6 +537,13 @@ func TestBuildWorkflowDecisionFromTypedState(t *testing.T) {
 		t.Fatalf("blocked decision=%+v, want typed violation decision", blocked)
 	}
 
+	// Violation repair hints are advisory capability, the allowed set is the
+	// enforced admission surface. When a hint is not admissible for the
+	// current facts the decision must publish only legal actions (falling
+	// back to the allowed set), never a hint the gate would reject — the
+	// old override behavior advertised gate-rejected actions and livelocked
+	// planners (data_basic_sum_with_rules, 2026-07-05). Subset invariant is
+	// pinned by TestWorkflowDecisionNextActionsSubsetOfAllowed.
 	blockedWithAllowed := BuildWorkflowDecision(WorkflowDecisionInput{
 		AllowedNextActions: []string{string(dataquery.DataActionInspectMaterial)},
 		Violations: []WorkflowViolation{{
@@ -545,8 +552,19 @@ func TestBuildWorkflowDecisionFromTypedState(t *testing.T) {
 			RepairActionHints: []string{string(dataquery.DataActionDeriveFields)},
 		}},
 	})
-	if strings.Join(blockedWithAllowed.NextActions, ",") != string(dataquery.DataActionDeriveFields) {
-		t.Fatalf("blockedWithAllowed.NextActions=%v, want violation repair hints to override broad allowed actions", blockedWithAllowed.NextActions)
+	if strings.Join(blockedWithAllowed.NextActions, ",") != string(dataquery.DataActionInspectMaterial) {
+		t.Fatalf("blockedWithAllowed.NextActions=%v, want repair hints hard-filtered to the enforced allowed set", blockedWithAllowed.NextActions)
+	}
+	admissibleHint := BuildWorkflowDecision(WorkflowDecisionInput{
+		AllowedNextActions: []string{string(dataquery.DataActionInspectMaterial), string(dataquery.DataActionDeriveFields)},
+		Violations: []WorkflowViolation{{
+			Code:              "field_contract_violation",
+			Reason:            "missing normalized field",
+			RepairActionHints: []string{string(dataquery.DataActionDeriveFields)},
+		}},
+	})
+	if strings.Join(admissibleHint.NextActions, ",") != string(dataquery.DataActionDeriveFields) {
+		t.Fatalf("admissibleHint.NextActions=%v, want admissible repair hint to stay specific", admissibleHint.NextActions)
 	}
 }
 

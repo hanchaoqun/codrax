@@ -87,6 +87,30 @@ func NextStage(facts StageFacts) string {
 	if facts.ContributionLedgerRequired && facts.ContributionRecords == 0 {
 		return StagePrepareContributionInputs
 	}
+	// Required decision records are produced by filter_records/qualify_records
+	// (and compute_contributions), all hosted at prepare_contribution_inputs.
+	// Without this routing, a decisions-required workflow whose contribution
+	// ledger is not required (or already present) would be sent to
+	// reconcile/emit stages whose allowed sets contain no decisions producer —
+	// a structurally unreachable required ledger (typed deadlock). Pinned by
+	// TestEveryRequiredLedgerHasReachableProducer_NoTypedDeadlock.
+	if facts.DecisionRecordsRequired && facts.DecisionRecords == 0 {
+		return StagePrepareContributionInputs
+	}
+	// Reconcile recomputes group totals FROM contribution records: the runner
+	// hard-rejects reconcile over an empty contribution ledger and the ledger
+	// graph publishes contributions as a reconcile prerequisite. Routing to
+	// reconcile_artifacts with zero contribution records would make every
+	// published surface (next_stage, allowed=[reconcile], graph
+	// blocked_by_prerequisite) jointly recommend a guaranteed-failure action,
+	// so route to the contribution production chain instead. Ordered after
+	// the decisions routing above: when decision records are also missing
+	// they take priority (same target stage, and the decisions gate keeps
+	// compute_contributions withheld until they exist). Pinned by
+	// TestEveryRequiredLedgerHasReachableProducer_NoTypedDeadlock.
+	if facts.ReconcileRequired && !facts.HasReconcile && facts.ContributionRecords == 0 {
+		return StagePrepareContributionInputs
+	}
 	if facts.ReconcileRequired && !facts.HasReconcile {
 		return StageReconcileArtifacts
 	}
@@ -673,16 +697,71 @@ func AllowedNextActionContracts(stage string) []ActionContract {
 	}
 }
 
+// DecisionsGateExcludesComputeContribs is the single typed predicate for the
+// admission rule "no compute_contributions before explicit decision records
+// exist in a rule-governed decision workflow". Every published surface that
+// describes contribution-ledger producibility MUST consult this predicate:
+// AllowedNextActionContractsForFacts excludes compute_contributions from the
+// enforced allowed set while it holds, and BuildLedgerGraph mirrors it as a
+// decisions prerequisite on the contributions ledger dependency. Divergence
+// between those surfaces produced a livelock where the published advisory
+// suggested compute_contributions while admission rejected it and the ledger
+// graph denied any decisions→contributions dependency (customer eval
+// data_basic_sum_with_rules, 2026-07-05: model concluded "no legal path" and
+// blocked despite qualify_records/filter_records being one action away).
+func DecisionsGateExcludesComputeContribs(facts StageFacts) bool {
+	return facts.RuleCoverageRequired && facts.DecisionRecordsRequired && facts.DecisionRecords == 0
+}
+
 func AllowedNextActionContractsForFacts(facts StageFacts) []ActionContract {
 	stage := NextStage(facts)
 	contracts := AllowedNextActionContracts(stage)
 	if facts.RuleCoverageRequired && facts.RuleCoverageRecords == 0 && stage != StageCoverRequiredMaterials && stage != StageDeriveRules {
 		contracts = prependUniqueActionContract(contracts, deriveRulesActionContract())
 	}
-	if facts.RuleCoverageRequired && facts.DecisionRecordsRequired && facts.DecisionRecords == 0 {
+	if DecisionsGateExcludesComputeContribs(facts) {
 		contracts = filterActionContracts(contracts, dataquery.DataActionComputeContribs)
 	}
 	return contracts
+}
+
+// AnswerRepairActionContracts is the typed action surface for repairing an
+// already-published answer. When every ledger is satisfied and an answer is
+// present, NextStage projects "complete" whose stage table is intentionally
+// empty — but a typed evaluator repair_node signal means the published answer
+// is contested and the workflow still needs legal actions to recompute,
+// re-reconcile, or re-project it. Publishing allowed_next_actions=[] while a
+// repair is demanded is the same class of self-contradictory projection that
+// deadlocked data_basic_sum_with_rules: the system demands work and
+// simultaneously tells the planner no action is legal (specimens
+// data_json_strict_ids / data_text_filter_count, 2026-07-05: repair lane
+// structurally unreachable, evaluator capitulated, wrong answers published as
+// complete). The lane is the union of the contribution-recompute, reconcile,
+// and answer-projection stage surfaces so a repair can rebuild any layer the
+// evaluator's typed target names, still subject to the decisions gate.
+func AnswerRepairActionContracts(facts StageFacts) []ActionContract {
+	var out []ActionContract
+	for _, stage := range []string{StageComputeContributions, StageReconcileArtifacts, StageEmitOutputContractAnswer} {
+		for _, contract := range AllowedNextActionContracts(stage) {
+			out = appendUniqueActionContract(out, contract)
+		}
+	}
+	if DecisionsGateExcludesComputeContribs(facts) {
+		out = filterActionContracts(out, dataquery.DataActionComputeContribs)
+	}
+	return out
+}
+
+func appendUniqueActionContract(contracts []ActionContract, extra ActionContract) []ActionContract {
+	if strings.TrimSpace(extra.Kind) == "" {
+		return contracts
+	}
+	for _, contract := range contracts {
+		if strings.TrimSpace(contract.Kind) == strings.TrimSpace(extra.Kind) {
+			return contracts
+		}
+	}
+	return append(contracts, extra)
 }
 
 func filterActionContracts(contracts []ActionContract, excluded ...dataquery.DataActionKind) []ActionContract {

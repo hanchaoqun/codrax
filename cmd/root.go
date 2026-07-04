@@ -4,6 +4,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -1766,6 +1767,24 @@ func explicitSingleShotRoutePolicy() (repl.TurnPolicy, bool) {
 	}
 }
 
+// classifySingleShotRoutePolicy runs the one route classification a
+// single-shot process gets. It dispatches on the SINGLE-SHOT deadline lane
+// (repl.SingleShotTurnPolicyClassifier, wall clock =
+// single_shot_route_policy_timeout_seconds, default 60s, 0 = adapter-native
+// guards only) — NOT the REPL 10s turnPolicyClassifierTimeout. Attribution
+// 2026-07 (data-route failure class): reusing the interactive 10s clock made
+// healthy 6.6–11.4s classifications a coin flip, and the silent read-pipeline
+// fallback can never satisfy the data-lane output contract.
+//
+// Deliberately NOT done here (do not "fix" these):
+//   - No prompt changes: the classifier was 6/6 correct (conf 0.90–0.95)
+//     whenever it was allowed to finish; misrouting was pure deadline noise,
+//     not classification ambiguity.
+//   - No keyword/fixture-shape fallback routing on timeout: noisy signals
+//     must not drive hard route decisions (CLAUDE.md architectural red line;
+//     precise signals for hard gates).
+//   - --mode=data stays as the user-level escape hatch; it bypasses this
+//     classifier entirely and is untouched.
 func classifySingleShotRoutePolicy(request string) (repl.TurnPolicy, bool) {
 	if app.userMode.Normalize() != repl.UserModeAuto {
 		return repl.TurnPolicy{}, false
@@ -1783,9 +1802,17 @@ func classifySingleShotRoutePolicy(request string) (repl.TurnPolicy, bool) {
 	if hasAttachment {
 		hint = "attachment=true"
 	}
-	rawPolicy, err := classifier.ClassifyPolicy(ctx, request, hint, false)
+	rawPolicy, err := classifySingleShotPolicyCall(ctx, classifier, request, hint)
 	if err != nil {
-		logging.Warning("[cmd/route] turn-policy classifier failed; falling back to pipeline: %v", err)
+		if errors.Is(err, context.DeadlineExceeded) && repl.SingleShotRoutePolicyTimeout() > 0 {
+			// Route-degrade is a first-class event, not an incidental
+			// warning: the degraded read pipeline cannot produce the
+			// data-lane outputs the user asked for, so eval harnesses
+			// reverse-assert on this pinned line.
+			logging.Warning("%s", singleShotRouteDegradeLogLine(repl.SingleShotRoutePolicyTimeout()))
+		} else {
+			logging.Warning("[cmd/route] turn-policy classifier failed; falling back to pipeline: %v", err)
+		}
 		return repl.TurnPolicy{}, false
 	}
 	policy := repl.ApplyTurnPolicyGuards(rawPolicy, false, hasAttachment)
@@ -1805,6 +1832,30 @@ func classifySingleShotRoutePolicy(request string) (repl.TurnPolicy, bool) {
 		strings.Join(policy.SideEffects, ","),
 		oneLineForLog(policy.Reason))
 	return policy, true
+}
+
+// classifySingleShotPolicyCall prefers the single-shot deadline lane. The
+// production classifier (*repl.llmChitchatClassifier via
+// repl.NewChitchatClassifier) always implements
+// SingleShotTurnPolicyClassifier; the ClassifyPolicy fallback exists only
+// for stub classifiers that implement the narrow interface. Structural pin:
+// the single-shot lane has NO second, shorter deadline anywhere below it —
+// repl.TestClassifyPolicy_SingleShotLaneSurvivesBetweenDeadlinesSleep proves
+// it by sleeping between the two wall clocks.
+func classifySingleShotPolicyCall(ctx context.Context, classifier repl.TurnPolicyClassifier, request, hint string) (repl.TurnPolicy, error) {
+	if ss, ok := classifier.(repl.SingleShotTurnPolicyClassifier); ok {
+		return ss.ClassifyPolicySingleShot(ctx, request, hint, false)
+	}
+	return classifier.ClassifyPolicy(ctx, request, hint, false)
+}
+
+// singleShotRouteDegradeLogLine renders the PINNED route-degrade event for a
+// single-shot classifier timeout. Format is load-bearing: evals and log
+// triage reverse-assert on the exact wording (pinned by
+// TestSingleShotRouteDegradeLogLineFormatPinned). Do not reword or fold back
+// into an ad-hoc Warning format string.
+func singleShotRouteDegradeLogLine(timeout time.Duration) string {
+	return fmt.Sprintf("route-degrade: single-shot classifier timeout after %ds; falling back to read pipeline (data-lane contract unavailable)", int(timeout/time.Second))
 }
 
 func maybeRunSingleShotOperation(request string, policy repl.TurnPolicy, classified bool) (bool, string, error) {
@@ -2375,6 +2426,11 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 		if rs.ReplTurnPolicyTimeoutSeconds != nil && *rs.ReplTurnPolicyTimeoutSeconds > 0 {
 			repl.SetTurnPolicyClassifierTimeout(time.Duration(*rs.ReplTurnPolicyTimeoutSeconds) * time.Second)
+		}
+		// >= 0 (not > 0): zero is a meaningful operator choice — disable the
+		// single-shot outer wall clock and rely on adapter-native guards.
+		if rs.SingleShotRoutePolicyTimeoutSeconds != nil && *rs.SingleShotRoutePolicyTimeoutSeconds >= 0 {
+			repl.SetSingleShotRoutePolicyTimeout(time.Duration(*rs.SingleShotRoutePolicyTimeoutSeconds) * time.Second)
 		}
 		if rs.ReplMemoryContextTimeoutSeconds != nil && *rs.ReplMemoryContextTimeoutSeconds > 0 {
 			repl.SetMemoryContextTimeout(time.Duration(*rs.ReplMemoryContextTimeoutSeconds) * time.Second)

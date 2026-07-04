@@ -59,6 +59,8 @@ type WorkflowStateView struct {
 	ArtifactAvailability          []ArtifactAccessView       `json:"artifact_availability,omitempty"`
 	AllowedNextActions            []string                   `json:"allowed_next_actions,omitempty"`
 	AllowedNextActionContracts    []ActionContract           `json:"allowed_next_action_contracts,omitempty"`
+	AnswerRepairLaneActive        bool                       `json:"answer_repair_lane_active,omitempty"`
+	AnswerRepairLaneNote          string                     `json:"answer_repair_lane_note,omitempty"`
 	ProgressSignatures            ProgressWindow             `json:"progress_signatures,omitempty"`
 	Decision                      WorkflowDecision           `json:"decision,omitempty"`
 	ActionScaffold                []ActionScaffold           `json:"action_scaffold,omitempty"`
@@ -332,8 +334,58 @@ func BuildWorkflowDecision(input WorkflowDecisionInput) WorkflowDecision {
 		ReasonCode:  reasonCode,
 		Reason:      reason,
 		Violations:  cleanStrings(violationCodes),
-		NextActions: nextActions,
+		NextActions: restrictNextActionsToAllowed(nextActions, input.AllowedNextActions),
 	}
+}
+
+// restrictNextActionsToAllowed hard-filters the published decision advisory
+// against the enforced allowed-action set (precise typed-set signal). The
+// advisory sources (ledger producer actions, violation repair hints) describe
+// capability, not admission: e.g. compute_contributions produces the decisions
+// ledger but is withheld from the allowed set until decision records exist.
+// Publishing an action the admission gate must reject misdirects the planner
+// into guaranteed guard failures (customer eval data_basic_sum_with_rules,
+// 2026-07-05: decision_next_actions advertised compute_contributions, the gate
+// rejected it, and the run terminated blocked despite a legal typed path).
+// An empty intersection falls back to the full allowed set — the advisory may
+// be less specific, never illegal. Pinned by
+// TestWorkflowDecisionNextActionsSubsetOfAllowed.
+func restrictNextActionsToAllowed(published, allowed []string) []string {
+	published = keepKnownActionKinds(cleanStrings(published))
+	allowed = cleanStrings(allowed)
+	if len(allowed) == 0 {
+		return published
+	}
+	allowedSet := make(map[string]bool, len(allowed))
+	for _, action := range allowed {
+		allowedSet[action] = true
+	}
+	var out []string
+	for _, action := range published {
+		if allowedSet[action] {
+			out = append(out, action)
+		}
+	}
+	if len(out) == 0 {
+		return allowed
+	}
+	return out
+}
+
+// keepKnownActionKinds drops entries that are not typed data action kinds.
+// next_actions is a typed lane; violation repair hints sometimes carry prose
+// sentences (violation.RepairHint) which belong in reason text, never in the
+// action list (observed as decision_next_actions=<full English sentence> in
+// the data_json_strict_ids terminal, 2026-07-05). Capability lookup over the
+// schema-pinned action enum is the precise membership signal.
+func keepKnownActionKinds(values []string) []string {
+	var out []string
+	for _, value := range values {
+		if _, ok := Capability(dataquery.DataActionKind(value)); ok {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func workflowDecisionStatusLooksComplete(status string) bool {

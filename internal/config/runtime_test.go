@@ -45,6 +45,7 @@ data_task_max_data_rounds: 18
 write_workflow_engine: controller
 verify_wall_timeout_seconds: 901
 repl_turn_policy_timeout_seconds: 7
+single_shot_route_policy_timeout_seconds: 45
 repl_memory_context_timeout_seconds: 3
 providers_config: /etc/codrax/providers.yaml
 perf_triage_llm_max_bytes: 1048576
@@ -115,6 +116,9 @@ trace_semantic_span_patterns:
 	}
 	if s.ReplTurnPolicyTimeoutSeconds == nil || *s.ReplTurnPolicyTimeoutSeconds != 7 {
 		t.Errorf("ReplTurnPolicyTimeoutSeconds = %v", s.ReplTurnPolicyTimeoutSeconds)
+	}
+	if s.SingleShotRoutePolicyTimeoutSeconds == nil || *s.SingleShotRoutePolicyTimeoutSeconds != 45 {
+		t.Errorf("SingleShotRoutePolicyTimeoutSeconds = %v", s.SingleShotRoutePolicyTimeoutSeconds)
 	}
 	if s.ReplMemoryContextTimeoutSeconds == nil || *s.ReplMemoryContextTimeoutSeconds != 3 {
 		t.Errorf("ReplMemoryContextTimeoutSeconds = %v", s.ReplMemoryContextTimeoutSeconds)

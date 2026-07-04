@@ -2,6 +2,13 @@ ID="data_basic_sum_with_rules"
 NAME="data lane — generic sum with required rule material"
 QUESTION="读取当前目录的数据材料，按照 rules.md 的说明汇总 orders.csv 的 amount 列，最终只输出一个数字。"
 DATA_FIXTURE="data-basic"
+# Typed strict scalar output ("17"); same channel as data_json_strict_ids /
+# data_text_filter_count instead of padding the product answer.
+MIN_OUTPUT_CHARS=1
 EXPECT_MATCHES_REGEX="(^|[^0-9])17([^0-9]|$)"
+# Tag-agnostic data-lane oracle: eval one-shot runs go through the CLI lane
+# ([cli/data]); the original [repl/data] pin was a lagging oracle that failed
+# even behaviorally-correct runs (20260612-225606 emitted 17 and still FAILed
+# on no_log_regex). Aligned with the data_json_strict_ids precedent.
 EXPECT_LOG_MATCHES_REGEX="route=data
-\\[repl/data\\] data task result"
+\\[.*data\\] data task result"

@@ -66,11 +66,22 @@ func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 			ProducesActions: []dataquery.DataActionKind{dataquery.DataActionComputeContribs},
 			DependsOn: cleanStrings([]string{
 				conditionalLedgerDependency(facts.RuleCoverageRequired, LedgerRuleCoverage),
+				// Mirror of DecisionsGateExcludesComputeContribs: when the
+				// admission gate withholds compute_contributions until
+				// decision records exist, the published graph must state the
+				// same decisions→contributions dependency. Omitting it made
+				// the graph deny the very prerequisite the gate enforced,
+				// so planners read "contributions unblocked, sole producer
+				// compute_contributions" while admission rejected that
+				// producer — a self-contradictory projection that caused a
+				// blocked terminal despite a one-action legal path.
+				conditionalLedgerDependency(facts.RuleCoverageRequired && facts.DecisionRecordsRequired, LedgerDecisions),
 				conditionalLedgerDependency(facts.EntityResolutionRequired, LedgerEntityResolutions),
 			}),
 			MissingPrerequisites: ledgerPrerequisites(
 				ledgerPrerequisite{Enabled: !facts.MaterialCoverageSufficient, Value: LedgerPrerequisiteMaterials},
 				ledgerPrerequisite{Enabled: facts.RuleCoverageRequired && facts.RuleCoverageRecords == 0 && !facts.HasPostRuleProgress(), Value: string(LedgerRuleCoverage)},
+				ledgerPrerequisite{Enabled: DecisionsGateExcludesComputeContribs(facts), Value: string(LedgerDecisions)},
 				ledgerPrerequisite{Enabled: facts.EntityResolutionRequired && facts.EntityResolutionRecords == 0 && !facts.EntityStageMaterialized, Value: string(LedgerEntityResolutions)},
 			),
 		}),

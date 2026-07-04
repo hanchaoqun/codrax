@@ -113,6 +113,23 @@ func BuildWorkflowStateView(input WorkflowStateViewBuildInput) WorkflowStateView
 		state.CustomTransformDisabled = input.CustomTransformDisabledFunc(state)
 	}
 	state.AllowedNextActionContracts = AllowedNextActionContractsForFacts(facts)
+	// Answer-repair lane: a typed, actionable evaluator repair_node signal on
+	// a completion-shaped state must never coexist with an empty allowed set.
+	// The "complete" stage table is empty by design, but while the latest
+	// evaluation contests the published answer the workflow still needs legal
+	// typed actions to recompute/re-reconcile/re-project it. Without this
+	// lane the planner is told "repair required" and "no action is legal" in
+	// the same state — the terminal-completion twin of the
+	// data_basic_sum_with_rules advisory/gate contradiction. Pinned by
+	// TestAnswerRepairLaneReachableOnCompletionShapedState.
+	if len(state.AllowedNextActionContracts) == 0 &&
+		state.NextStage == StageComplete &&
+		input.LatestEvaluation != nil &&
+		EvaluationHasActionableRepairTarget(*input.LatestEvaluation) {
+		state.AllowedNextActionContracts = AnswerRepairActionContracts(facts)
+		state.AnswerRepairLaneActive = true
+		state.AnswerRepairLaneNote = "latest evaluation requested a typed node repair on a completion-shaped state; contribution/reconcile/answer-projection actions are admissible to repair the contested answer before completion"
+	}
 	if state.CustomTransformDisabled {
 		state.CustomTransformDisabledNote = "free-form custom_transform scripts are disabled after workflow/script risk; typed actions remain executable and are the preferred path"
 		state.AllowedNextActionContracts = FilterCustomTransformContracts(state.AllowedNextActionContracts)

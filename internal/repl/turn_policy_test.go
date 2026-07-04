@@ -135,6 +135,46 @@ func (blockingTurnPolicyAdapter) RequestTimeout() time.Duration { return 0 }
 
 func (blockingTurnPolicyAdapter) RetryMaxAttempts() int { return 0 }
 
+// slowTurnPolicyAdapter answers with a canned response after delay,
+// honouring ctx cancellation (a real adapter aborts the HTTP round when its
+// ctx dies). It records the effective ctx deadline the adapter sees so
+// tests can assert WHICH wall clock — if any — governs a classifier lane.
+type slowTurnPolicyAdapter struct {
+	delay time.Duration
+	resp  llm.Response
+
+	sawDeadline   *bool
+	deadlineAhead *time.Duration
+}
+
+func (a slowTurnPolicyAdapter) Chat(ctx context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	deadline, ok := ctx.Deadline()
+	if a.sawDeadline != nil {
+		*a.sawDeadline = ok
+	}
+	if a.deadlineAhead != nil && ok {
+		*a.deadlineAhead = time.Until(deadline)
+	}
+	timer := time.NewTimer(a.delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return a.resp, nil
+	case <-ctx.Done():
+		return llm.Response{}, ctx.Err()
+	}
+}
+
+func (slowTurnPolicyAdapter) ModelID() string { return "slow-turn-policy-test" }
+
+func (slowTurnPolicyAdapter) MaxContextTokens() int { return 0 }
+
+func (slowTurnPolicyAdapter) MaxOutputTokens() int { return 0 }
+
+func (slowTurnPolicyAdapter) RequestTimeout() time.Duration { return 0 }
+
+func (slowTurnPolicyAdapter) RetryMaxAttempts() int { return 0 }
+
 type nonResponsiveTurnPolicyAdapter struct {
 	release <-chan struct{}
 }
@@ -1095,6 +1135,162 @@ func TestSetTurnPolicyClassifierTimeout(t *testing.T) {
 	SetTurnPolicyClassifierTimeout(0)
 	if turnPolicyClassifierTimeout != 3*time.Second {
 		t.Fatalf("non-positive override must keep current guard, got %s", turnPolicyClassifierTimeout)
+	}
+}
+
+// singleShotDataPolicyJSON is the canned classifier output used by the
+// single-shot lane tests: a data-route answer matching the customer shape
+// (aggregate local structured data, strict output).
+const singleShotDataPolicyJSON = `{"route":"data","needs_data_access":true,"operation":"transform","data_task_kind":"data_aggregation","source":"current_message","confidence":0.93,"reason":"aggregate attached structured data"}`
+
+// TestClassifyPolicy_SingleShotLaneSurvivesBetweenDeadlinesSleep is the
+// structural pin for the 2026-07 data-route fix: the REPL and single-shot
+// wall clocks are INDEPENDENT deadlines. The adapter answers strictly
+// between the two (repl < sleep < single_shot; scaled 100ms < 300ms < 2s so
+// the suite stays fast — the pinned property is the ordering, not the
+// production literals 10s/60s):
+//
+//   - the single-shot lane must still classify route=data, proving no layer
+//     below it (ClassifyPolicy's ctx wrap, chatWithClassifierHardTimeout's
+//     guard, or anything added later) re-applies the shorter interactive
+//     clock as a second deadline;
+//   - the REPL lane with the SAME adapter must degrade with
+//     context.DeadlineExceeded, proving the interactive guard is intact.
+func TestClassifyPolicy_SingleShotLaneSurvivesBetweenDeadlinesSleep(t *testing.T) {
+	oldRepl := turnPolicyClassifierTimeout
+	oldSingle := singleShotRoutePolicyTimeout
+	turnPolicyClassifierTimeout = 100 * time.Millisecond
+	singleShotRoutePolicyTimeout = 2 * time.Second
+	defer func() {
+		turnPolicyClassifierTimeout = oldRepl
+		singleShotRoutePolicyTimeout = oldSingle
+	}()
+
+	var sawDeadline bool
+	var deadlineAhead time.Duration
+	adapter := slowTurnPolicyAdapter{
+		delay:         300 * time.Millisecond,
+		resp:          turnPolicyResp(singleShotDataPolicyJSON),
+		sawDeadline:   &sawDeadline,
+		deadlineAhead: &deadlineAhead,
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicySingleShot(context.Background(), "统计各列平均值并输出 JSON", "", false)
+	if err != nil {
+		t.Fatalf("single-shot lane must survive an adapter sleep between the two deadlines: %v", err)
+	}
+	if policy.Route != RouteData {
+		t.Errorf("Route: got %q, want data", policy.Route)
+	}
+	if !policy.NeedsDataAccess {
+		t.Error("NeedsDataAccess: got false, want true")
+	}
+	// The one deadline the adapter sees must be the single-shot clock, not
+	// the (shorter) interactive one: with repl=100ms and single-shot=2s, a
+	// deadline more than 1s ahead can only be the single-shot clock.
+	if !sawDeadline {
+		t.Fatal("single-shot lane with a positive timeout must carry exactly one ctx deadline")
+	}
+	if deadlineAhead <= 1*time.Second {
+		t.Fatalf("adapter saw a deadline only %s ahead — a second, shorter clock leaked onto the single-shot lane", deadlineAhead)
+	}
+
+	// REPL lane, same adapter and delay: the interactive wall clock still
+	// degrades. This half keeps the REPL ergonomics contract pinned so the
+	// lane split cannot silently loosen it.
+	if _, err := c.ClassifyPolicy(context.Background(), "统计各列平均值并输出 JSON", "", false); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("REPL lane must keep its interactive timeout, got err=%v", err)
+	}
+}
+
+// TestClassifyPolicySingleShot_TimesOutAtOwnDeadlineAsDeadlineExceeded pins
+// two facts: (1) the single-shot lane times out at ITS OWN clock even when
+// the interactive clock is much longer, so the degrade decision keys off the
+// right knob; (2) the failure surfaces as context.DeadlineExceeded — the
+// precise signal cmd/root.go requires to emit the pinned "route-degrade:"
+// event instead of the generic classifier-failed warning.
+func TestClassifyPolicySingleShot_TimesOutAtOwnDeadlineAsDeadlineExceeded(t *testing.T) {
+	oldRepl := turnPolicyClassifierTimeout
+	oldSingle := singleShotRoutePolicyTimeout
+	turnPolicyClassifierTimeout = 10 * time.Second
+	singleShotRoutePolicyTimeout = 50 * time.Millisecond
+	defer func() {
+		turnPolicyClassifierTimeout = oldRepl
+		singleShotRoutePolicyTimeout = oldSingle
+	}()
+
+	c := &llmChitchatClassifier{adapter: blockingTurnPolicyAdapter{}}
+	start := time.Now()
+	_, err := c.ClassifyPolicySingleShot(context.Background(), "统计各列平均值", "", false)
+	if err == nil {
+		t.Fatal("blocking adapter must time out on the single-shot clock")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("single-shot timeout must wrap context.DeadlineExceeded (drives the route-degrade event), got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("timed out on the wrong (interactive 10s) clock: %s", elapsed)
+	}
+}
+
+// TestClassifyPolicySingleShot_ZeroTimeoutDisablesOuterDeadline pins the
+// 0-means-disabled contract: with the knob at 0 the single-shot lane runs
+// with NO outer wall clock (adapter-native first-byte/stall/retry guards
+// govern) and — structurally — no residual interactive guard either, even
+// when that guard sits far below the adapter latency.
+func TestClassifyPolicySingleShot_ZeroTimeoutDisablesOuterDeadline(t *testing.T) {
+	oldRepl := turnPolicyClassifierTimeout
+	oldSingle := singleShotRoutePolicyTimeout
+	turnPolicyClassifierTimeout = 50 * time.Millisecond
+	singleShotRoutePolicyTimeout = 0
+	defer func() {
+		turnPolicyClassifierTimeout = oldRepl
+		singleShotRoutePolicyTimeout = oldSingle
+	}()
+
+	var sawDeadline bool
+	adapter := slowTurnPolicyAdapter{
+		delay:       200 * time.Millisecond,
+		resp:        turnPolicyResp(singleShotDataPolicyJSON),
+		sawDeadline: &sawDeadline,
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicySingleShot(context.Background(), "统计各列平均值并输出 JSON", "", false)
+	if err != nil {
+		t.Fatalf("disabled outer deadline must let the adapter finish: %v", err)
+	}
+	if policy.Route != RouteData {
+		t.Errorf("Route: got %q, want data", policy.Route)
+	}
+	if sawDeadline {
+		t.Fatal("timeout=0 must mean NO ctx deadline reaches the adapter on the single-shot lane")
+	}
+}
+
+// TestSetSingleShotRoutePolicyTimeout pins the setter contract, which
+// deliberately differs from SetTurnPolicyClassifierTimeout: zero is a
+// meaningful operator choice (disable the outer deadline), only negatives
+// keep the current guard.
+func TestSetSingleShotRoutePolicyTimeout(t *testing.T) {
+	old := singleShotRoutePolicyTimeout
+	defer func() { singleShotRoutePolicyTimeout = old }()
+
+	SetSingleShotRoutePolicyTimeout(45 * time.Second)
+	if singleShotRoutePolicyTimeout != 45*time.Second {
+		t.Fatalf("timeout = %s, want 45s", singleShotRoutePolicyTimeout)
+	}
+	if got := SingleShotRoutePolicyTimeout(); got != 45*time.Second {
+		t.Fatalf("getter = %s, want 45s", got)
+	}
+	SetSingleShotRoutePolicyTimeout(0)
+	if singleShotRoutePolicyTimeout != 0 {
+		t.Fatalf("zero must DISABLE the single-shot outer deadline, got %s", singleShotRoutePolicyTimeout)
+	}
+	SetSingleShotRoutePolicyTimeout(-time.Second)
+	if singleShotRoutePolicyTimeout != 0 {
+		t.Fatalf("negative override must keep current value, got %s", singleShotRoutePolicyTimeout)
 	}
 }
 

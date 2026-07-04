@@ -10274,7 +10274,14 @@ func TestDataTaskContinuationPromptUsesCompactHistory(t *testing.T) {
 	if !strings.Contains(prompt, "field_specs_json") || !strings.Contains(prompt, "truncated") {
 		t.Fatalf("continuation prompt lost compact param preview/truncation marker:\n%s", prompt)
 	}
-	if len(prompt) > 60000 {
+	// 62000: the compaction tripwire (omit old rounds + truncate params) with
+	// headroom for the legality-filtered decision advisory. The reducer now
+	// hard-filters decision.next_actions to the enforced allowed set; in this
+	// synthetic state the old advisory published a single gate-rejected
+	// action ([assemble_answer] at a compute-stage state) while the legal
+	// fallback is the full allowed list (~340 bytes larger). Compaction
+	// assertions above still pin the omission/truncation behavior.
+	if len(prompt) > 62000 {
 		t.Fatalf("continuation prompt too large after compaction: %d bytes", len(prompt))
 	}
 }

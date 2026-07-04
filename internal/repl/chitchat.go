@@ -1047,7 +1047,7 @@ func (c *llmChitchatClassifier) Classify(ctx context.Context, userLine, priorTur
 		{Role: "user", Content: userContent},
 	}
 	tools := []llm.ToolSchema{chitchatClassifierTool}
-	resp, err := chatWithClassifierHardTimeout(ctx, c.adapter, messages, tools, llm.ChatOptions{ToolChoice: "required"})
+	resp, err := chatWithClassifierHardTimeout(ctx, c.adapter, messages, tools, llm.ChatOptions{ToolChoice: "required"}, turnPolicyClassifierTimeout)
 	c.lastTrace = traceFromLLMResponse("chitchat_classifier", resp)
 	if err != nil {
 		return false, fmt.Errorf("chitchat classifier llm call: %w", err)
@@ -1092,14 +1092,21 @@ type classifierChatResult struct {
 	err  error
 }
 
-func chatWithClassifierHardTimeout(ctx context.Context, adapter llm.Adapter, messages []llm.Message, tools []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
+// chatWithClassifierHardTimeout dispatches one classifier chat round under
+// the caller's lane-specific hard timeout. timeout is passed EXPLICITLY —
+// it must not silently default to the interactive turnPolicyClassifierTimeout,
+// because the single-shot route-policy lane owns its own (longer) deadline
+// via ctx and passes timeout<=0 here so no second, shorter clock cuts off
+// the adapter's retry ladder (2026-07 data-route attribution). Interactive
+// callers (binary chit-chat Classify, REPL ClassifyPolicy) pass
+// turnPolicyClassifierTimeout to keep pre-split behaviour.
+func chatWithClassifierHardTimeout(ctx context.Context, adapter llm.Adapter, messages []llm.Message, tools []llm.ToolSchema, opts llm.ChatOptions, timeout time.Duration) (llm.Response, error) {
 	if adapter == nil {
 		return llm.Response{}, fmt.Errorf("classifier llm adapter is nil")
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	timeout := turnPolicyClassifierTimeout
 	if timeout <= 0 {
 		return adapter.Chat(ctx, messages, tools, opts)
 	}

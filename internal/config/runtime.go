@@ -1120,6 +1120,18 @@ type RuntimeSettings struct {
 	// Non-positive values are ignored and the code default is used.
 	ReplTurnPolicyTimeoutSeconds *int `yaml:"repl_turn_policy_timeout_seconds"`
 
+	// SingleShotRoutePolicyTimeoutSeconds bounds the single-shot (non-REPL
+	// CLI) route-policy classification. Deliberately split from
+	// ReplTurnPolicyTimeoutSeconds (2026-07 data-route attribution): the
+	// single-shot process gets exactly one unretryable classification, and
+	// a timeout silently demotes a data-lane request to the read pipeline,
+	// which cannot satisfy the data-lane output contract — so this deadline
+	// must clear the healthy classifier band (observed 6.6–11.4s) with
+	// margin. nil → code default 60. Zero is MEANINGFUL: disable the outer
+	// wall clock and rely on adapter-native first-byte/stall/retry guards.
+	// Negative values are ignored.
+	SingleShotRoutePolicyTimeoutSeconds *int `yaml:"single_shot_route_policy_timeout_seconds"`
+
 	// ReplMemoryContextTimeoutSeconds bounds foreground prior-memory
 	// assembly in the REPL before dispatch enters the orchestrator. On
 	// timeout Codrax keeps running the current request without prior
