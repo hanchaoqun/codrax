@@ -349,6 +349,14 @@
 # analysis, trace/log analysis, operation commands, or write mode.
 # data_task_max_repair_rounds: 6
 # data_task_max_data_rounds: 18
+# data_task_max_file_bytes — byte bound for every single-file material read
+#   in the data lane (candidate inspection, action record readers, record
+#   extraction/sampling, python-runner input copy, image material
+#   extraction, workflow checkpoint resume). Oversized files are refused
+#   fail-loud as a typed violation carrying the observed size and the bound
+#   — never silently truncated, because a truncated CSV computes wrong
+#   answers. Absent or non-positive keeps the 32 MiB code default.
+# data_task_max_file_bytes: 33554432
 # Optional vision/OCR-like extraction for data tasks is configured in
 # providers.yaml via llm.agents.multimodal_material_extractor, not here.
 

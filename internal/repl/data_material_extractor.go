@@ -14,6 +14,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 )
 
 type DataMaterialExtractor interface {
@@ -114,7 +115,20 @@ func (e *llmDataMaterialExtractor) extractOne(ctx context.Context, absRoot, outp
 	if !pathUnderRoot(absRoot, abs) {
 		return dataquery.MaterialExtraction{}, fmt.Errorf("non-text material %s is outside data root", rel)
 	}
-	raw, err := os.ReadFile(abs)
+	// Bounded whole-file read (DQA O1): the material path is user-named and
+	// the bytes are base64-inflated into an LLM message, so an unbounded
+	// slurp is an OOM vector twice over. Oversize refuses fail-loud with
+	// the observed size and the data-lane bound.
+	//
+	// Recorded, not fixed (DQA F7, Low as-recorded): past this bound there
+	// is NO downstream gate on the base64 inflation (~4/3x) before the
+	// provider call, and the 32 MiB data-lane default far exceeds real
+	// provider per-image limits (typically single-digit MB), so a
+	// large-but-in-bound image still fails later at the provider with a
+	// less actionable error. Accepted as-is: the provider error is loud,
+	// and a provider-aware image cap belongs to the llm adapter layer
+	// (which knows the active provider), not to this extractor.
+	raw, err := width.ReadFileBounded(abs, dataquery.EffectiveMaxFileBytes(0))
 	if err != nil {
 		return dataquery.MaterialExtraction{}, err
 	}

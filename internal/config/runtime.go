@@ -104,6 +104,14 @@ type RuntimeSettings struct {
 	// write-mode code changes.
 	DataTaskMaxRepairRounds *int `yaml:"data_task_max_repair_rounds"`
 	DataTaskMaxDataRounds   *int `yaml:"data_task_max_data_rounds"`
+	// data_task_max_file_bytes bounds every single-file material read in the
+	// data lane (candidate inspection, action record readers, record
+	// extraction, python-runner input copy, image material extraction,
+	// workflow checkpoint resume). Oversized files are refused fail-loud
+	// with the observed size and the bound — never silently truncated,
+	// because a truncated CSV computes wrong answers. Absent/non-positive
+	// keeps the code default (32 MiB, internal/dataquery).
+	DataTaskMaxFileBytes *int `yaml:"data_task_max_file_bytes"`
 
 	// Tool blob sizing knobs. Flat-prefixed `blob_*` to keep the
 	// namespace obvious without nesting. All four accept any

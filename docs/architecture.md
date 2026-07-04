@@ -2630,6 +2630,7 @@ MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.o
 | `log_attach_*` / `trace_attach_*` | 接入侧字节上限 | `log_attach_max_bytes`（512 MiB，硬顶 1 GiB）/ `trace_attach_max_bytes`（未设时继承 log_attach） |
 | `analyzer_*` / `repomap_*` / `concrete_values_*` / `diagram_identifier_whitelist` | 结构化分析微调 | mention sibling suffixes / mention count floor / max grep / reconcile strict mode / repomap min_parse_tier / tier warn/alert ratio / config layer extensions / runtime/default method prefixes / diagram identifier whitelist |
 | `verify_*` / `worktree_*` | 写模式资源墙 | `verify_mem_limit_mb`（2048）/ `verify_cpu_limit_seconds`（600）/ `verify_wall_timeout_seconds`（900）/ `worktree_keep_ttl_hours`（168 = 7 天）/ `worktree_keep_max_count`（20） |
+| `data_task_*` | 只读数据任务 lane 预算 | `data_task_max_repair_rounds`（6）/ `data_task_max_data_rounds`（18）/ `data_task_max_file_bytes`（32 MiB；data lane 单文件材料读取字节上限——候选探查 / action 记录读取 / 记录抽样 / python runner 输入拷贝 / 图像材料抽取 / workflow checkpoint 恢复全部消费同一 bound（`dataquery.EffectiveMaxFileBytes`：runner 覆写 → 本 knob → 代码默认）；超限=typed fail-loud 拒绝（`source_oversized`，带实际大小与上限，repair hint 指向本 knob 或换更小文件），**绝不静默截断**——截断的 CSV 会算出错误答案；缺省/非正=代码默认。守护 pin：`internal/dataquery/read_bound_pin_test.go`） |
 | `repl_*` | REPL UX | `repl_paste_fold_min_chars`（120） |
 
 ### 14.4 优先级（precedence）

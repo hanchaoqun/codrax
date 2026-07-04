@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -1172,11 +1173,23 @@ func commandPayloadMaterialExcerpt(ref string) string {
 	if ref == "" {
 		return ""
 	}
-	data, err := os.ReadFile(ref)
+	const maxRead = 256 * 1024
+	// Streamed bounded read (DQA F6): a captured payload ref can point at an
+	// arbitrarily large operation output, and the previous form slurped the
+	// whole file BEFORE keeping the first 256 KiB. Excerpt semantics make
+	// truncation legal here (source_truncated is reported honestly), so this
+	// streams through io.LimitReader instead of using the fail-loud
+	// width.ReadFileBounded refusal helper; output bytes are identical to the
+	// old form for files at or under the cap.
+	file, err := os.Open(ref)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxRead+1))
 	if err != nil || len(data) == 0 {
 		return ""
 	}
-	const maxRead = 256 * 1024
 	truncated := false
 	if len(data) > maxRead {
 		data = data[:maxRead]

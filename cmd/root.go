@@ -25,6 +25,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/config"
+	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -3017,6 +3018,13 @@ func initApp(cmd *cobra.Command, args []string) error {
 
 		if rs.ReadFileSmallLimitThreshold != nil {
 			tool.SetReadFileSmallLimitThreshold(*rs.ReadFileSmallLimitThreshold)
+		}
+
+		// Data-lane per-file read bound (data_task_max_file_bytes).
+		// One-shot injection mirroring SetBlobLimits above; absent or
+		// non-positive keeps the 32 MiB code default in internal/dataquery.
+		if rs.DataTaskMaxFileBytes != nil && *rs.DataTaskMaxFileBytes > 0 {
+			dataquery.SetDefaultMaxFileBytes(int64(*rs.DataTaskMaxFileBytes))
 		}
 
 		// Central width governor (tool_width_* prefix group). One-shot

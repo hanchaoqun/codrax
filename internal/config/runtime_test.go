@@ -42,6 +42,7 @@ markdown_preview_host: 127.0.0.1
 markdown_preview_port: 49152
 data_task_max_repair_rounds: 9
 data_task_max_data_rounds: 18
+data_task_max_file_bytes: 12345678
 write_workflow_engine: controller
 verify_wall_timeout_seconds: 901
 repl_turn_policy_timeout_seconds: 7
@@ -191,6 +192,9 @@ trace_semantic_span_patterns:
 	}
 	if s.DataTaskMaxDataRounds == nil || *s.DataTaskMaxDataRounds != 18 {
 		t.Errorf("DataTaskMaxDataRounds = %v", s.DataTaskMaxDataRounds)
+	}
+	if s.DataTaskMaxFileBytes == nil || *s.DataTaskMaxFileBytes != 12345678 {
+		t.Errorf("DataTaskMaxFileBytes = %v", s.DataTaskMaxFileBytes)
 	}
 }
 

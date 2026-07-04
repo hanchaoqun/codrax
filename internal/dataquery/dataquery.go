@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 )
 
 type OutputFormat string
@@ -524,7 +526,36 @@ func classifyExecutionFailureLeaf(err error) DataTaskViolation {
 	if errors.As(err, &resultErr) && len(resultErr.Violations) > 0 {
 		return markTypedDataTaskViolation(resultErr.Violations[0])
 	}
+	var oversizeErr *width.ErrSourceReadOversized
+	if errors.As(err, &oversizeErr) {
+		return markTypedDataTaskViolation(sourceOversizedViolation(oversizeErr, err))
+	}
 	return ClassifyExecutionError(err.Error())
+}
+
+// sourceOversizedViolation types the data-lane per-file read-bound refusal
+// (width.ErrSourceReadOversized) so it does not fall through to the generic
+// runtime_failure text branch. The generic replan hint ("emit a corrected
+// bounded plan") is actively misleading here: no re-emitted plan can shrink
+// the input file, so the hint states the observed size, the active bound,
+// and the real levers instead. The data_task_max_file_bytes knob name is
+// attached HERE, in the dataquery lane classification layer — the width.go
+// error message stays lane-neutral on purpose because it serves the
+// read/citation/data surfaces alike.
+func sourceOversizedViolation(oversize *width.ErrSourceReadOversized, cause error) DataTaskViolation {
+	summary := ""
+	if cause != nil {
+		summary = clampViolationText(cause.Error(), 500)
+	}
+	return DataTaskViolation{
+		Code:          "source_oversized",
+		Summary:       summary,
+		ActualSnippet: clampViolationText(oversize.Path, 300),
+		Repairability: RepairabilityNeedsClarification,
+		RepairHint: fmt.Sprintf(
+			"The input file is %d bytes but the data-lane per-file read bound is %d bytes; oversized files are refused fail-loud and never truncated, and re-planning the same input cannot shrink the file. Either raise data_task_max_file_bytes in codrax.yaml or run the task against a smaller / pre-reduced file.",
+			oversize.Size, oversize.Cap),
+	}
 }
 
 func markTypedDataTaskViolation(violation DataTaskViolation) DataTaskViolation {
@@ -1437,6 +1468,40 @@ const (
 	resultMarker         = "__DATA_RESULT_JSON__"
 )
 
+// configuredMaxFileBytes is the startup-injected data_task_max_file_bytes
+// knob (codrax.yaml). Zero means "not configured": EffectiveMaxFileBytes
+// falls back to defaultMaxFileBytes. One-shot injection mirrors
+// tool.SetBlobLimits / tool.SetWidthGovernor.
+var configuredMaxFileBytes int64
+
+// SetDefaultMaxFileBytes injects the codrax.yaml data_task_max_file_bytes
+// knob at startup. Non-positive resets to the code default (32 MiB).
+func SetDefaultMaxFileBytes(n int64) {
+	if n <= 0 {
+		configuredMaxFileBytes = 0
+		return
+	}
+	configuredMaxFileBytes = n
+}
+
+// EffectiveMaxFileBytes resolves the data-lane per-file read bound:
+// explicit runner override → codrax.yaml data_task_max_file_bytes → code
+// default. Every single-file material read in the data lane (candidate
+// inspection, action record readers, record extraction, python-runner
+// input copy, image material extraction) MUST consume this bound and
+// refuse oversized files fail-loud (width.ErrSourceReadOversized carries
+// the observed size and the cap). Silent truncation is forbidden: a
+// truncated CSV sums wrong, so the lane rejects instead.
+func EffectiveMaxFileBytes(explicit int64) int64 {
+	if explicit > 0 {
+		return explicit
+	}
+	if configuredMaxFileBytes > 0 {
+		return configuredMaxFileBytes
+	}
+	return defaultMaxFileBytes
+}
+
 func DiscoverCandidateFiles(root string, limit int) ([]CandidateFile, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
@@ -1569,7 +1634,12 @@ func inspectDelimitedCandidate(path string, f CandidateFile) CandidateFile {
 }
 
 func inspectJSONCandidate(path string, f CandidateFile) CandidateFile {
-	data, err := os.ReadFile(path)
+	// Bounded whole-file read (DQA O1): a candidate JSON is a user-named
+	// material file and can be arbitrarily large; oversize is refused
+	// fail-loud via InspectError (the error text carries size and cap)
+	// instead of being slurped — the previous unbounded os.ReadFile
+	// truncated to 256 KiB only AFTER allocating the whole file.
+	data, err := width.ReadFileBounded(path, EffectiveMaxFileBytes(0))
 	if err != nil {
 		f.InspectError = err.Error()
 		return f
@@ -1802,10 +1872,7 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
-	maxFile := r.MaxFileBytes
-	if maxFile <= 0 {
-		maxFile = defaultMaxFileBytes
-	}
+	maxFile := EffectiveMaxFileBytes(r.MaxFileBytes)
 	maxTotal := r.MaxTotalBytes
 	if maxTotal <= 0 {
 		maxTotal = defaultMaxTotalBytes

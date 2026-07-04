@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 )
 
 // ActionRunner executes typed, read-only data actions. It is deliberately
@@ -602,7 +604,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	}
 	defer cleanup()
 	seedArtifacts := stripWorkflowLedgerArtifacts(r.Seed.Artifacts)
-	r.artifactFiles = dataActionArtifactFilesFromSeed(seedArtifacts)
+	r.artifactFiles = dataActionArtifactFilesFromSeed(seedArtifacts, EffectiveMaxFileBytes(r.MaxFileBytes))
 	artifacts := append([]DataArtifact(nil), seedArtifacts...)
 	consumed := append([]string(nil), r.Seed.ConsumedPaths...)
 	var summaries []string
@@ -8995,7 +8997,7 @@ func (r ActionRunner) ReferenceKeyCandidateForPath(path, field string, maxRecord
 		maxRecords = 100000
 	}
 	if r.artifactFiles == nil {
-		r.artifactFiles = dataActionArtifactFilesFromSeed(r.Seed.Artifacts)
+		r.artifactFiles = dataActionArtifactFilesFromSeed(r.Seed.Artifacts, EffectiveMaxFileBytes(r.MaxFileBytes))
 	}
 	records, headers, _, _, err := r.readActionRecords(path, maxRecords)
 	if err != nil || len(records) == 0 || !actionRecordFieldExistsInRecords(headers, records, field) {
@@ -9035,7 +9037,7 @@ func (r ActionRunner) ReferenceKeyCandidatesForPath(path string, maxRecords int)
 		maxRecords = 100000
 	}
 	if r.artifactFiles == nil {
-		r.artifactFiles = dataActionArtifactFilesFromSeed(r.Seed.Artifacts)
+		r.artifactFiles = dataActionArtifactFilesFromSeed(r.Seed.Artifacts, EffectiveMaxFileBytes(r.MaxFileBytes))
 	}
 	records, headers, _, _, err := r.readActionRecords(path, maxRecords)
 	if err != nil || len(records) == 0 {
@@ -9080,7 +9082,7 @@ func (r ActionRunner) InferReferenceKeyCandidate(artifacts []DataArtifact, exist
 		maxRecords = 100000
 	}
 	if r.artifactFiles == nil {
-		r.artifactFiles = dataActionArtifactFilesFromSeed(artifacts)
+		r.artifactFiles = dataActionArtifactFilesFromSeed(artifacts, EffectiveMaxFileBytes(r.MaxFileBytes))
 	}
 	paths := referenceCandidatePaths(artifacts, candidatePaths)
 	fieldsHint := cleanStringList(candidateFields)
@@ -9453,22 +9455,23 @@ func (r ActionRunner) readActionRecords(path string, maxRecords int) ([]actionRe
 		records, headers, total, err := readDirectoryTextActionRecords(abs, rel, maxRecords)
 		return records, headers, total, rel, err
 	}
+	maxBytes := EffectiveMaxFileBytes(r.MaxFileBytes)
 	kind := dataKindForPath(abs)
 	switch kind {
 	case "csv", "tsv":
 		records, headers, total, err := readDelimitedActionRecords(abs, rel, kind, maxRecords)
 		return records, headers, total, rel, err
 	case "json":
-		records, headers, total, err := readJSONActionRecords(abs, rel, maxRecords)
+		records, headers, total, err := readJSONActionRecords(abs, rel, maxRecords, maxBytes)
 		records, headers, total = filterActionRecordsForSourceAlias(originalPath, records, headers, total)
-		return records, headers, total, rel, err
+		return records, headers, total, rel, r.annotateInternalArtifactOversize(err, originalPath, abs)
 	case "jsonl":
-		records, headers, total, err := readJSONLActionRecords(abs, rel, maxRecords)
+		records, headers, total, err := readJSONLActionRecords(abs, rel, maxRecords, maxBytes)
 		records, headers, total = filterActionRecordsForSourceAlias(originalPath, records, headers, total)
-		return records, headers, total, rel, err
+		return records, headers, total, rel, r.annotateInternalArtifactOversize(err, originalPath, abs)
 	default:
-		records, total, err := readTextActionRecords(abs, rel, maxRecords)
-		return records, []string{"text"}, total, rel, err
+		records, total, err := readTextActionRecords(abs, rel, maxRecords, maxBytes)
+		return records, []string{"text"}, total, rel, r.annotateInternalArtifactOversize(err, originalPath, abs)
 	}
 }
 
@@ -10028,7 +10031,8 @@ func (r ActionRunner) registerActionArtifactAlias(alias, abs string) {
 	if alias == "" || abs == "" {
 		return
 	}
-	if existing := strings.TrimSpace(r.artifactFiles[alias]); existing != "" && actionArtifactFilePreference(existing) > actionArtifactFilePreference(abs) {
+	maxBytes := EffectiveMaxFileBytes(r.MaxFileBytes)
+	if existing := strings.TrimSpace(r.artifactFiles[alias]); existing != "" && actionArtifactFilePreference(existing, maxBytes) > actionArtifactFilePreference(abs, maxBytes) {
 		return
 	}
 	r.artifactFiles[alias] = abs
@@ -10046,7 +10050,7 @@ func (r ActionRunner) registerActionArtifactChildAliases(artifact DataArtifact, 
 	}
 }
 
-func dataActionArtifactFilesFromSeed(artifacts []DataArtifact) map[string]string {
+func dataActionArtifactFilesFromSeed(artifacts []DataArtifact, maxBytes int64) map[string]string {
 	out := map[string]string{}
 	register := func(alias, abs string) {
 		alias = normalizeMaterialPath(alias)
@@ -10057,7 +10061,7 @@ func dataActionArtifactFilesFromSeed(artifacts []DataArtifact) map[string]string
 		if info, err := os.Stat(abs); err != nil || info.IsDir() {
 			return
 		}
-		if existing := strings.TrimSpace(out[alias]); existing != "" && actionArtifactFilePreference(existing) > actionArtifactFilePreference(abs) {
+		if existing := strings.TrimSpace(out[alias]); existing != "" && actionArtifactFilePreference(existing, maxBytes) > actionArtifactFilePreference(abs, maxBytes) {
 			return
 		}
 		out[alias] = abs
@@ -10084,46 +10088,6 @@ func dataActionArtifactFilesFromSeed(artifacts []DataArtifact) map[string]string
 		walk(artifact, "")
 	}
 	return out
-}
-
-func actionArtifactFilePreference(abs string) int {
-	abs = strings.TrimSpace(abs)
-	if abs == "" {
-		return 0
-	}
-	raw, err := os.ReadFile(abs)
-	if err != nil {
-		return 0
-	}
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return 2
-	}
-	return jsonActionRecordPayloadPreference(value)
-}
-
-func jsonActionRecordPayloadPreference(value any) int {
-	switch typed := value.(type) {
-	case []any:
-		return 4
-	case map[string]any:
-		for _, key := range []string{"records", "rows", "contributions", "entity_resolutions", "rule_coverage", "groups", "items", "data", "values"} {
-			if arr, ok := typed[key].([]any); ok {
-				if len(arr) > 0 {
-					return 4
-				}
-				return 3
-			}
-		}
-		if _, hasChildren := typed["children"]; hasChildren {
-			if _, hasSummary := typed["summary"]; hasSummary {
-				return 1
-			}
-		}
-		return 2
-	default:
-		return 2
-	}
 }
 
 func safeActionArtifactFileName(name string) string {
@@ -10233,8 +10197,11 @@ func readDelimitedActionRecords(abs, rel, kind string, maxRecords int) ([]action
 	return records, headers, total, nil
 }
 
-func readJSONActionRecords(abs, rel string, maxRecords int) ([]actionRecord, []string, int, error) {
-	raw, err := os.ReadFile(abs)
+func readJSONActionRecords(abs, rel string, maxRecords int, maxBytes int64) ([]actionRecord, []string, int, error) {
+	// Bounded whole-file read (DQA O1): user material path; oversize is a
+	// fail-loud typed refusal (width.ErrSourceReadOversized), never a
+	// silent truncation — truncated data computes wrong answers.
+	raw, err := width.ReadFileBounded(abs, maxBytes)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -10300,8 +10267,9 @@ func parseJSONHeaderValue(value any) []string {
 	}
 }
 
-func readJSONLActionRecords(abs, rel string, maxRecords int) ([]actionRecord, []string, int, error) {
-	raw, err := os.ReadFile(abs)
+func readJSONLActionRecords(abs, rel string, maxRecords int, maxBytes int64) ([]actionRecord, []string, int, error) {
+	// Bounded whole-file read (DQA O1): see readJSONActionRecords.
+	raw, err := width.ReadFileBounded(abs, maxBytes)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -10338,8 +10306,9 @@ func readJSONLActionRecords(abs, rel string, maxRecords int) ([]actionRecord, []
 	return records, headers, total, nil
 }
 
-func readTextActionRecords(abs, rel string, maxRecords int) ([]actionRecord, int, error) {
-	raw, err := os.ReadFile(abs)
+func readTextActionRecords(abs, rel string, maxRecords int, maxBytes int64) ([]actionRecord, int, error) {
+	// Bounded whole-file read (DQA O1): see readJSONActionRecords.
+	raw, err := width.ReadFileBounded(abs, maxBytes)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -11639,6 +11608,7 @@ func structuredActionParam(params map[string]string, key string) string {
 }
 
 func (r ActionRunner) extractRecordsFromPath(path string, limit int) (DataArtifact, error) {
+	originalPath := normalizeMaterialPath(path)
 	abs, rel, err := r.resolveActionInputPath(path)
 	if err != nil {
 		return DataArtifact{}, err
@@ -11660,6 +11630,7 @@ func (r ActionRunner) extractRecordsFromPath(path string, limit int) (DataArtifa
 	artifact.ID = rel + "#records"
 	artifact.Kind = string(DataActionExtractRecords) + "/" + kind
 	artifact.Sample = nil
+	maxBytes := EffectiveMaxFileBytes(r.MaxFileBytes)
 	switch kind {
 	case "csv", "tsv":
 		headers, samples, rowCount, err := extractDelimitedRecords(abs, f.Delimiter, limit)
@@ -11670,23 +11641,23 @@ func (r ActionRunner) extractRecordsFromPath(path string, limit int) (DataArtifa
 		artifact.Sample = samples
 		artifact.RowCount = rowCount
 	case "json":
-		samples, rowCount, err := extractJSONRecords(abs, limit)
+		samples, rowCount, err := extractJSONRecords(abs, limit, maxBytes)
 		if err != nil {
-			return DataArtifact{}, err
+			return DataArtifact{}, r.annotateInternalArtifactOversize(err, originalPath, abs)
 		}
 		artifact.Sample = samples
 		artifact.RowCount = rowCount
 	case "jsonl":
-		samples, rowCount, err := extractJSONLRecords(abs, limit)
+		samples, rowCount, err := extractJSONLRecords(abs, limit, maxBytes)
 		if err != nil {
-			return DataArtifact{}, err
+			return DataArtifact{}, r.annotateInternalArtifactOversize(err, originalPath, abs)
 		}
 		artifact.Sample = samples
 		artifact.RowCount = rowCount
 	default:
-		samples, rowCount, err := extractTextRecords(abs, limit)
+		samples, rowCount, err := extractTextRecords(abs, limit, maxBytes)
 		if err != nil {
-			return DataArtifact{}, err
+			return DataArtifact{}, r.annotateInternalArtifactOversize(err, originalPath, abs)
 		}
 		artifact.Sample = samples
 		artifact.RowCount = rowCount
@@ -12173,8 +12144,9 @@ func extractDelimitedRecords(path, delimiter string, limit int) ([]string, []str
 	return headers, samples, rowCount, nil
 }
 
-func extractJSONRecords(path string, limit int) ([]string, int, error) {
-	raw, err := os.ReadFile(path)
+func extractJSONRecords(path string, limit int, maxBytes int64) ([]string, int, error) {
+	// Bounded whole-file read (DQA O1): see readJSONActionRecords.
+	raw, err := width.ReadFileBounded(path, maxBytes)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -12209,8 +12181,9 @@ func extractJSONRecords(path string, limit int) ([]string, int, error) {
 	return samples, len(records), nil
 }
 
-func extractJSONLRecords(path string, limit int) ([]string, int, error) {
-	raw, err := os.ReadFile(path)
+func extractJSONLRecords(path string, limit int, maxBytes int64) ([]string, int, error) {
+	// Bounded whole-file read (DQA O1): see readJSONActionRecords.
+	raw, err := width.ReadFileBounded(path, maxBytes)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -12236,8 +12209,9 @@ func extractJSONLRecords(path string, limit int) ([]string, int, error) {
 	return samples, rowCount, nil
 }
 
-func extractTextRecords(path string, limit int) ([]string, int, error) {
-	raw, err := os.ReadFile(path)
+func extractTextRecords(path string, limit int, maxBytes int64) ([]string, int, error) {
+	// Bounded whole-file read (DQA O1): see readJSONActionRecords.
+	raw, err := width.ReadFileBounded(path, maxBytes)
 	if err != nil {
 		return nil, 0, err
 	}

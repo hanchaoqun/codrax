@@ -14,6 +14,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/dataworkflow"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tool/width"
 )
 
 // DataTaskCLIConfig is the single-shot companion to the REPL data workflow.
@@ -836,7 +837,10 @@ func dataTaskFinalAnswerCandidateGuardResult(current dataquery.TaskPlan, result 
 }
 
 func loadDataTaskWorkflowResumeFile(path string) (dataTaskWorkflowResumeState, error) {
-	raw, err := os.ReadFile(path)
+	// Bounded whole-file read (DQA O1): the checkpoint is system-written
+	// but the resume path is user-supplied, so a mispointed path must not
+	// slurp an arbitrary artifact. Oversize refuses fail-loud.
+	raw, err := width.ReadFileBounded(path, dataquery.EffectiveMaxFileBytes(0))
 	if err != nil {
 		return dataTaskWorkflowResumeState{}, fmt.Errorf("read data workflow checkpoint: %w", err)
 	}

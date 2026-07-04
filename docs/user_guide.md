@@ -2647,6 +2647,7 @@ operation 工作流相关 REPL 命令:
 | `operation_command_overwrite_policy` | `manual` | 覆盖写入策略:`manual` 等待批准,`deny` 阻止结构化标记为覆盖或明显强制覆盖的步骤 |
 | `data_task_max_repair_rounds` | `6` | 数据处理脚本失败后的最大自修复轮数。只影响 data lane,不影响源码分析、trace/log、operation 或写模式 |
 | `data_task_max_data_rounds` | `18` | 数据处理 execute/evaluate/continue 的最大批次数。复杂多材料任务可适当调高,系统仍有硬上限防止无限循环 |
+| `data_task_max_file_bytes` | `33554432`(32 MiB) | data lane 单文件材料读取的字节上限(候选探查、记录读取/抽样、python 输入拷贝、图像材料、checkpoint 恢复全部生效)。超限文件直接以 typed 违规拒绝,并给出实际大小与上限,绝不静默截断(截断的 CSV 会算错)。要处理更大的材料文件请调高此值,或改用更小/预裁剪的输入文件;缺省或非正值 = 32 MiB 默认 |
 
 通用命令行操作的第一版工作流:
 
