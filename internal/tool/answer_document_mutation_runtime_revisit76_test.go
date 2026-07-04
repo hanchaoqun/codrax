@@ -547,8 +547,27 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkRecursOnChain:    {"↺", "↺"},
 		runtimeTraceProjMarkOmitted:          {"省略", "nodes omitted"},
 		runtimeTraceProjMarkIOCaliberNote:    {"同段IO另有", "same-segment IO also measured"},
+		runtimeTraceProjMarkPeriodicSource:   {"周期性信号源", "periodic signal source"},
 		runtimeTraceProjMarkAdjacentStanza:   {"◇", "◇"},
 		runtimeTraceProjMarkBackgroundStanza: {"▒", "▒"},
+	}
+}
+
+// revisit76PeriodicProjection is the VS-1 berlin shape: a periodic signal
+// source (VSyncGenerator ≈8.3ms cadence) whose in-period sleep is normal
+// cadence — the row carries the cadence Keep tag and its legend entry.
+func revisit76PeriodicProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"VSyncGenerator-610", "app-100"},
+		WindowStartTs: 100.0,
+		WindowEndTs:   100.05,
+		OnChainCauses: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRoleRootCauseContext, Subject: "VSyncGenerator-610",
+			Object: "sleep_wait", StateKind: "s_sleep", ChainRelevance: "on_chain",
+			ImpactMS: 36.256, CumulativeImpactMS: 36.361, EffectiveImpactMS: 0.176,
+			PeriodicSource: true, DetectedPeriodMS: 8.302, PeriodicLatenessMS: 0.071,
+			Confidence: 0.8,
+		}},
 	}
 }
 
@@ -673,6 +692,8 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		{"revisit_7_0_rich_chain", revisit76RichChainProjection()},
 		{"flat_undrillable", revisit76FlatUndrillableProjection()},
 		{"berlin_cause_adjacent_background", revisit76BerlinLayersProjection()},
+		// VS-1: the periodic-source cadence tag and its legend entry.
+		{"berlin_periodic_source", revisit76PeriodicProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

@@ -1556,7 +1556,18 @@ type RootCauseRankItem struct {
 	// every other row type.
 	GatedRunnableMs       float64                  `json:"gated_runnable_ms,omitempty"`
 	GatedRunningDeficitMs float64                  `json:"gated_running_deficit_ms,omitempty"`
-	TargetImpactMs        float64                  `json:"target_impact_ms,omitempty"`
+	// PeriodicSource / DetectedPeriodMs / LatenessMs mirror the VS-1 (§7.8)
+	// periodic-signal-source accounting of the backing causal impact/aggregate.
+	// On a periodic row EffectiveImpactMs carries the discounted attribution
+	// (runnable in full + lateness; in-period sleep excluded) and IS the
+	// ranking value even when it is exactly 0 (pure cadence) — the boolean is
+	// the precise signal that stops the cumulative fallback from resurrecting
+	// the raw sleep. ImpactMs/CumulativeImpactMs stay raw (window projection
+	// is lossless).
+	PeriodicSource   bool    `json:"periodic_source,omitempty"`
+	DetectedPeriodMs float64 `json:"detected_period_ms,omitempty"`
+	LatenessMs       float64 `json:"lateness_ms,omitempty"`
+	TargetImpactMs   float64 `json:"target_impact_ms,omitempty"`
 	ActualImpactMs        float64                  `json:"actual_impact_ms,omitempty"`
 	ActualTotalMs         float64                  `json:"actual_total_ms,omitempty"`
 	Score                 float64                  `json:"score,omitempty"`
@@ -1924,8 +1935,29 @@ type WakeupCausalImpact struct {
 	// of claiming a single scheduler state for the composite.
 	GatedRunnableMs       float64 `json:"gated_runnable_ms,omitempty"`
 	GatedRunningDeficitMs float64 `json:"gated_running_deficit_ms,omitempty"`
-	Summary               string  `json:"summary,omitempty"`
-	NextStep              string  `json:"next_step,omitempty"`
+	// VS-1 (§7.8, customer ruling): periodic-signal-source causal accounting.
+	// A periodic waker (e.g. a VSync generator) sleeping between its ticks is
+	// normal cadence, not root-cause impact. PeriodicSource is stamped on the
+	// sleep-dominant member occurrences of a (waker→target) aggregate whose
+	// actual-window start intervals hold the robust cadence (F1/F3/F4,
+	// adversarial review 2026-07-04: observation-gap carve + lower-median
+	// period, early fires veto, ≥2/3 in-band ratio — see the
+	// wakeupPeriodicIntervalTolerance doc) — deterministic interval
+	// arithmetic, never a thread-name heuristic. DetectedPeriodMs is that
+	// robust period. LatenessMs is THIS occurrence's blocked caliber
+	// max(0, TargetBlockedMs − period): how much the target's wait for this
+	// signal exceeded one period — independent of whether the selected
+	// occurrences are adjacent ticks (intervals are never a lateness source).
+	// EffectivePeriodicImpactMs = RunnableMs (counted in full) + LatenessMs,
+	// capped at the raw blocking value; in-period sleep never counts. All raw
+	// impact/total/actual fields stay untouched (lossless) — only
+	// ranking/attribution consume the discount.
+	PeriodicSource            bool    `json:"periodic_source,omitempty"`
+	DetectedPeriodMs          float64 `json:"detected_period_ms,omitempty"`
+	LatenessMs                float64 `json:"lateness_ms,omitempty"`
+	EffectivePeriodicImpactMs float64 `json:"effective_periodic_impact_ms,omitempty"`
+	Summary                   string  `json:"summary,omitempty"`
+	NextStep                  string  `json:"next_step,omitempty"`
 	// NextStepKind is the deterministic typed enumeration behind the English
 	// NextStep guidance prose (NextStepKind* constants), so renderers can
 	// localize without parsing prose.
@@ -2009,7 +2041,18 @@ type WakeupCausalAggregate struct {
 	PriorityRelation  string                   `json:"priority_relation,omitempty"`
 	PriorityInversion bool                     `json:"priority_inversion_candidate,omitempty"`
 	OccurrenceWindows []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
-	Summary           string                   `json:"summary,omitempty"`
+	// VS-1 (§7.8): periodic-signal-source accounting, aggregate face — see the
+	// WakeupCausalImpact field docs. LatenessMs here is the SUM of the member
+	// occurrences' blocked-caliber lateness amounts, capped at raw blocking −
+	// RunnableMs (F1(c): occurrences sharing one branch window must not
+	// double-count the same target wait into the Summary);
+	// EffectivePeriodicImpactMs = the aggregate RunnableMs (full) + LatenessMs,
+	// capped at the raw blocking value. Raw sums above stay untouched.
+	PeriodicSource            bool    `json:"periodic_source,omitempty"`
+	DetectedPeriodMs          float64 `json:"detected_period_ms,omitempty"`
+	LatenessMs                float64 `json:"lateness_ms,omitempty"`
+	EffectivePeriodicImpactMs float64 `json:"effective_periodic_impact_ms,omitempty"`
+	Summary                   string  `json:"summary,omitempty"`
 }
 
 type RootEvidence struct {

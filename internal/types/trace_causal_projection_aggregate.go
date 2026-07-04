@@ -187,7 +187,15 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	if survivor.SubjectKind == "" {
 		survivor.SubjectKind = loser.SubjectKind
 	}
-	if survivor.EffectiveImpactMS <= 0 {
+	// VS-1 F6(b) (adversarial review 2026-07-04): a periodic-source survivor's
+	// EffectiveImpactMS is the AUTHORITATIVE discounted attribution even at
+	// exactly 0 (pure in-period cadence) — the merged twin is the raw-lane
+	// view of the same fact, and backfilling its positive value would
+	// resurrect the very sleep the discount removed. The survivor's periodic
+	// triple (PeriodicSource/DetectedPeriodMS/PeriodicLatenessMS) likewise
+	// stays exactly as the survivor published it (it won the priority scan);
+	// a loser's periodic fields are never copied over. Precise boolean gate.
+	if !survivor.PeriodicSource && survivor.EffectiveImpactMS <= 0 {
 		survivor.EffectiveImpactMS = loser.EffectiveImpactMS
 	}
 	if survivor.ActualImpactMS <= 0 {
@@ -611,6 +619,38 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 		// Cleared unconditionally: member provenance stays lossless through
 		// MergedEvidenceIDs; no second counter is introduced.
 		aggregate.DuplicatePublications = 0
+		// VS-1 F6(a) (adversarial review 2026-07-04): the ×N SUM row re-derives
+		// its periodic accounting from the MEMBERS instead of inheriting the
+		// group-first copy. All members periodic → the fold keeps the flag with
+		// the summed discount (Σ effective / Σ lateness are legal sums here:
+		// per-member discounts are disjoint per-occurrence amounts, never
+		// overlapping wall clock) and the group head's DetectedPeriodMS (already
+		// on the aggregate). ANY non-periodic member → the SUM row is back to
+		// raw semantics: flag, cadence fields and the inherited (periodic-only)
+		// discount are cleared — a part-cadence sum labelled periodic would
+		// discount real waits it never measured, and a stale group-first
+		// effective would understate the ×N total.
+		allPeriodic := true
+		for _, idx := range g.members {
+			if !nodes[idx].PeriodicSource {
+				allPeriodic = false
+				break
+			}
+		}
+		if allPeriodic {
+			effective, lateness := 0.0, 0.0
+			for _, idx := range g.members {
+				effective += nodes[idx].EffectiveImpactMS
+				lateness += nodes[idx].PeriodicLatenessMS
+			}
+			aggregate.EffectiveImpactMS = effective
+			aggregate.PeriodicLatenessMS = lateness
+		} else if aggregate.PeriodicSource {
+			aggregate.PeriodicSource = false
+			aggregate.DetectedPeriodMS = 0
+			aggregate.PeriodicLatenessMS = 0
+			aggregate.EffectiveImpactMS = 0
+		}
 		replaced[g.first] = aggregate
 	}
 	if len(replaced) == 0 && len(dropped) == 0 {

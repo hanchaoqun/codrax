@@ -18,6 +18,50 @@ const unparsedLineCaveatRatio = 0.5
 
 const wakeupMatchToleranceSec = 0.000005
 const wakeupCausalAggregateOccurrenceCap = 8
+
+// VS-1 periodic-source detection (§7.8, customer ruling): a sleep-dominant
+// (waker→target) aggregate with at least wakeupPeriodicMinOccurrences
+// occurrences is a periodic signal source (e.g. a VSync generator) when its
+// adjacent actual-window start intervals hold a cadence around the robust
+// period p. The occurrences come from branch top-K SELECTION, so the interval
+// sequence is NOT a signal timeline (F1, adversarial review 2026-07-04) —
+// selected occurrences need not be adjacent signal ticks — and every reading
+// below is immune to that selection:
+//   - p is the LOWER median (sorted[(n−1)/2], one uniform rule for odd and
+//     even counts) of the intervals that remain after carving observation
+//     gaps: an interval within ±tol·p of an integer multiple k·p (k≥2) is a
+//     gap between non-adjacent selected occurrences — never lateness, never a
+//     veto (F3: an even-count two-middle AVERAGE gets pulled between cadence
+//     bands by one gap/extreme and lands on a period no real interval has);
+//   - an interval below p×(1−tol) is an EARLY fire: a fixed-period source
+//     never fires early, so detection vetoes;
+//   - lateness is NOT an interval reading at all: per occurrence it is
+//     max(0, target_blocked − p) — how much the target's wait for THIS signal
+//     exceeded one period (the customer semantics "the signal arrived later
+//     than expected"), independent of occurrence adjacency; the aggregate sum
+//     is capped at raw − runnable so a fabricated amount can never reach the
+//     Summary. Intervals are used ONLY to estimate p and drive the vetoes;
+//   - the in-band ratio gate (F4): after the gap carve at least 2/3 of the
+//     remaining intervals must sit inside [p×(1−tol), p×(1+tol)]. Late
+//     intervals still never veto by themselves (their overage reaches
+//     LatenessMs through the blocked caliber) — they just must not dominate
+//     the sample.
+// The 15% tolerance is a NOISE threshold and therefore drives ONLY soft
+// surfaces (effective-impact accounting, labels, rank ordering) — never a
+// hard structural gate (precise-signals red line). The runnable and lateness
+// amounts that DO count are exact arithmetic.
+//
+// wakeupPeriodicMinOccurrences is 5 (F4, adversarial review 2026-07-04): the
+// trace records WHEN a wakeup happened, never WHY — a demand-driven worker
+// woken a couple of times at coincidentally similar spacing is unobservably
+// different from a real generator, so at 3 occurrences (2 intervals) the
+// discount could silence a genuine on-demand wait. Five occurrences with a
+// 2/3 in-band majority make an accidental cadence unlikely while real polling
+// / tick workers (berlin: 6 VSync occurrences) still clear the bar; the cost
+// of the stricter gate is only that a short-lived periodic source keeps its
+// raw (conservative, pre-VS-1) attribution.
+const wakeupPeriodicMinOccurrences = 5
+const wakeupPeriodicIntervalTolerance = 0.15
 const microWindowProbeSeconds = 0.050
 const preferredCoverageWindowMinSeconds = 0.080
 const preferredCoverageWindowMaxSeconds = 0.150
@@ -7118,7 +7162,7 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 		visited := map[int]bool{}
 		targetBlockedMs := (q.TimeEnd - q.TimeStart) * 1000
 		expandChain(idx, q, cache, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "", nil)
-		res.AggregatedImpacts = aggregateWakeupCausalImpacts(res)
+		res.AggregatedImpacts = aggregateWakeupCausalImpacts(&res)
 		attachIPCGraphToChain(idx, q, &res)
 		return res
 	}
@@ -7127,19 +7171,23 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 		targetBlockedMs := (branch.EndTs - branch.StartTs) * 1000
 		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "", nil)
 	}
-	res.AggregatedImpacts = aggregateWakeupCausalImpacts(res)
+	res.AggregatedImpacts = aggregateWakeupCausalImpacts(&res)
 	attachIPCGraphToChain(idx, q, &res)
 	return res
 }
 
-func aggregateWakeupCausalImpacts(chain ChainResult) []WakeupCausalAggregate {
+func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 	type acc struct {
 		item      WakeupCausalAggregate
 		prioVotes map[string]int
 		invCount  int
+		// members indexes this aggregate's occurrences in chain.CausalImpacts
+		// so VS-1 periodic detection can stamp the member rows in place.
+		members []int
 	}
 	accs := map[string]*acc{}
-	for _, impact := range chain.CausalImpacts {
+	for idx := range chain.CausalImpacts {
+		impact := chain.CausalImpacts[idx]
 		if impact.Thread.PID <= 0 || impact.ChainDepth <= 0 || impact.TotalMs <= 0 || strings.TrimSpace(impact.DominantState) == "" {
 			continue
 		}
@@ -7150,9 +7198,10 @@ func aggregateWakeupCausalImpacts(chain ChainResult) []WakeupCausalAggregate {
 			a.item.Thread = impact.Thread
 			a.item.ChainDepth = impact.ChainDepth
 			a.item.DominantState = impact.DominantState
-			a.item.Path = wakeupChainPathFromThread(chain, impact.Thread)
+			a.item.Path = wakeupChainPathFromThread(*chain, impact.Thread)
 			accs[key] = a
 		}
+		a.members = append(a.members, idx)
 		a.item.OccurrenceCount++
 		if impact.ChainDepth < a.item.ChainDepth {
 			a.item.ChainDepth = impact.ChainDepth
@@ -7212,6 +7261,7 @@ func aggregateWakeupCausalImpacts(chain ChainResult) []WakeupCausalAggregate {
 		a.item.ActualImpactMs = actualAggregateBlockingMs(a.item)
 		a.item.PriorityRelation = mostFrequentString(a.prioVotes)
 		a.item.PriorityInversion = a.invCount > 0
+		detectPeriodicWakeupSource(chain, &a.item, a.members)
 		a.item.OccurrenceWindows = trimWakeupCausalOccurrences(a.item.OccurrenceWindows, wakeupCausalAggregateOccurrenceCap)
 		a.item.Summary = renderWakeupCausalAggregateSummary(a.item)
 		out = append(out, a.item)
@@ -7229,6 +7279,200 @@ func aggregateWakeupCausalImpacts(chain ChainResult) []WakeupCausalAggregate {
 		out = out[:8]
 	}
 	return out
+}
+
+// detectPeriodicWakeupSource implements the VS-1 (§7.8) periodic-signal-source
+// detection on one (waker→target) aggregate: with ≥wakeupPeriodicMinOccurrences
+// sleep-dominant occurrences whose actual-window start intervals hold the
+// robust cadence (see the wakeupPeriodicIntervalTolerance doc: gap carve +
+// lower-median p, early fires veto, ≥2/3 in-band ratio), the pair is a
+// periodic source — its in-period sleep is normal cadence. Lateness is the
+// per-occurrence blocked caliber max(0, target_blocked − p), never an
+// interval reading (F1: occurrence selection makes intervals a non-timeline).
+// The aggregate AND its member impacts (stamped in place via the members
+// indices) get PeriodicSource/DetectedPeriodMs/LatenessMs/
+// EffectivePeriodicImpactMs; every raw field stays untouched. Deterministic
+// interval arithmetic only — thread names never participate. Restricted to
+// sleep-dominant aggregates: the customer ruling discounts in-period SLEEP;
+// runnable/running/D/IO rows already count precisely and keep their bytes.
+func detectPeriodicWakeupSource(chain *ChainResult, item *WakeupCausalAggregate, members []int) {
+	if item.DominantState != string(StateSSleep) || len(members) < wakeupPeriodicMinOccurrences {
+		return
+	}
+	ordered := append([]int(nil), members...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return chain.CausalImpacts[ordered[i]].ActualWindow.StartTs < chain.CausalImpacts[ordered[j]].ActualWindow.StartTs
+	})
+	starts := make([]float64, 0, len(ordered))
+	for _, idx := range ordered {
+		ts := chain.CausalImpacts[idx].ActualWindow.StartTs
+		if ts <= 0 {
+			return // an occurrence without an actual-window start: no cadence basis
+		}
+		starts = append(starts, ts)
+	}
+	intervals := make([]float64, 0, len(starts)-1)
+	for i := 1; i < len(starts); i++ {
+		interval := (starts[i] - starts[i-1]) * 1000
+		if interval <= 0 {
+			return // coincident/unordered starts: not a cadence
+		}
+		intervals = append(intervals, interval)
+	}
+	cadence, ok := wakeupPeriodicCadenceFromIntervals(intervals)
+	if !ok || cadence.EarlyVeto {
+		return // no cadence basis, or fired early beyond tolerance
+	}
+	// F4 in-band ratio gate (integer arithmetic, ≥2/3): after the gap carve
+	// the cadence must be the MAJORITY reading of the observed intervals —
+	// out-of-band late intervals never veto by themselves, they just must not
+	// dominate the sample.
+	if cadence.InBand*3 < cadence.Kept*2 {
+		return
+	}
+	period := cadence.Period
+	item.PeriodicSource = true
+	item.DetectedPeriodMs = period
+	totalLateness := 0.0
+	for _, idx := range ordered {
+		impact := &chain.CausalImpacts[idx]
+		// F1(b) blocked-caliber lateness: the amount the target's wait for
+		// THIS signal exceeded one period. Independent of whether the selected
+		// occurrences are adjacent ticks; a missing target-blocked reading
+		// accrues nothing (never fabricate).
+		lateness := 0.0
+		if impact.TargetBlockedMs > period {
+			lateness = impact.TargetBlockedMs - period
+		}
+		impact.PeriodicSource = true
+		impact.DetectedPeriodMs = period
+		impact.LatenessMs = lateness
+		// A DISCOUNT can never inflate: runnable + lateness is capped at the
+		// raw blocking value the row published before VS-1 (a target wait far
+		// beyond the waker's own sleep would otherwise push the "effective"
+		// above the raw sleep).
+		impact.EffectivePeriodicImpactMs = minPositiveCapFloat(impact.RunnableMs+lateness, causalImpactBlockingMs(*impact))
+		impact.Summary = renderWakeupCausalImpactSummary(*impact)
+		totalLateness += lateness
+	}
+	// F1(c) fabrication cap at the SUM site: the aggregate's published
+	// lateness can never exceed raw blocking − runnable (occurrences sharing
+	// one branch window would otherwise double-count the same target wait and
+	// push an invented number into the Summary). Effective stays ≤ raw.
+	rawBlocking := aggregateBlockingMs(*item)
+	maxLateness := rawBlocking - item.RunnableMs
+	if maxLateness < 0 {
+		maxLateness = 0
+	}
+	if totalLateness > maxLateness {
+		totalLateness = maxLateness
+	}
+	item.LatenessMs = totalLateness
+	item.EffectivePeriodicImpactMs = minPositiveCapFloat(item.RunnableMs+totalLateness, rawBlocking)
+}
+
+// wakeupPeriodicCadence is the branch-selection-immune cadence reading of one
+// aggregate's adjacent actual-window start intervals (F1/F3, adversarial
+// review 2026-07-04). Gap marks observation gaps (≈k·p, k≥2): intervals
+// between selected occurrences that skipped ticks — excluded from the period
+// estimate, never lateness, never a veto.
+type wakeupPeriodicCadence struct {
+	Period    float64 // robust period p: lower median of the non-gap intervals
+	Gap       []bool  // per input interval: observation gap (≈k·p, k≥2 integer)
+	EarlyVeto bool    // some non-gap interval fired earlier than p×(1−tol)
+	InBand    int     // non-gap intervals inside [p×(1−tol), p×(1+tol)]
+	Kept      int     // non-gap interval count
+}
+
+// wakeupPeriodicCadenceFromIntervals estimates the robust period and
+// classifies every interval. Two deterministic passes:
+//   - pass 1 carves observation gaps against the SMALLEST interval (the
+//     smallest observed interval can never itself be a k≥2 multiple of the
+//     period, so it anchors the carve before any median is taken) and takes
+//     the lower median of what remains as p;
+//   - pass 2 re-classifies every interval against that final p: gap / early
+//     (veto) / in-band / late.
+//
+// ok is false when there is no positive interval to read a cadence from.
+func wakeupPeriodicCadenceFromIntervals(intervals []float64) (wakeupPeriodicCadence, bool) {
+	if len(intervals) == 0 {
+		return wakeupPeriodicCadence{}, false
+	}
+	anchor := intervals[0]
+	for _, interval := range intervals {
+		if interval <= 0 {
+			return wakeupPeriodicCadence{}, false
+		}
+		if interval < anchor {
+			anchor = interval
+		}
+	}
+	kept := make([]float64, 0, len(intervals))
+	for _, interval := range intervals {
+		if !wakeupPeriodicIsObservationGap(interval, anchor) {
+			kept = append(kept, interval)
+		}
+	}
+	period := lowerMedianOfFloats(kept)
+	if period <= 0 {
+		return wakeupPeriodicCadence{}, false
+	}
+	out := wakeupPeriodicCadence{Period: period, Gap: make([]bool, len(intervals))}
+	for i, interval := range intervals {
+		if wakeupPeriodicIsObservationGap(interval, period) {
+			out.Gap[i] = true
+			continue
+		}
+		out.Kept++
+		if interval < period*(1-wakeupPeriodicIntervalTolerance) {
+			out.EarlyVeto = true
+			continue
+		}
+		if interval <= period*(1+wakeupPeriodicIntervalTolerance) {
+			out.InBand++
+		}
+	}
+	return out, true
+}
+
+// wakeupPeriodicIsObservationGap reports whether the interval sits within
+// ±tol·reference of an integer multiple k·reference (k≥2) — an observation
+// gap between non-adjacent selected occurrences. The tolerance is relative to
+// ONE period, not to k·reference: a relative-to-multiple band widens with k
+// and starts absorbing chaotic interval sets whose smallest member is noise
+// (everything becomes "some multiple"), while accumulated in-band jitter over
+// the realistic k=2..4 gaps stays well inside ±tol of a single period.
+func wakeupPeriodicIsObservationGap(interval, reference float64) bool {
+	if reference <= 0 {
+		return false
+	}
+	k := math.Round(interval / reference)
+	if k < 2 {
+		return false
+	}
+	return math.Abs(interval-k*reference) <= wakeupPeriodicIntervalTolerance*reference
+}
+
+// minPositiveCapFloat caps value at cap when cap is positive; a non-positive
+// cap leaves the value untouched.
+func minPositiveCapFloat(value, cap float64) float64 {
+	if cap > 0 && value > cap {
+		return cap
+	}
+	return value
+}
+
+// lowerMedianOfFloats returns the lower median — sorted[(n−1)/2], one UNIFORM
+// rule for odd and even counts (F3: averaging the two middle values of an
+// even-count sample gets pulled between cadence bands by a single extreme and
+// returns a period no real interval has). The input slice is not mutated.
+func lowerMedianOfFloats(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	sorted := append([]float64(nil), values...)
+	sort.Float64s(sorted)
+	return sorted[(len(sorted)-1)/2]
 }
 
 func wakeupCausalOccurrenceFromImpact(impact WakeupCausalImpact) WakeupCausalOccurrence {
@@ -7380,6 +7624,11 @@ func renderWakeupCausalAggregateSummary(item WakeupCausalAggregate) string {
 	}
 	if item.PriorityInversion {
 		summary += " priority_inversion_candidate=true"
+	}
+	if item.PeriodicSource {
+		// VS-1 (§7.8): a periodic signal source's in-period sleep is normal
+		// cadence; only runnable time and signal lateness count as attribution.
+		summary += fmt.Sprintf(" periodic_source=true detected_period=%.3fms lateness=%.3fms effective_impact=%.3fms", item.DetectedPeriodMs, item.LatenessMs, item.EffectivePeriodicImpactMs)
 	}
 	return summary
 }
@@ -8468,6 +8717,13 @@ func normalizeRootCauseCumulativeImpact(items []RootCauseRankItem) {
 
 func normalizeRootCauseEffectiveImpact(items []RootCauseRankItem) {
 	for i := range items {
+		if items[i].PeriodicSource {
+			// VS-1 (§7.8): a periodic-source row's effective impact IS its
+			// discounted value, even when exactly 0 (pure in-period cadence) —
+			// the cumulative fallback would resurrect the raw sleep this lane
+			// exists to discount. Precise boolean gate.
+			continue
+		}
 		if items[i].EffectiveImpactMs > 0 {
 			continue
 		}
@@ -8524,6 +8780,10 @@ func rootCauseCumulativeImpactMs(item RootCauseRankItem) float64 {
 }
 
 func rootCauseEffectiveImpactMs(item RootCauseRankItem) float64 {
+	if item.PeriodicSource {
+		// VS-1 (§7.8): the discounted value is authoritative even at 0.
+		return item.EffectiveImpactMs
+	}
 	if item.EffectiveImpactMs > 0 {
 		return item.EffectiveImpactMs
 	}
@@ -8665,6 +8925,19 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 	item.ActualImpactMs = impact.ActualImpactMs
 	item.ActualTotalMs = impact.ActualTotalMs
 	item.Score = impactMs * conf * 2.0
+	if impact.PeriodicSource {
+		// VS-1 (§7.8): a periodic source's sleep-dominant occurrence ranks and
+		// scores by its DISCOUNTED attribution (runnable in full + lateness) —
+		// in-period sleep is cadence, not cause. Raw ImpactMs/CumulativeImpactMs
+		// stay untouched so the window projection remains lossless.
+		// (PeriodicSource is only ever stamped on sleep-dominant rows, so it is
+		// structurally exclusive with the inversion override above.)
+		item.PeriodicSource = true
+		item.DetectedPeriodMs = impact.DetectedPeriodMs
+		item.LatenessMs = impact.LatenessMs
+		item.EffectiveImpactMs = impact.EffectivePeriodicImpactMs
+		item.Score = impact.EffectivePeriodicImpactMs * conf * 2.0
+	}
 	return item
 }
 
@@ -8699,6 +8972,15 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 	item.ActualTotalMs = aggregate.ActualTotalMs
 	item.OccurrenceWindows = append([]WakeupCausalOccurrence(nil), aggregate.OccurrenceWindows...)
 	item.Score = impactMs * conf * 2.05
+	if aggregate.PeriodicSource {
+		// VS-1 (§7.8): same discounted ranking as the per-occurrence face —
+		// see rootCauseItemFromCausalImpact. Raw impact/cumulative unchanged.
+		item.PeriodicSource = true
+		item.DetectedPeriodMs = aggregate.DetectedPeriodMs
+		item.LatenessMs = aggregate.LatenessMs
+		item.EffectiveImpactMs = aggregate.EffectivePeriodicImpactMs
+		item.Score = aggregate.EffectivePeriodicImpactMs * conf * 2.05
+	}
 	return item
 }
 
@@ -11779,6 +12061,11 @@ func renderWakeupCausalImpactSummary(item WakeupCausalImpact) string {
 	}
 	if item.PriorityInversionCandidate {
 		summary += " priority_inversion_candidate=true"
+	}
+	if item.PeriodicSource {
+		// VS-1 (§7.8): periodic-source occurrences publish their cadence and
+		// discounted attribution inline; in-period sleep is normal cadence.
+		summary += fmt.Sprintf(" periodic_source=true detected_period=%.3fms lateness=%.3fms effective_impact=%.3fms", item.DetectedPeriodMs, item.LatenessMs, item.EffectivePeriodicImpactMs)
 	}
 	if item.NextStep != "" {
 		summary += "; next_step=" + item.NextStep

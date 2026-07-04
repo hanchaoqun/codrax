@@ -236,6 +236,7 @@ const (
 	runtimeTraceProjMarkRecursOnChain                                // ↺ small-cycle marker
 	runtimeTraceProjMarkOmitted                                      // …省略… long-trunk fold row
 	runtimeTraceProjMarkIOCaliberNote                                // NEW-3 同段IO另有…口径 note
+	runtimeTraceProjMarkPeriodicSource                               // VS-1 周期性信号源 tag
 	runtimeTraceProjMarkAdjacentStanza                               // ◇ 邻近 stanza
 	runtimeTraceProjMarkBackgroundStanza                             // ▒ 背景压力 stanza
 
@@ -329,6 +330,9 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkIOCaliberNote,
 			"- `同段IO另有…口径` = 同一线程同段 IO 的多口径合并显示;数值与证据保留,不重复计入归因。",
 			"- `same-segment IO also measured …` = several calibers of one IO segment folded for display; values and evidence kept, never double counted."},
+		{runtimeTraceProjMarkPeriodicSource,
+			"- `周期性信号源` = 该行是固定周期的信号发生器,期内睡眠为正常节拍;有效归因只计可运行等待与信号迟到量,窗口投影保留原始值。",
+			"- `periodic signal source` = this row is a fixed-period signal generator; in-period sleep is normal cadence. Attribution counts only runnable wait plus signal lateness; the window projection keeps the raw value."},
 		{runtimeTraceProjMarkAdjacentStanza,
 			"- `◇` = 邻近区段:与主链时间相邻,不在唤醒路径上。",
 			"- `◇` = adjacent stanza: time-adjacent to the chain, not on the wakeup path."},
@@ -336,6 +340,20 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `▒` = 背景压力区段:环境证据,不计入链上归因。",
 			"- `▒` = background-pressure stanza: environmental evidence, not chain attribution."},
 	}
+}
+
+// runtimeTraceProjModelHasPeriodicRow reports whether any rendered row carries
+// the typed VS-1 periodic-source flag — gates ONLY the display of the
+// discount-caliber legend line (precise boolean; nothing structural).
+func runtimeTraceProjModelHasPeriodicRow(model runtimeTraceProjTreeModel) bool {
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background} {
+		for _, row := range rows {
+			if row.Node.PeriodicSource {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // missingWakeup reports whether any rendered row carries the typed
@@ -2492,6 +2510,26 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep,
 			NoTruncate: true, ContinuationLane: true})
 	}
+	// VS-1 (§7.8): a periodic signal source's in-period sleep is cadence, not
+	// impact — the row says so inline (Keep + ContinuationLane: the cadence
+	// semantics and the discounted attribution have no other fence carrier)
+	// while the bar/ms keep the raw window projection.
+	if node.PeriodicSource {
+		row.marks.mark(runtimeTraceProjMarkPeriodicSource)
+		period := ""
+		if node.DetectedPeriodMS > 0 {
+			period = fmt.Sprintf(",周期≈%.1fms", node.DetectedPeriodMS)
+			if !zh {
+				period = fmt.Sprintf(", period ≈%.1fms", node.DetectedPeriodMS)
+			}
+		}
+		text := fmt.Sprintf("周期性信号源(期内睡眠为正常节拍%s)·有效归因 %.3fms", period, node.EffectiveImpactMS)
+		if !zh {
+			text = fmt.Sprintf("periodic signal source (in-period sleep is normal cadence%s) · attribution %.3fms", period, node.EffectiveImpactMS)
+		}
+		tags = append(tags, runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep,
+			NoTruncate: true, ContinuationLane: true})
+	}
 	// §7.30.3 D1: the parsed holder site is auditable detail — droppable on
 	// width pressure; the raw record keeps it lossless.
 	if site := strings.TrimSpace(node.BlockingHolderSite); site != "" {
@@ -2713,6 +2751,7 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	if ms <= 0 {
 		ms = runtimeTraceProjNodeDisplayImpact(*primary)
 	}
+	ms = runtimeTraceProjPeriodicHeadlineMS(*primary, ms)
 	var b strings.Builder
 	if zh {
 		b.WriteString("**主根因:** ")
@@ -2828,6 +2867,13 @@ func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, trunkLe
 // total across instances and must never compete against single-instance hard
 // facts (V1, customer revisit 2026-07-03).
 func runtimeTraceProjLeadSelectionValue(node types.TraceCausalProjectionNode) float64 {
+	if node.PeriodicSource {
+		// VS-1 (§7.8): a periodic source competes with its DISCOUNTED
+		// attribution only, even when it is exactly 0 (pure in-period cadence)
+		// — the raw display impact would re-admit the cadence sleep the
+		// discount exists to keep out of the conclusion.
+		return node.EffectiveImpactMS
+	}
 	if node.MergedCount > 1 {
 		return node.MergedMaxMS
 	}
@@ -2835,6 +2881,20 @@ func runtimeTraceProjLeadSelectionValue(node types.TraceCausalProjectionNode) fl
 		return node.EffectiveImpactMS
 	}
 	return runtimeTraceProjNodeDisplayImpact(node)
+}
+
+// runtimeTraceProjPeriodicHeadlineMS is the SINGLE periodic-source magnitude
+// override for headline surfaces — the conclusion line and the comparison
+// overview's primary cell (F2, adversarial review 2026-07-04, forbids a second
+// implementation): a periodic row's stated magnitude is its discounted
+// attribution (runnable + lateness), never a raw cadence-dominated value —
+// authoritative even at exactly 0. Non-periodic rows pass their raw magnitude
+// through unchanged. Precise boolean gate on the typed flag.
+func runtimeTraceProjPeriodicHeadlineMS(node types.TraceCausalProjectionNode, raw float64) float64 {
+	if node.PeriodicSource {
+		return node.EffectiveImpactMS
+	}
+	return raw
 }
 
 func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
@@ -2852,7 +2912,12 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 	}
 	// Coverage = depth-1 cumulative vs window, by SUBTRACTION only — chain
 	// values overlap on the wall clock and must never be summed across layers.
-	if attributed := runtimeTraceProjDepth1Cumulative(model); attributed > 0 {
+	// VS-1 F5(a) (adversarial review 2026-07-04): a periodic chain row whose
+	// attribution legitimately discounts to exactly 0 still yields a coverage
+	// sentence — "on-chain 已归因 0.000ms" IS the finding (the wait was normal
+	// cadence), not a missing-data state; the >0 short-circuit alone would
+	// silently drop the line exactly when the discount did its job.
+	if attributed := runtimeTraceProjDepth1Cumulative(model); attributed > 0 || runtimeTraceProjChainHasPeriodicData(model) {
 		// V2 (customer revisit 2026-07-03): when the 🎯 target published its own
 		// state rows, the coverage denominator is the TARGET SYMPTOM duration,
 		// not the whole window — a target that slept 11.7ms of a 101ms window
@@ -2869,6 +2934,7 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 					symptom, attributed, attributed/symptom*100, residual, residual/symptom*100)
 			}
 			b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
+			b.WriteString(runtimeTraceProjPeriodicCadenceCoverageNote(model, residual, zh))
 		} else if attributed <= model.WindowMS {
 			residual := model.WindowMS - attributed
 			if zh {
@@ -2879,6 +2945,7 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 					attributed, attributed/model.WindowMS*100, residual, residual/model.WindowMS*100)
 			}
 			b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
+			b.WriteString(runtimeTraceProjPeriodicCadenceCoverageNote(model, residual, zh))
 		} else {
 			if zh {
 				fmt.Fprintf(&b, " on-chain 已归因 %.3fms(其实际状态跨出窗口,见 ⚠ 标记)。", attributed)
@@ -3047,9 +3114,75 @@ func runtimeTraceProjWholeWindowIdleRow(row runtimeTraceProjTreeRow, windowMS fl
 	return impact >= windowMS*0.99 && impact <= windowMS*1.001
 }
 
+// runtimeTraceProjChainHasPeriodicData reports whether any data-bearing CHAIN
+// row carries the typed VS-1 periodic-source flag — the precise gate for the
+// F5 coverage lanes (a periodic row's 0 attribution is a finding, not absent
+// data). Chain rows only: adjacent/background periodic rows never feed the
+// attribution numerator.
+func runtimeTraceProjChainHasPeriodicData(model runtimeTraceProjTreeModel) bool {
+	for _, row := range model.TreeRows {
+		if row.Kind == runtimeTraceProjTreeRowChain && row.HasData && row.Node.PeriodicSource {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeTraceProjPeriodicCadenceMS is the F5(b) cadence amount: Σ over the
+// data-bearing periodic chain rows of (raw on-chain cumulative − discounted
+// attribution) — the wall clock the discount reclassified as normal signal
+// cadence. Callers clamp it to the residual they are annotating.
+func runtimeTraceProjPeriodicCadenceMS(model runtimeTraceProjTreeModel) float64 {
+	total := 0.0
+	for _, row := range model.TreeRows {
+		if row.Kind != runtimeTraceProjTreeRowChain || !row.HasData || !row.Node.PeriodicSource {
+			continue
+		}
+		raw := row.Node.CumulativeImpactMS
+		if raw <= 0 {
+			raw = runtimeTraceProjNodeDisplayImpact(row.Node)
+		}
+		if d := raw - row.Node.EffectiveImpactMS; d > 0 {
+			total += d
+		}
+	}
+	return total
+}
+
+// runtimeTraceProjPeriodicCadenceCoverageNote is the F5(b) third coverage
+// item: with a periodic chain row on the table, the residual sentence names
+// how much of the unattributed time is the periodic source's normal in-period
+// cadence — deliberately counted NEITHER as attribution NOR as unexplained
+// residual. Clamped to the residual: the note must never claim more than the
+// residual itself. Empty (coverage line byte-stable) without a periodic row.
+func runtimeTraceProjPeriodicCadenceCoverageNote(model runtimeTraceProjTreeModel, residual float64, zh bool) string {
+	cadence := runtimeTraceProjPeriodicCadenceMS(model)
+	if cadence <= 0 || residual <= 0 {
+		return ""
+	}
+	if cadence > residual {
+		cadence = residual
+	}
+	if zh {
+		return fmt.Sprintf(" 其中 %.3fms 为周期性信号源期内正常节拍(不计归因、不属未解释残差)。", cadence)
+	}
+	return fmt.Sprintf(" Of that, %.3fms is a periodic signal source's normal in-period cadence (not attributed, not unexplained residual).", cadence)
+}
+
 func runtimeTraceProjDepth1Cumulative(model runtimeTraceProjTreeModel) float64 {
 	if v := runtimeTraceProjChainDepthCumulative(model, 1); v > 0 {
 		return v
+	}
+	// VS-1 F5(c) (adversarial review 2026-07-04): H10's premise is "every
+	// depth-1 trunk node is a bare TRANSIT hop with no data of its own". A
+	// data-bearing depth-1 periodic row whose attribution legitimately
+	// discounts to exactly 0 does NOT satisfy that premise — falling through
+	// to a deeper layer would resurrect the raw cadence-dominated cumulative
+	// the discount just removed.
+	for _, row := range model.TreeRows {
+		if row.Kind == runtimeTraceProjTreeRowChain && row.Depth == 1 && row.HasData && row.Node.PeriodicSource {
+			return 0
+		}
 	}
 	// H10 fallback (berlin shape): every depth-1 trunk node was a bare transit
 	// hop with no data row of its own, which silently dropped the whole
@@ -3084,6 +3217,13 @@ func runtimeTraceProjChainDepthCumulative(model runtimeTraceProjTreeModel, depth
 		v := row.Node.CumulativeImpactMS
 		if v <= 0 {
 			v = runtimeTraceProjNodeDisplayImpact(row.Node)
+		}
+		if row.Node.PeriodicSource {
+			// VS-1 (§7.8): a periodic source's raw cumulative is cadence-
+			// dominated. The coverage numerator consumes the SAME discounted
+			// caliber as ranking (runnable + lateness), so "on-chain attributed"
+			// never claims normal signal cadence as explained wait time.
+			v = row.Node.EffectiveImpactMS
 		}
 		if v > max {
 			max = v
@@ -3186,6 +3326,26 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 				shape += "·" + idle
 			}
 		}
+		// VS-1 (§7.8) mirror on the lossless surface: the shape cell names the
+		// cadence semantics; the window-projection cell keeps the raw value.
+		if node.PeriodicSource {
+			period := ""
+			if node.DetectedPeriodMS > 0 {
+				period = fmt.Sprintf(",周期≈%.1fms", node.DetectedPeriodMS)
+				if !zh {
+					period = fmt.Sprintf(", period ≈%.1fms", node.DetectedPeriodMS)
+				}
+			}
+			periodicNote := "周期性信号源(期内睡眠为正常节拍" + period + ")"
+			if !zh {
+				periodicNote = "periodic signal source (in-period sleep is normal cadence" + period + ")"
+			}
+			if shape == dash {
+				shape = periodicNote
+			} else {
+				shape += "·" + periodicNote
+			}
+		}
 		// CMP-3 mirror on the lossless surface, ALL duration columns (F6,
 		// adversarial review 2026-07-04): a cross-thread aggregate row's
 		// 链上累计/有效归因/实际状态 mirrors previously sat naked next to an
@@ -3200,6 +3360,16 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 				effective += "(承自等待区间)"
 			} else {
 				effective += " (inherited)"
+			}
+		}
+		// VS-1 (§7.8): a periodic row's attribution cell shows the discounted
+		// value explicitly — 0.000ms included, because "the sleep was pure
+		// cadence" IS the fact this column must state — with its composition.
+		if node.PeriodicSource {
+			if zh {
+				effective = fmt.Sprintf("%.3fms(可运行+迟到量)", node.EffectiveImpactMS)
+			} else {
+				effective = fmt.Sprintf("%.3fms (runnable + lateness)", node.EffectiveImpactMS)
 			}
 		}
 		actual := annotated(node.ActualImpactMS)

@@ -878,7 +878,7 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		}
 		// Customer 2026-07-03: the legend was one run-on paragraph and
 		// unreadable — itemized, one short definition per line, kept plain.
-		text := strings.Join([]string{
+		lines := []string{
 			"口径:",
 			"- 窗口投影 = 节点在用户窗口内的投影影响。",
 			"- 链上累计 = 该链路向目标累计投影。",
@@ -888,9 +888,9 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 			"- ⛔ = 窗口内无匹配 sched_wakeup(missing_wakeup),下钻链止。",
 			"- ⚠ = 实际状态跨出投影窗口。",
 			"- 背景行仅作压力/环境证据,不自动等同 on-chain 主因。",
-		}, "\n")
+		}
 		if !zh {
-			text = strings.Join([]string{
+			lines = []string{
 				"Legend:",
 				"- window projection = the node's projected impact inside the user window.",
 				"- chain total = cumulative projection toward the target.",
@@ -900,8 +900,18 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 				"- ⛔ = no matching sched_wakeup in the window (missing_wakeup); the chain ends.",
 				"- ⚠ = the actual state crosses the projected window.",
 				"- Background rows are pressure/context evidence only.",
-			}, "\n")
+			}
 		}
+		// VS-1 (§7.8): the discount caliber is explained ONLY when a periodic
+		// row is actually on the table — non-periodic renders stay byte-stable.
+		if runtimeTraceProjModelHasPeriodicRow(model) {
+			if zh {
+				lines = append(lines, "- 周期性信号源行:有效归因 = 可运行等待全额 + 信号迟到量;期内睡眠为正常节拍,不计入有效归因(窗口投影保留原始值)。")
+			} else {
+				lines = append(lines, "- periodic signal source rows: attribution = runnable wait in full + signal lateness; in-period sleep is normal cadence and never counts (the window projection keeps the raw value).")
+			}
+		}
+		text := strings.Join(lines, "\n")
 		out = append(out, types.AnswerBlock{
 			ID:          idPrefix + "_detail",
 			Kind:        types.BlockTable,
@@ -1129,6 +1139,12 @@ func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, 
 	}
 	if primary.MergedCount > 1 && primary.MergedMaxMS > 0 {
 		// V1: the ×N SUM never publishes as the headline hard fact.
+		// VS-1 F2 (adversarial review 2026-07-04): the periodic override rides
+		// the SAME helper as the conclusion line on BOTH value branches — a
+		// periodic fold's single-max is still cadence-dominated raw sleep.
+		if ms := runtimeTraceProjPeriodicHeadlineMS(*primary, primary.MergedMaxMS); primary.PeriodicSource {
+			return cell + runtimeTraceProjPeriodicCompareCellSuffix(ms, zh)
+		}
 		if zh {
 			cell += fmt.Sprintf(" 单次最大 %.3fms ×%d", primary.MergedMaxMS, primary.MergedCount)
 		} else {
@@ -1140,10 +1156,29 @@ func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, 
 	if ms <= 0 {
 		ms = runtimeTraceProjNodeDisplayImpact(*primary)
 	}
+	// VS-1 F2: same shared override as the conclusion line (never a second
+	// implementation); a periodic primary's cell states the discounted value
+	// (0.000 included) with the caliber note.
+	ms = runtimeTraceProjPeriodicHeadlineMS(*primary, ms)
+	if primary.PeriodicSource {
+		return cell + runtimeTraceProjPeriodicCompareCellSuffix(ms, zh)
+	}
 	if ms > 0 {
 		cell += fmt.Sprintf(" %.3fms", ms)
 	}
 	return cell
+}
+
+// runtimeTraceProjPeriodicCompareCellSuffix renders a periodic primary's
+// magnitude in the comparison-overview cell: the discounted attribution from
+// runtimeTraceProjPeriodicHeadlineMS plus the short caliber note (F2 pin:
+// "0.176ms(周期性,期内睡眠不计)"). Formatting only — the value NEVER comes
+// from here.
+func runtimeTraceProjPeriodicCompareCellSuffix(ms float64, zh bool) string {
+	if zh {
+		return fmt.Sprintf(" %.3fms(周期性,期内睡眠不计)", ms)
+	}
+	return fmt.Sprintf(" %.3fms (periodic; in-period sleep excluded)", ms)
 }
 
 // runtimeTraceProjCompareBackgroundPressureCell picks the LARGEST cross-thread

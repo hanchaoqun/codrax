@@ -227,6 +227,18 @@ type TraceCausalProjectionNode struct {
 	// claiming one scheduler state for the composite amount.
 	GatedRunnableMS       float64 `json:"gated_runnable_ms,omitempty"`
 	GatedRunningDeficitMS float64 `json:"gated_running_deficit_ms,omitempty"`
+	// PeriodicSource / DetectedPeriodMS / PeriodicLatenessMS carry the VS-1
+	// (§7.8) periodic-signal-source semantics from the typed periodic_source /
+	// detected_period_ms / lateness_ms rich notes: the row's subject is a
+	// periodic waker (e.g. a VSync generator) whose in-period sleep is normal
+	// cadence — only runnable time and signal lateness count as attribution
+	// (EffectiveImpactMS carries that discounted value; on a periodic row it is
+	// authoritative even at 0, and ImpactMS keeps the lossless raw projection).
+	// The renderer labels such rows and consumes the discount for selection —
+	// the flag itself never gates anything structurally.
+	PeriodicSource     bool    `json:"periodic_source,omitempty"`
+	DetectedPeriodMS   float64 `json:"detected_period_ms,omitempty"`
+	PeriodicLatenessMS float64 `json:"periodic_lateness_ms,omitempty"`
 }
 
 // TraceCausalSubjectKindAggregateMetric mirrors the trace_query typed
@@ -743,6 +755,12 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// §7.30.3 D3: gated-impact composition for priority-inversion rows.
 	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "gated_runnable")
 	node.GatedRunningDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "gated_running_deficit")
+	// VS-1 (§7.8): periodic-signal-source semantics — exact typed note match.
+	node.PeriodicSource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "periodic_source")) == "true"
+	if node.PeriodicSource {
+		node.DetectedPeriodMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "detected_period_ms")
+		node.PeriodicLatenessMS = traceCausalProjectionRichNoteFloat(record.RichNotes, "lateness_ms")
+	}
 	// Verbatim typed kind token (see TypeToken doc): lets renderers specialize
 	// the unresolved-peer wording for blocking_span / d_state_or_io_wait rows.
 	node.TypeToken = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, "type"))

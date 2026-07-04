@@ -3463,6 +3463,12 @@ func traceQueryRootCauseSpanCompact(item tracequery.RootCauseRankItem) string {
 }
 
 func traceQueryRootCauseEffectiveImpact(item tracequery.RootCauseRankItem) float64 {
+	if item.PeriodicSource {
+		// VS-1 (§7.8): a periodic-source row's discounted attribution is
+		// authoritative even at 0 — the cumulative/impact fallbacks would
+		// republish the raw in-period sleep as effective impact.
+		return item.EffectiveImpactMs
+	}
 	if item.EffectiveImpactMs > 0 {
 		return item.EffectiveImpactMs
 	}
@@ -4531,6 +4537,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			notes := traceQueryTypedOccurrenceWindowRichNotes(item.OccurrenceWindows)
 			notes = append(notes, traceQueryTypedPriorityRichNotes(rank, tier, item.Type, item.Source, item.Causality, item.ChainDepth, item.Score, item.ImpactMs, item.CumulativeImpactMs, traceQueryRootCauseEffectiveImpact(item), item.TargetImpactMs, item.ProjectedImpactMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualStartTs, item.ActualEndTs)...)
 			notes = append(notes, traceQueryTypedRootCauseStateRichNotes(item)...)
+			// VS-1 (§7.8): the rank row that carries the discounted effective
+			// impact publishes the same typed periodic notes as its backing
+			// wakeup_causal_aggregate, so the projection labels the row and the
+			// discounted attribution never shows up unexplained.
+			notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(item.PeriodicSource, item.DetectedPeriodMs, item.LatenessMs, item.EffectiveImpactMs, false)...)
 			notes = append(notes, traceQueryTypedKVNotes([][2]string{
 				// F1: root_cause rows have no Span ts at all — the selected
 				// query window (RootCauseRankResult.Window = q.TimeStart/TimeEnd)
@@ -4927,7 +4938,7 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 
 func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) []string {
 	views := traceQueryCausalImpactRecommendedViews(impact)
-	return traceQueryTypedKVNotes([][2]string{
+	notes := traceQueryTypedKVNotes([][2]string{
 		{"depth", traceQueryTypedCount(impact.ChainDepth)},
 		{"causality", traceQueryCausalityLabel(impact.OnChain)},
 		{"dominant_state", impact.DominantState},
@@ -4968,6 +4979,31 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{"next_step", impact.NextStep},
 		{"next_step_kind", impact.NextStepKind},
 	})
+	return append(notes, traceQueryTypedPeriodicSourceRichNotes(impact.PeriodicSource, impact.DetectedPeriodMs, impact.LatenessMs, impact.EffectivePeriodicImpactMs, true)...)
+}
+
+// traceQueryTypedPeriodicSourceRichNotes publishes the VS-1 (§7.8) periodic-
+// signal-source accounting as typed notes, emitted ONLY on periodic rows.
+// lateness_ms/effective_impact_ms print explicitly (0.000 included): a
+// periodic row's discounted attribution being ~0 is exactly the load-bearing
+// fact (the sleep was pure cadence), so the zero must survive to the display
+// surfaces instead of being dropped by the positive-value note filter.
+// includeEffective=false is for the root_cause_rank records whose
+// positive-value priority notes already carried effective_impact_ms — the
+// zero-effective note is still appended there so the discount never vanishes.
+func traceQueryTypedPeriodicSourceRichNotes(periodic bool, periodMs, latenessMs, effectiveMs float64, includeEffective bool) []string {
+	if !periodic {
+		return nil
+	}
+	notes := []string{
+		"periodic_source=true",
+		fmt.Sprintf("detected_period_ms=%.3f", periodMs),
+		fmt.Sprintf("lateness_ms=%.3f", latenessMs),
+	}
+	if includeEffective || effectiveMs <= 0 {
+		notes = append(notes, fmt.Sprintf("effective_impact_ms=%.3f", effectiveMs))
+	}
+	return notes
 }
 
 func traceQueryCausalImpactRecommendedViews(impact tracequery.WakeupCausalImpact) []string {
@@ -5025,6 +5061,8 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 		{"priority_relation", aggregate.PriorityRelation},
 		{"priority_inversion_candidate", traceQueryTypedBool(aggregate.PriorityInversion)},
 	})...)
+	// VS-1 (§7.8): periodic-source cadence + discounted attribution, typed.
+	notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(aggregate.PeriodicSource, aggregate.DetectedPeriodMs, aggregate.LatenessMs, aggregate.EffectivePeriodicImpactMs, true)...)
 	return notes
 }
 

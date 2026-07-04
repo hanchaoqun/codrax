@@ -4000,7 +4000,7 @@ func TestWakeupChainAggregatesFragmentedCommonDependency(t *testing.T) {
 			},
 		},
 	}
-	aggregates := aggregateWakeupCausalImpacts(chain)
+	aggregates := aggregateWakeupCausalImpacts(&chain)
 	if len(aggregates) != 1 {
 		t.Fatalf("expected one common dependency aggregate, got %+v", aggregates)
 	}
