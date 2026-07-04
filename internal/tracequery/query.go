@@ -11216,10 +11216,91 @@ func traceSpanLooksLikeRuntimeCompile(lower string, tokens map[string]bool) bool
 		tokens["runtime"]
 }
 
+// converterSyntheticLaneClass maps the CLOSED set of machine-generated
+// synthetic lane/span names emitted by the hmtrace db2systrace.py converter
+// (and byte-identically by codrax's own trace-db exporter,
+// hitraceconv/streamerdb_export_extended.go) to soft semantic category
+// labels (§7.11 B-5). These are machine tokens (exact converter format
+// strings, file:line pinned per entry), so exact-case prefix + closed-suffix
+// matching (all-digit run, or the converters' literal "None" null-identity
+// fallback) is a precise signal here — but the OUTPUT is classification
+// vocabulary and MUST stay soft guidance:
+//
+//	RED LINE (§7.11 B-5 / feedback_precise_signals_for_hard_gates): this
+//	vocabulary is consumed ONLY by traceSpanCategory (display/suggestion
+//	classification: span category fields, trace_mark category grouping).
+//	It must never feed a hard gate, completion/emit reject, candidate
+//	promotion, or ranking score. Structural pin:
+//	TestConverterSyntheticLaneVocabConsumersPinnedB5.
+//
+// Near-miss safety: human-authored lookalikes ("TaskPool-Manager",
+// "sys_read", lowercase variants) intentionally do NOT match — the numeric
+// suffix and exact case are part of the machine shape.
+func converterSyntheticLaneClass(name string) (string, bool) {
+	switch {
+	// db2systrace.py:543-549: frame slices → "Frame{Actual|Expected}-{vsync}"
+	// (B/E pair per frame, vsync is the numeric frame identity). NULL vsync
+	// falls back to the verbatim token "None"
+	// (hitraceconv/streamerdb_export_extended.go:471, traceDBAnyText(vsync,
+	// "None")) — same machine set, matched by exact equality only.
+	case hasMachineDigitSuffix(name, "FrameActual-"),
+		hasMachineDigitSuffix(name, "FrameExpected-"),
+		name == "FrameActual-None",
+		name == "FrameExpected-None":
+		return "frame_pacing", true
+	// db2systrace.py:649-654: syscall slices → "sys_{syscall_number}"; NULL
+	// syscall number falls back to the verbatim "sys_None"
+	// (hitraceconv/streamerdb_export_extended.go:535).
+	case hasMachineDigitSuffix(name, "sys_"), name == "sys_None":
+		return "syscall", true
+	// db2systrace.py:679-685: task_pool rows → async S/F "TaskPool-{task_id}";
+	// the NULL fallback is "0" (hitraceconv/streamerdb_export_extended.go:579)
+	// and is already covered by the digit-suffix shape.
+	case hasMachineDigitSuffix(name, "TaskPool-"):
+		return "task_pool", true
+	// db2systrace.py:700-705: app_startup phases → "AppStartup:{sname}".
+	case strings.HasPrefix(name, "AppStartup:"):
+		return "app_startup", true
+	// db2systrace.py:719-724: static_initalize (SO init) → "SoInit:{so_name}".
+	case strings.HasPrefix(name, "SoInit:"):
+		return "so_init", true
+	default:
+		return "", false
+	}
+}
+
+// hasMachineDigitSuffix reports whether name is exactly prefix followed by a
+// non-empty ASCII digit run — the converter's numeric-identity lane shape.
+func hasMachineDigitSuffix(name, prefix string) bool {
+	if !strings.HasPrefix(name, prefix) {
+		return false
+	}
+	rest := name[len(prefix):]
+	if rest == "" {
+		return false
+	}
+	for i := 0; i < len(rest); i++ {
+		if rest[i] < '0' || rest[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func traceSpanCategory(name string) string {
 	lower := strings.ToLower(strings.TrimSpace(name))
 	if work, ok := traceSpanSemanticWorkClass(name); ok {
 		return work.Category
+	}
+	// §7.11 B-5: converter-synthetic lane names are a closed machine set;
+	// label them before the generic Contains chain so accidental substring
+	// hits stop mislabeling them — e.g. "SoInit:libaudio.so" read "audio"
+	// (the audio case runs early in the chain) and "SoInit:libfileshare.so"
+	// read file_io; both now read so_init. Soft classification only — the
+	// built-in semantic work classes above keep priority, so root-cause
+	// ranking surfaces are untouched.
+	if class, ok := converterSyntheticLaneClass(strings.TrimSpace(name)); ok {
+		return class
 	}
 	switch {
 	case lower == "":

@@ -1579,16 +1579,17 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 	tgid := atoi(m[3])
 	cpu := atoi(m[4])
 	ts, _ := strconv.ParseFloat(m[5], 64)
+	comm := strings.TrimSpace(m[1])
 	rawType := strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
 	fields := strings.TrimSpace(m[7])
 	ev := Event{
 		Line:      lineNo,
 		Ts:        ts,
 		CPU:       cpu,
-		Comm:      intern.intern(strings.TrimSpace(m[1])),
+		Comm:      intern.intern(comm),
 		PID:       pid,
 		TGID:      tgid,
-		Type:      classifyEventType(rawType, fields),
+		Type:      classifyEventType(comm, rawType, fields),
 		Name:      intern.intern(rawType),
 		FieldText: intern.intern(clampString(fields, 300)),
 	}
@@ -1717,6 +1718,21 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		populateFileIOFields(&ev, kv, intern)
 	case EventAbilityMonitor, EventXPower, EventHiSystemEvent:
 		populatePluginFields(&ev, rawType, kv, intern)
+		if isPrintFamilyRaw(rawType) {
+			// §7.11 B-4: the converter HiSysEvent print shape carries
+			// domain/ename positionally ("{domain}/{ename}: {contents}",
+			// db2systrace.py:751-764), not as k=v. Inside this print-family
+			// gate there are NO native plugin bytes to protect — anything the
+			// generic kv pass scraped came from the {contents} tail (noise
+			// like name=/bundle= inside the serialized payload), so the
+			// positional head wins UNCONDITIONALLY when the comm-anchored
+			// probe hits. Native (non-print) plugin raw types never enter
+			// this branch and keep byte-identical fields.
+			if domain, ename, ok := parseHiSysEventPrintPayload(ev.Comm, fields); ok {
+				ev.PluginDomain = intern.intern(domain)
+				ev.PluginEventName = intern.intern(ename)
+			}
+		}
 	case EventPerfSample:
 		populatePerfSampleFields(&ev, kv, intern)
 	}
@@ -2080,7 +2096,7 @@ func classifyMemoryKind(raw, fields string) string {
 	}
 }
 
-func classifyEventType(raw, fields string) EventType {
+func classifyEventType(comm, raw, fields string) EventType {
 	raw = strings.TrimSpace(raw)
 	rawLower := strings.ToLower(raw)
 	switch {
@@ -2139,9 +2155,18 @@ func classifyEventType(raw, fields string) EventType {
 		return EventIPI
 	case strings.HasPrefix(raw, "irq_"):
 		return EventIRQ
-	case raw == "print" || raw == "tracing_mark_write" || raw == "tracing_mark_write_xacct" || raw == "xacct_tracing_mark_write":
+	case isPrintFamilyRaw(raw):
 		if isTraceMarkPayload(fields) {
 			return EventTraceMark
+		}
+		// §7.11 B-4: non-mark print payloads chain through the existing
+		// plugin detectors (the same trio consumed for native plugin raw
+		// types below) before falling back to Unknown. Plain print prose
+		// stays EventUnknown — there is deliberately NO standalone hilog
+		// event family (§7.11 B-4 ruling), and the Unknown path keeps its
+		// index slot / event_search reachability byte-identical.
+		if typ, ok := classifyPrintPluginPayload(comm, rawLower, fields); ok {
+			return typ
 		}
 		return EventUnknown
 	case isStorageEvent(rawLower):
@@ -2291,6 +2316,87 @@ func isHiSystemEvent(raw, fields string) bool {
 	return strings.Contains(text, "hisysevent") ||
 		strings.Contains(text, "hi_sysevent") ||
 		strings.Contains(text, "hi_sys_event")
+}
+
+// isPrintFamilyRaw reports whether the raw ftrace event name is the
+// print/tracing_mark_write family that carries userspace payloads.
+func isPrintFamilyRaw(raw string) bool {
+	switch raw {
+	case "print", "tracing_mark_write", "tracing_mark_write_xacct", "xacct_tracing_mark_write":
+		return true
+	default:
+		return false
+	}
+}
+
+// classifyPrintPluginPayload types a print-family row whose payload is NOT a
+// B|/E|/C|/S|/F| trace mark (§7.11 B-4). Converters such as hmtrace
+// db2systrace.py re-emit HiLog rows as "print: [{level}][{tag}] {msg}"
+// (db2systrace.py:626-634) and HiSysEvent rows as
+// "print: {domain}/{ename}: {contents}" (db2systrace.py:751-764); before this
+// hook they early-exited as EventUnknown, keeping their index slot and
+// event_search hits but losing the plugin type. The chain reuses the EXACT
+// detectors already applied to native plugin raw types (isAbilityEvent /
+// isXPowerEvent / isHiSystemEvent, same relative order as the main switch)
+// plus one comm-anchored structural probe for the converter HiSysEvent shape
+// (comm must be the converter machine token, see isHiSysEventPrintPayload).
+// Typing feeds observation surfaces only (stats counters, plugin summaries,
+// subsystem labels, event-type/pattern query matching) — no hard gate reads
+// these types, and a payload with no detector hit stays EventUnknown.
+func classifyPrintPluginPayload(comm, rawLower, fields string) (EventType, bool) {
+	switch {
+	case isHiSysEventPrintPayload(comm, fields):
+		return EventHiSystemEvent, true
+	case isAbilityEvent(rawLower, fields):
+		return EventAbilityMonitor, true
+	case isXPowerEvent(rawLower, fields):
+		return EventXPower, true
+	case isHiSystemEvent(rawLower, fields):
+		return EventHiSystemEvent, true
+	default:
+		return EventUnknown, false
+	}
+}
+
+// converterHiSysEventComm is the machine comm token converters pin on every
+// re-emitted HiSysEvent print row: codrax's own trace-db exporter writes it
+// verbatim (hitraceconv/streamerdb_export_extended.go:940,
+// `addTraceDBInstantRow(sink, ts, "<hisysevent>", …)`), and hmtrace
+// db2systrace.py:751-764 emits the identical comm. Real threads never carry
+// this angle-bracketed synthetic task name.
+const converterHiSysEventComm = "<hisysevent>"
+
+// hisysEventPrintRE matches the converter-emitted HiSysEvent print payload
+// "{domain}/{ename}: {contents}" (db2systrace.py:751-764;
+// hitraceconv/streamerdb_export_extended.go:939): DOMAIN and ENAME are
+// HiSysEvent uppercase identifiers of length ≥2, exactly one '/', then ':'
+// followed by end-of-payload or a space. The ≥2 floor kills short prose
+// heads ("I/O: read done", "A/B: on") that would otherwise fit the shape.
+var hisysEventPrintRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]+/[A-Z][A-Z0-9_]+:( |$)`)
+
+// isHiSysEventPrintPayload reports whether a print-family payload is the
+// converter HiSysEvent re-emission. The payload shape alone is NOT precise
+// enough to type on — real userspace print prose uses the same head
+// ("UI/UX: jank", "GC/HEAP: freed", "NET/DNS: resolve") — so the PRIMARY
+// criterion is the comm anchor: converters pin comm to the machine token
+// converterHiSysEventComm on these rows and nothing else does. Any other
+// comm falls through to the Contains-detector chain and then EventUnknown —
+// the pre-B-4 behavior (fail-open).
+func isHiSysEventPrintPayload(comm, fields string) bool {
+	return comm == converterHiSysEventComm && hisysEventPrintRE.MatchString(fields)
+}
+
+// parseHiSysEventPrintPayload extracts the positional domain/ename pair from
+// the converter HiSysEvent print shape (db2systrace.py:751-764). ok is false
+// for anything that does not match the exact machine shape, including any
+// row whose comm is not the converter machine token.
+func parseHiSysEventPrintPayload(comm, fields string) (domain, ename string, ok bool) {
+	if !isHiSysEventPrintPayload(comm, fields) {
+		return "", "", false
+	}
+	head, _, _ := strings.Cut(fields, ":")
+	domain, ename, _ = strings.Cut(head, "/")
+	return domain, ename, true
 }
 
 func parseKV(fields string) map[string]string {
