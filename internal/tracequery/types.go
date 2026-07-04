@@ -2,6 +2,7 @@ package tracequery
 
 import (
 	"math"
+	"sync"
 	"time"
 )
 
@@ -271,6 +272,14 @@ type Index struct {
 	// caveats (> TimeEnd by construction); zero when PaddingTruncated is
 	// false.
 	PaddingTruncatedLastTs float64
+	// tidTgidVoteOnce/tidTgidVote back the B-3 (§7.11) per-index tid→tgid
+	// soft derivation (trace_mark span-pid majority vote for TGID-column-less
+	// hmtrace shapes). Lazily built once by derivedTidTgid(); non-exported
+	// and never serialized — display-layer grouping enrichment only, never a
+	// filter or gate input. Index is pointer-only throughout the package, so
+	// the sync.Once is copy-safe.
+	tidTgidVoteOnce sync.Once
+	tidTgidVote     *tidTgidDerivation
 }
 
 type Query struct {

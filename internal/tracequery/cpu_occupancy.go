@@ -49,7 +49,10 @@ func applyCPUPressureDensity(in []CPUPressureStats, windowMs float64) []CPUPress
 // window's existing running buckets: running is the full per-(pid/comm/cpu)
 // running map (pre-truncation), pressure the per-CPU accumulators, catalog
 // the pid→process catalog already built for the process rollup.
-func computeCPUOccupancyStats(q Query, windowMs float64, running map[string]ThreadDuration, pressure map[int]*cpuPressureAcc, coreByCPU map[int]string, catalog map[int]ThreadRef, cpus []CPUStats, max int) *CPUOccupancyStats {
+// derivedAttribution is the B-3 (§7.11) window flag: catalog TGIDs were
+// soft-derived from the trace_mark span-pid vote, so derived process rows
+// carry the marker and the stanza discloses the derivation.
+func computeCPUOccupancyStats(q Query, windowMs float64, running map[string]ThreadDuration, pressure map[int]*cpuPressureAcc, coreByCPU map[int]string, catalog map[int]ThreadRef, cpus []CPUStats, max int, derivedAttribution bool) *CPUOccupancyStats {
 	if len(running) == 0 {
 		return nil
 	}
@@ -122,8 +125,10 @@ func computeCPUOccupancyStats(q Query, windowMs float64, running map[string]Thre
 		threadSet map[int]bool
 		cpuSet    map[int]bool
 		coreSet   map[string]bool
+		derived   bool
 	}
 	procs := map[string]*procAcc{}
+	anyDerivedProc := false
 	for _, td := range running {
 		if td.DurationMs <= 0 || (td.Thread.PID <= 0 && td.Thread.Comm == "") {
 			continue
@@ -134,6 +139,10 @@ func computeCPUOccupancyStats(q Query, windowMs float64, running map[string]Thre
 		if acc == nil {
 			acc = &procAcc{item: ProcessCPULoadSummary{Process: proc}, threadSet: map[int]bool{}, cpuSet: map[int]bool{}, coreSet: map[string]bool{}}
 			procs[key] = acc
+		}
+		if derivedAttribution && catalog[td.Thread.PID].TGID > 0 {
+			acc.derived = true
+			anyDerivedProc = true
 		}
 		if proc.Comm != "" && acc.item.Process.Comm == "" {
 			acc.item.Process.Comm = proc.Comm
@@ -170,6 +179,9 @@ func computeCPUOccupancyStats(q Query, windowMs float64, running map[string]Thre
 		acc.item.Summary = fmt.Sprintf("%s occupancy running=%.3fms(cpu·ms) threads=%d top_thread=%s %.3fms cpus=%s",
 			threadLabel(acc.item.Process), acc.item.RunningMs, acc.item.ThreadCount,
 			threadLabel(acc.item.TopThread), acc.item.TopThreadMs, intListString(acc.item.CPUs))
+		if acc.derived {
+			acc.item.Summary += tidTgidDerivedRowMarker
+		}
 		occ.TopProcesses = append(occ.TopProcesses, acc.item)
 	}
 	sort.SliceStable(occ.TopProcesses, func(i, j int) bool {
@@ -248,6 +260,9 @@ func computeCPUOccupancyStats(q Query, windowMs float64, running map[string]Thre
 	occ.Caveats = append(occ.Caveats, "occupancy durations are cpu-time (cpu·ms) clipped to the selected window; cross-CPU sums may exceed the wall-clock window and must not be read as elapsed time")
 	if windowMs <= 0 {
 		occ.Caveats = append(occ.Caveats, "query window unbounded: window_ms/densities unavailable (no estimate)")
+	}
+	if anyDerivedProc {
+		occ.Caveats = append(occ.Caveats, tidTgidDerivedCaveat)
 	}
 	return occ
 }

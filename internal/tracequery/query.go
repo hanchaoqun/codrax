@@ -1569,10 +1569,27 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.CPUConstraints = computeCPUConstraintSummaries(idx, q, coreByCPU, stats.RunnableTop, stats.CPU, 8)
 	stats.ThreadCPULoad = computeThreadCPULoad(q, stats.TopRunning, stats.RunnableTop, 12)
 	windowCatalog := buildThreadCatalog(idx, q)
-	stats.ProcessCPULoad = computeProcessCPULoad(windowCatalog, stats.ThreadCPULoad, coreByCPU, 8)
+	// B-3 (§7.11): tidTgidApplied is true when the span-pid vote actually
+	// backfilled a TGID for some tid in this window's catalog — the process
+	// rollups below then group on soft-derived attribution and must say so
+	// (row marker + window caveat). False on any trace with a native TGID
+	// column (vote table nil) and on span-less/tie-only windows.
+	tidTgidApplied := false
+	if derive := idx.derivedTidTgid(); derive.enabled() {
+		for pid := range windowCatalog {
+			if derive.tgidFor(pid) > 0 {
+				tidTgidApplied = true
+				break
+			}
+		}
+	}
+	stats.ProcessCPULoad = computeProcessCPULoad(windowCatalog, stats.ThreadCPULoad, coreByCPU, 8, tidTgidApplied)
 	// CMP-8 (§7.1): occupancy-side decomposition from the full running
 	// buckets (pre-truncation) — who consumed the CPUs in this window.
-	stats.CPUOccupancy = computeCPUOccupancyStats(q, queryWindowWallMs(q), running, pressure, coreByCPU, windowCatalog, stats.CPU, 8)
+	stats.CPUOccupancy = computeCPUOccupancyStats(q, queryWindowWallMs(q), running, pressure, coreByCPU, windowCatalog, stats.CPU, 8, tidTgidApplied)
+	if tidTgidApplied {
+		stats.Caveats = append(stats.Caveats, tidTgidDerivedCaveat)
+	}
 	// CMP-10 (§7.4): frequency-weighted delivered compute vs nominal
 	// capacity, with the supply-gap decomposition. Nil on unbounded windows.
 	// schedCPUs is the precise sched-observation signal (≥1 in-window
@@ -3156,6 +3173,50 @@ func buildThreadCatalog(idx *Index, q Query) map[int]ThreadRef {
 		add(ev.WakeePID, ev.WakeeComm, 0)
 		add(ev.ConstraintPID, ev.ConstraintComm, 0)
 	}
+	// B-3 (§7.11): on TGID-column-less traces (hmtrace) every native TGID
+	// above is 0 — backfill the catalog from the per-index trace_mark
+	// span-pid vote so the per-process display rollups
+	// (computeProcessCPULoad, occupancy TopProcesses, runnable-context
+	// same-process matching) can group threads again. Single wiring point:
+	// every process-attribution consumer converges on this catalog via
+	// processRefForThread/catalogThreadRef. Soft display enrichment only —
+	// the vote table is nil whenever the index has any native TGID, so the
+	// with-TGID path is untouched.
+	if derive := idx.derivedTidTgid(); derive.enabled() {
+		usedTgids := map[int]bool{}
+		for pid, ref := range out {
+			if ref.TGID == 0 {
+				if tgid := derive.tgidFor(pid); tgid > 0 {
+					ref.TGID = tgid
+					out[pid] = ref
+				}
+			}
+			if out[pid].TGID > 0 {
+				usedTgids[out[pid].TGID] = true
+			}
+		}
+		// Display-name backfill for derived process rows whose main thread
+		// has no catalogued line in this scope: the label comes from the
+		// self-registration span name (B|tgid|process_name emitted by
+		// tid==tgid). Display only — never a matching key.
+		for tgid := range usedTgids {
+			ref := out[tgid]
+			if ref.PID == 0 {
+				ref.PID = tgid
+			}
+			if ref.TGID == 0 {
+				if tg := derive.tgidFor(tgid); tg > 0 {
+					ref.TGID = tg
+				}
+			}
+			if strings.TrimSpace(ref.Comm) == "" {
+				if name := derive.commFor(tgid); name != "" {
+					ref.Comm = name
+				}
+			}
+			out[tgid] = ref
+		}
+	}
 	return out
 }
 
@@ -3479,12 +3540,16 @@ type processLoadAcc struct {
 	threadSet map[int]bool
 	cpuSet    map[int]bool
 	coreSet   map[string]bool
+	derived   bool
 }
 
 // computeProcessCPULoad rolls thread loads up to tgid-level processes.
 // catalog is the pid→process catalog built once per window (buildThreadCatalog)
-// and shared with the CMP-8 occupancy rollup.
-func computeProcessCPULoad(catalog map[int]ThreadRef, loads []ThreadCPULoadSummary, coreByCPU map[int]string, max int) []ProcessCPULoadSummary {
+// and shared with the CMP-8 occupancy rollup. derivedAttribution is the B-3
+// (§7.11) window flag: when true, catalog TGIDs were soft-derived from the
+// trace_mark span-pid vote and every row grouped through such a TGID carries
+// the self-explaining marker in its Summary.
+func computeProcessCPULoad(catalog map[int]ThreadRef, loads []ThreadCPULoadSummary, coreByCPU map[int]string, max int, derivedAttribution bool) []ProcessCPULoadSummary {
 	accs := map[string]*processLoadAcc{}
 	ensure := func(thread ThreadRef) *processLoadAcc {
 		proc := processRefForThread(thread, catalog)
@@ -3504,6 +3569,9 @@ func computeProcessCPULoad(catalog map[int]ThreadRef, loads []ThreadCPULoadSumma
 			continue
 		}
 		acc := ensure(load.Thread)
+		if derivedAttribution && catalog[load.Thread.PID].TGID > 0 {
+			acc.derived = true
+		}
 		if load.Thread.PID > 0 && !acc.threadSet[load.Thread.PID] {
 			acc.threadSet[load.Thread.PID] = true
 			acc.item.ThreadCount++
@@ -3541,6 +3609,9 @@ func computeProcessCPULoad(catalog map[int]ThreadRef, loads []ThreadCPULoadSumma
 		acc.item.Summary = fmt.Sprintf("%s process load running=%.3fms runnable=%.3fms threads=%d top_thread=%s %.3fms cpus=%s core_classes=%s",
 			threadLabel(acc.item.Process), acc.item.RunningMs, acc.item.RunnableWaitMs, acc.item.ThreadCount,
 			threadLabel(acc.item.TopThread), acc.item.TopThreadMs, intListString(acc.item.CPUs), strings.Join(acc.item.CoreClasses, ","))
+		if acc.derived {
+			acc.item.Summary += tidTgidDerivedRowMarker
+		}
 		out = append(out, acc.item)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
