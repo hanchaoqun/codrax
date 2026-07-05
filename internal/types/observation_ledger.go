@@ -321,6 +321,20 @@ type ObservationRowSetWriter func(name, content string) string
 // origin banners only; raw user prose and model free text must not classify
 // records.
 func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
+	// CSR #64 ruling 2 (2026-07-05): under the typed explicit-user-exclusion
+	// boundary ("不分析代码"), a negative repo search is still a source-code
+	// operation — its RESULT stays in the ledger as an advisory observation,
+	// but it must not be requalified into the current-source proof lane
+	// (ObservationSourceKindForOrigin maps repo_negative_search →
+	// current_source, which set CurrentSourceSatisfied in excluded-lane runs;
+	// same veto class as CSP #63). This is the single compile throat every
+	// producer path funnels through, so aggregate facts, evidence items, and
+	// tool results are requalified uniformly. Non-exclude runs keep the
+	// historical current_source kind byte-stable: a negative search is the
+	// legitimate satisfaction valve for "asked about a symbol that does not
+	// exist" questions there.
+	excludesCurrentSource := input.RequestModel != nil &&
+		input.RequestModel.ExternalObservationPolicy.ExcludesCurrentSource()
 	var out []ObservationRecord
 	add := func(record ObservationRecord) {
 		if record.Origin == AnswerEvidenceOriginUnknown || !record.Origin.IsValid() {
@@ -331,6 +345,11 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		}
 		if record.SourceRef.Kind == ObservationSourceUnknown {
 			record.SourceRef.Kind = ObservationSourceKindForOrigin(record.Origin)
+		}
+		if excludesCurrentSource &&
+			record.Origin == AnswerEvidenceOriginRepoNegativeSearch &&
+			record.SourceRef.Kind == ObservationSourceCurrentSource {
+			record.SourceRef.Kind = ObservationSourceCommand
 		}
 		if record.GroundingPolicy == ClaimGroundingUnknown {
 			record.GroundingPolicy = AnswerClaimBindingGroundingPolicy(record.Origin, record.Role)

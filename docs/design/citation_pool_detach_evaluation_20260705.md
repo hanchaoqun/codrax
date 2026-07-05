@@ -173,3 +173,51 @@ eval/results/trace_query_donghu_real_frame_multicausal-20260703-111818,run 日�
 - **R2' 零新字段**:`DetachedCitationDisclosureKind` 为内部 ferry 载体,不进任何 LLM-facing schema/prompt/decode 面;emit_analysis / emit_answer_document schema 零改动。
 - **floor 三表面零触碰**:未改 CitationReq/citation_count_ge/SuccessCriteria 任何路径与豁免 chokepoint;exclude 类 floor 本就惰性(§6),混合 run 行为被负对照 pin 冻结。
 - **既有 pin 全绿**:pre_emit_artifact_citation_test.go 25 条(含 :100 accepted-proof-keeps-source、:217 mixed-keeps)、pre_emit_qce_citation_audit_test.go 17 条未动且通过——新 arm 的 drop 谓词仅匹配工件拼写,current-source 引用在任何姿态下不受影响。
+
+---
+
+## 9. CSR 批 #64(2026-07-05):current-source 定性两项裁定终局
+
+CSP #63 修了 exclude run 的生产侧零排放(answer_evidence_origin.go 单咽喉 add());本批裁定并关闭同类的两个残余定性面。两裁定均先探针实测(合成 fixture 走真实 builder 路径),再按测绘证据选定方案。
+
+### 9.1 裁定①:混合(非 exclude)附件 run 的 current_source 终端 fallback —— **修根(已实施)**
+
+**根因实证(探针,修前)**:同一个 run 的两张 RequestModel 面对车道判断直接矛盾——ledger 面(observation_ledger_context.go 传 `&AnalysisIR.RequestModel`,PerfTrace=nil)报 `HasExternalOnlyRuntimeArtifact=false, lane=required`;authority 面(`RuntimeSourceAuthorityRequestModelFromBusContext` 回填 bundle)报 `true, lane=allowed_optional`。裂脑结果:外源 bundle 混合 run 里全部无 origin 命中的模型 facts 走终端 fallback 盖 current_source 章 → `CurrentSourceSatisfied=true`(零真实读源、纯模型断言的假满足)→ `KeepsCurrentSourceLaneLoadBearing=true` 否决清理/floor 放宽——donghu 污染类的混合 run 面。
+
+**完成门消费面测绘(修后行为差,均已探针量化)**:
+| 消费面 | 外源 bundle 混合 shape 修后行为 | 方向 |
+|---|---|---|
+| `CanHardBlockCompletion`(emit_investigation_complete.go:9387/:11212, runtimeArtifactCurrentSourceHardRequirementLabeled :4210) | false→false(lane=allowed_optional ⇒ required=false ⇒ precision=none) | 无变化 |
+| `AllowsProceedWithoutAdditionalCurrentSourceRead`(:9390) | true→true(经 Allows 车道) | 无变化 |
+| `CanCompleteWithCombinedProof` | true→true(required=false) | 无变化 |
+| `KeepsCurrentSourceLaneLoadBearing`(清理门/tier1_floor:183/orchestrator:7418/extractor:2127 等) | true→false | **放宽**(假满足不再否决) |
+| `AllowsRuntimeEvidenceWithoutCurrentSource`(清理门/floor waiver/auto-verdict skip) | false→true | **放宽** |
+| 记录 Role(compileAggregateFactObservations) | 外源 shape 下 principal→supporting(与 authority 面世界观对齐,advisory 判定生效) | 软面 |
+| 变严唯一残余 | 仅"precise current-source ask ∧ 全程零真实源码证据"的 run:假满足消失 ⇒ `CanHardBlockCompletion` 可武装——这恰是契约设计要求读源的形态,且有 required-file-hint 反事实复查(:11230-11250)与 soft 降级双 typed 逃生道;一条真实 evidence 即恢复 satisfied(supply pin) | 按设计 |
+
+**边界保证(探针+pin)**:bundle RESOLVED(ResolvedFiles 非空 ⇒ 非外源)的混合 run 零变化(终端 fallback 保留,历史姿态字节稳);真实 evidence item 落地即 satisfied=true 不受重定性影响。风险评估=小 ⇒ 选修根,弃保守版(fact 级特判会再造第二套平行谓词,正是本仓反复付账的类)。
+
+**实施**:observation_ledger_context.go 两个 builder(:24-40 Agent 面 / :97-104 Bus 面)的 `requestModel` 改走与 authority snapshot 同源的 `RuntimeSourceAuthorityRequestModelFrom*Context` 回填 helper(detached clone,消灭裂脑;bundle 字段逻辑不动)。
+
+### 9.2 裁定②:exclude run 的 negative_search → SourceRef.Kind=current_source —— **定性跟随 exclude 边界(已实施)**
+
+**语义裁定**:"不分析代码" run 里的负向搜索本身是源码操作(违规探索面另有闸);其结果**保留在 ledger**(advisory、无损),但不得被定性进 current-source 证明车道供 satisfied。机制:`ObservationSourceKindForOrigin(repo_negative_search)→current_source`(observation_ledger.go:618-619),authority 按 `SourceRef.Kind` 计数(runtime_source_answer_authority_view.go:487)⇒ exclude run 里一条负向搜索记录即置 `satisfied=true, keeps=true`(探针实证)——CSP #63 同款否决类。
+
+**实施**:CompileObservationLedger 单编译咽喉 add()(observation_ledger.go:323 起)加边界重定性:`ExcludesCurrentSource() ∧ Origin==repo_negative_search ∧ Kind==current_source ⇒ Kind=command`。所有生产路径(aggregate facts / tool results / producer rows,含显式携 current_source Kind 的行)统一过闸;Origin/Role/内容零损。非 exclude run Kind 字节稳——负向搜索仍是"问了不存在符号"问题的合法满足阀。sufficiency 面零扰动(候选按 Origin 筛,Kind 只进诊断列表)。
+
+### 9.3 pin + 突变(internal/types/csr_current_source_qualification_test.go,6 pin;5 组突变全部 cp→红→cmp RESTORED_OK)
+
+| pin | 内容 |
+|---|---|
+| P1 bus 面 | 外源 bundle 混合 run:facts 全 runtime_artifact、零 current-source 记录、authority !satisfied/!keeps/allows;**ledger RM 与 authority RM 车道判断必须一致**(裂脑闭合 pin) |
+| P2 agent 面 | 同型走 ObservationLedgerInputFromAgentContext(双 builder 各自负重) |
+| P3 resolved 负对照 | RESOLVED bundle 保留历史 current_source fallback + satisfied=true(过宽收紧翻此 pin 红) |
+| P4 supply | 外源混合 + 1 条真实 evidence ⇒ satisfied=true, exact=1(完成门供给经真实读保留) |
+| P5 exclude neg | exclude:2 条负向记录保留、Kind==command、authority csRecords==0 ∧ !satisfied ∧ !keeps |
+| P6 plain neg | 非 exclude:Kind==current_source 字节稳、satisfied=true(**过宽收紧会翻非 exclude 侧红**) |
+
+突变:M1 双 builder 回退→P1+P2+P4 红;M1b 仅 Agent builder 回退→仅 P2 红;M2 ②咽喉摘除→P5 红/P6 绿;M3 ②去 exclude 条件(过宽)→P6 红/P5 绿;M4 ①运行时臂放宽为任意 bundle(过宽)→P3 红/P1 绿。
+
+### 9.4 测试与关联
+
+`go vet`+`go test ./internal/types/`(含 CSP #63 三 pin)、`go test ./internal/tool/`(CPD #58 四 pin 含 mixed-keeps 负对照)、全仓 `go test ./...` 全绿。§8 的 CPD 显示层 arm 与 §7.5 裁定不受影响:裁定①使外源混合 run 的清理门由 authority 如实开启(与 CSP #63 pin 3 "门从 authority 自身打开"同构),CPD arm 继续作为 exclude run 的冗余防线;混合 keep pin(:217,真源码引用在场)行为不变。

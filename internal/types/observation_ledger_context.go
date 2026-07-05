@@ -22,7 +22,18 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 		sourceInventory SourceInventoryObservation
 	)
 	if ctx.AnalysisIR != nil {
-		requestModel = &ctx.AnalysisIR.RequestModel
+		// CSR #64 ruling 1 (2026-07-05): the ledger-input RequestModel goes
+		// through the SAME bundle-backfill helper as the authority snapshot
+		// (RuntimeSourceAuthorityRequestModelFromAgentContext). The analyzer
+		// RM copy often lacks the LogTriage/PerfTrace bundle (it only lives
+		// in Mutable), so HasExternalOnlyRuntimeArtifact()/
+		// CurrentSourceLaneDecision() lied on the ledger face: in a mixed
+		// (non-exclude) attached-artifact run every model aggregate fact with
+		// no origin-lane hit fell through to the terminal current_source
+		// fallback and fake-satisfied the source lane (the same pollution
+		// class as CSP #63, mixed-run face). With the shared helper the two
+		// faces of one run can no longer disagree on the lane.
+		requestModel = RuntimeSourceAuthorityRequestModelFromAgentContext(ctx)
 		answerContract = &ctx.AnalysisIR.AnswerContract
 		logBundle = ctx.AnalysisIR.RequestModel.LogTriage
 		perfBundle = ctx.AnalysisIR.RequestModel.PerfTrace
@@ -84,7 +95,9 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 		sourceInventory SourceInventoryObservation
 	)
 	if bus.AnalysisIR != nil {
-		requestModel = &bus.AnalysisIR.RequestModel
+		// CSR #64 ruling 1: same-source bundle backfill as the authority
+		// snapshot (see the AgentContext twin above for the full rationale).
+		requestModel = RuntimeSourceAuthorityRequestModelFromBusContext(bus)
 		answerContract = &bus.AnalysisIR.AnswerContract
 		logBundle = bus.AnalysisIR.RequestModel.LogTriage
 		perfBundle = bus.AnalysisIR.RequestModel.PerfTrace
