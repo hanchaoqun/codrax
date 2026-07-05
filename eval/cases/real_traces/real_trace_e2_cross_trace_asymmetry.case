@@ -1,0 +1,21 @@
+# Real trace — E2 cross-trace comparison with one-sided lanes (both paths in question)
+#
+# Ground truth (PROFILE.md §1 vs §2): frame fixture spans 144.557 ms at
+# timebase 34579.x with cpu_frequency (90) and vsync (59 lines); excerpt
+# spans 0.556 ms at timebase 2942.x with ZERO cpu_frequency and ZERO vsync
+# lines. Honest comparison: state both coverages, note the disjoint
+# timebases can't be aligned on one clock, and report the frequency/vsync
+# lanes as present-on-one-side-only (absence of samples, not device fact).
+ID="real_trace_e2_cross_trace_asymmetry"
+NAME="real trace — cross trace lane asymmetry"
+QUESTION="只分析 eval/fixtures/real_traces/donghu_tieba_frame.systrace 和 eval/fixtures/real_traces/donghu_short_excerpt.systrace 这两个 trace 文件，不分析代码。请对比两份 trace：各自覆盖多长时间？时间基准是否相同、能否直接对齐？CPU 频率和 VSync 这类信号在两份里是否都有采样？"
+EXPECT_CONTAINS="donghu_tieba_frame donghu_short_excerpt"
+EXPECT_MATCHES_REGEX="(14[45](\\.[0-9]+)? *(ms|毫秒)|144\\.[56])
+(0\\.5[0-9]* *(ms|毫秒)|0\\.556|不到 ?1 *(ms|毫秒)|亚毫秒)
+2942
+34579"
+EXPECT_MATCHES_TEXT_REGEX="(excerpt|摘录|短|第二[份个]|donghu_short).{0,120}(没有|无|缺少|未采样|不含|采不到)|(没有|无|缺少|未采样|不含).{0,120}(频率|frequency|vsync|VSync)
+(时基|时间基准|时间轴|基准|时钟|clock|timebase).{0,60}(不同|不一致|不能直接|无法直接|不可比)|(不同|不一致|无法直接).{0,60}(时基|时间基准|时间轴|时钟)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query
+tool=trace_query params=.*donghu_short_excerpt"

@@ -1,0 +1,16 @@
+# Real trace — C3 vsync periodic-source presence and period
+#
+# Ground truth (PROFILE.md §1.9): VSyncGenerator-1682 (tgid 1252,
+# render_service) drives the vsync signals; period appears verbatim as
+# period:16552213 (ns) ≈ 16.55 ms ≈ 60 Hz (rate:60 / vsyncRefreshRate(60)
+# also verbatim). Only ~2 pulses fall inside the 144.6 ms capture, so the
+# case asks presence + period + driver, NOT multi-cycle cadence accounting
+# (which the sample count cannot support).
+ID="real_trace_c3_vsync_periodic"
+NAME="real trace — vsync periodic source presence"
+QUESTION="只分析这份 trace，不分析代码。这份 trace 里有没有 VSync/垂直同步类的周期性信号？如果有，周期大约多长，由哪个线程驱动？"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+EXPECT_CONTAINS="VSyncGenerator"
+EXPECT_MATCHES_REGEX="(16\\.5|16\\.6|16552213|16 ?(ms|毫秒)|60 ?Hz|60Hz)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

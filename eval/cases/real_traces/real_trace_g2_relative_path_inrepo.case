@@ -1,0 +1,15 @@
+# Real trace — G2 in-repo relative path named in the question (no attachment)
+#
+# Ground truth (PROFILE.md §1.6): CookieMonsterCl-59843 wakes the main
+# thread 34 of 48 times — the most frequent waker. The trace is referenced
+# ONLY by its repo-relative path in the question (README directs new cases
+# at the in-repo copies); the tool call must consume that path.
+ID="real_trace_g2_relative_path_inrepo"
+NAME="real trace — relative in-repo path in question"
+QUESTION="只分析 eval/fixtures/real_traces/donghu_tieba_frame.systrace 这个 trace 文件，不分析代码。整份 trace 里，谁唤醒 com.baidu.tieba 59566 主线程的次数最多？大概占了多大比例？"
+EXPECT_CONTAINS="CookieMonsterCl"
+EXPECT_MATCHES_REGEX="(唤醒|唤起|wake)
+(34|3[0-9] ?次|7[01] ?%|最多|most)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query
+tool=trace_query params=.*real_traces/donghu_tieba_frame"

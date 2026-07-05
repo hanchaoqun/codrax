@@ -1,0 +1,16 @@
+# Real trace — G1 English phrasing variant (same ground truth as C2)
+#
+# Ground truth (PROFILE.md §1.8): 3 iowait=1 sched_blocked_reason rows for
+# the main thread, caller sync_buffer_read_wi, at 34579.451840 / 34579.453081
+# / 34579.471723. The English question must reach the same verbatim kernel
+# caller token and time placement; answer language is free (regexes accept
+# both English and Chinese state wording).
+ID="real_trace_g1_english_dstate"
+NAME="real trace — English variant D-state/io wait"
+QUESTION="Analyze this trace only; do not analyze any source code. For the com.baidu.tieba main thread (tid 59566), did it ever enter uninterruptible sleep (D state) or IO wait anywhere in this trace? When did that happen, and what wait reason did the kernel record?"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+EXPECT_CONTAINS="sync_buffer_read_wi"
+EXPECT_MATCHES_REGEX="(D[- ]?state|uninterruptible|io_?wait|IO wait|D 状态|不可中断|IO 等待)
+34579\\.4(5|7)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

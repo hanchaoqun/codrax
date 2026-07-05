@@ -1,0 +1,18 @@
+# Real trace — C2 D-state / io_wait evidence with verbatim kernel caller
+#
+# Ground truth (PROFILE.md §1.8): exactly 3 sched_blocked_reason rows for the
+# main thread, all iowait=1, caller sync_buffer_read_wi+0x60/0x11c, at
+# 34579.451840 / 34579.453081 / 34579.471723 (all before the jank window);
+# full-window D totals are small (d_sleep 0.488 ms + io_wait 0.147 ms). The
+# answer must surface the verbatim kernel caller token, place the events in
+# time, and keep the magnitude honest (short, not a dominant cause).
+ID="real_trace_c2_dstate_iowait"
+NAME="real trace — D-state/io_wait evidence"
+QUESTION="只分析这份 trace，不分析代码。com.baidu.tieba 59566 主线程在这份 trace 里有没有进入过不可中断等待（D 状态）或 IO 等待？发生在什么时间，内核记录的等待原因是什么，总量有多大？"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+EXPECT_CONTAINS="sync_buffer_read_wi"
+EXPECT_MATCHES_REGEX="(D 状态|D-state|D state|不可中断|io_?wait|IO 等待|iowait)
+34579\\.4(5|7)
+(0\\.[1-9][0-9]* *(ms|毫秒)|短暂|很短|不长|量级很小|较小|brief|minor|small)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

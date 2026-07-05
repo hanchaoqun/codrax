@@ -1,0 +1,17 @@
+# Real trace — A5 short excerpt, requested window far exceeds coverage (+F2 self-explaining coverage)
+#
+# Ground truth (PROFILE.md §2): excerpt covers only 2942.244845..2942.245401
+# (0.556 ms) although the question asks about a 100 ms window. Honest answer
+# must disclose the tiny actual coverage/endpoints instead of narrating
+# 100 ms of activity. [GT]ColdPool#6-36644 is the busiest thread (0.367 ms)
+# with one iowait=1 sched_blocked_reason (sync_buffer_read_wi, 2942.245313).
+ID="real_trace_a5_excerpt_degenerate_window"
+NAME="real trace — excerpt degenerate window coverage honesty"
+QUESTION="只分析这份 trace，不分析代码。请分析 [GT]ColdPool#6（线程号 36644）在 2942.200s 到 2942.300s 之间做了什么、等过什么？如果数据支撑不了这个窗口，请说清楚实际能分析的范围。"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_short_excerpt.systrace"
+EXPECT_CONTAINS="ColdPool"
+EXPECT_MATCHES_REGEX="2942\\.24
+(0\\.5[0-9]* *(ms|毫秒)|0\\.556|不到 ?1 *(ms|毫秒)|亚毫秒|只覆盖|仅覆盖|实际.{0,6}(覆盖|数据)|覆盖.{0,12}(很短|极短|有限)|远小于|少量样本)"
+EXPECT_MATCHES_TEXT_REGEX="(2942\\.2448|2942\\.2454|2942\\.245401)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

@@ -1,0 +1,19 @@
+# Real trace — E1 same-trace dual-window comparison, normalization required (CMP lane)
+#
+# Ground truth (PROFILE.md §1.7): window A (jank, 34579.472865..34579.475857,
+# 2.992 ms) main thread running = 0.000 ms (boundary intervals clamp to
+# zero), s_sleep 99.5%; window B (34579.475857..34579.505857, 30.000 ms)
+# running 3.414 ms = 11.4%. Windows differ 10x in width, so raw totals
+# mislead — the answer must compare via ratios/normalization and state that
+# in window A the main thread got (essentially) no CPU while in window B it
+# ran ~3.4 ms / ~11%.
+ID="real_trace_e1_dual_window_normalized"
+NAME="real trace — dual window normalized comparison"
+QUESTION="只分析这份 trace，不分析代码。请对比 com.baidu.tieba 59566 主线程在两个窗口里的表现：窗口 A 是 34579.472865s 到 34579.475857s，窗口 B 是 34579.475857s 到 34579.505857s。两个窗口长度不同，请用占比或归一化的方式对比两个窗口里主线程获得 CPU 的情况差异。"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+EXPECT_SECTIONS="34579.472865 34579.475857 34579.505857"
+EXPECT_MATCHES_REGEX="(占比|百分比|比例|归一|每毫秒|normali|%)"
+EXPECT_MATCHES_TEXT_REGEX="(窗口 ?A|短窗|2\\.992|第一个窗口).{0,200}(0(\\.0+)? *(ms|毫秒)|没有获得|未获得|几乎没有|完全没有|拿不到|全程睡眠|一直睡眠)|(0(\\.0+)? *(ms|毫秒)|没有获得|未获得|几乎没有).{0,120}(窗口 ?A|短窗|2\\.992)
+(3\\.[0-9]+ *(ms|毫秒)|1[01](\\.[0-9]+)? *%)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

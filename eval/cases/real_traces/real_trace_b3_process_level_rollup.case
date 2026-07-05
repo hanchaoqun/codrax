@@ -1,0 +1,16 @@
+# Real trace — B3 process-level subject (tgid rollup, not a single thread)
+#
+# Ground truth (PROFILE.md §1.4): tgid 59566 has 39 threads; top busy:
+# main com.baidu.tieba 51.462 ms, T7@ZeusThreadPo-61839 30.287 ms,
+# NetworkService-60595 13.135 ms, CookieMonsterCl-59843 8.494 ms. The
+# answer must treat the subject as a process and name the main thread as
+# the largest contributor plus at least the next heavy peers.
+ID="real_trace_b3_process_level_rollup"
+NAME="real trace — process-level CPU rollup"
+QUESTION="只分析这份 trace，不分析代码。从进程角度看，com.baidu.tieba（进程号 59566）整个进程在这份 trace 里的 CPU 使用情况如何？进程内哪些线程贡献最大？"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+EXPECT_CONTAINS="com.baidu.tieba T7@ZeusThreadPo NetworkService"
+EXPECT_MATCHES_TEXT_REGEX="(主线程|com\\.baidu\\.tieba.{0,10}59566).{0,80}(最|第一|贡献最大|占比最高|居首|大头|5[01](\\.[0-9]+)?)"
+EXPECT_MATCHES_REGEX="(3[0-9](\\.[0-9]+)? *(ms|毫秒)|T7@ZeusThreadPo)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

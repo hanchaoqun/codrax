@@ -1,0 +1,19 @@
+# Real trace — D4 demand-side vs supply-side wording (§7.4 causal lanes)
+#
+# Ground truth (PROFILE.md §1.3/§1.7): in 34579.472865..34579.587805 the
+# main thread sleeps 84.358 of 114.94 ms (73.4%) waiting on dependencies;
+# system-wide idle attribution is 269.8 ms across 6 cpus in 144.6 ms (large
+# headroom) and observed frequencies reach the 2189000 kHz ceiling — the
+# stall is demand/dependency-side, not a CPU compute-supply shortage. The
+# answer must land on the demand side and must say supply/CPU capacity was
+# not the bottleneck, with sleep/idle evidence.
+ID="real_trace_d4_demand_vs_supply"
+NAME="real trace — demand vs supply attribution wording"
+QUESTION="只分析这份 trace，不分析代码。在 34579.472865s 到 34579.587805s 期间，com.baidu.tieba 59566 主线程的卡顿更像是 CPU 算力不够（供给侧问题），还是在等依赖/事件（需求侧问题）？请给出判断和 trace 内依据。"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+EXPECT_CONTAINS="com.baidu.tieba"
+EXPECT_MATCHES_REGEX="(依赖|等待|需求侧|等事件|demand)
+(空闲|idle|余量|充足|不是.{0,12}(算力|CPU|供给)|并非.{0,12}(算力|CPU|供给)|(算力|CPU|供给).{0,12}(充足|不缺|足够|并非|不是瓶颈))
+(睡眠|sleep|s_sleep)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

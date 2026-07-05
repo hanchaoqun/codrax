@@ -1,0 +1,16 @@
+# Real trace — D2 wait-chain recovery through an intermediate thread
+#
+# Ground truth (PROFILE.md §1.6): repeated relay CookieMonsterCl->main (34
+# wakeups) with NetworkService->CookieMonsterCl (31 wakeups) one hop
+# upstream — NetworkService IS on the main thread's recurring wait chain,
+# via CookieMonsterCl. The answer must present the chain with both
+# intermediate threads in a causal narrative (either direction of listing).
+ID="real_trace_d2_chain_via_networkservice"
+NAME="real trace — chain via NetworkService"
+QUESTION="只分析这份 trace，不分析代码。com.baidu.tieba 59566 主线程反复等待的那条依赖链，上游都经过哪些线程？NetworkService（线程号 60595）在不在这条链上？请按链条顺序说明。"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+EXPECT_CONTAINS="CookieMonsterCl NetworkService"
+EXPECT_MATCHES_TEXT_REGEX="NetworkService.*CookieMonsterCl.*(com\\.baidu\\.tieba|主线程)|(com\\.baidu\\.tieba|主线程).*CookieMonsterCl.*NetworkService"
+EXPECT_MATCHES_REGEX="(链|chain|上游|经过|中转|依赖)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

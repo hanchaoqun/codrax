@@ -1,0 +1,19 @@
+# Real trace — A2 widened 10x window, state composition with ratios (+F4 window endpoint fidelity)
+#
+# Ground truth (eval/fixtures/real_traces/PROFILE.md §1.7, wide10 row):
+# 34579.472865..34579.502785 = 29.920 ms; main thread s_sleep 26.162 ms
+# (87.4%), running 2.964 ms (9.9%), runnable 0.794 ms (2.7%). Sleep must be
+# reported dominant; the typed tool face must echo the requested endpoints
+# (selected_window line in the trace tool result, visible in the debug log).
+ID="real_trace_a2_wide_window_ratio"
+NAME="real trace — widened window state composition ratios"
+QUESTION="只分析这份 trace，不分析代码。请分析 com.baidu.tieba 59566 主线程在 34579.472865s 到 34579.502785s 这个加宽窗口内的状态构成：各状态的累计时长和占比分别是多少，哪个状态占主导？"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+EXPECT_CONTAINS="com.baidu.tieba"
+EXPECT_MATCHES_REGEX="34579\\.472865
+34579\\.502785
+(睡眠|sleep|s_sleep|等待).*(主导|为主|最长|大部分|占比最高|dominant|majority)|(主导|为主|最长|大部分|占比最高|dominant|majority).*(睡眠|sleep|s_sleep)
+(2[5-9](\\.[0-9]+)? *(ms|毫秒)|8[5-9](\\.[0-9]+)? *%)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query
+selected_window=34579\\.4728[0-9]*\\.\\.34579\\.502[0-9]*"

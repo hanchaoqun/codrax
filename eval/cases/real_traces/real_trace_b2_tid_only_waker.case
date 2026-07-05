@@ -1,0 +1,17 @@
+# Real trace — B2 bare-tid subject resolution + D1 direct wakeup aggregation
+#
+# Ground truth (PROFILE.md §1.4/§1.6): tid 59843 = CookieMonsterCl
+# (tgid 59566, busy 8.494 ms); it wakes com.baidu.tieba-59566 34 times (the
+# most frequent waker of the main thread, 34 of 48) and NetworkService-60595
+# 32 times. The answer must resolve the bare tid to the thread identity and
+# name the main thread as its top wake target.
+ID="real_trace_b2_tid_only_waker"
+NAME="real trace — bare tid resolves and wake aggregation"
+QUESTION="只分析这份 trace，不分析代码。这份 trace 里线程号 59843 是哪个线程？属于哪个进程？整份 trace 期间它主要在做什么，它最常唤醒的是谁？"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+EXPECT_CONTAINS="CookieMonsterCl com.baidu.tieba 59843"
+EXPECT_MATCHES_TEXT_REGEX="CookieMonsterCl.{0,120}59843|59843.{0,120}CookieMonsterCl
+(唤醒|唤起|wake).{0,120}(com\\.baidu\\.tieba|主线程|59566)|(com\\.baidu\\.tieba|主线程|59566).{0,120}被.{0,20}(唤醒|唤起)"
+EXPECT_MATCHES_REGEX="(34|3[0-9] ?次|最多|最频繁|most)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

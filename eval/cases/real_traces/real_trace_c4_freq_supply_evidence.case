@@ -1,0 +1,18 @@
+# Real trace — C4 CPU frequency / compute-supply evidence (VS-2 lane)
+#
+# Ground truth (PROFILE.md §1.3): cpu_frequency samples exist ONLY for cpus
+# 3-5 (30 each, shared 11-step ladder 807000..2189000 kHz; jump to 2189000
+# at 34579.470347); cpus 0-2 have zero frequency samples in this capture;
+# the frequency-limits lane is absent (0 events). Honest answer names the
+# governed cpus and the range, and states that not all cpus have frequency
+# samples instead of extrapolating.
+ID="real_trace_c4_freq_supply_evidence"
+NAME="real trace — frequency evidence per cpu honesty"
+QUESTION="只分析这份 trace，不分析代码。这份 trace 里有哪些 CPU 频率方面的证据？哪些核上有频率采样，频率范围多大？是不是所有核都有频率数据？"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+EXPECT_MATCHES_REGEX="(2189000|2\\.189 ?GHz|2\\.19 ?GHz|2189 ?MHz)
+(807000|807 ?MHz|0\\.807 ?GHz)
+(cpu|CPU|核).{0,3}3"
+EXPECT_MATCHES_TEXT_REGEX="(没有|未|无|缺少|不是所有|并非所有|只有|仅).{0,40}(频率|frequency|采样|样本)|(频率|frequency|采样|样本).{0,40}(没有|未见|缺少|只覆盖|只有|仅)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

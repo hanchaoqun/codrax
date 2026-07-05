@@ -1,0 +1,15 @@
+# Real trace — A3 whole-trace profile, no window given
+#
+# Ground truth (PROFILE.md §1.1/§1.4/§1.7 full row): span 144.557 ms
+# (34579.450627..34579.595184); main thread running 50.524 ms (busy
+# attribution 51.462 ms — band 50-51 ms); busiest threads incl.
+# sysevent_store-47924 (59.1 ms) and hilogd.* (53.4/29.7 ms).
+ID="real_trace_a3_whole_trace_overview"
+NAME="real trace — whole-trace overview without window"
+QUESTION="只分析这份 trace，不分析代码。不指定时间窗口，请给出整份 trace 的总体画像：一共覆盖了多长时间？com.baidu.tieba 59566 主线程在整份 trace 里总共运行了多久？除它之外哪些线程占用 CPU 最多？"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+EXPECT_CONTAINS="com.baidu.tieba sysevent_store hilogd"
+EXPECT_MATCHES_REGEX="(14[45](\\.[0-9]+)? *(ms|毫秒)|34579\\.450627|34579\\.595184|0\\.14[0-9]* *(s|秒))
+(5[01]\\.[0-9]+|5[01] ?(ms|毫秒))"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

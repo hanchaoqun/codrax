@@ -1,0 +1,17 @@
+# Real trace — B5 two subjects in one window (main thread vs RenderThread)
+#
+# Ground truth (PROFILE.md §1.7): in 34579.472865..34579.587805 the main
+# thread runs 24.992 ms / sleeps 84.358 ms, while RenderThread-59891 is
+# 100% s_sleep for the whole 114.94 ms (it only wakes at trace tail,
+# 34579.590882/34579.593245, woken by the main thread). Both subjects must
+# be covered; RenderThread must be described as fully asleep/not running in
+# this window, not given invented activity.
+ID="real_trace_b5_multi_subject_render"
+NAME="real trace — multi-subject main vs RenderThread"
+QUESTION="只分析这份 trace，不分析代码。在 34579.472865s 到 34579.587805s 之间，请分别说明 com.baidu.tieba 59566 主线程和 RenderThread 59891 各自的状态：谁在干活，谁在等待？渲染线程这段时间为什么几乎没有动静？"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+EXPECT_SECTIONS="com.baidu.tieba RenderThread"
+EXPECT_MATCHES_TEXT_REGEX="RenderThread.{0,160}(一直|全程|始终|完全)?.{0,20}(睡眠|sleep|挂起|没有运行|未运行|无运行|没有被唤醒|空闲)|(一直|全程|始终|睡眠|sleep|没有运行|未运行).{0,120}RenderThread
+(主线程|com\\.baidu\\.tieba).{0,160}(运行|running|活跃|干活|执行)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

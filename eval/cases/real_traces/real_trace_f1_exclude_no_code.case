@@ -1,0 +1,17 @@
+# Real trace — F1 exclude semantics: trace-only answer, zero pseudo-citations (CPD face)
+#
+# Ground truth (PROFILE.md §1.7 jank row + §1.6): in the jank window the main
+# thread sleeps 2.978 ms until CookieMonsterCl-59843 wakes it at
+# 34579.475843. With the question explicitly excluding source code, the
+# answer must stay trace-grounded: no .codrax/blob attachment paths rendered
+# as citations, no source-status wording (still_present /
+# not_enough_evidence) in a trace-only conclusion.
+ID="real_trace_f1_exclude_no_code"
+NAME="real trace — exclude semantics no code citations"
+QUESTION="只分析这份 trace，不要读取或引用任何源码文件。请分析 com.baidu.tieba 59566 主线程在 34579.472865s 到 34579.475857s 之间在等什么，最后是被谁唤醒的？只用 trace 里的证据回答。"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+EXPECT_CONTAINS="CookieMonsterCl"
+EXPECT_MATCHES_REGEX="(唤醒|唤起|wake)
+34579\\.4758"
+EXPECT_NOT_CONTAINS=".codrax/blob still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
