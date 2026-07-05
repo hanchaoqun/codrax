@@ -45,7 +45,7 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 	if normalizedStructured := normalizePrincipalEnumerationAuthoritativeStructuredCarriers(doc, ctx, sets); normalizedStructured > 0 {
 		changed += normalizedStructured
 	}
-	if pruned := prunePrincipalEnumerationExtraneousItems(doc, sets); pruned > 0 {
+	if pruned := prunePrincipalEnumerationExtraneousItems(doc, ctx, sets); pruned > 0 {
 		changed += pruned
 	}
 	if normalizedCounts := normalizePrincipalEnumerationCarrierItemCounts(doc, sets); normalizedCounts > 0 {
@@ -116,7 +116,7 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 	return changed
 }
 
-func prunePrincipalEnumerationExtraneousItems(doc *types.AnswerDocumentV2, sets []types.EnumerationDisplaySet) int {
+func prunePrincipalEnumerationExtraneousItems(doc *types.AnswerDocumentV2, ctx *types.BusContext, sets []types.EnumerationDisplaySet) int {
 	if doc == nil || len(sets) == 0 {
 		return 0
 	}
@@ -140,6 +140,24 @@ func prunePrincipalEnumerationExtraneousItems(doc *types.AnswerDocumentV2, sets 
 			if strictSourceInventoryRows {
 				keep = principalEnumerationItemCoversAnySourceInventoryScopedRow(item, doc, rows)
 			}
+			// QCE GAP-A (2026-07-05): the display sets above are compiled
+			// from PRINCIPAL member_set facts only, but a facet-tagged
+			// block can render members of another ACCEPTED content-bearing
+			// member_set (e.g. a supporting_coverage pre-stage slate next
+			// to the principal main-stage slate). Those items are typed-
+			// slate-backed content, not extraneous rows — deleting them
+			// silently removes correct answer content. Keep signal is
+			// LABEL-ONLY verbatim member naming (never item prose text: a
+			// hallucinated row that merely name-drops a real member in its
+			// text must still be pruned), restricted to principal_answer /
+			// supporting_coverage member_sets. The STRICT source-inventory
+			// lane keeps its original exclusive semantics: rows in a
+			// strict source-inventory carrier are admitted only by scoped
+			// row coverage and are never rescued by another member_set
+			// naming them (QCE review 2026-07-05 findings 1-3).
+			if !keep && !strictSourceInventoryRows && principalEnumerationItemBackedByAcceptedMemberSetMember(ctx, item) {
+				keep = true
+			}
 			if keep {
 				out = append(out, item)
 				continue
@@ -149,6 +167,35 @@ func prunePrincipalEnumerationExtraneousItems(doc *types.AnswerDocumentV2, sets 
 		block.Items = out
 	}
 	return changed
+}
+
+// principalEnumerationItemBackedByAcceptedMemberSetMember reports whether
+// the item LABEL names a member of an accepted content-bearing member_set
+// fact (principal_answer / supporting_coverage). Such an item reproduces
+// typed investigation-handoff content and must not be treated as an
+// extraneous enumeration row outside the strict source-inventory lane.
+// Matching is label-only verbatim (full surface or decorated base) via the
+// shared cross-package naming authority — item prose text is never a
+// protection signal (QCE review 2026-07-05 finding 1, P1).
+func principalEnumerationItemBackedByAcceptedMemberSetMember(ctx *types.BusContext, item types.AnswerBlockItem) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	label := strings.TrimSpace(item.Label)
+	if label == "" {
+		return false
+	}
+	for _, fact := range preEmitStableAggregateFacts(ctx) {
+		if !preEmitContentBearingMemberSetFact(fact) {
+			continue
+		}
+		for _, member := range fact.Members {
+			if preEmitItemLabelNamesAggregateMember(label, member) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func principalEnumerationPruneRowsForBlock(block types.AnswerBlock, sets []types.EnumerationDisplaySet) []types.EnumerationDisplayRow {

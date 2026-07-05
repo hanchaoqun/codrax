@@ -133,6 +133,38 @@ func currentSourceCitationPath(repoRoot, file string) (string, bool) {
 	return path, true
 }
 
+// answerDocumentHasQuotelessCurrentSourceCitation reports whether any
+// citation normalizeCurrentSourceCitationQuotes could plausibly enrich
+// (single-line, non-negative-pattern, not a runtime artifact) is still
+// missing a quote. Gate for the post-repair quote passes (end of the
+// pre-emit chain + pre-persist): repair passes mint citations as bare
+// file:line, and the first pass runs before those citations exist.
+//
+// Honest bound (QCE review 2026-07-05 finding 9): the gate cannot tell a
+// freshly minted bare citation from a model-emitted bare citation the first
+// pass already failed to fill (missing file, oversized, out-of-repo path) —
+// for the latter it re-opens on every later pass at the bounded cost of one
+// stat/read attempt per cited file per pass. Runtime-artifact citations are
+// excluded here so a GiB-scale trace attachment never keeps the gate open.
+func answerDocumentHasQuotelessCurrentSourceCitation(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
+	if doc == nil {
+		return false
+	}
+	artifactPaths := runtimeArtifactCitationPathSet(ctx)
+	for _, cit := range doc.Citations {
+		if cit.Line <= 0 || cit.LineEnd > cit.Line || strings.TrimSpace(cit.NegativePattern) != "" {
+			continue
+		}
+		if citationFileIsRuntimeArtifact(artifactPaths, cit.File) {
+			continue
+		}
+		if strings.TrimSpace(cit.Quote) == "" {
+			return true
+		}
+	}
+	return false
+}
+
 func logCurrentSourceCitationQuoteRepairs(toolName string, fixed int) {
 	if fixed <= 0 {
 		return

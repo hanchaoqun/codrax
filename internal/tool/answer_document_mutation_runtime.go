@@ -183,6 +183,24 @@ func persistMergedAnswerDocument(
 	if deduped := dedupeVisibleAnswerBlocks(merged); deduped > 0 {
 		logging.Warning("[%s] dropped %d duplicate visible answer block(s) before persist", toolName, deduped)
 	}
+	// QCE GAP-B (2026-07-05): the pre-persist row normalization above can
+	// mint fresh bare file:line citations too (same appendOrReuse shape as
+	// the pre-emit chain). Same gated backfill as the chain end so
+	// system-rebuilt references persist with a source-line quote.
+	if answerDocumentHasQuotelessCurrentSourceCitation(merged, ctx) {
+		if fixed := normalizeCurrentSourceCitationQuotes(merged, ctx); fixed > 0 {
+			logging.Warning("[%s] backfilled %d quoteless citation quote(s) from current source before persist", toolName, fixed)
+		}
+	}
+	// QCE GAP-A (2026-07-05): this is the LAST content-mutating point
+	// before persist (row normalization above can still prune items;
+	// dedupe can drop whole blocks). Materialize the detach disclosure
+	// HERE from the typed records the pre-emit chain ferried over, so the
+	// caveat wording is computed from each item's actual final presence
+	// in the merged document — disposal and wording physically share one
+	// signal. Take() consumes the records so a failed persist cannot
+	// leak them into an unrelated later persist.
+	materializeDetachedCitationRefCaveats(merged, ctx, ctx.Mutable.TakePendingDetachedCitationDisclosures())
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}

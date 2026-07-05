@@ -506,6 +506,17 @@ type MutableState struct {
 	// and force re-declaration).
 	evidenceFloorWaiver *EvidenceFloorWaiver
 
+	// pendingDetachedCitationDisclosures ferries the typed identities of
+	// answer items whose citation_ref was detached during the latest
+	// pre-emit normalize chain run over to the persist chokepoint
+	// (ApplyAndPersistMutation), which materializes the user-visible
+	// disclosure caveat AFTER the last content-mutating pass
+	// (pre-persist enumeration normalization + block dedupe). Replace
+	// semantics: every chain run overwrites; the persist step consumes
+	// (takes and clears). QCE GAP-A 2026-07-05: wording and disposal
+	// must read the same typed signal at the true final mutation point.
+	pendingDetachedCitationDisclosures []DetachedCitationDisclosure
+
 	// retainedEvidenceFloorWaiver is promoted only after a successful
 	// emit_investigation_complete. Downstream answer-surface builders
 	// read this stable copy so a waiver accepted syntactically but later
@@ -5390,6 +5401,42 @@ func (m *MutableState) SetInvestigationAggregateFacts(facts []AnswerAggregateFac
 	defer m.mu.Unlock()
 	m.investigationAggregateFacts = cloneAnswerAggregateFacts(facts)
 	m.bumpAnswerSurfaceRevisionLocked()
+}
+
+// DetachedCitationDisclosure identifies one answer item whose
+// citation_ref was detached by the pre-emit normalize chain, so the
+// persist chokepoint can disclose what ACTUALLY happened to the item
+// ("content kept, anchor removed" vs "removed together with content")
+// from its final presence in the persisted document.
+type DetachedCitationDisclosure struct {
+	BlockID string
+	ItemID  string
+	Label   string
+}
+
+// SetPendingDetachedCitationDisclosures records (replace semantics) the
+// detached-item identities of the latest pre-emit normalize chain run.
+func (m *MutableState) SetPendingDetachedCitationDisclosures(items []DetachedCitationDisclosure) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendingDetachedCitationDisclosures = append([]DetachedCitationDisclosure(nil), items...)
+}
+
+// TakePendingDetachedCitationDisclosures returns and clears the pending
+// detached-item identities. Consumed exactly once by the persist
+// chokepoint so stale records never leak into an unrelated persist.
+func (m *MutableState) TakePendingDetachedCitationDisclosures() []DetachedCitationDisclosure {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := m.pendingDetachedCitationDisclosures
+	m.pendingDetachedCitationDisclosures = nil
+	return out
 }
 
 // RetainInvestigationAggregateFacts promotes the current aggregate

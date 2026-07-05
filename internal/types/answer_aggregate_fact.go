@@ -3907,6 +3907,26 @@ func aggregateMemberSupportSurfaceLabel(member string) string {
 	return strings.TrimSpace(member)
 }
 
+// AnswerAggregateNamedSupportRefLabelDescribesMember reports whether a NAMED
+// support_ref label names this aggregate member. It is the single member↔ref
+// naming authority shared across packages: this package's positional binding
+// (answerAggregateMemberSetEntryLocationKey) and internal/tool's name-scan
+// binding both resolve through the same
+// aggregateSupportRefCanDescribeMember(refLabel,
+// aggregateMemberSupportSurfaceLabel(member)) pair — do not fork a parallel
+// matcher (QCE review 2026-07-05).
+//
+// Unlike the internal positional check (where an empty/generic ref label
+// means "cannot contradict the positional binding"), this strict exported
+// form is for binding BY NAME: empty and generic labels never bind.
+func AnswerAggregateNamedSupportRefLabelDescribesMember(refLabel, member string) bool {
+	refLabel = strings.TrimSpace(refLabel)
+	if refLabel == "" || AnswerSupportRefLabelIsGeneric(refLabel) {
+		return false
+	}
+	return aggregateSupportRefCanDescribeMember(refLabel, aggregateMemberSupportSurfaceLabel(member))
+}
+
 func aggregateSupportRefCanDescribeMember(refLabel string, memberLabel string) bool {
 	refLabel = strings.TrimSpace(refLabel)
 	memberLabel = strings.TrimSpace(memberLabel)

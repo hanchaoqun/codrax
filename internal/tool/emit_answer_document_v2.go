@@ -234,6 +234,17 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			recovery.CandidateBlocks, recovery.RecoveredBlocks, len(recovery.Attachments))
 	}
 	visibleRecovery := mergeAnswerDocumentRecoveryAttachments(recovery, doc)
+	// Quote pass ORDER (QCE GAP-B 2026-07-05): this first pass runs
+	// BEFORE the pre-emit repair chain on purpose — quote-driven
+	// citation_ref repairs inside the chain
+	// (normalizeItemCitationRefsByUniqueBacktickCitationQuote) need the
+	// model-authored + source-verified quotes as their matching signal.
+	// Citations that are still quoteless after this pass (repair-chain
+	// appended ones, plus any bare model citation this pass could not
+	// fill) are retried by the gated passes at the end of
+	// normalizeAnswerDocumentForPreEmit and before persist in
+	// persistMergedAnswerDocument. Do not reorder any of these passes
+	// alone.
 	logCurrentSourceCitationQuoteRepairs(toolName, normalizeCurrentSourceCitationQuotes(doc, ctx))
 	normalizeTypedExcludedAnswerSurface(doc, ctx)
 
@@ -645,14 +656,17 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("detachInvalidItemCitationRefsWithoutSafeCandidateWithContext", fixed)
 		logging.Warning("[%s] detached %d invalid item citation_ref value(s) with no safe replacement candidate", toolName, fixed)
 		// G6 (2026-06-12 sweep): a detached reference is a visible
-		// degradation, not a silent repair — the item keeps its text
-		// but loses its source anchor. Disclose it as a caveat so the
-		// reader knows which strength of grounding they are reading.
-		if principalEnumerationPrefersZH(ctx) {
-			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d 处条目的来源引用无法对应到任何已验证来源，已移除该引用（条目内容保留，但不再带源码锚点）。", fixed))
-		} else {
-			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d item source reference(s) could not be matched to a verified source and were removed (item text kept, but without a source anchor).", fixed))
-		}
+		// degradation, not a silent repair — disclose it as a caveat.
+		// QCE GAP-A (2026-07-05): the caveat is NOT appended here. Later
+		// passes — in this chain (prunePrincipalEnumerationExtraneousItems)
+		// AND in the persist chain (normalizeAnswerDocumentRowsBeforePersist,
+		// dedupeVisibleAnswerBlocks) — may still remove the detached item
+		// entirely, so wording chosen at detach time ("条目内容保留") can be
+		// false by persist time. The typed detach records are ferried at the
+		// end of this function and materialized once by
+		// materializeDetachedCitationRefCaveats inside
+		// persistMergedAnswerDocument, after the last content-mutating pass —
+		// same typed signal for disposal and wording.
 	}
 	if fixed := normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext(doc, view, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext", fixed)
@@ -730,7 +744,101 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeExternalObservationVisibleCitationSentinels", fixed)
 		logging.Warning("[%s] sanitized %d external-observation visible citation sentinel(s)", toolName, fixed)
 	}
+	// QCE GAP-B (2026-07-05): passes above can append fresh citation-pool
+	// entries (appendOrReusePreEmitCitation → bare file:line, no quote),
+	// and the first quote pass ran BEFORE this chain — see the ordering
+	// note at the normalizeCurrentSourceCitationQuotes call site in
+	// executeAnswerDocumentV2. The gate is precise but not one-shot: a
+	// bare citation this pass CANNOT fill (missing file, oversized,
+	// out-of-repo) keeps the gate open on every later chain run, at the
+	// bounded cost of one stat/read attempt per cited file per run.
+	// Runtime-artifact citations are excluded inside the gate.
+	if answerDocumentHasQuotelessCurrentSourceCitation(doc, ctx) {
+		if fixed := normalizeCurrentSourceCitationQuotes(doc, ctx); fixed > 0 {
+			pctx.recordPreEmitRepair("backfillQuotelessCitationQuotes", fixed)
+			logging.Warning("[%s] backfilled %d quoteless citation quote(s) from current source file:line", toolName, fixed)
+		}
+	}
+	// QCE GAP-A (2026-07-05): the detach disclosure is NOT materialized
+	// here. The persist chain (ApplyAndPersistMutation →
+	// normalizeAnswerDocumentRowsBeforePersist + dedupeVisibleAnswerBlocks)
+	// still mutates content after this chain returns, so wording chosen
+	// here could be false by persist time — the exact fork this batch
+	// removes. Ferry the typed records (replace semantics, set even when
+	// empty so a rejected attempt can never leak stale records into a
+	// later persist) to the persist chokepoint, which materializes the
+	// caveat from each item's final presence in the merged document.
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.SetPendingDetachedCitationDisclosures(pctx.detachedCitationDisclosures())
+	}
 	pctx.logPreEmitRepairSummary(toolName)
+}
+
+// materializeDetachedCitationRefCaveats appends the user-visible disclosure
+// for citation_refs detached during the pre-emit normalize chain. It runs at
+// the persist chokepoint — after the LAST content-mutating pass — so wording
+// is driven by the same typed signal as the disposal itself: a detach record
+// whose item is still visible in the merged document is disclosed as
+// "content kept, anchor removed"; a record whose item was removed by a later
+// structural pass is disclosed as "item removed". Never claims retention for
+// content that is gone (QCE GAP-A red line).
+func materializeDetachedCitationRefCaveats(doc *types.AnswerDocumentV2, ctx *types.BusContext, records []types.DetachedCitationDisclosure) {
+	if doc == nil || len(records) == 0 {
+		return
+	}
+	kept, removed := 0, 0
+	for _, rec := range records {
+		if detachedCitationItemStillVisible(doc, rec) {
+			kept++
+		} else {
+			removed++
+		}
+	}
+	zh := principalEnumerationPrefersZH(ctx)
+	if kept > 0 {
+		if zh {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d 处条目的来源引用无法对应到任何已验证来源，已移除该引用（条目内容保留，但不再带源码锚点）。", kept))
+		} else {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d item source reference(s) could not be matched to a verified source and were removed (item text kept, but without a source anchor).", kept))
+		}
+	}
+	if removed > 0 {
+		if zh {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d 处条目的来源引用无法对应到任何已验证来源，且条目未通过结构化答案校验，条目已连同内容一并移除。", removed))
+		} else {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d item(s) whose source reference could not be matched to a verified source also failed structured answer validation and were removed together with their content.", removed))
+		}
+	}
+}
+
+// detachedCitationItemStillVisible reports whether the recorded detached
+// item still renders in the final document. Both identity legs are
+// block-scoped: model-authored item IDs are only unique per block (the
+// materializer fills MISSING ids, it does not dedupe across blocks), so an
+// unrelated same-ID item in another block must not fabricate a "content
+// kept" claim for a removed item (QCE review 2026-07-05 finding 5). The
+// label leg is the fallback for ID-less direct-call paths.
+func detachedCitationItemStillVisible(doc *types.AnswerDocumentV2, rec types.DetachedCitationDisclosure) bool {
+	if doc == nil {
+		return false
+	}
+	for _, blk := range doc.Blocks {
+		if blk.ID != rec.BlockID {
+			continue
+		}
+		for _, item := range blk.Items {
+			if rec.ItemID != "" {
+				if item.ID == rec.ItemID {
+					return true
+				}
+				continue
+			}
+			if rec.Label != "" && strings.TrimSpace(item.Label) == rec.Label {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func normalizeInvisibleOutOfRangeCitationRefs(doc *types.AnswerDocumentV2) int {

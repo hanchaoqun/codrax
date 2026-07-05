@@ -96,6 +96,56 @@ type preEmitCheckContext struct {
 	// repaired-at-chokepoint counts can be compared against retried
 	// counts. Observability only — never a gate input.
 	repairCounts map[string]int
+	// detachedCitationItems records the identity of every item whose
+	// citation_ref was detached by
+	// detachInvalidItemCitationRefsWithoutSafeCandidateWithContext during
+	// this normalize chain. The user-facing disclosure caveat is
+	// materialized ONCE at the end of the chain from these records plus
+	// the item's ACTUAL final presence in the document, so the caveat
+	// wording ("content kept" vs "item removed") and the disposal outcome
+	// are driven by the same typed signal and cannot fork (QCE GAP-A
+	// 2026-07-05: the caveat used to claim "条目内容保留" at detach time
+	// while a later enumeration prune deleted the items).
+	detachedCitationItems []preEmitDetachedCitationItem
+}
+
+// preEmitDetachedCitationItem identifies one item whose citation_ref was
+// detached, so end-of-chain disclosure can check whether the item is still
+// visible in the final document.
+type preEmitDetachedCitationItem struct {
+	blockID string
+	itemID  string
+	label   string
+}
+
+// recordDetachedCitationItem notes one detached item citation for the
+// persist-time disclosure caveat.
+func (pctx *preEmitCheckContext) recordDetachedCitationItem(blockID, itemID, label string) {
+	if pctx == nil {
+		return
+	}
+	pctx.detachedCitationItems = append(pctx.detachedCitationItems, preEmitDetachedCitationItem{
+		blockID: blockID,
+		itemID:  itemID,
+		label:   strings.TrimSpace(label),
+	})
+}
+
+// detachedCitationDisclosures converts this chain run's detach records into
+// the typed ferry shape consumed by the persist chokepoint.
+func (pctx *preEmitCheckContext) detachedCitationDisclosures() []types.DetachedCitationDisclosure {
+	if pctx == nil || len(pctx.detachedCitationItems) == 0 {
+		return nil
+	}
+	out := make([]types.DetachedCitationDisclosure, 0, len(pctx.detachedCitationItems))
+	for _, rec := range pctx.detachedCitationItems {
+		out = append(out, types.DetachedCitationDisclosure{
+			BlockID: rec.blockID,
+			ItemID:  rec.itemID,
+			Label:   rec.label,
+		})
+	}
+	return out
 }
 
 // recordPreEmitRepair notes one normalize pass's repair count.
@@ -1848,7 +1898,8 @@ func detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc *types.Ans
 			if types.AnswerLocationLabelMatchesCitation(label, cit) ||
 				preEmitEnumerationDirectoryLabelCitationScoped(*block, label, cit) ||
 				preEmitCitationEnclosingFunctionSupportsLabel(label, cit) ||
-				preEmitCitationSupportsAggregateItemWithContext(pctx, label, text, cit) {
+				preEmitCitationSupportsAggregateItemWithContext(pctx, label, text, cit) ||
+				preEmitCitationMatchesAnyMemberSetExplicitSupportRef(pctx, label, cit) {
 				continue
 			}
 			if surface, ok := types.ParseAnswerSourceLocationSurface(label); ok &&
@@ -1868,6 +1919,7 @@ func detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc *types.Ans
 				continue
 			}
 			item.CitationRef = -1
+			pctx.recordDetachedCitationItem(block.ID, item.ID, label)
 			fixed++
 		}
 	}
@@ -8937,6 +8989,129 @@ func preEmitAggregateSimpleRelationPartOK(part string) bool {
 	return hasAlphaNum
 }
 
+// preEmitNamedSupportRefBindsMember reports whether a NAMED support_ref
+// label binds to this member of this fact. Binding legs, tightest first:
+//  1. full decorated member surface, case-insensitive verbatim;
+//  2. member naming via the shared cross-package authority
+//     (types.AnswerAggregateNamedSupportRefLabelDescribesMember — the same
+//     aggregateSupportRefCanDescribeMember/aggregateMemberSupportSurfaceLabel
+//     pair the positional binding in internal/types resolves through), BUT
+//     only when the ref label names exactly ONE member of the fact —
+//     same-base siblings ("Foo (a)" + "Foo (b)") must not all bind the
+//     first "Foo:"-named ref (QCE review 2026-07-05 finding 7).
+//
+// The emit-side member_set contract requires decorated members to carry one
+// named `file:line` support_ref per member; the ref label names the code
+// identity (base), not the display decoration, so base binding is part of
+// the typed handshake — previously decorated members never bound to their
+// own named refs and the explicit-support lane was dead for them (QCE GAP-A
+// 2026-07-05).
+func preEmitNamedSupportRefBindsMember(fact types.AnswerAggregateFact, member, refMember string) bool {
+	member = strings.TrimSpace(member)
+	refMember = strings.TrimSpace(refMember)
+	if member == "" || refMember == "" {
+		return false
+	}
+	if strings.EqualFold(refMember, member) {
+		return true
+	}
+	if !types.AnswerAggregateNamedSupportRefLabelDescribesMember(refMember, member) {
+		return false
+	}
+	described := 0
+	for _, other := range fact.Members {
+		if strings.EqualFold(refMember, strings.TrimSpace(other)) ||
+			types.AnswerAggregateNamedSupportRefLabelDescribesMember(refMember, other) {
+			described++
+		}
+	}
+	return described == 1
+}
+
+// preEmitContentBearingMemberSetFact reports whether this aggregate fact is
+// a member_set whose members are content-bearing answer rows: role in the
+// typed principal_answer / supporting_coverage whitelist. Coverage/audit
+// ledgers (audit_ledger) and role-less sets are NOT protection sources for
+// the keep-gates below — an audit trail naming a symbol does not make a
+// visible answer row about that symbol slate-backed (QCE review 2026-07-05
+// finding 2).
+func preEmitContentBearingMemberSetFact(fact types.AnswerAggregateFact) bool {
+	if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 {
+		return false
+	}
+	switch types.NormalizeAnswerAggregateRole(fact.Role) {
+	case types.AnswerAggregateRolePrincipalAnswer, types.AnswerAggregateRoleSupportingCoverage:
+		return true
+	default:
+		return false
+	}
+}
+
+// preEmitItemLabelNamesAggregateMember reports whether the item LABEL names
+// this member: case-insensitive verbatim on the full surface, or — with the
+// decorated-base extraction preserved on both sides — base-level naming via
+// the shared cross-package authority. Item TEXT is deliberately NOT
+// consulted: a hallucinated row whose prose merely name-drops a real member
+// must not inherit that member's protection (QCE review 2026-07-05
+// finding 1, P1).
+func preEmitItemLabelNamesAggregateMember(label, member string) bool {
+	label = strings.TrimSpace(label)
+	member = strings.TrimSpace(member)
+	if label == "" || member == "" {
+		return false
+	}
+	if strings.EqualFold(label, member) {
+		return true
+	}
+	if types.AnswerAggregateNamedSupportRefLabelDescribesMember(label, member) {
+		return true
+	}
+	if base, _, ok := types.AnswerAggregateDecoratedLabelParts(label); ok {
+		return types.AnswerAggregateNamedSupportRefLabelDescribesMember(base, member)
+	}
+	return false
+}
+
+// preEmitCitationMatchesAnyMemberSetExplicitSupportRef reports whether the
+// item LABEL names a member of an accepted content-bearing member_set fact
+// (principal_answer or supporting_coverage) whose explicit per-member
+// support_ref names the same location the item's citation points at.
+//
+// Precision comes from two verbatim legs: (1) label↔member naming (full
+// surface or decorated base, never item prose text), and (2) exact
+// citation↔support_ref location match. What this attests is that the
+// citation REPRODUCES the accepted typed investigation handoff — emit-time
+// acceptance does not independently re-resolve every support_ref against
+// the source tree, so this is handoff fidelity, not fresh source
+// verification. That is still a precise typed signal, safe as a hard
+// keep-gate in front of destructive detach handling; the principal-only
+// aggregate gates keep their narrower answer-slate scope. (QCE GAP-A
+// 2026-07-05: three isomorphic correct pre-stage refs got 2 detached / 1
+// kept purely on agent-name spelling luck in noisy evidence-text matching.)
+func preEmitCitationMatchesAnyMemberSetExplicitSupportRef(pctx *preEmitCheckContext, label string, cit types.Citation) bool {
+	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
+		return false
+	}
+	if strings.TrimSpace(label) == "" {
+		return false
+	}
+	cit = pctx.canonicalCitation(cit)
+	for _, fact := range preEmitStableAggregateFacts(pctx.ctx) {
+		if !preEmitContentBearingMemberSetFact(fact) {
+			continue
+		}
+		for idx, member := range fact.Members {
+			if !preEmitItemLabelNamesAggregateMember(label, member) {
+				continue
+			}
+			if preEmitAggregateMemberCitationMatchesExplicit(fact, idx, member, cit) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func preEmitAggregateMemberCitationMatches(fact types.AnswerAggregateFact, memberIdx int, member string, cit types.Citation) bool {
 	if strings.TrimSpace(cit.File) == "" || cit.Line <= 0 {
 		return false
@@ -8947,7 +9122,6 @@ func preEmitAggregateMemberCitationMatches(fact types.AnswerAggregateFact, membe
 	if label, loc, ok := preEmitAggregateSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
 		return preEmitCitationMatchesSourceLocation(cit, loc)
 	}
-	memberKey := strings.ToLower(strings.TrimSpace(member))
 	var bareRefs []types.AnswerSourceLocationSurface
 	var genericRefs []types.AnswerSourceLocationSurface
 	for _, ref := range fact.SupportRefs {
@@ -8966,7 +9140,7 @@ func preEmitAggregateMemberCitationMatches(fact types.AnswerAggregateFact, membe
 			}
 			continue
 		}
-		if strings.ToLower(refMember) == memberKey && preEmitCitationMatchesSourceLocation(cit, loc) {
+		if preEmitNamedSupportRefBindsMember(fact, member, refMember) && preEmitCitationMatchesSourceLocation(cit, loc) {
 			return true
 		}
 	}
@@ -9033,7 +9207,6 @@ func preEmitAggregateMemberSupportLocationClassified(fact types.AnswerAggregateF
 	if label, loc, parsed := preEmitAggregateSupportRefMemberLocation(member); parsed && strings.TrimSpace(label) != "" {
 		return loc.File, loc.LineStart, preEmitAggregateSupportExplicit, true
 	}
-	memberKey := strings.ToLower(strings.TrimSpace(member))
 	var bareRefs []types.AnswerSourceLocationSurface
 	var genericRefs []types.AnswerSourceLocationSurface
 	for _, ref := range fact.SupportRefs {
@@ -9049,7 +9222,7 @@ func preEmitAggregateMemberSupportLocationClassified(fact types.AnswerAggregateF
 			genericRefs = append(genericRefs, loc)
 			continue
 		}
-		if strings.ToLower(strings.TrimSpace(refMember)) == memberKey {
+		if preEmitNamedSupportRefBindsMember(fact, member, refMember) {
 			return loc.File, loc.LineStart, preEmitAggregateSupportExplicit, true
 		}
 	}
