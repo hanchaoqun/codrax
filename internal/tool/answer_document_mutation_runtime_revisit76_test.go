@@ -525,16 +525,20 @@ type revisit76LegendProbe struct{ zh, en string }
 // tag append, which the width fit never elides.
 func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 	return map[runtimeTraceProjMark]revisit76LegendProbe{
-		runtimeTraceProjMarkRootTarget:   {"🎯", "🎯"},
-		runtimeTraceProjMarkEdgeDrill:    {"下钻─", "drill─"},
-		runtimeTraceProjMarkEdgeWake:     {"唤醒─", "wakes─"},
-		runtimeTraceProjMarkEdgeCause:    {"成因─", "cause─"},
-		runtimeTraceProjMarkEdgeOwn:      {"自身─", "own─"},
-		runtimeTraceProjMarkSemanticSpan: {"✦", "✦"},
-		runtimeTraceProjMarkIconSleep:    {"☾", "☾"},
-		runtimeTraceProjMarkIconRunnable: {"⧖", "⧖"},
-		runtimeTraceProjMarkIconRunning:  {"⚙", "⚙"},
-		runtimeTraceProjMarkIconDState:   {"⛓", "⛓"},
+		runtimeTraceProjMarkRootTarget: {"🎯", "🎯"},
+		runtimeTraceProjMarkEdgeDrill:  {"下钻─", "drill─"},
+		runtimeTraceProjMarkEdgeWake:   {"唤醒─", "wakes─"},
+		runtimeTraceProjMarkEdgeCause:  {"成因─", "cause─"},
+		runtimeTraceProjMarkEdgeOwn:    {"自身─", "own─"},
+		// PTV6 #1b: the depthless on-chain lane's dedicated edge word (the mark
+		// records only when the edge label actually renders — fold rows and
+		// flat renders suppress the word and record nothing).
+		runtimeTraceProjMarkEdgeChainUnresolved: {"链上·深度未解析─", "on-chain·depth-unresolved─"},
+		runtimeTraceProjMarkSemanticSpan:        {"✦", "✦"},
+		runtimeTraceProjMarkIconSleep:           {"☾", "☾"},
+		runtimeTraceProjMarkIconRunnable:        {"⧖", "⧖"},
+		runtimeTraceProjMarkIconRunning:         {"⚙", "⚙"},
+		runtimeTraceProjMarkIconDState:          {"⛓", "⛓"},
 		// PTV4 T4: the two ◦ senses probe on their distinct inline words (the
 		// glyph itself is shared, so it cannot be a bidirectional probe).
 		runtimeTraceProjMarkIconTransit:    {"中转", "transit"},
@@ -745,6 +749,26 @@ func revisit76BerlinLayersProjection() types.TraceCausalProjection {
 	}
 }
 
+// revisit76PTV6DepthlessProjection is the PTV6 #1b shape: a resolved trunk
+// plus one on-chain data row whose subject is off-trunk with no resolvable
+// depth — the remaining-on-chain lane renders it with the dedicated
+// 链上·深度未解析 edge (never the wake edge).
+func revisit76PTV6DepthlessProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"worker-9", "app-100"},
+		WindowStartTs: 100.0,
+		WindowEndTs:   100.2,
+		OnChainCauses: []types.TraceCausalProjectionNode{
+			{Role: types.TraceCausalRoleRootCauseContext, Subject: "worker-9",
+				Object: "running_burst", StateKind: "running", ChainRelevance: "on_chain",
+				ImpactMS: 30, Confidence: 0.8},
+			{Role: types.TraceCausalRoleCausalHop, Subject: "detached-7",
+				Object: "runnable_wait", StateKind: "runnable", ChainRelevance: "on_chain",
+				ImpactMS: 12, Confidence: 0.8},
+		},
+	}
+}
+
 // revisit76AssertLegendBidirectional renders one shape and asserts the NEW-7
 // two-way contract: (a) typed marks ⇔ rendered legend entries; (b) for every
 // probed mark, its fence token appears IFF its legend entry renders.
@@ -801,6 +825,8 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		{"ptv4_badges_merges", revisit76PTV4BadgeMergeProjection()},
 		// PTV5 (#68): C00 fallback caliber word + PTS on-chain overflow fold.
 		{"ptv5_fold_caliber", revisit76PTV5FoldCaliberProjection()},
+		// PTV6 #1b: the depthless remaining-on-chain lane's dedicated edge.
+		{"ptv6_depthless_chain_unresolved", revisit76PTV6DepthlessProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

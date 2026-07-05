@@ -10,9 +10,10 @@ package tool
 //      impact shape, evidence + confidence);
 //   3. a file-grouped evidence index.
 // The tree is anchored at the user-focused thread (🎯 root = last wakeup-path
-// node); four edge kinds only (下钻 / 唤醒 / 语义 / 成因); bars are scaled to
-// the requested window when the precise anchor exists and deterministically
-// fall back to the batch max otherwise (never a fabricated window).
+// node); six edge kinds only (下钻 / 唤醒 / 语义 / 成因 / 自身 /
+// 链上·深度未解析); bars are scaled to the requested window when the precise
+// anchor exists and deterministically fall back to the batch max otherwise
+// (never a fabricated window).
 
 import (
 	"fmt"
@@ -47,6 +48,16 @@ const (
 	// runtimeTraceProjOwnProcessIONode; fence edge, relation cell and legend
 	// all read this typed edge.
 	runtimeTraceProjTreeEdgeOwn = "own"
+	// runtimeTraceProjTreeEdgeChainUnresolved (PTV6 #1b, presentation v3 §5)
+	// marks the depthless remaining-on-chain lane: an on-chain row whose
+	// ChainDepth never resolved. The pre-PTV6 hardcoded default was the WAKE
+	// edge — a bare 唤醒 claim hanging off a non-waker (specimen donghu_short:
+	// background critical_blocking rows rendered as └─唤醒─ children of the 🎯
+	// target). The dedicated edge claims exactly what the data carries —
+	// on-chain membership with an unresolved tree position — never a wake
+	// relation. Stamped ONCE at model build; fence edge, relation cell and
+	// legend entry all read the resulting row.Edge (F2 同型).
+	runtimeTraceProjTreeEdgeChainUnresolved = "chain_unresolved"
 
 	// runtimeTraceProjTreeLabelWidth is the display-cell budget of the tree
 	// label column (prefix + edge + icon + name); bars/ms/tags align after it.
@@ -262,6 +273,7 @@ const (
 	runtimeTraceProjMarkEdgeWake                                          // ├─唤醒─ / └─唤醒─ edge
 	runtimeTraceProjMarkEdgeCause                                         // ├─成因─ edge
 	runtimeTraceProjMarkEdgeOwn                                           // ├─自身─ own-process caliber edge (F2)
+	runtimeTraceProjMarkEdgeChainUnresolved                               // └─链上·深度未解析─ depthless on-chain edge (PTV6 #1b)
 	runtimeTraceProjMarkSemanticSpan                                      // ├─语义─ edge + ✦ icon (always paired)
 	runtimeTraceProjMarkIconSleep                                         // ☾ state icon (PTV4 T5: was 💤)
 	runtimeTraceProjMarkIconRunnable                                      // ⧖ state icon (PTV4 T5: was ⏳)
@@ -383,6 +395,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkEdgeOwn, runtimeTraceProjLegendGroupEdge,
 			"- `├─自身─` = 目标自身/同进程的口径行(同段墙钟的另一口径),非唤醒边。",
 			"- `├─own─` = an own-/same-process caliber row of the target (another caliber of the same wall clock), not a wake edge."},
+		// PTV6 #1b (v3 §5): the depthless on-chain lane's dedicated edge — the
+		// row never claims a wake/drill relation and never invents a tree
+		// position (NEW-7: the entry renders only when the edge is emitted).
+		{runtimeTraceProjMarkEdgeChainUnresolved, runtimeTraceProjLegendGroupEdge,
+			"- `└─链上·深度未解析─` = 链上项但树位深度未解析:不声称唤醒/下钻关系,不编造树位;完整关系见原始 trace_query 记录。",
+			"- `└─on-chain·depth-unresolved─` = an on-chain row whose tree depth is unresolved: no wake/drill relation is claimed and no position is invented; the full relation stays in the trace_query record."},
 		{runtimeTraceProjMarkSemanticSpan, runtimeTraceProjLegendGroupEdge,
 			"- `├─语义─`/`✦` = 该位置的语义 span(业务阶段),非调度状态行。",
 			"- `├─span─`/`✦` = a semantic span (business phase) at this position, not a scheduler-state row."},
@@ -435,15 +453,27 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkMergedSum, runtimeTraceProjLegendGroupCaliber,
 			"- `×N(a–b)` = 同一(线程,原因)的 N 次实例合并,数值为总和,a–b 为单次范围。",
 			"- `×N(a–b)` = N instances of one (thread, cause) merged; the value is the SUM, a–b the per-instance range."},
+		// PTV6-B (聚合幻影修复, 2026-07-06): the entry discloses the near-lane
+		// boundary-resampling drift and the max caliber (verbatim pin
+		// TestPTV6LegendWordingVerbatimPins; the row tag token ×N同值 未动).
+		// 修正轮 Low: the ≤3% figure is the SINGLE-STEP band — transitive folds
+		// may drift beyond it, so the entry names no percentage and states the
+		// caliber as "the largest published copy in the fold".
 		{runtimeTraceProjMarkMergedDedup, runtimeTraceProjLegendGroupCaliber,
-			"- `×N同值` = 同一测量被重复发布 N 次,数值就是那一次测量,不是 N 份。",
-			"- `×N same-value` = one measurement published N times; the value IS that single measurement, never N shares."},
+			"- `×N同值` = 同一测量被重复发布 N 次(边界重取样时数值可有漂移,显示取合并中的最大一次发布),数值就是那一次测量,不是 N 份。",
+			"- `×N same-value` = one measurement published N times (values may drift under boundary resampling; the display keeps the largest published copy in the fold); the value IS that single measurement, never N shares."},
 		{runtimeTraceProjMarkMergedMax, runtimeTraceProjLegendGroupCaliber,
 			"- `×N(a–b)取最大` = 跨线程折叠 N 项,数值取成员最大;墙钟跨线程不可加和,不求和。",
 			"- `×N(a–b) max` = N cross-thread rows folded; the value is the member MAX — wall clock never sums across threads."},
+		// PTV6-B (聚合幻影修复, 2026-07-06; 修正轮 Med 如实化): the entry
+		// discloses exactly what the pipeline does — NEAR-duplicate (≤3%)
+		// same-thread overlapping measurements fold as duplicate publications,
+		// while clearly-different overlapping measurements legitimately
+		// R2-accumulate as multiple spans (B 批 S3 设计依据) — no over-claim
+		// that every same-thread overlap is folded away.
 		{runtimeTraceProjMarkOverWindowShare, runtimeTraceProjLegendGroupCaliber,
-			"- 占窗>100% = 跨CPU/多段累计投影,可合法超出窗口长度(时长条已封顶)。",
-			"- A >100% window share = a multi-CPU / multi-span cumulative projection that may legitimately exceed the window (the bar is capped)."},
+			"- 占窗>100% = 跨CPU/多段累计投影,可合法超出窗口长度(时长条已封顶);同一线程的近似重复测量(≤3%)已按重复发布折叠;差异明显的重叠测量按多段累计。",
+			"- A >100% window share = a multi-CPU / multi-span cumulative projection that may legitimately exceed the window (the bar is capped); same-thread near-duplicate measurements (≤3%) are folded as duplicate publications; clearly different overlapping measurements accumulate as multiple spans."},
 		// PTV5 C10 (#68): the trigger is ≥99% (≤100.1%) on BACKGROUND rows only
 		// — the entry states its own bounds instead of "整个窗口" 过宽.
 		{runtimeTraceProjMarkWholeWindowIdle, runtimeTraceProjLegendGroupCaliber,
@@ -821,17 +851,34 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	}
 	// Remaining on-chain rows (no trunk membership, no resolvable depth) — a
 	// typed-faithful "depth unresolved" branch instead of an invented position.
+	var offChainStrays []types.TraceCausalProjectionNode
 	for _, node := range chainNodes {
 		if consumed[runtimeTraceCausalProjectionNodeKey(node)] {
 			continue
 		}
+		// [Med 修正轮 2026-07-06] a background/adjacent-relevance row in the
+		// chain universe (the PRIMARY/rank lane carries no #1a admission gate)
+		// must NOT take the depthless lane — the 链上·深度未解析 edge would
+		// claim chain identity for a typed OFF-chain row while the #2 defense
+		// suppressed its honest stanza seat. Leave it UNCONSUMED so its bucket
+		// copy renders in ◇/▒ below; the stray pass after the stanza loops
+		// seats any copy the bucket cap dropped (PTS 永不静默丢).
+		if rel := strings.TrimSpace(node.ChainRelevance); rel == "background" || rel == "adjacent" {
+			offChainStrays = append(offChainStrays, node)
+			continue
+		}
 		consume(node)
-		edge := runtimeTraceProjTreeEdgeWake
+		// PTV6 #1b (v3 §5, specimen donghu_short): the depthless lane's default
+		// edge is the DEDICATED 链上·深度未解析 edge — never the wake edge. The
+		// pre-PTV6 hardcoded runtimeTraceProjTreeEdgeWake here asserted a bare
+		// 唤醒 relation the data never carried, hanging background-classified
+		// rows off the 🎯 target as phantom wakers (#9 负向 pin: 禁裸唤醒边挂非
+		// waker). The typed node predicate decides ONCE at build time; every
+		// display surface (fence edge, relation cell, legend entry) reads the
+		// resulting row.Edge.
+		edge := runtimeTraceProjTreeEdgeChainUnresolved
 		// F2: a process-level IO caliber row of the 🎯 target's OWN process is
-		// not an upstream waker — hard-coding the wake edge here made the fence
-		// claim 唤醒 while the relation column said 自身进程IO. The typed node
-		// predicate decides ONCE at build time; every display surface (fence
-		// edge, relation cell, legend entry) reads the resulting row.Edge.
+		// not an upstream waker — it keeps its own dedicated edge.
 		if runtimeTraceProjOwnProcessIONode(node, model.Target) {
 			edge = runtimeTraceProjTreeEdgeOwn
 		}
@@ -888,7 +935,20 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		attach(model.TreeRows)
 	}
 
+	// PTV6 #2 (双席防御): a node key the chain universe already consumed
+	// (self / trunk / depth-attach / depthless row) never seats a SECOND copy
+	// in the ◇/▒ stanzas. Post-#1a the specimen's background rows no longer
+	// enter the chain universe at all, so this is a fallback defense — any
+	// future lane that double-casts one node into both surfaces renders it
+	// once, on the chain (the stanza copy is the duplicate; the (a) table's
+	// 双席 declaration follows the actual seats and drops with it).
+	adjacentSeen := map[string]bool{}
 	for _, node := range runtimeTraceProjAdjacentNodesForDisplay(projection.AdjacentCauses) {
+		key := runtimeTraceCausalProjectionNodeKey(node)
+		if consumed[key] {
+			continue
+		}
+		adjacentSeen[key] = true
 		model.Adjacent = append(model.Adjacent, runtimeTraceProjTreeRow{
 			Node: node, Kind: runtimeTraceProjTreeRowAdjacent, HasData: true,
 			EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
@@ -896,7 +956,11 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	}
 	backgroundSeen := map[string]bool{}
 	for _, node := range projection.BackgroundCauses {
-		backgroundSeen[runtimeTraceCausalProjectionNodeKey(node)] = true
+		key := runtimeTraceCausalProjectionNodeKey(node)
+		if consumed[key] {
+			continue // PTV6 #2: chain seat wins — no 链/▒ double seat
+		}
+		backgroundSeen[key] = true
 		model.Background = append(model.Background, runtimeTraceProjTreeRow{
 			Node: node, Kind: runtimeTraceProjTreeRowBackground, HasData: true,
 			EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
@@ -926,7 +990,40 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			EvidenceTag: tag,
 		})
 	}
-	if len(demoted) > 0 {
+	// [Med 修正轮 2026-07-06] stray pass: an off-chain-relevance chain-universe
+	// row whose stanza-bucket copy never rendered (bucket cap dropped it, or
+	// the buckets never carried it) still gets its honest ◇/▒ seat here —
+	// routed by its OWN typed relevance, deduped against every seat already
+	// taken (PTS 永不静默丢; the demote lane's normalization applies).
+	strayLanded := false
+	for _, node := range offChainStrays {
+		key := runtimeTraceCausalProjectionNodeKey(node)
+		if consumed[key] || adjacentSeen[key] || backgroundSeen[key] {
+			continue
+		}
+		tag := runtimeTraceProjEvidenceTag(node, evidence, zh)
+		if node.Role == types.TraceCausalRolePrimaryRootCause || node.Role == types.TraceCausalRoleCausalHop {
+			node.Role = types.TraceCausalRoleRootCauseContext
+		}
+		if strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_primary") {
+			node.Predicate = "root_cause_context"
+		}
+		if strings.TrimSpace(node.ChainRelevance) == "adjacent" {
+			adjacentSeen[key] = true
+			model.Adjacent = append(model.Adjacent, runtimeTraceProjTreeRow{
+				Node: node, Kind: runtimeTraceProjTreeRowAdjacent, HasData: true,
+				EvidenceTag: tag,
+			})
+			continue
+		}
+		backgroundSeen[key] = true
+		strayLanded = true
+		model.Background = append(model.Background, runtimeTraceProjTreeRow{
+			Node: node, Kind: runtimeTraceProjTreeRowBackground, HasData: true,
+			EvidenceTag: tag,
+		})
+	}
+	if len(demoted) > 0 || strayLanded {
 		sort.SliceStable(model.Background, func(i, j int) bool {
 			return runtimeTraceProjNodeDisplayImpact(model.Background[i].Node) >
 				runtimeTraceProjNodeDisplayImpact(model.Background[j].Node)
@@ -963,6 +1060,16 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 // attribution, the top three by EffectiveImpactMS descending (ties keep render
 // order). Typed fields only — no prose judgment, no new LLM signal; clearing
 // a node's Rank removes its badge (pinned by mutation test).
+//
+// PTV6 #11 (specimen donghu_short: ❶❷ landed on one thread's main row AND its
+// same-value 成因 child): badges dedupe by CANONICAL SUBJECT — each subject
+// seats at most one badge, taken by its max-EffectiveImpactMS row (the stable
+// sort makes that the subject's first candidate). A cause row whose subject
+// equals its parent's is naturally represented by the parent when both
+// qualify; when the parent row has no data (never a candidate) the cause row
+// still seats. Subjectless rows (synthetic folds are already excluded above)
+// each stand alone. 去 badge 去重必红 pin:
+// TestPTV6TopBadgesOneSeatPerSubject.
 func runtimeTraceProjAssignTopBadges(model *runtimeTraceProjTreeModel) {
 	type candidate struct {
 		row   *runtimeTraceProjTreeRow
@@ -993,8 +1100,18 @@ func runtimeTraceProjAssignTopBadges(model *runtimeTraceProjTreeModel) {
 	sort.SliceStable(candidates, func(i, j int) bool {
 		return candidates[i].value > candidates[j].value
 	})
-	for i := 0; i < len(candidates) && i < 3; i++ {
-		candidates[i].row.Badge = i + 1
+	seated := map[string]bool{}
+	badge := 0
+	for i := 0; i < len(candidates) && badge < 3; i++ {
+		subject := runtimeTraceCausalProjectionCanonicalNode(candidates[i].row.Node.Subject)
+		if subject != "" {
+			if seated[subject] {
+				continue // PTV6 #11: one seat per subject — max-eff row took it
+			}
+			seated[subject] = true
+		}
+		badge++
+		candidates[i].row.Badge = badge
 	}
 }
 
@@ -1338,11 +1455,13 @@ func runtimeTraceProjDedupNodes(nodes []types.TraceCausalProjectionNode) []types
 
 // runtimeTraceProjAdjacentNodesForDisplay prepares the adjacent stanza (H6,
 // customer audit 2026-07-03): first the same typed node-key dedupe the
-// background stanza already runs, then one strictly-equal duplicate-measurement
-// fold — same canonical subject + same canonical object + same canonical
-// TypeToken + EXACTLY equal projected ms (pure float equality, never ±ε) AND a
-// precise line/time overlap (RF2a, adversarial review 2026-07-03) merge into
-// the first row's DuplicatePublications/MergedEvidenceIDs. The real customer
+// background stanza already runs, then one duplicate-measurement fold — same
+// canonical subject + same canonical object + same canonical TypeToken, the
+// projected ms matching on the exact lane (pure float equality) or the PTV6-B
+// near lane (bounded band + sentinel gates, both consumed from the types
+// exports — see runtimeTraceProjSameAdjacentMeasurement), AND a precise
+// line/time overlap (RF2a, adversarial review 2026-07-03) merge into the
+// first row's DuplicatePublications/MergedEvidenceIDs. The real customer
 // shape was two irq_activity rows with identical 35.350ms over overlapping
 // line ranges (793201-830007 vs 793204-830012) rendering as two stanza rows.
 //
@@ -1385,19 +1504,39 @@ func runtimeTraceProjAdjacentNodesForDisplay(nodes []types.TraceCausalProjection
 	return out
 }
 
-// runtimeTraceProjSameAdjacentMeasurement is the strict duplicate-measurement
-// identity: canonical subject + canonical object + canonical TypeToken equal,
-// the positive projected ms exactly equal, AND the two rows precisely overlap
-// in the artifact — line-range intersection or time-span intersection (RF2a,
-// adversarial review 2026-07-03: two REAL irq bursts at different moments can
-// quantize to the same %.3f ms; folding them halves the reported contribution).
-// When neither location lane is determinate for the pair the fold fails open
-// to two rows — value equality alone never merges.
+// runtimeTraceProjSameAdjacentMeasurement is the duplicate-measurement
+// identity of the display safety net: canonical subject + canonical object +
+// canonical TypeToken equal, the positive projected ms matching on one of TWO
+// value lanes, AND the two rows precisely overlap in the artifact — line-range
+// intersection or time-span intersection (RF2a, adversarial review 2026-07-03:
+// two REAL irq bursts at different moments can quantize to the same %.3f ms;
+// folding them halves the reported contribution). When neither location lane
+// is determinate for the pair the fold fails open to two rows — value
+// proximity alone never merges.
+//
+// Value lanes (PTV6-B mirror, 2026-07-06 — the former exact-only fork with the
+// types-layer V4 fold is gone):
+//   - exact lane: pure float equality (pre-PTV6-B behavior, byte-identical);
+//   - near lane: the bounded boundary-resampling band, consumed from the ONE
+//     exported types authority (TraceCausalProjectionNearDuplicateValues —
+//     the band constant is never copied), gated on REAL non-sentinel SUBJECT
+//     and OBJECT identities (TraceCausalProjectionKnownSubject — a sentinel
+//     on either leg carries no identity for the "one republished measurement"
+//     assertion).
 func runtimeTraceProjSameAdjacentMeasurement(a, b types.TraceCausalProjectionNode) bool {
-	return runtimeTraceCausalProjectionCanonicalNode(a.Subject) == runtimeTraceCausalProjectionCanonicalNode(b.Subject) &&
-		runtimeTraceCausalProjectionCanonicalNode(a.Object) == runtimeTraceCausalProjectionCanonicalNode(b.Object) &&
-		runtimeTraceCausalProjectionCanonicalNode(a.TypeToken) == runtimeTraceCausalProjectionCanonicalNode(b.TypeToken) &&
-		a.ImpactMS > 0 && a.ImpactMS == b.ImpactMS &&
+	if runtimeTraceCausalProjectionCanonicalNode(a.Subject) != runtimeTraceCausalProjectionCanonicalNode(b.Subject) ||
+		runtimeTraceCausalProjectionCanonicalNode(a.Object) != runtimeTraceCausalProjectionCanonicalNode(b.Object) ||
+		runtimeTraceCausalProjectionCanonicalNode(a.TypeToken) != runtimeTraceCausalProjectionCanonicalNode(b.TypeToken) {
+		return false
+	}
+	sameValue := a.ImpactMS > 0 && a.ImpactMS == b.ImpactMS
+	// [Med 修正轮 2026-07-06] the sentinel gate covers BOTH identity legs
+	// (types-layer near lane verbatim): an unknown-thread SUBJECT carries no
+	// identity for the "one republished measurement" assertion either.
+	nearValue := !sameValue && types.TraceCausalProjectionKnownSubject(a.Subject) &&
+		types.TraceCausalProjectionKnownSubject(a.Object) &&
+		types.TraceCausalProjectionNearDuplicateValues(a.ImpactMS, b.ImpactMS)
+	return (sameValue || nearValue) &&
 		(runtimeTraceProjLineSpansOverlap(a, b) || runtimeTraceProjTimeSpansOverlap(a, b))
 }
 
@@ -1423,14 +1562,27 @@ func runtimeTraceProjTimeSpansOverlap(a, b types.TraceCausalProjectionNode) bool
 }
 
 // runtimeTraceProjAbsorbAdjacentDuplicate folds one duplicate measurement into
-// the surviving first-occurrence row: publication count + evidence union only —
-// the projected value stays the survivor's (the rows measured the same amount;
-// a sum would double-count the wall clock). V4: writes the typed
-// DuplicatePublications field shared with the aggregation-layer pass; the
-// former MergedCount/MergedMin/Max writes are gone (those carry SUM-aggregate
-// semantics), and the former subject-roster append was dead code — the fold
-// identity requires equal canonical subjects.
+// the surviving first-occurrence row: publication count + evidence union, and
+// on the PTV6-B near lane the member-MAX value (the rows measured the same
+// amount; a sum would double-count the wall clock — max never invents a
+// number). V4: writes the typed DuplicatePublications field shared with the
+// aggregation-layer pass; the former MergedCount/MergedMin/Max writes are gone
+// (those carry SUM-aggregate semantics), and the former subject-roster append
+// was dead code — the fold identity requires equal canonical subjects.
 func runtimeTraceProjAbsorbAdjacentDuplicate(survivor *types.TraceCausalProjectionNode, dup types.TraceCausalProjectionNode) {
+	// Near lane only (PTV6-B mirror; the types-layer absorb's rule verbatim):
+	// when the two publications' values differ — inside the ≤3% band, or the
+	// identity would not have matched — the fold keeps the LARGEST boundary
+	// estimate of the one fact (显示取最大, ×N同值 legend wording). The exact
+	// lane takes neither branch and stays byte-identical to pre-PTV6-B.
+	if dup.ImpactMS != survivor.ImpactMS {
+		if dup.ImpactMS > survivor.ImpactMS {
+			survivor.ImpactMS = dup.ImpactMS
+		}
+		if dup.CumulativeImpactMS > survivor.CumulativeImpactMS {
+			survivor.CumulativeImpactMS = dup.CumulativeImpactMS
+		}
+	}
 	if survivor.DuplicatePublications < 1 {
 		survivor.DuplicatePublications = 1
 	}
@@ -2145,6 +2297,14 @@ func runtimeTraceProjTreeLabelParts(row runtimeTraceProjTreeRow, zh bool) (strin
 		// claim a wake relation with no wakee — render a bare branch instead.
 		edge = ""
 	}
+	if row.Kind == runtimeTraceProjTreeRowDepthless && row.Node.OnChainOverflowFold {
+		// PTS fold rows self-name their lane (其余 N 项(链上折叠)…): an edge
+		// word would claim a relation the counted roster does not carry, and
+		// its width would starve the roster head the PTS pin protects (count +
+		// head names never cut). Bare branch; the fold legend entry owns the
+		// semantics.
+		edge = ""
+	}
 	if edge != "" {
 		// NEW-7 edge mark, recorded AFTER the flat-fallback suppression so a
 		// suppressed edge never claims a legend entry. The typed switch mirrors
@@ -2159,6 +2319,8 @@ func runtimeTraceProjTreeLabelParts(row runtimeTraceProjTreeRow, zh bool) (strin
 			row.marks.mark(runtimeTraceProjMarkEdgeCause)
 		case runtimeTraceProjTreeEdgeOwn:
 			row.marks.mark(runtimeTraceProjMarkEdgeOwn)
+		case runtimeTraceProjTreeEdgeChainUnresolved:
+			row.marks.mark(runtimeTraceProjMarkEdgeChainUnresolved)
 		default:
 			row.marks.mark(runtimeTraceProjMarkEdgeWake)
 		}
@@ -2501,6 +2663,13 @@ func runtimeTraceProjEdgeLabel(edge string, zh bool) string {
 			return "自身─"
 		}
 		return "own─"
+	case runtimeTraceProjTreeEdgeChainUnresolved:
+		// PTV6 #1b (v3 §5): the depthless lane's dedicated edge — never the
+		// default wake word (恢复硬编码唤醒边必红 pin reads this arm).
+		if zh {
+			return "链上·深度未解析─"
+		}
+		return "on-chain·depth-unresolved─"
 	default:
 		if zh {
 			return "唤醒─"
@@ -4872,6 +5041,14 @@ func runtimeTraceProjDetailRelationCell(row runtimeTraceProjTreeRow, zh, flat bo
 			return "自身进程IO"
 		}
 		return "own-process IO"
+	case runtimeTraceProjTreeEdgeChainUnresolved:
+		// PTV6 #1c: the relation word follows the edge — never 唤醒, and no
+		// "▸ parent" suffix (the attach point is exactly what is unresolved;
+		// same wording as the C31 sibling cell and the layer cell).
+		if zh {
+			return "链上·深度未解析"
+		}
+		return "on-chain · depth unresolved"
 	case runtimeTraceProjTreeEdgeDrill:
 		if zh {
 			label = "下钻"

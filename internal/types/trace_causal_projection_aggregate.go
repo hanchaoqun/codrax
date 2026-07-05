@@ -17,8 +17,13 @@ package types
 // R1 merges only on subject + projected ms equal at 3 decimals + identical
 // evidence line range; R2 groups only on exactly-equal (subject, object); R3
 // keys only on the unknown-thread sentinel. No ±ε approximation, no prose.
-// Every merged row's observation id is retained (MergedEvidenceIDs), so the
-// aggregation is lossless for auditability.
+// ONE adjudicated exception: V4's near-duplicate tier (PTV6 批② #4,
+// 2026-07-06) admits a bounded ≤3% value band — but only INSIDE the full V4
+// identity (equal subject + REAL non-sentinel object + TypeToken) AND a
+// precise line/time overlap, and it folds to the member MAX with the
+// publication count disclosed; it never feeds a sum. Every merged row's observation id is
+// retained (MergedEvidenceIDs), so the aggregation is lossless for
+// auditability.
 
 import (
 	"fmt"
@@ -46,6 +51,27 @@ const (
 	// anything beyond is expressed through MergedCount (the evidence ids stay
 	// lossless in MergedEvidenceIDs).
 	traceCausalProjectionMergedSubjectCap = 4
+	// traceCausalProjectionDuplicatePublicationNearTolerance is V4's near-tier
+	// band (PTV6 批② #4, 2026-07-06): duplicate publications of ONE wall-clock
+	// measurement re-carve its boundary as adjacent samples land, so the
+	// republished values drift by the tail-sampling delta instead of matching
+	// bit-for-bit. Real specimen (single-thread io_latency, window 2.992ms):
+	// 1.354/1.382/1.383ms over pairwise-overlapping line spans 2908-3094 /
+	// 2911-3114 / 2913-3120 — max pairwise drift 2.10% — escaped the exact
+	// lane by 0.03ms and R2-SUMMED into a 4.119ms phantom (138% of the window,
+	// physically impossible for one thread). 3% covers that observed
+	// boundary-refinement drift with margin and stays deliberately narrow:
+	// genuinely additive same-(subject,object) segments inside one wide
+	// enclosing evidence range differ by far more than 3% (heterogeneous
+	// magnitudes), so they keep the R2 SUM path; the residual risk — two REAL
+	// distinct waits landing within 3% of each other AND overlapping in the
+	// artifact — is the same quantization risk RF2a already accepted for the
+	// exact lane, narrowed further by the band's upper bound. The band is NOT
+	// the whole guard: the adjudicated distinct-fact shape (two same-subject
+	// waits on UNRESOLVED peers, 9µs = 0.008% apart, overlapping ranges) sits
+	// inside ANY band, so the near lane additionally requires a real
+	// non-sentinel object identity (traceCausalProjectionSameDuplicatePublication).
+	traceCausalProjectionDuplicatePublicationNearTolerance = 0.03
 )
 
 func traceCausalProjectionAggregateForPresentation(out *TraceCausalProjection) {
@@ -64,8 +90,11 @@ func traceCausalProjectionAggregateForPresentation(out *TraceCausalProjection) {
 	// V4 duplicate-publication dedup MUST run before R2: three same-value
 	// overlapping publications would otherwise reach the ≥3 threshold and SUM
 	// into a 3× phantom total (customer revisit 2026-07-03: three 35.350ms
-	// irq_activity rows over overlapping spans published as 106.05ms). After the
-	// fold the survivor count is what R2 legitimately sees.
+	// irq_activity rows over overlapping spans published as 106.05ms; PTV6
+	// 批② #4: three near-value 1.354/1.382/1.383ms io_latency republications
+	// escaped the exact lane by 0.03ms and summed into a 4.119ms/138%-of-window
+	// phantom — the near lane folds those too). After the fold the survivor
+	// count is what R2 legitimately sees.
 	out.PrimaryRootCauses = traceCausalProjectionDedupDuplicatePublications(out.PrimaryRootCauses)
 	out.OnChainCauses = traceCausalProjectionDedupDuplicatePublications(out.OnChainCauses)
 	out.AdjacentCauses = traceCausalProjectionDedupDuplicatePublications(out.AdjacentCauses)
@@ -430,15 +459,26 @@ func traceCausalProjectionAbsorbPeerAlias(named *TraceCausalProjectionNode, pidV
 
 // traceCausalProjectionDedupDuplicatePublications folds duplicate publications
 // of ONE measurement inside a bucket (V4, customer revisit 2026-07-03): rows
-// with the same canonical subject + object + TypeToken, EXACTLY equal positive
-// projected ms (pure float equality, never ±ε) AND a precise line-range or
-// time-span overlap describe one wall-clock fact republished N times. The
-// first occurrence survives with the value UNCHANGED; DuplicatePublications
-// counts the publications and evidence ids union losslessly. MergedCount is
-// never touched — its ×N carries SUM semantics for genuinely distinct
-// instances (three same-value NON-overlapping bursts stay separate and may
-// legitimately R2-SUM). Value equality alone never folds; upstream ×N sum
-// aggregates and same-EvidenceID copies are never folded.
+// with the same canonical subject + object + TypeToken, matching positive
+// projected ms AND a precise line-range or time-span overlap describe one
+// wall-clock fact republished N times. Two value lanes:
+//   - exact lane (original V4): pure float equality; the first occurrence
+//     survives with the value UNCHANGED — no field beyond the publication
+//     count and the evidence union is touched;
+//   - near lane (PTV6 批② #4, 2026-07-06): values inside the ≤3% band
+//     (traceCausalProjectionDuplicatePublicationNearTolerance), and ONLY when
+//     the shared Object is a real identity (never the unknown-thread sentinel
+//     or empty), are the SAME measurement republished with a refined boundary;
+//     the survivor lifts ImpactMS/CumulativeImpactMS to the member MAX — the
+//     widest boundary estimate of the one fact; max never invents a number,
+//     while letting the drifted copies reach R2 summed a single-thread 1.383ms
+//     wait into a 4.119ms/138%-of-window phantom.
+//
+// DuplicatePublications counts the publications and evidence ids union
+// losslessly. MergedCount is never touched — its ×N carries SUM semantics for
+// genuinely distinct instances (near-value NON-overlapping bursts stay
+// separate and may legitimately R2-SUM). Value proximity alone never folds;
+// upstream ×N sum aggregates and same-EvidenceID copies are never folded.
 func traceCausalProjectionDedupDuplicatePublications(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
 	if len(nodes) < 2 {
 		return nodes
@@ -476,8 +516,12 @@ func traceCausalProjectionDedupDuplicatePublications(nodes []TraceCausalProjecti
 
 // traceCausalProjectionSameDuplicatePublication is the strict identity of one
 // republished measurement — the types-layer home of the identity the renderer's
-// H6 display fold pioneered (kept aligned with the tool-layer isomorph
-// runtimeTraceProjSameAdjacentMeasurement).
+// H6 display fold pioneered. The tool-layer safety-net isomorph
+// (runtimeTraceProjSameAdjacentMeasurement) mirrors BOTH value lanes since
+// PTV6-B: it consumes the exported band/gate authorities below
+// (TraceCausalProjectionNearDuplicateValues / TraceCausalProjectionKnownSubject)
+// — the former "near lane lives here only" fork is gone, and the band constant
+// still has exactly one home.
 func traceCausalProjectionSameDuplicatePublication(a, b TraceCausalProjectionNode) bool {
 	if traceCausalProjectionCanonicalNode(a.EvidenceID) != "" &&
 		traceCausalProjectionCanonicalNode(a.EvidenceID) == traceCausalProjectionCanonicalNode(b.EvidenceID) {
@@ -485,11 +529,68 @@ func traceCausalProjectionSameDuplicatePublication(a, b TraceCausalProjectionNod
 		// here would fabricate a publication count.
 		return false
 	}
-	return traceCausalProjectionCanonicalNode(a.Subject) == traceCausalProjectionCanonicalNode(b.Subject) &&
-		traceCausalProjectionCanonicalNode(a.Object) == traceCausalProjectionCanonicalNode(b.Object) &&
-		traceCausalProjectionCanonicalNode(a.TypeToken) == traceCausalProjectionCanonicalNode(b.TypeToken) &&
-		a.ImpactMS > 0 && a.ImpactMS == b.ImpactMS &&
+	if traceCausalProjectionCanonicalNode(a.Subject) != traceCausalProjectionCanonicalNode(b.Subject) ||
+		traceCausalProjectionCanonicalNode(a.Object) != traceCausalProjectionCanonicalNode(b.Object) ||
+		traceCausalProjectionCanonicalNode(a.TypeToken) != traceCausalProjectionCanonicalNode(b.TypeToken) {
+		return false
+	}
+	sameValue := a.ImpactMS > 0 && a.ImpactMS == b.ImpactMS
+	// Near lane (PTV6 批② #4): the ≤3% band additionally requires the shared
+	// Object to be a REAL identity — the unknown-thread/unknown sentinel and
+	// empty objects are excluded through the same precise helper R3 keys on.
+	// An approximate merge asserts "one republished measurement", and that
+	// assertion leans on the object identity; a sentinel object carries none
+	// (user-adjudicated strict pin: two same-subject critical_blocking waits on
+	// UNRESOLVED peers, 112.223 vs 112.214ms — 9µs apart, overlapping enclosing
+	// ranges — are DISTINCT facts and must never merge). When the identity is
+	// indeterminate the fold fails open to separate rows, exactly like the
+	// RF2a location rule.
+	// [Med 修正轮 2026-07-06] the sentinel gate covers BOTH identity legs: the
+	// "one republished measurement" assertion leans on the whole
+	// (subject, object) identity — an unknown-thread SUBJECT carries none
+	// either (canonical subjects are already equal here, so one side's check
+	// covers the pair).
+	nearValue := !sameValue && traceCausalProjectionKnownSubject(a.Subject) &&
+		traceCausalProjectionKnownSubject(a.Object) &&
+		traceCausalProjectionNearDuplicateValues(a.ImpactMS, b.ImpactMS)
+	return (sameValue || nearValue) &&
 		(traceCausalProjectionLineSpansOverlap(a, b) || traceCausalProjectionSpansOverlap(a, b))
+}
+
+// traceCausalProjectionNearDuplicateValues reports whether two positive
+// projected values sit inside the near-duplicate band (PTV6 批② #4): relative
+// difference against the LARGER value ≤ 3%. Only ever consulted behind the
+// full V4 identity (with a real, non-sentinel object) + overlap gate;
+// proximity alone never folds. The survivor's value may have been lifted by an
+// earlier near fold, so a later candidate is compared against the lifted value
+// — drift stays bounded per step by the band and every step still requires
+// overlap with the survivor.
+func traceCausalProjectionNearDuplicateValues(a, b float64) bool {
+	if a <= 0 || b <= 0 {
+		return false
+	}
+	hi, lo := a, b
+	if hi < lo {
+		hi, lo = lo, hi
+	}
+	return (hi-lo)/hi <= traceCausalProjectionDuplicatePublicationNearTolerance
+}
+
+// TraceCausalProjectionNearDuplicateValues is the exported single authority of
+// the V4 near-duplicate value band (PTV6 批② #4;
+// TraceCausalProjectionSameWindowToleranceS 先例): the display-layer safety-net
+// fold (runtimeTraceProjSameAdjacentMeasurement, internal/tool) consumes THIS
+// function — the ≤3% band lives here once and is never copied.
+func TraceCausalProjectionNearDuplicateValues(a, b float64) bool {
+	return traceCausalProjectionNearDuplicateValues(a, b)
+}
+
+// TraceCausalProjectionKnownSubject exports the R3 sentinel gate for the same
+// display-layer mirror: a near fold asserts "one republished measurement", and
+// that assertion leans on a REAL (non-sentinel, non-empty) object identity —
+// the identical gate the types-layer near lane reads.
+func TraceCausalProjectionKnownSubject(subject string) bool {
+	return traceCausalProjectionKnownSubject(subject)
 }
 
 // traceCausalProjectionLineSpansOverlap is the boolean line-range intersection;
@@ -503,6 +604,20 @@ func traceCausalProjectionLineSpansOverlap(a, b TraceCausalProjectionNode) bool 
 }
 
 func traceCausalProjectionAbsorbDuplicatePublication(survivor *TraceCausalProjectionNode, dup TraceCausalProjectionNode) {
+	// Near lane only (PTV6 批② #4): when the two publications' values differ
+	// (inside the ≤3% band, or the identity would not have matched), the fold
+	// keeps the LARGEST boundary estimate of the one fact — ImpactMS and
+	// CumulativeImpactMS lift to the pairwise max. The exact lane
+	// (bit-equal ImpactMS) takes neither branch below and stays byte-identical
+	// to pre-PTV6 behavior: publication count + evidence union only.
+	if dup.ImpactMS != survivor.ImpactMS {
+		if dup.ImpactMS > survivor.ImpactMS {
+			survivor.ImpactMS = dup.ImpactMS
+		}
+		if dup.CumulativeImpactMS > survivor.CumulativeImpactMS {
+			survivor.CumulativeImpactMS = dup.CumulativeImpactMS
+		}
+	}
 	if survivor.DuplicatePublications < 1 {
 		survivor.DuplicatePublications = 1
 	}

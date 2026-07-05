@@ -506,7 +506,30 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 			wakeupPath = traceCausalProjectionPath(record.Object)
 		case traceCausalProjectionIsCausalHop(record):
 			node := traceCausalProjectionNodeFromRecord(TraceCausalRoleCausalHop, record)
-			hops = append(hops, node)
+			// PTV6 #1a (real-trace campaign 2026-07-06, specimen donghu_short
+			// path_question_absolute): SupportingHops admission carries an
+			// ON-CHAIN gate — typed signals only (chain_relevance=on_chain /
+			// causality=on_wakeup_chain via the single strict parser, or the
+			// root_evidence: audit family). A hop-family record classified
+			// background (the specimen: critical_blocking
+			// chain_relevance=background) must NOT double-cast into the hops
+			// lane — its classified copy below is its ONLY seat (background
+			// stanza), never a second on-chain tree seat.
+			if traceCausalProjectionHopOnChain(record) {
+				hops = append(hops, node)
+			} else if node.ChainRelevance == "" {
+				// [P1 修正轮 2026-07-06] UNDECLARED-relevance micro-probe rows
+				// (reachable healthy shape: untargeted query / empty chain →
+				// engine ChainRelevance "") failed the on-chain gate AND had
+				// no relevance bucket to land in — zero seats anywhere, and a
+				// lone such record flipped Active() false. Default the
+				// classified copy into the background seat: only a
+				// self-declared on-chain signal may reach the chain (#1a
+				// 主树纯净), and the background stanza keeps the honest seat
+				// (PTS 永不静默丢). Declared adjacent/background rows are
+				// untouched (their bucket already seats them).
+				node.ChainRelevance = "background"
+			}
 			classified = append(classified, node)
 		}
 	}
@@ -519,9 +542,9 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		return traceCausalProjectionHopLess(hops[i], hops[j], pathIndex)
 	})
 	hops = traceCausalProjectionDedupeNodes(hops)
-	if len(hops) > traceCausalProjectionSupportingHopLimit {
-		hops = hops[:traceCausalProjectionSupportingHopLimit]
-	}
+	// PTV6 (PTS 连带, 永不静默丢): the former silent hops[:limit] discard is
+	// gone — the hop surface caps by folding with a count AFTER aggregation
+	// (below), where the count is the post-merge truth (复核 P1 同型).
 	sort.SliceStable(classified, func(i, j int) bool {
 		return traceCausalProjectionClassifiedLess(classified[i], classified[j], pathIndex)
 	})
@@ -563,6 +586,15 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	// final node set. The fold row appends after the impact-major resort —
 	// its member-MAX value is by construction ≤ every kept row's display, so
 	// order stays coherent without a second sort.
+	//
+	// PTV6 (PTS 连带): the SupportingHops surface folds the same way — and it
+	// runs BEFORE the on-chain bucket fold so the cross-bucket overlap check
+	// sees the UNCAPPED post-aggregation on-chain bucket: an overflow hop whose
+	// evidence id is already represented there is the deliberate bucket overlap
+	// (renderers dedupe by node key), not a silent drop; only hops represented
+	// NOWHERE else fold with a count (F1 真计数同型 — no fake "其余 N 项" made
+	// of rows that render anyway).
+	out.SupportingHops = traceCausalProjectionLimitHopsFold(out.SupportingHops, out.OnChainCauses, traceCausalProjectionSupportingHopLimit)
 	out.OnChainCauses = traceCausalProjectionLimitNodesOnChainFold(out.OnChainCauses, traceCausalProjectionOnChainLimit)
 	// RN-1 (§7.9): attach the same-window occupier roster to runnable nodes
 	// (exact Subject match + typed runnable StateKind) after aggregation so
@@ -1130,6 +1162,10 @@ func traceCausalProjectionIsSemanticSpan(record ObservationRecord) bool {
 		strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "trace_semantic_span:")
 }
 
+// traceCausalProjectionIsCausalHop is the causal-hop FAMILY membership check
+// (three predicate tokens + the root_evidence: claim-key family). Family
+// membership alone routes a record into the classified lane; the SupportingHops
+// lane additionally requires the PTV6 #1a on-chain gate below.
 func traceCausalProjectionIsCausalHop(record ObservationRecord) bool {
 	switch strings.TrimSpace(record.Predicate) {
 	case "wakeup_causal_impact", "wakeup_causal_aggregate", "critical_blocking":
@@ -1137,6 +1173,45 @@ func traceCausalProjectionIsCausalHop(record ObservationRecord) bool {
 	default:
 		return strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "root_evidence:")
 	}
+}
+
+// traceCausalProjectionHopOnChain is the PTV6 #1a on-chain admission gate for
+// the SupportingHops lane (real-trace campaign 2026-07-06): a hop-family record
+// enters the hops surface only when it is on-chain by a typed signal —
+//   - chain_relevance=on_chain, or causality=on_wakeup_chain /
+//     on_dependency_chain, both resolved through the ONE strict parser
+//     traceCausalProjectionChainRelevance (same lane the classified copy's
+//     bucket selection reads — the two seats can never disagree);
+//   - the root_evidence: audit family (no relevance note by design;
+//     SupportingHops is its only surface);
+//   - relevance UNSTATED: only the wakeup-CHAIN-view families
+//     (wakeup_causal_impact / wakeup_causal_aggregate) pass — the producer
+//     emits them exclusively under result.WakeupChain, so chain membership is
+//     by construction (the real aggregate records carry no relevance note; a
+//     strict note-only gate would vanish them from a healthy tree). The
+//     window-stats micro-probe family (critical_blocking) must STATE on-chain
+//     membership or stay off the hops surface.
+//
+// A typed OFF-chain lane (adjacent/background) always rejects — that is the
+// specimen bug: critical_blocking chain_relevance=background double-cast into
+// SupportingHops and rendered as └─唤醒─ phantom children of the 🎯 target.
+// Mutation pin (TestTraceCausalProjectionHopAdmissionRequiresOnChainSignal):
+// reverting to predicate-only admission must red.
+func traceCausalProjectionHopOnChain(record ObservationRecord) bool {
+	if strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "root_evidence:") {
+		return true
+	}
+	switch traceCausalProjectionChainRelevance(record.RichNotes) {
+	case "on_chain":
+		return true
+	case "adjacent", "background":
+		return false
+	}
+	switch strings.TrimSpace(record.Predicate) {
+	case "wakeup_causal_impact", "wakeup_causal_aggregate":
+		return true
+	}
+	return false
 }
 
 func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) TraceCausalProjectionNode {
@@ -1460,7 +1535,54 @@ func traceCausalProjectionLimitNodesOnChainFold(nodes []TraceCausalProjectionNod
 		return traceCausalProjectionLimitNodes(nodes, limit)
 	}
 	kept := append([]TraceCausalProjectionNode(nil), nodes[:limit]...)
-	overflow := nodes[limit:]
+	return append(kept, traceCausalProjectionOverflowFoldRow(nodes[limit:]))
+}
+
+// traceCausalProjectionLimitHopsFold is the PTV6 (PTS 连带) SupportingHops
+// limiter: same zero-silent-drop fold pipeline as the on-chain bucket, plus a
+// cross-bucket overlap carve-out. Post-#1a every hop is on-chain, so an
+// overflow hop whose evidence id already lives on the (still uncapped)
+// on-chain bucket is the DELIBERATE bucket overlap — the renderer's node-key
+// dedupe keeps exactly one copy either way — and folding it here would mint a
+// fake "其余 N 项" made of rows that render anyway (复核 P1 的 donghu 假 16
+// 项教训). Only overflow hops represented nowhere else (root_evidence: family
+// rows carry no relevance note and never enter a relevance bucket) fold into
+// the counted row. ≤limit inputs return byte-identical to the plain limiter.
+func traceCausalProjectionLimitHopsFold(hops, onChain []TraceCausalProjectionNode, limit int) []TraceCausalProjectionNode {
+	if limit <= 0 || len(hops) == 0 || len(hops) <= limit {
+		return traceCausalProjectionLimitNodes(hops, limit)
+	}
+	represented := map[string]bool{}
+	record := func(raw string) {
+		if id := traceCausalProjectionCanonicalNode(raw); id != "" {
+			represented[id] = true
+		}
+	}
+	for _, node := range onChain {
+		record(node.EvidenceID)
+		for _, id := range node.MergedEvidenceIDs {
+			record(id)
+		}
+	}
+	kept := append([]TraceCausalProjectionNode(nil), hops[:limit]...)
+	var overflow []TraceCausalProjectionNode
+	for _, member := range hops[limit:] {
+		if id := traceCausalProjectionCanonicalNode(member.EvidenceID); id != "" && represented[id] {
+			continue // cross-bucket overlap: already represented on the on-chain surface
+		}
+		overflow = append(overflow, member)
+	}
+	if len(overflow) == 0 {
+		return kept
+	}
+	return append(kept, traceCausalProjectionOverflowFoldRow(overflow))
+}
+
+// traceCausalProjectionOverflowFoldRow builds the counted subjectless fold row
+// from an overflow member list — the ONE fold-row constructor both the
+// on-chain bucket cap and the PTV6 hop cap consume (member MAX value, min–max
+// range, roster, every member evidence id absorbed).
+func traceCausalProjectionOverflowFoldRow(overflow []TraceCausalProjectionNode) TraceCausalProjectionNode {
 	fold := TraceCausalProjectionNode{
 		Role:                overflow[0].Role,
 		Predicate:           overflow[0].Predicate,
@@ -1540,7 +1662,7 @@ func traceCausalProjectionLimitNodesOnChainFold(nodes []TraceCausalProjectionNod
 	} else {
 		fold.CumulativeImpactMS = maxMS
 	}
-	return append(kept, fold)
+	return fold
 }
 
 func traceCausalProjectionSelectChainRelevance(nodes []TraceCausalProjectionNode, relevance string) []TraceCausalProjectionNode {

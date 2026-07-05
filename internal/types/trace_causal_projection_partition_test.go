@@ -426,7 +426,11 @@ func TestTraceCausalProjectionAnchorIgnoresDisplayOnlySelectedWindowNotes(t *tes
 	// record): no anchor at all — the renderer falls back to 起止未采集 /
 	// relative bars rather than adopting a display carrier. (Pin updated for
 	// RN-5: wakeup_causal_impact left this roster — it is an anchor family now;
-	// its own pin is (c) below. state_churn 单独仍不产锚 stays pinned here.)
+	// its own pin is (c) below. state_churn 单独仍不产锚 stays pinned here.
+	// PTV6 #1a fixture sync: the critical_blocking row carries the REAL
+	// producer shape's typed chain_relevance=background note — post-gate it
+	// keeps the projection Active via BackgroundCauses instead of the retired
+	// note-less hops admission; the anchor intent is untouched.)
 	got = TraceCausalProjectionFromObservationRecords([]ObservationRecord{
 		churn("churn"),
 		partitionTestRecord("drill", "", "state_drilldown", "state_drilldown:worker-2:s_sleep",
@@ -434,10 +438,10 @@ func TestTraceCausalProjectionAnchorIgnoresDisplayOnlySelectedWindowNotes(t *tes
 			microProbe),
 		partitionTestRecord("block", "", "critical_blocking", "critical_blocking:futex",
 			"worker-2", "worker-3", "3.000", 3.0, 81, 90, ObservationSpan{LineStart: 81, LineEnd: 90},
-			"type=futex", microProbe),
+			"type=futex", "chain_relevance=background", microProbe),
 	})
 	if !got.Active() {
-		t.Fatalf("fixture must stay active (hop rows) so the anchor lane is really exercised")
+		t.Fatalf("fixture must stay active (background rows) so the anchor lane is really exercised")
 	}
 	if got.WindowStartTs != 0 || got.WindowEndTs != 0 {
 		t.Fatalf("window-stats micro-probe families alone must never anchor: %v..%v", got.WindowStartTs, got.WindowEndTs)

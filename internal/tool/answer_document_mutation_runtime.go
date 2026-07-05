@@ -2308,12 +2308,12 @@ func runtimeTraceCausalProjectionUnresolvedPeerKind(node types.TraceCausalProjec
 
 // runtimeTraceCausalProjectionKnownSubject reports whether a subject names a
 // real (possibly partial, pid-only) thread — not empty and not the
-// unknown-thread sentinel. Precise typed check, never a prose heuristic.
+// unknown-thread sentinel. [Low 修正轮 2026-07-06] single authority: this is a
+// pure delegate to the exported types gate (the same one the near-lane folds
+// consume) — the former local twin is gone; the two layers can never drift
+// (pin: TestPTV6KnownSubjectSingleAuthority).
 func runtimeTraceCausalProjectionKnownSubject(raw string) bool {
-	if strings.TrimSpace(raw) == "" {
-		return false
-	}
-	return !runtimeTraceCausalProjectionUnknownSentinel(raw)
+	return types.TraceCausalProjectionKnownSubject(raw)
 }
 
 // runtimeTraceCausalProjectionInversionRow reports whether this node publishes
