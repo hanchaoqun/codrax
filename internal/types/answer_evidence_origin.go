@@ -10,8 +10,23 @@ import "strings"
 func AnswerAggregateFactEvidenceOrigins(fact AnswerAggregateFact, rm *RequestModel) []AnswerEvidenceOrigin {
 	seen := map[AnswerEvidenceOrigin]bool{}
 	var out []AnswerEvidenceOrigin
+	// CSP #63 (2026-07-05): the typed explicit-user-exclusion boundary
+	// ("只分析 trace，不分析代码" — precise enum + verbatim quotes) makes the
+	// current-source evidence lane semantically impossible for this run.
+	// Model-authored aggregate facts must therefore never be projected onto
+	// AnswerEvidenceOriginCurrentSource here — neither by the terminal
+	// kind-shaped fallback below (the donghu specimen: 10 trace-derived
+	// facts stamped current_source set authority CurrentSourceSatisfied in
+	// a 不分析代码 run and vetoed runtime citation cleanup) nor by a
+	// model-emitted dimension token (the user boundary outranks model
+	// claims). This is a single chokepoint inside add(); every current-source
+	// add site funnels through it.
+	excludesCurrentSource := rm != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource()
 	add := func(origin AnswerEvidenceOrigin) {
 		if origin == AnswerEvidenceOriginUnknown || !origin.IsValid() || seen[origin] {
+			return
+		}
+		if excludesCurrentSource && origin == AnswerEvidenceOriginCurrentSource {
 			return
 		}
 		seen[origin] = true
@@ -35,7 +50,16 @@ func AnswerAggregateFactEvidenceOrigins(fact AnswerAggregateFact, rm *RequestMod
 		if rm.Predicates.IsCountQuestion && aggregateFactKindCanCarryCommandMeasurement(fact.Kind) {
 			add(AnswerEvidenceOriginCommandMeasurement)
 		}
-		if (rm.HasExternalOnlyRuntimeArtifact() || rm.HasRuntimeArtifactPathReference()) &&
+		// The typed exclude boundary is itself an external-observation
+		// carrier: an ExcludesCurrentSource run is an external-observation
+		// run by construction, so its aggregate facts restate runtime
+		// artifact material even when the compiled RequestModel copy lacks
+		// the LogTriage/PerfTrace bundles (the donghu ledger input carried
+		// the analyzer RM without the Mutable perf bundle, so
+		// HasExternalOnlyRuntimeArtifact alone missed the lane and the facts
+		// fell through to the current-source fallback).
+		if (rm.HasExternalOnlyRuntimeArtifact() || rm.HasRuntimeArtifactPathReference() ||
+			excludesCurrentSource) &&
 			aggregateFactKindCanCarryRuntimeArtifact(fact.Kind) {
 			add(AnswerEvidenceOriginRuntimeArtifact)
 		}

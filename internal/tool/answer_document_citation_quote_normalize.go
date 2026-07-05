@@ -176,6 +176,14 @@ func logCurrentSourceCitationQuoteRepairs(toolName string, fixed int) {
 // the run's runtime artifacts (trace / log), normalized to slash-form plus
 // basename, so citation files naming them are recognized verbatim — never
 // by content sniffing or prose matching.
+//
+// Spellings are stored case-folded (CSP #63 / CPD 核验 P3): the path-shape
+// lane (types.RuntimeArtifactPathKind) already lowercases before matching,
+// so a model-drifted case variant like `Attached_Trace.txt` was recognized
+// by the shape lane but slipped past this typed set on the three faces that
+// consult only the set (citation quote normalize ×2 + current-source
+// metadata surface terms). Folding both sides realigns the two lanes; real
+// source paths are unaffected because they are never in this set.
 func runtimeArtifactCitationPathSet(ctx *types.BusContext) map[string]bool {
 	if ctx == nil {
 		return nil
@@ -186,7 +194,7 @@ func runtimeArtifactCitationPathSet(ctx *types.BusContext) map[string]bool {
 		if raw == "" || raw == "-" {
 			return
 		}
-		clean := filepath.ToSlash(filepath.Clean(raw))
+		clean := strings.ToLower(filepath.ToSlash(filepath.Clean(raw)))
 		out[clean] = true
 		if base := filepath.Base(clean); base != "" && base != "." {
 			out[base] = true
@@ -215,7 +223,8 @@ func runtimeArtifactCitationPathSet(ctx *types.BusContext) map[string]bool {
 }
 
 // citationFileIsRuntimeArtifact reports whether a citation file field names
-// one of the run's runtime artifacts (exact cleaned-path or basename match).
+// one of the run's runtime artifacts (case-folded cleaned-path or basename
+// match — the set side folds too; see runtimeArtifactCitationPathSet).
 func citationFileIsRuntimeArtifact(artifactPaths map[string]bool, file string) bool {
 	if len(artifactPaths) == 0 {
 		return false
@@ -224,6 +233,6 @@ func citationFileIsRuntimeArtifact(artifactPaths map[string]bool, file string) b
 	if file == "" {
 		return false
 	}
-	clean := filepath.ToSlash(filepath.Clean(file))
+	clean := strings.ToLower(filepath.ToSlash(filepath.Clean(file)))
 	return artifactPaths[clean] || artifactPaths[filepath.Base(clean)]
 }
