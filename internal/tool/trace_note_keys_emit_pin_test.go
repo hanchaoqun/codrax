@@ -309,6 +309,14 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				SupplyFoldBasis: basis, SupplyFoldDeficitMs: 1, SupplyFoldIdealMs: 4,
 				Summary: "aggregated dep sleeps",
 			}},
+			// PTS-2 (#69): the engine-level aggregate top-8 fold member rides
+			// the fixture so the aggregate fold record (same folded_* contract
+			// keys) is exercised by the emit pin too.
+			AggregatedImpactsFold: &tracequery.WakeupCausalAggregateFold{
+				Groups: 3, MinImpactMs: 0.5, MaxImpactMs: 2.5,
+				Subjects:  []string{"ovfa-500", "ovfb-501"},
+				LineStart: 120, LineEnd: 140, FirstTs: 1.1, LastTs: 1.8,
+			},
 			RootEvidence: []tracequery.RootEvidence{{
 				Type: "long_sleep", Thread: tracequery.ThreadRef{Comm: "dep", PID: 21},
 				DurationMs: 5, LineStart: 5, LineEnd: 6, Summary: "root sleep", Confidence: 0.8,

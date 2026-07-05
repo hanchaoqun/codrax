@@ -646,9 +646,9 @@ e1 的四跑链条本身就是战役价值的浓缩:两次 oracle 精度校准(�
 
 ### §6.5 残余
 
-- 引擎 aggregate top-8 的溢出对不进树(caveat 计数披露,数据未保留);如需进树须扩 WakeupCausalAggregate 合成 fold 成员,留未来裁定。
+- ~~引擎 aggregate top-8 的溢出对不进树(caveat 计数披露,数据未保留);如需进树须扩 WakeupCausalAggregate 合成 fold 成员,留未来裁定。~~ **已裁定并交付**(PTS-2 裁定①,#69 用户条件裁定 2026-07-06,评估+实施见 §7.1/§7.3)。
 - Q3 B 方案(per-锚窗分区)按裁定明确不做。
-- comparison 4-item cap 下 disjoint 双 trace 形态 per-record 行被三固定行+RTC-2 行挤出(CMP-6 头条优先裁定的直接推论);如需并存须裁 cap 提升。
+- ~~comparison 4-item cap 下 disjoint 双 trace 形态 per-record 行被三固定行+RTC-2 行挤出(CMP-6 头条优先裁定的直接推论);如需并存须裁 cap 提升。~~ **已裁定并交付**(PTS-2 裁定②,#69 用户条件裁定 2026-07-06,评估+实施见 §7.2/§7.3;对比行优先序与总览表锁步不变)。
 
 ### §6.6 对抗复核批(2026-07-06,19 confirmed 全收)
 
@@ -661,3 +661,341 @@ e1 的四跑链条本身就是战役价值的浓缩:两次 oracle 精度校准(�
 **Low 全收**:QueryWindows cap-8 加 `QueryWindowsTruncated`(树头/next-step 渲染 "≥8 个查询窗",禁假精确数;dup 过 cap 不算截断,双 pin);±1ms 容差导出单一权威 `types.TraceCausalProjectionSameWindowToleranceS`(tool 快照分组消费,literal 清除,pin);badge fold 排除加 typed gate(Rank/Effective 非零合成→仍无 badge,"永不"兑现 pin);gofmt 两文件(runtime_tree.go enum 对齐+emit pin test);fold 行 (b) 块全名命名 fold lane(`其余 N 项(链上折叠)(名单)`,非"(未命名因果节点)",pin);Q1 双 carrier 合一(periodic∧Effective 回退源→C00 词让位 VS-1 tag,单 carrier pin);periodic∧inherited 实非互斥→`runtimeTraceProjEffectiveInherited` 加 `!PeriodicSource` typed guard(10× 启发式在 periodic 行禁用,pin+突变);Q3 4-item cap 挤出=已裁推论,维持 §6.5 记录不修。
 
 **复验**:54 个真实存储 payload(8 个 2026-07-05 会话,3673 records)全链路重放(typed observations→ledger→compile→cluster render)= 零 >100 列 fence 行、零裸 % 口径行、零异常 fold;donghu 旗舰工件本机不存(../customlogs 缺),重复计数类由合成 R1-dup pin 覆盖,真机复验留待工件可达时回访。复核发现的两个非批内 zz_* 探针已清扫。
+
+## §7 PTS-2 批(#69 用户条件裁定 2026-07-06:"如果没有风险(性能/内存)则动态扩充"——先评估后实施)
+
+两条裁定均为条件裁定,协议=风险评估(数字化)先落本账本,再动手;任一评估显示非 O(1)/非有界增长则停在评估。
+
+### §7.1 裁定①评估:引擎 aggregate top-8 溢出进树(§6.5 残余第 1 条)
+
+探针:`tmp_probe_pts2_aggfold`(临时,按约用后删除;方法与 §5 附录 A 探针同款 —— `tracequery.BuildIndex` + `Run(view=wakeup_chain)`,分组复算与引擎同 key `%d/%s` 同过滤同 ≥2 门槛),工件 `eval/fixtures/real_traces/donghu_tieba_frame.systrace`(15,623 行),2 目标 PID(59566/59891)× 5 窗(jank/wide10/post30/legacy115/full)= 10 形态。
+
+**实测 — 真实溢出组数量级:**
+
+| 形态(pid×窗) | impacts | distinct 组 | eligible(≥2occ) | 发射 aggregates | 溢出(rank>8) | 查询耗时 | 查询分配 |
+|---|---|---|---|---|---|---|---|
+| 59566×jank | 2 | 1 | 0 | 0 | **0** | 19.8ms | 5.2MiB |
+| 59566×wide10 | 13 | 3 | 3 | 3 | **0** | 27.6ms | 16.4MiB |
+| 59566×post30 | 12 | 3 | 2 | 2 | **0** | 27.3ms | 16.1MiB |
+| 59566×legacy115 | 24 | 5 | 5 | 5 | **0** | 43.5ms | 41.9MiB |
+| 59566×full | 24 | 5 | 5 | 5 | **0** | 49.1ms | 52.4MiB |
+| 59891×5 窗 | 1–7 | 0–5 | 0 | 0 | **0** | 18.6–47.1ms | 4.4–48.5MiB |
+
+真实 trace 上 top-8 从不触发(eligible 最大 5)→ **≤8 组零发射面是常态**,fold 仅在重负载 trace 出现;≤8 组时字段=nil(omitempty 0 字节)、零 wire 记录、零树行,反噪音默认成立。
+
+**实测 — 合成 fold 成员增量(合成 9/50/308 组 → 溢出 1/42/300,循环形状=实施同款:count+min/max+roster≤8+行/时间戳包络单遍):**
+
+| 溢出组数 | 合成耗时/次 | 合成分配/次 | wire 记录增量(notes+summary) |
+|---|---|---|---|
+| 1 | 68ns | 64B | ≈326B |
+| 42 | 686ns | 624B | ≈492B |
+| 300 | 1.82µs | **624B(roster 满 8 后封顶,O(1))** | ≈497B(与组数无关) |
+
+对比查询本体 19.6–49.1ms / 4.4–52.4MiB:增量 **<0.01% 耗时、<0.002% 内存**;时间 O(G) 且 G(全部组)已在聚合本体中付过,无新渐近项;内存 O(1)(合成成员 ≤624B + wire ≤0.5KiB + 树面恰 1 折叠行)。
+
+**评估结论:无险 → 实施。**落点:`ChainResult.AggregatedImpactsFold`(typed 有界合成成员,不进 `AggregatedImpacts` 切片 —— 该切片被 root_cause_rank(query.go:8330)与 chainThreadRefs(:9122)直接消费,合成成员入列会污染排名与线程表)→ tool 端 `traceQueryWakeupCausalAggregateFoldRecord`(镜像 impact wire fold 构造)发射恰一条 `wakeup_causal_aggregate` fold 记录(**复用 NKR 折叠族四键 folded_rows/folded_min_ms/folded_max_ms/folded_subjects,零新键族**)→ 编译端走既有 `TraceCausalProjectionFromObservationRecords` folded_* re-materialize(MergedCount/口径/永不领衔/永不徽章/折叠行渲染全部现成)。fold 值=成员 MAX 永不求和(墙钟既有裁定);top-8 caveat 字节不变。
+
+桶溢出退化面(复核 F1 裁定 2026-07-06 = **计数吸收,不做桶位豁免**):引擎 fold 行若落入编译端 on-chain 桶 fold(`traceCausalProjectionLimitNodesOnChainFold`)的溢出段,退化=不再单独渲染,但计数/证据无损——桶行 N 吸收其 FoldedRows(G 组计入,凭 typed `OnChainOverflowFold` 标记而非 1 项),roster 并入其 subjects(全局 cap 不变),证据 ID 仍逐记录吸收(+N 面不变);普通 ×N 聚合行仍计 1 不受影响。
+
+### §7.2 裁定②评估:comparison next-step 4-item cap 动态扩(§6.5 残余第 3 条)
+
+cap 扩=纯显示列表长度,无算法/无数据面变化:
+
+- **行字节实测**:3 固定对比行 = 90/89/119B,RTC-2 行 = 147B,合计 445B —— disjoint 双 trace 形态现状恰满 cap=4,per-record 行 0 槽(cmp6 残余记录面)。per-record zh 行 40–120B(kind 映射 40–90B,动态 runnable 变体 ≤~120B)。
+- **动态 cap 设计**:comparison 形态(gate 不变=≥2 active 投影,对比行⟺总览表锁步不破)cap = 已发射对比行数 + per-record 保底 2 槽(下限仍 4);**硬上界 = 4+2 = 6 行**。对比行全集永不截断(现 ≤4 行,本就 ≤cap;护未来家族增行)。
+- **增量数字**:disjoint 双 trace 形态 4→≤6 行,+2 行 ≈ +240B ≈ +80 token;非 disjoint comparison 形态 4→≤5 行(3 固定+2 保底),+1 行 ≈ +120B;**非 comparison 形态 cap=4 字节不变**(动态项仅 comparison gate 内生效)。保底 N=2 取值依据:双 trace 形态两侧 trace 的 top per-record 引导各得一槽。
+- **耗时/内存**:零新 compile(comparison gate 布尔与既有调用同源,提升复用),ledger 记录循环仍受 64 条编译上限约束,O(1)。
+
+**评估结论:无险 → 实施。**优先序不变(对比行领衔),对比行⟺总览表锁步键(runtimeTraceProjComparisonShape)不动。
+
+### §7.3 as-built 交付(评估落账后实施)
+
+**裁定①(引擎 aggregate 溢出进树)落点:**
+
+- 引擎:`internal/tracequery/types.go` 新 typed 有界类型 `WakeupCausalAggregateFold`(Groups+Min/MaxImpactMs+Subjects≤8+行/时间戳包络)+ `ChainResult.AggregatedImpactsFold`(nil=≤8 组零发射,omitempty;**刻意不进 `AggregatedImpacts` 切片**——该切片被 root_cause 排名与 chainThreadRefs 直接消费);`internal/tracequery/query.go` `aggregateWakeupCausalImpacts` trim 支新调 `foldWakeupCausalAggregateOverflow(out[8:])`(单遍,MAX 永不跨成员求和,top-8 caveat 字节不变)。
+- tool:`internal/tool/trace_query.go` 新 `traceQueryWakeupCausalAggregateFoldRecord`(镜像 impact wire fold;恰一条 `wakeup_causal_aggregate` 记录,ClaimKey `wakeup_causal_aggregate:folded_overflow`,Value=成员 MAX,notes=**NKR 折叠族四键复用零新键族** + causality=on_wakeup_chain + chain_relevance=on_chain + selected_window F1 锚注)+ aggregates 循环后 nil-guard 发射点。
+- 编译端:folded_* re-materialize(MergedCount/口径源/永不领衔/永不徽章/折叠行渲染)全部走 PTV5 既有管道;唯一复核修=F1 计数吸收(`traceCausalProjectionLimitNodesOnChainFold` 吞并带 typed `OnChainOverflowFold` 标记的成员时 N 累加其 MergedCount(G)而非 1,roster 并入其 subjects 仍受全局 cap,证据逐记录吸收不变;普通 ×N 聚合成员仍计 1)。
+- 引擎 roster 去重(复核 F2):`foldWakeupCausalAggregateOverflow` 补 seen map(镜像 wire-cap fold)——同 PID 双态溢出计 2 组但占 1 roster 槽。
+- emit pin fixture 扩:`trace_note_keys_emit_pin_test.go` fixture 挂 `AggregatedImpactsFold`(emit 面防 rot)。
+
+**裁定① pins**(`internal/tracequery/tracequery_pts2_aggregate_fold_test.go` + `internal/tool/answer_document_projection_pts2_test.go`):
+
+- `TestAggregateTopEightOverflowSynthesizesBoundedFoldMember`:12 组→8 保留+fold{Groups=4,range=成员 min–max 显示值,roster 全列,包络有效,caveat 字节不变}。
+- `TestAggregateFoldRosterBoundedAtEightSubjects`:20 组→roster 恰 8(O(1) 内存兑现)。
+- `TestAggregateAtOrUnderCapEmitsNoFoldMember`:5/8 组突变→field nil+零 caveat(≤8 零发射反噪音)。
+- `TestPTS2AggregateFoldRecordEmitsTypedFoldLane`:恰一条 fold 记录,四键+双 on-chain 注+F1 锚注+Value=MAX。
+- `TestPTS2AggregateFoldZeroEmissionWithoutEngineFold`:nil field→零记录。
+- `TestPTS2EngineAggregateFoldRowReachesTreeWithCount`(端到端):records→compile→树 fence 含 `其余 3 项(链上折叠)(ovfa-500、`(引擎组数正确)+ fold 节点 OnChainOverflowFold + 永不领衔沿用。
+- `TestAggregateFoldRosterDedupesSameThreadAcrossStates`(复核 F2):同 PID s_sleep+runnable 双态溢出→Groups=2、roster 恰 1 槽。
+- `TestPTS2BucketFoldAbsorbsEngineFoldCountAndRoster`(复核 F1,types):引擎 fold(G=4)被桶 fold 吞并→桶行 N=2 普通成员+4=6,roster 并入 eng-a/eng-b(全局 cap 4),证据仍 3 条逐记录(+N 面不变)。
+- `TestPTS2BucketFoldOrdinaryAggregateMemberStillCountsOne`(复核 F1 突变):普通 ×N 聚合成员(无 typed 标记)仍计 1。
+
+**裁定②(next-step 动态 cap)落点:**
+
+- `internal/tool/answer_document_mutation_runtime.go`:新 `runtimeTraceNextStepComparisonRecordFloor = 2`;comparison gate 布尔提升(`comparisonShape`,零重复 compile);对比行循环撤 cap break(对比行全集,护未来家族增行;现 ≤4 行无行为差);per-record 循环前算 `recordCap = len(out)+2`(仅 comparison 形态;放在所有前导 lane 之后=**强保底**,保底槽只有 per-record 行可消费),非 comparison 形态 recordCap=4 字节不变;中间 lane(unsampled/multi-window/flat-anchor)仍读 base cap 字节不变。
+- 硬上界兑现:base(4)+floor(2)=6 行。
+
+**裁定② pins**(`answer_document_mutation_runtime_cmp6_test.go`):
+
+- `TestRuntimeTraceNextStepComparisonRowsCoexistWithRecordRows`(改写自被本裁定取代的旧挤出 pin):disjoint 双 trace+3 per-record 记录→恰 6 行=对比行全集(4)领衔+保底 2 槽 per-record(第 3 条不入=保底非无界),ID 连续。
+- `TestRuntimeTraceNextStepNonComparisonCapByteIdentical`(突变):单工件 6 条 per-record→仍恰 4 行(动态项只在 comparison gate 内)。
+- 既有 lockstep/领衔/RTC-2/EN/单工件 pins 全部原样通过(优先序与锁步键零改动)。
+- 复核 F4/F5 免动;F5(动态 cap 涌现上界)由 coexist pin 的恰-6 断言充当先红机制看护(cap 公式任何再涨先打红该 pin),免独立 pin。
+
+**测试结果**:`go test ./internal/tracequery/ ./internal/types/ ./internal/tool/ -count=1` 全绿;`go build ./...` OK;`go test ./... -count=1` 全仓全绿(2026-07-06)。复核批(F1 计数吸收/F2 roster 去重/F3 措辞)后三触及包重跑全绿。探针 `tmp_probe_pts2_aggfold` 按约用后删除,源码存档于 §7.4。
+
+### §7.4 附录 — PTS-2 评估探针源码(已按约删除,此处为可复现存档)
+
+复现:粘回仓根 `tmp_probe_pts2_aggfold/main.go`,`go run ./tmp_probe_pts2_aggfold` (从仓根)。
+
+```go
+// tmp_probe_pts2_aggfold — PTS-2 裁定① 风险评估探针 (2026-07-06, 临时,用后删除).
+//
+// 度量目标: 真实 trace 的 wakeup_chain 窗内 distinct (subject PID, dominant
+// state) 聚合组数量级 —— 即引擎 aggregateWakeupCausalImpacts top-8 之外的溢出
+// 组数,以及合成 fold 成员(count/min/max/subjects≤8)的增量内存与增量耗时。
+// 复算逻辑与引擎同 key (fmt.Sprintf("%d/%s", PID, DominantState)) 同过滤
+// (PID>0 ∧ ChainDepth>0 ∧ TotalMs>0 ∧ DominantState≠"") 同门槛 (OccurrenceCount≥2)。
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"runtime"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
+)
+
+type window struct {
+	name       string
+	start, end float64
+}
+
+// syntheticFoldCost bounds the fold-synthesis increment on a synthetic
+// >8-group overflow (the real fixture never overflows): one linear pass over
+// the ALREADY-materialized overflow aggregates building count + min/max +
+// ≤8-label roster + line/ts envelope — the exact loop shape the engine fold
+// will run. Measures ns/op and allocated bytes per synthesis.
+func syntheticFoldCost() {
+	for _, total := range []int{9, 50, 308} {
+		aggs := make([]tracequery.WakeupCausalAggregate, total)
+		for i := range aggs {
+			aggs[i] = tracequery.WakeupCausalAggregate{
+				Thread:           tracequery.ThreadRef{PID: 1000 + i, Comm: fmt.Sprintf("worker-thread-%03d", i)},
+				DominantState:    "s_sleep",
+				DominantImpactMs: float64(total-i) * 1.5,
+				LineStart:        100 + i,
+				LineEnd:          200 + i,
+				FirstTs:          34579.45 + float64(i)*0.0001,
+				LastTs:           34579.46 + float64(i)*0.0001,
+				OccurrenceCount:  2,
+			}
+		}
+		overflow := aggs[8:]
+		const iters = 10000
+		var m0, m1 runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&m0)
+		t0 := time.Now()
+		var sink int
+		for it := 0; it < iters; it++ {
+			groups := 0
+			var minMs, maxMs float64
+			var subjects []string
+			lineStart, lineEnd := 0, 0
+			var firstTs, lastTs float64
+			for _, a := range overflow {
+				groups++
+				v := a.DominantImpactMs
+				if minMs == 0 || (v > 0 && v < minMs) {
+					minMs = v
+				}
+				if v > maxMs {
+					maxMs = v
+				}
+				if len(subjects) < 8 {
+					subjects = append(subjects, fmt.Sprintf("%s-%d", a.Thread.Comm, a.Thread.PID))
+				}
+				if a.LineStart > 0 && (lineStart <= 0 || a.LineStart < lineStart) {
+					lineStart = a.LineStart
+				}
+				if a.LineEnd > lineEnd {
+					lineEnd = a.LineEnd
+				}
+				if a.FirstTs > 0 && (firstTs == 0 || a.FirstTs < firstTs) {
+					firstTs = a.FirstTs
+				}
+				if a.LastTs > lastTs {
+					lastTs = a.LastTs
+				}
+			}
+			sink += groups + len(subjects) + lineStart + lineEnd
+		}
+		dt := time.Since(t0)
+		runtime.ReadMemStats(&m1)
+		perOp := dt / iters
+		allocPerOp := float64(m1.TotalAlloc-m0.TotalAlloc) / iters
+		// Wire-record increment: the four folded_* notes + summary the tool
+		// side would emit for this overflow.
+		notes := fmt.Sprintf("causality=on_wakeup_chain; chain_relevance=on_chain; impact=%.3f; folded_rows=%d; folded_min_ms=%.3f; folded_max_ms=%.3f; folded_subjects=%s; selected_window=34579.472865-34579.475857",
+			float64(total-8)*1.5, total-8, 1.5, float64(total-8)*1.5, strings.Join(func() []string {
+				var s []string
+				for i := 0; i < 8 && i < total-8; i++ {
+					s = append(s, fmt.Sprintf("worker-thread-%03d-%d", 8+i, 1008+i))
+				}
+				return s
+			}(), ","))
+		summary := fmt.Sprintf("%d aggregated wakeup-causal pairs beyond the engine top-8 folded (max %.3fms); per-hop causal impact rows remain complete", total-8, float64(total-8)*1.5)
+		fmt.Printf("synthetic groups=%3d overflow=%3d: fold synthesis %v/op, alloc %.0f B/op; wire record ≈ %d B notes + %d B summary (sink %d)\n",
+			total, total-8, perOp, allocPerOp, len(notes), len(summary), sink)
+	}
+}
+
+func main() {
+	path := "eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+	if len(os.Args) > 1 {
+		path = os.Args[1]
+	}
+	t0 := time.Now()
+	idx, err := tracequery.BuildIndex(context.Background(), path)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "BuildIndex:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("index built in %v\n", time.Since(t0))
+
+	windows := []window{
+		{"jank", 34579.472865, 34579.475857},
+		{"wide10", 34579.472865, 34579.502785},
+		{"post30", 34579.475857, 34579.505857},
+		{"legacy115", 34579.472865, 34579.587805},
+		{"full", 34579.450627, 34579.595184},
+	}
+	pids := []int{59566, 59891}
+
+	syntheticFoldCost()
+
+	for _, pid := range pids {
+		for _, w := range windows {
+			q := tracequery.Query{
+				View:         "wakeup_chain",
+				PID:          pid,
+				TimeStart:    w.start,
+				TimeEnd:      w.end,
+				TimeStartSet: true,
+				TimeEndSet:   true,
+			}
+			var m0, m1 runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&m0)
+			tq0 := time.Now()
+			res := tracequery.Run(idx, q)
+			dt := time.Since(tq0)
+			runtime.ReadMemStats(&m1)
+			chain := res.WakeupChain
+			if chain == nil {
+				fmt.Printf("pid=%d win=%s: no chain result\n", pid, w.name)
+				continue
+			}
+			// Replicate the engine grouping (same key/filter/threshold).
+			type g struct {
+				n              int
+				minMs, maxMs   float64
+				sumMs          float64
+				subject, state string
+			}
+			groups := map[string]*g{}
+			for _, impact := range chain.CausalImpacts {
+				if impact.Thread.PID <= 0 || impact.ChainDepth <= 0 || impact.TotalMs <= 0 || strings.TrimSpace(impact.DominantState) == "" {
+					continue
+				}
+				key := fmt.Sprintf("%d/%s", impact.Thread.PID, impact.DominantState)
+				a := groups[key]
+				if a == nil {
+					a = &g{subject: fmt.Sprintf("%s-%d", impact.Thread.Comm, impact.Thread.PID), state: impact.DominantState}
+					groups[key] = a
+				}
+				a.n++
+				v := impact.DominantImpactMs
+				if a.minMs == 0 || (v > 0 && v < a.minMs) {
+					a.minMs = v
+				}
+				if v > a.maxMs {
+					a.maxMs = v
+				}
+				a.sumMs += v
+			}
+			var eligible []*g
+			for _, a := range groups {
+				if a.n >= 2 {
+					eligible = append(eligible, a)
+				}
+			}
+			sort.Slice(eligible, func(i, j int) bool { return eligible[i].maxMs > eligible[j].maxMs })
+			overflow := len(eligible) - 8
+			if overflow < 0 {
+				overflow = 0
+			}
+			var caveat string
+			for _, c := range chain.Caveats {
+				if strings.Contains(c, "aggregated_impacts kept top 8") {
+					caveat = c
+				}
+			}
+			fmt.Printf("pid=%d win=%-9s dur=%8v allocΔ=%8.2fMiB impacts=%4d edges=%4d distinct_groups=%3d eligible(≥2occ)=%3d emitted_aggregates=%d overflow(rank>8)=%d caveat=%q\n",
+				pid, w.name, dt.Round(time.Microsecond), float64(m1.TotalAlloc-m0.TotalAlloc)/(1<<20),
+				len(chain.CausalImpacts), len(chain.Edges), len(groups), len(eligible), len(chain.AggregatedImpacts), overflow, caveat)
+			if overflow > 0 {
+				// Size the synthetic fold member: subjects roster (≤8), min/max.
+				subs := 0
+				bytes := 0
+				for i, a := range eligible[8:] {
+					if i < 8 {
+						subs++
+						bytes += len(a.subject)
+					}
+				}
+				fmt.Printf("    fold member would carry: groups=%d min=%.3fms max=%.3fms roster=%d subject label bytes=%d\n",
+					overflow, eligible[len(eligible)-1].maxMs, eligible[8].maxMs, subs, bytes)
+			}
+		}
+	}
+}
+```
+
+## §8 PTV5 复跑三 FAIL 归因(2026-07-06 01:1x–01:44 批;只归因不修,依据=行为链+verbatim 证据)
+
+**总判:三案均非 PTV5 回归**——关键工具面输出与 07-05 binary 字节相同(b3 `process_cpu_load ... threads=4` 行、c4 `freq_residency=...,+26` 折叠串两日 log 完全一致),涉事 gate(`explorer_trace_query_sufficient_runtime_evidence`)2026-06-28 088d1dcf 就在。07-05 的两个 PASS 本身都是意外通道(见各案),PTV5 复跑只是把行为方差重新掷了一次。
+
+| 案 | 判据 | 定性 | 一句话根因 |
+|---|---|---|---|
+| b3(20260706-011737) | missing:NetworkService | 行为方差(view 选择)+ 工具面结构 gap 暴露 | 进程域 rollup 缺位:window_stats 的 pid 参数不进 rollup 域,`threads=4` 是全局 top-8 幸存者数伪装进程普查;07-05 PASS 靠 wakeup_chain 搭车 |
+| c4(20260706-012258) | no_regex_match:807000 | 行为方差(无视 result_truncated 断言穷尽)+ 证据面双折叠 | event_search 40 行 chronological 截断+freq_residency 显示折 4 档,807000 两面皆不可见;07-05 PASS 靠 analyzer 漏判 exclude+thread 过滤零命中双重意外开出 shell 车道 |
+| short_runnable(20260706-013200) | banned:still_present(wall=728s) | 行为方差(analyzer 单点分类失效),下游确定性放大 | analyzer 整个漏发 `external_observation_policy`(exclude 未 typed)+误发 `current_risk=true`→完成门锁死 current_source lane(×19)拖出 728s,finalizer decision 义务强制 enum,渲染器裸吐 `still_present` |
+
+### §8.1 b3 行为链
+
+- FAIL run 全 log **0 次** NetworkService(07-05 PASS log 42 次/答案 16 次)——token 从未到达模型。工件真值:tgid 59566 共 39 线程,`NetworkService-60595 (59566)` 127 行、42 个 running burst,PROFILE §1.4 #3 busy=13.135ms。
+- 工具面链:window_stats(pid=59566) 事件准入无 pid 谓词(query.go:1410 仅行窗+时窗)→running 按 `(pid,comm,cpu)` 分桶(query.go:1519,跨核碎跑被稀释)→全局 top-8 截断(query.go:1583)→`thread_cpu_load`=全局 TopRunning∪RunnableTop cap12(query.go:1608/3604)→`process_cpu_load` 只 rollup 幸存者且渲染 `threads=%d`(query.go:3647-3650)。verbatim:`process_cpu_load process=com.baidu.tieba-59566 threads=4 running=46.411ms ... top_thread=CookieMonsterCl-59843`(两日字节相同→PTV5 per-窗快照 floor/fold 未涉此面)。模型照单全收:"进程共识别出 5 个线程"。
+- 模型自救被斩:grep `\(59566\)` 与 exec_command `grep|sort -u`(可枚举全部 39 线程)先后被 `explorer_trace_query_sufficient_runtime_evidence` 硬拒(agent.go:6133-6167;本 run analyzer 正判 exclude→`explorerTraceQuerySourceFallbackHardBlocked`=true),回退 preview 头尾可见名单(NetworkService 全在被省略的 1.92MB 中段)。
+- 07-05 PASS 复盘=运气:该 run 多调 `wakeup_chain(pid=59566)`,NetworkService 以链上中间 waker 身份搭车入答("经 NetworkService-60595/ThreadPoolForeg-60555 唤醒"),process 面同样只给 4 线程。oracle 不算过紧(#3 busy 理应出现在进程卷积答案)。
+- 修向(留裁定):window_stats 带 pid 时增设进程域 rollup 车道(CMP-8 occupancy 已持有 pre-truncation 全量 running 桶,机制现成);`threads=` 改诚实口径(top-listed only)。
+
+### §8.2 c4 行为链
+
+- FAIL run 全 log **0 次** 807000(07-05 log 19 次/答案 5 次)。真值:90 行 cpu_frequency,11 档 807000..2189000;807000 六行全在 ts 34579.5535/.5695(行 11623-12789)。
+- 证据面双折叠:①event_search(event_types=cpu_frequency,无窗无 limit)→`sharedDefaultResultLimit=40` 截断,`matched_events=40`,包络止于 34579.5243——807000/965000 全部在截断之外;工具已给 caveat `event_search_limit_reached=true; returned rows are the first 40 chronological matches only, not an exhaustive result set` 且 typed refine hint 连正确救命调用都算好了(`preferred_params=...limit=90`),explorer 未消费,finalizer 只当 advisory。②window_stats `freq_residency=1090000kHz/1.396ms,2189000kHz/0.170ms,1224000kHz/0.510ms,1618000kHz/1.221ms,+26`(trace_query.go:4068 `i>=4` 显示折叠,时序前 4 档)——807000 residency 藏在 `+26`。模型以 40 行枚举 9 档,confidence=high 宣称"频率范围 1.09GHz~2.189GHz"。两折叠面 07-05 字节相同→非 PTV5 回归。
+- 07-05 PASS 复盘=双重意外:①analyzer 漏判 exclude(`current_source_mode:"default"`,同句"只分析这份 trace，不分析代码"!)→shell 车道未锁;②event_search 继承 runtime_target `thread=com.baidu.tieba-59566` 过滤→`matched_events=0`(cpu_frequency 发射线程是 tppmgr-sched-in-5850)→trace_query 零 hard 观测→gate 双条件皆空→`grep|awk|sort -n|uniq` 打出全部 11 档。即 07-05 是"两个错误相乘=对",07-06 是"系统面全对(exclude 正判+trace-first 生效)但证据面折叠无人追补"。
+- 修向:与再审计队列 typed-anchor-obligation 同族——answer-critical 维度(此处 boundary/range)遇 `result_truncated` 时 refine hint 应升义务消费一轮;或 window_stats 增 per-cpu 频点 census 聚合行(distinct states min..max,O(1) 行数)。
+
+### §8.3 short_runnable 行为链
+
+- ①发射面:finalizer emit_answer_document `decision` 块 `current_status_verdict:"still_present"`(模型手填,块 text 首字是"是。"不含 token)→渲染器 `renderV2BlockDecision`(render/answerdoc.go:342-377)把 raw enum 前缀进 prose:`**结论：** \`still_present\` — 是。...`。同段模型自陈"无法判断该优先级反转问题在最新代码中是否已修复"——被 finalizer prompt "**decision** (exactly 1) ... exactly one of `still_present`, `fixed`, or `not_enough_evidence`" 强制选边,自相矛盾(且 not_enough_evidence 同为 oracle banned;正确形态=该 run 根本不该有 decision 义务)。全 eval 库无任何正向期待 still_present 的案(occurrences 全是 EXPECT_NOT_CONTAINS)。
+- ②exclude 判定这 run **未生效**:analyzer 单轮 emit,`external_observation_policy` 整字段缺失+`diagnostic_profile.current_risk=true, is_diagnostic=true`(TOOLRESULT 回显 `diagnostic_profile=true current_status_check=true`),直接违反 analyzer 教学(explicitly forbids→current_risk=false)。CSR(92a6b6a0)的 exclude-run 机器因无 typed exclude 可 key 而全程未触发,CSP/CPD 无涉——非回归,纯分类方差。对照 07-03 PASS(156s):同题 analyzer 正判 `current_source_mode:"exclude"`(source_quotes 全)+`current_risk:false`,0 次完成门阻塞、0 still_present;工件 ../../customlogs/xxx_all.systrace 在位,非工件问题。
+- ③728s 与 still_present **同链同根**:current_risk=true→完成门要 current_source origin lane→`accepted investigation closure cannot auto-complete mixed-origin explore window; missing_origin_lanes=current_source` ×19,9 个 explore dispatch 窗(01:32:27→01:43:24),retry directive 反复推 repo_map lenses(explorer think 原话:"There's a mismatch here - the user wants trace analysis only"),multi-topic scaling 13→28 放大窗数;全程 LLM `attempt=1/6` 零重试、零流式退化、repair 指标全 0——**不是** 07-03 死等案那种 LLM 退化,是 lane 饥饿重放循环;最终 forced-finalize 放行(`grounding floor failed on forced-finalize path ... Missing repo_map lenses: task_map, file_map, relation_map`)。
+- 定性:行为方差(analyzer 单点漏 typed exclude+误 current_risk),下游门全按 typed 输入确定性行事;两个结构放大器让方差变用户可见:(a) current-status verdict 义务只 key analyzer 的 `current_risk`,不校验"current_source lane 是否真产出过证据"——该精确信号就躺在完成门日志里(missing_origin_lanes);(b) `renderV2BlockDecision` 裸吐内部 enum 进中文 prose(同 3a6673ef de-jargon 方向未覆盖的面)。
+- 修向(下批候选,均为精确信号硬门/软引导合规形态):finalize 侧 decision 义务对齐 origin-lane 台账(current_source lane 零证据→义务降级为 caveat,enum 不发射);渲染层 enum→措辞映射(仍存在/已修复/证据不足)。当场不修:非 CSR/PTV5 小回归,decision 车道语义横跨 diagnostic 家族须裁定,且账本纪律=本批只归因。

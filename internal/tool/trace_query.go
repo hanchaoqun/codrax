@@ -4981,6 +4981,15 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Confidence:  0.80,
 			})
 		}
+		// PTS-2 (#69 用户条件裁定 2026-07-06, 账本 §7.1): the ENGINE's aggregate
+		// top-8 trim ships its overflow as one bounded synthetic fold member —
+		// re-emit it here as ONE fold record on the same typed folded_* lane as
+		// the wire-cap fold above, so the projection tree renders the
+		// engine-level fold row (count + range + roster). nil on ≤8 groups →
+		// zero emission (anti-noise).
+		if fold := result.WakeupChain.AggregatedImpactsFold; fold != nil {
+			out = append(out, traceQueryWakeupCausalAggregateFoldRecord(scope, ref, at, *fold, result.WakeupChain.Window))
+		}
 		for i, root := range result.WakeupChain.RootEvidence {
 			if i >= traceQueryWidthTypedFamilyRowCap() {
 				break
@@ -5217,6 +5226,55 @@ func traceQueryWakeupCausalImpactFoldRecord(scope string, ref types.ObservationS
 		ObservedAt:  at,
 		Confidence:  0.78,
 	}, true
+}
+
+// traceQueryWakeupCausalAggregateFoldRecord builds the PTS-2 engine-level
+// aggregate fold record (#69 用户条件裁定 2026-07-06): the engine's aggregate
+// top-8 trim folded its rank>8 overflow into ONE bounded synthetic member
+// (ChainResult.AggregatedImpactsFold) — this record carries that fold onto the
+// SAME typed folded_* note lane as the wire-cap fold above (NKR 折叠族 reuse,
+// zero new key families), so the projection compile re-materializes it through
+// the existing MergedCount pipeline (caliber source / never leads / never
+// badges / fold-row rendering all现成). The published value is the member MAX
+// — wall clock never sums across threads. Aggregate members are on-chain by
+// construction (ChainDepth>0 filter at aggregation).
+func traceQueryWakeupCausalAggregateFoldRecord(scope string, ref types.ObservationSourceRef, at string,
+	fold tracequery.WakeupCausalAggregateFold, window tracequery.TimeWindow) types.ObservationRecord {
+	span := types.ObservationSpan{
+		LineStart: fold.LineStart,
+		LineEnd:   fold.LineEnd,
+		StartTs:   fold.FirstTs,
+		EndTs:     fold.LastTs,
+	}
+	return types.ObservationRecord{
+		ID:              fmt.Sprintf("trace_query:%s#wakeup_causal_aggregate_fold", scope),
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            span,
+		ClaimKey:        "wakeup_causal_aggregate:folded_overflow",
+		Predicate:       "wakeup_causal_aggregate",
+		Value:           traceQueryObservationMSValue(fold.MaxImpactMs),
+		Unit:            "ms",
+		Summary: fmt.Sprintf("%d aggregated wakeup-causal pairs beyond the engine top-8 folded (max %.3fms); full per-hop causal impact rows remain in the stored trace_query payload",
+			fold.Groups, fold.MaxImpactMs),
+		RichNotes: traceQueryTypedKVNotes([][2]string{
+			{types.TraceNoteKeyCausality, traceQueryCausalityLabel(true)},
+			{types.TraceNoteKeyChainRelevance, "on_chain"},
+			{types.TraceNoteKeyImpact, traceQueryObservationMSValue(fold.MaxImpactMs)},
+			{types.TraceNoteKeyFoldedRows, strconv.Itoa(fold.Groups)},
+			{types.TraceNoteKeyFoldedMinMS, traceQueryObservationMSValue(fold.MinImpactMs)},
+			{types.TraceNoteKeyFoldedMaxMS, traceQueryObservationMSValue(fold.MaxImpactMs)},
+			{types.TraceNoteKeyFoldedSubjects, strings.Join(fold.Subjects, ",")},
+			{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(window)},
+		}),
+		SupportRefs: traceQueryObservationSupportRefs(ref, span.LineStart, span.LineEnd),
+		ObservedAt:  at,
+		Confidence:  0.80,
+	}
 }
 
 func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) []string {

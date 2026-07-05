@@ -72,7 +72,15 @@ func TestRuntimeTraceNextStepComparisonRowsLeadOnComparisonShape(t *testing.T) {
 	}
 }
 
-func TestRuntimeTraceNextStepComparisonRowsLeadBeforeRecordRowsAndShareCap(t *testing.T) {
+// PTS-2 pin (#69 用户条件裁定 2026-07-06, 账本 real_trace_campaign_20260705.md
+// §7.2) — REWRITTEN from the former shared-cap squeeze pin (the §6.5 cmp6
+// residual this ruling supersedes): on the disjoint dual-trace comparison
+// shape the comparison family emits in FULL (three fixed rows + RTC-2) AND
+// the per-record rows keep the guaranteed
+// runtimeTraceNextStepComparisonRecordFloor slots — coexistence instead of
+// squeeze-out. Priority order unchanged: comparison rows still lead; hard
+// upper bound = base cap + floor = 6.
+func TestRuntimeTraceNextStepComparisonRowsCoexistWithRecordRows(t *testing.T) {
 	bus := compareProjBus(true)
 	obs := compareProjTwoTraceObs()
 	obs = append(obs,
@@ -83,16 +91,25 @@ func TestRuntimeTraceNextStepComparisonRowsLeadBeforeRecordRowsAndShareCap(t *te
 	bus.ToolResults = []types.ToolResult{{ToolName: "trace_query", Success: true, Observations: obs}}
 	doc := &types.AnswerDocumentV2{DocumentModel: "v2"}
 	items := runtimeTraceNextStepItems(doc, bus)
-	if len(items) != 4 {
-		t.Fatalf("the shared item cap must bound comparison + record rows together: %+v", items)
+	if len(items) != 4+runtimeTraceNextStepComparisonRecordFloor {
+		t.Fatalf("disjoint comparison shape must emit the FULL comparison family plus the guaranteed per-record floor: %+v", items)
 	}
-	// Comparison rows LEAD (PTV5: THREE fixed rows + the RTC-2 disjoint
-	// time-base row on this disjoint fixture fill the shared cap); per-record
-	// rows yield on this shape — the CMP-6 adjudication makes the comparison
-	// guidance the headline for the comparison question form.
+	// Comparison rows LEAD unchanged (CMP-6 headline adjudication): three
+	// fixed rows + the RTC-2 disjoint time-base row.
 	if !strings.Contains(items[0].Text, "对比两 trace") || !strings.Contains(items[1].Text, "对齐目标 span 边界") ||
 		!strings.Contains(items[2].Text, "逐窗对比") || !strings.Contains(items[3].Text, "时间基准不相交") {
 		t.Fatalf("comparison rows must lead the list: %+v", items)
+	}
+	// The floor slots carry the top per-record guidance rows in ledger order
+	// (s_sleep then d_sleep_io here); the third record no longer fits — the
+	// floor is a guarantee, not an unbounded list.
+	if !strings.Contains(items[4].Text, "排查反复唤醒它的对端线程") ||
+		!strings.Contains(items[5].Text, "sched_blocked_reason") {
+		t.Fatalf("per-record rows must fill the guaranteed floor slots after the comparison family: %+v", items)
+	}
+	// ID numbering stays continuous across the dynamic cap.
+	if items[4].ID != "runtime_trace_next_step_5" || items[5].ID != "runtime_trace_next_step_6" {
+		t.Fatalf("next-step ids must continue across the extended cap: %+v", items)
 	}
 }
 
@@ -110,6 +127,34 @@ func TestRuntimeTraceNextStepComparisonRowsLeadWithoutAnalyzerPredicate(t *testi
 		!strings.Contains(items[2].Text, "逐窗对比") ||
 		!strings.Contains(items[3].Text, "时间基准不相交") {
 		t.Fatalf("two active projections must emit the comparison rows without the LLM predicate: %+v", items)
+	}
+}
+
+// PTS-2 突变 pin (#69): the dynamic cap lives INSIDE the comparison gate —
+// a non-comparison (single-artifact) ledger flooded with per-record steps
+// still caps at the base runtimeTraceNextStepMaxItems, byte-identical to the
+// pre-PTS-2 list behavior.
+func TestRuntimeTraceNextStepNonComparisonCapByteIdentical(t *testing.T) {
+	bus := compareProjBus(true)
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query", Success: true,
+		Observations: []types.ObservationRecord{
+			cmp6NextStepObs("ns-1", "s_sleep", "inspect the peer thread waking it repeatedly", 100),
+			cmp6NextStepObs("ns-2", "d_sleep_io", "inspect sched_blocked_reason and block IO evidence", 200),
+			cmp6NextStepObs("ns-3", "running", "inspect the thread own span CPU work", 300),
+			cmp6NextStepObs("ns-4", "priority_inversion", "inspect the low-priority dependency scheduling delay", 400),
+			cmp6NextStepObs("ns-5", "generic_kind_a", "inspect the adjacent scheduler events", 500),
+			cmp6NextStepObs("ns-6", "generic_kind_b", "inspect the adjacent resource events", 600),
+		},
+	}}
+	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
+	if len(items) != runtimeTraceNextStepMaxItems {
+		t.Fatalf("non-comparison shapes must keep the base cap byte-identical: %+v", items)
+	}
+	for _, item := range items {
+		if strings.Contains(item.Text, "对比两 trace") {
+			t.Fatalf("single-artifact ledger must not emit comparison rows: %+v", items)
+		}
 	}
 }
 

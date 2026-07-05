@@ -7805,9 +7805,62 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 		// the top wakeupCausalAggregateOccurrenceCap spans.
 		chain.Caveats = append(chain.Caveats, fmt.Sprintf(
 			"aggregated_impacts kept top 8 of %d (derived view; per-hop causal impact rows remain complete)", len(out)))
+		// PTS-2 (#69 用户条件裁定 2026-07-06, 评估无险后实施 — 账本 §7.1): the
+		// rank>8 overflow additionally folds into ONE bounded synthetic member
+		// so the projection tree can render the engine-level fold row (count +
+		// range + roster) instead of a caveat-only disclosure. O(1) by
+		// construction: scalars + ≤8 labels; the headline value is the member
+		// MAX, never a sum (wall clock never sums across threads). ≤8 groups
+		// never reach this branch — the field stays nil (anti-noise).
+		chain.AggregatedImpactsFold = foldWakeupCausalAggregateOverflow(out[8:])
 		out = out[:8]
 	}
 	return out
+}
+
+// foldWakeupCausalAggregateOverflow synthesizes the PTS-2 bounded fold member
+// from the trimmed aggregate overflow: one linear pass collecting group count,
+// DominantImpactMs min–max, an up-to-8 subject-label roster (mirror of the
+// PTV5 wire-cap fold roster bound) and the line/ts envelope. Returns nil on an
+// empty overflow so callers can assign unconditionally.
+func foldWakeupCausalAggregateOverflow(overflow []WakeupCausalAggregate) *WakeupCausalAggregateFold {
+	if len(overflow) == 0 {
+		return nil
+	}
+	fold := &WakeupCausalAggregateFold{Groups: len(overflow)}
+	// PTS-2 F2 (复核 2026-07-06): roster dedupe mirrors the wire-cap fold —
+	// aggregate groups are keyed (PID, state), so one thread overflowing with
+	// TWO dominant states occupies ONE roster slot (Groups still counts both
+	// groups).
+	seen := map[string]bool{}
+	for _, member := range overflow {
+		v := member.DominantImpactMs
+		if fold.MinImpactMs == 0 || (v > 0 && v < fold.MinImpactMs) {
+			fold.MinImpactMs = v
+		}
+		if v > fold.MaxImpactMs {
+			fold.MaxImpactMs = v
+		}
+		if len(fold.Subjects) < 8 {
+			if label := strings.TrimSpace(threadLabel(member.Thread)); label != "" && !seen[label] {
+				seen[label] = true
+				fold.Subjects = append(fold.Subjects, label)
+			}
+		}
+		if member.LineStart > 0 && (fold.LineStart <= 0 || member.LineStart < fold.LineStart) {
+			fold.LineStart = member.LineStart
+		}
+		if member.LineEnd > fold.LineEnd {
+			fold.LineEnd = member.LineEnd
+		}
+		if member.FirstTs > 0 && (fold.FirstTs == 0 || member.FirstTs < fold.FirstTs) {
+			fold.FirstTs = member.FirstTs
+		}
+		if member.LastTs > fold.LastTs {
+			fold.LastTs = member.LastTs
+		}
+	}
+	return fold
 }
 
 // detectPeriodicWakeupSource implements the VS-1 (§7.8) periodic-signal-source

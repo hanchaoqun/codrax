@@ -3523,9 +3523,23 @@ func answerDocumentBlockIDIsNextSteps(id string) bool {
 	}
 }
 
-// runtimeTraceNextStepMaxItems caps the rendered next-step list (both the
-// per-record rows and the CMP-6 comparison rows flow through this one cap).
+// runtimeTraceNextStepMaxItems caps the rendered next-step list. PTS-2 (#69
+// 用户条件裁定 2026-07-06, 账本 real_trace_campaign_20260705.md §7.2): on the
+// COMPARISON shape the cap grows dynamically — the comparison-family rows
+// (three fixed + the RTC-2 disjoint row) emit in full and the per-record rows
+// keep a guaranteed floor of runtimeTraceNextStepComparisonRecordFloor slots,
+// so the RTC-2 row can no longer squeeze the per-record guidance out of the
+// shared budget (the former cmp6 residual). Hard upper bound = base cap +
+// floor = 6 rows. Every non-comparison shape keeps this base cap
+// byte-identical (the intermediate lanes below still read it directly).
 const runtimeTraceNextStepMaxItems = 4
+
+// runtimeTraceNextStepComparisonRecordFloor is the PTS-2 per-record slot
+// guarantee on the comparison shape: 2 = one top per-record guidance row per
+// trace of the dual-trace comparison form. Applied AFTER every leading lane
+// (comparison rows + the coexisting recovery hints), so the reserved slots
+// can only be consumed by per-record rows.
+const runtimeTraceNextStepComparisonRecordFloor = 2
 
 func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContext) []types.AnswerBlockItem {
 	if doc == nil || ctx == nil {
@@ -3549,10 +3563,17 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 	// guidance rows LEAD the list — they are the headline next steps for this
 	// question shape, and trailing placement would let generic single-trace
 	// rows crowd them out of the shared cap. They pass through the same
-	// verbatim display dedupe and the same item cap as the per-record rows.
-	// Single-projection dispatches take this branch never and stay
-	// byte-identical.
-	if runtimeTraceNextStepComparisonShape(ledger) {
+	// verbatim display dedupe as the per-record rows. Single-projection
+	// dispatches take this branch never and stay byte-identical.
+	//
+	// PTS-2 (#69 用户条件裁定 2026-07-06): the comparison family emits in FULL
+	// (对比行全集 — no cap break inside this loop; today's family is ≤4 rows
+	// anyway, the removal guards future family growth) and the per-record
+	// loop below gets a dynamically extended cap so both row kinds coexist.
+	// Priority order unchanged: comparison rows still lead; the
+	// comparison-row ⟺ overview-table lockstep gate is untouched.
+	comparisonShape := runtimeTraceNextStepComparisonShape(ledger)
+	if comparisonShape {
 		steps := runtimeTraceNextStepComparisonSteps(zh)
 		// RTC-2 (real_trace_campaign_20260705.md §4 案 e2, 批 #67): when the
 		// compiled partitions' time-base spans are pairwise disjoint, the
@@ -3574,9 +3595,6 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 				Text:        step,
 				CitationRef: -1,
 			})
-			if len(out) >= runtimeTraceNextStepMaxItems {
-				break
-			}
 		}
 	}
 	// CMP-C F3 (adversarial review 2026-07-04, 单边未采样引导): the comparison
@@ -3639,8 +3657,21 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 			CitationRef: -1,
 		})
 	}
+	// PTS-2 dynamic cap (#69 用户条件裁定 2026-07-06): on the comparison shape
+	// the per-record rows read an extended cap — every leading lane above has
+	// already been placed, so the guaranteed floor slots can only be consumed
+	// by per-record rows (强保底, not a shared trailing budget). Hard upper
+	// bound = base + floor = 6. Non-comparison shapes keep recordCap == base
+	// cap: byte-identical list behavior.
+	recordCap := runtimeTraceNextStepMaxItems
+	if comparisonShape {
+		recordCap = len(out) + runtimeTraceNextStepComparisonRecordFloor
+		if recordCap < runtimeTraceNextStepMaxItems {
+			recordCap = runtimeTraceNextStepMaxItems
+		}
+	}
 	for _, record := range ledger.Records {
-		if len(out) >= runtimeTraceNextStepMaxItems {
+		if len(out) >= recordCap {
 			break
 		}
 		step := runtimeTraceNextStepFromObservationRecord(record, zh)
@@ -3672,7 +3703,7 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 			Text:        step,
 			CitationRef: -1,
 		})
-		if len(out) >= runtimeTraceNextStepMaxItems {
+		if len(out) >= recordCap {
 			break
 		}
 	}

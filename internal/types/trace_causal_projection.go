@@ -1483,8 +1483,25 @@ func traceCausalProjectionLimitNodesOnChainFold(nodes []TraceCausalProjectionNod
 		}
 		fold.MergedEvidenceIDs = append(fold.MergedEvidenceIDs, raw)
 	}
+	memberRows := 0
 	for _, member := range overflow {
 		traceCausalProjectionAppendMergedSubject(&fold, member.Subject)
+		// PTS-2 F1 (复核裁定 2026-07-06, 计数吸收 — 不做桶位豁免): an absorbed
+		// member that is ITSELF an overflow fold row (engine aggregate fold /
+		// wire-cap fold — the typed OnChainOverflowFold marker) represents
+		// MergedCount already-folded rows, not one. The bucket fold absorbs
+		// that count into its own N and merges the member's roster (global
+		// roster cap still applies), so the rendered 其余 N 项 stays the true
+		// row count. Ordinary ×N presentation-aggregate rows still count 1 —
+		// their ×N stays inside their absorbed evidence IDs, unchanged.
+		if member.OnChainOverflowFold && member.MergedCount > 0 {
+			memberRows += member.MergedCount
+			for _, subject := range member.MergedSubjects {
+				traceCausalProjectionAppendMergedSubject(&fold, subject)
+			}
+		} else {
+			memberRows++
+		}
 		display := member.ImpactMS
 		fromWindowProjection := member.ImpactMS > 0
 		if display <= 0 {
@@ -1512,8 +1529,9 @@ func traceCausalProjectionLimitNodesOnChainFold(nodes []TraceCausalProjectionNod
 		}
 	}
 	// MergedCount counts folded ROWS (a member's own ×N stays inside its
-	// absorbed evidence IDs); the value is the member MAX, never a sum.
-	fold.MergedCount = len(overflow)
+	// absorbed evidence IDs; an absorbed FOLD member contributes its own
+	// MergedCount — F1 计数吸收); the value is the member MAX, never a sum.
+	fold.MergedCount = memberRows
 	fold.MergedMinMS = minMS
 	fold.MergedMaxMS = maxMS
 	if maxFromWindowProjection {

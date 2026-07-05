@@ -1978,9 +1978,20 @@ type ChainResult struct {
 	Edges             []WakeupEdge            `json:"edges,omitempty"`
 	CausalImpacts     []WakeupCausalImpact    `json:"causal_impacts,omitempty"`
 	AggregatedImpacts []WakeupCausalAggregate `json:"aggregated_impacts,omitempty"`
-	IPCEdges          []IPCEdge               `json:"ipc_edges,omitempty"`
-	BinderWaits       []BinderWaitSummary     `json:"binder_waits,omitempty"`
-	RootEvidence      []RootEvidence          `json:"root_evidence,omitempty"`
+	// AggregatedImpactsFold is the PTS-2 (#69 用户条件裁定 2026-07-06) bounded
+	// synthetic fold member for the aggregate top-8 trim: the rank>8 overflow
+	// groups fold into this ONE O(1) summary (count + min–max DominantImpactMs
+	// range + up-to-8 subject roster + line/ts envelope) instead of vanishing
+	// behind the caveat count. nil when the trim never fired (≤8 groups —
+	// zero-emission anti-noise). Deliberately NOT a member of
+	// AggregatedImpacts: that slice feeds root-cause ranking and
+	// chainThreadRefs directly, and a synthetic member would contaminate both.
+	// The min/max carry per-group display values — wall clock never sums
+	// across threads.
+	AggregatedImpactsFold *WakeupCausalAggregateFold `json:"aggregated_impacts_fold,omitempty"`
+	IPCEdges              []IPCEdge                  `json:"ipc_edges,omitempty"`
+	BinderWaits           []BinderWaitSummary        `json:"binder_waits,omitempty"`
+	RootEvidence          []RootEvidence             `json:"root_evidence,omitempty"`
 	// ViaThread is the RN-14a (§7.9) via verdict, present only when
 	// Query.ViaThread was set: either the via thread is ON a wakeup path to
 	// the target (depth + per-hop latency from existing wakeup edges, zero
@@ -2282,6 +2293,25 @@ type WakeupCausalAggregate struct {
 	SupplyFoldIdealMs   float64          `json:"supply_fold_ideal_ms,omitempty"`
 	SupplyFoldBasis     *SupplyFoldBasis `json:"supply_fold_basis,omitempty"`
 	Summary             string           `json:"summary,omitempty"`
+}
+
+// WakeupCausalAggregateFold is the PTS-2 engine-level aggregate-trim fold
+// (see ChainResult.AggregatedImpactsFold): a bounded synthesis of the rank>8
+// aggregate groups. Groups counts the folded GROUPS (each already ≥2
+// occurrences by the aggregate threshold); MinImpactMs/MaxImpactMs carry the
+// members' DominantImpactMs display range (MAX is the fold's headline value —
+// wall clock never sums across threads); Subjects keeps up to 8 member thread
+// labels (mirror of the PTV5 wire-cap fold roster bound). The envelope fields
+// span the members' line/ts extents for evidence anchoring.
+type WakeupCausalAggregateFold struct {
+	Groups      int      `json:"groups"`
+	MinImpactMs float64  `json:"min_impact_ms,omitempty"`
+	MaxImpactMs float64  `json:"max_impact_ms,omitempty"`
+	Subjects    []string `json:"subjects,omitempty"`
+	LineStart   int      `json:"line_start,omitempty"`
+	LineEnd     int      `json:"line_end,omitempty"`
+	FirstTs     float64  `json:"first_ts,omitempty"`
+	LastTs      float64  `json:"last_ts,omitempty"`
 }
 
 type RootEvidence struct {
