@@ -586,3 +586,17 @@ func keysOf(m map[int]int) []int {
 	return out
 }
 ```
+
+## §5 战役收口(2026-07-05)
+
+**终局:18/18 全绿**(首轮 15/18 → 三 FAIL 全归因全修复 → 复跑全过)。修复对照:
+
+| 案 | 根因 | 修复 | commit |
+|---|---|---|---|
+| f1 | 证据索引导语裸吐 blob 全路径(全树唯一,防线全守住) | T11 basename 化 + pin | e24fb4dd(PTV4) |
+| e2 | oracle 字带过紧(答案披露正确) | 臂扩合法措辞;RTC-2 #67 立案 typed 提示 | 1ffe777e |
+| e1 | 四跑四形态:①端点精度(oracle 修:接受 ms 舍入)②clamp 双口径泄漏+timeline 无合计行(**真产品 gap**,R1 修:Summary 重生+state_totals+访问器单权威)③actual_* 误读加总(R1b 修:口径守护句)④A 臂合法措辞(oracle 臂扩) | R1=39eaecfc;R1b+oracle 臂=本 commit | 39eaecfc + 本批 |
+
+e1 的四跑链条本身就是战役价值的浓缩:两次 oracle 精度校准(合法表达形态)、两次真 gap(双口径泄漏被修、误读车道被守护)。B 窗数值(3.414ms/11.4%)从"只存在于不可读 payload"变为"state_totals 权威块+守护句",最终 run 主线程双窗对比完整正确。弱模型视角漂移(第三跑进程级透镜)作为行为面残余记录,不立硬账(软引导域,同 DL-B 处置)。
+
+开放项:RTC-2 #67(跨 trace span 不相交 typed 提示)、客户回访验证(外部依赖)。

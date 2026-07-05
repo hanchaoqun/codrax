@@ -4501,6 +4501,16 @@ func traceQueryIntervalActualFields(it tracequery.Interval) string {
 		it.ActualDurationMsResolved(), it.ActualStartTs, it.ActualEndTs)
 }
 
+// traceQueryTimelineActualGuardNote is display-only soft guidance appended to
+// the state_totals block whenever any interval in the FULL slice is window-cut
+// (RTC-R1 e1 rerun, 2026-07-05): the model summed the actual_duration= values
+// of two window-cut running rows and published the sum as in-window CPU while
+// the state_total row said running=0.000ms — an arithmetic self-contradiction
+// in the final answer. Soft guidance only (red line: precise signals for hard
+// gates, no gate on model prose); wording is a single pinned constant so the
+// sentence cannot drift.
+const traceQueryTimelineActualGuardNote = "- state_totals_note=actual_duration/actual_window values on interval rows measure the full segment, which extends at least partly outside this window; do not add actual_* values into in-window sums — the state_total rows above are the in-window authority\n"
+
 // writeTraceTimelineStateTotals publishes the deterministic per-state totals
 // block for the thread_timeline text face (E1-b, RTC-R1 e1 2026-07-05). The
 // interval listing below it truncates at 12 rows, so the totals the model
@@ -4522,9 +4532,13 @@ func writeTraceTimelineStateTotals(b *strings.Builder, intervals []tracequery.In
 	}
 	totalMs := map[tracequery.ThreadState]float64{}
 	segments := map[tracequery.ThreadState]int{}
+	anyWindowCut := false
 	for _, it := range intervals {
 		totalMs[it.State] += it.DurationMs
 		segments[it.State]++
+		if it.WindowClamped() {
+			anyWindowCut = true
+		}
 	}
 	fmt.Fprintf(b, "- state_totals intervals=%d basis=single_thread_non_overlapping — per-state sums over ALL intervals in this window (interval rows below may be truncated; these totals are not); additive within this one thread only, never sum across threads\n", len(intervals))
 	for _, state := range tracequery.ThreadStateUniverse() {
@@ -4532,6 +4546,13 @@ func writeTraceTimelineStateTotals(b *strings.Builder, intervals []tracequery.In
 			continue
 		}
 		fmt.Fprintf(b, "- state_total state=%s total=%.3fms segments=%d\n", state, totalMs[state], segments[state])
+	}
+	if anyWindowCut {
+		// Guard decision is over the FULL slice (payload basis), not the 12
+		// rendered rows: a window-cut interval past the truncation point still
+		// carries actual_* tokens in the payload the model may consult. When no
+		// interval is window-cut the note is omitted — noise dies at the source.
+		b.WriteString(traceQueryTimelineActualGuardNote)
 	}
 }
 

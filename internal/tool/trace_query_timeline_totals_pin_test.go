@@ -98,6 +98,45 @@ func TestTraceQuerySummaryThreadTimelineStateTotalsCoverFullSample(t *testing.T)
 	if !(totalsAt < runningAt && runningAt < runnableAt && runnableAt < sleepAt) {
 		t.Fatalf("state_total lines must follow the ThreadState universe order (running=%d runnable=%d s_sleep=%d):\n%s", runningAt, runnableAt, sleepAt, summary)
 	}
+	// No interval here is window-cut, so the actual_* accounting guard must be
+	// ABSENT — noise dies at the source when the misread lane cannot occur.
+	if strings.Contains(summary, "state_totals_note=") {
+		t.Fatalf("actual_* guard note must be omitted when no interval is window-cut:\n%s", summary)
+	}
+}
+
+// rtcTimelineActualGuardWantLine is the independently pinned verbatim guard
+// sentence (RTC-R1 e1 rerun, 2026-07-05: model summed actual_duration= values
+// of window-cut rows into in-window CPU, contradicting state_total
+// running=0.000ms in the same result). A hardcoded copy, NOT a reference to
+// the production constant, so both deleting the line and rewording it go red.
+const rtcTimelineActualGuardWantLine = "- state_totals_note=actual_duration/actual_window values on interval rows measure the full segment, which extends at least partly outside this window; do not add actual_* values into in-window sums — the state_total rows above are the in-window authority\n"
+
+// The guard decision is over the FULL interval slice (payload basis): a
+// window-cut interval hidden past the 12-row truncation point still carries
+// actual_* tokens in the payload, so the guard must appear even when no
+// RENDERED row shows them.
+func TestTraceQuerySummaryThreadTimelineActualGuardFullSliceBasis(t *testing.T) {
+	var intervals []tracequery.Interval
+	ts := 10.0
+	for i := 0; i < 12; i++ {
+		intervals = append(intervals, rtcTimelineInterval(tracequery.StateSSleep, ts, ts+0.002))
+		ts += 0.002
+	}
+	cut := rtcTimelineInterval(tracequery.StateRunning, ts, ts)
+	cut.ActualEndTs = ts + 0.040 // window-cut, past the truncation point
+	intervals = append(intervals, cut)
+	result := tracequery.Result{
+		View:     "thread_timeline",
+		Timeline: &tracequery.TimelineResult{Thread: tracequery.ThreadRef{Comm: "app", PID: 20}, Intervals: intervals},
+	}
+	summary := traceQuerySummary(result, traceQueryParams{View: "thread_timeline"}, "path", "/tmp/payload.json")
+	if !strings.Contains(summary, rtcTimelineActualGuardWantLine) {
+		t.Fatalf("guard note must key on the FULL slice, not the rendered rows; want %q in:\n%s", rtcTimelineActualGuardWantLine, summary)
+	}
+	if strings.Contains(summary, "- running 10.024000") {
+		t.Fatalf("fixture broken: the window-cut interval must sit past the truncation point:\n%s", summary)
+	}
 }
 
 func TestTraceQuerySummaryThreadTimelineClampedRowDualLedger(t *testing.T) {
@@ -127,6 +166,11 @@ func TestTraceQuerySummaryThreadTimelineClampedRowDualLedger(t *testing.T) {
 	wantInsideRow := "- s_sleep 1.100000..1.180000 80.000ms lines=1-2 wake_line=0\n"
 	if !strings.Contains(summary, wantInsideRow) {
 		t.Fatalf("unclamped timeline row must stay in the historical form, want %q in:\n%s", wantInsideRow, summary)
+	}
+	// A window-cut row is present, so the totals block must carry the verbatim
+	// actual_* accounting guard (RTC-R1 e1 rerun misread lane).
+	if !strings.Contains(summary, rtcTimelineActualGuardWantLine) {
+		t.Fatalf("totals block must carry the verbatim actual_* guard, want %q in:\n%s", rtcTimelineActualGuardWantLine, summary)
 	}
 }
 
