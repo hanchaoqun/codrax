@@ -103,8 +103,8 @@ func TestRuntimeTraceNextStepSingleSidedSamplingHintAbsentOnTwoProjections(t *te
 	bus := compareProjBus(true)
 	bus.RuntimeArtifactPreflight = cmpcPreflight("7.0B30SP22_7315.systrace", "6.0B138_3900.sys.systrace")
 	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
-	if len(items) != 2 || !strings.Contains(items[0].Text, "对比两 trace") {
-		t.Fatalf("two-projection shape must keep the comparison rows: %+v", items)
+	if len(items) != 3 || !strings.Contains(items[0].Text, "对比两 trace") {
+		t.Fatalf("two-projection shape must keep the comparison rows (+ RTC-2 disjoint row on this disjoint fixture): %+v", items)
 	}
 	for _, item := range items {
 		if strings.Contains(item.Text, "尚未采样") {

@@ -243,8 +243,8 @@ func TestTraceProjectionMultiArtifactComparisonOverviewTable(t *testing.T) {
 	if !(indexOf("runtime_trace_causal_projection_compare") < indexOf("runtime_trace_causal_projection_a1")) {
 		t.Fatalf("the comparison overview must render before the first artifact section")
 	}
-	if len(compare.Items) != 3 {
-		t.Fatalf("one overview row per artifact plus the F3 window note row: %+v", compare.Items)
+	if len(compare.Items) != 4 {
+		t.Fatalf("one overview row per artifact plus the F3 window note row plus the RTC-2 disjoint time-base note row: %+v", compare.Items)
 	}
 	rowA := strings.Join(compare.Items[0].Cells, " | ")
 	rowB := strings.Join(compare.Items[1].Cells, " | ")
@@ -282,6 +282,16 @@ func TestTraceProjectionMultiArtifactComparisonOverviewTable(t *testing.T) {
 	if !strings.Contains(noteRow, "两侧投影窗长不等,背景压力已按各自窗长归一化") {
 		t.Fatalf("unequal projection windows must force the normalization note row:\n%s", noteRow)
 	}
+	// RTC-2 (real_trace_campaign_20260705.md §4 案 e2, 批 #67): the two
+	// artifacts' time-base envelopes (3679.899..3681.129 vs 8143.800..8144.501)
+	// are disjoint, so the table closes with the verbatim disjoint-time-base
+	// note row. Pure-arithmetic soft guidance — this pin goes red if the
+	// disjointness comparison is inverted (the row would vanish here).
+	disjointRow := strings.Join(compare.Items[3].Cells, " | ")
+	if !strings.Contains(disjointRow,
+		"⚠ 两工件时间基准不相交(7.0B30SP22_7315.systrace 3679.899s→3681.129s,6.0B138_3900.sys.systrace 8143.800s→8144.501s),不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准") {
+		t.Fatalf("disjoint time bases must force the RTC-2 note row verbatim:\n%s", disjointRow)
+	}
 	for _, item := range compare.Items {
 		if item.CitationRef != -1 {
 			t.Fatalf("system-injected overview rows must carry CitationRef=-1: %+v", item)
@@ -307,13 +317,19 @@ func TestTraceProjectionComparisonOverviewSkipsWindowNoteWhenWindowsMatch(t *tes
 	bus.ToolResults = []types.ToolResult{{ToolName: "trace_query", Success: true, Observations: obs}}
 	got := compareProjApply(t, bus)
 	compare := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_compare")
-	if compare == nil || len(compare.Items) != 2 {
-		t.Fatalf("equal-length windows must not add the note row: %+v", compare)
+	// The RTC-2 disjoint time-base note row (3679.x vs 8143.x stay disjoint
+	// regardless of window length) is the only extra row; the F3 window note
+	// must be gone.
+	if compare == nil || len(compare.Items) != 3 {
+		t.Fatalf("equal-length windows must not add the F3 note row: %+v", compare)
 	}
 	for _, item := range compare.Items {
 		if strings.Contains(strings.Join(item.Cells, " "), "窗长不等") {
 			t.Fatalf("no note content expected on equal windows: %+v", item.Cells)
 		}
+	}
+	if !strings.Contains(strings.Join(compare.Items[2].Cells, " "), "两工件时间基准不相交") {
+		t.Fatalf("the RTC-2 disjoint note row is independent of the F3 window note: %+v", compare.Items[2].Cells)
 	}
 }
 

@@ -525,6 +525,104 @@ func traceCausalProjectionArtifactIdentity(record ObservationRecord) (string, st
 	return "", "", ""
 }
 
+// --- RTC-2 cross-trace time-base disjointness (real_trace_campaign_20260705.md
+// §4 案 e2, 批 #67) ---
+//
+// A cross-trace comparison whose two captures live on unrelated clock bases
+// (e2: 34579.x vs 2942.x) previously disclosed "cannot align on one timeline"
+// only through model prose — a surviving-form behavior with no typed signal.
+// These two helpers are that signal: pure arithmetic over the partitions'
+// existing typed time surfaces, consumed ONLY by soft-guidance display rows
+// (comparison-overview note row + CMP-6 next-step directive row). No gate
+// reads them.
+//
+// 与锚窗 F1 裁定的区别 (anti-ping-pong, read before "fixing" this to the
+// selected_window-only lane): F1 pinned that a record's Span envelope must
+// NEVER anchor the 关注窗口 — an envelope is member-impact FirstTs/LastTs, and
+// anchoring on it fabricated pseudo windows, 占窗% >100 and bogus ⚠ tags.
+// This signal is NOT an anchor: it consumes the envelope solely for
+// INTER-PARTITION TIME-BASE COMPARABILITY (a boolean interval-disjointness
+// check plus verbatim display of the raw envelopes). It never feeds window
+// shares, bar scales or WithinRequestedWindow, so the envelope is the RIGHT
+// surface here — a wider envelope only makes the disjointness claim HARDER to
+// emit (fail-closed, anti-noise), the opposite failure direction of F1.
+
+// TimeBaseSpan returns the projection's observed time-base envelope in trace
+// seconds: the union of every member node's own StartTs/EndTs (the
+// member-impact envelope) and the projection's anchor window
+// (WindowStartTs/WindowEndTs), whichever typed surfaces exist. ok=false when
+// the projection carries NO time evidence at all (line-span-only records,
+// no anchor window) — callers MUST then treat the time base as unknown and
+// stay silent, never assume disjointness.
+func (p TraceCausalProjection) TimeBaseSpan() (float64, float64, bool) {
+	var start, end float64
+	ok := false
+	include := func(s, e float64) {
+		if s <= 0 || e < s {
+			return
+		}
+		if !ok {
+			start, end, ok = s, e, true
+			return
+		}
+		if s < start {
+			start = s
+		}
+		if e > end {
+			end = e
+		}
+	}
+	includeNodes := func(nodes []TraceCausalProjectionNode) {
+		for _, node := range nodes {
+			include(node.StartTs, node.EndTs)
+		}
+	}
+	includeNodes(p.PrimaryRootCauses)
+	includeNodes(p.OnChainCauses)
+	includeNodes(p.AdjacentCauses)
+	includeNodes(p.BackgroundCauses)
+	includeNodes(p.SemanticSpans)
+	includeNodes(p.SupportingHops)
+	if p.PrimaryRootCause != nil {
+		include(p.PrimaryRootCause.StartTs, p.PrimaryRootCause.EndTs)
+	}
+	if p.WindowStartTs > 0 && p.WindowEndTs > p.WindowStartTs {
+		include(p.WindowStartTs, p.WindowEndTs)
+	}
+	return start, end, ok
+}
+
+// TraceCausalProjectionTimeBasesDisjoint reports whether EVERY pair of
+// per-artifact projections has an empty time-span intersection — the typed
+// "two artifacts cannot be aligned on one shared timeline" fact. Precise
+// pure-arithmetic signal, fail-closed on every uncertainty: fewer than two
+// projections → false (single-partition ledgers never emit); ANY projection
+// without a time-base span → false (no evidence is never disjointness);
+// touching endpoints count as intersecting (a shared instant is a shared
+// time base). Soft-guidance consumers only — never a hard gate.
+func TraceCausalProjectionTimeBasesDisjoint(projections []TraceCausalProjection) bool {
+	if len(projections) < 2 {
+		return false
+	}
+	starts := make([]float64, len(projections))
+	ends := make([]float64, len(projections))
+	for i, projection := range projections {
+		start, end, ok := projection.TimeBaseSpan()
+		if !ok {
+			return false
+		}
+		starts[i], ends[i] = start, end
+	}
+	for i := range projections {
+		for j := i + 1; j < len(projections); j++ {
+			if ends[i] >= starts[j] && ends[j] >= starts[i] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // traceCausalProjectionArtifactBasename returns the display basename of a
 // canonical (slash-normalised) artifact path.
 func traceCausalProjectionArtifactBasename(canon string) string {

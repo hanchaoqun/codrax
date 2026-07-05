@@ -599,4 +599,4 @@ func keysOf(m map[int]int) []int {
 
 e1 的四跑链条本身就是战役价值的浓缩:两次 oracle 精度校准(合法表达形态)、两次真 gap(双口径泄漏被修、误读车道被守护)。B 窗数值(3.414ms/11.4%)从"只存在于不可读 payload"变为"state_totals 权威块+守护句",最终 run 主线程双窗对比完整正确。弱模型视角漂移(第三跑进程级透镜)作为行为面残余记录,不立硬账(软引导域,同 DL-B 处置)。
 
-开放项:RTC-2 #67(跨 trace span 不相交 typed 提示)、客户回访验证(外部依赖)。
+开放项:客户回访验证(外部依赖)。~~RTC-2 #67~~ **已交付**(跨 trace span 不相交 typed 提示):纯算术精确信号 `types.TraceCausalProjectionTimeBasesDisjoint`(各分区 TimeBaseSpan=成员 impact 包络∪锚窗;与锚窗 F1 裁定的区别已在实现注释注明——本信号只判分区间时基可比性,永不作窗口锚),软引导双面落点=对比总览表尾注记行 + CMP-6 next-step 引导行(同一信号,两面锁步;单分区/交集非空/任一分区无时间证据=零发射,无任何硬门);pin=`trace_causal_projection_timebase_rtc2_test.go` + `answer_document_projection_timebase_rtc2_test.go`(zh+en verbatim 双面在/不在 + 判空反转与 fail-closed 反转双突变探针已验红)。

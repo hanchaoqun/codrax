@@ -1141,6 +1141,21 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		noteCells[0] = note
 		rows = append(rows, types.AnswerBlockItem{Cells: noteCells, CitationRef: -1})
 	}
+	// RTC-2 (real_trace_campaign_20260705.md §4 案 e2, 批 #67): when the
+	// artifacts' typed time-base spans are pairwise disjoint (envelope Span ∪
+	// anchor window per partition — NOT an anchor consumer, see the F1
+	// distinction on types.TraceCausalProjectionTimeBasesDisjoint), close the
+	// table with the disclosure note: unrelated clock bases cannot be aligned
+	// on one shared timeline, so cross-trace reading must stay relative to
+	// each artifact's own window. Pure-arithmetic soft guidance; single
+	// partition / any intersection / any span-less projection emits NOTHING.
+	if types.TraceCausalProjectionTimeBasesDisjoint(projections) {
+		if note := runtimeTraceProjCompareDisjointTimeBaseNote(projections, zh); note != "" {
+			noteCells := make([]string, len(columns))
+			noteCells[0] = note
+			rows = append(rows, types.AnswerBlockItem{Cells: noteCells, CitationRef: -1})
+		}
+	}
 	title := "Trace 因果投影对比总览"
 	text := "对比形态(typed 判定)下的逐工件总览;数值全部来自各工件独立投影的 typed 字段,跨线程累计值带单位标注,详情见各工件分段。"
 	if !zh {
@@ -1297,6 +1312,45 @@ func runtimeTraceProjCompareWindowsUnequal(windows []float64) bool {
 		}
 	}
 	return max > 0 && (max-min)/max > 0.1
+}
+
+// runtimeTraceProjCompareDisjointTimeBaseNote renders the RTC-2 disjoint
+// time-base note row for the comparison overview: each artifact's typed
+// time-base envelope verbatim, then the user-word guidance (never "envelope"/
+// "partition" jargon). Callers gate on
+// types.TraceCausalProjectionTimeBasesDisjoint; the defensive "" on a missing
+// span can only trip if the two calls ever diverge.
+func runtimeTraceProjCompareDisjointTimeBaseNote(projections []types.TraceCausalProjection, zh bool) string {
+	spans := make([]string, 0, len(projections))
+	for _, projection := range projections {
+		start, end, ok := projection.TimeBaseSpan()
+		if !ok {
+			return ""
+		}
+		label := strings.TrimSpace(projection.ArtifactLabel)
+		if label == "" {
+			label = strings.TrimSpace(projection.ArtifactPath)
+		}
+		if label == "" {
+			label = "—"
+		}
+		spans = append(spans, fmt.Sprintf("%s %.3fs→%.3fs",
+			runtimeTraceCausalProjectionMarkdownSafe(label), start, end))
+	}
+	if zh {
+		subject := "两工件时间基准不相交"
+		if len(projections) > 2 {
+			subject = "各工件时间基准两两不相交"
+		}
+		return fmt.Sprintf("⚠ %s(%s),不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准",
+			subject, strings.Join(spans, ","))
+	}
+	subject := "The two artifacts' time bases do not overlap"
+	if len(projections) > 2 {
+		subject = "The artifacts' time bases are pairwise disjoint"
+	}
+	return fmt.Sprintf("⚠ %s (%s); they cannot be aligned directly on one shared timeline — compare relative metrics within each artifact's own window",
+		subject, strings.Join(spans, ", "))
 }
 
 // runtimeTraceProjCompareSupplyCells builds the per-artifact 算力供给 cells of
@@ -3306,7 +3360,17 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 	// Single-projection dispatches take this branch never and stay
 	// byte-identical.
 	if runtimeTraceNextStepComparisonShape(ledger) {
-		for _, step := range runtimeTraceNextStepComparisonSteps(zh) {
+		steps := runtimeTraceNextStepComparisonSteps(zh)
+		// RTC-2 (real_trace_campaign_20260705.md §4 案 e2, 批 #67): when the
+		// compiled partitions' time-base spans are pairwise disjoint, the
+		// comparison lane grows ONE more guidance row — the disclosure that
+		// the traces cannot be aligned on one shared timeline. Same typed
+		// signal (and thus lockstep) as the overview table's disjoint note
+		// row; zero emission on a single partition or any span intersection.
+		if hint := runtimeTraceNextStepDisjointTimeBaseStep(ledger, zh); hint != "" {
+			steps = append(steps, hint)
+		}
+		for _, step := range steps {
 			if step == "" || seenText[step] {
 				continue
 			}
@@ -3433,6 +3497,34 @@ func runtimeTraceNextStepComparisonSteps(zh bool) []string {
 	return []string{
 		"Compare the top running threads and per-process running time of both traces over same-caliber windows",
 		"Re-anchor each trace to the target span boundaries, then re-collect the window aggregates normalized by each window's own length before comparing",
+	}
+}
+
+// runtimeTraceNextStepDisjointTimeBaseStep returns the RTC-2 comparison-lane
+// guidance row, or "" when the shape does not apply. Gate = the SAME pure
+// arithmetic as the overview table's disjoint note
+// (types.TraceCausalProjectionTimeBasesDisjoint over the SAME compiled
+// partition set), so the two surfaces stay in lockstep by construction —
+// mirroring the CMP-6 对比行⟺总览表 adjudication, this row can only appear
+// when the comparison rows (and therefore the overview) appear, and the
+// disjoint note row appears on the table exactly when this row appears here.
+// Wording is user-facing guidance (no envelope/partition jargon) and carries
+// no scalar claims about either trace.
+func runtimeTraceNextStepDisjointTimeBaseStep(ledger types.ObservationLedger, zh bool) string {
+	projections := types.CompileTraceCausalProjectionSet(ledger).Projections
+	if !types.TraceCausalProjectionTimeBasesDisjoint(projections) {
+		return ""
+	}
+	two := len(projections) == 2
+	switch {
+	case zh && two:
+		return "两 trace 时间基准不相交,无法在同一时间轴直接对齐;对比请以各自窗口内相对指标为准(占窗比例/按窗长归一化)"
+	case zh:
+		return "各 trace 时间基准两两不相交,无法在同一时间轴直接对齐;对比请以各自窗口内相对指标为准(占窗比例/按窗长归一化)"
+	case two:
+		return "The two traces' time bases do not overlap and cannot be aligned directly on one shared timeline; compare relative metrics within each trace's own window (window share / normalized by window length)"
+	default:
+		return "The traces' time bases are pairwise disjoint and cannot be aligned directly on one shared timeline; compare relative metrics within each trace's own window (window share / normalized by window length)"
 	}
 }
 
