@@ -56,13 +56,13 @@ func TestConvertHiperfProtoFileToPerfTraceRoundTripsThroughTraceQuery(t *testing
 		t.Fatalf("events: got %d want 1", len(idx.Events))
 	}
 	ev := idx.Events[0]
-	if ev.Type != tracequery.EventPerfSample || ev.CPU != -1 || ev.PerfPID != 1234 || ev.PerfTID != 5678 || ev.PerfPeriod != 99 {
+	if ev.Type != tracequery.EventPerfSample || ev.CPU != -1 || ev.PerfFields.PID != 1234 || ev.PerfFields.TID != 5678 || ev.PerfFields.Period != 99 {
 		t.Fatalf("bad perf sample fields: %+v", ev)
 	}
-	if ev.PerfEvent != "cpu-cycles" || ev.PerfSymbol != "doWork" || ev.PerfDSO != "/system/lib64/libfoo.so" {
+	if ev.PerfFields.EventName != "cpu-cycles" || ev.PerfFields.Symbol != "doWork" || ev.PerfFields.DSO != "/system/lib64/libfoo.so" {
 		t.Fatalf("bad perf symbol fields: %+v", ev)
 	}
-	if ev.PerfCPUKnown == nil || *ev.PerfCPUKnown || ev.PerfSymbolizationStatus != "symbolized" || ev.PerfClockConfidence != "assumed" || ev.PerfCallchainStatus != "symbolized" {
+	if ev.PerfFields.CPUKnown == nil || *ev.PerfFields.CPUKnown || ev.PerfFields.SymbolizationStatus != "symbolized" || ev.PerfFields.ClockConfidence != "assumed" || ev.PerfFields.CallchainStatus != "symbolized" {
 		t.Fatalf("bad hiperf perf quality fields: %+v", ev)
 	}
 	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 0, TimeEnd: 999})
@@ -127,7 +127,7 @@ cp "$HIPERF_PROTO_FIXTURE" "$out"
 	}
 	found := false
 	for _, ev := range idx.Events {
-		if ev.Type == tracequery.EventPerfSample && ev.PerfSymbol == "doWork" {
+		if ev.Type == tracequery.EventPerfSample && ev.PerfFields.Symbol == "doWork" {
 			found = true
 			break
 		}

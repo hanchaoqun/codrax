@@ -213,10 +213,16 @@ func collectRelationScopeThreadCandidates(sel threadSelector, ev Event, out map[
 	add(ev.PrevPID, ev.PrevComm)
 	add(ev.NextPID, ev.NextComm)
 	add(ev.WakeePID, ev.WakeeComm)
-	add(ev.SchedStatPID, ev.SchedStatComm)
-	add(ev.ConstraintPID, ev.ConstraintComm)
-	add(ev.PerfPID, ev.PerfComm)
-	add(ev.PerfTID, ev.PerfComm)
+	if ss := ev.SchedStatFields; ss != nil {
+		add(ss.PID, ss.Comm)
+	}
+	if cf := ev.ConstraintFields; cf != nil {
+		add(cf.PID, cf.Comm)
+	}
+	if pf := ev.PerfFields; pf != nil {
+		add(pf.PID, pf.Comm)
+		add(pf.TID, pf.Comm)
+	}
 }
 
 func resolveRelationScopeSeedPID(opts BuildOptions, sel threadSelector, tidToTgid map[int]int, candidates map[int]struct{}) (int, string, bool) {

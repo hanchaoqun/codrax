@@ -57,13 +57,13 @@ func TestConvertRawPerfDataFileToPerfTraceRoundTripsThroughTraceQuery(t *testing
 		t.Fatalf("events: got %d want 1", len(idx.Events))
 	}
 	ev := idx.Events[0]
-	if ev.Type != tracequery.EventPerfSample || ev.CPU != 5 || ev.PerfPID != 1234 || ev.PerfTID != 5678 || ev.PerfPeriod != 99 {
+	if ev.Type != tracequery.EventPerfSample || ev.CPU != 5 || ev.PerfFields.PID != 1234 || ev.PerfFields.TID != 5678 || ev.PerfFields.Period != 99 {
 		t.Fatalf("bad perf sample fields: %+v", ev)
 	}
-	if ev.PerfSymbol != "0x1234" || ev.PerfDSO != "/system/lib64/libfoo.so" || ev.PerfSource != "raw_perfdata_fallback" || ev.PerfSymbolizationStatus != "unsymbolized" {
+	if ev.PerfFields.Symbol != "0x1234" || ev.PerfFields.DSO != "/system/lib64/libfoo.so" || ev.PerfFields.Source != "raw_perfdata_fallback" || ev.PerfFields.SymbolizationStatus != "unsymbolized" {
 		t.Fatalf("bad raw perf metadata fields: %+v", ev)
 	}
-	if ev.PerfCPUKnown == nil || !*ev.PerfCPUKnown || ev.PerfClockConfidence != "assumed" || ev.PerfCallchainStatus != "ip_only" {
+	if ev.PerfFields.CPUKnown == nil || !*ev.PerfFields.CPUKnown || ev.PerfFields.ClockConfidence != "assumed" || ev.PerfFields.CallchainStatus != "ip_only" {
 		t.Fatalf("bad raw perf quality fields: %+v", ev)
 	}
 	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
@@ -113,7 +113,7 @@ func TestConvertRawPerfDataPreservesSafeExtraSampleFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse perftrace: %v", err)
 	}
-	if len(idx.Events) != 1 || idx.Events[0].PerfSymbol != "0x1234" || idx.Events[0].PerfAddr != "0xfeed" || idx.Events[0].PerfSampleID != "202" || idx.Events[0].PerfStreamID != "303" || idx.Events[0].PerfRawWeight != 123 || idx.Events[0].PerfDataSrc != "0x45" || idx.Events[0].PerfTransaction != "0x67" || idx.Events[0].PerfPhysAddr != "0x89000" || idx.Events[0].PerfCGroupID != "404" || idx.Events[0].PerfDataPageSize != 4096 || idx.Events[0].PerfCodePageSize != 16384 || idx.Events[0].PerfRawSize != 3 || idx.Events[0].PerfBranchCount != 1 {
+	if len(idx.Events) != 1 || idx.Events[0].PerfFields.Symbol != "0x1234" || idx.Events[0].PerfFields.Addr != "0xfeed" || idx.Events[0].PerfFields.SampleID != "202" || idx.Events[0].PerfFields.StreamID != "303" || idx.Events[0].PerfFields.RawWeight != 123 || idx.Events[0].PerfFields.DataSrc != "0x45" || idx.Events[0].PerfFields.Transaction != "0x67" || idx.Events[0].PerfFields.PhysAddr != "0x89000" || idx.Events[0].PerfFields.CGroupID != "404" || idx.Events[0].PerfFields.DataPageSize != 4096 || idx.Events[0].PerfFields.CodePageSize != 16384 || idx.Events[0].PerfFields.RawSize != 3 || idx.Events[0].PerfFields.BranchCount != 1 {
 		t.Fatalf("extra fields should not disturb sample parsing: %+v", idx.Events)
 	}
 	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
@@ -328,7 +328,7 @@ func TestConvertRawPerfDataMarksHiperfCPUOffSchedSwitchSamples(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse offcpu perftrace: %v", err)
 	}
-	if len(idx.Events) != 1 || idx.Events[0].PerfSampleKind != "off_cpu" || idx.Events[0].PerfEvent != "sched:sched_switch" {
+	if len(idx.Events) != 1 || idx.Events[0].PerfFields.SampleKind != "off_cpu" || idx.Events[0].PerfFields.EventName != "sched:sched_switch" {
 		t.Fatalf("offcpu sample fields did not reach tracequery: %+v", idx.Events)
 	}
 	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
@@ -381,7 +381,7 @@ func TestConvertRawPerfDataUsesSavedHiperfArkTSSymbols(t *testing.T) {
 		t.Fatalf("events: got %d want 1", len(idx.Events))
 	}
 	ev := idx.Events[0]
-	if ev.PerfSymbol != "Index.build:entry/src/main/ets/pages/Index.ets" || ev.PerfSymbolizationStatus != "symbolized" || ev.PerfCallchainStatus != "symbolized" {
+	if ev.PerfFields.Symbol != "Index.build:entry/src/main/ets/pages/Index.ets" || ev.PerfFields.SymbolizationStatus != "symbolized" || ev.PerfFields.CallchainStatus != "symbolized" {
 		t.Fatalf("saved hiperf symbol should reach tracequery: %+v", ev)
 	}
 	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
@@ -430,7 +430,7 @@ func TestConvertRawPerfDataUsesSavedHiperfKernelSymbolsWithoutMmap(t *testing.T)
 	if err != nil {
 		t.Fatalf("parse perftrace: %v", err)
 	}
-	if len(idx.Events) != 1 || idx.Events[0].PerfSymbol != "__switch_to" || idx.Events[0].PerfDSO != "[kernel.kallsyms]" || idx.Events[0].PerfSymbolizationStatus != "symbolized" {
+	if len(idx.Events) != 1 || idx.Events[0].PerfFields.Symbol != "__switch_to" || idx.Events[0].PerfFields.DSO != "[kernel.kallsyms]" || idx.Events[0].PerfFields.SymbolizationStatus != "symbolized" {
 		t.Fatalf("saved kernel symbol should reach tracequery: %+v", idx.Events)
 	}
 	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
@@ -537,7 +537,7 @@ func TestConvertFileUsesRawPerfParserForDirectPerfDataByContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse generated perftrace: %v", err)
 	}
-	if len(idx.Events) != 1 || idx.Events[0].PerfSource != "raw_perfdata_fallback" {
+	if len(idx.Events) != 1 || idx.Events[0].PerfFields.Source != "raw_perfdata_fallback" {
 		t.Fatalf("generated raw perftrace did not round-trip: %+v", idx.Events)
 	}
 	if _, err := os.Stat(output); err == nil {

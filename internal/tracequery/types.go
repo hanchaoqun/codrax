@@ -94,19 +94,7 @@ type Event struct {
 	WakeePrioClass string `json:"wakee_prio_class,omitempty"`
 	TargetCPU      int    `json:"target_cpu,omitempty"`
 
-	ConstraintComm       string `json:"constraint_comm,omitempty"`
-	ConstraintPID        int    `json:"constraint_pid,omitempty"`
-	ConstraintKind       string `json:"constraint_kind,omitempty"`
-	ConstraintPolicy     string `json:"constraint_policy,omitempty"`
-	ConstraintCPU        int    `json:"constraint_cpu,omitempty"`
-	ConstraintCPUValid   bool   `json:"-"`
-	ConstraintOrigCPU    int    `json:"constraint_orig_cpu,omitempty"`
-	ConstraintOrigCPUSet bool   `json:"-"`
-	ConstraintDestCPU    int    `json:"constraint_dest_cpu,omitempty"`
-	ConstraintDestCPUSet bool   `json:"-"`
-	AllowedCPUsText      string `json:"allowed_cpus_text,omitempty"`
-	AllowedCPUs          []int  `json:"allowed_cpus,omitempty"`
-	CPUSet               string `json:"cpuset,omitempty"`
+	*ConstraintFields
 
 	State            int    `json:"state,omitempty"`
 	Frequency        int    `json:"frequency,omitempty"`
@@ -117,36 +105,15 @@ type Event struct {
 	ClockName        string `json:"clock_name,omitempty"`
 	Reason           string `json:"reason,omitempty"`
 	IOWait           int    `json:"io_wait,omitempty"`
-	SchedStatKind    string `json:"sched_stat_kind,omitempty"`
-	SchedStatComm    string `json:"sched_stat_comm,omitempty"`
-	SchedStatPID     int    `json:"sched_stat_pid,omitempty"`
-	SchedStatDelayNs int64  `json:"sched_stat_delay_ns,omitempty"`
-	SchedStatRunNs   int64  `json:"sched_stat_runtime_ns,omitempty"`
-	SchedStatVRunNs  int64  `json:"sched_stat_vruntime_ns,omitempty"`
-	SpanAction       string `json:"span_action,omitempty"`
-	SpanPID          int    `json:"span_pid,omitempty"`
-	SpanName         string `json:"span_name,omitempty"`
-	SpanValue        string `json:"span_value,omitempty"`
+	*SchedStatFields
+	SpanAction string `json:"span_action,omitempty"`
+	SpanPID    int    `json:"span_pid,omitempty"`
+	SpanName   string `json:"span_name,omitempty"`
+	SpanValue  string `json:"span_value,omitempty"`
 
-	BinderTransactionID int    `json:"binder_transaction_id,omitempty"`
-	BinderDestProc      int    `json:"binder_dest_proc,omitempty"`
-	BinderDestThread    int    `json:"binder_dest_thread,omitempty"`
-	BinderReply         int    `json:"binder_reply,omitempty"`
-	BinderFlags         string `json:"binder_flags,omitempty"`
-	BinderCode          string `json:"binder_code,omitempty"`
-	BinderDebugID       int    `json:"binder_debug_id,omitempty"`
-	BinderDataSize      int64  `json:"binder_data_size,omitempty"`
-	BinderOffsetsSize   int64  `json:"binder_offsets_size,omitempty"`
-	BinderExtraSize     int64  `json:"binder_extra_size,omitempty"`
-	BinderLockTag       string `json:"binder_lock_tag,omitempty"`
+	*BinderFields
 
-	BlockDev       string `json:"block_dev,omitempty"`
-	BlockOp        string `json:"block_op,omitempty"`
-	BlockSector    int64  `json:"block_sector,omitempty"`
-	BlockLen       int64  `json:"block_len,omitempty"`
-	BlockError     string `json:"block_error,omitempty"`
-	BlockSrcDev    string `json:"block_src_dev,omitempty"`
-	BlockSrcSector int64  `json:"block_src_sector,omitempty"`
+	*BlockIOFields
 
 	IRQName string `json:"irq_name,omitempty"`
 	IRQID   int    `json:"irq_id,omitempty"`
@@ -157,63 +124,183 @@ type Event struct {
 	MemoryKind    string `json:"memory_kind,omitempty"`
 	SubsystemKind string `json:"subsystem_kind,omitempty"`
 
-	ResourcePath      string  `json:"resource_path,omitempty"`
-	ResourceOp        string  `json:"resource_op,omitempty"`
-	ResourceLatencyMs float64 `json:"resource_latency_ms,omitempty"`
-	ResourceBytes     int64   `json:"resource_bytes,omitempty"`
-	ResourceAddress   string  `json:"resource_address,omitempty"`
-	ResourceCallstack string  `json:"resource_callstack,omitempty"`
+	*ResourceFields
 
-	FSDev       string `json:"fs_dev,omitempty"`
-	Inode       string `json:"inode,omitempty"`
-	ParentInode string `json:"parent_inode,omitempty"`
-	EntryName   string `json:"entry_name,omitempty"`
-	FileOffset  int64  `json:"file_offset,omitempty"`
-	FileLen     int64  `json:"file_len,omitempty"`
-	FileRW      string `json:"file_rw,omitempty"`
-	FileRet     int64  `json:"file_ret,omitempty"`
-	FileSize    int64  `json:"file_size,omitempty"`
+	*FileFields
 
-	PluginDomain    string `json:"plugin_domain,omitempty"`
-	PluginEventName string `json:"plugin_event_name,omitempty"`
-	PluginMetric    string `json:"plugin_metric,omitempty"`
-	PluginValue     string `json:"plugin_value,omitempty"`
-	PluginCategory  string `json:"plugin_category,omitempty"`
+	*PluginFields
 
-	PerfPID                 int    `json:"perf_pid,omitempty"`
-	PerfTID                 int    `json:"perf_tid,omitempty"`
-	PerfComm                string `json:"perf_comm,omitempty"`
-	PerfPeriod              int64  `json:"perf_period,omitempty"`
-	PerfEvent               string `json:"perf_event,omitempty"`
-	PerfSymbol              string `json:"perf_symbol,omitempty"`
-	PerfDSO                 string `json:"perf_dso,omitempty"`
-	PerfIP                  string `json:"perf_ip,omitempty"`
-	PerfAddr                string `json:"perf_addr,omitempty"`
-	PerfSampleID            string `json:"perf_sample_id,omitempty"`
-	PerfStreamID            string `json:"perf_stream_id,omitempty"`
-	PerfRawWeight           int64  `json:"perf_raw_weight,omitempty"`
-	PerfDataSrc             string `json:"perf_data_src,omitempty"`
-	PerfTransaction         string `json:"perf_transaction,omitempty"`
-	PerfPhysAddr            string `json:"perf_phys_addr,omitempty"`
-	PerfCGroupID            string `json:"perf_cgroup_id,omitempty"`
-	PerfDataPageSize        int64  `json:"perf_data_page_size,omitempty"`
-	PerfCodePageSize        int64  `json:"perf_code_page_size,omitempty"`
-	PerfRawSize             int64  `json:"perf_raw_size,omitempty"`
-	PerfBranchCount         int64  `json:"perf_branch_count,omitempty"`
-	PerfUserRegsABI         string `json:"perf_user_regs_abi,omitempty"`
-	PerfUserRegsCount       int64  `json:"perf_user_regs_count,omitempty"`
-	PerfUserStackSize       int64  `json:"perf_user_stack_size,omitempty"`
-	PerfAuxSize             int64  `json:"perf_aux_size,omitempty"`
-	PerfCallchain           string `json:"perf_callchain,omitempty"`
-	PerfSource              string `json:"perf_source,omitempty"`
-	PerfSampleKind          string `json:"perf_sample_kind,omitempty"`
-	PerfSymbolizationStatus string `json:"perf_symbolization_status,omitempty"`
-	PerfClock               string `json:"perf_clock,omitempty"`
-	PerfCPUKnown            *bool  `json:"perf_cpu_known,omitempty"`
-	PerfClockConfidence     string `json:"perf_clock_confidence,omitempty"`
-	PerfCallchainStatus     string `json:"perf_callchain_status,omitempty"`
+	*PerfFields
 
 	FieldText string `json:"field_text,omitempty"`
+}
+
+// Kind-specific side tables (P4, trace_query_perf_parse_audit_20260703.md).
+//
+// The flat Event used to carry every per-kind payload inline (140 fields,
+// 1736 bytes), so a 250K-event index paid ~434MB of struct bytes alone even
+// when the sparse kinds never appeared. Each block below is now an anonymous
+// EMBEDDED POINTER group: ParseLine allocates a group if and only if the
+// event's kind belongs to that group's family, so the invariant every reader
+// relies on is
+//
+//	group pointer non-nil  ⇔  the event kind populates that family
+//	group pointer nil      ≡  every group field at its zero value (old flat
+//	                          semantics for foreign kinds)
+//
+// JSON stays byte-identical to the historical flat struct: anonymous embeds
+// promote tagged fields IN PLACE (encoding/json orders promoted fields at the
+// embed position), a nil group emits nothing (exactly what all-zero omitempty
+// fields emitted), and the tags are copied verbatim. Pinned by
+// TestEventJSONSurfaceGolden.
+//
+// Go field names inside the groups are deliberately DIFFERENT from the
+// historical flat names (PerfComm → PerfFields.Comm, Inode → FileFields.Ino,
+// …) so that every historical access site failed to compile and was rewritten
+// nil-aware. NEVER read a group field through promotion (ev.Symbol): it
+// compiles with zero warnings and panics at runtime when the group is nil —
+// always take the group pointer and nil-check it
+// (pf := ev.PerfFields; if pf != nil { pf.Symbol }). Two adjacent traps:
+//
+//   - Shadowing: group field names that also exist on the Event core
+//     (Comm/PID/CPU, and Event under EventView) ALWAYS resolve to the
+//     shallower core field under promotion — ev.Comm is Event.Comm, never
+//     PerfFields.Comm — so a promoted read can silently bind the WRONG
+//     field instead of panicking.
+//   - Ambiguity: names shared by two groups (Dev/Op/Len between
+//     BlockIOFields and FileFields, EventName between PerfFields and
+//     PluginFields, Kind between ConstraintFields and SchedStatFields) are
+//     a compile error only at an actual promoted selection; do not rely on
+//     that as protection for the unique names.
+//
+// This ban is MECHANICALLY enforced, not comment-only:
+// TestEventSideTablePromotionBan type-checks tracequery and its downstream
+// importers and fails on any field selection whose path runs through an
+// embedded pointer group. Groups are immutable after ParseLine returns
+// (windowed views and EventView copies share the pointers); never mutate
+// them post-parse.
+
+// ConstraintFields is the EventCPUConstraint side table.
+type ConstraintFields struct {
+	Comm        string `json:"constraint_comm,omitempty"`
+	PID         int    `json:"constraint_pid,omitempty"`
+	Kind        string `json:"constraint_kind,omitempty"`
+	Policy      string `json:"constraint_policy,omitempty"`
+	CPU         int    `json:"constraint_cpu,omitempty"`
+	CPUValid    bool   `json:"-"`
+	OrigCPU     int    `json:"constraint_orig_cpu,omitempty"`
+	OrigCPUSet  bool   `json:"-"`
+	DestCPU     int    `json:"constraint_dest_cpu,omitempty"`
+	DestCPUSet  bool   `json:"-"`
+	AllowedText string `json:"allowed_cpus_text,omitempty"`
+	Allowed     []int  `json:"allowed_cpus,omitempty"`
+	CPUSetName  string `json:"cpuset,omitempty"`
+}
+
+// SchedStatFields is the EventSchedStat side table.
+type SchedStatFields struct {
+	Kind    string `json:"sched_stat_kind,omitempty"`
+	Comm    string `json:"sched_stat_comm,omitempty"`
+	PID     int    `json:"sched_stat_pid,omitempty"`
+	DelayNs int64  `json:"sched_stat_delay_ns,omitempty"`
+	RunNs   int64  `json:"sched_stat_runtime_ns,omitempty"`
+	VRunNs  int64  `json:"sched_stat_vruntime_ns,omitempty"`
+}
+
+// BinderFields is the binder_* event-family side table.
+type BinderFields struct {
+	TransactionID int    `json:"binder_transaction_id,omitempty"`
+	DestProc      int    `json:"binder_dest_proc,omitempty"`
+	DestThread    int    `json:"binder_dest_thread,omitempty"`
+	Reply         int    `json:"binder_reply,omitempty"`
+	Flags         string `json:"binder_flags,omitempty"`
+	Code          string `json:"binder_code,omitempty"`
+	DebugID       int    `json:"binder_debug_id,omitempty"`
+	DataSize      int64  `json:"binder_data_size,omitempty"`
+	OffsetsSize   int64  `json:"binder_offsets_size,omitempty"`
+	ExtraSize     int64  `json:"binder_extra_size,omitempty"`
+	LockTag       string `json:"binder_lock_tag,omitempty"`
+}
+
+// BlockIOFields is the block_* event-family side table.
+type BlockIOFields struct {
+	Dev       string `json:"block_dev,omitempty"`
+	Op        string `json:"block_op,omitempty"`
+	Sector    int64  `json:"block_sector,omitempty"`
+	Len       int64  `json:"block_len,omitempty"`
+	Error     string `json:"block_error,omitempty"`
+	SrcDev    string `json:"block_src_dev,omitempty"`
+	SrcSector int64  `json:"block_src_sector,omitempty"`
+}
+
+// ResourceFields is the memory/storage/filesystem resource side table.
+type ResourceFields struct {
+	Path      string  `json:"resource_path,omitempty"`
+	Op        string  `json:"resource_op,omitempty"`
+	LatencyMs float64 `json:"resource_latency_ms,omitempty"`
+	Bytes     int64   `json:"resource_bytes,omitempty"`
+	Address   string  `json:"resource_address,omitempty"`
+	Callstack string  `json:"resource_callstack,omitempty"`
+}
+
+// FileFields is the memory/storage/filesystem file-IO side table.
+type FileFields struct {
+	Dev       string `json:"fs_dev,omitempty"`
+	Ino       string `json:"inode,omitempty"`
+	ParentIno string `json:"parent_inode,omitempty"`
+	Entry     string `json:"entry_name,omitempty"`
+	Offset    int64  `json:"file_offset,omitempty"`
+	Len       int64  `json:"file_len,omitempty"`
+	RW        string `json:"file_rw,omitempty"`
+	Ret       int64  `json:"file_ret,omitempty"`
+	Size      int64  `json:"file_size,omitempty"`
+}
+
+// PluginFields is the ability/xpower/hisysevent plugin side table.
+type PluginFields struct {
+	Domain    string `json:"plugin_domain,omitempty"`
+	EventName string `json:"plugin_event_name,omitempty"`
+	Metric    string `json:"plugin_metric,omitempty"`
+	Value     string `json:"plugin_value,omitempty"`
+	Category  string `json:"plugin_category,omitempty"`
+}
+
+// PerfFields is the EventPerfSample side table — the single largest block of
+// the historical flat Event (32 fields, ~416 bytes) carried by every
+// sched_switch of every systrace that had no perf samples at all.
+type PerfFields struct {
+	PID                 int    `json:"perf_pid,omitempty"`
+	TID                 int    `json:"perf_tid,omitempty"`
+	Comm                string `json:"perf_comm,omitempty"`
+	Period              int64  `json:"perf_period,omitempty"`
+	EventName           string `json:"perf_event,omitempty"`
+	Symbol              string `json:"perf_symbol,omitempty"`
+	DSO                 string `json:"perf_dso,omitempty"`
+	IP                  string `json:"perf_ip,omitempty"`
+	Addr                string `json:"perf_addr,omitempty"`
+	SampleID            string `json:"perf_sample_id,omitempty"`
+	StreamID            string `json:"perf_stream_id,omitempty"`
+	RawWeight           int64  `json:"perf_raw_weight,omitempty"`
+	DataSrc             string `json:"perf_data_src,omitempty"`
+	Transaction         string `json:"perf_transaction,omitempty"`
+	PhysAddr            string `json:"perf_phys_addr,omitempty"`
+	CGroupID            string `json:"perf_cgroup_id,omitempty"`
+	DataPageSize        int64  `json:"perf_data_page_size,omitempty"`
+	CodePageSize        int64  `json:"perf_code_page_size,omitempty"`
+	RawSize             int64  `json:"perf_raw_size,omitempty"`
+	BranchCount         int64  `json:"perf_branch_count,omitempty"`
+	UserRegsABI         string `json:"perf_user_regs_abi,omitempty"`
+	UserRegsCount       int64  `json:"perf_user_regs_count,omitempty"`
+	UserStackSize       int64  `json:"perf_user_stack_size,omitempty"`
+	AuxSize             int64  `json:"perf_aux_size,omitempty"`
+	Callchain           string `json:"perf_callchain,omitempty"`
+	Source              string `json:"perf_source,omitempty"`
+	SampleKind          string `json:"perf_sample_kind,omitempty"`
+	SymbolizationStatus string `json:"perf_symbolization_status,omitempty"`
+	Clock               string `json:"perf_clock,omitempty"`
+	CPUKnown            *bool  `json:"perf_cpu_known,omitempty"`
+	ClockConfidence     string `json:"perf_clock_confidence,omitempty"`
+	CallchainStatus     string `json:"perf_callchain_status,omitempty"`
 }
 
 type Index struct {
@@ -244,7 +331,14 @@ type Index struct {
 	// memory by up to 2x on payload-heavy traces. Telemetry + cache
 	// cost input only — never a gate signal.
 	RetainedStringBytes int64
-	ClockRegressions    int
+	// RetainedSideTableBytes accumulates the struct bytes of the per-kind
+	// side-table groups (P4: *PerfFields, *BinderFields, …) hanging off this
+	// index's events. eventSizeBytes covers only the shrunk core Event, so
+	// cache accounting without this would under-charge side-table-heavy
+	// (perf/binder/file-IO) traces. Telemetry + cache cost input only —
+	// never a gate signal.
+	RetainedSideTableBytes int64
+	ClockRegressions       int
 	// UnparsedLines counts non-empty scanned lines that matched no known
 	// trace line format (ParseLine returned no event, without panicking)
 	// — typed input for the query layer's coverage caveat, never a hard

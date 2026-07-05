@@ -96,8 +96,8 @@ func TestParseLineConverterHiSysEventPrintPositionalFieldsB4(t *testing.T) {
 	if ev.SubsystemKind != "hi_sysevent" {
 		t.Fatalf("SubsystemKind = %q, want hi_sysevent", ev.SubsystemKind)
 	}
-	if ev.PluginDomain != "BATTERY" || ev.PluginEventName != "POWER_KEY" {
-		t.Fatalf("positional plugin fields = domain %q ename %q, want BATTERY / POWER_KEY", ev.PluginDomain, ev.PluginEventName)
+	if ev.PluginFields.Domain != "BATTERY" || ev.PluginFields.EventName != "POWER_KEY" {
+		t.Fatalf("positional plugin fields = domain %q ename %q, want BATTERY / POWER_KEY", ev.PluginFields.Domain, ev.PluginFields.EventName)
 	}
 }
 
@@ -115,8 +115,8 @@ func TestConverterHiSysEventPositionalHeadWinsOverScrapedKVB4(t *testing.T) {
 	if !ok || ev.Type != EventHiSystemEvent {
 		t.Fatalf("ParseLine = %+v ok=%v, want converter hisysevent row", ev, ok)
 	}
-	if ev.PluginDomain != "AAFWK" || ev.PluginEventName != "APP_STARTUP_TYPE" {
-		t.Fatalf("positional head must win over scraped kv noise: domain %q ename %q, want AAFWK / APP_STARTUP_TYPE", ev.PluginDomain, ev.PluginEventName)
+	if ev.PluginFields.Domain != "AAFWK" || ev.PluginFields.EventName != "APP_STARTUP_TYPE" {
+		t.Fatalf("positional head must win over scraped kv noise: domain %q ename %q, want AAFWK / APP_STARTUP_TYPE", ev.PluginFields.Domain, ev.PluginFields.EventName)
 	}
 }
 
@@ -129,8 +129,8 @@ func TestParseLineNativePluginRowsUnaffectedByPrintPositionalFillB4(t *testing.T
 	if !ok || ev.Type != EventHiSystemEvent {
 		t.Fatalf("ParseLine = %+v ok=%v, want native hi_sysevent row", ev, ok)
 	}
-	if ev.PluginDomain != "POWER" || ev.PluginEventName != "THERMAL_REPORT" {
-		t.Fatalf("native plugin fields changed: domain %q ename %q", ev.PluginDomain, ev.PluginEventName)
+	if ev.PluginFields.Domain != "POWER" || ev.PluginFields.EventName != "THERMAL_REPORT" {
+		t.Fatalf("native plugin fields changed: domain %q ename %q", ev.PluginFields.Domain, ev.PluginFields.EventName)
 	}
 }
 
@@ -171,7 +171,7 @@ func TestPlainPrintIndexAndEventSearchUnchangedB4(t *testing.T) {
 	}
 	// New intended reachability: the converter row is now type-addressable.
 	events = EventSearch(idx, Query{EventTypes: []EventType{EventHiSystemEvent}, Limit: 10})
-	if len(events) != 1 || events[0].PluginEventName != "POWER_KEY" {
+	if len(events) != 1 || events[0].PluginFields.EventName != "POWER_KEY" {
 		t.Fatalf("converter hisysevent print row must be reachable by type: %+v", events)
 	}
 }

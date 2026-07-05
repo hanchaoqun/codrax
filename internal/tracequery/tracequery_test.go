@@ -193,7 +193,7 @@ func TestParseLineSchedulerEvents(t *testing.T) {
 		t.Fatalf("unexpected wake_new event: %+v ok=%v", wakeNew, ok)
 	}
 	stat, ok := ParseLine(7, `      worker-30   (   30) [002] .... 1.190000: sched_stat_iowait: comm=worker pid=30 delay=2500000 [ns]`, intern)
-	if !ok || stat.Type != EventSchedStat || stat.SchedStatKind != "iowait" || stat.SchedStatPID != 30 || stat.SchedStatDelayNs != 2500000 {
+	if !ok || stat.Type != EventSchedStat || stat.SchedStatFields.Kind != "iowait" || stat.SchedStatFields.PID != 30 || stat.SchedStatFields.DelayNs != 2500000 {
 		t.Fatalf("unexpected sched_stat event: %+v ok=%v", stat, ok)
 	}
 	ipi, ok := ParseLine(8, `      worker-30   (   30) [002] .... 1.191000: ipi_raise: target_mask=0x10 (Rescheduling interrupts)`, intern)
@@ -267,7 +267,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line: `      waker-10   (   10) [000] .... 2.070000: block_rq_issue: 8,0 R 4096 () 123 + 8 [worker]`,
 			want: EventBlockIssue,
 			check: func(ev Event) bool {
-				return ev.BlockDev == "8,0" && ev.BlockOp == "R" && ev.BlockSector == 123 && ev.BlockLen == 8
+				return ev.BlockIOFields.Dev == "8,0" && ev.BlockIOFields.Op == "R" && ev.BlockIOFields.Sector == 123 && ev.BlockIOFields.Len == 8
 			},
 		},
 		{
@@ -275,7 +275,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line: `      waker-10   (   10) [000] .... 2.080000: block_rq_complete: 8,0 R () 123 + 8 [0]`,
 			want: EventBlockComplete,
 			check: func(ev Event) bool {
-				return ev.BlockDev == "8,0" && ev.BlockOp == "R" && ev.BlockSector == 123 && ev.BlockLen == 8
+				return ev.BlockIOFields.Dev == "8,0" && ev.BlockIOFields.Op == "R" && ev.BlockIOFields.Sector == 123 && ev.BlockIOFields.Len == 8
 			},
 		},
 		{
@@ -283,7 +283,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line: `      waker-10   (   10) [000] .... 2.081000: block_rq_insert: 8,0 W 456 + 16 [worker]`,
 			want: EventBlockIssue,
 			check: func(ev Event) bool {
-				return ev.BlockDev == "8,0" && ev.BlockOp == "W" && ev.BlockSector == 456 && ev.BlockLen == 16
+				return ev.BlockIOFields.Dev == "8,0" && ev.BlockIOFields.Op == "W" && ev.BlockIOFields.Sector == 456 && ev.BlockIOFields.Len == 16
 			},
 		},
 		{
@@ -291,7 +291,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line: `      waker-10   (   10) [000] .... 2.082000: block_bio_queue: 8,0 R 789 + 4 [worker]`,
 			want: EventBlockIssue,
 			check: func(ev Event) bool {
-				return ev.BlockDev == "8,0" && ev.BlockOp == "R" && ev.BlockSector == 789 && ev.BlockLen == 4
+				return ev.BlockIOFields.Dev == "8,0" && ev.BlockIOFields.Op == "R" && ev.BlockIOFields.Sector == 789 && ev.BlockIOFields.Len == 4
 			},
 		},
 		{
@@ -299,42 +299,44 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line: `      waker-10   (   10) [000] .... 2.083000: block_bio_complete: 8,0 R 789 + 4 [0]`,
 			want: EventBlockComplete,
 			check: func(ev Event) bool {
-				return ev.BlockDev == "8,0" && ev.BlockOp == "R" && ev.BlockSector == 789 && ev.BlockLen == 4 && ev.BlockError == "0"
+				return ev.BlockIOFields.Dev == "8,0" && ev.BlockIOFields.Op == "R" && ev.BlockIOFields.Sector == 789 && ev.BlockIOFields.Len == 4 && ev.BlockIOFields.Error == "0"
 			},
 		},
 		{
-			name:  "block remap",
-			line:  `      waker-10   (   10) [000] .... 2.085000: block_bio_remap: 12,48  66637568 + 8 <- (260,84) 14962432`,
-			want:  EventBlockRemap,
-			check: func(ev Event) bool { return ev.BlockDev == "12,48" && ev.BlockSector == 66637568 && ev.BlockLen == 8 },
+			name: "block remap",
+			line: `      waker-10   (   10) [000] .... 2.085000: block_bio_remap: 12,48  66637568 + 8 <- (260,84) 14962432`,
+			want: EventBlockRemap,
+			check: func(ev Event) bool {
+				return ev.BlockIOFields.Dev == "12,48" && ev.BlockIOFields.Sector == 66637568 && ev.BlockIOFields.Len == 8
+			},
 		},
 		{
 			name: "binder",
 			line: `      waker-10   (   10) [000] .... 2.090000: binder_transaction: transaction=7 dest_node=0 dest_proc=40 dest_thread=41 reply=1 flags=0x0 code=0x1`,
 			want: EventBinderTransaction,
 			check: func(ev Event) bool {
-				return ev.PID == 10 && ev.BinderTransactionID == 7 && ev.BinderDestProc == 40 && ev.BinderDestThread == 41 && ev.BinderReply == 1 && ev.BinderFlags == "0x0" && ev.BinderCode == "0x1"
+				return ev.PID == 10 && ev.BinderFields.TransactionID == 7 && ev.BinderFields.DestProc == 40 && ev.BinderFields.DestThread == 41 && ev.BinderFields.Reply == 1 && ev.BinderFields.Flags == "0x0" && ev.BinderFields.Code == "0x1"
 			},
 		},
 		{
 			name:  "binder received",
 			line:  `      waker-10   (   10) [000] .... 2.095000: binder_transaction_received: transaction=7`,
 			want:  EventBinderReceived,
-			check: func(ev Event) bool { return ev.FieldText == "transaction=7" && ev.BinderTransactionID == 7 },
+			check: func(ev Event) bool { return ev.FieldText == "transaction=7" && ev.BinderFields.TransactionID == 7 },
 		},
 		{
 			name: "binder alloc buf",
 			line: `      waker-10   (   10) [000] .... 2.096000: binder_transaction_alloc_buf: debug_id=7 data_size=128 offsets_size=16 extra_buffers_size=4`,
 			want: EventBinderAllocBuf,
 			check: func(ev Event) bool {
-				return ev.BinderTransactionID == 7 && ev.BinderDebugID == 7 && ev.BinderDataSize == 128 && ev.BinderOffsetsSize == 16 && ev.BinderExtraSize == 4
+				return ev.BinderFields.TransactionID == 7 && ev.BinderFields.DebugID == 7 && ev.BinderFields.DataSize == 128 && ev.BinderFields.OffsetsSize == 16 && ev.BinderFields.ExtraSize == 4
 			},
 		},
 		{
 			name:  "binder lock",
 			line:  `      waker-10   (   10) [000] .... 2.097000: binder_transaction_lock: tag=binder_inner_lock`,
 			want:  EventBinderLock,
-			check: func(ev Event) bool { return ev.BinderLockTag == "binder_inner_lock" },
+			check: func(ev Event) bool { return ev.BinderFields.LockTag == "binder_inner_lock" },
 		},
 		{
 			name:  "irq",
@@ -353,7 +355,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line: `      app-20   (   20) [001] .... 2.106000: bio_latency: op=R path=/data/app/base.db latency_us=2500 bytes=4096 callstack=BioRead>Submit`,
 			want: EventStorage,
 			check: func(ev Event) bool {
-				return ev.SubsystemKind == "ebpf_bio" && ev.ResourcePath == "/data/app/base.db" && ev.ResourceLatencyMs == 2.5 && ev.ResourceBytes == 4096
+				return ev.SubsystemKind == "ebpf_bio" && ev.ResourceFields.Path == "/data/app/base.db" && ev.ResourceFields.LatencyMs == 2.5 && ev.ResourceFields.Bytes == 4096
 			},
 		},
 		{
@@ -361,7 +363,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line: `      app-20   (   20) [001] .... 2.107000: file_system: syscall=read path=/data/app/base.db duration_ms=3.5 bytes=1024 callstack=ReadFile`,
 			want: EventFilesystem,
 			check: func(ev Event) bool {
-				return ev.SubsystemKind == "ebpf_filesystem" && ev.ResourceOp == "read" && ev.ResourceLatencyMs == 3.5 && ev.ResourceCallstack == "ReadFile"
+				return ev.SubsystemKind == "ebpf_filesystem" && ev.ResourceFields.Op == "read" && ev.ResourceFields.LatencyMs == 3.5 && ev.ResourceFields.Callstack == "ReadFile"
 			},
 		},
 		{
@@ -369,7 +371,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line: `      app-20   (   20) [001] .... 2.108000: page_fault_user: operation=major address=0x1234 duration_us=150 size=4096 callstack=FaultHandler`,
 			want: EventMemory,
 			check: func(ev Event) bool {
-				return ev.MemoryKind == "page_fault" && ev.ResourceOp == "major" && ev.ResourceAddress == "0x1234" && near(ev.ResourceLatencyMs, 0.150, 0.001)
+				return ev.MemoryKind == "page_fault" && ev.ResourceFields.Op == "major" && ev.ResourceFields.Address == "0x1234" && near(ev.ResourceFields.LatencyMs, 0.150, 0.001)
 			},
 		},
 		{
@@ -425,7 +427,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line: `      app-20   (   20) [001] .... 2.127500: android_fs_dataread_end: dev:260:136 ino:0xb9b8e entry_name:foo.db offset:0 bytes:4096 ret:4096 latency_us:700 rw:R`,
 			want: EventFilesystem,
 			check: func(ev Event) bool {
-				return ev.FSDev == "260:136" && ev.Inode == "0xb9b8e" && ev.EntryName == "foo.db" && ev.FileOffset == 0 && ev.FileLen == 4096 && ev.FileRet == 4096 && near(ev.ResourceLatencyMs, 0.700, 0.001) && ev.FileRW == "read"
+				return ev.FileFields.Dev == "260:136" && ev.FileFields.Ino == "0xb9b8e" && ev.FileFields.Entry == "foo.db" && ev.FileFields.Offset == 0 && ev.FileFields.Len == 4096 && ev.FileFields.Ret == 4096 && near(ev.ResourceFields.LatencyMs, 0.700, 0.001) && ev.FileFields.RW == "read"
 			},
 		},
 		{
@@ -439,7 +441,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line: `      app-20   (   20) [001] .... 2.128100: ability_monitor: domain=AAFWK event_name=AbilityStart metric=latency_ms value=12.5 category=foreground`,
 			want: EventAbilityMonitor,
 			check: func(ev Event) bool {
-				return ev.SubsystemKind == "ability_monitor" && ev.PluginDomain == "AAFWK" && ev.PluginEventName == "AbilityStart" && ev.PluginMetric == "latency_ms" && ev.PluginValue == "12.5"
+				return ev.SubsystemKind == "ability_monitor" && ev.PluginFields.Domain == "AAFWK" && ev.PluginFields.EventName == "AbilityStart" && ev.PluginFields.Metric == "latency_ms" && ev.PluginFields.Value == "12.5"
 			},
 		},
 		{
@@ -447,7 +449,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line: `      app-20   (   20) [001] .... 2.128200: xpower_cpu: component=CPU energy=8.2 usage=73 scene=foreground`,
 			want: EventXPower,
 			check: func(ev Event) bool {
-				return ev.SubsystemKind == "xpower" && ev.PluginMetric == "CPU" && ev.PluginValue == "73" && ev.PluginCategory == "foreground"
+				return ev.SubsystemKind == "xpower" && ev.PluginFields.Metric == "CPU" && ev.PluginFields.Value == "73" && ev.PluginFields.Category == "foreground"
 			},
 		},
 		{
@@ -455,7 +457,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line: `      app-20   (   20) [001] .... 2.128300: hi_sysevent: domain=POWER eventname=THERMAL_REPORT type=STAT value=hot level=MINOR`,
 			want: EventHiSystemEvent,
 			check: func(ev Event) bool {
-				return ev.SubsystemKind == "hi_sysevent" && ev.PluginDomain == "POWER" && ev.PluginEventName == "THERMAL_REPORT" && ev.PluginMetric == "STAT" && ev.PluginValue == "hot" && ev.PluginCategory == "MINOR"
+				return ev.SubsystemKind == "hi_sysevent" && ev.PluginFields.Domain == "POWER" && ev.PluginFields.EventName == "THERMAL_REPORT" && ev.PluginFields.Metric == "STAT" && ev.PluginFields.Value == "hot" && ev.PluginFields.Category == "MINOR"
 			},
 		},
 		{
@@ -1922,7 +1924,7 @@ func TestPerfSampleEventSearchAndWindowStats(t *testing.T) {
 	if len(events) != 2 {
 		t.Fatalf("expected two Foo::bar perf samples, got %+v", events)
 	}
-	if events[0].Event.PerfPID != 1234 || events[0].Event.PerfTID != 5678 || events[0].Event.PerfSymbol != "Foo::bar" || events[0].Event.PerfDSO != "libfoo.so" {
+	if events[0].Event.PerfFields.PID != 1234 || events[0].Event.PerfFields.TID != 5678 || events[0].Event.PerfFields.Symbol != "Foo::bar" || events[0].Event.PerfFields.DSO != "libfoo.so" {
 		t.Fatalf("perf sample fields not populated: %+v", events[0].Event)
 	}
 	stats := ComputeWindowStats(idx, Query{TimeStart: 20.0, TimeEnd: 20.001})
@@ -1962,14 +1964,14 @@ func TestPerfSampleFieldsAreBoundedBeforeIndexing(t *testing.T) {
 		t.Fatalf("expected one perf sample, got %d", len(idx.Events))
 	}
 	ev := idx.Events[0]
-	if len(ev.PerfCallchain) > maxPerfCallchainFieldLen {
-		t.Fatalf("perf callchain length = %d, want <= %d", len(ev.PerfCallchain), maxPerfCallchainFieldLen)
+	if len(ev.PerfFields.Callchain) > maxPerfCallchainFieldLen {
+		t.Fatalf("perf callchain length = %d, want <= %d", len(ev.PerfFields.Callchain), maxPerfCallchainFieldLen)
 	}
-	if !strings.HasSuffix(ev.PerfCallchain, "...") {
-		t.Fatalf("bounded perf callchain should retain truncation marker, got len=%d", len(ev.PerfCallchain))
+	if !strings.HasSuffix(ev.PerfFields.Callchain, "...") {
+		t.Fatalf("bounded perf callchain should retain truncation marker, got len=%d", len(ev.PerfFields.Callchain))
 	}
-	if len(ev.PerfSymbol) > maxPerfSampleTextFieldLen {
-		t.Fatalf("perf symbol length = %d, want <= %d", len(ev.PerfSymbol), maxPerfSampleTextFieldLen)
+	if len(ev.PerfFields.Symbol) > maxPerfSampleTextFieldLen {
+		t.Fatalf("perf symbol length = %d, want <= %d", len(ev.PerfFields.Symbol), maxPerfSampleTextFieldLen)
 	}
 	stats := ComputeWindowStats(idx, Query{TimeStart: 20.0, TimeEnd: 20.001})
 	if stats.PerfSamples == nil || len(stats.PerfSamples.TopCallchains) == 0 {
@@ -3306,11 +3308,11 @@ func TestCPUConstraintParserHandlesAffinityAndHarmonyNextInfo(t *testing.T) {
 		t.Fatalf("next_info affinity mask should expand to CPUs 0-3, got %v", ev.NextInfoAllowedCPUs)
 	}
 	ev, ok = ParseLine(2, `        app-20   (   20) [001] .... 1.121000: sched_setaffinity: comm=app pid=20 mask=0x3 cpuset=top-app target_cpu=0 policy=bind`, intern)
-	if !ok || ev.Type != EventCPUConstraint || ev.ConstraintPID != 20 || ev.CPUSet != "top-app" || ev.ConstraintPolicy != "bind" || !ev.ConstraintCPUValid {
+	if !ok || ev.Type != EventCPUConstraint || ev.ConstraintFields.PID != 20 || ev.ConstraintFields.CPUSetName != "top-app" || ev.ConstraintFields.Policy != "bind" || !ev.ConstraintFields.CPUValid {
 		t.Fatalf("sched_setaffinity not parsed as CPU constraint: %+v ok=%v", ev, ok)
 	}
-	if got := strings.Join(intsToStrings(ev.AllowedCPUs), ","); got != "0,1" {
-		t.Fatalf("affinity mask should expand to CPUs 0-1, got %v", ev.AllowedCPUs)
+	if got := strings.Join(intsToStrings(ev.ConstraintFields.Allowed), ","); got != "0,1" {
+		t.Fatalf("affinity mask should expand to CPUs 0-1, got %v", ev.ConstraintFields.Allowed)
 	}
 }
 

@@ -863,7 +863,7 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 	if needle == "" {
 		return true
 	}
-	for _, candidate := range []string{
+	candidates := []string{
 		string(ev.Type),
 		ev.Name,
 		ev.FieldText,
@@ -875,60 +875,17 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.NextInfo,
 		ev.NextInfoAffinity,
 		ev.CGroup,
-		ev.SchedStatKind,
-		ev.SchedStatComm,
-		ev.ConstraintComm,
-		ev.ConstraintKind,
-		ev.ConstraintPolicy,
-		ev.AllowedCPUsText,
-		ev.CPUSet,
 		ev.Reason,
 		ev.SpanAction,
 		ev.SpanName,
 		ev.SpanValue,
 		ev.ClockName,
-		ev.BinderFlags,
-		ev.BinderCode,
-		ev.BinderLockTag,
-		ev.BlockDev,
-		ev.BlockOp,
-		ev.BlockError,
-		ev.BlockSrcDev,
 		ev.IRQName,
 		ev.IPITargetMask,
 		ev.MemoryKind,
 		ev.SubsystemKind,
-		ev.ResourcePath,
-		ev.ResourceOp,
-		ev.ResourceAddress,
-		ev.ResourceCallstack,
-		ev.FSDev,
-		ev.Inode,
-		ev.ParentInode,
-		ev.EntryName,
-		ev.FileRW,
-		ev.PluginDomain,
-		ev.PluginEventName,
-		ev.PluginMetric,
-		ev.PluginValue,
-		ev.PluginCategory,
-		ev.PerfComm,
-		ev.PerfEvent,
-		ev.PerfSymbol,
-		ev.PerfDSO,
-		ev.PerfIP,
-		ev.PerfCallchain,
-		ev.PerfSource,
-		ev.PerfSymbolizationStatus,
-		ev.PerfClock,
-		ev.PerfClockConfidence,
-		ev.PerfCallchainStatus,
-	} {
-		if strings.Contains(strings.ToLower(candidate), needle) {
-			return true
-		}
 	}
-	for _, value := range []int{
+	ints := []int{
 		ev.Line,
 		ev.CPU,
 		ev.PID,
@@ -944,52 +901,65 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.WakeePID,
 		ev.WakeePrio,
 		ev.TargetCPU,
-		ev.SchedStatPID,
-		ev.ConstraintPID,
-		ev.ConstraintCPU,
-		ev.ConstraintOrigCPU,
-		ev.ConstraintDestCPU,
 		ev.State,
 		ev.Frequency,
 		ev.FrequencyMin,
 		ev.FrequencyMax,
 		ev.CPUForField,
 		ev.IOWait,
-		ev.BinderTransactionID,
-		ev.BinderDestProc,
-		ev.BinderDestThread,
-		ev.BinderReply,
-		ev.BinderDebugID,
 		ev.IRQID,
-		ev.PerfPID,
-		ev.PerfTID,
-	} {
+	}
+	var int64s []int64
+	if ss := ev.SchedStatFields; ss != nil {
+		candidates = append(candidates, ss.Kind, ss.Comm)
+		ints = append(ints, ss.PID)
+		int64s = append(int64s, ss.DelayNs, ss.RunNs, ss.VRunNs)
+	}
+	if cf := ev.ConstraintFields; cf != nil {
+		candidates = append(candidates, cf.Comm, cf.Kind, cf.Policy, cf.AllowedText, cf.CPUSetName)
+		ints = append(ints, cf.PID, cf.CPU, cf.OrigCPU, cf.DestCPU)
+	}
+	if bf := ev.BinderFields; bf != nil {
+		candidates = append(candidates, bf.Flags, bf.Code, bf.LockTag)
+		ints = append(ints, bf.TransactionID, bf.DestProc, bf.DestThread, bf.Reply, bf.DebugID)
+		int64s = append(int64s, bf.DataSize, bf.OffsetsSize, bf.ExtraSize)
+	}
+	if blk := ev.BlockIOFields; blk != nil {
+		candidates = append(candidates, blk.Dev, blk.Op, blk.Error, blk.SrcDev)
+		int64s = append(int64s, blk.Sector, blk.Len, blk.SrcSector)
+	}
+	if rf := ev.ResourceFields; rf != nil {
+		candidates = append(candidates, rf.Path, rf.Op, rf.Address, rf.Callstack)
+		int64s = append(int64s, rf.Bytes)
+	}
+	if ff := ev.FileFields; ff != nil {
+		candidates = append(candidates, ff.Dev, ff.Ino, ff.ParentIno, ff.Entry, ff.RW)
+		int64s = append(int64s, ff.Offset, ff.Len, ff.Ret, ff.Size)
+	}
+	if pl := ev.PluginFields; pl != nil {
+		candidates = append(candidates, pl.Domain, pl.EventName, pl.Metric, pl.Value, pl.Category)
+	}
+	if pf := ev.PerfFields; pf != nil {
+		candidates = append(candidates, pf.Comm, pf.EventName, pf.Symbol, pf.DSO, pf.IP, pf.Callchain, pf.Source, pf.SymbolizationStatus, pf.Clock, pf.ClockConfidence, pf.CallchainStatus)
+		ints = append(ints, pf.PID, pf.TID)
+		int64s = append(int64s, pf.Period)
+	}
+	for _, candidate := range candidates {
+		if strings.Contains(strings.ToLower(candidate), needle) {
+			return true
+		}
+	}
+	for _, value := range ints {
 		if value != 0 && strings.Contains(fmt.Sprintf("%d", value), needle) {
 			return true
 		}
 	}
-	for _, value := range []int64{
-		ev.BinderDataSize,
-		ev.BinderOffsetsSize,
-		ev.BinderExtraSize,
-		ev.BlockSector,
-		ev.BlockLen,
-		ev.BlockSrcSector,
-		ev.SchedStatDelayNs,
-		ev.SchedStatRunNs,
-		ev.SchedStatVRunNs,
-		ev.ResourceBytes,
-		ev.FileOffset,
-		ev.FileLen,
-		ev.FileRet,
-		ev.FileSize,
-		ev.PerfPeriod,
-	} {
+	for _, value := range int64s {
 		if value != 0 && strings.Contains(fmt.Sprintf("%d", value), needle) {
 			return true
 		}
 	}
-	if ev.ResourceLatencyMs != 0 && strings.Contains(fmt.Sprintf("%.3f", ev.ResourceLatencyMs), needle) {
+	if rf := ev.ResourceFields; rf != nil && rf.LatencyMs != 0 && strings.Contains(fmt.Sprintf("%.3f", rf.LatencyMs), needle) {
 		return true
 	}
 	if ev.Ts != 0 && strings.Contains(fmt.Sprintf("%.6f", ev.Ts), needle) {
@@ -1039,7 +1009,22 @@ func isCPUConstraintEvidence(ev Event) bool {
 }
 
 func eventMentionsPID(ev Event, pid int) bool {
-	return ev.PID == pid || ev.TGID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid || ev.SchedStatPID == pid || ev.ConstraintPID == pid || ev.BinderDestProc == pid || ev.BinderDestThread == pid || ev.PerfPID == pid || ev.PerfTID == pid
+	if ev.PID == pid || ev.TGID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid {
+		return true
+	}
+	if ss := ev.SchedStatFields; ss != nil && ss.PID == pid {
+		return true
+	}
+	if cf := ev.ConstraintFields; cf != nil && cf.PID == pid {
+		return true
+	}
+	if bf := ev.BinderFields; bf != nil && (bf.DestProc == pid || bf.DestThread == pid) {
+		return true
+	}
+	if pf := ev.PerfFields; pf != nil && (pf.PID == pid || pf.TID == pid) {
+		return true
+	}
+	return false
 }
 
 func eventMentionsThread(ev Event, thread string) bool {
@@ -1047,7 +1032,17 @@ func eventMentionsThread(ev Event, thread string) bool {
 	if sel.HasPID && eventMentionsPID(ev, sel.PID) {
 		return true
 	}
-	for _, v := range []string{ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm, ev.SchedStatComm, ev.ConstraintComm, ev.PerfComm, ev.PerfSymbol, ev.PerfDSO, ev.PerfCallchain, ev.SpanName, ev.SpanValue, ev.Reason, ev.IRQName, ev.FieldText} {
+	names := []string{ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm, ev.SpanName, ev.SpanValue, ev.Reason, ev.IRQName, ev.FieldText}
+	if ss := ev.SchedStatFields; ss != nil {
+		names = append(names, ss.Comm)
+	}
+	if cf := ev.ConstraintFields; cf != nil {
+		names = append(names, cf.Comm)
+	}
+	if pf := ev.PerfFields; pf != nil {
+		names = append(names, pf.Comm, pf.Symbol, pf.DSO, pf.Callchain)
+	}
+	for _, v := range names {
 		if threadSelectorMatchesName(sel, v) {
 			return true
 		}
@@ -1719,7 +1714,11 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 		if filter != nil && !filter(ev) {
 			continue
 		}
-		period := ev.PerfPeriod
+		pf := ev.PerfFields
+		if pf == nil {
+			pf = &PerfFields{}
+		}
+		period := pf.Period
 		if period <= 0 {
 			period = 1
 		}
@@ -1729,35 +1728,35 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 		quality.add(ev, period)
 		thread := perfSampleThread(ev)
 		example := perfSampleExample(ev)
-		addPerfHotspot(bySymbol, firstNonEmpty(ev.PerfSymbol, ev.PerfIP, "unknown"), PerfHotspot{
-			Symbol:              ev.PerfSymbol,
-			DSO:                 ev.PerfDSO,
-			Event:               ev.PerfEvent,
+		addPerfHotspot(bySymbol, firstNonEmpty(pf.Symbol, pf.IP, "unknown"), PerfHotspot{
+			Symbol:              pf.Symbol,
+			DSO:                 pf.DSO,
+			Event:               pf.EventName,
 			WeightUnit:          weightUnit,
-			Source:              ev.PerfSource,
-			SymbolizationStatus: ev.PerfSymbolizationStatus,
+			Source:              pf.Source,
+			SymbolizationStatus: pf.SymbolizationStatus,
 		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
-		addPerfHotspot(byDSO, firstNonEmpty(ev.PerfDSO, "unknown"), PerfHotspot{
-			DSO:                 ev.PerfDSO,
-			Event:               ev.PerfEvent,
+		addPerfHotspot(byDSO, firstNonEmpty(pf.DSO, "unknown"), PerfHotspot{
+			DSO:                 pf.DSO,
+			Event:               pf.EventName,
 			WeightUnit:          weightUnit,
-			Source:              ev.PerfSource,
-			SymbolizationStatus: ev.PerfSymbolizationStatus,
+			Source:              pf.Source,
+			SymbolizationStatus: pf.SymbolizationStatus,
 		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
-		addPerfHotspot(byCallchain, firstNonEmpty(ev.PerfCallchain, ev.PerfSymbol, ev.PerfIP, "unknown"), PerfHotspot{
-			Symbol:              ev.PerfSymbol,
-			DSO:                 ev.PerfDSO,
-			Callchain:           ev.PerfCallchain,
-			Event:               ev.PerfEvent,
+		addPerfHotspot(byCallchain, firstNonEmpty(pf.Callchain, pf.Symbol, pf.IP, "unknown"), PerfHotspot{
+			Symbol:              pf.Symbol,
+			DSO:                 pf.DSO,
+			Callchain:           pf.Callchain,
+			Event:               pf.EventName,
 			WeightUnit:          weightUnit,
-			Source:              ev.PerfSource,
-			SymbolizationStatus: ev.PerfSymbolizationStatus,
+			Source:              pf.Source,
+			SymbolizationStatus: pf.SymbolizationStatus,
 		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
-		addPerfHotspot(byEvent, firstNonEmpty(ev.PerfEvent, "unknown"), PerfHotspot{
-			Event:               ev.PerfEvent,
+		addPerfHotspot(byEvent, firstNonEmpty(pf.EventName, "unknown"), PerfHotspot{
+			Event:               pf.EventName,
 			WeightUnit:          weightUnit,
-			Source:              ev.PerfSource,
-			SymbolizationStatus: ev.PerfSymbolizationStatus,
+			Source:              pf.Source,
+			SymbolizationStatus: pf.SymbolizationStatus,
 		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
 		addPerfThread(byThread, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
 	}
@@ -1817,16 +1816,20 @@ func queryForPerfContextWindow(q Query, start, end float64) Query {
 }
 
 func perfSampleMatchesThread(ev Event, thread ThreadRef) bool {
+	pf := ev.PerfFields
+	if pf == nil {
+		pf = &PerfFields{}
+	}
 	if thread.PID > 0 {
-		if ev.PerfTID == thread.PID || ev.PID == thread.PID {
+		if pf.TID == thread.PID || ev.PID == thread.PID {
 			return true
 		}
-		if ev.PerfPID == thread.PID || ev.TGID == thread.PID {
+		if pf.PID == thread.PID || ev.TGID == thread.PID {
 			return true
 		}
 	}
 	if thread.Comm != "" {
-		if strings.EqualFold(thread.Comm, ev.PerfComm) || strings.EqualFold(thread.Comm, ev.Comm) {
+		if strings.EqualFold(thread.Comm, pf.Comm) || strings.EqualFold(thread.Comm, ev.Comm) {
 			return true
 		}
 	}
@@ -1834,10 +1837,14 @@ func perfSampleMatchesThread(ev Event, thread ThreadRef) bool {
 }
 
 func perfSampleThread(ev Event) ThreadRef {
+	pf := ev.PerfFields
+	if pf == nil {
+		pf = &PerfFields{}
+	}
 	return ThreadRef{
-		Comm: firstNonEmpty(ev.PerfComm, ev.Comm),
-		PID:  firstNonZero(ev.PerfTID, ev.PID),
-		TGID: firstNonZero(ev.PerfPID, ev.TGID),
+		Comm: firstNonEmpty(pf.Comm, ev.Comm),
+		PID:  firstNonZero(pf.TID, ev.PID),
+		TGID: firstNonZero(pf.PID, ev.TGID),
 	}
 }
 
@@ -1851,93 +1858,97 @@ func firstNonZero(values ...int) int {
 }
 
 func perfSampleExample(ev Event) string {
+	pf := ev.PerfFields
+	if pf == nil {
+		pf = &PerfFields{}
+	}
 	parts := []string{}
-	if ev.PerfSymbol != "" {
-		parts = append(parts, "symbol="+ev.PerfSymbol)
+	if pf.Symbol != "" {
+		parts = append(parts, "symbol="+pf.Symbol)
 	}
-	if ev.PerfDSO != "" {
-		parts = append(parts, "dso="+ev.PerfDSO)
+	if pf.DSO != "" {
+		parts = append(parts, "dso="+pf.DSO)
 	}
-	if ev.PerfEvent != "" {
-		parts = append(parts, "event="+ev.PerfEvent)
+	if pf.EventName != "" {
+		parts = append(parts, "event="+pf.EventName)
 	}
-	if ev.PerfPeriod > 0 {
-		parts = append(parts, fmt.Sprintf("sample_weight=%d", ev.PerfPeriod))
+	if pf.Period > 0 {
+		parts = append(parts, fmt.Sprintf("sample_weight=%d", pf.Period))
 	}
 	if unit := perfSampleWeightUnit(ev); unit != "" {
 		parts = append(parts, "weight_unit="+unit)
 	}
-	if ev.PerfIP != "" {
-		parts = append(parts, "ip="+ev.PerfIP)
+	if pf.IP != "" {
+		parts = append(parts, "ip="+pf.IP)
 	}
-	if ev.PerfAddr != "" && ev.PerfAddr != ev.PerfIP {
-		parts = append(parts, "addr="+ev.PerfAddr)
+	if pf.Addr != "" && pf.Addr != pf.IP {
+		parts = append(parts, "addr="+pf.Addr)
 	}
-	if ev.PerfSampleID != "" {
-		parts = append(parts, "sample_id="+ev.PerfSampleID)
+	if pf.SampleID != "" {
+		parts = append(parts, "sample_id="+pf.SampleID)
 	}
-	if ev.PerfStreamID != "" {
-		parts = append(parts, "stream_id="+ev.PerfStreamID)
+	if pf.StreamID != "" {
+		parts = append(parts, "stream_id="+pf.StreamID)
 	}
-	if ev.PerfRawWeight > 0 {
-		parts = append(parts, fmt.Sprintf("perf_weight=%d", ev.PerfRawWeight))
+	if pf.RawWeight > 0 {
+		parts = append(parts, fmt.Sprintf("perf_weight=%d", pf.RawWeight))
 	}
-	if ev.PerfDataSrc != "" {
-		parts = append(parts, "data_src="+ev.PerfDataSrc)
+	if pf.DataSrc != "" {
+		parts = append(parts, "data_src="+pf.DataSrc)
 	}
-	if ev.PerfTransaction != "" {
-		parts = append(parts, "transaction="+ev.PerfTransaction)
+	if pf.Transaction != "" {
+		parts = append(parts, "transaction="+pf.Transaction)
 	}
-	if ev.PerfPhysAddr != "" {
-		parts = append(parts, "phys_addr="+ev.PerfPhysAddr)
+	if pf.PhysAddr != "" {
+		parts = append(parts, "phys_addr="+pf.PhysAddr)
 	}
-	if ev.PerfCGroupID != "" {
-		parts = append(parts, "cgroup_id="+ev.PerfCGroupID)
+	if pf.CGroupID != "" {
+		parts = append(parts, "cgroup_id="+pf.CGroupID)
 	}
-	if ev.PerfDataPageSize > 0 {
-		parts = append(parts, fmt.Sprintf("data_page_size=%d", ev.PerfDataPageSize))
+	if pf.DataPageSize > 0 {
+		parts = append(parts, fmt.Sprintf("data_page_size=%d", pf.DataPageSize))
 	}
-	if ev.PerfCodePageSize > 0 {
-		parts = append(parts, fmt.Sprintf("code_page_size=%d", ev.PerfCodePageSize))
+	if pf.CodePageSize > 0 {
+		parts = append(parts, fmt.Sprintf("code_page_size=%d", pf.CodePageSize))
 	}
-	if ev.PerfRawSize > 0 {
-		parts = append(parts, fmt.Sprintf("raw_size=%d", ev.PerfRawSize))
+	if pf.RawSize > 0 {
+		parts = append(parts, fmt.Sprintf("raw_size=%d", pf.RawSize))
 	}
-	if ev.PerfBranchCount > 0 {
-		parts = append(parts, fmt.Sprintf("branch_count=%d", ev.PerfBranchCount))
+	if pf.BranchCount > 0 {
+		parts = append(parts, fmt.Sprintf("branch_count=%d", pf.BranchCount))
 	}
-	if ev.PerfUserRegsABI != "" {
-		parts = append(parts, "user_regs_abi="+ev.PerfUserRegsABI)
+	if pf.UserRegsABI != "" {
+		parts = append(parts, "user_regs_abi="+pf.UserRegsABI)
 	}
-	if ev.PerfUserRegsCount > 0 {
-		parts = append(parts, fmt.Sprintf("user_regs_count=%d", ev.PerfUserRegsCount))
+	if pf.UserRegsCount > 0 {
+		parts = append(parts, fmt.Sprintf("user_regs_count=%d", pf.UserRegsCount))
 	}
-	if ev.PerfUserStackSize > 0 {
-		parts = append(parts, fmt.Sprintf("user_stack_size=%d", ev.PerfUserStackSize))
+	if pf.UserStackSize > 0 {
+		parts = append(parts, fmt.Sprintf("user_stack_size=%d", pf.UserStackSize))
 	}
-	if ev.PerfAuxSize > 0 {
-		parts = append(parts, fmt.Sprintf("aux_size=%d", ev.PerfAuxSize))
+	if pf.AuxSize > 0 {
+		parts = append(parts, fmt.Sprintf("aux_size=%d", pf.AuxSize))
 	}
-	if ev.PerfSource != "" {
-		parts = append(parts, "source="+ev.PerfSource)
+	if pf.Source != "" {
+		parts = append(parts, "source="+pf.Source)
 	}
-	if ev.PerfSymbolizationStatus != "" {
-		parts = append(parts, "symbolization_status="+ev.PerfSymbolizationStatus)
+	if pf.SymbolizationStatus != "" {
+		parts = append(parts, "symbolization_status="+pf.SymbolizationStatus)
 	}
-	if ev.PerfSampleKind != "" {
-		parts = append(parts, "sample_kind="+ev.PerfSampleKind)
+	if pf.SampleKind != "" {
+		parts = append(parts, "sample_kind="+pf.SampleKind)
 	}
-	if ev.PerfCallchainStatus != "" {
-		parts = append(parts, "callchain_status="+ev.PerfCallchainStatus)
+	if pf.CallchainStatus != "" {
+		parts = append(parts, "callchain_status="+pf.CallchainStatus)
 	}
-	if ev.PerfClockConfidence != "" {
-		parts = append(parts, "clock_confidence="+ev.PerfClockConfidence)
+	if pf.ClockConfidence != "" {
+		parts = append(parts, "clock_confidence="+pf.ClockConfidence)
 	}
-	if ev.PerfCPUKnown != nil {
-		parts = append(parts, fmt.Sprintf("cpu_known=%t", *ev.PerfCPUKnown))
+	if pf.CPUKnown != nil {
+		parts = append(parts, fmt.Sprintf("cpu_known=%t", *pf.CPUKnown))
 	}
-	if ev.PerfCallchain != "" {
-		parts = append(parts, "callchain="+ev.PerfCallchain)
+	if pf.Callchain != "" {
+		parts = append(parts, "callchain="+pf.Callchain)
 	}
 	if len(parts) == 0 {
 		return ev.FieldText
@@ -1961,19 +1972,23 @@ func (acc *perfQualityAcc) add(ev Event, period int64) {
 	if acc == nil {
 		return
 	}
-	addPerfValueCount(acc.sources, firstNonEmpty(ev.PerfSource, "unknown"), period)
-	addPerfValueCount(acc.symbolizationStatuses, firstNonEmpty(ev.PerfSymbolizationStatus, "unknown"), period)
-	addPerfValueCount(acc.sampleKinds, firstNonEmpty(ev.PerfSampleKind, "unknown"), period)
+	pf := ev.PerfFields
+	if pf == nil {
+		pf = &PerfFields{}
+	}
+	addPerfValueCount(acc.sources, firstNonEmpty(pf.Source, "unknown"), period)
+	addPerfValueCount(acc.symbolizationStatuses, firstNonEmpty(pf.SymbolizationStatus, "unknown"), period)
+	addPerfValueCount(acc.sampleKinds, firstNonEmpty(pf.SampleKind, "unknown"), period)
 	addPerfValueCount(acc.weightUnits, perfSampleWeightUnit(ev), period)
-	addPerfValueCount(acc.clocks, firstNonEmpty(ev.PerfClock, "unknown"), period)
-	addPerfValueCount(acc.clockConfidences, firstNonEmpty(ev.PerfClockConfidence, "unknown"), period)
-	addPerfValueCount(acc.callchainStatuses, firstNonEmpty(ev.PerfCallchainStatus, "unknown"), period)
-	if ev.PerfCPUKnown != nil && *ev.PerfCPUKnown {
+	addPerfValueCount(acc.clocks, firstNonEmpty(pf.Clock, "unknown"), period)
+	addPerfValueCount(acc.clockConfidences, firstNonEmpty(pf.ClockConfidence, "unknown"), period)
+	addPerfValueCount(acc.callchainStatuses, firstNonEmpty(pf.CallchainStatus, "unknown"), period)
+	if pf.CPUKnown != nil && *pf.CPUKnown {
 		acc.cpuKnownCount++
 	} else {
 		acc.cpuUnknownCount++
 	}
-	if perfCallchainKnownForQuality(ev.PerfCallchainStatus) {
+	if perfCallchainKnownForQuality(pf.CallchainStatus) {
 		acc.callchainKnownCount++
 	} else {
 		acc.callchainUnknownCount++
@@ -2005,8 +2020,12 @@ func (acc *perfQualityAcc) summary(total int64) *PerfQualitySummary {
 }
 
 func perfSampleWeightUnit(ev Event) string {
-	event := strings.ToLower(strings.TrimSpace(ev.PerfEvent))
-	sampleKind := strings.ToLower(strings.TrimSpace(ev.PerfSampleKind))
+	pf := ev.PerfFields
+	if pf == nil {
+		pf = &PerfFields{}
+	}
+	event := strings.ToLower(strings.TrimSpace(pf.EventName))
+	sampleKind := strings.ToLower(strings.TrimSpace(pf.SampleKind))
 	switch {
 	case event == "":
 		return "event_count"
@@ -2315,7 +2334,11 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 			}
 			buckets[idxBucket] = acc
 		}
-		period := ev.PerfPeriod
+		pf := ev.PerfFields
+		if pf == nil {
+			pf = &PerfFields{}
+		}
+		period := pf.Period
 		if period <= 0 {
 			period = 1
 		}
@@ -2330,14 +2353,14 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		if acc.bucket.Example == "" {
 			acc.bucket.Example = perfSampleExample(ev)
 		}
-		if ev.PerfSymbol != "" {
-			acc.symbols[ev.PerfSymbol] += period
+		if pf.Symbol != "" {
+			acc.symbols[pf.Symbol] += period
 		}
-		if ev.PerfDSO != "" {
-			acc.dsos[ev.PerfDSO] += period
+		if pf.DSO != "" {
+			acc.dsos[pf.DSO] += period
 		}
-		if ev.PerfEvent != "" {
-			acc.events[ev.PerfEvent] += period
+		if pf.EventName != "" {
+			acc.events[pf.EventName] += period
 		}
 		if label := threadLabel(perfSampleThread(ev)); label != "" {
 			acc.threadSet[label] = perfSampleThread(ev)
@@ -3171,7 +3194,9 @@ func buildThreadCatalog(idx *Index, q Query) map[int]ThreadRef {
 		add(ev.PrevPID, ev.PrevComm, 0)
 		add(ev.NextPID, ev.NextComm, 0)
 		add(ev.WakeePID, ev.WakeeComm, 0)
-		add(ev.ConstraintPID, ev.ConstraintComm, 0)
+		if cf := ev.ConstraintFields; cf != nil {
+			add(cf.PID, cf.Comm, 0)
+		}
 	}
 	// B-3 (§7.11): on TGID-column-less traces (hmtrace) every native TGID
 	// above is 0 — backfill the catalog from the per-index trace_mark
@@ -3301,29 +3326,33 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 		}
 		switch {
 		case ev.Type == EventCPUConstraint:
-			thread := catalogThreadRef(catalog, ev.ConstraintPID, ev.ConstraintComm)
+			cf := ev.ConstraintFields
+			if cf == nil {
+				cf = &ConstraintFields{}
+			}
+			thread := catalogThreadRef(catalog, cf.PID, cf.Comm)
 			if thread.PID <= 0 && thread.Comm == "" {
 				continue
 			}
 			acc := ensure(thread)
 			acc.item.ConstraintCount++
 			acc.item.Kind = firstNonEmpty(acc.item.Kind, ev.Name, string(ev.Type))
-			acc.item.Policy = firstNonEmpty(acc.item.Policy, ev.ConstraintPolicy)
-			acc.item.CPUSet = firstNonEmpty(acc.item.CPUSet, ev.CPUSet)
+			acc.item.Policy = firstNonEmpty(acc.item.Policy, cf.Policy)
+			acc.item.CPUSet = firstNonEmpty(acc.item.CPUSet, cf.CPUSetName)
 			acc.item.CGroup = firstNonEmpty(acc.item.CGroup, ev.CGroup)
-			addAllowed(acc, ev.AllowedCPUs)
-			if ev.ConstraintDestCPUSet {
-				acc.item.ObservedCPU = ev.ConstraintDestCPU
+			addAllowed(acc, cf.Allowed)
+			if cf.DestCPUSet {
+				acc.item.ObservedCPU = cf.DestCPU
 				acc.item.ObservedCPUKnown = true
-				acc.item.ObservedCoreClass = coreByCPU[ev.ConstraintDestCPU]
-			} else if ev.ConstraintCPUValid {
-				acc.item.ObservedCPU = ev.ConstraintCPU
+				acc.item.ObservedCoreClass = coreByCPU[cf.DestCPU]
+			} else if cf.CPUValid {
+				acc.item.ObservedCPU = cf.CPU
 				acc.item.ObservedCPUKnown = true
-				acc.item.ObservedCoreClass = coreByCPU[ev.ConstraintCPU]
+				acc.item.ObservedCoreClass = coreByCPU[cf.CPU]
 			}
-			if ev.ConstraintOrigCPUSet && ev.ConstraintDestCPUSet {
+			if cf.OrigCPUSet && cf.DestCPUSet {
 				acc.item.MigrationCount++
-			} else if ev.ConstraintDestCPUSet {
+			} else if cf.DestCPUSet {
 				acc.item.MigrationCount++
 			}
 			updateLines(acc, ev)
@@ -5367,11 +5396,15 @@ func computeIOLatencies(idx *Index, q Query, max int) []IOLatencySummary {
 			if ev.Ts < issue.Ts {
 				continue
 			}
+			blk := ev.BlockIOFields
+			if blk == nil {
+				blk = &BlockIOFields{}
+			}
 			out = append(out, IOLatencySummary{
-				Dev:            ev.BlockDev,
-				Op:             ev.BlockOp,
-				Sector:         ev.BlockSector,
-				Len:            ev.BlockLen,
+				Dev:            blk.Dev,
+				Op:             blk.Op,
+				Sector:         blk.Sector,
+				Len:            blk.Len,
 				IssueThread:    threadRefFromEvent(issue),
 				CompleteThread: threadRefFromEvent(ev),
 				IssueTs:        issue.Ts,
@@ -5432,10 +5465,11 @@ func ioPairingCaveats(idx *Index, q Query) []string {
 }
 
 func blockKey(ev Event) string {
-	if ev.BlockDev == "" || ev.BlockSector == 0 || ev.BlockLen == 0 {
+	blk := ev.BlockIOFields
+	if blk == nil || blk.Dev == "" || blk.Sector == 0 || blk.Len == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%s/%s/%d/%d", ev.BlockDev, ev.BlockOp, ev.BlockSector, ev.BlockLen)
+	return fmt.Sprintf("%s/%s/%d/%d", blk.Dev, blk.Op, blk.Sector, blk.Len)
 }
 
 // computeCounterDeltas aggregates C| counter marks numerically per
@@ -6005,8 +6039,12 @@ func computeSchedStatAccounting(idx *Index, q Query, max int) []SchedStatSummary
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventSchedStat {
 			continue
 		}
-		thread := ThreadRef{Comm: firstNonEmpty(ev.SchedStatComm, ev.Comm), PID: firstNonZero(ev.SchedStatPID, ev.PID), TGID: ev.TGID}
-		kind := firstNonEmpty(ev.SchedStatKind, strings.TrimPrefix(ev.Name, "sched_stat_"), "unknown")
+		ss := ev.SchedStatFields
+		if ss == nil {
+			ss = &SchedStatFields{}
+		}
+		thread := ThreadRef{Comm: firstNonEmpty(ss.Comm, ev.Comm), PID: firstNonZero(ss.PID, ev.PID), TGID: ev.TGID}
+		kind := firstNonEmpty(ss.Kind, strings.TrimPrefix(ev.Name, "sched_stat_"), "unknown")
 		key := fmt.Sprintf("%d/%s/%s", thread.PID, thread.Comm, kind)
 		item := accs[key]
 		if item == nil {
@@ -6021,9 +6059,9 @@ func computeSchedStatAccounting(idx *Index, q Query, max int) []SchedStatSummary
 			accs[key] = item
 		}
 		item.Count++
-		delayMs := float64(ev.SchedStatDelayNs) / 1e6
-		runtimeMs := float64(ev.SchedStatRunNs) / 1e6
-		vruntimeMs := float64(ev.SchedStatVRunNs) / 1e6
+		delayMs := float64(ss.DelayNs) / 1e6
+		runtimeMs := float64(ss.RunNs) / 1e6
+		vruntimeMs := float64(ss.VRunNs) / 1e6
 		item.TotalDelayMs += delayMs
 		if delayMs > item.MaxDelayMs {
 			item.MaxDelayMs = delayMs
@@ -6459,8 +6497,16 @@ func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeRes
 	case "page_fault":
 		target = pageFault
 	}
-	op := firstNonEmpty(ev.ResourceOp, ev.BlockOp, ev.MemoryKind, ev.Name)
-	path := firstNonEmpty(ev.ResourcePath, ev.BlockDev, ev.ResourceAddress, "unknown")
+	rf := ev.ResourceFields
+	if rf == nil {
+		rf = &ResourceFields{}
+	}
+	blk := ev.BlockIOFields
+	if blk == nil {
+		blk = &BlockIOFields{}
+	}
+	op := firstNonEmpty(rf.Op, blk.Op, ev.MemoryKind, ev.Name)
+	path := firstNonEmpty(rf.Path, blk.Dev, rf.Address, "unknown")
 	key := fmt.Sprintf("%s/%s/%s/%d", kind, op, path, ev.PID)
 	item := target[key]
 	if item == nil {
@@ -6472,16 +6518,16 @@ func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeRes
 			Line:      ev.Line,
 			Ts:        ev.Ts,
 			Example:   clampString(ev.FieldText, 160),
-			Callstack: ev.ResourceCallstack,
+			Callstack: rf.Callstack,
 		}
 		target[key] = item
 	}
 	item.Count++
-	item.TotalLatencyMs += ev.ResourceLatencyMs
-	if ev.ResourceLatencyMs > item.MaxLatencyMs {
-		item.MaxLatencyMs = ev.ResourceLatencyMs
+	item.TotalLatencyMs += rf.LatencyMs
+	if rf.LatencyMs > item.MaxLatencyMs {
+		item.MaxLatencyMs = rf.LatencyMs
 	}
-	item.Bytes += ev.ResourceBytes
+	item.Bytes += rf.Bytes
 	if item.Line == 0 || ev.Line < item.Line {
 		item.Line = ev.Line
 		item.Ts = ev.Ts
@@ -6490,10 +6536,10 @@ func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeRes
 		item.Example = clampString(ev.FieldText, 160)
 	}
 	if item.Callstack == "" {
-		item.Callstack = ev.ResourceCallstack
+		item.Callstack = rf.Callstack
 	}
 	if item.Address == "" {
-		item.Address = ev.ResourceAddress
+		item.Address = rf.Address
 	}
 }
 
@@ -6535,17 +6581,29 @@ func accumulateFileIO(out map[string]*FileIOSummary, ev Event) {
 	if !isFileIOEvent(ev) {
 		return
 	}
-	inode := firstNonEmpty(ev.Inode, "unknown")
-	dev := firstNonEmpty(ev.FSDev, ev.BlockSrcDev, ev.BlockDev, "unknown")
-	op := firstNonEmpty(ev.FileRW, ev.ResourceOp, fileOperationFromEventName(ev.Name), "io")
+	ff := ev.FileFields
+	if ff == nil {
+		ff = &FileFields{}
+	}
+	rf := ev.ResourceFields
+	if rf == nil {
+		rf = &ResourceFields{}
+	}
+	blk := ev.BlockIOFields
+	if blk == nil {
+		blk = &BlockIOFields{}
+	}
+	inode := firstNonEmpty(ff.Ino, "unknown")
+	dev := firstNonEmpty(ff.Dev, blk.SrcDev, blk.Dev, "unknown")
+	op := firstNonEmpty(ff.RW, rf.Op, fileOperationFromEventName(ev.Name), "io")
 	key := strings.Join([]string{dev, inode, op, fmt.Sprintf("%d", ev.PID)}, "/")
 	item := out[key]
 	if item == nil {
 		item = &FileIOSummary{
 			Dev:         dev,
 			Inode:       inode,
-			ParentInode: ev.ParentInode,
-			EntryName:   ev.EntryName,
+			ParentInode: ff.ParentIno,
+			EntryName:   ff.Entry,
 			Operation:   op,
 			Thread:      threadRefFromEvent(ev),
 			LineStart:   ev.Line,
@@ -6558,28 +6616,28 @@ func accumulateFileIO(out map[string]*FileIOSummary, ev Event) {
 	}
 	if fileIOCountsAsActivity(ev) {
 		item.Count++
-		if ev.FileLen > 0 {
-			item.Bytes += ev.FileLen
-		} else if ev.ResourceBytes > 0 {
-			item.Bytes += ev.ResourceBytes
+		if ff.Len > 0 {
+			item.Bytes += ff.Len
+		} else if rf.Bytes > 0 {
+			item.Bytes += rf.Bytes
 		}
 	} else {
 		item.CompletionCount++
 	}
-	item.TotalLatencyMs += ev.ResourceLatencyMs
-	if ev.ResourceLatencyMs > item.MaxLatencyMs {
-		item.MaxLatencyMs = ev.ResourceLatencyMs
+	item.TotalLatencyMs += rf.LatencyMs
+	if rf.LatencyMs > item.MaxLatencyMs {
+		item.MaxLatencyMs = rf.LatencyMs
 	}
-	if item.EntryName == "" && ev.EntryName != "" {
-		item.EntryName = ev.EntryName
+	if item.EntryName == "" && ff.Entry != "" {
+		item.EntryName = ff.Entry
 	}
-	if item.ParentInode == "" && ev.ParentInode != "" {
-		item.ParentInode = ev.ParentInode
+	if item.ParentInode == "" && ff.ParentIno != "" {
+		item.ParentInode = ff.ParentIno
 	}
-	if ev.FileRet != 0 {
-		item.Ret = ev.FileRet
+	if ff.Ret != 0 {
+		item.Ret = ff.Ret
 	}
-	applyOffsetRange(&item.MinOffset, &item.MaxOffset, ev.FileOffset)
+	applyOffsetRange(&item.MinOffset, &item.MaxOffset, ff.Offset)
 	applyLineRange(&item.LineStart, &item.LineEnd, ev.Line)
 	if item.StartTs == 0 || ev.Ts < item.StartTs {
 		item.StartTs = ev.Ts
@@ -6626,8 +6684,20 @@ func accumulatePageCache(out map[string]*PageCacheSummary, ev Event) {
 	if !isPageCacheEvent(ev) {
 		return
 	}
-	inode := firstNonEmpty(ev.Inode, "unknown")
-	dev := firstNonEmpty(ev.FSDev, ev.BlockSrcDev, ev.BlockDev, "unknown")
+	ff := ev.FileFields
+	if ff == nil {
+		ff = &FileFields{}
+	}
+	rf := ev.ResourceFields
+	if rf == nil {
+		rf = &ResourceFields{}
+	}
+	blk := ev.BlockIOFields
+	if blk == nil {
+		blk = &BlockIOFields{}
+	}
+	inode := firstNonEmpty(ff.Ino, "unknown")
+	dev := firstNonEmpty(ff.Dev, blk.SrcDev, blk.Dev, "unknown")
 	key := strings.Join([]string{dev, inode, fmt.Sprintf("%d", ev.PID)}, "/")
 	item := out[key]
 	if item == nil {
@@ -6653,12 +6723,12 @@ func accumulatePageCache(out map[string]*PageCacheSummary, ev Event) {
 		item.Adds++
 	}
 	item.Churn = item.Adds + item.Deletes
-	if ev.FileLen > 0 {
-		item.Bytes += ev.FileLen
-	} else if ev.ResourceBytes > 0 {
-		item.Bytes += ev.ResourceBytes
+	if ff.Len > 0 {
+		item.Bytes += ff.Len
+	} else if rf.Bytes > 0 {
+		item.Bytes += rf.Bytes
 	}
-	applyOffsetRange(&item.MinOffset, &item.MaxOffset, ev.FileOffset)
+	applyOffsetRange(&item.MinOffset, &item.MaxOffset, ff.Offset)
 	applyLineRange(&item.LineStart, &item.LineEnd, ev.Line)
 	if item.StartTs == 0 || ev.Ts < item.StartTs {
 		item.StartTs = ev.Ts
@@ -6726,21 +6796,33 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockLatencies []IOLatenc
 			if layer == "" || base == "" {
 				continue
 			}
-			dev := firstNonEmpty(ev.FSDev, ev.BlockDev, ev.BlockSrcDev, "unknown")
-			op := firstNonEmpty(ev.FileRW, ev.ResourceOp, ev.BlockOp, fileOperationFromEventName(ev.Name), base)
-			key := strings.Join([]string{layer, base, dev, firstNonEmpty(ev.Inode, "-"), op, fmt.Sprintf("%d", ev.PID)}, "/")
-			acc := storageLatencyAccumulator(accs, key, layer, base, dev, op, threadRefFromEvent(ev), ev.Line, ev.Ts, ev.FieldText)
-			if acc.item.Inode == "" && ev.Inode != "" {
-				acc.item.Inode = ev.Inode
+			ff := ev.FileFields
+			if ff == nil {
+				ff = &FileFields{}
 			}
-			if acc.item.EntryName == "" && ev.EntryName != "" {
-				acc.item.EntryName = ev.EntryName
+			rf := ev.ResourceFields
+			if rf == nil {
+				rf = &ResourceFields{}
+			}
+			blk := ev.BlockIOFields
+			if blk == nil {
+				blk = &BlockIOFields{}
+			}
+			dev := firstNonEmpty(ff.Dev, blk.Dev, blk.SrcDev, "unknown")
+			op := firstNonEmpty(ff.RW, rf.Op, blk.Op, fileOperationFromEventName(ev.Name), base)
+			key := strings.Join([]string{layer, base, dev, firstNonEmpty(ff.Ino, "-"), op, fmt.Sprintf("%d", ev.PID)}, "/")
+			acc := storageLatencyAccumulator(accs, key, layer, base, dev, op, threadRefFromEvent(ev), ev.Line, ev.Ts, ev.FieldText)
+			if acc.item.Inode == "" && ff.Ino != "" {
+				acc.item.Inode = ff.Ino
+			}
+			if acc.item.EntryName == "" && ff.Entry != "" {
+				acc.item.EntryName = ff.Entry
 			}
 			acc.item.Count++
-			if ev.FileLen > 0 {
-				acc.item.Bytes += ev.FileLen
-			} else if ev.ResourceBytes > 0 {
-				acc.item.Bytes += ev.ResourceBytes
+			if ff.Len > 0 {
+				acc.item.Bytes += ff.Len
+			} else if rf.Bytes > 0 {
+				acc.item.Bytes += rf.Bytes
 			}
 			applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, ev.Line)
 			if ev.Ts > acc.item.EndTs {
@@ -7144,10 +7226,14 @@ func accumulateTracePluginEvent(ability, xpower, hiSystem map[string]*TracePlugi
 	case "hi_sysevent":
 		target = hiSystem
 	}
-	eventName := firstNonEmpty(ev.PluginEventName, ev.Name)
-	metric := firstNonEmpty(ev.PluginMetric, ev.SubsystemKind, ev.Name)
-	domain := firstNonEmpty(ev.PluginDomain, ev.Comm)
-	key := fmt.Sprintf("%s/%s/%s/%s/%s/%d", kind, domain, eventName, metric, ev.PluginValue, ev.PID)
+	pl := ev.PluginFields
+	if pl == nil {
+		pl = &PluginFields{}
+	}
+	eventName := firstNonEmpty(pl.EventName, ev.Name)
+	metric := firstNonEmpty(pl.Metric, ev.SubsystemKind, ev.Name)
+	domain := firstNonEmpty(pl.Domain, ev.Comm)
+	key := fmt.Sprintf("%s/%s/%s/%s/%s/%d", kind, domain, eventName, metric, pl.Value, ev.PID)
 	item := target[key]
 	if item == nil {
 		item = &TracePluginSummary{
@@ -7155,8 +7241,8 @@ func accumulateTracePluginEvent(ability, xpower, hiSystem map[string]*TracePlugi
 			Domain:    domain,
 			EventName: eventName,
 			Metric:    metric,
-			Value:     ev.PluginValue,
-			Category:  ev.PluginCategory,
+			Value:     pl.Value,
+			Category:  pl.Category,
 			Thread:    threadRefFromEvent(ev),
 			Line:      ev.Line,
 			Ts:        ev.Ts,
@@ -14020,7 +14106,8 @@ func applyOffsetRange(minOffset, maxOffset *int64, offset int64) {
 
 func isFileIOEvent(ev Event) bool {
 	name := strings.ToLower(ev.Name)
-	if ev.Inode == "" && ev.EntryName == "" && ev.FSDev == "" {
+	ff := ev.FileFields
+	if ff == nil || (ff.Ino == "" && ff.Entry == "" && ff.Dev == "") {
 		return false
 	}
 	if isPageCacheEvent(ev) {
@@ -14035,7 +14122,7 @@ func isFileIOEvent(ev Event) bool {
 			return true
 		}
 	}
-	return ev.Type == EventFilesystem && (ev.Inode != "" || ev.EntryName != "")
+	return ev.Type == EventFilesystem && (ff.Ino != "" || ff.Entry != "")
 }
 
 func fileIOCountsAsActivity(ev Event) bool {

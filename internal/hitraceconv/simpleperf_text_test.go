@@ -57,13 +57,13 @@ func TestConvertSimpleperfReportFileToPerfTraceRoundTripsThroughTraceQuery(t *te
 		t.Fatalf("events: got %d want 1", len(idx.Events))
 	}
 	ev := idx.Events[0]
-	if ev.Type != tracequery.EventPerfSample || ev.CPU != 5 || ev.PerfPID != 1234 || ev.PerfTID != 5678 || ev.PerfPeriod != 10000 {
+	if ev.Type != tracequery.EventPerfSample || ev.CPU != 5 || ev.PerfFields.PID != 1234 || ev.PerfFields.TID != 5678 || ev.PerfFields.Period != 10000 {
 		t.Fatalf("bad perf sample fields: %+v", ev)
 	}
-	if ev.PerfEvent != "cpu-cycles" || ev.PerfSymbol != "Foo::bar" || ev.PerfDSO != "/system/lib64/libfoo.so" {
+	if ev.PerfFields.EventName != "cpu-cycles" || ev.PerfFields.Symbol != "Foo::bar" || ev.PerfFields.DSO != "/system/lib64/libfoo.so" {
 		t.Fatalf("bad perf symbol fields: %+v", ev)
 	}
-	if ev.PerfCPUKnown == nil || !*ev.PerfCPUKnown || ev.PerfSymbolizationStatus != "symbolized" || ev.PerfClockConfidence != "assumed" || ev.PerfCallchainStatus != "symbolized" {
+	if ev.PerfFields.CPUKnown == nil || !*ev.PerfFields.CPUKnown || ev.PerfFields.SymbolizationStatus != "symbolized" || ev.PerfFields.ClockConfidence != "assumed" || ev.PerfFields.CallchainStatus != "symbolized" {
 		t.Fatalf("bad perf quality fields: %+v", ev)
 	}
 }
@@ -108,7 +108,7 @@ func TestConvertFileRunsConfiguredSimpleperfAdapterForDirectPerfDataByContent(t 
 	if err != nil {
 		t.Fatalf("parse generated perftrace: %v", err)
 	}
-	if len(idx.Events) != 1 || idx.Events[0].PerfSymbol != "Foo::bar" {
+	if len(idx.Events) != 1 || idx.Events[0].PerfFields.Symbol != "Foo::bar" {
 		t.Fatalf("generated perftrace did not round-trip: %+v", idx.Events)
 	}
 	bundle, err := os.ReadFile(result.BundlePath)
@@ -204,7 +204,7 @@ func TestConvertSimpleperfProtoFileToPerfTraceRoundTripsThroughTraceQuery(t *tes
 		t.Fatalf("events: got %d want 1", len(idx.Events))
 	}
 	ev := idx.Events[0]
-	if ev.PerfSource != "simpleperf_report_proto" || ev.PerfSampleKind != "on_cpu" || ev.PerfCPUKnown == nil || *ev.PerfCPUKnown {
+	if ev.PerfFields.Source != "simpleperf_report_proto" || ev.PerfFields.SampleKind != "on_cpu" || ev.PerfFields.CPUKnown == nil || *ev.PerfFields.CPUKnown {
 		t.Fatalf("bad simpleperf proto quality fields: %+v", ev)
 	}
 	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1, TimeEnd: 2})
@@ -227,7 +227,7 @@ func TestConvertSimpleperfProtoFileMarksOffCPUSampleKind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse perftrace: %v", err)
 	}
-	if len(idx.Events) != 1 || idx.Events[0].PerfSampleKind != "off_cpu" {
+	if len(idx.Events) != 1 || idx.Events[0].PerfFields.SampleKind != "off_cpu" {
 		t.Fatalf("offcpu context switch should mark sample_kind=off_cpu: %+v", idx.Events)
 	}
 	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1, TimeEnd: 2})

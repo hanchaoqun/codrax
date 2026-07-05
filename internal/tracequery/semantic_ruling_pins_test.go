@@ -395,7 +395,7 @@ func TestSemanticRulingPin_C8BinderFamilyStillParsed(t *testing.T) {
 			t.Fatalf("binder family member lost its typed EventType: got %s want %s (%s)", ev.Type, tc.want, tc.line)
 		}
 	}
-	if ev, ok := ParseLine(2, cases[0].line, intern); !ok || ev.BinderTransactionID != 7 || ev.BinderDestProc != 40 {
+	if ev, ok := ParseLine(2, cases[0].line, intern); !ok || ev.BinderFields.TransactionID != 7 || ev.BinderFields.DestProc != 40 {
 		t.Fatalf("binder_transaction typed fields must survive: %+v", ev)
 	}
 }

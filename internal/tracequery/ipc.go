@@ -58,16 +58,16 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		}
 		switch {
 		case ev.Type == EventBinderReceived:
-			if ev.BinderTransactionID > 0 {
-				receives[ev.BinderTransactionID] = append(receives[ev.BinderTransactionID], ev)
+			if bf := ev.BinderFields; bf != nil && bf.TransactionID > 0 {
+				receives[bf.TransactionID] = append(receives[bf.TransactionID], ev)
 			}
 		case isBinderAuxEventType(ev.Type):
 			summary := binderEventSummaryFromEvent(ev)
 			if binderEventMentionsQuery(ev, q) {
 				auxEvents = append(auxEvents, summary)
 			}
-			if ev.BinderTransactionID > 0 {
-				auxByTx[ev.BinderTransactionID] = append(auxByTx[ev.BinderTransactionID], summary)
+			if bf := ev.BinderFields; bf != nil && bf.TransactionID > 0 {
+				auxByTx[bf.TransactionID] = append(auxByTx[bf.TransactionID], summary)
 			}
 		}
 	}
@@ -91,8 +91,8 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		if iface := ifaceBySendLine[send.Line]; iface != "" {
 			edge.Interface = iface
 		}
-		if send.BinderTransactionID > 0 {
-			if recv, ok := chooseBinderReceive(send, receives[send.BinderTransactionID]); ok {
+		if bf := send.BinderFields; bf != nil && bf.TransactionID > 0 {
+			if recv, ok := chooseBinderReceive(send, receives[bf.TransactionID]); ok {
 				edge.Receiver = threadRefFromEvent(recv)
 				edge.ReceiveTs = recv.Ts
 				edge.ReceiveLine = recv.Line
@@ -196,18 +196,22 @@ func binderReceiveMentionsQuery(recv Event, q Query) bool {
 }
 
 func ipcEdgeFromSend(send Event) IPCEdge {
-	oneway := binderFlagsOneway(send.BinderFlags)
+	bf := send.BinderFields
+	if bf == nil {
+		bf = &BinderFields{}
+	}
+	oneway := binderFlagsOneway(bf.Flags)
 	syncLike := !oneway
 	return IPCEdge{
-		TransactionID:     send.BinderTransactionID,
+		TransactionID:     bf.TransactionID,
 		Sender:            threadRefFromEvent(send),
-		DestProc:          send.BinderDestProc,
-		DestThread:        send.BinderDestThread,
+		DestProc:          bf.DestProc,
+		DestThread:        bf.DestThread,
 		SendTs:            send.Ts,
 		SendLine:          send.Line,
-		Reply:             send.BinderReply,
-		Flags:             send.BinderFlags,
-		Code:              send.BinderCode,
+		Reply:             bf.Reply,
+		Flags:             bf.Flags,
+		Code:              bf.Code,
 		Oneway:            oneway,
 		SyncLike:          syncLike,
 		BlockingCandidate: syncLike,
@@ -225,15 +229,19 @@ func isBinderAuxEventType(typ EventType) bool {
 }
 
 func binderEventSummaryFromEvent(ev Event) BinderEventSummary {
+	bf := ev.BinderFields
+	if bf == nil {
+		bf = &BinderFields{}
+	}
 	item := BinderEventSummary{
 		Type:             ev.Type,
 		Thread:           threadRefFromEvent(ev),
-		TransactionID:    ev.BinderTransactionID,
-		DebugID:          ev.BinderDebugID,
-		DataSize:         ev.BinderDataSize,
-		OffsetsSize:      ev.BinderOffsetsSize,
-		ExtraBuffersSize: ev.BinderExtraSize,
-		Tag:              ev.BinderLockTag,
+		TransactionID:    bf.TransactionID,
+		DebugID:          bf.DebugID,
+		DataSize:         bf.DataSize,
+		OffsetsSize:      bf.OffsetsSize,
+		ExtraBuffersSize: bf.ExtraSize,
+		Tag:              bf.LockTag,
 		Ts:               ev.Ts,
 		Line:             ev.Line,
 	}

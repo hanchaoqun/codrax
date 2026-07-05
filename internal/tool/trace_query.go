@@ -4123,59 +4123,71 @@ func traceEventResourceDetail(ev tracequery.EventView) string {
 	if ev.FrequencyMin > 0 || ev.FrequencyMax > 0 {
 		parts = append(parts, fmt.Sprintf("freq_limit=%d..%dkHz", ev.FrequencyMin, ev.FrequencyMax))
 	}
-	if ev.BlockError != "" {
-		parts = append(parts, "block_error="+ev.BlockError)
-	}
-	if ev.BlockSrcDev != "" {
-		parts = append(parts, fmt.Sprintf("block_src=%s/%d", sanitizeForBanner(ev.BlockSrcDev), ev.BlockSrcSector))
+	if blk := ev.BlockIOFields; blk != nil {
+		if blk.Error != "" {
+			parts = append(parts, "block_error="+blk.Error)
+		}
+		if blk.SrcDev != "" {
+			parts = append(parts, fmt.Sprintf("block_src=%s/%d", sanitizeForBanner(blk.SrcDev), blk.SrcSector))
+		}
 	}
 	if ev.SubsystemKind != "" {
 		parts = append(parts, "subsystem="+ev.SubsystemKind)
 	}
-	if ev.Inode != "" || ev.FSDev != "" || ev.EntryName != "" {
+	if ff := ev.FileFields; ff != nil && (ff.Ino != "" || ff.Dev != "" || ff.Entry != "") {
 		parts = append(parts, fmt.Sprintf("file_io dev=%s inode=%s name=%s op=%s offset=%d len=%d ret=%d",
-			sanitizeForBanner(ev.FSDev),
-			sanitizeForBanner(ev.Inode),
-			sanitizeForBanner(ev.EntryName),
-			sanitizeForBanner(ev.FileRW),
-			ev.FileOffset,
-			ev.FileLen,
-			ev.FileRet))
+			sanitizeForBanner(ff.Dev),
+			sanitizeForBanner(ff.Ino),
+			sanitizeForBanner(ff.Entry),
+			sanitizeForBanner(ff.RW),
+			ff.Offset,
+			ff.Len,
+			ff.Ret))
 	}
-	if ev.PluginEventName != "" {
-		parts = append(parts, "plugin_event="+sanitizeForBanner(ev.PluginEventName))
-	}
-	if ev.PluginMetric != "" || ev.PluginValue != "" {
-		parts = append(parts, fmt.Sprintf("metric=%s value=%s", sanitizeForBanner(ev.PluginMetric), sanitizeForBanner(ev.PluginValue)))
+	if pl := ev.PluginFields; pl != nil {
+		if pl.EventName != "" {
+			parts = append(parts, "plugin_event="+sanitizeForBanner(pl.EventName))
+		}
+		if pl.Metric != "" || pl.Value != "" {
+			parts = append(parts, fmt.Sprintf("metric=%s value=%s", sanitizeForBanner(pl.Metric), sanitizeForBanner(pl.Value)))
+		}
 	}
 	if ev.Type == tracequery.EventPerfSample {
+		pf := ev.PerfFields
+		if pf == nil {
+			pf = &tracequery.PerfFields{}
+		}
 		parts = append(parts, fmt.Sprintf("perf_sample pid=%d tid=%d sample_weight=%d event=%s symbol=%s dso=%s source=%s sample_kind=%s symbolization_status=%s cpu_known=%s clock=%s clock_confidence=%s callchain_status=%s callchain=%s",
-			ev.PerfPID,
-			ev.PerfTID,
-			ev.PerfPeriod,
-			sanitizeForBanner(ev.PerfEvent),
-			sanitizeForBanner(ev.PerfSymbol),
-			sanitizeForBanner(ev.PerfDSO),
-			sanitizeForBanner(ev.PerfSource),
-			sanitizeForBanner(ev.PerfSampleKind),
-			sanitizeForBanner(ev.PerfSymbolizationStatus),
-			traceQueryBoolPtrBanner(ev.PerfCPUKnown),
-			sanitizeForBanner(ev.PerfClock),
-			sanitizeForBanner(ev.PerfClockConfidence),
-			sanitizeForBanner(ev.PerfCallchainStatus),
-			sanitizeForBanner(ev.PerfCallchain)))
+			pf.PID,
+			pf.TID,
+			pf.Period,
+			sanitizeForBanner(pf.EventName),
+			sanitizeForBanner(pf.Symbol),
+			sanitizeForBanner(pf.DSO),
+			sanitizeForBanner(pf.Source),
+			sanitizeForBanner(pf.SampleKind),
+			sanitizeForBanner(pf.SymbolizationStatus),
+			traceQueryBoolPtrBanner(pf.CPUKnown),
+			sanitizeForBanner(pf.Clock),
+			sanitizeForBanner(pf.ClockConfidence),
+			sanitizeForBanner(pf.CallchainStatus),
+			sanitizeForBanner(pf.Callchain)))
 	}
-	if ev.Type == tracequery.EventCPUConstraint || ev.ConstraintKind != "" || ev.CPUSet != "" || len(ev.AllowedCPUs) > 0 {
+	cf := ev.ConstraintFields
+	if ev.Type == tracequery.EventCPUConstraint || (cf != nil && (cf.Kind != "" || cf.CPUSetName != "" || len(cf.Allowed) > 0)) {
+		if cf == nil {
+			cf = &tracequery.ConstraintFields{}
+		}
 		parts = append(parts, fmt.Sprintf("cpu_constraint target=%s-%d kind=%s allowed_cpus=%s cpuset=%s policy=%s observed_cpu=%d orig_cpu=%d dest_cpu=%d",
-			sanitizeForBanner(ev.ConstraintComm),
-			ev.ConstraintPID,
-			sanitizeForBanner(firstNonEmptyTraceString(ev.ConstraintKind, ev.Name)),
-			traceIntList(ev.AllowedCPUs),
-			sanitizeForBanner(ev.CPUSet),
-			sanitizeForBanner(ev.ConstraintPolicy),
-			ev.ConstraintCPU,
-			ev.ConstraintOrigCPU,
-			ev.ConstraintDestCPU))
+			sanitizeForBanner(cf.Comm),
+			cf.PID,
+			sanitizeForBanner(firstNonEmptyTraceString(cf.Kind, ev.Name)),
+			traceIntList(cf.Allowed),
+			sanitizeForBanner(cf.CPUSetName),
+			sanitizeForBanner(cf.Policy),
+			cf.CPU,
+			cf.OrigCPU,
+			cf.DestCPU))
 	}
 	if len(parts) == 0 {
 		return ""

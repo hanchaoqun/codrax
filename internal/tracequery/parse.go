@@ -69,6 +69,40 @@ const traceIndexCacheBudgetBytes int64 = 512 << 20
 // compile time and used only for cache accounting.
 const eventSizeBytes = int64(unsafe.Sizeof(Event{}))
 
+// eventSideTableBytes is the struct cost of the kind-specific side tables
+// (P4) hanging off one event — charged into Index.RetainedSideTableBytes so
+// the cache keeps honest accounting after the Event core shrank. Struct
+// bytes only; side-table strings are interned and already counted by
+// RetainedStringBytes.
+func eventSideTableBytes(ev *Event) int64 {
+	var n int64
+	if ev.ConstraintFields != nil {
+		n += int64(unsafe.Sizeof(ConstraintFields{}))
+	}
+	if ev.SchedStatFields != nil {
+		n += int64(unsafe.Sizeof(SchedStatFields{}))
+	}
+	if ev.BinderFields != nil {
+		n += int64(unsafe.Sizeof(BinderFields{}))
+	}
+	if ev.BlockIOFields != nil {
+		n += int64(unsafe.Sizeof(BlockIOFields{}))
+	}
+	if ev.ResourceFields != nil {
+		n += int64(unsafe.Sizeof(ResourceFields{}))
+	}
+	if ev.FileFields != nil {
+		n += int64(unsafe.Sizeof(FileFields{}))
+	}
+	if ev.PluginFields != nil {
+		n += int64(unsafe.Sizeof(PluginFields{}))
+	}
+	if ev.PerfFields != nil {
+		n += int64(unsafe.Sizeof(PerfFields{}))
+	}
+	return n
+}
+
 type traceIndexCacheEntry struct {
 	key  parseCacheKey
 	idx  *Index
@@ -105,8 +139,9 @@ func traceIndexCacheCost(idx *Index) int64 {
 	// Struct cost + the ACTUAL retained string bytes (P2, 2026-07-03):
 	// unsafe.Sizeof counts only string headers, so payload-heavy traces
 	// used to under-charge the LRU by up to 2x and hold more real
-	// memory than the 512 MiB budget promised.
-	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes
+	// memory than the 512 MiB budget promised. Side-table struct bytes
+	// (P4) ride the same lane.
+	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes + idx.RetainedSideTableBytes
 }
 
 func (c *traceIndexCache) Load(key parseCacheKey) (*Index, bool) {
@@ -875,6 +910,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					}
 					return nil, newIndexEventLimitError(path, idx, opts, lineNo, len(idx.Events))
 				}
+				idx.RetainedSideTableBytes += eventSideTableBytes(&ev)
 				idx.Events = append(idx.Events, ev)
 			} else if trimmed != "" && idx.ParseLinePanics == panicsBefore {
 				idx.UnparsedLines++
@@ -1448,6 +1484,12 @@ func parseTraceArtifactPathList(ctx context.Context, path string, size int64, mo
 		idx.ClockRegressions += child.ClockRegressions
 		idx.UnparsedLines += child.UnparsedLines
 		idx.ParsedKnown += child.ParsedKnown
+		// Honest cache accounting on the merged index: the children carry
+		// the retained string/side-table bytes for the events merged below.
+		// (String bytes were dropped here before P4; that under-charged
+		// bundle indexes in the LRU.)
+		idx.RetainedStringBytes += child.RetainedStringBytes
+		idx.RetainedSideTableBytes += child.RetainedSideTableBytes
 		if child.FirstTs > 0 && (idx.FirstTs == 0 || child.FirstTs < idx.FirstTs) {
 			idx.FirstTs = child.FirstTs
 		}
@@ -1619,12 +1661,14 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.IOWait = atoi(kv["iowait"])
 		ev.Reason = intern.intern(firstNonEmpty(kv["caller"], fields))
 	case EventSchedStat:
-		ev.SchedStatKind = intern.intern(strings.TrimPrefix(strings.ToLower(rawType), "sched_stat_"))
-		ev.SchedStatComm = intern.intern(kv["comm"])
-		ev.SchedStatPID = atoi(kv["pid"])
-		ev.SchedStatDelayNs = atoi64(kv["delay"])
-		ev.SchedStatRunNs = atoi64(kv["runtime"])
-		ev.SchedStatVRunNs = atoi64(kv["vruntime"])
+		ev.SchedStatFields = &SchedStatFields{
+			Kind:    intern.intern(strings.TrimPrefix(strings.ToLower(rawType), "sched_stat_")),
+			Comm:    intern.intern(kv["comm"]),
+			PID:     atoi(kv["pid"]),
+			DelayNs: atoi64(kv["delay"]),
+			RunNs:   atoi64(kv["runtime"]),
+			VRunNs:  atoi64(kv["vruntime"]),
+		}
 	case EventCPUIdle:
 		// §7.11 A-1: INT-declared fields tolerate the hmtrace float-string
 		// shape ("state=2200000.0") — Atoi fast path, ParseFloat truncation
@@ -1647,6 +1691,7 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
 		ev.ClockName = intern.intern(rawType)
 	case EventCPUConstraint:
+		ev.ConstraintFields = &ConstraintFields{}
 		populateCPUConstraintFields(&ev, rawType, kv, intern)
 	case EventClockSetRate:
 		rateRaw := firstNonEmpty(kv["state"], kv["frequency"], kv["freq"])
@@ -1665,40 +1710,53 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.SpanValue = intern.intern(ev.SpanValue)
 	case EventBlockIssue, EventBlockComplete:
 		dev, op, sector, length := parseBlockRequest(fields)
-		ev.BlockDev = intern.intern(dev)
-		ev.BlockOp = intern.intern(op)
-		ev.BlockSector = sector
-		ev.BlockLen = length
-		if ev.Type == EventBlockComplete {
-			ev.BlockError = intern.intern(parseBlockError(fields))
+		bf := &BlockIOFields{
+			Dev:    intern.intern(dev),
+			Op:     intern.intern(op),
+			Sector: sector,
+			Len:    length,
 		}
+		if ev.Type == EventBlockComplete {
+			bf.Error = intern.intern(parseBlockError(fields))
+		}
+		ev.BlockIOFields = bf
 	case EventBlockRemap:
 		dev, sector, length, srcDev, srcSector := parseBlockRemap(fields)
-		ev.BlockDev = intern.intern(dev)
-		ev.BlockSector = sector
-		ev.BlockLen = length
-		ev.BlockSrcDev = intern.intern(srcDev)
-		ev.BlockSrcSector = srcSector
+		ev.BlockIOFields = &BlockIOFields{
+			Dev:       intern.intern(dev),
+			Sector:    sector,
+			Len:       length,
+			SrcDev:    intern.intern(srcDev),
+			SrcSector: srcSector,
+		}
 	case EventBinderTransaction:
-		ev.BinderTransactionID = atoi(kv["transaction"])
-		ev.BinderDestProc = atoi(kv["dest_proc"])
-		ev.BinderDestThread = atoi(kv["dest_thread"])
-		ev.BinderReply = atoi(kv["reply"])
-		ev.BinderFlags = intern.intern(kv["flags"])
-		ev.BinderCode = intern.intern(kv["code"])
+		ev.BinderFields = &BinderFields{
+			TransactionID: atoi(kv["transaction"]),
+			DestProc:      atoi(kv["dest_proc"]),
+			DestThread:    atoi(kv["dest_thread"]),
+			Reply:         atoi(kv["reply"]),
+			Flags:         intern.intern(kv["flags"]),
+			Code:          intern.intern(kv["code"]),
+		}
 	case EventBinderReceived:
-		ev.BinderTransactionID = atoi(firstNonEmpty(kv["transaction"], kv["debug_id"]))
-		ev.BinderDebugID = atoi(kv["debug_id"])
+		ev.BinderFields = &BinderFields{
+			TransactionID: atoi(firstNonEmpty(kv["transaction"], kv["debug_id"])),
+			DebugID:       atoi(kv["debug_id"]),
+		}
 	case EventBinderAllocBuf:
-		ev.BinderTransactionID = atoi(firstNonEmpty(kv["transaction"], kv["debug_id"]))
-		ev.BinderDebugID = atoi(kv["debug_id"])
-		ev.BinderDataSize = atoi64(kv["data_size"])
-		ev.BinderOffsetsSize = atoi64(kv["offsets_size"])
-		ev.BinderExtraSize = atoi64(firstNonEmpty(kv["extra_buffers_size"], kv["extra_size"]))
+		ev.BinderFields = &BinderFields{
+			TransactionID: atoi(firstNonEmpty(kv["transaction"], kv["debug_id"])),
+			DebugID:       atoi(kv["debug_id"]),
+			DataSize:      atoi64(kv["data_size"]),
+			OffsetsSize:   atoi64(kv["offsets_size"]),
+			ExtraSize:     atoi64(firstNonEmpty(kv["extra_buffers_size"], kv["extra_size"])),
+		}
 	case EventBinderLock, EventBinderLocked, EventBinderUnlock, EventBinderReply:
-		ev.BinderTransactionID = atoi(firstNonEmpty(kv["transaction"], kv["debug_id"]))
-		ev.BinderDebugID = atoi(kv["debug_id"])
-		ev.BinderLockTag = intern.intern(firstNonEmpty(kv["tag"], kv["lock"], kv["name"], fields))
+		ev.BinderFields = &BinderFields{
+			TransactionID: atoi(firstNonEmpty(kv["transaction"], kv["debug_id"])),
+			DebugID:       atoi(kv["debug_id"]),
+			LockTag:       intern.intern(firstNonEmpty(kv["tag"], kv["lock"], kv["name"], fields)),
+		}
 	case EventIRQ, EventSoftIRQ:
 		ev.IRQID = atoi(firstNonEmpty(kv["irq"], kv["vec"]))
 		ev.IRQName = intern.intern(firstNonEmpty(kv["name"], strings.TrimSuffix(kv["action"], "]"), kv["vec"]))
@@ -1711,12 +1769,17 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		if ev.SubsystemKind == "" {
 			ev.SubsystemKind = ev.MemoryKind
 		}
+		ev.ResourceFields = &ResourceFields{}
+		ev.FileFields = &FileFields{}
 		populateResourceFields(&ev, kv, intern)
 		populateFileIOFields(&ev, kv, intern)
 	case EventStorage, EventFilesystem:
+		ev.ResourceFields = &ResourceFields{}
+		ev.FileFields = &FileFields{}
 		populateResourceFields(&ev, kv, intern)
 		populateFileIOFields(&ev, kv, intern)
 	case EventAbilityMonitor, EventXPower, EventHiSystemEvent:
+		ev.PluginFields = &PluginFields{}
 		populatePluginFields(&ev, rawType, kv, intern)
 		if isPrintFamilyRaw(rawType) {
 			// §7.11 B-4: the converter HiSysEvent print shape carries
@@ -1729,101 +1792,103 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 			// probe hits. Native (non-print) plugin raw types never enter
 			// this branch and keep byte-identical fields.
 			if domain, ename, ok := parseHiSysEventPrintPayload(ev.Comm, fields); ok {
-				ev.PluginDomain = intern.intern(domain)
-				ev.PluginEventName = intern.intern(ename)
+				ev.PluginFields.Domain = intern.intern(domain)
+				ev.PluginFields.EventName = intern.intern(ename)
 			}
 		}
 	case EventPerfSample:
+		ev.PerfFields = &PerfFields{}
 		populatePerfSampleFields(&ev, kv, intern)
 	}
 	return ev, true
 }
 
 func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInterner) {
-	if ev == nil {
+	if ev == nil || ev.PerfFields == nil {
 		return
 	}
+	pf := ev.PerfFields
 	if cpu, ok := atoiMaybe(kv["cpu"]); ok {
 		ev.CPU = cpu
 	}
-	ev.PerfPID = atoi(firstNonEmpty(kv["pid"], kv["process_pid"], kv["tgid"]))
-	ev.PerfTID = atoi(firstNonEmpty(kv["tid"], kv["thread_pid"]))
-	if ev.PerfPID == 0 && ev.TGID > 0 {
-		ev.PerfPID = ev.TGID
+	pf.PID = atoi(firstNonEmpty(kv["pid"], kv["process_pid"], kv["tgid"]))
+	pf.TID = atoi(firstNonEmpty(kv["tid"], kv["thread_pid"]))
+	if pf.PID == 0 && ev.TGID > 0 {
+		pf.PID = ev.TGID
 	}
-	if ev.PerfTID == 0 && ev.PID > 0 {
-		ev.PerfTID = ev.PID
+	if pf.TID == 0 && ev.PID > 0 {
+		pf.TID = ev.PID
 	}
-	ev.PerfComm = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["thread_comm"], kv["comm"], kv["name"], ev.Comm), maxPerfSampleTextFieldLen))
-	ev.PerfPeriod = atoi64(firstNonEmpty(kv["sample_weight"], kv["period_weight"], kv["period"], kv["sample_period"], kv["event_count"], kv["count"]))
-	ev.PerfEvent = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["event"], kv["type"]), maxPerfSampleTextFieldLen))
-	ev.PerfSymbol = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["symbol"], kv["func"], kv["function"]), maxPerfSampleTextFieldLen))
-	ev.PerfDSO = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["dso"], kv["file"], kv["path"]), maxPerfSampleTextFieldLen))
-	ev.PerfIP = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["ip"], kv["addr"], kv["address"]), maxPerfSampleTextFieldLen))
-	ev.PerfAddr = intern.intern(cleanTraceValueBounded(kv["addr"], maxPerfSampleTextFieldLen))
-	ev.PerfSampleID = intern.intern(cleanTraceValueBounded(kv["sample_id"], maxPerfSampleTextFieldLen))
-	ev.PerfStreamID = intern.intern(cleanTraceValueBounded(kv["stream_id"], maxPerfSampleTextFieldLen))
-	ev.PerfRawWeight = atoi64Auto(kv["perf_weight"])
-	ev.PerfDataSrc = intern.intern(cleanTraceValueBounded(kv["data_src"], maxPerfSampleTextFieldLen))
-	ev.PerfTransaction = intern.intern(cleanTraceValueBounded(kv["transaction"], maxPerfSampleTextFieldLen))
-	ev.PerfPhysAddr = intern.intern(cleanTraceValueBounded(kv["phys_addr"], maxPerfSampleTextFieldLen))
-	ev.PerfCGroupID = intern.intern(cleanTraceValueBounded(kv["cgroup_id"], maxPerfSampleTextFieldLen))
-	ev.PerfDataPageSize = atoi64Auto(kv["data_page_size"])
-	ev.PerfCodePageSize = atoi64Auto(kv["code_page_size"])
-	ev.PerfRawSize = atoi64Auto(kv["raw_size"])
-	ev.PerfBranchCount = atoi64Auto(kv["branch_count"])
-	ev.PerfUserRegsABI = intern.intern(cleanTraceValueBounded(kv["user_regs_abi"], maxPerfSampleTextFieldLen))
-	ev.PerfUserRegsCount = atoi64Auto(kv["user_regs_count"])
-	ev.PerfUserStackSize = atoi64Auto(kv["user_stack_size"])
-	ev.PerfAuxSize = atoi64Auto(kv["aux_size"])
-	ev.PerfCallchain = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"]), maxPerfCallchainFieldLen))
-	ev.PerfSource = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["source"], kv["producer"]), maxPerfSampleTextFieldLen))
-	ev.PerfSampleKind = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["sample_kind"], kv["sample_type"], kv["perf_sample_kind"]), maxPerfSampleTextFieldLen))
-	ev.PerfSymbolizationStatus = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["symbolization_status"], kv["symbol_status"], kv["symbols"]), maxPerfSampleTextFieldLen))
-	ev.PerfClock = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["clock"], kv["clockid"]), maxPerfSampleTextFieldLen))
+	pf.Comm = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["thread_comm"], kv["comm"], kv["name"], ev.Comm), maxPerfSampleTextFieldLen))
+	pf.Period = atoi64(firstNonEmpty(kv["sample_weight"], kv["period_weight"], kv["period"], kv["sample_period"], kv["event_count"], kv["count"]))
+	pf.EventName = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["event"], kv["type"]), maxPerfSampleTextFieldLen))
+	pf.Symbol = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["symbol"], kv["func"], kv["function"]), maxPerfSampleTextFieldLen))
+	pf.DSO = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["dso"], kv["file"], kv["path"]), maxPerfSampleTextFieldLen))
+	pf.IP = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["ip"], kv["addr"], kv["address"]), maxPerfSampleTextFieldLen))
+	pf.Addr = intern.intern(cleanTraceValueBounded(kv["addr"], maxPerfSampleTextFieldLen))
+	pf.SampleID = intern.intern(cleanTraceValueBounded(kv["sample_id"], maxPerfSampleTextFieldLen))
+	pf.StreamID = intern.intern(cleanTraceValueBounded(kv["stream_id"], maxPerfSampleTextFieldLen))
+	pf.RawWeight = atoi64Auto(kv["perf_weight"])
+	pf.DataSrc = intern.intern(cleanTraceValueBounded(kv["data_src"], maxPerfSampleTextFieldLen))
+	pf.Transaction = intern.intern(cleanTraceValueBounded(kv["transaction"], maxPerfSampleTextFieldLen))
+	pf.PhysAddr = intern.intern(cleanTraceValueBounded(kv["phys_addr"], maxPerfSampleTextFieldLen))
+	pf.CGroupID = intern.intern(cleanTraceValueBounded(kv["cgroup_id"], maxPerfSampleTextFieldLen))
+	pf.DataPageSize = atoi64Auto(kv["data_page_size"])
+	pf.CodePageSize = atoi64Auto(kv["code_page_size"])
+	pf.RawSize = atoi64Auto(kv["raw_size"])
+	pf.BranchCount = atoi64Auto(kv["branch_count"])
+	pf.UserRegsABI = intern.intern(cleanTraceValueBounded(kv["user_regs_abi"], maxPerfSampleTextFieldLen))
+	pf.UserRegsCount = atoi64Auto(kv["user_regs_count"])
+	pf.UserStackSize = atoi64Auto(kv["user_stack_size"])
+	pf.AuxSize = atoi64Auto(kv["aux_size"])
+	pf.Callchain = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"]), maxPerfCallchainFieldLen))
+	pf.Source = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["source"], kv["producer"]), maxPerfSampleTextFieldLen))
+	pf.SampleKind = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["sample_kind"], kv["sample_type"], kv["perf_sample_kind"]), maxPerfSampleTextFieldLen))
+	pf.SymbolizationStatus = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["symbolization_status"], kv["symbol_status"], kv["symbols"]), maxPerfSampleTextFieldLen))
+	pf.Clock = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["clock"], kv["clockid"]), maxPerfSampleTextFieldLen))
 	if known, ok := boolMaybe(firstNonEmpty(kv["cpu_known"], kv["cpu_valid"], kv["cpu_available"])); ok {
-		ev.PerfCPUKnown = boolPtr(known)
+		pf.CPUKnown = boolPtr(known)
 	}
-	if ev.PerfCPUKnown == nil {
-		ev.PerfCPUKnown = boolPtr(ev.CPU >= 0)
+	if pf.CPUKnown == nil {
+		pf.CPUKnown = boolPtr(ev.CPU >= 0)
 	}
-	if ev.PerfSymbolizationStatus == "" {
-		ev.PerfSymbolizationStatus = intern.intern(defaultPerfSymbolizationStatus(*ev))
+	if pf.SymbolizationStatus == "" {
+		pf.SymbolizationStatus = intern.intern(defaultPerfSymbolizationStatus(pf))
 	}
-	ev.PerfClockConfidence = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["clock_confidence"], kv["time_alignment"], kv["time_alignment_confidence"]), maxPerfSampleTextFieldLen))
-	if ev.PerfClockConfidence == "" {
-		ev.PerfClockConfidence = intern.intern(defaultPerfClockConfidence(*ev))
+	pf.ClockConfidence = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["clock_confidence"], kv["time_alignment"], kv["time_alignment_confidence"]), maxPerfSampleTextFieldLen))
+	if pf.ClockConfidence == "" {
+		pf.ClockConfidence = intern.intern(defaultPerfClockConfidence(pf))
 	}
-	ev.PerfCallchainStatus = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["callchain_status"], kv["stack_status"], kv["call_stack_status"]), maxPerfSampleTextFieldLen))
-	if ev.PerfCallchainStatus == "" {
-		ev.PerfCallchainStatus = intern.intern(defaultPerfCallchainStatus(*ev))
+	pf.CallchainStatus = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["callchain_status"], kv["stack_status"], kv["call_stack_status"]), maxPerfSampleTextFieldLen))
+	if pf.CallchainStatus == "" {
+		pf.CallchainStatus = intern.intern(defaultPerfCallchainStatus(pf))
 	}
 }
 
-func defaultPerfSymbolizationStatus(ev Event) string {
-	source := strings.ToLower(strings.TrimSpace(ev.PerfSource))
+func defaultPerfSymbolizationStatus(pf *PerfFields) string {
+	source := strings.ToLower(strings.TrimSpace(pf.Source))
 	switch {
 	case strings.Contains(source, "raw_perfdata"):
 		return "unsymbolized"
-	case ev.PerfSymbol != "" && !perfLabelLooksLikeIP(ev.PerfSymbol):
+	case pf.Symbol != "" && !perfLabelLooksLikeIP(pf.Symbol):
 		return "symbolized"
-	case ev.PerfDSO != "" || ev.PerfIP != "":
+	case pf.DSO != "" || pf.IP != "":
 		return "partial"
 	default:
 		return "unknown"
 	}
 }
 
-func defaultPerfClockConfidence(ev Event) string {
-	if strings.TrimSpace(ev.PerfClock) == "" {
+func defaultPerfClockConfidence(pf *PerfFields) string {
+	if strings.TrimSpace(pf.Clock) == "" {
 		return "unknown"
 	}
 	return "assumed"
 }
 
-func defaultPerfCallchainStatus(ev Event) string {
-	callchain := strings.TrimSpace(ev.PerfCallchain)
-	source := strings.ToLower(strings.TrimSpace(ev.PerfSource))
+func defaultPerfCallchainStatus(pf *PerfFields) string {
+	callchain := strings.TrimSpace(pf.Callchain)
+	source := strings.ToLower(strings.TrimSpace(pf.Source))
 	switch {
 	case callchain == "":
 		return "missing"
@@ -1869,33 +1934,34 @@ func perfLabelLooksLikeIP(raw string) bool {
 }
 
 func populateCPUConstraintFields(ev *Event, rawType string, kv map[string]string, intern *stringInterner) {
-	if ev == nil {
+	if ev == nil || ev.ConstraintFields == nil {
 		return
 	}
-	ev.ConstraintKind = intern.intern(strings.TrimSpace(rawType))
-	ev.ConstraintComm = intern.intern(cleanTraceValue(firstNonEmpty(kv["target_comm"], kv["comm"], kv["task"], kv["name"])))
-	ev.ConstraintPID = atoi(firstNonEmpty(kv["target_pid"], kv["task_pid"], kv["pid"], kv["tid"]))
-	ev.ConstraintPolicy = intern.intern(firstNonEmpty(kv["policy"], kv["reason"], kv["type"]))
-	ev.CPUSet = intern.intern(cleanTraceValue(firstNonEmpty(kv["cpuset"], kv["cgroup"], kv["cg"], kv["path"])))
-	if ev.CPUSet != "" && ev.CGroup == "" {
-		ev.CGroup = ev.CPUSet
+	cf := ev.ConstraintFields
+	cf.Kind = intern.intern(strings.TrimSpace(rawType))
+	cf.Comm = intern.intern(cleanTraceValue(firstNonEmpty(kv["target_comm"], kv["comm"], kv["task"], kv["name"])))
+	cf.PID = atoi(firstNonEmpty(kv["target_pid"], kv["task_pid"], kv["pid"], kv["tid"]))
+	cf.Policy = intern.intern(firstNonEmpty(kv["policy"], kv["reason"], kv["type"]))
+	cf.CPUSetName = intern.intern(cleanTraceValue(firstNonEmpty(kv["cpuset"], kv["cgroup"], kv["cg"], kv["path"])))
+	if cf.CPUSetName != "" && ev.CGroup == "" {
+		ev.CGroup = cf.CPUSetName
 	}
 	if cpu, ok := atoiMaybe(firstNonEmpty(kv["cpu"], kv["target_cpu"])); ok {
-		ev.ConstraintCPU = cpu
-		ev.ConstraintCPUValid = true
+		cf.CPU = cpu
+		cf.CPUValid = true
 	}
 	if cpu, ok := atoiMaybe(kv["orig_cpu"]); ok {
-		ev.ConstraintOrigCPU = cpu
-		ev.ConstraintOrigCPUSet = true
+		cf.OrigCPU = cpu
+		cf.OrigCPUSet = true
 	}
 	if cpu, ok := atoiMaybe(kv["dest_cpu"]); ok {
-		ev.ConstraintDestCPU = cpu
-		ev.ConstraintDestCPUSet = true
+		cf.DestCPU = cpu
+		cf.DestCPUSet = true
 		ev.TargetCPU = cpu
 	}
 	allowedText := cleanTraceValue(firstNonEmpty(kv["allowed_cpus"], kv["cpus_allowed"], kv["cpumask"], kv["cpus"], kv["affinity"], kv["mask"]))
-	ev.AllowedCPUsText = intern.intern(allowedText)
-	ev.AllowedCPUs = parseCPUSetList(allowedText)
+	cf.AllowedText = intern.intern(allowedText)
+	cf.Allowed = parseCPUSetList(allowedText)
 }
 
 func populateHarmonyNextInfoFields(ev *Event) {
@@ -2006,50 +2072,55 @@ func uniqueSortedInts(in []int) []int {
 }
 
 func populateResourceFields(ev *Event, kv map[string]string, intern *stringInterner) {
-	if ev == nil {
+	if ev == nil || ev.ResourceFields == nil {
 		return
 	}
-	ev.ResourcePath = intern.intern(cleanTraceValue(firstNonEmpty(kv["path"], kv["file"], kv["filename"], kv["entry_name"], kv["name"])))
-	ev.ResourceOp = intern.intern(firstNonEmpty(kv["op"], kv["operation"], kv["syscall"], kv["type"], kv["rw"], kv["rwbs"]))
-	ev.ResourceLatencyMs = parseLatencyMs(kv)
-	ev.ResourceBytes = atoi64(firstNonEmpty(kv["bytes"], kv["size"], kv["len"], kv["length"]))
-	ev.ResourceAddress = intern.intern(firstNonEmpty(kv["addr"], kv["address"], kv["fault_addr"]))
-	ev.ResourceCallstack = intern.intern(clampString(firstNonEmpty(kv["callstack"], kv["backtrace"], kv["stack"]), 160))
+	rf := ev.ResourceFields
+	rf.Path = intern.intern(cleanTraceValue(firstNonEmpty(kv["path"], kv["file"], kv["filename"], kv["entry_name"], kv["name"])))
+	rf.Op = intern.intern(firstNonEmpty(kv["op"], kv["operation"], kv["syscall"], kv["type"], kv["rw"], kv["rwbs"]))
+	rf.LatencyMs = parseLatencyMs(kv)
+	rf.Bytes = atoi64(firstNonEmpty(kv["bytes"], kv["size"], kv["len"], kv["length"]))
+	rf.Address = intern.intern(firstNonEmpty(kv["addr"], kv["address"], kv["fault_addr"]))
+	rf.Callstack = intern.intern(clampString(firstNonEmpty(kv["callstack"], kv["backtrace"], kv["stack"]), 160))
 }
 
 func populateFileIOFields(ev *Event, kv map[string]string, intern *stringInterner) {
-	if ev == nil {
+	if ev == nil || ev.FileFields == nil {
 		return
 	}
-	ev.FSDev = intern.intern(firstNonEmpty(kv["fs_dev"], kv["dev"]))
-	ev.Inode = intern.intern(cleanTraceValue(firstNonEmpty(kv["ino"], kv["inode"])))
-	ev.ParentInode = intern.intern(cleanTraceValue(firstNonEmpty(kv["pino"], kv["parent_ino"], kv["parent_inode"], kv["parent"])))
-	ev.EntryName = intern.intern(cleanTraceValue(firstNonEmpty(kv["entry_name"], kv["path"], kv["file"], kv["filename"], kv["name"])))
-	ev.FileOffset = atoi64Auto(firstNonEmpty(kv["offset"], kv["ofs"], kv["pos"]))
-	ev.FileLen = atoi64Auto(firstNonEmpty(kv["bytes"], kv["len"], kv["length"]))
-	ev.FileRW = intern.intern(normalizeFileRW(firstNonEmpty(kv["rw"], kv["rwbs"], kv["op"], kv["operation"], kv["type"], fileOperationFromEventName(ev.Name))))
-	ev.FileRet = atoi64Auto(kv["ret"])
-	ev.FileSize = atoi64Auto(firstNonEmpty(kv["i_size"], kv["file_size"]))
-	if ev.ResourcePath == "" && ev.EntryName != "" {
-		ev.ResourcePath = ev.EntryName
-	}
-	if ev.ResourceOp == "" && ev.FileRW != "" {
-		ev.ResourceOp = ev.FileRW
-	}
-	if ev.ResourceBytes == 0 && ev.FileLen > 0 {
-		ev.ResourceBytes = ev.FileLen
+	ff := ev.FileFields
+	ff.Dev = intern.intern(firstNonEmpty(kv["fs_dev"], kv["dev"]))
+	ff.Ino = intern.intern(cleanTraceValue(firstNonEmpty(kv["ino"], kv["inode"])))
+	ff.ParentIno = intern.intern(cleanTraceValue(firstNonEmpty(kv["pino"], kv["parent_ino"], kv["parent_inode"], kv["parent"])))
+	ff.Entry = intern.intern(cleanTraceValue(firstNonEmpty(kv["entry_name"], kv["path"], kv["file"], kv["filename"], kv["name"])))
+	ff.Offset = atoi64Auto(firstNonEmpty(kv["offset"], kv["ofs"], kv["pos"]))
+	ff.Len = atoi64Auto(firstNonEmpty(kv["bytes"], kv["len"], kv["length"]))
+	ff.RW = intern.intern(normalizeFileRW(firstNonEmpty(kv["rw"], kv["rwbs"], kv["op"], kv["operation"], kv["type"], fileOperationFromEventName(ev.Name))))
+	ff.Ret = atoi64Auto(kv["ret"])
+	ff.Size = atoi64Auto(firstNonEmpty(kv["i_size"], kv["file_size"]))
+	if rf := ev.ResourceFields; rf != nil {
+		if rf.Path == "" && ff.Entry != "" {
+			rf.Path = ff.Entry
+		}
+		if rf.Op == "" && ff.RW != "" {
+			rf.Op = ff.RW
+		}
+		if rf.Bytes == 0 && ff.Len > 0 {
+			rf.Bytes = ff.Len
+		}
 	}
 }
 
 func populatePluginFields(ev *Event, rawType string, kv map[string]string, intern *stringInterner) {
-	if ev == nil {
+	if ev == nil || ev.PluginFields == nil {
 		return
 	}
-	ev.PluginDomain = intern.intern(firstNonEmpty(kv["domain"], kv["module"], kv["bundle"], kv["process"], kv["package"]))
-	ev.PluginEventName = intern.intern(firstNonEmpty(kv["event_name"], kv["eventname"], kv["event"], kv["name"], rawType))
-	ev.PluginMetric = intern.intern(firstNonEmpty(kv["metric"], kv["key"], kv["item"], kv["counter"], kv["component"], kv["type"]))
-	ev.PluginValue = intern.intern(firstNonEmpty(kv["value"], kv["val"], kv["state"], kv["usage"], kv["energy"], kv["count"], kv["duration_ms"], kv["latency_ms"]))
-	ev.PluginCategory = intern.intern(firstNonEmpty(kv["category"], kv["level"], kv["tag"], kv["scene"]))
+	pl := ev.PluginFields
+	pl.Domain = intern.intern(firstNonEmpty(kv["domain"], kv["module"], kv["bundle"], kv["process"], kv["package"]))
+	pl.EventName = intern.intern(firstNonEmpty(kv["event_name"], kv["eventname"], kv["event"], kv["name"], rawType))
+	pl.Metric = intern.intern(firstNonEmpty(kv["metric"], kv["key"], kv["item"], kv["counter"], kv["component"], kv["type"]))
+	pl.Value = intern.intern(firstNonEmpty(kv["value"], kv["val"], kv["state"], kv["usage"], kv["energy"], kv["count"], kv["duration_ms"], kv["latency_ms"]))
+	pl.Category = intern.intern(firstNonEmpty(kv["category"], kv["level"], kv["tag"], kv["scene"]))
 }
 
 func parseBlockRequest(fields string) (dev, op string, sector, length int64) {
