@@ -535,6 +535,42 @@ type Interval struct {
 	Summary          string  `json:"summary,omitempty"`
 }
 
+// WindowClamped reports whether the query window cut this interval: the
+// clamped face (StartTs/EndTs/DurationMs) is narrower than the actual
+// scheduler segment (ActualStartTs/ActualEndTs/ActualDurationMs). Intervals
+// from builders that never populated the actual fields report false (the
+// clampIntervals backfill equalises both ledgers). Single authority for the
+// E1-a dual-ledger disclosure (RTC-R1 e1, 2026-07-05): the tracequery Summary
+// regeneration and the tool-side timeline row rendering must agree on which
+// segments carry actual_duration/actual_window tokens.
+func (it Interval) WindowClamped() bool {
+	if it.ActualStartTs == 0 && it.ActualEndTs == 0 {
+		return false
+	}
+	return it.ActualStartTs < it.StartTs || it.ActualEndTs > it.EndTs
+}
+
+// ActualDurationMsResolved returns the interval's actual (unclamped) duration
+// with the two-level fallback: the typed ActualDurationMs when positive, else
+// derived from the actual bounds, else the clamped DurationMs. Single
+// authority for EVERY face that publishes an actual duration — the tracequery
+// Summary regeneration (clampedIntervalSummary), the causal-impact accounting
+// (summarizeWakeupCausalImpact) and the tool-side timeline row
+// (traceQueryIntervalActualFields). Do not copy the fallback logic and do not
+// read ActualDurationMs bare on a display face: a bounds-only interval
+// (actual bounds set, ActualDurationMs zero) is WindowClamped, and a bare
+// read would publish actual_duration=0.000ms on one face while the Summary
+// face publishes the derived value (PTV4 review finding, RTC-R1 2026-07-05).
+func (it Interval) ActualDurationMsResolved() float64 {
+	if it.ActualDurationMs > 0 {
+		return it.ActualDurationMs
+	}
+	if it.ActualEndTs > it.ActualStartTs {
+		return (it.ActualEndTs - it.ActualStartTs) * 1000
+	}
+	return it.DurationMs
+}
+
 type TimelineResult struct {
 	Thread    ThreadRef  `json:"thread"`
 	Window    TimeWindow `json:"window"`

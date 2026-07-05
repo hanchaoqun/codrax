@@ -2916,13 +2916,14 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	}
 	if result.Timeline != nil {
 		b.WriteString("## Thread timeline\n")
+		writeTraceTimelineStateTotals(&b, result.Timeline.Intervals)
 		for i, it := range result.Timeline.Intervals {
 			if i >= 12 {
-				fmt.Fprintf(&b, "... omitted %d interval(s); see payload_ref\n", len(result.Timeline.Intervals)-i)
+				fmt.Fprintf(&b, "... omitted %d interval(s); see payload_ref (state_total rows above already sum ALL intervals)\n", len(result.Timeline.Intervals)-i)
 				break
 			}
-			fmt.Fprintf(&b, "- %s %.6f..%.6f %.3fms lines=%d-%d wake_line=%d\n",
-				it.State, it.StartTs, it.EndTs, it.DurationMs, it.StartLine, it.EndLine, it.WakeupLine)
+			fmt.Fprintf(&b, "- %s %.6f..%.6f %.3fms lines=%d-%d wake_line=%d%s\n",
+				it.State, it.StartTs, it.EndTs, it.DurationMs, it.StartLine, it.EndLine, it.WakeupLine, traceQueryIntervalActualFields(it))
 		}
 		b.WriteString("\n")
 	}
@@ -4476,6 +4477,62 @@ func traceQueryProjectedActualFields(projectedImpact, projectedTotal, actualImpa
 		return ""
 	}
 	return " " + strings.Join(fields, " ")
+}
+
+// traceQueryIntervalActualFields appends the dual-ledger actual_* tokens to a
+// thread_timeline interval row when the query window cut the segment (E1-a,
+// RTC-R1 e1 2026-07-05). Same token family as the root_cause_rank
+// projected/actual discipline (traceQueryProjectedActualFields): the primary
+// duration on the row stays the clamped in-window figure — the one the
+// per-state totals sum — while actual_duration/actual_window disclose the
+// full scheduler segment so a window-edge wait cannot be misread as 0ms.
+// Clamp detection is the shared tracequery.Interval.WindowClamped predicate
+// and the duration is the shared ActualDurationMsResolved fallback accessor —
+// the same pair that drives the Summary/evidence-pack regeneration — so all
+// three faces disclose (or not) in lockstep. Never read ActualDurationMs bare
+// here: a bounds-only interval (actual bounds set, ActualDurationMs zero)
+// would print actual_duration=0.000ms while the Summary face publishes the
+// bounds-derived value (PTV4 review finding, RTC-R1 2026-07-05).
+func traceQueryIntervalActualFields(it tracequery.Interval) string {
+	if !it.WindowClamped() {
+		return ""
+	}
+	return fmt.Sprintf(" actual_duration=%.3fms actual_window=%.6f..%.6f",
+		it.ActualDurationMsResolved(), it.ActualStartTs, it.ActualEndTs)
+}
+
+// writeTraceTimelineStateTotals publishes the deterministic per-state totals
+// block for the thread_timeline text face (E1-b, RTC-R1 e1 2026-07-05). The
+// interval listing below it truncates at 12 rows, so the totals the model
+// actually needs (per-state Σms + segment count) must be computed from the
+// FULL interval slice — the same slice the JSON payload serialises —
+// otherwise the model falls back to hand-pairing an equally truncated
+// event_search and publishes wrong sums.
+//
+// Wall-clock additivity basis: a thread_timeline carries exactly one thread,
+// and one thread occupies exactly one scheduler state at a time, so the
+// intervals of this single timeline are non-overlapping and their per-state
+// wall-clock sums are legal. Summing across threads stays forbidden (wall-
+// clock red line; cross-thread layer-Σ was explicitly rejected in the
+// projection v3 ruling). DurationMs is the clamped in-window ledger, matching
+// both the per-row primary figures and the payload.
+func writeTraceTimelineStateTotals(b *strings.Builder, intervals []tracequery.Interval) {
+	if len(intervals) == 0 {
+		return
+	}
+	totalMs := map[tracequery.ThreadState]float64{}
+	segments := map[tracequery.ThreadState]int{}
+	for _, it := range intervals {
+		totalMs[it.State] += it.DurationMs
+		segments[it.State]++
+	}
+	fmt.Fprintf(b, "- state_totals intervals=%d basis=single_thread_non_overlapping — per-state sums over ALL intervals in this window (interval rows below may be truncated; these totals are not); additive within this one thread only, never sum across threads\n", len(intervals))
+	for _, state := range tracequery.ThreadStateUniverse() {
+		if segments[state] == 0 {
+			continue
+		}
+		fmt.Fprintf(b, "- state_total state=%s total=%.3fms segments=%d\n", state, totalMs[state], segments[state])
+	}
 }
 
 func traceQueryOccurrenceWindowsCompact(items []tracequery.WakeupCausalOccurrence, limit int) string {

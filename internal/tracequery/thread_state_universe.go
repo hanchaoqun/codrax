@@ -62,6 +62,18 @@ var threadStateDominantLanes = []ThreadState{
 	StateRunning,
 }
 
+// ThreadStateUniverse returns a copy of the closed ThreadState member list in
+// its canonical display order. Exported for cross-package text-face renderers
+// (e.g. the tool-side thread_timeline per-state totals block, E1-b RTC-R1
+// 2026-07-05) so consumers iterate the single authoritative universe instead
+// of hand-rolling a twin list — the exact §7.4-family drift this file exists
+// to prevent.
+func ThreadStateUniverse() []ThreadState {
+	out := make([]ThreadState, len(threadStateUniverse))
+	copy(out, threadStateUniverse)
+	return out
+}
+
 // ThreadStateDominantLaneUniverse returns a copy of the dominant-lane
 // sub-universe. Exported ONLY for the cross-package bridge pin: every string
 // this package can publish as a dominant_state note value must be a

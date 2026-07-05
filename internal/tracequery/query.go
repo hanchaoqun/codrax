@@ -1189,7 +1189,7 @@ func makeIntervalWithWake(thread ThreadRef, state ThreadState, start, end float6
 		end = start
 	}
 	durationMs := (end - start) * 1000
-	return Interval{
+	it := Interval{
 		Thread:           thread,
 		State:            state,
 		StartTs:          start,
@@ -1202,8 +1202,41 @@ func makeIntervalWithWake(thread ThreadRef, state ThreadState, start, end float6
 		EndLine:          endLine,
 		WakeupLine:       wakeLine,
 		PrevStateRaw:     prevState,
-		Summary:          fmt.Sprintf("%s for %.3f ms", state, durationMs),
 	}
+	it.Summary = intervalBaseSummary(it)
+	return it
+}
+
+// intervalBaseSummary renders the canonical "<state> for <duration> ms"
+// summary prefix from the interval's CURRENT typed DurationMs. Single
+// renderer shared by construction (makeIntervalWithWake) and post-clamp
+// regeneration (clampIntervals via clampedIntervalSummary) so the prose face
+// can never publish a duration the typed fields no longer carry.
+func intervalBaseSummary(it Interval) string {
+	return fmt.Sprintf("%s for %.3f ms", it.State, it.DurationMs)
+}
+
+// clampedIntervalSummary rebuilds an interval's prose Summary from its
+// clamped typed fields. Any enrichment detail appended before clamping
+// (enrichBlockedReasonIntervalsWithSelection writes "<state> for <ms> ms;
+// sched_blocked_reason ...") is preserved verbatim from the first "; " on —
+// the base "<state> for <ms> ms" prefix never contains that separator.
+// Segments cut by the query window additionally publish the dual ledger in
+// the root_cause_rank projected/actual token form (actual_* key=value, cf.
+// renderWakeupCausalImpactSummary): the leading duration stays the in-window
+// (clamped) figure that timeline rows and per-state totals use, and
+// actual_duration/actual_window carry the full scheduler segment so a
+// cross-window wait is disclosed instead of silently shrunk.
+func clampedIntervalSummary(it Interval) string {
+	summary := intervalBaseSummary(it)
+	if it.WindowClamped() {
+		summary += fmt.Sprintf(" actual_duration=%.3fms actual_window=%.6f..%.6f",
+			it.ActualDurationMsResolved(), it.ActualStartTs, it.ActualEndTs)
+	}
+	if idx := strings.Index(it.Summary, "; "); idx >= 0 {
+		summary += it.Summary[idx:]
+	}
+	return summary
 }
 
 func stateFromPrevState(prev string) ThreadState {
@@ -1255,6 +1288,16 @@ func clampIntervals(in []Interval, q Query) []Interval {
 			it.ActualDurationMs = it.DurationMs
 		}
 		if it.DurationMs >= 0 {
+			// E1-a (RTC-R1 e1, 2026-07-05): Summary is minted at construction
+			// from the UNCLAMPED duration, and evidenceFromTimeline republishes
+			// Interval.Summary verbatim into the evidence pack. Without
+			// regeneration a window-cut segment renders "running ... 0.000ms"
+			// on the timeline row (clamped, correct) while the pack row still
+			// says "running for 0.987 ms" (stale) — and the model trusts the
+			// pack. Rebuild the prose face from the clamped typed fields,
+			// preserving enrichment suffixes, and disclose window-cut segments
+			// with the established actual_* dual-ledger tokens.
+			it.Summary = clampedIntervalSummary(it)
 			out = append(out, it)
 		}
 	}
@@ -12392,7 +12435,7 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 		}
 		item.TotalMs += it.DurationMs
 		item.ProjectedTotalMs += it.DurationMs
-		actualDuration := intervalActualDurationMs(it)
+		actualDuration := it.ActualDurationMsResolved()
 		item.ActualTotalMs += actualDuration
 		extendActualWindow(&item.ActualWindow, it)
 		item.FragmentCount++
@@ -12470,15 +12513,9 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 	return item
 }
 
-func intervalActualDurationMs(it Interval) float64 {
-	if it.ActualDurationMs > 0 {
-		return it.ActualDurationMs
-	}
-	if it.ActualEndTs > it.ActualStartTs {
-		return (it.ActualEndTs - it.ActualStartTs) * 1000
-	}
-	return it.DurationMs
-}
+// intervalActualDurationMs moved to Interval.ActualDurationMsResolved
+// (types.go) — the single exported fallback authority shared with the
+// tool-side timeline row face (PTV4 review finding, RTC-R1 2026-07-05).
 
 func extendActualWindow(window *TimeWindow, it Interval) {
 	if window == nil {
