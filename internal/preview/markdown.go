@@ -25,7 +25,17 @@ import (
 func RenderMarkdownHTML(markdown []byte) (string, error) {
 	var out bytes.Buffer
 	md := goldmark.New(
-		goldmark.WithExtensions(extension.GFM),
+		// extension.GFM minus stock Strikethrough: the stock parser
+		// opens <del> on a SINGLE tilde, mis-rendering prose range
+		// connectors like "6~11ms" (ruling 2026-07-05: single "~"
+		// never strikes; "~~" keeps GFM semantics). See
+		// strikethrough.go. Do not collapse back to extension.GFM.
+		goldmark.WithExtensions(
+			extension.Linkify,
+			extension.Table,
+			extension.TaskList,
+			strikethroughDoubleTildeOnly,
+		),
 		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 		goldmark.WithRendererOptions(
 			renderer.WithNodeRenderers(
