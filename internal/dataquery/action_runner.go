@@ -29,8 +29,25 @@ type ActionRunner struct {
 	MaxFileBytes  int64
 	MaxTotalBytes int64
 	Seed          Result
+	// AnswerRepair is the typed evaluator repair anchor for
+	// answer-projection repair; see assemble_answer_repair.go.
+	AnswerRepair AnswerRepairContext
+	// SeedArtifactRounds maps a carried-over (seeded) artifact ID to the
+	// 1-based workflow round that produced the surviving copy of that
+	// artifact (same-ID collisions in the seed keep the newest copy, so
+	// one round per ID is exact). Artifacts produced by the current
+	// runner invocation are absent from this map and rank strictly
+	// fresher than any seeded round. This is the typed freshness lane
+	// for answer-repair payload source selection (as-built ruling,
+	// ledger §7.12); it never feeds prompt faces or artifact files.
+	SeedArtifactRounds map[string]int
 
 	artifactFiles map[string]string
+	// seedArtifactCount is the number of seeded artifacts at the head of
+	// the accumulated artifacts slice inside Run (set after ledger
+	// stripping). Entries at index >= seedArtifactCount were produced by
+	// the current invocation and take current-round freshness.
+	seedArtifactCount int
 }
 
 type DataActionError struct {
@@ -605,6 +622,10 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	defer cleanup()
 	seedArtifacts := stripWorkflowLedgerArtifacts(r.Seed.Artifacts)
 	r.artifactFiles = dataActionArtifactFilesFromSeed(seedArtifacts, EffectiveMaxFileBytes(r.MaxFileBytes))
+	// Freshness boundary for answer-repair payload selection: entries at
+	// index >= seedArtifactCount in the accumulated slice were produced
+	// by this invocation (see artifactFreshness).
+	r.seedArtifactCount = len(seedArtifacts)
 	artifacts := append([]DataArtifact(nil), seedArtifacts...)
 	consumed := append([]string(nil), r.Seed.ConsumedPaths...)
 	var summaries []string
@@ -627,6 +648,18 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	}
 	var lastResult *Result
 	var projectedAnswer string
+	// Answer-repair lane publication coupling (as-built ruling, ledger
+	// §7.12): when the assemble projection came from an answer-bearing
+	// payload, the reconcile rewrite it carries asserts that payload as
+	// the final answer. The rewrite may only be published when that
+	// answer actually becomes result.Answer; a trailing custom_transform
+	// result that supplies its own answer keeps laneFallbackReconcile
+	// (the pre-lane report) instead, so the reconcile face never asserts
+	// an answer the result face did not publish.
+	var laneReconcile *ReconcileReport
+	var laneFallbackReconcile *ReconcileReport
+	laneAnswer := ""
+	var assembleAdvisories []string
 	partialResult := func() Result {
 		outputContract := plan.OutputContract
 		if outputContract.Format == "" {
@@ -893,7 +926,8 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 			reconcile = &report
 			summaries = append(summaries, artifact.Summary)
 		case DataActionAssembleAnswer:
-			artifact, answer, report, err := r.runAssembleAnswer(action, reconcile, plan.OutputContract, artifacts, contributions)
+			preAssembleReconcile := reconcile
+			artifact, answer, report, advisories, err := r.runAssembleAnswer(action, reconcile, plan.OutputContract, artifacts, contributions, ruleCoverage)
 			if err != nil {
 				return failAction(action, err)
 			}
@@ -907,6 +941,12 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 			artifacts = append(artifacts, artifact)
 			reconcile = report
 			projectedAnswer = answer
+			assembleAdvisories = append(assembleAdvisories, advisories...)
+			if artifact.Fields["projection"] == assembleProjectionAnswerArtifact {
+				laneReconcile = report
+				laneFallbackReconcile = preAssembleReconcile
+				laneAnswer = answer
+			}
 			consumed = append(consumed, artifact.SourcePaths...)
 			summaries = append(summaries, artifact.Summary)
 		case DataActionCustomTransform:
@@ -942,8 +982,21 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		out.RuleCoverage = DedupeRuleCoverageRecords(append(out.RuleCoverage, ruleCoverage...))
 		out.Contributions = append(out.Contributions, contributions...)
 		out.EntityResolutions = DedupeEntityResolutionRecords(append(out.EntityResolutions, entityResolutions...))
+		out.ContractWarnings = append(out.ContractWarnings, assembleAdvisories...)
 		if out.Reconcile == nil && reconcile != nil {
-			out.Reconcile = reconcile
+			effective := reconcile
+			if laneReconcile != nil && reconcile == laneReconcile && strings.TrimSpace(out.Answer) != strings.TrimSpace(laneAnswer) {
+				// Publication coupling: the published answer comes from
+				// the custom_transform result, not the lane projection,
+				// so the lane's reconcile rewrite (which asserts the lane
+				// answer as expected/actual) must not be published — it
+				// would hard-fail the expected_answer==result.answer
+				// cross-check for a structurally fine batch.
+				effective = laneFallbackReconcile
+			}
+			if effective != nil {
+				out.Reconcile = effective
+			}
 		}
 		if strings.TrimSpace(out.AuditSummary) == "" {
 			out.AuditSummary = strings.Join(cleanArtifactSummaries(summaries), "; ")
@@ -986,6 +1039,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		EntityResolutions: entityResolutions,
 		Reconcile:         reconcile,
 		ConsumedPaths:     normalizeMaterialPaths(consumed),
+		ContractWarnings:  assembleAdvisories,
 	}
 	if out.OutputContract.Format == "" {
 		out.OutputContract = OutputContract{Format: OutputMarkdown, ExplanationAllowed: true}.Normalize()
@@ -1309,16 +1363,21 @@ func (r ActionRunner) runDeriveRules(plan TaskPlan, action DataAction) (DataArti
 			Status:       LooseText(firstNonEmptyString(rule.Status, "derived")),
 			EvidenceRefs: evidenceRefs,
 			Notes:        LooseText(firstNonEmptyString(rule.Notes, "derived into typed rule artifact")),
+			OutputField:  LooseText(strings.TrimSpace(rule.OutputField)),
 		}
 		records = append(records, rec)
+		childFields := map[string]string{
+			"status": rec.Status.String(),
+			"notes":  rec.Notes.String(),
+		}
+		if outputField := rec.OutputField.String(); outputField != "" {
+			childFields["output_field"] = outputField
+		}
 		children = append(children, DataArtifact{
-			ID:      id,
-			Kind:    "rule",
-			Summary: text,
-			Fields: map[string]string{
-				"status": rec.Status.String(),
-				"notes":  rec.Notes.String(),
-			},
+			ID:          id,
+			Kind:        "rule",
+			Summary:     text,
+			Fields:      childFields,
 			SourcePaths: cleanStringList(rule.EvidenceRefs),
 		})
 	}
@@ -1390,6 +1449,11 @@ type actionRuleDraft struct {
 	Status       string   `json:"status"`
 	Notes        string   `json:"notes"`
 	EvidenceRefs []string `json:"evidence_refs"`
+	// OutputField is filled by the emitter (LLM rules_json / rules
+	// entries) with the exact output field/key name a rule dictates for
+	// the final answer object, verbatim from the rule material. The
+	// system never derives it from rule text prose.
+	OutputField string `json:"output_field"`
 }
 
 func parseActionRuleParamTexts(action DataAction) []actionRuleDraft {
@@ -8579,19 +8643,17 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 	}, report, nil
 }
 
-func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileReport, contract OutputContract, artifacts []DataArtifact, contributions []ContributionRecord) (DataArtifact, string, *ReconcileReport, error) {
-	if reconcile == nil {
-		return DataArtifact{}, "", nil, DataActionDependencyError{
-			ActionKind:    DataActionAssembleAnswer,
-			Role:          "reconcile",
-			Operation:     "answer_projection",
-			ExpectedShape: "prior reconcile report produced by an earlier typed action",
-			ActualSnippet: "missing reconcile report",
-			RepairAction:  DataActionReconcile,
-			Message:       "assemble_answer requires prior reconcile report",
-		}
-	}
-	contract = r.effectiveAssembleOutputContract(contract)
+// runAssembleAnswer lives in assemble_answer_projection.go: outside
+// the answer-repair lane it delegates to
+// runAssembleAnswerFromReconcileGroups below; inside the lane it walks
+// the typed projection priority ladder (decision table in
+// assemble_answer_repair.go).
+
+// runAssembleAnswerFromReconcileGroups is the deterministic
+// reconcile-group projection (the sole projection path outside the
+// answer-repair lane). contract must already be the effective assemble
+// output contract.
+func (r ActionRunner) runAssembleAnswerFromReconcileGroups(action DataAction, reconcile *ReconcileReport, contract OutputContract, artifacts []DataArtifact, contributions []ContributionRecord, declaredField string) (DataArtifact, string, *ReconcileReport, error) {
 	if len(reconcile.Groups) == 0 {
 		if artifact, answer, next, ok, err := r.runAssembleAnswerFromAnswerLevelReconcile(action, reconcile, contract, contributions); ok || err != nil {
 			return artifact, answer, next, err
@@ -8687,12 +8749,12 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 		answer = string(raw)
 	case "json_object", "json_object_values", "object":
 		obj := map[string]any{}
-		if key, values, ok := reconcileGroupsSingleMetricJSONList(groups, action, valueField, contributions); ok {
+		if key, values, ok := reconcileGroupsSingleMetricJSONList(groups, action, valueField, contributions, declaredField); ok {
 			obj[key] = values
 		} else {
 			unnamed := 0
 			for _, group := range groups {
-				key := reconcileGroupJSONObjectKey(group, action, valueField, len(groups))
+				key := reconcileGroupJSONObjectKey(group, action, valueField, len(groups), declaredField)
 				if key == "" {
 					unnamed++
 					key = fmt.Sprintf("value_%d", unnamed)
@@ -8773,57 +8835,6 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 		Summary:     fmt.Sprintf("assembled final answer from %d reconcile group(s)", len(groups)),
 		Fields:      fields,
 	}, answer, &next, nil
-}
-
-func (r ActionRunner) effectiveAssembleOutputContract(contract OutputContract) OutputContract {
-	if contract.Format == "" && r.Seed.OutputContract.Format != "" {
-		contract = r.Seed.OutputContract
-	}
-	return contract.Normalize()
-}
-
-func (r ActionRunner) runAssembleAnswerFromAnswerLevelReconcile(action DataAction, reconcile *ReconcileReport, contract OutputContract, contributions []ContributionRecord) (DataArtifact, string, *ReconcileReport, bool, error) {
-	if reconcile == nil || len(reconcile.Groups) > 0 {
-		return DataArtifact{}, "", nil, false, nil
-	}
-	if !strings.EqualFold(strings.TrimSpace(reconcile.Status.String()), "pass") {
-		return DataArtifact{}, "", nil, false, nil
-	}
-	if len(reconcileTargetContributions(contributions)) != 0 {
-		return DataArtifact{}, "", nil, false, nil
-	}
-	answer := strings.TrimSpace(r.Seed.Answer)
-	if answer == "" || AnswerLooksLikeArtifactSummary(answer) {
-		return DataArtifact{}, "", nil, false, nil
-	}
-	if err := ValidateAnswer(answer, contract); err != nil {
-		return DataArtifact{}, "", nil, true, fmt.Errorf("assemble_answer seed answer does not satisfy output contract: %w", err)
-	}
-	next := *reconcile
-	next.ActualAnswer = LooseText(answer)
-	next.ExpectedAnswer = LooseText(answer)
-	next.Groups = append(withoutFinalAnswerProjectionGroups(reconcile.Groups), ReconcileGroup{
-		GroupKey:   LooseText("final_answer"),
-		Metric:     LooseText("projection"),
-		Scope:      LooseText("final_answer"),
-		Role:       LooseText("output"),
-		Expected:   LooseText(answer),
-		Actual:     LooseText(answer),
-		Difference: LooseText("0"),
-	})
-	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "assembled_answer")
-	return DataArtifact{
-		ID:          id,
-		Kind:        string(DataActionAssembleAnswer),
-		SourcePaths: assembleAnswerConsumedPaths(action, contract, assembleReferenceProjection{}),
-		Summary:     "assembled final answer from answer-level reconcile",
-		Fields: map[string]string{
-			"group_count":  "0",
-			"projection":   "answer_level_seed",
-			"answer_level": "true",
-			"answer_len":   fmt.Sprintf("%d", len(answer)),
-		},
-	}, answer, &next, true, nil
 }
 
 func assembleAnswerConsumedPaths(action DataAction, contract OutputContract, projection assembleReferenceProjection) []string {
@@ -9268,33 +9279,6 @@ func reconcileGroupJSONValueForAssemble(group ReconcileGroup, field string, cont
 	return reconcileGroupJSONValue(group, field)
 }
 
-func reconcileGroupsSingleMetricJSONList(groups []ReconcileGroup, action DataAction, valueField string, contributions []ContributionRecord) (string, []any, bool) {
-	if len(groups) < 2 || reconcileJSONObjectExplicitKey(action) != "" {
-		return "", nil, false
-	}
-	metric := singleReconcileMetric(groups)
-	if metric == "" || !reconcileGroupsUseListProjectionOperations(groups, contributions) {
-		return "", nil, false
-	}
-	key := pluralizeJSONFieldName(metric)
-	if key == "" {
-		return "", nil, false
-	}
-	values := make([]any, 0, len(groups))
-	for _, group := range groups {
-		for _, value := range reconcileJSONValueSlice(reconcileGroupJSONValueForAssemble(group, valueField, contributions)) {
-			if stringValue, ok := value.(string); ok && strings.TrimSpace(stringValue) == "" {
-				continue
-			}
-			values = append(values, value)
-		}
-	}
-	if len(values) == 0 {
-		return "", nil, false
-	}
-	return key, values, true
-}
-
 func reconcileGroupsUseListProjectionOperations(groups []ReconcileGroup, contributions []ContributionRecord) bool {
 	groupSet := map[string]bool{}
 	for _, group := range groups {
@@ -9331,23 +9315,6 @@ func contributionOperationProjectsJSONList(op string) bool {
 	default:
 		return false
 	}
-}
-
-func reconcileGroupJSONObjectKey(group ReconcileGroup, action DataAction, valueField string, groupCount int) string {
-	if key := reconcileJSONObjectExplicitKey(action); key != "" {
-		return key
-	}
-	if groupCount == 1 && !reconcileValueFieldIsStandard(valueField) {
-		if key := pluralizeJSONFieldName(valueField); key != "" {
-			return key
-		}
-	}
-	if groupCount == 1 && reconcileGroupUsesSyntheticAllKey(group) && len(group.Values) > 0 {
-		if key := pluralizeJSONFieldName(group.Metric.String()); key != "" {
-			return key
-		}
-	}
-	return firstNonEmptyString(strings.TrimSpace(group.GroupKey.String()), strings.TrimSpace(group.Metric.String()))
 }
 
 func reconcileJSONObjectExplicitKey(action DataAction) string {
@@ -9701,7 +9668,7 @@ func (r ActionRunner) materializeWorkflowLedgerArtifacts(dir string, rows []RowD
 		return nil, err
 	}
 	if err := add("workflow_rule_coverage", "rule_coverage", "rule_coverage",
-		[]string{"rule_id", "rule_text", "status", "notes"},
+		[]string{"rule_id", "rule_text", "status", "notes", "output_field"},
 		rules, len(rules)); err != nil {
 		return nil, err
 	}
@@ -9770,7 +9737,7 @@ func dataActionArtifactPayloadForWrite(artifact DataArtifact, payload any) any {
 		}
 	case []RuleCoverageRecord:
 		if len(rows) == 0 {
-			return emptyLedgerArtifactPayload(artifact, "rule_coverage", []RuleCoverageRecord{}, []string{"rule_id", "rule_text", "status", "notes"})
+			return emptyLedgerArtifactPayload(artifact, "rule_coverage", []RuleCoverageRecord{}, []string{"rule_id", "rule_text", "status", "notes", "output_field"})
 		}
 	case []ContributionRecord:
 		if len(rows) == 0 {

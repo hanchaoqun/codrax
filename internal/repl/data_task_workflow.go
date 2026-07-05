@@ -417,16 +417,36 @@ func dataTaskPostResultDecisionWithRepo(repoRoot string, records []dataTaskWorkf
 
 func dataTaskEvaluationDecisionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, eval dataquery.Evaluation, continuationReady, repairReady bool, repairRounds, repairRoundsMax int) dataworkflow.EvaluationDecision {
 	var completionFallback dataworkflow.EvaluationFallbackCandidate
-	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, current, result)
-	completionSatisfied := dataTaskResultStructurallyCompleteWithRepo(repoRoot, records, current, result)
+	// Completion single authority (DL-C, ledger §7.12): the completion
+	// check and its guard consume the SAME typed answer selection the
+	// terminal face publishes (selectDataTaskTerminalAnswer) — not a
+	// separate reading of the literal latest batch. When the latest
+	// batch is an answerless helper round while an earlier record
+	// already holds the contract-satisfying answer, evaluating
+	// completion against the helper burned repair/continuation rounds
+	// on an already-satisfied workflow. A contested fallback answer
+	// (latest evaluation actively contests the answer face and does not
+	// pre-date the record) never satisfies completion; DecideEvaluation
+	// additionally routes any actionable repair target to the repair
+	// lane even when completion is satisfied.
+	answerPlan, answerResult := current, result
+	{
+		contract := dataTaskWorkflowCoverageContract(records, current)
+		output := dataTaskWorkflowOutputContract(records, current)
+		if sel := selectDataTaskTerminalAnswer(records, current, result, contract, output); sel.FromFallback && !sel.Contested {
+			answerPlan, answerResult = sel.Plan, sel.Result
+		}
+	}
+	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, answerPlan, answerResult)
+	completionSatisfied := dataTaskResultStructurallyCompleteWithRepo(repoRoot, records, answerPlan, answerResult)
 	if !completionSatisfied &&
 		dataTaskEvaluationStatusAllowsCompletionGateOverride(eval.Status) &&
 		guard.Empty() &&
-		dataworkflow.ResultHasAssembleAnswerArtifact(result) {
+		dataworkflow.ResultHasAssembleAnswerArtifact(answerResult) {
 		completionSatisfied = true
 	}
 	if !guard.Empty() {
-		transition := dataTaskValidationFailureTransitionWithRepo(repoRoot, records, current, result, guard)
+		transition := dataTaskValidationFailureTransitionWithRepo(repoRoot, records, answerPlan, answerResult, guard)
 		if transition.Action == dataworkflow.ValidationFailureFallbackPlan && transition.HasPlan() {
 			completionFallback = dataworkflow.EvaluationFallbackCandidate{
 				Source:    "ledger",
@@ -4726,21 +4746,176 @@ func latestDataTaskEvaluation(records []dataTaskWorkflowRecord) (dataquery.Evalu
 	return dataquery.Evaluation{}, false
 }
 
+// latestDataTaskAnswerContestingEvaluation reports whether the answer
+// face is under an active typed contest, returning the record index
+// and evaluation of the governing contest. The contest is STICKY
+// (second-review P1): a repair round is often an answerless
+// materialization helper batch (exactly the multi-batch rhythm the
+// rung-3 advisory steers into), and that helper round's routine
+// continue evaluation must not launder the contest. Scanning
+// newest-first, only evaluations whose typed anchor targets the answer
+// face (normalized action_kind == assemble_answer) govern the contest:
+//
+//   - an actionable repair_node anchored at assemble_answer OPENS (or
+//     renews) the contest at its record index;
+//   - an answer-face-anchored evaluation that is NOT a repair_node
+//     CLEARS it (explicit re-evaluation of the answer face);
+//   - an answer-face-anchored repair_node without an actionable target
+//     (noisy/low-confidence) neither opens nor clears — noise decides
+//     nothing in either direction;
+//   - every other evaluation (helper-round continue_data/expand_graph,
+//     repair anchors on other nodes, ...) is skipped: it neither opens
+//     nor clears the contest.
+//
+// The second clearing event — an answer-bearing record NEWER than the
+// contest (the repair output itself) — is index-based and owned by the
+// consumers: selectDataTaskTerminalAnswer compares the candidate index
+// against the contest index. This is the single typed authority for
+// "the answer face is contested" — the runner's answer-repair lane
+// activation (dataTaskAssembleAnswerRepairContext), the completion
+// check, and the terminal publish consult all consume the same sticky
+// predicate (DL-A(a)/DL-C, ledger §7.12); no surface re-derives it.
+func latestDataTaskAnswerContestingEvaluation(records []dataTaskWorkflowRecord) (int, dataquery.Evaluation, bool) {
+	for i := len(records) - 1; i >= 0; i-- {
+		if records[i].Evaluation == nil {
+			continue
+		}
+		eval := *records[i].Evaluation
+		if dataworkflow.NormalizeActionKind(dataquery.DataActionKind(eval.ActionKind)) != dataquery.DataActionAssembleAnswer {
+			// Not anchored at the answer face: sticky — keep scanning.
+			continue
+		}
+		if dataworkflow.EvaluationHasActionableRepairTarget(eval) {
+			return i, eval, true
+		}
+		if eval.Status == dataquery.EvalRepairNode {
+			// Answer-face repair status without an actionable target:
+			// noise, skip.
+			continue
+		}
+		// Explicit answer-face re-evaluation that is not a repair
+		// request: the contest is cleared.
+		return -1, dataquery.Evaluation{}, false
+	}
+	return -1, dataquery.Evaluation{}, false
+}
+
+// dataTaskAssembleAnswerRepairContext derives the typed answer-repair
+// anchor for the action runner (DL-A(a), ledger §7.12). Active exactly
+// while the answer face is under an active STICKY contest
+// (latestDataTaskAnswerContestingEvaluation — the same predicate the
+// completion check and terminal publish consult consume, single
+// authority): an intervening helper round's routine continue
+// evaluation neither deactivates the lane (a two-batch repair's later
+// assemble round must not run bare) nor launders the contest. Every
+// input is a typed evaluator field, no prose is inspected. While
+// active, assemble_answer walks the projection priority ladder
+// (declared mapping first, then answer-bearing payload fallback)
+// instead of being structurally bound to the contested reconcile-group
+// lineage.
+func dataTaskAssembleAnswerRepairContext(records []dataTaskWorkflowRecord) dataquery.AnswerRepairContext {
+	_, eval, ok := latestDataTaskAnswerContestingEvaluation(records)
+	if !ok {
+		return dataquery.AnswerRepairContext{}
+	}
+	return dataquery.AnswerRepairContext{
+		Active:   true,
+		ActionID: strings.TrimSpace(eval.ActionID),
+	}
+}
+
+// dataTaskTerminalAnswerSelection is the answer the workflow currently
+// stands on, as one typed value shared by every consuming face.
+type dataTaskTerminalAnswerSelection struct {
+	Plan   dataquery.TaskPlan
+	Result dataquery.Result
+	// FromFallback marks that the literal latest result was not a
+	// final-answer candidate and an earlier answer-bearing record was
+	// selected instead.
+	FromFallback bool
+	// Contested marks that the latest evaluation actively contests the
+	// answer face and does not pre-date the selected answer-bearing
+	// record: the selected answer is exactly the one under contest, so
+	// terminal publication must fail loud instead of publishing it
+	// silently, and completion must not be satisfied by it (DL-C).
+	Contested bool
+}
+
+// selectDataTaskTerminalAnswer is the single typed authority for which
+// record's answer this workflow stands on — the same predicate that
+// publishes has_answer=true on the workflow state face
+// (ResultIsFinalAnswerCandidate with the producing record's plan). The
+// evaluation-path completion check and the terminal answer projection
+// both consume it; neither derives a private reading of the records
+// (DL-C, ledger §7.12; specimen data_basic_sum_with_rules-20260705-050649:
+// artifact answer "17" satisfied every ledger, but the terminal
+// projection only read the literal latest batch result — an answerless
+// inspect_material round — and failed the run with "result.answer is
+// empty"). An answer-bearing record produced AFTER the contesting
+// evaluation is a repair output and publishes normally; only an answer
+// at or before the contest index is Contested.
+func selectDataTaskTerminalAnswer(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, contract dataquery.CoverageContract, output dataquery.OutputContract) dataTaskTerminalAnswerSelection {
+	if dataworkflow.ResultIsFinalAnswerCandidate(current, result, contract, output) {
+		return dataTaskTerminalAnswerSelection{Plan: current, Result: result}
+	}
+	idx, ok := latestDataTaskFinalAnswerCandidateIndex(records, contract, output)
+	if !ok {
+		return dataTaskTerminalAnswerSelection{Plan: current, Result: result}
+	}
+	sel := dataTaskTerminalAnswerSelection{
+		Plan:         records[idx].Plan,
+		Result:       dataquery.NormalizeResult(*records[idx].Result),
+		FromFallback: true,
+	}
+	if evalIdx, _, contesting := latestDataTaskAnswerContestingEvaluation(records); contesting && evalIdx >= idx {
+		sel.Contested = true
+	}
+	return sel
+}
+
+func latestDataTaskFinalAnswerCandidateIndex(records []dataTaskWorkflowRecord, contract dataquery.CoverageContract, output dataquery.OutputContract) (int, bool) {
+	for i := len(records) - 1; i >= 0; i-- {
+		rec := records[i]
+		if rec.Result == nil {
+			continue
+		}
+		if dataworkflow.ResultIsFinalAnswerCandidate(rec.Plan, *rec.Result, contract, output) {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
 func dataTaskActionRunnerSeed(records []dataTaskWorkflowRecord) dataquery.Result {
 	var out dataquery.Result
-	seenArtifacts := map[string]bool{}
+	seenArtifacts := map[string]int{}
 	seenConsumed := map[string]bool{}
+	// Same-key later-seen wins (as-built ruling, ledger §7.12): a
+	// repair/continuation round that re-produces an artifact key
+	// supersedes the stale copy, and the surviving entry moves to the
+	// tail so seed slice order tracks production freshness (answer-repair
+	// payload source selection consumes that ordering). The prior
+	// first-seen-wins dedup let the oldest copy of the constant-ID
+	// "emitted_payload" envelope permanently suppress every repair
+	// batch's fresh payload.
 	addArtifact := func(artifact dataquery.DataArtifact) {
 		key := strings.TrimSpace(artifact.ID)
 		if key == "" && len(artifact.SourcePaths) > 0 {
 			key = strings.Join(cleanDataTaskStrings(artifact.SourcePaths), "\x00")
 		}
-		if key != "" {
-			if seenArtifacts[key] {
-				return
-			}
-			seenArtifacts[key] = true
+		if key == "" {
+			out.Artifacts = append(out.Artifacts, artifact)
+			return
 		}
+		if idx, ok := seenArtifacts[key]; ok {
+			out.Artifacts = append(out.Artifacts[:idx], out.Artifacts[idx+1:]...)
+			for k, v := range seenArtifacts {
+				if v > idx {
+					seenArtifacts[k] = v - 1
+				}
+			}
+		}
+		seenArtifacts[key] = len(out.Artifacts)
 		out.Artifacts = append(out.Artifacts, artifact)
 	}
 	addConsumed := func(values []string) {
@@ -4786,6 +4961,29 @@ func dataTaskActionRunnerSeed(records []dataTaskWorkflowRecord) dataquery.Result
 		}
 	}
 	return dataquery.NormalizeResult(out)
+}
+
+// dataTaskSeedArtifactRounds maps each seeded artifact ID to the
+// 1-based record round that produced its surviving (newest) copy — the
+// typed freshness input for answer-repair payload source selection
+// (dataquery.ActionRunner.SeedArtifactRounds; as-built ruling, ledger
+// §7.12). Later records overwrite earlier ones, mirroring the same-key
+// later-seen-wins dedup in dataTaskActionRunnerSeed.
+func dataTaskSeedArtifactRounds(records []dataTaskWorkflowRecord) map[string]int {
+	rounds := map[string]int{}
+	for i, rec := range records {
+		if rec.Result == nil {
+			continue
+		}
+		for _, artifact := range rec.Result.Artifacts {
+			id := strings.TrimSpace(artifact.ID)
+			if id == "" {
+				continue
+			}
+			rounds[id] = i + 1
+		}
+	}
+	return rounds
 }
 
 func dataTaskResultHasHandoffSignal(result dataquery.Result) bool {

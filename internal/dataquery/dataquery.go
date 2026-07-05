@@ -113,6 +113,21 @@ type DataAction struct {
 	SuccessCriteria []string          `json:"success_criteria,omitempty"`
 }
 
+// Typed identifiers of the script-emitted answer envelope artifact.
+// ArtifactIDEmittedPayload is the constant ID the SYSTEM producer
+// (appendRunnerPayloadArtifact) stamps on the payload artifact it
+// derives from extra result fields; ArtifactKindCustomPayload is the
+// kind that admits an artifact into answer-repair payload source
+// selection (assemble_answer_repair.go). Both are load-bearing wire
+// tokens: internal-summary detection (artifactSummaryObjectLooksInternal)
+// and repair-source admission match them verbatim, so every producer
+// and consumer must reference these constants instead of bare literals
+// (as-built ruling, ledger §7.12).
+const (
+	ArtifactKindCustomPayload = "custom_payload"
+	ArtifactIDEmittedPayload  = "emitted_payload"
+)
+
 type DataArtifact struct {
 	ID                string            `json:"id,omitempty"`
 	Kind              string            `json:"kind,omitempty"`
@@ -980,6 +995,15 @@ type RuleCoverageRecord struct {
 	Status       LooseText `json:"status,omitempty"`
 	EvidenceRefs []string  `json:"evidence_refs,omitempty"`
 	Notes        LooseText `json:"notes,omitempty"`
+	// OutputField is the typed output-schema declaration of a rule: the
+	// exact field/key name the final answer object must use, copied
+	// verbatim from the rule material by the emitter (derive_rules
+	// params / script-emitted rule records). It is a PRECISE signal:
+	// assemble_answer performs deterministic field mapping from it and
+	// never extracts a field name from rule_text prose. Empty means the
+	// rule declares no output field name and projection falls back to
+	// contribution-lineage naming (DL-A(b), ledger §7.12).
+	OutputField LooseText `json:"output_field,omitempty"`
 }
 
 func (r *RuleCoverageRecord) UnmarshalJSON(data []byte) error {
@@ -1005,6 +1029,9 @@ func (r *RuleCoverageRecord) UnmarshalJSON(data []byte) error {
 	}
 	if r.Notes.String() == "" {
 		r.Notes = LooseText(rawAliasString(raw, "reason", "summary", "details"))
+	}
+	if r.OutputField.String() == "" {
+		r.OutputField = LooseText(rawAliasString(raw, "output_field_name", "output_key"))
 	}
 	return nil
 }
@@ -2647,7 +2674,7 @@ func artifactSummaryObjectLooksInternal(raw map[string]json.RawMessage) bool {
 	if len(raw) == 0 {
 		return false
 	}
-	if rawJSONText(raw["id"]) == "emitted_payload" {
+	if rawJSONText(raw["id"]) == ArtifactIDEmittedPayload {
 		return true
 	}
 	kind := rawJSONText(raw["kind"])
@@ -2676,7 +2703,7 @@ func artifactSummaryObjectLooksInternal(raw map[string]json.RawMessage) bool {
 			return true
 		}
 	}
-	if strings.HasPrefix(kind, "workflow_ledger/") || kind == "custom_payload" {
+	if strings.HasPrefix(kind, "workflow_ledger/") || kind == ArtifactKindCustomPayload {
 		return true
 	}
 	for _, key := range []string{"source_paths", "source_record_paths", "reference_paths", "evidence_paths", "fields", "row_count", "children", "sample"} {
@@ -2726,6 +2753,7 @@ func ruleCoverageRecordIdentityKey(rec RuleCoverageRecord) string {
 		rec.RuleText.String(),
 		rec.Status.String(),
 		rec.Notes.String(),
+		rec.OutputField.String(),
 		strings.Join(evidenceRefs, "\x1e"),
 	}
 	for i := range parts {
@@ -4559,9 +4587,14 @@ func appendRunnerPayloadArtifact(payload []byte, artifacts []DataArtifact) []Dat
 	if len(sample) > 1200 {
 		sample = sample[:1200] + "\n...[truncated]"
 	}
+	// The Sample payload below is NOT the script's verbatim output bytes:
+	// json.Marshal over the extra-field map re-encodes canonically —
+	// object keys sorted, whitespace compacted, and <, >, & HTML-escaped.
+	// Consumers (answer-repair payload projection) publish this
+	// canonical re-encoding, not the original byte sequence.
 	artifact := DataArtifact{
-		ID:       "emitted_payload",
-		Kind:     "custom_payload",
+		ID:       ArtifactIDEmittedPayload,
+		Kind:     ArtifactKindCustomPayload,
 		Summary:  fmt.Sprintf("script emitted extra payload field(s): %s", strings.Join(keys, ", ")),
 		Sample:   []string{sample},
 		RowCount: 1,

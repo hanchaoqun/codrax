@@ -2046,6 +2046,8 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if len(currentPlan.Actions) > 0 {
 			seededActionRunner := actionRunner
 			seededActionRunner.Seed = dataTaskActionRunnerSeed(records)
+			seededActionRunner.AnswerRepair = dataTaskAssembleAnswerRepairContext(records)
+			seededActionRunner.SeedArtifactRounds = dataTaskSeedArtifactRounds(records)
 			result, err = seededActionRunner.Run(context.Background(), currentPlan)
 		} else {
 			result, err = runner.Run(context.Background(), currentPlan)

@@ -455,6 +455,8 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if len(currentPlan.Actions) > 0 {
 			seededActionRunner := actionRunner
 			seededActionRunner.Seed = dataTaskActionRunnerSeed(records)
+			seededActionRunner.AnswerRepair = dataTaskAssembleAnswerRepairContext(records)
+			seededActionRunner.SeedArtifactRounds = dataTaskSeedArtifactRounds(records)
 			result, err = seededActionRunner.Run(ctx, currentPlan)
 		} else {
 			result, err = runner.Run(ctx, currentPlan)
@@ -797,13 +799,41 @@ func terminalDataTaskPlanForCLI(repoRoot string, plan dataquery.TaskPlan, record
 
 func finalDataTaskAnswerForCLI(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, lang string) (string, error) {
 	result = dataquery.NormalizeResult(result)
-	if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, current, result); !guard.Empty() {
-		return "", fmt.Errorf("%s", guard.ErrorText())
-	}
 	contract := dataTaskWorkflowCoverageContract(records, current)
 	output := dataTaskWorkflowOutputContract(records, current)
-	if !dataworkflow.ResultIsFinalAnswerCandidate(current, result, contract, output) {
-		guard := dataTaskFinalAnswerCandidateGuardResult(current, result, output)
+	// Terminal answer source selection (DL-C, ledger §7.12): the
+	// terminal batch is often an answerless helper round (inspect,
+	// schema probe), while an earlier record already holds the
+	// contract-satisfying final answer — the same record that made the
+	// workflow state face publish has_answer=true. Reading only the
+	// literal latest result here made the terminal face contradict the
+	// state face and fail a satisfied workflow with "result.answer is
+	// empty". selectDataTaskTerminalAnswer is the single typed authority
+	// shared with the evaluation-path completion check; the chosen
+	// result still passes the full completion gate below, so an answer
+	// invalidated by later rounds keeps failing loudly.
+	sel := selectDataTaskTerminalAnswer(records, current, result, contract, output)
+	if sel.Contested {
+		// Publish-time consult (DL-C): the latest evaluation is an
+		// actionable repair_node anchored at the answer face and the
+		// selected answer does not post-date it — this is exactly the
+		// contested answer. Publishing it silently on a terminal path
+		// would launder the contest; fail loud so the run surfaces the
+		// unresolved repair instead of a quietly wrong answer.
+		return "", fmt.Errorf("validate data workflow completion: the latest evaluation actively contests the stored final answer (repair_node anchored at assemble_answer); refusing silent terminal publication before the answer-repair lane produces a fresh projection")
+	}
+	result = sel.Result
+	answerPlan := sel.Plan
+	// The gate is evaluated against the plan that produced the chosen
+	// answer (answerPlan == current unless the fallback fired; the
+	// fallback plan is already one of records, so contract derivation
+	// is unchanged). Gating a projection-bearing answer against an
+	// unrelated helper batch's plan re-creates the latest-lineage lie.
+	if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, answerPlan, result); !guard.Empty() {
+		return "", fmt.Errorf("%s", guard.ErrorText())
+	}
+	if !dataworkflow.ResultIsFinalAnswerCandidate(answerPlan, result, contract, output) {
+		guard := dataTaskFinalAnswerCandidateGuardResult(answerPlan, result, output)
 		return "", fmt.Errorf("%s", guard.ErrorText())
 	}
 	return dataTaskAnswerMarkdown(lang, result), nil

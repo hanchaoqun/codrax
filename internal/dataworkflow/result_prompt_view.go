@@ -333,6 +333,7 @@ func SampleRuleCoverage(records []dataquery.RuleCoverageRecord, limit int) []dat
 		rec.RuleText = dataquery.LooseText(ClampRecordViewText(rec.RuleText.String(), 300))
 		rec.Status = dataquery.LooseText(ClampRecordViewText(rec.Status.String(), 80))
 		rec.Notes = dataquery.LooseText(ClampRecordViewText(rec.Notes.String(), 300))
+		rec.OutputField = dataquery.LooseText(ClampRecordViewText(rec.OutputField.String(), 120))
 		if len(rec.EvidenceRefs) > 6 {
 			rec.EvidenceRefs = append([]string(nil), rec.EvidenceRefs[:6]...)
 		}

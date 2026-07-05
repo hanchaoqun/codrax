@@ -17,7 +17,7 @@ import (
 func TestActionRunnerLOCRatchet(t *testing.T) {
 	const (
 		path     = "action_runner.go"
-		maxLines = 12508 // baseline pinned 2026-07-05 — only allowed to decrease (lowered same-day after splitting artifact read-bound helpers into action_artifact_read_bounds.go, DQA F4)
+		maxLines = 12475 // baseline pinned 2026-07-05 — only allowed to decrease (lowered same-day again after splitting the assemble_answer projection entry point + answer-level helpers into assemble_answer_projection.go, DLR batch)
 	)
 	data, err := os.ReadFile(path)
 	if err != nil {
