@@ -5028,9 +5028,11 @@ func TestResolveToolPath_WriteModeRemapsMainRepoAbsolutePathToActiveWorktree(t *
 		t.Fatalf("worktree absolute path should not be remapped again: got %q, want %q", got, alreadyWorktree)
 	}
 
-	mainActiveCtx := *ctx
+	// Re-stamped sibling view via ShallowClone — BusContext must never
+	// be copied by value (sync.Mutex-guarded caches; go vet copylocks).
+	mainActiveCtx := ctx.ShallowClone()
 	mainActiveCtx.RepoRoot = mainRoot
-	if got := resolveToolPath(&mainActiveCtx, mainAbs); got != mainAbs {
+	if got := resolveToolPath(mainActiveCtx, mainAbs); got != mainAbs {
 		t.Fatalf("inactive worktree should preserve main absolute path: got %q, want %q", got, mainAbs)
 	}
 

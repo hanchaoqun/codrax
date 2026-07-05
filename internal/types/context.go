@@ -6047,6 +6047,15 @@ type MultiRepoActiveSetGater interface {
 // write to during the ReAct loop. Everything else is mutated only
 // via Orchestrator.applyStageOutput so the orchestrator stays the
 // single point of stage-level state changes.
+//
+// NEVER copy a BusContext by value (`cp := *ctx` — go vet copylocks):
+// the struct embeds sync.Mutex-guarded cache blocks
+// (answerSurfaceCacheMu / groundingContextCacheMu) whose unlocked
+// struct-copy read races with concurrent cache use and duplicates the
+// mutexes. For a re-stamped sibling view or a concurrent worker copy
+// use ShallowClone (context_clone.go), which aliases every exported
+// field and resets the caches to a fresh unlocked state. The
+// TestBusContextCopylocksVetClean pin keeps this mechanical.
 type BusContext struct {
 	// Mutable holds the tool-writable region (currently the working
 	// task list). Tools see this pointer through the narrowed busCtx

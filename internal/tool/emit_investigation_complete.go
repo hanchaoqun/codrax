@@ -11232,11 +11232,19 @@ func runtimeSourceAuthorityHardBlockComesOnlyFromRequiredFileHints(ctx *types.Bu
 	}
 	withoutHints := rm
 	withoutHints.AnalyzerHints.RequiredFileHints = nil
-	clonedCtx := *ctx
+	// Counterfactual sibling view: identical exported state except for
+	// an AnalysisIR whose RequestModel has the required-file hints
+	// stripped, so the authority snapshot can be rechecked without the
+	// hints' contribution. ShallowClone, never `*ctx` (go vet
+	// copylocks): BusContext carries sync.Mutex-guarded answer-surface
+	// caches, and the clone's fresh empty cache is also semantically
+	// right here — the cache key includes the AnalysisIR pointer, which
+	// this view swaps, so an inherited entry could never legally hit.
+	clonedCtx := ctx.ShallowClone()
 	clonedIR := *ctx.AnalysisIR
 	clonedIR.RequestModel = withoutHints
 	clonedCtx.AnalysisIR = &clonedIR
-	rechecked := runtimeSourceAnswerAuthorityForCompletion(&clonedCtx)
+	rechecked := runtimeSourceAnswerAuthorityForCompletion(clonedCtx)
 	return runtimeSourceAuthorityAppliesToCompletionLanding(rechecked) &&
 		runtimeSourceAuthorityHasRuntimeCarrier(rechecked) &&
 		!rechecked.CanHardBlockCompletion
