@@ -14,14 +14,18 @@ import (
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/util"
 
+	"github.com/hanchaoqun/codrax/internal/markdownext"
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 )
 
 // RenderMarkdownHTML converts markdown into safe HTML for the local
-// preview page. Raw HTML from the markdown stays disabled by goldmark's
-// default renderer; the only custom HTML emitted here is for fenced code
-// blocks, where mermaid fences become <div class="mermaid"> nodes and
-// ordinary fences become escaped <pre><code>.
+// preview page. Raw HTML from the markdown is never emitted as markup:
+// rawHTMLLiteralRenderer re-emits it as ESCAPED literal text (see its
+// doc for the ruling), so tokens like "<anonymous>" / "Vec<int>" stay
+// visible while keeping a zero-execution surface. The only custom HTML
+// emitted here is for fenced code blocks, where mermaid fences become
+// <div class="mermaid"> nodes and ordinary fences become escaped
+// <pre><code>.
 func RenderMarkdownHTML(markdown []byte) (string, error) {
 	var out bytes.Buffer
 	md := goldmark.New(
@@ -29,17 +33,18 @@ func RenderMarkdownHTML(markdown []byte) (string, error) {
 		// opens <del> on a SINGLE tilde, mis-rendering prose range
 		// connectors like "6~11ms" (ruling 2026-07-05: single "~"
 		// never strikes; "~~" keeps GFM semantics). See
-		// strikethrough.go. Do not collapse back to extension.GFM.
+		// internal/markdownext. Do not collapse back to extension.GFM.
 		goldmark.WithExtensions(
 			extension.Linkify,
 			extension.Table,
 			extension.TaskList,
-			strikethroughDoubleTildeOnly,
+			markdownext.StrikethroughDoubleTildeOnly,
 		),
 		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 		goldmark.WithRendererOptions(
 			renderer.WithNodeRenderers(
 				util.Prioritized(fencedCodeRenderer{}, 500),
+				util.Prioritized(rawHTMLLiteralRenderer{}, 500),
 			),
 		),
 	)
@@ -106,6 +111,62 @@ func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byt
 	_, _ = fmt.Fprint(w, stdhtml.EscapeString(body))
 	_, _ = fmt.Fprint(w, "</code></pre>\n")
 	return ast.WalkSkipChildren, nil
+}
+
+// rawHTMLLiteralRenderer renders raw-HTML markdown nodes as ESCAPED
+// literal text instead of goldmark's safe-mode "<!-- raw HTML omitted -->"
+// placeholder.
+//
+// Answer prose legitimately carries angle-bracket tokens that goldmark
+// parses as raw HTML — JS stack frames ("<anonymous>"), generics
+// ("Vec<int>"), template instantiations — and the safe-mode placeholder
+// silently destroyed that load-bearing information (customer-visible as
+// "raw HTML omitted" in the middle of a stack trace). goldmark's
+// html.WithUnsafe is NOT an acceptable fix: it would emit the markup
+// verbatim and reopen the XSS surface.
+//
+// Ruling (RFH #66): escape-and-display, never drop. Content passes
+// through stdhtml.EscapeString so the browser shows the literal token
+// ("&lt;anonymous&gt;" renders as "<anonymous>") with a zero-execution
+// surface — the anti-XSS guarantee is "never executed", not "never
+// displayed". Pinned by TestRenderMarkdownHTMLEscapesRawHTMLInstead-
+// OfDropping and the anti-XSS assertions in server_test.go.
+type rawHTMLLiteralRenderer struct{}
+
+func (r rawHTMLLiteralRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(ast.KindRawHTML, r.renderRawHTML)
+	reg.Register(ast.KindHTMLBlock, r.renderHTMLBlock)
+}
+
+func (r rawHTMLLiteralRenderer) renderRawHTML(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkSkipChildren, nil
+	}
+	n, ok := node.(*ast.RawHTML)
+	if !ok {
+		return ast.WalkContinue, nil
+	}
+	for i := 0; i < n.Segments.Len(); i++ {
+		segment := n.Segments.At(i)
+		_, _ = w.WriteString(stdhtml.EscapeString(string(segment.Value(source))))
+	}
+	return ast.WalkSkipChildren, nil
+}
+
+func (r rawHTMLLiteralRenderer) renderHTMLBlock(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	n, ok := node.(*ast.HTMLBlock)
+	if !ok {
+		return ast.WalkContinue, nil
+	}
+	if entering {
+		for i := 0; i < n.Lines().Len(); i++ {
+			segment := n.Lines().At(i)
+			_, _ = w.WriteString(stdhtml.EscapeString(string(segment.Value(source))))
+		}
+	} else if n.HasClosure() {
+		_, _ = w.WriteString(stdhtml.EscapeString(string(n.ClosureLine.Value(source))))
+	}
+	return ast.WalkContinue, nil
 }
 
 func fencedCodeBody(block *ast.FencedCodeBlock, source []byte) string {

@@ -10,7 +10,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
 	"github.com/charmbracelet/glamour/styles"
 	"github.com/mattn/go-runewidth"
@@ -138,8 +137,8 @@ type taskRow struct {
 // "latest running stage row" is unambiguous and matches what the
 // user sees on screen.
 type Renderer struct {
-	glamour *glamour.TermRenderer
-	out     io.Writer
+	markdown *terminalMarkdown
+	out      io.Writer
 
 	mu        sync.Mutex
 	dock      *dock // 3-row anchored bottom region (post-2026-04-30 dock redesign)
@@ -646,15 +645,11 @@ func New(out interface{}, forceColor bool) *Renderer {
 		pterm.DisableColor()
 	}
 
-	// Disable glamour word wrap — it counts runes, not display
-	// columns, so CJK text overflows. The REPL does its own
-	// ANSI-aware, display-width wrapping after rendering.
-	gr, _ := glamour.NewTermRenderer(
-		glamour.WithStyles(codraxStyleConfig()),
-		glamour.WithWordWrap(0),
-	)
-
-	return &Renderer{glamour: gr, out: writer}
+	// Terminal markdown pipeline: glamour-parity goldmark instance
+	// (word wrap disabled — the REPL does its own ANSI-aware,
+	// display-width wrapping) with the RFH #66 parse-layer fixes;
+	// see markdown_terminal.go for the full rationale and pins.
+	return &Renderer{markdown: newTerminalMarkdown(codraxStyleConfig()), out: writer}
 }
 
 // codraxStyleConfig returns the glamour style used for rendering the
@@ -2720,8 +2715,8 @@ func (r *Renderer) RenderMarkdown(text string) string {
 	if r == nil {
 		return text
 	}
-	if r.glamour != nil {
-		rendered, err := r.glamour.Render(text)
+	if r.markdown != nil {
+		rendered, err := r.markdown.Render(text)
 		if err == nil {
 			return strings.TrimRight(rendered, "\n")
 		}

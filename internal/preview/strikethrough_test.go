@@ -89,12 +89,12 @@ func TestMarkdownRendererDoesNotUseStockGFMStrikethrough(t *testing.T) {
 	}
 	text := strings.Join(code, "\n")
 	if strings.Contains(text, "extension.GFM") {
-		t.Fatalf("markdown.go must not use extension.GFM: its bundled Strikethrough opens <del> on a single tilde; use strikethroughDoubleTildeOnly (see strikethrough.go)")
+		t.Fatalf("markdown.go must not use extension.GFM: its bundled Strikethrough opens <del> on a single tilde; use markdownext.StrikethroughDoubleTildeOnly")
 	}
 	if strings.Contains(text, "extension.Strikethrough") {
-		t.Fatalf("markdown.go must not use stock extension.Strikethrough (single-tilde <del>); use strikethroughDoubleTildeOnly (see strikethrough.go)")
+		t.Fatalf("markdown.go must not use stock extension.Strikethrough (single-tilde <del>); use markdownext.StrikethroughDoubleTildeOnly")
 	}
-	if !strings.Contains(text, "strikethroughDoubleTildeOnly") {
-		t.Fatalf("markdown.go lost the strikethroughDoubleTildeOnly extension (ruling 2026-07-05: single ~ never strikes)")
+	if !strings.Contains(text, "markdownext.StrikethroughDoubleTildeOnly") {
+		t.Fatalf("markdown.go lost the markdownext.StrikethroughDoubleTildeOnly extension (ruling 2026-07-05: single ~ never strikes)")
 	}
 }

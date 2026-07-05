@@ -44,11 +44,20 @@ func TestServerRegisterMarkdownRendersMermaidAndEscapesHTML(t *testing.T) {
 		!strings.Contains(html, "flowchart TD") {
 		t.Fatalf("mermaid block not rendered for browser:\n%s", html)
 	}
+	// Anti-XSS pin (semantics: "never EXECUTED", not "never displayed").
+	// Raw markdown HTML must not survive as live markup…
 	if strings.Contains(html, "<script>alert(1)</script>") {
 		t.Fatalf("raw markdown HTML was not escaped:\n%s", html)
 	}
-	if !strings.Contains(html, "raw HTML omitted") {
-		t.Fatalf("goldmark raw-HTML safety marker missing:\n%s", html)
+	// …but its CONTENT must survive as escaped literal text. The old
+	// "<!-- raw HTML omitted -->" placeholder destroyed load-bearing
+	// tokens (stack frames "<anonymous>", generics "Vec<int>"); ruling
+	// RFH #66: escape-and-display, never drop.
+	if !strings.Contains(html, "&lt;script&gt;alert(1)&lt;/script&gt;") {
+		t.Fatalf("raw HTML content must be displayed as escaped literal text:\n%s", html)
+	}
+	if strings.Contains(html, "raw HTML omitted") {
+		t.Fatalf("goldmark safe-mode placeholder must not swallow raw HTML content:\n%s", html)
 	}
 	if !strings.Contains(html, "/assets/mermaid.min.js?token=") {
 		t.Fatalf("embedded mermaid asset URL missing:\n%s", html)
