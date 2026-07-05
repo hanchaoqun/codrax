@@ -1395,10 +1395,12 @@ Delivered:
 
 ### Batch 9: Embedded trace_streamer Governance
 
-Status: Batch 9A delivered on 2026-06-23; Batch 9B runtime selection is
-frozen/deferred. No real trace_streamer binary is embedded, and embedded
-selection is not part of the active discovery chain because the binary is too
-large for the current product package.
+Status: Batch 9A delivered on 2026-06-23; Batch 9B delivered on 2026-07-05
+(HED-59 user ruling unfroze the lane). Real trace_streamer binaries are now
+committed per platform and embedded selection is the lowest-priority tier of
+the active discovery chain in `embed_streamer`-tagged builds. The original
+size objection is answered by per-platform distribution: each platform build
+embeds only its own binary, and slim builds (no tag) embed nothing.
 
 #### Batch 9A: Embedded Binary Manifest Guard
 
@@ -1458,10 +1460,13 @@ Delivered:
 
 #### Batch 9B: Embedded Binary Runtime Resolver
 
-Status: frozen/deferred on 2026-06-23. The manifest/cache implementation is
-kept as audited release-governance code, but active resolver selection of
-embedded trace_streamer binaries is disabled because the binaries are too large
-for the current product package.
+Status: delivered on 2026-07-05. Originally frozen/deferred on 2026-06-23
+(manifest/cache implementation kept as audited release-governance code, active
+resolver selection disabled because the binaries were too large for the
+product package); unfrozen by the HED-59 user ruling of 2026-07-05 with
+per-platform distribution as the size answer. See "Delivered (2026-07-05
+unfreeze)" below for the as-built state; the Design/Tasks text underneath is
+the historical frozen-lane record.
 
 Reference audit:
 
@@ -1567,6 +1572,75 @@ Delivered:
 - Added tests for runtime extraction, cache reuse, unsupported host platforms,
   hash mismatch, multi-platform same-directory candidates, and
   `BuildTraceToolStatus` embedded-selection deferral.
+
+Delivered (2026-07-05 unfreeze, HED-59 ruling):
+
+- User rulings (all four settled, zero open questions): ship it at queue tail;
+  distribution shape is per-platform packages (each platform build embeds only
+  its own binary); platform matrix is windows-amd64 + linux-amd64 first,
+  darwin excluded from the first wave (the reference hmtrace darwin-aarch64
+  asset is actually an x86_64 Mach-O — label untrustworthy); binaries enter
+  the repository directly from the hmtrace reference assets with the Batch 9A
+  manifest mechanism recording the actual audited architecture.
+- Committed payloads under `internal/hitraceconv/embedded_trace_streamer/`,
+  sourced from hmtrace `7fb4eabae01f310beccecf339403aca4e9660131`
+  (`https://gitcode.com/diting/hmtrace.git`, Apache-2.0):
+  - `windows-amd64/trace_streamer.exe`, 27,586,048 bytes, sha256
+    `5589c881b1482a3c7a3289383afa89bd2941e297f9feaedfcc203f3f5d5a5ac8`,
+    verified `PE32+ executable (console) x86-64`;
+  - `linux-amd64/trace_streamer`, 12,703,088 bytes, sha256
+    `ecee7cf8862df3a9dde0ea39c53a29ac49edf401854efcd140ba3a063ed3971b`,
+    verified `ELF 64-bit LSB pie executable, x86-64`.
+- Per-platform manifests extend the 9A schema with required `version`,
+  `size_bytes`, and `actual_format` (verbatim `file` output) fields; the
+  shared validation authority enforces them at repository-guard time and at
+  runtime extraction (size and sha256 both checked against actual bytes).
+- Build gate renamed from the placeholder `codrax_embed_trace_streamer` tag to
+  `embed_streamer` per the ruling. Per-platform payload stubs
+  (`embedded_trace_streamer_payload_{windows,linux}_amd64.go`) compile only
+  for their own GOOS/GOARCH, so a windows build never carries linux bytes and
+  vice versa; `embed_streamer` builds on non-bundled platforms (e.g. darwin)
+  compile but report an explicit structured platform-gap caveat — never
+  silent. Slim builds (no tag) embed zero bytes (measured: slim binary delta
+  vs pre-batch HEAD is +35,648 bytes of wiring code, 0.039%, with no payload
+  signatures).
+- Discovery chain: embedded is wired as the lowest-priority tier after
+  explicit `--trace-streamer`, `CODRAX_TRACE_STREAMER`, executable-directory,
+  PATH, and known-location discovery; an earlier-tier hit never touches the
+  embedded assets (pinned by test). First use extracts to the cache directory
+  under the merged `cache_dir` (runtimeAnchor rules; default
+  `~/.codrax/cache/embedded-trace-streamer`, `CODRAX_TRACE_STREAMER_CACHE`
+  override retained), keyed by upstream ref + platform + payload hash with
+  atomic temp-write + rename for multi-instance safety; verified caches are
+  reused, corrupted caches are re-extracted, and extraction failure
+  fail-louds as a structured caveat while conversion falls back to the same
+  built-in lane as an undiscovered tool.
+- Pins added: payload ratchet (`TestEmbeddedTraceStreamerPayloadRatchet`,
+  baseline 40,291,202 bytes — payload changes require an explicit ruling plus
+  a same-commit baseline update), approved platform-set pin, per-platform
+  repository guard (manifest + exactly-one-binary layout), compile-level
+  slim/payload/unbundled build-tag pins, tier-order pin, and cache
+  idempotence/corruption-recovery pins.
+- Localization is a single shared authority, not per-consumer copies: the
+  embedded-tier English producers (`EmbeddedTraceStreamerPlatformGapMessage`,
+  `EmbeddedTraceStreamerNotUsableMessage`) and their Chinese mappings
+  (`LocalizeEmbeddedTraceStreamerSourceZh` /
+  `LocalizeEmbeddedTraceStreamerCaveatZh`) live side by side in
+  `internal/hitraceconv/embedded_trace_streamer.go`, and both the CLI
+  (`cmd/trace_convert.go`) and REPL (`internal/repl/messages.go`) switch arms
+  delegate to them. `TestEmbeddedTraceStreamerZhLocalizationLockstep` derives
+  the English from the production producers/resolver and fails when the
+  mapping stops firing or leaves English fragments behind;
+  `TestTraceConvertZhDelegatesEmbeddedTraceStreamerWording` and
+  `TestHtraceToolsZhDelegatesEmbeddedTraceStreamerWording` pin the CLI/REPL
+  delegation arms (mutation-verified: a one-word producer edit turns all
+  three red). The defensive gap fallback inside
+  `resolveEmbeddedTraceStreamerTool` is documented as unreachable and
+  intentionally outside the zh mapping.
+- Verified with `go test ./internal/hitraceconv ./cmd ./internal/repl`,
+  `go test -tags embed_streamer ./internal/hitraceconv` (darwin unbundled
+  lane), and cross-compiled `-tags embed_streamer` builds for linux-amd64 and
+  windows-amd64 whose byte deltas match exactly one platform payload each.
 
 ### Batch 10: Coverage Telemetry Closure
 

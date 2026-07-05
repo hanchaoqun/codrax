@@ -1,0 +1,17 @@
+{
+  "source_url": "https://gitcode.com/diting/hmtrace/tree/main/assets/trace_streamer/linux-x86_64",
+  "upstream_ref": "7fb4eabae01f310beccecf339403aca4e9660131",
+  "version": "hmtrace assets snapshot 7fb4eab (2026-07-02); trace_streamer binary does not self-declare a version string, verify with `trace_streamer --version` on the target platform",
+  "license_id": "Apache-2.0",
+  "approval_ref": "HED-59 user ruling 2026-07-05: per-platform embedded distribution behind the embed_streamer build tag; first wave windows-amd64 + linux-amd64; darwin excluded because the reference darwin-aarch64 asset is a mislabeled x86_64 Mach-O",
+  "platforms": [
+    {
+      "goos": "linux",
+      "goarch": "amd64",
+      "path": "trace_streamer",
+      "sha256": "ecee7cf8862df3a9dde0ea39c53a29ac49edf401854efcd140ba3a063ed3971b",
+      "size_bytes": 12703088,
+      "actual_format": "ELF 64-bit LSB pie executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, for GNU/Linux 3.2.0, BuildID[sha1]=36b19d76cc9bbe01dc7d36caafe551812ad1ebfb, stripped"
+    }
+  ]
+}

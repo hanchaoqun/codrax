@@ -1,0 +1,5 @@
+# Embedded trace_streamer payloads: raw bytes, no EOL conversion, no diff
+# mangling. manifest.json files are written LF and must round-trip
+# byte-identically because the repository guard pins sha256 + size_bytes
+# against the committed binaries.
+* -text

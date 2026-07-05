@@ -98,10 +98,16 @@ Codrax should keep the same ingestion skeleton but adapt the output contract:
   callchain, symbolization quality, and source provenance. SQL-primary
   conversion embeds those rows in the generated `.systrace`; fallback or
   standalone perf.data conversion writes them to `.perftrace`.
-- Embedded `trace_streamer` is a valid long-term UX target, but Codrax should
-  first land external discovery/configuration and only embed a fixed binary after
-  validating license, platform coverage, hash/version provenance, and release
-  size.
+- Embedded `trace_streamer` is delivered (Batch 9B unfreeze, 2026-07-05) as
+  per-platform opt-in release builds behind the `embed_streamer` build tag:
+  windows-amd64 and linux-amd64 first wave, each platform build embedding only
+  its own audited binary under
+  `internal/hitraceconv/embedded_trace_streamer/<goos-goarch>/` with a
+  per-platform manifest (source/commit, sha256, size, verbatim `file` format,
+  version). Slim builds (no tag) embed nothing, and external
+  discovery/configuration always outranks the embedded tier. darwin is
+  excluded from the first wave because the reference darwin-aarch64 asset is a
+  mislabeled x86_64 Mach-O.
 
 ## Compatibility and Retirement Contract
 

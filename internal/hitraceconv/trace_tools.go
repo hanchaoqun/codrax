@@ -218,7 +218,14 @@ func resolveTraceStreamerToolWithCaveats(opts Options) (string, string, []string
 			return path, "known OpenHarmony/SmartPerf/hmtrace location", nil
 		}
 	}
-	return "", "", nil
+	// Lowest-priority tier: embedded payload (embed_streamer builds
+	// only). Reached only when every external tier above missed, so an
+	// external hit never triggers extraction. Slim builds return
+	// silently here; embed_streamer builds either extract-and-cache the
+	// bundled binary or fail loud with a structured caveat (extraction
+	// error or unbundled-platform gap) and leave conversion to the
+	// same built-in fallback lane as an undiscovered tool.
+	return resolveEmbeddedTraceStreamerTool()
 }
 
 func traceStreamerCodraxBinaryDirCandidates() []string {

@@ -27,6 +27,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/env"
+	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mcp"
@@ -2673,6 +2674,10 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 	}
 	repomap.SetCacheDir(flagCacheDir)
+	// Embedded trace_streamer extraction cache follows the same merged
+	// cache_dir (runtimeAnchor-anchored); empty keeps the shared
+	// ~/.codrax/cache default alongside the repomap cache.
+	hitraceconv.SetEmbeddedTraceStreamerCacheRoot(flagCacheDir)
 	logging.Info("paths: repo=%s log-dir=%s memory-dir=%s cache-dir=%s blob-session=%s", flagRepo, flagLogDir, flagMemoryDir, flagCacheDir, blobSessionDir)
 
 	// Large-repo memory resilience. Install a soft heap limit so a

@@ -3400,6 +3400,10 @@ func htraceToolsSourceZh(source string) string {
 		return trimmed + "（从 PATH 发现）"
 	case strings.Contains(lower, "known openharmony"):
 		return "常见 OpenHarmony/SmartPerf/hmtrace 位置"
+	case strings.Contains(lower, "embedded trace_streamer"):
+		// Single shared mapping next to the English producer; do not
+		// inline a copy here (verbatim-wording drift class).
+		return hitraceconv.LocalizeEmbeddedTraceStreamerSourceZh(trimmed)
 	default:
 		return trimmed
 	}
@@ -3444,6 +3448,10 @@ func htraceToolsMessageZh(message string) string {
 		return "auto trace 引擎未发现 trace_streamer；已检查输入包含独立 perf sidecar，因此会使用内置 raw trace 解析和 standalone perf 兜底"
 	case strings.Contains(lower, "so_dirs=not_configured"):
 		return "未配置 so_dir；native 符号 reload 需要时可传 --trace-streamer-so-dir /path/to/so"
+	case strings.Contains(lower, "embedded trace_streamer is not usable"), strings.Contains(lower, "embed_streamer build tag"):
+		// Single shared mapping next to the English producer; do not
+		// inline a copy here (verbatim-wording drift class).
+		return hitraceconv.LocalizeEmbeddedTraceStreamerCaveatZh(trimmed)
 	default:
 		return trimmed
 	}

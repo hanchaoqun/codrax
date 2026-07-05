@@ -373,6 +373,10 @@ func traceConvertTraceSourceZh(source string) string {
 		return trimmed + "（从 PATH 发现）"
 	case strings.Contains(lower, "known openharmony"):
 		return "常见 OpenHarmony/SmartPerf/hmtrace 位置"
+	case strings.Contains(lower, "embedded trace_streamer"):
+		// Single shared mapping next to the English producer; do not
+		// inline a copy here (verbatim-wording drift class).
+		return hitraceconv.LocalizeEmbeddedTraceStreamerSourceZh(trimmed)
 	default:
 		return trimmed
 	}
@@ -398,6 +402,10 @@ func traceConvertTraceMessageZh(message string) string {
 		return "未发现 trace_streamer；当前显式选择的 SQL trace 转换无法生成 systrace"
 	case strings.Contains(lower, "trace_streamer engine was selected but"):
 		return "已选择 trace_streamer 引擎，但 trace_streamer 当前不可用"
+	case strings.Contains(lower, "embedded trace_streamer is not usable"), strings.Contains(lower, "embed_streamer build tag"):
+		// Single shared mapping next to the English producer; do not
+		// inline a copy here (verbatim-wording drift class).
+		return hitraceconv.LocalizeEmbeddedTraceStreamerCaveatZh(trimmed)
 	case strings.Contains(lower, "built-in modern/sys parser remains"):
 		return "内置 modern/sys parser 是纯 trace 引擎；可显式选择，也可在 auto 未发现 trace_streamer 时用于纯 trace；不用于 trace+perf htrace"
 	case strings.Contains(lower, "built-in modern/sys parser is selected explicitly"):
