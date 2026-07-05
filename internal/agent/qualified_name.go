@@ -81,23 +81,30 @@ func expandEntityNameAliases(entity string) (keys []string, prefix []string) {
 	if entity == "" {
 		return nil, nil
 	}
-	// Normalise: `::` and `#` → `.` (single separator). Don't touch
-	// `->` because in the rare C++ pointer-member-access form,
-	// `obj->method` always has the bare method name as a graph
-	// symbol, not a multi-segment chain. Treating `->` as a
-	// separator would split `Object->Field` into wrong segments.
-	canon := strings.ReplaceAll(entity, "::", ".")
-	canon = strings.ReplaceAll(canon, "#", ".")
-
-	// Split into segments and drop blanks (defensive — `..` would
-	// otherwise produce an empty segment).
-	rawSegments := strings.Split(canon, ".")
-	segments := make([]string, 0, len(rawSegments))
-	for _, s := range rawSegments {
-		if t := strings.TrimSpace(s); t != "" {
-			segments = append(segments, t)
-		}
-	}
+	// Deterministic decomposition is shared with the oracle side
+	// (QNO batch 2026-07-05): `::` and `#` → `.`, receiver-paren
+	// forms `(*Gate).Run` / `(g *Gate).Run` reduce to the receiver
+	// type, blanks dropped. `->` is intentionally NOT a separator —
+	// in the C++ pointer-member-access form `obj->method` the graph
+	// symbol is the bare method name and the left side is a value,
+	// not a scope. See repomap.SplitQualifiedSegments for the pinned
+	// grammar.
+	//
+	// BEHAVIOUR CHANGE vs the pre-QNO local split (F4, deliberate):
+	// receiver-paren spellings used to yield garbage segments —
+	// "(*Gate).Run" produced prefix ["(*gate)"], which could never
+	// match a Receiver/Parent/Package candidate, so such entities
+	// silently failed to resolve. They now resolve like their dotted
+	// equivalents. Downstream note: qualifiedCodeSymbolResolutions
+	// (analyzer_code_symbol_reconcile.go) feeds the ≥2-resolution
+	// threshold of reconcileQualifiedCodeSymbolConfigDrift's HARD
+	// intent rewrite — receiver-form spellings can now flip that gate
+	// where they previously never counted. That is the intended
+	// direction (the spelling names the same code symbol); the flip
+	// form is pinned by
+	// TestReconcileQualifiedCodeSymbolConfigDrift_ReceiverParenFormsResolve
+	// so a future reader does not mistake it for a regression.
+	segments := repomap.SplitQualifiedSegments(entity)
 	if len(segments) == 0 {
 		return nil, nil
 	}
@@ -192,8 +199,13 @@ func symbolMatchesQualifier(sym *repomap.Symbol, prefix []string, graph *repomap
 			}
 		}
 		// Directory-basename fallback (C / Rust / Swift / any lang
-		// without a Package field on FileInfo).
-		if dirBase := dirBaseName(sym.File); dirBase != "" {
+		// without a Package field on FileInfo). Shared implementation
+		// (QNO 备注b): repomap.DirBasename is the single copy. NOTE the
+		// posture difference from the oracle side: here the dir name is
+		// added UNCONDITIONALLY (recall-loose evidence filter, any-match
+		// below), while symbolScopeSatisfiesAllQualifiers only consults
+		// it when no package clause is recorded (proof lane, all-match).
+		if dirBase := repomap.DirBasename(sym.File); dirBase != "" {
 			candidates[strings.ToLower(dirBase)] = true
 		}
 	}
@@ -206,27 +218,6 @@ func symbolMatchesQualifier(sym *repomap.Symbol, prefix []string, graph *repomap
 		}
 	}
 	return false
-}
-
-// dirBaseName returns the last directory segment of a forward-slash
-// path. "internal/analysis/gate/gate.go" → "gate". Returns "" when
-// the path is a bare filename or empty.
-func dirBaseName(p string) string {
-	p = strings.TrimSpace(p)
-	if p == "" {
-		return ""
-	}
-	// Normalise Windows separators if any leaked in.
-	p = strings.ReplaceAll(p, "\\", "/")
-	slash := strings.LastIndexByte(p, '/')
-	if slash <= 0 {
-		return ""
-	}
-	dir := p[:slash]
-	if last := strings.LastIndexByte(dir, '/'); last >= 0 {
-		return dir[last+1:]
-	}
-	return dir
 }
 
 // Compile-time assertion — exercises repomaptypes import to keep

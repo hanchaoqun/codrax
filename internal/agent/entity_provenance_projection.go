@@ -144,8 +144,21 @@ func entitySymbolExists(oracle types.SymbolOracle, surface string) bool {
 	if oracle == nil {
 		return false
 	}
-	ok, _ := oracle.SymbolExistsFlat(surface)
-	return ok
+	if ok, _ := oracle.SymbolExistsFlat(surface); ok {
+		return true
+	}
+	// Qualified spellings ("gate.Run", "Gate.Run", "(*Gate).Run",
+	// "mod::Type::method") never hit the bare-name flat index. The
+	// optional QualifiedSymbolOracle extension resolves them by
+	// deterministic decomposition + exact scope-level matching (QNO
+	// batch 2026-07-05, closes the A1 boundary where Resolved=false
+	// kept R3b / anchor obligations from firing on the user's own
+	// spelling). Oracles without the extension keep the honest miss.
+	if qo, ok := oracle.(types.QualifiedSymbolOracle); ok {
+		found, _ := qo.QualifiedSymbolExists(surface)
+		return found
+	}
+	return false
 }
 
 func entityFileExists(ctx *types.AgentContext, surface string) bool {

@@ -275,7 +275,24 @@ func checkMustIncludeOracle(draft Answer, c types.AnswerContract, oracle types.S
 		if strings.TrimSpace(term.Text) == "" {
 			continue
 		}
-		hit := contractTermHit(draft, term, oracle)
+		var hit bool
+		if term.Kind == types.ContractTermSymbol && types.QualifiedTermTrailingSegment(term.Text) != "" {
+			// QNO F1 (2026-07-05): qualifier-carrying symbol terms
+			// ("gate.Run") are judged EXCLUSIVELY by whole-token
+			// equality (full spelling or bare tail) — see
+			// qualifiedSymbolTermHit. contractTermHit's raw substring
+			// path is deliberately bypassed: "gate.RunWith" contains
+			// "gate.Run" as a substring and would false-satisfy the
+			// exact s1a sibling-identifier failure this pin exists to
+			// catch. No oracle re-gate here: such terms are produced
+			// only by R3b from provenance rows the oracle ALREADY
+			// resolved. Include-side only — must_exclude keeps
+			// contractTermHit semantics (widening a violation-CREATING
+			// surface needs its own ruling; precise-signals red line).
+			hit = qualifiedSymbolTermHit(draft.Text, term.Text)
+		} else {
+			hit = contractTermHit(draft, term, oracle)
+		}
 		if !hit {
 			repair := "include " + term.Text + " in the final answer"
 			if term.Kind == types.ContractTermFileStem {
@@ -395,6 +412,76 @@ func shouldOracleGateInclude(sym string) bool {
 		}
 	}
 	return true
+}
+
+// qualifiedSymbolTermHit (QNO F1, 2026-07-05) — include-side
+// acceptance for symbol-kind must_include terms that carry a scope
+// qualifier ("gate.Run", "mod::Type::method"). Such terms exist only
+// via TYPED MustIncludeTerms (R3b forces Kind=symbol on oracle-
+// resolved provenance surfaces); InferContractTermKind still routes
+// dotted text to file_stem, so inferred terms never reach this path.
+//
+// contractTermHit's verbatim-substring path already accepts the exact
+// dotted spelling; this fallback additionally accepts, and ONLY
+// accepts:
+//   - a whole-token flat-equality occurrence of the FULL qualified
+//     spelling (answer says "Gate.Run", term is "gate.Run"), or
+//   - a whole-token flat-equality occurrence of the BARE trailing
+//     segment (answer says "Run") — mirroring the
+//     UnconsumedAnchorObligations ruling that a qualified user
+//     spelling counts as consumed when the bare tail is present
+//     verbatim.
+//
+// Whole-token EQUALITY, never substring, keeps the original s1a
+// failure caught: an answer that only discusses "RunWith" does NOT
+// satisfy a "gate.Run" obligation ("runwith" ≠ "run"). Unqualified
+// terms return false immediately — their semantics stay owned by
+// contractTermHit.
+func qualifiedSymbolTermHit(text, term string) bool {
+	tail := types.QualifiedTermTrailingSegment(term)
+	if tail == "" {
+		return false
+	}
+	if flatFull := flattenIdentifier(term); flatFull != "" && flatCaseRunEquals(text, flatFull) {
+		return true
+	}
+	flatTail := flattenIdentifier(tail)
+	return flatTail != "" && flatCaseRunEquals(text, flatTail)
+}
+
+// flatCaseRunEquals mirrors flatCaseRunContains' run scan but demands
+// the whole run's flat form EQUAL flatNeedle instead of containing it.
+// Equality is precise at any needle length (no ≥4 noise floor needed):
+// "Run" matches the token "Run" but never "RunWith" / "runtime".
+// Edge dots are trimmed before comparing because `.` is a run
+// character: sentence-final "…drives Run." produces the run "Run."
+// whose identifier content is still exactly "Run". Interior dots are
+// load-bearing and kept ("gate.run" ≠ "run").
+func flatCaseRunEquals(text, flatNeedle string) bool {
+	var run strings.Builder
+	flush := func() bool {
+		if run.Len() == 0 {
+			return false
+		}
+		flat := strings.Trim(flattenIdentifier(run.String()), ".")
+		run.Reset()
+		return flat == flatNeedle
+	}
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		switch {
+		case c >= 'a' && c <= 'z',
+			c >= 'A' && c <= 'Z',
+			c >= '0' && c <= '9',
+			c == '_', c == '-', c == '.':
+			run.WriteByte(c)
+		default:
+			if flush() {
+				return true
+			}
+		}
+	}
+	return flush()
 }
 
 func oracleHasReliableSymbol(oracle types.SymbolOracle, name string) bool {

@@ -54,3 +54,51 @@ type SymbolOracle interface {
 	SymbolExists(name string) (found bool, minTier int)
 	SymbolExistsFlat(name string) (found bool, minTier int)
 }
+
+// QualifiedSymbolOracle (QNO batch, 2026-07-05) is the OPTIONAL
+// extension for qualified-name existence checks. SymbolExists /
+// SymbolExistsFlat index symbols by BARE name, so a package- /
+// receiver-qualified spelling like "gate.Run", "Gate.Run",
+// "(*Gate).Run", "mod::Type::method" or "Foo::Bar#baz" always
+// misses even when the symbol exists (the s1a / A1 anchor-obligation
+// boundary recorded in arch_stability_batch_plan_20260702.md §A1).
+//
+// Behaviour contract:
+//   - The name is decomposed DETERMINISTICALLY by language separator
+//     grammar (`::`/`#` → `.` segmentation; Go receiver-paren forms
+//     `(*T).M` / `(r *T).M` reduce to the receiver type). No fuzzy,
+//     similarity, or edit-distance matching anywhere — an
+//     undecomposable or unresolvable name is an honest miss.
+//   - Returns (true, minTier) only when the trailing segment resolves
+//     to a graph symbol under SymbolExistsFlat's case-form-aware
+//     equality AND every qualifier segment exactly matches one of the
+//     symbol's typed scope levels: receiver, parent type, package
+//     (whole or per-segment), or — ONLY when no package clause is
+//     recorded for the file — the defining-directory basename (F3:
+//     a recorded package is authoritative; dir names never widen it).
+//   - Single-segment (unqualified) names return (false, 0): the
+//     exact / flat lanes own those; this method answers ONLY the
+//     qualified-form question.
+//   - nil receivers tolerated, returning (false, 0), same as above.
+//
+// Known, accepted imprecision (F2, recorded 2026-07-05, no behaviour
+// change intended):
+//   - Qualifier matching folds case forms exactly like the flat lane
+//     (FlattenIdentifier equality), so "GATE.Run" / "Gate.run" hit the
+//     same symbol as "gate.Run" — receiver-vs-package spelling is
+//     conflated when qualifiers differ only by case/separators. This
+//     is a deliberate extension of the existing flat case-form
+//     contract, NOT a second case rule; do not "fix" one side alone.
+//   - minTier consumption is uneven by design: the entity provenance
+//     classification discards it (existence-only question), while the
+//     analyzer must-include support lane
+//     (contractOracleHasReliableSymbol) applies the same tier<3
+//     reliability floor as the exact/flat lanes. Latent only for the
+//     provenance consumer.
+//
+// Kept as a separate interface (not a third SymbolOracle method) so
+// the many existing hard-gate consumers of SymbolExistsFlat keep
+// byte-identical behaviour; consumers opt in via type assertion.
+type QualifiedSymbolOracle interface {
+	QualifiedSymbolExists(name string) (found bool, minTier int)
+}

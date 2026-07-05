@@ -64,6 +64,30 @@ func AnchorTokenShaped(token string) bool {
 	return true
 }
 
+// QualifiedTermTrailingSegment returns the bare trailing segment of a
+// scope-qualified identifier spelling ("gate.Run" → "Run",
+// "mod::Type::method" → "method", "Foo::Bar#baz" → "baz",
+// "(*Gate).Run" → "Run") and "" for single-segment spellings — callers
+// use the empty return to keep unqualified terms on their existing
+// semantics. Deterministic separator grammar only (`::`/`#` → `.`,
+// last `.` wins); never fuzzy. Shared by the anchor-obligation
+// consumption check, the R3b named-subject pin, and the contract
+// checker's include-side tail acceptance so the three lanes cannot
+// drift on what "the bare tail" means. Full segmentation (including
+// receiver-paren reduction of the LEADING segments) lives in
+// repomap.SplitQualifiedSegments, which this package cannot import;
+// the trailing segment is unaffected by receiver-paren forms because
+// parens only ever appear before the final separator.
+func QualifiedTermTrailingSegment(term string) string {
+	canon := strings.ReplaceAll(strings.TrimSpace(term), "::", ".")
+	canon = strings.ReplaceAll(canon, "#", ".")
+	dot := strings.LastIndex(canon, ".")
+	if dot <= 0 || dot >= len(canon)-1 {
+		return ""
+	}
+	return strings.TrimSpace(canon[dot+1:])
+}
+
 // CompileAnchorObligations derives the typed anchor set from the analyzer's
 // own verified carriers. Deterministic and bounded; origin priority is
 // user exact targets, then resolved entities, then required files.
@@ -148,13 +172,12 @@ func UnconsumedAnchorObligations(obligations []AnchorObligation, closure *Eviden
 			if symbolSeen[ob.Token] {
 				continue
 			}
-			// A dotted user spelling (pkg.Symbol) counts as consumed when
-			// the bare trailing segment is anchored — verbatim segment
-			// equality, not fuzzy matching.
-			if dot := strings.LastIndex(ob.Token, "."); dot > 0 && dot < len(ob.Token)-1 {
-				if symbolSeen[ob.Token[dot+1:]] {
-					continue
-				}
+			// A qualified user spelling (pkg.Symbol / ns::method) counts
+			// as consumed when the bare trailing segment is anchored —
+			// verbatim segment equality via the shared tail helper, not
+			// fuzzy matching.
+			if tail := QualifiedTermTrailingSegment(ob.Token); tail != "" && symbolSeen[tail] {
+				continue
 			}
 		}
 		out = append(out, ob)

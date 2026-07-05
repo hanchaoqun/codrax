@@ -46,6 +46,41 @@ func TestProjectEntityProvenance_ClassifiesTypedSideLane(t *testing.T) {
 	assertEntityProvenance(t, rm.SubTopics[0].EntityProvenance, "Analyzer", types.EntityResolutionSymbol, true, true, true)
 }
 
+// QNO batch (2026-07-05): qualified spellings — the exact form users
+// write most (s1a asked about `gate.Run`) — must resolve through the
+// deterministic qualified-name oracle lane once the bare-name flat
+// index misses, so R3b named-subject pinning and the anchor obligation
+// lane fire on the user's own spelling. Similar-but-wrong spellings
+// stay honest misses (禁 fuzzy).
+func TestProjectEntityProvenance_QualifiedNameResolvesViaOracle(t *testing.T) {
+	graph := &rmtypes.Graph{
+		FileIndex: map[string]*rmtypes.FileInfo{
+			"internal/analysis/gate/gate.go": {RelPath: "internal/analysis/gate/gate.go", Language: "go", Package: "gate", ParseTier: 1},
+		},
+		SymbolDefs: map[string][]*rmtypes.Symbol{
+			"Run": {{Name: "Run", Kind: "method", File: "internal/analysis/gate/gate.go", Receiver: "Gate"}},
+		},
+	}
+	mut := types.NewMutableState("test")
+	mut.SetSearchGraph(graph)
+	ctx := &types.AgentContext{Mutable: mut}
+	rm := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"gate.Run", "(*Gate).Run", "nosuch.Run", "gate.Runner"},
+		},
+	}
+
+	projectEntityProvenance(ctx, &rm)
+
+	// Qualified hits: package-qualified and receiver-paren forms.
+	assertEntityProvenance(t, rm.AnalyzerHints.EntityProvenance, "gate.Run", types.EntityResolutionSymbol, true, true, true)
+	assertEntityProvenance(t, rm.AnalyzerHints.EntityProvenance, "(*Gate).Run", types.EntityResolutionSymbol, true, true, true)
+	// Precise misses: wrong qualifier and similar-name superstring
+	// remain inferred concepts — never fuzzy-rescued.
+	assertEntityProvenance(t, rm.AnalyzerHints.EntityProvenance, "nosuch.Run", types.EntityResolutionInferredConcept, false, false, false)
+	assertEntityProvenance(t, rm.AnalyzerHints.EntityProvenance, "gate.Runner", types.EntityResolutionInferredConcept, false, false, false)
+}
+
 func TestProjectEntityProvenance_MultiRepoScopeIsResolved(t *testing.T) {
 	mg := scopeFixtureMG(t, []topology.SubRepo{
 		{Slug: "codrax-1234", RootAbs: "/parent/codrax", RootRel: "codrax", FileCount: 1},

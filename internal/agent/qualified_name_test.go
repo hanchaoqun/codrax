@@ -454,7 +454,7 @@ func TestForEachMatchingDef_RubyHashInstanceMethodResolves(t *testing.T) {
 	}
 }
 
-// === dirBaseName ===
+// === repomap.DirBasename (single shared copy; QNO 备注b) ===
 
 func TestDirBaseName(t *testing.T) {
 	cases := []struct{ in, want string }{
@@ -466,9 +466,9 @@ func TestDirBaseName(t *testing.T) {
 		{"a/b/c/d/e.txt", "d"},
 	}
 	for _, tc := range cases {
-		got := dirBaseName(tc.in)
+		got := repomap.DirBasename(tc.in)
 		if got != tc.want {
-			t.Errorf("dirBaseName(%q) = %q, want %q", tc.in, got, tc.want)
+			t.Errorf("repomap.DirBasename(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

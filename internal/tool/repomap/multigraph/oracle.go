@@ -117,6 +117,53 @@ func (o *multiGraphOracle) SymbolExists(name string) (bool, int) {
 	return found, minTier
 }
 
+// QualifiedSymbolExists fans out the qualified-name existence check
+// (types.QualifiedSymbolOracle, QNO batch 2026-07-05). Sub-oracles
+// that do not implement the optional extension — the degraded
+// fallbackOracle used when Config.OracleFactory is nil — are skipped:
+// a qualified spelling stays an honest miss there rather than being
+// approximated (禁 fuzzy). Same found / minTier merge semantics as
+// SymbolExists / SymbolExistsFlat.
+func (o *multiGraphOracle) QualifiedSymbolExists(name string) (bool, int) {
+	if o == nil || o.mg == nil {
+		return false, 0
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false, 0
+	}
+	graphs := o.mg.AllGraphs()
+	if len(graphs) == 0 {
+		return false, 0
+	}
+	found := false
+	minTier := 0
+	for slug, g := range graphs {
+		if g == nil {
+			continue
+		}
+		sub := o.perGraphOracle(slug, g)
+		qsub, ok := sub.(types.QualifiedSymbolOracle)
+		if !ok {
+			continue
+		}
+		ok, tier := qsub.QualifiedSymbolExists(name)
+		if !ok {
+			continue
+		}
+		found = true
+		if minTier == 0 || tier < minTier {
+			minTier = tier
+		}
+	}
+	return found, minTier
+}
+
+// Compile-time: the fan-out oracle carries the optional qualified
+// extension so top-level consumers can type-assert it regardless of
+// single- vs multi-repo posture.
+var _ types.QualifiedSymbolOracle = (*multiGraphOracle)(nil)
+
 // SymbolExistsFlat fans out the case-form-aware existence check.
 func (o *multiGraphOracle) SymbolExistsFlat(name string) (bool, int) {
 	if o == nil || o.mg == nil {

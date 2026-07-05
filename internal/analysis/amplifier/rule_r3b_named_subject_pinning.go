@@ -54,7 +54,33 @@ func r3bNamedSubjectMustInclude(rm types.RequestModel, contract *types.AnswerCon
 		}
 		surface := strings.TrimSpace(prov.Surface)
 		if !types.AnchorTokenShaped(surface) {
-			continue
+			// QNO 备注a (2026-07-05): receiver-paren spellings like
+			// "(*Gate).Run" fail the token-shape gate, but a RESOLVED
+			// symbol subject can still be constrained through its bare
+			// trailing segment when that tail is token-shaped. The tail
+			// comes from the shared deterministic helper — never fuzzy.
+			tail := types.QualifiedTermTrailingSegment(surface)
+			if prov.Resolution != types.EntityResolutionSymbol || !types.AnchorTokenShaped(tail) {
+				continue
+			}
+			surface = tail
+		}
+		kind := types.InferContractTermKind(surface)
+		if prov.Resolution == types.EntityResolutionSymbol {
+			// QNO F1 (2026-07-05): a dotted symbol surface ("gate.Run")
+			// otherwise infers file_stem, whose hit logic accepts ANY
+			// citation whose stem matches the package half
+			// (contractFileStemCoveredByCitation keys ["gate.run","gate"]
+			// ← citation gate/gate.go) — under the Go pkg/pkg.go
+			// convention the pin was vacuous: the s1a probe form (answer
+			// never names Run, only cites gate/gate.go) shipped with 0
+			// violations. The provenance row is a TYPED precise signal
+			// that this surface IS a symbol, so hard-setting the kind is
+			// legitimate; the checker's include-side tail acceptance
+			// (qualifiedSymbolTermHit) keeps bare-tail mentions ("Run")
+			// satisfying. Enforcement stays on the soft ViolMustInclude
+			// lane — only the citation bypass is closed.
+			kind = types.ContractTermSymbol
 		}
 		key := strings.ToLower(surface)
 		if existing[key] {
@@ -64,7 +90,7 @@ func r3bNamedSubjectMustInclude(rm types.RequestModel, contract *types.AnswerCon
 		contract.MustInclude = append(contract.MustInclude, surface)
 		contract.MustIncludeTerms = append(contract.MustIncludeTerms, types.ContractTerm{
 			Text:   surface,
-			Kind:   types.InferContractTermKind(surface),
+			Kind:   kind,
 			Source: types.ContractTermSourceAnalyzerEntity,
 		})
 		pinned = append(pinned, surface)

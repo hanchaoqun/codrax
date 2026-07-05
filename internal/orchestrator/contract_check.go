@@ -853,6 +853,19 @@ func contractOracleHasReliableSymbol(oracle types.SymbolOracle, name string) boo
 	if found, tier := oracle.SymbolExistsFlat(name); found && tier < 3 {
 		return true
 	}
+	// QNO F1 (2026-07-05): qualified spellings ("gate.Run") never hit
+	// the bare-name exact/flat indexes, so before this lane an R3b
+	// symbol-kind pin on the user's own dotted spelling was DEMOTED
+	// here as "unsupported" whenever no symbol signals existed — the
+	// vacuum would have moved from the checker to this drop. The
+	// optional extension resolves the qualified form deterministically
+	// (exact hierarchical scope match, 禁 fuzzy); same tier<3
+	// reliability floor as the exact/flat lanes.
+	if qo, ok := oracle.(types.QualifiedSymbolOracle); ok {
+		if found, tier := qo.QualifiedSymbolExists(name); found && tier < 3 {
+			return true
+		}
+	}
 	return false
 }
 
@@ -861,7 +874,15 @@ func symbolTermKeys(text string) []string {
 	if text == "" {
 		return nil
 	}
-	return []string{strings.ToLower(text)}
+	out := []string{strings.ToLower(text)}
+	// QNO F1 (2026-07-05): a qualified spelling is evidence-supported
+	// when the bare trailing segment is anchored — same deterministic
+	// tail rule as UnconsumedAnchorObligations / the checker's
+	// include-side acceptance (shared helper, never fuzzy).
+	if tail := types.QualifiedTermTrailingSegment(text); tail != "" {
+		out = append(out, strings.ToLower(tail))
+	}
+	return out
 }
 
 func fileTermKeys(path string) []string {

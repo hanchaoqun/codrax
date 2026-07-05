@@ -401,6 +401,65 @@ func TestReconcileQualifiedCodeSymbolConfigDrift_RoutesQualifiedSymbolsToCompari
 	}
 }
 
+// QNO F4 (2026-07-05) — EXPECTED-behaviour pin, not a regression: after
+// expandEntityNameAliases switched to the shared deterministic splitter
+// (repomap.SplitQualifiedSegments), Go receiver-paren spellings like
+// "(*Gate).Run" decompose to prefix ["gate"] and RESOLVE against
+// Symbol.Receiver. Before the switch they produced garbage prefixes
+// ("(*gate)") that never matched, so such spellings silently failed to
+// resolve and could never satisfy this reconcile's ≥2-resolution
+// threshold. Two receiver-paren mentions flipping the hard
+// config→architecture rewrite is the intended direction — the spelling
+// names the same code symbol as its dotted equivalent. Do not "fix" by
+// re-excluding paren forms.
+func TestReconcileQualifiedCodeSymbolConfigDrift_ReceiverParenFormsResolve(t *testing.T) {
+	graph := &repomap.Graph{SymbolDefs: map[string][]*repomap.Symbol{
+		"Run": {{
+			Name:     "Run",
+			Kind:     "method",
+			Receiver: "Gate",
+			File:     "internal/analysis/gate/gate.go",
+		}},
+		"Exec": {{
+			Name:     "Exec",
+			Kind:     "method",
+			Receiver: "Runner",
+			File:     "internal/run/exec.go",
+		}},
+	}}
+	rm := types.RequestModel{
+		RawRequest: "(*Gate).Run 和 (r *Runner).Exec 的配置有什么差异？",
+		Intent:     types.IntentConfigQuery,
+		Scenario:   types.ScenarioConfigTrace,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:              string(types.ReqConfigMapping),
+			Entities:          []string{"(*Gate).Run", "(r *Runner).Exec"},
+			MentionedEntities: []string{"(*Gate).Run", "(r *Runner).Exec"},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "(*Gate).Run", Entities: []string{"(*Gate).Run"}},
+			{Summary: "(r *Runner).Exec", Entities: []string{"(r *Runner).Exec"}},
+		},
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey, Confidence: 0.8},
+		PredicateAxis: types.AxisConfigure,
+		Predicates:    types.SemanticPredicates{IsCrossComponent: true},
+	}
+
+	got, reason := reconcileQualifiedCodeSymbolConfigDrift(rm, graph)
+	if reason == "" {
+		t.Fatal("two receiver-paren mentions resolving to repo methods must satisfy the ≥2-resolution gate (expected flip form)")
+	}
+	if got.Scenario != types.ScenarioArchitectureExplain || got.Intent != types.IntentExplain {
+		t.Fatalf("expected config→architecture rewrite, got intent=%q scenario=%q", got.Intent, got.Scenario)
+	}
+	if len(got.Buckets) != 2 || got.Buckets[0].Label != "(*Gate).Run" || got.Buckets[1].Label != "(r *Runner).Exec" {
+		t.Fatalf("buckets must keep the user's original spellings as labels: %+v", got.Buckets)
+	}
+	if !containsStringSlice(got.AnalyzerHints.Entities, "Run") || !containsStringSlice(got.AnalyzerHints.Entities, "Exec") {
+		t.Fatalf("canonical bare-symbol aliases should be added as derived search entities: %+v", got.AnalyzerHints.Entities)
+	}
+}
+
 func TestReconcileQualifiedCodeSymbolConfigDrift_RequiresTypedMentionedEntities(t *testing.T) {
 	graph := &repomap.Graph{SymbolDefs: map[string][]*repomap.Symbol{
 		"templateArchitectureExplain": {{
