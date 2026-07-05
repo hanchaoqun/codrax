@@ -430,8 +430,8 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceNextStepFromTypedObservati
 	// Rows with different CPU / competitor data stay separate (record-payload
 	// dedupe key, not rendered text).
 	if len(next.Items) != 2 || next.Items[0].Label != "下一步" ||
-		next.Items[0].Text != "排查同CPU(cpu=1)竞争:top运行线程 rival-30、优先级与CPU频率" ||
-		next.Items[1].Text != "排查同CPU(cpu=6)竞争:top运行线程 rival-40、优先级与CPU频率" {
+		next.Items[0].Text != "排查同CPU(cpu=1)竞争:top 运行线程 rival-30、优先级与CPU频率" ||
+		next.Items[1].Text != "排查同CPU(cpu=6)竞争:top 运行线程 rival-40、优先级与CPU频率" {
 		t.Fatalf("next step items did not compose typed competitor data: %+v", next.Items)
 	}
 	if strings.Contains(next.Items[0].Text, "inspect") {

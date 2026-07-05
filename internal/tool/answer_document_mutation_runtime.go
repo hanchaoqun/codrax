@@ -2,6 +2,7 @@ package tool
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -899,30 +900,75 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// unreadable — itemized, one short definition per line, kept plain.
 		// PTV4 T10: the table is the (a) key-metric surface (≤6 columns);
 		// the (b) vertical blocks below carry every qualitative attribute.
+		// PTV5 C28/C29 (#68): the 窗口投影/链上累计 definitions land on the
+		// duration layer instead of defining 投影 by 投影 — direction of the
+		// cumulative verified against the producer semantics (a node's
+		// cumulative contains its drill-down sub-chain toward the target;
+		// see runtimeTraceProjDepth1Cumulative's containment doc). PTV5 C41:
+		// 全 roster → 全部成员清单 (no half-English).
 		lines := []string{
 			"口径:",
-			"- 窗口投影 = 节点在用户窗口内的投影影响。",
-			"- 链上累计 = 该链路向目标累计投影。",
+			"- 窗口投影 = 该节点相关状态落在用户窗口内的时长(跨线程聚合行为 cpu·ms 累计,单元格已注)。",
+			"- 链上累计 = 该节点连同其下钻子链沿唤醒链累计到目标的投影时长。",
 			"- 有效归因 = 排序/归因使用的有效影响。",
 			"- 实际状态 = 底层状态实际持续时长。",
 			"- 「—」 = 该口径对此节点无值。",
 			"- ⊘ = 窗口内无匹配 sched_wakeup(missing_wakeup),下钻链止。",
 			"- ⚠ = 实际状态跨出投影窗口。",
 			"- 背景行仅作压力/环境证据,不自动等同链上主因。",
-			"- 定性属性(类型/因果位置/关系/影响形态/×N 全 roster/完整名称)见下方按节点纵排的无损块。",
+			"- 定性属性(类型/因果位置/关系/影响形态/×N 全部成员清单/完整名称)见下方按节点纵排的无损块。",
 		}
 		if !zh {
 			lines = []string{
 				"Legend:",
-				"- window projection = the node's projected impact inside the user window.",
-				"- chain total = cumulative projection toward the target.",
+				"- window projection = the duration of the node's underlying state that falls inside the user window (cross-thread aggregate rows accumulate cpu·ms; cells carry the annotation).",
+				"- chain total = the projected duration this node plus its drill-down sub-chain accumulate toward the target along the wakeup chain.",
 				"- attribution = the effective impact used for ranking/attribution.",
 				"- actual state = the underlying state duration.",
 				"- “—” = no value for this node.",
 				"- ⊘ = no matching sched_wakeup in the window (missing_wakeup); the chain ends.",
 				"- ⚠ = the actual state crosses the projected window.",
 				"- Background rows are pressure/context evidence only.",
-				"- Qualitative attributes (type / causal position / relation / impact shape / full ×N rosters / full names) live in the per-node lossless blocks below.",
+				"- Qualitative attributes (type / causal position / relation / impact shape / full ×N member rosters / full names) live in the per-node lossless blocks below.",
+			}
+		}
+		// PTV5 C33/C34 (#68): the ×N-form and dual-seat notations get legend
+		// rows exactly when the table shows them (gated flags from the same
+		// detail rows the table renders) — every other render stays
+		// byte-stable.
+		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedDedup || flags.multiSeat {
+			if flags.mergedSum || flags.mergedMax || flags.mergedDedup {
+				var parts []string
+				if zh {
+					if flags.mergedSum {
+						parts = append(parts, "×N(a–b) = N 次合并,数值为总和")
+					}
+					if flags.mergedMax {
+						parts = append(parts, "×N(a–b)取最大 = 跨线程折叠,数值取成员最大(墙钟不求和)")
+					}
+					if flags.mergedDedup {
+						parts = append(parts, "×N同值 = 同一测量重复发布,数值即那一次")
+					}
+					lines = append(lines, "- "+strings.Join(parts, ";")+"。")
+				} else {
+					if flags.mergedSum {
+						parts = append(parts, "×N(a–b) = N merged instances, the value is the SUM")
+					}
+					if flags.mergedMax {
+						parts = append(parts, "×N(a–b) max = cross-thread fold, the value is the member MAX (wall clock never sums)")
+					}
+					if flags.mergedDedup {
+						parts = append(parts, "×N same-value = one measurement published N times, the value IS that one")
+					}
+					lines = append(lines, "- "+strings.Join(parts, "; ")+".")
+				}
+			}
+			if flags.multiSeat {
+				if zh {
+					lines = append(lines, "- 双席/多席 = 同一节点同时出现在多个区段(记号列出各席),表内只列一行,数值不重复计;各席属性见下方无损块。")
+				} else {
+					lines = append(lines, "- dual-/multi-seat = one node holds seats in multiple stanzas (the glyphs list the seats); the table lists it once and never double counts — per-seat attributes live in the lossless blocks below.")
+				}
 			}
 		}
 		// VS-1 (§7.8): the discount caliber is explained ONLY when a periodic
@@ -955,7 +1001,8 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// 复核收窄: the blocks cover every DATA-bearing rendered node; folded
 		// transit hops carry no data row and live on the 省略行 roster + the
 		// original trace_query record — the intro must not over-promise them.
-		intro := "每个数据节点一块:树与关键量表省略或压缩的属性在此完整可见;完整名称不截断。折叠中转节点见树内省略行 roster 与原始 trace_query 记录。"
+		// PTV5 C42 (#68): 省略行 roster → 省略行清单 (no half-English).
+		intro := "每个数据节点一块:树与关键量表省略或压缩的属性在此完整可见;完整名称不截断。折叠中转节点见树内省略行清单与原始 trace_query 记录。"
 		if !zh {
 			title = "Causal Projection Detail (lossless, per node)"
 			intro = "One block per data-bearing node: every attribute the tree or the key-metric table demotes or compresses is fully visible here; full names are never truncated. Folded transit hops live on the tree's omitted-row roster and in the original trace_query record."
@@ -1156,11 +1203,14 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 			rows = append(rows, types.AnswerBlockItem{Cells: noteCells, CitationRef: -1})
 		}
 	}
+	// PTV5 C15 (#68): no internal jargon on the user panel — "typed" out, and
+	// the retired LLM-predicate framing ("对比形态判定") with it (NEW-2 made
+	// the gate a deterministic partition count).
 	title := "Trace 因果投影对比总览"
-	text := "对比形态(typed 判定)下的逐工件总览;数值全部来自各工件独立投影的 typed 字段,跨线程累计值带单位标注,详情见各工件分段。"
+	text := "跨 trace 对比总览:数值全部来自各工件独立投影的结构化字段,跨线程累计值带单位标注,详情见各工件分段。"
 	if !zh {
 		title = "Trace Causal Projection Comparison Overview"
-		text = "Per-artifact overview for the typed comparison shape; every value comes from each artifact's independent projection (typed fields), cross-thread cumulative values carry their unit annotation. Details live in the per-artifact sections."
+		text = "Cross-trace comparison overview: every value comes from each artifact's independent projection (structured fields); cross-thread cumulative values carry their unit annotation. Details live in the per-artifact sections."
 	}
 	return &types.AnswerBlock{
 		ID:          runtimeTraceCausalProjectionCompareBlockID,
@@ -1594,8 +1644,10 @@ func runtimeTraceCausalProjectionCoverageReasons(results []types.ToolResult, zh 
 func runtimeTraceCausalProjectionCoverageReasonLabel(code string, zh bool) string {
 	switch strings.TrimSpace(code) {
 	case "trace_query_heavy_view_requires_scope":
+		// PTV5 C37 (#68): zh 面不夹 heavy view/bounded 工程词;view 名与参数名
+		// (span/pattern) 保留=操作指引。
 		if zh {
-			return "大 trace 的 heavy view 需要 bounded 时间/行/span/pattern 范围"
+			return "大 trace 的重量级视图查询需要限定时间/行/span/pattern 范围"
 		}
 		return "heavy trace view requires a bounded time/line/span/pattern scope"
 	case "trace_query_index_event_limit":
@@ -1610,7 +1662,7 @@ func runtimeTraceCausalProjectionCoverageReasonLabel(code string, zh bool) strin
 		return "trace_query result was compacted"
 	case "trace_query_event_search_limit_reached":
 		if zh {
-			return "event_search 结果达到 limit"
+			return "event_search 结果达到条数上限"
 		}
 		return "event_search reached its result limit"
 	case "trace_query_recipe_discovery_needs_scope":
@@ -1662,6 +1714,10 @@ type runtimeTraceCausalProjectionEvidenceIndex struct {
 	// on-chain causality next to a header that says the chain could not be
 	// traced (CMP-7a). Set by the cluster builder before the model build.
 	flatChain bool
+	// hasMergedEvidence flips when any added node carried MergedEvidenceIDs —
+	// gates the PTV5 C35 (#68) E#(+N) intro half-sentence, so rosters without
+	// the notation stay byte-identical.
+	hasMergedEvidence bool
 }
 
 type runtimeTraceCausalProjectionEvidenceEntry struct {
@@ -1700,6 +1756,9 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 	}
 	id := fmt.Sprintf("E%d", len(idx.order)+1)
 	idx.seen[key] = id
+	if len(node.MergedEvidenceIDs) > 0 {
+		idx.hasMergedEvidence = true
+	}
 	window := ""
 	if node.StartTs > 0 && node.EndTs > node.StartTs {
 		window = fmt.Sprintf("[%.3f–%.3fs]", node.StartTs, node.EndTs)
@@ -1766,6 +1825,13 @@ func runtimeTraceCausalProjectionLayerCell(node types.TraceCausalProjectionNode,
 	}
 	switch strings.TrimSpace(node.ChainRelevance) {
 	case "on_chain":
+		// PTV5 C30 (#68): the zh panel says 链上 (every sibling branch already
+		// speaks zh); the EN face keeps its established on-chain product word.
+		// The CMP-7a flat wrapper (runtimeTraceProjCausalPositionLayerCell)
+		// matches BOTH spellings.
+		if zh {
+			return "链上"
+		}
 		return "on-chain"
 	case "adjacent":
 		if zh {
@@ -1835,10 +1901,14 @@ func runtimeTraceCausalProjectionActionCell(node types.TraceCausalProjectionNode
 		}
 		return "execution/CPU"
 	case "runnable":
+		// PTV5 Q4 (#68 用户裁定 2026-07-05): the runnable action word says what
+		// the WAIT is (调度等待) — the former 调度/优先级 collided by word-table
+		// coincidence with the priority-inversion evidence wording and read as
+		// an inversion claim on plain runnable rows.
 		if zh {
-			return "调度/优先级"
+			return "调度等待"
 		}
-		return "schedule/priority"
+		return "scheduling wait"
 	case "d_state", "io_wait", "d_sleep", "uninterruptible_sleep":
 		if zh {
 			return "阻塞/IO"
@@ -2099,13 +2169,6 @@ func runtimeTraceCausalProjectionTitle(lang string) string {
 	return "Trace Causal Projection"
 }
 
-func runtimeTraceCausalProjectionIntro(lang string) string {
-	if runtimeTraceCausalProjectionUseChinese(lang) {
-		return "这部分由系统根据 trace_query 的结构化证据自动提炼：优先展示直接唤醒链或依赖链上的主因层，保留共同主因和 on-chain/off-chain 分层，再给出完整链路和关键支撑节点。括号中的影响时长、排序和证据来源用于定位原始 trace 证据，不是额外推测。"
-	}
-	return "This section is automatically distilled from structured trace_query evidence: it prioritizes root-cause layers on the direct wakeup/dependency chain, preserves co-primary and on-chain/off-chain layering, then shows the full path and supporting hops. Impact, rank, and source details in parentheses are trace-evidence locators, not extra speculation."
-}
-
 func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectionNode, zh bool) string {
 	if node.IsAggregateMetric() {
 		return runtimeTraceCausalProjectionCompactCellText(runtimeTraceCausalProjectionAggregateMetricName(node, zh), 44)
@@ -2258,7 +2321,12 @@ func runtimeTraceCausalProjectionKnownSubject(raw string) bool {
 // row's cause type. Only these rows replace the single-state tag with the
 // dedicated inversion-impact label and the gated composition split.
 func runtimeTraceCausalProjectionInversionRow(node types.TraceCausalProjectionNode) bool {
-	return runtimeTraceCausalProjectionCanonicalNode(node.Object) == "priority_inversion_candidate"
+	// PTV5 Q4 (#68 用户裁定 2026-07-05): the typed node field is the primary
+	// signal (hop rows carry the candidacy note while their Object holds the
+	// dominant state); the Object-token lane stays for root_cause rows whose
+	// Object rides the type token.
+	return node.PriorityInversionCandidate ||
+		runtimeTraceCausalProjectionCanonicalNode(node.Object) == "priority_inversion_candidate"
 }
 
 // runtimeTraceCausalProjectionBlockingName renders the typed lock-contention
@@ -2735,10 +2803,13 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 	snapCtx := newRuntimeTraceMetricSnapshotContext(ledger, runtimeTraceProjUserFocusFromBusContext(ctx), zh)
 	seen := make(map[string]bool)
 	type snapshotCandidate struct {
-		record  types.ObservationRecord
-		raw     string
-		tier    int
-		projIdx int
+		record   types.ObservationRecord
+		raw      string
+		tier     int
+		projIdx  int
+		winStart float64
+		winEnd   float64
+		windowed bool
 	}
 	var candidates []snapshotCandidate
 	hasChainCandidate := false
@@ -2762,23 +2833,119 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 		if tier == runtimeTraceMetricSnapshotTierChain {
 			hasChainCandidate = true
 		}
-		candidates = append(candidates, snapshotCandidate{record: record, raw: raw, tier: tier, projIdx: projIdx})
+		candidate := snapshotCandidate{record: record, raw: raw, tier: tier, projIdx: projIdx}
+		// PTV5 Q3 (#68 用户裁定 2026-07-05, NEW-8 display 用途): each record's
+		// own typed selected_window — the single strict parser — keys the
+		// per-window grouping below. Display-only; anchors untouched.
+		if ws, we, wok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes); wok {
+			candidate.winStart, candidate.winEnd, candidate.windowed = ws, we, true
+		}
+		candidates = append(candidates, candidate)
 	}
-	// CMP-4a candidate priority: threads on the compiled projection chain
-	// (WakeupPath/TreeRows canonical subjects, exact match) first, then analyzer
-	// entity hits (verbatim name/pid lanes), then the rest — and when ANY
-	// on-chain candidate exists, unrelated threads never enter the snapshot at
-	// all (the customer render burned both slots on usbDelayTimer/OS_DfxWatchdog
-	// while bindApplication's chain threads carried full metric sets). Stable
-	// sort keeps ledger order inside each tier.
-	sort.SliceStable(candidates, func(i, j int) bool {
-		return candidates[i].tier < candidates[j].tier
-	})
-	var out []types.AnswerBlockItem
+	// CMP-4a eligibility first (one face for the gate AND the render, 复核 Med
+	// 2026-07-06): when ANY on-chain candidate exists, rest-tier candidates
+	// never enter the snapshot at all (the customer render burned both slots
+	// on usbDelayTimer/OS_DfxWatchdog while bindApplication's chain threads
+	// carried full metric sets).
+	eligible := candidates[:0:0]
 	for _, candidate := range candidates {
 		if hasChainCandidate && candidate.tier == runtimeTraceMetricSnapshotTierRest {
 			continue
 		}
+		eligible = append(eligible, candidate)
+	}
+	// PTV5 Q3 + 复核 Med: the grouping keys on the ELIGIBLE set — the SAME set
+	// selection and rendering read, so the two faces can never diverge. ≥2
+	// distinct windows (±1ms dedupe) activates the per-window floor: every
+	// window keeps at least ONE row (budget grows to the window count when it
+	// exceeds the legacy 2 slots) — the tree header's 按查询窗分组 claim would
+	// otherwise go false whenever one window lost the global slot race.
+	distinctWindows := runtimeTraceMetricSnapshotDistinctWindows(func(yield func(float64, float64)) {
+		for _, c := range eligible {
+			if c.windowed {
+				yield(c.winStart, c.winEnd)
+			}
+		}
+	})
+	multiWindow := distinctWindows >= 2
+	// CMP-4a candidate priority: chain tier first, then analyzer-entity hits,
+	// then the rest; stable sort keeps ledger order inside each tier. PTV5 Q3:
+	// the tier stays the PRIMARY key (CMP-4a ruling untouched — it decides WHO
+	// gets a slot); within a tier, multi-window snapshots order by ascending
+	// window start (window-less rows last).
+	sort.SliceStable(eligible, func(i, j int) bool {
+		if eligible[i].tier != eligible[j].tier {
+			return eligible[i].tier < eligible[j].tier
+		}
+		if multiWindow {
+			wi, wj := eligible[i], eligible[j]
+			if wi.windowed != wj.windowed {
+				return wi.windowed
+			}
+			if wi.windowed && wj.windowed && wi.winStart != wj.winStart {
+				return wi.winStart < wj.winStart
+			}
+		}
+		return false
+	})
+	budget := 2
+	if distinctWindows > budget {
+		budget = distinctWindows
+	}
+	windowKey := func(c snapshotCandidate) string {
+		return fmt.Sprintf("%.3f\x00%.3f", c.winStart, c.winEnd)
+	}
+	selected := make([]bool, len(eligible))
+	picked := 0
+	if multiWindow {
+		// Pass 1 (per-window floor): scanning in tier-major order, the first
+		// candidate of each window group is that window's tier-best row.
+		groupPicked := map[string]bool{}
+		for i, candidate := range eligible {
+			if !candidate.windowed || groupPicked[windowKey(candidate)] {
+				continue
+			}
+			groupPicked[windowKey(candidate)] = true
+			selected[i] = true
+			picked++
+		}
+	}
+	// Pass 2: fill the remaining budget in CMP-4a order (window-less rows
+	// compete here only — their absence of a window claim earns no floor).
+	for i := range eligible {
+		if picked >= budget {
+			break
+		}
+		if selected[i] {
+			continue
+		}
+		selected[i] = true
+		picked++
+	}
+	// Render: multi-window snapshots read window-major (the grouped reading
+	// the tree header points at); single-window snapshots keep the legacy
+	// tier order byte-identical.
+	order := make([]int, 0, picked)
+	for i := range eligible {
+		if selected[i] {
+			order = append(order, i)
+		}
+	}
+	if multiWindow {
+		sort.SliceStable(order, func(a, b int) bool {
+			ci, cj := eligible[order[a]], eligible[order[b]]
+			if ci.windowed != cj.windowed {
+				return ci.windowed
+			}
+			if ci.windowed && cj.windowed && ci.winStart != cj.winStart {
+				return ci.winStart < cj.winStart
+			}
+			return false
+		})
+	}
+	var out []types.AnswerBlockItem
+	for _, idx := range order {
+		candidate := eligible[idx]
 		text := runtimeTraceMetricSnapshotDisplayText(candidate.record, zh)
 		if text == "" {
 			text = candidate.raw
@@ -2793,17 +2960,43 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 		if prefix := snapCtx.artifactPrefix(candidate.projIdx); prefix != "" {
 			label = prefix + " · " + label
 		}
+		// PTV5 Q3: the window group label leads the row (grouped reading);
+		// window-less rows stay unprefixed (their absence of a window claim is
+		// itself the honest state — 禁猜).
+		if multiWindow && candidate.windowed {
+			if zh {
+				label = fmt.Sprintf("查询窗 %.3f–%.3fs · ", candidate.winStart, candidate.winEnd) + label
+			} else {
+				label = fmt.Sprintf("query window %.3f–%.3fs · ", candidate.winStart, candidate.winEnd) + label
+			}
+		}
 		out = append(out, types.AnswerBlockItem{
 			ID:          fmt.Sprintf("runtime_trace_metric_snapshot_%d", len(out)+1),
 			Label:       label,
 			Text:        text,
 			CitationRef: -1,
 		})
-		if len(out) >= 2 {
-			break
-		}
 	}
 	return out
+}
+
+// runtimeTraceMetricSnapshotDistinctWindows counts the DISTINCT windows the
+// callback yields (±1ms per endpoint — the SAME exported tolerance authority
+// as the F-2 same-window verdict, 复核 Low 2026-07-06: no re-minted literal).
+// PTV5 Q3 display gate only.
+func runtimeTraceMetricSnapshotDistinctWindows(iter func(yield func(float64, float64))) int {
+	type win struct{ s, e float64 }
+	var seenWins []win
+	iter(func(s, e float64) {
+		for _, w := range seenWins {
+			if math.Abs(w.s-s) <= types.TraceCausalProjectionSameWindowToleranceS &&
+				math.Abs(w.e-e) <= types.TraceCausalProjectionSameWindowToleranceS {
+				return
+			}
+		}
+		seenWins = append(seenWins, win{s: s, e: e})
+	})
+	return len(seenWins)
 }
 
 // Snapshot candidate tiers (CMP-4a, customer compare audit 2026-07-03 §7):
@@ -3405,6 +3598,26 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 			CitationRef: -1,
 		})
 	}
+	// PTV5 Q3 (#68 用户裁定 2026-07-05, 单工件多锚窗支): exactly one compiled
+	// projection with ≥2 distinct typed query windows — the within-trace
+	// dual-window comparison guidance (CMP-9 normalization caliber + per-window
+	// causal sampling). Mutually exclusive with the ≥2-projection comparison
+	// rows above by construction.
+	for _, step := range runtimeTraceNextStepMultiWindowSteps(ledger, zh) {
+		if len(out) >= runtimeTraceNextStepMaxItems {
+			break
+		}
+		if step == "" || seenText[step] {
+			continue
+		}
+		seenText[step] = true
+		out = append(out, types.AnswerBlockItem{
+			ID:          fmt.Sprintf("runtime_trace_next_step_%d", len(out)+1),
+			Label:       label,
+			Text:        step,
+			CitationRef: -1,
+		})
+	}
 	// RN-13(b) (§7.9 runnable 主导场景审计 2026-07-04): flat-fallback shape whose
 	// analysis anchor is NOT the user's focused thread — the projection header
 	// disclosed the mismatch (RN-13(a), same typed lane); this row is the
@@ -3488,15 +3701,59 @@ func runtimeTraceNextStepComparisonShape(ledger types.ObservationLedger) bool {
 // (§7.3 CMP-9 口径). System-fixed guidance strings in the same lane as the
 // per-record next-step rows; they carry no scalar claims about either trace.
 func runtimeTraceNextStepComparisonSteps(zh bool) []string {
+	// PTV5 C19 (#68): 『同窗』 read as one shared absolute window — two traces
+	// cannot share one; the zh row says 各自同口径窗口内 (the EN row already
+	// said same-caliber windows). The "running 时间" wording is the §7.2 CMP
+	// design verbatim and stays. PTV5 Q3 (#68 用户裁定 2026-07-05): the third
+	// row steers dual-/multi-window comparisons to run causal sampling PER
+	// query window before comparing.
 	if zh {
 		return []string{
-			"对比两 trace 同窗 top 运行线程与进程级 running 时间差异",
+			"对比两 trace 各自同口径窗口内 top 运行线程与进程级 running 时间差异",
 			"对齐目标 span 边界后重取两侧聚合指标(按各自窗长归一化后再对比)",
+			"双窗/多窗对比时:对每个查询窗分别执行同口径因果采样(wakeup_chain/root_cause_rank)后逐窗对比",
 		}
 	}
 	return []string{
 		"Compare the top running threads and per-process running time of both traces over same-caliber windows",
 		"Re-anchor each trace to the target span boundaries, then re-collect the window aggregates normalized by each window's own length before comparing",
+		"For dual-/multi-window comparisons: run the same-caliber causal sampling (wakeup_chain/root_cause_rank) per query window, then compare window by window",
+	}
+}
+
+// runtimeTraceNextStepMultiWindowSteps returns the PTV5 Q3 single-artifact
+// multi-anchor-window guidance rows (#68 用户裁定 2026-07-05, 对比门旁的
+// 单工件多锚窗支): the ledger compiled to EXACTLY one active projection whose
+// trace_query records carry ≥2 DISTINCT typed query windows — a within-trace
+// dual-window comparison shape. The rows reuse the CMP-9 normalization
+// caliber (relative, per-window-length normalized metrics) and steer causal
+// sampling to run PER WINDOW. The preflight capture census (artifact identity
+// language) is deliberately NOT consulted — windows are not captures
+// (census=capture 语言不挪用). Empty on every other shape, so the existing
+// gates stay byte-identical.
+func runtimeTraceNextStepMultiWindowSteps(ledger types.ObservationLedger, zh bool) []string {
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	if len(set.Projections) != 1 {
+		return nil
+	}
+	windows := set.Projections[0].QueryWindows
+	if len(windows) < 2 {
+		return nil
+	}
+	// 复核 Low (2026-07-06): a cap-truncated window list renders a lower bound.
+	count := fmt.Sprintf("%d", len(windows))
+	if set.Projections[0].QueryWindowsTruncated {
+		count = fmt.Sprintf("≥%d", len(windows))
+	}
+	if zh {
+		return []string{
+			fmt.Sprintf("本 trace 含 %s 个查询窗:窗长不同时先按各自窗长归一化(占窗比例)再跨窗对比", count),
+			"双窗对比:对每个查询窗分别执行同口径因果采样(wakeup_chain/root_cause_rank)后逐窗对比",
+		}
+	}
+	return []string{
+		fmt.Sprintf("This trace carries %s query windows: normalize by each window's own length (window share) before comparing across windows", count),
+		"Dual-window comparison: run the same-caliber causal sampling (wakeup_chain/root_cause_rank) per query window, then compare window by window",
 	}
 }
 
@@ -3570,19 +3827,23 @@ func runtimeTraceNextStepUnsampledComparisonHint(ctx *types.BusContext, ledger t
 		// Census and projection disagree on identity coverage; fail closed.
 		return ""
 	}
+	// PTV5 C20 (#68): the artifact EXISTS (preflight census confirmed the
+	// capture) — what is missing is THIS ROUND's queries against it, so the
+	// wording says 本轮未取数, never "尚未采样" (read as "the trace itself has
+	// no data").
 	if len(remaining) == 1 {
 		name := runtimeTraceCaptureIdentityBasename(remaining[0])
 		if name != "" {
 			if zh {
-				return fmt.Sprintf("另一份 trace 尚未采样:对 %s 重复同口径采样(同窗/同视图)后再对比", name)
+				return fmt.Sprintf("另一份 trace 本轮未取数:对 %s 以同口径(同窗/同视图)执行查询后再对比", name)
 			}
-			return fmt.Sprintf("The other trace is not sampled yet: repeat the same-caliber sampling (same window/same views) on %s, then compare", name)
+			return fmt.Sprintf("The other trace was not queried this round: run the same-caliber queries (same window/same views) on %s, then compare", name)
 		}
 	}
 	if zh {
-		return "另一份 trace 尚未采样:对其余未采样的 trace 工件重复同口径采样(同窗/同视图)后再对比"
+		return "另一份 trace 本轮未取数:对其余未取数的 trace 工件以同口径(同窗/同视图)执行查询后再对比"
 	}
-	return "The other trace is not sampled yet: repeat the same-caliber sampling (same window/same views) on the remaining trace artifacts, then compare"
+	return "The other trace was not queried this round: run the same-caliber queries (same window/same views) on the remaining trace artifacts, then compare"
 }
 
 // runtimeTraceNextStepFlatAnchorRecoveryHints returns the RN-13(b) recovery
@@ -3691,7 +3952,9 @@ func runtimeTraceNextStepRunnableChineseText(notes []string) string {
 	if cpu != "" {
 		scope = fmt.Sprintf("同CPU(cpu=%s)", cpu)
 	}
-	top := "top运行线程"
+	// PTV5 C26 (#68): "top 运行线程" spaced like the CMP-6 rows (no half-width
+	// jam of latin+CJK).
+	top := "top 运行线程"
 	if competitor != "" {
 		top += " " + competitor
 	}
@@ -3705,7 +3968,8 @@ func runtimeTraceNextStepRunnableChineseText(notes []string) string {
 func runtimeTraceNextStepChineseText(kind string) string {
 	switch strings.TrimSpace(strings.ToLower(kind)) {
 	case "runnable":
-		return "排查同CPU竞争:top运行线程、优先级与CPU频率"
+		// PTV5 C26 (#68): spacing matches the dynamic variant above.
+		return "排查同CPU竞争:top 运行线程、优先级与CPU频率"
 	case "s_sleep":
 		return "排查反复唤醒它的对端线程、binder等待、锁与条件变量等待"
 	case "d_sleep_io":

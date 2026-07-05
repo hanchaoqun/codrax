@@ -7797,6 +7797,14 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 		return out[i].LineStart < out[j].LineStart
 	})
 	if len(out) > 8 {
+		// PTS (#68 用户裁定 2026-07-05, 零静默丢弃披露): the aggregate list is a
+		// DERIVED view over CausalImpacts (the per-hop rows remain complete);
+		// the top-8 trim states its count instead of vanishing. Per-pair
+		// occurrence WINDOWS are already fold+count by construction:
+		// OccurrenceCount keeps the full count while OccurrenceWindows keeps
+		// the top wakeupCausalAggregateOccurrenceCap spans.
+		chain.Caveats = append(chain.Caveats, fmt.Sprintf(
+			"aggregated_impacts kept top 8 of %d (derived view; per-hop causal impact rows remain complete)", len(out)))
 		out = out[:8]
 	}
 	return out
@@ -9416,6 +9424,41 @@ func rootCauseThreadDurationCovered(exact map[string][]ThreadDuration, candidate
 		}
 	}
 	return false
+}
+
+// WakeupCausalImpactEffectiveImpactMs is the PTV5 Q1 effective-attribution
+// value of one causal-impact row — EXACTLY the rank lane's published
+// semantics (rootCauseItemFromCausalImpact + rootCauseEffectiveImpactMs),
+// exported so the typed-note emission in internal/tool publishes the SAME
+// number the rank rows publish (复核 Med 真镜像, 2026-07-06; the former
+// tool-side re-implementation drifted: plain rows fell to DominantImpactMs
+// while the rank lane backfills cumulative=TotalMs, and a gated-0 inversion
+// row — the rank assignment has no >0 guard — also lands on the TotalMs
+// backfill). Branches:
+//   - periodic → the VS-1 discounted attribution (authoritative at 0);
+//   - inversion candidate with gated>0 → the R5d gated composite;
+//   - otherwise → TotalMs, then the per-state total, then the row's own
+//     blocking impact (gated for inversion rows) — the rootCause cumulative
+//     backfill chain verbatim.
+//
+// Pinned two-lane-equal by TestWakeupCausalImpactEffectiveMirrorsRankLane.
+func WakeupCausalImpactEffectiveImpactMs(impact WakeupCausalImpact) float64 {
+	if impact.PeriodicSource {
+		return impact.EffectivePeriodicImpactMs
+	}
+	if impact.PriorityInversionCandidate && impact.PriorityInversionGatedMs > 0 {
+		return impact.PriorityInversionGatedMs
+	}
+	if impact.TotalMs > 0 {
+		return impact.TotalMs
+	}
+	if stateTotal := impact.RunningMs + impact.RunnableMs + impact.SleepMs + impact.DStateMs + impact.IOWaitMs; stateTotal > 0 {
+		return stateTotal
+	}
+	if impact.PriorityInversionCandidate {
+		return impact.PriorityInversionGatedMs
+	}
+	return causalImpactBlockingMs(impact)
 }
 
 func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem {

@@ -61,7 +61,7 @@ func TestRuntimeTraceNextStepSingleSidedSamplingHintNamesUnsampledCapture(t *tes
 	if len(items) != 1 {
 		t.Fatalf("single-sided comparison shape must emit exactly the sampling hint: %+v", items)
 	}
-	if items[0].Text != "另一份 trace 尚未采样:对 6.0B138_3900.sys.systrace 重复同口径采样(同窗/同视图)后再对比" {
+	if items[0].Text != "另一份 trace 本轮未取数:对 6.0B138_3900.sys.systrace 以同口径(同窗/同视图)执行查询后再对比" {
 		t.Fatalf("the hint must name the ONE unsampled capture (census minus projected artifact): %q", items[0].Text)
 	}
 	if items[0].Label != "下一步" || items[0].CitationRef != -1 {
@@ -80,7 +80,7 @@ func TestRuntimeTraceNextStepSingleSidedSamplingHintEnglishSurface(t *testing.T)
 	bus.AnalysisIR.AnswerContract.Language = "en"
 	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
 	if len(items) != 1 ||
-		items[0].Text != "The other trace is not sampled yet: repeat the same-caliber sampling (same window/same views) on 6.0B138_3900.sys.systrace, then compare" {
+		items[0].Text != "The other trace was not queried this round: run the same-caliber queries (same window/same views) on 6.0B138_3900.sys.systrace, then compare" {
 		t.Fatalf("EN single-sided hint mismatch: %+v", items)
 	}
 }
@@ -91,7 +91,7 @@ func TestRuntimeTraceNextStepSingleSidedSamplingHintGenericOnMultipleRemaining(t
 		"7.0B30SP22_7315.systrace", "6.0B138_3900.sys.systrace", "5.0B77_1200.systrace")
 	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
 	if len(items) != 1 ||
-		items[0].Text != "另一份 trace 尚未采样:对其余未采样的 trace 工件重复同口径采样(同窗/同视图)后再对比" {
+		items[0].Text != "另一份 trace 本轮未取数:对其余未取数的 trace 工件以同口径(同窗/同视图)执行查询后再对比" {
 		t.Fatalf(">1 unsampled captures must use the generic phrase, never a guessed name: %+v", items)
 	}
 }
@@ -103,11 +103,11 @@ func TestRuntimeTraceNextStepSingleSidedSamplingHintAbsentOnTwoProjections(t *te
 	bus := compareProjBus(true)
 	bus.RuntimeArtifactPreflight = cmpcPreflight("7.0B30SP22_7315.systrace", "6.0B138_3900.sys.systrace")
 	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
-	if len(items) != 3 || !strings.Contains(items[0].Text, "对比两 trace") {
+	if len(items) != 4 || !strings.Contains(items[0].Text, "对比两 trace") {
 		t.Fatalf("two-projection shape must keep the comparison rows (+ RTC-2 disjoint row on this disjoint fixture): %+v", items)
 	}
 	for _, item := range items {
-		if strings.Contains(item.Text, "尚未采样") {
+		if strings.Contains(item.Text, "本轮未取数") {
 			t.Fatalf("two-projection shape must not emit the single-sided hint: %+v", items)
 		}
 	}
@@ -125,7 +125,7 @@ func TestRuntimeTraceNextStepSingleSidedSamplingHintAbsentOnSingleTraceSession(t
 		bus.RuntimeArtifactPreflight = profile
 		items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
 		for _, item := range items {
-			if strings.Contains(item.Text, "尚未采样") {
+			if strings.Contains(item.Text, "本轮未取数") {
 				t.Fatalf("%s: single-trace session must not emit the sampling hint: %+v", name, items)
 			}
 		}
@@ -149,7 +149,7 @@ func TestRuntimeTraceSingleSidedShapeMaterializesHintWithoutCompareTable(t *test
 	}
 	found := false
 	for _, item := range next.Items {
-		if strings.Contains(item.Text, "另一份 trace 尚未采样") &&
+		if strings.Contains(item.Text, "另一份 trace 本轮未取数") &&
 			strings.Contains(item.Text, "6.0B138_3900.sys.systrace") {
 			found = true
 		}

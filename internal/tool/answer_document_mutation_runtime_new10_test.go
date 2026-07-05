@@ -349,7 +349,7 @@ func TestTraceProjectionNew10EveryRowCarriesExactlyOneStateGlyph(t *testing.T) {
 				check("tree", runtimeTraceProjTreeRowLine(row, width, denom, windowMode, zh), expectIcon(row))
 			}
 			for _, row := range model.SelfRows {
-				check("self", strings.Join(runtimeTraceProjSelfRowLines(row, zh), "\n"), expectIcon(row))
+				check("self", strings.Join(runtimeTraceProjSelfRowLines(row, 0, zh), "\n"), expectIcon(row))
 			}
 			for _, row := range model.Adjacent {
 				check("adjacent", runtimeTraceProjStanzaRowLine(row, width, denom, windowMode, zh), expectIcon(row))

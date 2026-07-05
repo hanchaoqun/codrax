@@ -9982,3 +9982,72 @@ func TestAnswerDocumentEvaluator_EmptyBlocksRejectBreaker(t *testing.T) {
 		t.Fatalf("fingerprint change must restart the streak, got breaker trip: %+v", sig)
 	}
 }
+
+// --- PTV5 #68 (用户裁定 2026-07-05) supplement pins ---------------------------
+
+// TestPTV5TraceQuerySupplementTruncationDisclosure (C38): the supplement block
+// self-describes as the auditable-fact keeper — when the 40-row cap trims the
+// list, the tail states the full count; under the cap the block stays
+// byte-identical (突变形态).
+func TestPTV5TraceQuerySupplementTruncationDisclosure(t *testing.T) {
+	build := func(n int) *types.AgentContext {
+		mu := types.NewMutableState("")
+		var obs []types.ObservationRecord
+		for i := 0; i < n; i++ {
+			obs = append(obs, types.ObservationRecord{
+				ID:              fmt.Sprintf("trace_query:sup:%d", i),
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace.txt"},
+				Span:            types.ObservationSpan{LineStart: 100 + i*10, LineEnd: 105 + i*10},
+				ClaimKey:        fmt.Sprintf("state_drilldown:t%d:S", i),
+				Subject:         fmt.Sprintf("t%d-1", i),
+				Predicate:       "state_drilldown",
+				Object:          "S",
+				Value:           "21.000",
+				Unit:            "ms",
+				RichNotes:       []string{"source=top_sleep"},
+				SupportRefs:     []string{fmt.Sprintf("attached_trace.txt:%d-%d", 100+i*10, 105+i*10)},
+			})
+		}
+		mu.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+			ToolName: "trace_query", Success: true, Observations: obs,
+		}}})
+		return &types.AgentContext{Mutable: mu}
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "结论。",
+	}}}
+	over := renderTraceQueryObservationSupplement(build(traceQueryObservationSupplementMaxRows+5), doc, "zh")
+	if !strings.Contains(over, fmt.Sprintf("(共 %d 条,仅列前 %d 条;其余见原始 trace_query 记录)",
+		traceQueryObservationSupplementMaxRows+5, traceQueryObservationSupplementMaxRows)) {
+		t.Fatalf("over-cap supplement must disclose the trim count:\n%s", over)
+	}
+	overEN := renderTraceQueryObservationSupplement(build(traceQueryObservationSupplementMaxRows+5), doc, "en")
+	if !strings.Contains(overEN, fmt.Sprintf("(%d rows total; only the first %d are listed — the rest remain in the raw trace_query records)",
+		traceQueryObservationSupplementMaxRows+5, traceQueryObservationSupplementMaxRows)) {
+		t.Fatalf("EN over-cap supplement must disclose the trim count:\n%s", overEN)
+	}
+	under := renderTraceQueryObservationSupplement(build(3), doc, "zh")
+	if under == "" || strings.Contains(under, "仅列前") {
+		t.Fatalf("under-cap supplement must stay disclosure-free:\n%s", under)
+	}
+}
+
+// TestPTV5TraceQueryObservationLocationDropsToolCallID (C40): a record with no
+// path and no line span shows NO locator (the caller skips the empty part) —
+// an internal tool-call id is not a locator.
+func TestPTV5TraceQueryObservationLocationDropsToolCallID(t *testing.T) {
+	record := types.ObservationRecord{
+		SourceRef: types.ObservationSourceRef{ToolCallID: "call-abc123"},
+	}
+	if got := traceQueryObservationLocation(record); got != "" {
+		t.Fatalf("locator-less records must render nothing, got %q", got)
+	}
+	text := traceQueryObservationSupplementText(record, true)
+	if strings.Contains(text, "call-abc123") {
+		t.Fatalf("the tool-call id must stay off the panel: %s", text)
+	}
+}

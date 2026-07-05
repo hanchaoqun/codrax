@@ -980,7 +980,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionCoverageBoundaryWhenGuarde
 	if coverage == nil || coverage.Kind != types.BlockCaveat {
 		t.Fatalf("guarded trace_query without causal rows should render coverage caveat: %+v", got.Blocks)
 	}
-	for _, want := range []string{"未生成分层因果表", "没有产出有数据支撑的", "heavy view", "不是“没有背景影响”的结论"} {
+	for _, want := range []string{"未生成分层因果表", "没有产出有数据支撑的", "重量级视图查询需要限定", "不是“没有背景影响”的结论"} {
 		if !strings.Contains(coverage.Text, want) {
 			t.Fatalf("coverage caveat missing %q:\n%s", want, coverage.Text)
 		}
@@ -1118,22 +1118,25 @@ func TestApplyAndPersistMutation_TraceCausalProjectionBackgroundViewNotRunTwoSta
 	}
 
 	zhProjection := run(t, "")
-	if !strings.Contains(zhProjection.Text, "背景层: 本轮未运行产出背景统计的视图(root_cause_rank / wakeup_chain),背景层无数据;如需背景压力证据,可继续 trace_query view=root_cause_rank。") {
+	if !strings.Contains(zhProjection.Text, "背景层: 本轮未运行产出背景统计的视图(root_cause_rank),背景层无数据;如需背景压力证据,可继续 trace_query view=root_cause_rank。") {
 		t.Fatalf("no-root_cause run must render the view-not-run background sentence:\n%s", zhProjection.Text)
 	}
 	// Mutation pin: the ran-but-empty wording must not co-render — the two
-	// states may never fold back into one sentence.
-	for _, banned := range []string{"背景统计视图已运行", "不等于背景没有影响", "可承重", "off-chain"} {
+	// states may never fold back into one sentence. PTV5 C13 (#68 P1): the
+	// parenthetical must not name wakeup_chain — the RootCauseFamilyObserved
+	// gate reads ONLY the root_cause_ prefix, so a wakeup_chain-only run would
+	// otherwise be told its own view "never ran" (假陈述).
+	for _, banned := range []string{"背景统计视图已运行", "不等于背景没有影响", "可承重", "off-chain", "root_cause_rank / wakeup_chain"} {
 		if strings.Contains(zhProjection.Text, banned) {
 			t.Fatalf("view-not-run state must not render %q:\n%s", banned, zhProjection.Text)
 		}
 	}
 
 	enProjection := run(t, "en")
-	if !strings.Contains(enProjection.Text, "Background layer: no background-statistics view (root_cause_rank / wakeup_chain) ran this round, so this layer has no data. For background-pressure evidence, continue with trace_query view=root_cause_rank.") {
+	if !strings.Contains(enProjection.Text, "Background layer: no background-statistics view (root_cause_rank) ran this round, so this layer has no data. For background-pressure evidence, continue with trace_query view=root_cause_rank.") {
 		t.Fatalf("EN no-root_cause run must render the view-not-run background sentence:\n%s", enProjection.Text)
 	}
-	for _, banned := range []string{"the background-statistics view ran", "background influence", "load-bearing", "off-chain"} {
+	for _, banned := range []string{"the background-statistics view ran", "background influence", "load-bearing", "off-chain", "(root_cause_rank / wakeup_chain)"} {
 		if strings.Contains(enProjection.Text, banned) {
 			t.Fatalf("EN view-not-run state must not render %q:\n%s", banned, enProjection.Text)
 		}
@@ -1285,7 +1288,8 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 	}
 	// English lead: fact-only conclusion, tree-reading note, target-anchored tree
 	// with localized edge labels — zero mermaid.
-	for _, want := range []string{"**Primary root cause:** threadpool-400 io_wait 11.000ms", "Tree reading", "```text", "🎯 app-100", "<user-focused thread>", "─wakes─"} {
+	// PTV5 C21 (#68): the headline magnitude carries its caliber word.
+	for _, want := range []string{"**Primary root cause:** threadpool-400 io_wait chain total 11.000ms", "Tree reading", "```text", "🎯 app-100", "<user-focused thread>", "─wakes─"} {
 		if !strings.Contains(projection.Text, want) {
 			t.Fatalf("English v3 lead missing %q:\n%s", want, projection.Text)
 		}

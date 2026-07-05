@@ -600,3 +600,64 @@ func keysOf(m map[int]int) []int {
 e1 的四跑链条本身就是战役价值的浓缩:两次 oracle 精度校准(合法表达形态)、两次真 gap(双口径泄漏被修、误读车道被守护)。B 窗数值(3.414ms/11.4%)从"只存在于不可读 payload"变为"state_totals 权威块+守护句",最终 run 主线程双窗对比完整正确。弱模型视角漂移(第三跑进程级透镜)作为行为面残余记录,不立硬账(软引导域,同 DL-B 处置)。
 
 开放项:客户回访验证(外部依赖)。~~RTC-2 #67~~ **已交付**(跨 trace span 不相交 typed 提示):纯算术精确信号 `types.TraceCausalProjectionTimeBasesDisjoint`(各分区 TimeBaseSpan=成员 impact 包络∪锚窗;与锚窗 F1 裁定的区别已在实现注释注明——本信号只判分区间时基可比性,永不作窗口锚),软引导双面落点=对比总览表尾注记行 + CMP-6 next-step 引导行(同一信号,两面锁步;单分区/交集非空/任一分区无时间证据=零发射,无任何硬门);pin=`trace_causal_projection_timebase_rtc2_test.go` + `answer_document_projection_timebase_rtc2_test.go`(zh+en verbatim 双面在/不在 + 判空反转与 fail-closed 反转双突变探针已验红)。
+
+## §6 PTV5 批(#68 总装,2026-07-05 晚用户裁定集)
+
+### §6.1 裁定原文(PTS/Q3,永久记录)
+
+- **PTS(on-chain 完整性)裁定原文**:「凡 on-chain 项必须提及+进树,多则折叠+计数,审计全部丢弃/封顶点(span cap 8/桶入树/R3 边界),pin=合成超 cap 零静默丢弃。」
+- **Q3 裁定原文**:「显示层一棵树+树头声明 N 窗+快照按窗分组(NEW-8 display 用途 per-record selected_window);对比门扩"单工件多锚窗"支复用 CMP-9 归一化(census=capture 语言不挪用);CMP-6 directive 加双窗对比→逐窗因果采样引导。B 方案(per-锚窗分区)明确不做留未来。」
+
+### §6.2 PTS 丢弃/封顶点审计结论
+
+| 点 | 位置 | 结论 | 处置 |
+|---|---|---|---|
+| 桶入树 cap | types/trace_causal_projection.go OnChainCauses limit=24 | **曾静默丢弃**(直接 on-chain 面) | 折叠+计数:`traceCausalProjectionLimitNodesOnChainFold`,溢出并入一条 subjectless fold 行(值=成员 MAX,墙钟不求和;roster+全量 evidence id 保留;`OnChainOverflowFold` typed 字段) |
+| wire 家族 cap(32) | tool/trace_query.go wakeup_causal_impact 循环(即裁定所称 span cap 面;实测家族 cap=32,引擎 8 branch×深度可超) | **曾静默 break** | 溢出 on-chain 成员并入一条 fold 记录(folded_rows/folded_min_ms/folded_max_ms/folded_subjects 四个 NKR hard_consumer 键;编译端 re-materialize 成 fold 节点) |
+| 引擎 aggregate top-8 | tracequery/query.go aggregateWakeupCausalImpacts | 派生视图截断(逐 hop CausalImpacts 完整保留,非 on-chain 项丢弃) | Caveat 计数披露(`aggregated_impacts kept top 8 of N`) |
+| occurrence windows cap 8 | query.go:20/7786(字面 "span cap 8") | **本就是折叠+计数**:OccurrenceCount 保全量计数,windows 留 top-8 | 审计记录,无改动 |
+| root_evidence/wakeup_chain_edge 家族 cap | tool/trace_query.go | root_evidence 记录无 relevance note→不入 OnChainCauses(仅 SupportingHops);edge 记录不建树节点(树干走 WakeupPath note) | 审计记录;不在"on-chain 项进树"面 |
+| R3 边界 | aggregate.go traceCausalProjectionFoldUnknownBackground | 仅 BackgroundCauses(unknown-thread),on-chain 项不可达 | 审计记录,无改动 |
+| Primary cap 10 | trace_causal_projection.go | on_chain primary 的 classified 副本仍入 OnChainCauses(桶重叠语义)→非树面丢弃 | 审计记录 + 代码注释 |
+
+树面渲染:fold 行 `其余 N 项(链上折叠)(名单 等)`,新 mark `OnChainOverflowFold` + 图例口径组 entry;RN-3(a) fallback lead 与 ❶❷❸ badge 永不选 fold 行。pin=`TestTraceCausalProjectionOnChainOverflowFoldsWithCount`(合成 30>24,零静默丢弃逐 id 核对)+ under-cap 突变 + `TestPTV5OnChainFoldRowRendersAndNeverLeads` + emit fixture 超 cap(fold 记录 folded_* 四键)。
+
+### §6.3 本批交付清单(八部分)
+
+1. **P1-A C00**:主行 ms 回退口径可辨识 — `runtimeTraceProjNodeDisplayImpactSource` 四态来源;回退行内加 (a) 表口径词 MainRow tag(链上累计/有效归因/实际状态)+ 新图例 entry;占窗% 与 H8 >100% mark 只在窗口投影源发布(虚假触发面同修)。
+2. **P1-B C13**:两态句括号删 wakeup_chain(gate 只读 root_cause_ 前缀),zh+EN,pin 负向禁回潮。
+3. **PTS**:见 §6.2。
+4. **Q1**:wakeup_causal_impact 补发 effective_impact_ms(镜像 rank lane 语义:periodic→VS-1 车道独家;inversion→R5d gated;普通→raw;NKR 键既有 hard_consumer 行,零新增);树行 `有效归因X` 常显 tag(gate=值>0,periodic/承自/effective-源三面防双打);表 (a) "—" 诚实性不变(值系上游发布,非显示层兜底)。
+5. **Q2**:图例口径组新 `已归因/未归因` 覆盖行 entry(mark 于覆盖句渲染点);hop-only 形态信息行「目标睡眠 X 中 Y 已由链上解释」(X=sleep 族 hop 自身行 MAX,不求和;算术不动,attributed>X 禁猜跳过)。
+6. **Q3**:`TraceCausalProjection.QueryWindows`(selected_window 单一 strict parser,±1ms 去重,display-only,锚窗车道不读);树头 `本报告数据来自 N 个查询窗` 行(≥2 窗);快照 tier 内按窗排序+`查询窗 a–b s ·` 标签前缀(CMP-4a tier 首序不动);对比门旁单工件多锚窗支(恰 1 投影+≥2 窗→CMP-9 归一化行+逐窗因果采样行);CMP-6 directive 第 3 行=双窗/多窗对比逐窗因果采样(cap=4 下 disjoint 对比形态 per-record 行让位,CMP-6 头条裁定使然)。census=capture 语言未挪用(工件身份 fold 未参与任何窗口分支)。
+7. **Q4**:R1 absorb Object 空路径打通(空 survivor.Object←loser cause token;冲突面 影响点 lane 原样);priority_inversion_candidate 升 typed 节点字段(NKR display_only→hard_consumer+常量,producer 三处literal→常量,absorb OR,InversionRow=字段∨Object token);ActionCell runnable 词 调度/优先级→**调度等待**(scheduling wait,词表巧合消歧,负向 pin 禁"优先级"回潮)。
+8. **44 条措辞**:confirmed 落地 30 条;死代码 `runtimeTraceCausalProjectionIntro` 删除(C27/C43)。
+
+### §6.4 裁定冲突跳过清单(refuted 面为准)
+
+| 项 | 冲突面 | 结论 |
+|---|---|---|
+| C04/C08/C23(覆盖行 on-chain→链上/分母口径词/百分比格式) | R09 + v3 设计稿:54 verbatim(`on-chain 已归因 <ms>/<pct>%,未归因残差 …`)+ 多处 golden pin | **跳过**;可辨识性由 Q2 图例覆盖行 entry 承担(不动句面) |
+| C05(RN-3(a) 回退注两分支改写) | R10(flat 分支 CMP-7a)+ R11(rank=RN-3 裁定词) | **跳过** |
+| C14/C32(▒ 图例 on-chain→链上) | R01 + v3 设计稿:77 verbatim | **跳过** |
+| C17/C36 部分 | R02("top 片段"+source token=RN-12 账本 verbatim) | **部分落地**:仅 class 词走 D4 `可运行等待（runnable）`;top 片段+source 原样 |
+| C19 部分 | R14("running 时间"=§7.2 CMP 设计原文) | **部分落地**:仅 同窗→各自同口径窗口内 |
+| C28 部分 | R19(窗口名不统一为"分析窗口") | **部分落地**:定义句用本句原有"用户窗口" |
+
+### §6.5 残余
+
+- 引擎 aggregate top-8 的溢出对不进树(caveat 计数披露,数据未保留);如需进树须扩 WakeupCausalAggregate 合成 fold 成员,留未来裁定。
+- Q3 B 方案(per-锚窗分区)按裁定明确不做。
+- comparison 4-item cap 下 disjoint 双 trace 形态 per-record 行被三固定行+RTC-2 行挤出(CMP-6 头条优先裁定的直接推论);如需并存须裁 cap 提升。
+
+### §6.6 对抗复核批(2026-07-06,19 confirmed 全收)
+
+**P1 簇一(fold 口径洗白+聚合前重复计数)**:① fold-cap 移到 `traceCausalProjectionAggregateForPresentation` **之后**(compile 内联,bucket 进聚合时不封顶)— 计数=R1/R4/V4/R2 合并后的真值(旗舰 donghu 重放实证的假"其余 16 项"重复行类根除);pin=`TestTraceCausalProjectionOnChainFoldCountsPostAggregationTruth`(26 distinct+4 R1 dup→fold 恰计 2,零静默丢弃跨 merge 保持)。② fold 值携带口径源:MAX 成员是窗口投影→ImpactMS 车道(可发 %);cumulative-only→仅 CumulativeImpactMS(ImpactMS=0→C00 管道印"链上累计"、零 %、(a) 表窗口投影列"—");pin=`TestTraceCausalProjectionOnChainFoldCarriesCaliberSource`+`TestPTV5CumulativeOnlyFoldRowCarriesCaliberWordNoShare`。
+
+**P1 簇二(C00 tag 破 100 列)**:口径词宽度并入名字预算 reserve(`runtimeTraceProjRowMainReserve`,与 tag 发射同一源 `runtimeTraceProjRowFallbackCaliberWord`,零漂移;宽度 pass `consider` 同 reserve);floor 随 reserve 侵蚀(下限 8=省略行 roster 同款身份底线)。全宽度扫描 pin=`TestPTV5FallbackRowsHoldRowCapFullWidthSweep`:常见对(口径词+E#)全深度恒 ≤100;重型跨窗回退形态(口径词+⚠实际+E#(+N))zh ≤深度5 恒 ≤100、en ≤深度3,更深走量化 plateau(zh 104@6/108@7,en 101@4/105@5/109@6/113@7,**全面优于批前 ⚠+⊘+E# 三重合 plateau zh109/en118**,ceiling 只许降)。
+
+**Med**:结论行 % 加 C00 同源门(仅窗口投影源发布 (占窗X%);链上累计/有效归因/实际状态源只印口径词——v3 golden/RN-3(a) pin 随改+负向禁 占窗 回潮);Q1 真镜像=引擎导出单一权威 `tracequery.WakeupCausalImpactEffectiveImpactMs`(rank lane 逐分支:periodic→VS-1 折算/gated>0 反转→R5d/其余→TotalMs→state 合计→blocking 兜底;gated=0 反转同 rank 落 TotalMs),tool 消费同一函数,pin=`TestWakeupCausalImpactEffectiveMirrorsRankLane`(8 形态双 lane 同输入同输出);Q3 快照门与渲染同读 ELIGIBLE 集合(CMP-4a 排除先行)+multi-window per-窗 floor≥1 槽(预算=max(2,窗数)),pin=`TestPTV5SnapshotPerWindowFloor`(A 窗双候选不再挤没 B 窗)。
+
+**Low 全收**:QueryWindows cap-8 加 `QueryWindowsTruncated`(树头/next-step 渲染 "≥8 个查询窗",禁假精确数;dup 过 cap 不算截断,双 pin);±1ms 容差导出单一权威 `types.TraceCausalProjectionSameWindowToleranceS`(tool 快照分组消费,literal 清除,pin);badge fold 排除加 typed gate(Rank/Effective 非零合成→仍无 badge,"永不"兑现 pin);gofmt 两文件(runtime_tree.go enum 对齐+emit pin test);fold 行 (b) 块全名命名 fold lane(`其余 N 项(链上折叠)(名单)`,非"(未命名因果节点)",pin);Q1 双 carrier 合一(periodic∧Effective 回退源→C00 词让位 VS-1 tag,单 carrier pin);periodic∧inherited 实非互斥→`runtimeTraceProjEffectiveInherited` 加 `!PeriodicSource` typed guard(10× 启发式在 periodic 行禁用,pin+突变);Q3 4-item cap 挤出=已裁推论,维持 §6.5 记录不修。
+
+**复验**:54 个真实存储 payload(8 个 2026-07-05 会话,3673 records)全链路重放(typed observations→ledger→compile→cluster render)= 零 >100 列 fence 行、零裸 % 口径行、零异常 fold;donghu 旗舰工件本机不存(../customlogs 缺),重复计数类由合成 R1-dup pin 覆盖,真机复验留待工件可达时回访。复核发现的两个非批内 zz_* 探针已清扫。

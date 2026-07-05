@@ -12003,6 +12003,10 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 		}
 		return rows[i].Key < rows[j].Key
 	})
+	// PTV5 C38 (#68): the block self-describes as the auditable-fact keeper —
+	// a silent tail drop contradicts that. Truncation states its count (same
+	// disclosure family as the NEW-9 evidence-index truncation note).
+	total := len(rows)
 	if len(rows) > traceQueryObservationSupplementMaxRows {
 		rows = rows[:traceQueryObservationSupplementMaxRows]
 	}
@@ -12014,6 +12018,9 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 		for _, row := range rows {
 			fmt.Fprintf(&b, "> - %s\n", row.Text)
 		}
+		if total > len(rows) {
+			fmt.Fprintf(&b, ">\n> (共 %d 条,仅列前 %d 条;其余见原始 trace_query 记录)\n", total, len(rows))
+		}
 		return strings.TrimRight(b.String(), "\n")
 	}
 	b.WriteString("---\n\n")
@@ -12021,6 +12028,9 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 	b.WriteString("> These rows come from typed runtime observations published by trace_query. They preserve auditable trace facts; they are artifact-local observations, not current-repo source citations.\n>\n")
 	for _, row := range rows {
 		fmt.Fprintf(&b, "> - %s\n", row.Text)
+	}
+	if total > len(rows) {
+		fmt.Fprintf(&b, ">\n> (%d rows total; only the first %d are listed — the rest remain in the raw trace_query records)\n", total, len(rows))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -12343,7 +12353,10 @@ func traceQueryObservationLocation(record types.ObservationRecord) string {
 		}
 		return traceQueryObservationDisplayLocator(ref, record.Span)
 	}
-	return strings.TrimSpace(record.SourceRef.ToolCallID)
+	// PTV5 C40 (#68): an internal tool-call id is not a locator — a record
+	// with no path and no line span shows nothing (the caller skips the empty
+	// part); the id stays on the raw record for audit.
+	return ""
 }
 
 // traceQueryObservationSyntheticLineLocator matches the typed missing_wakeup

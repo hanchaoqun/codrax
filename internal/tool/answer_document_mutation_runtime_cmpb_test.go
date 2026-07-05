@@ -253,9 +253,14 @@ func TestRuntimeTraceProjResolvedChain_KeepsOnChainLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	rendered := render.RenderAnswerDocument(bus.Mutable.AnswerDocumentV2(), "zh")
+	// PTV5 C30 (#68): the zh 因果位置 cell says 链上 (product word); the raw
+	// causality token stays in the audit lane.
 	if !strings.Contains(rendered, "causality=on_wakeup_chain") ||
-		!strings.Contains(rendered, "on-chain · 重点关注") {
+		!strings.Contains(rendered, "链上 · 重点关注") {
 		t.Fatalf("resolved-chain render keeps the on-chain labels:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "on-chain · 重点关注") {
+		t.Fatalf("zh panel must not render the bare-English on-chain cell:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "平铺(链不可上溯)") || strings.Contains(rendered, "chain_shape=flat_untraceable") {
 		t.Fatalf("resolved-chain render must not carry the flat rewrite:\n%s", rendered)

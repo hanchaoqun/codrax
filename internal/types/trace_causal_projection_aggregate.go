@@ -173,7 +173,17 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	}
 	if object := strings.TrimSpace(loser.Object); object != "" &&
 		traceCausalProjectionCanonicalNode(object) != traceCausalProjectionCanonicalNode(survivor.Object) {
-		traceCausalProjectionAppendSecondaryObject(survivor, object)
+		// PTV5 Q4 (#68 用户裁定 2026-07-05, Object 空路径打通): a survivor with
+		// an EMPTY Object takes the loser's Object as its own cause token — a
+		// root_evidence-family loser carries the typed cause on this lane, and
+		// shunting it to SecondaryObjects left the merged row causeless.
+		// Conflicting non-empty Objects keep the survivor's and record the
+		// loser's as an 影响点, exactly as before.
+		if strings.TrimSpace(survivor.Object) == "" {
+			survivor.Object = object
+		} else {
+			traceCausalProjectionAppendSecondaryObject(survivor, object)
+		}
 	}
 	for _, object := range loser.SecondaryObjects {
 		traceCausalProjectionAppendSecondaryObject(survivor, object)
@@ -218,6 +228,11 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	}
 	if survivor.TypeToken == "" {
 		survivor.TypeToken = loser.TypeToken
+	}
+	// PTV5 Q4 (#68 用户裁定 2026-07-05): inversion candidacy is a property of
+	// the ONE fact — either view observing it marks the merged row.
+	if loser.PriorityInversionCandidate {
+		survivor.PriorityInversionCandidate = true
 	}
 }
 

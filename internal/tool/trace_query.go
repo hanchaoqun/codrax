@@ -4932,6 +4932,15 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Confidence:  0.78,
 			})
 		}
+		// PTS (#68 用户裁定 2026-07-05, 零静默丢弃): the per-family wire cap above
+		// bounds the individual rows; the ON-CHAIN overflow folds into ONE
+		// counted record (typed folded_* notes) instead of vanishing.
+		if rowCap := traceQueryWidthTypedFamilyRowCap(); len(result.WakeupChain.CausalImpacts) > rowCap {
+			if fold, ok := traceQueryWakeupCausalImpactFoldRecord(scope, ref, at,
+				result.WakeupChain.CausalImpacts[rowCap:], result.WakeupChain.Window); ok {
+				out = append(out, fold)
+			}
+		}
 		for i, aggregate := range result.WakeupChain.AggregatedImpacts {
 			if i >= traceQueryWidthTypedFamilyRowCap() {
 				break
@@ -5131,6 +5140,85 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 	})
 }
 
+// traceQueryWakeupCausalImpactFoldRecord builds the PTS zero-silent-drop fold
+// record (#68 用户裁定 2026-07-05: 凡 on-chain 项必须提及+进树,多则折叠+计数):
+// the ON-CHAIN causal-impact rows beyond the per-family wire cap fold into ONE
+// counted record — count + min–max range + an up-to-8 subject roster ride the
+// typed folded_* notes (projection compile re-materializes the fold row); the
+// full per-row detail remains in the stored raw payload. ok=false when the
+// overflow contains no on-chain row (off-chain overflow must not borrow the
+// on-chain lane).
+func traceQueryWakeupCausalImpactFoldRecord(scope string, ref types.ObservationSourceRef, at string,
+	overflow []tracequery.WakeupCausalImpact, window tracequery.TimeWindow) (types.ObservationRecord, bool) {
+	var members []tracequery.WakeupCausalImpact
+	for _, impact := range overflow {
+		if impact.OnChain {
+			members = append(members, impact)
+		}
+	}
+	if len(members) == 0 {
+		return types.ObservationRecord{}, false
+	}
+	var minMS, maxMS float64
+	span := types.ObservationSpan{}
+	var subjects []string
+	seen := map[string]bool{}
+	for _, member := range members {
+		v := member.DominantImpactMs
+		if minMS == 0 || (v > 0 && v < minMS) {
+			minMS = v
+		}
+		if v > maxMS {
+			maxMS = v
+		}
+		if member.LineStart > 0 && (span.LineStart <= 0 || member.LineStart < span.LineStart) {
+			span.LineStart = member.LineStart
+		}
+		if member.LineEnd > span.LineEnd {
+			span.LineEnd = member.LineEnd
+		}
+		if member.Window.StartTs > 0 && (span.StartTs <= 0 || member.Window.StartTs < span.StartTs) {
+			span.StartTs = member.Window.StartTs
+		}
+		if member.Window.EndTs > span.EndTs {
+			span.EndTs = member.Window.EndTs
+		}
+		if label := strings.TrimSpace(traceThreadLabel(member.Thread)); label != "" && !seen[label] && len(subjects) < 8 {
+			seen[label] = true
+			subjects = append(subjects, label)
+		}
+	}
+	return types.ObservationRecord{
+		ID:              fmt.Sprintf("trace_query:%s#wakeup_causal_impact_fold", scope),
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            span,
+		ClaimKey:        "wakeup_causal_impact:folded_overflow",
+		Predicate:       "wakeup_causal_impact",
+		Value:           traceQueryObservationMSValue(maxMS),
+		Unit:            "ms",
+		Summary: fmt.Sprintf("%d on-chain causal-impact rows beyond the typed row cap folded (max %.3fms); full rows remain in the stored trace_query payload",
+			len(members), maxMS),
+		RichNotes: traceQueryTypedKVNotes([][2]string{
+			{types.TraceNoteKeyCausality, traceQueryCausalityLabel(true)},
+			{types.TraceNoteKeyChainRelevance, "on_chain"},
+			{types.TraceNoteKeyImpact, traceQueryObservationMSValue(maxMS)},
+			{types.TraceNoteKeyFoldedRows, strconv.Itoa(len(members))},
+			{types.TraceNoteKeyFoldedMinMS, traceQueryObservationMSValue(minMS)},
+			{types.TraceNoteKeyFoldedMaxMS, traceQueryObservationMSValue(maxMS)},
+			{types.TraceNoteKeyFoldedSubjects, strings.Join(subjects, ",")},
+			{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(window)},
+		}),
+		SupportRefs: traceQueryObservationSupportRefs(ref, span.LineStart, span.LineEnd),
+		ObservedAt:  at,
+		Confidence:  0.78,
+	}, true
+}
+
 func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) []string {
 	views := traceQueryCausalImpactRecommendedViews(impact)
 	notes := traceQueryTypedKVNotes([][2]string{
@@ -5143,6 +5231,13 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{types.TraceNoteKeyCausality, traceQueryCausalityLabel(impact.OnChain)},
 		{types.TraceNoteKeyDominantState, impact.DominantState},
 		{types.TraceNoteKeyImpact, traceQueryObservationMSValue(impact.DominantImpactMs)},
+		// PTV5 Q1 (#68 用户裁定 2026-07-05, 上游根治): every wakeup_causal_impact
+		// row publishes its effective attribution with the SAME semantics as
+		// the root_cause_rank lane (rootCauseEffectiveImpactMs): periodic rows
+		// keep the VS-1 discounted lane (appended below, 0 included), inversion
+		// candidates publish the R5d gated composite, plain rows publish the
+		// raw attribution (no discount applies → effective == raw).
+		{types.TraceNoteKeyEffectiveImpactMS, traceQueryCausalImpactEffectiveNoteValue(impact)},
 		{"projected_impact", traceQueryObservationMSValue(impact.ProjectedImpactMs)},
 		{types.TraceNoteKeyTotal, traceQueryObservationMSValue(impact.TotalMs)},
 		{"projected_total", traceQueryObservationMSValue(impact.ProjectedTotalMs)},
@@ -5167,7 +5262,7 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{"priority", traceQueryPriorityPair(impact.Priority, impact.PriorityClass)},
 		{"target_priority", traceQueryPriorityPair(impact.TargetPriority, impact.TargetPriorityClass)},
 		{"priority_relation", impact.PriorityRelation},
-		{"priority_inversion_candidate", traceQueryTypedBool(impact.PriorityInversionCandidate)},
+		{types.TraceNoteKeyPriorityInversionCandidate, traceQueryTypedBool(impact.PriorityInversionCandidate)},
 		{"priority_inversion_gated", traceQueryObservationMSValue(impact.PriorityInversionGatedMs)},
 		// §7.30.3 D3: the gated composite's typed composition (runnable full
 		// amount + capacity-discounted weak-core running deficit).
@@ -5193,6 +5288,20 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 // includeEffective=false is for the root_cause_rank records whose
 // positive-value priority notes already carried effective_impact_ms — the
 // zero-effective note is still appended there so the discount never vanishes.
+// traceQueryCausalImpactEffectiveNoteValue is the PTV5 Q1 effective-attribution
+// value for one wakeup_causal_impact row (#68 用户裁定 2026-07-05): the number
+// comes from the engine's exported single source
+// (tracequery.WakeupCausalImpactEffectiveImpactMs — the rank lane's own
+// branch chain, 复核 Med 真镜像 2026-07-06, no second implementation to
+// drift); a periodic row defers to the VS-1 discounted note lane (returns ""
+// so no duplicate key is emitted).
+func traceQueryCausalImpactEffectiveNoteValue(impact tracequery.WakeupCausalImpact) string {
+	if impact.PeriodicSource {
+		return ""
+	}
+	return traceQueryObservationMSValue(tracequery.WakeupCausalImpactEffectiveImpactMs(impact))
+}
+
 func traceQueryTypedPeriodicSourceRichNotes(periodic bool, periodMs, latenessMs, effectiveMs float64, includeEffective bool) []string {
 	if !periodic {
 		return nil
@@ -5338,7 +5447,7 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 		{types.TraceNoteKeyActualDState, traceQueryObservationMSValue(aggregate.ActualDStateMs)},
 		{types.TraceNoteKeyActualIOWait, traceQueryObservationMSValue(aggregate.ActualIOWaitMs)},
 		{"priority_relation", aggregate.PriorityRelation},
-		{"priority_inversion_candidate", traceQueryTypedBool(aggregate.PriorityInversion)},
+		{types.TraceNoteKeyPriorityInversionCandidate, traceQueryTypedBool(aggregate.PriorityInversion)},
 	})...)
 	// VS-1 (§7.8): periodic-source cadence + discounted attribution, typed.
 	notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(aggregate.PeriodicSource, aggregate.DetectedPeriodMs, aggregate.LatenessMs, aggregate.EffectivePeriodicImpactMs, true)...)
@@ -5485,7 +5594,7 @@ func traceQueryTypedWakeupEdgeRichNotes(edge tracequery.WakeupEdge, path string)
 		{"waker_priority", traceQueryPriorityPair(edge.WakerPriority, edge.WakerPriorityClass)},
 		{"wakee_priority", traceQueryPriorityPair(edge.WakeePriority, edge.WakeePriorityClass)},
 		{"priority_relation", edge.PriorityRelation},
-		{"priority_inversion_candidate", traceQueryTypedBool(edge.PriorityInversionCandidate)},
+		{types.TraceNoteKeyPriorityInversionCandidate, traceQueryTypedBool(edge.PriorityInversionCandidate)},
 	})
 }
 

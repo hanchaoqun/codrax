@@ -41,16 +41,24 @@ func TestRuntimeTraceNextStepComparisonRowsLeadOnComparisonShape(t *testing.T) {
 	bus := compareProjBus(true)
 	doc := &types.AnswerDocumentV2{DocumentModel: "v2"}
 	items := runtimeTraceNextStepItems(doc, bus)
-	if len(items) != 3 {
-		t.Fatalf("comparison shape without per-record steps must emit the two fixed comparison rows plus the RTC-2 disjoint time-base row: %+v", items)
+	if len(items) != 4 {
+		t.Fatalf("comparison shape without per-record steps must emit the three fixed comparison rows plus the RTC-2 disjoint time-base row: %+v", items)
 	}
-	if items[0].Text != "对比两 trace 同窗 top 运行线程与进程级 running 时间差异" ||
-		items[1].Text != "对齐目标 span 边界后重取两侧聚合指标(按各自窗长归一化后再对比)" {
-		t.Fatalf("comparison rows must carry the fixed span-anchoring + normalization guidance: %+v", items)
+	// PTV5 C19 (#68): 各自同口径窗口内, never 同窗 (one shared absolute window
+	// is impossible across two traces); "running 时间" stays the §7.2 CMP
+	// design verbatim. PTV5 Q3: the third fixed row steers per-window causal
+	// sampling on dual-/multi-window comparisons.
+	if items[0].Text != "对比两 trace 各自同口径窗口内 top 运行线程与进程级 running 时间差异" ||
+		items[1].Text != "对齐目标 span 边界后重取两侧聚合指标(按各自窗长归一化后再对比)" ||
+		items[2].Text != "双窗/多窗对比时:对每个查询窗分别执行同口径因果采样(wakeup_chain/root_cause_rank)后逐窗对比" {
+		t.Fatalf("comparison rows must carry the fixed span-anchoring + normalization + per-window sampling guidance: %+v", items)
+	}
+	if strings.Contains(items[0].Text, "同窗 ") {
+		t.Fatalf("the first comparison row must not claim one shared window (同窗): %+v", items[0])
 	}
 	// RTC-2 (批 #67): the fixture's time bases (3679.x vs 8143.x) are
 	// disjoint → the conditional guidance row trails the fixed rows verbatim.
-	if items[2].Text != "两 trace 时间基准不相交,无法在同一时间轴直接对齐;对比请以各自窗口内相对指标为准(占窗比例/按窗长归一化)" {
+	if items[3].Text != "两 trace 时间基准不相交,无法在同一时间轴直接对齐;对比请以各自窗口内相对指标为准(占窗比例/按窗长归一化)" {
 		t.Fatalf("disjoint time bases must append the RTC-2 guidance row verbatim: %+v", items)
 	}
 	for i, item := range items {
@@ -59,7 +67,7 @@ func TestRuntimeTraceNextStepComparisonRowsLeadOnComparisonShape(t *testing.T) {
 		}
 	}
 	if items[0].ID != "runtime_trace_next_step_1" || items[1].ID != "runtime_trace_next_step_2" ||
-		items[2].ID != "runtime_trace_next_step_3" {
+		items[2].ID != "runtime_trace_next_step_3" || items[3].ID != "runtime_trace_next_step_4" {
 		t.Fatalf("comparison rows must continue the next-step id numbering: %+v", items)
 	}
 }
@@ -78,15 +86,13 @@ func TestRuntimeTraceNextStepComparisonRowsLeadBeforeRecordRowsAndShareCap(t *te
 	if len(items) != 4 {
 		t.Fatalf("the shared item cap must bound comparison + record rows together: %+v", items)
 	}
-	// Comparison rows LEAD (two fixed rows + the RTC-2 disjoint time-base
-	// row on this disjoint fixture); per-record rows follow in ledger order;
-	// the second and third record rows fall off the shared cap.
+	// Comparison rows LEAD (PTV5: THREE fixed rows + the RTC-2 disjoint
+	// time-base row on this disjoint fixture fill the shared cap); per-record
+	// rows yield on this shape — the CMP-6 adjudication makes the comparison
+	// guidance the headline for the comparison question form.
 	if !strings.Contains(items[0].Text, "对比两 trace") || !strings.Contains(items[1].Text, "对齐目标 span 边界") ||
-		!strings.Contains(items[2].Text, "时间基准不相交") {
+		!strings.Contains(items[2].Text, "逐窗对比") || !strings.Contains(items[3].Text, "时间基准不相交") {
 		t.Fatalf("comparison rows must lead the list: %+v", items)
-	}
-	if items[3].Text != "排查反复唤醒它的对端线程、binder等待、锁与条件变量等待" {
-		t.Fatalf("per-record rows must keep their typed ZH rendering after the comparison rows: %+v", items)
 	}
 }
 
@@ -98,10 +104,11 @@ func TestRuntimeTraceNextStepComparisonRowsLeadBeforeRecordRowsAndShareCap(t *te
 // comparison rows.
 func TestRuntimeTraceNextStepComparisonRowsLeadWithoutAnalyzerPredicate(t *testing.T) {
 	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, compareProjBus(false))
-	if len(items) != 3 ||
+	if len(items) != 4 ||
 		!strings.Contains(items[0].Text, "对比两 trace") ||
 		!strings.Contains(items[1].Text, "对齐目标 span 边界") ||
-		!strings.Contains(items[2].Text, "时间基准不相交") {
+		!strings.Contains(items[2].Text, "逐窗对比") ||
+		!strings.Contains(items[3].Text, "时间基准不相交") {
 		t.Fatalf("two active projections must emit the comparison rows without the LLM predicate: %+v", items)
 	}
 }
@@ -134,16 +141,17 @@ func TestRuntimeTraceNextStepComparisonRowsEnglishSurface(t *testing.T) {
 	bus := compareProjBus(true)
 	bus.AnalysisIR.AnswerContract.Language = "en"
 	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
-	if len(items) != 3 {
-		t.Fatalf("EN comparison shape must emit the two fixed comparison rows plus the RTC-2 disjoint row: %+v", items)
+	if len(items) != 4 {
+		t.Fatalf("EN comparison shape must emit the three fixed comparison rows plus the RTC-2 disjoint row: %+v", items)
 	}
 	if !strings.Contains(items[0].Text, "top running threads") ||
 		!strings.Contains(items[0].Text, "same-caliber windows") ||
 		!strings.Contains(items[1].Text, "target span boundaries") ||
-		!strings.Contains(items[1].Text, "normalized by each window's own length") {
-		t.Fatalf("EN comparison rows must mirror the span-anchoring + normalization guidance: %+v", items)
+		!strings.Contains(items[1].Text, "normalized by each window's own length") ||
+		!strings.Contains(items[2].Text, "per query window, then compare window by window") {
+		t.Fatalf("EN comparison rows must mirror the span-anchoring + normalization + per-window sampling guidance: %+v", items)
 	}
-	if items[2].Text != "The two traces' time bases do not overlap and cannot be aligned directly on one shared timeline; compare relative metrics within each trace's own window (window share / normalized by window length)" {
+	if items[3].Text != "The two traces' time bases do not overlap and cannot be aligned directly on one shared timeline; compare relative metrics within each trace's own window (window share / normalized by window length)" {
 		t.Fatalf("EN disjoint time-base row must render verbatim: %+v", items)
 	}
 	if items[0].Label != "Next step" {

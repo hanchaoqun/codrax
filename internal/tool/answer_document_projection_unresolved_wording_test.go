@@ -143,7 +143,7 @@ func TestTraceProjectionLegendsRenderAsItemLists(t *testing.T) {
 		"- 时长、排序与 E# 均可定位到原始 trace_query 结构化证据,不是额外推测。",
 		"- `🎯` = 树根:本次分析锚定的关注线程。",
 		"- `☾` = 睡眠等待;症状非根因,其唤醒子行即下钻结果。",
-		"口径:\n- 窗口投影 = 节点在用户窗口内的投影影响。",
+		"口径:\n- 窗口投影 = 该节点相关状态落在用户窗口内的时长(跨线程聚合行为 cpu·ms 累计,单元格已注)。",
 		"- 背景行仅作压力/环境证据,不自动等同链上主因。",
 	} {
 		if !strings.Contains(zhMD, want) {
@@ -169,7 +169,7 @@ func TestTraceProjectionLegendsRenderAsItemLists(t *testing.T) {
 	enMD := audit730Render(t, audit730Bus("en"), audit730ChainObs(), "en")
 	for _, want := range []string{
 		"Tree reading:\n- Top-down = tracing upstream from the focused thread.",
-		"Legend:\n- window projection = the node's projected impact inside the user window.",
+		"Legend:\n- window projection = the duration of the node's underlying state that falls inside the user window (cross-thread aggregate rows accumulate cpu·ms; cells carry the annotation).",
 	} {
 		if !strings.Contains(enMD, want) {
 			t.Fatalf("en legend must itemize (%q missing):\n%s", want, enMD)

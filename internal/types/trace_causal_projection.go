@@ -78,6 +78,26 @@ type TraceCausalProjection struct {
 	// caveat prose. Display-only: the evidence-index header discloses the
 	// truncation; no gate reads it.
 	CapacityTruncated bool `json:"capacity_truncated,omitempty"`
+	// QueryWindows (PTV5 Q3, #68 用户裁定 2026-07-05): the DISTINCT typed
+	// selected_window endpoint pairs observed across this compile's trace_query
+	// records (single strict parser TraceCausalProjectionSelectedWindowNote;
+	// ±1ms endpoint dedupe via the F-2 same-window tolerance; ascending start
+	// order; capped at 8). DISPLAY-ONLY — the tree header declares "本报告含 N
+	// 个查询窗" and the metric snapshot groups by per-record window (NEW-8
+	// display 用途); no gate and no anchor derivation reads this list (the
+	// anchor lanes above stay untouched).
+	QueryWindows []TraceCausalProjectionQueryWindow `json:"query_windows,omitempty"`
+	// QueryWindowsTruncated (复核 Low, 2026-07-06): a DISTINCT window arrived
+	// after the 8-entry display cap — consumers must render the count as a
+	// lower bound ("≥8 个查询窗"), never a fake exact number.
+	QueryWindowsTruncated bool `json:"query_windows_truncated,omitempty"`
+}
+
+// TraceCausalProjectionQueryWindow is one distinct query-window endpoint pair
+// (seconds) for the PTV5 Q3 display surfaces.
+type TraceCausalProjectionQueryWindow struct {
+	StartTs float64 `json:"start_ts,omitempty"`
+	EndTs   float64 `json:"end_ts,omitempty"`
 }
 
 // WindowDurationMS returns the requested-window length in milliseconds, or 0
@@ -206,6 +226,22 @@ type TraceCausalProjectionNode struct {
 	// when they differ from this node's Object (e.g. the udk-irq peer thread a
 	// same-interval critical_blocking row named) — rendered as an 影响点 note.
 	SecondaryObjects []string `json:"secondary_objects,omitempty"`
+	// PriorityInversionCandidate mirrors the producer's typed
+	// "priority_inversion_candidate=true" rich note (PTV5 Q4, #68 用户裁定
+	// 2026-07-05 — promoted from a display-only note to a typed node field so
+	// hop rows whose Object carries the dominant state still render their
+	// inversion candidacy). Display wording only; the R5d gated composition
+	// stays on GatedRunnableMS/GatedRunningDeficitMS.
+	PriorityInversionCandidate bool `json:"priority_inversion_candidate,omitempty"`
+	// OnChainOverflowFold marks the PTS zero-silent-drop fold row (#68 用户裁定
+	// 2026-07-05): on-chain rows beyond a cap (the compile bucket limit, or the
+	// producer's per-family wire cap re-materialized from the folded_rows note
+	// family) fold into ONE counted row instead of being silently discarded.
+	// MergedCount counts the folded ROWS, MergedMinMS/MergedMaxMS their display
+	// range, and the published value is the member MAX (wall clock never sums
+	// across threads). Renderers show 其余 N 项(链上折叠) and MUST NOT let this
+	// row lead a conclusion or win a badge.
+	OnChainOverflowFold bool `json:"on_chain_overflow_fold,omitempty"`
 	// SubjectKind is sourced verbatim from the typed subject_kind rich note.
 	// Empty = the subject is a (possibly unresolved) thread. The only non-empty
 	// value today is TraceCausalSubjectKindAggregateMetric: the row is a
@@ -386,6 +422,8 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	capacityTruncated := false
 	occupiersBySubject := map[string]string{}
 	fullWindowStates := map[string]traceCausalProjectionFullWindowState{}
+	var queryWindows []TraceCausalProjectionQueryWindow
+	queryWindowsTruncated := false
 	for _, record := range records {
 		if !traceCausalProjectionTraceQueryRecord(record) {
 			continue
@@ -442,6 +480,14 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		if traceCausalProjectionIsRootCauseContext(record) {
 			rootCauseFamilyObserved = true
 		}
+		// PTV5 Q3 (#68 用户裁定 2026-07-05): collect the DISTINCT typed
+		// selected_window pairs for the display-only QueryWindows list (single
+		// strict parser; ±1ms endpoint dedupe; anchor lanes untouched).
+		if s, e, wok := traceCausalProjectionSelectedWindowNote(record.RichNotes); wok {
+			var dropped bool
+			queryWindows, dropped = traceCausalProjectionAppendQueryWindow(queryWindows, s, e)
+			queryWindowsTruncated = queryWindowsTruncated || dropped
+		}
 		if edge, ok := traceCausalProjectionWakeupEdgeFromRecord(record); ok {
 			wakeupEdges = append(wakeupEdges, edge)
 		}
@@ -485,8 +531,16 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	})
 	semantic = traceCausalProjectionDedupeNodes(semantic)
 	out := TraceCausalProjection{
-		PrimaryRootCauses:            traceCausalProjectionLimitNodes(primary, traceCausalProjectionPrimaryLimit),
-		OnChainCauses:                traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "on_chain"), traceCausalProjectionOnChainLimit),
+		PrimaryRootCauses: traceCausalProjectionLimitNodes(primary, traceCausalProjectionPrimaryLimit),
+		// PTS (#68 用户裁定 2026-07-05): the on-chain bucket enters aggregation
+		// UNCAPPED — the fold-with-count cap applies AFTER R1/R4/V4/R2 (复核
+		// P1, 2026-07-06: a pre-aggregation fold counted rows the alias/
+		// same-fact merges would have folded away — the donghu replay showed a
+		// fake "其余 16 项" made of duplicates). Primary-bucket overflow of an
+		// on_chain node is NOT a tree drop: the same record's classified copy
+		// still enters this bucket; adjacent/background buckets are off-chain
+		// by definition and keep the plain pre-aggregation limiter.
+		OnChainCauses:                traceCausalProjectionSelectChainRelevance(classified, "on_chain"),
 		AdjacentCauses:               traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "adjacent"), traceCausalProjectionContextBucketLimit),
 		BackgroundCauses:             traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "background"), traceCausalProjectionContextBucketLimit),
 		SemanticSpans:                traceCausalProjectionLimitNodes(semantic, traceCausalProjectionSemanticSpanLimit),
@@ -495,6 +549,8 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		WakeupChainRecommendedNotRun: chainRequiredRecommended && !wakeupChainObserved,
 		RootCauseFamilyObserved:      rootCauseFamilyObserved,
 		CapacityTruncated:            capacityTruncated,
+		QueryWindows:                 traceCausalProjectionSortQueryWindows(queryWindows),
+		QueryWindowsTruncated:        queryWindowsTruncated,
 	}
 	// Presentation v3 §6: deterministic pre-render aggregation (strict tolerance).
 	// Runs on the bucketed projection before window marking / drilldown attach so
@@ -502,6 +558,12 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	// on-chain node also appearing in OnChainCauses as the same-EvidenceID copy)
 	// are preserved — renderers keep deduping by node key.
 	traceCausalProjectionAggregateForPresentation(&out)
+	// PTS fold-cap runs on the AGGREGATED bucket (复核 P1, 2026-07-06): the
+	// count is the post-merge truth, and every attach pass below sees the
+	// final node set. The fold row appends after the impact-major resort —
+	// its member-MAX value is by construction ≤ every kept row's display, so
+	// order stays coherent without a second sort.
+	out.OnChainCauses = traceCausalProjectionLimitNodesOnChainFold(out.OnChainCauses, traceCausalProjectionOnChainLimit)
 	// RN-1 (§7.9): attach the same-window occupier roster to runnable nodes
 	// (exact Subject match + typed runnable StateKind) after aggregation so
 	// merged nodes carry it too, and before the PrimaryRootCause pointer copy.
@@ -688,6 +750,12 @@ func traceCausalProjectionNodeWindowProjectionMS(node TraceCausalProjectionNode)
 // are float re-renders of the same engine values, so exact equality is not
 // guaranteed, but anything beyond 1ms is a genuinely different query window.
 const traceCausalProjectionFullWindowSameWindowToleranceS = 0.001
+
+// TraceCausalProjectionSameWindowToleranceS is the exported single authority
+// for the ±1ms same-window endpoint tolerance (复核 Low, 2026-07-06): display
+// consumers in internal/tool (metric-snapshot window grouping) MUST use this
+// constant instead of re-minting the literal.
+const TraceCausalProjectionSameWindowToleranceS = traceCausalProjectionFullWindowSameWindowToleranceS
 
 // traceCausalProjectionAttachFullWindowStateTotals copies the RN-12 typed
 // cross-reference onto CHAIN-UNIVERSE nodes only (primary / on-chain /
@@ -944,6 +1012,43 @@ func traceCausalProjectionSelectedWindowAnchorFamily(record ObservationRecord) b
 	return strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "root_cause_")
 }
 
+// traceCausalProjectionAppendQueryWindow appends one selected_window pair to
+// the PTV5 Q3 display list unless an existing entry matches both endpoints
+// within the F-2 ±1ms tolerance (same constant as the RN-12 same-window
+// verdict — one tolerance, two consumers). The list caps at 8 distinct
+// windows: display sanity only, the count is the load-bearing fact and stays
+// exact up to the cap. The second return is true when a DISTINCT window was
+// DROPPED by the cap (复核 Low, 2026-07-06) — the caller latches it into
+// QueryWindowsTruncated so display counts become lower bounds, never fake
+// exact numbers.
+func traceCausalProjectionAppendQueryWindow(windows []TraceCausalProjectionQueryWindow, start, end float64) ([]TraceCausalProjectionQueryWindow, bool) {
+	if start <= 0 || end <= start {
+		return windows, false
+	}
+	for _, w := range windows {
+		if math.Abs(w.StartTs-start) <= traceCausalProjectionFullWindowSameWindowToleranceS &&
+			math.Abs(w.EndTs-end) <= traceCausalProjectionFullWindowSameWindowToleranceS {
+			return windows, false
+		}
+	}
+	if len(windows) >= 8 {
+		return windows, true
+	}
+	return append(windows, TraceCausalProjectionQueryWindow{StartTs: start, EndTs: end}), false
+}
+
+// traceCausalProjectionSortQueryWindows orders the display list by ascending
+// start (then end) — deterministic on record order.
+func traceCausalProjectionSortQueryWindows(windows []TraceCausalProjectionQueryWindow) []TraceCausalProjectionQueryWindow {
+	sort.SliceStable(windows, func(i, j int) bool {
+		if windows[i].StartTs != windows[j].StartTs {
+			return windows[i].StartTs < windows[j].StartTs
+		}
+		return windows[i].EndTs < windows[j].EndTs
+	})
+	return windows
+}
+
 // traceCausalProjectionSelectedWindowNote parses the producer's typed
 // "selected_window=<start>..<end>" rich note (F1): exact key-prefix match,
 // both ends strict floats (strconv.ParseFloat — no unit-suffix tolerance),
@@ -1102,6 +1207,11 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// §7.30.3 D3: gated-impact composition for priority-inversion rows.
 	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunnable)
 	node.GatedRunningDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunningDeficit)
+	// PTV5 Q4 (#68 用户裁定 2026-07-05): inversion candidacy is a typed field —
+	// exact "true" match on the producer's note; the legacy Object-token lane
+	// stays alive in the display predicate for root_cause rows whose Object
+	// carries the type token.
+	node.PriorityInversionCandidate = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyPriorityInversionCandidate)) == "true"
 	// VS-1 (§7.8): periodic-signal-source semantics — exact typed note match.
 	node.PeriodicSource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyPeriodicSource)) == "true"
 	if node.PeriodicSource {
@@ -1122,6 +1232,20 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// Verbatim typed kind token (see TypeToken doc): lets renderers specialize
 	// the unresolved-peer wording for blocking_span / d_state_or_io_wait rows.
 	node.TypeToken = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyType))
+	// PTS (#68 用户裁定 2026-07-05): a producer-side fold record (rows beyond
+	// the per-family wire cap folded with a count — zero silent drops) carries
+	// its fold accounting in the typed folded_* note family; the node
+	// re-materializes the fold so the tree renders 其余 N 项(链上折叠) with
+	// the member range and roster.
+	if folded := traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyFoldedRows); folded > 0 {
+		node.MergedCount = folded
+		node.MergedMinMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyFoldedMinMS)
+		node.MergedMaxMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyFoldedMaxMS)
+		for _, subject := range strings.Split(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldedSubjects), ",") {
+			traceCausalProjectionAppendMergedSubject(&node, subject)
+		}
+		node.OnChainOverflowFold = node.ChainRelevance == "on_chain"
+	}
 	return node
 }
 
@@ -1314,6 +1438,91 @@ func traceCausalProjectionLimitNodes(nodes []TraceCausalProjectionNode, limit in
 		nodes = nodes[:limit]
 	}
 	return append([]TraceCausalProjectionNode(nil), nodes...)
+}
+
+// traceCausalProjectionLimitNodesOnChainFold is the PTS zero-silent-drop
+// bucket limiter (#68 用户裁定 2026-07-05: 凡 on-chain 项必须提及+进树,多则
+// 折叠+计数): rows beyond the on-chain bucket cap fold into ONE counted
+// subjectless row — member MAX value (wall clock never sums across threads),
+// min–max range, up-to-4 subject roster and every member evidence ID kept —
+// instead of the former silent nodes[:limit] discard. ≤limit inputs return
+// byte-identical to the plain limiter. Runs AFTER the presentation
+// aggregation (复核 P1, 2026-07-06), so the count is the post-merge truth.
+//
+// 口径源 (复核 P1 ②): the fold's published value carries the CALIBER of the
+// member that supplied the MAX — a window-projection max lands on ImpactMS
+// (consumers may publish a window share), while a cumulative-only max lands
+// on CumulativeImpactMS ONLY (ImpactMS stays 0 → the C00 display pipeline
+// prints the 链上累计 caliber word and suppresses the %, and the (a) table's
+// window-projection column honestly shows "—").
+func traceCausalProjectionLimitNodesOnChainFold(nodes []TraceCausalProjectionNode, limit int) []TraceCausalProjectionNode {
+	if limit <= 0 || len(nodes) == 0 || len(nodes) <= limit {
+		return traceCausalProjectionLimitNodes(nodes, limit)
+	}
+	kept := append([]TraceCausalProjectionNode(nil), nodes[:limit]...)
+	overflow := nodes[limit:]
+	fold := TraceCausalProjectionNode{
+		Role:                overflow[0].Role,
+		Predicate:           overflow[0].Predicate,
+		ChainRelevance:      "on_chain",
+		Causality:           overflow[0].Causality,
+		OnChainOverflowFold: true,
+	}
+	var minMS, maxMS float64
+	maxFromWindowProjection := false
+	absorbed := map[string]bool{}
+	appendID := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || absorbed[traceCausalProjectionCanonicalNode(raw)] {
+			return
+		}
+		absorbed[traceCausalProjectionCanonicalNode(raw)] = true
+		if fold.EvidenceID == "" {
+			fold.EvidenceID = raw
+			return
+		}
+		fold.MergedEvidenceIDs = append(fold.MergedEvidenceIDs, raw)
+	}
+	for _, member := range overflow {
+		traceCausalProjectionAppendMergedSubject(&fold, member.Subject)
+		display := member.ImpactMS
+		fromWindowProjection := member.ImpactMS > 0
+		if display <= 0 {
+			display = member.CumulativeImpactMS
+		}
+		if minMS == 0 || (display > 0 && display < minMS) {
+			minMS = display
+		}
+		if display > maxMS {
+			maxMS = display
+			maxFromWindowProjection = fromWindowProjection
+		}
+		appendID(member.EvidenceID)
+		for _, id := range member.MergedEvidenceIDs {
+			appendID(id)
+		}
+		if member.LineStart > 0 && (fold.LineStart <= 0 || member.LineStart < fold.LineStart) {
+			fold.LineStart = member.LineStart
+		}
+		if member.LineEnd > fold.LineEnd {
+			fold.LineEnd = member.LineEnd
+		}
+		if member.Confidence > 0 && (fold.Confidence <= 0 || member.Confidence < fold.Confidence) {
+			fold.Confidence = member.Confidence
+		}
+	}
+	// MergedCount counts folded ROWS (a member's own ×N stays inside its
+	// absorbed evidence IDs); the value is the member MAX, never a sum.
+	fold.MergedCount = len(overflow)
+	fold.MergedMinMS = minMS
+	fold.MergedMaxMS = maxMS
+	if maxFromWindowProjection {
+		fold.ImpactMS = maxMS
+		fold.CumulativeImpactMS = maxMS
+	} else {
+		fold.CumulativeImpactMS = maxMS
+	}
+	return append(kept, fold)
 }
 
 func traceCausalProjectionSelectChainRelevance(nodes []TraceCausalProjectionNode, relevance string) []TraceCausalProjectionNode {

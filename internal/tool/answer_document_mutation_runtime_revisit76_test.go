@@ -132,7 +132,11 @@ func TestTraceProjectionSameSubjectIOCalibersFoldIntoPrimaryRow(t *testing.T) {
 	if !strings.Contains(fence, "232.428") {
 		t.Fatalf("the max-impact caliber must stay the primary row:\n%s", fence)
 	}
-	if !strings.Contains(fence, "同段IO另有 io_burst_episode 226.153ms、io_wait 112.011/107.672ms 口径;证据 E2、E3、E4") {
+	// PTV5 C09/C16 (#68): zh labels ride the D4 combined form; the longer note
+	// may T3-wrap between tokens, so the pin checks the caliber list and the
+	// evidence roster as two whole substrings (tokens themselves never split).
+	if !strings.Contains(fence, "同段IO另有 IO突发（io_burst_episode） 226.153ms、IO等待（io_wait） 112.011/107.672ms 口径;证据") ||
+		!strings.Contains(fence, "E2、E3、E4") {
 		t.Fatalf("the folded calibers must surface as ONE note with all evidence ids:\n%s", fence)
 	}
 	// Folded values appear exactly once (inside the note) — no sibling rows.
@@ -163,7 +167,7 @@ func TestTraceProjectionIOFoldDetailTableMirrorAndChainAttachedKeepsWake(t *test
 	// PTV4 T10: the caliber-note and relation mirrors live in the (b) vertical
 	// lossless blocks (the (a) key table carries the duration quad only).
 	full := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(full, "同段IO口径: 同段IO另有 io_burst_episode 226.153ms、io_wait 112.011/107.672ms 口径") {
+	if !strings.Contains(full, "同段IO口径: 同段IO另有 IO突发（io_burst_episode） 226.153ms、IO等待（io_wait） 112.011/107.672ms 口径") {
 		t.Fatalf("the lossless surface must mirror the caliber note on the primary block:\n%s", full)
 	}
 	if !strings.Contains(full, "关系 ▸ 影响点: 唤醒 ▸ ") {
@@ -323,7 +327,7 @@ func TestTraceProjectionIOFoldNeverCrossesChainLanes(t *testing.T) {
 		depthless("io-own-wait", "io_wait", 107.672, 1250, 1750))
 	model = buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence = runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "同段IO另有 io_wait 107.672ms 口径;证据 E4") {
+	if !strings.Contains(fence, "同段IO另有 IO等待（io_wait） 107.672ms 口径;证据 E4") {
 		t.Fatalf("same-lane depthless calibers must keep folding:\n%s", fence)
 	}
 	if !strings.Contains(fence, "112.011") {
@@ -562,6 +566,43 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkPeriodicSource:       {"周期性信号源", "periodic signal source"},
 		runtimeTraceProjMarkAdjacentStanza:       {"◇", "◇"},
 		runtimeTraceProjMarkBackgroundStanza:     {"▒", "▒"},
+		// PTV5 C00: no fence probe — the fallback caliber word 链上累计 is also
+		// the 链上累计Xms data tag's prefix (mark-less), so the token cannot be
+		// bidirectional; the mark records at the MainRow Keep-tag append,
+		// which the width fit never elides (structural, like StateLabel).
+		runtimeTraceProjMarkImpactCaliberFallback: {"", ""},
+		// PTV5 Q2: the coverage caliber line renders in the LEAD, not the
+		// fence — no fence probe; direction A (mark ⇔ legend entry) still
+		// asserts.
+		runtimeTraceProjMarkCoverageLine: {"", ""},
+		// PTV5 PTS: the on-chain overflow fold row's lane word.
+		runtimeTraceProjMarkOnChainOverflowFold: {"链上折叠", "on-chain fold"},
+	}
+}
+
+// revisit76PTV5FoldCaliberProjection (PTV5 #68) exercises the C00 fallback
+// caliber word (a data row with NO window projection — cumulative-sourced
+// main ms) and the PTS on-chain overflow fold row (zero-silent-drop counted
+// fold).
+func revisit76PTV5FoldCaliberProjection() types.TraceCausalProjection {
+	fallback := types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "ptv5-fallback",
+		Subject: "chained-3", Object: "runnable_wait", StateKind: "runnable",
+		ChainRelevance: "on_chain", CumulativeImpactMS: 25.0, Confidence: 0.8,
+	}
+	fold := types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "ptv5-fold-1",
+		ChainRelevance: "on_chain", OnChainOverflowFold: true,
+		ImpactMS: 12.0, CumulativeImpactMS: 12.0,
+		MergedCount: 3, MergedMinMS: 2.0, MergedMaxMS: 12.0,
+		MergedSubjects: []string{"of-1", "of-2"},
+		Confidence:     0.8,
+	}
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"chained-3", "app-100"},
+		WindowStartTs: 100.0,
+		WindowEndTs:   100.1,
+		OnChainCauses: []types.TraceCausalProjectionNode{fallback, fold},
 	}
 }
 
@@ -758,6 +799,8 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// PTV4: badges, 链上L# chip, ×N 三式, over-window share, whole-window
 		// idle, inherited attribution.
 		{"ptv4_badges_merges", revisit76PTV4BadgeMergeProjection()},
+		// PTV5 (#68): C00 fallback caliber word + PTS on-chain overflow fold.
+		{"ptv5_fold_caliber", revisit76PTV5FoldCaliberProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

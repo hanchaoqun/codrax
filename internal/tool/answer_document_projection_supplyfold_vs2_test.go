@@ -51,7 +51,7 @@ func TestSupplyFoldClauseTripleBranchZH(t *testing.T) {
 		"gated_runnable=2.000", "gated_running_deficit=3.000")
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "")
-	want := "机制构成: 供给折算缺口 5.000ms(按大核满频折算,下界)+ 调度压力(需求积压)(runnable 150.000ms)+ 优先级反转(构成: 可运行等待 2.000ms + 运行折算 3.000ms)共同作用"
+	want := "机制构成: 供给折算缺口 5.000ms(按大核满频折算,下界)+ 调度压力(需求积压)(可运行等待 150.000ms)+ 优先级反转(构成: 可运行等待 2.000ms + 运行折算 3.000ms)共同作用"
 	if !strings.Contains(rn1CollapseContinuations(md), want) {
 		t.Fatalf("triple-branch clause missing:\n%s", md)
 	}
@@ -92,7 +92,7 @@ func TestSupplyFoldClauseDemandBranchZH(t *testing.T) {
 		"runnable=150.000")
 	md := supplyFoldVS2Render(t, records, "")
 	collapsed := rn1CollapseContinuations(md)
-	want := "机制构成: 供给折算缺口 5.000ms(按大核满频折算,下界)+ 调度压力(需求积压)(runnable 150.000ms)共同作用"
+	want := "机制构成: 供给折算缺口 5.000ms(按大核满频折算,下界)+ 调度压力(需求积压)(可运行等待 150.000ms)共同作用"
 	if !strings.Contains(collapsed, want) {
 		t.Fatalf("demand-branch clause missing:\n%s", md)
 	}

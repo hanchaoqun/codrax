@@ -109,7 +109,9 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 
 	// Fact-only conclusion + window anchor + coverage subtraction.
 	for _, want := range []string{
-		"**主根因:** binder:42591_4-42712 睡眠等待（sleep_wait） 38.400ms(占窗60%),下钻到 RenderService-3021",
+		// 复核 Med (2026-07-06): the cumulative-source headline carries its
+		// caliber word and no 占窗 share (C00 同源门).
+		"**主根因:** binder:42591_4-42712 睡眠等待（sleep_wait） 链上累计 38.400ms,下钻到 RenderService-3021",
 		"关注窗口 738291.402s → 738291.466s,共 64.000ms",
 		"on-chain 已归因 38.400ms/60%,未归因残差 25.600ms/40%",
 	} {
@@ -141,7 +143,8 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		"语义优化span·class_verification",
 		"运行占用",
 		"可运行等待",
-		"◇ 邻近链",
+		// PTV5 C02 (#68): the stanza header speaks the legend's own noun.
+		"◇ 邻近区段",
 		"▒ 背景压力",
 		"▒▒▒░░░░░░░",
 		" 60%",

@@ -257,36 +257,39 @@ type runtimeTraceProjTreeModel struct {
 type runtimeTraceProjMark int
 
 const (
-	runtimeTraceProjMarkRootTarget           runtimeTraceProjMark = iota // 🎯 root header
-	runtimeTraceProjMarkEdgeDrill                                        // ├─下钻─ edge
-	runtimeTraceProjMarkEdgeWake                                         // ├─唤醒─ / └─唤醒─ edge
-	runtimeTraceProjMarkEdgeCause                                        // ├─成因─ edge
-	runtimeTraceProjMarkEdgeOwn                                          // ├─自身─ own-process caliber edge (F2)
-	runtimeTraceProjMarkSemanticSpan                                     // ├─语义─ edge + ✦ icon (always paired)
-	runtimeTraceProjMarkIconSleep                                        // ☾ state icon (PTV4 T5: was 💤)
-	runtimeTraceProjMarkIconRunnable                                     // ⧖ state icon (PTV4 T5: was ⏳)
-	runtimeTraceProjMarkIconRunning                                      // ⚙ state icon
-	runtimeTraceProjMarkIconDState                                       // ⛓ state icon
-	runtimeTraceProjMarkIconTransit                                      // ◦ 中转 transit icon (PTV4 T4: the two ◦ senses split)
-	runtimeTraceProjMarkIconNoDominant                                   // ◦ 无主导态 stateless data-row icon (PTV4 T4)
-	runtimeTraceProjMarkBadge                                            // ❶❷❸ TOP-N root-cause badge (PTV4 T6)
-	runtimeTraceProjMarkStateLabel                                       // dominant-state / impact-shape tag
-	runtimeTraceProjMarkUndrillable                                      // ⊘ missing-wakeup marker (PTV4 T5: was ⛔)
-	runtimeTraceProjMarkCrossWindow                                      // ⚠实际Xms cross-window marker (PTV4 T4: data kept, semantics in legend)
-	runtimeTraceProjMarkRecursOnChain                                    // ↺ small-cycle marker
-	runtimeTraceProjMarkChainDepthChip                                   // 链上L# chain-depth chip (PTV4 T9)
-	runtimeTraceProjMarkOmitted                                          // …省略N节点… long-trunk fold row (PTV4 T8 roster)
-	runtimeTraceProjMarkBarScale                                         // bar full-scale caliber line (PTV4 T7 口径组)
-	runtimeTraceProjMarkMergedSum                                        // ×N(a–b) same-kind SUM aggregate (PTV4 T4 ×N 三式)
-	runtimeTraceProjMarkMergedDedup                                      // ×N同值 duplicate-publication fold (PTV4 T4 ×N 三式)
-	runtimeTraceProjMarkMergedMax                                        // ×N(a–b)取最大 cross-thread fold (PTV4 T4 ×N 三式)
-	runtimeTraceProjMarkOverWindowShare                                  // 占窗>100% multi-CPU/multi-span cumulative share (PTV4 T4)
-	runtimeTraceProjMarkWholeWindowIdle                                  // 整窗等待 whole-window idle annotation (PTV4 T4)
-	runtimeTraceProjMarkInheritedAttribution                             // 承自归因 inherited-attribution annotation (PTV4 T4)
-	runtimeTraceProjMarkIOCaliberNote                                    // NEW-3 同段IO另有…口径 note
-	runtimeTraceProjMarkPeriodicSource                                   // VS-1 周期性信号源 tag
-	runtimeTraceProjMarkAdjacentStanza                                   // ◇ 邻近 stanza
-	runtimeTraceProjMarkBackgroundStanza                                 // ▒ 背景压力 stanza
+	runtimeTraceProjMarkRootTarget            runtimeTraceProjMark = iota // 🎯 root header
+	runtimeTraceProjMarkEdgeDrill                                         // ├─下钻─ edge
+	runtimeTraceProjMarkEdgeWake                                          // ├─唤醒─ / └─唤醒─ edge
+	runtimeTraceProjMarkEdgeCause                                         // ├─成因─ edge
+	runtimeTraceProjMarkEdgeOwn                                           // ├─自身─ own-process caliber edge (F2)
+	runtimeTraceProjMarkSemanticSpan                                      // ├─语义─ edge + ✦ icon (always paired)
+	runtimeTraceProjMarkIconSleep                                         // ☾ state icon (PTV4 T5: was 💤)
+	runtimeTraceProjMarkIconRunnable                                      // ⧖ state icon (PTV4 T5: was ⏳)
+	runtimeTraceProjMarkIconRunning                                       // ⚙ state icon
+	runtimeTraceProjMarkIconDState                                        // ⛓ state icon
+	runtimeTraceProjMarkIconTransit                                       // ◦ 中转 transit icon (PTV4 T4: the two ◦ senses split)
+	runtimeTraceProjMarkIconNoDominant                                    // ◦ 无主导态 stateless data-row icon (PTV4 T4)
+	runtimeTraceProjMarkBadge                                             // ❶❷❸ TOP-N root-cause badge (PTV4 T6)
+	runtimeTraceProjMarkStateLabel                                        // dominant-state / impact-shape tag
+	runtimeTraceProjMarkUndrillable                                       // ⊘ missing-wakeup marker (PTV4 T5: was ⛔)
+	runtimeTraceProjMarkCrossWindow                                       // ⚠实际Xms cross-window marker (PTV4 T4: data kept, semantics in legend)
+	runtimeTraceProjMarkRecursOnChain                                     // ↺ small-cycle marker
+	runtimeTraceProjMarkChainDepthChip                                    // 链上L# chain-depth chip (PTV4 T9)
+	runtimeTraceProjMarkOmitted                                           // …省略N节点… long-trunk fold row (PTV4 T8 roster)
+	runtimeTraceProjMarkBarScale                                          // bar full-scale caliber line (PTV4 T7 口径组)
+	runtimeTraceProjMarkMergedSum                                         // ×N(a–b) same-kind SUM aggregate (PTV4 T4 ×N 三式)
+	runtimeTraceProjMarkMergedDedup                                       // ×N同值 duplicate-publication fold (PTV4 T4 ×N 三式)
+	runtimeTraceProjMarkMergedMax                                         // ×N(a–b)取最大 cross-thread fold (PTV4 T4 ×N 三式)
+	runtimeTraceProjMarkOverWindowShare                                   // 占窗>100% multi-CPU/multi-span cumulative share (PTV4 T4)
+	runtimeTraceProjMarkWholeWindowIdle                                   // 整窗等待 whole-window idle annotation (PTV4 T4)
+	runtimeTraceProjMarkInheritedAttribution                              // 承自归因 inherited-attribution annotation (PTV4 T4)
+	runtimeTraceProjMarkIOCaliberNote                                     // NEW-3 同段IO另有…口径 note
+	runtimeTraceProjMarkPeriodicSource                                    // VS-1 周期性信号源 tag
+	runtimeTraceProjMarkAdjacentStanza                                    // ◇ 邻近 stanza
+	runtimeTraceProjMarkBackgroundStanza                                  // ▒ 背景压力 stanza
+	runtimeTraceProjMarkImpactCaliberFallback                             // PTV5 C00 主行回退口径词 (链上累计/有效归因/实际状态)
+	runtimeTraceProjMarkCoverageLine                                      // PTV5 Q2 树头覆盖行(已归因/未归因)口径
+	runtimeTraceProjMarkOnChainOverflowFold                               // PTV5 PTS 链上折叠行(其余N项,零静默丢弃)
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -401,9 +404,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkIconNoDominant, runtimeTraceProjLegendGroupMark,
 			"- `◦ 无主导态` = 该行无主导调度状态,状态标签沿用影响形态。",
 			"- `◦ no dominant state` = the row exposed no dominant scheduler state; its state tag keeps the impact-shape value."},
+		// PTV5 C01/C24 (#68): badges land on chain/cause/depthless rows — flat
+		// renders included — so the entry does not claim 链上 (CMP-7a: flat
+		// renders never claim on-chain). The sort key is visible per row via
+		// the Q1 有效归因 tag.
 		{runtimeTraceProjMarkBadge, runtimeTraceProjLegendGroupMark,
-			"- `❶❷❸` = 链上根因关注点 TOP3(按有效归因排序)。",
-			"- `❶❷❸` = TOP-3 on-chain root-cause focus points (ordered by effective attribution)."},
+			"- `❶❷❸` = 根因关注点 TOP3(按有效归因排序)。",
+			"- `❶❷❸` = TOP-3 root-cause focus points (ordered by effective attribution)."},
 		{runtimeTraceProjMarkStateLabel, runtimeTraceProjLegendGroupMark,
 			"- 状态标签(睡眠等待/可运行等待/运行占用/IO阻塞/D状态)来自该行主导调度状态;无主导状态的行沿用影响形态。",
 			"- The state tag (sleep wait / runnable wait / running / IO wait / D-state) is the row's dominant scheduler state; rows without one keep their impact-shape value."},
@@ -437,9 +444,11 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkOverWindowShare, runtimeTraceProjLegendGroupCaliber,
 			"- 占窗>100% = 跨CPU/多段累计投影,可合法超出窗口长度(时长条已封顶)。",
 			"- A >100% window share = a multi-CPU / multi-span cumulative projection that may legitimately exceed the window (the bar is capped)."},
+		// PTV5 C10 (#68): the trigger is ≥99% (≤100.1%) on BACKGROUND rows only
+		// — the entry states its own bounds instead of "整个窗口" 过宽.
 		{runtimeTraceProjMarkWholeWindowIdle, runtimeTraceProjLegendGroupCaliber,
-			"- `整窗等待` = 该行投影覆盖整个窗口(疑似空闲线程)。",
-			"- `whole-window wait` = the row's projection covers the whole window (likely an idle thread)."},
+			"- `整窗等待` = 该行投影≈覆盖整窗(≥99%,背景行;疑似空闲线程)。",
+			"- `whole-window wait` = the row's projection ≈covers the whole window (≥99%, background rows; likely an idle thread)."},
 		{runtimeTraceProjMarkInheritedAttribution, runtimeTraceProjLegendGroupCaliber,
 			"- `承自归因` = 该行有效归因承自其所在等待区间,非本行实测。",
 			"- `inherited attribution` = the row's effective attribution is inherited from its enclosing wait interval, not measured on this row."},
@@ -455,6 +464,23 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkBackgroundStanza, runtimeTraceProjLegendGroupCaliber,
 			"- `▒` = 背景压力区段:环境证据,不计入链上归因,需结合 on-chain 证据解读。",
 			"- `▒` = background-pressure stanza: environmental evidence, not chain attribution; read with on-chain evidence."},
+		// PTV5 C00 (#68 用户裁定 2026-07-05): a fallback-sourced main-line ms is
+		// identifiable at the point of reading — the inline caliber word reuses
+		// the (a)-table caliber vocabulary; the semantics live here.
+		{runtimeTraceProjMarkImpactCaliberFallback, runtimeTraceProjLegendGroupCaliber,
+			"- 行内 `链上累计`/`有效归因`/`实际状态` 口径词 = 该行无窗口投影值,主行数值为所标口径(不显示占窗百分比)。",
+			"- An inline `chain total`/`attribution`/`actual state` caliber word = the row has no window-projection value; the main-line duration is that caliber (no window-share percentage)."},
+		// PTV5 Q2 (#68 用户裁定 2026-07-05): the tree-header coverage sentence's
+		// caliber gets its own legend entry — attributed = the chain's depth-1
+		// cumulative toward the target, residual by subtraction only.
+		{runtimeTraceProjMarkCoverageLine, runtimeTraceProjLegendGroupCaliber,
+			"- 已归因/未归因 = 树头覆盖行口径:链上第一层向目标的累计投影,对分母(目标等待或整窗)做减法;跨层不求和。",
+			"- attributed/unattributed = the tree-header coverage caliber: the chain's depth-1 cumulative projection toward the target, subtracted from the denominator (target wait or whole window); layers never sum."},
+		// PTV5 PTS (#68 用户裁定 2026-07-05): on-chain overflow beyond the bucket
+		// cap folds with a count — never a silent drop.
+		{runtimeTraceProjMarkOnChainOverflowFold, runtimeTraceProjLegendGroupCaliber,
+			"- `其余N项(链上折叠)` = 超出逐行上限的链上项折叠为一行计数,数值取成员最大(墙钟不求和);成员见无损块与证据索引。",
+			"- `N more (on-chain fold)` = on-chain rows beyond the per-row cap fold into one counted row; the value is the member MAX (wall clock never sums). Members live in the lossless block and the evidence index."},
 	}
 }
 
@@ -948,6 +974,12 @@ func runtimeTraceProjAssignTopBadges(model *runtimeTraceProjTreeModel) {
 		if !row.HasData || row.Node.Rank <= 0 {
 			continue
 		}
+		// PTS (复核 Low, 2026-07-06): the on-chain overflow fold row is a
+		// counted roster, never a root-cause focus — typed gate, not an
+		// incidental Rank==0 escape (账本"永不"宣称兑现).
+		if row.Node.OnChainOverflowFold {
+			continue
+		}
 		switch row.Kind {
 		case runtimeTraceProjTreeRowChain, runtimeTraceProjTreeRowCause, runtimeTraceProjTreeRowDepthless:
 		default:
@@ -988,7 +1020,10 @@ func runtimeTraceProjBadgeGlyph(rank int) string {
 // value passes through verbatim.
 func runtimeTraceProjCausalPositionLayerCell(node types.TraceCausalProjectionNode, zh, flatChain bool) string {
 	layer := runtimeTraceCausalProjectionLayerCell(node, zh)
-	if flatChain && layer == "on-chain" {
+	// PTV5 C30 (#68): the zh on_chain cell now reads 链上 — the CMP-7a flat
+	// rewrite matches both spellings so a flat render still never claims the
+	// chain in either language.
+	if flatChain && (layer == "on-chain" || layer == "链上") {
 		if zh {
 			return "平铺(链不可上溯)"
 		}
@@ -1214,7 +1249,18 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 	}
 	parts := make([]string, 0, len(groups))
 	for _, g := range groups {
-		parts = append(parts, strings.TrimSpace(g.token+" "+strings.Join(g.values, "/")+"ms"))
+		token := g.token
+		if zh {
+			// PTV5 C09/C16 (#68): the zh tree face speaks the D4 combined form
+			// 中文（raw_token） — the typelabels table already maps the IO
+			// caliber tokens (io_wait→IO等待, io_burst_episode→IO突发, …); the
+			// raw token stays inline for audit fidelity, unmapped tokens pass
+			// through verbatim.
+			if label := runtimeTraceRootCauseTypeZHLabel(g.token); label != "" {
+				token = label + "（" + g.token + "）"
+			}
+		}
+		parts = append(parts, strings.TrimSpace(token+" "+strings.Join(g.values, "/")+"ms"))
 	}
 	if zh {
 		text := "同段IO另有 " + strings.Join(parts, "、") + " 口径"
@@ -1504,16 +1550,89 @@ func runtimeTraceProjCrossThreadQueueDepthToken(node types.TraceCausalProjection
 }
 
 func runtimeTraceProjNodeDisplayImpact(node types.TraceCausalProjectionNode) float64 {
+	v, _ := runtimeTraceProjNodeDisplayImpactSource(node)
+	return v
+}
+
+// runtimeTraceProjImpactSource enumerates which typed field the display-impact
+// fallback chain resolved to. PTV5 C00 (#68 用户裁定 2026-07-05): the caliber
+// of the main-line ms must be identifiable at the point of reading — a
+// fallback-sourced value carries its (a)-table caliber word inline and never
+// publishes a window-share percentage (the % denominator is the window, so a
+// non-window-projection numerator could fake a >100% share and pull the
+// 占窗>100% legend semantics it does not have).
+type runtimeTraceProjImpactSource int
+
+const (
+	runtimeTraceProjImpactSourceNone runtimeTraceProjImpactSource = iota
+	runtimeTraceProjImpactSourceWindow
+	runtimeTraceProjImpactSourceCumulative
+	runtimeTraceProjImpactSourceEffective
+	runtimeTraceProjImpactSourceActual
+)
+
+// runtimeTraceProjNodeDisplayImpactSource is the single fallback chain behind
+// runtimeTraceProjNodeDisplayImpact, returning the value together with its
+// typed source (precise signal — one field comparison per step).
+func runtimeTraceProjNodeDisplayImpactSource(node types.TraceCausalProjectionNode) (float64, runtimeTraceProjImpactSource) {
 	if node.ImpactMS > 0 {
-		return node.ImpactMS
+		return node.ImpactMS, runtimeTraceProjImpactSourceWindow
 	}
 	if node.CumulativeImpactMS > 0 {
-		return node.CumulativeImpactMS
+		return node.CumulativeImpactMS, runtimeTraceProjImpactSourceCumulative
 	}
 	if node.EffectiveImpactMS > 0 {
-		return node.EffectiveImpactMS
+		return node.EffectiveImpactMS, runtimeTraceProjImpactSourceEffective
 	}
-	return node.ActualImpactMS
+	if node.ActualImpactMS > 0 {
+		return node.ActualImpactMS, runtimeTraceProjImpactSourceActual
+	}
+	return node.ActualImpactMS, runtimeTraceProjImpactSourceNone
+}
+
+// runtimeTraceProjRowFallbackCaliberWord returns the C00 caliber word this
+// row's main line will carry ("" when none) — the SINGLE source for the tag
+// emission (runtimeTraceProjRowMetricParts) and the name-budget reserve
+// (runtimeTraceProjRowMainReserve), so the two can never drift. Cross-thread
+// aggregates carry their own unit suffix and stay out; a periodic row whose
+// display falls back to the EFFECTIVE lane already carries the VS-1 tag with
+// the same value (复核 Low 双 carrier 角, 2026-07-06) — no second carrier.
+func runtimeTraceProjRowFallbackCaliberWord(node types.TraceCausalProjectionNode, zh bool) string {
+	if runtimeTraceProjCrossThreadAggregateType(node) {
+		return ""
+	}
+	impact, source := runtimeTraceProjNodeDisplayImpactSource(node)
+	if impact <= 0 || source == runtimeTraceProjImpactSourceWindow {
+		return ""
+	}
+	if node.PeriodicSource && source == runtimeTraceProjImpactSourceEffective {
+		return ""
+	}
+	return runtimeTraceProjImpactCaliberWord(source, zh)
+}
+
+// runtimeTraceProjImpactCaliberWord maps a non-window display-impact source to
+// its (a)-table caliber word ("" for the window projection / no-value cases —
+// the default caliber needs no word).
+func runtimeTraceProjImpactCaliberWord(source runtimeTraceProjImpactSource, zh bool) string {
+	switch source {
+	case runtimeTraceProjImpactSourceCumulative:
+		if zh {
+			return "链上累计"
+		}
+		return "chain total"
+	case runtimeTraceProjImpactSourceEffective:
+		if zh {
+			return "有效归因"
+		}
+		return "attribution"
+	case runtimeTraceProjImpactSourceActual:
+		if zh {
+			return "实际状态"
+		}
+		return "actual state"
+	}
+	return ""
 }
 
 func runtimeTraceProjModelMaxImpact(model runtimeTraceProjTreeModel) float64 {
@@ -1862,9 +1981,13 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			}
 		}
 	}
+	selfWindowMS := 0.0
+	if windowMode {
+		selfWindowMS = denom
+	}
 	for _, row := range model.SelfRows {
 		row.marks = model.Marks // NEW-7: record at the emission site of this pass
-		for _, line := range runtimeTraceProjSelfRowLines(row, zh) {
+		for _, line := range runtimeTraceProjSelfRowLines(row, selfWindowMS, zh) {
 			b.WriteString(line + "\n")
 		}
 	}
@@ -1880,9 +2003,11 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 		model.Marks.mark(runtimeTraceProjMarkAdjacentStanza)
 		b.WriteString("\n")
 		// PTV4 T4: the stanza semantics live in the legend's ◇ entry — the
-		// header keeps only the mark + name.
+		// header keeps only the mark + name. PTV5 C02 (#68): the header uses
+		// the legend's own noun 邻近区段 — the former 邻近链 claimed the chain
+		// identity the ◇ definition explicitly denies (不在唤醒路径上).
 		if zh {
-			b.WriteString("◇ 邻近链\n")
+			b.WriteString("◇ 邻近区段\n")
 		} else {
 			b.WriteString("◇ Adjacent\n")
 		}
@@ -1932,9 +2057,12 @@ func runtimeTraceProjTreeLabelColumn(model runtimeTraceProjTreeModel, zh bool) i
 		// unpadded (never truncated) and rows keep the capped column.
 		width = runewidth.StringWidth(runtimeTraceProjTreeHeaderLabel(model, zh))
 	}
-	consider := func(fixed, name string) {
+	// 复核 P1 簇二 (2026-07-06): the width pass applies the SAME per-row
+	// main-reserve as the label composer (one helper), so the shared column
+	// measures exactly what each row will render.
+	consider := func(fixed, name string, reserve int) {
 		fixedW := runewidth.StringWidth(fixed)
-		budget := runtimeTraceProjTreeNameBudget(fixedW)
+		budget := runtimeTraceProjTreeNameBudgetReserve(fixedW, reserve)
 		nameW := runewidth.StringWidth(name)
 		if nameW > budget {
 			nameW = budget
@@ -1948,14 +2076,15 @@ func runtimeTraceProjTreeLabelColumn(model runtimeTraceProjTreeModel, zh bool) i
 			continue
 		}
 		fixed, name := runtimeTraceProjTreeLabelParts(row, zh)
-		consider(fixed, name)
+		consider(fixed, name, runtimeTraceProjRowMainReserve(row, zh))
 	}
 	// Stanza rows pad to the same column (their bars share the start column);
 	// their fixed part mirrors runtimeTraceProjStanzaRowLine exactly (nil marks:
 	// the width pass records nothing).
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.Adjacent, model.Background} {
 		for _, row := range rows {
-			consider("    "+runtimeTraceProjStateIcon(row.Node, row.Kind, true, nil)+" ", runtimeTraceProjRowName(row, zh))
+			consider("    "+runtimeTraceProjStateIcon(row.Node, row.Kind, true, nil)+" ",
+				runtimeTraceProjRowName(row, zh), runtimeTraceProjRowMainReserve(row, zh))
 		}
 	}
 	// F-3: the shared column never exceeds the cap — an over-wide 🎯 header
@@ -2053,9 +2182,16 @@ func runtimeTraceProjTreeLabelParts(row runtimeTraceProjTreeRow, zh bool) (strin
 // (never truncates) to the shared column width. PTV4 T2: names carrying a
 // -pid identity tail truncate in the MIDDLE so the tail survives; tag
 // pressure NEVER shrinks the name (the budget depends on the fixed part
-// only — T1 main-row invariant).
+// only — T1 main-row invariant). 复核 P1 簇二 (2026-07-06) carve-out: the
+// row's OWN main-line Keep suffix (the C00 caliber word) joins the budget as
+// a reserve — the name mid-truncates and gives way so the essentials hold the
+// 100-cell cap (PTV4 ↺ 预留同型).
 func runtimeTraceProjTreeLabel(fixed, name string, width int) string {
-	budget := runtimeTraceProjTreeNameBudget(runewidth.StringWidth(fixed))
+	return runtimeTraceProjTreeLabelReserve(fixed, name, width, 0)
+}
+
+func runtimeTraceProjTreeLabelReserve(fixed, name string, width, reserve int) string {
+	budget := runtimeTraceProjTreeNameBudgetReserve(runewidth.StringWidth(fixed), reserve)
 	if runewidth.StringWidth(name) > budget {
 		name = runtimeTraceProjTruncateName(name, budget)
 	}
@@ -2064,6 +2200,46 @@ func runtimeTraceProjTreeLabel(fixed, name string, width int) string {
 		label += strings.Repeat(" ", pad)
 	}
 	return label
+}
+
+// runtimeTraceProjTreeNameBudgetReserve subtracts a row's main-line Keep
+// suffix reserve from the B1 name budget. The readability floor ERODES by the
+// reserve too (never below the 8-cell identity floor the omitted-row roster
+// already uses — a T2 mid-truncated name keeps its pid tail there): the
+// caliber word is load-bearing 口径 information, so on a floor-squeezed row
+// the NAME gives way (复核 P1 簇二 裁定: 名字被中截让位), not the word. Deep
+// rows whose fixed rails alone exhaust every yield keep the documented
+// quantified-floor discipline (marks render whole past the cap, recorded
+// as-is — see the essentials-floor note in runtimeTraceProjRowLineWithMetrics).
+func runtimeTraceProjTreeNameBudgetReserve(fixedW, reserve int) int {
+	budget := runtimeTraceProjTreeNameBudget(fixedW)
+	if reserve <= 0 {
+		return budget
+	}
+	budget -= reserve
+	floor := runtimeTraceProjTreeNameMinWidth - reserve
+	if floor < 8 {
+		floor = 8
+	}
+	if budget < floor {
+		budget = floor
+	}
+	return budget
+}
+
+// runtimeTraceProjRowMainReserve (复核 P1 簇二, 2026-07-06): the width this
+// row's OWN main-line Keep suffix will add after the label — today the C00
+// caliber word (" · <word>") — reserved OUT of the name budget by the label
+// composer AND the shared width pass (both call this one helper, no drift).
+// The ↺ suffix keeps its own reserve in runtimeTraceProjRowLineWithMetrics.
+func runtimeTraceProjRowMainReserve(row runtimeTraceProjTreeRow, zh bool) int {
+	if !row.HasData {
+		return 0
+	}
+	if word := runtimeTraceProjRowFallbackCaliberWord(row.Node, zh); word != "" {
+		return runewidth.StringWidth(" · " + word)
+	}
+	return 0
 }
 
 // runtimeTraceProjTruncateName display-truncates a row name to a cell budget
@@ -2167,9 +2343,9 @@ func runtimeTraceProjScaleNote(model runtimeTraceProjTreeModel, zh bool) string 
 // state/name + value + ⊘ marker + [E#]) and every other part moves to
 // "· "-prefixed subordinate detail lines — nothing is elided (the FitTags
 // drop lane is retired).
-func runtimeTraceProjSelfRowLines(row runtimeTraceProjTreeRow, zh bool) []string {
+func runtimeTraceProjSelfRowLines(row runtimeTraceProjTreeRow, windowMS float64, zh bool) []string {
 	const lead = "│     "
-	main, demoted := runtimeTraceProjSelfRowParts(row, zh)
+	main, demoted := runtimeTraceProjSelfRowParts(row, windowMS, zh)
 	// legacy layout order for the single-line form: essentials interleave with
 	// the detail parts exactly where they were built; the E# ref stays last.
 	single := lead + strings.Join(runtimeTraceProjSelfInlineOrder(main, demoted), " ")
@@ -2199,7 +2375,7 @@ func runtimeTraceProjSelfInlineOrder(main, demoted []string) []string {
 
 // runtimeTraceProjSelfRowParts builds a self row's essential (main-line) parts
 // and its demotable detail parts (PTV4 T1 split).
-func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, zh bool) ([]string, []string) {
+func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64, zh bool) ([]string, []string) {
 	node := row.Node
 	var main, demoted []string
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
@@ -2246,18 +2422,31 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, zh bool) ([]strin
 		}
 	}
 	if node.IsSleepState() {
-		if zh {
-			demoted = append(demoted, "窗口内主要处于等待唤醒")
+		// PTV5 C03 (#68): "主要" is a share claim — it renders only when the
+		// sleep projection actually covers ≥50% of the window (precise
+		// ImpactMS-vs-windowMS comparison); smaller shares and windowless
+		// renders keep the neutral segment wording.
+		if windowMS > 0 && node.ImpactMS >= windowMS*0.5 {
+			if zh {
+				demoted = append(demoted, "窗口内主要处于等待唤醒")
+			} else {
+				demoted = append(demoted, "mostly waiting for wakeup inside the window")
+			}
+		} else if zh {
+			demoted = append(demoted, "该段处于等待唤醒")
 		} else {
-			demoted = append(demoted, "mostly waiting for wakeup inside the window")
+			demoted = append(demoted, "waiting for wakeup in this segment")
 		}
 	}
 	if node.Undrillable() {
+		// PTV5 C06 (#68): bare ⊘链止, matching the tree-row form — the typed
+		// UndrillableReason enum stays off the panel (semantics live in the
+		// legend's ⊘ entry; the raw enum keeps its (a)-table ⊘ legend home).
 		row.marks.mark(runtimeTraceProjMarkUndrillable)
 		if zh {
-			main = append(main, "⊘链止("+node.UndrillableReason+")")
+			main = append(main, "⊘链止")
 		} else {
-			main = append(main, "⊘chain ends ("+node.UndrillableReason+")")
+			main = append(main, "⊘chain ends")
 		}
 	}
 	// NEW-3: a fold whose primary landed on the target's own state lane still
@@ -2405,6 +2594,16 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 		}
 		return subject
 	}
+	if node.OnChainOverflowFold {
+		// PTS (#68 用户裁定 2026-07-05): the on-chain overflow fold row names
+		// its lane + count explicitly — 零静默丢弃; members' names ride the
+		// roster suffix, semantics live in the legend's 链上折叠 entry.
+		row.marks.mark(runtimeTraceProjMarkOnChainOverflowFold)
+		if zh {
+			return fmt.Sprintf("其余 %d 项(链上折叠)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
+		}
+		return fmt.Sprintf("%d more (on-chain fold)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
+	}
 	if node.MergedCount > 1 && node.Subject == "" {
 		// The fold line keeps the folded rows' thread names (customer
 		// 2026-07-03: a bare "其余 N 项合并" lost every thread identity).
@@ -2529,7 +2728,7 @@ func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, width int, denom f
 		return runtimeTraceProjOmittedRowLine(row, zh)
 	}
 	fixed, name := runtimeTraceProjTreeLabelParts(row, zh)
-	left := runtimeTraceProjTreeLabel(fixed, name, width)
+	left := runtimeTraceProjTreeLabelReserve(fixed, name, width, runtimeTraceProjRowMainReserve(row, zh))
 	var line string
 	if !row.HasData {
 		// NEW-10 (§7.6): transit rows carry no bar to align — render compact.
@@ -2623,8 +2822,8 @@ func runtimeTraceProjStanzaRowLine(row runtimeTraceProjTreeRow, width int, denom
 	// rendered glyph-less, so same-depth rows had varying emoji counts and web
 	// font drift shifted them by varying offsets. The fixed part mirrors the
 	// width pass in runtimeTraceProjTreeLabelColumn exactly.
-	left := runtimeTraceProjTreeLabel("    "+runtimeTraceProjStateIcon(row.Node, row.Kind, true, row.marks)+" ",
-		runtimeTraceProjRowName(row, zh), width)
+	left := runtimeTraceProjTreeLabelReserve("    "+runtimeTraceProjStateIcon(row.Node, row.Kind, true, row.marks)+" ",
+		runtimeTraceProjRowName(row, zh), width, runtimeTraceProjRowMainReserve(row, zh))
 	return runtimeTraceProjRowLineWithMetrics(left, row, denom, windowMode, zh)
 }
 
@@ -2888,7 +3087,7 @@ func runtimeTraceProjStateKindLabel(node types.TraceCausalProjectionNode, zh boo
 // segment into the remaining row-width budget (B4).
 func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, windowMode, zh bool) (string, []runtimeTraceProjTag) {
 	node := row.Node
-	impact := runtimeTraceProjNodeDisplayImpact(node)
+	impact, impactSource := runtimeTraceProjNodeDisplayImpactSource(node)
 	var b strings.Builder
 	crossThread := runtimeTraceProjCrossThreadAggregateType(node)
 	if crossThread {
@@ -2910,7 +3109,13 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	if crossThread {
 		b.WriteString(runtimeTraceProjCrossThreadAggregateSuffix(node, denom, windowMode, zh))
 	}
-	if windowMode && denom > 0 && impact > 0 && !crossThread {
+	// PTV5 C00: the window-share percentage and the H8 over-window mark are
+	// WINDOW-PROJECTION statements — a fallback-sourced value (chain cumulative
+	// / effective attribution / actual state) publishes neither: the % would
+	// divide a non-projection numerator by the window and could fake a >100%
+	// share, pulling the 占窗>100% legend semantics it does not have.
+	if windowMode && denom > 0 && impact > 0 && !crossThread &&
+		impactSource == runtimeTraceProjImpactSourceWindow {
 		b.WriteString(fmt.Sprintf(" %3.0f%%", impact/denom*100))
 		// H8: an over-window share (cross-CPU / multi-span cumulative values can
 		// legitimately exceed the wall-clock window) must not run naked. The
@@ -2923,14 +3128,23 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		}
 	}
 	var tags []runtimeTraceProjTag
+	// PTV5 C00: a fallback-sourced main-line ms carries its (a)-table caliber
+	// word as a Keep tag (never demoted away from the number it qualifies);
+	// the semantics live in the legend's 口径词 entry. Single-source condition
+	// (shared with the name-budget reserve): runtimeTraceProjRowFallbackCaliberWord.
+	if word := runtimeTraceProjRowFallbackCaliberWord(node, zh); word != "" {
+		row.marks.mark(runtimeTraceProjMarkImpactCaliberFallback)
+		tags = append(tags, runtimeTraceProjTag{Text: word, MainRow: true})
+	}
 	// 裁定4: every bar row states WHAT the duration was (typed StateKind label;
 	// impact-shape value when no state was exposed — never fabricated).
 	// §7.30.3 D1/D3: typed lock-contention rows and gated-composite inversion
 	// rows always carry their semantic label — the shape cell wins over any
 	// single-state claim (an inversion composite is NOT "running").
 	stateTag := runtimeTraceProjStateKindLabel(node, zh)
-	if stateTag == "" || strings.TrimSpace(node.BlockingKind) != "" ||
-		runtimeTraceCausalProjectionInversionRow(node) {
+	shapeCellUsed := stateTag == "" || strings.TrimSpace(node.BlockingKind) != "" ||
+		runtimeTraceCausalProjectionInversionRow(node)
+	if shapeCellUsed {
 		stateTag = runtimeTraceCausalProjectionImpactShapeCell(node, zh)
 	}
 	// PTV4 T4 (◦ 二义拆分): a DATA row rendering the ◦ icon says which sense
@@ -3056,6 +3270,18 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	}
 	if action := runtimeTraceCausalProjectionActionCell(node, zh); action != "" &&
 		row.Kind != runtimeTraceProjTreeRowBackground {
+		// PTV5 C12 (#68): a semantic-span row whose shape tag already carries
+		// the class token (shape-cell path + SemanticClass, precise) trims the
+		// action cell to the bare word — the same class printed twice on
+		// adjacent subordinate lines. Detail blocks keep the full cell.
+		if row.Kind == runtimeTraceProjTreeRowSemantic && shapeCellUsed &&
+			strings.TrimSpace(node.SemanticClass) != "" {
+			if zh {
+				action = "优化点"
+			} else {
+				action = "optimize"
+			}
+		}
 		tags = append(tags, runtimeTraceProjTag{Text: action})
 	}
 	if node.CumulativeImpactMS > 0 && impact > 0 && node.CumulativeImpactMS != impact {
@@ -3100,6 +3326,20 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		text := fmt.Sprintf("承自归因%.3fms", node.EffectiveImpactMS)
 		if !zh {
 			text = fmt.Sprintf("inherited attribution %.3fms", node.EffectiveImpactMS)
+		}
+		tags = append(tags, runtimeTraceProjTag{Text: text})
+	} else if node.EffectiveImpactMS > 0 && !node.PeriodicSource &&
+		impactSource != runtimeTraceProjImpactSourceEffective {
+		// PTV5 Q1 (#68 用户裁定 2026-07-05): 有效归因常显 — every data row with a
+		// positive effective attribution carries the value inline (demotes
+		// whole to a subordinate line on width pressure). Gate = value>0,
+		// precise. No double print: periodic rows embed the value in the VS-1
+		// tag, the inherited form keeps its 承自归因 label above, and the C00
+		// fallback word already qualifies a main number that IS the effective
+		// value. The ❶❷❸ sort key is thereby visible at its row (C07).
+		text := fmt.Sprintf("有效归因%.3fms", node.EffectiveImpactMS)
+		if !zh {
+			text = fmt.Sprintf("attribution %.3fms", node.EffectiveImpactMS)
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: text})
 	}
@@ -3155,6 +3395,13 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 // above the row's own cumulative means the attribution was inherited from the
 // enclosing wait interval, and MUST be annotated instead of shown bare.
 func runtimeTraceProjEffectiveInherited(node types.TraceCausalProjectionNode) bool {
+	// 复核 Low (2026-07-06, periodic∧inherited 互斥核查): a periodic source's
+	// EffectiveImpactMS is COMPUTED (runnable + lateness, VS-1), never
+	// inherited — the 10× heuristic could misfire on a tiny cumulative and
+	// stack a second 承自归因 carrier next to the VS-1 tag. Typed guard.
+	if node.PeriodicSource {
+		return false
+	}
 	return node.EffectiveImpactMS > 0 && node.CumulativeImpactMS > 0 &&
 		node.EffectiveImpactMS > 10*node.CumulativeImpactMS
 }
@@ -3193,18 +3440,31 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 	// the catalog entries whose typed mark the fence render actually emitted,
 	// in stable catalog order. The NEW-1 wake-direction wording lives verbatim
 	// in the catalog's wake entry.
+	// PTV5 C11 (#68): a flat render (empty model.Target — the same typed
+	// signal every flat surface reads) has no upstream-tracing structure, so
+	// the fixed head clause states the flat layout instead of contradicting
+	// the fence's own "按层级平铺展示" header.
+	flatHead := strings.TrimSpace(model.Target) == ""
 	if zh {
+		headClause := "- 自上而下 = 从关注线程向上游追溯。"
+		if flatHead {
+			headClause = "- 各行按层级平铺,不构成上下游链。"
+		}
 		lines := []string{
 			"树读法:",
-			"- 自上而下 = 从关注线程向上游追溯。",
+			headClause,
 			"- 时长、排序与 E# 均可定位到原始 trace_query 结构化证据,不是额外推测。",
 		}
 		lines = append(lines, runtimeTraceProjLegendGroupLines(model.Marks, true)...)
 		sections = append(sections, strings.Join(lines, "\n"))
 	} else {
+		headClause := "- Top-down = tracing upstream from the focused thread."
+		if flatHead {
+			headClause = "- Rows are laid out flat by level; they do not form an upstream chain."
+		}
 		lines := []string{
 			"Tree reading:",
-			"- Top-down = tracing upstream from the focused thread.",
+			headClause,
 			"- Durations, ranks and E# tags locate structured trace_query evidence — never extra speculation.",
 		}
 		lines = append(lines, runtimeTraceProjLegendGroupLines(model.Marks, false)...)
@@ -3219,12 +3479,18 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 		// RootCauseFamilyObserved compile flag (exact root_cause_ prefix),
 		// never on prose. Wording stays jargon-free on both branches (去行话:
 		// no 可承重 / off-chain in the lead).
+		//
+		// PTV5 C13 (#68 P1, 2026-07-05): the parenthetical names ONLY the
+		// root_cause_ family — the gate ignores wakeup_chain observations, so
+		// listing wakeup_chain here asserted "wakeup_chain never ran" on runs
+		// that ran exactly that view (假陈述). The sentence lists exactly what
+		// the typed flag reads.
 		switch {
 		case !projection.RootCauseFamilyObserved:
 			if zh {
-				sections = append(sections, "背景层: 本轮未运行产出背景统计的视图(root_cause_rank / wakeup_chain),背景层无数据;如需背景压力证据,可继续 trace_query view=root_cause_rank。")
+				sections = append(sections, "背景层: 本轮未运行产出背景统计的视图(root_cause_rank),背景层无数据;如需背景压力证据,可继续 trace_query view=root_cause_rank。")
 			} else {
-				sections = append(sections, "Background layer: no background-statistics view (root_cause_rank / wakeup_chain) ran this round, so this layer has no data. For background-pressure evidence, continue with trace_query view=root_cause_rank.")
+				sections = append(sections, "Background layer: no background-statistics view (root_cause_rank) ran this round, so this layer has no data. For background-pressure evidence, continue with trace_query view=root_cause_rank.")
 			}
 		case zh:
 			sections = append(sections, "背景层: 背景统计视图已运行,但没有产出有数据支撑的背景/环境压力证据;这不等于背景没有影响,只表示本轮证据没有给出可审计的背景统计。")
@@ -3261,11 +3527,15 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		// The metric semantic name already carries the Object type word.
 		cause = ""
 	}
-	ms := primary.CumulativeImpactMS
-	if ms <= 0 {
-		ms = runtimeTraceProjNodeDisplayImpact(*primary)
-	}
-	ms = runtimeTraceProjPeriodicHeadlineMS(*primary, ms)
+	// PTV5 C21/C22 (#68 用户裁定 2026-07-05): the headline magnitude carries
+	// its caliber word at the point of reading (链上累计/有效归因/窗口投影/…,
+	// same (a)-table vocabulary), and a periodic source renders its discounted
+	// attribution EXPLICITLY — 0.000ms included (0 IS the finding, F5(a) 同理)
+	// — instead of the former silent ms>0 drop. 复核 Med (2026-07-06): the
+	// (占窗X%) share is a WINDOW-PROJECTION statement — the C00 同源门 applies
+	// here too, so a non-window-source magnitude prints its caliber word and
+	// never a share (no fake >100% lane on the headline either).
+	ms, msWord, msPeriodic, msWindowSource := runtimeTraceProjConclusionMagnitude(*primary, zh)
 	var b strings.Builder
 	if zh {
 		b.WriteString("**主根因:** ")
@@ -3291,9 +3561,19 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 				b.WriteString(fmt.Sprintf(" (%.0f%% of window)", primary.MergedMaxMS/model.WindowMS*100))
 			}
 		}
-	} else if ms > 0 {
+	} else if ms > 0 || msPeriodic {
+		if msWord != "" {
+			b.WriteString(" " + msWord)
+		}
 		b.WriteString(fmt.Sprintf(" %.3fms", ms))
-		if model.WindowMS > 0 {
+		if msPeriodic {
+			if zh {
+				b.WriteString("(期内节拍已折算)")
+			} else {
+				b.WriteString(" (in-period cadence discounted)")
+			}
+		}
+		if msWindowSource && ms > 0 && model.WindowMS > 0 {
 			if zh {
 				b.WriteString(fmt.Sprintf("(占窗%.0f%%)", ms/model.WindowMS*100))
 			} else {
@@ -3440,6 +3720,11 @@ func runtimeTraceProjLeadOnChainFallback(model runtimeTraceProjTreeModel) *types
 		if !row.HasData {
 			continue
 		}
+		// PTS (#68): the on-chain overflow fold row is a counted roster, not a
+		// nameable cause — it never leads a conclusion (typed flag, precise).
+		if row.Node.OnChainOverflowFold {
+			continue
+		}
 		switch row.Kind {
 		case runtimeTraceProjTreeRowChain, runtimeTraceProjTreeRowDepthless:
 		default:
@@ -3507,6 +3792,40 @@ func runtimeTraceProjPeriodicHeadlineMS(node types.TraceCausalProjectionNode, ra
 	return raw
 }
 
+// runtimeTraceProjConclusionMagnitude is the PTV5 C21/C22 headline magnitude
+// (#68 用户裁定 2026-07-05): value + its (a)-table caliber word + the periodic
+// flag + whether the value is a WINDOW-PROJECTION (复核 Med 2026-07-06: only
+// that source may publish a 占窗 share — the C00 同源门). A periodic source's
+// value routes through the F2 single-source override
+// (runtimeTraceProjPeriodicHeadlineMS — authoritative at exactly 0); otherwise
+// the chain cumulative leads, then the display-impact fallback chain names
+// its own source. Word "" only when no magnitude exists at all.
+func runtimeTraceProjConclusionMagnitude(primary types.TraceCausalProjectionNode, zh bool) (float64, string, bool, bool) {
+	if primary.PeriodicSource {
+		word := "有效归因"
+		if !zh {
+			word = "attribution"
+		}
+		return runtimeTraceProjPeriodicHeadlineMS(primary, 0), word, true, false
+	}
+	if primary.CumulativeImpactMS > 0 {
+		word := "链上累计"
+		if !zh {
+			word = "chain total"
+		}
+		return primary.CumulativeImpactMS, word, false, false
+	}
+	v, source := runtimeTraceProjNodeDisplayImpactSource(primary)
+	if source == runtimeTraceProjImpactSourceWindow {
+		word := "窗口投影"
+		if !zh {
+			word = "window projection"
+		}
+		return v, word, false, true
+	}
+	return v, runtimeTraceProjImpactCaliberWord(source, zh), false, false
+}
+
 func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
 	if model.WindowMS <= 0 {
 		if zh {
@@ -3528,6 +3847,10 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 	// cadence), not a missing-data state; the >0 short-circuit alone would
 	// silently drop the line exactly when the discount did its job.
 	if attributed := runtimeTraceProjDepth1Cumulative(model); attributed > 0 || runtimeTraceProjChainHasPeriodicData(model) {
+		// PTV5 Q2 (#68 用户裁定 2026-07-05): the coverage sentence's caliber has
+		// its own dynamic-legend entry — marked exactly when the sentence
+		// renders (the lead builds the legend after this line runs).
+		model.Marks.mark(runtimeTraceProjMarkCoverageLine)
 		// V2 (customer revisit 2026-07-03): when the 🎯 target published its own
 		// state rows, the coverage denominator is the TARGET SYMPTOM duration,
 		// not the whole window — a target that slept 11.7ms of a 101ms window
@@ -3559,6 +3882,21 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			}
 			b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
 			b.WriteString(runtimeTraceProjPeriodicCadenceCoverageNote(model, residual, zh))
+			// PTV5 Q2 (#68 用户裁定 2026-07-05): hop-only 形态 — the target
+			// published NO state-view symptom row (the F1 denominator stays
+			// whole-window, arithmetic untouched) but its sleep-family hop-view
+			// self rows re-describe the blocked wall clock; the info line
+			// relates the two existing magnitudes so the whole-window share is
+			// not the only reading. attributed > sleep skips the line (禁猜).
+			if runtimeTraceProjTargetSymptomMS(model) <= 0 && attributed > 0 {
+				if hopSleep := runtimeTraceProjHopOnlyTargetSleepMS(model); hopSleep > 0 && attributed <= hopSleep {
+					if zh {
+						fmt.Fprintf(&b, " 目标睡眠 %.3fms 中 %.3fms 已由链上解释。", hopSleep, attributed)
+					} else {
+						fmt.Fprintf(&b, " Of the target's %.3fms sleep, %.3fms is explained on-chain.", hopSleep, attributed)
+					}
+				}
+			}
 		} else {
 			if zh {
 				fmt.Fprintf(&b, " on-chain 已归因 %.3fms(其实际状态跨出窗口,见 ⚠ 标记)。", attributed)
@@ -3575,13 +3913,32 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 	if model.UserWindowEnd > model.UserWindowStart && model.UserWindowStart > 0 {
 		userMS := (model.UserWindowEnd - model.UserWindowStart) * 1000
 		if model.WindowMS < userMS*0.5 {
+			// PTV5 C25 (#68): the sub-window comes from engine anchoring — the
+			// system never verified representativeness, so the line says 聚焦
+			// (focused), not 代表性 (representative).
 			if zh {
-				fmt.Fprintf(&b, "\n- 用户请求窗 %.3fs → %.3fs(共 %.1fs);本投影取其中代表性子窗,全窗指标见 Trace 指标快照",
+				fmt.Fprintf(&b, "\n- 用户请求窗 %.3fs → %.3fs(共 %.1fs);本投影取其中的聚焦子窗,全窗指标见 Trace 指标快照",
 					model.UserWindowStart, model.UserWindowEnd, userMS/1000)
 			} else {
-				fmt.Fprintf(&b, "\n- User-requested window %.3fs → %.3fs (%.1fs total); this projection covers a representative sub-window — full-window metrics live in the Trace Metric Snapshot",
+				fmt.Fprintf(&b, "\n- User-requested window %.3fs → %.3fs (%.1fs total); this projection covers a focused sub-window — full-window metrics live in the Trace Metric Snapshot",
 					model.UserWindowStart, model.UserWindowEnd, userMS/1000)
 			}
+		}
+	}
+	// PTV5 Q3 (#68 用户裁定 2026-07-05): ≥2 distinct typed query windows →
+	// the tree header declares the count (R2 关系行先例 — one added "- " line,
+	// no arithmetic) and points at the per-window-grouped metric snapshot.
+	// Single-window compiles stay byte-identical. 复核 Low (2026-07-06): a
+	// cap-truncated list renders a LOWER BOUND (≥N), never a fake exact count.
+	if len(projection.QueryWindows) >= 2 {
+		count := fmt.Sprintf("%d", len(projection.QueryWindows))
+		if projection.QueryWindowsTruncated {
+			count = fmt.Sprintf("≥%d", len(projection.QueryWindows))
+		}
+		if zh {
+			fmt.Fprintf(&b, "\n- 本报告数据来自 %s 个查询窗(本投影锚定其一);各窗指标见 Trace 指标快照(按查询窗分组)", count)
+		} else {
+			fmt.Fprintf(&b, "\n- This report draws on %s query windows (this projection anchors one of them); per-window metrics live in the Trace Metric Snapshot (grouped by query window)", count)
 		}
 	}
 	return b.String()
@@ -3723,6 +4080,29 @@ func runtimeTraceProjWaitFamilyStateKind(node types.TraceCausalProjectionNode) b
 // rendered "—" next to a tree that showed the 42% runnable row. running and
 // stateless rows stay excluded (running is occupancy, not wait time; the V
 // 批 F1 hop-view exclusion and double-count defenses are untouched).
+// runtimeTraceProjHopOnlyTargetSleepMS is the PTV5 Q2 hop-only magnitude
+// (#68 用户裁定 2026-07-05): when the target published NO state-view symptom
+// row (runtimeTraceProjTargetSymptomMS == 0 — the F1 ruling keeps hop views
+// out of the coverage DENOMINATOR), its SLEEP-STATE hop-view self rows still
+// re-describe the blocked wall clock. The info line reuses the LARGEST such
+// row's display value — MAX, never a sum: nested hop views overlap on the
+// wall clock. 0 when no sleep-state hop-view self row exists.
+func runtimeTraceProjHopOnlyTargetSleepMS(model runtimeTraceProjTreeModel) float64 {
+	max := 0.0
+	for _, row := range model.SelfRows {
+		if row.Node.Role != types.TraceCausalRoleCausalHop {
+			continue
+		}
+		if !row.Node.IsSleepState() {
+			continue
+		}
+		if v := runtimeTraceProjNodeDisplayImpact(row.Node); v > max {
+			max = v
+		}
+	}
+	return max
+}
+
 func runtimeTraceProjSymptomFamilyStateKind(node types.TraceCausalProjectionNode) bool {
 	if runtimeTraceProjWaitFamilyStateKind(node) {
 		return true
@@ -3935,6 +4315,72 @@ func runtimeTraceProjDetailRows(model runtimeTraceProjTreeModel) []runtimeTraceP
 // two byte-identical (a) rows, which a reader would sum. The (a) table now
 // keeps ONE row per node key with an explicit seat note (`✦/◇双席`); the (b)
 // blocks keep BOTH stanzas (their layer/relation lines differ — lossless).
+// runtimeTraceProjDetailTableLegendFlags reports which gated (a)-table legend
+// rows this model's table actually needs (PTV5 C33/C34, #68): the ×N forms
+// and the dual-seat note have entries ONLY when the notation appears — every
+// other render stays byte-identical. Reads the SAME detail rows + seat map
+// the table renders from.
+type runtimeTraceProjDetailTableLegendFlags struct {
+	mergedSum   bool
+	mergedMax   bool
+	mergedDedup bool
+	multiSeat   bool
+}
+
+func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, zh bool) runtimeTraceProjDetailTableLegendFlags {
+	detailRows := runtimeTraceProjDetailRows(model)
+	seats := runtimeTraceProjDetailSeats(detailRows, zh)
+	var flags runtimeTraceProjDetailTableLegendFlags
+	emitted := map[string]bool{}
+	for _, row := range detailRows {
+		node := row.Node
+		key := strings.TrimSpace(node.EvidenceID)
+		if key != "" && emitted[key] {
+			continue
+		}
+		emitted[key] = true
+		if node.MergedCount > 1 {
+			if runtimeTraceProjSubjectlessFoldRow(node) {
+				flags.mergedMax = true
+			} else {
+				flags.mergedSum = true
+			}
+		}
+		if node.DuplicatePublications > 1 {
+			flags.mergedDedup = true
+		}
+		if key != "" && len(seats[key]) > 1 {
+			flags.multiSeat = true
+		}
+	}
+	return flags
+}
+
+// runtimeTraceProjDetailSeats builds the per-EvidenceID seat-glyph roster the
+// dual-seat note reads (extracted so the table and the legend flags consume
+// ONE implementation).
+func runtimeTraceProjDetailSeats(detailRows []runtimeTraceProjTreeRow, zh bool) map[string][]string {
+	seats := map[string][]string{}
+	for _, row := range detailRows {
+		key := strings.TrimSpace(row.Node.EvidenceID)
+		if key == "" {
+			continue
+		}
+		glyph := runtimeTraceProjDetailSeatGlyph(row, zh)
+		known := false
+		for _, existing := range seats[key] {
+			if existing == glyph {
+				known = true
+				break
+			}
+		}
+		if !known {
+			seats[key] = append(seats[key], glyph)
+		}
+	}
+	return seats
+}
+
 func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]string, []types.AnswerBlockItem) {
 	columns := []string{"节点[E#]", "窗口投影", "链上累计", "有效归因", "实际状态", "证据·置信"}
 	if !zh {
@@ -3956,24 +4402,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 	seatKey := func(node types.TraceCausalProjectionNode) string {
 		return strings.TrimSpace(node.EvidenceID)
 	}
-	seats := map[string][]string{}
-	for _, row := range detailRows {
-		key := seatKey(row.Node)
-		if key == "" {
-			continue
-		}
-		glyph := runtimeTraceProjDetailSeatGlyph(row, zh)
-		known := false
-		for _, existing := range seats[key] {
-			if existing == glyph {
-				known = true
-				break
-			}
-		}
-		if !known {
-			seats[key] = append(seats[key], glyph)
-		}
-	}
+	seats := runtimeTraceProjDetailSeats(detailRows, zh)
 	emitted := map[string]bool{}
 	var rows []types.AnswerBlockItem
 	for _, row := range detailRows {
@@ -4114,6 +4543,19 @@ func runtimeTraceProjDetailFullName(node types.TraceCausalProjectionNode, zh boo
 	case object != "":
 		return object
 	default:
+		// PTS (复核 Low, 2026-07-06): the overflow fold row's lossless block
+		// names its lane + count — never the anonymous fallback.
+		if node.OnChainOverflowFold {
+			if zh {
+				return fmt.Sprintf("其余 %d 项(链上折叠)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
+			}
+			return fmt.Sprintf("%d more (on-chain fold)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
+		}
+		// PTV5 C39 (#68): the zh panel's subject/object-less fallback speaks
+		// zh; the EN face keeps the neutral phrase.
+		if zh {
+			return "(未命名因果节点)"
+		}
 		return "trace causal node"
 	}
 }
@@ -4414,8 +4856,9 @@ func runtimeTraceProjDetailRelationCell(row runtimeTraceProjTreeRow, zh, flat bo
 			// per-row placeholder is pure spam next to the flat-cause header.
 			return "—"
 		}
+		// PTV5 C31 (#68): zh face matches the sibling 链上·深度未解析 cell.
 		if zh {
-			return "on-chain·影响点未解析"
+			return "链上·影响点未解析"
 		}
 		return "on-chain · impact point unresolved"
 	}
@@ -4524,6 +4967,16 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 		}
 	}
 	intro := runtimeTraceCausalProjectionEvidenceText(zh)
+	// PTV5 C35 (#68): the E#(+N) merge notation gets its intro half-sentence
+	// exactly when some indexed node carries merged observations — rosters
+	// without the notation stay byte-identical.
+	if evidence.hasMergedEvidence {
+		if zh {
+			intro += "E#(+N) 表示该行另合并了 N 条同类观测,合并明细见对应条目的审计 merged_ids。"
+		} else {
+			intro += " E#(+N) means the row absorbed N more same-kind observations; the merge detail lives in that entry's audit merged_ids."
+		}
+	}
 	if uniform && sharedFile != "" && len(entries) > 1 {
 		// PTV4 T11 (RTC f1): the grouped intro shows the artifact BASENAME —
 		// the verbatim sharedFile is a machine-local blob absolute path
@@ -4670,11 +5123,25 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 	if covered <= 0 {
 		return runtimeTraceProjTag{}, false
 	}
+	// PTV5 C17/C36 (#68): the zh face names the state class with the site-wide
+	// zh word in the D4 combined form (可运行等待（runnable）/睡眠等待（sleep）);
+	// the class TABLE keys stay untouched, the raw source token and the RN-12
+	// ledger-verbatim "top 片段" wording stay exactly as ruled (R02 禁动面).
+	// (if-chain, not a switch: `class` is the ALREADY-NORMALIZED two-value
+	// TraceCausalProjectionStateClass output — runnable/sleep only — not a raw
+	// StateKind consumer site.)
+	displayClass := class
+	if zh && class == "runnable" {
+		displayClass = "可运行等待（runnable）"
+	}
+	if zh && class == "sleep" {
+		displayClass = "睡眠等待（sleep）"
+	}
 	var text string
 	switch {
 	case node.FullWindowStateSameWindow:
 		text = fmt.Sprintf("窗内 %s 合计 %.3fms(%s),链上仅覆盖 top 片段 %.3fms(%.0f%%)",
-			class, full, source, covered, covered/full*100)
+			displayClass, full, source, covered, covered/full*100)
 		if !zh {
 			text = fmt.Sprintf("full-window %s total %.3fms (%s); the chain covers only the top fragment %.3fms (%.0f%%)",
 				class, full, source, covered, covered/full*100)
@@ -4682,7 +5149,7 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 	case node.FullWindowStateWindowStart > 0 && node.FullWindowStateWindowEnd > node.FullWindowStateWindowStart:
 		text = fmt.Sprintf("另一查询窗(%.3fs–%.3fs)内 %s 合计 %.3fms(%s),链上仅覆盖 top 片段 %.3fms(%.0f%%)",
 			node.FullWindowStateWindowStart, node.FullWindowStateWindowEnd,
-			class, full, source, covered, covered/full*100)
+			displayClass, full, source, covered, covered/full*100)
 		if !zh {
 			text = fmt.Sprintf("%s total %.3fms in another query window (%.3fs–%.3fs) (%s); the chain covers only the top fragment %.3fms (%.0f%%)",
 				class, full, node.FullWindowStateWindowStart, node.FullWindowStateWindowEnd,

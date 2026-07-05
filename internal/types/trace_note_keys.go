@@ -127,6 +127,17 @@ const (
 	TraceNoteKeyRecursive         = "recursive"
 	TraceNoteKeySignificant       = "significant"
 	TraceNoteKeyRecommendedViews  = "recommended_views"
+	// PTS 折叠族 (#68 用户裁定 2026-07-05, 零静默丢弃): a producer-side fold
+	// record represents the on-chain rows beyond the per-family wire cap —
+	// folded_rows counts the folded ROWS, folded_min_ms/folded_max_ms carry
+	// their display range (the record's own value is the member MAX; wall
+	// clock never sums across threads) and folded_subjects lists up to 8
+	// member thread labels comma-separated. Consumed by the projection compile
+	// (MergedCount/MergedMinMS/MergedMaxMS/MergedSubjects re-materialization).
+	TraceNoteKeyFoldedRows     = "folded_rows"
+	TraceNoteKeyFoldedMinMS    = "folded_min_ms"
+	TraceNoteKeyFoldedMaxMS    = "folded_max_ms"
+	TraceNoteKeyFoldedSubjects = "folded_subjects"
 )
 
 // 冲击度量族 (impact-metric family).
@@ -234,6 +245,11 @@ const (
 const (
 	TraceNoteKeyGatedRunnable       = "gated_runnable"
 	TraceNoteKeyGatedRunningDeficit = "gated_running_deficit"
+	// TraceNoteKeyPriorityInversionCandidate (PTV5 Q4, #68 用户裁定 2026-07-05):
+	// promoted from a display-only literal to a consumer-parsed key — the
+	// projection compile reads it into the typed
+	// TraceCausalProjectionNode.PriorityInversionCandidate field.
+	TraceNoteKeyPriorityInversionCandidate = "priority_inversion_candidate"
 )
 
 // 语义跨度族 (semantic-span family).
@@ -344,6 +360,11 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"selected_name", "causal_rank", TraceNoteCarrierDisplayOnly},
 	{"occurrences", "causal_rank", TraceNoteCarrierDisplayOnly},
 	{"coverage_mode", "causal_rank", TraceNoteCarrierDisplayOnly},
+	// PTS 折叠族 (#68 用户裁定 2026-07-05): wire-cap overflow fold accounting.
+	{TraceNoteKeyFoldedRows, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyFoldedMinMS, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyFoldedMaxMS, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyFoldedSubjects, "causal_rank", TraceNoteCarrierHardConsumer},
 
 	// 冲击度量族.
 	{TraceNoteKeyImpact, "impact", TraceNoteCarrierHardConsumer},
@@ -426,7 +447,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyGatedRunnable, "gating", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyGatedRunningDeficit, "gating", TraceNoteCarrierHardConsumer},
 	{"priority_inversion_gated", "gating", TraceNoteCarrierDisplayOnly},
-	{"priority_inversion_candidate", "gating", TraceNoteCarrierDisplayOnly},
+	// PTV5 Q4 (#68 用户裁定 2026-07-05): promoted display_only → hard_consumer
+	// (typed node field read-in).
+	{TraceNoteKeyPriorityInversionCandidate, "gating", TraceNoteCarrierHardConsumer},
 	{"priority_inversion_edges", "gating", TraceNoteCarrierDisplayOnly},
 	{"priority_relation", "gating", TraceNoteCarrierDisplayOnly},
 

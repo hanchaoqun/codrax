@@ -130,8 +130,12 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 	deficit := node.SupplyFoldDeficitMS
 	switch verdict {
 	case runtimeTraceProjSupplyFoldTriple:
+		// PTV5 C18 (#68): the zh parenthetical speaks the ruled zh state word
+		// 可运行等待 (this file's own inversion composition already does); the
+		// EN face keeps runnable — the wire lane word. §7.5 的
+		// 调度压力(需求积压) label stays single-sourced and untouched.
 		if zh {
-			return fmt.Sprintf("机制构成: 供给折算缺口 %.3fms(按大核满频折算,下界)+ %s(runnable %.3fms)+ 优先级反转(构成: %s)共同作用",
+			return fmt.Sprintf("机制构成: 供给折算缺口 %.3fms(按大核满频折算,下界)+ %s(可运行等待 %.3fms)+ 优先级反转(构成: %s)共同作用",
 				deficit, runtimeTraceSupplyPressureDisplayLabel(true), node.RunnableMS,
 				runtimeTraceProjInversionCompositionText(node, true)), "机制构成", true
 		}
@@ -140,7 +144,7 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 			runtimeTraceProjInversionCompositionText(node, false)), "mechanism", true
 	case runtimeTraceProjSupplyFoldWithDemand:
 		if zh {
-			return fmt.Sprintf("机制构成: 供给折算缺口 %.3fms(按大核满频折算,下界)+ %s(runnable %.3fms)共同作用",
+			return fmt.Sprintf("机制构成: 供给折算缺口 %.3fms(按大核满频折算,下界)+ %s(可运行等待 %.3fms)共同作用",
 				deficit, runtimeTraceSupplyPressureDisplayLabel(true), node.RunnableMS), "机制构成", true
 		}
 		return fmt.Sprintf("mechanism: supply-fold deficit %.3fms (folded at big-cluster fmax, lower bound) + %s (runnable %.3fms) acting together",

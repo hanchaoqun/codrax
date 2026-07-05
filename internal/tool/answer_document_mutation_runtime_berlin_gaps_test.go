@@ -148,12 +148,20 @@ func TestRuntimeTraceProjUserWindowRelationLine(t *testing.T) {
 		Entities: []string{"42591", "3.300", "6.600"},
 	})
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "- 用户请求窗 3.300s → 6.600s(共 3.3s);本投影取其中代表性子窗,全窗指标见 Trace 指标快照") {
+	// PTV5 C25 (#68): 聚焦子窗 — the system never verified representativeness,
+	// so 代表性 is banned on this line (negative pin below).
+	if !strings.Contains(line, "- 用户请求窗 3.300s → 6.600s(共 3.3s);本投影取其中的聚焦子窗,全窗指标见 Trace 指标快照") {
 		t.Fatalf("small sub-window must state the user-window relation:\n%s", line)
+	}
+	if strings.Contains(line, "代表性") {
+		t.Fatalf("relation line must not over-promise representativeness:\n%s", line)
 	}
 	en := runtimeTraceProjWindowLine(projection, model, false)
 	if !strings.Contains(en, "User-requested window 3.300s → 6.600s (3.3s total)") {
 		t.Fatalf("EN relation line missing:\n%s", en)
+	}
+	if !strings.Contains(en, "focused sub-window") || strings.Contains(en, "representative") {
+		t.Fatalf("EN relation line must say focused, never representative:\n%s", en)
 	}
 
 	// Trailing seconds unit on the timestamp entities works the same.

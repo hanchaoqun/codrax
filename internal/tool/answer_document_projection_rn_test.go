@@ -60,8 +60,11 @@ func TestRNLeadFallsBackToFlatOnChainRow(t *testing.T) {
 	projection := rnCustomerRunnableProjection()
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	line := runtimeTraceProjConclusionLine(projection, model, true)
+	// 复核 Med (2026-07-06, C00 同源门): the fallback lead's magnitude is the
+	// chain cumulative — it carries its caliber word and NO 占窗 share (the %
+	// is a window-projection statement).
 	for _, want := range []string{
-		"**主根因:** OS_FFRT_2_3-49706", "635.981ms", "(占窗42%)",
+		"**主根因:** OS_FFRT_2_3-49706", "链上累计 635.981ms",
 		"(链不可上溯,按窗口内最大 on-chain 等待)",
 	} {
 		if !strings.Contains(line, want) {
@@ -70,6 +73,9 @@ func TestRNLeadFallsBackToFlatOnChainRow(t *testing.T) {
 	}
 	if strings.Contains(line, "未定位到链上主根因") {
 		t.Fatalf("the 未定位 branch must not fire while an on-chain data row exists:\n%s", line)
+	}
+	if strings.Contains(line, "占窗") {
+		t.Fatalf("a cumulative-source headline must not publish a window share:\n%s", line)
 	}
 	enModel := buildRuntimeTraceProjTreeModel(projection, nil, false)
 	en := runtimeTraceProjConclusionLine(projection, enModel, false)

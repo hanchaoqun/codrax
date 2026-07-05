@@ -17,6 +17,7 @@ package tool
 // double-write) — do not replace them with the constants.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,26 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// traceNoteKeysEmitFixtureOverflowImpacts pads the causal-impact list past the
+// typed family row cap with simple ON-CHAIN rows, so the PTS fold record and
+// its folded_* contract keys are exercised (PTV5 #68).
+func traceNoteKeysEmitFixtureOverflowImpacts(first tracequery.WakeupCausalImpact) []tracequery.WakeupCausalImpact {
+	out := []tracequery.WakeupCausalImpact{first}
+	for i := 0; i < traceQueryWidthTypedFamilyRowCap()+2; i++ {
+		out = append(out, tracequery.WakeupCausalImpact{
+			Thread:           tracequery.ThreadRef{Comm: fmt.Sprintf("ovf%d", i), PID: 400 + i},
+			Window:           tracequery.TimeWindow{StartTs: 1.0, EndTs: 2.0},
+			ChainDepth:       2,
+			OnChain:          true,
+			DominantState:    string(tracequery.StateSSleep),
+			DominantImpactMs: 1.5 + float64(i)*0.01, TotalMs: 2,
+			LineStart: 100 + i, LineEnd: 100 + i,
+			Summary: "overflow hop",
+		})
+	}
+	return out
+}
 
 func traceNoteKeysEmitFixtureResult() tracequery.Result {
 	oneway := false
@@ -270,7 +291,10 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				WakeePriority: 20, WakeePriorityClass: "cfs",
 				PriorityRelation: "waker_higher", PriorityInversionCandidate: true,
 			}},
-			CausalImpacts: []tracequery.WakeupCausalImpact{impact},
+			// PTV5 PTS (#68): the impact list overflows the per-family wire cap
+			// so the fold record (folded_rows/folded_min_ms/folded_max_ms/
+			// folded_subjects contract keys) is exercised by the fixture.
+			CausalImpacts: traceNoteKeysEmitFixtureOverflowImpacts(impact),
 			AggregatedImpacts: []tracequery.WakeupCausalAggregate{{
 				Thread: tracequery.ThreadRef{Comm: "dep", PID: 21}, Path: "dep -> app:ui",
 				ChainDepth: 1, OccurrenceCount: 3, DominantState: string(tracequery.StateSSleep),
