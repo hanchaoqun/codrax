@@ -13,7 +13,7 @@ QUESTION="只分析这份 trace，不分析代码。请对比 com.baidu.tieba 59
 HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
 EXPECT_SECTIONS="34579.472865 34579.475857 34579.505857"
 EXPECT_MATCHES_REGEX="(占比|百分比|比例|归一|每毫秒|normali|%)"
-EXPECT_MATCHES_TEXT_REGEX="(窗口 ?A|短窗|2\\.992|第一个窗口).{0,200}(0(\\.0+)? *(ms|毫秒)|没有获得|未获得|几乎没有|完全没有|拿不到|全程睡眠|一直睡眠)|(0(\\.0+)? *(ms|毫秒)|没有获得|未获得|几乎没有).{0,120}(窗口 ?A|短窗|2\\.992)
+EXPECT_MATCHES_TEXT_REGEX="(窗口 ?A|短窗|2\\.992|第一个窗口).{0,200}((^|[^0-9.])0(\\.0+)? *(ms|毫秒)|没有获得|未获得|几乎没有|完全没有|拿不到|全程睡眠|一直睡眠)|((^|[^0-9.])0(\\.0+)? *(ms|毫秒)|没有获得|未获得|几乎没有).{0,120}(窗口 ?A|短窗|2\\.992)
 (3\\.[0-9]+ *(ms|毫秒)|1[01](\\.[0-9]+)? *%)"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
