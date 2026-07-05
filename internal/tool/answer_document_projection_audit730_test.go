@@ -106,14 +106,16 @@ func TestTraceProjection730AggregateAndUnknownDemoteToBackgroundZH(t *testing.T)
 		}
 	}
 	// The real chain stays on-chain and anchored.
-	for _, want := range []string{"🎯 app-1", "💤 binder-42"} {
+	for _, want := range []string{"🎯 app-1", "☾ binder-42"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("real chain must stay on the tree %q:\n%s", want, md)
 		}
 	}
-	// Detail table: demoted rows carry background layer cells, not primary ones.
-	if !strings.Contains(md, "| ▒ 背景 | 背景 · 支撑参考 | 窗口IO压力(聚合) |") {
-		t.Fatalf("aggregate detail row must be background-labeled:\n%s", md)
+	// Detail blocks (PTV4 T10 (b)): demoted rows carry background layer +
+	// position labels, not primary ones.
+	if !strings.Contains(md, "窗口IO压力(聚合)**") ||
+		!strings.Contains(md, "- 层级: ▒ 背景") || !strings.Contains(md, "- 因果位置·优先级: 背景 · 支撑参考") {
+		t.Fatalf("aggregate detail block must be background-labeled:\n%s", md)
 	}
 }
 
@@ -233,7 +235,10 @@ func TestTraceProjection730BarStateAttributionZH(t *testing.T) {
 	md := audit730Render(t, bus, obs, "")
 	// 裁定4: bar rows carry the localized dominant-state tag; the legend explains
 	// the tag family next to the bar-scale note.
-	for _, want := range []string{"运行占用", "可运行等待", "时长条后的状态标签(睡眠等待/可运行等待/运行占用/IO阻塞/D状态)"} {
+	// PTV4 T7: the state-label legend entry dropped its positional "时长条后的"
+	// claim (the tag may sit on a subordinate line after the T1 split); the
+	// family list and its dominant-state semantics are unchanged.
+	for _, want := range []string{"运行占用", "可运行等待", "状态标签(睡眠等待/可运行等待/运行占用/IO阻塞/D状态)来自该行主导调度状态"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("bar state attribution missing %q:\n%s", want, md)
 		}
@@ -303,8 +308,8 @@ func TestTraceProjection730FlatModeSuppressesDepthlessPlaceholders(t *testing.T)
 			t.Fatalf("flat mode must not render per-row placeholder %q:\n%s", banned, zhMD)
 		}
 	}
-	if !strings.Contains(zhMD, "| 深度2 |") {
-		t.Fatalf("flat mode must keep the plain typed depth cell:\n%s", zhMD)
+	if !strings.Contains(zhMD, "- 层级: 深度2") {
+		t.Fatalf("flat mode must keep the plain typed depth cell (T10 (b) block):\n%s", zhMD)
 	}
 	enMD := audit730Render(t, audit730Bus("en"), obs(), "en")
 	for _, banned := range []string{"on-chain · depth unresolved", "on-chain · impact point unresolved", "depth 2 (detached)"} {
@@ -312,7 +317,7 @@ func TestTraceProjection730FlatModeSuppressesDepthlessPlaceholders(t *testing.T)
 			t.Fatalf("EN flat mode must not render per-row placeholder %q:\n%s", banned, enMD)
 		}
 	}
-	if !strings.Contains(enMD, "| depth 2 |") {
+	if !strings.Contains(enMD, "- layer: depth 2") {
 		t.Fatalf("EN flat mode must keep the plain typed depth cell:\n%s", enMD)
 	}
 }
@@ -359,9 +364,11 @@ func TestTraceProjection730BarStateAttributionEN(t *testing.T) {
 		},
 	}
 	md := audit730Render(t, bus, obs, "en")
-	for _, want := range []string{"running ·", "sleep wait / runnable wait / running / IO wait / D-state"} {
-		if !strings.Contains(md, want) {
-			t.Fatalf("EN bar state attribution missing %q:\n%s", want, md)
-		}
+	if !strings.Contains(md, "sleep wait / runnable wait / running / IO wait / D-state") {
+		t.Fatalf("EN state-label legend family missing:\n%s", md)
+	}
+	// PTV4 T1: the state tag may render inline or on a "· " subordinate line.
+	if !strings.Contains(md, "running ·") && !strings.Contains(md, "· running") {
+		t.Fatalf("EN bar state attribution missing the running tag:\n%s", md)
 	}
 }

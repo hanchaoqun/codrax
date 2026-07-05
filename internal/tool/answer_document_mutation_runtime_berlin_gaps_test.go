@@ -373,40 +373,43 @@ func TestRuntimeTraceProjDedupFoldLabelDistinctFromSumAggregateLabel(t *testing.
 		}
 		return strings.Join(parts, " · ")
 	}
+	// PTV4 T4 (×N 三式): the dedupe form is the bare ×N同值 data token — the
+	// "重复发布/数值不变" semantics live in the legend's 口径组 entry; the sum
+	// form is ×N(a–b). The two forms stay mutually exclusive.
 	foldTags := joinTags(model.Adjacent[0], true)
-	if !strings.Contains(foldTags, "×2同值合并(重复发布)") {
+	if !strings.Contains(foldTags, "×2同值") {
 		t.Fatalf("dedupe row must carry the dedupe-exclusive label:\n%s", foldTags)
 	}
-	if strings.Contains(foldTags, "合并·单次") {
+	if strings.Contains(foldTags, "×2(") {
 		t.Fatalf("dedupe row must not reuse the R2 sum form:\n%s", foldTags)
 	}
 	sumTags := joinTags(model.Adjacent[1], true)
-	if !strings.Contains(sumTags, "×3合并·单次20.000–40.000ms") {
+	if !strings.Contains(sumTags, "×3(20.000–40.000ms)") {
 		t.Fatalf("upstream R2 aggregate must keep the sum form:\n%s", sumTags)
 	}
-	if strings.Contains(sumTags, "同值合并") {
+	if strings.Contains(sumTags, "同值") {
 		t.Fatalf("upstream R2 aggregate must not claim the dedupe label:\n%s", sumTags)
 	}
 	// EN surfaces fork the same way.
 	enFold := joinTags(model.Adjacent[0], false)
-	if !strings.Contains(enFold, "×2 same-value merge (duplicate publication)") || strings.Contains(enFold, "merged · each") {
+	if !strings.Contains(enFold, "×2 same-value") || strings.Contains(enFold, "×2(") {
 		t.Fatalf("EN dedupe label wrong:\n%s", enFold)
 	}
-	// Detail table mirrors the fork on the node cell.
+	// Detail table mirrors the fork on the node cell (T10 (a): node cell 0).
 	_, rows := runtimeTraceProjDetailTable(model, true)
 	var foldCell, sumCell string
 	for _, item := range rows {
 		switch {
-		case strings.Contains(item.Cells[2], "irq_handler"):
-			foldCell = item.Cells[2]
-		case strings.Contains(item.Cells[2], "binder-7"):
-			sumCell = item.Cells[2]
+		case strings.Contains(item.Cells[0], "irq_handler"):
+			foldCell = item.Cells[0]
+		case strings.Contains(item.Cells[0], "binder-7"):
+			sumCell = item.Cells[0]
 		}
 	}
-	if !strings.Contains(foldCell, "×2同值合并(重复发布)") || strings.Contains(foldCell, "×2(") {
+	if !strings.Contains(foldCell, "×2同值") || strings.Contains(foldCell, "×2(") {
 		t.Fatalf("detail table dedupe cell must use the dedupe label: %q", foldCell)
 	}
-	if !strings.Contains(sumCell, "×3(20.000–40.000ms)") || strings.Contains(sumCell, "同值合并") {
+	if !strings.Contains(sumCell, "×3(20.000–40.000ms)") || strings.Contains(sumCell, "同值") {
 		t.Fatalf("detail table sum cell must keep the range form: %q", sumCell)
 	}
 }
@@ -414,6 +417,10 @@ func TestRuntimeTraceProjDedupFoldLabelDistinctFromSumAggregateLabel(t *testing.
 // --- R4-3: >100% window share annotation (H8) ----------------------------------
 
 func TestRuntimeTraceProjOverWindowPercentAnnotated(t *testing.T) {
+	// PTV4 T4: the inline "(跨CPU/多段累计)" explanation moved to the legend's
+	// 口径组 (占窗>100% entry) — the row keeps the bare >100% number and the
+	// typed OverWindowShare mark drives the legend line (semantic strength
+	// unchanged: the H8 explanation still renders, one screen lower).
 	row := runtimeTraceProjTreeRow{
 		Kind: runtimeTraceProjTreeRowBackground, HasData: true,
 		Node: types.TraceCausalProjectionNode{
@@ -421,18 +428,28 @@ func TestRuntimeTraceProjOverWindowPercentAnnotated(t *testing.T) {
 			ChainRelevance: "background",
 		},
 	}
+	marks := &runtimeTraceProjMarkSet{}
+	row.marks = marks
 	line := runtimeTraceProjStanzaRowLine(row, runtimeTraceProjTreeLabelWidth, 101.0, true, true)
-	if !strings.Contains(line, "202%(跨CPU/多段累计)") {
-		t.Fatalf("over-window share must carry the cumulative annotation:\n%s", line)
+	if !strings.Contains(line, "202%") {
+		t.Fatalf("over-window share must render its bare percentage:\n%s", line)
 	}
-	en := runtimeTraceProjStanzaRowLine(row, runtimeTraceProjTreeLabelWidth, 101.0, true, false)
-	if !strings.Contains(en, "202% (multi-CPU/multi-span cumulative)") {
-		t.Fatalf("EN over-window share must carry the annotation:\n%s", en)
+	if strings.Contains(line, "跨CPU") {
+		t.Fatalf("the inline explanation must live in the legend, not the row:\n%s", line)
 	}
-	// In-window shares stay unannotated.
-	row.Node.ImpactMS = 50.0
-	if line := runtimeTraceProjStanzaRowLine(row, runtimeTraceProjTreeLabelWidth, 101.0, true, true); strings.Contains(line, "跨CPU") {
+	if !marks.has(runtimeTraceProjMarkOverWindowShare) {
+		t.Fatalf("over-window share must record the typed legend mark")
+	}
+	// In-window shares record no mark (no legend line).
+	inRow := row
+	inRow.Node.ImpactMS = 50.0
+	inMarks := &runtimeTraceProjMarkSet{}
+	inRow.marks = inMarks
+	if line := runtimeTraceProjStanzaRowLine(inRow, runtimeTraceProjTreeLabelWidth, 101.0, true, true); strings.Contains(line, "跨CPU") {
 		t.Fatalf("in-window share must not be annotated:\n%s", line)
+	}
+	if inMarks.has(runtimeTraceProjMarkOverWindowShare) {
+		t.Fatalf("in-window share must not record the over-window mark")
 	}
 }
 
@@ -515,7 +532,9 @@ func TestRuntimeTraceProjSmallCycleRecursAnnotation(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if got := strings.Count(fence, "↺(线程在链上重复出现)"); got != 1 {
+	// PTV4 T4: the marker is the bare ↺ (the explanation lives in the legend's
+	// ↺ entry) — still exactly one, on the repeated trunk occurrence only.
+	if got := strings.Count(fence, "↺"); got != 1 {
 		t.Fatalf("exactly the repeated trunk occurrence must carry the ↺ marker, got %d:\n%s", got, fence)
 	}
 	// The chain itself is never truncated by the marker: both trunk rows render.
@@ -525,8 +544,8 @@ func TestRuntimeTraceProjSmallCycleRecursAnnotation(t *testing.T) {
 		}
 	}
 	en := buildRuntimeTraceProjTreeModel(projection, nil, false)
-	if !strings.Contains(runtimeTraceProjTreeFence(en, false), "↺ (recurs on chain)") {
-		t.Fatalf("EN recurs marker missing")
+	if got := strings.Count(runtimeTraceProjTreeFence(en, false), "↺"); got != 1 {
+		t.Fatalf("EN recurs marker missing/duplicated: %d", got)
 	}
 	// No repeat → no marker.
 	clean := buildRuntimeTraceProjTreeModel(types.TraceCausalProjection{

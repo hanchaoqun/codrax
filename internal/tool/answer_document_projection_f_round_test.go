@@ -145,15 +145,20 @@ func TestRuntimeTraceProjIdleAnnotationRequiresWaitFamilyStateKind(t *testing.T)
 		WindowMS:   101.0,
 		Background: []runtimeTraceProjTreeRow{mkRow("running"), mkRow("s_sleep")},
 	}
-	_, rows := runtimeTraceProjDetailTable(model, true)
-	if len(rows) != 2 {
+	if _, rows := runtimeTraceProjDetailTable(model, true); len(rows) != 2 {
 		t.Fatalf("expected both rows on the detail table: %+v", rows)
 	}
-	if strings.Contains(rows[0].Cells[5], "疑似空闲") {
-		t.Fatalf("detail table running row must not be annotated idle: %q", rows[0].Cells[5])
+	// PTV4 T10: the full annotation mirrors on the (b) blocks' shape line.
+	full := runtimeTraceProjDetailFullText(model, true)
+	stanzas := strings.Split(full, "\n\n")
+	if len(stanzas) != 2 {
+		t.Fatalf("expected both (b) stanzas:\n%s", full)
 	}
-	if !strings.Contains(rows[1].Cells[5], "整窗等待(疑似空闲)") {
-		t.Fatalf("detail table sleep row must keep the idle annotation: %q", rows[1].Cells[5])
+	if strings.Contains(stanzas[0], "疑似空闲") {
+		t.Fatalf("(b) running stanza must not be annotated idle:\n%s", stanzas[0])
+	}
+	if !strings.Contains(stanzas[1], "整窗等待(疑似空闲)") {
+		t.Fatalf("(b) sleep stanza must keep the idle annotation:\n%s", stanzas[1])
 	}
 	en := runtimeTraceProjStanzaRowLine(mkRow("running"), runtimeTraceProjTreeLabelWidth, 101.0, true, false)
 	if strings.Contains(en, "likely idle") {

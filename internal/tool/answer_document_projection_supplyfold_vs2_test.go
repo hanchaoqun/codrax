@@ -381,16 +381,17 @@ func TestSupplyFoldNotesRoundTrip(t *testing.T) {
 	}
 }
 
-// The tag builder is Keep + NoTruncate + ContinuationLane — same sanctioned
-// overflow class as the D3 composition and the RN-1 occupier roster.
+// The tag builder emits a demotable tag (PTV4 T1: never elided or shaved —
+// on width pressure it moves intact to a subordinate line; same class as the
+// D3 composition and the RN-1 occupier roster).
 func TestSupplyFoldTagUnit(t *testing.T) {
 	node := types.TraceCausalProjectionNode{
 		SupplyFoldComputed: true, SupplyFoldDeficitMS: 5, SupplyFoldIdealMS: 15,
 		SupplyFoldKnownMS: 20, RunnableMS: 150, StateKind: "running", Object: "running",
 	}
 	tag, ok := runtimeTraceProjSupplyFoldTag(node, 3000, true)
-	if !ok || tag.DropOrder != runtimeTraceProjTagKeep || !tag.NoTruncate || !tag.ContinuationLane {
-		t.Fatalf("supply-fold tag must be Keep + NoTruncate + ContinuationLane: ok=%t %+v", ok, tag)
+	if !ok || tag.MainRow || strings.TrimSpace(tag.Text) == "" {
+		t.Fatalf("supply-fold tag must be a demotable subordinate-lane tag: ok=%t %+v", ok, tag)
 	}
 	if _, ok := runtimeTraceProjSupplyFoldTag(types.TraceCausalProjectionNode{}, 3000, true); ok {
 		t.Fatalf("no fold → no tag")

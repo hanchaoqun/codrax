@@ -142,7 +142,7 @@ func TestTraceProjectionLegendsRenderAsItemLists(t *testing.T) {
 		"树读法:\n- 自上而下 = 从关注线程向上游追溯。",
 		"- 时长、排序与 E# 均可定位到原始 trace_query 结构化证据,不是额外推测。",
 		"- `🎯` = 树根:本次分析锚定的关注线程。",
-		"- `💤` = 睡眠等待;症状非根因,其唤醒子行即下钻结果。",
+		"- `☾` = 睡眠等待;症状非根因,其唤醒子行即下钻结果。",
 		"口径:\n- 窗口投影 = 节点在用户窗口内的投影影响。",
 		"- 背景行仅作压力/环境证据,不自动等同 on-chain 主因。",
 	} {
@@ -153,7 +153,7 @@ func TestTraceProjectionLegendsRenderAsItemLists(t *testing.T) {
 	// Dynamic legend: marks this tree never emitted stay OUT of 树读法 (the 口径
 	// stanza's own static ⛔ caliber line is a different surface and remains).
 	for _, banned := range []string{
-		"- `⛔` = 窗口内无匹配 sched_wakeup,链止于此。",
+		"- `⊘链止` = 窗口内无匹配 sched_wakeup,链止于此。",
 		"- `└─唤醒─` =",
 	} {
 		if strings.Contains(zhMD, banned) {
@@ -194,8 +194,8 @@ func TestTraceProjectionLegendExplainsEmittedUndrillableMark(t *testing.T) {
 		},
 	}
 	zhMD := audit730Render(t, audit730Bus(""), obs, "")
-	if !strings.Contains(zhMD, "- `⛔` = 窗口内无匹配 sched_wakeup,链止于此。") {
-		t.Fatalf("emitted ⛔ must carry its legend entry:\n%s", zhMD)
+	if !strings.Contains(zhMD, "- `⊘链止` = 窗口内无匹配 sched_wakeup,链止于此。") {
+		t.Fatalf("emitted ⊘ must carry its legend entry:\n%s", zhMD)
 	}
 	// Flat fallback has no 🎯 root — its entry must not render.
 	if strings.Contains(zhMD, "- `🎯` =") {

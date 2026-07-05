@@ -117,23 +117,28 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 			t.Fatalf("berlin golden missing lead fact %q:\n%s", want, md)
 		}
 	}
-	// Target-anchored tree: root, four edge kinds, real branches, inline markers.
-	// §7.30.2 C4b B4 + NEW-10 (§7.6, 100-cell row cap): rows keep the leading
-	// state tag, typed ⚠/⛔ markers and the [E#] reference; overflowing
-	// secondary tags elide to "…" and budget-starved Keep tags display-truncate
-	// to their protected marker phrase — the detail table below stays the
-	// lossless surface (链上累计 / span host / ⚠ actual value live there).
+	// Target-anchored tree: root, four edge kinds, real branches, inline
+	// markers. PTV4 T1/T4/T5 form: ⚠/⊘ marks stay on the main line WITH their
+	// data (⚠实际Xms / ⊘链止), demoted tags land whole on "· " subordinate
+	// lines (no "…" tag elision any more), and the sleep/runnable icons are
+	// the single-cell ☾/⧖.
+	// 复核 (Med-2, 只增不减): the pre-PTV4 edge-prefix and E#-adjacency
+	// assertions are rebuilt in the new form — full ─唤醒─ prefixes on the
+	// deep rows, ⚠/⊘ marks ADJACENT to their row's [E#] on the main line, and
+	// the semantic row's [E#] beside its metric cells.
 	for _, want := range []string{
 		"🎯 oney.hmn.berlin-42591 ‹用户关注线程›",
 		"满格=窗口64.000ms",
-		"└─下钻─ 💤 binder:42591_4-42712 · 睡眠等待",
-		"├─唤醒─ ⚙ RenderService-3021 · 算力供给",
-		"└─唤醒─ ⏳ DispatchQueue-771 · runn…",
-		"└─唤醒─ 💤 IOWorker-8842 · 睡眠…",
+		"└─下钻─ ❶☾ binder:42591_4-42712 · 睡眠等待",
+		"├─唤醒─ ❷⚙ RenderService-3021 · 算力供给",
+		"└─唤醒─ ⧖ DispatchQueue-771 · ",
+		"└─唤醒─ ☾ IOWorker-8842 · ",
 		"└─语义─ ✦ VerifyClass com.example.rende…",
-		"睡眠等待 · ⚠跨窗… · [E1]",
-		"睡眠等待 · … · ⛔无匹配… · [E4(+1)]",
-		"语义优化span·c… · … · [E5]",
+		"⚠实际52.700ms · [E1]",
+		"⚠实际12.100ms · [E3]",
+		"⊘链止 · [E4(+1)]",
+		"4.700ms   7%  [E5]",
+		"语义优化span·class_verification",
 		"运行占用",
 		"可运行等待",
 		"◇ 邻近链",
@@ -146,6 +151,9 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 			t.Fatalf("berlin golden missing tree surface %q:\n%s", want, md)
 		}
 	}
+	if strings.Contains(md, " · … · ") {
+		t.Fatalf("PTV4 retires the tag elision marker:\n%s", md)
+	}
 	// The undrillable twin merges into the hop row (evidence roster keeps both).
 	if !strings.Contains(md, "(+1)") {
 		t.Fatalf("merged undrillable twin should surface as an evidence (+n) tag:\n%s", md)
@@ -153,16 +161,27 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 	// Lossless detail: full quad with ⚠, per-row relation, confidence tiers.
 	// The chain total (27.900ms) and the semantic host thread elided from the
 	// tree rows stay recoverable here.
+	// PTV4 T10: the (a) key-metric rows carry the duration quad; the
+	// qualitative cells (layer / position / type / relation / shape) live on
+	// the (b) vertical blocks — still in the SAME rendered markdown.
 	for _, want := range []string{
-		"| 深度1 | 主根因 · 主要关注 | binder:42591_4-42712 / 睡眠等待 | sleep_wait | 下钻 ▸ oney.hmn.berlin-42591 | sleep / 等待唤醒 | 38.400ms | 38.400ms | 36.100ms | 52.700ms ⚠ |",
-		"| 深度2 | 主根因 · 主要关注 | RenderService-3021 / 算力供给 | compute_supply | 唤醒 ▸ binder:42591_4-42712 | running / CPU执行 | 21.300ms | 27.900ms | 27.900ms | 27.900ms |",
-		"RenderService-3021 / VerifyClass com.example.render.Pipe",
-		"语义span ▸ binder:42591_4-42712",
+		"| 38.400ms | 38.400ms | 36.100ms | 52.700ms ⚠ |",
+		"| 21.300ms | 27.900ms | 27.900ms | 27.900ms |",
+		"- 层级: 深度1",
+		"- 因果位置·优先级: 主根因 · 主要关注",
+		"- 类型: sleep_wait",
+		"- 影响形态: sleep / 等待唤醒",
+		"- 影响形态: running / CPU执行",
+		"- 关系 ▸ 影响点: 下钻 ▸ oney.hmn.berlin-42591",
+		"- 类型: compute_supply",
+		"- 关系 ▸ 影响点: 唤醒 ▸ binder:42591_4-42712",
+		"RenderService-3021 / VerifyClass com.example.render.Pipeline",
+		"- 关系 ▸ 影响点: 语义span ▸ binder:42591_4-42712",
 		"语义优化span·class_verification",
-		"IOWorker-8842 / 睡眠等待 ⛔",
+		"IOWorker-8842 / 睡眠等待 ⊘",
 	} {
 		if !strings.Contains(md, want) {
-			t.Fatalf("berlin golden missing detail row %q:\n%s", want, md)
+			t.Fatalf("berlin golden missing detail surface %q:\n%s", want, md)
 		}
 	}
 	// File-grouped evidence roster.
@@ -242,7 +261,7 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 		t.Fatalf("aweme golden must run in fallback scale without window percentages:\n%s", md)
 	}
 	// Target anchor + its own state line under the root.
-	for _, want := range []string{"🎯 .ugc.aweme.lite-16547 ‹用户关注线程›", "💤 s_sleep 112.175"} {
+	for _, want := range []string{"🎯 .ugc.aweme.lite-16547 ‹用户关注线程›", "☾ s_sleep 112.175"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("aweme golden missing target/self surface %q:\n%s", want, md)
 		}
@@ -260,7 +279,7 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 	}
 	// R1+R2: io_latency renders as ONE ×3 aggregate with the udk-irq peers kept
 	// (merged range + impact points live on the lossless detail row after C4b).
-	for _, want := range []string{"×3(0.499–0.568ms)", "udk-irq-10-90", "IO延迟", "| io_latency |"} {
+	for _, want := range []string{"×3(0.499–0.568ms)", "udk-irq-10-90", "IO延迟", "- 类型: io_latency"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("aweme golden missing io_latency aggregation %q:\n%s", want, md)
 		}

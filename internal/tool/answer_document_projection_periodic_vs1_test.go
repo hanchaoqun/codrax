@@ -110,8 +110,10 @@ func TestRuntimeTraceProjPeriodicRowTagAndMark(t *testing.T) {
 		flat = append(flat, tag.Text)
 	}
 	joined := strings.Join(flat, " · ")
-	if !strings.Contains(joined, "周期性信号源(期内睡眠为正常节拍,周期≈8.3ms)·有效归因 0.176ms") {
-		t.Fatalf("periodic row must carry the cadence Keep tag:\n%s", joined)
+	// PTV4 T4: the inline tag keeps marker + data; the 期内睡眠为正常节拍
+	// semantics live verbatim in the legend's 周期性信号源 entry.
+	if !strings.Contains(joined, "周期性信号源(周期≈8.3ms)·有效归因 0.176ms") {
+		t.Fatalf("periodic row must carry the cadence tag:\n%s", joined)
 	}
 	if !marks.has(runtimeTraceProjMarkPeriodicSource) {
 		t.Fatalf("periodic tag emission must record its legend mark")

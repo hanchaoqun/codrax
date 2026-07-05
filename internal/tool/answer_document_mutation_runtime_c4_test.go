@@ -235,24 +235,20 @@ func TestRuntimeTraceProjTreeDeepRowNameFloorAndBarAlignment(t *testing.T) {
 		TrunkLen: len(deep) + 1,
 	}
 	fence := runtimeTraceProjTreeFence(model, true)
-	// B1 readability budget under the F-3 cap: the old whole-label truncation
-	// rendered this deep name as unreadable fragments; the deep fixed part here
-	// leaves column-cap − fixed = 11 cells ("WifiHandle…"), still a
-	// recognizable prefix, and the detail table keeps the full name (the
-	// pre-F-3 20-cell floor would have lifted the shared column to 59 and
-	// every row past the NEW-10 row cap).
-	if !strings.Contains(fence, "WifiHandle") {
-		t.Fatalf("deep row name lost its readability budget:\n%s", fence)
+	// B1 readability budget under the F-3 cap, PTV4 T2 form: the deep fixed
+	// part leaves column-cap − fixed cells for the name, and the T2 middle cut
+	// keeps the identity-bearing pid tail whole ("WifiH…-11098") instead of
+	// the old tail fragment — the detail blocks keep the full name.
+	if !strings.Contains(fence, "…-11098") {
+		t.Fatalf("deep row name lost its T2 pid-tail identity:\n%s", fence)
 	}
 	if width := runtimeTraceProjTreeLabelColumn(model, true); width > runtimeTraceProjTreeLabelColumnMax {
 		t.Fatalf("F-3: deep rows must not lift the shared column past the cap (%d > %d)", width, runtimeTraceProjTreeLabelColumnMax)
 	}
-	// The deep rows themselves hold the row cap; the depth-1 row keeps the
-	// legacy load-bearing stub overhang (its "[E5(+2)]" locator + state stub
-	// exceed the minimal reserve — the never-dropped floor class, unchanged
-	// by F-3).
+	// Every deep-row fence line holds the row cap (subordinate detail lines
+	// included — the T1 split keeps main lines lean by construction).
 	for _, line := range strings.Split(fence, "\n") {
-		if !strings.Contains(line, "WifiHandlerThre") {
+		if !strings.Contains(line, "-11098") {
 			continue
 		}
 		if w := runewidth.StringWidth(line); w > runtimeTraceProjTreeRowMaxWidth {
@@ -294,19 +290,33 @@ func TestRuntimeTraceProjTreeRowWidthCapKeepsPrimaryTagAndEvidence(t *testing.T)
 		Depth: 1, HasData: true, EvidenceTag: "E5(+2)",
 	}
 	line := runtimeTraceProjTreeRowLine(row, runtimeTraceProjTreeLabelWidth, 199.992, true, true)
-	if w := runewidth.StringWidth(line); w > runtimeTraceProjTreeRowMaxWidth {
-		t.Fatalf("row width %d exceeds the %d cap:\n%s", w, runtimeTraceProjTreeRowMaxWidth, line)
+	// PTV4 T1: the tag-heavy row SPLITS instead of eliding — every physical
+	// line holds the cap, the main line keeps the essentials ([E#] included),
+	// and every formerly-elided tag is now fully visible on a "· " subordinate
+	// detail line. Nothing is "…"-elided any more (the DropOrder lane is
+	// retired; assertion strength only grew).
+	lines := strings.Split(line, "\n")
+	for _, l := range lines {
+		if w := runewidth.StringWidth(l); w > runtimeTraceProjTreeRowMaxWidth {
+			t.Fatalf("row line width %d exceeds the %d cap:\n%s", w, runtimeTraceProjTreeRowMaxWidth, l)
+		}
 	}
-	if !strings.Contains(line, "[E5(+2)]") {
-		t.Fatalf("E# evidence reference must survive tag elision:\n%s", line)
+	if !strings.Contains(lines[0], "[E5(+2)]") {
+		t.Fatalf("E# evidence reference must stay on the MAIN line:\n%s", line)
 	}
 	// §7.30.3 D3: the gated-composite inversion row leads with the dedicated
 	// inversion-impact tag instead of a single-state claim.
 	if !strings.Contains(line, "反转影响") {
-		t.Fatalf("primary state tag must survive tag elision:\n%s", line)
+		t.Fatalf("primary state tag must survive the split:\n%s", line)
 	}
-	if !strings.Contains(line, " · … · ") {
-		t.Fatalf("elided secondary tags must leave the … marker:\n%s", line)
+	// T1 upgrade: the formerly-elided extras are all reachable in the fence.
+	for _, want := range []string{"链上累计5.997ms", "影响点 priority_inversion_runnable_wait/runnable"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("demoted tag %q must survive on a subordinate line:\n%s", want, line)
+		}
+	}
+	if strings.Contains(line, " · … · ") {
+		t.Fatalf("the elision marker is retired — no tag may be dropped:\n%s", line)
 	}
 	// A lean-tag row (background stanza rows skip the layer/action chips by
 	// design) must render its full tag set — no gratuitous elision.
@@ -326,19 +336,18 @@ func TestRuntimeTraceProjTreeRowWidthCapKeepsPrimaryTagAndEvidence(t *testing.T)
 		t.Fatalf("lean-tag rows must render their full tag set without elision:\n%s", shortLine)
 	}
 
-	// Typed ⚠/⛔ markers are load-bearing and must survive elision alongside
-	// the primary tag and the E# reference. NEW-10 (§7.6, 100-cell row cap):
-	// on a budget-starved row the ⚠ tag display-truncates to its protected
-	// marker stub (never below "⚠跨窗…"); the actual-ms value stays lossless
-	// on the detail table's 实际状态 column.
+	// Typed ⚠/⊘ markers are T1 Keep 记号: they sit on the MAIN line with their
+	// data (⚠实际Xms — PTV4 T4 keeps the value, the 跨窗 semantics live in the
+	// legend) and are never demoted or truncated.
 	warn := row
 	warn.Node.ActualImpactMS = 17.935
 	warn.Node.EffectiveImpactMS = 0
 	warnLine := runtimeTraceProjTreeRowLine(warn, runtimeTraceProjTreeLabelWidth, 199.992, true, true)
-	if !strings.Contains(warnLine, "⚠跨窗") {
-		t.Fatalf("cross-window ⚠ marker must survive elision:\n%s", warnLine)
+	warnMain := strings.Split(warnLine, "\n")[0]
+	if !strings.Contains(warnMain, "⚠实际17.935ms") {
+		t.Fatalf("cross-window ⚠ mark must stay on the main line with its actual value:\n%s", warnLine)
 	}
-	if !strings.Contains(warnLine, "[E5(+2)]") || !strings.Contains(warnLine, "…") {
-		t.Fatalf("elided warn row must keep E# and the elision marker:\n%s", warnLine)
+	if !strings.Contains(warnMain, "[E5(+2)]") {
+		t.Fatalf("warn row must keep E# on the main line:\n%s", warnLine)
 	}
 }

@@ -109,45 +109,32 @@ func TestRNUnconsumedPrimaryTierBackgroundRowDemotesPositionLabel(t *testing.T) 
 	if model.LeadKey != "E-run" {
 		t.Fatalf("model must pin the consumed lead's node key: %q", model.LeadKey)
 	}
-	_, rows := runtimeTraceProjDetailTable(model, true)
-	var background, flat string
-	for _, row := range rows {
-		if strings.Contains(row.Cells[0], "背景") {
-			background = row.Cells[1]
-		} else {
-			flat = row.Cells[1]
-		}
-	}
+	// PTV4 T10: the 因果位置·优先级 cell lives on the (b) vertical blocks.
+	full := runtimeTraceProjDetailFullText(model, true)
 	// Customer pin: the direct-published rank=1 supply_pressure background row
 	// must not read 主根因 while the conclusion names another node — it demotes
 	// to 背景 · 支撑参考 with the rank kept for audit.
-	if background != "背景 · 支撑参考(rank=1)" {
-		t.Fatalf("unconsumed primary-tier background row must demote with its rank note: %q", background)
+	if !strings.Contains(full, "- 因果位置·优先级: 背景 · 支撑参考(rank=1)") {
+		t.Fatalf("unconsumed primary-tier background row must demote with its rank note:\n%s", full)
 	}
 	// The consumed flat row keeps the CMP-7a flat position (the conclusion
 	// note, not the position column, carries the fallback semantics).
-	if flat != "平铺(链不可上溯) · 重点关注" {
-		t.Fatalf("consumed flat row keeps the CMP-7a position cell: %q", flat)
+	if !strings.Contains(full, "- 因果位置·优先级: 平铺(链不可上溯) · 重点关注") {
+		t.Fatalf("consumed flat row keeps the CMP-7a position cell:\n%s", full)
 	}
-	for _, row := range rows {
-		if strings.Contains(row.Cells[1], "主根因") || strings.Contains(row.Cells[1], "主要关注") {
-			t.Fatalf("no row of this shape may carry the primary label: %+v", row.Cells)
+	for _, banned := range []string{"主根因", "主要关注"} {
+		if strings.Contains(full, banned) {
+			t.Fatalf("no row of this shape may carry the primary label (%q):\n%s", banned, full)
 		}
 	}
-	// EN mirror of the demoted cell.
+	// EN mirror of the demoted cell (T10 (b) surface).
 	enModel := buildRuntimeTraceProjTreeModel(projection, nil, false)
-	_, enRows := runtimeTraceProjDetailTable(enModel, false)
-	found := false
-	for _, row := range enRows {
-		if strings.Contains(row.Cells[1], "background · supporting context (rank=1)") {
-			found = true
-		}
-		if strings.Contains(row.Cells[1], "primary focus") {
-			t.Fatalf("EN surface must not carry the primary label either: %+v", row.Cells)
-		}
+	enFull := runtimeTraceProjDetailFullText(enModel, false)
+	if !strings.Contains(enFull, "background · supporting context (rank=1)") {
+		t.Fatalf("EN demoted cell missing:\n%s", enFull)
 	}
-	if !found {
-		t.Fatalf("EN demoted cell missing: %+v", enRows)
+	if strings.Contains(enFull, "primary focus") {
+		t.Fatalf("EN surface must not carry the primary label either:\n%s", enFull)
 	}
 }
 
@@ -171,16 +158,16 @@ func TestRNConsumedRankLeadKeepsPrimaryLabel(t *testing.T) {
 	if model.LeadKey != "E4" {
 		t.Fatalf("rank=1 running row must be the consumed lead: %q", model.LeadKey)
 	}
-	_, rows := runtimeTraceProjDetailTable(model, true)
+	full := runtimeTraceProjDetailFullText(model, true)
 	found := false
-	for _, row := range rows {
-		if strings.Contains(row.Cells[2], "RSUniRenderThre-1963") &&
-			row.Cells[1] == "主根因 · 主要关注" {
+	for _, stanza := range strings.Split(full, "\n\n") {
+		if strings.Contains(stanza, "RSUniRenderThre-1963") &&
+			strings.Contains(stanza, "- 因果位置·优先级: 主根因 · 主要关注") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("consumed rank lead must keep the primary position label: %+v", rows)
+		t.Fatalf("consumed rank lead must keep the primary position label:\n%s", full)
 	}
 }
 
@@ -220,8 +207,8 @@ func TestRNCrossWindowMarkerSuppressedWithoutAnchorWindow(t *testing.T) {
 	}
 	// Anchored control: the exact same node keeps its ⚠ on both surfaces.
 	anchored := buildRuntimeTraceProjTreeModel(mkProjection(true), nil, true)
-	if fence := runtimeTraceProjTreeFence(anchored, true); !strings.Contains(fence, "⚠跨窗") {
-		t.Fatalf("anchored render keeps the ⚠跨窗 tag:\n%s", fence)
+	if fence := runtimeTraceProjTreeFence(anchored, true); !strings.Contains(fence, "⚠实际80.000ms") {
+		t.Fatalf("anchored render keeps the ⚠实际Xms tag (PTV4 T4 form):\n%s", fence)
 	}
 	_, anchoredRows := runtimeTraceProjDetailTable(anchored, true)
 	found := false
@@ -306,9 +293,8 @@ func TestRNWholeWindowIdleAcceptsStatelessWaitTypeToken(t *testing.T) {
 		WindowMS:   101.0,
 		Background: []runtimeTraceProjTreeRow{mkRow("", "d_state_or_io_wait", "")},
 	}
-	_, rows := runtimeTraceProjDetailTable(model, true)
-	if len(rows) != 1 || !strings.Contains(rows[0].Cells[5], "整窗等待(疑似空闲)") {
-		t.Fatalf("detail table must mirror the token-lane idle annotation: %+v", rows)
+	if full := runtimeTraceProjDetailFullText(model, true); !strings.Contains(full, "整窗等待(疑似空闲)") {
+		t.Fatalf("(b) blocks must mirror the token-lane idle annotation:\n%s", full)
 	}
 }
 

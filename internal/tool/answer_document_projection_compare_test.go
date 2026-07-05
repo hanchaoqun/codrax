@@ -182,11 +182,13 @@ func TestTraceProjectionMultiArtifactRendersPerArtifactSections(t *testing.T) {
 		t.Fatalf("per-artifact evidence index missing/mislabeled: %+v", evidenceB)
 	}
 	// CMP-3 mirror on the lossless detail surface — F6: ALL duration columns
-	// of the aggregate row (窗口投影/链上累计/有效归因/实际状态) carry the
-	// annotation, not just the window projection.
+	// of the aggregate row carry the annotation, not just the window
+	// projection. PTV4 T10 (a) columns: 节点[E#](0) 窗口投影(1) 链上累计(2)
+	// 有效归因(3) 实际状态(4) 证据·置信(5); the raw type token moved to the
+	// (b) vertical blocks.
 	var aggregateRow []string
 	for _, item := range detailA.Items {
-		if len(item.Cells) >= 4 && item.Cells[3] == "supply_pressure" {
+		if len(item.Cells) >= 5 && strings.Contains(item.Cells[0], "supply_pressure") {
 			aggregateRow = item.Cells
 			break
 		}
@@ -194,12 +196,16 @@ func TestTraceProjectionMultiArtifactRendersPerArtifactSections(t *testing.T) {
 	if aggregateRow == nil {
 		t.Fatalf("aggregate detail row missing: %+v", detailA.Items)
 	}
-	// Columns: ... shape(5), 窗口投影(6), 链上累计(7), 有效归因(8), 实际状态(9).
-	for _, col := range []int{6, 7, 8, 9} {
+	for _, col := range []int{1, 2, 3, 4} {
 		if !strings.Contains(aggregateRow[col], "101084.884ms(跨线程累计,非墙钟)") {
 			t.Fatalf("detail column %d must mirror the cross-thread annotation (F6): %q\nrow: %v",
 				col, aggregateRow[col], aggregateRow)
 		}
+	}
+	// The raw type token stays reachable on the per-artifact (b) blocks.
+	detailFullA := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_a1_detail_full")
+	if detailFullA == nil || !strings.Contains(detailFullA.Text, "- 类型: supply_pressure") {
+		t.Fatalf("per-artifact (b) blocks must keep the raw type token: %+v", detailFullA)
 	}
 	// The identity-less record renders only through the partition caveat.
 	caveat := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_partition")

@@ -721,8 +721,9 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	if !strings.Contains(projection.Text, "窗口起止未采集") {
 		t.Fatalf("missing-window fixture must render the fallback scale declaration:\n%s", projection.Text)
 	}
-	// Bare path transit nodes stay visible so the chain is unbroken.
-	if !strings.Contains(projection.Text, "链路中转") {
+	// Bare path transit nodes stay visible so the chain is unbroken (PTV4 T4:
+	// the inline word is the 2-word 中转 token; the legend explains it).
+	if !strings.Contains(projection.Text, " 中转") {
 		t.Fatalf("transit chain nodes without rows must stay visible:\n%s", projection.Text)
 	}
 
@@ -733,12 +734,24 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 		t.Fatalf("missing v3 lossless detail table:\n%s", text)
 	}
 	assertProjectionRowsCitationFree(t, detail)
-	for _, want := range []string{"层级", "因果位置·优先级", "关系 ▸ 影响点", "影响形态", "窗口投影", "链上累计", "有效归因", "实际状态", "证据·置信"} {
+	// PTV4 T10 (a): the key-metric table carries the node identity + duration
+	// quad + evidence (≤6 columns pinned elsewhere)…
+	for _, want := range []string{"节点[E#]", "窗口投影", "链上累计", "有效归因", "实际状态", "证据·置信"} {
 		if !stringSliceContains(detail.Columns, want) {
 			t.Fatalf("detail table missing column %q: %+v", want, detail.Columns)
 		}
 	}
-	for _, want := range []string{"threadpool-400 / IO等待", "| io_wait |", "11.000ms", "阻塞/IO", "确定性优化点", "VerifyClass com.example.Foo", "class_verification"} {
+	// …and the (b) vertical blocks keep every qualitative attribute lossless.
+	detailFull := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_detail_full")
+	if detailFull == nil || detailFull.Kind != types.BlockSection {
+		t.Fatalf("missing T10 (b) lossless vertical blocks:\n%s", text)
+	}
+	for _, want := range []string{"- 层级: ", "- 因果位置·优先级: ", "- 关系 ▸ 影响点: ", "- 影响形态: ", "- 类型: io_wait"} {
+		if !strings.Contains(detailFull.Text, want) {
+			t.Fatalf("(b) blocks missing %q:\n%s", want, detailFull.Text)
+		}
+	}
+	for _, want := range []string{"threadpool-400 / IO等待", "11.000ms", "阻塞/IO", "确定性优化点", "VerifyClass com.example.Foo", "class_verification"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("projection should surface fact %q:\n%s", want, text)
 		}
@@ -815,7 +828,10 @@ func TestApplyAndPersistMutation_TraceCausalProjectionBoundsLongWakeupChainDispl
 	}
 	// v3: the long trunk compresses its middle into ONE omitted marker row with
 	// the counts + detected-cycle audit note; the full chain never renders raw.
-	for _, want := range []string{"🎯 NetworkService-60595", "省略7个链路节点", "检测到2节点循环约8轮", "完整链路见原始 trace_query 记录"} {
+	// PTV4 T8: the fold row names the folded segment's first/last nodes; the
+	// "完整链路见原始 trace_query 记录" pointer moved to the legend's 省略行
+	// entry (still within this block's text via the dynamic legend).
+	for _, want := range []string{"🎯 NetworkService-60595", "省略7节点: ", "检测到2节点循环约8轮", "完整链路见原始 trace_query 记录"} {
 		if !strings.Contains(projection.Text, want) {
 			t.Fatalf("long wakeup chain tree should carry bounded audit note %q:\n%s", want, projection.Text)
 		}
@@ -899,21 +915,21 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 
 	// gap c: the duration triad renders losslessly in the v3 detail table and
 	// the tree carries magnitude bars.
-	for _, want := range []string{"█", "| 层级 | 因果位置·优先级 | 节点/原因 | 类型 | 关系 ▸ 影响点 | 影响形态 | 窗口投影 | 链上累计 | 有效归因 | 实际状态 | 证据·置信 |", "sleep / 等待唤醒", "running / CPU执行", "11.040ms", "4.600ms"} {
+	for _, want := range []string{"█", "| 节点[E#] | 窗口投影 | 链上累计 | 有效归因 | 实际状态 | 证据·置信 |", "sleep / 等待唤醒", "running / CPU执行", "11.040ms", "4.600ms"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("duration triad + bar must render (gap c): missing %q:\n%s", want, rendered)
 		}
 	}
 	// gap d: the sleeping target drills to its direct typed waker — the fact-only
 	// conclusion line names the drilldown target, and the tree anchors at 🎯.
-	for _, want := range []string{"💤", "🎯 app-100", "worker-200", "下钻到 worker-200"} {
+	for _, want := range []string{"☾", "🎯 app-100", "worker-200", "下钻到 worker-200"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("sleep drilldown must render (gap d): missing %q:\n%s", want, rendered)
 		}
 	}
 	// gap e: the undrillable sleep is explicitly flagged with the typed reason
 	// inline (self row ⛔) and stays auditable via the evidence locator.
-	for _, want := range []string{"⛔", "无法下钻", "missing_wakeup", "lines=88-96"} {
+	for _, want := range []string{"⊘链止", "missing_wakeup", "lines=88-96"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("undrillable sleep must render (gap e): missing %q:\n%s", want, rendered)
 		}
@@ -1205,7 +1221,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 		t.Fatalf("missing English v3 detail table:\n%s", text)
 	}
 	assertProjectionRowsCitationFree(t, detail)
-	for _, want := range []string{"Layer", "Relation ▸ impact point", "Window projection", "Chain total", "Evidence · confidence"} {
+	for _, want := range []string{"Node [E#]", "Window projection", "Chain total", "Evidence · confidence"} {
 		if !stringSliceContains(detail.Columns, want) {
 			t.Fatalf("English detail table missing column %q: %+v", want, detail.Columns)
 		}
@@ -1294,7 +1310,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalHopDepth(t *testi
 	// gap d: the sleep-state primary (worker-200 -> sleep_wait) is marked a
 	// symptom in the tree; its upstream trunk child IS the drilldown lane, so no
 	// separate diagram is needed (v3 is zero-mermaid).
-	if !strings.Contains(projection.Text, "💤 worker-200") {
+	if !strings.Contains(projection.Text, "☾ worker-200") {
 		t.Fatalf("sleep-state node should be marked as a symptom in the tree:\n%s", projection.Text)
 	}
 	if !strings.Contains(text, "睡眠症状") {
@@ -1409,7 +1425,7 @@ func TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity(t *
 	}
 	// The tree trunk display stays bounded via the omitted marker while every
 	// row remains in the detail table.
-	if !strings.Contains(projection.Text, "省略2个链路节点") {
+	if !strings.Contains(projection.Text, "省略2节点") {
 		t.Fatalf("deep trunk should compress its middle with an omitted marker:\n%s", projection.Text)
 	}
 	// Semantic classes across the 16-span bucket survive.

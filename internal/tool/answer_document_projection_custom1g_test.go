@@ -194,21 +194,28 @@ func TestRuntimeTraceProjBackgroundWholeWindowIdleAnnotation(t *testing.T) {
 		t.Fatalf("EN idle annotation missing:\n%s", en)
 	}
 	// Over-window cumulative rows are the H8 multi-CPU shape — an ACTIVE burst,
-	// never annotated idle.
-	over := runtimeTraceProjStanzaRowLine(mkRow(204.382), runtimeTraceProjTreeLabelWidth, 101.0, true, true)
-	if strings.Contains(over, "疑似空闲") || !strings.Contains(over, "跨CPU") {
-		t.Fatalf("over-window row must keep the H8 annotation only:\n%s", over)
+	// never annotated idle. PTV4 T4: the H8 explanation lives in the legend's
+	// 占窗>100% entry (typed OverWindowShare mark); the row keeps the bare %.
+	overRow := mkRow(204.382)
+	overMarks := &runtimeTraceProjMarkSet{}
+	overRow.marks = overMarks
+	over := runtimeTraceProjStanzaRowLine(overRow, runtimeTraceProjTreeLabelWidth, 101.0, true, true)
+	if strings.Contains(over, "疑似空闲") || strings.Contains(over, "整窗等待") {
+		t.Fatalf("over-window row must not be annotated idle:\n%s", over)
+	}
+	if !overMarks.has(runtimeTraceProjMarkOverWindowShare) {
+		t.Fatalf("over-window row must record the H8 legend mark:\n%s", over)
 	}
 	// Mid-window rows carry neither.
 	mid := runtimeTraceProjStanzaRowLine(mkRow(50.0), runtimeTraceProjTreeLabelWidth, 101.0, true, true)
-	if strings.Contains(mid, "疑似空闲") {
+	if strings.Contains(mid, "整窗等待") {
 		t.Fatalf("a 50%% row must not be annotated idle:\n%s", mid)
 	}
-	// The lossless detail table mirrors the annotation on the impact-shape cell.
+	// The lossless surface mirrors the FULL annotation on the (b) blocks'
+	// impact-shape line (PTV4 T10; the fence keeps the bare 整窗等待 token).
 	model := runtimeTraceProjTreeModel{WindowMS: 101.0, Background: []runtimeTraceProjTreeRow{mkRow(101.0)}}
-	_, rows := runtimeTraceProjDetailTable(model, true)
-	if len(rows) != 1 || !strings.Contains(rows[0].Cells[5], "整窗等待(疑似空闲)") {
-		t.Fatalf("detail table shape cell must mirror the idle annotation: %+v", rows)
+	if full := runtimeTraceProjDetailFullText(model, true); !strings.Contains(full, "整窗等待(疑似空闲)") {
+		t.Fatalf("detail blocks must mirror the idle annotation:\n%s", full)
 	}
 }
 
@@ -237,14 +244,16 @@ func TestRuntimeTraceProjBackgroundFoldRowShowsMaxFormNotSumForm(t *testing.T) {
 		joined = append(joined, tag.Text)
 	}
 	flat := strings.Join(joined, " · ")
-	if !strings.Contains(flat, "×6合并·各99.500–101.000ms(取最大值,不求和)") {
+	// PTV4 T4 (×N 三式): the max form is the ×N(a–b)取最大 data token — the
+	// 不求和 semantics live in the legend's 口径组 entry.
+	if !strings.Contains(flat, "×6(99.500–101.000ms)取最大") {
 		t.Fatalf("fold row must declare the max form:\n%s", flat)
 	}
 	if strings.Contains(flat, "单次") {
 		t.Fatalf("fold row must not reuse the SUM-aggregate tag form:\n%s", flat)
 	}
 	// A whole-window fold is the idle shape too — both annotations coexist.
-	if !strings.Contains(flat, "整窗等待(疑似空闲)") {
+	if !strings.Contains(flat, "整窗等待") {
 		t.Fatalf("whole-window fold must carry the idle annotation:\n%s", flat)
 	}
 	// Same-thread R2 aggregates keep the sum form untouched.
@@ -257,8 +266,11 @@ func TestRuntimeTraceProjBackgroundFoldRowShowsMaxFormNotSumForm(t *testing.T) {
 	for _, tag := range sumTags {
 		sumFlat = append(sumFlat, tag.Text)
 	}
-	if !strings.Contains(strings.Join(sumFlat, " · "), "×6合并·单次99.500–101.000ms") {
+	if !strings.Contains(strings.Join(sumFlat, " · "), "×6(99.500–101.000ms)") {
 		t.Fatalf("subject-bearing aggregate must keep the sum form: %v", sumFlat)
+	}
+	if strings.Contains(strings.Join(sumFlat, " · "), "取最大") {
+		t.Fatalf("subject-bearing aggregate must not claim the max form: %v", sumFlat)
 	}
 }
 
@@ -275,18 +287,18 @@ func TestRuntimeTraceProjDetailTableFoldRowKeepsRoster(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected the fold row: %+v", rows)
 	}
-	cell := rows[0].Cells[2]
-	// The tree fold line already names the members — the table cell was a bare
-	// "对端线程未解析 ×6" that lost every thread identity.
-	if !strings.Contains(cell, "对端线程未解析 ×6(各99.500–101.000ms,取最大值)") {
+	// PTV4 T10 (a): the node cell carries the max-form data token; the FULL
+	// member roster lives in the (b) blocks' ×N 明细 line (更无损: the roster
+	// is no longer subject to the name-cell cap).
+	if cell := rows[0].Cells[0]; !strings.Contains(cell, "×6(99.500–101.000ms)取最大") {
 		t.Fatalf("fold cell must carry the max-form count: %q", cell)
 	}
-	if !strings.Contains(cell, "(a-1、b-2、c-3、d-4 等)") {
-		t.Fatalf("fold cell must reuse the member roster helper: %q", cell)
+	full := runtimeTraceProjDetailFullText(model, true)
+	if !strings.Contains(full, "×6 取最大口径(墙钟跨线程不可加和,不求和),各 99.500–101.000ms;成员: a-1、b-2、c-3、d-4 等") {
+		t.Fatalf("(b) blocks must carry the full member roster:\n%s", full)
 	}
-	_, enRows := runtimeTraceProjDetailTable(model, false)
-	if !strings.Contains(enRows[0].Cells[2], "(a-1, b-2, c-3, d-4, …)") {
-		t.Fatalf("EN fold cell must carry the roster: %q", enRows[0].Cells[2])
+	if enFull := runtimeTraceProjDetailFullText(model, false); !strings.Contains(enFull, "members: a-1, b-2, c-3, d-4, …") {
+		t.Fatalf("EN (b) blocks must carry the roster:\n%s", enFull)
 	}
 }
 
@@ -340,10 +352,10 @@ func TestRuntimeTraceProjCustom1gEndToEndFoldAndDedup(t *testing.T) {
 	for _, item := range detailRows {
 		detailFlat += strings.Join(item.Cells, " | ") + "\n"
 	}
-	if !strings.Contains(detailFlat, "×3同值合并(重复发布)") {
+	if !strings.Contains(detailFlat, "×3同值") {
 		t.Fatalf("detail table must carry the duplicate-publication label:\n%s", detailFlat)
 	}
-	for _, banned := range []string{"106.05", "×3合并·单次"} {
+	for _, banned := range []string{"106.05", "×3(35.350"} {
 		if strings.Contains(fence, banned) || strings.Contains(detailFlat, banned) {
 			t.Fatalf("duplicate publications must not SUM (%q):\n%s\n%s", banned, fence, detailFlat)
 		}

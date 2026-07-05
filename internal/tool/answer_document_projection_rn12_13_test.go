@@ -148,7 +148,9 @@ func TestRN12NoWindowNoteRendersNothing(t *testing.T) {
 }
 
 // Unit pin: the tag builder consumes only the typed field set + the shared
-// class table, and is Keep + NoTruncate + ContinuationLane.
+// class table. PTV4 T1: the coverage note is a demotable tag (never MainRow —
+// it moves intact to a subordinate line on width pressure; the elision lane
+// that Keep/NoTruncate guarded against is retired entirely).
 func TestRN12CoverageTagUnit(t *testing.T) {
 	node := types.TraceCausalProjectionNode{
 		Subject: "OS_FFRT_2_3-49706", StateKind: "runnable", ImpactMS: 635.981,
@@ -160,8 +162,8 @@ func TestRN12CoverageTagUnit(t *testing.T) {
 	if !ok || tag.Text != "窗内 runnable 合计 2528.721ms(state_drilldown),链上仅覆盖 top 片段 635.981ms(25%)" {
 		t.Fatalf("zh coverage tag wrong: ok=%t %q", ok, tag.Text)
 	}
-	if tag.DropOrder != runtimeTraceProjTagKeep || !tag.NoTruncate || !tag.ContinuationLane {
-		t.Fatalf("coverage tag must be Keep + NoTruncate + ContinuationLane: %+v", tag)
+	if tag.MainRow {
+		t.Fatalf("coverage tag must be demotable (subordinate-line lane), not a MainRow mark: %+v", tag)
 	}
 	if en, ok := runtimeTraceProjFullWindowCoverageTag(node, false); !ok ||
 		en.Text != "full-window runnable total 2528.721ms (state_drilldown); the chain covers only the top fragment 635.981ms (25%)" {

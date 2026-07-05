@@ -839,7 +839,8 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 // (docs/design/trace_projection_presentation_v3_20260702.md): a lead block
 // whose Text carries the fact-only conclusion + window anchor + tree reading
 // note + the MAIN monospace ```text tree (target-anchored, four edge kinds,
-// window-scaled bars, ⚠/⛔ inline), then ONE lossless detail table, then a
+// window-scaled bars, ⚠/⊘ inline), then the T10 key-metric table + per-node
+// lossless blocks, then a
 // file-grouped evidence index. Zero mermaid — the fence is byte-identical
 // across HTML / markdown / terminal. Every projection node appears exactly
 // twice (one tree row + one table row).
@@ -890,12 +891,14 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		FacetIDs:    facets,
 	}}
 	if columns, rows := runtimeTraceProjDetailTable(model, zh); len(rows) > 0 {
-		title := "因果投影明细(无损)"
+		title := "因果投影关键量表"
 		if !zh {
-			title = "Causal Projection Detail (lossless)"
+			title = "Causal Projection Key Metrics"
 		}
 		// Customer 2026-07-03: the legend was one run-on paragraph and
 		// unreadable — itemized, one short definition per line, kept plain.
+		// PTV4 T10: the table is the (a) key-metric surface (≤6 columns);
+		// the (b) vertical blocks below carry every qualitative attribute.
 		lines := []string{
 			"口径:",
 			"- 窗口投影 = 节点在用户窗口内的投影影响。",
@@ -903,9 +906,10 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 			"- 有效归因 = 排序/归因使用的有效影响。",
 			"- 实际状态 = 底层状态实际持续时长。",
 			"- 「—」 = 该口径对此节点无值。",
-			"- ⛔ = 窗口内无匹配 sched_wakeup(missing_wakeup),下钻链止。",
+			"- ⊘ = 窗口内无匹配 sched_wakeup(missing_wakeup),下钻链止。",
 			"- ⚠ = 实际状态跨出投影窗口。",
 			"- 背景行仅作压力/环境证据,不自动等同 on-chain 主因。",
+			"- 定性属性(类型/因果位置/关系/影响形态/×N 全 roster/完整名称)见下方按节点纵排的无损块。",
 		}
 		if !zh {
 			lines = []string{
@@ -915,9 +919,10 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 				"- attribution = the effective impact used for ranking/attribution.",
 				"- actual state = the underlying state duration.",
 				"- “—” = no value for this node.",
-				"- ⛔ = no matching sched_wakeup in the window (missing_wakeup); the chain ends.",
+				"- ⊘ = no matching sched_wakeup in the window (missing_wakeup); the chain ends.",
 				"- ⚠ = the actual state crosses the projected window.",
 				"- Background rows are pressure/context evidence only.",
+				"- Qualitative attributes (type / causal position / relation / impact shape / full ×N rosters / full names) live in the per-node lossless blocks below.",
 			}
 		}
 		// VS-1 (§7.8): the discount caliber is explained ONLY when a periodic
@@ -937,6 +942,29 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 			Text:        text,
 			Columns:     columns,
 			Items:       rows,
+			SurfaceRole: types.SurfacePrincipal,
+			ClaimUses:   claimUses,
+			FacetIDs:    facets,
+		})
+	}
+	// PTV4 T10 (b): the per-node vertical lossless blocks — the hard floor
+	// surface: every item the tree demotes or omits is reachable here whole
+	// (full names carry NO cell caps).
+	if fullText := runtimeTraceProjDetailFullText(model, zh); strings.TrimSpace(fullText) != "" {
+		title := "因果投影明细(无损纵排)"
+		// 复核收窄: the blocks cover every DATA-bearing rendered node; folded
+		// transit hops carry no data row and live on the 省略行 roster + the
+		// original trace_query record — the intro must not over-promise them.
+		intro := "每个数据节点一块:树与关键量表省略或压缩的属性在此完整可见;完整名称不截断。折叠中转节点见树内省略行 roster 与原始 trace_query 记录。"
+		if !zh {
+			title = "Causal Projection Detail (lossless, per node)"
+			intro = "One block per data-bearing node: every attribute the tree or the key-metric table demotes or compresses is fully visible here; full names are never truncated. Folded transit hops live on the tree's omitted-row roster and in the original trace_query record."
+		}
+		out = append(out, types.AnswerBlock{
+			ID:          idPrefix + "_detail_full",
+			Kind:        types.BlockSection,
+			Title:       title + titleSuffix,
+			Text:        intro + "\n\n" + fullText,
 			SurfaceRole: types.SurfacePrincipal,
 			ClaimUses:   claimUses,
 			FacetIDs:    facets,

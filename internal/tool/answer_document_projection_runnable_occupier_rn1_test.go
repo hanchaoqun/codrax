@@ -87,23 +87,33 @@ func TestTraceProjectionCompilesRunnableOccupierSummary(t *testing.T) {
 	}
 }
 
-// rn1CollapseContinuations removes the F-2 ↳ continuation-line scaffolding
-// (newline + tree rails + "↳ "/alignment spaces) so a wrap-split carrier can
-// be matched as its original byte sequence — the wrap contract is
-// byte-identical concatenation, which is exactly what this reverses.
+// rn1CollapseContinuations removes the subordinate detail-line scaffolding
+// (newline + tree rails + "· "/alignment lanes; PTV4 T1 — formerly the F-2
+// "↳ " lane) so a wrap-split carrier can be matched as its original byte
+// sequence — the wrap contract is byte-identical concatenation, which is
+// exactly what this reverses. Each "· " line starts a fresh carrier chunk.
 func rn1CollapseContinuations(md string) string {
 	lines := strings.Split(md, "\n")
 	var b strings.Builder
 	for _, line := range lines {
 		trimmed := strings.TrimLeft(line, "│ \t")
+		if wrapped, ok := strings.CutPrefix(trimmed, "· "); ok {
+			// A demoted tag starts here: separate it from the preceding text
+			// so two adjacent tags never fuse into one byte sequence.
+			b.WriteString("\n")
+			b.WriteString(wrapped)
+			continue
+		}
 		if wrapped, ok := strings.CutPrefix(trimmed, "↳ "); ok {
 			b.WriteString(wrapped)
 			continue
 		}
 		if b.Len() > 0 && trimmed != line && !strings.HasPrefix(trimmed, "├") && !strings.HasPrefix(trimmed, "└") &&
-			trimmed != "" && !strings.ContainsAny(trimmed, "█░🎯💤⏳⚙⛓◇▒") {
-			// alignment continuation of a wrapped carrier (indent + "  " lane)
-			b.WriteString(trimmed)
+			trimmed != "" && !strings.ContainsAny(trimmed, "█░🎯☾⧖💤⏳⚙⛓◇▒") {
+			// alignment continuation of a wrapped carrier (indent + "  " lane).
+			// Rails were trimmed with the indent; the wrap itself is
+			// byte-identical, so plain concatenation restores the carrier.
+			b.WriteString(strings.TrimRight(trimmed, ""))
 			continue
 		}
 		b.WriteString("\n")
@@ -162,8 +172,8 @@ func TestRuntimeTraceProjOccupierTagUnit(t *testing.T) {
 	if !ok || tag.Text != "同窗占用者: RSHardwareThre-1063:1410.250ms、render_service-411:902.125ms(cpu·ms)" {
 		t.Fatalf("zh occupier tag wrong: ok=%t %q", ok, tag.Text)
 	}
-	if tag.DropOrder != runtimeTraceProjTagKeep || !tag.NoTruncate || !tag.ContinuationLane {
-		t.Fatalf("occupier tag must be Keep + NoTruncate + ContinuationLane: %+v", tag)
+	if tag.MainRow {
+		t.Fatalf("occupier tag must be demotable (subordinate-line lane), not a MainRow mark: %+v", tag)
 	}
 	if en, ok := runtimeTraceProjOccupierTag(node, false); !ok ||
 		en.Text != "same-window occupiers: RSHardwareThre-1063:1410.250ms、render_service-411:902.125ms (cpu·ms)" {

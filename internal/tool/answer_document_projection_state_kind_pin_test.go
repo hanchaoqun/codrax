@@ -63,11 +63,16 @@ var runtimeStateKindSwitchFallthroughLedger = map[string]types.TraceStateKindFal
 		Missing: "running,sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
 		Why:     "wait-family words already admitted by the runtimeTraceProjWaitFamilyStateKind short-circuit above; running/stateless rows stay excluded (occupancy, not wait time)",
 	},
+	"answer_document_mutation_runtime_tree.go:runtimeTraceProjNoDominantStateRow#1": {
+		Missing: "sleep,s_sleep,sleep_wait",
+		Why:     "PTV4 T4 ◦ 二义拆分: the sleep family is short-circuited by the IsSleepState early return above (☾ rows never render ◦); the switch only lists the remaining non-◦ states — anything else IS the no-dominant-state ◦ sense",
+	},
 }
 
 var runtimeStateKindSwitchSiteGolden = map[string]string{
 	"answer_document_mutation_runtime.go:runtimeTraceCausalProjectionActionCell#1":      "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
 	"answer_document_mutation_runtime.go:runtimeTraceCausalProjectionImpactShapeCell#1": "running,runnable,sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
+	"answer_document_mutation_runtime_tree.go:runtimeTraceProjNoDominantStateRow#1":     "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
 	"answer_document_mutation_runtime_tree.go:runtimeTraceProjStateIcon#1":              "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep|default",
 	"answer_document_mutation_runtime_tree.go:runtimeTraceProjStateKindLabel#1":         "running,runnable,sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
 	"answer_document_mutation_runtime_tree.go:runtimeTraceProjWaitFamilyStateKind#1":    "sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",

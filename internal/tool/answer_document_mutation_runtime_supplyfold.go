@@ -29,7 +29,6 @@ import (
 	"fmt"
 
 	"github.com/hanchaoqun/codrax/internal/types"
-	"github.com/mattn/go-runewidth"
 )
 
 // Soft-face thresholds of the §7.10 decision table. Noisy-signal guidance
@@ -166,17 +165,14 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 	}
 }
 
-// runtimeTraceProjSupplyFoldTag renders the clause as the node row's tail tag:
-// Keep + NoTruncate + ContinuationLane — the mechanism magnitudes have no
-// other fence carrier; on width pressure the clause moves intact onto its own
-// ↳ continuation line(s) (same sanctioned overflow class as the D3
-// composition split and the RN-1 occupier roster).
+// runtimeTraceProjSupplyFoldTag renders the clause as the node row's tail tag.
+// PTV4 T1: the clause is never elided or shaved — on width pressure it
+// demotes intact to a "· " subordinate detail line (the mechanism magnitudes
+// have no other fence carrier).
 func runtimeTraceProjSupplyFoldTag(node types.TraceCausalProjectionNode, windowMS float64, zh bool) (runtimeTraceProjTag, bool) {
-	text, marker, ok := runtimeTraceProjSupplyFoldClause(node, windowMS, zh)
+	text, _, ok := runtimeTraceProjSupplyFoldClause(node, windowMS, zh)
 	if !ok {
 		return runtimeTraceProjTag{}, false
 	}
-	return runtimeTraceProjTag{Text: text, DropOrder: runtimeTraceProjTagKeep,
-		NoTruncate: true, ContinuationLane: true,
-		MinKeep: runewidth.StringWidth(marker) + 1}, true
+	return runtimeTraceProjTag{Text: text}, true
 }

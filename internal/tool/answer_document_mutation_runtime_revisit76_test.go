@@ -160,13 +160,14 @@ func TestTraceProjectionIOFoldDetailTableMirrorAndChainAttachedKeepsWake(t *test
 	if len(rows) != 1 {
 		t.Fatalf("the fold keeps one primary detail row (transit rows carry no data): %+v", rows)
 	}
-	cells := rows[0].Cells
-	// Cells: 层级(0) 因果位置(1) 节点/原因(2) 类型(3) 关系(4) …
-	if !strings.Contains(cells[2], "(同段IO另有 io_burst_episode 226.153ms、io_wait 112.011/107.672ms 口径") {
-		t.Fatalf("the lossless surface must mirror the caliber note on the primary row: %q", cells[2])
+	// PTV4 T10: the caliber-note and relation mirrors live in the (b) vertical
+	// lossless blocks (the (a) key table carries the duration quad only).
+	full := runtimeTraceProjDetailFullText(model, true)
+	if !strings.Contains(full, "同段IO口径: 同段IO另有 io_burst_episode 226.153ms、io_wait 112.011/107.672ms 口径") {
+		t.Fatalf("the lossless surface must mirror the caliber note on the primary block:\n%s", full)
 	}
-	if !strings.HasPrefix(cells[4], "唤醒 ▸ ") {
-		t.Fatalf("chain-attached IO row keeps the wake relation cell (fence-consistent): %q", cells[4])
+	if !strings.Contains(full, "关系 ▸ 影响点: 唤醒 ▸ ") {
+		t.Fatalf("chain-attached IO row keeps the wake relation (fence-consistent):\n%s", full)
 	}
 }
 
@@ -188,15 +189,10 @@ func TestTraceProjectionDepthlessOwnProcessIORowThreeSurfaceConsistency(t *testi
 	if !strings.Contains(lead, "- `├─自身─` = 目标自身/同进程的口径行(同段墙钟的另一口径),非唤醒边。") {
 		t.Fatalf("legend must explain the own edge:\n%s", lead)
 	}
-	_, rows := runtimeTraceProjDetailTable(model, true)
-	var ownRelation string
-	for _, row := range rows {
-		if strings.Contains(row.Cells[2], "com.xs.fm.lite-21538") {
-			ownRelation = row.Cells[4]
-		}
-	}
-	if ownRelation != "自身进程IO" {
-		t.Fatalf("own-process IO relation cell must mirror the own edge: %q", ownRelation)
+	// PTV4 T10: the relation mirror lives in the (b) vertical lossless blocks.
+	full := runtimeTraceProjDetailFullText(model, true)
+	if !strings.Contains(full, "- 关系 ▸ 影响点: 自身进程IO") {
+		t.Fatalf("own-process IO relation must mirror the own edge:\n%s", full)
 	}
 	// en mirror: fence edge and relation stay isomorphic.
 	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
@@ -204,15 +200,8 @@ func TestTraceProjectionDepthlessOwnProcessIORowThreeSurfaceConsistency(t *testi
 	if !strings.Contains(enFence, "own─") || strings.Contains(enFence, "wakes─") {
 		t.Fatalf("en fence must mirror the own edge:\n%s", enFence)
 	}
-	_, enRows := runtimeTraceProjDetailTable(enModel, false)
-	ownRelation = ""
-	for _, row := range enRows {
-		if strings.Contains(row.Cells[2], "com.xs.fm.lite-21538") {
-			ownRelation = row.Cells[4]
-		}
-	}
-	if ownRelation != "own-process IO" {
-		t.Fatalf("en own-process IO relation cell mismatch: %q", ownRelation)
+	if enFull := runtimeTraceProjDetailFullText(enModel, false); !strings.Contains(enFull, "- relation ▸ impact point: own-process IO") {
+		t.Fatalf("en own-process IO relation mismatch:\n%s", enFull)
 	}
 }
 
@@ -355,12 +344,12 @@ func TestTraceProjectionOwnProcessRelationNegativeKeepsWake(t *testing.T) {
 		},
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
-	_, rows := runtimeTraceProjDetailTable(model, true)
-	if len(rows) != 1 {
+	if _, rows := runtimeTraceProjDetailTable(model, true); len(rows) != 1 {
 		t.Fatalf("expected the single IO detail row: %+v", rows)
 	}
-	if !strings.HasPrefix(rows[0].Cells[4], "唤醒 ▸ ") {
-		t.Fatalf("a different-pid IO row keeps its wake relation: %q", rows[0].Cells[4])
+	// PTV4 T10: the relation mirror lives in the (b) vertical blocks.
+	if full := runtimeTraceProjDetailFullText(model, true); !strings.Contains(full, "关系 ▸ 影响点: 唤醒 ▸ ") {
+		t.Fatalf("a different-pid IO row keeps its wake relation:\n%s", full)
 	}
 }
 
@@ -532,26 +521,96 @@ type revisit76LegendProbe struct{ zh, en string }
 // tag append, which the width fit never elides.
 func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 	return map[runtimeTraceProjMark]revisit76LegendProbe{
-		runtimeTraceProjMarkRootTarget:       {"🎯", "🎯"},
-		runtimeTraceProjMarkEdgeDrill:        {"下钻─", "drill─"},
-		runtimeTraceProjMarkEdgeWake:         {"唤醒─", "wakes─"},
-		runtimeTraceProjMarkEdgeCause:        {"成因─", "cause─"},
-		runtimeTraceProjMarkEdgeOwn:          {"自身─", "own─"},
-		runtimeTraceProjMarkSemanticSpan:     {"✦", "✦"},
-		runtimeTraceProjMarkIconSleep:        {"💤", "💤"},
-		runtimeTraceProjMarkIconRunnable:     {"⏳", "⏳"},
-		runtimeTraceProjMarkIconRunning:      {"⚙", "⚙"},
-		runtimeTraceProjMarkIconDState:       {"⛓", "⛓"},
-		runtimeTraceProjMarkIconTransit:      {"◦", "◦"},
-		runtimeTraceProjMarkStateLabel:       {"", ""},
-		runtimeTraceProjMarkUndrillable:      {"⛔", "⛔"},
-		runtimeTraceProjMarkCrossWindow:      {"⚠跨窗", "⚠crosses window"},
-		runtimeTraceProjMarkRecursOnChain:    {"↺", "↺"},
-		runtimeTraceProjMarkOmitted:          {"省略", "nodes omitted"},
-		runtimeTraceProjMarkIOCaliberNote:    {"同段IO另有", "same-segment IO also measured"},
-		runtimeTraceProjMarkPeriodicSource:   {"周期性信号源", "periodic signal source"},
-		runtimeTraceProjMarkAdjacentStanza:   {"◇", "◇"},
-		runtimeTraceProjMarkBackgroundStanza: {"▒", "▒"},
+		runtimeTraceProjMarkRootTarget:   {"🎯", "🎯"},
+		runtimeTraceProjMarkEdgeDrill:    {"下钻─", "drill─"},
+		runtimeTraceProjMarkEdgeWake:     {"唤醒─", "wakes─"},
+		runtimeTraceProjMarkEdgeCause:    {"成因─", "cause─"},
+		runtimeTraceProjMarkEdgeOwn:      {"自身─", "own─"},
+		runtimeTraceProjMarkSemanticSpan: {"✦", "✦"},
+		runtimeTraceProjMarkIconSleep:    {"☾", "☾"},
+		runtimeTraceProjMarkIconRunnable: {"⧖", "⧖"},
+		runtimeTraceProjMarkIconRunning:  {"⚙", "⚙"},
+		runtimeTraceProjMarkIconDState:   {"⛓", "⛓"},
+		// PTV4 T4: the two ◦ senses probe on their distinct inline words (the
+		// glyph itself is shared, so it cannot be a bidirectional probe).
+		runtimeTraceProjMarkIconTransit:    {"中转", "transit"},
+		runtimeTraceProjMarkIconNoDominant: {"无主导态", "no dominant state"},
+		runtimeTraceProjMarkBadge:          {"❶", "❶"},
+		runtimeTraceProjMarkStateLabel:     {"", ""},
+		runtimeTraceProjMarkUndrillable:    {"⊘", "⊘"},
+		runtimeTraceProjMarkCrossWindow:    {"⚠实际", "⚠actual"},
+		runtimeTraceProjMarkRecursOnChain:  {"↺", "↺"},
+		runtimeTraceProjMarkChainDepthChip: {"链上L", "chain L"},
+		runtimeTraceProjMarkOmitted:        {"省略", "nodes omitted"},
+		// 复核 (三空探针补实, fence→legend 设防): the bar-scale probe is the
+		// chain-lane bar glyph — every fixture that marks BarScale draws at
+		// least one █ cell (a background-only fence would use ▒; no such
+		// fixture exists — extend the probe alongside adding one). A full bar
+		// has no ░, so █ is the stable token, not ░.
+		runtimeTraceProjMarkBarScale: {"█", "█"},
+		// ×N 三式: the sum form's "×N(" prefix also opens the max form, so the
+		// sum probe is the ptv4 fixture's VERBATIM sum token (language-neutral
+		// by design) — deleting the sum-tag emission now reds this probe
+		// instead of staying green (复核给定的突变形态).
+		runtimeTraceProjMarkMergedSum:            {"×3(10.000–30.000ms)", "×3(10.000–30.000ms)"},
+		runtimeTraceProjMarkMergedDedup:          {"同值", "same-value"},
+		runtimeTraceProjMarkMergedMax:            {"取最大", ") max"},
+		runtimeTraceProjMarkOverWindowShare:      {"250%", "250%"},
+		runtimeTraceProjMarkWholeWindowIdle:      {"整窗等待", "whole-window wait"},
+		runtimeTraceProjMarkInheritedAttribution: {"承自归因", "inherited attribution"},
+		runtimeTraceProjMarkIOCaliberNote:        {"同段IO另有", "same-segment IO also measured"},
+		runtimeTraceProjMarkPeriodicSource:       {"周期性信号源", "periodic signal source"},
+		runtimeTraceProjMarkAdjacentStanza:       {"◇", "◇"},
+		runtimeTraceProjMarkBackgroundStanza:     {"▒", "▒"},
+	}
+}
+
+// revisit76PTV4BadgeMergeProjection (PTV4) exercises the T4/T6/T9 marks the
+// older shapes never emitted: ❶❷❸ badges (typed Rank + effective attribution),
+// the 链上L# chip, the ×N 三式 (sum / dedup / cross-thread max), the >100%
+// over-window share, the whole-window idle row and the inherited-attribution
+// note.
+func revisit76PTV4BadgeMergeProjection() types.TraceCausalProjection {
+	chain := types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "ptv4-rank1",
+		Subject: "worker-9", Object: "runnable_wait", StateKind: "runnable",
+		ChainRelevance: "on_chain", ChainDepth: 1, Rank: 1,
+		ImpactMS: 60.0, CumulativeImpactMS: 60.0, EffectiveImpactMS: 60.0,
+		MergedCount: 3, MergedMinMS: 10.0, MergedMaxMS: 30.0,
+		Confidence: 0.8,
+	}
+	dedup := types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "ptv4-rank2",
+		Subject: "worker-9", Object: "io_latency",
+		ChainRelevance: "on_chain", Rank: 2,
+		ImpactMS: 35.0, CumulativeImpactMS: 3.0, EffectiveImpactMS: 40.0,
+		DuplicatePublications: 2,
+		Confidence:            0.8,
+	}
+	idle := types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "ptv4-idle",
+		Subject: "idler-4", Object: "sleep_wait", StateKind: "s_sleep",
+		ChainRelevance: "background", ImpactMS: 99.8, Confidence: 0.8,
+	}
+	over := types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "ptv4-over",
+		Subject: "irq/151-dpu", Object: "irq_burst",
+		ChainRelevance: "background", ImpactMS: 250.0, Confidence: 0.8,
+	}
+	maxFold := types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "ptv4-maxfold",
+		Object: "unknown-thread", ChainRelevance: "background",
+		ImpactMS: 42.0, CumulativeImpactMS: 42.0,
+		MergedCount: 4, MergedMinMS: 12.0, MergedMaxMS: 42.0,
+		MergedSubjects: []string{"bd-1", "bd-2"},
+		Confidence:     0.8,
+	}
+	return types.TraceCausalProjection{
+		WakeupPath:        []string{"worker-9", "app-100"},
+		WindowStartTs:     100.0,
+		WindowEndTs:       100.1,
+		PrimaryRootCauses: []types.TraceCausalProjectionNode{chain, dedup},
+		BackgroundCauses:  []types.TraceCausalProjectionNode{idle, over, maxFold},
 	}
 }
 
@@ -696,6 +755,9 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		{"berlin_cause_adjacent_background", revisit76BerlinLayersProjection()},
 		// VS-1: the periodic-source cadence tag and its legend entry.
 		{"berlin_periodic_source", revisit76PeriodicProjection()},
+		// PTV4: badges, 链上L# chip, ×N 三式, over-window share, whole-window
+		// idle, inherited attribution.
+		{"ptv4_badges_merges", revisit76PTV4BadgeMergeProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

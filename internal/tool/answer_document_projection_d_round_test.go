@@ -90,13 +90,10 @@ func TestTraceProjectionD2TypeLabelsThreeTierFidelityZH(t *testing.T) {
 	if !strings.Contains(md, "dep-200 · 优先级反转候选") {
 		t.Fatalf("D2 tree row must show the concise zh label:\n%s", md)
 	}
-	// D2: the detail table keeps the raw tokens in the 类型 column.
-	if !strings.Contains(md, "| 类型 |") {
-		t.Fatalf("detail table must carry the 类型 column:\n%s", md)
-	}
-	for _, want := range []string{"| priority_inversion_candidate |", "| io_latency |", "io-500 / IO延迟"} {
+	// D2 (PTV4 T10): the raw tokens live on the (b) vertical blocks' 类型 line.
+	for _, want := range []string{"- 类型: priority_inversion_candidate", "- 类型: io_latency", "io-500 / IO延迟"} {
 		if !strings.Contains(md, want) {
-			t.Fatalf("D2 detail table missing raw token cell %q:\n%s", want, md)
+			t.Fatalf("D2 detail blocks missing raw token %q:\n%s", want, md)
 		}
 	}
 }
@@ -110,8 +107,7 @@ func TestTraceProjectionD2TypeLabelsKeepRawTokensEN(t *testing.T) {
 	for _, want := range []string{
 		"**Primary root cause:** dep-200 priority_inversion_candidate",
 		"dep-200 · priority_inversion_can…",
-		"| Type |",
-		"| priority_inversion_candidate |",
+		"- type: priority_inversion_candidate",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("EN D2 rendering missing %q:\n%s", want, md)

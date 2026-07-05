@@ -6,12 +6,13 @@ package tool
 // fonts render CJK at ≈1.6-1.8× and emoji at unstable widths, and several
 // viewers pre-wrap long lines. Adjudication: NO per-surface second content
 // render (v3 three-surface byte-identity red line); instead
-//   1. row display width hard-capped at 100 cells (单行完整性优先) — enforced
-//      by the B4 drop lane + the NEW-10 keep-truncation lane. F-2 (§7.7
-//      回访聚焦复核 2026-07-04): over-wide NoTruncate carriers (the NEW-3
-//      caliber note / D3 composition split) no longer overflow the row — they
-//      wrap byte-identically onto prefix-aligned ↳ continuation lines, so
-//      EVERY fence line holds the cap;
+//   1. row display width hard-capped at 100 cells (单行完整性优先) — since
+//      PTV4 T1 (#65) enforced by the essentials/subordinate split: a row
+//      whose full tag set fits stays one line; otherwise the main line keeps
+//      only the essentials (label + bar + ms + % + ⚠/⊘/[E#] marks) and every
+//      other tag demotes WHOLE onto "· " subordinate detail lines
+//      (byte-lossless wrap; the former B4 drop lane / keep-truncation lane /
+//      ↳ continuation lane are retired), so EVERY fence line holds the cap;
 //   2. 记号区规整 — every rendered node row carries EXACTLY one state glyph
 //      (typed StateKind switch, ◦ default), so same-depth rows keep a constant
 //      glyph count and web font drift collapses to a constant offset;
@@ -48,6 +49,7 @@ func new10Fixtures() []new10Fixture {
 		{"revisit_7_0_rich_chain", revisit76RichChainProjection()},
 		{"flat_undrillable", revisit76FlatUndrillableProjection()},
 		{"berlin_cause_adjacent_background", revisit76BerlinLayersProjection()},
+		{"ptv4_badges_merges", revisit76PTV4BadgeMergeProjection()},
 	}
 }
 
@@ -82,7 +84,7 @@ func TestTraceProjectionNew10WidthConstantsPinned(t *testing.T) {
 // CJK-drift exposure) remains the single exemption.
 func TestTraceProjectionNew10FenceLineWidthCap(t *testing.T) {
 	squash := func(s string) string {
-		return strings.NewReplacer("\n", "", "│", "", "↳", "", " ", "").Replace(s)
+		return strings.NewReplacer("\n", "", "│", "", "↳", "", "·", "", " ", "").Replace(s)
 	}
 	fixtures := new10Fixtures()
 	for _, fx := range fixtures {
@@ -132,9 +134,9 @@ func TestTraceProjectionNew10CaliberNoteWrapsToContinuationLine(t *testing.T) {
 	for _, zh := range []bool{true, false} {
 		model := buildRuntimeTraceProjTreeModel(revisit76IOProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
 		fence := runtimeTraceProjTreeFence(model, zh)
-		marker := "↳ 同段IO另有"
+		marker := "· 同段IO另有"
 		if !zh {
-			marker = "↳ same-segment IO also measured"
+			marker = "· same-segment IO also measured"
 		}
 		if !strings.Contains(fence, marker) {
 			t.Fatalf("zh=%v: over-wide caliber note must move to a ↳ continuation line:\n%s", zh, fence)
@@ -153,33 +155,74 @@ func TestTraceProjectionNew10CaliberNoteWrapsToContinuationLine(t *testing.T) {
 	}
 }
 
-// TestTraceProjectionNoteContinuationLinesIntegrity is the F-2 wrap-helper
-// unit pin: every produced line holds the row cap, the first line carries the
-// "↳ " marker, later lines align under it, and the chunk concatenation is
-// byte-identical to the input (wrap only — never truncation).
+// TestTraceProjectionNoteContinuationLinesIntegrity is the wrap-helper unit
+// pin, PTV4 T1/T3 form (updated from the F-2 ↳ lane — assertion strength only
+// grew): every produced line holds the row cap, the first line carries the
+// "· " subordinate marker, later lines align under it, NO non-space content
+// is ever lost (the boundary wrap may only consume break separators), and —
+// NEW (T3) — multi-character tokens like "112.011/107.672ms" are never split
+// across lines.
 func TestTraceProjectionNoteContinuationLinesIntegrity(t *testing.T) {
 	note := strings.Repeat("同段IO另有 io_burst_episode 226.153ms、io_wait 112.011/107.672ms 口径;", 3) + "证据 E2、E3、E4"
 	indent := "│   │ "
-	lines := runtimeTraceProjNoteContinuationLines(indent, note)
+	lines := runtimeTraceProjSubordinateLines(indent, note)
 	if len(lines) < 2 {
-		t.Fatalf("a %d-cell note must wrap across multiple continuation lines: %q", runewidth.StringWidth(note), lines)
+		t.Fatalf("a %d-cell note must wrap across multiple subordinate lines: %q", runewidth.StringWidth(note), lines)
 	}
 	var joined strings.Builder
 	for i, line := range lines {
 		if w := runewidth.StringWidth(line); w > runtimeTraceProjTreeRowMaxWidth {
-			t.Fatalf("continuation line %d over the row cap (%d cells): %q", i, w, line)
+			t.Fatalf("subordinate line %d over the row cap (%d cells): %q", i, w, line)
 		}
 		prefix := indent + "  "
 		if i == 0 {
-			prefix = indent + "↳ "
+			prefix = indent + "· "
 		}
 		if !strings.HasPrefix(line, prefix) {
-			t.Fatalf("continuation line %d must carry the aligned prefix %q: %q", i, prefix, line)
+			t.Fatalf("subordinate line %d must carry the aligned prefix %q: %q", i, prefix, line)
 		}
 		joined.WriteString(strings.TrimPrefix(line, prefix))
 	}
+	// Byte-identity survives the new wrap form (wrap only — never loss).
 	if joined.String() != note {
-		t.Fatalf("continuation chunks must concatenate byte-identically to the note:\nwant: %s\ngot:  %s", note, joined.String())
+		t.Fatalf("subordinate chunks must concatenate byte-identically to the note:\nwant: %s\ngot:  %s", note, joined.String())
+	}
+	// T3 token integrity: every ms token appears INTACT on a single line.
+	for _, token := range []string{"226.153ms", "112.011/107.672ms", "io_burst_episode"} {
+		found := false
+		for _, line := range lines {
+			if strings.Contains(line, token) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("T3: token %q was split across subordinate lines:\n%s", token, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+// TestTraceProjectionWrapDisplayNeverSplitsNumericToken is the PTV4 T3
+// mutation pin on the S1 digit-cut shape (the customer render broke
+// "14.597ms" into "14" + ".597ms" across lines): at EVERY width the
+// boundary-aware wrapper keeps the token whole — an over-wide token moves to
+// its own line instead of splitting.
+func TestTraceProjectionWrapDisplayNeverSplitsNumericToken(t *testing.T) {
+	text := "窗内 runnable 合计 20.342ms(top_runnable),链上仅覆盖 top 片段 14.597ms(72%)"
+	for width := 12; width <= 90; width++ {
+		chunks := runtimeTraceProjWrapDisplay(text, width)
+		foundToken := false
+		for _, chunk := range chunks {
+			if runewidth.StringWidth(chunk) > width {
+				t.Fatalf("width %d: chunk over budget: %q", width, chunk)
+			}
+			if strings.Contains(chunk, "14.597ms") {
+				foundToken = true
+			}
+		}
+		if !foundToken {
+			t.Fatalf("width %d: token 14.597ms split across chunks: %q", width, chunks)
+		}
 	}
 }
 
@@ -253,7 +296,10 @@ func TestTraceProjectionNew10LabelColumnCapDeepChainLongCJKNames(t *testing.T) {
 // fails the set-membership check and forces extending this pin). Omitted fold
 // markers are exempt by design — they are chain summaries, not node rows.
 func TestTraceProjectionNew10EveryRowCarriesExactlyOneStateGlyph(t *testing.T) {
-	glyphs := []string{"✦", "💤", "⚙", "⏳", "⛓", "◦"}
+	// PTV4 T5 glyph set (☾/⧖ replaced the 2-cell 💤/⏳); the ❶❷❸ badges are
+	// deliberately NOT in this set — the one-state-glyph invariant counts
+	// state icons only (T6: badge is an independent token).
+	glyphs := []string{"✦", "☾", "⚙", "⧖", "⛓", "◦"}
 	countGlyphs := func(line string) int {
 		total := 0
 		for _, g := range glyphs {
@@ -284,7 +330,7 @@ func TestTraceProjectionNew10EveryRowCarriesExactlyOneStateGlyph(t *testing.T) {
 				}
 			}
 			expectIcon := func(row runtimeTraceProjTreeRow) string {
-				icon := runtimeTraceProjStateIcon(row.Node, row.Kind, nil)
+				icon := runtimeTraceProjStateIcon(row.Node, row.Kind, row.HasData, nil)
 				member := false
 				for _, g := range glyphs {
 					if icon == g {
@@ -303,7 +349,7 @@ func TestTraceProjectionNew10EveryRowCarriesExactlyOneStateGlyph(t *testing.T) {
 				check("tree", runtimeTraceProjTreeRowLine(row, width, denom, windowMode, zh), expectIcon(row))
 			}
 			for _, row := range model.SelfRows {
-				check("self", runtimeTraceProjSelfRowText(row, zh), expectIcon(row))
+				check("self", strings.Join(runtimeTraceProjSelfRowLines(row, zh), "\n"), expectIcon(row))
 			}
 			for _, row := range model.Adjacent {
 				check("adjacent", runtimeTraceProjStanzaRowLine(row, width, denom, windowMode, zh), expectIcon(row))
