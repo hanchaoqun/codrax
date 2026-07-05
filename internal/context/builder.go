@@ -2653,13 +2653,16 @@ func finalizerUsesTypedAnswerSupport(ac *types.AgentContext) bool {
 // full log body to under `<WorkDir>/` when the attached log exceeds
 // the inline cap. Kept public so the read_file tool can recognise it
 // as a blob-backed attachment (avoids a repo path check false-positive).
-const AttachedLogBlobName = "attached_log.txt"
+// Spelling authority lives in types (ReservedRuntimeArtifactBlobBasenames)
+// so path-kind detection and the typed citation spelling set can never
+// drift from the writer (CPD #58).
+const AttachedLogBlobName = types.AttachedLogBlobBasename
 
 // AttachedTraceBlobName is the perf-trace companion to
 // AttachedLogBlobName. Kept distinct so a run carrying both a panic
 // log and a performance trace cannot overwrite one attachment blob
 // with the other inside the shared WorkDir.
-const AttachedTraceBlobName = "attached_trace.txt"
+const AttachedTraceBlobName = types.AttachedTraceBlobBasename
 
 // renderBugClassesSection produces the LLM-facing canonical-pattern
 // block for the log_triage / perf_triage prompt section.

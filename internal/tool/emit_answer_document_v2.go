@@ -728,7 +728,7 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeClaimUseEvidenceIDsByProjection", fixed)
 		logging.Warning("[%s] detached %d incompatible claim_use evidence_id value(s) from citation-backed blocks", toolName, fixed)
 	}
-	if fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx); fixed > 0 {
+	if fixed := normalizeRuntimeArtifactCitationRefsWithContext(doc, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeRuntimeArtifactCitationRefs", fixed)
 		logging.Warning("[%s] normalized %d runtime-artifact citation carrier(s) to observation provenance", toolName, fixed)
 	}
@@ -786,12 +786,28 @@ func materializeDetachedCitationRefCaveats(doc *types.AnswerDocumentV2, ctx *typ
 	if doc == nil || len(records) == 0 {
 		return
 	}
+	// Kind partitions select the wording lane only; disposal and presence
+	// share the same typed records for every lane (QCE GAP-A red line).
+	// Legacy (unverifiable-source) wording is byte-stable; the
+	// runtime_artifact lane (CPD #58) states the true reason — the
+	// reference was runtime provenance, never a repo source anchor.
 	kept, removed := 0, 0
+	artifactKept, artifactRemoved := 0, 0
 	for _, rec := range records {
-		if detachedCitationItemStillVisible(doc, rec) {
-			kept++
-		} else {
-			removed++
+		visible := detachedCitationItemStillVisible(doc, rec)
+		switch rec.Kind {
+		case types.DetachedCitationKindRuntimeArtifact:
+			if visible {
+				artifactKept++
+			} else {
+				artifactRemoved++
+			}
+		default:
+			if visible {
+				kept++
+			} else {
+				removed++
+			}
 		}
 	}
 	zh := principalEnumerationPrefersZH(ctx)
@@ -807,6 +823,20 @@ func materializeDetachedCitationRefCaveats(doc *types.AnswerDocumentV2, ctx *typ
 			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d 处条目的来源引用无法对应到任何已验证来源，且条目未通过结构化答案校验，条目已连同内容一并移除。", removed))
 		} else {
 			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d item(s) whose source reference could not be matched to a verified source also failed structured answer validation and were removed together with their content.", removed))
+		}
+	}
+	if artifactKept > 0 {
+		if zh {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d 处条目的引用指向附件运行时材料（运行时观测出处，非当前仓库源码引用），已移除该引用（条目内容保留）。", artifactKept))
+		} else {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d item reference(s) pointed at the attached runtime artifact (runtime observation provenance, not a current-repository source citation) and were removed (item text kept).", artifactKept))
+		}
+	}
+	if artifactRemoved > 0 {
+		if zh {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d 处条目的引用指向附件运行时材料（非当前仓库源码引用），且条目未通过结构化答案校验，条目已连同内容一并移除。", artifactRemoved))
+		} else {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d item(s) whose reference pointed at the attached runtime artifact (not a current-repository source citation) also failed structured answer validation and were removed together with their content.", artifactRemoved))
 		}
 	}
 }

@@ -119,6 +119,32 @@ func IsRuntimeArtifactPathExtension(ext string) bool {
 	return runtimeArtifactPathExtensions[strings.ToLower(ext)]
 }
 
+// Reserved blob-materialization basenames Codrax itself writes for attached
+// runtime artifacts (context.AttachedLogBlobName / AttachedTraceBlobName and
+// the trace-lane companions). They are SYSTEM-RESERVED spellings, not user
+// prose: a citation/path naming one of them is a runtime artifact by
+// construction. Single authority for every consumer — the path-kind switch
+// below, the carve suffix list, and the typed citation spelling set in
+// internal/tool (CPD #58: the tool-side set used to miss these, so blob-path
+// pseudo-citations evaded the typed artifact lane).
+const (
+	AttachedLogBlobBasename     = "attached_log.txt"
+	AttachedTraceBlobBasename   = "attached_trace.txt"
+	AttachedHitraceBlobBasename = "attached_hitrace.txt"
+	AttachedAtraceBlobBasename  = "attached_atrace.txt"
+)
+
+// ReservedRuntimeArtifactBlobBasenames returns the reserved blob basenames
+// above. Callers must treat the result as read-only.
+func ReservedRuntimeArtifactBlobBasenames() []string {
+	return []string{
+		AttachedLogBlobBasename,
+		AttachedTraceBlobBasename,
+		AttachedHitraceBlobBasename,
+		AttachedAtraceBlobBasename,
+	}
+}
+
 // RuntimeArtifactPathKind reports the coarse artifact family for a log/trace
 // runtime artifact path. It is path-shape only; it must not be used to infer
 // user intent from prose.
@@ -132,9 +158,9 @@ func RuntimeArtifactPathKind(s string) string {
 		base = base[idx+1:]
 	}
 	switch base {
-	case "attached_log.txt":
+	case AttachedLogBlobBasename:
 		return "log"
-	case "attached_trace.txt", "attached_hitrace.txt", "attached_atrace.txt":
+	case AttachedTraceBlobBasename, AttachedHitraceBlobBasename, AttachedAtraceBlobBasename:
 		return "trace"
 	}
 	if base == "perf.data" || strings.HasSuffix(lower, ".perf.data") {
@@ -329,8 +355,9 @@ func asciiLowerPreservingLength(s string) string {
 func runtimeArtifactCarveSuffixes() []string {
 	out := []string{
 		".log", ".perf.data", ".tracebundle.json",
-		"perf.data", "attached_log.txt", "attached_trace.txt", "attached_hitrace.txt", "attached_atrace.txt",
+		"perf.data",
 	}
+	out = append(out, ReservedRuntimeArtifactBlobBasenames()...)
 	for ext := range runtimeArtifactPathExtensions {
 		out = append(out, ext)
 	}

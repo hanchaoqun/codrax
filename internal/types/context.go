@@ -5403,6 +5403,26 @@ func (m *MutableState) SetInvestigationAggregateFacts(facts []AnswerAggregateFac
 	m.bumpAnswerSurfaceRevisionLocked()
 }
 
+// DetachedCitationDisclosureKind is the typed REASON lane for a detached
+// citation record. It selects the disclosure wording at the persist
+// chokepoint; it never changes the disposal itself. Internal carrier only —
+// not an LLM-facing schema field (no R2' surface).
+type DetachedCitationDisclosureKind string
+
+const (
+	// DetachedCitationKindUnverifiableSource is the zero value: the
+	// citation could not be matched to any verified source (QCE §7.13
+	// legacy lane; wording unchanged).
+	DetachedCitationKindUnverifiableSource DetachedCitationDisclosureKind = ""
+	// DetachedCitationKindRuntimeArtifact marks a citation whose file
+	// named an attached runtime artifact (typed spelling / reserved blob
+	// basename / artifact path shape): runtime provenance, not
+	// current-repository source. Disclosed with artifact wording so the
+	// user is never told a real source anchor "could not be verified"
+	// when it was in fact a trace/log coordinate (CPD #58).
+	DetachedCitationKindRuntimeArtifact DetachedCitationDisclosureKind = "runtime_artifact"
+)
+
 // DetachedCitationDisclosure identifies one answer item whose
 // citation_ref was detached by the pre-emit normalize chain, so the
 // persist chokepoint can disclose what ACTUALLY happened to the item
@@ -5412,6 +5432,7 @@ type DetachedCitationDisclosure struct {
 	BlockID string
 	ItemID  string
 	Label   string
+	Kind    DetachedCitationDisclosureKind
 }
 
 // SetPendingDetachedCitationDisclosures records (replace semantics) the

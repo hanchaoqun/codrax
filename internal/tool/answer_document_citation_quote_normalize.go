@@ -198,6 +198,19 @@ func runtimeArtifactCitationPathSet(ctx *types.BusContext) map[string]bool {
 	// to match; log-path citations are already covered by the size
 	// bound.
 	add(ctx.AttachedHitraceSource)
+	// CPD #58 (2026-07-05): the blob MATERIALIZATION spellings are typed
+	// too — Codrax itself writes the attachment body to
+	// `<WorkDir>/attached_trace.txt` (and companions), and models cite
+	// that path verbatim (donghu specimen: 4 citations naming
+	// `.codrax/blob/<session>/attached_trace.txt:<line>` rendered as a
+	// source bibliography). The basenames are SYSTEM-RESERVED
+	// (types.ReservedRuntimeArtifactBlobBasenames, single authority with
+	// the blob writer), so a basename match is a reservation match, not
+	// content sniffing. This aligns the typed spelling lane with the
+	// path-shape lane, which already recognized these names.
+	for _, reserved := range types.ReservedRuntimeArtifactBlobBasenames() {
+		add(reserved)
+	}
 	return out
 }
 

@@ -111,16 +111,26 @@ type preEmitCheckContext struct {
 
 // preEmitDetachedCitationItem identifies one item whose citation_ref was
 // detached, so end-of-chain disclosure can check whether the item is still
-// visible in the final document.
+// visible in the final document. kind selects the persist-time wording lane
+// (unverifiable-source vs runtime-artifact); it never changes disposal.
 type preEmitDetachedCitationItem struct {
 	blockID string
 	itemID  string
 	label   string
+	kind    types.DetachedCitationDisclosureKind
 }
 
 // recordDetachedCitationItem notes one detached item citation for the
-// persist-time disclosure caveat.
+// persist-time disclosure caveat (unverifiable-source wording lane).
 func (pctx *preEmitCheckContext) recordDetachedCitationItem(blockID, itemID, label string) {
+	pctx.recordDetachedCitationItemKind(blockID, itemID, label, types.DetachedCitationKindUnverifiableSource)
+}
+
+// recordDetachedCitationItemKind is the kind-aware recorder behind
+// recordDetachedCitationItem. ONE recorder feeds ONE ferry (QCE §7.13: no
+// second disclosure mechanism); the kind only picks the wording lane at the
+// persist chokepoint.
+func (pctx *preEmitCheckContext) recordDetachedCitationItemKind(blockID, itemID, label string, kind types.DetachedCitationDisclosureKind) {
 	if pctx == nil {
 		return
 	}
@@ -128,6 +138,7 @@ func (pctx *preEmitCheckContext) recordDetachedCitationItem(blockID, itemID, lab
 		blockID: blockID,
 		itemID:  itemID,
 		label:   strings.TrimSpace(label),
+		kind:    kind,
 	})
 }
 
@@ -143,6 +154,7 @@ func (pctx *preEmitCheckContext) detachedCitationDisclosures() []types.DetachedC
 			BlockID: rec.blockID,
 			ItemID:  rec.itemID,
 			Label:   rec.label,
+			Kind:    rec.kind,
 		})
 	}
 	return out

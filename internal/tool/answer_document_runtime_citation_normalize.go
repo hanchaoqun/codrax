@@ -34,6 +34,32 @@ func answerDocumentRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.BusCon
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
+	// CPD #58 (2026-07-05): typed USER boundary outranks the derived
+	// authority projection below. ExcludesCurrentSource is the precise
+	// explicit-user-exclusion enum ("不分析代码" + verbatim quotes); when it
+	// holds and a runtime artifact is in play, repo-source citations are
+	// semantically impossible for this run, so artifact pseudo-citation
+	// cleanup is always allowed. This is the same typed signal O-5 wired
+	// into the two current-source READ passes (quote normalize + metadata
+	// surface terms); the pool-cleanup gate was the missed third face: in
+	// the donghu specimen
+	// (trace_query_donghu_real_frame_multicausal-20260703-111818) an
+	// incidental current-source ledger record set CurrentSourceSatisfied
+	// in a typed-exclude run, KeepsCurrentSourceLaneLoadBearing vetoed
+	// cleanup, and 4 blob-path pseudo-citations rendered as a source
+	// bibliography.
+	//
+	// LAYERING NOTE: this arm is a DISPLAY-LAYER defense, not the root
+	// fix. The CurrentSourceSatisfied pollution itself (how a 不分析代码
+	// run acquired a current-source ledger record, and what else that
+	// flag's consumers mis-decide) is tracked separately as CSP #63
+	// (authority-lane attribution). Do not remove this arm when CSP
+	// lands: an explicit user boundary must keep outranking derived
+	// authority here regardless of how the ledger is repaired.
+	if ctx.AnalysisIR.RequestModel.ExternalObservationPolicy.ExcludesCurrentSource() &&
+		types.RuntimeArtifactContextActiveFromBus(ctx) {
+		return true
+	}
 	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
 	if runtimeSourceAuthorityAppliesToArtifactCitationCleanup(ctx, authority) {
 		return runtimeSourceAuthorityAllowsArtifactCitationCleanup(authority)
@@ -181,17 +207,36 @@ func answerEvidenceOriginIsExternalObservationSupport(origin types.AnswerEvidenc
 // The visible answer content is preserved; only citation_ref carriers that
 // pointed at the artifact-side coordinate are downgraded to -1.
 func normalizeRuntimeArtifactCitationRefs(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	return normalizeRuntimeArtifactCitationRefsWithContext(doc, ctx, nil)
+}
+
+// normalizeRuntimeArtifactCitationRefsWithContext is the chain-facing variant:
+// when pctx is present, every item whose citation_ref pointed at an
+// artifact-spelled pool entry being removed is recorded on the QCE §7.13
+// disclosure ferry (runtime_artifact wording lane), so the persist chokepoint
+// discloses the removal with wording driven by the item's FINAL presence —
+// deleted means disclosed, never silently (CPD #58).
+func normalizeRuntimeArtifactCitationRefsWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext, pctx *preEmitCheckContext) int {
 	if doc == nil || ctx == nil || len(doc.Citations) == 0 {
 		return 0
 	}
 	if answerDocumentRuntimeArtifactWithoutRequiredCurrentSource(ctx) {
+		// Artifact recognition = path shape ∪ typed attachment spelling
+		// (user spelling + reserved blob basenames) — the same two
+		// precise lanes the current-source read-skip guards consume, so
+		// a trace attached under a non-artifact-shaped name cannot slip
+		// past the pool cleanup while being skipped by the readers
+		// (CPD #58 lane alignment).
+		artifactSpellings := runtimeArtifactCitationPathSet(ctx)
 		remove := make(map[int]bool)
 		for i, cit := range doc.Citations {
-			if types.LooksLikeRuntimeArtifactPath(cit.File) {
+			if types.LooksLikeRuntimeArtifactPath(cit.File) ||
+				citationFileIsRuntimeArtifact(artifactSpellings, cit.File) {
 				remove[i] = true
 			}
 		}
 		if len(remove) > 0 {
+			recordRuntimeArtifactCitationDetachDisclosures(doc, ctx, remove, pctx)
 			return dropAnswerDocumentCitationsByIndex(doc, remove)
 		}
 	}
@@ -218,7 +263,51 @@ func normalizeRuntimeArtifactCitationRefs(doc *types.AnswerDocumentV2, ctx *type
 	if len(remove) == 0 {
 		return 0
 	}
+	recordRuntimeArtifactCitationDetachDisclosures(doc, ctx, remove, pctx)
 	return dropAnswerDocumentCitationsByIndex(doc, remove)
+}
+
+// recordRuntimeArtifactCitationDetachDisclosures records persist-time
+// disclosure identities for items whose citation_ref points at a pool entry
+// being removed AS a runtime-artifact reference. Bounds, stated honestly:
+//   - Only ARTIFACT-SPELLED entries ride the runtime_artifact wording lane.
+//     The crash-sourced remove-all branch can also drop non-artifact entries;
+//     those keep the pass's historical posture (no disclosure) because
+//     describing a repo file:line as "attached runtime artifact material"
+//     would be false wording.
+//   - Pool entries no visible item references are dropped without a
+//     disclosure record: the ferry's identity + wording model is item-based
+//     ("content kept" vs "item removed"), and an unreferenced entry has no
+//     item whose fate could be disclosed. Its only surface was the
+//     bibliography list itself, which the removal corrects.
+func recordRuntimeArtifactCitationDetachDisclosures(doc *types.AnswerDocumentV2, ctx *types.BusContext, remove map[int]bool, pctx *preEmitCheckContext) {
+	if pctx == nil || doc == nil || len(remove) == 0 {
+		return
+	}
+	artifactSpellings := runtimeArtifactCitationPathSet(ctx)
+	artifact := make(map[int]bool, len(remove))
+	for i := range remove {
+		if i < 0 || i >= len(doc.Citations) {
+			continue
+		}
+		file := doc.Citations[i].File
+		if types.LooksLikeRuntimeArtifactPath(file) ||
+			citationFileIsRuntimeArtifact(artifactSpellings, file) {
+			artifact[i] = true
+		}
+	}
+	if len(artifact) == 0 {
+		return
+	}
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			if item.CitationRef >= 0 && artifact[item.CitationRef] {
+				pctx.recordDetachedCitationItemKind(block.ID, item.ID, item.Label, types.DetachedCitationKindRuntimeArtifact)
+			}
+		}
+	}
 }
 
 // normalizeExternalObservationPseudoCitations removes non-positive line-shaped
