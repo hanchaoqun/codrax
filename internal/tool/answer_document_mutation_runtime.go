@@ -908,7 +908,7 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 			"- 「—」 = 该口径对此节点无值。",
 			"- ⊘ = 窗口内无匹配 sched_wakeup(missing_wakeup),下钻链止。",
 			"- ⚠ = 实际状态跨出投影窗口。",
-			"- 背景行仅作压力/环境证据,不自动等同 on-chain 主因。",
+			"- 背景行仅作压力/环境证据,不自动等同链上主因。",
 			"- 定性属性(类型/因果位置/关系/影响形态/×N 全 roster/完整名称)见下方按节点纵排的无损块。",
 		}
 		if !zh {
@@ -1585,14 +1585,14 @@ func runtimeTraceCausalProjectionCoverageReasonLabel(code string, zh bool) strin
 
 func runtimeTraceCausalProjectionCoverageText(reasons []string, zh bool) string {
 	if zh {
-		text := "本轮已获得 trace_query 的结构化执行记录,但没有产出可承重的 root_cause/wakeup_chain/semantic rows,因此未生成分层因果表。"
+		text := "本轮已获得 trace_query 的结构化执行记录,但没有产出有数据支撑的 root_cause/wakeup_chain/semantic 行,因此未生成分层因果表。"
 		if len(reasons) > 0 {
 			text += " 结构化原因: " + strings.Join(reasons, "；") + "。"
 		}
 		text += " 这不是“没有背景影响”的结论;只表示当前证据没有给出可审计的因果/背景统计,应按 trace_query 的有界参数继续补 root_cause_rank、window_stats 或 interaction_stats。"
 		return text
 	}
-	text := "This run has structured trace_query execution records, but no load-bearing root_cause/wakeup_chain/semantic rows were produced, so the layered causal table was not generated."
+	text := "This run has structured trace_query execution records, but no data-backed root_cause/wakeup_chain/semantic rows were produced, so the layered causal table was not generated."
 	if len(reasons) > 0 {
 		text += " Typed reason: " + strings.Join(reasons, "; ") + "."
 	}

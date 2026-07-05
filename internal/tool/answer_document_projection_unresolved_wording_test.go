@@ -144,7 +144,7 @@ func TestTraceProjectionLegendsRenderAsItemLists(t *testing.T) {
 		"- `🎯` = 树根:本次分析锚定的关注线程。",
 		"- `☾` = 睡眠等待;症状非根因,其唤醒子行即下钻结果。",
 		"口径:\n- 窗口投影 = 节点在用户窗口内的投影影响。",
-		"- 背景行仅作压力/环境证据,不自动等同 on-chain 主因。",
+		"- 背景行仅作压力/环境证据,不自动等同链上主因。",
 	} {
 		if !strings.Contains(zhMD, want) {
 			t.Fatalf("zh legend must itemize (%q missing):\n%s", want, zhMD)

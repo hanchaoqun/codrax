@@ -3211,10 +3211,25 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 		sections = append(sections, strings.Join(lines, "\n"))
 	}
 	if len(model.Background) == 0 {
-		if zh {
-			sections = append(sections, "背景层: 当前结构化 trace_query 结果没有产出可承重的 off-chain/background 行;这不等于背景没有影响,只表示本轮证据没有给出可审计的背景统计。")
-		} else {
-			sections = append(sections, "Background layer: the structured trace_query result did not produce load-bearing off-chain/background rows. This does not prove there was no background influence; it only means this run lacks auditable background statistics.")
+		// 两态拆分 (2026-07-05, specimen real_trace_e1_dual_window_normalized-
+		// 20260705-212408): "the background-statistics view never ran" and "the
+		// view ran but its background bucket came back empty" are different
+		// facts — folded into one sentence, every no-background render read
+		// like the same data gap. The split keys on the typed
+		// RootCauseFamilyObserved compile flag (exact root_cause_ prefix),
+		// never on prose. Wording stays jargon-free on both branches (去行话:
+		// no 可承重 / off-chain in the lead).
+		switch {
+		case !projection.RootCauseFamilyObserved:
+			if zh {
+				sections = append(sections, "背景层: 本轮未运行产出背景统计的视图(root_cause_rank / wakeup_chain),背景层无数据;如需背景压力证据,可继续 trace_query view=root_cause_rank。")
+			} else {
+				sections = append(sections, "Background layer: no background-statistics view (root_cause_rank / wakeup_chain) ran this round, so this layer has no data. For background-pressure evidence, continue with trace_query view=root_cause_rank.")
+			}
+		case zh:
+			sections = append(sections, "背景层: 背景统计视图已运行,但没有产出有数据支撑的背景/环境压力证据;这不等于背景没有影响,只表示本轮证据没有给出可审计的背景统计。")
+		default:
+			sections = append(sections, "Background layer: the background-statistics view ran, but produced no data-backed background/context pressure evidence. This does not prove there was no background influence; it only means this run lacks auditable background statistics.")
 		}
 	}
 	return strings.Join(sections, "\n\n")

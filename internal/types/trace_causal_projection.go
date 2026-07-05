@@ -41,6 +41,17 @@ type TraceCausalProjection struct {
 	// run this round" from "the sleep interval had no sched_wakeup record"
 	// (missing_wakeup) when the wakeup path is empty.
 	WakeupChainRecommendedNotRun bool `json:"wakeup_chain_recommended_not_run,omitempty"`
+	// RootCauseFamilyObserved is true when this run's ledger contains at least
+	// one root_cause_-family observation (exact "root_cause_" prefix on the
+	// typed Predicate/ClaimKey — the SAME membership check the classification
+	// switch uses via traceCausalProjectionIsRootCauseContext). 两态拆分
+	// (2026-07-05, specimen real_trace_e1_dual_window_normalized-20260705-212408):
+	// renderers key the empty-background-layer explanation on this flag to
+	// separate "the background-statistics view never ran this round" (false —
+	// the layer simply has no data yet) from "the view ran but its background
+	// bucket came back empty" (true — absence of background rows is itself an
+	// auditable outcome). Precise typed signal only; never derived from prose.
+	RootCauseFamilyObserved bool `json:"root_cause_family_observed,omitempty"`
 	// WindowStartTs/WindowEndTs is the user's originally-requested analysis
 	// window (seconds), sourced from the same precise frame_target_resolution
 	// anchor that feeds WithinRequestedWindow (window_source=query_window or the
@@ -371,6 +382,7 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	var wakeupEdges []traceCausalProjectionWakeupEdge
 	chainRequiredRecommended := false
 	wakeupChainObserved := false
+	rootCauseFamilyObserved := false
 	capacityTruncated := false
 	occupiersBySubject := map[string]string{}
 	fullWindowStates := map[string]traceCausalProjectionFullWindowState{}
@@ -421,6 +433,14 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 			if strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainRequired)) == "true" {
 				chainRequiredRecommended = true
 			}
+		}
+		// 两态拆分 typed input (2026-07-05, 复用裁定3 模式): any root_cause_-family
+		// observation (exact "root_cause_" prefix — the SAME membership check the
+		// classification switch below uses) proves the background-statistics view
+		// actually ran this round. Renderers split the empty-background-layer
+		// explanation on the resulting RootCauseFamilyObserved flag.
+		if traceCausalProjectionIsRootCauseContext(record) {
+			rootCauseFamilyObserved = true
 		}
 		if edge, ok := traceCausalProjectionWakeupEdgeFromRecord(record); ok {
 			wakeupEdges = append(wakeupEdges, edge)
@@ -473,6 +493,7 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		WakeupPath:                   wakeupPath,
 		SupportingHops:               hops,
 		WakeupChainRecommendedNotRun: chainRequiredRecommended && !wakeupChainObserved,
+		RootCauseFamilyObserved:      rootCauseFamilyObserved,
 		CapacityTruncated:            capacityTruncated,
 	}
 	// Presentation v3 §6: deterministic pre-render aggregation (strict tolerance).

@@ -980,10 +980,14 @@ func TestApplyAndPersistMutation_TraceCausalProjectionCoverageBoundaryWhenGuarde
 	if coverage == nil || coverage.Kind != types.BlockCaveat {
 		t.Fatalf("guarded trace_query without causal rows should render coverage caveat: %+v", got.Blocks)
 	}
-	for _, want := range []string{"未生成分层因果表", "heavy view", "不是“没有背景影响”的结论"} {
+	for _, want := range []string{"未生成分层因果表", "没有产出有数据支撑的", "heavy view", "不是“没有背景影响”的结论"} {
 		if !strings.Contains(coverage.Text, want) {
 			t.Fatalf("coverage caveat missing %q:\n%s", want, coverage.Text)
 		}
+	}
+	// 去行话负向 pin (2026-07-05): the retired jargon must not return.
+	if strings.Contains(coverage.Text, "可承重") {
+		t.Fatalf("coverage caveat must not use retired jargon 可承重:\n%s", coverage.Text)
 	}
 }
 
@@ -1027,8 +1031,23 @@ func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePre
 		t.Fatalf("missing v3 projection lead block: %+v", got.Blocks)
 	}
 	text := projectionClusterText(got.Blocks)
-	if !strings.Contains(projection.Text, "没有产出可承重的 off-chain/background 行") {
-		t.Fatalf("projection lead should explain missing background statistics:\n%s", projection.Text)
+	// 两态拆分 (2026-07-05): this fixture HAS a root_cause_-family observation,
+	// so the empty background layer must render the ran-but-empty sentence
+	// (view ran, bucket came back empty — absence of background rows is itself
+	// an auditable outcome, not a data gap).
+	if !strings.Contains(projection.Text, "背景层: 背景统计视图已运行,但没有产出有数据支撑的背景/环境压力证据;这不等于背景没有影响,只表示本轮证据没有给出可审计的背景统计。") {
+		t.Fatalf("projection lead should explain the ran-but-empty background state:\n%s", projection.Text)
+	}
+	// Mutation pin: folding the two states back into one sentence must fail —
+	// the view-not-run wording may never co-render with root_cause rows present.
+	if strings.Contains(projection.Text, "未运行产出背景统计的视图") {
+		t.Fatalf("ran-but-empty state must not render the view-not-run wording:\n%s", projection.Text)
+	}
+	// 去行话负向 pin: retired jargon must not return to the lead/fence.
+	for _, banned := range []string{"可承重", "off-chain"} {
+		if strings.Contains(projection.Text, banned) {
+			t.Fatalf("retired jargon %q must not render in the projection lead/fence:\n%s", banned, projection.Text)
+		}
 	}
 	// No wakeup path in this fixture → the flat-layer fallback header renders
 	// instead of an invented 🎯 anchor.
@@ -1062,6 +1081,62 @@ func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePre
 	// while the detail row keeps the subject/cause split readable.
 	if !strings.Contains(projection.Text, "…") {
 		t.Fatalf("long node should be compacted in the tree label: %s", projection.Text)
+	}
+}
+
+// 两态拆分 (2026-07-05, specimen real_trace_e1_dual_window_normalized-20260705-
+// 212408): an Active projection with NO root_cause_-family observation at all
+// (the background-statistics view never ran this round) renders the
+// view-not-run background sentence — never the ran-but-empty one, and never
+// the retired jargon. Companion to the ran-but-empty pin in
+// TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePresentation:
+// together they make any fold back into a single sentence fail.
+func TestApplyAndPersistMutation_TraceCausalProjectionBackgroundViewNotRunTwoState(t *testing.T) {
+	obs := func() []types.ObservationRecord {
+		return []types.ObservationRecord{
+			projV3Obs("cb-span", "critical_blocking", "critical_blocking:blocking_span",
+				"LockHolder-11", "AssetsUtil_Operate_0-42067", "112.223", 112.223, 45696, 45696,
+				"type=blocking_span", "chain_relevance=on_chain", "causality=on_wakeup_chain"),
+		}
+	}
+	run := func(t *testing.T, lang string) *types.AnswerBlock {
+		t.Helper()
+		bus := audit730Bus(lang)
+		bus.ToolResults = []types.ToolResult{{ToolName: "trace_query", Success: true, Observations: obs()}}
+		doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "observed."},
+		}}
+		res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+		if err != nil || !res.Success {
+			t.Fatalf("apply: %v %s", err, res.Summary)
+		}
+		projection := projectionClusterBlock(bus.Mutable.AnswerDocumentV2().Blocks, "runtime_trace_causal_projection")
+		if projection == nil {
+			t.Fatalf("missing v3 projection lead block")
+		}
+		return projection
+	}
+
+	zhProjection := run(t, "")
+	if !strings.Contains(zhProjection.Text, "背景层: 本轮未运行产出背景统计的视图(root_cause_rank / wakeup_chain),背景层无数据;如需背景压力证据,可继续 trace_query view=root_cause_rank。") {
+		t.Fatalf("no-root_cause run must render the view-not-run background sentence:\n%s", zhProjection.Text)
+	}
+	// Mutation pin: the ran-but-empty wording must not co-render — the two
+	// states may never fold back into one sentence.
+	for _, banned := range []string{"背景统计视图已运行", "不等于背景没有影响", "可承重", "off-chain"} {
+		if strings.Contains(zhProjection.Text, banned) {
+			t.Fatalf("view-not-run state must not render %q:\n%s", banned, zhProjection.Text)
+		}
+	}
+
+	enProjection := run(t, "en")
+	if !strings.Contains(enProjection.Text, "Background layer: no background-statistics view (root_cause_rank / wakeup_chain) ran this round, so this layer has no data. For background-pressure evidence, continue with trace_query view=root_cause_rank.") {
+		t.Fatalf("EN no-root_cause run must render the view-not-run background sentence:\n%s", enProjection.Text)
+	}
+	for _, banned := range []string{"the background-statistics view ran", "background influence", "load-bearing", "off-chain"} {
+		if strings.Contains(enProjection.Text, banned) {
+			t.Fatalf("EN view-not-run state must not render %q:\n%s", banned, enProjection.Text)
+		}
 	}
 }
 
