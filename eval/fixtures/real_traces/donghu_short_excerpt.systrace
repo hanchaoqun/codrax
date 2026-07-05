@@ -1,0 +1,100 @@
+#
+#                                      _-----=> irqs-off
+#                                     / _----=> need-resched
+#                                    | / _---=> hardirq/softirq
+#                                    || / _--=> preempt-depth
+#                                    ||| /     delay
+#           TASK-PID    TGID   CPU#  ||||    TIMESTAMP  FUNCTION
+#              | |        |      |   ||||       |         |
+are.mem.default-36907 (10756) [004] .... 2942.244845: irq_handler_entry: irq=128 name=kirq
+      CronetInit-37179 (37030) [009] .... 2942.244845: binder_transaction: transaction=4407138 dest_node=311264 dest_proc=10756 dest_thread=0 reply=0 flags=0x12 code=0x1
+    wc_srvinit_4-37247 (37047) [011] .... 2942.244846: print: C|31963|JNI Weak Global Refs|198
+ are.mem.default-36907 (10756) [004] .... 2942.244847: irq_handler_exit: irq=128 ret=handled
+   tppmgr-idle-5-239   (    2) [005] .... 2942.244848: cpu_idle: state=4294967295 cpu_id=5
+   tppmgr-idle-5-239   (    2) [005] .... 2942.244849: irq_handler_entry: irq=160 name=kirq
+   tppmgr-idle-5-239   (    2) [005] .... 2942.244851: irq_handler_exit: irq=160 ret=handled
+       udk-irq-8-85    (    2) [008] .... 2942.244851: irq_handler_exit: irq=1547 ret=handled
+   tppmgr-idle-5-239   (    2) [005] .... 2942.244853: cpu_idle: state=0 cpu_id=5
+  [GT]ColdPool#6-36644 (36379) [008] .... 2942.244855: sched_switch: prev_comm=udk-irq-8 prev_pid=85 prev_prio=301 prev_state=S ==> next_comm=[GT]ColdPool#6 next_pid=36644 next_prio=20
+      CronetInit-37179 (37030) [009] .... 2942.244857: sched_wakeup: comm=binder:486_1 pid=10803 prio=20 target_cpu=000
+    binder:486_1-10803 (10756) [009] .... 2942.244865: sched_switch: prev_comm=CronetInit prev_pid=37179 prev_prio=20 prev_state=S ==> next_comm=binder:486_1 next_pid=10803 next_prio=20
+    binder:486_1-10803 (10756) [009] .... 2942.244886: binder_transaction_received: transaction=4407138
+  [GT]ColdPool#3-36619 (36379) [003] .... 2942.244922: print: C|31547|Heap size (KB)|157028
+   binder:486_1F-28521 (10756) [000] .... 2942.244961: binder_transaction: transaction=4407139 dest_node=0 dest_proc=36379 dest_thread=36859 reply=1 flags=0x0 code=0x0
+   binder:486_1F-28521 (10756) [000] .... 2942.244969: sched_wakeup: comm=mars::31816 pid=36859 prio=22 target_cpu=000
+   binder:486_1F-28521 (10756) [000] .... 2942.244974: irq_handler_entry: irq=0 name=kirq
+   binder:486_1F-28521 (10756) [000] .... 2942.244978: irq_handler_exit: irq=0 ret=handled
+  [GT]ColdPool#6-36644 (36379) [008] .... 2942.245006: mm_filemap_add_to_page_cache: dev 260:84 ino 0x81251 page=0000000000000000 pfn=3459936 ofs=0
+    binder:486_1-10803 (10756) [009] .... 2942.245012: binder_transaction: transaction=4407140 dest_node=0 dest_proc=37030 dest_thread=37179 reply=1 flags=0x0 code=0x0
+     mars::31816-36859 (36379) [000] .... 2942.245014: sched_switch: prev_comm=binder:486_1F prev_pid=28521 prev_prio=20 prev_state=S ==> next_comm=mars::31816 next_pid=36859 next_prio=22
+    binder:486_1-10803 (10756) [009] .... 2942.245017: sched_wakeup: comm=CronetInit pid=37179 prio=20 target_cpu=000
+      CronetInit-37179 (37030) [009] .... 2942.245035: sched_switch: prev_comm=binder:486_1 prev_pid=10803 prev_prio=20 prev_state=S ==> next_comm=CronetInit next_pid=37179 next_prio=20
+     mars::31816-36859 (36379) [000] .... 2942.245038: binder_transaction_received: transaction=4407139
+      CronetInit-37179 (37030) [009] .... 2942.245040: binder_transaction_received: transaction=4407140
+      CronetInit-37179 (37030) [009] .... 2942.245046: print: E|31948
+     mars::31816-36859 (36379) [000] .... 2942.245050: print: E|31547
+      CronetInit-37179 (37030) [009] .... 2942.245073: print: B|31948|transact[android.net.IConnectivityManager:9]
+      CronetInit-37179 (37030) [009] .... 2942.245079: binder_transaction: transaction=4407141 dest_node=311264 dest_proc=10756 dest_thread=0 reply=0 flags=0x12 code=0x9
+      CronetInit-37179 (37030) [009] .... 2942.245084: sched_wakeup: comm=binder:486_1 pid=10803 prio=20 target_cpu=000
+    binder:486_1-10803 (10756) [009] .... 2942.245089: sched_switch: prev_comm=CronetInit prev_pid=37179 prev_prio=20 prev_state=S ==> next_comm=binder:486_1 next_pid=10803 next_prio=20
+    binder:486_1-10803 (10756) [009] .... 2942.245097: binder_transaction_received: transaction=4407141
+  [GT]ColdPool#6-36644 (36379) [008] .... 2942.245119: print: B|31547|AssetManager::OpenAsset(emoji/qqemoji/39.wxam)
+  [GT]ColdPool#6-36644 (36379) [008] .... 2942.245140: print: E|31547
+  [GT]ColdPool#6-36644 (36379) [008] .... 2942.245152: print: B|31547|AssetManager::OpenAsset(emoji/qqemoji/39.wxam)
+  [GT]ColdPool#6-36644 (36379) [008] .... 2942.245164: print: E|31547
+     mars::31816-36859 (36379) [000] .... 2942.245167: sched_wakeup: comm=mars::comm pid=36700 prio=22 target_cpu=000
+    binder:486_1-10803 (10756) [009] .... 2942.245168: binder_transaction: transaction=4407142 dest_node=0 dest_proc=37030 dest_thread=37179 reply=1 flags=0x0 code=0x0
+      mars::comm-37253 (37047) [003] .... 2942.245168: sched_switch: prev_comm=[GT]ColdPool#3 prev_pid=36619 prev_prio=20 prev_state=S ==> next_comm=wc_srvinit_3 next_pid=37253 next_prio=22
+    binder:486_1-10803 (10756) [009] .... 2942.245172: sched_wakeup: comm=CronetInit pid=37179 prio=20 target_cpu=000
+      CronetInit-37179 (37030) [009] .... 2942.245199: sched_switch: prev_comm=binder:486_1 prev_pid=10803 prev_prio=20 prev_state=S ==> next_comm=CronetInit next_pid=37179 next_prio=20
+  [GT]ColdPool#6-36644 (36379) [008] .... 2942.245201: mm_filemap_add_to_page_cache: dev 260:84 ino 0x1 page=0000000000000000 pfn=3330643 ofs=2166693888
+      CronetInit-37179 (37030) [009] .... 2942.245203: binder_transaction_received: transaction=4407142
+  [GT]ColdPool#6-36644 (36379) [008] .... 2942.245206: block_bio_remap: 12,48  208305872 + 8 <- (260,84) 156630736
+  [GT]ColdPool#6-36644 (36379) [008] .... 2942.245207: block_rq_issue: 12,48 RS 4096 () 208305872 + 8 [[GT]ColdPool#6]
+      CronetInit-37179 (37030) [009] .... 2942.245208: print: E|31948
+    SearchDaemon-37188 (36379) [008] .... 2942.245222: sched_switch: prev_comm=[GT]ColdPool#6 prev_pid=36644 prev_prio=20 prev_state=D ==> next_comm=SearchDaemon next_pid=37188 next_prio=28
+      mars::comm-36700 (36379) [003] .... 2942.245229: sched_switch: prev_comm=wc_srvinit_3 prev_pid=37253 prev_prio=22 prev_state=D ==> next_comm=mars::comm next_pid=36700 next_prio=22
+      CronetInit-37179 (37030) [009] .... 2942.245235: print: B|31948|transact[android.net.IConnectivityManager:16]
+ L.ThreadPoolSer-37254 (37030) [003] .... 2942.245242: sched_switch: prev_comm=mars::comm prev_pid=36700 prev_prio=22 prev_state=S ==> next_comm=wc_srvinit_0 next_pid=37254 next_prio=22
+      CronetInit-37179 (37030) [009] .... 2942.245242: binder_transaction: transaction=4407143 dest_node=311264 dest_proc=10756 dest_thread=0 reply=0 flags=0x12 code=0x10
+     mars::31816-36859 (36379) [000] .... 2942.245246: sched_wakeup: comm=mars::comm pid=36700 prio=22 target_cpu=000
+      CronetInit-37179 (37030) [009] .... 2942.245248: sched_wakeup: comm=binder:486_1 pid=10803 prio=20 target_cpu=000
+    binder:486_1-10803 (10756) [009] .... 2942.245255: sched_switch: prev_comm=CronetInit prev_pid=37179 prev_prio=20 prev_state=S ==> next_comm=binder:486_1 next_pid=10803 next_prio=20
+    binder:486_1-10803 (10756) [009] .... 2942.245262: binder_transaction_received: transaction=4407143
+    SearchDaemon-37188 (36379) [008] .... 2942.245292: irq_handler_entry: irq=1547 name=kirq
+    SearchDaemon-37188 (36379) [008] .... 2942.245294: sched_wakeup: comm=udk-irq-8 pid=85 prio=301 target_cpu=000
+       udk-irq-8-85    (    2) [008] .... 2942.245299: sched_switch: prev_comm=SearchDaemon prev_pid=37188 prev_prio=28 prev_state=R+ ==> next_comm=udk-irq-8 next_pid=85 next_prio=301
+       udk-irq-8-85    (    2) [008] .... 2942.245306: block_rq_complete: 12,48 RS () 208305872 + 8 [0]
+       udk-irq-8-85    (    2) [008] .... 2942.245313: sched_wakeup: comm=[GT]ColdPool#6 pid=36644 prio=20 target_cpu=000
+       udk-irq-8-85    (    2) [008] .... 2942.245313: sched_blocked_reason: pid=36644 iowait=1 caller=sync_buffer_read_wi+0x74/0x160[sysmgr.elf]
+ are.mem.default-36907 (10756) [004] .... 2942.245313: irq_handler_entry: irq=128 name=kirq
+ are.mem.default-36907 (10756) [004] .... 2942.245315: irq_handler_exit: irq=128 ret=handled
+   tppmgr-idle-5-239   (    2) [005] .... 2942.245317: cpu_idle: state=4294967295 cpu_id=5
+   tppmgr-idle-5-239   (    2) [005] .... 2942.245318: irq_handler_entry: irq=160 name=kirq
+       udk-irq-8-85    (    2) [008] .... 2942.245318: irq_handler_exit: irq=1547 ret=handled
+   tppmgr-idle-5-239   (    2) [005] .... 2942.245320: irq_handler_exit: irq=160 ret=handled
+ are.mem.default-36907 (10756) [004] .... 2942.245321: irq_handler_entry: irq=128 name=kirq
+    wc_srvinit_3-37246 (37047) [010] .... 2942.245322: sched_wakeup: comm=wc_srvinit_3 pid=37253 prio=22 target_cpu=000
+    wc_srvinit_3-37246 (37047) [010] .... 2942.245322: sched_blocked_reason: pid=37253 iowait=0 caller=procmgr_prctl+0xdf8/0x2278[sysmgr.elf]
+ are.mem.default-36907 (10756) [004] .... 2942.245323: irq_handler_exit: irq=128 ret=handled
+   tppmgr-idle-5-239   (    2) [005] .... 2942.245327: cpu_idle: state=0 cpu_id=5
+   tppmgr-idle-5-239   (    2) [005] .... 2942.245328: cpu_idle: state=4294967295 cpu_id=5
+   tppmgr-idle-5-239   (    2) [005] .... 2942.245329: irq_handler_entry: irq=160 name=kirq
+      mars::comm-36700 (36379) [003] .... 2942.245330: sched_switch: prev_comm=wc_srvinit_0 prev_pid=37254 prev_prio=22 prev_state=D ==> next_comm=mars::comm next_pid=36700 next_prio=22
+      mars::comm-37253 (37047) [008] .... 2942.245330: sched_switch: prev_comm=udk-irq-8 prev_pid=85 prev_prio=301 prev_state=S ==> next_comm=wc_srvinit_3 next_pid=37253 next_prio=22
+   tppmgr-idle-5-239   (    2) [005] .... 2942.245331: irq_handler_exit: irq=160 ret=handled
+   tppmgr-idle-5-239   (    2) [005] .... 2942.245333: cpu_idle: state=0 cpu_id=5
+    wc_srvinit_4-37237 (37030) [007] .... 2942.245339: sched_wakeup: comm=wc_srvinit_0 pid=37254 prio=22 target_cpu=000
+ are.mem.default-36907 (10756) [004] .... 2942.245339: irq_handler_entry: irq=128 name=kirq
+    wc_srvinit_4-37237 (37030) [007] .... 2942.245340: sched_blocked_reason: pid=37254 iowait=0 caller=do_native_map_range+0x1b4/0x1628[sysmgr.elf]
+ are.mem.default-36907 (10756) [004] .... 2942.245340: irq_handler_exit: irq=128 ret=handled
+   tppmgr-idle-5-239   (    2) [005] .... 2942.245342: cpu_idle: state=4294967295 cpu_id=5
+   tppmgr-idle-5-239   (    2) [005] .... 2942.245343: irq_handler_entry: irq=160 name=kirq
+   tppmgr-idle-5-239   (    2) [005] .... 2942.245345: irq_handler_exit: irq=160 ret=handled
+   tppmgr-idle-5-239   (    2) [005] .... 2942.245347: cpu_idle: state=0 cpu_id=5
+    wc_srvinit_0-37256 (37030) [003] .... 2942.245359: sched_switch: prev_comm=mars::comm prev_pid=36700 prev_prio=22 prev_state=S ==> next_comm=wc_srvinit_0 next_pid=37256 next_prio=22
+     mars::31816-36859 (36379) [000] .... 2942.245379: print: B|31547|transact[android.net.IConnectivityManager:3]
+ L.ThreadPoolSer-37254 (37030) [008] .... 2942.245384: sched_switch: prev_comm=mars::comm prev_pid=37253 prev_prio=22 prev_state=S ==> next_comm=wc_srvinit_0 next_pid=37254 next_prio=22
+     mars::31816-36859 (36379) [000] .... 2942.245393: binder_transaction: transaction=4407144 dest_node=311264 dest_proc=10756 dest_thread=0 reply=0 flags=0x12 code=0x3
+  JSAdBrandSer#4-37145 (21136) [001] .... 2942.245397: irq_handler_entry: irq=62 name=kirq
+  [GT]ColdPool#6-36644 (36379) [008] .... 2942.245401: sched_switch: prev_comm=wc_srvinit_0 prev_pid=37254 prev_prio=22 prev_state=D ==> next_comm=[GT]ColdPool#6 next_pid=36644 next_prio=20
