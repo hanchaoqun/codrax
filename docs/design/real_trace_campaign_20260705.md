@@ -1277,3 +1277,14 @@ E4 running 显裸 58.919ms 无折算,E7 反转节点显折算(供给缺口 17.70
 - **R-recipe 软引导**:span_locate recipe(event_search 裸 pattern→span_window→取窗)+ span_window 教学补前置链与变体警示 + 对比场景黄金路径(两 trace 各 span_locate→各自归一化对比,与 CMP 除窗长教训合并)。
 
 批次:D-diag 先行止血(等 P0-E2b 腾 query.go)→ T-span 待实测确证 → R-recipe 随 SG 车。
+
+## §17 回访#6(q7 双trace对比复跑)四维归因(2026-07-06,全 upheld)
+
+标本=cust_trace_q7_cmp.txt。**已生效确认**:对比总览 lead=binder 反转(N1 修复实战生效,空桶串 0 命中走 rank 头名支)、树根同源一致;CFR/CFR-2 判定=已生效且正确(6.0"频点数据不全"=该区段真无 cpu_frequency 采样,fail-open 诚实终态;7.0"running 折算 0.000"=反转折扣对 runnable 主导节点的正确结果 — 维度C 无代码修复项)。
+
+- **A[P0×2+P1] 散文单侧跑偏**:finalizer 头条=AggregateOnly 背景聚合(supply_pressure 35027/pressure_density 50.04,registry :161-162 typed 定死跨线程 cpu·ms 非墙钟),typed 面(lead+树根)正确。三条 trace SG(C4/Q4K4/N7)无一禁此形态;explore-skill :126 聚合软引导钉在"chain"不约束 emit_investigation_complete.reason 交接散文(explorer.go:967→answer_surface_plan.go:1657 透传)。修=SG-2 双面:finalizer 新 SG"背景压力头条禁令"(存在 rank=1 on-chain 因时头条必须命名之;AggregateOnly 只作环境证据带单位;复用 SG-C4 句式)+ explore-skill 措辞扩到 reason 头条 + 散文头条对齐总览 lead cell。判据=Subject==AggregateOnly 枚举+chain_relevance==on_chain typed,全软引导。
+- **B[P1×2]**:对比 cell 目标症状 7.0="—" vs 树面 252.265ms 两面矛盾(cell 缺树覆盖行已有的 hop-only 回退);用户核心 delta 909ms 无任何 typed 面分解(唯一 delta 陈述在散文且归因背景段)。→P0-A(hop-only 回退)+对比 SG(delta 分解引导+共同口径)。
+- **D**:①still_present 降级文案矛盾(降级 caveat"未评估/未消费"拼接模型散文"仍然存在"断言)→SPR #72 收尾小批 P1;②覆盖分子 5%(q1-B2 同族 witness)→P0-A;③quick-cell "trace causal node"占位名(§12-B7 repeat)/背景聚合折叠不一致(supply_pressure ×4 合并但 io/cpu_pressure 各两条未合)/系统补充"缺失成员"块"符号名称"表头错配 trace 指标行→P1-H;排除项(E19-E22 pid 尾在/双口径为设计)如实记录。
+
+### §17 批次归口
+SG-2 软引导批(A 双面+B delta 引导+C N11(b)+§16 R-recipe 黄金路径合车)/BLK 双向锁 P0 回归速修(§15.C,先行)/P0-A(B hop-only+D② 覆盖分子+§15.D gap③ 分母)/SPR 收尾(D①)/P1-H(D③族)。
