@@ -2280,12 +2280,28 @@ func extractorEvidenceRepoSource(ctx *types.AgentContext, source string) string 
 	if source == "" {
 		return ""
 	}
+	// Q5-A P2-2 (same root as P1-2): a trace_query blob the escape lane
+	// opened is runtime state, never current source — even when the
+	// model names it by BASENAME (the .codrax spelling checks below
+	// would miss a bare "trace_query-<sha8>.txt"). Ask the shared
+	// registry FIRST, mirroring builtin.go readFileTypedSourcePath so
+	// the two citation-suppression decisions cannot drift.
+	if ctx != nil && ctx.Mutable != nil {
+		if _, ok := ctx.Mutable.ResolveTraceQueryBlobRef(source); ok {
+			return ""
+		}
+	}
 	if ctx != nil {
 		source = ground.CanonicalAgentPath(ctx, source)
 	} else {
 		source = canonicalExplorerPath(source)
 	}
-	if source == "" || strings.HasPrefix(source, ".codrax/") {
+	// Runtime-state paths never become current-source citations. The
+	// relative form covers CWD==repo (canonicaliser strips the root);
+	// the "/.codrax/" substring covers CWD!=repo, where blob paths
+	// (e.g. trace_query payload refs read through the Q5-A escape
+	// lane) stay absolute after canonicalisation.
+	if source == "" || strings.HasPrefix(source, ".codrax/") || strings.Contains(source, "/.codrax/") {
 		return ""
 	}
 	return source

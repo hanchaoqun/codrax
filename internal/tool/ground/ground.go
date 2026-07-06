@@ -3128,6 +3128,18 @@ func buildLineIndex(history []types.ToolResult, repoRoot string) map[string]map[
 		if !r.Success || r.ToolName != "read_file" {
 			continue
 		}
+		// Q5-A P1-2 (security root fix): a read_file that returned
+		// runtime-artifact bytes (attached trace/log, runtime-artifact
+		// path, or a trace_query blob opened via the escape lane) carries
+		// the typed RuntimeArtifactRead marker the read_file tool stamped
+		// from the same decision that suppressed current-source coverage.
+		// Skipping on THIS precise typed signal — never a banner-string
+		// re-classification — keeps blob line_text out of the Tier-1
+		// citation index, so a blob read cannot become a grounded
+		// current-source citation.
+		if r.RuntimeArtifactRead != nil {
+			continue
+		}
 		body := r.Summary
 		if !strings.HasPrefix(body, "[") {
 			continue
@@ -3202,6 +3214,20 @@ func cloneLineIndex(in map[string]map[int]string) map[string]map[int]string {
 	return out
 }
 
+// observedLinePathIsRuntimeState mirrors the tool package's
+// grepCandidatePathIsRuntimeState (ground cannot import tool): a canonical
+// path naming .codrax runtime state (blob escape lane output) rather than a
+// repository file. Keeps blob spellings off the diagnostic ObservedLineIndex.
+func observedLinePathIsRuntimeState(path string) bool {
+	normalized := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	if normalized == "" {
+		return false
+	}
+	return normalized == ".codrax" ||
+		strings.HasPrefix(normalized, ".codrax/") ||
+		strings.Contains(normalized, "/.codrax/")
+}
+
 func mergeGrepObservedLines(out map[string]map[int]string, summary, repoRoot string) {
 	if out == nil || strings.TrimSpace(summary) == "" {
 		return
@@ -3217,6 +3243,14 @@ func mergeGrepObservedLines(out map[string]map[int]string, summary, repoRoot str
 		}
 		path = CanonicalRepoRelative(path, repoRoot)
 		if path == "" {
+			continue
+		}
+		// Q5-A P1-2 defense-in-depth (soft surface): a grep run through the
+		// blob escape lane must not seed the diagnostic ObservedLineIndex with
+		// blob-path spellings — same .codrax runtime-state predicate the
+		// PathDiscovery filter uses, applied here so no user-facing surface
+		// carries a blob path.
+		if observedLinePathIsRuntimeState(path) {
 			continue
 		}
 		fileMap, ok := out[path]

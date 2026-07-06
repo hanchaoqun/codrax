@@ -2,6 +2,8 @@ package types
 
 import (
 	"context"
+	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -262,6 +264,17 @@ type MutableState struct {
 	// exploreForkTraceQueryRuntimeObservationBase is the parent's count at fork
 	// time so MergeExploreFork can fold back only the fork's new observations.
 	exploreForkTraceQueryRuntimeObservationBase int
+	// traceQueryPublishedBlobRefs registers the verbatim blob refs
+	// (payload_ref JSON artifact + raw_ref offloaded summary) that
+	// trace_query published during the current explore/extract cycle
+	// (Q5-A typed escape lane, ledger §13). Key = shared-canonicaliser
+	// slash form of the ref; value = the verbatim path as published.
+	// Like traceQueryRuntimeObservationCount above, the registry
+	// survives per-dispatch resets (ResetDispatchToolResults) and is
+	// cleared at the turn boundary (ResetTurnAArtifacts), so the
+	// explorer can audit a payload blob one dispatch after the
+	// trace_query call that produced it.
+	traceQueryPublishedBlobRefs map[string]string
 	// answerDocumentV2 is the block-only carrier (
 	// docs/migration/block_only_carrier.md) — the structured final-
 	// answer payload written by the emit_answer_document tool (one
@@ -1119,6 +1132,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		answerSurfaceRevision:               m.answerSurfaceRevision,
 		traceQueryRuntimeObservationCount:   m.traceQueryRuntimeObservationCount,
 		exploreForkTraceQueryRuntimeObservationBase: m.traceQueryRuntimeObservationCount,
+		traceQueryPublishedBlobRefs:                 cloneStringStringMap(m.traceQueryPublishedBlobRefs),
 	}
 	if m.requestModel != nil {
 		cp := *m.requestModel
@@ -1199,6 +1213,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	retainedInvestigationAggregateFacts := cloneAnswerAggregateFacts(fork.retainedInvestigationAggregateFacts)
 	exactContextRequiredFiles := append([]string(nil), fork.exactContextRequiredFiles...)
 	traceQueryRuntimeObservationDelta := fork.traceQueryRuntimeObservationCount - fork.exploreForkTraceQueryRuntimeObservationBase
+	traceQueryBlobRefs := cloneStringStringMap(fork.traceQueryPublishedBlobRefs)
 	closure := fork.evidenceClosure
 	fork.mu.RUnlock()
 
@@ -1267,6 +1282,14 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	}
 	if traceQueryRuntimeObservationDelta > 0 {
 		m.traceQueryRuntimeObservationCount += traceQueryRuntimeObservationDelta
+	}
+	for canonKey, verbatim := range traceQueryBlobRefs {
+		if m.traceQueryPublishedBlobRefs == nil {
+			m.traceQueryPublishedBlobRefs = map[string]string{}
+		}
+		if _, exists := m.traceQueryPublishedBlobRefs[canonKey]; !exists {
+			m.traceQueryPublishedBlobRefs[canonKey] = verbatim
+		}
 	}
 	m.bumpAnswerSurfaceRevisionLocked()
 	m.mu.Unlock()
@@ -2045,6 +2068,34 @@ func (m *MutableState) AppendDispatchToolResult(r ToolResult) {
 	if traceRuntimeObservations > 0 {
 		m.bumpAnswerSurfaceRevisionLocked()
 	}
+	for _, ref := range traceQueryPublishedBlobRefsFromToolResult(r) {
+		m.registerTraceQueryBlobRefLocked(ref)
+	}
+}
+
+// traceQueryBlobRefPathSegment is the mandatory path segment every
+// registered blob ref must contain. trace_query publishes blobs only
+// under the codrax session blob root (<CWD>/.codrax/blob/<session>/,
+// cmd/root.go). The registry is a precise-signal source that drives a
+// hard allow-gate (read_file/grep escape lane), so a ref that does not
+// live under that root is refused registration outright — no trace- or
+// model-controlled string can smuggle a repo-external path (e.g.
+// /etc/passwd) into the readable set. Q5-A P1-1 security root fix.
+const traceQueryBlobRefPathSegment = ".codrax/blob/"
+
+// traceQueryBlobRefCanonicalUnderBlobRoot reports whether a canonical
+// (slash-form) path lives under the codrax blob root. Accepts both the
+// absolute form (CWD != repo: "/anchor/.codrax/blob/...") and the
+// repo-relative form the shared canonicaliser produces when CWD == repo
+// (".codrax/blob/...").
+func traceQueryBlobRefCanonicalUnderBlobRoot(canon string) bool {
+	if canon == "" {
+		return false
+	}
+	if strings.HasPrefix(canon, traceQueryBlobRefPathSegment) {
+		return true
+	}
+	return strings.Contains(canon, "/"+traceQueryBlobRefPathSegment)
 }
 
 // TraceQueryRuntimeObservationCount returns how many hard-grounded runtime
@@ -2076,6 +2127,154 @@ func traceQueryRuntimeObservationToolResultCount(r ToolResult) int {
 		count++
 	}
 	return count
+}
+
+// traceQueryPublishedBlobRefsFromToolResult collects the blob refs a
+// successful trace_query result published. ONLY typed structured fields
+// are trusted: the ToolResult.RawRef the tool set from StoreBlob, and the
+// per-observation SourceRef PayloadRef / RawRef that trace_query stamped
+// from its own StoreBlobArtifact / StoreBlob return values. These paths
+// are produced entirely by the tool layer from filesystem writes it
+// controls; trace CONTENT can never reach them.
+//
+// The summary-text `payload_ref=` token lane was REMOVED (Q5-A P1-1
+// security root fix): trace markers / span names flow through
+// sanitizeForBanner into the summary and do NOT strip a `payload_ref=`
+// prefix, so a controlled trace could inject `payload_ref=/etc/passwd`
+// and register an arbitrary out-of-repo path into an allow-gate — a
+// noisy signal driving a hard gate, a red-line violation. StoreBlob's
+// typed RawRef already covers every trace_query surface that offloads a
+// summary, so no legitimate blob is lost by dropping the text lane.
+func traceQueryPublishedBlobRefsFromToolResult(r ToolResult) []string {
+	if !r.Success || CanonicalToolName(r.ToolName) != "trace_query" {
+		return nil
+	}
+	var out []string
+	out = appendTraceQueryBlobRefToken(out, r.RawRef)
+	for _, observation := range r.Observations {
+		out = appendTraceQueryBlobRefToken(out, observation.SourceRef.PayloadRef)
+		out = appendTraceQueryBlobRefToken(out, observation.SourceRef.RawRef)
+	}
+	return out
+}
+
+func appendTraceQueryBlobRefToken(refs []string, ref string) []string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return refs
+	}
+	return append(refs, ref)
+}
+
+// RegisterTraceQueryBlobRef records one verbatim blob ref trace_query
+// published. AppendDispatchToolResult performs the registration on the
+// agent-side result path; the exported method exists for tests and for
+// producers outside that chokepoint.
+func (m *MutableState) RegisterTraceQueryBlobRef(ref string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.registerTraceQueryBlobRefLocked(ref)
+}
+
+func (m *MutableState) registerTraceQueryBlobRefLocked(ref string) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return
+	}
+	canon := canonpath.CanonicalRepoRelative(ref, "")
+	if canon == "" || canon == "." {
+		return
+	}
+	// P1-1 prefix hard constraint: only paths under the codrax blob root
+	// may enter the escape-lane allow set. Even a typed RawRef that
+	// somehow named a foreign path is refused, so the readable set can
+	// never widen past trace_query's own StoreBlob output.
+	if !traceQueryBlobRefCanonicalUnderBlobRoot(canon) {
+		return
+	}
+	if m.traceQueryPublishedBlobRefs == nil {
+		m.traceQueryPublishedBlobRefs = map[string]string{}
+	}
+	if _, exists := m.traceQueryPublishedBlobRefs[canon]; !exists {
+		m.traceQueryPublishedBlobRefs[canon] = ref
+	}
+}
+
+// ResolveTraceQueryBlobRef reports whether requested addresses a blob ref
+// trace_query itself published this cycle, returning the verbatim
+// registered path on a hit. Matching is precise (Q5-A escape lane):
+// either the shared canonicaliser's slash form is equal (this also folds
+// Windows backslash spellings) or the basename is equal case-insensitively
+// (mirrors resolveAttachmentScopedReadPath's basename allowance so the
+// model may cite the ref by filename alone). An empty registry always
+// reports false, so turns without trace_query blobs keep byte-identical
+// gate and path-resolution behavior.
+func (m *MutableState) ResolveTraceQueryBlobRef(requested string) (string, bool) {
+	if m == nil {
+		return "", false
+	}
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return "", false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.traceQueryPublishedBlobRefs) == 0 {
+		return "", false
+	}
+	canon := canonpath.CanonicalRepoRelative(requested, "")
+	if canon == "" || canon == "." {
+		return "", false
+	}
+	if verbatim, ok := m.traceQueryPublishedBlobRefs[canon]; ok {
+		return traceQueryBlobRefVerified(verbatim)
+	}
+	base := path.Base(canon)
+	if base == "" || base == "." || base == "/" {
+		return "", false
+	}
+	for canonKey, verbatim := range m.traceQueryPublishedBlobRefs {
+		if strings.EqualFold(path.Base(canonKey), base) {
+			return traceQueryBlobRefVerified(verbatim)
+		}
+	}
+	return "", false
+}
+
+// traceQueryBlobRefVerified is the register-read consistency re-check:
+// even for a stored (already prefix-constrained) verbatim ref, confirm
+// the returned path still canonicalises under the blob root before
+// handing it back to a reader. Registration already enforces this, so
+// the re-check is defence in depth against any future path that stored
+// an unconstrained ref; a failure returns miss, never the raw path.
+func traceQueryBlobRefVerified(verbatim string) (string, bool) {
+	canon := canonpath.CanonicalRepoRelative(strings.TrimSpace(verbatim), "")
+	if canon == "" || !traceQueryBlobRefCanonicalUnderBlobRoot(canon) {
+		return "", false
+	}
+	return verbatim, true
+}
+
+// TraceQueryBlobRefs returns a sorted snapshot of the registered verbatim
+// blob refs (test/diagnostic surface).
+func (m *MutableState) TraceQueryBlobRefs() []string {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.traceQueryPublishedBlobRefs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m.traceQueryPublishedBlobRefs))
+	for _, verbatim := range m.traceQueryPublishedBlobRefs {
+		out = append(out, verbatim)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // DispatchToolResults returns a snapshot of the per-dispatch running
@@ -3981,6 +4180,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.exploreForkTurnABaseHandoffLen = 0
 	m.traceQueryRuntimeObservationCount = 0
 	m.exploreForkTraceQueryRuntimeObservationBase = 0
+	m.traceQueryPublishedBlobRefs = nil
 	m.sourceInventoryAdvisory = SourceInventoryAdvisory{}
 	m.sourceInventoryObservation = SourceInventoryObservation{}
 	if m.evidenceClosure != nil {
@@ -4273,6 +4473,17 @@ func cloneStringBoolMap(in map[string]bool) map[string]bool {
 		return nil
 	}
 	out := make(map[string]bool, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneStringStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
 	for key, value := range in {
 		out[key] = value
 	}
@@ -5821,18 +6032,43 @@ type ToolReadCoverage struct {
 	RawRef     string `json:"raw_ref,omitempty"`
 }
 
+// ToolRuntimeArtifactRead is the precise typed signal that a successful
+// read_file returned RUNTIME-ARTIFACT bytes (an attached trace/log, a
+// runtime-artifact-shaped path, or a trace_query blob the Q5-A escape
+// lane opened) rather than current repository source. The read_file tool
+// stamps it once, from the same deterministic decision that suppresses
+// ReadCoverage / current-source observations. Citation grounding
+// (ground.buildLineIndex Tier-1 line_text) and the extractor/emit
+// evidence lanes consume THIS typed flag instead of re-deriving the
+// classification from the banner string, so a blob read can never become
+// a grounded current-source citation via banner parsing (Q5-A P1-2
+// security root fix).
+type ToolRuntimeArtifactRead struct {
+	// RequestedPath is the LLM-supplied path, echoed verbatim so the
+	// banner and this flag key on the same spelling.
+	RequestedPath string `json:"requested_path,omitempty"`
+	// Kind is the runtime-artifact class ("trace" / "log" / "blob" /
+	// "" when only shape-detected). Diagnostic only — the presence of
+	// the struct is the load-bearing signal.
+	Kind string `json:"kind,omitempty"`
+	// TraceQueryBlob is true when the read targeted a trace_query
+	// published blob opened through the escape lane.
+	TraceQueryBlob bool `json:"trace_query_blob,omitempty"`
+}
+
 type ToolResult struct {
-	ToolName           string                      `json:"tool_name"`
-	Summary            string                      `json:"summary"`
-	Repair             *ToolRepair                 `json:"repair,omitempty"`
-	Refinement         *ToolRefinementHint         `json:"refinement,omitempty"`
-	Handoff            *ToolHandoffCarrier         `json:"handoff,omitempty"`
-	RawRef             string                      `json:"raw_ref,omitempty"`
-	PathDiscovery      *ToolPathDiscovery          `json:"path_discovery,omitempty"`
-	CommandMeasurement *ToolCommandMeasurement     `json:"command_measurement,omitempty"`
-	VCSHistory         *ToolVCSHistory             `json:"vcs_history,omitempty"`
-	ReadCoverage       *ToolReadCoverage           `json:"read_coverage,omitempty"`
-	SourceInventory    *SourceInventoryObservation `json:"source_inventory,omitempty"`
+	ToolName            string                      `json:"tool_name"`
+	Summary             string                      `json:"summary"`
+	Repair              *ToolRepair                 `json:"repair,omitempty"`
+	Refinement          *ToolRefinementHint         `json:"refinement,omitempty"`
+	Handoff             *ToolHandoffCarrier         `json:"handoff,omitempty"`
+	RawRef              string                      `json:"raw_ref,omitempty"`
+	PathDiscovery       *ToolPathDiscovery          `json:"path_discovery,omitempty"`
+	CommandMeasurement  *ToolCommandMeasurement     `json:"command_measurement,omitempty"`
+	VCSHistory          *ToolVCSHistory             `json:"vcs_history,omitempty"`
+	ReadCoverage        *ToolReadCoverage           `json:"read_coverage,omitempty"`
+	RuntimeArtifactRead *ToolRuntimeArtifactRead    `json:"runtime_artifact_read,omitempty"`
+	SourceInventory     *SourceInventoryObservation `json:"source_inventory,omitempty"`
 
 	// Observations are optional producer-published typed observation rows for
 	// this tool result — the ToolResult companion to MCPResponse.Observations.

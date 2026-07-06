@@ -338,6 +338,23 @@ func resolveAttachmentScopedReadPath(ctx *types.BusContext, requested string, po
 	return resolveToolPath(ctx, requested)
 }
 
+// resolveTraceQueryBlobRefPath is the tool-layer half of the Q5-A escape
+// lane: when the requested path addresses a blob ref trace_query itself
+// published (registered verbatim on MutableState), it resolves to that
+// blob path BEFORE the generic repo-root join can send a bare basename to
+// a nonexistent <repo>/<basename> or an outside-repo spelling into a
+// scope rejection. Mirrors resolveAttachmentScopedReadPath's basename
+// allowance; the canonical/basename matcher itself lives on MutableState
+// so the agent-side gates and this layer share one definition. Empty
+// registry (no trace_query blobs this cycle) reports false and leaves
+// path resolution byte-identical.
+func resolveTraceQueryBlobRefPath(ctx *types.BusContext, requested string) (string, bool) {
+	if ctx == nil || ctx.Mutable == nil {
+		return "", false
+	}
+	return ctx.Mutable.ResolveTraceQueryBlobRef(requested)
+}
+
 func toolPathsEqual(a, b string) bool {
 	a = filepath.Clean(a)
 	b = filepath.Clean(b)
@@ -389,6 +406,9 @@ func resolveReadFilePath(ctx *types.BusContext, requested string) (string, *type
 			}
 		}
 		return policy.blobPath, nil
+	}
+	if resolved, ok := resolveTraceQueryBlobRefPath(ctx, requested); ok {
+		return resolved, nil
 	}
 	return resolveToolPath(ctx, requested), nil
 }
@@ -2200,7 +2220,13 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// target. The banner below still echoes the LLM-supplied p.Path
 	// (relative form) because downstream extractFileCoverage and the
 	// path canonicaliser key on repo-relative paths, not absolute.
-	searchPath := resolveToolPath(ctx, p.Path)
+	// Q5-A escape lane: a registered trace_query blob ref (basename or
+	// Windows spelling included) resolves to its verbatim blob path
+	// instead of being joined under RepoRoot, where it does not exist.
+	searchPath, searchPathIsBlobRef := resolveTraceQueryBlobRefPath(ctx, p.Path)
+	if !searchPathIsBlobRef {
+		searchPath = resolveToolPath(ctx, p.Path)
+	}
 	if searchPath == "" {
 		searchPath = "."
 	}
@@ -3269,6 +3295,20 @@ func grepPathDiscovery(params grepToolParams, noMatches bool, resultCount int, c
 	}
 }
 
+// grepCandidatePathIsRuntimeState reports whether a grep-discovered path
+// names codrax runtime state (.codrax/blob/... or another .codrax subtree)
+// rather than a repository file. Used only to keep such paths out of the
+// soft PathDiscovery candidate surface (Q5-A P3).
+func grepCandidatePathIsRuntimeState(path string) bool {
+	normalized := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	if normalized == "" {
+		return false
+	}
+	return normalized == ".codrax" ||
+		strings.HasPrefix(normalized, ".codrax/") ||
+		strings.Contains(normalized, "/.codrax/")
+}
+
 func grepPathDiscoveryCandidates(output string, filesOnly bool) []string {
 	if strings.TrimSpace(output) == "" {
 		return nil
@@ -3282,6 +3322,14 @@ func grepPathDiscoveryCandidates(output string, filesOnly bool) []string {
 		}
 		path = strings.TrimSpace(path)
 		if path == "" || seen[path] {
+			continue
+		}
+		// Q5-A P3 (soft hygiene): a grep run through the blob escape lane
+		// searches a .codrax/blob/<session>/ file; its session-timestamped
+		// basename must not surface as a phantom repo path in PathDiscovery
+		// (soft guidance surface — a noisy filter is the correct altitude
+		// here, never a hard gate).
+		if grepCandidatePathIsRuntimeState(path) {
 			continue
 		}
 		seen[path] = true
@@ -4855,15 +4903,52 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}
 	now := time.Now()
 	return types.ToolResult{
-		ToolName:     t.Name(),
-		Success:      true,
-		Summary:      summary,
-		RawRef:       ref,
-		Refinement:   readFileResultRefinement(ctx, p.Path, fsPath, sliceStart+1, sliceEnd, totalLines, lineOffset, limit, clampedByInlineBudget),
-		ReadCoverage: readFileTypedCoverage(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines),
-		Observations: readFileTypedObservations(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines, now),
-		Timestamp:    now,
+		ToolName:            t.Name(),
+		Success:             true,
+		Summary:             summary,
+		RawRef:              ref,
+		Refinement:          readFileResultRefinement(ctx, p.Path, fsPath, sliceStart+1, sliceEnd, totalLines, lineOffset, limit, clampedByInlineBudget),
+		ReadCoverage:        readFileTypedCoverage(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines),
+		RuntimeArtifactRead: readFileRuntimeArtifactMarker(ctx, p.Path, fsPath),
+		Observations:        readFileTypedObservations(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines, now),
+		Timestamp:           now,
 	}, nil
+}
+
+// readFileRuntimeArtifactMarker stamps the precise typed signal that this
+// read returned runtime-artifact bytes rather than current repository
+// source. It shares readFileTypedSourcePath's decision exactly: whenever
+// that returns "" (source path suppressed) AND the read still produced a
+// path the model can name, the result is a runtime-artifact read.
+// Downstream citation grounding keys on the presence of this struct, so
+// the classification never has to be re-derived from the banner string
+// (Q5-A P1-2). Returns nil for genuine current-source reads so ordinary
+// reads carry no marker and behave byte-identically.
+func readFileRuntimeArtifactMarker(ctx *types.BusContext, requestedPath, fsPath string) *types.ToolRuntimeArtifactRead {
+	if readFileTypedSourcePath(ctx, requestedPath, fsPath) != "" {
+		return nil // genuine current source — not a runtime artifact
+	}
+	requested := strings.TrimSpace(requestedPath)
+	if requested == "" {
+		return nil
+	}
+	marker := &types.ToolRuntimeArtifactRead{RequestedPath: requested}
+	if ctx != nil && ctx.Mutable != nil {
+		if _, ok := ctx.Mutable.ResolveTraceQueryBlobRef(requested); ok {
+			marker.TraceQueryBlob = true
+			marker.Kind = "blob"
+			return marker
+		}
+	}
+	normalized := strings.TrimSpace(strings.ReplaceAll(requested, "\\", "/"))
+	if normalized == ".codrax" || strings.HasPrefix(normalized, ".codrax/") || strings.Contains(normalized, "/.codrax/") {
+		marker.Kind = "blob"
+		return marker
+	}
+	if kind := types.RuntimeArtifactPathKind(normalized); kind != "" {
+		marker.Kind = kind
+	}
+	return marker
 }
 
 func readFileResultRefinement(ctx *types.BusContext, requestedPath, fsPath string, lineStart, lineEnd, totalLines, lineOffset, limit int, clampedByInlineBudget bool) *types.ToolRefinementHint {
@@ -5017,6 +5102,17 @@ func readFileTypedObservations(ctx *types.BusContext, requestedPath, fsPath, raw
 }
 
 func readFileTypedSourcePath(ctx *types.BusContext, requestedPath, fsPath string) string {
+	// Q5-A escape-lane reads target trace_query's own published blobs:
+	// runtime-state bytes, never current source. A basename-shaped
+	// request ("trace_query-<sha8>.txt") would otherwise survive the
+	// repo-relative checks below and mint a current-source observation
+	// for bytes that live under .codrax. Same precise registry the
+	// resolver used, so the two decisions cannot drift.
+	if ctx != nil && ctx.Mutable != nil {
+		if _, isTraceQueryBlob := ctx.Mutable.ResolveTraceQueryBlobRef(requestedPath); isTraceQueryBlob {
+			return ""
+		}
+	}
 	sourcePath := strings.TrimSpace(requestedPath)
 	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
 		if rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, fsPath); ok && rel != "" {
@@ -5025,6 +5121,11 @@ func readFileTypedSourcePath(ctx *types.BusContext, requestedPath, fsPath string
 	}
 	sourcePath = strings.TrimSpace(strings.ReplaceAll(sourcePath, "\\", "/"))
 	if sourcePath == "" || strings.HasPrefix(sourcePath, "/") || sourcePath == "." || strings.HasPrefix(sourcePath, "../") {
+		return ""
+	}
+	// codrax's own runtime-state directory never becomes a
+	// current-source citation path (mirrors extractorEvidenceRepoSource).
+	if sourcePath == ".codrax" || strings.HasPrefix(sourcePath, ".codrax/") {
 		return ""
 	}
 	if types.RuntimeArtifactPathKind(sourcePath) != "" {

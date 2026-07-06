@@ -598,7 +598,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			softSkippedItems = append(softSkippedItems, reason)
 			continue
 		}
-		if reason, ok := emitEvidenceExternalObservationSoftSkipReason(in, i); ok {
+		if reason, ok := emitEvidenceExternalObservationSoftSkipReason(ctx, in, i); ok {
 			externalObservationSkippedItems = append(externalObservationSkippedItems, reason)
 			continue
 		}
@@ -1288,9 +1288,9 @@ func renderEmitEvidenceCommandScalarSoftSkipSummary(skipped []string) string {
 	return b.String()
 }
 
-func emitEvidenceExternalObservationSoftSkipReason(in emitEvidenceItem, index int) (string, bool) {
+func emitEvidenceExternalObservationSoftSkipReason(ctx *types.BusContext, in emitEvidenceItem, index int) (string, bool) {
 	source := strings.TrimSpace(in.Source)
-	kind := emitEvidenceExternalObservationSourceKind(source)
+	kind := emitEvidenceExternalObservationSourceKindForContext(ctx, source)
 	if kind == "" {
 		return "", false
 	}
@@ -1309,6 +1309,25 @@ func emitEvidenceExternalObservationSoftSkipReason(in emitEvidenceItem, index in
 func emitEvidenceSourceIsExternalObservationURI(source string) bool {
 	source = strings.ToLower(strings.TrimSpace(source))
 	return strings.HasPrefix(source, "mcp://") || strings.HasPrefix(source, "mcp:/")
+}
+
+// emitEvidenceExternalObservationSourceKindForContext is the context-aware
+// classifier. It first asks the shared trace_query blob-ref registry
+// (Q5-A P1-2 ②): a blob the escape lane opened is runtime state, and the
+// model may name it by BASENAME — which RuntimeArtifactPathKind's
+// extension shapes below would miss. A hit soft-reroutes the item into
+// the external-observation lane (reusing the runtime_artifact wording),
+// so blob-sourced rows never reach GroundItem's current-source grounder.
+// This is the same registry builtin.go readFileTypedSourcePath and
+// extractor.go extractorEvidenceRepoSource consult — one matcher, four
+// surfaces, no drift.
+func emitEvidenceExternalObservationSourceKindForContext(ctx *types.BusContext, source string) string {
+	if ctx != nil && ctx.Mutable != nil {
+		if _, ok := ctx.Mutable.ResolveTraceQueryBlobRef(source); ok {
+			return "runtime_artifact"
+		}
+	}
+	return emitEvidenceExternalObservationSourceKind(source)
 }
 
 func emitEvidenceExternalObservationSourceKind(source string) string {

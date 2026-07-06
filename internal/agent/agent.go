@@ -6059,6 +6059,16 @@ func validateExplorerTraceQueryFirstToolCall(ctx *types.AgentContext, tc llm.Too
 	if canonical == "trace_query" {
 		return nil
 	}
+	// Q5-A P2-1: a registered trace_query blob can only exist because a
+	// trace_query already ran and published it this turn, so auditing
+	// that blob with read_file/grep does not architect around the
+	// probe-first requirement — it is downstream of it. Let the same
+	// typed escape lane through here (after a dispatch reset the earlier
+	// runtime observations no longer show, but the blob registry
+	// survives to the turn boundary).
+	if explorerTraceQueryBlobRefEscape(ctx, canonical, tc) {
+		return nil
+	}
 	reason := fmt.Sprintf(
 		"%s rejected: typed runtime/source navigation phase=%s requires one bounded `trace_query` runtime probe before source or completion tools. "+
 			"After `trace_query` has returned structured, unsupported, or incomplete coverage, source-owner tools may be used according to current_source_lane=%s.",
@@ -6105,6 +6115,9 @@ func validateExplorerTraceOnlyExactArtifactToolCall(ctx *types.AgentContext, tc 
 	if !explorerTraceQuerySourceFallbackTool(canonical) {
 		return nil
 	}
+	if explorerTraceQueryBlobRefEscape(ctx, canonical, tc) {
+		return nil
+	}
 	reason := fmt.Sprintf(
 		"%s rejected: typed runtime-artifact policy=trace_only_exact_artifact active_trace_source=%s. "+
 			"Use trace_query with that typed trace source; source/generic tools are outside this turn unless a later typed current-source lane opens.",
@@ -6143,6 +6156,9 @@ func validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx *types.AgentContext, 
 	}
 	canonical := types.CanonicalToolName(tc.Name)
 	if !explorerTraceQuerySourceFallbackTool(canonical) {
+		return nil
+	}
+	if explorerTraceQueryBlobRefEscape(ctx, canonical, tc) {
 		return nil
 	}
 	reason := fmt.Sprintf(
@@ -6187,6 +6203,43 @@ func explorerTraceQuerySourceFallbackTool(canonical string) bool {
 	default:
 		return false
 	}
+}
+
+// explorerTraceQueryBlobRefEscape is the Q5-A typed escape lane for the two
+// path-blind trace-only sub-gates (validateExplorerTraceOnlyExactArtifactToolCall
+// and validateExplorerTraceQueryRuntimeEvidenceBoundary): a read_file/grep call
+// aimed at a blob ref trace_query itself published (payload_ref / raw_ref,
+// registered verbatim on MutableState by AppendDispatchToolResult) audits
+// runtime-artifact output the tool told the model about — it is not a switch
+// to current-source evidence, so the gates let it pass. The lane is
+// allow-only, limited to read_file/grep, and matches only the registered refs
+// themselves (canonical-path or basename equality via
+// MutableState.ResolveTraceQueryBlobRef). With an empty registry it reports
+// false, keeping both gates byte-identical for turns without trace_query
+// blobs.
+func explorerTraceQueryBlobRefEscape(ctx *types.AgentContext, canonical string, tc llm.ToolCall) bool {
+	if canonical != "read_file" && canonical != "grep" {
+		return false
+	}
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if len(tc.Params) == 0 {
+		return false
+	}
+	var params map[string]json.RawMessage
+	if json.Unmarshal(tc.Params, &params) != nil {
+		return false
+	}
+	requested := jsonStringField(params, "path")
+	if requested == "" {
+		return false
+	}
+	_, ok := ctx.Mutable.ResolveTraceQueryBlobRef(requested)
+	if ok {
+		logging.Debug("[explorer] trace_query blob ref escape lane: %s path=%q allowed by published-ref registry", canonical, requested)
+	}
+	return ok
 }
 
 func explorerTraceQueryFirstRequired(ctx *types.AgentContext, traceQueryInCurrentSurface bool) bool {
