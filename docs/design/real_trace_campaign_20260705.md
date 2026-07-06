@@ -1202,3 +1202,13 @@ func main() {
 - **SG 软引导批(可先行)**:4-note cap 优先序(§10 共因)+C4 折减消费+D1/Q4-K 修5 per-holder next-step 合成+Q4-D 建议式下钻+Q4-E 腿1 实体软引导+§11-N7 快照佐证义务。
 - **P1-H 卫生批**:§10-B4~B8/C3/C1+§11-N5/N6/N9+Q4-F(peer PID 归一折叠)/G/H/I/J。
 - **RCX(裁定先行,#83)**:分层表达三件套设计稿;吸收 Q4-A/Q4-B 表达面修向;病灶总证=q1-B1/B2/B3+q2-N1/N3/N4+q4-A(depthless/self-heavy 形态头部面全灭家族)。
+
+### §12.3 用户裁定(2026-07-06,五点全按建议放行)
+
+1. **RCX 三件套放行**:①drill-debt 车道(typed DrillStatus{已下钻/未下钻·对端已识别/对端未解析},最大实测影响项未下钻时投影头部+bundle 头区强制披露+next-step 点名)②rank 记录分层化(Layer{目标态/直接阻塞/上游链/邻近/背景}+实测/承自分列+证据强度+DrillStatus;层内实测排序,禁跨层平铺;全局 headline 只准实测最大 on-chain 项;承自只作注记永不作硬排序键;score 从显示面删除或定义+承自后重算)③模型面根因骨架卡(bundle 头区+审计面高优先位,模型配散文不代写)。①③搭 P0-E,②搭 P0-A。
+2. **lead tie-break**:实测优先 + 已解析对端行优先(承自值行让位,只得注记)。
+3. **B1 锚归属=方案 i**:存在 target 匹配用户实体的 wakeup_chain path 记录时,锚优先给用户实体线程(精确 typed 信号);现状"第一条 path 先到先得"废止。
+4. **B2 覆盖分子**:披露句(另有 N 项深度未解析…)立即上;分子扩展只并入 subject==目标且影响点已解析的行,墙钟重叠按 MAX/union 纪律。
+5. **A1 token 车道**:新边词 `─binder对端─`/`─锁持有─` + `peer_chain_*` 注族,walk §7.2.1 registry 裁定流程 + NKR + R2' 六处同步;monitor_contention 保持 BlockingKind refinement 不升 row token;rank 锁候选收编走既有 blocking_span RowToken=true(零新登记)。
+
+重提任何一点前先读本节;RCX 承自/排序纪律与 feedback_precise_signals_for_hard_gates 红线同源,永久生效。
