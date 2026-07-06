@@ -1216,3 +1216,11 @@ func main() {
 5. **A1 token 车道**:新边词 `─binder对端─`/`─锁持有─` + `peer_chain_*` 注族,walk §7.2.1 registry 裁定流程 + NKR + R2' 六处同步;monitor_contention 保持 BlockingKind refinement 不升 row token;rank 锁候选收编走既有 blocking_span RowToken=true(零新登记)。
 
 重提任何一点前先读本节;RCX 承自/排序纪律与 feedback_precise_signals_for_hard_gates 红线同源,永久生效。
+
+## §13 回访#4(q5,2026-07-06):q4 同案远程 main 复跑 — 前后对照 + 两新 gap
+
+标本=cust_trace_q5.txt(同 trace 同问题,客户基于含 SG=aa65c688 的 main 复跑)。**已生效**:🎯 横幅=‹用户关注线程›(analyzer 发出 16547 实体);系统补充 E1 行携 blocking_kind=monitor_contention+holder_site(SG 4-note 优先序实战生效);下一步第 1 条完整点名持有者+持有点(SG 合成车道生效,泛化让位)。**未生效即在途 backlog**:主根因行仍 block_io 1.136ms/覆盖 49%/E5 共同作用句/E6 名册 3/4/E1E2 双行/快照缺 42067/idle 行 — 归属 P0-E1(在途)/P0-A/P1-H 不变,q5 为新鲜 witness。
+
+- **Q5-A[P0,NEW]** blob 逃生口被门挡死:探索第 2 轮模型 read_file `.codrax/blob/...`(bundle 82725B 截断的 payload_ref)被拒("need to use trace_query"),叠加 Q4-K 中段盲区 → 锁证据探索期结构性不可达,模型未见锁即完成调查 — 散文反转叙事的直接机制。归因待办:拒绝门产生链(O2 工件路径防线?evidence-lite?);修向=trace 结果 payload_ref 放行 read_file,或拒绝语合成窄视图重查指令(view=critical_blocking_calls)。
+- **Q5-B[验证结论]** SG 散文处置义务单独不足(finalizer 可见 blocking_kind 仍反转头条)— 正面验证 P0-E1 修4(bundle 头区锁块)+RCX③ 骨架卡为必要件;不另立案。
+- **Q5-D[NEW→P1-H 必做]** 同持有者双 next-step(comm 形态+pid=42067 形态):E1/E2 未归一穿透合成面,SG 去重键按标签文本分键 — peer PID 归一升必做,归一后 next-step 恰一条。
