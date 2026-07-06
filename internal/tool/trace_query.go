@@ -4970,6 +4970,23 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		})
 	}
 
+	// BLK §15.C ①: ONE physical lock span publishes exactly ONE observation.
+	// The resolved lock rank row (subject=holder) and its critical_blocking
+	// row (subject=waiter) are two lane views of the SAME folded span
+	// (collectBlockingSpanRows feeds both) — publishing both minted two
+	// crossed-direction 112.223ms rows out of one monitor_contention span (the
+	// q6 E1/E3 "双向锁" shape). The rank record is the single publication (it
+	// carries rank/tier/effective/drill and the subject_is_lock_holder lane)
+	// and PORTS the twin's display-exclusive note families; the twin is then
+	// skipped in the critical_blocking loop below. Typed span identity only
+	// (kind + exact line range + unordered thread pair); a rank lock row that
+	// never emits (row cap / empty guard) marks nothing, so its twin keeps
+	// publishing — the fold never loses the span entirely. The
+	// critical_blocking VIEW face (result JSON / banner / peer-chain card) is
+	// untouched.
+	lockTwins := traceQueryLockContentionTwinIndex(result.CriticalBlocking)
+	lockSpanPublishedByRank := map[string]bool{}
+
 	if result.RootCauseRank != nil {
 		hasForegroundRootCause := traceQueryRootCauseRankHasForeground(result.RootCauseRank.Items)
 		for i, item := range result.RootCauseRank.Items {
@@ -5015,6 +5032,12 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{types.TraceNoteKeyBlockingKind, item.BlockingKind},
 				{types.TraceNoteKeyPeer, traceThreadLabelOptional(item.BlockingPeer)},
 				{types.TraceNoteKeyHolderSite, item.HolderSite},
+				// BLK §15.C: the resolved lock rank row's subject IS the holder,
+				// so the projection must render a HOLD ("持锁阻塞") and steer the
+				// next-step to the holder, never the reversed lock-WAIT the
+				// waiter-subject critical_blocking row already publishes for the
+				// SAME physical span.
+				{types.TraceNoteKeySubjectIsLockHolder, traceQueryTypedBool(item.SubjectIsLockHolder)},
 				// P0-E2a: holder-resolution origin + phantom payload tid audit.
 				{types.TraceNoteKeyHolderSource, item.HolderSource},
 				{types.TraceNoteKeyOwnerTidRaw, traceQueryTypedCount(item.OwnerTidRaw)},
@@ -5033,6 +5056,19 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{"perf_context", traceQueryPerfContextCompact(item.PerfContext)},
 				{"perf_contexts", traceQueryPerfRoleContextsCompact(item.PerfContexts, 4)},
 			})...)
+			// BLK §15.C ①: this rank lock row IS the single publication of its
+			// physical span — mark the span so the critical_blocking twin below
+			// is skipped, and port the twin's display-exclusive note families
+			// (richer form survives, same discipline as the
+			// collectBlockingSpanRows fold).
+			if item.Type == "blocking_span" && item.BlockingKind != "" {
+				if key := traceQueryLockContentionSpanKey(item.BlockingKind, item.LineStart, item.LineEnd, item.Thread, item.BlockingPeer); key != "" {
+					lockSpanPublishedByRank[key] = true
+					if twin, ok := lockTwins[key]; ok {
+						notes = append(notes, traceQueryTypedLockTwinPortNotes(twin)...)
+					}
+				}
+			}
 			role := types.AnswerAggregateRolePrincipalAnswer
 			grounding := types.ClaimGroundingHard
 			provenance := types.ObservationProvenanceObservedDirectCause
@@ -5299,6 +5335,15 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			}
 			if strings.TrimSpace(item.Type) == "" && strings.TrimSpace(item.Summary) == "" {
 				continue
+			}
+			// BLK §15.C ①: the same physical lock span already published
+			// through its rank row (subject=holder) above — skipping the
+			// waiter-subject twin here is what keeps ONE monitor_contention
+			// span from minting two crossed-direction observations.
+			if item.BlockingKind != "" {
+				if key := traceQueryLockContentionSpanKey(item.BlockingKind, item.LineStart, item.LineEnd, item.Thread, item.Peer); key != "" && lockSpanPublishedByRank[key] {
+					continue
+				}
 			}
 			out = append(out, types.ObservationRecord{
 				ID:              fmt.Sprintf("trace_query:%s#critical_blocking:%d", scope, i+1),
@@ -5811,6 +5856,84 @@ func traceQueryTypedOccurrenceWindowRichNotes(items []tracequery.WakeupCausalOcc
 	return nil
 }
 
+// traceQueryLockThreadIdentity is one side of the typed lock-span pair
+// identity: PID when present, exact comm otherwise, "" for a fully-unresolved
+// ref. Both publication lanes read the SAME folded candidate
+// (collectBlockingSpanRows), so the two sides always carry identical values —
+// only their subject/peer ORIENTATION differs.
+func traceQueryLockThreadIdentity(t tracequery.ThreadRef) string {
+	if t.PID > 0 {
+		return "pid:" + strconv.Itoa(t.PID)
+	}
+	if comm := strings.TrimSpace(t.Comm); comm != "" {
+		return "comm:" + comm
+	}
+	return ""
+}
+
+// traceQueryLockContentionSpanKey (BLK §15.C ①) is the typed physical-span
+// identity of one structured lock-contention observation: BlockingKind +
+// exact evidence line range + the UNORDERED thread pair — orientation-free on
+// purpose, so the holder-subject rank view and the waiter-subject
+// critical_blocking view of one span collide on the same key. Empty when the
+// kind is missing or the line range is invalid — such rows never fold.
+func traceQueryLockContentionSpanKey(kind string, lineStart, lineEnd int, a, b tracequery.ThreadRef) string {
+	kind = strings.TrimSpace(kind)
+	if kind == "" || lineStart <= 0 || lineEnd < lineStart {
+		return ""
+	}
+	ids := []string{traceQueryLockThreadIdentity(a), traceQueryLockThreadIdentity(b)}
+	sort.Strings(ids)
+	return strings.Join([]string{kind, strconv.Itoa(lineStart), strconv.Itoa(lineEnd), ids[0], ids[1]}, "\x00")
+}
+
+// traceQueryLockContentionTwinIndex (BLK §15.C ①) indexes the structured
+// lock-contention critical_blocking rows by physical-span key so the rank
+// loop can port a suppressed twin's display-exclusive notes. First row wins
+// on a key collision (never observed — the engine folds one row per span).
+func traceQueryLockContentionTwinIndex(blocking *tracequery.CriticalBlockingResult) map[string]tracequery.CriticalBlockingCandidate {
+	if blocking == nil {
+		return nil
+	}
+	var out map[string]tracequery.CriticalBlockingCandidate
+	for _, item := range blocking.Items {
+		if item.BlockingKind == "" {
+			continue
+		}
+		key := traceQueryLockContentionSpanKey(item.BlockingKind, item.LineStart, item.LineEnd, item.Thread, item.Peer)
+		if key == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]tracequery.CriticalBlockingCandidate{}
+		}
+		if _, exists := out[key]; !exists {
+			out[key] = item
+		}
+	}
+	return out
+}
+
+// traceQueryTypedLockTwinPortNotes (BLK §15.C ①) ports the display-exclusive
+// note families of the suppressed critical_blocking twin onto the surviving
+// rank record: waiters / wait_object / peer_source / peer-state breakdown /
+// A1 peer-chain continuation. Keys the rank record already publishes (type /
+// peer / blocking_kind / holder_site / holder_source / owner_tid_raw /
+// drill_status / chain_relevance / …) are deliberately NOT ported — first-wins
+// consumers must keep reading the rank row's own values.
+func traceQueryTypedLockTwinPortNotes(item tracequery.CriticalBlockingCandidate) []string {
+	notes := traceQueryTypedKVNotes([][2]string{
+		{types.TraceNoteKeyWaiters, traceQueryTypedCount(item.Waiters)},
+		{types.TraceNoteKeyPeerSource, item.PeerSource},
+		{types.TraceNoteKeyWaitObject, item.WaitObject},
+	})
+	notes = append(notes, traceQueryTypedCriticalBlockingPeerStateNotes(item.PeerState)...)
+	if item.PeerChain != nil {
+		notes = append(notes, traceQueryTypedCriticalBlockingPeerChainNotes(item.PeerChain)...)
+	}
+	return notes
+}
+
 func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCandidate) []string {
 	notes := traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyType, item.Type},
@@ -5840,18 +5963,7 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		{"edge_count", traceQueryTypedCount(item.EdgeCount)},
 		{"nearest_chain_thread", traceThreadLabel(item.NearestChainThread)},
 	})
-	if item.PeerState != nil {
-		notes = append(notes, traceQueryTypedKVNotes([][2]string{
-			{"peer_state_dominant", item.PeerState.DominantState},
-			{"peer_state_total", traceQueryObservationMSValue(item.PeerState.TotalMs)},
-			{"peer_state_running", traceQueryObservationMSValue(item.PeerState.RunningMs)},
-			{"peer_state_runnable", traceQueryObservationMSValue(item.PeerState.RunnableMs)},
-			{"peer_state_sleep", traceQueryObservationMSValue(item.PeerState.SleepMs)},
-			{"peer_state_d_state", traceQueryObservationMSValue(item.PeerState.DStateMs)},
-			{"peer_state_io_wait", traceQueryObservationMSValue(item.PeerState.IOWaitMs)},
-			{"peer_state_fragments", traceQueryTypedCount(item.PeerState.FragmentCount)},
-		})...)
-	}
+	notes = append(notes, traceQueryTypedCriticalBlockingPeerStateNotes(item.PeerState)...)
 	// A1 bounded continuation (§12.3-5 ruling 5): ONE sub-goal hop off the
 	// resolved counterpart — the peer's own dominant state + its single direct
 	// 1-hop blocker (depth hard-capped at 1). peer_chain_presumptive is true when
@@ -5861,6 +5973,25 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		notes = append(notes, traceQueryTypedCriticalBlockingPeerChainNotes(item.PeerChain)...)
 	}
 	return notes
+}
+
+// traceQueryTypedCriticalBlockingPeerStateNotes renders the P0-E2a peer-state
+// breakdown (display tier) — shared by the critical_blocking record notes and
+// the BLK §15.C ① twin-port lane so the two faces can never drift.
+func traceQueryTypedCriticalBlockingPeerStateNotes(state *tracequery.ThreadStateBreakdown) []string {
+	if state == nil {
+		return nil
+	}
+	return traceQueryTypedKVNotes([][2]string{
+		{"peer_state_dominant", state.DominantState},
+		{"peer_state_total", traceQueryObservationMSValue(state.TotalMs)},
+		{"peer_state_running", traceQueryObservationMSValue(state.RunningMs)},
+		{"peer_state_runnable", traceQueryObservationMSValue(state.RunnableMs)},
+		{"peer_state_sleep", traceQueryObservationMSValue(state.SleepMs)},
+		{"peer_state_d_state", traceQueryObservationMSValue(state.DStateMs)},
+		{"peer_state_io_wait", traceQueryObservationMSValue(state.IOWaitMs)},
+		{"peer_state_fragments", traceQueryTypedCount(state.FragmentCount)},
+	})
 }
 
 // traceQueryTypedCriticalBlockingPeerChainNotes renders the A1 bounded

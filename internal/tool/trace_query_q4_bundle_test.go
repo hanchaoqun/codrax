@@ -230,7 +230,13 @@ func TestTraceQueryObservationsCarryLockLaneAndDrillNotes(t *testing.T) {
 	records := traceQueryTypedObservations(q4BundleFixtureResult(), "full.systrace", "payload-ref", "raw-ref", "", time.Unix(1751600000, 0).UTC())
 	joinNotes := func(notes []string) string { return strings.Join(notes, "\n") }
 
-	var lockRank, ioRank, blockingRow string
+	// BLK §15.C ①: the waiter-subject critical_blocking twin of the SAME
+	// physical span (same kind, same :1-5 line range, same pair) must NOT
+	// publish a second observation — the rank record is the single
+	// publication. The pre-§15.C shape (both lanes publishing, crossed
+	// directions) was the q6 "双向锁" misdirection.
+	var lockRank, ioRank, genericBlockingRow string
+	lockTwins := 0
 	for _, record := range records {
 		switch {
 		case record.Predicate == "root_cause_primary" && record.Object == "blocking_span":
@@ -238,17 +244,28 @@ func TestTraceQueryObservationsCarryLockLaneAndDrillNotes(t *testing.T) {
 		case record.Predicate == "root_cause_secondary" && record.Object == "io_latency":
 			ioRank = joinNotes(record.RichNotes)
 		case record.Predicate == "critical_blocking" && strings.Contains(joinNotes(record.RichNotes), "blocking_kind=monitor_contention"):
-			blockingRow = joinNotes(record.RichNotes)
+			lockTwins++
+		case record.Predicate == "critical_blocking":
+			genericBlockingRow = joinNotes(record.RichNotes)
 		}
 	}
-	if lockRank == "" || ioRank == "" || blockingRow == "" {
-		t.Fatalf("expected lock rank, io rank and blocking observations, got %d records", len(records))
+	if lockRank == "" || ioRank == "" {
+		t.Fatalf("expected lock rank and io rank observations, got %d records", len(records))
+	}
+	if lockTwins != 0 {
+		t.Fatalf("BLK §15.C ①: the critical_blocking lock twin must fold into the rank record, got %d twin observations", lockTwins)
+	}
+	if genericBlockingRow == "" {
+		t.Fatalf("the non-lock blocking row must keep publishing, got %d records", len(records))
 	}
 	for _, want := range []string{
 		"blocking_kind=monitor_contention",
 		"peer=app-100",
 		"holder_site=AssetManager.list(AssetManager.java:1258)",
 		"drill_status=undrilled_peer_known",
+		// BLK §15.C ①: the suppressed twin's display-exclusive families ride
+		// the surviving rank record (richer form survives).
+		"waiters=1",
 	} {
 		if !strings.Contains(lockRank, want) {
 			t.Fatalf("lock rank observation notes missing %q:\n%s", want, lockRank)
@@ -259,8 +276,5 @@ func TestTraceQueryObservationsCarryLockLaneAndDrillNotes(t *testing.T) {
 	}
 	if strings.Contains(ioRank, "drill_status=") {
 		t.Fatalf("rows without a counterpart lane must not claim a drill verdict:\n%s", ioRank)
-	}
-	if !strings.Contains(blockingRow, "drill_status=undrilled_peer_known") {
-		t.Fatalf("critical_blocking observation must carry drill_status:\n%s", blockingRow)
 	}
 }

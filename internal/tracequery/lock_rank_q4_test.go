@@ -65,6 +65,13 @@ func TestRootCauseRankPublishesResolvedLockContentionAsBlockingSpanHead(t *testi
 	if head.BlockingPeer.PID != 100 {
 		t.Fatalf("BlockingPeer must be the blocked waiter, got %+v", head.BlockingPeer)
 	}
+	// BLK §15.C bug①/②: the resolved rank lock row is flagged holder-subject so
+	// the display face reads a HOLD (holder blocked the waiter), never the
+	// reversed lock-WAIT the waiter-subject critical_blocking row carries for
+	// the SAME physical span.
+	if !head.SubjectIsLockHolder {
+		t.Fatalf("resolved lock rank row (subject=holder) must set SubjectIsLockHolder, got %+v", head)
+	}
 	// Direct on-chain admission through the typed pair: subject (holder) is
 	// off-chain, the coupling runs through the waiter's critical path.
 	if head.ChainRelevance != "on_chain" || head.Tier != "primary" {
@@ -209,6 +216,12 @@ func TestRootCauseRankKeepsUnresolvedLockContentionOffTheDirectLane(t *testing.T
 	}
 	if threadRefResolved(lock.BlockingPeer) {
 		t.Fatalf("unresolved contention must keep BlockingPeer empty, got %+v", lock.BlockingPeer)
+	}
+	// BLK §15.C: the subject stayed the WAITER (no holder swap), so the
+	// holder-subject display flag must stay false — the row keeps the ordinary
+	// lock-WAIT wording.
+	if lock.SubjectIsLockHolder {
+		t.Fatalf("unresolved contention (subject=waiter) must not set SubjectIsLockHolder, got %+v", lock)
 	}
 	if lock.ChainRelevance == "on_chain" {
 		t.Fatalf("unresolved contention must not take a direct on-chain slot, got %+v", lock)

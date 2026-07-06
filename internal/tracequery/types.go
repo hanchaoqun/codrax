@@ -1881,6 +1881,15 @@ type RootCauseRankItem struct {
 	BlockingKind string    `json:"blocking_kind,omitempty"`
 	BlockingPeer ThreadRef `json:"blocking_peer,omitempty"`
 	HolderSite   string    `json:"holder_site,omitempty"`
+	// SubjectIsLockHolder (BLK §15.C, 2026-07-06): on a resolved blocking_span
+	// rank row the SUBJECT is the lock HOLDER and BlockingPeer is the blocked
+	// WAITER (the reverse of the waiter-subject critical_blocking row for the
+	// SAME physical lock). This precise typed flag tells the projection renderer
+	// the row is a HOLD, not a wait — "持锁 X ms 阻塞了 <waiter>" instead of the
+	// reversed "锁竞争等待(持有者 <waiter>)" — and steers the next-step drilldown
+	// to name the HOLDER (the subject), never the waiter. False (payload named
+	// no resolvable holder) keeps the waiter-subject shape unchanged.
+	SubjectIsLockHolder bool `json:"subject_is_lock_holder,omitempty"`
 	// HolderSource / OwnerTidRaw (P0-E2a, §12 Q4-C): the typed origin of the
 	// resolved lock HOLDER on a blocking_span rank row —
 	// CounterpartSourceContentionPayload (payload tid present in trace,

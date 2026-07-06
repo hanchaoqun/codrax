@@ -253,6 +253,15 @@ const (
 	TraceNoteKeyPeerSource   = "peer_source"
 	TraceNoteKeyOwnerTidRaw  = "owner_tid_raw"
 	TraceNoteKeyWaitObject   = "wait_object"
+	// TraceNoteKeySubjectIsLockHolder (BLK §15.C, 2026-07-06): "true" on a
+	// resolved blocking_span rank row whose SUBJECT is the lock HOLDER (and
+	// whose peer= is the blocked WAITER). The projection compile reads it into
+	// TraceCausalProjectionNode.BlockingSubjectIsHolder so the renderer shows a
+	// HOLD ("持锁 X ms 阻塞了 <waiter>") instead of the reversed lock-WAIT the
+	// waiter-subject critical_blocking row already carries for the SAME physical
+	// lock, and steers the next-step drilldown to the holder (the subject), not
+	// the waiter. Display tier (renderer wording + next-step identity only).
+	TraceNoteKeySubjectIsLockHolder = "subject_is_lock_holder"
 )
 
 // 门控族 (gated-composition family, §7.30.3 D3).
@@ -455,6 +464,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyPeerSource, "blocking", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyOwnerTidRaw, "blocking", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyWaitObject, "blocking", TraceNoteCarrierDisplayOnly},
+	// BLK §15.C: subject-is-holder display flag (renderer HOLD wording +
+	// next-step holder identity). Display tier, hard node-field read-in.
+	{TraceNoteKeySubjectIsLockHolder, "blocking", TraceNoteCarrierHardConsumer},
 	{"flags", "blocking", TraceNoteCarrierDisplayOnly},
 	{"oneway", "blocking", TraceNoteCarrierDisplayOnly},
 	{"sync_like", "blocking", TraceNoteCarrierDisplayOnly},

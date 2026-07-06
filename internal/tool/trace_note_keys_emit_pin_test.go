@@ -277,7 +277,9 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				// P0-E2a: lock-lane rank rows publish the holder-resolution origin.
 				BlockingKind: "monitor_contention", BlockingPeer: tracequery.ThreadRef{Comm: "holder", PID: 102},
 				HolderSource: tracequery.CounterpartSourceContentionPayload, OwnerTidRaw: 0,
-				Summary: "runnable wait dominated the frame",
+				// BLK §15.C: the resolved rank lock row's subject is the holder.
+				SubjectIsLockHolder: true,
+				Summary:             "runnable wait dominated the frame",
 			}},
 		},
 		WakeupChain: &tracequery.ChainResult{

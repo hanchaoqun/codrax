@@ -1990,7 +1990,16 @@ func runtimeTraceCausalProjectionImpactShapeCellTyped(node types.TraceCausalProj
 	// §7.30.3 D1: lock-contention rows carry a typed BlockingKind — the
 	// duration is a blocked wait on a lock, so it always renders with that
 	// semantic label instead of a bare number or a generic candidate word.
+	// BLK §15.C ②: a holder-subject rank row was never blocked — its duration
+	// is time spent HOLDING the lock while the waiter starved, so the shape
+	// word says 持锁, not 阻塞 (same typed gate as the HOLD name).
 	if strings.TrimSpace(node.BlockingKind) != "" {
+		if node.BlockingSubjectIsHolder {
+			if zh {
+				return "锁竞争·持锁", false
+			}
+			return "lock contention · holder", false
+		}
 		if zh {
 			return "锁竞争·阻塞", false
 		}
@@ -2479,6 +2488,24 @@ func runtimeTraceCausalProjectionInversionRow(node types.TraceCausalProjectionNo
 func runtimeTraceCausalProjectionBlockingName(node types.TraceCausalProjectionNode, zh bool) string {
 	if strings.TrimSpace(node.BlockingKind) == "" {
 		return ""
+	}
+	// BLK §15.C: the resolved rank lock row's subject IS the holder — render a
+	// HOLD ("持锁阻塞了 <waiter>"), never the reversed lock-WAIT that the
+	// waiter-subject critical_blocking row already carries for the SAME physical
+	// lock. The waiter here is BlockingPeer (the row subject's contention
+	// counterpart).
+	if node.BlockingSubjectIsHolder {
+		waiter := strings.TrimSpace(node.BlockingPeer)
+		if zh {
+			if waiter != "" {
+				return "持锁阻塞(等待方 " + waiter + ")"
+			}
+			return "持锁阻塞"
+		}
+		if waiter != "" {
+			return "holds lock, blocking " + waiter
+		}
+		return "holds lock"
 	}
 	name := "锁竞争等待"
 	if !zh {
@@ -4244,6 +4271,21 @@ func runtimeTraceProjResolvedPeerScanNodes(projection types.TraceCausalProjectio
 // peer).
 func runtimeTraceNextStepResolvedPeer(node types.TraceCausalProjectionNode) (peer, holderSite string, lockShape bool) {
 	if strings.TrimSpace(node.BlockingKind) != "" && strings.TrimSpace(node.BlockingPeer) != "" {
+		// BLK §15.C ③: on a holder-subject rank node BlockingPeer is the blocked
+		// WAITER, not a holder to drill into — naming it "对持有者 <waiter>"
+		// reverses the direction (the q6 next-step-1 misdirection). The true
+		// holder to drill into is this node's own SUBJECT. After the §15.C ①
+		// single-publication fold the waiter-subject critical_blocking twin is
+		// dropped, so this rank node is the SOLE carrier of the lock fact and
+		// the holder drilldown must be synthesized here from the subject. A
+		// sentinel/unresolved subject yields no row rather than a wrong identity.
+		if node.BlockingSubjectIsHolder {
+			subject := strings.TrimSpace(node.Subject)
+			if !runtimeTraceCausalProjectionKnownSubject(subject) {
+				return "", "", false
+			}
+			return subject, strings.TrimSpace(node.BlockingHolderSite), true
+		}
 		return strings.TrimSpace(node.BlockingPeer), strings.TrimSpace(node.BlockingHolderSite), true
 	}
 	if strings.TrimSpace(node.Predicate) == "critical_blocking" &&

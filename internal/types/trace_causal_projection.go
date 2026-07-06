@@ -308,6 +308,15 @@ type TraceCausalProjectionNode struct {
 	BlockingPeer       string `json:"blocking_peer,omitempty"`
 	BlockingHolderSite string `json:"blocking_holder_site,omitempty"`
 	BlockingWaiters    int    `json:"blocking_waiters,omitempty"`
+	// BlockingSubjectIsHolder (BLK §15.C, 2026-07-06) mirrors the producer's
+	// typed "subject_is_lock_holder=true" note: THIS node's Subject is the lock
+	// HOLDER and BlockingPeer is the blocked WAITER (the resolved rank lock
+	// row). The renderer then reads the row as a HOLD — "持锁 X ms 阻塞了
+	// <BlockingPeer>" — instead of the reversed "锁竞争等待(持有者 <BlockingPeer>)"
+	// the waiter-subject critical_blocking node already carries for the SAME
+	// physical lock, and the next-step names the HOLDER (the subject), never the
+	// waiter. Empty/false keeps the waiter-subject lock-wait wording.
+	BlockingSubjectIsHolder bool `json:"blocking_subject_is_holder,omitempty"`
 	// TypeToken mirrors the producer's typed "type=" rich note verbatim (the
 	// candidate/root-cause kind token, e.g. blocking_span / d_state_or_io_wait /
 	// binder_wait on critical_blocking rows). Precise typed enum from the data
@@ -1340,6 +1349,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		}
 		node.BlockingHolderSite = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHolderSite))
 		node.BlockingWaiters = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyWaiters)
+		// BLK §15.C: the resolved rank lock row's subject is the holder — the
+		// renderer reads a HOLD (not the reversed lock-wait) from this exact
+		// typed note.
+		node.BlockingSubjectIsHolder = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySubjectIsLockHolder)) == "true"
 	}
 	// §7.30.3 D3: gated-impact composition for priority-inversion rows.
 	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunnable)

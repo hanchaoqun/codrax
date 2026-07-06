@@ -172,3 +172,80 @@ func TestRuntimeTraceNextStepNamedPeerEnglishWording(t *testing.T) {
 		t.Fatalf("EN named holder row missing:\nwant %q\n got %q", want, texts)
 	}
 }
+
+// TestBLKHolderSubjectRowRendersHoldNotReversedWait — BLK §15.C bug②/③ (q6 东湖
+// doFrame 复跑): a resolved lock rank row whose SUBJECT is the holder carries
+// subject_is_lock_holder=true. The renderer must read it as a HOLD ("持锁阻塞",
+// waiter=BlockingPeer), NEVER the reversed "锁竞争等待(持有者 <waiter>)"; and the
+// next-step must NOT name the waiter as a holder to drill into. After the
+// §15.C ① single-publication fold this rank node is the ONLY observation the
+// physical span publishes (the waiter-subject critical_blocking twin is
+// skipped at emission), so the holder drilldown comes from THIS node's own
+// subject — one hint, the true holder.
+func TestBLKHolderSubjectRowRendersHoldNotReversedWait(t *testing.T) {
+	// E3 shape: holder=RxComputation is the subject, waiter=main is BlockingPeer.
+	e3 := types.TraceCausalProjectionNode{
+		Subject:                 "#RxComputationT-16816",
+		BlockingKind:            "monitor_contention",
+		BlockingPeer:            ".ugc.aweme.lite-16547",
+		BlockingHolderSite:      "AssetManager.list(AssetManager.java:1258)",
+		BlockingSubjectIsHolder: true,
+	}
+	nameZH := runtimeTraceCausalProjectionBlockingName(e3, true)
+	if strings.Contains(nameZH, "持有者") || strings.Contains(nameZH, "锁竞争等待") {
+		t.Fatalf("holder-subject row must not render the reversed lock-WAIT wording, got %q", nameZH)
+	}
+	if !strings.Contains(nameZH, "持锁阻塞") || !strings.Contains(nameZH, ".ugc.aweme.lite-16547") {
+		t.Fatalf("holder-subject row must render a HOLD naming the waiter, got %q", nameZH)
+	}
+	cellZH := runtimeTraceCausalProjectionNodeSubjectCell(e3, true)
+	if !strings.Contains(cellZH, "#RxComputationT-16816") || !strings.Contains(cellZH, "持锁阻塞") {
+		t.Fatalf("holder-subject detail cell must lead with the holder subject and a HOLD, got %q", cellZH)
+	}
+	if strings.Contains(cellZH, "持有者 .ugc.aweme.lite-16547") {
+		t.Fatalf("holder-subject detail cell must not name the waiter as holder, got %q", cellZH)
+	}
+	// bug②, shape cell: the holder was never blocked — its duration is 持锁,
+	// not 阻塞.
+	if shape, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(e3, true); shape != "锁竞争·持锁" {
+		t.Fatalf("holder-subject shape cell must say 持锁, got %q", shape)
+	}
+	if shape, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(e3, false); shape != "lock contention · holder" {
+		t.Fatalf("EN holder-subject shape cell must say holder, got %q", shape)
+	}
+	// bug③: the drilldown names the HOLDER (this node's subject) — never the
+	// reversed "对持有者 <waiter>".
+	peer, site, lockShape := runtimeTraceNextStepResolvedPeer(e3)
+	if peer != "#RxComputationT-16816" || !lockShape {
+		t.Fatalf("holder-subject node must name ITSELF (the holder) as the drilldown target, got peer=%q lock=%v", peer, lockShape)
+	}
+	if site != "AssetManager.list(AssetManager.java:1258)" {
+		t.Fatalf("holder drilldown must keep the holding site, got %q", site)
+	}
+	// A sentinel subject yields no row at all rather than a wrong identity.
+	broken := e3
+	broken.Subject = ""
+	if p, _, l := runtimeTraceNextStepResolvedPeer(broken); p != "" || l {
+		t.Fatalf("sentinel holder subject must synthesize no drilldown, got peer=%q lock=%v", p, l)
+	}
+
+	// E1 reciprocal (waiter subject): the correct waiter→holder direction is
+	// UNCHANGED — holder wording + a named holder drilldown.
+	e1 := types.TraceCausalProjectionNode{
+		Subject:            ".ugc.aweme.lite-16547",
+		BlockingKind:       "monitor_contention",
+		BlockingPeer:       "#RxComputationT-16816",
+		BlockingHolderSite: "AssetManager.list(AssetManager.java:1258)",
+	}
+	e1Name := runtimeTraceCausalProjectionBlockingName(e1, true)
+	if e1Name != "锁竞争等待(持有者 #RxComputationT-16816)" {
+		t.Fatalf("waiter-subject row must keep the lock-WAIT holder wording, got %q", e1Name)
+	}
+	p1, _, lock1 := runtimeTraceNextStepResolvedPeer(e1)
+	if p1 != "#RxComputationT-16816" || !lock1 {
+		t.Fatalf("waiter-subject node must name the true holder as drilldown, got peer=%q lock=%v", p1, lock1)
+	}
+	if shape, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(e1, true); shape != "锁竞争·阻塞" {
+		t.Fatalf("waiter-subject shape cell keeps the blocked wording, got %q", shape)
+	}
+}

@@ -9847,6 +9847,13 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 		// pair (BlockingKind + resolved BlockingPeer) reads false and the row
 		// can never take a direct on-chain slot unresolved (§12.3 未解析不准入).
 		item.BlockingPeer = waiter
+		// BLK §15.C: the subject IS the holder here — the display face must read
+		// this row as a HOLD ("持锁 X ms 阻塞了 waiter"), never as the reversed
+		// lock-WAIT the waiter-subject critical_blocking row already carries for
+		// the SAME physical span. Only set when the holder resolved (subject
+		// swapped to the holder); the unresolved shape keeps the waiter subject
+		// and this stays false.
+		item.SubjectIsLockHolder = true
 	}
 	return item
 }

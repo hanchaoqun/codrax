@@ -219,6 +219,7 @@ var traceNoteKeyGoldenRows = []string{
 	"starved_runnable_ms|occupancy|display_only",
 	"state|state|display_only",
 	"storage_max|io|display_only",
+	"subject_is_lock_holder|blocking|hard_consumer",
 	"subject_kind|causal_rank|hard_consumer",
 	"supply_fold_deficit_ms|supply_fold|hard_consumer",
 	"supply_fold_ideal_ms|supply_fold|hard_consumer",
