@@ -840,6 +840,29 @@ func EventSearch(idx *Index, q Query) []EventView {
 }
 
 func eventInQuery(ev Event, q Query, typeSet map[EventType]bool) bool {
+	if !eventInQueryWindow(ev, q) {
+		return false
+	}
+	if len(typeSet) > 0 && !eventTypeMatches(ev, typeSet) {
+		return false
+	}
+	if strings.TrimSpace(q.Pattern) != "" && !eventMatchesPattern(ev, q.Pattern) {
+		return false
+	}
+	if q.PID > 0 && !eventMentionsPID(ev, q.PID) {
+		return false
+	}
+	if q.PID <= 0 && strings.TrimSpace(q.Thread) != "" && !eventMentionsThread(ev, q.Thread) {
+		return false
+	}
+	return true
+}
+
+// eventInQueryWindow is eventInQuery's line/time gate, extracted so the
+// zero-match cross-type recount (crossTypePatternHits) applies the EXACT same
+// window convention without drift: line bounds always apply; time bounds apply
+// only when no line bounds are set.
+func eventInQueryWindow(ev Event, q Query) bool {
 	if q.LineStart > 0 && ev.Line < q.LineStart {
 		return false
 	}
@@ -853,18 +876,6 @@ func eventInQuery(ev Event, q Query, typeSet map[EventType]bool) bool {
 		if q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
 			return false
 		}
-	}
-	if len(typeSet) > 0 && !eventTypeMatches(ev, typeSet) {
-		return false
-	}
-	if strings.TrimSpace(q.Pattern) != "" && !eventMatchesPattern(ev, q.Pattern) {
-		return false
-	}
-	if q.PID > 0 && !eventMentionsPID(ev, q.PID) {
-		return false
-	}
-	if q.PID <= 0 && strings.TrimSpace(q.Thread) != "" && !eventMentionsThread(ev, q.Thread) {
-		return false
 	}
 	return true
 }
@@ -14728,12 +14739,30 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 			out = append(out, "thread selector normalized from model/customer text: "+selector+"; pid-bearing scheduler fields are used for matching")
 		}
 	}
+	if caveat := threadSelectorSpanNameCaveat(idx, q, res); caveat != "" {
+		out = append(out, caveat)
+	}
 	if res.View == "event_search" && len(res.Events) == 0 {
 		out = append(out, "matched_events=0 for the selected filters; this is not absence proof if the thread label, time window, event types, or line window are too narrow")
 		if pattern := strings.TrimSpace(q.Pattern); pattern != "" {
 			out = append(out, fmt.Sprintf("pattern_no_match_hint=pattern %q is a literal substring, not a regex; try one shorter exact frame id/span label/marker token/symbol/DSO/callchain/source/symbolization_status/callchain_status/clock_confidence/cpu_known fragment, add event_types=[\"trace_mark\"] for B/E/C/S/F marker rows or event_types=[\"perf_sample\"] for CPU sample rows, or remove over-narrow pid/thread/time filters before falling back to grep/read_file; for B/E spans, do not search E|<pid>|<span_name> because end rows are unnamed E|<pid> or bare E on the same ftrace thread stack", pattern))
 			if len(q.EventTypes) == 0 {
 				out = append(out, fmt.Sprintf("next_pattern_call_hint=try trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"], time_start=%.6f, time_end=%.6f, limit=40), trace_query(view=\"event_search\", pattern=%q, event_types=[\"perf_sample\"], time_start=%.6f, time_end=%.6f, limit=40), or trace_query(view=\"span_window\", span_name=\"<span label>\", line_start=<line>, line_end=<line>) after selecting a line window", pattern, q.TimeStart, q.TimeEnd, pattern, q.TimeStart, q.TimeEnd))
+			} else {
+				// D-diag B-1 (§16): gating INVERSION. The recovery hint used to
+				// fire only when event_types was EMPTY — exactly backwards: a
+				// model that narrowed event_types and got zero matches is the
+				// caller most in need of "the type filter itself may be wrong"
+				// guidance (q7 burned five rounds on a pattern whose rows parse
+				// under a different type than the one it selected). Gate is
+				// precise: non-empty event_types AND zero matched rows. The
+				// bounded cross-type recount below turns the generic advice
+				// into a counted fact when the pattern does match rows of other
+				// types under the same window/thread filters.
+				if hits := crossTypePatternHits(idx, q); hits.total > 0 {
+					out = append(out, fmt.Sprintf("cross_type_pattern_hint=pattern %q does match %s row(s) in the same window and filters whose event type is outside event_types=%s (top types: %s); the event_types filter is what excluded them — drop event_types and rerun, or use trace_query(view=\"span_window\", span_name=\"<span label>\") when the match is a span label", pattern, hits.countLabel(), formatEventTypesFilter(q.EventTypes), hits.topLabel()))
+				}
+				out = append(out, fmt.Sprintf("next_pattern_call_hint=event_types=%s matched nothing for this pattern and the type filter itself may be excluding the rows; retry without event_types: trace_query(view=\"event_search\", pattern=%q, time_start=%.6f, time_end=%.6f, limit=40), or trace_query(view=\"span_window\", span_name=\"<span label>\", line_start=<line>, line_end=<line>) after selecting a line window", formatEventTypesFilter(q.EventTypes), pattern, q.TimeStart, q.TimeEnd))
 			}
 		}
 		if q.PID > 0 {
@@ -14754,6 +14783,202 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	out = append(out, traceWindowStrategyCaveats(q, res)...)
 	out = append(out, traceCompletenessCaveats(idx, q, res)...)
 	return out
+}
+
+// crossTypeRescan bounds (D-diag B-1, §16). The zero-match query already paid
+// one full filtered pass over the SAME in-window rows, so the recount can never
+// exceed the cost class of the search that triggered it; the explicit in-window
+// row budget plus the match cap additionally keep it a bounded sample on giant
+// windows — never an unbounded second full-trace scan. Rows outside the
+// line/time window cost only the cheap eventInQueryWindow comparisons and do
+// not consume the budget.
+const crossTypeRescanInWindowEventBudget = 250000
+const crossTypeRescanMatchCap = 200
+
+type crossTypeHitCount struct {
+	Type  EventType
+	Count int
+}
+
+type crossTypeHitSummary struct {
+	total     int
+	truncated bool
+	top       []crossTypeHitCount
+}
+
+func (s crossTypeHitSummary) countLabel() string {
+	if s.truncated {
+		return fmt.Sprintf("at least %d (count stopped early)", s.total)
+	}
+	return fmt.Sprintf("%d", s.total)
+}
+
+func (s crossTypeHitSummary) topLabel() string {
+	limit := len(s.top)
+	if limit > 3 {
+		limit = 3
+	}
+	parts := make([]string, 0, limit)
+	for _, h := range s.top[:limit] {
+		parts = append(parts, fmt.Sprintf("%s:%d", string(h.Type), h.Count))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// crossTypePatternHits recounts a zero-match pattern search WITHOUT the
+// event_types filter, keeping every other filter (window, pid, thread)
+// identical, and reports how many rows of OTHER event types would have
+// matched — the precise counterfactual for "would dropping event_types have
+// found the pattern?". Same-type rows are skipped through the same
+// eventTypeMatches predicate the failed search used (including its
+// compatibility aliases), so a row the original filter admitted is never
+// counted as cross-type evidence. Counts drive a soft hint only.
+func crossTypePatternHits(idx *Index, q Query) crossTypeHitSummary {
+	var sum crossTypeHitSummary
+	if idx == nil || len(q.EventTypes) == 0 || strings.TrimSpace(q.Pattern) == "" {
+		return sum
+	}
+	typeSet := make(map[EventType]bool, len(q.EventTypes))
+	for _, t := range q.EventTypes {
+		if t != "" {
+			typeSet[t] = true
+		}
+	}
+	if len(typeSet) == 0 {
+		return sum
+	}
+	counts := map[EventType]int{}
+	examined := 0
+	for _, ev := range idx.Events {
+		if !eventInQueryWindow(ev, q) {
+			continue
+		}
+		if examined >= crossTypeRescanInWindowEventBudget {
+			sum.truncated = true
+			break
+		}
+		examined++
+		if eventTypeMatches(ev, typeSet) {
+			// Rows the original type filter admitted were already searched by
+			// the zero-match query; only OTHER types are counterfactual hits.
+			continue
+		}
+		if !eventInQuery(ev, q, nil) {
+			continue
+		}
+		counts[ev.Type]++
+		sum.total++
+		if sum.total >= crossTypeRescanMatchCap {
+			sum.truncated = true
+			break
+		}
+	}
+	for typ, count := range counts {
+		sum.top = append(sum.top, crossTypeHitCount{Type: typ, Count: count})
+	}
+	sort.Slice(sum.top, func(i, j int) bool {
+		if sum.top[i].Count != sum.top[j].Count {
+			return sum.top[i].Count > sum.top[j].Count
+		}
+		return sum.top[i].Type < sum.top[j].Type
+	})
+	return sum
+}
+
+// formatEventTypesFilter renders q.EventTypes exactly as the tool parameter is
+// written (["trace_mark","perf_sample"]) so hint text stays copy-pasteable.
+func formatEventTypesFilter(types []EventType) string {
+	parts := make([]string, 0, len(types))
+	for _, t := range types {
+		if t != "" {
+			parts = append(parts, fmt.Sprintf("%q", string(t)))
+		}
+	}
+	return "[" + strings.Join(parts, ",") + "]"
+}
+
+// threadSelectorSpanNameCaveat is the D-diag B-2 (§16) thread=<span name>
+// silent-zero diagnosis. resolveThread returns ThreadRef{Comm: <selector>,
+// PID: 0} when a comm-less selector matches no scheduled thread, and every
+// thread-scoped face downstream (threadMatches' comm lane, window-stats
+// drill targets, timelines) then renders structural zeros without saying why —
+// q7 burned rounds treating the span label "bindApplication" as a thread.
+// Preconditions are all PRECISE signals:
+//   - a thread selector is present and carries no pid (pid selectors resolve
+//     on the pid lane and already have their own caveat);
+//   - resolveThread found no scheduled thread (PID == 0);
+//   - no in-window scheduler row's comm face equals the selector (residual
+//     pid==0 comm lane — e.g. swapper — mirroring threadMatches' EqualFold);
+//   - the selector text occurs verbatim (case-folded) as a span name in the
+//     parsed rows.
+//
+// Soft guidance only: the caveat never blocks or alters the query result.
+//
+// Cost discipline: the scan below runs only after resolveThread already missed
+// (itself a linear scan), adds at most ONE more allocation-free linear pass of
+// EqualFold comparisons over parsed events, and returns early the moment a
+// scheduler comm match disproves the caveat. Streamed results are excluded via
+// their streamed_* marker caveat because a streaming pass retains only rows
+// matched by the current filters — its event set says nothing about what the
+// trace schedules, so the "no scheduled thread" claim would be unsound there.
+func threadSelectorSpanNameCaveat(idx *Index, q Query, res Result) string {
+	if idx == nil || len(idx.Events) == 0 || q.PID > 0 {
+		return ""
+	}
+	selector := strings.TrimSpace(firstNonEmpty(q.ThreadInput, q.Thread))
+	if selector == "" {
+		return ""
+	}
+	for _, c := range res.Caveats {
+		if strings.HasPrefix(c, "streamed_") {
+			return ""
+		}
+	}
+	sel := parseThreadSelector(selector)
+	if sel.HasPID {
+		return ""
+	}
+	if ref := resolveThread(idx, q); ref.PID != 0 {
+		return ""
+	}
+	spanName := ""
+	for _, ev := range idx.Events {
+		if spanName == "" && ev.SpanName != "" &&
+			(strings.EqualFold(ev.SpanName, sel.Raw) || (sel.Name != "" && strings.EqualFold(ev.SpanName, sel.Name))) {
+			spanName = ev.SpanName
+		}
+		switch ev.Type {
+		case EventSchedSwitch, EventSchedWakeup, EventSchedWaking:
+			if eventInQueryWindow(ev, q) && selectorFoldEqualsSchedComm(sel, ev) {
+				// The selector does have in-window scheduler material after
+				// all (pid==0 comm lane); thread-scoped results are not
+				// structurally zero, so stay silent.
+				return ""
+			}
+		}
+	}
+	if spanName == "" {
+		return ""
+	}
+	return fmt.Sprintf("thread_selector_is_span_name=thread=%q matched no scheduled thread in the parsed trace rows, so thread-scoped scheduler numbers for it are structurally zero; the same text does occur as span label %q — use trace_query(view=\"span_window\", span_name=%q) to get that span's time window, or trace_query(view=\"event_search\", pattern=%q) to see its rows, then rerun thread-scoped views with a pid or thread name taken from those rows", selector, spanName, spanName, spanName)
+}
+
+// selectorFoldEqualsSchedComm mirrors threadMatches' comm lane (EqualFold on
+// the resolved Comm) across the four scheduler comm faces — the exact residual
+// lane that could still produce non-zero thread-scoped results when
+// resolveThread returned PID==0 (comm rows with pid 0, e.g. swapper).
+func selectorFoldEqualsSchedComm(sel threadSelector, ev Event) bool {
+	name := sel.Name
+	if name == "" {
+		name = sel.Raw
+	}
+	if name == "" {
+		return false
+	}
+	return (ev.Comm != "" && strings.EqualFold(ev.Comm, name)) ||
+		(ev.PrevComm != "" && strings.EqualFold(ev.PrevComm, name)) ||
+		(ev.NextComm != "" && strings.EqualFold(ev.NextComm, name)) ||
+		(ev.WakeeComm != "" && strings.EqualFold(ev.WakeeComm, name))
 }
 
 func traceWindowStrategyCaveats(q Query, res Result) []string {
