@@ -3703,11 +3703,70 @@ func explicitCurrentSourceExclusionCompletionBypassLabel(ctx *types.BusContext) 
 // trace_query observations; the streak fingerprint guarantees the downgrade
 // fires at most once per run, so it cannot livelock — if the model attempts
 // wakeup_chain and it fails, the second completion passes this gate.
+//
+// CHAIN-RECONCILE (账本 §18.B B-2, P1): the SAME (thread, s_sleep) subject can
+// carry TWO sibling state_drilldown rows across different calls — a
+// narrow-window top_sleep row (FragmentCount<4 inside that window, so it
+// SURVIVES the fragmented-sleep filter ⇒ chain_required=true) AND a
+// wide-window state_churn row (fragmented churn decomposition, e.g. 101
+// segments ⇒ chain_required=false). Both verdicts are correct for their own
+// query window; the plan dedup in query.go collapses duplicates only WITHIN
+// one call, so the contradiction is inherently cross-call and only this gate
+// sees it. A gate that looked only at the chain_required=true row burned the
+// one-shot retry even though the model had already seen the contradicting
+// sibling ("state_drilldown shows chain_required=false but I'm being told to
+// drill down" — the q9 wasted round). Reconcile rule: before downgrading a
+// chain_required=true row, check whether the SAME (Subject, Object=s_sleep)
+// also produced a state_churn / chain_required=false sibling whose query
+// window OVERLAPS the chain-required row's window ([aStart,aEnd] ∩
+// [bStart,bEnd] ≠ ∅, closed intervals). If it did, the thread's sleep in THAT
+// window already has a wide-window decomposition evidence face and the hard
+// gate stands down — the narrow-window chain requirement stays on every SOFT
+// surface (see 反例 below). The window condition keeps the reconcile honest:
+// a state_churn face from a DISJOINT window (thread churned in window A,
+// fragmented-slept in window B) explains nothing about the sleep in B and
+// must not waive B's drilldown. When the window note (selected_window,
+// fallback window) is missing or unparseable on EITHER side, the pair
+// conservatively does NOT reconcile — the obligation is kept rather than
+// guessed away on an absent precise signal. If no overlapping sibling exists,
+// the obligation stands and the downgrade fires, now with source/window
+// attribution so the model can locate the triggering row instead of
+// dismissing it as stale. All-typed judgement: Subject equality,
+// Object=="s_sleep", the chain_required boolean note, the source enum note
+// (source=state_churn — the ONLY producer lane of a chain_required=false
+// s_sleep row, stateDrilldownNeedsWakeupChainForSource; requiring it pins the
+// semantic justification, wide-window decomposition evidence, against future
+// producer drift), and the selected_window/window interval notes. No prose
+// scan, no heuristic.
+//
+// 反例 evaluation ("宽窗 false 但窄窗 true 确实该逼"?): the shape exists —
+// the user's jank can sit inside a narrow window whose top_sleep is one long
+// segment while the wide window shows fragmented churn. Standing down the
+// HARD gate is still correct there because (a) every SOFT surface survives:
+// the row itself keeps chain_required=true +
+// recommended_views=wakeup_chain,root_cause_rank on the wire, and the RN-14c
+// user-focus advisory and the projection's recommended-chain warning lane are
+// untouched; (b) two typed rows disagreeing is exactly the noisy-signal
+// condition of the precise-signals red line — the gate cannot know which
+// window the user cares about, so it must not spend a user-visible denial on
+// that coin flip; (c) the gate is one-shot — it only ever bought ONE nudge,
+// and when the model's context already holds the contradicting sibling that
+// nudge is the q9 wasted burn, not a correction.
 func wakeupChainDrilldownPendingDowngrade(ctx *types.BusContext) string {
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
 	}
-	chainRequiredSubject := ""
+	// Chain-required sleep rows in scan order (deterministic downgrade pick,
+	// with source/window attribution) and, per subject, the query windows of
+	// state_churn / chain_required=false sibling rows.
+	type chainRequiredRow struct {
+		subject string
+		source  string // source= enum note of the chain_required=true row
+		window  string // selected_window (fallback window) note of that row
+	}
+	var chainRequiredRows []chainRequiredRow
+	chainRequiredSubjects := map[string]bool{}
+	siblingWindowsBySubject := map[string][]string{}
 	haveWakeupFamily := false
 	for _, result := range append(ctx.Mutable.DispatchToolResults(), ctx.ToolResults...) {
 		if types.CanonicalToolName(result.ToolName) != "trace_query" {
@@ -3721,26 +3780,131 @@ func wakeupChainDrilldownPendingDowngrade(ctx *types.BusContext) string {
 				if strings.TrimSpace(obs.Object) != "s_sleep" {
 					continue
 				}
-				for _, note := range obs.RichNotes {
-					if strings.TrimSpace(note) == "chain_required=true" {
-						chainRequiredSubject = strings.TrimSpace(obs.Subject)
+				subject := strings.TrimSpace(obs.Subject)
+				if subject == "" {
+					continue
+				}
+				source := traceObservationNoteValue(obs.RichNotes, types.TraceNoteKeySource)
+				window := traceObservationNoteValue(obs.RichNotes, types.TraceNoteKeySelectedWindow)
+				if window == "" {
+					window = traceObservationNoteValue(obs.RichNotes, types.TraceNoteKeyWindow)
+				}
+				switch traceObservationNoteValue(obs.RichNotes, types.TraceNoteKeyChainRequired) {
+				case "true":
+					chainRequiredSubjects[subject] = true
+					chainRequiredRows = append(chainRequiredRows, chainRequiredRow{subject: subject, source: source, window: window})
+				case "false":
+					// A chain-NOT-required sibling for the SAME sleep subject —
+					// its evidence face (state_churn) covers the sleep without a
+					// wakeup chain, but only for its own query window; the
+					// overlap check below decides per chain-required row.
+					// state_churn is the canonical producer of the
+					// chain_required=false sleep row (query.go:4839 via
+					// stateDrilldownNeedsWakeupChainForSource); keying on it
+					// keeps the reconcile precise.
+					if source == "state_churn" && window != "" {
+						siblingWindowsBySubject[subject] = append(siblingWindowsBySubject[subject], window)
 					}
 				}
 			}
 		}
 	}
-	if chainRequiredSubject == "" || haveWakeupFamily {
+	if haveWakeupFamily || len(chainRequiredRows) == 0 {
 		return ""
 	}
+	// Pick the first (scan-order, deterministic) chain-required row that is
+	// genuinely still owed: no state_churn / chain_required=false sibling of
+	// the same subject covers an overlapping window. Missing/unparseable
+	// windows fail toward keeping the obligation.
+	var downgrade *chainRequiredRow
+	for i := range chainRequiredRows {
+		if wakeupChainSiblingWindowReconciles(chainRequiredRows[i].window, siblingWindowsBySubject[chainRequiredRows[i].subject]) {
+			continue
+		}
+		downgrade = &chainRequiredRows[i]
+		break
+	}
+	if downgrade == nil {
+		// Every chain_required=true sleep row was reconciled by a state_churn /
+		// chain_required=false sibling covering an overlapping window — the
+		// sleep already has a wide-window decomposition evidence face; no false
+		// downgrade, and the one-shot marker stays unburned for this run.
+		// Advisory log only (soft observability of a stood-down hard gate).
+		logging.Info("[emit_investigation_complete] wakeup-chain downgrade reconciled away: %d chain_required=true sleep subject(s) each carry a window-overlapping state_churn chain_required=false sibling", len(chainRequiredSubjects))
+		return ""
+	}
+	downgradeSubject, downgradeRow := downgrade.subject, *downgrade
 	if !ctx.Mutable.MarkCompletionGateOneShot("wakeup_chain_drilldown_pending") {
 		return ""
 	}
-	logging.Info("[emit_investigation_complete] one-shot wakeup-chain drilldown downgrade: subject=%s", chainRequiredSubject)
-	return EmitInvestigationCompleteDowngradePrefix + " — the drilldown plan marks the dominant sleep state of " + chainRequiredSubject +
-		" as requiring a wakeup-chain drilldown (chain_required=true), but no wakeup_chain view was run this turn. " +
+	logging.Info("[emit_investigation_complete] one-shot wakeup-chain drilldown downgrade: subject=%s source=%s window=%s",
+		downgradeSubject, downgradeRow.source, downgradeRow.window)
+	// Attribution rides the row's own typed notes verbatim (source= / query
+	// window) so the model can locate the exact state_drilldown row that
+	// carries the obligation instead of dismissing the downgrade as a stale
+	// misfire; legacy rows without those notes degrade to the bare flag.
+	attribution := "chain_required=true"
+	if source := strings.TrimSpace(downgradeRow.source); source != "" {
+		attribution += ", source=" + source
+	}
+	if window := strings.TrimSpace(downgradeRow.window); window != "" {
+		attribution += ", query window " + window
+	}
+	return EmitInvestigationCompleteDowngradePrefix + " — this run's own state_drilldown row marks the dominant sleep state of " + downgradeSubject +
+		" as requiring a wakeup-chain drilldown (" + attribution + "), and no sibling state_drilldown row of the same thread over an overlapping query window reconciles it with chain_required=false (source=state_churn). " +
+		"No wakeup_chain view was run this turn. " +
 		"Run trace_query(view=\"wakeup_chain\") for that thread and window once (bounded), then re-call emit_investigation_complete — " +
 		"with the chain the answer can name the upstream waker instead of stopping at the sleep symptom. " +
+		"If a state_churn row with chain_required=false already covers this thread over a window overlapping the one above, close on that evidence instead. " +
 		"If the view returns no structured chain, complete directly on the next attempt; this check does not repeat."
+}
+
+// wakeupChainSiblingWindowReconciles reports whether ANY state_churn sibling
+// window overlaps the chain-required row's window. Both sides must carry a
+// parseable typed window note (selected_window / window, "start..end" floats
+// as emitted by traceQueryWindowValue); a missing or malformed window on
+// either side fails toward keeping the drilldown obligation — precise-signal
+// absence is never guessed over. Closed-interval overlap: a state_churn face
+// whose query window merely touches the chain-required window still covers
+// the boundary instant; anything disjoint reconciles nothing.
+func wakeupChainSiblingWindowReconciles(requiredWindow string, siblingWindows []string) bool {
+	reqStart, reqEnd, ok := traceWindowNoteInterval(requiredWindow)
+	if !ok {
+		return false
+	}
+	for _, window := range siblingWindows {
+		sibStart, sibEnd, ok := traceWindowNoteInterval(window)
+		if !ok {
+			continue
+		}
+		if reqStart <= sibEnd && sibStart <= reqEnd {
+			return true
+		}
+	}
+	return false
+}
+
+// traceWindowNoteInterval parses the canonical typed window note value
+// ("<start>..<end>" floats, the exact shape traceQueryWindowValue /
+// traceQuerySelectedWindowNoteValue emit) into a closed interval. Local by
+// design — the projection layer's interval algebra stays in its own package;
+// this gate needs only plain [a,b] ∩ [c,d] ≠ ∅. Any deviation from the
+// canonical shape returns false and the caller keeps the obligation.
+func traceWindowNoteInterval(value string) (float64, float64, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, 0, false
+	}
+	parts := strings.SplitN(value, "..", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	start, errStart := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	end, errEnd := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if errStart != nil || errEnd != nil || end < start {
+		return 0, 0, false
+	}
+	return start, end, true
 }
 
 // userFocusWakeupChainGapNote implements RN-14c (§7.9): when the analyzer
