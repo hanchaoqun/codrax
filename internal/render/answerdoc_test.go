@@ -350,11 +350,14 @@ func TestRenderV2_BlockDecisionDedupesLeadingTypedVerdict(t *testing.T) {
 		},
 	}
 	out := RenderAnswerDocument(doc, "zh")
-	if strings.Count(out, "per_item_rejection") != 1 {
-		t.Fatalf("typed verdict should render once, got:\n%s", out)
+	// SPR #72: zh decision verdicts render mapped wording, never the raw
+	// enum token; the leading duplicate token in the model text is still
+	// stripped against the raw verdict before the wording prefix is added.
+	if strings.Contains(out, "per_item_rejection") {
+		t.Fatalf("zh decision surface must not leak the raw verdict token, got:\n%s", out)
 	}
-	if !strings.Contains(out, "`per_item_rejection` — batch 继续处理其余项。") {
-		t.Fatalf("decision body should keep model rationale after typed verdict, got:\n%s", out)
+	if !strings.Contains(out, "逐条拒绝 — batch 继续处理其余项。") {
+		t.Fatalf("decision body should keep model rationale after typed verdict wording, got:\n%s", out)
 	}
 }
 

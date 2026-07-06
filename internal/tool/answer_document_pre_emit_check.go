@@ -644,7 +644,7 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	if h := preCheckErrorGranularityVerdict(doc, view); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolAcceptance, h)
 	}
-	if h := preCheckCurrentStatusVerdict(doc, view); len(h) > 0 {
+	if h := preCheckCurrentStatusVerdict(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolCurrentStatusVerdictMissing, h)
 	}
 
@@ -10568,11 +10568,20 @@ func preCheckErrorGranularityVerdict(doc *types.AnswerDocumentV2, view *types.An
 	}}
 }
 
-func preCheckCurrentStatusVerdict(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+func preCheckCurrentStatusVerdict(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
 	if doc == nil || view == nil || view.CurrentStatusDiagnostic == nil || !view.CurrentStatusDiagnostic.Required {
 		return nil
 	}
 	if !types.MissingCurrentStatusVerdict(doc, view.CurrentStatusDiagnostic) {
+		return nil
+	}
+	// SPR #72 (RTC §8.3): when the origin-lane observation ledger carries
+	// zero current_source evidence for this run, the current-status
+	// obligation is not evaluable — do not force the model to side-pick a
+	// verdict enum it has no source evidence for. Precise signal (lane
+	// record count), demand-waiver only; runs WITH source evidence keep
+	// the demand byte-identical.
+	if pctx != nil && pctx.ctx != nil && !types.BusContextHasCurrentSourceObservationEvidence(pctx.ctx) {
 		return nil
 	}
 	return []emitFixHint{{

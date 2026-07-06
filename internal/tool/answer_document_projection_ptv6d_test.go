@@ -360,8 +360,12 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			name: "specimen2", records: ptv6Specimen2Records(),
 			lines: 15, tree: 2, adjacent: 0, background: 3, beforeLines: 23,
 			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5]"},
+			// b3 第三标本修 (2026-07-06): 调度等待 leaves the inversion trunk
+			// row at SOURCE (ActionCell category word suppressed on inversion
+			// rows) — not a packing loss; the negative arm lives in the ptv6c
+			// specimen pins.
 			inventory: []string{
-				"优先级反转候选", "链上L1", "调度等待",
+				"优先级反转候选", "链上L1",
 				"影响点 可运行等待反转（priority_inversion_runnable_wait）",
 				"有效归因1.661ms",
 				"IO等待(对端 udk-irq-3-65)", "D状态/IO等待(对端未解析)",

@@ -335,8 +335,15 @@ func TestPTV6CCauseFullWordGuaranteeOnTruncatedName(t *testing.T) {
 		t.Fatalf("cause full word must render exactly once on the row:\n%s", line)
 	}
 	// PTV6-D (a): the remaining demoted tags pack into ONE subordinate stream.
-	if !strings.Contains(lines[1], "· 链上L1 · 调度等待 · 链上累计2.262ms") {
+	// b3 第三标本修 (2026-07-06): the inversion row suppresses its ActionCell
+	// category word entirely (调度等待 left this stream; negative arm below).
+	if !strings.Contains(lines[1], "· 链上L1 · 链上累计2.262ms") {
 		t.Fatalf("demoted tags must pack into one subordinate stream:\n%s", line)
+	}
+	for _, banned := range []string{"调度等待", "执行/算力", "运行占用", "阻塞/IO"} {
+		if strings.Contains(line, banned) {
+			t.Fatalf("inversion row must carry NO ActionCell category word (%q):\n%s", banned, line)
+		}
 	}
 	// B 裁定防回潮.
 	if strings.Contains(line, "反转影响") {
@@ -535,6 +542,125 @@ func TestPTV6CActualWindowInlineStrictParse(t *testing.T) {
 	record.RichNotes[0] = "actual_window=3679.899436..3681.129875"
 	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "实际对齐窗 3679.899s–3681.130s: 运行 0.987ms" {
 		t.Fatalf("strict-parsed window must inline at %%.3f: %q", got)
+	}
+}
+
+// --- b3 第三标本修 (2026-07-06): 反转行 ActionCell 抑制 + 运行词 canonical -------
+
+// 标本行 (b3 PASS run, 20260706-113431.705-53617.html): 反转行 影响构成 =
+// 100% 可运行等待 + 零运行折算, ActionCell 却按 StateKind=running 给出
+// 执行/算力 — 状态驱动词与影响语义脱节, 且 算力 词贴 §7.4 车道边; #6 吸收表
+// 依赖 StateKindLabel 在场, 反转行状态标签走 typed 去重后 ActionCell 裸漏.
+func TestPTV6CB3InversionRowZeroActionCategoryWord(t *testing.T) {
+	node := types.TraceCausalProjectionNode{
+		Subject: "OS_FFRT_2_777-57436", Object: "priority_inversion_candidate",
+		StateKind: "running", PriorityInversionCandidate: true,
+		ImpactMS: 0.277, EffectiveImpactMS: 0.277,
+		GatedRunnableMS: 0.277, GatedRunningDeficitMS: 0, Confidence: 0.9,
+	}
+	for _, zh := range []bool{true, false} {
+		row := runtimeTraceProjTreeRow{
+			Node: node, Kind: runtimeTraceProjTreeRowChain, Edge: runtimeTraceProjTreeEdgeDrill,
+			Depth: 1, HasData: true, EvidenceTag: "E1", marks: &runtimeTraceProjMarkSet{},
+		}
+		_, tags := runtimeTraceProjRowMetricParts(row, 100, true, zh)
+		joined := ""
+		for _, tag := range tags {
+			joined += tag.Text + " · "
+		}
+		// 正向臂: 反转语义完备 — 影响构成 + 有效归因 都在.
+		if zh {
+			for _, want := range []string{"影响构成: 可运行等待 0.277ms + 运行折算 0.000ms", "有效归因0.277ms"} {
+				if !strings.Contains(joined, want) {
+					t.Fatalf("inversion row must keep its composite semantics (%q): %s", want, joined)
+				}
+			}
+		}
+		// 负向臂 (突变: 摘除反转行抑制即红): 零 ActionCell 类别词.
+		for _, banned := range []string{"执行/算力", "运行占用", "调度等待", "阻塞/IO", "候选根因",
+			"execution/CPU", "scheduling wait", "blocking/IO", "candidate cause"} {
+			if strings.Contains(joined, banned) {
+				t.Fatalf("zh=%v inversion row must carry NO ActionCell category word (%q): %s", zh, banned, joined)
+			}
+		}
+		// en face: the bare running word must not ride either (exact tag match
+		// — the en state word "running" would otherwise slip through substring
+		// checks).
+		if !zh {
+			for _, tag := range tags {
+				if tag.Text == "running" {
+					t.Fatalf("en inversion row leaked the running action word: %s", joined)
+				}
+			}
+		}
+	}
+}
+
+// b3 (b): 执行/算力 收敛为 canonical 运行占用 — the wording home and every
+// still-rendering path (lock rows keep an action word: their state tag is the
+// D1 lock word, not a state label). 突变臂: 词回栽即红.
+func TestPTV6CB3RunningActionWordCanonical(t *testing.T) {
+	if got := runtimeTraceCausalProjectionStateActionWord("running", true); got != "运行占用" {
+		t.Fatalf("running action word must converge onto the 裁定4 word: %q", got)
+	}
+	if got := runtimeTraceCausalProjectionStateActionWord("running", false); got != "running" {
+		t.Fatalf("EN running action word must converge: %q", got)
+	}
+	supply := types.TraceCausalProjectionNode{Subject: "w-1", Object: "compute_supply", StateKind: ""}
+	if got := runtimeTraceCausalProjectionActionCell(supply, true); got != "运行占用" {
+		t.Fatalf("compute_supply action cell must ride the canonical word: %q", got)
+	}
+	for _, zh := range []bool{true, false} {
+		if got := runtimeTraceCausalProjectionActionCell(types.TraceCausalProjectionNode{Subject: "w", Object: "x", StateKind: "running"}, zh); got == "执行/算力" || got == "execution/CPU" {
+			t.Fatalf("retired 执行/算力 word resurfaced: %q", got)
+		}
+	}
+	// Rendered path: a lock-contention row (state tag = D1 lock word, no
+	// state label) still shows the action word — now the canonical one.
+	lock := runtimeTraceProjTreeRow{
+		Node: types.TraceCausalProjectionNode{
+			Subject: "w-1", Object: "NetworkKit-42067", StateKind: "running",
+			BlockingKind: "monitor_contention", BlockingPeer: "NetworkKit-42067",
+			ImpactMS: 3, Confidence: 0.9,
+		},
+		Kind: runtimeTraceProjTreeRowChain, HasData: true, marks: &runtimeTraceProjMarkSet{},
+	}
+	joined := strings.Join(ptv6cRowTagTexts(lock), " · ")
+	if !strings.Contains(joined, "运行占用") || strings.Contains(joined, "执行/算力") {
+		t.Fatalf("lock row's action word must be the canonical running word: %s", joined)
+	}
+}
+
+// b3 (c) 同型漏网扫描落地: cause 词在场 (typed 同族) + 状态标签缺席 →
+// ActionCell 状态复述词抑制 (判据 typed; 非状态词不受影响).
+func TestPTV6CB3CauseWordFamilySuppressesBareActionWord(t *testing.T) {
+	for _, zh := range []bool{true, false} {
+		// Object = bare running token, StateKind empty: the cause word speaks
+		// the running family — the action restatement yields on BOTH faces.
+		bare := runtimeTraceProjTreeRow{
+			Node: types.TraceCausalProjectionNode{
+				Subject: "w-1", Object: "running", StateKind: "",
+				ImpactMS: 2, Confidence: 0.9,
+			},
+			Kind: runtimeTraceProjTreeRowChain, HasData: true, marks: &runtimeTraceProjMarkSet{},
+		}
+		_, tags := runtimeTraceProjRowMetricParts(bare, 100, true, zh)
+		for _, tag := range tags {
+			if tag.Text == "运行占用" || tag.Text == "running" {
+				t.Fatalf("zh=%v bare-token row must absorb the action restatement: %+v", zh, tags)
+			}
+		}
+	}
+	// Non-state cause word keeps its generic action word (no over-reach).
+	churn := runtimeTraceProjTreeRow{
+		Node: types.TraceCausalProjectionNode{
+			Subject: "w-1", Object: "page_cache_churn", StateKind: "",
+			ImpactMS: 2, Confidence: 0.9,
+		},
+		Kind: runtimeTraceProjTreeRowChain, HasData: true, marks: &runtimeTraceProjMarkSet{},
+	}
+	if joined := strings.Join(ptv6cRowTagTexts(churn), " · "); !strings.Contains(joined, "候选根因") {
+		t.Fatalf("non-state cause word must keep the generic action word: %s", joined)
 	}
 }
 

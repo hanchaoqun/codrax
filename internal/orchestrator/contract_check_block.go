@@ -2361,6 +2361,17 @@ func validateCurrentStatusVerdict(doc *types.AnswerDocumentV2, view *types.Answe
 	if doc == nil || view == nil || !requiresCurrentStatusDecision(view) {
 		return nil
 	}
+	// SPR #72 (RTC §8.3): the persist-time stamp records that the
+	// origin-lane observation ledger carried zero current_source evidence
+	// for this run. The current-status obligation is not evaluable in that
+	// state: the gate neither demands a verdict (no forced side-pick, no
+	// retry burn) nor consumes a side-picked verdict as a satisfied
+	// decision signal. The model's raw verdict (if any) stays on the block
+	// as the audit record; the renderer downgrades its surface to the
+	// caveat form.
+	if doc.CurrentStatusVerdictDowngrade != nil {
+		return nil
+	}
 	decision := types.CurrentStatusDecisionBlock(doc)
 	if decision == nil {
 		return []types.Violation{currentStatusVerdictViolation(

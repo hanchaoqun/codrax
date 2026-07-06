@@ -124,6 +124,16 @@ type AnswerDocumentV2 struct {
 	// and the accepted answer document. It is internal runtime metadata, not an
 	// LLM-facing emit_answer_document schema field.
 	ReadReasoningGraph *AnswerReasoningGraphSummary `json:"read_reasoning_graph,omitempty"`
+
+	// CurrentStatusVerdictDowngrade is the typed evidence downgrade for the
+	// current-status decision verdict (SPR #72, RTC ledger §8.3). Stamped by
+	// the tool runtime at persist time when the origin-lane observation
+	// ledger carries zero current_source evidence for the run; the renderer
+	// downgrades the verdict surface to a caveat form and the obligation
+	// gates stop demanding/consuming the verdict. The block's own
+	// CurrentStatusVerdict field is never modified — it is the audit
+	// position. Not an LLM-facing emit_answer_document schema field.
+	CurrentStatusVerdictDowngrade *CurrentStatusVerdictDowngrade `json:"current_status_verdict_downgrade,omitempty"`
 }
 
 // AnswerReasoningGraphSummary is the compact read-mode evidence-ledger header

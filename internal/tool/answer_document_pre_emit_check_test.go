@@ -4616,7 +4616,7 @@ func TestPreCheckCurrentStatusVerdict_UsesTypedDecisionField(t *testing.T) {
 			Text:        "fixed: prose alone should not satisfy the typed verdict contract.",
 		}},
 	}
-	hints := preCheckCurrentStatusVerdict(doc, view)
+	hints := preCheckCurrentStatusVerdict(doc, view, nil)
 	if len(hints) != 1 {
 		t.Fatalf("missing current_status_verdict should be rejected: %+v", hints)
 	}
@@ -4626,7 +4626,7 @@ func TestPreCheckCurrentStatusVerdict_UsesTypedDecisionField(t *testing.T) {
 	}
 	doc.Blocks[0].Text = "看起来已经修复，但这里的自然语言不参与硬判断。"
 	doc.Blocks[0].CurrentStatusVerdict = types.CurrentStatusFixed
-	if hints := preCheckCurrentStatusVerdict(doc, view); len(hints) != 0 {
+	if hints := preCheckCurrentStatusVerdict(doc, view, nil); len(hints) != 0 {
 		t.Fatalf("typed verdict should satisfy current-status contract: %+v", hints)
 	}
 }

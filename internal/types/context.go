@@ -2993,6 +2993,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 	}
 	out.ReadLocalizerFollowup = CloneReadLocalizerFollowupPtr(in.ReadLocalizerFollowup)
 	out.ReadReasoningGraph = CloneAnswerReasoningGraphSummaryPtr(in.ReadReasoningGraph)
+	out.CurrentStatusVerdictDowngrade = in.CurrentStatusVerdictDowngrade.Clone()
 	return out
 }
 

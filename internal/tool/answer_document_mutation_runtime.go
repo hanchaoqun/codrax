@@ -202,6 +202,14 @@ func persistMergedAnswerDocument(
 	// signal. Take() consumes the records so a failed persist cannot
 	// leak them into an unrelated later persist.
 	materializeDetachedCitationRefCaveats(merged, ctx, ctx.Mutable.TakePendingDetachedCitationDisclosures())
+	// SPR #72 (RTC §8.3): stamp the current-status verdict evidence
+	// downgrade from the origin-lane observation ledger. Must run after
+	// every block-mutating pass above so the stamp targets the final
+	// decision block; the block's own verdict field is never modified
+	// (audit position).
+	if stampCurrentStatusVerdictEvidenceDowngrade(ctx, merged) {
+		logging.Info("[%s] current-status verdict downgraded to not-evaluable disclosure: origin-lane ledger has zero current_source evidence this run (original verdict retained for audit)", toolName)
+	}
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}
@@ -1869,6 +1877,18 @@ func runtimeTraceCausalProjectionLayerCell(node types.TraceCausalProjectionNode,
 }
 
 func runtimeTraceCausalProjectionActionCell(node types.TraceCausalProjectionNode, zh bool) string {
+	word, _ := runtimeTraceCausalProjectionActionCellWithFamily(node, zh)
+	return word
+}
+
+// runtimeTraceCausalProjectionActionCellWithFamily returns the action word
+// together with the scheduler-state FAMILY it restates ("" = the cell carries
+// non-state information: sleep drill guidance, candidate words, optimization
+// points). PTV6-C 第三标本修 (b3, 2026-07-06): the family is the typed dedupe
+// signal for the #6 absorption net — the tag builder suppresses a pure
+// restatement when the same family is already spoken by the row's state tag
+// or its cause word, judged on typed tokens only.
+func runtimeTraceCausalProjectionActionCellWithFamily(node types.TraceCausalProjectionNode, zh bool) (string, string) {
 	causeKind := strings.TrimSpace(strings.ToLower(firstNonEmptyAnswerString(node.Object, node.Predicate)))
 	stateKind := strings.TrimSpace(strings.ToLower(node.StateKind))
 	if stateKind == "" {
@@ -1877,47 +1897,47 @@ func runtimeTraceCausalProjectionActionCell(node types.TraceCausalProjectionNode
 	if node.IsSleepState() {
 		if node.Undrillable() {
 			if zh {
-				return "睡眠症状·缺唤醒边"
+				return "睡眠症状·缺唤醒边", ""
 			}
-			return "sleep symptom·no wake edge"
+			return "sleep symptom·no wake edge", ""
 		}
 		if strings.TrimSpace(node.DrilldownTarget) != "" {
 			if zh {
-				return "睡眠症状→查上游"
+				return "睡眠症状→查上游", ""
 			}
-			return "sleep symptom→upstream"
+			return "sleep symptom→upstream", ""
 		}
 		if zh {
-			return "睡眠症状"
+			return "睡眠症状", ""
 		}
-		return "sleep symptom"
+		return "sleep symptom", ""
 	}
 	if causeKind == "compute_supply" {
-		if zh {
-			return "执行/算力"
-		}
-		return "execution/CPU"
+		// b3 (b): the former 执行/算力 converges onto the canonical running
+		// word (the 算力 lane word leaves the demand-side action cell — §7.4);
+		// family=running so a same-family state tag still absorbs it.
+		return runtimeTraceCausalProjectionStateActionWord("running", zh), "running"
 	}
 	if node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span" {
 		class := strings.TrimSpace(node.SemanticClass)
 		if zh {
 			if class != "" {
-				return "优化点·" + runtimeTraceCausalProjectionCompactCellText(class, 22)
+				return "优化点·" + runtimeTraceCausalProjectionCompactCellText(class, 22), ""
 			}
-			return "确定性优化点"
+			return "确定性优化点", ""
 		}
 		if class != "" {
-			return "optimize·" + runtimeTraceCausalProjectionCompactCellText(class, 22)
+			return "optimize·" + runtimeTraceCausalProjectionCompactCellText(class, 22), ""
 		}
-		return "optimization point"
+		return "optimization point", ""
 	}
 	if word := runtimeTraceCausalProjectionStateActionWord(stateKind, zh); word != "" {
-		return word
+		return word, runtimeTraceProjActionJointFamily(stateKind)
 	}
 	if zh {
-		return "候选根因"
+		return "候选根因", ""
 	}
-	return "candidate cause"
+	return "candidate cause", ""
 }
 
 // runtimeTraceCausalProjectionStateActionWord is the SINGLE home for the
@@ -1930,10 +1950,14 @@ func runtimeTraceCausalProjectionActionCell(node types.TraceCausalProjectionNode
 func runtimeTraceCausalProjectionStateActionWord(stateKind string, zh bool) string {
 	switch strings.TrimSpace(strings.ToLower(stateKind)) {
 	case "running":
+		// b3 (b) (第三标本, 2026-07-06): canonical convergence onto the 裁定4
+		// running word — 执行/算力 put the compute-delivery lane word (算力,
+		// §7.4) on demand-side rows and dodged the #6 absorption net whenever
+		// the state tag was absent.
 		if zh {
-			return "执行/算力"
+			return "运行占用"
 		}
-		return "execution/CPU"
+		return "running"
 	case "runnable":
 		// PTV5 Q4 (#68 用户裁定 2026-07-05): the runnable action word says what
 		// the WAIT is (调度等待) — the former 调度/优先级 collided by word-table

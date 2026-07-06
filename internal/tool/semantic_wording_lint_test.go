@@ -47,8 +47,6 @@ var wordingLaneRules = []wordingLaneRule{
 		whitelist: map[string]bool{
 			"answer_document_mutation_runtime_typelabels.go::runtimeTraceRootCauseTypeZHLabel":   true, // compute_supply → 算力供给 (delivery-lane zh label)
 			"answer_document_mutation_runtime.go::runtimeTraceProjCompareOverviewBlock":          true, // compare-overview 算力供给(归一化) column header
-			"answer_document_mutation_runtime.go::runtimeTraceCausalProjectionActionCell":        true, // 执行/算力 action cell compute_supply branch (consuming side, RN-15 sweep kept)
-			"answer_document_mutation_runtime.go::runtimeTraceCausalProjectionStateActionWord":   true, // 执行/算力 action word (consuming side; PTV6-C #6 extracted the ActionCell state switch into this single home)
 			"answer_document_mutation_runtime.go::runtimeTraceCausalProjectionImpactMeaningCell": true, // 本层运行/算力占用 meaning cell (consuming side)
 			"trace_query.go::writeTraceComputeSupplyBalance":                                     true, // compute_supply_balance(算力供给) delivery stanza
 		},

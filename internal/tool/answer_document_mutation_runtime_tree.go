@@ -3200,6 +3200,23 @@ func runtimeTraceProjTypedSameCause(a, b string) bool {
 	return ca != "" && ca == cb
 }
 
+// runtimeTraceProjActionJointFamily maps a typed token onto the ACTION-word
+// family space (b3 修, 2026-07-06): the blocking action word (阻塞/IO) covers
+// the d_state / io_wait / d_state_or_io_wait classes jointly, so the family
+// compare must treat them as one; running/runnable map through unchanged.
+// "" = no action family (sleep and non-state tokens).
+func runtimeTraceProjActionJointFamily(token string) string {
+	switch runtimeTraceProjStateTokenClass(token) {
+	case "running":
+		return "running"
+	case "runnable":
+		return "runnable"
+	case "d_state", "io_wait", "d_state_or_io_wait":
+		return "blocking_io"
+	}
+	return ""
+}
+
 // runtimeTraceProjStateTokenClass maps a typed token to its scheduler-state
 // family for the dedupe identity compare — exact token membership (the
 // ambiguous d_state_or_io_wait family is its OWN class: it never folds into
@@ -3762,7 +3779,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: text})
 	}
-	if action := runtimeTraceCausalProjectionActionCell(node, zh); action != "" &&
+	if action, actionFamily := runtimeTraceCausalProjectionActionCellWithFamily(node, zh); action != "" &&
 		row.Kind != runtimeTraceProjTreeRowBackground {
 		// PTV5 C12 (#68): a semantic-span row whose shape tag already carries
 		// the class token (shape-cell path + SemanticClass, precise) trims the
@@ -3776,14 +3793,31 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 				action = "optimize"
 			}
 		}
-		// PTV6-C #6 (#73, 标本归因 2026-07-06): when the state tag already
-		// speaks the row's dominant state (pure StateKindLabel path), an
-		// action cell that merely RESTATES the same state is a near-synonym
-		// (可运行等待 vs 调度等待) — the state word absorbs it (全词一处).
+		// PTV6-C #6 (#73) + b3 第三标本修 (2026-07-06): a state-restating
+		// action word (typed family non-"") yields whenever the SAME family
+		// is already spoken on the row — by the 裁定4 state tag (pure
+		// StateKindLabel path) or by the cause word (typed token classes,
+		// zh/en 双面同判); and an inversion row suppresses the category word
+		// ENTIRELY — the cause full word 优先级反转候选 + 影响构成 carry the
+		// complete semantics, while a state-driven word (执行/算力 on a
+		// runnable-dominated composite) contradicted the gated split.
 		// Action cells carrying other information (sleep drill guidance,
 		// candidate words, 优化点) are untouched.
-		if shapeCellUsed || stateTag == "" ||
-			action != runtimeTraceCausalProjectionStateActionWord(node.StateKind, zh) {
+		suppress := false
+		switch {
+		case runtimeTraceCausalProjectionInversionRow(node):
+			suppress = true
+		case actionFamily == "":
+			suppress = false
+		case !shapeCellUsed && stateTag != "":
+			// The state tag derives from node.StateKind — the same source the
+			// action family read (fallback only fires when StateKind is
+			// empty, and then stateTag is empty too).
+			suppress = true
+		case runtimeTraceProjActionJointFamily(runtimeTraceCausalProjectionCauseDisplayToken(node)) == actionFamily:
+			suppress = true
+		}
+		if !suppress {
 			tags = append(tags, runtimeTraceProjTag{Text: action})
 		}
 	}

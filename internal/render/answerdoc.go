@@ -351,7 +351,17 @@ func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types
 	if blk.CurrentStatusVerdict != "" {
 		rawVerdict := string(blk.CurrentStatusVerdict)
 		body = stripLeadingDecisionVerdict(body, rawVerdict)
-		verdict := "`" + rawVerdict + "`"
+		var verdict string
+		if types.CurrentStatusDowngradeForBlock(doc, blk) != nil {
+			// SPR #72 (RTC §8.3): run-level evidence downgrade — the
+			// origin-lane ledger holds zero current_source evidence, so
+			// the side-picked verdict renders as a caveat disclosure
+			// instead of an asserted conclusion. The model's prose body
+			// is preserved verbatim below.
+			verdict = decisionVerdictDowngradeDisplay(rawVerdict, lang)
+		} else {
+			verdict = decisionVerdictDisplay(rawVerdict, lang)
+		}
 		if body != "" {
 			body = verdict + " — " + body
 		} else {
@@ -361,7 +371,7 @@ func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types
 	if blk.ErrorGranularityVerdict != "" {
 		rawVerdict := string(blk.ErrorGranularityVerdict)
 		body = stripLeadingDecisionVerdict(body, rawVerdict)
-		verdict := "`" + rawVerdict + "`"
+		verdict := decisionVerdictDisplay(rawVerdict, lang)
 		if body != "" {
 			body = verdict + " — " + body
 		} else {
