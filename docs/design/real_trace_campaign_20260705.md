@@ -1328,3 +1328,6 @@ emit_investigation_complete aggregate_facts 浮点度量(supply_pressure 101084.
 
 ### §18 批次归口
 NUM 数字格式批(§18.A 两根因,emit_investigation_complete.go+answer_aggregate_fact.go,先行 P0)/CHAIN-RECONCILE(§18.B B-2,chain_required reconcile+文案,P1)/SG-2(§18.C 散文头条禁令[§17-A 合并]+q8 持有者组件归属披露)/P0-A+RCX²(§18.C 目标症状需先解 F1 裁定张力/covered 分母/名册)/LANE(fanout 收敛评估)。
+
+### §18.A.1 NUM 落地裁定补记(2026-07-07,防按原处方"纠偏"回退)
+原处方(§18.A"无条件改判、不需场景门")落地时**保留一个例外**:IsCountQuestion==true(真整数计数问题)仍硬拒浮点 count 值 — 朝保守方向偏离,理由:①该 predicate 是既有硬门 typed carve-out 先例(gate/hard_gate.go:142);②analyzer 自洽门强制 is_count_question→is_scalar_answer,HEAD 旧门经 IsScalarAnswer 分支使计数硬拒**从未真实可达** — NUM 改后计数车道首次真实收紧、非计数车道放宽,是加固非放宽;③纵深防御:即使门失效,确定性计数证明门独立 DOWNGRADE 兜底。复核无 P0/P1/P2;两 nit 就地收(拒绝文案 kind 重复渲染/嵌单位数值"10.503ms"形态一跳路由)。

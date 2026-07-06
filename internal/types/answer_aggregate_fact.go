@@ -5117,10 +5117,25 @@ func parseAggregateCountValue(fact AnswerAggregateFact) (int, bool, error) {
 	}
 	value := strings.TrimSpace(fact.Value)
 	if value == "" {
-		return 0, false, fmt.Errorf("%s %q requires a non-negative integer value", fact.Kind, fact.Label)
+		return 0, false, fmt.Errorf("%s %q requires a non-negative integer value; for a duration/latency/percentage/frequency/density measurement use kind=scalar_value and put the dimension in unit",
+			fact.Kind, fact.Label)
 	}
 	n, err := strconv.Atoi(value)
 	if err != nil || n < 0 {
+		if _, ferr := strconv.ParseFloat(value, 64); ferr == nil && err != nil {
+			return 0, false, fmt.Errorf("%s %q has non-integer measurement value %q which cannot go in a count field; for a duration/latency/percentage/frequency/density value use kind=scalar_value and put the dimension in unit",
+				fact.Kind, fact.Label, fact.Value)
+		}
+		// A numeric value with a trailing unit spelled into it (e.g.
+		// "10.503ms") fails ParseFloat too; route it in ONE hop instead of
+		// making the model first strip the unit and only then learn about
+		// scalar_value on the retry.
+		if _, ferr := strconv.ParseFloat(strings.TrimRightFunc(value, func(r rune) bool {
+			return !(r >= '0' && r <= '9') && r != '.'
+		}), 64); ferr == nil {
+			return 0, false, fmt.Errorf("%s %q has non-integer count value %q; for a measurement like this use kind=scalar_value, keep value numeric, and put the unit text in unit",
+				fact.Kind, fact.Label, fact.Value)
+		}
 		return 0, false, fmt.Errorf("%s %q has non-integer count value %q; put units in unit and keep value numeric",
 			fact.Kind, fact.Label, fact.Value)
 	}

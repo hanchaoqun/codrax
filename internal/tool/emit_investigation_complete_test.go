@@ -7693,6 +7693,91 @@ func TestEmitInvestigationComplete_DecimalTotalCountNormalizesToScalar(t *testin
 	}
 }
 
+func TestEmitInvestigationComplete_MemberlessDecimalCountNormalizesForInRepoRootCause(t *testing.T) {
+	// Blob q9 shape: intent=root_cause, in-repo (no external runtime artifact),
+	// is_scalar_answer=false, not a count question. A memberless float density
+	// misfiled into a count kind must reclassify to scalar_value WITHOUT any
+	// runtime-artifact scene gate — this is the reclassification that eliminates
+	// the grouped/bucket/total count-kind ping-pong hard reject.
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioRootCause,
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"pressure density is a derived runtime measurement, not a count",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"grouped_count",
+			"label":"pressure density",
+			"value":"77.70",
+			"unit":"pressure/ms",
+			"provenance":"trace_query.window_stats"
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("in-repo root_cause memberless decimal measurement should normalize, not reject: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Kind != types.AnswerAggregateScalar || facts[0].Value != "77.70" {
+		t.Fatalf("expected scalar runtime measurement, got %+v", facts)
+	}
+}
+
+func TestEmitInvestigationComplete_MemberDecimalCountKeepsMemberRepairPath(t *testing.T) {
+	// A count fact WITH members is a legitimate count: the member-repair path
+	// derives the integer value from the exact member set and the kind must stay
+	// a count. The memberless-decimal reclassification must NOT touch it.
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioRootCause,
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"three groups observed",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"grouped_count",
+			"label":"observed groups",
+			"value":"2.5",
+			"unit":"groups",
+			"members":["alpha","beta","gamma"],
+			"provenance":"trace_query.window_stats"
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("membered grouped_count should be repaired from members, not rejected: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 {
+		t.Fatalf("expected 1 fact, got %+v", facts)
+	}
+	if facts[0].Kind != types.AnswerAggregateGroupedCount {
+		t.Fatalf("membered count fact must stay a count kind, got %s", facts[0].Kind)
+	}
+	if facts[0].Value != "3" {
+		t.Fatalf("membered count value should be repaired to len(members)=3, got %q", facts[0].Value)
+	}
+}
+
 func TestEmitInvestigationComplete_DecimalTotalCountStillRejectsCodeCount(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{

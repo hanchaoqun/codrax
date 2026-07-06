@@ -1085,7 +1085,15 @@ func normalizeCompletionAggregateFactCompat(ctx *types.BusContext, raw []types.A
 	}
 	out := append([]types.AnswerAggregateFact(nil), raw...)
 	var notes []string
-	allowDecimalCountScalar := completionAggregateFactsAllowDecimalCountScalar(ctx)
+	// A memberless non-integer value in a count kind is a measurement
+	// (duration/latency/percentage/frequency/density) that was misfiled — a float
+	// in a count field is a semantic error in ANY intent/scenario, so reclassify
+	// it to scalar_value unconditionally rather than gating on a runtime-artifact
+	// scene (which stranded in-repo root_cause turns and drove the count-kind
+	// ping-pong retries). The one exception is a genuine integer-count question
+	// (IsCountQuestion): there a decimal is a real user-facing error and must
+	// remain a hard reject so the model corrects the count itself.
+	allowMemberlessDecimalScalar := !completionAggregateFactIsIntegerCountQuestion(ctx)
 	for i := range out {
 		fact := &out[i]
 		if completionAggregateFactValueRepairableFromMembers(*fact) {
@@ -1093,7 +1101,7 @@ func normalizeCompletionAggregateFactCompat(ctx *types.BusContext, raw []types.A
 			fact.Value = strconv.Itoa(len(fact.Members))
 			notes = append(notes, fmt.Sprintf("aggregate_facts[%d] %s value %q->%s from exact members", i, fact.Kind, oldValue, fact.Value))
 		}
-		if !allowDecimalCountScalar || !completionAggregateFactDecimalCountShouldBeScalar(*fact) {
+		if !allowMemberlessDecimalScalar || !completionAggregateFactDecimalCountShouldBeScalar(*fact) {
 			continue
 		}
 		oldKind := fact.Kind
@@ -1127,15 +1135,18 @@ func completionAggregateFactValueRepairableFromMembers(fact types.AnswerAggregat
 	return err != nil || n < 0
 }
 
-func completionAggregateFactsAllowDecimalCountScalar(ctx *types.BusContext) bool {
+// completionAggregateFactIsIntegerCountQuestion reports whether the request is a
+// genuine integer-count question (IsCountQuestion) — the single precise typed
+// signal that marks the boundary where a decimal value in a count kind is a real
+// user-facing error (the model must correct the count itself) rather than a
+// misfiled runtime measurement. For every other intent/scenario a memberless
+// float in a count kind is reclassified to scalar_value; only this boundary keeps
+// the decimal a hard reject.
+func completionAggregateFactIsIntegerCountQuestion(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	rm := ctx.AnalysisIR.RequestModel
-	if rm.HasExternalOnlyRuntimeArtifact() {
-		return true
-	}
-	return rm.Predicates.IsScalarAnswer || rm.Intent == types.IntentTrace
+	return ctx.AnalysisIR.RequestModel.Predicates.IsCountQuestion
 }
 
 func completionAggregateFactDecimalCountShouldBeScalar(fact types.AnswerAggregateFact) bool {
