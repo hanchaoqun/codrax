@@ -3892,6 +3892,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load providers config: %w", err)
 	}
 	anchorProviderTLSCAFiles(providersCfg, configAnchor)
+	anchorProviderOAuthCacheFiles(providersCfg, configAnchor)
 	llm.SetDisplayLanguage(flagLang)
 	interactiveStartup := strings.TrimSpace(flagRequest) == "" && len(args) == 0
 	installLLMStartupUXHooks(interactiveStartup)
@@ -4791,6 +4792,54 @@ func anchorProviderTLSCAFile(provider *types.LLMProviderConfig, anchor string) {
 		return
 	}
 	provider.TLSCAFile = filepath.Clean(filepath.Join(anchor, caFile))
+}
+
+// anchorProviderOAuthCacheFiles roots any relative auth.token_cache_file to the
+// configuration anchor (exeDir), symmetric to anchorProviderTLSCAFiles. Without
+// this, a relative token_cache_file was resolved against the bare CWD by the
+// llm layer (os.ReadFile/WriteFile), so the OAuth token cache moved with the
+// caller's working directory and could never be reused across invocations run
+// from different directories. Absolute paths and ~/-prefixed paths are left
+// untouched: absolute paths are already stable, and ~/ is expanded to the home
+// directory downstream by expandUserPath (anchoring it here would wrongly
+// re-root a home path under exeDir). The empty / api_key default cache lives
+// under ~/.codrax/auth/ and is home-anchored inside the llm layer, so it is
+// unaffected.
+func anchorProviderOAuthCacheFiles(cfg *types.ProvidersConfig, anchor string) {
+	if cfg == nil {
+		return
+	}
+	anchorProviderOAuthCacheFile(&cfg.LLM.Default, anchor)
+	for name, provider := range cfg.LLM.Agents {
+		anchorProviderOAuthCacheFile(&provider, anchor)
+		cfg.LLM.Agents[name] = provider
+	}
+}
+
+func anchorProviderOAuthCacheFile(provider *types.LLMProviderConfig, anchor string) {
+	if provider == nil || provider.Auth == nil {
+		return
+	}
+	cacheFile := strings.TrimSpace(provider.Auth.TokenCacheFile)
+	provider.Auth.TokenCacheFile = cacheFile
+	if anchor == "" || cacheFile == "" || filepath.IsAbs(cacheFile) || cacheFile == "~" || strings.HasPrefix(cacheFile, "~/") {
+		return
+	}
+	anchored := filepath.Clean(filepath.Join(anchor, cacheFile))
+	provider.Auth.TokenCacheFile = anchored
+	logging.Info("[llm/auth] anchored relative token_cache_file %q to configuration dir: %q", cacheFile, anchored)
+	// Non-destructive migration breadcrumb: if a cache exists at the old
+	// CWD-relative location but not at the newly anchored path, tell the user
+	// where the stale copy is so a re-authorization is explained. We do NOT
+	// copy it — silently importing a token from an unrelated working directory
+	// would risk cross-instance credential smell and stale-token reuse.
+	if abs, err := filepath.Abs(cacheFile); err == nil && abs != anchored {
+		if _, statErr := os.Stat(abs); statErr == nil {
+			if _, newErr := os.Stat(anchored); os.IsNotExist(newErr) {
+				logging.Info("[llm/auth] a token cache exists at the old working-directory-relative path %q; it is NOT migrated — a fresh authorization may be required at the anchored path", abs)
+			}
+		}
+	}
 }
 
 func createDefaultAdapter(cfg *types.ProvidersConfig, providersPath string) (llm.Adapter, error) {

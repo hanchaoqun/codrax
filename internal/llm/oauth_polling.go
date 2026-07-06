@@ -130,7 +130,17 @@ func emitOAuthAuthorizationCompleteNotice(notice OAuthAuthorizationCompleteNotic
 
 type requestAuthenticator interface {
 	Apply(ctx context.Context, req *http.Request) error
+	// Invalidate drops any cached credential (memory + on-disk) because it
+	// is believed to be truly invalid, e.g. an authentication (401) failure.
 	Invalidate()
+	// InvalidateForStatus drops cached credential state according to the
+	// HTTP status that provoked the auth retry. 401 (Unauthorized) means the
+	// token itself is bad, so both the in-memory and on-disk cache are
+	// dropped. 403 (Forbidden) is an authorization / rate-limit / policy
+	// signal that does NOT imply the token is invalid, so the on-disk cache
+	// is preserved and only the in-memory copy is cleared to force one fresh
+	// read from disk. Any other status behaves like Invalidate.
+	InvalidateForStatus(status int)
 	Name() string
 }
 
@@ -143,8 +153,19 @@ func (a *bearerAPIKeyAuthenticator) Apply(_ context.Context, req *http.Request) 
 	return nil
 }
 
-func (a *bearerAPIKeyAuthenticator) Invalidate()  {}
-func (a *bearerAPIKeyAuthenticator) Name() string { return authModeAPIKey }
+func (a *bearerAPIKeyAuthenticator) Invalidate()               {}
+func (a *bearerAPIKeyAuthenticator) InvalidateForStatus(_ int) {}
+func (a *bearerAPIKeyAuthenticator) Name() string              { return authModeAPIKey }
+
+// consecutiveForbiddenEscalation is the number of back-to-back 403 responses
+// on the same fingerprint after which a preserve-disk 403 disposition is
+// upgraded to a full Invalidate (disk delete → re-authorization). Without this,
+// a server-side REVOCATION-type 403 would loop forever: the 403 branch clears
+// only the in-memory token, the next request re-reads the same still-within-
+// expiry token from disk, and the server 403s again. A precise integer
+// threshold (not a noisy heuristic) drives this hard escalation, per the
+// precise-signals-for-hard-gates red line.
+const consecutiveForbiddenEscalation = 3
 
 type oauthPollingAuthenticator struct {
 	opts        AuthOptions
@@ -152,8 +173,9 @@ type oauthPollingAuthenticator struct {
 	cacheFile   string
 	fingerprint string
 
-	mu    sync.Mutex
-	token cachedOAuthToken
+	mu             sync.Mutex
+	token          cachedOAuthToken
+	consecutive403 int
 }
 
 type cachedOAuthToken struct {
@@ -317,10 +339,62 @@ func (a *oauthPollingAuthenticator) Apply(ctx context.Context, req *http.Request
 	return nil
 }
 
+// Invalidate clears the in-memory token AND deletes the on-disk cache. It is
+// the disposition for a token that is believed truly invalid (401).
 func (a *oauthPollingAuthenticator) Invalidate() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.dropMemoryLocked()
+	a.dropDiskLocked()
+}
+
+// InvalidateForStatus dispatches on the provoking HTTP status. A 403 is an
+// authorization / rate-limit / policy signal, NOT proof the token is invalid,
+// so the on-disk cache is preserved and only the in-memory copy is dropped —
+// deleting the shared disk cache on a 403 would force every concurrent CLI to
+// re-run the full browser authorization for a token that is still good. A 401
+// (and any non-403 status routed here) deletes both memory and disk.
+//
+// Escape hatch for revocation-type 403: if the SAME on-disk token keeps
+// provoking 403s, the preserve-disk behavior would loop forever (drop memory →
+// re-read the same still-within-expiry token → 403 again). A consecutive-403
+// counter therefore escalates to a full Invalidate (disk delete →
+// re-authorization) once it reaches consecutiveForbiddenEscalation. Any 401 or
+// non-403 status resets the counter, and a successful token acquisition resets
+// it in getToken.
+func (a *oauthPollingAuthenticator) InvalidateForStatus(status int) {
+	if status == http.StatusForbidden {
+		a.mu.Lock()
+		a.consecutive403++
+		if a.consecutive403 >= consecutiveForbiddenEscalation {
+			n := a.consecutive403
+			a.consecutive403 = 0
+			a.dropMemoryLocked()
+			a.dropDiskLocked()
+			a.mu.Unlock()
+			logging.Warning("[llm/auth] %d consecutive 403s on OAuth-authenticated request: the on-disk token appears revoked; deleting cache %q to force re-authorization", n, a.cacheFile)
+			return
+		}
+		a.dropMemoryLocked()
+		a.mu.Unlock()
+		logging.Info("[llm/auth] 403 on OAuth-authenticated request: dropping in-memory token but preserving on-disk cache %q (403 is authorization/rate-limit, not token invalidation)", a.cacheFile)
+		return
+	}
+	// Any non-403 auth failure (401, etc.) clears the escalation counter and
+	// deletes both memory and disk.
+	a.mu.Lock()
+	a.consecutive403 = 0
+	a.mu.Unlock()
+	a.Invalidate()
+}
+
+// dropMemoryLocked zeroes the in-memory token. Callers MUST hold a.mu.
+func (a *oauthPollingAuthenticator) dropMemoryLocked() {
 	a.token = cachedOAuthToken{}
+}
+
+// dropDiskLocked removes the on-disk token cache. Callers MUST hold a.mu.
+func (a *oauthPollingAuthenticator) dropDiskLocked() {
 	if a.cacheFile != "" {
 		if err := os.Remove(a.cacheFile); err != nil && !os.IsNotExist(err) {
 			logging.Warning("[llm/auth] could not remove token cache %q: %v", a.cacheFile, err)
@@ -345,11 +419,24 @@ func (a *oauthPollingAuthenticator) getToken(ctx context.Context) (cachedOAuthTo
 		a.token = tok
 		return tok, nil
 	}
+	// No usable cached token: neither the in-memory copy nor the on-disk cache
+	// yielded a valid token, so a full browser authorization round follows.
+	// Emit the effective cache path here so a cold start that lands on the
+	// wrong (unexpectedly relative / drifted) path is self-diagnosing before
+	// the interactive prompt appears. No token material is logged.
+	logging.Info("[llm/auth] no usable cached token; effective cache path=%q, starting authorization", a.cacheFile)
 	tok, err := a.authorizeAndPoll(ctx)
 	if err != nil {
 		return cachedOAuthToken{}, err
 	}
 	a.token = tok
+	// A freshly authorized token clears the consecutive-403 escalation counter:
+	// this is the unambiguous "success" reset. We intentionally do NOT reset on
+	// the in-memory / disk fast paths above, because the revocation-403 loop
+	// re-reads exactly that disk token — resetting there would defeat the
+	// escalation. Only a genuinely new credential counts as success. (Held
+	// under a.mu for the whole getToken body.)
+	a.consecutive403 = 0
 	if err := a.saveCache(tok); err != nil {
 		logging.Warning("[llm/auth] could not save OAuth token cache %q: %v", a.cacheFile, err)
 	}
@@ -511,16 +598,36 @@ func (a *oauthPollingAuthenticator) loadCache(now time.Time) (cachedOAuthToken, 
 	}
 	data, err := os.ReadFile(a.cacheFile)
 	if err != nil {
+		// Classify the miss so cold-start path drift is self-evident in the
+		// logs. A NotExist miss on first run is normal (INFO); other read
+		// errors (permissions, IO) are WARN. No token material is logged.
+		if os.IsNotExist(err) {
+			logging.Info("[llm/auth] token cache miss (not_exist) at %q; will authorize", a.cacheFile)
+		} else {
+			logging.Warning("[llm/auth] token cache read error at %q: %v", a.cacheFile, err)
+		}
 		return cachedOAuthToken{}, err
 	}
 	var tok cachedOAuthToken
 	if err := json.Unmarshal(data, &tok); err != nil {
+		// Log only the error TYPE and (for a syntax error) the byte OFFSET —
+		// never err.Error(), whose text for *json.SyntaxError can embed a
+		// literal character copied out of the cache file. That file holds
+		// token material, so echoing a fragment of it into the log would leak
+		// a byte of secret. The offset is enough to locate the corruption.
+		if se := (*json.SyntaxError)(nil); errors.As(err, &se) {
+			logging.Info("[llm/auth] token cache miss (corrupt_json: syntax error at byte offset %d) at %q; will authorize", se.Offset, a.cacheFile)
+		} else {
+			logging.Info("[llm/auth] token cache miss (corrupt_json: %T) at %q; will authorize", err, a.cacheFile)
+		}
 		return cachedOAuthToken{}, err
 	}
 	if tok.Fingerprint != a.fingerprint {
+		logging.Info("[llm/auth] token cache miss (fingerprint_mismatch) at %q; provider auth config changed, will authorize", a.cacheFile)
 		return cachedOAuthToken{}, errors.New("token cache fingerprint mismatch")
 	}
 	if !a.tokenValid(tok, now) {
+		logging.Info("[llm/auth] token cache miss (expired) at %q; token expired or within refresh_before window, will authorize", a.cacheFile)
 		return cachedOAuthToken{}, errors.New("token cache expired or near expiry")
 	}
 	return tok, nil
@@ -541,7 +648,43 @@ func (a *oauthPollingAuthenticator) saveCache(tok cachedOAuthToken) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(a.cacheFile, data, 0o600)
+	// Atomic write: create a temp file in the SAME directory (so the rename
+	// stays on one filesystem and is a real atomic replace), write the
+	// payload at 0600, then rename over the canonical path. A concurrent CLI
+	// sharing this cache (same fingerprint = same file, by design) therefore
+	// never observes a half-written JSON document — it reads either the old
+	// complete file or the new complete file, never a torn one. On any
+	// failure the temp file is removed so no 0600 turd is left behind.
+	tmp, err := os.CreateTemp(dir, ".oauth2-*.json.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		cleanup()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, a.cacheFile); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
 
 func oauthFingerprint(opts AuthOptions) string {
@@ -574,7 +717,17 @@ func defaultOAuthCacheFile(name string) string {
 
 func expandUserPath(p string) string {
 	p = strings.TrimSpace(p)
-	if p == "" || p == "~" {
+	if p == "" {
+		return p
+	}
+	// A lone "~" and a "~/"-prefixed path share one home-expansion semantics:
+	// ~ == ~/ == home. Returning a bare "~" verbatim (the earlier behavior)
+	// meant os.ReadFile("~") resolved it as a CWD-relative literal, which
+	// reintroduced the working-directory drift the anchoring layer removes.
+	if p == "~" {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			return home
+		}
 		return p
 	}
 	if strings.HasPrefix(p, "~/") {

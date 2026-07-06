@@ -556,7 +556,10 @@ func (o *OpenAIAdapter) doRequest(ctx context.Context, bodyBytes []byte) (Respon
 			return o.parseResponse(respBody)
 		}
 		if isAuthStatus(httpResp.StatusCode) && authAttempt == 0 && o.authenticator != nil {
-			o.authenticator.Invalidate()
+			// 401 => token truly invalid (drop disk cache); 403 =>
+			// authorization/rate-limit, keep the shared disk cache and only
+			// re-read it in memory. See requestAuthenticator.InvalidateForStatus.
+			o.authenticator.InvalidateForStatus(httpResp.StatusCode)
 			continue
 		}
 		return Response{}, newAPIError(httpResp, respBody)
@@ -581,7 +584,8 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 		}
 		var ae *apiError
 		if errors.As(err, &ae) && isAuthStatus(ae.StatusCode) && authAttempt == 0 && o.authenticator != nil {
-			o.authenticator.Invalidate()
+			// Same 401-vs-403 disposition as the non-stream path.
+			o.authenticator.InvalidateForStatus(ae.StatusCode)
 			continue
 		}
 		return resp, err

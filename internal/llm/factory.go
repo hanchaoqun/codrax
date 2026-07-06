@@ -288,7 +288,8 @@ func discoverFirstModel(cfg types.LLMProviderConfig, authOpts AuthOptions, reque
 			break
 		}
 		if isAuthStatus(resp.StatusCode) && authAttempt == 0 {
-			authenticator.Invalidate()
+			// 401 drops the disk cache; 403 keeps it (see InvalidateForStatus).
+			authenticator.InvalidateForStatus(resp.StatusCode)
 			continue
 		}
 		return "", fmt.Errorf("query model list HTTP %d: %s", resp.StatusCode, trimForLog(respBody, 512))

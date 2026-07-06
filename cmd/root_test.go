@@ -94,6 +94,50 @@ func TestAnchorProviderTLSCAFilesUsesExecutableConfigAnchor(t *testing.T) {
 	}
 }
 
+// TestAnchorProviderOAuthCacheFilesUsesExecutableConfigAnchor pins the OAuth
+// token_cache_file anchoring rule: a relative path is re-rooted to the
+// configuration (exeDir) anchor exactly like tls_ca_file, while an absolute
+// path and a ~/-prefixed path pass through untouched (~/ is home-expanded
+// downstream by the llm layer, so anchoring it here would corrupt it). Empty
+// stays empty and providers without an auth block are left alone.
+func TestAnchorProviderOAuthCacheFilesUsesExecutableConfigAnchor(t *testing.T) {
+	anchor := filepath.Join(t.TempDir(), "codrax-bin")
+	absoluteCache := filepath.Join(t.TempDir(), "abs-token.json")
+	cfg := &types.ProvidersConfig{
+		LLM: types.LLMProvidersConfig{
+			Default: types.LLMProviderConfig{Auth: &types.LLMAuthConfig{TokenCacheFile: "token.json"}},
+			Agents: map[string]types.LLMProviderConfig{
+				"analyzer":  {Auth: &types.LLMAuthConfig{TokenCacheFile: "auth/analyzer.json"}},
+				"finalizer": {Auth: &types.LLMAuthConfig{TokenCacheFile: absoluteCache}},
+				"explorer":  {Auth: &types.LLMAuthConfig{TokenCacheFile: "~/.codrax/auth/explorer.json"}},
+				"extractor": {Auth: &types.LLMAuthConfig{TokenCacheFile: ""}},
+				"critic":    {}, // no auth block at all
+			},
+		},
+	}
+
+	anchorProviderOAuthCacheFiles(cfg, anchor)
+
+	if got, want := cfg.LLM.Default.Auth.TokenCacheFile, filepath.Join(anchor, "token.json"); got != want {
+		t.Fatalf("default relative token_cache_file anchored incorrectly: got %q want %q", got, want)
+	}
+	if got, want := cfg.LLM.Agents["analyzer"].Auth.TokenCacheFile, filepath.Join(anchor, "auth/analyzer.json"); got != want {
+		t.Fatalf("agent relative token_cache_file anchored incorrectly: got %q want %q", got, want)
+	}
+	if got := cfg.LLM.Agents["finalizer"].Auth.TokenCacheFile; got != absoluteCache {
+		t.Fatalf("absolute token_cache_file should pass through: got %q want %q", got, absoluteCache)
+	}
+	if got := cfg.LLM.Agents["explorer"].Auth.TokenCacheFile; got != "~/.codrax/auth/explorer.json" {
+		t.Fatalf("~/-prefixed token_cache_file must not be anchored (home-expanded downstream): got %q", got)
+	}
+	if got := cfg.LLM.Agents["extractor"].Auth.TokenCacheFile; got != "" {
+		t.Fatalf("empty token_cache_file should remain empty, got %q", got)
+	}
+	if cfg.LLM.Agents["critic"].Auth != nil {
+		t.Fatalf("provider without auth block must be left untouched")
+	}
+}
+
 func TestPostFinalizeLLMReviewersAreOptInByDefault(t *testing.T) {
 	if selfConsistencyEnabled {
 		t.Fatal("self-consistency reviewer must be opt-in by default; deterministic final-answer checks remain covered by pipeline_strict_answer_review_enabled")

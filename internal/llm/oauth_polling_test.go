@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -546,6 +547,345 @@ func TestMarshalRequest_RequestExtraProtectsReservedFields(t *testing.T) {
 	}
 	if strings.Contains(text, "bad-model") || !strings.Contains(text, `"model":"model-a"`) {
 		t.Fatalf("reserved model override leaked: %s", text)
+	}
+}
+
+// newTestOAuthAuthenticatorWithCache builds an oauth authenticator whose disk
+// cache holds a valid token, for the invalidate-disposition pins below.
+func newTestOAuthAuthenticatorWithCache(t *testing.T, cache string) *oauthPollingAuthenticator {
+	t.Helper()
+	auth, err := newOAuthPollingAuthenticator(AuthOptions{
+		Mode:           authModeOAuthPolling,
+		BaseURL:        "https://api.example.test/v1",
+		AuthBaseURL:    "https://auth.example.test/oauth",
+		ClientID:       "client",
+		TokenCacheFile: cache,
+		RefreshBefore:  time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("newOAuthPollingAuthenticator: %v", err)
+	}
+	tok := cachedOAuthToken{
+		AccessToken: "cached-token",
+		IssuedAt:    time.Now(),
+		ExpiresAt:   time.Now().Add(time.Hour),
+		Fingerprint: auth.fingerprint,
+	}
+	if err := auth.saveCache(tok); err != nil {
+		t.Fatalf("saveCache: %v", err)
+	}
+	auth.token = tok
+	return auth
+}
+
+// TestInvalidateForStatus_403KeepsDiskCache pins that a 403 (authorization /
+// rate-limit, NOT token invalidation) clears only the in-memory token and
+// PRESERVES the shared on-disk cache, so concurrent CLIs are not forced to
+// re-run browser authorization for a token that is still valid.
+func TestInvalidateForStatus_403KeepsDiskCache(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "token.json")
+	auth := newTestOAuthAuthenticatorWithCache(t, cache)
+
+	auth.InvalidateForStatus(http.StatusForbidden)
+
+	if auth.token.AccessToken != "" {
+		t.Fatalf("403 must clear in-memory token, got %q", auth.token.AccessToken)
+	}
+	if _, err := os.Stat(cache); err != nil {
+		t.Fatalf("403 must preserve on-disk cache, stat err: %v", err)
+	}
+}
+
+// TestInvalidateForStatus_401DeletesDiskCache pins that a 401 (token truly
+// invalid) drops both the in-memory token and the on-disk cache.
+func TestInvalidateForStatus_401DeletesDiskCache(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "token.json")
+	auth := newTestOAuthAuthenticatorWithCache(t, cache)
+
+	auth.InvalidateForStatus(http.StatusUnauthorized)
+
+	if auth.token.AccessToken != "" {
+		t.Fatalf("401 must clear in-memory token, got %q", auth.token.AccessToken)
+	}
+	if _, err := os.Stat(cache); !os.IsNotExist(err) {
+		t.Fatalf("401 must delete on-disk cache, stat err: %v", err)
+	}
+}
+
+// TestInvalidate_DeletesDiskCache pins that the plain Invalidate() (the 401-
+// equivalent disposition) removes the on-disk cache.
+func TestInvalidate_DeletesDiskCache(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "token.json")
+	auth := newTestOAuthAuthenticatorWithCache(t, cache)
+
+	auth.Invalidate()
+
+	if _, err := os.Stat(cache); !os.IsNotExist(err) {
+		t.Fatalf("Invalidate must delete on-disk cache, stat err: %v", err)
+	}
+}
+
+// TestInvalidateForStatus_Consecutive403EscalatesToDiskDelete pins the
+// revocation-403 escape hatch: N (=consecutiveForbiddenEscalation)
+// back-to-back 403s on the same on-disk token escalate to a full Invalidate
+// that deletes the disk cache, so a revoked token cannot loop forever.
+func TestInvalidateForStatus_Consecutive403EscalatesToDiskDelete(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "token.json")
+	auth := newTestOAuthAuthenticatorWithCache(t, cache)
+
+	for i := 1; i < consecutiveForbiddenEscalation; i++ {
+		auth.InvalidateForStatus(http.StatusForbidden)
+		if _, err := os.Stat(cache); err != nil {
+			t.Fatalf("403 #%d (below threshold) must preserve disk cache, stat err: %v", i, err)
+		}
+		// Simulate the loop re-reading the same still-valid disk token.
+		auth.token = cachedOAuthToken{
+			AccessToken: "cached-token", ExpiresAt: time.Now().Add(time.Hour), Fingerprint: auth.fingerprint,
+		}
+	}
+	// The Nth consecutive 403 escalates and deletes the disk cache.
+	auth.InvalidateForStatus(http.StatusForbidden)
+	if _, err := os.Stat(cache); !os.IsNotExist(err) {
+		t.Fatalf("%dth consecutive 403 must delete disk cache to force re-auth, stat err: %v", consecutiveForbiddenEscalation, err)
+	}
+	if auth.consecutive403 != 0 {
+		t.Fatalf("counter must reset after escalation, got %d", auth.consecutive403)
+	}
+}
+
+// TestInvalidateForStatus_403CounterResetByNon403 pins that a non-403 status
+// (401) zeroes the consecutive-403 counter, so a later single 403 does not tip
+// straight over the threshold.
+func TestInvalidateForStatus_403CounterResetByNon403(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "token.json")
+	auth := newTestOAuthAuthenticatorWithCache(t, cache)
+
+	// Two 403s (still below threshold=3).
+	auth.InvalidateForStatus(http.StatusForbidden)
+	auth.InvalidateForStatus(http.StatusForbidden)
+	if auth.consecutive403 != 2 {
+		t.Fatalf("expected counter=2, got %d", auth.consecutive403)
+	}
+	// A 401 resets the counter (and deletes disk, which we re-seed).
+	auth.InvalidateForStatus(http.StatusUnauthorized)
+	if auth.consecutive403 != 0 {
+		t.Fatalf("401 must reset the 403 counter, got %d", auth.consecutive403)
+	}
+	auth = newTestOAuthAuthenticatorWithCache(t, cache)
+	// A fresh single 403 after reset must NOT delete the disk cache.
+	auth.InvalidateForStatus(http.StatusForbidden)
+	if _, err := os.Stat(cache); err != nil {
+		t.Fatalf("single 403 after reset must preserve disk cache, stat err: %v", err)
+	}
+}
+
+// TestInvalidateForStatus_FreshAuthResetsCounter pins that a genuinely new
+// credential (authorizeAndPoll success in getToken) clears the escalation
+// counter: two 403s, a fresh authorization, then two more 403s must NOT reach
+// the threshold, so the disk cache survives.
+func TestInvalidateForStatus_FreshAuthResetsCounter(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "token.json")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/oauth/getToken" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"fresh-token","expires_in":"259199","token_type":"Bearer","userAccount":"u"}`))
+	}))
+	defer srv.Close()
+
+	auth, err := newOAuthPollingAuthenticator(AuthOptions{
+		Mode:           authModeOAuthPolling,
+		BaseURL:        srv.URL,
+		AuthBaseURL:    srv.URL,
+		ClientID:       "client",
+		TokenCacheFile: cache,
+		RefreshBefore:  time.Minute,
+		PollTimeout:    time.Second,
+		PollInterval:   time.Millisecond,
+		RequestTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("newOAuthPollingAuthenticator: %v", err)
+	}
+
+	auth.InvalidateForStatus(http.StatusForbidden)
+	auth.InvalidateForStatus(http.StatusForbidden)
+	if auth.consecutive403 != 2 {
+		t.Fatalf("expected counter=2 before fresh auth, got %d", auth.consecutive403)
+	}
+	// Fresh authorization (no valid in-memory/disk token) resets the counter.
+	if _, err := auth.getToken(context.Background()); err != nil {
+		t.Fatalf("getToken (fresh auth): %v", err)
+	}
+	if auth.consecutive403 != 0 {
+		t.Fatalf("fresh authorization must reset the 403 counter, got %d", auth.consecutive403)
+	}
+	// Two more 403s (with the loop re-reading the fresh disk token) stay below
+	// threshold, so the disk cache survives.
+	for i := 0; i < 2; i++ {
+		auth.InvalidateForStatus(http.StatusForbidden)
+		auth.token = cachedOAuthToken{AccessToken: "fresh-token", ExpiresAt: time.Now().Add(time.Hour), Fingerprint: auth.fingerprint}
+	}
+	if _, err := os.Stat(cache); err != nil {
+		t.Fatalf("after a fresh-auth reset, two more 403s must not delete disk cache, stat err: %v", err)
+	}
+}
+
+// TestExpandUserPath_LoneTildeExpandsToHome pins P4-1: a bare "~" cache path
+// expands to the home directory (== "~/" semantics), not a CWD-relative
+// literal that would reintroduce working-directory drift.
+func TestExpandUserPath_LoneTildeExpandsToHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home directory available")
+	}
+	if got := expandUserPath("~"); got != home {
+		t.Fatalf("expandUserPath(\"~\")=%q, want home %q (not CWD-relative)", got, home)
+	}
+	if got := expandUserPath("~/x"); got != filepath.Join(home, "x") {
+		t.Fatalf("expandUserPath(\"~/x\")=%q, want %q", got, filepath.Join(home, "x"))
+	}
+	if got := expandUserPath(""); got != "" {
+		t.Fatalf("expandUserPath(\"\")=%q, want empty", got)
+	}
+}
+
+// TestOAuthCacheFile_LoneTildeIsHomeAnchoredNotCWD pins that a provider
+// configured with token_cache_file:"~" resolves the cache under the home
+// directory, not the current working directory.
+func TestOAuthCacheFile_LoneTildeIsHomeAnchoredNotCWD(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home directory available")
+	}
+	auth, err := newOAuthPollingAuthenticator(AuthOptions{
+		Mode:           authModeOAuthPolling,
+		BaseURL:        "https://api.example.test/v1",
+		AuthBaseURL:    "https://auth.example.test/oauth",
+		ClientID:       "client",
+		TokenCacheFile: "~",
+		RefreshBefore:  time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("newOAuthPollingAuthenticator: %v", err)
+	}
+	if auth.cacheFile != home {
+		t.Fatalf("token_cache_file \"~\" resolved to %q, want home %q (not CWD)", auth.cacheFile, home)
+	}
+}
+
+// TestLoadCache_CorruptJSONLogsOffsetNotContent pins P4-2: a corrupt cache
+// still classifies as a syntax error (so the offset-only, no-err.Error() log
+// branch is exercised) and returns an error without succeeding.
+func TestLoadCache_CorruptJSONLogsOffsetNotContent(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "token.json")
+	// Invalid JSON whose bytes would leak into a naive err.Error() dump.
+	if err := os.WriteFile(cache, []byte("{not-json SECRET-BYTE"), 0o600); err != nil {
+		t.Fatalf("write corrupt cache: %v", err)
+	}
+	auth := &oauthPollingAuthenticator{cacheFile: cache, fingerprint: "fp", opts: AuthOptions{RefreshBefore: time.Minute}}
+	_, err := auth.loadCache(time.Now())
+	if err == nil {
+		t.Fatal("corrupt JSON must not load successfully")
+	}
+	var se *json.SyntaxError
+	if !errors.As(err, &se) {
+		t.Fatalf("corrupt cache should surface a *json.SyntaxError (offset-only log path), got %T: %v", err, err)
+	}
+}
+
+// TestSaveCache_AtomicWriteNoTempLeftAndValidJSON pins the atomic write:
+// after saveCache the canonical file is present, mode 0600, complete valid
+// JSON, and NO .tmp turds are left in the directory.
+func TestSaveCache_AtomicWriteNoTempLeftAndValidJSON(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "token.json")
+	auth := newTestOAuthAuthenticatorWithCache(t, cache)
+
+	// saveCache already ran inside the helper; re-save to exercise replace.
+	if err := auth.saveCache(auth.token); err != nil {
+		t.Fatalf("saveCache: %v", err)
+	}
+
+	data, err := os.ReadFile(cache)
+	if err != nil {
+		t.Fatalf("read cache: %v", err)
+	}
+	var got cachedOAuthToken
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("cache is not complete valid JSON (torn write?): %v", err)
+	}
+	if got.AccessToken != "cached-token" {
+		t.Fatalf("cache token=%q, want cached-token", got.AccessToken)
+	}
+	st, err := os.Stat(cache)
+	if err != nil {
+		t.Fatalf("stat cache: %v", err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Fatalf("cache mode=%#o, want 0600", st.Mode().Perm())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".oauth2-") || strings.HasSuffix(e.Name(), ".tmp") {
+			t.Fatalf("atomic write left a temp file behind: %q", e.Name())
+		}
+	}
+}
+
+// TestLoadCache_ClassifiesMissReasons pins the deterministic loadCache miss
+// classification (the signal behind the INFO breadcrumbs): not-exist,
+// fingerprint mismatch, and expired each yield the corresponding failure.
+func TestLoadCache_ClassifiesMissReasons(t *testing.T) {
+	now := time.Now()
+
+	t.Run("not_exist", func(t *testing.T) {
+		auth := &oauthPollingAuthenticator{
+			cacheFile:   filepath.Join(t.TempDir(), "missing.json"),
+			fingerprint: "fp",
+			opts:        AuthOptions{RefreshBefore: time.Minute},
+		}
+		if _, err := auth.loadCache(now); !os.IsNotExist(err) {
+			t.Fatalf("missing cache should return NotExist, got %v", err)
+		}
+	})
+
+	t.Run("fingerprint_mismatch", func(t *testing.T) {
+		cache := filepath.Join(t.TempDir(), "token.json")
+		auth := &oauthPollingAuthenticator{cacheFile: cache, fingerprint: "fp-new", opts: AuthOptions{RefreshBefore: time.Minute}}
+		writeTokenFile(t, cache, cachedOAuthToken{
+			AccessToken: "t", ExpiresAt: now.Add(time.Hour), Fingerprint: "fp-old",
+		})
+		if _, err := auth.loadCache(now); err == nil || !strings.Contains(err.Error(), "fingerprint mismatch") {
+			t.Fatalf("stale fingerprint should be classified, got %v", err)
+		}
+	})
+
+	t.Run("expired", func(t *testing.T) {
+		cache := filepath.Join(t.TempDir(), "token.json")
+		auth := &oauthPollingAuthenticator{cacheFile: cache, fingerprint: "fp", opts: AuthOptions{RefreshBefore: time.Minute}}
+		writeTokenFile(t, cache, cachedOAuthToken{
+			AccessToken: "t", ExpiresAt: now.Add(-time.Hour), Fingerprint: "fp",
+		})
+		if _, err := auth.loadCache(now); err == nil || !strings.Contains(err.Error(), "expired") {
+			t.Fatalf("expired token should be classified, got %v", err)
+		}
+	})
+}
+
+func writeTokenFile(t *testing.T, path string, tok cachedOAuthToken) {
+	t.Helper()
+	data, err := json.Marshal(tok)
+	if err != nil {
+		t.Fatalf("marshal token: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write token file: %v", err)
 	}
 }
 
