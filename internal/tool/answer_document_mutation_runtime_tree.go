@@ -292,6 +292,7 @@ const (
 	runtimeTraceProjMarkMergedSum                                         // ×N(a–b) same-kind SUM aggregate (PTV4 T4 ×N 三式)
 	runtimeTraceProjMarkMergedDedup                                       // ×N同值 duplicate-publication fold (PTV4 T4 ×N 三式)
 	runtimeTraceProjMarkMergedMax                                         // ×N(a–b)取最大 cross-thread fold (PTV4 T4 ×N 三式)
+	runtimeTraceProjMarkMergedUnion                                       // ×N(a–b)union cross-query-window union caliber (§11-N2, ×N 第四式)
 	runtimeTraceProjMarkOverWindowShare                                   // 占窗>100% multi-CPU/multi-span cumulative share (PTV4 T4)
 	runtimeTraceProjMarkWholeWindowIdle                                   // 整窗等待 whole-window idle annotation (PTV4 T4)
 	runtimeTraceProjMarkInheritedAttribution                              // 承自归因 inherited-attribution annotation (PTV4 T4)
@@ -475,6 +476,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkMergedMax, runtimeTraceProjLegendGroupCaliber,
 			"- `×N(a–b)取最大` = 跨线程折叠 N 项,数值取成员最大;墙钟跨线程不可加和,不求和。",
 			"- `×N(a–b) max` = N cross-thread rows folded; the value is the member MAX — wall clock never sums across threads."},
+		// §11-N2 (2026-07-06, real_trace_campaign ledger): the cross-query-window
+		// union caliber gets its own form token — the plain ×N(a–b) entry claims
+		// "数值为总和" and must stay truthful, so a union row NEVER wears the sum
+		// form (NEW-7: this entry renders exactly when a union row is emitted).
+		// The raw Σ and the window-source roster live in the (b) lossless block.
+		{runtimeTraceProjMarkMergedUnion, runtimeTraceProjLegendGroupCaliber,
+			"- `×N(a–b)union` = 跨查询窗重叠段不重复计:N 次实例来自不同查询窗且时间重叠,数值为区间并集投影(非求和),a–b 为单次范围;原始和与窗来源见无损块。",
+			"- `×N(a–b)union` = cross-query-window overlap counted once: the N instances come from DIFFERENT query windows and overlap in time; the value is the interval-union projection (never the SUM), a–b the per-instance range; the raw sum and the window sources live in the lossless block."},
 		// PTV6-B (聚合幻影修复, 2026-07-06; 修正轮 Med 如实化): the entry
 		// discloses exactly what the pipeline does — NEAR-duplicate (≤3%)
 		// same-thread overlapping measurements fold as duplicate publications,
@@ -2637,8 +2646,15 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		demoted = append(demoted, runtimeTraceProjDedupFoldTagText(node.DuplicatePublications, zh))
 	}
 	if node.MergedCount > 1 {
-		row.marks.mark(runtimeTraceProjMarkMergedSum)
-		demoted = append(demoted, runtimeTraceProjMergedSumTagText(node))
+		// §11-N2: the union caliber wears its own form token — the sum form's
+		// legend entry claims 数值为总和 and must stay truthful.
+		if node.MergedIntervalUnion {
+			row.marks.mark(runtimeTraceProjMarkMergedUnion)
+			demoted = append(demoted, runtimeTraceProjMergedUnionTagText(node))
+		} else {
+			row.marks.mark(runtimeTraceProjMarkMergedSum)
+			demoted = append(demoted, runtimeTraceProjMergedSumTagText(node))
+		}
 	}
 	// 裁定4 applies to the target's own status rows too (lock_001 customer
 	// report, 2026-07-03); sleep rows keep their dedicated wording below.
@@ -2953,6 +2969,18 @@ func runtimeTraceProjDedupFoldTagText(count int, zh bool) string {
 // live in the legend's 口径组 entry. Language-neutral (numbers + units).
 func runtimeTraceProjMergedSumTagText(node types.TraceCausalProjectionNode) string {
 	return fmt.Sprintf("×%d(%.3f–%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+}
+
+// runtimeTraceProjMergedUnionTagText is the §11-N2 cross-query-window union
+// row's inline data token (×N 第四式): count + per-instance range + the union
+// form suffix. The 不重复计/非求和 semantics live in the legend's 口径组
+// entry; the raw Σ and the window-source roster live in the (b) lossless
+// block. Language-neutral (numbers + the ASCII form token), like the SUM
+// form. Callers fork on the typed Node.MergedIntervalUnion flag — a union
+// row must NEVER wear the plain ×N(a–b) sum form (its legend entry claims
+// 数值为总和).
+func runtimeTraceProjMergedUnionTagText(node types.TraceCausalProjectionNode) string {
+	return fmt.Sprintf("×%d(%.3f–%.3fms)union", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 }
 
 // runtimeTraceProjMergedMaxTagText is the R3 cross-thread fold's inline data
@@ -3879,6 +3907,11 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			// legend entry; wall clock never sums across threads).
 			row.marks.mark(runtimeTraceProjMarkMergedMax)
 			text = runtimeTraceProjMergedMaxTagText(node, zh)
+		} else if node.MergedIntervalUnion {
+			// §11-N2: cross-query-window union caliber — its own form token,
+			// never the sum form (whose legend entry claims 数值为总和).
+			row.marks.mark(runtimeTraceProjMarkMergedUnion)
+			text = runtimeTraceProjMergedUnionTagText(node)
 		} else {
 			row.marks.mark(runtimeTraceProjMarkMergedSum)
 			text = runtimeTraceProjMergedSumTagText(node)
@@ -4946,6 +4979,12 @@ type runtimeTraceProjDetailTableLegendFlags struct {
 	mergedMax   bool
 	mergedDedup bool
 	multiSeat   bool
+	// mergedUnion (§11-N2): a union-caliber ×N row is on the table. It is a
+	// SEPARATE flag so a union row never raises mergedSum — the (a)-table's
+	// gated "×N(a–b) = 数值为总和" line must never gloss a union value; the
+	// union form's semantics ride the tree legend entry and the (b) lossless
+	// block (原始和 + 窗来源).
+	mergedUnion bool
 }
 
 func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, zh bool) runtimeTraceProjDetailTableLegendFlags {
@@ -4963,6 +5002,8 @@ func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, 
 		if node.MergedCount > 1 {
 			if runtimeTraceProjSubjectlessFoldRow(node) {
 				flags.mergedMax = true
+			} else if node.MergedIntervalUnion {
+				flags.mergedUnion = true
 			} else {
 				flags.mergedSum = true
 			}
@@ -5035,10 +5076,12 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		emitted[key] = true
 		name := runtimeTraceCausalProjectionNodeSubjectCell(node, zh)
 		if node.MergedCount > 1 {
-			// ×N data token inline (T4 三式); the form semantics + member
-			// roster live in the (b) block and the legend.
+			// ×N data token inline (T4 三式 + §11-N2 第四式); the form
+			// semantics + member roster live in the (b) block and the legend.
 			if runtimeTraceProjSubjectlessFoldRow(node) {
 				name += " " + runtimeTraceProjMergedMaxTagText(node, zh)
+			} else if node.MergedIntervalUnion {
+				name += " " + runtimeTraceProjMergedUnionTagText(node)
 			} else {
 				name += " " + runtimeTraceProjMergedSumTagText(node)
 			}
@@ -5287,6 +5330,14 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				if !zh {
 					form = fmt.Sprintf("×%d member-MAX caliber (wall clock never sums across threads), each %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 				}
+			} else if node.MergedIntervalUnion {
+				// §11-N2: the union caliber discloses itself + the lossless raw
+				// Σ for cross-checking; K = the distinct member query windows.
+				k := len(node.MergedQueryWindows)
+				form = fmt.Sprintf("×%d union 口径(%d 窗重叠段不重复计),原始和 %.3fms 供对照,单次 %.3f–%.3fms", node.MergedCount, k, node.MergedSumMS, node.MergedMinMS, node.MergedMaxMS)
+				if !zh {
+					form = fmt.Sprintf("×%d union caliber (overlap across %d windows counted once), raw sum %.3fms for cross-checking, each %.3f–%.3fms", node.MergedCount, k, node.MergedSumMS, node.MergedMinMS, node.MergedMaxMS)
+				}
 			} else {
 				form = fmt.Sprintf("×%d 求和口径,单次 %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 				if !zh {
@@ -5313,6 +5364,22 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				}
 			}
 			add("×N 明细", "×N detail", runtimeTraceCausalProjectionMarkdownSafe(form))
+			// §11-N2 窗身份 (联动 q1-B6): the union row's member query windows,
+			// ascending. Gated on the union caliber so every non-union render
+			// stays byte-identical (the disjoint cross-window roster disclosure
+			// belongs to the q1-B6 window-identity batch). The typed roster
+			// lists the KNOWN sources only — never claimed exhaustive.
+			if node.MergedIntervalUnion && len(node.MergedQueryWindows) > 0 {
+				windows := make([]string, 0, len(node.MergedQueryWindows))
+				for _, w := range node.MergedQueryWindows {
+					windows = append(windows, fmt.Sprintf("%.3f–%.3fs", w.StartTs, w.EndTs))
+				}
+				sep := "、"
+				if !zh {
+					sep = ", "
+				}
+				add("窗来源", "window sources", strings.Join(windows, sep))
+			}
 		}
 		if node.DuplicatePublications > 1 {
 			dup := fmt.Sprintf("×%d 同值(同一测量被重复发布,数值为单次测量)", node.DuplicatePublications)

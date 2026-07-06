@@ -24,9 +24,19 @@ package types
 // publication count disclosed; it never feeds a sum. Every merged row's observation id is
 // retained (MergedEvidenceIDs), so the aggregation is lossless for
 // auditability.
+//
+// R2's ×N value carries the member SUM with one value-CALIBER exception
+// (§11-N2, real_trace_campaign_20260705.md): members from DISTINCT query
+// windows whose occurrence intervals overlap re-measured the same physical
+// wall clock, so the merged row publishes the interval-union caliber (typed
+// StartTs/EndTs algebra, shared authority in
+// trace_causal_projection_interval.go) with the raw Σ retained in
+// MergedSumMS. Grouping, membership and every disjoint/window-less shape are
+// byte-unchanged.
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -384,13 +394,12 @@ func traceCausalProjectionPeerAliasPair(a, b *TraceCausalProjectionNode) (named,
 	return nil, nil, false
 }
 
-// traceCausalProjectionSpansOverlap is the boolean time-span intersection; both
-// nodes must expose a valid span of their own.
+// traceCausalProjectionSpansOverlap is the boolean time-span intersection;
+// both nodes must expose a valid span of their own. Delegates to the shared
+// interval authority (trace_causal_projection_interval.go, §11-N2) — same
+// guard, same strict inequalities, one home.
 func traceCausalProjectionSpansOverlap(a, b TraceCausalProjectionNode) bool {
-	if a.StartTs <= 0 || a.EndTs <= a.StartTs || b.StartTs <= 0 || b.EndTs <= b.StartTs {
-		return false
-	}
-	return a.StartTs < b.EndTs && b.StartTs < a.EndTs
+	return TraceCausalProjectionIntervalsOverlap(a.StartTs, a.EndTs, b.StartTs, b.EndTs)
 }
 
 // traceCausalProjectionPidPeerForm matches the literal "pid=N" peer handle
@@ -651,6 +660,23 @@ func traceCausalProjectionAbsorbDuplicatePublication(survivor *TraceCausalProjec
 // SUM, the per-instance min–max range, and every instance's evidence id.
 // Cross-bucket copies stay consistent because each bucket aggregates the same
 // member set to the same lead EvidenceID (renderers dedupe by node key).
+//
+// §11-N2 value-caliber exception (real_trace_campaign_20260705.md, q2
+// specimen E10): when the merged members come from DISTINCT query windows
+// (typed QueryWindow identity) AND members of different windows have
+// overlapping occurrence intervals, the same physical wall-clock segment was
+// carved once per window and a plain SUM double-counts it (183.940ms
+// published where ~15.2ms was the same runnable segment counted by both
+// windows). Such a row publishes the interval-union caliber instead — see
+// traceCausalProjectionCrossWindowUnion. GROUPING is untouched: the merge key
+// stays exactly (subject, object), only the merged row's published value
+// changes caliber, so the q1-B6 adjudication (dual-window rows that R2 does
+// NOT merge stay independent) is not reversed. Fully disjoint members keep
+// the SUM byte-identically (existing pins), and bare time overlap WITHOUT
+// distinct window identity also keeps the SUM — same-window overlapping
+// same-(subject,object) rows are DISTINCT facts (the E9/E10 9µs strict pin;
+// the PTV6 review explicitly rejected envelope-overlap-only folding as a
+// noisy signal).
 func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
 	if len(nodes) < traceCausalProjectionSameKindAggregateMin {
 		return nodes
@@ -741,6 +767,25 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 		aggregate.MergedMaxMS = maxMS
 		aggregate.ImpactMS = sum
 		aggregate.CumulativeImpactMS = sum
+		// §11-N2: cross-query-window caliber. The roster of distinct member
+		// query windows is disclosed on every ×N row whose members carried a
+		// window identity (窗身份, 联动 q1-B6); the union caliber replaces the
+		// SUM only when distinct-window members overlap in time (see the
+		// function docs — disjoint and window-less shapes keep the SUM
+		// unchanged). Row-level window identity survives only when EVERY
+		// member carried the SAME window — a mixed or partially-unknown roster
+		// must not let the merged row claim a single window as its own.
+		union := traceCausalProjectionCrossWindowUnion(nodes, g.members)
+		aggregate.MergedQueryWindows = union.roster
+		if !union.singleWindow {
+			aggregate.QueryWindowStartTs, aggregate.QueryWindowEndTs = 0, 0
+		}
+		if union.applied {
+			aggregate.ImpactMS = union.unionMS
+			aggregate.CumulativeImpactMS = union.unionMS
+			aggregate.MergedIntervalUnion = true
+			aggregate.MergedSumMS = sum
+		}
 		// F2 (adversarial review 2026-07-03): the ×N row carries a SUM, so the
 		// DuplicatePublications contract ("dup>0 ⇒ the value is ONE republished
 		// measurement") can never hold on it — a dup count inherited from the
@@ -798,6 +843,196 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 		out = append(out, node)
 	}
 	return out
+}
+
+// --- N2: cross-query-window ×N union caliber ---------------------------------
+
+// traceCausalProjectionUnionOutcome is what the R2 merge consumes from the
+// §11-N2 cross-window scan of one merged group.
+type traceCausalProjectionUnionOutcome struct {
+	// roster: the distinct member query windows (F-2 ±1ms endpoint dedupe,
+	// ascending start order). Empty when no member carried an identity.
+	roster []TraceCausalProjectionQueryWindow
+	// singleWindow: EVERY member carried an identity and all matched ONE
+	// window — only then may the merged row keep a row-level QueryWindow.
+	singleWindow bool
+	// applied + unionMS: the union caliber engaged (distinct-window members
+	// overlap in time) and this is the deduplicated value.
+	applied bool
+	unionMS float64
+}
+
+// traceCausalProjectionCrossWindowUnion computes the §11-N2 window roster and
+// (when distinct-window members overlap in time) the interval-union caliber
+// value for one R2 merged group. Precise signals only:
+//   - window identity: the members' typed QueryWindowStartTs/EndTs, grouped
+//     into slots with the F-2 ±1ms endpoint tolerance (the SAME constant the
+//     projection-level QueryWindows list dedupes with — one tolerance);
+//   - engagement: ∃ member pair in DIFFERENT slots whose occurrence intervals
+//     (typed StartTs/EndTs) overlap — bare overlap without distinct windows
+//     never engages (same-window overlapping rows are distinct facts, E9/E10
+//     strict pin), and distinct windows without time overlap never engage
+//     (disjoint cross-window instances legitimately SUM);
+//   - value: members are visited in display-value-descending order (ties by
+//     bucket order — deterministic); each member's contribution is its value
+//     minus min(value, wall clock already counted by OTHER windows inside the
+//     member's own interval). The deduction is pure interval algebra on the
+//     shared authority (trace_causal_projection_interval.go): bounded by the
+//     physical overlap, so a contained re-measurement (the q2 E10 15.206ms
+//     occurrence inside the 104.127ms one) contributes 0 while a partial
+//     overlap loses at most the overlapping seconds — the union value is a
+//     lower bound that never invents and never drops below the largest single
+//     member. Members without a window identity or without a valid interval
+//     contribute their full value and never deduct from anyone (fail-open to
+//     the legacy SUM semantics for exactly those members).
+//
+// The periodic Σ-effective lane (VS-1 F6(a)) is deliberately untouched: it
+// discounts per-occurrence cadence amounts, and its disjointness assumption
+// is out of N2 scope (documented residual — the raw projection lanes are the
+// ones the customer-facing double count lived on).
+func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, members []int) traceCausalProjectionUnionOutcome {
+	out := traceCausalProjectionUnionOutcome{}
+	if len(members) == 0 {
+		return out
+	}
+	// Window-slot assignment (F-2 tolerance, first occurrence defines a slot).
+	slots := make([]TraceCausalProjectionQueryWindow, 0, 2)
+	slotOf := make([]int, len(members))
+	withIdentity := 0
+	for k, idx := range members {
+		node := nodes[idx]
+		slotOf[k] = -1
+		if !traceCausalProjectionIntervalValid(node.QueryWindowStartTs, node.QueryWindowEndTs) {
+			continue
+		}
+		withIdentity++
+		found := -1
+		for si, w := range slots {
+			if math.Abs(w.StartTs-node.QueryWindowStartTs) <= traceCausalProjectionFullWindowSameWindowToleranceS &&
+				math.Abs(w.EndTs-node.QueryWindowEndTs) <= traceCausalProjectionFullWindowSameWindowToleranceS {
+				found = si
+				break
+			}
+		}
+		if found < 0 {
+			slots = append(slots, TraceCausalProjectionQueryWindow{
+				StartTs: node.QueryWindowStartTs,
+				EndTs:   node.QueryWindowEndTs,
+			})
+			found = len(slots) - 1
+		}
+		slotOf[k] = found
+	}
+	if len(slots) > 0 {
+		roster := make([]TraceCausalProjectionQueryWindow, len(slots))
+		copy(roster, slots)
+		out.roster = traceCausalProjectionSortQueryWindows(roster)
+	}
+	out.singleWindow = len(slots) == 1 && withIdentity == len(members)
+	if len(slots) < 2 {
+		return out
+	}
+	// F-2 structural-premise gate (复核 2026-07-06): the union deduction
+	// assumes every member's value is wall clock CONTAINED in its own
+	// occurrence interval (value ≤ interval length). Per-occurrence
+	// wakeup_causal rows satisfy that by construction, but a density>1 row
+	// (e.g. a multi-CPU cpu·ms cumulative whose value exceeds its interval's
+	// wall clock) would break the premise and the interval deduction would
+	// under-subtract. Precise in-code gate instead of a comment-level
+	// assumption (future root_cause families gaining Span ts must not
+	// silently activate an unsound deduction): ANY windowed member whose
+	// value exceeds its own interval length ×(1+1e-9) (float headroom only,
+	// not a tolerance band) fails the WHOLE group open to the legacy SUM.
+	// Windowless / interval-less members never deduct anyway and are exempt.
+	for k, idx := range members {
+		node := nodes[idx]
+		if slotOf[k] < 0 || !traceCausalProjectionIntervalValid(node.StartTs, node.EndTs) {
+			continue
+		}
+		intervalMS := (node.EndTs - node.StartTs) * 1000
+		if traceCausalProjectionDisplayValue(node) > intervalMS*(1+1e-9) {
+			return out
+		}
+	}
+	// Engagement: any cross-slot pair with overlapping occurrence intervals.
+	engaged := false
+	for k := 0; k < len(members) && !engaged; k++ {
+		if slotOf[k] < 0 {
+			continue
+		}
+		for l := k + 1; l < len(members); l++ {
+			if slotOf[l] < 0 || slotOf[l] == slotOf[k] {
+				continue
+			}
+			if traceCausalProjectionSpansOverlap(nodes[members[k]], nodes[members[l]]) {
+				engaged = true
+				break
+			}
+		}
+	}
+	if !engaged {
+		return out
+	}
+	// Union value: display-desc greedy with cross-window interval deduction.
+	order := make([]int, len(members))
+	for k := range order {
+		order[k] = k
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		return traceCausalProjectionDisplayValue(nodes[members[order[a]]]) >
+			traceCausalProjectionDisplayValue(nodes[members[order[b]]])
+	})
+	perSlot := make([]TraceCausalProjectionIntervalSet, len(slots))
+	total := 0.0
+	for _, k := range order {
+		node := nodes[members[k]]
+		display := traceCausalProjectionDisplayValue(node)
+		contribution := display
+		if slotOf[k] >= 0 && traceCausalProjectionIntervalValid(node.StartTs, node.EndTs) {
+			// Wall clock inside THIS member's interval already counted by other
+			// windows: union the other slots' coverage clipped to the member's
+			// interval first (two other windows overlapping each other must not
+			// deduct twice), then bound the deduction by the member's own value.
+			var counted TraceCausalProjectionIntervalSet
+			for si := range perSlot {
+				if si == slotOf[k] {
+					continue
+				}
+				for _, span := range perSlot[si].Spans() {
+					lo, hi := span.StartTs, span.EndTs
+					if lo < node.StartTs {
+						lo = node.StartTs
+					}
+					if hi > node.EndTs {
+						hi = node.EndTs
+					}
+					if hi > lo {
+						counted.Add(lo, hi)
+					}
+				}
+			}
+			if dedupMS := counted.TotalSeconds() * 1000; dedupMS > 0 {
+				if dedupMS > display {
+					dedupMS = display
+				}
+				contribution = display - dedupMS
+			}
+			perSlot[slotOf[k]].Add(node.StartTs, node.EndTs)
+		}
+		total += contribution
+	}
+	out.applied = true
+	out.unionMS = total
+	return out
+}
+
+// traceCausalProjectionDisplayValue is the merged-member display value the R2
+// sum/min/max accounting keys on (projected ms, cumulative fallback).
+func traceCausalProjectionDisplayValue(node TraceCausalProjectionNode) float64 {
+	if node.ImpactMS > 0 {
+		return node.ImpactMS
+	}
+	return node.CumulativeImpactMS
 }
 
 // --- R3: unknown-impact-point background folding -----------------------------

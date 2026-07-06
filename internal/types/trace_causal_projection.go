@@ -149,6 +149,19 @@ type TraceCausalProjectionNode struct {
 	// root_cause primary rows carry only line spans and leave these zero).
 	StartTs float64 `json:"start_ts,omitempty"`
 	EndTs   float64 `json:"end_ts,omitempty"`
+	// QueryWindowStartTs/QueryWindowEndTs is the QUERY window this observation
+	// was measured in — the record's own typed selected_window note through the
+	// ONE strict parser (traceCausalProjectionSelectedWindowNote; §11-N2,
+	// real_trace_campaign_20260705.md). Distinct from StartTs/EndTs (the
+	// occurrence segment): two queries over overlapping windows can each carve
+	// the SAME physical segment into a per-occurrence row, and only the window
+	// identity tells the R2 ×N merge that the members are re-measurements
+	// rather than distinct facts. Zero when the record carried no
+	// selected_window note — absence never guesses a window. Identity carriage
+	// only: the anchor lanes (two-gate whitelist) are untouched, and no gate
+	// reads these fields.
+	QueryWindowStartTs float64 `json:"query_window_start_ts,omitempty"`
+	QueryWindowEndTs   float64 `json:"query_window_end_ts,omitempty"`
 	// WithinRequestedWindow is three-state: nil = unknown (no precise anchor
 	// window, or this node has no window of its own), true = this node's
 	// window intersects the user's originally-requested analysis window,
@@ -202,12 +215,46 @@ type TraceCausalProjectionNode struct {
 	// MergedCount > 1 marks an R2 ×N aggregate row: ImpactMS/CumulativeImpactMS
 	// then carry the SUM over the merged instances and MergedMinMS/MergedMaxMS
 	// the per-instance display range (lossless: every instance id is kept).
-	// Exception: the R3 subjectless background fold spans DIFFERENT threads, so
-	// its ImpactMS/CumulativeImpactMS carry the member MAX, never a sum (V3,
-	// customer revisit 2026-07-03 — wall clock does not add across threads).
+	// Two exceptions: the R3 subjectless background fold spans DIFFERENT
+	// threads, so its ImpactMS/CumulativeImpactMS carry the member MAX, never
+	// a sum (V3, customer revisit 2026-07-03 — wall clock does not add across
+	// threads); and a cross-query-window ×N row whose members' occurrence
+	// intervals overlap publishes the interval-union caliber instead of the
+	// sum (§11-N2 — see MergedIntervalUnion below).
 	MergedCount int     `json:"merged_count,omitempty"`
 	MergedMinMS float64 `json:"merged_min_ms,omitempty"`
 	MergedMaxMS float64 `json:"merged_max_ms,omitempty"`
+	// MergedIntervalUnion marks the §11-N2 cross-query-window union caliber on
+	// an R2 ×N row (real_trace_campaign_20260705.md; q2 specimen E10:
+	// 104.127+50.057+15.206+14.550 SUMMED to 183.940ms while the 15.206ms
+	// occurrence [3680.7995–3680.8192] lay entirely inside the 104.127ms
+	// occurrence [3680.6909–3680.8192] — the same physical runnable segment
+	// carved once per query window and double-counted ~15.2ms). Set ONLY when
+	// members from DISTINCT query windows (typed QueryWindow identity, F-2
+	// ±1ms endpoint tolerance) have overlapping occurrence intervals — bare
+	// time overlap WITHOUT distinct window identity never engages the lane
+	// (PTV6 adjudication family: same-window overlapping same-(subject,object)
+	// rows are DISTINCT facts — the E9/E10 9µs strict pin — and keep the SUM).
+	// On a union row ImpactMS/CumulativeImpactMS carry the union-caliber value
+	// (per-member deduction = min(member value, wall clock already counted by
+	// OTHER windows inside the member's interval) — interval algebra on typed
+	// StartTs/EndTs, a lower bound that never invents and never deducts more
+	// than the physical overlap), MergedSumMS keeps the lossless raw Σ, and
+	// the renderer's ×N detail line must say the caliber explicitly:
+	// "union 口径(N 窗重叠段不重复计)" — never the SUM wording.
+	MergedIntervalUnion bool `json:"merged_interval_union,omitempty"`
+	// MergedSumMS is the lossless raw member Σ of a MergedIntervalUnion row
+	// (audit trail: union value + MergedSumMS discloses exactly how much
+	// cross-window double counting was removed). Zero on plain SUM rows — the
+	// published value IS the sum there.
+	MergedSumMS float64 `json:"merged_sum_ms,omitempty"`
+	// MergedQueryWindows lists the DISTINCT query windows the R2 ×N members
+	// were measured in (typed member QueryWindow identity; F-2 ±1ms endpoint
+	// dedupe; ascending start order) — the §11-N2 窗身份 disclosure for the ×N
+	// detail line (联动 q1-B6). Present whenever at least one member carried a
+	// window identity; members WITHOUT identity are not represented here, so
+	// renderers must treat the list as the KNOWN sources, never as exhaustive.
+	MergedQueryWindows []TraceCausalProjectionQueryWindow `json:"merged_query_windows,omitempty"`
 	// DuplicatePublications ≥ 2 marks a duplicate-publication fold (V4, customer
 	// revisit 2026-07-03): the SAME measurement was published N times as separate
 	// observations — exactly equal projected ms on the same (subject, object,
@@ -1258,6 +1305,13 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		if start, end, ok := traceCausalProjectionWindow(record.RichNotes); ok {
 			node.StartTs, node.EndTs = start, end
 		}
+	}
+	// §11-N2: carry the record's own typed selected_window as the node's QUERY
+	// window identity (single strict parser; anchor gates untouched) — the R2
+	// ×N merge needs it to tell cross-window re-measurements of one physical
+	// segment apart from genuinely distinct same-window facts.
+	if ws, we, ok := traceCausalProjectionSelectedWindowNote(record.RichNotes); ok {
+		node.QueryWindowStartTs, node.QueryWindowEndTs = ws, we
 	}
 	// Presentation gaps c/d/e: surface the already-emitted (but until now
 	// unconsumed) typed rich notes so the renderer can show the duration triad
