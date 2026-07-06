@@ -340,6 +340,17 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 					DominantState: string(tracequery.StateRunning), TotalMs: 6, RunningMs: 4,
 					RunnableMs: 1, SleepMs: 1, DStateMs: 1, IOWaitMs: 1, FragmentCount: 2,
 				},
+				// A1 bounded continuation (§12.3-5) — exercised so the emit pin
+				// covers the peer_chain_* display-tier keys (state + direct 1-hop
+				// blocker + its always-inferred source + presumptive flag).
+				PeerChain: &tracequery.PeerChainStep{
+					Peer:                tracequery.ThreadRef{Comm: "holder", PID: 102},
+					State:               &tracequery.ThreadStateBreakdown{DominantState: string(tracequery.StateSSleep), TotalMs: 6, SleepMs: 5},
+					DirectBlocker:       tracequery.ThreadRef{Comm: "upstream", PID: 130},
+					DirectBlockerState:  string(tracequery.StateRunning),
+					DirectBlockerSource: tracequery.CounterpartSourceWakeupEdge,
+					Presumptive:         true, Confidence: 0.62, Summary: "continuation off holder",
+				},
 				Flags: "0x10", Oneway: &oneway, SyncLike: &syncLike, BlockingCandidate: &blockingCandidate,
 				ChainRelevance: "on_chain", OverlapMs: 2, EdgeCount: 1,
 				NearestChainThread: tracequery.ThreadRef{Comm: "dep", PID: 21},

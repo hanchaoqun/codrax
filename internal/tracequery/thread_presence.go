@@ -52,6 +52,7 @@ func (idx *Index) tidPresenceSet() map[int]bool {
 	}
 	idx.tidPresenceOnce.Do(func() {
 		set := make(map[int]bool)
+		scheduled := make(map[int]bool)
 		for i := range idx.Events {
 			ev := &idx.Events[i]
 			if ev.PID > 0 {
@@ -66,10 +67,37 @@ func (idx *Index) tidPresenceSet() map[int]bool {
 			if ev.WakeePID > 0 {
 				set[ev.WakeePID] = true
 			}
+			// E2a correction ① (P0-E2b): the scheduled subset — only sched_switch
+			// prev/next participation gives a thread actual context-switch
+			// timeline material to drill. Built in the same single pass.
+			if ev.Type == EventSchedSwitch {
+				if ev.PrevPID > 0 {
+					scheduled[ev.PrevPID] = true
+				}
+				if ev.NextPID > 0 {
+					scheduled[ev.NextPID] = true
+				}
+			}
 		}
 		idx.tidPresence = set
+		idx.tidScheduled = scheduled
 	})
 	return idx.tidPresence
+}
+
+// tidHasScheduledTimeline (E2a correction ①) reports whether a tid has actual
+// context-switch timeline material in THIS trace — it appears as sched_switch
+// prev/next, i.e. a subject==tid timeline/drilldown query would return real
+// intervals. Strictly stronger than tidPresent: a thread only ever seen as a
+// waker/wakee or event-header row is PRESENT (resolvable) but has nothing to
+// drill — a "drilled" verdict for it would assert an examination that
+// structurally cannot have decomposed anything.
+func (idx *Index) tidHasScheduledTimeline(tid int) bool {
+	if idx == nil || tid <= 0 {
+		return false
+	}
+	idx.tidPresenceSet()
+	return idx.tidScheduled[tid]
 }
 
 // tidPresent reports whether a tid names a thread this trace actually observed

@@ -145,6 +145,87 @@ func TestBundleHeadNamesTopBlockingWithUndrilledDisclosure(t *testing.T) {
 	}
 }
 
+// q4SkeletonBundleFixtureResult extends the q4 bundle fixture with the RCX③
+// typed causal skeleton (§12.3-1 ③): a q4-shaped spine with the lock direct
+// explainer, the target-state layer, and a supply background layer.
+func q4SkeletonBundleFixtureResult() tracequery.Result {
+	res := q4BundleFixtureResult()
+	waiter := tracequery.ThreadRef{Comm: "app", PID: 100}
+	holder := tracequery.ThreadRef{Comm: "NetworkKit_AssetsUtil_Operate_0", PID: 42067}
+	res.FrameRootCauseBundle.SupplyPressureSummary = &tracequery.SupplyPressureSummary{
+		Signal: "cpu_pressure", CPUPressureMs: 30.5, LowFrequencyCPUs: []int{0, 1},
+		Summary: "aggregate runnable backlog",
+	}
+	res.FrameRootCauseBundle.Skeleton = &tracequery.CausalSkeleton{
+		Target: waiter,
+		Window: tracequery.TimeWindow{StartTs: 5.0, EndTs: 5.115},
+		Nodes: []tracequery.CausalSkeletonNode{
+			{
+				Layer: tracequery.CausalSkeletonLayerTargetState, Thread: waiter,
+				State: "s_sleep", MeasuredMs: 112.223,
+				Note: "the wait being explained",
+			},
+			{
+				Layer: tracequery.CausalSkeletonLayerDirectBlocker, Thread: holder,
+				State: "monitor_contention", MeasuredMs: 112.223,
+				HolderSite:        "AssetManager.list(AssetManager.java:1258)",
+				DrillStatus:       tracequery.DrillStatusUndrilledPeerKnown,
+				CounterpartSource: tracequery.CounterpartSourceContentionPayload,
+				Note:              "direct explainer of the target's wait",
+			},
+			{
+				Layer: tracequery.CausalSkeletonLayerBackground,
+				State: "cpu_pressure", MeasuredMs: 30.5,
+				Note: "window-scoped supply pressure (cross-thread cpu·ms aggregate — background, never a per-thread cause)",
+			},
+		},
+	}
+	return res
+}
+
+// RCX③ tool-face pin (§12.3-1 ③): the q4-shaped skeleton card renders in the
+// bundle HEAD region (within 24KB), adjacent to top_blocking, carrying the lock
+// direct-explainer layer + target-state layer + background layer, each node with
+// its layer / measured / drill / source.
+func TestBundleHeadRendersCausalSkeletonCard(t *testing.T) {
+	summary := traceQuerySummary(q4SkeletonBundleFixtureResult(), traceQueryParams{View: "frame_root_cause_bundle"}, "path", "/tmp/payload.json")
+
+	headerIdx := strings.Index(summary, "- bundle_causal_skeleton target=app-100 nodes=3")
+	if headerIdx < 0 {
+		t.Fatalf("bundle head must render the causal skeleton header, got:\n%s", summary)
+	}
+	// q4 form: the direct explainer is the resolved lock holder, with holder
+	// site + drill + source; the target-state layer + background layer present.
+	targetLine := "  bundle_skeleton_node layer=target_state thread=app-100 state=s_sleep measured=112.223ms"
+	blockerLine := "  bundle_skeleton_node layer=direct_blocker thread=NetworkKit_AssetsUtil_Operate_0-42067 state=monitor_contention measured=112.223ms holder_site=AssetManager.list(AssetManager.java:1258) drill_status=undrilled_peer_known counterpart_source=contention_payload"
+	bgLine := "  bundle_skeleton_node layer=background state=cpu_pressure measured=30.500ms"
+	for _, want := range []string{targetLine, blockerLine, bgLine} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("skeleton card missing node line %q, got:\n%s", want, summary)
+		}
+	}
+	// Layer ORDER: target_state → direct_blocker → background, NEVER re-sorted by
+	// ms (§12.3-1 ②; the incommensurable cross-layer ms must not reorder them).
+	ti := strings.Index(summary, targetLine)
+	bi := strings.Index(summary, blockerLine)
+	gi := strings.Index(summary, bgLine)
+	if !(ti < bi && bi < gi) {
+		t.Fatalf("skeleton nodes must stay in causal-layer order (target=%d blocker=%d background=%d)", ti, bi, gi)
+	}
+	// Head anchoring: the skeleton sits adjacent to top_blocking and within the
+	// head-24KB blob preview zone, before the full blocking section.
+	topBlockingIdx := strings.Index(summary, "- bundle_top_blocking")
+	if topBlockingIdx < 0 || headerIdx < topBlockingIdx {
+		t.Fatalf("skeleton card must sit adjacent to (after) top_blocking in the head region (skeleton=%d top_blocking=%d)", headerIdx, topBlockingIdx)
+	}
+	if headerIdx >= previewHeadBytes {
+		t.Fatalf("skeleton card must land inside the head-24KB anchor zone, got byte offset %d (limit %d)", headerIdx, previewHeadBytes)
+	}
+	if blockingSection := strings.Index(summary, "## Critical blocking calls"); blockingSection >= 0 && headerIdx > blockingSection {
+		t.Fatalf("skeleton card must precede the full blocking section (skeleton=%d section=%d)", headerIdx, blockingSection)
+	}
+}
+
 func TestTraceQueryObservationsCarryLockLaneAndDrillNotes(t *testing.T) {
 	records := traceQueryTypedObservations(q4BundleFixtureResult(), "full.systrace", "payload-ref", "raw-ref", "", time.Unix(1751600000, 0).UTC())
 	joinNotes := func(notes []string) string { return strings.Join(notes, "\n") }

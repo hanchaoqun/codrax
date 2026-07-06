@@ -443,3 +443,63 @@ func TestBinderPhantomDestThreadHintFallsBack(t *testing.T) {
 		t.Fatalf("phantom dest_thread must fall back to the wakeup-edge waker, got peer=%+v source=%q", binder.Peer, binder.PeerSource)
 	}
 }
+
+// E2a correction ② (P0-E2b): the collision cross-check is truncation-aware.
+// The payload prints the holder's FULL name; every scheduler comm is truncated
+// to 15 bytes (TASK_COMM_LEN-1). Requiring full equality turned every >15-char
+// owner name into a FALSE collision that discarded the payload-direct holder
+// for a wakeup-edge inference. A full payload name now matches its own
+// 15-byte truncation — and ONLY that exact kernel shape (no general prefix
+// matching: "Thread-1" observed at 8 chars never matches "Thread-10").
+func TestLockOwnerCommMatchesTruncationAware(t *testing.T) {
+	cases := []struct {
+		payload, observed string
+		want              bool
+	}{
+		{"NetworkKit_AssetsUtil_Operate_0", "NetworkKit_Asse", true},  // kernel 15-byte truncation
+		{"Holder", "Holder", true},                                    // exact
+		{"Holder", "holder", true},                                    // case fold
+		{"Thread-10", "Thread-1", false},                              // NOT a truncation shape (observed 8 chars)
+		{"Holder", "unrelated", false},                                // genuine collision
+		{"NetworkKit_AssetsUtil_Operate_0", "NetworkKit_AssX", false}, // 15 bytes but not the truncation
+	}
+	for _, tc := range cases {
+		if got := lockOwnerCommMatches(tc.payload, tc.observed); got != tc.want {
+			t.Fatalf("lockOwnerCommMatches(%q, %q) = %v, want %v", tc.payload, tc.observed, got, tc.want)
+		}
+	}
+}
+
+// End-to-end: the payload owner's full 31-char name vs the sched-truncated
+// 15-char comm on the SAME tid must keep the payload-DIRECT resolution (before
+// the fix this false collision silently swapped the confirmed holder for the
+// waiter's waker).
+const e2aTruncatedCommTrace = `
+        app-100 (100) [001] .... 5.000000: print: B|100|monitor contention with owner #NetworkKit_AssetsUtil_Operate_0 (300) at Foo.list(Foo.java:12) waiters=1
+        app-100 (100) [001] .... 5.000100: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+ NetworkKit_Asse-300 (300) [002] .... 5.020000: sched_switch: prev_comm=NetworkKit_Asse prev_pid=300 prev_prio=120 prev_state=R ==> next_comm=idle/2 next_pid=0 next_prio=120
+     worker-200 (200) [003] .... 5.050000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 5.050100: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100 (100) [001] .... 5.050200: print: E|100
+`
+
+func TestTruncatedSchedCommKeepsPayloadDirectHolder(t *testing.T) {
+	idx := buildTraceIndex(t, "e2a_trunc_comm.systrace", e2aTruncatedCommTrace)
+	res := Run(idx, Query{View: "critical_blocking_calls", PID: 100, TimeStart: 4.99, TimeEnd: 5.06})
+	var monitor *CriticalBlockingCandidate
+	for i := range res.CriticalBlocking.Items {
+		if res.CriticalBlocking.Items[i].BlockingKind == "monitor_contention" {
+			monitor = &res.CriticalBlocking.Items[i]
+			break
+		}
+	}
+	if monitor == nil {
+		t.Fatalf("expected the monitor contention row: %+v", res.CriticalBlocking)
+	}
+	if monitor.Peer.PID != 300 || monitor.HolderSource != CounterpartSourceContentionPayload {
+		t.Fatalf("the truncated sched comm must NOT trigger a false collision — payload-direct holder retained, got peer=%+v source=%q", monitor.Peer, monitor.HolderSource)
+	}
+	if monitor.OwnerTidRaw != 0 {
+		t.Fatalf("a payload-direct resolution leaves no phantom-tid residue, got %d", monitor.OwnerTidRaw)
+	}
+}

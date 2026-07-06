@@ -502,8 +502,11 @@ type threadStateComparisonSite struct {
 // doc-comment line, TSH F8); tampering one member or adding/removing a
 // comparison is a drift that must be reviewed against §7.11 B-1 semantics.
 var threadStateComparisonSiteGolden = map[string]string{
-	"cpu_occupancy.go:computeIdleRunnableMismatchMs":            "runnable#1",
-	"query.go:addStateChurnInterval":                            "d_sleep#1",
+	"cpu_occupancy.go:computeIdleRunnableMismatchMs": "runnable#1",
+	"query.go:addStateChurnInterval":                 "d_sleep#1",
+	// A1 bounded continuation (§12.3-5): the peer's own dominant state gates
+	// whether it was itself sleep-blocked (→ name its single direct blocker).
+	"query.go:buildCriticalBlockingPeerChain":                   "s_sleep#1",
 	"query.go:buildSchedulerLatencyStatsFromStats":              "runnable#1",
 	"query.go:buildStateDrilldownPlanForTarget":                 "s_sleep#1",
 	"query.go:computeOffCPUStats":                               "runnable,s_sleep,d_sleep,io_wait#5",

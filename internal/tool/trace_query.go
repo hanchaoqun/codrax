@@ -3286,6 +3286,10 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 			top.Type, traceThreadLabel(top.Thread), sanitizeForBanner(top.ChainRelevance), sanitizeForBanner(top.DominantState), top.ImpactMs, top.DStateMs, top.IOWaitMs, top.Score, sanitizeForBanner(top.Source), sanitizeForBanner(top.Summary))
 	}
 	writeTraceFrameBundleTopBlocking(b, bundle)
+	// RCX③ (§12.3-1 ③): the typed causal skeleton sits in the head region,
+	// adjacent to top_blocking, so the model-facing spine stays inside the
+	// head-24KB anchor zone. Structure only — the model configures the prose.
+	writeTraceFrameBundleSkeleton(b, bundle)
 	if bundle.WakeupChain != nil {
 		if path := traceQueryWakeupChainPath(*bundle.WakeupChain); path != "" {
 			fmt.Fprintf(b, "- bundle_wakeup_chain path=%s\n", sanitizeForBanner(path))
@@ -3383,6 +3387,49 @@ func writeTraceFrameBundleTopBlocking(b *strings.Builder, bundle *tracequery.Fra
 	if largest != nil && largest.DrillStatus == tracequery.DrillStatusUndrilledPeerKnown {
 		fmt.Fprintf(b, "- bundle_largest_impact_undrilled: %s %.3fms peer=%s — the biggest measured blocking impact names a counterpart this report never examined; drill the peer before concluding\n",
 			traceThreadLabel(largest.Thread), largest.DurationMs, traceThreadLabel(largest.Peer))
+	}
+}
+
+// writeTraceFrameBundleSkeleton (RCX③, ledger §12.1/§12.3-1 item ③): renders the
+// typed model-facing causal skeleton in the bundle HEAD region — an ordered,
+// layer-tagged spine (target dominant wait → direct explainer → upstream chain
+// head → supply background) the model narrates. Each node carries its measured
+// ms, causal layer, drill status, and counterpart source. It is a STRUCTURE the
+// model configures prose over, never a system-authored verdict
+// (feedback_no_system_backfill). Nodes are rendered in causal-layer order and
+// MUST NOT be re-sorted by the incommensurable per-layer ms values (§12.3-1 ②).
+func writeTraceFrameBundleSkeleton(b *strings.Builder, bundle *tracequery.FrameRootCauseBundle) {
+	if b == nil || bundle == nil || bundle.Skeleton == nil || len(bundle.Skeleton.Nodes) == 0 {
+		return
+	}
+	skel := bundle.Skeleton
+	// Header is a single compact teaching line; per-node lines carry ONLY the
+	// typed fields (no prose notes — the typed struct keeps the Note for the P0-A
+	// projection consumer, but the head text stays lean so the card never evicts
+	// tail window-stats content from the 24KB preview budget).
+	fmt.Fprintf(b, "- bundle_causal_skeleton target=%s nodes=%d — causal spine (layer order = causal role, NOT a ranking); narrate in prose, never re-sort layers by ms\n",
+		traceThreadLabel(skel.Target), len(skel.Nodes))
+	for _, node := range skel.Nodes {
+		parts := []string{
+			"layer=" + sanitizeForBanner(string(node.Layer)),
+		}
+		if node.Thread.PID > 0 || strings.TrimSpace(node.Thread.Comm) != "" {
+			parts = append(parts, "thread="+traceThreadLabel(node.Thread))
+		}
+		if node.State != "" {
+			parts = append(parts, "state="+sanitizeForBanner(node.State))
+		}
+		parts = append(parts, fmt.Sprintf("measured=%.3fms", node.MeasuredMs))
+		if node.HolderSite != "" {
+			parts = append(parts, "holder_site="+sanitizeForBanner(node.HolderSite))
+		}
+		if node.DrillStatus != "" {
+			parts = append(parts, "drill_status="+sanitizeForBanner(node.DrillStatus))
+		}
+		if node.CounterpartSource != "" {
+			parts = append(parts, "counterpart_source="+sanitizeForBanner(node.CounterpartSource))
+		}
+		b.WriteString("  bundle_skeleton_node " + strings.Join(parts, " ") + "\n")
 	}
 }
 
@@ -5805,7 +5852,41 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 			{"peer_state_fragments", traceQueryTypedCount(item.PeerState.FragmentCount)},
 		})...)
 	}
+	// A1 bounded continuation (§12.3-5 ruling 5): ONE sub-goal hop off the
+	// resolved counterpart — the peer's own dominant state + its single direct
+	// 1-hop blocker (depth hard-capped at 1). peer_chain_presumptive is true when
+	// the counterpart itself was only wakeup-edge-resolved. Display tier (NKR);
+	// projection/answer-face consumption is the P0-A batch.
+	if item.PeerChain != nil {
+		notes = append(notes, traceQueryTypedCriticalBlockingPeerChainNotes(item.PeerChain)...)
+	}
 	return notes
+}
+
+// traceQueryTypedCriticalBlockingPeerChainNotes renders the A1 bounded
+// continuation as display-tier notes: the peer's own dominant state, the single
+// direct 1-hop blocker (never expanded further) with its ALWAYS-inferred typed
+// origin (F2: peer_chain_blocker_source=wakeup_edge whenever a blocker is
+// named), and the presumptive flag when the whole continuation hangs off a
+// wakeup-edge-inferred counterpart.
+func traceQueryTypedCriticalBlockingPeerChainNotes(chain *tracequery.PeerChainStep) []string {
+	if chain == nil || chain.State == nil {
+		return nil
+	}
+	kv := [][2]string{
+		{"peer_chain_state", chain.State.DominantState},
+	}
+	if chain.DirectBlocker.PID > 0 || strings.TrimSpace(chain.DirectBlocker.Comm) != "" {
+		kv = append(kv,
+			[2]string{"peer_chain_blocker", traceThreadLabel(chain.DirectBlocker)},
+			[2]string{"peer_chain_blocker_state", chain.DirectBlockerState},
+			[2]string{"peer_chain_blocker_source", chain.DirectBlockerSource},
+		)
+	}
+	if chain.Presumptive {
+		kv = append(kv, [2]string{"peer_chain_presumptive", "true"})
+	}
+	return traceQueryTypedKVNotes(kv)
 }
 
 func traceQuerySortedWakeupEdges(chain tracequery.ChainResult) []tracequery.WakeupEdge {

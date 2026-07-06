@@ -175,6 +175,22 @@ func drillStatusForCounterpart(peer ThreadRef, universe drillSubjectUniverse) st
 	return DrillStatusUndrilledPeerKnown
 }
 
+// drillStatusForCounterpartWithTimeline (P0-E2b, E2a correction ①) is the full
+// production verdict: universe membership AND actual drillable timeline. A
+// wakeup-edge counterpart can enter the observation universe merely by being
+// NAMED (a chain node / waker with zero decomposition); if that tid has no
+// sched_switch material, "drilled" would claim an examination that structurally
+// cannot have decomposed anything — demote to undrilled_peer_known. Comm-only
+// peers keep the pure verdict (their name already resolved through the trace's
+// own thread catalog; there is no pid to check).
+func drillStatusForCounterpartWithTimeline(idx *Index, peer ThreadRef, universe drillSubjectUniverse) string {
+	verdict := drillStatusForCounterpart(peer, universe)
+	if verdict == DrillStatusDrilled && peer.PID > 0 && !idx.tidHasScheduledTimeline(peer.PID) {
+		return DrillStatusUndrilledPeerKnown
+	}
+	return verdict
+}
+
 // criticalBlockingDrillCounterpart returns the counterpart whose drill status
 // a critical-blocking row carries, and whether the row HAS a counterpart lane:
 // binder peers, IO-latency completers (P3-5; the builder publishes
@@ -192,21 +208,22 @@ func criticalBlockingDrillCounterpart(item CriticalBlockingCandidate) (ThreadRef
 }
 
 // stampCriticalBlockingDrillStatus applies the RCX① verdict to every
-// counterpart-lane row of a critical_blocking result.
-func stampCriticalBlockingDrillStatus(items []CriticalBlockingCandidate, universe drillSubjectUniverse) {
+// counterpart-lane row of a critical_blocking result (timeline-aware, E2a ①).
+func stampCriticalBlockingDrillStatus(idx *Index, items []CriticalBlockingCandidate, universe drillSubjectUniverse) {
 	for i := range items {
 		peer, ok := criticalBlockingDrillCounterpart(items[i])
 		if !ok {
 			continue
 		}
-		items[i].DrillStatus = drillStatusForCounterpart(peer, universe)
+		items[i].DrillStatus = drillStatusForCounterpartWithTimeline(idx, peer, universe)
 	}
 }
 
 // stampRootCauseRankDrillStatus applies the RCX① verdict to the lock-lane
 // rank rows (Q4-A blocking_span rows): the examined party is the HOLDER —
-// the row subject when resolved (BlockingPeer set), unknown otherwise.
-func stampRootCauseRankDrillStatus(items []RootCauseRankItem, universe drillSubjectUniverse) {
+// the row subject when resolved (BlockingPeer set), unknown otherwise
+// (timeline-aware, E2a ①).
+func stampRootCauseRankDrillStatus(idx *Index, items []RootCauseRankItem, universe drillSubjectUniverse) {
 	for i := range items {
 		if items[i].Type != "blocking_span" || items[i].BlockingKind == "" {
 			continue
@@ -216,6 +233,6 @@ func stampRootCauseRankDrillStatus(items []RootCauseRankItem, universe drillSubj
 			items[i].DrillStatus = DrillStatusPeerUnknown
 			continue
 		}
-		items[i].DrillStatus = drillStatusForCounterpart(items[i].Thread, universe)
+		items[i].DrillStatus = drillStatusForCounterpartWithTimeline(idx, items[i].Thread, universe)
 	}
 }

@@ -382,8 +382,15 @@ type Index struct {
 	// cross-namespace owner/dest tid that names no thread this trace ever
 	// scheduled. Lazily built once by tidPresenceSet(); non-exported and never
 	// serialized. Copy-safe like tidTgidVoteOnce (Index is pointer-only).
+	//
+	// tidScheduled (P0-E2b, E2a correction ①) is the STRICTER subset built in
+	// the same pass: tids that appear as sched_switch Prev/Next — i.e. threads
+	// with actual context-switch timeline material. The drill verdict's
+	// "drilled" claim requires THIS set (a counterpart merely named as a
+	// waker/wakee has nothing to drill).
 	tidPresenceOnce sync.Once
 	tidPresence     map[int]bool
+	tidScheduled    map[int]bool
 }
 
 type Query struct {
@@ -1940,9 +1947,74 @@ type FrameRootCauseBundle struct {
 	SupplyPressureSummary *SupplyPressureSummary  `json:"supply_pressure_summary,omitempty"`
 	TraceMarkCategories   []TraceMarkCategory     `json:"trace_mark_categories,omitempty"`
 	AsyncFileWork         []AsyncFileWorkSummary  `json:"async_file_work,omitempty"`
-	Caveats               []string                `json:"caveats,omitempty"`
+	// Skeleton (RCX③, ledger §12.3 ruling 1 item ③): the typed model-facing
+	// causal skeleton — target dominant wait → direct explainer → upstream chain
+	// head → supply background, each node carrying measured ms + layer +
+	// DrillStatus + counterpart source. The ENGINE gives structure; the model
+	// writes prose over it (feedback_no_system_backfill). nil when no target/rank
+	// evidence exists to skeletonize.
+	Skeleton *CausalSkeleton `json:"skeleton,omitempty"`
+	Caveats  []string        `json:"caveats,omitempty"`
 
 	windowStats *WindowStats `json:"-"`
+}
+
+// CausalSkeletonLayer is the typed layer of a skeleton node (§12.3-1 ②/③): the
+// deterministic causal role, NOT a ranking. Renderers show the layer verbatim;
+// nodes are ordered target_state → direct_blocker → upstream_chain → adjacent →
+// background and NEVER re-sorted by the incommensurable ms values across layers.
+type CausalSkeletonLayer string
+
+const (
+	// CausalSkeletonLayerTargetState — the target thread's own dominant blocking
+	// state (the wait being explained).
+	CausalSkeletonLayerTargetState CausalSkeletonLayer = "target_state"
+	// CausalSkeletonLayerDirectBlocker — the resolved direct explainer: lock
+	// holder / binder peer / blocking-span object owner + holder point.
+	CausalSkeletonLayerDirectBlocker CausalSkeletonLayer = "direct_blocker"
+	// CausalSkeletonLayerUpstreamChain — the head of the wakeup dependency chain
+	// upstream of the target.
+	CausalSkeletonLayerUpstreamChain CausalSkeletonLayer = "upstream_chain"
+	// CausalSkeletonLayerAdjacent — near-window contention/competition not on the
+	// direct chain but overlapping the target window. F6: NO engine producer
+	// emits this layer today — buildCausalSkeleton builds exactly
+	// target_state / direct_blocker / upstream_chain / background. The constant
+	// is reserved for the P0-A projection/answer-face batch (which owns adjacent
+	// tiering); removing it would force P0-A to re-adjudicate the layer enum.
+	CausalSkeletonLayerAdjacent CausalSkeletonLayer = "adjacent"
+	// CausalSkeletonLayerBackground — window/CPU-scoped supply background
+	// (cpu_pressure / low-frequency / idle mismatch), never a per-thread cause.
+	CausalSkeletonLayerBackground CausalSkeletonLayer = "background"
+)
+
+// CausalSkeletonNode is one typed node of the model-facing skeleton. Every field
+// is a precise engine-computed signal; the node carries NO prose verdict — the
+// model configures the narrative. MeasuredMs is the node's own measured wall
+// clock (per-layer, never summed across layers — 墙钟不可加和).
+type CausalSkeletonNode struct {
+	Layer      CausalSkeletonLayer `json:"layer"`
+	Thread     ThreadRef           `json:"thread,omitempty"`
+	State      string              `json:"state,omitempty"`
+	MeasuredMs float64             `json:"measured_ms,omitempty"`
+	// HolderSite is the direct blocker's code location (lock holder point) when
+	// the payload carried one; empty otherwise.
+	HolderSite string `json:"holder_site,omitempty"`
+	// DrillStatus / CounterpartSource are the P0-E1/P0-E2a typed verdicts for a
+	// direct_blocker node: whether the named counterpart was itself examined, and
+	// whether it came from the payload or a wakeup-edge inference. Empty on
+	// layers with no counterpart (target_state / background).
+	DrillStatus       string `json:"drill_status,omitempty"`
+	CounterpartSource string `json:"counterpart_source,omitempty"`
+	Note              string `json:"note,omitempty"`
+}
+
+// CausalSkeleton is the RCX③ typed skeleton (§12.3-1 ③): an ordered,
+// layer-tagged spine the model narrates. It is a STRUCTURE, not prose — the
+// engine never writes the verdict, only the deterministic causal spine.
+type CausalSkeleton struct {
+	Target ThreadRef            `json:"target,omitempty"`
+	Window TimeWindow           `json:"window,omitempty"`
+	Nodes  []CausalSkeletonNode `json:"nodes,omitempty"`
 }
 
 type FrameTargetResolution struct {
@@ -2099,24 +2171,32 @@ type CriticalBlockingCandidate struct {
 	// row's counterpart lane (binder_wait / io_latency / resolved-contention
 	// blocking_span rows only; empty on rows with no peer lane). See the
 	// DrillStatus* constants in drill_status.go.
-	DrillStatus        string                `json:"drill_status,omitempty"`
-	PeerState          *ThreadStateBreakdown `json:"peer_state,omitempty"`
-	Flags              string                `json:"flags,omitempty"`
-	Oneway             *bool                 `json:"oneway,omitempty"`
-	SyncLike           *bool                 `json:"sync_like,omitempty"`
-	BlockingCandidate  *bool                 `json:"blocking_candidate,omitempty"`
-	ChainRelevance     string                `json:"chain_relevance,omitempty"`
-	OverlapMs          float64               `json:"overlap_ms,omitempty"`
-	EdgeCount          int                   `json:"edge_count,omitempty"`
-	NearestChainThread ThreadRef             `json:"nearest_chain_thread,omitempty"`
-	NearestChainWindow TimeWindow            `json:"nearest_chain_window,omitempty"`
-	DurationMs         float64               `json:"duration_ms,omitempty"`
-	StartTs            float64               `json:"start_ts,omitempty"`
-	EndTs              float64               `json:"end_ts,omitempty"`
-	LineStart          int                   `json:"line_start,omitempty"`
-	LineEnd            int                   `json:"line_end,omitempty"`
-	Confidence         float64               `json:"confidence,omitempty"`
-	Summary            string                `json:"summary,omitempty"`
+	DrillStatus string                `json:"drill_status,omitempty"`
+	PeerState   *ThreadStateBreakdown `json:"peer_state,omitempty"`
+	// PeerChain (A1 bounded continuation, ledger §12.3-5 ruling 5): ONE
+	// sub-goal continuation hop off the resolved counterpart — the peer's own
+	// state decomposition plus its single direct (1-hop) blocker. Depth is hard
+	// capped at 1: the peer's peer is never expanded (q1 L31-33 deep-chain-blowup
+	// lesson). Nil on rows whose peer is unresolved, or when the peer produced no
+	// usable continuation. Display tier (peer_chain_* notes); the P0-A
+	// projection/answer face consumes it, exactly like PeerState.
+	PeerChain          *PeerChainStep `json:"peer_chain,omitempty"`
+	Flags              string         `json:"flags,omitempty"`
+	Oneway             *bool          `json:"oneway,omitempty"`
+	SyncLike           *bool          `json:"sync_like,omitempty"`
+	BlockingCandidate  *bool          `json:"blocking_candidate,omitempty"`
+	ChainRelevance     string         `json:"chain_relevance,omitempty"`
+	OverlapMs          float64        `json:"overlap_ms,omitempty"`
+	EdgeCount          int            `json:"edge_count,omitempty"`
+	NearestChainThread ThreadRef      `json:"nearest_chain_thread,omitempty"`
+	NearestChainWindow TimeWindow     `json:"nearest_chain_window,omitempty"`
+	DurationMs         float64        `json:"duration_ms,omitempty"`
+	StartTs            float64        `json:"start_ts,omitempty"`
+	EndTs              float64        `json:"end_ts,omitempty"`
+	LineStart          int            `json:"line_start,omitempty"`
+	LineEnd            int            `json:"line_end,omitempty"`
+	Confidence         float64        `json:"confidence,omitempty"`
+	Summary            string         `json:"summary,omitempty"`
 }
 
 type ThreadStateBreakdown struct {
@@ -2134,6 +2214,55 @@ type ThreadStateBreakdown struct {
 	LineStart     int        `json:"line_start,omitempty"`
 	LineEnd       int        `json:"line_end,omitempty"`
 	Summary       string     `json:"summary,omitempty"`
+}
+
+// PeerChainStep (A1 bounded continuation, ledger §12.3-5 ruling 5) is ONE
+// sub-goal hop off a resolved blocking counterpart. It carries the peer's OWN
+// state decomposition (State) and, when the peer is itself sleep-dominated, the
+// single DIRECT (1-hop) blocker that woke the peer (DirectBlocker) plus that
+// blocker's dominant state note. It is DELIBERATELY not recursive: the depth
+// hard cap is 1, so DirectBlocker's own blocker is never expanded (the q1
+// L31-33 deep-chain-blowup lesson). When the counterpart it hangs off was
+// itself only wakeup-edge-inferred, Presumptive=true and the whole step is
+// carried as inference, never as direct evidence.
+type PeerChainStep struct {
+	// Peer is the resolved counterpart this step decomposes (the lock holder /
+	// binder peer / blocking-span object owner of the parent row).
+	Peer ThreadRef `json:"peer,omitempty"`
+	// State is the peer's own state breakdown over the parent blocking window —
+	// what the counterpart itself was doing while it held the parent waiter up.
+	State *ThreadStateBreakdown `json:"state,omitempty"`
+	// DirectBlocker is the peer's own single 1-hop blocker (the thread that woke
+	// the peer, when the peer was sleep-dominated). Empty when the peer was not
+	// itself blocked on someone else (running/runnable/D-state dominant), no
+	// wakeup edge names a real waker, or the only usable edge points back at the
+	// PARENT WAITER itself (F1: in a sync request-reply shape the waiter wakes
+	// the peer inside its own blocking window — naming the waiter as "the
+	// blocker of its own blocker" is a causal inversion loop and such an edge is
+	// DISCARDED outright, never annotated). NEVER expanded further — depth cap 1.
+	DirectBlocker ThreadRef `json:"direct_blocker,omitempty"`
+	// DirectBlockerState is the DirectBlocker's dominant state word only (never
+	// a full second-hop breakdown — that would be depth 2). Empty when there is
+	// no DirectBlocker.
+	DirectBlockerState string `json:"direct_blocker_state,omitempty"`
+	// DirectBlockerSource is the typed origin of DirectBlocker. The hop-2 name
+	// has exactly ONE resolution lane today — the peer's own wakeup edge — so a
+	// present DirectBlocker ALWAYS carries CounterpartSourceWakeupEdge (F2: the
+	// hop-2 inference never rides a payload-direct facade, even when the peer
+	// itself was payload-resolved). Empty when there is no DirectBlocker.
+	DirectBlockerSource string `json:"direct_blocker_source,omitempty"`
+	// Presumptive is true when the parent counterpart itself was resolved via
+	// the wakeup-edge fallback (HolderSource/PeerSource=wakeup_edge): the whole
+	// continuation then inherits presumptive confidence — an inference built on
+	// an inference, never presented as direct evidence.
+	Presumptive bool `json:"presumptive,omitempty"`
+	// Confidence rides the counterpart-inference ceiling whenever ANY inference
+	// is aboard: Presumptive (parent counterpart inferred) OR a present
+	// DirectBlocker (hop-2 is structurally always a wakeup-edge inference, F2).
+	// Only a payload-direct peer with no named blocker keeps direct-evidence
+	// confidence (the state decomposition alone is timeline fact).
+	Confidence float64 `json:"confidence,omitempty"`
+	Summary    string  `json:"summary,omitempty"`
 }
 
 type RecipeResult struct {

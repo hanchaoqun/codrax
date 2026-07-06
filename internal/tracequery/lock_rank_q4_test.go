@@ -535,18 +535,26 @@ func TestDrillSubjectUniverseCoversResourceSurfaces(t *testing.T) {
 }
 
 // P3-5 pin: io_latency rows carry the counterpart lane (Peer = the block-IO
-// completer) through the same three-verdict stamp.
+// completer) through the same three-verdict stamp. Evolved for E2a correction ①
+// (P0-E2b): the stamp is timeline-aware — "drilled" additionally requires the
+// counterpart to have real sched_switch material (pid 906 gets one here);
+// pid 908 is in the universe (named by an observation) but has NO scheduled
+// timeline, so its "drilled" claim demotes to undrilled_peer_known.
 func TestCriticalBlockingDrillStatusCoversIOLatency(t *testing.T) {
-	universe := drillSubjectUniverse{pids: map[int]bool{906: true}, comms: map[string]bool{}}
+	idx := buildTraceIndex(t, "drill_iolatency.systrace", `
+   completer-906 (906) [001] .... 5.000000: sched_switch: prev_comm=completer prev_pid=906 prev_prio=120 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+`)
+	universe := drillSubjectUniverse{pids: map[int]bool{906: true, 908: true}, comms: map[string]bool{}}
 	items := []CriticalBlockingCandidate{
 		{Type: "io_latency", Peer: ThreadRef{Comm: "completer", PID: 906}},
 		{Type: "io_latency", Peer: ThreadRef{Comm: "ghost-completer", PID: 907}},
 		{Type: "io_latency"},
 		{Type: "blocked_reason"},
+		{Type: "io_latency", Peer: ThreadRef{Comm: "named-only", PID: 908}},
 	}
-	stampCriticalBlockingDrillStatus(items, universe)
+	stampCriticalBlockingDrillStatus(idx, items, universe)
 	if items[0].DrillStatus != DrillStatusDrilled {
-		t.Fatalf("examined completer must stamp drilled, got %+v", items[0])
+		t.Fatalf("examined completer with a real timeline must stamp drilled, got %+v", items[0])
 	}
 	if items[1].DrillStatus != DrillStatusUndrilledPeerKnown {
 		t.Fatalf("unexamined completer must stamp undrilled_peer_known, got %+v", items[1])
@@ -556,5 +564,10 @@ func TestCriticalBlockingDrillStatusCoversIOLatency(t *testing.T) {
 	}
 	if items[3].DrillStatus != "" {
 		t.Fatalf("rows without a counterpart lane carry no verdict, got %+v", items[3])
+	}
+	// E2a ① pin: universe-named but never scheduled → the drilled claim is a
+	// structural impossibility, demoted to undrilled_peer_known.
+	if items[4].DrillStatus != DrillStatusUndrilledPeerKnown {
+		t.Fatalf("a universe-named counterpart with no sched_switch timeline must demote drilled to undrilled_peer_known, got %+v", items[4])
 	}
 }

@@ -8820,7 +8820,7 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	demoteLockDominatedInversionCandidates(chain, stats, items)
 	// RCX① (§12.3 ruling 1): lock-lane rank rows carry the typed drill-debt
 	// verdict for their holder.
-	stampRootCauseRankDrillStatus(items, buildDrillSubjectUniverse(&chain, &stats))
+	stampRootCauseRankDrillStatus(idx, items, buildDrillSubjectUniverse(&chain, &stats))
 	items = enrichRootCauseItemsWithChainContext(chain, items)
 	attributeOnChainResourceItemsToWakeupDependency(chain, items)
 	normalizeRootCauseChainRelevance(items, hasCausalChain)
@@ -10972,6 +10972,11 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	if chainPtr != nil {
 		bundle.IOBurstEpisodes = enrichIOBurstEpisodesWithChainContext(*chainPtr, bundle.IOBurstEpisodes)
 	}
+	// RCX③ (§12.3-1 ③): the typed model-facing causal skeleton, built from the
+	// components above so the head region carries a structured spine the model
+	// narrates. F3: the target_state layer reads the target's OWN timeline
+	// decomposition (idx+analysisQ), never rank rows.
+	bundle.Skeleton = buildCausalSkeleton(idx, analysisQ, target, bundle.Window, &blocking, chainPtr, stats.SupplyPressureSummary)
 	bundle.Caveats = append(bundle.Caveats, targetResolution.Caveats...)
 	bundle.Caveats = append(bundle.Caveats, stats.Caveats...)
 	bundle.Caveats = append(bundle.Caveats, frame.Caveats...)
@@ -12037,6 +12042,13 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		if item.PeerState == nil {
 			item.PeerState = buildCriticalBlockingPeerState(idx, q, item)
 		}
+		// A1 bounded continuation (§12.3-5): take the resolved counterpart ONE
+		// sub-goal hop further. sourceIsInferred inherits presumptive confidence
+		// when the counterpart itself was only wakeup-edge-resolved.
+		if item.PeerChain == nil && item.Peer.PID > 0 {
+			sourceIsInferred := item.HolderSource == CounterpartSourceWakeupEdge || item.PeerSource == CounterpartSourceWakeupEdge
+			item.PeerChain = buildCriticalBlockingPeerChain(idx, q, item, sourceIsInferred)
+		}
 		res.Items = append(res.Items, item)
 	}
 	for _, br := range stats.BlockedReasons {
@@ -12130,7 +12142,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	}
 	// RCX① (§12.3 ruling 1): stamp the typed drill-debt verdict for every
 	// counterpart-lane row against THIS report's observation universe.
-	stampCriticalBlockingDrillStatus(res.Items, buildDrillSubjectUniverse(chainForContext, &stats))
+	stampCriticalBlockingDrillStatus(idx, res.Items, buildDrillSubjectUniverse(chainForContext, &stats))
 	sort.SliceStable(res.Items, func(i, j int) bool {
 		scoreI := res.Items[i].DurationMs * res.Items[i].Confidence
 		scoreJ := res.Items[j].DurationMs * res.Items[j].Confidence
@@ -12239,6 +12251,134 @@ func dominantThreadStateBreakdown(item ThreadStateBreakdown) string {
 	// inline candidates array always used.
 	dominant, _ := dominantStateFromLanes(item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs)
 	return dominant
+}
+
+// buildCriticalBlockingPeerChain (A1 bounded continuation, ledger §12.3-5 ruling
+// 5) takes a resolved blocking counterpart ONE sub-goal hop further: it
+// decomposes the peer's OWN state over the parent blocking window and, when the
+// peer was itself sleep-dominated, names the peer's single DIRECT (1-hop)
+// blocker — the thread that woke the peer.
+//
+// Boundedness (hard, precise): the continuation is EXACTLY one hop. The direct
+// blocker's own state is recorded as a bare dominant-state word only
+// (DirectBlockerState); its blocker is NEVER resolved. There is no recursion,
+// no depth parameter, no loop — the peer's peer cannot blow the chain up (q1
+// L31-33 lesson). Called at most once per critical-blocking row.
+//
+// Presumption inheritance (§12.3-5): sourceIsInferred is true when the parent
+// counterpart itself came from the wakeup-edge fallback (HolderSource /
+// PeerSource == wakeup_edge). The whole step then rides Presumptive=true.
+//
+// Two hardening rules (P0-E2b review F1/F2):
+//   - F1 self-loop discard: in a sync request-reply shape the waiter wakes the
+//     peer INSIDE its own blocking window, so the peer's "last waker" is the
+//     waiter itself — publishing "the blocker of A's blocker is A (and A is
+//     sleeping)" is a causal inversion loop the model would narrate as a fake
+//     deadlock. Such an edge is discarded outright (PID-level identity check
+//     against the parent row's thread); the inverted-loop name carries zero
+//     information, so no annotation is kept.
+//   - F2 hop-2 is ALWAYS an inference: DirectBlocker has exactly one resolution
+//     lane (the peer's wakeup edge), so it always carries
+//     DirectBlockerSource=wakeup_edge and the step confidence is demoted to the
+//     counterpartDemotedConfidence ceiling whenever a blocker is aboard — a
+//     payload-direct PEER never lends its direct-evidence confidence to an
+//     inferred hop-2 name.
+func buildCriticalBlockingPeerChain(idx *Index, q Query, item CriticalBlockingCandidate, sourceIsInferred bool) *PeerChainStep {
+	if idx == nil || item.Peer.PID <= 0 {
+		return nil
+	}
+	// F5: the add funnel computes item.PeerState (same window derivation, same
+	// builder) immediately before this call — reuse it instead of re-scanning
+	// the peer timeline; compute only when a caller passes a bare item.
+	state := item.PeerState
+	if state == nil {
+		state = buildCriticalBlockingPeerState(idx, q, item)
+	}
+	if state == nil {
+		return nil
+	}
+	step := &PeerChainStep{
+		Peer:        item.Peer,
+		State:       state,
+		Presumptive: sourceIsInferred,
+		Confidence:  1.0,
+	}
+	start, end := item.StartTs, item.EndTs
+	if start <= 0 {
+		start = q.TimeStart
+	}
+	if end <= start {
+		end = q.TimeEnd
+	}
+	// One hop only: if the peer was itself sleep-dominated it was blocked on
+	// someone — name that single direct blocker via the peer's OWN wakeup edge.
+	// A running/runnable/D-state-dominant peer was not itself sleep-blocked, so
+	// there is no upstream blocker to name (the chain legitimately terminates
+	// here, not because we refused to look).
+	if state.DominantState == string(StateSSleep) {
+		// F1: an edge whose waker IS the parent waiter is a causal inversion
+		// (sync request-reply wakeup), never a blocker — discard, don't annotate.
+		if fb := resolveCounterpartViaWakeupEdge(idx, item.Peer, start, end); fb.OK && fb.Waker.PID != item.Thread.PID {
+			step.DirectBlocker = fb.Waker
+			// F2: the hop-2 name is structurally a wakeup-edge inference — always
+			// stamped, regardless of how the PEER itself was resolved.
+			step.DirectBlockerSource = CounterpartSourceWakeupEdge
+			// Depth cap 1: the blocker's dominant state is a bare word, NOT a
+			// recursive breakdown (that would be a second continuation hop).
+			step.DirectBlockerState = peerDirectBlockerDominantState(idx, q, fb.Waker, start, end)
+		}
+	}
+	if sourceIsInferred || threadRefResolved(step.DirectBlocker) {
+		// Any inference aboard — parent counterpart inferred (presumption
+		// inheritance) or a hop-2 blocker named (always an inference, F2) —
+		// demotes the step to the wakeup-edge ceiling.
+		step.Confidence = counterpartDemotedConfidence(step.Confidence)
+	}
+	step.Summary = peerChainStepSummary(step)
+	return step
+}
+
+// peerDirectBlockerDominantState returns ONLY the dominant-state word of the
+// peer's direct blocker over the same window — a bare label, deliberately not a
+// full ThreadStateBreakdown, so the continuation stays at depth 1 (naming the
+// blocker's second-hop blocker would be depth 2). Empty when the blocker has no
+// timeline in the window.
+func peerDirectBlockerDominantState(idx *Index, q Query, blocker ThreadRef, start, end float64) string {
+	if idx == nil || blocker.PID <= 0 || end <= start {
+		return ""
+	}
+	tq := q
+	tq.View = ""
+	tq.PID = blocker.PID
+	tq.Thread = blocker.Comm
+	tq.ThreadInput = ""
+	tq.TimeStart = start
+	tq.TimeEnd = end
+	bd := summarizeThreadStateBreakdown(ThreadTimeline(idx, tq))
+	if bd == nil {
+		return ""
+	}
+	return bd.DominantState
+}
+
+func peerChainStepSummary(step *PeerChainStep) string {
+	if step == nil || step.State == nil {
+		return ""
+	}
+	// The origin label describes the PEER's resolution only; a named blocker is
+	// always separately labelled as inferred (F2) — a payload-direct peer never
+	// extends its direct-evidence label over the hop-2 name.
+	origin := "peer payload-direct"
+	if step.Presumptive {
+		origin = "peer inferred (counterpart itself only wakeup-edge-resolved)"
+	}
+	base := fmt.Sprintf("continuation off %s (%s): peer dominant=%s over %.3fms",
+		threadLabel(step.Peer), origin, step.State.DominantState, step.State.TotalMs)
+	if threadRefResolved(step.DirectBlocker) {
+		base += fmt.Sprintf("; its own direct blocker is %s (dominant=%s, via wakeup edge — inferred) — one hop only, not expanded further",
+			threadLabel(step.DirectBlocker), firstNonEmpty(step.DirectBlockerState, "unknown"))
+	}
+	return base
 }
 
 func enrichCriticalBlockingWithChainContext(chain ChainResult, items []CriticalBlockingCandidate) []CriticalBlockingCandidate {
@@ -12436,7 +12576,7 @@ func counterpartWakeupEdgeCaveat(rawTid int) string {
 // thread and the payload-direct resolution would misattribute. Returns false
 // (no collision) when the payload carried no owner comm (nothing to cross-check
 // — the tid-only "Lock contention on … (owner tid: N)" form) or when the comms
-// match.
+// match (truncation-aware, E2a correction ②).
 func lockOwnerCommCollides(idx *Index, owner ThreadRef) bool {
 	payloadComm := strings.TrimSpace(owner.Comm)
 	if payloadComm == "" || owner.PID <= 0 || idx == nil {
@@ -12453,12 +12593,37 @@ func lockOwnerCommCollides(idx *Index, owner ThreadRef) bool {
 				continue
 			}
 			sawPID = true
-			if strings.EqualFold(strings.TrimSpace(pair.comm), payloadComm) {
+			if lockOwnerCommMatches(payloadComm, strings.TrimSpace(pair.comm)) {
 				return false
 			}
 		}
 	}
 	return sawPID
+}
+
+// schedCommMaxLen is the kernel TASK_COMM_LEN-1 truncation width: every comm a
+// scheduler event carries is at most 15 bytes, while a contention payload
+// prints the thread's FULL name.
+const schedCommMaxLen = 15
+
+// lockOwnerCommMatches (P0-E2b, E2a correction ②) is the truncation-aware comm
+// equality for the collision cross-check. The payload's owner comm is the full
+// Java/native thread name; the observed sched comm is truncated to 15 bytes —
+// requiring full EqualFold equality made every >15-char owner name a FALSE
+// collision, wrongly discarding a payload-direct holder for a wakeup-edge
+// inference. A full name therefore also matches its own 15-byte truncation.
+// The truncated compare fires ONLY in the exact kernel-truncation shape
+// (observed exactly 15 bytes ∧ payload longer) — never a general prefix match,
+// so "Thread-1" can not match "Thread-10".
+func lockOwnerCommMatches(payloadComm, observedComm string) bool {
+	if strings.EqualFold(observedComm, payloadComm) {
+		return true
+	}
+	if len(observedComm) == schedCommMaxLen && len(payloadComm) > schedCommMaxLen &&
+		strings.EqualFold(observedComm, payloadComm[:schedCommMaxLen]) {
+		return true
+	}
+	return false
 }
 
 func sameLockContention(a, b CriticalBlockingCandidate) bool {

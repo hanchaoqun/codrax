@@ -467,6 +467,19 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"peer_state_d_state", "blocking", TraceNoteCarrierDisplayOnly},
 	{"peer_state_io_wait", "blocking", TraceNoteCarrierDisplayOnly},
 	{"peer_state_fragments", "blocking", TraceNoteCarrierDisplayOnly},
+	// peer_chain_* (A1 bounded continuation, §12.3-5 ruling 5): ONE sub-goal hop
+	// off the resolved counterpart — the peer's OWN dominant state + its single
+	// direct 1-hop blocker (depth hard-capped at 1). peer_chain_blocker_source
+	// is ALWAYS wakeup_edge when a blocker is named (F2: the hop-2 name is
+	// structurally an inference, never payload-direct); peer_chain_presumptive
+	// is true when the counterpart itself was only wakeup-edge-resolved
+	// (inference on inference). Display tier today; the P0-A projection/answer
+	// face consumes them, exactly like the peer_state / drill_status precedent.
+	{"peer_chain_state", "blocking", TraceNoteCarrierDisplayOnly},
+	{"peer_chain_blocker", "blocking", TraceNoteCarrierDisplayOnly},
+	{"peer_chain_blocker_state", "blocking", TraceNoteCarrierDisplayOnly},
+	{"peer_chain_blocker_source", "blocking", TraceNoteCarrierDisplayOnly},
+	{"peer_chain_presumptive", "blocking", TraceNoteCarrierDisplayOnly},
 	// drill_status (RCX① engine side, §12.3 ruling 1, P0-E1): typed drill-debt
 	// verdict for a row's blocking counterpart (drilled /
 	// undrilled_peer_known / peer_unknown), emitted on critical_blocking and
