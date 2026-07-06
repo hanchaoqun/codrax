@@ -1288,3 +1288,7 @@ E4 running 显裸 58.919ms 无折算,E7 反转节点显折算(供给缺口 17.70
 
 ### §17 批次归口
 SG-2 软引导批(A 双面+B delta 引导+C N11(b)+§16 R-recipe 黄金路径合车)/BLK 双向锁 P0 回归速修(§15.C,先行)/P0-A(B hop-only+D② 覆盖分子+§15.D gap③ 分母)/SPR 收尾(D①)/P1-H(D③族)。
+
+### §16.1 SPL 实测结论(2026-07-06,../customlogs + 转录)
+客户两份大 systrace 不在本机(客户 Windows D:\)。本机可测=两份 donghu 真机 trace(0 变体,标准形完备)+8 转录引用行。**三问**:①配对形态**本机不可判**(零结束行样本);②N 语义最优假设=**容器 ns pid**(begin 字符 B| 在客户采集链丢失)——四实例全 anco 容器进程,06-01 真机证该 vendor 链容器 marker pid=容器 ns pid,15/96/51/11 每进程一值小整数(depth/async 排除),**但每进程仅 1 样本,N 恒定性未验**;③普遍性=**特定采集/导出链形态**(非 OS/vendor 普遍),仅这两 trace 有,且独有 `print: 0x0:` 地址前缀+缺 begin 共现,指向不同导出器(trace_streamer 嫌疑)。
+**决策**:T-span 根修**暂挂**(配对未证+样本不足,过不了精确信号红线,误映射产假 span 窗);待客户侧抽样(实测 agent 给了 PowerShell/git-bash 最小指令:变体计数+单线程 marker 流+line 140711 邻域)确证配对+N 恒定后再定,普遍则进 harmony flavor 闭集。**D-diag 先落**(不依赖语义)。fixture:入库 donghu 不含变体,需客户 trace line 140711±200 截取新 fixture。
