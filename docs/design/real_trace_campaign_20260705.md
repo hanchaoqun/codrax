@@ -1224,3 +1224,20 @@ func main() {
 - **Q5-A[P0,NEW]** blob 逃生口被门挡死:探索第 2 轮模型 read_file `.codrax/blob/...`(bundle 82725B 截断的 payload_ref)被拒("need to use trace_query"),叠加 Q4-K 中段盲区 → 锁证据探索期结构性不可达,模型未见锁即完成调查 — 散文反转叙事的直接机制。归因待办:拒绝门产生链(O2 工件路径防线?evidence-lite?);修向=trace 结果 payload_ref 放行 read_file,或拒绝语合成窄视图重查指令(view=critical_blocking_calls)。
 - **Q5-B[验证结论]** SG 散文处置义务单独不足(finalizer 可见 blocking_kind 仍反转头条)— 正面验证 P0-E1 修4(bundle 头区锁块)+RCX③ 骨架卡为必要件;不另立案。
 - **Q5-D[NEW→P1-H 必做]** 同持有者双 next-step(comm 形态+pid=42067 形态):E1/E2 未归一穿透合成面,SG 去重键按标签文本分键 — peer PID 归一升必做,归一后 next-step 恰一条。
+
+## §14 P0-E1 + Q5A as-built(2026-07-06,已推 main 1a05854f + 2ad764a6)
+
+**P0-E1 引擎批(1a05854f)** — q4/q5 锁根因埋没引擎面闭环:
+- rank 锁收编:root_cause_rank 消费已解析 monitor_contention 为 blocking_span head 行(主体=持有者,typed BlockingKind/BlockingPeer/HolderSite,resolved-peer-only 准入,泛型 trace_span carve-out);q4 112.223ms 锁行登 rank1。
+- 承自门卫生(裁定§12.3-2):material 只读实测,承自值入 InheritedTargetBlockedMs 注记,Score 重算;1.136ms block_io 退位、score 失谐消。
+- 反转 per-CLASS 交叉核验:candidate+runnable_wait 两类,锁观测覆盖等待区间→lock-wait-dominated 降级注+去 co-primary。
+- **同锁折叠引擎源头**(collectBlockingSpanRows:kind+peer PID+区间重叠,富形态存活值取 max)— 一修收 Q4-F/Q5-D 全下游(E 行/rank/drill/next-step)。
+- bundle 头区 top-blocking+largest-impact-undrilled(24KB 锚定);pack 序 chain→blocking→frame→rank。
+- RCX① DrillStatus{drilled/undrilled_peer_known/peer_unknown} on blocking(binder_wait/io_latency/resolved lock)+rank。
+- 复核 3 P2+4 P3 全吸收;drill 宇宙补全 own-conduct stats 全面;NKR display_only+golden/emit pin,causal_token_registry 零改。
+
+**Q5A blob 逃生口批(2ad764a6)** — §13 Q5-A,**两轮对抗安全复核**后交付:
+- 首轮四镜头复核发现**两个 P1**:(P1-1)注册来源③从 summary 文本抓 payload_ref= token → trace 受控文本可伪造仓外路径注册被 read_file/grep 读走(探针实证读到外部密件);(P1-2)blob read 经 buildLineIndex banner 解析落地成 current-source 可引用证据。
+- 根修:①source③彻底删,只注册 typed RawRef/SourceRef(StoreBlob 自设=trace 内容不可达);②强制 .codrax/blob/ 前缀约束(canonicaliser 折叠路径穿越)+resolve 复验;③citation 四面同源单 matcher(read_file typed marker/buildLineIndex 只认 typed/emit_evidence 改道/extractor ResolveTraceQueryBlobRef);④第三段 probe-first 接 escape;⑤ObservedLineIndex .codrax 过滤。
+- 二次安全复核用真实攻击串探针逐一证伪绕过(穿越/前缀段边界/typed marker 窗口/grep 旁路),**两 P1 闭合确认**;注入+grounding 攻击 pin 在。
+- 教训入库:嘈声信号(summary 子串)绝不驱动硬 allow-gate;硬不变量不得依赖模型行为(软文案≠防线);安全批强制二次复核方可推。
