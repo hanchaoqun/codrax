@@ -999,13 +999,16 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 	if fullText := runtimeTraceProjDetailFullText(model, zh); strings.TrimSpace(fullText) != "" {
 		title := "因果投影明细(无损纵排)"
 		// 复核收窄: the blocks cover every DATA-bearing rendered node; folded
-		// transit hops carry no data row and live on the 省略行 roster + the
-		// original trace_query record — the intro must not over-promise them.
-		// PTV5 C42 (#68): 省略行 roster → 省略行清单 (no half-English).
-		intro := "每个数据节点一块:树与关键量表省略或压缩的属性在此完整可见;完整名称不截断。折叠中转节点见树内省略行清单与原始 trace_query 记录。"
+		// transit hops carry no data row and live on the 省略行 roster — the
+		// intro must not over-promise them. PTV5 C42 (#68): 省略行 roster →
+		// 省略行清单 (no half-English). PTV6-C ruling C (#73): the trailing
+		// "与原始 trace_query 记录" pointer is retired — the roster is the
+		// in-answer surface; the intermediate record file is not a user-facing
+		// pointer target.
+		intro := "每个数据节点一块:树与关键量表省略或压缩的属性在此完整可见;完整名称不截断。折叠中转节点见树内省略行清单。"
 		if !zh {
 			title = "Causal Projection Detail (lossless, per node)"
-			intro = "One block per data-bearing node: every attribute the tree or the key-metric table demotes or compresses is fully visible here; full names are never truncated. Folded transit hops live on the tree's omitted-row roster and in the original trace_query record."
+			intro = "One block per data-bearing node: every attribute the tree or the key-metric table demotes or compresses is fully visible here; full names are never truncated. Folded transit hops live on the tree's omitted-row roster."
 		}
 		out = append(out, types.AnswerBlock{
 			ID:          idPrefix + "_detail_full",
@@ -1027,10 +1030,13 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// capacity_truncated note (per-view row budget cut the result tail), the
 		// index header says so instead of presenting the roster as exhaustive.
 		if projection.CapacityTruncated {
+			// PTV6-C ruling C (#73): the truncation disclosure states the fact
+			// without deflecting to the intermediate record file — the cut
+			// tails were never collected, so no coordinate exists to give.
 			if zh {
-				intro += " 部分来源结果按容量截断(rank 头部完整保留);完整明细见原始 trace_query 记录。"
+				intro += " 部分来源结果按容量截断(rank 头部完整保留),超出容量的尾部行未纳入本索引。"
 			} else {
-				intro += " Some source results were capacity-truncated (rank heads fully kept); the full detail remains in the original trace_query records."
+				intro += " Some source results were capacity-truncated (rank heads fully kept); the over-capacity tail rows are not in this index."
 			}
 		}
 		out = append(out, types.AnswerBlock{
@@ -1774,10 +1780,14 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 }
 
 func runtimeTraceCausalProjectionEvidenceText(zh bool) string {
+	// PTV6-C ruling C (#73, 用户裁定 2026-07-06): the intermediate trace_query
+	// record file is no longer a user-facing locator authority — the index
+	// itself carries the trace source coordinates (line/time spans of the
+	// user's persistent trace artifact).
 	if zh {
-		return "主表只引用短证据 ID;这里显示短定位和结构化审计摘要,完整定位以原始 trace_query 结构化记录为准。"
+		return "主表只引用短证据 ID;这里按 trace 源坐标(行号/时间区间)显示定位与结构化审计摘要。"
 	}
-	return "Main tables use short evidence IDs; this index shows short locators and typed audit summaries. The original trace_query record remains the full locator authority."
+	return "Main tables use short evidence IDs; this index shows trace source coordinates (line/time spans) and typed audit summaries."
 }
 
 func runtimeTraceCausalProjectionPriorityCell(node types.TraceCausalProjectionNode, zh bool) string {
@@ -1894,7 +1904,24 @@ func runtimeTraceCausalProjectionActionCell(node types.TraceCausalProjectionNode
 		}
 		return "optimization point"
 	}
-	switch stateKind {
+	if word := runtimeTraceCausalProjectionStateActionWord(stateKind, zh); word != "" {
+		return word
+	}
+	if zh {
+		return "候选根因"
+	}
+	return "candidate cause"
+}
+
+// runtimeTraceCausalProjectionStateActionWord is the SINGLE home for the
+// action words that merely restate a scheduler state (extracted from the
+// ActionCell switch for PTV6-C #6, #73 标本归因 2026-07-06): when the row's
+// state tag already speaks the same state family (StateKindLabel), the tag
+// builder suppresses this restatement (可运行等待 absorbs 调度等待 — 近义
+// 收敛, 全词一处). Rows whose state tag carries OTHER information (lock /
+// candidate words) keep their action cell untouched.
+func runtimeTraceCausalProjectionStateActionWord(stateKind string, zh bool) string {
+	switch strings.TrimSpace(strings.ToLower(stateKind)) {
 	case "running":
 		if zh {
 			return "执行/算力"
@@ -1915,10 +1942,7 @@ func runtimeTraceCausalProjectionActionCell(node types.TraceCausalProjectionNode
 		}
 		return "blocking/IO"
 	}
-	if zh {
-		return "候选根因"
-	}
-	return "candidate cause"
+	return ""
 }
 
 func runtimeTraceCausalProjectionImpactShapeCell(node types.TraceCausalProjectionNode, zh bool) string {
@@ -1933,12 +1957,20 @@ func runtimeTraceCausalProjectionImpactShapeCell(node types.TraceCausalProjectio
 	}
 	// §7.30.3 D3: an inversion row's impact is the R5d gated COMPOSITE
 	// (runnable full + discounted weak-core running) — no single scheduler
-	// state may claim it.
+	// state may claim it. PTV6-C ruling B (#73, 用户裁定 2026-07-06): the
+	// former dedicated "反转影响" shape word is DELETED — the cell speaks the
+	// cause FULL word instead (优先级反转候选 / the raw token on EN), so a hop
+	// row whose Object is a state token still carries the inversion identity,
+	// while rows whose name already shows the full word dedupe the tag away
+	// (#12 全词保障 + 全词一处). The D3 影响构成 split stays 必显; the branch
+	// still returns early so the composite NEVER falls through to a
+	// single-state claim; D3's other shape-cell-wins forms (锁竞争·阻塞,
+	// 候选影响 …) are untouched.
 	if runtimeTraceCausalProjectionInversionRow(node) {
 		if zh {
-			return "反转影响"
+			return runtimeTraceRootCauseTypeZHLabel("priority_inversion_candidate")
 		}
-		return "inversion impact"
+		return "priority_inversion_candidate"
 	}
 	state := strings.TrimSpace(strings.ToLower(node.StateKind))
 	switch state {
@@ -2010,6 +2042,15 @@ func runtimeTraceCausalProjectionImpactShapeCell(node types.TraceCausalProjectio
 	}
 	if label := runtimeTraceAggregateTypeShapeLabel(causeKind, zh); label != "" {
 		return label
+	}
+	// PTV6-C #3 (#73, 标本归因 2026-07-06): a row whose typed TypeToken itself
+	// carries scheduler-state semantics (d_state_or_io_wait 等) states that
+	// state family instead of the generic candidate word — the producer
+	// published the state on the type lane, so the row is NOT stateless (the
+	// ◦ 无主导态 chip stays silent through the same typed class gate).
+	// Display-layer mapping only; the producer's StateKind lane is untouched.
+	if class := runtimeTraceCausalProjectionTypeTokenStateClass(node); class != "" {
+		return runtimeTraceCausalProjectionTypeTokenStateWord(class, zh)
 	}
 	if zh {
 		return "候选影响"
@@ -2289,6 +2330,22 @@ func runtimeTraceCausalProjectionUnresolvedPeerText(kind string, zh bool) string
 	}
 }
 
+// runtimeTraceCausalProjectionPeerKindToken classifies one producer-side typed
+// token into the peer-relation kind vocabulary shared by the unresolved AND
+// resolved peer wordings (PTV6-C #7 — one token table, two wording arms).
+// io_latency joins for the RESOLVED arm only (an unresolved io_latency peer
+// keeps the generic wording exactly as before — the unresolved lane never
+// consulted io_latency).
+func runtimeTraceCausalProjectionPeerKindToken(token string) string {
+	switch runtimeTraceCausalProjectionCanonicalNode(token) {
+	case "blocking_span":
+		return "blocking_span"
+	case "d_state_or_io_wait":
+		return "d_state_or_io_wait"
+	}
+	return ""
+}
+
 // runtimeTraceCausalProjectionUnresolvedPeerKind derives the typed kind that
 // specializes the unresolved-peer wording: an EXACT typed-token match on the
 // node's verbatim TypeToken ("type=" rich note), Predicate, or Object — all
@@ -2296,14 +2353,54 @@ func runtimeTraceCausalProjectionUnresolvedPeerText(kind string, zh bool) string
 // fall back to the generic wording).
 func runtimeTraceCausalProjectionUnresolvedPeerKind(node types.TraceCausalProjectionNode) string {
 	for _, token := range []string{node.TypeToken, node.Predicate, node.Object} {
-		switch runtimeTraceCausalProjectionCanonicalNode(token) {
-		case "blocking_span":
-			return "blocking_span"
-		case "d_state_or_io_wait":
-			return "d_state_or_io_wait"
+		if kind := runtimeTraceCausalProjectionPeerKindToken(token); kind != "" {
+			return kind
 		}
 	}
 	return ""
+}
+
+// runtimeTraceCausalProjectionResolvedPeerKind derives the typed kind for the
+// RESOLVED peer-relation wording (#7): the type lanes ONLY (TypeToken, then
+// Predicate) — the Object slot holds the resolved peer thread itself, so it
+// never votes here. io_latency is a member of this arm (the ruling specimen:
+// io_latency rows whose peer resolved to udk-irq-1-63).
+func runtimeTraceCausalProjectionResolvedPeerKind(node types.TraceCausalProjectionNode) string {
+	for _, token := range []string{node.TypeToken, node.Predicate} {
+		if kind := runtimeTraceCausalProjectionPeerKindToken(token); kind != "" {
+			return kind
+		}
+		if runtimeTraceCausalProjectionCanonicalNode(token) == "io_latency" {
+			return "io_latency"
+		}
+	}
+	return ""
+}
+
+// runtimeTraceCausalProjectionResolvedPeerText is the resolved twin of
+// runtimeTraceCausalProjectionUnresolvedPeerText and lives in the SAME wording
+// home (PTV6-C #7, #73 标本归因 2026-07-06): a resolved peer thread name never
+// occupies the cause word slot bare — the relation form says what the wait IS
+// and who the peer is ("IO等待(对端 udk-irq-1-63)"). Display-lane only.
+func runtimeTraceCausalProjectionResolvedPeerText(kind, peer string, zh bool) string {
+	switch kind {
+	case "blocking_span":
+		if zh {
+			return "阻塞等待(对端 " + peer + ")"
+		}
+		return "blocking wait (peer " + peer + ")"
+	case "d_state_or_io_wait":
+		if zh {
+			return "D状态/IO等待(对端 " + peer + ")"
+		}
+		return "D-state/IO wait (peer " + peer + ")"
+	case "io_latency":
+		if zh {
+			return "IO等待(对端 " + peer + ")"
+		}
+		return "IO wait (peer " + peer + ")"
+	}
+	return peer
 }
 
 // runtimeTraceCausalProjectionKnownSubject reports whether a subject names a
@@ -2488,12 +2585,6 @@ func runtimeTraceCausalProjectionEvidenceDisplayRefWithWindow(ref, window string
 	return runtimeTraceCausalProjectionCompactCellText(tail, 48) + " " + runtimeTraceCausalProjectionMarkdownSafe(window)
 }
 
-func runtimeTraceCausalProjectionEvidenceRefShortened(raw, display string) bool {
-	raw = strings.TrimSpace(raw)
-	display = strings.TrimSpace(display)
-	return raw != "" && display != "" && raw != display
-}
-
 // runtimeTraceCausalProjectionBareLineRef reports whether ref is the naked
 // line=N / lines=N-M form emitted when a node carried no SupportRefs path
 // (literal prefix + digit/dash character-class check) and returns the numeric
@@ -2659,11 +2750,14 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	if len(rows) == 0 {
 		return false
 	}
+	// PTV6-C ruling C (#73): the grounding clause points at the report's own
+	// evidence index (trace line/time coordinates) — never the intermediate
+	// trace_query record file.
 	title := "确定性优化点"
-	text := "trace 中的确定性语义优化 span(类校验/JIT/着色器编译等,来自 typed semantic_class 通道):每行都是可直接落地的优化点;时长与 E# 证据均可定位到原始 trace_query 结构化记录。"
+	text := "trace 中的确定性语义优化 span(类校验/JIT/着色器编译等,来自 typed semantic_class 通道):每行都是可直接落地的优化点;时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
 	if !zh {
 		title = "Deterministic Optimization Points"
-		text = "Deterministic semantic optimization spans found in the trace (class verification / JIT / shader compilation etc., from the typed semantic_class lane): each row is a directly actionable optimization point; durations and E# tags locate the original structured trace_query records."
+		text = "Deterministic semantic optimization spans found in the trace (class verification / JIT / shader compilation etc., from the typed semantic_class lane): each row is a directly actionable optimization point; durations and E# tags resolve to trace line spans via the evidence index."
 	}
 	block := types.AnswerBlock{
 		ID:      "runtime_trace_semantic_optimizations",
@@ -3386,24 +3480,109 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 		// typed selected_window note (strict shared parser — both endpoints must
 		// be legal floats), the basis line names the window endpoints inline:
 		// the user panel cannot open the raw blob, so "见原始 trace_query 记录"
-		// alone was a dead end. A missing/malformed note keeps the legacy
-		// wording byte-identical.
+		// alone was a dead end. PTV6-C ruling C (#73, 用户裁定 2026-07-06): the
+		// aligned actual-window VALUES themselves inline too — the intermediate
+		// record file is no longer a user-facing pointer target. When none of
+		// the actual_* notes parse, the basis names the dual-basis fact without
+		// any deflection pointer.
 		endpoints := ""
 		if start, end, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes); ok {
 			endpoints = fmt.Sprintf("%.3fs–%.3fs", start, end)
 		}
-		switch {
-		case zh && endpoints != "":
-			text += ";窗口基准: 选定窗 " + endpoints + "(实际对齐窗数值见原始 trace_query 记录)"
-		case zh:
-			text += ";窗口基准: 选定窗(实际对齐窗数值见原始 trace_query 记录)"
-		case endpoints != "":
-			text += "; window basis: selected window " + endpoints + " (aligned actual-window values remain in the raw trace_query record)"
-		default:
-			text += "; window basis: selected window (aligned actual-window values remain in the raw trace_query record)"
+		actual := runtimeTraceMetricSnapshotActualInline(record, zh)
+		var basis string
+		if zh {
+			basis = ";窗口基准: 选定窗"
+			if endpoints != "" {
+				basis += " " + endpoints
+			}
+			if actual != "" {
+				basis += "(" + actual + ")"
+			} else {
+				basis += "(另有实际对齐窗口径)"
+			}
+		} else {
+			basis = "; window basis: selected window"
+			if endpoints != "" {
+				basis += " " + endpoints
+			}
+			if actual != "" {
+				basis += " (" + actual + ")"
+			} else {
+				basis += " (an aligned actual-window caliber also exists)"
+			}
 		}
+		text += basis
 	}
 	return text
+}
+
+// runtimeTraceMetricSnapshotActualInline renders the aligned actual-window
+// values carried by the record's typed actual_* rich notes as one inline
+// clause (PTV6-C ruling C): window endpoints first, then the per-state
+// durations in the snapshot's own state order, then the totals — only the
+// notes actually present render; "" when nothing parses. Display copy only;
+// the raw notes stay verbatim on the observation record.
+func runtimeTraceMetricSnapshotActualInline(record types.ObservationRecord, zh bool) string {
+	value := func(key string) string {
+		prefix := key + "="
+		for _, note := range record.RichNotes {
+			note = strings.TrimSpace(note)
+			if strings.HasPrefix(note, prefix) {
+				return strings.TrimSpace(strings.TrimPrefix(note, prefix))
+			}
+		}
+		return ""
+	}
+	var parts []string
+	statePart := func(zhLabel, enLabel, key string) {
+		v := value(key)
+		if v == "" {
+			return
+		}
+		label := zhLabel
+		if !zh {
+			label = enLabel
+		}
+		parts = append(parts, label+" "+runtimeTraceMetricWithMS(v))
+	}
+	statePart("运行", "running", types.TraceNoteKeyActualRunning)
+	statePart("可运行", "runnable", types.TraceNoteKeyActualRunnable)
+	statePart("睡眠", "sleep", types.TraceNoteKeyActualSleep)
+	statePart("D状态", "D-state", types.TraceNoteKeyActualDState)
+	statePart("IO等待", "IO wait", types.TraceNoteKeyActualIOWait)
+	statePart("合计", "total", types.TraceNoteKeyActualTotalMS)
+	if len(parts) == 0 {
+		statePart("合计", "total", types.TraceNoteKeyActualTotal)
+		statePart("影响", "impact", types.TraceNoteKeyActualImpactMS)
+		if len(parts) == 0 {
+			statePart("影响", "impact", types.TraceNoteKeyActualImpact)
+		}
+	}
+	// 修正轮 Low (2026-07-06): the endpoints go through the SAME strict
+	// shared parser as the selected_window note (ParseFloat both ends,
+	// end>start) — a malformed note renders no endpoints, never a fabricated
+	// window.
+	window := ""
+	if raw := value(types.TraceNoteKeyActualWindow); raw != "" {
+		if start, end, ok := types.TraceCausalProjectionParseWindowValue(raw); ok {
+			window = fmt.Sprintf("%.3fs–%.3fs", start, end)
+		}
+	}
+	if len(parts) == 0 && window == "" {
+		return ""
+	}
+	head := "实际对齐窗"
+	if !zh {
+		head = "aligned actual window"
+	}
+	if window != "" {
+		head += " " + window
+	}
+	if len(parts) == 0 {
+		return head
+	}
+	return head + ": " + strings.Join(parts, "/")
 }
 
 // runtimeTraceRecordHasActualWindowValues reports whether the record publishes

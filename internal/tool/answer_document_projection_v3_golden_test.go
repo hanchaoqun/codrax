@@ -263,11 +263,17 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 		strings.Contains(md, "(占窗") {
 		t.Fatalf("aweme golden must run in fallback scale without window percentages:\n%s", md)
 	}
-	// Target anchor + its own state line under the root.
-	for _, want := range []string{"🎯 .ugc.aweme.lite-16547 ‹用户关注线程›", "☾ s_sleep 112.175"} {
+	// Target anchor + its own state line under the root. PTV6-C #8 (#73): the
+	// sleep self row speaks the StateKindLabel (☾ 睡眠等待); the raw s_sleep
+	// token stays on the (a)/(b) audit surfaces (asserted right below) and
+	// must not resurface on the tree's self line.
+	for _, want := range []string{"🎯 .ugc.aweme.lite-16547 ‹用户关注线程›", "☾ 睡眠等待 112.175", "/ s_sleep [E1]"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("aweme golden missing target/self surface %q:\n%s", want, md)
 		}
+	}
+	if strings.Contains(md, "☾ s_sleep") {
+		t.Fatalf("raw scheduler token must not ride the tree self line (PTV6-C #8):\n%s", md)
 	}
 	// R1 dual-view: ONE running row with per-layer 58.919 + chain total 112.103.
 	// C4b: the tree row elides the chain-total tag under the width cap; the

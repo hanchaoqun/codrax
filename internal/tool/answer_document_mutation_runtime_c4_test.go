@@ -304,13 +304,19 @@ func TestRuntimeTraceProjTreeRowWidthCapKeepsPrimaryTagAndEvidence(t *testing.T)
 	if !strings.Contains(lines[0], "[E5(+2)]") {
 		t.Fatalf("E# evidence reference must stay on the MAIN line:\n%s", line)
 	}
-	// §7.30.3 D3: the gated-composite inversion row leads with the dedicated
-	// inversion-impact tag instead of a single-state claim.
-	if !strings.Contains(line, "反转影响") {
-		t.Fatalf("primary state tag must survive the split:\n%s", line)
+	// §7.30.3 D3 + PTV6-C ruling B (#73): the gated-composite inversion row
+	// carries the cause FULL word (name cell truncated → #12 puts it on the
+	// first subordinate slot) — never a single-state claim, and never the
+	// deleted 反转影响 shape word.
+	if !strings.Contains(line, "优先级反转候选") {
+		t.Fatalf("cause full word must survive the split:\n%s", line)
+	}
+	if strings.Contains(line, "反转影响") {
+		t.Fatalf("deleted 反转影响 shape word resurfaced (PTV6-C ruling B):\n%s", line)
 	}
 	// T1 upgrade: the formerly-elided extras are all reachable in the fence.
-	for _, want := range []string{"链上累计5.997ms", "影响点 priority_inversion_runnable_wait/runnable"} {
+	// PTV6-C #6: the 影响点 tokens speak the D4 中文（token） combined form.
+	for _, want := range []string{"链上累计5.997ms", "影响点 可运行等待反转（priority_inversion_runnable_wait）/可运行等待（runnable）"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("demoted tag %q must survive on a subordinate line:\n%s", want, line)
 		}
@@ -331,9 +337,20 @@ func TestRuntimeTraceProjTreeRowWidthCapKeepsPrimaryTagAndEvidence(t *testing.T)
 	shortLine := runtimeTraceProjStanzaRowLine(short, runtimeTraceProjTreeLabelWidth, 199.992, true, true)
 	// NEW-10: the 44-cell label budget may B1-truncate the NAME (that ellipsis
 	// is fine — the detail table keeps the full name); the TAG segment must
-	// still render complete, with no elision between the state tag and E#.
-	if !strings.Contains(shortLine, "运行占用 · [E32]") {
-		t.Fatalf("lean-tag rows must render their full tag set without elision:\n%s", shortLine)
+	// still render complete, with no elision. PTV6-C #12: the truncated cause
+	// word re-renders WHOLE as the first subordinate slot (全词保障), and the
+	// main line keeps E#.
+	if shortMain := strings.Split(shortLine, "\n")[0]; !strings.Contains(shortMain, "[E32]") {
+		t.Fatalf("lean row must keep E# on the main line:\n%s", shortLine)
+	}
+	for _, want := range []string{"· background_io_pressure", "· 运行占用"} {
+		if !strings.Contains(shortLine, want) {
+			t.Fatalf("lean-tag rows must render their full tag set without elision (%q):\n%s", want, shortLine)
+		}
+	}
+	if shortLines := strings.Split(shortLine, "\n"); len(shortLines) > 1 &&
+		!strings.Contains(shortLines[1], "background_io_pressure") {
+		t.Fatalf("#12 cause full word must lead the subordinate slots:\n%s", shortLine)
 	}
 
 	// Typed ⚠/⊘ markers are T1 Keep 记号: they sit on the MAIN line with their

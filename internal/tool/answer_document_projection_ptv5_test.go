@@ -326,12 +326,24 @@ func TestPTV5InversionCandidacyTypedFieldWordsShapeCell(t *testing.T) {
 		Subject: "w-1", Object: "s_sleep", StateKind: "runnable",
 		PriorityInversionCandidate: true,
 	}
-	if got := runtimeTraceCausalProjectionImpactShapeCell(node, true); got != "反转影响" {
-		t.Fatalf("typed candidacy must word the shape cell: %q", got)
+	// PTV6-C ruling B (#73, 用户裁定 2026-07-06): the shape cell speaks the
+	// cause FULL word (优先级反转候选 / raw token on EN) — the deleted 反转影响
+	// shape word must never resurface (负向臂), and the cell must never claim
+	// a single scheduler state for the gated composite.
+	if got := runtimeTraceCausalProjectionImpactShapeCell(node, true); got != "优先级反转候选" {
+		t.Fatalf("typed candidacy must word the shape cell with the cause full word: %q", got)
+	}
+	if got := runtimeTraceCausalProjectionImpactShapeCell(node, false); got != "priority_inversion_candidate" {
+		t.Fatalf("EN typed candidacy must keep the raw cause token: %q", got)
+	}
+	for _, zh := range []bool{true, false} {
+		if got := runtimeTraceCausalProjectionImpactShapeCell(node, zh); got == "反转影响" || got == "inversion impact" {
+			t.Fatalf("deleted inversion shape word resurfaced: %q", got)
+		}
 	}
 	node.PriorityInversionCandidate = false
-	if got := runtimeTraceCausalProjectionImpactShapeCell(node, true); got == "反转影响" {
-		t.Fatalf("no candidacy → no inversion claim")
+	if got := runtimeTraceCausalProjectionImpactShapeCell(node, true); got == "优先级反转候选" || got == "反转影响" {
+		t.Fatalf("no candidacy → no inversion claim, got %q", got)
 	}
 }
 

@@ -173,12 +173,123 @@ func runtimeTraceCausalProjectionDisplayCauseName(raw string, zh bool) string {
 // lane: when the row's Object is the unknown-thread sentinel, the wording is
 // specialized by the row's typed kind token (blocking_span →
 // 阻塞等待(对端未解析), d_state_or_io_wait → D状态/IO等待(对端未解析));
+// a RESOLVED peer thread riding the Object slot of a typed peer-relation row
+// renders the relation form instead of the bare name (PTV6-C #7:
+// "IO等待(对端 udk-irq-1-63)" — same wording home as the unresolved arm);
 // everything else stays on the raw-string cause lane.
 func runtimeTraceCausalProjectionDisplayCauseNameNode(node types.TraceCausalProjectionNode, zh bool) string {
 	if runtimeTraceCausalProjectionUnknownSentinel(node.Object) {
 		return runtimeTraceCausalProjectionUnresolvedPeerText(runtimeTraceCausalProjectionUnresolvedPeerKind(node), zh)
 	}
+	if kind := runtimeTraceCausalProjectionResolvedPeerObjectKind(node); kind != "" {
+		return runtimeTraceCausalProjectionResolvedPeerText(kind, runtimeTraceCausalProjectionDisplayNodeName(strings.TrimSpace(node.Object), zh), zh)
+	}
 	return runtimeTraceCausalProjectionDisplayCauseName(node.Object, zh)
+}
+
+// runtimeTraceCausalProjectionResolvedPeerObjectKind is the single #7 gate
+// shared by the display lane and the typed dedupe-identity lane (修正轮 Med
+// 2026-07-06: one predicate, so the two can never drift): non-"" exactly when
+// the node's type lanes carry a peer-relation kind AND the Object actually IS
+// a peer thread — never a recognized type token, never a bare scheduler-state
+// token, never a peer-kind token echo, never an aggregate metric (precise
+// token-table checks only).
+func runtimeTraceCausalProjectionResolvedPeerObjectKind(node types.TraceCausalProjectionNode) string {
+	kind := runtimeTraceCausalProjectionResolvedPeerKind(node)
+	if kind == "" {
+		return ""
+	}
+	object := strings.TrimSpace(node.Object)
+	if object == "" || node.IsAggregateMetric() ||
+		runtimeTraceRootCauseTypeZHLabel(object) != "" ||
+		runtimeTraceCausalProjectionPeerKindToken(object) != "" ||
+		runtimeTraceCausalProjectionCanonicalNode(object) == "io_latency" ||
+		runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: object}, true) != "" {
+		return ""
+	}
+	return kind
+}
+
+// runtimeTraceCausalProjectionCauseDisplayToken returns the TYPED token the
+// node-aware cause display derives from — the #6/#12 dedupe identity beside
+// runtimeTraceCausalProjectionDisplayCauseNameNode (branch-for-branch mirror
+// via the shared gate above; 修正轮 Med: the dedupe judges typed tokens,
+// display strings only present). "" when the display derives from no single
+// typed token (generic unresolved wording).
+func runtimeTraceCausalProjectionCauseDisplayToken(node types.TraceCausalProjectionNode) string {
+	if runtimeTraceCausalProjectionUnknownSentinel(node.Object) {
+		return runtimeTraceCausalProjectionUnresolvedPeerKind(node)
+	}
+	if kind := runtimeTraceCausalProjectionResolvedPeerObjectKind(node); kind != "" {
+		return kind
+	}
+	return runtimeTraceCausalProjectionCanonicalNode(node.Object)
+}
+
+// runtimeTraceCausalProjectionTypeTokenStateClass maps a typed TypeToken whose
+// semantics ARE a scheduler state onto its state family (PTV6-C #3, #73 标本
+// 归因 2026-07-06). Non-empty ONLY when the node exposes no StateKind of its
+// own — the display layer never overrides a producer-published state, it only
+// reads the state the producer parked on the type lane. Exact typed-token
+// membership; inversion composites (priority_inversion_*) are deliberately
+// absent (D3: no single state may claim a gated composite).
+func runtimeTraceCausalProjectionTypeTokenStateClass(node types.TraceCausalProjectionNode) string {
+	if strings.TrimSpace(node.StateKind) != "" {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(node.TypeToken)) {
+	case "d_state_or_io_wait", "fragmented_d_state_or_io_wait":
+		return "d_state_or_io_wait"
+	case "runnable_wait", "fragmented_runnable_wait":
+		return "runnable"
+	case "sleep_wait", "fragmented_sleep_wait":
+		return "s_sleep"
+	case "running", "fragmented_running":
+		return "running"
+	case "io_wait":
+		return "io_wait"
+	}
+	return ""
+}
+
+// runtimeTraceCausalProjectionTypeTokenStateWord renders the #3 state-family
+// word for a TypeTokenStateClass value: the ambiguous d_state_or_io_wait
+// family keeps its honest two-sided word; every single-state class reuses the
+// 裁定4 StateKindLabel vocabulary verbatim (single wording home).
+func runtimeTraceCausalProjectionTypeTokenStateWord(class string, zh bool) string {
+	if class == "d_state_or_io_wait" {
+		if zh {
+			return "D状态/IO等待"
+		}
+		return "D-state/IO wait"
+	}
+	return runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: class}, zh)
+}
+
+// runtimeTraceCausalProjectionImpactPointDisplay renders one 影响点 token in
+// the D4 中文（token） combined form on the zh surface (PTV6-C #6, #73 标本
+// 归因 2026-07-06): bare scheduler-state tokens (runnable / s_sleep / …) speak
+// the 裁定4 state vocabulary, recognized type tokens ride the existing D4
+// narrative lane, and unmapped tokens render verbatim — labels are never
+// fabricated. EN keeps raw tokens (already aligned).
+func runtimeTraceCausalProjectionImpactPointDisplay(token string, zh bool) string {
+	token = strings.TrimSpace(token)
+	// Compound impact points arrive slash-joined from the producer
+	// ("priority_inversion_runnable_wait/runnable") — each member maps
+	// independently; the join stays "/" (same separator the tag itself uses).
+	if strings.Contains(token, "/") {
+		members := strings.Split(token, "/")
+		for i, member := range members {
+			members[i] = runtimeTraceCausalProjectionImpactPointDisplay(member, zh)
+		}
+		return strings.Join(members, "/")
+	}
+	if zh {
+		if label := runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: token}, true); label != "" {
+			return label + "（" + token + "）"
+		}
+	}
+	return runtimeTraceCausalProjectionNarrativeCauseName(token, zh)
 }
 
 // runtimeTraceCausalProjectionNarrativeCauseName is the narrative lane (D4):

@@ -136,13 +136,20 @@ func dRoundInversionObs() []types.ObservationRecord {
 
 func TestTraceProjectionD3InversionCompositionSplitZH(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""), dRoundInversionObs(), "")
+	// PTV6-C ruling B (#73, 用户裁定 2026-07-06): the 反转影响 shape word is
+	// DELETED — the cause full word 优先级反转候选 carries the identity and the
+	// D3 composition split stays 必显 (positive arm); the deleted word
+	// resurfacing anywhere is red (negative arm).
 	for _, want := range []string{
-		"反转影响",
+		"优先级反转候选",
 		"影响构成: 可运行等待 10.000ms + 运行折算 6.000ms",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("D3 inversion composition missing %q:\n%s", want, md)
 		}
+	}
+	if strings.Contains(md, "反转影响") {
+		t.Fatalf("deleted 反转影响 shape word resurfaced (PTV6-C ruling B):\n%s", md)
 	}
 	// The composite row must not claim the single-state 运行占用 tag (the
 	// legend sentence naming the tag family is not a row).
@@ -155,13 +162,18 @@ func TestTraceProjectionD3InversionCompositionSplitZH(t *testing.T) {
 
 func TestTraceProjectionD3InversionCompositionSplitEN(t *testing.T) {
 	md := audit730Render(t, audit730Bus("en"), dRoundInversionObs(), "en")
+	// PTV6-C ruling B: the EN twin of the deleted shape word ("inversion
+	// impact") must not resurface either; identity rides the raw cause token.
 	for _, want := range []string{
-		"inversion impact",
+		"priority_inversion_candidate",
 		"composition: runnable 10.000ms + discounted running 6.000ms",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("EN D3 inversion composition missing %q:\n%s", want, md)
 		}
+	}
+	if strings.Contains(md, "inversion impact") {
+		t.Fatalf("deleted \"inversion impact\" shape word resurfaced (PTV6-C ruling B):\n%s", md)
 	}
 	for _, line := range strings.Split(md, "\n") {
 		if strings.Contains(line, "priority_inversion_candidate") && strings.Contains(line, "| running") {

@@ -281,8 +281,13 @@ func TestTraceProjection730EvidenceLocatorPrefersTimeWindow(t *testing.T) {
 			t.Fatalf("raw customer locator %q must not render:\n%s", banned, md)
 		}
 	}
-	if !strings.Contains(md, "完整定位见原始 trace_query 记录") {
-		t.Fatalf("shortened locator must point back to the raw record:\n%s", md)
+	// PTV6-C ruling C (#73): the dropped line range returns as an inline
+	// trace source coordinate — the intermediate-record pointer is retired.
+	if !strings.Contains(md, "；详见 berlin.systrace 行 824646–1624260") {
+		t.Fatalf("shortened locator must inline the trace line coordinate:\n%s", md)
+	}
+	if strings.Contains(md, "见原始 trace_query 记录") {
+		t.Fatalf("retired intermediate-record pointer resurfaced:\n%s", md)
 	}
 }
 

@@ -751,7 +751,9 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 			t.Fatalf("(b) blocks missing %q:\n%s", want, detailFull.Text)
 		}
 	}
-	for _, want := range []string{"threadpool-400 / IO等待", "11.000ms", "阻塞/IO", "确定性优化点", "VerifyClass com.example.Foo", "class_verification"} {
+	// PTV6-C #6 (#73): the 阻塞/IO action word is absorbed by the row's own
+	// IO阻塞 state tag (近义收敛) — the fact surface asserts the state word.
+	for _, want := range []string{"threadpool-400 / IO等待", "11.000ms", "IO阻塞", "确定性优化点", "VerifyClass com.example.Foo", "class_verification"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("projection should surface fact %q:\n%s", want, text)
 		}
@@ -828,13 +830,17 @@ func TestApplyAndPersistMutation_TraceCausalProjectionBoundsLongWakeupChainDispl
 	}
 	// v3: the long trunk compresses its middle into ONE omitted marker row with
 	// the counts + detected-cycle audit note; the full chain never renders raw.
-	// PTV4 T8: the fold row names the folded segment's first/last nodes; the
-	// "完整链路见原始 trace_query 记录" pointer moved to the legend's 省略行
-	// entry (still within this block's text via the dynamic legend).
-	for _, want := range []string{"🎯 NetworkService-60595", "省略7节点: ", "检测到2节点循环约8轮", "完整链路见原始 trace_query 记录"} {
+	// PTV4 T8: the fold row names the folded segment's first/last nodes.
+	// PTV6-C ruling C (#73): the legend's 省略行 entry no longer deflects to
+	// the intermediate trace_query record — it states the fold honestly
+	// (负向臂 below: the retired pointer must not resurface).
+	for _, want := range []string{"🎯 NetworkService-60595", "省略7节点: ", "检测到2节点循环约8轮", "中段节点名不在本报告逐一展开"} {
 		if !strings.Contains(projection.Text, want) {
 			t.Fatalf("long wakeup chain tree should carry bounded audit note %q:\n%s", want, projection.Text)
 		}
+	}
+	if strings.Contains(projection.Text, "见原始 trace_query 记录") {
+		t.Fatalf("retired intermediate-record pointer resurfaced:\n%s", projection.Text)
 	}
 	// The tree stays bounded: trunk display ≤ 8 chain rows + 1 omitted marker.
 	// NEW-7 (§7.6 回访 2026-07-04): the count scopes to the ```text fence — the
@@ -1058,10 +1064,14 @@ func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePre
 	if evidenceIndex == nil || evidenceIndex.Kind != types.BlockBulletList || len(evidenceIndex.Columns) != 0 {
 		t.Fatalf("evidence index should render as a bullet list: %+v", evidenceIndex)
 	}
-	if !strings.Contains(text, "完整定位见原始 trace_query 记录") ||
-		!strings.Contains(text, "hiprofiler_data_20260702_very_long_name.systrace") ||
+	// PTV6-C ruling C (#73): the locator IS the trace source coordinate; no
+	// intermediate-record deflection remains anywhere in the cluster text.
+	if !strings.Contains(text, "hiprofiler_data_20260702_very_long_name.systrace") ||
 		!strings.Contains(text, ":123-130") {
-		t.Fatalf("evidence index should show short locator and point to original trace_query record:\n%s", text)
+		t.Fatalf("evidence index should show the trace source coordinate:\n%s", text)
+	}
+	if strings.Contains(text, "见原始 trace_query 记录") {
+		t.Fatalf("retired intermediate-record pointer resurfaced:\n%s", text)
 	}
 	// The detail table (markdown surface) must escape ~~; the monospace fence is
 	// a literal <pre> surface where the raw name renders without strikethrough

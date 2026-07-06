@@ -426,9 +426,12 @@ func TestPTV6LegendWordingVerbatimPins(t *testing.T) {
 			"- `×N同值` = 同一测量被重复发布 N 次(边界重取样时数值可有漂移,显示取合并中的最大一次发布),数值就是那一次测量,不是 N 份。",
 			"- `×N same-value` = one measurement published N times (values may drift under boundary resampling; the display keeps the largest published copy in the fold); the value IS that single measurement, never N shares.",
 		},
+		// PTV6-C ruling C (#73): the legend's pointer target moved from the
+		// intermediate trace_query record to the report's own evidence index
+		// (trace line coordinates).
 		runtimeTraceProjMarkEdgeChainUnresolved: {
-			"- `└─链上·深度未解析─` = 链上项但树位深度未解析:不声称唤醒/下钻关系,不编造树位;完整关系见原始 trace_query 记录。",
-			"- `└─on-chain·depth-unresolved─` = an on-chain row whose tree depth is unresolved: no wake/drill relation is claimed and no position is invented; the full relation stays in the trace_query record.",
+			"- `└─链上·深度未解析─` = 链上项但树位深度未解析:不声称唤醒/下钻关系,不编造树位;该行 [E#] 经证据索引给出 trace 行号区间。",
+			"- `└─on-chain·depth-unresolved─` = an on-chain row whose tree depth is unresolved: no wake/drill relation is claimed and no position is invented; the row's [E#] resolves to trace line spans via the evidence index.",
 		},
 	}
 	seen := map[runtimeTraceProjMark]bool{}

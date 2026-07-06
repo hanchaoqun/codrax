@@ -768,11 +768,16 @@ func TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisZH(t *testing.T) {
 	line := snapshot.Items[0].Text
 	// §7.30 裁定6 numeric face: selected-window values coexisting with actual_*
 	// values must state their window basis. (Share wording pin updated
-	// 2026-07-03, H13 — denominator named explicitly.)
-	for _, want := range []string{"运行 3.500ms(占该线程观测时长41%)", "窗口基准: 选定窗(实际对齐窗数值见原始 trace_query 记录)"} {
+	// 2026-07-03, H13 — denominator named explicitly.) PTV6-C ruling C (#73):
+	// the aligned actual-window VALUES inline; the intermediate-record pointer
+	// is retired (负向臂 below — 回现即红).
+	for _, want := range []string{"运行 3.500ms(占该线程观测时长41%)", "窗口基准: 选定窗(实际对齐窗: 影响 6.000ms)"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("snapshot missing window basis %q:\n%s", want, line)
 		}
+	}
+	if strings.Contains(line, "见原始 trace_query 记录") {
+		t.Fatalf("retired intermediate-record pointer resurfaced:\n%s", line)
 	}
 }
 
@@ -819,8 +824,13 @@ func TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisEndpointsZH(t *testing.T)
 		t.Fatalf("missing metric snapshot block: %+v", doc.Blocks)
 	}
 	line := snapshot.Items[0].Text
-	if !strings.Contains(line, "窗口基准: 选定窗 3679.899s–3681.130s(实际对齐窗数值见原始 trace_query 记录)") {
+	// PTV6-C ruling C (#73): endpoints inline AND the aligned actual values
+	// inline — the intermediate-record pointer is retired.
+	if !strings.Contains(line, "窗口基准: 选定窗 3679.899s–3681.130s(实际对齐窗: 影响 6.000ms)") {
 		t.Fatalf("snapshot window basis must render the selected-window endpoints:\n%s", line)
+	}
+	if strings.Contains(line, "见原始 trace_query 记录") {
+		t.Fatalf("retired intermediate-record pointer resurfaced:\n%s", line)
 	}
 }
 
@@ -874,7 +884,7 @@ func TestEmitAnswerDocumentV2_MetricSnapshotEnglishHumanized(t *testing.T) {
 		"switches 20",
 		"longest segment 0.500ms",
 		"p95 segment 0.500ms",
-		"window basis: selected window (aligned actual-window values remain in the raw trace_query record)",
+		"window basis: selected window (aligned actual window: impact 6.000ms)",
 	} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("EN snapshot missing %q:\n%s", want, line)

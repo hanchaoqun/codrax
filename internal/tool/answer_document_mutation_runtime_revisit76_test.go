@@ -581,6 +581,8 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkCoverageLine: {"", ""},
 		// PTV5 PTS: the on-chain overflow fold row's lane word.
 		runtimeTraceProjMarkOnChainOverflowFold: {"链上折叠", "on-chain fold"},
+		// PTV6-C ruling A (#73): the ◇/▒ cross-thread cumulative family word.
+		runtimeTraceProjMarkStanzaCrossThreadCum: {"累计(跨线程)", "cross-thread cum"},
 	}
 }
 
@@ -769,6 +771,28 @@ func revisit76PTV6DepthlessProjection() types.TraceCausalProjection {
 	}
 }
 
+// revisit76PTV6CStanzaCrossCumProjection (PTV6-C ruling A, #73) is the ◇
+// stanza row carrying chain-cum + effective values: both must render the
+// 累计(跨线程) family word (equal values dedupe to ONE tag), never the
+// chain-universe attribution vocabulary.
+func revisit76PTV6CStanzaCrossCumProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"worker-9", "app-100"},
+		WindowStartTs: 100.0,
+		WindowEndTs:   100.2,
+		OnChainCauses: []types.TraceCausalProjectionNode{
+			{Role: types.TraceCausalRoleRootCauseContext, Subject: "worker-9",
+				Object: "running_burst", StateKind: "running", ChainRelevance: "on_chain",
+				ImpactMS: 30, Confidence: 0.8},
+		},
+		AdjacentCauses: []types.TraceCausalProjectionNode{
+			{Role: types.TraceCausalRoleRootCauseContext, Subject: "adj-5",
+				Object: "running_burst", StateKind: "running", ChainRelevance: "adjacent",
+				ImpactMS: 10, CumulativeImpactMS: 18, EffectiveImpactMS: 18, Confidence: 0.8},
+		},
+	}
+}
+
 // revisit76AssertLegendBidirectional renders one shape and asserts the NEW-7
 // two-way contract: (a) typed marks ⇔ rendered legend entries; (b) for every
 // probed mark, its fence token appears IFF its legend entry renders.
@@ -827,6 +851,8 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		{"ptv5_fold_caliber", revisit76PTV5FoldCaliberProjection()},
 		// PTV6 #1b: the depthless remaining-on-chain lane's dedicated edge.
 		{"ptv6_depthless_chain_unresolved", revisit76PTV6DepthlessProjection()},
+		// PTV6-C ruling A: the ◇/▒ 累计(跨线程) family word + its legend entry.
+		{"ptv6c_stanza_cross_cum", revisit76PTV6CStanzaCrossCumProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {
@@ -875,11 +901,16 @@ func TestTraceProjectionEvidenceIndexDisclosesCapacityTruncation(t *testing.T) {
 	if truncated == nil {
 		t.Fatalf("truncated fixture must render an evidence-index block")
 	}
-	if !strings.Contains(truncated.Text, "部分来源结果按容量截断(rank 头部完整保留);完整明细见原始 trace_query 记录。") {
+	// PTV6-C ruling C (#73): the disclosure states the fact without the
+	// intermediate-record deflection (负向臂 below).
+	if !strings.Contains(truncated.Text, "部分来源结果按容量截断(rank 头部完整保留),超出容量的尾部行未纳入本索引。") {
 		t.Fatalf("evidence-index header must disclose the capacity truncation:\n%s", truncated.Text)
 	}
+	if strings.Contains(truncated.Text, "见原始 trace_query 记录") {
+		t.Fatalf("retired intermediate-record pointer resurfaced:\n%s", truncated.Text)
+	}
 	en := findEvidence(runtimeTraceCausalProjectionCluster(projection, "en", runtimeTraceProjUserFocus{}))
-	if en == nil || !strings.Contains(en.Text, "Some source results were capacity-truncated (rank heads fully kept); the full detail remains in the original trace_query records.") {
+	if en == nil || !strings.Contains(en.Text, "Some source results were capacity-truncated (rank heads fully kept); the over-capacity tail rows are not in this index.") {
 		t.Fatalf("en evidence-index header must mirror the disclosure: %+v", en)
 	}
 }

@@ -10020,19 +10020,74 @@ func TestPTV5TraceQuerySupplementTruncationDisclosure(t *testing.T) {
 	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "结论。",
 	}}}
+	// PTV6-C ruling C (#73): the trim tail states the omitted rows' trace
+	// line envelope (all fixture rows share one artifact) — never the retired
+	// intermediate-record pointer.
 	over := renderTraceQueryObservationSupplement(build(traceQueryObservationSupplementMaxRows+5), doc, "zh")
-	if !strings.Contains(over, fmt.Sprintf("(共 %d 条,仅列前 %d 条;其余见原始 trace_query 记录)",
-		traceQueryObservationSupplementMaxRows+5, traceQueryObservationSupplementMaxRows)) {
-		t.Fatalf("over-cap supplement must disclose the trim count:\n%s", over)
+	if !strings.Contains(over, fmt.Sprintf("(共 %d 条,仅列前 %d 条;其余 5 条位于 attached_trace.txt 行 ",
+		traceQueryObservationSupplementMaxRows+5, traceQueryObservationSupplementMaxRows)) ||
+		!strings.Contains(over, " 区间)") {
+		t.Fatalf("over-cap supplement must disclose the trim count with the trace envelope:\n%s", over)
+	}
+	if strings.Contains(over, "见原始 trace_query 记录") {
+		t.Fatalf("retired intermediate-record pointer resurfaced:\n%s", over)
 	}
 	overEN := renderTraceQueryObservationSupplement(build(traceQueryObservationSupplementMaxRows+5), doc, "en")
-	if !strings.Contains(overEN, fmt.Sprintf("(%d rows total; only the first %d are listed — the rest remain in the raw trace_query records)",
+	if !strings.Contains(overEN, fmt.Sprintf("(%d rows total; only the first %d are listed; the other 5 sit within attached_trace.txt lines ",
 		traceQueryObservationSupplementMaxRows+5, traceQueryObservationSupplementMaxRows)) {
 		t.Fatalf("EN over-cap supplement must disclose the trim count:\n%s", overEN)
+	}
+	if strings.Contains(overEN, "remain in the raw trace_query records") {
+		t.Fatalf("EN retired intermediate-record pointer resurfaced:\n%s", overEN)
 	}
 	under := renderTraceQueryObservationSupplement(build(3), doc, "zh")
 	if under == "" || strings.Contains(under, "仅列前") {
 		t.Fatalf("under-cap supplement must stay disclosure-free:\n%s", under)
+	}
+}
+
+// TestPTV6CSupplementCoordinateSameSourceOnly pins the 修正轮 Med holes on the
+// ruling-C envelope coordinate (2026-07-06): a coordinate pair is same-source
+// only (one SupportRef carrying BOTH halves, or the record's own
+// SourceRef+Span) — a SupportRef basename never splices onto SourceRef Span
+// line numbers — and missing_wakeup synthetic-line records (projection-side
+// EvidenceCoordinateTail 同判据) never fabricate a line coordinate.
+func TestPTV6CSupplementCoordinateSameSourceOnly(t *testing.T) {
+	// Same-source lane 1: basename + line suffix from ONE SupportRef.
+	ref := types.ObservationRecord{
+		SupportRefs: []string{"attached_trace.txt:100-105"},
+		SourceRef:   types.ObservationSourceRef{ArtifactID: "other.systrace"},
+		Span:        types.ObservationSpan{LineStart: 900, LineEnd: 950},
+	}
+	if base, ls, le := traceQueryObservationSourceCoordinate(ref); base != "attached_trace.txt" || ls != 100 || le != 105 {
+		t.Fatalf("lane-1 coordinate must take BOTH halves from the SupportRef: %q %d-%d", base, ls, le)
+	}
+	// Splice ban: a suffix-less SupportRef basename must NOT pair with the
+	// record Span; with no SourceRef base either, the coordinate is refused.
+	splice := types.ObservationRecord{
+		SupportRefs: []string{"attached_trace.txt"},
+		Span:        types.ObservationSpan{LineStart: 100, LineEnd: 105},
+	}
+	if base, ls, _ := traceQueryObservationSourceCoordinate(splice); base != "" || ls != 0 {
+		t.Fatalf("cross-source splice fabricated a locator: %q %d", base, ls)
+	}
+	// Same-source lane 2: the record's OWN SourceRef + Span.
+	own := types.ObservationRecord{
+		SourceRef: types.ObservationSourceRef{ArtifactID: "trace.systrace"},
+		Span:      types.ObservationSpan{LineStart: 300, LineEnd: 320},
+	}
+	if base, ls, le := traceQueryObservationSourceCoordinate(own); base != "trace.systrace" || ls != 300 || le != 320 {
+		t.Fatalf("lane-2 coordinate must pair the record's own SourceRef+Span: %q %d-%d", base, ls, le)
+	}
+	// Synthetic-line guard: missing_wakeup interval bookkeeping never claims
+	// a trace row (both the predicate and the claim-key form).
+	for _, synthetic := range []types.ObservationRecord{
+		{Predicate: "missing_wakeup", SupportRefs: []string{"attached_trace.txt:44-44"}},
+		{ClaimKey: "root_evidence:missing_wakeup", SourceRef: types.ObservationSourceRef{ArtifactID: "trace.systrace"}, Span: types.ObservationSpan{LineStart: 44, LineEnd: 44}},
+	} {
+		if base, ls, _ := traceQueryObservationSourceCoordinate(synthetic); base != "" || ls != 0 {
+			t.Fatalf("synthetic-line record fabricated a coordinate: %q %d", base, ls)
+		}
 	}
 }
 

@@ -50,10 +50,20 @@ var runtimeStateKindConsumerAliasLedger = map[string]string{
 	"runnable_wait": "RN-6 defensive alias at runtimeTraceProjSymptomFamilyStateKind: not producible as StateKind today (dominant lanes publish \"runnable\"; Object fallback admits only the universe); branch preserved byte-for-byte — do not \"clean up\" without a ruling",
 }
 
+// runtimeStateKindClassifierFuncs: functions whose switch tag is a
+// StateKind-carrying PARAMETER (tag-text detection cannot see ".StateKind").
+// PTV6-C #6 extracted the ActionCell state switch into the single wording
+// home runtimeTraceCausalProjectionStateActionWord (callers pass
+// node.StateKind / the ActionCell effective state) — the pin follows the
+// switch to its new site instead of losing coverage.
+var runtimeStateKindClassifierFuncs = map[string]bool{
+	"runtimeTraceCausalProjectionStateActionWord": true,
+}
+
 var runtimeStateKindSwitchFallthroughLedger = map[string]types.TraceStateKindFallthroughDecl{
-	"answer_document_mutation_runtime.go:runtimeTraceCausalProjectionActionCell#1": {
+	"answer_document_mutation_runtime.go:runtimeTraceCausalProjectionStateActionWord#1": {
 		Missing: "sleep,s_sleep,sleep_wait",
-		Why:     "sleep family handled upstream by the IsSleepState early return; remaining values (incl. the causeKind fallback the tag may carry) fall to the generic candidate-cause wording",
+		Why:     "sleep family handled upstream by ActionCell's IsSleepState early return; remaining values (incl. the causeKind fallback ActionCell may pass) fall to \"\" and the caller keeps its generic candidate-cause wording",
 	},
 	"answer_document_mutation_runtime_tree.go:runtimeTraceProjWaitFamilyStateKind#1": {
 		Missing: "running,runnable",
@@ -70,7 +80,7 @@ var runtimeStateKindSwitchFallthroughLedger = map[string]types.TraceStateKindFal
 }
 
 var runtimeStateKindSwitchSiteGolden = map[string]string{
-	"answer_document_mutation_runtime.go:runtimeTraceCausalProjectionActionCell#1":      "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
+	"answer_document_mutation_runtime.go:runtimeTraceCausalProjectionStateActionWord#1": "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
 	"answer_document_mutation_runtime.go:runtimeTraceCausalProjectionImpactShapeCell#1": "running,runnable,sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
 	"answer_document_mutation_runtime_tree.go:runtimeTraceProjNoDominantStateRow#1":     "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
 	"answer_document_mutation_runtime_tree.go:runtimeTraceProjStateIcon#1":              "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep|default",
@@ -80,7 +90,7 @@ var runtimeStateKindSwitchSiteGolden = map[string]string{
 }
 
 func TestRuntimeStateKindSwitchConsumerCoverage(t *testing.T) {
-	scan, err := types.ScanTraceStateKindConsumers(runtimeStateKindPinFiles, nil, runtimeStateKindConsumerAliasLedger)
+	scan, err := types.ScanTraceStateKindConsumers(runtimeStateKindPinFiles, runtimeStateKindClassifierFuncs, runtimeStateKindConsumerAliasLedger)
 	if err != nil {
 		t.Fatal(err)
 	}

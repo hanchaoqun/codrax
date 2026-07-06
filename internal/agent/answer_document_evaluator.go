@@ -11987,6 +11987,13 @@ type traceQueryObservationSupplementRow struct {
 	Order int
 	Key   string
 	Text  string
+	// Base/LineStart/LineEnd carry the row's trace source coordinate (artifact
+	// basename + line span) so the PTV6-C ruling-C truncation tail can state
+	// WHERE the unlisted rows sit instead of deflecting to the intermediate
+	// trace_query record file. Zero values = no usable coordinate.
+	Base      string
+	LineStart int
+	LineEnd   int
 }
 
 const traceQueryObservationSupplementMaxRows = 40
@@ -12006,9 +12013,22 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 	// PTV5 C38 (#68): the block self-describes as the auditable-fact keeper —
 	// a silent tail drop contradicts that. Truncation states its count (same
 	// disclosure family as the NEW-9 evidence-index truncation note).
+	// PTV6-C ruling C (#73, 用户裁定 2026-07-06): the tail no longer deflects
+	// to the intermediate trace_query record file — when the OMITTED rows
+	// resolve to one artifact, the tail states their trace line envelope
+	// (trace 源坐标); otherwise it states the count alone.
 	total := len(rows)
+	omittedTail := ""
 	if len(rows) > traceQueryObservationSupplementMaxRows {
+		omitted := rows[traceQueryObservationSupplementMaxRows:]
 		rows = rows[:traceQueryObservationSupplementMaxRows]
+		if base, lineStart, lineEnd, ok := traceQueryObservationSupplementEnvelope(omitted); ok {
+			if zh {
+				omittedTail = fmt.Sprintf(";其余 %d 条位于 %s 行 %d–%d 区间", len(omitted), base, lineStart, lineEnd)
+			} else {
+				omittedTail = fmt.Sprintf("; the other %d sit within %s lines %d–%d", len(omitted), base, lineStart, lineEnd)
+			}
+		}
 	}
 	var b strings.Builder
 	if zh {
@@ -12019,7 +12039,7 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 			fmt.Fprintf(&b, "> - %s\n", row.Text)
 		}
 		if total > len(rows) {
-			fmt.Fprintf(&b, ">\n> (共 %d 条,仅列前 %d 条;其余见原始 trace_query 记录)\n", total, len(rows))
+			fmt.Fprintf(&b, ">\n> (共 %d 条,仅列前 %d 条%s)\n", total, len(rows), omittedTail)
 		}
 		return strings.TrimRight(b.String(), "\n")
 	}
@@ -12030,9 +12050,107 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 		fmt.Fprintf(&b, "> - %s\n", row.Text)
 	}
 	if total > len(rows) {
-		fmt.Fprintf(&b, ">\n> (%d rows total; only the first %d are listed — the rest remain in the raw trace_query records)\n", total, len(rows))
+		fmt.Fprintf(&b, ">\n> (%d rows total; only the first %d are listed%s)\n", total, len(rows), omittedTail)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// traceQueryObservationSourceCoordinate extracts one supplement row's trace
+// source coordinate (artifact basename + line span). 修正轮 Med (2026-07-06),
+// two holes closed:
+//   - a coordinate PAIR must be same-source: either BOTH halves from one
+//     SupportRef (basename + its own :N-M suffix) or BOTH from the record's
+//     own SourceRef+Span — a SupportRef basename spliced onto SourceRef Span
+//     line numbers fabricated locators;
+//   - missing_wakeup synthetic-line records (the SAME typed criterion as the
+//     projection side's EvidenceCoordinateTail guard) carry interval
+//     bookkeeping, never a locatable trace row — no coordinate at all.
+//
+// ok-by-zero: base=="" or lineStart==0 means no usable coordinate (the caller
+// then states the count only — 禁编造 locator).
+func traceQueryObservationSourceCoordinate(record types.ObservationRecord) (string, int, int) {
+	if traceQueryObservationSyntheticLineLocator(record) {
+		return "", 0, 0
+	}
+	// Lane 1: the first non-empty SupportRef, accepted only when it carries
+	// BOTH a real artifact basename and its own line suffix (same first-ref
+	// discipline as the row's display locator).
+	for _, ref := range record.SupportRefs {
+		s := strings.TrimSpace(ref)
+		if s == "" {
+			continue
+		}
+		pathPart, suffix := traceQueryObservationSplitLineSuffix(s)
+		base := traceQueryObservationPathBase(pathPart)
+		if base != "" && !types.TraceCausalProjectionPlaceholderArtifactToken(base) && suffix != "" {
+			if lineStart, lineEnd, ok := traceQueryObservationParseLineSuffix(suffix); ok {
+				return base, lineStart, lineEnd
+			}
+		}
+		break
+	}
+	// Lane 2: the record's OWN SourceRef + Span (one record-level provenance).
+	if base := traceQueryObservationPathBase(firstNonEmptyString(record.SourceRef.Path, record.SourceRef.ArtifactID)); base != "" &&
+		!types.TraceCausalProjectionPlaceholderArtifactToken(base) && record.Span.LineStart > 0 {
+		lineStart, lineEnd := record.Span.LineStart, record.Span.LineEnd
+		if lineEnd < lineStart {
+			lineEnd = lineStart
+		}
+		return base, lineStart, lineEnd
+	}
+	return "", 0, 0
+}
+
+// traceQueryObservationParseLineSuffix parses a ":N" / ":N-M" locator suffix
+// into its line span (strict digits, M>=N).
+func traceQueryObservationParseLineSuffix(suffix string) (int, int, bool) {
+	suffix = strings.TrimPrefix(strings.TrimSpace(suffix), ":")
+	if suffix == "" {
+		return 0, 0, false
+	}
+	parts := strings.SplitN(suffix, "-", 2)
+	lineStart, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil || lineStart <= 0 {
+		return 0, 0, false
+	}
+	lineEnd := lineStart
+	if len(parts) == 2 {
+		lineEnd, err = strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil || lineEnd < lineStart {
+			return 0, 0, false
+		}
+	}
+	return lineStart, lineEnd, true
+}
+
+// traceQueryObservationSupplementEnvelope folds the omitted rows' coordinates
+// into one honest envelope: every coordinate-bearing omitted row must agree on
+// ONE artifact basename and carry a positive line span — mixed artifacts or
+// coordinate-less folds return ok=false (the tail then states the count only;
+// a guessed envelope would be a fabricated locator).
+func traceQueryObservationSupplementEnvelope(omitted []traceQueryObservationSupplementRow) (string, int, int, bool) {
+	base := ""
+	lineStart, lineEnd := 0, 0
+	for _, row := range omitted {
+		if row.Base == "" || row.LineStart <= 0 {
+			return "", 0, 0, false
+		}
+		if base == "" {
+			base = row.Base
+		} else if row.Base != base {
+			return "", 0, 0, false
+		}
+		if lineStart == 0 || row.LineStart < lineStart {
+			lineStart = row.LineStart
+		}
+		if row.LineEnd > lineEnd {
+			lineEnd = row.LineEnd
+		}
+	}
+	if base == "" || lineStart <= 0 || lineEnd < lineStart {
+		return "", 0, 0, false
+	}
+	return base, lineStart, lineEnd, true
 }
 
 func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.AnswerDocumentV2, zh bool) []traceQueryObservationSupplementRow {
@@ -12095,7 +12213,11 @@ func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.Answe
 			continue
 		}
 		text += traceQueryObservationOutsideWindowNote(entry.record, projectionSet, zh)
-		rows = append(rows, traceQueryObservationSupplementRow{Order: entry.order, Key: entry.key, Text: text})
+		base, lineStart, lineEnd := traceQueryObservationSourceCoordinate(entry.record)
+		rows = append(rows, traceQueryObservationSupplementRow{
+			Order: entry.order, Key: entry.key, Text: text,
+			Base: base, LineStart: lineStart, LineEnd: lineEnd,
+		})
 	}
 	if foldZeroBlocked {
 		rows = append(rows, traceQueryObservationSupplementRow{
@@ -12128,30 +12250,32 @@ func traceQueryObservationZeroValueBlockedReason(record types.ObservationRecord)
 	return false
 }
 
-// traceQueryObservationZeroBlockedFoldText renders the single CMP-5a fold line:
-// count + up to the first 3 distinct thread names; the full row set remains in
-// the raw trace_query records.
+// traceQueryObservationZeroBlockedFoldText renders the single CMP-5a fold
+// line. PTV6-C ruling C (#73, 用户裁定 2026-07-06): the DISTINCT thread roster
+// inlines WHOLE (能内联的内联) — the fold's win was collapsing 18 ROWS into
+// one line, not hiding names — and the former "完整清单见原始 trace_query
+// 记录" deflection is retired. count > roster size only means some threads
+// were observed more than once, and the line says exactly that.
 func traceQueryObservationZeroBlockedFoldText(count int, subjects []string, zh bool) string {
-	sample := subjects
-	if len(sample) > 3 {
-		sample = sample[:3]
-	}
-	ellipsis := ""
-	if count > len(sample) {
-		ellipsis = "…"
+	repeatNote := ""
+	if count > len(subjects) && len(subjects) > 0 {
+		repeatNote = ";部分线程重复观测"
+		if !zh {
+			repeatNote = "; some threads observed more than once"
+		}
 	}
 	if zh {
-		joined := strings.Join(sample, "、")
+		joined := strings.Join(subjects, "、")
 		if joined == "" {
 			joined = "未解析线程"
 		}
-		return fmt.Sprintf("critical_blocking:blocked_reason：共 %d 条零时长观测(无时长值,已折叠;线程: %s%s;完整清单见原始 trace_query 记录)", count, joined, ellipsis)
+		return fmt.Sprintf("critical_blocking:blocked_reason：共 %d 条零时长观测(无时长值,已折叠;线程: %s%s)", count, joined, repeatNote)
 	}
-	joined := strings.Join(sample, ", ")
+	joined := strings.Join(subjects, ", ")
 	if joined == "" {
 		joined = "unresolved threads"
 	}
-	return fmt.Sprintf("critical_blocking:blocked_reason: %d zero-duration observation(s) (no duration value, folded; threads: %s%s; the full list remains in the raw trace_query records)", count, joined, ellipsis)
+	return fmt.Sprintf("critical_blocking:blocked_reason: %d zero-duration observation(s) (no duration value, folded; threads: %s%s)", count, joined, repeatNote)
 }
 
 // traceQueryObservationOutsideWindowNote implements CMP-5b: when BOTH the

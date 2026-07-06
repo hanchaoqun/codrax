@@ -1101,6 +1101,14 @@ func TraceCausalProjectionSelectedWindowNote(notes []string) (float64, float64, 
 	return traceCausalProjectionSelectedWindowNote(notes)
 }
 
+// TraceCausalProjectionParseWindowValue exposes the strict "start..end"
+// window-value parser (the SAME ParseFloat/end>start validation lane as the
+// selected_window note) for display consumers of OTHER window-valued notes
+// (PTV6-C 修正轮: the actual_window inline endpoints).
+func TraceCausalProjectionParseWindowValue(raw string) (float64, float64, bool) {
+	return traceCausalProjectionParseSelectedWindow(raw)
+}
+
 func traceCausalProjectionParseSelectedWindow(raw string) (float64, float64, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
