@@ -71,6 +71,20 @@ func TestTraceQuerySupplyFoldRichNotesClusterFreqReuseDisclosure(t *testing.T) {
 	if strings.Contains(strings.Join(notes, "\n"), "fold_cluster_freq_reuse=") {
 		t.Fatalf("no reuse → no note, got %v", notes)
 	}
+	// CFR-2 (#80) 披露区分: a derived-membership basis renders the derived
+	// suffix variant instead of the explicit one.
+	notes = traceQueryTypedSupplyFoldRichNotes(&tracequery.SupplyFoldBasis{
+		KnownMs: 20, FmaxKHz: 2000000, FmaxSource: tracequery.SupplyFoldFmaxSourceObserved,
+		ClusterFreqReuse:       []tracequery.SupplyFoldClusterReuse{{CPU: 1, DonorCPU: 3}},
+		ClusterFreqReuseSource: tracequery.ClusterFreqSourceDerived,
+	}, 5, 15)
+	joined = strings.Join(notes, "\n")
+	if !strings.Contains(joined, "fold_cluster_freq_reuse=cpu1 频点=同簇 cpu3(簇共频复用,频点变化点推导)") {
+		t.Fatalf("derived-source provenance must publish the derived suffix, got:\n%s", joined)
+	}
+	if strings.Contains(joined, "显式拓扑") {
+		t.Fatalf("derived reuse must not claim the explicit-topology suffix, got:\n%s", joined)
+	}
 }
 
 // Zero-fmax basis (all-unknown fold or member-summed aggregate) publishes

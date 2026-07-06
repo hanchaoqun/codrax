@@ -82,8 +82,16 @@ func TestSupplyFoldTwoSliceNumericPin(t *testing.T) {
 	}
 }
 
-// A slice on a CPU with NO frequency samples folds at ratio 1 — no fabricated
-// deficit — and books as UNKNOWN basis (§7.10 无频点数据 rule).
+// A slice on a CPU with NO resolvable frequency folds at ratio 1 — no
+// fabricated deficit — and books as UNKNOWN basis (§7.10 无频点数据 rule).
+//
+// CFR-2 (#80, 用户裁定 2026-07-06) fixture evolution: the unknown slice
+// originally sat on cpu3 with sampled cpu2/cpu7 below/above — under the
+// change-point derivation cpu3 now legitimately inherits cpu7's cluster
+// (向高核号就近继承), so the unknown slice moved ABOVE the highest sampled
+// core (cpu8, 向上不外推 keeps it unresolvable). The §7.10 rule itself is
+// unchanged: unresolvable frequency still folds at ratio 1 with UNKNOWN
+// basis — this fixture is also the fold-face upward-extrapolation witness.
 func TestSupplyFoldUnknownFrequencySliceZeroDeficit(t *testing.T) {
 	idx := buildTraceIndex(t, "vs2_unknown_slice.systrace", `
       <idle>-0 (-----) [002] .... 4.900000: cpu_frequency: state=1000000 cpu_id=2
@@ -92,9 +100,9 @@ func TestSupplyFoldUnknownFrequencySliceZeroDeficit(t *testing.T) {
         app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
         dep-200 (100) [002] .... 5.000000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=dep next_pid=200 next_prio=20
         dep-200 (100) [002] .... 5.010000: sched_switch: prev_comm=dep prev_pid=200 prev_prio=20 prev_state=R ==> next_comm=idle/2 next_pid=0 next_prio=120
-        dep-200 (100) [003] .... 5.010000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=dep next_pid=200 next_prio=20
-        dep-200 (100) [003] .... 5.019900: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
-        dep-200 (100) [003] .... 5.020000: sched_switch: prev_comm=dep prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120
+        dep-200 (100) [008] .... 5.010000: sched_switch: prev_comm=idle/8 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=dep next_pid=200 next_prio=20
+        dep-200 (100) [008] .... 5.019900: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        dep-200 (100) [008] .... 5.020000: sched_switch: prev_comm=dep prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/8 next_pid=0 next_prio=120
         app-100 (100) [001] .... 5.020000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
 	`)
 	chain := BuildWakeupChain(idx, Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.020, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace})
@@ -102,8 +110,11 @@ func TestSupplyFoldUnknownFrequencySliceZeroDeficit(t *testing.T) {
 	if dep.SupplyFoldBasis == nil {
 		t.Fatalf("fold must run: %+v", dep)
 	}
-	// Only the 1GHz slice folds (10×0.5=5ms deficit); the no-sample CPU3
-	// slice contributes ideal=wall and UNKNOWN basis.
+	// Only the 1GHz slice folds (10×0.5=5ms deficit); the above-max-sampled
+	// CPU8 slice contributes ideal=wall and UNKNOWN basis (no upward
+	// extrapolation — derived groups here are {2} and {7}, count 2 < 3, so
+	// cpu8 is not even declared a prime pseudo-domain, and either way no
+	// sampled member exists above cpu7 to donate).
 	if dep.SupplyFoldDeficitMs < 4.7 || dep.SupplyFoldDeficitMs > 5.3 {
 		t.Fatalf("deficit must come from the known slice only, got %.3f", dep.SupplyFoldDeficitMs)
 	}
@@ -115,6 +126,9 @@ func TestSupplyFoldUnknownFrequencySliceZeroDeficit(t *testing.T) {
 	}
 	if dep.SupplyFoldBasis.AllKnown() {
 		t.Fatalf("partial coverage must not read as fully known: %+v", dep.SupplyFoldBasis)
+	}
+	if len(dep.SupplyFoldBasis.ClusterFreqReuse) != 0 || dep.SupplyFoldBasis.ClusterFreqReuseSource != "" {
+		t.Fatalf("no reuse happened → no disclosure: %+v", dep.SupplyFoldBasis)
 	}
 }
 

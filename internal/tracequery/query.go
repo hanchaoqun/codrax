@@ -1489,18 +1489,23 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	for _, samples := range limitTimelineByCPU {
 		sort.SliceStable(samples, func(i, j int) bool { return samples[i].ts < samples[j].ts })
 	}
-	// CFR (#75 簇共频, 客户硬件域裁定): under an EXPLICIT core_topology the
+	// CFR (#75 簇共频, 客户硬件域裁定) + CFR-2 (#80 变化点推导): the
 	// frequency-WEIGHTED faces (busy-loop thread frequency/weighting, off-CPU
 	// frequency context, compute_supply per-CPU fmax) may read a same-cluster
 	// sampled sibling's timeline for cores without their own samples — the
 	// cluster shares one hardware frequency point. Single resolution
-	// authority: cluster_freq_share.go (fail-open on unknown/inferred
-	// topology; a core with own samples never takes a donor). The RAW
+	// authority: cluster_freq_share.go — explicit core_topology first, and in
+	// its absence the CFR-2 change-point derivation over THIS window's
+	// collected timelines (identical emission sequences merge; unsampled
+	// cores inherit toward higher core numbers; never upward past the highest
+	// sampled core; a core with own samples never takes a donor). The RAW
 	// collection map stays untouched: FrequencyResidency, CPUStats.Frequency,
 	// topology inference and the ceilings snapshot keep stating sampling
-	// FACTS; every reuse is disclosed via the window caveat + the per-CPU
-	// compute_supply donor field.
-	freqDonors := newClusterFreqDonorResolver(q.CoreTopology, func(cpu int) bool { return len(freqByCPU[cpu]) > 0 })
+	// FACTS; every reuse is disclosed with its membership source via the
+	// window caveat + the per-CPU compute_supply donor fields.
+	freqDonors := newClusterFreqDonorResolver(
+		resolveClusterFreqDomains(q.CoreTopology, func() map[int][]freqSample { return windowFreqSampleTimelines(freqByCPU) }),
+		func(cpu int) bool { return len(freqByCPU[cpu]) > 0 })
 	freqTimelineFor := func(cpu int) []Event {
 		if evs := freqByCPU[cpu]; len(evs) > 0 {
 			return evs
@@ -1518,7 +1523,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	for cpu, events := range byCPU {
 		sort.SliceStable(events, func(i, j int) bool { return events[i].Ts < events[j].Ts })
 		// CFR (#75 簇共频): own timeline first; donor timeline only when this
-		// CPU has no samples AND explicit topology names a sampled sibling.
+		// CPU has no samples AND the resolved domains name a sampled sibling.
 		cpuFreqTimeline := freqTimelineFor(cpu)
 		var busy, idle float64
 		for i, ev := range events {
@@ -1693,11 +1698,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			}
 		}
 	}
-	stats.ComputeSupplyBalance = computeComputeSupplyBalance(idx, q, queryWindowWallMs(q), supplyByCPU, schedCPUs, headRunnablePIDs, stats.CPU, coreByCPU, observedFmaxByCPU, freqDonors.donorFor)
+	stats.ComputeSupplyBalance = computeComputeSupplyBalance(idx, q, queryWindowWallMs(q), supplyByCPU, schedCPUs, headRunnablePIDs, stats.CPU, coreByCPU, observedFmaxByCPU, freqDonors.donorFor, freqDonors.sourceToken())
 	// CFR (#75 簇共频): one deterministic window-level disclosure covering
 	// every frequency-weighted face that consumed a donor timeline in this
 	// window (busy loop, off-CPU context, compute_supply fmax).
-	if caveat := clusterFreqReuseCaveat(freqDonors.usedPairs()); caveat != "" {
+	if caveat := clusterFreqReuseCaveat(freqDonors.usedPairs(), freqDonors.sourceToken(), freqDonors.primeCPUs(), freqDonors.explicitIgnored()); caveat != "" {
 		stats.Caveats = append(stats.Caveats, caveat)
 	}
 	stats.IOLatencies = computeIOLatencies(idx, q, 8)
@@ -3013,7 +3018,9 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 	// ComputeWindowStats (single authority: cluster_freq_share.go) so the
 	// latency rows' frequency context cannot fork from the window face.
 	// Reuse is disclosed via the result caveat appended after the scan.
-	schedFreqDonors := newClusterFreqDonorResolver(q.CoreTopology, func(cpu int) bool { return len(freqByCPU[cpu]) > 0 })
+	schedFreqDonors := newClusterFreqDonorResolver(
+		resolveClusterFreqDomains(q.CoreTopology, func() map[int][]freqSample { return windowFreqSampleTimelines(freqByCPU) }),
+		func(cpu int) bool { return len(freqByCPU[cpu]) > 0 })
 	schedFreqTimelineFor := func(cpu int) []Event {
 		if evs := freqByCPU[cpu]; len(evs) > 0 {
 			return evs
@@ -3202,7 +3209,7 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 	// CFR (#75 簇共频): disclose donor consumption of THIS face's scan; the
 	// window-stats face's own disclosure rides in via stats.Caveats below —
 	// skip an exact duplicate line.
-	if caveat := clusterFreqReuseCaveat(schedFreqDonors.usedPairs()); caveat != "" && !caveatListContains(stats.Caveats, caveat) {
+	if caveat := clusterFreqReuseCaveat(schedFreqDonors.usedPairs(), schedFreqDonors.sourceToken(), schedFreqDonors.primeCPUs(), schedFreqDonors.explicitIgnored()); caveat != "" && !caveatListContains(stats.Caveats, caveat) {
 		res.Caveats = append(res.Caveats, caveat)
 	}
 	res.Caveats = append(res.Caveats, stats.Caveats...)
@@ -7841,8 +7848,13 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 			// CFR (#75 簇共频): the reuse disclosure is a set union — an
 			// aggregate whose members folded reused slices must keep the
 			// provenance auditable (dedupe + sort inside the recorder).
+			// CFR-2 (#80): the source token rides along — one query resolves
+			// one domains object, so member sources are uniform; first wins.
 			for _, pair := range impact.SupplyFoldBasis.ClusterFreqReuse {
 				recordSupplyFoldClusterReuse(a.item.SupplyFoldBasis, pair.CPU, pair.DonorCPU)
+			}
+			if a.item.SupplyFoldBasis.ClusterFreqReuseSource == "" {
+				a.item.SupplyFoldBasis.ClusterFreqReuseSource = impact.SupplyFoldBasis.ClusterFreqReuseSource
 			}
 		}
 		a.item.OccurrenceWindows = append(a.item.OccurrenceWindows, wakeupCausalOccurrenceFromImpact(impact))

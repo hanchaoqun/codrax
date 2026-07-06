@@ -129,7 +129,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "via_thread": {"type":"string","description":"For view=wakeup_chain: optional thread selector (same forms as thread: pid, \"comm-pid\", or a full thread name; matched exactly, never by substring). Target-thread segments whose wakeup subtree contains this thread are expanded even when max_branches would drop them, and the result reports a via_thread verdict: ON a wakeup path to the target with depth and per-hop wakeup latency, or NOT connected by any wakeup edge in this window, meaning its influence is scheduling contention (runnable queuing) rather than a wakeup dependency. Use it to test whether a runnable anchor thread sits on the user-focus thread's wakeup chain."},
     "min_duration_ms": {"type":"number","description":"Ignore intervals shorter than this; default 1ms."},
     "include_window_stats": {"type":"boolean","description":"For wakeup_chain, include same-window CPU/IO/binder/irq stats; default true."},
-    "core_topology": {"type":"string","description":"Optional CPU core class map for compute-supply evaluation, e.g. \"small=0-3,middle=4-7,big=8-11\" or \"little=0-3,big=4-7\". If omitted, classes are inferred from observed CPU frequency tiers when possible. On devices where each CPU cluster shares one frequency point, an explicit map also lets frequency-weighted results reuse a same-cluster sampled core's cpu_frequency timeline for cluster members without their own samples (each reuse is disclosed per row/caveat); inferred classes never enable this reuse, so pass the real topology when cpu_frequency lanes cover only part of a cluster."},
+    "core_topology": {"type":"string","description":"Optional CPU core class map for compute-supply evaluation, e.g. \"small=0-3,middle=4-7,big=8-11\" or \"little=0-3,big=4-7\". If omitted, classes are inferred from observed CPU frequency tiers when possible. On devices where each CPU cluster shares one frequency point, frequency-weighted results reuse a same-cluster sampled core's cpu_frequency timeline for cluster members without their own samples (each reuse is disclosed per row/caveat together with its membership source): an explicit map is the authoritative membership, and in its absence clusters are derived from identical cpu_frequency change-point timelines with downward core-number inheritance only (cores above the highest sampled core are never extrapolated), so pass the real topology whenever known — it always overrides the derivation."},
     "limit": {"type":"integer","description":"event_search inline row cap; default 40. For view=window_sweep this is the hotspot top-K; default 8."},
     "bucket_ms": {"type":"number","description":"For view=window_sweep only: coverage bucket width in milliseconds. Default 100; values are clamped to 50..500. Accepts integers, floats, or duration strings such as \"100ms\"."}
   }
@@ -5488,15 +5488,21 @@ func traceQueryTypedSupplyFoldRichNotes(basis *tracequery.SupplyFoldBasis, defic
 		notes = append(notes, fmt.Sprintf("%s=%.3fGHz,source=%s", types.TraceNoteKeyFoldFmax, float64(basis.FmaxKHz)/1e6, basis.FmaxSource))
 	}
 	// CFR (#75 簇共频, 客户硬件域裁定): slices folded with a same-cluster
-	// sampled core's frequency under explicit topology disclose the donor —
-	// short typed provenance so the KNOWN-basis claim stays auditable
-	// (SupplyFoldBasis.ClusterFreqReuse, cluster_freq_share.go authority).
+	// sampled core's frequency disclose the donor — short typed provenance so
+	// the KNOWN-basis claim stays auditable (SupplyFoldBasis.ClusterFreqReuse,
+	// cluster_freq_share.go authority). CFR-2 (#80) 披露区分: the suffix
+	// names the membership source; the explicit wording stays byte-identical
+	// to the CFR #75 original (pinned).
 	if len(basis.ClusterFreqReuse) > 0 {
 		parts := make([]string, 0, len(basis.ClusterFreqReuse))
 		for _, pair := range basis.ClusterFreqReuse {
 			parts = append(parts, fmt.Sprintf("cpu%d 频点=同簇 cpu%d", pair.CPU, pair.DonorCPU))
 		}
-		notes = append(notes, fmt.Sprintf("%s=%s(簇共频复用,显式拓扑)", types.TraceNoteKeyFoldClusterFreqReuse, strings.Join(parts, ";")))
+		suffix := "(簇共频复用,显式拓扑)"
+		if basis.ClusterFreqReuseSource == tracequery.ClusterFreqSourceDerived {
+			suffix = "(簇共频复用,频点变化点推导)"
+		}
+		notes = append(notes, fmt.Sprintf("%s=%s%s", types.TraceNoteKeyFoldClusterFreqReuse, strings.Join(parts, ";"), suffix))
 	}
 	// VS-2b companion finding (typed engine comparison, soft display
 	// wording): the governing policy ceiling sat below frequencies the same

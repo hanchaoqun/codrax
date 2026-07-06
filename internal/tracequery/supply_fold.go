@@ -78,13 +78,18 @@ type SupplyFoldBasis struct {
 	ClusterLaneDivergent bool   `json:"cluster_lane_divergent,omitempty"`
 
 	// CFR (#75 簇共频, 客户硬件域裁定): provenance of every slice-CPU whose
-	// fold frequency was REUSED from a same-cluster sampled sibling under
-	// explicit topology (cluster_freq_share.go is the single resolution
-	// authority). Typed disclosure only — the reused slices book as KNOWN
-	// basis because the cluster shares one hardware frequency point, and this
-	// roster is what makes that claim auditable. Empty when no reuse happened
-	// (unknown/inferred topology, cross-cluster, or own samples present).
-	ClusterFreqReuse []SupplyFoldClusterReuse `json:"cluster_freq_reuse,omitempty"`
+	// fold frequency was REUSED from a same-cluster sampled sibling
+	// (cluster_freq_share.go is the single resolution authority). Typed
+	// disclosure only — the reused slices book as KNOWN basis because the
+	// cluster shares one hardware frequency point, and this roster is what
+	// makes that claim auditable. Empty when no reuse happened
+	// (unresolvable membership, cross-cluster, or own samples present).
+	// ClusterFreqReuseSource (CFR-2 #80) says where the membership came
+	// from: ClusterFreqSourceExplicit (explicit core_topology) or
+	// ClusterFreqSourceDerived (frequency change-point derivation). Set iff
+	// the roster is non-empty.
+	ClusterFreqReuse       []SupplyFoldClusterReuse `json:"cluster_freq_reuse,omitempty"`
+	ClusterFreqReuseSource string                   `json:"cluster_freq_reuse_source,omitempty"`
 }
 
 // SupplyFoldClusterReuse is one disclosed reuse pair: slices on CPU folded
@@ -397,11 +402,16 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 		basis.TraceObservedMaxKHz = fm.traceObservedMaxKHz
 	}
 	c.applyClusterLaneCorroboration(&basis, gStart, gEnd)
-	// CFR (#75 簇共频): explicit-topology frequency domains for same-cluster
-	// sample reuse (single authority: cluster_freq_share.go). Unknown or
-	// inferred topology parses to the zero value — every donor lookup then
-	// fails open and the fold behaves exactly as before.
-	domains := parseClusterFreqDomains(q.CoreTopology)
+	// CFR (#75 簇共频) + CFR-2 (#80 变化点推导): frequency domains for
+	// same-cluster sample reuse (single authority: cluster_freq_share.go).
+	// Explicit topology wins outright; in its ABSENCE the domains derive from
+	// the FULL-trace per-CPU timelines (identity over complete sequences —
+	// robust against governance-window truncation). No resolvable membership
+	// at all fails open and the fold behaves as before.
+	domains := resolveClusterFreqDomains(q.CoreTopology, func() map[int][]freqSample {
+		c.buildFreqIndex()
+		return c.freqByCPU
+	})
 	for _, it := range intervals {
 		if it.State != StateRunning || it.DurationMs <= 0 {
 			continue
@@ -425,6 +435,8 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 			if donor, ok := domains.donorFor(it.CPU, hasGoverned); ok {
 				samples = c.governedFreqSamples(donor, gStart, gEnd)
 				recordSupplyFoldClusterReuse(&basis, it.CPU, donor)
+				// CFR-2 披露区分: say WHERE the membership came from.
+				basis.ClusterFreqReuseSource = domains.source
 			}
 		}
 		wall := it.EndTs - it.StartTs

@@ -1078,11 +1078,15 @@ type ComputeSupplyCPUBalance struct {
 	FrequencyKnown bool `json:"frequency_known"`
 	// FrequencyClusterDonorCPU (CFR #75 簇共频): non-nil when this CPU had no
 	// own cpu_frequency samples and its fmax/weighting reused the named
-	// same-cluster sampled core under EXPLICIT core_topology
-	// (cluster_freq_share.go single authority). Typed disclosure only; nil
-	// means the row rests on the CPU's own samples (or none at all —
-	// FrequencyKnown false).
-	FrequencyClusterDonorCPU *int `json:"frequency_cluster_donor_cpu,omitempty"`
+	// same-cluster sampled core (cluster_freq_share.go single authority).
+	// Typed disclosure only; nil means the row rests on the CPU's own
+	// samples (or none at all — FrequencyKnown false).
+	// FrequencyClusterDonorSource (CFR-2 #80) names the membership source:
+	// ClusterFreqSourceExplicit (explicit core_topology) or
+	// ClusterFreqSourceDerived (frequency change-point derivation). Set iff
+	// the donor field is non-nil.
+	FrequencyClusterDonorCPU    *int   `json:"frequency_cluster_donor_cpu,omitempty"`
+	FrequencyClusterDonorSource string `json:"frequency_cluster_donor_source,omitempty"`
 }
 
 type BlockedReasonSummary struct {
