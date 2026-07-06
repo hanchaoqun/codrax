@@ -256,7 +256,7 @@ func TestRNRunnableDominantTargetSymptomAndComparisonCell(t *testing.T) {
 	}
 	projection := types.TraceCausalProjection{WindowStartTs: 100.0, WindowEndTs: 101.51424}
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "目标等待(睡眠/阻塞/就绪) 635.981ms 中") {
+	if !strings.Contains(line, "目标等待(sleep/D-state/runnable) 635.981ms 中") {
 		t.Fatalf("runnable-dominant coverage must use the wait wording + runnable denominator:\n%s", line)
 	}
 }

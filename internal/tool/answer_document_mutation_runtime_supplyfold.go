@@ -19,7 +19,8 @@ package tool
 //
 // Wording lanes (RN-16 lint): 「供给折算缺口」 is ComputeDelivery-lane wording
 // and lives ONLY in runtimeTraceProjSupplyFoldClause below; the inversion
-// lane's 「运行折算」 lives ONLY in runtimeTraceProjInversionCompositionText.
+// lane's 「running 折算」 (PTV7 word face of the former 运行折算) lives ONLY
+// in runtimeTraceProjInversionCompositionText.
 // The two folds are different mechanisms (own-running frequency fold vs
 // consumer-relative inversion discount) and their words never mix. Magnitudes
 // always carry their own units; the clause NEVER sums the mechanisms (S1 /
@@ -106,12 +107,13 @@ func runtimeTraceProjSupplyFoldEmbedsInversionComposition(node types.TraceCausal
 }
 
 // runtimeTraceProjInversionCompositionText is the SINGLE source of the
-// §7.30.3 D3 gated-composition wording (可运行等待 X + 运行折算 Y). The
-// inversion lane's 「运行折算」 term lives here and ONLY here (RN-16 wording
-// lint) — the VS-2 供给折算 lane never borrows it.
+// §7.30.3 D3 gated-composition wording (PTV7 #74: runnable X + running 折算
+// Y — the state words are canonical tokens, the 折算 caliber word stays
+// localized). The inversion lane's 「running 折算」 term lives here and ONLY
+// here (RN-16 wording lint) — the VS-2 供给折算 lane never borrows it.
 func runtimeTraceProjInversionCompositionText(node types.TraceCausalProjectionNode, zh bool) string {
 	if zh {
-		return fmt.Sprintf("可运行等待 %.3fms + 运行折算 %.3fms", node.GatedRunnableMS, node.GatedRunningDeficitMS)
+		return fmt.Sprintf("runnable %.3fms + running 折算 %.3fms", node.GatedRunnableMS, node.GatedRunningDeficitMS)
 	}
 	return fmt.Sprintf("runnable %.3fms + discounted running %.3fms", node.GatedRunnableMS, node.GatedRunningDeficitMS)
 }
@@ -130,12 +132,11 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 	deficit := node.SupplyFoldDeficitMS
 	switch verdict {
 	case runtimeTraceProjSupplyFoldTriple:
-		// PTV5 C18 (#68): the zh parenthetical speaks the ruled zh state word
-		// 可运行等待 (this file's own inversion composition already does); the
-		// EN face keeps runnable — the wire lane word. §7.5 的
+		// PTV7 (#74, supersedes the PTV5 C18 zh state word): the parenthetical
+		// speaks the canonical runnable token on BOTH faces. §7.5 的
 		// 调度压力(需求积压) label stays single-sourced and untouched.
 		if zh {
-			return fmt.Sprintf("机制构成: 供给折算缺口 %.3fms(按大核满频折算,下界)+ %s(可运行等待 %.3fms)+ 优先级反转(构成: %s)共同作用",
+			return fmt.Sprintf("机制构成: 供给折算缺口 %.3fms(按大核满频折算,下界)+ %s(runnable %.3fms)+ 优先级反转(构成: %s)共同作用",
 				deficit, runtimeTraceSupplyPressureDisplayLabel(true), node.RunnableMS,
 				runtimeTraceProjInversionCompositionText(node, true)), "机制构成", true
 		}
@@ -144,7 +145,7 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 			runtimeTraceProjInversionCompositionText(node, false)), "mechanism", true
 	case runtimeTraceProjSupplyFoldWithDemand:
 		if zh {
-			return fmt.Sprintf("机制构成: 供给折算缺口 %.3fms(按大核满频折算,下界)+ %s(可运行等待 %.3fms)共同作用",
+			return fmt.Sprintf("机制构成: 供给折算缺口 %.3fms(按大核满频折算,下界)+ %s(runnable %.3fms)共同作用",
 				deficit, runtimeTraceSupplyPressureDisplayLabel(true), node.RunnableMS), "机制构成", true
 		}
 		return fmt.Sprintf("mechanism: supply-fold deficit %.3fms (folded at big-cluster fmax, lower bound) + %s (runnable %.3fms) acting together",

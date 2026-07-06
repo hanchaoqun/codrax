@@ -16,7 +16,7 @@ package tool
 //   PTS — the on-chain overflow fold row renders 其余 N 项(链上折叠) with the
 //         member roster and never leads the RN-3(a) fallback conclusion.
 //   Q4  — inversion candidacy via the typed field words the shape cell;
-//         runnable action word = 调度等待 (never the inversion-colliding
+//         runnable action word = runnable (PTV7 canonical; never the inversion-colliding
 //         调度/优先级).
 //   C22 — a periodic-source conclusion renders 有效归因 0.000ms(期内节拍已折算)
 //         explicitly (0 IS the finding).
@@ -349,11 +349,11 @@ func TestPTV5InversionCandidacyTypedFieldWordsShapeCell(t *testing.T) {
 
 func TestPTV5RunnableActionWordSchedulingWait(t *testing.T) {
 	node := types.TraceCausalProjectionNode{Subject: "w-1", Object: "runnable_wait", StateKind: "runnable"}
-	if got := runtimeTraceCausalProjectionActionCell(node, true); got != "调度等待" {
-		t.Fatalf("runnable action word must be 调度等待: %q", got)
+	if got := runtimeTraceCausalProjectionActionCell(node, true); got != "runnable" {
+		t.Fatalf("runnable action word must be the canonical token: %q", got)
 	}
-	if got := runtimeTraceCausalProjectionActionCell(node, false); got != "scheduling wait" {
-		t.Fatalf("EN runnable action word must be scheduling wait: %q", got)
+	if got := runtimeTraceCausalProjectionActionCell(node, false); got != "runnable" {
+		t.Fatalf("EN runnable action word must be the canonical token: %q", got)
 	}
 	// 突变形态 (词表巧合消歧): the inversion-colliding word never returns.
 	for _, zh := range []bool{true, false} {

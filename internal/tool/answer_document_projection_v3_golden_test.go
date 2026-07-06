@@ -111,7 +111,7 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 	for _, want := range []string{
 		// 复核 Med (2026-07-06): the cumulative-source headline carries its
 		// caliber word and no 占窗 share (C00 同源门).
-		"**主根因:** binder:42591_4-42712 睡眠等待（sleep_wait） 链上累计 38.400ms,下钻到 RenderService-3021",
+		"**主根因:** binder:42591_4-42712 sleep（sleep_wait） 链上累计 38.400ms,下钻到 RenderService-3021",
 		"关注窗口 738291.402s → 738291.466s,共 64.000ms",
 		"on-chain 已归因 38.400ms/60%,未归因残差 25.600ms/40%",
 	} {
@@ -131,7 +131,7 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 	for _, want := range []string{
 		"🎯 oney.hmn.berlin-42591 ‹用户关注线程›",
 		"满格=窗口64.000ms",
-		"└─下钻─ ❶☾ binder:42591_4-42712 · 睡眠等待",
+		"└─下钻─ ❶☾ binder:42591_4-42712 · sleep",
 		"├─唤醒─ ❷⚙ RenderService-3021 · 算力供给",
 		"└─唤醒─ ⧖ DispatchQueue-771 · ",
 		"└─唤醒─ ☾ IOWorker-8842 · ",
@@ -141,8 +141,8 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		"⊘链止 · [E4(+1)]",
 		"4.700ms   7%  [E5]",
 		"语义优化span·class_verification",
-		"运行占用",
-		"可运行等待",
+		"33%  running · 链上L2",
+		"· runnable_delay · runnable · 链上L3",
 		// PTV5 C02 (#68): the stanza header speaks the legend's own noun.
 		"◇ 邻近区段",
 		"▒ 背景压力",
@@ -181,7 +181,7 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		"RenderService-3021 / VerifyClass com.example.render.Pipeline",
 		"- 关系 ▸ 影响点: 语义span ▸ binder:42591_4-42712",
 		"语义优化span·class_verification",
-		"IOWorker-8842 / 睡眠等待 ⊘",
+		"IOWorker-8842 / sleep ⊘",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("berlin golden missing detail surface %q:\n%s", want, md)
@@ -263,11 +263,11 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 		strings.Contains(md, "(占窗") {
 		t.Fatalf("aweme golden must run in fallback scale without window percentages:\n%s", md)
 	}
-	// Target anchor + its own state line under the root. PTV6-C #8 (#73): the
-	// sleep self row speaks the StateKindLabel (☾ 睡眠等待); the raw s_sleep
-	// token stays on the (a)/(b) audit surfaces (asserted right below) and
-	// must not resurface on the tree's self line.
-	for _, want := range []string{"🎯 .ugc.aweme.lite-16547 ‹用户关注线程›", "☾ 睡眠等待 112.175", "/ s_sleep [E1]"} {
+	// Target anchor + its own state line under the root. PTV6-C #8 (#73) +
+	// PTV7 canonical word: the sleep self row speaks the StateKindLabel
+	// (☾ sleep); the raw s_sleep token stays on the (a)/(b) audit surfaces
+	// (asserted right below) and must not resurface on the tree's self line.
+	for _, want := range []string{"🎯 .ugc.aweme.lite-16547 ‹用户关注线程›", "☾ sleep 112.175", "/ s_sleep [E1]"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("aweme golden missing target/self surface %q:\n%s", want, md)
 		}
@@ -278,10 +278,10 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 	// R1 dual-view: ONE running row with per-layer 58.919 + chain total 112.103.
 	// C4b: the tree row elides the chain-total tag under the width cap; the
 	// lossless detail row (窗口投影 58.919ms | 链上累计 112.103ms) carries it.
-	if strings.Count(md, "#RxComputationT-16816 · 运行") > 1 { // one tree row (detail cell uses the / form)
+	if strings.Count(md, "#RxComputationT-16816 · running") > 1 { // one tree row (detail cell uses the / form)
 		t.Fatalf("dual-view running fact must render once per surface:\n%s", md)
 	}
-	for _, want := range []string{"⚙ #RxComputationT-16816 · 运行", "| 58.919ms | 112.103ms |"} {
+	for _, want := range []string{"⚙ #RxComputationT-16816 · running", "| 58.919ms | 112.103ms |"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("aweme golden missing merged dual-view %q:\n%s", want, md)
 		}

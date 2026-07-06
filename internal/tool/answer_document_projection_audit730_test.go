@@ -238,7 +238,7 @@ func TestTraceProjection730BarStateAttributionZH(t *testing.T) {
 	// PTV4 T7: the state-label legend entry dropped its positional "时长条后的"
 	// claim (the tag may sit on a subordinate line after the T1 split); the
 	// family list and its dominant-state semantics are unchanged.
-	for _, want := range []string{"运行占用", "可运行等待", "状态标签(睡眠等待/可运行等待/运行占用/IO阻塞/D状态)来自该行主导调度状态"} {
+	for _, want := range []string{"running", "runnable", "状态标签(sleep/runnable/running/iowait/D-state)来自该行主导调度状态"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("bar state attribution missing %q:\n%s", want, md)
 		}
@@ -369,7 +369,7 @@ func TestTraceProjection730BarStateAttributionEN(t *testing.T) {
 		},
 	}
 	md := audit730Render(t, bus, obs, "en")
-	if !strings.Contains(md, "sleep wait / runnable wait / running / IO wait / D-state") {
+	if !strings.Contains(md, "sleep / runnable / running / iowait / D-state") {
 		t.Fatalf("EN state-label legend family missing:\n%s", md)
 	}
 	// PTV4 T1: the state tag may render inline or on a "· " subordinate line.

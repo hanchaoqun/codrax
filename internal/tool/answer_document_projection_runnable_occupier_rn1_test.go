@@ -132,7 +132,7 @@ func TestTraceProjectionRunnableOccupierTailTagZH(t *testing.T) {
 	// continuation lane, before the sleep row.
 	ffrt := strings.Index(md, "OS_FFRT_2_3-49706")
 	note := strings.Index(md, "同窗占用者")
-	sleepRow := strings.Index(md, "render_service-411 · 睡眠等待")
+	sleepRow := strings.Index(md, "render_service-411 · sleep")
 	if ffrt < 0 || note < ffrt || (sleepRow >= 0 && note > sleepRow) {
 		t.Fatalf("occupier note must attach to the runnable row (ffrt=%d note=%d sleep=%d):\n%s", ffrt, note, sleepRow, md)
 	}

@@ -22,7 +22,8 @@ package tool
 //
 // 差表 (从属行断言 逐行 → 打包序列, existing pins updated alongside):
 //   - TestPTV6CSpecimen1KeyRowsAfter: "· 可运行等待" (own subordinate line) →
-//     "可运行等待 · [E1(+1)]" (main-row slot) + packed-stream assert.
+//     PTV7: the canonical runnable word rides the name cell whole; main-row
+//     fill + packed-stream asserts follow the new geometry.
 //   - TestPTV6CSpecimen2KeyRowsAfter: "· 优先级反转候选" → "优先级反转候选 ·
 //     [E1(+1)]" (main-row slot).
 //   - TestPTV6CCauseFullWordGuaranteeOnTruncatedName: first-subordinate-slot
@@ -149,7 +150,7 @@ func TestPTV6DSelfRowPrefixFillAndPacking(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("fitting self row must stay a single line, got %d: %q", len(lines), lines)
 	}
-	for _, want := range []string{"☾ 睡眠等待", "25.806ms", "×2同值", "×3(1.000–12.000ms)", "[E1]"} {
+	for _, want := range []string{"☾ sleep", "25.806ms", "×2同值", "×3(1.000–12.000ms)", "[E1]"} {
 		if !strings.Contains(lines[0], want) {
 			t.Fatalf("self row lost part %q: %q", want, lines[0])
 		}
@@ -253,7 +254,7 @@ func TestPTV6DSelfRowGenericShapeSuppressed(t *testing.T) {
 		marks: &runtimeTraceProjMarkSet{},
 	}
 	_, typedDemoted := runtimeTraceProjSelfRowParts(typedRow, 0, true)
-	if !strings.Contains(strings.Join(typedDemoted, " · "), "可运行等待") {
+	if !strings.Contains(strings.Join(typedDemoted, " · "), "runnable") {
 		t.Fatalf("typed self-row state labels are untouched: %v", typedDemoted)
 	}
 }
@@ -349,9 +350,9 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			lines: 27, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
 			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5]", "[E6]", "[E7]", "[E8(+1)]", "[E9]", "[E10]"},
 			inventory: []string{
-				"可运行等待", "链上L1", "×2同值", "有效归因1.661ms",
+				"runnable", "链上L1", "×2同值", "有效归因1.661ms",
 				"IRQ突发", "IRQ活动", "候选根因", "累计(跨线程)1.997ms",
-				"IO等待(对端 udk-irq-3-65)", "D状态/IO等待(对端未解析)",
+				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
 				"IO等待(对端 udk-irq-1-63)", "×2(0.081–1.302ms)取最大",
 				"IO等待(对端 udk-irq-4-67)",
 			},
@@ -368,7 +369,7 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 				"优先级反转候选", "链上L1",
 				"影响点 可运行等待反转（priority_inversion_runnable_wait）",
 				"有效归因1.661ms",
-				"IO等待(对端 udk-irq-3-65)", "D状态/IO等待(对端未解析)",
+				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
 				"IO等待(对端 udk-irq-1-63)",
 			},
 		},

@@ -15,11 +15,12 @@ package tool
 //   #3       — TypeToken→状态族 typed 映射 (显示层): d_state_or_io_wait 等带
 //              状态语义的 type token 在 StateKind 空时给出状态词+状态 icon,
 //              并抑制 ◦ 无主导态 chip.
-//   #6/#13   — 近义收敛: StateKindLabel 吸收 ActionCell 同族词 (可运行等待 吸收
-//              调度等待); 影响点 token 走 D4 中文（token）形态; 全词一处 dedupe.
+//   #6/#13   — 近义收敛: StateKindLabel 吸收 ActionCell 同族词 (typed family;
+//              PTV7 后两 lane 同词, 吸收=只出现一次); 影响点 token 走 D4
+//              label（token）形态 (PTV7: 同词 token 塌缩). 全词一处 dedupe.
 //   #7       — resolved-peer 关系形态: "IO等待(对端 udk-irq-1-63)" 族
 //              (ResolvedPeerText, 与 UnresolvedPeerText 同 wording home).
-//   #8       — sleep 自身行走 StateKindLabel (☾ 睡眠等待); raw token 留 (a)/(b)
+//   #8       — sleep 自身行走 StateKindLabel (PTV7: ☾ sleep); raw token 留 (a)/(b)
 //              审计面.
 //
 // MUTATIONS pinned here (突变即红):
@@ -133,12 +134,12 @@ func TestPTV6CTypeTokenStateFamilyMapping(t *testing.T) {
 	cases := []struct {
 		token, class, zhWord string
 	}{
-		{"d_state_or_io_wait", "d_state_or_io_wait", "D状态/IO等待"},
-		{"fragmented_d_state_or_io_wait", "d_state_or_io_wait", "D状态/IO等待"},
-		{"runnable_wait", "runnable", "可运行等待"},
-		{"sleep_wait", "s_sleep", "睡眠等待"},
-		{"running", "running", "运行占用"},
-		{"io_wait", "io_wait", "IO阻塞"},
+		{"d_state_or_io_wait", "d_state_or_io_wait", "D-state/iowait"},
+		{"fragmented_d_state_or_io_wait", "d_state_or_io_wait", "D-state/iowait"},
+		{"runnable_wait", "runnable", "runnable"},
+		{"sleep_wait", "s_sleep", "sleep"},
+		{"running", "running", "running"},
+		{"io_wait", "io_wait", "iowait"},
 	}
 	for _, tc := range cases {
 		node := types.TraceCausalProjectionNode{Subject: "t-1", Object: "unknown-thread", TypeToken: tc.token}
@@ -178,10 +179,10 @@ func TestPTV6CTypeTokenStateFamilyIconAndShape(t *testing.T) {
 	if !marks.has(runtimeTraceProjMarkIconDState) || marks.has(runtimeTraceProjMarkIconNoDominant) {
 		t.Fatalf("icon mark must be the state family, never the ◦ no-dominant sense")
 	}
-	if got := runtimeTraceCausalProjectionImpactShapeCell(node, true); got != "D状态/IO等待" {
+	if got := runtimeTraceCausalProjectionImpactShapeCell(node, true); got != "D-state/iowait" {
 		t.Fatalf("shape cell must speak the state family word: %q", got)
 	}
-	if got := runtimeTraceCausalProjectionImpactShapeCell(node, false); got != "D-state/IO wait" {
+	if got := runtimeTraceCausalProjectionImpactShapeCell(node, false); got != "D-state/iowait" {
 		t.Fatalf("EN shape cell must mirror: %q", got)
 	}
 }
@@ -193,7 +194,7 @@ func TestPTV6CResolvedPeerRelationForm(t *testing.T) {
 		typeToken, peer, zh, en string
 	}{
 		{"io_latency", "udk-irq-1-63", "IO等待(对端 udk-irq-1-63)", "IO wait (peer udk-irq-1-63)"},
-		{"d_state_or_io_wait", "udk-irq-3-65", "D状态/IO等待(对端 udk-irq-3-65)", "D-state/IO wait (peer udk-irq-3-65)"},
+		{"d_state_or_io_wait", "udk-irq-3-65", "D-state/iowait(对端 udk-irq-3-65)", "D-state/iowait (peer udk-irq-3-65)"},
 		{"blocking_span", "worker-7", "阻塞等待(对端 worker-7)", "blocking wait (peer worker-7)"},
 	}
 	for _, tc := range cases {
@@ -208,12 +209,12 @@ func TestPTV6CResolvedPeerRelationForm(t *testing.T) {
 			t.Fatalf("%s resolved peer en = %q, want %q", tc.typeToken, got, tc.en)
 		}
 	}
-	// 同 wording home: the unresolved arm is untouched (只增不减).
+	// 同 wording home: the unresolved arm follows the PTV7 canonical compound.
 	unresolved := types.TraceCausalProjectionNode{
 		Subject: "BdAsyncTask #8-59953", Object: "unknown-thread",
 		TypeToken: "d_state_or_io_wait", Predicate: "critical_blocking",
 	}
-	if got := runtimeTraceCausalProjectionDisplayCauseNameNode(unresolved, true); got != "D状态/IO等待(对端未解析)" {
+	if got := runtimeTraceCausalProjectionDisplayCauseNameNode(unresolved, true); got != "D-state/iowait(对端未解析)" {
 		t.Fatalf("unresolved arm drifted: %q", got)
 	}
 	// Guards: the Object must actually be a peer thread — state tokens, type
@@ -240,11 +241,11 @@ func TestPTV6CSleepSelfRowSpeaksStateKindLabel(t *testing.T) {
 		Kind: runtimeTraceProjTreeRowSelf, HasData: true, marks: &runtimeTraceProjMarkSet{},
 	}
 	main, _ := runtimeTraceProjSelfRowParts(row, 2.992, true)
-	if len(main) == 0 || main[0] != "☾ 睡眠等待" {
+	if len(main) == 0 || main[0] != "☾ sleep" {
 		t.Fatalf("zh sleep self row must lead with the StateKindLabel: %v", main)
 	}
 	mainEN, _ := runtimeTraceProjSelfRowParts(row, 2.992, false)
-	if len(mainEN) == 0 || mainEN[0] != "☾ sleep wait" {
+	if len(mainEN) == 0 || mainEN[0] != "☾ sleep" {
 		t.Fatalf("en sleep self row must lead with the StateKindLabel: %v", mainEN)
 	}
 	// 防回潮: the raw scheduler token never rides the self line again.
@@ -261,9 +262,11 @@ func TestPTV6CStateLabelAbsorbsActionRestatement(t *testing.T) {
 	families := []struct {
 		state, stateWord, actionWord string
 	}{
-		{"runnable", "可运行等待", "调度等待"},
-		{"running", "运行占用", "执行/算力"},
-		{"io_wait", "IO阻塞", "阻塞/IO"},
+		// PTV7: state words are the canonical tokens; the banned column keeps
+		// every RETIRED word (只增不减 防回潮).
+		{"runnable", "runnable", "调度等待"},
+		{"running", "running", "执行/算力"},
+		{"io_wait", "iowait", "阻塞/IO"},
 	}
 	for _, f := range families {
 		node := types.TraceCausalProjectionNode{
@@ -278,19 +281,26 @@ func TestPTV6CStateLabelAbsorbsActionRestatement(t *testing.T) {
 		if strings.Contains(joined, f.actionWord) {
 			t.Fatalf("state %s: action restatement %q must be absorbed (近义收敛): %s", f.state, f.actionWord, joined)
 		}
+		for _, retired := range []string{"可运行等待", "运行占用", "IO阻塞", "睡眠等待", "D状态"} {
+			if strings.Contains(joined, retired) {
+				t.Fatalf("state %s: retired zh state word %q resurfaced (PTV7): %s", f.state, retired, joined)
+			}
+		}
 	}
-	// ActionCell 本词未删 (Q4 词面归 ActionCell home; 只在双打时被吸收).
-	if got := runtimeTraceCausalProjectionActionCell(types.TraceCausalProjectionNode{Subject: "w", Object: "x", StateKind: "runnable"}, true); got != "调度等待" {
-		t.Fatalf("ActionCell home wording must stay: %q", got)
+	// ActionCell 本词未删 (Q4 lane; PTV7 词面 = canonical token; 只在双打时被吸收).
+	if got := runtimeTraceCausalProjectionActionCell(types.TraceCausalProjectionNode{Subject: "w", Object: "x", StateKind: "runnable"}, true); got != "runnable" {
+		t.Fatalf("ActionCell home wording must speak the canonical token: %q", got)
 	}
 }
 
 func TestPTV6CImpactPointD4CombinedForm(t *testing.T) {
 	cases := []struct{ token, zh, en string }{
-		{"runnable", "可运行等待（runnable）", "runnable"},
-		{"s_sleep", "睡眠等待（s_sleep）", "s_sleep"},
+		// PTV7: an identity echo collapses to the bare token; alias tokens
+		// keep the combined audit form; product compounds keep the D4 form.
+		{"runnable", "runnable", "runnable"},
+		{"s_sleep", "sleep（s_sleep）", "s_sleep"},
 		{"priority_inversion_runnable_wait", "可运行等待反转（priority_inversion_runnable_wait）", "priority_inversion_runnable_wait"},
-		{"priority_inversion_runnable_wait/runnable", "可运行等待反转（priority_inversion_runnable_wait）/可运行等待（runnable）", "priority_inversion_runnable_wait/runnable"},
+		{"priority_inversion_runnable_wait/runnable", "可运行等待反转（priority_inversion_runnable_wait）/runnable", "priority_inversion_runnable_wait/runnable"},
 		{"udk-irq-10-90", "udk-irq-10-90", "udk-irq-10-90"}, // unmapped: verbatim, never fabricated
 	}
 	for _, tc := range cases {
@@ -390,12 +400,12 @@ func TestPTV6CCauseWordDedupeWhenNameShowsIt(t *testing.T) {
 		Depth: 1, HasData: true, EvidenceTag: "E1", marks: &runtimeTraceProjMarkSet{},
 	}
 	line := runtimeTraceProjTreeRowLine(row, runtimeTraceProjTreeLabelWidth, 2.992, true, true)
-	if !strings.Contains(line, "w-1 · 可运行等待") {
+	if !strings.Contains(line, "w-1 · runnable") {
 		t.Fatalf("fixture drift: name cell should show the full cause word:\n%s", line)
 	}
-	if strings.Count(line, "可运行等待") != 1 {
+	if strings.Count(line, "runnable") != 1 {
 		t.Fatalf("cause word must appear exactly once (dedupe): got %d in\n%s",
-			strings.Count(line, "可运行等待"), line)
+			strings.Count(line, "runnable"), line)
 	}
 }
 
@@ -441,16 +451,16 @@ func TestPTV6CTypedDedupeJudgesTokensNotDisplayStrings(t *testing.T) {
 	if texts := guaranteed("running_burst", "running", false); !contains(texts, "running") {
 		t.Fatalf("EN running_burst row must keep its state tag: %v", texts)
 	}
-	if texts := guaranteed("running_burst", "running", true); !contains(texts, "运行占用") {
-		t.Fatalf("zh running_burst row must keep its state tag: %v", texts)
+	if texts := guaranteed("running_burst", "running", true); !contains(texts, "running") {
+		t.Fatalf("zh running_burst row must keep its state tag (PTV7 canonical word): %v", texts)
 	}
 	// EN runnable_wait: tokens agree by state family (runnable_wait ≡
 	// runnable) — the double folds on BOTH faces even though the display
 	// strings never contain each other ("runnable wait" vs "runnable_wait").
-	if texts := guaranteed("runnable_wait", "runnable", false); contains(texts, "runnable wait") {
+	if texts := guaranteed("runnable_wait", "runnable", false); contains(texts, "runnable wait") || contains(texts, "runnable") {
 		t.Fatalf("EN runnable_wait double must fold (typed state-family identity): %v", texts)
 	}
-	if texts := guaranteed("runnable_wait", "runnable", true); contains(texts, "可运行等待") {
+	if texts := guaranteed("runnable_wait", "runnable", true); contains(texts, "可运行等待") || contains(texts, "runnable") {
 		t.Fatalf("zh runnable_wait double must fold: %v", texts)
 	}
 }
@@ -536,11 +546,11 @@ func TestPTV6CActualWindowInlineStrictParse(t *testing.T) {
 	record := types.ObservationRecord{
 		RichNotes: []string{"actual_window=3681.2..3679.1", "actual_running=0.987"},
 	}
-	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "实际对齐窗: 运行 0.987ms" {
+	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "实际对齐窗: running 0.987ms" {
 		t.Fatalf("malformed window must drop endpoints only: %q", got)
 	}
 	record.RichNotes[0] = "actual_window=3679.899436..3681.129875"
-	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "实际对齐窗 3679.899s–3681.130s: 运行 0.987ms" {
+	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "实际对齐窗 3679.899s–3681.130s: running 0.987ms" {
 		t.Fatalf("strict-parsed window must inline at %%.3f: %q", got)
 	}
 }
@@ -570,7 +580,7 @@ func TestPTV6CB3InversionRowZeroActionCategoryWord(t *testing.T) {
 		}
 		// 正向臂: 反转语义完备 — 影响构成 + 有效归因 都在.
 		if zh {
-			for _, want := range []string{"影响构成: 可运行等待 0.277ms + 运行折算 0.000ms", "有效归因0.277ms"} {
+			for _, want := range []string{"影响构成: runnable 0.277ms + running 折算 0.000ms", "有效归因0.277ms"} {
 				if !strings.Contains(joined, want) {
 					t.Fatalf("inversion row must keep its composite semantics (%q): %s", want, joined)
 				}
@@ -583,31 +593,30 @@ func TestPTV6CB3InversionRowZeroActionCategoryWord(t *testing.T) {
 				t.Fatalf("zh=%v inversion row must carry NO ActionCell category word (%q): %s", zh, banned, joined)
 			}
 		}
-		// en face: the bare running word must not ride either (exact tag match
-		// — the en state word "running" would otherwise slip through substring
-		// checks).
-		if !zh {
-			for _, tag := range tags {
-				if tag.Text == "running" {
-					t.Fatalf("en inversion row leaked the running action word: %s", joined)
-				}
+		// Both faces (PTV7 同词): the bare state action words must not ride as
+		// tags (exact tag match — the composition text legitimately contains
+		// the tokens as substrings).
+		for _, tag := range tags {
+			switch tag.Text {
+			case "running", "runnable", "D-state/iowait":
+				t.Fatalf("zh=%v inversion row leaked a bare state action word %q: %s", zh, tag.Text, joined)
 			}
 		}
 	}
 }
 
-// b3 (b): 执行/算力 收敛为 canonical 运行占用 — the wording home and every
+// b3 (b): 执行/算力 收敛为 canonical running 词 (PTV7 face) — the wording home and every
 // still-rendering path (lock rows keep an action word: their state tag is the
 // D1 lock word, not a state label). 突变臂: 词回栽即红.
 func TestPTV6CB3RunningActionWordCanonical(t *testing.T) {
-	if got := runtimeTraceCausalProjectionStateActionWord("running", true); got != "运行占用" {
+	if got := runtimeTraceCausalProjectionStateActionWord("running", true); got != "running" {
 		t.Fatalf("running action word must converge onto the 裁定4 word: %q", got)
 	}
 	if got := runtimeTraceCausalProjectionStateActionWord("running", false); got != "running" {
 		t.Fatalf("EN running action word must converge: %q", got)
 	}
 	supply := types.TraceCausalProjectionNode{Subject: "w-1", Object: "compute_supply", StateKind: ""}
-	if got := runtimeTraceCausalProjectionActionCell(supply, true); got != "运行占用" {
+	if got := runtimeTraceCausalProjectionActionCell(supply, true); got != "running" {
 		t.Fatalf("compute_supply action cell must ride the canonical word: %q", got)
 	}
 	for _, zh := range []bool{true, false} {
@@ -626,7 +635,7 @@ func TestPTV6CB3RunningActionWordCanonical(t *testing.T) {
 		Kind: runtimeTraceProjTreeRowChain, HasData: true, marks: &runtimeTraceProjMarkSet{},
 	}
 	joined := strings.Join(ptv6cRowTagTexts(lock), " · ")
-	if !strings.Contains(joined, "运行占用") || strings.Contains(joined, "执行/算力") {
+	if !strings.Contains(joined, "running") || strings.Contains(joined, "执行/算力") || strings.Contains(joined, "运行占用") {
 		t.Fatalf("lock row's action word must be the canonical running word: %s", joined)
 	}
 }
@@ -767,19 +776,19 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
 	model := buildRuntimeTraceProjTreeModel(projection, evidence, true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	// 关键行一 (trunk): 名称截断 → 全词 可运行等待 保障仍在; PTV6-D (a) 悬崖
-	// 消除后全词升上主行 (前: 独占一条 "· 可运行等待" 从属行 — 差表 in the
-	// PTV6-D ledger); 调度等待 双打消失 (前: · 可运行等待 + · 调度等待).
-	if !strings.Contains(fence, "可运行等待 · [E1(+1)]") {
-		t.Fatalf("trunk row must keep the cause full word (main-row slot after PTV6-D prefix fill):\n%s", fence)
+	// 关键行一 (trunk): PTV7 后 canonical 词 runnable (8 cells) 在名称格整词
+	// 放下 (前: 可运行等待 截断成 可运行等… + 全词保障 tag; 差表 in the PTV7
+	// report) — the typed dedupe folds the same-family state tag and the
+	// shorter words promote 链上L1/×2同值 onto the main row; 有效归因 keeps
+	// its subordinate stream slot. 调度等待 双打消失 (b3/PTV7 负向臂 below).
+	if !strings.Contains(fence, "CookieMonsterCl-59843 · runnable ") {
+		t.Fatalf("trunk row must carry the whole canonical cause word on the name cell:\n%s", fence)
 	}
-	if strings.Contains(fence, "调度等待") {
-		t.Fatalf("近义双打回现 (调度等待 next to 可运行等待):\n%s", fence)
+	if strings.Contains(fence, "调度等待") || strings.Contains(fence, "可运行等待") {
+		t.Fatalf("retired zh state/action word resurfaced on the trunk:\n%s", fence)
 	}
-	// PTV6-D (a): the trunk's demoted tags PACK into one "· " stream line
-	// (前: 三条逐 tag 从属行 · 链上L1 / · ×2同值 / · 有效归因1.661ms).
-	if !strings.Contains(fence, "· 链上L1 · ×2同值 · 有效归因1.661ms") {
-		t.Fatalf("trunk demoted tags must pack into one subordinate stream:\n%s", fence)
+	if !strings.Contains(fence, "链上L1 · ×2同值 · [E1(+1)]") || !strings.Contains(fence, "· 有效归因1.661ms") {
+		t.Fatalf("trunk tags must keep the packed PTV7 geometry (main-row fill + subordinate stream):\n%s", fence)
 	}
 	// PTV6-D (b): the category words left the row face (legend carries them);
 	// every non-category tag above is still present — 打包非折叠.
@@ -803,7 +812,7 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	}
 	// 关键行三 (▒ 背景): resolved peer 关系形态 + d_state_or_io_wait 状态族
 	// (前: "· udk-irq…-63" 裸词位 + ◦ 无主导态 chip on D状态/IO等待 rows).
-	for _, want := range []string{"IO等待(对端 udk-irq-1-63)", "D状态/IO等待(对端未解析)", "⛓ BdAsyncTask #8-59953"} {
+	for _, want := range []string{"IO等待(对端 udk-irq-1-63)", "D-state/iowait(对端未解析)", "⛓ BdAsyncTask #8-59953"} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("background stanza missing %q:\n%s", want, fence)
 		}
@@ -842,8 +851,8 @@ func TestPTV6CSpecimen2KeyRowsAfter(t *testing.T) {
 	if !strings.Contains(fence, "影响点 可运行等待反转（priority_inversion_runnable_wait）") {
 		t.Fatalf("影响点 must ride the D4 combined form:\n%s", fence)
 	}
-	// 关键行二 (成因 row): 名称即全词 → 重复 chip 融掉 (前: 成因行下再打一条
-	// · 可运行等待 + · 调度等待).
+	// 关键行二 (成因 row): 名称即全词 (PTV7: runnable) → 重复 chip 融掉 (前:
+	// 成因行下再打一条 · 可运行等待 + · 调度等待).
 	causeRowSeen := false
 	for _, row := range model.TreeRows {
 		if row.Kind != runtimeTraceProjTreeRowCause {
@@ -851,11 +860,11 @@ func TestPTV6CSpecimen2KeyRowsAfter(t *testing.T) {
 		}
 		causeRowSeen = true
 		line := runtimeTraceProjTreeRowLine(row, runtimeTraceProjTreeLabelWidth, 2.992, true, true)
-		if strings.Count(line, "可运行等待") != 1 {
+		if strings.Count(line, "runnable") != 1 {
 			t.Fatalf("cause row must carry its word exactly once:\n%s", line)
 		}
-		if strings.Contains(line, "调度等待") {
-			t.Fatalf("cause row must not re-wear the absorbed action word:\n%s", line)
+		if strings.Contains(line, "调度等待") || strings.Contains(line, "可运行等待") {
+			t.Fatalf("cause row must not re-wear a retired/absorbed word:\n%s", line)
 		}
 	}
 	if !causeRowSeen {

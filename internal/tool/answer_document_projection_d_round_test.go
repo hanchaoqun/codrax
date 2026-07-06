@@ -142,7 +142,7 @@ func TestTraceProjectionD3InversionCompositionSplitZH(t *testing.T) {
 	// resurfacing anywhere is red (negative arm).
 	for _, want := range []string{
 		"优先级反转候选",
-		"影响构成: 可运行等待 10.000ms + 运行折算 6.000ms",
+		"影响构成: runnable 10.000ms + running 折算 6.000ms",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("D3 inversion composition missing %q:\n%s", want, md)
@@ -151,7 +151,7 @@ func TestTraceProjectionD3InversionCompositionSplitZH(t *testing.T) {
 	if strings.Contains(md, "反转影响") {
 		t.Fatalf("deleted 反转影响 shape word resurfaced (PTV6-C ruling B):\n%s", md)
 	}
-	// The composite row must not claim the single-state 运行占用 tag (the
+	// The composite row must not claim the single-state running tag (the
 	// legend sentence naming the tag family is not a row).
 	for _, line := range strings.Split(md, "\n") {
 		if strings.Contains(line, "优先级反转候选") && strings.Contains(line, "运行占用") {

@@ -575,12 +575,12 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromTypedObs
 	// dump); the raw typed pairs remain in the observation record.
 	line := snapshot.Items[0].Text
 	for _, want := range []string{
-		"主导状态 runnable(可运行等待)",
-		"运行 3.500ms",
-		"可运行 5.000ms",
-		"睡眠 0.000ms",
-		"D状态 0.000ms",
-		"IO等待 0.000ms",
+		"主导状态 runnable",
+		"running 3.500ms",
+		"runnable 5.000ms",
+		"sleep 0.000ms",
+		"D-state 0.000ms",
+		"iowait 0.000ms",
 		"状态段数 21",
 		"切换次数 20",
 		"最长单段 0.500ms",
@@ -710,12 +710,12 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromSummaryT
 	// observed total, and the wording must say so — "(占41%)" read as a
 	// window share in the berlin customer session.
 	for _, want := range []string{
-		"主导状态 runnable(可运行等待)",
-		"运行 3.500ms(占该线程观测时长41%)",
-		"可运行 5.000ms(占该线程观测时长59%)",
-		"睡眠 0.000ms",
-		"D状态 0.000ms",
-		"IO等待 0.000ms",
+		"主导状态 runnable",
+		"running 3.500ms(占该线程观测时长41%)",
+		"runnable 5.000ms(占该线程观测时长59%)",
+		"sleep 0.000ms",
+		"D-state 0.000ms",
+		"iowait 0.000ms",
 		"状态段数 21",
 		"切换次数 20",
 		"最长单段 0.500ms",
@@ -771,7 +771,7 @@ func TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisZH(t *testing.T) {
 	// 2026-07-03, H13 — denominator named explicitly.) PTV6-C ruling C (#73):
 	// the aligned actual-window VALUES inline; the intermediate-record pointer
 	// is retired (负向臂 below — 回现即红).
-	for _, want := range []string{"运行 3.500ms(占该线程观测时长41%)", "窗口基准: 选定窗(实际对齐窗: 影响 6.000ms)"} {
+	for _, want := range []string{"running 3.500ms(占该线程观测时长41%)", "窗口基准: 选定窗(实际对齐窗: 影响 6.000ms)"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("snapshot missing window basis %q:\n%s", want, line)
 		}
@@ -877,7 +877,7 @@ func TestEmitAnswerDocumentV2_MetricSnapshotEnglishHumanized(t *testing.T) {
 	// Share wording pin updated 2026-07-03 (H13): the denominator is the
 	// thread's own observed span and the EN surface names it too.
 	for _, want := range []string{
-		"dominant state runnable (runnable wait)",
+		"dominant state runnable",
 		"running 3.500ms (41% of this thread's observed span)",
 		"runnable 5.000ms (59% of this thread's observed span)",
 		"state segments 21",

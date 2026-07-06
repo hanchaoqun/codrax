@@ -135,7 +135,7 @@ func TestTraceProjectionSameSubjectIOCalibersFoldIntoPrimaryRow(t *testing.T) {
 	// PTV5 C09/C16 (#68): zh labels ride the D4 combined form; the longer note
 	// may T3-wrap between tokens, so the pin checks the caliber list and the
 	// evidence roster as two whole substrings (tokens themselves never split).
-	if !strings.Contains(fence, "同段IO另有 IO突发（io_burst_episode） 226.153ms、IO等待（io_wait） 112.011/107.672ms 口径;证据") ||
+	if !strings.Contains(fence, "同段IO另有 IO突发（io_burst_episode） 226.153ms、iowait（io_wait） 112.011/107.672ms 口径;证据") ||
 		!strings.Contains(fence, "E2、E3、E4") {
 		t.Fatalf("the folded calibers must surface as ONE note with all evidence ids:\n%s", fence)
 	}
@@ -167,7 +167,7 @@ func TestTraceProjectionIOFoldDetailTableMirrorAndChainAttachedKeepsWake(t *test
 	// PTV4 T10: the caliber-note and relation mirrors live in the (b) vertical
 	// lossless blocks (the (a) key table carries the duration quad only).
 	full := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(full, "同段IO口径: 同段IO另有 IO突发（io_burst_episode） 226.153ms、IO等待（io_wait） 112.011/107.672ms 口径") {
+	if !strings.Contains(full, "同段IO口径: 同段IO另有 IO突发（io_burst_episode） 226.153ms、iowait（io_wait） 112.011/107.672ms 口径") {
 		t.Fatalf("the lossless surface must mirror the caliber note on the primary block:\n%s", full)
 	}
 	if !strings.Contains(full, "关系 ▸ 影响点: 唤醒 ▸ ") {
@@ -327,7 +327,7 @@ func TestTraceProjectionIOFoldNeverCrossesChainLanes(t *testing.T) {
 		depthless("io-own-wait", "io_wait", 107.672, 1250, 1750))
 	model = buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence = runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "同段IO另有 IO等待（io_wait） 107.672ms 口径;证据 E4") {
+	if !strings.Contains(fence, "同段IO另有 iowait（io_wait） 107.672ms 口径;证据 E4") {
 		t.Fatalf("same-lane depthless calibers must keep folding:\n%s", fence)
 	}
 	if !strings.Contains(fence, "112.011") {
@@ -406,9 +406,9 @@ func TestTraceProjectionCoverageLineExplainsOwnCaliberResidualOverlap(t *testing
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	line := runtimeTraceProjWindowLine(projection, model, true)
 	// The revisit 6.0 coverage shape: symptom denominator + 90% residual.
-	// (Wording pin updated for RN-6 §7.9: 目标等待(睡眠/阻塞/就绪) — the
+	// (Wording pin updated for RN-6 §7.9 + PTV7 canonical tokens: 目标等待(sleep/D-state/runnable) — the
 	// denominator family now includes runnable.)
-	if !strings.Contains(line, "目标等待(睡眠/阻塞/就绪) 260.000ms 中 on-chain 已归因 26.000ms(10%),未归因 234.000ms(90%)。") {
+	if !strings.Contains(line, "目标等待(sleep/D-state/runnable) 260.000ms 中 on-chain 已归因 26.000ms(10%),未归因 234.000ms(90%)。") {
 		t.Fatalf("coverage line must keep the symptom-denominator form:\n%s", line)
 	}
 	// NEW-6: the appended clause carries the NEW-3 grouped primary value

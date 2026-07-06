@@ -51,7 +51,7 @@ func TestSupplyFoldClauseTripleBranchZH(t *testing.T) {
 		"gated_runnable=2.000", "gated_running_deficit=3.000")
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "")
-	want := "机制构成: 供给折算缺口 5.000ms(按大核满频折算,下界)+ 调度压力(需求积压)(可运行等待 150.000ms)+ 优先级反转(构成: 可运行等待 2.000ms + 运行折算 3.000ms)共同作用"
+	want := "机制构成: 供给折算缺口 5.000ms(按大核满频折算,下界)+ 调度压力(需求积压)(runnable 150.000ms)+ 优先级反转(构成: runnable 2.000ms + running 折算 3.000ms)共同作用"
 	if !strings.Contains(rn1CollapseContinuations(md), want) {
 		t.Fatalf("triple-branch clause missing:\n%s", md)
 	}
@@ -92,7 +92,7 @@ func TestSupplyFoldClauseDemandBranchZH(t *testing.T) {
 		"runnable=150.000")
 	md := supplyFoldVS2Render(t, records, "")
 	collapsed := rn1CollapseContinuations(md)
-	want := "机制构成: 供给折算缺口 5.000ms(按大核满频折算,下界)+ 调度压力(需求积压)(可运行等待 150.000ms)共同作用"
+	want := "机制构成: 供给折算缺口 5.000ms(按大核满频折算,下界)+ 调度压力(需求积压)(runnable 150.000ms)共同作用"
 	if !strings.Contains(collapsed, want) {
 		t.Fatalf("demand-branch clause missing:\n%s", md)
 	}
@@ -180,13 +180,13 @@ func TestSupplyFoldTripleSuppressesIndependentCompositionTagZH(t *testing.T) {
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "")
 	despaced := vs2Despace(md)
-	if !strings.Contains(despaced, "优先级反转(构成:可运行等待2.000ms+运行折算3.000ms)") {
+	if !strings.Contains(despaced, "优先级反转(构成:runnable2.000ms+running折算3.000ms)") {
 		t.Fatalf("triple clause must keep the embedded composition:\n%s", md)
 	}
 	if strings.Contains(md, "影响构成") {
 		t.Fatalf("triple row must not render the independent composition tag too:\n%s", md)
 	}
-	if got := strings.Count(despaced, "可运行等待2.000ms+运行折算3.000ms"); got != 3 {
+	if got := strings.Count(despaced, "runnable2.000ms+running折算3.000ms"); got != 3 {
 		t.Fatalf("composition text must appear exactly once per surface (conclusion+fence+table=3), got %d:\n%s", got, md)
 	}
 }
@@ -224,13 +224,13 @@ func TestSupplyFoldNonTripleInversionKeepsCompositionTag(t *testing.T) {
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "")
 	despaced := vs2Despace(md)
-	if !strings.Contains(despaced, "影响构成:可运行等待2.000ms+运行折算3.000ms") {
+	if !strings.Contains(despaced, "影响构成:runnable2.000ms+running折算3.000ms") {
 		t.Fatalf("non-triple inversion row must keep the independent composition tag:\n%s", md)
 	}
 	if !strings.Contains(despaced, "供给折算缺口5.000ms(按大核满频折算,下界)为主") {
 		t.Fatalf("deficit-dominant clause must render beside it:\n%s", md)
 	}
-	if got := strings.Count(despaced, "可运行等待2.000ms+运行折算3.000ms"); got != 1 {
+	if got := strings.Count(despaced, "runnable2.000ms+running折算3.000ms"); got != 1 {
 		t.Fatalf("composition text must appear exactly once (the independent tag), got %d:\n%s", got, md)
 	}
 }

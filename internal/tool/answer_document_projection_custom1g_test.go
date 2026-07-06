@@ -131,8 +131,8 @@ func TestRuntimeTraceProjWindowLineTargetSymptomDenominator(t *testing.T) {
 	projection := types.TraceCausalProjection{WindowStartTs: 6793222.700, WindowEndTs: 6793222.801}
 	line := runtimeTraceProjWindowLine(projection, custom1gWindowModel(true), true)
 	// (Wording pin updated for RN-6 §7.9: the denominator family now includes
-	// runnable, so the label reads 目标等待(睡眠/阻塞/就绪).)
-	if !strings.Contains(line, "目标等待(睡眠/阻塞/就绪) 11.716ms 中 on-chain 已归因 3.391ms(29%),未归因 8.325ms(71%)") {
+	// runnable, so the label reads 目标等待(sleep/D-state/runnable).)
+	if !strings.Contains(line, "目标等待(sleep/D-state/runnable) 11.716ms 中 on-chain 已归因 3.391ms(29%),未归因 8.325ms(71%)") {
 		t.Fatalf("coverage must use the target symptom duration as denominator:\n%s", line)
 	}
 	// The misleading whole-window residual ("残差 97%") must be gone.
@@ -142,7 +142,7 @@ func TestRuntimeTraceProjWindowLineTargetSymptomDenominator(t *testing.T) {
 		}
 	}
 	en := runtimeTraceProjWindowLine(projection, custom1gWindowModel(true), false)
-	if !strings.Contains(en, "Of the target's 11.716ms wait time (sleep/blocked/runnable), on-chain attributed 3.391ms (29%), unattributed 8.325ms (71%)") {
+	if !strings.Contains(en, "Of the target's 11.716ms wait time (sleep/D-state/runnable), on-chain attributed 3.391ms (29%), unattributed 8.325ms (71%)") {
 		t.Fatalf("EN coverage must use the symptom denominator:\n%s", en)
 	}
 }

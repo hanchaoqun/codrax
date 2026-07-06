@@ -74,11 +74,11 @@ var wordingLaneRules = []wordingLaneRule{
 		},
 	},
 	{
-		// §7.30.3 D3 / VS-2 (§7.10 red line 3): 运行折算 is the INVERSION
-		// lane's word (consumer-relative discount), single-sourced from the
-		// composition-text helper. The supply-fold lane says 供给折算缺口 and
-		// never borrows this term — the two folds are different mechanisms.
-		term: "运行折算",
+		// §7.30.3 D3 / VS-2 (§7.10 red line 3): the inversion lane's discount
+		// word (PTV7 face: running 折算; formerly 运行折算) is single-sourced
+		// from the composition-text helper. The supply-fold lane says
+		// 供给折算缺口 and never borrows this term — different mechanisms.
+		term: "running 折算",
 		whitelist: map[string]bool{
 			"answer_document_mutation_runtime_supplyfold.go::runtimeTraceProjInversionCompositionText": true,
 		},

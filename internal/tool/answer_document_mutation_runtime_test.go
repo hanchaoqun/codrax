@@ -751,9 +751,10 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 			t.Fatalf("(b) blocks missing %q:\n%s", want, detailFull.Text)
 		}
 	}
-	// PTV6-C #6 (#73): the 阻塞/IO action word is absorbed by the row's own
-	// IO阻塞 state tag (近义收敛) — the fact surface asserts the state word.
-	for _, want := range []string{"threadpool-400 / IO等待", "11.000ms", "IO阻塞", "确定性优化点", "VerifyClass com.example.Foo", "class_verification"} {
+	// PTV6-C #6 (#73): the blocking action word is absorbed by the row's own
+	// iowait state tag (近义收敛, typed) — the fact surface asserts the state
+	// word (PTV7 canonical face: iowait).
+	for _, want := range []string{"threadpool-400 / iowait", "11.000ms", "iowait", "确定性优化点", "VerifyClass com.example.Foo", "class_verification"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("projection should surface fact %q:\n%s", want, text)
 		}
@@ -1391,7 +1392,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalHopDepth(t *testi
 	text := projectionClusterText(got.Blocks)
 	// The on-chain io-500 hop keeps its typed depth-4 chain position (gaps a/b):
 	// it sits at trunk depth 4 in both the tree and the detail table.
-	for _, want := range []string{"io-500 / IO等待", "深度4"} {
+	for _, want := range []string{"io-500 / iowait", "深度4"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("projection should preserve on-chain hop depth %q:\n%s", want, text)
 		}
@@ -1507,7 +1508,7 @@ func TestApplyAndPersistMutation_ExpandsRuntimeTraceCausalProjectionCapacity(t *
 	text := projectionClusterText(got.Blocks)
 	// Deep co-primary layers survive: dep-1 sits at trunk depth 10 in the detail
 	// table (the lossless surface — rows are never capped).
-	for _, want := range []string{"dep-1 / 睡眠等待", "深度10"} {
+	for _, want := range []string{"dep-1 / sleep", "深度10"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expanded projection should keep deep typed evidence %q:\n%s", want, text)
 		}

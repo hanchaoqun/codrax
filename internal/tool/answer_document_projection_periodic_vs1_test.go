@@ -43,7 +43,7 @@ func TestTraceProjectionPeriodicSourceRowZH(t *testing.T) {
 		// … and the raw window projection untouched.
 		"36.256ms",
 		// caliber legend explains the discount only because a periodic row exists.
-		"- 周期性信号源行:有效归因 = 可运行等待全额 + 信号迟到量;期内睡眠为正常节拍,不计入有效归因(窗口投影保留原始值)。",
+		"- 周期性信号源行:有效归因 = runnable 全额 + 信号迟到量;期内睡眠为正常节拍,不计入有效归因(窗口投影保留原始值)。",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("VS-1 ZH rendering missing %q:\n%s", want, md)
@@ -64,7 +64,7 @@ func TestTraceProjectionPeriodicSourceRowEN(t *testing.T) {
 	for _, want := range []string{
 		"periodic signal source (in-period sleep is normal cadence, period ≈8.3ms)",
 		"0.176ms (runnable + lateness)",
-		"- periodic signal source rows: attribution = runnable wait in full + signal lateness; in-period sleep is normal cadence and never counts (the window projection keeps the raw value).",
+		"- periodic signal source rows: attribution = runnable in full + signal lateness; in-period sleep is normal cadence and never counts (the window projection keeps the raw value).",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("VS-1 EN rendering missing %q:\n%s", want, md)

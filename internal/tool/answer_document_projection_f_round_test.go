@@ -10,8 +10,8 @@ package tool
 //        row never enters the denominator. (Pins updated for RN-6, §7.9
 //        runnable 主导场景审计 2026-07-04: the family is sleep/D/blocked PLUS
 //        runnable — a runnable-dominant target's ready-queue wait IS its
-//        symptom — and the wording became 目标等待(睡眠/阻塞/就绪) / "wait
-//        time (sleep/blocked/runnable)". running stays excluded.);
+//        symptom — and the wording became 目标等待(sleep/D-state/runnable) / "wait
+//        time (sleep/D-state/runnable)". running stays excluded.);
 //   F3 — the whole-window idle annotation is gated on the typed wait-family
 //        StateKind on BOTH surfaces (tree stanza tag + detail table share one
 //        helper): a whole-window running CPU hog or a stateless aggregate row
@@ -60,14 +60,14 @@ func TestRuntimeTraceProjTargetSymptomExcludesNestedBlockingViewRow(t *testing.T
 	}
 	projection := types.TraceCausalProjection{WindowStartTs: 100.000, WindowEndTs: 100.100}
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "目标等待(睡眠/阻塞/就绪) 10.000ms 中 on-chain 已归因 8.000ms(80%),未归因 2.000ms(20%)") {
+	if !strings.Contains(line, "目标等待(sleep/D-state/runnable) 10.000ms 中 on-chain 已归因 8.000ms(80%),未归因 2.000ms(20%)") {
 		t.Fatalf("denominator must be the 10ms state segment (80%% attributed):\n%s", line)
 	}
 	if strings.Contains(line, "18.000") || strings.Contains(line, "44%") {
 		t.Fatalf("the 18ms double-count / 44%% share must be gone:\n%s", line)
 	}
 	en := runtimeTraceProjWindowLine(projection, model, false)
-	if !strings.Contains(en, "Of the target's 10.000ms wait time (sleep/blocked/runnable), on-chain attributed 8.000ms (80%)") {
+	if !strings.Contains(en, "Of the target's 10.000ms wait time (sleep/D-state/runnable), on-chain attributed 8.000ms (80%)") {
 		t.Fatalf("EN surface must fork the same way:\n%s", en)
 	}
 }
@@ -122,7 +122,7 @@ func TestRuntimeTraceProjIdleAnnotationRequiresWaitFamilyStateKind(t *testing.T)
 	if strings.Contains(running, "疑似空闲") {
 		t.Fatalf("a whole-window running row must not be annotated idle:\n%s", running)
 	}
-	if !strings.Contains(running, "运行占用") {
+	if !strings.Contains(running, "running") {
 		t.Fatalf("the running row keeps its state tag:\n%s", running)
 	}
 	if runnable := runtimeTraceProjStanzaRowLine(mkRow("runnable"), runtimeTraceProjTreeLabelWidth, 101.0, true, true); strings.Contains(runnable, "疑似空闲") {

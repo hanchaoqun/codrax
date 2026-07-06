@@ -3,7 +3,8 @@ package tool
 // R1+R3 presentation fixes (customer complaint 2026-07-03):
 //   R1 — the unknown-thread sentinel renders as typed unresolved-peer wording
 //        ("未定位线程" was unreadable): blocking_span → 阻塞等待(对端未解析),
-//        d_state_or_io_wait → D状态/IO等待(对端未解析), generic otherwise; all
+//        d_state_or_io_wait → D-state/iowait(对端未解析) (PTV7 canonical
+//        compound), generic otherwise; all
 //        wording lives in runtimeTraceCausalProjectionUnresolvedPeerText.
 //   R3fold — the "其余 N 项合并" fold line keeps the folded thread names via
 //        the typed MergedSubjects roster.
@@ -23,7 +24,7 @@ func TestTraceProjectionUnresolvedPeerTextCentralWording(t *testing.T) {
 		zh, en string
 	}{
 		{"blocking_span", "阻塞等待(对端未解析)", "blocking wait (peer unresolved)"},
-		{"d_state_or_io_wait", "D状态/IO等待(对端未解析)", "D-state/IO wait (peer unresolved)"},
+		{"d_state_or_io_wait", "D-state/iowait(对端未解析)", "D-state/iowait (peer unresolved)"},
 		{"", "对端线程未解析", "unresolved wait peer"},
 		{"something_else", "对端线程未解析", "unresolved wait peer"},
 	}
@@ -142,7 +143,7 @@ func TestTraceProjectionLegendsRenderAsItemLists(t *testing.T) {
 		"树读法:\n- 自上而下 = 从关注线程向上游追溯。",
 		"- 时长、排序与 E# 均可经证据索引定位到 trace 行号/时间区间,不是额外推测。",
 		"- `🎯` = 树根:本次分析锚定的关注线程。",
-		"- `☾` = 睡眠等待;症状非根因,其唤醒子行即下钻结果。",
+		"- `☾/sleep` = 睡眠等待(等待事件/唤醒);症状非根因,其唤醒子行即下钻结果。",
 		"口径:\n- 窗口投影 = 该节点相关状态落在用户窗口内的时长(跨线程聚合行为 cpu·ms 累计,单元格已注)。",
 		"- 背景行仅作压力/环境证据,不自动等同链上主因。",
 	} {

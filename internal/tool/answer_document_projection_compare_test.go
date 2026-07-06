@@ -255,7 +255,7 @@ func TestTraceProjectionMultiArtifactComparisonOverviewTable(t *testing.T) {
 	// window. Densities: 101084.884/1230.000 → 82.2, 46318.120/701.000 → 66.1.
 	for _, want := range []string{
 		"7.0B30SP22_7315.systrace",
-		"RSUniRenderThre-1963 · 运行 807.276ms",
+		"RSUniRenderThre-1963 · running 807.276ms",
 		"≈平均排队深度 82.2(累计 101084.884ms,跨线程累计,非墙钟)",
 		"3679.899s → 3681.129s",
 	} {
@@ -268,7 +268,7 @@ func TestTraceProjectionMultiArtifactComparisonOverviewTable(t *testing.T) {
 	}
 	for _, want := range []string{
 		"6.0B138_3900.sys.systrace",
-		"OS_FFRT_2_6-18695 · 睡眠等待 701.000ms",
+		"OS_FFRT_2_6-18695 · sleep 701.000ms",
 		"≈平均排队深度 66.1(累计 46318.120ms,跨线程累计,非墙钟)",
 		"8143.800s → 8144.501s",
 	} {

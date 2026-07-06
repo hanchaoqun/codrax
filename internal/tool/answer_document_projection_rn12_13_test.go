@@ -67,7 +67,7 @@ func TestRN12CoverageTailNoteZH(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""), rncRunnableRecords("2528.721"), "")
 	collapsed := rn1CollapseContinuations(md)
 	// Customer pin: 635.981 vs 2528.721 → 25% (precise division, %.0f).
-	if !strings.Contains(collapsed, "窗内 可运行等待（runnable） 合计 2528.721ms(state_drilldown),链上仅覆盖 top 片段 635.981ms(25%)") {
+	if !strings.Contains(collapsed, "窗内 runnable 合计 2528.721ms(state_drilldown),链上仅覆盖 top 片段 635.981ms(25%)") {
 		t.Fatalf("runnable chain row must carry the full-window coverage tail note:\n%s", md)
 	}
 }
@@ -113,7 +113,7 @@ func TestRN12SleepIsomorphTailNoteZH(t *testing.T) {
 	}
 	md := audit730Render(t, audit730Bus(""), []types.ObservationRecord{sleepRow, topSleep}, "")
 	collapsed := rn1CollapseContinuations(md)
-	if !strings.Contains(collapsed, "窗内 睡眠等待（sleep） 合计 800.000ms(top_sleep),链上仅覆盖 top 片段 120.000ms(15%)") {
+	if !strings.Contains(collapsed, "窗内 sleep 合计 800.000ms(top_sleep),链上仅覆盖 top 片段 120.000ms(15%)") {
 		t.Fatalf("sleep chain row must carry the isomorphic coverage note:\n%s", md)
 	}
 }
@@ -128,7 +128,7 @@ func TestRN12CrossWindowTailNoteLabelsSourceWindowZH(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""),
 		rncRunnableRecordsWindowed("2528.721", "selected_window=831.000000..834.000000"), "")
 	collapsed := rn1CollapseContinuations(md)
-	if !strings.Contains(collapsed, "另一查询窗(831.000s–834.000s)内 可运行等待（runnable） 合计 2528.721ms(state_drilldown),链上仅覆盖 top 片段 635.981ms(25%)") {
+	if !strings.Contains(collapsed, "另一查询窗(831.000s–834.000s)内 runnable 合计 2528.721ms(state_drilldown),链上仅覆盖 top 片段 635.981ms(25%)") {
 		t.Fatalf("cross-window total must render the labeled wording:\n%s", md)
 	}
 	if strings.Contains(collapsed, "窗内 runnable 合计") || strings.Contains(collapsed, "窗内 可运行等待（runnable） 合计") {
@@ -159,7 +159,7 @@ func TestRN12CoverageTagUnit(t *testing.T) {
 		FullWindowStateSameWindow: true,
 	}
 	tag, ok := runtimeTraceProjFullWindowCoverageTag(node, true)
-	if !ok || tag.Text != "窗内 可运行等待（runnable） 合计 2528.721ms(state_drilldown),链上仅覆盖 top 片段 635.981ms(25%)" {
+	if !ok || tag.Text != "窗内 runnable 合计 2528.721ms(state_drilldown),链上仅覆盖 top 片段 635.981ms(25%)" {
 		t.Fatalf("zh coverage tag wrong: ok=%t %q", ok, tag.Text)
 	}
 	if tag.MainRow {
@@ -174,7 +174,7 @@ func TestRN12CoverageTagUnit(t *testing.T) {
 	cross.FullWindowStateSameWindow = false
 	cross.FullWindowStateWindowStart, cross.FullWindowStateWindowEnd = 831.0, 834.0
 	if tag, ok := runtimeTraceProjFullWindowCoverageTag(cross, true); !ok ||
-		tag.Text != "另一查询窗(831.000s–834.000s)内 可运行等待（runnable） 合计 2528.721ms(state_drilldown),链上仅覆盖 top 片段 635.981ms(25%)" {
+		tag.Text != "另一查询窗(831.000s–834.000s)内 runnable 合计 2528.721ms(state_drilldown),链上仅覆盖 top 片段 635.981ms(25%)" {
 		t.Fatalf("zh cross-window tag wrong: %q", tag.Text)
 	}
 	if tag, ok := runtimeTraceProjFullWindowCoverageTag(cross, false); !ok ||
@@ -199,7 +199,7 @@ func TestRN12CoverageTagUnit(t *testing.T) {
 		FullWindowStateSameWindow: true,
 	}
 	if tag, ok := runtimeTraceProjFullWindowCoverageTag(sleep, true); !ok ||
-		tag.Text != "窗内 睡眠等待（sleep） 合计 800.000ms(top_sleep),链上仅覆盖 top 片段 120.000ms(15%)" {
+		tag.Text != "窗内 sleep 合计 800.000ms(top_sleep),链上仅覆盖 top 片段 120.000ms(15%)" {
 		t.Fatalf("sleep-class tag wrong: %q", tag.Text)
 	}
 }

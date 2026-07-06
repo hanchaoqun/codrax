@@ -7,6 +7,16 @@ package tool
 //                                   English token verbatim (audit fidelity).
 // The EN surface keeps raw tokens everywhere (they are already aligned).
 // Unmapped tokens always render verbatim — labels are never fabricated.
+//
+// PTV7 (#74, 用户裁定 2026-07-06, 内核状态词英文原词化): labels whose CONTENT
+// is a kernel scheduler state speak the canonical English state token
+// (running/runnable/sleep/D-state/iowait; the ambiguous producer compound
+// keeps its honest two-sided D-state/iowait) — the tag / action / cause lanes
+// share ONE token set and the Chinese state semantics live solely in the
+// legend's state-icon entries. When a zh label equals its raw token the D4
+// combined form collapses to the bare token (no label（label） echo). Product
+// compound words (优先级反转候选 / 可运行等待反转), caliber words and
+// narrative frames stay Chinese per the same ruling.
 
 import (
 	"strings"
@@ -29,9 +39,9 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 	case "io_latency":
 		return "IO延迟"
 	case "io_wait":
-		return "IO等待"
+		return "iowait"
 	case "d_state_or_io_wait":
-		return "D态或IO等待"
+		return "D-state/iowait"
 	case "binder_wait":
 		return "binder等待"
 	case "io_pressure":
@@ -45,21 +55,21 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 	case "page_cache_churn":
 		return "页缓存抖动"
 	case "runnable_wait":
-		return "可运行等待"
+		return "runnable"
 	case "sleep_wait":
-		return "睡眠等待"
+		return "sleep"
 	case "cpu_pressure":
 		return "CPU竞争压力"
 	case "scheduler_latency":
 		return "调度延迟"
 	case "fragmented_d_state_or_io_wait":
-		return "碎片化D态或IO等待"
+		return "碎片化D-state/iowait"
 	case "fragmented_runnable_wait":
-		return "碎片化可运行等待"
+		return "碎片化runnable"
 	case "fragmented_sleep_wait":
-		return "碎片化睡眠等待"
+		return "碎片化sleep"
 	case "fragmented_running":
-		return "碎片化运行"
+		return "碎片化running"
 	case "state_churn":
 		return "状态切换"
 	case "compute_supply":
@@ -69,7 +79,7 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 	case "cpu_affinity_or_cpuset":
 		return "CPU亲和/cpuset限制"
 	case "running":
-		return "运行"
+		return "running"
 	case "jit_compile":
 		return "JIT编译"
 	case "class_verification":
@@ -172,10 +182,12 @@ func runtimeTraceCausalProjectionDisplayCauseName(raw string, zh bool) string {
 // runtimeTraceCausalProjectionDisplayCauseNameNode is the node-aware cause
 // lane: when the row's Object is the unknown-thread sentinel, the wording is
 // specialized by the row's typed kind token (blocking_span →
-// 阻塞等待(对端未解析), d_state_or_io_wait → D状态/IO等待(对端未解析));
+// 阻塞等待(对端未解析), d_state_or_io_wait → D-state/iowait(对端未解析));
 // a RESOLVED peer thread riding the Object slot of a typed peer-relation row
 // renders the relation form instead of the bare name (PTV6-C #7:
-// "IO等待(对端 udk-irq-1-63)" — same wording home as the unresolved arm);
+// "IO等待(对端 udk-irq-1-63)" — same wording home as the unresolved arm;
+// the io_latency relation word is deliberately NOT a state token — the typed
+// boundary io_latency ∉ state family is pinned, so PTV7 leaves it);
 // everything else stays on the raw-string cause lane.
 func runtimeTraceCausalProjectionDisplayCauseNameNode(node types.TraceCausalProjectionNode, zh bool) string {
 	if runtimeTraceCausalProjectionUnknownSentinel(node.Object) {
@@ -254,24 +266,25 @@ func runtimeTraceCausalProjectionTypeTokenStateClass(node types.TraceCausalProje
 
 // runtimeTraceCausalProjectionTypeTokenStateWord renders the #3 state-family
 // word for a TypeTokenStateClass value: the ambiguous d_state_or_io_wait
-// family keeps its honest two-sided word; every single-state class reuses the
-// 裁定4 StateKindLabel vocabulary verbatim (single wording home).
+// family keeps its honest two-sided word (PTV7: the canonical D-state/iowait
+// compound, face-invariant); every single-state class reuses the 裁定4
+// StateKindLabel vocabulary verbatim (single wording home).
 func runtimeTraceCausalProjectionTypeTokenStateWord(class string, zh bool) string {
 	if class == "d_state_or_io_wait" {
-		if zh {
-			return "D状态/IO等待"
-		}
-		return "D-state/IO wait"
+		return "D-state/iowait"
 	}
 	return runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: class}, zh)
 }
 
 // runtimeTraceCausalProjectionImpactPointDisplay renders one 影响点 token in
-// the D4 中文（token） combined form on the zh surface (PTV6-C #6, #73 标本
-// 归因 2026-07-06): bare scheduler-state tokens (runnable / s_sleep / …) speak
-// the 裁定4 state vocabulary, recognized type tokens ride the existing D4
-// narrative lane, and unmapped tokens render verbatim — labels are never
-// fabricated. EN keeps raw tokens (already aligned).
+// the D4 label（token） combined form on the zh surface (PTV6-C #6, #73 标本
+// 归因 2026-07-06): bare scheduler-state tokens speak the 裁定4 state
+// vocabulary, recognized type tokens ride the existing D4 narrative lane, and
+// unmapped tokens render verbatim — labels are never fabricated. PTV7 (#74):
+// the state vocabulary IS the canonical token set, so an identity echo
+// (runnable（runnable）) collapses to the bare token; alias tokens keep the
+// combined form for audit fidelity (sleep（s_sleep）). EN keeps raw tokens
+// (already aligned).
 func runtimeTraceCausalProjectionImpactPointDisplay(token string, zh bool) string {
 	token = strings.TrimSpace(token)
 	// Compound impact points arrive slash-joined from the producer
@@ -286,6 +299,9 @@ func runtimeTraceCausalProjectionImpactPointDisplay(token string, zh bool) strin
 	}
 	if zh {
 		if label := runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: token}, true); label != "" {
+			if label == token {
+				return token
+			}
 			return label + "（" + token + "）"
 		}
 	}
@@ -293,13 +309,17 @@ func runtimeTraceCausalProjectionImpactPointDisplay(token string, zh bool) strin
 }
 
 // runtimeTraceCausalProjectionNarrativeCauseName is the narrative lane (D4):
-// on the zh surface a recognized type token renders as 中文（english_token）,
+// on the zh surface a recognized type token renders as label（english_token）,
 // e.g. 优先级反转候选（priority_inversion_candidate）; EN and unmapped tokens
-// render verbatim.
+// render verbatim. PTV7 (#74): a label equal to its raw token (the running
+// state-family label) collapses to the bare token — no label（label） echo.
 func runtimeTraceCausalProjectionNarrativeCauseName(raw string, zh bool) string {
 	raw = strings.TrimSpace(raw)
 	if zh {
 		if label := runtimeTraceRootCauseTypeZHLabel(raw); label != "" {
+			if label == raw {
+				return raw
+			}
 			return label + "（" + raw + "）"
 		}
 	}

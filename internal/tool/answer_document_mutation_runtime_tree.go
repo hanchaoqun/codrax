@@ -406,18 +406,23 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkSemanticSpan, runtimeTraceProjLegendGroupEdge,
 			"- `├─语义─`/`✦` = 该位置的语义 span(业务阶段),非调度状态行。",
 			"- `├─span─`/`✦` = a semantic span (business phase) at this position, not a scheduler-state row."},
+		// PTV7 (#74, 用户裁定 2026-07-06): the state-icon entries are the SINGLE
+		// point carrying the Chinese semantics of the canonical English state
+		// words (图例中文注解单点) — rows speak only the token; the gloss lives
+		// here, one entry per display word, bidirectionally pinned
+		// (TestPTV7LegendStateAnnotationBidirectional).
 		{runtimeTraceProjMarkIconSleep, runtimeTraceProjLegendGroupMark,
-			"- `☾` = 睡眠等待;症状非根因,其唤醒子行即下钻结果。",
-			"- `☾` = sleep wait; a symptom, not a root cause — its wake child IS the drilldown result."},
+			"- `☾/sleep` = 睡眠等待(等待事件/唤醒);症状非根因,其唤醒子行即下钻结果。",
+			"- `☾/sleep` = a sleep wait; a symptom, not a root cause — its wake child IS the drilldown result."},
 		{runtimeTraceProjMarkIconRunnable, runtimeTraceProjLegendGroupMark,
-			"- `⧖` = 可运行等待(已就绪,等待 CPU)。",
-			"- `⧖` = runnable wait (ready, waiting for a CPU)."},
+			"- `⧖/runnable` = 就绪等待(有资格运行但未获得 CPU)。",
+			"- `⧖/runnable` = ready to run, waiting for a CPU."},
 		{runtimeTraceProjMarkIconRunning, runtimeTraceProjLegendGroupMark,
-			"- `⚙` = 运行占用(正在 CPU 上执行)。",
-			"- `⚙` = running (executing on a CPU)."},
+			"- `⚙/running` = 运行占用(正在 CPU 上执行)。",
+			"- `⚙/running` = executing on a CPU."},
 		{runtimeTraceProjMarkIconDState, runtimeTraceProjLegendGroupMark,
-			"- `⛓` = D状态/IO阻塞(不可中断等待)。",
-			"- `⛓` = D-state / IO block (uninterruptible wait)."},
+			"- `⛓/D-state·iowait` = 不可中断等待/IO阻塞。",
+			"- `⛓/D-state·iowait` = an uninterruptible / IO-blocked wait."},
 		{runtimeTraceProjMarkIconTransit, runtimeTraceProjLegendGroupMark,
 			"- `◦ 中转` = 链路中转节点,本轮无独立影响行。",
 			"- `◦ transit` = a chain transit node with no standalone impact row this run."},
@@ -435,8 +440,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `❶❷❸` = 根因关注点 TOP3(按有效归因排序)。",
 			"- `❶❷❸` = TOP-3 root-cause focus points (ordered by effective attribution)."},
 		{runtimeTraceProjMarkStateLabel, runtimeTraceProjLegendGroupMark,
-			"- 状态标签(睡眠等待/可运行等待/运行占用/IO阻塞/D状态)来自该行主导调度状态(或其类型 token 自带的状态语义);无状态语义的行沿用影响形态。",
-			"- The state tag (sleep wait / runnable wait / running / IO wait / D-state) is the row's dominant scheduler state (or the state semantics its type token carries); rows without either keep their impact-shape value."},
+			"- 状态标签(sleep/runnable/running/iowait/D-state)来自该行主导调度状态(或其类型 token 自带的状态语义);无状态语义的行沿用影响形态。",
+			"- The state tag (sleep / runnable / running / iowait / D-state) is the row's dominant scheduler state (or the state semantics its type token carries); rows without either keep their impact-shape value."},
 		{runtimeTraceProjMarkUndrillable, runtimeTraceProjLegendGroupMark,
 			"- `⊘链止` = 窗口内无匹配 sched_wakeup,链止于此。",
 			"- `⊘chain ends` = no matching sched_wakeup in the window; the chain ends there."},
@@ -491,8 +496,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `同段IO另有…口径` = 同一线程同段 IO 的多口径合并显示;数值与证据保留,不重复计入归因。",
 			"- `same-segment IO also measured …` = several calibers of one IO segment folded for display; values and evidence kept, never double counted."},
 		{runtimeTraceProjMarkPeriodicSource, runtimeTraceProjLegendGroupCaliber,
-			"- `周期性信号源` = 该行是固定周期的信号发生器,期内睡眠为正常节拍;有效归因只计可运行等待与信号迟到量,窗口投影保留原始值。",
-			"- `periodic signal source` = this row is a fixed-period signal generator; in-period sleep is normal cadence. Attribution counts only runnable wait plus signal lateness; the window projection keeps the raw value."},
+			"- `周期性信号源` = 该行是固定周期的信号发生器,期内睡眠为正常节拍;有效归因只计 runnable 与信号迟到量,窗口投影保留原始值。",
+			"- `periodic signal source` = this row is a fixed-period signal generator; in-period sleep is normal cadence. Attribution counts only runnable plus signal lateness; the window projection keeps the raw value."},
 		{runtimeTraceProjMarkAdjacentStanza, runtimeTraceProjLegendGroupCaliber,
 			"- `◇` = 邻近区段:与主链时间相邻,不在唤醒路径上。",
 			"- `◇` = adjacent stanza: time-adjacent to the chain, not on the wakeup path."},
@@ -1388,11 +1393,12 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 		token := g.token
 		if zh {
 			// PTV5 C09/C16 (#68): the zh tree face speaks the D4 combined form
-			// 中文（raw_token） — the typelabels table already maps the IO
-			// caliber tokens (io_wait→IO等待, io_burst_episode→IO突发, …); the
+			// label（raw_token） — the typelabels table already maps the IO
+			// caliber tokens (io_wait→iowait, io_burst_episode→IO突发, …); the
 			// raw token stays inline for audit fidelity, unmapped tokens pass
-			// through verbatim.
-			if label := runtimeTraceRootCauseTypeZHLabel(g.token); label != "" {
+			// through verbatim. PTV7 (#74): a label equal to its raw token
+			// collapses to the bare token (same rule as the D4 narrative lane).
+			if label := runtimeTraceRootCauseTypeZHLabel(g.token); label != "" && label != g.token {
 				token = label + "（" + g.token + "）"
 			}
 		}
@@ -2598,10 +2604,11 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
 	if node.IsSleepState() {
 		// PTV6-C #8 (#73, 标本归因 2026-07-06): the sleep self row speaks the
-		// 裁定4 StateKindLabel (☾ 睡眠等待) instead of the raw scheduler token
-		// (☾ s_sleep) — the raw token stays lossless on the (b) detail block's
-		// full name / 类型 lanes and the evidence surfaces. An unmapped state
-		// token keeps its verbatim form (labels are never fabricated).
+		// 裁定4 StateKindLabel (PTV7: ☾ sleep, the canonical display word)
+		// instead of the raw scheduler token (☾ s_sleep) — the raw token stays
+		// lossless on the (b) detail block's full name / 类型 lanes and the
+		// evidence surfaces. An unmapped state token keeps its verbatim form
+		// (labels are never fabricated).
 		label := runtimeTraceProjStateKindLabel(node, zh)
 		if label == "" {
 			label = strings.TrimSpace(node.StateKind)
@@ -3201,9 +3208,10 @@ func runtimeTraceProjTypedSameCause(a, b string) bool {
 }
 
 // runtimeTraceProjActionJointFamily maps a typed token onto the ACTION-word
-// family space (b3 修, 2026-07-06): the blocking action word (阻塞/IO) covers
-// the d_state / io_wait / d_state_or_io_wait classes jointly, so the family
-// compare must treat them as one; running/runnable map through unchanged.
+// family space (b3 修, 2026-07-06): the blocking action word (PTV7:
+// D-state/iowait) covers the d_state / io_wait / d_state_or_io_wait classes
+// jointly, so the family compare must treat them as one; running/runnable
+// map through unchanged.
 // "" = no action family (sleep and non-state tokens).
 func runtimeTraceProjActionJointFamily(token string) string {
 	switch runtimeTraceProjStateTokenClass(token) {
@@ -3220,7 +3228,7 @@ func runtimeTraceProjActionJointFamily(token string) string {
 // runtimeTraceProjStateTokenClass maps a typed token to its scheduler-state
 // family for the dedupe identity compare — exact token membership (the
 // ambiguous d_state_or_io_wait family is its OWN class: it never folds into
-// the more specific D状态/IO阻塞 words, and vice versa).
+// the more specific D-state/iowait single-state words, and vice versa).
 func runtimeTraceProjStateTokenClass(token string) string {
 	switch runtimeTraceCausalProjectionCanonicalNode(token) {
 	case "running", "fragmented_running":
@@ -3529,35 +3537,31 @@ type runtimeTraceProjTag struct {
 }
 
 // runtimeTraceProjStateKindLabel is the bar-row state attribution (§7.30
-// 裁定4): a localized label for the node's typed dominant scheduler state.
-// Empty when the node exposes no StateKind — callers then fall back to the
-// impact-shape cell value instead of fabricating a state.
+// 裁定4) AND the single authoritative display-alias mapping for the TSH
+// StateKind universe (PTV7 #74, 用户裁定 2026-07-06: 内核状态词英文原词化).
+// Every universe token maps onto its canonical industry display word —
+// s_sleep/sleep/sleep_wait→sleep, d_sleep/d_state/uninterruptible_sleep→
+// D-state, io_wait→iowait, running/runnable→themselves — and the word is
+// FACE-INVARIANT: zh and en speak the same token (双面分叉消除; the zh
+// parameter stays because every wording helper threads the face flag and
+// non-state wording homes still localize). The Chinese semantics live at a
+// single point: the legend's state-icon entries (☾/sleep ⧖/runnable
+// ⚙/running ⛓/D-state·iowait), never repeated per row. Alignment pinned by
+// TestPTV7StateKindDisplayAliasUniverseAlignment. Empty when the node
+// exposes no StateKind — callers then fall back to the impact-shape cell
+// value instead of fabricating a state.
 func runtimeTraceProjStateKindLabel(node types.TraceCausalProjectionNode, zh bool) string {
+	_ = zh // PTV7: state words are face-invariant tokens.
 	switch strings.TrimSpace(strings.ToLower(node.StateKind)) {
 	case "s_sleep", "sleep", "sleep_wait":
-		if zh {
-			return "睡眠等待"
-		}
-		return "sleep wait"
+		return "sleep"
 	case "runnable":
-		if zh {
-			return "可运行等待"
-		}
-		return "runnable wait"
+		return "runnable"
 	case "running":
-		if zh {
-			return "运行占用"
-		}
 		return "running"
 	case "io_wait":
-		if zh {
-			return "IO阻塞"
-		}
-		return "IO wait"
+		return "iowait"
 	case "d_state", "d_sleep", "uninterruptible_sleep":
-		if zh {
-			return "D状态"
-		}
 		return "D-state"
 	}
 	return ""
@@ -3882,9 +3886,10 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		tags = append(tags, runtimeTraceProjTag{Text: text})
 	}
 	if len(node.SecondaryObjects) > 0 {
-		// PTV6-C #6: 影响点 tokens speak the D4 中文（token） combined form on
-		// the zh surface (可运行等待（runnable）) — raw tokens read as line
-		// noise next to pure-zh chips. Single display helper; EN keeps raw.
+		// PTV6-C #6: 影响点 tokens ride the single display helper — PTV7: bare
+		// state tokens collapse onto the canonical display word (runnable /
+		// sleep（s_sleep） when the alias differs from the raw token); mapped
+		// type tokens keep the D4 label（token） combined form; EN keeps raw.
 		display := make([]string, 0, len(node.SecondaryObjects))
 		for _, token := range node.SecondaryObjects {
 			display = append(display, runtimeTraceCausalProjectionImpactPointDisplay(token, zh))
@@ -4473,15 +4478,16 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 		// unchanged) when no self-state row exists or the attribution exceeds
 		// the symptom duration.
 		// RN-6 (§7.9): the denominator family includes runnable, so the wording
-		// says 等待(睡眠/阻塞/就绪) instead of claiming everything was
-		// sleep/blocked.
+		// says 等待(sleep/D-state/runnable) instead of claiming everything was
+		// sleep/blocked. PTV7 (#74): the parenthetical state words speak the
+		// canonical tokens on both faces; the sentence frame stays localized.
 		if symptom := runtimeTraceProjTargetSymptomMS(model); symptom > 0 && attributed <= symptom {
 			residual := symptom - attributed
 			if zh {
-				fmt.Fprintf(&b, " 目标等待(睡眠/阻塞/就绪) %.3fms 中 on-chain 已归因 %.3fms(%.0f%%),未归因 %.3fms(%.0f%%)。",
+				fmt.Fprintf(&b, " 目标等待(sleep/D-state/runnable) %.3fms 中 on-chain 已归因 %.3fms(%.0f%%),未归因 %.3fms(%.0f%%)。",
 					symptom, attributed, attributed/symptom*100, residual, residual/symptom*100)
 			} else {
-				fmt.Fprintf(&b, " Of the target's %.3fms wait time (sleep/blocked/runnable), on-chain attributed %.3fms (%.0f%%), unattributed %.3fms (%.0f%%).",
+				fmt.Fprintf(&b, " Of the target's %.3fms wait time (sleep/D-state/runnable), on-chain attributed %.3fms (%.0f%%), unattributed %.3fms (%.0f%%).",
 					symptom, attributed, attributed/symptom*100, residual, residual/symptom*100)
 			}
 			b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
@@ -5789,20 +5795,12 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 	if covered <= 0 {
 		return runtimeTraceProjTag{}, false
 	}
-	// PTV5 C17/C36 (#68): the zh face names the state class with the site-wide
-	// zh word in the D4 combined form (可运行等待（runnable）/睡眠等待（sleep）);
-	// the class TABLE keys stay untouched, the raw source token and the RN-12
-	// ledger-verbatim "top 片段" wording stay exactly as ruled (R02 禁动面).
-	// (if-chain, not a switch: `class` is the ALREADY-NORMALIZED two-value
-	// TraceCausalProjectionStateClass output — runnable/sleep only — not a raw
-	// StateKind consumer site.)
+	// PTV7 (#74, 用户裁定 2026-07-06, supersedes the PTV5 C17/C36 zh combined
+	// form 可运行等待（runnable）/睡眠等待（sleep）): the state class IS the
+	// canonical display word on both faces — the class TABLE keys stay
+	// untouched, the raw source token and the RN-12 ledger-verbatim "top 片段"
+	// wording stay exactly as ruled (R02 禁动面).
 	displayClass := class
-	if zh && class == "runnable" {
-		displayClass = "可运行等待（runnable）"
-	}
-	if zh && class == "sleep" {
-		displayClass = "睡眠等待（sleep）"
-	}
 	var text string
 	switch {
 	case node.FullWindowStateSameWindow:

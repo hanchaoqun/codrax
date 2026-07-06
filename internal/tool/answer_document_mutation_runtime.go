@@ -983,9 +983,9 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// row is actually on the table — non-periodic renders stay byte-stable.
 		if runtimeTraceProjModelHasPeriodicRow(model) {
 			if zh {
-				lines = append(lines, "- 周期性信号源行:有效归因 = 可运行等待全额 + 信号迟到量;期内睡眠为正常节拍,不计入有效归因(窗口投影保留原始值)。")
+				lines = append(lines, "- 周期性信号源行:有效归因 = runnable 全额 + 信号迟到量;期内睡眠为正常节拍,不计入有效归因(窗口投影保留原始值)。")
 			} else {
-				lines = append(lines, "- periodic signal source rows: attribution = runnable wait in full + signal lateness; in-period sleep is normal cadence and never counts (the window projection keeps the raw value).")
+				lines = append(lines, "- periodic signal source rows: attribution = runnable in full + signal lateness; in-period sleep is normal cadence and never counts (the window projection keeps the raw value).")
 			}
 		}
 		text := strings.Join(lines, "\n")
@@ -1944,34 +1944,32 @@ func runtimeTraceCausalProjectionActionCellWithFamily(node types.TraceCausalProj
 // action words that merely restate a scheduler state (extracted from the
 // ActionCell switch for PTV6-C #6, #73 标本归因 2026-07-06): when the row's
 // state tag already speaks the same state family (StateKindLabel), the tag
-// builder suppresses this restatement (可运行等待 absorbs 调度等待 — 近义
-// 收敛, 全词一处). Rows whose state tag carries OTHER information (lock /
-// candidate words) keep their action cell untouched.
+// builder suppresses this restatement (近义收敛, 全词一处 — the family
+// judgment is typed, so PTV7's word collapse does not move it). PTV7 (#74,
+// 用户裁定 2026-07-06): the action words ARE the canonical state tokens on
+// both faces — the tag / action / state-derived-cause lanes now share ONE
+// token set, so absorption-net word-table leaks (the b3 算力 class, the Q4
+// 调度等待 collision class) are structurally gone. Rows whose state tag
+// carries OTHER information (lock / candidate words) keep their action cell
+// untouched.
 func runtimeTraceCausalProjectionStateActionWord(stateKind string, zh bool) string {
+	_ = zh // PTV7: state words are face-invariant tokens.
 	switch strings.TrimSpace(strings.ToLower(stateKind)) {
 	case "running":
 		// b3 (b) (第三标本, 2026-07-06): canonical convergence onto the 裁定4
 		// running word — 执行/算力 put the compute-delivery lane word (算力,
 		// §7.4) on demand-side rows and dodged the #6 absorption net whenever
 		// the state tag was absent.
-		if zh {
-			return "运行占用"
-		}
 		return "running"
 	case "runnable":
-		// PTV5 Q4 (#68 用户裁定 2026-07-05): the runnable action word says what
-		// the WAIT is (调度等待) — the former 调度/优先级 collided by word-table
-		// coincidence with the priority-inversion evidence wording and read as
-		// an inversion claim on plain runnable rows.
-		if zh {
-			return "调度等待"
-		}
-		return "scheduling wait"
+		// PTV5 Q4 (#68 用户裁定 2026-07-05) ruled the former 调度/优先级 word
+		// out (word-table collision with the inversion evidence wording); PTV7
+		// replaces its 调度等待 successor with the state token itself — a
+		// runnable token cannot collide with any inversion product word.
+		return "runnable"
 	case "d_state", "io_wait", "d_sleep", "uninterruptible_sleep":
-		if zh {
-			return "阻塞/IO"
-		}
-		return "blocking/IO"
+		// The joint blocking family keeps one honest two-sided word.
+		return "D-state/iowait"
 	}
 	return ""
 }
@@ -2039,9 +2037,9 @@ func runtimeTraceCausalProjectionImpactShapeCellTyped(node types.TraceCausalProj
 		return "D-state / uninterruptible wait", false
 	case "io_wait":
 		if zh {
-			return "IO wait / IO等待", false
+			return "iowait / IO等待", false
 		}
-		return "IO wait", false
+		return "iowait", false
 	}
 	causeKind := strings.TrimSpace(strings.ToLower(firstNonEmptyAnswerString(node.Object, node.Predicate)))
 	switch causeKind {
@@ -2363,10 +2361,12 @@ func runtimeTraceCausalProjectionUnresolvedPeerText(kind string, zh bool) string
 		}
 		return "blocking wait (peer unresolved)"
 	case "d_state_or_io_wait":
+		// PTV7 (#74): the state compound speaks the canonical tokens; the
+		// peer-relation frame stays localized.
 		if zh {
-			return "D状态/IO等待(对端未解析)"
+			return "D-state/iowait(对端未解析)"
 		}
-		return "D-state/IO wait (peer unresolved)"
+		return "D-state/iowait (peer unresolved)"
 	default:
 		if zh {
 			return "对端线程未解析"
@@ -2435,10 +2435,11 @@ func runtimeTraceCausalProjectionResolvedPeerText(kind, peer string, zh bool) st
 		}
 		return "blocking wait (peer " + peer + ")"
 	case "d_state_or_io_wait":
+		// PTV7 (#74): same canonical compound as the unresolved arm (同形).
 		if zh {
-			return "D状态/IO等待(对端 " + peer + ")"
+			return "D-state/iowait(对端 " + peer + ")"
 		}
-		return "D-state/IO wait (peer " + peer + ")"
+		return "D-state/iowait (peer " + peer + ")"
 	case "io_latency":
 		if zh {
 			return "IO等待(对端 " + peer + ")"
@@ -3476,9 +3477,12 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 	}
 	var parts []string
 	if dominant := strings.TrimSpace(values[types.TraceNoteKeyDominantState]); dominant != "" {
+		// PTV7 (#74): the parenthetical carries the canonical display alias
+		// ONLY when it differs from the raw token (s_sleep(sleep)); an
+		// identity echo (runnable(runnable)) says nothing and is dropped.
 		label := runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: dominant}, zh)
 		entry := dominant
-		if label != "" {
+		if label != "" && label != dominant {
 			entry = dominant + "(" + label + ")"
 			if !zh {
 				entry = dominant + " (" + label + ")"
@@ -3490,13 +3494,15 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 			parts = append(parts, "dominant state "+entry)
 		}
 	}
+	// PTV7 (#74): the per-state lane labels are the canonical state tokens on
+	// both faces; the metric frame words stay localized.
 	if zh {
 		parts = append(parts,
-			stateEntry("运行", types.TraceNoteKeyRunning),
-			stateEntry("可运行", types.TraceNoteKeyRunnable),
-			stateEntry("睡眠", types.TraceNoteKeySleep),
-			stateEntry("D状态", types.TraceNoteKeyDState),
-			stateEntry("IO等待", types.TraceNoteKeyIOWait),
+			stateEntry("running", types.TraceNoteKeyRunning),
+			stateEntry("runnable", types.TraceNoteKeyRunnable),
+			stateEntry("sleep", types.TraceNoteKeySleep),
+			stateEntry("D-state", types.TraceNoteKeyDState),
+			stateEntry("iowait", types.TraceNoteKeyIOWait),
 			"状态段数 "+values[types.TraceNoteKeyFragments],
 			"切换次数 "+values[types.TraceNoteKeySwitches],
 			"最长单段 "+ms(types.TraceNoteKeyMaxSegment),
@@ -3508,7 +3514,7 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 			stateEntry("runnable", types.TraceNoteKeyRunnable),
 			stateEntry("sleep", types.TraceNoteKeySleep),
 			stateEntry("D-state", types.TraceNoteKeyDState),
-			stateEntry("IO wait", types.TraceNoteKeyIOWait),
+			stateEntry("iowait", types.TraceNoteKeyIOWait),
 			"state segments "+values[types.TraceNoteKeyFragments],
 			"switches "+values[types.TraceNoteKeySwitches],
 			"longest segment "+ms(types.TraceNoteKeyMaxSegment),
@@ -3591,11 +3597,12 @@ func runtimeTraceMetricSnapshotActualInline(record types.ObservationRecord, zh b
 		}
 		parts = append(parts, label+" "+runtimeTraceMetricWithMS(v))
 	}
-	statePart("运行", "running", types.TraceNoteKeyActualRunning)
-	statePart("可运行", "runnable", types.TraceNoteKeyActualRunnable)
-	statePart("睡眠", "sleep", types.TraceNoteKeyActualSleep)
-	statePart("D状态", "D-state", types.TraceNoteKeyActualDState)
-	statePart("IO等待", "IO wait", types.TraceNoteKeyActualIOWait)
+	// PTV7 (#74): state lane labels = canonical tokens, face-invariant.
+	statePart("running", "running", types.TraceNoteKeyActualRunning)
+	statePart("runnable", "runnable", types.TraceNoteKeyActualRunnable)
+	statePart("sleep", "sleep", types.TraceNoteKeyActualSleep)
+	statePart("D-state", "D-state", types.TraceNoteKeyActualDState)
+	statePart("iowait", "iowait", types.TraceNoteKeyActualIOWait)
 	statePart("合计", "total", types.TraceNoteKeyActualTotalMS)
 	if len(parts) == 0 {
 		statePart("合计", "total", types.TraceNoteKeyActualTotal)
