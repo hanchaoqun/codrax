@@ -8633,6 +8633,33 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 	if got != want {
 		t.Fatalf("payload-less blocking_span priority selection:\n got %q\nwant %q", got, want)
 	}
+	// BLK-2 P1: the holder-subject folded rank row carries the twin state
+	// breakdown under subject_state_* (the subject IS the holder). It must reach
+	// the 4-note window exactly like the waiter-subject peer_state_* pair above —
+	// same slot-2 fallback when no holder_site parsed — otherwise the audit
+	// window silently regresses to the pre-BLK-2 omission.
+	holderSubjectRank := types.ObservationRecord{RichNotes: []string{
+		"type=blocking_span", "peer=Waiter-99", "chain_relevance=on_chain", "edge_count=1",
+		"subject_state_dominant=running", "subject_state_sleep=0.000ms",
+	}}
+	got = notesOf(holderSubjectRank)
+	want = "notes=subject_state_dominant=running, subject_state_sleep=0.000ms, type=blocking_span, peer=Waiter-99"
+	if got != want {
+		t.Fatalf("holder-subject subject_state priority selection (BLK-2):\n got %q\nwant %q", got, want)
+	}
+	// Realistic folded-row shape: the fold condition guarantees blocking_kind is
+	// non-empty on every holder-subject rank row, so the cap=2 priority window
+	// splits 1+1 — blocking_kind leads, and the scan pointer passes over the
+	// absent holder_site/peer_state_* prefixes to reach subject_state_dominant.
+	holderSubjectFolded := types.ObservationRecord{RichNotes: []string{
+		"type=blocking_span", "peer=Waiter-99", "blocking_kind=monitor_contention",
+		"chain_relevance=on_chain", "subject_state_dominant=running", "subject_state_sleep=0.000ms",
+	}}
+	got = notesOf(holderSubjectFolded)
+	want = "notes=blocking_kind=monitor_contention, subject_state_dominant=running, type=blocking_span, peer=Waiter-99"
+	if got != want {
+		t.Fatalf("folded holder-subject rank row priority selection (BLK-2):\n got %q\nwant %q", got, want)
+	}
 	// periodic-source row: the discounted pair leads, the raw impact keeps a
 	// slot as the comparison figure (never silently displaced).
 	periodic := types.ObservationRecord{RichNotes: []string{

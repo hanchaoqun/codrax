@@ -77,6 +77,30 @@ func TestTraceQueryObservationSupplementAllowedPrefixesRegistered(t *testing.T) 
 			t.Errorf("allowed-prefix table lost the blocking-family entry %q (SG 批 Q4-K 修3)", want)
 		}
 	}
+	// BLK-2 P1 指代翻转修复: the holder-subject folded rank row's twin state
+	// breakdown is ported under subject_state_*, so both the allowed table and
+	// the blocking priority table must carry the subject_state pair alongside
+	// the peer_state pair — dropping either silently regresses the
+	// holder-subject audit window back to the pre-BLK-2 omission behavior.
+	blockingPriority := map[string]bool{}
+	for _, prefix := range traceQueryObservationSupplementBlockingPriorityPrefixes {
+		blockingPriority[prefix] = true
+	}
+	for _, want := range []string{"subject_state_dominant=", "subject_state_sleep="} {
+		if !allowed[want] {
+			t.Errorf("allowed-prefix table lost the holder-subject entry %q (BLK-2 P1)", want)
+		}
+		if !blockingPriority[want] {
+			t.Errorf("blocking priority table lost the holder-subject entry %q (BLK-2 P1) — must coexist with the peer_state pair, not replace it", want)
+		}
+	}
+	// The peer_state pair must SURVIVE in the blocking priority table: the same
+	// table still serves waiter-subject critical_blocking rows.
+	for _, want := range []string{"peer_state_dominant=", "peer_state_sleep="} {
+		if !blockingPriority[want] {
+			t.Errorf("blocking priority table lost the waiter-subject entry %q (BLK-2 must ADD subject_state, not replace peer_state)", want)
+		}
+	}
 }
 
 // TestRuntimeTracePerfQualityNoteTracksRegistry pins the evaluator's

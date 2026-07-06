@@ -7297,7 +7297,7 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 		b.WriteString("- Runtime metric snapshot hint: when one typed runtime observation row carries multiple compact metric notes such as `key=value` timings/counts/states, preserve those notes together as one metric snapshot line before the richer explanation. The snapshot complements the detailed bullets; it must not replace root-cause reasoning, caveats, or next-step guidance.\n")
 		b.WriteString("- Runtime root-cause layering hint: when the same frame/window contains runnable scheduling delay, D-state/IO dependency delay, or on-chain compute-supply limits (`compute_supply`, `low_frequency`, `cpu_affinity_or_cpuset`, CPU/core/frequency/DDR/L3 supply context), report every `tier=primary` layer explicitly instead of choosing only one. Separate direct scheduler wait/priority-inversion evidence from upstream dependency-chain IO/D-state and compute-supply evidence, tie each layer to the concrete thread/window where it appears, and keep unrelated background pressure as auxiliary context.\n")
 		b.WriteString("- Runtime perf support hint: when running, CPU pressure, or compute-supply rows include `perf_contexts`, use those role labels (`candidate_thread`, `target_running`, `on_chain_dependency`, `same_cpu_competitor`, `cpu_pressure_top_running`, `compute_supply_cpu`) to explain which sampled symbols/DSOs/callchains consumed CPU time for that specific candidate. Keep perf as code-execution support, not standalone causality: scheduler overlap, wakeup-chain relevance, CPU/core/frequency/affinity, D-state/IO, and supply-pressure facts decide the root cause. If samples are unsymbolized or only have IP/DSO, state that limitation instead of inventing a symbol.\n")
-		b.WriteString("- Runtime direct-blocking hint: treat `critical_blocking_calls` as the direct blocking surface, not necessarily the final cause. For binder/futex/lock/sync waits, use `oneway`/`sync_like`/`blocking_candidate` instead of inferring blocking semantics from raw flags; then name the waiting thread, peer, duration, `chain_relevance`, and any `peer_state_*`/`peer_state` breakdown, and continue through peer/on-chain thread state, `wakeup_chain`, `root_cause_rank`, and same-window resource rows before stating the cause. If peer state or on-chain evidence is missing, keep the direct wait as a bounded symptom/candidate and state the caveat instead of promoting it to an independent root cause.\n")
+		b.WriteString("- Runtime direct-blocking hint: treat `critical_blocking_calls` as the direct blocking surface, not necessarily the final cause. For binder/futex/lock/sync waits, use `oneway`/`sync_like`/`blocking_candidate` instead of inferring blocking semantics from raw flags; then name the waiting thread, peer, duration, `chain_relevance`, and any `peer_state_*`/`peer_state` breakdown (on a folded lock-holder `root_cause_rank` row the same breakdown is carried under `subject_state_*` and describes the holder subject itself, not a peer), and continue through peer/on-chain thread state, `wakeup_chain`, `root_cause_rank`, and same-window resource rows before stating the cause. If peer state or on-chain evidence is missing, keep the direct wait as a bounded symptom/candidate and state the caveat instead of promoting it to an independent root cause.\n")
 		b.WriteString("- Runtime trace handoff hint: when `trace_query` reports `frame_root_cause_bundle`, `root_cause_rank`, `critical_blocking_calls`, `state_churn`, `state_drilldown`, `aggregated_impact`/`wakeup_causal_aggregate`, or fragmented root-cause rows, preserve `chain_relevance`, path, occurrences, `occurrence_windows`, overlap, edge_count, nearest_chain_thread/window, `dominant_state`, running/runnable/sleep/d_state/io_wait totals, `cumulative_impact_ms`, and, when `next_step=...` or `recommended_views=...` is present, preserve that next-step guidance visibly in the final answer. Treat `on_chain` rows as primary candidates, compare same-chain primary rows by cumulative impact before score, enumerate representative repeated windows when `occurrence_windows` is present, and keep `adjacent` rows as supporting context and `background` rows as auxiliary unless other bounded evidence proves direct impact. If a later `trace_query` result covers the requested window and conflicts with an earlier perf-triage/pre-scan caveat, prefer the bounded `trace_query` facts for metrics, selected-window coverage, and next-step guidance; keep weaker caveats only when they remain true after the trace_query result.\n")
 		b.WriteString("- Runtime IO/supply hint: when trace_query provides `file_io`, `page_cache`, `storage_latency`, `block_io_by_inode`, `io_burst_episode`, `io_pressure`, `irq_activity`, `softirq_activity`, `workqueue_activity`, `supply_pressure`, `trace_mark_category`, or `async_file_work` observations, preserve inode/dev/op/bytes/count/latency/churn, thread/core/top-load context, and trace-marker category notes, then relate them to D-state/iowait/block-latency/runnable facts. Do not invent a file path from an inode alone; only name a path when the trace row included a full path or a separate filesystem mapping proves it. Treat `entry_name` as a basename-like trace label: never prefix it with `/`, `/data/`, or any directory unless that exact full path is grounded.\n")
 	}
@@ -12575,6 +12575,21 @@ var traceQueryObservationSupplementAllowedNotePrefixes = []string{
 	types.TraceNoteKeyRunning + "=", types.TraceNoteKeyRunnable + "=", types.TraceNoteKeySleep + "=", types.TraceNoteKeyDState + "=", types.TraceNoteKeyIOWait + "=",
 	"peer_state_dominant=", "peer_state_total=", "peer_state_running=", "peer_state_runnable=",
 	"peer_state_sleep=", "peer_state_d_state=", "peer_state_io_wait=", "peer_state_fragments=",
+	// BLK-2 P1 指代翻转修复: the holder-subject folded rank row
+	// (type=blocking_span) ports its twin state breakdown under subject_state_*
+	// because the SUBJECT of that row IS the lock holder itself — pairing the
+	// breakdown against peer_state_* would name the wrong thread ("等待方
+	// running 主导" false fact). Both families coexist in this pass-through
+	// table: one physical table serves both waiter-subject critical_blocking
+	// rows (peer_state_*, holder is the peer — correct) and holder-subject rank
+	// rows (subject_state_*), and a given row only ever carries one family.
+	// Deliberately NOT admitted here: subject_chain_* (the A1 continuation is
+	// display/projection tier, not a 4-note audit pair — mirrors peer_chain_*,
+	// which is likewise absent from this table) and lock_twin_folded (a
+	// coverage-face contract key consumed by trace_observation_coverage.go, not
+	// an audit pairing).
+	"subject_state_dominant=", "subject_state_total=", "subject_state_running=", "subject_state_runnable=",
+	"subject_state_sleep=", "subject_state_d_state=", "subject_state_io_wait=", "subject_state_fragments=",
 }
 
 // Per-type priority prefix tables (SG 批, §10 复核要点①: the A3/C4/Q4-K "audit
@@ -12587,13 +12602,20 @@ var traceQueryObservationSupplementAllowedNotePrefixes = []string{
 // main table.
 var (
 	// blocking_span / monitor_contention / lock_contention rows: the parsed
-	// contention semantics (kind + holder site) lead; the peer's dominant
-	// state / sleep pair backs up when the payload parse named no site.
+	// contention semantics (kind + holder site) lead; the twin's dominant
+	// state / sleep pair backs up when the payload parse named no site. This
+	// one table serves BOTH lanes of the folded lock span: the waiter-subject
+	// critical_blocking row (twin state ported as peer_state_*, the holder being
+	// the peer) and the BLK-2 holder-subject rank row (twin state ported as
+	// subject_state_*, the holder being the subject itself). A row carries only
+	// one family, so both prefix pairs are listed and COEXIST — never replace.
 	traceQueryObservationSupplementBlockingPriorityPrefixes = []string{
 		types.TraceNoteKeyBlockingKind + "=",
 		types.TraceNoteKeyHolderSite + "=",
 		"peer_state_dominant=",
 		"peer_state_sleep=",
+		"subject_state_dominant=",
+		"subject_state_sleep=",
 	}
 	// binder_wait rows: the peer's dominant state + sleep pair (§10-A3 — the
 	// "对端睡眠只在散文" finding; the pair was structurally capped out behind
