@@ -12562,6 +12562,11 @@ func traceQueryObservationPathBase(path string) string {
 //     its registry row fails the pin instead of vanishing silently.
 var traceQueryObservationSupplementAllowedNotePrefixes = []string{
 	types.TraceNoteKeyType + "=", types.TraceNoteKeyPeer + "=", types.TraceNoteKeyChainRelevance + "=", "nearest_chain_thread=", "edge_count=",
+	// SG 批 (§10-A3/C4 + Q4-K 修3 共因): the blocking-family contention
+	// semantics were table-level EXCLUDED before — harder than the 4-note cap
+	// ordering, because no ordering could ever admit them. Registry-backed
+	// constants only (blocking family, already registered — no new keys).
+	types.TraceNoteKeyBlockingKind + "=", types.TraceNoteKeyHolderSite + "=", types.TraceNoteKeyWaiters + "=",
 	types.TraceNoteKeyCausality + "=", types.TraceNoteKeyChainDepth + "=", "priority_relation=", "priority_inversion_candidate=",
 	types.TraceNoteKeyOccurrenceWindows + "=",
 	"prio=", "target_prio=", types.TraceNoteKeyDominantState + "=", types.TraceNoteKeyImpact + "=", types.TraceNoteKeyImpactMS + "=", types.TraceNoteKeyCumulativeImpactMS + "=", "target_impact=",
@@ -12572,10 +12577,112 @@ var traceQueryObservationSupplementAllowedNotePrefixes = []string{
 	"peer_state_sleep=", "peer_state_d_state=", "peer_state_io_wait=", "peer_state_fragments=",
 }
 
+// Per-type priority prefix tables (SG 批, §10 复核要点①: the A3/C4/Q4-K "audit
+// surface never shows the load-bearing pair" findings share ONE cause — the
+// flat first-4 RichNotes scan lets a row family's head keys crowd out its
+// audit-critical pair). Each table lists, in pick order, the prefixes that the
+// priority pass moves into the 4-note window for rows of that family. All
+// entries are "<registered key>=" shaped and pinned ⊆ registry by
+// TestTraceQueryObservationSupplementAllowedPrefixesRegistered alongside the
+// main table.
+var (
+	// blocking_span / monitor_contention / lock_contention rows: the parsed
+	// contention semantics (kind + holder site) lead; the peer's dominant
+	// state / sleep pair backs up when the payload parse named no site.
+	traceQueryObservationSupplementBlockingPriorityPrefixes = []string{
+		types.TraceNoteKeyBlockingKind + "=",
+		types.TraceNoteKeyHolderSite + "=",
+		"peer_state_dominant=",
+		"peer_state_sleep=",
+	}
+	// binder_wait rows: the peer's dominant state + sleep pair (§10-A3 — the
+	// "对端睡眠只在散文" finding; the pair was structurally capped out behind
+	// type/peer/chain_relevance/edge_count).
+	traceQueryObservationSupplementBinderPriorityPrefixes = []string{
+		"peer_state_dominant=",
+		"peer_state_sleep=",
+	}
+	// periodic-source rows (VS-1): the discounted attribution + the cadence
+	// flag (§10-C4 — the raw aggregate was the only visible magnitude, the
+	// 0.208ms-class discount never reached the audit surface).
+	traceQueryObservationSupplementPeriodicPriorityPrefixes = []string{
+		types.TraceNoteKeyEffectiveImpactMS + "=",
+		types.TraceNoteKeyPeriodicSource + "=",
+		types.TraceNoteKeyDetectedPeriodMS + "=",
+		types.TraceNoteKeyLatenessMS + "=",
+	}
+)
+
+// traceQueryObservationSupplementPriorityNoteCap bounds the priority pass to 2
+// of the row's 4 note slots: the audit-critical pair lands in front while the
+// remaining slots fill from the regular RichNotes order — the pair is
+// "排进前 4", never "独占前 4". Which identity keys survive the fill pass
+// depends on the producer's note order (a periodic wakeup_causal_impact row
+// fills causality=/dominant_state= before impact=); the raw magnitude itself
+// is always visible because it is the row's Value in the rendered line, not
+// only a note.
+const traceQueryObservationSupplementPriorityNoteCap = 2
+
+// traceQueryObservationSupplementPriorityPrefixes classifies one observation
+// row into its priority table. Typed judgment only: the periodic branch keys
+// on the exact "periodic_source=true" typed note and the family branch on the
+// typed "type=" enum value (case-insensitive match over the closed producer
+// enum; the single producer emits lowercase) — never on summary/prose text.
+// Rows outside the three families return nil and keep the legacy first-4
+// selection byte-identical.
+func traceQueryObservationSupplementPriorityPrefixes(record types.ObservationRecord) []string {
+	if traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyPeriodicSource) == "true" {
+		return traceQueryObservationSupplementPeriodicPriorityPrefixes
+	}
+	switch strings.ToLower(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyType)) {
+	case "blocking_span", "monitor_contention", "lock_contention":
+		return traceQueryObservationSupplementBlockingPriorityPrefixes
+	case "binder_wait":
+		return traceQueryObservationSupplementBinderPriorityPrefixes
+	}
+	return nil
+}
+
+// traceQueryObservationSupplementNoteValue returns the trimmed value of the
+// FIRST rich note carrying the exact "<key>=" typed prefix, "" when absent.
+func traceQueryObservationSupplementNoteValue(record types.ObservationRecord, key string) string {
+	prefix := key + "="
+	for _, note := range record.RichNotes {
+		note = strings.TrimSpace(note)
+		if strings.HasPrefix(note, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(note, prefix))
+		}
+	}
+	return ""
+}
+
 func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh bool) string {
 	seen := map[string]bool{}
 	notes := make([]string, 0, 4)
+	// Priority pass (SG 批): scan the row family's priority prefixes IN TABLE
+	// ORDER (each prefix picks its first matching note), capped at
+	// traceQueryObservationSupplementPriorityNoteCap slots. The fill pass below
+	// then completes the window from the legacy RichNotes-order scan, so rows
+	// with no priority family — and rows whose priority notes are absent —
+	// render exactly the pre-SG selection.
+	for _, prefix := range traceQueryObservationSupplementPriorityPrefixes(record) {
+		if len(notes) >= traceQueryObservationSupplementPriorityNoteCap {
+			break
+		}
+		for _, note := range record.RichNotes {
+			note = strings.TrimSpace(note)
+			if note == "" || seen[note] || !strings.HasPrefix(note, prefix) {
+				continue
+			}
+			seen[note] = true
+			notes = append(notes, note)
+			break
+		}
+	}
 	for _, note := range record.RichNotes {
+		if len(notes) >= 4 {
+			break
+		}
 		note = strings.TrimSpace(note)
 		if note == "" || seen[note] {
 			continue
@@ -12586,9 +12693,6 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 			}
 			seen[note] = true
 			notes = append(notes, note)
-			break
-		}
-		if len(notes) >= 4 {
 			break
 		}
 	}

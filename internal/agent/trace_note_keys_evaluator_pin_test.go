@@ -50,6 +50,33 @@ func TestTraceQueryObservationSupplementAllowedPrefixesRegistered(t *testing.T) 
 	if violations := traceNoteKeyPrefixTableViolations(traceQueryObservationSupplementAllowedNotePrefixes); len(violations) != 0 {
 		t.Errorf("traceQueryObservationSupplementAllowedNotePrefixes carries entries outside the trace_note_keys.go registry: %v — register the key first (change protocol), never let a selection entry drift", violations)
 	}
+	// SG 批: the per-type priority tables are selection surfaces too (their
+	// pass picks notes directly), so they carry the same ⊆-registry pin.
+	for name, table := range map[string][]string{
+		"blocking": traceQueryObservationSupplementBlockingPriorityPrefixes,
+		"binder":   traceQueryObservationSupplementBinderPriorityPrefixes,
+		"periodic": traceQueryObservationSupplementPeriodicPriorityPrefixes,
+	} {
+		if violations := traceNoteKeyPrefixTableViolations(table); len(violations) != 0 {
+			t.Errorf("supplement %s priority table carries entries outside the trace_note_keys.go registry: %v — register the key first (change protocol), never let a selection entry drift", name, violations)
+		}
+	}
+	// SG 批: the blocking-family trio the mandate added to the ALLOWED table
+	// must stay there — table-level exclusion was the harder half of the
+	// §10-A3/C4/Q4-K 修3 common cause (no ordering can admit an excluded key).
+	allowed := map[string]bool{}
+	for _, prefix := range traceQueryObservationSupplementAllowedNotePrefixes {
+		allowed[prefix] = true
+	}
+	for _, want := range []string{
+		types.TraceNoteKeyBlockingKind + "=",
+		types.TraceNoteKeyHolderSite + "=",
+		types.TraceNoteKeyWaiters + "=",
+	} {
+		if !allowed[want] {
+			t.Errorf("allowed-prefix table lost the blocking-family entry %q (SG 批 Q4-K 修3)", want)
+		}
+	}
 }
 
 // TestRuntimeTracePerfQualityNoteTracksRegistry pins the evaluator's

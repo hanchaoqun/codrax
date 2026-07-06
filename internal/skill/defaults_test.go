@@ -589,6 +589,87 @@ func TestFinalizerSkill_TeachesAbstractionLevelMatching(t *testing.T) {
 	}
 }
 
+// TestFinalizerSkill_TraceProseDisciplinesAreTraceGated — SG 批 (账本
+// real_trace_campaign_20260705.md §10.2/§11.2/§12.2): three trace-only prose
+// disciplines live in the answer-document skill's WorkflowTierB, each gated by
+// RequiresTrace, never in the always-rendered workflow:
+//   - PERIODIC-SOURCE DISCOUNT (§10-C4): prose must consume the discounted
+//     effective_impact_ms, raw sum only as a labelled comparison figure;
+//   - ON-CHAIN BLOCKING DISPOSITION (Q4-K 修4): a near-target-length on-chain
+//     blocking observation must be explicitly disposed of in prose;
+//   - WINDOW-STATS CORE NUMBERS (§11-N7 soft face): headline window-stats
+//     numbers carry their measurement-basis window.
+func TestFinalizerSkill_TraceProseDisciplinesAreTraceGated(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
+	}
+	always := strings.Join(sk.Workflow, "\n")
+	for _, header := range []string{"PERIODIC-SOURCE DISCOUNT", "ON-CHAIN BLOCKING DISPOSITION", "WINDOW-STATS CORE NUMBERS"} {
+		if strings.Contains(always, header) {
+			t.Fatalf("%s must not live in the always-rendered workflow", header)
+		}
+	}
+	find := func(header string) TierBItem {
+		t.Helper()
+		for _, item := range sk.WorkflowTierB {
+			if strings.Contains(item.Body, header) {
+				return item
+			}
+		}
+		t.Fatalf("answer-document-skill WorkflowTierB missing %q", header)
+		return TierBItem{}
+	}
+	discount := find("PERIODIC-SOURCE DISCOUNT")
+	if !discount.AppliesTo.RequiresTrace {
+		t.Fatalf("periodic-source discount item must be RequiresTrace-gated: %+v", discount.AppliesTo)
+	}
+	for _, want := range []string{"periodic_source=true", "effective_impact_ms", "discounted value", "comparison figure", "NEVER as the primary impact number"} {
+		if !strings.Contains(discount.Body, want) {
+			t.Errorf("periodic-source discount item missing %q:\n%s", want, discount.Body)
+		}
+	}
+	disposition := find("ON-CHAIN BLOCKING DISPOSITION")
+	if !disposition.AppliesTo.RequiresTrace {
+		t.Fatalf("blocking-disposition item must be RequiresTrace-gated: %+v", disposition.AppliesTo)
+	}
+	for _, want := range []string{"chain_relevance=on_chain", "same order of magnitude", "root-cause carrier", "subordinate"} {
+		if !strings.Contains(disposition.Body, want) {
+			t.Errorf("blocking-disposition item missing %q:\n%s", want, disposition.Body)
+		}
+	}
+	windowStats := find("WINDOW-STATS CORE NUMBERS")
+	if !windowStats.AppliesTo.RequiresTrace {
+		t.Fatalf("window-stats basis item must be RequiresTrace-gated: %+v", windowStats.AppliesTo)
+	}
+	for _, want := range []string{"measurement basis", "aligned/occurrence window", "denominator"} {
+		if !strings.Contains(windowStats.Body, want) {
+			t.Errorf("window-stats basis item missing %q:\n%s", want, windowStats.Body)
+		}
+	}
+}
+
+// TestAnalysisSkill_RuntimeFocusIdentityGuidance — SG 批 Q4-E 腿1 (soft
+// entity-kind steering): the classification prompt distinguishes thread/
+// process identities (analysis subjects → entities + typed runtime_targets
+// with kind) from frame/sequence ordinals (event locators — never
+// runtime_targets, never the anchor subject).
+func TestAnalysisSkill_RuntimeFocusIdentityGuidance(t *testing.T) {
+	out := analysisSkillPrompt(t)
+	for _, want := range []string{
+		"Runtime-artifact focus identities",
+		"`runtime_targets` lane with the matching kind",
+		"EVENT LOCATORS",
+		"never the thread itself",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("classification prompt missing runtime focus-identity guidance token %q", want)
+		}
+	}
+}
+
 func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

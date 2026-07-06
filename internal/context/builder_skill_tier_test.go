@@ -551,10 +551,11 @@ func TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForTypedTrace(t *tes
 }
 
 // TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount — pin
-// the migration shape: 6 Tier B Workflow items + 2 Tier B
-// Prohibitions are present on the answer-document-skill, with
-// the expected bodies (verbatim). This is the canonical post-P5-B
-// migration assertion.
+// the migration shape: 9 Tier B Workflow items (6 from the P5-B
+// migration + 3 trace prose disciplines from the SG soft-guidance
+// batch: periodic-source discount, on-chain blocking disposition,
+// window-stats core numbers) + 2 Tier B Prohibitions are present
+// on the answer-document-skill, with the expected bodies (verbatim).
 func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 	r := skill.NewRegistry()
 	skill.RegisterDefaults(r)
@@ -562,8 +563,8 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get(answer-document-skill): %v", err)
 	}
-	if len(sk.WorkflowTierB) != 6 {
-		t.Errorf("answer-document-skill should declare 6 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
+	if len(sk.WorkflowTierB) != 9 {
+		t.Errorf("answer-document-skill should declare 9 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
 	}
 	if len(sk.ProhibitionsTierB) != 2 {
 		t.Errorf("answer-document-skill should declare 2 Tier B Prohibitions; got %d", len(sk.ProhibitionsTierB))
@@ -577,6 +578,9 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 		"Sealed-seed rule for diagram anchors",
 		"Subject discipline:",
 		"Authority discipline (drift-bounded answers)",
+		"PERIODIC-SOURCE DISCOUNT:",
+		"ON-CHAIN BLOCKING DISPOSITION:",
+		"WINDOW-STATS CORE NUMBERS:",
 	}
 	if len(sk.WorkflowTierB) != len(wantWorkflowPrefixes) {
 		t.Fatalf("Tier B count mismatch: want %d, got %d", len(wantWorkflowPrefixes), len(sk.WorkflowTierB))

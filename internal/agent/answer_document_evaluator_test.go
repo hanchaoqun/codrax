@@ -8590,6 +8590,84 @@ func TestTraceQueryObservationSupplementNotes_SelectedWindowEndpoints(t *testing
 	}
 }
 
+// TestTraceQueryObservationSupplementNotes_PerTypePriority pins the SG-batch
+// per-type note priority inside the 4-note window (§10-A3/C4 + Q4-K 修3 共因,
+// 一修三收): binder_wait rows front the peer_state pair, blocking/monitor rows
+// front blocking_kind/holder_site, periodic-source rows front the discounted
+// effective_impact_ms + periodic_source flag — and in every case the row's
+// identity/raw keys keep the remaining slots so the raw figure stays visible
+// as the comparison value. Classification is typed (exact type= / periodic_
+// source= note match), never prose.
+func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
+	notesOf := func(record types.ObservationRecord) string {
+		return traceQueryObservationSupplementNotes(record, false)
+	}
+	// binder_wait: peer_state_dominant/sleep displace chain_relevance/edge_count.
+	binder := types.ObservationRecord{RichNotes: []string{
+		"type=binder_wait", "peer=OS_IPC_peer-43722", "chain_relevance=on_chain", "edge_count=3",
+		"peer_state_dominant=sleep", "peer_state_sleep=31.600ms",
+	}}
+	got := notesOf(binder)
+	want := "notes=peer_state_dominant=sleep, peer_state_sleep=31.600ms, type=binder_wait, peer=OS_IPC_peer-43722"
+	if got != want {
+		t.Fatalf("binder_wait priority selection:\n got %q\nwant %q", got, want)
+	}
+	// blocking_span carrying the parsed lock payload: kind + holder site lead;
+	// type/peer fill; waiters is table-admitted but capped out here.
+	blocking := types.ObservationRecord{RichNotes: []string{
+		"type=blocking_span", "peer=Holder_Operate_0-42067", "blocking_kind=monitor_contention",
+		"holder_site=SomeManager.list(SomeManager.java:1258)", "waiters=2", "chain_relevance=on_chain",
+	}}
+	got = notesOf(blocking)
+	want = "notes=blocking_kind=monitor_contention, holder_site=SomeManager.list(SomeManager.java:1258), type=blocking_span, peer=Holder_Operate_0-42067"
+	if got != want {
+		t.Fatalf("blocking_span priority selection:\n got %q\nwant %q", got, want)
+	}
+	// blocking_span WITHOUT a parsed payload falls back to the peer_state pair.
+	blockingNoPayload := types.ObservationRecord{RichNotes: []string{
+		"type=blocking_span", "peer=unknown-thread", "chain_relevance=on_chain", "edge_count=1",
+		"peer_state_dominant=running", "peer_state_sleep=0.000ms",
+	}}
+	got = notesOf(blockingNoPayload)
+	want = "notes=peer_state_dominant=running, peer_state_sleep=0.000ms, type=blocking_span, peer=unknown-thread"
+	if got != want {
+		t.Fatalf("payload-less blocking_span priority selection:\n got %q\nwant %q", got, want)
+	}
+	// periodic-source row: the discounted pair leads, the raw impact keeps a
+	// slot as the comparison figure (never silently displaced).
+	periodic := types.ObservationRecord{RichNotes: []string{
+		"impact_ms=42.600", "dominant_state=sleep", "occurrences=12",
+		"periodic_source=true", "detected_period_ms=16.667", "lateness_ms=0.208", "effective_impact_ms=0.208",
+	}}
+	got = notesOf(periodic)
+	want = "notes=effective_impact_ms=0.208, periodic_source=true, impact_ms=42.600, dominant_state=sleep"
+	if got != want {
+		t.Fatalf("periodic-source priority selection:\n got %q\nwant %q", got, want)
+	}
+	// Unclassified rows keep the legacy first-4 RichNotes-order selection —
+	// including NOT selecting a stray effective_impact_ms (no priority family,
+	// and the key is priority-lane-only by design).
+	legacy := types.ObservationRecord{RichNotes: []string{
+		"type=runnable_wait", "impact_ms=10.000", "effective_impact_ms=8.000",
+		"dominant_state=runnable", "occurrences=2", "prio=120",
+	}}
+	got = notesOf(legacy)
+	want = "notes=type=runnable_wait, impact_ms=10.000, dominant_state=runnable, occurrences=2"
+	if got != want {
+		t.Fatalf("unclassified row must keep the legacy selection:\n got %q\nwant %q", got, want)
+	}
+	// waiters= is a first-class allowed key now (Q4-K 修3): with no competing
+	// priority notes it survives the regular scan.
+	waiters := types.ObservationRecord{RichNotes: []string{
+		"type=priority_inversion_runnable_wait", "peer=some-peer-7", "waiters=3", "impact_ms=5.000",
+	}}
+	got = notesOf(waiters)
+	want = "notes=type=priority_inversion_runnable_wait, peer=some-peer-7, waiters=3, impact_ms=5.000"
+	if got != want {
+		t.Fatalf("waiters must pass the allowed table:\n got %q\nwant %q", got, want)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceStateDrilldownSupplement(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

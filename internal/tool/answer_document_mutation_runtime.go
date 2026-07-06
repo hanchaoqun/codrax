@@ -3888,6 +3888,30 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 			CitationRef: -1,
 		})
 	}
+	// SG 批 (§10-D1② + Q4-K 修5): named holder/peer drilldown rows — when the
+	// compiled projection resolved a blocking peer (lock holder via the typed
+	// §7.30.3 D1 payload parse, or a binder_wait row whose peer thread is
+	// named), the next-step list points at THAT thread concretely. Same
+	// shared-cap + typed-key-then-verbatim dedupe discipline (R4-3/裁定5+H9)
+	// as every other lane; the generic s_sleep template row stands down below
+	// only when a named row actually rendered.
+	namedPeerRows := false
+	for _, hint := range runtimeTraceNextStepResolvedPeerHints(ledger, zh) {
+		if len(out) >= runtimeTraceNextStepMaxItems {
+			break
+		}
+		if hint == "" || seenText[hint] {
+			continue
+		}
+		seenText[hint] = true
+		namedPeerRows = true
+		out = append(out, types.AnswerBlockItem{
+			ID:          fmt.Sprintf("runtime_trace_next_step_%d", len(out)+1),
+			Label:       label,
+			Text:        hint,
+			CitationRef: -1,
+		})
+	}
 	// PTS-2 dynamic cap (#69 用户条件裁定 2026-07-06): on the comparison shape
 	// the per-record rows read an extended cap — every leading lane above has
 	// already been placed, so the guaranteed floor slots can only be consumed
@@ -3904,6 +3928,14 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 	for _, record := range ledger.Records {
 		if len(out) >= recordCap {
 			break
+		}
+		// SG 批 (§10-D1②): the generic s_sleep guidance ("investigate the peer
+		// threads / binder waits / lock waits") yields to the named
+		// holder/peer rows above — typed next_step_kind enum match only; rows
+		// of every other kind (and legacy rows without a kind) are untouched.
+		if namedPeerRows && strings.EqualFold(strings.TrimSpace(
+			runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyNextStepKind)), "s_sleep") {
+			continue
 		}
 		step := runtimeTraceNextStepFromObservationRecord(record, zh)
 		if step == "" {
@@ -4147,6 +4179,105 @@ func runtimeTraceNextStepFlatAnchorRecoveryHints(ctx *types.BusContext, ledger t
 		out = append(out, text)
 	}
 	return out
+}
+
+// runtimeTraceNextStepResolvedPeerHints returns the SG-batch named
+// holder/peer drilldown rows (§10-D1② + Q4-K 修5, RN-14a 合成先例同族): one
+// per DISTINCT resolved blocking peer across the compiled projections. Two
+// typed admission shapes, precise signals only:
+//   - lock shape: node.BlockingKind + node.BlockingPeer both set (the
+//     §7.30.3 D1 payload parse already sentinel-filters the peer at compile);
+//     the holding site rides along when parsed;
+//   - binder shape: a critical_blocking row (exact typed Predicate) whose
+//     TypeToken is binder_wait and whose Object names a real peer thread
+//     (the critical_blocking publication puts the peer label in Object; the
+//     unknown-thread sentinel is excluded by the exact token match).
+//
+// Soft guidance only — nothing gates on these rows. Dedupe follows the R4-3
+// discipline: a typed identity key here (shape + canonical peer + site), the
+// caller's verbatim-text layer on top.
+func runtimeTraceNextStepResolvedPeerHints(ledger types.ObservationLedger, zh bool) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, projection := range types.CompileTraceCausalProjectionSet(ledger).Projections {
+		if !projection.Active() {
+			continue
+		}
+		for _, node := range runtimeTraceProjResolvedPeerScanNodes(projection) {
+			peer, holderSite, lockShape := runtimeTraceNextStepResolvedPeer(node)
+			if peer == "" {
+				continue
+			}
+			key := strings.Join([]string{
+				fmt.Sprintf("%t", lockShape),
+				runtimeTraceCausalProjectionCanonicalNode(peer),
+				runtimeTraceCausalProjectionCanonicalNode(holderSite),
+			}, "\x00")
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, runtimeTraceNextStepResolvedPeerText(peer, holderSite, lockShape, zh))
+		}
+	}
+	return out
+}
+
+// runtimeTraceProjResolvedPeerScanNodes walks every node bucket of one
+// compiled projection in deterministic bucket-then-index order.
+func runtimeTraceProjResolvedPeerScanNodes(projection types.TraceCausalProjection) []types.TraceCausalProjectionNode {
+	var nodes []types.TraceCausalProjectionNode
+	if projection.PrimaryRootCause != nil {
+		nodes = append(nodes, *projection.PrimaryRootCause)
+	}
+	nodes = append(nodes, projection.PrimaryRootCauses...)
+	nodes = append(nodes, projection.OnChainCauses...)
+	nodes = append(nodes, projection.SupportingHops...)
+	nodes = append(nodes, projection.AdjacentCauses...)
+	nodes = append(nodes, projection.BackgroundCauses...)
+	return nodes
+}
+
+// runtimeTraceNextStepResolvedPeer extracts the resolved blocking peer of one
+// projection node, "" when the node carries none. lockShape distinguishes the
+// holder wording (持有者/lock holder) from the binder wording (对端/binder
+// peer).
+func runtimeTraceNextStepResolvedPeer(node types.TraceCausalProjectionNode) (peer, holderSite string, lockShape bool) {
+	if strings.TrimSpace(node.BlockingKind) != "" && strings.TrimSpace(node.BlockingPeer) != "" {
+		return strings.TrimSpace(node.BlockingPeer), strings.TrimSpace(node.BlockingHolderSite), true
+	}
+	if strings.TrimSpace(node.Predicate) == "critical_blocking" &&
+		runtimeTraceCausalProjectionCanonicalNode(node.TypeToken) == "binder_wait" {
+		object := strings.TrimSpace(node.Object)
+		if object != "" && !runtimeTraceCausalProjectionUnknownSentinel(object) {
+			return object, "", false
+		}
+	}
+	return "", "", false
+}
+
+// runtimeTraceNextStepResolvedPeerText renders one named holder/peer
+// drilldown row. Identity strings only (thread label + holding site) — the
+// row carries no scalar claims about either side.
+func runtimeTraceNextStepResolvedPeerText(peer, holderSite string, lockShape, zh bool) string {
+	if zh {
+		role := "对端"
+		if lockShape {
+			role = "持有者"
+		}
+		if holderSite != "" {
+			return fmt.Sprintf("对%s %s(持有点 %s)在重叠窗执行 trace_query view=thread_timeline/wakeup_chain", role, peer, holderSite)
+		}
+		return fmt.Sprintf("对%s %s 在重叠窗执行 trace_query view=thread_timeline/wakeup_chain", role, peer)
+	}
+	role := "binder peer"
+	if lockShape {
+		role = "lock holder"
+	}
+	if holderSite != "" {
+		return fmt.Sprintf("Run trace_query view=thread_timeline/wakeup_chain over the overlapping window for the %s %s (holding site %s)", role, peer, holderSite)
+	}
+	return fmt.Sprintf("Run trace_query view=thread_timeline/wakeup_chain over the overlapping window for the %s %s", role, peer)
 }
 
 // runtimeTraceCaptureIdentityBasename is the display basename of a canonical

@@ -453,6 +453,21 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 					types.ViolAuthorityOverreach,
 				},
 			},
+			{
+				// SG-C4: periodic-source discount consumption — trace-only.
+				Body:      "PERIODIC-SOURCE DISCOUNT: when a trace observation carries periodic-source cadence notes (`periodic_source=true` with `effective_impact_ms` / `detected_period_ms` / `lateness_ms`), that observation's subject is a periodic signal source (e.g. a vsync-style generator or timer thread): its in-period sleep is normal scheduled cadence, and only the discounted `effective_impact_ms` (signal lateness plus ready-wait) is attributable impact on the analysis target. Any prose that reports that chain's impact MUST use the discounted value and state the basis (e.g. 'X ms attributable after the periodic-cadence discount'); the raw aggregated duration may appear only as an explicitly labelled comparison figure next to it (e.g. 'raw window sum Y ms, mostly scheduled cadence sleep'), NEVER as the primary impact number or the root-cause magnitude. Promoting the raw sum to the headline while the discounted value exists misattributes normal cadence sleep to the reported cause.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// SG-Q4K4: on-chain blocking disposition obligation — trace-only.
+				Body:      "ON-CHAIN BLOCKING DISPOSITION: when the evidence contains an on-chain blocking or lock-wait observation (chain_relevance=on_chain with a lock/monitor contention, blocking-span, or binder wait) whose duration is the same order of magnitude as the target's total wait, the answer prose MUST explicitly dispose of it: either present it as the root-cause carrier (naming the holder/peer thread and holding site when the observation resolved them), or state concretely WHY it is subordinate to the chosen root cause (e.g. it is contained inside another cause's interval, or it is serialized behind the named cause). Silently omitting a near-target-length on-chain blocking observation while the conclusion promotes a much smaller cause is a regression — the reader cannot audit why the largest on-chain wait was passed over.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// SG-N7: window-stats core-number basis obligation — trace-only.
+				Body:      "WINDOW-STATS CORE NUMBERS: every headline number the answer takes from a window statistics observation (a per-state duration, a percentage of a window, a switch/fragment count) must be quoted at the published value and paired with its measurement basis: WHICH window it was measured over (the full query window vs a narrower aligned/occurrence window) and, for a percentage, which denominator produced it. Do NOT carry a number measured over one window onto a differently-sized window as if the bases matched, and do NOT present a value observed over a short aligned window as if it filled the whole query window. When you derive a ratio or a sum yourself, name the published values it was derived from so the figure stays auditable against the evidence rows.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
 		},
 		// P5-B Tier B prohibitions: 2 items the design classifies
 		// as style-polish (always relevant but lower priority).
