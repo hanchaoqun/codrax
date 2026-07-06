@@ -2619,6 +2619,32 @@ app-20 (20) [001] .... 1.002500: tracing_mark_write: E|20
 	}
 }
 
+// TestSpanLocateRecipePatternOnlyFiltersUnrelatedSpans — SG-2 review F1 pin:
+// a pattern-only invocation must mirror the located label into the window
+// step. Without the mirror the span_window step has no name filter and
+// returns EVERY complete span (StartTs-sorted, Limit-truncated) — unrelated
+// windows get published and a small Limit can truncate out the target
+// entirely.
+func TestSpanLocateRecipePatternOnlyFiltersUnrelatedSpans(t *testing.T) {
+	idx := buildTraceIndex(t, "span_locate_multi.systrace", `
+other-10 (10) [000] .... 0.500000: tracing_mark_write: B|10|otherWork
+other-10 (10) [000] .... 0.900000: tracing_mark_write: E|10
+third-30 (30) [002] .... 0.950000: tracing_mark_write: B|30|thirdWork
+third-30 (30) [002] .... 0.990000: tracing_mark_write: E|30
+app-20 (20) [001] .... 1.000000: tracing_mark_write: B|20|bindApplication
+app-20 (20) [001] .... 1.002500: tracing_mark_write: E|20
+`)
+	// Pattern-only, Limit smaller than the total span count: the target must
+	// survive and no unrelated span may be published.
+	res := Run(idx, Query{View: "recipe", RecipeName: "span_locate", Pattern: "bindApplication", Limit: 2})
+	if len(res.SpanWindows) != 1 {
+		t.Fatalf("pattern-only span_locate must publish exactly the matching span: %+v", res.SpanWindows)
+	}
+	if res.SpanWindows[0].Name != "bindApplication" || !near(res.SpanWindows[0].DurationMs, 2.5, 0.001) {
+		t.Fatalf("pattern-only span_locate resolved the wrong span: %+v", res.SpanWindows[0])
+	}
+}
+
 func TestFrameTimelineAndFlowViews(t *testing.T) {
 	idx := buildTraceIndex(t, "frame_flow.systrace", frameFlowTrace)
 	timeline := Run(idx, Query{View: "frame_timeline", TimeStart: 7.0, TimeEnd: 7.05, Limit: 10})
