@@ -1241,3 +1241,39 @@ func main() {
 - 根修:①source③彻底删,只注册 typed RawRef/SourceRef(StoreBlob 自设=trace 内容不可达);②强制 .codrax/blob/ 前缀约束(canonicaliser 折叠路径穿越)+resolve 复验;③citation 四面同源单 matcher(read_file typed marker/buildLineIndex 只认 typed/emit_evidence 改道/extractor ResolveTraceQueryBlobRef);④第三段 probe-first 接 escape;⑤ObservedLineIndex .codrax 过滤。
 - 二次安全复核用真实攻击串探针逐一证伪绕过(穿越/前缀段边界/typed marker 窗口/grep 旁路),**两 P1 闭合确认**;注入+grounding 攻击 pin 在。
 - 教训入库:嘈声信号(summary 子串)绝不驱动硬 allow-gate;硬不变量不得依赖模型行为(软文案≠防线);安全批强制二次复核方可推。
+
+## §15 回访#5(q6 东湖 doFrame 复跑,P0-E1 后)四维归因(2026-07-06)
+
+标本=cust_trace_q6_opendir.txt。**P0-E1 已生效**:锁竞争 112.223ms 登 rank1(E3),散文正确=monitor+反转+持有点。用户点两问题+逐行。四维归因全 upheld(8-agent workflow)。
+
+### §15.A on-chain running 有效归因未折算(用户问题1,P0)
+E4 running 显裸 58.919ms 无折算,E7 反转节点显折算(供给缺口 17.702+running折算 16.697)。真因(复核修正):同一 WakeupCausalImpact 在 expandChain(query.go:13107)被双投影 —— ①入 res.CausalImpacts(:13147)②经 rootEvidenceFromCausalImpact(:13216)造 RootEvidence type=running,后者 rootCauseItem(query.go:8510 source=wakeup_chain)funnel **从不 set SupplyFoldBasis** → basis=nil → 无 fold_basis note → trace_causal_projection.go:1363 SupplyFoldComputed=false → E4 裸值(tree.go:3968,EffectiveImpactMs 走 raw TotalMs query.go:9667)。两折算除数不同(supply=大核 fmax→17.702 / weakCore=下游消费核 f_consumerMax→16.697,query.go:13277-13281/13392-13399)是 §7.10 红线(3)分车道设计非 bug,但披露缺口径说明。修向:RootEvidence running twin 补 fold 车道(引擎)/投影层 join 同 impact fold note 到 running 成因节点 + E7 机制构成句标注两折算除数口径(单源 answer_document_mutation_runtime_supplyfold.go:139)。
+
+### §15.B 成因维度显示不清晰(用户问题2,P1 UX)
+根因=引擎双发布:同一 running-dominant+反转候选节点发成两条墙钟重叠成因行(E4 running 58.919 全量 ⊃ E7 gated 37.410=runnable 20.713+running折算 16.697=PriorityInversionGatedMs query.go:13257);runnable 无独立有效归因行只作 E7 gated 子项双现(与 runnable-dominant 场景有独立 runnable_wait 行不对称)。显示层(P0-A)faithful 平铺状态维度成因行与判定维度成因行为同级 ├─成因─ 无轴区分。主根修=P0-E 引擎去双发布+成因状态轴平行化(续 §14 collectBlockingSpanRows 折叠家族);措辞修 §7.10/Q4-G 单源。
+
+### §15.C 双向锁 bug(P0 回归 — P0-E1 rank 锁收编 1a05854f 引入)
+三 P0 全 upheld:①同一物理锁 span 被双 lane 双向发布(waiter→holder + holder→waiter,行号区间完全相同);②E3 rank 锁行方向反转(holder-subject 行渲染成 waiter 行,"持有者"填被阻塞方 .ugc.aweme.lite);③next-step 第1条把 waiter(.ugc.aweme.lite-16547)当持有者点名下钻。用户可见错误引导。修=引擎去双向发布(critical_blocking builder)+ E3 方向 + next-step 持有者身份取值。**优先级最高,回归须速修**。
+
+### §15.D 逐行(7 findings)
+- gap③[P0 新根因,新立案 P0-A 覆盖批]:覆盖 94% 口径失真 —— 锁 span 112.223 略超 sleep 态 112.175(0.048ms)触发分母静默退整窗,把本应 ~100% 目标覆盖压成 94%,伪造 6.838ms 未归因残差。
+- 其余[P1-H/SG]:E5 IO延迟名册 3/4 截断(§12 Q4-H repeat)/E7 机制构成 runnable 20.713 双现加和句(§12.3 Q4-G repeat)/下一步同持有点双现(§13 Q5-D repeat)/E11 VSyncGenerator peer_state 未展示(P0-E2a 已解析但未显)/◇邻近 E8/E9 页缓存抖动无 inode 区分标签/E5 ×6 与 (+11) 并列困惑(诚实澄清)。
+
+### §15 批次归口
+- **P0 回归速修批(双向锁)**:§15.C 引擎去双向发布 + 方向 + next-step 身份。
+- **P0-E 引擎批(供给折算+成因去双发布)**:§15.A running twin fold 车道 + §15.B 去双发布/状态轴平行化。
+- **P0-A 覆盖批**:§15.D gap③ 覆盖口径(锁 span 略超 sleep 的分母退整窗)。
+- **P1-H/SG**:§15.D 其余 witness(多为 §12/§13 已立案 q6 复现)。
+
+## §16 SPL:q7 span 定位绕圈归因(2026-07-06,用户点名)
+
+标本=cust_trace_q7_cmp.txt 探索期前 13 轮。**根因=引擎解析覆盖 gap**:客户 trace 的 bindApplication marker 是 `print: 0x0: 15|bindApplication`(数字前缀 print 变体,`N|name` 两字段),trace-mark 识别链(parse.go isDirectTraceMarkPayload :2724)只认 B|/E|/C|/S|/F| 前缀 → EventTraceMark 永不置位 → **span_window 结构性拿不到 span**(query.go:5874 第一行就滤 Type!=EventTraceMark),模型被迫 grep 绕圈是必然后果非能力问题。
+
+三个叠加放大器:①**0 命中 hint 门控反了**(query.go:14728):"丢 event_types"建议只在 EventTypes 为空时发——恰好在模型设了过窄 event_types(第 5-9 轮空转)时被关掉;②thread=bindApplication(span 名当线程名)静默全 0 零诊断(resolveThread query.go:1361 PID=0 空 ThreadRef 下游静默);③无 span_locate recipe/对比黄金路径(BuildRecipe 6 recipe 全假设窗已选定)。
+
+**修向三层**:
+- **T-span 引擎根修(前置实测)**:`N|name` 变体进解析(parse.go:2706/2724/2666 扩展)。⚠ 语义歧义风险:15 可能是 depth/counter/async cookie,误当 sync B/E 配栈会产假 span 窗 — **必须先 ../customlogs 复放确证 begin/end 配对形态+N 语义+普遍性**(标准 atrace 是 B|pid|name,convert_test.go:585;此变体是 vendor 采集链形态,§7.11 平行审计未覆盖)。普遍则进 harmony flavor 封闭集,仅此一家降软识别。
+- **D-diag 诊断引导(ROI 最高,先落)**:①反转 0 命中 hint 门控+跨类型反扫("pattern 在 N 个非所选类型事件里出现,去掉 event_types");②thread 未匹配但该词在 SpanName 集合的 typed caveat("这是 span 名,改用 span_window")。两条即可把 13 轮压到 4-5 轮。判据全精确(PID==0 布尔/verbatim 集合命中)。
+- **R-recipe 软引导**:span_locate recipe(event_search 裸 pattern→span_window→取窗)+ span_window 教学补前置链与变体警示 + 对比场景黄金路径(两 trace 各 span_locate→各自归一化对比,与 CMP 除窗长教训合并)。
+
+批次:D-diag 先行止血(等 P0-E2b 腾 query.go)→ T-span 待实测确证 → R-recipe 随 SG 车。
