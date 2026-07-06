@@ -154,14 +154,22 @@ func TestRuntimeTraceProjWindowLineFallsBackToWholeWindowWithoutSelfRows(t *test
 	if !strings.Contains(line, "on-chain 已归因 3.391ms/3%,未归因残差 97.609ms/97%") {
 		t.Fatalf("fallback branch wording must stay unchanged:\n%s", line)
 	}
-	// Attribution exceeding the symptom duration also falls back (the symptom
-	// denominator would produce a negative residual).
+	// §15.D gap③ (P0-A1, overturns the V2 pin that stood here): attribution
+	// exceeding the symptom duration KEEPS the symptom denominator — the old
+	// whole-window demotion fabricated residual (q6: 112.223ms lock span
+	// 0.048ms past a 112.175ms sleep → "94% + 6.838ms 未归因残差"). A 0.391ms
+	// excess is boundary jitter → full coverage + verbatim caliber disclosure;
+	// the regime pins live in answer_document_projection_p0a1_coverage_test.go.
 	model := custom1gWindowModel(true)
 	model.SelfRows[0].Node.ImpactMS = 1.0
 	model.SelfRows[1].Node.ImpactMS = 2.0
 	line = runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "未归因残差") || strings.Contains(line, "目标等待") {
-		t.Fatalf("attribution above the symptom duration must fall back to the window denominator:\n%s", line)
+	if !strings.Contains(line, "目标等待(sleep/D-state/runnable) 3.000ms 中 on-chain 已归因 3.000ms(100%)") ||
+		!strings.Contains(line, "归因口径合计 3.391ms,略超目标等待 0.391ms") {
+		t.Fatalf("attribution above the symptom must keep the symptom denominator (§15.D gap③):\n%s", line)
+	}
+	if strings.Contains(line, "未归因残差 ") {
+		t.Fatalf("the whole-window residual claim must not render with a symptom denominator:\n%s", line)
 	}
 }
 

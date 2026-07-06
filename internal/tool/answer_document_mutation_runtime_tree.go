@@ -4508,13 +4508,32 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 		// state rows, the coverage denominator is the TARGET SYMPTOM duration,
 		// not the whole window — a target that slept 11.7ms of a 101ms window
 		// once rendered as "残差 97%". Falls back to the whole window (wording
-		// unchanged) when no self-state row exists or the attribution exceeds
-		// the symptom duration.
+		// unchanged) ONLY when no self-state symptom row exists; attribution
+		// exceeding the symptom keeps the symptom denominator (§15.D gap③
+		// below — the old whole-window demotion fabricated residual).
 		// RN-6 (§7.9): the denominator family includes runnable, so the wording
 		// says 等待(sleep/D-state/runnable) instead of claiming everything was
 		// sleep/blocked. PTV7 (#74): the parenthetical state words speak the
 		// canonical tokens on both faces; the sentence frame stays localized.
-		if symptom := runtimeTraceProjTargetSymptomMS(model); symptom > 0 && attributed <= symptom {
+		// §15.D gap③ (P0-A1 显示批, q6/q8 witness): once the target published a
+		// symptom denominator, attribution overshooting it must NEVER silently
+		// demote the denominator to the whole window — q6's 112.223ms lock span
+		// sat 0.048ms past the target's 112.175ms sleep and the whole-window
+		// recast rendered "94% attributed + 6.838ms unattributed residual"
+		// against the 119.061ms window: a fabricated residual for a fully
+		// explained wait. Two overshoot regimes on one numeric fork (wording
+		// only — both sides publish the same two magnitudes, no hard gate):
+		//   - within runtimeTraceProjSymptomOvershootJitterMS: state-boundary
+		//     jitter; the F1 nesting premise holds to edge-timestamp
+		//     granularity → full symptom coverage, raw caliber total disclosed
+		//     verbatim (min-clamp precedent: runtimeTraceProjResidualOwnCaliberNote);
+		//   - beyond it: the nesting premise itself is broken (the chain wall
+		//     clock provably extends past the symptom segments, so per-ms
+		//     containment is unverified) → both magnitudes, no percentage, no
+		//     residual — and still never a whole-window recast.
+		symptom := runtimeTraceProjTargetSymptomMS(model)
+		switch {
+		case symptom > 0 && attributed <= symptom:
 			residual := symptom - attributed
 			if zh {
 				fmt.Fprintf(&b, " 目标等待(sleep/D-state/runnable) %.3fms 中 on-chain 已归因 %.3fms(%.0f%%),未归因 %.3fms(%.0f%%)。",
@@ -4525,7 +4544,30 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			}
 			b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
 			b.WriteString(runtimeTraceProjPeriodicCadenceCoverageNote(model, residual, zh))
-		} else if attributed <= model.WindowMS {
+		case symptom > 0 && attributed-symptom <= runtimeTraceProjSymptomOvershootJitterMS:
+			if zh {
+				fmt.Fprintf(&b, " 目标等待(sleep/D-state/runnable) %.3fms 中 on-chain 已归因 %.3fms(100%%),未归因 0.000ms(0%%)。 归因口径合计 %.3fms,略超目标等待 %.3fms(状态段边界抖动;不计未归因残差)。",
+					symptom, symptom, attributed, attributed-symptom)
+			} else {
+				fmt.Fprintf(&b, " Of the target's %.3fms wait time (sleep/D-state/runnable), on-chain attributed %.3fms (100%%), unattributed 0.000ms (0%%). The attribution caliber totals %.3fms, %.3fms past the target wait (state-boundary jitter; not unattributed residual).",
+					symptom, symptom, attributed, attributed-symptom)
+			}
+		case symptom > 0:
+			if zh {
+				fmt.Fprintf(&b, " 目标等待(sleep/D-state/runnable) %.3fms;on-chain 归因口径合计 %.3fms,超出目标等待 %.3fms — 两口径墙钟未对齐,不给出覆盖百分比,差值不作未归因残差。",
+					symptom, attributed, attributed-symptom)
+			} else {
+				fmt.Fprintf(&b, " Target wait (sleep/D-state/runnable) %.3fms; the on-chain attribution caliber totals %.3fms, %.3fms beyond the target wait — the two calibers' wall clocks do not align: no coverage percentage, and the difference is not unattributed residual.",
+					symptom, attributed, attributed-symptom)
+			}
+			if attributed > model.WindowMS {
+				if zh {
+					b.WriteString(" 其实际状态跨出窗口,见 ⚠ 标记。")
+				} else {
+					b.WriteString(" The underlying state crosses the window; see ⚠ marks.")
+				}
+			}
+		case attributed <= model.WindowMS:
 			residual := model.WindowMS - attributed
 			if zh {
 				fmt.Fprintf(&b, " on-chain 已归因 %.3fms/%.0f%%,未归因残差 %.3fms/%.0f%%。",
@@ -4551,7 +4593,7 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 					}
 				}
 			}
-		} else {
+		default:
 			if zh {
 				fmt.Fprintf(&b, " on-chain 已归因 %.3fms(其实际状态跨出窗口,见 ⚠ 标记)。", attributed)
 			} else {
@@ -4597,6 +4639,21 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 	}
 	return b.String()
 }
+
+// runtimeTraceProjSymptomOvershootJitterMS is the state-boundary jitter
+// allowance for the coverage denominator (§15.D gap③, P0-A1 显示批): a depth-1
+// attribution span's wall clock may overhang the target's summed symptom-state
+// segments by edge-timestamp granularity — the q6 witness was a 112.223ms
+// resolved lock span against a 112.175ms target sleep, 0.048ms of pure
+// boundary jitter that silently demoted the denominator to the whole window
+// (94% + a fabricated 6.838ms residual). Within this allowance the symptom
+// stays the denominator at full coverage; beyond it the F1 nesting premise is
+// treated as broken and the coverage sentence publishes both magnitudes with
+// no percentage. Absolute (not relative): boundary jitter scales with edge
+// count/timestamp granularity, never with symptom duration. This constant
+// forks WORDING between two honest renderings of the same two numbers — it is
+// never a hard gate (precise-signals red line).
+const runtimeTraceProjSymptomOvershootJitterMS = 0.5
 
 // runtimeTraceProjTargetSymptomMS is the 🎯 target's own symptom duration: the
 // sum of the target's self STATE-view rows' window projections (V2, customer
