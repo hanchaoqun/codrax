@@ -216,6 +216,22 @@ type LLMAuthConfig struct {
 
 	AccessTokenHeader string `yaml:"access_token_header"`
 	AccessTokenFormat string `yaml:"access_token_format"`
+
+	// InvalidTokenErrorCodes lists provider-structured OAuth error codes that
+	// prove a cached token is unusable. Values are matched exactly after
+	// normalization against WWW-Authenticate error=... and JSON fields such as
+	// error/code/error_code. Free-form message/prose fields are deliberately
+	// ignored; ambiguous 401s use the preserve-disk escalation policy instead.
+	InvalidTokenErrorCodes []string `yaml:"invalid_token_error_codes"`
+	// Ambiguous401PreserveDisk controls the default-safe handling for 401
+	// responses that do not carry a structured invalid-token code. nil means
+	// true: keep the disk cache and only clear memory until the escalation
+	// threshold is reached.
+	Ambiguous401PreserveDisk *bool `yaml:"ambiguous_401_preserve_disk"`
+	// Ambiguous401Escalation is the consecutive ambiguous-401 threshold for the
+	// same cached token before Codrax deletes the disk cache and re-authorizes.
+	// Zero inherits the code default.
+	Ambiguous401Escalation int `yaml:"ambiguous_401_escalation"`
 }
 
 const (

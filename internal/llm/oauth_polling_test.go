@@ -233,6 +233,7 @@ func TestOpenAIAdapter_OAuthPollingInvalidatesOn401AndRetriesNonStream(t *testin
 				if got := r.Header.Get("X-Auth-Token"); got != "stale-token" {
 					t.Fatalf("first token=%q, want stale-token", got)
 				}
+				w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
 				http.Error(w, "expired", http.StatusUnauthorized)
 				return
 			}
@@ -293,6 +294,79 @@ func TestOpenAIAdapter_OAuthPollingInvalidatesOn401AndRetriesNonStream(t *testin
 	}
 }
 
+func TestOpenAIAdapter_OAuthPollingAmbiguous401PreservesDiskCache(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "token.json")
+	var chatCalls atomic.Int32
+	var tokenCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth/getToken":
+			tokenCalls.Add(1)
+			http.Error(w, "unexpected token polling", http.StatusInternalServerError)
+		case "/chat/completions":
+			chatCalls.Add(1)
+			if got := r.Header.Get("X-Auth-Token"); got != "cached-token" {
+				t.Fatalf("token=%q, want cached-token", got)
+			}
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte("<html>temporary gateway auth failure</html>"))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := types.LLMProviderConfig{
+		Provider:            "openai",
+		Model:               "model-a",
+		BaseURL:             srv.URL,
+		ChatCompletionsPath: "/chat/completions",
+		Stream:              boolPtr(false),
+		Auth: &types.LLMAuthConfig{
+			Mode:                "oauth2_polling",
+			AuthBaseURL:         srv.URL,
+			ClientID:            "client",
+			TokenCacheFile:      cache,
+			AccessTokenHeader:   "X-Auth-Token",
+			PollTimeoutSeconds:  1,
+			PollIntervalSeconds: 1,
+		},
+		RequestTimeoutSeconds: 5,
+	}
+	authOpts := authOptionsFromConfig(cfg, 5*time.Second)
+	auth, err := newOAuthPollingAuthenticator(authOpts)
+	if err != nil {
+		t.Fatalf("newOAuthPollingAuthenticator: %v", err)
+	}
+	if err := auth.saveCache(cachedOAuthToken{
+		AccessToken: "cached-token",
+		IssuedAt:    time.Now(),
+		ExpiresAt:   time.Now().Add(time.Hour),
+		Fingerprint: auth.fingerprint,
+	}); err != nil {
+		t.Fatalf("saveCache: %v", err)
+	}
+	adapter, err := NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	_, err = adapter.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, ChatOptions{})
+	if err == nil {
+		t.Fatal("ambiguous 401 should still surface after one retry with the preserved cached token")
+	}
+	if chatCalls.Load() != 2 {
+		t.Fatalf("chatCalls=%d, want one retry with preserved disk token", chatCalls.Load())
+	}
+	if tokenCalls.Load() != 0 {
+		t.Fatalf("tokenCalls=%d, want no re-authorization on first ambiguous 401", tokenCalls.Load())
+	}
+	if _, statErr := os.Stat(cache); statErr != nil {
+		t.Fatalf("ambiguous 401 must preserve disk cache, stat err: %v", statErr)
+	}
+}
+
 func TestOpenAIAdapter_OAuthPollingInvalidatesOn401AndRetriesStream(t *testing.T) {
 	dir := t.TempDir()
 	cache := filepath.Join(dir, "token.json")
@@ -310,7 +384,9 @@ func TestOpenAIAdapter_OAuthPollingInvalidatesOn401AndRetriesStream(t *testing.T
 				if got := r.Header.Get("X-Auth-Token"); got != "stale-token" {
 					t.Fatalf("first stream token=%q, want stale-token", got)
 				}
-				http.Error(w, "expired", http.StatusUnauthorized)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error_code":"AUTH_TOKEN_INVALID"}`))
 				return
 			}
 			if got := r.Header.Get("X-Auth-Token"); got != "fresh-token" {
@@ -391,6 +467,7 @@ func TestNewFromConfig_ModelListInvalidatesOAuthTokenOn401(t *testing.T) {
 				if got := r.Header.Get("X-Auth-Token"); got != "stale-token" {
 					t.Fatalf("first model-list token=%q, want stale-token", got)
 				}
+				w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
 				http.Error(w, "expired", http.StatusUnauthorized)
 				return
 			}
@@ -596,19 +673,116 @@ func TestInvalidateForStatus_403KeepsDiskCache(t *testing.T) {
 	}
 }
 
-// TestInvalidateForStatus_401DeletesDiskCache pins that a 401 (token truly
-// invalid) drops both the in-memory token and the on-disk cache.
-func TestInvalidateForStatus_401DeletesDiskCache(t *testing.T) {
+// TestInvalidateForAuthFailure_InvalidToken401DeletesDiskCache pins that a
+// structured invalid-token 401 drops both the in-memory token and the on-disk
+// cache immediately.
+func TestInvalidateForAuthFailure_InvalidToken401DeletesDiskCache(t *testing.T) {
 	cache := filepath.Join(t.TempDir(), "token.json")
 	auth := newTestOAuthAuthenticatorWithCache(t, cache)
 
-	auth.InvalidateForStatus(http.StatusUnauthorized)
+	header := http.Header{}
+	header.Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+	auth.InvalidateForAuthFailure(authFailure{
+		Status: http.StatusUnauthorized,
+		Header: header,
+	})
 
 	if auth.token.AccessToken != "" {
-		t.Fatalf("401 must clear in-memory token, got %q", auth.token.AccessToken)
+		t.Fatalf("invalid-token 401 must clear in-memory token, got %q", auth.token.AccessToken)
 	}
 	if _, err := os.Stat(cache); !os.IsNotExist(err) {
-		t.Fatalf("401 must delete on-disk cache, stat err: %v", err)
+		t.Fatalf("invalid-token 401 must delete on-disk cache, stat err: %v", err)
+	}
+}
+
+func TestAuthErrorCodesFromWWWAuthenticateParsesBearerScheme(t *testing.T) {
+	header := http.Header{}
+	header.Set("WWW-Authenticate", `Bearer realm="gateway", error="invalid_token"`)
+	got := authErrorCodesFromWWWAuthenticate(header)
+	if len(got) != 1 || got[0] != "invalid_token" {
+		t.Fatalf("authErrorCodesFromWWWAuthenticate=%v, want invalid_token", got)
+	}
+}
+
+// TestInvalidateForAuthFailure_Ambiguous401KeepsDiskCache pins the default
+// safety behavior for non-standard providers: a bare / HTML / unparsable 401 is
+// ambiguous, so Codrax clears only memory and preserves the shared disk cache.
+func TestInvalidateForAuthFailure_Ambiguous401KeepsDiskCache(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "token.json")
+	auth := newTestOAuthAuthenticatorWithCache(t, cache)
+
+	auth.InvalidateForAuthFailure(authFailure{
+		Status: http.StatusUnauthorized,
+		Body:   []byte("<html>temporary gateway auth failure</html>"),
+	})
+
+	if auth.token.AccessToken != "" {
+		t.Fatalf("ambiguous 401 must clear in-memory token, got %q", auth.token.AccessToken)
+	}
+	if _, err := os.Stat(cache); err != nil {
+		t.Fatalf("ambiguous 401 must preserve on-disk cache, stat err: %v", err)
+	}
+	if _, err := os.Stat(cache + ".failures.json"); err != nil {
+		t.Fatalf("ambiguous 401 should persist a failure stamp, stat err: %v", err)
+	}
+}
+
+func TestInvalidateForAuthFailure_ReasonMessage401StaysAmbiguous(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "token.json")
+	auth := newTestOAuthAuthenticatorWithCache(t, cache)
+
+	auth.InvalidateForAuthFailure(authFailure{
+		Status: http.StatusUnauthorized,
+		Body:   []byte(`{"reason":"token expired","message":"invalid_token"}`),
+	})
+
+	if auth.token.AccessToken != "" {
+		t.Fatalf("ambiguous reason/message 401 must clear in-memory token, got %q", auth.token.AccessToken)
+	}
+	if _, err := os.Stat(cache); err != nil {
+		t.Fatalf("free-form reason/message must not delete on-disk cache, stat err: %v", err)
+	}
+	if _, err := os.Stat(cache + ".failures.json"); err != nil {
+		t.Fatalf("ambiguous reason/message 401 should persist a failure stamp, stat err: %v", err)
+	}
+}
+
+func TestInvalidateForAuthFailure_Ambiguous401EscalatesAcrossProcesses(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "token.json")
+	auth := newTestOAuthAuthenticatorWithCache(t, cache)
+
+	for i := 1; i < defaultAmbiguous401Escalation; i++ {
+		auth.InvalidateForAuthFailure(authFailure{Status: http.StatusUnauthorized, Body: []byte("not-json")})
+		if _, err := os.Stat(cache); err != nil {
+			t.Fatalf("ambiguous 401 #%d below threshold must preserve disk cache, stat err: %v", i, err)
+		}
+		// Simulate a fresh CLI process re-reading the same token from disk.
+		auth = newTestOAuthAuthenticatorWithCache(t, cache)
+	}
+	auth.InvalidateForAuthFailure(authFailure{Status: http.StatusUnauthorized, Body: []byte("not-json")})
+	if _, err := os.Stat(cache); !os.IsNotExist(err) {
+		t.Fatalf("%dth ambiguous 401 must delete disk cache, stat err: %v", defaultAmbiguous401Escalation, err)
+	}
+	if _, err := os.Stat(cache + ".failures.json"); !os.IsNotExist(err) {
+		t.Fatalf("escalation should remove failure stamp, stat err: %v", err)
+	}
+}
+
+func TestRecordSuccessClearsAmbiguous401FailureStamp(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "token.json")
+	auth := newTestOAuthAuthenticatorWithCache(t, cache)
+	auth.InvalidateForAuthFailure(authFailure{Status: http.StatusUnauthorized, Body: []byte("not-json")})
+	if _, err := os.Stat(cache + ".failures.json"); err != nil {
+		t.Fatalf("expected failure stamp after ambiguous 401: %v", err)
+	}
+
+	auth = newTestOAuthAuthenticatorWithCache(t, cache)
+	auth.RecordSuccess()
+	if auth.consecutiveAmbiguous401 != 0 || auth.consecutive403 != 0 {
+		t.Fatalf("success should clear counters, got 401=%d 403=%d", auth.consecutiveAmbiguous401, auth.consecutive403)
+	}
+	if _, err := os.Stat(cache + ".failures.json"); !os.IsNotExist(err) {
+		t.Fatalf("success should remove failure stamp, stat err: %v", err)
 	}
 }
 
@@ -666,8 +840,12 @@ func TestInvalidateForStatus_403CounterResetByNon403(t *testing.T) {
 	if auth.consecutive403 != 2 {
 		t.Fatalf("expected counter=2, got %d", auth.consecutive403)
 	}
-	// A 401 resets the counter (and deletes disk, which we re-seed).
-	auth.InvalidateForStatus(http.StatusUnauthorized)
+	// A precise invalid-token 401 resets the counter (and deletes disk, which
+	// we re-seed).
+	auth.InvalidateForAuthFailure(authFailure{
+		Status: http.StatusUnauthorized,
+		Body:   []byte(`{"error":"invalid_token"}`),
+	})
 	if auth.consecutive403 != 0 {
 		t.Fatalf("401 must reset the 403 counter, got %d", auth.consecutive403)
 	}

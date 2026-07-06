@@ -173,6 +173,9 @@ func authOptionsFromConfig(cfg types.LLMProviderConfig, requestTimeout time.Dura
 	opts.TokenTTL = secondsDuration(a.TokenTTLSeconds)
 	opts.TokenHeader = a.AccessTokenHeader
 	opts.TokenFormat = a.AccessTokenFormat
+	opts.InvalidTokenErrorCodes = append([]string(nil), a.InvalidTokenErrorCodes...)
+	opts.Ambiguous401PreserveDisk = a.Ambiguous401PreserveDisk
+	opts.Ambiguous401Escalation = a.Ambiguous401Escalation
 	return opts
 }
 
@@ -284,12 +287,12 @@ func discoverFirstModel(cfg types.LLMProviderConfig, authOpts AuthOptions, reque
 			return "", fmt.Errorf("read model list: %w", readErr)
 		}
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			authenticator.RecordSuccess()
 			body = respBody
 			break
 		}
 		if isAuthStatus(resp.StatusCode) && authAttempt == 0 {
-			// 401 drops the disk cache; 403 keeps it (see InvalidateForStatus).
-			authenticator.InvalidateForStatus(resp.StatusCode)
+			authenticator.InvalidateForAuthFailure(authFailure{Status: resp.StatusCode, Header: resp.Header, Body: respBody})
 			continue
 		}
 		return "", fmt.Errorf("query model list HTTP %d: %s", resp.StatusCode, trimForLog(respBody, 512))

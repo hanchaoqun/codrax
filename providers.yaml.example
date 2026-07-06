@@ -83,6 +83,25 @@ llm:
     #   poll_timeout_seconds: 1800
     #   poll_interval_seconds: 1
     #   refresh_before_seconds: 300
+    #   # Structured invalid-token signals delete the disk cache immediately.
+    #   # Ambiguous / non-standard 401 responses preserve the disk cache and
+    #   # only escalate after repeated failures for the same cached token. The
+    #   # failure counter is stored next to token_cache_file as
+    #   # <token_cache_file>.failures.json and is cleared after a successful
+    #   # request. Add provider-specific structured codes here when your
+    #   # gateway does not use RFC-standard invalid_token.
+    #   # 结构化 invalid-token 信号会立即删除磁盘 token cache。裸 401 /
+    #   # HTML 网关页 / 非标准响应会先保留磁盘 cache,同一个 cached token
+    #   # 连续失败到阈值后才重新授权。计数文件与 token_cache_file 同目录,
+    #   # 名为 <token_cache_file>.failures.json,任一成功请求会清理它。
+    #   invalid_token_error_codes:
+    #     - invalid_token
+    #     - invalid_grant
+    #     - expired_token
+    #     - token_expired
+    #     - AUTH_TOKEN_INVALID
+    #   ambiguous_401_preserve_disk: true
+    #   ambiguous_401_escalation: 3
     # headers:
     #   app-id: "your-app-id"
     #   x-snap-traceid: "@uuid_v4"                     # fresh UUID per request

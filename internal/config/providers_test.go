@@ -121,6 +121,9 @@ func TestLoadProviders_OAuthPolling_RoundTrip(t *testing.T) {
       poll_timeout_seconds: 1800
       poll_interval_seconds: 1
       refresh_before_seconds: 300
+      invalid_token_error_codes: ["invalid_token", "AUTH_TOKEN_INVALID"]
+      ambiguous_401_preserve_disk: true
+      ambiguous_401_escalation: 4
     headers:
       app-id: GatewayApp
       x-snap-traceid: "@uuid_v4"
@@ -141,6 +144,12 @@ func TestLoadProviders_OAuthPolling_RoundTrip(t *testing.T) {
 	}
 	if got.Auth == nil || got.Auth.Mode != "oauth2_polling" || got.Auth.RefreshBeforeSeconds != 300 {
 		t.Fatalf("auth did not round-trip: %+v", got.Auth)
+	}
+	if got.Auth.Ambiguous401PreserveDisk == nil || !*got.Auth.Ambiguous401PreserveDisk || got.Auth.Ambiguous401Escalation != 4 {
+		t.Fatalf("ambiguous 401 auth policy did not round-trip: %+v", got.Auth)
+	}
+	if len(got.Auth.InvalidTokenErrorCodes) != 2 || got.Auth.InvalidTokenErrorCodes[1] != "AUTH_TOKEN_INVALID" {
+		t.Fatalf("invalid token error codes did not round-trip: %+v", got.Auth.InvalidTokenErrorCodes)
 	}
 	if got.Headers["x-snap-traceid"] != "@uuid_v4" {
 		t.Fatalf("headers did not round-trip: %+v", got.Headers)

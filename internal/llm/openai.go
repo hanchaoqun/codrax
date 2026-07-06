@@ -553,13 +553,13 @@ func (o *OpenAIAdapter) doRequest(ctx context.Context, bodyBytes []byte) (Respon
 			return Response{}, fmt.Errorf("read response: %w", readErr)
 		}
 		if httpResp.StatusCode == http.StatusOK {
+			if o.authenticator != nil {
+				o.authenticator.RecordSuccess()
+			}
 			return o.parseResponse(respBody)
 		}
 		if isAuthStatus(httpResp.StatusCode) && authAttempt == 0 && o.authenticator != nil {
-			// 401 => token truly invalid (drop disk cache); 403 =>
-			// authorization/rate-limit, keep the shared disk cache and only
-			// re-read it in memory. See requestAuthenticator.InvalidateForStatus.
-			o.authenticator.InvalidateForStatus(httpResp.StatusCode)
+			o.authenticator.InvalidateForAuthFailure(authFailure{Status: httpResp.StatusCode, Header: httpResp.Header, Body: respBody})
 			continue
 		}
 		return Response{}, newAPIError(httpResp, respBody)
@@ -580,12 +580,14 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 	for authAttempt := 0; authAttempt < 2; authAttempt++ {
 		resp, err := o.doStreamRequestOnce(ctx, bodyBytes, onDelta, onReasoningDelta, onToolCallDelta)
 		if err == nil {
+			if o.authenticator != nil {
+				o.authenticator.RecordSuccess()
+			}
 			return resp, nil
 		}
 		var ae *apiError
 		if errors.As(err, &ae) && isAuthStatus(ae.StatusCode) && authAttempt == 0 && o.authenticator != nil {
-			// Same 401-vs-403 disposition as the non-stream path.
-			o.authenticator.InvalidateForStatus(ae.StatusCode)
+			o.authenticator.InvalidateForAuthFailure(authFailure{Status: ae.StatusCode, Header: ae.Header, Body: []byte(ae.Body)})
 			continue
 		}
 		return resp, err
@@ -1589,6 +1591,7 @@ func mapFinishReason(reason string) string {
 type apiError struct {
 	StatusCode int
 	Body       string
+	Header     http.Header
 	// RetryAfter is the parsed Retry-After header (RFC 7231): integer
 	// seconds OR HTTP-date. Zero when absent or unparseable. The retry
 	// loop uses this as the next sleep when present, falling back to
@@ -1616,6 +1619,7 @@ func newAPIError(httpResp *http.Response, body []byte) *apiError {
 	ae := &apiError{
 		StatusCode: httpResp.StatusCode,
 		Body:       string(body),
+		Header:     httpResp.Header.Clone(),
 	}
 	if httpResp.Header != nil {
 		if v := httpResp.Header.Get("Retry-After"); v != "" {

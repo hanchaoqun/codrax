@@ -26,16 +26,27 @@ const (
 	authModeAPIKey       = "api_key"
 	authModeOAuthPolling = "oauth2_polling"
 
-	defaultOAuthAuthorizePath = "/oauth2/authorize"
-	defaultOAuthCallbackPath  = "/oauth/callback"
-	defaultOAuthTokenPath     = "/oauth/getToken"
-	defaultOAuthResponseType  = "code"
-	defaultOAuthTokenHeader   = "X-Auth-Token"
-	defaultTokenFormat        = "{token}"
-	defaultTokenPollTimeout   = 30 * time.Minute
-	defaultTokenPollInterval  = time.Second
-	defaultRefreshBefore      = 5 * time.Minute
+	defaultOAuthAuthorizePath     = "/oauth2/authorize"
+	defaultOAuthCallbackPath      = "/oauth/callback"
+	defaultOAuthTokenPath         = "/oauth/getToken"
+	defaultOAuthResponseType      = "code"
+	defaultOAuthTokenHeader       = "X-Auth-Token"
+	defaultTokenFormat            = "{token}"
+	defaultTokenPollTimeout       = 30 * time.Minute
+	defaultTokenPollInterval      = time.Second
+	defaultRefreshBefore          = 5 * time.Minute
+	defaultAmbiguous401Escalation = 3
 )
+
+var defaultInvalidTokenErrorCodes = []string{
+	"invalid_token",
+	"invalid_grant",
+	"expired_token",
+	"token_expired",
+	"access_token_expired",
+	"access_token_invalid",
+	"auth_token_invalid",
+}
 
 // AuthOptions is the adapter-facing provider auth configuration. It is
 // resolved from providers.yaml by the factory layer and is deliberately not
@@ -65,6 +76,10 @@ type AuthOptions struct {
 	TokenFormat    string
 	RequestTimeout time.Duration
 	TLS            TLSOptions
+
+	InvalidTokenErrorCodes   []string
+	Ambiguous401PreserveDisk *bool
+	Ambiguous401Escalation   int
 }
 
 // OAuthAuthorizationNotice is the non-secret information shown when an OAuth
@@ -133,15 +148,20 @@ type requestAuthenticator interface {
 	// Invalidate drops any cached credential (memory + on-disk) because it
 	// is believed to be truly invalid, e.g. an authentication (401) failure.
 	Invalidate()
-	// InvalidateForStatus drops cached credential state according to the
-	// HTTP status that provoked the auth retry. 401 (Unauthorized) means the
-	// token itself is bad, so both the in-memory and on-disk cache are
-	// dropped. 403 (Forbidden) is an authorization / rate-limit / policy
-	// signal that does NOT imply the token is invalid, so the on-disk cache
-	// is preserved and only the in-memory copy is cleared to force one fresh
-	// read from disk. Any other status behaves like Invalidate.
-	InvalidateForStatus(status int)
+	// InvalidateForAuthFailure drops cached credential state according to the
+	// HTTP status plus structured provider auth-error signals that provoked
+	// the auth retry.
+	InvalidateForAuthFailure(f authFailure)
+	// RecordSuccess clears transient auth-failure counters/stamps after a
+	// request succeeds with the current credential.
+	RecordSuccess()
 	Name() string
+}
+
+type authFailure struct {
+	Status int
+	Header http.Header
+	Body   []byte
 }
 
 type bearerAPIKeyAuthenticator struct {
@@ -153,9 +173,10 @@ func (a *bearerAPIKeyAuthenticator) Apply(_ context.Context, req *http.Request) 
 	return nil
 }
 
-func (a *bearerAPIKeyAuthenticator) Invalidate()               {}
-func (a *bearerAPIKeyAuthenticator) InvalidateForStatus(_ int) {}
-func (a *bearerAPIKeyAuthenticator) Name() string              { return authModeAPIKey }
+func (a *bearerAPIKeyAuthenticator) Invalidate()                            {}
+func (a *bearerAPIKeyAuthenticator) InvalidateForAuthFailure(_ authFailure) {}
+func (a *bearerAPIKeyAuthenticator) RecordSuccess()                         {}
+func (a *bearerAPIKeyAuthenticator) Name() string                           { return authModeAPIKey }
 
 // consecutiveForbiddenEscalation is the number of back-to-back 403 responses
 // on the same fingerprint after which a preserve-disk 403 disposition is
@@ -173,9 +194,19 @@ type oauthPollingAuthenticator struct {
 	cacheFile   string
 	fingerprint string
 
-	mu             sync.Mutex
-	token          cachedOAuthToken
-	consecutive403 int
+	mu                      sync.Mutex
+	token                   cachedOAuthToken
+	consecutive403          int
+	consecutiveAmbiguous401 int
+}
+
+type oauthFailureStamp struct {
+	Fingerprint string    `json:"fingerprint"`
+	TokenHash   string    `json:"token_hash"`
+	Status      int       `json:"status"`
+	Class       string    `json:"class"`
+	Count       int       `json:"count"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type cachedOAuthToken struct {
@@ -306,6 +337,12 @@ func newOAuthPollingAuthenticator(opts AuthOptions) (*oauthPollingAuthenticator,
 	if opts.RequestTimeout <= 0 {
 		opts.RequestTimeout = 30 * time.Second
 	}
+	if len(opts.InvalidTokenErrorCodes) == 0 {
+		opts.InvalidTokenErrorCodes = append([]string(nil), defaultInvalidTokenErrorCodes...)
+	}
+	if opts.Ambiguous401Escalation <= 0 {
+		opts.Ambiguous401Escalation = defaultAmbiguous401Escalation
+	}
 
 	fp := oauthFingerprint(opts)
 	cacheFile := strings.TrimSpace(opts.TokenCacheFile)
@@ -346,31 +383,91 @@ func (a *oauthPollingAuthenticator) Invalidate() {
 	defer a.mu.Unlock()
 	a.dropMemoryLocked()
 	a.dropDiskLocked()
+	a.dropFailureStampLocked()
 }
 
-// InvalidateForStatus dispatches on the provoking HTTP status. A 403 is an
-// authorization / rate-limit / policy signal, NOT proof the token is invalid,
-// so the on-disk cache is preserved and only the in-memory copy is dropped —
-// deleting the shared disk cache on a 403 would force every concurrent CLI to
-// re-run the full browser authorization for a token that is still good. A 401
-// (and any non-403 status routed here) deletes both memory and disk.
+// InvalidateForStatus is kept for narrow internal tests and compatibility
+// with old call sites. Production callers should pass the full auth failure so
+// 401 handling can inspect structured auth-error headers/body before deleting
+// disk cache.
+func (a *oauthPollingAuthenticator) InvalidateForStatus(status int) {
+	a.InvalidateForAuthFailure(authFailure{Status: status})
+}
+
+func (a *oauthPollingAuthenticator) RecordSuccess() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.consecutive403 = 0
+	a.consecutiveAmbiguous401 = 0
+	a.dropFailureStampLocked()
+}
+
+// InvalidateForAuthFailure dispatches on the provoking HTTP status and precise
+// provider auth-error signals. A structured invalid-token signal on 401 deletes
+// the disk cache immediately. A bare / unparsable / HTML 401 is ambiguous: by
+// default it preserves the disk cache, clears memory, and escalates to disk
+// delete only after the same token reaches the configured consecutive failure
+// threshold. A 403 is an authorization / rate-limit / policy signal, NOT proof
+// the token is invalid, so the on-disk cache is preserved and only the in-memory
+// copy is dropped.
 //
 // Escape hatch for revocation-type 403: if the SAME on-disk token keeps
 // provoking 403s, the preserve-disk behavior would loop forever (drop memory →
 // re-read the same still-within-expiry token → 403 again). A consecutive-403
 // counter therefore escalates to a full Invalidate (disk delete →
-// re-authorization) once it reaches consecutiveForbiddenEscalation. Any 401 or
-// non-403 status resets the counter, and a successful token acquisition resets
-// it in getToken.
-func (a *oauthPollingAuthenticator) InvalidateForStatus(status int) {
+// re-authorization) once it reaches consecutiveForbiddenEscalation. Precise
+// invalid-token 401s and non-403/non-401 auth failures reset the 403 counter;
+// ambiguous 401s use their own token-bound escalation stamp. A successful
+// authenticated request clears both counters.
+func (a *oauthPollingAuthenticator) InvalidateForAuthFailure(f authFailure) {
+	status := f.Status
+	if status == http.StatusUnauthorized {
+		invalidTokenSignal := a.hasInvalidTokenSignal(f)
+		if invalidTokenSignal || !a.ambiguous401PreserveDisk() {
+			a.mu.Lock()
+			a.consecutive403 = 0
+			a.consecutiveAmbiguous401 = 0
+			a.dropMemoryLocked()
+			a.dropDiskLocked()
+			a.dropFailureStampLocked()
+			a.mu.Unlock()
+			if invalidTokenSignal {
+				logging.Info("[llm/auth] precise invalid-token 401 on OAuth-authenticated request: deleting cache %q to force re-authorization", a.cacheFile)
+			} else {
+				logging.Info("[llm/auth] ambiguous 401 on OAuth-authenticated request: legacy policy deletes cache %q to force re-authorization", a.cacheFile)
+			}
+			return
+		}
+		a.mu.Lock()
+		a.consecutive403 = 0
+		n := a.nextAmbiguous401CountLocked()
+		if n >= a.opts.Ambiguous401Escalation {
+			a.consecutiveAmbiguous401 = 0
+			a.dropMemoryLocked()
+			a.dropDiskLocked()
+			a.dropFailureStampLocked()
+			a.mu.Unlock()
+			logging.Warning("[llm/auth] %d consecutive ambiguous 401s on the same OAuth token: deleting cache %q to force re-authorization", n, a.cacheFile)
+			return
+		}
+		a.saveAmbiguous401StampLocked(n)
+		a.dropMemoryLocked()
+		a.mu.Unlock()
+		logging.Info("[llm/auth] ambiguous 401 on OAuth-authenticated request: dropping in-memory token but preserving on-disk cache %q (no structured invalid-token signal; count=%d/%d)", a.cacheFile, n, a.opts.Ambiguous401Escalation)
+		return
+	}
 	if status == http.StatusForbidden {
 		a.mu.Lock()
+		a.consecutiveAmbiguous401 = 0
+		a.dropFailureStampLocked()
 		a.consecutive403++
 		if a.consecutive403 >= consecutiveForbiddenEscalation {
 			n := a.consecutive403
 			a.consecutive403 = 0
+			a.consecutiveAmbiguous401 = 0
 			a.dropMemoryLocked()
 			a.dropDiskLocked()
+			a.dropFailureStampLocked()
 			a.mu.Unlock()
 			logging.Warning("[llm/auth] %d consecutive 403s on OAuth-authenticated request: the on-disk token appears revoked; deleting cache %q to force re-authorization", n, a.cacheFile)
 			return
@@ -380,10 +477,12 @@ func (a *oauthPollingAuthenticator) InvalidateForStatus(status int) {
 		logging.Info("[llm/auth] 403 on OAuth-authenticated request: dropping in-memory token but preserving on-disk cache %q (403 is authorization/rate-limit, not token invalidation)", a.cacheFile)
 		return
 	}
-	// Any non-403 auth failure (401, etc.) clears the escalation counter and
-	// deletes both memory and disk.
+	// Any other auth failure clears transient escalation state and deletes both
+	// memory and disk.
 	a.mu.Lock()
 	a.consecutive403 = 0
+	a.consecutiveAmbiguous401 = 0
+	a.dropFailureStampLocked()
 	a.mu.Unlock()
 	a.Invalidate()
 }
@@ -400,6 +499,241 @@ func (a *oauthPollingAuthenticator) dropDiskLocked() {
 			logging.Warning("[llm/auth] could not remove token cache %q: %v", a.cacheFile, err)
 		}
 	}
+}
+
+func (a *oauthPollingAuthenticator) ambiguous401PreserveDisk() bool {
+	if a.opts.Ambiguous401PreserveDisk == nil {
+		return true
+	}
+	return *a.opts.Ambiguous401PreserveDisk
+}
+
+func (a *oauthPollingAuthenticator) hasInvalidTokenSignal(f authFailure) bool {
+	valid := normalizedInvalidTokenCodes(a.opts.InvalidTokenErrorCodes)
+	if len(valid) == 0 {
+		return false
+	}
+	for _, code := range authErrorCodesFromWWWAuthenticate(f.Header) {
+		if valid[normalizeAuthErrorCode(code)] {
+			return true
+		}
+	}
+	for _, code := range authErrorCodesFromJSONBody(f.Body) {
+		if valid[normalizeAuthErrorCode(code)] {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizedInvalidTokenCodes(codes []string) map[string]bool {
+	out := map[string]bool{}
+	for _, code := range codes {
+		if norm := normalizeAuthErrorCode(code); norm != "" {
+			out[norm] = true
+		}
+	}
+	return out
+}
+
+func normalizeAuthErrorCode(code string) string {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return ""
+	}
+	code = strings.Trim(code, `"'`)
+	code = strings.ToLower(code)
+	code = strings.ReplaceAll(code, "-", "_")
+	code = strings.ReplaceAll(code, " ", "_")
+	return code
+}
+
+func authErrorCodesFromWWWAuthenticate(header http.Header) []string {
+	if header == nil {
+		return nil
+	}
+	var out []string
+	for _, raw := range header.Values("WWW-Authenticate") {
+		for _, part := range strings.Split(raw, ",") {
+			part = strings.TrimSpace(part)
+			if fields := strings.Fields(part); len(fields) > 1 {
+				part = fields[len(fields)-1]
+			}
+			key, value, ok := strings.Cut(part, "=")
+			if !ok || !strings.EqualFold(strings.TrimSpace(key), "error") {
+				continue
+			}
+			value = strings.TrimSpace(value)
+			value = strings.Trim(value, `"'`)
+			if value != "" {
+				out = append(out, value)
+			}
+		}
+	}
+	return out
+}
+
+func authErrorCodesFromJSONBody(body []byte) []string {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 || body[0] != '{' {
+		return nil
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(body, &obj); err != nil {
+		return nil
+	}
+	var out []string
+	collectAuthErrorCodes(obj, 0, &out)
+	return out
+}
+
+func collectAuthErrorCodes(v any, depth int, out *[]string) {
+	if depth > 3 {
+		return
+	}
+	switch x := v.(type) {
+	case map[string]any:
+		for k, child := range x {
+			if authErrorCodeKey(k) {
+				if s, ok := child.(string); ok && strings.TrimSpace(s) != "" {
+					*out = append(*out, s)
+					continue
+				}
+			}
+			collectAuthErrorCodes(child, depth+1, out)
+		}
+	case []any:
+		for _, child := range x {
+			collectAuthErrorCodes(child, depth+1, out)
+		}
+	}
+}
+
+func authErrorCodeKey(key string) bool {
+	switch normalizeAuthErrorCode(key) {
+	case "error", "error_code", "err_code", "code", "errorcode":
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *oauthPollingAuthenticator) nextAmbiguous401CountLocked() int {
+	a.consecutiveAmbiguous401++
+	stamp, err := a.loadFailureStampLocked()
+	if err != nil || stamp.Count <= 0 {
+		return a.consecutiveAmbiguous401
+	}
+	if stamp.Fingerprint != a.fingerprint ||
+		stamp.TokenHash != hashTokenForStamp(a.token.AccessToken) ||
+		stamp.Status != http.StatusUnauthorized ||
+		stamp.Class != "ambiguous_401" {
+		return a.consecutiveAmbiguous401
+	}
+	if stamp.Count >= a.consecutiveAmbiguous401 {
+		a.consecutiveAmbiguous401 = stamp.Count + 1
+	}
+	return a.consecutiveAmbiguous401
+}
+
+func (a *oauthPollingAuthenticator) failureStampPathLocked() string {
+	if strings.TrimSpace(a.cacheFile) == "" {
+		return ""
+	}
+	return a.cacheFile + ".failures.json"
+}
+
+func (a *oauthPollingAuthenticator) loadFailureStampLocked() (oauthFailureStamp, error) {
+	path := a.failureStampPathLocked()
+	if path == "" {
+		return oauthFailureStamp{}, errors.New("auth failure stamp disabled")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return oauthFailureStamp{}, err
+	}
+	var stamp oauthFailureStamp
+	if err := json.Unmarshal(data, &stamp); err != nil {
+		return oauthFailureStamp{}, err
+	}
+	return stamp, nil
+}
+
+func (a *oauthPollingAuthenticator) saveAmbiguous401StampLocked(count int) {
+	path := a.failureStampPathLocked()
+	if path == "" || count <= 0 {
+		return
+	}
+	stamp := oauthFailureStamp{
+		Fingerprint: a.fingerprint,
+		TokenHash:   hashTokenForStamp(a.token.AccessToken),
+		Status:      http.StatusUnauthorized,
+		Class:       "ambiguous_401",
+		Count:       count,
+		UpdatedAt:   time.Now(),
+	}
+	if err := writeAuthFailureStamp(path, stamp); err != nil {
+		logging.Warning("[llm/auth] could not write OAuth auth-failure stamp %q: %v", path, err)
+	}
+}
+
+func (a *oauthPollingAuthenticator) dropFailureStampLocked() {
+	path := a.failureStampPathLocked()
+	if path == "" {
+		return
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		logging.Warning("[llm/auth] could not remove OAuth auth-failure stamp %q: %v", path, err)
+	}
+}
+
+func writeAuthFailureStamp(path string, stamp oauthFailureStamp) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(stamp, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".oauth2-failure-*.json.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		cleanup()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
+}
+
+func hashTokenForStamp(token string) string {
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func (a *oauthPollingAuthenticator) getToken(ctx context.Context) (cachedOAuthToken, error) {
@@ -437,6 +771,8 @@ func (a *oauthPollingAuthenticator) getToken(ctx context.Context) (cachedOAuthTo
 	// escalation. Only a genuinely new credential counts as success. (Held
 	// under a.mu for the whole getToken body.)
 	a.consecutive403 = 0
+	a.consecutiveAmbiguous401 = 0
+	a.dropFailureStampLocked()
 	if err := a.saveCache(tok); err != nil {
 		logging.Warning("[llm/auth] could not save OAuth token cache %q: %v", a.cacheFile, err)
 	}

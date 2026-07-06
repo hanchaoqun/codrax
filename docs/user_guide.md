@@ -2166,6 +2166,14 @@ llm:
       poll_timeout_seconds: 1800
       poll_interval_seconds: 1
       refresh_before_seconds: 300
+      invalid_token_error_codes:
+        - invalid_token
+        - invalid_grant
+        - expired_token
+        - token_expired
+        - AUTH_TOKEN_INVALID
+      ambiguous_401_preserve_disk: true
+      ambiguous_401_escalation: 3
 
     headers:
       app-id: "your-app-id"
@@ -2182,6 +2190,7 @@ llm:
 - 没有 `model` 时,系统只在启动/初始化 provider 时请求一次 `models_path`,展示模型列表并选择第一个非空模型名。
 - `expires_in` 按秒解析,兼容字符串和数字。token 会保存 `issued_at` / `expires_at`,默认过期前 5 分钟重新认证。
 - token 缓存文件权限为 `0600`,目录权限为 `0700`;日志不会打印 `access_token` 或 `refresh_token`。
+- `401` 分两类处理:如果 `WWW-Authenticate` 或 JSON body 中有结构化错误码并命中 `invalid_token_error_codes`,会删除磁盘 token cache 并重新授权;如果是裸 `401`、HTML 网关页、空 body、无法解析的非标准响应,或只有 `reason` / `message` 这类解释文本,默认只清内存并保留磁盘 cache。`ambiguous_401_escalation` 控制同一个 cached token 连续遇到模糊 `401` 后才删除磁盘 cache。计数文件写在 token cache 旁边: `<token_cache_file>.failures.json`,任一成功请求会清理。
 - `request_extra` 只能补充 provider 私有字段;不能覆盖 `model`、`messages`、`tools`、`stream`、`tool_choice`、`max_tokens`、`thinking` 等核心协议字段。
 
 ### 5.1.3 流式开关
