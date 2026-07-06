@@ -1489,6 +1489,27 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	for _, samples := range limitTimelineByCPU {
 		sort.SliceStable(samples, func(i, j int) bool { return samples[i].ts < samples[j].ts })
 	}
+	// CFR (#75 簇共频, 客户硬件域裁定): under an EXPLICIT core_topology the
+	// frequency-WEIGHTED faces (busy-loop thread frequency/weighting, off-CPU
+	// frequency context, compute_supply per-CPU fmax) may read a same-cluster
+	// sampled sibling's timeline for cores without their own samples — the
+	// cluster shares one hardware frequency point. Single resolution
+	// authority: cluster_freq_share.go (fail-open on unknown/inferred
+	// topology; a core with own samples never takes a donor). The RAW
+	// collection map stays untouched: FrequencyResidency, CPUStats.Frequency,
+	// topology inference and the ceilings snapshot keep stating sampling
+	// FACTS; every reuse is disclosed via the window caveat + the per-CPU
+	// compute_supply donor field.
+	freqDonors := newClusterFreqDonorResolver(q.CoreTopology, func(cpu int) bool { return len(freqByCPU[cpu]) > 0 })
+	freqTimelineFor := func(cpu int) []Event {
+		if evs := freqByCPU[cpu]; len(evs) > 0 {
+			return evs
+		}
+		if donor, ok := freqDonors.donorFor(cpu); ok {
+			return freqByCPU[donor]
+		}
+		return nil
+	}
 	running := map[string]ThreadDuration{}
 	pressure := map[int]*cpuPressureAcc{}
 	// CMP-10 (§7.4): per-CPU frequency-weighted running accumulation for the
@@ -1496,6 +1517,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	supplyByCPU := map[int]*cpuSupplyAcc{}
 	for cpu, events := range byCPU {
 		sort.SliceStable(events, func(i, j int) bool { return events[i].Ts < events[j].Ts })
+		// CFR (#75 簇共频): own timeline first; donor timeline only when this
+		// CPU has no samples AND explicit topology names a sampled sibling.
+		cpuFreqTimeline := freqTimelineFor(cpu)
 		var busy, idle float64
 		for i, ev := range events {
 			end := q.TimeEnd
@@ -1522,7 +1546,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				idle += dur
 			} else {
 				busy += dur
-				freq := frequencyAt(freqByCPU[cpu], start)
+				freq := frequencyAt(cpuFreqTimeline, start)
 				key := fmt.Sprintf("%d/%s/%d", ev.NextPID, ev.NextComm, cpu)
 				td := running[key]
 				td.Thread = ThreadRef{Comm: ev.NextComm, PID: ev.NextPID}
@@ -1543,7 +1567,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 					td.LineStart = ev.Line
 				}
 				td.LineEnd = ev.Line
-				fs := segmentFrequencyStats(freqByCPU[cpu], start, end)
+				fs := segmentFrequencyStats(cpuFreqTimeline, start, end)
 				if fs.known {
 					td.freqWeightKHzMs += fs.weightedKHz * dur
 					td.freqKnownMs += dur
@@ -1601,7 +1625,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// stats.CPUFrequencyLimits' strict in-window display caliber.
 	observedFmaxByCPU := windowObservedFmaxByCPU(stats.CPU)
 	stats.ClusterFrequencyCeilings = computeWindowClusterFrequencyCeilings(observedFmaxByCPU, coreByCPU, limitTimelineByCPU, q)
-	stats.RunnableTop, stats.DStateTop, stats.SleepTop, stats.IOWaitTop, stats.CPUPressure = computeOffCPUStats(idx, q, freqByCPU, pressure)
+	stats.RunnableTop, stats.DStateTop, stats.SleepTop, stats.IOWaitTop, stats.CPUPressure = computeOffCPUStats(idx, q, freqTimelineFor, pressure)
 	// CMP-9 (§7.3): per-CPU runnable-wait density = value / wall window.
 	stats.CPUPressure = applyCPUPressureDensity(stats.CPUPressure, queryWindowWallMs(q))
 	applyThreadCoreClasses(stats.TopRunning, coreByCPU)
@@ -1669,7 +1693,13 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			}
 		}
 	}
-	stats.ComputeSupplyBalance = computeComputeSupplyBalance(idx, q, queryWindowWallMs(q), supplyByCPU, schedCPUs, headRunnablePIDs, stats.CPU, coreByCPU, observedFmaxByCPU)
+	stats.ComputeSupplyBalance = computeComputeSupplyBalance(idx, q, queryWindowWallMs(q), supplyByCPU, schedCPUs, headRunnablePIDs, stats.CPU, coreByCPU, observedFmaxByCPU, freqDonors.donorFor)
+	// CFR (#75 簇共频): one deterministic window-level disclosure covering
+	// every frequency-weighted face that consumed a donor timeline in this
+	// window (busy loop, off-CPU context, compute_supply fmax).
+	if caveat := clusterFreqReuseCaveat(freqDonors.usedPairs()); caveat != "" {
+		stats.Caveats = append(stats.Caveats, caveat)
+	}
 	stats.IOLatencies = computeIOLatencies(idx, q, 8)
 	stats.CPUFrequencyLimits = sortedCPUFrequencyLimits(freqLimits, 8)
 	stats.SubsystemEvents = sortedSubsystemEvents(subsystems, 12)
@@ -2773,7 +2803,11 @@ type offCPUStart struct {
 	priorityClass string
 }
 
-func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure map[int]*cpuPressureAcc) ([]ThreadDuration, []ThreadDuration, []ThreadDuration, []ThreadDuration, []CPUPressureStats) {
+// computeOffCPUStats takes the CFR (#75) cluster-shared frequency accessor
+// (own timeline first, explicit-topology donor fallback) instead of the raw
+// map, so the off-CPU frequency context reads the SAME caliber as the busy
+// loop and the two faces cannot fork on donor-covered CPUs.
+func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, pressure map[int]*cpuPressureAcc) ([]ThreadDuration, []ThreadDuration, []ThreadDuration, []ThreadDuration, []CPUPressureStats) {
 	if idx == nil {
 		return nil, nil, nil, nil, nil
 	}
@@ -2795,7 +2829,7 @@ func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure
 			return
 		}
 		dur := (endTs - startTs) * 1000
-		freq := frequencyAt(freqByCPU[start.cpu], startTs)
+		freq := frequencyAt(freqTimelineFor(start.cpu), startTs)
 		key := fmt.Sprintf("%d/%s/%d", start.thread.PID, start.thread.Comm, start.cpu)
 		td := bucket[key]
 		td.Thread = start.thread
@@ -2816,7 +2850,7 @@ func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure
 			td.LineStart = start.line
 		}
 		td.LineEnd = firstPositive(endLine, start.line)
-		if fs := segmentFrequencyStats(freqByCPU[start.cpu], startTs, endTs); fs.known {
+		if fs := segmentFrequencyStats(freqTimelineFor(start.cpu), startTs, endTs); fs.known {
 			td.freqWeightKHzMs += fs.weightedKHz * dur
 			td.freqKnownMs += dur
 			td.freqObservedMaxKHz = max(td.freqObservedMaxKHz, fs.observedMaxKHz)
@@ -2975,6 +3009,20 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		}
 	}
 	sortFrequencyTimeline(freqByCPU)
+	// CFR (#75 簇共频): same explicit-topology donor fallback as
+	// ComputeWindowStats (single authority: cluster_freq_share.go) so the
+	// latency rows' frequency context cannot fork from the window face.
+	// Reuse is disclosed via the result caveat appended after the scan.
+	schedFreqDonors := newClusterFreqDonorResolver(q.CoreTopology, func(cpu int) bool { return len(freqByCPU[cpu]) > 0 })
+	schedFreqTimelineFor := func(cpu int) []Event {
+		if evs := freqByCPU[cpu]; len(evs) > 0 {
+			return evs
+		}
+		if donor, ok := schedFreqDonors.donorFor(cpu); ok {
+			return freqByCPU[donor]
+		}
+		return nil
+	}
 	type startInfo struct {
 		thread        ThreadRef
 		ts            float64
@@ -3017,8 +3065,8 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 				otherIdle += item.IdleMs
 			}
 		}
-		freq := frequencyAt(freqByCPU[start.cpu], startTs)
-		freqStats := segmentFrequencyStats(freqByCPU[start.cpu], startTs, endTs)
+		freq := frequencyAt(schedFreqTimelineFor(start.cpu), startTs)
+		freqStats := segmentFrequencyStats(schedFreqTimelineFor(start.cpu), startTs, endTs)
 		hpOverlapMs, overlapCompetitors := overlapCompetitorsForIntervals(p.runningSegments, start.thread, []timeInterval{{start: startTs, end: endTs}}, 8)
 		item := SchedulerLatencyItem{
 			Thread:                       start.thread,
@@ -3150,6 +3198,12 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 	}
 	if res.Count == 0 {
 		res.Caveats = append(res.Caveats, "no runnable wait intervals matched the selected filters")
+	}
+	// CFR (#75 簇共频): disclose donor consumption of THIS face's scan; the
+	// window-stats face's own disclosure rides in via stats.Caveats below —
+	// skip an exact duplicate line.
+	if caveat := clusterFreqReuseCaveat(schedFreqDonors.usedPairs()); caveat != "" && !caveatListContains(stats.Caveats, caveat) {
+		res.Caveats = append(res.Caveats, caveat)
 	}
 	res.Caveats = append(res.Caveats, stats.Caveats...)
 	return res
@@ -7784,6 +7838,12 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 			a.item.SupplyFoldBasis.UnknownMs += impact.SupplyFoldBasis.UnknownMs
 			a.item.SupplyFoldDeficitMs += impact.SupplyFoldDeficitMs
 			a.item.SupplyFoldIdealMs += impact.SupplyFoldIdealMs
+			// CFR (#75 簇共频): the reuse disclosure is a set union — an
+			// aggregate whose members folded reused slices must keep the
+			// provenance auditable (dedupe + sort inside the recorder).
+			for _, pair := range impact.SupplyFoldBasis.ClusterFreqReuse {
+				recordSupplyFoldClusterReuse(a.item.SupplyFoldBasis, pair.CPU, pair.DonorCPU)
+			}
 		}
 		a.item.OccurrenceWindows = append(a.item.OccurrenceWindows, wakeupCausalOccurrenceFromImpact(impact))
 	}

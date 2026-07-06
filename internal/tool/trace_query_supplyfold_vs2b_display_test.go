@@ -53,6 +53,26 @@ func TestTraceQuerySupplyFoldRichNotesThrottledFindingAndLaneCaveat(t *testing.T
 	}
 }
 
+// CFR (#75 簇共频): a basis carrying cluster-reuse pairs publishes the short
+// typed provenance note — and ONLY then (no reuse → no note). Verbatim
+// wire-format literal below is a deliberate double-write (registry protocol).
+func TestTraceQuerySupplyFoldRichNotesClusterFreqReuseDisclosure(t *testing.T) {
+	notes := traceQueryTypedSupplyFoldRichNotes(&tracequery.SupplyFoldBasis{
+		KnownMs: 20, FmaxKHz: 2000000, FmaxSource: tracequery.SupplyFoldFmaxSourceObserved,
+		ClusterFreqReuse: []tracequery.SupplyFoldClusterReuse{{CPU: 3, DonorCPU: 2}, {CPU: 6, DonorCPU: 4}},
+	}, 5, 15)
+	joined := strings.Join(notes, "\n")
+	if !strings.Contains(joined, "fold_cluster_freq_reuse=cpu3 频点=同簇 cpu2;cpu6 频点=同簇 cpu4(簇共频复用,显式拓扑)") {
+		t.Fatalf("cluster-reuse provenance must publish, got:\n%s", joined)
+	}
+	notes = traceQueryTypedSupplyFoldRichNotes(&tracequery.SupplyFoldBasis{
+		KnownMs: 20, FmaxKHz: 2000000, FmaxSource: tracequery.SupplyFoldFmaxSourceObserved,
+	}, 5, 15)
+	if strings.Contains(strings.Join(notes, "\n"), "fold_cluster_freq_reuse=") {
+		t.Fatalf("no reuse → no note, got %v", notes)
+	}
+}
+
 // Zero-fmax basis (all-unknown fold or member-summed aggregate) publishes
 // only the base accounting — no provenance, no clauses, and the lane caveat
 // stays keyed on the typed divergence flag alone (一致时不加注).

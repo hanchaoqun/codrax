@@ -85,6 +85,7 @@ var traceNoteKeyGoldenRows = []string{
 	"file_events|io|display_only",
 	"flags|blocking|display_only",
 	"fold_basis|supply_fold|hard_consumer",
+	"fold_cluster_freq_reuse|supply_fold|display_only",
 	"fold_cluster_lane_caveat|supply_fold|display_only",
 	"fold_fmax|supply_fold|display_only",
 	"fold_fmax_finding|supply_fold|display_only",

@@ -521,7 +521,13 @@ type cpuSupplyAcc struct {
 // sched-observation signal (≥1 in-window sched_switch judged by the busy
 // loop); headRunnable seeds the idle-mismatch pass with threads already
 // runnable at the window head (adversarial review 2026-07-04 F3).
-func computeComputeSupplyBalance(idx *Index, q Query, windowMs float64, supply map[int]*cpuSupplyAcc, schedCPUs map[int]bool, headRunnable map[int]bool, cpus []CPUStats, coreByCPU map[int]string, observedFmaxByCPU map[int]int) *ComputeSupplyBalance {
+// clusterFreqDonorFor (CFR #75 簇共频) is the explicit-topology same-cluster
+// donor resolver (cluster_freq_share.go single authority; nil or fail-open =
+// pre-CFR behavior). When a CPU has no own samples but a donor exists, its
+// fmax reads the donor's window-observed fmax and the row disclosures say so —
+// the busy-loop weighting already integrated the same donor timeline, so the
+// ledger stays one caliber end to end.
+func computeComputeSupplyBalance(idx *Index, q Query, windowMs float64, supply map[int]*cpuSupplyAcc, schedCPUs map[int]bool, headRunnable map[int]bool, cpus []CPUStats, coreByCPU map[int]string, observedFmaxByCPU map[int]int, clusterFreqDonorFor func(cpu int) (int, bool)) *ComputeSupplyBalance {
 	if windowMs <= 0 || len(cpus) == 0 {
 		return nil
 	}
@@ -570,12 +576,29 @@ func computeComputeSupplyBalance(idx *Index, q Query, windowMs float64, supply m
 		// window observed source (windowObservedFmaxByCPU) — same caliber,
 		// computed once beside the ClusterFrequencyCeilings snapshot.
 		fmax := observedFmaxByCPU[cpu.CPU]
+		donorCPU := -1
+		if fmax <= 0 && clusterFreqDonorFor != nil {
+			// CFR (#75 簇共频): no own samples — under explicit topology the
+			// same-cluster sampled sibling's window-observed fmax IS this
+			// CPU's fmax (one shared hardware frequency point). Fail-open
+			// keeps the honest 无频点数据 branch below.
+			if donor, ok := clusterFreqDonorFor(cpu.CPU); ok {
+				if donorFmax := observedFmaxByCPU[donor]; donorFmax > 0 {
+					fmax, donorCPU = donorFmax, donor
+				}
+			}
+		}
 		per := ComputeSupplyCPUBalance{
 			CPU:             cpu.CPU,
 			CoreClass:       coreByCPU[cpu.CPU],
 			RunningMs:       runningMs,
 			MaxFrequencyKHz: fmax,
 			FrequencyKnown:  fmax > 0,
+		}
+		if donorCPU >= 0 {
+			donor := donorCPU
+			per.FrequencyClusterDonorCPU = &donor
+			bal.Caveats = append(bal.Caveats, fmt.Sprintf("cpu=%d has no own cpu_frequency samples; frequency taken from same-cluster cpu=%d under explicit core_topology (cpu%d 频点=同簇 cpu%d,簇共频复用)", cpu.CPU, donor, cpu.CPU, donor))
 		}
 		switch {
 		case fmax > 0:

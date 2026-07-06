@@ -76,6 +76,22 @@ type SupplyFoldBasis struct {
 	ClusterLaneName      string `json:"cluster_lane_name,omitempty"`
 	ClusterLaneMaxKHz    int    `json:"cluster_lane_max_khz,omitempty"`
 	ClusterLaneDivergent bool   `json:"cluster_lane_divergent,omitempty"`
+
+	// CFR (#75 簇共频, 客户硬件域裁定): provenance of every slice-CPU whose
+	// fold frequency was REUSED from a same-cluster sampled sibling under
+	// explicit topology (cluster_freq_share.go is the single resolution
+	// authority). Typed disclosure only — the reused slices book as KNOWN
+	// basis because the cluster shares one hardware frequency point, and this
+	// roster is what makes that claim auditable. Empty when no reuse happened
+	// (unknown/inferred topology, cross-cluster, or own samples present).
+	ClusterFreqReuse []SupplyFoldClusterReuse `json:"cluster_freq_reuse,omitempty"`
+}
+
+// SupplyFoldClusterReuse is one disclosed reuse pair: slices on CPU folded
+// with DonorCPU's governed frequency timeline (same explicit cluster).
+type SupplyFoldClusterReuse struct {
+	CPU      int `json:"cpu"`
+	DonorCPU int `json:"donor_cpu"`
 }
 
 // Typed FmaxSource values (VS-2b ladder steps 2 and 3; step 1 — sysfs — is
@@ -381,6 +397,11 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 		basis.TraceObservedMaxKHz = fm.traceObservedMaxKHz
 	}
 	c.applyClusterLaneCorroboration(&basis, gStart, gEnd)
+	// CFR (#75 簇共频): explicit-topology frequency domains for same-cluster
+	// sample reuse (single authority: cluster_freq_share.go). Unknown or
+	// inferred topology parses to the zero value — every donor lookup then
+	// fails open and the fold behaves exactly as before.
+	domains := parseClusterFreqDomains(q.CoreTopology)
 	for _, it := range intervals {
 		if it.State != StateRunning || it.DurationMs <= 0 {
 			continue
@@ -392,6 +413,20 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 			continue
 		}
 		samples := c.governedFreqSamples(it.CPU, gStart, gEnd)
+		if len(samples) == 0 && domains.known() {
+			// CFR (#75): the slice CPU has no governing samples of its own —
+			// reuse a same-cluster sampled sibling's governed timeline (the
+			// cluster shares one hardware frequency point, so this is truth,
+			// not estimation). donorFor structurally refuses when the CPU has
+			// its own samples (禁反向) and fails open on unknown membership.
+			hasGoverned := func(sibling int) bool {
+				return len(c.governedFreqSamples(sibling, gStart, gEnd)) > 0
+			}
+			if donor, ok := domains.donorFor(it.CPU, hasGoverned); ok {
+				samples = c.governedFreqSamples(donor, gStart, gEnd)
+				recordSupplyFoldClusterReuse(&basis, it.CPU, donor)
+			}
+		}
 		wall := it.EndTs - it.StartTs
 		if wall <= 0 {
 			// Degenerate interval: single lookup at its start.
@@ -423,6 +458,24 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 // folded ideal contribution: known slices fold at min(1, f/fmax) — the clamp
 // keeps a slice governed ABOVE the big-cluster fmax (possible under explicit
 // topology) from minting a negative deficit — unknown slices fold at 1.
+// recordSupplyFoldClusterReuse appends one disclosed reuse pair, deduped and
+// kept sorted by CPU (deterministic disclosure roster; a node's slices on the
+// same CPU always resolve the same donor — lowest sampled sibling).
+func recordSupplyFoldClusterReuse(basis *SupplyFoldBasis, cpu, donor int) {
+	for _, pair := range basis.ClusterFreqReuse {
+		if pair.CPU == cpu && pair.DonorCPU == donor {
+			return
+		}
+	}
+	basis.ClusterFreqReuse = append(basis.ClusterFreqReuse, SupplyFoldClusterReuse{CPU: cpu, DonorCPU: donor})
+	sort.Slice(basis.ClusterFreqReuse, func(i, j int) bool {
+		if basis.ClusterFreqReuse[i].CPU != basis.ClusterFreqReuse[j].CPU {
+			return basis.ClusterFreqReuse[i].CPU < basis.ClusterFreqReuse[j].CPU
+		}
+		return basis.ClusterFreqReuse[i].DonorCPU < basis.ClusterFreqReuse[j].DonorCPU
+	})
+}
+
 func supplyFoldSliceIdeal(sliceMs float64, freqKHz, bigFmaxKHz int, basis *SupplyFoldBasis) float64 {
 	if freqKHz <= 0 {
 		basis.UnknownMs += sliceMs

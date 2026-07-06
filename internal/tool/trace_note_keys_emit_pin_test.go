@@ -56,6 +56,8 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		FmaxKHz: 2400000, FmaxSource: tracequery.SupplyFoldFmaxSourceLimit,
 		LimitThrottled: true, TraceObservedMaxKHz: 2800000,
 		ClusterLaneName: "lane0", ClusterLaneMaxKHz: 999, ClusterLaneDivergent: true,
+		// CFR (#75 簇共频): exercises the fold_cluster_freq_reuse emission.
+		ClusterFreqReuse: []tracequery.SupplyFoldClusterReuse{{CPU: 3, DonorCPU: 4}},
 	}
 	impact := tracequery.WakeupCausalImpact{
 		Thread: tracequery.ThreadRef{Comm: "dep", PID: 21}, Window: window,

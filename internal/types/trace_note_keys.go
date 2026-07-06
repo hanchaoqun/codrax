@@ -209,6 +209,10 @@ const (
 	TraceNoteKeyFoldFmax              = "fold_fmax"
 	TraceNoteKeyFoldFmaxFinding       = "fold_fmax_finding"
 	TraceNoteKeyFoldClusterLaneCaveat = "fold_cluster_lane_caveat"
+	// TraceNoteKeyFoldClusterFreqReuse (CFR #75 簇共频): discloses fold slices
+	// whose frequency was reused from a same-cluster sampled core under
+	// explicit topology (SupplyFoldBasis.ClusterFreqReuse roster).
+	TraceNoteKeyFoldClusterFreqReuse = "fold_cluster_freq_reuse"
 )
 
 // 占用族 (runnable-occupancy family, RN-1 §7.9) + CMP-9 density.
@@ -416,6 +420,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyFoldFmax, "supply_fold", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyFoldFmaxFinding, "supply_fold", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyFoldClusterLaneCaveat, "supply_fold", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyFoldClusterFreqReuse, "supply_fold", TraceNoteCarrierDisplayOnly},
 
 	// 占用族 (RN-1) + CMP-9 density.
 	{TraceNoteKeyStarvedRunnableMS, "occupancy", TraceNoteCarrierDisplayOnly},
