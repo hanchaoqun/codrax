@@ -8304,7 +8304,7 @@ func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
 	}
 	ipc := BuildIPCGraph(idx, q)
 	res.IPCEdges = ipc.Edges
-	res.BinderWaits = findBinderWaitsForChain(*res, ipc.Edges, ipc.BinderEvents)
+	res.BinderWaits = findBinderWaitsForChain(idx, *res, ipc.Edges, ipc.BinderEvents)
 	for _, wait := range res.BinderWaits {
 		res.RootEvidence = append(res.RootEvidence, RootEvidence{
 			Type:       "binder_wait",
@@ -8319,7 +8319,7 @@ func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
 	res.Caveats = append(res.Caveats, ipc.Caveats...)
 }
 
-func findBinderWaitsForChain(chain ChainResult, edges []IPCEdge, aux []BinderEventSummary) []BinderWaitSummary {
+func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux []BinderEventSummary) []BinderWaitSummary {
 	if len(chain.Nodes) == 0 || len(edges) == 0 {
 		return nil
 	}
@@ -8379,6 +8379,32 @@ func findBinderWaitsForChain(chain ChainResult, edges []IPCEdge, aux []BinderEve
 					wait.WakeupTs = w.WakeupTs
 					break
 				}
+			}
+			// §11 N8: Android BC_TRANSACTION to a process pool leaves
+			// dest_thread=0, so ipc.go could not name a receiver — recover the
+			// server-side counterpart from the waiter's direct wakeup edge (the
+			// thread that eventually replied woke it). A dest_thread HINT that
+			// names no thread this trace scheduled (cross-ns phantom) is also
+			// treated as unresolved via threadRefPresent, symmetric to the lock
+			// lane — only a genuinely-present receiver keeps the payload source.
+			if idx.threadRefPresent(wait.Peer) {
+				wait.PeerSource = CounterpartSourceContentionPayload
+			} else if fb := resolveCounterpartViaWakeupEdge(idx, node.Thread, node.Window.StartTs, node.Window.EndTs); fb.OK {
+				if wait.Peer.PID > 0 {
+					// Preserve the phantom dest tid for audit before swapping.
+					wait.Caveats = append(wait.Caveats, fmt.Sprintf("binder dest_thread %d is not present in this trace (endpoint-only send)", wait.Peer.PID))
+				}
+				wait.Peer = fb.Waker
+				wait.PeerSource = CounterpartSourceWakeupEdge
+				// Visible confidence downgrade for the inferred counterpart.
+				wait.Confidence = counterpartDemotedConfidence(wait.Confidence)
+				wait.Caveats = append(wait.Caveats, "binder receiver inferred from the waiter's wakeup edge (dest_thread=0/absent endpoint); counterpart is the thread that woke the waiter, not a confirmed binder receive row")
+			} else if wait.Peer.PID > 0 {
+				// A phantom dest_thread with no usable wakeup edge: drop the ghost
+				// PID so drill/peer-state read "unresolved" instead of pointing at
+				// an id this trace never scheduled (symmetric with the lock lane).
+				wait.Caveats = append(wait.Caveats, fmt.Sprintf("binder dest_thread %d is not present in this trace and no wakeup edge resolved the counterpart", wait.Peer.PID))
+				wait.Peer = ThreadRef{}
 			}
 			peer := tracePeerLabel(wait.Peer, edge)
 			wait.Summary = fmt.Sprintf("%s sent synchronous-looking binder transaction", threadLabel(wait.Thread))
@@ -8608,7 +8634,7 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	// generic trace_span row that can never leave the adjacent tier. The lane
 	// is fed from the SAME folded carve as critical_blocking, so dual print
 	// forms of one lock publish exactly one rank row.
-	for _, row := range collectBlockingSpanRows(stats) {
+	for _, row := range collectBlockingSpanRows(idx, stats) {
 		if row.cand.BlockingKind == "" {
 			continue
 		}
@@ -9795,7 +9821,14 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 	if holderResolved {
 		summary = fmt.Sprintf("lock holder %s blocked %s for %.3fms%s", threadLabel(holder), threadLabel(waiter), cand.DurationMs, suffix)
 	}
-	item := rootCauseItem("blocking_span", subject, backgroundImpactMs(q, cand.DurationMs, hasCausalChain, onChain), 0.72, cand.LineStart, cand.LineEnd, "window_stats.trace_spans.lock_contention", summary)
+	// P0-E2a: the rank confidence tracks the folded candidate's confidence, so
+	// the wakeup-edge holder-source demotion (0.62) flows into rank Score = impact
+	// × conf × weight — an inferred holder never scores as a payload-direct one.
+	rowConfidence := cand.Confidence
+	if rowConfidence <= 0 {
+		rowConfidence = 0.72
+	}
+	item := rootCauseItem("blocking_span", subject, backgroundImpactMs(q, cand.DurationMs, hasCausalChain, onChain), rowConfidence, cand.LineStart, cand.LineEnd, "window_stats.trace_spans.lock_contention", summary)
 	item.CumulativeImpactMs = cand.DurationMs
 	item.Causality = causalityLabel(hasCausalChain, onChain)
 	item.StartTs = cand.StartTs
@@ -9803,6 +9836,10 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 	item.SpanName = row.spanName
 	item.BlockingKind = cand.BlockingKind
 	item.HolderSite = cand.HolderSite
+	// P0-E2a: carry the typed holder-source origin and the phantom payload tid
+	// (if the wakeup-edge fallback fired) onto the rank row.
+	item.HolderSource = cand.HolderSource
+	item.OwnerTidRaw = cand.OwnerTidRaw
 	if holderResolved {
 		// BlockingPeer = the contention counterpart of the row subject: the
 		// blocked waiter. Deliberately left EMPTY when the holder is
@@ -12041,6 +12078,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 				Type:              "binder_wait",
 				Thread:            wait.Thread,
 				Peer:              wait.Peer,
+				PeerSource:        wait.PeerSource,
 				Flags:             wait.Flags,
 				Oneway:            traceBoolPtr(wait.Oneway),
 				SyncLike:          traceBoolPtr(wait.SyncLike),
@@ -12067,8 +12105,10 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		})
 	}
 	// P2-3 (Q4-F root fold): the span lane arrives pre-folded — dual print
-	// forms of the same lock publish exactly one candidate here.
-	for _, row := range collectBlockingSpanRows(stats) {
+	// forms of the same lock publish exactly one candidate here. P0-E2a: the
+	// counterpart is resolved (payload-direct vs wakeup-edge fallback) inside
+	// collectBlockingSpanRows before this add.
+	for _, row := range collectBlockingSpanRows(idx, stats) {
 		add(row.cand)
 	}
 	for _, mem := range stats.MemoryKinds {
@@ -12266,7 +12306,14 @@ type blockingSpanRow struct {
 // duplicates are recorded on MergedLines — every downstream face (blocking
 // rows, rank candidates, drill stamps, next-step synthesis) is naturally
 // single.
-func collectBlockingSpanRows(stats WindowStats) []blockingSpanRow {
+//
+// P0-E2a (§10 A2 / §12 Q4-C): the counterpart resolve pass runs AFTER the fold
+// so each folded row is resolved exactly once (the fold key = the payload
+// owner tid, unaffected by the fallback). resolveBlockingSpanRowCounterpart
+// stamps HolderSource and, when the payload owner tid is a cross-namespace
+// phantom, swaps the phantom for the waiter's real wakeup-edge waker (and gives
+// payload-less blocking spans a wait_object).
+func collectBlockingSpanRows(idx *Index, stats WindowStats) []blockingSpanRow {
 	var rows []blockingSpanRow
 	for _, span := range stats.TraceSpans {
 		cand, ok := blockingSpanCandidateFromTraceSpan(span)
@@ -12289,7 +12336,129 @@ func collectBlockingSpanRows(stats WindowStats) []blockingSpanRow {
 		}
 		rows = append(rows, row)
 	}
+	for i := range rows {
+		resolveBlockingSpanRowCounterpart(idx, &rows[i])
+	}
 	return rows
+}
+
+// resolveBlockingSpanRowCounterpart (P0-E2a) runs once per folded blocking-span
+// row. Priority chain, all typed:
+//
+//  1. Structured lock contention with a payload owner tid that IS present in
+//     this trace → unchanged: stamp HolderSource=contention_payload. On the
+//     information-rich monitor form (owner comm carried), a comm cross-check
+//     guards against a tid collision — if a thread with that pid exists in the
+//     trace but its observed comm never equals the payload's owner comm, the
+//     payload id is a coincidental collision, so fall through to the fallback.
+//  2. Structured lock contention whose owner tid is NOT present (cross-ns
+//     phantom or absent) → recover the holder from the waiter's direct 1-hop
+//     wakeup edge; stamp HolderSource=wakeup_edge, keep the phantom on
+//     OwnerTidRaw, drop the phantom PID off the Peer.
+//  3. Payload-less blocking span (no BlockingKind) → publish wait_object=span
+//     name and try the same wakeup-edge fallback for a counterpart candidate.
+func resolveBlockingSpanRowCounterpart(idx *Index, row *blockingSpanRow) {
+	if row == nil {
+		return
+	}
+	cand := &row.cand
+	if cand.BlockingKind != "" && cand.Peer.PID > 0 {
+		if idx.tidPresent(cand.Peer.PID) && !lockOwnerCommCollides(idx, cand.Peer) {
+			cand.HolderSource = CounterpartSourceContentionPayload
+			return
+		}
+		// The payload printed an owner id this trace cannot resolve (or a
+		// colliding pid): fall back to the waiter's wakeup-edge waker.
+		rawTid := cand.Peer.PID
+		if fb := resolveCounterpartViaWakeupEdge(idx, cand.Thread, cand.StartTs, cand.EndTs); fb.OK {
+			cand.Peer = fb.Waker
+			cand.HolderSource = CounterpartSourceWakeupEdge
+			cand.OwnerTidRaw = rawTid
+			// Visible confidence downgrade: an inferred holder never scores as a
+			// payload-direct one (P2 review, ipc.go receiver-inferred precedent).
+			cand.Confidence = counterpartDemotedConfidence(cand.Confidence)
+			cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartWakeupEdgeCaveat(rawTid))
+			return
+		}
+		// No usable wakeup edge: leave the row unresolved. Drop the phantom
+		// PID so the P0-E1 typed-pair gates correctly read "unresolved" instead
+		// of pointing at a ghost id; preserve the raw tid for audit.
+		cand.OwnerTidRaw = rawTid
+		cand.Peer = ThreadRef{}
+		return
+	}
+	if cand.BlockingKind == "" {
+		// §10 A2: payload-less blocking span — at least name the wait object,
+		// and offer a wakeup-edge counterpart candidate when the row has no peer
+		// yet.
+		if cand.WaitObject == "" {
+			cand.WaitObject = row.spanName
+		}
+		if cand.Peer.PID <= 0 && strings.TrimSpace(cand.Peer.Comm) == "" {
+			if fb := resolveCounterpartViaWakeupEdge(idx, cand.Thread, cand.StartTs, cand.EndTs); fb.OK {
+				cand.Peer = fb.Waker
+				cand.PeerSource = CounterpartSourceWakeupEdge
+				cand.Confidence = counterpartDemotedConfidence(cand.Confidence)
+				cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartWakeupEdgeCaveat(0))
+			}
+		}
+	}
+}
+
+// counterpartDemotedConfidence lowers a candidate's confidence to the
+// wakeup-edge inference ceiling, never RAISING an already-lower value (a
+// dest_thread=0 binder edge may already sit below it). Rank Score is monotone
+// in Confidence, so this is the sole (no-gate) demotion of an inferred
+// counterpart relative to a payload-direct row of equal impact.
+func counterpartDemotedConfidence(current float64) float64 {
+	if current > 0 && current < counterpartWakeupEdgeConfidence {
+		return current
+	}
+	return counterpartWakeupEdgeConfidence
+}
+
+// counterpartWakeupEdgeCaveat is the symmetric advisory sentence for a
+// wakeup-edge-inferred counterpart (mirrors the binder-side caveat at the
+// findBinderWaitsForChain fallback). rawTid>0 names the phantom payload tid the
+// current trace could not resolve; rawTid==0 is the payload-less blocking-span
+// form.
+func counterpartWakeupEdgeCaveat(rawTid int) string {
+	if rawTid > 0 {
+		return fmt.Sprintf("counterpart inferred from the waiter's wakeup edge because the payload owner tid %d is not present in this trace; it is the thread that woke the waiter, not a payload-confirmed holder", rawTid)
+	}
+	return "counterpart inferred from the waiter's wakeup edge (no structured owner in the payload); it is the thread that woke the waiter, not a payload-confirmed holder"
+}
+
+// lockOwnerCommCollides guards the payload-direct holder path against a tid
+// collision: the rich monitor-contention form carries the owner's COMM, so if
+// that pid is present in the trace but the trace never observed it under the
+// payload's owner comm, the pid is a coincidental collision with an unrelated
+// thread and the payload-direct resolution would misattribute. Returns false
+// (no collision) when the payload carried no owner comm (nothing to cross-check
+// — the tid-only "Lock contention on … (owner tid: N)" form) or when the comms
+// match.
+func lockOwnerCommCollides(idx *Index, owner ThreadRef) bool {
+	payloadComm := strings.TrimSpace(owner.Comm)
+	if payloadComm == "" || owner.PID <= 0 || idx == nil {
+		return false
+	}
+	sawPID := false
+	for i := range idx.Events {
+		ev := &idx.Events[i]
+		for _, pair := range [...]struct {
+			pid  int
+			comm string
+		}{{ev.PID, ev.Comm}, {ev.PrevPID, ev.PrevComm}, {ev.NextPID, ev.NextComm}, {ev.WakeePID, ev.WakeeComm}} {
+			if pair.pid != owner.PID {
+				continue
+			}
+			sawPID = true
+			if strings.EqualFold(strings.TrimSpace(pair.comm), payloadComm) {
+				return false
+			}
+		}
+	}
+	return sawPID
 }
 
 func sameLockContention(a, b CriticalBlockingCandidate) bool {

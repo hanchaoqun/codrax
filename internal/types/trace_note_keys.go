@@ -243,6 +243,16 @@ const (
 	TraceNoteKeyPeer         = "peer"
 	TraceNoteKeyHolderSite   = "holder_site"
 	TraceNoteKeyWaiters      = "waiters"
+	// P0-E2a counterpart-resolution family (§10 A2 / §11 N8 / §12 Q4-C): the
+	// typed origin of a resolved blocking counterpart, the raw payload owner tid
+	// preserved when a cross-namespace phantom was replaced by a wakeup-edge
+	// fallback, and the wait object of a payload-less blocking span. All
+	// display tier today (the P0-A projection/answer face consumes them, exactly
+	// like the drill_status precedent).
+	TraceNoteKeyHolderSource = "holder_source"
+	TraceNoteKeyPeerSource   = "peer_source"
+	TraceNoteKeyOwnerTidRaw  = "owner_tid_raw"
+	TraceNoteKeyWaitObject   = "wait_object"
 )
 
 // 门控族 (gated-composition family, §7.30.3 D3).
@@ -440,6 +450,11 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyPeer, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyHolderSite, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyWaiters, "blocking", TraceNoteCarrierHardConsumer},
+	// P0-E2a counterpart-resolution keys — display tier (P0-A consumes).
+	{TraceNoteKeyHolderSource, "blocking", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyPeerSource, "blocking", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyOwnerTidRaw, "blocking", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyWaitObject, "blocking", TraceNoteCarrierDisplayOnly},
 	{"flags", "blocking", TraceNoteCarrierDisplayOnly},
 	{"oneway", "blocking", TraceNoteCarrierDisplayOnly},
 	{"sync_like", "blocking", TraceNoteCarrierDisplayOnly},

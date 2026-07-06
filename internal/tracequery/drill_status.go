@@ -32,6 +32,24 @@ const (
 	DrillStatusPeerUnknown = "peer_unknown"
 )
 
+// Counterpart-source enum (P0-E2a, §10 A2 / §11 N8 / §12 Q4-C). A resolved
+// blocking counterpart (lock holder / binder peer) came from ONE of two
+// deterministic origins; the typed source lets every downstream face say WHICH
+// so a payload-direct resolution and a fallback-inferred one are never
+// conflated. System-produced enum, never model prose.
+const (
+	// CounterpartSourceContentionPayload — the counterpart tid was parsed
+	// straight out of the structured contention/binder payload AND that tid is
+	// present in this trace (drillable). The unchanged, information-richest
+	// origin.
+	CounterpartSourceContentionPayload = "contention_payload"
+	// CounterpartSourceWakeupEdge — the payload tid named no thread this trace
+	// scheduled (cross-namespace phantom, or absent), so the counterpart was
+	// recovered from the direct 1-hop wakeup edge (the waker of the waiter).
+	// Lower confidence than a payload-direct resolution.
+	CounterpartSourceWakeupEdge = "wakeup_edge"
+)
+
 // drillSubjectUniverse is the subject set of this report's own-conduct
 // observations, keyed both by PID and by comm so a counterpart resolved as
 // tid-only or name-only still matches precisely (exact keys, no substring

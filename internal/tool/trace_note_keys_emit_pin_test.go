@@ -274,7 +274,10 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				PeriodicSource: true, DetectedPeriodMs: 16.6, LatenessMs: 0.4,
 				SupplyFoldBasis: basis, SupplyFoldDeficitMs: 1, SupplyFoldIdealMs: 4,
 				OccurrenceWindows: []tracequery.WakeupCausalOccurrence{occurrence},
-				Summary:           "runnable wait dominated the frame",
+				// P0-E2a: lock-lane rank rows publish the holder-resolution origin.
+				BlockingKind: "monitor_contention", BlockingPeer: tracequery.ThreadRef{Comm: "holder", PID: 102},
+				HolderSource: tracequery.CounterpartSourceContentionPayload, OwnerTidRaw: 0,
+				Summary: "runnable wait dominated the frame",
 			}},
 		},
 		WakeupChain: &tracequery.ChainResult{
@@ -330,6 +333,9 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				Type: "monitor_contention", Thread: tracequery.ThreadRef{Comm: "app:ui", PID: 61},
 				Peer: tracequery.ThreadRef{Comm: "holder", PID: 102}, BlockingKind: "monitor_contention",
 				HolderSite: "Foo.bar(Foo.java:42)", Waiters: 2,
+				// P0-E2a display-tier keys — exercised so the emit pin covers them.
+				HolderSource: tracequery.CounterpartSourceWakeupEdge, PeerSource: tracequery.CounterpartSourceWakeupEdge,
+				OwnerTidRaw: 987654, WaitObject: "monitor of Foo",
 				PeerState: &tracequery.ThreadStateBreakdown{
 					DominantState: string(tracequery.StateRunning), TotalMs: 6, RunningMs: 4,
 					RunnableMs: 1, SleepMs: 1, DStateMs: 1, IOWaitMs: 1, FragmentCount: 2,

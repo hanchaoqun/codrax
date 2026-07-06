@@ -75,8 +75,12 @@ func TestParseLockContentionPayloadOwnerTidShapes(t *testing.T) {
 // critical_blocking view must publish the parsed owner as the row's peer plus
 // the typed blocking semantics (§7.30.3 D1 data half).
 func TestCriticalBlockingCarriesMonitorContentionOwnerPeer(t *testing.T) {
+	// Holder tid 42067 is a genuine in-trace thread (woken on cpu3), so the
+	// payload owner is host-namespace-resolvable and the resolution stays
+	// payload-direct (P0-E2a byte-stability witness).
 	trace := `
         aweme-41999 (41905) [002] .... 5.000000: print: B|41905|` + lockContentionCustomerMonitorPayload + `
+          other-777 (777) [003] .... 5.010000: sched_wakeup: comm=NetworkKit_AssetsUtil_Operate_0 pid=42067 prio=120 target_cpu=003
         aweme-41999 (41905) [002] .... 5.112223: print: E|41905
         aweme-41999 (41905) [002] .... 5.200000: print: B|41905|` + lockContentionCustomerLockPayload + `
         aweme-41999 (41905) [002] .... 5.260000: print: E|41905

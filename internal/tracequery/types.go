@@ -374,6 +374,16 @@ type Index struct {
 	// the sync.Once is copy-safe.
 	tidTgidVoteOnce sync.Once
 	tidTgidVote     *tidTgidDerivation
+	// tidPresenceOnce/tidPresence back the P0-E2a (§10/§11/§12) tid-presence
+	// set: the memoized set of every tid that appears in ANY event's
+	// PID/PrevPID/NextPID/WakeePID field in THIS trace. It is the PRECISE
+	// judgement "this id is RESOLVABLE in this trace" versus "a payload merely
+	// PRINTED this id" — a structured contention/binder payload may carry a
+	// cross-namespace owner/dest tid that names no thread this trace ever
+	// scheduled. Lazily built once by tidPresenceSet(); non-exported and never
+	// serialized. Copy-safe like tidTgidVoteOnce (Index is pointer-only).
+	tidPresenceOnce sync.Once
+	tidPresence     map[int]bool
 }
 
 type Query struct {
@@ -473,7 +483,7 @@ type Result struct {
 	// matched cpu_frequency row.
 	CPUFrequencyCensus *CPUFrequencyCensus `json:"cpu_frequency_census,omitempty"`
 	EvidencePack       []EvidenceFact      `json:"evidence_pack,omitempty"`
-	Caveats                     []string                `json:"caveats,omitempty"`
+	Caveats            []string            `json:"caveats,omitempty"`
 	// Compactions are the typed truncation records for this result (E4).
 	// They ride ALONGSIDE the prose compaction caveats (which stay verbatim);
 	// the tool refinement layer reads these first and keeps caveat-substring
@@ -1643,24 +1653,30 @@ type SubsystemEventSummary struct {
 }
 
 type BinderWaitSummary struct {
-	Thread            ThreadRef `json:"thread"`
-	Peer              ThreadRef `json:"peer,omitempty"`
-	TransactionID     int       `json:"transaction_id,omitempty"`
-	Flags             string    `json:"flags,omitempty"`
-	Oneway            bool      `json:"oneway"`
-	SyncLike          bool      `json:"sync_like"`
-	BlockingCandidate bool      `json:"blocking_candidate"`
-	SendLine          int       `json:"send_line,omitempty"`
-	ReceiveLine       int       `json:"receive_line,omitempty"`
-	SleepLine         int       `json:"sleep_line,omitempty"`
-	WakeupLine        int       `json:"wakeup_line,omitempty"`
-	SendTs            float64   `json:"send_ts,omitempty"`
-	SleepStartTs      float64   `json:"sleep_start_ts,omitempty"`
-	WakeupTs          float64   `json:"wakeup_ts,omitempty"`
-	DurationMs        float64   `json:"duration_ms,omitempty"`
-	Confidence        float64   `json:"confidence,omitempty"`
-	Summary           string    `json:"summary,omitempty"`
-	Caveats           []string  `json:"caveats,omitempty"`
+	Thread ThreadRef `json:"thread"`
+	Peer   ThreadRef `json:"peer,omitempty"`
+	// PeerSource (P0-E2a, §11 N8): the typed origin of Peer when it is
+	// resolved — CounterpartSourceContentionPayload for a receive-row/dest-hint
+	// match, CounterpartSourceWakeupEdge when the Android dest_thread=0 form
+	// left no receiver and the waiter's direct wakeup edge recovered the peer.
+	// Empty when the peer stayed unresolved.
+	PeerSource        string   `json:"peer_source,omitempty"`
+	TransactionID     int      `json:"transaction_id,omitempty"`
+	Flags             string   `json:"flags,omitempty"`
+	Oneway            bool     `json:"oneway"`
+	SyncLike          bool     `json:"sync_like"`
+	BlockingCandidate bool     `json:"blocking_candidate"`
+	SendLine          int      `json:"send_line,omitempty"`
+	ReceiveLine       int      `json:"receive_line,omitempty"`
+	SleepLine         int      `json:"sleep_line,omitempty"`
+	WakeupLine        int      `json:"wakeup_line,omitempty"`
+	SendTs            float64  `json:"send_ts,omitempty"`
+	SleepStartTs      float64  `json:"sleep_start_ts,omitempty"`
+	WakeupTs          float64  `json:"wakeup_ts,omitempty"`
+	DurationMs        float64  `json:"duration_ms,omitempty"`
+	Confidence        float64  `json:"confidence,omitempty"`
+	Summary           string   `json:"summary,omitempty"`
+	Caveats           []string `json:"caveats,omitempty"`
 }
 
 type TraceSpanSummary struct {
@@ -1858,6 +1874,14 @@ type RootCauseRankItem struct {
 	BlockingKind string    `json:"blocking_kind,omitempty"`
 	BlockingPeer ThreadRef `json:"blocking_peer,omitempty"`
 	HolderSite   string    `json:"holder_site,omitempty"`
+	// HolderSource / OwnerTidRaw (P0-E2a, §12 Q4-C): the typed origin of the
+	// resolved lock HOLDER on a blocking_span rank row —
+	// CounterpartSourceContentionPayload (payload tid present in trace,
+	// unchanged) or CounterpartSourceWakeupEdge (payload tid was a phantom, the
+	// holder was recovered from the waiter's direct wakeup edge). OwnerTidRaw
+	// carries the phantom payload tid for audit when the fallback fired.
+	HolderSource string `json:"holder_source,omitempty"`
+	OwnerTidRaw  int    `json:"owner_tid_raw,omitempty"`
 	// DrillStatus (RCX① engine side, §12.3 ruling 1): whether this row's
 	// contention counterpart/holder was itself examined by a subject==peer
 	// observation inside THIS report's observation universe. See the
@@ -2044,6 +2068,24 @@ type CriticalBlockingCandidate struct {
 	// HolderSite is the lock holder's code location from the payload's
 	// "at <sig>(<file:line>)" segment, verbatim.
 	HolderSite string `json:"holder_site,omitempty"`
+	// HolderSource / PeerSource (P0-E2a, §10 A2 / §11 N8 / §12 Q4-C): the typed
+	// origin of the resolved Peer counterpart — CounterpartSourceContentionPayload
+	// when the payload tid is present in this trace (unchanged path), or
+	// CounterpartSourceWakeupEdge when the payload tid named no in-trace thread
+	// and the direct 1-hop wakeup edge recovered the peer. Empty on rows whose
+	// peer was never resolved by either route. HolderSource is stamped on
+	// lock-contention (blocking_span) rows; PeerSource on binder_wait rows.
+	HolderSource string `json:"holder_source,omitempty"`
+	PeerSource   string `json:"peer_source,omitempty"`
+	// OwnerTidRaw (P0-E2a): the raw owner tid the contention payload printed
+	// when it is NOT present in this trace (the phantom cross-namespace id).
+	// Non-zero only alongside HolderSource=wakeup_edge; carried as an audit
+	// note so the original payload claim is never lost.
+	OwnerTidRaw int `json:"owner_tid_raw,omitempty"`
+	// WaitObject (P0-E2a, §10 A2): the blocking span's own name, published as
+	// the wait object for payload-less blocking spans so the row can at least
+	// say what it was blocked on when no structured owner was parseable.
+	WaitObject string `json:"wait_object,omitempty"`
 	// Waiters is the payload's "waiters=<n>" count (0 = not reported).
 	Waiters int `json:"waiters,omitempty"`
 	// MergedLines (P2-3, Q4-F root fold): line starts of same-lock duplicate

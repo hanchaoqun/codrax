@@ -3351,6 +3351,18 @@ func writeTraceFrameBundleTopBlocking(b *strings.Builder, bundle *tracequery.Fra
 		if item.HolderSite != "" {
 			parts = append(parts, "holder_site="+sanitizeForBanner(item.HolderSite))
 		}
+		// P0-E2a: surface the counterpart-resolution origin so the head can say
+		// whether the named holder/peer came straight from the payload or from
+		// the waiter's wakeup edge (and preserve the phantom payload tid).
+		if src := firstNonEmpty(item.HolderSource, item.PeerSource); src != "" {
+			parts = append(parts, "counterpart_source="+sanitizeForBanner(src))
+		}
+		if item.OwnerTidRaw > 0 {
+			parts = append(parts, fmt.Sprintf("owner_tid_raw=%d(payload; not in trace)", item.OwnerTidRaw))
+		}
+		if item.WaitObject != "" {
+			parts = append(parts, "wait_object="+sanitizeForBanner(item.WaitObject))
+		}
 		parts = append(parts, fmt.Sprintf("duration=%.3fms", item.DurationMs))
 		parts = append(parts, "chain_relevance="+sanitizeForBanner(item.ChainRelevance))
 		if item.DrillStatus != "" {
@@ -3483,6 +3495,12 @@ func writeTraceRootCauseBlockingDetail(b *strings.Builder, item tracequery.RootC
 	}
 	if item.HolderSite != "" {
 		parts = append(parts, "holder_site="+sanitizeForBanner(item.HolderSite))
+	}
+	if item.HolderSource != "" {
+		parts = append(parts, "holder_source="+sanitizeForBanner(item.HolderSource))
+	}
+	if item.OwnerTidRaw > 0 {
+		parts = append(parts, fmt.Sprintf("owner_tid_raw=%d(payload; not in trace)", item.OwnerTidRaw))
 	}
 	if item.DrillStatus != "" {
 		parts = append(parts, "drill_status="+sanitizeForBanner(item.DrillStatus))
@@ -4950,6 +4968,9 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{types.TraceNoteKeyBlockingKind, item.BlockingKind},
 				{types.TraceNoteKeyPeer, traceThreadLabelOptional(item.BlockingPeer)},
 				{types.TraceNoteKeyHolderSite, item.HolderSite},
+				// P0-E2a: holder-resolution origin + phantom payload tid audit.
+				{types.TraceNoteKeyHolderSource, item.HolderSource},
+				{types.TraceNoteKeyOwnerTidRaw, traceQueryTypedCount(item.OwnerTidRaw)},
 				{"drill_status", item.DrillStatus},
 				{"inherited_target_blocked_ms", traceQueryObservationMSValue(item.InheritedTargetBlockedMs)},
 				{types.TraceNoteKeyChainRelevance, item.ChainRelevance},
@@ -5752,6 +5773,13 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		{types.TraceNoteKeyBlockingKind, item.BlockingKind},
 		{types.TraceNoteKeyHolderSite, item.HolderSite},
 		{types.TraceNoteKeyWaiters, traceQueryTypedCount(item.Waiters)},
+		// P0-E2a (§10 A2 / §11 N8 / §12 Q4-C): the typed counterpart-resolution
+		// origin, the phantom payload owner tid preserved when the wakeup-edge
+		// fallback fired, and a payload-less blocking span's wait object.
+		{types.TraceNoteKeyHolderSource, item.HolderSource},
+		{types.TraceNoteKeyPeerSource, item.PeerSource},
+		{types.TraceNoteKeyOwnerTidRaw, traceQueryTypedCount(item.OwnerTidRaw)},
+		{types.TraceNoteKeyWaitObject, item.WaitObject},
 		// RCX① (§12.3 ruling 1): typed drill-debt verdict for the row's
 		// counterpart lane (NKR display tier; projection/answer-face
 		// consumption is the P0-A batch).

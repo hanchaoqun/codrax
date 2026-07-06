@@ -25,12 +25,20 @@ import (
 // never scheduled in-window → off-chain, undrilled) while a worker later
 // delivers the wakeup, so a causal chain exists and the rank sort runs
 // chain-aware.
+// The holder tid 42067 IS present in the trace (it is scheduled just AFTER the
+// waiter's window, on cpu3) so the structured-payload owner is a genuine
+// host-namespace-resolvable thread — the P0-E2a byte-stability witness: the
+// resolution stays payload-direct (HolderSource=contention_payload) and every
+// downstream face is byte-identical to the pre-P0-E2a behavior. Its only event
+// sits past the query window end, so window-stats decomposition never surfaces
+// it: it stays off-chain and undrilled_peer_known while remaining resolvable.
 const lockRankQ4Trace = `
         app-100 (100) [001] .... 5.000000: print: B|100|` + lockContentionCustomerMonitorPayload + `
         app-100 (100) [001] .... 5.000100: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
      worker-200 (100) [002] .... 5.112000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
         app-100 (100) [001] .... 5.112223: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
         app-100 (100) [001] .... 5.112300: print: E|100
+ NetworkKit_AssetsUtil_Operate_0-42067 (600) [003] .... 5.200000: sched_switch: prev_comm=NetworkKit_AssetsUtil_Operate_0 prev_pid=42067 prev_prio=120 prev_state=R ==> next_comm=idle/3 next_pid=0 next_prio=120
 `
 
 func TestRootCauseRankPublishesResolvedLockContentionAsBlockingSpanHead(t *testing.T) {
@@ -451,6 +459,7 @@ const lockRankQ4DualFormTrace = `
         app-100 (100) [001] .... 5.112223: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
         app-100 (100) [001] .... 5.112230: print: E|100
         app-100 (100) [001] .... 5.112300: print: E|100
+ NetworkKit_AssetsUtil_Operate_0-42067 (600) [003] .... 5.200000: sched_switch: prev_comm=NetworkKit_AssetsUtil_Operate_0 prev_pid=42067 prev_prio=120 prev_state=R ==> next_comm=idle/3 next_pid=0 next_prio=120
 `
 
 func TestSameLockDualPrintFormsFoldToSingleRow(t *testing.T) {
