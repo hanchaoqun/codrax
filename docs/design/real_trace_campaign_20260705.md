@@ -1026,3 +1026,152 @@ func main() {
 11 **❶❷ 徽章复算**(父行与其成因分解行同值双席)→ A 批每主体一席。
 12 关键词截断倒挂(优先级反转候选被截而样板词占行)→ C 批全词保障(截断→从属/主行首 tag 全词)。
 批次:A/B=12f9cb7c、C=8f6e7a5c、D=本 commit;复核轮 12+12+6 findings 全 confirmed 全收。用户裁定沿革:A(常显限链宇宙)/B(删反转影响)/C(指路句族→trace 源坐标)、"打包非折叠"、PTS on-chain 完整性(必提及必进树,多则折叠+计数)。
+
+## §10 客户回访反馈#1 逐项代码级归因(2026-07-06;只读归因批,未动代码)
+
+标本=/Users/han/Downloads/cust_trace_q1.txt(595 行 CLI 全程;berlin.systrace 1104MiB;42591 滑动卡顿 3.3s 窗;MiniMax-M2.7;锚窗 6793224.900–6793225.050=151ms)。本节为主会话逐行初审的代码级归因确认。行号口径:归因期间他人 CFR 批在同一工作树并行改动(涉 internal/tracequery/query.go、supply_fold.go、types.go、cpu_occupancy.go、internal/tool/trace_query.go、internal/types/trace_note_keys.go 等),本节行号为归因时刻工作树快照,CFR 落地后可能漂移——复核时以符号名(函数/常量)定位为准;render/、agent/、tool/answer_document_* 等未被 CFR 触碰的文件与 main@7f9369af 一致。
+
+### §10.1 逐项归因表
+
+**A1 [P0,用户点名] binder peer hop 缺失** — 定性:引擎车道缺失+投影无跨进程边词。
+- 产生链:binder_wait 行 `query.go:11760` 区(源=chain.BinderWaits←findBinderWaitsForChain ~:8246,按 TransactionID 配对 send/recv,不进对端);chain_relevance/edge_count 富化 enrichCriticalBlockingWithChainContext `query.go:11944` 区;peer= 富注 `internal/tool/trace_query.go:5613-5628`;投影仅消费 TraceNoteKeyPeer→BlockingPeer 文本(`internal/types/trace_causal_projection.go:1284-1285`)。
+- 考证:①T3 transact join 形态:parse 层已抽 EventBinderTransaction/EventBinderReceived/EventBinderReply(`parse.go:2209-2222`),配对 `ipc.go:18-105` 产 IPCEdge{Send/ReceiveTs,Sender,Receiver,Interface,Flags,Oneway,SyncLike,LatencyMs}——**reply 事件已解析但配对止于 receive,服务端处理段(receive→reply)今日不构造**;补 reply join 即可得服务端处理段,增量非重构。②跨界续链现无任何车道:wakeup_chain 只锚单 target;via_thread(RN-14a,`query.go:7455-7524`,schema `tool/trace_query.go:129`)只判"在不在 target 唤醒路径上",不能以 peer 为子目标;root_cause_rank 不递归 peer。③"对端状态分解"半件已存在:buildCriticalBlockingPeerState(`query.go:11914`)对每个 peer 已解析行无条件建 ThreadStateBreakdown(见 A3)。④投影边词典仅 下钻/唤醒/链上·深度未解析,无跨进程 hop 表达。
+- 修向三案:(1)引擎续链——on_chain binder_wait 且 peer 解析行,以 peer 为子目标在重叠窗跑 depth-capped 有界续链,发布 typed 子链观测(新 note 族 peer_chain_*:NKR 登记+R2' 六处同步+causal_token_registry 新行裁定),投影新边词 `─binder对端─` 下挂对端子树;(2)建议式下钻指令合成(软引导先行)——存在该形态时仿 RN-14a 既有合成先例(`tool/trace_query.go:262-281`、`emit_investigation_complete.go:3741-3780`)合成点名对端的具体 next/refine 指令,零引擎改动当轮多一跳,与 D1② 同件;(3)双做(推荐):2 本批止血,1 作引擎批交付,A2 reply join+A3 PeerState 为其数据底座。
+
+**A2 [P0] blocking_span 对端未解析 26.287ms on-chain(E20)** — 定性:车道缺失(等待对象解析仅覆盖 lock-contention 结构化 payload)。
+- 产生链:`query.go:11790-11816`,blocking_span 来自 stats.TraceSpans+isBlockingLikeText(span.Name);peer 仅当 parseLockContentionPayload(span.Name) 命中(§7.30.3 D1)才填,否则零值→显示"对端未解析";TraceSpanSummary(~:1655)本身无等待对象字段。
+- 标本 E20=target 自身 ×3(8.485–9.169ms) span(:1013562-1016996 等):**span.Name 在产出点在手(Summary 里已打 %q)但既不用于对端推断、也不作为 wait_object 注发布**——投影 E20 行连 span 名都给不出。
+- 修向:(a)最低成本:发布 wait_object=span.Name 注(NKR 登记),E20 行至少能说"等待对象=<span名>";(b)白名单形态启发解析:binder transact 包装 span→用 ipc join 同窗 IPCEdge 反查 peer;VSync 类 span→影响点=信号源;命中才填,不设嘈声硬门;(c)b 命中 binder 者汇入 A1 车道。
+
+**A3 [P1] 对端睡眠 31.6~64.9ms 只在散文** — 定性:口径 gap(typed 车道已在,消费/审计面双缺)。
+- 真相修正:对端睡眠**已是 typed**。散文来源=critical_blocking 视图文本 `tool/trace_query.go:3191-3197`(`peer_state ... sleep=%.3fms`);typed 富注 peer_state_sleep 等 8 键自 fa00f0d1(2026-06-14)即发布(`tool/trace_query.go:5631-5641`)。丢失点两处:①注册表 `types/trace_note_keys.go:437-444` 全族 carrier=display_only,投影编译零消费(只吃 peer=)→E14 行/明细块不显示对端睡眠;②系统补充 4-note cap(`agent/answer_document_evaluator.go:12563-12592`,AllowedNotePrefixes 表+`len(notes)>=4 break`)——binder_wait 前 4 键恰為 type/peer/chain_relevance/edge_count,peer_state_* 永远挤不进审计面(标本 566-569 行即此形态)。
+- 修向:投影消费 peer_state_dominant/sleep(E14 类行加"对端睡眠Xms·主导态"注;carrier 升 soft_consumer+消费点+pin);系统补充按 type 定 note 优先序,binder_wait 行把 peer_state 两键排进前 4;A1 修向 1 落地则自然覆盖。
+
+**B1 [P0] 锚选择(锚=VSyncGenerator 非用户线程)** — 定性:口径 gap——锚由"发布顺序先到先得"决定(嘈声信号),用户实体精确信号在手却只用于免责句。
+- 产生链:锚=第一条 predicate==wakeup_chain 观测的 path 末元素:`types/trace_causal_projection.go:505-506`(`len(wakeupPath)==0` 先到先得)→`tool/answer_document_mutation_runtime_tree.go:632-634`(model.Target=path[len-1]);用户实体只进 disclaimer:tree.go:1905-1938(RootFocusAnchorOnly←runtimeTraceProjTargetMatchesUserEntities);锚窗=该记录 selected_window note(anchor_window carrier,`trace_note_keys.go:327`)。
+- 本例机理:模型探索期对 VSyncGenerator 自身跑 wakeup_chain(正当下钻),其 path 记录先发布→锚=VSync;42591 的 binder/blocking 证据(E14 rank=1 conf=0.92)来自 critical_blocking/root_cause 记录、chain_depth 未解析→只能挂 depthless,结构上永远成不了根。42591 无以其为根的树,不是引擎没证据,是投影锚规则不看它。
+- 裁定点+方案:depthless-heavy(Depth1Cumulative≈0)且用户线程持 rank 头名时锚归谁?(i)锚选择加精确前置:存在 target 匹配用户实体的 wakeup_chain path 记录时优先取之,否则维持先到先得(无匹配时零行为漂移);(ii)双根分区:锚树保留+用户关注线程另立分区(复用 CMP-A 多工件分区机制);(iii)维持现状仅强化 disclaimer/lead 连接句。建议 (i) 为主、depthless-heavy 时评估 (ii);须用户裁定。
+
+**B2 [P0] 覆盖行 0.051/0%** — 定性:口径 gap——depthless-heavy 形态下"已归因"只认树位深度解析行,口径失真。
+- 产生链:tree.go:4469 runtimeTraceProjDepth1Cumulative→:4880-4901 只收 Kind==Chain && Depth==depth && HasData(depth-1,H10 浅层回退);depthless 行(E14 4.577/E16 2.770/E17 3.227…有效归因非零)与锚自身 periodic 0.208 全不入分子——本例分子只剩 E13(L1 running 0.051)。分母:无 target symptom 行→整窗 151ms 分支(:4496-4503);hop-only 附句 :4513-4520 用 hopSleep=47.814(E1)。
+- 修向两案:(a)分子扩展:depthless on-chain 行有效归因以"同主体 MAX、跨主体不加和"纪律并入(与 v3 墙钟禁Σ对齐,需裁定);(b)保守披露:覆盖行加"另有 N 项链上深度未解析行(单项最大 X ms,墙钟不可加和)未计入已归因"——纯增句零口径风险。建议先 (b) 上线、(a) 提裁定。
+
+**B3 [P1] 结论行(42591 binder)与树根(VSync)分叉** — 定性:B1 的显示症状;两选择器各自正确。
+- 产生链:lead 建模时 pin(tree.go:1070-1073)→runtimeTraceProjLeadSelect :4313-4323(primary 优先,空则 on-chain fallback :4335-4357:Chain|Depthless 行按 selection value 最大,fold 除外,:4379-4399)——depthless 可当 lead;root 见 B1;两者无互认。
+- 修向:随 B1(i) 自然合流;短期 lead 行加连接句"(树根为分析锚点 X;主根因位于链上·深度未解析层)"。
+
+**B4 [P1] 转运循环噪音+微值深链行(L31-33)胜出 vs E20 26ms 屈居 depthless** — 定性:显示卫生——树位形状由"谁被解析出深度"决定,与量级无关。
+- 产生链:tree.go:738-751 depthAttach 按 ChainDepth 收编(L31-33 来自带 depth 注的 wakeup_causal_aggregate 记录);:880-913 未解析行入 depthless lane;TreeRows :928-940 插入序 DFS,**无 per-depth 量级 top-N/排序**;↺ 中转循环为引擎 path 结构如实展开。hop 榜没有"按量级排序后选 top-10"这回事——准入即深度解析存在性。
+- 修向:(a)微值深链尾折叠:深度>K 且有效归因<ε 的尾臂并入既有"…省略N节点"段计数;(b)depthless lane 按有效归因降序。投影卫生批。
+
+**B5 [P1] 同线程双行(E5/E6、E15/E16、E17/E18)** — 定性:行为域正确(R1 语义禁改,值语义不同:0.058=causal_impacts 投影 vs 4.115=running 全量)。
+- 产生链:R1 键=subject+impact(3位)+line span(`types/trace_causal_projection_aggregate.go:114-133`);不同 token/不同值→不并,by design。
+- 修向:展示层同(主体,窗)多行互引注("·同主体见E5"),纯显示不动聚合;投影卫生批低优先。
+
+**B6 [P1] E26/E27 irq_activity 双行 ×5同值/×3同值不再合并** — 定性:行为域正确(V4 键=subject+object+token+值带,且须 line/time span 重叠,`aggregate.go:525-558`;E26=:1008657-1065394 窗1、E27=:1617861-1650214 锚窗,不重叠=两次独立 capture,合并反而伪装单一测量)。真正噪音=两行都不带窗身份。
+- 修向:◇ 邻近行标各自 selected_window 短注(窗1/窗2);P2,投影卫生批。
+
+**B7 [P2] "trace causal node" 占位名进量表** — 定性:显示卫生——量表 quick-cell 通道缺 fold 专名分支。
+- 产生链:`tool/answer_document_mutation_runtime.go:2282-2291` subject/object 双空→字面量;树行/明细块 fold 有专名(tree.go:5169-5173),明细 fallback tree.go:5180 同字面量;runtime.go 量表通道无 OnChainOverflowFold 引用→E25 与 ×9 fold 行在量表裸占位。
+- 修向:量表 cell 对 fold 行复用树侧专名 helper;顺带中文化该字面量。
+
+**B8 [P2] E19 混窗 bar(窗1 值对 151ms 画 45%)** — 定性:口径 gap(轻)——值源窗≠锚窗时 bar 是伪投影。
+- 产生链:bar=value/model.WindowMS 无条件(tree.go:2999-3014,caller :3573-3587);"另一查询窗"注 :5813-5821(FullWindowStateWindow* 有值即渲染)——注与 bar 互不通气。
+- 修向:FullWindowStateWindow 有值且≠锚窗→bar 降级(不画或 ░ 虚底+跨窗记号),数值列保留;投影卫生批。
+
+**C3 [P1] 空标题"一级根因(Primary)候选"/"二级根因(Tertiary)阻塞调用"** — 定性:显示卫生+prune 边界(run 不可复现,QCE §7.13 机制静态推演)。
+- 产生链:渲染面 `render/answerdoc.go:214-217` renderV2BlockOrderedList **无条件先打 `**heading**`** 再看 items;可达清空路径三条:①模型只 emit 标题;②prunePrincipalEnumerationExtraneousItems(`tool/answer_document_principal_enum_compile.go:119-170`,out=Items[:0] 全删可达)——本 run"4 区块·0 引用",items 全部无 row 覆盖是现实形态;③item 级渲染抑制全空(:219-231 renderV2BlockItem 空串跳过)。结论:枚举 prune 在此形态**会**吞光成员留裸标题,且模型只 emit 标题同样可达,双因不排他。
+- 修向:renderer 空列表块卫生门(可渲染 item==0→整块不渲染;len==0 为精确信号,作硬门合规);prune 删空时 WARN log 供远程归因;不做系统补写(红线:系统不可代替 LLM 写答案面)。
+
+**C4 [P0,散文口径] raw 42.6ms 当一级根因,VS-1 折减 0.208ms 被散文无视** — 定性:行为域(锚点未强制消费 family,同 eval 两 FAIL 类)+审计面口径缺失;引擎数据不缺。
+- 产生链(折减可见面):判据+计算 `query.go:22-62`/:7941 detectPeriodicWakeupSource;探索可见:aggregate Summary 显式带 `periodic_source=true detected_period=.. lateness=.. effective_impact=..`(`query.go:8272-8275`)与 rank 行 effective_impact(`tool/trace_query.go:2883,3520`);typed 富注(`tool/trace_query.go:5601` 区 traceQueryTypedPeriodicSourceRichNotes);投影消费(`types/trace_causal_projection.go:1273`→表 E1 0.208+图例)。
+- 丢失面:①探索散文第 5 轮自己把 42.6 写成"聚合影响"(标本 :48),同视图文本内折减字段未被消费;②A→B 手递只传 Summary 文本(红线),extract 关键发现沿用散文口径;③系统补充 4-note cap 把 periodic 注记切在第 4 名外(`answer_document_evaluator.go:12563-12592`,标本 :554-555 备注止于 dominant_state)——finalizer/复核在审计面都看不到折减;④finalizer prompt 无"周期源折减优先于 raw 聚合"消费指令。
+- 修向(软引导批):(a)观测/系统补充 note 优先序:periodic_source=true 行把 effective_impact/periodic 键排进前 4(typed 精确信号选序,非硬门);(b)explorer/finalizer skill prompt 加消费指令(过 prompt 红线 checklist);(c)远期并入 typed anchor obligation lane(eval 战役方向)。
+
+**C1 [P2] 频点 kHz 裸出(668000→模型读成"668 kHz 严重低频")** — 定性:显示面诱导。
+- 产生链:raw kHz 整数打印 10 处:`query.go:3052,3055,3884,3966,3969,8527,8772,13394,13826`(工作树行号)+`cpu_frequency_census.go:201`(%d..%dkHz)。
+- 修向:统一 helper 双写"668000kHz(=668MHz)"(保 kHz 原文供既有 parser/pin,加人读括注);改前先清点消费面 pin(TestFallbackWarnLogFormatPinned 类字面量测试随改)。
+
+**D1 [P2] next-step 模板噪音+binder 具体指令缺失** — 定性:模板噪音(出场门用嘈声代理"窗数")+车道缺失(per-peer 指令)。
+- 产生链:`tool/answer_document_mutation_runtime.go:3775-3942` runtimeTraceNextStepItems;归一化/双窗对比两条来自 runtimeTraceNextStepMultiWindowSteps(:3855,门=查询窗≥2)——单场景 3 查询窗即中门,与"对比场景"无关;binder 只有 s_sleep 通用句(:4236"排查反复唤醒它的对端线程、binder等待、锁与条件变量等待"),无点名对端条目;RN-14a 合成先例已在(`tool/trace_query.go:281`、`emit_investigation_complete.go:3780`)。
+- 修向:①归一化条目出场门收紧:窗数≥2 且(对比场景 or 答案面引用了跨窗数值),否则降为一条;②on_chain binder_wait+peer 解析时合成"对 <peer> 在重叠窗执行 view=wakeup_chain/critical_blocking"具体条目(=A1 修向 2 同件)。
+
+### §10.2 修复分批建议
+
+- **P0-E 引擎批(binder 对端车道)**:A1 修向1(peer 子目标有界续链+`─binder对端─` 边词)+A2(reply join 服务端处理段+wait_object 注+白名单对端启发)+A3(peer_state 消费升级)。前置:causal_token_registry 新行裁定(先读 §7.2.1/账本 §7.4/§7.5)+NKR 登记 peer_chain_*/wait_object+R2' 六处同步;测试=合成双进程 binder fixture+golden。
+- **P0-A 锚定覆盖批**:B1(锚选择精确前置,i/ii 需用户裁定)+B2(先披露句 (b),分子扩展 (a) 提裁定)+B3(连接句,随 B1 合流)。
+- **P1-H 投影卫生批**:B4(微值深链尾折叠+depthless 降序)、B5(同主体互引注)、B6(邻近行窗身份注)、B7(fold 专名进量表)、B8(混窗 bar 降级)、C3(空列表块卫生门+prune WARN)、C1(频点双写+pin 清点)。
+- **SG 软引导批(可先行,全 prompt/合成面,过 prompt 红线 checklist)**:C4(a)(b)+D1①②+A1 修向2(建议式对端下钻合成)。
+
+复核要点:①A3/C4 共因=系统补充 4-note cap 的无差别截断——修 note 优先序一处,两项同收;②本批全部修向遵守"精确信号硬门/嘈声信号软引导"红线(B1 前置用 typed 实体匹配、C3 用 len==0、A2 启发解析只软填不设门);③E20/E19/E14 等标本坐标已录 §10.1 供回归 fixture 取材。
+
+## §11 客户回访反馈#2 逐项代码级归因(2026-07-06;只读归因批,未动代码)
+
+标本=/Users/han/Downloads/cust_trace_q2.txt(809 行 CLI 全程;双 Android systrace 对比:7.0B30SP22_7315.systrace 389.6MiB vs 6.0B138_3900.sys.systrace 476.6MiB;bindApplication 1.793s vs 0.884s;MiniMax-M2.7;锚窗 7.0=3680.800–3681.001、6.0=8144.400–8144.600,各 201ms;两 trace 均 index_event_limit 触顶,标本 :44)。行号口径同 §10:CFR 批仍在工作树未提交(涉 internal/tracequery/query.go、ipc.go、parse.go、internal/tool/trace_query.go 等),这些文件行号为归因时刻快照,复核以符号名定位;`internal/tool/answer_document_*`、`internal/types/trace_causal_projection*` 与 main@7f9369af 一致。首个双工件对比 + 首个纯 Android(非 donghu)形态标本——N1/N3/N7/N8 全部只在这两个形态下暴露,q1 无法覆盖。
+
+### §11.1 逐项归因表
+
+**N1 [P0,NEW;同族=§10-B1/B3 但机制不同] 对比总览 lead="未定位到链上主根因(见背景压力段)"×2,树却满是 on-chain 行(7.0 E10 有效归因 104.127ms)** — 定性:lead 回退梯的空 rank 桶分支缺失(RN-3(a) 设计边界)+指路句双重失真。
+- 产生链:总览 cell=runtimeTraceProjComparePrimaryCell(`answer_document_mutation_runtime.go:1247-1258`)调共享选择器 runtimeTraceProjLeadSelect(`answer_document_mutation_runtime_tree.go:4313-4324`),`primary==nil` 即打固定串 :1253-1257。选择器三分支:①primary 桶 rank 头名;②**`len(runtimeTraceCausalProjectionPrimaryRoots(projection))==0 → return nil,false`(:4317-4319)——q2 走的就是这支**;③on-chain fallback(:4320-4322,Chain|Depthless 按 selection value 最大,:4335-4358)只在"桶有行但全降背景"的矛盾形态才运行(注释 :4309-4310 明言空桶保留 legacy 无结论行为)。q2 探索期以 wakeup_chain/critical_blocking/window_stats 为主,rank 家族观测未进 primary 桶 → 空桶 → E10(104.127)等 depthless 行永远轮不上;q1-B3 是"lead 与根分叉"(桶非空),本条是"桶空即弃梯",机制不同。
+- 指路句双重失真:①"见背景压力段"随 fallback 串无条件出场(:1253-1257 无背景段存在性检查);②同一行 背景压力 列="—":runtimeTraceProjCompareBackgroundPressureCell(:1324-1337)只认跨线程聚合行(runtimeTraceProjCrossThreadAggregateType),q2 背景段全是 per-thread critical_blocking d_state 行(7.0 E24-27)→ cell 落 "—" 而树内 ▒ 段确有内容——lead 指路的"背景压力段"在总览表自己的列上是空的。
+- 修向(=用户"lead 回退梯"):runtimeTraceProjLeadSelect 补第四支——空桶∧model 存在 HasData 的 Chain|Depthless 行 → 走同一 on-chain fallback,fallback note 换措辞("无 rank 数据,按窗口内最大 on-chain 等待";:4366-4377 已有双措辞先例);条件全 typed(len==0 ∧ fallback!=nil,精确信号硬门合规)。"见背景压力段"指路 gate 在该工件 model.Background 非空(len 检查,精确);cell "—" 时指路句改指树内背景段或不指。单工件结论行同函数同修,B1(i) 精确前置与本条同一改动点,并入 P0-A。
+
+**N2 [P0,NEW] 跨查询窗合并重复计数:E10 窗口投影 183.940ms=154.184(2.25s 窗)+29.756(201ms 窗),occurrence 3680.7995–3680.8192 两窗重叠段双算 ~15.2ms** — 定性:R2 求和合并无时间区间判据,跨窗同物理段叠加。
+- 产生链:两次 wakeup_chain 查询(选定窗 3680.569–3682.819 与 3680.800–3681.001)各自发布 per-occurrence wakeup_causal 行,四实例 104.127/50.057/15.206/14.550(标本 :766-767 备注可逐字核对),SUM=183.940 与量表 ×4(14.550–104.127ms) 完全吻合;合并点=R2 traceCausalProjectionAggregateSameKind(`trace_causal_projection_aggregate.go:649-801`):键=`subject+"\x00"+object`(:670),≥3 员即无条件 `sum += display`(:696)→ `aggregate.ImpactMS = sum`(:742-743)。其中 15.206 的 occurrence [3680.7995–3680.8192] 完整落在 104.127 的 [3680.6909–3680.8192] 内——同一段 runnable 被两个查询窗各切一刀后按不同实例求和。
+- 考证:①R1 same-fact 键(:118-134)=subject+impact(3位)+line span,对跨窗重叠形态结构性失效(impact 与 line span 均不同:117231-140719 vs 136600-140719);②occurrence_windows 只活在 note 字符串,聚合层 0 处消费(全文件无该词);③**但节点级时间区间在手**:node.StartTs/EndTs ← record.Span(`trace_causal_projection.go:1255-1260`),证据索引 E10 [3680.691–3681.079s] 即其外显——R2 只是不读。
+- 修向:R2 成员预扫——同主体同 token 成员间时间区间重叠(StartTs/EndTs 相交)→ 重叠对做区间 union 归一(保 ×N 计数、值改 union 口径并标注),或保守案:拒并+各自带窗身份注(联动 q1-B6 窗身份注同件)。现有字段即够,无需新 typed 车道;墙钟纪律(union 非求和)与 v3 禁Σ裁定一致。建议独立正确性小批(数字翻倍属 P0 正确性,不混卫生批),改动集中 aggregate.go R2 一处+golden pin。
+
+**N3 [P0,NEW] 对比场景两侧锚窗不同相位:7.0 锚最热段(window_sweep 475+272 switches),6.0 锚死窗(target sleep 18.578ms,唯一链行 0.369ms)→ 总览行际对比空转** — 定性:锚各自"最后 selected_window 先到先得",对比形态无相位对齐无披露。
+- 产生链:锚=traceCausalProjectionAnchorWindow(`trace_causal_projection.go:962-1003`):优先 frame_target_resolution,否则 fallback 循环内无条件覆写(:1000)=**最后一条**带 selected_window 的 wakeup_causal/root_cause 记录胜出(嘈声信号:发布顺序);家族白名单 :1039-1044,键白名单 `trace_note_keys.go:86-99`。逐 partition 独立编译(:409-631,:607-608 各自应用),CMP-A 无跨工件协调。7.0 末次 wakeup_chain 窗=3680.8–3681.0(标本 :118)、6.0 末次=8144.4–8144.6(:123,校验路顺手选的窗,恰为死窗)→ 总览 "on-chain 已归因 65.232 vs 0.369" 读作"7.0 有因 6.0 无因",实为选窗伪象。
+- 既有挂点:总览披露行已有先例两条——时基不相交 :1213-1218(gate=TraceCausalProjectionTimeBasesDisjoint,`trace_causal_projection_partition.go:603-624`)与 F3 窗长不等 :1196-1204;投影窗列 :1163-1170。
+- 修向:(a)披露先行(纯算术,零口径风险):双 partition 且各自 WindowStart/End 与 Span 包络的相对偏移差>阈值(或一侧锚窗 on-chain 已归因≈0 而另一侧>0)→ 总览补行"两侧锚窗相位不同(7.0 锚现象热段/6.0 锚静默段),行际数值不可直接对比";(b)对齐案(需裁定):对比形态下以主工件锚窗在其 Span 的相对偏移映射到另一侧选窗重锚——牵动锚语义,建议只作裁定议题。并入 P0-A(与 B1 同函数域)。
+
+**N4 [P1,repeat-of-§10-B2 家族新形态,机制修正] 覆盖分子 65.232=depth-1 MAX,同深度唤醒边 E9(RpcSerialize 22.332)参赛但被 MAX 丢弃——非"边类型筛选"** — 定性:口径纪律(跨主体不加和→同深度取 MAX)的信息损失,非 bug;但披露缺失使读者以为 E9 漏收。
+- 产生链(机制勘正):E9 走 depthAttach[1]→roots 车道(`answer_document_mutation_runtime_tree.go:868-874`),Kind=Chain、Depth=1、HasData=true——**与 E3 同池参赛**;分子=runtimeTraceProjChainDepthCumulative(model,1)(:4880-4902)对同深度行取 `if v > max` 单一 MAX(:4897-4899),65.232(E3)>22.332(E9)→ E9 值被弃。q1-B2 是"depthless 不入分子"(车道排除),本条是"同深度跨主体 MAX 丢弃"(纪律丢值),同族不同层。
+- 考证:E3 睡眠段 [3682.481–3682.578] 与 E9 runnable 段 [3681.744–3681.785] **时间不相交**(证据索引可核)——本例 union 下界=87.564ms 完全合法;节点 StartTs/EndTs 在手(:1255-1260,同 N2)。
+- 修向:随 q1-B2 同批两案——(a)分子升级:同深度跨主体行按时间区间 union 计下界(相交部分不重计,与墙钟纪律一致;精确信号=区间代数);(b)保守披露:覆盖行补"同层另有 N 项唤醒边(最大 X ms,跨主体不加和)未计入"句(B2(b) 同款零口径)。并入 P0-A,B2 修向文本需把"depthless"扩为"depthless+同深度跨主体"两形态。
+
+**N5 [P1,NEW] 有效归因>窗口投影 7 处(E3 88.280>65.232、E5 63.838>37.067、E11 113.645>93.587、E13/E14/E15/E16/E17)无口径桥** — 定性:三口径(投影/有效/实际)并排,⚠ 只装在实际列,有效列裸奔。
+- 产生链:值源=effective_impact_ms 富注(`trace_causal_projection.go:1273`)←引擎 rank-lane 单源(`tool/trace_query.go:5387` traceQueryCausalImpactEffectiveNoteValue→tracequery.WakeupCausalImpactEffectiveImpactMs,PTV5 Q1;CFR 快照行号)——反转候选=R5d gated composite、普通行=raw attribution,天然可超窗口投影(E14 53.553 甚至>实际 45.473:有效口径含链路/composite 成分,非纯状态时长);量表渲染 `answer_document_mutation_runtime_tree.go:5074-5095`:actual 列有 ⚠(:5093-5094,gate=runtimeTraceProjCrossWindow :4031-4040),effective 列无任何标注。
+- 修向:effective cell 复用同款精确 gate——`EffectiveImpactMS > max(ImpactMS,CumulativeImpactMS)*1.001` → 缀注(如"⚠超窗口投影(排序口径)"),量表口径块补一行"有效归因为排序口径,可大于窗口投影";纯增注零口径风险。并入 P1-H。
+
+**N6 [P1,NEW] 全词保障逃逸:6.0 树"◦ 14.227ms [E5]"裸值行(binder_wait 家族)+E3/E4/E5 同段同值三谓词三行** — 定性:词源三路全空无兜底+跨谓词同段发布无互指。
+- 产生链(裸词):E5=wakeup_chain 车道 BinderWaits 发布(`tracequery/query.go:8291-8294` 区,Type="binder_wait";CFR 快照行号),peer=unknown(见 N8)→ 无 BlockingPeer 词;非状态谓词 → StateKind 空(`trace_causal_projection.go:1265-1271` 双路都不命中);无 TypeToken 状态词 → stateTag 组装(`answer_document_mutation_runtime_tree.go:3630-3678`)三路全空。PTV6-D 全词保障(runtimeTraceProjApplyCauseWordGuarantee :3164-3190 区)只救"截断",不救"本无";图例虽声明"无形态词行=候选影响类"(类别词不逐行重复),但该行连主行三要素都不齐(值+证据,无词)——PTV4 零省略原则在此形态破口。对照:E1(critical_blocking 家族)同为 peer 未解析却有"对端线程未解析"词,词有无取决于发布家族,非语义差异。
+- 产生链(三行同段):E3(wakeup_causal [8144.586–8144.601])/E4(missing_wakeup,无 line span)/E5(binder_wait :134239-135855)同描述一段 14.227ms 等待;R1 键(`trace_causal_projection_aggregate.go:118-134`)=subject+impact+line span——E4 无 span 直接返 ""(:119-121),E3/E5 span 不同 → 三行并存,谓词根本不在键里,即使同 span 也是设计上不折(值语义不同,B5 家族裁定)。
+- 修向:①词兜底(显示层):三词源全空的行渲染类别词"候选影响"或 peer 词(明细块 :5180 区已有该词,主行复用即可,零新语义);②同段互指(B5 同款展示层注):同主体、|值差|<ε、时间区间重叠的跨谓词行 → 从属行加"·同段见E3"互指注,不动 R1。并入 P1-H。
+
+**N7 [P1,NEW;CMP-4 家族] 7.0 主线程全窗 state_churn 快照缺失/被截:快照行标"查询窗 3680.569–3682.819s"实际只有 128.327ms/3 段对齐窗观测;答案核心数字(sleep 1430ms/71.6%)审计面零佐证;6.0 侧却有全窗行——不对称** — 定性:快照资格 predicate-blind+行标签硬编码+tier 闸主体名失配,三因叠加。
+- 产生链(假"state_churn"行):快照资格=runtimeTraceMetricSnapshotValues(`answer_document_mutation_runtime.go:3380-3405`)只认 9 个 churn 键齐全,**不看 Predicate**;wakeup_causal_impact 富注恰好全键发布(`tool/trace_query.go:5395-5403`+actual_* :5404-5408;CFR 快照行号)→ 目标行(main-6565,churn 口径=对齐 occurrence 窗:fragments=3/switches=2/sleep=128.327,与 :766 note target=128.327 逐字吻合)入池;行标签**硬编码** `subject+" state_churn"`(:3094-3098),家族失真;窗前缀取 selected_window note=整查询窗(:3106-3111)而值是对齐窗值 → "2.25s 查询窗只见 128ms";实际对齐窗 inline(:3577-3638,PTV6-C 裁定C)有披露,但主行"sleep 128.327ms(占该线程观测时长100%)"(H13 措辞)在此形态下仍读作装满。
+- 产生链(全窗行不对称):tier=candidateTier(:3211-3221),chain tier 判据=subject canonical 名 ∈ chainSet(投影树主体名单,:3165-3193);7.0 全窗 window_stats churn 行主体名=**com.xs.fm.lite-6565**,而 7.0 树主体全用 **main-6565** 名(同 tid 双名,canonical 不同键)∧ 不匹配用户实体(实体=两文件名+bindApplication)→ rest tier → `hasChainCandidate→rest 全弃`闸(:2992-2994)丢弃;6.0 全窗行主体 com.xs.fm.lite-21538 **恰好是树内 E7 depthless 行主体** → chain tier → per-window floor(:3040-3051)存活。同线程双名失配与 W2 R面"根标签实体比对"同病家族。次要贡献:ledger 入口 cap 64(:2937)、churn 发布 cap traceQueryWidthTypedFamilyRowCap(`tool/trace_query.go:6086`)。
+- 修向(=用户"答案核心对比数字必进快照",CMP-4 选题相关性):①答案强引用正向车道——答案面引用了某观测的数值(现有 :2965 coverage 检查是反向"已覆盖不再显示",需加正向"被引用但无佐证行→强制入选",按 subject+数值 variant 匹配,:3322-3374 变体匹配器可复用);②行标签改用 record.Predicate(:3096-3098 一行);③tier 判据主体名先做同 tid 归一(canonical 键加 tid 维度,精确信号);④churn 值口径与窗前缀矛盾时(值总和≪窗长)标"对齐窗观测"而非裸挂查询窗。并入 SG/快照批(与 §10-C4/A3 的 note 优先序修同域)。
+
+**N8 [P1,NEW;A1 前置] binder_wait 对端全 unknown-thread(7.0×7+6.0×4):q1 HarmonyOS OS_IPC 可解析,q2 Android binder:8815_x 命名全失败** — 定性:Android 形态配对链双断:dest_thread=0 常态关死 endpoint 兜底,receive 行 join 又受索引预算截断;dest_proc 在手不用。
+- 产生链(CFR 快照行号,符号定位):parse 覆盖面无缺——EventBinderTransaction/Received/Reply 事件名与 kv 抽取均覆盖 Android ftrace 格式(`parse.go:1732-1745`/`:2209-2222`,kvRE :25);配对 `ipc.go:94-117`:①chooseBinderReceive 按 TransactionID join 窗内 receive 行(:60-63 收集,窗外/未索引即空);②失败后 endpoint 兜底 **gate=`edge.DestThread > 0`**(:107)——Android BC_TRANSACTION 发进程池 dest_thread=0 是常态,兜底结构性死;③`edge.DestProc`(=8815,线程名 binder:8815_x 即其外显)在手但不参与兜底 → Receiver 零值;binder_wait 透传 wait.Peer=edge.Receiver(`query.go:8306-8386`,:8346),receiver-missing 已有 caveat(:8379-8381)但 peer 注仍打 unknown-thread(threadLabel 零值分支 `query.go:14264-14275`);两 trace 均 index_event_limit(标本 :44)→ receive 行缺索引为首要嫌疑。q1 donghu 成对=dest_thread 语义/receive 可用性差异,无平台闸(parse 层无平台条件)。
+- 修向(P0-E 引擎批前置):①dest_proc>0 兜底——发布进程级 peer(形如"binder pool of pid 8815",复用 :107-111 信心分层先例 0.62→更低档,精确字段非猜测);②索引预算下 binder 事件族优先保留/receive 反查允许小幅越窗(send 后 ≤N ms);③reply join(§10-A2 同件)补服务端处理段。①落地后 A1 对端续链/A3 PeerState 在 Android 形态才有输入。
+- 附 N11c 相关存量面:binder 事务计数 typed 面已存在——interaction_stats BinderToTarget/BinderFromTarget per-peer 计数(`tracequery/types.go:1911-1932`,BuildInteractionStats `query.go:10567-10665`,summary :10635-10636);ipc_graph 只发边不聚合计数。
+
+**N9 [P2,NEW] 0.000ms 成因自环行:"└─成因─ ◦ 线程名未记录(tid 21564) 0.000ms 候选根因"(父行=同 tid running 0.369ms)** — 定性:成因行出场无零值门、无自指抑制。
+- 产生链:trunk 建树时同主体次值节点全进 extra(`answer_document_mutation_runtime_tree.go:784-798`),extra 无条件发布为 Kind=Cause 行(:816-821)——无 `ImpactMS>0` 地板、无"与父行同主体且未携带父行没有的谓词/token 信息"抑制;链行的 `EffectiveImpactMS<=0 continue` 门(:1119 区)只作用于窗占比过滤环,不管建树。
+- 修向:成因行出场门两条(均精确信号):①零值地板(ImpactMS<=0 且无独立 token/谓词信息 → 不发布);②自指抑制(同主体且展示词集为父行子集 → 折入父行)。并入 P1-H。
+
+**N10 [P2,repeat-of-§10-B7/B4/D1] q2 证据补充(只补证据行,不另立案;§10 正文不动,witness 记此)** —
+- §10-B7(占位名进量表)q2 witness:量表 E23 行"trace causal node [E23] | 52.332ms"(标本 :312)——树行有专名"其余 1 项(链上折叠)(main-6565)"(:261/:479-484)而量表 quick-cell 裸占位,与 B7 产生链(`answer_document_mutation_runtime.go:2282-2291` 区)完全同形。
+- §10-B4(深链噪音)q2 witness:"…省略26节点"(:216)+L32/L33/L34 微值深链行 E6/E7/E8(28.230/13.201/12.896ms 挂深度 32-34)+"◦ main-6565 中转 ↺"×2(:210/:213)——插入序 DFS 无 per-depth 量级门(tree.go:738-751/:928-940 区)再证。
+- §10-D1(next-step 模板噪音)q2 witness:下一步 6 条中 1/2/4 三条互重(:751-754:"同口径窗对比"/"归一化后对比"/"不可同轴对齐,以相对指标为准"三句同族;#4 还与总览披露行 :169 重复),#3(逐窗同口径因果采样)是唯一带增量信息的对比条目;q2 为真对比场景,runtimeTraceNextStepMultiWindowSteps 出场合规,问题在族内去重——D1① 收紧时按"同一语义家族只出最强一条"处理,并补 D1②/A1修向2 的对端点名条目(q2 形态:点名 binder:8815_1 对端在重叠窗跑 critical_blocking/wakeup_chain)。
+- 附:N3 揭示的"锚窗死窗"与 D1 族修互补——若 #3 合成时点名"6.0 锚窗 on-chain≈0,建议改锚热段重跑",单条即可救活对比。
+
+**N11 [P2,行为域记录] prose 三处(引擎数据面均在或可补,不立硬门)** —
+- (a)"6.0 D-state 318ms……不阻碍主线程执行流水线"(标本 :153):逻辑硬伤——该 D-state 主体就是主线程自身(com.xs.fm.lite-21538),typed 面早已说清:E7 链上·深度未解析行 + 系统补充 :795-797 `chain_relevance=on_chain`;散文与 typed 面正面矛盾。行为域=锚点未强制消费 family(§10-C4 同族);系统辅助=L4 self_consistency BODY-vs-evidence 盲点的既有候选(MEMORY 已挂),不新立案;SG 批 finalizer 消费指令顺带覆盖("on_chain 主体=目标自身的 D-state 不得叙述为不阻塞目标")。
+- (b)"6.0 频率数据为空说明测量精度不同"(:127):误读采样覆盖为精度差。typed 面已有半件:E6 行"频点数据不全,无法折算"(:588)是逐行 caveat;缺的是窗级"该窗无频点样本(采集面差异,非低频/非精度证据)"census 空窗 caveat——cpu_frequency_census(RFC #71,bd605684)聚合面加空窗分支即可,软引导不设门。挂 SG 批候选。
+- (c)"20+ vs ~6 同步事务"关键对比数无 typed 佐证(:126-127→:157 进正文):发布面存在(N8 附:interaction_stats per-peer BinderToTarget/BinderFromTarget 计数),但 q2 只对 7.0 跑过 interaction_stats(标本 :62 区),6.0 侧无对应观测,"~6"为散文估算。行为域;系统辅助=对比场景 next-step 合成"双侧同窗 interaction_stats"条目(D1②/N10 同件),若双侧观测齐则计数自然可进快照/佐证面。
+
+### §11.2 修复分批建议(与 §10.2 四批的合并关系)
+
+- **P0-A 锚定覆盖批(扩)**:+N1(runtimeTraceProjLeadSelect 空桶第四支+fallback note 新措辞+"见背景压力段"存在性 gate)、+N3(总览锚相位披露行,纯算术;对齐重锚只作裁定议题)、+N4(B2 修向文本扩为"depthless+同深度跨主体"双形态:union 下界或披露句)。理由:N1 与 B1(i) 同函数域,N3 用 B1 同族 anchor 链,N4 与 B2 同分子函数——四项一批一轮 golden。
+- **N2 独立正确性小批(建议置于 P1-H 之前,P0 性质)**:R2 跨窗重叠区间 union/拒并+窗身份注(联动 q1-B6)。不并 P1-H 的理由:数字翻倍是正确性缺陷非显示卫生,需单独 pin(双窗 fixture:重叠 occurrence 求和≠union);改动集中 `trace_causal_projection_aggregate.go` R2 一处。
+- **P1-H 投影卫生批(扩)**:+N5(effective cell 复用 runtimeTraceProjCrossWindow 同款 gate 加注)、+N6(裸值行类别词兜底+同段跨谓词互指注,B5 互引注同族同机制)、+N9(成因行零值门+自指抑制)、+N10 witness(B4/B7/D1 各自条目按 §10 修向执行时带上 q2 fixture 坐标)。
+- **P0-E 引擎批(前置扩)**:+N8——执行顺序上 N8① dest_proc 进程级兜底是 A1/A2/A3 在 Android 形态的先决条件(peer 全 unknown 时对端续链无输入);N8③ reply join 与 A2 同件;N8② binder 事件预算优先级为独立小项。
+- **SG/快照批(扩)**:+N7(①答案强引用正向入选车道②行标签用 Predicate③tier 主体名 tid 归一④对齐窗口径标注——与 C4/A3 的 note 优先序修同域,可一批)、+N11(a=finalizer 消费指令一条、b=census 空窗 caveat、c=对比场景双侧 interaction_stats next-step 合成;全软引导,过 prompt 红线 checklist)。
+
+复核要点:①N1/N3/N4 三项与 q1-B1/B2/B3 是同一"depthless-heavy 投影在头部面全灭"病灶的四个出口(结论行、总览 cell、覆盖行、锚),P0-A 一批修完后 q2 总览应给出 E10 lead+相位披露;②N2/N4/N6 共用同一底座事实——节点 StartTs/EndTs 已在手(`trace_causal_projection.go:1255-1260`)而三个消费点(R2 合并、分子、跨谓词互指)都不读区间,一次引入共享区间重叠 helper 三处受益;③N7 修向①的"答案引用→强制佐证"与 :2965 既有反向 coverage 检查共用变体匹配器(:3322-3374),不新造解析;④本节全部修向复核过"精确信号硬门/嘈声信号软引导"红线(N1 用 len==0、N2/N4 用区间代数、N5 用数值比较 gate、N7② 用 typed Predicate、N8① 用 dest_proc 字段;披露/互指/合成类全为软面);⑤q2 标本坐标(E10 双 aggregate 备注 :766-767、三谓词同段 :583-585、假 churn 快照行 :743-744、死窗锚 :551)供回归 fixture 取材;⑥两个跨 trace 形态(双工件+纯 Android)首次入库,P0-E/P0-A 的 golden 需各补一个 Android 双工件合成 fixture。
+
