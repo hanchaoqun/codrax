@@ -323,13 +323,20 @@ func TestPTV6CCauseFullWordGuaranteeOnTruncatedName(t *testing.T) {
 	if !strings.Contains(lines[0], "优先级反…") && !strings.Contains(lines[0], "优先级反转…") {
 		t.Fatalf("fixture drift: the name cell should truncate across the cause word:\n%s", line)
 	}
-	// 正向臂: 从属行首条 = cause 全词.
-	if !strings.Contains(lines[1], "· 优先级反转候选") {
-		t.Fatalf("#12: the FIRST subordinate slot must carry the cause full word:\n%s", line)
+	// 正向臂: cause 全词整词保障仍在 — PTV6-D (a) 悬崖消除后它抢占主行首个
+	// 普通 tag 槽位 (前: 从属行首条 "· 优先级反转候选" — 差表 in the PTV6-D
+	// ledger); the injection stays the FIRST ordinary tag, so the whole word
+	// rides the main line beside the Keep 记号.
+	if !strings.Contains(lines[0], "优先级反转候选 · [E2]") {
+		t.Fatalf("#12: the cause full word must ride the main row's first tag slot:\n%s", line)
 	}
 	// 全词一处: never twice.
 	if strings.Count(line, "优先级反转候选") != 1 {
 		t.Fatalf("cause full word must render exactly once on the row:\n%s", line)
+	}
+	// PTV6-D (a): the remaining demoted tags pack into ONE subordinate stream.
+	if !strings.Contains(lines[1], "· 链上L1 · 调度等待 · 链上累计2.262ms") {
+		t.Fatalf("demoted tags must pack into one subordinate stream:\n%s", line)
 	}
 	// B 裁定防回潮.
 	if strings.Contains(line, "反转影响") {
@@ -348,11 +355,16 @@ func TestPTV6CCauseFullWordGuaranteeOnTruncatedName(t *testing.T) {
 		Depth: 1, HasData: true, EvidenceTag: "E9", marks: &runtimeTraceProjMarkSet{},
 	}
 	ioLine := runtimeTraceProjTreeRowLine(ioRow, runtimeTraceProjTreeLabelWidth, 2.992, true, true)
-	if strings.Contains(strings.Split(ioLine, "\n")[0], "块设备IO(inode)") {
-		t.Fatalf("fixture drift: the long subject should truncate the cause word off the name cell:\n%s", ioLine)
+	// Fixture drift check, PTV6-D form: the long subject still mid-truncates
+	// the NAME cell (pid tail kept, cause suffix cut) — the full word can only
+	// come back through the #12 injection lane.
+	if !strings.Contains(strings.Split(ioLine, "\n")[0], "…-42067") {
+		t.Fatalf("fixture drift: the long subject should truncate the name cell:\n%s", ioLine)
 	}
-	if !strings.Contains(ioLine, "· 块设备IO(inode)") {
-		t.Fatalf("#12: the truncated cause word must return WHOLE on a subordinate slot:\n%s", ioLine)
+	// PTV6-D (a): the injected whole word rides the main row's first tag slot
+	// (前: "· 块设备IO(inode)" 从属行 — 差表 in the PTV6-D ledger).
+	if !strings.Contains(strings.Split(ioLine, "\n")[0], "块设备IO(inode) · [E9]") {
+		t.Fatalf("#12: the truncated cause word must return WHOLE on the main tag slot:\n%s", ioLine)
 	}
 	if strings.Count(ioLine, "块设备IO(inode)") != 1 {
 		t.Fatalf("cause full word must render exactly once:\n%s", ioLine)
@@ -629,13 +641,26 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
 	model := buildRuntimeTraceProjTreeModel(projection, evidence, true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	// 关键行一 (trunk): 名称截断 → 全词 可运行等待 上从属行; 调度等待 双打消失
-	// (前: · 可运行等待 + · 调度等待).
-	if !strings.Contains(fence, "· 可运行等待") {
-		t.Fatalf("trunk row must keep the cause full word:\n%s", fence)
+	// 关键行一 (trunk): 名称截断 → 全词 可运行等待 保障仍在; PTV6-D (a) 悬崖
+	// 消除后全词升上主行 (前: 独占一条 "· 可运行等待" 从属行 — 差表 in the
+	// PTV6-D ledger); 调度等待 双打消失 (前: · 可运行等待 + · 调度等待).
+	if !strings.Contains(fence, "可运行等待 · [E1(+1)]") {
+		t.Fatalf("trunk row must keep the cause full word (main-row slot after PTV6-D prefix fill):\n%s", fence)
 	}
 	if strings.Contains(fence, "调度等待") {
 		t.Fatalf("近义双打回现 (调度等待 next to 可运行等待):\n%s", fence)
+	}
+	// PTV6-D (a): the trunk's demoted tags PACK into one "· " stream line
+	// (前: 三条逐 tag 从属行 · 链上L1 / · ×2同值 / · 有效归因1.661ms).
+	if !strings.Contains(fence, "· 链上L1 · ×2同值 · 有效归因1.661ms") {
+		t.Fatalf("trunk demoted tags must pack into one subordinate stream:\n%s", fence)
+	}
+	// PTV6-D (b): the category words left the row face (legend carries them);
+	// every non-category tag above is still present — 打包非折叠.
+	for _, banned := range []string{"无主导态", "候选影响"} {
+		if strings.Contains(fence, banned) {
+			t.Fatalf("category word %q must stay off the fence rows (legend-carried):\n%s", banned, fence)
+		}
 	}
 	// 关键行二 (◇ 邻近): 有效归因 词面在 ◇/▒ 内消失, 改 累计(跨线程)
 	// (前: · 有效归因1.997ms on the irq_burst adjacent row).
@@ -680,9 +705,10 @@ func TestPTV6CSpecimen2KeyRowsAfter(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	// 关键行一 (trunk): B 裁定 — 反转影响 删除, cause 全词占位, 影响点 D4 形态
-	// (前: · 反转影响 + · 影响点 priority_inversion_runnable_wait/runnable).
-	if !strings.Contains(fence, "· 优先级反转候选") {
-		t.Fatalf("trunk row must carry the cause full word on its first slot:\n%s", fence)
+	// (前: · 反转影响 + · 影响点 priority_inversion_runnable_wait/runnable;
+	// PTV6-D (a) 悬崖消除后全词升上主行 — 差表 in the PTV6-D ledger).
+	if !strings.Contains(fence, "优先级反转候选 · [E1(+1)]") {
+		t.Fatalf("trunk row must carry the cause full word (main-row slot after PTV6-D prefix fill):\n%s", fence)
 	}
 	if strings.Contains(fence, "反转影响") {
 		t.Fatalf("deleted 反转影响 resurfaced:\n%s", fence)

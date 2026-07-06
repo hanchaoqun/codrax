@@ -539,10 +539,13 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkIconRunnable:        {"⧖", "⧖"},
 		runtimeTraceProjMarkIconRunning:         {"⚙", "⚙"},
 		runtimeTraceProjMarkIconDState:          {"⛓", "⛓"},
-		// PTV4 T4: the two ◦ senses probe on their distinct inline words (the
-		// glyph itself is shared, so it cannot be a bidirectional probe).
+		// PTV4 T4: the transit sense probes on its inline word (the ◦ glyph is
+		// shared, so it cannot be a bidirectional probe). PTV6-D (b): the
+		// no-dominant 2-word chip is RETIRED from the row face — no fence
+		// probe; the mark records at the icon's own emission arm (structural,
+		// like StateLabel) and direction A (mark ⇔ legend entry) still asserts.
 		runtimeTraceProjMarkIconTransit:    {"中转", "transit"},
-		runtimeTraceProjMarkIconNoDominant: {"无主导态", "no dominant state"},
+		runtimeTraceProjMarkIconNoDominant: {"", ""},
 		runtimeTraceProjMarkBadge:          {"❶", "❶"},
 		runtimeTraceProjMarkStateLabel:     {"", ""},
 		runtimeTraceProjMarkUndrillable:    {"⊘", "⊘"},
@@ -583,6 +586,10 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkOnChainOverflowFold: {"链上折叠", "on-chain fold"},
 		// PTV6-C ruling A (#73): the ◇/▒ cross-thread cumulative family word.
 		runtimeTraceProjMarkStanzaCrossThreadCum: {"累计(跨线程)", "cross-thread cum"},
+		// PTV6-D (b): the generic candidate category word is DELETED from the
+		// row face by design (legend carries the class) — no fence probe;
+		// direction A (mark ⇔ legend entry) still asserts.
+		runtimeTraceProjMarkCandidateShapeClass: {"", ""},
 	}
 }
 

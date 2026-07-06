@@ -999,3 +999,18 @@ func main() {
 - ③728s 与 still_present **同链同根**:current_risk=true→完成门要 current_source origin lane→`accepted investigation closure cannot auto-complete mixed-origin explore window; missing_origin_lanes=current_source` ×19,9 个 explore dispatch 窗(01:32:27→01:43:24),retry directive 反复推 repo_map lenses(explorer think 原话:"There's a mismatch here - the user wants trace analysis only"),multi-topic scaling 13→28 放大窗数;全程 LLM `attempt=1/6` 零重试、零流式退化、repair 指标全 0——**不是** 07-03 死等案那种 LLM 退化,是 lane 饥饿重放循环;最终 forced-finalize 放行(`grounding floor failed on forced-finalize path ... Missing repo_map lenses: task_map, file_map, relation_map`)。
 - 定性:行为方差(analyzer 单点漏 typed exclude+误 current_risk),下游门全按 typed 输入确定性行事;两个结构放大器让方差变用户可见:(a) current-status verdict 义务只 key analyzer 的 `current_risk`,不校验"current_source lane 是否真产出过证据"——该精确信号就躺在完成门日志里(missing_origin_lanes);(b) `renderV2BlockDecision` 裸吐内部 enum 进中文 prose(同 3a6673ef de-jargon 方向未覆盖的面)。
 - 修向(下批候选,均为精确信号硬门/软引导合规形态):finalize 侧 decision 义务对齐 origin-lane 台账(current_source lane 零证据→义务降级为 caveat,enum 不发射);渲染层 enum→措辞映射(仍存在/已修复/证据不足)。当场不修:非 CSR/PTV5 小回归,decision 车道语义横跨 diagnostic 家族须裁定,且账本纪律=本批只归因。
+
+## §9 两标本 13 项归因与 PTV6 系列 as-built(2026-07-06)
+
+用户两标本(20260706-014044/014407 HTML)驱动的 13 项归因(全文见 session 归因 agent 输出,要点入库):
+1-2/9 **critical_blocking 双投**(分类只看 predicate 不读 chain_relevance→同记录进 SupportingHops+background 双席;树侧硬编码唤醒边=偏离 v3 §5 规格;候选行稀释 ❶ 主因)→ PTV6-A 根修:hop 准入 on-chain 门+专用边词"链上·深度未解析"+▒ consumed 防御+hop cap 折叠计数;复核 P1=未声明 relevance 行零席位→缺省背景席(席位矩阵 pin 三形态)。
+3 无主导态 vs D状态标签矛盾(两 lane 各自正确无人合流)→ C 批 TypeToken→状态族显示映射(io_latency=测量族刻意不入,边界 pin)。
+4 **138% 幻影**(三条重叠 io_latency 近值求和 4.119ms>窗 2.992ms;V4 精确相等差 0.03ms 逃逸)→ B 批近似档(≤3%+同 subject/object/token+重叠+双侧真实身份;S3 反例证明包络重叠是嘈声信号不可作硬门)→ 1.383ms/46%。
+5 ◇ 行挂链上口径词 → C 批裁定A:有效归因限链宇宙,stanza 用"累计(跨线程)/折算"。
+6/13 近义六 lane 冗余 → C 批"全词一处+数据一处"+typed 身份去重(复核抓 substring 包含判据=噪音硬门,改 typed)。
+7 已解析 peer 裸占 cause 词位 → C 批 ResolvedPeerText 关系形态。
+8 自身行裸 s_sleep → C 批中文化。
+10 UX 纵向密度(逐 tag 一行 by construction/类别样板词 31 次/60 行)→ D 批流式打包+类别词降维(无主导态→◦ 图例承载、候选影响→typed generic 臂抑制+图例 entry、候选根因 2 次免降维)+≈窗内并发语义词;行数账 46→27/23→15,节点普查不变。
+11 **❶❷ 徽章复算**(父行与其成因分解行同值双席)→ A 批每主体一席。
+12 关键词截断倒挂(优先级反转候选被截而样板词占行)→ C 批全词保障(截断→从属/主行首 tag 全词)。
+批次:A/B=12f9cb7c、C=8f6e7a5c、D=本 commit;复核轮 12+12+6 findings 全 confirmed 全收。用户裁定沿革:A(常显限链宇宙)/B(删反转影响)/C(指路句族→trace 源坐标)、"打包非折叠"、PTS on-chain 完整性(必提及必进树,多则折叠+计数)。

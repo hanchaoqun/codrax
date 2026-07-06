@@ -81,7 +81,9 @@ var runtimeStateKindSwitchFallthroughLedger = map[string]types.TraceStateKindFal
 
 var runtimeStateKindSwitchSiteGolden = map[string]string{
 	"answer_document_mutation_runtime.go:runtimeTraceCausalProjectionStateActionWord#1": "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
-	"answer_document_mutation_runtime.go:runtimeTraceCausalProjectionImpactShapeCell#1": "running,runnable,sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
+	// PTV6-D (b): ImpactShapeCell → ImpactShapeCellTyped rename only (the
+	// typed generic-arm second return) — the case set is byte-identical.
+	"answer_document_mutation_runtime.go:runtimeTraceCausalProjectionImpactShapeCellTyped#1": "running,runnable,sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
 	"answer_document_mutation_runtime_tree.go:runtimeTraceProjNoDominantStateRow#1":     "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
 	"answer_document_mutation_runtime_tree.go:runtimeTraceProjStateIcon#1":              "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep|default",
 	"answer_document_mutation_runtime_tree.go:runtimeTraceProjStateKindLabel#1":         "running,runnable,sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",

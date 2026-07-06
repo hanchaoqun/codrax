@@ -303,6 +303,7 @@ const (
 	runtimeTraceProjMarkCoverageLine                                      // PTV5 Q2 树头覆盖行(已归因/未归因)口径
 	runtimeTraceProjMarkOnChainOverflowFold                               // PTV5 PTS 链上折叠行(其余N项,零静默丢弃)
 	runtimeTraceProjMarkStanzaCrossThreadCum                              // PTV6-C ruling A ◇/▒ 行 累计(跨线程) 族词
+	runtimeTraceProjMarkCandidateShapeClass                               // PTV6-D (b) 候选影响 类别词降维:行内删,图例承载
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -420,9 +421,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkIconTransit, runtimeTraceProjLegendGroupMark,
 			"- `◦ 中转` = 链路中转节点,本轮无独立影响行。",
 			"- `◦ transit` = a chain transit node with no standalone impact row this run."},
+		// PTV6-D (b) (#75 标本归因 #10): the per-row 2-word 无主导态 chip is
+		// retired — the ◦ icon on a DATA row is the marker and this entry
+		// carries the class word (行内不逐行重复).
 		{runtimeTraceProjMarkIconNoDominant, runtimeTraceProjLegendGroupMark,
-			"- `◦ 无主导态` = 该行无主导调度状态,状态标签沿用影响形态。",
-			"- `◦ no dominant state` = the row exposed no dominant scheduler state; its state tag keeps the impact-shape value."},
+			"- `◦`(数据行) = 无主导态:该行无主导调度状态(类别词不逐行重复);具体影响形态见行内形态词或明细表。",
+			"- `◦` (data row) = no dominant state: the row exposed no dominant scheduler state (the class word is not repeated per row); the concrete shape lives in the inline shape word or the detail table."},
 		// PTV5 C01/C24 (#68): badges land on chain/cause/depthless rows — flat
 		// renders included — so the entry does not claim 链上 (CMP-7a: flat
 		// renders never claim on-chain). The sort key is visible per row via
@@ -518,6 +522,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkStanzaCrossThreadCum, runtimeTraceProjLegendGroupCaliber,
 			"- `累计(跨线程)` = ◇/▒ 区段行的时长口径:跨线程累计量,不属链上归因,不计入 on-chain 已归因;同行 `折算` = 该行经折算的有效值,仅在与累计值不同时并列。",
 			"- `cross-thread cum` = the duration caliber of ◇/▒ stanza rows: a cross-thread cumulative, never on-chain attribution and never counted into the attributed coverage; a sibling `discounted` value is the row's discounted effective, shown only when it differs from the cumulative."},
+		// PTV6-D (b) (#75 标本归因 #10): the generic 候选影响 category word is
+		// carried HERE instead of repeating on every shapeless candidate row
+		// (5×/标本 pure repetition); each row's full shape cell stays lossless
+		// in the detail table. Typed branch gate — the entry renders exactly
+		// when a row's shape cell fell through to the generic arm.
+		{runtimeTraceProjMarkCandidateShapeClass, runtimeTraceProjLegendGroupCaliber,
+			"- 无形态词行 = 候选影响类:该行无具体状态/类型形态词(类别词不逐行重复);逐行影响形态列见明细表。",
+			"- Rows without a shape word = the candidate-impact class: no specific state/type shape word (the class word is not repeated per row); each row's impact-shape cell lives in the detail table."},
 	}
 }
 
@@ -1668,11 +1680,19 @@ func runtimeTraceProjCrossThreadAggregateSuffix(node types.TraceCausalProjection
 	}
 	density := impact / windowMS
 	queueDepth := runtimeTraceProjCrossThreadQueueDepthToken(node)
+	concurrency := runtimeTraceProjCrossThreadConcurrencyToken(node)
 	switch {
 	case queueDepth && zh:
 		suffix += fmt.Sprintf("·≈平均排队深度 %.1f", density)
 	case queueDepth:
 		suffix += fmt.Sprintf(" ≈avg queue depth %.1f", density)
+	case concurrency && zh:
+		// PTV6-D (d) (#75 标本归因 #10): the irq-family density carries its
+		// semantics (supply_pressure 族 ≈平均排队深度 先例) — cumulative
+		// cpu·ms over the window IS the average in-window concurrency.
+		suffix += fmt.Sprintf("·≈窗内并发 %.1f×", density)
+	case concurrency:
+		suffix += fmt.Sprintf(" ≈avg concurrency %.1f×", density)
 	case zh:
 		suffix += fmt.Sprintf("·≈均值 %.1f", density)
 	default:
@@ -1703,6 +1723,20 @@ func runtimeTraceProjCrossThreadDensityWindowMS(node types.TraceCausalProjection
 func runtimeTraceProjCrossThreadQueueDepthToken(node types.TraceCausalProjectionNode) bool {
 	switch runtimeTraceCausalProjectionCanonicalNode(firstNonEmptyAnswerString(node.TypeToken, node.Object)) {
 	case "supply_pressure", "cpu_pressure":
+		return true
+	}
+	return false
+}
+
+// runtimeTraceProjCrossThreadConcurrencyToken reports whether the node's typed
+// kind token is an interrupt-family activity metric (PTV6-D (d), same token
+// precedence as the queue-depth fork): for those, cumulative cpu·ms divided by
+// the window is the average number of CPUs concurrently busy with the
+// activity — the density wording says so (≈窗内并发 X.X×) instead of the
+// neutral ≈均值. io_pressure / cpu_frequency_limit keep the neutral word.
+func runtimeTraceProjCrossThreadConcurrencyToken(node types.TraceCausalProjectionNode) bool {
+	switch runtimeTraceCausalProjectionCanonicalNode(firstNonEmptyAnswerString(node.TypeToken, node.Object)) {
+	case "irq_burst", "irq_activity", "ipi_activity":
 		return true
 	}
 	return false
@@ -2514,12 +2548,13 @@ func runtimeTraceProjScaleNote(model runtimeTraceProjTreeModel, zh bool) string 
 	return fmt.Sprintf("window bounds not captured; bar full = batch max %.3fms (fallback scale, no window %%)", model.BarMaxMS)
 }
 
-// runtimeTraceProjSelfRowLines renders one self row for the fence. PTV4 T1:
-// the whole row stays a single line whenever it holds the 100-cell row cap;
-// over the cap, the main line keeps only the essentials (state glyph +
-// state/name + value + ⊘ marker + [E#]) and every other part moves to
-// "· "-prefixed subordinate detail lines — nothing is elided (the FitTags
-// drop lane is retired).
+// runtimeTraceProjSelfRowLines renders one self row for the fence. PTV4 T1 →
+// PTV6-D (a) 悬崖消除: the whole row stays a single line whenever it holds
+// the 100-cell row cap; over the cap, the main line keeps the essentials
+// (state glyph + state/name + value + ⊘ marker + [E#]) PLUS the leading
+// detail parts that still fit inline (prefix fill, legacy order before the
+// trailing [E#]), and the overflow parts PACK into "· " subordinate detail
+// lines — nothing is elided (the FitTags drop lane stays retired).
 func runtimeTraceProjSelfRowLines(row runtimeTraceProjTreeRow, windowMS float64, zh bool) []string {
 	const lead = "│     "
 	main, demoted := runtimeTraceProjSelfRowParts(row, windowMS, zh)
@@ -2529,11 +2564,16 @@ func runtimeTraceProjSelfRowLines(row runtimeTraceProjTreeRow, windowMS float64,
 	if len(demoted) == 0 || runewidth.StringWidth(single) <= runtimeTraceProjTreeRowMaxWidth {
 		return []string{single}
 	}
-	lines := []string{lead + strings.Join(main, " ")}
-	for _, part := range demoted {
-		lines = append(lines, runtimeTraceProjSubordinateLines(lead, part)...)
+	keep := 0
+	for keep < len(demoted) {
+		trial := lead + strings.Join(runtimeTraceProjSelfInlineOrder(main, demoted[:keep+1]), " ")
+		if runewidth.StringWidth(trial) > runtimeTraceProjTreeRowMaxWidth {
+			break
+		}
+		keep++
 	}
-	return lines
+	lines := []string{lead + strings.Join(runtimeTraceProjSelfInlineOrder(main, demoted[:keep]), " ")}
+	return append(lines, runtimeTraceProjSubordinatePackedLines(lead, demoted[keep:])...)
 }
 
 // runtimeTraceProjSelfInlineOrder restores the legacy inline order (detail
@@ -2597,11 +2637,18 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	// report, 2026-07-03); sleep rows keep their dedicated wording below.
 	if !node.IsSleepState() {
 		stateTag := runtimeTraceProjStateKindLabel(node, zh)
+		genericShape := false
 		if stateTag == "" || strings.TrimSpace(node.BlockingKind) != "" ||
 			runtimeTraceCausalProjectionInversionRow(node) {
-			stateTag = runtimeTraceCausalProjectionImpactShapeCell(node, zh)
+			stateTag, genericShape = runtimeTraceCausalProjectionImpactShapeCellTyped(node, zh)
 		}
-		if stateTag != "" {
+		switch {
+		case stateTag == "":
+		case genericShape:
+			// PTV6-D (b): the generic category word leaves the self row too —
+			// same typed branch signal + legend carrier as the tree rows.
+			row.marks.mark(runtimeTraceProjMarkCandidateShapeClass)
+		default:
 			row.marks.mark(runtimeTraceProjMarkStateLabel)
 			demoted = append(demoted, stateTag)
 		}
@@ -2731,8 +2778,9 @@ func runtimeTraceProjStateIcon(node types.TraceCausalProjectionNode, kind string
 	default:
 		// PTV6-C #3: a typed TypeToken carrying state semantics keeps the row
 		// OFF the ◦ no-dominant arm — the state family icon renders instead
-		// (mirrored by runtimeTraceProjNoDominantStateRow, so the 2-word chip
-		// falls silent together with the icon).
+		// (mirrored by runtimeTraceProjNoDominantStateRow; PTV6-D (b) retired
+		// the 2-word chip — this arm's IconNoDominant mark is now the class
+		// word's ONLY carrier, gating the ◦ legend entry).
 		switch runtimeTraceCausalProjectionTypeTokenStateClass(node) {
 		case "running":
 			marks.mark(runtimeTraceProjMarkIconRunning)
@@ -2757,8 +2805,10 @@ func runtimeTraceProjStateIcon(node types.TraceCausalProjectionNode, kind string
 }
 
 // runtimeTraceProjNoDominantStateRow reports whether a DATA row renders the ◦
-// icon through the default (no dominant scheduler state) arm — the T4 "◦
-// 无主导态" inline word's gate. Mirrors runtimeTraceProjStateIcon's switch.
+// icon through the default (no dominant scheduler state) arm. PTV6-D (b): the
+// T4 inline 无主导态 chip this used to gate is RETIRED (the icon + legend
+// carry the class word); the predicate stays as the documented mirror of
+// runtimeTraceProjStateIcon's switch — the #3 boundary pins consume it.
 func runtimeTraceProjNoDominantStateRow(node types.TraceCausalProjectionNode, kind string) bool {
 	if kind == runtimeTraceProjTreeRowSemantic || node.IsSleepState() {
 		return false
@@ -3173,12 +3223,15 @@ func runtimeTraceProjStateTokenClass(token string) string {
 }
 
 // runtimeTraceProjRowLineWithMetrics assembles label + bar/ms cells + tags
-// (PTV4 T1, 按需拆行): when EVERY tag fits inline within the 100-cell row cap
-// the row stays one line; otherwise the main line keeps ONLY the essentials
-// (label + bar + ms + % + the MainRow marks ⚠/⊘/[E#] — never truncated, never
-// moved down) and ALL remaining tags demote to "· "-prefixed subordinate
-// detail lines under the row's rails (T3 boundary-aware wrap; nothing is
-// elided — the FitTags DropOrder lane is retired).
+// (PTV4 T1, 按需拆行 → PTV6-D (a) 悬崖消除): when EVERY tag fits inline within
+// the 100-cell row cap the row stays one line; otherwise the main line keeps
+// the essentials (label + bar + ms + % + the MainRow marks ⚠/⊘/[E#] — never
+// truncated, never moved down) PLUS the leading run of ordinary tags that
+// still fits beside them (prefix fill — the former all-or-nothing demotion
+// dropped every tag over a 1-cell overflow), and the overflow tags PACK into
+// "· " subordinate detail lines (streamed " · " separation, a new line only
+// when the next tag does not fit; T3 boundary-aware wrap for over-wide single
+// tags; nothing is elided — the FitTags DropOrder lane stays retired).
 func runtimeTraceProjRowLineWithMetrics(left string, row runtimeTraceProjTreeRow, denom float64, windowMode, zh bool) string {
 	base, tags := runtimeTraceProjRowMetricParts(row, denom, windowMode, zh)
 	tags = runtimeTraceProjApplyCauseWordGuarantee(left, row, tags, zh)
@@ -3202,9 +3255,32 @@ func runtimeTraceProjRowLineWithMetrics(left string, row runtimeTraceProjTreeRow
 	if runewidth.StringWidth(single) <= mainBudget {
 		return single
 	}
+	// PTV6-D (a) 悬崖消除 (打包非折叠 red line): the main line keeps every
+	// MainRow Keep 记号 unconditionally PLUS the leading ordinary tags that
+	// still fit beside them — each candidate is judged against the SAME
+	// reserve-aware budget (Med-1: one budget for every width judgment) with
+	// ALL remaining MainRow tags included, so an accepted tag can never push a
+	// Keep 记号 over the cap. Prefix discipline: after the first ordinary tag
+	// demotes, every later ordinary tag demotes too — the reading order stays
+	// main line → subordinate stream (first-fit would reorder information
+	// across the fold). Every demoted tag renders whole below (packed).
 	var mainTexts, demoted []string
-	for _, tag := range tags {
+	for i, tag := range tags {
 		if tag.MainRow {
+			mainTexts = append(mainTexts, tag.Text)
+			continue
+		}
+		if len(demoted) > 0 {
+			demoted = append(demoted, tag.Text)
+			continue
+		}
+		trial := append(append([]string(nil), mainTexts...), tag.Text)
+		for _, later := range tags[i+1:] {
+			if later.MainRow {
+				trial = append(trial, later.Text)
+			}
+		}
+		if runewidth.StringWidth(left+" "+base+"  "+strings.Join(trial, " · ")) <= mainBudget {
 			mainTexts = append(mainTexts, tag.Text)
 		} else {
 			demoted = append(demoted, tag.Text)
@@ -3243,10 +3319,8 @@ func runtimeTraceProjRowLineWithMetrics(left string, row runtimeTraceProjTreeRow
 		}
 	}
 	indent := runtimeTraceProjRowContinuationIndent(row)
-	for _, text := range demoted {
-		for _, cont := range runtimeTraceProjSubordinateLines(indent, text) {
-			line += "\n" + cont
-		}
+	for _, cont := range runtimeTraceProjSubordinatePackedLines(indent, demoted) {
+		line += "\n" + cont
 	}
 	return line
 }
@@ -3296,6 +3370,42 @@ func runtimeTraceProjSubordinateLines(indent, text string) []string {
 		out = append(out, prefix+chunk)
 		prefix = indent + "  "
 	}
+	return out
+}
+
+// runtimeTraceProjSubordinatePackedLines renders the demoted tags as a PACKED
+// "· " subordinate stream (PTV6-D (a), 打包非折叠): tags flow in order into
+// 100-cell lines separated by " · " — a new line starts ONLY when the next
+// tag does not fit the current one (every physical line begins at a tag
+// boundary with the "· " marker). A tag wider than a whole fresh line
+// atom-wraps through runtimeTraceProjSubordinateLines (T3 wrap, never
+// truncation) and the following tag opens a fresh "· " line — a packed
+// neighbor never rides a mid-tag continuation line. Every tag renders whole,
+// in order; packing changes line geometry only, never content.
+func runtimeTraceProjSubordinatePackedLines(indent string, texts []string) []string {
+	var out []string
+	line := ""
+	flush := func() {
+		if line != "" {
+			out = append(out, line)
+			line = ""
+		}
+	}
+	for _, text := range texts {
+		if line != "" {
+			if cand := line + " · " + text; runewidth.StringWidth(cand) <= runtimeTraceProjTreeRowMaxWidth {
+				line = cand
+				continue
+			}
+			flush()
+		}
+		if cand := indent + "· " + text; runewidth.StringWidth(cand) <= runtimeTraceProjTreeRowMaxWidth {
+			line = cand
+			continue
+		}
+		out = append(out, runtimeTraceProjSubordinateLines(indent, text)...)
+	}
+	flush()
 	return out
 }
 
@@ -3514,8 +3624,9 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	}
 	shapeCellUsed := stateTag == "" || strings.TrimSpace(node.BlockingKind) != "" ||
 		runtimeTraceCausalProjectionInversionRow(node)
+	genericShape := false
 	if shapeCellUsed {
-		stateTag = runtimeTraceCausalProjectionImpactShapeCell(node, zh)
+		stateTag, genericShape = runtimeTraceCausalProjectionImpactShapeCellTyped(node, zh)
 		switch {
 		case strings.TrimSpace(node.BlockingKind) != "":
 			stateTagToken = ""
@@ -3528,19 +3639,21 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			stateTagToken = ""
 		}
 	}
-	// PTV4 T4 (◦ 二义拆分): a DATA row rendering the ◦ icon says which sense
-	// applies — the 2-word 无主导态 token; the legend's ◦ 无主导态 entry holds
-	// the semantics. Transit (no-data) rows carry 中转 on the main line.
-	if row.HasData && runtimeTraceProjNoDominantStateRow(node, row.Kind) {
-		word := "无主导态"
-		if !zh {
-			word = "no dominant state"
-		}
-		tags = append(tags, runtimeTraceProjTag{Text: word})
-	}
+	// PTV4 T4 的 ◦ 无主导态 2-word chip is RETIRED from the row face (PTV6-D
+	// (b), #75 标本归因 #10: 7×/标本 pure category repetition) — the ◦ icon is
+	// the per-row marker and the legend's ◦ entry (gated on the icon's own
+	// IconNoDominant mark at its emission site) carries the class semantics.
 	if stateTag != "" {
-		row.marks.mark(runtimeTraceProjMarkStateLabel)
-		tags = append(tags, runtimeTraceProjTag{Text: stateTag, DedupeToken: stateTagToken})
+		if genericShape {
+			// PTV6-D (b): the generic 候选影响 category word (5×/标本) leaves
+			// the row face too — typed branch signal, never a string compare;
+			// the class semantics ride the dedicated legend entry below and
+			// each row's full shape cell stays lossless in the detail table.
+			row.marks.mark(runtimeTraceProjMarkCandidateShapeClass)
+		} else {
+			row.marks.mark(runtimeTraceProjMarkStateLabel)
+			tags = append(tags, runtimeTraceProjTag{Text: stateTag, DedupeToken: stateTagToken})
+		}
 	}
 	// V3 (customer revisit 2026-07-03): a background row whose projection covers
 	// ≥99% of the window — without exceeding it — waited out the whole window.
@@ -3688,18 +3801,31 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// the SAME data under the 累计(跨线程) family word (single wording
 		// home, kind-split — the row is off the wakeup path, so an on-chain
 		// attribution word would contradict its own stanza legend).
-		var text string
-		if runtimeTraceProjStanzaRowKind(row.Kind) {
+		switch {
+		case runtimeTraceProjStanzaRowKind(row.Kind):
 			row.marks.mark(runtimeTraceProjMarkStanzaCrossThreadCum)
-			text = runtimeTraceProjCrossThreadCumTagText(node.CumulativeImpactMS, zh)
+			tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjCrossThreadCumTagText(node.CumulativeImpactMS, zh)})
 			stanzaCumEmitted = true
-		} else {
-			text = fmt.Sprintf("链上累计%.3fms", node.CumulativeImpactMS)
+		case runtimeTraceProjChainUniverseRowKind(row.Kind) &&
+			node.EffectiveImpactMS == node.CumulativeImpactMS &&
+			!node.PeriodicSource && impactSource != runtimeTraceProjImpactSourceEffective:
+			// PTV6-D (c) (#75 标本归因 #10, stanza-lane precedent 同折): an
+			// EQUAL-value 链上累计/有效归因 pair on a chain-universe row is one
+			// measurement — the Q1 有效归因 tag below (user ruling 2026-07-05,
+			// 常显 + badge sort key) is the surviving carrier, the redundant
+			// 链上累计 copy folds. Differing values keep BOTH words (pinned by
+			// TestPTV6CRulingAChainUniverseKeepsAttributionWords). The guard
+			// mirrors the Q1 emission gate exactly, so the fold can never fire
+			// when the effective carrier itself stays silent (eff>0 is implied
+			// by the equality with the emitted cum>0; inherited needs >10×cum
+			// and can never be value-equal).
+		default:
+			text := fmt.Sprintf("链上累计%.3fms", node.CumulativeImpactMS)
 			if !zh {
 				text = fmt.Sprintf("chain cum %.3fms", node.CumulativeImpactMS)
 			}
+			tags = append(tags, runtimeTraceProjTag{Text: text})
 		}
-		tags = append(tags, runtimeTraceProjTag{Text: text})
 	}
 	// RF2b/V4: the duplicate-publication fold (single measurement) and the R2
 	// sum aggregate are independent typed signals with distinct labels (PTV4

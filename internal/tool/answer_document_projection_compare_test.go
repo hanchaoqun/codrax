@@ -560,13 +560,25 @@ func TestRuntimeTraceProjCrossThreadAggregateRowRendering(t *testing.T) {
 	if !strings.Contains(en, "(cross-thread cumulative, not wall clock) ≈avg queue depth 82.2") {
 		t.Fatalf("EN aggregate annotation missing:\n%s", en)
 	}
-	// Non-queue-depth cumulative tokens use the neutral mean wording.
+	// PTV6-D (d): the irq family carries the concurrency density word
+	// (supply_pressure 族 ≈平均排队深度 先例; was the neutral ≈均值 0.1).
 	irq := row
 	irq.Node.Object, irq.Node.TypeToken = "irq_activity", "irq_activity"
 	irq.Node.ImpactMS, irq.Node.CumulativeImpactMS = 106.05, 106.05
 	irqLine := runtimeTraceProjStanzaRowLine(irq, runtimeTraceProjTreeLabelWidth, 1230.0, true, true)
-	if !strings.Contains(irqLine, "(跨线程累计,非墙钟)·≈均值 0.1") {
-		t.Fatalf("non-pressure aggregates use the mean wording:\n%s", irqLine)
+	if !strings.Contains(irqLine, "(跨线程累计,非墙钟)·≈窗内并发 0.1×") {
+		t.Fatalf("irq-family aggregates carry the concurrency density word:\n%s", irqLine)
+	}
+	if enIrq := runtimeTraceProjStanzaRowLine(irq, runtimeTraceProjTreeLabelWidth, 1230.0, true, false); !strings.Contains(enIrq, "≈avg concurrency 0.1×") {
+		t.Fatalf("EN irq-family concurrency wording missing:\n%s", enIrq)
+	}
+	// Non-queue-depth, non-irq cumulative tokens keep the neutral mean wording.
+	iop := row
+	iop.Node.Object, iop.Node.TypeToken = "io_pressure", "io_pressure"
+	iop.Node.ImpactMS, iop.Node.CumulativeImpactMS = 106.05, 106.05
+	iopLine := runtimeTraceProjStanzaRowLine(iop, runtimeTraceProjTreeLabelWidth, 1230.0, true, true)
+	if !strings.Contains(iopLine, "(跨线程累计,非墙钟)·≈均值 0.1") {
+		t.Fatalf("non-pressure non-irq aggregates keep the mean wording:\n%s", iopLine)
 	}
 	// Without any window the density is omitted — never estimated.
 	bare := row

@@ -1335,12 +1335,19 @@ func runtimeTraceProjCompareBackgroundPressureCell(model runtimeTraceProjTreeMod
 	}
 	density := bestValue / windowMS
 	queueDepth := runtimeTraceProjCrossThreadQueueDepthToken(*best)
+	concurrency := runtimeTraceProjCrossThreadConcurrencyToken(*best)
 	var cell string
 	switch {
 	case queueDepth && zh:
 		cell = fmt.Sprintf("≈平均排队深度 %.1f(累计 %.3fms,跨线程累计,非墙钟)", density, bestValue)
 	case queueDepth:
 		cell = fmt.Sprintf("≈avg queue depth %.1f (cumulative %.3fms, cross-thread, not wall clock)", density, bestValue)
+	case concurrency && zh:
+		// PTV6-D (d): the irq-family density word — mirrored with the stanza
+		// suffix fork so both surfaces speak one semantics.
+		cell = fmt.Sprintf("≈窗内并发 %.1f×(累计 %.3fms,跨线程累计,非墙钟)", density, bestValue)
+	case concurrency:
+		cell = fmt.Sprintf("≈avg concurrency %.1f× (cumulative %.3fms, cross-thread, not wall clock)", density, bestValue)
 	case zh:
 		cell = fmt.Sprintf("≈均值 %.1f(累计 %.3fms,跨线程累计,非墙钟)", density, bestValue)
 	default:
@@ -1946,14 +1953,26 @@ func runtimeTraceCausalProjectionStateActionWord(stateKind string, zh bool) stri
 }
 
 func runtimeTraceCausalProjectionImpactShapeCell(node types.TraceCausalProjectionNode, zh bool) string {
+	cell, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(node, zh)
+	return cell
+}
+
+// runtimeTraceCausalProjectionImpactShapeCellTyped is the shape cell plus a
+// PRECISE typed signal: generic=true ONLY when the cell fell through every
+// typed branch to the category fallback word (候选影响 / candidate impact).
+// PTV6-D (b) (#75 标本归因 #10, 2026-07-06): the tree fence suppresses that
+// category word per row (the class semantics ride a dedicated legend entry via
+// NEW-7); the detail table keeps the full cell — the signal is the branch
+// itself, never a display-string comparison.
+func runtimeTraceCausalProjectionImpactShapeCellTyped(node types.TraceCausalProjectionNode, zh bool) (string, bool) {
 	// §7.30.3 D1: lock-contention rows carry a typed BlockingKind — the
 	// duration is a blocked wait on a lock, so it always renders with that
 	// semantic label instead of a bare number or a generic candidate word.
 	if strings.TrimSpace(node.BlockingKind) != "" {
 		if zh {
-			return "锁竞争·阻塞"
+			return "锁竞争·阻塞", false
 		}
-		return "lock contention · blocked"
+		return "lock contention · blocked", false
 	}
 	// §7.30.3 D3: an inversion row's impact is the R5d gated COMPOSITE
 	// (runnable full + discounted weak-core running) — no single scheduler
@@ -1968,55 +1987,55 @@ func runtimeTraceCausalProjectionImpactShapeCell(node types.TraceCausalProjectio
 	// 候选影响 …) are untouched.
 	if runtimeTraceCausalProjectionInversionRow(node) {
 		if zh {
-			return runtimeTraceRootCauseTypeZHLabel("priority_inversion_candidate")
+			return runtimeTraceRootCauseTypeZHLabel("priority_inversion_candidate"), false
 		}
-		return "priority_inversion_candidate"
+		return "priority_inversion_candidate", false
 	}
 	state := strings.TrimSpace(strings.ToLower(node.StateKind))
 	switch state {
 	case "running":
 		if zh {
-			return "running / CPU执行"
+			return "running / CPU执行", false
 		}
-		return "running / CPU execution"
+		return "running / CPU execution", false
 	case "runnable":
 		if zh {
-			return "runnable / 等待调度"
+			return "runnable / 等待调度", false
 		}
-		return "runnable / waiting for CPU"
+		return "runnable / waiting for CPU", false
 	case "sleep", "s_sleep", "sleep_wait":
 		if zh {
-			return "sleep / 等待唤醒"
+			return "sleep / 等待唤醒", false
 		}
-		return "sleep / waiting for wakeup"
+		return "sleep / waiting for wakeup", false
 	case "d_state", "d_sleep", "uninterruptible_sleep":
 		if zh {
-			return "D-state / 不可中断等待"
+			return "D-state / 不可中断等待", false
 		}
-		return "D-state / uninterruptible wait"
+		return "D-state / uninterruptible wait", false
 	case "io_wait":
 		if zh {
-			return "IO wait / IO等待"
+			return "IO wait / IO等待", false
 		}
-		return "IO wait"
+		return "IO wait", false
 	}
 	causeKind := strings.TrimSpace(strings.ToLower(firstNonEmptyAnswerString(node.Object, node.Predicate)))
 	switch causeKind {
 	case "compute_supply":
 		if zh {
-			return "CPU供给候选"
+			return "CPU供给候选", false
 		}
-		return "CPU-supply candidate"
+		return "CPU-supply candidate", false
 	case "priority_inversion_runnable_wait":
 		if zh {
-			return "runnable调度候选"
+			return "runnable调度候选", false
 		}
-		return "runnable scheduling candidate"
+		return "runnable scheduling candidate", false
 	case "block_io_by_inode", "io_latency":
 		if zh {
-			return "IO阻塞候选"
+			return "IO阻塞候选", false
 		}
-		return "IO-blocking candidate"
+		return "IO-blocking candidate", false
 	}
 	if node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span" {
 		label := "语义优化span"
@@ -2030,7 +2049,7 @@ func runtimeTraceCausalProjectionImpactShapeCell(node types.TraceCausalProjectio
 		if class := strings.TrimSpace(node.SemanticClass); class != "" {
 			label += "·" + runtimeTraceCausalProjectionCompactCellText(class, 22)
 		}
-		return label
+		return label, false
 	}
 	// H20: rows that would fall back to the generic candidate word but carry a
 	// typed aggregate-activity kind (irq_burst / irq_activity / page_cache_churn)
@@ -2038,10 +2057,10 @@ func runtimeTraceCausalProjectionImpactShapeCell(node types.TraceCausalProjectio
 	// first; the same token riding the Object cause lane second. Labels live in
 	// the typelabels helper file — never scattered strings.
 	if label := runtimeTraceAggregateTypeShapeLabel(node.TypeToken, zh); label != "" {
-		return label
+		return label, false
 	}
 	if label := runtimeTraceAggregateTypeShapeLabel(causeKind, zh); label != "" {
-		return label
+		return label, false
 	}
 	// PTV6-C #3 (#73, 标本归因 2026-07-06): a row whose typed TypeToken itself
 	// carries scheduler-state semantics (d_state_or_io_wait 等) states that
@@ -2050,12 +2069,14 @@ func runtimeTraceCausalProjectionImpactShapeCell(node types.TraceCausalProjectio
 	// ◦ 无主导态 chip stays silent through the same typed class gate).
 	// Display-layer mapping only; the producer's StateKind lane is untouched.
 	if class := runtimeTraceCausalProjectionTypeTokenStateClass(node); class != "" {
-		return runtimeTraceCausalProjectionTypeTokenStateWord(class, zh)
+		return runtimeTraceCausalProjectionTypeTokenStateWord(class, zh), false
 	}
+	// PTV6-D (b): the ONLY generic arm — the category word the tree fence
+	// suppresses per row (legend carries the class; detail table keeps it).
 	if zh {
-		return "候选影响"
+		return "候选影响", true
 	}
-	return "candidate impact"
+	return "candidate impact", true
 }
 
 func runtimeTraceCausalProjectionImpactMeaningCell(node types.TraceCausalProjectionNode, zh bool) string {
