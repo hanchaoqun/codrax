@@ -668,6 +668,13 @@ type WindowStats struct {
 	// feed TopRunning/CPUPressure — never a second timing pass. Nil when the
 	// window exposes no running segments.
 	CPUOccupancy *CPUOccupancyStats `json:"cpu_occupancy,omitempty"`
+	// ProcessDomainCensus is the WSR §8 b3 pid-scoped process-domain rollup
+	// lane: the query target's process aggregated from the SAME
+	// pre-truncation running buckets CMP-8 consumes (true thread census +
+	// cross-CPU merged top threads). Additive only — the global faces above
+	// (TopRunning / ThreadCPULoad / ProcessCPULoad) are byte-untouched. Nil
+	// when the query names no pid/thread or the process is unresolvable.
+	ProcessDomainCensus *ProcessDomainCensus `json:"process_domain_census,omitempty"`
 	// ComputeSupplyBalance is the CMP-10 (§7.4) true supply-side metric:
 	// frequency-weighted delivered compute Σ(running×f/fmax) against the
 	// nominal capacity (window×cpus), with the supply-gap three-way
@@ -944,6 +951,66 @@ type CPUOccupancyPriorityBand struct {
 	HighPriority bool    `json:"high_priority"`
 	RunningMs    float64 `json:"running_ms"`
 	ThreadCount  int     `json:"thread_count,omitempty"`
+}
+
+// ProcessDomainCensus is the WSR §8 b3 pid-scoped process-domain rollup lane
+// (real_trace_campaign_20260705 §8.1): when the query names a pid/thread, the
+// process face for that thread's process is aggregated from the SAME
+// pre-truncation running buckets CMP-8 occupancy consumes — NOT from the
+// display-truncated global thread roster — so the census reports the true
+// thread count and the true top threads of the process. The legacy
+// process_cpu_load face (a rollup of the surviving global top-N thread
+// roster) is untouched: this is an additive lane, nil on target-less queries
+// and on targets whose process identity cannot be resolved.
+type ProcessDomainCensus struct {
+	// Process is the tgid-level process ref the target thread resolved to.
+	Process ThreadRef `json:"process"`
+	// Target is the query's resolved target thread that anchored this lane
+	// (may be the process main thread itself or any member tid).
+	Target ThreadRef `json:"target,omitempty"`
+	// ThreadCount is the honest census caliber: distinct threads attributed
+	// to this process among the threads observed INSIDE the line+time window
+	// (same admission predicate as the running side; the catalog supplies
+	// attribution only), not the surviving-roster count the legacy
+	// process_cpu_load face reports as threads=.
+	ThreadCount int `json:"thread_count"`
+	// RunningThreadCount is how many of those threads actually accumulated
+	// in-window running time (full pre-truncation buckets).
+	RunningThreadCount int `json:"running_thread_count,omitempty"`
+	// TotalRunningMs is the cross-thread running sum — cpu·ms (CMP-3
+	// discipline): cross-thread cpu-time is NOT wall-clock additive and may
+	// exceed the wall window on multi-CPU overlap.
+	TotalRunningMs float64 `json:"total_running_ms,omitempty"`
+	// TopThreads is the per-thread running roster, cross-CPU merged,
+	// descending, capped at the shared up-to-8 roster bound. Per-thread
+	// values are plain ms: one thread occupies at most one CPU at any
+	// instant, so its cross-CPU running segments never overlap in wall time.
+	TopThreads []ProcessDomainThread `json:"top_threads,omitempty"`
+	// FoldedThreadCount/FoldedRunningMs carry the PTS fold discipline for
+	// running threads beyond the roster cap: count + their running sum
+	// (cpu·ms — cross-thread), never silent truncation.
+	FoldedThreadCount int      `json:"folded_thread_count,omitempty"`
+	FoldedRunningMs   float64  `json:"folded_running_ms,omitempty"`
+	CPUs              []int    `json:"cpus,omitempty"`
+	CoreClasses       []string `json:"core_classes,omitempty"`
+	LineStart         int      `json:"line_start,omitempty"`
+	LineEnd           int      `json:"line_end,omitempty"`
+	Summary           string   `json:"summary,omitempty"`
+	Caveats           []string `json:"caveats,omitempty"`
+}
+
+// ProcessDomainThread is one census roster row: a single thread's running
+// time merged across every CPU it touched in the window (plain ms — a
+// thread's own segments are mutually exclusive in wall time).
+type ProcessDomainThread struct {
+	Thread        ThreadRef `json:"thread"`
+	RunningMs     float64   `json:"running_ms"`
+	CPUs          []int     `json:"cpus,omitempty"`
+	CoreClasses   []string  `json:"core_classes,omitempty"`
+	Priority      int       `json:"priority,omitempty"`
+	PriorityClass string    `json:"priority_class,omitempty"`
+	LineStart     int       `json:"line_start,omitempty"`
+	LineEnd       int       `json:"line_end,omitempty"`
 }
 
 // ComputeSupplyBalance is the CMP-10 (§7.4) window-level supply-side ledger.

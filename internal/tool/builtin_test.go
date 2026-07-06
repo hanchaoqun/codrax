@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/safety"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -16,6 +17,43 @@ import (
 
 func newBusContext() *types.BusContext {
 	return &types.BusContext{}
+}
+
+// TestSanitizeForBannerRuneSafeCJKTruncationPin is the WSR 核验 F2 (2026-07-06)
+// mechanism pin: the 200-byte banner value cut must land on a rune boundary.
+// The old raw byte slice (out[:197]) split multi-byte runes — a CJK caveat cut
+// mid-rune pushed invalid UTF-8 into the LLM-facing banner/summary. ASCII
+// truncation stays byte-identical to the old behavior.
+func TestSanitizeForBannerRuneSafeCJKTruncationPin(t *testing.T) {
+	// 70 CJK runes × 3 bytes = 210 bytes > 200. 197 is not a multiple of 3,
+	// so the naive cut lands mid-rune; the rune-safe cut must back up to 195
+	// bytes (65 whole runes) and append the ellipsis → 198 bytes total.
+	in := strings.Repeat("跨", 70)
+	out := sanitizeForBanner(in)
+	if !utf8.ValidString(out) {
+		t.Fatalf("banner truncation emitted invalid UTF-8: %q", out)
+	}
+	if !strings.HasSuffix(out, "...") {
+		t.Fatalf("truncation must keep the ellipsis marker: %q", out)
+	}
+	if len(out) > toolBannerMaxValueLen {
+		t.Fatalf("truncated banner value exceeds the %d-byte cap: %d bytes", toolBannerMaxValueLen, len(out))
+	}
+	if len(out) != 198 {
+		t.Fatalf("CJK boundary cut = %d bytes, want 198 (backup to the 195-byte rune boundary + 3-byte ellipsis)", len(out))
+	}
+
+	// ASCII inputs truncate byte-identically to the pre-fix behavior.
+	ascii := strings.Repeat("a", 250)
+	if got, want := sanitizeForBanner(ascii), strings.Repeat("a", 197)+"..."; got != want {
+		t.Fatalf("ASCII truncation changed: got %d bytes %q…, want %d bytes", len(got), got[:10], len(want))
+	}
+
+	// Under-cap values (CJK included) pass through untouched.
+	short := strings.Repeat("跨", 60) // 180 bytes
+	if got := sanitizeForBanner(short); got != short {
+		t.Fatalf("under-cap value must be untouched: %q", got)
+	}
 }
 
 func TestReadFile(t *testing.T) {

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -61,7 +62,17 @@ func sanitizeForBanner(s string) string {
 	}
 	out := b.String()
 	if len(out) > toolBannerMaxValueLen {
-		out = out[:toolBannerMaxValueLen-3] + "..."
+		// WSR 核验 F2 (2026-07-06): the cut is byte-budgeted but MUST land
+		// on a rune boundary — a raw byte slice can split a multi-byte
+		// rune (e.g. CJK caveat text) and push invalid UTF-8 into the
+		// LLM-facing banner/summary. Back the cut up to the previous rune
+		// start: output is always valid UTF-8, ASCII inputs truncate
+		// byte-identically to the old behavior.
+		cut := toolBannerMaxValueLen - 3
+		for cut > 0 && !utf8.RuneStart(out[cut]) {
+			cut--
+		}
+		out = out[:cut] + "..."
 	}
 	return out
 }

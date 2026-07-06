@@ -267,6 +267,245 @@ func computeCPUOccupancyStats(q Query, windowMs float64, running map[string]Thre
 	return occ
 }
 
+// computeProcessDomainCensus builds the WSR §8 b3 pid-scoped process-domain
+// rollup lane (real_trace_campaign_20260705 §8.1). Attribution finding: a
+// window_stats(pid=…) query never fed its pid into the rollup domain — event
+// admission has no pid predicate, running is bucketed per (pid,comm,cpu) so
+// cross-CPU fragmented runners get diluted below the global top-8 cut, and
+// process_cpu_load then rolled up ONLY those display survivors while
+// rendering "threads=N" as if it were a process census. This lane answers
+// the pid question from the FULL pre-truncation running buckets (the same
+// map CMP-8 occupancy consumes) plus the window thread catalog:
+//
+//   - ThreadCount is the true census: every distinct thread of this process
+//     observed INSIDE the line+time window (same admission predicate as the
+//     running side; catalog attribution via the single shared wiring point
+//     processRefForThread), not the surviving-roster count.
+//   - TopThreads merges each thread's running across CPUs. Wall-clock
+//     soundness of that merge: sched_switch gives a thread at most one CPU
+//     at any instant, so one thread's running segments on different CPUs are
+//     pairwise non-overlapping and their sum is a genuine ms figure for that
+//     thread. No such exclusivity exists ACROSS threads — TotalRunningMs /
+//     FoldedRunningMs are cross-thread cpu·ms (CMP-3) and say so.
+//   - Roster cap: the shared up-to-8 roster bound (mirror of the PTV5
+//     wire-cap fold roster); overflow follows the PTS fold discipline —
+//     count + aggregate, never silent truncation.
+//
+// The global faces (TopRunning / ThreadCPULoad / ProcessCPULoad) are not
+// touched: this lane is additive and nil when the query names no target or
+// the target's process identity cannot be resolved (a censusless bare pid
+// must not fabricate "threads=1").
+func computeProcessDomainCensus(idx *Index, q Query, running map[string]ThreadDuration, catalog map[int]ThreadRef, coreByCPU map[int]string, rosterCap int, derivedAttribution bool) *ProcessDomainCensus {
+	if q.PID <= 0 && strings.TrimSpace(q.Thread) == "" && strings.TrimSpace(q.ThreadInput) == "" {
+		return nil
+	}
+	target := resolveThread(idx, q)
+	if target.PID <= 0 {
+		return nil
+	}
+	if rosterCap <= 0 {
+		rosterCap = 8
+	}
+	// Process identity through the shared catalog wiring point. A domain is
+	// only claimable when a tgid linkage exists: either the target itself
+	// carries one (native TGID column or B-3 derived vote), or the target IS
+	// the tgid some catalogued member points at.
+	targetRef := catalogThreadRef(catalog, target.PID, target.Comm)
+	if targetRef.TGID == 0 && target.TGID > 0 {
+		targetRef.TGID = target.TGID
+	}
+	if targetRef.TGID == 0 {
+		for _, ref := range catalog {
+			if ref.TGID == target.PID {
+				targetRef.TGID = target.PID
+				break
+			}
+		}
+	}
+	if targetRef.TGID == 0 {
+		return nil
+	}
+	proc := processRefForThread(targetRef, catalog)
+	if proc.PID <= 0 {
+		return nil
+	}
+	if proc.Comm == "" && proc.PID == target.PID {
+		proc.Comm = target.Comm
+	}
+	domainKey := processKey(proc)
+
+	census := &ProcessDomainCensus{Process: proc, Target: targetRef}
+	memberOf := func(thread ThreadRef) bool {
+		return processKey(processRefForThread(thread, catalog)) == domainKey
+	}
+
+	// WSR 核验 F1 (2026-07-06): the census claims a WINDOW census, so member
+	// OBSERVATION must pass the same line+time admission predicate as the
+	// running side (ComputeWindowStats' event loop). The catalog alone is
+	// line-window scoped — counting straight off it admits threads whose
+	// only events sit before/after the time window (Efw-802 shape: all
+	// events 0.1s pre-window still produced threads=3). The catalog stays
+	// the attribution wiring point (tgid linkage/comm may legitimately be
+	// recorded anywhere in scope); the time predicate gates observation.
+	observed := map[int]bool{}
+	if idx != nil {
+		note := func(pid int) {
+			if pid > 0 {
+				observed[pid] = true
+			}
+		}
+		for _, ev := range idx.Events {
+			if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+				continue
+			}
+			note(ev.PID)
+			note(ev.PrevPID)
+			note(ev.NextPID)
+			note(ev.WakeePID)
+			if cf := ev.ConstraintFields; cf != nil {
+				note(cf.PID)
+			}
+		}
+	}
+
+	// (1) True thread census: domain members that were actually observed
+	// inside the line+time window. On B-3 derived-vote windows the tgid
+	// label entry can be a display backfill rather than an observed thread;
+	// the observation gate excludes event-less backfills, and those windows
+	// already carry the derived caveat/marker anyway.
+	derived := false
+	for pid, ref := range catalog {
+		if !observed[pid] {
+			continue
+		}
+		member := catalogThreadRef(catalog, pid, ref.Comm)
+		if !memberOf(member) {
+			continue
+		}
+		census.ThreadCount++
+		if derivedAttribution && member.TGID > 0 {
+			derived = true
+		}
+	}
+	if census.ThreadCount == 0 {
+		return nil
+	}
+
+	// (2) Running rollup over the FULL pre-truncation buckets, merged per
+	// thread across CPUs (see soundness note in the function comment).
+	type memberAcc struct {
+		item       ProcessDomainThread
+		cpuSet     map[int]bool
+		coreSet    map[string]bool
+		dominantMs float64
+	}
+	members := map[string]*memberAcc{}
+	runningPIDs := map[int]bool{}
+	cpuSet := map[int]bool{}
+	coreSet := map[string]bool{}
+	for _, td := range running {
+		if td.DurationMs <= 0 || td.Thread.PID <= 0 || !memberOf(td.Thread) {
+			continue
+		}
+		key := fmt.Sprintf("%d/%s", td.Thread.PID, td.Thread.Comm)
+		acc := members[key]
+		if acc == nil {
+			acc = &memberAcc{item: ProcessDomainThread{Thread: td.Thread}, cpuSet: map[int]bool{}, coreSet: map[string]bool{}}
+			members[key] = acc
+		}
+		acc.item.RunningMs += td.DurationMs
+		census.TotalRunningMs += td.DurationMs
+		runningPIDs[td.Thread.PID] = true
+		if !acc.cpuSet[td.CPU] {
+			acc.cpuSet[td.CPU] = true
+			acc.item.CPUs = append(acc.item.CPUs, td.CPU)
+		}
+		if !cpuSet[td.CPU] {
+			cpuSet[td.CPU] = true
+			census.CPUs = append(census.CPUs, td.CPU)
+		}
+		if class := coreByCPU[td.CPU]; class != "" {
+			if !acc.coreSet[class] {
+				acc.coreSet[class] = true
+				acc.item.CoreClasses = append(acc.item.CoreClasses, class)
+			}
+			if !coreSet[class] {
+				coreSet[class] = true
+				census.CoreClasses = append(census.CoreClasses, class)
+			}
+		}
+		if td.DurationMs > acc.dominantMs {
+			acc.dominantMs = td.DurationMs
+			acc.item.Priority = td.Priority
+			acc.item.PriorityClass = td.PriorityClass
+		}
+		if acc.item.LineStart == 0 || (td.LineStart > 0 && td.LineStart < acc.item.LineStart) {
+			acc.item.LineStart = td.LineStart
+		}
+		if td.LineEnd > acc.item.LineEnd {
+			acc.item.LineEnd = td.LineEnd
+		}
+		if census.LineStart == 0 || (td.LineStart > 0 && td.LineStart < census.LineStart) {
+			census.LineStart = td.LineStart
+		}
+		if td.LineEnd > census.LineEnd {
+			census.LineEnd = td.LineEnd
+		}
+	}
+	census.RunningThreadCount = len(runningPIDs)
+	roster := make([]ProcessDomainThread, 0, len(members))
+	for _, acc := range members {
+		sort.Ints(acc.item.CPUs)
+		sort.SliceStable(acc.item.CoreClasses, func(i, j int) bool {
+			return coreClassRank(acc.item.CoreClasses[i]) < coreClassRank(acc.item.CoreClasses[j])
+		})
+		roster = append(roster, acc.item)
+	}
+	sort.SliceStable(roster, func(i, j int) bool {
+		if roster[i].RunningMs != roster[j].RunningMs {
+			return roster[i].RunningMs > roster[j].RunningMs
+		}
+		return roster[i].LineStart < roster[j].LineStart
+	})
+	if len(roster) > rosterCap {
+		census.TopThreads = roster[:rosterCap]
+		for _, folded := range roster[rosterCap:] {
+			census.FoldedThreadCount++
+			census.FoldedRunningMs += folded.RunningMs
+		}
+	} else {
+		census.TopThreads = roster
+	}
+	sort.Ints(census.CPUs)
+	sort.SliceStable(census.CoreClasses, func(i, j int) bool {
+		return coreClassRank(census.CoreClasses[i]) < coreClassRank(census.CoreClasses[j])
+	})
+
+	census.Summary = fmt.Sprintf("%s process-domain census threads=%d running_threads=%d running_total=%.3fcpu·ms",
+		threadLabel(census.Process), census.ThreadCount, census.RunningThreadCount, census.TotalRunningMs)
+	if len(census.TopThreads) > 0 {
+		census.Summary += fmt.Sprintf(" top_thread=%s %.3fms", threadLabel(census.TopThreads[0].Thread), census.TopThreads[0].RunningMs)
+	}
+	if derived {
+		// WSR 核验 F2 (2026-07-06): marker at the HEAD of the summary — the
+		// rendered header passes through the 200-byte banner value cut and
+		// a tail-appended marker could be silently truncated away.
+		census.Summary = strings.TrimSpace(tidTgidDerivedRowMarker) + " " + census.Summary
+	}
+	// WSR 核验 F2 (2026-07-06): one clause per caveat, zh/en as separate
+	// entries, each comfortably under the 200-byte banner value cap
+	// (sanitizeForBanner) — the load-bearing clauses ("counts survivors,
+	// not the process" / "不可当作墙钟耗时") must survive on the rendered
+	// face, never live past the truncation horizon of a packed mega-caveat.
+	census.Caveats = append(census.Caveats,
+		fmt.Sprintf("threads=%d is the true in-window census of this process, aggregated from the full pre-truncation running buckets and in-window thread observations", census.ThreadCount),
+		"process_cpu_load rows roll up only the surviving display roster; their threads= counts survivors, not the process",
+		"threads= 为该进程时窗内全部可见线程普查,非展示名册幸存者数",
+		"per-thread running merges the same thread's non-overlapping cross-CPU segments (wall-additive for one thread)",
+		"running_total is a cross-thread cpu·ms sum and may exceed the wall window (跨线程合计为 cpu·ms,不可当作墙钟耗时)")
+	return census
+}
+
 // cpuSupplyAcc accumulates, per CPU, the running cpu·ms and its
 // frequency-weighted integral over the SAME segments ComputeWindowStats'
 // busy loop judged (CMP-10 §7.4).

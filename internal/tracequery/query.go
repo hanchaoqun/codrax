@@ -1625,6 +1625,14 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// CMP-8 (§7.1): occupancy-side decomposition from the full running
 	// buckets (pre-truncation) — who consumed the CPUs in this window.
 	stats.CPUOccupancy = computeCPUOccupancyStats(q, queryWindowWallMs(q), running, pressure, coreByCPU, windowCatalog, stats.CPU, 8, tidTgidApplied)
+	// WSR §8 b3 (real_trace_campaign_20260705 §8.1): pid-scoped process-domain
+	// census lane over the SAME pre-truncation running buckets — the query's
+	// pid/thread finally enters a rollup domain (event admission above has no
+	// pid predicate by design; the global faces are population-wide). Additive
+	// lane only: TopRunning / ThreadCPULoad / ProcessCPULoad stay byte-identical
+	// whether or not a pid is present. Roster cap 8 = the shared up-to-8
+	// subject roster convention (PTV5 wire-cap fold bound).
+	stats.ProcessDomainCensus = computeProcessDomainCensus(idx, q, running, windowCatalog, coreByCPU, 8, tidTgidApplied)
 	if tidTgidApplied {
 		stats.Caveats = append(stats.Caveats, tidTgidDerivedCaveat)
 	}

@@ -3128,6 +3128,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		// the guidance surfaces (state_first_hint, recommended_sections)
 		// steer follow-ups to view=window_stats where these sections render.
 		if strings.EqualFold(strings.TrimSpace(result.View), "window_stats") {
+			writeTraceProcessDomainCensus(&b, result.WindowStats.ProcessDomainCensus)
 			writeTraceCPUOccupancy(&b, result.WindowStats.CPUOccupancy)
 			writeTraceComputeSupplyBalance(&b, result.WindowStats.ComputeSupplyBalance)
 			writeTraceClusterFrequencyCeilings(&b, result.WindowStats.ClusterFrequencyCeilings)
@@ -3926,6 +3927,38 @@ func writeTraceRunnableContext(b *strings.Builder, item tracequery.RunnableConte
 		item.LineEnd,
 		sanitizeForBanner(item.Summary),
 	)
+}
+
+// writeTraceProcessDomainCensus renders the WSR §8 b3 pid-scoped
+// process-domain census lane: the query target's process aggregated from the
+// full pre-truncation running buckets, so threads= here is the honest census
+// caliber (every thread of the process observed in the window scope), unlike
+// the process_cpu_load rows whose threads= counts only the surviving display
+// roster. Per-thread running is plain ms (one thread's cross-CPU segments
+// never overlap in wall time); running_total is cross-thread cpu·ms (CMP-3).
+// Roster overflow follows the PTS fold discipline: count + aggregate.
+func writeTraceProcessDomainCensus(b *strings.Builder, census *tracequery.ProcessDomainCensus) {
+	if census == nil {
+		return
+	}
+	summary := ""
+	if strings.TrimSpace(census.Summary) != "" {
+		summary = " — " + sanitizeForBanner(census.Summary)
+	}
+	fmt.Fprintf(b, "- process_domain_census(进程域普查) process=%s threads=%d running_threads=%d running_total=%.3fcpu·ms cpus=%s core_classes=%s lines=%d-%d%s\n",
+		traceThreadLabel(census.Process), census.ThreadCount, census.RunningThreadCount, census.TotalRunningMs,
+		traceIntList(census.CPUs), sanitizeForBanner(strings.Join(census.CoreClasses, ",")), census.LineStart, census.LineEnd, summary)
+	for _, td := range census.TopThreads {
+		fmt.Fprintf(b, "- process_domain_census_thread %s running=%.3fms cpus=%s core_classes=%s prio=%d/%s lines=%d-%d\n",
+			traceThreadLabel(td.Thread), td.RunningMs, traceIntList(td.CPUs), sanitizeForBanner(strings.Join(td.CoreClasses, ",")), td.Priority, sanitizeForBanner(td.PriorityClass), td.LineStart, td.LineEnd)
+	}
+	if census.FoldedThreadCount > 0 {
+		fmt.Fprintf(b, "- process_domain_census_fold remaining_threads=%d running_total=%.3fcpu·ms — top list capped at %d threads; the other %d running threads are folded here, not dropped (其余 %d 线程合计)\n",
+			census.FoldedThreadCount, census.FoldedRunningMs, len(census.TopThreads), census.FoldedThreadCount, census.FoldedThreadCount)
+	}
+	for _, caveat := range census.Caveats {
+		fmt.Fprintf(b, "- process_domain_census_caveat=%s\n", sanitizeForBanner(caveat))
+	}
 }
 
 // writeTraceCPUOccupancy renders the CMP-8 (§7.1) occupancy-side
