@@ -36,7 +36,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		{
 			View:   "span_window",
 			Params: "`span_name`",
-			When:   "turning a named trace span into a selected time window when the user names a span instead of exact timestamps; B/E ends are unnamed E|pid or E on the same ftrace thread stack, and S/F async spans pair by marker pid+name+cookie",
+			When:   "turning a named trace span into a selected time window when the user names a span instead of exact timestamps; when the span's exact label or window is unknown, first locate it with a bare `event_search` pattern (no event_types), and fall back to that bare pattern search when span markers use a nonstandard form; B/E ends are unnamed E|pid or E on the same ftrace thread stack, and S/F async spans pair by marker pid+name+cookie",
 		},
 		{
 			View: "frame_window",
@@ -105,8 +105,8 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		},
 		{
 			View:   "recipe",
-			Params: "`recipe_name=auto|sleep_root_cause|jank|runnable_delay|binder_wait|io_wait|cpu_supply`",
-			When:   "a standard evidence pack that adapts the included views to the question shape",
+			Params: "`recipe_name=auto|sleep_root_cause|jank|runnable_delay|binder_wait|io_wait|cpu_supply|span_locate`",
+			When:   "a standard evidence pack that adapts the included views to the question shape; recipe_name=span_locate resolves a span label to its start/end window first (bare-pattern locate, no event_types)",
 		},
 		{
 			View: "evidence_pack",

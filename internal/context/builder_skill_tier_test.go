@@ -551,10 +551,11 @@ func TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForTypedTrace(t *tes
 }
 
 // TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount — pin
-// the migration shape: 9 Tier B Workflow items (6 from the P5-B
-// migration + 3 trace prose disciplines from the SG soft-guidance
-// batch: periodic-source discount, on-chain blocking disposition,
-// window-stats core numbers) + 2 Tier B Prohibitions are present
+// the migration shape: 11 Tier B Workflow items (6 from the P5-B
+// migration + 5 trace prose disciplines from the SG soft-guidance
+// batches: periodic-source discount, on-chain blocking disposition,
+// window-stats core numbers, background-aggregate headline,
+// inferred-attribution disclosure) + 2 Tier B Prohibitions are present
 // on the answer-document-skill, with the expected bodies (verbatim).
 func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 	r := skill.NewRegistry()
@@ -563,8 +564,8 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get(answer-document-skill): %v", err)
 	}
-	if len(sk.WorkflowTierB) != 9 {
-		t.Errorf("answer-document-skill should declare 9 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
+	if len(sk.WorkflowTierB) != 11 {
+		t.Errorf("answer-document-skill should declare 11 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
 	}
 	if len(sk.ProhibitionsTierB) != 2 {
 		t.Errorf("answer-document-skill should declare 2 Tier B Prohibitions; got %d", len(sk.ProhibitionsTierB))
@@ -581,6 +582,8 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 		"PERIODIC-SOURCE DISCOUNT:",
 		"ON-CHAIN BLOCKING DISPOSITION:",
 		"WINDOW-STATS CORE NUMBERS:",
+		"BACKGROUND AGGREGATE HEADLINE:",
+		"INFERRED ATTRIBUTION DISCLOSURE:",
 	}
 	if len(sk.WorkflowTierB) != len(wantWorkflowPrefixes) {
 		t.Fatalf("Tier B count mismatch: want %d, got %d", len(wantWorkflowPrefixes), len(sk.WorkflowTierB))
@@ -588,6 +591,13 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 	for i, prefix := range wantWorkflowPrefixes {
 		if !strings.HasPrefix(sk.WorkflowTierB[i].Body, prefix) {
 			t.Errorf("WorkflowTierB[%d] should start with %q; got %.80q", i, prefix, sk.WorkflowTierB[i].Body)
+		}
+	}
+	// SG-2 batch pin: the two new trace prose disciplines are gated by
+	// the typed trace signal and never render on plain source dispatches.
+	for _, i := range []int{9, 10} {
+		if !sk.WorkflowTierB[i].AppliesTo.RequiresTrace {
+			t.Errorf("WorkflowTierB[%d] (%.40q) must be RequiresTrace-gated; got %+v", i, sk.WorkflowTierB[i].Body, sk.WorkflowTierB[i].AppliesTo)
 		}
 	}
 	// Verify the 2 Tier B Prohibitions bodies.
@@ -633,7 +643,7 @@ func TestSkillTierAwareWorkflow_AllTierBVisibleWhenAllGatesOpen(t *testing.T) {
 	ac := &types.AgentContext{Mutable: mut}
 	got := skillTierAwareWorkflow(ac, sk)
 	// Tier A count = 17 (all moved-out rules subtracted from 23).
-	// Of the 6 Tier B, W18 (sealed-seed) requires BOTH log AND
+	// Of the Tier B items (11 as of SG-2), W18 (sealed-seed) requires BOTH log AND
 	// diagram via AppliesTo and has no OnViolation, so it stays
 	// hidden when the view doesn't carry HasDiagram.
 	// 5 of 6 Tier B should admit via OnViolation OR HasLog.

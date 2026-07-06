@@ -2578,6 +2578,47 @@ func TestFramePipelineCriticalBlockingAndRecipeViews(t *testing.T) {
 	}
 }
 
+// TestSpanLocateRecipeLocatesSpanWindow — §16-R golden-path pin: the
+// span_locate recipe's step shape is locate-then-window (a bare-pattern
+// event_search with no event_types filter, then span_window), and running it
+// returns both the located marker rows and the span's line/time window.
+func TestSpanLocateRecipeLocatesSpanWindow(t *testing.T) {
+	idx := buildTraceIndex(t, "span_locate.systrace", `
+app-20 (20) [001] .... 1.000000: tracing_mark_write: B|20|bindApplication
+app-20 (20) [001] .... 1.002500: tracing_mark_write: E|20
+`)
+	res := Run(idx, Query{View: "recipe", RecipeName: "span_locate", SpanName: "bindApplication", Limit: 10})
+	if res.Recipe == nil || res.Recipe.Name != "span_locate" {
+		t.Fatalf("expected span_locate recipe, got %+v", res.Recipe)
+	}
+	if !reflect.DeepEqual(res.Recipe.IncludedViews, []string{"event_search", "span_window"}) {
+		t.Fatalf("span_locate recipe steps should be locate-then-window: %+v", res.Recipe.IncludedViews)
+	}
+	if len(res.SpanWindows) != 1 || res.SpanWindows[0].StartLine == 0 || !near(res.SpanWindows[0].DurationMs, 2.5, 0.001) {
+		t.Fatalf("span_locate should return the span's line/time window: spans=%+v caveats=%v", res.SpanWindows, res.Caveats)
+	}
+	if len(res.Events) == 0 {
+		t.Fatalf("span_locate should surface the bare-pattern locate rows: %+v", res.Events)
+	}
+
+	// Alias normalization + the locate step must drop an over-narrow
+	// event_types filter so nonstandard marker forms still match.
+	filtered := Run(idx, Query{View: "recipe", RecipeName: "locate_span", Pattern: "bindApplication", EventTypes: []EventType{EventSchedSwitch}, Limit: 10})
+	if filtered.Recipe == nil || filtered.Recipe.Name != "span_locate" {
+		t.Fatalf("locate_span alias should normalize to span_locate: %+v", filtered.Recipe)
+	}
+	if len(filtered.Events) == 0 {
+		t.Fatalf("bare-pattern locate must ignore the event_types filter: %+v", filtered.Events)
+	}
+
+	// Missing span_name AND pattern → typed guidance caveat instead of a
+	// silent empty result.
+	missing := Run(idx, Query{View: "recipe", RecipeName: "span_locate", Limit: 10})
+	if missing.Recipe == nil || !containsSubstring(missing.Recipe.Caveats, "span_locate needs span_name") {
+		t.Fatalf("span_locate without a label should say what to provide: %+v", missing.Recipe)
+	}
+}
+
 func TestFrameTimelineAndFlowViews(t *testing.T) {
 	idx := buildTraceIndex(t, "frame_flow.systrace", frameFlowTrace)
 	timeline := Run(idx, Query{View: "frame_timeline", TimeStart: 7.0, TimeEnd: 7.05, Limit: 10})

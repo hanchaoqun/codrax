@@ -337,6 +337,41 @@ func Run(idx *Index, q Query) Result {
 			res.Caveats = append(res.Caveats, "large recipe guard: unbounded jank analysis skips full-trace scheduler/resource/root-cause expansion until the query is narrowed")
 		}
 		res.Recipe = &recipe
+		if recipeHasView(recipe, "event_search") {
+			// span_locate step 1: bare-pattern locate. Reuse the span label
+			// as the literal pattern and deliberately drop event_types so
+			// nonstandard marker forms still match.
+			locate := q
+			if strings.TrimSpace(locate.Pattern) == "" {
+				locate.Pattern = strings.TrimSpace(locate.SpanName)
+			}
+			locate.EventTypes = nil
+			if strings.TrimSpace(locate.Pattern) != "" {
+				res.Events = EventSearch(idx, locate)
+				res.EvidencePack = append(res.EvidencePack, evidenceFromEvents(res.Events)...)
+			}
+		}
+		if recipeHasView(recipe, "span_window") {
+			// span_locate step 2: resolve the located span into its start/end
+			// time and line window (already resolved once when span_name was
+			// set on the query). A pattern-only invocation mirrors the label
+			// into SpanName here — without a name filter this step would
+			// return EVERY complete span (StartTs-sorted, Limit-truncated),
+			// publishing unrelated or even truncating out the target window.
+			// Both labels empty → skip the step entirely; the recipe caveat
+			// already asks for one.
+			windowQ := q
+			if strings.TrimSpace(windowQ.SpanName) == "" {
+				windowQ.SpanName = strings.TrimSpace(windowQ.Pattern)
+			}
+			if strings.TrimSpace(windowQ.SpanName) != "" {
+				if len(spanWindows) == 0 {
+					spanWindows, spanCaveats, spanCompaction = findSpanWindowsCompacted(idx, windowQ, windowQ.Limit)
+					res.SpanWindows = spanWindows
+				}
+				res.EvidencePack = append(res.EvidencePack, evidenceFromSpans(spanWindows)...)
+			}
+		}
 		if recipeHasView(recipe, "window_stats") {
 			stats := getStats()
 			res.WindowStats = &stats
@@ -12715,6 +12750,18 @@ func BuildRecipe(idx *Index, q Query) RecipeResult {
 	case "cpu_supply":
 		res.IncludedViews = []string{"scheduler_latency_stats", "window_stats", "root_cause_rank"}
 		res.Summary = "CPU-supply recipe: join runnable/running intervals with CPU busy/idle/frequency context"
+	case "span_locate":
+		// §16-R golden path: unlike the six analysis recipes above, this
+		// recipe does NOT assume a window is already selected — it IS the
+		// window-selection step. Locate first with a bare literal pattern
+		// (deliberately no event_types filter, so nonstandard marker forms
+		// still match), then pair the span into its start/end time and line
+		// window for follow-up views.
+		res.IncludedViews = []string{"event_search", "span_window"}
+		res.Summary = "span-locate recipe: locate the named span's marker rows with a bare literal pattern search (event_search with the span label as pattern and no event_types filter), then resolve the paired span into its start/end time and line window (span_window with span_name) for follow-up views over the selected window"
+		if strings.TrimSpace(q.SpanName) == "" && strings.TrimSpace(q.Pattern) == "" {
+			res.Caveats = append(res.Caveats, "span_locate needs span_name (or pattern) naming the span label to locate; provide one and rerun")
+		}
 	default:
 		res.IncludedViews = []string{"wakeup_chain", "scheduler_latency_stats", "window_stats", "critical_blocking_calls", "root_cause_rank"}
 		res.Summary = "sleep-root-cause recipe: trace wakeup chain, scheduler latency, resource stats, blocking candidates, and ranked causes"
@@ -12739,6 +12786,8 @@ func normalizeRecipeName(raw string, q Query) string {
 		return "io_wait"
 	case "cpu", "cpu_supply", "frequency", "freq":
 		return "cpu_supply"
+	case "span_locate", "locate_span", "span_locator":
+		return "span_locate"
 	case "auto", "":
 		if strings.TrimSpace(q.SpanName) != "" && isFrameLikeSpan(q.SpanName) {
 			return "jank"
