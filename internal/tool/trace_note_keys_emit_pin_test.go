@@ -280,6 +280,25 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				// BLK §15.C: the resolved rank lock row's subject is the holder.
 				SubjectIsLockHolder: true,
 				Summary:             "runnable wait dominated the frame",
+			}, {
+				// BLK-2 P1/P2: holder-subject blocking_span rank row whose
+				// waiter-subject critical_blocking twin (same physical span key,
+				// lines 65-66) folds into it — exercises the twin-port lane's
+				// contract key (lock_twin_folded) and the re-keyed
+				// subject_state_* / subject_chain_* display families.
+				Rank: 2, Tier: "secondary", Type: "blocking_span",
+				Thread:   tracequery.ThreadRef{Comm: "lockholder", PID: 103},
+				ImpactMs: 6, CumulativeImpactMs: 6, EffectiveImpactMs: 6,
+				Score: 0.5, Confidence: 0.7,
+				LineStart: 65, LineEnd: 66,
+				Source:    "window_stats.trace_spans.lock_contention",
+				Causality: "on_wakeup_chain", ChainRelevance: "on_chain", ChainDepth: 1,
+				BlockingKind:        "monitor_contention",
+				BlockingPeer:        tracequery.ThreadRef{Comm: "lockwaiter", PID: 104},
+				HolderSite:          "Bar.baz(Bar.java:7)",
+				HolderSource:        tracequery.CounterpartSourceContentionPayload,
+				SubjectIsLockHolder: true,
+				Summary:             "lock holder lockholder-103 blocked lockwaiter-104",
 			}},
 		},
 		WakeupChain: &tracequery.ChainResult{
@@ -358,6 +377,31 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				NearestChainThread: tracequery.ThreadRef{Comm: "dep", PID: 21},
 				DurationMs:         4, StartTs: 1.2, EndTs: 1.25, LineStart: 63, LineEnd: 64,
 				Confidence: 0.8, Summary: "lock held by holder",
+			}, {
+				// BLK-2 P1/P2: waiter-subject twin of the rank-2 blocking_span
+				// above (same physical span key: kind + lines 65-66 + unordered
+				// {103,104} pair) — suppressed by the §15.C ① fold, so its
+				// display families ride the rank record re-keyed
+				// (subject_state_* / subject_chain_*) plus the lock_twin_folded
+				// contract witness.
+				Type: "blocking_span", Thread: tracequery.ThreadRef{Comm: "lockwaiter", PID: 104},
+				Peer:         tracequery.ThreadRef{Comm: "lockholder", PID: 103},
+				BlockingKind: "monitor_contention", HolderSite: "Bar.baz(Bar.java:7)",
+				Waiters: 1, WaitObject: "monitor of Bar",
+				PeerState: &tracequery.ThreadStateBreakdown{
+					DominantState: string(tracequery.StateRunning), TotalMs: 6, RunningMs: 3,
+					RunnableMs: 1, SleepMs: 1, DStateMs: 0.5, IOWaitMs: 0.5, FragmentCount: 2,
+				},
+				PeerChain: &tracequery.PeerChainStep{
+					Peer:                tracequery.ThreadRef{Comm: "lockholder", PID: 103},
+					State:               &tracequery.ThreadStateBreakdown{DominantState: string(tracequery.StateRunning), TotalMs: 6, RunningMs: 6},
+					DirectBlocker:       tracequery.ThreadRef{Comm: "upstream2", PID: 131},
+					DirectBlockerState:  string(tracequery.StateSSleep),
+					DirectBlockerSource: tracequery.CounterpartSourceWakeupEdge,
+					Presumptive:         true, Confidence: 0.6, Summary: "continuation off rank-2 holder",
+				},
+				DurationMs: 6, StartTs: 1.3, EndTs: 1.36, LineStart: 65, LineEnd: 66,
+				Confidence: 0.7, Summary: "monitor contention with owner lockholder",
 			}},
 		},
 		WindowStats: stats,

@@ -70,6 +70,15 @@ type TraceObservationCoverageRecord struct {
 	Span               string   `json:"span,omitempty"`
 	SupportRefs        []string `json:"support_refs,omitempty"`
 	Significant        bool     `json:"significant,omitempty"`
+	// LockTwinFolded mirrors the producer's typed "lock_twin_folded=true"
+	// note (BLK-2 P2): this root_cause_rank record is the SINGLE publication
+	// of a physical lock-contention span whose waiter-subject
+	// critical_blocking twin row was folded into it (BLK §15.C ①). The
+	// soft-missing scan counts such records as critical_blocking coverage —
+	// without it, a window whose only blocking row was the folded twin would
+	// fake a "critical_blocking_calls missing" gap and push the LLM to re-run
+	// a query that structurally cannot add rows.
+	LockTwinFolded bool `json:"lock_twin_folded,omitempty"`
 }
 
 func BuildTraceObservationCoverage(ledger ObservationLedger) TraceObservationCoverage {
@@ -233,6 +242,7 @@ func traceObservationCoverageRecordView(record ObservationRecord, dimension stri
 		Span:               FormatObservationSpan(record.Span, 80),
 		SupportRefs:        traceObservationCoverageLimitStrings(record.SupportRefs, 3),
 		Significant:        traceObservationRichNoteBool(record.RichNotes, TraceNoteKeySignificant),
+		LockTwinFolded:     traceObservationRichNoteBool(record.RichNotes, TraceNoteKeyLockTwinFolded),
 	}
 }
 
@@ -280,6 +290,22 @@ func traceObservationSoftMissingDimensions(byDimension map[string][]TraceObserva
 	hasRoot := len(byDimension[TraceObservationDimensionRootCauseRank]) > 0
 	hasWakeup := len(byDimension[TraceObservationDimensionWakeupChain]) > 0
 	hasBlocking := len(byDimension[TraceObservationDimensionCriticalBlocking]) > 0
+	if !hasBlocking {
+		// BLK-2 P2 (伪缺口源头消除): a rank record carrying the typed
+		// lock_twin_folded witness IS the window's blocking observation — its
+		// waiter-subject critical_blocking twin was folded into it by the BLK
+		// §15.C ① single-publication rule. When the folded twin was the only
+		// blocking row, the critical_blocking dimension count is zero by
+		// design, not by omission; reporting "critical_blocking_calls" missing
+		// here told the LLM to re-run a query that cannot add rows. Precise
+		// signal (typed fold marker), not a guess.
+		for _, record := range byDimension[TraceObservationDimensionRootCauseRank] {
+			if record.LockTwinFolded {
+				hasBlocking = true
+				break
+			}
+		}
+	}
 	hasTimeline := len(byDimension[TraceObservationDimensionThreadTimeline]) > 0 ||
 		len(byDimension[TraceObservationDimensionStateChurn]) > 0 ||
 		len(byDimension[TraceObservationDimensionStateDrilldown]) > 0

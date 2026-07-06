@@ -3537,6 +3537,13 @@ func writeTraceRootCauseBlockingDetail(b *strings.Builder, item tracequery.RootC
 	if item.BlockingKind != "" {
 		parts = append(parts, "kind="+sanitizeForBanner(item.BlockingKind))
 	}
+	// BLK-2 P3b: name the row's lock orientation explicitly on the text face —
+	// this rank row's SUBJECT is the holder and the peer= token that follows is
+	// the blocked WAITER (reading peer= as "the holder" here was the BLK 双向锁
+	// misdirection entry point).
+	if item.SubjectIsLockHolder {
+		parts = append(parts, "subject_role=holder")
+	}
 	if item.BlockingPeer.PID > 0 || strings.TrimSpace(item.BlockingPeer.Comm) != "" {
 		parts = append(parts, "peer="+traceThreadLabel(item.BlockingPeer))
 	}
@@ -5060,7 +5067,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			// physical span — mark the span so the critical_blocking twin below
 			// is skipped, and port the twin's display-exclusive note families
 			// (richer form survives, same discipline as the
-			// collectBlockingSpanRows fold).
+			// collectBlockingSpanRows fold). The port re-keys the twin's
+			// peer-oriented families to subject_* (BLK-2 P1 — the twin's peer
+			// is THIS record's subject) and stamps the typed lock_twin_folded
+			// coverage witness (BLK-2 P2).
 			if item.Type == "blocking_span" && item.BlockingKind != "" {
 				if key := traceQueryLockContentionSpanKey(item.BlockingKind, item.LineStart, item.LineEnd, item.Thread, item.BlockingPeer); key != "" {
 					lockSpanPublishedByRank[key] = true
@@ -5914,24 +5924,87 @@ func traceQueryLockContentionTwinIndex(blocking *tracequery.CriticalBlockingResu
 	return out
 }
 
-// traceQueryTypedLockTwinPortNotes (BLK §15.C ①) ports the display-exclusive
-// note families of the suppressed critical_blocking twin onto the surviving
-// rank record: waiters / wait_object / peer_source / peer-state breakdown /
-// A1 peer-chain continuation. Keys the rank record already publishes (type /
-// peer / blocking_kind / holder_site / holder_source / owner_tid_raw /
-// drill_status / chain_relevance / …) are deliberately NOT ported — first-wins
-// consumers must keep reading the rank row's own values.
+// traceQueryTypedLockTwinPortNotes (BLK §15.C ① + BLK-2 P1/P2) ports the
+// display-exclusive note families of the suppressed critical_blocking twin
+// onto the surviving rank record, RE-KEYED to the rank record's orientation
+// (BLK-2 P1 指代翻转修复): on the twin those families describe the twin's
+// PEER — the lock HOLDER — which on the holder-subject rank record is the
+// record's OWN SUBJECT, while the rank record's peer= names the blocked
+// WAITER. Porting them under the twin's original peer_* keys paired
+// peer=<waiter> with peer_state_dominant=<holder state> on ONE record — the
+// "等待方 running 主导" false fact the evaluator's peer↔peer_state_* pairing
+// teaching then endorses. So: the state breakdown ports as subject_state_*
+// and the A1 continuation as subject_chain_*; direction-neutral families
+// (waiters / wait_object) keep their keys; peer_source is NOT ported at all
+// (it is the twin's HOLDER-resolution origin — the same value the rank row
+// already publishes as holder_source; under the original key it would
+// mislabel the WAITER's resolution origin, re-keyed it would be a redundant
+// duplicate). Keys the rank record already publishes (type / peer /
+// blocking_kind / holder_site / holder_source / owner_tid_raw / drill_status
+// / chain_relevance / …) are deliberately NOT ported — first-wins consumers
+// must keep reading the rank row's own values. The typed lock_twin_folded
+// marker (BLK-2 P2) is the precise fold witness: the coverage soft-missing
+// scan counts marked rank records as critical_blocking coverage, so the fold
+// can never fake a missing-blocking-dimension gap.
 func traceQueryTypedLockTwinPortNotes(item tracequery.CriticalBlockingCandidate) []string {
 	notes := traceQueryTypedKVNotes([][2]string{
+		{types.TraceNoteKeyLockTwinFolded, "true"},
 		{types.TraceNoteKeyWaiters, traceQueryTypedCount(item.Waiters)},
-		{types.TraceNoteKeyPeerSource, item.PeerSource},
 		{types.TraceNoteKeyWaitObject, item.WaitObject},
 	})
-	notes = append(notes, traceQueryTypedCriticalBlockingPeerStateNotes(item.PeerState)...)
+	notes = append(notes, traceQueryTypedLockTwinSubjectStateNotes(item.PeerState)...)
 	if item.PeerChain != nil {
-		notes = append(notes, traceQueryTypedCriticalBlockingPeerChainNotes(item.PeerChain)...)
+		notes = append(notes, traceQueryTypedLockTwinSubjectChainNotes(item.PeerChain)...)
 	}
 	return notes
+}
+
+// traceQueryTypedLockTwinSubjectStateNotes (BLK-2 P1) renders the folded
+// twin's peer-state breakdown under subject_state_* keys: the measured
+// thread — the twin's peer, i.e. the lock holder — IS the holder-subject
+// rank record's own subject. Key-for-key value mirror of
+// traceQueryTypedCriticalBlockingPeerStateNotes; only the referent spelling
+// differs. Display tier (NKR).
+func traceQueryTypedLockTwinSubjectStateNotes(state *tracequery.ThreadStateBreakdown) []string {
+	if state == nil {
+		return nil
+	}
+	return traceQueryTypedKVNotes([][2]string{
+		{"subject_state_dominant", state.DominantState},
+		{"subject_state_total", traceQueryObservationMSValue(state.TotalMs)},
+		{"subject_state_running", traceQueryObservationMSValue(state.RunningMs)},
+		{"subject_state_runnable", traceQueryObservationMSValue(state.RunnableMs)},
+		{"subject_state_sleep", traceQueryObservationMSValue(state.SleepMs)},
+		{"subject_state_d_state", traceQueryObservationMSValue(state.DStateMs)},
+		{"subject_state_io_wait", traceQueryObservationMSValue(state.IOWaitMs)},
+		{"subject_state_fragments", traceQueryTypedCount(state.FragmentCount)},
+	})
+}
+
+// traceQueryTypedLockTwinSubjectChainNotes (BLK-2 P1) renders the folded
+// twin's A1 bounded continuation under subject_chain_* keys: the
+// continuation hangs off the twin's peer (the holder) — the rank record's
+// OWN subject — so it is the SUBJECT's dominant state plus the subject's
+// single direct 1-hop blocker, never the waiter's. Value mirror of
+// traceQueryTypedCriticalBlockingPeerChainNotes. Display tier (NKR).
+func traceQueryTypedLockTwinSubjectChainNotes(chain *tracequery.PeerChainStep) []string {
+	if chain == nil || chain.State == nil {
+		return nil
+	}
+	kv := [][2]string{
+		{"subject_chain_state", chain.State.DominantState},
+	}
+	if chain.DirectBlocker.PID > 0 || strings.TrimSpace(chain.DirectBlocker.Comm) != "" {
+		kv = append(kv,
+			[2]string{"subject_chain_blocker", traceThreadLabel(chain.DirectBlocker)},
+			[2]string{"subject_chain_blocker_state", chain.DirectBlockerState},
+			[2]string{"subject_chain_blocker_source", chain.DirectBlockerSource},
+		)
+	}
+	if chain.Presumptive {
+		kv = append(kv, [2]string{"subject_chain_presumptive", "true"})
+	}
+	return traceQueryTypedKVNotes(kv)
 }
 
 func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCandidate) []string {
@@ -5976,8 +6049,11 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 }
 
 // traceQueryTypedCriticalBlockingPeerStateNotes renders the P0-E2a peer-state
-// breakdown (display tier) — shared by the critical_blocking record notes and
-// the BLK §15.C ① twin-port lane so the two faces can never drift.
+// breakdown (display tier) on critical_blocking records, where the described
+// thread IS the record's peer. The BLK §15.C ① twin-port lane deliberately
+// does NOT share these keys (BLK-2 P1): on the holder-subject rank record the
+// same breakdown describes the record's SUBJECT, so it ports re-keyed via
+// traceQueryTypedLockTwinSubjectStateNotes.
 func traceQueryTypedCriticalBlockingPeerStateNotes(state *tracequery.ThreadStateBreakdown) []string {
 	if state == nil {
 		return nil

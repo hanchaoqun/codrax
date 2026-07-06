@@ -262,6 +262,17 @@ const (
 	// lock, and steers the next-step drilldown to the holder (the subject), not
 	// the waiter. Display tier (renderer wording + next-step identity only).
 	TraceNoteKeySubjectIsLockHolder = "subject_is_lock_holder"
+	// TraceNoteKeyLockTwinFolded (BLK-2 P2, 2026-07-06): "true" on a
+	// holder-subject rank record that is the SINGLE publication of a physical
+	// lock-contention span whose waiter-subject critical_blocking twin row was
+	// folded into it (BLK §15.C ① single-publication fold). Precise fold
+	// witness, emitted ONLY by the twin-port lane: the coverage view parses it
+	// back (traceObservationSoftMissingDimensions) and counts marked rank
+	// records as critical_blocking coverage, so a window whose only blocking
+	// row was the folded twin can never fake a "critical_blocking_calls
+	// missing" soft gap that pushes the LLM to re-run a query which cannot add
+	// rows.
+	TraceNoteKeyLockTwinFolded = "lock_twin_folded"
 )
 
 // 门控族 (gated-composition family, §7.30.3 D3).
@@ -467,6 +478,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// BLK §15.C: subject-is-holder display flag (renderer HOLD wording +
 	// next-step holder identity). Display tier, hard node-field read-in.
 	{TraceNoteKeySubjectIsLockHolder, "blocking", TraceNoteCarrierHardConsumer},
+	// BLK-2 P2: precise twin-fold witness on the surviving rank record; the
+	// coverage soft-missing scan parses it back (critical_blocking coverage).
+	{TraceNoteKeyLockTwinFolded, "blocking", TraceNoteCarrierSoftConsumer},
 	{"flags", "blocking", TraceNoteCarrierDisplayOnly},
 	{"oneway", "blocking", TraceNoteCarrierDisplayOnly},
 	{"sync_like", "blocking", TraceNoteCarrierDisplayOnly},
@@ -479,6 +493,30 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"peer_state_d_state", "blocking", TraceNoteCarrierDisplayOnly},
 	{"peer_state_io_wait", "blocking", TraceNoteCarrierDisplayOnly},
 	{"peer_state_fragments", "blocking", TraceNoteCarrierDisplayOnly},
+	// subject_state_* / subject_chain_* (BLK-2 P1 指代翻转修复, 2026-07-06):
+	// the twin-port lane RE-KEYS the folded twin's peer_state_* / peer_chain_*
+	// families when porting them onto the holder-subject rank record — there
+	// the measured thread (the twin's peer, i.e. the lock HOLDER) is the rank
+	// record's OWN SUBJECT, while the rank record's peer= names the blocked
+	// WAITER. Porting under the original peer_* keys paired peer=<waiter> with
+	// peer_state_dominant=<holder state> on one record — the "等待方 running
+	// 主导" false fact. Display tier, emitted only by the twin-port lane
+	// (traceQueryTypedLockTwinSubjectStateNotes / ...SubjectChainNotes);
+	// critical_blocking rows keep the peer_* spellings (their peer IS the
+	// described thread).
+	{"subject_state_dominant", "blocking", TraceNoteCarrierDisplayOnly},
+	{"subject_state_total", "blocking", TraceNoteCarrierDisplayOnly},
+	{"subject_state_running", "blocking", TraceNoteCarrierDisplayOnly},
+	{"subject_state_runnable", "blocking", TraceNoteCarrierDisplayOnly},
+	{"subject_state_sleep", "blocking", TraceNoteCarrierDisplayOnly},
+	{"subject_state_d_state", "blocking", TraceNoteCarrierDisplayOnly},
+	{"subject_state_io_wait", "blocking", TraceNoteCarrierDisplayOnly},
+	{"subject_state_fragments", "blocking", TraceNoteCarrierDisplayOnly},
+	{"subject_chain_state", "blocking", TraceNoteCarrierDisplayOnly},
+	{"subject_chain_blocker", "blocking", TraceNoteCarrierDisplayOnly},
+	{"subject_chain_blocker_state", "blocking", TraceNoteCarrierDisplayOnly},
+	{"subject_chain_blocker_source", "blocking", TraceNoteCarrierDisplayOnly},
+	{"subject_chain_presumptive", "blocking", TraceNoteCarrierDisplayOnly},
 	// peer_chain_* (A1 bounded continuation, §12.3-5 ruling 5): ONE sub-goal hop
 	// off the resolved counterpart — the peer's OWN dominant state + its single
 	// direct 1-hop blocker (depth hard-capped at 1). peer_chain_blocker_source

@@ -301,9 +301,14 @@ type TraceCausalProjectionNode struct {
 	// the deterministic lock-contention payload parse (§7.30.3 D1) from the
 	// critical_blocking rich notes (blocking_kind / peer / holder_site /
 	// waiters). BlockingKind is a typed enum ("monitor_contention" /
-	// "lock_contention"); BlockingPeer is the LOCK OWNER's thread label and is
-	// empty when the payload named no resolvable owner — renderers then keep
-	// the contention semantics but omit the holder, never a bare duration.
+	// "lock_contention"). BlockingPeer's role follows
+	// BlockingSubjectIsHolder below (BLK-2 P3a): when
+	// BlockingSubjectIsHolder=false (waiter-subject critical_blocking rows)
+	// BlockingPeer is the LOCK OWNER's thread label; when true (holder-subject
+	// rank rows, BLK §15.C) the subject IS the holder and BlockingPeer is the
+	// blocked WAITER. It is empty when the payload named no resolvable
+	// counterpart — renderers then keep the contention semantics but omit the
+	// counterpart, never a bare duration.
 	BlockingKind       string `json:"blocking_kind,omitempty"`
 	BlockingPeer       string `json:"blocking_peer,omitempty"`
 	BlockingHolderSite string `json:"blocking_holder_site,omitempty"`

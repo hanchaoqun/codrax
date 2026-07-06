@@ -47,13 +47,26 @@ func blkLockSinglePublicationFixture() tracequery.Result {
 			Window: window,
 			Items: []tracequery.CriticalBlockingCandidate{
 				{
-					// The waiter-subject twin of the SAME physical span.
+					// The waiter-subject twin of the SAME physical span. Its
+					// PeerState / PeerChain / PeerSource all describe the twin's
+					// peer — the HOLDER — which on the rank record is the SUBJECT
+					// (BLK-2 P1 re-keyed port; peer_source not ported at all).
 					Type: "blocking_span", Thread: waiter, Peer: holder,
 					BlockingKind: "monitor_contention",
 					HolderSite:   "AssetManager.list(AssetManager.java:1258)",
 					Waiters:      2,
+					PeerSource:   tracequery.CounterpartSourceContentionPayload,
+					WaitObject:   "monitor of AssetManager",
 					PeerState: &tracequery.ThreadStateBreakdown{
 						DominantState: string(tracequery.StateRunning), TotalMs: 58.9, RunningMs: 58.9,
+					},
+					PeerChain: &tracequery.PeerChainStep{
+						Peer:                holder,
+						State:               &tracequery.ThreadStateBreakdown{DominantState: string(tracequery.StateRunning), TotalMs: 58.9, RunningMs: 58.9},
+						DirectBlocker:       tracequery.ThreadRef{Comm: "upstream", PID: 130},
+						DirectBlockerState:  string(tracequery.StateSSleep),
+						DirectBlockerSource: tracequery.CounterpartSourceWakeupEdge,
+						Presumptive:         false, Confidence: 0.62, Summary: "continuation off holder",
 					},
 					DurationMs: 112.223, StartTs: 33872.290666, EndTs: 33872.402889,
 					LineStart: 45696, LineEnd: 79136,
@@ -131,11 +144,17 @@ func TestBLKLockSpanPublishesExactlyOnce(t *testing.T) {
 	}
 }
 
-// TestBLKLockRankRecordPortsTwinDisplayNotes — §15.C ① richer-form-survives:
-// the suppressed twin's display-exclusive families (waiters / peer-state)
-// ride the surviving rank record; keys the rank record already publishes
-// keep the rank row's own values (peer= stays the blocked waiter of the
-// holder subject, exactly once).
+// TestBLKLockRankRecordPortsTwinDisplayNotes — §15.C ① richer-form-survives,
+// re-keyed to the rank record's orientation (BLK-2 P1 pin ①): the suppressed
+// twin's display-exclusive families ride the surviving rank record, but the
+// twin's PeerState/PeerChain describe the twin's peer — the HOLDER, i.e. THIS
+// record's SUBJECT — so they port as subject_state_* / subject_chain_*, never
+// as peer_state_* / peer_chain_* (which the evaluator teaches the LLM to pair
+// with peer=, and peer= here is the WAITER: same-key porting minted the
+// "等待方 running 主导" false fact). peer_source is not ported at all
+// (holder-resolution origin — the rank row already publishes holder_source).
+// Direction-neutral families (waiters / wait_object) keep their keys; peer=
+// stays the blocked waiter of the holder subject, exactly once.
 func TestBLKLockRankRecordPortsTwinDisplayNotes(t *testing.T) {
 	records := blkCollectRecords(t, blkLockSinglePublicationFixture())
 	rank := blkRecordsByPredicate(records, "root_cause_primary")
@@ -143,9 +162,27 @@ func TestBLKLockRankRecordPortsTwinDisplayNotes(t *testing.T) {
 		t.Fatalf("expected exactly one primary rank record, got %d", len(rank))
 	}
 	record := rank[0]
-	for _, expected := range []string{"waiters=2", "peer_state_dominant=running"} {
+	for _, expected := range []string{
+		"waiters=2",
+		"wait_object=monitor of AssetManager",
+		// The holder's state/continuation, spelled as the record's SUBJECT.
+		"subject_state_dominant=running",
+		"subject_state_running=58.900",
+		"subject_chain_state=running",
+		"subject_chain_blocker=upstream-130",
+		// BLK-2 P2: the precise fold witness rides the surviving record.
+		"lock_twin_folded=true",
+	} {
 		if !blkNotesContain(record, expected) {
 			t.Fatalf("rank record must port the twin's display note %q, notes: %v", expected, record.RichNotes)
+		}
+	}
+	for _, n := range record.RichNotes {
+		// Pin ① negative half: NO peer_state_*/peer_chain_* note may ride a
+		// holder-subject rank record (they would pair with peer=<waiter>), and
+		// the twin's peer_source must not be ported under any spelling.
+		if strings.HasPrefix(n, "peer_state_") || strings.HasPrefix(n, "peer_chain_") || strings.HasPrefix(n, "peer_source=") {
+			t.Fatalf("rank record carries twin note %q under a peer-oriented key — on this record those families describe the SUBJECT (the holder), notes: %v", n, record.RichNotes)
 		}
 	}
 	peers := 0
@@ -159,6 +196,62 @@ func TestBLKLockRankRecordPortsTwinDisplayNotes(t *testing.T) {
 	}
 	if peers != 1 {
 		t.Fatalf("rank record must carry exactly one peer= note, got %d", peers)
+	}
+}
+
+// TestBLKLockTwinFoldDoesNotFakeMissingBlockingCoverage — BLK-2 P2 pin ②:
+// when the folded twin was the window's ONLY critical_blocking row, the
+// blocking dimension count is zero BY DESIGN — the coverage view must count
+// the lock_twin_folded rank record as blocking coverage instead of reporting
+// a "critical_blocking_calls" soft gap that pushes the LLM to re-run a query
+// which structurally cannot add rows. The counterfactual half strips the
+// typed marker and requires the gap back, so this pin exercises the marker
+// mechanism, not a fixture accident.
+func TestBLKLockTwinFoldDoesNotFakeMissingBlockingCoverage(t *testing.T) {
+	fixture := blkLockSinglePublicationFixture()
+	// Drop the unrelated binder row: the folded twin is the only blocking row.
+	fixture.CriticalBlocking.Items = fixture.CriticalBlocking.Items[:1]
+	records := blkCollectRecords(t, fixture)
+
+	coverage := types.TraceObservationCoverageFromObservationRecords(records)
+	if !coverage.Active {
+		t.Fatal("coverage compile produced no active view — the pin is checking nothing")
+	}
+	for _, dimension := range coverage.Dimensions {
+		if dimension.Dimension == types.TraceObservationDimensionCriticalBlocking {
+			t.Fatalf("test premise broken: the twin must have folded, but the critical_blocking dimension has %d record(s)", dimension.Count)
+		}
+	}
+	for _, missing := range coverage.SoftMissingDimensions {
+		if missing == "critical_blocking_calls" {
+			t.Fatalf("folded-twin window must not fake a critical_blocking_calls gap, soft missing: %v", coverage.SoftMissingDimensions)
+		}
+	}
+
+	// Counterfactual: without the typed fold witness the gap MUST come back —
+	// the coverage relief keys on the precise marker, nothing else.
+	stripped := make([]types.ObservationRecord, 0, len(records))
+	for _, record := range records {
+		clone := record
+		var notes []string
+		for _, n := range record.RichNotes {
+			if n == "lock_twin_folded=true" {
+				continue
+			}
+			notes = append(notes, n)
+		}
+		clone.RichNotes = notes
+		stripped = append(stripped, clone)
+	}
+	counterfactual := types.TraceObservationCoverageFromObservationRecords(stripped)
+	found := false
+	for _, missing := range counterfactual.SoftMissingDimensions {
+		if missing == "critical_blocking_calls" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("counterfactual (marker stripped) must report the critical_blocking_calls gap, got: %v", counterfactual.SoftMissingDimensions)
 	}
 }
 
@@ -241,5 +334,75 @@ func TestBLKLockTwinPublishesWhenRankRowBeyondCap(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("with the rank lock row beyond the cap, the critical_blocking twin must keep publishing")
+	}
+}
+
+// TestBLKRankBlockingDetailNamesSubjectRoleHolder — BLK-2 P3b pin ③: the
+// LLM-facing rank_blocking_detail text line names the row's lock orientation
+// explicitly — subject_role=holder rides every holder-subject row so peer=
+// can never be misread as the holder again; waiter-subject rows carry no
+// subject_role token.
+func TestBLKRankBlockingDetailNamesSubjectRoleHolder(t *testing.T) {
+	item := tracequery.RootCauseRankItem{
+		Rank: 1, Type: "blocking_span",
+		BlockingKind:        "monitor_contention",
+		BlockingPeer:        tracequery.ThreadRef{Comm: ".ugc.aweme.lite", PID: 16547},
+		HolderSite:          "AssetManager.list(AssetManager.java:1258)",
+		SubjectIsLockHolder: true,
+	}
+	var holderFace strings.Builder
+	writeTraceRootCauseBlockingDetail(&holderFace, item)
+	line := holderFace.String()
+	if !strings.Contains(line, "subject_role=holder") {
+		t.Fatalf("holder-subject detail line must carry subject_role=holder, got %q", line)
+	}
+	if !strings.Contains(line, "peer=.ugc.aweme.lite-16547") {
+		t.Fatalf("detail line must keep naming the waiter as peer=, got %q", line)
+	}
+
+	item.SubjectIsLockHolder = false
+	var waiterFace strings.Builder
+	writeTraceRootCauseBlockingDetail(&waiterFace, item)
+	if strings.Contains(waiterFace.String(), "subject_role=") {
+		t.Fatalf("waiter-subject detail line must carry no subject_role token, got %q", waiterFace.String())
+	}
+}
+
+// TestBLKLockFoldContractAsymmetryFailsOpenToDoublePublish — BLK-2 P3b pin ④
+// (备案项 direction-safety pin): the §15.C ① fold folds ONLY on an exact
+// physical-span key match (kind + exact line range + unordered thread pair).
+// When the two faces of one physical span disagree by even one line, the keys
+// diverge and the contract fails OPEN — BOTH faces publish (the pre-BLK
+// double-publication shape) — never CLOSED (a suppressed twin whose notes were
+// ported nowhere, i.e. silent span loss). If a future refactor fuzzes the key
+// match or flips the fail direction, this pin is the tripwire.
+func TestBLKLockFoldContractAsymmetryFailsOpenToDoublePublish(t *testing.T) {
+	fixture := blkLockSinglePublicationFixture()
+	// One-line asymmetry between the two views of the "same" physical span.
+	fixture.CriticalBlocking.Items[0].LineEnd = fixture.RootCauseRank.Items[0].LineEnd + 1
+	records := blkCollectRecords(t, fixture)
+
+	var rankFace, blockingFace int
+	for _, record := range records {
+		if !blkNotesContain(record, "blocking_kind=monitor_contention") {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(strings.TrimSpace(record.Predicate), "root_cause_"):
+			rankFace++
+			if blkNotesContain(record, "lock_twin_folded=true") {
+				t.Fatalf("no fold happened — the rank record must not claim the fold witness, notes: %v", record.RichNotes)
+			}
+			for _, n := range record.RichNotes {
+				if strings.HasPrefix(n, "subject_state_") || strings.HasPrefix(n, "subject_chain_") {
+					t.Fatalf("no fold happened — nothing may have been ported onto the rank record, found %q", n)
+				}
+			}
+		case strings.TrimSpace(record.Predicate) == "critical_blocking":
+			blockingFace++
+		}
+	}
+	if rankFace != 1 || blockingFace != 1 {
+		t.Fatalf("key asymmetry must fail OPEN to double publication (rank=1 blocking=1), got rank=%d blocking=%d", rankFace, blockingFace)
 	}
 }
