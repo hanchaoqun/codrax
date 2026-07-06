@@ -387,6 +387,11 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"projected_total_ms", "impact", TraceNoteCarrierDisplayOnly},
 	{"target_impact", "impact", TraceNoteCarrierDisplayOnly},
 	{"target_impact_ms", "impact", TraceNoteCarrierDisplayOnly},
+	// inherited_target_blocked_ms (Q4-B, §12.3 ruling 2, P0-E1): the
+	// wakeup-dependency window value an on-chain resource row INHERITS as
+	// annotation-only context — 承自只作注记,永不作硬排序键. Display tier;
+	// the P0-A display batch consumes it for the 承自 note.
+	{"inherited_target_blocked_ms", "impact", TraceNoteCarrierDisplayOnly},
 	{"rank_impact", "impact", TraceNoteCarrierDisplayOnly},
 	{"duration", "impact", TraceNoteCarrierDisplayOnly},
 
@@ -447,6 +452,13 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"peer_state_d_state", "blocking", TraceNoteCarrierDisplayOnly},
 	{"peer_state_io_wait", "blocking", TraceNoteCarrierDisplayOnly},
 	{"peer_state_fragments", "blocking", TraceNoteCarrierDisplayOnly},
+	// drill_status (RCX① engine side, §12.3 ruling 1, P0-E1): typed drill-debt
+	// verdict for a row's blocking counterpart (drilled /
+	// undrilled_peer_known / peer_unknown), emitted on critical_blocking and
+	// lock-lane root_cause_rank observations. Display tier today; the P0-A
+	// projection/answer-face consumption promotes it to a constant exactly
+	// like the priority_inversion_candidate precedent.
+	{"drill_status", "blocking", TraceNoteCarrierDisplayOnly},
 
 	// 门控族 (D3).
 	{TraceNoteKeyGatedRunnable, "gating", TraceNoteCarrierHardConsumer},

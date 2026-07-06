@@ -2887,6 +2887,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				item.LineStart, item.LineEnd, item.Source, sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), item.ChainDepth, item.OverlapMs, item.EdgeCount,
 				traceThreadLabel(item.NearestChainThread), item.NearestChainWindow.StartTs, item.NearestChainWindow.EndTs, traceQueryRootCauseSpanCompact(item), traceQueryPerfContextCompact(item.PerfContext), traceQueryPerfRoleContextsCompact(item.PerfContexts, 4), item.Summary)
 			writeTraceRootCausePerfRoles(&b, item.Rank, item.PerfContexts)
+			writeTraceRootCauseBlockingDetail(&b, item)
 			traceQueryWriteOccurrenceRows(&b, "rank_occurrence", item.Rank, item.Thread, item.OccurrenceWindows)
 		}
 		for _, caveat := range result.RootCauseRank.Caveats {
@@ -3186,6 +3187,11 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 					traceQueryBoolPtrBanner(item.SyncLike),
 					traceQueryBoolPtrBanner(item.BlockingCandidate))
 			}
+			// RCX① (§12.3 ruling 1): the typed drill-debt verdict rides the
+			// blocking row text for counterpart-lane rows.
+			if item.DrillStatus != "" {
+				blockingSemantics += " drill_status=" + sanitizeForBanner(item.DrillStatus)
+			}
 			fmt.Fprintf(&b, "- blocking type=%s thread=%s peer=%s%s chain_relevance=%s overlap=%.3fms edge_count=%d nearest_chain=%s duration=%.3fms lines=%d-%d confidence=%.2f — %s\n",
 				item.Type, traceThreadLabel(item.Thread), traceThreadLabel(item.Peer), blockingSemantics, sanitizeForBanner(item.ChainRelevance), item.OverlapMs, item.EdgeCount, traceThreadLabel(item.NearestChainThread), item.DurationMs, item.LineStart, item.LineEnd, item.Confidence, item.Summary)
 			if item.PeerState != nil {
@@ -3279,6 +3285,7 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 		fmt.Fprintf(b, "- bundle_top_cause type=%s thread=%s chain_relevance=%s dominant_state=%s impact=%.3fms d_state=%.3fms io_wait=%.3fms score=%.3f source=%s — %s\n",
 			top.Type, traceThreadLabel(top.Thread), sanitizeForBanner(top.ChainRelevance), sanitizeForBanner(top.DominantState), top.ImpactMs, top.DStateMs, top.IOWaitMs, top.Score, sanitizeForBanner(top.Source), sanitizeForBanner(top.Summary))
 	}
+	writeTraceFrameBundleTopBlocking(b, bundle)
 	if bundle.WakeupChain != nil {
 		if path := traceQueryWakeupChainPath(*bundle.WakeupChain); path != "" {
 			fmt.Fprintf(b, "- bundle_wakeup_chain path=%s\n", sanitizeForBanner(path))
@@ -3301,6 +3308,70 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 		fmt.Fprintf(b, "- bundle_caveat=%s\n", sanitizeForBanner(caveat))
 	}
 	b.WriteString("\n")
+}
+
+// writeTraceFrameBundleTopBlocking (Q4-K 修1 + RCX①, ledger §12.1/§12.3-1):
+// the bundle HEAD region names the top blocking candidates with their typed
+// contention semantics (kind / owner / holder_site / duration) instead of a
+// bare blocking=%d count, so the lock evidence stays inside the head-24KB
+// anchor zone even when the full blocking section falls into the blob's
+// middle blind spot. Selection prefers on_chain rows whose BlockingKind is
+// resolved (stable partition, top-K ≤ 3). When the LARGEST measured blocking
+// impact is an undrilled-but-known counterpart, a dedicated disclosure line
+// surfaces the drill debt (§12.3 ruling 1 exploration face).
+func writeTraceFrameBundleTopBlocking(b *strings.Builder, bundle *tracequery.FrameRootCauseBundle) {
+	if b == nil || bundle == nil || bundle.CriticalBlocking == nil || len(bundle.CriticalBlocking.Items) == 0 {
+		return
+	}
+	items := bundle.CriticalBlocking.Items
+	preferred := make([]tracequery.CriticalBlockingCandidate, 0, len(items))
+	rest := make([]tracequery.CriticalBlockingCandidate, 0, len(items))
+	for _, item := range items {
+		if item.ChainRelevance == "on_chain" && item.BlockingKind != "" && (item.Peer.PID > 0 || strings.TrimSpace(item.Peer.Comm) != "") {
+			preferred = append(preferred, item)
+		} else {
+			rest = append(rest, item)
+		}
+	}
+	ordered := append(preferred, rest...)
+	for i, item := range ordered {
+		if i >= 3 {
+			break
+		}
+		parts := []string{
+			"type=" + sanitizeForBanner(item.Type),
+			"thread=" + traceThreadLabel(item.Thread),
+		}
+		if item.BlockingKind != "" {
+			parts = append(parts, "kind="+sanitizeForBanner(item.BlockingKind))
+		}
+		if item.Peer.PID > 0 || strings.TrimSpace(item.Peer.Comm) != "" {
+			parts = append(parts, "owner="+traceThreadLabel(item.Peer))
+		}
+		if item.HolderSite != "" {
+			parts = append(parts, "holder_site="+sanitizeForBanner(item.HolderSite))
+		}
+		parts = append(parts, fmt.Sprintf("duration=%.3fms", item.DurationMs))
+		parts = append(parts, "chain_relevance="+sanitizeForBanner(item.ChainRelevance))
+		if item.DrillStatus != "" {
+			parts = append(parts, "drill_status="+sanitizeForBanner(item.DrillStatus))
+		}
+		fmt.Fprintf(b, "- bundle_top_blocking %s\n", strings.Join(parts, " "))
+	}
+	// RCX① head disclosure: largest MEASURED blocking impact left undrilled.
+	var largest *tracequery.CriticalBlockingCandidate
+	for i := range items {
+		if items[i].DrillStatus == "" {
+			continue
+		}
+		if largest == nil || items[i].DurationMs > largest.DurationMs {
+			largest = &items[i]
+		}
+	}
+	if largest != nil && largest.DrillStatus == tracequery.DrillStatusUndrilledPeerKnown {
+		fmt.Fprintf(b, "- bundle_largest_impact_undrilled: %s %.3fms peer=%s — the biggest measured blocking impact names a counterpart this report never examined; drill the peer before concluding\n",
+			traceThreadLabel(largest.Thread), largest.DurationMs, traceThreadLabel(largest.Peer))
+	}
 }
 
 func traceQueryPriorityRuleBanner(flavor string) string {
@@ -3388,6 +3459,41 @@ func writeTraceRootCausePerfRoles(b *strings.Builder, rank int, contexts []trace
 			)
 		}
 	}
+}
+
+// writeTraceRootCauseBlockingDetail (Q4-A 修1 + RCX① + Q4-B annotation face):
+// one indented detail line under a rank row whenever the typed lock-lane /
+// drill-debt / inherited-annotation fields are populated — the LLM-facing rank
+// text names the contention kind, the counterpart, the holder site, the drill
+// verdict, and the annotation-only inherited value without touching the
+// pinned main-row format.
+func writeTraceRootCauseBlockingDetail(b *strings.Builder, item tracequery.RootCauseRankItem) {
+	if b == nil {
+		return
+	}
+	if item.BlockingKind == "" && item.DrillStatus == "" && item.InheritedTargetBlockedMs <= 0 && !item.PriorityInversionLockDominated {
+		return
+	}
+	parts := []string{fmt.Sprintf("rank_blocking_detail rank=%d", item.Rank)}
+	if item.BlockingKind != "" {
+		parts = append(parts, "kind="+sanitizeForBanner(item.BlockingKind))
+	}
+	if item.BlockingPeer.PID > 0 || strings.TrimSpace(item.BlockingPeer.Comm) != "" {
+		parts = append(parts, "peer="+traceThreadLabel(item.BlockingPeer))
+	}
+	if item.HolderSite != "" {
+		parts = append(parts, "holder_site="+sanitizeForBanner(item.HolderSite))
+	}
+	if item.DrillStatus != "" {
+		parts = append(parts, "drill_status="+sanitizeForBanner(item.DrillStatus))
+	}
+	if item.InheritedTargetBlockedMs > 0 {
+		parts = append(parts, fmt.Sprintf("inherited_target_blocked=%.3fms(annotation_only)", item.InheritedTargetBlockedMs))
+	}
+	if item.PriorityInversionLockDominated {
+		parts = append(parts, "priority_inversion_lock_dominated=true")
+	}
+	fmt.Fprintf(b, "  %s\n", strings.Join(parts, " "))
 }
 
 func writeTraceIPCEdges(b *strings.Builder, edges []tracequery.IPCEdge) {
@@ -4836,6 +4942,16 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// the projection can split the composite impact.
 				{types.TraceNoteKeyGatedRunnable, traceQueryObservationMSValue(item.GatedRunnableMs)},
 				{types.TraceNoteKeyGatedRunningDeficit, traceQueryObservationMSValue(item.GatedRunningDeficitMs)},
+				// Q4-A 修1 (§12.3-5): lock-lane rank rows publish the typed
+				// contention semantics under the SAME registered blocking-family
+				// keys the critical_blocking face uses (zero new hard-consumer
+				// keys), plus the RCX① drill verdict and the Q4-B inherited
+				// annotation (both NKR display tier, P0-A consumes).
+				{types.TraceNoteKeyBlockingKind, item.BlockingKind},
+				{types.TraceNoteKeyPeer, traceThreadLabelOptional(item.BlockingPeer)},
+				{types.TraceNoteKeyHolderSite, item.HolderSite},
+				{"drill_status", item.DrillStatus},
+				{"inherited_target_blocked_ms", traceQueryObservationMSValue(item.InheritedTargetBlockedMs)},
 				{types.TraceNoteKeyChainRelevance, item.ChainRelevance},
 				{"overlap", traceQueryObservationMSValue(item.OverlapMs)},
 				{"edge_count", traceQueryTypedCount(item.EdgeCount)},
@@ -5636,6 +5752,10 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		{types.TraceNoteKeyBlockingKind, item.BlockingKind},
 		{types.TraceNoteKeyHolderSite, item.HolderSite},
 		{types.TraceNoteKeyWaiters, traceQueryTypedCount(item.Waiters)},
+		// RCX① (§12.3 ruling 1): typed drill-debt verdict for the row's
+		// counterpart lane (NKR display tier; projection/answer-face
+		// consumption is the P0-A batch).
+		{"drill_status", item.DrillStatus},
 		{"flags", item.Flags},
 		{"oneway", traceQueryTypedBoolPtr(item.Oneway)},
 		{"sync_like", traceQueryTypedBoolPtr(item.SyncLike)},

@@ -3484,11 +3484,42 @@ func TestRootCauseRankPromotesOnChainIOWhenWakerIsRunning(t *testing.T) {
 	if rank.Items[0].Thread.PID != 200 || rank.Items[0].ChainRelevance != "on_chain" {
 		t.Fatalf("the direct wakeup dependency should remain primary/on-chain, got %+v", rank.Items)
 	}
-	if !rootCauseTypeIsResourceAttribution(rank.Items[0].Type) {
-		t.Fatalf("on-chain IO/resource work by a running waker should outrank generic running work, got %+v", rank.Items)
+	// EVOLUTION RECORD (Q4-B, ledger §12.3 ruling 2, 2026-07-06): this test
+	// formerly pinned the INHERITED shape — the resource row's
+	// EffectiveImpactMs/TargetImpactMs were raised to the dependency window's
+	// target_blocked, which made the 110ms IO row outrank the 118ms measured
+	// running row. 承自只作注记,永不作硬排序键: the on-chain head is now the
+	// largest MEASURED item (the running dependency), and the resource
+	// refinement keeps the dependency attribution on the typed
+	// InheritedTargetBlockedMs annotation field instead.
+	if rank.Items[0].Type != "running" || rank.Items[0].EffectiveImpactMs < 100 {
+		t.Fatalf("the largest MEASURED on-chain item should lead the rank, got %+v", rank.Items[0])
 	}
-	if rank.Items[0].EffectiveImpactMs < 100 || rank.Items[0].TargetImpactMs < 100 {
-		t.Fatalf("on-chain IO root cause should carry target-impact attribution, got %+v", rank.Items[0])
+	var resource *RootCauseRankItem
+	for i := range rank.Items {
+		if rootCauseTypeIsResourceAttribution(rank.Items[i].Type) && rank.Items[i].ChainRelevance == "on_chain" {
+			resource = &rank.Items[i]
+			break
+		}
+	}
+	if resource == nil {
+		t.Fatalf("expected an on-chain resource refinement row: %+v", rank.Items)
+	}
+	if resource.InheritedTargetBlockedMs < 100 {
+		t.Fatalf("resource refinement must keep the dependency attribution as a typed annotation, got %+v", resource)
+	}
+	if resource.TargetImpactMs != 0 || resource.EffectiveImpactMs >= resource.InheritedTargetBlockedMs {
+		t.Fatalf("inherited value must no longer feed TargetImpactMs/EffectiveImpactMs ranking channels, got %+v", resource)
+	}
+	if resource.EffectiveImpactMs > rank.Items[0].EffectiveImpactMs {
+		t.Fatalf("resource refinement must rank by its own measurement, not the inherited window, got %+v vs head %+v", resource, rank.Items[0])
+	}
+	wantScore := rootCauseEffectiveImpactMs(*resource) * resource.Confidence * rootCauseTypeWeight(resource.Type)
+	if diff := resource.Score - wantScore; diff > 0.001 || diff < -0.001 {
+		t.Fatalf("attributed resource row must re-derive Score from the ranking channel (state_churn precedent), got score=%f want=%f", resource.Score, wantScore)
+	}
+	if !strings.Contains(resource.Summary, "inherited target_blocked=") || !strings.Contains(resource.Summary, "annotation only, not a ranking key") {
+		t.Fatalf("inherited attribution must stay disclosed as an advisory note, got %q", resource.Summary)
 	}
 }
 

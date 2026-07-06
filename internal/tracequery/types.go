@@ -1844,12 +1844,45 @@ type RootCauseRankItem struct {
 	NearestChainThread  ThreadRef                `json:"nearest_chain_thread,omitempty"`
 	NearestChainWindow  TimeWindow               `json:"nearest_chain_window,omitempty"`
 	OccurrenceWindows   []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
-	SpanName            string                   `json:"span_name,omitempty"`
-	SpanKind            string                   `json:"span_kind,omitempty"`
-	SpanCategory        string                   `json:"span_category,omitempty"`
-	SpanSubcategory     string                   `json:"span_subcategory,omitempty"`
-	SemanticClass       string                   `json:"semantic_class,omitempty"`
-	Summary             string                   `json:"summary,omitempty"`
+	// BlockingKind / BlockingPeer / HolderSite (Q4-A 修1, ledger §12.1/§12.3-5):
+	// typed lock-contention semantics on a type=blocking_span rank row. The row
+	// SUBJECT is the parsed lock HOLDER when the structured payload resolved
+	// one (impact stays the MEASURED contention duration); BlockingPeer is then
+	// the blocked waiter — i.e. always the contention counterpart of the row
+	// subject. When the payload carried no resolvable holder the subject stays
+	// the waiter and BlockingPeer stays EMPTY, so "BlockingKind non-empty AND
+	// BlockingPeer resolved" is the PRECISE typed admission pair for the
+	// direct-on-chain lane (rootCauseItemCanBeDirectOnChain) — an unresolved
+	// contention row can never take the head of the rank on the strength of a
+	// span-name substring.
+	BlockingKind string    `json:"blocking_kind,omitempty"`
+	BlockingPeer ThreadRef `json:"blocking_peer,omitempty"`
+	HolderSite   string    `json:"holder_site,omitempty"`
+	// DrillStatus (RCX① engine side, §12.3 ruling 1): whether this row's
+	// contention counterpart/holder was itself examined by a subject==peer
+	// observation inside THIS report's observation universe. See the
+	// DrillStatus* constants in drill_status.go.
+	DrillStatus string `json:"drill_status,omitempty"`
+	// InheritedTargetBlockedMs (Q4-B, §12.3 ruling 2): the wakeup-dependency
+	// window's target-blocked duration formerly folded into
+	// EffectiveImpactMs/TargetImpactMs by the on-chain resource attribution.
+	// 承自只作注记,永不作硬排序键 — this field is display/annotation input
+	// only; every ranking channel (EffectiveImpactMs, Score, sort keys) stays
+	// on the row's own measurement.
+	InheritedTargetBlockedMs float64 `json:"inherited_target_blocked_ms,omitempty"`
+	// PriorityInversionLockDominated (Q4-D): a resolved monitor/lock
+	// contention observation on the target covers this inversion candidate's
+	// whole wait interval — the wait is lock-holder dominated and the
+	// inversion reading is demoted to an annotation (typed gate: parsed
+	// BlockingKind + resolved owner + interval containment; the observation
+	// itself is preserved).
+	PriorityInversionLockDominated bool   `json:"priority_inversion_lock_dominated,omitempty"`
+	SpanName                       string `json:"span_name,omitempty"`
+	SpanKind                       string `json:"span_kind,omitempty"`
+	SpanCategory                   string `json:"span_category,omitempty"`
+	SpanSubcategory                string `json:"span_subcategory,omitempty"`
+	SemanticClass                  string `json:"semantic_class,omitempty"`
+	Summary                        string `json:"summary,omitempty"`
 }
 
 type RootCausePerfRoleContext struct {
@@ -2012,7 +2045,19 @@ type CriticalBlockingCandidate struct {
 	// "at <sig>(<file:line>)" segment, verbatim.
 	HolderSite string `json:"holder_site,omitempty"`
 	// Waiters is the payload's "waiters=<n>" count (0 = not reported).
-	Waiters            int                   `json:"waiters,omitempty"`
+	Waiters int `json:"waiters,omitempty"`
+	// MergedLines (P2-3, Q4-F root fold): line starts of same-lock duplicate
+	// contention spans folded into this row at the engine source — fold gate
+	// is fully typed (equal BlockingKind ∧ equal resolved owner PID ∧
+	// overlapping intervals). The surviving row is the information-richer
+	// form (owner comm + holder_site) and its DurationMs is the MAX of the
+	// folded forms.
+	MergedLines []int `json:"merged_lines,omitempty"`
+	// DrillStatus (RCX① engine side, §12.3 ruling 1): drill verdict for the
+	// row's counterpart lane (binder_wait / io_latency / resolved-contention
+	// blocking_span rows only; empty on rows with no peer lane). See the
+	// DrillStatus* constants in drill_status.go.
+	DrillStatus        string                `json:"drill_status,omitempty"`
 	PeerState          *ThreadStateBreakdown `json:"peer_state,omitempty"`
 	Flags              string                `json:"flags,omitempty"`
 	Oneway             *bool                 `json:"oneway,omitempty"`

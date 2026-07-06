@@ -275,6 +275,14 @@ func Run(idx *Index, q Query) Result {
 			res.WakeupChain = bundle.WakeupChain
 			res.EvidencePack = append(res.EvidencePack, evidenceFromChain(*bundle.WakeupChain)...)
 		}
+		// Q4-K 修1 (ledger §12.1): blocking evidence appends SECOND, right
+		// after the chain — the tail of the legacy chain→frame→rank→blocking
+		// order fell past the 16-fact pack cap and the lock evidence went
+		// invisible on the pack face.
+		if bundle.CriticalBlocking != nil {
+			res.CriticalBlocking = bundle.CriticalBlocking
+			res.EvidencePack = append(res.EvidencePack, evidenceFromCriticalBlocking(*bundle.CriticalBlocking)...)
+		}
 		if bundle.FrameTimeline != nil {
 			res.FrameTimeline = bundle.FrameTimeline
 			res.SpanWindows = frameTimelineSpans(*bundle.FrameTimeline)
@@ -283,10 +291,6 @@ func Run(idx *Index, q Query) Result {
 		if bundle.RootCauseRank != nil {
 			res.RootCauseRank = bundle.RootCauseRank
 			res.EvidencePack = append(res.EvidencePack, evidenceFromRootCauseRank(*bundle.RootCauseRank)...)
-		}
-		if bundle.CriticalBlocking != nil {
-			res.CriticalBlocking = bundle.CriticalBlocking
-			res.EvidencePack = append(res.EvidencePack, evidenceFromCriticalBlocking(*bundle.CriticalBlocking)...)
 		}
 		if bundle.windowStats != nil {
 			res.WindowStats = bundle.windowStats
@@ -8598,10 +8602,27 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		}
 		items = append(items, rootCauseItem("cpu_frequency_limit", ThreadRef{}, windowImpactMs, 0.58, limit.Line, limit.Line, "window_stats", fmt.Sprintf("cpu=%d had frequency limit min=%dkHz max=%dkHz in the selected window (count=%d)", limit.CPU, limit.MinFrequency, limit.MaxFrequency, limit.Count)))
 	}
+	// Q4-A 修1 (ledger §12.1/§12.3-5) + P2-3: structured lock-contention spans
+	// get their own typed rank lane (type=blocking_span, registry RowToken
+	// already true — zero new registration) instead of degrading into a
+	// generic trace_span row that can never leave the adjacent tier. The lane
+	// is fed from the SAME folded carve as critical_blocking, so dual print
+	// forms of one lock publish exactly one rank row.
+	for _, row := range collectBlockingSpanRows(stats) {
+		if row.cand.BlockingKind == "" {
+			continue
+		}
+		items = append(items, rootCauseItemFromLockContentionCandidate(q, chainThreads, hasCausalChain, row))
+	}
 	var semanticNearMisses []string
 	for _, span := range stats.TraceSpans {
 		if item, ok := rootCauseItemFromSemanticTraceSpan(q, chain, span, hasCausalChain); ok {
 			items = append(items, item)
+			continue
+		}
+		if _, isContention := parseLockContentionPayload(span.Name); isContention {
+			// Carved into the folded typed lock lane above — never a generic
+			// trace_span row.
 			continue
 		}
 		if span.SemanticClass == "" && traceSpanNearMissesSemanticWorkClassification(span.Name) && len(semanticNearMisses) < 3 {
@@ -8770,6 +8791,10 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 			items = append(items, item)
 		}
 	}
+	demoteLockDominatedInversionCandidates(chain, stats, items)
+	// RCX① (§12.3 ruling 1): lock-lane rank rows carry the typed drill-debt
+	// verdict for their holder.
+	stampRootCauseRankDrillStatus(items, buildDrillSubjectUniverse(&chain, &stats))
 	items = enrichRootCauseItemsWithChainContext(chain, items)
 	attributeOnChainResourceItemsToWakeupDependency(chain, items)
 	normalizeRootCauseChainRelevance(items, hasCausalChain)
@@ -9419,10 +9444,27 @@ func sortRootCauseRankItems(items []RootCauseRankItem, chainAware bool) {
 				return ri < rj
 			}
 			if ri == chainRelevanceRank("on_chain") {
+				// §12.3 ruling 2 (engine sort face): 实测优先 — the tier key is
+				// the row's OWN effective/measured impact (Q4-B keeps every
+				// inherited value out of this channel)…
 				ci := rootCauseEffectiveImpactMs(items[i])
 				cj := rootCauseEffectiveImpactMs(items[j])
 				if ci != cj {
 					return ci > cj
+				}
+				// …已解析对端行优先 — at equal measured impact the row with a
+				// RESOLVED contention counterpart outranks the one without…
+				pi := rootCauseItemHasResolvedBlockingPeer(items[i])
+				pj := rootCauseItemHasResolvedBlockingPeer(items[j])
+				if pi != pj {
+					return pi
+				}
+				// …承自行让位 — and a row additionally banking on an inherited
+				// dependency-window annotation yields to a purely measured one.
+				ii := items[i].InheritedTargetBlockedMs > 0
+				ij := items[j].InheritedTargetBlockedMs > 0
+				if ii != ij {
+					return ij
 				}
 			}
 		}
@@ -9434,6 +9476,13 @@ func sortRootCauseRankItems(items []RootCauseRankItem, chainAware bool) {
 		}
 		return items[i].LineStart < items[j].LineStart
 	})
+}
+
+// rootCauseItemHasResolvedBlockingPeer is the §12.3 ruling-2 tie-break signal:
+// a typed contention row whose counterpart is resolved (same precise pair as
+// the direct-on-chain admission gate).
+func rootCauseItemHasResolvedBlockingPeer(item RootCauseRankItem) bool {
+	return item.BlockingKind != "" && threadRefResolved(item.BlockingPeer)
 }
 
 func rootCauseChainRelevanceSortRank(item RootCauseRankItem) int {
@@ -9717,6 +9766,118 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 		item.SupplyFoldBasis = &basis
 	}
 	return item
+}
+
+// rootCauseItemFromLockContentionCandidate (Q4-A 修1, ledger §12.1/§12.3-5)
+// turns one FOLDED lock-contention candidate (collectBlockingSpanRows) into a
+// root_cause_rank row: the row SUBJECT is the parsed lock HOLDER (falls back
+// to the blocked waiter when the payload carried no resolvable owner) and the
+// impact is the MEASURED contention duration. Chain relevance couples through
+// either side (the span lives on the waiter's critical path; see the
+// contention-peer lane in enrichRootCauseItemsWithChainContext), while DIRECT
+// on-chain admission stays gated on the precise typed pair BlockingKind +
+// resolved counterpart (rootCauseItemCanBeDirectOnChain) — never on span-name
+// text. monitor_contention / lock_contention remain BlockingKind refinements
+// and are NOT promoted to row tokens (registry ruling; blocking_span
+// RowToken=true).
+func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool, hasCausalChain bool, row blockingSpanRow) RootCauseRankItem {
+	cand := row.cand
+	waiter := cand.Thread
+	holder := cand.Peer
+	holderResolved := threadRefResolved(holder)
+	subject := waiter
+	if holderResolved {
+		subject = holder
+	}
+	onChain := threadInSet(chainThreads, waiter) || threadInSet(chainThreads, holder)
+	suffix := lockContentionSummarySuffix(lockContentionInfo{Kind: cand.BlockingKind, Owner: holder, Waiters: cand.Waiters, HolderSite: cand.HolderSite})
+	summary := fmt.Sprintf("%s blocked %.3fms on lock contention with unresolved owner%s", threadLabel(waiter), cand.DurationMs, suffix)
+	if holderResolved {
+		summary = fmt.Sprintf("lock holder %s blocked %s for %.3fms%s", threadLabel(holder), threadLabel(waiter), cand.DurationMs, suffix)
+	}
+	item := rootCauseItem("blocking_span", subject, backgroundImpactMs(q, cand.DurationMs, hasCausalChain, onChain), 0.72, cand.LineStart, cand.LineEnd, "window_stats.trace_spans.lock_contention", summary)
+	item.CumulativeImpactMs = cand.DurationMs
+	item.Causality = causalityLabel(hasCausalChain, onChain)
+	item.StartTs = cand.StartTs
+	item.EndTs = cand.EndTs
+	item.SpanName = row.spanName
+	item.BlockingKind = cand.BlockingKind
+	item.HolderSite = cand.HolderSite
+	if holderResolved {
+		// BlockingPeer = the contention counterpart of the row subject: the
+		// blocked waiter. Deliberately left EMPTY when the holder is
+		// unresolved (the subject stays the waiter), so the typed admission
+		// pair (BlockingKind + resolved BlockingPeer) reads false and the row
+		// can never take a direct on-chain slot unresolved (§12.3 未解析不准入).
+		item.BlockingPeer = waiter
+	}
+	return item
+}
+
+// rootCauseTypeIsPriorityInversion (P2-2 per-CLASS): the full inversion
+// row-type family — the causal-impact/aggregate lane (priority_inversion_
+// candidate) AND the RunnableTop lane stamped by
+// applyRunnableTopPriorityInversion (priority_inversion_runnable_wait).
+func rootCauseTypeIsPriorityInversion(typ string) bool {
+	switch typ {
+	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
+		return true
+	default:
+		return false
+	}
+}
+
+// demoteLockDominatedInversionCandidates (Q4-D, ledger §12.1/§12.2 P0-E) —
+// inversion cross-check against resolved lock evidence: when the TARGET's own
+// window carries a structured monitor/lock contention span (BlockingKind
+// parsed ∧ owner resolved) whose interval COVERS an inversion row's whole
+// wait interval, the wait is lock-holder dominated — the priority-inversion
+// reading demotes to an annotation (typed flag + summary note; the
+// observation itself is preserved, 不删观测). Applies to the whole inversion
+// row-type family (P2-2, rootCauseTypeIsPriorityInversion). Every gate input
+// is typed: parsed kind, resolved owner ThreadRef, interval containment —
+// never span-name text or waker/wakee prio prose. q4 witness:
+// RxComputationT's inversion candidate vs the target's 112.223ms
+// monitor_contention span.
+func demoteLockDominatedInversionCandidates(chain ChainResult, stats WindowStats, items []RootCauseRankItem) {
+	if len(items) == 0 || chain.Target.PID <= 0 {
+		return
+	}
+	type contentionCover struct {
+		startTs, endTs float64
+		kind           string
+		owner          ThreadRef
+	}
+	var covers []contentionCover
+	for _, span := range stats.TraceSpans {
+		if span.Thread.PID != chain.Target.PID || span.EndTs <= span.StartTs {
+			continue
+		}
+		cand, ok := blockingSpanCandidateFromTraceSpan(span)
+		if !ok || cand.BlockingKind == "" || !threadRefResolved(cand.Peer) {
+			continue
+		}
+		covers = append(covers, contentionCover{startTs: span.StartTs, endTs: span.EndTs, kind: cand.BlockingKind, owner: cand.Peer})
+	}
+	if len(covers) == 0 {
+		return
+	}
+	for i := range items {
+		item := &items[i]
+		if !rootCauseTypeIsPriorityInversion(item.Type) || item.StartTs <= 0 || item.EndTs <= item.StartTs {
+			continue
+		}
+		for _, cover := range covers {
+			if cover.startTs > item.StartTs || cover.endTs < item.EndTs {
+				continue
+			}
+			item.PriorityInversionLockDominated = true
+			item.Summary = appendRootCauseSummaryDetail(item.Summary,
+				fmt.Sprintf("inversion candidate demoted to note: resolved %s held by %s covers this wait interval %.6f..%.6f — 锁等待主导 (lock-wait dominated)",
+					cover.kind, threadLabel(cover.owner), item.StartTs, item.EndTs))
+			break
+		}
+	}
 }
 
 type semanticTraceSpanProjection struct {
@@ -10053,6 +10214,17 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 	hasChain := len(chain.Nodes) > 0 || len(chain.Edges) > 0 || len(chain.CausalImpacts) > 0
 	for i := range items {
 		ctx := chainContextForCandidate(chain, items[i].Thread, items[i].StartTs, items[i].EndTs)
+		// Q4-A 修1: a RESOLVED lock-contention rank row's subject is the
+		// HOLDER, which may sit off-chain while the blocked WAITER
+		// (BlockingPeer) is the on-chain thread — the contention couples to
+		// the chain through the waiter's critical path. Take the better of
+		// the two typed contexts; the gate stays the typed field pair.
+		if items[i].Type == "blocking_span" && items[i].BlockingKind != "" && threadRefResolved(items[i].BlockingPeer) {
+			peerCtx := chainContextForCandidate(chain, items[i].BlockingPeer, items[i].StartTs, items[i].EndTs)
+			if chainRelevanceRank(peerCtx.relevance) < chainRelevanceRank(ctx.relevance) {
+				ctx = peerCtx
+			}
+		}
 		if ctx.relevance == "" {
 			if hasChain {
 				ctx.relevance = "background"
@@ -10108,16 +10280,20 @@ func attributeOnChainResourceItemsToWakeupDependency(chain ChainResult, items []
 		if overlap <= 0 {
 			overlap = windowOverlapMs(item.StartTs, item.EndTs, impact.Window.StartTs, impact.Window.EndTs)
 		}
-		resourceMs := firstPositiveFloat(item.CumulativeImpactMs, item.ImpactMs, item.ProjectedImpactMs, overlap)
-		if !onChainResourceAttributionIsMaterial(resourceMs, overlap, impact.TargetBlockedMs) {
+		// Q4-B (§12.3 ruling 2): the material gate reads the row's OWN measured
+		// resource duration only — aggregate-window overlap is a NOISY signal
+		// and may no longer admit a row by itself (it stays an advisory
+		// note/OverlapMs input below).
+		resourceMs := firstPositiveFloat(item.CumulativeImpactMs, item.ImpactMs, item.ProjectedImpactMs)
+		if !onChainResourceAttributionIsMaterial(resourceMs, impact.TargetBlockedMs) {
 			continue
 		}
-		if item.TargetImpactMs < impact.TargetBlockedMs {
-			item.TargetImpactMs = impact.TargetBlockedMs
-		}
-		if item.EffectiveImpactMs < impact.TargetBlockedMs {
-			item.EffectiveImpactMs = impact.TargetBlockedMs
-		}
+		// Q4-B (§12.3 ruling 2): the dependency window's target-blocked value
+		// is INHERITED context — it rides the typed annotation field and the
+		// summary note only. The ranking channels (EffectiveImpactMs /
+		// TargetImpactMs / Score / sort keys) stay on the row's own
+		// measurement: 承自只作注记,永不作硬排序键.
+		item.InheritedTargetBlockedMs = impact.TargetBlockedMs
 		if item.ChainDepth == 0 && impact.ChainDepth > 0 {
 			item.ChainDepth = impact.ChainDepth
 		}
@@ -10128,8 +10304,14 @@ func attributeOnChainResourceItemsToWakeupDependency(chain ChainResult, items []
 		if item.OverlapMs <= 0 && overlap > 0 {
 			item.OverlapMs = overlap
 		}
+		// state_churn precedent (§7.30 S1, rank re-scoring at :8677): re-derive
+		// Score from the ranking channel after attribution so the published
+		// score can never drift from the sort key again (the pre-Q4-B shape —
+		// effective raised, score stale — was the q4 rank1-score-0.932
+		// dissonance).
+		item.Score = rootCauseEffectiveImpactMs(*item) * item.Confidence * rootCauseTypeWeight(item.Type)
 		item.Summary = appendRootCauseSummaryDetail(item.Summary,
-			fmt.Sprintf("on-chain resource overlapped wakeup dependency window %.6f..%.6f; target_blocked=%.3fms",
+			fmt.Sprintf("on-chain resource overlapped wakeup dependency window %.6f..%.6f; inherited target_blocked=%.3fms (annotation only, not a ranking key)",
 				impact.Window.StartTs, impact.Window.EndTs, impact.TargetBlockedMs))
 	}
 }
@@ -10162,13 +10344,18 @@ func rootCauseTypeIsResourceAttribution(typ string) bool {
 	}
 }
 
-func onChainResourceAttributionIsMaterial(resourceMs, overlapMs, targetBlockedMs float64) bool {
-	materialMs := maxFloat(resourceMs, overlapMs)
-	if materialMs <= 0 || targetBlockedMs <= 0 {
+// onChainResourceAttributionIsMaterial (Q4-B, §12.3 ruling 2): the row's OWN
+// measured resource duration must clear the floor. The pre-Q4-B shape took
+// max(resourceMs, overlapMs) — an aggregate-window overlap (noisy signal)
+// could admit a 1.1ms row into the wakeup-dependency attribution and, with the
+// effective raise, hand it rank1 (q4 block_io 1.136ms case). Precise signals
+// for hard gates: overlap now only feeds the advisory note/OverlapMs field.
+func onChainResourceAttributionIsMaterial(resourceMs, targetBlockedMs float64) bool {
+	if resourceMs <= 0 || targetBlockedMs <= 0 {
 		return false
 	}
 	minMaterialMs := maxFloat(16, targetBlockedMs*0.35)
-	return materialMs >= minMaterialMs
+	return resourceMs >= minMaterialMs
 }
 
 func appendRootCauseSummaryDetail(summary, detail string) string {
@@ -10187,6 +10374,14 @@ func appendRootCauseSummaryDetail(summary, detail string) string {
 }
 
 func rootCauseItemCanBeDirectOnChain(item RootCauseRankItem) bool {
+	// Q4-A 修1 (ledger §12.3-5): a blocking_span row is admissible as a DIRECT
+	// on-chain cause only in its RESOLVED lock-contention form — typed
+	// BlockingKind present AND the contention counterpart resolved. Unresolved
+	// blocking spans keep the legacy demote-to-adjacent behavior (precise
+	// signals for hard gates: two typed fields, never span-name text).
+	if item.Type == "blocking_span" {
+		return item.BlockingKind != "" && threadRefResolved(item.BlockingPeer)
+	}
 	if !rootCauseTypeCanBeDirectOnChain(item.Type) {
 		return false
 	}
@@ -10514,14 +10709,26 @@ func rootCauseShouldBeCoPrimary(item RootCauseRankItem) bool {
 		return false
 	}
 	switch item.Type {
-	case "runnable_wait", "scheduler_latency", "priority_inversion_runnable_wait", "fragmented_runnable_wait",
+	case "runnable_wait", "scheduler_latency", "fragmented_runnable_wait",
 		"running", "fragmented_running",
 		"compute_supply", "low_frequency", "cpu_affinity_or_cpuset",
 		"jit_compile", "class_verification", "shader_compile", "runtime_compile",
 		"io_wait", "d_state_or_io_wait", "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "fragmented_d_state_or_io_wait":
 		return true
-	case "priority_inversion_candidate":
+	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
+		// P2-1 (Q4-D 复核吸收, per-CLASS with P2-2): a lock-dominated demoted
+		// inversion row keeps its observation but must not ride the inversion
+		// co-primary lane. Non-demoted priority_inversion_runnable_wait rows
+		// always carry RunnableMs>0, so this branch preserves their legacy
+		// unconditional co-primary admission.
+		if item.PriorityInversionLockDominated {
+			return false
+		}
 		return rootCauseItemHasDStateOrIO(item) || rootCauseItemHasRunnableOrRunning(item)
+	case "blocking_span":
+		// Q4-A 修1: co-primary only in the resolved lock-contention form —
+		// same precise typed pair as the direct-on-chain admission gate.
+		return item.BlockingKind != "" && threadRefResolved(item.BlockingPeer)
 	default:
 		return false
 	}
@@ -11859,32 +12066,10 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 			Summary:    fmt.Sprintf("%s spent %.3fms in D-state/IO-like wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
 		})
 	}
-	for _, span := range stats.TraceSpans {
-		if !isBlockingLikeText(span.Name) {
-			continue
-		}
-		cand := CriticalBlockingCandidate{
-			Type:       "blocking_span",
-			Thread:     span.Thread,
-			DurationMs: span.DurationMs,
-			StartTs:    span.StartTs,
-			EndTs:      span.EndTs,
-			LineStart:  span.StartLine,
-			LineEnd:    span.EndLine,
-			Confidence: 0.72,
-			Summary:    fmt.Sprintf("blocking-like trace span %q lasted %.3fms", span.Name, span.DurationMs),
-		}
-		// §7.30.3 D1: structured ART/OHOS contention payloads carry the lock
-		// owner — parse deterministically and publish it as the peer so the
-		// projection renders the holder instead of an unattributed duration.
-		if info, ok := parseLockContentionPayload(span.Name); ok {
-			cand.BlockingKind = info.Kind
-			cand.Peer = info.Owner
-			cand.Waiters = info.Waiters
-			cand.HolderSite = info.HolderSite
-			cand.Summary += lockContentionSummarySuffix(info)
-		}
-		add(cand)
+	// P2-3 (Q4-F root fold): the span lane arrives pre-folded — dual print
+	// forms of the same lock publish exactly one candidate here.
+	for _, row := range collectBlockingSpanRows(stats) {
+		add(row.cand)
 	}
 	for _, mem := range stats.MemoryKinds {
 		if mem.Kind != "reclaim" && mem.Kind != "page_fault" && mem.Kind != "gc" {
@@ -11903,6 +12088,9 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	if chainForContext != nil {
 		res.Items = enrichCriticalBlockingWithChainContext(*chainForContext, res.Items)
 	}
+	// RCX① (§12.3 ruling 1): stamp the typed drill-debt verdict for every
+	// counterpart-lane row against THIS report's observation universe.
+	stampCriticalBlockingDrillStatus(res.Items, buildDrillSubjectUniverse(chainForContext, &stats))
 	sort.SliceStable(res.Items, func(i, j int) bool {
 		scoreI := res.Items[i].DurationMs * res.Items[i].Confidence
 		scoreJ := res.Items[j].DurationMs * res.Items[j].Confidence
@@ -12025,6 +12213,120 @@ func enrichCriticalBlockingWithChainContext(chain ChainResult, items []CriticalB
 	return items
 }
 
+// blockingSpanCandidateFromTraceSpan is the ONE blocking-span carve shared by
+// the critical_blocking view (row candidates) and the root_cause_rank
+// lock-contention candidate source (Q4-A 修1, ledger §12.1/§12.2 P0-E): the
+// blocking-like text screen and the structured lock-contention payload parse
+// (§7.30.3 D1) live here so the two faces can never drift. ok=false for spans
+// that are not blocking-like at all.
+func blockingSpanCandidateFromTraceSpan(span TraceSpanSummary) (CriticalBlockingCandidate, bool) {
+	if !isBlockingLikeText(span.Name) {
+		return CriticalBlockingCandidate{}, false
+	}
+	cand := CriticalBlockingCandidate{
+		Type:       "blocking_span",
+		Thread:     span.Thread,
+		DurationMs: span.DurationMs,
+		StartTs:    span.StartTs,
+		EndTs:      span.EndTs,
+		LineStart:  span.StartLine,
+		LineEnd:    span.EndLine,
+		Confidence: 0.72,
+		Summary:    fmt.Sprintf("blocking-like trace span %q lasted %.3fms", span.Name, span.DurationMs),
+	}
+	// §7.30.3 D1: structured ART/OHOS contention payloads carry the lock
+	// owner — parse deterministically and publish it as the peer so the
+	// projection renders the holder instead of an unattributed duration.
+	if info, ok := parseLockContentionPayload(span.Name); ok {
+		cand.BlockingKind = info.Kind
+		cand.Peer = info.Owner
+		cand.Waiters = info.Waiters
+		cand.HolderSite = info.HolderSite
+		cand.Summary += lockContentionSummarySuffix(info)
+	}
+	return cand, true
+}
+
+// blockingSpanRow pairs one blocking-span candidate with its raw span name so
+// both consumer faces (critical_blocking rows, root_cause_rank lock lane) are
+// fed from the SAME folded lane.
+type blockingSpanRow struct {
+	cand     CriticalBlockingCandidate
+	spanName string
+}
+
+// collectBlockingSpanRows (P2-3, absorbs Q4-F/Q5-D at the root): carves every
+// blocking-like span and folds SAME-LOCK duplicate print forms — the ART
+// runtime emits the same contention once as the rich "monitor contention with
+// owner …" form and once as the "Lock contention on a monitor lock (owner
+// tid: N)" form. Fold gate is fully typed: equal BlockingKind ∧ both owners
+// resolved to the SAME PID ∧ overlapping intervals (never display-string
+// comparison). The information-richer form survives (owner comm +
+// holder_site), the value takes the larger measured duration, and the folded
+// duplicates are recorded on MergedLines — every downstream face (blocking
+// rows, rank candidates, drill stamps, next-step synthesis) is naturally
+// single.
+func collectBlockingSpanRows(stats WindowStats) []blockingSpanRow {
+	var rows []blockingSpanRow
+	for _, span := range stats.TraceSpans {
+		cand, ok := blockingSpanCandidateFromTraceSpan(span)
+		if !ok {
+			continue
+		}
+		row := blockingSpanRow{cand: cand, spanName: span.Name}
+		if cand.BlockingKind != "" && cand.Peer.PID > 0 {
+			merged := false
+			for i := range rows {
+				if sameLockContention(rows[i].cand, cand) {
+					rows[i] = foldLockContentionRow(rows[i], row)
+					merged = true
+					break
+				}
+			}
+			if merged {
+				continue
+			}
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func sameLockContention(a, b CriticalBlockingCandidate) bool {
+	return a.BlockingKind != "" && a.BlockingKind == b.BlockingKind &&
+		a.Peer.PID > 0 && a.Peer.PID == b.Peer.PID &&
+		windowOverlapMs(a.StartTs, a.EndTs, b.StartTs, b.EndTs) > 0
+}
+
+func foldLockContentionRow(a, b blockingSpanRow) blockingSpanRow {
+	survivor, folded := a, b
+	if lockContentionInfoRichness(b.cand) > lockContentionInfoRichness(a.cand) {
+		survivor, folded = b, a
+	}
+	if folded.cand.DurationMs > survivor.cand.DurationMs {
+		survivor.cand.DurationMs = folded.cand.DurationMs
+	}
+	merged := append([]int(nil), survivor.cand.MergedLines...)
+	merged = append(merged, folded.cand.MergedLines...)
+	merged = append(merged, firstPositive(folded.cand.LineStart, folded.cand.LineEnd))
+	survivor.cand.MergedLines = merged
+	return survivor
+}
+
+// lockContentionInfoRichness orders dual print forms of the same lock: the
+// owner-comm form beats the tid-only form, a holder site breaks remaining
+// ties.
+func lockContentionInfoRichness(cand CriticalBlockingCandidate) int {
+	score := 0
+	if strings.TrimSpace(cand.Peer.Comm) != "" {
+		score += 2
+	}
+	if cand.HolderSite != "" {
+		score++
+	}
+	return score
+}
+
 func isBlockingLikeText(name string) bool {
 	lower := strings.ToLower(name)
 	for _, token := range []string{"lock", "futex", "wait", "blocked", "binder", "sync", "mutex", "semaphore", "contention", "io"} {
@@ -12033,6 +12335,12 @@ func isBlockingLikeText(name string) bool {
 		}
 	}
 	return false
+}
+
+// threadRefResolved reports whether a ThreadRef names a concrete thread
+// (typed resolution check shared by the Q4-A admission gates).
+func threadRefResolved(t ThreadRef) bool {
+	return t.PID > 0 || strings.TrimSpace(t.Comm) != ""
 }
 
 func BuildRecipe(idx *Index, q Query) RecipeResult {
