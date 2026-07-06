@@ -401,3 +401,47 @@ DLR 首版把车道 payload 投影短路在确定性映射之前,对抗复核实
 **残余噪音面(如实,未在本批动)**:principal 车道 evidence 文本匹配里多部件 qualifier 的无条件放行(answer_document_pre_emit_check.go preEmitEvidenceSupportsDecoratorQualifier 的 len(parts)>1 → return true)仍在——它只作 keep 方向(不删内容)且 principal 集现已另有显式绑定护体,按"软方向噪音"暂留;若未来出误保护标本再立案。
 
 **Pin(pre_emit_qce_citation_audit_test.go,17 测试;5 组突变实证各自必红后还原)**:标本回放双形态(detach=0/prune 保 3 条含 label+text+ref)/P1 text name-drop 双面(detach+prune 幻觉行必删)/audit_ledger 不救活双面/strict 车道不被越(复核 Cangjie 形态)/命名权威契约矩阵(base 绑定・异 base 拒・空拒・same-base 歧义拒・全装饰面精确绑)/principal 显式绑定生效/披露措辞随处置翻转(中英+混合)/跨 block ID 碰撞披露移除/物化点=persist(链尾无 caveat,persist 后正确措辞)/GAP-B 门四负例+artifact 排除+链尾回填+pre-persist 回填。突变形态:text 车道复开、role 白名单摘除、strict guard 摘除、blockID unscope、链尾早物化——全红。
+
+## 16. T-span 引擎根修:客户转换工具吞动作字符的 trace-mark 变体(2026-07-06)
+
+**现场**:客户某 HarmonyOS 转换/导出工具(trace_streamer 嫌疑)把标准 hitrace print mark 的**前导动作字符 `B|`/`E|`(及 `C|`/`S|`/`F|`)吃掉**,并留下 `0x0:` 地址残迹。标准 → 客户变体形态对照(抽样确证,来自 q7_line140711 邻域):
+
+| 标准 | 客户变体 | 语义 |
+|---|---|---|
+| `B\|15\|setCoreSettings` | `print: 0x0: 15\|setCoreSettings` | Begin(pid 后有 name) |
+| `E\|15` | `print: 0x0: 15` | End(pid 后无字段) |
+| `E\|646\|I35`(donghu 标准同构) | `print: 0x0: 48\|I38` | End(pid 后只有 I-tag,无 name) |
+| `B\|48\|H:validateDisplay\|I38` | `print: 0x0: 48\|H:validateDisplay\|I38` | Begin(pid 后有 name,尾 I-tag) |
+| `C\|31963\|JNI…\|198` | `print: 0x0: 48\|HeapAlloc\|4096` | Counter(4 字段:pid 后 name + 纯数值尾) |
+| `C\|1252\|H:VSync-rs\|0\|I38`(donghu 实证) | `print: 0x0: 1252\|H:VSync-rs\|0\|I38` | Counter(5 字段:值在**中间**、tag 在尾) |
+
+N=容器 ns pid(恒定性已验:15 在 setCoreSettings/bindApplication 两 span 恒定)。
+
+**根因链(修前)**:`parse.go tracePrintPrefixLooksLikeAddress` 剥 `0x0:` 地址前缀得 `15|bindApplication` → `isDirectTraceMarkPayload` 要求 `B|/E|/C|/S|/F|` 前导 → 首字段是数字不匹配 → 返回非 mark → `EventTraceMark` 永不置位 → `findSpanWindowsCompacted`(query.go:5874,只认 `EventTraceMark`)拿不到 span → 客户 `span_window(bindApplication)`/`event_search(trace_mark)` 全空。
+
+**修复**:`normalizeTraceMarkPayload` 在地址剥离分支新增 `restoreCarvedTraceMarkPayload`(parse.go)。地址残迹存在 ∧ 剥离后 payload 首字段**纯数字**(是 pid,非动作字母)时,按结构还原成规范 `B|`/`E|`/`C|` 串,**重新进入既有原生 parser/gate 字节等价**。还原后 `parseTraceMark` 对变体与标准同构串产出逐字相同的 action/spanPID/name/value(pin `TestCarvedTraceMarkParsedFields` 双腿比对)。span 配对天然点亮:query.go 同 pid 栈配对只认 `SpanAction` B/E + 行 `ev.PID`(=ftrace 线程 pid,非 payload N),客户 begin/end 同 comm 同行 pid → 正确成窗。
+
+### 16.1 B/E/C 分类真值表 + gate 判据 + N 语义
+
+**还原真值表**(判据全精确结构信号,无启发式;字段按 `|` 分段,**绝不按空格切**):
+- 首字段**非纯数字** → 非变体,`ok=false` fail-closed 回退 pre-§16 路径(标准 `0x<addr>: B|…` 已在上游 `isDirectTraceMarkPayload` pass-through 分支返回,永不进还原)。首字段 **>8 位数字**同样拒绝(P3:Linux pid_max ≤ 2^22 = 7 位,8 位封顶宽裕;9+ 位是时间戳/hash 数据非 pid,pin 9 位反例)。
+- `<pid>`(pid 后无 `|`) → **End**(`E|<pid>`)。
+- `<pid>|<tag>`(pid 后仅一个 tag 字段,无 name) → **End**(`E|<pid>|<tag>`,与标准 `E|1252|I39`、`E|1727|M0538` 同构,donghu_tieba_frame.systrace + 无损参考采集佐证)。
+- `<pid>|<name>[|<tag>]`(pid 后有 name 字段,且 name 与 tag 之间**无独立纯数值字段**) → **Begin**(`B|<pid>|<name>[|<tag>]`,尾 tag 随原生 `B|pid|name|<tag>` 落 value)。
+- `<pid>|<name>|<纯数值>`(独立 `|` 尾字段为数值/cookie,非 tag) → **Counter**(`C|`,4 字段形,donghu 实证 `C|60194|Heap size (KB)|71214`)。
+- **`<pid>|<name>|<纯数值>|<tag>` → Counter(P1-① 复核修,5 字段形)**:真实 HarmonyOS counter 把**值放中间、tag 放尾**(donghu 实证 `C|1252|H:VSync-rs|0|I38`、`C|8091|H:Heap size (KB)|15872|M47`;corpus 28/60 是 5 字段形)。counter 判据 = "**name 之后、tag 之前存在独立纯数值字段**",非"只看末字段"——初版只看末字段把全部 5 字段 counter 误判 Begin,**实测伪造 5ms 假 `H:VSync-rs` 同步 span**(counter 行被 push 进 B 栈 + 后续 unmatched End pop 成窗)。
+- **value-less counter 不可约歧义(P1-② 显式披露)**:`C|60194|Heap` 削后 `60194|Heap` 与 carved Begin `15|setCoreSettings` **字节不可区分**(转换工具统一吞 B|/C| 前导),无精确信号可分 → 默认判 **Begin**(频率论证:donghu 真实 corpus 60/60 counter 全带值字段、零 value-less;2 字段 Begin 是主导 span 形)。误判后果=悬挂 B:**孤立时惰性**(未闭合 B 不产 span,pin 实证 0 span);**残余风险**=同线程后续出现 unmatched E 时悬挂 B 会吃掉它伪造短 span 并级联错配整条线程栈(实测:`outerSpan-B → valueless-C-as-B → E` 序列产 1ms 假 Heap span 且 outerSpan 丢失)。分类侧无精确信号可修;若需进一步加固属 query.go 栈语义(未闭合 B 不参与后续 E 配对),**本批地盘禁碰 query.go,留主会话/后批裁定**。名域启发(H: 前缀/已知 counter 名)= 嘈声信号,按红线禁作硬分类。
+
+**tag 家族(correction #1,无损参考采集实证)**:tag 不止 `I<num>` — 无损对照片段实证 `M0538`(`E|1727|M0538`、`B|1727|H:…|M0538`)。`isInstanceTag` 判据 = **单大写字母 + 纯数字**(`^[A-Z][0-9]+$`,覆盖 I38/I33/M0538),仍精确:真实 span name 无此确切形态。letter 家族**不闭于 I**(narrow 回 I-only → `M0538` 误判 Begin,pin `end_mtag` 必红实证)。
+
+**name 含空格/冒号/数字(correction #2,防误切)**:name 字段可含空格/冒号/数字(`Choreographer#doFrame 1255154`、`H:…total ProcessedNodes: 118`),按 `|` 分段判定,**不按空格切**;"尾字段纯数值=counter"判据只对 `|` 分隔出的**独立**尾字段生效——`Choreographer#doFrame 1255154` 是**单字段** name 含内嵌数字(不是 name|数值两字段),恒判 Begin 非 counter(pin `TestCarvedTraceMarkSpaceyNameNotCounter` 端到端成 Begin span)。
+
+**counter/async 安全**:数值尾映射 `C|` 而非 B/E,`findSpanWindowsCompacted` 只有 B/E 进同步栈(C 只喂 counter-delta 累加器读 SpanValue),**变体 counter 永不伪造假 span 窗**(pin `TestCarvedTraceMarkCounterVariantNoFalseSpan`)。
+
+**gate 判据(红线,精确信号硬解析门;F1 复核收紧)**:还原**仅**在变体签名触发 = 前缀**字面以 `0x`/`0X` 开头**(F1:`tracePrintPrefixLooksLikeAddress` 单独会放行任意全 hex 词——`cafe:`/`1248:` 都过;pass-through 分支可以宽,因其 payload 仍带动作字母是第二精确因子,但还原分支若沿用宽门,`print: 1248: 15` 会伪造 `E|15`,伪 E 在 ev.PID 键控线程栈上弹掉真在开 B → **级联污染整条线程栈**,故还原分支加字面 0x 硬门)∧ 全 hex 残迹 ∧ 剥离后首字段 `isAllDigits` 且 ≤8 位。标准 `print: B|…` / `tracing_mark_write: B|…` / 标准地址剥离 `0x<addr>: B|…`(动作字母仍在,上游 pass-through 先赢)三路**字节不变**;pass-through 分支的宽前缀行为(`cafe: B|20|x` 照剥)**保持 pre-§16 字节稳**(pin 实证)。裁定=**无条件识别**(未闭集化 harmony flavor):签名足够精确——标准 trace 不产 `0x<addr>: <十进制数>…` 形态的 mark(标准 mark 前导恒为动作字母),故无标准反例误触发;若未来出现标准 `0x<addr>:` + 纯数字 payload 的合法 mark 反例再闭集化(§7.11 C 类先例待命)。
+
+**值域(P3)**:counter 判据用的"纯数值" = 常规十进制字面(可选正负号+数字+至多一个小数点,`isAllNumeric`),**不认** Inf/NaN/hex 浮点/指数形——那些是 name 不是值,不得把 Begin 翻成 Counter(pin `48|foo|Inf`→Begin)。
+
+**N 语义/普遍性**(呼应真实抽样;P2-3 复核修正):N = 容器 ns pid(非 host pid),恒定跨同容器 span;它进 `SpanPID`。**配对按 `ev.PID`(ftrace 行 pid),SpanPID 零参与配对——SpanPID=容器 ns pid 仅作 span 主体标识**;fixture 能配窗是因为同线程的 B 与 E 行共享行 pid 6565(findSpanWindowsCompacted 栈按 ev.PID 键控)。客户变体丢的是动作字符,行 pid 未受损,故还原动作后配对天然正确。此变体是转换工具的**系统性丢字符**(非单行损坏),同一 trace 内所有 print mark 一致受影响,还原对全体无条件生效。**S/F async 不可重建(P3 披露)**:carved S/F 丢动作字母后 cookie 与 counter 值不可分,donghu corpus 零 S/F print mark → out-of-distribution,不猜测不还原。**tag 形短名碰撞(P3 披露)**:2 字段 `<pid>|V8` 类(name 恰为 `^[A-Z][0-9]+$`)判 End——真实采集里 `<pid>|<tag>` End 行铺天盖地而恰叫 V8/T1 的 span 罕见,取舍已 pin(`100|V8`→E)。
+
+**Pin**(parse_carved_trace_mark_test.go,9 测试):①还原真值表(begin/带I-tag/带M-tag/含空格 name/裸 end/仅tag end/M-tag end/counter 4·5 字段/value-less 歧义默认B/tag形短名判E/Inf·NaN 非值)②variant vs standard parse 逐字同构(含 M-tag、含空格 name、5 字段 counter 值落 SpanValue)③gate 隔离(标准 direct + **无损参考采集语料** + F1 非-0x 反例 `1248: 15`/`cafe: 99|open db` 必不还原 + `0X` 大写同签名 + pass-through 宽前缀 `cafe: B|20|x` pre-§16 字节稳 + 9 位 pid 反例/8 位过)④无损参考行端到端 `ParseLine` 字节稳 ⑤含空格 name 恒判 Begin 非 counter ⑥counter 无假 span ⑦**真实 donghu counter corpus 回放**(11 carved payload 全还原 C + counter/End 交错序列 0 span 窗 + 5 字段值可被 counter-delta 消费)⑧value-less 歧义(默认 B + 孤立悬挂 B 0 span)⑨真实衍生 fixture(31 行,含 M-tag 行 + 2 counter 行)端到端 `span_window(bindApplication)` 定位 + `event_search(trace_mark)` 可达 + fixture counter 零假窗。突变实证(5 项各自必红后还原):还原摘除→24 块失败;`isAllDigits` gate 摘除→prose 误还原;tag 收窄回 I-only→`M0538` 误判 Begin;**0x 字面门摘除→`1248: 15` 伪 E 还原(F1)**;**numeric-mid counter 规则摘除→5 字段 counter 误判 Begin(P1-①)**。

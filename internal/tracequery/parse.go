@@ -2714,11 +2714,209 @@ func normalizeTraceMarkPayload(fields string) string {
 	if idx := strings.Index(fields, ":"); idx > 0 && idx+1 < len(fields) {
 		prefix := strings.TrimSpace(fields[:idx])
 		payload := strings.TrimSpace(fields[idx+1:])
-		if tracePrintPrefixLooksLikeAddress(prefix) && isDirectTraceMarkPayload(payload) {
-			return payload
+		if tracePrintPrefixLooksLikeAddress(prefix) {
+			// Standard address-carved mark: "0x<addr>: B|pid|name" — the payload
+			// still leads with the B|/E|/C|/S|/F| action letter; pass it through
+			// byte-identical.
+			if isDirectTraceMarkPayload(payload) {
+				return payload
+			}
+			// §16 T-span variant: a HarmonyOS print-mark converter (trace_streamer
+			// suspect) ate the leading action letter+pipe and left a "0x0:" address
+			// residue, so the carved payload leads with the container-ns pid instead
+			// of B|/E|/C|. Restore the action from structure; the canonical form then
+			// re-enters the SAME parser/gate as a native mark.
+			//
+			// F1 gate (tighter than the pass-through above): the RESTORATION arm
+			// additionally requires the prefix to LITERALLY begin with 0x/0X.
+			// tracePrintPrefixLooksLikeAddress alone accepts any all-hex word
+			// ("cafe", "1248") — fine for the pass-through, whose payload still
+			// carries the action letter (a second precise factor), but fatal for
+			// restoration: "print: 1248: 15" would forge E|15 and a forged E pops a
+			// REAL open B off the per-thread (ev.PID-keyed) span stack, cascading
+			// corruption down the whole thread. The full §16 signature is therefore:
+			// literal 0x prefix ∧ all-hex residue ∧ first payload field pure digits.
+			if strings.HasPrefix(strings.ToLower(prefix), "0x") {
+				if restored, ok := restoreCarvedTraceMarkPayload(payload); ok {
+					return restored
+				}
+			}
 		}
 	}
 	return fields
+}
+
+// restoreCarvedTraceMarkPayload rebuilds the canonical B|/E|/C| trace-mark form
+// from the §16 customer variant, where the converter dropped the leading action
+// character (B|/E|/C|/S|/F|) and the payload — after the "0x0:" address residue
+// is carved — begins with the container-ns pid.
+//
+// Discriminator (all precise structural signals, no heuristics):
+//   - first field MUST be pure digits (the pid) and at most 8 digits — Linux
+//     pid_max caps at 2^22 (7 digits); longer digit runs are data, not pids,
+//     and are NOT restored (fail-closed);
+//   - "<pid>"                      → End   (bare pid, no field after it)
+//   - "<pid>|<tag>"                → End   (only a <UPPER><digits> tag after the
+//     pid, no name; standard analogue: "E|1252|I39", "E|1727|M0538")
+//   - "<pid>|<name>[|<tag>]"       → Begin (a name field follows the pid; the
+//     optional trailing tag rides along as in "B|8091|H:…|I39")
+//   - "<pid>|<name>|<numeric>"     → Counter (4-field form, e.g. carved
+//     "C|60194|Heap size (KB)|71214")
+//   - "<pid>|<name>|<numeric>|<tag>" → Counter (5-field form, e.g. carved
+//     "C|1252|H:VSync-rs|0|I38"): real HarmonyOS counters put the VALUE BETWEEN
+//     the name and the trailing tag, so the counter test is "does any
+//     independent field after the name and before the tag parse as a plain
+//     number", NOT "is the last field numeric". Counters map to C| so they can
+//     never forge a sync span (only B/E enter the per-thread span stack).
+//
+// Pairing note: findSpanWindowsCompacted pairs B/E on ev.PID — the ftrace ROW
+// pid — not on this payload pid. The restored SpanPID (container-ns pid N)
+// identifies the span subject only; pairing works because a thread's B and E
+// rows share the same row pid.
+//
+// Disclosed irreducible ambiguities (converter eats B|/E|/C|/S|/F| uniformly):
+//   - VALUE-LESS counters: a carved "C|60194|Heap" arrives as "60194|Heap",
+//     byte-identical to a carved Begin "B|15|setCoreSettings" → "15|setCoreSettings".
+//     No precise signal separates them; default is Begin (real corpora:
+//     donghu has 60/60 counters WITH a value field and zero value-less ones,
+//     while 2-field Begins are the dominant span form). A misjudged value-less
+//     counter becomes a dangling B: alone it produces NO span (unclosed B is
+//     inert), but if the same thread later carries an unmatched E the dangling
+//     B can consume it and forge a short span — documented residual risk,
+//     see ledger §16.1.
+//   - TAG-SHAPED SHORT NAMES: a 2-field carved Begin whose name itself matches
+//     ^[A-Z][0-9]+$ (e.g. a span literally named "V8" or "T1") is judged End,
+//     because "<pid>|<tag>" End rows are pervasive in real captures while
+//     spans named exactly like a tag are not. Same-family tradeoff, disclosed.
+//   - ASYNC S/F cannot be reconstructed: a carved S/F loses the action letter
+//     AND its cookie is indistinguishable from a counter value; real corpora
+//     (donghu) contain zero S/F print marks, so this stays out-of-distribution
+//     and unrestored rather than guessed.
+func restoreCarvedTraceMarkPayload(payload string) (string, bool) {
+	payload = strings.TrimSpace(payload)
+	if payload == "" {
+		return "", false
+	}
+	parts := strings.Split(payload, "|")
+	pid := strings.TrimSpace(parts[0])
+	if !isAllDigits(pid) {
+		// First field is an action letter or prose, not a carved pid — not the
+		// variant. (A standard "0x<addr>: B|…" already returned above.)
+		return "", false
+	}
+	if len(pid) > 8 {
+		// Longer than any Linux pid (pid_max ≤ 2^22, 7 digits; 8 is generous)
+		// — a timestamp/hash datum, not a carved pid. Not restored.
+		return "", false
+	}
+	// The canonical restored form always keeps the pid as the field right after
+	// the action letter, exactly as native "B|<pid>|…" / "E|<pid>…" — the join
+	// below therefore reattaches the whole original payload (pid + tail).
+	switch len(parts) {
+	case 1:
+		// "<pid>" — bare End.
+		return "E|" + pid, true
+	case 2:
+		f1 := strings.TrimSpace(parts[1])
+		if isInstanceTag(f1) {
+			// "<pid>|<tag>" — End carrying only an instance tag, no name
+			// (isomorphic to the native "E|1252|I39" shape). Disclosed tradeoff:
+			// this also captures a Begin whose literal name is tag-shaped ("V8").
+			return "E|" + payload, true
+		}
+		// "<pid>|<name>" — Begin with a name and no tag. Disclosed tradeoff:
+		// this also captures a value-less counter ("C|60194|Heap" carved) —
+		// irreducible, see the function comment.
+		return "B|" + payload, true
+	default:
+		// Three or more fields: "<pid>|<name>|<tail…>".
+		last := strings.TrimSpace(parts[len(parts)-1])
+		if isInstanceTag(last) {
+			// Trailing tag: counter vs Begin is decided by whether an
+			// INDEPENDENT plain-numeric field sits between the name and the
+			// tag — the real 5-field counter shape ("C|1252|H:VSync-rs|0|I38"
+			// carves to "1252|H:VSync-rs|0|I38"). Checking only the last field
+			// would misjudge every such counter as Begin and forge a fake sync
+			// span out of the counter row plus a later unmatched End.
+			for _, mid := range parts[2 : len(parts)-1] {
+				if isAllNumeric(strings.TrimSpace(mid)) {
+					return "C|" + payload, true
+				}
+			}
+			// "<pid>|<name>|…|<tag>" with no numeric mid-field — Begin; the
+			// trailing tag rides along exactly as native "B|pid|name|I<n>".
+			return "B|" + payload, true
+		}
+		if isAllNumeric(last) {
+			// "<pid>|<name>|<numeric>" — 4-field counter/cookie form, NOT a
+			// tag. Map to C so the counter-delta path can read the value and
+			// the sync-span stack (B/E only) can never forge a span window.
+			return "C|" + payload, true
+		}
+		// Any other trailing field: treat the whole tail as a Begin name/payload
+		// (the native parser keeps parts[3:] in value/raw for literal search).
+		return "B|" + payload, true
+	}
+}
+
+// isInstanceTag reports whether a trace-mark field is a HarmonyOS instance /
+// marker tag of the form "<UPPER><digits>" — a single uppercase letter followed
+// by pure digits (e.g. "I38", "I39", "M0538"). These ride on both End rows
+// ("E|1252|I39", "E|1727|M0538") and the tail of Begin rows
+// ("B|8091|H:…|I39", "B|1727|H:…|M0538") and are never a span name. The letter
+// family is NOT closed to I: undamaged reference captures (both tracing_mark_write
+// and print, container-ns pid) show M-tags on the same Render()/frame spans, so
+// the gate is structural (^[A-Z][0-9]+$), not an I-literal — still precise, a
+// real span name never has this exact shape.
+func isInstanceTag(f string) bool {
+	f = strings.TrimSpace(f)
+	if len(f) < 2 {
+		return false
+	}
+	if f[0] < 'A' || f[0] > 'Z' {
+		return false
+	}
+	return isAllDigits(f[1:])
+}
+
+// isAllDigits reports whether s is non-empty and every rune is an ASCII digit.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// isAllNumeric reports whether s is a PLAIN integer/decimal literal (a counter
+// reading or async cookie): optional sign, digits, at most one dot. The value
+// domain is deliberately tighter than strconv.ParseFloat, which also accepts
+// "Inf"/"NaN"/hex floats/exponents — those are names, not counter values, and
+// must not flip a Begin into a Counter.
+func isAllNumeric(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	if s[0] == '+' || s[0] == '-' {
+		s = s[1:]
+	}
+	digits, dots := 0, 0
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] >= '0' && s[i] <= '9':
+			digits++
+		case s[i] == '.':
+			dots++
+		default:
+			return false
+		}
+	}
+	return digits > 0 && dots <= 1
 }
 
 func isDirectTraceMarkPayload(fields string) bool {

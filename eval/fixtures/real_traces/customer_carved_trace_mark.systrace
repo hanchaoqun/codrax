@@ -1,0 +1,31 @@
+# tracer: nop
+#
+# Curated excerpt of a real HarmonyOS device capture whose print-mark
+# converter (trace_streamer suspect) dropped the leading action character
+# (B|/E|/C|/S|/F|) and left a "0x0:" address residue, so standard hitrace
+# print marks arrive as "print: 0x0: <pid>[|<name>][|I<tag>]".
+# Rows below are the real q7_line140711 neighborhood; the closing E for the
+# com.xs.fm.lite bindApplication span is appended (from the same thread's
+# later close) so span_window can pair B/E on the restored marks. Pairing keys
+# on the ftrace ROW pid (6565), not on the payload pid: N=15 is the
+# container-ns pid and identifies the span subject only (constant across
+# setCoreSettings/bindApplication spans).
+# Tags ride End and Begin tails as <UPPER><digits>: I38/I33 (instance) and the
+# M0538 marker rows exercise the non-I tag family from undamaged reference caps.
+# The two counter rows are carved forms of real donghu counter payloads
+# (5-field value-mid "C|1252|H:VSync-rs|0|I38" and 4-field "C|43417|VSYNC-app|1")
+# — they must restore to C|, never forge a sync span.
+  com.xs.fm.lite-6565   ( 6565) [007] ....  3680.819354: print: 0x0: 15|setCoreSettings
+  com.xs.fm.lite-6565   ( 6565) [007] ....  3680.819359: print: 0x0: 15
+ OS_IPC_25_48445-48445  ( 1248) [004] ....  3680.819366: print: 0x0: 48|H:validateDisplay|I38
+ OS_IPC_25_48445-48445  ( 1248) [004] ....  3680.819367: print: 0x0: 48|H:prepare|I38
+  com.xs.fm.lite-6565   ( 6565) [007] ....  3680.819379: print: 0x0: 15|bindApplication
+ OS_IPC_25_48445-48445  ( 1248) [004] ....  3680.819397: print: 0x0: 48|H:checkIdle|I38
+ OS_IPC_25_48445-48445  ( 1248) [004] ....  3680.819457: print: 0x0: 48|I38
+ OS_IPC_25_48445-48445  ( 1248) [004] ....  3680.819458: print: 0x0: 48|I38
+   OS_HCodecLoop-50842  (40663) [000] ....  3680.819478: print: 0x0: 663|H:[hcodec][8_e]WaitFence for seq=2664897987|I33
+   RSUniRenderThr-1727  ( 1727) [002] ....  3680.819500: print: 0x0: 1727|H:RSUniRenderThread::Render()|M0538
+   RSUniRenderThr-1727  ( 1727) [002] ....  3680.819520: print: 0x0: 1727|M0538
+   RSHardwareThr-1450   ( 1252) [003] ....  3680.819600: print: 0x0: 1252|H:VSync-rs|0|I38
+  OS_VSyncThread-43418  (43417) [001] ....  3680.819610: print: 0x0: 43417|VSYNC-app|1
+  com.xs.fm.lite-6565   ( 6565) [007] ....  3680.822000: print: 0x0: 15
