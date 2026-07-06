@@ -3226,6 +3226,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				raw,
 			)
 		}
+		writeTraceCPUFrequencyCensus(&b, result.CPUFrequencyCensus)
 		b.WriteString("\n")
 	}
 	if len(result.EvidencePack) > 0 {
@@ -4092,6 +4093,35 @@ func writeTracePluginSummary(b *strings.Builder, item tracequery.TracePluginSumm
 	)
 }
 
+// writeTraceCPUFrequencyCensus renders the RFC #71 (§8.2 c4) pre-truncation
+// frequency tier ladder next to the truncated Events face. Two short rows:
+// the census header (counts, cpu set, distinct tiers, range boundary) and the
+// exhaustive ascending khz×rows listing (shared formatter with the evidence
+// fact — single home). Only present when the display cap actually hid
+// matched cpu_frequency rows.
+func writeTraceCPUFrequencyCensus(b *strings.Builder, census *tracequery.CPUFrequencyCensus) {
+	if census == nil {
+		return
+	}
+	limitRows := ""
+	if census.FrequencyLimitRows > 0 {
+		limitRows = fmt.Sprintf(" limit_rows=%d", census.FrequencyLimitRows)
+	}
+	fmt.Fprintf(b, "- cpu_frequency_census(频点普查) matched_rows=%d displayed_rows=%d%s cpus=%s distinct_khz=%d range=%d..%dkHz lines=%d-%d — census aggregated over ALL matched cpu_frequency rows in the queried window BEFORE the chronological display truncation; the tier ladder below is exhaustive for this window even though the row list above is not\n",
+		census.MatchedFrequencyRows,
+		census.DisplayedFrequencyRows,
+		limitRows,
+		traceIntList(census.CPUs),
+		len(census.Tiers),
+		census.MinKHz,
+		census.MaxKHz,
+		census.LineStart,
+		census.LineEnd,
+	)
+	fmt.Fprintf(b, "- cpu_frequency_census_tiers khz×rows=%s\n",
+		tracequery.FormatCPUFrequencyCensusTiers(census.Tiers, 24))
+}
+
 func traceFrequencyResidencySummary(items []tracequery.CPUFrequencyResidency) string {
 	if len(items) == 0 {
 		return ""
@@ -4104,7 +4134,33 @@ func traceFrequencyResidencySummary(items []tracequery.CPUFrequencyResidency) st
 		}
 		parts = append(parts, fmt.Sprintf("%dkHz/%.3fms", item.Frequency, item.DurationMs))
 	}
-	return " freq_residency=" + strings.Join(parts, ",")
+	out := " freq_residency=" + strings.Join(parts, ",")
+	if len(items) > 4 {
+		// RFC #71 (§8.2 c4): the "+N" fold hides N chronological residency
+		// SEGMENTS — on the c4 window the 807000kHz tier lived entirely
+		// inside "+26", so the folded line silently misstated the per-cpu
+		// ladder boundary. Append the distinct-tier census (count + min..max)
+		// computed over the FULL segment list; unfolded lines (≤4 segments)
+		// stay byte-identical.
+		distinct := map[int]bool{}
+		minKHz, maxKHz := 0, 0
+		for _, item := range items {
+			if item.Frequency <= 0 {
+				continue
+			}
+			distinct[item.Frequency] = true
+			if minKHz == 0 || item.Frequency < minKHz {
+				minKHz = item.Frequency
+			}
+			if item.Frequency > maxKHz {
+				maxKHz = item.Frequency
+			}
+		}
+		if len(distinct) > 0 {
+			out += fmt.Sprintf(" distinct_khz=%d range=%d..%dkHz", len(distinct), minKHz, maxKHz)
+		}
+	}
+	return out
 }
 
 func tracePriorityDetail(td tracequery.ThreadDuration) string {

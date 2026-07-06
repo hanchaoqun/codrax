@@ -404,6 +404,13 @@ func Run(idx *Index, q Query) Result {
 		res.View = "event_search"
 		res.Events = EventSearch(idx, q)
 		res.EvidencePack = evidenceFromEvents(res.Events)
+		// RFC #71 (§8.2 c4): pre-truncation frequency tier census — nil
+		// unless the chronological display cap actually hid matched
+		// cpu_frequency rows (non-truncated results stay byte-identical).
+		if census := ComputeCPUFrequencyCensus(idx, q, res.Events); census != nil {
+			res.CPUFrequencyCensus = census
+			res.EvidencePack = append([]EvidenceFact{census.EvidenceFact()}, res.EvidencePack...)
+		}
 	}
 	res.Caveats = append(res.Caveats, flavorCaveats...)
 	res.Caveats = append(res.Caveats, platformCaveats...)

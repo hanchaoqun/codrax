@@ -465,7 +465,14 @@ type Result struct {
 	PerfTimeline                *PerfTimelineResult     `json:"perf_timeline,omitempty"`
 	WindowSweep                 *WindowSweepResult      `json:"window_sweep,omitempty"`
 	Recipe                      *RecipeResult           `json:"recipe,omitempty"`
-	EvidencePack                []EvidenceFact          `json:"evidence_pack,omitempty"`
+	// CPUFrequencyCensus is the RFC #71 (§8.2 c4) pre-truncation frequency
+	// tier ladder for event_search results whose chronological display cap
+	// hid matched cpu_frequency rows: distinct kHz tiers + per-tier row
+	// counts + cpu set, aggregated in the SAME match pass as the display
+	// rows. Additive only — nil whenever the Events face already shows every
+	// matched cpu_frequency row.
+	CPUFrequencyCensus *CPUFrequencyCensus `json:"cpu_frequency_census,omitempty"`
+	EvidencePack       []EvidenceFact      `json:"evidence_pack,omitempty"`
 	Caveats                     []string                `json:"caveats,omitempty"`
 	// Compactions are the typed truncation records for this result (E4).
 	// They ride ALONGSIDE the prose compaction caveats (which stay verbatim);

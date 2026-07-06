@@ -51,6 +51,10 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	limit := ViewCapacityFor(q.View).ClampLimit(q.Limit)
 	matchedTotal := 0
 	lastParsedTs := 0.0
+	// RFC #71 (§8.2 c4): the census accumulates in this same match pass —
+	// the scan already runs past the display limit to count matchedTotal,
+	// so the full tier ladder costs O(distinct tiers) extra memory only.
+	census := newCPUFrequencyCensusAcc(typeSet)
 	var events []EventView
 	for lineNo := 1; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
@@ -128,6 +132,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 				goto nextLine
 			}
 			matchedTotal++
+			census.observe(ev)
 			if len(events) < limit {
 				idx.Events = append(idx.Events, ev)
 				events = append(events, EventView{
@@ -193,6 +198,13 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		TimeEnd:                     end,
 		Events:                      events,
 		EvidencePack:                evidenceFromEvents(events),
+	}
+	// RFC #71 (§8.2 c4): publish the pre-truncation tier ladder when the
+	// display cap hid matched cpu_frequency rows, and lead the evidence pack
+	// with it so the boundary truth reaches the typed observation face.
+	if c := census.finalize(events); c != nil {
+		res.CPUFrequencyCensus = c
+		res.EvidencePack = append([]EvidenceFact{c.EvidenceFact()}, res.EvidencePack...)
 	}
 	res.Caveats = append(res.Caveats,
 		fmt.Sprintf("streamed_event_search=true; scanned %d line(s) without building or caching a full trace index", idx.ScannedLineCount))
