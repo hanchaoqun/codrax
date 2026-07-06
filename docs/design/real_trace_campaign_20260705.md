@@ -1175,3 +1175,30 @@ func main() {
 
 复核要点:①N1/N3/N4 三项与 q1-B1/B2/B3 是同一"depthless-heavy 投影在头部面全灭"病灶的四个出口(结论行、总览 cell、覆盖行、锚),P0-A 一批修完后 q2 总览应给出 E10 lead+相位披露;②N2/N4/N6 共用同一底座事实——节点 StartTs/EndTs 已在手(`trace_causal_projection.go:1255-1260`)而三个消费点(R2 合并、分子、跨谓词互指)都不读区间,一次引入共享区间重叠 helper 三处受益;③N7 修向①的"答案引用→强制佐证"与 :2965 既有反向 coverage 检查共用变体匹配器(:3322-3374),不新造解析;④本节全部修向复核过"精确信号硬门/嘈声信号软引导"红线(N1 用 len==0、N2/N4 用区间代数、N5 用数值比较 gate、N7② 用 typed Predicate、N8① 用 dest_proc 字段;披露/互指/合成类全为软面);⑤q2 标本坐标(E10 双 aggregate 备注 :766-767、三谓词同段 :583-585、假 churn 快照行 :743-744、死窗锚 :551)供回归 fixture 取材;⑥两个跨 trace 形态(双工件+纯 Android)首次入库,P0-E/P0-A 的 golden 需各补一个 Android 双工件合成 fixture。
 
+
+## §12 客户回访反馈#3 逐项代码级归因(q4 东湖 doFrame 3703298,2026-07-06)
+
+标本=cust_trace_q4.txt(354 行,单 ftrace 15.8MiB,Choreographer#doFrame 3703298,窗口 33872.289161–33872.408222=119.061ms)。客户目录名"根因XX-UIsleepOpenDir"=ground truth,系统 E1 行已完整解析真根因(monitor_contention 112.223ms,持有者 NetworkKit_AssetsUtil_Operate_0-42067,持有点 AssetManager.list(AssetManager.java:1258))却被 lead/rank/散文三面全埋。归因=9-agent 工作流+9 对抗复核(8 upheld;Q4-K 复核遇 API 503,三承重主张由主会话抽验属实:头区仅 blocking=%d 计数 trace_query.go:3261-3263、blob 32KB head24K+tail4K 切中段 blob.go:44/50-53、补充面允许表无 blocking_kind 前缀 answer_document_evaluator.go:12563)。全文归因表见工作流产物(scratchpad/q4_attr_full.txt 落档时点),本节收敛要点。
+
+### §12.1 归因表(产生链要点)
+
+- **Q4-A[P0,NEW]** 锁证据 lead/rank 双面结构性排除:①rank 候选源全集(query.go:8441 buildRootCauseRankFrom)零锁车道,parseLockContentionPayload 唯一生产调用点=query.go:11868(critical_blocking builder),RootCauseRankItem(types.go:1777)无 BlockingKind/Peer/HolderSite 字段;锁 span 至多成泛型 trace_span 行(:8598)且不在 rootCauseTypeCanBeDirectOnChain 白名单(:10190-10203)→降 adjacent tier 永无头名;②lead 双门(tree.go:4313-4324):一级只读 primary rank 桶,二级 fallback 只准 Chain|Depthless — E1/E2 是 Kind=self,两门皆拒;结论量词取 CumulativeImpactMS=1.136(tree.go:4431-4437)。registry 定位:blocking_span RowToken=true(rank 收编合法零新登记),monitor_contention 保持 refinement 不升 token。
+- **Q4-B[P0,NEW]** 承自门嘈声放行:attributeOnChainResourceItemsToWakeupDependency(query.go:10078-10123)material 判据 max(resourceMs=1.136, overlapMs≈112.1)≥max(16, target×0.35=39.26) 靠聚合窗重叠(嘈声)放行,EffectiveImpactMs 抬至 112.175(:10106-10108);on_chain tier 按 effective 排序(:9409-9414)→rank1;Score 承自后不重算(state_churn 有重算先例 :8677)→rank1 score 0.932<rank3 68.087 可见失谐。违反精确信号硬门红线。
+- **Q4-C[P0,repeat-of-§10-A1+A3]** 锁持有者下钻缺失=跨线程阻塞对象续链车道的 lock-holder trigger 翼;§10.2 P0-E 原文"binder 对端"不自动覆盖 monitor_contention,批次范围需显式扩为三形态(binder peer/lock holder/blocking span object)。
+- **Q4-D[P1,NEW]** 反转候选误报:分类器只看 waker/wakee prio 关系,无锁证据交叉核验;修向=同窗 monitor_contention(对端已解析,时段覆盖)存在时降级/加注(typed 精确判据)+建议式持有者下钻与 A1 修向2 共件。
+- **Q4-E[P1,NEW]** 🎯 横幅反诬:锚真对(16547=用户点名线程),免责句拿帧号 3703298 当比对实体;与 §10-B1 同一 R2 比对链(tree.go:1905-1938)故障方向相反;analyzer 实体车道饥饿是 B1 修向 i 的共享前置(腿1 SG 先行)。
+- **Q4-F[P1,NEW,R4-2 生产面回归]** E1/E2 同锁双行:comm 形态(112.223) vs pid=42067 形态(112.214)差 0.009ms<3% 带,peer 标签文本不同逃 V4 折叠;对端身份按 PID 归一后可折。
+- **Q4-G[P2,NEW]** E5 机制构成句"+…+…共同作用"邀请加和误读(runnable 20.713 双现)— §7.10 红线(2)裁定落地面缺口;渲染措辞单源改+pin 随改。
+- **Q4-H[P2,NEW]** E6 影响点名册 3/4 静默截断(漏 udk-irq-11-92 无"等")— PTS 家族逃过 §6.2 审计的 cap。
+- **Q4-I[P2,NEW]** 快照选题面对 monitor_contention 对端实体零可见(锁持有者缺席快照);部分共因=§10-A3(peer_state display_only+4-note cap 掩埋)。
+- **Q4-J[P2]** 系统补充混入整窗睡眠 idle 行 — Q2 批过滤未覆盖补充车道入口,修落引擎发布点共享守卫。
+- **Q4-K[系统域裁定,NEW+repeat-of-§10-A3/C4/D1]** 散文不提锁=引擎/展示车道缺口非模型行为:bundle 组合文本>32KB 切 blob(head24K+tail4K),锁区块排序在 Window stats+frame timeline 之后确定性落中段盲区;头区仅 blocking=%d 计数零锁语义;Evidence pack 16 行 cap 追加序 chain→frame→rank→blocking 垫底双重出局;审计面允许表无 blocking_kind/holder_site 前缀(允许表级排除,比 4-cap 排序更硬)。行为互证:模型叙事与 head/tail 区逐一对应、中段 token 零。
+
+### §12.2 分批合并(含 §10/§11 全景)
+
+- **P0-E 引擎批**(范围显式扩):跨线程阻塞对象续链三形态(binder peer[HarmonyOS 已解析+Android dest_proc 兜底 §11-N8]/lock holder[Q4-C]/blocking span object[§10-A2])+rank 锁候选收编(Q4-A 修1,blocking_span RowToken 已 true)+承自门卫生(Q4-B:resourceMs 自身达标才 material,overlap 只辅助;Score 同步重算)+反转交叉核验(Q4-D)+bundle 头锁区块前置+pack 追加序(Q4-K 修1)+补充面允许表 blocking_kind/holder_site 前缀+per-type note 优先序(Q4-K 修3=§10-A3/C4 共因同座)。
+- **P0-A 锚定覆盖批**:§10-B1(锚裁定 i)/B2(覆盖披露+分子)/B3+§11-N1(lead 空桶弃梯+指路句)/N3(相位披露)/N4+Q4-A 修2(目标态已解析对端从句)+Q4-E 腿2。与 RCX 设计合流。
+- **N2 独立正确性小批**:跨查询窗重叠双算,区间 union(共享 helper 三收 N2/N4/N6)。
+- **SG 软引导批(可先行)**:4-note cap 优先序(§10 共因)+C4 折减消费+D1/Q4-K 修5 per-holder next-step 合成+Q4-D 建议式下钻+Q4-E 腿1 实体软引导+§11-N7 快照佐证义务。
+- **P1-H 卫生批**:§10-B4~B8/C3/C1+§11-N5/N6/N9+Q4-F(peer PID 归一折叠)/G/H/I/J。
+- **RCX(裁定先行,#83)**:分层表达三件套设计稿;吸收 Q4-A/Q4-B 表达面修向;病灶总证=q1-B1/B2/B3+q2-N1/N3/N4+q4-A(depthless/self-heavy 形态头部面全灭家族)。
