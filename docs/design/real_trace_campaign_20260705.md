@@ -1295,3 +1295,36 @@ SG-2 软引导批(A 双面+B delta 引导+C N11(b)+§16 R-recipe 黄金路径合
 
 ### §16.2 T-span 解锁(2026-07-06,客户 line 140711 邻域抽样)
 客户回传邻域一锤定音:转换工具(trace_streamer 嫌疑)**吃掉了 hitrace 标准 print mark 的前导动作字符 B|/E|(及 C|/S|/F|)**,留 `0x0:` 地址残迹。还原真值表(标准→变体):`B|15|setCoreSettings`→`0x0: 15|setCoreSettings`(Begin,pid 后有 name)/`E|15`→裸 `0x0: 15`(End,pid 后无字段)/`E|48|I38`→`0x0: 48|I38`(End,pid 后只 I-tag)/`B|48|H:validateDisplay|I38`→`0x0: 48|H:...|I38`(Begin)。**N 恒定性验证通过**(15 跨 setCoreSettings/bindApplication 恒定=容器 ns pid;15|setCoreSettings→裸 15 是 5µs 闭合活样本 pair)。begin/end 判据=pid 后"有无 name 字段"+尾字段"I-tag vs 纯数值(counter/async 防误判)",全精确结构信号→**可作硬解析门**(gate:`0x0:` 前缀+地址剥离后首字段纯数字,标准 trace 无此签名不误触发)。T-span 根修**解锁开工**(a2659e6619,只碰 parse.go,与 BLK 零文件重叠);fixture=line 140711 邻域 27 行(scratchpad q7_line140711_neighborhood.txt)。普遍性=该客户转换链特定形态(非 OS/vendor 普遍),无条件识别倾向(签名精确)或闭集化待批内定。
+
+## §18 回访#7/#8(q8 doFrame + q9 双trace对比)四维归因(2026-07-07)
+
+标本=customlogs/{cust_trace_q8_opendir.txt,cust_trace_q9_cmp.txt}。用户点名:①数字格式重试频繁;②对比场景降级。8-agent 工作流,维度A/D upheld,B/C 复核修正后入账(修正内容如下,原归因误述不采)。
+
+### §18.A 数字格式重试(NUM,P0,真实 blob 复现)
+- **P0-repeat** decimal→scalar 安全网(completionAggregateFactDecimalCountShouldBeScalar emit_investigation_complete.go:1141)被场景门 allowDecimalCountScalar(:1130,只开 HasExternalOnlyRuntimeArtifact||IsScalarAnswer||Intent==Trace)挡死 — q9 intent=root_cause 对比场景+trace 落 repo → 门关 → 浮点值 count fact 裸硬拒外泄。修=精确信号无条件改判(ParseFloat 成功∧ParseUint 失败∧members==0 → scalar_value,浮点进 count kind 任何语义下都是错的,不需场景门)。
+- **P0-new** 拒绝文案无字段路由:parseAggregateCountValue(answer_aggregate_fact.go:5124)只说"put units in unit and keep value numeric",不说"改 kind=scalar_value" → 模型 grouped→bucket→total 打转 5+
+## §18 回访#7/#8(q8 doFrame + q9 双trace对比)四维归因(2026-07-06→07;含复核修正,B-1 证伪)
+
+标本=customlogs/{cust_trace_q8_opendir.txt,cust_trace_q9_cmp.txt}(blob trace_query fn id jz0bwsq8/oduik768vaq9)。用户点名:①数字格式重试 ②对比降级。四维归因经对抗复核,**两项被证伪/修正,不原样入账**。
+
+### §18.A 数字格式重试(用户①,P0,upheld+真实 blob 复现)
+emit_investigation_complete aggregate_facts 浮点度量(supply_pressure 101084.884ms/density 77.70)被 count-kind(grouped_count/bucket_count)硬拒。两根因:
+- **根因1(场景门关安全网)**:decimal→scalar 自动纠偏 completionAggregateFactDecimalCountShouldBeScalar(emit_investigation_complete.go:1141)被 allowDecimalCountScalar 门(:1130-1139,仅 HasExternalOnlyRuntimeArtifact||IsScalarAnswer||Intent==Trace 开)关掉;q9 intent=root_cause、is_scalar_answer=false、trace 落 in-repo → 门关 → 裸硬拒。真实 blob 复现:"grouped_count \"CPU 0 调度竞争\" has non-integer count value \"10.503ms\"" → 模型把 ms 挪进 reason 散文才过。**+ members 守卫(:1145 members>0 跳过)使带成员浮点 fact 也失效**。修向=放宽门(精确信号:ParseFloat 成功∧ParseUint 失败∧len(Members)==0 无条件改判 scalar)。
+- **根因2(拒绝消息无字段路由)**:parseAggregateCountValue(answer_aggregate_fact.go:5124)浮点分支文案"non-integer count value; keep value numeric"不告诉模型改 kind=scalar_value → 模型 grouped→bucket→total_count 反复打转(blob round 4/5/6)。修向=Atoi 失败但 ParseFloat 成功时给字段路由导向。schema 描述(:100/:115)已正确(非 R2' 缺陷),缺的是运行期拒绝复述。
+
+### §18.B 对比降级(用户②)— **B-1 证伪,真凶=B-2 chain_required**
+- **B-1 member_set support_ref 门 = 证伪**:归因描述 pre-6f9b7987(2026-06-25)旧码;post-6f9b7987 runtime-only trace 线程名成员的 support_ref 豁免**可达且触发**(HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext synthetic clone,request_traits.go:1356/1515 → PerfBundle 无 ResolvedFiles → IsExternalSource → allowed_optional),两线程名+最坏路由实测门放行无降级。**不立修复项**。
+- **B-2 chain_required 一次性降级门(CONFIRMED,P1 非 P0)**:top_sleep 行 chain_required=true(stateDrilldownNeedsWakeupChainForSource query.go:4955,FragmentCount>=4 窄窗)与 state_churn 兄弟行 chain_required=false 跨 call 并存;wakeupChainDrilldownPendingDowngrade(emit_investigation_complete.go:3695-3733)只扫 chain_required=true 不 reconcile 兄弟 false 行,降级文案只点线程名无窗口归因。MarkCompletionGateOneShot 一次性(烧一轮重试非死循环→P1)。修向=(thread,state) 对 reconcile 兄弟 state_churn false 行 + 降级文案补窗口归因。
+
+### §18.C 对比总览退化(现象真,两处定性修正)
+- lead 全降背景(Finding#1,既有机制 upheld 不修):对比场景所有 typed rank 根因(supply/cpu/io_pressure)IsAggregateMetric→runtimeTraceProjNodeDemotedToBackground → primary 桶空 → RN-3(a) OnChainFallback 退 runnable/sleep 症状,fallbackNote"rank 候选均降背景"(runtime_tree.go:4407)。aggregate-only 主导时诚实退化=正确。
+- 散文头条 supply_pressure(P0,现象真+**交付链定性修正**):typed 对比 cell 已剥 AggregateMetric cause(runtime.go:1261),散文侧无等价门。**修正:非 reason 透传** — runtimeObservationOnly lane 下 model reason 被 answer_document_evaluator.go:3595 整段省略;真凶=finalizer 自由散文合成无 AggregateOnly-as-headline 软引导(defaults.go 三 SG 无此禁令)。修向=SG-2 finalizer 头条禁令(§17-A 同族,复用)。
+- 目标症状"—"(P1,§17-B,**裁定张力修正**):cell msCell(TargetSymptomMS)排除 Role==CausalHop hop-view 行→hop-only 目标返 0→dash;树覆盖行用 HopOnlyTargetSleepMS 呈关系句。**修正:非"无裁定纯回退"** — TargetSymptomMS F1 裁定(runtime_tree.go:4608)故意排除 hop-view 墙钟防双计;把 hop-only sleep 塞症状时长 cell 与 F1 冲突,须先解"hop-only sleep 是否=症状时长"裁定张力(不可当纯确定性回退直接补)。
+
+### §18.D 逐行(upheld witness)
+- fanout 冗余(P1):对比场景 3 投调单元 fanout,第1/2路同标签并行各对两 trace 重复 trace_query x2 + checkpoint"继续上次调查"叠加 → emit 次数异常多。→LANE 收敛评估。
+- q8 持有者 over-claim(P0):tid 42067(NetworkKit_AssetsUtil_Operate_0)phantom 不在 trace,散文把唤醒者 #RxComputationT 当持有者 + "属于 NetworkKit 组件在 RxJava 执行"组件归属推断当确证。→PROJ-HOLDER/SG(推断披露)。注:引擎面 wakeup-edge 回退持有者身份是 BLK/P0-E2a 已修车道,此标本 BLK 前;组件归属 over-claim 是散文层新项。
+- repeat witness:supply_pressure 跨线程累计当对比主指标(§17-A)/covered 94% 分母退整窗(§15.D gap③)/E5 名册±N 并列(§12 Q4-H)/系统补充"符号名称"表头错配(§17-D)。
+
+### §18 批次归口
+NUM 数字格式批(§18.A 两根因,emit_investigation_complete.go+answer_aggregate_fact.go,先行 P0)/CHAIN-RECONCILE(§18.B B-2,chain_required reconcile+文案,P1)/SG-2(§18.C 散文头条禁令[§17-A 合并]+q8 持有者组件归属披露)/P0-A+RCX²(§18.C 目标症状需先解 F1 裁定张力/covered 分母/名册)/LANE(fanout 收敛评估)。
