@@ -190,10 +190,17 @@ func TestDrillStatusVerdictFunction(t *testing.T) {
 }
 
 func TestRootCauseRankKeepsUnresolvedLockContentionOffTheDirectLane(t *testing.T) {
+	// GENUINELY unresolved: an ownerless contention whose only wakeup comes from
+	// the idle/swapper thread (pid 0) — resolveCounterpartViaWakeupEdge rejects a
+	// swapper waker (thread_presence.go: an idle-thread timeout wakeup names no
+	// real counterpart), so the §19 LCK-1 closing-wakeup fallback finds nothing to
+	// recover and the row correctly stays waiter-subject / off the direct lane.
+	// (When a REAL waker exists the row now resolves via the wakeup edge — pinned
+	// separately in lock_contention_ownerless_lck1_test.go.)
 	trace := `
         app-100 (100) [001] .... 5.000000: print: B|100|Lock contention on InternTable lock
         app-100 (100) [001] .... 5.000100: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
-     worker-200 (100) [002] .... 5.112000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+          <idle>-0   (-----) [001] .... 5.112000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
         app-100 (100) [001] .... 5.112223: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
         app-100 (100) [001] .... 5.112300: print: E|100
 `

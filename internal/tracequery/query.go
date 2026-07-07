@@ -12765,6 +12765,12 @@ func blockingSpanCandidateFromTraceSpan(span TraceSpanSummary) (CriticalBlocking
 		cand.Peer = info.Owner
 		cand.Waiters = info.Waiters
 		cand.HolderSite = info.HolderSite
+		// §19 清点②: preserve the parsed lock-object name so an ownerless
+		// contention row can still say WHAT it blocked on. Never overwrites a
+		// wait_object the caller already set.
+		if info.WaitObject != "" && cand.WaitObject == "" {
+			cand.WaitObject = info.WaitObject
+		}
 		cand.Summary += lockContentionSummarySuffix(info)
 	}
 	return cand, true
@@ -12838,6 +12844,13 @@ func collectBlockingSpanRows(idx *Index, stats WindowStats) []blockingSpanRow {
 //     phantom or absent) → recover the holder from the waiter's direct 1-hop
 //     wakeup edge; stamp HolderSource=wakeup_edge, keep the phantom on
 //     OwnerTidRaw, drop the phantom PID off the Peer.
+//  2b. Structured lock contention that is TYPED-OWNERLESS (§19 S1): the payload
+//     printed an EXPLICIT no-holder sentinel (`owner tid: 0` or the uint64(-1)
+//     form) or carried no owner tid at all → BlockingKind stays set but no real
+//     owner exists. Keep the typed contention semantics + the parsed wait_object
+//     (lock-object name), and route to the SAME payload-less wakeup-edge
+//     fallback: the waiter's closing wake IS the thread that released the lock.
+//     Never a phantom PID / OwnerTidRaw garbage number.
 //  3. Payload-less blocking span (no BlockingKind) → publish wait_object=span
 //     name and try the same wakeup-edge fallback for a counterpart candidate.
 func resolveBlockingSpanRowCounterpart(idx *Index, row *blockingSpanRow) {
@@ -12868,6 +12881,25 @@ func resolveBlockingSpanRowCounterpart(idx *Index, row *blockingSpanRow) {
 		// of pointing at a ghost id; preserve the raw tid for audit.
 		cand.OwnerTidRaw = rawTid
 		cand.Peer = ThreadRef{}
+		return
+	}
+	if cand.BlockingKind != "" && cand.Peer.PID <= 0 && strings.TrimSpace(cand.Peer.Comm) == "" {
+		// §19 S1 branch 2b: a recognised contention payload with NO resolvable
+		// owner — an explicit ownerless sentinel (`owner tid: 0` / uint64(-1)) or
+		// a payload that carried no owner tid slot at all. This is the typed
+		// post-condition of the sentinel-safe parse (BlockingKind set, no Peer).
+		// It previously fell through BOTH branches into the E2a dead corner (§19
+		// 病灶). Keep the typed contention semantics + the parsed wait_object and
+		// route to the payload-less wakeup-edge fallback: for an ownerless
+		// contention the waiter's CLOSING wake is the thread that dropped the lock.
+		// Crucially NO OwnerTidRaw is set (the sentinel is not a real tid → no
+		// garbage 9223372036854775807 disclosure, pin④).
+		if fb := resolveCounterpartViaWakeupEdge(idx, cand.Thread, cand.StartTs, cand.EndTs); fb.OK {
+			cand.Peer = fb.Waker
+			cand.HolderSource = CounterpartSourceWakeupEdge
+			cand.Confidence = counterpartDemotedConfidence(cand.Confidence)
+			cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartOwnerlessCaveat())
+		}
 		return
 	}
 	if cand.BlockingKind == "" {
@@ -12910,6 +12942,17 @@ func counterpartWakeupEdgeCaveat(rawTid int) string {
 		return fmt.Sprintf("counterpart inferred from the waiter's wakeup edge because the payload owner tid %d is not present in this trace; it is the thread that woke the waiter, not a payload-confirmed holder", rawTid)
 	}
 	return "counterpart inferred from the waiter's wakeup edge (no structured owner in the payload); it is the thread that woke the waiter, not a payload-confirmed holder"
+}
+
+// counterpartOwnerlessCaveat is the advisory sentence for a typed-ownerless
+// contention row (§19 S1 branch 2b): the payload named a contention lock but
+// printed an EXPLICIT no-holder sentinel (owner tid 0 or the uint64(-1) form) or
+// carried no owner tid at all, so there is no payload owner to name — the
+// counterpart is recovered from the waiter's closing wakeup edge. Deliberately
+// prints NO owner tid (the sentinel is not a real id), so no garbage number ever
+// reaches the disclosure (pin④).
+func counterpartOwnerlessCaveat() string {
+	return "contention payload named no holder (ownerless: owner tid 0 or uint64(-1) sentinel); counterpart inferred from the waiter's closing wakeup edge — the thread that released the lock, not a payload-confirmed holder"
 }
 
 // lockOwnerCommCollides guards the payload-direct holder path against a tid
@@ -13004,14 +13047,62 @@ func lockContentionInfoRichness(cand CriticalBlockingCandidate) int {
 	return score
 }
 
+// isBlockingLikeText screens a trace-span name for blocking-like vocabulary so
+// a payload-less span can still be carved as a blocking_span candidate. This is
+// a NOISY soft screen (free substring match), so its output only ever nominates
+// a candidate — every hard consumer downstream re-gates on typed fields
+// (BlockingKind, resolved Peer, drill status). Two §19 F1 de-noise rulings are
+// baked in (§1 precise-signal red line,误判实证):
+//
+//   - `io` REMOVED: it fired on animation#action / TimerIteration /
+//     AudioRenderSink / AudioVolume (the whole Audio DSP family) / H:…Context —
+//     none of them a block. Real IO blocking has its OWN typed lanes
+//     (io_latency / blocked_reason / d_state); it never needs a span-name
+//     fallback, so the token bought nothing but false positives.
+//   - `sync` KEPT but the VSync display family is EXCLUDED: bare `sync` matched
+//     every Choreographer#onVsync / requestNextVsync / jank_event_sync frame
+//     span (pure UI cadence, not a block). isVsyncCadenceText carves those out
+//     while still admitting genuine sync-primitive waits.
+//
+// `lock` is kept as-is: it does catch AudioRunningLock (a wakelock ACCOUNTING
+// span, not a contention wait) and UnlockMainThread, but a simple word boundary
+// cannot cleanly separate "holding/contention lock" from "wakelock accounting"
+// without a context model — over-engineering for a display-tier soft screen, so
+// it is left as a known low-signal admission (§19 F1 observation, not fixed
+// here; the typed BlockingKind gate keeps these out of every hard consumer).
 func isBlockingLikeText(name string) bool {
 	lower := strings.ToLower(name)
-	for _, token := range []string{"lock", "futex", "wait", "blocked", "binder", "sync", "mutex", "semaphore", "contention", "io"} {
-		if strings.Contains(lower, token) {
-			return true
+	for _, token := range []string{"lock", "futex", "wait", "blocked", "binder", "sync", "mutex", "semaphore", "contention"} {
+		if !strings.Contains(lower, token) {
+			continue
 		}
+		if token == "sync" && isVsyncCadenceText(lower) {
+			// The only `sync` hit is the VSync cadence family — not blocking-like.
+			continue
+		}
+		return true
 	}
 	return false
+}
+
+// isVsyncCadenceText reports whether an already-lowercased span name owes its
+// `sync` substring solely to the VSync frame-cadence family (Choreographer#
+// onVsync, requestNextVsync, jank_event_sync, …) and carries no OTHER
+// blocking-like token. Such spans are UI pacing, never a lock/IO wait, so the
+// `sync` screen must not admit them (§19 F1). If the name ALSO contains a real
+// blocking token (e.g. a hypothetical "vsync … lock wait"), this returns false
+// and the span is still admitted by that other token.
+func isVsyncCadenceText(lower string) bool {
+	hasVsyncFamily := strings.Contains(lower, "vsync") || strings.Contains(lower, "jank_event_sync")
+	if !hasVsyncFamily {
+		return false
+	}
+	for _, other := range []string{"lock", "futex", "wait", "blocked", "binder", "mutex", "semaphore", "contention"} {
+		if strings.Contains(lower, other) {
+			return false
+		}
+	}
+	return true
 }
 
 // threadRefResolved reports whether a ThreadRef names a concrete thread

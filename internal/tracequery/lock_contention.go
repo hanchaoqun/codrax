@@ -2,6 +2,7 @@ package tracequery
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -42,6 +43,30 @@ type lockContentionInfo struct {
 	Owner      ThreadRef
 	Waiters    int
 	HolderSite string
+	// WaitObject is the lock-object name the "Lock contention on <subj> (owner
+	// tid: N)" family prints as its subject (e.g. "thread suspend count lock",
+	// "the InternTable lock"). It was previously discarded (§19 清点②); it is the
+	// only description an ownerless contention row can carry, so it is preserved
+	// verbatim and published as the row's wait_object.
+	WaitObject string
+	// OwnerAbsent is set when the payload printed an EXPLICIT ownerless sentinel
+	// in the owner-tid slot — ART emits `owner tid: 0` (no-holder sentinel, §19
+	// 语料 23/84) and `owner tid: 18446744073709551615` (uint64(-1) sentinel,
+	// 7/84). These are NOT real thread ids: they must never become a Peer.PID or
+	// an OwnerTidRaw audit number (the old strconv.Atoi silently clamped the
+	// uint64-max form to MaxInt64 and printed the garbage 9223372036854775807).
+	// A typed ownerless row keeps its BlockingKind + WaitObject and routes to the
+	// payload-less wakeup-edge fallback, exactly like a span that carried no owner
+	// slot at all.
+	OwnerAbsent bool
+}
+
+// ownerlessTidSentinels are the two EXPLICIT no-holder values ART prints in the
+// "owner tid: N" slot: 0 (unowned) and math.MaxUint64 (uint64(-1)). Parsed with
+// ParseUint so the 20-digit uint64-max form is recognised exactly instead of
+// being clamped by a signed Atoi.
+func ownerTidIsSentinel(v uint64) bool {
+	return v == 0 || v == math.MaxUint64
 }
 
 // parseLockContentionPayload deterministically parses one trace-mark span
@@ -76,7 +101,17 @@ func parseMonitorContentionOwnerPayload(body string) lockContentionInfo {
 	}
 	owner := strings.TrimSpace(ownerPart)
 	if loc := lockContentionTrailTidRe.FindStringSubmatchIndex(owner); loc != nil {
-		info.Owner.PID, _ = strconv.Atoi(owner[loc[2]:loc[3]])
+		// Same sentinel-safe parse as the "owner tid: N" form (pin④): never let a
+		// uint64(-1) trailing tid clamp to MaxInt64.
+		if v, err := strconv.ParseUint(owner[loc[2]:loc[3]], 10, 64); err == nil {
+			if ownerTidIsSentinel(v) {
+				info.OwnerAbsent = true
+			} else if v <= math.MaxInt64 {
+				info.Owner.PID = int(v)
+			} else {
+				info.OwnerAbsent = true
+			}
+		}
 		owner = strings.TrimSpace(owner[:loc[0]])
 	}
 	// A "#A -->#B" hand-off chain names the FINAL holder last (§7.30.3 D1).
@@ -105,9 +140,24 @@ func parseLockContentionOnPayload(body string) lockContentionInfo {
 	info := lockContentionInfo{Kind: blockingKindLockContention}
 	subject := body
 	if loc := lockContentionOwnerTidRe.FindStringSubmatchIndex(body); loc != nil {
-		info.Owner.PID, _ = strconv.Atoi(body[loc[2]:loc[3]])
+		// ParseUint (not Atoi): the uint64(-1) sentinel is a 20-digit value that a
+		// signed Atoi silently clamps to MaxInt64, producing the bogus
+		// 9223372036854775807 "owner". 0 and math.MaxUint64 are EXPLICIT no-holder
+		// sentinels → typed ownerless, never a Peer id (§19 S1/pin④).
+		if v, err := strconv.ParseUint(body[loc[2]:loc[3]], 10, 64); err == nil {
+			if ownerTidIsSentinel(v) {
+				info.OwnerAbsent = true
+			} else if v <= math.MaxInt64 {
+				info.Owner.PID = int(v)
+			} else {
+				// A non-sentinel value that still overflows int (should not occur
+				// for real tids) is treated as ownerless rather than a garbage id.
+				info.OwnerAbsent = true
+			}
+		}
 		subject = body[:loc[0]]
 	}
+	info.WaitObject = strings.TrimSpace(subject)
 	if strings.TrimSpace(strings.ToLower(subject)) == "a monitor lock" {
 		info.Kind = blockingKindMonitorContention
 	}
