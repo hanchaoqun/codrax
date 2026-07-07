@@ -503,6 +503,34 @@ type RuntimeTarget struct {
 	Description string            `json:"description,omitempty"`
 }
 
+// RuntimeTargetSourceExplicitToolCall is the typed provenance the trace_query
+// tool stamps on RuntimeTargets it records from an explicit tool-call
+// pid/thread parameter — the MODEL'S OWN EXPLORATION CURSOR, not what the user
+// asked about (see internal/tool/trace_query.go
+// traceQueryRecordExplicitRuntimeTarget). It is the single exclusion key every
+// user-focus lane filters on: analyzerPinnedFocusThreadPID (soft recovery
+// hints) and the B1 anchor election (observationLedgerAnchorUserEntities) both
+// reject it. Promoted here so the types-layer ledger carrier and the
+// tool-layer recovery lane share ONE source of truth for "this is a cursor,
+// not a user entity" (架构红线: model cursor is LLM-driven noise, must not
+// drive structural re-root + banner hard short-circuit).
+const RuntimeTargetSourceExplicitToolCall = "trace_query_explicit_tool_call"
+
+// RuntimeTargetIsExplorationCursorSource reports whether a RuntimeTarget.Source
+// marks the model's exploration cursor (the trace_query explicit tool-call
+// lane). User-focus lanes exclude these — the model looking at a thread is not
+// the user asking about it.
+func RuntimeTargetIsExplorationCursorSource(source string) bool {
+	return strings.TrimSpace(source) == RuntimeTargetSourceExplicitToolCall
+}
+
+// RuntimeTargetMaxPID is the Linux PID_MAX_LIMIT (2^22) sanity cap for a typed
+// runtime-target pid. A value above it is a parse artifact, not a real
+// process/thread id — the single shared cap the emit-analysis normalizer, the
+// trace_query inheritance lane, and the B1 anchor-election ledger carrier all
+// bound against (F4 教义统一).
+const RuntimeTargetMaxPID = 4194304
+
 func NormalizeRuntimeTargetKind(kind RuntimeTargetKind) RuntimeTargetKind {
 	switch RuntimeTargetKind(strings.ToLower(strings.TrimSpace(string(kind)))) {
 	case RuntimeTargetKindProcess:

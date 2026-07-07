@@ -7989,7 +7989,11 @@ type traceQueryRequestTarget struct {
 	Source string
 }
 
-const traceQueryMaxInheritedPID = 4194304
+// traceQueryMaxInheritedPID is the shared Linux PID_MAX_LIMIT sanity cap
+// (types.RuntimeTargetMaxPID) — one home for the emit-analysis normalizer, the
+// inheritance lane here, and the B1 anchor-election ledger carrier (F4
+// 教义统一).
+const traceQueryMaxInheritedPID = types.RuntimeTargetMaxPID
 
 func traceQueryApplyRequestModelTarget(ctx *types.BusContext, p traceQueryParams) (traceQueryParams, string) {
 	if p.PID.Int() > 0 || strings.TrimSpace(p.Thread) != "" {
@@ -8046,8 +8050,11 @@ func traceQueryRecordExplicitRuntimeTarget(ctx *types.BusContext, p traceQueryPa
 
 // traceQueryExplicitToolCallTargetSource marks RuntimeTargets recorded from
 // explicit trace_query tool-call pid/thread parameters — the model's own
-// exploration cursor, as opposed to analyzer-pinned user-focus targets.
-const traceQueryExplicitToolCallTargetSource = "trace_query_explicit_tool_call"
+// exploration cursor, as opposed to analyzer-pinned user-focus targets. Alias
+// of the promoted types-layer constant (types.RuntimeTargetSourceExplicitToolCall)
+// so the ledger B1 anchor election and this recovery lane share ONE exclusion
+// key.
+const traceQueryExplicitToolCallTargetSource = types.RuntimeTargetSourceExplicitToolCall
 
 // analyzerPinnedFocusThreadPID returns the analyzer-pinned user-focus thread
 // pid from the typed RuntimeTargets lane (the H4 BusContext channel; RN-14b
@@ -8070,7 +8077,7 @@ func analyzerPinnedFocusThreadPID(ctx *types.BusContext) (int, bool) {
 			if target.PID <= 0 || target.PID > traceQueryMaxInheritedPID {
 				continue
 			}
-			if strings.TrimSpace(target.Source) == traceQueryExplicitToolCallTargetSource {
+			if types.RuntimeTargetIsExplorationCursorSource(target.Source) {
 				continue
 			}
 			pinned = append(pinned, target)

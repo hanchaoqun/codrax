@@ -3180,7 +3180,9 @@ func parseRuntimeTargets(in []emitRuntimeTargetParam) ([]types.RuntimeTarget, []
 	return out, warnings
 }
 
-const emitRuntimeTargetMaxPID = 4194304
+// emitRuntimeTargetMaxPID is the shared Linux PID_MAX_LIMIT sanity cap
+// (types.RuntimeTargetMaxPID; F4 教义统一).
+const emitRuntimeTargetMaxPID = types.RuntimeTargetMaxPID
 
 func parseRuntimeTarget(p emitRuntimeTargetParam) (types.RuntimeTarget, string, bool) {
 	kind := types.NormalizeRuntimeTargetKind(types.RuntimeTargetKind(p.Kind))

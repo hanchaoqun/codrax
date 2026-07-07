@@ -105,15 +105,41 @@ func CompileTraceCausalProjections(ledger ObservationLedger) []TraceCausalProjec
 }
 
 // CompileTraceCausalProjectionSet compiles the ledger into per-artifact
-// projections plus the typed caveat counters.
+// projections plus the typed caveat counters. The ledger's typed
+// AnchorUserEntities (populated by CompileObservationLedger from the request
+// model — runtime_targets pid/thread first, then the R2 AnalyzerHints entity
+// face) feed the B1 anchor election (§12.3 裁定3) of EVERY partition, so all
+// compile consumers (tool display surfaces AND the agent evaluator) agree on
+// one anchor. An empty entity list keeps the legacy publication-order anchor
+// byte-stable.
 func CompileTraceCausalProjectionSet(ledger ObservationLedger) TraceCausalProjectionSet {
-	return TraceCausalProjectionSetFromObservationRecords(ledger.Records)
+	return traceCausalProjectionSetFromObservationRecords(ledger.Records, traceCausalProjectionAnchorEntitiesFromLedger(ledger.AnchorUserEntities))
+}
+
+// traceCausalProjectionAnchorEntitiesFromLedger converts the ledger's typed
+// anchor-entity carrier into the compile-internal election entity form,
+// preserving the typed/prose provenance (F2/F3).
+func traceCausalProjectionAnchorEntitiesFromLedger(entities []AnchorUserEntity) []traceCausalProjectionAnchorEntity {
+	if len(entities) == 0 {
+		return nil
+	}
+	out := make([]traceCausalProjectionAnchorEntity, 0, len(entities))
+	for _, entity := range entities {
+		out = append(out, traceCausalProjectionAnchorEntity{value: entity.Value, typedLane: entity.TypedLane})
+	}
+	return out
 }
 
 // TraceCausalProjectionSetFromObservationRecords partitions the records by
 // typed artifact identity and runs the existing single-artifact compiler per
-// partition. See the file header for the full contract.
+// partition (legacy records-only entry: no anchor-entity context beyond the
+// compile-internal frame_target_resolution lane). See the file header for the
+// full contract.
 func TraceCausalProjectionSetFromObservationRecords(records []ObservationRecord) TraceCausalProjectionSet {
+	return traceCausalProjectionSetFromObservationRecords(records, nil)
+}
+
+func traceCausalProjectionSetFromObservationRecords(records []ObservationRecord, anchorUserEntities []traceCausalProjectionAnchorEntity) TraceCausalProjectionSet {
 	// Pass 1: resolve every record's typed identity WITHOUT bucketing yet, so
 	// the F5a spelling-alias merge can canonicalise keys first and records are
 	// then bucketed in one pass in original ledger order (a post-hoc partition
@@ -151,7 +177,7 @@ func TraceCausalProjectionSetFromObservationRecords(records []ObservationRecord)
 	if len(order) <= 1 {
 		// Single-artifact (or identity-less) ledger: compile ALL records exactly
 		// like the legacy entry — byte-identical output, no unattributed bucket.
-		projection := TraceCausalProjectionFromObservationRecords(records)
+		projection := traceCausalProjectionFromObservationRecords(records, anchorUserEntities)
 		if len(order) == 1 {
 			projection.ArtifactPath = order[0].path
 			projection.ArtifactLabel = order[0].label
@@ -189,7 +215,7 @@ func TraceCausalProjectionSetFromObservationRecords(records []ObservationRecord)
 		OmittedArtifactLabels:        omitted,
 	}
 	for _, p := range kept {
-		projection := TraceCausalProjectionFromObservationRecords(p.records)
+		projection := traceCausalProjectionFromObservationRecords(p.records, anchorUserEntities)
 		if !projection.Active() {
 			continue
 		}

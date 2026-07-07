@@ -30,7 +30,17 @@ type TraceCausalProjection struct {
 	BackgroundCauses  []TraceCausalProjectionNode `json:"background_causes,omitempty"`
 	SemanticSpans     []TraceCausalProjectionNode `json:"semantic_spans,omitempty"`
 	WakeupPath        []string                    `json:"wakeup_path,omitempty"`
-	SupportingHops    []TraceCausalProjectionNode `json:"supporting_hops,omitempty"`
+	// WakeupPathUserElected (§10-B1 锚归属, §12.3 裁定3 2026-07-06): true when
+	// WakeupPath was ELECTED by a precise typed user-entity match — some
+	// wakeup_chain path record's END element matched a typed user entity
+	// (compile-side frame_target_resolution explicit_query_target subjects
+	// first, then the caller-supplied ledger AnchorUserEntities: runtime_targets
+	// pid/thread, then the R2 AnalyzerHints entity face). False = the legacy
+	// publication-order lane (first non-empty path record wins). Display
+	// consumers use it to keep the 🎯 root label lane (‹用户关注线程›) from ever
+	// disagreeing with an entity-elected anchor; no hard gate reads it.
+	WakeupPathUserElected bool                        `json:"wakeup_path_user_elected,omitempty"`
+	SupportingHops        []TraceCausalProjectionNode `json:"supporting_hops,omitempty"`
 	// WakeupChainRecommendedNotRun is true when this run's ledger contains a
 	// state_drilldown observation whose typed chain_required=true rich note
 	// recommended a wakeup-chain drilldown, but NO wakeup_chain-family
@@ -464,10 +474,33 @@ func (n TraceCausalProjectionNode) Undrillable() bool {
 }
 
 func CompileTraceCausalProjection(ledger ObservationLedger) TraceCausalProjection {
-	return TraceCausalProjectionFromObservationRecords(ledger.Records)
+	return traceCausalProjectionFromObservationRecords(ledger.Records,
+		traceCausalProjectionAnchorEntitiesFromLedger(ledger.AnchorUserEntities))
 }
 
 func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) TraceCausalProjection {
+	return traceCausalProjectionFromObservationRecords(records, nil)
+}
+
+// TraceCausalProjectionFromObservationRecordsForUserEntities is the 裁定3
+// (§12.3-3, 2026-07-06) anchor-election compile entry: userEntities is the
+// user-entity list in PRIORITY order (runtime_targets user-source pid/thread
+// before the R2 AnalyzerHints entity face — see
+// ObservationLedger.AnchorUserEntities, the production carrier). Because this
+// records-only entry cannot know each entity's carrier provenance, every entry
+// is treated as a TYPED-lane entity (the noisy tid-tail / bare-int arms stay
+// open) — production callers use the AnchorUserEntities carrier
+// (ObservationLedgerAnchorEntities) which marks prose entities so F2/F3 apply.
+// nil/empty keeps the legacy publication-order anchor byte-stable.
+func TraceCausalProjectionFromObservationRecordsForUserEntities(records []ObservationRecord, userEntities []string) TraceCausalProjection {
+	entities := make([]traceCausalProjectionAnchorEntity, 0, len(userEntities))
+	for _, value := range userEntities {
+		entities = append(entities, traceCausalProjectionAnchorEntity{value: value, typedLane: true})
+	}
+	return traceCausalProjectionFromObservationRecords(records, entities)
+}
+
+func traceCausalProjectionFromObservationRecords(records []ObservationRecord, userEntities []traceCausalProjectionAnchorEntity) TraceCausalProjection {
 	if len(records) == 0 {
 		return TraceCausalProjection{}
 	}
@@ -475,7 +508,14 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	var classified []TraceCausalProjectionNode
 	var semantic []TraceCausalProjectionNode
 	var hops []TraceCausalProjectionNode
-	var wakeupPath []string
+	// B1 anchor election (§10-B1, §12.3 裁定3): EVERY wakeup_chain path record
+	// is an anchor CANDIDATE (publication order preserved); the selection runs
+	// after the loop. wakeupPathEmptyLegacy preserves the exact legacy corner
+	// where wakeup_chain records existed but none parsed a non-empty path (the
+	// old first-wins assignment left an empty NON-NIL slice behind).
+	var wakeupPathCandidates [][]string
+	var wakeupPathEmptyLegacy []string
+	var frameTargetEntities []string
 	var wakeupEdges []traceCausalProjectionWakeupEdge
 	chainRequiredRecommended := false
 	wakeupChainObserved := false
@@ -521,6 +561,24 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 				fullWindowStates[key] = total
 			}
 		}
+		// B1 anchor-entity lane 1 (§12.3 裁定3, as corrected by 二轮复核 F1b):
+		// an explicitly-targeted frame_target_resolution's structural Object
+		// carries the engine source enum "explicit_query_target". BUT that enum
+		// fires for ANY tool call that passed pid/thread — INCLUDING the model's
+		// exploration cursor (an evidence_pack/frame bundle over a waker mints
+		// one). So the frame subject is only a CORROBORATING signal: it is
+		// admitted solely when it AGREES with a caller user entity (which is
+		// already cursor-filtered upstream). A frame subject that matches no
+		// user entity is the cursor's own frame and must not elect. This keeps
+		// the frame lane's value (it supplies the canonical thread LABEL to
+		// match against path ends when the user gave only a bare pid) without
+		// letting the cursor bundle dominate.
+		if strings.TrimSpace(record.Predicate) == "frame_target_resolution" &&
+			strings.TrimSpace(record.Object) == traceCausalProjectionFrameTargetSourceExplicit {
+			if subject := strings.TrimSpace(record.Subject); subject != "" {
+				frameTargetEntities = append(frameTargetEntities, subject)
+			}
+		}
 		// 裁定3 typed inputs: a state_drilldown row recommending the wakeup-chain
 		// drilldown (chain_required=true) vs. any wakeup_chain-family observation
 		// proving the drilldown actually ran. Exact typed predicate / rich-note
@@ -563,8 +621,17 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 			node := traceCausalProjectionNodeFromRecord(TraceCausalRoleSemanticSpan, record)
 			semantic = append(semantic, node)
 			classified = append(classified, node)
-		case strings.TrimSpace(record.Predicate) == "wakeup_chain" && len(wakeupPath) == 0:
-			wakeupPath = traceCausalProjectionPath(record.Object)
+		case strings.TrimSpace(record.Predicate) == "wakeup_chain":
+			// B1 (§10-B1, §12.3 裁定3): collect EVERY parsed path as an anchor
+			// candidate instead of the former first-wins assignment. A
+			// wakeup_chain record matches no other classification case, so
+			// collecting all of them changes NO node classification — records
+			// #2..N previously fell through the switch into nothing.
+			if path := traceCausalProjectionPath(record.Object); len(path) > 0 {
+				wakeupPathCandidates = append(wakeupPathCandidates, path)
+			} else if wakeupPathEmptyLegacy == nil {
+				wakeupPathEmptyLegacy = path
+			}
 		case traceCausalProjectionIsCausalHop(record):
 			node := traceCausalProjectionNodeFromRecord(TraceCausalRoleCausalHop, record)
 			// PTV6 #1a (real-trace campaign 2026-07-06, specimen donghu_short
@@ -593,6 +660,20 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 			}
 			classified = append(classified, node)
 		}
+	}
+	// B1 anchor election (§10-B1, §12.3 裁定3): the selected path feeds
+	// EVERYTHING downstream — pathIndex sorting, the projection WakeupPath (the
+	// tree trunk / 🎯 root), and the drilldown-target path fallback — so the
+	// election happens HERE at the compile root, never as a display-side
+	// re-root (a post-compile re-root would leave the sort/cap decisions keyed
+	// to the wrong trunk). Entity priority: frame subjects that CORROBORATE a
+	// user entity (F1b) rank first (they carry the canonical thread label),
+	// then the caller user entities in their own priority order.
+	anchorEntities := traceCausalProjectionOrderedAnchorEntities(frameTargetEntities, userEntities)
+	wakeupPath, wakeupPathUserElected := traceCausalProjectionSelectWakeupPath(
+		wakeupPathCandidates, anchorEntities)
+	if wakeupPath == nil {
+		wakeupPath = wakeupPathEmptyLegacy
 	}
 	pathIndex := traceCausalProjectionPathIndex(wakeupPath)
 	sort.SliceStable(primary, func(i, j int) bool {
@@ -629,6 +710,7 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		BackgroundCauses:             traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "background"), traceCausalProjectionContextBucketLimit),
 		SemanticSpans:                traceCausalProjectionLimitNodes(semantic, traceCausalProjectionSemanticSpanLimit),
 		WakeupPath:                   wakeupPath,
+		WakeupPathUserElected:        wakeupPathUserElected,
 		SupportingHops:               hops,
 		WakeupChainRecommendedNotRun: chainRequiredRecommended && !wakeupChainObserved,
 		RootCauseFamilyObserved:      rootCauseFamilyObserved,
@@ -694,6 +776,154 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 		return TraceCausalProjection{}
 	}
 	return out
+}
+
+// traceCausalProjectionFrameTargetSourceExplicit is the ONE
+// FrameTargetResolution.Source enum value that denotes an explicitly-passed
+// query pid/thread (tracequery ResolveFrameTarget; the record publishes it
+// verbatim as the structural Object). It is the only frame-resolution lane
+// admitted into the B1 anchor election — every other Source value is a
+// frame-timeline HEURISTIC candidate pick and stays out (精确信号硬门,
+// 嘈声信号不入闸).
+const traceCausalProjectionFrameTargetSourceExplicit = "explicit_query_target"
+
+// traceCausalProjectionOrderedAnchorEntities builds the priority-ordered
+// anchor-election entity list (§12.3 裁定3, 二轮复核 F1b). frameSubjects are
+// the compile-side explicit_query_target frame_target_resolution subjects; a
+// frame subject is admitted ONLY when it CORROBORATES a caller user entity —
+// i.e. matches one via the same precise comparator the election uses. This
+// neutralizes the cursor: the model's exploration bundle mints a frame subject
+// too, but that subject matches no (cursor-filtered) user entity, so it never
+// enters the list. Admitted frame subjects rank FIRST because they carry the
+// canonical thread LABEL (the user side is often a bare pid), giving the label
+// arm of the match a name to compare; the caller user entities follow in their
+// own priority order.
+func traceCausalProjectionOrderedAnchorEntities(frameSubjects []string, userEntities []traceCausalProjectionAnchorEntity) []traceCausalProjectionAnchorEntity {
+	out := make([]traceCausalProjectionAnchorEntity, 0, len(frameSubjects)+len(userEntities))
+	for _, subject := range frameSubjects {
+		subject = strings.TrimSpace(subject)
+		if subject == "" {
+			continue
+		}
+		frameEntity := traceCausalProjectionAnchorEntity{value: subject, typedLane: true}
+		for _, user := range userEntities {
+			if strings.TrimSpace(user.value) == "" {
+				continue
+			}
+			// Corroboration is symmetric: the frame subject (a full thread
+			// label) matched by the user entity's provenance-honoring arms.
+			if traceCausalProjectionAnchorLabelMatchesEntity(subject, user) {
+				out = append(out, frameEntity)
+				break
+			}
+		}
+	}
+	return append(out, userEntities...)
+}
+
+// traceCausalProjectionAnchorEntity is one anchor-election user-entity
+// candidate with its typed provenance. typedLane=true marks entities from
+// TYPED carriers (runtime_targets user-source pid/thread, ExactTargets, the
+// compile-side explicit_query_target frame subject) — only these may use the
+// noisy "-<digits>" tid-tail and bare-integer parse arms. typedLane=false
+// marks PROSE carriers (AnalyzerHints.Entities): a free-text string like
+// "2026-07-06" or "issue-42" must NOT be mined for a tid handle (F2/F3), so a
+// prose entity only matches via pure "pid=N" / whole-canonical equality —
+// exactly the R2 comparator discipline.
+type traceCausalProjectionAnchorEntity struct {
+	value     string
+	typedLane bool
+}
+
+// traceCausalProjectionSelectWakeupPath elects the projection anchor path
+// (§10-B1 归因, §12.3 裁定3 用户裁定 2026-07-06: "存在 target 匹配用户实体的
+// path 记录时,锚优先给用户实体线程;第一条 path 先到先得废止").
+//
+//   - candidates: every wakeup_chain path record's parsed path, in publication
+//     order.
+//   - entities are already in priority order (the caller front-loads the
+//     compile-side explicit_query_target frame subjects, then the ledger
+//     AnchorUserEntities). Every entity carries its typed/prose provenance so
+//     the match arms honor F2/F3 (prose entities never mine a tid handle).
+//   - match predicate: the candidate path's END element against one entity,
+//     via traceCausalProjectionAnchorLabelMatchesEntity (tid-first, §11-N7).
+//     Only ≥2-element paths are electable — a single-element path has no chain
+//     to root a tree on (the flat lane's RN-13 mismatch note is the honest
+//     surface for that shape).
+//   - tie-break (裁定3 "多条匹配 path → 确定性 tie-break"): entities scan in
+//     priority order; within one entity the FIRST matching path in publication
+//     order wins. Deterministic — same records, same entities, same anchor.
+//   - no entities / no match: candidates[0] — the legacy publication-order
+//     anchor, byte-stable (pin ②/③).
+//
+// The second return reports a user election (feeds
+// TraceCausalProjection.WakeupPathUserElected → the 🎯 root label lane).
+func traceCausalProjectionSelectWakeupPath(candidates [][]string, entities []traceCausalProjectionAnchorEntity) ([]string, bool) {
+	if len(candidates) == 0 {
+		return nil, false
+	}
+	for _, entity := range entities {
+		if strings.TrimSpace(entity.value) == "" {
+			continue
+		}
+		for _, path := range candidates {
+			if len(path) < 2 {
+				continue
+			}
+			if traceCausalProjectionAnchorLabelMatchesEntity(path[len(path)-1], entity) {
+				return path, true
+			}
+		}
+	}
+	return candidates[0], false
+}
+
+// traceCausalProjectionAnchorLabelMatchesEntity decides whether a wakeup-path
+// END label names a user entity. PRECISE signals only (架构红线:硬门只读精确
+// 信号), mirroring the tool-side R2 comparator
+// (runtimeTraceProjTargetMatchesUserEntities) plus the §11-N7 tid-first rule,
+// with the F2/F3 provenance guard on the noisy parse arms:
+//
+//  1. tid equality DECIDES whenever BOTH sides expose a tid — a thread label's
+//     pure-digit "-pid" tail or the "pid=N" handle on either side, plus (TYPED
+//     entities only) a bare pure-digit string. 同 tid 双名 (com.xs.fm.lite-6565
+//     vs main-6565) matches; equal comm with a DIFFERENT tid never matches.
+//     The entity's "-<digits>" tail and bare-int arms are gated on typedLane:
+//     a PROSE entity ("2026-07-06", "issue-42") must never be mined for a tid
+//     (F2/F3) — it exposes a tid only through the explicit "pid=N" handle.
+//  2. otherwise canonical whole-label equality;
+//  3. otherwise the R2 name arm: a "comm-pid" label whose comm part equals a
+//     bare-comm entity.
+func traceCausalProjectionAnchorLabelMatchesEntity(label string, entity traceCausalProjectionAnchorEntity) bool {
+	label, value := strings.TrimSpace(label), strings.TrimSpace(entity.value)
+	if label == "" || value == "" {
+		return false
+	}
+	labelPid, labelHasPid := traceCausalProjectionNamePidTail(label)
+	if !labelHasPid {
+		labelPid, labelHasPid = traceCausalProjectionPidPeerForm(label)
+	}
+	// F2/F3: the "-<digits>" tail and bare-integer arms are TYPED-lane only.
+	// The explicit "pid=N" handle is unambiguous and stays open to prose.
+	entityPid, entityHasPid := traceCausalProjectionPidPeerForm(value)
+	if !entityHasPid && entity.typedLane {
+		if entityPid, entityHasPid = traceCausalProjectionNamePidTail(value); !entityHasPid {
+			entityPid, entityHasPid = traceCausalProjectionPureInt(value)
+		}
+	}
+	if labelHasPid && entityHasPid {
+		return labelPid == entityPid
+	}
+	if traceCausalProjectionCanonicalNode(label) == traceCausalProjectionCanonicalNode(value) {
+		return true
+	}
+	if labelHasPid {
+		if idx := strings.LastIndex(label, "-"); idx > 0 &&
+			traceCausalProjectionCanonicalNode(label[:idx]) == traceCausalProjectionCanonicalNode(value) {
+			return true
+		}
+	}
+	return false
 }
 
 type traceCausalProjectionWakeupEdge struct {

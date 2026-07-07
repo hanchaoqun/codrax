@@ -151,8 +151,33 @@ type ObservationRecord struct {
 // batches will populate it from the existing carriers and make finalizer/reviewer
 // consume it first. Keeping the type in internal/types lets all producers depend
 // on the same contract without importing tool or agent packages.
+// AnchorUserEntity is one B1 anchor-election user-entity candidate carried on
+// the ledger, with its typed provenance (§12.3 裁定3, 二轮复核 F2/F3).
+// TypedLane=true = the value came from a TYPED carrier (runtime_targets
+// user-source pid/thread, ExactTargets) and may use the noisy "-<digits>"
+// tid-tail / bare-integer match arms; TypedLane=false = a PROSE carrier
+// (AnalyzerHints.Entities free text like "2026-07-06") that may match only via
+// "pid=N" / whole-canonical equality, never a mined tid handle.
+type AnchorUserEntity struct {
+	Value     string `json:"value,omitempty"`
+	TypedLane bool   `json:"typed_lane,omitempty"`
+}
+
 type ObservationLedger struct {
 	Records []ObservationRecord `json:"records,omitempty"`
+	// AnchorUserEntities is the typed user-entity context for the trace causal
+	// projection's B1 anchor election (§10-B1 归因 + §12.3 裁定3, 2026-07-06;
+	// 二轮复核 F1a/F2/F3), populated by CompileObservationLedger from the typed
+	// request model in PRIORITY order via observationLedgerAnchorEntities:
+	// RuntimeTargets user-source pid (integer handle first, §11-N7 tid-first)
+	// and thread, then the R2 entity face (ExactTargets, then
+	// AnalyzerHints.Entities). NEVER RawRequest, never model prose, and NEVER
+	// the trace_query exploration-cursor RuntimeTargets (F1a). Each entity
+	// carries its typed/prose provenance so the match arms honor F2/F3.
+	// Consumed only by CompileTraceCausalProjectionSet /
+	// CompileTraceCausalProjection to prefer a wakeup_chain path whose end
+	// names the user's thread; empty = legacy publication-order anchor.
+	AnchorUserEntities []AnchorUserEntity `json:"anchor_user_entities,omitempty"`
 }
 
 func (l ObservationLedger) Empty() bool {
@@ -370,7 +395,67 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	compileMCPResponseObservations(input.MCPResponses, add)
 	out = reconcileRuntimeObservationProducerPrecedence(out)
 	out = dedupeObservationRecords(out)
-	return ObservationLedger{Records: out}
+	return ObservationLedger{
+		Records:            out,
+		AnchorUserEntities: observationLedgerAnchorEntities(input.RequestModel),
+	}
+}
+
+// observationLedgerAnchorEntities projects the typed request-model target
+// context into the B1 anchor-election entity list (§12.3 裁定3; 二轮复核
+// F1a/F2/F3/F4), in priority order with per-entity typed/prose provenance:
+//
+//  1. RuntimeTargets — TYPED lane, but ONLY user-source targets. The
+//     trace_query exploration cursor (Source=trace_query_explicit_tool_call)
+//     is EXCLUDED (F1a): it tracks where the model is looking, not what the
+//     user asked, and letting the cursor self-match its own drilled path would
+//     hijack the anchor + short-circuit the 免责横幅 with a FALSE
+//     ‹用户关注线程›. The pid (integer handle first, §11-N7 tid-first) is
+//     bounded by RuntimeTargetMaxPID (F4); the thread label follows.
+//  2. ExactTargets — TYPED lane (the analyzer's exact user shortlist).
+//  3. AnalyzerHints.Entities — PROSE lane: free text the analyzer lifted from
+//     the request, so the tid-tail / bare-int mining arms are OFF (F2/F3); a
+//     prose entity matches only via "pid=N" / whole-canonical equality.
+//
+// Raw user prose is NEVER parsed here. The R2 entity face (ExactTargets +
+// Entities) mirrors the tool-side runtimeTraceProjUserFocusFromBusContext so
+// the anchor election and the 🎯 root label comparison read the same user
+// entities; the RuntimeTargets lane is the ADDITIONAL typed handle the tool
+// side gets separately through the pinned-focus channel.
+func observationLedgerAnchorEntities(rm *RequestModel) []AnchorUserEntity {
+	if rm == nil {
+		return nil
+	}
+	var out []AnchorUserEntity
+	seen := map[string]bool{}
+	add := func(value string, typedLane bool) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		key := strconv.FormatBool(typedLane) + "\x00" + value
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, AnchorUserEntity{Value: value, TypedLane: typedLane})
+	}
+	for _, target := range rm.RuntimeTargets {
+		if RuntimeTargetIsExplorationCursorSource(target.Source) {
+			continue // F1a: the model's exploration cursor is not a user entity.
+		}
+		if target.PID > 0 && target.PID <= RuntimeTargetMaxPID {
+			add(strconv.Itoa(target.PID), true)
+		}
+		add(target.Thread, true)
+	}
+	for _, entity := range rm.AnalyzerHints.ExactTargets {
+		add(entity, true)
+	}
+	for _, entity := range rm.AnalyzerHints.Entities {
+		add(entity, false)
+	}
+	return out
 }
 
 func reconcileRuntimeObservationProducerPrecedence(records []ObservationRecord) []ObservationRecord {

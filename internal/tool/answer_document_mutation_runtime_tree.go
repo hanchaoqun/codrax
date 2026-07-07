@@ -210,6 +210,16 @@ type runtimeTraceProjTreeModel struct {
 	// instead of falsely claiming ‹用户关注线程›. False is the fail-open default:
 	// when no typed entity context reached the renderer the legacy label stays.
 	RootFocusAnchorOnly bool
+	// TargetUserElected mirrors the typed compile-side B1 anchor election
+	// (TraceCausalProjection.WakeupPathUserElected, §12.3 裁定3): the 🎯 root
+	// IS a user-entity thread because a typed user-entity match ELECTED its
+	// wakeup path at compile time. The R2 comparison short-circuits on it so
+	// the ‹用户关注线程› label can never disagree with an entity-elected anchor
+	// even when the renderer-side entity list diverges from the compile-side
+	// one (e.g. the election came from a frame_target_resolution
+	// explicit_query_target subject or a runtime_targets pid absent from
+	// AnalyzerHints — the Q4-E entity-starvation family).
+	TargetUserElected bool
 	// RootFocusUserEntities lists the user's thread/pid-shaped entities for the
 	// anchor-only explanation line (display-only roster; empty = no note line).
 	// Shared by the 🎯 anchor-only note (R2) and the flat-fallback anchor note
@@ -641,6 +651,9 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	path := runtimeTraceCausalProjectionCleanPath(projection.WakeupPath)
 	if len(path) >= 2 {
 		model.Target = path[len(path)-1]
+		// B1 (§12.3 裁定3): carry the compile-side anchor election to the 🎯
+		// root label lane (runtimeTraceProjApplyUserFocus short-circuit).
+		model.TargetUserElected = projection.WakeupPathUserElected
 	}
 	targetKey := runtimeTraceCausalProjectionCanonicalNode(model.Target)
 
@@ -1937,6 +1950,14 @@ func runtimeTraceProjApplyUserFocus(model *runtimeTraceProjTreeModel, focus runt
 		model.FlatAnchorMismatch = true
 		model.FlatAnchorThread = anchor
 		model.RootFocusUserEntities = entities
+		return
+	}
+	if model.TargetUserElected {
+		// B1 (§12.3 裁定3): the anchor path was ELECTED by a typed user-entity
+		// match at compile time — the root IS the user's thread even when the
+		// renderer-side entity list is starved or divergent (compile-side
+		// frame_target_resolution / runtime_targets lanes). Keep
+		// ‹用户关注线程›; a disclaimer here would contradict the election.
 		return
 	}
 	if runtimeTraceProjTargetMatchesUserEntities(target, focus.Entities) {
