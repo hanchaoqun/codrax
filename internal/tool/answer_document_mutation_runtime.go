@@ -1137,9 +1137,29 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		return nil
 	}
 	supplyCells := runtimeTraceProjCompareSupplyCells(projections, ledger, zh)
+	// DCS E6 F3b (ledger §23.1 ruling ③, 2026-07-08): per-artifact top
+	// deterministic optimization span cells (typed SemanticSpans data via the
+	// shared LEAD-SEM selector). The column renders only when at least one
+	// artifact actually carries a data-bearing semantic span — an all-"—"
+	// column would widen every non-compile comparison for nothing.
+	optimizationCells := make([]string, len(projections))
+	hasOptimization := false
+	for i, projection := range projections {
+		optimizationCells[i] = runtimeTraceProjCompareOptimizationCell(buildRuntimeTraceProjTreeModel(projection, nil, zh), zh)
+		if optimizationCells[i] != "—" {
+			hasOptimization = true
+		}
+	}
 	columns := []string{"工件", "主根因(rank=1)", "目标症状时长", "on-chain 已归因", "背景压力"}
 	if !zh {
 		columns = []string{"Artifact", "Primary root cause (rank=1)", "Target symptom", "On-chain attributed", "Background pressure"}
+	}
+	if hasOptimization {
+		if zh {
+			columns = append(columns, "确定性优化点")
+		} else {
+			columns = append(columns, "Deterministic optimization")
+		}
 	}
 	if supplyCells != nil {
 		if zh {
@@ -1203,6 +1223,9 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 			runtimeTraceProjCompareTargetSymptomCell(model, zh),
 			msCell(runtimeTraceProjDepth1Cumulative(model)),
 			runtimeTraceCausalProjectionMarkdownSafe(pressureCell),
+		}
+		if hasOptimization {
+			cells = append(cells, runtimeTraceCausalProjectionMarkdownSafe(optimizationCells[i]))
 		}
 		if supplyCells != nil {
 			cells = append(cells, runtimeTraceCausalProjectionMarkdownSafe(supplyCells[i]))
@@ -1343,16 +1366,22 @@ func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, 
 		// §21 LEAD-SEM L3 (cmp_01 A②): the 背景压力段 pointer renders only
 		// when the background stanza is non-empty (same defensive check as
 		// the conclusion line's 未定位 branch).
+		// DCS E6 F3b (ledger §23.1 ruling ③): the zero-chain cell additionally
+		// discloses the artifact's top deterministic optimization span with a
+		// pointer at the 优化点 column — LEAD-SEM 协调: the semantic-fallback
+		// lane above already NAMES the span in its own wording and returns
+		// before this branch, so the presence note can never double-write.
+		presence := runtimeTraceProjCompareOptimizationPresenceNote(model, zh)
 		if zh {
 			if len(model.Background) > 0 {
-				return "未定位到链上主根因(见背景压力段)"
+				return "未定位到链上主根因(见背景压力段)" + presence
 			}
-			return "未定位到链上主根因"
+			return "未定位到链上主根因" + presence
 		}
 		if len(model.Background) > 0 {
-			return "no on-chain primary (see background stanza)"
+			return "no on-chain primary (see background stanza)" + presence
 		}
-		return "no on-chain primary"
+		return "no on-chain primary" + presence
 	}
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(*primary, zh))
 	cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(*primary, zh))
@@ -1396,6 +1425,58 @@ func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, 
 		cell += fmt.Sprintf(" %.3fms", ms)
 	}
 	return cell + fallbackNote
+}
+
+// runtimeTraceProjCompareOptimizationCell (DCS E6 F3b, ledger §23.1 ruling ③)
+// renders one artifact's 确定性优化点 column cell — the top semantic span (the
+// shared LEAD-SEM selector) with its magnitude and, when the C00/E5 gates
+// allow one, its window share. Typed SemanticSpans data only; "—" when the
+// artifact carries no data-bearing semantic span.
+func runtimeTraceProjCompareOptimizationCell(model runtimeTraceProjTreeModel, zh bool) string {
+	node, ms, ok := runtimeTraceProjSemanticTopSpan(model)
+	if !ok {
+		return "—"
+	}
+	name := strings.TrimSpace(node.SpanName)
+	if name == "" {
+		name = strings.TrimSpace(node.Object)
+	}
+	cell := fmt.Sprintf("%s %.3fms", name, ms)
+	if share := runtimeTraceProjSemanticSpanShareText(*node, ms, model, zh); share != "" {
+		if zh {
+			cell += "(" + share + ")"
+		} else {
+			cell += " (" + share + ")"
+		}
+	}
+	return cell
+}
+
+// runtimeTraceProjCompareOptimizationPresenceNote is the zero-chain primary
+// cell's 括注 (DCS E6 F3b): the artifact located no on-chain primary but DOES
+// carry a deterministic optimization span — say so next to the 未定位 verdict
+// and point at the 优化点 column. "" when no data-bearing semantic span
+// exists (the note never guesses).
+func runtimeTraceProjCompareOptimizationPresenceNote(model runtimeTraceProjTreeModel, zh bool) string {
+	node, ms, ok := runtimeTraceProjSemanticTopSpan(model)
+	if !ok {
+		return ""
+	}
+	name := strings.TrimSpace(node.SpanName)
+	if name == "" {
+		name = strings.TrimSpace(node.Object)
+	}
+	share := runtimeTraceProjSemanticSpanShareText(*node, ms, model, zh)
+	if zh {
+		if share != "" {
+			return fmt.Sprintf("(存在确定性优化点: %s %.3fms %s,见优化点列)", name, ms, share)
+		}
+		return fmt.Sprintf("(存在确定性优化点: %s %.3fms,见优化点列)", name, ms)
+	}
+	if share != "" {
+		return fmt.Sprintf(" (deterministic optimization point present: %s %.3fms, %s; see the optimization column)", name, ms, share)
+	}
+	return fmt.Sprintf(" (deterministic optimization point present: %s %.3fms; see the optimization column)", name, ms)
 }
 
 // runtimeTraceProjPeriodicCompareCellSuffix renders a periodic primary's
@@ -1966,7 +2047,12 @@ func runtimeTraceCausalProjectionPriorityCell(node types.TraceCausalProjectionNo
 			return "主要关注"
 		}
 		return "primary focus"
-	case node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span":
+	case node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span",
+		strings.TrimSpace(node.Tier) == "deterministic_optimization":
+		// DCS E1 display word (ledger §23.1, 2026-07-08): an on-chain
+		// tier=deterministic_optimization rank row wears the SAME 确定优化
+		// priority word as the semantic observation lane — one 确定性优化
+		// display family, and never the on_chain 重点关注 root-cause word.
 		if zh {
 			return "确定优化"
 		}
@@ -1995,6 +2081,15 @@ func runtimeTraceCausalProjectionLayerCell(node types.TraceCausalProjectionNode,
 			return "确定性优化点"
 		}
 		return "semantic"
+	}
+	if strings.TrimSpace(node.Tier) == "deterministic_optimization" {
+		// DCS E1 display word (ledger §23.1): the on-chain optimization tier
+		// speaks the 确定性优化点 layer word, aligned with the semantic
+		// observation lane above — never 链上 root-cause layer wording.
+		if zh {
+			return "确定性优化点"
+		}
+		return "deterministic optimization"
 	}
 	if node.Role == types.TraceCausalRolePrimaryRootCause || strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_primary") {
 		if zh {

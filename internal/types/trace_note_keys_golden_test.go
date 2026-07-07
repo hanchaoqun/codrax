@@ -33,6 +33,7 @@ var traceNoteKeyGoldenRows = []string{
 	"allowed_cpus|cpu_load|display_only",
 	"also_starved|occupancy|display_only",
 	"avg_latency|io|display_only",
+	"background_rank|causal_rank|soft_consumer",
 	"block_dev|io|display_only",
 	"block_max|io|display_only",
 	"blocking_candidate|blocking|display_only",

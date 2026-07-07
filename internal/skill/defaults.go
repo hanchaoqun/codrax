@@ -127,7 +127,14 @@ func RegisterDefaults(r *Registry) {
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
-				Body:      "TRACE SEMANTIC SPAN ROOT CAUSES: root_cause_rank can emit dedicated semantic span-work types (`jit_compile`, `class_verification`, `shader_compile`, `runtime_compile`) only when a complete trace span overlaps an on-chain interval; consume their span_name/span_kind/span_category/span_subcategory/semantic_class plus projected_impact_ms and actual_* fields. Generic `trace_span` / trace_mark_category rows are supporting context and must not be promoted into the direct wakeup-chain cause unless root_cause_rank emits one of those dedicated semantic types with chain_relevance=on_chain.",
+				// DCS E6/F3a (ledger §23.1 ruling ③, 2026-07-08): the mention
+				// obligation is a DOUBLE gate on typed fields — on-chain
+				// (tier=deterministic_optimization) semantic rows are always
+				// mentioned as optimization points; non-chain semantic rows
+				// only at background_rank<=3. Complementary to (never replacing)
+				// the standing "do not promote spans into the wakeup-chain
+				// cause" prohibition.
+				Body:      "TRACE SEMANTIC SPAN ROOT CAUSES: root_cause_rank emits dedicated semantic span-work types (`jit_compile`, `class_verification`, `shader_compile`, `runtime_compile`) for compile/verify/shader spans projected into the window; consume their span_name/span_kind/span_category/span_subcategory/semantic_class plus projected_impact_ms and actual_* fields. Rows with chain_relevance=on_chain carry tier=deterministic_optimization: when at least one such row exists, the final conclusion prose MUST mention the largest one (by projected_impact_ms) as an optimization point — never as the root cause — together with its projected share of the analysis window. Rows without on-chain overlap carry background_rank (their position among non-on-chain rows); do not mention them in the conclusion unless background_rank<=3, and then only as an optimization point. Generic `trace_span` / trace_mark_category rows are supporting context; neither generic nor semantic span rows may be promoted into the direct wakeup-chain cause — the direct cause comes only from on-chain rank rows that are not optimization points.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{

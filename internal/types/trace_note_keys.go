@@ -110,8 +110,14 @@ const (
 
 // 因果排名族 (causal-rank family).
 const (
-	TraceNoteKeyRank           = "rank"
-	TraceNoteKeyTier           = "tier"
+	TraceNoteKeyRank = "rank"
+	TraceNoteKeyTier = "tier"
+	// TraceNoteKeyBackgroundRank (DCS E1b/E6, ledger §23.1 rulings ②/③,
+	// 2026-07-08): the row's 1-based typed 榜位 on the non-on-chain composite
+	// board. Emitted on semantic compile span rank rows only; the prose
+	// mention-obligation double gate reads background_rank<=3 for non-chain
+	// optimization spans — never a prose position guess.
+	TraceNoteKeyBackgroundRank = "background_rank"
 	TraceNoteKeyType           = "type"
 	TraceNoteKeySource         = "source"
 	TraceNoteKeyCausality      = "causality"
@@ -384,6 +390,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// 因果排名族.
 	{TraceNoteKeyRank, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyTier, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBackgroundRank, "causal_rank", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyType, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySource, "causal_rank", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyCausality, "causal_rank", TraceNoteCarrierHardConsumer},

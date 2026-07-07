@@ -550,9 +550,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkStateLabel:     {"", ""},
 		runtimeTraceProjMarkUndrillable:    {"⊘", "⊘"},
 		runtimeTraceProjMarkCrossWindow:    {"⚠实际", "⚠actual"},
-		runtimeTraceProjMarkRecursOnChain:  {"↺", "↺"},
-		runtimeTraceProjMarkChainDepthChip: {"链上L", "chain L"},
-		runtimeTraceProjMarkOmitted:        {"省略", "nodes omitted"},
+		// DCS E5 (§23.1 H2): the semantic source-window share re-base tag.
+		runtimeTraceProjMarkSemanticSourceWindowShare: {"来自查询窗", "from query window"},
+		runtimeTraceProjMarkRecursOnChain:             {"↺", "↺"},
+		runtimeTraceProjMarkChainDepthChip:            {"链上L", "chain L"},
+		runtimeTraceProjMarkOmitted:                   {"省略", "nodes omitted"},
 		// 复核 (三空探针补实, fence→legend 设防): the bar-scale probe is the
 		// chain-lane bar glyph — every fixture that marks BarScale draws at
 		// least one █ cell (a background-only fence would use ▒; no such
@@ -919,6 +921,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// §21 LEAD-SEM 前置 L1: the value-less ⚠跨窗 marker on an out-of-window
 		// row whose actual total was never captured (same fixture home).
 		{"leadsem_cross_window_no_actual", leadSemCrossWindowNoActualProjection()},
+		// DCS E5 (§23.1 H2): a semantic row measured in a DIFFERENT typed
+		// query window re-bases its % on that source window (fixture home:
+		// answer_document_mutation_runtime_dcs_test.go).
+		{"dcs_semantic_source_window", dcsSemanticSourceWindowProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

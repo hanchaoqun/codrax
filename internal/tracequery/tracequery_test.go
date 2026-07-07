@@ -3717,8 +3717,17 @@ func TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork(t *testing.T) {
 		if item.ChainRelevance != "on_chain" || item.Causality != "on_wakeup_chain" {
 			t.Fatalf("semantic span work should be on-chain: %+v all=%+v", item, rank.Items)
 		}
-		if item.Tier != "primary" {
-			t.Fatalf("on-chain semantic span work should be co-primary eligible: %+v", item)
+		// EVOLUTION RECORD (DCS E1, ledger §23.1 ruling ①, 2026-07-08): this
+		// pin used to require Tier=="primary" (co-primary election). On-chain
+		// semantic compile spans now carry the independent
+		// deterministic_optimization tier and never compete in the
+		// primary/co-primary election — an optimization point is reported as
+		// an optimization, not as the root cause.
+		if item.Tier != RootCauseTierDeterministicOptimization {
+			t.Fatalf("on-chain semantic span work should wear the deterministic_optimization tier: %+v", item)
+		}
+		if item.BackgroundRank != 0 {
+			t.Fatalf("on-chain semantic span work is not on the background board: %+v", item)
 		}
 		if item.SpanName != "VerifyClass com.example.Foo" || item.SemanticClass != "class_verification" || item.SpanCategory != "runtime_verification" {
 			t.Fatalf("semantic span fields not preserved: %+v", item)
@@ -3808,16 +3817,34 @@ func TestRootCauseRankKeepsOffChainSemanticTraceSpanAsSupporting(t *testing.T) {
 	`)
 	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 6.0, TimeEnd: 6.021, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
 	foundDirectDIO := false
+	// EVOLUTION RECORD (DCS E2/E1b, ledger §23.1 rulings ①/②, 2026-07-08):
+	// this pin used to require that the off-chain shader span never mints a
+	// typed shader_compile row at all (it degraded to a generic trace_span).
+	// The E2 fall-through now mints the window-clipped TYPED row on the
+	// NON-CHAIN lane: it stays background (never on_chain, never the primary
+	// tier, never a co-primary) and carries the typed background_rank 榜位 —
+	// the cmp_01 E2 witness (external-process JIT at 83% of a zero-chain
+	// window) is exactly this lane.
+	foundBackgroundShader := false
 	for _, item := range rank.Items {
 		if item.Thread.PID == 200 && item.ChainRelevance == "on_chain" && (item.Type == "d_state_or_io_wait" || item.Type == "io_wait" || item.Type == "priority_inversion_candidate") {
 			foundDirectDIO = true
 		}
 		if item.Type == "shader_compile" {
-			t.Fatalf("off-chain semantic span must not become direct semantic root cause: %+v all=%+v", item, rank.Items)
+			foundBackgroundShader = true
+			if item.ChainRelevance == "on_chain" || item.Causality == "on_wakeup_chain" {
+				t.Fatalf("off-chain shader span must stay on the non-chain lane: %+v all=%+v", item, rank.Items)
+			}
+			if item.Tier == "primary" || item.Tier == RootCauseTierDeterministicOptimization {
+				t.Fatalf("non-chain shader span must not wear the primary or on-chain optimization tier: %+v", item)
+			}
+			if item.BackgroundRank <= 0 {
+				t.Fatalf("non-chain shader span must carry its typed background board position: %+v", item)
+			}
 		}
-		if item.Thread.PID == 900 && (item.ChainRelevance != "background" || item.Tier == "primary") {
-			t.Fatalf("off-chain shader span should stay supporting/background: %+v all=%+v", item, rank.Items)
-		}
+	}
+	if !foundBackgroundShader {
+		t.Fatalf("expected the off-chain shader span to mint a typed background row (E2 fall-through): %+v", rank.Items)
 	}
 	if !foundDirectDIO {
 		t.Fatalf("expected direct chain D/IO candidate to stay in ranked causes: %+v", rank.Items)

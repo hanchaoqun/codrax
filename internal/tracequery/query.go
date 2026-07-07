@@ -1769,7 +1769,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.HiSystemEvents = sortedTracePluginSummaries(hiSystemEvents, 8)
 	stats.Caveats = append(stats.Caveats, ioPairingCaveats(idx, q)...)
 	stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
-	stats.TraceSpans, stats.TraceCounters = computeTraceMarks(idx, q, 8)
+	var traceMarkCaveats []string
+	stats.TraceSpans, stats.TraceCounters, traceMarkCaveats = computeTraceMarks(idx, q, 8)
+	stats.Caveats = append(stats.Caveats, traceMarkCaveats...)
 	stats.CounterDeltas = computeCounterDeltas(idx, q, 8)
 	stats.TraceMarkCategories = computeTraceMarkCategories(stats.TraceSpans, 8)
 	stats.AsyncFileWork = computeAsyncFileWorkSummaries(stats.TraceSpans, 8)
@@ -5704,16 +5706,23 @@ func computeCounterDeltas(idx *Index, q Query, max int) []TraceCounterDeltaSumma
 	return out
 }
 
-func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []TraceCounterSummary) {
+func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []TraceCounterSummary, []string) {
 	if idx == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	stacks := map[int][]Event{}
 	asyncStarts := map[string][]Event{}
 	var spans []TraceSpanSummary
 	counters := map[string]TraceCounterSummary{}
+	// DCS E4 (ledger §23/§23.1 H1, 2026-07-08): B/E and S/F pairing runs over
+	// the WHOLE trace-mark stream instead of the query window — a compile span
+	// riding the window boundary used to lose one end to the window filter and
+	// vanish with zero warning (the pair never formed). Minting still admits
+	// only window-overlapping spans, clipped to the window
+	// (clipTraceMarkSpanToQueryWindow); C| counter rows keep the strict
+	// window filter unchanged.
 	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventTraceMark {
+		if ev.Type != EventTraceMark {
 			continue
 		}
 		switch ev.SpanAction {
@@ -5729,7 +5738,9 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 			if ev.Ts < start.Ts {
 				continue
 			}
-			spans = append(spans, traceSpanFromEvents(start, ev, "sync"))
+			if span, ok := clipTraceMarkSpanToQueryWindow(traceSpanFromEvents(start, ev, "sync"), q); ok {
+				spans = append(spans, span)
+			}
 		case "S":
 			key := traceAsyncSpanKey(ev)
 			if key == "" {
@@ -5747,8 +5758,13 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 			if ev.Ts < start.Ts {
 				continue
 			}
-			spans = append(spans, traceSpanFromEvents(start, ev, "async"))
+			if span, ok := clipTraceMarkSpanToQueryWindow(traceSpanFromEvents(start, ev, "async"), q); ok {
+				spans = append(spans, span)
+			}
 		case "C":
+			if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+				continue
+			}
 			key := fmt.Sprintf("%d/%d/%s/%s", ev.PID, ev.SpanPID, ev.SpanName, ev.SpanValue)
 			counter := counters[key]
 			counter.Thread = threadRefFromEvent(ev)
@@ -5782,7 +5798,91 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 	if max > 0 && len(counterList) > max {
 		counterList = counterList[:max]
 	}
-	return spans, counterList
+	return spans, counterList, incompleteSemanticTraceMarkCaveats(q, stacks, asyncStarts)
+}
+
+// incompleteSemanticTraceMarkCaveats (DCS E4 caveat half, ledger §23/§23.1
+// H1): after full-stream pairing, a leftover B|/S| whose name carries a
+// SEMANTIC word surface (classified or near-miss compile/verify/shader
+// vocabulary) is an incomplete pair the window projection could not mint —
+// e.g. its end marker fell outside the captured trace. Fail-loud instead of
+// fail-silent: name up to three such spans. Bare sync E| orphans carry no
+// name and stay silent (nothing to report without inventing an identity).
+// Only starts at or before the window end can still overlap the window; later
+// starts are irrelevant to this query and stay out.
+func incompleteSemanticTraceMarkCaveats(q Query, stacks map[int][]Event, asyncStarts map[string][]Event) []string {
+	var names []string
+	seen := map[string]bool{}
+	note := func(ev Event) {
+		name := strings.TrimSpace(ev.SpanName)
+		if name == "" || seen[name] {
+			return
+		}
+		if q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
+			return
+		}
+		if _, classified := traceSpanSemanticWorkClass(name); !classified && !traceSpanNearMissesSemanticWorkClassification(name) {
+			return
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	for _, stack := range stacks {
+		for _, ev := range stack {
+			note(ev)
+		}
+	}
+	for _, stack := range asyncStarts {
+		for _, ev := range stack {
+			note(ev)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	sort.Strings(names)
+	if len(names) > 3 {
+		names = names[:3]
+	}
+	return []string{fmt.Sprintf("trace mark span(s) with compile/verify/shader-like names never closed inside the captured trace (e.g. %s); their duration cannot be projected into the window and they are absent from trace_spans and root_cause_rank", strings.Join(names, ", "))}
+}
+
+// clipTraceMarkSpanToQueryWindow (DCS E4, ledger §23/§23.1 H1) admits a fully
+// paired span only when it overlaps the query window and clips the published
+// extent to that window: StartTs/EndTs/DurationMs become the in-window
+// projection (preserving the raw≡in-window invariant every downstream
+// consumer relies on) while Actual* keeps the physical B/E extent for
+// cross-window disclosure. Line-window queries keep overlap admission on line
+// numbers; durations are time-based and are never "clipped by lines".
+func clipTraceMarkSpanToQueryWindow(span TraceSpanSummary, q Query) (TraceSpanSummary, bool) {
+	if q.LineStart > 0 && span.EndLine > 0 && span.EndLine < q.LineStart {
+		return span, false
+	}
+	if q.LineEnd > 0 && span.StartLine > 0 && span.StartLine > q.LineEnd {
+		return span, false
+	}
+	start, end := span.StartTs, span.EndTs
+	if end <= start {
+		// Zero-duration pairs (E at the same timestamp) keep their legacy
+		// point-in-window admission — there is nothing to clip.
+		return span, timeInWindow(start, q)
+	}
+	clipStart, clipEnd := start, end
+	if q.TimeStart > 0 && clipStart < q.TimeStart {
+		clipStart = q.TimeStart
+	}
+	if q.TimeEnd > 0 && clipEnd > q.TimeEnd {
+		clipEnd = q.TimeEnd
+	}
+	if clipEnd <= clipStart {
+		return span, false
+	}
+	if clipStart != start || clipEnd != end {
+		span.ActualStartTs, span.ActualEndTs, span.ActualDurationMs = start, end, span.DurationMs
+		span.StartTs, span.EndTs = clipStart, clipEnd
+		span.DurationMs = (clipEnd - clipStart) * 1000
+	}
+	return span, true
 }
 
 // traceMarkSemanticSpanCap bounds semantic-class spans (JIT compile, class
@@ -8822,6 +8922,14 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item := rootCauseItem("trace_span", span.Thread, span.DurationMs, 0.74, span.StartLine, span.EndLine, "window_stats", fmt.Sprintf("trace span %q lasted %.3fms", span.Name, span.DurationMs))
 		item.StartTs = span.StartTs
 		item.EndTs = span.EndTs
+		if span.ActualDurationMs > 0 {
+			// DCS E4: window-clipped boundary span — the published duration is
+			// the in-window projection; the physical extent rides actual_*.
+			item.ActualStartTs = span.ActualStartTs
+			item.ActualEndTs = span.ActualEndTs
+			item.ActualImpactMs = span.ActualDurationMs
+			item.ActualTotalMs = span.ActualDurationMs
+		}
 		item.SpanName = span.Name
 		item.SpanKind = span.Kind
 		item.SpanCategory = span.Category
@@ -9002,21 +9110,26 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	normalizeRootCauseCumulativeImpact(items)
 	normalizeRootCauseEffectiveImpact(items)
 	sortRootCauseRankItems(items, hasCausalChain)
+	items = placeNonChainSemanticSpanRows(q, items)
 	limit := ViewCapacityFor("root_cause_rank").ClampLimit(q.Limit)
 	if len(items) > limit {
-		last := items[limit-1]
+		total := len(items)
+		items = truncateRootCauseRankItemsWithSemanticSeats(items, limit)
+		last := items[len(items)-1]
 		res.Compactions = append(res.Compactions, ViewCompaction{
 			View:            "root_cause_rank",
 			Dimension:       CompactionDimensionCandidates,
-			Total:           len(items),
-			Emitted:         limit,
+			Total:           total,
+			Emitted:         len(items),
 			LastEmittedTs:   last.EndTs,
 			LastEmittedLine: last.LineEnd,
 		})
-		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d candidate(s)", len(items), limit))
-		items = items[:limit]
+		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d candidate(s)", total, len(items)))
 	}
 	assignRootCauseRanksAndTiers(items)
+	if caveat, ok := semanticSpanRankFailLoudCaveat(stats, items); ok {
+		res.Caveats = append(res.Caveats, caveat)
+	}
 	if len(items) == 0 {
 		res.Caveats = append(res.Caveats, "no deterministic root-cause candidates were found in the selected window")
 	}
@@ -9147,19 +9260,21 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	normalizeRootCauseCumulativeImpact(rank.Items)
 	normalizeRootCauseEffectiveImpact(rank.Items)
 	sortRootCauseRankItems(rank.Items, hasCausalChain)
+	rank.Items = placeNonChainSemanticSpanRows(q, rank.Items)
 	limit := ViewCapacityFor("root_cause_rank").ClampLimit(q.Limit)
 	if len(rank.Items) > limit {
-		last := rank.Items[limit-1]
+		total := len(rank.Items)
+		rank.Items = truncateRootCauseRankItemsWithSemanticSeats(rank.Items, limit)
+		last := rank.Items[len(rank.Items)-1]
 		rank.Compactions = append(rank.Compactions, ViewCompaction{
 			View:            "root_cause_rank",
 			Dimension:       CompactionDimensionCandidates,
-			Total:           len(rank.Items),
-			Emitted:         limit,
+			Total:           total,
+			Emitted:         len(rank.Items),
 			LastEmittedTs:   last.EndTs,
 			LastEmittedLine: last.LineEnd,
 		})
-		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d candidate(s)", len(rank.Items), limit))
-		rank.Items = rank.Items[:limit]
+		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d candidate(s)", total, len(rank.Items)))
 	}
 	assignRootCauseRanksAndTiers(rank.Items)
 	rank.Caveats = append(rank.Caveats, latency.Caveats...)
@@ -9689,6 +9804,193 @@ func rootCauseItemHasResolvedBlockingPeer(item RootCauseRankItem) bool {
 	return item.BlockingKind != "" && threadRefResolved(item.BlockingPeer)
 }
 
+// --- DCS E1b: non-chain semantic span rows on the background composite board
+// (ledger §23.1 ruling ②, 2026-07-08) -----------------------------------------
+//
+// 口径红线 (§7.30 S1 precedent): a wall-clock compile span and a cross-thread
+// cumulative cpu·ms aggregate must NEVER race on the raw Score channel — the
+// Score of an aggregate multiplies a cpu·ms magnitude that can exceed the
+// window by two orders of magnitude, so the race is decided by the caliber,
+// not the evidence. The defensible ordering basis for the background
+// composite board is the WINDOW-SHARE (占窗比): each row's own-caliber
+// magnitude normalized by the SAME window length —
+//   - semantic span row:      墙钟裁剪值 ÷ 窗长   (wall-clock in-window share)
+//   - cross-thread aggregate: 跨线程累计 ÷ 窗长   (≈平均排队深度, the display's
+//     own density normalization, §7.3 裁定2)
+//   - thread state row:       墙钟状态时长 ÷ 窗长 (wall-clock state share)
+//
+// i.e. every caliber is reduced to "多少个窗口当量" — the only dimensionless
+// scale that does not fabricate an equivalence between ms kinds; the caliber
+// words stay on every published surface. Within one board the shared window
+// length cancels, so the comparison reads the basis magnitudes directly (the
+// share semantics is documented here and in the ledger; the division is not
+// performed twice for nothing). Zero-chain aggregate rows keep their raw
+// cross-thread cumulative published value — the 35% window cap ruling (§7.5)
+// is untouched.
+//
+// Scope discipline: ONLY the non-chain semantic span rows are (re)placed;
+// every other row keeps its exact Score-sorted position, so existing boards
+// stay byte-stable. Rows demoted to the adjacent tier (same-thread without
+// overlap) stay where the chain-aware sort put them.
+func placeNonChainSemanticSpanRows(q Query, items []RootCauseRankItem) []RootCauseRankItem {
+	windowMs := (q.TimeEnd - q.TimeStart) * 1000
+	if windowMs <= 0 || len(items) < 2 {
+		// No bounded window → no share basis; absence never guesses a window
+		// and the Score order stands.
+		return items
+	}
+	kept := make([]RootCauseRankItem, 0, len(items))
+	var movable []RootCauseRankItem
+	for _, item := range items {
+		if rootCauseItemIsSemanticSpanWork(item) && !rootCauseItemIsOnChain(item) &&
+			rootCauseChainRelevanceSortRank(item) >= chainRelevanceRank("background") {
+			movable = append(movable, item)
+			continue
+		}
+		kept = append(kept, item)
+	}
+	if len(movable) == 0 {
+		return items
+	}
+	// Bigger shares insert first so equal-share spans keep their relative
+	// Score order (stable by construction).
+	sort.SliceStable(movable, func(i, j int) bool {
+		return rootCauseBackgroundShareBasisMs(movable[i]) > rootCauseBackgroundShareBasisMs(movable[j])
+	})
+	for _, span := range movable {
+		basis := rootCauseBackgroundShareBasisMs(span) // 墙钟裁剪值; share = basis/窗长
+		at := len(kept)
+		for i := range kept {
+			if rootCauseChainRelevanceSortRank(kept[i]) < chainRelevanceRank("background") {
+				// Never above the on-chain / adjacent tiers.
+				continue
+			}
+			// Both sides read the window-share basis (each in its own caliber,
+			// normalized by the SAME window — the division cancels).
+			if rootCauseBackgroundShareBasisMs(kept[i]) < basis {
+				at = i
+				break
+			}
+		}
+		kept = append(kept, RootCauseRankItem{})
+		copy(kept[at+1:], kept[at:])
+		kept[at] = span
+	}
+	return kept
+}
+
+// rootCauseBackgroundShareBasisMs is the numerator of a row's 占窗比 on the
+// background composite board — the row's own-caliber magnitude (ms):
+// wall-clock in-window projection for semantic spans, the raw cumulative for
+// everything else (cross-thread cpu·ms for aggregates ≙ the display density
+// numerator; wall-clock state duration for thread rows). Never conf- or
+// weight-scaled: the Score channel stays out of the cross-caliber race.
+func rootCauseBackgroundShareBasisMs(item RootCauseRankItem) float64 {
+	if rootCauseItemIsSemanticSpanWork(item) {
+		return item.ImpactMs
+	}
+	return rootCauseCumulativeImpactMs(item)
+}
+
+// --- DCS E1/E1b reserved seats inside the rank capacity (ledger §23/§23.1) ---
+
+const (
+	// rootCauseSemanticOnChainReservedSeats (E1): in-window ∧ on-chain
+	// semantic compile spans keep up to this many seats inside the
+	// root_cause_rank capacity — the engine-side TraceSpans bound has kept a
+	// 16-seat semantic reservation since boundTraceMarkSpans, and the rank
+	// board was the only asymmetric hop (the §23 audit's capacity breakpoint).
+	rootCauseSemanticOnChainReservedSeats = 3
+	// rootCauseSemanticBackgroundGuaranteedSeats (E1b): the TOP non-chain
+	// semantic span (by the background window-share basis) keeps one seat, so
+	// the §23.1 ruling-③ mention gate (background_rank<=3, typed 榜位) reads
+	// an honest board instead of a capacity artifact — in the cmp_01 6.0
+	// witness shape the aggregates + per-CPU pressure rows structurally fill
+	// all 12 seats and every semantic span died at the cap. Visibility ≠
+	// mention: the seat guarantees publication, the 榜位 stays earned.
+	rootCauseSemanticBackgroundGuaranteedSeats = 1
+)
+
+// truncateRootCauseRankItemsWithSemanticSeats truncates the sorted rank pool
+// to limit rows while honoring the semantic reserved seats: when truncation
+// would evict in-window semantic compile rows, the lowest-sorted kept
+// NON-semantic rows yield their seats instead (up to the per-lane seat
+// budgets). Relative sorted order is preserved; the emitted row count never
+// exceeds limit.
+func truncateRootCauseRankItemsWithSemanticSeats(items []RootCauseRankItem, limit int) []RootCauseRankItem {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	keep := make([]bool, len(items))
+	onChainKept, backgroundKept := 0, 0
+	for i := 0; i < limit; i++ {
+		keep[i] = true
+		if !rootCauseItemIsSemanticSpanWork(items[i]) {
+			continue
+		}
+		if rootCauseItemIsOnChain(items[i]) {
+			onChainKept++
+		} else {
+			backgroundKept++
+		}
+	}
+	evictLowestNonSemantic := func() bool {
+		for i := len(items) - 1; i >= 0; i-- {
+			if keep[i] && !rootCauseItemIsSemanticSpanWork(items[i]) {
+				keep[i] = false
+				return true
+			}
+		}
+		return false
+	}
+	for i := limit; i < len(items); i++ {
+		if !rootCauseItemIsSemanticSpanWork(items[i]) {
+			continue
+		}
+		if rootCauseItemIsOnChain(items[i]) {
+			if onChainKept < rootCauseSemanticOnChainReservedSeats && evictLowestNonSemantic() {
+				keep[i] = true
+				onChainKept++
+			}
+			continue
+		}
+		if backgroundKept < rootCauseSemanticBackgroundGuaranteedSeats && evictLowestNonSemantic() {
+			keep[i] = true
+			backgroundKept++
+		}
+	}
+	out := make([]RootCauseRankItem, 0, limit)
+	for i := range items {
+		if keep[i] {
+			out = append(out, items[i])
+		}
+	}
+	return out
+}
+
+// semanticSpanRankFailLoudCaveat (DCS E3, ledger §23 义务② fail-loud gap):
+// window_stats classified semantic optimization spans but the published rank
+// carries ZERO semantic rows — a structurally silent loss (the near-miss
+// caveat only covers UNclassified vocabulary). Precise counting comparison on
+// typed fields only; any published semantic row silences it.
+func semanticSpanRankFailLoudCaveat(stats WindowStats, items []RootCauseRankItem) (string, bool) {
+	classified := 0
+	for _, span := range stats.TraceSpans {
+		if strings.TrimSpace(span.SemanticClass) != "" {
+			classified++
+		}
+	}
+	if classified == 0 {
+		return "", false
+	}
+	for _, item := range items {
+		if rootCauseItemIsSemanticSpanWork(item) {
+			return "", false
+		}
+	}
+	return fmt.Sprintf("window_stats.trace_spans holds %d classified semantic optimization span(s) but root_cause_rank published 0 semantic rows (%d row(s) published in total); the ranked causes are incomplete for deterministic-optimization accounting — inspect window_stats.trace_spans directly", classified, len(items)), true
+}
+
 func rootCauseChainRelevanceSortRank(item RootCauseRankItem) int {
 	relevance := strings.TrimSpace(item.ChainRelevance)
 	if relevance == "" {
@@ -10114,6 +10416,11 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 	if holderResolved {
 		summary = fmt.Sprintf("lock holder %s blocked %s for %.3fms%s", threadLabel(holder), threadLabel(waiter), cand.DurationMs, suffix)
 	}
+	if cand.ActualDurationMs > 0 {
+		// F-1 (ledger §23.2): window-clipped contention — the rank summary
+		// discloses the dual basis exactly like the semantic lane does.
+		summary += fmt.Sprintf("; window-clipped, actual_span=%.3fms window=%.6f..%.6f", cand.ActualDurationMs, cand.ActualStartTs, cand.ActualEndTs)
+	}
 	// P0-E2a: the rank confidence tracks the folded candidate's confidence, so
 	// the wakeup-edge holder-source demotion (0.62) flows into rank Score = impact
 	// × conf × weight — an inferred holder never scores as a payload-direct one.
@@ -10126,6 +10433,15 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 	item.Causality = causalityLabel(hasCausalChain, onChain)
 	item.StartTs = cand.StartTs
 	item.EndTs = cand.EndTs
+	if cand.ActualDurationMs > 0 {
+		// F-1: the physical extent rides the SAME actual_* rank lanes the
+		// semantic rows use — the ⚠实际 display marker and the
+		// projected/actual note pair engage without a second implementation.
+		item.ActualStartTs = cand.ActualStartTs
+		item.ActualEndTs = cand.ActualEndTs
+		item.ActualImpactMs = cand.ActualDurationMs
+		item.ActualTotalMs = cand.ActualDurationMs
+	}
 	item.SpanName = row.spanName
 	item.BlockingKind = cand.BlockingKind
 	item.HolderSite = cand.HolderSite
@@ -10247,8 +10563,14 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 		return RootCauseRankItem{}, false
 	}
 	effectiveImpactMs := semanticTraceSpanEffectiveImpactMs(work, projection, span)
+	// DCS E4: a boundary-straddling span was minted from its window-clipped
+	// extent; the actual_* lanes carry the physical B/E extent when present.
+	actualStartTs, actualEndTs, actualMs := span.StartTs, span.EndTs, span.DurationMs
+	if span.ActualDurationMs > 0 {
+		actualStartTs, actualEndTs, actualMs = span.ActualStartTs, span.ActualEndTs, span.ActualDurationMs
+	}
 	summary := fmt.Sprintf("%s span %q overlapped %s for %.3fms; effective_impact=%.3fms; actual_span=%.3fms window=%.6f..%.6f",
-		work.Label, span.Name, semanticTraceSpanProjectionScope(projection, hasCausalChain), projection.ImpactMs, effectiveImpactMs, span.DurationMs, span.StartTs, span.EndTs)
+		work.Label, span.Name, semanticTraceSpanProjectionScope(projection, hasCausalChain), projection.ImpactMs, effectiveImpactMs, actualMs, actualStartTs, actualEndTs)
 	if projection.OnChain && effectiveImpactMs > projection.ImpactMs {
 		summary = fmt.Sprintf("%s; semantic_multiplier=%.2f hidden_cost_boost=true", summary, work.ImpactMultiplier)
 	}
@@ -10258,10 +10580,10 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	item := rootCauseItem(work.RootCauseType, span.Thread, projection.ImpactMs, work.Confidence, span.StartLine, span.EndLine, "window_stats.trace_spans.semantic", summary)
 	item.StartTs = projection.StartTs
 	item.EndTs = projection.EndTs
-	item.ActualStartTs = span.StartTs
-	item.ActualEndTs = span.EndTs
-	item.ActualImpactMs = span.DurationMs
-	item.ActualTotalMs = span.DurationMs
+	item.ActualStartTs = actualStartTs
+	item.ActualEndTs = actualEndTs
+	item.ActualImpactMs = actualMs
+	item.ActualTotalMs = actualMs
 	item.ProjectedImpactMs = projection.ImpactMs
 	item.CumulativeImpactMs = projection.ImpactMs
 	item.EffectiveImpactMs = effectiveImpactMs
@@ -10379,11 +10701,27 @@ func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span Tr
 				out.OnChain = true
 			}
 		}
-		return out
+		if out.ImpactMs > 0 {
+			return out
+		}
+		// DCS E2 fall-through (ledger §23.1 rulings ①/②, 2026-07-08): a chain
+		// exists but NO same-thread chain-node/impact window overlap — the row
+		// used to degrade into a generic trace_span (and could never leave the
+		// adjacent tier). It now mints the window-clipped typed projection with
+		// OnChain=false: 窗内即可铸,链上/非链上由重叠谓词定道. The non-chain
+		// lane (E1b) ranks it on the background composite board.
+		return semanticTraceSpanProjection{
+			StartTs:  start,
+			EndTs:    end,
+			ImpactMs: (end - start) * 1000,
+		}
 	}
-	if q.PID > 0 && span.Thread.PID > 0 && q.PID != span.Thread.PID {
-		return semanticTraceSpanProjection{}
-	}
+	// DCS E2 PID-gate removal (ledger §23.1 ruling ②; cmp_01 E2 witness: the
+	// 83.893ms JIT span's host com.huawei.hwid is NOT the query target, and
+	// the old q.PID gate erased the whole other-process compile family from
+	// the rank pool). In-window is the only minting condition; the host
+	// process never gates minting — the overlap predicate above decides the
+	// lane, and the non-chain lane competes only on the background board.
 	return semanticTraceSpanProjection{
 		StartTs:  start,
 		EndTs:    end,
@@ -10635,6 +10973,18 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 }
 
 func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateContext) chainCandidateContext {
+	// DCS 道别红线 (ledger §23.1 ruling ①, 2026-07-08): a semantic compile
+	// span row's LANE is decided ONCE at mint time by the typed chain-node/
+	// impact WINDOW-OVERLAP predicate. Thread membership alone (this ctx path)
+	// must never flip a mint-time non-chain span onto the on-chain lane —
+	// same-thread-without-overlap is exactly the shape the E2 fall-through
+	// mints as non-chain. It keeps the chain-proximity context honestly as
+	// adjacent (the huadong E21 precedent tier), which is still 非链上 for the
+	// tier/mention double gate (rootCauseItemIsOnChain stays false).
+	if ctx.relevance == "on_chain" && rootCauseItemIsSemanticSpanWork(item) && !rootCauseItemIsOnChain(item) {
+		ctx.relevance = "adjacent"
+		return ctx
+	}
 	if ctx.relevance != "on_chain" || rootCauseItemCanBeDirectOnChain(item) {
 		return ctx
 	}
@@ -11112,10 +11462,58 @@ func rootCauseTier(idx int) string {
 	}
 }
 
+// rootCauseItemIsSemanticSpanWork is the PRECISE typed identity of a semantic
+// compile span rank row (DCS, ledger §23/§23.1): the four type tokens are
+// minted ONLY by rootCauseItemFromSemanticTraceSpan — never a name/substring
+// heuristic.
+func rootCauseItemIsSemanticSpanWork(item RootCauseRankItem) bool {
+	switch item.Type {
+	case "jit_compile", "class_verification", "shader_compile", "runtime_compile":
+		return true
+	default:
+		return false
+	}
+}
+
 func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
+	electionPos := 0
+	backgroundPos := 0
 	for i := range items {
 		items[i].Rank = i + 1
-		tier := rootCauseTier(i)
+		items[i].BackgroundRank = 0
+		if !rootCauseItemIsOnChain(items[i]) {
+			// DCS E1b/E6 (ledger §23.1 rulings ②/③): typed 榜位 on the
+			// non-on-chain composite board — the mention-obligation gate reads
+			// background_rank<=3, never a prose position guess. The POSITION
+			// counts every published non-on-chain row; the FIELD (复核 F-2) is
+			// stamped on semantic compile span rows only, matching the two
+			// output faces (text line / typed note) so the JSON payload of a
+			// semantic-free trace stays byte-stable.
+			backgroundPos++
+			if rootCauseItemIsSemanticSpanWork(items[i]) {
+				items[i].BackgroundRank = backgroundPos
+			}
+		}
+		if rootCauseItemIsSemanticSpanWork(items[i]) {
+			// DCS E1 (ledger §23.1 ruling ①) + 复核 F-4 (ruling ②): EVERY
+			// semantic compile span row is TRANSPARENT to the positional
+			// election ladder — it neither takes a primary/secondary/tertiary
+			// slot nor shifts the slots of the causal rows below it. On-chain
+			// rows wear the independent deterministic_optimization tier;
+			// non-chain rows wear the ladder's default supporting band word
+			// (tertiary) — pre-F-4 a degenerate zero-aggregate board let a
+			// non-chain span occupy slot 0 and wear tier=primary, directly
+			// contradicting §23.1② (非链上不入链上 tier,入背景综合排序;
+			// its board identity is background_rank, never the election).
+			if rootCauseItemIsOnChain(items[i]) {
+				items[i].Tier = RootCauseTierDeterministicOptimization
+			} else {
+				items[i].Tier = "tertiary"
+			}
+			continue
+		}
+		tier := rootCauseTier(electionPos)
+		electionPos++
 		if rootCauseShouldBeCoPrimary(items[i]) {
 			tier = "primary"
 		}
@@ -11127,11 +11525,18 @@ func rootCauseShouldBeCoPrimary(item RootCauseRankItem) bool {
 	if !rootCauseItemIsOnChain(item) || item.ImpactMs <= 0 {
 		return false
 	}
+	// EVOLUTION RECORD (DCS E1, ledger §23.1 ruling ①, 2026-07-08): the four
+	// semantic compile span types (jit_compile / class_verification /
+	// shader_compile / runtime_compile) left this whitelist — on-chain
+	// semantic spans now carry their own independent tier
+	// (RootCauseTierDeterministicOptimization) and NEVER compete in the
+	// primary/co-primary election; the on-chain hard precondition above is
+	// untouched. Pre-§23.1 they rode co-primary here (pinned then by
+	// TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork).
 	switch item.Type {
 	case "runnable_wait", "scheduler_latency", "fragmented_runnable_wait",
 		"running", "fragmented_running",
 		"compute_supply", "low_frequency", "cpu_affinity_or_cpuset",
-		"jit_compile", "class_verification", "shader_compile", "runtime_compile",
 		"io_wait", "d_state_or_io_wait", "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "fragmented_d_state_or_io_wait":
 		return true
 	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
@@ -12795,10 +13200,23 @@ func blockingSpanCandidateFromTraceSpan(span TraceSpanSummary) (CriticalBlocking
 		DurationMs: span.DurationMs,
 		StartTs:    span.StartTs,
 		EndTs:      span.EndTs,
-		LineStart:  span.StartLine,
-		LineEnd:    span.EndLine,
-		Confidence: 0.72,
-		Summary:    fmt.Sprintf("blocking-like trace span %q lasted %.3fms", span.Name, span.DurationMs),
+		// DCS E4 复核 F-1 (ledger §23.2): a boundary-straddling blocking span
+		// was minted from its window-clipped extent — port the physical B/E
+		// extent so the lock lane keeps the same dual-basis disclosure
+		// discipline as the semantic lane (⚠实际 display lane included).
+		ActualStartTs:    span.ActualStartTs,
+		ActualEndTs:      span.ActualEndTs,
+		ActualDurationMs: span.ActualDurationMs,
+		LineStart:        span.StartLine,
+		LineEnd:          span.EndLine,
+		Confidence:       0.72,
+		Summary:          fmt.Sprintf("blocking-like trace span %q lasted %.3fms", span.Name, span.DurationMs),
+	}
+	if span.ActualDurationMs > 0 {
+		// F-1 dual-basis disclosure: the published duration is the in-window
+		// projection; the physical extent is named right next to it (same
+		// actual_span vocabulary as the semantic rank lane).
+		cand.Summary += fmt.Sprintf(" (window-clipped; actual_span=%.3fms window=%.6f..%.6f)", span.ActualDurationMs, span.ActualStartTs, span.ActualEndTs)
 	}
 	// §7.30.3 D1: structured ART/OHOS contention payloads carry the lock
 	// owner — parse deterministically and publish it as the peer so the
@@ -13088,6 +13506,12 @@ func foldLockContentionRow(a, b blockingSpanRow) blockingSpanRow {
 	}
 	if folded.cand.DurationMs > survivor.cand.DurationMs {
 		survivor.cand.DurationMs = folded.cand.DurationMs
+		// F-1: the actual extent travels with the value that won the fold —
+		// zeroed when the winning form was not clipped (absence stays the
+		// precise "not clipped" signal for the surviving value).
+		survivor.cand.ActualStartTs = folded.cand.ActualStartTs
+		survivor.cand.ActualEndTs = folded.cand.ActualEndTs
+		survivor.cand.ActualDurationMs = folded.cand.ActualDurationMs
 	}
 	merged := append([]int(nil), survivor.cand.MergedLines...)
 	merged = append(merged, folded.cand.MergedLines...)

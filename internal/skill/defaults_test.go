@@ -244,6 +244,14 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		"mixed trace+source",
 		"TRACE SEMANTIC SPAN ROOT CAUSES",
 		"semantic span-work",
+		// DCS E6/F3a (ledger §23.1 ruling ③): the double-gated mention
+		// obligation — on-chain tier word always mentioned as an optimization
+		// point with its window share; non-chain only at background_rank<=3.
+		"tier=deterministic_optimization",
+		"MUST mention the largest one",
+		"never as the root cause",
+		"projected share of the analysis window",
+		"background_rank<=3",
 		"PERF SAMPLE PROVENANCE",
 	} {
 		if !strings.Contains(traceTier, want) {

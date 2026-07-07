@@ -1712,8 +1712,18 @@ type TraceSpanSummary struct {
 	StartTs       float64 `json:"start_ts,omitempty"`
 	EndTs         float64 `json:"end_ts,omitempty"`
 	DurationMs    float64 `json:"duration_ms,omitempty"`
-	StartLine     int     `json:"start_line,omitempty"`
-	EndLine       int     `json:"end_line,omitempty"`
+	// ActualStartTs/ActualEndTs/ActualDurationMs (DCS E4, ledger §23/§23.1 H1,
+	// 2026-07-08): the span's FULL B/E extent when the pair straddles the query
+	// window boundary — StartTs/EndTs/DurationMs then carry the WINDOW-CLIPPED
+	// projection (so every "raw duration" consumer keeps the raw≡in-window
+	// invariant), and these three carry the physical extent for cross-window
+	// disclosure. All zero when the span lay entirely inside the window:
+	// absence is the precise "not clipped" signal, never a guessed window.
+	ActualStartTs    float64 `json:"actual_start_ts,omitempty"`
+	ActualEndTs      float64 `json:"actual_end_ts,omitempty"`
+	ActualDurationMs float64 `json:"actual_duration_ms,omitempty"`
+	StartLine        int     `json:"start_line,omitempty"`
+	EndLine          int     `json:"end_line,omitempty"`
 }
 
 // TraceCounterDeltaSummary is the C1 (2026-07-03) numeric aggregation of a
@@ -1817,10 +1827,35 @@ type RootCauseRankResult struct {
 // "unknown thread": the empty ThreadRef is structural, not a resolution gap.
 const RootCauseSubjectKindAggregateMetric = "aggregate_metric"
 
+// RootCauseTierDeterministicOptimization (DCS E1, ledger §23/§23.1 user
+// ruling 2026-07-07): the independent Tier word for IN-WINDOW ∧ ON-CHAIN
+// semantic compile span rows (jit_compile / class_verification /
+// shader_compile / runtime_compile). Rows wearing it hold rank-board reserved
+// seats and participate in ORDERING, but are transparent to the
+// primary/secondary/tertiary positional election and NEVER ride the
+// co-primary lane — a deterministic optimization point is reported as an
+// optimization, not as the root cause. Wire token: it appears verbatim in the
+// typed tier note / root_cause_<tier> predicate faces; user-panel prose uses
+// the 确定性优化点 display family instead.
+const RootCauseTierDeterministicOptimization = "deterministic_optimization"
+
 type RootCauseRankItem struct {
 	Rank int    `json:"rank"`
 	Tier string `json:"tier,omitempty"`
-	Type string `json:"type,omitempty"`
+	// BackgroundRank (DCS E1b/E6, ledger §23.1 rulings ②/③, 2026-07-08): the
+	// row's 1-based position on the NON-on-chain composite board (the
+	// position COUNTS every published row where rootCauseItemIsOnChain is
+	// false — background, adjacent and chainless rows alike, the §23.1 binary
+	// lane split). The FIELD is stamped on semantic compile span rows ONLY
+	// (复核 F-2): the text and typed-note faces gate to semantic rows, so the
+	// JSON payload face gates identically and a semantic-free trace's rank
+	// payload stays byte-stable. 0 everywhere else (on-chain rows included).
+	// This is the PRECISE typed 榜位 the mention-obligation double gate
+	// reads: a non-chain optimization span earns prose mention only at
+	// background_rank<=3 (user-adjustable default). Assigned after the final
+	// sort/truncation, never an ordering input.
+	BackgroundRank int    `json:"background_rank,omitempty"`
+	Type           string `json:"type,omitempty"`
 	// SubjectKind is empty when the row's subject is a (possibly unresolved)
 	// thread, and RootCauseSubjectKindAggregateMetric when the row is a
 	// window/CPU-scoped aggregate metric with no single subject thread.
@@ -2253,10 +2288,20 @@ type CriticalBlockingCandidate struct {
 	DurationMs         float64        `json:"duration_ms,omitempty"`
 	StartTs            float64        `json:"start_ts,omitempty"`
 	EndTs              float64        `json:"end_ts,omitempty"`
-	LineStart          int            `json:"line_start,omitempty"`
-	LineEnd            int            `json:"line_end,omitempty"`
-	Confidence         float64        `json:"confidence,omitempty"`
-	Summary            string         `json:"summary,omitempty"`
+	// ActualStartTs/ActualEndTs/ActualDurationMs (DCS E4 复核 F-1, ledger
+	// §23.2, 2026-07-08): the blocking span's FULL B/E extent when the pair
+	// straddled the query window boundary — DurationMs/StartTs/EndTs then
+	// carry the WINDOW-CLIPPED projection (same dual-basis discipline as
+	// TraceSpanSummary / the semantic rank lane). All zero when the span lay
+	// entirely inside the window: absence is the precise "not clipped"
+	// signal, never a guessed extent.
+	ActualStartTs    float64 `json:"actual_start_ts,omitempty"`
+	ActualEndTs      float64 `json:"actual_end_ts,omitempty"`
+	ActualDurationMs float64 `json:"actual_duration_ms,omitempty"`
+	LineStart        int     `json:"line_start,omitempty"`
+	LineEnd          int     `json:"line_end,omitempty"`
+	Confidence       float64 `json:"confidence,omitempty"`
+	Summary          string  `json:"summary,omitempty"`
 }
 
 type ThreadStateBreakdown struct {

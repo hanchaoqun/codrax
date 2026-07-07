@@ -300,50 +300,51 @@ type runtimeTraceProjTreeModel struct {
 type runtimeTraceProjMark int
 
 const (
-	runtimeTraceProjMarkRootTarget               runtimeTraceProjMark = iota // 🎯 root header
-	runtimeTraceProjMarkEdgeDrill                                            // ├─下钻─ edge
-	runtimeTraceProjMarkEdgeWake                                             // ├─唤醒─ / └─唤醒─ edge
-	runtimeTraceProjMarkEdgeCause                                            // ├─成因─ edge
-	runtimeTraceProjMarkEdgeOwn                                              // ├─自身─ own-process caliber edge (F2)
-	runtimeTraceProjMarkEdgeChainUnresolved                                  // └─链上·深度未解析─ depthless on-chain edge (PTV6 #1b)
-	runtimeTraceProjMarkSemanticSpan                                         // ├─语义─ edge + ✦ icon (always paired)
-	runtimeTraceProjMarkIconSleep                                            // ☾ state icon (PTV4 T5: was 💤)
-	runtimeTraceProjMarkIconRunnable                                         // ⧖ state icon (PTV4 T5: was ⏳)
-	runtimeTraceProjMarkIconRunning                                          // ⚙ state icon
-	runtimeTraceProjMarkIconDState                                           // ⛓ state icon
-	runtimeTraceProjMarkIconTransit                                          // ◦ 中转 transit icon (PTV4 T4: the two ◦ senses split)
-	runtimeTraceProjMarkIconNoDominant                                       // ◦ 无主导态 stateless data-row icon (PTV4 T4)
-	runtimeTraceProjMarkBadge                                                // ❶❷❸ TOP-N root-cause badge (PTV4 T6)
-	runtimeTraceProjMarkStateLabel                                           // dominant-state / impact-shape tag
-	runtimeTraceProjMarkUndrillable                                          // ⊘ missing-wakeup marker (PTV4 T5: was ⛔)
-	runtimeTraceProjMarkCrossWindow                                          // ⚠实际Xms cross-window marker (PTV4 T4: data kept, semantics in legend)
-	runtimeTraceProjMarkCrossWindowNoActual                                  // ⚠跨窗 value-less cross-window marker (§21 LEAD-SEM 前置 L1: actual 未采集时禁 0.000 假标量)
-	runtimeTraceProjMarkRecursOnChain                                        // ↺ small-cycle marker
-	runtimeTraceProjMarkChainDepthChip                                       // 链上L# chain-depth chip (PTV4 T9)
-	runtimeTraceProjMarkOmitted                                              // …省略N节点… long-trunk fold row (PTV4 T8 roster)
-	runtimeTraceProjMarkBarScale                                             // bar full-scale caliber line (PTV4 T7 口径组)
-	runtimeTraceProjMarkMergedSum                                            // ×N(a–b) same-kind SUM aggregate (PTV4 T4 ×N 三式)
-	runtimeTraceProjMarkMergedDedup                                          // ×N同值 duplicate-publication fold (PTV4 T4 ×N 三式)
-	runtimeTraceProjMarkMergedMax                                            // ×N(a–b)取最大 cross-thread fold (PTV4 T4 ×N 三式)
-	runtimeTraceProjMarkMergedUnion                                          // ×N(a–b)union cross-query-window union caliber (§11-N2, ×N 第四式)
-	runtimeTraceProjMarkMergedWindowMax                                      // ×N(a–b)跨窗取最大 overlapping-query-window MAX caliber (§21 CWD, ×N 第五式)
-	runtimeTraceProjMarkMergedMultiWindowNoShare                             // ×N 多窗合并行不显示占窗% (§21.1 CWD-2 ①, huadong E19)
-	runtimeTraceProjMarkOverWindowShare                                      // 占窗>100% multi-CPU/multi-span cumulative share (PTV4 T4)
-	runtimeTraceProjMarkWholeWindowIdle                                      // 整窗等待 whole-window idle annotation (PTV4 T4)
-	runtimeTraceProjMarkInheritedAttribution                                 // 承自归因 inherited-attribution annotation (PTV4 T4)
-	runtimeTraceProjMarkIOCaliberNote                                        // NEW-3 同段IO另有…口径 note
-	runtimeTraceProjMarkPeriodicSource                                       // VS-1 周期性信号源 tag
-	runtimeTraceProjMarkAdjacentStanza                                       // ◇ 邻近 stanza
-	runtimeTraceProjMarkBackgroundStanza                                     // ▒ 背景压力 stanza
-	runtimeTraceProjMarkImpactCaliberFallback                                // PTV5 C00 主行回退口径词 (链上累计/有效归因/实际状态/累计(跨线程))
-	runtimeTraceProjMarkCoverageLine                                         // PTV5 Q2 树头覆盖行(已归因/未归因)口径
-	runtimeTraceProjMarkOnChainOverflowFold                                  // PTV5 PTS 链上折叠行(其余N项,零静默丢弃)
-	runtimeTraceProjMarkStanzaCrossThreadCum                                 // PTV6-C ruling A ◇/▒ 行 累计(跨线程) 族词
-	runtimeTraceProjMarkCandidateShapeClass                                  // PTV6-D (b) 候选影响 类别词降维:行内删,图例承载
-	runtimeTraceProjMarkUserFocusTransit                                     // §22 B1-b F2 折叠段内用户关注线程强制展开(中转形态)
-	runtimeTraceProjMarkTraceGapBlindSpot                                    // §22 PTV7-SPN F5 trace_gap 数据盲区 行内披露(用户措辞裁定)
-	runtimeTraceProjMarkGatedRunnableSubRow                                  // §21 RNB R1 ⧖ runnable gated 分量 display-only 子行(用户点名)
-	runtimeTraceProjMarkRankFoldNote                                         // §21/§22 RNB R2 同段rank行并入 note(同段双车道折叠为一行)
+	runtimeTraceProjMarkRootTarget                runtimeTraceProjMark = iota // 🎯 root header
+	runtimeTraceProjMarkEdgeDrill                                             // ├─下钻─ edge
+	runtimeTraceProjMarkEdgeWake                                              // ├─唤醒─ / └─唤醒─ edge
+	runtimeTraceProjMarkEdgeCause                                             // ├─成因─ edge
+	runtimeTraceProjMarkEdgeOwn                                               // ├─自身─ own-process caliber edge (F2)
+	runtimeTraceProjMarkEdgeChainUnresolved                                   // └─链上·深度未解析─ depthless on-chain edge (PTV6 #1b)
+	runtimeTraceProjMarkSemanticSpan                                          // ├─语义─ edge + ✦ icon (always paired)
+	runtimeTraceProjMarkIconSleep                                             // ☾ state icon (PTV4 T5: was 💤)
+	runtimeTraceProjMarkIconRunnable                                          // ⧖ state icon (PTV4 T5: was ⏳)
+	runtimeTraceProjMarkIconRunning                                           // ⚙ state icon
+	runtimeTraceProjMarkIconDState                                            // ⛓ state icon
+	runtimeTraceProjMarkIconTransit                                           // ◦ 中转 transit icon (PTV4 T4: the two ◦ senses split)
+	runtimeTraceProjMarkIconNoDominant                                        // ◦ 无主导态 stateless data-row icon (PTV4 T4)
+	runtimeTraceProjMarkBadge                                                 // ❶❷❸ TOP-N root-cause badge (PTV4 T6)
+	runtimeTraceProjMarkStateLabel                                            // dominant-state / impact-shape tag
+	runtimeTraceProjMarkUndrillable                                           // ⊘ missing-wakeup marker (PTV4 T5: was ⛔)
+	runtimeTraceProjMarkCrossWindow                                           // ⚠实际Xms cross-window marker (PTV4 T4: data kept, semantics in legend)
+	runtimeTraceProjMarkCrossWindowNoActual                                   // ⚠跨窗 value-less cross-window marker (§21 LEAD-SEM 前置 L1: actual 未采集时禁 0.000 假标量)
+	runtimeTraceProjMarkRecursOnChain                                         // ↺ small-cycle marker
+	runtimeTraceProjMarkChainDepthChip                                        // 链上L# chain-depth chip (PTV4 T9)
+	runtimeTraceProjMarkOmitted                                               // …省略N节点… long-trunk fold row (PTV4 T8 roster)
+	runtimeTraceProjMarkBarScale                                              // bar full-scale caliber line (PTV4 T7 口径组)
+	runtimeTraceProjMarkMergedSum                                             // ×N(a–b) same-kind SUM aggregate (PTV4 T4 ×N 三式)
+	runtimeTraceProjMarkMergedDedup                                           // ×N同值 duplicate-publication fold (PTV4 T4 ×N 三式)
+	runtimeTraceProjMarkMergedMax                                             // ×N(a–b)取最大 cross-thread fold (PTV4 T4 ×N 三式)
+	runtimeTraceProjMarkMergedUnion                                           // ×N(a–b)union cross-query-window union caliber (§11-N2, ×N 第四式)
+	runtimeTraceProjMarkMergedWindowMax                                       // ×N(a–b)跨窗取最大 overlapping-query-window MAX caliber (§21 CWD, ×N 第五式)
+	runtimeTraceProjMarkMergedMultiWindowNoShare                              // ×N 多窗合并行不显示占窗% (§21.1 CWD-2 ①, huadong E19)
+	runtimeTraceProjMarkOverWindowShare                                       // 占窗>100% multi-CPU/multi-span cumulative share (PTV4 T4)
+	runtimeTraceProjMarkWholeWindowIdle                                       // 整窗等待 whole-window idle annotation (PTV4 T4)
+	runtimeTraceProjMarkInheritedAttribution                                  // 承自归因 inherited-attribution annotation (PTV4 T4)
+	runtimeTraceProjMarkIOCaliberNote                                         // NEW-3 同段IO另有…口径 note
+	runtimeTraceProjMarkPeriodicSource                                        // VS-1 周期性信号源 tag
+	runtimeTraceProjMarkAdjacentStanza                                        // ◇ 邻近 stanza
+	runtimeTraceProjMarkBackgroundStanza                                      // ▒ 背景压力 stanza
+	runtimeTraceProjMarkImpactCaliberFallback                                 // PTV5 C00 主行回退口径词 (链上累计/有效归因/实际状态/累计(跨线程))
+	runtimeTraceProjMarkCoverageLine                                          // PTV5 Q2 树头覆盖行(已归因/未归因)口径
+	runtimeTraceProjMarkOnChainOverflowFold                                   // PTV5 PTS 链上折叠行(其余N项,零静默丢弃)
+	runtimeTraceProjMarkStanzaCrossThreadCum                                  // PTV6-C ruling A ◇/▒ 行 累计(跨线程) 族词
+	runtimeTraceProjMarkCandidateShapeClass                                   // PTV6-D (b) 候选影响 类别词降维:行内删,图例承载
+	runtimeTraceProjMarkUserFocusTransit                                      // §22 B1-b F2 折叠段内用户关注线程强制展开(中转形态)
+	runtimeTraceProjMarkTraceGapBlindSpot                                     // §22 PTV7-SPN F5 trace_gap 数据盲区 行内披露(用户措辞裁定)
+	runtimeTraceProjMarkGatedRunnableSubRow                                   // §21 RNB R1 ⧖ runnable gated 分量 display-only 子行(用户点名)
+	runtimeTraceProjMarkRankFoldNote                                          // §21/§22 RNB R2 同段rank行并入 note(同段双车道折叠为一行)
+	runtimeTraceProjMarkSemanticSourceWindowShare                             // DCS E5 语义行 %基=自身查询窗+「来自查询窗」标注 (§23 H2, cmp_01 E2 83%对锚窗)
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -549,6 +550,15 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkMergedMultiWindowNoShare, runtimeTraceProjLegendGroupCaliber,
 			"- `×N` 多窗合并行不显示占窗% = 该行成员横跨多个查询窗,合并值与单一锚定窗不同基,不作跨窗除法(时长条仅示意相对量级);成员窗见无损块窗来源。",
 			"- multi-window `×N` rows show no window share = the row's members span multiple query windows, so the merged value shares no base with the single anchor window and is never divided across bases (the bar is relative scale only); the member windows live in the lossless block's window sources."},
+		// DCS E5 (ledger §23/§23.1 H2, cmp_01 E2 witness, 2026-07-08): a
+		// semantic row measured in a DIFFERENT query window used to divide its
+		// raw duration by the anchor window length ("83% 对锚窗" while the span
+		// never touched the anchor window). The % now divides by the row's OWN
+		// typed source query window and says so inline; rows whose source
+		// window matches the anchor keep the legacy share byte-identically.
+		{runtimeTraceProjMarkSemanticSourceWindowShare, runtimeTraceProjLegendGroupCaliber,
+			"- 语义行「来自查询窗 X」= 该行数值测自另一查询窗,占窗% 以其自身查询窗为基(非本树锚定窗;时长条仅示意相对量级)。",
+			"- a semantic row's 「from query window X」= the row was measured in another query window; its window share divides by that OWN query window, not this tree's anchor window (the bar is relative scale only)."},
 		// PTV6-B (聚合幻影修复, 2026-07-06; 修正轮 Med 如实化): the entry
 		// discloses exactly what the pipeline does — NEAR-duplicate (≤3%)
 		// same-thread overlapping measurements fold as duplicate publications,
@@ -4212,6 +4222,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// / effective attribution / actual state) publishes neither: the % would
 	// divide a non-projection numerator by the window and could fake a >100%
 	// share, pulling the 占窗>100% legend semantics it does not have.
+	semanticSourceWindowTag := ""
 	if windowMode && denom > 0 && impact > 0 && !crossThread &&
 		impactSource == runtimeTraceProjImpactSourceWindow {
 		// §21.1 CWD-2 ① (huadong_01 revisit E19 witness, 2026-07-07): a merged
@@ -4230,6 +4241,18 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// byte-identically (绝不跨窗分子÷单锚窗分母打 %).
 		if runtimeTraceProjMultiWindowMergedRow(node) {
 			row.marks.mark(runtimeTraceProjMarkMergedMultiWindowNoShare)
+		} else if base, ok := runtimeTraceProjSemanticSourceWindowShareBaseMS(row, denom); ok {
+			// DCS E5 (ledger §23/§23.1 H2): the semantic row carries a typed
+			// SOURCE query window that differs from the anchor denominator —
+			// the share divides by the source window (the only base the
+			// numerator was measured against) and the 来自查询窗 tag below
+			// names it. Same-window rows never reach this lane (byte-stable).
+			b.WriteString(fmt.Sprintf(" %3.0f%%", impact/base*100))
+			row.marks.mark(runtimeTraceProjMarkSemanticSourceWindowShare)
+			if impact > base*1.001 {
+				row.marks.mark(runtimeTraceProjMarkOverWindowShare)
+			}
+			semanticSourceWindowTag = runtimeTraceProjSemanticSourceWindowTag(node, zh)
 		} else {
 			b.WriteString(fmt.Sprintf(" %3.0f%%", impact/denom*100))
 			// H8: an over-window share (cross-CPU / multi-span cumulative values can
@@ -4244,6 +4267,10 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		}
 	}
 	var tags []runtimeTraceProjTag
+	if semanticSourceWindowTag != "" {
+		// DCS E5: the 来自查询窗 disclosure travels with the % it re-bases.
+		tags = append(tags, runtimeTraceProjTag{Text: semanticSourceWindowTag})
+	}
 	// PTV5 C00: a fallback-sourced main-line ms carries its (a)-table caliber
 	// word as a Keep tag (never demoted away from the number it qualifies);
 	// the semantics live in the legend's 口径词 entry. Single-source condition
@@ -4747,6 +4774,39 @@ func runtimeTraceProjInheritedWindowBaseSuffix(node types.TraceCausalProjectionN
 	return ""
 }
 
+// runtimeTraceProjSemanticSourceWindowShareBaseMS (DCS E5, ledger §23/§23.1
+// H2, cmp_01 E2 witness "83.893ms · 83% 对锚窗", 2026-07-08) returns the
+// window-share denominator for a SEMANTIC row that carries its own typed
+// QueryWindow identity DIFFERING from the render denominator: the numerator
+// was measured over that source query window, so dividing by any other window
+// fabricates a share. ok=false (no typed source window — absence never
+// guesses — or the source matches the render window within the ±1ms F-2
+// tolerance) keeps the legacy anchor-based share byte-identically. Standalone
+// lane on purpose (PTV8-RCR node-shape rework friction).
+func runtimeTraceProjSemanticSourceWindowShareBaseMS(row runtimeTraceProjTreeRow, denomMS float64) (float64, bool) {
+	if row.Kind != runtimeTraceProjTreeRowSemantic {
+		return 0, false
+	}
+	node := row.Node
+	if node.QueryWindowStartTs <= 0 || node.QueryWindowEndTs <= node.QueryWindowStartTs {
+		return 0, false
+	}
+	sourceMS := (node.QueryWindowEndTs - node.QueryWindowStartTs) * 1000
+	if sourceMS <= 0 || math.Abs(sourceMS-denomMS) <= 1.0 {
+		return 0, false
+	}
+	return sourceMS, true
+}
+
+// runtimeTraceProjSemanticSourceWindowTag renders the E5 inline disclosure —
+// the typed source query window the re-based % divides by.
+func runtimeTraceProjSemanticSourceWindowTag(node types.TraceCausalProjectionNode, zh bool) string {
+	if zh {
+		return fmt.Sprintf("来自查询窗 %.3f–%.3fs", node.QueryWindowStartTs, node.QueryWindowEndTs)
+	}
+	return fmt.Sprintf("from query window %.3f–%.3fs", node.QueryWindowStartTs, node.QueryWindowEndTs)
+}
+
 // runtimeTraceProjCrossWindow marks a node whose underlying state extends
 // beyond its in-window projection (deterministic comparison; also honors the
 // typed WithinRequestedWindow=false drill marker). The baseline is the LARGER
@@ -5152,24 +5212,11 @@ func runtimeTraceProjSemanticLeadText(node types.TraceCausalProjectionNode, mode
 	}
 	ms := runtimeTraceProjLeadSelectionValue(node)
 	share := ""
-	shareOK := false
-	switch {
-	case node.MergedCount > 1 && node.MergedMaxMS > 0:
-		// The per-instance max IS a window projection (same V1 headline rule).
-		shareOK = true
-	case node.EffectiveImpactMS > 0:
-		// The selection value fell to the attribution caliber — not a window
-		// projection, so no share (C00).
-		shareOK = false
-	default:
-		_, source := runtimeTraceProjNodeDisplayImpactSource(node)
-		shareOK = source == runtimeTraceProjImpactSourceWindow
-	}
-	if shareOK && ms > 0 && model.WindowMS > 0 {
+	if text := runtimeTraceProjSemanticSpanShareText(node, ms, model, zh); text != "" {
 		if zh {
-			share = fmt.Sprintf("占窗%.0f%%,", ms/model.WindowMS*100)
+			share = text + ","
 		} else {
-			share = fmt.Sprintf("%.0f%% of window, ", ms/model.WindowMS*100)
+			share = text + ", "
 		}
 	}
 	pointer := ""
@@ -5184,6 +5231,69 @@ func runtimeTraceProjSemanticLeadText(node types.TraceCausalProjectionNode, mode
 		return fmt.Sprintf("未定位到链上主根因;窗口内最大语义优化span: %s %.3fms(%s语义优化span·无唤醒链%s)", name, ms, share, pointer)
 	}
 	return fmt.Sprintf("no on-chain primary root cause located; largest in-window semantic optimization span: %s %.3fms (%ssemantic optimization span · no wakeup chain%s)", name, ms, share, pointer)
+}
+
+// runtimeTraceProjSemanticSpanShareText is the SINGLE share-wording source for
+// semantic optimization spans on the conclusion line, the comparison primary
+// cell and the F3b 确定性优化点 column (DCS E6 + LEAD-SEM 协调, ledger §23.1):
+// the C00 same-source gate first (only a window-projection magnitude may
+// publish a share), then the E5 source-window base — a row measured in a
+// DIFFERENT typed query window divides by ITS OWN window ("占其查询窗N%"),
+// never raw-duration ÷ anchor length; rows without a typed source window (or
+// matching the anchor within ±1ms) keep the legacy 占窗 form byte-identically.
+// "" = no share publishable.
+func runtimeTraceProjSemanticSpanShareText(node types.TraceCausalProjectionNode, ms float64, model runtimeTraceProjTreeModel, zh bool) string {
+	shareOK := false
+	switch {
+	case node.MergedCount > 1 && node.MergedMaxMS > 0:
+		// The per-instance max IS a window projection (same V1 headline rule).
+		shareOK = true
+	case node.EffectiveImpactMS > 0:
+		// The selection value fell to the attribution caliber — not a window
+		// projection, so no share (C00).
+		shareOK = false
+	default:
+		_, source := runtimeTraceProjNodeDisplayImpactSource(node)
+		shareOK = source == runtimeTraceProjImpactSourceWindow
+	}
+	if !shareOK || ms <= 0 || model.WindowMS <= 0 {
+		return ""
+	}
+	base := model.WindowMS
+	sourceBased := false
+	if node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs {
+		if sourceMS := (node.QueryWindowEndTs - node.QueryWindowStartTs) * 1000; sourceMS > 0 && math.Abs(sourceMS-model.WindowMS) > 1.0 {
+			base, sourceBased = sourceMS, true
+		}
+	}
+	pct := ms / base * 100
+	switch {
+	case zh && sourceBased:
+		return fmt.Sprintf("占其查询窗%.0f%%", pct)
+	case zh:
+		return fmt.Sprintf("占窗%.0f%%", pct)
+	case sourceBased:
+		return fmt.Sprintf("%.0f%% of its query window", pct)
+	default:
+		return fmt.Sprintf("%.0f%% of window", pct)
+	}
+}
+
+// runtimeTraceProjSemanticTopSpan resolves the model's TOP semantic
+// optimization span through the SAME typed selection as the LEAD-SEM fallback
+// (in-window rows preferred, ×N SUMs never compete, 0-value never leads) —
+// one selector, three consumers (conclusion fallback, F3b column, zero-chain
+// primary-cell presence note), so they can never name different spans.
+func runtimeTraceProjSemanticTopSpan(model runtimeTraceProjTreeModel) (*types.TraceCausalProjectionNode, float64, bool) {
+	node := runtimeTraceProjLeadSemanticFallback(model)
+	if node == nil {
+		return nil, 0, false
+	}
+	ms := runtimeTraceProjLeadSelectionValue(*node)
+	if ms <= 0 {
+		return nil, 0, false
+	}
+	return node, ms, true
 }
 
 // runtimeTraceProjLeadOnChainFallback picks the RN-3(a) fallback lead: among

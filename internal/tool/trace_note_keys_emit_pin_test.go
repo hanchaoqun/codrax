@@ -299,6 +299,21 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				HolderSource:        tracequery.CounterpartSourceContentionPayload,
 				SubjectIsLockHolder: true,
 				Summary:             "lock holder lockholder-103 blocked lockwaiter-104",
+			}, {
+				// DCS E1b/E6 (ledger §23.1): non-chain semantic compile span
+				// rank row — exercises the background_rank contract key (typed
+				// non-on-chain board position, emitted on semantic rows only).
+				Rank: 3, Tier: "tertiary", BackgroundRank: 1, Type: "shader_compile",
+				Thread:   tracequery.ThreadRef{Comm: "RenderThread", PID: 105},
+				ImpactMs: 4, ProjectedImpactMs: 4, CumulativeImpactMs: 4,
+				EffectiveImpactMs: 4, Score: 3.2, Confidence: 0.8,
+				LineStart: 70, LineEnd: 71,
+				Source:    "window_stats.trace_spans.semantic",
+				Causality: "background", ChainRelevance: "background",
+				SpanName: "shader_compile warmup", SpanKind: "sync",
+				SpanCategory: "shader_compile", SpanSubcategory: "shader",
+				SemanticClass: "shader_compile",
+				Summary:       "shader compilation span overlapped selected non-chain interval",
 			}},
 		},
 		WakeupChain: &tracequery.ChainResult{
