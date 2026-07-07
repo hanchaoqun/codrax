@@ -1374,3 +1374,15 @@ comm 可经 prctl 动态改名(payload 记持锁时刻名,sched 面可为改名�
 - **LCK-2(梯子②,ns_span_derivation)**:Index sync.Once ns→宿主 tgid memo(第二 tgid→Ambiguous 硬拒落③,comm 不消歧);resolveBlockingSpanRowCounterpart 三级梯子;holder_source/peer_source 新值 ns_span_derivation(既有 string 键零新键,但 sourceIsInferred query.go:12102 单值比较改集合成员+drill_status 第三常量+skill 披露文案扩);置信 0.67(0.72/0.62 之间);comm 只软披露不进置信算术。进程级 peer typed-pair 首批走 display note。
 - **LCK-3(软尾,低优先/待 witness)**:S4 blocked_reason caller 锁定性词(down/down_interruptible/rwsem_/rt_mutex_/__mutex_lock→定性词 IO 改锁,lane/token 不动)/S3 fence 等待(Waiting for Present Fence/WaitFence)/S2 futex span 对(FutexWait/FutexWake,与 closing-wakeup 同义佐证);S2/S3 上新 BlockingKind 才动 registry。
 - pin:closing-wakeup 取尾/无主兜底接线/uint64-max typed ownerless(永不 MaxInt64)/ns 映射多义硬拒(comm 不参与)/词表止噪(Audio/animation 不 blocking-like,FutexWait/fence 仍准入)/SpanPID 进程级(carved 多线程单 tgid)。
+
+## §20 RKC:root_cause_rank 折算口径与富信息消费审计(2026-07-07,五镜头全 upheld)
+
+**头条(镜头A/E 双证,P0)**:running 孪生行(RootEvidence twin)整体绕过三代折算 — 同一 WakeupCausalImpact 铸 2~3 行(CausalImpacts 行+RootEvidence 孪生+aggregate),孪生 struct(types.go:2627)无 fold/窗口/状态字段,排序键=raw DominantImpactMs 58.919,同池压过自身 gated 反转行 37.410(+57% 通胀自我失效 R5d 校准),且一段双铸 co-primary、StartTs=0 逃逸 Q4-D 降级门等一切交叉核验。**fold 数值已在 Summary 散文(:13580-13585)= 零新解析即可 typed 化**。修=去双发布(一段一行,BLK §15.C 同型先例),归并行排序口径见裁定①。
+- **A-Gap③(P1)**:非反转 running 同样双发布且两 raw 口径互异(TotalMs 含 sleep vs DominantImpactMs 仅 running),同线程最多 2N+1 行同池。
+- **A-Gap④(P2)**:Score 三套硬编码权重(chain ×2.0/aggregate ×2.05/孪生 ×1.0·conf0.75),同段两行 score 与 effective 排序反向撕裂,均发布。§12.3-1② score 裁定只落了承自重算半边。
+- **B/C 面**:VS-1 periodic 零值权威✓/runnable 全额契约一致✓/IO 实测(Q4-B 后)✓;RunnableTop 反转 retype 后 Score/registry 断言不重算(P2)。
+- **D 面**:gated/LockDominated/P0-E1 排序三段基线全在位✓;blocking_span 无 typeWeight 条目→default 0.8 低于 generic trace_span 0.9(P2,裁定②);锁富信息(subject_state_*/subject_chain_*/waiters/wait_object)只经 twin-port 条件性到 rank(P2);gated note 无任何消费者確认(F2 记录成立)。
+- **E 面**:aggregate 反转车道无 gated 口径(P1,R5d 只落 per-occurrence 半场);聚合指标行经嘈声窗口重叠升 adjacent tier(P2,§17 降背景只有 tool 半场,一行精确信号修);LockDominated 旗未入 note(P2→P0-A);DrillStatus 只 stamp 锁车道,binder/io rank 行不对称(P3);nearest_chain_* 四 note 发布即坠投影零解析(P3→P0-A);adjacent/background tier 内按 Score 排(P3 观察不立案)。
+
+### §20 归批
+P0-E 引擎批(主归口,最终 scope):去双发布+归并口径(裁定①)+孪生 fold typed 化+aggregate gated 补齐+聚合 adjacent 升级禁+retype Score 重算+Score 权重单源(裁定②)+gated note 接线+DrillStatus 对称+runnable 独立行+E4/E7 typed 同段身份(RCX² 退档)+SFD note 接线提升;P0-A 显示尾:LockDominated 旗 note+nearest_chain_* 消费。
