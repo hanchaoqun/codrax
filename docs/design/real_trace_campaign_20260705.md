@@ -1347,6 +1347,13 @@ NUM 数字格式批(§18.A 两根因,emit_investigation_complete.go+answer_aggre
 3. **最后唤醒兜底**(现有,语义收窄确认):借助**等锁 span 结束的那次唤醒**(closing wakeup=放锁唤醒,非窗内任意唤醒)推定(wakeup_edge,0.62)。
 实施=LCK-OWNER 批(待 LCK 覆盖面归因回带可行性实测:映射密度/唯一性/现 resolveCounterpartViaWakeupEdge 是否锚定 closing wakeup)。
 
+**§18.E 增补(用户 2026-07-07,线程级纠正)**:第②级产出**不是进程级封顶**,分形态升线程级(实测印证:xxx_all.systrace `owner tid: 62020` ≠ 发射 ns-pid 60194 ≠ ns-tgid → 62020 是容器**线程** ns-tid,行头宿主 tid=59566/com.baidu.tieba,进程内线程列表同 trace 在场):
+- **②a span 自报 ns-tid**:若存在线程打印自身 ns-tid 的 span(文本 tid 字段+行头宿主 tid)→ (ns-tid↔宿主 tid) **线程级**映射样本;
+- **②b 主线程特例(零成本精确)**:pidns 线程 1:1,owner ns-tid==ns-tgid ⇒ owner=该进程主线程 ⇒ 宿主 tid==tgid(host 主线程),线程级;
+- **②c ns-tid→宿主 tid**:owner ns-tid≠tgid 时,在 ② 推导出的宿主进程(tgid)的线程集里对 ns-tid(需 ns-tid↔host-tid 映射源:②a 自报,或内核 pid 映射事件如有);对不上 → 进程级 + ③补线程。
+- **②×③ 融合(新)**:③ closing-wakeup 的 waker 本就是**宿主线程**(sched_wakeup 行头 comm-tid,线程级无歧义);做交叉 — waker ∈ ② 推导进程 ⇒ 两级互证,waker 极可能=持有者线程本身(线程级+置信升档);waker ∉ 该进程 ⇒ 披露分歧(可能中介唤醒)。
+结论:②的封顶是 **SpanPID 车道**(marker pid=ns 进程 id)的上限,非第②级全部;线程级由 ②a/②b/②c/②×③ 供给,③ 始终线程级兜底。LCK-2 实施按此分形态,披露标级(线程级/进程级)。
+
 ### §18.E.1 comm 交叉核验降级修正(用户 2026-07-07,pin)
 
 comm 可经 prctl 动态改名(payload 记持锁时刻名,sched 面可为改名前后另
