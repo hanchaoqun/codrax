@@ -257,6 +257,15 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 // windows + window-length normalization) exists exactly once, is gated by the
 // typed comparison form (RequiresTraceComparison), and never leaks into the
 // always-rendered workflow or the plain RequiresTrace tier.
+//
+// EVOLUTION RECORD (§21 SG-2b, real_trace_campaign_20260705.md, cmp_01 audit
+// dim A③(a), 2026-07-07): the pin now also asserts the same-caliber
+// causal-drilldown clauses — the reliable sequence continues into
+// `wakeup_chain` on `state_drilldown` chain_required=true, and a causal
+// drilldown view run on one trace must be mirrored with the same view and
+// parameters over the other trace's own span-aligned window before any
+// comparative root-cause conclusion. Soft guidance only; the typed
+// RequiresTraceComparison gate is unchanged.
 func TestExploreSkill_TraceComparisonGuidanceIsComparisonGated(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
@@ -290,6 +299,12 @@ func TestExploreSkill_TraceComparisonGuidanceIsComparisonGated(t *testing.T) {
 		"span-aligned window",
 		"dividing each side's value by its own window length",
 		"normalized densities",
+		// §21 SG-2b: same-caliber causal-drilldown clauses.
+		"`state_drilldown` row that reports `chain_required=true` with `wakeup_chain`",
+		"Causal drilldown must stay same-caliber",
+		"`wakeup_chain` or `critical_blocking_calls`",
+		"SAME drilldown view with the SAME parameters over the other trace's own span-aligned window",
+		"sampling gap, not evidence",
 	} {
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("comparison directive missing %q:\n%s", want, item.Body)
