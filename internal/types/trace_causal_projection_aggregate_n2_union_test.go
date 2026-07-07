@@ -229,6 +229,11 @@ func TestTraceCausalProjectionCrossWindowPartialOverlapDeductionCap(t *testing.T
 // member (MergedIntervalUnion stays false — the F-2 premise ruling stands),
 // and disjoint-window density>1 groups keep the legacy SUM byte-identically
 // (second leg below).
+//
+// Name note (§21.1 CWD-2 ⑦, 2026-07-07): the function name keeps the original
+// "FailsOpenToSum" for grep history — after the §21 CWD evolution it names the
+// SURVIVING disjoint-window SUM leg only; the overlapping-window leg fails
+// open to the member MAX as recorded above.
 func TestTraceCausalProjectionUnionDensityGateFailsOpenToSum(t *testing.T) {
 	records := []ObservationRecord{
 		// value 200ms > interval 50ms → density > 1 → premise broken;

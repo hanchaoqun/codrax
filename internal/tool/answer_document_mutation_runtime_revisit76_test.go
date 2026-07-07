@@ -576,14 +576,19 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkMergedUnion: {")union", ")union"},
 		// §21 CWD ×N 第五式: the overlapping-query-window MAX form's suffix
 		// tokens (zh form word / en ") cross-window max" suffix).
-		runtimeTraceProjMarkMergedWindowMax:      {"跨窗取最大", ") cross-window max"},
-		runtimeTraceProjMarkOverWindowShare:      {"250%", "250%"},
-		runtimeTraceProjMarkWholeWindowIdle:      {"整窗等待", "whole-window wait"},
-		runtimeTraceProjMarkInheritedAttribution: {"承自归因", "inherited attribution"},
-		runtimeTraceProjMarkIOCaliberNote:        {"同段IO另有", "same-segment IO also measured"},
-		runtimeTraceProjMarkPeriodicSource:       {"周期性信号源", "periodic signal source"},
-		runtimeTraceProjMarkAdjacentStanza:       {"◇", "◇"},
-		runtimeTraceProjMarkBackgroundStanza:     {"▒", "▒"},
+		runtimeTraceProjMarkMergedWindowMax: {"跨窗取最大", ") cross-window max"},
+		// §21.1 CWD-2 ① (huadong E19): the multi-window merged row's fence
+		// manifestation is the ABSENCE of the % cell — no positive fence
+		// token exists, so no fence probe; direction A (mark ⇔ legend entry)
+		// still asserts, and the dedicated CWD-2 pins assert the % absence.
+		runtimeTraceProjMarkMergedMultiWindowNoShare: {"", ""},
+		runtimeTraceProjMarkOverWindowShare:          {"250%", "250%"},
+		runtimeTraceProjMarkWholeWindowIdle:          {"整窗等待", "whole-window wait"},
+		runtimeTraceProjMarkInheritedAttribution:     {"承自归因", "inherited attribution"},
+		runtimeTraceProjMarkIOCaliberNote:            {"同段IO另有", "same-segment IO also measured"},
+		runtimeTraceProjMarkPeriodicSource:           {"周期性信号源", "periodic signal source"},
+		runtimeTraceProjMarkAdjacentStanza:           {"◇", "◇"},
+		runtimeTraceProjMarkBackgroundStanza:         {"▒", "▒"},
 		// PTV5 C00: no fence probe — the fallback caliber word 链上累计 is also
 		// the 链上累计Xms data tag's prefix (mark-less), so the token cannot be
 		// bidirectional; the mark records at the MainRow Keep-tag append,
@@ -896,6 +901,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// §21 CWD: the overlapping-query-window MAX caliber (×N 第五式) and its
 		// legend entry (fixture home: answer_document_projection_cwd_test.go).
 		{"cwd_cross_window_max", cwdCrossWindowMaxProjection()},
+		// §21.1 CWD-2 ① (huadong E19): the multi-window merged SUM row whose
+		// anchor-window share is suppressed (fixture home:
+		// answer_document_projection_cwd2_test.go).
+		{"cwd2_multi_window_sum", cwd2MultiWindowSumProjection()},
 		// §22 B1-b F2: a typed user entity inside the folded trunk middle is
 		// force-expanded as a named transit row (fixture home:
 		// answer_document_mutation_runtime_tree_anchor_b1b_test.go).

@@ -300,49 +300,50 @@ type runtimeTraceProjTreeModel struct {
 type runtimeTraceProjMark int
 
 const (
-	runtimeTraceProjMarkRootTarget            runtimeTraceProjMark = iota // 🎯 root header
-	runtimeTraceProjMarkEdgeDrill                                         // ├─下钻─ edge
-	runtimeTraceProjMarkEdgeWake                                          // ├─唤醒─ / └─唤醒─ edge
-	runtimeTraceProjMarkEdgeCause                                         // ├─成因─ edge
-	runtimeTraceProjMarkEdgeOwn                                           // ├─自身─ own-process caliber edge (F2)
-	runtimeTraceProjMarkEdgeChainUnresolved                               // └─链上·深度未解析─ depthless on-chain edge (PTV6 #1b)
-	runtimeTraceProjMarkSemanticSpan                                      // ├─语义─ edge + ✦ icon (always paired)
-	runtimeTraceProjMarkIconSleep                                         // ☾ state icon (PTV4 T5: was 💤)
-	runtimeTraceProjMarkIconRunnable                                      // ⧖ state icon (PTV4 T5: was ⏳)
-	runtimeTraceProjMarkIconRunning                                       // ⚙ state icon
-	runtimeTraceProjMarkIconDState                                        // ⛓ state icon
-	runtimeTraceProjMarkIconTransit                                       // ◦ 中转 transit icon (PTV4 T4: the two ◦ senses split)
-	runtimeTraceProjMarkIconNoDominant                                    // ◦ 无主导态 stateless data-row icon (PTV4 T4)
-	runtimeTraceProjMarkBadge                                             // ❶❷❸ TOP-N root-cause badge (PTV4 T6)
-	runtimeTraceProjMarkStateLabel                                        // dominant-state / impact-shape tag
-	runtimeTraceProjMarkUndrillable                                       // ⊘ missing-wakeup marker (PTV4 T5: was ⛔)
-	runtimeTraceProjMarkCrossWindow                                       // ⚠实际Xms cross-window marker (PTV4 T4: data kept, semantics in legend)
-	runtimeTraceProjMarkCrossWindowNoActual                               // ⚠跨窗 value-less cross-window marker (§21 LEAD-SEM 前置 L1: actual 未采集时禁 0.000 假标量)
-	runtimeTraceProjMarkRecursOnChain                                     // ↺ small-cycle marker
-	runtimeTraceProjMarkChainDepthChip                                    // 链上L# chain-depth chip (PTV4 T9)
-	runtimeTraceProjMarkOmitted                                           // …省略N节点… long-trunk fold row (PTV4 T8 roster)
-	runtimeTraceProjMarkBarScale                                          // bar full-scale caliber line (PTV4 T7 口径组)
-	runtimeTraceProjMarkMergedSum                                         // ×N(a–b) same-kind SUM aggregate (PTV4 T4 ×N 三式)
-	runtimeTraceProjMarkMergedDedup                                       // ×N同值 duplicate-publication fold (PTV4 T4 ×N 三式)
-	runtimeTraceProjMarkMergedMax                                         // ×N(a–b)取最大 cross-thread fold (PTV4 T4 ×N 三式)
-	runtimeTraceProjMarkMergedUnion                                       // ×N(a–b)union cross-query-window union caliber (§11-N2, ×N 第四式)
-	runtimeTraceProjMarkMergedWindowMax                                   // ×N(a–b)跨窗取最大 overlapping-query-window MAX caliber (§21 CWD, ×N 第五式)
-	runtimeTraceProjMarkOverWindowShare                                   // 占窗>100% multi-CPU/multi-span cumulative share (PTV4 T4)
-	runtimeTraceProjMarkWholeWindowIdle                                   // 整窗等待 whole-window idle annotation (PTV4 T4)
-	runtimeTraceProjMarkInheritedAttribution                              // 承自归因 inherited-attribution annotation (PTV4 T4)
-	runtimeTraceProjMarkIOCaliberNote                                     // NEW-3 同段IO另有…口径 note
-	runtimeTraceProjMarkPeriodicSource                                    // VS-1 周期性信号源 tag
-	runtimeTraceProjMarkAdjacentStanza                                    // ◇ 邻近 stanza
-	runtimeTraceProjMarkBackgroundStanza                                  // ▒ 背景压力 stanza
-	runtimeTraceProjMarkImpactCaliberFallback                             // PTV5 C00 主行回退口径词 (链上累计/有效归因/实际状态/累计(跨线程))
-	runtimeTraceProjMarkCoverageLine                                      // PTV5 Q2 树头覆盖行(已归因/未归因)口径
-	runtimeTraceProjMarkOnChainOverflowFold                               // PTV5 PTS 链上折叠行(其余N项,零静默丢弃)
-	runtimeTraceProjMarkStanzaCrossThreadCum                              // PTV6-C ruling A ◇/▒ 行 累计(跨线程) 族词
-	runtimeTraceProjMarkCandidateShapeClass                               // PTV6-D (b) 候选影响 类别词降维:行内删,图例承载
-	runtimeTraceProjMarkUserFocusTransit                                  // §22 B1-b F2 折叠段内用户关注线程强制展开(中转形态)
-	runtimeTraceProjMarkTraceGapBlindSpot                                 // §22 PTV7-SPN F5 trace_gap 数据盲区 行内披露(用户措辞裁定)
-	runtimeTraceProjMarkGatedRunnableSubRow                               // §21 RNB R1 ⧖ runnable gated 分量 display-only 子行(用户点名)
-	runtimeTraceProjMarkRankFoldNote                                      // §21/§22 RNB R2 同段rank行并入 note(同段双车道折叠为一行)
+	runtimeTraceProjMarkRootTarget               runtimeTraceProjMark = iota // 🎯 root header
+	runtimeTraceProjMarkEdgeDrill                                            // ├─下钻─ edge
+	runtimeTraceProjMarkEdgeWake                                             // ├─唤醒─ / └─唤醒─ edge
+	runtimeTraceProjMarkEdgeCause                                            // ├─成因─ edge
+	runtimeTraceProjMarkEdgeOwn                                              // ├─自身─ own-process caliber edge (F2)
+	runtimeTraceProjMarkEdgeChainUnresolved                                  // └─链上·深度未解析─ depthless on-chain edge (PTV6 #1b)
+	runtimeTraceProjMarkSemanticSpan                                         // ├─语义─ edge + ✦ icon (always paired)
+	runtimeTraceProjMarkIconSleep                                            // ☾ state icon (PTV4 T5: was 💤)
+	runtimeTraceProjMarkIconRunnable                                         // ⧖ state icon (PTV4 T5: was ⏳)
+	runtimeTraceProjMarkIconRunning                                          // ⚙ state icon
+	runtimeTraceProjMarkIconDState                                           // ⛓ state icon
+	runtimeTraceProjMarkIconTransit                                          // ◦ 中转 transit icon (PTV4 T4: the two ◦ senses split)
+	runtimeTraceProjMarkIconNoDominant                                       // ◦ 无主导态 stateless data-row icon (PTV4 T4)
+	runtimeTraceProjMarkBadge                                                // ❶❷❸ TOP-N root-cause badge (PTV4 T6)
+	runtimeTraceProjMarkStateLabel                                           // dominant-state / impact-shape tag
+	runtimeTraceProjMarkUndrillable                                          // ⊘ missing-wakeup marker (PTV4 T5: was ⛔)
+	runtimeTraceProjMarkCrossWindow                                          // ⚠实际Xms cross-window marker (PTV4 T4: data kept, semantics in legend)
+	runtimeTraceProjMarkCrossWindowNoActual                                  // ⚠跨窗 value-less cross-window marker (§21 LEAD-SEM 前置 L1: actual 未采集时禁 0.000 假标量)
+	runtimeTraceProjMarkRecursOnChain                                        // ↺ small-cycle marker
+	runtimeTraceProjMarkChainDepthChip                                       // 链上L# chain-depth chip (PTV4 T9)
+	runtimeTraceProjMarkOmitted                                              // …省略N节点… long-trunk fold row (PTV4 T8 roster)
+	runtimeTraceProjMarkBarScale                                             // bar full-scale caliber line (PTV4 T7 口径组)
+	runtimeTraceProjMarkMergedSum                                            // ×N(a–b) same-kind SUM aggregate (PTV4 T4 ×N 三式)
+	runtimeTraceProjMarkMergedDedup                                          // ×N同值 duplicate-publication fold (PTV4 T4 ×N 三式)
+	runtimeTraceProjMarkMergedMax                                            // ×N(a–b)取最大 cross-thread fold (PTV4 T4 ×N 三式)
+	runtimeTraceProjMarkMergedUnion                                          // ×N(a–b)union cross-query-window union caliber (§11-N2, ×N 第四式)
+	runtimeTraceProjMarkMergedWindowMax                                      // ×N(a–b)跨窗取最大 overlapping-query-window MAX caliber (§21 CWD, ×N 第五式)
+	runtimeTraceProjMarkMergedMultiWindowNoShare                             // ×N 多窗合并行不显示占窗% (§21.1 CWD-2 ①, huadong E19)
+	runtimeTraceProjMarkOverWindowShare                                      // 占窗>100% multi-CPU/multi-span cumulative share (PTV4 T4)
+	runtimeTraceProjMarkWholeWindowIdle                                      // 整窗等待 whole-window idle annotation (PTV4 T4)
+	runtimeTraceProjMarkInheritedAttribution                                 // 承自归因 inherited-attribution annotation (PTV4 T4)
+	runtimeTraceProjMarkIOCaliberNote                                        // NEW-3 同段IO另有…口径 note
+	runtimeTraceProjMarkPeriodicSource                                       // VS-1 周期性信号源 tag
+	runtimeTraceProjMarkAdjacentStanza                                       // ◇ 邻近 stanza
+	runtimeTraceProjMarkBackgroundStanza                                     // ▒ 背景压力 stanza
+	runtimeTraceProjMarkImpactCaliberFallback                                // PTV5 C00 主行回退口径词 (链上累计/有效归因/实际状态/累计(跨线程))
+	runtimeTraceProjMarkCoverageLine                                         // PTV5 Q2 树头覆盖行(已归因/未归因)口径
+	runtimeTraceProjMarkOnChainOverflowFold                                  // PTV5 PTS 链上折叠行(其余N项,零静默丢弃)
+	runtimeTraceProjMarkStanzaCrossThreadCum                                 // PTV6-C ruling A ◇/▒ 行 累计(跨线程) 族词
+	runtimeTraceProjMarkCandidateShapeClass                                  // PTV6-D (b) 候选影响 类别词降维:行内删,图例承载
+	runtimeTraceProjMarkUserFocusTransit                                     // §22 B1-b F2 折叠段内用户关注线程强制展开(中转形态)
+	runtimeTraceProjMarkTraceGapBlindSpot                                    // §22 PTV7-SPN F5 trace_gap 数据盲区 行内披露(用户措辞裁定)
+	runtimeTraceProjMarkGatedRunnableSubRow                                  // §21 RNB R1 ⧖ runnable gated 分量 display-only 子行(用户点名)
+	runtimeTraceProjMarkRankFoldNote                                         // §21/§22 RNB R2 同段rank行并入 note(同段双车道折叠为一行)
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -504,9 +505,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkOmitted, runtimeTraceProjLegendGroupCaliber,
 			"- `…省略N节点` = 长链中段折叠(行内列出首尾各2个节点),中段节点名不在本报告逐一展开。",
 			"- `…N nodes omitted` = the middle of a long chain is folded (the row lists the first/last two nodes); the folded middle nodes are not expanded one by one in this report."},
+		// §21.1 CWD-2 复核收尾② (W1-a 图例互斥): the full-scale claim and the
+		// multi-window no-share entry can co-render on one tree — this entry
+		// itself scopes the multi-window merged rows' bars to relative scale
+		// so the two entries never read as contradictory.
 		{runtimeTraceProjMarkBarScale, runtimeTraceProjLegendGroupCaliber,
-			"- 时长条:满格=树头声明的尺度(关注窗口全长;窗口未采集时为本批最大投影)。",
-			"- Bars: full scale = the caliber declared in the tree header (the full window; the batch max projection when no window was captured)."},
+			"- 时长条:满格=树头声明的尺度(关注窗口全长;窗口未采集时为本批最大投影);多窗合并行的时长条只作相对量级(见其专项条目)。",
+			"- Bars: full scale = the caliber declared in the tree header (the full window; the batch max projection when no window was captured); multi-window merged rows' bars are relative scale only (see their dedicated entry)."},
 		{runtimeTraceProjMarkMergedSum, runtimeTraceProjLegendGroupCaliber,
 			"- `×N(a–b)` = 同一(线程,原因)的 N 次实例合并,数值为总和,a–b 为单次范围。",
 			"- `×N(a–b)` = N instances of one (thread, cause) merged; the value is the SUM, a–b the per-instance range."},
@@ -537,6 +542,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkMergedWindowMax, runtimeTraceProjLegendGroupCaliber,
 			"- `×N(a–b)跨窗取最大` = N 次实例来自互相重叠的查询窗,重叠窗量值不可求和且重叠段无法逐段核销,数值取成员最大(以该成员自身查询窗为基),a–b 为单次范围;原始和与窗来源见无损块。",
 			"- `×N(a–b) cross-window max` = the N instances come from OVERLAPPING query windows: overlapping-window magnitudes never sum and the overlap cannot be deducted per segment, so the value is the member MAX (normalized over that member's own query window), a–b the per-instance range; the raw sum and the window sources live in the lossless block."},
+		// §21.1 CWD-2 ① (huadong_01 revisit E19 witness, 2026-07-07): a merged
+		// ×N row whose members span multiple query windows renders NO anchor-
+		// window share — this entry says why the % cell is absent on exactly
+		// those rows (branch-5 不出密度 template migrated to the %-face).
+		{runtimeTraceProjMarkMergedMultiWindowNoShare, runtimeTraceProjLegendGroupCaliber,
+			"- `×N` 多窗合并行不显示占窗% = 该行成员横跨多个查询窗,合并值与单一锚定窗不同基,不作跨窗除法(时长条仅示意相对量级);成员窗见无损块窗来源。",
+			"- multi-window `×N` rows show no window share = the row's members span multiple query windows, so the merged value shares no base with the single anchor window and is never divided across bases (the bar is relative scale only); the member windows live in the lossless block's window sources."},
 		// PTV6-B (聚合幻影修复, 2026-07-06; 修正轮 Med 如实化): the entry
 		// discloses exactly what the pipeline does — NEAR-duplicate (≤3%)
 		// same-thread overlapping measurements fold as duplicate publications,
@@ -3514,6 +3526,19 @@ func runtimeTraceProjMergedCrossWindowMaxTagText(node types.TraceCausalProjectio
 	return fmt.Sprintf("×%d(%.3f–%.3fms) cross-window max", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 }
 
+// runtimeTraceProjMultiWindowMergedRow is the §21.1 CWD-2 ① typed key
+// (huadong E19/E1 witnesses): a merged ×N row whose member roster spans
+// MULTIPLE known query windows. Such a row's magnitude has no single window
+// base, so every anchor-window share/percentage face (tree-row % cell,
+// conclusion-line 占窗 share) and the coverage window consensus fork on this
+// ONE predicate — single source. Load-bearing pairing: the aggregator zeroes
+// the row-level QueryWindow identity for exactly these mixed rosters
+// (trace_causal_projection_aggregate.go, union.singleWindow), so row-level
+// identity alone can never see them.
+func runtimeTraceProjMultiWindowMergedRow(node types.TraceCausalProjectionNode) bool {
+	return node.MergedCount > 1 && len(node.MergedQueryWindows) > 1
+}
+
 // runtimeTraceProjSubjectlessFoldRow identifies the R3 background fold row
 // (typed identity: a merged row with no thread subject of its own — exactly the
 // key the "其余 N 项合并" name lane already forks on). It is the only merged
@@ -4189,15 +4214,33 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// share, pulling the 占窗>100% legend semantics it does not have.
 	if windowMode && denom > 0 && impact > 0 && !crossThread &&
 		impactSource == runtimeTraceProjImpactSourceWindow {
-		b.WriteString(fmt.Sprintf(" %3.0f%%", impact/denom*100))
-		// H8: an over-window share (cross-CPU / multi-span cumulative values can
-		// legitimately exceed the wall-clock window) must not run naked. The
-		// *1.001 tolerance mirrors runtimeTraceProjCrossWindow (V3). PTV4 T4:
-		// the inline "(跨CPU/多段累计)" explanation moved to the legend's
-		// 口径组 (占窗>100% entry), gated on this typed mark — the number
-		// itself is the marker.
-		if impact > denom*1.001 {
-			row.marks.mark(runtimeTraceProjMarkOverWindowShare)
+		// §21.1 CWD-2 ① (huadong_01 revisit E19 witness, 2026-07-07): a merged
+		// ×N row whose members span MULTIPLE query windows (typed key:
+		// MergedCount>1 ∧ >1 roster windows — the disjoint-window legal SUM,
+		// the union and the cross-window MAX calibers alike) has no single
+		// window base shared with the anchor denominator, so it renders NO
+		// window share — the specimen drew "63%" from a ×14 cross-window sleep
+		// SUM (63.831ms whose members straddle two query windows) against one
+		// 101ms anchor window. Branch-5 template of
+		// runtimeTraceProjCrossThreadDensityWindowMS (不出密度) migrated to
+		// the %-face: the bar stays (relative scale), the % cell is
+		// suppressed, the legend entry (mark below) says why, and the member
+		// windows are disclosed on the lossless block's 窗来源 lane. Rows
+		// whose roster resolves to ≤1 known window keep the legacy share
+		// byte-identically (绝不跨窗分子÷单锚窗分母打 %).
+		if runtimeTraceProjMultiWindowMergedRow(node) {
+			row.marks.mark(runtimeTraceProjMarkMergedMultiWindowNoShare)
+		} else {
+			b.WriteString(fmt.Sprintf(" %3.0f%%", impact/denom*100))
+			// H8: an over-window share (cross-CPU / multi-span cumulative values can
+			// legitimately exceed the wall-clock window) must not run naked. The
+			// *1.001 tolerance mirrors runtimeTraceProjCrossWindow (V3). PTV4 T4:
+			// the inline "(跨CPU/多段累计)" explanation moved to the legend's
+			// 口径组 (占窗>100% entry), gated on this typed mark — the number
+			// itself is the marker.
+			if impact > denom*1.001 {
+				row.marks.mark(runtimeTraceProjMarkOverWindowShare)
+			}
 		}
 	}
 	var tags []runtimeTraceProjTag
@@ -4873,14 +4916,22 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		// V1 (customer revisit 2026-07-03): a ×N aggregate's SUM never publishes
 		// as the headline hard fact — show the per-instance max with the count;
 		// the window share follows the same single-instance value.
+		// §21.1 CWD-2 复核收尾③ (W1-b 结论行 % 面): a MULTI-WINDOW merged
+		// lead's single-instance max was measured in its member's own query
+		// window — never provably the anchor window — so the (占窗N%) share
+		// is suppressed on the same typed key as the tree-row %-face
+		// (runtimeTraceProjMultiWindowMergedRow; member windows stay
+		// disclosed on the row's 窗来源 lane). ≤1-window rosters keep the
+		// legacy share byte-identically.
+		shareable := model.WindowMS > 0 && !runtimeTraceProjMultiWindowMergedRow(*primary)
 		if zh {
 			b.WriteString(fmt.Sprintf(" 单次最大 %.3fms ×%d", primary.MergedMaxMS, primary.MergedCount))
-			if model.WindowMS > 0 {
+			if shareable {
 				b.WriteString(fmt.Sprintf("(占窗%.0f%%)", primary.MergedMaxMS/model.WindowMS*100))
 			}
 		} else {
 			b.WriteString(fmt.Sprintf(" single max %.3fms ×%d", primary.MergedMaxMS, primary.MergedCount))
-			if model.WindowMS > 0 {
+			if shareable {
 				b.WriteString(fmt.Sprintf(" (%.0f%% of window)", primary.MergedMaxMS/model.WindowMS*100))
 			}
 		}
@@ -4896,7 +4947,11 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 				b.WriteString(" (in-period cadence discounted)")
 			}
 		}
-		if msWindowSource && ms > 0 && model.WindowMS > 0 {
+		// §21.1 CWD-2 复核收尾③ (W1-b, fail-closed twin of the merged branch
+		// above): a multi-window merged lead that lands here (MergedMaxMS
+		// absent) must not divide its window-sourced magnitude by the anchor
+		// window either — same typed key, same suppression.
+		if msWindowSource && ms > 0 && model.WindowMS > 0 && !runtimeTraceProjMultiWindowMergedRow(*primary) {
 			if zh {
 				b.WriteString(fmt.Sprintf("(占窗%.0f%%)", ms/model.WindowMS*100))
 			} else {
@@ -5307,7 +5362,27 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 		//     containment is unverified) → both magnitudes, no percentage, no
 		//     residual — and still never a whole-window recast.
 		symptom := runtimeTraceProjTargetSymptomMS(model)
+		// §21.1 CWD-2 ③ (CWD 复核留账②, symptom 分母车道): the three symptom-
+		// denominator arms below divide (or subtract) the chain-cumulative
+		// numerator against the target's own state-row sum — two DIFFERENT
+		// row populations. When the coverage-feeding rows carry POSITIVELY
+		// disagreeing typed query windows (the consensus core's conflict
+		// signal — never mere absence), the numerator and denominator window
+		// bases cannot be proven identical and the percentage/residual
+		// arithmetic must not render: both magnitudes publish with the base
+		// disclosure instead (same CWD gate family as the whole-window branch
+		// below; windowless and agreeing-window shapes keep every legacy
+		// wording byte-identically).
+		_, _, _, crossBase := runtimeTraceProjCoverageWindowConsensus(model)
 		switch {
+		case symptom > 0 && crossBase:
+			if zh {
+				fmt.Fprintf(&b, " 目标等待(sleep/D-state/runnable) %.3fms;on-chain 归因口径合计 %.3fms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因残差。",
+					symptom, attributed)
+			} else {
+				fmt.Fprintf(&b, " Target wait (sleep/D-state/runnable) %.3fms; the on-chain attribution caliber totals %.3fms — the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no unattributed residual.",
+					symptom, attributed)
+			}
 		case symptom > 0 && attributed <= symptom:
 			residual := symptom - attributed
 			if zh {
@@ -5687,34 +5762,85 @@ func runtimeTraceProjHopOnlyTargetSleep(model runtimeTraceProjTreeModel) (float6
 // anchor election can pick an anchor window that carries NO chain data while
 // every chain row came from another query window — the coverage arithmetic
 // must not divide that cross-window numerator by the anchor-window
-// denominator.
+// denominator. EVOLUTION RECORD (§21.1 CWD-2 ④, 2026-07-07): when data-bearing
+// chain rows exist, ≥1 of them must itself carry the window identity for a
+// window to be named — a windowed self row alone no longer establishes the
+// "chain-data window" claim (see runtimeTraceProjCoverageWindowConsensus).
 func runtimeTraceProjChainDataQueryWindow(model runtimeTraceProjTreeModel) (float64, float64, bool) {
-	start, end, ok := 0.0, 0.0, false
+	start, end, ok, conflict := runtimeTraceProjCoverageWindowConsensus(model)
+	if conflict {
+		return 0, 0, false
+	}
+	return start, end, ok
+}
+
+// runtimeTraceProjCoverageWindowConsensus is the shared consensus core behind
+// runtimeTraceProjChainDataQueryWindow. It scans the same two coverage-feeding
+// lanes (data-bearing chain rows + the target's self rows) and returns:
+//   - (start, end, ok): the single typed query window every windowed row
+//     agreed on (F-2 ±1ms endpoint tolerance), ok=false when no row carried
+//     an identity;
+//   - conflict=true when two windowed rows POSITIVELY disagreed beyond the
+//     tolerance — the precise "分子分母窗基不可证同基" signal the §21.1
+//     CWD-2 ③ symptom-denominator gate consumes (rows without identity never
+//     vote and never veto, so pure-legacy windowless models stay
+//     conflict-free and byte-identical).
+//
+// §21.1 CWD-2 ④ (chain 窗共识收紧, CWD 复核留账③b): when data-bearing chain
+// rows exist, at least ONE of them must carry the window identity for the
+// consensus to establish — previously a windowed SELF row alone could name a
+// "chain-data window" that no chain row (the actual coverage numerator) ever
+// attested. Precise existence predicate only; the no-chain-rows shape keeps
+// the self-row consensus unchanged.
+func runtimeTraceProjCoverageWindowConsensus(model runtimeTraceProjTreeModel) (float64, float64, bool, bool) {
+	start, end, ok, conflict := 0.0, 0.0, false, false
 	consider := func(node types.TraceCausalProjectionNode) bool {
+		// §21.1 CWD-2 复核收尾① (对抗复核 M3 残口; huadong E1 witness:
+		// VSyncGenerator ×9 包络横跨两查询窗): a multi-window merged row
+		// POSITIVELY attests >1 query windows while the aggregator zeroes its
+		// row-level QueryWindow identity (mixed rosters never claim a single
+		// window) — without this arm the row sat silently in the coverage
+		// numerator and the symptom %-face divided a cross-window magnitude
+		// by a single-window denominator. Same typed key as the W1 %-face
+		// (runtimeTraceProjMultiWindowMergedRow — zero new signals);
+		// single-window rosters fall through to the row-identity lanes below.
+		if runtimeTraceProjMultiWindowMergedRow(node) {
+			conflict = true
+			return true
+		}
 		if node.QueryWindowStartTs <= 0 || node.QueryWindowEndTs <= node.QueryWindowStartTs {
-			return true // no identity — never votes, never vetoes
+			return false // no identity — never votes, never vetoes
 		}
 		if !ok {
 			start, end, ok = node.QueryWindowStartTs, node.QueryWindowEndTs, true
 			return true
 		}
-		return math.Abs(node.QueryWindowStartTs-start) <= types.TraceCausalProjectionSameWindowToleranceS &&
-			math.Abs(node.QueryWindowEndTs-end) <= types.TraceCausalProjectionSameWindowToleranceS
+		if math.Abs(node.QueryWindowStartTs-start) > types.TraceCausalProjectionSameWindowToleranceS ||
+			math.Abs(node.QueryWindowEndTs-end) > types.TraceCausalProjectionSameWindowToleranceS {
+			conflict = true
+		}
+		return true
 	}
+	chainDataRows, chainWindowed := 0, false
 	for _, row := range model.TreeRows {
 		if row.Kind != runtimeTraceProjTreeRowChain || !row.HasData {
 			continue
 		}
-		if !consider(row.Node) {
-			return 0, 0, false
+		chainDataRows++
+		if consider(row.Node) {
+			chainWindowed = true
 		}
 	}
 	for _, row := range model.SelfRows {
-		if !consider(row.Node) {
-			return 0, 0, false
-		}
+		consider(row.Node)
 	}
-	return start, end, ok
+	if conflict {
+		return 0, 0, false, true
+	}
+	if chainDataRows > 0 && !chainWindowed {
+		return 0, 0, false, false
+	}
+	return start, end, ok, false
 }
 
 // runtimeTraceProjCoverageWindowBaseMismatch reports whether the single
@@ -6596,12 +6722,19 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			}
 			add("×N 明细", "×N detail", runtimeTraceCausalProjectionMarkdownSafe(form))
 			// §11-N2 窗身份 (联动 q1-B6): the union row's member query windows,
-			// ascending. Gated on the union caliber — §21 CWD adds the
-			// cross-window MAX caliber to the gate — so every plain-SUM render
-			// stays byte-identical (the disjoint cross-window roster disclosure
-			// belongs to the q1-B6 window-identity batch). The typed roster
-			// lists the KNOWN sources only — never claimed exhaustive.
-			if (node.MergedIntervalUnion || node.MergedCrossWindowMax) && len(node.MergedQueryWindows) > 0 {
+			// ascending. Gated on the union caliber; §21 CWD added the
+			// cross-window MAX caliber. EVOLUTION RECORD (§21.1 CWD-2 ①,
+			// huadong E19 witness, 2026-07-07 — supersedes the former "the
+			// disjoint cross-window roster disclosure belongs to the q1-B6
+			// window-identity batch" deferral): a multi-window plain-SUM row
+			// now suppresses its anchor-window share on the %-face, so THIS
+			// roster is the reader's base disclosure and renders for every
+			// merged row whose members span >1 known query windows.
+			// Single-window and windowless SUM renders stay byte-identical.
+			// The typed roster lists the KNOWN sources only — never claimed
+			// exhaustive.
+			if (node.MergedIntervalUnion || node.MergedCrossWindowMax || len(node.MergedQueryWindows) > 1) &&
+				len(node.MergedQueryWindows) > 0 {
 				windows := make([]string, 0, len(node.MergedQueryWindows))
 				for _, w := range node.MergedQueryWindows {
 					windows = append(windows, fmt.Sprintf("%.3f–%.3fs", w.StartTs, w.EndTs))

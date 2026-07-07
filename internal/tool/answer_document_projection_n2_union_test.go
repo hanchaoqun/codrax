@@ -118,11 +118,21 @@ func TestN2UnionLegendBidirectional(t *testing.T) {
 
 // TestN2NonUnionRendersByteIdentical pins F-1 ③: every surface of a plain
 // SUM ×N row is byte-identical whether or not the row carries the new §11-N2
-// typed fields (window roster + row-level query-window identity) — the
-// disjoint-cross-window disclosure belongs to the q1-B6 batch, and until it
-// lands the new fields must be display-inert outside the union caliber.
+// typed fields, so long as the roster resolves to ≤1 known query window.
+//
+// EVOLUTION RECORD (§21.1 CWD-2 ①, huadong_01 revisit E19 witness,
+// real_trace_campaign_20260705.md, 2026-07-07 — supersedes the original F-1 ③
+// blanket inertness and the "disjoint-cross-window disclosure belongs to the
+// q1-B6 batch" deferral): a merged SUM row whose members span MULTIPLE query
+// windows is now display-ACTIVE in exactly three adjudicated ways — the
+// anchor-window % cell is suppressed (绝不跨窗分子÷单锚窗分母打 %), its
+// legend entry renders, and the lossless block grows the 窗来源 roster. The
+// SUM value, the ×N(a–b) form token and the 求和口径 wording stay
+// byte-identical (disjoint windows are a LEGAL sum; only the %-face was the
+// bug). Single-window / windowless rows keep full byte-identity as the
+// inertness control.
 func TestN2NonUnionRendersByteIdentical(t *testing.T) {
-	build := func(withFields bool) types.TraceCausalProjection {
+	build := func(windows int) types.TraceCausalProjection {
 		node := types.TraceCausalProjectionNode{
 			Role: types.TraceCausalRoleCausalHop, EvidenceID: "E5",
 			Subject: "worker-7", Object: "runnable", StateKind: "runnable",
@@ -133,12 +143,15 @@ func TestN2NonUnionRendersByteIdentical(t *testing.T) {
 			MergedEvidenceIDs: []string{"E6", "E7"},
 			Confidence:        0.8,
 		}
-		if withFields {
+		if windows >= 1 {
 			node.QueryWindowStartTs, node.QueryWindowEndTs = 100.000, 101.000
 			node.MergedQueryWindows = []types.TraceCausalProjectionQueryWindow{
 				{StartTs: 100.000, EndTs: 101.000},
-				{StartTs: 101.400, EndTs: 101.800},
 			}
+		}
+		if windows >= 2 {
+			node.MergedQueryWindows = append(node.MergedQueryWindows,
+				types.TraceCausalProjectionQueryWindow{StartTs: 101.400, EndTs: 101.800})
 		}
 		return types.TraceCausalProjection{
 			WindowStartTs: 100.000,
@@ -147,32 +160,53 @@ func TestN2NonUnionRendersByteIdentical(t *testing.T) {
 		}
 	}
 	for _, zh := range []bool{true, false} {
-		bare := buildRuntimeTraceProjTreeModel(build(false), newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
-		full := buildRuntimeTraceProjTreeModel(build(true), newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
+		bare := buildRuntimeTraceProjTreeModel(build(0), newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
+		single := buildRuntimeTraceProjTreeModel(build(1), newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
 		lang := "en"
 		if zh {
 			lang = "zh"
 		}
-		if a, b := runtimeTraceProjTreeFence(bare, zh), runtimeTraceProjTreeFence(full, zh); a != b {
-			t.Fatalf("zh=%v: non-union fence must be byte-identical:\n%q\nvs\n%q", zh, a, b)
+		// Inertness control (F-1 ③ surviving half): a SINGLE-window roster is
+		// display-inert on every surface.
+		if a, b := runtimeTraceProjTreeFence(bare, zh), runtimeTraceProjTreeFence(single, zh); a != b {
+			t.Fatalf("zh=%v: single-window sum fence must be byte-identical:\n%q\nvs\n%q", zh, a, b)
 		}
-		if a, b := runtimeTraceProjLeadText(build(false), bare, lang, zh), runtimeTraceProjLeadText(build(true), full, lang, zh); a != b {
-			t.Fatalf("zh=%v: non-union lead must be byte-identical:\n%q\nvs\n%q", zh, a, b)
+		if a, b := runtimeTraceProjLeadText(build(0), bare, lang, zh), runtimeTraceProjLeadText(build(1), single, lang, zh); a != b {
+			t.Fatalf("zh=%v: single-window sum lead must be byte-identical:\n%q\nvs\n%q", zh, a, b)
 		}
-		if a, b := runtimeTraceProjDetailFullText(bare, zh), runtimeTraceProjDetailFullText(full, zh); a != b {
-			t.Fatalf("zh=%v: non-union lossless block must be byte-identical:\n%q\nvs\n%q", zh, a, b)
+		if a, b := runtimeTraceProjDetailFullText(bare, zh), runtimeTraceProjDetailFullText(single, zh); a != b {
+			t.Fatalf("zh=%v: single-window sum lossless block must be byte-identical:\n%q\nvs\n%q", zh, a, b)
 		}
-		// The sum row still wears the sum form + 求和口径 (never union).
-		fence := runtimeTraceProjTreeFence(full, zh)
+		// §21.1 CWD-2 ① active half: the multi-window roster suppresses the
+		// anchor-window % (the bar and the ms cell stay), keeps the plain SUM
+		// form + 求和口径 wording, and grows the 窗来源 roster.
+		multi := buildRuntimeTraceProjTreeModel(build(2), newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
+		fence := runtimeTraceProjTreeFence(multi, zh)
 		if !strings.Contains(fence, "×3(5.000–20.000ms)") || strings.Contains(fence, ")union") {
-			t.Fatalf("zh=%v: sum row must keep the plain sum form: %s", zh, fence)
+			t.Fatalf("zh=%v: multi-window sum row must keep the plain sum form: %s", zh, fence)
 		}
-		lossless := runtimeTraceProjDetailFullText(full, zh)
+		if !strings.Contains(fence, "35.000ms") || strings.Contains(fence, "4%") {
+			t.Fatalf("zh=%v: multi-window sum row must keep the ms cell and drop the anchor-window share: %s", zh, fence)
+		}
+		if !multi.Marks.has(runtimeTraceProjMarkMergedMultiWindowNoShare) {
+			t.Fatalf("zh=%v: multi-window sum row must record the no-share mark", zh)
+		}
+		lossless := runtimeTraceProjDetailFullText(multi, zh)
 		if zh && !strings.Contains(lossless, "×3 求和口径,单次 5.000–20.000ms") {
 			t.Fatalf("sum row lossless caliber wording drifted:\n%s", lossless)
 		}
-		if zh && strings.Contains(lossless, "窗来源") {
-			t.Fatalf("non-union row must not grow a 窗来源 line (q1-B6 batch owns that):\n%s", lossless)
+		if zh && !strings.Contains(lossless, "窗来源") {
+			t.Fatalf("§21.1 CWD-2 ①: multi-window sum row must list its 窗来源 roster:\n%s", lossless)
+		}
+		if !strings.Contains(lossless, "100.000–101.000s") || !strings.Contains(lossless, "101.400–101.800s") {
+			t.Fatalf("window roster must name both member windows:\n%s", lossless)
+		}
+		// The single-window control never records the mark nor grows a roster.
+		if single.Marks.has(runtimeTraceProjMarkMergedMultiWindowNoShare) {
+			t.Fatalf("zh=%v: single-window sum row must not record the no-share mark", zh)
+		}
+		if zh && strings.Contains(runtimeTraceProjDetailFullText(single, zh), "窗来源") {
+			t.Fatalf("single-window sum row must not grow a 窗来源 line")
 		}
 	}
 }

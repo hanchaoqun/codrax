@@ -5056,7 +5056,19 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// F1: root_cause rows have no Span ts at all — the selected
 				// query window (RootCauseRankResult.Window = q.TimeStart/TimeEnd)
 				// travels via the same typed note as wakeup_causal_aggregate.
-				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(result.RootCauseRank.Window)},
+				// §21.1 CWD-2 ② (cmp_01 C7 产端半场): a window_stats-derived
+				// rank row additionally carries its own typed stats-window
+				// identity — when the result envelope has no window, the
+				// row-level identity keeps the note alive on the SAME key and
+				// format, so the projection's window-base lanes (density /
+				// coverage / mixed-window gates) can engage instead of
+				// silently projecting a window-1 stats row into a window-2
+				// anchored tree. The result window wins byte-identically
+				// whenever both exist; no identity anywhere → no note (the
+				// display side never guesses a window base).
+				{types.TraceNoteKeySelectedWindow, firstNonEmptyTraceString(
+					traceQuerySelectedWindowNoteValue(result.RootCauseRank.Window),
+					traceQuerySelectedWindowNoteValue(tracequery.TimeWindow{StartTs: item.StatsWindowStartTs, EndTs: item.StatsWindowEndTs}))},
 				{types.TraceNoteKeySubjectKind, item.SubjectKind},
 				// §7.30.3 D3: inversion rows publish the gated composition so
 				// the projection can split the composite impact.

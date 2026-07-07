@@ -1883,6 +1883,18 @@ type RootCauseRankItem struct {
 	NearestChainThread  ThreadRef                `json:"nearest_chain_thread,omitempty"`
 	NearestChainWindow  TimeWindow               `json:"nearest_chain_window,omitempty"`
 	OccurrenceWindows   []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
+	// StatsWindowStartTs/StatsWindowEndTs (§21.1 CWD-2 ②, cmp_01 C7 witness,
+	// real_trace_campaign_20260705.md): the typed query-window identity of a
+	// window_stats-derived rank row — the window the backing window_stats
+	// summary was computed over (stats.Window, i.e. the query's own selected
+	// window). Identity carriage ONLY: the rank/score/impact lanes never read
+	// these; the tool observation face uses them to emit the row-level
+	// selected_window note when the result envelope carries no window of its
+	// own, so a window-1 stats row can never silently project into a window-2
+	// anchored tree without a window base. Zero when the stats window was
+	// unbounded — absence never guesses a window.
+	StatsWindowStartTs float64 `json:"stats_window_start_ts,omitempty"`
+	StatsWindowEndTs   float64 `json:"stats_window_end_ts,omitempty"`
 	// BlockingKind / BlockingPeer / HolderSite (Q4-A 修1, ledger §12.1/§12.3-5):
 	// typed lock-contention semantics on a type=blocking_span rank row. The row
 	// SUBJECT is the parsed lock HOLDER when the structured payload resolved

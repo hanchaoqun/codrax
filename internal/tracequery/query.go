@@ -8985,6 +8985,11 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 			items = append(items, item)
 		}
 	}
+	// §21.1 CWD-2 ② (cmp_01 C7 产端半场): every rank row minted from a
+	// window_stats summary carries the typed query-window identity the stats
+	// were computed over. enrichRootCauseRankWithScheduler stamps its own
+	// window_stats-family additions the same way.
+	stampWindowStatsRankQueryWindow(items, stats.Window)
 	demoteLockDominatedInversionCandidates(chain, stats, items)
 	// RCX① (§12.3 ruling 1) + §20 E-Gap⑥: counterpart-lane rank rows
 	// (blocking_span holders, binder_wait peers, io_latency completers) carry
@@ -9132,6 +9137,10 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		candidate.RunnableMs = constraint.RunnableWaitMs
 		rank.Items = append(rank.Items, candidate)
 	}
+	// §21.1 CWD-2 ②: the compute_supply / cpu_constraints additions above are
+	// window_stats-derived too — same typed window stamp as the build pass
+	// (idempotent on rows already stamped there).
+	stampWindowStatsRankQueryWindow(rank.Items, stats.Window)
 	normalizeRootCauseChainRelevance(rank.Items, hasCausalChain)
 	normalizeRootCauseSubjectKind(rank.Items)
 	attributeOnChainResourceItemsToWakeupDependency(chain, rank.Items)
@@ -9790,6 +9799,28 @@ func rootCauseItem(typ string, thread ThreadRef, impactMs float64, confidence fl
 		LineEnd:            lineEnd,
 		Source:             source,
 		Summary:            summary,
+	}
+}
+
+// stampWindowStatsRankQueryWindow (§21.1 CWD-2 ②, cmp_01 C7 witness,
+// real_trace_campaign_20260705.md): every rank row whose typed Source names
+// the window_stats family carries the query-window identity the backing
+// summary was computed over, so the tool observation face can emit the
+// row-level selected_window note even when the result envelope carries no
+// window of its own. Identity carriage only — the rank/score/impact lanes
+// never read the stamp (rank 排序/权重/Value 零触碰); an unbounded stats
+// window stamps nothing (absence never guesses a window base). Idempotent:
+// build and enrich both call it over the same window.
+func stampWindowStatsRankQueryWindow(items []RootCauseRankItem, window TimeWindow) {
+	if window.StartTs <= 0 || window.EndTs <= window.StartTs {
+		return
+	}
+	for i := range items {
+		if !strings.HasPrefix(items[i].Source, "window_stats") {
+			continue
+		}
+		items[i].StatsWindowStartTs = window.StartTs
+		items[i].StatsWindowEndTs = window.EndTs
 	}
 }
 
