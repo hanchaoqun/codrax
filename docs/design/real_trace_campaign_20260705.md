@@ -1444,3 +1444,8 @@ opendir 案散文"owner 与 holder 均指向同一 tid 42067"**未必是模型�
 ## §21.1 CWD 批收账(2026-07-07,复核 SHIP-WITH-FIXES→已修出厂)
 交付:引擎 ×N 第五式"跨窗取最大"(union>MAX>SUM 三态互斥,MergedSumMS 无损,typed 端点判定重叠;不相交/同窗/无窗身份字节保 SUM)+显示密度分母 7 分支同窗基(多窗合并无可解析基不出密度)+覆盖句矛盾硬门(hopSleep>WindowMS 必换披露形态,6.534 伪残差禁出厂)+承自注窗基+N3 不对称披露注。标本方向翻正 7.0=92.1>6.0=32.7(工具真值对齐,旧码 249.4 vs 453.8 反向)。复核 4/4 突变咬红;出厂前修复复核 F1=F3 注措辞矛盾(密度基≠投影窗时不再claims"投影窗长不等",改具名窗基,兼治行内基不可复算)。
 **CWD-2 立账**:①E19 树行 %-面(§22 witness,跨窗合并行对锚窗 bar 63%——不相交窗合法 SUM,坏在 %-面;分支5 模板迁移,typed key=MergedCount>1∧多窗);②C7 产端半场(tracequery 给 window_stats 来源 rank 行发 selected_window/actual_* note,显示端 absence-never-guesses 已就位);③symptom 分母车道(tree.go:4654-4688)跨窗分子未设门;④chain 窗共识要求 ≥1 带窗 chain 行(防无窗分子挂未证实窗基);⑤混合形态 union 无区间成员全值入总量(N2 既有 fail-open,非本批引入);⑥重叠判定无下限(0.5ms 重叠即 MAX,保守可接受);⑦测试名 FailsOpenToSum 语义漂移(cosmetic)。
+
+## §22.1 B1-b 批收账(2026-07-07,复核 SHIP-WITH-FIXES→已修出厂)
+交付:选举谓词末端→**path 任意位置**匹配用户实体(comparator/三源/光标排除原样),命中处截断锚定(取最后出现;位置0不可当选);tie 三级裁定 pin=①typed Subject 命中>位置命中(链目标即用户实体为最强候选)②同类取匹配位置最深(截断后 trunk 最长;"影响最大"因 path 无 typed 标量弃用)③终极=发布序;产端 traceQueryWakeupChainPath 在 target 最后出现处截断(3 显示/LLM 面,rank 零波及,edge 逐条记录不截);F2=WakeupPathUserEntityHits typed 载体(截断后计算)+折叠段用户实体强制展开(有数据带量值/无数据"用户关注线程(中转)"具名行)。15 pin,复核 6/6 突变咬红,huadong 深层行 L32-34 实证保留,掉落后缀有数据节点保 depthless 席位已固化仓内 pin。
+**已知良性残余(勿当回归)**:真上游 nil-impact 段序列化在 target 最后出现之后时被截(legacy=整树错根,截断=根正确+节点保席位,严格占优);全用户实体折叠段≥6节点↺时 cycle 注无处挂(纯显示极边角);仅位置命中当选时 trunk 中段仍可能含跨分支工件(P0-E 引擎根修前已知形态)。
+**P0-E 续批立账**:CHAIN-PATH 引擎根修=按真实分支发布 path/ChainNode 真实递归 depth/树 attach 键加链域(假 L32/33/34 深度标签消除);验收含 ../customlogs huadong 案复放。

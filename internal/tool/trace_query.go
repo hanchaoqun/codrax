@@ -6202,6 +6202,25 @@ func traceQueryWakeupChainPath(chain tracequery.ChainResult) string {
 		}
 		labels = append(labels, wakee)
 	}
+	// §22 B1-b F1(b) (huadong_01 CHAIN-PATH audit, 2026-07-07): the flattened
+	// walk above serializes the multi-branch edge set in From-depth order, and
+	// nil-impact transit nodes default to depth 0 — their edges sort LAST, so
+	// the walk can overshoot chain.Target and end on an artifact transit node
+	// while the true target sits mid-path. A path record must terminate at its
+	// typed target: truncate at the target label's LAST occurrence (earlier
+	// occurrences are the legitimate ↺ cycle shape; everything after the last
+	// one is overshoot). Target absent from the walk (or unset) keeps the
+	// legacy full walk — fail-open, no hard gate on a noisy shape. Display/LLM
+	// face only: the individual wakeup_chain_edge records still publish every
+	// edge, and the tracequery rank/attribution lanes never read this string.
+	if target := traceThreadLabelOptional(chain.Target); target != "" {
+		for i := len(labels) - 1; i >= 0; i-- {
+			if labels[i] == target {
+				labels = labels[:i+1]
+				break
+			}
+		}
+	}
 	return strings.Join(labels, " -> ")
 }
 

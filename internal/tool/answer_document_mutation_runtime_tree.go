@@ -164,6 +164,15 @@ type runtimeTraceProjTreeRow struct {
 	// these rows (CMP-7a). Display-only; the node's typed causality is
 	// untouched.
 	FlatChain bool
+	// UserFocusForced (§22 B1-b F2, huadong_01 audit 2026-07-07): this trunk row
+	// sits INSIDE the long-trunk folded middle but names a typed user entity
+	// (projection.WakeupPathUserEntityHits — AnchorUserEntities 同源, single
+	// comparator at the compile root), so the fold split around it and it
+	// renders as its own row instead of vanishing into the "…省略N节点" roster.
+	// Data rows render normally (own line numbers / values); no-data transit
+	// rows swap the bare 中转 token for the named 用户关注线程(中转) token.
+	// Display-only; never a sort or gate input.
+	UserFocusForced bool
 	// IOFoldPeers carries the same-subject same-segment IO caliber rows folded
 	// into this primary row (NEW-3, §7.6 对比场景客户回访 2026-07-04): one
 	// underlying IO burst published as several near-equal calibers
@@ -317,6 +326,7 @@ const (
 	runtimeTraceProjMarkOnChainOverflowFold                               // PTV5 PTS 链上折叠行(其余N项,零静默丢弃)
 	runtimeTraceProjMarkStanzaCrossThreadCum                              // PTV6-C ruling A ◇/▒ 行 累计(跨线程) 族词
 	runtimeTraceProjMarkCandidateShapeClass                               // PTV6-D (b) 候选影响 类别词降维:行内删,图例承载
+	runtimeTraceProjMarkUserFocusTransit                                  // §22 B1-b F2 折叠段内用户关注线程强制展开(中转形态)
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -563,6 +573,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkCandidateShapeClass, runtimeTraceProjLegendGroupCaliber,
 			"- 无形态词行 = 候选影响类:该行无具体状态/类型形态词(类别词不逐行重复);逐行影响形态列见明细表。",
 			"- Rows without a shape word = the candidate-impact class: no specific state/type shape word (the class word is not repeated per row); each row's impact-shape cell lives in the detail table."},
+		// §22 B1-b F2 (huadong_01 audit 2026-07-07): a typed user entity inside
+		// the long-trunk folded middle is force-expanded to its own row; when
+		// the position carries no impact row this run, the row states the
+		// user-focus identity instead of the anonymous 中转 token.
+		{runtimeTraceProjMarkUserFocusTransit, runtimeTraceProjLegendGroupMark,
+			"- `用户关注线程(中转)` = 折叠段内命中的用户关注线程强制单独成行:该位置为链路中转,本轮无独立影响行。",
+			"- `user-focus thread (transit)` = a user-focus thread inside a folded segment is force-expanded to its own row; the position is a chain transit with no standalone impact row this run."},
 	}
 }
 
@@ -647,6 +664,72 @@ func (m runtimeTraceProjTreeModel) missingWakeup() bool {
 type runtimeTraceProjTreeNode struct {
 	row      runtimeTraceProjTreeRow
 	children []*runtimeTraceProjTreeNode
+}
+
+// runtimeTraceProjUserEntityTrunkIndexes maps the projection's typed
+// user-entity path hits (§22 B1-b F2, WakeupPathUserEntityHits — indexes into
+// the RAW projection.WakeupPath) onto TRUNK indexes (trunk[i] = path[len-2-i],
+// the root element itself is not a trunk member). The clean pass drops blank
+// elements, so the mapping walks the raw path with a parallel clean counter —
+// never re-deriving entity matches (the compile-root comparator is the single
+// source). nil when there are no hits (the no-signal fold stays byte-stable).
+func runtimeTraceProjUserEntityTrunkIndexes(projection types.TraceCausalProjection, cleanPath []string) map[int]bool {
+	if len(projection.WakeupPathUserEntityHits) == 0 || len(cleanPath) < 2 {
+		return nil
+	}
+	hits := map[int]bool{}
+	for _, idx := range projection.WakeupPathUserEntityHits {
+		hits[idx] = true
+	}
+	out := map[int]bool{}
+	clean := 0
+	for raw, item := range projection.WakeupPath {
+		if strings.TrimSpace(item) == "" {
+			continue // dropped by runtimeTraceCausalProjectionCleanPath — keep index parity
+		}
+		if hits[raw] && clean <= len(cleanPath)-2 {
+			out[len(cleanPath)-2-clean] = true
+		}
+		clean++
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// runtimeTraceProjFoldSegments splits the long-trunk fold range
+// [omitStart, omitEnd) into fold segments around the forced user-entity trunk
+// indexes (§22 B1-b F2). Returns segment-start → segment-end plus the FIRST
+// segment start (the one fold row that carries the cycle note). No forced
+// indexes → exactly one segment {omitStart: omitEnd}, byte-stable with the
+// pre-B1-b single fold row; omitStart < 0 (short trunk) → nil.
+func runtimeTraceProjFoldSegments(omitStart, omitEnd int, forced map[int]bool) (map[int]int, int) {
+	if omitStart < 0 {
+		return nil, -1
+	}
+	segments := map[int]int{}
+	first := -1
+	segStart := -1
+	for i := omitStart; i < omitEnd; i++ {
+		if forced[i] {
+			if segStart >= 0 {
+				segments[segStart] = i
+				segStart = -1
+			}
+			continue
+		}
+		if segStart < 0 {
+			segStart = i
+			if first < 0 {
+				first = i
+			}
+		}
+	}
+	if segStart >= 0 {
+		segments[segStart] = omitEnd
+	}
+	return segments, first
 }
 
 // --- model construction ------------------------------------------------------
@@ -736,6 +819,14 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		omitStart, omitEnd = head, len(trunk)-tail
 		cyclePeriod, cycleCount = runtimeTraceCausalProjectionRepeatingPath(path)
 	}
+	// §22 B1-b F2 (huadong_01 audit 2026-07-07): typed user entities inside the
+	// folded trunk middle must not vanish behind "…省略N节点" — the fold splits
+	// around every hit trunk index (projection.WakeupPathUserEntityHits, the
+	// compile-root comparator's output; the fold layer never re-derives entity
+	// matches). No hits → exactly one segment [omitStart, omitEnd), byte-stable
+	// with the pre-B1-b fold.
+	forcedTrunk := runtimeTraceProjUserEntityTrunkIndexes(projection, path)
+	foldSegments, firstFoldStart := runtimeTraceProjFoldSegments(omitStart, omitEnd, forcedTrunk)
 	// H11: mark trunk rows whose canonical subject already appeared earlier on
 	// the rendered chain (root target first, then depth 1..K). This catches the
 	// small-cycle shape (VSyncGenerator→tppmgr→VSyncGenerator) that the ≥6-node
@@ -787,23 +878,31 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		if idx >= len(trunk) {
 			return nil
 		}
-		if idx == omitStart {
+		if segEnd, ok := foldSegments[idx]; ok {
 			// PTV4 T8: the fold row names the folded segment's first/last two
 			// nodes (the names were always in the typed path — display upgrade
 			// only). ≤4 omitted nodes list fully via the head roster.
+			// §22 B1-b F2: a user-entity trunk index inside the folded middle is
+			// NOT part of any segment — the fold row covers [idx, segEnd) and
+			// the forced node builds as a normal trunk row below. The cycle
+			// note stays on the FIRST fold row only (one detector run, one
+			// disclosure).
 			var head, tail []string
-			if omitEnd-omitStart <= 4 {
-				head = append(head, trunk[omitStart:omitEnd]...)
+			if segEnd-idx <= 4 {
+				head = append(head, trunk[idx:segEnd]...)
 			} else {
-				head = append(head, trunk[omitStart:omitStart+2]...)
-				tail = append(tail, trunk[omitEnd-2:omitEnd]...)
+				head = append(head, trunk[idx:idx+2]...)
+				tail = append(tail, trunk[segEnd-2:segEnd]...)
 			}
-			omitted := &runtimeTraceProjTreeNode{row: runtimeTraceProjTreeRow{
-				Kind: runtimeTraceProjTreeRowOmitted, Omitted: omitEnd - omitStart,
-				CyclePeriod: cyclePeriod, CycleCount: cycleCount, Depth: idx + 1,
-				OmittedHead: head, OmittedTail: tail,
-			}}
-			omitted.children = buildTrunk(omitEnd, "…")
+			row := runtimeTraceProjTreeRow{
+				Kind: runtimeTraceProjTreeRowOmitted, Omitted: segEnd - idx,
+				Depth: idx + 1, OmittedHead: head, OmittedTail: tail,
+			}
+			if idx == firstFoldStart {
+				row.CyclePeriod, row.CycleCount = cyclePeriod, cycleCount
+			}
+			omitted := &runtimeTraceProjTreeNode{row: row}
+			omitted.children = buildTrunk(segEnd, "…")
 			return []*runtimeTraceProjTreeNode{omitted}
 		}
 		subject := trunk[idx]
@@ -842,7 +941,11 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		trunkNode := &runtimeTraceProjTreeNode{row: runtimeTraceProjTreeRow{
 			Node: main, Kind: runtimeTraceProjTreeRowChain, Edge: edge, Depth: depth,
 			Parent: parentName, HasData: hasData, RecursOnChain: recurs[idx],
-			EvidenceTag: runtimeTraceProjEvidenceTag(main, evidence, zh),
+			// §22 B1-b F2: flag rows force-expanded OUT of the folded middle —
+			// the transit renderer swaps the anonymous 中转 token for the named
+			// 用户关注线程(中转) token on them (data rows render normally).
+			UserFocusForced: forcedTrunk[idx] && omitStart >= 0 && idx >= omitStart && idx < omitEnd,
+			EvidenceTag:     runtimeTraceProjEvidenceTag(main, evidence, zh),
 		}}
 		for _, node := range extra {
 			trunkNode.children = append(trunkNode.children, &runtimeTraceProjTreeNode{row: runtimeTraceProjTreeRow{
@@ -3160,9 +3263,20 @@ func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, width int, denom f
 		// sense carries the 2-word inline token, the legend's ◦ 中转 entry
 		// holds the semantics.
 		left = strings.TrimRight(left, " ")
-		if zh {
+		switch {
+		case row.UserFocusForced:
+			// §22 B1-b F2: a user-focus thread force-expanded out of the
+			// folded trunk middle must state its identity — the anonymous
+			// 中转 token would hide exactly what the expansion disclosed.
+			row.marks.mark(runtimeTraceProjMarkUserFocusTransit)
+			if zh {
+				line = left + " 用户关注线程(中转)"
+			} else {
+				line = left + " user-focus thread (transit)"
+			}
+		case zh:
 			line = left + " 中转"
-		} else {
+		default:
 			line = left + " transit"
 		}
 	} else {

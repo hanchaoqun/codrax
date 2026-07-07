@@ -32,15 +32,35 @@ type TraceCausalProjection struct {
 	WakeupPath        []string                    `json:"wakeup_path,omitempty"`
 	// WakeupPathUserElected (§10-B1 锚归属, §12.3 裁定3 2026-07-06): true when
 	// WakeupPath was ELECTED by a precise typed user-entity match — some
-	// wakeup_chain path record's END element matched a typed user entity
-	// (compile-side frame_target_resolution explicit_query_target subjects
-	// first, then the caller-supplied ledger AnchorUserEntities: runtime_targets
-	// pid/thread, then the R2 AnalyzerHints entity face). False = the legacy
+	// wakeup_chain path record matched a typed user entity (compile-side
+	// frame_target_resolution explicit_query_target subjects first, then the
+	// caller-supplied ledger AnchorUserEntities: runtime_targets pid/thread,
+	// then the R2 AnalyzerHints entity face). False = the legacy
 	// publication-order lane (first non-empty path record wins). Display
 	// consumers use it to keep the 🎯 root label lane (‹用户关注线程›) from ever
 	// disagreeing with an entity-elected anchor; no hard gate reads it.
-	WakeupPathUserElected bool                        `json:"wakeup_path_user_elected,omitempty"`
-	SupportingHops        []TraceCausalProjectionNode `json:"supporting_hops,omitempty"`
+	//
+	// EVOLUTION RECORD (§22 B1-b, 2026-07-07): the original B1 predicate read
+	// the path record's END element only. The huadong_01 audit (§22 CHAIN-PATH)
+	// proved the producer's flattened walk can overshoot chain.Target — nil
+	// -impact transit nodes default to depth 0 and sort last, so the END slot is
+	// hijacked by an artifact suffix and the end-only predicate was structurally
+	// unsatisfiable on that shape. The election now matches the user entity at
+	// ANY path position (typed comparator unchanged) and anchors by truncating
+	// the elected path at the matched position, so an elected WakeupPath still
+	// ends at the user entity. Bar not lowered: same typed entity sources, same
+	// cursor exclusion, same no-match legacy fallback.
+	WakeupPathUserElected bool `json:"wakeup_path_user_elected,omitempty"`
+	// WakeupPathUserEntityHits (§22 B1-b F2, 2026-07-07): the indexes of
+	// WakeupPath elements that match a typed anchor user entity (same comparator
+	// and same AnchorUserEntities sources as the election; sorted ascending,
+	// deduped). Computed on the FINAL selected path — elected or legacy — so
+	// display layers (the long-trunk fold's user-entity force-expand) never
+	// re-derive entity matches with a diverging comparator. nil when no entity
+	// matches (or no entities exist): the no-signal lane stays byte-stable.
+	// Display-only guidance; no hard gate reads it.
+	WakeupPathUserEntityHits []int                       `json:"wakeup_path_user_entity_hits,omitempty"`
+	SupportingHops           []TraceCausalProjectionNode `json:"supporting_hops,omitempty"`
 	// WakeupChainRecommendedNotRun is true when this run's ledger contains a
 	// state_drilldown observation whose typed chain_required=true rich note
 	// recommended a wakeup-chain drilldown, but NO wakeup_chain-family
@@ -540,10 +560,14 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	var hops []TraceCausalProjectionNode
 	// B1 anchor election (§10-B1, §12.3 裁定3): EVERY wakeup_chain path record
 	// is an anchor CANDIDATE (publication order preserved); the selection runs
-	// after the loop. wakeupPathEmptyLegacy preserves the exact legacy corner
-	// where wakeup_chain records existed but none parsed a non-empty path (the
-	// old first-wins assignment left an empty NON-NIL slice behind).
-	var wakeupPathCandidates [][]string
+	// after the loop. Each candidate carries the record's typed Subject — the
+	// producer publishes threadLabel(chain.Target) there (§22 B1-b: the typed
+	// chain-target signal was already on the record; the election consumes it
+	// instead of trusting the flattened Object's end slot). wakeupPathEmptyLegacy
+	// preserves the exact legacy corner where wakeup_chain records existed but
+	// none parsed a non-empty path (the old first-wins assignment left an empty
+	// NON-NIL slice behind).
+	var wakeupPathCandidates []traceCausalProjectionWakeupPathCandidate
 	var wakeupPathEmptyLegacy []string
 	var frameTargetEntities []string
 	var wakeupEdges []traceCausalProjectionWakeupEdge
@@ -658,7 +682,10 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 			// collecting all of them changes NO node classification — records
 			// #2..N previously fell through the switch into nothing.
 			if path := traceCausalProjectionPath(record.Object); len(path) > 0 {
-				wakeupPathCandidates = append(wakeupPathCandidates, path)
+				wakeupPathCandidates = append(wakeupPathCandidates, traceCausalProjectionWakeupPathCandidate{
+					path:    path,
+					subject: strings.TrimSpace(record.Subject),
+				})
 			} else if wakeupPathEmptyLegacy == nil {
 				wakeupPathEmptyLegacy = path
 			}
@@ -705,6 +732,10 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	if wakeupPath == nil {
 		wakeupPath = wakeupPathEmptyLegacy
 	}
+	// §22 B1-b F2: record which FINAL-path elements name a typed user entity
+	// (single comparator, computed once at the compile root) so the display
+	// fold layer can force-expand them without re-deriving entity matches.
+	wakeupPathUserEntityHits := traceCausalProjectionPathUserEntityHits(wakeupPath, anchorEntities)
 	pathIndex := traceCausalProjectionPathIndex(wakeupPath)
 	sort.SliceStable(primary, func(i, j int) bool {
 		return traceCausalProjectionPrimaryLess(primary[i], primary[j], pathIndex)
@@ -741,6 +772,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		SemanticSpans:                traceCausalProjectionLimitNodes(semantic, traceCausalProjectionSemanticSpanLimit),
 		WakeupPath:                   wakeupPath,
 		WakeupPathUserElected:        wakeupPathUserElected,
+		WakeupPathUserEntityHits:     wakeupPathUserEntityHits,
 		SupportingHops:               hops,
 		WakeupChainRecommendedNotRun: chainRequiredRecommended && !wakeupChainObserved,
 		RootCauseFamilyObserved:      rootCauseFamilyObserved,
@@ -865,30 +897,69 @@ type traceCausalProjectionAnchorEntity struct {
 	typedLane bool
 }
 
+// traceCausalProjectionWakeupPathCandidate is one wakeup_chain path record's
+// election candidate: the parsed Object path plus the record's typed Subject
+// (the producer publishes threadLabel(chain.Target) there — §22 B1-b: the
+// precise chain-target signal that survives the flattened Object's end-slot
+// artifact).
+type traceCausalProjectionWakeupPathCandidate struct {
+	path    []string
+	subject string
+}
+
 // traceCausalProjectionSelectWakeupPath elects the projection anchor path
 // (§10-B1 归因, §12.3 裁定3 用户裁定 2026-07-06: "存在 target 匹配用户实体的
 // path 记录时,锚优先给用户实体线程;第一条 path 先到先得废止").
 //
-//   - candidates: every wakeup_chain path record's parsed path, in publication
-//     order.
+// EVOLUTION RECORD (§22 B1-b, 2026-07-07 — huadong_01 CHAIN-PATH audit): the
+// original predicate matched the path's END element only. The producer's
+// flattened multi-branch walk can overshoot chain.Target (nil-impact transit
+// nodes default to depth 0 and sort last), so on that shape the end slot holds
+// an artifact transit node and the end-only predicate was STRUCTURALLY
+// unsatisfiable — the user thread sat mid-path while the root fell back to
+// candidates[0] (VSyncGenerator + 免责横幅). The election now:
+//
+//   - candidates: every wakeup_chain path record's parsed path (publication
+//     order preserved) plus its typed Subject (= threadLabel(chain.Target)).
 //   - entities are already in priority order (the caller front-loads the
 //     compile-side explicit_query_target frame subjects, then the ledger
 //     AnchorUserEntities). Every entity carries its typed/prose provenance so
 //     the match arms honor F2/F3 (prose entities never mine a tid handle).
-//   - match predicate: the candidate path's END element against one entity,
-//     via traceCausalProjectionAnchorLabelMatchesEntity (tid-first, §11-N7).
-//     Only ≥2-element paths are electable — a single-element path has no chain
-//     to root a tree on (the flat lane's RN-13 mismatch note is the honest
-//     surface for that shape).
-//   - tie-break (裁定3 "多条匹配 path → 确定性 tie-break"): entities scan in
-//     priority order; within one entity the FIRST matching path in publication
-//     order wins. Deterministic — same records, same entities, same anchor.
+//   - match predicate: the entity against ANY path element, via
+//     traceCausalProjectionAnchorLabelMatchesEntity (tid-first, §11-N7,
+//     comparator unchanged). Within one path the LAST matching position wins —
+//     everything after it is walk overshoot (a well-formed target-terminated
+//     path cannot continue past its target), and earlier duplicates are the
+//     legitimate ↺ cycle shape that stays on the trunk. A match at position 0
+//     is NOT electable: the elected path is truncated at the matched position,
+//     and a position-0 root has no upstream chain to root a tree on (the ≥2
+//     -element rule of the original election, preserved).
+//   - anchoring: the elected path is the candidate TRUNCATED at the matched
+//     position (compile-root anchoring, not a display re-root — pathIndex
+//     sorting, trunk, caps and drilldown targets all key off the returned
+//     path). The dropped suffix nodes keep their own observation records and
+//     bucket seats; only the artifact trunk membership goes.
+//   - tie-break across multiple matching candidates FOR ONE ENTITY (裁定:
+//     §22 B1-b "位置最深/影响最大" — reasons pinned in the B1-b tests):
+//     1. a candidate whose typed Subject ALSO matches the entity outranks a
+//     position-only hit — the engine declared that chain's target to BE the
+//     user entity, whereas a mid-path hit may be the user as transit in
+//     another thread's chain (weaker claim on the same precise lane);
+//     2. then the DEEPEST matched position (largest index) — the truncated
+//     trunk retains the most resolved upstream causation for the user
+//     entity (path records carry no typed per-path impact scalar, so
+//     "影响最大" has no precise carrier; deriving one from neighboring
+//     records would be a noisy join — 精确信号红线);
+//     3. then publication order (FIRST wins — the original pin ④ rule,
+//     preserved as the terminal tie-break).
+//     Entities still scan in priority order (a lower-priority entity never
+//     preempts a higher-priority entity's match).
 //   - no entities / no match: candidates[0] — the legacy publication-order
 //     anchor, byte-stable (pin ②/③).
 //
 // The second return reports a user election (feeds
 // TraceCausalProjection.WakeupPathUserElected → the 🎯 root label lane).
-func traceCausalProjectionSelectWakeupPath(candidates [][]string, entities []traceCausalProjectionAnchorEntity) ([]string, bool) {
+func traceCausalProjectionSelectWakeupPath(candidates []traceCausalProjectionWakeupPathCandidate, entities []traceCausalProjectionAnchorEntity) ([]string, bool) {
 	if len(candidates) == 0 {
 		return nil, false
 	}
@@ -896,16 +967,68 @@ func traceCausalProjectionSelectWakeupPath(candidates [][]string, entities []tra
 		if strings.TrimSpace(entity.value) == "" {
 			continue
 		}
-		for _, path := range candidates {
-			if len(path) < 2 {
+		bestIdx, bestPos, bestSubject := -1, -1, false
+		for i, candidate := range candidates {
+			pos := traceCausalProjectionPathLastEntityMatch(candidate.path, entity)
+			if pos < 1 {
+				continue // no hit, or a position-0 hit with no upstream chain
+			}
+			subjectMatch := candidate.subject != "" &&
+				traceCausalProjectionAnchorLabelMatchesEntity(candidate.subject, entity)
+			better := false
+			switch {
+			case bestIdx < 0:
+				better = true
+			case subjectMatch != bestSubject:
+				better = subjectMatch
+			case pos != bestPos:
+				better = pos > bestPos
+			}
+			if better {
+				bestIdx, bestPos, bestSubject = i, pos, subjectMatch
+			}
+		}
+		if bestIdx >= 0 {
+			return candidates[bestIdx].path[:bestPos+1], true
+		}
+	}
+	return candidates[0].path, false
+}
+
+// traceCausalProjectionPathLastEntityMatch returns the LAST path position whose
+// label matches the entity (§22 B1-b any-position predicate), -1 when none.
+// Last occurrence: everything after it is producer walk overshoot, earlier
+// occurrences are the ↺ cycle shape that belongs on the trunk.
+func traceCausalProjectionPathLastEntityMatch(path []string, entity traceCausalProjectionAnchorEntity) int {
+	for i := len(path) - 1; i >= 0; i-- {
+		if traceCausalProjectionAnchorLabelMatchesEntity(path[i], entity) {
+			return i
+		}
+	}
+	return -1
+}
+
+// traceCausalProjectionPathUserEntityHits lists the positions of the FINAL
+// selected wakeup path that match ANY typed anchor user entity (§22 B1-b F2 —
+// the fold layer's force-expand input; ascending, deduped, nil when nothing
+// matches so the no-signal lane stays byte-stable for the DeepEqual pins).
+func traceCausalProjectionPathUserEntityHits(path []string, entities []traceCausalProjectionAnchorEntity) []int {
+	if len(path) == 0 || len(entities) == 0 {
+		return nil
+	}
+	var hits []int
+	for i, label := range path {
+		for _, entity := range entities {
+			if strings.TrimSpace(entity.value) == "" {
 				continue
 			}
-			if traceCausalProjectionAnchorLabelMatchesEntity(path[len(path)-1], entity) {
-				return path, true
+			if traceCausalProjectionAnchorLabelMatchesEntity(label, entity) {
+				hits = append(hits, i)
+				break
 			}
 		}
 	}
-	return candidates[0], false
+	return hits
 }
 
 // traceCausalProjectionAnchorLabelMatchesEntity decides whether a wakeup-path

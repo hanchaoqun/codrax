@@ -601,6 +601,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// row face by design (legend carries the class) — no fence probe;
 		// direction A (mark ⇔ legend entry) still asserts.
 		runtimeTraceProjMarkCandidateShapeClass: {"", ""},
+		// §22 B1-b F2: the fold force-expanded user-focus transit row's named
+		// token. The parenthesized form is the probe — the bare 中转/transit
+		// word belongs to the IconTransit probe and the ‹用户关注线程› header
+		// label never carries the (中转) suffix.
+		runtimeTraceProjMarkUserFocusTransit: {"用户关注线程(中转)", "user-focus thread (transit)"},
 	}
 }
 
@@ -877,6 +882,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// §21 CWD: the overlapping-query-window MAX caliber (×N 第五式) and its
 		// legend entry (fixture home: answer_document_projection_cwd_test.go).
 		{"cwd_cross_window_max", cwdCrossWindowMaxProjection()},
+		// §22 B1-b F2: a typed user entity inside the folded trunk middle is
+		// force-expanded as a named transit row (fixture home:
+		// answer_document_mutation_runtime_tree_anchor_b1b_test.go).
+		{"b1b_user_focus_fold", b1bUserFocusFoldProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

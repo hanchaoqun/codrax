@@ -21,6 +21,19 @@ package types
 //   F2 date/issue-N prose entities never mint a tid handle;
 //   F3 bare frame-number prose entities never fake an election;
 //   F4 over-cap pid dropped.
+//
+// EVOLUTION RECORD (§22 B1-b, 2026-07-07 — huadong_01 CHAIN-PATH audit): the
+// election predicate evolved from END-element-only to ANY-position matching
+// with truncation anchoring (the producer's flattened walk can overshoot
+// chain.Target, making the end slot an artifact). Every pin in this file
+// stays green under the evolved law: end-position matches are the
+// any-position law's boundary case (truncation at len-1 = the full path,
+// byte-identical), and pin ④'s publication-order rule survives as the
+// TERMINAL tie-break (after the new subject-match and deepest-position
+// clauses, which compare equal for pin ④'s equal-shape candidates). The
+// B1-b clauses themselves pin in trace_causal_projection_anchor_b1b_test.go.
+// Bar not lowered: same typed entity sources, same F1a cursor exclusion, same
+// legacy no-match fallback.
 
 import (
 	"reflect"
