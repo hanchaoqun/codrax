@@ -736,7 +736,9 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	assertProjectionRowsCitationFree(t, detail)
 	// PTV4 T10 (a): the key-metric table carries the node identity + duration
 	// quad + evidence (≤6 columns pinned elsewhere)…
-	for _, want := range []string{"节点[E#]", "窗口投影", "链上累计", "有效归因", "实际状态", "证据·置信"} {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 表尾列 证据·置信→置信
+	// (E# 留在节点列); 明细块 因果位置·优先级→因果位置, 关系 ▸ 影响点→关系/影响点 两行.
+	for _, want := range []string{"节点[E#]", "窗口投影", "链上累计", "有效归因", "实际状态", "置信"} {
 		if !stringSliceContains(detail.Columns, want) {
 			t.Fatalf("detail table missing column %q: %+v", want, detail.Columns)
 		}
@@ -746,7 +748,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	if detailFull == nil || detailFull.Kind != types.BlockSection {
 		t.Fatalf("missing T10 (b) lossless vertical blocks:\n%s", text)
 	}
-	for _, want := range []string{"- 层级: ", "- 因果位置·优先级: ", "- 关系 ▸ 影响点: ", "- 影响形态: ", "- 类型: io_wait"} {
+	for _, want := range []string{"- 层级: ", "- 因果位置: ", "- 关系: ", "- 影响形态: ", "- 类型: io_wait"} {
 		if !strings.Contains(detailFull.Text, want) {
 			t.Fatalf("(b) blocks missing %q:\n%s", want, detailFull.Text)
 		}
@@ -922,7 +924,8 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 
 	// gap c: the duration triad renders losslessly in the v3 detail table and
 	// the tree carries magnitude bars.
-	for _, want := range []string{"█", "| 节点[E#] | 窗口投影 | 链上累计 | 有效归因 | 实际状态 | 证据·置信 |", "sleep / 等待唤醒", "running / CPU执行", "11.040ms", "4.600ms"} {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 证据·置信→置信.
+	for _, want := range []string{"█", "| 节点[E#] | 窗口投影 | 链上累计 | 有效归因 | 实际状态 | 置信 |", "sleep / 等待唤醒", "running / CPU执行", "11.040ms", "4.600ms"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("duration triad + bar must render (gap c): missing %q:\n%s", want, rendered)
 		}
@@ -1042,12 +1045,15 @@ func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePre
 	// so the empty background layer must render the ran-but-empty sentence
 	// (view ran, bucket came back empty — absence of background rows is itself
 	// an auditable outcome, not a data gap).
-	if !strings.Contains(projection.Text, "背景层: 背景统计视图已运行,但没有产出有数据支撑的背景/环境压力证据;这不等于背景没有影响,只表示本轮证据没有给出可审计的背景统计。") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: ran-but-empty
+	// "背景统计视图已运行,…本轮证据没有给出…" → "已查背景统计,…本报告没有可审计的背景统计。"
+	// (本轮→本报告); negative pin migrates to the new view-not-run head 未运行背景统计.
+	if !strings.Contains(projection.Text, "背景层: 已查背景统计,但没有拿到有数据支撑的背景压力证据;这不等于背景没有影响,只表示本报告没有可审计的背景统计。") {
 		t.Fatalf("projection lead should explain the ran-but-empty background state:\n%s", projection.Text)
 	}
 	// Mutation pin: folding the two states back into one sentence must fail —
 	// the view-not-run wording may never co-render with root_cause rows present.
-	if strings.Contains(projection.Text, "未运行产出背景统计的视图") {
+	if strings.Contains(projection.Text, "未运行背景统计") {
 		t.Fatalf("ran-but-empty state must not render the view-not-run wording:\n%s", projection.Text)
 	}
 	// 去行话负向 pin: retired jargon must not return to the lead/fence.
@@ -1129,7 +1135,11 @@ func TestApplyAndPersistMutation_TraceCausalProjectionBackgroundViewNotRunTwoSta
 	}
 
 	zhProjection := run(t, "")
-	if !strings.Contains(zhProjection.Text, "背景层: 本轮未运行产出背景统计的视图(root_cause_rank),背景层无数据;如需背景压力证据,可继续 trace_query view=root_cause_rank。") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: view-not-run
+	// "本轮未运行产出背景统计的视图(root_cause_rank),…可继续 trace_query view=…" →
+	// "本报告未运行背景统计(root_cause_rank),…可追问一次背景压力分析(root_cause_rank)。"
+	// (本轮→本报告); banned ran-but-empty head 背景统计视图已运行→已查背景统计.
+	if !strings.Contains(zhProjection.Text, "背景层: 本报告未运行背景统计(root_cause_rank),背景层无数据;如需背景压力证据,可追问一次背景压力分析(root_cause_rank)。") {
 		t.Fatalf("no-root_cause run must render the view-not-run background sentence:\n%s", zhProjection.Text)
 	}
 	// Mutation pin: the ran-but-empty wording must not co-render — the two
@@ -1137,17 +1147,22 @@ func TestApplyAndPersistMutation_TraceCausalProjectionBackgroundViewNotRunTwoSta
 	// parenthetical must not name wakeup_chain — the RootCauseFamilyObserved
 	// gate reads ONLY the root_cause_ prefix, so a wakeup_chain-only run would
 	// otherwise be told its own view "never ran" (假陈述).
-	for _, banned := range []string{"背景统计视图已运行", "不等于背景没有影响", "可承重", "off-chain", "root_cause_rank / wakeup_chain"} {
+	for _, banned := range []string{"已查背景统计", "不等于背景没有影响", "可承重", "off-chain", "root_cause_rank / wakeup_chain"} {
 		if strings.Contains(zhProjection.Text, banned) {
 			t.Fatalf("view-not-run state must not render %q:\n%s", banned, zhProjection.Text)
 		}
 	}
 
 	enProjection := run(t, "en")
-	if !strings.Contains(enProjection.Text, "Background layer: no background-statistics view (root_cause_rank) ran this round, so this layer has no data. For background-pressure evidence, continue with trace_query view=root_cause_rank.") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: EN view-not-run
+	// "no background-statistics view … ran this round … continue with trace_query
+	// view=…" → "this report ran no background statistics … ask a follow-up
+	// background-pressure analysis"; banned ran-but-empty head migrates to
+	// "background statistics were checked".
+	if !strings.Contains(enProjection.Text, "Background layer: this report ran no background statistics (root_cause_rank), so this layer has no data. For background-pressure evidence, ask a follow-up background-pressure analysis (root_cause_rank).") {
 		t.Fatalf("EN no-root_cause run must render the view-not-run background sentence:\n%s", enProjection.Text)
 	}
-	for _, banned := range []string{"the background-statistics view ran", "background influence", "load-bearing", "off-chain", "(root_cause_rank / wakeup_chain)"} {
+	for _, banned := range []string{"background statistics were checked", "background influence", "load-bearing", "off-chain", "(root_cause_rank / wakeup_chain)"} {
 		if strings.Contains(enProjection.Text, banned) {
 			t.Fatalf("EN view-not-run state must not render %q:\n%s", banned, enProjection.Text)
 		}
@@ -1238,7 +1253,8 @@ func TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText(t *
 	}
 	// v3: the anchor window renders as the lead's explicit window line (in-window
 	// nodes carry no marker; only outside/crossing nodes get ⚠).
-	if !strings.Contains(rendered, "关注窗口 100.000s → 200.000s") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 关注窗口→分析窗 (窗族).
+	if !strings.Contains(rendered, "分析窗 100.000s → 200.000s") {
 		t.Fatalf("the anchor window line must render when the precise window anchor exists: %q", rendered)
 	}
 	if strings.Contains(rendered, "⚠跨窗") {
@@ -1311,7 +1327,9 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 		t.Fatalf("missing English v3 detail table:\n%s", text)
 	}
 	assertProjectionRowsCitationFree(t, detail)
-	for _, want := range []string{"Node [E#]", "Window projection", "Chain total", "Evidence · confidence"} {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: EN last column
+	// "Evidence · confidence" → "Confidence" (E# stays in the node column).
+	for _, want := range []string{"Node [E#]", "Window projection", "Chain total", "Confidence"} {
 		if !stringSliceContains(detail.Columns, want) {
 			t.Fatalf("English detail table missing column %q: %+v", want, detail.Columns)
 		}
@@ -1392,7 +1410,8 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalHopDepth(t *testi
 	text := projectionClusterText(got.Blocks)
 	// The on-chain io-500 hop keeps its typed depth-4 chain position (gaps a/b):
 	// it sits at trunk depth 4 in both the tree and the detail table.
-	for _, want := range []string{"io-500 / iowait", "深度4"} {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: plain chain 深度4→链上L4.
+	for _, want := range []string{"io-500 / iowait", "链上L4"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("projection should preserve on-chain hop depth %q:\n%s", want, text)
 		}
@@ -1403,8 +1422,15 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalHopDepth(t *testi
 	if !strings.Contains(projection.Text, "☾ worker-200") {
 		t.Fatalf("sleep-state node should be marked as a symptom in the tree:\n%s", projection.Text)
 	}
-	if !strings.Contains(text, "睡眠症状") {
-		t.Fatalf("sleep symptom action label should render:\n%s", text)
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: the per-row
+	// 睡眠症状→查上游 tag is SUPPRESSED when the drilldown target is itself a
+	// rendered tree row (binder-300 renders as a transit row here); the symptom
+	// semantics stay on the ☾ legend entry.
+	if !strings.Contains(text, "睡眠是症状而非根因") {
+		t.Fatalf("sleep symptom semantics must render via the ☾ legend entry:\n%s", text)
+	}
+	if strings.Contains(text, "睡眠症状") {
+		t.Fatalf("suppressed sleep-symptom tag must not render when the upstream is a rendered tree row:\n%s", text)
 	}
 	if projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_sleep") != nil {
 		t.Fatalf("v3 renders no sleep diagram block: %+v", got.Blocks)

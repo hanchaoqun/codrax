@@ -45,15 +45,18 @@ func TestRuntimeTraceProjCoverageJitterOvershootKeepsSymptomDenominator(t *testi
 	// (excess 0.048ms — boundary jitter).
 	model := p0a1CoverageModel(112.175, 112.223)
 	line := runtimeTraceProjWindowLine(p0a1Projection, model, true)
-	if !strings.Contains(line, "目标等待(sleep/D-state/runnable) 112.175ms 中 on-chain 已归因 112.175ms(100%),未归因 0.000ms(0%)") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待→关注线程等待
+	// (其他族), on-chain 已归因→链上已归因, 归因口径合计→各链上口径合计,
+	// 不计未归因残差→不计未归因 (归因族).
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 112.175ms 中链上已归因 112.175ms(100%),未归因 0.000ms(0%)") {
 		t.Fatalf("jitter overshoot must keep the symptom denominator at full coverage:\n%s", line)
 	}
-	if !strings.Contains(line, "归因口径合计 112.223ms,略超目标等待 0.048ms") {
+	if !strings.Contains(line, "各链上口径合计 112.223ms,略超关注线程等待 0.048ms") {
 		t.Fatalf("the raw caliber total and excess must be disclosed verbatim:\n%s", line)
 	}
 	// The fabricated whole-window recast is gone: no 94%, no 6.838ms residual,
-	// no whole-window residual CLAIM (the disclosure's negated "不计未归因残差"
-	// mention is fine — the claim form carries a trailing value).
+	// no whole-window residual CLAIM (the disclosure's negated "不计未归因"
+	// mention is fine — the retired claim form carried the 残差 word).
 	for _, banned := range []string{"94%", "6.838", "未归因残差 "} {
 		if strings.Contains(line, banned) {
 			t.Fatalf("whole-window demotion artifact %q must be gone:\n%s", banned, line)
@@ -77,7 +80,9 @@ func TestRuntimeTraceProjCoverageGrossOvershootPublishesBothMagnitudesNoPercent(
 	// denominator still never recasts to the whole window.
 	model := p0a1CoverageModel(20.0, 60.0)
 	line := runtimeTraceProjWindowLine(p0a1Projection, model, true)
-	if !strings.Contains(line, "目标等待(sleep/D-state/runnable) 20.000ms;on-chain 归因口径合计 60.000ms,超出目标等待 40.000ms") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待→关注线程等待,
+	// on-chain 归因口径合计→各链上口径合计 (归因族).
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 20.000ms;各链上口径合计 60.000ms,超出关注线程等待 40.000ms") {
 		t.Fatalf("gross overshoot must publish both magnitudes:\n%s", line)
 	}
 	if !strings.Contains(line, "不给出覆盖百分比") {
@@ -106,7 +111,8 @@ func TestRuntimeTraceProjCoverageGrossOvershootCrossWindowKeepsWarnPointer(t *te
 	// third branch's only wording) survives on the symptom-denominator side.
 	model := p0a1CoverageModel(20.0, 300.0)
 	line := runtimeTraceProjWindowLine(p0a1Projection, model, true)
-	if !strings.Contains(line, "超出目标等待 280.000ms") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 超出目标等待→超出关注线程等待.
+	if !strings.Contains(line, "超出关注线程等待 280.000ms") {
 		t.Fatalf("cross-window gross overshoot still publishes both magnitudes:\n%s", line)
 	}
 	if !strings.Contains(line, "其实际状态跨出窗口,见 ⚠ 标记") {
@@ -121,7 +127,8 @@ func TestRuntimeTraceProjCoverageGrossOvershootCrossWindowKeepsWarnPointer(t *te
 func TestRuntimeTraceProjCoverageOvershootJitterBoundary(t *testing.T) {
 	// Exactly at the allowance → jitter regime; just past it → gross regime.
 	at := runtimeTraceProjWindowLine(p0a1Projection, p0a1CoverageModel(100.0, 100.0+runtimeTraceProjSymptomOvershootJitterMS), true)
-	if !strings.Contains(at, "已归因 100.000ms(100%)") || !strings.Contains(at, "略超目标等待 0.500ms") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 略超目标等待→略超关注线程等待.
+	if !strings.Contains(at, "已归因 100.000ms(100%)") || !strings.Contains(at, "略超关注线程等待 0.500ms") {
 		t.Fatalf("excess == allowance stays in the jitter regime:\n%s", at)
 	}
 	past := runtimeTraceProjWindowLine(p0a1Projection, p0a1CoverageModel(100.0, 100.6), true)
@@ -136,7 +143,9 @@ func TestRuntimeTraceProjCoverageNoSymptomStillFallsBackToWholeWindow(t *testing
 	model := p0a1CoverageModel(0, 60.0)
 	model.SelfRows = nil
 	line := runtimeTraceProjWindowLine(p0a1Projection, model, true)
-	if !strings.Contains(line, "未归因残差") || strings.Contains(line, "目标等待") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: whole-window fallback
+	// "未归因残差"→"未归因" (归因族); negative pin 目标等待→关注线程等待.
+	if !strings.Contains(line, "链上已归因 60.000ms(50%),未归因 59.061ms(50%)") || strings.Contains(line, "关注线程等待") {
 		t.Fatalf("symptom-less shape keeps the whole-window fallback wording:\n%s", line)
 	}
 }

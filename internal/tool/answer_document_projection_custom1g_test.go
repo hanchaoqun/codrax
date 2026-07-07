@@ -131,8 +131,10 @@ func TestRuntimeTraceProjWindowLineTargetSymptomDenominator(t *testing.T) {
 	projection := types.TraceCausalProjection{WindowStartTs: 6793222.700, WindowEndTs: 6793222.801}
 	line := runtimeTraceProjWindowLine(projection, custom1gWindowModel(true), true)
 	// (Wording pin updated for RN-6 §7.9: the denominator family now includes
-	// runnable, so the label reads 目标等待(sleep/D-state/runnable).)
-	if !strings.Contains(line, "目标等待(sleep/D-state/runnable) 11.716ms 中 on-chain 已归因 3.391ms(29%),未归因 8.325ms(71%)") {
+	// runnable, so the label reads the wait-family parenthetical.)
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待 → 关注线程等待
+	// (其他族); on-chain 已归因 → 链上已归因 (归因族).
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 11.716ms 中链上已归因 3.391ms(29%),未归因 8.325ms(71%)") {
 		t.Fatalf("coverage must use the target symptom duration as denominator:\n%s", line)
 	}
 	// The misleading whole-window residual ("残差 97%") must be gone.
@@ -149,9 +151,12 @@ func TestRuntimeTraceProjWindowLineTargetSymptomDenominator(t *testing.T) {
 
 func TestRuntimeTraceProjWindowLineFallsBackToWholeWindowWithoutSelfRows(t *testing.T) {
 	projection := types.TraceCausalProjection{WindowStartTs: 6793222.700, WindowEndTs: 6793222.801}
-	// No self-state rows → the pre-V2 whole-window wording stays byte-stable.
+	// No self-state rows → the whole-window fallback arm renders byte-stably.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: on-chain 已归因 →
+	// 链上已归因 (归因族); 未归因残差 → 未归因 (归因族); 目标等待 → 关注线程等待
+	// (其他族); 归因口径合计 → 各链上口径合计 (归因族).
 	line := runtimeTraceProjWindowLine(projection, custom1gWindowModel(false), true)
-	if !strings.Contains(line, "on-chain 已归因 3.391ms/3%,未归因残差 97.609ms/97%") {
+	if !strings.Contains(line, "链上已归因 3.391ms(3%),未归因 97.609ms(97%)") {
 		t.Fatalf("fallback branch wording must stay unchanged:\n%s", line)
 	}
 	// §15.D gap③ (P0-A1, overturns the V2 pin that stood here): attribution
@@ -164,12 +169,15 @@ func TestRuntimeTraceProjWindowLineFallsBackToWholeWindowWithoutSelfRows(t *test
 	model.SelfRows[0].Node.ImpactMS = 1.0
 	model.SelfRows[1].Node.ImpactMS = 2.0
 	line = runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "目标等待(sleep/D-state/runnable) 3.000ms 中 on-chain 已归因 3.000ms(100%)") ||
-		!strings.Contains(line, "归因口径合计 3.391ms,略超目标等待 0.391ms") {
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 3.000ms 中链上已归因 3.000ms(100%)") ||
+		!strings.Contains(line, "各链上口径合计 3.391ms,略超关注线程等待 0.391ms") {
 		t.Fatalf("attribution above the symptom must keep the symptom denominator (§15.D gap③):\n%s", line)
 	}
-	if strings.Contains(line, "未归因残差 ") {
-		t.Fatalf("the whole-window residual claim must not render with a symptom denominator:\n%s", line)
+	// Old-form guard (未归因残差 retired) + new-form whole-window residual figure.
+	for _, banned := range []string{"未归因残差", "未归因 97.609ms"} {
+		if strings.Contains(line, banned) {
+			t.Fatalf("the whole-window residual claim must not render with a symptom denominator (%q):\n%s", banned, line)
+		}
 	}
 }
 
@@ -301,11 +309,14 @@ func TestRuntimeTraceProjDetailTableFoldRowKeepsRoster(t *testing.T) {
 	if cell := rows[0].Cells[0]; !strings.Contains(cell, "×6(99.500–101.000ms)取最大") {
 		t.Fatalf("fold cell must carry the max-form count: %q", cell)
 	}
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: ×6 取最大口径(…,不求和)
+	// → ×6 跨线程折叠取最大(墙钟跨线程不可加和) (×N 明细族); 成员: → 成员(共6,列4):
+	// (截断 roster 自报账).
 	full := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(full, "×6 取最大口径(墙钟跨线程不可加和,不求和),各 99.500–101.000ms;成员: a-1、b-2、c-3、d-4 等") {
+	if !strings.Contains(full, "×6 跨线程折叠取最大(墙钟跨线程不可加和),各 99.500–101.000ms;成员(共6,列4): a-1、b-2、c-3、d-4 等") {
 		t.Fatalf("(b) blocks must carry the full member roster:\n%s", full)
 	}
-	if enFull := runtimeTraceProjDetailFullText(model, false); !strings.Contains(enFull, "members: a-1, b-2, c-3, d-4, …") {
+	if enFull := runtimeTraceProjDetailFullText(model, false); !strings.Contains(enFull, "members (6 total, 4 listed): a-1, b-2, c-3, d-4, …") {
 		t.Fatalf("EN (b) blocks must carry the roster:\n%s", enFull)
 	}
 }

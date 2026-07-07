@@ -49,8 +49,9 @@ func rtc2Bus(obs []types.ObservationRecord) *types.BusContext {
 	return bus
 }
 
+// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 两工件/各工件 → 两份 trace/各份 trace;⚠ note moved from table Items into block Text lines (对比总览族)
 const (
-	rtc2TableNoteZH = "⚠ 两工件时间基准不相交(donghu.systrace 34579.451s→34579.595s,donghu_short.systrace 2942.245s→2942.245s),不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准"
+	rtc2TableNoteZH = "⚠ 两份 trace 时间基准不相交(donghu.systrace 34579.451s→34579.595s,donghu_short.systrace 2942.245s→2942.245s),不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准"
 	rtc2TableNoteEN = "⚠ The two artifacts' time bases do not overlap (donghu.systrace 34579.451s→34579.595s, donghu_short.systrace 2942.245s→2942.245s); they cannot be aligned directly on one shared timeline — compare relative metrics within each artifact's own window"
 	rtc2StepZH      = "两 trace 时间基准不相交,无法在同一时间轴直接对齐;对比请以各自窗口内相对指标为准(占窗比例/按窗长归一化)"
 	rtc2StepEN      = "The two traces' time bases do not overlap and cannot be aligned directly on one shared timeline; compare relative metrics within each trace's own window (window share / normalized by window length)"
@@ -70,16 +71,25 @@ func TestTraceProjectionDisjointTimeBaseRowsRTC2ChineseBothSurfaces(t *testing.T
 	got := compareProjApply(t, rtc2Bus(rtc2TwoTraceObs(2942.244845, 2942.245401,
 		"selected_window=2942.244845..2942.245401")))
 	compare := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_compare")
-	if compare == nil || len(compare.Items) < 3 {
-		t.Fatalf("two disjoint partitions must render the overview with the note row: %+v", compare)
+	if compare == nil || len(compare.Items) < 2 {
+		t.Fatalf("two disjoint partitions must render the overview with both data rows: %+v", compare)
 	}
-	last := compare.Items[len(compare.Items)-1]
-	if last.Cells[0] != rtc2TableNoteZH {
-		t.Fatalf("the table must close with the verbatim ZH disjoint note row:\n got: %q\nwant: %q",
-			last.Cells[0], rtc2TableNoteZH)
+	// PTV8-RCR-B: the ⚠ note now renders as its own block-Text line, not a
+	// table row.
+	noteLine := false
+	for _, line := range strings.Split(compare.Text, "\n") {
+		if line == rtc2TableNoteZH {
+			noteLine = true
+		}
 	}
-	if last.CitationRef != -1 {
-		t.Fatalf("system-injected note row must carry CitationRef=-1: %+v", last)
+	if !noteLine {
+		t.Fatalf("the block text must carry the verbatim ZH disjoint note on its own line:\n got: %q\nwant: %q",
+			compare.Text, rtc2TableNoteZH)
+	}
+	for _, item := range compare.Items {
+		if strings.Contains(strings.Join(item.Cells, " "), "时间基准") {
+			t.Fatalf("the disjoint note must no longer occupy a table row: %+v", item.Cells)
+		}
 	}
 	// Lockstep with the CMP-6 directive surface: the SAME document carries the
 	// next-step guidance row (对比行⟺总览表, extended to the disjoint pair of
@@ -105,11 +115,25 @@ func TestTraceProjectionDisjointTimeBaseRowsRTC2EnglishBothSurfaces(t *testing.T
 	bus.AnalysisIR.AnswerContract.Language = "en"
 	got := compareProjApply(t, bus)
 	compare := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_compare")
-	if compare == nil || len(compare.Items) < 3 {
-		t.Fatalf("EN surface must render the overview with the note row: %+v", compare)
+	if compare == nil || len(compare.Items) < 2 {
+		t.Fatalf("EN surface must render the overview with both data rows: %+v", compare)
 	}
-	if last := compare.Items[len(compare.Items)-1]; last.Cells[0] != rtc2TableNoteEN {
-		t.Fatalf("EN table note row must render verbatim:\n got: %q\nwant: %q", last.Cells[0], rtc2TableNoteEN)
+	// PTV8-RCR-B: EN note wording unchanged, but it now lives on its own
+	// block-Text line instead of a table row.
+	noteLine := false
+	for _, line := range strings.Split(compare.Text, "\n") {
+		if line == rtc2TableNoteEN {
+			noteLine = true
+		}
+	}
+	if !noteLine {
+		t.Fatalf("EN block text must carry the verbatim disjoint note on its own line:\n got: %q\nwant: %q",
+			compare.Text, rtc2TableNoteEN)
+	}
+	for _, item := range compare.Items {
+		if strings.Contains(strings.Join(item.Cells, " "), "time bases") {
+			t.Fatalf("EN disjoint note must no longer occupy a table row: %+v", item.Cells)
+		}
 	}
 	next := rtc2NextStepBlock(t, got)
 	if next == nil {
@@ -136,6 +160,11 @@ func rtc2AssertNoDisjointRows(t *testing.T, got *types.AnswerDocumentV2, shape s
 		if strings.Contains(strings.Join(item.Cells, " "), "时间基准") {
 			t.Fatalf("%s: the disjoint note row must not render: %+v", shape, item.Cells)
 		}
+	}
+	// PTV8-RCR-B: notes migrated into block Text — zero emission must hold
+	// there too.
+	if strings.Contains(compare.Text, "时间基准") {
+		t.Fatalf("%s: the disjoint note must not render in the block text: %q", shape, compare.Text)
 	}
 	next := rtc2NextStepBlock(t, got)
 	if next == nil || len(next.Items) == 0 ||
@@ -179,7 +208,8 @@ func TestRuntimeTraceProjCompareDisjointTimeBaseNoteMultiArtifactWording(t *test
 		spanProjection("c.systrace", 500, 600),
 	}
 	zh := runtimeTraceProjCompareDisjointTimeBaseNote(three, true)
-	if !strings.HasPrefix(zh, "⚠ 各工件时间基准两两不相交(a.systrace 100.000s→200.000s,b.systrace 300.000s→400.000s,c.systrace 500.000s→600.000s)") ||
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 各工件 → 各份 trace (对比总览族)
+	if !strings.HasPrefix(zh, "⚠ 各份 trace 时间基准两两不相交(a.systrace 100.000s→200.000s,b.systrace 300.000s→400.000s,c.systrace 500.000s→600.000s)") ||
 		!strings.HasSuffix(zh, "不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准") {
 		t.Fatalf(">2 partitions must use the pairwise ZH wording: %q", zh)
 	}

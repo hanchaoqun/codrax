@@ -138,14 +138,22 @@ func TestTraceProjectionMergedFoldRowKeepsThreadNames(t *testing.T) {
 // ABSENT here, and ⛔ presence is pinned on a missing_wakeup fixture below.
 // The 口径 stanza (detail-table calibers) stays static and unchanged.
 func TestTraceProjectionLegendsRenderAsItemLists(t *testing.T) {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 树读法 head line 2
+	// 「不是额外推测」防御性废词删除 + E#(+N) 教学前移 (structural item 2);
+	// ☾/sleep 图例改直陈 (legend catalog item 3); key-metric legend head
+	// 口径:/Legend: → 各列口径:/Column calibers: with 用户窗口→分析窗 (窗族)
+	// and 背景行 line rewritten (structural item 4); ⊘链止 dynamic-legend
+	// negative migrated to the new canonical bytes.
 	zhMD := audit730Render(t, audit730Bus(""), audit730ChainObs(), "")
 	for _, want := range []string{
 		"树读法:\n- 自上而下 = 从关注线程向上游追溯。",
-		"- 时长、排序与 E# 均可经证据索引定位到 trace 行号/时间区间,不是额外推测。",
+		// PTV8-RCR-B 收尾 (留账⑦收账, 2026-07-08): the E#(+N)/×N double-count
+		// reconciliation clause joins the head line.
+		"- 时长与排序均来自 trace 证据;行尾 [E#] 可在文末证据索引查到对应 trace 行号/时间区间,E#(+N) 表示另合并 N 条同类观测(与 ×N 的实例合并计数是两种口径,互不换算)。",
 		"- `⊚` = 树根:本次分析锚定的关注线程。",
-		"- `☾/sleep` = 睡眠等待(等待事件/唤醒);症状非根因,其唤醒子行即下钻结果。",
-		"口径:\n- 窗口投影 = 该节点相关状态落在用户窗口内的时长(跨线程聚合行为 cpu·ms 累计,单元格已注)。",
-		"- 背景行仅作压力/环境证据,不自动等同链上主因。",
+		"- `☾/sleep` = 睡眠等待(等事件/等唤醒);睡眠是症状而非根因,根因看它的下钻/唤醒子行。",
+		"各列口径:\n- 窗口投影 = 该节点的状态落在分析窗内的时长;跨线程聚合行按跨线程累计计量(非墙钟,单元格已标注)。",
+		"- 背景行仅作环境压力证据,不计入链上归因。",
 	} {
 		if !strings.Contains(zhMD, want) {
 			t.Fatalf("zh legend must itemize (%q missing):\n%s", want, zhMD)
@@ -154,7 +162,7 @@ func TestTraceProjectionLegendsRenderAsItemLists(t *testing.T) {
 	// Dynamic legend: marks this tree never emitted stay OUT of 树读法 (the 口径
 	// stanza's own static ⛔ caliber line is a different surface and remains).
 	for _, banned := range []string{
-		"- `⊘链止` = 窗口内无匹配 sched_wakeup,链止于此。",
+		"- `⊘链止` = 窗口内无匹配唤醒事件(sched_wakeup),链止于此。",
 		"- `└─唤醒─` =",
 	} {
 		if strings.Contains(zhMD, banned) {
@@ -170,7 +178,7 @@ func TestTraceProjectionLegendsRenderAsItemLists(t *testing.T) {
 	enMD := audit730Render(t, audit730Bus("en"), audit730ChainObs(), "en")
 	for _, want := range []string{
 		"Tree reading:\n- Top-down = tracing upstream from the focused thread.",
-		"Legend:\n- window projection = the duration of the node's underlying state that falls inside the user window (cross-thread aggregate rows accumulate cpu·ms; cells carry the annotation).",
+		"Column calibers:\n- window projection = the duration of the node's state inside the analysis window; cross-thread aggregate rows measure a cross-thread cumulative (not wall clock; cells carry the annotation).",
 	} {
 		if !strings.Contains(enMD, want) {
 			t.Fatalf("en legend must itemize (%q missing):\n%s", want, enMD)
@@ -195,7 +203,10 @@ func TestTraceProjectionLegendExplainsEmittedUndrillableMark(t *testing.T) {
 		},
 	}
 	zhMD := audit730Render(t, audit730Bus(""), obs, "")
-	if !strings.Contains(zhMD, "- `⊘链止` = 窗口内无匹配 sched_wakeup,链止于此。") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 窗口内无匹配
+	// sched_wakeup → 窗口内无匹配唤醒事件(sched_wakeup) (legend catalog item 3,
+	// 与关键指标图例 ⊘ 条同词).
+	if !strings.Contains(zhMD, "- `⊘链止` = 窗口内无匹配唤醒事件(sched_wakeup),链止于此。") {
 		t.Fatalf("emitted ⊘ must carry its legend entry:\n%s", zhMD)
 	}
 	// Flat fallback has no 🎯 root — its entry must not render.

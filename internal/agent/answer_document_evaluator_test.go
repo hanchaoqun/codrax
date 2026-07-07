@@ -8422,13 +8422,17 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryObservationSupplem
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: single-artifact
+	// blocks now hoist the basename into the grouped intro line
+	// (本块全部坐标位于 `<base>`) and per-row locators show 行 X–Y (en-dash).
 	for _, want := range []string{
 		"系统补充：trace_query 关键观测核对",
+		"本块全部坐标位于 `attached_trace.txt`",
 		"root_cause_primary：CookieMonsterCl-59843 -> runnable",
 		"occurrence_windows=34579.525319..34579.534164",
 		"cumulative_impact_ms=25.847",
 		"critical_blocking:binder_wait：com.baidu.tieba-59566 -> Binder:43397_19-23088",
-		"attached_trace.txt:11666-11670",
+		"行 11666–11670",
 		"chain_relevance=on_chain",
 		"wakeup_chain:path：ThreadPoolForeg-60555 -> NetworkService-60595 -> CookieMonsterCl-59843 -> com.baidu.tieba-59566",
 	} {
@@ -8490,11 +8494,16 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementNormalizesLocatorAndWindowB
 	// §7.30 裁定6: display locator = basename + the record's own time window; the
 	// raw customer path and the 800k-line range stay in the raw record. Values
 	// coexisting with actual_* carry the selected-window basis label.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: basename hoisted to
+	// the grouped intro (本块全部坐标位于); 选定窗→查询窗; the impact= note is now
+	// skipped as a 值= duplicate (impact_ms=≡值 dedupe) — the magnitude stays on
+	// the rendered 值= field.
 	for _, want := range []string{
 		"系统补充：trace_query 关键观测核对",
-		"berlin.systrace [6793222.031–6793225.370s]",
-		"impact=2029.609ms",
-		"窗口基准=选定窗",
+		"本块全部坐标位于 `berlin.systrace`",
+		"[6793222.031–6793225.370s]",
+		"值=2029.609ms",
+		"窗口基准=查询窗",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("supplement missing %q:\n%s", want, out.FinalAnswer)
@@ -8558,7 +8567,8 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementWindowBasisEndpoints(t *tes
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
-	if !strings.Contains(out.FinalAnswer, "窗口基准=选定窗 6793222.031s–6793225.370s") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 选定窗→查询窗 (窗族).
+	if !strings.Contains(out.FinalAnswer, "窗口基准=查询窗 6793222.031s–6793225.370s") {
 		t.Fatalf("supplement window-basis token must render the selected-window endpoints:\n%s", out.FinalAnswer)
 	}
 }
@@ -8573,7 +8583,9 @@ func TestTraceQueryObservationSupplementNotes_SelectedWindowEndpoints(t *testing
 			"selected_window=6793222.031000..6793225.370000",
 		},
 	}
-	if zh := traceQueryObservationSupplementNotes(record, true); !strings.Contains(zh, "窗口基准=选定窗 6793222.031s–6793225.370s") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: zh 选定窗→查询窗
+	// (EN token unchanged).
+	if zh := traceQueryObservationSupplementNotes(record, true); !strings.Contains(zh, "窗口基准=查询窗 6793222.031s–6793225.370s") {
 		t.Fatalf("ZH supplement token must carry endpoints: %s", zh)
 	}
 	if en := traceQueryObservationSupplementNotes(record, false); !strings.Contains(en, "window_basis=selected_window 6793222.031s–6793225.370s") {
@@ -8581,7 +8593,7 @@ func TestTraceQueryObservationSupplementNotes_SelectedWindowEndpoints(t *testing
 	}
 	record.RichNotes[3] = "selected_window=..6793225.370000"
 	zh := traceQueryObservationSupplementNotes(record, true)
-	if !strings.Contains(zh, "窗口基准=选定窗") || strings.Contains(zh, "窗口基准=选定窗 ") {
+	if !strings.Contains(zh, "窗口基准=查询窗") || strings.Contains(zh, "窗口基准=查询窗 ") {
 		t.Fatalf("malformed note must fall back to the bare ZH token: %s", zh)
 	}
 	en := traceQueryObservationSupplementNotes(record, false)
@@ -8765,16 +8777,21 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceStateDrilldownSupplemen
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: intro sentence
+	// "以下条目来自 trace_query 发布的结构化运行时观测…" → "以下为 trace_query 输出的
+	// 逐条观测记录(字段 token 保留原文)，可对照 trace 原文核对…"; the "main-1 -> S"
+	// half is now claimKey-echo-suppressed (subject/object are both full
+	// claimKey segments).
 	for _, want := range []string{
 		"系统补充：trace_query 关键观测核对",
-		"以下条目来自 trace_query 发布的结构化运行时观测",
-		"state_drilldown:main-1:S：main-1 -> S",
+		"以下为 trace_query 输出的逐条观测记录(字段 token 保留原文)，可对照 trace 原文核对；所有坐标都指向 trace 文件本身，不是源码位置。",
+		"state_drilldown:main-1:S；值=21.000ms",
 		"值=21.000ms",
 		"source=top_sleep",
 		"recommended_views=wakeup_chain,root_cause_rank",
 		"chain_required=true",
 		"recursive=true",
-		"state_drilldown:main-1:S:fragmented：main-1 -> S",
+		"state_drilldown:main-1:S:fragmented；值=18.000ms",
 		"值=18.000ms",
 		"source=state_churn",
 		"recommended_views=thread_timeline,interaction_stats,window_stats",
@@ -8842,11 +8859,14 @@ func TestAnswerDocumentEvaluator_ParseOutput_TraceQueryObservationSupplementExpa
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: single-artifact
+	// locator "attached_trace.txt:132" → grouped intro + per-row "行 132".
 	for _, want := range []string{
 		"系统补充：trace_query 关键观测核对",
+		"本块全部坐标位于 `attached_trace.txt`",
 		"root_cause_primary:thread-01：thread-01 -> runnable",
 		"root_cause_primary:thread-32：thread-32 -> runnable",
-		"attached_trace.txt:132",
+		"行 132；",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("expanded trace_query supplement missing %q:\n%s", want, out.FinalAnswer)
@@ -10128,17 +10148,23 @@ func TestPTV5TraceQuerySupplementTruncationDisclosure(t *testing.T) {
 	// PTV6-C ruling C (#73): the trim tail states the omitted rows' trace
 	// line envelope (all fixture rows share one artifact) — never the retired
 	// intermediate-record pointer.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: the artifact
+	// basename moved from the trim tail into the grouped intro line
+	// (本块全部坐标位于 `<base>`); the tail keeps 行 X–Y (en-dash inside).
 	over := renderTraceQueryObservationSupplement(build(traceQueryObservationSupplementMaxRows+5), doc, "zh")
-	if !strings.Contains(over, fmt.Sprintf("(共 %d 条,仅列前 %d 条;其余 5 条位于 attached_trace.txt 行 ",
-		traceQueryObservationSupplementMaxRows+5, traceQueryObservationSupplementMaxRows)) ||
+	if !strings.Contains(over, "本块全部坐标位于 `attached_trace.txt`") ||
+		!strings.Contains(over, fmt.Sprintf("(共 %d 条,仅列前 %d 条;其余 5 条位于行 ",
+			traceQueryObservationSupplementMaxRows+5, traceQueryObservationSupplementMaxRows)) ||
 		!strings.Contains(over, " 区间)") {
 		t.Fatalf("over-cap supplement must disclose the trim count with the trace envelope:\n%s", over)
 	}
 	if strings.Contains(over, "见原始 trace_query 记录") {
 		t.Fatalf("retired intermediate-record pointer resurfaced:\n%s", over)
 	}
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: EN tail drops the
+	// basename too (grouped intro carries it): "… sit within lines X–Y".
 	overEN := renderTraceQueryObservationSupplement(build(traceQueryObservationSupplementMaxRows+5), doc, "en")
-	if !strings.Contains(overEN, fmt.Sprintf("(%d rows total; only the first %d are listed; the other 5 sit within attached_trace.txt lines ",
+	if !strings.Contains(overEN, fmt.Sprintf("(%d rows total; only the first %d are listed; the other 5 sit within lines ",
 		traceQueryObservationSupplementMaxRows+5, traceQueryObservationSupplementMaxRows)) {
 		t.Fatalf("EN over-cap supplement must disclose the trim count:\n%s", overEN)
 	}

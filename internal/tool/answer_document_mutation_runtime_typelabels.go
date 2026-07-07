@@ -93,6 +93,18 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		return "频率受限"
 	case "trace_span":
 		return "trace span"
+	case "blocking_span":
+		// PTV8-RCR-B (UXA 域A #1 / 域D 漏审 S1, 2026-07-08): the lead sentence
+		// and the compare primary cell rendered the bare wire token — the zh
+		// word matches the E4 row / monitor_contention wording (one token, one
+		// translation); the raw token stays on the detail 类型 row (D2).
+		return "持锁阻塞"
+	case "missing_wakeup":
+		// PTV8-RCR-B (UXA 域A #22 / 域B #15 / 域D #7, 任务令终词 2026-07-08):
+		// the data-gap marker's display word (无唤醒记录) — display-only, the
+		// registry wakeup_chain lane is untouched (红线 §7.2.1/§7.4/§7.5) and
+		// the raw token stays on the detail 类型 row / evidence predicate.
+		return "无唤醒记录"
 	case "trace_gap":
 		// §22 PTV7-SPN F5 (用户措辞裁定 2026-07-07): the diagnostic trace_gap
 		// marker's display word — the raw token stays on the detail table's
@@ -181,6 +193,19 @@ func runtimeTraceCausalProjectionDisplayCauseName(raw string, zh bool) string {
 	if zh {
 		if label := runtimeTraceRootCauseTypeZHLabel(raw); label != "" {
 			return label
+		}
+		// PTV8-RCR-B (UXA 域A #24 / 域B #14 verify, 2026-07-08). EVOLUTION
+		// RECORD: a BARE scheduler-state token on the cause-name lane used to
+		// fall through verbatim (huadong "s_s…"/"s_sleep" double exposure
+		// while the same row's state word said sleep) — it now rides the PTV7
+		// alias combined form (sleep（s_sleep）; identity tokens collapse to
+		// the bare word), the same treatment the 影响点 lane already had.
+		if label := runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: strings.TrimSpace(raw)}, true); label != "" {
+			raw := strings.TrimSpace(raw)
+			if label == raw {
+				return raw
+			}
+			return label + "（" + raw + "）"
 		}
 	}
 	return runtimeTraceCausalProjectionDisplayNodeName(raw, zh)
@@ -313,6 +338,22 @@ func runtimeTraceCausalProjectionImpactPointDisplay(token string, zh bool) strin
 		}
 	}
 	return runtimeTraceCausalProjectionNarrativeCauseName(token, zh)
+}
+
+// runtimeTraceCausalProjectionImpactPointBareState (PTV8-RCR-B, UXA 域A #23,
+// 2026-07-08): reports whether ONE 影响点 token is a bare scheduler-state
+// token (exact canonical state-word-table hit — precise typed set, never a
+// substring heuristic). The 影响点 slot promises "who was impacted"; a state
+// token there reads as "the impact point is sleeping" while the row's state
+// is already carried by the icon + state word — the tag suppresses such
+// tokens (display-only; the detail block's 关系/影响点 lines keep the full
+// roster, zero information loss).
+func runtimeTraceCausalProjectionImpactPointBareState(token string) bool {
+	token = strings.TrimSpace(token)
+	if token == "" || strings.Contains(token, "/") {
+		return false
+	}
+	return runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: token}, true) != ""
 }
 
 // runtimeTraceCausalProjectionNarrativeCauseName is the narrative lane (D4):

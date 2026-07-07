@@ -113,8 +113,9 @@ func TestTraceProjection730AggregateAndUnknownDemoteToBackgroundZH(t *testing.T)
 	}
 	// Detail blocks (PTV4 T10 (b)): demoted rows carry background layer +
 	// position labels, not primary ones.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 因果位置·优先级: 背景 · 支撑参考 → 因果位置: 背景(参考) (明细块合并词表)
 	if !strings.Contains(md, "窗口IO压力(聚合)**") ||
-		!strings.Contains(md, "- 层级: ▒ 背景") || !strings.Contains(md, "- 因果位置·优先级: 背景 · 支撑参考") {
+		!strings.Contains(md, "- 层级: ▒ 背景") || !strings.Contains(md, "- 因果位置: 背景(参考)") {
 		t.Fatalf("aggregate detail block must be background-labeled:\n%s", md)
 	}
 }
@@ -163,7 +164,8 @@ func TestTraceProjection730FlatFallbackNamesMissingWakeupZH(t *testing.T) {
 		},
 	}
 	md := audit730Render(t, bus, obs, "")
-	if !strings.Contains(md, "睡眠区间在所选窗口内无 sched_wakeup 记录,唤醒链无法上溯——按层级平铺展示") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 所选窗口→查询窗;——按层级平铺展示 → ;以下各行按层级平铺 (平铺头族)
+	if !strings.Contains(md, "(睡眠区间在查询窗内无 sched_wakeup 记录,唤醒链无法上溯;以下各行按层级平铺)") {
 		t.Fatalf("flat fallback must name the missing_wakeup cause:\n%s", md)
 	}
 	if strings.Contains(md, "唤醒链路径未解析") {
@@ -186,7 +188,8 @@ func TestTraceProjection730FlatFallbackNamesDrilldownNotRunZH(t *testing.T) {
 		},
 	}
 	md := audit730Render(t, bus, obs, "")
-	if !strings.Contains(md, "本轮未执行唤醒链下钻,建议 trace_query view=wakeup_chain——按层级平铺展示") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 本轮未执行唤醒链下钻,建议 trace_query view=wakeup_chain——… → 本报告未做唤醒链下钻,…;可追问一次唤醒链分析(wakeup_chain)补齐 (平铺头族)
+	if !strings.Contains(md, "(本报告未做唤醒链下钻,以下各行按层级平铺;可追问一次唤醒链分析(wakeup_chain)补齐)") {
 		t.Fatalf("flat fallback must name the recommended-not-run cause:\n%s", md)
 	}
 	if strings.Contains(md, "唤醒链路径未解析") {
@@ -208,7 +211,8 @@ func TestTraceProjection730FlatFallbackTwoCausesEN(t *testing.T) {
 		},
 	}
 	md := audit730Render(t, bus, obs, "en")
-	if !strings.Contains(md, "wakeup-chain drilldown was not run this round — recommend trace_query view=wakeup_chain; layers rendered flat") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: EN "was not run this round — recommend trace_query view=…; layers rendered flat" → "no wakeup-chain drilldown was run for this report; … ask a follow-up wakeup-chain analysis (wakeup_chain) to fill it in" (平铺头族 EN)
+	if !strings.Contains(md, "(no wakeup-chain drilldown was run for this report; rows below are laid out flat by level — ask a follow-up wakeup-chain analysis (wakeup_chain) to fill it in)") {
 		t.Fatalf("EN flat fallback must name the recommended-not-run cause:\n%s", md)
 	}
 	if strings.Contains(md, "wakeup path unresolved") {
@@ -238,7 +242,8 @@ func TestTraceProjection730BarStateAttributionZH(t *testing.T) {
 	// PTV4 T7: the state-label legend entry dropped its positional "时长条后的"
 	// claim (the tag may sit on a subordinate line after the T1 split); the
 	// family list and its dominant-state semantics are unchanged.
-	for _, want := range []string{"running", "runnable", "状态标签(sleep/runnable/running/iowait/D-state)来自该行主导调度状态"} {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 状态标签(…)来自该行主导调度状态 → 行内 sleep/runnable/running/iowait/D-state = 该行的主导调度状态。 (图例族)
+	for _, want := range []string{"running", "runnable", "行内 sleep/runnable/running/iowait/D-state = 该行的主导调度状态。"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("bar state attribution missing %q:\n%s", want, md)
 		}

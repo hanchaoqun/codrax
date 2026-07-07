@@ -188,8 +188,13 @@ var causalTokenRegistry = map[string]CausalTokenSpec{
 	// ── wakeup chain (等待被唤醒/依赖对端) ──────────────────────────────────
 	"sleep_wait":            {Lane: CausalLaneWakeupChain, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"fragmented_sleep_wait": {Lane: CausalLaneWakeupChain, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
-	"missing_wakeup":        {Lane: CausalLaneWakeupChain, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: ""},
-	"binder_wait":           {Lane: CausalLaneWakeupChain, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
+	// PTV8-RCR-B (UXA 域A #22/域D #7, 任务令终词 2026-07-08). EVOLUTION
+	// RECORD: missing_wakeup gains its zh display word 无唤醒记录 via
+	// runtimeTraceRootCauseTypeZHLabel — the LabelZhRef column ONLY moved
+	// (was ""); Lane/Additivity/Subject/RowToken are byte-identical (the
+	// wakeup_chain lane is untouched per 红线 §7.2.1/§7.4/§7.5).
+	"missing_wakeup": {Lane: CausalLaneWakeupChain, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
+	"binder_wait":    {Lane: CausalLaneWakeupChain, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 
 	// ── IO blocking ────────────────────────────────────────────────────────
 	"io_wait":                       {Lane: CausalLaneIOBlocking, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
@@ -224,7 +229,11 @@ var causalTokenRegistry = map[string]CausalTokenSpec{
 	"ipi_activity": {Lane: CausalLaneIRQAggregate, Additivity: CausalAdditivityCrossThreadCPUms, Subject: CausalSubjectAggregateOnly, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 
 	// ── lock contention ────────────────────────────────────────────────────
-	"blocking_span": {Lane: CausalLaneLockContention, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: ""},
+	// PTV8-RCR-B (UXA 域A #1/域D 漏审 S1, 2026-07-08). EVOLUTION RECORD:
+	// blocking_span gains its zh display word 持锁阻塞 via
+	// runtimeTraceRootCauseTypeZHLabel (the lead sentence rendered the bare
+	// wire token) — LabelZhRef column ONLY; lane untouched.
+	"blocking_span": {Lane: CausalLaneLockContention, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	// monitor_contention / lock_contention are BlockingKind refinements on
 	// blocking_span rows (§7.30.3 D1) — never row tokens themselves.
 	"monitor_contention": {Lane: CausalLaneLockContention, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: false, LabelZhRef: ""},

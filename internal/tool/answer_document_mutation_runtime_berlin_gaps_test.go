@@ -148,20 +148,28 @@ func TestRuntimeTraceProjUserWindowRelationLine(t *testing.T) {
 		Entities: []string{"42591", "3.300", "6.600"},
 	})
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	// PTV5 C25 (#68): 聚焦子窗 — the system never verified representativeness,
-	// so 代表性 is banned on this line (negative pin below).
-	if !strings.Contains(line, "- 用户请求窗 3.300s → 6.600s(共 3.3s);本投影取其中的聚焦子窗,全窗指标见 Trace 指标快照") {
+	// PTV5 C25 (#68): the system never verified representativeness, so 代表性
+	// is banned on this line (negative pin below).
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 本投影取其中的聚焦子窗 → 本因果树的分析窗只取其中一段 (窗族, 聚焦子窗改述)
+	if !strings.Contains(line, "- 用户请求窗 3.300s → 6.600s(共 3.3s);本因果树的分析窗只取其中一段,全窗指标见 Trace 指标快照") {
 		t.Fatalf("small sub-window must state the user-window relation:\n%s", line)
 	}
 	if strings.Contains(line, "代表性") {
 		t.Fatalf("relation line must not over-promise representativeness:\n%s", line)
 	}
 	en := runtimeTraceProjWindowLine(projection, model, false)
-	if !strings.Contains(en, "User-requested window 3.300s → 6.600s (3.3s total)") {
-		t.Fatalf("EN relation line missing:\n%s", en)
+	// PTV8-RCR-B 收尾 (复核 M-EN, 2026-07-08): the EN relation line is its own
+	// real "\n- " bullet — a double-escaped format string once printed a
+	// literal \n- on the EN report; this prefix pin bites that mutant.
+	if !strings.Contains(en, "\n- User-requested window 3.300s → 6.600s (3.3s total)") {
+		t.Fatalf("EN relation line missing its bullet prefix:\n%s", en)
 	}
-	if !strings.Contains(en, "focused sub-window") || strings.Contains(en, "representative") {
-		t.Fatalf("EN relation line must say focused, never representative:\n%s", en)
+	if strings.Contains(en, `\n`+"- User-requested") {
+		t.Fatalf("literal backslash-n leaked onto the EN face:\n%s", en)
+	}
+	// PTV8-RCR-B: EN focused sub-window → analysis window is one slice of it.
+	if !strings.Contains(en, "analysis window is one slice of it") || strings.Contains(en, "representative") {
+		t.Fatalf("EN relation line must say one slice, never representative:\n%s", en)
 	}
 
 	// Trailing seconds unit on the timestamp entities works the same.
@@ -228,7 +236,8 @@ func TestRuntimeTraceProjDepth1CumulativeFallsBackToShallowestDataDepth(t *testi
 	}
 	projection := types.TraceCausalProjection{WindowStartTs: 3.300, WindowEndTs: 3.401}
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "on-chain 已归因 2.891ms") || !strings.Contains(line, "未归因残差") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: on-chain 已归因 → 链上已归因;未归因残差 → 未归因 (归因族)
+	if !strings.Contains(line, "链上已归因 2.891ms") || !strings.Contains(line, "未归因 98.109ms") {
 		t.Fatalf("berlin shape must still render the attributed/residual coverage line:\n%s", line)
 	}
 	// Depth-1 data still wins when present.
@@ -489,7 +498,8 @@ func TestRuntimeTraceCausalProjectionImpactShapeTypedAggregates(t *testing.T) {
 		t.Fatalf("dominant state must keep priority over the aggregate token: %q", got)
 	}
 	// Unmapped tokens keep the generic fallback.
-	if got := runtimeTraceCausalProjectionImpactShapeCell(types.TraceCausalProjectionNode{Object: "workqueue_activity"}, true); got != "候选影响" {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 候选影响 → 未分类(该行无具体状态/类型词) (根因族)
+	if got := runtimeTraceCausalProjectionImpactShapeCell(types.TraceCausalProjectionNode{Object: "workqueue_activity"}, true); got != "未分类(该行无具体状态/类型词)" {
 		t.Fatalf("unmapped tokens must keep the generic fallback: %q", got)
 	}
 }
@@ -584,7 +594,8 @@ func TestRuntimeTraceProjEvidenceLocatorAdoptsSoleArtifactForBareRefs(t *testing
 	if strings.Contains(flat, "lines=") {
 		t.Fatalf("sole-artifact roster must not show naked lines= locators:\n%s", flat)
 	}
-	if !strings.Contains(flat, "全部证据位于 `berlin.systrace`") || !strings.Contains(flat, ":794198-827402") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: grouped per-entry locator :X-Y → 行 X–Y (en-dash) (证据索引族)
+	if !strings.Contains(flat, "全部证据位于 `berlin.systrace`") || !strings.Contains(flat, "行 794198–827402") {
 		t.Fatalf("bare ref must adopt the sole artifact and keep its range:\n%s", flat)
 	}
 }

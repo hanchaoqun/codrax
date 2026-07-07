@@ -453,28 +453,34 @@ func TestRCRHopLaneOvershootJitterArmKillsPseudoResidual(t *testing.T) {
 	// opendir_02 witness: attributed 112.223 overshoots the hop sleep 112.175
 	// by 0.048ms (inside the §15.D jitter band) — the old whole-window arm
 	// fabricated "未归因残差 7.777ms/6%" for a fully explained wait.
+	// PTV8-RCR-B (UXA 域D #33/#34 + 域B #3 verify, 2026-07-08). EVOLUTION
+	// RECORD: the arm STRUCTURE is unchanged; the pinned words evolved with
+	// the word families — 目标睡眠→关注线程睡眠, 关注窗口→分析窗,
+	// (链上)归因口径合计→各链上口径合计, on-chain 已归因→链上已归因, the
+	// 残差 statistics word retired (未归因).
 	line := rcrWindowLine(t, rcrHopOnlyProjection(112.175, 112.223))
-	if !strings.Contains(line, "目标睡眠 112.175ms 已全部由链上解释(归因口径合计 112.223ms,略超 0.048ms,属状态段边界抖动);占关注窗口 94%。") {
+	if !strings.Contains(line, "关注线程睡眠 112.175ms 已全部由链上解释(各链上口径合计 112.223ms,略超 0.048ms,属状态段边界抖动);占分析窗 94%。") {
 		t.Fatalf("jitter arm must render the UXA final wording:\n%s", line)
 	}
-	if strings.Contains(line, "未归因残差") {
+	if strings.Contains(line, "未归因") {
 		t.Fatalf("the pseudo-residual must be dead on the jitter arm:\n%s", line)
 	}
 	// Beyond the jitter band: both magnitudes, no percentage, no residual.
 	beyond := rcrWindowLine(t, rcrHopOnlyProjection(100.000, 112.223))
-	if !strings.Contains(beyond, "目标睡眠 100.000ms;链上归因口径合计 112.223ms,超出目标睡眠 12.223ms") ||
-		!strings.Contains(beyond, "不给出覆盖百分比,差值不作未归因残差") {
+	if !strings.Contains(beyond, "关注线程睡眠 100.000ms;各链上口径合计 112.223ms,超出关注线程睡眠 12.223ms") ||
+		!strings.Contains(beyond, "不给出覆盖百分比,差值不计为未归因") {
 		t.Fatalf("beyond-jitter arm must disclose both magnitudes without arithmetic:\n%s", beyond)
 	}
-	if strings.Contains(beyond, "未归因残差 ") || strings.Contains(beyond, "%,未归因") {
+	if strings.Contains(beyond, "%,未归因") {
 		t.Fatalf("beyond-jitter arm must not fabricate coverage arithmetic:\n%s", beyond)
 	}
 	// Legacy negative: attributed within the hop sleep keeps the whole-window
-	// coverage sentence + the hop info line byte-identically.
+	// coverage sentence + the hop info line (word families applied, structure
+	// byte-stable).
 	legacy := rcrWindowLine(t, rcrHopOnlyProjection(112.175, 100.000))
-	if !strings.Contains(legacy, "on-chain 已归因 100.000ms/83%,未归因残差 20.000ms/17%。") ||
-		!strings.Contains(legacy, "目标睡眠 112.175ms 中 100.000ms 已由链上解释。") {
-		t.Fatalf("the legacy within-sleep arm must stay byte-identical:\n%s", legacy)
+	if !strings.Contains(legacy, "链上已归因 100.000ms(83%),未归因 20.000ms(17%)。") ||
+		!strings.Contains(legacy, "关注线程睡眠 112.175ms 中 100.000ms 已由链上解释。") {
+		t.Fatalf("the legacy within-sleep arm must keep its shape:\n%s", legacy)
 	}
 }
 

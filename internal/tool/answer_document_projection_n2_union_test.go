@@ -55,10 +55,13 @@ func TestN2UnionRowWearsUnionFormOnEverySurface(t *testing.T) {
 		if !strings.Contains(fence, "×4(14.550–104.127ms)union") {
 			t.Fatalf("zh=%v: fence must carry the union form token:\n%s", zh, fence)
 		}
-		unionEntry := "- `×N(a–b)union` = 跨查询窗重叠段不重复计:N 次实例来自不同查询窗且时间重叠,数值为区间并集投影(非求和),a–b 为单次范围;原始和与窗来源见无损块。"
+		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 见无损块 →
+		// 见明细 / "lossless block" → "detail blocks" (legend tail; sum entry
+		// unchanged).
+		unionEntry := "- `×N(a–b)union` = 跨查询窗重叠段不重复计:N 次实例来自不同查询窗且时间重叠,数值为区间并集投影(非求和),a–b 为单次范围;原始和与窗来源见明细。"
 		sumEntry := "- `×N(a–b)` = 同一(线程,原因)的 N 次实例合并,数值为总和,a–b 为单次范围。"
 		if !zh {
-			unionEntry = "- `×N(a–b)union` = cross-query-window overlap counted once: the N instances come from DIFFERENT query windows and overlap in time; the value is the interval-union projection (never the SUM), a–b the per-instance range; the raw sum and the window sources live in the lossless block."
+			unionEntry = "- `×N(a–b)union` = cross-query-window overlap counted once: the N instances come from DIFFERENT query windows and overlap in time; the value is the interval-union projection (never the SUM), a–b the per-instance range; the raw sum and the window sources live in the detail blocks."
 			sumEntry = "- `×N(a–b)` = N instances of one (thread, cause) merged; the value is the SUM, a–b the per-instance range."
 		}
 		if !strings.Contains(lead, unionEntry) {
@@ -192,7 +195,9 @@ func TestN2NonUnionRendersByteIdentical(t *testing.T) {
 			t.Fatalf("zh=%v: multi-window sum row must record the no-share mark", zh)
 		}
 		lossless := runtimeTraceProjDetailFullText(multi, zh)
-		if zh && !strings.Contains(lossless, "×3 求和口径,单次 5.000–20.000ms") {
+		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: ×N 求和口径 →
+		// 同一线程 N 次实例合并求和 (客户话 sum caliber).
+		if zh && !strings.Contains(lossless, "同一线程 3 次实例合并求和,单次 5.000–20.000ms") {
 			t.Fatalf("sum row lossless caliber wording drifted:\n%s", lossless)
 		}
 		if zh && !strings.Contains(lossless, "窗来源") {

@@ -101,12 +101,15 @@ func TestTraceProjectionD2TypeLabelsThreeTierFidelityZH(t *testing.T) {
 func TestTraceProjectionD2TypeLabelsKeepRawTokensEN(t *testing.T) {
 	md := audit730Render(t, audit730Bus("en"), dRoundTypeObs(), "en")
 	// EN tree keeps raw tokens; the Type column mirrors them for audit parity.
-	// NEW-10 (§7.6): under the 44-cell label budget the tree row may B1-
-	// truncate the raw token; the lead line and the Type column stay the
-	// full-token audit surfaces.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: composed-name
+	// suffix truncation now cuts at word boundaries only, so the cause row's
+	// name stays bare "dep-200" and the FULL raw token rides the cause-row
+	// identity line (类别·根因排序#N·置信 grammar); the hop row keeps its
+	// inline raw token.
 	for _, want := range []string{
 		"**Primary root cause:** dep-200 priority_inversion_candidate",
-		"dep-200 · priority_inversion_can…",
+		"priority_inversion_candidate · root-cause rank #1 · confidence high",
+		"io-500 · io_latency",
 		"- type: priority_inversion_candidate",
 	} {
 		if !strings.Contains(md, want) {

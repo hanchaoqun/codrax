@@ -195,6 +195,10 @@ func TestPTV6DGenericCandidateShapeLeavesRowFace(t *testing.T) {
 		Node: node, Kind: runtimeTraceProjTreeRowBackground, HasData: true,
 		marks: &runtimeTraceProjMarkSet{},
 	}
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 候选影响(类) →
+	// 图例「无类型词的行」/明细「未分类(该行无具体状态/类型词)」 (根因族;
+	// 候选影响 retired from EVERY face — the row-face ban below stays and now
+	// covers the legend and detail faces too).
 	joined := strings.Join(ptv6cRowTagTexts(row), " · ")
 	if strings.Contains(joined, "候选影响") || strings.Contains(joined, "无主导态") {
 		t.Fatalf("category words must stay off the row face: %s", joined)
@@ -207,12 +211,20 @@ func TestPTV6DGenericCandidateShapeLeavesRowFace(t *testing.T) {
 	}
 	// Legend carrier renders exactly on the mark (NEW-7).
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(row.marks, true), "\n")
-	if !strings.Contains(legend, "候选影响类") {
-		t.Fatalf("the candidate-class legend entry must carry the deleted word:\n%s", legend)
+	if !strings.Contains(legend, "- 无类型词的行 = 未识别出具体影响类型;逐行影响形态见明细。") {
+		t.Fatalf("the candidate-class legend entry must self-explain the type-less rows:\n%s", legend)
 	}
-	// Lossless face: the detail-table cell keeps the full category word.
-	if got := runtimeTraceCausalProjectionImpactShapeCell(node, true); got != "候选影响" {
-		t.Fatalf("detail shape cell must stay lossless: %q", got)
+	if strings.Contains(legend, "候选影响") {
+		t.Fatalf("the retired 候选影响 word must stay off the legend face:\n%s", legend)
+	}
+	// Block face: the detail-table cell self-describes; the retired word is
+	// banned there too.
+	got := runtimeTraceCausalProjectionImpactShapeCell(node, true)
+	if got != "未分类(该行无具体状态/类型词)" {
+		t.Fatalf("detail shape cell must self-describe the unclassified row: %q", got)
+	}
+	if strings.Contains(got, "候选影响") {
+		t.Fatalf("the retired 候选影响 word must stay off the block face: %q", got)
 	}
 	// 负向臂: a TYPED shape keeps the state-label lane untouched.
 	irq := node
@@ -279,9 +291,11 @@ func TestPTV6DNoDominantChipRetiredIconAndLegendCarry(t *testing.T) {
 	if !marks.has(runtimeTraceProjMarkIconNoDominant) {
 		t.Fatalf("the ◦ no-dominant mark records at the icon emission arm")
 	}
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 无主导态 →
+	// 该行无主导调度状态 (图例记号族: chip class word 直陈, 行内仍禁词).
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(marks, true), "\n")
-	if !strings.Contains(legend, "`◦`(数据行) = 无主导态") {
-		t.Fatalf("the ◦ legend entry must carry the retired chip's class word:\n%s", legend)
+	if !strings.Contains(legend, "`◦`(数据行) = 该行无主导调度状态;具体影响形态见行内说明或明细。") {
+		t.Fatalf("the ◦ legend entry must carry the retired chip's class semantics:\n%s", legend)
 	}
 }
 

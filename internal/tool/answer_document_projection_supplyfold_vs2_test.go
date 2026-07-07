@@ -152,7 +152,9 @@ func TestSupplyFoldClauseDeficitDominantBranchZH(t *testing.T) {
 		"runnable=40.000")
 	md := supplyFoldVS2Render(t, records, "")
 	collapsed := rn1CollapseContinuations(md)
-	if !strings.Contains(collapsed, "供给折算缺口 5.000ms(按大核满频折算,下界)为主,running 含跑慢成分") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: "running 含跑慢成分"
+	// → "running 时间含降频/小核导致的跑慢成分" (供给折算族).
+	if !strings.Contains(collapsed, "供给折算缺口 5.000ms(按大核满频折算,下界)为主,running 时间含降频/小核导致的跑慢成分") {
 		t.Fatalf("deficit-dominant clause missing:\n%s", md)
 	}
 	if strings.Contains(collapsed, "调度压力(需求积压)(runnable") {
@@ -168,7 +170,9 @@ func TestSupplyFoldClauseNoDeficitAffirmativeZH(t *testing.T) {
 		"fold_basis=known=20.000ms,unknown=0.000ms",
 		"runnable=150.000")
 	md := supplyFoldVS2Render(t, records, "")
-	if !strings.Contains(rn1CollapseContinuations(md), "已满频满核(或近满),running 属真实工作量") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: "已满频满核(或近满),
+	// running 属真实工作量" → "已按大核满频(或接近)运行,无供给缺口,running 为真实工作量" (供给折算族).
+	if !strings.Contains(rn1CollapseContinuations(md), "已按大核满频(或接近)运行,无供给缺口,running 为真实工作量") {
 		t.Fatalf("affirmative no-deficit annotation missing:\n%s", md)
 	}
 }
@@ -182,10 +186,13 @@ func TestSupplyFoldClauseUnknownBasisZH(t *testing.T) {
 		"runnable=150.000")
 	md := supplyFoldVS2Render(t, records, "")
 	collapsed := rn1CollapseContinuations(md)
-	if !strings.Contains(collapsed, "频点数据不全,无法折算") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: "频点数据不全" →
+	// "CPU 频率数据不全" (供给折算族); negative pin migrates to the new
+	// affirmative form 已按大核满频 (old 已满频满核 no longer renders anywhere).
+	if !strings.Contains(collapsed, "CPU 频率数据不全,无法折算") {
 		t.Fatalf("unknown-basis honesty missing:\n%s", md)
 	}
-	if strings.Contains(collapsed, "已满频满核") {
+	if strings.Contains(collapsed, "已按大核满频") {
 		t.Fatalf("partial coverage must never make the affirmative claim:\n%s", md)
 	}
 }
@@ -193,7 +200,9 @@ func TestSupplyFoldClauseUnknownBasisZH(t *testing.T) {
 // No fold notes → no clause anywhere (byte-stability control).
 func TestSupplyFoldClauseAbsentWithoutFold(t *testing.T) {
 	md := supplyFoldVS2Render(t, supplyFoldVS2Records("runnable=150.000"), "")
-	for _, banned := range []string{"供给折算缺口", "已满频满核", "频点数据不全", "机制构成"} {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: banned clause words
+	// migrate with the clause — 已满频满核→已按大核满频, 频点数据不全→CPU 频率数据不全.
+	for _, banned := range []string{"供给折算缺口", "已按大核满频", "CPU 频率数据不全", "机制构成"} {
 		if strings.Contains(md, banned) {
 			t.Fatalf("clause must only render when the fold ran (%q leaked):\n%s", banned, md)
 		}

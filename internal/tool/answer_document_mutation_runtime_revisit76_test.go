@@ -170,7 +170,8 @@ func TestTraceProjectionIOFoldDetailTableMirrorAndChainAttachedKeepsWake(t *test
 	if !strings.Contains(full, "同段IO口径: 同段IO另有 IO突发（io_burst_episode） 226.153ms、iowait（io_wait） 112.011/107.672ms 口径") {
 		t.Fatalf("the lossless surface must mirror the caliber note on the primary block:\n%s", full)
 	}
-	if !strings.Contains(full, "关系 ▸ 影响点: 唤醒 ▸ ") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 关系 ▸ 影响点: 唤醒 ▸ … → split "- 关系: 唤醒 <parent>" line (明细块)
+	if !strings.Contains(full, "- 关系: 唤醒 main-21538") {
 		t.Fatalf("chain-attached IO row keeps the wake relation (fence-consistent):\n%s", full)
 	}
 }
@@ -194,8 +195,9 @@ func TestTraceProjectionDepthlessOwnProcessIORowThreeSurfaceConsistency(t *testi
 		t.Fatalf("legend must explain the own edge:\n%s", lead)
 	}
 	// PTV4 T10: the relation mirror lives in the (b) vertical lossless blocks.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 关系 ▸ 影响点 → split "- 关系: …" line (明细块)
 	full := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(full, "- 关系 ▸ 影响点: 自身进程IO") {
+	if !strings.Contains(full, "- 关系: 自身进程IO") {
 		t.Fatalf("own-process IO relation must mirror the own edge:\n%s", full)
 	}
 	// en mirror: fence edge and relation stay isomorphic.
@@ -204,7 +206,7 @@ func TestTraceProjectionDepthlessOwnProcessIORowThreeSurfaceConsistency(t *testi
 	if !strings.Contains(enFence, "own─") || strings.Contains(enFence, "wakes─") {
 		t.Fatalf("en fence must mirror the own edge:\n%s", enFence)
 	}
-	if enFull := runtimeTraceProjDetailFullText(enModel, false); !strings.Contains(enFull, "- relation ▸ impact point: own-process IO") {
+	if enFull := runtimeTraceProjDetailFullText(enModel, false); !strings.Contains(enFull, "- relation: own-process IO") {
 		t.Fatalf("en own-process IO relation mismatch:\n%s", enFull)
 	}
 }
@@ -312,12 +314,13 @@ func TestTraceProjectionIOFoldNeverCrossesChainLanes(t *testing.T) {
 		t.Fatalf("the depthless row keeps the own-process edge:\n%s", fence)
 	}
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "on-chain 已归因 112.011ms") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: on-chain 已归因 → 链上已归因;残差中最大 → 未归因中最大 (归因族)
+	if !strings.Contains(line, "链上已归因 112.011ms") {
 		t.Fatalf("attributed must stay the chain lane's cumulative:\n%s", line)
 	}
 	// NEW-6 cites the DEPTHLESS side (the residual-overlap lane), never the
 	// attributed chain row's value.
-	if !strings.Contains(line, "残差中最大 232.428ms 与自身 IO 口径行(E3)重叠解释") {
+	if !strings.Contains(line, "未归因中最大 232.428ms 与自身 IO 口径行(E3)重叠解释") {
 		t.Fatalf("NEW-6 clause must take the depthless side value:\n%s", line)
 	}
 	// Same-lane overlap beside the cross-lane pair still folds (no regression
@@ -333,7 +336,7 @@ func TestTraceProjectionIOFoldNeverCrossesChainLanes(t *testing.T) {
 	if !strings.Contains(fence, "112.011") {
 		t.Fatalf("the chain-attached row must survive the same-lane fold:\n%s", fence)
 	}
-	if line := runtimeTraceProjWindowLine(projection, model, true); !strings.Contains(line, "on-chain 已归因 112.011ms") {
+	if line := runtimeTraceProjWindowLine(projection, model, true); !strings.Contains(line, "链上已归因 112.011ms") {
 		t.Fatalf("attributed unchanged by the same-lane fold:\n%s", line)
 	}
 }
@@ -352,7 +355,8 @@ func TestTraceProjectionOwnProcessRelationNegativeKeepsWake(t *testing.T) {
 		t.Fatalf("expected the single IO detail row: %+v", rows)
 	}
 	// PTV4 T10: the relation mirror lives in the (b) vertical blocks.
-	if full := runtimeTraceProjDetailFullText(model, true); !strings.Contains(full, "关系 ▸ 影响点: 唤醒 ▸ ") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 关系 ▸ 影响点: 唤醒 ▸ … → split "- 关系: 唤醒 <parent>" line (明细块)
+	if full := runtimeTraceProjDetailFullText(model, true); !strings.Contains(full, "- 关系: 唤醒 main-21538") {
 		t.Fatalf("a different-pid IO row keeps its wake relation:\n%s", full)
 	}
 }
@@ -406,15 +410,16 @@ func TestTraceProjectionCoverageLineExplainsOwnCaliberResidualOverlap(t *testing
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	line := runtimeTraceProjWindowLine(projection, model, true)
 	// The revisit 6.0 coverage shape: symptom denominator + 90% residual.
-	// (Wording pin updated for RN-6 §7.9 + PTV7 canonical tokens: 目标等待(sleep/D-state/runnable) — the
+	// (Wording pin updated for RN-6 §7.9 + PTV7 canonical tokens: the
 	// denominator family now includes runnable.)
-	if !strings.Contains(line, "目标等待(sleep/D-state/runnable) 260.000ms 中 on-chain 已归因 26.000ms(10%),未归因 234.000ms(90%)。") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待 → 关注线程等待;on-chain 已归因 → 链上已归因;残差中最大 → 未归因中最大;未计入链归因 → 未计入链上归因 (归因族/其他族)
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 260.000ms 中链上已归因 26.000ms(10%),未归因 234.000ms(90%)。") {
 		t.Fatalf("coverage line must keep the symptom-denominator form:\n%s", line)
 	}
 	// NEW-6: the appended clause carries the NEW-3 grouped primary value
 	// (232.428, the fold survivor — never a folded peer's) and its evidence tag
 	// verbatim (E3 = the primary IO row's index entry).
-	if !strings.Contains(line, "残差中最大 232.428ms 与自身 IO 口径行(E3)重叠解释,未计入链归因以防双计。") {
+	if !strings.Contains(line, "未归因中最大 232.428ms 与自身 IO 口径行(E3)重叠解释,未计入链上归因以防双计。") {
 		t.Fatalf("coverage line must self-explain the own-caliber residual overlap:\n%s", line)
 	}
 	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
@@ -469,14 +474,15 @@ func TestTraceProjectionOverlapClauseSelfLaneAndResidualCap(t *testing.T) {
 	}
 	projection := types.TraceCausalProjection{WindowStartTs: 100.0, WindowEndTs: 100.5}
 	line := runtimeTraceProjWindowLine(projection, mkModel(26), true)
-	if !strings.Contains(line, "残差中最大 150.000ms 与自身 IO 口径行(E9)重叠解释,未计入链归因以防双计。") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 残差中最大 → 未归因中最大;未计入链归因 → 未计入链上归因 (归因族)
+	if !strings.Contains(line, "未归因中最大 150.000ms 与自身 IO 口径行(E9)重叠解释,未计入链上归因以防双计。") {
 		t.Fatalf("self-lane hop-view IO caliber must carry the clause:\n%s", line)
 	}
 	// The published amount is bounded by the residual itself: a caliber row can
 	// overlap attributed wall clock too, and the clause must never claim more
 	// residual than exists (residual 260-200=60 < caliber 150).
 	capped := runtimeTraceProjWindowLine(projection, mkModel(200), true)
-	if !strings.Contains(capped, "残差中最大 60.000ms 与自身 IO 口径行(E9)重叠解释") {
+	if !strings.Contains(capped, "未归因中最大 60.000ms 与自身 IO 口径行(E9)重叠解释") {
 		t.Fatalf("overlap amount must cap at the residual:\n%s", capped)
 	}
 }
@@ -556,12 +562,12 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkRecursOnChain:             {"↺", "↺"},
 		runtimeTraceProjMarkChainDepthChip:            {"链上L", "chain L"},
 		runtimeTraceProjMarkOmitted:                   {"省略", "nodes omitted"},
-		// 复核 (三空探针补实, fence→legend 设防): the bar-scale probe is the
-		// chain-lane bar glyph — every fixture that marks BarScale draws at
-		// least one █ cell (a background-only fence would use ▒; no such
-		// fixture exists — extend the probe alongside adding one). A full bar
-		// has no ░, so █ is the stable token, not ░.
-		runtimeTraceProjMarkBarScale: {"█", "█"},
+		// PTV8-RCR-B (UXA 域A #13 + 复核 6b, 2026-07-08). EVOLUTION RECORD:
+		// the bar glyph █ is shared by the two scale regimes, so each entry
+		// probes on its OWN ScaleNote branch token instead (the header prints
+		// exactly one of them, on the same windowMode branch that picks the
+		// mark) — direction B stays armed for both.
+		runtimeTraceProjMarkBarScale: {"满格=窗口", "bar full = window"},
 		// ×N 三式: the sum form's "×N(" prefix also opens the max form, so the
 		// sum probe is the ptv4 fixture's VERBATIM sum token (language-neutral
 		// by design) — deleting the sum-tag emission now reds this probe
@@ -643,6 +649,51 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkCaliberBigCoreFmax:  {"按大核满频", "big-cluster fmax"},
 		runtimeTraceProjMarkCaliberLowerBound:   {"下界", "lower bound"},
 		runtimeTraceProjMarkCaliberSingleMax:    {"单次最大(", "single max ("},
+		// PTV8-RCR-B (UXA 横扫批 + 复核 6b, 2026-07-08): the fallback scale
+		// probes on its own ScaleNote branch token (see BarScale above).
+		runtimeTraceProjMarkBarScaleFallback: {"满格=本报告最大", "bar full = report max"},
+		// UXA 域A #19: the stanza 折算 discriminator tag ("折算 3.500ms" — the
+		// trailing space separates it from the caliber words 折算,按…/(折算)).
+		runtimeTraceProjMarkStanzaDiscount: {"折算 ", "discounted "},
+		// UXA 域A #31: the 有效归因 word rides many tag forms (Q1 tag / 行2
+		// tail / 行3 head / periodic tag) — structural, direction A only.
+		runtimeTraceProjMarkEffectiveAttributionTag: {"", ""},
+	}
+}
+
+// revisit76UXAWindowlessProjection (PTV8-RCR-B, UXA 域A #13) is the no-window
+// shape with a plain bar row: the bar draws against the report-max fallback
+// scale, so the BarScaleFallback legend entry renders (and the windowed
+// BarScale entry does not).
+func revisit76UXAWindowlessProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath: []string{"worker-9", "app-100"},
+		OnChainCauses: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRoleRootCauseContext, Subject: "worker-9",
+			Object: "running_burst", StateKind: "running", ChainRelevance: "on_chain",
+			ImpactMS: 30, Confidence: 0.8,
+		}},
+	}
+}
+
+// revisit76UXAStanzaDiscountProjection (PTV8-RCR-B, UXA 域A #19) is the ◇
+// stanza row whose cum and effective DIFFER: the 折算 discriminator tag
+// renders with its own on-demand legend entry.
+func revisit76UXAStanzaDiscountProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"worker-9", "app-100"},
+		WindowStartTs: 100.0,
+		WindowEndTs:   100.2,
+		OnChainCauses: []types.TraceCausalProjectionNode{
+			{Role: types.TraceCausalRoleRootCauseContext, Subject: "worker-9",
+				Object: "running_burst", StateKind: "running", ChainRelevance: "on_chain",
+				ImpactMS: 30, Confidence: 0.8},
+		},
+		AdjacentCauses: []types.TraceCausalProjectionNode{
+			{Role: types.TraceCausalRoleRootCauseContext, Subject: "adj-5",
+				Object: "running_burst", StateKind: "running", ChainRelevance: "adjacent",
+				ImpactMS: 10, CumulativeImpactMS: 18, EffectiveImpactMS: 7, Confidence: 0.8},
+		},
 	}
 }
 
@@ -949,6 +1000,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// PTV8-RCR-A §24.1补: the Dominant supply-fold verdict carries the
 		// 按大核满频/下界 caliber entries (same fixture home).
 		{"rcr_supply_fold_dominant", rcrSupplyFoldDominantProjection()},
+		// PTV8-RCR-B (UXA 域A #13/#19): the no-window fallback bar scale and
+		// the stanza 折算 discriminator entries.
+		{"uxa_windowless_fallback_scale", revisit76UXAWindowlessProjection()},
+		{"uxa_stanza_discount", revisit76UXAStanzaDiscountProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {
@@ -987,7 +1042,8 @@ func TestTraceProjectionEvidenceIndexDisclosesCapacityTruncation(t *testing.T) {
 	if plain == nil {
 		t.Fatalf("fixture must render an evidence-index block")
 	}
-	if strings.Contains(plain.Text, "按容量截断") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 按容量截断(rank 头部完整保留),超出容量的尾部行未纳入本索引 → 超过单次返回上限:各自排序靠前的部分完整保留,超限的尾部行不在本索引内 (证据索引族)
+	if strings.Contains(plain.Text, "超过单次返回上限") || strings.Contains(plain.Text, "按容量截断") {
 		t.Fatalf("untruncated projection must not carry the disclosure:\n%s", plain.Text)
 	}
 	// Present shape: the typed flag (lifted from the producer's
@@ -999,14 +1055,14 @@ func TestTraceProjectionEvidenceIndexDisclosesCapacityTruncation(t *testing.T) {
 	}
 	// PTV6-C ruling C (#73): the disclosure states the fact without the
 	// intermediate-record deflection (负向臂 below).
-	if !strings.Contains(truncated.Text, "部分来源结果按容量截断(rank 头部完整保留),超出容量的尾部行未纳入本索引。") {
+	if !strings.Contains(truncated.Text, " 部分查询结果超过单次返回上限:各自排序靠前的部分完整保留,超限的尾部行不在本索引内。") {
 		t.Fatalf("evidence-index header must disclose the capacity truncation:\n%s", truncated.Text)
 	}
 	if strings.Contains(truncated.Text, "见原始 trace_query 记录") {
 		t.Fatalf("retired intermediate-record pointer resurfaced:\n%s", truncated.Text)
 	}
 	en := findEvidence(runtimeTraceCausalProjectionCluster(projection, "en", runtimeTraceProjUserFocus{}))
-	if en == nil || !strings.Contains(en.Text, "Some source results were capacity-truncated (rank heads fully kept); the over-capacity tail rows are not in this index.") {
+	if en == nil || !strings.Contains(en.Text, "Some query results exceeded the per-call return limit: the top of each result's own ordering is fully kept; the over-limit tail rows are not in this index.") {
 		t.Fatalf("en evidence-index header must mirror the disclosure: %+v", en)
 	}
 }

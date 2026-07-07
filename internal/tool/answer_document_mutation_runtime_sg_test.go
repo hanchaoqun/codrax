@@ -80,7 +80,8 @@ func TestRuntimeTraceNextStepNamedLockHolder(t *testing.T) {
 		},
 	}}
 	texts := sgNextStepTexts(t, bus)
-	want := "对持有者 NetworkKit_AssetsUtil_Operate_0-42067(持有点 AssetManager.list(AssetManager.java:1258))在重叠窗执行 trace_query view=thread_timeline/wakeup_chain"
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 在重叠窗执行 trace_query view=… → 在重叠的查询窗内查看其线程时间线与唤醒链(…) (下一步族)
+	want := "对持有者 NetworkKit_AssetsUtil_Operate_0-42067(持有点 AssetManager.list(AssetManager.java:1258))在重叠的查询窗内查看其线程时间线与唤醒链(thread_timeline/wakeup_chain)"
 	joined := strings.Join(texts, "\n")
 	if !strings.Contains(joined, want) {
 		t.Fatalf("named lock-holder row missing:\nwant %q\n got %q", want, joined)
@@ -108,7 +109,8 @@ func TestRuntimeTraceNextStepNamedBinderPeer(t *testing.T) {
 		},
 	}}
 	texts := sgNextStepTexts(t, bus)
-	want := "对对端 OS_IPC_4939_437-43722 在重叠窗执行 trace_query view=thread_timeline/wakeup_chain"
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 在重叠窗执行 trace_query view=… → 在重叠的查询窗内查看其线程时间线与唤醒链(…) (下一步族)
+	want := "对对端 OS_IPC_4939_437-43722 在重叠的查询窗内查看其线程时间线与唤醒链(thread_timeline/wakeup_chain)"
 	count := 0
 	for _, text := range texts {
 		if text == want {
@@ -140,7 +142,8 @@ func TestRuntimeTraceNextStepUnresolvedPeerKeepsGenericTemplate(t *testing.T) {
 	}}
 	texts := sgNextStepTexts(t, bus)
 	joined := strings.Join(texts, "\n")
-	if strings.Contains(joined, "在重叠窗执行 trace_query view=thread_timeline/wakeup_chain") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: negative pin migrated 在重叠窗执行 trace_query view=… → 在重叠的查询窗内查看其线程时间线与唤醒链 (下一步族)
+	if strings.Contains(joined, "在重叠的查询窗内查看其线程时间线与唤醒链") {
 		t.Fatalf("unresolved peer must not synthesize a named row:\n%s", joined)
 	}
 	if !strings.Contains(joined, "排查反复唤醒它的对端线程") {
@@ -167,7 +170,8 @@ func TestRuntimeTraceNextStepNamedPeerEnglishWording(t *testing.T) {
 		},
 	}}
 	texts := sgNextStepTexts(t, bus)
-	want := "Run trace_query view=thread_timeline/wakeup_chain over the overlapping window for the lock holder HolderThread-42067 (holding site SomeManager.list(SomeManager.java:1258))"
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: Run trace_query view=… over the overlapping window → Inspect the thread timeline and wakeup chain (…) over the overlapping query window (下一步族 EN)
+	want := "Inspect the thread timeline and wakeup chain (thread_timeline/wakeup_chain) of the lock holder HolderThread-42067 over the overlapping query window (holding site SomeManager.list(SomeManager.java:1258))"
 	if !strings.Contains(strings.Join(texts, "\n"), want) {
 		t.Fatalf("EN named holder row missing:\nwant %q\n got %q", want, texts)
 	}

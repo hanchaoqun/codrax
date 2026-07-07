@@ -82,10 +82,14 @@ func TestCWDCrossWindowMaxRowWearsMaxFormOnEverySurface(t *testing.T) {
 		if !strings.Contains(fence, token) {
 			t.Fatalf("zh=%v: fence must carry the cross-window MAX form token:\n%s", zh, fence)
 		}
-		maxEntry := "- `×N(a–b)跨窗取最大` = N 次实例来自互相重叠的查询窗,重叠窗量值不可求和且重叠段无法逐段核销,数值取成员最大(以该成员自身查询窗为基),a–b 为单次范围;原始和与窗来源见无损块。"
+		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 重叠窗 →
+		// 互相重叠的查询窗 (窗族); 见无损块 → 见明细 (无损块→明细); lossless block
+		// → detail blocks (EN mirror); ×N 跨窗取最大口径(N 窗互相重叠,重叠窗量值不求和)
+		// → ×N 跨窗取最大(N 个查询窗互相重叠,互相重叠的查询窗量值不可求和) (×N 明细族).
+		maxEntry := "- `×N(a–b)跨窗取最大` = N 次实例来自互相重叠的查询窗,互相重叠的查询窗量值不可求和且重叠段无法逐段核销,数值取成员最大(以该成员自身查询窗为基),a–b 为单次范围;原始和与窗来源见明细。"
 		sumEntry := "- `×N(a–b)` = 同一(线程,原因)的 N 次实例合并,数值为总和,a–b 为单次范围。"
 		if !zh {
-			maxEntry = "- `×N(a–b) cross-window max` = the N instances come from OVERLAPPING query windows: overlapping-window magnitudes never sum and the overlap cannot be deducted per segment, so the value is the member MAX (normalized over that member's own query window), a–b the per-instance range; the raw sum and the window sources live in the lossless block."
+			maxEntry = "- `×N(a–b) cross-window max` = the N instances come from OVERLAPPING query windows: overlapping-window magnitudes never sum and the overlap cannot be deducted per segment, so the value is the member MAX (normalized over that member's own query window), a–b the per-instance range; the raw sum and the window sources live in the detail blocks."
 			sumEntry = "- `×N(a–b)` = N instances of one (thread, cause) merged; the value is the SUM, a–b the per-instance range."
 		}
 		if !strings.Contains(lead, maxEntry) {
@@ -94,7 +98,7 @@ func TestCWDCrossWindowMaxRowWearsMaxFormOnEverySurface(t *testing.T) {
 		if strings.Contains(lead, sumEntry) {
 			t.Fatalf("zh=%v: the SUM legend entry must NOT render for a MAX-only tree (口径谎言): %s", zh, lead)
 		}
-		wantDetail := "×3 跨窗取最大口径(2 窗互相重叠,重叠窗量值不求和),原始和 110.000ms 供对照,单次 20.000–60.000ms;最大成员窗基=查询窗 3680.569–3680.719s"
+		wantDetail := "×3 跨窗取最大(2 个查询窗互相重叠,互相重叠的查询窗量值不可求和),原始和 110.000ms 供对照,单次 20.000–60.000ms;最大成员窗基=查询窗 3680.569–3680.719s"
 		wantWindows := "3680.569–3680.719s、3680.600–3680.750s"
 		if !zh {
 			wantDetail = "×3 cross-window MAX caliber (2 overlapping windows; overlapping-window magnitudes never sum), raw sum 110.000ms for cross-checking, each 20.000–60.000ms; max-member window base = query window 3680.569–3680.719s"
@@ -225,19 +229,21 @@ func TestCWDQueueDepthDirectionMatchesToolTruth(t *testing.T) {
 	// must name the real normalization bases and must not claim the projection
 	// windows themselves differ (that sentence stays reserved for the legacy
 	// shape where every density base IS its side's projection window).
-	var noteRow string
-	for _, item := range compare.Items[2:] {
-		row := strings.Join(item.Cells, " | ")
-		if strings.Contains(row, "背景压力") {
-			noteRow = row
-			break
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: ⚠ notes moved out
+	// of table rows into block Text lines (layout-L1); 两侧投影窗长不等 →
+	// 两侧分析窗长度不等 (窗族: 投影窗→分析窗).
+	noteText := compare.Text
+	if !strings.Contains(noteText, "⚠ 背景压力已按各自数值所在窗归一化(窗基: 150.000ms / 884.000ms)") {
+		t.Fatalf("F3 note must name the real normalization bases:\n%s", noteText)
+	}
+	if strings.Contains(noteText, "两侧分析窗长度不等") {
+		t.Fatalf("F3 note must not claim projection windows differ when bases are member windows:\n%s", noteText)
+	}
+	// The note lines live in the block text, never back in the grid rows.
+	for _, item := range compare.Items {
+		if strings.Contains(strings.Join(item.Cells, " "), "⚠ 背景压力已按") {
+			t.Fatalf("the F3 note must not ride a table row anymore: %+v", item.Cells)
 		}
-	}
-	if !strings.Contains(noteRow, "⚠ 背景压力已按各自数值所在窗归一化(窗基: 150.000ms / 884.000ms)") {
-		t.Fatalf("F3 note must name the real normalization bases:\n%s", noteRow)
-	}
-	if strings.Contains(noteRow, "两侧投影窗长不等") {
-		t.Fatalf("F3 note must not claim projection windows differ when bases are member windows:\n%s", noteRow)
 	}
 }
 
@@ -341,19 +347,26 @@ func TestCWDCoverageSentenceCrossWindowBase(t *testing.T) {
 		t.Fatalf("fixture drifted: expected a hop-only self lane")
 	}
 	line := runtimeTraceProjWindowLine(projection, model, true)
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: on-chain 已归因 →
+	// 链上已归因, 未归因残差 → 未归因 (归因族); 目标睡眠 → 关注线程睡眠 (其他族);
+	// 该链数据窗 → 该查询窗, 非上句关注窗口 → 非上句分析窗 (窗族). Negative pins
+	// keep the old-form guards and add the new-form equivalents.
 	// The naked anchor-window division and its fabricated residual are banned.
-	for _, banned := range []string{"未归因残差 6.534ms", "94.466ms/94%", "目标睡眠 115.902ms 中"} {
+	for _, banned := range []string{
+		"未归因残差 6.534ms", "未归因 6.534ms", "94.466ms(94%)",
+		"目标睡眠 115.902ms 中", "关注线程睡眠 115.902ms 中",
+	} {
 		if strings.Contains(line, banned) {
 			t.Fatalf("cross-window numerator divided by the anchor window (%q):\n%s", banned, line)
 		}
 	}
 	// Same-base rendering: denominator = the chain-data window, named.
-	if !strings.Contains(line, "on-chain 已归因 94.466ms/62%,未归因 57.534ms/38%(口径:链上数据来自查询窗 3680.568s → 3680.720s 共 152.000ms,分母取该链数据窗,非上句关注窗口;两窗基不可混除)。") {
+	if !strings.Contains(line, "链上已归因 94.466ms(62%),未归因 57.534ms(38%)(口径:链上数据来自查询窗 3680.568s → 3680.720s 共 152.000ms,分母取该查询窗,非上句分析窗;两窗基不可混除)。") {
 		t.Fatalf("coverage must divide over the chain-data window with the base named:\n%s", line)
 	}
-	// The contradiction hard gate: 目标睡眠 115.902 > 窗口 101.000 must carry
-	// its window base instead of the naked legacy form.
-	if !strings.Contains(line, "目标睡眠 115.902ms(取自查询窗 3680.568s → 3680.720s,非上句关注窗口)中 94.466ms 已由链上解释。") {
+	// The contradiction hard gate: target sleep 115.902 > 窗口 101.000 must
+	// carry its window base instead of the naked legacy form.
+	if !strings.Contains(line, "关注线程睡眠 115.902ms(取自查询窗 3680.568s → 3680.720s,非上句分析窗)中 94.466ms 已由链上解释。") {
 		t.Fatalf("the >window target sleep must name its window base:\n%s", line)
 	}
 
@@ -370,14 +383,14 @@ func TestCWDCoverageSentenceCrossWindowBase(t *testing.T) {
 	same := cwdCoverageProjection(3680.818, 3680.919)
 	sameModel := buildRuntimeTraceProjTreeModel(same, nil, true)
 	sameLine := runtimeTraceProjWindowLine(same, sameModel, true)
-	if !strings.Contains(sameLine, "on-chain 已归因 94.466ms/94%,未归因残差 6.534ms/6%。") {
+	if !strings.Contains(sameLine, "链上已归因 94.466ms(94%),未归因 6.534ms(6%)。") {
 		t.Fatalf("same-window chains keep the legacy whole-window coverage byte-identically:\n%s", sameLine)
 	}
-	if !strings.Contains(sameLine, "目标睡眠 115.902ms(该状态时长超出上句关注窗口)中 94.466ms 已由链上解释。") {
+	if !strings.Contains(sameLine, "关注线程睡眠 115.902ms(该状态时长超出上句分析窗)中 94.466ms 已由链上解释。") {
 		t.Fatalf("same-window >window sleep takes the neutral beyond-the-window clause:\n%s", sameLine)
 	}
-	if strings.Contains(sameLine, "非上句关注窗口") {
-		t.Fatalf("same-window shape must never claim 非上句关注窗口:\n%s", sameLine)
+	if strings.Contains(sameLine, "非上句分析窗") {
+		t.Fatalf("same-window shape must never claim 非上句分析窗:\n%s", sameLine)
 	}
 
 	// Control (fail-open): windowless rows keep the legacy rendering exactly —
@@ -385,10 +398,10 @@ func TestCWDCoverageSentenceCrossWindowBase(t *testing.T) {
 	bare := cwdCoverageProjection(0, 0)
 	bareModel := buildRuntimeTraceProjTreeModel(bare, nil, true)
 	bareLine := runtimeTraceProjWindowLine(bare, bareModel, true)
-	if !strings.Contains(bareLine, "on-chain 已归因 94.466ms/94%,未归因残差 6.534ms/6%。") {
+	if !strings.Contains(bareLine, "链上已归因 94.466ms(94%),未归因 6.534ms(6%)。") {
 		t.Fatalf("windowless chains keep the legacy whole-window coverage (fail-open):\n%s", bareLine)
 	}
-	if !strings.Contains(bareLine, "目标睡眠 115.902ms(该状态时长超出上句关注窗口)中 94.466ms 已由链上解释。") {
+	if !strings.Contains(bareLine, "关注线程睡眠 115.902ms(该状态时长超出上句分析窗)中 94.466ms 已由链上解释。") {
 		t.Fatalf("windowless >window sleep still switches the disclosure form (numeric gate):\n%s", bareLine)
 	}
 }
@@ -415,8 +428,12 @@ func TestCWDCoverageLegacyShapeBytePreserved(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "on-chain 已归因 40.000ms/20%,未归因残差 160.000ms/80%。") ||
-		!strings.Contains(line, "目标睡眠 120.000ms 中 40.000ms 已由链上解释。") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: on-chain 已归因 →
+	// 链上已归因, 未归因残差 → 未归因 (归因族); 目标睡眠 → 关注线程睡眠 (其他族).
+	// The pin's intent (byte-verbatim shape) stays — bytes migrated to the new
+	// canonical wording.
+	if !strings.Contains(line, "链上已归因 40.000ms(20%),未归因 160.000ms(80%)。") ||
+		!strings.Contains(line, "关注线程睡眠 120.000ms 中 40.000ms 已由链上解释。") {
 		t.Fatalf("in-window hop-only shape must stay byte-identical:\n%s", line)
 	}
 }
@@ -476,8 +493,11 @@ func TestCWDInheritedNoteWindowBase(t *testing.T) {
 func TestCWDCompareChainAsymmetryNote(t *testing.T) {
 	labels := []string{"7.0B30SP22_7315.systrace", "6.0B138_3900.sys.systrace"}
 	// Asymmetric: one side attributed, one side chainless with the typed flag.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 锚窗质量不对称 →
+	// 两侧分析窗证据深度不对称, 锚窗内 → 的分析窗内 (窗族: 锚窗→分析窗);
+	// on-chain 归因/已归因 → 链上归因/链上已归因 (归因族); 行际对读 → 逐行对比.
 	note := runtimeTraceProjCompareChainAsymmetryNote(labels, []float64{94.466, 0}, []bool{false, true}, true)
-	want := "⚠ 锚窗质量不对称:6.0B138_3900.sys.systrace(该侧唤醒链下钻未执行) 锚窗内无 on-chain 归因;7.0B30SP22_7315.systrace 锚窗内 on-chain 已归因 94.466ms。两侧证据深度不同,主根因/on-chain 列不可直接行际对读"
+	want := "⚠ 两侧分析窗证据深度不对称:6.0B138_3900.sys.systrace(该侧唤醒链下钻未执行) 的分析窗内无链上归因;7.0B30SP22_7315.systrace 的分析窗内链上已归因 94.466ms。主根因/链上已归因两列不可直接逐行对比"
 	if note != want {
 		t.Fatalf("zh asymmetry note wrong:\n got %q\nwant %q", note, want)
 	}
@@ -537,22 +557,31 @@ func TestCWDCompareOverviewCarriesAsymmetryNoteRow(t *testing.T) {
 	if block == nil {
 		t.Fatalf("overview block missing")
 	}
-	joined := ""
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: the ⚠ note left the
+	// table rows for the block Text lines (layout-L1); 锚窗质量不对称 →
+	// 两侧分析窗证据深度不对称, 锚窗内 → 的分析窗内 (窗族); on-chain 归因/已归因 →
+	// 链上归因/链上已归因 (归因族).
+	if !strings.Contains(block.Text, "⚠ 两侧分析窗证据深度不对称:6.0B138_3900.sys.systrace(该侧唤醒链下钻未执行) 的分析窗内无链上归因;7.0B30SP22_7315.systrace 的分析窗内链上已归因 94.466ms") {
+		t.Fatalf("asymmetric sides must add the anchor-quality note line:\n%s", block.Text)
+	}
+	// The note must not ride a table row anymore.
 	for _, item := range block.Items {
-		joined += strings.Join(item.Cells, " | ") + "\n"
+		if strings.Contains(strings.Join(item.Cells, " "), "证据深度不对称") {
+			t.Fatalf("the asymmetry note must not ride a table row: %+v", item.Cells)
+		}
 	}
-	if !strings.Contains(joined, "⚠ 锚窗质量不对称:6.0B138_3900.sys.systrace(该侧唤醒链下钻未执行) 锚窗内无 on-chain 归因;7.0B30SP22_7315.systrace 锚窗内 on-chain 已归因 94.466ms") {
-		t.Fatalf("asymmetric sides must add the anchor-quality note row:\n%s", joined)
-	}
-	// Symmetric control: two attributed sides → no note row.
+	// Symmetric control: two attributed sides → no note line.
 	symmetric := runtimeTraceProjCompareOverviewBlock(
 		[]types.TraceCausalProjection{chainSide("A.trace"), chainSide("B.trace")},
 		types.ObservationLedger{}, "zh", true)
 	if symmetric == nil {
 		t.Fatalf("symmetric overview block missing")
 	}
+	if strings.Contains(symmetric.Text, "证据深度不对称") {
+		t.Fatalf("symmetric sides must not add the note: %q", symmetric.Text)
+	}
 	for _, item := range symmetric.Items {
-		if strings.Contains(strings.Join(item.Cells, " "), "锚窗质量不对称") {
+		if strings.Contains(strings.Join(item.Cells, " "), "证据深度不对称") {
 			t.Fatalf("symmetric sides must not add the note: %+v", item.Cells)
 		}
 	}

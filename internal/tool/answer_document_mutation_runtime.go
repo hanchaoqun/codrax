@@ -900,7 +900,7 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		FacetIDs:    facets,
 	}}
 	if columns, rows := runtimeTraceProjDetailTable(model, zh); len(rows) > 0 {
-		title := "因果投影关键量表"
+		title := "因果投影关键指标"
 		if !zh {
 			title = "Causal Projection Key Metrics"
 		}
@@ -914,30 +914,35 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// cumulative contains its drill-down sub-chain toward the target;
 		// see runtimeTraceProjDepth1Cumulative's containment doc). PTV5 C41:
 		// 全 roster → 全部成员清单 (no half-English).
+		// PTV8-RCR-B (UXA 域B #2-#10 + verify 修正稿, 2026-07-08). EVOLUTION
+		// RECORD: 「用户窗口/聚合行为/循环定义的有效归因/底层状态/口径=列/
+		// 投影窗口/无损块」全部按域B改造表落地;⊘/⚠ 与树图例同词并互指;
+		// 有效归因定义 = D#29 修正稿 (不引已退役的 gated 词,不写
+		// 「可能小于窗口投影」——cmp_01 E29 反例).
 		lines := []string{
-			"口径:",
-			"- 窗口投影 = 该节点相关状态落在用户窗口内的时长(跨线程聚合行为 cpu·ms 累计,单元格已注)。",
-			"- 链上累计 = 该节点连同其下钻子链沿唤醒链累计到目标的投影时长。",
-			"- 有效归因 = 排序/归因使用的有效影响。",
-			"- 实际状态 = 底层状态实际持续时长。",
-			"- 「—」 = 该口径对此节点无值。",
-			"- ⊘ = 窗口内无匹配 sched_wakeup(missing_wakeup),下钻链止。",
-			"- ⚠ = 实际状态跨出投影窗口。",
-			"- 背景行仅作压力/环境证据,不自动等同链上主因。",
-			"- 定性属性(类型/因果位置/关系/影响形态/×N 全部成员清单/完整名称)见下方按节点纵排的无损块。",
+			"各列口径:",
+			"- 窗口投影 = 该节点的状态落在分析窗内的时长;跨线程聚合行按跨线程累计计量(非墙钟,单元格已标注)。",
+			"- 链上累计 = 该节点及其下钻子链沿唤醒链累计到关注线程的投影时长。",
+			"- 有效归因 = 该行计入根因排序的影响时长;与窗口投影不同时,行内口径词(全额/折算/单次最大等)说明取值方式。",
+			"- 实际状态 = 该状态的真实完整时长,可跨出分析窗(此时带 ⚠)。",
+			"- 「—」 = 该列对此节点无值。",
+			"- ⊘ = 窗口内无匹配唤醒事件(sched_wakeup),链止于此(同树内 ⊘链止)。",
+			"- ⚠ = 实际状态跨出分析窗(同树内 ⚠实际Xms)。",
+			"- 背景行仅作环境压力证据,不计入链上归因。",
+			"- 本表只列时长与置信;每个节点的类型、因果位置、关系、影响形态、×N 成员清单与完整名称,见下方「因果投影明细」。",
 		}
 		if !zh {
 			lines = []string{
-				"Legend:",
-				"- window projection = the duration of the node's underlying state that falls inside the user window (cross-thread aggregate rows accumulate cpu·ms; cells carry the annotation).",
-				"- chain total = the projected duration this node plus its drill-down sub-chain accumulate toward the target along the wakeup chain.",
-				"- attribution = the effective impact used for ranking/attribution.",
-				"- actual state = the underlying state duration.",
-				"- “—” = no value for this node.",
-				"- ⊘ = no matching sched_wakeup in the window (missing_wakeup); the chain ends.",
-				"- ⚠ = the actual state crosses the projected window.",
-				"- Background rows are pressure/context evidence only.",
-				"- Qualitative attributes (type / causal position / relation / impact shape / full ×N member rosters / full names) live in the per-node lossless blocks below.",
+				"Column calibers:",
+				"- window projection = the duration of the node's state inside the analysis window; cross-thread aggregate rows measure a cross-thread cumulative (not wall clock; cells carry the annotation).",
+				"- chain total = the projected duration this node plus its drill-down sub-chain accumulate toward the focused thread along the wakeup chain.",
+				"- attribution = the impact duration this row contributes to the root-cause ranking; when it differs from the window projection, the row's caliber word (in full / discounted / single max …) says how it was taken.",
+				"- actual state = the state's true full duration; it may extend beyond the analysis window (then marked ⚠).",
+				"- “—” = no value in this column for this node.",
+				"- ⊘ = no matching wakeup event (sched_wakeup) in the window; the chain ends there (same as the tree's ⊘chain-ends mark).",
+				"- ⚠ = the actual state extends beyond the analysis window (same as the tree's ⚠actual mark).",
+				"- Background rows are context-pressure evidence only, never counted into the chain attribution.",
+				"- This table lists durations and confidence only; each node's type, causal position, relation, impact shape, ×N member roster and full name live in the Causal Projection Detail below.",
 			}
 		}
 		// PTV5 C33/C34 (#68): the ×N-form and dual-seat notations get legend
@@ -949,15 +954,18 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 				var parts []string
 				if zh {
 					if flags.mergedSum {
-						parts = append(parts, "×N(a–b) = N 次合并,数值为总和")
+						// PTV8-RCR-B (UXA 域B 漏审 S3): the 同一(线程,原因)
+						// scope clause matches the tree's sum entry (同词).
+						parts = append(parts, "×N(a–b) = 同一(线程,原因)的 N 次实例合并,数值为总和")
 					}
 					if flags.mergedMax {
-						parts = append(parts, "×N(a–b)取最大 = 跨线程折叠,数值取成员最大(墙钟不求和)")
+						// PTV8-RCR-B (UXA 域B #11 REVISE): canonical 墙钟跨线程不可加和.
+						parts = append(parts, "×N(a–b)取最大 = 跨线程折叠,数值取成员最大(墙钟跨线程不可加和)")
 					}
 					if flags.mergedWindowMax {
 						// §21 CWD: the cross-window MAX form gets its own gated
 						// line — the sum line's 数值为总和 must never gloss it.
-						parts = append(parts, "×N(a–b)跨窗取最大 = 查询窗互相重叠,数值取成员最大(重叠窗量值不求和)")
+						parts = append(parts, "×N(a–b)跨窗取最大 = 查询窗互相重叠,数值取成员最大(互相重叠的查询窗量值不可求和)")
 					}
 					if flags.mergedDedup {
 						parts = append(parts, "×N同值 = 同一测量重复发布,数值即那一次")
@@ -981,9 +989,9 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 			}
 			if flags.multiSeat {
 				if zh {
-					lines = append(lines, "- 双席/多席 = 同一节点同时出现在多个区段(记号列出各席),表内只列一行,数值不重复计;各席属性见下方无损块。")
+					lines = append(lines, "- 双席/多席 = 同一节点同时出现在多个区段,表内只列一行、数值不重复计,记号列出所在区段;各区段属性见下方「因果投影明细」。")
 				} else {
-					lines = append(lines, "- dual-/multi-seat = one node holds seats in multiple stanzas (the glyphs list the seats); the table lists it once and never double counts — per-seat attributes live in the lossless blocks below.")
+					lines = append(lines, "- dual-/multi-seat = one node appears in several stanzas; the table lists it once and never double counts, the glyphs name the stanzas — per-stanza attributes live in the Causal Projection Detail below.")
 				}
 			}
 		}
@@ -1013,7 +1021,7 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 	// surface: every item the tree demotes or omits is reachable here whole
 	// (full names carry NO cell caps).
 	if fullText := runtimeTraceProjDetailFullText(model, zh); strings.TrimSpace(fullText) != "" {
-		title := "因果投影明细(无损纵排)"
+		title := "因果投影明细(逐节点完整属性)"
 		// 复核收窄: the blocks cover every DATA-bearing rendered node; folded
 		// transit hops carry no data row and live on the 省略行 roster — the
 		// intro must not over-promise them. PTV5 C42 (#68): 省略行 roster →
@@ -1021,10 +1029,10 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// "与原始 trace_query 记录" pointer is retired — the roster is the
 		// in-answer surface; the intermediate record file is not a user-facing
 		// pointer target.
-		intro := "每个数据节点一块:树与关键量表省略或压缩的属性在此完整可见;完整名称不截断。折叠中转节点见树内省略行清单。"
+		intro := "每个节点一块,给出树和指标表中省略或压缩的全部属性;名称不截断;属性完全相同的同名节点共用一块(标题并列各自编号)。树中折叠的中间线程见树内省略行清单。"
 		if !zh {
-			title = "Causal Projection Detail (lossless, per node)"
-			intro = "One block per data-bearing node: every attribute the tree or the key-metric table demotes or compresses is fully visible here; full names are never truncated. Folded transit hops live on the tree's omitted-row roster."
+			title = "Causal Projection Detail (full attributes per node)"
+			intro = "One block per node, carrying every attribute the tree or the key-metric table demotes or compresses; names are never truncated; identical same-name nodes share one block (evidence numbers side by side in the heading). Folded transit hops live on the tree's omitted-row roster."
 		}
 		out = append(out, types.AnswerBlock{
 			ID:          idPrefix + "_detail_full",
@@ -1050,9 +1058,9 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 			// without deflecting to the intermediate record file — the cut
 			// tails were never collected, so no coordinate exists to give.
 			if zh {
-				intro += " 部分来源结果按容量截断(rank 头部完整保留),超出容量的尾部行未纳入本索引。"
+				intro += " 部分查询结果超过单次返回上限:各自排序靠前的部分完整保留,超限的尾部行不在本索引内。"
 			} else {
-				intro += " Some source results were capacity-truncated (rank heads fully kept); the over-capacity tail rows are not in this index."
+				intro += " Some query results exceeded the per-call return limit: the top of each result's own ordering is fully kept; the over-limit tail rows are not in this index."
 			}
 		}
 		out = append(out, types.AnswerBlock{
@@ -1150,7 +1158,10 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 			hasOptimization = true
 		}
 	}
-	columns := []string{"工件", "主根因(rank=1)", "目标症状时长", "on-chain 已归因", "背景压力"}
+	// PTV8-RCR-B (UXA 域D #3, 2026-07-08). EVOLUTION RECORD: 工件→trace 文件
+	// (内部词), rank=1→根因排序#1 (根因族), on-chain 已归因→链上已归因
+	// (归因族), 投影窗→分析窗 (窗族). EN face keeps its established words.
+	columns := []string{"trace 文件", "主根因(根因排序#1)", "目标症状时长", "链上已归因", "背景压力"}
 	if !zh {
 		columns = []string{"Artifact", "Primary root cause (rank=1)", "Target symptom", "On-chain attributed", "Background pressure"}
 	}
@@ -1169,7 +1180,7 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		}
 	}
 	if zh {
-		columns = append(columns, "投影窗")
+		columns = append(columns, "分析窗")
 	} else {
 		columns = append(columns, "Projection window")
 	}
@@ -1241,6 +1252,11 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	// comparing the density figures must know they were normalized over
 	// unequal windows. Rendered as the table's last row so it sits after the
 	// data on every surface.
+	// PTV8-RCR-B (UXA 域D layout-L1, 2026-07-08). EVOLUTION RECORD: the three
+	// disclosure notes used to ride the table's first cell with a tail of
+	// empty cells ("| ⚠ … |  |  |  |") — they now render as text lines under
+	// the table intro (same facts, same order, out of the grid).
+	var tableNotes []string
 	if runtimeTraceProjCompareWindowsUnequal(densityWindows) {
 		// §21 CWD 复核 F3-note fix: the legacy sentence asserts the projection
 		// windows themselves differ — only true when every density base IS its
@@ -1248,7 +1264,7 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		// normalized over a different window (cross-window-max member window /
 		// row query window) that claim is false for the table the reader sees;
 		// name the actual bases instead so the densities stay recomputable.
-		note := "⚠ 两侧投影窗长不等,背景压力已按各自窗长归一化"
+		note := "⚠ 两侧分析窗长度不等,背景压力已按各自窗长归一化"
 		if !zh {
 			note = "⚠ Projection window lengths differ; background pressure is normalized per window"
 		}
@@ -1260,9 +1276,7 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 				note = "⚠ Background pressure is normalized over each figure's own window (bases: " + bases + ")"
 			}
 		}
-		noteCells := make([]string, len(columns))
-		noteCells[0] = note
-		rows = append(rows, types.AnswerBlockItem{Cells: noteCells, CitationRef: -1})
+		tableNotes = append(tableNotes, note)
 	}
 	// RTC-2 (real_trace_campaign_20260705.md §4 案 e2, 批 #67): when the
 	// artifacts' typed time-base spans are pairwise disjoint (envelope Span ∪
@@ -1274,9 +1288,7 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	// partition / any intersection / any span-less projection emits NOTHING.
 	if types.TraceCausalProjectionTimeBasesDisjoint(projections) {
 		if note := runtimeTraceProjCompareDisjointTimeBaseNote(projections, zh); note != "" {
-			noteCells := make([]string, len(columns))
-			noteCells[0] = note
-			rows = append(rows, types.AnswerBlockItem{Cells: noteCells, CitationRef: -1})
+			tableNotes = append(tableNotes, note)
 		}
 	}
 	// §21 CWD item D (§11-N3 修向(a) 披露半, cmp_01 revisit 2026-07-07): when
@@ -1287,18 +1299,19 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	// per-side depth-1 numerator (>0 existence) and the typed
 	// WakeupChainRecommendedNotRun flag; symmetric shapes emit NOTHING.
 	if note := runtimeTraceProjCompareChainAsymmetryNote(sideLabels, sideAttributed, sideChainNotRun, zh); note != "" {
-		noteCells := make([]string, len(columns))
-		noteCells[0] = note
-		rows = append(rows, types.AnswerBlockItem{Cells: noteCells, CitationRef: -1})
+		tableNotes = append(tableNotes, note)
 	}
 	// PTV5 C15 (#68): no internal jargon on the user panel — "typed" out, and
 	// the retired LLM-predicate framing ("对比形态判定") with it (NEW-2 made
 	// the gate a deterministic partition count).
 	title := "Trace 因果投影对比总览"
-	text := "跨 trace 对比总览:数值全部来自各工件独立投影的结构化字段,跨线程累计值带单位标注,详情见各工件分段。"
+	text := "跨 trace 对比总览:数值来自各份 trace 独立的投影,跨线程累计值带单位标注,详情见各 trace 分段。"
 	if !zh {
 		title = "Trace Causal Projection Comparison Overview"
 		text = "Cross-trace comparison overview: every value comes from each artifact's independent projection (structured fields); cross-thread cumulative values carry their unit annotation. Details live in the per-artifact sections."
+	}
+	if len(tableNotes) > 0 {
+		text += "\n" + strings.Join(tableNotes, "\n")
 	}
 	return &types.AnswerBlock{
 		ID:          runtimeTraceCausalProjectionCompareBlockID,
@@ -1338,7 +1351,7 @@ func runtimeTraceProjCompareTargetSymptomCell(model runtimeTraceProjTreeModel, z
 	}
 	if hopSleep := runtimeTraceProjHopOnlyTargetSleepMS(model); hopSleep > 0 {
 		if zh {
-			return fmt.Sprintf("%.3fms(唤醒链视图目标睡眠,非状态段聚合)", hopSleep)
+			return fmt.Sprintf("%.3fms(唤醒链采样到的目标睡眠合计,非全窗状态统计)", hopSleep)
 		}
 		return fmt.Sprintf("%.3fms (wakeup-chain-view target sleep, not a state-segment aggregate)", hopSleep)
 	}
@@ -1526,24 +1539,30 @@ func runtimeTraceProjCompareBackgroundPressureCell(model runtimeTraceProjTreeMod
 	// §21 CWD (cmp_01 revisit 2026-07-07): a cross-window MAX row's value is
 	// the single largest member, not a Σ — the parenthetical label must not
 	// call it 累计/cumulative-of-N. Non-max rows keep the wording verbatim.
-	valueLabel, enValueLabel := "累计", "cumulative"
+	// PTV8-RCR-B (UXA 域D #19, 2026-07-08). EVOLUTION RECORD: the zh cell said
+	// 「累计 …ms,跨线程累计」 — one caliber twice in one parenthetical. The
+	// value label itself now carries 跨线程累计; the cross-window-MAX arm (a
+	// different label) keeps the full note (it had no duplication).
+	valueLabel, enValueLabel := "跨线程累计", "cumulative"
+	zhSuffix := ",非墙钟"
 	if best.MergedCrossWindowMax {
 		valueLabel, enValueLabel = "跨窗取最大", "cross-window max"
+		zhSuffix = ",跨线程累计,非墙钟"
 	}
 	var cell string
 	switch {
 	case queueDepth && zh:
-		cell = fmt.Sprintf("≈平均排队深度 %.1f(%s %.3fms,跨线程累计,非墙钟)", density, valueLabel, bestValue)
+		cell = fmt.Sprintf("≈平均排队深度 %.1f(%s %.3fms%s)", density, valueLabel, bestValue, zhSuffix)
 	case queueDepth:
 		cell = fmt.Sprintf("≈avg queue depth %.1f (%s %.3fms, cross-thread, not wall clock)", density, enValueLabel, bestValue)
 	case concurrency && zh:
 		// PTV6-D (d): the irq-family density word — mirrored with the stanza
 		// suffix fork so both surfaces speak one semantics.
-		cell = fmt.Sprintf("≈窗内并发 %.1f×(%s %.3fms,跨线程累计,非墙钟)", density, valueLabel, bestValue)
+		cell = fmt.Sprintf("≈窗内并发 %.1f×(%s %.3fms%s)", density, valueLabel, bestValue, zhSuffix)
 	case concurrency:
 		cell = fmt.Sprintf("≈avg concurrency %.1f× (%s %.3fms, cross-thread, not wall clock)", density, enValueLabel, bestValue)
 	case zh:
-		cell = fmt.Sprintf("≈均值 %.1f(%s %.3fms,跨线程累计,非墙钟)", density, valueLabel, bestValue)
+		cell = fmt.Sprintf("≈均值 %.1f(%s %.3fms%s)", density, valueLabel, bestValue, zhSuffix)
 	default:
 		cell = fmt.Sprintf("≈mean %.1f (%s %.3fms, cross-thread, not wall clock)", density, enValueLabel, bestValue)
 	}
@@ -1595,9 +1614,9 @@ func runtimeTraceProjCompareDisjointTimeBaseNote(projections []types.TraceCausal
 			runtimeTraceCausalProjectionMarkdownSafe(label), start, end))
 	}
 	if zh {
-		subject := "两工件时间基准不相交"
+		subject := "两份 trace 时间基准不相交"
 		if len(projections) > 2 {
-			subject = "各工件时间基准两两不相交"
+			subject = "各份 trace 时间基准两两不相交"
 		}
 		return fmt.Sprintf("⚠ %s(%s),不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准",
 			subject, strings.Join(spans, ","))
@@ -1652,7 +1671,7 @@ func runtimeTraceProjCompareChainAsymmetryNote(labels []string, attributed []flo
 		sep = ", "
 	}
 	if zh {
-		return fmt.Sprintf("⚠ 锚窗质量不对称:%s 锚窗内无 on-chain 归因;%s 锚窗内 on-chain 已归因 %.3fms。两侧证据深度不同,主根因/on-chain 列不可直接行际对读",
+		return fmt.Sprintf("⚠ 两侧分析窗证据深度不对称:%s 的分析窗内无链上归因;%s 的分析窗内链上已归因 %.3fms。主根因/链上已归因两列不可直接逐行对比",
 			strings.Join(zeroSides, sep), runtimeTraceCausalProjectionMarkdownSafe(posLabel), posMax)
 	}
 	return fmt.Sprintf("⚠ Anchor-window quality is asymmetric: %s has no on-chain attribution inside its anchor window; %s attributed %.3fms on-chain there. Evidence depth differs — do not read the primary / on-chain columns straight across",
@@ -1687,7 +1706,7 @@ func runtimeTraceProjCompareSupplyCells(projections []types.TraceCausalProjectio
 		}
 		share := idle / window * 100
 		if zh {
-			cells = append(cells, fmt.Sprintf("供给率 %.1f%% · 闲置错配 %.3fms(占窗 %.1f%%)", ratio*100, idle, share))
+			cells = append(cells, fmt.Sprintf("供给率 %.1f%% · 就绪积压时核闲置 %.3fms(占窗 %.1f%%)", ratio*100, idle, share))
 		} else {
 			cells = append(cells, fmt.Sprintf("supply ratio %.1f%% · idle mismatch %.3fms (%.1f%% of window)", ratio*100, idle, share))
 		}
@@ -1740,14 +1759,14 @@ func runtimeTraceProjPartitionCaveatBlock(set types.TraceCausalProjectionSet, zh
 	var parts []string
 	if set.UnattributedObservationCount > 0 {
 		if zh {
-			parts = append(parts, fmt.Sprintf("%d 条观测无工件归属,未纳入投影。", set.UnattributedObservationCount))
+			parts = append(parts, fmt.Sprintf("%d 条观测无法归属到任一 trace 文件,未纳入投影。", set.UnattributedObservationCount))
 		} else {
 			parts = append(parts, fmt.Sprintf("%d observation(s) carried no artifact identity and were left out of every projection.", set.UnattributedObservationCount))
 		}
 	}
 	if len(set.OmittedArtifactLabels) > 0 {
 		if zh {
-			parts = append(parts, fmt.Sprintf("工件分区数超过上限,仅保留观测最多的 %d 个;未展示: %s。",
+			parts = append(parts, fmt.Sprintf("trace 文件分区数超过上限,仅保留观测最多的 %d 个;未展示: %s。",
 				len(set.Projections), strings.Join(set.OmittedArtifactLabels, "、")))
 		} else {
 			parts = append(parts, fmt.Sprintf("Artifact partitions exceeded the cap; the %d with the most observations are shown. Omitted: %s.",
@@ -1947,18 +1966,21 @@ func runtimeTraceCausalProjectionCoverageReasonLabel(code string, zh bool) strin
 
 func runtimeTraceCausalProjectionCoverageText(reasons []string, zh bool) string {
 	if zh {
-		text := "本轮已获得 trace_query 的结构化执行记录,但没有产出有数据支撑的 root_cause/wakeup_chain/semantic 行,因此未生成分层因果表。"
+		// PTV8-RCR-B 收尾 (UXA 域D #23/#24 族, 2026-07-08). EVOLUTION RECORD:
+		// 本轮→本报告;"应按 trace_query 的有界参数继续补 X" 工具语法 →
+		// 客户可执行的追问句式(token 括注保留).
+		text := "本报告已获得 trace_query 的结构化执行记录,但没有产出有数据支撑的 root_cause/wakeup_chain/semantic 行,因此未生成分层因果表。"
 		if len(reasons) > 0 {
 			text += " 结构化原因: " + strings.Join(reasons, "；") + "。"
 		}
-		text += " 这不是“没有背景影响”的结论;只表示当前证据没有给出可审计的因果/背景统计,应按 trace_query 的有界参数继续补 root_cause_rank、window_stats 或 interaction_stats。"
+		text += " 这不是“没有背景影响”的结论;只表示当前证据没有给出可审计的因果/背景统计,可追问一次根因/窗口/交互统计分析(root_cause_rank、window_stats 或 interaction_stats)补齐。"
 		return text
 	}
-	text := "This run has structured trace_query execution records, but no data-backed root_cause/wakeup_chain/semantic rows were produced, so the layered causal table was not generated."
+	text := "This report has structured trace_query execution records, but no data-backed root_cause/wakeup_chain/semantic rows were produced, so the layered causal table was not generated."
 	if len(reasons) > 0 {
 		text += " Typed reason: " + strings.Join(reasons, "; ") + "."
 	}
-	text += " This does not prove there was no background influence; it only means this run lacks auditable causal/background statistics. Continue with bounded trace_query parameters for root_cause_rank, window_stats, or interaction_stats."
+	text += " This does not prove there was no background influence; it only means this report lacks auditable causal/background statistics. Ask a follow-up root-cause/window/interaction statistics analysis (root_cause_rank, window_stats or interaction_stats) to fill it in."
 	return text
 }
 
@@ -2034,10 +2056,15 @@ func runtimeTraceCausalProjectionEvidenceText(zh bool) string {
 	// record file is no longer a user-facing locator authority — the index
 	// itself carries the trace source coordinates (line/time spans of the
 	// user's persistent trace artifact).
+	// PTV8-RCR-B (UXA 域C #1 + #2 verify 修正稿, 2026-07-08). EVOLUTION
+	// RECORD: 「主表/短证据 ID/结构化审计摘要」内部口径词 → 自解释;审计
+	// token 七词得图例句闭环(token 本身零改动,§22.2.1 审计车道原文保留).
 	if zh {
-		return "主表只引用短证据 ID;这里按 trace 源坐标(行号/时间区间)显示定位与结构化审计摘要。"
+		return "正文用 E1、E2 等编号引用证据;本索引给出每条证据在 trace 中的位置(行号或时间区间)与审计字段。" +
+			"审计字段为 trace_query 原文 token,便于回溯核对:tier=证据层级、causality=因果位置、rank=根因排序、confidence=置信度、predicate=判定类型、span=span 名、merged_*=合并明细;其余字段同为原文 token。"
 	}
-	return "Main tables use short evidence IDs; this index shows trace source coordinates (line/time spans) and typed audit summaries."
+	return "The answer cites evidence by the E1/E2 numbers; this index gives each entry's location in the trace (line or time span) and its audit fields. " +
+		"Audit fields are raw trace_query tokens kept for cross-checking: tier = evidence tier, causality = causal position, rank = root-cause rank, confidence = confidence, predicate = judgment kind, span = span name, merged_* = merge detail; any other field is likewise a raw token."
 }
 
 func runtimeTraceCausalProjectionPriorityCell(node types.TraceCausalProjectionNode, zh bool) string {
@@ -2363,79 +2390,15 @@ func runtimeTraceCausalProjectionImpactShapeCellTyped(node types.TraceCausalProj
 	if class := runtimeTraceCausalProjectionTypeTokenStateClass(node); class != "" {
 		return runtimeTraceCausalProjectionTypeTokenStateWord(class, zh), false
 	}
-	// PTV6-D (b): the ONLY generic arm — the category word the tree fence
-	// suppresses per row (legend carries the class; detail table keeps it).
+	// PTV6-D (b) → PTV8-RCR-B (UXA 域B #21, 2026-07-08). EVOLUTION RECORD:
+	// the 「候选影响」 class word shared 候选 with the retired 候选根因 while
+	// meaning something unrelated — the generic arm now self-describes
+	// (未分类); the tree fence keeps suppressing it per row (legend entry
+	// 无类型词的行 carries the class).
 	if zh {
-		return "候选影响", true
+		return "未分类(该行无具体状态/类型词)", true
 	}
-	return "candidate impact", true
-}
-
-func runtimeTraceCausalProjectionImpactMeaningCell(node types.TraceCausalProjectionNode, zh bool) string {
-	action := runtimeTraceCausalProjectionActionCell(node, zh)
-	causeKind := strings.TrimSpace(strings.ToLower(firstNonEmptyAnswerString(node.Object, node.Predicate)))
-	stateKind := strings.TrimSpace(strings.ToLower(node.StateKind))
-	if stateKind == "" {
-		stateKind = causeKind
-	}
-	var meaning string
-	switch {
-	case node.IsSleepState() && node.Undrillable():
-		if zh {
-			meaning = "缺唤醒边"
-		} else {
-			meaning = "missing wake edge"
-		}
-	case node.IsSleepState():
-		if zh {
-			meaning = "下钻上游唤醒者"
-		} else {
-			meaning = "drill upstream waker"
-		}
-	case node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span":
-		if zh {
-			meaning = "确定性优化 span"
-		} else {
-			meaning = "deterministic span"
-		}
-	case causeKind == "priority_inversion_runnable_wait":
-		if zh {
-			meaning = "疑似优先级反转"
-		} else {
-			meaning = "possible priority inversion"
-		}
-	case causeKind == "compute_supply" || stateKind == "running":
-		if zh {
-			meaning = "本层运行/算力占用"
-		} else {
-			meaning = "local execution / CPU supply"
-		}
-	case stateKind == "runnable":
-		if zh {
-			meaning = "可运行但未获 CPU"
-		} else {
-			meaning = "runnable but not scheduled"
-		}
-	case stateKind == "d_state" || stateKind == "io_wait" || stateKind == "d_sleep" || stateKind == "uninterruptible_sleep":
-		if zh {
-			meaning = "本层资源/IO 等待"
-		} else {
-			meaning = "local resource / IO wait"
-		}
-	default:
-		if zh {
-			meaning = "候选影响层"
-		} else {
-			meaning = "candidate impact layer"
-		}
-	}
-	if action == "" {
-		return runtimeTraceCausalProjectionCompactCellText(meaning, 42)
-	}
-	if meaning == "" || meaning == action {
-		return runtimeTraceCausalProjectionCompactCellText(action, 42)
-	}
-	return runtimeTraceCausalProjectionCompactCellText(action+": "+meaning, 42)
+	return "unclassified (no concrete state/type word on this row)", true
 }
 
 func runtimeTraceCausalProjectionAuditDetail(node types.TraceCausalProjectionNode, zh bool, flatChain bool) string {
@@ -3360,8 +3323,9 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 	// selection and rendering read, so the two faces can never diverge. ≥2
 	// distinct windows (±1ms dedupe) activates the per-window floor: every
 	// window keeps at least ONE row (budget grows to the window count when it
-	// exceeds the legacy 2 slots) — the tree header's 按查询窗分组 claim would
-	// otherwise go false whenever one window lost the global slot race.
+	// exceeds the legacy 2 slots). PTV8-RCR-B (UXA 域D #16): the tree header's
+	// "(按查询窗分组)" parenthetical is retired, but the header still points at
+	// the snapshot for per-window metrics — the floor keeps that pointer true.
 	distinctWindows := runtimeTraceMetricSnapshotDistinctWindows(func(yield func(float64, float64)) {
 		for _, c := range eligible {
 			if c.windowed {
@@ -3453,11 +3417,19 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 			text = candidate.raw
 		}
 		text += snapCtx.spanMismatchNote(candidate.record, candidate.projIdx, zh)
+		// PTV8-RCR-B (UXA 域C #9 / 域D #27, 2026-07-08). EVOLUTION RECORD: the
+		// view token was bare on the label face — the zh face reuses the
+		// registered 状态切换 display word with the token in parens (§22.2.1
+		// 兜底同构); EN keeps the raw token.
+		churn := "state_churn"
+		if zh {
+			churn = "状态切换(state_churn)"
+		}
 		label := strings.TrimSpace(candidate.record.Subject)
 		if label == "" {
-			label = "state_churn"
+			label = churn
 		} else {
-			label += " state_churn"
+			label += " " + churn
 		}
 		if prefix := snapCtx.artifactPrefix(candidate.projIdx); prefix != "" {
 			label = prefix + " · " + label
@@ -3600,9 +3572,9 @@ func (c runtimeTraceMetricSnapshotContext) spanMismatchNote(record types.Observa
 		return ""
 	}
 	if zh {
-		return fmt.Sprintf("(观测跨度 %.1fs,远超投影窗,仅供背景参考)", totalMS/1000)
+		return fmt.Sprintf("(数据实际覆盖 %.1fs,远超分析窗,仅供背景参考)", totalMS/1000)
 	}
-	return fmt.Sprintf(" (observed span %.1fs, far beyond the projection window — background reference only)", totalMS/1000)
+	return fmt.Sprintf(" (actual data coverage %.1fs, far beyond the analysis window — background reference only)", totalMS/1000)
 }
 
 // runtimeTraceMetricSnapshotObservedSpanMS returns the thread's own observed
@@ -3825,69 +3797,68 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 	}
 	stateEntry := func(label, key string) string {
 		entry := label + " " + ms(key)
-		if pct := share(key); pct != "" {
-			// H13: the share denominator is the thread's OWN observed state
-			// total, not the analysis window — say so, or "运行 2.891ms(占100%)"
-			// reads as "the thread filled the window" (berlin customer misread).
+		// H13: the share denominator is the thread's OWN observed state total,
+		// not the analysis window. PTV8-RCR-B (UXA 域C #10): the basis clause
+		// moved to the group head (said once); a share that rounds to 0% says
+		// nothing and is dropped.
+		if pct := share(key); pct != "" && pct != "0%" {
 			if zh {
-				entry += "(占该线程观测时长" + pct + ")"
+				entry += "(" + pct + ")"
 			} else {
-				entry += " (" + pct + " of this thread's observed span)"
+				entry += " (" + pct + ")"
 			}
 		}
 		return entry
 	}
-	var parts []string
+	// PTV8-RCR-B (UXA 域C #10 REVISE 修正稿, 2026-07-08). EVOLUTION RECORD:
+	// ten metrics used to glue into one run-on with the 13-char share
+	// disclaimer repeated per state — the line now reads as two groups
+	// (状态时长 / 切换特征), the share basis stated ONCE in the group head;
+	// the dominant entry stays first (raw-token carrier, PTV7 alias pair) and
+	// zero-share parentheticals are dropped.
+	dominantEntry := ""
 	if dominant := strings.TrimSpace(values[types.TraceNoteKeyDominantState]); dominant != "" {
 		// PTV7 (#74): the parenthetical carries the canonical display alias
 		// ONLY when it differs from the raw token (s_sleep(sleep)); an
 		// identity echo (runnable(runnable)) says nothing and is dropped.
 		label := runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: dominant}, zh)
-		entry := dominant
+		dominantEntry = dominant
 		if label != "" && label != dominant {
-			entry = dominant + "(" + label + ")"
+			dominantEntry = dominant + "(" + label + ")"
 			if !zh {
-				entry = dominant + " (" + label + ")"
+				dominantEntry = dominant + " (" + label + ")"
 			}
-		}
-		if zh {
-			parts = append(parts, "主导状态 "+entry)
-		} else {
-			parts = append(parts, "dominant state "+entry)
 		}
 	}
 	// PTV7 (#74): the per-state lane labels are the canonical state tokens on
 	// both faces; the metric frame words stay localized.
+	states := []string{
+		stateEntry("running", types.TraceNoteKeyRunning),
+		stateEntry("runnable", types.TraceNoteKeyRunnable),
+		stateEntry("sleep", types.TraceNoteKeySleep),
+		stateEntry("D-state", types.TraceNoteKeyDState),
+		stateEntry("iowait", types.TraceNoteKeyIOWait),
+	}
+	var text string
 	if zh {
-		parts = append(parts,
-			stateEntry("running", types.TraceNoteKeyRunning),
-			stateEntry("runnable", types.TraceNoteKeyRunnable),
-			stateEntry("sleep", types.TraceNoteKeySleep),
-			stateEntry("D-state", types.TraceNoteKeyDState),
-			stateEntry("iowait", types.TraceNoteKeyIOWait),
-			"状态段数 "+values[types.TraceNoteKeyFragments],
-			"切换次数 "+values[types.TraceNoteKeySwitches],
-			"最长单段 "+ms(types.TraceNoteKeyMaxSegment),
-			"P95段长 "+ms(types.TraceNoteKeyP95Segment),
-		)
+		head := "状态时长(括号为占该线程观测时长比例): "
+		if dominantEntry != "" {
+			head += "主导 " + dominantEntry + ";"
+		}
+		text = head + strings.Join(states, " · ") +
+			";切换特征: " + values[types.TraceNoteKeySwitches] + " 次切换/" + values[types.TraceNoteKeyFragments] + " 段" +
+			",最长单段 " + ms(types.TraceNoteKeyMaxSegment) +
+			",P95 段长 " + ms(types.TraceNoteKeyP95Segment)
 	} else {
-		parts = append(parts,
-			stateEntry("running", types.TraceNoteKeyRunning),
-			stateEntry("runnable", types.TraceNoteKeyRunnable),
-			stateEntry("sleep", types.TraceNoteKeySleep),
-			stateEntry("D-state", types.TraceNoteKeyDState),
-			stateEntry("iowait", types.TraceNoteKeyIOWait),
-			"state segments "+values[types.TraceNoteKeyFragments],
-			"switches "+values[types.TraceNoteKeySwitches],
-			"longest segment "+ms(types.TraceNoteKeyMaxSegment),
-			"p95 segment "+ms(types.TraceNoteKeyP95Segment),
-		)
+		head := "state durations (parentheses = share of this thread's observed span): "
+		if dominantEntry != "" {
+			head += "dominant " + dominantEntry + "; "
+		}
+		text = head + strings.Join(states, " · ") +
+			"; switching: " + values[types.TraceNoteKeySwitches] + " switches/" + values[types.TraceNoteKeyFragments] + " segments" +
+			", longest segment " + ms(types.TraceNoteKeyMaxSegment) +
+			", p95 segment " + ms(types.TraceNoteKeyP95Segment)
 	}
-	sep := "; "
-	if zh {
-		sep = ";"
-	}
-	text := strings.Join(parts, sep)
 	if runtimeTraceRecordHasActualWindowValues(record) {
 		// NEW-8 (账本 §7.6): when the source observation carries the producer's
 		// typed selected_window note (strict shared parser — both endpoints must
@@ -3903,16 +3874,20 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 			endpoints = fmt.Sprintf("%.3fs–%.3fs", start, end)
 		}
 		actual := runtimeTraceMetricSnapshotActualInline(record, zh)
+		// PTV8-RCR-B (UXA 域C #11 + 域D #15, 2026-07-08). EVOLUTION RECORD:
+		// 选定窗→查询窗 / 实际对齐窗→数据实际覆盖 (窗族终词), and the aligned
+		// values leave the nested parens for a parallel ";" clause (三层嵌套
+		// 拆平). Producer selected_window raw note untouched.
 		var basis string
 		if zh {
-			basis = ";窗口基准: 选定窗"
+			basis = ";窗口基准: 查询窗"
 			if endpoints != "" {
 				basis += " " + endpoints
 			}
 			if actual != "" {
-				basis += "(" + actual + ")"
+				basis += ";" + actual
 			} else {
-				basis += "(另有实际对齐窗口径)"
+				basis += "(另有按数据实际覆盖统计的数值)"
 			}
 		} else {
 			basis = "; window basis: selected window"
@@ -3986,9 +3961,10 @@ func runtimeTraceMetricSnapshotActualInline(record types.ObservationRecord, zh b
 	if len(parts) == 0 && window == "" {
 		return ""
 	}
-	head := "实际对齐窗"
+	// PTV8-RCR-B (UXA 域D #15/#33 窗族): 实际对齐窗 → 数据实际覆盖.
+	head := "数据实际覆盖"
 	if !zh {
-		head = "aligned actual window"
+		head = "actual data coverage"
 	}
 	if window != "" {
 		head += " " + window
@@ -4159,10 +4135,11 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 		return nil
 	}
 	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
-	label := "下一步"
-	if !zh {
-		label = "Next step"
-	}
+	// PTV8-RCR-B (UXA 域C #12, 2026-07-08). EVOLUTION RECORD: every item used
+	// to re-print a bold 「下一步」 label under a block already titled 下一步
+	// (4 条 8 个"下一步") — the per-item label is retired; the renderer's
+	// block-level title carries the word.
+	label := ""
 	seen := make(map[string]bool)
 	seenText := make(map[string]bool)
 	var out []types.AnswerBlockItem
@@ -4418,13 +4395,13 @@ func runtimeTraceNextStepComparisonSteps(zh bool) []string {
 		return []string{
 			"对比两 trace 各自同口径窗口内 top 运行线程与进程级 running 时间差异",
 			"对齐目标 span 边界后重取两侧聚合指标(按各自窗长归一化后再对比)",
-			"双窗/多窗对比时:对每个查询窗分别执行同口径因果采样(wakeup_chain/root_cause_rank)后逐窗对比",
+			"双窗/多窗对比时:对每个查询窗分别做同样的根因分析(wakeup_chain/root_cause_rank),再逐窗对比",
 		}
 	}
 	return []string{
 		"Compare the top running threads and per-process running time of both traces over same-caliber windows",
 		"Re-anchor each trace to the target span boundaries, then re-collect the window aggregates normalized by each window's own length before comparing",
-		"For dual-/multi-window comparisons: run the same-caliber causal sampling (wakeup_chain/root_cause_rank) per query window, then compare window by window",
+		"For dual-/multi-window comparisons: run the same root-cause analysis (wakeup_chain/root_cause_rank) per query window, then compare window by window",
 	}
 }
 
@@ -4455,7 +4432,7 @@ func runtimeTraceNextStepMultiWindowSteps(ledger types.ObservationLedger, zh boo
 	if zh {
 		return []string{
 			fmt.Sprintf("本 trace 含 %s 个查询窗:窗长不同时先按各自窗长归一化(占窗比例)再跨窗对比", count),
-			"双窗对比:对每个查询窗分别执行同口径因果采样(wakeup_chain/root_cause_rank)后逐窗对比",
+			"双窗对比:对每个查询窗分别做同样的根因分析(wakeup_chain/root_cause_rank),再逐窗对比",
 		}
 	}
 	return []string{
@@ -4535,20 +4512,21 @@ func runtimeTraceNextStepUnsampledComparisonHint(ctx *types.BusContext, ledger t
 		return ""
 	}
 	// PTV5 C20 (#68): the artifact EXISTS (preflight census confirmed the
-	// capture) — what is missing is THIS ROUND's queries against it, so the
-	// wording says 本轮未取数, never "尚未采样" (read as "the trace itself has
-	// no data").
+	// capture) — what is missing is THIS REPORT's queries against it, so the
+	// wording says 本报告未取数, never "尚未采样" (read as "the trace itself
+	// has no data"). PTV8-RCR-B (UXA 域D #23 本轮→本报告 + C#14 去"视图",
+	// 2026-07-08): both arms speak the family words.
 	if len(remaining) == 1 {
 		name := runtimeTraceCaptureIdentityBasename(remaining[0])
 		if name != "" {
 			if zh {
-				return fmt.Sprintf("另一份 trace 本轮未取数:对 %s 以同口径(同窗/同视图)执行查询后再对比", name)
+				return fmt.Sprintf("另一份 trace 本报告未取数:对 %s 以同口径(同窗)执行查询后再对比", name)
 			}
-			return fmt.Sprintf("The other trace was not queried this round: run the same-caliber queries (same window/same views) on %s, then compare", name)
+			return fmt.Sprintf("The other trace was not queried for this report: run the same-caliber queries (same window) on %s, then compare", name)
 		}
 	}
 	if zh {
-		return "另一份 trace 本轮未取数:对其余未取数的 trace 工件以同口径(同窗/同视图)执行查询后再对比"
+		return "另一份 trace 本报告未取数:对其余未取数的 trace 文件以同口径(同窗)执行查询后再对比"
 	}
 	return "The other trace was not queried this round: run the same-caliber queries (same window/same views) on the remaining trace artifacts, then compare"
 }
@@ -4827,19 +4805,23 @@ func runtimeTraceNextStepResolvedPeerText(peer, holderSite string, lockShape, zh
 		if lockShape {
 			role = "持有者"
 		}
+		// PTV8-RCR-B (UXA 域C #15 两 verify 交集, 2026-07-08). EVOLUTION
+		// RECORD: 「trace_query view=」内部调用语法离开客户面(§22.3 N1 零
+		// 内部名同向),重叠窗→重叠的查询窗(窗族);持有点完整签名逐字保留
+		// (C-verify: 可 grep 的硬事实,准确性>简洁;短签名提取留账待裁).
 		if holderSite != "" {
-			return fmt.Sprintf("对%s %s(持有点 %s)在重叠窗执行 trace_query view=thread_timeline/wakeup_chain", role, peer, holderSite)
+			return fmt.Sprintf("对%s %s(持有点 %s)在重叠的查询窗内查看其线程时间线与唤醒链(thread_timeline/wakeup_chain)", role, peer, holderSite)
 		}
-		return fmt.Sprintf("对%s %s 在重叠窗执行 trace_query view=thread_timeline/wakeup_chain", role, peer)
+		return fmt.Sprintf("对%s %s 在重叠的查询窗内查看其线程时间线与唤醒链(thread_timeline/wakeup_chain)", role, peer)
 	}
 	role := "binder peer"
 	if lockShape {
 		role = "lock holder"
 	}
 	if holderSite != "" {
-		return fmt.Sprintf("Run trace_query view=thread_timeline/wakeup_chain over the overlapping window for the %s %s (holding site %s)", role, peer, holderSite)
+		return fmt.Sprintf("Inspect the thread timeline and wakeup chain (thread_timeline/wakeup_chain) of the %s %s over the overlapping query window (holding site %s)", role, peer, holderSite)
 	}
-	return fmt.Sprintf("Run trace_query view=thread_timeline/wakeup_chain over the overlapping window for the %s %s", role, peer)
+	return fmt.Sprintf("Inspect the thread timeline and wakeup chain (thread_timeline/wakeup_chain) of the %s %s over the overlapping query window", role, peer)
 }
 
 // runtimeTraceCaptureIdentityBasename is the display basename of a canonical
@@ -4903,9 +4885,10 @@ func runtimeTraceNextStepRunnableChineseText(notes []string) string {
 	if cpu == "" && competitor == "" {
 		return ""
 	}
-	scope := "同CPU"
+	// PTV8-RCR-B (UXA 域C #16 兄弟句, 2026-07-08): CJK/latin spacing (C26 先例).
+	scope := "同 CPU"
 	if cpu != "" {
-		scope = fmt.Sprintf("同CPU(cpu=%s)", cpu)
+		scope = fmt.Sprintf("同 CPU(cpu=%s)", cpu)
 	}
 	// PTV5 C26 (#68): "top 运行线程" spaced like the CMP-6 rows (no half-width
 	// jam of latin+CJK).
@@ -4913,7 +4896,7 @@ func runtimeTraceNextStepRunnableChineseText(notes []string) string {
 	if competitor != "" {
 		top += " " + competitor
 	}
-	return fmt.Sprintf("排查%s竞争:%s、优先级与CPU频率", scope, top)
+	return fmt.Sprintf("排查%s竞争:%s、优先级与 CPU 频率", scope, top)
 }
 
 // runtimeTraceNextStepChineseText maps the deterministic next_step_kind enum
@@ -4924,15 +4907,15 @@ func runtimeTraceNextStepChineseText(kind string) string {
 	switch strings.TrimSpace(strings.ToLower(kind)) {
 	case "runnable":
 		// PTV5 C26 (#68): spacing matches the dynamic variant above.
-		return "排查同CPU竞争:top 运行线程、优先级与CPU频率"
+		return "排查同 CPU 竞争:top 运行线程、优先级与 CPU 频率"
 	case "s_sleep":
 		return "排查反复唤醒它的对端线程、binder等待、锁与条件变量等待"
 	case "d_sleep_io":
 		return "排查 sched_blocked_reason、块设备IO、文件系统、缺页与内存回收证据"
 	case "running":
-		return "排查该线程自身的trace span/帧阶段的CPU工作与被抢占边界"
+		return "排查该线程自身 trace span/帧阶段的 CPU 工作与被抢占的边界"
 	case "priority_inversion":
-		return "排查低优先级依赖的调度延迟与同窗口CPU压力"
+		return "排查所依赖的低优先级线程的调度延迟,以及同窗口内的 CPU 压力"
 	default:
 		return "排查相邻的调度与资源事件"
 	}

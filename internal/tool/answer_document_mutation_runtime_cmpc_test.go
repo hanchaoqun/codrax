@@ -61,11 +61,14 @@ func TestRuntimeTraceNextStepSingleSidedSamplingHintNamesUnsampledCapture(t *tes
 	if len(items) != 1 {
 		t.Fatalf("single-sided comparison shape must emit exactly the sampling hint: %+v", items)
 	}
-	if items[0].Text != "另一份 trace 本轮未取数:对 6.0B138_3900.sys.systrace 以同口径(同窗/同视图)执行查询后再对比" {
+	// PTV8-RCR-B (UXA 域D #23/C#14 follow-up, 2026-07-08). EVOLUTION RECORD:
+	// the NAMED arm joined the generic arm on 本报告未取数/(同窗).
+	if items[0].Text != "另一份 trace 本报告未取数:对 6.0B138_3900.sys.systrace 以同口径(同窗)执行查询后再对比" {
 		t.Fatalf("the hint must name the ONE unsampled capture (census minus projected artifact): %q", items[0].Text)
 	}
-	if items[0].Label != "下一步" || items[0].CitationRef != -1 {
-		t.Fatalf("the hint must reuse the next-step item shape: %+v", items[0])
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: item Label 下一步 → 空(块标题承载) (下一步族)
+	if items[0].Label != "" || items[0].CitationRef != -1 {
+		t.Fatalf("the hint must reuse the next-step item shape (empty label): %+v", items[0])
 	}
 	// The comparison rows belong to the ≥2-projection form only.
 	for _, item := range items {
@@ -80,7 +83,7 @@ func TestRuntimeTraceNextStepSingleSidedSamplingHintEnglishSurface(t *testing.T)
 	bus.AnalysisIR.AnswerContract.Language = "en"
 	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
 	if len(items) != 1 ||
-		items[0].Text != "The other trace was not queried this round: run the same-caliber queries (same window/same views) on 6.0B138_3900.sys.systrace, then compare" {
+		items[0].Text != "The other trace was not queried for this report: run the same-caliber queries (same window) on 6.0B138_3900.sys.systrace, then compare" {
 		t.Fatalf("EN single-sided hint mismatch: %+v", items)
 	}
 }
@@ -90,8 +93,9 @@ func TestRuntimeTraceNextStepSingleSidedSamplingHintGenericOnMultipleRemaining(t
 	bus.RuntimeArtifactPreflight = cmpcPreflight(
 		"7.0B30SP22_7315.systrace", "6.0B138_3900.sys.systrace", "5.0B77_1200.systrace")
 	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 本轮未取数 → 本报告未取数;trace 工件 → trace 文件;(同窗/同视图) → (同窗) (both arms)
 	if len(items) != 1 ||
-		items[0].Text != "另一份 trace 本轮未取数:对其余未取数的 trace 工件以同口径(同窗/同视图)执行查询后再对比" {
+		items[0].Text != "另一份 trace 本报告未取数:对其余未取数的 trace 文件以同口径(同窗)执行查询后再对比" {
 		t.Fatalf(">1 unsampled captures must use the generic phrase, never a guessed name: %+v", items)
 	}
 }
@@ -107,7 +111,7 @@ func TestRuntimeTraceNextStepSingleSidedSamplingHintAbsentOnTwoProjections(t *te
 		t.Fatalf("two-projection shape must keep the comparison rows (+ RTC-2 disjoint row on this disjoint fixture): %+v", items)
 	}
 	for _, item := range items {
-		if strings.Contains(item.Text, "本轮未取数") {
+		if strings.Contains(item.Text, "本报告未取数") {
 			t.Fatalf("two-projection shape must not emit the single-sided hint: %+v", items)
 		}
 	}
@@ -125,7 +129,7 @@ func TestRuntimeTraceNextStepSingleSidedSamplingHintAbsentOnSingleTraceSession(t
 		bus.RuntimeArtifactPreflight = profile
 		items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
 		for _, item := range items {
-			if strings.Contains(item.Text, "本轮未取数") {
+			if strings.Contains(item.Text, "本报告未取数") {
 				t.Fatalf("%s: single-trace session must not emit the sampling hint: %+v", name, items)
 			}
 		}
@@ -149,7 +153,7 @@ func TestRuntimeTraceSingleSidedShapeMaterializesHintWithoutCompareTable(t *test
 	}
 	found := false
 	for _, item := range next.Items {
-		if strings.Contains(item.Text, "另一份 trace 本轮未取数") &&
+		if strings.Contains(item.Text, "另一份 trace 本报告未取数") &&
 			strings.Contains(item.Text, "6.0B138_3900.sys.systrace") {
 			found = true
 		}
@@ -222,16 +226,18 @@ func TestTraceProjectionComparisonOverviewSupplyColumnOnDualObservations(t *test
 	if supplyCol != 5 {
 		t.Fatalf("dual observations must add the supply column before the window column: %v", compare.Columns)
 	}
-	if compare.Columns[len(compare.Columns)-1] != "投影窗" {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 投影窗 → 分析窗 (窗族)
+	if compare.Columns[len(compare.Columns)-1] != "分析窗" {
 		t.Fatalf("the window column must stay last: %v", compare.Columns)
 	}
 	// 数值对位: per-artifact values sit in the SAME column, normalized caliber
 	// with units — ratio as %, idle mismatch in ms plus its share of that
 	// artifact's own supply window (20/101 → 19.8%, 3.5/701 → 0.5%).
-	if got := compare.Items[0].Cells[supplyCol]; got != "供给率 44.6% · 闲置错配 20.000ms(占窗 19.8%)" {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 闲置错配 → 就绪积压时核闲置 (对比总览族)
+	if got := compare.Items[0].Cells[supplyCol]; got != "供给率 44.6% · 就绪积压时核闲置 20.000ms(占窗 19.8%)" {
 		t.Fatalf("artifact A supply cell mismatch: %q", got)
 	}
-	if got := compare.Items[1].Cells[supplyCol]; got != "供给率 81.2% · 闲置错配 3.500ms(占窗 0.5%)" {
+	if got := compare.Items[1].Cells[supplyCol]; got != "供给率 81.2% · 就绪积压时核闲置 3.500ms(占窗 0.5%)" {
 		t.Fatalf("artifact B supply cell mismatch: %q", got)
 	}
 	// Every data row keeps cells aligned with the widened column set.

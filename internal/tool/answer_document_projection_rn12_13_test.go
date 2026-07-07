@@ -214,11 +214,20 @@ func rncBusWithEntities(lang string, entities ...string) *types.BusContext {
 
 func TestRN13FlatAnchorMismatchHeaderAndNextStepZH(t *testing.T) {
 	// Customer shape: anchor FFRT-49706, user focus pid 6565.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 唤醒链路径未解析
+	// ——按层级平铺展示 → 唤醒链路径未解析;以下各行按层级平铺 (flat-header
+	// family; the RN-12 "top 片段" pins are deliberately NOT migrated — that
+	// wording awaits a user re-ruling).
 	md := audit730Render(t, rncBusWithEntities("", "6565"), rncRunnableRecords(""), "")
-	if !strings.Contains(md, "(唤醒链路径未解析——按层级平铺展示)") {
+	if !strings.Contains(md, "(唤醒链路径未解析;以下各行按层级平铺)") {
 		t.Fatalf("flat header must stay:\n%s", md)
 	}
-	if !strings.Contains(md, "- 分析锚=OS_FFRT_2_3-49706(非用户关注对象;用户关注 6565 的唤醒链未在本轮查询)") {
+	// PTV8-RCR-B 收尾 (UXA 域D #23 漏网, 2026-07-08). EVOLUTION RECORD:
+	// 未在本轮查询 → 未在本报告查询 (本报告 family; negative pin below).
+	if strings.Contains(md, "本轮") {
+		t.Fatalf("the retired 本轮 word must not ship on the flat anchor banner:\n%s", md)
+	}
+	if !strings.Contains(md, "- 分析锚=OS_FFRT_2_3-49706(非用户关注对象;用户关注 6565 的唤醒链未在本报告查询)") {
 		t.Fatalf("customer pin: flat header must explain the analysis anchor:\n%s", md)
 	}
 	if !strings.Contains(md, "对用户关注线程(6565)补跑 wakeup_chain 以恢复因果树") {
@@ -228,7 +237,7 @@ func TestRN13FlatAnchorMismatchHeaderAndNextStepZH(t *testing.T) {
 
 func TestRN13FlatAnchorMismatchHeaderAndNextStepEN(t *testing.T) {
 	md := audit730Render(t, rncBusWithEntities("en", "6565"), rncRunnableRecords(""), "en")
-	if !strings.Contains(md, "- analysis anchor = OS_FFRT_2_3-49706 (not the user-specified focus; the wakeup chain for 6565 was not queried this round)") {
+	if !strings.Contains(md, "- analysis anchor = OS_FFRT_2_3-49706 (not the user-specified focus; the wakeup chain for 6565 was not queried for this report)") {
 		t.Fatalf("EN flat header must explain the analysis anchor:\n%s", md)
 	}
 	if !strings.Contains(md, "Re-run wakeup_chain for the user-focused thread (6565) to restore the causal tree") {

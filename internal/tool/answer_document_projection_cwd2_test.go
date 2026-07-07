@@ -130,16 +130,19 @@ func TestCWD2E19MultiWindowSumSuppressesAnchorShare(t *testing.T) {
 		if !multi.Marks.has(runtimeTraceProjMarkMergedMultiWindowNoShare) {
 			t.Fatalf("zh=%v: the no-share mark must record for the legend", zh)
 		}
+		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 成员窗见无损块窗来源
+		// → 成员窗来源见明细 (无损块→明细); ×14 求和口径 → 同一线程 14 次实例合并求和
+		// (×N 明细族).
 		lead := runtimeTraceProjLeadText(cwd2E19Projection(2), multi, lang, zh)
-		entry := "- `×N` 多窗合并行不显示占窗% = 该行成员横跨多个查询窗,合并值与单一锚定窗不同基,不作跨窗除法(时长条仅示意相对量级);成员窗见无损块窗来源。"
+		entry := "- `×N` 多窗合并行不显示占窗% = 该行成员横跨多个查询窗,合并值与单一锚定窗不同基,不作跨窗除法(时长条仅示意相对量级);成员窗来源见明细。"
 		if !zh {
-			entry = "- multi-window `×N` rows show no window share = the row's members span multiple query windows, so the merged value shares no base with the single anchor window and is never divided across bases (the bar is relative scale only); the member windows live in the lossless block's window sources."
+			entry = "- multi-window `×N` rows show no window share = the row's members span multiple query windows, so the merged value shares no base with the single anchor window and is never divided across bases (the bar is relative scale only); the member windows live in the detail blocks' window sources."
 		}
 		if !strings.Contains(lead, entry) {
 			t.Fatalf("zh=%v: the no-share legend entry must render:\n%s", zh, lead)
 		}
 		lossless := runtimeTraceProjDetailFullText(multi, zh)
-		if zh && !strings.Contains(lossless, "×14 求和口径,单次 1.035–6.357ms") {
+		if zh && !strings.Contains(lossless, "同一线程 14 次实例合并求和,单次 1.035–6.357ms") {
 			t.Fatalf("the SUM caliber wording must stay (disjoint windows are a legal sum):\n%s", lossless)
 		}
 		if !strings.Contains(lossless, "6793222.700–6793222.801s") || !strings.Contains(lossless, "6793224.895–6793224.996s") {
@@ -311,7 +314,11 @@ func TestCWD2SymptomDenominatorCrossBaseGate(t *testing.T) {
 		t.Fatalf("fixture drifted: the target must publish an 80ms symptom denominator")
 	}
 	line := runtimeTraceProjWindowLine(crossed, model, true)
-	want := " 目标等待(sleep/D-state/runnable) 80.000ms;on-chain 归因口径合计 40.000ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因残差。"
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待 → 关注线程等待
+	// (其他族); on-chain 归因口径合计 → 各链上口径合计 (归因族); 不计未归因残差 →
+	// 不计未归因 (归因族); on-chain 已归因 → 链上已归因 (归因族); 「。 」粘连句 →
+	// 每句独立 "\n- " bullet (layout).
+	want := "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms;各链上口径合计 40.000ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。"
 	if !strings.Contains(line, want) {
 		t.Fatalf("cross-base symptom coverage must publish both magnitudes without %%:\n%s", line)
 	}
@@ -325,7 +332,7 @@ func TestCWD2SymptomDenominatorCrossBaseGate(t *testing.T) {
 		t.Fatalf("EN cross-base symptom disclosure missing:\n%s", en)
 	}
 
-	legacy := " 目标等待(sleep/D-state/runnable) 80.000ms 中 on-chain 已归因 40.000ms(50%),未归因 40.000ms(50%)。"
+	legacy := "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms 中链上已归因 40.000ms(50%),未归因 40.000ms(50%)。"
 	// Agreeing-window control: both rows measured in ONE window (even a
 	// non-anchor one) prove the same base — the legacy arithmetic stays.
 	same := cwd2SymptomProjection([2]float64{100.500, 100.652}, [2]float64{100.500, 100.652})
@@ -381,13 +388,16 @@ func TestCWD2ChainWindowConsensusRequiresChainAttestation(t *testing.T) {
 	unattested := cwd2HopOnlyProjection([2]float64{0, 0}, foreign)
 	model := buildRuntimeTraceProjTreeModel(unattested, nil, true)
 	line := runtimeTraceProjWindowLine(unattested, model, true)
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: on-chain 已归因 →
+	// 链上已归因, 未归因残差 → 未归因 (归因族); 目标睡眠 → 关注线程睡眠 (其他族);
+	// 非上句关注窗口 → 非上句分析窗 (窗族).
 	if strings.Contains(line, "链上数据来自查询窗") {
 		t.Fatalf("§21.1 CWD-2 ④: a self row alone must not name a chain-data window no chain row attested:\n%s", line)
 	}
-	if !strings.Contains(line, "on-chain 已归因 94.466ms/94%,未归因残差 6.534ms/6%。") {
+	if !strings.Contains(line, "链上已归因 94.466ms(94%),未归因 6.534ms(6%)。") {
 		t.Fatalf("the unattested shape keeps the legacy whole-window coverage (fail-open):\n%s", line)
 	}
-	if !strings.Contains(line, "目标睡眠 115.902ms(取自查询窗 3680.568s → 3680.720s,非上句关注窗口)中 94.466ms 已由链上解释。") {
+	if !strings.Contains(line, "关注线程睡眠 115.902ms(取自查询窗 3680.568s → 3680.720s,非上句分析窗)中 94.466ms 已由链上解释。") {
 		t.Fatalf("the hop-sleep magnitude still names its own per-row window base:\n%s", line)
 	}
 
@@ -456,7 +466,10 @@ func TestCWD2SymptomGateFiresOnMultiWindowMergedNumerator(t *testing.T) {
 		t.Fatalf("fixture drifted: the target must publish an 80ms symptom denominator")
 	}
 	line := runtimeTraceProjWindowLine(crossed, model, true)
-	if !strings.Contains(line, " 目标等待(sleep/D-state/runnable) 80.000ms;on-chain 归因口径合计 63.831ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因残差。") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待 → 关注线程等待
+	// (其他族); on-chain 归因口径合计 → 各链上口径合计, 不计未归因残差 → 不计未归因,
+	// on-chain 已归因 → 链上已归因 (归因族).
+	if !strings.Contains(line, "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms;各链上口径合计 63.831ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。") {
 		t.Fatalf("the multi-window merged numerator must fire the cross-base disclosure:\n%s", line)
 	}
 	for _, banned := range []string{"(80%)", "未归因 16.169ms"} {
@@ -469,7 +482,7 @@ func TestCWD2SymptomGateFiresOnMultiWindowMergedNumerator(t *testing.T) {
 	// the legacy symptom arithmetic stays byte-identical.
 	same := cwd2MergedSymptomProjection(1, [2]float64{100.000, 100.101}, [2]float64{100.000, 100.101})
 	sameLine := runtimeTraceProjWindowLine(same, buildRuntimeTraceProjTreeModel(same, nil, true), true)
-	if !strings.Contains(sameLine, " 目标等待(sleep/D-state/runnable) 80.000ms 中 on-chain 已归因 63.831ms(80%),未归因 16.169ms(20%)。") {
+	if !strings.Contains(sameLine, "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms 中链上已归因 63.831ms(80%),未归因 16.169ms(20%)。") {
 		t.Fatalf("single-window merged numerator keeps the legacy symptom coverage:\n%s", sameLine)
 	}
 }

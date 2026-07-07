@@ -17,7 +17,7 @@ package tool
 //	高∧显著      → 前两口径独立并列 (不可加和)
 //	高∧不显著    → 供给折算缺口为主,running 含跑慢成分
 //	无缺口       → basis 全 known: 肯定标注「已满频满核(或近满),running 属
-//	               真实工作量」; unknown>0: 如实「频点数据不全,无法折算」
+//	               真实工作量」; unknown>0: 如实「CPU 频率数据不全,无法折算」
 //
 // Wording lanes (RN-16 lint): 「供给折算缺口」 is ComputeDelivery-lane wording
 // and lives ONLY in runtimeTraceProjSupplyFoldClause below; the inversion
@@ -215,19 +215,19 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 			deficit, runtimeTraceSupplyPressureDisplayLabel(false), node.RunnableMS), "mechanism", true
 	case runtimeTraceProjSupplyFoldDominant:
 		if zh {
-			return fmt.Sprintf("供给折算缺口 %.3fms(按大核满频折算,下界)为主,running 含跑慢成分", deficit), "供给折算缺口", true
+			return fmt.Sprintf("供给折算缺口 %.3fms(按大核满频折算,下界)为主,running 时间含降频/小核导致的跑慢成分", deficit), "供给折算缺口", true
 		}
-		return fmt.Sprintf("supply-fold deficit %.3fms (folded at big-cluster fmax, lower bound) leads; running carries a running-slow share", deficit), "supply-fold deficit", true
+		return fmt.Sprintf("supply-fold deficit %.3fms (folded at big-cluster fmax, lower bound) leads; running time carries a slow share from down-clocking / little cores", deficit), "supply-fold deficit", true
 	case runtimeTraceProjSupplyFoldNoDeficit:
 		// Affirmative exclusion (§7.10 fourth branch, via_thread-NOT family
 		// value): only a fully-known basis may make this claim.
 		if zh {
-			return "已满频满核(或近满),running 属真实工作量", "已满频满核", true
+			return "已按大核满频(或接近)运行,无供给缺口,running 为真实工作量", "已按大核满频", true
 		}
 		return "ran at (near) full frequency on the top cluster; running is true workload", "full frequency", true
 	default: // runtimeTraceProjSupplyFoldUnknownBasis
 		if zh {
-			return "频点数据不全,无法折算", "频点数据不全", true
+			return "CPU 频率数据不全,无法折算", "CPU 频率数据不全", true
 		}
 		return "frequency data incomplete; supply fold not computable", "frequency data incomplete", true
 	}

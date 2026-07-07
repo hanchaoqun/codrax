@@ -330,8 +330,16 @@ func TestPTV6CCauseFullWordGuaranteeOnTruncatedName(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatalf("truncated-name row must demote tags: %s", line)
 	}
-	if !strings.Contains(lines[0], "优先级反…") && !strings.Contains(lines[0], "优先级反转…") {
-		t.Fatalf("fixture drift: the name cell should truncate across the cause word:\n%s", line)
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 名字格词中残词
+	// (优先级反…) → 整词让位 (composed-name suffix 词边界族: boundary-less
+	// cause suffix yields whole; the subject rides the name cell alone).
+	if !strings.Contains(lines[0], "CookieMonsterCl-59843") {
+		t.Fatalf("fixture drift: the pid-tailed subject must ride the name cell whole:\n%s", line)
+	}
+	for _, residue := range []string{"优先级反…", "优先级反转…", "优先级反转候…"} {
+		if strings.Contains(line, residue) {
+			t.Fatalf("a mid-word cause residue (%q) must never survive the boundary cut:\n%s", residue, line)
+		}
 	}
 	// 正向臂: cause 全词整词保障仍在 — PTV6-D (a) 悬崖消除后它抢占主行首个
 	// 普通 tag 槽位 (前: 从属行首条 "· 优先级反转候选" — 差表 in the PTV6-D
@@ -543,14 +551,16 @@ func TestPTV6CAggregateRowsIdleTheCumEffTagFamily(t *testing.T) {
 // a malformed note (end < start) renders no endpoints, never a fabricated
 // window; the state values still inline.
 func TestPTV6CActualWindowInlineStrictParse(t *testing.T) {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 实际对齐窗 →
+	// 数据实际覆盖 (窗族).
 	record := types.ObservationRecord{
 		RichNotes: []string{"actual_window=3681.2..3679.1", "actual_running=0.987"},
 	}
-	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "实际对齐窗: running 0.987ms" {
+	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "数据实际覆盖: running 0.987ms" {
 		t.Fatalf("malformed window must drop endpoints only: %q", got)
 	}
 	record.RichNotes[0] = "actual_window=3679.899436..3681.129875"
-	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "实际对齐窗 3679.899s–3681.130s: running 0.987ms" {
+	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "数据实际覆盖 3679.899s–3681.130s: running 0.987ms" {
 		t.Fatalf("strict-parsed window must inline at %%.3f: %q", got)
 	}
 }
@@ -758,21 +768,30 @@ func TestPTV6CEvidenceCoordinateTail(t *testing.T) {
 		ID: "E1", Ref: "/x/y/berlin.systrace:824646-1624260", Window: "[6793222.031–6793225.370s]",
 	}
 	// Window-preferred display dropped the lines → coordinate tail.
-	if got := runtimeTraceProjEvidenceCoordinateTail(entry, "berlin.systrace [6793222.031–6793225.370s]", true); got != "；详见 berlin.systrace 行 824646–1624260" {
+	if got := runtimeTraceProjEvidenceCoordinateTail(entry, "berlin.systrace [6793222.031–6793225.370s]", false, true); got != "；详见 berlin.systrace 行 824646–1624260" {
 		t.Fatalf("zh coordinate tail = %q", got)
 	}
-	if got := runtimeTraceProjEvidenceCoordinateTail(entry, "berlin.systrace [6793222.031–6793225.370s]", false); got != "; see berlin.systrace lines 824646–1624260" {
+	if got := runtimeTraceProjEvidenceCoordinateTail(entry, "berlin.systrace [6793222.031–6793225.370s]", false, false); got != "; see berlin.systrace lines 824646–1624260" {
 		t.Fatalf("en coordinate tail = %q", got)
 	}
 	// Display already shows the line range → no tail (path-directory trims are
-	// deliberate, not information loss).
-	if got := runtimeTraceProjEvidenceCoordinateTail(entry, ":824646-1624260", true); got != "" {
+	// deliberate, not information loss). PTV8-RCR-B (UXA 域C #6): the grouped
+	// "行 X–Y" en-dash form counts as showing the range too (normalized
+	// containment), and the grouped tail joins the 定位 field without the
+	// basename.
+	if got := runtimeTraceProjEvidenceCoordinateTail(entry, ":824646-1624260", false, true); got != "" {
 		t.Fatalf("line-range display must not grow a tail: %q", got)
+	}
+	if got := runtimeTraceProjEvidenceCoordinateTail(entry, "行 824646–1624260", true, true); got != "" {
+		t.Fatalf("en-dash line display must not grow a tail: %q", got)
+	}
+	if got := runtimeTraceProjEvidenceCoordinateTail(entry, "[6793222.031–6793225.370s]", true, true); got != ",行 824646–1624260" {
+		t.Fatalf("grouped coordinate tail = %q", got)
 	}
 	// CMP-7b synthetic-line entries never claim a line coordinate.
 	synthetic := entry
 	synthetic.SyntheticLine = true
-	if got := runtimeTraceProjEvidenceCoordinateTail(synthetic, "berlin.systrace [6793222.031–6793225.370s]", true); got != "" {
+	if got := runtimeTraceProjEvidenceCoordinateTail(synthetic, "berlin.systrace [6793222.031–6793225.370s]", false, true); got != "" {
 		t.Fatalf("synthetic entries must not claim line coordinates: %q", got)
 	}
 }
@@ -838,8 +857,10 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 		}
 	}
 	// 证据索引: 指路句族退场, trace 源坐标口径.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: trace 源坐标 →
+	// 每条证据在 trace 中的位置(行号或时间区间) (证据索引导语 结构⑥).
 	intro, items := runtimeTraceProjEvidenceBlockParts(evidence, true)
-	if !strings.Contains(intro, "trace 源坐标") {
+	if !strings.Contains(intro, "本索引给出每条证据在 trace 中的位置(行号或时间区间)与审计字段。") {
 		t.Fatalf("evidence intro must declare the coordinate caliber: %s", intro)
 	}
 	for _, item := range items {

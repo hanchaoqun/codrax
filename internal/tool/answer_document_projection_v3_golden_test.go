@@ -108,12 +108,15 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 	md := render.RenderAnswerDocument(bus.Mutable.AnswerDocumentV2(), "zh")
 
 	// Fact-only conclusion + window anchor + coverage subtraction.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 关注窗口 → 分析窗
+	// (窗族); on-chain 已归因/未归因残差 → 链上已归因/未归因 (归因族; coverage
+	// sentence now its own "\n- " bullet per structural item 1).
 	for _, want := range []string{
 		// 复核 Med (2026-07-06): the cumulative-source headline carries its
 		// caliber word and no 占窗 share (C00 同源门).
 		"**主根因:** binder:42591_4-42712 sleep（sleep_wait） 链上累计 38.400ms,下钻到 RenderService-3021",
-		"关注窗口 738291.402s → 738291.466s,共 64.000ms",
-		"on-chain 已归因 38.400ms/60%,未归因残差 25.600ms/40%",
+		"分析窗 738291.402s → 738291.466s,共 64.000ms",
+		"\n- 链上已归因 38.400ms(60%),未归因 25.600ms(40%)",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("berlin golden missing lead fact %q:\n%s", want, md)
@@ -133,7 +136,11 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		"满格=窗口64.000ms",
 		"└─下钻─ ❶☾ binder:42591_4-42712 · sleep",
 		"├─唤醒─ ❷⚙ RenderService-3021 · 算力供给",
-		"└─唤醒─ ⧖ DispatchQueue-771 · ",
+		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: subordinate
+		// "·" tag lines now pack at most TWO notes per line (structural item
+		// 11) — the packed three-note pins split; the deep-row edge-prefix pin
+		// keeps the full ─唤醒─ prefix without the demoted "· " separator.
+		"└─唤醒─ ⧖ DispatchQueue-771",
 		"└─唤醒─ ☾ IOWorker-8842 · ",
 		"└─语义─ ✦ VerifyClass com.example.rende…",
 		"⚠实际52.700ms · [E1]",
@@ -146,8 +153,10 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		// 算力供给候选 identity, and the ordinary tags pack below.
 		"33%  [E2]",
 		"· 算力供给候选·根因排序#2·置信高",
-		"· running · 链上L2 · 有效归因27.900ms",
-		"· runnable_delay · runnable · 链上L3",
+		"· running · 链上L2",
+		"· 有效归因27.900ms",
+		"· runnable_delay · runnable",
+		"· 链上L3",
 		// PTV5 C02 (#68): the stanza header speaks the legend's own noun.
 		"◇ 邻近区段",
 		"▒ 背景压力",
@@ -172,19 +181,23 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 	// PTV4 T10: the (a) key-metric rows carry the duration quad; the
 	// qualitative cells (layer / position / type / relation / shape) live on
 	// the (b) vertical blocks — still in the SAME rendered markdown.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 深度1 → 链上L1
+	// (chain arm, structural item 5); 因果位置·优先级 → 因果位置 with merged
+	// vocab 主根因(优先处理); "关系 ▸ 影响点" → full-clause "- 关系:" lines
+	// (由 X 下钻得到 / 唤醒 X / X 的语义span).
 	for _, want := range []string{
 		"| 38.400ms | 38.400ms | 36.100ms | 52.700ms ⚠ |",
 		"| 21.300ms | 27.900ms | 27.900ms | 27.900ms |",
-		"- 层级: 深度1",
-		"- 因果位置·优先级: 主根因 · 主要关注",
+		"- 层级: 链上L1",
+		"- 因果位置: 主根因(优先处理)",
 		"- 类型: sleep_wait",
 		"- 影响形态: sleep / 等待唤醒",
 		"- 影响形态: running / CPU执行",
-		"- 关系 ▸ 影响点: 下钻 ▸ oney.hmn.berlin-42591",
+		"- 关系: 由 oney.hmn.berlin-42591 下钻得到",
 		"- 类型: compute_supply",
-		"- 关系 ▸ 影响点: 唤醒 ▸ binder:42591_4-42712",
+		"- 关系: 唤醒 binder:42591_4-42712",
 		"RenderService-3021 / VerifyClass com.example.render.Pipeline",
-		"- 关系 ▸ 影响点: 语义span ▸ binder:42591_4-42712",
+		"- 关系: binder:42591_4-42712 的语义span",
 		"语义优化span·class_verification",
 		"IOWorker-8842 / sleep ⊘",
 	} {
@@ -193,7 +206,9 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		}
 	}
 	// File-grouped evidence roster.
-	if !strings.Contains(md, "全部证据位于 `berlin.systrace`") || !strings.Contains(md, ":104233-104391") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: grouped per-entry
+	// locator ":X-Y" → "行 X–Y" (en-dash, structural item 6).
+	if !strings.Contains(md, "全部证据位于 `berlin.systrace`") || !strings.Contains(md, "行 104233–104391") {
 		t.Fatalf("berlin golden should group evidence by file:\n%s", md)
 	}
 	// Zero mermaid; single text fence tree.
@@ -264,7 +279,9 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 
 	// Fallback scale (no window anchor): declared, never fabricated — no
 	// conclusion-line window share and no bar-column percentages.
-	if !strings.Contains(md, "窗口起止未采集") || !strings.Contains(md, "满格=本批最大117.928ms") ||
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 本批 → 本报告
+	// (其他族 本轮/本批→本报告).
+	if !strings.Contains(md, "窗口起止未采集") || !strings.Contains(md, "满格=本报告最大117.928ms") ||
 		strings.Contains(md, "(占窗") {
 		t.Fatalf("aweme golden must run in fallback scale without window percentages:\n%s", md)
 	}
@@ -272,7 +289,9 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 	// PTV7 canonical word: the sleep self row speaks the StateKindLabel
 	// (☾ sleep); the raw s_sleep token stays on the (a)/(b) audit surfaces
 	// (asserted right below) and must not resurface on the tree's self line.
-	for _, want := range []string{"⊚ .ugc.aweme.lite-16547 ‹用户关注线程›", "☾ sleep 112.175", "/ s_sleep [E1]"} {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: bare "/ s_sleep"
+	// audit cell → PTV7 alias form "/ sleep（s_sleep）" (typelabels item 12).
+	for _, want := range []string{"⊚ .ugc.aweme.lite-16547 ‹用户关注线程›", "☾ sleep 112.175", "/ sleep（s_sleep） [E1]"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("aweme golden missing target/self surface %q:\n%s", want, md)
 		}

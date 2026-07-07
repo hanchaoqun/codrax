@@ -429,9 +429,11 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceNextStepFromTypedObservati
 	// competitor data survives, and the system-fixed English prose never leaks.
 	// Rows with different CPU / competitor data stay separate (record-payload
 	// dedupe key, not rendered text).
-	if len(next.Items) != 2 || next.Items[0].Label != "下一步" ||
-		next.Items[0].Text != "排查同CPU(cpu=1)竞争:top 运行线程 rival-30、优先级与CPU频率" ||
-		next.Items[1].Text != "排查同CPU(cpu=6)竞争:top 运行线程 rival-40、优先级与CPU频率" {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: per-item Label 下一步
+	// → "" (block title carries 下一步); 同CPU→同 CPU, CPU频率→CPU 频率 (其他族).
+	if len(next.Items) != 2 || next.Items[0].Label != "" ||
+		next.Items[0].Text != "排查同 CPU(cpu=1)竞争:top 运行线程 rival-30、优先级与 CPU 频率" ||
+		next.Items[1].Text != "排查同 CPU(cpu=6)竞争:top 运行线程 rival-40、优先级与 CPU 频率" {
 		t.Fatalf("next step items did not compose typed competitor data: %+v", next.Items)
 	}
 	if strings.Contains(next.Items[0].Text, "inspect") {
@@ -515,7 +517,9 @@ func TestEmitAnswerDocumentV2_RuntimeTraceNextStepEnglishKeepsSystemProse(t *tes
 		t.Fatalf("missing next_steps block: %+v", doc.Blocks)
 	}
 	// English answers keep the original system prose verbatim (§7.30 裁定5).
-	if next.Items[0].Label != "Next step" ||
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: per-item Label
+	// "Next step" → "" (block title carries it).
+	if next.Items[0].Label != "" ||
 		!strings.Contains(next.Items[0].Text, "rival-30") ||
 		!strings.Contains(next.Items[0].Text, "CPU pressure") {
 		t.Fatalf("English next step must keep the system prose: %+v", next.Items)
@@ -568,23 +572,26 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromTypedObs
 	if snapshot.ID != "runtime_trace_metric_snapshot" || snapshot.Kind != types.BlockBulletList {
 		t.Fatalf("missing metric snapshot block: %+v", doc.Blocks)
 	}
-	if len(snapshot.Items) != 1 || snapshot.Items[0].Label != "app-20 state_churn" {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: label
+	// "app-20 state_churn" → "app-20 状态切换(state_churn)"; 主导状态→主导;
+	// 状态段数 21/切换次数 20 → 切换特征: 20 次切换/21 段; P95段长→P95 段长;
+	// header 状态时长(括号为占该线程观测时长比例) carries the H13 denominator.
+	if len(snapshot.Items) != 1 || snapshot.Items[0].Label != "app-20 状态切换(state_churn)" {
 		t.Fatalf("unexpected metric snapshot items: %+v", snapshot.Items)
 	}
 	// §7.30 S2: the snapshot line is humanized + localized (no raw key=value
 	// dump); the raw typed pairs remain in the observation record.
 	line := snapshot.Items[0].Text
 	for _, want := range []string{
-		"主导状态 runnable",
+		"主导 runnable",
 		"running 3.500ms",
 		"runnable 5.000ms",
 		"sleep 0.000ms",
 		"D-state 0.000ms",
 		"iowait 0.000ms",
-		"状态段数 21",
-		"切换次数 20",
+		"切换特征: 20 次切换/21 段",
 		"最长单段 0.500ms",
-		"P95段长 0.500ms",
+		"P95 段长 0.500ms",
 	} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("metric snapshot missing %q:\n%s", want, line)
@@ -709,23 +716,27 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromSummaryT
 	// Pin updated 2026-07-03 (H13): the share denominator is the thread's own
 	// observed total, and the wording must say so — "(占41%)" read as a
 	// window share in the berlin customer session.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: the H13 denominator
+	// moved from every share paren into the single header
+	// 状态时长(括号为占该线程观测时长比例); shares are bare (NN%); segment/switch
+	// counts regrouped as 切换特征: N 次切换/M 段.
 	for _, want := range []string{
-		"主导状态 runnable",
-		"running 3.500ms(占该线程观测时长41%)",
-		"runnable 5.000ms(占该线程观测时长59%)",
+		"状态时长(括号为占该线程观测时长比例)",
+		"主导 runnable",
+		"running 3.500ms(41%)",
+		"runnable 5.000ms(59%)",
 		"sleep 0.000ms",
 		"D-state 0.000ms",
 		"iowait 0.000ms",
-		"状态段数 21",
-		"切换次数 20",
+		"切换特征: 20 次切换/21 段",
 		"最长单段 0.500ms",
-		"P95段长 0.500ms",
+		"P95 段长 0.500ms",
 	} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("summary-token metric snapshot missing %q:\n%s", want, line)
 		}
 	}
-	if !strings.Contains(line, "最长单段 0.500ms;P95段长 0.500ms") {
+	if !strings.Contains(line, "最长单段 0.500ms,P95 段长 0.500ms") {
 		t.Fatalf("max/p95 metrics should stay on one snapshot line:\n%s", line)
 	}
 }
@@ -771,7 +782,9 @@ func TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisZH(t *testing.T) {
 	// 2026-07-03, H13 — denominator named explicitly.) PTV6-C ruling C (#73):
 	// the aligned actual-window VALUES inline; the intermediate-record pointer
 	// is retired (负向臂 below — 回现即红).
-	for _, want := range []string{"running 3.500ms(占该线程观测时长41%)", "窗口基准: 选定窗(实际对齐窗: 影响 6.000ms)"} {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 选定窗→查询窗,
+	// 实际对齐窗→数据实际覆盖 (窗族); share denominator lives in the header paren.
+	for _, want := range []string{"状态时长(括号为占该线程观测时长比例)", "running 3.500ms(41%)", "窗口基准: 查询窗;数据实际覆盖: 影响 6.000ms"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("snapshot missing window basis %q:\n%s", want, line)
 		}
@@ -826,7 +839,9 @@ func TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisEndpointsZH(t *testing.T)
 	line := snapshot.Items[0].Text
 	// PTV6-C ruling C (#73): endpoints inline AND the aligned actual values
 	// inline — the intermediate-record pointer is retired.
-	if !strings.Contains(line, "窗口基准: 选定窗 3679.899s–3681.130s(实际对齐窗: 影响 6.000ms)") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 选定窗→查询窗,
+	// 实际对齐窗→数据实际覆盖 (窗族).
+	if !strings.Contains(line, "窗口基准: 查询窗 3679.899s–3681.130s;数据实际覆盖: 影响 6.000ms") {
 		t.Fatalf("snapshot window basis must render the selected-window endpoints:\n%s", line)
 	}
 	if strings.Contains(line, "见原始 trace_query 记录") {
@@ -876,15 +891,18 @@ func TestEmitAnswerDocumentV2_MetricSnapshotEnglishHumanized(t *testing.T) {
 	line := snapshot.Items[0].Text
 	// Share wording pin updated 2026-07-03 (H13): the denominator is the
 	// thread's own observed span and the EN surface names it too.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: EN mirrors the zh
+	// regroup — denominator in the header paren, bare (NN%) shares, switching
+	// clause "20 switches/21 segments", window basis "actual data coverage".
 	for _, want := range []string{
-		"dominant state runnable",
-		"running 3.500ms (41% of this thread's observed span)",
-		"runnable 5.000ms (59% of this thread's observed span)",
-		"state segments 21",
-		"switches 20",
+		"state durations (parentheses = share of this thread's observed span)",
+		"dominant runnable",
+		"running 3.500ms (41%)",
+		"runnable 5.000ms (59%)",
+		"switching: 20 switches/21 segments",
 		"longest segment 0.500ms",
 		"p95 segment 0.500ms",
-		"window basis: selected window (aligned actual window: impact 6.000ms)",
+		"window basis: selected window (actual data coverage: impact 6.000ms)",
 	} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("EN snapshot missing %q:\n%s", want, line)

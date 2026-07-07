@@ -215,12 +215,14 @@ func ptv5HopOnlyModel(withStateRow bool) (types.TraceCausalProjection, runtimeTr
 }
 
 func TestPTV5HopOnlyCoverageInfoLine(t *testing.T) {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标睡眠 →
+	// 关注线程睡眠 (其他族: 目标等待/目标睡眠→关注线程等待/睡眠).
 	projection, model := ptv5HopOnlyModel(false)
 	if runtimeTraceProjTargetSymptomMS(model) != 0 {
 		t.Skipf("fixture drifted: expected a hop-only self lane")
 	}
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "目标睡眠 120.000ms 中 40.000ms 已由链上解释。") {
+	if !strings.Contains(line, "关注线程睡眠 120.000ms 中 40.000ms 已由链上解释。") {
 		t.Fatalf("hop-only shape must relate target sleep to the chain-explained share:\n%s", line)
 	}
 	en := runtimeTraceProjWindowLine(projection, model, false)
@@ -228,10 +230,10 @@ func TestPTV5HopOnlyCoverageInfoLine(t *testing.T) {
 		t.Fatalf("EN hop-only info line missing:\n%s", en)
 	}
 	// 突变形态: a state-view symptom row exists → the (a) variant renders and
-	// the hop-only line stays out.
+	// the hop-only line stays out (new canonical word AND the retired word).
 	projection2, model2 := ptv5HopOnlyModel(true)
 	line2 := runtimeTraceProjWindowLine(projection2, model2, true)
-	if strings.Contains(line2, "目标睡眠") && strings.Contains(line2, "已由链上解释") {
+	if (strings.Contains(line2, "关注线程睡眠") || strings.Contains(line2, "目标睡眠")) && strings.Contains(line2, "已由链上解释") {
 		t.Fatalf("state-view symptom shapes must not add the hop-only info line:\n%s", line2)
 	}
 }
@@ -247,10 +249,15 @@ func TestPTV5QueryWindowDeclarationLine(t *testing.T) {
 			{StartTs: 100.0, EndTs: 100.2}, {StartTs: 200.0, EndTs: 203.0},
 		},
 	}
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 本投影锚定其一 →
+	// 本因果树基于其中之一;删「(按查询窗分组)」尾 (窗族/多窗声明行).
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "- 本报告数据来自 2 个查询窗(本投影锚定其一);各窗指标见 Trace 指标快照(按查询窗分组)") {
+	if !strings.Contains(line, "- 本报告数据来自 2 个查询窗(本因果树基于其中之一);各窗指标见 Trace 指标快照") {
 		t.Fatalf("≥2 query windows must declare the count on the tree header:\n%s", line)
+	}
+	if strings.Contains(line, "(按查询窗分组)") || strings.Contains(line, "本投影锚定其一") {
+		t.Fatalf("retired multi-window declaration wording resurfaced:\n%s", line)
 	}
 	en := runtimeTraceProjWindowLine(projection, model, false)
 	if !strings.Contains(en, "This report draws on 2 query windows") {
@@ -287,10 +294,12 @@ func TestPTV5MultiWindowNextStepBranch(t *testing.T) {
 			obs("r2", 300, "200.000..203.000"),
 		},
 	}}})
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 分别执行同口径
+	// 因果采样…后逐窗对比 → 分别做同样的根因分析…,再逐窗对比 (下一步族).
 	steps := runtimeTraceNextStepMultiWindowSteps(ledger, true)
 	if len(steps) != 2 ||
 		steps[0] != "本 trace 含 2 个查询窗:窗长不同时先按各自窗长归一化(占窗比例)再跨窗对比" ||
-		steps[1] != "双窗对比:对每个查询窗分别执行同口径因果采样(wakeup_chain/root_cause_rank)后逐窗对比" {
+		steps[1] != "双窗对比:对每个查询窗分别做同样的根因分析(wakeup_chain/root_cause_rank),再逐窗对比" {
 		t.Fatalf("single-artifact multi-window shape must emit the CMP-9 + per-window sampling rows: %+v", steps)
 	}
 	// 突变形态: one window → no branch.
@@ -430,7 +439,10 @@ func TestPTV5ComparisonOverviewLeadDropsTypedJargon(t *testing.T) {
 	if block == nil {
 		t.Fatalf("comparison fixture must build the overview block")
 	}
-	if !strings.Contains(block.Text, "跨 trace 对比总览:数值全部来自各工件独立投影的结构化字段") ||
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 数值全部来自
+	// 各工件独立投影的结构化字段 → 数值来自各份 trace 独立的投影 (对比总览
+	// 结构⑦; 工件→trace 文件族).
+	if !strings.Contains(block.Text, "跨 trace 对比总览:数值来自各份 trace 独立的投影,跨线程累计值带单位标注,详情见各 trace 分段。") ||
 		strings.Contains(block.Text, "typed") {
 		t.Fatalf("zh overview lead must speak the structured-field wording without typed: %q", block.Text)
 	}
@@ -502,7 +514,10 @@ func TestPTV5GatedDetailLegendRows(t *testing.T) {
 	}
 	// The PTV4 fixture shows ×N sum, ×N max and ×N同值 forms → the gated
 	// legend row lists exactly the present forms.
-	if !strings.Contains(detail.Text, "- ×N(a–b) = N 次合并,数值为总和;×N(a–b)取最大 = 跨线程折叠,数值取成员最大(墙钟不求和);×N同值 = 同一测量重复发布,数值即那一次。") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: N 次合并/墙钟
+	// 不求和 → 同一(线程,原因)的 N 次实例合并/墙钟跨线程不可加和 (口径族,
+	// canonical 三面同词).
+	if !strings.Contains(detail.Text, "- ×N(a–b) = 同一(线程,原因)的 N 次实例合并,数值为总和;×N(a–b)取最大 = 跨线程折叠,数值取成员最大(墙钟跨线程不可加和);×N同值 = 同一测量重复发布,数值即那一次。") {
 		t.Fatalf("×N legend row must list the present forms:\n%s", detail.Text)
 	}
 	// 突变形态: a plain projection carries neither gated row.
@@ -612,7 +627,9 @@ func TestPTV5LegendAndIntroDropHalfEnglishRoster(t *testing.T) {
 	if detail == nil || full == nil {
 		t.Fatalf("fixture must render both detail surfaces")
 	}
-	if !strings.Contains(detail.Text, "×N 全部成员清单") || strings.Contains(detail.Text, "全 roster") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: ×N 全部成员清单 →
+	// ×N 成员清单 (图例指路句/域B).
+	if !strings.Contains(detail.Text, "×N 成员清单") || strings.Contains(detail.Text, "全 roster") {
 		t.Fatalf("the (a) legend speaks zh for the roster pointer:\n%s", detail.Text)
 	}
 	if !strings.Contains(full.Text, "树内省略行清单") || strings.Contains(full.Text, "省略行 roster") {
@@ -692,7 +709,9 @@ func TestPTV5FallbackRowsHoldRowCapFullWidthSweep(t *testing.T) {
 
 // TestPTV5SnapshotPerWindowFloor (复核 Med): when one window's candidates
 // would monopolize the legacy 2 slots, the per-window floor still gives every
-// window at least one row — the tree header's 按查询窗分组 claim stays true.
+// window at least one row — keeping the tree header's per-window snapshot
+// pointer true (PTV8-RCR-B D#16 retired the "(按查询窗分组)" parenthetical,
+// not the per-window guarantee).
 func TestPTV5SnapshotPerWindowFloor(t *testing.T) {
 	bus := newBusForMutationTest()
 	a1 := cmpbSnapshotObservation("a1", "busy-1", "9.000", "state_drilldown", "state_drilldown:busy-1:s_sleep",

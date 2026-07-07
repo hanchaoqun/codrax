@@ -77,7 +77,8 @@ func TestRuntimeTraceMetricSnapshot_ChainThreadsPreemptUnrelatedThreads(t *testi
 	if len(items) != 1 {
 		t.Fatalf("expected exactly the chain-thread snapshot row (unrelated excluded), got %+v", items)
 	}
-	if items[0].Label != "chainy-2 state_churn" {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: label <subject> state_churn → <subject> 状态切换(state_churn) (快照族)
+	if items[0].Label != "chainy-2 状态切换(state_churn)" {
 		t.Fatalf("chain thread must win the snapshot slot: %+v", items[0])
 	}
 	for _, item := range items {
@@ -104,7 +105,8 @@ func TestRuntimeTraceMetricSnapshot_EntityThreadsRankAboveRest(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("expected entity + rest snapshot rows, got %+v", items)
 	}
-	if items[0].Label != "ent-7 state_churn" || items[1].Label != "noisy-9 state_churn" {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: label <subject> state_churn → <subject> 状态切换(state_churn) (快照族)
+	if items[0].Label != "ent-7 状态切换(state_churn)" || items[1].Label != "noisy-9 状态切换(state_churn)" {
 		t.Fatalf("analyzer-entity thread must rank first: %+v", items)
 	}
 }
@@ -131,10 +133,11 @@ func TestRuntimeTraceMetricSnapshot_SpanMismatchAnnotation(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("expected two snapshot rows, got %+v", items)
 	}
-	if !strings.Contains(items[0].Text, "(观测跨度 2.5s,远超投影窗,仅供背景参考)") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 观测跨度 → 数据实际覆盖;远超投影窗 → 远超分析窗 (窗族)
+	if !strings.Contains(items[0].Text, "(数据实际覆盖 2.5s,远超分析窗,仅供背景参考)") {
 		t.Fatalf("2500ms span vs 1000ms window must carry the mismatch note:\n%s", items[0].Text)
 	}
-	if strings.Contains(items[1].Text, "观测跨度") {
+	if strings.Contains(items[1].Text, "远超分析窗") {
 		t.Fatalf("1500ms span vs 1000ms window (within 2x) must NOT carry the note:\n%s", items[1].Text)
 	}
 }
@@ -155,7 +158,8 @@ func TestRuntimeTraceMetricSnapshot_MultiArtifactLabelPrefix(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("expected one snapshot row per artifact, got %+v", items)
 	}
-	if items[0].Label != "one.trace · alpha-1 state_churn" || items[1].Label != "two.trace · beta-2 state_churn" {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: label <subject> state_churn → <subject> 状态切换(state_churn) (快照族)
+	if items[0].Label != "one.trace · alpha-1 状态切换(state_churn)" || items[1].Label != "two.trace · beta-2 状态切换(state_churn)" {
 		t.Fatalf("multi-artifact snapshot rows must carry the artifact prefix: %+v", items)
 	}
 }
@@ -206,12 +210,13 @@ func TestRuntimeTraceProjFlatFallback_NoOnChainLabelAndSyntheticLocator(t *testi
 	if !strings.Contains(rendered, "按层级平铺") {
 		t.Fatalf("fixture must take the flat fallback:\n%s", rendered)
 	}
-	// CMP-7a: 因果位置 shows the flat form, never "on-chain · 重点关注".
-	if !strings.Contains(rendered, "平铺(链不可上溯) · 重点关注") {
+	// CMP-7a: 因果位置 shows the flat form, never an on-chain claim.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 因果位置 cell 平铺(链不可上溯) · 重点关注 → 因果位置: 平铺(链不可上溯);on-chain cell → 链上(重点) (根因族/明细块)
+	if !strings.Contains(rendered, "因果位置: 平铺(链不可上溯)") {
 		t.Fatalf("flat render must label the causal position 平铺(链不可上溯):\n%s", rendered)
 	}
-	if strings.Contains(rendered, "on-chain · 重点关注") {
-		t.Fatalf("flat render must not claim on-chain in the causal-position column:\n%s", rendered)
+	if strings.Contains(rendered, "on-chain · 重点关注") || strings.Contains(rendered, "因果位置: 链上") {
+		t.Fatalf("flat render must not claim on-chain in the causal-position line:\n%s", rendered)
 	}
 	// CMP-7a: the audit summary swaps the on-chain causality claim for the
 	// typed flat token (raw record keeps the verbatim causality note).
@@ -253,10 +258,10 @@ func TestRuntimeTraceProjResolvedChain_KeepsOnChainLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	rendered := render.RenderAnswerDocument(bus.Mutable.AnswerDocumentV2(), "zh")
-	// PTV5 C30 (#68): the zh 因果位置 cell says 链上 (product word); the raw
-	// causality token stays in the audit lane.
+	// PTV5 C30 (#68): the raw causality token stays in the audit lane.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 链上 · 重点关注 → merged 因果位置 vocab; this fixture's rows are the target thread itself → 因果位置: 关注线程自身 (根因族/明细块)
 	if !strings.Contains(rendered, "causality=on_wakeup_chain") ||
-		!strings.Contains(rendered, "链上 · 重点关注") {
+		!strings.Contains(rendered, "因果位置: 关注线程自身") {
 		t.Fatalf("resolved-chain render keeps the on-chain labels:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "on-chain · 重点关注") {
@@ -288,10 +293,11 @@ func TestRuntimeTraceMetricSnapshotDisplayText_SelectedWindowEndpoints(t *testin
 			"selected_window=3679.899436..3681.129875",
 		},
 	}
-	if zhText := runtimeTraceMetricSnapshotDisplayText(record, true); !strings.Contains(zhText, "窗口基准: 选定窗 3679.899s–3681.130s(实际对齐窗: 影响 6.000ms)") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 选定窗 → 查询窗;实际对齐窗 → 数据实际覆盖 (窗族;aligned clause 拆平为 ";" 并列;EN keeps "selected window" + "actual data coverage")
+	if zhText := runtimeTraceMetricSnapshotDisplayText(record, true); !strings.Contains(zhText, "窗口基准: 查询窗 3679.899s–3681.130s;数据实际覆盖: 影响 6.000ms") {
 		t.Fatalf("ZH snapshot basis must carry the selected-window endpoints:\n%s", zhText)
 	}
-	if enText := runtimeTraceMetricSnapshotDisplayText(record, false); !strings.Contains(enText, "window basis: selected window 3679.899s–3681.130s (aligned actual window: impact 6.000ms)") {
+	if enText := runtimeTraceMetricSnapshotDisplayText(record, false); !strings.Contains(enText, "window basis: selected window 3679.899s–3681.130s (actual data coverage: impact 6.000ms)") {
 		t.Fatalf("EN snapshot basis must carry the selected-window endpoints:\n%s", enText)
 	}
 
@@ -299,14 +305,14 @@ func TestRuntimeTraceMetricSnapshotDisplayText_SelectedWindowEndpoints(t *testin
 	// byte-identical, no fabricated endpoints.
 	record.RichNotes[len(record.RichNotes)-1] = "selected_window=3681.129875..3679.899436"
 	zhText := runtimeTraceMetricSnapshotDisplayText(record, true)
-	if !strings.Contains(zhText, "窗口基准: 选定窗(实际对齐窗: 影响 6.000ms)") {
+	if !strings.Contains(zhText, "窗口基准: 查询窗;数据实际覆盖: 影响 6.000ms") {
 		t.Fatalf("malformed note must keep the endpoint-less ZH basis wording:\n%s", zhText)
 	}
-	if strings.Contains(zhText, "选定窗 3") {
+	if strings.Contains(zhText, "查询窗 3") {
 		t.Fatalf("malformed note must not render endpoints:\n%s", zhText)
 	}
 	enText := runtimeTraceMetricSnapshotDisplayText(record, false)
-	if !strings.Contains(enText, "window basis: selected window (aligned actual window: impact 6.000ms)") {
+	if !strings.Contains(enText, "window basis: selected window (actual data coverage: impact 6.000ms)") {
 		t.Fatalf("malformed note must keep the endpoint-less EN basis wording:\n%s", enText)
 	}
 }

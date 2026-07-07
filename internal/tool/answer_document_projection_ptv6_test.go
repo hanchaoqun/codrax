@@ -416,9 +416,12 @@ func TestPTV6LegendWordingVerbatimPins(t *testing.T) {
 		// 修正轮 Med (如实化): near-duplicates (≤3%) fold; clearly different
 		// overlapping measurements legitimately accumulate (B 批 S3) — the
 		// entry no longer over-claims that every same-thread overlap folds.
+		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 累计投影/
+		// 近似重复测量(≤3%)已按重复发布折叠 → 累计/几乎相同的重复记录
+		// (差异≤3%)只计一次 (图例口径族去实现词).
 		runtimeTraceProjMarkOverWindowShare: {
-			"- 占窗>100% = 跨CPU/多段累计投影,可合法超出窗口长度(时长条已封顶);同一线程的近似重复测量(≤3%)已按重复发布折叠;差异明显的重叠测量按多段累计。",
-			"- A >100% window share = a multi-CPU / multi-span cumulative projection that may legitimately exceed the window (the bar is capped); same-thread near-duplicate measurements (≤3%) are folded as duplicate publications; clearly different overlapping measurements accumulate as multiple spans.",
+			"- 占窗>100% = 跨CPU/多段累计,可合法超过窗口长度(时长条已封顶);同一线程几乎相同的重复记录(差异≤3%)只计一次,明显不同的重叠段分段累计。",
+			"- A >100% window share = a multi-CPU / multi-span cumulative that may legitimately exceed the window (the bar is capped); near-identical same-thread duplicate records (≤3% apart) count once, clearly different overlapping segments accumulate per segment.",
 		},
 		// 修正轮 Low: no single-step percentage (transitive folds may drift
 		// beyond it); the caliber is "the largest published copy in the fold".

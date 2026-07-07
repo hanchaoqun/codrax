@@ -623,6 +623,11 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	}
 	out.IdentityRow = strings.Join(identity, sep)
 	row.marks.mark(runtimeTraceProjMarkCauseIdentityRow)
+	if out.ConsumedEffective {
+		// PTV8-RCR-B (UXA 域A #31): every lane that prints the 有效归因 word
+		// (行2 degenerate tail / 行3 breakdown) teaches it via its legend seat.
+		row.marks.mark(runtimeTraceProjMarkEffectiveAttributionTag)
+	}
 	return out, true
 }
 

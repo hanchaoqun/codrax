@@ -78,7 +78,9 @@ func TestSFDRunningTwinJoinRendersFoldCaliberZH(t *testing.T) {
 	// The running twin's joined clause (deficit-dominant branch wording —
 	// only reachable on the twin: the donor's own runnable 150ms renders the
 	// Triple branch instead).
-	if !strings.Contains(despaced, "供给折算缺口17.702ms(按大核满频折算,下界)为主,running含跑慢成分") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: "running含跑慢成分"
+	// → "running时间含降频/小核导致的跑慢成分" (供给折算族).
+	if !strings.Contains(despaced, "供给折算缺口17.702ms(按大核满频折算,下界)为主,running时间含降频/小核导致的跑慢成分") {
 		t.Fatalf("running twin must render the joined supply-fold caliber:\n%s", md)
 	}
 	// PTV8-RCR-A EVOLUTION RECORD (§24 ②): the donor is an inversion cause
@@ -126,7 +128,9 @@ func TestSFDRunningTwinNoJoinOnKeyMismatch(t *testing.T) {
 		records := []types.ObservationRecord{sfdQ6Anchor(), sfdQ6TwinObs(), donor}
 		md := audit730Render(t, audit730Bus(""), records, "")
 		despaced := vs2Despace(md)
-		if strings.Contains(despaced, "为主,running含跑慢成分") {
+		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: negative pin
+		// migrates with the clause — "running含跑慢成分" → "running时间含降频".
+		if strings.Contains(despaced, "为主,running时间含降频") {
 			t.Fatalf("%s mismatch must never join (fail-open to the bare value):\n%s", name, md)
 		}
 		if !strings.Contains(despaced, "有效归因58.919ms") {
@@ -145,7 +149,9 @@ func TestSFDRunningTwinNoJoinOnKeyMismatch(t *testing.T) {
 func TestSFDRunningTwinBareWithoutSibling(t *testing.T) {
 	records := []types.ObservationRecord{sfdQ6Anchor(), sfdQ6TwinObs()}
 	md := audit730Render(t, audit730Bus(""), records, "")
-	for _, banned := range []string{"供给折算缺口", "机制构成", "已满频满核", "频点数据不全"} {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: banned clause words
+	// migrate — 已满频满核→已按大核满频, 频点数据不全→频率数据不全 (new "CPU 频率数据不全").
+	for _, banned := range []string{"供给折算缺口", "机制构成", "已按大核满频", "频率数据不全"} {
 		if strings.Contains(md, banned) {
 			t.Fatalf("no sibling → no fold wording (%q leaked):\n%s", banned, md)
 		}
@@ -181,7 +187,9 @@ func TestSFDXNSumRowCarriesNoFoldClause(t *testing.T) {
 	if !strings.Contains(md, "×3") || !strings.Contains(md, "42.000") {
 		t.Fatalf("the ×3 member SUM row must render:\n%s", md)
 	}
-	for _, banned := range []string{"供给折算缺口", "已满频满核", "频点数据不全", "机制构成"} {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: banned clause words
+	// migrate to the new forms (see TestSFDRunningTwinBareWithoutSibling).
+	for _, banned := range []string{"供给折算缺口", "已按大核满频", "频率数据不全", "机制构成"} {
 		if strings.Contains(md, banned) {
 			t.Fatalf("a member SUM must carry no single-member fold clause (%q leaked):\n%s", banned, md)
 		}
@@ -198,11 +206,15 @@ func TestSFDRunningTwinJoinUnknownBasisBranch(t *testing.T) {
 		"supply_fold_deficit_ms=0.400", "supply_fold_ideal_ms=30.000",
 		"fold_basis=known=30.400ms,unknown=28.519ms")}
 	md := audit730Render(t, audit730Bus(""), records, "")
-	collapsed := rn1CollapseContinuations(md)
-	if got := strings.Count(collapsed, "频点数据不全,无法折算"); got < 3 {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: "频点数据不全" →
+	// "CPU 频率数据不全" (供给折算族); count moves to the despaced surface (the
+	// new clause carries an ASCII space the wrap/collapse may not preserve);
+	// negative pin migrates to the new affirmative form 已按大核满频.
+	despaced := vs2Despace(md)
+	if got := strings.Count(despaced, "CPU频率数据不全,无法折算"); got < 3 {
 		t.Fatalf("joined twin must render the unknown-basis branch too (donor alone = 2 surfaces, got %d):\n%s", got, md)
 	}
-	if strings.Contains(collapsed, "已满频满核") {
+	if strings.Contains(despaced, "已按大核满频") {
 		t.Fatalf("partial coverage must never make the affirmative claim:\n%s", md)
 	}
 }

@@ -730,7 +730,9 @@ func TestRNBDepthlessFoldKeepsUnadmittedDisclosureMax(t *testing.T) {
 	if !strings.Contains(md, "+E2]") {
 		t.Fatalf("the depthless twin pair must fold:\n%s", md)
 	}
-	if !strings.Contains(md, "另有 1 项未计入的链上行(单项最大 28.717ms") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 另有 N 项未计入的
+	// 链上行 → 另有 N 条链上行未计入上句已归因数值 (归因族 disclosure bullet).
+	if !strings.Contains(md, "另有 1 条链上行未计入上句已归因数值(单项最大 28.717ms") {
 		t.Fatalf("the disclosure MAX must keep the folded rank row's magnitude (count = rendered rows):\n%s", md)
 	}
 }

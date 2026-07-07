@@ -12075,6 +12075,28 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 	// resolve to one artifact, the tail states their trace line envelope
 	// (trace 源坐标); otherwise it states the count alone.
 	total := len(rows)
+	// PTV8-RCR-B (UXA 域C layout-L1, 2026-07-08). EVOLUTION RECORD: 40 rows
+	// each repeated the 49-char artifact basename (~2KB pure repetition) —
+	// when EVERY located row shares ONE artifact, the intro declares it once
+	// and rows keep only their line/time spans (the evidence index's grouped
+	// pattern). Multi-artifact ledgers keep per-row names (identity is
+	// load-bearing there — cmp_01 mixed-artifact witness).
+	sharedBase := ""
+	uniformBase := true
+	for _, row := range rows {
+		if row.Base == "" {
+			continue
+		}
+		if sharedBase == "" {
+			sharedBase = row.Base
+			continue
+		}
+		if row.Base != sharedBase {
+			uniformBase = false
+			break
+		}
+	}
+	groupedBase := uniformBase && sharedBase != ""
 	omittedTail := ""
 	prefixKept := true
 	if len(rows) > traceQueryObservationSupplementMaxRows {
@@ -12083,7 +12105,18 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 		var omitted []traceQueryObservationSupplementRow
 		rows, omitted, prefixKept = traceQueryObservationSupplementQuotaSelect(rows, traceQueryObservationSupplementMaxRows)
 		if base, lineStart, lineEnd, ok := traceQueryObservationSupplementEnvelope(omitted); ok {
-			if zh {
+			if groupedBase && base != sharedBase {
+				// The omitted rows resolve to a DIFFERENT artifact than the
+				// grouped intro declares — keep per-row names instead.
+				groupedBase = false
+			}
+			if groupedBase {
+				if zh {
+					omittedTail = fmt.Sprintf(";其余 %d 条位于行 %d–%d 区间", len(omitted), lineStart, lineEnd)
+				} else {
+					omittedTail = fmt.Sprintf("; the other %d sit within lines %d–%d", len(omitted), lineStart, lineEnd)
+				}
+			} else if zh {
 				omittedTail = fmt.Sprintf(";其余 %d 条位于 %s 行 %d–%d 区间", len(omitted), base, lineStart, lineEnd)
 			} else {
 				omittedTail = fmt.Sprintf("; the other %d sit within %s lines %d–%d", len(omitted), base, lineStart, lineEnd)
@@ -12094,9 +12127,16 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 	if zh {
 		b.WriteString("---\n\n")
 		b.WriteString("> **系统补充：trace_query 关键观测核对**\n>\n")
-		b.WriteString("> 以下条目来自 trace_query 发布的结构化运行时观测，用于保留可审计的 trace 事实；它们是 trace 工件内的本地观测，不是当前仓库源码引用。\n>\n")
+		// PTV8-RCR-B (UXA 域C #17 + verify 微调, 2026-07-08). EVOLUTION
+		// RECORD: 「发布的结构化运行时观测/工件内的本地观测」内部管线话 →
+		// 两件客户需知的事:逐条原始记录、坐标指 trace 非源码.
+		b.WriteString("> 以下为 trace_query 输出的逐条观测记录(字段 token 保留原文)，可对照 trace 原文核对；所有坐标都指向 trace 文件本身，不是源码位置。\n")
+		if groupedBase {
+			b.WriteString("> 本块全部坐标位于 `" + sharedBase + "`，各条只标注行号或时间区间。\n")
+		}
+		b.WriteString(">\n")
 		for _, row := range rows {
-			fmt.Fprintf(&b, "> - %s\n", row.Text)
+			fmt.Fprintf(&b, "> - %s\n", traceQueryObservationSupplementRowDisplay(row, sharedBase, groupedBase, true))
 		}
 		if total > len(rows) {
 			if prefixKept {
@@ -12104,16 +12144,20 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 			} else {
 				// F3①: a floored selection is NOT the head of the list — the
 				// legacy "前 N 条" wording would lie about it.
-				fmt.Fprintf(&b, ">\n> (共 %d 条,仅列 %d 条:每序列保底后按序补足%s)\n", total, len(rows), omittedTail)
+				fmt.Fprintf(&b, ">\n> (共 %d 条,列出 %d 条:按观测类别配额选取,再按原顺序补足%s)\n", total, len(rows), omittedTail)
 			}
 		}
 		return strings.TrimRight(b.String(), "\n")
 	}
 	b.WriteString("---\n\n")
 	b.WriteString("> **System supplement: trace_query observation check**\n>\n")
-	b.WriteString("> These rows come from typed runtime observations published by trace_query. They preserve auditable trace facts; they are artifact-local observations, not current-repo source citations.\n>\n")
+	b.WriteString("> These are trace_query's per-row observation records (field tokens kept verbatim), cross-checkable against the raw trace; every coordinate points into the trace file itself, not repository source.\n")
+	if groupedBase {
+		b.WriteString("> Every coordinate in this block sits in `" + sharedBase + "`; rows carry only a line or time span.\n")
+	}
+	b.WriteString(">\n")
 	for _, row := range rows {
-		fmt.Fprintf(&b, "> - %s\n", row.Text)
+		fmt.Fprintf(&b, "> - %s\n", traceQueryObservationSupplementRowDisplay(row, sharedBase, groupedBase, false))
 	}
 	if total > len(rows) {
 		if prefixKept {
@@ -12466,7 +12510,20 @@ func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool
 	if zh {
 		labelSep, partSep = "：", "；"
 	}
+	// PTV8-RCR-B (UXA 域C #18 REVISE, 2026-07-08). EVOLUTION RECORD: a
+	// claimKey like "state_drilldown:HeapTaskDaemon-16561:running" followed by
+	// "HeapTaskDaemon-16561 -> running" printed the same thread and state
+	// twice per line — when BOTH subject and object each equal a complete
+	// ":"-separated claimKey segment (exact segment match, never a substring),
+	// the redundant arrow half is omitted. Display-only; the typed record and
+	// the claimKey itself stay verbatim.
+	keySegments := map[string]bool{}
+	for _, segment := range strings.Split(label, ":") {
+		keySegments[strings.TrimSpace(segment)] = true
+	}
 	switch {
+	case subject != "" && object != "" && keySegments[subject] && keySegments[object]:
+		parts = append(parts, label)
 	case subject != "" && object != "":
 		parts = append(parts, fmt.Sprintf("%s%s%s -> %s", label, labelSep, subject, object))
 	case subject != "":
@@ -12513,6 +12570,35 @@ func traceQueryObservationValue(record types.ObservationRecord, zh bool) string 
 // of its own — its line span is sleep-interval bookkeeping, so a ":44"-style
 // suffix reads as a real row. The display keeps only the artifact name (or the
 // record's own time window); the raw record keeps the interval lines.
+// traceQueryObservationSupplementRowDisplay strips the grouped shared
+// basename off one row's embedded locator (display copy only — the typed row
+// and its Text stay untouched): "base:8826-8830" → "行 8826–8830" / "lines
+// 8826–8830", "base [a–bs]" → "[a–bs]". Non-grouped calls return the text
+// verbatim.
+func traceQueryObservationSupplementRowDisplay(row traceQueryObservationSupplementRow, sharedBase string, grouped, zh bool) string {
+	if !grouped || row.Base == "" || row.Base != sharedBase {
+		return row.Text
+	}
+	text := row.Text
+	if idx := strings.Index(text, sharedBase+":"); idx >= 0 {
+		lineWord := "行 "
+		if !zh {
+			lineWord = "lines "
+		}
+		rest := text[idx+len(sharedBase)+1:]
+		end := 0
+		for end < len(rest) && (rest[end] >= '0' && rest[end] <= '9' || rest[end] == '-') {
+			end++
+		}
+		span := strings.ReplaceAll(rest[:end], "-", "–")
+		return text[:idx] + lineWord + span + rest[end:]
+	}
+	if idx := strings.Index(text, sharedBase+" ["); idx >= 0 {
+		return text[:idx] + text[idx+len(sharedBase)+1:]
+	}
+	return text
+}
+
 func traceQueryObservationLocation(record types.ObservationRecord) string {
 	if traceQueryObservationSyntheticLineLocator(record) {
 		// Only strip when a REAL artifact name exists — a locator with no
@@ -12767,6 +12853,26 @@ func traceQueryObservationSupplementNoteValue(record types.ObservationRecord, ke
 func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh bool) string {
 	seen := map[string]bool{}
 	notes := make([]string, 0, 4)
+	// PTV8-RCR-B (UXA 域C #19 verify 真修, 2026-07-08). EVOLUTION RECORD: the
+	// 4-slot window used to fill with notes REPEATING fields already printed
+	// on the same line (type=io_latency ≡ object; impact_ms=0.474 ≡ 值=) —
+	// zero-increment duplicates no longer take a slot. Exact string/numeric
+	// comparison only (§22.2.1 保原文≠保重复); the raw record is untouched.
+	object := strings.TrimSpace(record.Object)
+	value := strings.TrimSpace(record.Value)
+	redundant := func(note string) bool {
+		if eq := strings.IndexByte(note, '='); eq > 0 {
+			key := note[:eq]
+			val := strings.TrimSpace(note[eq+1:])
+			switch key {
+			case "type":
+				return object != "" && val == object
+			case "impact_ms", "impact":
+				return value != "" && traceQueryObservationSupplementSameNumber(val, value)
+			}
+		}
+		return false
+	}
 	// Priority pass (SG 批): scan the row family's priority prefixes IN TABLE
 	// ORDER (each prefix picks its first matching note), capped at
 	// traceQueryObservationSupplementPriorityNoteCap slots. The fill pass below
@@ -12782,6 +12888,10 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 			if note == "" || seen[note] || !strings.HasPrefix(note, prefix) {
 				continue
 			}
+			if redundant(note) {
+				seen[note] = true
+				continue
+			}
 			seen[note] = true
 			notes = append(notes, note)
 			break
@@ -12792,7 +12902,7 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 			break
 		}
 		note = strings.TrimSpace(note)
-		if note == "" || seen[note] {
+		if note == "" || seen[note] || redundant(note) {
 			continue
 		}
 		for _, prefix := range traceQueryObservationSupplementAllowedNotePrefixes {
@@ -12814,7 +12924,7 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 	if traceQueryObservationHasActualWindowNote(record) {
 		basis := "window_basis=selected_window"
 		if zh {
-			basis = "窗口基准=选定窗"
+			basis = "窗口基准=查询窗"
 		}
 		// NEW-8 (账本 §7.6): this basis token is renderer-invented (the note
 		// pairs above stay verbatim) — when the record's OWN typed
@@ -12833,6 +12943,24 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 		return "备注=" + strings.Join(notes, ", ")
 	}
 	return "notes=" + strings.Join(notes, ", ")
+}
+
+// traceQueryObservationSupplementSameNumber reports whether two value strings
+// denote the SAME number (unit suffixes like ms stripped) — the C#19 exact
+// comparison lane; unparseable strings only match byte-identically.
+func traceQueryObservationSupplementSameNumber(a, b string) bool {
+	if a == b {
+		return true
+	}
+	parse := func(v string) (float64, bool) {
+		v = strings.TrimSpace(strings.ToLower(v))
+		v = strings.TrimSuffix(v, "ms")
+		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return f, err == nil
+	}
+	fa, oka := parse(a)
+	fb, okb := parse(b)
+	return oka && okb && fa == fb
 }
 
 func traceQueryObservationHasActualWindowNote(record types.ObservationRecord) bool {

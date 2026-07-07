@@ -119,7 +119,11 @@ func TestRuntimeTraceNextStepUndrilledHeadlinePointedRow(t *testing.T) {
 		t.Fatalf("N1 pointed row must lead the single-trace list verbatim:\nwant %q\n got %q", nxtPointedRowZH, texts[0])
 	}
 	// The multi-window caliber rows keep their seats behind the pointed row.
-	if !strings.Contains(texts[1], "个查询窗") || !strings.Contains(texts[2], "同口径因果采样") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 同口径因果采样 →
+	// 双窗对比:对每个查询窗分别做同样的根因分析(wakeup_chain/root_cause_rank),
+	// 再逐窗对比 (next-steps item 9).
+	if !strings.Contains(texts[1], "个查询窗") ||
+		!strings.Contains(texts[2], "双窗对比:对每个查询窗分别做同样的根因分析(wakeup_chain/root_cause_rank),再逐窗对比") {
 		t.Fatalf("multi-window caliber rows must keep their seats behind the pointed row: %q", texts)
 	}
 	// One generic template survives; the LAST one is what the pointed row

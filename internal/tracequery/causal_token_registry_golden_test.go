@@ -18,7 +18,11 @@ func TestCausalTokenRegistryGoldenSnapshot(t *testing.T) {
 		"binder_wait|wakeup_chain|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"block_io_by_inode|io_blocking|wall_clock_per_thread|either|row|runtimeTraceRootCauseTypeZHLabel",
 		"blocked_reason|io_blocking|count|per_thread|row|",
-		"blocking_span|lock_contention|wall_clock_per_thread|per_thread|row|",
+		// EVOLUTION RECORD (2026-07-08, PTV8-RCR-B UXA 域A #1/域D S1,
+		// docs/design/real_trace_campaign_20260705.md §24.5): blocking_span
+		// gains zh 持锁阻塞 via runtimeTraceRootCauseTypeZHLabel — LabelZhRef
+		// column ONLY moved (was ""); lane bytes identical.
+		"blocking_span|lock_contention|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"class_verification|cpu_work|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"compute_supply|compute_delivery|cross_thread_cpu_ms|aggregate_only|row|runtimeTraceRootCauseTypeZHLabel",
 		"compute_supply_balance|compute_delivery|cross_thread_cpu_ms|aggregate_only|observation_only|",
@@ -45,7 +49,10 @@ func TestCausalTokenRegistryGoldenSnapshot(t *testing.T) {
 		"memory_gc|memory_pressure|count|aggregate_only|row|",
 		"memory_page_fault|memory_pressure|count|aggregate_only|row|",
 		"memory_reclaim|memory_pressure|count|aggregate_only|row|",
-		"missing_wakeup|wakeup_chain|wall_clock_per_thread|per_thread|row|",
+		// EVOLUTION RECORD (2026-07-08, PTV8-RCR-B UXA 域A #22/域D #7 任务令
+		// 终词 无唤醒记录, ledger §24.5): LabelZhRef column ONLY moved (was
+		// ""); the wakeup_chain lane bytes are identical (红线 §7.4/§7.5).
+		"missing_wakeup|wakeup_chain|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"monitor_contention|lock_contention|wall_clock_per_thread|per_thread|observation_only|",
 		"page_cache_churn|memory_pressure|count|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"priority_inversion_candidate|scheduling_demand|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",

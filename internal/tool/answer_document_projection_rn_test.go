@@ -63,9 +63,11 @@ func TestRNLeadFallsBackToFlatOnChainRow(t *testing.T) {
 	// 复核 Med (2026-07-06, C00 同源门): the fallback lead's magnitude is the
 	// chain cumulative — it carries its caliber word and NO 占窗 share (the %
 	// is a window-projection statement).
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: on-chain 等待 →
+	// 链上等待 (归因族).
 	for _, want := range []string{
 		"**主根因:** OS_FFRT_2_3-49706", "链上累计 635.981ms",
-		"(链不可上溯,按窗口内最大 on-chain 等待)",
+		"(链不可上溯,按窗口内最大链上等待)",
 	} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("customer 7.0 pin: the flat runnable row must lead with the short note (%q):\n%s", want, line)
@@ -86,7 +88,7 @@ func TestRNLeadFallsBackToFlatOnChainRow(t *testing.T) {
 	// The comparison-overview primary cell consumes the SAME selection + note.
 	cell := runtimeTraceProjComparePrimaryCell(projection, model, true)
 	if !strings.Contains(cell, "OS_FFRT_2_3-49706") || !strings.Contains(cell, "635.981ms") ||
-		!strings.Contains(cell, "(链不可上溯,按窗口内最大 on-chain 等待)") {
+		!strings.Contains(cell, "(链不可上溯,按窗口内最大链上等待)") {
 		t.Fatalf("compare primary cell must consume the fallback lead with its note: %q", cell)
 	}
 	if strings.Contains(cell, "未定位到链上主根因") {
@@ -115,17 +117,21 @@ func TestRNUnconsumedPrimaryTierBackgroundRowDemotesPositionLabel(t *testing.T) 
 	if model.LeadKey != "E-run" {
 		t.Fatalf("model must pin the consumed lead's node key: %q", model.LeadKey)
 	}
-	// PTV4 T10: the 因果位置·优先级 cell lives on the (b) vertical blocks.
+	// PTV4 T10: the 因果位置 cell lives on the (b) vertical blocks.
 	full := runtimeTraceProjDetailFullText(model, true)
 	// Customer pin: the direct-published rank=1 supply_pressure background row
 	// must not read 主根因 while the conclusion names another node — it demotes
-	// to 背景 · 支撑参考 with the rank kept for audit.
-	if !strings.Contains(full, "- 因果位置·优先级: 背景 · 支撑参考(rank=1)") {
+	// to 背景(参考) with the rank kept for audit.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 因果位置·优先级 →
+	// 因果位置 merged cell, 背景 · 支撑参考(rank=1) → 背景(参考)(根因排序#1)
+	// (根因族: (rank=N)→(根因排序#N) zh-only demoted cell); 平铺 row drops the
+	// 重点关注 priority half.
+	if !strings.Contains(full, "- 因果位置: 背景(参考)(根因排序#1)") {
 		t.Fatalf("unconsumed primary-tier background row must demote with its rank note:\n%s", full)
 	}
 	// The consumed flat row keeps the CMP-7a flat position (the conclusion
 	// note, not the position column, carries the fallback semantics).
-	if !strings.Contains(full, "- 因果位置·优先级: 平铺(链不可上溯) · 重点关注") {
+	if !strings.Contains(full, "- 因果位置: 平铺(链不可上溯)") {
 		t.Fatalf("consumed flat row keeps the CMP-7a position cell:\n%s", full)
 	}
 	for _, banned := range []string{"主根因", "主要关注"} {
@@ -136,11 +142,13 @@ func TestRNUnconsumedPrimaryTierBackgroundRowDemotesPositionLabel(t *testing.T) 
 	// EN mirror of the demoted cell (T10 (b) surface).
 	enModel := buildRuntimeTraceProjTreeModel(projection, nil, false)
 	enFull := runtimeTraceProjDetailFullText(enModel, false)
-	if !strings.Contains(enFull, "background · supporting context (rank=1)") {
+	if !strings.Contains(enFull, "background (context) (rank=1)") {
 		t.Fatalf("EN demoted cell missing:\n%s", enFull)
 	}
-	if strings.Contains(enFull, "primary focus") {
-		t.Fatalf("EN surface must not carry the primary label either:\n%s", enFull)
+	for _, banned := range []string{"primary focus", "primary (handle first)"} {
+		if strings.Contains(enFull, banned) {
+			t.Fatalf("EN surface must not carry the primary label either (%q):\n%s", banned, enFull)
+		}
 	}
 }
 
@@ -166,9 +174,11 @@ func TestRNConsumedRankLeadKeepsPrimaryLabel(t *testing.T) {
 	}
 	full := runtimeTraceProjDetailFullText(model, true)
 	found := false
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 因果位置·优先级:
+	// 主根因 · 主要关注 → 因果位置: 主根因(优先处理) (merged-cell vocab).
 	for _, stanza := range strings.Split(full, "\n\n") {
 		if strings.Contains(stanza, "RSUniRenderThre-1963") &&
-			strings.Contains(stanza, "- 因果位置·优先级: 主根因 · 主要关注") {
+			strings.Contains(stanza, "- 因果位置: 主根因(优先处理)") {
 			found = true
 		}
 	}
@@ -256,7 +266,9 @@ func TestRNRunnableDominantTargetSymptomAndComparisonCell(t *testing.T) {
 	}
 	projection := types.TraceCausalProjection{WindowStartTs: 100.0, WindowEndTs: 101.51424}
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "目标等待(sleep/D-state/runnable) 635.981ms 中") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待 →
+	// 关注线程等待 (其他族).
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 635.981ms 中") {
 		t.Fatalf("runnable-dominant coverage must use the wait wording + runnable denominator:\n%s", line)
 	}
 }

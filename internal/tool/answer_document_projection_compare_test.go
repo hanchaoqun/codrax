@@ -145,17 +145,18 @@ func TestTraceProjectionMultiArtifactRendersPerArtifactSections(t *testing.T) {
 		t.Fatalf("section B must carry its own V1-lane conclusion:\n%s", sectionB.Text)
 	}
 	// CMP-2: each section anchors its OWN artifact's selected window — the
-	// "关注窗口起止未采集" fallback must be gone.
-	if !strings.Contains(sectionA.Text, "关注窗口 3679.899s → 3681.129s,共 1230.000ms") ||
+	// missing-window fallback must be gone.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 关注窗口 → 分析窗;fallback 关注窗口起止未采集 → 分析窗起止未采集 (窗族)
+	if !strings.Contains(sectionA.Text, "分析窗 3679.899s → 3681.129s,共 1230.000ms") ||
 		!strings.Contains(sectionA.Text, "满格=窗口1230.000ms") {
 		t.Fatalf("section A must anchor artifact A's window:\n%s", sectionA.Text)
 	}
-	if !strings.Contains(sectionB.Text, "关注窗口 8143.800s → 8144.501s,共 701.000ms") ||
+	if !strings.Contains(sectionB.Text, "分析窗 8143.800s → 8144.501s,共 701.000ms") ||
 		!strings.Contains(sectionB.Text, "满格=窗口701.000ms") {
 		t.Fatalf("section B must anchor artifact B's window:\n%s", sectionB.Text)
 	}
 	for _, section := range []*types.AnswerBlock{sectionA, sectionB} {
-		if strings.Contains(section.Text, "窗口起止未采集") {
+		if strings.Contains(section.Text, "起止未采集") {
 			t.Fatalf("the missing-window fallback must not render when the selected window is published:\n%s", section.Text)
 		}
 	}
@@ -208,9 +209,10 @@ func TestTraceProjectionMultiArtifactRendersPerArtifactSections(t *testing.T) {
 		t.Fatalf("per-artifact (b) blocks must keep the raw type token: %+v", detailFullA)
 	}
 	// The identity-less record renders only through the partition caveat.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 无工件归属 → 无法归属到任一 trace 文件 (其他族)
 	caveat := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_partition")
 	if caveat == nil || caveat.Kind != types.BlockCaveat ||
-		!strings.Contains(caveat.Text, "1 条观测无工件归属,未纳入投影") {
+		!strings.Contains(caveat.Text, "1 条观测无法归属到任一 trace 文件,未纳入投影。") {
 		t.Fatalf("identity-less observations must surface as the partition caveat: %+v", caveat)
 	}
 	for _, section := range []*types.AnswerBlock{sectionA, sectionB} {
@@ -243,8 +245,9 @@ func TestTraceProjectionMultiArtifactComparisonOverviewTable(t *testing.T) {
 	if !(indexOf("runtime_trace_causal_projection_compare") < indexOf("runtime_trace_causal_projection_a1")) {
 		t.Fatalf("the comparison overview must render before the first artifact section")
 	}
-	if len(compare.Items) != 4 {
-		t.Fatalf("one overview row per artifact plus the F3 window note row plus the RTC-2 disjoint time-base note row: %+v", compare.Items)
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: ⚠ note rows moved out of table Items into block Text lines;queue-depth cell (累计 Xms,跨线程累计,非墙钟) → (跨线程累计 Xms,非墙钟);两侧投影窗长不等 → 两侧分析窗长度不等;两工件 → 两份 trace (对比总览族)
+	if len(compare.Items) != 2 {
+		t.Fatalf("one overview row per artifact (notes live in the block text now): %+v", compare.Items)
 	}
 	rowA := strings.Join(compare.Items[0].Cells, " | ")
 	rowB := strings.Join(compare.Items[1].Cells, " | ")
@@ -256,7 +259,7 @@ func TestTraceProjectionMultiArtifactComparisonOverviewTable(t *testing.T) {
 	for _, want := range []string{
 		"7.0B30SP22_7315.systrace",
 		"RSUniRenderThre-1963 · running 807.276ms",
-		"≈平均排队深度 82.2(累计 101084.884ms,跨线程累计,非墙钟)",
+		"≈平均排队深度 82.2(跨线程累计 101084.884ms,非墙钟)",
 		"3679.899s → 3681.129s",
 	} {
 		if !strings.Contains(rowA, want) {
@@ -269,7 +272,7 @@ func TestTraceProjectionMultiArtifactComparisonOverviewTable(t *testing.T) {
 	for _, want := range []string{
 		"6.0B138_3900.sys.systrace",
 		"OS_FFRT_2_6-18695 · sleep 701.000ms",
-		"≈平均排队深度 66.1(累计 46318.120ms,跨线程累计,非墙钟)",
+		"≈平均排队深度 66.1(跨线程累计 46318.120ms,非墙钟)",
 		"8143.800s → 8144.501s",
 	} {
 		if !strings.Contains(rowB, want) {
@@ -277,20 +280,19 @@ func TestTraceProjectionMultiArtifactComparisonOverviewTable(t *testing.T) {
 		}
 	}
 	// F3 forced note: 1230.000ms vs 701.000ms differ by 43% (>10%), so the
-	// table must close with the unequal-window normalization note row.
-	noteRow := strings.Join(compare.Items[2].Cells, " | ")
-	if !strings.Contains(noteRow, "两侧投影窗长不等,背景压力已按各自窗长归一化") {
-		t.Fatalf("unequal projection windows must force the normalization note row:\n%s", noteRow)
+	// block text must carry the unequal-window normalization note line.
+	if !strings.Contains(compare.Text, "⚠ 两侧分析窗长度不等,背景压力已按各自窗长归一化") {
+		t.Fatalf("unequal projection windows must force the normalization note line:\n%s", compare.Text)
 	}
 	// RTC-2 (real_trace_campaign_20260705.md §4 案 e2, 批 #67): the two
 	// artifacts' time-base envelopes (3679.899..3681.129 vs 8143.800..8144.501)
-	// are disjoint, so the table closes with the verbatim disjoint-time-base
-	// note row. Pure-arithmetic soft guidance — this pin goes red if the
-	// disjointness comparison is inverted (the row would vanish here).
-	disjointRow := strings.Join(compare.Items[3].Cells, " | ")
-	if !strings.Contains(disjointRow,
-		"⚠ 两工件时间基准不相交(7.0B30SP22_7315.systrace 3679.899s→3681.129s,6.0B138_3900.sys.systrace 8143.800s→8144.501s),不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准") {
-		t.Fatalf("disjoint time bases must force the RTC-2 note row verbatim:\n%s", disjointRow)
+	// are disjoint, so the block text also carries the verbatim
+	// disjoint-time-base note line. Pure-arithmetic soft guidance — this pin
+	// goes red if the disjointness comparison is inverted (the line would
+	// vanish here).
+	if !strings.Contains(compare.Text,
+		"⚠ 两份 trace 时间基准不相交(7.0B30SP22_7315.systrace 3679.899s→3681.129s,6.0B138_3900.sys.systrace 8143.800s→8144.501s),不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准") {
+		t.Fatalf("disjoint time bases must force the RTC-2 note line verbatim:\n%s", compare.Text)
 	}
 	for _, item := range compare.Items {
 		if item.CitationRef != -1 {
@@ -317,19 +319,23 @@ func TestTraceProjectionComparisonOverviewSkipsWindowNoteWhenWindowsMatch(t *tes
 	bus.ToolResults = []types.ToolResult{{ToolName: "trace_query", Success: true, Observations: obs}}
 	got := compareProjApply(t, bus)
 	compare := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_compare")
-	// The RTC-2 disjoint time-base note row (3679.x vs 8143.x stay disjoint
-	// regardless of window length) is the only extra row; the F3 window note
+	// The RTC-2 disjoint time-base note line (3679.x vs 8143.x stay disjoint
+	// regardless of window length) is the only extra note; the F3 window note
 	// must be gone.
-	if compare == nil || len(compare.Items) != 3 {
-		t.Fatalf("equal-length windows must not add the F3 note row: %+v", compare)
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: notes moved to block Text;窗长不等 → 分析窗长度不等;两工件 → 两份 trace (对比总览族)
+	if compare == nil || len(compare.Items) != 2 {
+		t.Fatalf("equal-length windows must keep exactly the two data rows: %+v", compare)
 	}
 	for _, item := range compare.Items {
 		if strings.Contains(strings.Join(item.Cells, " "), "窗长不等") {
-			t.Fatalf("no note content expected on equal windows: %+v", item.Cells)
+			t.Fatalf("no note content expected in table rows: %+v", item.Cells)
 		}
 	}
-	if !strings.Contains(strings.Join(compare.Items[2].Cells, " "), "两工件时间基准不相交") {
-		t.Fatalf("the RTC-2 disjoint note row is independent of the F3 window note: %+v", compare.Items[2].Cells)
+	if strings.Contains(compare.Text, "长度不等") {
+		t.Fatalf("equal-length windows must not add the F3 note line: %s", compare.Text)
+	}
+	if !strings.Contains(compare.Text, "两份 trace 时间基准不相交") {
+		t.Fatalf("the RTC-2 disjoint note line is independent of the F3 window note: %s", compare.Text)
 	}
 }
 
@@ -467,9 +473,10 @@ func TestTraceProjectionSingleActivePartitionKeepsPartitionCaveat(t *testing.T) 
 	if projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_a1") != nil {
 		t.Fatalf("single Active projection must not render per-artifact sections")
 	}
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 无工件归属 → 无法归属到任一 trace 文件 (其他族)
 	caveat := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_partition")
 	if caveat == nil || caveat.Kind != types.BlockCaveat ||
-		!strings.Contains(caveat.Text, "1 条观测无工件归属,未纳入投影") {
+		!strings.Contains(caveat.Text, "1 条观测无法归属到任一 trace 文件,未纳入投影。") {
 		t.Fatalf("the partition caveat must survive the single-projection lane (F2c): %+v", caveat)
 	}
 }

@@ -45,11 +45,10 @@ var wordingLaneRules = []wordingLaneRule{
 	{
 		term: "算力",
 		whitelist: map[string]bool{
-			"answer_document_mutation_runtime_typelabels.go::runtimeTraceRootCauseTypeZHLabel":   true, // compute_supply → 算力供给 (delivery-lane zh label)
-			"answer_document_mutation_runtime_rcr.go::runtimeTraceProjImpactFormSpecs":           true, // PTV8-RCR-A §24.1/§24.3: 算力供给候选 category family word (delivery lane, user-ruled 类别词族; single-source form table)
-			"answer_document_mutation_runtime.go::runtimeTraceProjCompareOverviewBlock":          true, // compare-overview 算力供给(归一化) column header
-			"answer_document_mutation_runtime.go::runtimeTraceCausalProjectionImpactMeaningCell": true, // 本层运行/算力占用 meaning cell (consuming side)
-			"trace_query.go::writeTraceComputeSupplyBalance":                                     true, // compute_supply_balance(算力供给) delivery stanza
+			"answer_document_mutation_runtime_typelabels.go::runtimeTraceRootCauseTypeZHLabel": true, // compute_supply → 算力供给 (delivery-lane zh label)
+			"answer_document_mutation_runtime_rcr.go::runtimeTraceProjImpactFormSpecs":         true, // PTV8-RCR-A §24.1/§24.3: 算力供给候选 category family word (delivery lane, user-ruled 类别词族; single-source form table)
+			"answer_document_mutation_runtime.go::runtimeTraceProjCompareOverviewBlock":        true, // compare-overview 算力供给(归一化) column header
+			"trace_query.go::writeTraceComputeSupplyBalance":                                   true, // compute_supply_balance(算力供给) delivery stanza
 		},
 	},
 	{

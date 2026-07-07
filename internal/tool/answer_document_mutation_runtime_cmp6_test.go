@@ -48,9 +48,10 @@ func TestRuntimeTraceNextStepComparisonRowsLeadOnComparisonShape(t *testing.T) {
 	// is impossible across two traces); "running 时间" stays the §7.2 CMP
 	// design verbatim. PTV5 Q3: the third fixed row steers per-window causal
 	// sampling on dual-/multi-window comparisons.
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 分别执行同口径因果采样(…)后逐窗对比 → 分别做同样的根因分析(…),再逐窗对比;item Label 下一步 → 空(块标题承载) (下一步族)
 	if items[0].Text != "对比两 trace 各自同口径窗口内 top 运行线程与进程级 running 时间差异" ||
 		items[1].Text != "对齐目标 span 边界后重取两侧聚合指标(按各自窗长归一化后再对比)" ||
-		items[2].Text != "双窗/多窗对比时:对每个查询窗分别执行同口径因果采样(wakeup_chain/root_cause_rank)后逐窗对比" {
+		items[2].Text != "双窗/多窗对比时:对每个查询窗分别做同样的根因分析(wakeup_chain/root_cause_rank),再逐窗对比" {
 		t.Fatalf("comparison rows must carry the fixed span-anchoring + normalization + per-window sampling guidance: %+v", items)
 	}
 	if strings.Contains(items[0].Text, "同窗 ") {
@@ -62,8 +63,8 @@ func TestRuntimeTraceNextStepComparisonRowsLeadOnComparisonShape(t *testing.T) {
 		t.Fatalf("disjoint time bases must append the RTC-2 guidance row verbatim: %+v", items)
 	}
 	for i, item := range items {
-		if item.Label != "下一步" || item.CitationRef != -1 {
-			t.Fatalf("comparison row %d must reuse the next-step item shape (label + no citation): %+v", i, item)
+		if item.Label != "" || item.CitationRef != -1 {
+			t.Fatalf("comparison row %d must reuse the next-step item shape (empty label + no citation): %+v", i, item)
 		}
 	}
 	if items[0].ID != "runtime_trace_next_step_1" || items[1].ID != "runtime_trace_next_step_2" ||
@@ -199,8 +200,9 @@ func TestRuntimeTraceNextStepComparisonRowsEnglishSurface(t *testing.T) {
 	if items[3].Text != "The two traces' time bases do not overlap and cannot be aligned directly on one shared timeline; compare relative metrics within each trace's own window (window share / normalized by window length)" {
 		t.Fatalf("EN disjoint time-base row must render verbatim: %+v", items)
 	}
-	if items[0].Label != "Next step" {
-		t.Fatalf("EN rows must keep the EN label: %+v", items[0])
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: Label "Next step" → empty (block title carries it) (下一步族 EN)
+	if items[0].Label != "" {
+		t.Fatalf("EN rows must keep the empty per-item label: %+v", items[0])
 	}
 }
 

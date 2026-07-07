@@ -91,11 +91,14 @@ func TestPTV7SpnGenericSpanNameThreeFaces(t *testing.T) {
 		Adjacent: []runtimeTraceProjTreeRow{{Node: node, Kind: runtimeTraceProjTreeRowAdjacent, HasData: true, EvidenceTag: "E21"}},
 	}
 	stanza := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(stanza, "- span: H:ReceiveVsync") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: "- span:" →
+	// "- span 原文:" backtick-wrapped (structural item 5); 完整名称 line
+	// DELETED — the block HEADING carries the untruncated full name.
+	if !strings.Contains(stanza, "- span 原文: `H:ReceiveVsync`") {
 		t.Fatalf("F1 lossless stanza must carry the dedicated span line:\n%s", stanza)
 	}
-	if !strings.Contains(stanza, "完整名称: oney.hmn.berlin-42591 / H:ReceiveVsync(trace span)") {
-		t.Fatalf("F1 lossless stanza full-name line must carry the real name:\n%s", stanza)
+	if !strings.Contains(stanza, "**[E21] oney.hmn.berlin-42591 / H:ReceiveVsync(trace span)**") {
+		t.Fatalf("F1 lossless stanza heading must carry the real full name:\n%s", stanza)
 	}
 }
 

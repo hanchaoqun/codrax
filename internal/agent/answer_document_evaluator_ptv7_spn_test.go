@@ -84,10 +84,12 @@ func TestPTV7SpnSupplementPerOrderFloor(t *testing.T) {
 	if !strings.Contains(out, "span_name=H:ReceiveVsync") {
 		t.Fatalf("the tertiary row's span_name note must reach the dump:\n%s", out)
 	}
-	if !strings.Contains(out, "每序列保底后按序补足") || strings.Contains(out, "仅列前") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: floored disclosure
+	// "仅列 N 条…每序列保底后按序补足" → "列出 N 条:按观测类别配额选取,再按原顺序补足".
+	if !strings.Contains(out, "按观测类别配额选取,再按原顺序补足") || strings.Contains(out, "仅列前") {
 		t.Fatalf("a floored (non-prefix) selection must disclose itself honestly:\n%s", out)
 	}
-	if !strings.Contains(out, "(共 113 条,仅列 40 条") {
+	if !strings.Contains(out, "(共 113 条,列出 40 条") {
 		t.Fatalf("the trim disclosure must state total + listed counts:\n%s", out)
 	}
 	// Single-bucket overflow keeps the LEGACY prefix wording byte-identically

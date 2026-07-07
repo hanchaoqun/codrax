@@ -60,7 +60,9 @@ func TestRuntimeTraceProjTargetSymptomExcludesNestedBlockingViewRow(t *testing.T
 	}
 	projection := types.TraceCausalProjection{WindowStartTs: 100.000, WindowEndTs: 100.100}
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "目标等待(sleep/D-state/runnable) 10.000ms 中 on-chain 已归因 8.000ms(80%),未归因 2.000ms(20%)") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待 →
+	// 关注线程等待 (其他族); on-chain 已归因 → 链上已归因 (归因族).
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 10.000ms 中链上已归因 8.000ms(80%),未归因 2.000ms(20%)") {
 		t.Fatalf("denominator must be the 10ms state segment (80%% attributed):\n%s", line)
 	}
 	if strings.Contains(line, "18.000") || strings.Contains(line, "44%") {
@@ -99,7 +101,10 @@ func TestRuntimeTraceProjTargetSymptomIncludesRunnableExcludesRunning(t *testing
 	}
 	projection := types.TraceCausalProjection{WindowStartTs: 100.000, WindowEndTs: 100.100}
 	line := runtimeTraceProjWindowLine(projection, onlyRunning, true)
-	if strings.Contains(line, "目标等待") || !strings.Contains(line, "未归因残差") {
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待 →
+	// 关注线程等待 (其他族, both eras banned); 未归因残差 → 未归因 (归因族).
+	if strings.Contains(line, "目标等待") || strings.Contains(line, "关注线程等待") ||
+		!strings.Contains(line, "链上已归因 8.000ms(8%),未归因 92.000ms(92%)") {
 		t.Fatalf("running-only self rows must fall back to the whole-window wording:\n%s", line)
 	}
 }

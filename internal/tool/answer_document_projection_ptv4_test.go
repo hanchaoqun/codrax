@@ -91,11 +91,18 @@ func TestPTV4NameMidTruncationKeepsPidTail(t *testing.T) {
 	if w := runewidth.StringWidth(got); w > 16 {
 		t.Fatalf("truncated name over budget (%d): %q", w, got)
 	}
+	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 词中截断残词
+	// (s_s… 形态) → 词边界截断+整词让位 (composed-name suffix 词边界族).
 	// A composed name keeps the whole subject when it fits and tail-truncates
-	// the cause suffix instead.
-	composed := runtimeTraceProjTruncateName("dep-200 · priority_inversion_candidate", 32)
-	if !strings.HasPrefix(composed, "dep-200 · ") || !strings.HasSuffix(composed, "…") {
-		t.Fatalf("composed name must keep the subject and tail-cut the cause: %q", composed)
+	// the cause suffix at a WORD boundary instead.
+	composed := runtimeTraceProjTruncateName("dep-200 · 持锁阻塞(等待方 WebViewLoaderThr-1234)", 24)
+	if !strings.HasPrefix(composed, "dep-200 · 持锁阻塞") || !strings.HasSuffix(composed, "…") {
+		t.Fatalf("composed name must keep the subject and boundary-cut the cause: %q", composed)
+	}
+	// A boundary-less cause suffix yields its seat whole (整词让位) — the
+	// subject stays, no mid-word residue survives.
+	if yielded := runtimeTraceProjTruncateName("dep-200 · priority_inversion_candidate", 32); yielded != "dep-200" {
+		t.Fatalf("a boundary-less cause suffix must yield whole and keep the subject: %q", yielded)
 	}
 	// When the suffix leaves no room, the pid-tailed subject wins whole-row.
 	squeezed := runtimeTraceProjTruncateName("ThreadPoolForeg-60555 · IO等待", 14)
