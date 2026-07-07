@@ -1396,3 +1396,11 @@ P0-E 引擎批(主归口,最终 scope):去双发布+归并口径(裁定①)+孪�
 
 ### §20.1 用户裁定(2026-07-07,pin)
 裁定①=**甲**:去双发布后,反转候选段的 rank 排序/Score 走 gated(runnable 全额+running 折算);raw 保留在 CumulativeImpactMs/状态字段+显示面三口径各带尺子;非反转 running 段仍 raw 参赛(§7.10 第四分支真实工作量)。丙(按 ideal/deficit 参赛)违 §7.10 红线永久排除。裁定②=blocking_span(已解析锁竞争)typeWeight=**1.35** 对齐 priority_inversion 家族(同一决定性证据类);未解析对端 blocking_span 仍低权。附带设计决定:§15.B 原"runnable 独立行"项**撤销** — 甲案下归并行的 gated 构成已含 runnable 全额分量,再发独立行=重造双计。
+
+### §20.2 用户裁定(2026-07-07):非反转 running 归因口径=可消除缺口(推翻 §20.1甲 side-clause)
+全局原则(用户 2026-07-07 前条)= 根因排序与因果投影树里"能算作影响的永远是折算后能消除的那部分(deficit),不是折算后应占用的(ideal),也不是 raw 墙钟。非反转 running 不是例外(§20.1甲 留 raw 参赛的 side-clause 与本原则矛盾,推翻)。
+**更合理算法(用户委托设计,采纳)**:非反转 on-chain running 段的**归因影响**(排序键/EffectiveImpactMs/树有效归因)= `SupplyFoldDeficitMs`(可消除缺口),非 DominantImpactMs(raw)、非 ideal:
+- deficit 可算:impact=deficit;deficit=0(满频满核真实工作量,§7.10 第四分支)→ 归因≈0 → 不作根因,仅链上上下文显示;
+- raw 墙钟保留为**显示事实**(cumulative/树 bar 链上占用)不进归因(显示≠归因;目标端等待总量仍由链解释,每节点可归因贡献=自身可消除量);
+- 频点缺失→§7.10 不伪造→deficit 折 0→行仍显示(raw+"未折算·墙钟上界"披露)但归因≈0,**不让未折算 raw 驱动排序**(嘈声信号红线)。
+反转段已符合(gated 的 running 分量=GatedRunningDeficitMS by construction)。实施=P0-E 吸收轮(复核+deficit-vs-ideal 专项在途,镜头0 边界呈报正被本裁定解决):非反转 running effective 从 DominantImpactMs 改 SupplyFoldDeficitMs + 频点缺失 fallback + 未折算披露;pin=非反转满频 running(deficit=0)归因≈0/弱核 running 归因=deficit/频点缺失 raw 不驱动排序三形态。
