@@ -95,10 +95,12 @@ func rnbSiblingObs(rank, chain types.ObservationRecord) []types.ObservationRecor
 func TestRNBSameSegmentTwinFoldSiblingChainFormZH(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""), rnbSiblingObs(rnbSiblingRankObs(), rnbSiblingChainObs()), "")
 	despaced := vs2Despace(md)
-	// The fold note carries the rank row's type word / rank / confidence and
-	// its E# (evidence index registration below).
-	if !strings.Contains(despaced, "同段rank行并入:优先级反转候选·rank=2·置信高·[E") {
-		t.Fatalf("fold note with the rank row's type word/rank/confidence/E# must render:\n%s", md)
+	// PTV8-RCR-A EVOLUTION RECORD (§24 ①退役/§24.2, 2026-07-08): the RNB R2
+	// 同段rank行并入 note is RETIRED — the fold is now a NATIVE single node:
+	// rank badge on 行1, the rank row's seat/confidence on 行2, its E# merged
+	// into 行1's [E#+E#] bracket. The join/guard engine is untouched.
+	if strings.Contains(md, "同段rank行并入") {
+		t.Fatalf("the retired fold note must not render:\n%s", md)
 	}
 	// ONE displayed row: the rank-lane detail row form is gone, the chain-lane
 	// row stays (detail table + lossless stanza names).
@@ -108,22 +110,25 @@ func TestRNBSameSegmentTwinFoldSiblingChainFormZH(t *testing.T) {
 	if !strings.Contains(md, "sysr-8 / running") {
 		t.Fatalf("the chain-lane row must stay the displayed row:\n%s", md)
 	}
-	// The rank badge moved onto the kept chain row (typed Rank transfer).
-	if !strings.Contains(despaced, "❶⚙sysr-8") {
+	// The rank badge moved onto the kept chain row (typed Rank transfer); the
+	// row is an inversion cause node → ⇅ glyph + the runnable+running 词位.
+	if !strings.Contains(despaced, "❶⇅sysr-8") {
 		t.Fatalf("the kept chain row must wear the transferred rank badge:\n%s", md)
 	}
+	// 行2 carries the rank row's seat + confidence; 行1 merges its E#.
+	if !strings.Contains(despaced, "优先级反转候选·根因排序#2·置信高") {
+		t.Fatalf("行2 must carry the folded rank row's seat/confidence:\n%s", md)
+	}
+	if !strings.Contains(despaced, "+E2]") {
+		t.Fatalf("行1 must merge the folded rank row's E# ([E#+E#]):\n%s", md)
+	}
 	// The rank row's E# stays reachable: its evidence-index entry carries the
-	// rank-lane audit detail, and the lossless stanza mirrors the fold note.
+	// rank-lane audit detail; the lossless block carries the 根因排序 line.
 	if !strings.Contains(md, "rank=2") {
 		t.Fatalf("the folded rank row's audit detail must stay on the evidence index:\n%s", md)
 	}
-	// The lossless stanza mirrors the fold note (fence + stanza = ≥2 copies).
-	if got := strings.Count(despaced, "同段rank行并入"); got < 2 {
-		t.Fatalf("the lossless stanza must mirror the fold note (got %d copies):\n%s", got, md)
-	}
-	// Legend entry renders with the note (NEW-7).
-	if !strings.Contains(md, "`同段rank行并入`") {
-		t.Fatalf("the fold note's legend entry must render:\n%s", md)
+	if !strings.Contains(despaced, "已并入本行,数值不重复计入") {
+		t.Fatalf("the lossless block must carry the folded rank row's seat line:\n%s", md)
 	}
 }
 
@@ -146,8 +151,12 @@ func TestRNBSameSegmentTwinFoldKeepsLeadAndCoverageInvariant(t *testing.T) {
 		}
 		return ""
 	}
-	if strings.Contains(control, "同段rank行并入") {
+	// PTV8-RCR-A: the fold witness is the merged [E#+E#] bracket now.
+	if strings.Contains(control, "+E2]") {
 		t.Fatalf("line-range mismatch must never fold (join-key precision arm):\n%s", control)
+	}
+	if !strings.Contains(folded, "+E2]") {
+		t.Fatalf("the control pair must fold (positive witness):\n%s", folded)
 	}
 	for _, token := range []string{"**主根因:**", "已归因"} {
 		foldedLine, controlLine := pick(folded, token), pick(control, token)
@@ -183,8 +192,16 @@ func TestRNBSameSegmentTwinFoldCauseChildForm(t *testing.T) {
 	if strings.Contains(md, "成因─") {
 		t.Fatalf("the rank twin must not mint a cause child row after the fold:\n%s", md)
 	}
-	if !strings.Contains(despaced, "同段rank行并入:优先级反转候选·rank=9·置信高·[E") {
-		t.Fatalf("the trunk row must carry the fold note:\n%s", md)
+	// PTV8-RCR-A: the trunk row carries 行2 (rank row's seat/confidence) and
+	// merges its E# — the retired note never returns.
+	if !strings.Contains(despaced, "优先级反转候选·根因排序#9·置信高") {
+		t.Fatalf("the trunk row must carry the folded rank row's 行2 seat:\n%s", md)
+	}
+	if !strings.Contains(despaced, "+E2]") {
+		t.Fatalf("the trunk row must merge the folded rank row's E#:\n%s", md)
+	}
+	if strings.Contains(md, "同段rank行并入") {
+		t.Fatalf("the retired fold note must not render:\n%s", md)
 	}
 }
 
@@ -229,8 +246,12 @@ func TestRNBSameSegmentTwinFoldSiblingCauseForm(t *testing.T) {
 	if strings.Contains(md, "#RxComputationT-16816 / 优先级反转候选") {
 		t.Fatalf("the rank twin must not keep its own row:\n%s", md)
 	}
-	if !strings.Contains(despaced, "同段rank行并入:优先级反转候选·rank=2·置信高·[E") {
-		t.Fatalf("the kept cause row must carry the fold note:\n%s", md)
+	// PTV8-RCR-A: 行2 seat + merged E# replace the retired fold note.
+	if !strings.Contains(despaced, "优先级反转候选·根因排序#2·置信高") {
+		t.Fatalf("the kept cause row must carry the folded rank row's 行2 seat:\n%s", md)
+	}
+	if !strings.Contains(despaced, "+E3]") {
+		t.Fatalf("the kept cause row must merge the folded rank row's E#:\n%s", md)
 	}
 	// The lock main row is untouched (different segment, not an inversion
 	// arm) — its rank-1 lead survives.
@@ -280,7 +301,9 @@ func TestRNBSameSegmentTwinFoldGuards(t *testing.T) {
 		rank, chain := rnbSiblingRankObs(), rnbSiblingChainObs()
 		mutate(&rank, &chain)
 		md := audit730Render(t, audit730Bus(""), rnbSiblingObs(rank, chain), "")
-		if strings.Contains(md, "同段rank行并入") {
+		// PTV8-RCR-A: the fold witness is the merged [E#+E#] bracket (digit
+		// form — the 行2 legend entry's [E#+E#] template never matches it).
+		if strings.Contains(md, "+E2]") {
 			t.Fatalf("%s: guard must veto the fold (fail-open, two rows stay):\n%s", name, md)
 		}
 	}
@@ -320,29 +343,37 @@ func TestRNBSameSegmentTwinFoldUnitGuards(t *testing.T) {
 
 // --- R1: the gated runnable component sub-row --------------------------------
 
+// PTV8-RCR-A EVOLUTION RECORD (§24 ⑤退役/§24.1, 2026-07-08): the R1
+// `⧖ runnable …gated 分量,不重复计入排序` display sub-row and the 影响构成
+// disclosure are RETIRED — the four-line grammar's 行3 「=」breakdown and the
+// 拆解子行 carry the composition with per-component calibers; the machine
+// identity Σ计入==V guards the numbers.
 func TestRNBGatedRunnableComponentSubRow(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""), rnbSiblingObs(rnbSiblingRankObs(), rnbSiblingChainObs()), "")
 	despaced := vs2Despace(md)
-	// R1 正向: the sub-row carries the three load-bearing elements (全额 /
-	// gated 分量 / 不重复计入排序) with the composition's own component value
-	// (R3 同词: runnable X(全额)).
-	if !strings.Contains(despaced, "⧖runnable0.621ms(全额)·就绪排队积压·gated分量,不重复计入排序") {
-		t.Fatalf("the gated runnable component sub-row must render:\n%s", md)
+	// 行3 + the two 拆解子行 (0.621 + 0.192 == 0.813, identity holds).
+	if !strings.Contains(despaced, "有效归因0.813ms=runnable(全额)0.621ms+running(折算)0.192ms") {
+		t.Fatalf("行3 breakdown must render:\n%s", md)
 	}
-	// R3: the composition disclosure parenthetical stays beside it (口径披露
-	// 非重复行), same component wording.
-	if !strings.Contains(despaced, "影响构成:runnable0.621ms(全额)+running折算0.192ms(按下游消费核折算)") {
-		t.Fatalf("the composition disclosure must stay:\n%s", md)
+	if !strings.Contains(despaced, "runnable原始0.621ms→计入0.621ms(全额)") {
+		t.Fatalf("runnable 拆解子行 must render:\n%s", md)
 	}
-	// Legend entry renders with the sub-row (NEW-7 / revisit76).
-	if !strings.Contains(md, "`⧖ runnable X ms(全额)` 子行") {
-		t.Fatalf("the sub-row's legend entry must render:\n%s", md)
+	if !strings.Contains(despaced, "running原始2.770ms→计入0.192ms(折算,按下游消费核)") {
+		t.Fatalf("running 拆解子行 must render:\n%s", md)
 	}
-	// Display-only 负向: the sub-row's full amount never sums into the row's
-	// attribution (the gated total stays the engine's single-source mirror).
-	if !strings.Contains(despaced, "有效归因0.813ms") {
-		t.Fatalf("the row attribution must stay the engine's gated effective:\n%s", md)
+	// Retired seats never return.
+	for _, banned := range []string{"gated 分量", "gated分量", "不重复计入排序", "影响构成"} {
+		if strings.Contains(despaced, vs2Despace(banned)) {
+			t.Fatalf("retired wording %q leaked:\n%s", banned, md)
+		}
 	}
+	// The caliber legend entries render on demand (§24.1补).
+	for _, want := range []string{"- `全额` =", "- `折算,按下游消费核` ="} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("caliber legend entry %q must render:\n%s", want, md)
+		}
+	}
+	// Display-only 负向: the components never sum into any published value.
 	if strings.Contains(despaced, "1.434") {
 		t.Fatalf("the runnable component must never sum into any published value:\n%s", md)
 	}
@@ -358,10 +389,15 @@ func TestRNBGatedRunnableComponentSubRowAbsentWhenComponentZero(t *testing.T) {
 		}
 	}
 	md := audit730Render(t, audit730Bus(""), rnbSiblingObs(rank, chain), "")
-	// The row-form token (value+ruler join) — the R2 fold-note legend also
-	// speaks 不重复计入排序, so the negative pin anchors on the sub-row shape.
-	if strings.Contains(md, "ms(全额)·就绪排队积压") {
-		t.Fatalf("a zero runnable component must render no R1 sub-row (typed non-zero gate):\n%s", md)
+	despaced := vs2Despace(md)
+	// PTV8-RCR-A: with the runnable component zeroed the identity no longer
+	// balances (0.192 ≠ 0.813) — the 「=」breakdown REFUSES to render
+	// (恒等式 fail-open) and no runnable 拆解子行 appears.
+	if strings.Contains(despaced, "ms=runnable(") || strings.Contains(despaced, "runnable原始") {
+		t.Fatalf("a zero runnable component must render no breakdown (identity fail-open):\n%s", md)
+	}
+	if !strings.Contains(despaced, "有效归因0.813ms") {
+		t.Fatalf("the plain single-source attribution tag must stay:\n%s", md)
 	}
 }
 
@@ -603,10 +639,13 @@ func rnbTwinFoldProjection() types.TraceCausalProjection {
 			ImpactMS: 28.717, CumulativeImpactMS: 28.230, EffectiveImpactMS: 28.717,
 			PriorityInversionCandidate: true, LineStart: 1000, LineEnd: 2000, Confidence: 0.91,
 		}},
+		// PTV8-RCR-A: running-dominant chain twin (opendir E6/E7 form) — the
+		// running component's 原始 is the row's own projection, so the fixture
+		// exercises the 行3 breakdown + 拆解子行 caliber marks.
 		OnChainCauses: []types.TraceCausalProjectionNode{{
 			Role: types.TraceCausalRoleCausalHop, EvidenceID: "rnb-chain",
-			Subject: "sysr-8", Predicate: "wakeup_causal_impact", Object: "runnable_wait",
-			StateKind: "runnable", ChainRelevance: "on_chain", ChainDepth: 2,
+			Subject: "sysr-8", Predicate: "wakeup_causal_impact", Object: "running",
+			StateKind: "running", ChainRelevance: "on_chain", ChainDepth: 2,
 			ImpactMS: 28.230, CumulativeImpactMS: 28.230, EffectiveImpactMS: 28.717,
 			PriorityInversionCandidate: true, GatedRunnableMS: 28.230, GatedRunningDeficitMS: 0.487,
 			RunnableMS: 28.230, LineStart: 1000, LineEnd: 2000, Confidence: 0.78,
@@ -649,7 +688,9 @@ func leadSemCrossWindowNoActualProjection() types.TraceCausalProjection {
 func TestRNBLeadSemBidirectionalFixturesRenderTheirMarks(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(rnbTwinFoldProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	for _, token := range []string{"同段rank行并入", "不重复计入排序"} {
+	// PTV8-RCR-A: the fixture exercises the four-line grammar marks (行2 seat
+	// + 行3 breakdown + caliber words) instead of the retired R1/R2 tokens.
+	for _, token := range []string{"根因排序#", "ms = ", "(全额)", "按下游消费核"} {
 		if !strings.Contains(fence, token) {
 			t.Fatalf("rnbTwinFoldProjection must exercise %q:\n%s", token, fence)
 		}
@@ -685,7 +726,8 @@ func TestRNBDepthlessFoldKeepsUnadmittedDisclosureMax(t *testing.T) {
 		"gated_runnable=8.500", "effective_impact_ms=8.500")
 	chain.Confidence = 0.78
 	md := audit730Render(t, audit730Bus(""), []types.ObservationRecord{rnbAnchor(), rank, chain}, "")
-	if !strings.Contains(md, "同段rank行并入") {
+	// PTV8-RCR-A: the fold witness is the merged [E#+E#] bracket.
+	if !strings.Contains(md, "+E2]") {
 		t.Fatalf("the depthless twin pair must fold:\n%s", md)
 	}
 	if !strings.Contains(md, "另有 1 项未计入的链上行(单项最大 28.717ms") {

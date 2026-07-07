@@ -392,8 +392,10 @@ type TraceCausalProjectionNode struct {
 	// composition of a priority-inversion row (§7.30.3 D3), sourced from the
 	// typed gated_runnable / gated_running_deficit rich notes: runnable time
 	// counted in full plus the capacity-discounted weak-core running deficit.
-	// The renderer shows "影响构成: runnable X + running 折算 Y" (PTV7 word
-	// face) instead of claiming one scheduler state for the composite amount.
+	// PTV8-RCR-A (§24.1): the renderer shows the cause node's 行3 breakdown
+	// 「有效归因 V = runnable(全额) x + running(折算) y」 plus the 拆解子行
+	// (the former 影响构成 tag is retired) instead of claiming one scheduler
+	// state for the composite amount.
 	GatedRunnableMS       float64 `json:"gated_runnable_ms,omitempty"`
 	GatedRunningDeficitMS float64 `json:"gated_running_deficit_ms,omitempty"`
 	// PeriodicSource / DetectedPeriodMS / PeriodicLatenessMS carry the VS-1

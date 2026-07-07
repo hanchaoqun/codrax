@@ -1,0 +1,666 @@
+package tool
+
+// answer_document_mutation_runtime_rcr.go — PTV8-RCR-A (ledger
+// docs/design/real_trace_campaign_20260705.md §24/§24.1/§24.2/§24.3, user
+// ruling 2026-07-07 "混乱无比" full display re-audit): the cause-node
+// four-line grammar and the impact-form glyph/category single-source table.
+//
+// Four-line grammar (§24.1, all cause nodes isomorphic):
+//   行1  glyph + 词位(状态构成|类型词) + ×N + bar + 窗口投影 + % + ⚠ + [E#(+E#)]
+//   行2  类别·根因排序#N·置信
+//   行3  有效归因 V = 分量(口径) a [+ 分量(口径) b]
+//   行4+ 拆解子行「分量 原始 raw → 计入 x(口径)」 | 影响点清单
+// Identity pins (§24.1, machine-checked on the REAL compile chain):
+//   Σ计入 == 有效归因 == 行3 right-hand sum (the builder refuses to render a
+//   non-balancing "=" row — fail-open to the plain effective tag);
+//   行1 value == 窗口投影 == bar base (both read ONE display-impact source).
+// Degenerate form (§24.2): single component with 计入==原始 → 行3 folds into
+// 行2's tail (two-line form). Degradation is allowed, variants are not.
+//
+// Caliber-word closed set (§24.1/§24.2, four words, each with a mandatory
+// on-demand legend entry — §24.1补): 全额 / 折算,按下游消费核 /
+// 折算,按大核满频,下界 / 单次最大(共N次).
+//
+// Glyph table (§24.3, user ruling 2026-07-07 "成因 glyph 对应影响形态设计,
+// 不要亮色"): the glyph column and the 行2 category-word column live in ONE
+// typed table below (两列单源, hand-sync forbidden); legend entries for the
+// glyph marks are generated from the same table. Three hard rules: text
+// presentation (no VS16), single display cell per glyph (runewidth-checked by
+// TestTraceProjectionImpactFormGlyphsSingleCellNoVS16), three-surface
+// consistency. 🎯 → ⊚ (the tree loses its only colored emoji; 复核 F3:
+// EAW-Neutral glyph, never the Ambiguous ◎).
+
+import (
+	"fmt"
+	"math"
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// runtimeTraceProjRootGlyph is the tree-root mark (§24.3 无亮色 hard rule +
+// 复核 F3 裁定 2026-07-08: 🎯 → ⊚ U+229A, EAW=Neutral — the earlier ◎ U+25CE
+// is East-Asian-Ambiguous and double-width on CJK terminals, escaping the
+// single-cell rule). Consumed by the header composer, the legend entry and
+// the single-cell width pin — one constant, three surfaces.
+const runtimeTraceProjRootGlyph = "⊚"
+
+// --- §24.3 impact-form table (glyph + category, ONE typed source) -------------
+
+type runtimeTraceProjImpactForm int
+
+const (
+	runtimeTraceProjImpactFormNone runtimeTraceProjImpactForm = iota
+	// ⚙ 运行占用·算力供给 (running / compute-supply family).
+	runtimeTraceProjImpactFormRunning
+	// ☾ 睡眠 (symptom, never a cause category).
+	runtimeTraceProjImpactFormSleep
+	// ⛓ IO阻塞族 (§24.3: io_latency 等 typed 事件归族,不再挂无意义 ◦).
+	runtimeTraceProjImpactFormIOBlock
+	// ⧖ 就绪排队 (runnable / scheduler-latency family).
+	runtimeTraceProjImpactFormRunnable
+	// ⊗ 锁竞争·持锁 (typed BlockingKind rows).
+	runtimeTraceProjImpactFormLock
+	// ⇅ 优先级反转 (inversion candidates).
+	runtimeTraceProjImpactFormInversion
+	// ✦ 确定性优化 (semantic spans + deterministic compile/verify classes).
+	runtimeTraceProjImpactFormDeterministicOpt
+	// ↯ 中断活动族 (irq/ipi/workqueue/dma-fence).
+	runtimeTraceProjImpactFormInterrupt
+	// ◌ 数据盲区 (trace_gap / missing_wakeup — data gaps, not causes).
+	runtimeTraceProjImpactFormBlindSpot
+	// ◦ 无形态兜底 (no dominant state, no typed family).
+	runtimeTraceProjImpactFormFallback
+)
+
+// runtimeTraceProjImpactFormSpec is one row of the §24.3 single-source table:
+// the glyph column and the 行2 category-word column MUST come from here —
+// never hand-synced copies (两列单源, pinned by
+// TestTraceProjectionImpactFormTableSingleSource).
+type runtimeTraceProjImpactFormSpec struct {
+	Form  runtimeTraceProjImpactForm
+	Glyph string
+	// CategoryZH/EN is the 行2 成因类别 family word ("" = the form mints no
+	// category: sleep is a symptom, blind spots are data gaps, ◦ has no shape).
+	// Lock rows override with their precise typed shape word (持锁/阻塞 split).
+	CategoryZH string
+	CategoryEN string
+	// SemanticsZH/EN feed the generated legend entry for the form's glyph mark
+	// (runtimeTraceProjImpactFormLegendEntries). Empty = no generated entry
+	// (the form's glyph legend lives on a pre-existing pinned entry).
+	SemanticsZH string
+	SemanticsEN string
+	// Mark is the glyph's NEW-7 legend mark; runtimeTraceProjMarkCount-safe.
+	Mark runtimeTraceProjMark
+	// GeneratedLegend: this spec generates its own catalog entry (the four new
+	// §24.3 glyphs); the state-icon glyphs keep their PTV7-pinned entries.
+	GeneratedLegend bool
+}
+
+// runtimeTraceProjImpactFormSpecs is the exhaustive §24.3 form directory.
+func runtimeTraceProjImpactFormSpecs() []runtimeTraceProjImpactFormSpec {
+	return []runtimeTraceProjImpactFormSpec{
+		{Form: runtimeTraceProjImpactFormRunning, Glyph: "⚙",
+			CategoryZH: "算力供给候选", CategoryEN: "compute-supply candidate",
+			Mark: runtimeTraceProjMarkIconRunning},
+		{Form: runtimeTraceProjImpactFormSleep, Glyph: "☾",
+			Mark: runtimeTraceProjMarkIconSleep},
+		{Form: runtimeTraceProjImpactFormIOBlock, Glyph: "⛓",
+			CategoryZH: "IO阻塞候选", CategoryEN: "IO-blocking candidate",
+			Mark: runtimeTraceProjMarkIconDState},
+		{Form: runtimeTraceProjImpactFormRunnable, Glyph: "⧖",
+			CategoryZH: "就绪排队候选", CategoryEN: "ready-queue candidate",
+			Mark: runtimeTraceProjMarkIconRunnable},
+		{Form: runtimeTraceProjImpactFormLock, Glyph: "⊗",
+			CategoryZH: "锁竞争·持锁", CategoryEN: "lock contention · holder",
+			SemanticsZH: "锁竞争(持锁/被锁阻塞)", SemanticsEN: "lock contention (holding / blocked on a lock)",
+			Mark: runtimeTraceProjMarkIconLock, GeneratedLegend: true},
+		{Form: runtimeTraceProjImpactFormInversion, Glyph: "⇅",
+			CategoryZH: "优先级反转候选", CategoryEN: "priority-inversion candidate",
+			SemanticsZH: "优先级反转(低优先级持有资源阻塞高优先级)", SemanticsEN: "priority inversion (a low-priority holder blocks a high-priority waiter)",
+			Mark: runtimeTraceProjMarkIconInversion, GeneratedLegend: true},
+		{Form: runtimeTraceProjImpactFormDeterministicOpt, Glyph: "✦",
+			CategoryZH: "确定性优化候选", CategoryEN: "deterministic-optimization candidate",
+			Mark: runtimeTraceProjMarkSemanticSpan},
+		{Form: runtimeTraceProjImpactFormInterrupt, Glyph: "↯",
+			CategoryZH: "中断活动候选", CategoryEN: "interrupt-activity candidate",
+			SemanticsZH: "中断活动(IRQ/IPI/工作队列等)", SemanticsEN: "interrupt activity (IRQ/IPI/workqueue …)",
+			Mark: runtimeTraceProjMarkIconInterrupt, GeneratedLegend: true},
+		{Form: runtimeTraceProjImpactFormBlindSpot, Glyph: "◌",
+			SemanticsZH: "数据缺失记号(窗内数据缺口,非成因)", SemanticsEN: "a data-gap marker (missing in-window data, not a cause)",
+			Mark: runtimeTraceProjMarkIconBlindSpot, GeneratedLegend: true},
+		{Form: runtimeTraceProjImpactFormFallback, Glyph: "◦",
+			Mark: runtimeTraceProjMarkIconNoDominant},
+	}
+}
+
+// runtimeTraceProjImpactFormSpecFor resolves one table row by form.
+func runtimeTraceProjImpactFormSpecFor(form runtimeTraceProjImpactForm) (runtimeTraceProjImpactFormSpec, bool) {
+	for _, spec := range runtimeTraceProjImpactFormSpecs() {
+		if spec.Form == form {
+			return spec, true
+		}
+	}
+	return runtimeTraceProjImpactFormSpec{}, false
+}
+
+// runtimeTraceProjImpactFormLegendEntries generates the catalog entries of
+// the GeneratedLegend specs from the table itself (§24.3 图例条目随 glyph 表
+// 单源生成) — glyph and semantics interpolate from the spec, so a table edit
+// moves the row face and the legend together (two-source drift bites red).
+func runtimeTraceProjImpactFormLegendEntries() []runtimeTraceProjLegendEntry {
+	var out []runtimeTraceProjLegendEntry
+	for _, spec := range runtimeTraceProjImpactFormSpecs() {
+		if !spec.GeneratedLegend {
+			continue
+		}
+		out = append(out, runtimeTraceProjLegendEntry{
+			Mark:  spec.Mark,
+			Group: runtimeTraceProjLegendGroupMark,
+			ZH:    "- `" + spec.Glyph + "` = " + spec.SemanticsZH + "。",
+			EN:    "- `" + spec.Glyph + "` = " + spec.SemanticsEN + ".",
+		})
+	}
+	return out
+}
+
+// runtimeTraceProjImpactFormTokenFamily maps a canonical typed token onto its
+// §24.3 impact-form family. Exact typed-token membership only — unmapped
+// tokens return None and the caller falls through to the state lane.
+func runtimeTraceProjImpactFormTokenFamily(token string) runtimeTraceProjImpactForm {
+	switch token {
+	case "io_latency", "io_wait", "d_state_or_io_wait", "fragmented_d_state_or_io_wait",
+		"binder_wait", "io_pressure", "io_burst_episode", "block_io_by_inode",
+		"file_io_hot_inode", "page_cache_churn":
+		return runtimeTraceProjImpactFormIOBlock
+	case "irq_burst", "irq_activity", "ipi_activity", "workqueue_activity", "dma_fence_activity":
+		return runtimeTraceProjImpactFormInterrupt
+	case "trace_gap", "missing_wakeup":
+		return runtimeTraceProjImpactFormBlindSpot
+	case "jit_compile", "class_verification", "shader_compile", "runtime_compile":
+		return runtimeTraceProjImpactFormDeterministicOpt
+	case "compute_supply", "low_frequency", "cpu_frequency_limit", "cpu_affinity_or_cpuset",
+		"running", "fragmented_running":
+		return runtimeTraceProjImpactFormRunning
+	case "runnable_wait", "fragmented_runnable_wait", "scheduler_latency",
+		"cpu_pressure", "supply_pressure":
+		return runtimeTraceProjImpactFormRunnable
+	case "sleep_wait", "fragmented_sleep_wait":
+		return runtimeTraceProjImpactFormSleep
+	}
+	return runtimeTraceProjImpactFormNone
+}
+
+// runtimeTraceProjImpactFormForNode classifies one node onto the §24.3 form.
+// Typed precedence (never prose): semantic kind → lock → inversion → the
+// node's OWN scheduler state (the pre-RCR glyph precedence, byte-stable for
+// every stateful row) → typed token family (TypeToken → Object → Predicate,
+// the registry lane order — this is the §24.3 "IO延迟等 typed 事件归族" arm
+// for STATELESS rows) → fallback.
+func runtimeTraceProjImpactFormForNode(node types.TraceCausalProjectionNode, kind string) runtimeTraceProjImpactForm {
+	if kind == runtimeTraceProjTreeRowSemantic {
+		return runtimeTraceProjImpactFormDeterministicOpt
+	}
+	if strings.TrimSpace(node.BlockingKind) != "" {
+		return runtimeTraceProjImpactFormLock
+	}
+	if runtimeTraceCausalProjectionInversionRow(node) {
+		return runtimeTraceProjImpactFormInversion
+	}
+	if node.IsSleepState() {
+		return runtimeTraceProjImpactFormSleep
+	}
+	switch strings.TrimSpace(strings.ToLower(node.StateKind)) {
+	case "running":
+		return runtimeTraceProjImpactFormRunning
+	case "runnable":
+		return runtimeTraceProjImpactFormRunnable
+	case "d_state", "io_wait", "d_sleep", "uninterruptible_sleep":
+		return runtimeTraceProjImpactFormIOBlock
+	}
+	switch runtimeTraceCausalProjectionTypeTokenStateClass(node) {
+	case "running":
+		return runtimeTraceProjImpactFormRunning
+	case "runnable":
+		return runtimeTraceProjImpactFormRunnable
+	case "s_sleep":
+		return runtimeTraceProjImpactFormSleep
+	case "d_state_or_io_wait", "io_wait":
+		return runtimeTraceProjImpactFormIOBlock
+	}
+	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
+		if form := runtimeTraceProjImpactFormTokenFamily(runtimeTraceCausalProjectionCanonicalNode(token)); form != runtimeTraceProjImpactFormNone {
+			return form
+		}
+	}
+	return runtimeTraceProjImpactFormFallback
+}
+
+// --- §24.1/§24.2 cause-node four-line grammar ---------------------------------
+
+// runtimeTraceProjCauseNodeRow is the 成因节点 identity gate (§24 用户裁定①:
+// 成因行身份 = 根因排序参赛身份): a data row that entered the root-cause
+// ranking (typed engine Rank, incl. the RNB fold-adopted rank) or is an
+// inversion composite carrying gated components. Precise signals only.
+func runtimeTraceProjCauseNodeRow(row runtimeTraceProjTreeRow) bool {
+	if !row.HasData || row.Node.OnChainOverflowFold {
+		return false
+	}
+	if row.Node.Rank > 0 || len(row.RankFoldPeers) > 0 {
+		return true
+	}
+	return runtimeTraceCausalProjectionInversionRow(row.Node) &&
+		(row.Node.GatedRunnableMS > 0 || row.Node.GatedRunningDeficitMS > 0)
+}
+
+// runtimeTraceProjCauseCategoryWord resolves the 行2 category word. Typed
+// relocation, never a string dedupe: lock rows speak their precise shape word
+// (持锁/阻塞 split), typed non-state shape words relocate from the retired
+// row-tail slot, pure state rows take the form table's family column.
+// relocated=true means the shape-cell word MOVED here and the 行尾形态词 slot
+// stays empty (§24.2 行尾形态词撤).
+func runtimeTraceProjCauseCategoryWord(node types.TraceCausalProjectionNode, kind string, zh bool) (word string, relocated bool) {
+	form := runtimeTraceProjImpactFormForNode(node, kind)
+	switch form {
+	case runtimeTraceProjImpactFormLock:
+		word, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(node, zh)
+		return word, true
+	case runtimeTraceProjImpactFormInversion:
+		if zh {
+			return runtimeTraceRootCauseTypeZHLabel("priority_inversion_candidate"), true
+		}
+		return "priority_inversion_candidate", true
+	}
+	// Typed non-state shape words (IO阻塞候选 / 页缓存抖动 / 中断突发 …)
+	// relocate whole from the shape cell; a shape cell that carries a pure
+	// scheduler-state word (typed class) or the generic fallback stays put and
+	// the table's family column speaks instead.
+	shape, generic := runtimeTraceCausalProjectionImpactShapeCellTyped(node, zh)
+	stateWord := strings.TrimSpace(node.StateKind) != "" ||
+		runtimeTraceCausalProjectionTypeTokenStateClass(node) != ""
+	if shape != "" && !generic && !stateWord {
+		return shape, true
+	}
+	if spec, ok := runtimeTraceProjImpactFormSpecFor(form); ok {
+		if zh {
+			return spec.CategoryZH, false
+		}
+		return spec.CategoryEN, false
+	}
+	return "", false
+}
+
+// runtimeTraceProjCauseRankConfidence resolves the 行2 榜位/置信 pair: the
+// fold-adopted rank plus, when a rank-lane twin folded in (RNB), THAT row's
+// confidence (the ranking identity rides the rank lane — §24.2 fold peer 数据
+// 入行2 榜位).
+func runtimeTraceProjCauseRankConfidence(row runtimeTraceProjTreeRow) (int, float64) {
+	rank := row.Node.Rank
+	confidence := row.Node.Confidence
+	for _, peer := range row.RankFoldPeers {
+		if peer.Rank > 0 && (rank <= 0 || peer.Rank < rank) {
+			rank = peer.Rank
+		}
+		if peer.Confidence > 0 {
+			confidence = peer.Confidence
+		}
+	}
+	return rank, confidence
+}
+
+// runtimeTraceProjCauseEventFoldRow is the §24.2 event-class form gate: a
+// chain-universe cause node whose merged instances published a per-instance
+// MAX equal (at print precision) to the row's effective attribution — the
+// 有效归因 V = 单次最大(a–b,共N次) identity holds by typed data, so the ×N
+// count rises into 行1 and the range rides 行3. Shared by the name composer
+// and the structured builder (one gate, no drift).
+func runtimeTraceProjCauseEventFoldRow(row runtimeTraceProjTreeRow) bool {
+	node := row.Node
+	if !runtimeTraceProjCauseNodeRow(row) || !runtimeTraceProjChainUniverseRowKind(row.Kind) {
+		return false
+	}
+	if node.PeriodicSource || runtimeTraceProjEffectiveInherited(node) ||
+		runtimeTraceCausalProjectionInversionRow(node) {
+		return false
+	}
+	if _, source := runtimeTraceProjNodeDisplayImpactSource(node); source == runtimeTraceProjImpactSourceEffective {
+		return false
+	}
+	return node.MergedCount > 1 && node.MergedMaxMS > 0 && node.EffectiveImpactMS > 0 &&
+		runtimeTraceProjRound3Equal(node.EffectiveImpactMS, node.MergedMaxMS)
+}
+
+// runtimeTraceProjAttributionComponent is one 行3/子行 component of the
+// effective attribution: 计入 under its own caliber, with the known 原始.
+type runtimeTraceProjAttributionComponent struct {
+	Word string // canonical component word (runnable / running / …)
+	// RawMS is the component's 原始 magnitude (0 = unknown; the sub-row then
+	// cannot render and the whole "=" form fails open).
+	RawMS float64
+	// InMS is the 计入 magnitude (Σ InMS must equal the effective total at
+	// print precision — the §24.1 identity pin).
+	InMS float64
+	// CaliberShort rides 行3 ("全额"/"折算"); CaliberFull rides the sub-row
+	// parenthesis (closed set: 全额 / 折算,按下游消费核 / 折算,按大核满频,下界).
+	CaliberShort string
+	CaliberFull  string
+	// Marks to emit when the component renders (caliber legend on demand).
+	Marks []runtimeTraceProjMark
+}
+
+// runtimeTraceProjCauseStructured is the built four-line-grammar material for
+// one cause node (rows 2..N; 行1 stays on the metric lane — same display
+// impact, same bar base: the §24.1 second identity holds by construction).
+type runtimeTraceProjCauseStructured struct {
+	IdentityRow string   // 行2 (with the degenerate 行3 tail folded in, if any)
+	Breakdown   string   // 行3 ("" = degenerate or no decomposition)
+	SubRows     []string // 行4+ 拆解子行
+	// NameXNSuffix moves the ×N count into 行1's 词位 (§24.2 ×N 上移行1);
+	// non-empty only on the event form.
+	NameXNSuffix string
+	// ConsumedMergedTag: the event form carries the (a–b,共N次) range on 行3 —
+	// the legacy ×N(a–b) tag stays off this row.
+	ConsumedMergedTag bool
+	// ConsumedEffective: 行2/行3 already carry the effective value — the
+	// legacy 有效归因X tag stays off this row.
+	ConsumedEffective bool
+	// SuppressShapeWord: the category word relocated from the shape-cell slot
+	// (§24.2 行尾形态词撤) — the row-tail state/shape tag stays off.
+	SuppressShapeWord bool
+}
+
+func runtimeTraceProjFmtMS(v float64) string { return fmt.Sprintf("%.3fms", v) }
+
+// runtimeTraceProjRound3Equal is the print-precision identity check: two
+// magnitudes are identical exactly when their %.3f renderings agree.
+func runtimeTraceProjRound3Equal(a, b float64) bool {
+	return math.Round(a*1000) == math.Round(b*1000)
+}
+
+// runtimeTraceProjInversionComponents builds the inversion composite's typed
+// components (RCX² per-component rulers: runnable counted IN FULL, only the
+// running deficit rides the downstream-consumer-core fold). ok=false when a
+// component's 原始 is unknowable or the printed identity Σ计入==V would not
+// balance — the "=" form then fails open (never a fabricated number).
+func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, zh bool) ([]runtimeTraceProjAttributionComponent, float64, bool) {
+	// The 行3 head claims 有效归因 — only the ENGINE-PUBLISHED effective may
+	// wear that word (显示≠归因: an unpublished effective is never fabricated
+	// from the component sum; such nodes keep 行2 + the detail-block
+	// composition text without a total claim).
+	if node.EffectiveImpactMS <= 0 || node.PeriodicSource {
+		return nil, 0, false
+	}
+	total := runtimeTraceProjInversionGatedTotalMS(node)
+	if total <= 0 {
+		return nil, 0, false
+	}
+	var components []runtimeTraceProjAttributionComponent
+	if node.GatedRunnableMS > 0 {
+		// Producer contract (tracequery GatedRunnableMs: "runnable time
+		// counted in full"): the component's 原始 IS its 计入 — the 全额
+		// caliber claim holds by typed definition, never via the row's
+		// whole-window RunnableMS (which may cover more than this segment).
+		raw := node.GatedRunnableMS
+		full := "全额"
+		if !zh {
+			full = "in full"
+		}
+		components = append(components, runtimeTraceProjAttributionComponent{
+			Word: "runnable", RawMS: raw, InMS: node.GatedRunnableMS,
+			CaliberShort: full, CaliberFull: full,
+			Marks: []runtimeTraceProjMark{runtimeTraceProjMarkCaliberFull},
+		})
+	}
+	if node.GatedRunningDeficitMS > 0 {
+		raw := 0.0
+		if strings.TrimSpace(strings.ToLower(node.StateKind)) == "running" ||
+			runtimeTraceCausalProjectionTypeTokenStateClass(node) == "running" {
+			raw = runtimeTraceProjNodeDisplayImpact(node)
+		}
+		if raw <= 0 && node.SupplyFoldComputed {
+			raw = runtimeTraceProjSupplyFoldRunningMS(node)
+		}
+		if raw <= 0 {
+			return nil, 0, false // unknown 原始 — the sub-row cannot render
+		}
+		short, full := "折算", "折算,按下游消费核"
+		if !zh {
+			short, full = "discounted", "discounted, at the downstream consumer core"
+		}
+		components = append(components, runtimeTraceProjAttributionComponent{
+			Word: "running", RawMS: raw, InMS: node.GatedRunningDeficitMS,
+			CaliberShort: short, CaliberFull: full,
+			Marks: []runtimeTraceProjMark{runtimeTraceProjMarkCaliberConsumerCore},
+		})
+	}
+	if len(components) == 0 {
+		return nil, 0, false
+	}
+	sum := 0.0
+	for _, c := range components {
+		sum += math.Round(c.InMS * 1000)
+	}
+	if sum != math.Round(total*1000) {
+		return nil, 0, false // identity would not balance at print precision
+	}
+	return components, total, true
+}
+
+// runtimeTraceProjAttributionEquation is THE 行3 equation template (复核
+// FAIL-2, 2026-07-08): "V = 分量(口径) x [+ 分量(口径) y]" — the conclusion
+// line, the fence 行3 and the detail block's 有效归因构成 line all render
+// THIS one string (three hand copies could drift joiner/format apart with
+// every pin still green).
+func runtimeTraceProjAttributionEquation(total float64, components []runtimeTraceProjAttributionComponent) string {
+	parts := make([]string, 0, len(components))
+	for _, c := range components {
+		parts = append(parts, fmt.Sprintf("%s(%s) %s", c.Word, c.CaliberShort, runtimeTraceProjFmtMS(c.InMS)))
+	}
+	return runtimeTraceProjFmtMS(total) + " = " + strings.Join(parts, " + ")
+}
+
+// runtimeTraceProjAttributionSubRows is THE 拆解子行 template (FAIL-2 twin):
+// 「分量 原始 raw → 计入 x(口径)」 — fence sub-rows and the detail block's
+// 拆解 line share it.
+func runtimeTraceProjAttributionSubRows(components []runtimeTraceProjAttributionComponent, zh bool) []string {
+	out := make([]string, 0, len(components))
+	for _, c := range components {
+		if zh {
+			out = append(out, fmt.Sprintf("%s 原始 %s → 计入 %s(%s)", c.Word, runtimeTraceProjFmtMS(c.RawMS), runtimeTraceProjFmtMS(c.InMS), c.CaliberFull))
+		} else {
+			out = append(out, fmt.Sprintf("%s raw %s → counted %s (%s)", c.Word, runtimeTraceProjFmtMS(c.RawMS), runtimeTraceProjFmtMS(c.InMS), c.CaliberFull))
+		}
+	}
+	return out
+}
+
+// runtimeTraceProjInversionDegenerateSingleFull is the §24.1 degeneration
+// gate on an inversion composite (复核 F4 裁定 2026-07-08, "允许退化" read as
+// mandatory): exactly ONE component, counted at its full raw amount
+// (计入==原始 — by producer contract the runnable(全额) component) → 行3
+// folds into 行2's tail and the sub-row is omitted (two-line form). Multiple
+// components or a discounted 计入 keep the four-line form.
+func runtimeTraceProjInversionDegenerateSingleFull(components []runtimeTraceProjAttributionComponent) bool {
+	return len(components) == 1 && components[0].Word == "runnable" &&
+		runtimeTraceProjRound3Equal(components[0].InMS, components[0].RawMS)
+}
+
+// runtimeTraceProjInversionStateCompositionWord is 行1's 词位 for an
+// inversion cause node (§24 用户裁定① / task-verbatim E7 case): the state
+// composition "runnable+running" when both gated components are live, the
+// single live component's state word otherwise, "" when the composite carries
+// no component (the caller keeps the legacy name).
+func runtimeTraceProjInversionStateCompositionWord(node types.TraceCausalProjectionNode) string {
+	if !runtimeTraceCausalProjectionInversionRow(node) {
+		return ""
+	}
+	switch {
+	case node.GatedRunnableMS > 0 && node.GatedRunningDeficitMS > 0:
+		return "runnable+running"
+	case node.GatedRunnableMS > 0:
+		return "runnable"
+	case node.GatedRunningDeficitMS > 0:
+		return "running"
+	}
+	return ""
+}
+
+// runtimeTraceProjCauseStructuredParts builds rows 2..N for one cause node.
+// marks are emitted HERE (at the wording's real emission site) so the caliber
+// legend entries render exactly on demand (§24.1补).
+func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) (runtimeTraceProjCauseStructured, bool) {
+	if !runtimeTraceProjCauseNodeRow(row) {
+		return runtimeTraceProjCauseStructured{}, false
+	}
+	node := row.Node
+	out := runtimeTraceProjCauseStructured{}
+	sep := "·"
+	if !zh {
+		sep = " · "
+	}
+	category, relocated := runtimeTraceProjCauseCategoryWord(node, row.Kind, zh)
+	out.SuppressShapeWord = relocated
+	var identity []string
+	if category != "" {
+		identity = append(identity, category)
+	}
+	rank, confidence := runtimeTraceProjCauseRankConfidence(row)
+	if rank > 0 {
+		if zh {
+			identity = append(identity, fmt.Sprintf("根因排序#%d", rank))
+		} else {
+			identity = append(identity, fmt.Sprintf("root-cause rank #%d", rank))
+		}
+	}
+	if tier := runtimeTraceProjConfidenceTier(confidence, zh); tier != "" {
+		if zh {
+			identity = append(identity, "置信"+tier)
+		} else {
+			identity = append(identity, "confidence "+tier)
+		}
+	}
+	effectiveWord := "有效归因"
+	if !zh {
+		effectiveWord = "attribution"
+	}
+	impact := runtimeTraceProjNodeDisplayImpact(node)
+	_, impactSource := runtimeTraceProjNodeDisplayImpactSource(node)
+	effective := node.EffectiveImpactMS
+	eligible := runtimeTraceProjChainUniverseRowKind(row.Kind) && effective > 0 &&
+		!node.PeriodicSource && !runtimeTraceProjEffectiveInherited(node) &&
+		impactSource != runtimeTraceProjImpactSourceEffective
+	handled := false
+	if eligible && runtimeTraceCausalProjectionInversionRow(node) {
+		if components, total, ok := runtimeTraceProjInversionComponents(node, zh); ok {
+			switch {
+			case runtimeTraceProjInversionDegenerateSingleFull(components):
+				// 复核 F4 (§24.1 退化规则按字面执行): single runnable(全额)
+				// component with 计入==原始 — 行3 folds into 行2's tail,
+				// sub-row omitted (统一逻辑优先; the identity total==InMS is
+				// implied by the balance check in the components builder).
+				full := "全额"
+				if !zh {
+					full = "in full"
+				}
+				identity = append(identity, fmt.Sprintf("%s %s(%s)", effectiveWord, runtimeTraceProjFmtMS(total), full))
+				row.marks.mark(runtimeTraceProjMarkCaliberFull)
+			default:
+				out.SubRows = runtimeTraceProjAttributionSubRows(components, zh)
+				out.Breakdown = effectiveWord + " " + runtimeTraceProjAttributionEquation(total, components)
+				row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
+				for _, c := range components {
+					for _, m := range c.Marks {
+						row.marks.mark(m)
+					}
+				}
+			}
+			out.ConsumedEffective = true
+			handled = true
+		} else if node.GatedRunnableMS > 0 || node.GatedRunningDeficitMS > 0 {
+			// 复核 FAIL-1 (fail-open lossless mirror): the detail block will
+			// render the composition text (runnable …(全额)+ running 折算
+			// …(按下游消费核折算)) — the caliber legend entries follow the
+			// words wherever they reach the reader.
+			row.marks.mark(runtimeTraceProjMarkCaliberFull)
+			row.marks.mark(runtimeTraceProjMarkCaliberConsumerCore)
+		}
+		// else fail-open: no balancing decomposition — the degenerate arm
+		// below may still fold the effective into 行2's tail (计入==原始);
+		// otherwise the plain effective tag stays on the legacy lane. The
+		// 机制构成 sentence stays retired on inversion cause nodes regardless
+		// (§24 ②, enforced at the supply-fold tag site).
+	}
+	if !handled && eligible && runtimeTraceProjCauseEventFoldRow(row) {
+		// §24.2 event-class form: ×N moves onto 行1, the (a–b,共N次) range and
+		// the 单次最大 caliber ride 行3. Identity: V == 单次最大 (typed check).
+		if zh {
+			out.Breakdown = fmt.Sprintf("%s %s = 单次最大(%.3f–%.3fms,共%d次)",
+				effectiveWord, runtimeTraceProjFmtMS(effective), node.MergedMinMS, node.MergedMaxMS, node.MergedCount)
+		} else {
+			out.Breakdown = fmt.Sprintf("%s %s = single max (%.3f–%.3fms, of %d)",
+				effectiveWord, runtimeTraceProjFmtMS(effective), node.MergedMinMS, node.MergedMaxMS, node.MergedCount)
+		}
+		row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
+		row.marks.mark(runtimeTraceProjMarkCaliberSingleMax)
+		out.NameXNSuffix = fmt.Sprintf(" ×%d", node.MergedCount)
+		out.ConsumedMergedTag = true
+		out.ConsumedEffective = true
+		handled = true
+	}
+	if !handled && eligible && runtimeTraceProjRound3Equal(effective, impact) {
+		// §24.2 degenerate form: single account, 计入==原始 — 行3 folds into
+		// 行2's tail as the two-line form.
+		full := "全额"
+		if !zh {
+			full = "in full"
+		}
+		identity = append(identity, fmt.Sprintf("%s %s(%s)", effectiveWord, runtimeTraceProjFmtMS(effective), full))
+		row.marks.mark(runtimeTraceProjMarkCaliberFull)
+		out.ConsumedEffective = true
+	}
+	if len(identity) == 0 {
+		return runtimeTraceProjCauseStructured{}, false
+	}
+	out.IdentityRow = strings.Join(identity, sep)
+	row.marks.mark(runtimeTraceProjMarkCauseIdentityRow)
+	return out, true
+}
+
+// runtimeTraceProjCauseEvidenceRef composes 行1's evidence bracket with the
+// folded rank-lane twin's E# merged in (§24.2 [E#(+E#)] — the rank row's E#
+// rises into 行1; its rank/confidence ride 行2). "" when the row carries no
+// evidence tag of its own.
+func runtimeTraceProjCauseEvidenceRef(row runtimeTraceProjTreeRow) string {
+	if row.EvidenceTag == "" {
+		return ""
+	}
+	ref := row.EvidenceTag
+	for _, peer := range row.RankFoldPeers {
+		if tag := strings.TrimSpace(peer.EvidenceTag); tag != "" {
+			ref += "+" + tag
+		}
+	}
+	return "[" + ref + "]"
+}
+
+// runtimeTraceProjInversionSupplyFoldDetailLine is the lossless-block home of
+// an inversion node's supply-fold deficit (the retired Triple mechanism
+// sentence's data half, §24 ②): the unified sub-row grammar with the
+// 供给折算缺口 phrasing folded into the caliber parenthesis (§24.1 单一子行
+// 文法), explicitly outside the effective attribution (independent caliber,
+// never additive — 墙钟红线). "" when the fold never ran or found no deficit.
+func runtimeTraceProjInversionSupplyFoldDetailLine(node types.TraceCausalProjectionNode, zh bool) string {
+	if !runtimeTraceCausalProjectionInversionRow(node) || !node.SupplyFoldComputed || node.SupplyFoldDeficitMS <= 0 {
+		return ""
+	}
+	raw := runtimeTraceProjSupplyFoldRunningMS(node)
+	if raw <= 0 {
+		return ""
+	}
+	if zh {
+		return fmt.Sprintf("running 原始 %s → 供给折算缺口 %s(折算,按大核满频,下界;独立口径,不计入有效归因)",
+			runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS))
+	}
+	return fmt.Sprintf("running raw %s → supply-fold deficit %s (discounted at big-cluster fmax, lower bound; independent caliber, not counted into attribution)",
+		runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS))
+}

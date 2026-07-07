@@ -109,7 +109,7 @@ func rn1CollapseContinuations(md string) string {
 			continue
 		}
 		if b.Len() > 0 && trimmed != line && !strings.HasPrefix(trimmed, "├") && !strings.HasPrefix(trimmed, "└") &&
-			trimmed != "" && !strings.ContainsAny(trimmed, "█░🎯☾⧖💤⏳⚙⛓◇▒") {
+			trimmed != "" && !strings.ContainsAny(trimmed, "█░⊚☾⧖💤⏳⚙⛓⊗⇅↯◌✦◇▒") {
 			// alignment continuation of a wrapped carrier (indent + "  " lane).
 			// Rails were trimmed with the indent; the wrap itself is
 			// byte-identical, so plain concatenation restores the carrier.

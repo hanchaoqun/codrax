@@ -40,6 +40,10 @@ import (
 var runtimeStateKindPinFiles = []string{
 	"answer_document_mutation_runtime.go",
 	"answer_document_mutation_runtime_tree.go",
+	// PTV8-RCR-A §24.3: the glyph switch moved into the impact-form
+	// classifier (answer_document_mutation_runtime_rcr.go) — the pin follows
+	// the switch to its new site instead of losing coverage.
+	"answer_document_mutation_runtime_rcr.go",
 }
 
 // runtimeStateKindConsumerAliasLedger: consumer-only case words that are NOT
@@ -77,6 +81,10 @@ var runtimeStateKindSwitchFallthroughLedger = map[string]types.TraceStateKindFal
 		Missing: "sleep,s_sleep,sleep_wait",
 		Why:     "PTV4 T4 ◦ 二义拆分: the sleep family is short-circuited by the IsSleepState early return above (☾ rows never render ◦); the switch only lists the remaining non-◦ states — anything else IS the no-dominant-state ◦ sense",
 	},
+	"answer_document_mutation_runtime_rcr.go:runtimeTraceProjImpactFormForNode#1": {
+		Missing: "sleep,s_sleep,sleep_wait",
+		Why:     "PTV8-RCR-A §24.3: the sleep family is short-circuited by the IsSleepState early return above (☾ form); non-state rows fall through to the typed token-family lane, then ◦",
+	},
 }
 
 var runtimeStateKindSwitchSiteGolden = map[string]string{
@@ -84,8 +92,12 @@ var runtimeStateKindSwitchSiteGolden = map[string]string{
 	// PTV6-D (b): ImpactShapeCell → ImpactShapeCellTyped rename only (the
 	// typed generic-arm second return) — the case set is byte-identical.
 	"answer_document_mutation_runtime.go:runtimeTraceCausalProjectionImpactShapeCellTyped#1": "running,runnable,sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
-	"answer_document_mutation_runtime_tree.go:runtimeTraceProjNoDominantStateRow#1":     "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
-	"answer_document_mutation_runtime_tree.go:runtimeTraceProjStateIcon#1":              "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep|default",
+	"answer_document_mutation_runtime_tree.go:runtimeTraceProjNoDominantStateRow#1":          "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
+	// PTV8-RCR-A §24.3 EVOLUTION RECORD: runtimeTraceProjStateIcon's switch
+	// moved into the single-source impact-form classifier (rcr.go) — same
+	// case set, no default arm (the classifier falls through to the typed
+	// token-family lane, then ◦).
+	"answer_document_mutation_runtime_rcr.go:runtimeTraceProjImpactFormForNode#1":       "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
 	"answer_document_mutation_runtime_tree.go:runtimeTraceProjStateKindLabel#1":         "running,runnable,sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
 	"answer_document_mutation_runtime_tree.go:runtimeTraceProjWaitFamilyStateKind#1":    "sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
 	"answer_document_mutation_runtime_tree.go:runtimeTraceProjSymptomFamilyStateKind#1": "runnable+alias:runnable_wait",

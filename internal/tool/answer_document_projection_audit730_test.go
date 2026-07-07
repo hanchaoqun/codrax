@@ -106,7 +106,7 @@ func TestTraceProjection730AggregateAndUnknownDemoteToBackgroundZH(t *testing.T)
 		}
 	}
 	// The real chain stays on-chain and anchored.
-	for _, want := range []string{"🎯 app-1", "☾ binder-42"} {
+	for _, want := range []string{"⊚ app-1", "☾ binder-42"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("real chain must stay on the tree %q:\n%s", want, md)
 		}
@@ -143,7 +143,7 @@ func TestTraceProjection730AggregateAndUnknownDemoteToBackgroundEN(t *testing.T)
 			t.Fatalf("demoted row %q rendered before the background stanza (still on-chain):\n%s", want, md)
 		}
 	}
-	if !strings.Contains(md, "🎯 app-1") {
+	if !strings.Contains(md, "⊚ app-1") {
 		t.Fatalf("real chain must stay anchored:\n%s", md)
 	}
 }

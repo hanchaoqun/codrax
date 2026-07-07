@@ -129,7 +129,7 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 	// deep rows, ⚠/⊘ marks ADJACENT to their row's [E#] on the main line, and
 	// the semantic row's [E#] beside its metric cells.
 	for _, want := range []string{
-		"🎯 oney.hmn.berlin-42591 ‹用户关注线程›",
+		"⊚ oney.hmn.berlin-42591 ‹用户关注线程›",
 		"满格=窗口64.000ms",
 		"└─下钻─ ❶☾ binder:42591_4-42712 · sleep",
 		"├─唤醒─ ❷⚙ RenderService-3021 · 算力供给",
@@ -141,7 +141,12 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		"⊘链止 · [E4(+1)]",
 		"4.700ms   7%  [E5]",
 		"语义优化span·class_verification",
-		"33%  running · 链上L2",
+		// PTV8-RCR-A EVOLUTION RECORD (§24.1): the ranked ⚙ row is a cause
+		// node — 行1 stays grammar-clean (keep-marks only), 行2 carries the
+		// 算力供给候选 identity, and the ordinary tags pack below.
+		"33%  [E2]",
+		"· 算力供给候选·根因排序#2·置信高",
+		"· running · 链上L2 · 有效归因27.900ms",
 		"· runnable_delay · runnable · 链上L3",
 		// PTV5 C02 (#68): the stanza header speaks the legend's own noun.
 		"◇ 邻近区段",
@@ -267,7 +272,7 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 	// PTV7 canonical word: the sleep self row speaks the StateKindLabel
 	// (☾ sleep); the raw s_sleep token stays on the (a)/(b) audit surfaces
 	// (asserted right below) and must not resurface on the tree's self line.
-	for _, want := range []string{"🎯 .ugc.aweme.lite-16547 ‹用户关注线程›", "☾ sleep 112.175", "/ s_sleep [E1]"} {
+	for _, want := range []string{"⊚ .ugc.aweme.lite-16547 ‹用户关注线程›", "☾ sleep 112.175", "/ s_sleep [E1]"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("aweme golden missing target/self surface %q:\n%s", want, md)
 		}

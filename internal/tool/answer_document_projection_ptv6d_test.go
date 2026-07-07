@@ -260,8 +260,17 @@ func TestPTV6DSelfRowGenericShapeSuppressed(t *testing.T) {
 }
 
 func TestPTV6DNoDominantChipRetiredIconAndLegendCarry(t *testing.T) {
-	node := types.TraceCausalProjectionNode{
+	// PTV8-RCR-A §24.3 EVOLUTION RECORD: workqueue_activity now belongs to
+	// the ↯ interrupt-activity family (typed token 归族) — the ◦ fallback arm
+	// needs a row with NO state and NO typed family.
+	interrupt := types.TraceCausalProjectionNode{
 		Subject: "bg-1", Object: "workqueue_activity", ImpactMS: 1.2, Confidence: 0.8,
+	}
+	if icon := runtimeTraceProjStateIcon(interrupt, runtimeTraceProjTreeRowBackground, true, &runtimeTraceProjMarkSet{}); icon != "↯" {
+		t.Fatalf("workqueue row icon = %q, want ↯ (§24.3 中断活动族)", icon)
+	}
+	node := types.TraceCausalProjectionNode{
+		Subject: "bg-1", ImpactMS: 1.2, Confidence: 0.8,
 	}
 	marks := &runtimeTraceProjMarkSet{}
 	if icon := runtimeTraceProjStateIcon(node, runtimeTraceProjTreeRowBackground, true, marks); icon != "◦" {
@@ -347,11 +356,16 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 	cases := []ledger{
 		{
 			name: "specimen1", records: ptv6Specimen1Records(),
-			lines: 27, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
+			// PTV8-RCR-A EVOLUTION RECORD (§24.1/§24.2): +3 lines = the three
+			// ranked rows' 行2 identity lines (类别·根因排序#N·置信); the
+			// retired 候选根因 chip left the inventory, the degenerate
+			// 有效归因 tail gained its (全额) caliber.
+			lines: 30, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
 			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5]", "[E6]", "[E7]", "[E8(+1)]", "[E9]", "[E10]"},
 			inventory: []string{
-				"runnable", "链上L1", "×2同值", "有效归因1.661ms",
-				"IRQ突发", "IRQ活动", "候选根因", "累计(跨线程)1.997ms",
+				"runnable", "链上L1", "×2同值", "有效归因 1.661ms(全额)",
+				"就绪排队候选·根因排序#1·置信高",
+				"IRQ突发·根因排序#4·置信高", "IRQ活动·根因排序#12·置信高", "累计(跨线程)1.997ms",
 				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
 				"IO等待(对端 udk-irq-1-63)", "×2(0.081–1.302ms)取最大",
 				"IO等待(对端 udk-irq-4-67)",
@@ -359,16 +373,16 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 		},
 		{
 			name: "specimen2", records: ptv6Specimen2Records(),
-			lines: 15, tree: 2, adjacent: 0, background: 3, beforeLines: 23,
+			// PTV8-RCR-A (§24.1): +2 lines = the two ranked rows' 行2 lines.
+			lines: 17, tree: 2, adjacent: 0, background: 3, beforeLines: 23,
 			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5]"},
 			// b3 第三标本修 (2026-07-06): 调度等待 leaves the inversion trunk
 			// row at SOURCE (ActionCell category word suppressed on inversion
 			// rows) — not a packing loss; the negative arm lives in the ptv6c
 			// specimen pins.
 			inventory: []string{
-				"优先级反转候选", "链上L1",
+				"优先级反转候选·根因排序#1·置信高·有效归因 1.661ms(全额)", "链上L1",
 				"影响点 可运行等待反转（priority_inversion_runnable_wait）",
-				"有效归因1.661ms",
 				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
 				"IO等待(对端 udk-irq-1-63)",
 			},

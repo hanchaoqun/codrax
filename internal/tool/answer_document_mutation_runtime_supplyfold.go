@@ -11,7 +11,9 @@ package tool
 //	runnable显著 shared RN-1 gate traceQueryRunnableSignificant (§7.10 同源)
 //	反转存在    the row IS a priority_inversion_candidate row
 //
-//	高∧显著∧反转 → 供给折算缺口 · 调度压力 · 优先级反转(gated) (三口径独立、不可加和)
+//	高∧显著∧反转 → (PTV8-RCR-A §24 ②) cause nodes: clause suppressed — the
+//	               four-line grammar's 行3+拆解子行 carry the composition;
+//	               residual non-cause shape: two-caliber WithDemand text
 //	高∧显著      → 前两口径独立并列 (不可加和)
 //	高∧不显著    → 供给折算缺口为主,running 含跑慢成分
 //	无缺口       → basis 全 known: 肯定标注「已满频满核(或近满),running 属
@@ -96,18 +98,11 @@ func runtimeTraceProjSupplyFoldVerdictFor(node types.TraceCausalProjectionNode, 
 	return runtimeTraceProjSupplyFoldNoDeficit
 }
 
-// runtimeTraceProjSupplyFoldEmbedsInversionComposition reports whether this
-// row's supply-fold clause is the Triple branch — the ONE branch whose text
-// already embeds the D3 inversion composition ("优先级反转(构成: …)"). F-4
-// (统一复核 2026-07-04): the row-level renderers consult this typed verdict
-// (the SAME decision-table evaluation the clause renders from, so the two
-// surfaces can never disagree) to suppress their independent "影响构成" tag —
-// otherwise a triple-mechanism row carried the composition text twice on two
-// ↳ continuation lines (H5-class inflation). The composition stays
-// single-sourced inside the clause.
-func runtimeTraceProjSupplyFoldEmbedsInversionComposition(node types.TraceCausalProjectionNode, windowMS float64) bool {
-	return runtimeTraceProjSupplyFoldVerdictFor(node, windowMS) == runtimeTraceProjSupplyFoldTriple
-}
+// PTV8-RCR-A (§24 ②, 2026-07-08). EVOLUTION RECORD: the F-4 helper
+// runtimeTraceProjSupplyFoldEmbedsInversionComposition is RETIRED with the
+// Triple clause's inversion embed — inversion cause nodes render the
+// four-line grammar (行3+拆解子行) instead of any mechanism sentence, so no
+// surface needs the embed-suppression check anymore.
 
 // runtimeTraceProjInversionCompositionText is the SINGLE source of the
 // §7.30.3 D3 gated-composition wording (PTV7 #74: runnable X + running 折算
@@ -129,15 +124,13 @@ func runtimeTraceProjSupplyFoldEmbedsInversionComposition(node types.TraceCausal
 // downstream-consumer-core fold. The divisor disclosure therefore sits on
 // the running component, never on the runnable component or the total — a
 // ruler stretched over a full-amount component would be exactly the caliber
-// mislabel this clause exists to kill. Both the Triple clause's 内含
-// parenthetical and the independent 影响构成 tag (non-Triple inversion rows)
-// share this text, so both surfaces carry the per-component calibers.
+// mislabel this clause exists to kill.
 //
-// §21 RNB R3 (2026-07-07): the R1 display-only runnable sub-row (⧖ runnable
-// X(全额)·就绪排队积压·gated 分量,不重复计入排序 — tree.go) reuses THIS
-// component wording verbatim (runnable X(全额), 同词). The parenthetical here
-// is the caliber DISCLOSURE of the gated total's decomposition and stays —
-// it is not a duplicate of the R1 component row (裁定: 口径披露非重复行).
+// PTV8-RCR-A (§24 ②, 2026-07-08). EVOLUTION RECORD: the former consumers —
+// the Triple clause's 内含 parenthetical, the independent 影响构成 tag and
+// the §21 RNB R1 ⧖ runnable sub-row — are ALL retired; this text survives as
+// the FAIL-OPEN lossless mirror only (detail block 有效归因构成 when the 行3
+// identity Σ计入==V cannot balance and therefore refuses to render).
 func runtimeTraceProjInversionCompositionText(node types.TraceCausalProjectionNode, zh bool) string {
 	if zh {
 		return fmt.Sprintf("runnable %.3fms(全额)+ running 折算 %.3fms(按下游消费核折算)", node.GatedRunnableMS, node.GatedRunningDeficitMS)
@@ -204,21 +197,15 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 	deficit := node.SupplyFoldDeficitMS
 	switch verdict {
 	case runtimeTraceProjSupplyFoldTriple:
-		// PTV7 (#74, supersedes the PTV5 C18 zh state word): the parenthetical
-		// speaks the canonical runnable token on BOTH faces. §7.5 的
-		// 调度压力(需求积压) label stays single-sourced and untouched. The
-		// inversion candidate's own gated total (same-source as the row's
-		// 有效归因 tag, F2) precedes its internal split so the "+" is
-		// unambiguously scoped to that one node's own decomposition.
-		inversionTotal := runtimeTraceProjInversionGatedTotalMS(node)
-		if zh {
-			return fmt.Sprintf("机制构成(各口径独立、不可加和): 供给折算缺口 %.3fms(按大核满频折算,下界)·%s runnable %.3fms(就绪排队积压口径)·优先级反转 %.3fms(gated 口径,内含 %s)",
-				deficit, runtimeTraceSupplyPressureDisplayLabel(true), node.RunnableMS,
-				inversionTotal, runtimeTraceProjInversionCompositionText(node, true)), "机制构成", true
-		}
-		return fmt.Sprintf("mechanism (each caliber is independent and not additive): supply-fold deficit %.3fms (folded at big-cluster fmax, lower bound) · %s runnable %.3fms (ready-queue backlog caliber) · priority inversion %.3fms (gated caliber, made of %s)",
-			deficit, runtimeTraceSupplyPressureDisplayLabel(false), node.RunnableMS,
-			inversionTotal, runtimeTraceProjInversionCompositionText(node, false)), "mechanism", true
+		// PTV8-RCR-A (§24 ②, 2026-07-08). EVOLUTION RECORD: the Triple
+		// branch's inversion embed (…·优先级反转 X(gated 口径,内含 …)) is
+		// RETIRED — inversion cause nodes render the four-line grammar and
+		// suppress this clause entirely; the "gated" user-facing word leaves
+		// the display layer with it (wire tokens untouched). The residual
+		// Triple shape (an inversion row that is NOT a cause node) renders the
+		// two-caliber WithDemand text below — same wording home, no inversion
+		// member, no summing frame.
+		fallthrough
 	case runtimeTraceProjSupplyFoldWithDemand:
 		if zh {
 			return fmt.Sprintf("机制构成(各口径独立、不可加和): 供给折算缺口 %.3fms(按大核满频折算,下界)·%s runnable %.3fms(就绪排队积压口径)",

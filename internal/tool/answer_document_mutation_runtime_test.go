@@ -711,7 +711,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	}
 	// Target-anchored tree: 🎯 root = user-focused thread, real branches, four
 	// edge kinds, and the co-primary target row surfaces as a self-state line.
-	for _, want := range []string{"**主根因:**", "```text", "🎯 app-100", "└─下钻─", "─唤醒─", "算力供给"} {
+	for _, want := range []string{"**主根因:**", "```text", "⊚ app-100", "└─下钻─", "─唤醒─", "算力供给"} {
 		if !strings.Contains(projection.Text, want) {
 			t.Fatalf("v3 lead tree missing %q:\n%s", want, projection.Text)
 		}
@@ -835,7 +835,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionBoundsLongWakeupChainDispl
 	// PTV6-C ruling C (#73): the legend's 省略行 entry no longer deflects to
 	// the intermediate trace_query record — it states the fold honestly
 	// (负向臂 below: the retired pointer must not resurface).
-	for _, want := range []string{"🎯 NetworkService-60595", "省略7节点: ", "检测到2节点循环约8轮", "中段节点名不在本报告逐一展开"} {
+	for _, want := range []string{"⊚ NetworkService-60595", "省略7节点: ", "检测到2节点循环约8轮", "中段节点名不在本报告逐一展开"} {
 		if !strings.Contains(projection.Text, want) {
 			t.Fatalf("long wakeup chain tree should carry bounded audit note %q:\n%s", want, projection.Text)
 		}
@@ -929,7 +929,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 	}
 	// gap d: the sleeping target drills to its direct typed waker — the fact-only
 	// conclusion line names the drilldown target, and the tree anchors at 🎯.
-	for _, want := range []string{"☾", "🎯 app-100", "worker-200", "下钻到 worker-200"} {
+	for _, want := range []string{"☾", "⊚ app-100", "worker-200", "下钻到 worker-200"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("sleep drilldown must render (gap d): missing %q:\n%s", want, rendered)
 		}
@@ -1058,7 +1058,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionNoBackgroundAndLongNodePre
 	}
 	// No wakeup path in this fixture → the flat-layer fallback header renders
 	// instead of an invented 🎯 anchor.
-	if !strings.Contains(projection.Text, "唤醒链路径未解析") || strings.Contains(projection.Text, "🎯") {
+	if !strings.Contains(projection.Text, "唤醒链路径未解析") || strings.Contains(projection.Text, "⊚ ") {
 		t.Fatalf("path-less fixture should render the flat fallback header:\n%s", projection.Text)
 	}
 	evidenceIndex := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_evidence")
@@ -1300,7 +1300,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 	// English lead: fact-only conclusion, tree-reading note, target-anchored tree
 	// with localized edge labels — zero mermaid.
 	// PTV5 C21 (#68): the headline magnitude carries its caliber word.
-	for _, want := range []string{"**Primary root cause:** threadpool-400 io_wait chain total 11.000ms", "Tree reading", "```text", "🎯 app-100", "<user-focused thread>", "─wakes─"} {
+	for _, want := range []string{"**Primary root cause:** threadpool-400 io_wait chain total 11.000ms", "Tree reading", "```text", "⊚ app-100", "<user-focused thread>", "─wakes─"} {
 		if !strings.Contains(projection.Text, want) {
 			t.Fatalf("English v3 lead missing %q:\n%s", want, projection.Text)
 		}

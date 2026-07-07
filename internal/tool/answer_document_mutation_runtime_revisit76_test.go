@@ -525,7 +525,8 @@ type revisit76LegendProbe struct{ zh, en string }
 // tag append, which the width fit never elides.
 func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 	return map[runtimeTraceProjMark]revisit76LegendProbe{
-		runtimeTraceProjMarkRootTarget: {"🎯", "🎯"},
+		// PTV8-RCR-A §24.3: 🎯 → ⊚ (无亮色 hard rule).
+		runtimeTraceProjMarkRootTarget: {"⊚", "⊚"},
 		runtimeTraceProjMarkEdgeDrill:  {"下钻─", "drill─"},
 		runtimeTraceProjMarkEdgeWake:   {"唤醒─", "wakes─"},
 		runtimeTraceProjMarkEdgeCause:  {"成因─", "cause─"},
@@ -620,13 +621,28 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// §21 LEAD-SEM 前置 L1: the value-less cross-window marker — the ⚠跨窗
 		// token never collides with the ⚠实际/⚠actual value form.
 		runtimeTraceProjMarkCrossWindowNoActual: {"⚠跨窗", "⚠cross-window"},
-		// §21 RNB R1: the gated runnable component sub-row's ruler word is the
-		// stable probe (⧖/全额 are shared glyphs; multi-word en phrases can be
-		// split by the T3 atom wrap, so the en probe is the single hyphenated
-		// atom "ready-queue" — unique to the sub-row across the fixture set).
-		runtimeTraceProjMarkGatedRunnableSubRow: {"就绪排队积压", "ready-queue"},
-		// §21/§22 RNB R2: the same-segment rank-row fold note's lane word.
-		runtimeTraceProjMarkRankFoldNote: {"同段rank行并入", "same-segment rank row folded in"},
+		// PTV8-RCR-A (§24.1-§24.3, 2026-07-08). EVOLUTION RECORD: the §21 RNB
+		// R1 GatedRunnableSubRow probe (就绪排队积压/ready-queue) and the R2
+		// RankFoldNote probe (同段rank行并入) are RETIRED with their marks —
+		// the four-line grammar probes below took their seats.
+		//
+		// §24.3 impact-form glyphs (single-source table; the glyph IS the probe).
+		runtimeTraceProjMarkIconLock:      {"⊗", "⊗"},
+		runtimeTraceProjMarkIconInversion: {"⇅", "⇅"},
+		runtimeTraceProjMarkIconInterrupt: {"↯", "↯"},
+		runtimeTraceProjMarkIconBlindSpot: {"◌", "◌"},
+		// §24.1 行2 identity line (类别·根因排序#N·置信).
+		runtimeTraceProjMarkCauseIdentityRow: {"根因排序#", "root-cause rank #"},
+		// §24.1 行3 「=」breakdown line — the "ms = " token is unique to the
+		// breakdown form (the degenerate 行2 tail has no "=", the scale note's
+		// 满格=窗口 has no "ms " prefix before its "=").
+		runtimeTraceProjMarkEffectiveBreakdown: {"ms = ", "ms = "},
+		// §24.1补 caliber words (each word carries its own on-demand entry).
+		runtimeTraceProjMarkCaliberFull:         {"(全额)", "(in full)"},
+		runtimeTraceProjMarkCaliberConsumerCore: {"按下游消费核", "downstream consumer core"},
+		runtimeTraceProjMarkCaliberBigCoreFmax:  {"按大核满频", "big-cluster fmax"},
+		runtimeTraceProjMarkCaliberLowerBound:   {"下界", "lower bound"},
+		runtimeTraceProjMarkCaliberSingleMax:    {"单次最大(", "single max ("},
 	}
 }
 
@@ -925,6 +941,14 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// query window re-bases its % on that source window (fixture home:
 		// answer_document_mutation_runtime_dcs_test.go).
 		{"dcs_semantic_source_window", dcsSemanticSourceWindowProjection()},
+		// PTV8-RCR-A (§24.1-§24.3): the opendir E4-E8 node group — ⊗/⇅
+		// glyphs, the 行2/行3 grammar marks and the 全额/按下游消费核/
+		// 单次最大 caliber entries (fixture home:
+		// answer_document_projection_rcr_test.go).
+		{"rcr_opendir_node_group", rcrOpendirProjection()},
+		// PTV8-RCR-A §24.1补: the Dominant supply-fold verdict carries the
+		// 按大核满频/下界 caliber entries (same fixture home).
+		{"rcr_supply_fold_dominant", rcrSupplyFoldDominantProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

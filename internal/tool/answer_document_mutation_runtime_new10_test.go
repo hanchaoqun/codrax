@@ -276,7 +276,7 @@ func TestTraceProjectionNew10LabelColumnCapDeepChainLongCJKNames(t *testing.T) {
 		}
 		fence := runtimeTraceProjTreeFence(model, zh)
 		// The 🎯 anchor never truncates, even wider than the capped column.
-		if !strings.Contains(fence, "🎯 "+target) {
+		if !strings.Contains(fence, "⊚ "+target) {
 			t.Fatalf("zh=%v: over-wide 🎯 header must render in full:\n%s", zh, fence)
 		}
 		for _, line := range strings.Split(fence, "\n") {
@@ -299,7 +299,9 @@ func TestTraceProjectionNew10EveryRowCarriesExactlyOneStateGlyph(t *testing.T) {
 	// PTV4 T5 glyph set (☾/⧖ replaced the 2-cell 💤/⏳); the ❶❷❸ badges are
 	// deliberately NOT in this set — the one-state-glyph invariant counts
 	// state icons only (T6: badge is an independent token).
-	glyphs := []string{"✦", "☾", "⚙", "⧖", "⛓", "◦"}
+	// PTV8-RCR-A §24.3 EVOLUTION RECORD: the impact-form closed set added
+	// ⊗(锁)/⇅(反转)/↯(中断)/◌(数据盲区) — one glyph slot per row unchanged.
+	glyphs := []string{"✦", "☾", "⚙", "⧖", "⛓", "◦", "⊗", "⇅", "↯", "◌"}
 	countGlyphs := func(line string) int {
 		total := 0
 		for _, g := range glyphs {

@@ -578,13 +578,17 @@ func TestPTV6CB3InversionRowZeroActionCategoryWord(t *testing.T) {
 		for _, tag := range tags {
 			joined += tag.Text + " · "
 		}
-		// 正向臂: 反转语义完备 — 影响构成 + 有效归因 都在 (RCX² F1: the
-		// composition carries per-component calibers — runnable 全额, running
-		// deficit 按下游消费核折算).
+		// 正向臂 — PTV8-RCR-A EVOLUTION RECORD (§24 ② + 复核 F4 裁定, §24.1
+		// 退化规则按字面执行): the 影响构成 tag is retired, and a SINGLE
+		// runnable(全额) component with 计入==原始 degenerates to the
+		// two-line form — 行3 folds into 行2's tail, no sub-row.
 		if zh {
-			for _, want := range []string{"影响构成: runnable 0.277ms(全额)+ running 折算 0.000ms(按下游消费核折算)", "有效归因0.277ms"} {
-				if !strings.Contains(joined, want) {
-					t.Fatalf("inversion row must keep its composite semantics (%q): %s", want, joined)
+			if !strings.Contains(joined, "优先级反转候选·置信高·有效归因 0.277ms(全额)") {
+				t.Fatalf("single-full inversion composite must degenerate into 行2's tail: %s", joined)
+			}
+			for _, banned := range []string{"影响构成", "ms = ", "原始"} {
+				if strings.Contains(joined, banned) {
+					t.Fatalf("degenerate form must carry no %q: %s", banned, joined)
 				}
 			}
 		}
@@ -662,7 +666,9 @@ func TestPTV6CB3CauseWordFamilySuppressesBareActionWord(t *testing.T) {
 			}
 		}
 	}
-	// Non-state cause word keeps its generic action word (no over-reach).
+	// PTV8-RCR-A EVOLUTION RECORD (§24.2 ③): the generic 候选根因 chip is
+	// retired tree-wide — a non-state cause word row now carries NO generic
+	// action word (its shape word is its own class; ranked rows carry 行2).
 	churn := runtimeTraceProjTreeRow{
 		Node: types.TraceCausalProjectionNode{
 			Subject: "w-1", Object: "page_cache_churn", StateKind: "",
@@ -670,8 +676,8 @@ func TestPTV6CB3CauseWordFamilySuppressesBareActionWord(t *testing.T) {
 		},
 		Kind: runtimeTraceProjTreeRowChain, HasData: true, marks: &runtimeTraceProjMarkSet{},
 	}
-	if joined := strings.Join(ptv6cRowTagTexts(churn), " · "); !strings.Contains(joined, "候选根因") {
-		t.Fatalf("non-state cause word must keep the generic action word: %s", joined)
+	if joined := strings.Join(ptv6cRowTagTexts(churn), " · "); strings.Contains(joined, "候选根因") || strings.Contains(joined, "candidate cause") {
+		t.Fatalf("the retired 候选根因 chip must not render: %s", joined)
 	}
 }
 
@@ -789,8 +795,14 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	if strings.Contains(fence, "调度等待") || strings.Contains(fence, "可运行等待") {
 		t.Fatalf("retired zh state/action word resurfaced on the trunk:\n%s", fence)
 	}
-	if !strings.Contains(fence, "链上L1 · ×2同值 · [E1(+1)]") || !strings.Contains(fence, "· 有效归因1.661ms") {
-		t.Fatalf("trunk tags must keep the packed PTV7 geometry (main-row fill + subordinate stream):\n%s", fence)
+	// PTV8-RCR-A EVOLUTION RECORD (§24.1/§24.2): the trunk is a ranked cause
+	// node — 行1 keeps the E# keep-mark, 行2 carries the identity + the
+	// degenerate 有效归因 tail (计入==原始 → 全额), and the ordinary tags pack
+	// below (grammar-clean 行1).
+	if !strings.Contains(fence, "[E1(+1)]") ||
+		!strings.Contains(fence, "就绪排队候选·根因排序#1·置信高·有效归因 1.661ms(全额)") ||
+		!strings.Contains(fence, "链上L1 · ×2同值") {
+		t.Fatalf("trunk rows must keep the RCR four-line geometry:\n%s", fence)
 	}
 	// PTV6-D (b): the category words left the row face (legend carries them);
 	// every non-category tag above is still present — 打包非折叠.
@@ -844,8 +856,11 @@ func TestPTV6CSpecimen2KeyRowsAfter(t *testing.T) {
 	// 关键行一 (trunk): B 裁定 — 反转影响 删除, cause 全词占位, 影响点 D4 形态
 	// (前: · 反转影响 + · 影响点 priority_inversion_runnable_wait/runnable;
 	// PTV6-D (a) 悬崖消除后全词升上主行 — 差表 in the PTV6-D ledger).
-	if !strings.Contains(fence, "优先级反转候选 · [E1(+1)]") {
-		t.Fatalf("trunk row must carry the cause full word (main-row slot after PTV6-D prefix fill):\n%s", fence)
+	// PTV8-RCR-A EVOLUTION RECORD (§24.1): the cause full word rides 行2's
+	// category slot (with the seat + the degenerate 有效归因 tail), never a
+	// prepended guarantee copy — the word is whole on the row's own line.
+	if !strings.Contains(fence, "优先级反转候选·根因排序#1·置信高·有效归因 1.661ms(全额)") {
+		t.Fatalf("trunk row must carry the cause full word on 行2:\n%s", fence)
 	}
 	if strings.Contains(fence, "反转影响") {
 		t.Fatalf("deleted 反转影响 resurfaced:\n%s", fence)

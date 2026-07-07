@@ -40,9 +40,14 @@ func supplyFoldVS2Render(t *testing.T, records []types.ObservationRecord, lang s
 	return audit730Render(t, audit730Bus(lang), records, lang)
 }
 
-// Branch 高∧显著∧反转: deficit 5/20 (25% ≥ 20%, ≥1ms), runnable 150ms ≥ the
-// shared 100ms gate, inversion row → three mechanisms joined, each with its
-// own unit, never summed.
+// Branch 高∧显著∧反转 — PTV8-RCR-A (§24 ②, 2026-07-08) EVOLUTION RECORD:
+// the Triple mechanism sentence (机制构成…优先级反转…gated 口径…) is RETIRED
+// on inversion cause nodes — the four-line grammar carries the composition:
+// 行2 identity, 行3 「=」breakdown (Σ计入==V machine identity) and the two
+// 拆解子行 with per-component calibers (§15.A two-divisor disclosure kept:
+// runnable 全额 / running 折算,按下游消费核); the supply-fold deficit keeps a
+// lossless home on the detail block's 供给折算 line. "gated" left the user
+// face entirely (§24 ④; wire tokens untouched).
 func TestSupplyFoldClauseTripleBranchZH(t *testing.T) {
 	records := supplyFoldVS2Records(
 		"supply_fold_deficit_ms=5.000", "supply_fold_ideal_ms=15.000",
@@ -51,43 +56,36 @@ func TestSupplyFoldClauseTripleBranchZH(t *testing.T) {
 		"gated_runnable=2.000", "gated_running_deficit=3.000")
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "")
-	// Q4-G (§12.3/§15.D): the three-caliber perspective — no "+…+…共同作用"
-	// summing tail, an explicit 「各口径独立、不可加和」 leader, no-space "·"
-	// joiners (F3: the zh within-tag convention — e.g. 周期性信号源…·有效归因X —
-	// visually distinct from the between-tag " · "), and each NUMBER's own
-	// caliber inline (§15.A two-divisor disclosure; F1: the ruler sits on the
-	// component it actually folds — supply deficit at big-cluster fmax, the
-	// running-deficit COMPONENT at the downstream consumer core; the runnable
-	// component is 全额 and the gated TOTAL wears only the gated-caliber word,
-	// never a fold it did not undergo). Despaced pin: the fence wrap may split
-	// the clause anywhere.
-	want := "机制构成(各口径独立、不可加和):供给折算缺口5.000ms(按大核满频折算,下界)·调度压力(需求积压)runnable150.000ms(就绪排队积压口径)·优先级反转5.000ms(gated口径,内含runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算))"
 	despaced := vs2Despace(md)
-	if !strings.Contains(despaced, want) {
-		t.Fatalf("triple-branch clause missing:\n%s", md)
+	// 行2 renders; the fixture publishes NO engine effective note, so the 行3
+	// 有效归因 claim REFUSES to render (显示≠归因: never fabricated from the
+	// component sum) and the composition keeps its lossless detail home.
+	if !strings.Contains(despaced, "优先级反转候选·根因排序#1·置信高") {
+		t.Fatalf("行2 identity line missing:\n%s", md)
 	}
-	// Conclusion line carries the clause attached to the lead fact.
+	if strings.Contains(despaced, "有效归因5.000ms=") {
+		t.Fatalf("unpublished effective must never mint a 行3 total:\n%s", md)
+	}
+	if !strings.Contains(despaced, "有效归因构成:runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算)") {
+		t.Fatalf("composition must keep its lossless detail home:\n%s", md)
+	}
+	// The supply-fold deficit stays lossless on the detail block (unified
+	// sub-row grammar, explicitly outside the attribution).
+	if !strings.Contains(despaced, "running原始20.000ms→供给折算缺口5.000ms(折算,按大核满频,下界;独立口径,不计入有效归因)") {
+		t.Fatalf("inversion node's supply-fold deficit must keep its lossless detail home:\n%s", md)
+	}
+	// Conclusion line carries the lead fact + the 行3-form breakdown.
 	if !strings.Contains(md, "**主根因:** worker-200") {
 		t.Fatalf("lead line missing:\n%s", md)
 	}
-	// The summing invitation must be gone entirely (§7.10 red line 2).
-	if strings.Contains(md, "共同作用") {
-		t.Fatalf("the summing tail 共同作用 must not appear (invites the加和 misread):\n%s", md)
+	// Retirements bite: no mechanism sentence, no user-facing "gated", no
+	// summing tail (§7.10 red line 2 unchanged).
+	for _, banned := range []string{"机制构成", "gated 口径", "gated口径", "gated 分量", "共同作用", "影响构成"} {
+		if strings.Contains(despaced, vs2Despace(banned)) {
+			t.Fatalf("retired wording %q leaked:\n%s", banned, md)
+		}
 	}
-	// The top-level calibers join with "·", never "+" — F4: the despaced
-	// compare covers BOTH the old no-space form (下界)+ ) and any spaced form
-	// (下界) + ) with one pattern.
-	if strings.Contains(despaced, "下界)+") || strings.Contains(despaced, "(就绪排队积压口径)+") {
-		t.Fatalf("top-level mechanisms must join with '·', never '+':\n%s", md)
-	}
-	// F1: the gated total is a composite, not a folded value — it must not
-	// wear a fold caliber (the consumer-core ruler lives on the running
-	// component inside the parenthetical), and the 折算-suffixed mechanism
-	// name is retired.
-	if strings.Contains(despaced, "优先级反转折算") || strings.Contains(despaced, "优先级反转5.000ms(按下游消费核折算") {
-		t.Fatalf("the gated total must not claim a fold it did not undergo:\n%s", md)
-	}
-	// No synthetic sum of the three mechanisms anywhere (禁合成总分).
+	// No synthetic sum of different calibers anywhere (禁合成总分).
 	for _, banned := range []string{"157.000", "160.000", "10.000ms(合计", "合计 157", "共计", "小计"} {
 		if strings.Contains(md, banned) {
 			t.Fatalf("mechanisms must never sum (%q leaked):\n%s", banned, md)
@@ -96,6 +94,8 @@ func TestSupplyFoldClauseTripleBranchZH(t *testing.T) {
 }
 
 func TestSupplyFoldClauseTripleBranchEN(t *testing.T) {
+	// PTV8-RCR-A EVOLUTION RECORD (§24 ②/④): EN mirrors the zh grammar —
+	// identity line + breakdown + sub-rows; no mechanism sentence, no "gated".
 	records := supplyFoldVS2Records(
 		"supply_fold_deficit_ms=5.000", "supply_fold_ideal_ms=15.000",
 		"fold_basis=known=20.000ms,unknown=0.000ms",
@@ -103,21 +103,23 @@ func TestSupplyFoldClauseTripleBranchEN(t *testing.T) {
 		"gated_runnable=2.000", "gated_running_deficit=3.000")
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "en")
-	// EN keeps its own within-tag " · " convention (F3 is per-face); despaced
-	// pin for wrap safety. F1 mirrors: total = "gated caliber", components
-	// carry "(in full)" / "(folded at the downstream consumer core)".
-	want := "mechanism(eachcaliberisindependentandnotadditive):supply-folddeficit5.000ms(foldedatbig-clusterfmax,lowerbound)·schedulingpressure(demandbacklog)runnable150.000ms(ready-queuebacklogcaliber)·priorityinversion5.000ms(gatedcaliber,madeofrunnable2.000ms(infull)+discountedrunning3.000ms(foldedatthedownstreamconsumercore))"
-	if !strings.Contains(vs2Despace(md), want) {
-		t.Fatalf("EN triple-branch clause missing:\n%s", md)
+	despaced := vs2Despace(md)
+	if !strings.Contains(despaced, "root-causerank#1") {
+		t.Fatalf("EN identity line missing:\n%s", md)
+	}
+	if strings.Contains(despaced, "attribution5.000ms=") {
+		t.Fatalf("unpublished effective must never mint a 行3 total (EN):\n%s", md)
+	}
+	if !strings.Contains(despaced, "runnable2.000ms(infull)+discountedrunning3.000ms(foldedatthedownstreamconsumercore)") {
+		t.Fatalf("EN composition must keep its lossless detail home:\n%s", md)
 	}
 	if strings.Contains(md, "机制构成") {
 		t.Fatalf("EN surface must not carry zh clause:\n%s", md)
 	}
-	if strings.Contains(md, "acting together") {
-		t.Fatalf("EN summing tail 'acting together' must be gone:\n%s", md)
-	}
-	if strings.Contains(md, "priority-inversion discount") {
-		t.Fatalf("EN gated total must not wear the retired discount name (F1):\n%s", md)
+	for _, banned := range []string{"mechanism (each caliber", "gated caliber", "gated component", "acting together"} {
+		if strings.Contains(md, banned) {
+			t.Fatalf("retired EN wording %q leaked:\n%s", banned, md)
+		}
 	}
 }
 
@@ -211,6 +213,11 @@ func vs2Despace(s string) string {
 	return strings.ReplaceAll(rn1CollapseContinuations(s), " ", "")
 }
 
+// PTV8-RCR-A EVOLUTION RECORD (§24 ②, supersedes the F-4 suppression pins):
+// the independent 影响构成 tag and the Triple clause's embedded composition
+// are BOTH retired — the 行3 「=」breakdown is the single composition carrier
+// on the fence/conclusion, and the detail block mirrors it via 有效归因构成 +
+// 拆解 (single-source builders).
 func TestSupplyFoldTripleSuppressesIndependentCompositionTagZH(t *testing.T) {
 	records := supplyFoldVS2Records(
 		"supply_fold_deficit_ms=5.000", "supply_fold_ideal_ms=15.000",
@@ -220,19 +227,13 @@ func TestSupplyFoldTripleSuppressesIndependentCompositionTagZH(t *testing.T) {
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "")
 	despaced := vs2Despace(md)
-	// The inversion candidate's own gated total (gated 口径, F1 — the total
-	// never claims a fold) precedes its internal split, clearly labelled as
-	// that node's own decomposition (内含 …). The "+" is scoped to this
-	// parenthetical only — the top-level calibers join with "·"; each
-	// component wears its own ruler (runnable 全额 / running 折算 按下游消费核).
-	if !strings.Contains(despaced, "优先级反转5.000ms(gated口径,内含runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算))") {
-		t.Fatalf("triple clause must keep the embedded composition:\n%s", md)
+	if strings.Contains(md, "影响构成") || strings.Contains(md, "机制构成") {
+		t.Fatalf("retired composition carriers must not render:\n%s", md)
 	}
-	if strings.Contains(md, "影响构成") {
-		t.Fatalf("triple row must not render the independent composition tag too:\n%s", md)
-	}
-	if got := strings.Count(despaced, "runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算)"); got != 3 {
-		t.Fatalf("composition text must appear exactly once per surface (conclusion+fence+table=3), got %d:\n%s", got, md)
+	// No engine effective published → the composition has exactly ONE carrier:
+	// the detail block's 有效归因构成 component text (no total claimed).
+	if got := strings.Count(despaced, "runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算)"); got != 1 {
+		t.Fatalf("composition must appear exactly once (detail block), got %d:\n%s", got, md)
 	}
 }
 
@@ -245,21 +246,19 @@ func TestSupplyFoldTripleSuppressesIndependentCompositionTagEN(t *testing.T) {
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "en")
 	despaced := vs2Despace(md)
-	// The composition body appears exactly once per surface (conclusion +
-	// fence + table = 3), inside the inversion candidate's own gated
-	// parenthetical — the only additive "+" in the clause.
-	if got := strings.Count(despaced, "runnable2.000ms(infull)+discountedrunning3.000ms(foldedatthedownstreamconsumercore)"); got != 3 {
-		t.Fatalf("EN composition text must appear exactly once per surface, got %d:\n%s", got, md)
+	if strings.Contains(md, "composition:") || strings.Contains(md, "mechanism (each caliber") {
+		t.Fatalf("retired EN composition carriers must not render:\n%s", md)
 	}
-	if !strings.Contains(despaced, "priorityinversion5.000ms(gatedcaliber,madeofrunnable2.000ms(infull)+discountedrunning3.000ms(foldedatthedownstreamconsumercore))") {
-		t.Fatalf("EN triple clause must keep the embedded composition:\n%s", md)
+	if got := strings.Count(despaced, "runnable2.000ms(infull)+discountedrunning3.000ms(foldedatthedownstreamconsumercore)"); got != 1 {
+		t.Fatalf("EN composition must appear exactly once (detail block), got %d:\n%s", got, md)
 	}
 }
 
-// F-4 guard: a folded inversion row whose verdict is NOT Triple (runnable
-// under the shared significance gate → deficit-dominant branch, clause
-// without composition) KEEPS the independent D3 composition tag — the split
-// still has exactly one carrier.
+// PTV8-RCR-A EVOLUTION RECORD (supersedes the F-4 non-Triple guard): a
+// non-Triple inversion cause node renders the SAME four-line grammar — the
+// composition has exactly one fence carrier (行3), the mechanism clause stays
+// suppressed on inversion nodes (its deficit lives on the detail 供给折算
+// line), and the retired tags never return.
 func TestSupplyFoldNonTripleInversionKeepsCompositionTag(t *testing.T) {
 	records := supplyFoldVS2Records(
 		"supply_fold_deficit_ms=5.000", "supply_fold_ideal_ms=15.000",
@@ -269,27 +268,24 @@ func TestSupplyFoldNonTripleInversionKeepsCompositionTag(t *testing.T) {
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "")
 	despaced := vs2Despace(md)
-	// F1: the independent tag rides the same single-source composition text,
-	// so it carries the per-component calibers too (同款除数披露).
-	if !strings.Contains(despaced, "影响构成:runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算)") {
-		t.Fatalf("non-triple inversion row must keep the independent composition tag:\n%s", md)
+	if !strings.Contains(despaced, "有效归因构成:runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算)") {
+		t.Fatalf("non-triple inversion cause node must keep the composition on the detail block:\n%s", md)
 	}
-	if !strings.Contains(despaced, "供给折算缺口5.000ms(按大核满频折算,下界)为主") {
-		t.Fatalf("deficit-dominant clause must render beside it:\n%s", md)
+	if strings.Contains(md, "影响构成") || strings.Contains(md, "机制构成") {
+		t.Fatalf("retired composition carriers must not render:\n%s", md)
 	}
-	if got := strings.Count(despaced, "runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算)"); got != 1 {
-		t.Fatalf("composition text must appear exactly once (the independent tag), got %d:\n%s", got, md)
+	if !strings.Contains(despaced, "供给折算缺口5.000ms(折算,按大核满频,下界;独立口径,不计入有效归因)") {
+		t.Fatalf("the deficit must keep its lossless detail home:\n%s", md)
 	}
 }
 
-// F2 (RCX² 复核): the clause's gated total is SAME-SOURCE as the row's
-// 有效归因 tag — the engine's full-precision components (a=20.7126,
-// b=16.6966) publish as %.3f notes (20.713/16.697) whose re-sum shows 37.410,
-// while the engine's own gated total (a+b=37.4092 → the rank-lane mirror
-// effective_impact_ms) publishes 37.409: round3(a)+round3(b) != round3(a+b),
-// the S1/clamp dual-caliber-leak class. Same row, same quantity, two surfaces
-// — both MUST show the engine's single-source 37.409 and the re-summed twin
-// must appear nowhere.
+// F2 (RCX² 复核) → PTV8-RCR-A EVOLUTION RECORD: the identity pin now GUARDS
+// this corner structurally — the engine's single-source total (37.409) does
+// not balance against the %.3f components (20.713+16.697=37.410), so the
+// 「=」breakdown REFUSES to render (fail-open, §24.1 恒等式 pin doing its
+// job): the row keeps the plain single-source 有效归因37.409ms tag, the
+// detail block keeps the composition text (no total claimed), and the
+// re-summed 37.410 twin appears nowhere.
 func TestSupplyFoldTripleTotalSameSourceAsAttributionTag(t *testing.T) {
 	records := supplyFoldVS2Records(
 		"supply_fold_deficit_ms=5.000", "supply_fold_ideal_ms=15.000",
@@ -300,11 +296,15 @@ func TestSupplyFoldTripleTotalSameSourceAsAttributionTag(t *testing.T) {
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "")
 	despaced := vs2Despace(md)
-	if !strings.Contains(despaced, "优先级反转37.409ms(gated口径,内含runnable20.713ms(全额)+running折算16.697ms(按下游消费核折算))") {
-		t.Fatalf("clause total must consume the engine's single-source effective value:\n%s", md)
+	if strings.Contains(despaced, "ms=runnable(") {
+		t.Fatalf("a non-balancing decomposition must never render the 「=」row:\n%s", md)
 	}
 	if !strings.Contains(despaced, "有效归因37.409ms") {
-		t.Fatalf("attribution tag must render the same single-source value:\n%s", md)
+		t.Fatalf("attribution tag must render the single-source value:\n%s", md)
+	}
+	// Lossless fallback: the component text (no total claim) on the detail block.
+	if !strings.Contains(despaced, "runnable20.713ms(全额)+running折算16.697ms(按下游消费核折算)") {
+		t.Fatalf("fail-open shape must keep the composition text on the detail block:\n%s", md)
 	}
 	if strings.Contains(md, "37.410") {
 		t.Fatalf("the re-summed 37.410 twin must not appear anywhere (dual-source 0.001 divergence):\n%s", md)

@@ -2192,10 +2192,12 @@ func runtimeTraceCausalProjectionActionCellWithFamily(node types.TraceCausalProj
 	if runtimeTraceProjDiagnosticLaneNode(node) || runtimeTraceProjAllZeroFoldRow(node) {
 		return "", ""
 	}
-	if zh {
-		return "候选根因", ""
-	}
-	return "candidate cause", ""
+	// PTV8-RCR-A (§24.2, 2026-07-08). EVOLUTION RECORD: the generic 候选根因 /
+	// candidate cause fallthrough chip is RETIRED tree-wide (空话 chip 全树
+	// 退役) — the cause-node 行2 「类别·根因排序#N·置信」 carries the ranking
+	// identity, and rows without any cause word simply carry none (the detail
+	// table's 影响形态 cell stays the lossless shape home).
+	return "", ""
 }
 
 // runtimeTraceCausalProjectionStateActionWord is the SINGLE home for the
@@ -2270,10 +2272,11 @@ func runtimeTraceCausalProjectionImpactShapeCellTyped(node types.TraceCausalProj
 	// cause FULL word instead (优先级反转候选 / the raw token on EN), so a hop
 	// row whose Object is a state token still carries the inversion identity,
 	// while rows whose name already shows the full word dedupe the tag away
-	// (#12 全词保障 + 全词一处). The D3 影响构成 split stays 必显; the branch
-	// still returns early so the composite NEVER falls through to a
-	// single-state claim; D3's other shape-cell-wins forms (锁竞争·阻塞,
-	// 候选影响 …) are untouched.
+	// (#12 全词保障 + 全词一处). PTV8-RCR-A (§24 ②): the composition now
+	// rides the cause node's 行3 「=」breakdown (the D3 影响构成 tag is
+	// retired); the branch still returns early so the composite NEVER falls
+	// through to a single-state claim; the other shape-cell-wins forms
+	// (锁竞争·阻塞, 候选影响 …) are untouched.
 	if runtimeTraceCausalProjectionInversionRow(node) {
 		if zh {
 			return runtimeTraceRootCauseTypeZHLabel("priority_inversion_candidate"), false

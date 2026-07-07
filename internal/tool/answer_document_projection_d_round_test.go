@@ -125,7 +125,10 @@ func dRoundInversionObs() []types.ObservationRecord {
 		"dep-200", "priority_inversion_candidate", "16.000", 16.0, 100, 200,
 		"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain",
 		"chain_depth=1", "dominant_state=running",
-		"gated_runnable=10.000", "gated_running_deficit=6.000")
+		"gated_runnable=10.000", "gated_running_deficit=6.000",
+		// PTV8-RCR-A: the engine's R5d rank-lane mirror publishes the gated
+		// composite as effective — the 行3 identity (10+6==16) balances.
+		"effective_impact_ms=16.000")
 	path := types.ObservationRecord{
 		ID: "path", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
 		GroundingPolicy: types.ClaimGroundingHard, Predicate: "wakeup_chain", ClaimKey: "wakeup_chain:path",
@@ -143,11 +146,24 @@ func TestTraceProjectionD3InversionCompositionSplitZH(t *testing.T) {
 	if !strings.Contains(md, "优先级反转候选") {
 		t.Fatalf("D3 inversion cause word missing:\n%s", md)
 	}
-	// RCX² 复核 F1: per-component calibers — runnable is counted in full
-	// (全额), only the running deficit wears the consumer-core divisor.
-	// Despaced compare (vs2Despace): the widened tag may wrap on the fence.
-	if !strings.Contains(vs2Despace(md), "影响构成:runnable10.000ms(全额)+running折算6.000ms(按下游消费核折算)") {
-		t.Fatalf("D3 inversion composition missing per-component calibers:\n%s", md)
+	// RCX² 复核 F1 → PTV8-RCR-A (§24 ②): the 影响构成 tag is RETIRED — the
+	// four-line grammar's 行3 「=」breakdown + 拆解子行 carry the composition
+	// with per-component calibers (runnable counted in full, only the running
+	// deficit wears the consumer-core divisor).
+	despaced := vs2Despace(md)
+	if !strings.Contains(despaced, "有效归因16.000ms=runnable(全额)10.000ms+running(折算)6.000ms") {
+		t.Fatalf("D3 inversion 行3 breakdown missing per-component calibers:\n%s", md)
+	}
+	for _, want := range []string{
+		"runnable原始10.000ms→计入10.000ms(全额)",
+		"running原始16.000ms→计入6.000ms(折算,按下游消费核)",
+	} {
+		if !strings.Contains(despaced, want) {
+			t.Fatalf("D3 拆解子行 missing %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "影响构成") {
+		t.Fatalf("the retired 影响构成 tag must not render:\n%s", md)
 	}
 	if strings.Contains(md, "反转影响") {
 		t.Fatalf("deleted 反转影响 shape word resurfaced (PTV6-C ruling B):\n%s", md)
@@ -168,8 +184,16 @@ func TestTraceProjectionD3InversionCompositionSplitEN(t *testing.T) {
 	if !strings.Contains(md, "priority_inversion_candidate") {
 		t.Fatalf("EN D3 inversion cause token missing:\n%s", md)
 	}
-	if !strings.Contains(vs2Despace(md), "composition:runnable10.000ms(infull)+discountedrunning6.000ms(foldedatthedownstreamconsumercore)") {
-		t.Fatalf("EN D3 inversion composition missing per-component calibers:\n%s", md)
+	// PTV8-RCR-A (§24 ②): EN mirrors the 行3 breakdown + sub-rows.
+	despacedEN := vs2Despace(md)
+	if !strings.Contains(despacedEN, "attribution16.000ms=runnable(infull)10.000ms+running(discounted)6.000ms") {
+		t.Fatalf("EN D3 inversion 行3 breakdown missing:\n%s", md)
+	}
+	if !strings.Contains(despacedEN, "runningraw16.000ms→counted6.000ms(discounted,atthedownstreamconsumercore)") {
+		t.Fatalf("EN D3 拆解子行 missing:\n%s", md)
+	}
+	if strings.Contains(md, "composition: runnable") {
+		t.Fatalf("the retired EN composition tag must not render:\n%s", md)
 	}
 	if strings.Contains(md, "inversion impact") {
 		t.Fatalf("deleted \"inversion impact\" shape word resurfaced (PTV6-C ruling B):\n%s", md)

@@ -81,9 +81,15 @@ func TestSFDRunningTwinJoinRendersFoldCaliberZH(t *testing.T) {
 	if !strings.Contains(despaced, "供给折算缺口17.702ms(按大核满频折算,下界)为主,running含跑慢成分") {
 		t.Fatalf("running twin must render the joined supply-fold caliber:\n%s", md)
 	}
-	// The donor's own Triple clause stays untouched beside it.
-	if !strings.Contains(despaced, "机制构成(各口径独立、不可加和):供给折算缺口17.702ms(按大核满频折算,下界)") {
-		t.Fatalf("donor mechanism clause must stay:\n%s", md)
+	// PTV8-RCR-A EVOLUTION RECORD (§24 ②): the donor is an inversion cause
+	// node — its Triple 机制构成 sentence is RETIRED; the deficit keeps its
+	// lossless home on the donor's detail 供给折算 line (unified sub-row
+	// grammar) and the composition on 有效归因构成.
+	if strings.Contains(md, "机制构成") {
+		t.Fatalf("the retired mechanism sentence must not render on inversion nodes:\n%s", md)
+	}
+	if !strings.Contains(despaced, "供给折算缺口17.702ms(折算,按大核满频,下界;独立口径,不计入有效归因)") {
+		t.Fatalf("donor deficit must keep its lossless detail home:\n%s", md)
 	}
 	// 有效归因 stays the twin's own measured value — the fold is a
 	// supplementary caliber disclosure, never a re-attribution.
@@ -126,8 +132,10 @@ func TestSFDRunningTwinNoJoinOnKeyMismatch(t *testing.T) {
 		if !strings.Contains(despaced, "有效归因58.919ms") {
 			t.Fatalf("%s mismatch: the twin's bare attribution row must stay:\n%s", name, md)
 		}
-		if !strings.Contains(despaced, "机制构成(各口径独立、不可加和):供给折算缺口17.702ms") {
-			t.Fatalf("%s mismatch: the donor's own clause must stay:\n%s", name, md)
+		// PTV8-RCR-A EVOLUTION RECORD (§24 ②): the donor's deficit now lives
+		// on its detail 供给折算 line (the Triple sentence is retired).
+		if !strings.Contains(despaced, "供给折算缺口17.702ms(折算,按大核满频,下界;独立口径,不计入有效归因)") {
+			t.Fatalf("%s mismatch: the donor's own deficit disclosure must stay:\n%s", name, md)
 		}
 	}
 }

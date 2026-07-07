@@ -33,7 +33,7 @@ func TestRuntimeTraceProjRootLabelAnchorOnlyWhenEntitiesMismatch(t *testing.T) {
 		Entities: []string{"42591", "3.300", "6.600"},
 	})
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "🎯 VSyncGenerator-2270 ‹分析锚点线程›") {
+	if !strings.Contains(fence, "⊚ VSyncGenerator-2270 ‹分析锚点线程›") {
 		t.Fatalf("mismatched root must render the anchor label:\n%s", fence)
 	}
 	if strings.Contains(fence, "用户关注线程") {
