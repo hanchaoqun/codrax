@@ -64,7 +64,12 @@ func TestCausalTokenRegistryGoldenSnapshot(t *testing.T) {
 		// from the compute_supply aggregate ledger (§7.10 (5)).
 		"supply_fold_deficit|compute_delivery|wall_clock_per_thread|per_thread|observation_only|",
 		"supply_pressure|scheduling_demand|cross_thread_cpu_ms|aggregate_only|row|runtimeTraceSupplyPressureDisplayLabel",
-		"trace_gap|diagnostic|count|per_thread|row|",
+		// EVOLUTION RECORD (2026-07-07, §22 PTV7-SPN F5 用户措辞裁定,
+		// docs/design/real_trace_campaign_20260705.md): trace_gap gains its zh
+		// display word 数据盲区 via runtimeTraceRootCauseTypeZHLabel — the
+		// LabelZhRef column ONLY moved (was ""); Lane/Additivity/Subject/
+		// RowToken are byte-identical (diagnostic|count|per_thread|row).
+		"trace_gap|diagnostic|count|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"trace_span|cpu_work|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"unknown_state|diagnostic|wall_clock_per_thread|per_thread|row|",
 		"workqueue_activity|cpu_work|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",

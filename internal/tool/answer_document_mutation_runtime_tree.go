@@ -327,6 +327,7 @@ const (
 	runtimeTraceProjMarkStanzaCrossThreadCum                              // PTV6-C ruling A ◇/▒ 行 累计(跨线程) 族词
 	runtimeTraceProjMarkCandidateShapeClass                               // PTV6-D (b) 候选影响 类别词降维:行内删,图例承载
 	runtimeTraceProjMarkUserFocusTransit                                  // §22 B1-b F2 折叠段内用户关注线程强制展开(中转形态)
+	runtimeTraceProjMarkTraceGapBlindSpot                                 // §22 PTV7-SPN F5 trace_gap 数据盲区 行内披露(用户措辞裁定)
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -580,6 +581,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkUserFocusTransit, runtimeTraceProjLegendGroupMark,
 			"- `用户关注线程(中转)` = 折叠段内命中的用户关注线程强制单独成行:该位置为链路中转,本轮无独立影响行。",
 			"- `user-focus thread (transit)` = a user-focus thread inside a folded segment is force-expanded to its own row; the position is a chain transit with no standalone impact row this run."},
+		// §22 PTV7-SPN F5 (用户措辞裁定 2026-07-07, 措辞一字不改; missing_wakeup
+		// 图例措辞族 beside the ⊘ entry): the trace_gap diagnostic marker's
+		// legend home — the zh face keys on the 数据盲区 display word, the EN
+		// face keeps the raw token (D2: EN surfaces render tokens verbatim).
+		{runtimeTraceProjMarkTraceGapBlindSpot, runtimeTraceProjLegendGroupMark,
+			"- `数据盲区` = 窗内无调度数据,下钻链止。",
+			"- `trace_gap` = no scheduler data inside the window; the drill chain ends there."},
 	}
 }
 
@@ -3046,6 +3054,14 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 	// D2: tree and cause rows show the concise zh label for recognized type
 	// tokens (the raw token stays on the detail table's 类型 column).
 	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
+	// F1 (§22 PTV7-SPN P0): a generic row whose parsed span name reached the
+	// display model shows the REAL name in the object slot —
+	// "oney.hmn.berlin-42591 · H:ReceiveVsync(跟踪span)" — instead of the bare
+	// type word. SpanName non-empty is the whole gate (precise boolean, soft
+	// display face); semantic rows keep their dedicated arm above.
+	if spanWord := runtimeTraceCausalProjectionSpanNameObjectWord(node, zh); spanWord != "" {
+		object = spanWord
+	}
 	if row.Kind == runtimeTraceProjTreeRowCause {
 		// Same-subject cause decomposition: the subject is already the parent
 		// trunk row; show only the cause word.
@@ -3381,6 +3397,12 @@ func runtimeTraceProjRowCauseWordToken(row runtimeTraceProjTreeRow, zh bool) (st
 	}
 	if runtimeTraceCausalProjectionBlockingName(node, zh) != "" {
 		return "", ""
+	}
+	// F1 (§22 PTV7-SPN): mirror the RowName composer's span-word override —
+	// the #12 guarantee then protects the FULL span name across a name-cell
+	// cut; the typed dedupe identity stays the cause token.
+	if spanWord := runtimeTraceCausalProjectionSpanNameObjectWord(node, zh); spanWord != "" {
+		return spanWord, runtimeTraceCausalProjectionCauseDisplayToken(node)
 	}
 	return strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh)),
 		runtimeTraceCausalProjectionCauseDisplayToken(node)
@@ -3800,22 +3822,44 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	impact, impactSource := runtimeTraceProjNodeDisplayImpactSource(node)
 	var b strings.Builder
 	crossThread := runtimeTraceProjCrossThreadAggregateType(node)
-	if crossThread {
+	// F5 (§22 PTV7-SPN, 用户裁定 2026-07-07): a value-less diagnostic-lane row
+	// (trace_gap 数据盲区 etc.) and the ×N(0.000–0.000) all-zero fold row draw
+	// NO bar and NO fake 0.000ms — the cells render the — no-value form the
+	// detail table already uses for zero (树表两口径对齐). Typed judgment only
+	// (registry lane / numeric fold shape + the display-impact fallback chain).
+	noValue := !crossThread && impact <= 0 &&
+		(runtimeTraceProjDiagnosticLaneNode(node) || runtimeTraceProjAllZeroFoldRow(node))
+	switch {
+	case crossThread:
 		// CMP-3: a cross-thread cumulative aggregate draws NO bar — its cpu·ms
 		// value is not on the wall-clock scale the bar column encodes, so any
 		// bar (full, capped or proportional) would misread as a wall-clock
 		// share. Blank cells keep the column alignment; the number carries the
 		// unit annotation + normalized density instead.
 		b.WriteString(strings.Repeat(" ", runtimeTraceProjTreeBarWidth))
-	} else {
+	case noValue:
+		b.WriteString(strings.Repeat(" ", runtimeTraceProjTreeBarWidth))
+	default:
 		b.WriteString(runtimeTraceProjBar(impact, denom, row.Kind == runtimeTraceProjTreeRowBackground))
 	}
-	if !crossThread {
+	if !crossThread && !noValue {
 		// PTV4 T7 口径组: the bar-scale caliber legend line is gated on a bar
-		// actually rendering (cross-thread aggregates draw no bar).
+		// actually rendering (cross-thread aggregates and no-value rows draw
+		// no bar).
 		row.marks.mark(runtimeTraceProjMarkBarScale)
 	}
-	b.WriteString(fmt.Sprintf(" %9.3fms", impact))
+	if noValue {
+		// Width-matches the " %9.3fms" cell (1 + 9 + "ms") so the ms column
+		// stays aligned across mixed rows.
+		dash := "—"
+		if pad := 11 - runewidth.StringWidth(dash); pad > 0 {
+			b.WriteString(" " + strings.Repeat(" ", pad) + dash)
+		} else {
+			b.WriteString(" " + dash)
+		}
+	} else {
+		b.WriteString(fmt.Sprintf(" %9.3fms", impact))
+	}
 	if crossThread {
 		b.WriteString(runtimeTraceProjCrossThreadAggregateSuffix(node, denom, windowMode, zh))
 	}
@@ -4049,6 +4093,18 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		if !suppress {
 			tags = append(tags, runtimeTraceProjTag{Text: action})
 		}
+	}
+	// F5 (§22 PTV7-SPN, 用户措辞裁定 2026-07-07, 措辞一字不改): a trace_gap row
+	// states what it IS inline — 窗内无调度数据·链止 — in the slot the retired
+	// candidate chip used to fake; the legend's 数据盲区 entry carries the full
+	// semantics (missing_wakeup 图例措辞族). Exact typed token match.
+	if runtimeTraceProjTraceGapNode(node) {
+		row.marks.mark(runtimeTraceProjMarkTraceGapBlindSpot)
+		text := "窗内无调度数据·链止"
+		if !zh {
+			text = "no in-window scheduler data · chain ends"
+		}
+		tags = append(tags, runtimeTraceProjTag{Text: text})
 	}
 	// stanzaCumEmitted feeds the ruling-A 折算 discriminator below: when the
 	// cum and effective values BOTH publish on a stanza row with different
@@ -5836,9 +5892,15 @@ func runtimeTraceProjDetailFullName(node types.TraceCausalProjectionNode, zh boo
 	}
 	subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
 	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
-	if (node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span") &&
+	if runtimeTraceCausalProjectionSemanticSpanRow(node) &&
 		strings.TrimSpace(node.SpanName) != "" {
 		object = strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.SpanName, zh))
+	} else if spanWord := runtimeTraceCausalProjectionSpanNameObjectWord(node, zh); spanWord != "" {
+		// F1 (§22 PTV7-SPN P0): this surface promises 完整名称不截断 — a
+		// generic span row's full name MUST carry the real span name
+		// ("oney.hmn.berlin-42591 / H:ReceiveVsync(跟踪span)"), never only the
+		// type word. Shared helper with the tree row and the (a) node cell.
+		object = spanWord
 	}
 	switch {
 	case subject != "" && object != "":
@@ -5902,6 +5964,10 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		add("因果位置·优先级", "causal position · priority", runtimeTraceProjDetailPositionCell(row, model.LeadKey, zh))
 		typeToken := runtimeTraceCausalProjectionRawTypeToken(node)
 		add("类型", "type", runtimeTraceCausalProjectionMarkdownSafe(typeToken))
+		// F1 (§22 PTV7-SPN P0): the parsed span name gets its own keyed
+		// lossless line — SpanName non-empty is the whole gate (typed note,
+		// verbatim value; the heading's full name carries the composed form).
+		add("span", "span", runtimeTraceCausalProjectionMarkdownSafe(strings.TrimSpace(node.SpanName)))
 		relation := runtimeTraceProjDetailRelationCell(row, zh, flat)
 		if len(node.SecondaryObjects) > 0 {
 			// PTV6-C #6: same D4 中文（token） display as the tree tag (single
@@ -6389,7 +6455,10 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 		if locator == "" {
 			locator = "trace_query"
 		}
-		audit := runtimeTraceCausalProjectionCompactCellText(entry.Details, 72)
+		// F2 (§22 PTV7-SPN): part-boundary cut at the 96-rune audit ceiling —
+		// see runtimeTraceCausalProjectionAuditCellText for the two-half
+		// rationale (the 72-rune mid-token cut lost confidence + predicate).
+		audit := runtimeTraceCausalProjectionAuditCellText(entry.Details, 96)
 		// PTV6-C ruling C (#73, 用户裁定 2026-07-06): the former "完整定位见原始
 		// trace_query 记录" deflection tail is retired — when the display
 		// locator actually dropped the entry's line range (window-preferred

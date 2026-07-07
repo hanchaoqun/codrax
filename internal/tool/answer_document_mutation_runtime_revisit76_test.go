@@ -606,6 +606,10 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// word belongs to the IconTransit probe and the ‹用户关注线程› header
 		// label never carries the (中转) suffix.
 		runtimeTraceProjMarkUserFocusTransit: {"用户关注线程(中转)", "user-focus thread (transit)"},
+		// §22 PTV7-SPN F5 (用户措辞裁定): the trace_gap row's inline disclosure
+		// (窗内无调度数据·链止) is the fence token; the legend's 数据盲区 entry
+		// renders exactly with it.
+		runtimeTraceProjMarkTraceGapBlindSpot: {"窗内无调度数据", "no in-window scheduler data"},
 	}
 }
 
@@ -886,6 +890,9 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// force-expanded as a named transit row (fixture home:
 		// answer_document_mutation_runtime_tree_anchor_b1b_test.go).
 		{"b1b_user_focus_fold", b1bUserFocusFoldProjection()},
+		// §22 PTV7-SPN F5: the trace_gap 数据盲区 disclosure row (fixture home:
+		// answer_document_mutation_runtime_ptv7_spn_test.go).
+		{"ptv7_spn_trace_gap", ptv7SpnTraceGapProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

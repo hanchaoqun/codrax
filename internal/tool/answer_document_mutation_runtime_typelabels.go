@@ -21,6 +21,7 @@ package tool
 import (
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -92,6 +93,12 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		return "频率受限"
 	case "trace_span":
 		return "跟踪span"
+	case "trace_gap":
+		// §22 PTV7-SPN F5 (用户措辞裁定 2026-07-07): the diagnostic trace_gap
+		// marker's display word — the raw token stays on the detail table's
+		// 类型 column; registry LabelZhRef column moved in lockstep (golden
+		// EVOLUTION RECORD in causal_token_registry_golden_test.go).
+		return "数据盲区"
 	case "irq_burst":
 		return "中断突发"
 	case "irq_activity":
@@ -329,6 +336,83 @@ func runtimeTraceCausalProjectionNarrativeCauseName(raw string, zh bool) string 
 		return runtimeTraceSupplyPressureDisplayLabel(false) + " (" + raw + ")"
 	}
 	return runtimeTraceCausalProjectionDisplayNodeName(raw, zh)
+}
+
+// runtimeTraceCausalProjectionSemanticSpanRow is the ONE semantic-span row
+// predicate the display gates share (typed Role enum / exact producer
+// predicate — never prose). Extracted for F1 (§22 PTV7-SPN): after the span
+// name consumption gate relaxed to SpanName non-empty, the semantic gate's
+// only remaining display job is the wider objectLimit split.
+func runtimeTraceCausalProjectionSemanticSpanRow(node types.TraceCausalProjectionNode) bool {
+	return node.Role == types.TraceCausalRoleSemanticSpan ||
+		strings.TrimSpace(node.Predicate) == "trace_semantic_span"
+}
+
+// runtimeTraceCausalProjectionSpanNameObjectWord is THE shared F1 helper (§22
+// PTV7-SPN P0, huadong_01 E21=H:ReceiveVsync): a generic row whose typed
+// span_name note reached the display model (node.SpanName non-empty — precise
+// boolean, soft display face, zero hard gates) puts the REAL name in the
+// object word slot with the type word folded in parens:
+// "H:ReceiveVsync(跟踪span)". Semantic-span rows return "" — their dedicated
+// arms keep the pre-PTV7 name-only rendering (control pinned), and the
+// semantic gate keeps only the objectLimit width split. Consumed by the three
+// display faces (tree row / detail-table node cell / lossless full name) so
+// they can never drift apart again.
+func runtimeTraceCausalProjectionSpanNameObjectWord(node types.TraceCausalProjectionNode, zh bool) string {
+	if runtimeTraceCausalProjectionSemanticSpanRow(node) {
+		return ""
+	}
+	name := strings.TrimSpace(node.SpanName)
+	if name == "" {
+		return ""
+	}
+	name = strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(name, zh))
+	typeWord := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
+	if typeWord == "" || typeWord == name {
+		return name
+	}
+	return name + "(" + typeWord + ")"
+}
+
+// runtimeTraceProjDiagnosticLaneNode reports whether the node's typed cause
+// token rides the registry's diagnostic lane (§22 PTV7-SPN F5): exact
+// canonical-token lookup against the causal-token registry — the semantic
+// single source (internal/tracequery/causal_token_registry.go) — over the
+// same TypeToken→Object→Predicate lane precedence the other typed-kind
+// helpers use. Display split only (no candidate chip, no 0.000ms bar); the
+// registry's Lane/Additivity/Subject positions are read, never written.
+func runtimeTraceProjDiagnosticLaneNode(node types.TraceCausalProjectionNode) bool {
+	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
+		spec, ok := tracequery.CausalTokenSpecFor(runtimeTraceCausalProjectionCanonicalNode(token))
+		if ok && spec.Lane == tracequery.CausalLaneDiagnostic {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeTraceProjTraceGapNode is the exact typed token match for the
+// trace_gap diagnostic marker (§22 PTV7-SPN F5 用户措辞裁定: 显示词=数据盲区,
+// 行内披露=窗内无调度数据·链止) — same lane precedence as above, never a
+// substring heuristic.
+func runtimeTraceProjTraceGapNode(node types.TraceCausalProjectionNode) bool {
+	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
+		if runtimeTraceCausalProjectionCanonicalNode(token) == "trace_gap" {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeTraceProjAllZeroFoldRow identifies the ×N(0.000–0.000) all-zero fold
+// shape (§22 PTV7-SPN F5): a merged row none of whose members carried a
+// measured value AND whose own display-impact fallback chain resolved to
+// nothing. Pure typed numeric comparisons; such a row wears the same no-value
+// form as the diagnostic lane (no candidate chip, no 0.000ms bar — the detail
+// table already renders — there).
+func runtimeTraceProjAllZeroFoldRow(node types.TraceCausalProjectionNode) bool {
+	return node.MergedCount > 1 && node.MergedMinMS <= 0 && node.MergedMaxMS <= 0 &&
+		runtimeTraceProjNodeDisplayImpact(node) <= 0
 }
 
 // runtimeTraceCausalProjectionRawTypeToken supplies the detail table's 类型

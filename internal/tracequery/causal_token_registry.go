@@ -238,7 +238,10 @@ var causalTokenRegistry = map[string]CausalTokenSpec{
 	"memory_gc":         {Lane: CausalLaneMemoryPressure, Additivity: CausalAdditivityCount, Subject: CausalSubjectAggregateOnly, RowToken: true, LabelZhRef: ""},
 
 	// ── diagnostic ─────────────────────────────────────────────────────────
-	"trace_gap":     {Lane: CausalLaneDiagnostic, Additivity: CausalAdditivityCount, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: ""},
+	// trace_gap zh display word = 数据盲区 (§22 PTV7-SPN, 用户措辞裁定
+	// 2026-07-07, docs/design/real_trace_campaign_20260705.md): display column
+	// ONLY — Lane/Additivity/Subject/RowToken untouched.
+	"trace_gap":     {Lane: CausalLaneDiagnostic, Additivity: CausalAdditivityCount, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"unknown_state": {Lane: CausalLaneDiagnostic, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: ""},
 	"state_churn":   {Lane: CausalLaneDiagnostic, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	// sched_stat_accounting corroborates scheduler intervals (discounted,

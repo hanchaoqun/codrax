@@ -11998,6 +11998,63 @@ type traceQueryObservationSupplementRow struct {
 
 const traceQueryObservationSupplementMaxRows = 40
 
+// traceQueryObservationSupplementBucketFloor is the F3① per-order guaranteed
+// floor (§22 PTV7-SPN, huadong_01 P1): every Order bucket keeps min(N, floor)
+// head rows before the spare seats fill in global sorted order — a 112-row
+// state_drilldown flood (order 18) can no longer evict an entire later lane
+// (the order-40 root_cause tertiary rows, huadong E21) from the 40-row
+// window. The occurrence_windows order-8 early bucket rides the same table
+// (its head seats survive by the same floor).
+const traceQueryObservationSupplementBucketFloor = 4
+
+// traceQueryObservationSupplementQuotaSelect splits the SORTED rows into the
+// kept window and the omitted rest under the per-order floor. Both slices
+// preserve the incoming sort order. prefix reports whether the kept set is
+// exactly the sorted prefix rows[:max] — a single-bucket overflow reproduces
+// the legacy prefix cut byte-identically (the caller then keeps the legacy
+// "仅列前 N 条" wording; a floored selection discloses itself instead).
+func traceQueryObservationSupplementQuotaSelect(rows []traceQueryObservationSupplementRow, max int) (kept, omitted []traceQueryObservationSupplementRow, prefix bool) {
+	if len(rows) <= max {
+		return rows, nil, true
+	}
+	keep := make([]bool, len(rows))
+	taken := 0
+	quota := map[int]int{}
+	for i, row := range rows {
+		if taken >= max {
+			break
+		}
+		if quota[row.Order] < traceQueryObservationSupplementBucketFloor {
+			quota[row.Order]++
+			keep[i] = true
+			taken++
+		}
+	}
+	for i := range rows {
+		if taken >= max {
+			break
+		}
+		if !keep[i] {
+			keep[i] = true
+			taken++
+		}
+	}
+	prefix = true
+	kept = make([]traceQueryObservationSupplementRow, 0, max)
+	omitted = make([]traceQueryObservationSupplementRow, 0, len(rows)-max)
+	for i, row := range rows {
+		if keep[i] {
+			if i >= max {
+				prefix = false
+			}
+			kept = append(kept, row)
+		} else {
+			omitted = append(omitted, row)
+		}
+	}
+	return kept, omitted, prefix
+}
+
 func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
 	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
 	rows := traceQueryObservationSupplementRows(ctx, doc, zh)
@@ -12019,9 +12076,12 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 	// (trace 源坐标); otherwise it states the count alone.
 	total := len(rows)
 	omittedTail := ""
+	prefixKept := true
 	if len(rows) > traceQueryObservationSupplementMaxRows {
-		omitted := rows[traceQueryObservationSupplementMaxRows:]
-		rows = rows[:traceQueryObservationSupplementMaxRows]
+		// F3① (§22 PTV7-SPN): per-order floored selection instead of the flat
+		// prefix cut — the disclosure below stays honest about which shape ran.
+		var omitted []traceQueryObservationSupplementRow
+		rows, omitted, prefixKept = traceQueryObservationSupplementQuotaSelect(rows, traceQueryObservationSupplementMaxRows)
 		if base, lineStart, lineEnd, ok := traceQueryObservationSupplementEnvelope(omitted); ok {
 			if zh {
 				omittedTail = fmt.Sprintf(";其余 %d 条位于 %s 行 %d–%d 区间", len(omitted), base, lineStart, lineEnd)
@@ -12039,7 +12099,13 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 			fmt.Fprintf(&b, "> - %s\n", row.Text)
 		}
 		if total > len(rows) {
-			fmt.Fprintf(&b, ">\n> (共 %d 条,仅列前 %d 条%s)\n", total, len(rows), omittedTail)
+			if prefixKept {
+				fmt.Fprintf(&b, ">\n> (共 %d 条,仅列前 %d 条%s)\n", total, len(rows), omittedTail)
+			} else {
+				// F3①: a floored selection is NOT the head of the list — the
+				// legacy "前 N 条" wording would lie about it.
+				fmt.Fprintf(&b, ">\n> (共 %d 条,仅列 %d 条:每序列保底后按序补足%s)\n", total, len(rows), omittedTail)
+			}
 		}
 		return strings.TrimRight(b.String(), "\n")
 	}
@@ -12050,7 +12116,11 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 		fmt.Fprintf(&b, "> - %s\n", row.Text)
 	}
 	if total > len(rows) {
-		fmt.Fprintf(&b, ">\n> (%d rows total; only the first %d are listed%s)\n", total, len(rows), omittedTail)
+		if prefixKept {
+			fmt.Fprintf(&b, ">\n> (%d rows total; only the first %d are listed%s)\n", total, len(rows), omittedTail)
+		} else {
+			fmt.Fprintf(&b, ">\n> (%d rows total; %d listed — per-order floor, then head-first fill%s)\n", total, len(rows), omittedTail)
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -12569,6 +12639,11 @@ var traceQueryObservationSupplementAllowedNotePrefixes = []string{
 	types.TraceNoteKeyBlockingKind + "=", types.TraceNoteKeyHolderSite + "=", types.TraceNoteKeyWaiters + "=",
 	types.TraceNoteKeyCausality + "=", types.TraceNoteKeyChainDepth + "=", "priority_relation=", "priority_inversion_candidate=",
 	types.TraceNoteKeyOccurrenceWindows + "=",
+	// F3② (§22 PTV7-SPN, huadong_01 P1): the span name was table-level
+	// EXCLUDED — no ordering could ever admit it, so a generic trace_span rank
+	// row's only name carrier never reached the dump. Registered key (NKR:
+	// trace_note_keys.go, zero new keys).
+	types.TraceNoteKeySpanName + "=",
 	"prio=", "target_prio=", types.TraceNoteKeyDominantState + "=", types.TraceNoteKeyImpact + "=", types.TraceNoteKeyImpactMS + "=", types.TraceNoteKeyCumulativeImpactMS + "=", "target_impact=",
 	types.TraceNoteKeyPath + "=", "occurrences=", types.TraceNoteKeyTotal + "=", types.TraceNoteKeyFragments + "=", types.TraceNoteKeySwitches + "=",
 	types.TraceNoteKeySource + "=", types.TraceNoteKeyRecommendedViews + "=", types.TraceNoteKeyChainRequired + "=", types.TraceNoteKeyRecursive + "=", types.TraceNoteKeyWindow + "=",
@@ -12633,6 +12708,14 @@ var (
 		types.TraceNoteKeyDetectedPeriodMS + "=",
 		types.TraceNoteKeyLatenessMS + "=",
 	}
+	// trace_span rows (§22 PTV7-SPN F3③): the span name IS the row's identity
+	// — without it the dump line reads "trace_span 9.169ms" with no way to
+	// bind the value to H:ReceiveVsync. span_name= leads; the semantic class
+	// backs up for classified spans.
+	traceQueryObservationSupplementTraceSpanPriorityPrefixes = []string{
+		types.TraceNoteKeySpanName + "=",
+		types.TraceNoteKeySemanticClass + "=",
+	}
 )
 
 // traceQueryObservationSupplementPriorityNoteCap bounds the priority pass to 2
@@ -12661,6 +12744,9 @@ func traceQueryObservationSupplementPriorityPrefixes(record types.ObservationRec
 		return traceQueryObservationSupplementBlockingPriorityPrefixes
 	case "binder_wait":
 		return traceQueryObservationSupplementBinderPriorityPrefixes
+	case "trace_span":
+		// §22 PTV7-SPN F3③: the span family's audit-critical pair.
+		return traceQueryObservationSupplementTraceSpanPriorityPrefixes
 	}
 	return nil
 }

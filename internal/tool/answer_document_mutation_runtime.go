@@ -2073,6 +2073,15 @@ func runtimeTraceCausalProjectionActionCellWithFamily(node types.TraceCausalProj
 	if word := runtimeTraceCausalProjectionStateActionWord(stateKind, zh); word != "" {
 		return word, runtimeTraceProjActionJointFamily(stateKind)
 	}
+	// F5 (§22 PTV7-SPN, 用户裁定 2026-07-07): a diagnostic-lane row (registry
+	// Lane==diagnostic — trace_gap/unknown_state/state_churn/…) is a
+	// data-quality marker, never a cause candidate — the generic candidate
+	// chip stays off; trace_gap rows carry their own inline disclosure
+	// (窗内无调度数据·链止) from the metric-parts builder. The ×N(0.000–0.000)
+	// all-zero fold row gets the same treatment (typed numeric shape).
+	if runtimeTraceProjDiagnosticLaneNode(node) || runtimeTraceProjAllZeroFoldRow(node) {
+		return "", ""
+	}
 	if zh {
 		return "候选根因", ""
 	}
@@ -2342,6 +2351,12 @@ func runtimeTraceCausalProjectionAuditDetail(node types.TraceCausalProjectionNod
 	if pred := strings.TrimSpace(node.Predicate); pred != "" {
 		parts = append(parts, "predicate="+pred)
 	}
+	// F2 (§22 PTV7-SPN): the parsed span name joins the audit summary —
+	// SpanName non-empty rows only (typed note; the evidence index was the
+	// one surface with the name in hand and nowhere to show it).
+	if name := strings.TrimSpace(node.SpanName); name != "" {
+		parts = append(parts, "span="+name)
+	}
 	// Aggregation provenance (presentation v3 §6): every merged observation id
 	// stays auditable from the roster entry.
 	if node.MergedCount > 1 {
@@ -2420,11 +2435,16 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 	// D2: the zh table's Node/cause column shows the concise label; the raw
 	// token stays lossless in the dedicated 类型 column.
 	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
-	if (node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span") && strings.TrimSpace(node.SpanName) != "" {
+	// F1 (§22 PTV7-SPN P0): the span-name consumption gate is SpanName
+	// non-empty (shared helper) — the semantic gate's only remaining job here
+	// is the wider objectLimit split below.
+	if runtimeTraceCausalProjectionSemanticSpanRow(node) && strings.TrimSpace(node.SpanName) != "" {
 		object = strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.SpanName, zh))
+	} else if spanWord := runtimeTraceCausalProjectionSpanNameObjectWord(node, zh); spanWord != "" {
+		object = spanWord
 	}
 	objectLimit := 22
-	if node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span" {
+	if runtimeTraceCausalProjectionSemanticSpanRow(node) {
 		objectLimit = 36
 	}
 	switch {
@@ -2435,6 +2455,21 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 	case object != "":
 		return runtimeTraceCausalProjectionCompactCellText(object, 44)
 	default:
+		// F4 (§22 PTV7-SPN, C39 漏面): the on-chain overflow fold names its
+		// lane + count + roster on THIS surface too — mirroring the tree row
+		// and the lossless block; and the subject/object-less fallback speaks
+		// zh on the zh panel ("trace causal node" stays EN-face only).
+		if node.OnChainOverflowFold {
+			if zh {
+				return runtimeTraceCausalProjectionCompactCellText(
+					fmt.Sprintf("其余 %d 项(链上折叠)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh)), 44)
+			}
+			return runtimeTraceCausalProjectionCompactCellText(
+				fmt.Sprintf("%d more (on-chain fold)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh)), 44)
+		}
+		if zh {
+			return "(未命名因果节点)"
+		}
 		return "trace causal node"
 	}
 }
@@ -2701,6 +2736,41 @@ func runtimeTraceCausalProjectionAggregateMetricName(node types.TraceCausalProje
 		return "窗口聚合指标(" + metric + ")"
 	}
 	return "window aggregate metric (" + metric + ")"
+}
+
+// runtimeTraceCausalProjectionAuditCellText truncates an evidence-index audit
+// summary at its " · " PART boundaries (§22 PTV7-SPN F2): the legacy 72-rune
+// mid-token cut shipped "confidenc…" / "predicate=wakeup_causal_i…" — the
+// confidence value and the predicate name both lost. Both offered halves of
+// the fix land together, with reasons: the cap rises to 96 (the §7.30.3
+// blocking-name ceiling precedent — 96 alone still cuts inside long predicate
+// tokens) AND the cut backs off to whole parts (part-boundary alone at 72
+// would drop the confidence part this fix exists to surface). A degenerate
+// over-wide single part falls back to the legacy rune cut (never returns an
+// empty cell). The trailing "…" states that tail parts were dropped; the full
+// summary stays lossless on the raw observation record.
+func runtimeTraceCausalProjectionAuditCellText(raw string, maxRunes int) string {
+	raw = strings.TrimSpace(raw)
+	if maxRunes <= 0 || len([]rune(raw)) <= maxRunes {
+		return runtimeTraceCausalProjectionCompactCellText(raw, maxRunes)
+	}
+	const sep = " · "
+	kept := ""
+	for _, part := range strings.Split(raw, sep) {
+		trial := part
+		if kept != "" {
+			trial = kept + sep + part
+		}
+		// +1 reserves the "…" truncation marker's slot.
+		if len([]rune(trial))+1 > maxRunes {
+			break
+		}
+		kept = trial
+	}
+	if kept == "" {
+		return runtimeTraceCausalProjectionCompactCellText(raw, maxRunes)
+	}
+	return runtimeTraceCausalProjectionMarkdownSafe(kept + "…")
 }
 
 func runtimeTraceCausalProjectionCompactCellText(raw string, maxRunes int) string {

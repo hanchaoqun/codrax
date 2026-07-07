@@ -56,6 +56,9 @@ func TestTraceQueryObservationSupplementAllowedPrefixesRegistered(t *testing.T) 
 		"blocking": traceQueryObservationSupplementBlockingPriorityPrefixes,
 		"binder":   traceQueryObservationSupplementBinderPriorityPrefixes,
 		"periodic": traceQueryObservationSupplementPeriodicPriorityPrefixes,
+		// §22 PTV7-SPN F3③: the trace_span family table is a selection
+		// surface too.
+		"trace_span": traceQueryObservationSupplementTraceSpanPriorityPrefixes,
 	} {
 		if violations := traceNoteKeyPrefixTableViolations(table); len(violations) != 0 {
 			t.Errorf("supplement %s priority table carries entries outside the trace_note_keys.go registry: %v — register the key first (change protocol), never let a selection entry drift", name, violations)
@@ -76,6 +79,12 @@ func TestTraceQueryObservationSupplementAllowedPrefixesRegistered(t *testing.T) 
 		if !allowed[want] {
 			t.Errorf("allowed-prefix table lost the blocking-family entry %q (SG 批 Q4-K 修3)", want)
 		}
+	}
+	// §22 PTV7-SPN F3②: span_name= must stay admitted — table-level exclusion
+	// was the second gate that made a named span's raw value structurally
+	// invisible in the dump (no ordering can admit an excluded key).
+	if !allowed[types.TraceNoteKeySpanName+"="] {
+		t.Errorf("allowed-prefix table lost the span_name entry (§22 PTV7-SPN F3②)")
 	}
 	// BLK-2 P1 指代翻转修复: the holder-subject folded rank row's twin state
 	// breakdown is ported under subject_state_*, so both the allowed table and
