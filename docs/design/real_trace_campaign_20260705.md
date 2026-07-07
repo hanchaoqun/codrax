@@ -1468,3 +1468,24 @@ PTV7-SPN A2 评估(2026-07-07):§10-A2 修向(a)(发布 wait_object=span.Name)�
 交付:R1 runnable 显式成因子行(⧖ 全额·就绪排队积压·gated 分量不重复计入排序,typed 非零门,display-only)+R2 同段双车道折叠(SFD join 键+annotation-only 转移+守卫五臂:跨窗镜像/×N/歧义/effective 等式/**cumulative 等式(复核 W-A 补闸)**;覆盖分子与 bar 尺折叠前后字节等价 pin;depthless 披露 peer-aware(W-B))+L1 ⚠跨窗无值记号(假 0.000 灭)+L2 lead 第4级语义回退(固定形文案/禁"主根因:"/LeadKey 不认领 pin/C00 份额抑制臂 pin)+L3 背景段非空校验。16+4 pin,7 突变咬红。
 **重要预期修正(回访复放对照用)**:cmp_01 E7/E8 的 rank cum=47.503(含外围链 scope)≠chain cum=28.230——cum 等式闸下该对**双行保留是设计终态**(不同账目绝不折),勿当回归;折叠正例=opendir E6/E7(58.919==58.919)/huadong E4/E5(4.115==4.115)/E11/E13(2.770==2.770)。
 **残余留账**:W-A 单侧零角(rank cum>0∧chain cum==0 可折,真实语料 cum 恒随 impact 发布无 witness);SelfRows 循环同款 peer-aware 未动(无 witness,同款一行改);非反转 running 双发布与 raw-vs-gated 旧形态设计性不折,归 P0-E 引擎去双发布。
+
+## §22.3 NXT 批收账(2026-07-07,§22 D-P1 / RCX① §12.3-1① 用户面 next-step 半场)
+交付:N1 undrilled-headline 点名行(runtime.go next-step lane;typed 双臂门=lead 树行 Kind depthless∧Edge chain_unresolved——trunked 限定,flat 形态归 flat header+RN-13(b)——∨typed UndrillableReason;lead=runtimeTraceProjLeadSelect 单源(与结论行/对比 primary cell 同面,永不点错节点),semantic lane 排除,聚合指标/on-chain fold/未解析主体不点名;三要素=subject(+cause 词+rank=N+多工件 ArtifactLabel)/为什么(深度未解析——与树边用户面同词)/怎么做(wakeup_chain / critical_blocking_calls,零内部名))+N2 floor 席位(裁定:普通形态=基 cap=4 内**置换**,点名行先于全部通用 lane,让位者=尾部通用模板(huadong 形→点名+2口径+1通用);对比家族(#69 全集发射不可置换)占满基 cap 时=**cap+1 扩展**;硬上限 4+1+2=7)。9 pin(verbatim 正向/drilled 负向(fixture 含 E17 形非 headline depthless 兄弟行,咬死 key-等值弃除与全放宽两类 mutant)/own-IO 边负向(Edge=own lead 不得冒称深度未解析,咬 Edge-only mutant)/flat 负向/floor/视图名+零行话/EN/missing_wakeup 臂/未解析主体让位)+5 突变咬红(N1 门禁用→4 pin 红;N2 floor 禁用→floor pin 红;门三类 mutant=弃 key 等值/全放宽/弃 Edge 判据→各自负向 pin 红,对抗复核收尾补钉)。
+**N3 留账(一句话)**:RCX① 头部披露半场(投影头部/结论行对 depth-unresolved headline 的强制披露)在 tree.go=CWD-2 并行域,本批不动——结论行既有 ⊘ 臂仅覆盖 sleep∧Undrillable,深度未解析形态的头部披露留给 CWD-2/后续批;本批的 next-step 点名行即用户面披露的 next-step 半场。
+
+## §23 DCS 动态编译 span 三义务审计+裁定(2026-07-07,用户规则符合性)
+审计结论(HEAD e99dbf46):义务①窗口投影 rank typed 车道 HOLDS+两残口(H1 跨窗界 span 整条丢弃非裁剪、零告警;H2 观测通道原始时长对锚窗打 %——cmp_01 E2 span 全在锚窗外却显示 83%);义务②排序**零链窗口结构性破**(唯一根因:语义 span primary/co-primary 准入 100% 耦合唤醒链 on-chain 硬前置+零链时聚合 35% 窗帽不生效(28914ms 跨线程累计与墙钟同通道对赛)+rank 12 席无语义保留席(引擎 TraceSpans 16 席不对称);关键事实:83.893ms JIT 宿主=com.huawei.hwid 非目标进程,"目标自身准入"救不回);义务③ SPLIT(C4 系统块 HOLDS 含对比模式;散文提及 BROKEN=无 obligation 机制+skill 只有"禁提升为根因"半句无"以优化点身份提及"另半句)。
+**🔴 用户裁定(2026-07-07):rank 准入=保留席+独立 tier**——rank 12 席内给语义编译 span 保留席,以独立 tier 词(deterministic_optimization)入榜参与排序,不与 primary 选举竞争;不碰 on-chain 硬前置与 §7.5 聚合裁定。义务③经保留席+提及义务闭环。
+**DCS 修复批 scope**:E1=保留席+tier 词(tracequery rank builder+容量);E2=F2a 铸造 fall-through(链存在无重叠不降级泛型+重审 PID 门);E3=F2d fail-loud(有已分类语义 span 而 rank 0 语义行→typed caveat);E4=H1 跨窗界裁剪+caveat;E5=H2 显示重投影/标源窗(LEAD-SEM A④ 同车道);E6=F3a skill"以优化点(非根因)身份提及 top 项+占窗比"指令(过红线 checklist)+F3b 对比总览"确定性优化点"列+零链侧 lead 括注;附带=rank 内部退化链与观测通道 conf 口径分叉对齐。裁定点2(答案侧硬门"块存在⇒结论引用")=先软后硬,观察一轮回访再议。
+
+### §23.1 DCS 裁定精化(用户 2026-07-07,取代 §23 首轮"保留席"粗粒度)
+1. **rank 准入(保留席+deterministic_optimization tier)只给"窗内∧链上"的编译相关语义 span**(链上判据=既有链节点/impact 窗重叠谓词;窗内=窗口裁剪 impact>0)。
+2. **非链上的窗内编译 span 不入链上 tier**——与窗口内背景影响(聚合行等)进入同一背景综合排序;口径警示:墙钟 span 与跨线程累计 cpu·ms 不可裸同通道对赛(§7.30 S1 先例),批内设计须给可辩护的排序基并逐行带口径词;零链聚合 35% 窗帽问题不动(毗邻 §7.5,未裁定)。
+3. **提及义务只给链上编译 span**(无条件入正文提及,F3a/F3b scope 收窄到链上);非链上**不设提及义务,除非窗口内影响综合排序靠前**——"靠前"精确界=进入背景综合排序已发布行的 TOP 3(typed 榜位比较;默认值,用户可调)。
+4. cmp_01 E2(83.893ms,宿主 com.huawei.hwid,零链窗)按此裁定=非链上道:入背景综合排序,提及与否取决于其榜位;显示层 LEAD-SEM 语义回退(lead 空手时点名最大语义 span)不受影响,保留。
+**DCS 批 scope 修订**:E1=窗内∧链上保留席+tier 词;E1b=非链上窗内编译 span 入背景综合排序(可辩护排序基+口径词);E6=提及义务按链上/榜位双门(typed);E2/E3/E4/E5(fall-through/fail-loud/H1 裁剪/H2 显示)不变。
+
+## §24 回访 opendir_02(当日构建复跑,2026-07-07)+PTV8-RCR 显示重设计裁定
+**生效确认**:锁主根因 rank1(E4 blocking_span 112.223ms/94% 覆盖+持有点)/身份归一(owner 42067 双名并列)/RNB runnable 子行+同段折叠/PTV7 dump 每序列保底("共65条,仅列40条:每序列保底后按序补足")/持有者 next-step 点名(条3)全部客户侧在场。
+**用户裁定(UX 重设计,PTV8-RCR)**:①折叠方向反了——成因行身份=根因排序参赛身份:能进根因排序的都是"成因"行,下面再跟拆解;反转成因节点=「⚙ 优先级反转候选(runnable+running)」,节点下独立分行展示 runnable/running 各自原始时长与折算后时长;②纯 running 成因节点按大核满频折算影响时长入榜(引擎 §20.2 已是,显示对齐);③"同段rank行并入"中英混用不合格——两车道原生合一节点,徽章升头,该注整句消失;rank=N→根因排序#N;④"混乱无比"=全面 UX 复审令:所有"因果投影"展示描述(树/图例/量表/无损块/证据索引/指标快照/下一步/树头覆盖句)逐条再审,语言客户化、精简清晰。终形 mock 已确认(有效归因 37.410ms = runnable 20.713ms(全额)+running 折算 16.697ms(按下游消费核折算);机制构成长句退役由"="分解行+状态子行取代)。
+**排批**:PTV8-UXA(全面措辞/排版审计,读侧先行)→PTV8-RCR(节点重构+措辞终形,含 gated 清除/"="形/同段注退役,吸收原措辞批)→DCS(§23.1)→P0-E。
