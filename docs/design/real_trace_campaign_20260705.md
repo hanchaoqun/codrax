@@ -1459,3 +1459,12 @@ PTV7-SPN A2 评估(2026-07-07):§10-A2 修向(a)(发布 wait_object=span.Name)�
 ## §19.1 LCK-2 批收账(2026-07-07,复核 SHIP,含 skill 半场补交)
 交付:梯子② ns-span 推导(ns_span_derivation.go:发射对建图+结构唯一硬门第二 host id 即 Ambiguous 硬拒、comm 永不消歧;②a 自报 ns-tid 线程级 fail-closed 提取器/②b 主线程特例需 tidPresent/②c 进程级降档显式披露 tgid 永不入 Peer.PID)+②×③ 融合归一 typed 声明(holder_ns_unification,0.70)+分歧披露不推翻+comm 软披露永不否决;①"(owner tid: N)"判定块零 hunk(用户红线);置信严格序 0.72>0.70>0.67>0.62;R2' 六处同步(holder_ns_unification/holder_host_process);skill SG-A2 追加两句(wakeup-edge 原句字节不动,9-substring pin)。12+2+1 pin。
 **残余立账**:融合 0.70 为本批选值(账本仅 pin"高于单信号",如需改数值一点改);②a 真实语料 0 witness(xxx_all 84 个 tid 字段全 owner 他报,提取器故意收窄,真 witness 现身后扩形);②a 样本 vs ②b 结构推断优先序未 pin(观察>推断,可辩护);TraceSpanSummary 新增 span_pid JSON 键(omitempty);真实 62020 案复放落②进程级+③互证设计形态(§18.E 标本 xxx_all 实证)。
+
+### §22.2.1 措辞裁定补记(用户 2026-07-07):trace 专用名词不翻译
+"跟踪span"→"trace span"(typelabels case trace_span);原则=专用名词保持原文,不过度翻译(trace/span 均专名)。连锁:明细表 22-rune 预算下复合词 "H:ReceiveVsync(trace span)"=26 rune 超限→NodeSubjectCell 增超预算裸名臂(丢类型词括注保真名,截半复合词严格劣于裸名;无损块/树行 36 限仍带完整复合词),随 RNB 批 runtime.go 落地。此原则复查其他 zh 词条:数据盲区/调度压力(需求积压)等非专名翻译不受影响;workqueue/irq 类既有词条未裁定不动。
+**§22.2.1 终裁(用户确认 2026-07-07)**:词条语言尺子=有业界通行中文标准译名且工程师日常用中文的保中文(中断/核间中断/工作队列/调度延迟等);专名/要 grep trace 原文的保英文(trace/span/DMA fence/JIT/cpuset/VSync/binder/调度态五词)。兜底已实证:无损块"类型"行=runtimeTraceCausalProjectionRawTypeToken(typelabels.go:423)单 helper 返原始 wire token 永不本地化,且第一分支与"有 zh 显示词"同门——凡被翻译显示的 token 原文必在类型行(supply_pressure 审计保真先例的结构性推广)。本轮仅 trace_span 改词,其余词条维持;后续新增 zh 词条按此尺子,重提先读本节。
+
+## §21.2 RNB+LEAD-SEM 批收账(2026-07-07,复核 SHIP-WITH-FIXES→收尾四项已落,17fd6a80)
+交付:R1 runnable 显式成因子行(⧖ 全额·就绪排队积压·gated 分量不重复计入排序,typed 非零门,display-only)+R2 同段双车道折叠(SFD join 键+annotation-only 转移+守卫五臂:跨窗镜像/×N/歧义/effective 等式/**cumulative 等式(复核 W-A 补闸)**;覆盖分子与 bar 尺折叠前后字节等价 pin;depthless 披露 peer-aware(W-B))+L1 ⚠跨窗无值记号(假 0.000 灭)+L2 lead 第4级语义回退(固定形文案/禁"主根因:"/LeadKey 不认领 pin/C00 份额抑制臂 pin)+L3 背景段非空校验。16+4 pin,7 突变咬红。
+**重要预期修正(回访复放对照用)**:cmp_01 E7/E8 的 rank cum=47.503(含外围链 scope)≠chain cum=28.230——cum 等式闸下该对**双行保留是设计终态**(不同账目绝不折),勿当回归;折叠正例=opendir E6/E7(58.919==58.919)/huadong E4/E5(4.115==4.115)/E11/E13(2.770==2.770)。
+**残余留账**:W-A 单侧零角(rank cum>0∧chain cum==0 可折,真实语料 cum 恒随 impact 发布无 witness);SelfRows 循环同款 peer-aware 未动(无 witness,同款一行改);非反转 running 双发布与 raw-vs-gated 旧形态设计性不折,归 P0-E 引擎去双发布。

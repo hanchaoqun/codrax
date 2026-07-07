@@ -67,18 +67,23 @@ func TestPTV7SpnGenericSpanNameThreeFaces(t *testing.T) {
 	node := ptv7SpnE21Node()
 	// Face 1 — tree row (stanza/chain shared composer).
 	row := runtimeTraceProjTreeRow{Node: node, Kind: runtimeTraceProjTreeRowAdjacent, HasData: true}
-	if got := runtimeTraceProjRowName(row, true); got != "oney.hmn.berlin-42591 · H:ReceiveVsync(跟踪span)" {
+	if got := runtimeTraceProjRowName(row, true); got != "oney.hmn.berlin-42591 · H:ReceiveVsync(trace span)" {
 		t.Fatalf("F1 tree row (zh) must show the real span name in the object slot: %q", got)
 	}
 	if got := runtimeTraceProjRowName(row, false); got != "oney.hmn.berlin-42591 · H:ReceiveVsync(trace_span)" {
 		t.Fatalf("F1 tree row (en) must show the real span name: %q", got)
 	}
-	// Face 2 — detail-table node cell.
-	if got := runtimeTraceCausalProjectionNodeSubjectCell(node, true); got != "oney.hmn.berlin-42591 / H:ReceiveVsync(跟踪span)" {
-		t.Fatalf("F1 detail-table cell (zh) must show the real span name: %q", got)
+	// Face 2 — detail-table node cell. EVOLUTION RECORD (用户裁定 2026-07-07:
+	// trace 是专用名词不翻译,"跟踪span"→"trace span"): the composite
+	// "H:ReceiveVsync(trace span)" is 26 runes > the 22-rune cell budget, so
+	// the cell keeps the BARE real name and drops the type-word garnish — a
+	// truncated composite ("trace …") would be strictly worse than the name
+	// alone. The lossless block (face 3) still carries the full composite.
+	if got := runtimeTraceCausalProjectionNodeSubjectCell(node, true); got != "oney.hmn.berlin-42591 / H:ReceiveVsync" {
+		t.Fatalf("F1 detail-table cell (zh) must fall back to the bare real span name when the composite exceeds the cell budget: %q", got)
 	}
 	// Face 3 — lossless block: full name AND the dedicated "- span:" line.
-	if got := runtimeTraceProjDetailFullName(node, true); got != "oney.hmn.berlin-42591 / H:ReceiveVsync(跟踪span)" {
+	if got := runtimeTraceProjDetailFullName(node, true); got != "oney.hmn.berlin-42591 / H:ReceiveVsync(trace span)" {
 		t.Fatalf("F1 lossless full name (zh) must honor 完整名称不截断 with the real name: %q", got)
 	}
 	model := runtimeTraceProjTreeModel{
@@ -89,7 +94,7 @@ func TestPTV7SpnGenericSpanNameThreeFaces(t *testing.T) {
 	if !strings.Contains(stanza, "- span: H:ReceiveVsync") {
 		t.Fatalf("F1 lossless stanza must carry the dedicated span line:\n%s", stanza)
 	}
-	if !strings.Contains(stanza, "完整名称: oney.hmn.berlin-42591 / H:ReceiveVsync(跟踪span)") {
+	if !strings.Contains(stanza, "完整名称: oney.hmn.berlin-42591 / H:ReceiveVsync(trace span)") {
 		t.Fatalf("F1 lossless stanza full-name line must carry the real name:\n%s", stanza)
 	}
 }
@@ -97,7 +102,7 @@ func TestPTV7SpnGenericSpanNameThreeFaces(t *testing.T) {
 // TestPTV7SpnCompilePathE21Shape drives the WIRE shape through the projection
 // compile (span_name typed note → node.SpanName) and pins the fence render —
 // the end-to-end half of the F1 chain (the specimen's E21 rendered as a bare
-// "跟踪span" on every face while the name sat parsed in the model).
+// "trace span" type word on every face while the name sat parsed in the model).
 func TestPTV7SpnCompilePathE21Shape(t *testing.T) {
 	set := types.CompileTraceCausalProjectionSet(types.ObservationLedger{
 		Records: []types.ObservationRecord{ptv7SpnE21Record()},

@@ -92,7 +92,7 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 	case "cpu_frequency_limit":
 		return "频率受限"
 	case "trace_span":
-		return "跟踪span"
+		return "trace span"
 	case "trace_gap":
 		// §22 PTV7-SPN F5 (用户措辞裁定 2026-07-07): the diagnostic trace_gap
 		// marker's display word — the raw token stays on the detail table's
@@ -353,7 +353,7 @@ func runtimeTraceCausalProjectionSemanticSpanRow(node types.TraceCausalProjectio
 // span_name note reached the display model (node.SpanName non-empty — precise
 // boolean, soft display face, zero hard gates) puts the REAL name in the
 // object word slot with the type word folded in parens:
-// "H:ReceiveVsync(跟踪span)". Semantic-span rows return "" — their dedicated
+// "H:ReceiveVsync(trace span)". Semantic-span rows return "" — their dedicated
 // arms keep the pre-PTV7 name-only rendering (control pinned), and the
 // semantic gate keeps only the objectLimit width split. Consumed by the three
 // display faces (tree row / detail-table node cell / lossless full name) so
