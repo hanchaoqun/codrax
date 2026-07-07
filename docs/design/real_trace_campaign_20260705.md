@@ -1422,3 +1422,19 @@ opendir 案散文"owner 与 holder 均指向同一 tid 42067"**未必是模型�
 
 ### §21 归批
 **CWD**(P0,先行):排队深度分子分母窗基对齐+覆盖句窗基+承自注窗基(显示半)/跨窗聚合 overlap→MAX(引擎半);**EMIT-2**=NUM-2(cap 预告+路由+静默清空修+自愈评估)+CHAIN-SCOPE(同文件);**SG-2b**:对比同口径链下钻条款;**RNB+LEAD-SEM**(显示批):runnable 显示行+同段折叠(三证)+lead 语义回退+⚠0.000 前置;LCK-2 队列不变。
+
+## §22 回访 huadong_01(滑动=q1 berlin 复跑,构建含 RCX²/SFD 不含 B1)四维审计(2026-07-07,全 upheld)
+
+**用户两问答案**:"跟踪span"=类型词非名称(typelabels.go:94),真名 H:ReceiveVsync(引擎/工具面/投影三层都有名 node.SpanName,三显示面消费门锁死 semantic-only 全丢);原始值现仅证据索引 E21 行号区间可查,dump 40 行 cap 被 112 条 state_drilldown(order 18)整体挤出+span_name 不在准入表=双闸不可见。"trace_gap"=链下钻数据盲区诊断记号(query.go:13627),裸 token 泄漏+错标候选根因;**用户措辞裁定:显示词=数据盲区,行内披露=窗内无调度数据·链止**。
+
+- **B/D-P0 CHAIN-PATH(B1-would-NOT-fix)**:path 记录多分支森林扁平化+nil-impact 中转 depth=0 使 path 终点错位到中段(VSyncGenerator);B1 选举谓词(path 末端==用户实体)本形态结构性不可满足——**q1 复跑验收判据作废,立 B1-b 批**(选举改沿 path 任意位置匹配用户实体或修 path 终点记录;用户实体在"省略26节点"折叠中段还需强制展开位 D-P2)。
+- **A-P0 PTV7-SPN**:span 名五面丢失(树行 tree.go:2874 门 Kind==Semantic/明细表 runtime.go:2316/无损块 5473 同门;E21 predicate=root_cause_tertiary 永进不了门)+dump per-lane 无保底配额 P1+AuditDetail 无 span_name 且 72-rune 截断切 token P2+明细表折叠行 EN 兜底"trace causal node"(C39 漏面)P2+零值行卫生(trace_gap zh 词条+去候选根因 chip+去 0.000ms 条;明细表 — 反而诚实,树表两口径对齐)P3。顺带消化 §10-A2 wait_object 修向(a)。
+- **B-P1 coverage"目标"指代**:锚 VSync 非用户 42591,与横幅自相矛盾;B-P2 分子 depth-1 同主体 max-only(E14+E15 不重叠两 occurrence,聚合已发布 5.335 分子只取 4.431)。
+- **CWD 族两新 witness**:E19 跨查询窗 ×14 求和 63.831ms 对锚窗 101ms 画 63% bar(树行/时长条面);C7 window_stats 来源 rank 行无 actual_* note→无窗口基准标注→窗口1 行静默投影进窗口2 锚定树。→并入 CWD 验收。
+- **C-P1 散文标量零守护(系统性)**:trace exclude-source 场景 0 引用→normalize/quote 守护家族整体旁路,无散文标量-证据面比对门;46.821/48.216(引擎 actual 字段真值但三层裁剪后不可核验)/1.59ms(疑 wakeup_chain 逐节点 running= 字段)/sector 明细/io"两窗各8次"双倍计数/"持有栅栏"(把线程名 Acquire Fence 读成栅栏对象,L4 BODY-vs-evidence 强 witness)。→设计项 PSG(散文标量 grounding)裁定候选+dump 配额扩容(PTV7-SPN F3)分摊。
+- **D-P1 下一步针对性塌陷**:headline binder_wait rank1 undrilled 无 next-step 点名;RCX① drill-debt 用户面半场无交付痕迹。
+- **D-P2/P3**:E1 合并行三数不可调和(actual 取单成员无注/0.166 vs 0.100+0.134 对不上账);E14/E15 同线程同状态 L1 两行违 ×N 合并承诺;"2/4 调查完成"阶段槽位与调查单元语义相撞;对齐窗只披露合计无 per-state 分解;弱模型自动选择报告体零披露(产品裁定候选)。
+- **已立案复现登记**:E4/E5+E11/E13 同段双行(RNB 四证)。
+
+### §22 归批
+**B1-b**(P0,CWD 后最优先):path 任意位匹配选举+终点记录修+折叠强制展开;**PTV7-SPN**:span 名三面入行+审计摘要 span=+dump per-lane 配额+trace_gap 措辞(用户裁定)+C39 漏面+零值卫生;**CWD 验收扩**:E19/C7 两 witness;**NXT**(P1):undrilled headline 的 next-step 点名(drill-debt 用户面半场);**PSG** 裁定候选(散文标量 grounding,非本轮);E1/E14E15 合并行账目→PTV7-SPN 或 P1-H。
