@@ -1,6 +1,9 @@
 package tracequery
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // drill_status.go — RCX① engine side (ledger §12.3 ruling 1, P0-E1): the
 // typed drill-debt verdict for cross-thread blocking counterparts.
@@ -219,20 +222,85 @@ func stampCriticalBlockingDrillStatus(idx *Index, items []CriticalBlockingCandid
 	}
 }
 
-// stampRootCauseRankDrillStatus applies the RCX① verdict to the lock-lane
-// rank rows (Q4-A blocking_span rows): the examined party is the HOLDER —
-// the row subject when resolved (BlockingPeer set), unknown otherwise
-// (timeline-aware, E2a ①).
-func stampRootCauseRankDrillStatus(idx *Index, items []RootCauseRankItem, universe drillSubjectUniverse) {
+// stampRootCauseRankDrillStatus applies the RCX① verdict to every
+// counterpart-lane rank row (timeline-aware, E2a ①):
+//   - blocking_span (Q4-A lock lane): the examined party is the HOLDER — the
+//     row subject when resolved (BlockingPeer set), unknown otherwise;
+//   - binder_wait / io_latency (§20 E-Gap⑥, 2026-07-07 — symmetry with the
+//     critical_blocking face, criticalBlockingDrillCounterpart): the binder
+//     peer / IO completer is the counterpart. Rank rows do not carry those
+//     peers as typed fields, so the stamp re-joins the row to its backing
+//     chain.BinderWaits / stats.IOLatencies record through the EXACT
+//     construction-time values (thread PID + line span) — a deterministic
+//     replay of the producer join, never a fuzzy match; rows without a
+//     backing record keep the empty no-claim verdict.
+func stampRootCauseRankDrillStatus(idx *Index, items []RootCauseRankItem, universe drillSubjectUniverse, chain *ChainResult, stats *WindowStats) {
+	binderPeers := rankBinderWaitCounterparts(chain)
+	ioCompleters := rankIOLatencyCounterparts(stats)
 	for i := range items {
-		if items[i].Type != "blocking_span" || items[i].BlockingKind == "" {
-			continue
+		switch items[i].Type {
+		case "blocking_span":
+			if items[i].BlockingKind == "" {
+				continue
+			}
+			if !threadRefResolved(items[i].BlockingPeer) {
+				// Unresolved holder: the subject stayed the waiter.
+				items[i].DrillStatus = DrillStatusPeerUnknown
+				continue
+			}
+			items[i].DrillStatus = drillStatusForCounterpartWithTimeline(idx, items[i].Thread, universe)
+		case "binder_wait":
+			if peer, ok := binderPeers[rankDrillJoinKey(items[i].Thread, items[i].LineStart, items[i].LineEnd)]; ok {
+				items[i].DrillStatus = drillStatusForCounterpartWithTimeline(idx, peer, universe)
+			}
+		case "io_latency":
+			if peer, ok := ioCompleters[rankDrillJoinKey(items[i].Thread, items[i].LineStart, items[i].LineEnd)]; ok {
+				items[i].DrillStatus = drillStatusForCounterpartWithTimeline(idx, peer, universe)
+			}
 		}
-		if !threadRefResolved(items[i].BlockingPeer) {
-			// Unresolved holder: the subject stayed the waiter.
-			items[i].DrillStatus = DrillStatusPeerUnknown
-			continue
-		}
-		items[i].DrillStatus = drillStatusForCounterpartWithTimeline(idx, items[i].Thread, universe)
 	}
+}
+
+// rankDrillJoinKey is the deterministic construction-time identity of a
+// counterpart-lane rank row: subject PID + the exact line span the producer
+// stamped on the row. Exact keys only — no substring/window heuristics.
+func rankDrillJoinKey(thread ThreadRef, lineStart, lineEnd int) string {
+	return fmt.Sprintf("%d/%d/%d", thread.PID, lineStart, lineEnd)
+}
+
+// rankBinderWaitCounterparts indexes chain.BinderWaits by the SAME key shape
+// the RootEvidence funnel used when it minted the binder_wait rank row
+// (attachIPCGraphToChain: LineStart=firstPositive(SendLine, SleepLine),
+// LineEnd=firstPositive(WakeupLine, ReceiveLine, SleepLine)). First record
+// wins on a key collision — the funnel minted rows in the same order.
+func rankBinderWaitCounterparts(chain *ChainResult) map[string]ThreadRef {
+	if chain == nil || len(chain.BinderWaits) == 0 {
+		return nil
+	}
+	out := map[string]ThreadRef{}
+	for _, wait := range chain.BinderWaits {
+		key := rankDrillJoinKey(wait.Thread, firstPositive(wait.SendLine, wait.SleepLine), firstPositive(wait.WakeupLine, wait.ReceiveLine, wait.SleepLine))
+		if _, exists := out[key]; !exists {
+			out[key] = wait.Peer
+		}
+	}
+	return out
+}
+
+// rankIOLatencyCounterparts indexes stats.IOLatencies by the SAME key shape
+// the rank builder used (LineStart=IssueLine, LineEnd=CompleteLine); the
+// counterpart is the completer (P3-5 — mirror of the critical_blocking face,
+// which publishes io.CompleteThread as the row Peer).
+func rankIOLatencyCounterparts(stats *WindowStats) map[string]ThreadRef {
+	if stats == nil || len(stats.IOLatencies) == 0 {
+		return nil
+	}
+	out := map[string]ThreadRef{}
+	for _, io := range stats.IOLatencies {
+		key := rankDrillJoinKey(io.IssueThread, io.IssueLine, io.CompleteLine)
+		if _, exists := out[key]; !exists {
+			out[key] = io.CompleteThread
+		}
+	}
+	return out
 }

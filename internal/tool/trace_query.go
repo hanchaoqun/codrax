@@ -3722,6 +3722,14 @@ func traceQueryRootCauseEffectiveImpact(item tracequery.RootCauseRankItem) float
 		// republish the raw in-period sleep as effective impact.
 		return item.EffectiveImpactMs
 	}
+	if item.Type == "running" {
+		// §20.2 (2026-07-07) mirror of the engine's rootCauseEffectiveImpactMs:
+		// a causal-lane running row's attribution is its ELIMINABLE supply-fold
+		// deficit, authoritative even at 0 — the cumulative fallback below
+		// must never republish the raw wall clock as effective attribution
+		// (the raw stays on the cumulative/impact display notes).
+		return item.EffectiveImpactMs
+	}
 	if item.EffectiveImpactMs > 0 {
 		return item.EffectiveImpactMs
 	}
@@ -5010,6 +5018,15 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			}
 			notes := traceQueryTypedOccurrenceWindowRichNotes(item.OccurrenceWindows)
 			notes = append(notes, traceQueryTypedPriorityRichNotes(rank, tier, item.Type, item.Source, item.Causality, item.ChainDepth, item.Score, item.ImpactMs, item.CumulativeImpactMs, traceQueryRootCauseEffectiveImpact(item), item.TargetImpactMs, item.ProjectedImpactMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualStartTs, item.ActualEndTs)...)
+			if item.Type == "running" && traceQueryRootCauseEffectiveImpact(item) <= 0 {
+				// §20.2 (2026-07-07): a running row's ZERO attribution is
+				// authoritative (eliminable deficit; raw is display-only) and
+				// must not vanish off the positive-only note filter — an
+				// absent effective note would invite the cumulative fallback
+				// (raw) exactly the way §20.2 forbids. Same explicit-zero
+				// discipline as the VS-1 periodic lane.
+				notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyEffectiveImpactMS, 0.0))
+			}
 			notes = append(notes, traceQueryTypedRootCauseStateRichNotes(item)...)
 			// VS-1 (§7.8): the rank row that carries the discounted effective
 			// impact publishes the same typed periodic notes as its backing
@@ -5031,6 +5048,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// the projection can split the composite impact.
 				{types.TraceNoteKeyGatedRunnable, traceQueryObservationMSValue(item.GatedRunnableMs)},
 				{types.TraceNoteKeyGatedRunningDeficit, traceQueryObservationMSValue(item.GatedRunningDeficitMs)},
+				// §20 E-Gap⑤ (P0-E engine half, 2026-07-07): the gated TOTAL
+				// rides the rank row's own note face under the SAME registered
+				// key the wakeup_causal_impact face already publishes — single
+				// source: the full-precision sum of the two typed components
+				// IS the engine's PriorityInversionGatedMs (their sum by
+				// construction), formatted once (no round3(a)+round3(b)
+				// re-add). Projection-side parsing lands in the P0-A batch.
+				{"priority_inversion_gated", traceQueryObservationMSValue(item.GatedRunnableMs + item.GatedRunningDeficitMs)},
 				// Q4-A 修1 (§12.3-5): lock-lane rank rows publish the typed
 				// contention semantics under the SAME registered blocking-family
 				// keys the critical_blocking face uses (zero new hard-consumer
@@ -5685,7 +5710,15 @@ func traceQueryCausalImpactEffectiveNoteValue(impact tracequery.WakeupCausalImpa
 	if impact.PeriodicSource {
 		return ""
 	}
-	return traceQueryObservationMSValue(tracequery.WakeupCausalImpactEffectiveImpactMs(impact))
+	value := tracequery.WakeupCausalImpactEffectiveImpactMs(impact)
+	if value <= 0 && impact.DominantState == string(tracequery.StateRunning) {
+		// §20.2 (2026-07-07): running rows' zero attribution prints
+		// explicitly (VS-1 explicit-zero discipline) — the eliminable
+		// deficit being 0 IS the load-bearing fact; dropping the note would
+		// leave the raw wall clock looking like the attribution.
+		return "0.000"
+	}
+	return traceQueryObservationMSValue(value)
 }
 
 func traceQueryTypedPeriodicSourceRichNotes(periodic bool, periodMs, latenessMs, effectiveMs float64, includeEffective bool) []string {
@@ -5822,6 +5855,9 @@ func traceQueryCausalImpactRecursive(state string) bool {
 }
 
 func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAggregate) []string {
+	// F2 (§20.2 absorption): the single typed rank-face determination —
+	// see the gating comment at the candidate note below.
+	inversionTyped := tracequery.WakeupCausalAggregateInversionTyped(aggregate)
 	notes := traceQueryTypedOccurrenceWindowRichNotes(aggregate.OccurrenceWindows)
 	notes = append(notes, traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyDepth, traceQueryTypedCount(aggregate.ChainDepth)},
@@ -5850,8 +5886,32 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 		{types.TraceNoteKeyActualDState, traceQueryObservationMSValue(aggregate.ActualDStateMs)},
 		{types.TraceNoteKeyActualIOWait, traceQueryObservationMSValue(aggregate.ActualIOWaitMs)},
 		{"priority_relation", aggregate.PriorityRelation},
-		{types.TraceNoteKeyPriorityInversionCandidate, traceQueryTypedBool(aggregate.PriorityInversion)},
+		// F2 (§20.2 absorption, 2026-07-07): the candidate note AND the gated
+		// notes below gate on the SAME typed determination the rank face uses
+		// (WakeupCausalAggregateInversionTyped — F1's priority-sensitive
+		// typing), never on the raw invCount>0 flag: a sleep/D/IO-dominant
+		// aggregate with one inversion member must not light the inversion
+		// label + gated composition prose while its bar shows the raw
+		// dominant value (the contradiction row).
+		{types.TraceNoteKeyPriorityInversionCandidate, traceQueryTypedBool(inversionTyped)},
 	})...)
+	if inversionTyped {
+		notes = append(notes, traceQueryTypedKVNotes([][2]string{
+			// §20 E-Gap② (2026-07-07): the aggregate face publishes its R5d
+			// gated caliber under the SAME registered keys as the
+			// per-occurrence face — components + total (total == components
+			// sum by construction, F4; cross-occurrence value = sum over
+			// disjoint occurrence windows, honest MAX fallback on overlap;
+			// applyAggregateGatedInversion holds the argument).
+			{types.TraceNoteKeyGatedRunnable, traceQueryObservationMSValue(aggregate.GatedRunnableMs)},
+			{types.TraceNoteKeyGatedRunningDeficit, traceQueryObservationMSValue(aggregate.GatedRunningDeficitMs)},
+			{"priority_inversion_gated", traceQueryObservationMSValue(aggregate.PriorityInversionGatedMs)},
+			// F3 (§20.2 absorption): the aggregation caliber is disclosed as
+			// a typed note so P0-A can parse WHICH ruler produced the gated
+			// total (sum_disjoint_occurrences / max_overlap_fallback).
+			{"gated_aggregation_caliber", aggregate.GatedAggregationCaliber},
+		})...)
+	}
 	// VS-1 (§7.8): periodic-source cadence + discounted attribution, typed.
 	notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(aggregate.PeriodicSource, aggregate.DetectedPeriodMs, aggregate.LatenessMs, aggregate.EffectivePeriodicImpactMs, true)...)
 	// VS-2 (§7.10): folded-member supply-fold sums.

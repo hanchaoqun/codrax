@@ -2548,41 +2548,71 @@ type WakeupCausalOccurrence struct {
 	Summary           string     `json:"summary,omitempty"`
 }
 
+// GatedCaliber* enumerate WakeupCausalAggregate.GatedAggregationCaliber
+// (P0-E §20 E-Gap②): whether the aggregate's gated inversion value is the
+// SUM of its members (member occurrence windows pairwise disjoint — wall
+// additive for one thread) or the honest MAX fallback (windows overlap, a sum
+// could double-count the shared physical segment).
+const (
+	GatedCaliberSumDisjointOccurrences = "sum_disjoint_occurrences"
+	GatedCaliberMaxOverlapFallback     = "max_overlap_fallback"
+)
+
 type WakeupCausalAggregate struct {
-	Thread            ThreadRef                `json:"thread"`
-	Path              string                   `json:"path,omitempty"`
-	ChainDepth        int                      `json:"chain_depth,omitempty"`
-	OccurrenceCount   int                      `json:"occurrence_count,omitempty"`
-	DominantState     string                   `json:"dominant_state,omitempty"`
-	DominantImpactMs  float64                  `json:"dominant_impact_ms,omitempty"`
-	ProjectedImpactMs float64                  `json:"projected_impact_ms,omitempty"`
-	TotalMs           float64                  `json:"total_ms,omitempty"`
-	ProjectedTotalMs  float64                  `json:"projected_total_ms,omitempty"`
-	ActualImpactMs    float64                  `json:"actual_impact_ms,omitempty"`
-	ActualTotalMs     float64                  `json:"actual_total_ms,omitempty"`
-	RunningMs         float64                  `json:"running_ms,omitempty"`
-	RunnableMs        float64                  `json:"runnable_ms,omitempty"`
-	SleepMs           float64                  `json:"sleep_ms,omitempty"`
-	DStateMs          float64                  `json:"d_state_ms,omitempty"`
-	IOWaitMs          float64                  `json:"io_wait_ms,omitempty"`
-	ActualRunningMs   float64                  `json:"actual_running_ms,omitempty"`
-	ActualRunnableMs  float64                  `json:"actual_runnable_ms,omitempty"`
-	ActualSleepMs     float64                  `json:"actual_sleep_ms,omitempty"`
-	ActualDStateMs    float64                  `json:"actual_d_state_ms,omitempty"`
-	ActualIOWaitMs    float64                  `json:"actual_io_wait_ms,omitempty"`
-	TargetBlockedMs   float64                  `json:"target_blocked_ms,omitempty"`
-	FragmentCount     int                      `json:"fragment_count,omitempty"`
-	StateSwitches     int                      `json:"state_switches,omitempty"`
-	MaxSegmentMs      float64                  `json:"max_segment_ms,omitempty"`
-	FirstTs           float64                  `json:"first_ts,omitempty"`
-	LastTs            float64                  `json:"last_ts,omitempty"`
-	ActualFirstTs     float64                  `json:"actual_first_ts,omitempty"`
-	ActualLastTs      float64                  `json:"actual_last_ts,omitempty"`
-	LineStart         int                      `json:"line_start,omitempty"`
-	LineEnd           int                      `json:"line_end,omitempty"`
-	PriorityRelation  string                   `json:"priority_relation,omitempty"`
-	PriorityInversion bool                     `json:"priority_inversion_candidate,omitempty"`
-	OccurrenceWindows []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
+	Thread            ThreadRef `json:"thread"`
+	Path              string    `json:"path,omitempty"`
+	ChainDepth        int       `json:"chain_depth,omitempty"`
+	OccurrenceCount   int       `json:"occurrence_count,omitempty"`
+	DominantState     string    `json:"dominant_state,omitempty"`
+	DominantImpactMs  float64   `json:"dominant_impact_ms,omitempty"`
+	ProjectedImpactMs float64   `json:"projected_impact_ms,omitempty"`
+	TotalMs           float64   `json:"total_ms,omitempty"`
+	ProjectedTotalMs  float64   `json:"projected_total_ms,omitempty"`
+	ActualImpactMs    float64   `json:"actual_impact_ms,omitempty"`
+	ActualTotalMs     float64   `json:"actual_total_ms,omitempty"`
+	RunningMs         float64   `json:"running_ms,omitempty"`
+	RunnableMs        float64   `json:"runnable_ms,omitempty"`
+	SleepMs           float64   `json:"sleep_ms,omitempty"`
+	DStateMs          float64   `json:"d_state_ms,omitempty"`
+	IOWaitMs          float64   `json:"io_wait_ms,omitempty"`
+	ActualRunningMs   float64   `json:"actual_running_ms,omitempty"`
+	ActualRunnableMs  float64   `json:"actual_runnable_ms,omitempty"`
+	ActualSleepMs     float64   `json:"actual_sleep_ms,omitempty"`
+	ActualDStateMs    float64   `json:"actual_d_state_ms,omitempty"`
+	ActualIOWaitMs    float64   `json:"actual_io_wait_ms,omitempty"`
+	TargetBlockedMs   float64   `json:"target_blocked_ms,omitempty"`
+	FragmentCount     int       `json:"fragment_count,omitempty"`
+	StateSwitches     int       `json:"state_switches,omitempty"`
+	MaxSegmentMs      float64   `json:"max_segment_ms,omitempty"`
+	FirstTs           float64   `json:"first_ts,omitempty"`
+	LastTs            float64   `json:"last_ts,omitempty"`
+	ActualFirstTs     float64   `json:"actual_first_ts,omitempty"`
+	ActualLastTs      float64   `json:"actual_last_ts,omitempty"`
+	LineStart         int       `json:"line_start,omitempty"`
+	LineEnd           int       `json:"line_end,omitempty"`
+	PriorityRelation  string    `json:"priority_relation,omitempty"`
+	PriorityInversion bool      `json:"priority_inversion_candidate,omitempty"`
+	// PriorityInversionGatedMs / GatedRunnableMs / GatedRunningDeficitMs
+	// (P0-E §20 E-Gap②, 2026-07-07): the R5d gated caliber on the AGGREGATE
+	// face — R5d formerly landed only on the per-occurrence lane, so
+	// inversion-typed aggregate rank rows competed with their RAW blocking
+	// magnitude. Aggregation legality (per-thread wall clock): the gated
+	// components are wall-clock subsets of each member occurrence's own
+	// window (runnable intervals in full + the weak-core deficit share of
+	// running intervals), so when the member windows are PAIRWISE
+	// NON-OVERLAPPING the underlying intervals are disjoint and the SUM is a
+	// genuine wall figure for that one thread (same disjointness argument as
+	// the N2 distinct-fact ruling and the cpu_occupancy per-thread merge).
+	// Overlapping member windows (branch windows can share one physical
+	// segment — the PTV6 envelope-overlap veto shape) may double-count the
+	// same interval, so the value honestly degrades to the member MAX (a
+	// lower bound). GatedAggregationCaliber says which caliber was used
+	// (GatedCaliber* constants); empty when no member carried a gated value.
+	PriorityInversionGatedMs float64                  `json:"priority_inversion_gated_ms,omitempty"`
+	GatedRunnableMs          float64                  `json:"gated_runnable_ms,omitempty"`
+	GatedRunningDeficitMs    float64                  `json:"gated_running_deficit_ms,omitempty"`
+	GatedAggregationCaliber  string                   `json:"gated_aggregation_caliber,omitempty"`
+	OccurrenceWindows        []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
 	// VS-1 (§7.8): periodic-signal-source accounting, aggregate face — see the
 	// WakeupCausalImpact field docs. LatenessMs here is the SUM of the member
 	// occurrences' blocked-caliber lateness amounts, capped at raw blocking −

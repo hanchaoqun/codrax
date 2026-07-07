@@ -542,6 +542,14 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyGatedRunnable, "gating", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyGatedRunningDeficit, "gating", TraceNoteCarrierHardConsumer},
 	{"priority_inversion_gated", "gating", TraceNoteCarrierDisplayOnly},
+	// gated_aggregation_caliber (P0-E §20 E-Gap② / F3 absorption, 2026-07-07):
+	// WHICH ruler produced an inversion-typed aggregate's gated total —
+	// sum_disjoint_occurrences (member windows pairwise disjoint, wall
+	// additive) or max_overlap_fallback (honest lower bound). Emitted on
+	// wakeup_causal_aggregate observations only when the row is
+	// inversion-TYPED (F2 gate). Display tier today; P0-A parse promotes it
+	// exactly like the priority_inversion_candidate precedent.
+	{"gated_aggregation_caliber", "gating", TraceNoteCarrierDisplayOnly},
 	// PTV5 Q4 (#68 用户裁定 2026-07-05): promoted display_only → hard_consumer
 	// (typed node field read-in).
 	{TraceNoteKeyPriorityInversionCandidate, "gating", TraceNoteCarrierHardConsumer},

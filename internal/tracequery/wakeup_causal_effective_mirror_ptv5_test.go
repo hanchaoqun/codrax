@@ -68,6 +68,45 @@ func TestWakeupCausalImpactEffectiveMirrorsRankLane(t *testing.T) {
 			v.EffectivePeriodicImpactMs = 0
 			return v
 		}(),
+		// EVOLUTION RECORD (§20.2 user ruling 2026-07-07, overturns the
+		// §20.1甲 raw side clause — not a regression): a non-inversion
+		// RUNNING row's effective is its ELIMINABLE supply-fold deficit,
+		// authoritative at 0 — never the raw DominantImpactMs (this shape's
+		// pre-§20.2 expectation) and never the sleep-inclusive TotalMs
+		// backfill. plain_running has no fold (deficit 0 = full workload,
+		// attribution ~0); plain_running_deficit carries a computed fold.
+		"plain_running": func() WakeupCausalImpact {
+			v := base
+			v.DominantState = string(StateRunning)
+			v.DominantImpactMs = 3
+			v.RunningMs, v.SleepMs = 3, 3
+			v.TotalMs = 7
+			return v
+		}(),
+		"plain_running_deficit": func() WakeupCausalImpact {
+			v := base
+			v.DominantState = string(StateRunning)
+			v.DominantImpactMs = 3
+			v.RunningMs, v.SleepMs = 3, 3
+			v.TotalMs = 7
+			v.SupplyFoldDeficitMs = 1.2
+			v.SupplyFoldIdealMs = 1.8
+			v.SupplyFoldBasis = &SupplyFoldBasis{KnownMs: 3}
+			return v
+		}(),
+		// A running-dominant inversion candidate still takes the gated branch
+		// ahead of the running branch (branch-order pin).
+		"running_inversion_gated": func() WakeupCausalImpact {
+			v := base
+			v.DominantState = string(StateRunning)
+			v.DominantImpactMs = 4
+			v.RunningMs, v.SleepMs = 4, 2
+			v.TotalMs = 7
+			v.PriorityInversionCandidate = true
+			v.PriorityInversionGatedMs = 2.5
+			v.GatedRunnableMs, v.GatedRunningDeficitMs = 1, 1.5
+			return v
+		}(),
 	}
 	for name, impact := range shapes {
 		want := rootCauseEffectiveImpactMs(rootCauseItemFromCausalImpact(impact))

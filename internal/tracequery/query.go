@@ -7919,6 +7919,7 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 		a.item.ActualImpactMs = actualAggregateBlockingMs(a.item)
 		a.item.PriorityRelation = mostFrequentString(a.prioVotes)
 		a.item.PriorityInversion = a.invCount > 0
+		applyAggregateGatedInversion(chain, &a.item, a.members)
 		detectPeriodicWakeupSource(chain, &a.item, a.members)
 		a.item.OccurrenceWindows = trimWakeupCausalOccurrences(a.item.OccurrenceWindows, wakeupCausalAggregateOccurrenceCap)
 		a.item.Summary = renderWakeupCausalAggregateSummary(a.item)
@@ -7953,6 +7954,90 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 		out = out[:8]
 	}
 	return out
+}
+
+// applyAggregateGatedInversion (P0-E §20 E-Gap②, 2026-07-07) fills the R5d
+// gated caliber on the aggregate face from its member occurrences, matching
+// the per-occurrence lane's caliber (rootCauseItemFromCausalImpact ranks
+// inversion candidates by PriorityInversionGatedMs — the aggregate lane used
+// to compete with its RAW blocking magnitude, E-Gap②).
+//
+// Additivity argument (墙钟不可加和 red line respected): each member's gated
+// components are wall-clock SUBSETS of that member's own occurrence window
+// (runnable intervals in full + weak-core deficit shares of running
+// intervals), all on ONE thread. When the gated members' windows are pairwise
+// non-overlapping, the underlying intervals are disjoint, so summing them is
+// per-thread wall-additive (same disjointness that legitimizes the
+// cpu_occupancy per-thread cross-CPU merge and the N2 distinct-fact union
+// ruling). Any overlap — branch windows can project the same physical segment
+// twice (the PTV6 envelope-overlap veto shape) — makes the sum a potential
+// double count, so the value honestly degrades to the strongest member (MAX,
+// a lower bound) and the typed caliber field discloses the degradation. A
+// gated member without a valid window cannot prove disjointness and also
+// degrades to MAX.
+func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregate, members []int) {
+	type gatedMember struct {
+		window   TimeWindow
+		total    float64
+		runnable float64
+		deficit  float64
+	}
+	var gated []gatedMember
+	for _, idx := range members {
+		if idx < 0 || idx >= len(chain.CausalImpacts) {
+			continue
+		}
+		impact := chain.CausalImpacts[idx]
+		if impact.PriorityInversionGatedMs <= 0 {
+			continue
+		}
+		gated = append(gated, gatedMember{
+			window:   impact.Window,
+			total:    impact.PriorityInversionGatedMs,
+			runnable: impact.GatedRunnableMs,
+			deficit:  impact.GatedRunningDeficitMs,
+		})
+	}
+	if len(gated) == 0 {
+		return
+	}
+	disjoint := true
+	for i := 0; i < len(gated) && disjoint; i++ {
+		if gated[i].window.EndTs <= gated[i].window.StartTs {
+			disjoint = false
+			break
+		}
+		for j := i + 1; j < len(gated); j++ {
+			if windowOverlapMs(gated[i].window.StartTs, gated[i].window.EndTs, gated[j].window.StartTs, gated[j].window.EndTs) > 0 {
+				disjoint = false
+				break
+			}
+		}
+	}
+	if disjoint {
+		for _, member := range gated {
+			item.GatedRunnableMs += member.runnable
+			item.GatedRunningDeficitMs += member.deficit
+		}
+		// F4 (§20.2 absorption, RCX² F2 same family): the total is derived
+		// from the summed components — never a parallel Σ of member totals,
+		// whose floating-point grouping could drift a last-ulp away from
+		// components-sum and split the single-source identity
+		// (total == runnable + deficit) every downstream face relies on.
+		item.PriorityInversionGatedMs = item.GatedRunnableMs + item.GatedRunningDeficitMs
+		item.GatedAggregationCaliber = GatedCaliberSumDisjointOccurrences
+		return
+	}
+	strongest := gated[0]
+	for _, member := range gated[1:] {
+		if member.total > strongest.total {
+			strongest = member
+		}
+	}
+	item.PriorityInversionGatedMs = strongest.total
+	item.GatedRunnableMs = strongest.runnable
+	item.GatedRunningDeficitMs = strongest.deficit
+	item.GatedAggregationCaliber = GatedCaliberMaxOverlapFallback
 }
 
 // foldWakeupCausalAggregateOverflow synthesizes the PTS-2 bounded fold member
@@ -8535,7 +8620,18 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	chainThreads := wakeupChainThreadSet(chain)
 	hasCausalChain := len(chainThreads) > 1
 	for _, impact := range chain.CausalImpacts {
-		if impact.ChainDepth <= 0 || impact.TotalMs <= 0 {
+		if impact.TotalMs <= 0 {
+			continue
+		}
+		if impact.ChainDepth <= 0 && impact.DominantState != string(StateRunning) {
+			// Depth-0 (target-own) impacts stay out of the rank pool — their
+			// wait states are the SYMPTOM being explained, and their
+			// RootEvidence lanes below keep publishing as before. EXCEPT the
+			// target's own RUNNING work (§20 A-fix(3), 2026-07-07): that row
+			// used to be rank-carried ONLY by the impoverished RootEvidence
+			// running twin (no fold/window/state typed fields); the twin no
+			// longer mints rank rows (§20.1 ruling ①), so the CausalImpacts
+			// lane now mints the depth-0 running row with the full typed set.
 			continue
 		}
 		if isIntermediateSleepImpact(chain, impact) {
@@ -8553,6 +8649,25 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		items = append(items, rootCauseItemFromCausalAggregate(aggregate))
 	}
 	for _, root := range chain.RootEvidence {
+		// §20 headline + §20.1 ruling ① (2026-07-07, RKC): the RootEvidence
+		// RUNNING twin (expandChain case StateRunning) no longer mints a rank
+		// row — the SAME WakeupCausalImpact already publishes its rank row via
+		// the CausalImpacts lane above, and the twin's raw DominantImpactMs
+		// used to outrank the segment's own gated inversion row in the same
+		// pool (q6: raw 58.919 over gated 37.410, a co-primary double mint
+		// that bypassed all three fold generations). One segment, one rank
+		// row; the CausalImpacts row is the single rank carrier. RootEvidence
+		// itself is untouched — it stays a wakeup_chain view evidence row.
+		// Precise typed-token gate: only the running lane is affected; every
+		// other RootEvidence type (missing_wakeup / binder_wait / trace_gap /
+		// runnable / D-state / unknown lanes) keeps minting unchanged.
+		// §15.B revocation note (§20.1): the formerly-planned separate
+		// "runnable independent effective-attribution row" is WITHDRAWN — the
+		// merged row's gated composition already counts the runnable share in
+		// full; re-publishing it would recreate the double count.
+		if root.Type == "running" {
+			continue
+		}
 		items = append(items, rootCauseItem(root.Type, root.Thread, root.DurationMs, root.Confidence, root.LineStart, root.LineEnd, "wakeup_chain", root.Summary))
 	}
 	for _, pressure := range stats.CPUPressure {
@@ -8779,7 +8894,10 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		// make root_cause_rank disagree with the drilldown plan.
 		item := rootCauseItem(stateChurnRootCauseType(churn.DominantState), churn.Thread, backgroundImpactMs(q, churn.DominantImpactMs, hasCausalChain, onChain), churn.Confidence, churn.LineStart, churn.LineEnd, "window_stats.state_churn", churn.Summary)
 		item.EffectiveImpactMs = backgroundImpactMs(q, stateChurnRankImpactMs(churn), hasCausalChain, onChain)
-		item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseTypeWeight(item.Type)
+		// F6 (§20.2 absorption): item-aware weight helper — behavior-identical
+		// here (churn tokens are never blocking_span), kept for single-source
+		// consistency with every other Score recompute.
+		item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(item)
 		item.CumulativeImpactMs = churn.TotalMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.DominantState = churn.DominantState
@@ -8864,9 +8982,10 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		}
 	}
 	demoteLockDominatedInversionCandidates(chain, stats, items)
-	// RCX① (§12.3 ruling 1): lock-lane rank rows carry the typed drill-debt
-	// verdict for their holder.
-	stampRootCauseRankDrillStatus(idx, items, buildDrillSubjectUniverse(&chain, &stats))
+	// RCX① (§12.3 ruling 1) + §20 E-Gap⑥: counterpart-lane rank rows
+	// (blocking_span holders, binder_wait peers, io_latency completers) carry
+	// the typed drill-debt verdict.
+	stampRootCauseRankDrillStatus(idx, items, buildDrillSubjectUniverse(&chain, &stats), &chain, &stats)
 	items = enrichRootCauseItemsWithChainContext(chain, items)
 	attributeOnChainResourceItemsToWakeupDependency(chain, items)
 	normalizeRootCauseChainRelevance(items, hasCausalChain)
@@ -9584,6 +9703,16 @@ func rootCauseEffectiveImpactMs(item RootCauseRankItem) float64 {
 		// VS-1 (§7.8): the discounted value is authoritative even at 0.
 		return item.EffectiveImpactMs
 	}
+	if item.Type == "running" {
+		// §20.2 (2026-07-07): a causal-lane running row's attribution is its
+		// ELIMINABLE supply-fold deficit, authoritative even at 0 (满频
+		// running is real work, not attribution; un-folded raw never drives
+		// ranking) — the cumulative fallback below must not resurrect the
+		// raw. Precise typed token: "running" is minted ONLY by the
+		// wakeup_chain causal impact/aggregate lanes (state-churn running
+		// rides fragmented_running and sets its own effective).
+		return item.EffectiveImpactMs
+	}
 	if item.EffectiveImpactMs > 0 {
 		return item.EffectiveImpactMs
 	}
@@ -9698,6 +9827,9 @@ func rootCauseThreadDurationCovered(exact map[string][]ThreadDuration, candidate
 // backfill). Branches:
 //   - periodic → the VS-1 discounted attribution (authoritative at 0);
 //   - inversion candidate with gated>0 → the R5d gated composite;
+//   - running-dominant (non-inversion) → the ELIMINABLE supply-fold deficit
+//     (SupplyFoldDeficitMs; §20.2 user ruling 2026-07-07, authoritative at 0
+//     — 能算作影响的永远是折算后能消除的那部分);
 //   - otherwise → TotalMs, then the per-state total, then the row's own
 //     blocking impact (gated for inversion rows) — the rootCause cumulative
 //     backfill chain verbatim.
@@ -9709,6 +9841,24 @@ func WakeupCausalImpactEffectiveImpactMs(impact WakeupCausalImpact) float64 {
 	}
 	if impact.PriorityInversionCandidate && impact.PriorityInversionGatedMs > 0 {
 		return impact.PriorityInversionGatedMs
+	}
+	if impact.DominantState == string(StateRunning) {
+		// §20.2 (user ruling 2026-07-07, OVERTURNS the §20.1甲 raw-participates
+		// side clause — EVOLUTION, not regression): a NON-inversion running
+		// segment's ATTRIBUTION is its ELIMINABLE supply-fold deficit — never
+		// the raw wall clock, never the folded ideal. deficit==0 with a
+		// computed fold IS the §7.10 fourth branch stated correctly:
+		// full-frequency/full-core running is real workload → attribution ≈ 0
+		// → chain context, not a root cause. Frequency data missing (fold
+		// gate unmet → nil basis, or an unknown-frequency basis) folds the
+		// deficit to 0 the same conservative way (§7.10 不伪造) — the row
+		// keeps its raw DISPLAY facts (cumulative / state split / projection
+		// bar) but un-folded raw must never drive ranking (precise signals
+		// for hard gates; noisy raw stays soft display). Authoritative
+		// INCLUDING at 0 — the TotalMs backfill below must not resurrect it.
+		// (Inversion running segments already returned above: their running
+		// share is GatedRunningDeficitMs by construction — same principle.)
+		return impact.SupplyFoldDeficitMs
 	}
 	if impact.TotalMs > 0 {
 		return impact.TotalMs
@@ -9744,11 +9894,33 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 		// renderer can split it instead of claiming a single state.
 		item.GatedRunnableMs = impact.GatedRunnableMs
 		item.GatedRunningDeficitMs = impact.GatedRunningDeficitMs
+	} else if impact.DominantState == string(StateRunning) {
+		// §20.2 (2026-07-07, overturns §20.1甲 side clause — EVOLUTION): the
+		// merged non-inversion RUNNING row's ATTRIBUTION channels (effective /
+		// sort / Score) carry its ELIMINABLE supply-fold deficit — 0 when the
+		// fold found none or frequency data was missing (§7.10 不伪造), and
+		// authoritative at 0 (rootCauseEffectiveImpactMs type=="running"
+		// branch). Raw stays on the DISPLAY channels only: ImpactMs /
+		// ProjectedImpactMs (projection bar) keep causalImpactBlockingMs and
+		// CumulativeImpactMs keeps TotalMs below. Mirror of
+		// WakeupCausalImpactEffectiveImpactMs — pinned two-lane-equal by
+		// TestWakeupCausalImpactEffectiveMirrorsRankLane. (PeriodicSource is
+		// only ever stamped on sleep-dominant rows, structurally exclusive.)
+		item.EffectiveImpactMs = impact.SupplyFoldDeficitMs
 	}
 	item.Causality = "on_wakeup_chain"
 	item.ChainRelevance = "on_chain"
 	item.ChainDepth = impact.ChainDepth
 	item.CumulativeImpactMs = impact.TotalMs
+	if impact.PriorityInversionCandidate && impact.DominantState == string(StateRunning) {
+		// §20.1 ruling ①甲 (raw 墙钟保留): the merged running-dominant
+		// inversion row keeps the dead twin's raw caliber visible — the raw
+		// RUNNING wall clock rides the cumulative face (q6: gated 37.410
+		// ranks, raw 58.919 stays cumulative) while the state fields keep the
+		// full split. TotalMs (which includes the segment's own sleep) never
+		// was the twin's caliber and would misstate the raw ruler here.
+		item.CumulativeImpactMs = impact.DominantImpactMs
+	}
 	item.TargetImpactMs = impact.TargetBlockedMs
 	item.StartTs = impact.Window.StartTs
 	item.EndTs = impact.Window.EndTs
@@ -9763,7 +9935,12 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 	item.ProjectedImpactMs = firstPositiveFloat(impact.ProjectedImpactMs, impactMs)
 	item.ActualImpactMs = impact.ActualImpactMs
 	item.ActualTotalMs = impact.ActualTotalMs
-	item.Score = impactMs * conf * 2.0
+	item.Score = impactMs * conf * rootCauseScoreWeightChainImpact
+	if !impact.PriorityInversionCandidate && impact.DominantState == string(StateRunning) {
+		// §20.2: the Score channel is an attribution channel — deficit-based,
+		// same as effective/sort; the raw impactMs above stays display-only.
+		item.Score = impact.SupplyFoldDeficitMs * conf * rootCauseScoreWeightChainImpact
+	}
 	if impact.PeriodicSource {
 		// VS-1 (§7.8): a periodic source's sleep-dominant occurrence ranks and
 		// scores by its DISCOUNTED attribution (runnable in full + lateness) —
@@ -9775,11 +9952,13 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 		item.DetectedPeriodMs = impact.DetectedPeriodMs
 		item.LatenessMs = impact.LatenessMs
 		item.EffectiveImpactMs = impact.EffectivePeriodicImpactMs
-		item.Score = impact.EffectivePeriodicImpactMs * conf * 2.0
+		item.Score = impact.EffectivePeriodicImpactMs * conf * rootCauseScoreWeightChainImpact
 	}
-	// VS-2 (§7.10): the fold accounting travels with the rank row for the
-	// display decision table; Score/rank above deliberately ignore it
-	// (deficit 不参赛).
+	// VS-2 (§7.10) fold accounting travels with the rank row for the display
+	// decision table. §20.2 EVOLUTION (2026-07-07): for non-inversion RUNNING
+	// rows the deficit now IS the attribution (effective/sort/Score above) —
+	// the former "deficit 不参赛" clause is overturned for that lane; ideal
+	// remains display-only everywhere (ideal 零 impact 化).
 	if impact.SupplyFoldBasis != nil {
 		basis := *impact.SupplyFoldBasis
 		item.SupplyFoldDeficitMs = impact.SupplyFoldDeficitMs
@@ -9791,7 +9970,7 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 
 func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCauseRankItem {
 	typ := aggregateRootCauseType(aggregate)
-	if aggregate.PriorityInversion && aggregateRootCauseIsPrioritySensitive(aggregate) {
+	if WakeupCausalAggregateInversionTyped(aggregate) {
 		typ = "priority_inversion_candidate"
 	}
 	conf := 0.82
@@ -9799,7 +9978,35 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 		conf = 0.88
 	}
 	impactMs := aggregateBlockingMs(aggregate)
+	if typ == "priority_inversion_candidate" && aggregate.PriorityInversionGatedMs > 0 {
+		// R5d aggregate half (§20 E-Gap②, 2026-07-07): an inversion-typed
+		// aggregate row publishes and ranks with its gated caliber — the same
+		// R5d rule the per-occurrence lane has carried since §7.30.1; the raw
+		// blocking magnitude stays on the cumulative/state faces. The gated
+		// value's cross-occurrence additivity/fallback is decided at
+		// aggregation time (applyAggregateGatedInversion — sum only over
+		// disjoint occurrence windows, honest MAX otherwise).
+		impactMs = aggregate.PriorityInversionGatedMs
+	}
 	item := rootCauseItem(typ, aggregate.Thread, impactMs, conf, aggregate.LineStart, aggregate.LineEnd, "wakeup_chain.aggregated_impacts", aggregate.Summary)
+	if typ == "priority_inversion_candidate" && aggregate.PriorityInversionGatedMs > 0 {
+		item.EffectiveImpactMs = aggregate.PriorityInversionGatedMs
+		// §7.30.3 D3 mirror: composition travels with the row.
+		item.GatedRunnableMs = aggregate.GatedRunnableMs
+		item.GatedRunningDeficitMs = aggregate.GatedRunningDeficitMs
+	} else if !aggregate.PriorityInversion && aggregate.DominantState == string(StateRunning) {
+		// §20.2 mirror (2026-07-07, overturns §20.1甲 side clause): a
+		// non-inversion running-dominant aggregate's attribution channels
+		// carry the ELIMINABLE member-deficit value (VS-2 fold sum over the
+		// folded members; 0 when no member folded or frequency data was
+		// missing — authoritative at 0 via the type=="running" branch in
+		// rootCauseEffectiveImpactMs). Raw ΣRunning stays display-only
+		// (ImpactMs/ProjectedImpactMs bar + TotalMs cumulative below). The
+		// !PriorityInversion guard (F1) keeps any inversion-flagged aggregate
+		// out of this lane even if its typing ever drifts — an inversion
+		// segment's attribution is the gated caliber, never a plain fold.
+		item.EffectiveImpactMs = aggregate.SupplyFoldDeficitMs
+	}
 	item.Causality = "on_wakeup_chain"
 	item.ChainRelevance = "on_chain"
 	item.ChainDepth = aggregate.ChainDepth
@@ -9819,7 +10026,12 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 	item.ActualImpactMs = aggregate.ActualImpactMs
 	item.ActualTotalMs = aggregate.ActualTotalMs
 	item.OccurrenceWindows = append([]WakeupCausalOccurrence(nil), aggregate.OccurrenceWindows...)
-	item.Score = impactMs * conf * 2.05
+	item.Score = impactMs * conf * rootCauseScoreWeightChainAggregate
+	if !aggregate.PriorityInversion && aggregate.DominantState == string(StateRunning) {
+		// §20.2: Score is an attribution channel — deficit-based like
+		// effective/sort; raw impactMs above stays display-only.
+		item.Score = aggregate.SupplyFoldDeficitMs * conf * rootCauseScoreWeightChainAggregate
+	}
 	if aggregate.PeriodicSource {
 		// VS-1 (§7.8): same discounted ranking as the per-occurrence face —
 		// see rootCauseItemFromCausalImpact. Raw impact/cumulative unchanged.
@@ -9827,7 +10039,7 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 		item.DetectedPeriodMs = aggregate.DetectedPeriodMs
 		item.LatenessMs = aggregate.LatenessMs
 		item.EffectiveImpactMs = aggregate.EffectivePeriodicImpactMs
-		item.Score = aggregate.EffectivePeriodicImpactMs * conf * 2.05
+		item.Score = aggregate.EffectivePeriodicImpactMs * conf * rootCauseScoreWeightChainAggregate
 	}
 	// VS-2 (§7.10): same mirror as rootCauseItemFromCausalImpact — display
 	// decision-table input only, never a rank/score participant.
@@ -9901,6 +10113,13 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 		// and this stays false.
 		item.SubjectIsLockHolder = true
 	}
+	// §20.1 ruling ② (2026-07-07): re-derive Score AFTER the typed contention
+	// fields are set — a RESOLVED lock row weighs 1.35 with the
+	// priority_inversion family (decisive-evidence class) instead of the 0.8
+	// type-table default rootCauseItem used at construction, so a measured
+	// lock hold no longer scores below a generic trace_span (0.9) in the
+	// Score-only (non-chain-aware) sort tiers. Unresolved rows keep 0.8.
+	item.Score = item.ImpactMs * item.Confidence * rootCauseItemScoreWeight(item)
 	return item
 }
 
@@ -10019,7 +10238,9 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 		item.ChainRelevance = "on_chain"
 	}
 	applySemanticTraceSpanState(&item, projection.DominantState, projection.ImpactMs)
-	item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseTypeWeight(item.Type)
+	// F6 (§20.2 absorption): item-aware weight helper — behavior-identical
+	// here (semantic work tokens are never blocking_span).
+	item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(item)
 	return item, true
 }
 
@@ -10215,11 +10436,30 @@ func actualAggregateBlockingMs(item WakeupCausalAggregate) float64 {
 
 func aggregateRootCauseIsPrioritySensitive(item WakeupCausalAggregate) bool {
 	switch item.DominantState {
-	case string(StateRunnable), string(StateDSleep), string(StateIOWait):
+	// F1 (§20.2 absorption, 2026-07-07): StateRunning joined the sensitive
+	// set to align with the per-occurrence candidate gate
+	// (summarizeWakeupCausalImpact admits runnable- OR running-dominant
+	// segments as inversion candidates) — a running-dominant inversion
+	// aggregate must type as priority_inversion_candidate and rank by its
+	// gated caliber, never by raw ΣRunning (the pre-F1 raw punch-through).
+	case string(StateRunnable), string(StateRunning), string(StateDSleep), string(StateIOWait):
 		return aggregateBlockingMs(item) > 0
 	default:
 		return false
 	}
+}
+
+// WakeupCausalAggregateInversionTyped (F1/F2, §20.2 absorption 2026-07-07) is
+// the SINGLE typed determination of whether an aggregate row is
+// inversion-TYPED on the rank face (type==priority_inversion_candidate).
+// PriorityInversion alone (any member was a candidate, invCount>0) is a
+// WEAKER claim: a sleep/D/IO-dominant aggregate with one inversion member
+// must not light inversion labels or gated composition prose while its bar
+// shows the raw dominant value (the F2 contradiction row). Exported so the
+// internal/tool aggregate note face gates on exactly this determination —
+// never on the raw flag.
+func WakeupCausalAggregateInversionTyped(aggregate WakeupCausalAggregate) bool {
+	return aggregate.PriorityInversion && aggregateRootCauseIsPrioritySensitive(aggregate)
 }
 
 func aggregateRootCauseType(item WakeupCausalAggregate) string {
@@ -10323,6 +10563,20 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 			}
 		}
 		ctx = rootCauseChainContextForItem(items[i], ctx)
+		// §20 E-Gap③ (2026-07-07, aligns the §17 tool-half demotion): an
+		// aggregate-metric row (registry Subject==aggregate_only — the
+		// subject IS the window/CPU-scoped metric, no thread) must never be
+		// promoted to the adjacent tier on the strength of NOISY window
+		// overlap with a chain node; beside a causal chain it is ALWAYS
+		// background context. Precise typed registry signal (one enum read),
+		// never row prose. Rows that may borrow a representative thread
+		// (Subject==either, e.g. io_pressure) are not touched.
+		if ctx.relevance == "adjacent" {
+			if spec, ok := CausalTokenSpecFor(items[i].Type); ok && spec.Subject == CausalSubjectAggregateOnly {
+				ctx.relevance = "background"
+				ctx.overlapMs = 0
+			}
+		}
 		items[i].ChainRelevance = ctx.relevance
 		if causality := causalityFromChainRelevance(ctx.relevance); causality != "" {
 			items[i].Causality = causality
@@ -10399,7 +10653,9 @@ func attributeOnChainResourceItemsToWakeupDependency(chain ChainResult, items []
 		// score can never drift from the sort key again (the pre-Q4-B shape —
 		// effective raised, score stale — was the q4 rank1-score-0.932
 		// dissonance).
-		item.Score = rootCauseEffectiveImpactMs(*item) * item.Confidence * rootCauseTypeWeight(item.Type)
+		// F6 (§20.2 absorption): item-aware weight helper — behavior-identical
+		// here (resource-attribution tokens are never blocking_span).
+		item.Score = rootCauseEffectiveImpactMs(*item) * item.Confidence * rootCauseItemScoreWeight(*item)
 		item.Summary = appendRootCauseSummaryDetail(item.Summary,
 			fmt.Sprintf("on-chain resource overlapped wakeup dependency window %.6f..%.6f; inherited target_blocked=%.3fms (annotation only, not a ranking key)",
 				impact.Window.StartTs, impact.Window.EndTs, impact.TargetBlockedMs))
@@ -10655,6 +10911,40 @@ func backgroundImpactMs(q Query, impact float64, hasCausalChain, onChain bool) f
 		return capMs
 	}
 	return impact
+}
+
+// Rank-lane Score multipliers (§20 A-Gap④ Score 权重单源化, 2026-07-07):
+// every Score channel reads THIS table — no construction site may hardcode a
+// lane multiplier again (the pre-§20 shape carried three divergent hardcoded
+// weights and the same segment's two rows could sort against their own
+// effective ordering).
+const (
+	// rootCauseScoreWeightChainImpact — the wakeup_chain.causal_impacts lane
+	// (per-occurrence on-chain rows, VS-1 periodic discount included).
+	rootCauseScoreWeightChainImpact = 2.0
+	// rootCauseScoreWeightChainAggregate — the wakeup_chain.aggregated_impacts
+	// lane (multi-occurrence merged rows, VS-1 periodic discount included).
+	rootCauseScoreWeightChainAggregate = 2.05
+	// rootCauseWeightResolvedBlockingSpan (§20.1 ruling ②, 2026-07-07): a
+	// blocking_span rank row whose lock counterpart is RESOLVED (typed pair
+	// BlockingKind + resolved BlockingPeer — the same precise pair as the
+	// direct-on-chain admission gate) carries decisive contention evidence of
+	// the same class as the priority_inversion family and weighs 1.35 with
+	// it. An UNRESOLVED blocking span keeps the type-table default (0.8,
+	// deliberately below generic trace_span 0.9) so a span-name shell can
+	// never outscore measured rows.
+	rootCauseWeightResolvedBlockingSpan = 1.35
+)
+
+// rootCauseItemScoreWeight is the item-aware Score weight: typed-field
+// refinements first (resolved blocking_span — §20.1 ruling ②), then the
+// type-table weight. Score recomputation sites must use this, not
+// rootCauseTypeWeight directly, whenever the item is in hand.
+func rootCauseItemScoreWeight(item RootCauseRankItem) float64 {
+	if item.Type == "blocking_span" && rootCauseItemHasResolvedBlockingPeer(item) {
+		return rootCauseWeightResolvedBlockingSpan
+	}
+	return rootCauseTypeWeight(item.Type)
 }
 
 func rootCauseTypeWeight(typ string) float64 {
@@ -14640,6 +14930,15 @@ func applyRunnableTopPriorityInversion(idx *Index, q Query, stats WindowStats, t
 		return
 	}
 	item.Type = "priority_inversion_runnable_wait"
+	// §20 B/D-Gap④ (state_churn precedent §7.30 S1, 2026-07-07): a retyped
+	// row re-passes the causal-token registry guard and re-derives Score from
+	// its ranking channel — the construction-time Score was computed with the
+	// runnable_wait weight (1.15) and would silently under-rank the inversion
+	// retype (1.35) while publishing the stale number.
+	assertCausalTokenRow(item.Type, item.Thread, "root_cause_rank")
+	// Same ranking channel the construction used (the background-capped
+	// ImpactMs) — only the weight changes with the type.
+	item.Score = item.ImpactMs * item.Confidence * rootCauseItemScoreWeight(*item)
 	item.Summary = fmt.Sprintf("%s; same_cpu_competitor=%s has lower priority (target_prio=%d competitor_prio=%d) — priority inversion candidate", item.Summary, threadLabel(competitor.Thread), targetPrio, competitorPrio)
 }
 

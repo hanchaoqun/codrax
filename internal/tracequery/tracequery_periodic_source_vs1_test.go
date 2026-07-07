@@ -205,6 +205,17 @@ func TestPeriodicSourceRankConsumesDiscountedValue(t *testing.T) {
 	running.Causality = "on_wakeup_chain"
 	running.ChainRelevance = "on_chain"
 	running.DominantState = string(StateRunning)
+	// EVOLUTION RECORD (§20.2 user ruling 2026-07-07, not a regression): a
+	// running row's attribution is now its ELIMINABLE supply-fold deficit —
+	// raw wall clock no longer participates in ranking. This fixture row
+	// therefore carries a computed fold deficit (as the §20.2 causal lane
+	// stamps on real rows), preserving this pin's ORIGINAL intent: a row
+	// with genuine attributable impact outranks the discounted cadence
+	// sleep, and normalize must not resurrect the raw sleep.
+	running.SupplyFoldDeficitMs = 1.5
+	running.SupplyFoldIdealMs = 2.615
+	running.SupplyFoldBasis = &SupplyFoldBasis{KnownMs: 4.115}
+	running.EffectiveImpactMs = 1.5
 	items := []RootCauseRankItem{periodic, running}
 	normalizeRootCauseEffectiveImpact(items)
 	sortRootCauseRankItems(items, true)

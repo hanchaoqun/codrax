@@ -97,6 +97,7 @@ var traceNoteKeyGoldenRows = []string{
 	"fragments|state|soft_consumer",
 	"freq|cpu_load|display_only",
 	"function|workqueue|display_only",
+	"gated_aggregation_caliber|gating|display_only",
 	"gated_runnable|gating|hard_consumer",
 	"gated_running_deficit|gating|hard_consumer",
 	"high_prio|cpu_load|display_only",

@@ -70,7 +70,11 @@ var traceQueryDominantStateSwitchSiteGolden = map[string]string{
 // traceQueryDominantStateComparisonSiteGolden pins the per-function ==/!=
 // comparison surface against tracequery.State* members in the same file.
 var traceQueryDominantStateComparisonSiteGolden = map[string]string{
-	"trace_query.go:traceQueryCausalImpactRecursive": "runnable#1",
+	// §20.2 (2026-07-07): the effective-note helper reads running once to
+	// print the authoritative explicit ZERO for running rows (eliminable
+	// deficit = 0; VS-1 explicit-zero discipline).
+	"trace_query.go:traceQueryCausalImpactEffectiveNoteValue": "running#1",
+	"trace_query.go:traceQueryCausalImpactRecursive":          "runnable#1",
 }
 
 type traceQueryDominantStateSwitchSite struct {

@@ -290,8 +290,20 @@ func TestSupplyFoldAggregateAndRankMirrors(t *testing.T) {
 	if itemWithout.SupplyFoldBasis != nil {
 		t.Fatalf("no fold on the impact → no fold on the rank row: %+v", itemWithout)
 	}
-	if itemWith.Score != itemWithout.Score || itemWith.ImpactMs != itemWithout.ImpactMs {
-		t.Fatalf("fold must not move score/impact (deficit 不参赛): %.6f vs %.6f", itemWith.Score, itemWithout.Score)
+	// EVOLUTION RECORD (§20.2 user ruling 2026-07-07, not a regression):
+	// the original "deficit 不参赛" score-neutrality clause is OVERTURNED for
+	// non-inversion running rows — the eliminable deficit now IS the
+	// attribution (effective/sort/Score), while the raw display channels
+	// (ImpactMs bar / cumulative) stay fold-independent. A row without a
+	// fold carries attribution 0 (authoritative — raw never drives ranking).
+	if itemWith.ImpactMs != itemWithout.ImpactMs {
+		t.Fatalf("raw display impact must stay fold-independent: %.6f vs %.6f", itemWith.ImpactMs, itemWithout.ImpactMs)
+	}
+	if !floatNear(rootCauseEffectiveImpactMs(itemWith), 5.0) || !floatNear(itemWith.Score, 5.0*0.86*rootCauseScoreWeightChainImpact) {
+		t.Fatalf("§20.2: running attribution/Score must be deficit-based, got eff=%.6f score=%.6f", rootCauseEffectiveImpactMs(itemWith), itemWith.Score)
+	}
+	if !floatNear(rootCauseEffectiveImpactMs(itemWithout), 0) || !floatNear(itemWithout.Score, 0) {
+		t.Fatalf("§20.2: un-folded running attribution/Score must be 0, got eff=%.6f score=%.6f", rootCauseEffectiveImpactMs(itemWithout), itemWithout.Score)
 	}
 
 	// Aggregate-backed rank row mirror.
@@ -301,8 +313,11 @@ func TestSupplyFoldAggregateAndRankMirrors(t *testing.T) {
 	}
 	noFoldAgg := agg
 	noFoldAgg.SupplyFoldDeficitMs, noFoldAgg.SupplyFoldIdealMs, noFoldAgg.SupplyFoldBasis = 0, 0, nil
-	if a, b := rootCauseItemFromCausalAggregate(agg).Score, rootCauseItemFromCausalAggregate(noFoldAgg).Score; a != b {
-		t.Fatalf("aggregate fold must not move score: %.6f vs %.6f", a, b)
+	if !floatNear(aggItem.Score, 7.5*0.82*rootCauseScoreWeightChainAggregate) {
+		t.Fatalf("§20.2 aggregate mirror: Score must be deficit-based, got %.6f", aggItem.Score)
+	}
+	if b := rootCauseItemFromCausalAggregate(noFoldAgg).Score; !floatNear(b, 0) {
+		t.Fatalf("§20.2 aggregate mirror: un-folded running aggregate Score must be 0, got %.6f", b)
 	}
 }
 

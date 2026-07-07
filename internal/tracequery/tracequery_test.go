@@ -3551,16 +3551,26 @@ func TestRootCauseRankPromotesOnChainIOWhenWakerIsRunning(t *testing.T) {
 	if rank.Items[0].Thread.PID != 200 || rank.Items[0].ChainRelevance != "on_chain" {
 		t.Fatalf("the direct wakeup dependency should remain primary/on-chain, got %+v", rank.Items)
 	}
-	// EVOLUTION RECORD (Q4-B, ledger §12.3 ruling 2, 2026-07-06): this test
-	// formerly pinned the INHERITED shape — the resource row's
-	// EffectiveImpactMs/TargetImpactMs were raised to the dependency window's
-	// target_blocked, which made the 110ms IO row outrank the 118ms measured
-	// running row. 承自只作注记,永不作硬排序键: the on-chain head is now the
-	// largest MEASURED item (the running dependency), and the resource
-	// refinement keeps the dependency attribution on the typed
-	// InheritedTargetBlockedMs annotation field instead.
-	if rank.Items[0].Type != "running" || rank.Items[0].EffectiveImpactMs < 100 {
-		t.Fatalf("the largest MEASURED on-chain item should lead the rank, got %+v", rank.Items[0])
+	// EVOLUTION RECORD (Q4-B §12.3-2 2026-07-06, then §20.2 user ruling
+	// 2026-07-07 — neither a regression): Q4-B first moved the head from the
+	// inherited shape to the largest MEASURED item (the running dependency,
+	// raw wall clock). §20.2 then removed raw running from the attribution
+	// channels entirely — a running row's attribution is its ELIMINABLE
+	// supply-fold deficit, and this fixture has no cpu_frequency data, so
+	// the worker's running attribution is authoritatively ≈0. The on-chain
+	// head is therefore the largest measured ATTRIBUTABLE item: the 111ms
+	// block-IO resource row (which is also what this test's name always
+	// wanted). The running row survives as display context but must never
+	// lead on un-folded raw.
+	if rank.Items[0].Type != "block_io_by_inode" || rootCauseEffectiveImpactMs(rank.Items[0]) < 100 {
+		t.Fatalf("the largest measured ATTRIBUTABLE on-chain item should lead the rank, got %+v", rank.Items[0])
+	}
+	for _, item := range rank.Items {
+		if item.Type == "running" && item.Thread.PID == 200 {
+			if !near(rootCauseEffectiveImpactMs(item), 0, 0.0001) {
+				t.Fatalf("§20.2: un-folded running attribution must be 0 (raw never drives ranking), got %+v", item)
+			}
+		}
 	}
 	var resource *RootCauseRankItem
 	for i := range rank.Items {

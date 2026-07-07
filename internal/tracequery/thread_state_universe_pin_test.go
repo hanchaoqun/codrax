@@ -277,17 +277,20 @@ var threadStateSwitchFallthroughLedger = map[string]threadStateFallthroughDecl{
 // (universe order) and default marker: "<members>" or "<members>|default".
 // Deleting a case is red HERE even when the switch carries a default.
 var threadStateSwitchSiteGolden = map[string]string{
-	"query.go:computeOffCPUStats#1":                            "runnable,s_sleep,d_sleep,io_wait",
-	"query.go:computeOffCPUStats#2":                            "runnable,s_sleep,d_sleep,io_wait",
-	"query.go:computeOffCPUStats#3":                            "runnable,s_sleep,d_sleep,io_wait",
-	"query.go:addStateChurnInterval#1":                         "running,runnable,s_sleep,d_sleep,io_wait",
-	"query.go:stateChurnNextStep#1":                            "running,runnable,s_sleep,d_sleep,io_wait|default",
-	"query.go:stateChurnNextStepKind#1":                        "running,runnable,s_sleep,d_sleep,io_wait|default",
-	"query.go:stateDrilldownRecommendedViews#1":                "running,runnable,s_sleep,d_sleep,io_wait|default",
-	"query.go:stateDrilldownNeedsWakeupChain#1":                "s_sleep,d_sleep,io_wait|default",
-	"query.go:applySemanticTraceSpanState#1":                   "running,runnable,s_sleep,d_sleep,io_wait",
-	"query.go:actualAggregateBlockingMs#1":                     "running,runnable,s_sleep,d_sleep,io_wait|default",
-	"query.go:aggregateRootCauseIsPrioritySensitive#1":         "runnable,d_sleep,io_wait|default",
+	"query.go:computeOffCPUStats#1":             "runnable,s_sleep,d_sleep,io_wait",
+	"query.go:computeOffCPUStats#2":             "runnable,s_sleep,d_sleep,io_wait",
+	"query.go:computeOffCPUStats#3":             "runnable,s_sleep,d_sleep,io_wait",
+	"query.go:addStateChurnInterval#1":          "running,runnable,s_sleep,d_sleep,io_wait",
+	"query.go:stateChurnNextStep#1":             "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"query.go:stateChurnNextStepKind#1":         "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"query.go:stateDrilldownRecommendedViews#1": "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"query.go:stateDrilldownNeedsWakeupChain#1": "s_sleep,d_sleep,io_wait|default",
+	"query.go:applySemanticTraceSpanState#1":    "running,runnable,s_sleep,d_sleep,io_wait",
+	"query.go:actualAggregateBlockingMs#1":      "running,runnable,s_sleep,d_sleep,io_wait|default",
+	// F1 (§20.2 absorption, 2026-07-07): StateRunning joined the sensitive set
+	// so running-dominant inversion aggregates type as candidates (gated
+	// caliber) — per-occurrence candidate-gate parity.
+	"query.go:aggregateRootCauseIsPrioritySensitive#1":         "running,runnable,d_sleep,io_wait|default",
 	"query.go:stateChurnRootCauseType#1":                       "running,runnable,s_sleep,d_sleep,io_wait|default",
 	"query.go:computeSupplyDominantState#1":                    "running,runnable|default",
 	"query.go:rootCauseItemHasDStateOrIO#1":                    "d_sleep,io_wait|default",
@@ -503,10 +506,19 @@ type threadStateComparisonSite struct {
 // comparison is a drift that must be reviewed against §7.11 B-1 semantics.
 var threadStateComparisonSiteGolden = map[string]string{
 	"cpu_occupancy.go:computeIdleRunnableMismatchMs": "runnable#1",
-	"query.go:addStateChurnInterval":                 "d_sleep#1",
+	// P0-E §20 merge caliber + §20.2 deficit attribution (2026-07-07):
+	// dominant_state==running is read at the exported effective helper's
+	// §20.2 branch, its rank-lane mirror in rootCauseItemFromCausalImpact
+	// (deficit effective + deficit Score + inversion-row raw cumulative, 3
+	// comparisons), the aggregate mirror (deficit effective + deficit Score,
+	// 2 comparisons), and the depth-0 running admission in the rank funnel
+	// (buildRootCauseRankFrom).
+	"query.go:WakeupCausalImpactEffectiveImpactMs": "running#1",
+	"query.go:addStateChurnInterval":               "d_sleep#1",
 	// A1 bounded continuation (§12.3-5): the peer's own dominant state gates
 	// whether it was itself sleep-blocked (→ name its single direct blocker).
 	"query.go:buildCriticalBlockingPeerChain":                   "s_sleep#1",
+	"query.go:buildRootCauseRankFrom":                           "running#1",
 	"query.go:buildSchedulerLatencyStatsFromStats":              "runnable#1",
 	"query.go:buildStateDrilldownPlanForTarget":                 "s_sleep#1",
 	"query.go:computeOffCPUStats":                               "runnable,s_sleep,d_sleep,io_wait#5",
@@ -521,6 +533,8 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"query.go:isIntermediateSleepImpact":                        "s_sleep#1",
 	"query.go:offCPUIntervals":                                  "runnable#1",
 	"query.go:offCPUStateIsIOWait":                              "d_sleep,io_wait#2",
+	"query.go:rootCauseItemFromCausalAggregate":                 "running#2",
+	"query.go:rootCauseItemFromCausalImpact":                    "running#3",
 	"query.go:stateDrilldownNeedsRecursiveChainForSource":       "runnable#1",
 	"query.go:stateDrilldownNeedsWakeupChainForSource":          "s_sleep#1",
 	"query.go:stateDrilldownRecommendedViewsForSource":          "s_sleep#1",
