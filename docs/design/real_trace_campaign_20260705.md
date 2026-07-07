@@ -1265,6 +1265,13 @@ E4 running 显裸 58.919ms 无折算,E7 反转节点显折算(供给缺口 17.70
 - **P0-A 覆盖批**:§15.D gap③ 覆盖口径(锁 span 略超 sleep 的分母退整窗)。
 - **P1-H/SG**:§15.D 其余 witness(多为 §12/§13 已立案 q6 复现)。
 
+### §15.B/Q4-G 显示层交付(RCX²-成因维度平行化批,2026-07-07,纯显示层)
+**已交付(措辞单源 answer_document_mutation_runtime_supplyfold.go;含 RCX² 复核 F1-F4 回炉)**:Q4-G 加和句式根治 —— 机制构成句去 `+…+…共同作用` 加和邀请,改「各口径独立、不可加和」leader + 无空格 `·` 并列(F3:zh 面与既有 tag 内部惯例同形,与 tag 间 ` · ` 分隔视觉区分,防邻 tag 误读第四口径;en 面保留其自身带空格惯例);**每个数配自己的尺子**(F1 修正:§15.A 两折算除数披露落在实际被折的数上 —— 供给折算缺口 `按大核满频折算` / 调度压力 runnable `就绪排队积压口径` / 反转构成内 running 分量 `按下游消费核折算`;runnable 分量 `全额`(producer 契约 counted in full);gated **总量只标 `gated 口径`** 不冒称折算,机制名去"折算"字=`优先级反转 X ms(gated 口径,内含 runnable A(全额)+ running 折算 B(按下游消费核折算))`)—— 唯一加和"+"锁在该节点自身分解括号内。F2:clause gated 总量与同行 `有效归因` tag **同源**(runtimeTraceProjInversionGatedTotalMS 消费 EffectiveImpactMS=引擎 rank-lane 单发布;两 %.3f 分量 note 复加可差 0.001=round3(a)+round3(b)≠round3(a+b);PeriodicSource/gated=0/未发布三角落回退分量和 —— 理想源 priority_inversion_gated note 现无投影消费者,接线需 internal/types 新字段+parse,超本显示批文件边界,留 P0-E 引擎批提升)。非 Triple 行独立 `影响构成` tag 经同一单源 composition text 顺带获得同款除数披露。三面(结论行/树尾 tag/明细表)单源同改。pin 随改(supplyfold_vs2_test.go despaced verbatim + `共同作用`/`acting together`/`优先级反转折算` 负向禁 + F4 无空格旧形 `下界)+` 一并入负向门 + F2 round3 分歧 fixture(20.713+16.697 显示复加=37.410 vs 引擎单源 37.409,同行两面同值断言)+ 总量冒称折算负向臂;d_round/ptv6c 影响构成 pin 随改)。措辞词面遵用户裁定"按 X 折算"(非"对");RN-16 车道 lint 绿(lane-lock 词全留原单源函数)。
+**留 P0-E 引擎批(显示层不能凭空合成,no_system_backfill)**:
+- **E4/E7 同段交叉注(pin② 退档)**:E4 裸值 running 行与 E7 gated 反转行是同一 running-dominant 节点被引擎双发布(§15.B),但**两节点间无 typed 同段身份**(无 twin/segment_id/cross-ref;R1/R2 merge 键因值/object/predicate 全异结构性不折)。显示层若凭 subject+反转候选+值包含(58.919⊃16.697)启发式交叉注,即"硬显示声明踩嘈声信号",违 `feedback_precise_signals_for_hard_gates` + `feedback_no_system_backfill`。**根治=P0-E 引擎去双发布**(那里天然同段身份)。本批显示层止血=E7 clause 已把反转构成内的 `running 折算` 分量明标为**折算口径视图**(`按下游消费核折算`,非独立第二段 running;gated 总量按 F1 只标 `gated 口径` 不冒称折算),读者可辨这是同段 running 的折算视图。
+- **runnable 独立有效归因行(§15.B 显示半)**:running-dominant 时 runnable 只作 E7 gated 子项双现,无独立 runnable 成因行(与 runnable-dominant 场景有独立 runnable_wait 行不对称)。引擎未发独立 runnable 成因节点,显示层不能凭空造(no_system_backfill)。**留 P0-E 引擎批补发**;本批只确保 E7 里 runnable 口径标注清晰(`就绪排队积压口径` 已标)。
+- **成因状态轴平行化(§15.B)**:状态维度成因行(E4 running)与判定维度成因行(E7 反转候选)同级 `├─成因─` 无轴区分 —— 属树结构/引擎双发布形态,**留 P0-E**(续 §14 collectBlockingSpanRows 折叠家族)。
+
 ## §16 SPL:q7 span 定位绕圈归因(2026-07-06,用户点名)
 
 标本=cust_trace_q7_cmp.txt 探索期前 13 轮。**根因=引擎解析覆盖 gap**:客户 trace 的 bindApplication marker 是 `print: 0x0: 15|bindApplication`(数字前缀 print 变体,`N|name` 两字段),trace-mark 识别链(parse.go isDirectTraceMarkPayload :2724)只认 B|/E|/C|/S|/F| 前缀 → EventTraceMark 永不置位 → **span_window 结构性拿不到 span**(query.go:5874 第一行就滤 Type!=EventTraceMark),模型被迫 grep 绕圈是必然后果非能力问题。

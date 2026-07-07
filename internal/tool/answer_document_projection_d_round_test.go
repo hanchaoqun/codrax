@@ -140,13 +140,14 @@ func TestTraceProjectionD3InversionCompositionSplitZH(t *testing.T) {
 	// DELETED — the cause full word 优先级反转候选 carries the identity and the
 	// D3 composition split stays 必显 (positive arm); the deleted word
 	// resurfacing anywhere is red (negative arm).
-	for _, want := range []string{
-		"优先级反转候选",
-		"影响构成: runnable 10.000ms + running 折算 6.000ms",
-	} {
-		if !strings.Contains(md, want) {
-			t.Fatalf("D3 inversion composition missing %q:\n%s", want, md)
-		}
+	if !strings.Contains(md, "优先级反转候选") {
+		t.Fatalf("D3 inversion cause word missing:\n%s", md)
+	}
+	// RCX² 复核 F1: per-component calibers — runnable is counted in full
+	// (全额), only the running deficit wears the consumer-core divisor.
+	// Despaced compare (vs2Despace): the widened tag may wrap on the fence.
+	if !strings.Contains(vs2Despace(md), "影响构成:runnable10.000ms(全额)+running折算6.000ms(按下游消费核折算)") {
+		t.Fatalf("D3 inversion composition missing per-component calibers:\n%s", md)
 	}
 	if strings.Contains(md, "反转影响") {
 		t.Fatalf("deleted 反转影响 shape word resurfaced (PTV6-C ruling B):\n%s", md)
@@ -164,13 +165,11 @@ func TestTraceProjectionD3InversionCompositionSplitEN(t *testing.T) {
 	md := audit730Render(t, audit730Bus("en"), dRoundInversionObs(), "en")
 	// PTV6-C ruling B: the EN twin of the deleted shape word ("inversion
 	// impact") must not resurface either; identity rides the raw cause token.
-	for _, want := range []string{
-		"priority_inversion_candidate",
-		"composition: runnable 10.000ms + discounted running 6.000ms",
-	} {
-		if !strings.Contains(md, want) {
-			t.Fatalf("EN D3 inversion composition missing %q:\n%s", want, md)
-		}
+	if !strings.Contains(md, "priority_inversion_candidate") {
+		t.Fatalf("EN D3 inversion cause token missing:\n%s", md)
+	}
+	if !strings.Contains(vs2Despace(md), "composition:runnable10.000ms(infull)+discountedrunning6.000ms(foldedatthedownstreamconsumercore)") {
+		t.Fatalf("EN D3 inversion composition missing per-component calibers:\n%s", md)
 	}
 	if strings.Contains(md, "inversion impact") {
 		t.Fatalf("deleted \"inversion impact\" shape word resurfaced (PTV6-C ruling B):\n%s", md)

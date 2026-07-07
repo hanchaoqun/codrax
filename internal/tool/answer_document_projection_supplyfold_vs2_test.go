@@ -51,16 +51,44 @@ func TestSupplyFoldClauseTripleBranchZH(t *testing.T) {
 		"gated_runnable=2.000", "gated_running_deficit=3.000")
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "")
-	want := "机制构成: 供给折算缺口 5.000ms(按大核满频折算,下界)+ 调度压力(需求积压)(runnable 150.000ms)+ 优先级反转(构成: runnable 2.000ms + running 折算 3.000ms)共同作用"
-	if !strings.Contains(rn1CollapseContinuations(md), want) {
+	// Q4-G (§12.3/§15.D): the three-caliber perspective — no "+…+…共同作用"
+	// summing tail, an explicit 「各口径独立、不可加和」 leader, no-space "·"
+	// joiners (F3: the zh within-tag convention — e.g. 周期性信号源…·有效归因X —
+	// visually distinct from the between-tag " · "), and each NUMBER's own
+	// caliber inline (§15.A two-divisor disclosure; F1: the ruler sits on the
+	// component it actually folds — supply deficit at big-cluster fmax, the
+	// running-deficit COMPONENT at the downstream consumer core; the runnable
+	// component is 全额 and the gated TOTAL wears only the gated-caliber word,
+	// never a fold it did not undergo). Despaced pin: the fence wrap may split
+	// the clause anywhere.
+	want := "机制构成(各口径独立、不可加和):供给折算缺口5.000ms(按大核满频折算,下界)·调度压力(需求积压)runnable150.000ms(就绪排队积压口径)·优先级反转5.000ms(gated口径,内含runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算))"
+	despaced := vs2Despace(md)
+	if !strings.Contains(despaced, want) {
 		t.Fatalf("triple-branch clause missing:\n%s", md)
 	}
 	// Conclusion line carries the clause attached to the lead fact.
 	if !strings.Contains(md, "**主根因:** worker-200") {
 		t.Fatalf("lead line missing:\n%s", md)
 	}
+	// The summing invitation must be gone entirely (§7.10 red line 2).
+	if strings.Contains(md, "共同作用") {
+		t.Fatalf("the summing tail 共同作用 must not appear (invites the加和 misread):\n%s", md)
+	}
+	// The top-level calibers join with "·", never "+" — F4: the despaced
+	// compare covers BOTH the old no-space form (下界)+ ) and any spaced form
+	// (下界) + ) with one pattern.
+	if strings.Contains(despaced, "下界)+") || strings.Contains(despaced, "(就绪排队积压口径)+") {
+		t.Fatalf("top-level mechanisms must join with '·', never '+':\n%s", md)
+	}
+	// F1: the gated total is a composite, not a folded value — it must not
+	// wear a fold caliber (the consumer-core ruler lives on the running
+	// component inside the parenthetical), and the 折算-suffixed mechanism
+	// name is retired.
+	if strings.Contains(despaced, "优先级反转折算") || strings.Contains(despaced, "优先级反转5.000ms(按下游消费核折算") {
+		t.Fatalf("the gated total must not claim a fold it did not undergo:\n%s", md)
+	}
 	// No synthetic sum of the three mechanisms anywhere (禁合成总分).
-	for _, banned := range []string{"157.000", "160.000", "10.000ms(合计", "合计 157"} {
+	for _, banned := range []string{"157.000", "160.000", "10.000ms(合计", "合计 157", "共计", "小计"} {
 		if strings.Contains(md, banned) {
 			t.Fatalf("mechanisms must never sum (%q leaked):\n%s", banned, md)
 		}
@@ -75,12 +103,21 @@ func TestSupplyFoldClauseTripleBranchEN(t *testing.T) {
 		"gated_runnable=2.000", "gated_running_deficit=3.000")
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "en")
-	want := "mechanism: supply-fold deficit 5.000ms (folded at big-cluster fmax, lower bound) + scheduling pressure (demand backlog) (runnable 150.000ms) + priority inversion (composition: runnable 2.000ms + discounted running 3.000ms) acting together"
-	if !strings.Contains(rn1CollapseContinuations(md), want) {
+	// EN keeps its own within-tag " · " convention (F3 is per-face); despaced
+	// pin for wrap safety. F1 mirrors: total = "gated caliber", components
+	// carry "(in full)" / "(folded at the downstream consumer core)".
+	want := "mechanism(eachcaliberisindependentandnotadditive):supply-folddeficit5.000ms(foldedatbig-clusterfmax,lowerbound)·schedulingpressure(demandbacklog)runnable150.000ms(ready-queuebacklogcaliber)·priorityinversion5.000ms(gatedcaliber,madeofrunnable2.000ms(infull)+discountedrunning3.000ms(foldedatthedownstreamconsumercore))"
+	if !strings.Contains(vs2Despace(md), want) {
 		t.Fatalf("EN triple-branch clause missing:\n%s", md)
 	}
 	if strings.Contains(md, "机制构成") {
 		t.Fatalf("EN surface must not carry zh clause:\n%s", md)
+	}
+	if strings.Contains(md, "acting together") {
+		t.Fatalf("EN summing tail 'acting together' must be gone:\n%s", md)
+	}
+	if strings.Contains(md, "priority-inversion discount") {
+		t.Fatalf("EN gated total must not wear the retired discount name (F1):\n%s", md)
 	}
 }
 
@@ -91,13 +128,16 @@ func TestSupplyFoldClauseDemandBranchZH(t *testing.T) {
 		"fold_basis=known=20.000ms,unknown=0.000ms",
 		"runnable=150.000")
 	md := supplyFoldVS2Render(t, records, "")
-	collapsed := rn1CollapseContinuations(md)
-	want := "机制构成: 供给折算缺口 5.000ms(按大核满频折算,下界)+ 调度压力(需求积压)(runnable 150.000ms)共同作用"
-	if !strings.Contains(collapsed, want) {
+	despaced := vs2Despace(md)
+	want := "机制构成(各口径独立、不可加和):供给折算缺口5.000ms(按大核满频折算,下界)·调度压力(需求积压)runnable150.000ms(就绪排队积压口径)"
+	if !strings.Contains(despaced, want) {
 		t.Fatalf("demand-branch clause missing:\n%s", md)
 	}
-	if strings.Contains(collapsed, "优先级反转(构成") {
+	if strings.Contains(despaced, "优先级反转") {
 		t.Fatalf("non-inversion row must not claim the inversion mechanism:\n%s", md)
+	}
+	if strings.Contains(md, "共同作用") {
+		t.Fatalf("demand branch must not carry the summing tail:\n%s", md)
 	}
 }
 
@@ -180,13 +220,18 @@ func TestSupplyFoldTripleSuppressesIndependentCompositionTagZH(t *testing.T) {
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "")
 	despaced := vs2Despace(md)
-	if !strings.Contains(despaced, "优先级反转(构成:runnable2.000ms+running折算3.000ms)") {
+	// The inversion candidate's own gated total (gated 口径, F1 — the total
+	// never claims a fold) precedes its internal split, clearly labelled as
+	// that node's own decomposition (内含 …). The "+" is scoped to this
+	// parenthetical only — the top-level calibers join with "·"; each
+	// component wears its own ruler (runnable 全额 / running 折算 按下游消费核).
+	if !strings.Contains(despaced, "优先级反转5.000ms(gated口径,内含runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算))") {
 		t.Fatalf("triple clause must keep the embedded composition:\n%s", md)
 	}
 	if strings.Contains(md, "影响构成") {
 		t.Fatalf("triple row must not render the independent composition tag too:\n%s", md)
 	}
-	if got := strings.Count(despaced, "runnable2.000ms+running折算3.000ms"); got != 3 {
+	if got := strings.Count(despaced, "runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算)"); got != 3 {
 		t.Fatalf("composition text must appear exactly once per surface (conclusion+fence+table=3), got %d:\n%s", got, md)
 	}
 }
@@ -200,13 +245,13 @@ func TestSupplyFoldTripleSuppressesIndependentCompositionTagEN(t *testing.T) {
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "en")
 	despaced := vs2Despace(md)
-	// The EN independent tag shares the "composition:" prefix with the
-	// embedded clause text, so the pin counts the composition BODY: exactly
-	// once per surface.
-	if got := strings.Count(despaced, "runnable2.000ms+discountedrunning3.000ms"); got != 3 {
+	// The composition body appears exactly once per surface (conclusion +
+	// fence + table = 3), inside the inversion candidate's own gated
+	// parenthetical — the only additive "+" in the clause.
+	if got := strings.Count(despaced, "runnable2.000ms(infull)+discountedrunning3.000ms(foldedatthedownstreamconsumercore)"); got != 3 {
 		t.Fatalf("EN composition text must appear exactly once per surface, got %d:\n%s", got, md)
 	}
-	if !strings.Contains(despaced, "priorityinversion(composition:runnable2.000ms+discountedrunning3.000ms)") {
+	if !strings.Contains(despaced, "priorityinversion5.000ms(gatedcaliber,madeofrunnable2.000ms(infull)+discountedrunning3.000ms(foldedatthedownstreamconsumercore))") {
 		t.Fatalf("EN triple clause must keep the embedded composition:\n%s", md)
 	}
 }
@@ -224,14 +269,71 @@ func TestSupplyFoldNonTripleInversionKeepsCompositionTag(t *testing.T) {
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "")
 	despaced := vs2Despace(md)
-	if !strings.Contains(despaced, "影响构成:runnable2.000ms+running折算3.000ms") {
+	// F1: the independent tag rides the same single-source composition text,
+	// so it carries the per-component calibers too (同款除数披露).
+	if !strings.Contains(despaced, "影响构成:runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算)") {
 		t.Fatalf("non-triple inversion row must keep the independent composition tag:\n%s", md)
 	}
 	if !strings.Contains(despaced, "供给折算缺口5.000ms(按大核满频折算,下界)为主") {
 		t.Fatalf("deficit-dominant clause must render beside it:\n%s", md)
 	}
-	if got := strings.Count(despaced, "runnable2.000ms+running折算3.000ms"); got != 1 {
+	if got := strings.Count(despaced, "runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算)"); got != 1 {
 		t.Fatalf("composition text must appear exactly once (the independent tag), got %d:\n%s", got, md)
+	}
+}
+
+// F2 (RCX² 复核): the clause's gated total is SAME-SOURCE as the row's
+// 有效归因 tag — the engine's full-precision components (a=20.7126,
+// b=16.6966) publish as %.3f notes (20.713/16.697) whose re-sum shows 37.410,
+// while the engine's own gated total (a+b=37.4092 → the rank-lane mirror
+// effective_impact_ms) publishes 37.409: round3(a)+round3(b) != round3(a+b),
+// the S1/clamp dual-caliber-leak class. Same row, same quantity, two surfaces
+// — both MUST show the engine's single-source 37.409 and the re-summed twin
+// must appear nowhere.
+func TestSupplyFoldTripleTotalSameSourceAsAttributionTag(t *testing.T) {
+	records := supplyFoldVS2Records(
+		"supply_fold_deficit_ms=5.000", "supply_fold_ideal_ms=15.000",
+		"fold_basis=known=20.000ms,unknown=0.000ms",
+		"runnable=150.000",
+		"gated_runnable=20.713", "gated_running_deficit=16.697",
+		"effective_impact_ms=37.409")
+	records[1].Object = "priority_inversion_candidate"
+	md := supplyFoldVS2Render(t, records, "")
+	despaced := vs2Despace(md)
+	if !strings.Contains(despaced, "优先级反转37.409ms(gated口径,内含runnable20.713ms(全额)+running折算16.697ms(按下游消费核折算))") {
+		t.Fatalf("clause total must consume the engine's single-source effective value:\n%s", md)
+	}
+	if !strings.Contains(despaced, "有效归因37.409ms") {
+		t.Fatalf("attribution tag must render the same single-source value:\n%s", md)
+	}
+	if strings.Contains(md, "37.410") {
+		t.Fatalf("the re-summed 37.410 twin must not appear anywhere (dual-source 0.001 divergence):\n%s", md)
+	}
+}
+
+// F2 unit corners: the total consumes EffectiveImpactMS ONLY where the engine
+// rank-lane mirror guarantees Effective==gated (gated>0 ∧ non-periodic ∧
+// effective published); everywhere else the component sum stands — a periodic
+// row's Effective is the VS-1 discount (authoritative even at 0, never the
+// gated composite) and a gated=0 inversion's Effective is raw TotalMs.
+func TestSupplyFoldInversionGatedTotalSourceUnit(t *testing.T) {
+	base := types.TraceCausalProjectionNode{GatedRunnableMS: 20.713, GatedRunningDeficitMS: 16.697}
+	n := base
+	n.EffectiveImpactMS = 37.409
+	if got := runtimeTraceProjInversionGatedTotalMS(n); got != 37.409 {
+		t.Fatalf("gated total must mirror the effective single source, got %v", got)
+	}
+	if got := runtimeTraceProjInversionGatedTotalMS(base); got != base.GatedRunnableMS+base.GatedRunningDeficitMS {
+		t.Fatalf("missing effective note must fall back to the component sum, got %v", got)
+	}
+	p := n
+	p.PeriodicSource = true
+	if got := runtimeTraceProjInversionGatedTotalMS(p); got != p.GatedRunnableMS+p.GatedRunningDeficitMS {
+		t.Fatalf("periodic row must not consume the VS-1 effective as the gated total, got %v", got)
+	}
+	z := types.TraceCausalProjectionNode{EffectiveImpactMS: 16.0}
+	if got := runtimeTraceProjInversionGatedTotalMS(z); got != 0 {
+		t.Fatalf("gated=0 must not borrow the raw-TotalMs effective, got %v", got)
 	}
 }
 

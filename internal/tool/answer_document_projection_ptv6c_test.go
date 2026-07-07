@@ -578,9 +578,11 @@ func TestPTV6CB3InversionRowZeroActionCategoryWord(t *testing.T) {
 		for _, tag := range tags {
 			joined += tag.Text + " · "
 		}
-		// 正向臂: 反转语义完备 — 影响构成 + 有效归因 都在.
+		// 正向臂: 反转语义完备 — 影响构成 + 有效归因 都在 (RCX² F1: the
+		// composition carries per-component calibers — runnable 全额, running
+		// deficit 按下游消费核折算).
 		if zh {
-			for _, want := range []string{"影响构成: runnable 0.277ms + running 折算 0.000ms", "有效归因0.277ms"} {
+			for _, want := range []string{"影响构成: runnable 0.277ms(全额)+ running 折算 0.000ms(按下游消费核折算)", "有效归因0.277ms"} {
 				if !strings.Contains(joined, want) {
 					t.Fatalf("inversion row must keep its composite semantics (%q): %s", want, joined)
 				}
